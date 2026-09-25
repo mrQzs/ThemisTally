@@ -1,0 +1,2 @@
+# shell 脚本保持 LF：Windows 开启 core.autocrlf 时，CRLF 检出的脚本 bash 无法执行
+*.sh text eol=lf

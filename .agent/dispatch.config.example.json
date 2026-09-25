@@ -1,0 +1,18 @@
+{
+  "_说明": "复制为 .agent/dispatch.config.json 后生效。allowed_executors 为空或缺省时不限制模型；非空时只允许列出的 provider/model，写了 thinking 就固定该级别。provider/model 必须替换为本机 `pi --list-models step` 实际列出的精确 ID。以下划线开头的键会被忽略。",
+  "allowed_executors": [
+    {"provider": "step", "model": "step-5-preview", "thinking": "high"}
+  ],
+  "_worktree_root说明": "worktree 的父目录，必须在仓库之外；为 null 时使用系统临时目录下的 pi-worktrees/。Windows 上路径过长时可设为短路径，例如 C:/pw。",
+  "worktree_root": null,
+  "kill_grace_seconds": 15,
+  "_check_artifact_patterns说明": "检查可以产生、且不算候选漂移的缓存类文件（仓库相对 glob）。默认已包含 Python 的 __pycache__、*.pyc、.pytest_cache、.mypy_cache、.ruff_cache；其他缓存或报告在这里追加，或加入 .gitignore。",
+  "check_artifact_patterns": [],
+  "_extra_protected_paths说明": "本仓库对执行器永远只读的路径（仓库相对模式），例如需求规范或编排记录；写进任何合同的允许集合都会被拒绝，被改动时判为越界。",
+  "extra_protected_paths": [],
+  "_commit_trailers说明": "branch 创建候选提交时追加在提交信息末尾的尾注，每条是单行 `Key: value`，例如团队约定的署名行。",
+  "commit_trailers": [],
+  "_env说明":"默认会移除推送、发布类凭据（GITHUB_TOKEN、GH_TOKEN、NPM_TOKEN、SSH_AUTH_SOCK 等）。env_remove 追加要移除的变量名，env_keep 保留默认列表中确实需要的变量。这不是安全边界。",
+  "env_remove": [],
+  "env_keep": []
+}

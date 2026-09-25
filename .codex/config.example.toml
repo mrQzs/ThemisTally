@@ -1,0 +1,14 @@
+# PI-Kit：规划端使用 Codex 时的项目配置示例。
+#
+# 复制为 .codex/config.toml 才会生效，而且只在受信任的项目中生效：未受信任的项目会跳过项目级 .codex/ 配置。
+#
+# 注意：配置不能免去调度命令的审批。
+# - prepare、run、check、baseline、mutate、verdict、branch、cleanup、collect 会写 Git 元数据（.git 下的 objects、
+#   worktrees、refs）或仓库之外的 worktree，run 还要联网；smoke 在系统临时目录中运行并联网。workspace-write 沙箱中
+#   .git 是只读的，所以这些命令仍要按提示批准在沙箱外运行。
+# - validate、derive-json、status、metrics、wait、doctor、sync-adapters、mark 只读或只写工作区，可以在沙箱内运行。
+# 下面只设置与规划、验收有关的默认值；approval_policy = "on-request" 保证需要越出沙箱时会先征求你的批准。
+
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"

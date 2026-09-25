@@ -1,0 +1,6 @@
+
+# PI-Kit（Claude Code / Codex × Pi）：shell 脚本保持 LF。Windows 开启 core.autocrlf 时，CRLF 检出的脚本 bash 无法执行
+*.sh text eol=lf
+# 合同、复审记录与环境记录都是工具生成或工具校验的文本，固定 LF：autocrlf 开着时不再每次提交都刷一屏
+# “LF will be replaced by CRLF”，Markdown 与 JSON 的逐项比对也不受行尾影响
+.agent/** text eol=lf
