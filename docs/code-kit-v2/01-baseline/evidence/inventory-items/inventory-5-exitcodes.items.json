@@ -1,0 +1,618 @@
+{
+ "area": "exitcodes",
+ "items": [
+  {
+   "id": "LB-EXIT-001",
+   "title": "退出码常量与 DispatchError 默认码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:53 模块常量",
+    "scripts/pi_dispatch.py:304-309 DispatchError.__init__"
+   ],
+   "rule": "EXIT_OK=0、EXIT_FAIL=1、EXIT_USAGE=2、EXIT_BLOCKED=3、EXIT_DRIFT=4（:53）。DispatchError(message, code=EXIT_BLOCKED)：所有未显式给 code 的 raise DispatchError(...) 退出 3（:307；只读实测 DispatchError('x').code==3）。全文件中显式 return EXIT_BLOCKED 仅 cmd_wait 两处（:3937、:3942）；EXIT_DRIFT 仅 cmd_check 一处（:4014）；把 EXIT_FAIL 作为 DispatchError code 的仅 cmd_verdict 一处（:4290）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "源码没有说明 3 这个默认码为何同时承担“阻断/拒绝/环境缺失”与 wait 的“仍在运行”两类语义。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "核对 :53 常量、:304-309 DispatchError（默认 code=EXIT_BLOCKED 在 :307）无误。grep 结果：显式 return EXIT_BLOCKED 只有 :3937、:3942；EXIT_DRIFT 只有 :4014；EXIT_FAIL 作 DispatchError code 只有 :4290。补充：EXIT_BLOCKED 还显式作为 DispatchError code 出现在 :2694、:2698、:3175（这三处是 raise，不是 return，与草稿的“return”表述不冲突）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-002",
+   "title": "main 的异常与返回值映射",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4953-4971 main",
+    "scripts/pi_dispatch.py:4974-4975 __main__"
+   ],
+   "rule": "main 先把 stdout/stderr 重设为 utf-8、errors=replace（:4954-4958）；parse_args 位于 try 之外（:4960）；args 没有 func（未给子命令）时 parser.print_help() 输出到 stdout 并 return EXIT_USAGE=2（:4961-4963）；正常路径 return int(args.func(args))（:4965）；DispatchError → stderr 打印 \"ERROR: <message>\" 并返回 exc.code（:4966-4968）；KeyboardInterrupt → stderr 打印 \"已取消。\" 并返回 130（:4969-4971）；其他异常不捕获，经 sys.exit(main()) 传出，Python 打印 Traceback，进程退出 1（只读实测：注入 RuntimeError → 1，注入 KeyboardInterrupt → 130 且输出“已取消。”）。因此退出码 1 同时表示 EXIT_FAIL 与未预期崩溃。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"wrong executor type reported, no crash\"",
+    "tests/test_dispatch.py::test_validate check \"non-string authorization items, no crash (Codex #11)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试断言无子命令→2、KeyboardInterrupt→130、未捕获异常→1；源码未说明把崩溃与 EXIT_FAIL 合并为 1 是否有意。SIGTERM 等非 SIGINT 信号在 run_supervised 之外的退出码由 Python/操作系统决定，源码没有处理。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "main 在 :4953-4971，__main__ 在 :4974-4975，行号正确。parse_args 在 try 之外（:4960），无子命令时 print_help 到 stdout 并返回 2（:4961-4963），实测一致。在 scratchpad 用进程内注入复核：RuntimeError→1（stderr 有 Traceback），KeyboardInterrupt→130（stderr“已取消。”），DispatchError('x')→3（stderr“ERROR: x”），SystemExit(5)→5。全文件只有 :4975 一处 sys.exit。"
+   }
+  },
+  {
+   "id": "LB-EXIT-003",
+   "title": "argparse 用法错误、--version 与 --help",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4831-4950 build_parser",
+    "scripts/pi_dispatch.py:4835 --version",
+    "scripts/pi_dispatch.py:48 TOOL_VERSION",
+    "scripts/pi_dispatch.py:4960 main"
+   ],
+   "rule": "parse_args 不在 try 内（:4960），用法错误不经过 DispatchError：未知子命令、缺少位置参数、type=int/float 解析失败、choices 不符（verdict --verdict/--class、mark state）、required 缺失（smoke --provider/--model、mutate --spec、verdict --verdict/--review）→ argparse 向 stderr 打印 \"usage: …\" 与 \"pi_dispatch.py[ <sub>]: error: …\"，SystemExit(2)，没有 \"ERROR:\" 前缀。只读实测：bogus → \"argument command: invalid choice: 'bogus'\" 退出 2；wait 缺参数 → \"the following arguments are required: run_dir\" 退出 2；wait --timeout abc → \"argument --timeout: invalid int value: 'abc'\" 退出 2；verdict --verdict NOPE → 退出 2。--version 向 stdout 输出 \"pi_dispatch 2.2.2\"，退出 0；--help 退出 0。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "测试没有覆盖 argparse 错误的退出码与输出。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "build_parser 在 :4831-4950，--version 在 :4835，TOOL_VERSION 在 :48。required 参数（smoke 在 :4846-4847，mutate --spec 在 :4894，verdict 在 :4910-4911）、choices（:4910、:4912、:4940）、type=int/float（:4849、:4877、:4900、:4901、:4915）都已核对。实测：bogus→2（“argument command: invalid choice”）；wait 缺参数→2；--timeout abc→2；verdict --verdict NOPE→2；mark x FOO→2；smoke 缺 --provider/--model→2；--version 在 stdout 输出“pi_dispatch 2.2.2”，退出 0。"
+   }
+  },
+  {
+   "id": "LB-EXIT-004",
+   "title": "dispatch-pi.sh 的退出码传递",
+   "source_locations": [
+    "scripts/dispatch-pi.sh:4 set -euo pipefail",
+    "scripts/dispatch-pi.sh:9-19 解释器探测与 exec",
+    "scripts/dispatch-pi.sh:21-22 找不到 Python"
+   ],
+   "rule": "依次尝试 python3、python、py -3，并以 sys.version_info >= (3, 8) 试运行（:9-15）；找到后用 exec 替换当前进程运行 pi_dispatch.py \"$@\"（:16），Python 的退出码原样成为 wrapper 的退出码，不做任何映射；都不可用时 stderr 输出 \"ERROR: 需要 Python 3.8+（python3、python 或 py -3）\"，exit 2（:21-22），与 EXIT_USAGE 同码。本机只读实测：bash scripts/dispatch-pi.sh wait <不存在> → 2，--version → 0。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_wrapper_interpreters_and_literal_arguments check \"wrapper reports unsupported interpreters: <shell>\"",
+    "tests/test_dispatch.py::test_wrapper_interpreters_and_literal_arguments check \"wrapper preserves argv and exit code via <accepted>: <shell>\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"bash wrapper finds python\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "test_wrapper_interpreters_and_literal_arguments 在 Windows 上直接 return（tests/test_dispatch.py:658-659），所以 Windows 上“透传 7”和“无 Python→2”都没有测试覆盖。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "dispatch-pi.sh 的 :4、:9-19、:16 exec、:21-22 exit 2 都与源码一致。实测：wrapper 跑 wait nosuch→2，--version→0，无参数→2。tests/test_dispatch.py:658-659 在 Windows 上直接 return 属实。Windows 上 wrapper 退出码 0 由 test_setup_wrapper_doctor 的“bash wrapper finds python”覆盖（:710-714）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-005",
+   "title": "多个子命令共用的前置错误码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:956-964 Repo.discover",
+    "scripts/pi_dispatch.py:969-979 Repo.config",
+    "scripts/pi_dispatch.py:981-987 Repo.worktree_root",
+    "scripts/pi_dispatch.py:990-1008 extra_protected_paths/planner_paths",
+    "scripts/pi_dispatch.py:1011-1028 plan_key_from_arg",
+    "scripts/pi_dispatch.py:1054-1060 commit_trailers",
+    "scripts/pi_dispatch.py:747-761 git",
+    "scripts/pi_dispatch.py:1760-1795 resolve_pi_command/ensure_argv_safe",
+    "scripts/pi_dispatch.py:2583-2629 TaskLock/allocate_attempt",
+    "scripts/pi_dispatch.py:2632-2650 resolve_run_dir",
+    "scripts/pi_dispatch.py:2668-2699 resolve_executor"
+   ],
+   "rule": "退出 2：\"当前目录不在 Git 仓库中\"（:960）、\"请在主工作区运行本工具，而不是在 worktree 中\"（:963）、\"无法解析 <config>\"/\"顶层必须是对象\"（:976/:978）、\"worktree_root 不能位于仓库内部\"（:986）、extra_protected_paths/planner_paths/commit_trailers 格式错（:994/:1007/:1058）、\"合同文件必须位于 …\"/\"计划标识不合法\"（:1026/:1027）、\"attempt 目录必须位于 … 下\"/\"找不到 attempt：<值>\"（:2641/:2650）、\"PI_DISPATCH_PI_CMD 必须是 JSON 字符串数组…\"（:1769）、\"参数 … 含批处理特殊字符\"（:1794）、\"… 与合同 executor.… 冲突\"/\"缺少或无效的执行模型\"/\"无效的思考级别\"（:2677/:2684/:2687）。退出 3（默认码）：\"未找到 git，请先安装 Git。\"（:757）、\"git <cmd> 失败：…\"（:760）、\"PATH 中找不到 pi…\"（:1773）、\"任务锁被占用\"（:2608）、\"无法分配 attempt 目录\"（:2629）；显式 EXIT_BLOCKED：执行模型不在 allowed_executors（:2693-2694）、思考级别被固定（:2697-2698）。load_attempt 用 read_json（:332-334、:2653-2656），meta.json/contract.json 损坏时抛 ValueError/OSError，未捕获 → 退出 1。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"plan path outside .agent/plans rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"bad plan key still explains the format\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"env/contract model conflict refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"pinned thinking mismatch refused\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"invalid commit_trailers config rejected by branch\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "多数测试只断言 code != 0，不区分 2 与 3；load_attempt 遇到损坏的 JSON 时产生 Traceback→1，没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "所列行号与消息都已逐一核对（:960、:963、:976、:978、:986、:994、:1007、:1058、:1026、:1027、:2641、:2650、:1769、:1794、:2677、:2684、:2687、:757、:760、:1773、:2608、:2629、:2693-2694、:2697-2698、:332-334、:2653-2656）。遗漏见 missing_items：(1) --repo 指向不存在的路径时，Windows 上抛 NotADirectoryError，git() 只捕获 FileNotFoundError（:756），结果以 Traceback 退出 1（已实测）。(2) Repo.config 只捕获 ValueError（:975），OSError 会以 Traceback 退出 1。(3) 用 task-id 解析时不要求 meta.json 存在（:2643-2649）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-006",
+   "title": "validate 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2999-3008 cmd_validate",
+    "scripts/pi_dispatch.py:2988-2996 _print_messages"
+   ],
+   "rule": "合同有效（允许有 WARN/NOTE）→ stdout \"合同有效：<key>（N 个警告）。\"，返回 0（:3007-3008）；有错误 → stdout 逐行 \"ERROR <msg>\"（无冒号，:2996），再输出 \"合同无效：N 个错误，M 个警告。\"，返回 EXIT_USAGE=2（:3004-3006，是 return，不是 raise）。标识或路径不合法 → 2（:3001→:1026-1028）。不会返回 1、3、4（git 缺失时的公共码 3 除外）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"validate ok\"",
+    "tests/test_dispatch.py::test_validate check \"invalid thinking rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"validate accepts a relative md path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"invalid expect_on_base rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"invisible format character is warned\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "测试只断言 code != 0，没有锁定无效合同返回 2。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“不会返回 1、3”的说法不准确。validate_plan 在 try 之外读取 md（:1668），非 UTF-8 时抛 UnicodeDecodeError，以 Traceback 退出 1。validate_plan 里的 `git rev-parse HEAD` 是 check=True（:1684），失败时退出 3。validate_plan 还会调用 extra_protected_paths(repo.config())（:1673），配置错误时退出 2。其余内容（:3004-3008、:2988-2996 先 WARN/NOTE 后 ERROR）正确。"
+   }
+  },
+  {
+   "id": "LB-EXIT-007",
+   "title": "derive-json 的退出码（推导问题也返回 2）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3011-3039 cmd_derive_json"
+   ],
+   "rule": "缺少 md → raise 2 \"缺少文件：…\"（:3017）；推导问题逐行 stdout \"WARN  <problem>\"（:3019-3020）；--print 时打印 JSON，problems 为空返回 0，否则返回 2（:3026-3028）；JSON 已存在且未加 --force → raise 2 \"… 已存在；确认要覆盖时加 --force\"（:3029-3030）；写入后校验无效 → \"合同无效：…\"，返回 2（:3033-3037）；校验有效时打印 \"合同有效：…\"，但只要推导有 problems 仍返回 2，否则返回 0（:3038-3039）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json writes a contract that validates\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json refuses to overwrite without --force\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json --print takes the title from Goal\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"annotated single values are derived without the note\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖“打印了合同有效、退出码却是 2”（:3039）这一组合。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3011-3039 各分支核对无误，包括 :3039 的“打印合同有效但返回 2”。补充：JSON 在校验之前就已写入（:3031），所以 :3037 或 :3039 返回 2 时文件已经落盘；--print 分支不做校验（:3026-3028）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-008",
+   "title": "prepare 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3162-3242 cmd_prepare"
+   ],
+   "rule": "0：set_state PREPARED，打印 \"PREPARED <attempt_id>\"、\"Run directory: …\"、\"Worktree: …\" 与下一步提示（:3234-3242）。1：setup 失败 → PREPARE_FAILED，打印 \"setup 失败：…\"（:3225-3229）；setup 后 worktree 有未忽略变更 → PREPARE_FAILED（:3230-3233）。2：合同校验失败 \"合同校验失败，未创建 attempt。\"（:3172-3173）；配置、worktree_root、执行模型冲突或无效（:3176、:3190、:3180→:2677/:2684/:2687）。3：\".agent/runs/ 未加入 .gitignore\"，显式 EXIT_BLOCKED（:3174-3175）；BUDGET_EXCEEDED（:3184-3189，默认码）；allowlist（:3180→:2693/:2697）；分配 attempt 失败（:3192→:2629）；try 块内的 DispatchError/OSError 统一重包为 \"prepare 失败（<id> 已标记 PREPARE_FAILED）：…\"，默认码 3，原有的 code 丢失（:3220-3223）。其他 BaseException：先标 PREPARE_FAILED 再原样抛出（:3224），KeyboardInterrupt→130，其余→1。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"setup command runs in prepare\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"setup modifying tracked file -> PREPARE_FAILED\"",
+    "tests/test_dispatch.py::test_validate check \"prepare refuses when .agent/runs not ignored\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"allowlisted executor with pinned high thinking ok\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"pinned thinking mismatch refused\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"prepare without setup points to a new contract version\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "失败路径的测试都只断言 code != 0；setup 失败返回 1 与 .gitignore 返回 3 的区别没有被测试锁定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3162-3242 核对无误。检查顺序是：合同校验(2) → .gitignore(3，:3175 显式 EXIT_BLOCKED) → config(2) → 执行模型(2/3) → 预算(3) → worktree_root(2) → 分配(3) → try 内重包(3)。:3220-3224 的 except BaseException 对 DispatchError/OSError 重包成默认码 3，原 code 丢失；其他异常原样抛出。"
+   }
+  },
+  {
+   "id": "LB-EXIT-009",
+   "title": "run 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3250-3349 cmd_run",
+    "scripts/pi_dispatch.py:3352-3408 collect",
+    "scripts/pi_dispatch.py:571-585 _install_interrupt_handlers",
+    "scripts/pi_dispatch.py:649-723 run_supervised"
+   ],
+   "rule": "0：仅当收集后 final_state == \"NEEDS_REVIEW\" 且 events-summary.json 的 ok 为真（:3348-3349）。1：其余收集结果，包括 TIMEOUT、CANCELLED、INFRA_FAILURE，以及 NEEDS_REVIEW 但 events 不 ok（:3349、:3395-3404）；在此之前打印 \"<STATE> <attempt_id>\" 与 \"Summary: <path>\"（:3346-3347）。3（默认码，均在领取之前，attempt 保持 PREPARED）：\"attempt 状态为 …，只能运行未领取的 PREPARED attempt\"（:3255-3257）；\"输入不一致（G0）：…\"（:3267-3269）；BUDGET_EXCEEDED（:3275、:3303、:3306）；预检失败：stdout 逐行 \"PREFLIGHT <problem>\" 后 raise \"预检失败：attempt 保持 PREPARED，未计入尝试次数。…\"（:3281-3285）；任务锁（:3300→:2608）；\"该 attempt 已被领取，不能重复运行。\"（:3313）；PATH 无 pi（:3277→:1773）；allowlist（:3271→:2693/:2697）。2：run_dir 解析、执行模型冲突或无效（:3271）、PI_DISPATCH_PI_CMD 非法（:1769）、argv 不安全（:3296→:1794）。Pi 运行期间收到 SIGINT/SIGTERM/SIGHUP/SIGBREAK 时转为 _Interrupted（:571-585、:703-706），状态记为 CANCELLED（:3399-3400），退出 1，不是 130。领取后、启动前的异常：标 INFRA_FAILURE 后原样抛出（:3327-3332）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"run ok -> NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed PREPARED attempt cannot run again\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"auth not ready -> preflight fail\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"env/contract model conflict refused\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "test_timeout 没有断言 TIMEOUT 时的退出码；CANCELLED、INFRA_FAILURE→1 也没有测试；预检失败只断言 code != 0，没有锁定 3。pi_preflight/summarize_events/record_candidate 内部可能抛出的非 DispatchError 异常没有逐一追踪。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "有三处要修正。(1) 草稿说“3 均在领取之前，attempt 保持 PREPARED”，这不准确：:3255-3257 的拒绝发生在状态不是 PREPARED 或已领取时，状态原样不变，不一定是 PREPARED。(2) Pi 运行期间被中断，不一定得到 CANCELLED。collect 的判定优先级（:3395-3404）是：spawn_error、collect_errors 或无候选树 → INFRA_FAILURE，其次 timed_out → TIMEOUT，然后才是 interrupted → CANCELLED；无论哪种都退出 1。(3) 中断处理器只在 run_supervised 内生效（:676 安装，:712 恢复）。在预检、领取或 collect 阶段收到 Ctrl+C，会得到 KeyboardInterrupt，退出 130；collect 阶段中断时状态停在 COLLECTING（:3344）。领取后的 try 只覆盖 :3320-3326。另外，Popen 失败或 Job Object 失败（:663-667、:682-688）不抛异常，写成 spawn_error → INFRA_FAILURE → 1。G0 检查中的 git_text rev-parse（:3263）失败时退出 3。"
+   }
+  },
+  {
+   "id": "LB-EXIT-010",
+   "title": "collect 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3411-3443 cmd_collect"
+   ],
+   "rule": "状态不是 RUNNING/COLLECTING/已领取的 PREPARED，或未加 --recover → raise 2 \"collect 只用于调度器异常退出后的恢复：…（当前 <STATE>）。\"（:3416-3420）；pid.txt 记录的进程仍存活 → raise 3 \"记录的 Pi 进程 <pid> 可能仍在运行；确认终止后再恢复。\"（:3424-3425）；恢复收集完成后打印 \"<STATE>（恢复收集；事件可能不完整）\" 并返回 0，不论恢复后的状态是 CANCELLED 还是 INFRA_FAILURE（:3440-3443）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed-but-not-started attempt recovers as INFRA_FAILURE\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖 2（未加 --recover 或状态不符）与 3（进程仍存活）。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "草稿说“不论恢复后是 CANCELLED 还是 INFRA_FAILURE”，范围过窄。run.json 已存在时（调度器在 collect 阶段死亡），run_info 原样取自 run.json（:3426），collect 可能得出 TIMEOUT 或 NEEDS_REVIEW，同样返回 0（:3440-3443）。只有 run.json 缺失时才会构造 interrupted=True（:3430），这时结果是 CANCELLED 或 INFRA_FAILURE。补充：pid_alive 在 tasklist 失败时返回 None（:730-732），视为未存活，不拦截（:3424）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-011",
+   "title": "check 的退出码（唯一的 4）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3957-4052 cmd_check",
+    "scripts/pi_dispatch.py:80 REVIEWABLE_STATES"
+   ],
+   "rule": "0：必要检查全部通过、检查没有修改候选文件、没有产生候选之外的新文件（:4051-4052）；--only 子集全部通过也返回 0，covers_all_required 不影响退出码（:4028-4052）。1：上述任一不满足（:4051-4052）；stdout 输出 \"检查结果（<mode>）：存在失败的必要检查 · …\" 及 WARN 行（:4044-4050）。2：\"未知检查：…\"（:3972）、\"合同没有可运行的检查\"（:3975）。3：状态不在 REVIEWABLE_STATES \"状态 <S> 不能运行验收检查\"（:3962-3963）；\"没有候选记录（candidate.json）…\"（:3965-3966）；--fresh 时候选补丁不可用（:3987-3988）；\"无法建立干净的验收副本：…\"（:3992-3995）；\"worktree 已不存在：…；可用 --fresh 在干净副本上验收\"（:3999-4000）。4：运行检查前工作副本与候选不一致 \"工作副本与候选不一致，检查结果无法代表候选：…\"，先写 checks.json aborted=candidate_drift，再 raise EXIT_DRIFT（:4005-4014）；这段不区分 --fresh，干净副本漂移同样返回 4。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"in-place check passes\"",
+    "tests/test_dispatch.py::test_happy check \"fresh check passes in clean copy and removes it\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"fresh check ignores worktree extras\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"python cache files are allowed artifacts\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"check creating unexpected file -> exit 1\"",
+    "tests/test_dispatch.py::test_mutate check \"check still passes after mutate\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"check passes with autocrlf=true worktree\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖必要检查失败→1（只覆盖了意外文件→1）、2 与 3 的各个分支。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3957-4052 各分支行号正确；漂移检查不区分 --fresh（:4001-4014）。补充：required_ok 只看 required 检查（:4030），非必要检查失败不影响退出码；--only 只选中非必要检查时，required_ok 为空真。snapshot_tree 的 git 失败退出 3（在 try/finally 内）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-012",
+   "title": "baseline 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4073-4149 cmd_baseline"
+   ],
+   "rule": "0：没有 expect_on_base 不符的检查（:4149）。expect=any 的检查在基线上失败仍然返回 0（:4132-4138）。1：有不符（expect fail 却通过，\"不符：期望在基线上失败，实际已通过——这个探针区分不了修复前后\"；或 expect pass 却未通过），见 :4126-4131、:4149。2：\"合同校验失败，无法运行基线检查。\"（:4083-4084）、\"未知检查\"（:4090）、\"合同没有可运行的检查\"（:4093）。3：\"基线副本的 setup <id> 失败：…\"（:4113）、git worktree add 失败（:4109→:760）；这两处在 try/finally 内，未加 --keep-workspace 时仍会移除副本（:4117-4119）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"baseline runs checks on base without an attempt\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"baseline flags a probe that already passes on base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"baseline explains a missing test file instead of implying a fix task\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "不符→1 只断言了 code != 0；setup 失败→3 没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4073-4149 核对无误：expect=any 且失败走 else 分支（:4134-4138），不计 mismatch。:4102 的 worktree_root 在仓库内时退出 2（属于公共码）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-013",
+   "title": "mutate 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3585-3690 cmd_mutate"
+   ],
+   "rule": "0：变异流程完成即返回 0，即使有 missed、skipped、error（:3672-3690）；stdout 输出 \"变异 N 个：抓住 a，漏掉 b，跳过 c，出错 d · <path>\"（:3681-3683）。2：变异清单无效，先逐行 stdout \"ERROR <problem>\"，再 raise \"变异清单无效：N 个问题\"（:3603-3606）。3：\"状态 <S> 不能做变异检查\"（:3596-3597；允许 REVIEWABLE_STATES 与 INTEGRATED）；候选补丁不可用（:3599-3600）；\"无法建立干净副本：…\"（:3618-3621）；不变异时 command 未通过 \"不做变异时 command 没有通过（…），变异结果没有意义…\"（:3631-3635）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_mutate check \"mutate reports caught / missed / skipped\"",
+    "tests/test_dispatch.py::test_mutate check \"invalid mutation spec is rejected with every problem listed\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate refuses when the command fails without mutations\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "“有 missed 仍返回 0”由 test_mutate 的第一条断言锁定（code == 0 且 missed=1）；baseline_failed→3 只断言了 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3585-3690 核对无误。允许的状态是 REVIEWABLE_STATES 加 INTEGRATED（:3596）。有 missed 仍返回 0，由 tests/test_dispatch.py:1244 锁定；清单无效返回 2，由 :1263 锁定。"
+   }
+  },
+  {
+   "id": "LB-EXIT-014",
+   "title": "verdict 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4259-4316 cmd_verdict"
+   ],
+   "rule": "0：结论已记录，包括 REVISE/BLOCKED/ESCALATE；打印 \"<VERDICT> 已记录（<path>）。\"，门禁有失败时另打印 \"未通过的门禁：…\"（:4313-4316）。1：--verdict PASS 但门禁失败，先逐行 stdout \"GATE <G> <problem>\"，再 raise DispatchError(EXIT_FAIL) \"PASS 被拒绝：门禁 <G…> 未通过。修正后重新验收，或按授权使用 ACCEPTED_WITH_EXCEPTION 并逐项豁免。\"（:4284-4290）。2：\"找不到复审报告\"（报告不存在或为空，:4268-4269）；\"复审报告中的 'Verdict:' 行必须恰好是 <V>\"（:4271-4273）；\"--waive 格式应为 G2=原因\"（:4278）；\"PASS 不接受豁免…\"（:4291-4292）；\"以下失败门禁没有豁免理由\"（:4295-4296）；\"ACCEPTED_WITH_EXCEPTION 需要至少一项 --waive 与 --decided-by\"（:4297-4298）；\"<V> 需要 --class（…）\"（:4299-4300）。3：\"状态 <S> 不能记录验收结论\"（:4264-4265）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"verdict line mismatch refused\"",
+    "tests/test_dispatch.py::test_happy check \"PASS accepted\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"PASS refused when checks created files (G4)\"",
+    "tests/test_dispatch.py::test_scope check \"PASS refused on scope violation (G2)\"",
+    "tests/test_dispatch.py::test_scope check \"REVISE recorded\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"PASS refused on G1\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"ACCEPTED_WITH_EXCEPTION with waiver\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"PASS is refused when the run ended on a textual tool call\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "门禁拒绝→1 与用法错误→2 在测试里都只断言 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4259-4316 核对无误。补充顺序：状态(3) → 报告(2) → Verdict 行(2) → --waive 格式(2) → PASS 且门禁失败(1，:4284-4290) → PASS 带豁免(2，:4291-4292)。所以 PASS 同时带豁免又有失败门禁时，得到的是 1 而不是 2。读取复审报告时 UnicodeDecodeError（:4270）会以 Traceback 退出 1。"
+   }
+  },
+  {
+   "id": "LB-EXIT-015",
+   "title": "branch 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4327-4392 cmd_branch"
+   ],
+   "rule": "0：分支已创建，打印 \"已创建本地分支 <name> → <commit>（未推送）。\" 与 \"commit=<sha> branch=<name>\"（:4381-4392）。2：--trailer 非法（:4340-4342）；分支名非法（:4355-4356）；配置中的 commit_trailers 非法（:4339→:1058）。3：\"最新结论为 <V>：只有 PASS / ACCEPTED_WITH_EXCEPTION（或 --rework 时的 REVISE）可以建分支。\"（:4332-4334）；缺 Git 身份（:4336-4338）；\"缺少候选记录\"（:4346-4347）；\"候选树对象已丢失，且补丁重建结果不一致\"（:4351-4352）；\"分支已存在\"（:4357-4358）；commit-tree/branch 失败（:4375-4376→:760）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"branch tree == candidate tree\"",
+    "tests/test_dispatch.py::test_scope check \"rework branch from REVISE\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"invalid commit_trailers config rejected by branch\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch refuses before rebuilding the tree or creating anything when the identity is missing\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"an invalid --trailer is a usage error: %r\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"a configured trailer with CR is rejected\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch prints a machine-readable commit= line\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "3 类拒绝在测试中只断言 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4327-4392 核对无误。顺序：结论(3) → 身份(3) → 配置尾注(2，--no-config-trailers 时跳过) → --trailer(2) → 候选(3) → 树(3) → 分支名(2) → 已存在(3) → commit-tree/branch(3)。"
+   }
+  },
+  {
+   "id": "LB-EXIT-016",
+   "title": "mark 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4395-4422 cmd_mark"
+   ],
+   "rule": "0：写入新状态，打印 \"<run-dir> 已标记为 <STATE>。\"（:4420-4422）。ABANDONED 在非活动状态下没有其他限制，直接返回 0。2：INTEGRATED 缺 --ref（:4403-4404）；SUPERSEDED 的当前状态不在 REVISE/ESCALATE/BLOCKED/NEEDS_REVIEW/TIMEOUT/CANCELLED/INFRA_FAILURE 中（:4408-4409）；SUPERSEDED 缺 --ref 或 --reason（:4410-4411）。3：INTEGRATED 但最新结论不是 PASS/ACCEPTED_WITH_EXCEPTION（:4400-4402）；非 INTEGRATED/SUPERSEDED 的状态处于 RUNNING/COLLECTING/PREPARING 且未加 --force，\"attempt 处于 <S>；如果确认调度器已退出，可加 --force 放弃\"（:4412-4415）；pid 仍存活（:4418-4419）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"mark integrated\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"mark ABANDONED on RUNNING requires --force\"",
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED needs --ref and --reason\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"REVISE attempt can be marked SUPERSEDED\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED is refused for an attempt that never ran\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "拒绝路径只断言 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4395-4422 核对无误。mark 不调用 load_attempt。INTEGRATED 先检查结论(3，:4400) 再检查 --ref(2，:4403)。pid_alive 返回 None 时放行（:4418）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-017",
+   "title": "cleanup 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4430-4482 cmd_cleanup"
+   ],
+   "rule": "0：worktree 已移除（:4468-4469），或 worktree 已不存在或从未创建（:4472-4473），最后记 cleanup 事件并返回 0（:4481-4482）。3：RUNNING/COLLECTING \"attempt 正在运行或收集（<S>），不能清理；…先 collect --recover\"（:4435-4436）；PREPARED/PREPARING 未加 --force（:4437-4438）；会丢失未保存内容且未加 --force，先逐行 stdout \"LOSS  <item>\"，再 raise \"拒绝清理：以上内容不在已保存的候选中…\"（:4463-4467）；目录存在但不是登记的 worktree（:4470-4471）；git worktree remove 失败（:4468→:760）。没有 1、2（公共码除外）、4。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"cleanup removes worktree\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup refuses when candidate files were modified\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup --force removes and logs discarded content\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "拒绝路径只断言 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4430-4482 核对无误；_registered_worktrees 的 git worktree list 失败时退出 3（:4426）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-018",
+   "title": "sync-adapters 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3883-3910 cmd_sync_adapters",
+    "scripts/pi_dispatch.py:3747-3759 _repo_local_path",
+    "scripts/pi_dispatch.py:4905 --check help 文本"
+   ],
+   "rule": "--check 模式：先逐行输出 \"DRIFT <item>\"，有漂移或缺源时输出 \"Claude Code 的技能副本与 … 不一致：N 处…\"，返回 1（:3892-3899）；一致时输出 \"… 一致。\"，返回 0（:3900-3901）。同步模式：同步完成后，只要还有缺少 SKILL.md 的技能，就输出 \"缺少源文件的技能没有同步：…\" 并返回 1（:3907-3909），否则返回 0（:3910）。3：全部 KIT_SKILLS 都缺 SKILL.md，\"没有找到 …/<技能>/SKILL.md：仓库可能仍是 1.x 布局…\"（:3887-3889）；源或副本路径是符号链接或 junction，\"… 或其上级目录是符号链接或 junction…\"（:3757，默认码）。help 文本写的是 \"不一致时退出码 1\"（:4905）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters refuses a repo without .agents/skills\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check reports missing copies\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters copies whole skill directories\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check passes after sync\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check reports edited and stray copies\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters --check fails when one source is missing\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters reports skills it could not sync\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters refuses a linked .claude/skills and leaves the target alone\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "全部缺源→3 与链接拒绝→3 只断言了 code != 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3883-3910、:3747-3759（raise 在 :3757，经 skill_source :3764 与 :3773 调用）、:4905 的 help 文本都与草稿一致。"
+   }
+  },
+  {
+   "id": "LB-EXIT-019",
+   "title": "status 的退出码与 live 列",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4551-4578 cmd_status",
+    "scripts/pi_dispatch.py:4485-4507 _attempt_row"
+   ],
+   "rule": "几乎总是返回 0：--json 输出 JSON 数组（:4565-4567）；没有记录时输出 \"没有 attempt 记录。\"（:4568-4570）；否则输出列为 ATTEMPT/STATE/EXIT/EVENTS/VIOL/CHECKS/VERDICT/WALL(s)/COST 的文本表（:4571-4578）。参数不符合 TASK_ID_RE（attempt 路径、task-id/attempt-NNN、task-id.vN）时走 resolve_run_dir，解析失败返回 2 \"找不到 attempt\"（:4554-4556→:2650）。参数符合 TASK_ID_RE 但没有 attempt 时不报错，返回 0。退出码不反映 attempt 的状态。STATE 为 RUNNING 的行，events_ok 被替换为 _live_progress 字符串（:4562-4564），文本表的 EVENTS 列与 --json 的 events_ok 字段都是如此。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"status accepts an attempt ref\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"status accepts an attempt path\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"status shows unknown cost\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖 status 解析失败→2，也没有测试覆盖 RUNNING 行的 live 列。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4551-4578、:4485-4507 核对无误。实测：RUNNING 行在 --json 与文本表中的 events_ok 都被替换为“live:1t 33003s”；`status t/attempt-009` 退出 2；`status nosuch` 输出“没有 attempt 记录。”，退出 0。补充：EXIT 列是 run.json 中 Pi 进程的 exit_code（:4498、:4572），不是调度器的退出码；state.json 为非对象 JSON 时 get_state 抛 AttributeError，以 Traceback 退出 1。"
+   }
+  },
+  {
+   "id": "LB-EXIT-020",
+   "title": "metrics 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4596-4654 cmd_metrics",
+    "scripts/pi_dispatch.py:4581-4593 safe_output_path"
+   ],
+   "rule": "总是返回 0（:4654）；--out 指向 .agent/runs/_env/ 或 .agent/runs/_reports/ 之外时 raise 2 \"--out 只能指向 .agent/runs/_env/ 或 .agent/runs/_reports/ 下的文件：<target>\"（:4597→:4589-4591），这发生在 Repo.discover 之前；给了 --out 时，safe_output_path 内部也会调用 Repo.discover（:4585）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_output_paths check \"metrics --out README.md refused, README untouched\"",
+    "tests/test_dispatch.py::test_output_paths check \"metrics --out under _reports allowed\"",
+    "tests/test_dispatch.py::test_happy check \"metrics first PASS 100%\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "corrected",
+    "note": "草稿说“这发生在 Repo.discover 之前”，这是错的。safe_output_path 自己先调用 Repo.discover（:4585），再做 --out 校验（:4589-4591），所以仓库或 git 的错误（2/3）优先于 --out 错误。--out 检查只是先于 cmd_metrics 自己在 :4598 的 discover。另外，--out 恰好等于 _env/ 或 _reports/ 目录本身时也会被拒绝（:4589 的 != root 条件）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-021",
+   "title": "doctor 的退出码（不会返回 3）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4657-4762 cmd_doctor"
+   ],
+   "rule": "facts.problems 为空返回 0，否则返回 1（:4755-4762）；stdout 总是输出脱敏后的 JSON。--out 非法 → 2（:4659→:4589-4591）。解析 pi 与 pi 检查过程中抛出的任何 DispatchError（包括 PATH 无 pi→3、PI_DISPATCH_PI_CMD 非法→2）都被捕获，写进 problems，最终退出 1（:4681、:4727-4728）；Repo.discover 失败只写进 notes \"未在 Git 仓库中运行：…\"，不影响退出码（:4729-4730、:4753-4754）；git 不可用写进 problems（:4665-4668）。所以不带 --out 时 doctor 只可能返回 0 或 1。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_output_paths check \"doctor --out into evidence refused\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor ok with stub\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor reports a failing list-models run as such\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor explains that pi has no models at all\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor explains that no model matches\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"a model listed under another provider keeps the short message\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "problems→1 只断言了 code != 0。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "标题“不会返回 3”不成立。safe_output_path（:4659）在 try 之外，给了 --out 时会调用 Repo.discover（:4585）：不在仓库中→2，找不到 git→3（:958→:757）。只有不带 --out 时，才只可能返回 0 或 1（另有 130，以及未捕获异常的 1）。其余内容（:4681-4728 吞掉 DispatchError、:4729-4754 仓库错误写进 notes、:4665-4668 git 不可用写进 problems）正确。"
+   }
+  },
+  {
+   "id": "LB-EXIT-022",
+   "title": "smoke 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4765-4824 cmd_smoke"
+   ],
+   "rule": "所有步骤 ok 返回 0，任一步失败返回 1（:4817-4824）；stdout 输出报告 JSON。2：--out 非法（:4766）；provider/model 不匹配 MODEL_TOKEN_RE \"无效的 <field>：…\"（:4769-4771）；思考级别不在 FALLBACK_THINKING_LEVELS \"无效的思考级别：…\"（:4772-4773）；PI_DISPATCH_PI_CMD 非法（:4767→:1769）；argv 不安全（:4791→:1794）。3：PATH 无 pi（:4767→:1773）。resolve_pi_command 在参数校验之前调用，所以 pi 缺失时先得到 3。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"smoke both steps ok\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "smoke 的 1、2、3 路径都没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4765-4824 核对无误；:4767 的 resolve_pi_command 先于 :4769-4773 的参数校验。补充：不带 --out 时 smoke 不需要 Git 仓库。run_supervised 的 spawn_error 会让 exit_code 为 None，该步骤不 ok，最终退出 1。"
+   }
+  },
+  {
+   "id": "LB-EXIT-023",
+   "title": "wait 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3913-3950 cmd_wait",
+    "scripts/pi_dispatch.py:81-82 TERMINAL_STATES",
+    "scripts/pi_dispatch.py:4898-4902 wait 参数"
+   ],
+   "rule": "先 Repo.discover 与 resolve_run_dir（:3924-3925，失败→2 \"找不到 attempt：<值>\"），然后才检查 --timeout < 1 → raise 2 \"--timeout 必须是正整数（秒）\"（:3926-3927）。循环中每轮重新读取 state：state ∈ WAIT_ACTIVE_STATES=(PREPARING, RUNNING, COLLECTING)（:3914），或 state==PREPARED 且已等待 < min(60, timeout)，则继续等待；等待时间达到 timeout 时返回 3（:3933-3937）。PREPARED 超过宽限期后返回 3（:3940-3942）。state 不在 TERMINAL_STATES 时返回 1（:3943-3945）。其余，即 TERMINAL_STATES=PASS/ACCEPTED_WITH_EXCEPTION/REVISE/BLOCKED/ESCALATE/INTEGRATED/ABANDONED/SUPERSEDED/TIMEOUT/CANCELLED/INFRA_FAILURE/PREPARE_FAILED/NEEDS_REVIEW，返回 0（:3946-3950）。--timeout 默认 540（help 文本 \"到时仍在运行时退出码 3\"，:4900）；--interval 默认 5.0，help 隐藏（:4901）；每次 sleep max(0.2, min(interval, timeout-elapsed))（:3938）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"wait does not report an unreadable state as finished\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖：--timeout<1→2；PREPARING/COLLECTING 超时；timeout≥60 时 PREPARED 的 60 秒宽限；等待中状态从 RUNNING 变为终态后返回 0。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "cmd_wait 的 def 在 :3917，WAIT_ACTIVE_STATES 在 :3914，其余行号正确。实测：`wait nosuch-task --timeout 0` 得到的是“找不到 attempt”(2)，说明 resolve_run_dir 先于 timeout 校验；attempt 存在时 --timeout 0 得到“--timeout 必须是正整数（秒）”(2)。在 scratchpad 仓库实测：RUNNING、PREPARING、PREPARED→3；NEEDS_REVIEW、INFRA_FAILURE、PASS→0；WEIRD、缺失、null→1。补充：--interval ≤ 0 时 sleep 下限为 0.2（:3938）。"
+   }
+  },
+  {
+   "id": "LB-EXIT-024",
+   "title": "wait 的 stdout 结构（仍在运行 / 未开始 / 无法确定 / 已结束）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3929-3950 cmd_wait",
+    "scripts/pi_dispatch.py:387-390 display_path",
+    "scripts/pi_dispatch.py:2554-2555 get_state",
+    "scripts/pi_dispatch.py:344-348 read_json_or"
+   ],
+   "rule": "<run-dir> = display_path(run_dir, repo.root)，是仓库相对、正斜杠的路径（:3929、:387-390）。输出都是单行中文，写到 stdout，没有 --json。(a) 仍在运行（活动状态且已到 timeout）：\"仍在运行：<run-dir> · <STATE>[ · <live>]。再次运行 wait 继续等待。\"，只有 STATE==RUNNING 时才附加 _live_progress，退出 3（:3935-3937）。(b) PREPARED 未开始：\"attempt 仍是 PREPARED：run 没有开始（或启动前就失败了）。检查后台命令的输出：<run-dir>\"，退出 3（:3940-3942）；PREPARED 不会走 (a) 的文案，因为达到 min(60, timeout) 时外层条件已先不成立（:3933）。(c) 无法确定：\"无法确定 attempt 的状态（<STATE>）：state.json 缺失、损坏或状态未知。检查 <run-dir>\"，退出 1；state.json 缺失、损坏或没有 state 键时 STATE 为 \"UNKNOWN\"（:2555、:344-348、:3943-3945）。(d) 已结束：\"已结束：<run-dir> · <STATE>\"，summary.md 存在时再输出一行 \"摘要：<仓库相对路径>\"，退出 0（:3946-3950）。(e) 参数或定位错误：stdout 为空，stderr 为 \"ERROR: 找不到 attempt：<值>\" 或 \"ERROR: --timeout 必须是正整数（秒）\"，退出 2（只读实测确认）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"wait does not report an unreadable state as finished\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "测试只断言了关键词（已结束、NEEDS_REVIEW、仍在运行、PREPARED、无法确定），没有断言整行文本、live 片段和“摘要：”行。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "有两处要修正或补充。(1) _live_progress 总会返回非空字符串（:4548），所以 RUNNING 必定附带“ · live:…”；PREPARING 和 COLLECTING 从不附带。草稿写成可选的 `[ · <live>]`，应改为按状态确定（实测“仍在运行：… · PREPARING。再次运行…”）。(2) state.json 是合法 JSON 但不是对象（如 []）时，get_state 的 .get 抛 AttributeError（:2555）：stdout 为空，stderr 为 Traceback，退出 1，不会输出“无法确定”（实测）。`{\"state\":null}` 时显示为“None”，按未知状态退出 1。其余模板与实测一致，包括“摘要：.agent/runs/t/attempt-001/summary.md”。"
+   }
+  },
+  {
+   "id": "LB-EXIT-025",
+   "title": "_live_progress 进度字符串格式",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4522 LONG_THINKING_DELTAS",
+    "scripts/pi_dispatch.py:4525-4548 _live_progress"
+   ],
+   "rule": "返回 \"live:<N>t[ <秒>s][ 长时间没有工具调用（<M> 个增量）]\"（:4548）。N 是 events.jsonl 中字节串 \"type\":\"tool_execution_end\"（紧凑写法，冒号两侧无空格）的出现次数，不解析 JSON，文件读不到时按空处理（:4531-4534、:4543-4544）。秒数取自 run-started.json 的 started_at（格式 %Y-%m-%dT%H:%M:%SZ）到当前时间，以 %d 截断；缺失或格式错误时省略（:4535-4542）。最后一次 tool_execution_end 之后，\"type\":\"message_update\" 出现 ≥ 6000 次时附加长思考提示（:4522、:4545-4547）。wait 只在 RUNNING 且到时限时使用它（:3935）；status 对 RUNNING 行使用它（:4563-4564）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v12 check \"live status flags a long stretch without tool calls\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "字节匹配依赖事件 JSON 的紧凑写法；真实 pi 的输出是否总是紧凑无法在本任务中核实（禁止调用 pi，测试只用 stub）。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":4522、:4525-4548 核对无误。实测 events.jsonl 含紧凑与带空格两种写法各一行时，结果为 live:1t，只计入紧凑写法。补充：文件里没有 tool_execution_end 时，按整个文件统计 message_update（:4545）。run-started.json 为非对象 JSON 时同样会触发 AttributeError。"
+   }
+  },
+  {
+   "id": "LB-EXIT-026",
+   "title": "wait 语义边界：0 不代表通过，3 有多种含义",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3946-3950 cmd_wait",
+    "scripts/pi_dispatch.py:3937 cmd_wait",
+    "scripts/pi_dispatch.py:3942 cmd_wait",
+    "scripts/pi_dispatch.py:757 git",
+    "scripts/pi_dispatch.py:4966-4968 main"
+   ],
+   "rule": "wait 返回 0 只表示 attempt 进入了 TERMINAL_STATES。INFRA_FAILURE、TIMEOUT、CANCELLED、PREPARE_FAILED、REVISE、BLOCKED、ESCALATE、ABANDONED 同样返回 0（:81-82、:3946-3950）。返回 3 有三种来源：到时仍在运行（:3937）；PREPARED 未开始（:3942）；wait 过程中抛出的默认码 DispatchError，例如 Repo.discover 找不到 git 时的 \"未找到 git，请先安装 Git。\"（:757，经 :4966-4968 输出到 stderr）。只看退出码 3 就重复调用的调用方，在后两种情况下会一直循环。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "源码没有说明 wait 的 3 与 DispatchError 默认码 3 重叠是否有意；没有测试覆盖 git 缺失时 wait 的行为。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "wait 的循环里没有会抛 DispatchError 的调用（get_state/read_json_or 不抛），所以默认码 3 只可能来自 Repo.discover 的 git 缺失（:757）。POSIX 上 --repo 指向不存在路径时可能也会得到“未找到 git”3，这是推断，未实测，已写入 unresolved。"
+   }
+  },
+  {
+   "id": "LB-EXIT-027",
+   "title": "文档与技能中的退出码声明（仅文档来源）",
+   "source_locations": [
+    "AGENTS.md:52-55 长时间运行/wait",
+    "AGENTS.md:83 退出码 0 不代表通过",
+    "scripts/pi_dispatch.py:3917-3950 cmd_wait（核对）",
+    ".agents/skills/dispatch-pi/SKILL.md:44 wait",
+    ".agents/skills/dispatch-pi/SKILL.md:52 PREFLIGHT 退出码 3",
+    ".agents/skills/dispatch-pi/troubleshooting.md:4 Pi 退出码 0"
+   ],
+   "rule": "文档声明：wait 每次最多等 9 分钟，退出码 3 表示仍在运行，可以重复调用；PowerShell 中写成 \"…; exit $LASTEXITCODE\"，否则外层可能把 3 显示成 1（AGENTS.md:52-55，SKILL.md:44）。\"attempt 结束时退出 0，仍在运行时退出 3 并打印进度\"（SKILL.md:44）。\"PREFLIGHT … 且退出码 3\" 表示预检失败，attempt 仍是 PREPARED（SKILL.md:52）。\"进程退出码为 0 也不代表通过\"（AGENTS.md:83），troubleshooting.md:4 指的是 Pi 进程在 --mode json 下出错也以 0 退出。与源码核对：540 秒默认值一致（:4900）；PREFLIGHT 与 3 一致（:3283-3285）；文档没有写 wait 的 1（状态未知）、2（参数）和 PREPARED 未开始时的 3，也没有写 check 的 4。",
+   "related_tests": [],
+   "evidence_basis": "source_reported",
+   "open_questions": "“PowerShell 外层把 3 显示成 1”是宿主或调用环境的行为，无法从源码核实。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "引用位置正确（AGENTS.md:52-55、:83；SKILL.md:44、:52；troubleshooting.md:4）。需要补充的对照有两点。(1) SKILL.md:44 说“仍在运行时退出 3 并打印进度”，但只有 RUNNING 打印 live 进度；PREPARING/COLLECTING 只打印状态；PREPARED 未开始时打印另一条文案，也是 3。(2) “文档没有写 wait 的 1”只对 AGENTS.md/SKILL.md 成立；源码 cmd_wait 的 docstring（:3918-3922）写明了 0、3、PREPARED 的 60 秒宽限和状态未知时的 1。SKILL.md:52 与 :3281-3285 一致。"
+   }
+  },
+  {
+   "id": "LB-EXIT-028",
+   "title": "跨入口同码异义汇总",
+   "source_locations": [
+    "scripts/pi_dispatch.py:53 常量",
+    "scripts/pi_dispatch.py:307 DispatchError 默认码",
+    "scripts/pi_dispatch.py:4960-4971 main",
+    "scripts/dispatch-pi.sh:22 exit 2"
+   ],
+   "rule": "0：成功；但对 wait 是“已结束”，collect 是“恢复完成”，mutate 是“流程完成（可有漏掉）”，baseline 是“无期望不符（检查可以失败）”，verdict 是“结论已记录（含 REVISE）”，status/metrics 恒为 0。1：EXIT_FAIL，包括 run 非 NEEDS_REVIEW 或 events 不 ok、check 不干净、baseline 不符、prepare 的 setup 失败或变脏、sync-adapters 不一致或缺源、doctor/smoke 有问题、verdict 的 PASS 被门禁拒绝、wait 状态未知；另外任何未捕获的 Python 异常也是 1。2：EXIT_USAGE（DispatchError 与 validate/derive-json 的 return）、argparse 的 SystemExit(2)（没有 ERROR: 前缀），以及 dispatch-pi.sh 找不到 Python。3：DispatchError 默认码（拒绝、阻断、环境缺失、状态不符、预算、预检、锁），以及 wait 显式返回的仍在运行或未开始。4：只有 check 运行前的候选漂移。130：KeyboardInterrupt；run 在 Pi 运行期间被中断时转为 CANCELLED，退出 1。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "新协议如果要按入口区分退出码，必须逐入口映射，不能按码值统一解释；源码没有给出这些重叠的设计理由。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "有两处要修正。(1) “status/metrics 恒为 0”与它们会返回 2 相矛盾，应改为“成功执行时恒为 0，不反映 attempt 状态”。(2) “run 在 Pi 运行期间被中断时转为 CANCELLED，退出 1”不准确：按 collect 优先级也可能是 INFRA_FAILURE 或 TIMEOUT，但都退出 1；运行窗口之外（预检、领取、collect）的 Ctrl+C 退出 130。另外 3 的来源还包括 :2694、:2698、:3175 的显式 EXIT_BLOCKED。"
+   }
+  }
+ ],
+ "missing_items_added_by_verifier": [
+  "LB-EXIT-029 全局 --repo：Repo.discover(args.repo) 用 --repo 作 git 的 cwd（:957-958）。指向非 Git 目录时退出 2（实测 C:/Windows）。指向不存在的路径时，Windows 上 subprocess 抛 NotADirectoryError [WinError 267]，git() 只捕获 FileNotFoundError（:756），结果以 Traceback 退出 1（实测 wait/status）。POSIX 上 Python 对不存在的 cwd 抛 FileNotFoundError，会被误报为“未找到 git，请先安装 Git。”并退出 3（推断，未实测）。",
+  "LB-EXIT-030 state.json 是合法 JSON 但不是对象（如 [] 或字符串）时，get_state 抛 AttributeError（:2555），以 Traceback 退出 1，stdout 为空。凡是调用 get_state 的入口都受影响：wait、status/metrics（经 _attempt_row）、mark、run、collect、check、mutate、verdict、cleanup。已实测 wait。`{\"state\":null}` 显示为“None”，wait 按未知状态退出 1（实测）。",
+  "LB-EXIT-031 run 的中断窗口：_Interrupted 处理器只在 run_supervised 内安装（:676 安装，:712 恢复）。在预检、领取或 collect 期间按 Ctrl+C，会得到 KeyboardInterrupt，退出 130。领取后写 executor.json、run-started.json 时（:3319-3332）的中断会先标 INFRA_FAILURE。collect 期间中断时状态停在 COLLECTING（:3344），需要 collect --recover。Pi 运行期间中断后，最终状态按 collect 优先级（:3395-3404）可能是 INFRA_FAILURE、TIMEOUT 或 CANCELLED，都退出 1。",
+  "LB-EXIT-032 spawn 失败不抛异常：Job Object 创建失败（:663-667）、Popen OSError（:682-684）、未能加入 Job（:686-688）都写成 spawn_error，结果 INFRA_FAILURE，run 退出 1；smoke 的对应步骤不 ok，退出 1。",
+  "LB-EXIT-033 输出流约定：DispatchError 统一写到 stderr，格式为“ERROR: <msg>”（:4967）。逐项诊断写到 stdout，并先于 stderr 的 ERROR 行输出，包括：validate/derive-json/prepare/baseline 的“ERROR <msg>”（无冒号）、“WARN  ”、“NOTE  ”，mutate 的“ERROR ”，run 的“PREFLIGHT ”，verdict 的“GATE ”，cleanup 的“LOSS  ”，sync-adapters 的“DRIFT ”。argparse 错误写到 stderr，没有“ERROR:”前缀。测试把 stdout 与 stderr 合并后再断言（tests/test_dispatch.py:44）。",
+  "LB-EXIT-034 status 的 EXIT 列与 --json 的 exit_code 是 run.json 中 Pi 进程的退出码（:4498、:4572），不是调度器的退出码；RUNNING 行的 EVENTS/events_ok 为 live 字符串（:4562-4564，实测）。",
+  "LB-EXIT-035 拒绝顺序决定退出码：verdict 在 PASS 且门禁失败时即使带了豁免也得到 1（:4284-4290 先于 :4291）；mark INTEGRATED 结论不符又缺 --ref 时得到 3（:4400 先于 :4403）；wait 的 attempt 不存在又 --timeout 0 时得到“找不到 attempt”2（实测）；smoke 在 pi 缺失时先得到 3（:4767）；branch 缺身份时先得到 3，再检查尾注（:4336 先于 :4339）；doctor、metrics、smoke 给了 --out 时，Repo.discover 的 2/3 先于 --out 校验（:4585 先于 :4589）。",
+  "LB-EXIT-036 check 只按 required 检查计算 required_ok（:4030）：非必要检查失败不影响退出码；--only 只选中非必要检查时，没有漂移、没有意外文件即返回 0。",
+  "LB-EXIT-037 pid_alive 在 Windows 上 tasklist 失败时返回 None（:730-732），collect（:3424）与 mark --force（:4418）都当作进程不存在而放行，不返回 3。",
+  "LB-EXIT-038 resolve_run_dir 用 task-id 或 task-id.vN 选最新 attempt 时，不要求 meta.json 存在（:2643-2649；task-id.vN 读取 meta.json 失败时按 {} 处理并被过滤掉）。调用 load_attempt 的入口（run、collect、check、mutate、verdict、branch、cleanup）会因 FileNotFoundError 或 ValueError 以 Traceback 退出 1；wait、mark、status 不调用 load_attempt。",
+  "LB-EXIT-039 derive-json 在校验之前写 JSON（:3031）：返回 2（:3037 或 :3039）时文件已经落盘；--print 不做校验（:3026-3028）。",
+  "LB-EXIT-040 validate 可能返回 1 或 3：md 非 UTF-8 时在 :1668 抛 UnicodeDecodeError，以 Traceback 退出 1；validate_plan 中 `git rev-parse HEAD`（:1684，check=True）失败时退出 3；extra_protected_paths 或 dispatch.config.json 解析错误经 :1673 退出 2。"
+ ]
+}

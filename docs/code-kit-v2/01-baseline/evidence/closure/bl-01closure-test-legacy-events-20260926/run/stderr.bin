@@ -1,0 +1,73 @@
+test_LB_EVENTS_027_doctor_rejects_unsupported_thinking (__main__.DoctorThinkingTests.test_LB_EVENTS_027_doctor_rejects_unsupported_thinking)
+LB-EVENTS-027（doctor 的思考级别检查，:4725-4726；输出与退出码 :4758-4762）。 ... ok
+test_LB_EVENTS_027_doctor_thinking_uses_help_list (__main__.DoctorThinkingTests.test_LB_EVENTS_027_doctor_thinking_uses_help_list)
+LB-EVENTS-027（doctor 的思考级别检查，:4725-4726；legacy-inventory 4.11“思考级别”行）。 ... ok
+test_LB_EVENTS_009_empty_stream_is_infra_failure (__main__.EventStreamRunTests.test_LB_EVENTS_009_empty_stream_is_infra_failure)
+LB-EVENTS-009/011（:2172、:2316-2318、:2339-2362）、LB-EVENTS-018/019（:2179-2180、:2334-2336）、 ... ok
+test_LB_EVENTS_009_unterminated_valid_last_line_is_truncated (__main__.EventStreamRunTests.test_LB_EVENTS_009_unterminated_valid_last_line_is_truncated)
+LB-EVENTS-009（:2308、:2343-2344）、LB-EVENTS-011。验收：01-A07；01-A11 的旧对照。 ... ok
+test_LB_EVENTS_013_missing_provider_and_model_fields (__main__.EventStreamRunTests.test_LB_EVENTS_013_missing_provider_and_model_fields)
+LB-EVENTS-013（:2324、:2328、:2361-2362）、LB-EVENTS-021（:3401-3404、:3348-3349）。 ... ok
+test_LB_EVENTS_013_response_model_differs_is_recorded_not_compared (__main__.EventStreamRunTests.test_LB_EVENTS_013_response_model_differs_is_recorded_not_compared)
+LB-EVENTS-013（:2323-2328、:2361-2362、:2376-2378）。 ... ok
+test_LB_EVENTS_015_stderr_warning_flags (__main__.EventStreamRunTests.test_LB_EVENTS_015_stderr_warning_flags)
+LB-EVENTS-015（STDERR_WARNING_PATTERNS :261-266；:2329-2332、:2363-2365；summary.md :2954-2955、:2972）。 ... ok
+test_LB_EVENTS_017_duplicate_message_end_double_counts_usage (__main__.EventStreamRunTests.test_LB_EVENTS_017_duplicate_message_end_double_counts_usage)
+LB-EVENTS-016/017（_add_usage 按增量累加、不去重，:2081-2093、:2218-2226）、LB-EVENTS-020（:2872、:4505-4515）。 ... ok
+test_LB_EVENTS_018_missing_usage_tokens_are_zero_and_cost_unknown (__main__.EventStreamRunTests.test_LB_EVENTS_018_missing_usage_tokens_are_zero_and_cost_unknown)
+LB-EVENTS-018（token 缺失输出 0，:2179-2180、:2390、:2872、:4505）、LB-EVENTS-019（:2334-2336、:2391-2392）、 ... ok
+test_LB_EVENTS_021_nonzero_pi_exit_with_complete_events (__main__.EventStreamRunTests.test_LB_EVENTS_021_nonzero_pi_exit_with_complete_events)
+LB-EVENTS-021（:3348-3349、:3395-3404、:4173-4174）。验收：01-A07（G1）；01-A05 的旧对照。 ... ok
+test_LB_EVENTS_001_low_version_is_note_and_agent_end_completes (__main__.PreflightRunTests.test_LB_EVENTS_001_low_version_is_note_and_agent_end_completes)
+LB-EVENTS-001（MIN_PI_VERSION=(0,80,4)，:50、:2044-2046、:3288、:3316）、LB-EVENTS-011（:2312-2315）。 ... ok
+test_LB_EVENTS_007_auth_not_ready_blocks_run (__main__.PreflightRunTests.test_LB_EVENTS_007_auth_not_ready_blocks_run)
+LB-EVENTS-007（预检第 7 步，:2056-2062）、LB-EVENTS-008。 ... ok
+test_LB_EVENTS_007_list_models_failure_blocks_run (__main__.PreflightRunTests.test_LB_EVENTS_007_list_models_failure_blocks_run)
+LB-EVENTS-007（预检第 6 步，:2047-2052）、LB-EVENTS-008。 ... ok
+test_LB_EVENTS_007_thinking_not_in_help_list_blocks_run (__main__.PreflightRunTests.test_LB_EVENTS_007_thinking_not_in_help_list_blocks_run)
+LB-EVENTS-007（预检第 3 步，:2031-2033）、LB-EVENTS-008（:3281-3285）。 ... ok
+test_LB_EVENTS_007_two_part_version_is_unreadable (__main__.PreflightRunTests.test_LB_EVENTS_007_two_part_version_is_unreadable)
+LB-EVENTS-001（parse_version 只认三段版本，:373-375）、LB-EVENTS-007（预检第 5 步，:2038-2043）、LB-EVENTS-008。 ... ok
+test_LB_EVENTS_007_unknown_builtin_tool_blocks_run (__main__.PreflightRunTests.test_LB_EVENTS_007_unknown_builtin_tool_blocks_run)
+LB-EVENTS-007（预检第 4 步，:2034-2037）、LB-EVENTS-008。 ... ok
+test_LB_EVENTS_001_expects_settled_from_version_text (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_001_expects_settled_from_version_text)
+LB-EVENTS-001（:50、:373-375、:3245-3247）。白盒。验收：01-A07。 ... ok
+test_LB_EVENTS_005_help_parse_fallbacks_skip_checks (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_005_help_parse_fallbacks_skip_checks)
+LB-EVENTS-005（parse_help，:1860-1871）、LB-EVENTS-007（第 3、4 步）。白盒。 ... ok
+test_LB_EVENTS_007_help_nonzero_exit_is_problem (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_007_help_nonzero_exit_is_problem)
+LB-EVENTS-007（预检第 1 步，:2020-2024）。白盒。验收：01-A07；C.4“实际模型与思考级别证据”（预检）。 ... ok
+test_LB_EVENTS_007_missing_required_flags (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_007_missing_required_flags)
+LB-EVENTS-007（预检第 2 步，:2025-2030；REQUIRED_PI_FLAGS :69-70）。白盒。 ... ok
+test_LB_EVENTS_007_no_models_and_no_match_share_one_problem (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_007_no_models_and_no_match_share_one_problem)
+LB-EVENTS-005/007（预检第 6 步，:1874-1886、:2047-2055）。白盒。验收：01-A07；C.4“实际模型与思考级别证据”。 ... ok
+test_LB_EVENTS_007_version_problem_variants (__main__.PreflightWhiteBoxTests.test_LB_EVENTS_007_version_problem_variants)
+LB-EVENTS-007（预检第 5 步，:2038-2046）。白盒。验收：01-A07；C.4“实际模型与思考级别证据”（版本分支）。 ... ok
+test_legacy_source_is_locked_revision (__main__.SourceFactsTests.test_legacy_source_is_locked_revision)
+新增：被测字节核对（legacy_harness.legacy_facts）。验收：01-A07（回归映射须指明被测提交）。 ... ok
+test_LB_EVENTS_009_truncated_tail_depends_on_expects_settled (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_009_truncated_tail_depends_on_expects_settled)
+LB-EVENTS-009、LB-EVENTS-011（:2294-2318、:2343-2349）。白盒。验收：01-A07；01-A11 的旧对照；兼容矩阵 D-15。 ... ok
+test_LB_EVENTS_009_unparseable_lines_are_counted_not_fatal (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_009_unparseable_lines_are_counted_not_fatal)
+LB-EVENTS-009（:2201-2213、:2341-2342、:2367-2369）。白盒。验收：01-A07；01-A11 的旧对照；兼容矩阵 D-16。 ... ok
+test_LB_EVENTS_011_agent_end_fallback_by_expects_settled (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_011_agent_end_fallback_by_expects_settled)
+LB-EVENTS-011（:2294-2298、:2312-2315、:2346-2349）。白盒。验收：01-A07；01-A11 的旧对照。 ... ok
+test_LB_EVENTS_011_events_after_agent_settled (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_011_events_after_agent_settled)
+LB-EVENTS-011（:2214-2215、:2299-2311）、LB-EVENTS-012（:2319）；legacy-inventory 9.8 核对补充。白盒。 ... ok
+test_LB_EVENTS_013_every_assistant_pair_must_match (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_013_every_assistant_pair_must_match)
+LB-EVENTS-013（:2323-2328、:2361-2362）。白盒。验收：01-A07；C.4“实际模型与思考级别证据”。 ... ok
+test_LB_EVENTS_014_partial_thinking_level_reporting (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_014_partial_thinking_level_reporting)
+LB-EVENTS-014（:2326-2327、:2337、:2350-2352、:2379-2382）。白盒。 ... ok
+test_LB_EVENTS_015_stderr_flags_need_existing_file (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_015_stderr_flags_need_existing_file)
+LB-EVENTS-015（:2329-2332、:2363-2365）。白盒。验收：01-A07；C.4“实际模型与思考级别证据”（stderr 警告）。 ... ok
+test_LB_EVENTS_017_usage_sources_and_non_sources (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_017_usage_sources_and_non_sources)
+LB-EVENTS-016/017（_add_usage :2081-2093；来源 :2226、:2228、:2234、:2238；不累加 :2201-2306）。白盒。 ... ok
+test_LB_EVENTS_019_compaction_cost_status (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_019_compaction_cost_status)
+LB-EVENTS-017/019（:2235-2238、:2334-2336、:2390-2392；legacy-inventory 4.7 费用表“出现过 compaction_end”两行）。 ... ok
+test_LB_EVENTS_019_cost_status_rules (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_019_cost_status_rules)
+LB-EVENTS-019（:2089-2093、:2334-2336、:2390-2392）、LB-EVENTS-018。白盒。验收：01-A07；01-A06 的旧对照；D-18、D-19。 ... ok
+test_LB_EVENTS_026_non_numeric_total_tokens_raises (__main__.SummarizeEventsWhiteBoxTests.test_LB_EVENTS_026_non_numeric_total_tokens_raises)
+LB-EVENTS-026（:2092）。白盒。验收：01-A07；01-A06 的旧对照。 ... ok
+
+----------------------------------------------------------------------
+Ran 34 tests in 51.774s
+
+OK

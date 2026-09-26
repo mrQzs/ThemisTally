@@ -1,0 +1,9 @@
+test_dispatch | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=216.828s baseline_consistent: True  | 256 checks, 0 failed  | leaked=[]
+test_protocols | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=4.437s baseline_consistent: True  | Ran 324 tests in 4.075s OK (skipped=4)  | leaked=[]
+test_codekit01_fixtures | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=7.969s baseline_consistent: True  | Ran 36 tests in 7.771s OK  | leaked=[]
+test_baseline_tool | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=51.844s baseline_consistent: True  | Ran 40 tests in 51.525s OK  | leaked=[]
+test_legacy_gates | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=118.265s baseline_consistent: True  | Ran 24 tests in 118.065s OK  | leaked=[]
+test_legacy_lifecycle | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=128.672s baseline_consistent: True  | Ran 26 tests in 128.438s OK (skipped=2)  | leaked=[]
+test_legacy_cli | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=84.265s baseline_consistent: True  | Ran 75 tests in 84.147s OK (skipped=1)  | leaked=[]
+test_legacy_events | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=45.734s baseline_consistent: True  | Ran 34 tests in 45.589s OK  | leaked=[]
+empty_dir_entries=0

@@ -1,0 +1,623 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:public-protocol:1",
+  "title": "Code-Kit 01 proposed public protocol schema",
+  "description": "Proposed structural layer only; mandatory semantic checks are documented separately.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/resourceRef"
+    },
+    {
+      "$ref": "#/$defs/runContext"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/usage"
+    }
+  ],
+  "$defs": {
+    "logicalId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?![\\s\\S])"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^req-[0-9a-f]{32}(?![\\s\\S])"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run-[0-9a-f]{32}(?![\\s\\S])"
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "businessPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Additional lexical, byte-length, physical containment and authorized-open checks are mandatory."
+    },
+    "resourceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])"
+        },
+        "id": {
+          "$ref": "#/$defs/logicalId"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "path": {
+          "$ref": "#/$defs/businessPath"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "errorDetail": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/resourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "source_ref",
+        "phase",
+        "reason",
+        "hint"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E_[A-Z0-9_]+(?![\\s\\S])"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "details": {
+          "$ref": "#/$defs/errorDetail"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "details",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "runContext": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "record_type": {
+          "const": "run-context"
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/taskId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_version": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "enum": [
+            "planner",
+            "executor",
+            "observer"
+          ]
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        "contract_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/resourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "request_id",
+        "task_id",
+        "plan_version",
+        "run_id",
+        "attempt",
+        "role",
+        "platform",
+        "contract_ref"
+      ],
+      "additionalProperties": false
+    },
+    "rawSpan": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/resourceRef"
+        },
+        "byte_start": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "byte_end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr",
+            "file"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "byte_start",
+        "byte_end",
+        "stream"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "record_type": {
+          "const": "run-event"
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z(?![\\s\\S])"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "planner",
+                "executor",
+                "observer"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "source_kind": {
+          "enum": [
+            "core",
+            "vendor"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "raw_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rawSpan"
+          },
+          "maxItems": 256
+        },
+        "integrity": {
+          "enum": [
+            "complete",
+            "incomplete",
+            "pending"
+          ]
+        },
+        "adapter_revision": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "request_id",
+        "run_id",
+        "seq",
+        "observed_at",
+        "role",
+        "type",
+        "source_kind",
+        "payload",
+        "raw_refs",
+        "integrity",
+        "adapter_revision"
+      ],
+      "additionalProperties": false
+    },
+    "money": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?(?![\\s\\S])"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "record_type": {
+          "const": "usage-observation"
+        },
+        "usage_id": {
+          "$ref": "#/$defs/logicalId"
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "role": {
+          "enum": [
+            "planner",
+            "executor",
+            "observer"
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observation_kind": {
+          "enum": [
+            "delta",
+            "cumulative",
+            "final",
+            "unknown"
+          ]
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasoning_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_includes_cache": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_includes_reasoning": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reported_cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estimated_cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "billing_source": {
+          "enum": [
+            "vendor_reported",
+            "provider_invoice",
+            "adapter_estimated",
+            "unavailable"
+          ]
+        },
+        "billing_event_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supersedes_usage_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/logicalId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unknown_reasons": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resourceRef"
+          },
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "usage_id",
+        "request_id",
+        "run_id",
+        "role",
+        "provider",
+        "model",
+        "observation_kind",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "input_includes_cache",
+        "output_includes_reasoning",
+        "reported_cost",
+        "estimated_cost",
+        "billing_source",
+        "billing_event_id",
+        "supersedes_usage_id",
+        "unknown_reasons",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

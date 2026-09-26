@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "record_type": "run-event",
+  "request_id": "req-11111111111141118111111111111111",
+  "run_id": "run-22222222222242228222222222222222",
+  "seq": 1,
+  "observed_at": "2026-09-25T00:00:00.000000Z",
+  "role": "plannerÿ",
+  "type": "run.prepared",
+  "source_kind": "core",
+  "payload": {"example_only": true},
+  "raw_refs": [],
+  "integrity": "complete",
+  "adapter_revision": null
+}

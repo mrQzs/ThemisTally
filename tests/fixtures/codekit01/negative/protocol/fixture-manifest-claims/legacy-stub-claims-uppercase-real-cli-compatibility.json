@@ -1,0 +1,59 @@
+{
+  "capture": null,
+  "does_not_prove": [
+    "real_cli_compatibility",
+    "vendor_protocol",
+    "legacy_end_to_end_run",
+    "cross_platform_bytes",
+    "new_protocol_acceptance"
+  ],
+  "expected": {
+    "code": null,
+    "entry": "tests/codekit01_legacy.py::compute_expected_events（旧实现 pi_dispatch.summarize_events @ a4fa199）",
+    "expected_ref": {
+      "id": "expected-legacy-events",
+      "kind": "fixture",
+      "path": "tests/fixtures/codekit01/expected/legacy-events.json",
+      "sha256": "e889fef038d674d155a8b5cbb1403e07a8a469b36e9b8c8eec0ff44eba34973b"
+    },
+    "outcome": "legacy-judgment"
+  },
+  "fixture_id": "legacy-stub-events-ok",
+  "integrity": "complete",
+  "origin": {
+    "class": "legacy",
+    "derived_from": null,
+    "description": "正常结束：以 agent_settled 结束，两条 assistant 消息带用量与费用，不回报 providerThinkingLevel。仓库测试桩 tests/stub_pi.py 在 a4fa199 生成的 stdout 事件字节（不是厂商真实输出）；按 pi_dispatch cmd_run 的参数形状直接运行 stub（未经 pi_dispatch run、预检与 worktree），进程退出码 0；行尾 CRLF（Windows 上 Python 的 stdout 把 LF 转成 CRLF）。",
+    "fault": null,
+    "generator_revision": "codekit01-legacy-fixtures-v2",
+    "source_path": "tests/stub_pi.py",
+    "source_revision": "a4fa199b0e5bdc658215765ee7558b9fe6723940",
+    "source_test_id": "tests/stub_pi.py STUB_SCENARIO=ok",
+    "traceable": true
+  },
+  "platform_scope": [
+    "windows"
+  ],
+  "proves": [
+    "exact_byte_digest",
+    "stub_output_at_source_revision",
+    "legacy_event_summary_judgment",
+    "REAL_CLI_COMPATIBILITY"
+  ],
+  "record_type": "fixture-manifest",
+  "redaction": {
+    "applied": true,
+    "length_changed": true,
+    "protocol_structure_preserved": true,
+    "reason": "session 事件的 cwd 是生成时临时目录的绝对路径（机器定位，含本机账户目录），替换为固定占位值 <redacted:stub-cwd>；该字段不参与旧实现的完整性、模型、用量判断（summarize_events 只把它抄进 session_header）。只替换这一个字符串值，每行仍是同一 JSON 对象、键与其余值不变，所以协议结构保留",
+    "rule_revision": "codekit01-legacy-stub-cwd-v1"
+  },
+  "representation": "synthetic_fixture",
+  "resource": {
+    "id": "legacy-stub-events-ok",
+    "kind": "fixture",
+    "path": "tests/fixtures/codekit01/legacy/stub-events/ok.jsonl",
+    "sha256": "31a7eccaa84d7a70c714c0216bae63f8d6e2dc2b7e63ce5d8103aace0cd1e9db"
+  },
+  "schema_version": 1
+}

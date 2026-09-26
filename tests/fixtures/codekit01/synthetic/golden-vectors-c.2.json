@@ -1,0 +1,56 @@
+{
+  "input_encoding": "input_json 是 JSON 文本，非 ASCII 字符写成 \\uXXXX 转义；经 strict_json_loads 解析后得到 input_codepoints 所列的码点",
+  "note": "只测试序列化器，不表示具体配置 Schema 接受任意实数；整数字段的 1.0 应在进入快照器前被拒绝（附录 C.2）",
+  "profile": "codekit-config-json-py-v1",
+  "record_type": "codekit01-golden-vectors",
+  "schema_version": 1,
+  "serializer": "json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\"), allow_nan=False) + \"\\n\"，按 UTF-8 编码，无 BOM",
+  "source": "01 审阅增强版附录 C.2（修订 review-expanded-2026-09-25）",
+  "vectors": [
+    {
+      "check": "输出严格为 {\"a\":1,\"b\":2} 加 LF",
+      "expected_sha256": "e8d38819d39f705646bfb643368eca78f7db476c16471dbc33b941b27326410d",
+      "expected_snapshot_utf8_hex": "7b2261223a312c2262223a327d0a",
+      "id": "c2-1-key-order",
+      "input_codepoints": null,
+      "input_json": "{\"b\":2,\"a\":1}"
+    },
+    {
+      "check": "UTF-8 原样输出，不加 BOM",
+      "expected_sha256": "4dbc4b223d0da4858700d9a483553a9f2d5c31d2c2fcb7e45e41c56e3bd1f20c",
+      "expected_snapshot_utf8_hex": "7b2274657874223a22c3a9227d0a",
+      "id": "c2-2-precomposed",
+      "input_codepoints": [
+        "U+00E9"
+      ],
+      "input_json": "{\"text\":\"\\u00e9\"}"
+    },
+    {
+      "check": "不归一化成上一行",
+      "expected_sha256": "4ae0b8cab5f8efd099785478bbd470b23d1c0eb7424b785416f3ee5496245948",
+      "expected_snapshot_utf8_hex": "7b2274657874223a2265cc81227d0a",
+      "id": "c2-3-decomposed",
+      "input_codepoints": [
+        "U+0065",
+        "U+0301"
+      ],
+      "input_json": "{\"text\":\"\\u0065\\u0301\"}"
+    },
+    {
+      "check": "整数表示",
+      "expected_sha256": "cedf74272c9fc8db5448283a93277e7e7eb7534b71df3bd8ab35fd9b1b73404c",
+      "expected_snapshot_utf8_hex": "7b226e223a317d0a",
+      "id": "c2-4-integer",
+      "input_codepoints": null,
+      "input_json": "{\"n\":1}"
+    },
+    {
+      "check": "实数表示与上一行不同",
+      "expected_sha256": "4352df4233f0d6492477e70dab0a2b2aa9683d2297d61c8e8d98b515a4bc2f8d",
+      "expected_snapshot_utf8_hex": "7b226e223a312e307d0a",
+      "id": "c2-5-real",
+      "input_codepoints": null,
+      "input_json": "{\"n\":1.0}"
+    }
+  ]
+}
