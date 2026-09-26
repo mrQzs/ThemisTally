@@ -68,7 +68,7 @@ Linux 与 macOS 全部 NOT_RUN；jsonschema 元校验 BLOCKED；A01、A07 的前
 - [compatibility-matrix.md](compatibility-matrix.md)：兼容能力矩阵（修订 12；第 4.3 节 D-20–D-23，第 8 节缺样本与 R-P11 字段，第 9 节为 8.3 故障恢复与 8.4 清理的落点）
 - [protocols-api.md](protocols-api.md)：公共协议接口说明（供 02–10 使用；第 19 节为规格澄清与各轮复审处理，含“收尾轮”“收尾轮返工”）
 - [acceptance.md](acceptance.md)：01-A01–A16 验收映射、F001–F050、平台矩阵、G0–G6 最终表、交接检查与未完成项、给 02/03/04 合同的绑定清单、用户决策与剩余事项、minor 与剩余风险、完整性审查（第 12 节）与对抗性核验（第 13 节）的逐条处理、收尾轮验收收尾（第 14 节）、对抗性核验第二轮（第 15 节）
-  - 当前字节（本轮更新后）：195606 字节，sha256 `870f75aee2d11e271d58e67e98e17efe445bd4fd0dfbbba2bef9c013d02bfced`（第三次修订后为 179796 字节 `c0d3c99d…`）。基线报告不内嵌这个摘要：acceptance.md 记录基线报告的摘要，互相内嵌会形成循环，所以记在这里
+  - 当前字节（本轮复跑记录后）：196784 字节，sha256 `234372725bf921e9486b3b1544081e938bb3e68e1b6a360e6dce243ed2ed972d`（第三次修订后为 179796 字节 `c0d3c99d…`）。基线报告不内嵌这个摘要：acceptance.md 记录基线报告的摘要，互相内嵌会形成循环，所以记在这里
 - `evidence/`：脱敏归档的取证证据与操作者记录（redact-v2；原件在被 Git 忽略的 `.agent/baseline/`，不提交）
   - `evidence/closure/`：**10 次收尾取证（当前依据）**，每个取证目录 84 个文件，索引见 [evidence/closure/INDEX.md](evidence/closure/INDEX.md)（手写索引，不是归档文件；对抗性核验第二轮更正过一次，见其第 9 节）
   - `evidence/run-controls-closure/`：收尾取证的操作者记录 `closure-captures.txt`（受控条件、R-01 的前缀目录、逐次汇总）与复制清单 `manifest.json`

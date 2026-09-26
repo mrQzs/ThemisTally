@@ -1,6 +1,8 @@
 # 01 验收映射（01-A01–A16）、平台矩阵与交接检查
 
-- **依据**：`docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`（仓库中文件名因编码显示为 `01-baseline-and-protocols-╔≤╘─╘÷╟┐░µ.md`，修订 `review-expanded-2026-09-25`，128737 字节，sha256 `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d`）第 1.1、2.3、2.4、6.4、7、9.2 节与附录 C.3、C.5、D.3；决策见 [decisions.md](decisions.md)。
+> **本轮续接与复跑状态（2026-09-26）**：仓库已有提交 `182ef16` 已包含第一阶段代码、Schema、fixtures、测试、基线文档与证据；本轮按已批准方案补上 `.agent/dispatch.config.json` 的机械保护、正确的 01 设计文件名与顶层索引链接，并在提交前工作树复跑 Windows 验证。下文 EV-C01–EV-C10 是提交前收尾取证的历史证据；本轮复跑结果如下：`test_dispatch.py` 为 256 checks / 0 failed；`test_protocols.py` 为 342 tests、退出 0、5 skipped（当前会话缺少 `FSCTL_SET_REPARSE_POINT` 权限，黑盒重解析点实测干净跳过，历史归档为 4 skipped）；fixtures 75/75、baseline 40/40、legacy gates 24/24、lifecycle 26（2 skipped）、CLI 75（1 skipped）、events 34/34，两个旧实现比对分别为 38 checks / 0 differ 与 10 checks / 0 differ；所有命令退出码均为 0。Linux/macOS 仍无法在本机验证，`jsonschema` 元校验继续 BLOCKED。
+
+- **依据**：`docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`（修订 `review-expanded-2026-09-25`，128737 字节，sha256 `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d`）第 1.1、2.3、2.4、6.4、7、9.2 节与附录 C.3、C.5、D.3；决策见 [decisions.md](decisions.md)。
 - **编写**：规划端子代理（P4 4.2、4.3、4.6），2026-09-26。本文是 README 列出的 P4 产物，**待独立复审**（P4 4.5）。
 - **修订**：2026-09-26 完整性审查返工（规划端子代理）。处理审查提出的 14 个问题，逐条结果见第 12 节；没有改变任何一项验收的判定，只补登记录、更正事实错误并增加未完成项。
 - **修订（第二次）**：2026-09-26 对抗性核验返工（规划端子代理）。处理核验确认的 7 个 minor 问题，逐条结果见第 13 节；没有改变任何一项验收的判定。
