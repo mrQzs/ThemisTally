@@ -31,7 +31,7 @@
 - 本文不写笼统的“全部通过”。
 - “不适用”用 `applicability` 与理由表达（01-L09，文档 2.4）：取 not_applicable 时必须写理由；它只表示检查对该平台或范围没有意义，不能代替必需能力的判定，必需的安全能力不能标不适用来绕过，对应能力仍按 NOT_RUN 等状态记录。
 
-**目录**：0 结论摘要 · 1 交付物总览 · 2 共同依据（实现版本、基线、证据编号）· 3 A01–A16 逐项 · 4 F001–F050 · 5 平台矩阵（7.5）· 6 G0–G6 最终表（7.3）· 7 交接检查（D.3）与未完成项 · 8 给 02/03/04 合同的绑定清单（9.2）· 9 待用户决定的事项 · 10 minor 与剩余风险 · 11 本文的核对方法 · 12 完整性审查的逐条处理（历史）· 13 对抗性核验的逐条处理（历史）· 14 收尾轮验收收尾的逐条处理
+**目录**：0 结论摘要 · 1 交付物总览 · 2 共同依据（实现版本、基线、证据编号）· 3 A01–A16 逐项 · 4 F001–F050 · 5 平台矩阵（7.5）· 6 G0–G6 最终表（7.3）· 7 交接检查（D.3）与未完成项 · 8 给 02/03/04 合同的绑定清单（9.2）· 9 用户决策与剩余事项 · 10 minor 与剩余风险 · 11 本文的核对方法 · 12 完整性审查的逐条处理（历史）· 13 对抗性核验的逐条处理（历史）· 14 收尾轮验收收尾的逐条处理
 
 第 12、13 节是此前两轮返工的处理记录，原文保留不改；其中的证据编号（EV-01–EV-08）、计数与摘要都是当时的值，指最终取证。
 
@@ -616,7 +616,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 
 | # | D.3 问题 | 回答 | 依据 |
 |---|---|---|---|
-| 1 | 实际测的是哪个提交和输入版本 | HEAD `a4fa199b0e5bdc658215765ee7558b9fe6723940`（sha1）加脏工作区。当前依据是收尾取证（BL-CLOSURE）：porcelain 1019 项、输入清单 1073 项（`3a559ca5…`）、闭包 `81b4503e…`，10 次之间工作区不变；闭包为 partial。历史：实施前基线 porcelain 37 项、清单 92 项、闭包 `8ca10fb9…`（BL-PRE）；最终取证 porcelain 319 项、清单 373 项、闭包 `2d8f2f71…`（BL-FINAL）。01 的新文件都未提交，字节见 2.1。取证之后有 4 份文档改变（两份基线报告、兼容矩阵、legacy-inventory），本修订又改了本文与 README；`evidence/closure/` 与 `run-controls-closure/` 在取证之后才加入。除 `test_baseline_records_are_internal` 按目录读取 `evidence/` 外，测试都不读取这些文件（2.1） | 2.1、2.2；baseline-report 第 13 节 |
+| 1 | 实际测的是哪个提交和输入版本 | HEAD `a4fa199b0e5bdc658215765ee7558b9fe6723940`（sha1）加脏工作区。当前依据是收尾取证（BL-CLOSURE）：porcelain 1019 项、输入清单 1073 项（`3a559ca5…`）、闭包 `81b4503e…`，10 次之间工作区不变；闭包为 partial。历史：实施前基线 porcelain 37 项、清单 92 项、闭包 `8ca10fb9…`（BL-PRE）；最终取证 porcelain 319 项、清单 373 项、闭包 `2d8f2f71…`（BL-FINAL）。01 的新文件在收尾取证时尚未提交；其字节现已进入 `182ef16`，后续保护配置与索引修复见 `802fa42`、`e18bc1c`。取证之后有 4 份文档改变（两份基线报告、兼容矩阵、legacy-inventory），本修订又改了本文与 README；`evidence/closure/` 与 `run-controls-closure/` 在取证之后才加入。除 `test_baseline_records_are_internal` 按目录读取 `evidence/` 外，测试都不读取这些文件（2.1） | 2.1、2.2；baseline-report 第 13 节 |
 | 2 | 有哪些旧失败与未运行项 | **失败**：只有附录 B 参考自测 1 项 FAIL（`test_static_resolution`，测试写法问题，EV-R）；项目测试 0 个 FAIL/ERROR。**未运行**：`test_protocols` 的 F017、F029、F030（NOT_RUN）与 jsonschema 元校验（BLOCKED）；P4-L03、L04、C52（POSIX）；旧自测 `test_wrapper_interpreters_and_literal_arguments` 与 Linux 的 PDEATHSIG 分支；文档 6.6 七类的新旧差分（新路径不存在）；Linux、macOS 全部。（最终取证时的“fixtures 方法级证据”与“`--check` 两条命令没有归档”已由 EV-C08、EV-C03、EV-C10 补上。）**旧实现的已知缺陷（特征化锁定的现状，不是测试失败）**：未捕获异常以 Traceback 退出 1、G0 范围、TaskLock 不核对归属、token 缺失记 0 等，见 legacy-inventory 11.2（17 项待设计决定） | 第 4、5 节；legacy-inventory 第 11、12 节 |
 | 3 | 谁拥有各字段 | 标识格式、严格 JSON、快照字节、ResourceRef、事件封装、结构化错误、用量观测与视图：01。资源类型的 `schema_ref`、允许的载荷表示与语义校验器：登记该类型的模块（R-P10；01 预登记的 5 类由 01 声明）。配置字段、语义投影与 `_...` 例外、环境锁：02（01-D05）。审核主体、`input_refs` 的消费与失效、保护路径与授权：03。真实事件类型与载荷 Schema、adapter_revision、原始流完整性与脱敏映射、派生视图修订与 view_id：04（01-D07、M-11）。插件锁资源类型：06。标识分配与持久唯一性、attempt 分配（R-P2）、预算、锁、重试、事件日志事务化、唯一记账：07（01-D08）。合同生成、校验与发布、plan_version 单调：09。项目状态、跨 run 的先后关系与集成观测：10。生产级安全文件访问：后续访问实现模块（01-D06）。逐字段见 protocols-api.md 第 16 节“归属”列 | protocols-api 第 8、11、16、17 节；decisions.md |
 | 4 | 采用了哪个 Schema 家族 | `codekit-public`，公共记录 `schema_version=1`，Schema `$id` `urn:codekit:public-protocol:1`，按 `record_type` 分派（run-context、run-event、usage-observation）；序列化 profile `codekit-config-json-py-v1`。与合同 schema v1、工具版本 2.2.2 相互独立（01-D02）。本地 Schema `schemas/codekit-public-v1.schema.json` 与附录 E.2 摘要一致；元校验 BLOCKED | 3.9；兼容矩阵第 5 节 |
@@ -735,15 +735,15 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
   - 以后若确要让 Pi 修改这些文件，需要先改这个配置（再次征得用户同意）。
 - 本次一并保护三组第一阶段测试：`tests/test_protocols.py`、`tests/test_codekit01_fixtures.py`、`tests/test_baseline_tool.py`。它们锁定 01 协议、兼容 fixtures 与取证工具的行为，不能由委派任务改写。
 
-### (b) 是否提交，以及提交范围
+### (b) 提交范围与已完成提交
 
-- 当前工作区里**属于 01** 的改动（本修订按 `git status --porcelain` 与文件计数核对）：
+- 收尾取证时工作区里**属于 01** 的改动（以下清单保留作历史提交边界核对）：
   - 已跟踪文件的改动：`.gitattributes`（新增 3 条 `-text` 规则与注释）、`.gitignore`（新增 `.agent/baseline/` 与注释）；
-  - 未跟踪文件：`scripts/codekit/`（4 个文件）、`schemas/codekit-public-v1.schema.json`、`tests/test_protocols.py`、`tests/test_codekit01_fixtures.py`、`tests/test_baseline_tool.py`、`tests/test_legacy_gates.py`、`tests/test_legacy_lifecycle.py`、`tests/test_legacy_cli.py`、`tests/test_legacy_events.py`、`tests/legacy_harness.py`、`tests/codekit01_legacy.py`、`tests/fixtures/codekit01/`（189 个文件：manifest 与 188 个登记文件）、`docs/code-kit-v2/01-baseline/`（1626 个文件：8 份文档，另 `evidence/` 下 1618 个）。
+  - 当时未跟踪、现已提交的文件：`scripts/codekit/`（4 个文件）、`schemas/codekit-public-v1.schema.json`、`tests/test_protocols.py`、`tests/test_codekit01_fixtures.py`、`tests/test_baseline_tool.py`、`tests/test_legacy_gates.py`、`tests/test_legacy_lifecycle.py`、`tests/test_legacy_cli.py`、`tests/test_legacy_events.py`、`tests/legacy_harness.py`、`tests/codekit01_legacy.py`、`tests/fixtures/codekit01/`（189 个文件：manifest 与 188 个登记文件）、`docs/code-kit-v2/01-baseline/`（1626 个文件：8 份文档，另 `evidence/` 下 1618 个）。
   - `evidence/` 下各目录**都要纳入**，包括收尾轮新增的四个：`closure/`（841 个：10 个取证目录各 84 个文件与 `INDEX.md`）、`run-controls-final/`（2 个）、`run-controls-closure/`（2 个）、`inventory-items/`（7 个）；以及原有的 `bl-01t1-legacy-20260925/`（84 个）、`final/`（673 个）、`reference-appendix-b-windows/`（4 个）、`run-controls/`（5 个）。本文、基线报告与 INDEX.md 中的摘要都指向这些文件，缺任何一个，引用就追不到。
   - `.agent/baseline/`（取证原件，含机器路径）被 `.gitignore` 忽略，**不提交**。
 - **不属于 01**、提交时不能混入的改动：根目录 `README.md` 的修改（用户原有的改动）；`docs/` 下 6 份中文名文档的删除，以及对应的 6 个乱码名新文件（文件名编码问题造成的重命名）；`docs/code-kit-v2-design.md`，以及 `docs/code-kit-v2/` 下 01–13 设计文档、两份 JSON 与 `README.md`。
-- 因此**不能用 `git add -A`**，也不能用 `git add .`、`git add docs/` 或 `git add docs/code-kit-v2/`（后者会带上设计文档）。应逐路径暂存（例如 `git add -- .gitattributes .gitignore scripts/codekit schemas/codekit-public-v1.schema.json tests/<逐个文件> tests/fixtures/codekit01 docs/code-kit-v2/01-baseline`），再用 `git diff --cached --name-status` 核对暂存清单只含上面列出的路径。
+- 本轮已按上述规则逐路径暂存并提交：原始第一阶段成果在 `182ef16`，保护配置、正确设计文件名、索引修复与测试跳过修复在 `802fa42`，本轮复跑记录在 `e18bc1c`。用户原有根 `README.md`、`docs/` 重命名、根 `code-kit-v2/` 与字体目录均未混入。以后如需单独提交 01 变更，仍不得使用 `git add -A`、`git add .` 或 `git add docs/`。
 - 需要用户一并考虑的依赖：
   - 01 的测试会读取设计文档（按前缀 `01-baseline-and-protocols-` 查找，当前已恢复为正确文件名的设计文件）。不提交它时，干净检出中有 5 个方法会 skip：`test_protocols.py` 的 `test_A09_doc_samples_are_verbatim`、`test_A12_appendix_c1_example_needs_completion`，`test_codekit01_fixtures.py` 的 `test_doc_samples_equal_design_doc_blocks`、`test_c1_completed_entry_matches_doc`、`test_golden_vectors_match_design_doc_table`。`protocols-api.md` 属于 01（在 `01-baseline/` 中）：`test_protocols.py` 核对它的节结构（第 1–19 节）与第 7、15、16、18 节的措辞，`test_codekit01_fixtures.py` 核对第 14.1 节的示例，缺失会使这些测试报错。
   - `-text` 规则必须先于或随同这些文件进入索引，否则本机 `core.autocrlf=true` 会改变提交的字节，登记的摘要失配（baseline-report 第 10 节）。暂存后可用 `git ls-files -s` 的 blob 与 `git hash-object --no-filters` 对照核对。
