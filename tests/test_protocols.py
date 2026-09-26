@@ -3383,6 +3383,17 @@ class PhysicalPathTests(ProtocolTestCase):
         import stat as stat_module
 
         resolved_root = self.root.resolve(strict=True)
+        # Probe the privilege/filesystem capability once.  ``_reparse_object``
+        # uses ``subTest`` callers below; a ``skipTest`` raised from a subtest
+        # skips only that child and would otherwise let the method continue
+        # with an incomplete ``texts`` mapping (and fail with KeyError).
+        probe = self.root / "_reparse-capability-probe"
+        probe.write_bytes(b"")
+        probe_reason = set_reparse_point(probe, symlink_reparse_buffer("ok.txt", relative=True))
+        if probe_reason is not None:
+            probe.unlink(missing_ok=True)
+            self.skipTest(f"{probe_reason}，未实测该项")
+        self.addCleanup(probe.unlink)
         where = resolved_root
         drive = resolved_root.drive
         device = ctypes.create_unicode_buffer(1024)

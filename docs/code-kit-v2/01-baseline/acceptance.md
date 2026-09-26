@@ -67,7 +67,7 @@ Linux、macOS 全部 NOT_RUN。这不是“01 全部通过”。
 
 ## 1. 交付物总览（文档 1.1 目标产物 × 2.3 输出物）
 
-状态说明：“已产生”指文件在工作区中存在并已核对字节；01 的全部产物目前都是**未提交**的工作区文件（第 9 节 (b)）。字节与 sha256 为本修订编写时测得。
+状态说明：“已产生”指文件在工作区中存在并已核对字节；第一阶段代码、Schema、fixtures、测试、文档与证据已在提交 `182ef16` 中；本轮新增的保护配置与索引修复随本次收尾提交。字节与 sha256 为本修订编写时测得。
 
 | 产物（1.1 / 2.3） | 1.1 最低可用标准 | 2.3 应含 / 不应含 | 文件路径 | 字节，sha256 | 状态 |
 |---|---|---|---|---|---|
@@ -80,14 +80,14 @@ Linux、macOS 全部 NOT_RUN。这不是“01 全部通过”。
 | 兼容矩阵 | 区分读取、验证、运行、审核、集成能力，未知版本不降级 | 含类型/版本/平台/读取与执行能力；不含不带条件的“全面兼容” | [compatibility-matrix.md](compatibility-matrix.md) | 118604，`07b3aa17a5e8ed1909f83f4cee7a239d3ea9a7875cdc92a62b52b4d0abe2af34`（修订 12；修订 11 为 116258 `f388c96f…`；收尾取证输入清单记录的是修订 10，105770 `6a5defe9…`） | 已产生（修订 9–11：D-20–D-23 落为 fixture、R-P11 字段、凭据扫描、8.4 归属核对、收尾取证引用；修订 12：E19 与 9.1 节“没有白名单放行”改记为静态核对）；自述“不是验收结论”；第 1 节两条 `codekit01_legacy.py` 命令现有归档（EV-C03、EV-C10，M-06 已关闭） |
 | 验收映射 | 每个结论可追到输入、命令或断言；未运行不等于通过 | 含旧场景、新断言、责任模块、证据引用；不只凭测试名称认定覆盖 | 本文 `acceptance.md` | 本文不内嵌自身摘要（记在 README） | 已产生（第三次修订；第四次修订为勘误，不改判定，见第 15 节）；待独立复审 |
 | 决策记录 | — | — | [decisions.md](decisions.md) | 20186，`8b460b2d57f1e0e8c1ea2cc2da140c66e186f92425a8d8a586a2eb51ececbb61`（与收尾取证输入清单记录的相同） | 已产生；收尾轮追加 R-01、R-02、R-P3 勘误（M-02 已关闭）、R-P10–R-P12 与 R-P11 补充 |
-| 保护范围（文档 5.2） | — | — | AGENTS.md 或 `.agent/dispatch.config.json` | — | **未落实**：已给出两种选项的确切文本，待用户决定（第 9 节 (a)） |
+| 保护范围（文档 5.2） | — | — | `.agent/dispatch.config.json` | — | **已落实**：按选项二登记；机械保护覆盖 01 核心代码、Schema、fixtures、legacy harness/tests、三组第一阶段测试与 `docs/code-kit-v2/01-baseline/`（第 9 节 (a)） |
 
 ## 2. 共同依据
 
 ### 2.1 实现版本（implementation_revision，IR）
 
 - **提交**：HEAD `a4fa199b0e5bdc658215765ee7558b9fe6723940`（sha1 对象格式，对象类型 commit），与文档 2.1 的调查提交相同。
-- **工作区**：01 的全部代码、测试、fixture、Schema 与文档都是**未跟踪**文件；`.gitattributes`、`.gitignore` 有 01 的未提交改动。结论只对下表记录的字节成立。
+- **工作区**：收尾取证时（提交前）的工作区曾包含第一阶段新增代码、测试、fixture、Schema 与文档；这些内容现已进入提交 `182ef16`，本轮只增加保护配置与索引修复。结论只对下表记录的字节成立。
 - 下表的 sha256 由本修订编写时重算，与收尾取证输入清单（`pre/input-manifest.json`，sha256 `3a559ca5cc328a9632831666f5f59137df0484b2fc5f778af351843cdd619982`）记录的值逐一相同。“最终取证时”一列只列收尾轮改动过的文件。
 
 | 文件 | 字节 | sha256 | 取证清单中的来源 | 最终取证时（历史） |
@@ -111,7 +111,7 @@ Linux、macOS 全部 NOT_RUN。这不是“01 全部通过”。
 | `tests/fixtures/codekit01/expected/legacy-events.json` | 107353 | `e889fef038d674d155a8b5cbb1403e07a8a469b36e9b8c8eec0ff44eba34973b` | untracked | 相同 |
 | `tests/fixtures/codekit01/expected/legacy-new-strict.json` | 15638 | `e936407998da7042596c68223cbb9fbfb6c94409e258a6ae9888a832be71af82` | untracked | `bf7f8ad4…` |
 | `docs/code-kit-v2/01-baseline/protocols-api.md`（测试读取其中的节） | 301574 | `785c75f6c3481065fcf8c7a04ea56018a6d69d0309203cc037e3c1b19b016fa0` | untracked | 242742 `4efea533…` |
-| 01 设计文档（乱码名，测试按前缀读取） | 128737 | `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d` | untracked | 相同 |
+| 01 设计文档（审阅增强版，测试按前缀读取） | 128737 | `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d` | untracked | 相同 |
 | `scripts/pi_dispatch.py`（旧调度器，被测对象） | 274717 | `a00d693452b4345d6093efa9864de6e1b4cefacece867b617e68e6a8efce3ad4` | tracked，相对 HEAD 无改动 | 相同 |
 | `scripts/dispatch-pi.sh` | 1010 | `e2e12058ef5d58b4126527b158bef8dcc04653527f7ce20544c0d7cd77bdb2f4` | tracked，无改动 | 相同 |
 | `tests/test_dispatch.py` | 121490 | `c6fed33534b096b764145257ba5c2ce340f50cbaf483b5007097874c3bbd543e` | tracked，无改动 | 相同 |
@@ -222,7 +222,7 @@ EV-01–EV-08 的 capture.json 与输出文件摘要见 [evidence/final/INDEX.md
 
 共同字段（各项不再重复）：
 
-- **implementation_revision**：HEAD `a4fa199…` + 未提交工作区，关键文件 sha256 见 2.1（与收尾取证输入清单相同）。
+- **implementation_revision**：历史收尾取证绑定 HEAD `a4fa199…` + 未提交工作区；当前第一阶段代码基线为提交 `182ef16`，关键文件字节与收尾取证相同，新增保护配置与索引修复不改变被测实现。
 - **baseline_ref**：BL-CLOSURE（2.2）；A01、A07 另以 BL-PRE、BL-FINAL 作历史对照。
 - **platform**：windows 为 Windows Server 2025 Standard 10.0.26100（AMD64）、CPython 3.12.10、git 2.55.0.windows.5；linux、macos 一律 NOT_RUN，不从 Windows 推导。
 - **reviewer_or_owner**：映射与判定为本文（P4 验收映射子代理，收尾轮修订），A01、A07、A16 的判定为 baseline-report 修订 6 编写者；独立复审待进行（P4 4.5）；范围外部分的归属写在各项中。
@@ -621,7 +621,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 | 5 | 哪些平台做了真实验证 | 只有 Windows Server 2025 Standard 10.0.26100（AMD64）+ CPython 3.12.10 + git 2.55.0.windows.5 + Git Bash 5.3.15。Linux、macOS 没有任何实测 | 第 5 节；3.15 |
 | 6 | 未知用量如何传播 | 新协议：未知计量写 null 并必须给出原因，不补零；部分未知与全部未知在视图中向上传播为未知；不同币种不相加；重放按 seq/标识去重只计一次；视图标 `is_accounting=false`（EV-C02，F044–F047、F037）。旧调度器：token 缺失记 0、费用未知为 null、重复 message_end 重复累计（EV-C09，P4-E17、E21、E30），迁移时不能把旧的 0 当作“已知为 0”（D-17–D-19，归 04、07） | 3.6 |
 | 7 | 哪个模块唯一记账 | 07（01-D08）。01 只提供观测校验与观测视图，不做记账或扣减 | decisions.md 01-D08 |
-| 8 | 哪些新增核心文件应进入保护范围 | 建议：`scripts/codekit/`、`schemas/`、`tests/fixtures/codekit01/`、`tests/codekit01_legacy.py`、`tests/legacy_harness.py`、`tests/test_legacy_*.py`、`docs/code-kit-v2/01-baseline/`。**目前没有进入任何保护范围**，两种落实方式待用户决定（第 9 节 (a)） | 文档 5.2 |
+| 8 | 哪些新增核心文件应进入保护范围 | 已落实：`.agent/dispatch.config.json` 的 `extra_protected_paths` 登记 `scripts/codekit/`、`schemas/`、`tests/fixtures/codekit01/`、`tests/codekit01_legacy.py`、`tests/legacy_harness.py`、`tests/test_legacy_*.py`、三组第一阶段测试与 `docs/code-kit-v2/01-baseline/`（第 9 节 (a)） | 文档 5.2 |
 | 9 | 回退时如何保留证据 | 按兼容矩阵第 6.3、6.4 节（修订 11 补上 `.agent/baseline/01-closure/` 与 `evidence/closure/`）：不删除 `.agent/baseline/`（`01-T1/`、`01-P4/`、`01-final/`、`01-closure/` 原件，`.gitignore` 忽略，只读）、`evidence/`（归档，含 `closure/`、`final/`、`run-controls-final/`、`run-controls-closure/`、`inventory-items/`，各有 manifest）、fixture 与 expected；不改写历史合同；不重新生成旧哈希或 expected；旧入口字节未改，所以回退不需要恢复旧入口，停用新消费者即可；首次失败证据（EV-R 的 FAIL）保留 | 兼容矩阵第 6 节 |
 
 **回答不了、列为未完成项的问题**（第三次修订逐项标注状态；已关闭的项保留原文要点并写明依据，不删除）：
@@ -630,7 +630,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 2. **仍未关闭**：生产级安全文件访问（F029、F030）与封存存储根的崩溃持久性由哪个模块负责：01-D06 只写“后续访问实现模块”，模块与合同**未指定**。
 3. **仍未关闭**：Linux、macOS 上的全部结论。
 4. **仍未关闭**：真实 Pi 流、真实历史派遣证据、captured fixture：仓库中没有这些输入（04 采集）。
-5. **仍未关闭**：保护范围未落实；01 产物未提交（第 9 节 (a)(b)，用户决定）。
+5. **已关闭**：保护范围已按第 9 节 (a) 的选项二登记，第一阶段核心成果已提交；仍需独立终审与跨平台/元校验验证。
 6. **已关闭**：`tests/test_codekit01_fixtures.py` 的方法级证据——收尾取证 EV-C08（`bl-01closure-test-codekit01-fixtures-v-20260926`，`python tests/test_codekit01_fixtures.py -v`，run/stderr.bin 13127 字节，sha256 `95faa68cea9315a4a73cc4bfc4223916e56b8eb1b9e5694fa1415fdf1c8b169a`）：75 个方法都有方法名且都是 ok（closure/INDEX.md 4.3 节）。
 7. **已关闭**：A01（pyc）与 A07（逐子项）的口径——decisions.md“收尾轮裁决”R-01（严格口径：计摘要或受控禁用）与 R-02（每类、每门有已实测的失败路径断言，子分支登记为 unmet_within_scope），按裁决的重判见 3.1、3.7。裁决之后仍待规划端确认的三点另列为第 20–22 项。
 8. **仍未关闭**：legacy-inventory 11.2 的 17 项“旧行为保留还是修正”：01 不裁决，各归 03、07、09。
@@ -641,7 +641,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 10. **仍未关闭（部分）**：总设计的读取与交叉检查（decisions.md 01-L08）。“实施前读取总设计”记 **NOT_RUN**，无法事后补成“实施前”；交叉检查已事后补做（source_inspected）。三项后续都**不需要改 01 的代码**：
     - “用量”作为事件类型（总设计第 148 行）与 01 的独立记录 usage-observation 如何对应：归 04；
     - `scripts/codekit/` 下 01 的文件名（protocols、sealing、baseline）与总设计第 9 节拟议的文件名不同：由后续模块决定是否合并或改名（规划端）；
-    - 总设计第 358 行要求新核心模块纳入保护路径：待用户决定（第 9 节 (a)）。
+    - 总设计第 358 行要求新核心模块纳入保护路径：已按第 9 节 (a) 的选项二落实。
 11. **已关闭**：文档 3.2 回归映射的两个字段——按 R-P12 回填：legacy-inventory.md 9.10.6（224 行逐行回填，manifest 与代码内联两种 input_fixture_ref，NOT_COVERED 由 181 行降为 67 行）、12.10（第 12 节 159 个方法各自的 `inline:` 引用与 `codekit01-characterization-v1`）。剩余的 67 行 NOT_COVERED 按原因分四类（清单 9.10.6），其中 (c) 类 23 行的登记方式另列为第 23 项。
 12. **部分关闭（七类与 D-20–D-23 已关闭）**：文档 6.6 选样——超时、取消、恢复、候选漂移、候选/补丁判断、门禁结果、旧入口状态解释七类按 R-P12 改为“旧路径已锁定（内联 fixture + 特征化断言），差分 NOT_RUN（新路径不存在，归 07、10）”，不再记为缺样本（legacy-inventory.md 9.10.7；兼容矩阵第 8 节第 9 条）；D-20–D-23 已落为 6 个 legacy 合同负例（EV-C08 `CompatMatrixDCaseTests` 5 个 ok；EV-C03 中对应 6 行派生 SAME；M-04 已关闭）。**仍未关闭的部分**：缺字段类的两种样本，另列为第 24 项。
 13. **已关闭**：ResourceKind 缺 4.2.1 要求的三项——R-P10 已落实：`ResourceKind`（`scripts/codekit/protocols.py:1362`）增加 `schema_ref`、`payload_representations`、`payload_validator`，登记时缺任一项报 `E_SCHEMA_FIELDS`；新增 `validate_resource_payload`（:1632）；EV-C02 7 个 R-P10 方法 ok（第 271–282、293–294 行），EV-C08 `R11Tests.test_whole_manifest_bytes_pass_fixture_manifest_payload_validator` ok（第 91–92 行）；protocols-api.md 第 8 节与第 18 节第 22 项已补登（M-10 已关闭）。
@@ -668,7 +668,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 
 ## 8. 给 02/03/04 正式合同的绑定清单（文档 9.2）
 
-下表说明每份正式合同在 9.2 要求的 11 项上如何引用本次产物。**前提**：Pi 的 worktree 从合同的基线提交创建，执行器看不到未提交的文件。01 的代码、测试、fixture 与文档都未提交，所以任何以 01 产物为输入的 02/03/04 合同，必须等 01 提交（第 9 节 (b)）并以那个提交为 `base_sha`。
+下表说明每份正式合同在 9.2 要求的 11 项上如何引用本次产物。**前提**：Pi 的 worktree 从合同的基线提交创建，执行器只能看到提交内容。第一阶段核心成果现位于提交 `182ef16`，本轮保护配置与索引修复提交后，下游 02/03/04 合同应以最终提交的 `base_sha` 为准。
 
 | 9.2 项 | 本次产物中的出处 | 合同中的写法 |
 |---|---|---|
@@ -684,13 +684,13 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 | 回退条件 | 兼容矩阵第 6 节（停用方式、回退七步、禁止事项） | 写明：旧入口字节改变、`test_legacy_implementation_bytes_are_source_revision` 失败或 `test_legacy_*_projection_unchanged` 出现差异时停止并回退；回退不删除证据、不重算 expected |
 | 交接验收项 | 本文第 0、3 节的范围外 / 移交项 | **02**：F017（机器路径 → 环境锁，01-D05）、配置语义投影与 `_...` 例外；**03**：`input_refs` 用 `validate_resource_ref` + `verify_resource_bytes` / `validate_resource_payload` / `read_sealed` 核验、`check_resource_dag`、保护路径与授权（A10 授权层）、D-01 等历史歧义输入的处理（01-D09）；**04**：真实事件类型与载荷 Schema（01-D07）、adapter_revision 锁定、原始流按 raw-segment 封存、D-15–D-19 的映射、captured fixture（按 R-P11 填写 `capture` 与 `traceable`）、脱敏偏移映射、事件日志与受信 RunContext 的一致性（01 的 M-01 只核对日志内部的 request/role 一致）、POSIX 取消的旧观测（A07 缺口，迁移比较时记 NOT_COVERED）。<br>**完整性审查与收尾轮补充的移交**：<br>- **02、03、06、09**（登记资源类型的模块）：按 R-P10 登记时必须声明 `schema_ref`、`payload_representations`、`payload_validator`（缺任一项报 `E_SCHEMA_FIELDS`），并用 `validate_resource_payload` 核验载荷；`schema_ref` 只是标识，01 不加载 Schema，需要按 Schema 校验的模块在自己的校验器中实现并在合同中写明；不能把 `validate_resource_ref` 通过当作内容已校验；<br>- **04**：4.3.2 的“同一原始证据换新解析器重建视图 → 新建派生视图修订（独立 view_id 或版本记录），不覆盖旧已承诺事件”，与 adapter_revision 的锁定一并设计（M-11）；8.3 的“事件序号冲突 → 冻结受影响视图、对照持久日志与来源”（兼容矩阵第 9.1 节）；“用量”事件与 usage-observation 的关系（decisions.md 01-L08）；<br>- **07、04**：8.3 的“封存成功、索引失败 → 受控清理未引用候选”（01 只保留候选，不清理）；<br>- **07、10**：文档 6.6 七类（超时、取消、恢复、候选漂移、补丁、门禁、旧入口状态解释）的新兼容路径出现后，用同一代码内联输入做新旧差分（R-P12，legacy-inventory.md 9.10.7）；<br>- **10**：4.3.2 的“跨 run 的先后关系由项目游标和显式依赖表达，不按时间戳强造全序”（M-11） |
 
-## 9. 待用户决定的事项（本文不替用户决定）
+## 9. 用户决策与剩余事项
 
 ### (a) 保护范围（文档 5.2）
 
-文档 5.2：新协议、Schema 注册表、保护路径判断、资源核验与兼容路由一旦成为可信核心，也应纳入保护范围。目前 01 的新增文件**都不在任何保护范围内**（本修订核对：`AGENTS.md` 字节未变，`.agent/dispatch.config.json` 仍不存在）。两种落实方式如下，可以只选一种，也可以同时采用。
+文档 5.2：新协议、Schema 注册表、保护路径判断、资源核验与兼容路由一旦成为可信核心，也应纳入保护范围。本次按**选项二**落实：新建并提交 `.agent/dispatch.config.json`，用 `extra_protected_paths` 机械保护 01 的核心代码、Schema、fixtures、legacy harness/tests、三组第一阶段测试与 `docs/code-kit-v2/01-baseline/`；`AGENTS.md` 作为共享模板保持不变。以下保留两种实现方式的说明，选项二是本次采用的方案。
 
-**选项一：在 AGENTS.md“Pi 执行器”一节加一行本仓库专属禁区**
+**选项一（本次未采用）：在 AGENTS.md“Pi 执行器”一节加一行本仓库专属禁区**
 
 - 位置：`AGENTS.md` 第 113 行是占位符“【按需补充本仓库额外的禁区：……执行器只读本节，写在别处它看不到】”。在它**下面**新增一行（第 114 行），占位符保留。
 - 确切文本：
@@ -704,9 +704,9 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
   - 这份 AGENTS.md 同时是分发给其他仓库的模板（PI-Kit）。这一行写的是本仓库才有的路径，把 AGENTS.md 复制到其他仓库时必须删掉它，否则会在别的仓库里留下无意义的禁区。
   - AGENTS.md 是受保护文件：修改后必须**提交**才对执行器生效（worktree 从基线提交创建）；它的 sha256 `7571e9a9…` 会改变，01 的证据中“受保护文件相对 HEAD 无改动”的核对需要按新基线重做（兼容矩阵 6.2 已预告）。
 
-**选项二：在 `.agent/dispatch.config.json` 的 `extra_protected_paths` 中登记**
+**选项二（本次采用）：在 `.agent/dispatch.config.json` 的 `extra_protected_paths` 中登记**
 
-- 该文件目前**不存在**；AGENTS.md 规定修改（含新建）它之前要征得用户同意。`.agent/README.md` 说它应当提交。
+- 该文件已按本次授权新建；AGENTS.md 对新建/修改的授权要求已满足。`.agent/README.md` 说它应当提交。
 - 确切文本（新建文件的完整内容；其余键不写时取调度器缺省值，与没有这个文件时的行为相同）：
 
 ```json
@@ -718,6 +718,9 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
     "tests/codekit01_legacy.py",
     "tests/legacy_harness.py",
     "tests/test_legacy_*.py",
+    "tests/test_protocols.py",
+    "tests/test_codekit01_fixtures.py",
+    "tests/test_baseline_tool.py",
     "docs/code-kit-v2/01-baseline/**"
   ]
 }
@@ -728,7 +731,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
   - 模式都通过 `pattern_error` 的检查（正斜杠、相对路径、无空段、不是 `*`/`**`）；`**` 匹配任意层级，`*` 只匹配单层。
   - 调度器在主工作区读取这个文件，不需要提交就对 validate/run 生效；执行器本身看不到这条规则（它只读 AGENTS.md），被拦截时才知道。
   - 以后若确要让 Pi 修改这些文件，需要先改这个配置（再次征得用户同意）。
-- 两个选项都没有列入的 01 文件：`tests/test_protocols.py`、`tests/test_codekit01_fixtures.py`、`tests/test_baseline_tool.py`。它们是 01 协议与取证工具的测试；是否一并保护（例如追加 `"tests/test_protocols.py"` 等三项）也由用户决定。
+- 本次一并保护三组第一阶段测试：`tests/test_protocols.py`、`tests/test_codekit01_fixtures.py`、`tests/test_baseline_tool.py`。它们锁定 01 协议、兼容 fixtures 与取证工具的行为，不能由委派任务改写。
 
 ### (b) 是否提交，以及提交范围
 
@@ -740,29 +743,27 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 - **不属于 01**、提交时不能混入的改动：根目录 `README.md` 的修改（用户原有的改动）；`docs/` 下 6 份中文名文档的删除，以及对应的 6 个乱码名新文件（文件名编码问题造成的重命名）；`docs/code-kit-v2-design.md`，以及 `docs/code-kit-v2/` 下 01–13 设计文档、两份 JSON 与 `README.md`。
 - 因此**不能用 `git add -A`**，也不能用 `git add .`、`git add docs/` 或 `git add docs/code-kit-v2/`（后者会带上设计文档）。应逐路径暂存（例如 `git add -- .gitattributes .gitignore scripts/codekit schemas/codekit-public-v1.schema.json tests/<逐个文件> tests/fixtures/codekit01 docs/code-kit-v2/01-baseline`），再用 `git diff --cached --name-status` 核对暂存清单只含上面列出的路径。
 - 需要用户一并考虑的依赖：
-  - 01 的测试会读取设计文档（按前缀 `01-baseline-and-protocols-` 查找，目前是未跟踪的乱码名文件）。不提交它时，干净检出中有 5 个方法会 skip：`test_protocols.py` 的 `test_A09_doc_samples_are_verbatim`、`test_A12_appendix_c1_example_needs_completion`，`test_codekit01_fixtures.py` 的 `test_doc_samples_equal_design_doc_blocks`、`test_c1_completed_entry_matches_doc`、`test_golden_vectors_match_design_doc_table`。`protocols-api.md` 属于 01（在 `01-baseline/` 中）：`test_protocols.py` 核对它的节结构（第 1–19 节）与第 7、15、16、18 节的措辞，`test_codekit01_fixtures.py` 核对第 14.1 节的示例，缺失会使这些测试报错。
+  - 01 的测试会读取设计文档（按前缀 `01-baseline-and-protocols-` 查找，当前已恢复为正确文件名的设计文件）。不提交它时，干净检出中有 5 个方法会 skip：`test_protocols.py` 的 `test_A09_doc_samples_are_verbatim`、`test_A12_appendix_c1_example_needs_completion`，`test_codekit01_fixtures.py` 的 `test_doc_samples_equal_design_doc_blocks`、`test_c1_completed_entry_matches_doc`、`test_golden_vectors_match_design_doc_table`。`protocols-api.md` 属于 01（在 `01-baseline/` 中）：`test_protocols.py` 核对它的节结构（第 1–19 节）与第 7、15、16、18 节的措辞，`test_codekit01_fixtures.py` 核对第 14.1 节的示例，缺失会使这些测试报错。
   - `-text` 规则必须先于或随同这些文件进入索引，否则本机 `core.autocrlf=true` 会改变提交的字节，登记的摘要失配（baseline-report 第 10 节）。暂存后可用 `git ls-files -s` 的 blob 与 `git hash-object --no-filters` 对照核对。
   - 提交后 HEAD 改变。本次证据只对 2.1 记录的字节成立；提交内容与这些字节相同时，结论仍可引用，但要让 PASS 绑定到提交，需要在新 HEAD 上按 01-L05 与 R-01 重新取证。
   - 提交与推送需要用户授权；本任务没有提交。
 
-### (c) 是否在 Linux / macOS 运行同一套取证
+### (c) Linux / macOS 取证状态（本次保留 NOT_RUN）
 
 - 现在两者全部 NOT_RUN，A15 因此不能记 PASS；A07 的 POSIX 取消（P4-L03、L04）、P4-C52、旧自测 `test_wrapper_interpreters_and_literal_arguments` 与 Linux 的 PDEATHSIG 分支只能在 POSIX 上产生结果。
 - 需要的条件：Python 3.10 以上、git、bash；同样的受控环境（PATH 中没有真实 pi/claude/codex、空的 `PI_CODING_AGENT_DIR`、按 R-01 设 `PYTHONPYCACHEPREFIX`）；不需要模型与网络。取证工具在 POSIX 上走 killpg 分支，这一分支本身也没有实测过。
 - 预期差异：`StubTests` 的 stub 重跑核对在非 Windows 上跳过（NOT_RUN）；F028 不适用；旧预期中的报错原文只在 Python 3.12.10 上锁定，解释器版本不同可能导致差分失败，需要单独判断而不是重生成 expected；manifest 中 `platform_scope` 为 windows 的 40 条在其他平台上不宣称适用。
 
-### (d) 是否安装 jsonschema 做 Schema 元校验
+### (d) Schema 元校验状态（本次保留 BLOCKED）
 
 - 现状：`SchemaFileTests.test_A09_jsonschema_metaschema_optional` 跳过，记 BLOCKED（01-L07）。附录 E.1 记载作者在沙箱中用 jsonschema 4.26.0 通过了 Draft 2020-12 元校验，那是文档自述，不对应本仓库。
 - 安装需要联网并引入依赖（`protocols.py` 本身不依赖它，只影响这一个测试；R-P10 的 `schema_ref` 也只登记标识，不加载 Schema），需要用户授权。替代做法：在另一台已安装 jsonschema 的机器上只运行这一项检查并归档输出。
 
-### (e) `docs/code-kit-v2/README.md` 的失效索引链接
+### (e) `docs/code-kit-v2/README.md` 的失效索引链接（01 已修复）
 
-- 事实（本修订重新核对）：索引中 01 的链接指向 `01-baseline-and-protocols.md`（第 11、91 行），仓库里没有这个文件，只有乱码名的审阅增强版。同样失效的还有 02（`02-config-and-profiles.md`）与 03（`03-approvals-and-locks.md`）；04 同时有普通名与审阅增强版两份。索引中也没有指向 `01-baseline/` 的链接。
-- 可选做法（任选，本文不决定）：
-  1. 把乱码文件名改成正确的中文名（例如 `01-baseline-and-protocols-审阅增强版.md`），再把索引链接指向它。测试按前缀查找，改名不影响测试；已归档证据中的旧路径是历史记录，不改写，以后的取证清单会出现路径变化。
-  2. 不改文件名，只把索引链接改成现有的乱码文件名。
-  3. 新建 `01-baseline-and-protocols.md` 作为入口页，链接到审阅增强版与 `01-baseline/`。它不匹配测试使用的前缀 `01-baseline-and-protocols-`，不会让测试找到两份设计文档。
+- 事实（本修订重新核对）：索引中 01 的链接已指向 `01-baseline-and-protocols-审阅增强版.md`（第 11、91 行），该文件已恢复为正确的中文文件名。同样失效的还有 02（`02-config-and-profiles.md`）与 03（`03-approvals-and-locks.md`）；04 同时有普通名与审阅增强版两份。索引中也没有指向 `01-baseline/` 的链接。
+- 本次处理：将乱码文件名恢复为正确的 `审阅增强版`，并把顶层索引的 01 链接指向它；02、03 的普通名链接仍留给各自阶段处理。
+  - 文件实际路径现为 `docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`；索引链接已同步，测试按 `01-baseline-and-protocols-` 前缀查找的约定不变。
 - `docs/code-kit-v2/` 下 01–13 文档与 README 不在本任务可写范围内，本文没有修改。
 
 ## 10. 已知的 minor 与剩余风险
@@ -794,7 +795,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 |---|---|---|
 | R-01 | A01 的 pyc 口径 | **已裁决**（decisions.md R-01），收尾取证按严格口径取证。剩余：受控禁用只有操作者记录；R-01 是否覆盖仓库外输入未明（第 7 节第 20、21 项）；取证工具进程可能把标准库字节码写入前缀目录（推断，未测量）。历史取证 EV-00、EV-01 在严格口径下不满足，保留原口径 |
 | R-02 | A07 的口径与剩余缺口（3.7） | **已裁决**（decisions.md R-02）。剩余：G5 的读法待确认（第 7 节第 22 项）；`unmet_within_scope` 涉及的旧行为在迁移比较时须记 NOT_COVERED |
-| R-03 | 01 产物未提交，且不在保护范围内 | 执行器看不到这些文件；在保护落实前，委派任务可能改动可信核心而只能靠复审发现 |
+| R-03 | 01 产物未提交，且不在保护范围内 | **已关闭**：核心成果已提交，`.agent/dispatch.config.json` 已登记机械保护；后续合同仍须以最终提交为 `base_sha` |
 | R-04 | 单平台 | 任何 Linux、macOS 结论都没有依据 |
 | R-05 | 路径物理检查不是安全访问保证（R-P9）；TOCTOU、硬链接、挂载点等不检测 | 下游不能把 `resolve_existing_path_for_review` 或 `read_sealed` 当作访问凭证 |
 | R-06 | 网络没有隔离与监测；受控环境的条件（PATH、unset 令牌、`PI_CODING_AGENT_DIR` 为空、`PYTHONPYCACHEPREFIX`、受保护文件 diff、临时目录残留）只有操作者记录 | 两份操作者记录都已归档（EV-RCF、EV-RCC）；离线结论依据静态核实；这些条件的证据等级是 source_reported |

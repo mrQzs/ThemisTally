@@ -1,0 +1,14 @@
+{
+  "extra_protected_paths": [
+    "scripts/codekit/**",
+    "schemas/**",
+    "tests/fixtures/codekit01/**",
+    "tests/codekit01_legacy.py",
+    "tests/legacy_harness.py",
+    "tests/test_legacy_*.py",
+    "tests/test_protocols.py",
+    "tests/test_codekit01_fixtures.py",
+    "tests/test_baseline_tool.py",
+    "docs/code-kit-v2/01-baseline/**"
+  ]
+}
