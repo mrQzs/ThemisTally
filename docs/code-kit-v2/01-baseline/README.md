@@ -34,4 +34,4 @@
 - [compatibility-matrix.md](compatibility-matrix.md)、[protocols-api.md](protocols-api.md)：历史兼容矩阵与公共接口。样本数量和本轮关闭项以 fixture-completion / completion-review 为准。
 - [evidence/closure/INDEX.md](evidence/closure/INDEX.md)：原十组收尾取证，保留原始摘要与结论；本轮证据在 `evidence/followup/`。
 
-当前工作不把 Linux/macOS 未运行、真实 Pi 流、事件事务化、生产级路径访问、崩溃持久性或后续新旧兼容路径标成已完成。责任与复跑方式见当前验收报告。
+用户已明确将 Linux/macOS 实测移交后续插件，本轮不再推进，Linux/macOS 保持 NOT_RUN，A15 仍不记 PASS。第一阶段的分阶段实施和当前 Windows 范围验收已完成。真实 Pi 流、事件事务化、生产级路径访问、崩溃持久性和后续新旧兼容路径仍按模块归属移交；责任与未来复跑前提见当前验收报告。

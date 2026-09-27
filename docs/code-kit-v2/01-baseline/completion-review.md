@@ -78,15 +78,19 @@
 - M-14：inline 只含测试摘要时，必须连同对应 input-manifest 中 legacy_harness.py 摘要消费；不用孤立 inline 字符串声称可复现。该规则关闭引用口径事项。
 - M-15：自定义 TempArea 已补强；protocols 测试的标准库 TemporaryDirectory 由测试自行创建并管理，接受其既有使用边界，不把它声明为生产级安全删除。
 - M-09：谁删除过历史临时物无可靠记录，保留历史未知，不要求用户凭记忆补证，不伪造完成记录。
-- 只有 Windows 实测。Linux/macOS 没有可用执行环境，保持 NOT_RUN；A15 整项不记 PASS。当前无 WSL、Docker/Podman 或可用 macOS 主机，不把 Git Bash 视作 Linux。
+- 只有 Windows 实测。**用户于 2026-09-26 明确决定：Linux/macOS 现在不推进，后续由插件实现。** 因此跨平台实测移交后续插件，不阻断本轮已授权范围的收尾；Linux/macOS 仍为 NOT_RUN，A15 整项不记 PASS。本轮没有创建或启动 CI workflow，没有推送。
 - F017 归 02；F029/F030 与生产级文件安全归后续模块（01-D06/R-P9）；真实 Pi/captured 流归 04；事务日志、唯一记账与崩溃持久性归 07（与04集成）；未来兼容新路径差分归 07/10。这些都不由本轮补齐冒称通过。
 
 ## 复跑入口与提交边界
 
-验证环境：`python -m venv <venv>`，再用该环境 Python 执行 `-m pip install -r docs/code-kit-v2/01-baseline/verification-requirements.txt`。随后按归档的 [verification-runner-v2.py](evidence/run-controls-followup/verification-runner-v2.py) 使用该解释器、仓库根、全新的 `.agent/baseline/` 输出目录运行；解释器加 `-B -X pycache_prefix=<新空目录>`。同一入口可在 Linux/macOS 执行，但所得结果须独立审查，不能预填 PASS。
+验证环境：`python -m venv <venv>`，再用该环境 Python 执行 `-m pip install -r docs/code-kit-v2/01-baseline/verification-requirements.txt`。随后按归档的 [verification-runner-v2.py](evidence/run-controls-followup/verification-runner-v2.py) 使用该解释器、仓库根、全新的 `.agent/baseline/` 输出目录运行；解释器加 `-B -X pycache_prefix=<新空目录>`。后续插件取得 Linux/macOS 环境后，先确保 Git 历史包含 `a4fa199`、固定依赖已安装、隔离后的 PATH 可找到 Git/Bash/dirname；推荐沿用 CPython 3.12.10。使用 runner 的标签参数选择 `dispatch protocols fixtures baseline gates lifecycle cli events legacy-check` 九组。`stub-regen` 锁定 Windows CRLF 原字节，非 Windows 不执行该比对，也不能通过重生成 expected 消除差异。各平台使用独立、全新的输出与归档目录；真实结果须独立审查，不能预填 PASS。
 
 只提交本轮逐路径核对的代码、测试、fixture 与阶段文档/脱敏归档。原始 evidence、被忽略 venv 与取证原件、用户根 README 修改、docs 六项重命名、根 code-kit-v2 与字体目录不进入提交。不推送。
 
 最终证据归档后只更新验收说明和提交记录；被测代码字节经上述摘要核对保持一致。P0–P4 在 Windows、01 约定范围内完成；A15 与明确移交项保持上述限制，不把本结论写成“三平台全部通过”。
 
 最终独立复审报告见 [independent-review.md](independent-review.md)：复算全部结果、核对十组 capture 与首次失败、抽验九份输出文件，未发现重要文案或验收缺口。归档后另跑 PublicEntryRejectionTests，3 项通过，覆盖新增内部证据记录仍被公共入口拒绝。代码与手写文档的 diff whitespace 检查通过；原始输出和 CRLF 字节 fixture 按证据保真保留，不据此做空白格式化。
+
+## 用户确认的阶段收尾边界
+
+2026-09-26，用户回复：“现在可以不推进这个，后续会推出插件来实现这个”，所指为待补的 Linux/macOS 实测。第一阶段的分阶段实施、代码补齐、Windows 验收、独立复审、证据归档和本地提交已完成；跨平台验证按用户决定移交，不继续准备 CI、安装操作系统或请求主机。此决定不把 A15 改判 PASS，也不取消已有的平台限制。

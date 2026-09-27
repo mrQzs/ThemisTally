@@ -753,7 +753,9 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
   - 提交后 HEAD 改变。本次证据只对 2.1 记录的字节成立；提交内容与这些字节相同时，结论仍可引用，但要让 PASS 绑定到提交，需要在新 HEAD 上按 01-L05 与 R-01 重新取证。
   - 提交与推送分别需要授权；本轮只按已有授权做本地逐路径提交，不推送。
 
-### (c) Linux / macOS 取证状态（本次保留 NOT_RUN）
+### (c) Linux / macOS 取证状态（用户决定移交后续插件）
+
+- 2026-09-26 用户明确回复“现在可以不推进这个，后续会推出插件来实现这个”。本轮不再推进跨平台实测或 CI；以下 NOT_RUN 与未验证范围保留，待后续插件提供执行环境和取证能力后处理。
 
 - 现在两者全部 NOT_RUN，A15 因此不能记 PASS；A07 的 POSIX 取消（P4-L03、L04）、P4-C52、旧自测 `test_wrapper_interpreters_and_literal_arguments` 与 Linux 的 PDEATHSIG 分支只能在 POSIX 上产生结果。
 - 需要的条件：Python 3.10 以上、git、bash；同样的受控环境（PATH 中没有真实 pi/claude/codex、空的 `PI_CODING_AGENT_DIR`、按 R-01 设 `PYTHONPYCACHEPREFIX`）；不需要模型与网络。取证工具在 POSIX 上走 killpg 分支，这一分支本身也没有实测过。
