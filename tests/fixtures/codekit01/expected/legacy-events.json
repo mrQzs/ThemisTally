@@ -2697,6 +2697,248 @@
         }
       }
     },
+    "negative-legacy-events-ok-final-usage-missing-tokens": {
+      "derived_from": "legacy-stub-events-ok",
+      "description": "文档 6.6 缺字段类：只删除最终 assistant message_end 中 usage 的 input/output/cacheRead/cacheWrite/totalTokens；usage 对象及 cost、其他事件与行尾不变。旧实现将该消息缺失的 token 记为 0，仍累计其费用",
+      "fault": "文档 6.6 缺字段类：只删除最终 assistant message_end 中 usage 的 input/output/cacheRead/cacheWrite/totalTokens；usage 对象及 cost、其他事件与行尾不变。旧实现将该消息缺失的 token 记为 0，仍累计其费用",
+      "generation": {
+        "derived_from": "legacy-stub-events-ok",
+        "kind": "single-fault-derivation"
+      },
+      "inputs": {
+        "events": {
+          "bytes": 5652,
+          "fixture_id": "negative-legacy-events-ok-final-usage-missing-tokens",
+          "line_terminator": "CRLF",
+          "path": "tests/fixtures/codekit01/negative/legacy-events/ok-final-usage-missing-tokens/events.jsonl",
+          "sha256": "99f2255827e34c0ea087a9e470e9fc9be69aa9f4f085e503fa681d8219f39fd8"
+        }
+      },
+      "primary": "expects_settled=true",
+      "requested_executor": {
+        "model": "step-5-preview",
+        "provider": "step",
+        "thinking": "high"
+      },
+      "summaries": {
+        "expects_settled=false": {
+          "actual_models": [
+            {
+              "model": "step-5-preview",
+              "provider": "step"
+            }
+          ],
+          "assistant_messages": 2,
+          "auto_retries": [],
+          "compactions": 0,
+          "complete": true,
+          "cost": {
+            "note": "Pi 按模型目录价格估算；以提供商或网关账单为准",
+            "status": "estimated",
+            "total": 0.00086,
+            "unpriced_messages": 0
+          },
+          "event_counts": {
+            "agent_end": 1,
+            "agent_settled": 1,
+            "agent_start": 1,
+            "message_end": 3,
+            "message_start": 3,
+            "message_update": 1,
+            "session": 1,
+            "tool_execution_end": 2,
+            "tool_execution_start": 2,
+            "turn_end": 2,
+            "turn_start": 2
+          },
+          "final_error": null,
+          "final_stop_reason": "stop",
+          "lines": 19,
+          "model_match": true,
+          "ok": true,
+          "parse_error_lines": [],
+          "problems": [],
+          "provider_thinking_levels": [],
+          "requested_model": {
+            "model": "step-5-preview",
+            "provider": "step",
+            "thinking": "high"
+          },
+          "response_models": [
+            "step-5-preview"
+          ],
+          "session_header": {
+            "cwd": "<redacted:stub-cwd>",
+            "id": "stub",
+            "timestamp": "2026-09-22T00:00:00Z",
+            "version": 3
+          },
+          "stderr_flags": [],
+          "system_prompt_sections": [
+            "base",
+            "context"
+          ],
+          "terminal_event": "agent_settled",
+          "thinking_evidence": "not_reported：该协议或配置不回报 providerThinkingLevel，只能确认请求的级别；实际发送形式取决于协议（例如 anthropic-messages 预算模式把 high 映射为 thinking 预算）",
+          "tool_calls": {
+            "write": 2
+          },
+          "tool_errors": 0,
+          "truncated": false,
+          "usage": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "input": 1000,
+            "output": 200,
+            "totalTokens": 1200
+          }
+        },
+        "expects_settled=null": {
+          "actual_models": [
+            {
+              "model": "step-5-preview",
+              "provider": "step"
+            }
+          ],
+          "assistant_messages": 2,
+          "auto_retries": [],
+          "compactions": 0,
+          "complete": true,
+          "cost": {
+            "note": "Pi 按模型目录价格估算；以提供商或网关账单为准",
+            "status": "estimated",
+            "total": 0.00086,
+            "unpriced_messages": 0
+          },
+          "event_counts": {
+            "agent_end": 1,
+            "agent_settled": 1,
+            "agent_start": 1,
+            "message_end": 3,
+            "message_start": 3,
+            "message_update": 1,
+            "session": 1,
+            "tool_execution_end": 2,
+            "tool_execution_start": 2,
+            "turn_end": 2,
+            "turn_start": 2
+          },
+          "final_error": null,
+          "final_stop_reason": "stop",
+          "lines": 19,
+          "model_match": true,
+          "ok": true,
+          "parse_error_lines": [],
+          "problems": [],
+          "provider_thinking_levels": [],
+          "requested_model": {
+            "model": "step-5-preview",
+            "provider": "step",
+            "thinking": "high"
+          },
+          "response_models": [
+            "step-5-preview"
+          ],
+          "session_header": {
+            "cwd": "<redacted:stub-cwd>",
+            "id": "stub",
+            "timestamp": "2026-09-22T00:00:00Z",
+            "version": 3
+          },
+          "stderr_flags": [],
+          "system_prompt_sections": [
+            "base",
+            "context"
+          ],
+          "terminal_event": "agent_settled",
+          "thinking_evidence": "not_reported：该协议或配置不回报 providerThinkingLevel，只能确认请求的级别；实际发送形式取决于协议（例如 anthropic-messages 预算模式把 high 映射为 thinking 预算）",
+          "tool_calls": {
+            "write": 2
+          },
+          "tool_errors": 0,
+          "truncated": false,
+          "usage": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "input": 1000,
+            "output": 200,
+            "totalTokens": 1200
+          }
+        },
+        "expects_settled=true": {
+          "actual_models": [
+            {
+              "model": "step-5-preview",
+              "provider": "step"
+            }
+          ],
+          "assistant_messages": 2,
+          "auto_retries": [],
+          "compactions": 0,
+          "complete": true,
+          "cost": {
+            "note": "Pi 按模型目录价格估算；以提供商或网关账单为准",
+            "status": "estimated",
+            "total": 0.00086,
+            "unpriced_messages": 0
+          },
+          "event_counts": {
+            "agent_end": 1,
+            "agent_settled": 1,
+            "agent_start": 1,
+            "message_end": 3,
+            "message_start": 3,
+            "message_update": 1,
+            "session": 1,
+            "tool_execution_end": 2,
+            "tool_execution_start": 2,
+            "turn_end": 2,
+            "turn_start": 2
+          },
+          "final_error": null,
+          "final_stop_reason": "stop",
+          "lines": 19,
+          "model_match": true,
+          "ok": true,
+          "parse_error_lines": [],
+          "problems": [],
+          "provider_thinking_levels": [],
+          "requested_model": {
+            "model": "step-5-preview",
+            "provider": "step",
+            "thinking": "high"
+          },
+          "response_models": [
+            "step-5-preview"
+          ],
+          "session_header": {
+            "cwd": "<redacted:stub-cwd>",
+            "id": "stub",
+            "timestamp": "2026-09-22T00:00:00Z",
+            "version": 3
+          },
+          "stderr_flags": [],
+          "system_prompt_sections": [
+            "base",
+            "context"
+          ],
+          "terminal_event": "agent_settled",
+          "thinking_evidence": "not_reported：该协议或配置不回报 providerThinkingLevel，只能确认请求的级别；实际发送形式取决于协议（例如 anthropic-messages 预算模式把 high 映射为 thinking 预算）",
+          "tool_calls": {
+            "write": 2
+          },
+          "tool_errors": 0,
+          "truncated": false,
+          "usage": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "input": 1000,
+            "output": 200,
+            "totalTokens": 1200
+          }
+        }
+      }
+    },
     "negative-legacy-events-ok-truncated-tail": {
       "derived_from": "legacy-stub-events-ok",
       "description": "尾部截断：保留最后一行（agent_settled）的前一半字节，删去其余部分与行尾",

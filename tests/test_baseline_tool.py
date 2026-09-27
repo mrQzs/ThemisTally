@@ -4,7 +4,7 @@
 
 直接运行：python tests/test_baseline_tool.py
 只在 tempfile 创建的临时目录中建立临时 Git 仓库；每个用例结束时只删除本测试自己创建的目录
-（核对父目录是系统临时目录、目录名带本测试前缀，01 文档 8.4）。不调用 pi，不联网。
+（复用 legacy_harness 的目录身份与所有权标记核对，01 文档 8.4）。不调用 pi，不联网。
 """
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ import re  # noqa: E402
 import shutil  # noqa: E402
 import stat  # noqa: E402
 import subprocess  # noqa: E402
-import tempfile  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -38,8 +37,10 @@ from unittest import mock  # noqa: E402
 from typing import Any, Dict, List, Optional, Tuple  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tests"))
+import legacy_harness as H  # noqa: E402
+
 TOOL = ROOT / "scripts" / "codekit" / "baseline.py"
-TEMP_PREFIX = "codekit-bl-test-"
 GIT_REDIRECT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
                 "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_PREFIX")
 
@@ -68,27 +69,51 @@ def base_env(**extra: str) -> Dict[str, str]:
     return env
 
 
-def _force_remove(func: Any, path: str, _info: Any) -> None:
-    os.chmod(path, stat.S_IWRITE)  # Git 对象文件在 Windows 上是只读的
-    func(path)
-
-
 class TempArea:
     """本测试创建的临时目录；清理前核对归属，不在不确定时递归删除。"""
 
     def __init__(self) -> None:
-        self.base = os.path.realpath(tempfile.gettempdir())
-        self.path = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
+        self._created_path = H.make_temp_area()
+        self.path = self._created_path
 
     def cleanup(self) -> None:
-        real = os.path.realpath(str(self.path))
-        if os.path.normcase(os.path.dirname(real)) != os.path.normcase(self.base) \
-                or not os.path.basename(real).startswith(TEMP_PREFIX):
-            raise AssertionError("拒绝清理归属不明的目录：%s" % real)
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(real, onexc=_force_remove)
-        else:
-            shutil.rmtree(real, onerror=_force_remove)
+        if os.fspath(self.path) != os.fspath(self._created_path):
+            raise AssertionError("拒绝清理创建时路径以外的目录：%s" % self.path)
+        H.remove_tree(self.path)
+
+
+class TempAreaOwnershipTests(unittest.TestCase):
+    def test_changed_target_is_refused_without_deleting_either_area(self) -> None:
+        area, other = TempArea(), TempArea()
+        original = area.path
+        try:
+            area.path = other.path
+            with self.assertRaises(AssertionError):
+                area.cleanup()
+            self.assertTrue(original.is_dir())
+            self.assertTrue(other.path.is_dir())
+        finally:
+            area.path = original
+            if original.exists():
+                area.cleanup()
+            if other.path.exists():
+                other.cleanup()
+
+    def test_tampered_marker_is_refused_and_directory_is_preserved(self) -> None:
+        area = TempArea()
+        marker = area.path / H.OWNER_MARKER_NAME
+        original = marker.read_bytes() if marker.exists() else None
+        try:
+            self.assertIsNotNone(original, "temporary area must have an ownership marker")
+            marker.write_bytes(b"tampered")
+            with self.assertRaises(H.CleanupOwnershipError):
+                area.cleanup()
+            self.assertTrue(area.path.is_dir())
+        finally:
+            if original is not None and area.path.exists():
+                marker.write_bytes(original)
+            if area.path.exists():
+                area.cleanup()
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -266,7 +291,9 @@ class RuleTests(unittest.TestCase):
 
     def test_capture_id_rules(self) -> None:
         self.assertIsNone(baseline.validate_capture_id("bl-20260925T000000Z-0123abcd"))
-        for bad in ("../x", "a/b", "", ".hidden", "NUL", "com1.txt", "x.", "a b"):
+        self.assertIsNone(baseline.validate_capture_id("x" * 128))
+        for bad in ("../x", "a/b", "", ".hidden", "NUL", "com1.txt", "x.", "a b", "capture\n",
+                    "x" * 128 + "\n", "x" * 129):
             with self.subTest(bad=bad):
                 self.assertIsNotNone(baseline.validate_capture_id(bad))
         self.assertRegex(baseline.default_capture_id(), r"^bl-\d{8}T\d{6}Z-[0-9a-f]{8}$")
@@ -319,6 +346,7 @@ class ImportSideEffectTests(unittest.TestCase):
         self.addCleanup(area.cleanup)
         codekit_dir = TOOL.parent
         before = sorted(os.listdir(str(codekit_dir)))
+        cwd_before = {p.name: p.read_bytes() for p in area.path.iterdir()}
         code = (
             "import sys, subprocess, os, importlib.util\n"
             "sys.dont_write_bytecode = True\n"
@@ -333,7 +361,8 @@ class ImportSideEffectTests(unittest.TestCase):
                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
         self.assertEqual(proc.stdout.strip(), b"OK")
-        self.assertEqual(os.listdir(str(area.path)), [])
+        self.assertEqual(sorted(os.listdir(str(area.path))), sorted(cwd_before))
+        self.assertEqual({p.name: p.read_bytes() for p in area.path.iterdir()}, cwd_before)
         self.assertEqual(sorted(os.listdir(str(codekit_dir))), before)
 
 
@@ -936,6 +965,50 @@ class TextEncodingTests(unittest.TestCase):
         self.assertIsNone(baseline.text_encoding(b"\xff\xfe\x00bin"))
         # 奇偶位置像 UTF-16 却解不出（孤立代理项）时不能退回 UTF-8 当成已脱敏
         self.assertIsNone(baseline.text_encoding(b"\x00\xd8a\x00b\x00c\x00"))
+
+
+class InputReadFailureTests(_AreaCase):
+    def sample_with_fault(self, fault: str) -> Dict[str, Any]:
+        repo = make_repo(self.area, {"locked.py": b"pass\n"})
+        capture_dir = self.area.path / "capture"
+        capture_dir.mkdir()
+        ctx = baseline.CaptureContext(capture_dir, repo)
+        original = baseline.stat_item
+
+        def inspect(root: Path, path: str, path_ok: bool) -> Dict[str, Any]:
+            if path != "locked.py":
+                return original(root, path, path_ok)
+            if fault == "metadata":
+                with mock.patch.object(baseline.os, "lstat", side_effect=PermissionError("test unreadable metadata")):
+                    return original(root, path, path_ok)
+            if fault == "changed_type":
+                with mock.patch.object(baseline.os, "fstat", return_value=mock.Mock(st_mode=stat.S_IFDIR)):
+                    return original(root, path, path_ok)
+            return original(root, path, path_ok)
+
+        if fault == "deleted":
+            (repo / "locked.py").unlink()
+        with mock.patch.object(baseline, "stat_item", side_effect=inspect):
+            return baseline.take_sample(ctx, "pre", base_env(), [".agent/baseline/"], shutil.which("git"),
+                                        shutil.which("bash"))
+
+    def test_metadata_permission_error_makes_sample_incomplete(self) -> None:
+        sample = self.sample_with_fault("metadata")
+        self.assertFalse(sample["complete"])
+        self.assertTrue(sample["problems"])
+        self.assertIsNone(baseline.compare_samples(sample, sample)["baseline_consistent"])
+
+    def test_type_change_during_open_makes_sample_incomplete(self) -> None:
+        sample = self.sample_with_fault("changed_type")
+        self.assertFalse(sample["complete"])
+        self.assertTrue(sample["problems"])
+        self.assertIsNone(baseline.compare_samples(sample, sample)["baseline_consistent"])
+
+    def test_tracked_deletion_remains_a_valid_sample(self) -> None:
+        sample = self.sample_with_fault("deleted")
+        self.assertTrue(sample["complete"], sample["problems"])
+        self.assertEqual(sample["_manifest_obj"]["items"][0]["type"], "missing")
+        self.assertTrue(baseline.compare_samples(sample, sample)["baseline_consistent"])
 
 
 class ObjectFormatTests(_AreaCase):

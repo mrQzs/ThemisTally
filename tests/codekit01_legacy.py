@@ -69,8 +69,9 @@ SOURCE_REVISION = "a4fa199b0e5bdc658215765ee7558b9fe6723940"
 PROJECTION_REVISION = "codekit01-legacy-projection-v1"
 #: v1（P3）：legacy 合同副本、13 个合同负例、10 条 stub 流与 3 个事件负例。
 #: v2（收尾轮）：新增 D-20–D-23 的 6 个合同负例（NEGATIVE_CONTRACT_VARIANTS 末尾）；递归删除加归属核对。
+#: v3（01 完善）：新增 JSON 缺 task_id 与最后一条 message_end 的 usage 缺 token 字段两个单一故障负例。
 #: 已有 fixture 的派生函数与字节不变（--check 与 --check-stub-regen 逐字节核对）。
-FIXTURE_GENERATOR_REVISION = "codekit01-legacy-fixtures-v2"
+FIXTURE_GENERATOR_REVISION = "codekit01-legacy-fixtures-v3"
 STUB_CWD_RULE_REVISION = "codekit01-legacy-stub-cwd-v1"
 STUB_CWD_PLACEHOLDER = "<redacted:stub-cwd>"
 
@@ -242,6 +243,8 @@ NEGATIVE_CONTRACT_VARIANTS: Tuple[Tuple[str, str, Callable[[bytes], bytes], str]
     ("json-setup-id-trailing-newline", "json", _replace_once(b'{"id": "S01",', b'{"id": "S01\\n",'),
      "兼容矩阵 D-23：setup 项的 id 由 S01 改为 S01 加末尾换行（JSON 转义 \\n）。setup id 只经 ITEM_ID_RE（^…$ 加 "
      "re.match）检查，不与 Markdown 比较"),
+    ("json-missing-task-id", "json", _replace_once(b'  "task_id": "normalize-query",\n', b""),
+     "文档 6.6 缺字段类：只删除 JSON 顶层必填 task_id，Markdown 与其他 JSON 字段保持原字节"),
 )
 
 #: D-20–D-23 与负例变体的对应（兼容矩阵 4.3 节；测试核对这些变体都存在）。
@@ -346,6 +349,20 @@ def _insert_unparseable_line(data: bytes) -> bytes:
     return b"".join(lines[:1] + [b"this line is not json" + ending] + lines[1:])
 
 
+def _drop_final_usage_tokens(data: bytes) -> bytes:
+    """只删除最终 assistant message_end 的 usage token 字段；保留 cost、其他消息和全部行尾。"""
+    lines = _split_lines_keepends(data)
+    indexes = [i for i, line in enumerate(lines) if b'"type": "message_end"' in line
+               and b'"role": "assistant"' in line and b'"stopReason": "stop"' in line]
+    if len(indexes) != 1:
+        raise AssertionError("最终 assistant message_end 锚点必须恰好出现一次")
+    index = indexes[0]
+    lines[index] = _replace_once(
+        b'"usage": {"input": 1000, "output": 200, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 1200, ',
+        b'"usage": {')(lines[index])
+    return b"".join(lines)
+
+
 #: (slug, 来源 stub slug, 变换, 故障说明)
 NEGATIVE_EVENT_VARIANTS: Tuple[Tuple[str, str, Callable[[bytes], bytes], str], ...] = (
     ("ok-truncated-tail", "ok", _truncate_last_line,
@@ -354,6 +371,9 @@ NEGATIVE_EVENT_VARIANTS: Tuple[Tuple[str, str, Callable[[bytes], bytes], str], .
      "重复投递：最后一条 assistant message_end 行原样重复一次，紧跟在原行之后"),
     ("ok-unparseable-line", "ok", _insert_unparseable_line,
      "夹入无法解析的行：在 session 行之后插入一行非 JSON 文本（沿用原流行尾）"),
+    ("ok-final-usage-missing-tokens", "ok", _drop_final_usage_tokens,
+     "文档 6.6 缺字段类：只删除最终 assistant message_end 中 usage 的 input/output/cacheRead/cacheWrite/totalTokens；"
+     "usage 对象及 cost、其他事件与行尾不变。旧实现将该消息缺失的 token 记为 0，仍累计其费用"),
 )
 
 #: 事件负例的 integrity（裁决 R-P11）。它们代表的是证据流本身：尾部截断的流为 truncated，夹入无法解析的行
@@ -362,6 +382,7 @@ NEGATIVE_EVENT_INTEGRITY: Dict[str, str] = {
     "ok-truncated-tail": "truncated",
     "ok-duplicate-final-message-end": "complete",
     "ok-unparseable-line": "corrupted",
+    "ok-final-usage-missing-tokens": "complete",
 }
 
 
@@ -1217,11 +1238,11 @@ EVENT_ENTRY = "tests/codekit01_legacy.py::compute_expected_events（旧实现 pi
 
 
 def build_legacy_manifest_entries() -> List[Dict[str, Any]]:
-    """legacy 合同、legacy 负例、stub 事件与事件负例的 manifest 条目（顺序固定：合同 6、合同负例 19、stub 流 10、
-    事件负例 3，共 38 条）。
+    """legacy 合同、legacy 负例、stub 事件与事件负例的 manifest 条目（顺序固定：合同 6、合同负例 20、stub 流 10、
+    事件负例 4，共 40 条）。
 
     P3 第一部分的 manifest.legacy.draft.json 已并入 manifest.json 并删除。收尾轮按裁决 R-P11 增加五个字段，
-    并在合同负例末尾增加 D-20–D-23 的 6 条（此前 32 条）。
+    并在合同负例末尾增加 D-20–D-23 的 6 条（此前 32 条）；01 完善再增加合同与事件缺字段各 1 条。
     """
     if set(NEGATIVE_EVENT_INTEGRITY) != {slug for slug, _s, _t, _f in NEGATIVE_EVENT_VARIANTS}:
         raise AssertionError("NEGATIVE_EVENT_INTEGRITY 必须恰好覆盖全部事件负例")

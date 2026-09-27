@@ -1,5 +1,9 @@
 # 01 基线报告：实施前基线 bl-01t1-legacy-20260925、实施后回归与收尾取证
 
+> **历史报告与当前验收入口（2026-09-26 续接）**：本报告正文保留 2026-09-26 的**历史修订 7**，包括原有取证事实、01-A01／01-A07／01-A16 判定及 13 项非权威照录。下文“当前”“本次”“待确认”“待独立复审”等表述均属于各段记录的历史时点；当前验收、后续裁决与本轮验证请从 [completion-review.md](completion-review.md) 进入。
+>
+> JSON 新增 `current_acceptance_ref`，并在 13 个 `judged_by_this_report=false` 的条目旁新增 `transcript_status`（`status=historical`、`authoritative_for_current_acceptance=false`）。原有 `transcript_from_acceptance_md` 内容与勘误保持原样，**不作为当前结论，也没有同步成新的验收结果**。acceptance.md 第 7 节第 25 项通过明确区分历史照录与当前入口处理；这不是对历史判定的重写。指针不内嵌当前验收文档摘要，避免循环摘要。
+
 本文是 [baseline-report.json](baseline-report.json) 的人读版，两者内容一致，出现分歧时以 JSON 为准。这条先后规则只适用于本报告自己的两份文件：本报告只判定 01-A01、01-A07、01-A16，其余 13 项（01-A02–A06、A08–A15）由 [acceptance.md](acceptance.md) 判定，JSON 中这些条目标 `judged_by_this_report=false`，不能读作 NOT_RUN（修订 5 更正，见第 8 节）。
 
 - **依据**：`docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`。仓库中文件名因编码显示为乱码。修订 `review-expanded-2026-09-25`，SHA-256 `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d`。

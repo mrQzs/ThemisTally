@@ -1,5 +1,8 @@
 # 01 兼容能力矩阵（P3.7）
 
+> 本文保留修订 12 的历史矩阵。本轮已补齐两类缺字段样本并强化扫描：当前登记 190 项、目录 191 文件；旧判断 40 项零差异，stub 重生成 10 项零差异。当前差异见 [fixture-completion.md](fixture-completion.md)，最终判定见 [completion-review.md](completion-review.md)。
+
+
 - 依据：01 审阅增强版 1.3、8.1–8.4、附录 D.2（8.1 见第 2 节，8.2 见第 6 节，8.3 与 8.4 的逐行落点见第 9 节，修订 8 补；仓库文件名因编码显示为 `01-baseline-and-protocols-╔≤╘─╘÷╟┐░µ.md`，修订 `review-expanded-2026-09-25`）；决策 01-D02、01-D07、01-D08、01-D09、01-D10（[decisions.md](decisions.md)）。
 - 基线：HEAD `a4fa199b0e5bdc658215765ee7558b9fe6723940`（sha1 对象格式）。
 - 输入材料：`tests/fixtures/codekit01/manifest.json`、`expected/` 下三份预期文件、`tests/test_codekit01_fixtures.py`、[protocols-api.md](protocols-api.md)、[legacy-inventory.md](legacy-inventory.md)。

@@ -2491,7 +2491,7 @@ class SchemaFileTests(ProtocolTestCase):
             import jsonschema  # noqa: F401
             from jsonschema import Draft202012Validator
         except ImportError:
-            self.skipTest("未安装 jsonschema，未做元校验（本机不得安装依赖，见 01-L01）")
+            self.skipTest("当前 Python 环境未安装 jsonschema，未做元校验")
         Draft202012Validator.check_schema(SCHEMA)
         validator = Draft202012Validator(SCHEMA)
         for name, text in DOC_SAMPLES.items():
@@ -3434,20 +3434,19 @@ class PhysicalPathTests(ProtocolTestCase):
             ("nt-device-abs-flag", device.value + rooted, False),
             ("global-abs-flag", "\\GLOBAL??\\" + ok, False),
         ]
-        texts = {}
         for name, substitute, relative in kernel_follows:
             with self.subTest(kernel_follows=name):
                 link = self.root / name
                 self._reparse_object(link, symlink_reparse_buffer(substitute, relative=relative))
                 self.assertEqual(link.resolve(strict=True), resolved_root / "ok.txt",
                                  "前提：本机内核跟随这种写法，最终目标在根内")
-                texts[name] = os.readlink(link)
-                self.assertIsNone(P._split_link_target(texts[name], where))
+                text = os.readlink(link)
+                self.assertIsNone(P._split_link_target(text, where))
                 exc = self.assertCode("E_PATH_RESOLUTION_FAILED", P.resolve_existing_path_for_review, self.root,
                                       name, expect_field="/path")
                 self.assertEqual(exc.reason, "link_target_form_unsupported")
-        for name in ("rooted-rel-flag", "nt-device-abs-flag"):  # 相对与绝对两种标志下文本形状相同，语义无法确定
-            self.assertTrue(texts[name].startswith("\\") and not texts[name].startswith("\\\\"), texts[name])
+                if name in ("rooted-rel-flag", "nt-device-abs-flag"):  # 不跨越可能跳过的 subTest 读取文本
+                    self.assertTrue(text.startswith("\\") and not text.startswith("\\\\"), text)
         with self.subTest(kernel_follows="volume-guid-junction"):
             junction = self.root / "jv"
             volume_target = nt_prefix + volume.value[len("\\\\?\\"):] + str(resolved_root / "sub")[len(drive) + 1:]

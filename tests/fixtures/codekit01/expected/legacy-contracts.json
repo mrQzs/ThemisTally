@@ -3805,6 +3805,389 @@
       "note": "单一故障负例",
       "plan_key": "normalize-query.v1"
     },
+    "negative-legacy-contract-json-missing-task-id": {
+      "derived_from": "legacy-contract-normalize-query-v1-json",
+      "fault": "文档 6.6 缺字段类：只删除 JSON 顶层必填 task_id，Markdown 与其他 JSON 字段保持原字节",
+      "inputs": {
+        "json": {
+          "fixture_id": "negative-legacy-contract-json-missing-task-id",
+          "line_terminator": "LF",
+          "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-missing-task-id/normalize-query.v1.json",
+          "sha256": "a2275515b4b4138f51a3f907754ec4f94147494b099cf6450286637e6721bb7d",
+          "utf8_bom": false
+        },
+        "md": {
+          "fixture_id": "legacy-contract-normalize-query-v1-md",
+          "line_terminator": "LF",
+          "path": "tests/fixtures/codekit01/legacy/contracts/normalize-query.v1.md",
+          "sha256": "e105e4a4809cb504c11a8cd9ca3b48b0a06bda8aaada1353548f84160990ff8c",
+          "utf8_bom": false
+        }
+      },
+      "legacy": {
+        "cli_validate_temp_repo": {
+          "argv": [
+            "python",
+            "scripts/pi_dispatch.py",
+            "--repo",
+            "<临时仓库>",
+            "validate",
+            "normalize-query.v1"
+          ],
+          "exit_code": 2,
+          "stderr": "",
+          "stdout": "ERROR task_id 应为 normalize-query，实际为 None\nERROR base_sha 在本仓库中不存在或不是提交：0123456789abcdef0123456789abcdef01234567\n合同无效：2 个错误，0 个警告。\n"
+        },
+        "derive_contract_json": {
+          "contract": {
+            "authorization": {
+              "executor": [
+                "local_edit",
+                "local_test"
+              ],
+              "integration": [
+                "local_branch"
+              ]
+            },
+            "base_sha": "0123456789abcdef0123456789abcdef01234567",
+            "budget": {
+              "cost_budget": null,
+              "max_attempts_total": 2,
+              "max_wall_seconds_per_attempt": 1200,
+              "max_wall_seconds_total": 2400
+            },
+            "checks": [
+              {
+                "argv": [
+                  "pnpm",
+                  "exec",
+                  "vitest",
+                  "run",
+                  "src/search/normalize.test.ts"
+                ],
+                "cwd": ".",
+                "expected_exit_code": 0,
+                "id": "V01",
+                "output_must_match": [
+                  "Tests\\s+[1-9]\\d* passed"
+                ],
+                "output_must_not_match": [
+                  "No test files found"
+                ],
+                "required": true,
+                "timeout_seconds": 300
+              },
+              {
+                "argv": [
+                  "pnpm",
+                  "exec",
+                  "tsc",
+                  "--noEmit",
+                  "-p",
+                  "tsconfig.json"
+                ],
+                "cwd": ".",
+                "expected_exit_code": 0,
+                "id": "V02",
+                "required": true,
+                "timeout_seconds": 300
+              }
+            ],
+            "definition_of_done": [
+              {
+                "evidence": [
+                  "V01",
+                  "D01"
+                ],
+                "id": "D01",
+                "text": "首尾空白去除、内部空白压缩"
+              },
+              {
+                "evidence": [
+                  "V01",
+                  "D02"
+                ],
+                "id": "D02",
+                "text": "空串与纯空白（含全角空格）返回空串"
+              },
+              {
+                "evidence": [
+                  "V01",
+                  "D03"
+                ],
+                "id": "D03",
+                "text": "全角字符经 NFKC 规范化"
+              },
+              {
+                "evidence": [
+                  "V01",
+                  "D04"
+                ],
+                "id": "D04",
+                "text": "小写化不依赖 locale"
+              },
+              {
+                "evidence": [
+                  "V02"
+                ],
+                "id": "D05",
+                "text": "类型检查通过，签名不变"
+              },
+              {
+                "evidence": [
+                  "scope"
+                ],
+                "id": "D06",
+                "text": "所有修改都在允许集合内"
+              },
+              {
+                "evidence": [
+                  "review"
+                ],
+                "id": "D07",
+                "text": "没有删除、跳过或弱化既有测试"
+              }
+            ],
+            "executor": {
+              "context_files": "project",
+              "model": "step-5-preview",
+              "provider": "step",
+              "thinking": "high",
+              "tools": [
+                "read",
+                "grep",
+                "find",
+                "ls",
+                "edit",
+                "write",
+                "bash"
+              ]
+            },
+            "plan_version": 1,
+            "repository": "example-search-app",
+            "risk_level": "low",
+            "schema_version": 1,
+            "scope": {
+              "allowed_deleted_files": [],
+              "allowed_modified_files": [
+                "src/search/normalize.ts"
+              ],
+              "allowed_new_files": [
+                "src/search/normalize.test.ts"
+              ],
+              "dependency_changes": "forbidden",
+              "forbidden_paths": [
+                "package.json",
+                "pnpm-lock.yaml",
+                "tsconfig.json",
+                "vitest.config.ts"
+              ]
+            },
+            "setup": [],
+            "task_id": "normalize-query",
+            "title": "`normalizeQuery(input)` 返回用于检索的规范化查询串：去掉首尾空白，内部连续空白压成一个 ASCII 空格，全角字符做 NFKC 规范化，然后转成小写。"
+          },
+          "derived_equals_parsed_json": false,
+          "problems": [],
+          "validate_contract_on_derived": {
+            "contract_returned": false,
+            "errors": [
+              "D01 的证据 'D01' 不是已定义的检查 id，也不是 scope/review",
+              "D02 的证据 'D02' 不是已定义的检查 id，也不是 scope/review",
+              "D03 的证据 'D03' 不是已定义的检查 id，也不是 scope/review",
+              "D04 的证据 'D04' 不是已定义的检查 id，也不是 scope/review"
+            ],
+            "warnings": []
+          }
+        },
+        "inprocess_validate_plan": {
+          "contract_returned": false,
+          "errors": [
+            "task_id 应为 normalize-query，实际为 None"
+          ],
+          "excluded_steps": [
+            "validate_plan 第 7 步（base_sha 仓库核验及其后的提示）",
+            "validate_plan 第 8 步（.agent/runs 是否被忽略）"
+          ],
+          "outcome": "returned",
+          "warnings": []
+        },
+        "normalize_contract": {
+          "contract": {
+            "authorization": {
+              "executor": [
+                "local_edit",
+                "local_test"
+              ],
+              "integration": [
+                "local_branch"
+              ]
+            },
+            "base_sha": "0123456789abcdef0123456789abcdef01234567",
+            "budget": {
+              "cost_budget": null,
+              "max_attempts_total": 2,
+              "max_wall_seconds_per_attempt": 1200,
+              "max_wall_seconds_total": 2400
+            },
+            "checks": [
+              {
+                "argv": [
+                  "pnpm",
+                  "exec",
+                  "vitest",
+                  "run",
+                  "src/search/normalize.test.ts"
+                ],
+                "cwd": ".",
+                "expected_exit_code": 0,
+                "id": "V01",
+                "output_must_match": [
+                  "Tests\\s+[1-9]\\d* passed"
+                ],
+                "output_must_not_match": [
+                  "No test files found"
+                ],
+                "required": true,
+                "timeout_seconds": 300
+              },
+              {
+                "argv": [
+                  "pnpm",
+                  "exec",
+                  "tsc",
+                  "--noEmit",
+                  "-p",
+                  "tsconfig.json"
+                ],
+                "cwd": ".",
+                "expected_exit_code": 0,
+                "id": "V02",
+                "required": true,
+                "timeout_seconds": 300
+              }
+            ],
+            "definition_of_done": [
+              {
+                "evidence": [
+                  "V01"
+                ],
+                "id": "D01",
+                "text": "首尾空白去除、内部空白压缩"
+              },
+              {
+                "evidence": [
+                  "V01"
+                ],
+                "id": "D02",
+                "text": "空串与纯空白（含全角空格）返回空串"
+              },
+              {
+                "evidence": [
+                  "V01"
+                ],
+                "id": "D03",
+                "text": "全角字符经 NFKC 规范化"
+              },
+              {
+                "evidence": [
+                  "V01"
+                ],
+                "id": "D04",
+                "text": "小写化不依赖 locale"
+              },
+              {
+                "evidence": [
+                  "V02"
+                ],
+                "id": "D05",
+                "text": "类型检查通过，签名不变"
+              },
+              {
+                "evidence": [
+                  "scope"
+                ],
+                "id": "D06",
+                "text": "所有修改都在允许集合内"
+              },
+              {
+                "evidence": [
+                  "review"
+                ],
+                "id": "D07",
+                "text": "没有删除、跳过或弱化既有测试"
+              }
+            ],
+            "executor": {
+              "context_files": "project",
+              "model": "step-5-preview",
+              "provider": "step",
+              "thinking": "high",
+              "tools": [
+                "read",
+                "grep",
+                "find",
+                "ls",
+                "edit",
+                "write",
+                "bash"
+              ]
+            },
+            "plan_version": 1,
+            "repository": "example-search-app",
+            "risk_level": "low",
+            "schema_version": 1,
+            "scope": {
+              "allowed_deleted_files": [],
+              "allowed_modified_files": [
+                "src/search/normalize.ts"
+              ],
+              "allowed_new_files": [
+                "src/search/normalize.test.ts"
+              ],
+              "dependency_changes": "forbidden",
+              "forbidden_paths": [
+                "package.json",
+                "pnpm-lock.yaml",
+                "tsconfig.json",
+                "vitest.config.ts"
+              ]
+            },
+            "setup": [
+              {
+                "argv": [
+                  "pnpm",
+                  "install",
+                  "--frozen-lockfile"
+                ],
+                "cwd": ".",
+                "expected_exit_code": 0,
+                "id": "S01",
+                "timeout_seconds": 900
+              }
+            ],
+            "title": "normalizeQuery：NFKC、压缩空白、小写化"
+          },
+          "defaults_added": [
+            "/setup/0/expected_exit_code"
+          ],
+          "status": "ok"
+        },
+        "read": {
+          "json_decode_or_parse_error": null,
+          "md_decode_error": null
+        },
+        "validate_contract": {
+          "contract_returned": false,
+          "errors": [
+            "task_id 应为 normalize-query，实际为 None"
+          ],
+          "warnings": []
+        }
+      },
+      "note": "单一故障负例",
+      "plan_key": "normalize-query.v1"
+    },
     "negative-legacy-contract-json-plan-version-float": {
       "derived_from": "legacy-contract-normalize-query-v1-json",
       "fault": "JSON 的 plan_version 由整数 1 改为实数 1.0",

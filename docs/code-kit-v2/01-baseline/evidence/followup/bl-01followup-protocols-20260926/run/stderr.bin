@@ -1,0 +1,689 @@
+test_A10_ansi_best_fit_characters_not_rejected (__main__.BusinessPathTests.test_A10_ansi_best_fit_characters_not_rejected)
+4.1.5：P4（裁决 R-P5，不增加严格 profile）。全角或兼容字符在 ANSI 代码页的 best-fit 转换后可能变成 ... ok
+test_A10_generated_short_names_with_tilde_prefix_reserved (__main__.BusinessPathTests.test_A10_generated_short_names_with_tilde_prefix_reserved)
+4.1.5、裁决 R-P3：P4 第 3 轮新增（复审 paths 视角，major）。在 tempfile 目录中建长名含 "~" 的文件与目录， ... ok
+test_A10_name_collisions (__main__.BusinessPathTests.test_A10_name_collisions)
+4.1.5：大小写与 Unicode 形式不擅自归一化，但跨平台名称碰撞要检出并阻断（NFC + casefold）。 ... ok
+test_A10_prefix_and_file_directory_collisions (__main__.BusinessPathTests.test_A10_prefix_and_file_directory_collisions)
+4.1.5“跨平台实际名称碰撞应被检出并阻断”：P2 返工新增（复审 paths 视角）。 ... ok
+test_A10_valid_paths_returned_unchanged (__main__.BusinessPathTests.test_A10_valid_paths_returned_unchanged)
+4.1.5：合法词法路径原样返回，不归一化、不解码、不展开 ~ 或环境变量。 ... ok
+test_A10_windows_short_name_form_reserved (__main__.BusinessPathTests.test_A10_windows_short_name_form_reserved)
+4.1.5、4.1.6：P4（裁决 R-P3）。形如 ABCDEF~1、PROGRA~1.TXT 的分段（基名是 1–6 个非 "." 字符的前缀 + ... ok
+test_F024_absolute_drive_unc_backslash (__main__.BusinessPathTests.test_F024_absolute_drive_unc_backslash)
+01-F024 / 4.1.5：绝对路径、盘符、UNC、设备路径、反斜杠 → E_PATH_SYNTAX。 ... ok
+test_F025_c1_control_characters (__main__.BusinessPathTests.test_F025_c1_control_characters)
+4.1.5“控制字符”：P2 返工新增（复审 fidelity/paths 视角）。按 Unicode 类别 Cc 理解，C1 控制字符 ... ok
+test_F025_dot_segments_empty_nul (__main__.BusinessPathTests.test_F025_dot_segments_empty_nul)
+01-F025 / 4.1.5：父目录、空分段、点分段、末尾斜杠、NUL 与控制字符、DEL、空串、非 str → E_PATH_SYNTAX。 ... ok
+test_F025_length_and_segment_limits (__main__.BusinessPathTests.test_F025_length_and_segment_limits)
+4.1.5：总长 > 4096 UTF-8 字节或单段 > 255 UTF-8 字节 → E_PATH_SYNTAX（按字节不按字符）。 ... ok
+test_F025_line_separators_and_bidi_controls (__main__.BusinessPathTests.test_F025_line_separators_and_bidi_controls)
+4.1.5：P4（裁决 R-P4）。行/段分隔符 U+2028、U+2029（str.splitlines() 会在此断行，日志注入）与 ... ok
+test_F025_nonportable_characters_and_segment_endings (__main__.BusinessPathTests.test_F025_nonportable_characters_and_segment_endings)
+4.1.5：: < > " | ? * 、分段末尾点或空格、孤立代理项 → E_PATH_SYNTAX。 ... ok
+test_F026_reserved_device_names_and_ads (__main__.BusinessPathTests.test_F026_reserved_device_names_and_ads)
+01-F026 / 4.1.5（Microsoft 命名规则）：保留设备名大小写不敏感、带扩展名也算、 ... ok
+test_A04_doc_sample_4_3_6_error (__main__.ConstantsAndErrorTests.test_A04_doc_sample_4_3_6_error)
+4.3.6 样例逐字取出：通过附录 A error 结构；同一故障（嵌套重复键）由实现产生的记录 ... ok
+test_A04_error_codes_complete (__main__.ConstantsAndErrorTests.test_A04_error_codes_complete)
+4.2.7、4.3.6、附录 B.2 与 01-T2 新增码都已登记。 ... ok
+test_A04_error_details_encodable_and_field_marked (__main__.ConstantsAndErrorTests.test_A04_error_details_encodable_and_field_marked)
+4.3.6、B.1：P2 返工新增（复审 json 视角：details 回显孤立代理项、截断指针可能指向别的键）。 ... ok
+test_A04_error_record_is_strict_json_for_bad_key (__main__.ConstantsAndErrorTests.test_A04_error_record_is_strict_json_for_bad_key)
+4.2.7 顺序 6、4.3.6：键中含孤立代理项时，错误记录本身仍须是合法 Unicode 标量的 JSON， ... ok
+test_A04_error_record_shape_and_no_echo (__main__.ConstantsAndErrorTests.test_A04_error_record_shape_and_no_echo)
+4.3.6、附录 A error/errorDetail、B.1：to_record 给出封闭结构，message 取登记文案， ... ok
+test_A04_error_record_text_limits_and_retryable_type (__main__.ConstantsAndErrorTests.test_A04_error_record_text_limits_and_retryable_type)
+附录 A errorDetail（phase ≤ 64、reason/hint ≤ 512）与 B.1：P4 新增（第 2 轮复审 tests-mutation ... ok
+test_A04_error_record_truncated_to_schema_limits (__main__.ConstantsAndErrorTests.test_A04_error_record_truncated_to_schema_limits)
+附录 A errorDetail（field/reason/hint ≤ 512、phase ≤ 64）与 B.1“限制字段长度”： ... ok
+test_A04_error_specs_well_formed (__main__.ConstantsAndErrorTests.test_A04_error_specs_well_formed)
+4.3.6、附录 A error：code 形如 E_[A-Z0-9_]+；message 为安全中文文案且不超过 512； ... ok
+test_A04_protocol_error_rejects_unregistered_code (__main__.ConstantsAndErrorTests.test_A04_protocol_error_rejects_unregistered_code)
+4.3.6：错误码是机器接口；未登记的码在构造时就抛 ValueError。 ... ok
+test_A04_retryable_semantics (__main__.ConstantsAndErrorTests.test_A04_retryable_semantics)
+4.3.6：输入格式类（E_JSON_*、E_SCHEMA_*、E_INTEGER_RANGE）不可重试；只有“可恢复读取”的码 ... ok
+test_A05_legacy_verdicts_match_dispatcher (__main__.ConstantsAndErrorTests.test_A05_legacy_verdicts_match_dispatcher)
+4.1.4、01-A05：旧 verdict 名称原样保留；与 scripts/pi_dispatch.py 的 VERDICTS 一致以防漂移。 ... ok
+test_A09_protocol_constants (__main__.ConstantsAndErrorTests.test_A09_protocol_constants)
+1.3、01-D01/D02/D04：协议家族、公共记录版本、Schema $id、序列化 profile 与上限固定。 ... ok
+test_A11_F037_append_event_replay_of_older_seq_keeps_state (__main__.EventTests.test_A11_F037_append_event_replay_of_older_seq_keeps_state)
+4.3.2、01-F037 幂等：P2 返工新增（复审变异 P144）。重放**较早**的 seq（不是最后一条）：字节相同 ... ok
+test_A11_append_event_sequence (__main__.EventTests.test_A11_append_event_sequence)
+4.3.2：首条 seq=1；新事件必须 last+1（appended）；重放相同字节 → duplicate 且不改状态 ... ok
+test_A11_append_event_state_invariant_checked_fully (__main__.EventTests.test_A11_append_event_state_invariant_checked_fully)
+4.3.2：P4 新增（第 2 轮复审 events-usage 视角）。state 不变式按键集合完整核对：键必须恰好是 ... ok
+test_A11_context_argument_errors_are_prefixed (__main__.EventTests.test_A11_context_argument_errors_are_prefixed)
+4.3.1、4.3.7：P2 返工新增（复审 fidelity 视角与变异 M112）。受信 context 参数本身不合法时， ... ok
+test_A11_context_binding (__main__.EventTests.test_A11_context_binding)
+4.3.1、4.3.5：request/run 由受信上下文绑定，厂商或核心记录都不能改绑定； ... ok
+test_A11_doc_sample_4_3_1_run_event (__main__.EventTests.test_A11_doc_sample_4_3_1_run_event)
+4.3.1 样例逐字取出：核心事件通过封装校验；未给类型注册表时 payload 未被验证。 ... ok
+test_A11_event_log_binding_errors_and_empty (__main__.EventTests.test_A11_event_log_binding_errors_and_empty)
+4.3.2：同一日志中 run_id 不一致 → binding_errors，日志不完整；空日志没有冲突与缺口。 ... ok
+test_A11_event_log_event_count_and_keys (__main__.EventTests.test_A11_event_log_event_count_and_keys)
+4.3.2、protocols-api.md 11 节：P4（裁决 R-P8）。返回值恰好是固定的键集合，新增 event_count ... ok
+test_A11_event_log_out_of_order (__main__.EventTests.test_A11_event_log_out_of_order)
+4.3.2 单写入方 last+1：P2 返工新增（复审 events-usage 视角）。按持久化顺序 [1, 3, 2]：3 在 2 之前 ... ok
+test_A11_event_log_rejects_non_event_records (__main__.EventTests.test_A11_event_log_rejects_non_event_records)
+4.3.2：P4 新增（第 2 轮复审 events-usage 视角）。seq 与 run_id 可读、但 record_type 不是精确的 ... ok
+test_A11_event_log_run_id_parameter (__main__.EventTests.test_A11_event_log_run_id_parameter)
+4.3.2：P2 返工新增（复审变异 M109 与 events-usage 视角）。assess_event_log 的 run_id 参数用于核对 ... ok
+test_A11_event_source_kind (__main__.EventTests.test_A11_event_source_kind)
+4.3.1、4.3.5：source_kind 必须在类型允许的来源中 → 否则 E_EVENT_SOURCE ... ok
+test_A11_event_structure (__main__.EventTests.test_A11_event_structure)
+附录 A event：字段封闭；seq 为精确整数且 ≥1；observed_at 严格格式；枚举与长度限制。 ... ok
+test_A11_event_type_allowed_sources_validated (__main__.EventTests.test_A11_event_type_allowed_sources_validated)
+4.3.1、protocols-api.md 第 11 节：P2 返工新增（复审变异 M111）。allowed_sources 必须是 ... ok
+test_A11_event_type_registry (__main__.EventTests.test_A11_event_type_registry)
+4.3.1、01-D07：给出事件类型注册表时，type 必须已登记（E_EVENT_TYPE_UNKNOWN）； ... ok
+test_A11_known_required_must_appear (__main__.EventTests.test_A11_known_required_must_appear)
+4.3.4：P2 调和新增（规格澄清 C-06）。known_required 按字面理解为“已知且必须出现”： ... ok
+test_A11_m01_append_event_request_and_role_binding (__main__.EventTests.test_A11_m01_append_event_request_and_role_binding)
+M-01：append_event 核对 request_id 与已提交记录一致（E_CONTEXT_BINDING，/request_id， ... ok
+test_A11_m01_binding_reason_order_is_fixed (__main__.EventTests.test_A11_m01_binding_reason_order_is_fixed)
+M-01、protocols-api.md 第 11 节：绑定错误的 reason 按类别的固定顺序选择：run → request → role；同一日志含 ... ok
+test_A11_m01_entry_points_agree (__main__.EventTests.test_A11_m01_entry_points_agree)
+M-01：同一份日志，assess_event_log 有绑定错误 ⇔ 恢复函数报 E_CONTEXT_BINDING ⇔ 按持久化顺序逐条 ... ok
+test_A11_m01_event_log_request_and_role_binding (__main__.EventTests.test_A11_m01_event_log_request_and_role_binding)
+M-01：事件日志除 run_id 外，还核对同一 run 内 request_id 一致、非空 role 一致。不一致的记录列入 ... ok
+test_A11_m01_unreadable_binding_fields (__main__.EventTests.test_A11_m01_unreadable_binding_fields)
+M-01：绑定字段不可读的 run-event 记录（request_id 缺失或不是 str；role 缺失，或既不是 str 也不是 null）与 ... ok
+test_A11_optional_classifications_equivalent (__main__.EventTests.test_A11_optional_classifications_equivalent)
+4.3.4、01-D07：P4 新增（第 2 轮复审 fidelity 视角，按“01 中两者等价、区别由 04 定义”处理）。 ... ok
+test_A11_payload_validator_invoked (__main__.EventTests.test_A11_payload_validator_invoked)
+4.3.1“payload 必须按对应类型验证”：类型的 payload_validator 被调用，其错误原样传播； ... ok
+test_A11_record_depth_includes_payload (__main__.EventTests.test_A11_record_depth_includes_payload)
+01-D04、A.2：P2 返工新增（复审 json 视角）。整条记录（含 payload）共用 64 层上限：payload 自身 ... ok
+test_A11_recover_append_state_after_crash (__main__.EventTests.test_A11_recover_append_state_after_crash)
+4.3.2 崩溃恢复：P2 返工新增（复审 events-usage 视角）。recover_append_state 从持久记录重建完整 ... ok
+test_A11_recover_next_seq_from_persisted_records (__main__.EventTests.test_A11_recover_next_seq_from_persisted_records)
+4.3.2：崩溃后从持久记录恢复下一个序号（不依赖内存计数）；有冲突或缺口时拒绝恢复。 ... ok
+test_A11_recovery_error_code_independent_of_position (__main__.EventTests.test_A11_recovery_error_code_independent_of_position)
+7.4“单一故障输入稳定返回对应码”：P4 新增（第 2 轮复审 events-usage 视角）。他 run 记录、非事件记录 ... ok
+test_A11_recovery_multi_fault_order_is_fixed (__main__.EventTests.test_A11_recovery_multi_fault_order_is_fixed)
+protocols-api.md 第 11 节、recover_next_seq docstring：P4 第 3 轮新增（复审 tests-mutation M27/M30）。恢复 ... ok
+test_A11_required_kinds_must_be_classified (__main__.EventTests.test_A11_required_kinds_must_be_classified)
+4.3.4、C-06：P4 第 3 轮新增（复审 events-usage 视角）。required_kinds 中没有登记到 classification 的类型 ... ok
+test_A11_run_prepared_validator_called_directly (__main__.EventTests.test_A11_run_prepared_validator_called_directly)
+4.3.1、01-D07：P4 新增（第 2 轮复审 tests-mutation Q012）。04 或其他调用方单独调用 run.prepared 的 ... ok
+test_A11_stream_integrity_classification (__main__.EventTests.test_A11_stream_integrity_classification)
+4.3.4、01-D07：未登记的内容是 unknown，不能被忽略；已登记为 known_optional 或 ignorable_optional ... ok
+test_A11_vendor_event_requires_role (__main__.EventTests.test_A11_vendor_event_requires_role)
+4.3.1“role：planner/executor/observer；无角色核心事件可为空”、4.3.5：P4 第 3 轮新增（复审 fidelity 与 ... ok
+test_A11_vendor_evidence_required (__main__.EventTests.test_A11_vendor_evidence_required)
+A.2 vendor 事件：解析修订必须已知；声称 complete 时必须有可引用来源 ... ok
+test_A12_raw_refs_only_reference_raw_segments (__main__.EventTests.test_A12_raw_refs_only_reference_raw_segments)
+4.3.3、A.2 raw_refs：P4（裁决 R-P7）。raw_refs 只能指向已封存的原始证据分段（raw-segment）；已登记 ... ok
+test_A12_raw_span_against_sealed_segment_sizes (__main__.EventTests.test_A12_raw_span_against_sealed_segment_sizes)
+4.3.3：给出已封存段大小时，引用版本必须已知（E_EVENT_RAW_REF_UNKNOWN）， ... ok
+test_A12_raw_span_structure_and_range (__main__.EventTests.test_A12_raw_span_structure_and_range)
+4.3.3、附录 A rawSpan：字段封闭；stream 合法；精确整数且 0 <= start < end ... ok
+test_A12_segment_sizes_values_validated (__main__.EventTests.test_A12_segment_sizes_values_validated)
+4.3.3：P2 返工新增（复审 events-usage 视角）。segment_sizes 来自受信封存索引；实际用到的条目值 ... ok
+test_F037_duplicate_replay_is_idempotent (__main__.EventTests.test_F037_duplicate_replay_is_idempotent)
+01-F037 / 4.3.2：同 seq 同封存内容重放 → 去重为一次观察，日志仍完整。 ... ok
+test_F038_dict_equal_but_bytes_different_is_conflict (__main__.EventTests.test_F038_dict_equal_but_bytes_different_is_conflict)
+01-F038 / 4.3.2、C-10：P4 第 3 轮新增（复审 tests-mutation X23）。重复与冲突按固定快照字节区分，不按 ... ok
+test_F038_same_seq_different_content (__main__.EventTests.test_F038_same_seq_different_content)
+01-F038 / 4.3.2：同 (run_id, seq) 内容不同 → 冲突，日志不完整。 ... ok
+test_F039_seq_gap (__main__.EventTests.test_F039_seq_gap)
+01-F039 / 4.3.2：已提交序号出现缺口 → gaps 记录 (期望, 实际)，日志不完整，不静默跳过。 ... ok
+test_F039_tail_truncation_is_incomplete (__main__.EventTests.test_F039_tail_truncation_is_incomplete)
+01-F039 / 4.3.4：尾部截断（缺结束类内容）→ incomplete，不得成功。 ... ok
+test_F042_redaction_changes_offsets (__main__.EventTests.test_F042_redaction_changes_offsets)
+01-F042 / 4.3.3、01-A12：脱敏改变长度后，偏移按被引用版本的字节计； ... ok
+test_A04_git_cat_file_argv (__main__.GitOidTests.test_A04_git_cat_file_argv)
+4.2.3：受信 argv 为 git cat-file -t <已校验 OID>，不经 shell；非法 OID 先被拒绝。 ... ok
+test_A04_git_format_unsupported (__main__.GitOidTests.test_A04_git_format_unsupported)
+4.2.3：未知对象格式 → E_GIT_FORMAT_UNSUPPORTED，不按长度猜格式。 ... ok
+test_A04_git_oid_rejections (__main__.GitOidTests.test_A04_git_oid_rejections)
+4.2.3：分支名、短 OID、大写、revision 表达式、前导 -、长度与格式不符、非 str → E_GIT_OID_SYNTAX。 ... ok
+test_A04_validate_git_oid (__main__.GitOidTests.test_A04_validate_git_oid)
+4.2.3：sha1 为 40 位、sha256 为 64 位小写十六进制完整 OID。 ... ok
+test_F035_interpret_constructed_output (__main__.GitOidTests.test_F035_interpret_constructed_output)
+01-F035 / 4.2.3：commit/tree 字段类型错置 → E_GIT_OBJECT_TYPE；对象不存在（非零或无退出码） ... ok
+test_F035_real_git_temp_repository (__main__.GitOidTests.test_F035_real_git_temp_repository)
+01-F035 / 4.2.3：在临时仓库真实运行 git cat-file -t，验证解释结果（commit 冒充 tree 等）。 ... ok
+test_A08_new_ids_format (__main__.IdentifierTests.test_A08_new_ids_format)
+4.1.1、01-D01：新 request/run 为 req-/run- 加 UUID4 的 32 位小写十六进制。 ... ok
+test_A08_plan_version_and_attempt (__main__.IdentifierTests.test_A08_plan_version_and_attempt)
+4.1.1、01-D03：plan_version 为正整数（可空由调用方决定）；attempt 为 None 或非负整数 ... ok
+test_A08_platform_from_system (__main__.IdentifierTests.test_A08_platform_from_system)
+4.1.1：platform 由受信环境事实精确映射；未知系统显式不支持（E_COMPAT_UNSUPPORTED），不猜 linux。 ... ok
+test_A08_require_int_exact_type (__main__.IdentifierTests.test_A08_require_int_exact_type)
+4.1.1：整数字段只收精确 int；bool、float（含 1.0）、str → E_SCHEMA_TYPE；越界 → E_INTEGER_RANGE。 ... ok
+test_A08_role_and_platform (__main__.IdentifierTests.test_A08_role_and_platform)
+4.1.1：role ∈ planner/executor/observer；platform ∈ linux/macos/windows（精确、区分大小写）。 ... ok
+test_F021_request_and_run_id_syntax (__main__.IdentifierTests.test_F021_request_and_run_id_syntax)
+01-F021 / 4.1.1：非法字符、大写、长度不符、前缀错误、尾随换行、非 str → E_ID_SYNTAX。 ... ok
+test_F021_task_logical_kind_sha_syntax (__main__.IdentifierTests.test_F021_task_logical_kind_sha_syntax)
+01-F021 / 4.1.1、4.2.1：task_id、逻辑 ID、资源 kind、sha256 整串匹配，拒绝尾随换行 → E_ID_SYNTAX。 ... ok
+test_A14_probe_detects_violations (__main__.ImportSideEffectTests.test_A14_probe_detects_violations)
+01-A14 最小反例：P2 返工新增（复审 fidelity 视角）。用同一套钩子与判定规则运行一段故意违规的 ... ok
+test_A14_sources_do_not_touch_environment (__main__.ImportSideEffectTests.test_A14_sources_do_not_touch_environment)
+01-A14：P2 返工新增（复审变异 M69）。静态检查 protocols.py 与 sealing.py 的源码：任何位置 ... ok
+test_F049_import_has_no_side_effects (__main__.ImportSideEffectTests.test_F049_import_has_no_side_effects)
+01-F049 / 4.4.3、01-A14：在最小环境的子进程中导入 codekit、protocols、sealing、baseline， ... ok
+test_A10_case_sensitive_directory_sibling_is_escape (__main__.PhysicalPathTests.test_A10_case_sensitive_directory_sibling_is_escape)
+4.1.6、01-A10：P2 返工新增（复审 paths 视角，blocker）。按目录启用了大小写敏感的 NTFS 目录中 ... ok
+test_A10_dangling_links_not_found (__main__.PhysicalPathTests.test_A10_dangling_links_not_found)
+4.1.6：P2 返工新增。悬空的目录 symlink（以及 Windows 上悬空的 junction）→ E_PATH_NOT_FOUND。 ... ok
+test_A10_filesystem_aliases_rejected (__main__.PhysicalPathTests.test_A10_filesystem_aliases_rejected)
+4.1.5、4.1.6：P2 返工新增（复审 paths 视角，major）。词法合法不代表对象身份唯一： ... ok
+test_A10_is_within_compares_components_exactly (__main__.PhysicalPathTests.test_A10_is_within_compares_components_exactly)
+01-A10：P2 返工新增（复审 paths 视角，blocker；白盒）。越界判定的共用实现 _is_within 按路径组件 ... ok
+test_A10_kelvin_sign_sibling_is_escape (__main__.PhysicalPathTests.test_A10_kelvin_sign_sibling_is_escape)
+4.1.6、01-A10：P2 返工新增（复审 paths 视角，blocker）。越界判定不能用 str.lower()： ... ok
+test_A10_link_target_names_with_trailing_dot_or_space (__main__.PhysicalPathTests.test_A10_link_target_names_with_trailing_dot_or_space)
+4.1.6、01-A10：P4 第 4 轮新增（复审 paths 视角，major）。NTFS 允许以 "." 或空格结尾的名称（经 \\?\ ... ok
+test_A10_link_walk_failure_reasons_fail_closed (__main__.PhysicalPathTests.test_A10_link_walk_failure_reasons_fail_closed)
+01-A10、裁决 R-P9 (1)：P4 第 5 轮新增（白盒注入）。第 7 节“已检测的情形”列出的另外三种逐跳展开失败此前没有 ... ok
+test_A10_link_walk_physical_dotdot_branch (__main__.PhysicalPathTests.test_A10_link_walk_physical_dotdot_branch)
+01-A10：P4 第 4 轮新增（白盒注入，复审 tests-mutation 视角，变异 P60）。_check_link_hops 中按物理语义处理 ... ok
+test_A10_link_walk_unsupported_form_and_divergence (__main__.PhysicalPathTests.test_A10_link_walk_unsupported_form_and_divergence)
+01-A10：P4 第 4 轮新增（白盒注入，复审 tests-mutation 视角）。替换 protocols._link_target_text，让逐跳 ... ok
+test_A10_manual_short_name_alias_black_box (__main__.PhysicalPathTests.test_A10_manual_short_name_alias_black_box)
+4.1.5、4.1.6：P4 第 3 轮新增（复审 paths 视角）。手工设置、不含 "~" 的短名（fsutil file setshortname）不是 ... ok
+test_A10_path_through_outside_is_escape (__main__.PhysicalPathTests.test_A10_path_through_outside_is_escape)
+4.1.6：P2 返工新增。逐级解析：多分段路径的中间一级落到根外、之后又经链接绕回根内，同样 → ... ok
+test_A10_physical_check_wording_follows_r_p9 (__main__.PhysicalPathTests.test_A10_physical_check_wording_follows_r_p9)
+裁决 R-P9 (2)(3)、01-D06：P4 第 5 轮新增（复审 paths 与 fidelity 视角，major）。物理检查是“静态审阅 + 纵深 ... ok
+test_A10_r_p9_wording_covers_changelog_history_and_tests (__main__.PhysicalPathTests.test_A10_r_p9_wording_covers_changelog_history_and_tests)
+裁决 R-P9 (2)：P4 第 5 轮核验后新增（核验 minor 两条）。上一用例只检查第 7、15、16 节，漏掉了：第 18 节 ... ok
+test_A10_relative_link_chain_through_outside_is_escape (__main__.PhysicalPathTests.test_A10_relative_link_chain_through_outside_is_escape)
+4.1.6、01-A10：P4 第 4 轮新增（复审 tests-mutation 视角，major）。经根外绕回根内的链接链以**相对**目标 ... ok
+test_A10_root_variants (__main__.PhysicalPathTests.test_A10_root_variants)
+4.1.6：P2 返工新增（复审 paths 视角）。根本身是 junction、根的拼写大小写不同，都按 ... ok
+test_A10_single_segment_link_chain_through_outside_is_escape (__main__.PhysicalPathTests.test_A10_single_segment_link_chain_through_outside_is_escape)
+4.1.6、01-A10：P4 第 3 轮新增（复审 fidelity 视角，major）。逐级检查原来只看每个分段 resolve 后的最终 ... ok
+test_A10_split_link_target_forms (__main__.PhysicalPathTests.test_A10_split_link_target_forms)
+01-A10：P4 第 4 轮新增（白盒，复审 tests-mutation 视角）。_split_link_target 对各种目标写法的拆分： ... ok
+test_A10_static_resolution_docstring_limits (__main__.PhysicalPathTests.test_A10_static_resolution_docstring_limits)
+4.1.6、4.1.7、01-D06：静态解析 docstring 写明不是访问凭证、不消除 TOCTOU。 ... ok
+test_A10_static_resolution_errors (__main__.PhysicalPathTests.test_A10_static_resolution_errors)
+4.1.6、4.1.7：词法非法先拒绝（E_PATH_SYNTAX）；目标不存在 → E_PATH_NOT_FOUND； ... ok
+test_A10_static_resolution_positive (__main__.PhysicalPathTests.test_A10_static_resolution_positive)
+4.1.6、B.1：根内已有文件静态解析成功；返回值相对 resolve 后的根计算（不受 8.3 短名影响）。 ... ok
+test_A10_symlink_loop_resolution_failed (__main__.PhysicalPathTests.test_A10_symlink_loop_resolution_failed)
+4.1.6：链接环等解析失败 → E_PATH_RESOLUTION_FAILED（不泄漏 OSError/RuntimeError）。 ... ok
+test_A10_target_is_directory_link (__main__.PhysicalPathTests.test_A10_target_is_directory_link)
+4.1.6：P2 返工新增。目标本身就是目录链接（不是经由它访问下层文件）：指向根内时返回解析后的 ... ok
+test_A10_unrecognized_name_surrogate_reparse_point_fails_closed (__main__.PhysicalPathTests.test_A10_unrecognized_name_surrogate_reparse_point_fails_closed)
+4.1.6、01-A10：P4 第 5 轮新增（裁决 R-P9 (1)，复审 fidelity 视角 major；白盒注入）。_link_target_text 原来只认 ... ok
+test_A10_windows_link_target_dotdot_is_lexical (__main__.PhysicalPathTests.test_A10_windows_link_target_dotdot_is_lexical)
+4.1.6、01-A10：P4 第 4 轮新增（复审 fidelity 与 paths 视角，major）。Windows 解析相对 symlink 时按词法 ... ok
+test_A10_windows_link_target_forms_measured (__main__.PhysicalPathTests.test_A10_windows_link_target_forms_measured)
+4.1.6、01-A10：P4 第 5 轮新增（裁决 R-P9，复审 fidelity 视角）。黑盒实测：用 FSCTL_SET_REPARSE_POINT 直接写入 ... skipped 'FSCTL_SET_REPARSE_POINT 失败（winerror 1314，可能缺少权限），未实测该项'
+test_F027_symlink_escape (__main__.PhysicalPathTests.test_F027_symlink_escape)
+01-F027 / 4.1.5、4.1.6：根内符号链接（文件与目录）指向根外 → E_PATH_ESCAPE（Windows 实测）。 ... ok
+test_F028_junction_escape (__main__.PhysicalPathTests.test_F028_junction_escape)
+01-F028 / 4.1.6、7.5：Windows junction（重解析点）越界 → E_PATH_ESCAPE；指向根内的 junction 可解析。 ... ok
+test_F029_replacement_after_check (__main__.PhysicalPathTests.test_F029_replacement_after_check)
+01-F029：检查后父目录/目标被替换——生产安全访问不在 01 实现范围（01-D06）。 ... skipped '01-D06：01 只提供词法校验与静态解析，不实现抗 TOCTOU 的受控访问；F029 由后续访问实现模块验收，此处未测试，不代表通过'
+test_F030_fifo_device_hardlink (__main__.PhysicalPathTests.test_F030_fifo_device_hardlink)
+01-F030：目标替换为 FIFO/设备/共享硬链接——生产安全访问不在 01 实现范围（01-D06）。 ... skipped '01-D06：01 不实现文件类型与硬链接受控读写；F030 由后续访问实现模块验收，此处未测试，不代表通过'
+test_A12_appendix_c1_example_needs_completion (__main__.ProvenanceTests.test_A12_appendix_c1_example_needs_completion)
+附录 C.1、protocols-api.md 14.1：P2 返工新增（复审 fidelity 视角）。C.1 只是建议稿，缺 expected、 ... ok
+test_A12_captured_and_redacted_entries (__main__.ProvenanceTests.test_A12_captured_and_redacted_entries)
+4.3.3：captured 只能配 captured_raw/redacted_raw，且须有 source_revision 或 source_test_id； ... ok
+test_A12_claim_lexicon (__main__.ProvenanceTests.test_A12_claim_lexicon)
+4.3.3、14.2：P4 第 3 轮新增（复审 tests-mutation 视角，major）。能力声明是封闭词法 ... ok
+test_A12_legacy_and_negative_entries (__main__.ProvenanceTests.test_A12_legacy_and_negative_entries)
+5.3、7.4：legacy 需要完整 OID 的 source_revision 与 source_path 或 source_test_id； ... ok
+test_A12_manifest_entry_structure (__main__.ProvenanceTests.test_A12_manifest_entry_structure)
+01-T2 规格：条目字段封闭（E_SCHEMA_FIELDS）；资源为带 path 的 fixture 引用；枚举值受限。 ... ok
+test_A12_manifest_set (__main__.ProvenanceTests.test_A12_manifest_set)
+5.3、C.1：Manifest 文件逐条校验；fixture_id 不重复；resource.path 不得碰撞；不含自身摘要。 ... ok
+test_A12_negative_cannot_derive_from_negative (__main__.ProvenanceTests.test_A12_negative_cannot_derive_from_negative)
+7.4“每个负例从一份通过该层全部前置校验的有效样本复制”、14.3：P4 第 3 轮新增（复审 tests-mutation 视角）。 ... ok
+test_A12_negative_legacy_claims_require_legacy_base (__main__.ProvenanceTests.test_A12_negative_legacy_claims_require_legacy_base)
+01-A12、5.3：P4（fixtures 复审 major 的清单层部分）。声明 legacy_ 前缀能力的负例必须从 legacy 条目 ... ok
+test_A12_provenance_rule_details (__main__.ProvenanceTests.test_A12_provenance_rule_details)
+4.3.3、5.3：P2 返工新增（复审变异 M54b/M49/M48/M50）。合成样本声称前缀型真实能力 ... ok
+test_A12_r_p11_check_order_structure_then_steps (__main__.ProvenanceTests.test_A12_r_p11_check_order_structure_then_steps)
+protocols-api.md 14.2 的检查顺序（收尾轮返工，复审 tests-mutation 视角）：收尾轮新增字段的结构检查先于全部 ... ok
+test_A12_r_p11_integrity_limits_complete_stream_claims (__main__.ProvenanceTests.test_A12_r_p11_integrity_limits_complete_stream_claims)
+裁决 R-P11、文档 6.6“封存”：integrity 不是 complete 的条目，proves 不得含完整运行流一类的声明 ... ok
+test_A12_r_p11_manifest_set_reports_entry_pointer (__main__.ProvenanceTests.test_A12_r_p11_manifest_set_reports_entry_pointer)
+裁决 R-P11：整份清单逐条按新结构校验，新字段的错误 field 带 /entries/<i> 前缀；新字段不参与清单级的 ... ok
+test_A12_r_p11_new_fields_structure (__main__.ProvenanceTests.test_A12_r_p11_new_fields_structure)
+裁决 R-P11 的结构层（字段仍封闭）：integrity 取 complete/partial/truncated/corrupted；platform_scope 为 ... ok
+test_A12_r_p11_structure_preservation_limits_field_semantics_claims (__main__.ProvenanceTests.test_A12_r_p11_structure_preservation_limits_field_semantics_claims)
+裁决 R-P11、文档 4.3.3“无法保证语义字段未被脱敏破坏时，该 fixture 不能证明该字段的真实协议兼容性”： ... ok
+test_A12_r_p11_traceable_and_capture_rules (__main__.ProvenanceTests.test_A12_r_p11_traceable_and_capture_rules)
+裁决 R-P11：legacy 与 captured 的 origin.traceable 必须为 true（E_PROVENANCE_CLAIM，/origin/traceable， ... ok
+test_A12_real_compatibility_claims_by_origin_and_representation (__main__.ProvenanceTests.test_A12_real_compatibility_claims_by_origin_and_representation)
+4.3.3“synthetic_fixture……无真实厂商来源声明”、01-A12：P4（fixtures 复审 major 的协议层根因）。能力 ... ok
+test_A12_redaction_metadata_and_representation_rules (__main__.ProvenanceTests.test_A12_redaction_metadata_and_representation_rules)
+4.3.3“避免‘原始’一词掩盖内容已变换”“脱敏元数据至少记录……是否改变字节长度”：P4 新增（第 2 轮复审 ... ok
+test_A12_synthetic_entry_accepted (__main__.ProvenanceTests.test_A12_synthetic_entry_accepted)
+C.1、5.3：合成样本条目（synthetic + synthetic_fixture，声明不证明真实兼容）通过。 ... ok
+test_F043_synthetic_cannot_claim_captured (__main__.ProvenanceTests.test_F043_synthetic_cannot_claim_captured)
+01-F043 / 4.3.3、8.1：合成样本不能标成采集表示，也不能声称真实兼容 → E_PROVENANCE_CLAIM。 ... ok
+test_A04_default_registry_kinds (__main__.ResourceRefTests.test_A04_default_registry_kinds)
+4.2.1、01-T2：默认登记 fixture、fixture-manifest、public-schema、baseline-evidence、raw-segment， ... ok
+test_A04_default_registry_owners (__main__.ResourceRefTests.test_A04_default_registry_owners)
+4.2.1、4.4.1、01-T2：默认登记项的 owner_module：fixture 等四类归 01，raw-segment 归 04 ... ok
+test_A04_doc_sample_4_2_2_resource_ref (__main__.ResourceRefTests.test_A04_doc_sample_4_2_2_resource_ref)
+4.2.2 样例逐字取出：fixture 类型已登记，引用通过校验且与合成字节摘要一致。 ... ok
+test_A04_r_p10_declaration_values_validated (__main__.ResourceRefTests.test_A04_r_p10_declaration_values_validated)
+裁决 R-P10：显式声明的值不合法时，与 ResourceKind 其他字段一样抛 ValueError（不是 ProtocolError）。 ... ok
+test_A04_r_p10_default_registry_declarations (__main__.ResourceRefTests.test_A04_r_p10_default_registry_declarations)
+裁决 R-P10：01 预登记的 5 个类型都声明了三项。schema_ref 都为 None；payload_representations 为： ... ok
+test_A04_r_p10_public_schema_payload_validator (__main__.ResourceRefTests.test_A04_r_p10_public_schema_payload_validator)
+裁决 R-P10：public-schema 只接受 json，校验器为严格解析加 "$id" 核对。本地 Schema 文件 ... ok
+test_A04_r_p10_registration_requires_three_declarations (__main__.ResourceRefTests.test_A04_r_p10_registration_requires_three_declarations)
+裁决 R-P10：“其他模块登记自己的类型时必须提供这三项”。未声明任何一项的登记项，经 extended() 或直接构造 ... ok
+test_A04_r_p10_validate_resource_payload_representations (__main__.ResourceRefTests.test_A04_r_p10_validate_resource_payload_representations)
+裁决 R-P10：validate_resource_payload 先按 verify_resource_bytes 核验引用与字节，再检查载荷表示： ... ok
+test_A04_r_p10_validator_exceptions_are_wrapped (__main__.ResourceRefTests.test_A04_r_p10_validator_exceptions_are_wrapped)
+裁决 R-P10：校验器以 (raw, registry) 调用一次；抛出的 ProtocolError 原样传出；抛出其他异常时包装为 ... ok
+test_A04_registry_extension_cannot_override (__main__.ResourceRefTests.test_A04_registry_extension_cannot_override)
+4.2.1、protocols-api.md 第 8 节与 17 节：P2 返工新增（复审变异 M56，major）。extended() 遇到 ... ok
+test_A04_registry_immutable_and_extended (__main__.ResourceRefTests.test_A04_registry_immutable_and_extended)
+4.2.1、4.4.3：注册表属于可信核心，构造后不可增删改；extended() 返回新对象，原对象不变。 ... ok
+test_A04_resource_field_syntax (__main__.ResourceRefTests.test_A04_resource_field_syntax)
+4.2.1：kind/id/sha256 语法错误 → E_RESOURCE_FIELD，field 指向字段；path 按业务路径规则。 ... ok
+test_A04_resource_ref_type_and_fields (__main__.ResourceRefTests.test_A04_resource_ref_type_and_fields)
+4.2.1、附录 A resourceRef：非对象 → E_SCHEMA_TYPE；缺必需字段或有未知字段 → E_SCHEMA_FIELDS。 ... ok
+test_A04_verify_requires_bytes (__main__.ResourceRefTests.test_A04_verify_requires_bytes)
+B.2：待核验内容必须是 bytes；bytearray、str、memoryview → E_RESOURCE_BYTES。 ... ok
+test_A12_r_p10_fixture_manifest_payload_validator (__main__.ResourceRefTests.test_A12_r_p10_fixture_manifest_payload_validator)
+裁决 R-P10、附录 C.1：fixture-manifest 只接受 json，校验器为严格解析加 validate_fixture_manifest_set。整份 ... ok
+test_F031_file_resource_requires_path (__main__.ResourceRefTests.test_F031_file_resource_requires_path)
+01-F031：文件资源缺 path → E_RESOURCE_PATH_REQUIRED。 ... ok
+test_F032_unknown_kind_and_unknown_field (__main__.ResourceRefTests.test_F032_unknown_kind_and_unknown_field)
+01-F032：未登记 kind → E_RESOURCE_KIND；未知顶层字段 → E_SCHEMA_FIELDS；不静默丢字段。 ... ok
+test_F033_crlf_changes_hash (__main__.ResourceRefTests.test_F033_crlf_changes_hash)
+01-F033 / 4.2.4：只把 LF 改成 CRLF → E_RESOURCE_HASH_MISMATCH；引用中的期望摘要不被重算。 ... ok
+test_F034_sha_format_vs_content_mismatch (__main__.ResourceRefTests.test_F034_sha_format_vs_content_mismatch)
+01-F034：摘要大写或截断是格式错误（E_RESOURCE_FIELD）；长度正确但值不符是内容错误 ... ok
+test_F036_referenced_only_nodes_and_determinism (__main__.ResourceRefTests.test_F036_referenced_only_nodes_and_determinism)
+4.2.8：P2 调和新增（规格澄清 C-15）。只作为被引用方出现、自身不是键的节点也进入拓扑序 ... ok
+test_F036_resource_cycles (__main__.ResourceRefTests.test_F036_resource_cycles)
+01-F036 / 4.2.8：自环或多节点环 → E_RESOURCE_CYCLE，details 指出环上一个节点。 ... ok
+test_F036_resource_dag_order (__main__.ResourceRefTests.test_F036_resource_dag_order)
+4.2.8：无环依赖返回确定性拓扑序，被引用者在前（配置/合同 → 审核 → 执行 → 集成）。 ... ok
+test_A08_derive_rejects_inapplicable_parameters (__main__.RunContextTests.test_A08_derive_rejects_inapplicable_parameters)
+4.1.2 表：P2 调和新增（规格澄清 C-04）。参数不适用于该动作时报 E_SCHEMA_FIELDS， ... ok
+test_A08_derive_result_is_validated (__main__.RunContextTests.test_A08_derive_result_is_validated)
+4.1.2、protocols-api.md 5.2：P2 返工新增（复审变异 M52）。派生结果须经 validate_run_context ... ok
+test_A08_derive_validates_contract_ref_before_copy (__main__.RunContextTests.test_A08_derive_validates_contract_ref_before_copy)
+4.1.2、F012、protocols-api.md 5.2：P4 第 3 轮新增（复审 json 视角）。derive_run_context 先校验、再拷贝 ... ok
+test_A08_derive_validates_parent_first (__main__.RunContextTests.test_A08_derive_validates_parent_first)
+4.1.2、protocols-api.md 5.2：P4 新增（第 2 轮复审 tests-mutation Q045）。派生前先校验 parent：非法 ... ok
+test_A08_doc_sample_4_1_3_run_context (__main__.RunContextTests.test_A08_doc_sample_4_1_3_run_context)
+4.1.3 样例逐字取出：通过 RunContext 结构校验，且不被修改。 ... ok
+test_A08_executor_dispatch_requires_binding_fields (__main__.RunContextTests.test_A08_executor_dispatch_requires_binding_fields)
+4.1.3：进入 executor 派遣前 task_id、plan_version、attempt、contract_ref 必须齐全 ... ok
+test_A08_executor_dispatch_requires_executor_role (__main__.RunContextTests.test_A08_executor_dispatch_requires_executor_role)
+4.1.3“进入 executor 派遣前”：P4 新增（第 2 轮复审 fidelity 视角）。字段齐全的 planner 或 ... ok
+test_A08_executor_retry_requires_attempt (__main__.RunContextTests.test_A08_executor_retry_requires_attempt)
+4.1.2、01-D03：父上下文 attempt 未知时无法核对编号 → E_CONTEXT_INCOMPLETE。 ... ok
+test_A08_executor_retry_requires_executor_parent (__main__.RunContextTests.test_A08_executor_retry_requires_executor_parent)
+4.1.2“原执行失败后再次启动 executor”：P2 调和新增（规格澄清 C-04）。规格未写父上下文 ... ok
+test_A08_observer_rework_and_new_goal (__main__.RunContextTests.test_A08_observer_rework_and_new_goal)
+4.1.2 表：observer 调用保持 request、新 run、role=observer、attempt 取参数； ... ok
+test_A08_run_context_closed_fields (__main__.RunContextTests.test_A08_run_context_closed_fields)
+附录 A runContext：字段封闭；未知字段或缺字段 → E_SCHEMA_FIELDS。 ... ok
+test_A08_run_context_field_rules (__main__.RunContextTests.test_A08_run_context_field_rules)
+4.1.1、附录 A：单字段故障分别拒绝（标识语法、整数类型与范围、枚举、引用形状）。 ... ok
+test_A08_unknown_derive_action (__main__.RunContextTests.test_A08_unknown_derive_action)
+4.1.2：未登记的派生动作 → E_SCHEMA_FIELDS（不猜为重试或重连）。 ... ok
+test_F022_reconnect_and_replay_keep_identity (__main__.RunContextTests.test_F022_reconnect_and_replay_keep_identity)
+01-F022 / 4.1.2：重连查询与重放不新建 run：request、run、attempt 不变；parent 不被修改。 ... ok
+test_F023_executor_retry_new_run_same_request (__main__.RunContextTests.test_F023_executor_retry_new_run_same_request)
+01-F023 / 4.1.2：真正重试：request 保持（预算根不变），run 新建，attempt 取受信分配器给出的编号。 ... ok
+test_A05_cancel_is_not_success (__main__.RunDimensionTests.test_A05_cancel_is_not_success)
+4.3.4：取消后进程退出 → 记录取消来源与退出事实，不归为正常成功。 ... ok
+test_A05_conflict_unknown_for_other_end_evidence (__main__.RunDimensionTests.test_A05_conflict_unknown_for_other_end_evidence)
+4.3.4：P2 返工新增（复审 events-usage 视角）。01 只认识结束证据 "success"；其他值（例如 ... ok
+test_A05_contract_approval_ref_preserved (__main__.RunDimensionTests.test_A05_contract_approval_ref_preserved)
+4.1.4 建议视图提供 contract_approval_ref：P2 返工新增（复审 fidelity 视角）。审核引用原样保留 ... ok
+test_A05_dimension_keys (__main__.RunDimensionTests.test_A05_dimension_keys)
+4.1.4：各维度分开表达；全部未知时各维度保持未知。 ... ok
+test_A05_exit_codes_must_be_exact_int (__main__.RunDimensionTests.test_A05_exit_codes_must_be_exact_int)
+4.3.4、01-A05：P4 新增（第 2 轮复审 tests-mutation Q016）。exit_code 与 wait_returncode 必须是精确 ... ok
+test_A05_protocol_complete_rules (__main__.RunDimensionTests.test_A05_protocol_complete_rules)
+4.3.4：integrity 非 complete → False；未知 → None；退出 0、有结束证据且 integrity complete → True、无冲突。 ... ok
+test_A05_protocol_dimension_branches (__main__.RunDimensionTests.test_A05_protocol_dimension_branches)
+4.3.4、01-A05：P2 返工新增（复审变异 M31/M32/M33，major）。 ... ok
+test_A05_unknown_legacy_verdict_rejected (__main__.RunDimensionTests.test_A05_unknown_legacy_verdict_rejected)
+4.1.4：旧枚举原样保留，不接受新造或改写的 verdict 名称 → E_SCHEMA_FIELDS。 ... ok
+test_A05_usage_unknown_separate_from_protocol (__main__.RunDimensionTests.test_A05_usage_unknown_separate_from_protocol)
+4.3.4：用量缺失与运行完成分别表达。 ... ok
+test_A05_verdict_approval_integration_distinct (__main__.RunDimensionTests.test_A05_verdict_approval_integration_distinct)
+4.1.4：旧 verdict PASS 不等于已集成；审核记录存在不证明当前字节仍匹配；INTEGRATED 不倒推 PASS； ... ok
+test_A05_wait_zero_is_only_a_query (__main__.RunDimensionTests.test_A05_wait_zero_is_only_a_query)
+4.1.4：wait 返回 0 只说明查询/等待动作完成，不说明任务结束、验收通过或已集成。 ... ok
+test_F040_exit_zero_without_end_evidence (__main__.RunDimensionTests.test_F040_exit_zero_without_end_evidence)
+01-F040 / 4.3.4：退出 0 但缺结束证据 → 进程正常退出，协议不完整；不自动 PASS。 ... ok
+test_F041_success_claim_with_nonzero_exit (__main__.RunDimensionTests.test_F041_success_claim_with_nonzero_exit)
+01-F041 / 4.3.4：结束事件声称成功但进程非零退出 → protocol_conflict=True，保留退出事实。 ... ok
+test_A09_doc_samples_are_verbatim (__main__.SchemaFileTests.test_A09_doc_samples_are_verbatim)
+E.1：测试中使用的五个样例与设计文档代码块逐字一致（防止样例漂移）。 ... ok
+test_A09_jsonschema_metaschema_optional (__main__.SchemaFileTests.test_A09_jsonschema_metaschema_optional)
+E.1（可选）：若本机装有 jsonschema，则做 Draft 2020-12 元校验并用它验证文档样例。 ... ok
+test_A09_mini_validator_accepts_doc_samples (__main__.SchemaFileTests.test_A09_mini_validator_accepts_doc_samples)
+A.1、E.1：五个文档样例通过迷你校验器（根 oneOf 恰好命中一个定义，也通过对应定义）。 ... ok
+test_A09_mini_validator_and_protocols_agree_on_structure (__main__.SchemaFileTests.test_A09_mini_validator_and_protocols_agree_on_structure)
+A.1/A.2、7.4：正例两者都接受；从有效样本只改一处的结构负例，迷你校验器与 protocols 都拒绝。 ... ok
+test_A09_record_strings_reject_lone_surrogates (__main__.SchemaFileTests.test_A09_record_strings_reject_lone_surrogates)
+protocols-api.md 18.4、C-17：P2 返工新增（复审变异 M105）。记录字符串字段中的孤立代理项 ... ok
+test_A09_schema_file_digest (__main__.SchemaFileTests.test_A09_schema_file_digest)
+附录 E.2、01-L02：本地 Schema 字节摘要等于附录 A 抽取结果。 ... ok
+test_A09_schema_gaps_need_semantic_checks (__main__.SchemaFileTests.test_A09_schema_gaps_need_semantic_checks)
+A.2：以下输入能通过结构 Schema（JSON Schema 把 1.0 视为整数、format 只是注解、 ... ok
+test_A09_schema_parses_strictly (__main__.SchemaFileTests.test_A09_schema_parses_strictly)
+4.2.7、A.1：Schema 文件本身能通过严格 JSON 解析，$id 与协议常量一致。 ... ok
+test_A09_schema_refs_local_only (__main__.SchemaFileTests.test_A09_schema_refs_local_only)
+A.1、4.4.3：所有 $ref 都是本地 #/$defs/ 且能解析；没有远程引用或动态引用； ... ok
+test_A09_public_entry_and_direct_validators_agree (__main__.SchemaRoutingTests.test_A09_public_entry_and_direct_validators_agree)
+7.4“单一故障输入返回稳定错误码”、C-07：P4 新增（第 2 轮复审 fidelity/json 视角）。记录头字段的 ... ok
+test_A09_record_type_must_be_exact_str (__main__.SchemaRoutingTests.test_A09_record_type_must_be_exact_str)
+4.4.2、A.2：P2 返工新增（复审 json 视角）。record_type 为 str 子类时，路由按类型不符报 ... ok
+test_A09_route_expected_type_and_record_type (__main__.SchemaRoutingTests.test_A09_route_expected_type_and_record_type)
+1.3：受信入口的期望类型不在公共记录类型中 → E_COMPAT_UNSUPPORTED；值非对象 → E_SCHEMA_TYPE； ... ok
+test_A09_route_positive (__main__.SchemaRoutingTests.test_A09_route_positive)
+1.3：受信入口声明的记录类型 + 家族版本一致时返回版本 1。 ... ok
+test_A09_validate_public_record_doc_samples (__main__.SchemaRoutingTests.test_A09_validate_public_record_doc_samples)
+4.1.3、4.3.1、4.3.9 样例经受信入口分派后通过对应校验。 ... ok
+test_A09_validate_public_record_passes_registry (__main__.SchemaRoutingTests.test_A09_validate_public_record_passes_registry)
+protocols-api.md 6.2、18.2：P2 返工新增（复审变异 M90/M102，major）。公共入口把 registry 传给 ... ok
+test_A09_validate_public_record_rejects_inapplicable_parameters (__main__.SchemaRoutingTests.test_A09_validate_public_record_rejects_inapplicable_parameters)
+A.2“诚实声明”：P2 返工新增（复审 fidelity 视角）。不适用于该记录类型的参数给了非 None 值时 ... ok
+test_A09_validate_public_record_reports_checks_honestly (__main__.SchemaRoutingTests.test_A09_validate_public_record_reports_checks_honestly)
+A.2 末段：返回值声明结构校验已做，并如实列出执行过的语义检查； ... ok
+test_F013_require_schema_version_reference_behavior (__main__.SchemaRoutingTests.test_F013_require_schema_version_reference_behavior)
+附录 B.2/B.3（保留参考实现行为）：True、"1"、1.0、0、None → E_SCHEMA_VERSION_TYPE； ... ok
+test_F013_schema_version_type (__main__.SchemaRoutingTests.test_F013_schema_version_type)
+01-F013：schema_version 为 true、"1"、1.0、null 或缺失 → E_SCHEMA_VERSION_TYPE，不当整数版本。 ... ok
+test_F014_unknown_version_no_legacy_fallback (__main__.SchemaRoutingTests.test_F014_unknown_version_no_legacy_fallback)
+01-F014 / 4.4.2、01-A09：未知新版本 → E_SCHEMA_VERSION_UNSUPPORTED；不删字段回退 v1， ... ok
+test_A13_hard_link_alias_is_known_not_detected (__main__.SealingTests.test_A13_hard_link_alias_is_known_not_detected)
+01-A13、R-P9“已知不检测”清单：P4 第 5 轮新增（复审 fidelity 视角）。**这不是安全性测试，也不证明 01-F030** ... ok
+test_A13_link_walk_divergence_rejected_by_seal_and_read (__main__.SealingTests.test_A13_link_walk_divergence_rejected_by_seal_and_read)
+4.1.6、4.2.8、01-A13：P4 第 4 轮新增（白盒注入，复审 tests-mutation 视角）。seal_bytes 与 read_sealed 同样把 ... ok
+test_A13_read_sealed_escape_and_invalid_ref (__main__.SealingTests.test_A13_read_sealed_escape_and_invalid_ref)
+4.1.6、4.2.1：引用路径经链接越出存储根 → E_PATH_ESCAPE（即使字节匹配）；引用形状非法先拒绝。 ... ok
+test_A13_read_sealed_missing_and_tampered (__main__.SealingTests.test_A13_read_sealed_missing_and_tampered)
+8.3：引用的文件不存在 → E_RESOURCE_MISSING；内容被改（含 LF→CRLF）→ E_RESOURCE_HASH_MISMATCH， ... ok
+test_A13_read_sealed_reads_once_returns_verified_bytes (__main__.SealingTests.test_A13_read_sealed_reads_once_returns_verified_bytes)
+4.2.8“核验后消费同一字节”、01-A13：P2 返工新增（复审变异 S021，白盒注入）。read_sealed 只读 ... ok
+test_A13_read_sealed_roundtrip (__main__.SealingTests.test_A13_read_sealed_roundtrip)
+4.2.8：读取已封存资源一次并核验摘要，返回的正是核验过的字节。 ... ok
+test_A13_seal_and_read_error_mapping (__main__.SealingTests.test_A13_seal_and_read_error_mapping)
+4.2.8、01-A13：P2 返工新增（复审变异 S14/S19）。read_sealed 读非文件型 kind → E_RESOURCE_KIND； ... ok
+test_A13_seal_and_read_non_directory_ancestor_and_directory_target (__main__.SealingTests.test_A13_seal_and_read_non_directory_ancestor_and_directory_target)
+4.2.8、01-A13：P4 新增（第 2 轮复审 tests-mutation S027/S028）。祖先分段是已存在的普通文件 → ... ok
+test_A13_seal_and_read_reject_kelvin_sign_sibling (__main__.SealingTests.test_A13_seal_and_read_reject_kelvin_sign_sibling)
+4.1.6、4.2.8、01-A13：P2 返工新增（复审 paths 视角，blocker）。存储根 Kit-store 与兄弟目录 ... ok
+test_A13_seal_and_read_reject_link_chain_through_outside (__main__.SealingTests.test_A13_seal_and_read_reject_link_chain_through_outside)
+4.1.6、4.2.8、01-A13：P4 第 3 轮新增（复审 fidelity 视角，major）。同一分段内的链接链经根外绕回根内： ... ok
+test_A13_seal_and_read_reject_relative_link_chain_through_outside (__main__.SealingTests.test_A13_seal_and_read_reject_relative_link_chain_through_outside)
+4.1.6、4.2.8、01-A13：P4 第 4 轮新增（复审 tests-mutation 视角，major）。经根外绕回根内的链以**相对**目标 ... ok
+test_A13_seal_and_read_windows_lexical_and_trailing_dot_chains (__main__.SealingTests.test_A13_seal_and_read_windows_lexical_and_trailing_dot_chains)
+4.1.6、4.2.8、01-A13：P4 第 4 轮新增（复审 fidelity 与 paths 视角，major）。Windows 上两类此前能绕过逐跳 ... ok
+test_A13_seal_conflict_does_not_overwrite (__main__.SealingTests.test_A13_seal_conflict_does_not_overwrite)
+4.2.8：最终名已存在且字节不同 → E_RESOURCE_CONFLICT；不覆盖、不调用索引、不返回引用、无残留。 ... ok
+test_A13_seal_escape_via_directory_link (__main__.SealingTests.test_A13_seal_escape_via_directory_link)
+4.1.6、4.2.8：最终路径经链接（Windows 为 junction）解析到存储根外 → E_PATH_ESCAPE，根外不写入。 ... ok
+test_A13_seal_failure_leaves_only_empty_new_parents (__main__.SealingTests.test_A13_seal_failure_leaves_only_empty_new_parents)
+4.2.8、8.4：P4 新增（第 2 轮复审 paths 视角，按“写明语义”处理）。发布之前失败（读回摘要不符、 ... ok
+test_A13_seal_final_name_occupied_by_directory (__main__.SealingTests.test_A13_seal_final_name_occupied_by_directory)
+4.2.8“最终名已存在：不同 → E_RESOURCE_CONFLICT，不覆盖”：P2 返工新增（复审 fidelity/paths 视角）。 ... ok
+test_A13_seal_final_name_symlink_outside (__main__.SealingTests.test_A13_seal_final_name_symlink_outside)
+4.1.6、4.2.8：P2 返工新增（复审 paths 视角）。最终名本身是指向根外文件的 symlink → E_PATH_ESCAPE； ... ok
+test_A13_seal_idempotent_same_bytes (__main__.SealingTests.test_A13_seal_idempotent_same_bytes)
+4.2.8、8.3：同一路径同一字节再次封存是幂等的：返回同一引用、文件不变、无临时残留。 ... ok
+test_A13_seal_index_commit_argument_checks (__main__.SealingTests.test_A13_seal_index_commit_argument_checks)
+4.2.8：P4 新增（第 2 轮复审 tests-mutation S102/S105）。index_commit 不可调用 → 写入任何东西之前抛 ... ok
+test_A13_seal_post_publish_escape_is_reported (__main__.SealingTests.test_A13_seal_post_publish_escape_is_reported)
+4.2.8 第 6 步“发布后再次确认最终路径解析后仍在根内”：P4 第 3 轮新增（复审 tests-mutation S01）。 ... ok
+test_A13_seal_publishes_then_indexes (__main__.SealingTests.test_A13_seal_publishes_then_indexes)
+4.2.8：写入并核验后发布不可变文件，再以 ResourceRef 提交索引；索引看到的文件已可读、摘要一致。 ... ok
+test_A13_seal_readback_mismatch_publishes_nothing (__main__.SealingTests.test_A13_seal_readback_mismatch_publishes_nothing)
+01-A13“摘要不符……不发布可用假引用”：P2 调和新增（白盒注入）。临时文件读回的字节与 ... ok
+test_A13_seal_rejects_filesystem_aliases (__main__.SealingTests.test_A13_seal_rejects_filesystem_aliases)
+4.1.5、4.2.8：P2 返工新增（复审 paths 视角，major）。每一级拼写必须是磁盘上登记的真实名称： ... ok
+test_A13_seal_rejects_invalid_path_without_writing (__main__.SealingTests.test_A13_seal_rejects_invalid_path_without_writing)
+4.1.5、7.4：业务路径词法非法 → E_PATH_SYNTAX / E_PATH_RESERVED，存储区不产生任何文件。 ... ok
+test_A13_seal_rejects_unregistered_or_non_file_kind (__main__.SealingTests.test_A13_seal_rejects_unregistered_or_non_file_kind)
+4.2.1、4.2.8：kind 未登记 → E_RESOURCE_KIND；非文件型 kind 不能封存为文件；都不写入。 ... ok
+test_A13_seal_temp_file_is_exclusive_and_fsynced (__main__.SealingTests.test_A13_seal_temp_file_is_exclusive_and_fsynced)
+4.2.8“独占创建临时文件，写完 flush+fsync”：P2 返工新增（复审变异 S10/S11/S18，白盒）。 ... ok
+test_A13_seal_temp_short_name_is_lexically_reserved (__main__.SealingTests.test_A13_seal_temp_short_name_is_lexically_reserved)
+4.2.8、01-A13：P4（第 2 轮复审 paths 视角；由裁决 R-P3 解决）。临时文件 .codekit-seal-<hex>.tmp ... ok
+test_A13_short_name_aliases_rejected_by_all_entries (__main__.SealingTests.test_A13_short_name_aliases_rejected_by_all_entries)
+4.1.5、4.1.6、4.2.8、裁决 R-P3：P4 第 3 轮新增（复审 paths 视角，major）。 ... ok
+test_A13_unrecognized_name_surrogate_rejected_by_seal_and_read (__main__.SealingTests.test_A13_unrecognized_name_surrogate_rejected_by_seal_and_read)
+4.1.6、4.2.8、01-A13：P4 第 5 轮新增（裁决 R-P9 (1)，复审 fidelity 视角 major；白盒注入）。seal_bytes 与 ... ok
+test_F048_index_failure_any_exception (__main__.SealingTests.test_F048_index_failure_any_exception)
+01-F048 / 4.2.8：P2 返工新增（复审变异 S15）。index_commit 抛出 RuntimeError 以外的任何异常 ... ok
+test_F048_index_failure_leaves_unreferenced_candidate (__main__.SealingTests.test_F048_index_failure_leaves_unreferenced_candidate)
+01-F048 / 4.2.8、8.3：文件已发布但索引提交失败 → E_RESOURCE_INDEX_FAILED（retryable）， ... ok
+test_A03_golden_vectors (__main__.SnapshotTests.test_A03_golden_vectors)
+附录 C.2：五组黄金向量逐字节、逐摘要一致。 ... ok
+test_A03_lower_bound_constants_do_not_reject_valid_values (__main__.SnapshotTests.test_A03_lower_bound_constants_do_not_reject_valid_values)
+01-D04“只有超过 1 MiB 才报 E_JSON_LIMIT”：P4 新增（第 2 轮复审 json 视角，变异 M2/M3/M5）。 ... ok
+test_A03_record_validators_budget_shared_dag (__main__.SnapshotTests.test_A03_record_validators_budget_shared_dag)
+01-D04、protocols-api.md 6.2/6.3 json_native_record：P4 新增（第 2 轮复审 json 视角，变异 M12 与 ... ok
+test_A03_sha256_hex (__main__.SnapshotTests.test_A03_sha256_hex)
+原文保留 4.2.1：SHA-256 为 64 位小写十六进制。 ... ok
+test_A03_shared_containers_have_serialized_size_budget (__main__.SnapshotTests.test_A03_shared_containers_have_serialized_size_budget)
+01-D04、4.2.6：P2 返工新增（复审 json 视角）。共享但不成环的容器按规格可以接受，但展开后 ... ok
+test_A03_snapshot_byte_limit (__main__.SnapshotTests.test_A03_snapshot_byte_limit)
+01-D04：快照输出超过 1 MiB → E_JSON_LIMIT；恰好 1 MiB 可接受。 ... ok
+test_A03_snapshot_does_not_mutate_input (__main__.SnapshotTests.test_A03_snapshot_does_not_mutate_input)
+4.2.6、01-D05：快照函数不替调用方删除字段、补默认值或改写数组。 ... ok
+test_A03_snapshot_does_not_project_machine_fields (__main__.SnapshotTests.test_A03_snapshot_does_not_project_machine_fields)
+4.2.5、01-D05（A03 边界）：01 快照器不擅自删字段、不做投影。已投影对象字节稳定； ... ok
+test_A03_snapshot_is_not_jcs (__main__.SnapshotTests.test_A03_snapshot_is_not_jcs)
+4.2.6：本 profile 不是 RFC 8785/JCS；键按 Python 码点排序，U+FF61 排在 U+1F600 之前。 ... ok
+test_A03_snapshot_limit_after_serialization (__main__.SnapshotTests.test_A03_snapshot_limit_after_serialization)
+01-D04：P4 新增（第 2 轮复审 json 视角，变异 M1）。遍历时的字节下界不计 UTF-8 多字节，多字节 ... ok
+test_A03_snapshot_matches_fixed_expression (__main__.SnapshotTests.test_A03_snapshot_matches_fixed_expression)
+4.2.6：输出严格等于 json.dumps(... ensure_ascii=False, sort_keys=True, ... ok
+test_A03_snapshot_root_must_be_object (__main__.SnapshotTests.test_A03_snapshot_root_must_be_object)
+01-T2 规格、B.2：快照根必须是对象 → 否则 E_SCHEMA_TYPE。 ... ok
+test_A03_snapshot_root_type_checked_before_values (__main__.SnapshotTests.test_A03_snapshot_root_type_checked_before_values)
+附录 B.2 参考实现、protocols-api.md 开头“参考实现的错误码语义保持不变”：P4 第 3 轮新增（复审 fidelity ... ok
+test_A03_synthetic_sample_is_file_bytes_not_snapshot (__main__.SnapshotTests.test_A03_synthetic_sample_is_file_bytes_not_snapshot)
+4.2.2、4.2.4：0036dde3… 是合成文件字节 {"fixture":"synthetic","ok":true}\n 的摘要。 ... ok
+test_A03_underflow_and_negative_zero_integer (__main__.SnapshotTests.test_A03_underflow_and_negative_zero_integer)
+4.2.6、4.2.7：P4（裁决 R-P6，接受并写明）。下溢不报错：1e-400 解析为 0.0；整数 -0 解析为 int 0， ... ok
+test_F012_value_depth_same_as_parser (__main__.SnapshotTests.test_F012_value_depth_same_as_parser)
+01-T2 规格（check_json_value 深度“同上”）、01-D04：64 层可接受，65 层 → E_JSON_LIMIT； ... ok
+test_F015_key_order_irrelevant (__main__.SnapshotTests.test_F015_key_order_irrelevant)
+01-F015：同配置仅对象键插入次序不同 → 相同快照字节与摘要。 ... ok
+test_F016_model_or_authorization_change_changes_digest (__main__.SnapshotTests.test_F016_model_or_authorization_change_changes_digest)
+01-F016 / 4.2.5：只改模型或授权字段 → 快照摘要改变（是否重新审核由 03 判断）。 ... ok
+test_F017_machine_path_projection_belongs_to_02 (__main__.SnapshotTests.test_F017_machine_path_projection_belongs_to_02)
+01-F017：“仅机器 executable 路径改变 → 语义快照不变、环境锁变化”依赖 02 的语义投影 ... skipped '01-D05：配置语义投影归 02，F017 由 02 验收；此处未测试，不代表通过'
+test_F018_array_order_matters (__main__.SnapshotTests.test_F018_array_order_matters)
+01-F018 / 4.2.6：数组顺序改变 → 默认产生不同字节。 ... ok
+test_F019_int_float_and_negative_zero_distinct (__main__.SnapshotTests.test_F019_int_float_and_negative_zero_distinct)
+4.2.6：1 与 1.0、0.0 与 -0.0 按固定表达式保留不同文本，不做“差不多相等”的处理。 ... ok
+test_F019_unicode_not_normalized (__main__.SnapshotTests.test_F019_unicode_not_normalized)
+01-F019 / 4.2.6：组合（U+00E9）与分解（U+0065 U+0301）形式不归一化，输出原样 UTF-8。 ... ok
+test_F020_cycles_and_shared_containers (__main__.SnapshotTests.test_F020_cycles_and_shared_containers)
+B.2：成环容器 → E_JSON_CYCLE；同一容器被复用但不成环可接受。 ... ok
+test_F020_long_cycles_are_cycles_not_limits (__main__.SnapshotTests.test_F020_long_cycles_are_cycles_not_limits)
+B.2、protocols-api.md 第 4 节：P4 第 3 轮新增（复审 json 视角）。同一种单一故障（一条回边）无论环多长都报 ... ok
+test_F020_native_values_accepted (__main__.SnapshotTests.test_F020_native_values_accepted)
+B.2：原生 JSON 值（含标量根）被 check_json_value 接受并返回 None。 ... ok
+test_F020_non_native_values (__main__.SnapshotTests.test_F020_non_native_values)
+01-F020 / B.2：只接受 type() 精确为 dict/list/str/int/float/bool/NoneType 的值； ... ok
+test_F020_non_string_keys (__main__.SnapshotTests.test_F020_non_string_keys)
+01-F020：非字符串字典键（int、bool、None、tuple）→ E_JSON_KEY_TYPE，不做隐式转换。 ... ok
+test_F020_numeric_and_unicode_checks (__main__.SnapshotTests.test_F020_numeric_and_unicode_checks)
+4.2.7 顺序 6、B.2：值检查同样拒绝越界整数、非有限浮点与孤立代理项（键和值）。 ... ok
+test_A04_input_type (__main__.StrictJsonTests.test_A04_input_type)
+4.2.7 顺序 1：输入必须是 bytes；str、bytearray、memoryview、None → E_JSON_INPUT_TYPE。 ... ok
+test_A04_multi_defect_examples_in_document_order (__main__.StrictJsonTests.test_A04_multi_defect_examples_in_document_order)
+protocols-api.md 第 4 节“检查时机”：P4 第 3 轮（数值错误改在解析后按文档顺序报告）。文档列出的多缺陷 ... ok
+test_A04_numeric_errors_carry_pointer (__main__.StrictJsonTests.test_A04_numeric_errors_carry_pointer)
+4.2.7、protocols-api.md 第 4 节：P4 第 3 轮新增（复审 json 视角）。严格解析阶段的 E_JSON_NON_FINITE 与 ... ok
+test_A04_pre_parse_stage_order (__main__.StrictJsonTests.test_A04_pre_parse_stage_order)
+4.2.7 顺序 1→2：类型检查先于长度，长度检查先于 BOM/编码。 ... ok
+test_F001_scalars_and_surrounding_whitespace (__main__.StrictJsonTests.test_F001_scalars_and_surrounding_whitespace)
+RFC 8259 / 4.2.7 顺序 4：顶层标量与前后空白合法；文件末尾 LF 不构成第二文档。 ... ok
+test_F001_valid_utf8_object_unchanged (__main__.StrictJsonTests.test_F001_valid_utf8_object_unchanged)
+01-F001：合法 UTF-8 对象解析成功，字段值与类型不变（int 仍为 int，1.0 仍为 float）。 ... ok
+test_F002_top_level_duplicate_key (__main__.StrictJsonTests.test_F002_top_level_duplicate_key)
+01-F002 / 4.2.7 顺序 5：顶层重复键 → E_JSON_DUPLICATE_KEY，field 为 JSON Pointer。 ... ok
+test_F003_nested_duplicate_key_pointer (__main__.StrictJsonTests.test_F003_nested_duplicate_key_pointer)
+01-F003：嵌套重复键同样拒绝，定位实际字段；~ 与 / 按 RFC 6901 转义。 ... ok
+test_F004_escaped_duplicate_key (__main__.StrictJsonTests.test_F004_escaped_duplicate_key)
+01-F004：a 与 \u0061 转义后相同，按重复键拒绝；\/ 与 / 同理。 ... ok
+test_F005_non_finite_literals (__main__.StrictJsonTests.test_F005_non_finite_literals)
+01-F005 / 4.2.6：NaN、Infinity、-Infinity 字面量拒绝（顶层与嵌套）。 ... ok
+test_F006_float_overflow (__main__.StrictJsonTests.test_F006_float_overflow)
+01-F006：1e10000 这类溢出为无穷大的数值同样拒绝，不只拦字面 Infinity。 ... ok
+test_F007_bom_rejected (__main__.StrictJsonTests.test_F007_bom_rejected)
+01-F007 / 4.2.7 顺序 2：新协议 JSON 带 UTF-8 BOM → E_JSON_BOM。 ... ok
+test_F008_invalid_utf8 (__main__.StrictJsonTests.test_F008_invalid_utf8)
+01-F008 / 4.2.7 顺序 2：无效 UTF-8（孤立续字节、过长编码、UTF-8 编码的代理项、UTF-16） ... ok
+test_F009_lone_surrogate (__main__.StrictJsonTests.test_F009_lone_surrogate)
+01-F009 / 4.2.7 顺序 6：孤立代理项转义（值与键都查、顺序颠倒的代理对）→ E_JSON_UNICODE。 ... ok
+test_F010_surrogate_pair_accepted (__main__.StrictJsonTests.test_F010_surrogate_pair_accepted)
+01-F010：合法代理对解码为对应字符（值与键）。 ... ok
+test_F011_syntax_reason_is_fixed_position_in_hint (__main__.StrictJsonTests.test_F011_syntax_reason_is_fixed_position_in_hint)
+protocols-api.md 3.1“reason：固定的机器可读原因”：P4 第 3 轮新增（复审 fidelity/json 视角）。 ... ok
+test_F011_trailing_document_and_syntax (__main__.StrictJsonTests.test_F011_trailing_document_and_syntax)
+01-F011 / 4.2.7 顺序 4：尾随第二文档及其他文法错误 → E_JSON_SYNTAX。 ... ok
+test_F011_unescaped_quote_is_syntax_not_limit (__main__.StrictJsonTests.test_F011_unescaped_quote_is_syntax_not_limit)
+4.2.7“单一故障输入稳定返回对应码”：P2 返工新增（复审 json 视角）。字符串里漏写反斜杠 ... ok
+test_F012_depth_ignores_brackets_in_escaped_strings (__main__.StrictJsonTests.test_F012_depth_ignores_brackets_in_escaped_strings)
+01-F012 / 4.2.7：P2 返工新增（复审变异：深度检查的转义处理退化后测试仍全过）。 ... ok
+test_F012_depth_limit (__main__.StrictJsonTests.test_F012_depth_limit)
+01-F012 / 4.2.7 顺序 3、01-D04：嵌套 64 层可接受，65 层 → E_JSON_LIMIT； ... ok
+test_F012_empty_and_byte_limit (__main__.StrictJsonTests.test_F012_empty_and_byte_limit)
+01-F012 / 4.2.7 顺序 1、01-D04：空输入与超过字节上限 → E_JSON_LIMIT；恰好等于上限可接受。 ... ok
+test_F012_long_parent_pointer_is_not_quadratic (__main__.StrictJsonTests.test_F012_long_parent_pointer_is_not_quadratic)
+01-D04 资源上限：P2 返工新增（复审 json 视角，major）。父路径很长（长键，或含 / ~ 的键 ... ok
+test_F012_recursion_is_limit_not_crash (__main__.StrictJsonTests.test_F012_recursion_is_limit_not_crash)
+01-F012 / 01-T2 规格：递归超限归入 E_JSON_LIMIT，不能泄漏 RecursionError。 ... ok
+test_F013_integer_range (__main__.StrictJsonTests.test_F013_integer_range)
+4.1.1、01-D04：整数绝对值不超过 2^53-1；超出或超长数字串 → E_INTEGER_RANGE（不截断）。 ... ok
+test_A11_format_observed_at (__main__.TimeTests.test_A11_format_observed_at)
+4.3.1：observed_at 为 UTC，格式 YYYY-MM-DDTHH:MM:SS.ffffffZ；带时区的时间先转 UTC。 ... ok
+test_A11_format_rejects_naive (__main__.TimeTests.test_A11_format_rejects_naive)
+4.3.1：不带时区的 datetime 无法确定 UTC → E_TIME_FORMAT。 ... ok
+test_A11_format_utc_conversion_overflow (__main__.TimeTests.test_A11_format_utc_conversion_overflow)
+4.3.1：P4 新增（第 2 轮复审 tests-mutation Q022）。转成 UTC 时越出 datetime 可表示的年份范围 ... ok
+test_A11_parse_observed_at (__main__.TimeTests.test_A11_parse_observed_at)
+4.3.1、A.2：严格格式且日历有效；解析结果为 UTC 时间并可往返。 ... ok
+test_A11_parse_rejections (__main__.TimeTests.test_A11_parse_rejections)
+A.2“日历日期确实有效”与附录 A pattern：格式或日历无效 → E_TIME_FORMAT。 ... ok
+test_A06_billing_conflict_not_swallowed_by_revision (__main__.UsageTests.test_A06_billing_conflict_not_swallowed_by_revision)
+01-T2“(provider, billing_event_id) 都非 null 且相同但 usage_id 不同：数值相同视为重复，不同 → ... ok
+test_A06_billing_duplicate_superseded_as_class (__main__.UsageTests.test_A06_billing_duplicate_superseded_as_class)
+4.3.8：P2 返工新增（复审 events-usage 视角，major）。同一外部账单事件以两个 usage_id 投递 ... ok
+test_A06_billing_event_chain_revised_to_unknown (__main__.UsageTests.test_A06_billing_event_chain_revised_to_unknown)
+4.3.8、protocols-api.md 13.2 第 5b 步：P4 第 5 轮新增（复审 events-usage 视角，major）。第 5b 步原来只在 ... ok
+test_A06_billing_event_id_dedup (__main__.UsageTests.test_A06_billing_event_id_dedup)
+4.3.8：(provider, billing_event_id) 相同而 usage_id 不同：数值相同视为重复，不同 → E_USAGE_CONFLICT。 ... ok
+test_A06_billing_event_null_and_known_provider_not_summed (__main__.UsageTests.test_A06_billing_event_null_and_known_provider_not_summed)
+4.3.4、4.3.8 末行、protocols-api.md 13.2 第 5b 步：P4 第 4 轮新增（复审 events-usage 视角，major）。 ... ok
+test_A06_billing_event_without_provider_not_summed (__main__.UsageTests.test_A06_billing_event_without_provider_not_summed)
+4.3.8 末行“两个来源范围不明的观测 → E_USAGE_SCOPE_UNKNOWN 或待核对”：P4 新增（第 2 轮复审 ... ok
+test_A06_billing_event_without_provider_uses_whole_revision_chain (__main__.UsageTests.test_A06_billing_event_without_provider_uses_whole_revision_chain)
+4.3.8、protocols-api.md 13.2 第 5 步：P4 第 3 轮新增（复审 events-usage 视角，major）。provider 为 null 时， ... ok
+test_A06_counter_values (__main__.UsageTests.test_A06_counter_values)
+4.3.7、4.1.1：计量为精确整数 0..2^53-1 或 null；负数、bool、1.0、字符串、越界被拒绝。 ... ok
+test_A06_cumulative_null_field_keeps_known_lower_bound (__main__.UsageTests.test_A06_cumulative_null_field_keeps_known_lower_bound)
+4.3.8“部分未知 → 展示已知部分并标不完整”、protocols-api.md 13.2：P4 第 3 轮新增（复审 events-usage 视角）。 ... ok
+test_A06_decimal_exact_sum (__main__.UsageTests.test_A06_decimal_exact_sum)
+4.3.7：金额不用二进制浮点累计；按十进制精确相加，输出不用科学计数。 ... ok
+test_A06_doc_sample_4_3_9_usage (__main__.UsageTests.test_A06_doc_sample_4_3_9_usage)
+4.3.9 样例逐字取出：全未知用量观测通过校验（null + 原因，不补零）。 ... ok
+test_A06_duplicate_revision_delivery_counted_once (__main__.UsageTests.test_A06_duplicate_revision_delivery_counted_once)
+4.3.8“同一账单事件数值相同视为重复”：P2 返工新增（复审 events-usage 视角，major）。同一修订以 ... ok
+test_A06_empty_view_is_incomplete (__main__.UsageTests.test_A06_empty_view_is_incomplete)
+4.3.8“任何缺失证据都必须向聚合结果传播”：P2 调和新增（规格澄清 C-11）。 ... ok
+test_A06_estimate_cannot_pose_as_reported (__main__.UsageTests.test_A06_estimate_cannot_pose_as_reported)
+4.3.7“estimated_cost 不能冒充 reported”：P2 返工新增（复审 events-usage 视角，major）。 ... ok
+test_A06_estimate_never_counted_as_reported (__main__.UsageTests.test_A06_estimate_never_counted_as_reported)
+4.3.8：reported_cost 缺失只有 estimated_cost → 实际费用未知（unknown_currency），估算单列。 ... ok
+test_A06_known_observation_and_zero (__main__.UsageTests.test_A06_known_observation_and_zero)
+4.3.7：0 表示有证据支持的零，是合法已知值；合法空关联（supersedes/billing_event_id）不需要原因。 ... ok
+test_A06_money_format (__main__.UsageTests.test_A06_money_format)
+4.3.7、附录 A money：金额为非负十进制字符串（无符号、千分位、指数、空格，最长 64）， ... ok
+test_A06_null_provider_or_model_scope_is_ambiguous (__main__.UsageTests.test_A06_null_provider_or_model_scope_is_ambiguous)
+4.3.8 末行“两个来源范围不明的观测 → E_USAGE_SCOPE_UNKNOWN 或待核对”：P2 返工新增（复审 ... ok
+test_A06_only_unknown_observations_shape (__main__.UsageTests.test_A06_only_unknown_observations_shape)
+protocols-api.md 13.2 返回值：P4 第 3 轮新增（复审 events-usage 视角，文档更正）。只有空输入（没有任何有效 ... ok
+test_A06_revision_conflicts (__main__.UsageTests.test_A06_revision_conflicts)
+4.3.8、protocols-api.md 13.2：P2 返工新增（复审变异 M39/M40/M41，major）。修订改变 run 或 role、 ... ok
+test_A06_revision_cycle_detected_within_timeout (__main__.UsageTests.test_A06_revision_cycle_detected_within_timeout)
+4.3.8、protocols-api.md 13.2：修订链成环 → E_USAGE_CONFLICT（reason=revision_cycle）。 ... ok
+test_A06_same_billing_event_revision_chain_takes_tail (__main__.UsageTests.test_A06_same_billing_event_revision_chain_takes_tail)
+4.3.8“final 明确修订前一观测 → 保留修订链”、01-T2“被替代的观测不计入”：P2 返工新增（复审 ... ok
+test_A06_same_usage_id_different_content (__main__.UsageTests.test_A06_same_usage_id_different_content)
+4.3.8：同 usage_id 内容不同 → E_USAGE_CONFLICT。 ... ok
+test_A06_supersedes_self (__main__.UsageTests.test_A06_supersedes_self)
+4.3.8：观测不能修订自身 → E_USAGE_CONFLICT。 ... ok
+test_A06_unknowable_fields_constant (__main__.UsageTests.test_A06_unknowable_fields_constant)
+4.3.7、4.3.9：可未知字段集合固定。 ... ok
+test_A06_unknown_cost_marks_all_currency_groups (__main__.UsageTests.test_A06_unknown_cost_marks_all_currency_groups)
+4.3.8“任何缺失证据都必须向聚合结果传播”：P2 调和新增（规格澄清 C-11）。缺失的 ... ok
+test_A06_unknown_kind_values_not_counted (__main__.UsageTests.test_A06_unknown_kind_values_not_counted)
+4.3.8、01-T2：observation_kind=unknown 的数值不计入并使相关计量不完整。 ... ok
+test_A06_unresolved_supersedes (__main__.UsageTests.test_A06_unresolved_supersedes)
+4.3.8：修订链指向不存在的观测 → unresolved_supersedes 记录，并使视图不完整。 ... ok
+test_A06_usage_context_binding (__main__.UsageTests.test_A06_usage_context_binding)
+4.3.7：request/run/role 从可信调用上下文绑定 → 不一致时 E_CONTEXT_BINDING。 ... ok
+test_A06_usage_string_length_bounds (__main__.UsageTests.test_A06_usage_string_length_bounds)
+附录 A usage：P4 新增（第 2 轮复审 tests-mutation Q032）。provider ≤ 128、model ≤ 256、 ... ok
+test_A06_usage_structure_and_enums (__main__.UsageTests.test_A06_usage_structure_and_enums)
+附录 A usage：字段封闭（E_SCHEMA_FIELDS），枚举字段不接受未登记值。 ... ok
+test_A06_usage_view_requires_sequence (__main__.UsageTests.test_A06_usage_view_requires_sequence)
+4.3.8、protocols-api.md 13.2：P4 新增（第 2 轮复审 tests-mutation Q017）。usage_view 的参数必须是 ... ok
+test_A06_view_does_not_mutate_input (__main__.UsageTests.test_A06_view_does_not_mutate_input)
+4.3.8：视图计算不改写观测（不补零、不覆盖旧观测）。 ... ok
+test_A06_view_is_not_accounting (__main__.UsageTests.test_A06_view_is_not_accounting)
+4.3.7、01-D08：usage_view 只是观测视图，不是记账（07 唯一记账）。 ... ok
+test_A06_view_totals_stay_within_safe_integer (__main__.UsageTests.test_A06_view_totals_stay_within_safe_integer)
+4.1.1、01-D04：P2 返工新增（复审 events-usage 视角）。计量合计超过 2^53-1 → E_INTEGER_RANGE， ... ok
+test_F037_usage_replay_counted_once (__main__.UsageTests.test_F037_usage_replay_counted_once)
+01-F037 / 4.3.8：同一 usage_id 再次投递（字节相同）→ 只计一次，duplicates+1。 ... ok
+test_F044_all_unknown_sample_view (__main__.UsageTests.test_F044_all_unknown_sample_view)
+01-F044 / 4.3.9：全未知样例 → 各计量 known_total=0、不完整、unknown_count=1；费用未知，不补零。 ... ok
+test_F044_missing_values_need_reasons (__main__.UsageTests.test_F044_missing_values_need_reasons)
+01-F044 / 4.3.7：缺失计量/费用为 null 且必须有原因 → 否则 E_USAGE_UNKNOWN_REASON； ... ok
+test_F044_partial_unknown_propagates (__main__.UsageTests.test_F044_partial_unknown_propagates)
+01-F044 / 4.3.8：部分输入已知 100、另一部分未知 → 显示已知 100 并标记不完整；各计量独立。 ... ok
+test_F045_conflicting_finals (__main__.UsageTests.test_F045_conflicting_finals)
+4.3.8：同范围多个 final 数值不同且无修订链 → E_USAGE_CONFLICT。 ... ok
+test_F045_cumulative_and_final_consistency (__main__.UsageTests.test_F045_cumulative_and_final_consistency)
+01-F045 / 4.3.4、4.3.8：P2 返工新增（复审 fidelity、events-usage 与变异 M59）。同范围 ... ok
+test_F045_cumulative_takes_last (__main__.UsageTests.test_F045_cumulative_takes_last)
+01-F045 / 4.3.8：同范围累计 100 后累计 150 → 当前累计 150（不是 250）。 ... ok
+test_F045_deltas_add (__main__.UsageTests.test_F045_deltas_add)
+01-F045 / 4.3.8：两条独立 delta 100 与 50 → 合计 150（不是取最大值）。 ... ok
+test_F045_final_revises_previous (__main__.UsageTests.test_F045_final_revises_previous)
+4.3.8：final 明确修订前一观测 → 按修订链替代，不把旧值与新值加总。 ... ok
+test_F045_mixed_kinds_in_same_scope (__main__.UsageTests.test_F045_mixed_kinds_in_same_scope)
+01-F045 / 4.3.8：同范围既有 delta 又有 cumulative/final → E_USAGE_SCOPE_UNKNOWN（不猜口径）。 ... ok
+test_F045_revision_keeps_logical_position (__main__.UsageTests.test_F045_revision_keeps_logical_position)
+01-F045 / 4.3.8：P2 返工新增（复审 events-usage 视角）。修订继承被替代观测的逻辑位置：对较早 ... ok
+test_F045_scopes_are_separate (__main__.UsageTests.test_F045_scopes_are_separate)
+4.3.8：范围键 (request, run, role, provider, model) 不同则各自按口径处理后再汇总。 ... ok
+test_F046_cache_and_reasoning_not_added (__main__.UsageTests.test_F046_cache_and_reasoning_not_added)
+01-F046 / 4.3.8：input=1000 且已包含 cache_read=800 → 输入仍为 1000，缓存细分为 800，不得 1800； ... ok
+test_F047_currencies_not_mixed (__main__.UsageTests.test_F047_currencies_not_mixed)
+01-F047 / 4.3.8：USD 与 CNY 分币种汇总，不直接相加。 ... ok
+test_F047_revision_chain_currency_through_null (__main__.UsageTests.test_F047_revision_chain_currency_through_null)
+01-F047 / 4.3.8：P2 返工新增（复审 events-usage 视角）。币种一致性按整条修订链检查：经过一个 ... ok
+test_F047_revision_currency_mismatch (__main__.UsageTests.test_F047_revision_currency_mismatch)
+01-F047 / 4.3.8：修订前后币种不同 → E_USAGE_CURRENCY_MISMATCH。 ... ok
+test_F047_same_currency_revision (__main__.UsageTests.test_F047_same_currency_revision)
+01-F047 / 4.3.8：同币种修订 → 被替代观测不计入，保留修订后的值。 ... ok
+
+----------------------------------------------------------------------
+Ran 342 tests in 5.649s
+
+OK (skipped=4)

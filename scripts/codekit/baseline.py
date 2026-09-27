@@ -216,7 +216,7 @@ def match_exclusion(path: str, rules: Sequence[str]) -> Optional[str]:
 
 
 def validate_capture_id(value: str) -> Optional[str]:
-    if not CAPTURE_ID_RE.match(value):
+    if not CAPTURE_ID_RE.fullmatch(value):
         return "capture-id 只能由字母、数字、. _ - 组成，以字母或数字开头，最长 128 个字符"
     if value.endswith("."):
         return "capture-id 不能以 . 结尾"
@@ -443,7 +443,7 @@ def stat_item(repo_root: Path, path: str, path_ok: bool) -> Dict[str, Any]:
         result["type"] = "missing"
         return result
     except OSError as exc:
-        result["note"] = exc_text(exc)
+        result["note"] = "read_error: metadata: %s" % exc_text(exc)
         return result
     try:
         if stat.S_ISLNK(st.st_mode):
@@ -458,7 +458,7 @@ def stat_item(repo_root: Path, path: str, path_ok: bool) -> Dict[str, Any]:
         fd = os.open(fs_path, flags)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
-                result["note"] = "changed_type_while_opening"
+                result["note"] = "read_error: changed_type_while_opening"
                 return result
             digest = hashlib.sha256()
             size = 0

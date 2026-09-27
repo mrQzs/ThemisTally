@@ -1572,8 +1572,8 @@ class ManifestTests(unittest.TestCase):
         ids = [e["fixture_id"] for e in manifest_entries()]
         legacy_ids = [e["fixture_id"] for e in L.build_legacy_manifest_entries()]
         self.assertEqual(ids[:len(legacy_ids)], legacy_ids)
-        # 合同 6、合同负例 13+6（收尾轮 D-20–D-23）、stub 流 10、事件负例 3。
-        self.assertEqual(len(legacy_ids), 6 + 13 + 6 + 10 + 3)
+        # 合同 6、合同负例 13+6+1（缺 task_id）、stub 流 10、事件负例 3+1（usage 缺 token）。
+        self.assertEqual(len(legacy_ids), 6 + 13 + 6 + 1 + 10 + 3 + 1)
 
     def test_provenance_consistency(self) -> None:
         entries = manifest_entries()
@@ -1742,7 +1742,7 @@ class ManifestTests(unittest.TestCase):
             counts[key] = counts.get(key, 0) + 1
         self.assertEqual(counts, {
             ("legacy", "synthetic_fixture"): 6 + 10 + 2,
-            ("negative", "synthetic_fixture"): 13 + 6 + 3 + len(NEGATIVE_SPECS),
+            ("negative", "synthetic_fixture"): 20 + 4 + len(NEGATIVE_SPECS),
             ("synthetic", "synthetic_fixture"): len(SYNTHETIC_SPECS) + 1,
         })
 
@@ -2269,7 +2269,7 @@ class R11Tests(unittest.TestCase):
             psp = json.dumps(e["redaction"]["protocol_structure_preserved"])
             structure[psp] = structure.get(psp, 0) + 1
         legacy_judgment = len(L.build_legacy_manifest_entries()) + 2  # 另有 expected-legacy-contracts/-events
-        self.assertEqual(len(entries), 188)
+        self.assertEqual(len(entries), 190)
         self.assertEqual(integrity, {"complete": len(entries) - 4, "truncated": 2, "corrupted": 2})
         self.assertEqual(scopes, {"windows": legacy_judgment, "any": len(entries) - legacy_judgment})
         self.assertEqual(structure, {"true": len(L.STUB_SCENARIOS), "null": len(entries) - len(L.STUB_SCENARIOS)})
@@ -2620,6 +2620,7 @@ def _credential_variant_samples() -> List[Tuple[str, str, str]]:
 
 class CredentialScanTests(unittest.TestCase):
     """文档 8.3“fixture 含真实凭据”：逐字节扫描 tests/fixtures/codekit01/ 下的每个文件，命中凭据形态（非白名单）即失败。
+    当前入库 fixture 也不得依赖合成标记白名单放行；白名单功能仅在专门的扫描器对照测试中验证。
     失败信息只给文件、视图与偏移（或 JSON 中第几个字符串）和规则名，不回显匹配到的值。发现真实凭据后的处置（停止分发、
     限制访问、凭据处置、事故记录）归规划端与用户，不由测试执行。"""
 
@@ -2627,19 +2628,22 @@ class CredentialScanTests(unittest.TestCase):
         paths = fixture_files_on_disk()
         self.assertEqual(len(paths), len(manifest_entries()) + 1, "扫描范围应是全部登记文件加 manifest.json 本身")
         problems: List[str] = []
+        allowlisted: List[str] = []
         # 收尾轮返工（复审 tests-mutation 视角）：累计实际扫描的文件数与字节数，核对确实逐个扫描了全部文件的全部字节
         # （此前只扫第一个文件也能通过）。期望字节数按文件大小独立计算，不经 read_fixture。
         scanned_files = 0
         scanned_bytes = 0
         for path in paths:
             raw = read_fixture(path)
-            found, _allowed = scan_bytes_for_credentials(path, raw)
+            found, allowed = scan_bytes_for_credentials(path, raw)
             scanned_files += 1
             scanned_bytes += len(raw)
             problems.extend(found)
+            allowlisted.extend(allowed)
         self.assertEqual(scanned_files, len(paths))
         self.assertEqual(scanned_bytes, sum(repo_path(path).stat().st_size for path in paths))
         self.assertGreater(scanned_bytes, 0)
+        self.assertEqual(allowlisted, [], "入库 fixture 不得依赖凭据扫描白名单放行（只列位置与规则，不回显值）")
         if problems:
             more = "\n……另有 %d 处" % (len(problems) - 50) if len(problems) > 50 else ""
             self.fail("fixture 中出现凭据形态（只列位置与规则，不回显值；按文档 8.3 停止分发并交规划端处置）：\n"
@@ -2791,6 +2795,70 @@ class PublicEntryRejectionTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 收尾轮：兼容矩阵 D-20–D-23 的 legacy 负例（acceptance.md M-04）
 # ---------------------------------------------------------------------------
+
+class MissingFieldLegacyTests(unittest.TestCase):
+    """文档 6.6 的缺字段样本：锁定必填合同字段缺失的拒绝，以及旧事件摘要将缺失 token 当 0 的现状。
+
+    差分测试另行重算所有锁定投影；这里用独立的字节/字段断言防止把缺失改成空值，或连费用与相邻消息一起删掉。
+    """
+
+    def test_missing_required_contract_field_is_rejected_without_default(self) -> None:
+        fixture_id = "negative-legacy-contract-json-missing-task-id"
+        entries = {e["fixture_id"]: e for e in manifest_entries()}
+        self.assertTrue(fixture_id in entries, "JSON 合同缺必填字段必须有可追溯的 legacy fixture")
+        entry = entries[fixture_id]
+        base_id = "legacy-contract-normalize-query-v1-json"
+        self.assertEqual(entry["origin"]["derived_from"], base_id)
+        original = read_fixture(entries[base_id]["resource"]["path"])
+        raw = read_fixture(entry["resource"]["path"])
+        self.assertEqual(raw, original.replace(b'  "task_id": "normalize-query",\n', b"", 1))
+        parsed = json.loads(raw)
+        self.assertNotIn("task_id", parsed)
+        before = json.loads(original)
+        del before["task_id"]
+        self.assertEqual(parsed, before)
+        locked = json.loads(read_fixture(L.EXPECTED_CONTRACTS_PATH))["cases"][fixture_id]["legacy"]
+        self.assertNotIn("task_id", locked["normalize_contract"]["contract"])
+        self.assertFalse(locked["inprocess_validate_plan"]["contract_returned"])
+        self.assertIn("task_id 应为 normalize-query，实际为 None", locked["inprocess_validate_plan"]["errors"])
+        self.assertEqual(locked["cli_validate_temp_repo"]["exit_code"], 2)
+        strict = json.loads(read_fixture(L.EXPECTED_NEW_STRICT_PATH))["json_documents"][fixture_id]["new_strict"]
+        self.assertEqual((strict["accepted"], strict["code"]), (True, None),
+                         "新严格入口只判断 JSON 文法；不把通过解释成合同字段有效")
+
+    def test_usage_without_tokens_preserves_cost_and_only_zeros_missing_message(self) -> None:
+        fixture_id = "negative-legacy-events-ok-final-usage-missing-tokens"
+        entries = {e["fixture_id"]: e for e in manifest_entries()}
+        self.assertTrue(fixture_id in entries, "usage 存在但缺 token 字段必须有可追溯的 legacy fixture")
+        entry = entries[fixture_id]
+        self.assertEqual(entry["origin"]["derived_from"], "legacy-stub-events-ok")
+        original = read_fixture(entries["legacy-stub-events-ok"]["resource"]["path"]).splitlines(keepends=True)
+        changed = read_fixture(entry["resource"]["path"]).splitlines(keepends=True)
+        self.assertEqual(len(changed), len(original))
+        indices = [i for i, (a, b) in enumerate(zip(original, changed)) if a != b]
+        self.assertEqual(len(indices), 1, "只能改一条 message_end，其他事件与行尾必须原样保留")
+        index = indices[0]
+        source, event = json.loads(original[index]), json.loads(changed[index])
+        self.assertEqual((event["type"], event["message"]["role"], event["message"]["stopReason"]),
+                         ("message_end", "assistant", "stop"))
+        self.assertEqual(set(event["message"]["usage"]), {"cost"})
+        for key in ("input", "output", "cacheRead", "cacheWrite", "totalTokens"):
+            del source["message"]["usage"][key]
+        self.assertEqual(event, source, "只删除该消息 usage 的 token 字段，费用/报告/结束信息不变")
+        cases = json.loads(read_fixture(L.EXPECTED_EVENTS_PATH))["cases"]
+        summaries = cases[fixture_id]["summaries"]
+        for label in ("expects_settled=true", "expects_settled=false", "expects_settled=null"):
+            with self.subTest(expects_settled=label):
+                summary = summaries[label]
+                self.assertEqual(summary["usage"], {"input": 1000, "output": 200, "cacheRead": 0,
+                                                     "cacheWrite": 0, "totalTokens": 1200})
+                self.assertEqual(summary["cost"], cases["legacy-stub-events-ok"]["summaries"][label]["cost"])
+                self.assertEqual((summary["cost"]["total"], summary["cost"]["status"],
+                                  summary["cost"]["unpriced_messages"]), (0.00086, "estimated", 0))
+                self.assertEqual(summary["problems"], [])
+        strict = json.loads(read_fixture(L.EXPECTED_NEW_STRICT_PATH))["jsonl_streams"][fixture_id]["new_strict"]
+        self.assertEqual(strict["rejected_lines"], [], "新入口的逐行 JSON 接受不等于厂商字段语义校验")
+
 
 class CompatMatrixDCaseTests(unittest.TestCase):
     """兼容矩阵 4.3 节 D-20–D-23 落为合同单一故障负例：旧判断在 expected/legacy-contracts.json（由 a4fa199 的旧实现

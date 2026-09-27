@@ -1,6 +1,9 @@
 # 01 验收映射（01-A01–A16）、平台矩阵与交接检查
 
-> **本轮续接与复跑状态（2026-09-26）**：仓库已有提交 `182ef16` 已包含第一阶段代码、Schema、fixtures、测试、基线文档与证据；本轮按已批准方案补上 `.agent/dispatch.config.json` 的机械保护、正确的 01 设计文件名与顶层索引链接，并在提交前工作树复跑 Windows 验证。下文 EV-C01–EV-C10 是提交前收尾取证的历史证据；本轮复跑结果如下：`test_dispatch.py` 为 256 checks / 0 failed；`test_protocols.py` 为 342 tests、退出 0、5 skipped（当前会话缺少 `FSCTL_SET_REPARSE_POINT` 权限，黑盒重解析点实测干净跳过，历史归档为 4 skipped）；fixtures 75/75、baseline 40/40、legacy gates 24/24、lifecycle 26（2 skipped）、CLI 75（1 skipped）、events 34/34，两个旧实现比对分别为 38 checks / 0 differ 与 10 checks / 0 differ；所有命令退出码均为 0。Linux/macOS 仍无法在本机验证，`jsonschema` 元校验继续 BLOCKED。
+> **当前验收入口（2026-09-26 续接）：** [completion-review.md](completion-review.md)。本文件第 0–6 节与原 EV-C 编号保留历史取证口径；新增修复、Schema 实测、当前样本数量与终审结果以该入口为准。第 7 节 20–23 项已由 [closure-rulings.md](closure-rulings.md) 裁定，不再等待用户选择。
+
+
+> **上一轮续接复跑历史（2026-09-26，安装可选依赖之前）**：仓库已有提交 `182ef16` 已包含第一阶段代码、Schema、fixtures、测试、基线文档与证据；本轮按已批准方案补上 `.agent/dispatch.config.json` 的机械保护、正确的 01 设计文件名与顶层索引链接，并在提交前工作树复跑 Windows 验证。下文 EV-C01–EV-C10 是提交前收尾取证的历史证据；本轮复跑结果如下：`test_dispatch.py` 为 256 checks / 0 failed；`test_protocols.py` 为 342 tests、退出 0、5 skipped（当前会话缺少 `FSCTL_SET_REPARSE_POINT` 权限，黑盒重解析点实测干净跳过，历史归档为 4 skipped）；fixtures 75/75、baseline 40/40、legacy gates 24/24、lifecycle 26（2 skipped）、CLI 75（1 skipped）、events 34/34，两个旧实现比对分别为 38 checks / 0 differ 与 10 checks / 0 differ；所有命令退出码均为 0。Linux/macOS 仍无法在本机验证，`jsonschema` 元校验继续 BLOCKED。
 
 - **依据**：`docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`（修订 `review-expanded-2026-09-25`，128737 字节，sha256 `c5fca7b163d6e8d42f0c79dc0b5d6755c508ec832e8a87f514a294c8a300f42d`）第 1.1、2.3、2.4、6.4、7、9.2 节与附录 C.3、C.5、D.3；决策见 [decisions.md](decisions.md)。
 - **编写**：规划端子代理（P4 4.2、4.3、4.6），2026-09-26。本文是 README 列出的 P4 产物，**待独立复审**（P4 4.5）。
@@ -661,12 +664,12 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 
 **收尾轮（2026-09-26）新增的未完成项**：
 
-20. **R-01 受控禁用的证据等级**（3.1 前提 ①）：`PYTHONPYCACHEPREFIX` 的设置与“取证前为空”只有操作者记录；取证工具不记录这个变量，也没有取证后前缀目录的条目数。规划端决定是否接受操作者记录；不接受时 A01 为不满足，需要改 `scripts/codekit/baseline.py`（及其测试）记录该变量与前缀目录的前后状态，然后按 01-L05 与 R-01 重新取证。归属：规划端。
-21. **R-01 是否覆盖仓库外输入**（3.1 前提 ②）：标准库及其字节码（含取证工具进程可能写入前缀目录的字节码）、git 与全局配置、系统工具。若覆盖，现有取证工具的任何一次取证都不满足，A01 为 FAIL。归属：规划端。
-22. **G5 在 R-02 下的读法**（3.7）：a4fa199 的 G5 恒通过，P4-G09、G23 断言它在失败记录中也保持通过；是否把这算作该门的失败路径映射，R-02 原文没有说。若要求可触发的失败断言，A07 为 FAIL。归属：规划端。
-23. **legacy-inventory 9.10.6 (c) 类 23 行的登记方式**：这些行只有旧自测 `tests/test_dispatch.py` 的 check（bl-01t1 measured），旧自测是模块级函数加 check，不符合 R-P12 的 `<类>.<方法>` 写法；是否另定写法（按函数名或 check 名）把它们登记为代码内联 fixture，R-P12 没有规定。其中 12 行在第 12 节中有明显相关但未标注的断言（清单 9.10.6“线索”）。归属：规划端。
-24. **缺字段类的两种样本**（文档 6.6）：“JSON 合同缺必填字段”“消息带 usage 但缺 token 字段”没有 legacy fixture 与锁定投影（不属于 R-P12 的七类，兼容矩阵第 8 节第 9 条）。**需要新增 fixture 并锁定投影（改测试与 fixture）**，改后须重新取证。归属：01 兼容 fixtures 的后续返工。
-25. **基线报告中照录的 13 项与本文不一致**：baseline-report.json 的 `transcript_from_acceptance_md` 照录的是本文修订前的字节（138322，`f01f659c…`）；本修订改了 A02 的判定与各项的证据编号。按报告自身的规则以本文为准；下次修订报告时重新照录。归属：规划端（基线报告的编写者）。
+20. **已裁定**（见 [closure-rulings.md](closure-rulings.md)）；以下保留问题原文：**R-01 受控禁用的证据等级**（3.1 前提 ①）：`PYTHONPYCACHEPREFIX` 的设置与“取证前为空”只有操作者记录；取证工具不记录这个变量，也没有取证后前缀目录的条目数。规划端决定是否接受操作者记录；不接受时 A01 为不满足，需要改 `scripts/codekit/baseline.py`（及其测试）记录该变量与前缀目录的前后状态，然后按 01-L05 与 R-01 重新取证。归属：规划端。
+21. **已裁定**（见 [closure-rulings.md](closure-rulings.md)）；以下保留问题原文：**R-01 是否覆盖仓库外输入**（3.1 前提 ②）：标准库及其字节码（含取证工具进程可能写入前缀目录的字节码）、git 与全局配置、系统工具。若覆盖，现有取证工具的任何一次取证都不满足，A01 为 FAIL。归属：规划端。
+22. **已裁定**（见 [closure-rulings.md](closure-rulings.md)）；以下保留问题原文：**G5 在 R-02 下的读法**（3.7）：a4fa199 的 G5 恒通过，P4-G09、G23 断言它在失败记录中也保持通过；是否把这算作该门的失败路径映射，R-02 原文没有说。若要求可触发的失败断言，A07 为 FAIL。归属：规划端。
+23. **已裁定**（见 [closure-rulings.md](closure-rulings.md)）；以下保留问题原文：**legacy-inventory 9.10.6 (c) 类 23 行的登记方式**：这些行只有旧自测 `tests/test_dispatch.py` 的 check（bl-01t1 measured），旧自测是模块级函数加 check，不符合 R-P12 的 `<类>.<方法>` 写法；是否另定写法（按函数名或 check 名）把它们登记为代码内联 fixture，R-P12 没有规定。其中 12 行在第 12 节中有明显相关但未标注的断言（清单 9.10.6“线索”）。归属：规划端。
+24. **已补齐，复跑证据见 completion-review.md**。原问题：**缺字段类的两种样本**（文档 6.6）：“JSON 合同缺必填字段”“消息带 usage 但缺 token 字段”没有 legacy fixture 与锁定投影（不属于 R-P12 的七类，兼容矩阵第 8 节第 9 条）。**需要新增 fixture 并锁定投影（改测试与 fixture）**，改后须重新取证。归属：01 兼容 fixtures 的后续返工。
+25. **已明确历史归档与当前权威入口**：基线报告的 13 项照录保留为历史，当前指向 completion-review.md。原问题：**基线报告中照录的 13 项与本文不一致**：baseline-report.json 的 `transcript_from_acceptance_md` 照录的是本文修订前的字节（138322，`f01f659c…`）；本修订改了 A02 的判定与各项的证据编号。按报告自身的规则以本文为准；下次修订报告时重新照录。归属：规划端（基线报告的编写者）。
 
 ## 8. 给 02/03/04 正式合同的绑定清单（文档 9.2）
 
@@ -676,10 +679,10 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 |---|---|---|
 | 实际基线与输入 Manifest | 本次基线：BL-CLOSURE（2.2）；取证工具 `scripts/codekit/baseline.py capture`；输入清单格式见各 `pre/input-manifest.json` | 写合同的 `base_sha`（01 提交后的 OID），并在派遣前按 01-L05 与 R-01 受控环境重新取证：`python scripts/codekit/baseline.py capture --out-root .agent/baseline/<阶段> --capture-id <id> --timeout 3600 -- python tests/<文件>.py`；运行时设 `PYTHONDONTWRITEBYTECODE=1`，`PYTHONPYCACHEPREFIX` 指向取证前为空的目录，并在取证记录中写明（第 7 节第 20 项决定之后可能改由取证工具记录）。引用新取证的闭包摘要，不沿用 a4fa199 的取证结论 |
 | 精确文件范围 | 2.1 的文件表；protocols-api 第 17 节列出各模块应调用的函数 | 写出确切文件，不用目录通配代替。02、03、04 一般只新增自己的模块文件并调用 01 的公共函数；需要修改 `scripts/codekit/protocols.py` 或 `schemas/` 时，按文档 5.2 由规划端直接处理，不委派（若第 9 节 (a) 选了选项二，这类路径写进合同允许集合会被 validate 拒绝） |
-| 保护文件处理 | 调度器内置保护：`.agent/**`、`.agents/**`、`.claude/**`、`**/AGENTS.md`、`scripts/pi_dispatch.py`、`scripts/dispatch-pi.sh` 等（`scripts/pi_dispatch.py:88-92`）；01 新增文件的保护待定 | 在 Forbidden / `forbidden_paths` 中列出第 9 节 (a) 的 7 个路径（不论用户选哪种方式，合同都显式写出）；合同验收时核对受保护文件相对基线 diff 为 0 行（同 2.1） |
+| 保护文件处理 | 调度器内置保护：`.agent/**`、`.agents/**`、`.claude/**`、`**/AGENTS.md`、`scripts/pi_dispatch.py`、`scripts/dispatch-pi.sh` 等（`scripts/pi_dispatch.py:88-92`）；01 新增核心文件已由第 9 节 (a) 的 10 条模式保护 | 在 Forbidden / `forbidden_paths` 中列出第 9 节 (a) 的 7 个路径（不论用户选哪种方式，合同都显式写出）；合同验收时核对受保护文件相对基线 diff 为 0 行（同 2.1） |
 | 验证命令 | EV-C01–EV-C10 的 10 条命令；01-L04（按文件运行，不用 discover） | 必需检查：`python tests/test_dispatch.py`（旧自测）、`python tests/test_protocols.py`、`python tests/test_codekit01_fixtures.py -v`、`python tests/test_baseline_tool.py`；改动涉及旧调度器行为比较时加 4 个 `tests/test_legacy_*.py` 与 `python tests/codekit01_legacy.py --check`、`--check-stub-regen`。全部按 R-01 设 `PYTHONPYCACHEPREFIX`。判读同时看汇总行与退出码（旧自测拼错名字会输出 `0 checks` 而退出 0） |
 | 允许的平台 / profile | 第 5 节：只有 Windows 实测 | 合同写明平台（当前只能是 windows）；Linux、macOS 的结论需要各自取证，不从 Windows 推导。执行模型与思考级别按 AGENTS.md 与 `.agent/environment.md` 的精确 ID |
-| 模型 / 网络是否禁用 | 01 没有调用模型；全部测试用 `tests/stub_pi.py` 与离线夹具；网络没有隔离，只有静态核实（EV-RC） | 验证命令本身不需要模型与网络；派遣 Pi 本身需要执行模型的网络访问并产生费用，需用户在对话中明确要求。不得为补测安装依赖（jsonschema 见第 9 节 (d)） |
+| 模型 / 网络是否禁用 | 01 没有调用模型；全部测试用 `tests/stub_pi.py` 与离线夹具；网络没有隔离，只有静态核实（EV-RC） | 验证命令本身不需要模型与网络；派遣 Pi 本身需要执行模型的网络访问并产生费用，需用户在对话中明确要求。本轮经用户授权在独立环境安装可选验证依赖（见第 9 节 (d)）；这不改变后续 Pi 合同的安装授权 |
 | 预算根 | A08：request 预算根不因重试改变（F023）；实际记账归 07（01-D08）；旧调度器预算规则见 legacy-inventory 6.3 与 P4-L06–L16 | 02、03、04 合同按旧调度器的 Budget 节（`max_attempts_total`、`max_wall_seconds_per_attempt`、`max_wall_seconds_total`）填写；不在 02/03/04 中实现记账 |
 | 日志与证据保留 | `.agent/runs/` 只读、不提交（AGENTS.md）；01 的取证原件在 `.agent/baseline/`（忽略），脱敏归档在 `docs/code-kit-v2/01-baseline/evidence/`（redact-v2，archive-manifest 逐文件摘要）；操作者记录另建归档目录并附 manifest（`run-controls-final/`、`run-controls-closure/`）；`-text` 规则（01-L06） | 新模块的证据目录照此分“原件（忽略）/ 脱敏归档（入库）”；操作者记录当场归档；登记完整字节摘要的文件先加 `-text` 再暂存 |
 | 失败升级路径 | 文档 6.7；decisions.md 各项的归属 | 授权或保护范围冲突 → 规划端 / 用户；真实协议不明 → 04；费用口径或重复账单 → 07；跨模块 Schema 分歧 → 先做显式协议决策（改 01 的公共接口时同步更新 protocols-api.md 与使用方的验收项） |
@@ -748,7 +751,7 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
   - 01 的测试会读取设计文档（按前缀 `01-baseline-and-protocols-` 查找，当前已恢复为正确文件名的设计文件）。不提交它时，干净检出中有 5 个方法会 skip：`test_protocols.py` 的 `test_A09_doc_samples_are_verbatim`、`test_A12_appendix_c1_example_needs_completion`，`test_codekit01_fixtures.py` 的 `test_doc_samples_equal_design_doc_blocks`、`test_c1_completed_entry_matches_doc`、`test_golden_vectors_match_design_doc_table`。`protocols-api.md` 属于 01（在 `01-baseline/` 中）：`test_protocols.py` 核对它的节结构（第 1–19 节）与第 7、15、16、18 节的措辞，`test_codekit01_fixtures.py` 核对第 14.1 节的示例，缺失会使这些测试报错。
   - `-text` 规则必须先于或随同这些文件进入索引，否则本机 `core.autocrlf=true` 会改变提交的字节，登记的摘要失配（baseline-report 第 10 节）。暂存后可用 `git ls-files -s` 的 blob 与 `git hash-object --no-filters` 对照核对。
   - 提交后 HEAD 改变。本次证据只对 2.1 记录的字节成立；提交内容与这些字节相同时，结论仍可引用，但要让 PASS 绑定到提交，需要在新 HEAD 上按 01-L05 与 R-01 重新取证。
-  - 提交与推送需要用户授权；本任务没有提交。
+  - 提交与推送分别需要授权；本轮只按已有授权做本地逐路径提交，不推送。
 
 ### (c) Linux / macOS 取证状态（本次保留 NOT_RUN）
 
@@ -756,17 +759,14 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 - 需要的条件：Python 3.10 以上、git、bash；同样的受控环境（PATH 中没有真实 pi/claude/codex、空的 `PI_CODING_AGENT_DIR`、按 R-01 设 `PYTHONPYCACHEPREFIX`）；不需要模型与网络。取证工具在 POSIX 上走 killpg 分支，这一分支本身也没有实测过。
 - 预期差异：`StubTests` 的 stub 重跑核对在非 Windows 上跳过（NOT_RUN）；F028 不适用；旧预期中的报错原文只在 Python 3.12.10 上锁定，解释器版本不同可能导致差分失败，需要单独判断而不是重生成 expected；manifest 中 `platform_scope` 为 windows 的 40 条在其他平台上不宣称适用。
 
-### (d) Schema 元校验状态（本次保留 BLOCKED）
+### (d) Schema 元校验状态（已补做）
 
-- 现状：`SchemaFileTests.test_A09_jsonschema_metaschema_optional` 跳过，记 BLOCKED（01-L07）。附录 E.1 记载作者在沙箱中用 jsonschema 4.26.0 通过了 Draft 2020-12 元校验，那是文档自述，不对应本仓库。
-- 安装需要联网并引入依赖（`protocols.py` 本身不依赖它，只影响这一个测试；R-P10 的 `schema_ref` 也只登记标识，不加载 Schema），需要用户授权。替代做法：在另一台已安装 jsonschema 的机器上只运行这一项检查并归档输出。
+- 已按用户“问题全部按推荐处理”授权在 `.agent/baseline/01-verification-tools-20260926/` 建立独立验证环境，安装 jsonschema 4.26.0；Draft 2020-12 元校验和五个文档样例实测通过。固定依赖见 [verification-requirements.txt](verification-requirements.txt)，完整复跑与证据见 [completion-review.md](completion-review.md)。`protocols.py` 没有新增运行时依赖。原 EV-C02 中的跳过仍是该次历史运行事实。
 
-### (e) `docs/code-kit-v2/README.md` 的失效索引链接（01 已修复）
+### (e) 索引链接（已修复）
 
-- 事实（本修订重新核对）：索引中 01 的链接已指向 `01-baseline-and-protocols-审阅增强版.md`（第 11、91 行），该文件已恢复为正确的中文文件名。同样失效的还有 02（`02-config-and-profiles.md`）与 03（`03-approvals-and-locks.md`）；04 同时有普通名与审阅增强版两份。索引中也没有指向 `01-baseline/` 的链接。
-- 本次处理：将乱码文件名恢复为正确的 `审阅增强版`，并把顶层索引的 01 链接指向它；02、03 的普通名链接仍留给各自阶段处理。
-  - 文件实际路径现为 `docs/code-kit-v2/01-baseline-and-protocols-审阅增强版.md`；索引链接已同步，测试按 `01-baseline-and-protocols-` 前缀查找的约定不变。
-- `docs/code-kit-v2/` 下 01–13 文档与 README 不在本任务可写范围内，本文没有修改。
+- 01 设计文件名恢复为 `01-baseline-and-protocols-审阅增强版.md`，文件字节未改；顶层索引已加入 `01-baseline/README.md` 实施入口。
+- 顶层 02、03、12 链接改为实际存在的审阅增强版文件；其他设计文件保持原位。全部本地 Markdown 链接另行核对，不把索引修复写成后续模块已实施。
 
 ## 10. 已知的 minor 与剩余风险
 
@@ -782,14 +782,14 @@ verdict 拒绝分支（PASS 带 `--waive`、AWE 缺豁免或缺 `--decided-by`�
 | M-06 | 兼容矩阵第 1 节两条 `codekit01_legacy.py` 命令的结果没有归档 | baseline-report 第 11 节 | **已关闭**：EV-C03（`38 checks, 0 differ`）、EV-C10（`10 checks, 0 differ`） |
 | M-07 | 旧行为清单的结构化条目只在规划会话临时目录中 | legacy-inventory 11.6 第 6 条 | **已关闭（归档要求）**：`evidence/inventory-items/`（EV-INV，第 7 节第 9 项）；条目中的“实测”“探针”仍只是线索，证据等级不变（legacy-inventory 11.6 第 1 条，另项）。与基线报告修订 7 的 10.3 节用词一致 |
 | M-08 | legacy-inventory 第 0.5、12.1 节把 01 新代码的测试称为“参考实现与取证工具测试” | baseline-report 第 8 节 A16 | **已关闭**：已改称“01 新代码测试（公共协议、fixtures、取证工具）”，原词写在注记中 |
-| M-09 | 第 5 轮返工在仓库外留下的临时快照目录（`codekit-p4r5-orig-` 开头）与 Git 安装目录下的测试日志 `p.txt`；完整性审查时只读检查均已不存在，是谁清理的没有记录 | protocols-api 第 19 节“第 5 轮核验的后续处理”末尾 | **仍未关闭**：用户确认 |
+| M-09 | 第 5 轮返工在仓库外留下的临时快照目录（`codekit-p4r5-orig-` 开头）与 Git 安装目录下的测试日志 `p.txt`；完整性审查时只读检查均已不存在，是谁清理的没有记录 | protocols-api 第 19 节“第 5 轮核验的后续处理”末尾 | 历史未知保留：无可靠清理人记录，不要求事后凭记忆补证；不阻断当前协议。 |
 | M-10 | `ResourceKind` 缺 4.2.1 要求的 schema、允许的载荷表示与语义校验器 | 完整性审查 | **已关闭**：R-P10（第 7 节第 13 项；`protocols.py:1362`、`:1632`；protocols-api 第 8 节、第 18 节第 22 项） |
 | M-11 | 4.3.2 两行在 01 中没有落点，protocols-api.md 没有写归属 | 完整性审查 | **已关闭（文档归属）**：protocols-api 第 11、16、17 节（第 7 节第 15 项）；实现归 04、10 |
 | M-12 | protocols-api.md 第 3.2 节说 `E_BASELINE_*`“登记供基线取证工具使用”，取证工具实际不发出 | 完整性审查 | **已关闭**：第 3.2 节已改为“登记待用；当前取证工具不发出，漂移与缺输入分别用 baseline_consistent 与 execution_status 表达”（protocols-api.md 第 166 行）；错误码仍在 `protocols.py:187-188` 登记 |
-| M-13 | `tests/legacy_harness.py` 的 `remove_tree` 只适用于目录：对区域内的普通文件调用时 `shutil.rmtree` 报 `NotADirectoryError`，重试后原样抛出；现有调用都传目录 | 兼容矩阵 9.2 节；protocols-api 第 19 节“收尾轮返工 · 需要规划端知悉的事项”第 3 条 | 仍未关闭：01 测试的后续返工。改 harness 会改变 R-P12 内联引用所依赖的夹具字节，改后须重新取证 |
-| M-14 | R-P12 的内联引用 `inline:<测试文件>::<类>.<方法>@<测试文件 sha256>` 只记测试文件摘要；这些方法的输入还经过公共夹具 `tests/legacy_harness.py`（`c4e87137…`），按字节复现输入时夹具也必须相同 | 兼容矩阵第 8 节第 9 条 | 仍未关闭：规划端决定是否在引用形式中加入夹具摘要 |
-| M-15 | `tests/test_baseline_tool.py` 的 `TempArea.cleanup` 只核对父目录与前缀，没有标记文件与所有权核对；`tests/test_protocols.py` 用 `TemporaryDirectory` 的标准库递归清理 | 兼容矩阵 9.2 节 | 仍未关闭：不在第 7 节第 17 项的原范围；01 测试的后续返工 |
-| M-16 | `CredentialScanTests.test_fixture_files_contain_no_credential_shapes` 丢弃白名单放行结果（`found, _allowed = …`，`tests/test_codekit01_fixtures.py:2636`），不断言它为空；“fixture 中没有白名单放行”只有静态核对 | 对抗性核验第二轮（第 15 节第 2 条） | 仍未关闭：01 测试的后续返工（加一条放行结果为空的断言）；改测试后须按 01-L05 与 R-01 重新取证 |
+| M-13 | `tests/legacy_harness.py` 的 `remove_tree` 只适用于目录：对区域内的普通文件调用时 `shutil.rmtree` 报 `NotADirectoryError`，重试后原样抛出；现有调用都传目录 | 兼容矩阵 9.2 节；protocols-api 第 19 节“收尾轮返工 · 需要规划端知悉的事项”第 3 条 | 已明确边界：remove_tree 只接收目录，当前调用符合；不扩展通用删除 API，见 completion-review.md。 |
+| M-14 | R-P12 的内联引用 `inline:<测试文件>::<类>.<方法>@<测试文件 sha256>` 只记测试文件摘要；这些方法的输入还经过公共夹具 `tests/legacy_harness.py`（`c4e87137…`），按字节复现输入时夹具也必须相同 | 兼容矩阵第 8 节第 9 条 | 已裁定：inline 引用须连同该次 input-manifest 的 harness 摘要消费，见 completion-review.md。 |
+| M-15 | `tests/test_baseline_tool.py` 的 `TempArea.cleanup` 只核对父目录与前缀，没有标记文件与所有权核对；`tests/test_protocols.py` 用 `TemporaryDirectory` 的标准库递归清理 | 兼容矩阵 9.2 节 | 自定义 baseline TempArea 已补强并通过回归；标准库 TemporaryDirectory 的既有测试使用边界已明确接受，不承诺生产安全删除。 |
+| M-16 | `CredentialScanTests.test_fixture_files_contain_no_credential_shapes` 丢弃白名单放行结果（`found, _allowed = …`，`tests/test_codekit01_fixtures.py:2636`），不断言它为空；“fixture 中没有白名单放行”只有静态核对 | 对抗性核验第二轮（第 15 节第 2 条） | 已关闭：实际 fixture 白名单命中为空的断言和反测已补齐；最终77项测试通过，见 completion-review.md。 |
 
 **剩余风险**：
 

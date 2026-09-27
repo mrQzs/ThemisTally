@@ -1,0 +1,58 @@
+被测 pi_dispatch.py sha256=a00d693452b4345d6093efa9864de6e1b4cefacece867b617e68e6a8efce3ad4（与 a4fa199 一致：True）
+test_LB_LIFE_001_number_is_max_plus_one_and_never_zero (__main__.AttemptNumberTests.test_LB_LIFE_001_number_is_max_plus_one_and_never_zero)
+LB-LIFE-001（目录名与编号格式）、LB-LIFE-002；01-D03、01-A08。 ... ok
+test_LB_LIFE_002_first_attempt_is_1_and_only_prepare_advances (__main__.AttemptNumberTests.test_LB_LIFE_002_first_attempt_is_1_and_only_prepare_advances)
+LB-LIFE-002（首次编号为 1）、LB-LIFE-001、LB-LIFE-003、LB-LIFE-004；01-D03、01-A08。 ... ok
+test_LB_LIFE_009_wall_budget_counts_actual_wall_seconds_from_run_json (__main__.BudgetTests.test_LB_LIFE_009_wall_budget_counts_actual_wall_seconds_from_run_json)
+LB-LIFE-009（budget_usage：有 run.json 且 wall_seconds 非空时按实际用时计入）、LB-LIFE-010、LB-LIFE-011； ... ok
+test_LB_LIFE_009_wall_seconds_null_falls_back_to_reservation (__main__.BudgetTests.test_LB_LIFE_009_wall_seconds_null_falls_back_to_reservation)
+LB-LIFE-009（budget_usage 的回退分支）、LB-LIFE-022（恢复合成的 run.json）、LB-LIFE-011；C.4“锁与预算竞争”、 ... ok
+test_LB_LIFE_010_wall_total_exhausted_refused_by_run_and_prepare (__main__.BudgetTests.test_LB_LIFE_010_wall_total_exhausted_refused_by_run_and_prepare)
+LB-LIFE-010（prepare 的预算预检）、LB-LIFE-011（run 的锁内复核）、LB-LIFE-009（按预留计时）； ... ok
+test_LB_LIFE_011_negative_timeout_flag_becomes_1s (__main__.BudgetTests.test_LB_LIFE_011_negative_timeout_flag_becomes_1s)
+LB-LIFE-011（本轮时限）；legacy-inventory.md 6.3“本轮时限”（N 为负数时得到 1）；C.4“锁与预算竞争” ... ok
+test_LB_LIFE_011_remaining_wall_59s_is_refused (__main__.BudgetTests.test_LB_LIFE_011_remaining_wall_59s_is_refused)
+LB-LIFE-011（run 的预算复核，边界）；C.4“锁与预算竞争”（缺口“剩余墙钟不足 60 s”）、01-A07。 ... ok
+test_LB_LIFE_011_remaining_wall_exactly_60s_is_allowed (__main__.BudgetTests.test_LB_LIFE_011_remaining_wall_exactly_60s_is_allowed)
+LB-LIFE-011（run 的预算复核，边界）；C.4“锁与预算竞争”（缺口“剩余墙钟不足 60 s”）、01-A07。 ... ok
+test_LB_LIFE_011_remaining_wall_under_60s_run_refused_but_prepare_allowed (__main__.BudgetTests.test_LB_LIFE_011_remaining_wall_under_60s_run_refused_but_prepare_allowed)
+LB-LIFE-011（run 的预算复核）、LB-LIFE-010；C.4“锁与预算竞争”（缺口“剩余墙钟不足 60 s”）、01-A07。 ... ok
+test_LB_LIFE_011_timeout_flag_capped_by_per_attempt_budget (__main__.BudgetTests.test_LB_LIFE_011_timeout_flag_capped_by_per_attempt_budget)
+LB-LIFE-011（本轮时限）；C.4“锁与预算竞争”（缺口“--timeout 被预算截短”）、01-A07。 ... ok
+test_LB_LIFE_011_timeout_flag_capped_by_remaining_total_budget (__main__.BudgetTests.test_LB_LIFE_011_timeout_flag_capped_by_remaining_total_budget)
+LB-LIFE-011（本轮时限）、LB-LIFE-009；C.4“锁与预算竞争”（缺口“--timeout 被预算截短”）、01-A07。 ... ok
+test_LB_LIFE_012_budget_race_loser_stays_prepared_exit_3 (__main__.BudgetTests.test_LB_LIFE_012_budget_race_loser_stays_prepared_exit_3)
+LB-LIFE-012（预算竞争的结果）、LB-LIFE-005、LB-LIFE-007、LB-LIFE-010；C.4“锁与预算竞争” ... ok
+test_LB_LIFE_012_run_count_precheck_outside_lock_refuses_before_preflight (__main__.BudgetTests.test_LB_LIFE_012_run_count_precheck_outside_lock_refuses_before_preflight)
+LB-LIFE-012、LB-LIFE-010（prepare 不取锁、只数已领取的 attempt）、LB-LIFE-007；C.4“锁与预算竞争” ... ok
+test_LB_LIFE_017_ctrl_break_during_pi_run_is_cancelled_exit_1_not_130 (__main__.CancelTests.test_LB_LIFE_017_ctrl_break_during_pi_run_is_cancelled_exit_1_not_130)
+LB-LIFE-017（取消）、LB-LIFE-019、LB-LIFE-020、LB-EXIT-031；C.4“取消”（LB-TEST-COV-09）、01-A07。 ... ok
+test_LB_LIFE_017_sigint_during_pi_run_is_cancelled_exit_1_posix (__main__.CancelTests.test_LB_LIFE_017_sigint_during_pi_run_is_cancelled_exit_1_posix)
+LB-LIFE-017、LB-LIFE-020、LB-EXIT-031；C.4“取消”（LB-TEST-COV-09）、01-A07。本机（Windows）NOT_RUN。 ... skipped '只在 POSIX 上运行：SIGINT 到达调度器的语义（KeyboardInterrupt/_Interrupted）；Windows 用 CTRL_BREAK 用例'
+test_LB_LIFE_035_ctrl_break_before_claim_kills_dispatcher_without_130 (__main__.CancelTests.test_LB_LIFE_035_ctrl_break_before_claim_kills_dispatcher_without_130)
+LB-LIFE-035（各阶段收到 Ctrl+C 或信号后的状态）、LB-EXIT-031；C.4“取消”（LB-TEST-COV-09）、01-A07。 ... ok
+test_LB_LIFE_035_sigint_before_claim_exits_130_posix (__main__.CancelTests.test_LB_LIFE_035_sigint_before_claim_exits_130_posix)
+LB-LIFE-035、LB-EXIT-002；C.4“取消”（LB-TEST-COV-09）、01-A07。本机（Windows）NOT_RUN。 ... skipped '只在 POSIX 上运行：SIGINT 到达调度器的语义（KeyboardInterrupt/_Interrupted）；Windows 用 CTRL_BREAK 用例'
+test_LB_LIFE_036_allowed_executors_miss_refused_at_prepare_and_run (__main__.ExecutorAllowlistTests.test_LB_LIFE_036_allowed_executors_miss_refused_at_prepare_and_run)
+LB-LIFE-036（run 领取前 resolve_executor 的拒绝）、LB-LIFE-003、LB-EXIT-005；C.4“锁与预算竞争” ... ok
+test_LB_LIFE_023_recover_from_collecting_reuses_run_json_and_can_pass (__main__.RecoverTests.test_LB_LIFE_023_recover_from_collecting_reuses_run_json_and_can_pass)
+LB-LIFE-023（恢复收集的结果与证据处理）、LB-LIFE-022、LB-EXIT-010；C.4“进程恢复”（缺口“COLLECTING 状态的 ... ok
+test_LB_LIFE_023_second_recover_with_partial_present_crashes_on_windows (__main__.RecoverTests.test_LB_LIFE_023_second_recover_with_partial_present_crashes_on_windows)
+LB-LIFE-023；新增：scripts/pi_dispatch.py:3436-3439、4964-4971；C.4“进程恢复”（缺口“.partial 重命名”）、01-A08。 ... ok
+test_LB_LIFE_024_recover_refused_while_pi_alive_then_recovers_cancelled (__main__.RecoverTests.test_LB_LIFE_024_recover_refused_while_pi_alive_then_recovers_cancelled)
+LB-LIFE-024（pid_alive）、LB-LIFE-022、LB-LIFE-023、LB-EXIT-010；C.4“进程恢复”（缺口“pid 仍存活时拒绝 ... ok
+test_LB_LIFE_005_held_task_lock_run_waits_30s_then_exit_3 (__main__.TaskLockTests.test_LB_LIFE_005_held_task_lock_run_waits_30s_then_exit_3)
+LB-LIFE-005（TaskLock 的获取与等待）、LB-LIFE-013；C.4“锁与预算竞争”（缺口“TaskLock 等待 30 s 后 ... ok
+test_LB_LIFE_005_task_lock_wait_timeout_and_stale_takeover_whitebox (__main__.TaskLockTests.test_LB_LIFE_005_task_lock_wait_timeout_and_stale_takeover_whitebox)
+LB-LIFE-005、LB-LIFE-006；C.4“锁与预算竞争”、01-A07。白盒（进程内调用 TaskLock，默认等待改为 1.5s）。 ... ok
+test_LB_LIFE_006_stale_task_lock_taken_over_by_run (__main__.TaskLockTests.test_LB_LIFE_006_stale_task_lock_taken_over_by_run)
+LB-LIFE-006（过期接管）；C.4“锁与预算竞争”（缺口“300 s 过期接管”）、01-A07。黑盒。 ... ok
+test_LB_LIFE_006_task_lock_release_ignores_ownership_whitebox (__main__.TaskLockTests.test_LB_LIFE_006_task_lock_release_ignores_ownership_whitebox)
+LB-LIFE-006（过期接管与归属判断）；C.4“锁与预算竞争”（缺口“过期接管与归属缺失”）、01-A07。白盒。 ... ok
+test_LB_LIFE_016_timeout_run_exits_1_and_pass_refused_by_g1 (__main__.TimeoutTests.test_LB_LIFE_016_timeout_run_exits_1_and_pass_refused_by_g1)
+LB-LIFE-016（超时）、LB-LIFE-011、LB-LIFE-020、LB-EXIT-009；C.4“超时”（LB-TEST-COV-08）、01-A07。 ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 184.297s
+
+OK (skipped=2)

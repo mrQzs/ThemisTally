@@ -133,6 +133,17 @@
       "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-invalid-utf8/normalize-query.v1.json",
       "sha256": "7bb38fa515438b48b0f78f9e4e4e85246effd2ee1a59e8465f8a6a4a97acad7e"
     },
+    "negative-legacy-contract-json-missing-task-id": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-missing-task-id/normalize-query.v1.json",
+      "sha256": "a2275515b4b4138f51a3f907754ec4f94147494b099cf6450286637e6721bb7d"
+    },
     "negative-legacy-contract-json-plan-version-float": {
       "new_strict": {
         "accepted": true,
@@ -332,6 +343,17 @@
       },
       "path": "tests/fixtures/codekit01/negative/legacy-events/ok-duplicate-final-message-end/events.jsonl",
       "sha256": "93c127f42c8cc3ce638729ede7953028e5219f032a8f7fb6ac19763300c0bcf4"
+    },
+    "negative-legacy-events-ok-final-usage-missing-tokens": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-events/ok-final-usage-missing-tokens/events.jsonl",
+      "sha256": "99f2255827e34c0ea087a9e470e9fc9be69aa9f4f085e503fa681d8219f39fd8"
     },
     "negative-legacy-events-ok-truncated-tail": {
       "new_strict": {

@@ -1,0 +1,112 @@
+{
+  "config_sha256": "ea61b027f2699b6e0a77f8ed4bf471a0decf4adaeaed96f4e2e51caf5602eba2",
+  "pattern_count": 10,
+  "checks": 21,
+  "results": [
+    {
+      "path": "scripts/codekit/protocols.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "schemas/codekit-public-v1.schema.json",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/fixtures/codekit01/manifest.json",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/codekit01_legacy.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/legacy_harness.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/test_legacy_gates.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/test_protocols.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/test_codekit01_fixtures.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "tests/test_baseline_tool.py",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "docs/code-kit-v2/01-baseline/README.md",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "SCRIPTS/CODEKIT/PROTOCOLS.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "SCHEMAS/CODEKIT-PUBLIC-V1.SCHEMA.JSON",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/FIXTURES/CODEKIT01/MANIFEST.JSON",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/CODEKIT01_LEGACY.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/LEGACY_HARNESS.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/TEST_LEGACY_GATES.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/TEST_PROTOCOLS.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/TEST_CODEKIT01_FIXTURES.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "TESTS/TEST_BASELINE_TOOL.PY",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "DOCS/CODE-KIT-V2/01-BASELINE/README.MD",
+      "protected_path": true,
+      "scope_ok": false
+    },
+    {
+      "path": "src/open.py",
+      "protected_path": false,
+      "scope_ok": true
+    }
+  ]
+}
