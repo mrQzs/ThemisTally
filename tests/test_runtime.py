@@ -12,6 +12,13 @@ def invocation():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_argv_preserves_empty_repeated_and_multiline_arguments(self):
+        argv = ("python", "-c", "pass\n", "--tag", "same", "--tag", "same", "")
+        self.assertEqual(validate_argv(argv), argv)
+        for command in (("",), ("py\nthon",), ("python", "\ud800"), ("python", "\x00")):
+            with self.subTest(command=command), self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_ARGV"):
+                validate_argv(command)
+
     def test_argv_and_shell_are_mutually_exclusive(self):
         self.assertEqual(validate_argv(["cmd", "中文"]), ("cmd", "中文"))
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_SHELL_ARGV"):

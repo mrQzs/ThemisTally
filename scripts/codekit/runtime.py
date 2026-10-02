@@ -27,16 +27,22 @@ def _runtime_text(value: Any, code: str, field: str) -> str:
 
 
 def validate_argv(command: Any, *, shell: bool = False) -> Tuple[str, ...]:
+    if type(shell) is not bool:
+        raise RuntimeErrorCode("E_RUNTIME_SHELL_ARGV", "shell must be boolean")
     if shell:
         raise RuntimeErrorCode("E_RUNTIME_SHELL_ARGV", "shell execution must use a registered shell command contract")
     if not isinstance(command, (list, tuple)) or not command:
         raise RuntimeErrorCode("E_RUNTIME_ARGV", "argv must be a non-empty array")
     result = []
     for index, item in enumerate(command):
-        if not isinstance(item, str) or not item:
-            raise RuntimeErrorCode("E_RUNTIME_ARGV", f"argv[{index}] must be non-empty text")
+        if type(item) is not str or (index == 0 and not item):
+            raise RuntimeErrorCode("E_RUNTIME_ARGV", f"argv[{index}] must be text with a non-empty executable")
         if "\x00" in item:
             raise RuntimeErrorCode("E_RUNTIME_ARGV", f"argv[{index}] contains NUL")
+        if any(0xD800 <= ord(char) <= 0xDFFF for char in item):
+            raise RuntimeErrorCode("E_RUNTIME_ARGV", f"argv[{index}] contains a non-Unicode scalar")
+        if index == 0 and ("\r" in item or "\n" in item):
+            raise RuntimeErrorCode("E_RUNTIME_ARGV", "executable contains a line break")
         result.append(item)
     return tuple(result)
 

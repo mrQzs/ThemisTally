@@ -16,6 +16,13 @@ def event(seq, typ, payload=None, event_id=None):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_invocation_preserves_repeated_and_empty_arguments(self):
+        argv = ("python", "-c", "pass\n", "--tag", "same", "--tag", "same", "")
+        call = Invocation("req", "run", "executor", "offline-profile", argv, (), "a" * 64)
+        self.assertEqual(call.command, argv)
+        changed = Invocation("req", "run", "executor", "offline-profile", argv[:-1], (), "a" * 64)
+        self.assertNotEqual(call.digest(), changed.digest())
+
     def test_invocation_rejects_string_vectors_and_non_string_environment(self):
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
             Invocation("req", "run", "executor", "offline-profile", "python", (), "a" * 64)

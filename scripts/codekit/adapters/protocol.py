@@ -8,6 +8,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
+from ..runtime import RuntimeErrorCode, validate_argv
+
 
 EVENT_TYPES = {"run_started", "assistant", "tool_started", "tool_finished", "usage", "run_finished", "error"}
 
@@ -71,7 +73,12 @@ class Invocation:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id"); _text(self.role, "role"); _text(self.profile_id, "profile_id")
         if self.adapter_id is not None:
             _text(self.adapter_id, "adapter_id")
-        _text_tuple(self.command, "command", nonempty=True)
+        if type(self.command) is not tuple:
+            raise AdapterError("E_ADAPTER_SCHEMA", "command must be an argv tuple")
+        try:
+            validate_argv(self.command)
+        except RuntimeErrorCode as exc:
+            raise AdapterError("E_ADAPTER_INVOCATION", "command must be a valid argv tuple") from exc
         _text_tuple(self.capabilities, "capabilities")
         if (type(self.environment_sha256) is not str
                 or len(self.environment_sha256) != 64
