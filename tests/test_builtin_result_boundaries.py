@@ -189,6 +189,10 @@ class RegressionResultBoundaries(unittest.TestCase):
             {"targets": ["test_run", "test_run", "test_skip", "test_xfail"]},
             {"skipped": ["test_skip", "test_xfail"]},
             {"expected_failures": ["unknown"]},
+            {"skipped": ["test_skip", "test_skip"]},
+            {"expected_failures": ["test_xfail", "test_xfail"]},
+            {"missing": ["test_run", "test_run"]},
+            {"missing": [[]]},
             {"missing": ["unknown"]}, {"missing": ["test_skip"]},
             {"missing": ["test_run", "test_run"]}, {"missing": "test_run"},
         )

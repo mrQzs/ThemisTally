@@ -63,6 +63,12 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
         _err("E_REGRESSION_PLAN", "targets are not canonical")
     if not isinstance(plan["skipped"], list) or not isinstance(plan["expected_failures"], list) or not isinstance(plan["missing"], list):
         _err("E_REGRESSION_PLAN", "derived arrays are required")
+    for field in ("skipped", "expected_failures", "missing"):
+        values = plan[field]
+        if any(type(name) is not str or not name for name in values):
+            _err("E_REGRESSION_PLAN", "derived arrays contain invalid target")
+        if values != sorted(set(values)):
+            _err("E_REGRESSION_PLAN", "derived arrays are not canonical")
     if any(name not in targets for name in plan["skipped"] + plan["expected_failures"] + plan["missing"]):
         _err("E_REGRESSION_PLAN", "derived target is unknown")
     if set(plan["skipped"]) & set(plan["expected_failures"]):
