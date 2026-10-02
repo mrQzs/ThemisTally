@@ -41,3 +41,5 @@
 `b396873` 进一步拒绝 regression inventory、plan、summary 和 result 中的错误类型或非序列输入；S4 regression/mutation 边界仍保持通过。
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。
+
+合同基线已更新：`aa82aaf` 新增 39 对当前合同 `v2`（01–06 各 3 个、08 的 S0–S6 各 3 个），统一绑定前一提交 `9a75389`，并补齐 Inputs/Outputs、Failure handling、Rollback boundary 以及全局验证命令。39 份合同均通过 `python scripts/pi_dispatch.py validate <task>.v2`；这只是合同结构校验，没有生成 Pi attempt 或阶段验收证据。旧版 39 对 `v1` 仍是历史草稿，`07-roadmap.v1.md` 仍无配套 JSON，均不可直接派遣。
