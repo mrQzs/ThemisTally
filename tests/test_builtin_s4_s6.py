@@ -59,6 +59,15 @@ class S5ExecutionTests(unittest.TestCase):
             build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
                                  candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=forged)
 
+    def test_check_evidence_rejects_malformed_boundary_values(self):
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_RECEIPT"):
+            make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=1)
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", reason=[])
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=None)
+
     def test_platform_failures_reconcile_conservatively(self):
         obs = make_platform_observation(os_name="windows", adapter_id="native-windows")
         failure = classify_failure(kind="start_unknown", detail="no process receipt")
@@ -67,6 +76,19 @@ class S5ExecutionTests(unittest.TestCase):
         self.assertFalse(result["production_ready"])
         with self.assertRaises(ArtifactError):
             classify_failure(kind="drift", expected_generation=2, observed_generation=2)
+
+    def test_platform_observation_and_failure_inputs_are_closed(self):
+        with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
+            make_platform_observation(os_name="windows", adapter_id="native-windows", connected=1)
+        with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
+            make_platform_observation(os_name="windows", adapter_id="native-windows", command=[])
+        with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
+            make_platform_observation(os_name="windows", adapter_id="native-windows", environment_digest="bad")
+        with self.assertRaisesRegex(ArtifactError, "E_FAILURE"):
+            classify_failure(kind="timeout", detail=[])
+        failure = classify_failure(kind="timeout")
+        with self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+            reconcile_failure({}, {**failure, "extra": True})
 
 class S6ProjectionTests(unittest.TestCase):
     def test_catalog_readiness_and_dispatch_boundary(self):

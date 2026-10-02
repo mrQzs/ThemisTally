@@ -28,13 +28,19 @@ def make_check_evidence(*, check_plan_id: str, candidate_digest: str, environmen
                         dispatcher_receipt: Mapping[str, Any] | None = None) -> dict[str, Any]:
     if status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_CHECK_STATUS", "unsupported check status")
+    if type(dispatcher_connected) is not bool:
+        _err("E_CHECK_RECEIPT", "dispatcher_connected must be boolean")
+    if output_digest is not None and (type(output_digest) is not str or not output_digest or len(output_digest) > 256):
+        _err("E_CHECK_EVIDENCE", "output digest must be bounded text")
+    if reason is not None and (type(reason) is not str or not reason or len(reason) > 4096):
+        _err("E_CHECK_EVIDENCE", "reason must be bounded text")
     execution_id = check_execution_id(check_plan_id=check_plan_id, candidate_digest=candidate_digest,
                                       environment_digest=environment_digest)
     if dispatcher_connected and dispatcher_receipt is None:
         _err("E_CHECK_RECEIPT", "dispatcher receipt is required for a production status")
     if dispatcher_receipt is not None:
         required = {"check_execution_id", "check_plan_id", "candidate_digest", "environment_digest", "status"}
-        if set(dispatcher_receipt) != required:
+        if not isinstance(dispatcher_receipt, Mapping) or set(dispatcher_receipt) != required or any(type(dispatcher_receipt[field]) is not str or not dispatcher_receipt[field] for field in required - {"status"}):
             _err("E_CHECK_RECEIPT", "closed dispatcher receipt required")
         if dispatcher_receipt["check_execution_id"] != execution_id or dispatcher_receipt["check_plan_id"] != check_plan_id or dispatcher_receipt["candidate_digest"] != candidate_digest or dispatcher_receipt["environment_digest"] != environment_digest or dispatcher_receipt["status"] != status:
             _err("E_CHECK_RECEIPT", "receipt identity does not match the requested check")
@@ -58,7 +64,7 @@ def make_check_evidence(*, check_plan_id: str, candidate_digest: str, environmen
 def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                          environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                          plan: Mapping[str, Any], evidence: Mapping[str, Any]) -> dict[str, Any]:
-    if evidence.get("execution_mode") != "deterministic_check" or not evidence.get("check_execution_id"):
+    if not isinstance(evidence, Mapping) or evidence.get("execution_mode") != "deterministic_check" or not evidence.get("check_execution_id"):
         _err("E_CHECK_EVIDENCE", "deterministic check evidence required")
     status = evidence["status"]
     if status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN", "REFERENCE_ONLY"}:
