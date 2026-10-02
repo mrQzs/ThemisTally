@@ -79,6 +79,6 @@
 
 上表的“初始状态”保留合同建立时的基线。当前复核结论如下：
 
-- `LOCAL_REFERENCE`：A02–A04、A10、A12、A18–A21、A23–A25，以及 T02–T04、T06、T08、T11、T13–T15、T17–T24；这些条目有离线纯函数或 fixture 证据，但没有核心 dispatcher、真实候选或平台证据。
-- `REVISE/BLOCKED`：A01、A05–A09、A11、A13–A17、A22、A26–A28，以及 T01、T05、T07、T12、T16、T25–T30；七插件/三配方目录、可信候选与环境身份、实际测试/变异执行、持久 outbox/cursor 和 handoff 恢复尚未闭合。
+- `LOCAL_REFERENCE`：A02–A04、A10、A12、A18–A21、A23–A25，以及 T02–T04、T06、T08、T11、T13–T15、T17–T24；这些条目有离线纯函数、fixture、显式 argv runner 或持久 journal 证据，但没有核心 dispatcher、真实候选或平台证据。
+- `REVISE/BLOCKED`：A01、A05–A09、A11、A13–A17、A22、A26–A28，以及 T01、T05、T07、T12、T16、T25–T30；核心 dispatcher 绑定的可信候选与环境身份、真实测试/变异执行、生产 outbox/consumer、发布 CAS 和 handoff 响应丢失恢复尚未闭合。
 - 真实 Pi、provider、Windows/macOS 原生进程和 09/10 连接器统一为 `BLOCKED/NOT_RUN`。任何离线 `PASS` 只能作为 `REFERENCE_ONLY`，不能转成生产发布 PASS。
