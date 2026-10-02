@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/plugin-lock-v1.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "generation", "compiler_sha256", "plugins", "lock_sha256"],
+  "properties": {"record_type": {"const": "plugin-lock"}, "schema_version": {"const": 1}, "generation": {"type": "integer", "minimum": 1}, "compiler_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "plugins": {"type": "array"}, "lock_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}
