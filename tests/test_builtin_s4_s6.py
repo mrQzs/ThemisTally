@@ -26,6 +26,12 @@ class S4RegressionMutationTests(unittest.TestCase):
         self.assertEqual(summarize_results(plan, [{"target": "a", "status": "PASS"}, {"target": "b", "status": "XFAIL"}, {"target": "skip", "status": "SKIP"}])["outcome"], "PASS")
         empty = collect_targets({"targets": []})
         self.assertEqual(summarize_results(empty, [])['outcome'], "NOT_RUN")
+        with self.assertRaisesRegex(ArtifactError, "E_REGRESSION_SPEC"):
+            collect_targets({"targets": ["a"]}, available=[1])
+        with self.assertRaisesRegex(ArtifactError, "E_REGRESSION_RESULT"):
+            summarize_results(plan, None)
+        with self.assertRaisesRegex(ArtifactError, "E_REGRESSION_RESULT"):
+            summarize_results(plan, [{"target": "a", "status": []}])
 
     def test_mutation_requires_baseline_and_kills_every_mutant(self):
         plan = build_mutation_plan([{"id": "m2", "path": "tests/x.py", "description": "flip"}, {"id": "m1", "path": "scripts/x.py", "description": "delete"}], baseline_id="base")

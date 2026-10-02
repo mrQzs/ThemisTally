@@ -40,7 +40,18 @@ def collect_targets(spec: Mapping[str, Any], available: Iterable[str] | None = N
     all_names = sorted(set(targets))
     if set(skip) & set(xfail) or set(skip) - set(all_names) or set(xfail) - set(all_names):
         _err("E_REGRESSION_SPEC", "skip/xfail target must be declared in targets")
-    inventory = None if available is None else set(available)
+    if available is not None:
+        if isinstance(available, (str, bytes)):
+            _err("E_REGRESSION_SPEC", "available inventory must be an iterable of names")
+        try:
+            available_values = list(available)
+        except TypeError as exc:
+            raise ArtifactError("E_REGRESSION_SPEC", "/regression", "available inventory must be iterable") from exc
+        if any(type(name) is not str or not name for name in available_values):
+            _err("E_REGRESSION_SPEC", "available inventory names must be non-empty strings")
+        inventory = set(available_values)
+    else:
+        inventory = None
     selected = [x for x in all_names if x not in set(skip) and x not in set(xfail)]
     missing = [] if inventory is None else [x for x in selected if x not in inventory]
     return {
@@ -61,7 +72,9 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
     if (not isinstance(targets, list) or targets != sorted(set(targets)) or
             any(type(name) is not str or not name for name in targets)):
         _err("E_REGRESSION_PLAN", "targets are not canonical")
-    if not isinstance(plan["skipped"], list) or not isinstance(plan["expected_failures"], list) or not isinstance(plan["missing"], list):
+    if (not isinstance(plan.get("selected"), list) or not isinstance(plan["skipped"], list)
+            or not isinstance(plan["expected_failures"], list) or not isinstance(plan["missing"], list)
+            or type(plan.get("zero_tests")) is not bool):
         _err("E_REGRESSION_PLAN", "derived arrays are required")
     for field in ("skipped", "expected_failures", "missing"):
         values = plan[field]
@@ -80,11 +93,13 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
         _err("E_REGRESSION_PLAN", "missing target list is invalid")
     expected = set(plan["targets"])
     seen: dict[str, str] = {}
+    if not isinstance(results, Sequence) or isinstance(results, (str, bytes)):
+        _err("E_REGRESSION_RESULT", "result sequence required")
     for row in results:
         if not isinstance(row, Mapping) or set(row) != {"target", "status"}:
             _err("E_REGRESSION_RESULT", "result rows are closed target/status objects")
         target, status = row["target"], row["status"]
-        if type(target) is not str or target not in expected or status not in _ALLOWED_RESULT:
+        if type(target) is not str or target not in expected or type(status) is not str or status not in _ALLOWED_RESULT:
             _err("E_REGRESSION_RESULT", "unknown target or status")
         if target in seen:
             _err("E_REGRESSION_RESULT", "duplicate target result")
@@ -120,6 +135,8 @@ def build_regression_artifact(*, artifact_id: str, producer: Mapping[str, str], 
         _err("E_REGRESSION_RESULT", "closed regression summary required")
     if not isinstance(summary["results"], Mapping):
         _err("E_REGRESSION_RESULT", "regression result map required")
+    if type(summary.get("outcome")) is not str:
+        _err("E_REGRESSION_RESULT", "regression outcome must be text")
     rows = [{"target": key, "status": value} for key, value in summary["results"].items()]
     expected = summarize_results(plan, rows)
     if dict(summary) != expected:
