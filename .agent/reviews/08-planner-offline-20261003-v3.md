@@ -2,18 +2,18 @@
 
 Verdict: `REVISE` / production gate `BLOCKED`.
 
-This planner-side follow-up covers `993987b` and the offline commits before
+This planner-side follow-up covers `be3de10` and the offline commits before
 it. It records local evidence only; it is not a Pi attempt and does not replace
 an independent `review-pi` verdict.
 
 ## Verified local evidence
 
-- 99 focused 01–06/08 tests pass, including strict v2 authorization, currentness generation/hash fencing, one-time consumption, duplicate input rejection and journal recovery,
+- 101 focused 01–06/08 tests pass, including strict v2 authorization, currentness generation/hash fencing, one-time consumption, duplicate input rejection and journal recovery,
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
 - The broader suite excluding long lifecycle dispatcher and legacy end-to-end
-  modules passes 835 tests with 27 skips.
+  modules passes 837 tests with 27 skips.
 - `python -m compileall -q scripts/codekit tests` and `git diff --check` pass.
 - WSL Python 3.12 Draft 2020-12 meta-validation passes for 14 schemas.
 - The earlier WSL local stub run recorded 260 dispatcher self-checks with zero
@@ -28,6 +28,8 @@ an independent `review-pi` verdict.
   duplicate input bindings but is not the production authorization service.
 - `authorization.py` exposes a currentness check bound to the approved
   generation, record hash and decision; stale or revoked heads are rejected.
+- `adapters/offline.py` requires one final terminal event, paired tool events
+  and a single initial run-start event; malformed streams cannot settle as success.
 - `projection_store.py` persists projection events, checkpoints and generation
   handoff, fsyncs each append, with cursor CAS and conservative reconciliation; it is not wired to
   the core dispatcher outbox.
