@@ -30,3 +30,5 @@
 `1caeb6e` 继续收紧离线账本与运行边界：atomic claim/budget、attempt allocator、usage settlement、resume recovery、scheduler/budget store 拒绝非规范 JSON 常量、控制字符、越界整数和不完整持久化闭包；offline runner 保留空 argv 参数、固定环境白名单并按完整可观察证据识别重复运行漂移；回归/变异 artifact 在加载时重算 summary/status，candidate ResourceRef 保留 path 绑定，未知 connector 阶段阻断。该阶段定向套件随后扩展为 87、69、123 项通过（279 项合计）；这些结果仍为 `LOCAL_REFERENCE`，不产生 Pi、provider、原生平台或外部连接器证据。
 
 `e94056a` 收紧插件清单的严格 JSON、深度/数组上限、控制字符、路径和检查 argv 边界，并使身份哈希拒绝循环值与非法 Unicode 标量；插件/身份定向回归继续通过，合同基线已刷新到该提交。
+
+`98a4ed5` 继续收紧 adapter 事件与 payload、runtime lease 的身份/代际/token/时间边界，以及 provider economics 和 unified ledger 的 canonical JSON、循环、Unicode、有限数和安全整数边界；本轮相关组合回归 137 项通过，验收矩阵组合命令 303 项通过、1 项跳过，compileall 和 diff check 通过。结果仍为 `LOCAL_REFERENCE`，真实 Pi、provider、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
