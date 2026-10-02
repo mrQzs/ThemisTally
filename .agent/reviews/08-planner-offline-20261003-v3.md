@@ -8,7 +8,7 @@ an independent `review-pi` verdict.
 
 ## Verified local evidence
 
-- 96 focused 01–06/08 tests pass, including strict v2 authorization and journal recovery,
+- 94 focused 01–06/08 tests pass, including strict v2 authorization and journal recovery,
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
