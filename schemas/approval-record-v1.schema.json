@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/approval-record-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "approval_id", "request_id", "subject_ref", "input_refs", "reviewed_actions", "decision", "recorded_at", "reviewer"],
+  "properties": {
+    "record_type": {"const": "approval-record"}, "schema_version": {"const": 1},
+    "approval_id": {"type": "string", "minLength": 1}, "request_id": {"type": "string", "minLength": 1},
+    "subject_ref": {"$ref": "#/$defs/ref"}, "input_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+    "reviewed_actions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "decision": {"enum": ["APPROVED", "REJECTED", "REVOKED", "UNKNOWN"]},
+    "recorded_at": {"type": "string", "minLength": 1}, "reviewer": {"type": "object"},
+    "authorization_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}, "conditions": {"type": "array"},
+    "expires_at": {"type": ["string", "null"]}, "not_before": {"type": ["string", "null"]},
+    "purpose": {"type": "string"}, "rationale": {"type": "string"}, "supersedes": {}
+  },
+  "$defs": {"ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {
+    "kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }}}
+}
