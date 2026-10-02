@@ -162,4 +162,27 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
     return copy.deepcopy(dict(lock))
 
 
-__all__ = ["PluginError", "build_lock", "canonical_bytes", "digest", "resolve_plugins", "resource_ref", "validate_lock", "validate_manifest"]
+def check_permission_intersection(manifest: Mapping[str, Any], *, allowed_permissions: Sequence[str],
+                                  platform_name: str | None = None) -> Dict[str, Any]:
+    """Return a conservative offline policy result for one plugin.
+
+    A manifest can describe required permissions and supported platforms, but
+    it cannot grant either.  The caller supplies the already-authorized
+    intersection; a missing permission or platform keeps the plugin blocked.
+    """
+    normalized = validate_manifest(manifest)
+    if not isinstance(allowed_permissions, Sequence) or isinstance(allowed_permissions, (str, bytes)):
+        _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list required")
+    allowed = {value for value in allowed_permissions if isinstance(value, str)}
+    required = set(normalized.get("permissions", []))
+    missing = sorted(required - allowed)
+    supported = normalized.get("platforms", [])
+    platform_blocked = platform_name is not None and bool(supported) and platform_name not in supported
+    return {"plugin_id": normalized["plugin_id"], "required_permissions": sorted(required),
+            "missing_permissions": missing, "platform": platform_name,
+            "platform_blocked": platform_blocked,
+            "status": "READY" if not missing and not platform_blocked else "BLOCKED",
+            "dispatch_eligibility": "not_evaluated"}
+
+
+__all__ = ["PluginError", "build_lock", "canonical_bytes", "check_permission_intersection", "digest", "resolve_plugins", "resource_ref", "validate_lock", "validate_manifest"]

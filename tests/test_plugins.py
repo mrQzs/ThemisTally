@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from codekit.plugins import PluginError, build_lock, digest, resolve_plugins, validate_lock, validate_manifest
+from codekit.plugins import PluginError, build_lock, check_permission_intersection, digest, resolve_plugins, validate_lock, validate_manifest
 
 
 def manifest(plugin_id="demo", depends=None):
@@ -57,6 +57,17 @@ class PluginTests(unittest.TestCase):
         changed = copy.deepcopy(manifest()); changed["capabilities"] = ["different"]
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK_BINDING"):
             validate_lock(lock, {"demo": changed})
+
+    def test_permission_intersection_and_platform_are_conservative(self):
+        value = manifest()
+        value["permissions"] = ["read-candidate", "write-candidate"]
+        value["platforms"] = ["linux"]
+        ready = check_permission_intersection(value, allowed_permissions=["read-candidate", "write-candidate"], platform_name="linux")
+        self.assertEqual(ready["status"], "READY")
+        blocked = check_permission_intersection(value, allowed_permissions=["read-candidate"], platform_name="windows")
+        self.assertEqual(blocked["status"], "BLOCKED")
+        self.assertEqual(blocked["missing_permissions"], ["write-candidate"])
+        self.assertTrue(blocked["platform_blocked"])
 
 
 if __name__ == "__main__":

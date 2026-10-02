@@ -55,9 +55,17 @@ def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
         if not manifest_path.is_file() or not lock_path.is_file():
             _err("E_CATALOG_FIXTURE", f"missing manifest/lock for {plugin_id}")
         manifest = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
-        lock = validate_lock(json.loads(lock_path.read_text(encoding="utf-8")))
+        lock = validate_lock(json.loads(lock_path.read_text(encoding="utf-8")), {plugin_id: manifest})
         if manifest["plugin_id"] != plugin_id or len(lock["plugins"]) != 1 or lock["plugins"][0]["plugin_id"] != plugin_id:
             _err("E_CATALOG_IDENTITY", f"manifest/lock identity mismatch for {plugin_id}")
+        # Resource refs are repository-relative.  Verify their bytes while
+        # loading the catalog so a checked-in manifest cannot claim content it
+        # does not actually bind.
+        project_root = base.parent if base.name == "plugins" else Path(".")
+        for resource in manifest.get("resources", []):
+            resource_path = project_root / resource["path"]
+            if not resource_path.is_file() or _sha_file(resource_path) != resource["sha256"]:
+                _err("E_CATALOG_RESOURCE", f"resource bytes do not match {resource['path']}")
         rows.append({"plugin_id": plugin_id, "version": manifest["version"],
                      "manifest_ref": {"kind": "file", "id": f"{plugin_id}.manifest", "path": str(manifest_path).replace("\\", "/"), "sha256": _sha_file(manifest_path)},
                      "lock_ref": {"kind": "file", "id": f"{plugin_id}.lock", "path": str(lock_path).replace("\\", "/"), "sha256": _sha_file(lock_path)}})
