@@ -8,7 +8,7 @@
 
 ## 证据
 
-- `python -m unittest tests.test_workflow ... tests.test_unified_ledger -q`：234 项通过，1 项明确跳过。
+- `python -m unittest tests.test_workflow ... tests.test_unified_ledger -q`：235 项通过，1 项明确跳过。
 - `python -m compileall -q scripts/codekit tests`：通过。
 - `git diff --check`：通过。
 

@@ -182,7 +182,7 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             request = self.db.execute("SELECT stopped FROM requests WHERE request_id=?", (op[0],)).fetchone()
             if request is None:
                 raise AtomicLedgerError("E_STOPPED", ("request_stopped",))
-            if request[0] and current.state in ("ADMITTED", "STARTING") and next_state in ("STARTING", "STARTED", "REVIEW_PENDING"):
+            if request[0]:
                 raise AtomicLedgerError("E_STOPPED", ("request_stopped",))
             seq = self._emit_seq(op[0], operation_id, "ledger.attempt_admitted", {"attempt_id": attempt_id, "run_id": run_id, "stage_id": stage_id, "plan_version": plan_version, "generation": generation})
             try:
