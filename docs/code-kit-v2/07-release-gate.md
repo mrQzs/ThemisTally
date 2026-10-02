@@ -3,7 +3,7 @@
 ## 候选与证据
 
 - 候选提交：`a2357b0`（S3.2/S5.3 实现候选；本审计文档另有审计提交）。
-- 远端：`origin/master` 已与审计提交 `0a5ed2b` 一致；工作树干净。
+- 远端：`origin/master` 已与最终审计提交 `473c32b` 一致；工作树干净。
 - 定向套件：272 项通过，1 项跳过。
 - 调度器回归：`python tests/test_dispatch.py`，255 checks，0 failed。
 - 结构门禁：`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。
@@ -13,7 +13,7 @@
 
 | 门禁 | 结果 | 说明 |
 |---|---|---|
-| G1 候选固定且工作树干净 | PASS | `a2357b0` 实现候选已纳入审计提交 `0a5ed2b`；本地与远端一致 |
+| G1 候选固定且工作树干净 | PASS | `a2357b0` 实现候选已纳入最终审计提交 `473c32b`；本地与远端一致 |
 | G2 定向实现与结构检查 | PASS | 定向套件、compileall、diff check 均通过 |
 | G3 旧调度器回归 | PASS | 255 checks，0 failed |
 | G4 Pi 环境与执行器证据 | BLOCKED | `step/step-5-preview` 不可用，认证未就绪；没有 attempt 证据 |
