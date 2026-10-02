@@ -1,0 +1,62 @@
+# 07 验收矩阵（候选提交）
+
+候选提交：`a2357b0`（S3.2/S5.3 实现候选）。该矩阵只记录当前工作树可复核的离线候选；没有 Pi attempt、真实 provider、真实 OS 进程或 09/10 生产连接证据时，不得使用 `PASS`。
+
+## 统一验证命令
+
+定向命令：
+
+```text
+python -m unittest tests.test_workflow tests.test_readiness tests.test_baseline_binding tests.test_git_probe tests.test_git_ancestor tests.test_coverage tests.test_claim_model tests.test_scheduler_store tests.test_parallel tests.test_budget tests.test_budget_store_v2 tests.test_retry tests.test_atomic_claim_budget tests.test_acceptance tests.test_recovery tests.test_identity tests.test_provider_economics tests.test_offline_provider tests.test_unified_ledger tests.test_currentness tests.test_baseline_use tests.test_projections tests.test_runtime_lease tests.test_resume_recovery tests.test_attempt_allocator tests.test_integration_gates tests.test_usage_settlement -q
+```
+
+结果：272 项通过，1 项跳过。通用门禁：`python -m compileall -q scripts/codekit tests`、`git diff --check`、`python tests/test_dispatch.py`（255 checks，0 failed）。全量结果为 879 项、31 项跳过、1 项环境失败；失败是 Python 3.9 缺少 `sys.stdlib_module_names` 的 F049 导入副作用探针。
+
+原始调度器证据目录只有 `.agent/runs/_env/` 的 doctor 记录；本轮没有生成 Pi attempt。因此下表的“证据”列是可定位的源文件/测试和本审计报告，而不是伪造的运行证据。
+
+## 合同与实际范围
+
+S6 v1 合同仍记录 `contract_base_sha=175653e`，而本候选是 `candidate_sha=a2357b0`；本表是对候选的本地审计，不修改已派遣合同。实际实现文件与 v1 预期文件名有少量差异：例如 S1.1 使用 `currentness.py`/`test_currentness.py`，S1.2 使用 `baseline_use.py`/`test_baseline_use.py`，S1.3 使用 `identity.py`/`test_identity.py`，S5.2 使用 `projections.py`/`test_projections.py`。这些差异只作为审计映射记录，不扩大合同 Scope；Pi 环境恢复后必须以当前候选为基线创建合同 v2。
+
+## A 项
+
+每行的证据记录采用同一字段：`row_id`（A01–A30）、`contract_ref`（对应 `.agent/plans/07-*.v1.md`）、`contract_base_sha=175653e`、`candidate_sha=a2357b0`、`command`（上面的统一命令或明确的定向命令）、`input_summary`（固定候选和离线事实）、`output_summary`（表内状态及测试入口）、`raw_evidence`（`.agent/runs/<task>/attempt-*` 路径及 SHA-256）。本轮没有 Pi attempt，故每行 `raw_evidence` 都是 `NONE/NO_ATTEMPT`；这是真实证据缺口，也是所有 `LOCAL_PARTIAL`/`NOT_RUN` 状态的原因。
+
+| 项 | 当前结论 | 可复核证据 | 仍缺的证据或限制 |
+|---|---|---|---|
+| A01 | LOCAL_PARTIAL | `tests/test_workflow.py`；定向命令 | 需固定候选 attempt 证据 |
+| A02 | LOCAL_PARTIAL | `tests/test_workflow.py`、`scripts/codekit/workflow.py` | 未接入生产规划 CLI |
+| A03 | LOCAL_PARTIAL | `tests/test_readiness.py`、`tests/test_coverage.py`、`scripts/codekit/currentness.py` | 未运行真实当前性探针 |
+| A04 | LOCAL_PARTIAL | `tests/test_parallel.py`、`scripts/codekit/parallel.py` | 未运行跨平台路径适配器 |
+| A05 | LOCAL_PARTIAL | `tests/test_claim_model.py`、`tests/test_scheduler_store.py`、`tests/test_atomic_claim_budget.py` | 未做真实重启与数据库部署验证 |
+| A06 | LOCAL_PARTIAL | `tests/test_acceptance.py`、`tests/test_atomic_claim_budget.py` | 未接生产下游调度 |
+| A07 | LOCAL_PARTIAL | `tests/test_budget.py`、`tests/test_retry.py` | 未覆盖真实 provider 隐藏调用 |
+| A08 | LOCAL_PARTIAL | `tests/test_budget.py`、`tests/test_parallel.py`、`tests/test_atomic_claim_budget.py` | 未做并发进程压力验证 |
+| A09 | LOCAL_PARTIAL | `tests/test_acceptance.py`、`tests/test_coverage.py` | 未接真实 rebase/merge 回查 |
+| A10 | LOCAL_PARTIAL | `tests/test_recovery.py`、`tests/test_resume_recovery.py` | 未做崩溃故障注入 |
+| A11 | LOCAL_PARTIAL | `tests/test_workflow.py` | 未做生产重排回放 |
+| A12 | LOCAL_PARTIAL | `tests/test_workflow.py`、`tests/test_baseline_binding.py` | Schema 与映射仍为离线边界 |
+| A13 | LOCAL_PARTIAL | `tests/test_acceptance.py`、`scripts/codekit/baseline_use.py` | 未验证外部接受记录服务 |
+| A14 | LOCAL_PARTIAL | `tests/test_git_probe.py`、`tests/test_git_ancestor.py`、`tests/test_coverage.py` | 未完成真实 HEAD/dirty/untracked 接线 |
+| A15 | LOCAL_PARTIAL | `tests/test_scheduler_store.py`、`tests/test_parallel.py` | 未做多进程唯一性证明 |
+| A16 | LOCAL_PARTIAL | `tests/test_atomic_claim_budget.py`、`tests/test_unified_ledger.py` | 持久 schema/迁移尚非生产部署 |
+| A17 | LOCAL_PARTIAL | `tests/test_atomic_claim_budget.py`、`tests/test_unified_ledger.py` | 未做跨进程响应丢失故障注入 |
+| A18 | LOCAL_PARTIAL | `tests/test_atomic_claim_budget.py`、`tests/test_unified_ledger.py` | 未接 OS handoff |
+| A19 | LOCAL_PARTIAL | `tests/test_atomic_claim_budget.py`、`tests/test_runtime_lease.py` | 未核验真实 lease/进程 |
+| A20 | LOCAL_PARTIAL | `tests/test_identity.py`、`tests/test_parallel.py` | 未做 Windows junction 与 macOS 路径适配 |
+| A21 | LOCAL_PARTIAL | `tests/test_budget.py`、`tests/test_budget_store_v2.py`、`tests/test_usage_settlement.py` | provider 账单来源仍为离线输入 |
+| A22 | LOCAL_PARTIAL | `tests/test_budget.py`、`tests/test_atomic_claim_budget.py`、`tests/test_usage_settlement.py` | 未做真实超预算入账 |
+| A23 | LOCAL_PARTIAL | `tests/test_provider_economics.py`、`tests/test_offline_provider.py`、`tests/test_usage_settlement.py` | 未发现隐藏 provider 调用 |
+| A24 | LOCAL_PARTIAL | `tests/test_budget.py`、`tests/test_provider_economics.py`、`tests/test_usage_settlement.py` | 未接真实汇率或结算系统，未知币种必须隔离 |
+| A25 | LOCAL_PARTIAL | `tests/test_atomic_claim_budget.py`、`tests/test_unified_ledger.py` | 未做迟到生产账单接线 |
+| A26 | LOCAL_PARTIAL | `tests/test_acceptance.py`、`scripts/codekit/baseline_use.py` | 未接撤销传播链 |
+| A27 | LOCAL_PARTIAL | `tests/test_recovery.py`、`tests/test_runtime_lease.py` | 未做真实 boot/PID fencing |
+| A28 | NOT_RUN | `scripts/codekit/projections.py` 仅有离线 readiness | 未连接 09 规划调用、独立授权和预算归属 |
+| A29 | NOT_RUN | `tests/test_projections.py`、`scripts/codekit/projections.py` | 未部署 10 consumer/cursor 与权威重建 |
+| A30 | LOCAL_PARTIAL | `tests/test_resume_recovery.py`、`tests/test_unified_ledger.py` | 未做数据库/资源/授权高水位生产恢复 |
+
+## 证据规则
+
+- `LOCAL_PARTIAL` 表示源码与定向单测可复核，不代表真实接线或独立 S6 通过。
+- `NOT_RUN` 表示当前没有合格输入、生产连接或 Pi attempt 证据。
+- 本矩阵绑定候选提交 `a2357b0`；变更候选后必须重新生成命令输出和审计报告，不能沿用旧结论。
