@@ -14,7 +14,7 @@
 
 ## 证据与验证
 
-01–06 边界与 08 聚焦测试合计 94 项通过；排除长生命周期调度器和 legacy 端到端模块后的其余测试共 830 项通过（跳过 27 项）。`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过；14 份 Schema 在 WSL Python 3.12 的 Draft 2020-12 元校验通过。七个 plugin fixture 的 manifest/lock 和三份 recipe 可被离线 loader 校验。
+01–06 边界与 08 聚焦测试合计 96 项通过；排除长生命周期调度器和 legacy 端到端模块后的其余测试共 832 项通过（跳过 27 项）。`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过；14 份 Schema 在 WSL Python 3.12 的 Draft 2020-12 元校验通过。七个 plugin fixture 的 manifest/lock 和三份 recipe 可被离线 loader 校验。
 
 `python tests/test_dispatch.py` 在 WSL Python 3.12 的本地 stub 环境完成 260 项检查、0 failed；该结果只证明调度器自测，不是 Pi 生产证据。`python -m unittest discover -s tests -q` 进入既有生命周期/调度 fixture 后耗时过长，本轮停止，不能据此宣称全量通过。39 个新增合同的 v1 文件已生成并通过规划期校验；真实执行器没有派遣。独立复审会话因本机 Codex rollout 不可用而 `BLOCKED`，没有伪造复审结论。
 
