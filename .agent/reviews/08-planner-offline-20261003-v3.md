@@ -44,6 +44,12 @@ an independent `review-pi` verdict.
 - `projection_store.py` persists projection events, checkpoints and generation
   handoff, fsyncs each append, with cursor CAS and conservative reconciliation; it is not wired to
   the core dispatcher outbox.
+- `3347906` closes the documentation artifact boundary: docs-check source paths
+  must have exact ResourceRef coverage, finding payloads are closed and
+  recomputed, canonical ResourceRef collisions are rejected, and the offline
+  docs-change/review-bundle builders refuse an explicit production `PASS`.
+  The resulting 93-test focused suite passes on Windows; this is local fixture
+  evidence only.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
@@ -62,6 +68,9 @@ an independent `review-pi` verdict.
 - Catalog signatures/publication CAS, complete permission closure, real test
   collection and mutation isolation, and production reconcile semantics remain
   unverified.
+- A docs-check record is still a local reference until a trusted dispatcher
+  receipt is supplied; the new builder checks prevent a plugin caller from
+  manufacturing that receipt or status.
 
 Therefore all 01–06 and 08 stage gates remain `REVISE/BLOCKED`; offline
 `PASS`-shaped fixture results remain `LOCAL_REFERENCE` or `REFERENCE_ONLY` and
