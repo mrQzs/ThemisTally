@@ -11,6 +11,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 from codekit.baseline_use import resolve_baseline_use  # noqa: E402
 from codekit.acceptance import validate_accepted_result, validate_acceptance_revocation  # noqa: E402
+from codekit.protocols import ProtocolError  # noqa: E402
 
 REQUEST = "req-" + "a" * 32
 HASHES = {"candidate": "a" * 64, "checks": "b" * 64, "output": "c" * 64, "schema": "d" * 64, "verdict": "e" * 64}
@@ -69,6 +70,37 @@ class BaselineUseTests(unittest.TestCase):
                                       integration_candidate_ref={**merge.record["candidate_ref"], "id": "candidate-new"},
                                       authorization_current=None, expected_request_id=REQUEST, expected_guard_version=7)
         self.assertEqual(result.reasons, ("WAIT_BASELINE_AUTHORIZATION", "INTEGRATION_CANDIDATE_MISMATCH"))
+
+    def test_baseline_guard_and_deep_upstream_currentness_are_required(self):
+        left = validate_accepted_result(accepted("accept-left", upstream=("accept-leaf",)))
+        right = validate_accepted_result(accepted("accept-right", task="source-b"))
+        merge = validate_accepted_result(accepted("accept-merge", task="merge", upstream=("accept-left", "accept-right")))
+        result = resolve_baseline_use(binding(), [left, right, merge], [],
+                                      required_acceptance_ids=["accept-left", "accept-right"],
+                                      integration_acceptance_id="accept-merge",
+                                      integration_candidate_ref=merge.record["candidate_ref"],
+                                      authorization_current=True, expected_request_id=REQUEST, expected_guard_version=7)
+        self.assertEqual(result.decision, "BLOCK")
+        self.assertIn("WAIT_UPSTREAM_ACCEPTANCE", result.reasons)
+
+        stale = resolve_baseline_use(binding(), [left, right, merge], [],
+                                     required_acceptance_ids=["accept-left", "accept-right"],
+                                     integration_acceptance_id="accept-merge",
+                                     integration_candidate_ref=merge.record["candidate_ref"],
+                                     authorization_current=True, expected_request_id=REQUEST, expected_guard_version=8)
+        self.assertIn("BASELINE_GUARD_MISMATCH", stale.reasons)
+
+    def test_baseline_use_rejects_malformed_control_inputs(self):
+        merge = validate_accepted_result(accepted("accept-merge", task="merge"))
+        args = dict(binding=binding(), accepted_results=[merge], revocations=[],
+                    required_acceptance_ids=["accept-merge"], integration_acceptance_id="accept-merge",
+                    integration_candidate_ref=merge.record["candidate_ref"], authorization_current=True,
+                    expected_request_id=REQUEST, expected_guard_version=7)
+        for field, value in (("required_acceptance_ids", None), ("integration_acceptance_id", []),
+                             ("authorization_current", "true"), ("expected_guard_version", True)):
+            bad = dict(args, **{field: value})
+            with self.subTest(field=field), self.assertRaises(ProtocolError):
+                resolve_baseline_use(**bad)
 
 
 if __name__ == "__main__":

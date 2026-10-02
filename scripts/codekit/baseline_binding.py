@@ -56,6 +56,10 @@ class BaselineBinding:
     def coverage_mode(self) -> str:
         return self.record["coverage_mode"]
 
+    @property
+    def guard_version(self) -> int:
+        return self.record["guard_version"]
+
 
 def validate_baseline_binding(document: Any) -> BaselineBinding:
     """Validate the T2B-S structural profile and return a detached immutable view.
