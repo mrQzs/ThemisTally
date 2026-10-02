@@ -42,7 +42,7 @@
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。
 
-最新候选 `1caeb6e` 增加了 regression/mutation artifact 加载重算、candidate path 绑定、未知 connector 阶段阻断、offline runner 完整输出稳定性，以及持久 budget/scheduler ledger 对 NaN/Infinity 的拒绝。相关复合定向套件与 01–06 恢复/账本套件合计 266 项通过；完整调度器回归仍 `NOT_RUN`，真实生产接线仍 `BLOCKED`。
+最新候选 `1caeb6e` 增加了 regression/mutation artifact 加载重算、candidate path 绑定、未知 connector 阶段阻断、offline runner 完整输出稳定性，以及持久 budget/scheduler ledger 对 NaN/Infinity 的拒绝。相关复合定向套件与 01–06 恢复/账本套件合计 279 项通过；完整调度器回归仍 `NOT_RUN`，真实生产接线仍 `BLOCKED`。
 
 当前候选已推进到 `e94056a`：插件清单 canonical JSON、数组/深度/控制字符限制和身份哈希循环/Unicode 边界已补齐；这些仍是离线结构证据，未改变真实 Pi/provider/平台/09/10 的阻塞状态。
 
