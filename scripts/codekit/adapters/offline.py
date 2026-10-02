@@ -18,7 +18,7 @@ class OfflineAdapter:
     def run(self, invocation: Invocation, events: Iterable[Mapping[str, Any]]) -> AdapterResult:
         if invocation.adapter_id is not None and invocation.adapter_id != self.adapter_id:
             raise AdapterError("E_ADAPTER_IDENTITY", "invocation adapter does not match offline adapter")
-        normalized = normalize_events(events, expected_source=self.adapter_id)
+        normalized = normalize_events(events, expected_source=self.adapter_id, preserve_unknown=True)
         if not normalized or normalized[0].event_type != "run_started":
             raise AdapterError("E_ADAPTER_SETTLEMENT", "run_started is required")
         terminal = normalized[-1].event_type

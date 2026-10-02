@@ -81,7 +81,7 @@ class AdapterResult:
     raw_complete: bool
 
 
-def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: str) -> Tuple[NormalizedEvent, ...]:
+def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: str, preserve_unknown: bool = False) -> Tuple[NormalizedEvent, ...]:
     result = []
     seen_ids = set()
     expected_seq = 0
@@ -101,11 +101,14 @@ def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: st
         seen_ids.add(event_id)
         event_type = _text(raw.get("type"), "type")
         if event_type not in EVENT_TYPES:
-            raise AdapterError("E_ADAPTER_EVENT_TYPE", "unknown event type", seq=seq)
+            if not preserve_unknown:
+                raise AdapterError("E_ADAPTER_EVENT_TYPE", "unknown event type", seq=seq)
+            payload = {"raw_event": copy.deepcopy(dict(raw)), "unknown_type": event_type}
+            event_type = "unknown"
         source = _text(raw.get("source"), "source")
         if source != expected_source:
             raise AdapterError("E_ADAPTER_SOURCE", "event source does not match adapter", seq=seq)
-        payload = raw.get("payload", {})
+        payload = raw.get("payload", {}) if event_type in EVENT_TYPES else payload
         if not isinstance(payload, Mapping):
             raise AdapterError("E_ADAPTER_EVENT", "payload must be an object", seq=seq)
         result.append(NormalizedEvent(seq, event_id, event_type, source, copy.deepcopy(dict(payload))))

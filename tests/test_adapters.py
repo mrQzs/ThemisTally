@@ -47,6 +47,12 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SOURCE"):
             normalize_events([{**event(0, "run_started"), "source": "pi"}], expected_source="offline")
 
+    def test_offline_adapter_preserves_unknown_events_as_unsettled_evidence(self):
+        result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "future_event")])
+        self.assertFalse(result.settled)
+        self.assertEqual(result.events[-1].event_type, "unknown")
+        self.assertEqual(result.events[-1].payload["unknown_type"], "future_event")
+
     def test_missing_terminal_is_unknown_not_success(self):
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "assistant")])
         self.assertFalse(result.settled); self.assertEqual(result.status, "UNKNOWN"); self.assertFalse(result.raw_complete)
