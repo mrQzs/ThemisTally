@@ -274,7 +274,9 @@ def build_docs_check(snapshot: Snapshot, source_paths: Sequence[str], *, source_
     for ref in source_refs:
         snapshot.verify(ref)
     if status is None:
-        status = "PASS" if payload["local_status"] == "SATISFIED" else "FAIL"
+        status = "REFERENCE_ONLY" if payload["local_status"] == "SATISFIED" else "FAIL"
+    if status == "PASS":
+        raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     record = {"record_type": "docs-check", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": producer_version}, "status": status, "source_refs": [dict(x) for x in source_refs], "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}
     return validate_artifact(record)
 

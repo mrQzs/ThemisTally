@@ -90,10 +90,10 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
             _fail("E_CHANGE_TYPE", f"{field}/change_type", "unsupported change type")
         old_sha = _sha(value["old_sha256"], f"{field}/old_sha256", nullable=True)
         new_sha = _sha(value["new_sha256"], f"{field}/new_sha256", nullable=True)
-        if change_type == "added" and old_sha is not None:
-            _fail("E_CHANGE_HASH", f"{field}/old_sha256", "added file must not have old content")
-        if change_type == "deleted" and new_sha is not None:
-            _fail("E_CHANGE_HASH", f"{field}/new_sha256", "deleted file must not have new content")
+        if change_type == "added" and (old_sha is not None or new_sha is None):
+            _fail("E_CHANGE_HASH", field, "added file requires new content and no old content")
+        if change_type == "deleted" and (new_sha is not None or old_sha is None):
+            _fail("E_CHANGE_HASH", field, "deleted file requires old content and no new content")
         if change_type in {"modified", "mode-only", "submodule"} and old_sha is None and new_sha is None:
             _fail("E_CHANGE_HASH", field, "change requires at least one content hash")
         normalized: Dict[str, Any] = {"path": path, "change_type": change_type, "old_sha256": old_sha, "new_sha256": new_sha}

@@ -5,7 +5,7 @@
   "required": ["record_type", "schema_version", "artifact_id", "producer", "status", "source_refs", "candidate_ref", "environment_ref", "payload"],
   "properties": {
     "record_type": {"enum": ["analysis-report", "change-report", "docs-change", "docs-check", "regression-plan", "mutation-review", "check-plan", "review-bundle"]},
-    "schema_version": {"const": 1}, "artifact_id": {"type": "string", "minLength": 1}, "producer": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "version"]},
+    "schema_version": {"const": 1}, "artifact_id": {"type": "string", "minLength": 1}, "producer": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "version"], "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}},
     "status": {"enum": ["DRAFT_VALIDATED", "READY", "PASS", "FAIL", "UNKNOWN", "BLOCKED", "NOT_RUN", "REFERENCE_ONLY"]},
     "source_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}, "candidate_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "environment_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "payload": {"type": "object"}
   },

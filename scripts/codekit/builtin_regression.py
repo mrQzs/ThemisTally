@@ -90,8 +90,10 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
 def build_regression_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                               environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                               plan: Mapping[str, Any], summary: Mapping[str, Any]) -> dict[str, Any]:
+    outcome = summary["outcome"]
+    record_status = "REFERENCE_ONLY" if outcome == "PASS" else outcome
     record = {"record_type": "regression-plan", "schema_version": 1, "artifact_id": artifact_id,
-              "producer": dict(producer), "status": summary["outcome"], "source_refs": list(source_refs),
+              "producer": dict(producer), "status": record_status, "source_refs": list(source_refs),
               "candidate_ref": candidate_ref, "environment_ref": environment_ref,
               "payload": {"plan": deepcopy(dict(plan)), "summary": deepcopy(dict(summary))}}
     return validate_artifact(record)

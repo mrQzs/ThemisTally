@@ -41,7 +41,10 @@ class S5ExecutionTests(unittest.TestCase):
         b = check_execution_id(check_plan_id="cp", candidate_digest="c", environment_digest="e")
         self.assertEqual(a, b)
         self.assertEqual(make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS")["status"], "REFERENCE_ONLY")
-        self.assertEqual(make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True)["status"], "PASS")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_RECEIPT"):
+            make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True)
+        receipt = {"check_execution_id": a, "check_plan_id": "cp", "candidate_digest": "c", "environment_digest": "e", "status": "PASS"}
+        self.assertEqual(make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True, dispatcher_receipt=receipt)["status"], "PASS")
 
     def test_platform_failures_reconcile_conservatively(self):
         obs = make_platform_observation(os_name="windows", adapter_id="native-windows")
