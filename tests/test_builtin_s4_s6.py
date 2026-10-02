@@ -114,6 +114,17 @@ class S6ProjectionTests(unittest.TestCase):
         p.rebuild([{"id": "authority"}], generation=1)
         self.assertEqual(p.cursor, 0)
 
+    def test_projection_inputs_reject_noncanonical_payloads_and_state_types(self):
+        p = CursorProjection()
+        with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
+            p.consume([ProjectionEvent(1, "s", "x", [])], generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
+            p.consume([ProjectionEvent(1, "s", "x", {"v": float("nan")})], generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_STATE"):
+            project_state(cursor=0, source_vector={"s": "1"}, status="READY")
+        with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
+            render_brief({"status": "READY", "health": "healthy", "cursor": 0, "coverage": "complete", "issues": "bad"})
+
     def test_state_and_brief_are_read_only_projections(self):
         state = project_state(cursor=2, source_vector={"s": 2}, status="PASS")
         self.assertEqual(state["health"], "healthy")

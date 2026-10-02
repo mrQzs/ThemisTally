@@ -14,7 +14,12 @@ def _err(code: str, message: str) -> None:
 def _event_id(source: str, event_type: str, payload: Mapping[str, Any]) -> str:
     if type(source) is not str or not source or type(event_type) is not str or not event_type:
         _err("E_EVENT", "source and event_type required")
-    raw = json.dumps({"source": source, "type": event_type, "payload": payload}, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    if not isinstance(payload, Mapping):
+        _err("E_EVENT", "event payload mapping required")
+    try:
+        raw = json.dumps({"source": source, "type": event_type, "payload": payload}, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+    except (TypeError, ValueError) as exc:
+        raise ArtifactError("E_EVENT", "/projection", "event payload must be canonical JSON") from exc
     return sha256(raw).hexdigest()
 
 @dataclass(frozen=True)
@@ -44,6 +49,10 @@ class CursorProjection:
         for event in events:
             if not isinstance(event, ProjectionEvent) or type(event.seq) is not int or event.seq < 1:
                 _err("E_EVENT", "valid projection event required")
+            if not isinstance(event.payload, Mapping):
+                _err("E_EVENT", "event payload mapping required")
+            if event.event_id is not None and (type(event.event_id) is not str or not event.event_id):
+                _err("E_EVENT_ID", "event id must be non-empty text")
             calculated = _event_id(event.source, event.event_type, event.payload)
             eid = event.event_id or calculated
             if eid != calculated:
@@ -76,6 +85,10 @@ def project_state(*, cursor: int, source_vector: Mapping[str, int], status: str,
         _err("E_STATE", "invalid cursor or coverage")
     if status not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_STATE", "invalid status")
+    if not isinstance(source_vector, Mapping) or any(type(key) is not str or not key or type(value) is not int or value < 0 for key, value in source_vector.items()):
+        _err("E_STATE", "source vector must map names to non-negative cursors")
+    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+        _err("E_STATE", "issues must be a sequence of non-empty strings")
     issues = list(issues)
     healthy = status in {"READY", "PASS"} and coverage == "complete" and not issues
     return {"cursor": cursor, "source_vector": dict(source_vector), "status": status,
@@ -85,6 +98,16 @@ def project_state(*, cursor: int, source_vector: Mapping[str, int], status: str,
 def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(state, Mapping):
         _err("E_BRIEF", "state mapping required")
+    if state.get("status", "UNKNOWN") not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
+        _err("E_BRIEF", "invalid status")
+    if state.get("health", "degraded") not in {"healthy", "degraded"}:
+        _err("E_BRIEF", "invalid health")
+    if type(state.get("cursor", 0)) is not int or state.get("cursor", 0) < 0:
+        _err("E_BRIEF", "invalid cursor")
+    if state.get("coverage", "unknown") not in {"complete", "partial", "unknown"}:
+        _err("E_BRIEF", "invalid coverage")
+    if isinstance(state.get("issues", []), (str, bytes)) or not isinstance(state.get("issues", []), Sequence) or any(type(item) is not str or not item for item in state.get("issues", [])):
+        _err("E_BRIEF", "issues must be a sequence of non-empty strings")
     return {"status": state.get("status", "UNKNOWN"), "health": state.get("health", "degraded"),
             "cursor": state.get("cursor", 0), "coverage": state.get("coverage", "unknown"),
             "issues": list(state.get("issues", [])), "dispatch_eligibility": "not_evaluated"}
