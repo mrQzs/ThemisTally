@@ -50,6 +50,11 @@ class AnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
             self.report_with(facts=[{"id": "f", "statement": "bad", "source_anchors": [{"ref": ref(), "start_byte": 2, "end_byte": 2, "excerpt_sha256": "b" * 64}]}])
 
+    def test_anchor_must_be_declared_by_source_refs(self):
+        foreign = ref("foreign")
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_PROVENANCE"):
+            self.report_with(facts=[{"id": "f", "statement": "fact", "source_anchors": [{"ref": foreign, "start_byte": 0, "end_byte": 1, "excerpt_sha256": "b" * 64}]}])
+
 
 if __name__ == "__main__":
     unittest.main()

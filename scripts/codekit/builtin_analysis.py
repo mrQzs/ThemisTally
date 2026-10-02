@@ -131,6 +131,13 @@ def validate_analysis_report(record: Mapping[str, Any]) -> Dict[str, Any]:
         payload["check_set_ref"] = resource_ref(payload["check_set_ref"], "/payload/check_set_ref")
     if payload["analysis_mode"] != "production" and payload["evidence_class"] == "PRODUCTION":
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "production evidence requires production mode")
+    declared = {(ref["kind"], ref["id"], ref["path"], ref["sha256"]) for ref in normalized["source_refs"]}
+    for group in ("facts", "inferences", "assumptions", "questions"):
+        for item_index, item in enumerate(payload[group]):
+            for anchor_index, anchor in enumerate(item["source_anchors"]):
+                ref = anchor["ref"]
+                if (ref["kind"], ref["id"], ref["path"], ref["sha256"]) not in declared:
+                    _fail("E_ANALYSIS_PROVENANCE", f"/payload/{group}/{item_index}/source_anchors/{anchor_index}/ref", "anchor reference is not declared in source_refs")
     return normalized
 
 

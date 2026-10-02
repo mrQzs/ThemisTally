@@ -135,7 +135,12 @@ def validate_docs_change(record: Mapping[str, Any]) -> dict:
             raise ArtifactError("E_DOCS_SCHEMA", path, "delete must not have after hash")
         if not isinstance(item["purpose"], str) or not item["purpose"] or not isinstance(item["reader"], str) or not item["reader"]:
             raise ArtifactError("E_DOCS_SCHEMA", path, "purpose and reader are required")
-        _anchors(item["source_anchors"])
+        anchors = _anchors(item["source_anchors"])
+        declared = {(ref["kind"], ref["id"], ref["path"], ref["sha256"]) for ref in value["source_refs"]}
+        for anchor_index, anchor in enumerate(anchors):
+            ref = anchor["ref"]
+            if (ref["kind"], ref["id"], ref["path"], ref["sha256"]) not in declared:
+                raise ArtifactError("E_DOCS_PROVENANCE", "/payload/changes/%d/source_anchors/%d/ref" % (i, anchor_index), "anchor reference is not declared in source_refs")
     return copy.deepcopy(value)
 
 

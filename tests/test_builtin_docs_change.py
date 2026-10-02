@@ -37,4 +37,12 @@ class DocsChangeTests(unittest.TestCase):
             build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"},
                               writable_paths=["docs/a.md"], status="PASS")
 
+    def test_change_anchor_must_be_declared_by_source_refs(self):
+        result = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])
+        row = dict(result["payload"]["changes"][0])
+        row["source_anchors"] = [{"ref": {"kind": "file", "id": "foreign", "path": "docs/foreign.md", "sha256": "a" * 64}, "start_byte": 0, "end_byte": 1, "excerpt_sha256": "b" * 64}]
+        forged = dict(result); forged["payload"] = dict(result["payload"]); forged["payload"]["changes"] = [row]
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_PROVENANCE"):
+            validate_docs_change(forged)
+
 if __name__ == "__main__": unittest.main()
