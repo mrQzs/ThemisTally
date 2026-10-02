@@ -47,6 +47,17 @@ class PluginTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_CONFLICT"):
             resolve_plugins({"left": left, "right": right}, ["left", "right"])
 
+    def test_identity_and_lock_binding_are_strict(self):
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_IDENTITY"):
+            resolve_plugins({"alias": manifest("demo")}, ["alias"])
+        bad = manifest(); bad["checks"][0]["deterministic"] = "yes"
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_CHECK"):
+            validate_manifest(bad)
+        lock = build_lock([manifest()], compiler_sha256="b" * 64)
+        changed = copy.deepcopy(manifest()); changed["capabilities"] = ["different"]
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK_BINDING"):
+            validate_lock(lock, {"demo": changed})
+
 
 if __name__ == "__main__":
     unittest.main()

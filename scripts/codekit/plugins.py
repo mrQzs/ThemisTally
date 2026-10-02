@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import posixpath
+import ntpath
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
@@ -43,7 +44,7 @@ def resource_ref(value: Any, path: str) -> Dict[str, str]:
         if not isinstance(value[key], str) or not value[key]:
             _fail("E_PLUGIN_RESOURCE", f"{path}/{key}", "non-empty string required")
     name = value["path"].replace("\\", "/")
-    if name.startswith("/") or name.startswith("./") or ".." in name.split("/"):
+    if name.startswith("/") or ntpath.splitdrive(name)[0] or name.startswith("./") or any(part in {"", ".", ".."} for part in name.split("/")) or any(ord(ch) < 32 for ch in name):
         _fail("E_PLUGIN_PATH", f"{path}/path", "absolute and traversal paths are forbidden")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_PLUGIN_RESOURCE", f"{path}/sha256", "lowercase SHA-256 required")
@@ -84,16 +85,21 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(checks, list) or any(not isinstance(x, dict) for x in checks):
         _fail("E_PLUGIN_SCHEMA", "/checks", "check descriptor array required")
     for i, check in enumerate(checks):
-        if set(check) - {"id", "command", "deterministic"} or not isinstance(check.get("id"), str) or not isinstance(check.get("command"), list):
+        if set(check) - {"id", "command", "deterministic"} or set(check) != {"id", "command", "deterministic"} or not isinstance(check.get("id"), str) or not isinstance(check.get("command"), list) or type(check.get("deterministic")) is not bool:
             _fail("E_PLUGIN_CHECK", f"/checks/{i}", "closed id/command/deterministic check required")
         flat = " ".join(str(x) for x in check["command"])
         if any(token in flat.lower() for token in ("importlib", "__import__", "eval(", "exec(", "http://", "https://", "latest")):
             _fail("E_PLUGIN_CHECK", f"/checks/{i}/command", "dynamic import, network and mutable alias are forbidden")
+    if len({check["id"] for check in checks}) != len(checks):
+        _fail("E_PLUGIN_CHECK", "/checks", "duplicate check id")
     return copy.deepcopy(dict(manifest))
 
 
 def resolve_plugins(manifests: Mapping[str, Mapping[str, Any]], enabled: Sequence[str]) -> Tuple[Dict[str, Any], ...]:
     normalized = {name: validate_manifest(value) for name, value in manifests.items()}
+    for name, value in normalized.items():
+        if value["plugin_id"] != name:
+            _fail("E_PLUGIN_IDENTITY", f"/plugins/{name}/plugin_id", "registry key must match plugin_id")
     for name in enabled:
         if name not in normalized:
             _fail("E_PLUGIN_DEPENDENCY", f"/enabled/{name}", "plugin is not registered")
@@ -136,7 +142,7 @@ def build_lock(manifests: Sequence[Mapping[str, Any]], *, compiler_sha256: str, 
     return lock
 
 
-def validate_lock(lock: Mapping[str, Any]) -> Dict[str, Any]:
+def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, Any]] | None = None) -> Dict[str, Any]:
     required = {"record_type", "schema_version", "generation", "compiler_sha256", "plugins", "lock_sha256"}
     if not isinstance(lock, dict) or set(lock) != required:
         _fail("E_PLUGIN_LOCK", "/", "closed plugin lock required")
@@ -145,6 +151,14 @@ def validate_lock(lock: Mapping[str, Any]) -> Dict[str, Any]:
     expected = dict(lock); supplied = expected.pop("lock_sha256")
     if supplied != digest(expected):
         _fail("E_PLUGIN_LOCK_DRIFT", "/lock_sha256", "lock bytes do not match")
+    if manifests is not None:
+        normalized = {name: validate_manifest(value) for name, value in manifests.items()}
+        if {row["plugin_id"] for row in lock["plugins"]} != set(normalized):
+            _fail("E_PLUGIN_LOCK_BINDING", "/plugins", "lock plugin set does not match manifests")
+        for row in lock["plugins"]:
+            manifest = normalized[row["plugin_id"]]
+            if row["version"] != manifest["version"] or row["manifest_sha256"] != digest(manifest) or row["resources"] != sorted(manifest.get("resources", []), key=lambda x: (x["kind"], x["id"])):
+                _fail("E_PLUGIN_LOCK_BINDING", f"/plugins/{row['plugin_id']}", "lock is not bound to manifest bytes")
     return copy.deepcopy(dict(lock))
 
 
