@@ -162,6 +162,22 @@ class PluginValidationBoundaryTests(unittest.TestCase):
             refresh(bad)
             self.assert_plugin_error(lambda bad=bad: validate_lock(bad))
 
+    def test_lock_and_permission_inputs_are_canonical(self):
+        first = manifest("a")
+        second = manifest("b")
+        lock = build_lock([first, second], compiler_sha256="b" * 64)
+        unsorted = copy.deepcopy(lock)
+        unsorted["plugins"] = list(reversed(unsorted["plugins"]))
+        unsorted["lock_sha256"] = digest({key: item for key, item in unsorted.items() if key != "lock_sha256"})
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK"):
+            validate_lock(unsorted)
+        bad_manifest = manifest()
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_POLICY"):
+            from codekit.plugins import check_permission_intersection
+            check_permission_intersection(bad_manifest, allowed_permissions=["read", "read"])
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_POLICY"):
+            check_permission_intersection(bad_manifest, allowed_permissions=[], platform_name=1)
+
     def test_catalog_rows_require_string_id_exact_version_and_closed_refs(self):
         ref = {"kind": "file", "id": "manifest", "path": "plugins/demo/manifest.json", "sha256": "a" * 64}
         good = {"record_type": "builtin-task-plugin-catalog", "schema_version": 1,

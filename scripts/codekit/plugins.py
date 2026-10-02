@@ -179,6 +179,7 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
     if not isinstance(lock["plugins"], list):
         _fail("E_PLUGIN_LOCK", "/plugins", "plugin array required")
     seen = set()
+    plugin_order = []
     for index, row in enumerate(lock["plugins"]):
         path = f"/plugins/{index}"
         if not isinstance(row, dict) or set(row) != {"plugin_id", "version", "manifest_sha256", "resources"}:
@@ -187,6 +188,7 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
         if row["plugin_id"] in seen:
             _fail("E_PLUGIN_LOCK", path, "duplicate plugin id")
         seen.add(row["plugin_id"])
+        plugin_order.append(row["plugin_id"])
         if not isinstance(row["version"], str) or not VERSION_RE.fullmatch(row["version"]):
             _fail("E_PLUGIN_LOCK", f"{path}/version", "exact semantic version required")
         if not isinstance(row["manifest_sha256"], str) or not HEX64.fullmatch(row["manifest_sha256"]):
@@ -196,6 +198,10 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
         refs = [resource_ref(value, f"{path}/resources/{i}") for i, value in enumerate(row["resources"])]
         if len({(ref["kind"], ref["id"]) for ref in refs}) != len(refs):
             _fail("E_PLUGIN_LOCK", f"{path}/resources", "duplicate resource identity")
+        if [(ref["kind"], ref["id"]) for ref in refs] != sorted((ref["kind"], ref["id"]) for ref in refs):
+            _fail("E_PLUGIN_LOCK", f"{path}/resources", "resources must be in canonical order")
+    if plugin_order != sorted(plugin_order):
+        _fail("E_PLUGIN_LOCK", "/plugins", "plugins must be in canonical order")
     expected = dict(lock); supplied = expected.pop("lock_sha256")
     if supplied != digest(expected):
         _fail("E_PLUGIN_LOCK_DRIFT", "/lock_sha256", "lock bytes do not match")
@@ -226,6 +232,10 @@ def check_permission_intersection(manifest: Mapping[str, Any], *, allowed_permis
         _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list required")
     if any(not isinstance(value, str) or not value for value in allowed_permissions):
         _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list must contain non-empty strings")
+    if len(set(allowed_permissions)) != len(allowed_permissions):
+        _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list must be unique")
+    if platform_name is not None and (not isinstance(platform_name, str) or not platform_name):
+        _fail("E_PLUGIN_POLICY", "/platform_name", "platform name must be non-empty text")
     allowed = set(allowed_permissions)
     required = set(normalized.get("permissions", []))
     missing = sorted(required - allowed)
