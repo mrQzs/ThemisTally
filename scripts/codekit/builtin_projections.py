@@ -9,6 +9,18 @@ from .builtin_artifacts import ArtifactError
 from . import protocols
 
 
+_MAX_SAFE_INTEGER = protocols.MAX_SAFE_INTEGER
+
+
+def _projection_text(value: Any, field: str) -> str:
+    """Validate identity text before it enters an event digest or snapshot."""
+    if type(value) is not str or not value or any(
+            ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+            or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        _err("E_EVENT", f"{field} must be non-empty scalar text")
+    return value
+
+
 def _err(code: str, message: str) -> None:
     raise ArtifactError(code, "/projection", message)
 
@@ -29,8 +41,8 @@ def _check_json_value(value: Any) -> None:
         raise ArtifactError("E_EVENT", "/projection", "strict bounded JSON value required") from exc
 
 def _event_id(source: str, event_type: str, payload: Mapping[str, Any]) -> str:
-    if type(source) is not str or not source or type(event_type) is not str or not event_type:
-        _err("E_EVENT", "source and event_type required")
+    _projection_text(source, "source")
+    _projection_text(event_type, "event_type")
     if not isinstance(payload, Mapping):
         _err("E_EVENT", "event payload mapping required")
     _check_json_value({"source": source, "type": event_type, "payload": dict(payload)})
@@ -51,7 +63,7 @@ class ProjectionEvent:
 class CursorProjection:
     """Contiguous cursor consumer with idempotent event IDs and rebuild support."""
     def __init__(self, *, generation: int = 1) -> None:
-        if type(generation) is not int or generation < 1:
+        if type(generation) is not int or not 1 <= generation <= _MAX_SAFE_INTEGER:
             _err("E_CURSOR", "positive generation required")
         self.generation = generation
         self.cursor = 0
@@ -67,11 +79,14 @@ class CursorProjection:
         trial = dict(self.events); trial_sources = dict(self.source_vector)
         applied = False
         for event in events:
-            if not isinstance(event, ProjectionEvent) or type(event.seq) is not int or event.seq < 1:
+            if (not isinstance(event, ProjectionEvent) or type(event.seq) is not int
+                    or not 1 <= event.seq <= _MAX_SAFE_INTEGER):
                 _err("E_EVENT", "valid projection event required")
             if not isinstance(event.payload, Mapping):
                 _err("E_EVENT", "event payload mapping required")
-            if event.event_id is not None and (type(event.event_id) is not str or not event.event_id):
+            if event.event_id is not None and (type(event.event_id) is not str or not event.event_id
+                                               or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                                                      or 0xD800 <= ord(ch) <= 0xDFFF for ch in event.event_id)):
                 _err("E_EVENT_ID", "event id must be non-empty text")
             calculated = _event_id(event.source, event.event_type, event.payload)
             eid = event.event_id or calculated
@@ -110,16 +125,22 @@ class CursorProjection:
 
 def project_state(*, cursor: int, source_vector: Mapping[str, int], status: str,
                   issues: Sequence[str] = (), coverage: str = "complete") -> dict[str, Any]:
-    if type(cursor) is not int or cursor < 0 or type(coverage) is not str or coverage not in {"complete", "partial", "unknown"}:
+    if (type(cursor) is not int or not 0 <= cursor <= _MAX_SAFE_INTEGER
+            or type(coverage) is not str or coverage not in {"complete", "partial", "unknown"}):
         _err("E_STATE", "invalid cursor or coverage")
     if type(status) is not str or status not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_STATE", "invalid status")
     if (not isinstance(source_vector, Mapping)
-            or any(type(key) is not str or not key or type(value) is not int
-                   or value < 0 or value > cursor
+            or any(type(key) is not str or not key or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                                                          or 0xD800 <= ord(ch) <= 0xDFFF for ch in key)
+                   or type(value) is not int or value < 0 or value > cursor
                    for key, value in source_vector.items())):
         _err("E_STATE", "source vector must map names to non-negative cursors")
-    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+    if (isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence)
+            or any(type(item) is not str or not item
+                   or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                          or 0xD800 <= ord(ch) <= 0xDFFF for ch in item)
+                   for item in issues)):
         _err("E_STATE", "issues must be a sequence of non-empty strings")
     issues = list(issues)
     healthy = status in {"READY", "PASS"} and coverage == "complete" and not issues
@@ -141,17 +162,25 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
         _err("E_BRIEF", "invalid status")
     if type(health) is not str or health not in {"healthy", "degraded"}:
         _err("E_BRIEF", "invalid health")
-    if type(state.get("cursor", 0)) is not int or state.get("cursor", 0) < 0:
+    if (type(state.get("cursor", 0)) is not int
+            or not 0 <= state.get("cursor", 0) <= _MAX_SAFE_INTEGER):
         _err("E_BRIEF", "invalid cursor")
     source_vector = state.get("source_vector", {})
     if (not isinstance(source_vector, Mapping)
-            or any(type(key) is not str or not key or type(value) is not int
+            or any(type(key) is not str or not key or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                                                          or 0xD800 <= ord(ch) <= 0xDFFF for ch in key)
+                   or type(value) is not int
                    or value < 0 or value > state.get("cursor", 0)
                    for key, value in source_vector.items())):
         _err("E_BRIEF", "invalid source vector")
     if type(coverage) is not str or coverage not in {"complete", "partial", "unknown"}:
         _err("E_BRIEF", "invalid coverage")
-    if isinstance(state.get("issues", []), (str, bytes)) or not isinstance(state.get("issues", []), Sequence) or any(type(item) is not str or not item for item in state.get("issues", [])):
+    if (isinstance(state.get("issues", []), (str, bytes))
+            or not isinstance(state.get("issues", []), Sequence)
+            or any(type(item) is not str or not item
+                   or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                          or 0xD800 <= ord(ch) <= 0xDFFF for ch in item)
+                   for item in state.get("issues", []))):
         _err("E_BRIEF", "issues must be a sequence of non-empty strings")
     if health == "healthy" and (status not in {"READY", "PASS"} or coverage != "complete" or state.get("issues", [])):
         _err("E_BRIEF", "healthy state contradicts its status, coverage or issues")

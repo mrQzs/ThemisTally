@@ -223,7 +223,7 @@ class SettlementFact:
                 raise SettlementError("E_SETTLEMENT_UNKNOWN", "unknown requires a reason and no amount")
             object.__setattr__(self, "unknown_reason", _text(self.unknown_reason, "unknown_reason"))
         elif self.kind == "refund":
-            if self.amount is None:
+            if self.amount is None or self.unknown_reason is not None:
                 raise SettlementError("E_SETTLEMENT_REFUND", "refund requires a non-negative amount")
             if self.correction or self.supersedes is not None or not self.refund_for:
                 raise SettlementError("E_SETTLEMENT_REFUND", "refund requires an independent target")
@@ -408,8 +408,19 @@ class UsageSettlement:
         return current, fact.amount or 0
 
     def _refund_total(self, dimension: str) -> int:
-        return sum(fact.amount or 0 for fact in self._facts
-                   if fact.kind == "refund" and fact.dimension == dimension)
+        # A refund call key is the economic idempotency key.  Mirror evidence
+        # with another fact id remains in the audit trail but cannot release
+        # the same amount twice.
+        seen: set[str] = set()
+        total = 0
+        for fact in self._facts:
+            if fact.kind != "refund" or fact.dimension != dimension:
+                continue
+            if fact.call_key in seen:
+                continue
+            seen.add(fact.call_key)
+            total += fact.amount or 0
+        return total
 
     def _known_for_budget(self, gross: int, refunds: int) -> int:
         if self.policy.refund_policy == "release":
@@ -542,7 +553,7 @@ class UsageSettlement:
         # A stable economic call cannot be charged to two operations.  Mirrors
         # within one operation are handled below by revision and fact identity.
         owners = {item.operation_id for item in self._facts
-                  if item.call_key == fact.call_key and item.kind != "refund"}
+                  if item.call_key == fact.call_key}
         if owners and owners != {fact.operation_id}:
             raise SettlementError("E_SETTLEMENT_SCOPE", "economic call belongs to another operation")
         return operation
@@ -554,6 +565,18 @@ class UsageSettlement:
         if (existing := self._fact_conflict(fact)) is not None:
             return SettlementDecision("REPLAY", replayed=True, reasons=self.stop_reasons)
         if fact.kind == "refund":
+            existing_refund = next((item for item in self._facts
+                                    if item.kind == "refund"
+                                    and item.operation_id == fact.operation_id
+                                    and item.dimension == fact.dimension
+                                    and item.call_key == fact.call_key), None)
+            if existing_refund is not None:
+                if existing_refund.semantic_hash != fact.semantic_hash:
+                    raise SettlementError("E_SETTLEMENT_CONFLICT", "refund call payload conflict")
+                self._facts.append(fact)
+                self._facts_by_id[fact.fact_id] = fact
+                self._event("usage.mirror", fact.as_dict())
+                return SettlementDecision("MIRROR", historical=True, reasons=self.stop_reasons)
             target_seen = any(item.call_key == fact.refund_for
                               and item.dimension == fact.dimension
                               and item.operation_id == fact.operation_id

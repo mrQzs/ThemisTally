@@ -131,6 +131,28 @@ class UsageSettlementTests(unittest.TestCase):
                                  (8, 3, 5, expected_known))
                 self.assertEqual(current.refund_excess, 0)
 
+    def test_refund_mirror_does_not_release_twice_and_conflict_is_explicit(self) -> None:
+        ledger = self.ledger(refund_policy="release")
+        self.reserve(ledger, amount=8)
+        ledger.record(self.fact(fact_id="charge-final", dimension="charge:USD",
+                                call_key="charge-a", kind="final", amount=8,
+                                revision=1))
+        refund = self.fact(fact_id="refund-a", dimension="charge:USD",
+                           call_key="refund-event", kind="refund", amount=3,
+                           refund_for="charge-a")
+        self.assertEqual(ledger.record(refund).status, "APPLIED")
+        mirror = self.fact(fact_id="refund-b", dimension="charge:USD",
+                           call_key="refund-event", kind="refund", amount=3,
+                           refund_for="charge-a", evidence_ref="evidence-b")
+        result = ledger.record(mirror)
+        self.assertEqual((result.status, result.historical), ("MIRROR", True))
+        self.assertEqual(ledger.snapshot().dimensions["charge:USD"].refunds, 3)
+        with self.assertRaises(SettlementError) as caught:
+            ledger.record(self.fact(fact_id="refund-c", dimension="charge:USD",
+                                    call_key="refund-event", kind="refund", amount=4,
+                                    refund_for="charge-a"))
+        self.assertEqual(caught.exception.code, "E_SETTLEMENT_CONFLICT")
+
     def test_currency_dimensions_are_isolated_without_exchange(self) -> None:
         ledger = self.ledger()
         self.reserve(ledger, amount=4)
@@ -156,6 +178,9 @@ class UsageSettlementTests(unittest.TestCase):
         for amount in (True, -1, 1.5, MAX_SAFE_INTEGER + 1):
             with self.subTest(amount=amount), self.assertRaises(SettlementError):
                 self.fact(amount=amount)  # type: ignore[arg-type]
+        with self.assertRaises(SettlementError):
+            self.fact(kind="refund", amount=1, call_key="refund-unknown-reason",
+                      refund_for="call-a", unknown_reason="ambiguous")
 
     def test_fact_policy_and_currency_types_fail_as_settlement_errors(self) -> None:
         with self.assertRaises(SettlementError):

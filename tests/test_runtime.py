@@ -138,6 +138,11 @@ class RuntimeTests(unittest.TestCase):
             state.transition("FAILED")
         self.assertEqual(state.transition("FAILED", expected_generation=state.generation).state, "FAILED")
 
+    def test_lifecycle_generation_does_not_overflow_safe_integer(self):
+        state = Lifecycle(state="NEW", generation=2**53 - 1)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_FENCE"):
+            state.transition("STARTING", expected_generation=2**53 - 1)
+
 
 if __name__ == "__main__":
     unittest.main()

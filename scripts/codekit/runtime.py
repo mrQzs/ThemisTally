@@ -160,6 +160,8 @@ class Lifecycle:
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "identity must be ProcessIdentity")
         if state == "STARTED" and identity is None:
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "STARTED requires process identity")
+        if self.generation >= _MAX_SAFE_INTEGER:
+            raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation exhausted")
         return replace(self, state=state, generation=self.generation + 1, identity=identity or self.identity)
 
 

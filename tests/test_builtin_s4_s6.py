@@ -184,6 +184,21 @@ class S6ProjectionTests(unittest.TestCase):
             render_brief({"status": "BLOCKED", "health": "healthy", "cursor": 0,
                           "coverage": "complete", "issues": []})
 
+    def test_projection_rejects_unsafe_generation_sequence_and_identity_text(self):
+        with self.assertRaisesRegex(ArtifactError, "E_CURSOR"):
+            CursorProjection(generation=2**53)
+        projection = CursorProjection()
+        for event in (
+                ProjectionEvent(2**53, "s", "x", {}),
+                ProjectionEvent(1, "s\x1f", "x", {}),
+                ProjectionEvent(1, "s", "x\ud800", {})):
+            with self.subTest(event=event), self.assertRaisesRegex(ArtifactError, "E_EVENT"):
+                projection.consume([event], generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_STATE"):
+            project_state(cursor=2**53, source_vector={}, status="READY")
+        with self.assertRaisesRegex(ArtifactError, "E_STATE"):
+            project_state(cursor=0, source_vector={"s\x7f": 0}, status="READY")
+
     def test_rebuild_accepts_tuples_but_rejects_non_json_rows(self):
         p = CursorProjection()
         p.rebuild(({"id": "authority"},), generation=1)
@@ -309,6 +324,20 @@ class S6ProjectionTests(unittest.TestCase):
             store.recovery = "WRITE_UNKNOWN"
             with self.assertRaisesRegex(ArtifactError, "E_RECOVERY"):
                 store.repair_tail(expected_generation=1, expected_cursor=0)
+
+    def test_persistent_projection_rejects_unsafe_journal_counters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            path.write_text(json.dumps({"kind": "event", "generation": 1,
+                                        "event": {"seq": 2**53, "source": "s",
+                                                   "event_type": "x", "payload": {},
+                                                   "event_id": None}}) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
+                PersistentProjectionStore(path)
+            path.write_text(json.dumps({"kind": "handoff", "from_generation": 1,
+                                        "to_generation": 2**53}) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
+                PersistentProjectionStore(path)
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,13 @@ def _ref(value: Any, field: str) -> str | None:
     return _id(value, field)
 
 
+def _attempt_state(value: Any, field: str) -> str:
+    """Validate an attempt state without leaking ``TypeError`` for bad input."""
+    if type(value) is not str or value not in _ATTEMPT_STATES:
+        raise AtomicLedgerError("E_ATTEMPT_STATE", (field,))
+    return value
+
+
 def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = None,
                      _depth: int = 0) -> Any:
     """Normalize evidence payloads to strict, acyclic JSON values."""
@@ -444,8 +451,10 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
 
     def transition_attempt(self, attempt_id: str, *, expected_state: str, next_state: str, generation: int, evidence_ref: str | None = None) -> AttemptResult:
         attempt_id = _id(attempt_id, "attempt_id")
+        expected_state = _attempt_state(expected_state, "expected_state")
+        next_state = _attempt_state(next_state, "next_state")
         generation = _positive(generation, "generation")
-        if expected_state not in _ATTEMPT_STATES or next_state not in _ATTEMPT_STATES or next_state not in _TRANSITIONS[expected_state]:
+        if next_state not in _TRANSITIONS[expected_state]:
             raise AtomicLedgerError("E_ATTEMPT_STATE", ("invalid_transition",))
         evidence_ref = _ref(evidence_ref, "evidence_ref")
         with self._tx():
@@ -501,7 +510,12 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
     def record_migration_batch(self, migration_id: str, *, source_db: str, source_schema: int, row_hash: str, state: str = "PLANNED", conflict_count: int = 0) -> bool:
         migration_id, source_db = _id(migration_id, "migration_id"), _id(source_db, "source_db")
         source_schema = _positive(source_schema, "source_schema")
-        if type(row_hash) is not str or _HASH.fullmatch(row_hash) is None or state not in {"PLANNED", "IMPORTED", "ACTIVATED", "RECOVERY"} or type(conflict_count) is not int or conflict_count < 0:
+        if (type(row_hash) is not str or _HASH.fullmatch(row_hash) is None
+                or type(state) is not str
+                or state not in {"PLANNED", "IMPORTED", "ACTIVATED", "RECOVERY"}
+                or type(conflict_count) is not int
+                or conflict_count < 0
+                or conflict_count > MAX_SAFE_INTEGER):
             raise AtomicLedgerError("E_SCHEMA_TYPE", ("migration",))
         with self._tx():
             existing = self.db.execute("SELECT source_db,source_schema,row_hash,state,conflict_count FROM migration_batches WHERE migration_id=?", (migration_id,)).fetchone()

@@ -18,8 +18,19 @@ from .builtin_projections import CursorProjection, ProjectionEvent, _check_json_
 from . import protocols
 
 
+_MAX_SAFE_INTEGER = protocols.MAX_SAFE_INTEGER
+
+
 def _fail(code: str, message: str) -> None:
     raise ArtifactError(code, "/projection_store", message)
+
+
+def _journal_text(value: Any, field: str) -> str:
+    if type(value) is not str or not value or any(
+            ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+            or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        _fail("E_JOURNAL_CORRUPT", f"{field} must be non-empty scalar text")
+    return value
 
 
 def _event_dict(event: ProjectionEvent) -> dict[str, Any]:
@@ -37,11 +48,13 @@ def _event_from(value: Mapping[str, Any]) -> ProjectionEvent:
         _fail("E_JOURNAL", "event record must contain a mapping")
     if set(value) != {"seq", "source", "event_type", "payload", "event_id"}:
         _fail("E_JOURNAL_CORRUPT", "event record fields must be closed")
-    if (type(value.get("seq")) is not int or value["seq"] < 1
+    if (type(value.get("seq")) is not int or not 1 <= value["seq"] <= _MAX_SAFE_INTEGER
             or type(value.get("source")) is not str or not value["source"]
             or type(value.get("event_type")) is not str or not value["event_type"]
             or not isinstance(value.get("payload"), Mapping)):
         _fail("E_JOURNAL_CORRUPT", "event record has invalid identity or payload")
+    _journal_text(value["source"], "event source")
+    _journal_text(value["event_type"], "event type")
     if value.get("event_id") is not None and type(value["event_id"]) is not str:
         _fail("E_JOURNAL_CORRUPT", "event record ID must be a string or null")
     return ProjectionEvent(
@@ -67,16 +80,19 @@ def _validated_checkpoint(record: Mapping[str, Any], current_generation: int,
     cursor = record.get("cursor")
     source_vector = record.get("source_vector")
     events = record.get("events")
-    if type(generation) is not int or generation < 1 or generation < current_generation:
+    if (type(generation) is not int or not 1 <= generation <= _MAX_SAFE_INTEGER
+            or generation < current_generation):
         _fail("E_JOURNAL_FENCE", "checkpoint generation must not move backwards")
-    if type(cursor) is not int or cursor < 0:
+    if type(cursor) is not int or not 0 <= cursor <= _MAX_SAFE_INTEGER:
         _fail("E_JOURNAL_CORRUPT", "checkpoint cursor must be a non-negative integer")
     if not isinstance(source_vector, Mapping):
         _fail("E_JOURNAL_CORRUPT", "checkpoint source_vector must be an object")
     vector: dict[str, int] = {}
     for source, seq in source_vector.items():
-        if type(source) is not str or not source or type(seq) is not int or seq < 0 or seq > cursor:
+        if (type(source) is not str or not source or type(seq) is not int
+                or not 0 <= seq <= cursor):
             _fail("E_JOURNAL_CORRUPT", "checkpoint source_vector contains an invalid sequence")
+        _journal_text(source, "checkpoint source")
         vector[source] = seq
     if not isinstance(events, Mapping):
         _fail("E_JOURNAL_CORRUPT", "checkpoint events must be an object")
@@ -86,13 +102,18 @@ def _validated_checkpoint(record: Mapping[str, Any], current_generation: int,
     for event_key, event in events.items():
         if type(event_key) is not str or not event or not isinstance(event, Mapping):
             _fail("E_JOURNAL_CORRUPT", "checkpoint event identity is invalid")
+        _journal_text(event_key, "checkpoint event ID")
         if set(event) != {"seq", "source", "type", "payload"}:
             _fail("E_JOURNAL_CORRUPT", "checkpoint event fields must be closed")
         seq, source, event_type, payload = (event.get("seq"), event.get("source"),
                                             event.get("type"), event.get("payload"))
-        if type(seq) is not int or seq < 0 or type(source) is not str or not source \
-                or type(event_type) is not str or not event_type or not isinstance(payload, Mapping):
+        if (type(seq) is not int or not 0 <= seq <= _MAX_SAFE_INTEGER
+                or type(source) is not str or not source
+                or type(event_type) is not str or not event_type
+                or not isinstance(payload, Mapping)):
             _fail("E_JOURNAL_CORRUPT", "checkpoint event has invalid identity or payload")
+        _journal_text(source, "checkpoint event source")
+        _journal_text(event_type, "checkpoint event type")
         if seq == 0:
             if event_key != "authority" or source != "authority" or event_type != "rebuild":
                 _fail("E_JOURNAL_CORRUPT", "only the authority rebuild marker may use sequence zero")
@@ -194,7 +215,8 @@ class PersistentProjectionStore:
         if kind == "event":
             if set(record) != {"kind", "generation", "event"}:
                 _fail("E_JOURNAL_CORRUPT", "event journal fields must be closed")
-            if type(record.get("generation")) is not int or record["generation"] < 1:
+            if (type(record.get("generation")) is not int
+                    or not 1 <= record["generation"] <= _MAX_SAFE_INTEGER):
                 _fail("E_JOURNAL_CORRUPT", "event journal generation must be a positive integer")
             if record.get("generation") != self.generation:
                 _fail("E_JOURNAL_FENCE", "event generation does not match projection")
@@ -214,7 +236,8 @@ class PersistentProjectionStore:
                 _fail("E_JOURNAL_CORRUPT", "handoff journal fields must be closed")
             old = record.get("from_generation")
             new = record.get("to_generation")
-            if type(old) is not int or old < 1 or type(new) is not int or new <= old:
+            if (type(old) is not int or not 1 <= old <= _MAX_SAFE_INTEGER
+                    or type(new) is not int or not old < new <= _MAX_SAFE_INTEGER):
                 _fail("E_JOURNAL_FENCE", "invalid handoff generation")
             if old != self.generation:
                 _fail("E_JOURNAL_FENCE", "invalid handoff generation")
@@ -265,16 +288,17 @@ class PersistentProjectionStore:
             _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
         if type(expected_generation) is not int or expected_generation != self.generation:
             _fail("E_FENCED", "stale handoff generation")
-        if type(new_generation) is not int or new_generation <= self.generation:
+        if (type(new_generation) is not int
+                or not self.generation < new_generation <= _MAX_SAFE_INTEGER):
             _fail("E_FENCE", "new generation must advance")
         old = self.generation
         self._append({"kind": "handoff", "from_generation": old, "to_generation": new_generation})
         self.projection.generation = new_generation
 
     def reconcile(self, *, expected_generation: int, expected_cursor: int) -> dict[str, Any]:
-        if type(expected_generation) is not int or expected_generation < 1:
+        if type(expected_generation) is not int or not 1 <= expected_generation <= _MAX_SAFE_INTEGER:
             _fail("E_FENCED", "expected generation must be a positive integer")
-        if type(expected_cursor) is not int or expected_cursor < 0:
+        if type(expected_cursor) is not int or not 0 <= expected_cursor <= _MAX_SAFE_INTEGER:
             _fail("E_CAS", "expected cursor must be a non-negative integer")
         return {
             "ok": expected_generation == self.generation and expected_cursor == self.cursor,
@@ -293,9 +317,9 @@ class PersistentProjectionStore:
         ``WRITE_UNKNOWN`` state is deliberately not repairable because the
         failed append may have changed an arbitrary prefix.
         """
-        if type(expected_generation) is not int or expected_generation < 1:
+        if type(expected_generation) is not int or not 1 <= expected_generation <= _MAX_SAFE_INTEGER:
             _fail("E_FENCED", "expected generation must be a positive integer")
-        if type(expected_cursor) is not int or expected_cursor < 0:
+        if type(expected_cursor) is not int or not 0 <= expected_cursor <= _MAX_SAFE_INTEGER:
             _fail("E_CAS", "expected cursor must be a non-negative integer")
         if expected_generation != self.generation or expected_cursor != self.cursor:
             _fail("E_CAS", "projection state changed")

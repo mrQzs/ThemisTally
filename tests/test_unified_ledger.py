@@ -136,6 +136,18 @@ class UnifiedLedgerTests(unittest.TestCase):
         with self.assertRaises(AtomicLedgerError):
             self.store.create_attempt("attempt-b", operation.operation_id, "run-b", "stage-a", 1)
 
+    def test_transition_rejects_untyped_states_with_stable_error(self):
+        operation = self.claim()
+        self.store.create_attempt("attempt-typed-state", operation.operation_id, "run-typed-state", "stage-a", 1)
+        for expected, next_state in (([], "STARTING"), ("ADMITTED", []),
+                                     ("UNKNOWN", "STARTING")):
+            with self.subTest(expected=expected, next_state=next_state), self.assertRaises(AtomicLedgerError) as caught:
+                self.store.transition_attempt(
+                    "attempt-typed-state", expected_state=expected,
+                    next_state=next_state, generation=1,
+                )
+            self.assertEqual(caught.exception.code, "E_ATTEMPT_STATE")
+
     def test_cursor_advance_is_cas_and_replayable(self):
         operation = self.claim()
         self.store.create_attempt("attempt-cursor", operation.operation_id, "run-cursor", "stage-cursor", 1)
@@ -201,6 +213,17 @@ class UnifiedLedgerTests(unittest.TestCase):
                 "migration-a", source_db="scheduler-v1", source_schema=1,
                 row_hash=evidence_hash({"row": 2})
             )
+
+    def test_migration_rejects_untyped_state_and_unsafe_conflict_count(self):
+        row_hash = evidence_hash({"row": 1})
+        for state, count in (([], 0), ("PLANNED", True),
+                             ("PLANNED", 2**53)):
+            with self.subTest(state=state, count=count), self.assertRaises(AtomicLedgerError) as caught:
+                self.store.record_migration_batch(
+                    "migration-typed", source_db="scheduler-v1", source_schema=1,
+                    row_hash=row_hash, state=state, conflict_count=count,
+                )
+            self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
 
     def test_reopen_rejects_partial_v3_schema_before_activation(self):
         self.store.close()
