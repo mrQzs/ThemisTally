@@ -16,6 +16,6 @@
 - S2.3 的离线候选：`attempt_allocator.py` 固定 priority/window/task 排序，资源全取或全不取，容量、预算未知和恢复等待均输出明确诊断。
 - 预算 reducer 修复了最高修订版本出现未知值后，迟到的低版本事实改写 current subtotal 的问题，并有持久化回归用例。
 
-本轮定向验证：256 项通过，1 项明确跳过（Windows/macOS 实际适配器与 OS 锁）；调度器独立回归为 255 checks、0 failed。全量 `unittest discover` 为 879 项，31 项跳过，1 项已知环境失败：当前 Python 3.9 没有 `sys.stdlib_module_names`，导致 `tests.test_protocols.ImportSideEffectTests.test_F049_import_has_no_side_effects` 子进程探针失败。
+本轮定向验证：272 项通过，1 项明确跳过（Windows/macOS 实际适配器与 OS 锁）；调度器独立回归为 255 checks、0 failed。全量 `unittest discover` 为 895 项，31 项跳过，1 项已知环境失败：当前 Python 3.9 没有 `sys.stdlib_module_names`，导致 `tests.test_protocols.ImportSideEffectTests.test_F049_import_has_no_side_effects` 子进程探针失败。
 
 仍未完成：真实 Git currentness（HEAD/dirty/untracked/浅克隆等组合接线）、多上游授权/撤销与显式合流、真实 PID/boot/OS 锁、provider 隐藏调用发现、跨阶段 09/10 投影、outbox 消费重建和 F01–F30 故障注入。对应矩阵继续保持 `LOCAL_PARTIAL` 或 `NOT_RUN`，不升级为 `PASS`。

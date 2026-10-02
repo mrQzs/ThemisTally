@@ -7,7 +7,7 @@
 - 定向套件：272 项通过，1 项跳过。
 - 调度器回归：`python tests/test_dispatch.py`，255 checks，0 failed。
 - 结构门禁：`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。
-- 全量 unittest：879 项，31 项跳过，1 项已知环境失败（Python 3.9 不提供 `sys.stdlib_module_names`，影响 F049 导入副作用探针）。
+- 全量 unittest：895 项，31 项跳过，1 项已知环境失败（Python 3.9 不提供 `sys.stdlib_module_names`，影响 F049 导入副作用探针）。
 
 ## 门禁结果
 

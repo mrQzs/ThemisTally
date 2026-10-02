@@ -10,7 +10,7 @@
 python -m unittest tests.test_workflow tests.test_readiness tests.test_baseline_binding tests.test_git_probe tests.test_git_ancestor tests.test_coverage tests.test_claim_model tests.test_scheduler_store tests.test_parallel tests.test_budget tests.test_budget_store_v2 tests.test_retry tests.test_atomic_claim_budget tests.test_acceptance tests.test_recovery tests.test_identity tests.test_provider_economics tests.test_offline_provider tests.test_unified_ledger tests.test_currentness tests.test_baseline_use tests.test_projections tests.test_runtime_lease tests.test_resume_recovery tests.test_attempt_allocator tests.test_integration_gates tests.test_usage_settlement -q
 ```
 
-结果：272 项通过，1 项跳过。通用门禁：`python -m compileall -q scripts/codekit tests`、`git diff --check`、`python tests/test_dispatch.py`（255 checks，0 failed）。全量结果为 879 项、31 项跳过、1 项环境失败；失败是 Python 3.9 缺少 `sys.stdlib_module_names` 的 F049 导入副作用探针。
+结果：272 项通过，1 项跳过。通用门禁：`python -m compileall -q scripts/codekit tests`、`git diff --check`、`python tests/test_dispatch.py`（255 checks，0 failed）。全量结果为 895 项、31 项跳过、1 项环境失败；失败是 Python 3.9 缺少 `sys.stdlib_module_names` 的 F049 导入副作用探针。
 
 原始调度器证据目录只有 `.agent/runs/_env/` 的 doctor 记录；本轮没有生成 Pi attempt。因此下表的“证据”列是可定位的源文件/测试和本审计报告，而不是伪造的运行证据。
 
