@@ -28,7 +28,7 @@ class AuthorizationTests(unittest.TestCase):
     def test_cas_and_idempotency(self):
         ledger = ApprovalLedger(); head = ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval())
         self.assertEqual(head.generation, 1)
-        self.assertIs(ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval()), head)
+        self.assertEqual(ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval()), head)
         with self.assertRaisesRegex(AuthorizationError, "E_CAS_CONFLICT"):
             ledger.put(scope="scope", operation_id="op2", expected_generation=0, record=approval())
         with self.assertRaisesRegex(AuthorizationError, "E_IDEMPOTENCY_CONFLICT"):

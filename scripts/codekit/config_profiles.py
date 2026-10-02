@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import math
+import ntpath
 import os
 import re
 from dataclasses import dataclass
@@ -61,10 +62,16 @@ def load_strict_json(raw: bytes | str) -> Dict[str, Any]:
     """Parse UTF-8 JSON with duplicate-key and non-finite-number rejection."""
 
     if isinstance(raw, bytes):
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raise ConfigError("E_JSON_ENCODING", "/", "UTF-8 BOM is forbidden")
         try:
             raw = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ConfigError("E_JSON_ENCODING", "/", "configuration must be UTF-8") from exc
+    if len(raw.encode("utf-8")) > 1_048_576:
+        _fail("E_JSON_SIZE", "/", "configuration exceeds one MiB")
+    if raw.startswith("\ufeff"):
+        _fail("E_JSON_ENCODING", "/", "UTF-8 BOM is forbidden")
     try:
         value = json.loads(raw, object_pairs_hook=_duplicate_pairs, parse_constant=_reject_constant)
     except ConfigError:
@@ -73,6 +80,18 @@ def load_strict_json(raw: bytes | str) -> Dict[str, Any]:
         raise ConfigError("E_JSON_SYNTAX", "/", str(exc)) from exc
     if not isinstance(value, dict):
         _fail("E_CFG_SCHEMA", "/", "top-level configuration must be an object")
+    def check_depth(item: Any, depth: int = 0) -> None:
+        if depth > 64:
+            _fail("E_JSON_DEPTH", "/", "configuration nesting exceeds 64 levels")
+        if isinstance(item, float) and not math.isfinite(item):
+            _fail("E_JSON_NUMBER", "/", "non-finite number is forbidden")
+        if isinstance(item, dict):
+            for child in item.values(): check_depth(child, depth + 1)
+        elif isinstance(item, list):
+            for child in item: check_depth(child, depth + 1)
+    check_depth(value)
+    if "schema_version" in value and type(value["schema_version"]) is bool:
+        _fail("E_CFG_VERSION", "/schema_version", "boolean is not a schema version")
     return value
 
 
@@ -129,6 +148,9 @@ class AdapterDescriptor:
     capabilities: Tuple[str, ...] = ()
     model_ids: Tuple[str, ...] = ()
     option_keys: Tuple[str, ...] = ()
+    provider: Optional[str] = None
+    deployment: Optional[str] = None
+    descriptor_sha256: Optional[str] = None
 
     def validate_model(self, model: Mapping[str, Any], path: str) -> None:
         _object(model, path)
@@ -221,8 +243,8 @@ def validate_config(config: Mapping[str, Any], registry: AdapterRegistry) -> Dic
 
     root = _object(config, "/")
     allowed = {"schema_version", "runtimes", "profiles", "roles", "policies", "platforms"}
-    allowed.update(k for k in root if k.startswith("_") and k not in RESERVED_NOTES)
-    _check_notes(root, "/", {k for k in root if k.startswith("_")})
+    allowed.add("_description")
+    _check_notes(root, "/", {"_description"})
     unknown = {key for key in root if key not in allowed}
     if unknown:
         _fail("E_CFG_UNKNOWN_FIELD", "/", f"unknown fields: {sorted(unknown)}")
@@ -262,9 +284,77 @@ def validate_config(config: Mapping[str, Any], registry: AdapterRegistry) -> Dic
     return copy.deepcopy(dict(root))
 
 
-def _absolute_path(value: Any, path: str) -> str:
+def _policy(value: Any, path: str) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    obj = _object(value, path)
+    allowed = {"allowed_models", "role_profiles", "required_capabilities", "environment_allow_names", "protected_paths", "approval_required"}
+    unknown = set(obj) - allowed
+    if unknown:
+        _fail("E_CFG_POLICY", path, f"unknown policy fields: {sorted(unknown)}")
+    out: Dict[str, Any] = {}
+    if "allowed_models" in obj:
+        models = obj["allowed_models"]
+        if not isinstance(models, list): _fail("E_CFG_POLICY", f"{path}/allowed_models", "array required")
+        rows = []
+        for index, item in enumerate(models):
+            row = _object(item, f"{path}/allowed_models/{index}")
+            if set(row) - {"adapter", "id", "provider", "deployment"} or "adapter" not in row or "id" not in row:
+                _fail("E_CFG_POLICY", f"{path}/allowed_models/{index}", "adapter and model id required")
+            normalized = {key: _string(row[key], f"{path}/allowed_models/{index}/{key}") for key in row}
+            rows.append(normalized)
+        out["allowed_models"] = rows
+    for field in ("role_profiles", "required_capabilities"):
+        if field in obj:
+            mapping = _object(obj[field], f"{path}/{field}"); result = {}
+            for key, values in mapping.items():
+                if key not in ROLES: _fail("E_CFG_POLICY", f"{path}/{field}/{key}", "unknown role")
+                result[key] = _string_list(values, f"{path}/{field}/{key}")
+            out[field] = result
+    for field in ("environment_allow_names", "protected_paths"):
+        if field in obj:
+            values = _string_list(obj[field], f"{path}/{field}")
+            for index, value in enumerate(values):
+                if field == "protected_paths" and (value.startswith("/") or ".." in value.replace("\\", "/").split("/")):
+                    _fail("E_CFG_POLICY", f"{path}/{field}/{index}", "protected path must remain relative")
+            out[field] = values
+    if "approval_required" in obj:
+        if type(obj["approval_required"]) is not bool: _fail("E_CFG_POLICY", f"{path}/approval_required", "boolean required")
+        out["approval_required"] = obj["approval_required"]
+    return out
+
+
+def _model_identity(model: Mapping[str, Any], descriptor: AdapterDescriptor) -> Dict[str, str]:
+    result = {"adapter": descriptor.adapter_id, "id": str(model["id"])}
+    for key in ("provider", "deployment"):
+        if key in model: result[key] = str(model[key])
+    if descriptor.provider and "provider" not in result: result["provider"] = descriptor.provider
+    if descriptor.deployment and "deployment" not in result: result["deployment"] = descriptor.deployment
+    return result
+
+
+def _policy_allows(policy: Mapping[str, Any], *, role: str, profile_id: str, model: Mapping[str, Any], descriptor: AdapterDescriptor,
+                   credential_refs: Sequence[Mapping[str, Any]]) -> None:
+    if "role_profiles" in policy and profile_id not in policy["role_profiles"].get(role, []):
+        _fail("E_CFG_POLICY", f"/policies/role_profiles/{role}", "profile is not allowed for role")
+    if "allowed_models" in policy:
+        identity = _model_identity(model, descriptor)
+        allowed = [{key: row[key] for key in row} for row in policy["allowed_models"]]
+        if not any(all(identity.get(key) == value for key, value in row.items()) for row in allowed):
+            _fail("E_CFG_POLICY", "/policies/allowed_models", "model identity is not allowed")
+    if "required_capabilities" in policy and not set(policy["required_capabilities"].get(role, [])) <= set(descriptor.capabilities):
+        _fail("E_CFG_POLICY", f"/policies/required_capabilities/{role}", "adapter capabilities are insufficient")
+    if "environment_allow_names" in policy:
+        allowed = set(policy["environment_allow_names"])
+        if any(ref.get("kind") == "env" and ref.get("name") not in allowed for ref in credential_refs):
+            _fail("E_CFG_POLICY", "/policies/environment_allow_names", "credential reference is not allowed")
+
+
+def _absolute_path(value: Any, path: str, *, platform: Optional[str] = None) -> str:
     value = _string(value, path)
-    if not os.path.isabs(value) or os.path.normpath(value) != value:
+    absolute = ntpath.isabs(value) if platform == "windows" else os.path.isabs(value)
+    normalized = ntpath.normpath(value) if platform == "windows" else os.path.normpath(value)
+    if not absolute or normalized != value:
         _fail("E_CFG_PATH", path, "local executable override must be normalized absolute path")
     return value
 
@@ -294,7 +384,7 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
         if platform in branches:
             result["runtimes"][runtime_id].setdefault("command_by_platform", {})
             command = list(result["runtimes"][runtime_id]["command_by_platform"].get(platform, result["runtimes"][runtime_id]["command"]))
-            command[0] = _absolute_path(branches[platform], f"/local/runtimes/{runtime_id}/executable_by_platform/{platform}")
+            command[0] = _absolute_path(branches[platform], f"/local/runtimes/{runtime_id}/executable_by_platform/{platform}", platform=platform)
             result["runtimes"][runtime_id]["command_by_platform"][platform] = command
         if set(branches) - {platform}:
             _fail("E_CFG_PLATFORM", f"/local/runtimes/{runtime_id}/executable_by_platform", "patch target must be the selected platform")
@@ -307,14 +397,14 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
             _fail("E_CFG_PATH", f"/local/platforms/{platform}", "unsupported local platform field")
         target = result.setdefault("platforms", {}).setdefault(platform, {})
         if "shell_executable" in patch:
-            target["shell_executable"] = _absolute_path(patch["shell_executable"], f"/local/platforms/{platform}/shell_executable")
+            target["shell_executable"] = _absolute_path(patch["shell_executable"], f"/local/platforms/{platform}/shell_executable", platform=platform)
         if "tools" in patch:
             tools = _object(patch["tools"], f"/local/platforms/{platform}/tools")
             target_tools = target.setdefault("tools", {})
             for tool_id, executable in tools.items():
                 if tool_id not in target_tools:
                     _fail("E_CFG_REFERENCE", f"/local/platforms/{platform}/tools/{tool_id}", "tool is not declared")
-                target_tools[tool_id] = _absolute_path(executable, f"/local/platforms/{platform}/tools/{tool_id}")
+                target_tools[tool_id] = _absolute_path(executable, f"/local/platforms/{platform}/tools/{tool_id}", platform=platform)
     return result
 
 
@@ -331,10 +421,13 @@ class ResolvedProfile:
 
 
 def resolve_profile(config: Mapping[str, Any], registry: AdapterRegistry, *, role: str, profile_id: Optional[str] = None,
-                   platform: Optional[str] = None, local: Optional[Mapping[str, Any]] = None) -> ResolvedProfile:
+                   platform: Optional[str] = None, local: Optional[Mapping[str, Any]] = None,
+                   trusted_policy: Optional[Mapping[str, Any]] = None) -> ResolvedProfile:
     """Resolve one explicit role/profile without probing or starting a runtime."""
 
-    effective = apply_local_overrides(config, local, platform=platform) if local is not None and platform else copy.deepcopy(dict(config))
+    if local is not None and not platform:
+        _fail("E_CFG_PLATFORM", "/local", "local overrides require an explicit platform")
+    effective = apply_local_overrides(config, local, platform=platform) if local is not None else copy.deepcopy(dict(config))
     validated = validate_config(effective, registry)
     if role not in validated["roles"]:
         _fail("E_CFG_REFERENCE", f"/roles/{role}", "role binding does not exist")
@@ -344,11 +437,18 @@ def resolve_profile(config: Mapping[str, Any], registry: AdapterRegistry, *, rol
     if binding.get("mode") == "current_session":
         _fail("E_CFG_CAPABILITY", f"/roles/{role}", "current_session has no profile snapshot")
     selected = profile_id or binding.get("profile")
+    if profile_id is not None and profile_id != binding.get("profile"):
+        _fail("E_CFG_POLICY", f"/roles/{role}/profile", "explicit profile cannot bypass role binding")
     if selected not in validated["profiles"]:
         _fail("E_CFG_REFERENCE", f"/roles/{role}/profile", "selected profile does not exist")
     profile = validated["profiles"][selected]
     runtime_id = profile["runtime"]
     runtime = validated["runtimes"][runtime_id]
+    descriptor = registry.require(runtime["adapter"], f"/runtimes/{runtime_id}/adapter")
+    project_policy = _policy(validated.get("policies", {}), "/policies")
+    host_policy = _policy(trusted_policy, "/trusted_policy")
+    _policy_allows(project_policy, role=role, profile_id=selected, model=profile["model"], descriptor=descriptor, credential_refs=profile.get("credential_refs", []))
+    _policy_allows(host_policy, role=role, profile_id=selected, model=profile["model"], descriptor=descriptor, credential_refs=profile.get("credential_refs", []))
     command = runtime.get("command_by_platform", {}).get(platform, runtime["command"]) if platform else runtime["command"]
     semantic = {
         "schema_version": 2,
@@ -356,16 +456,18 @@ def resolve_profile(config: Mapping[str, Any], registry: AdapterRegistry, *, rol
         "profile_id": selected,
         "runtime_id": runtime_id,
         "adapter": runtime["adapter"],
+        "adapter_descriptor": {"id": descriptor.adapter_id, "version": descriptor.descriptor_version, "capabilities": list(descriptor.capabilities), "provider": descriptor.provider, "deployment": descriptor.deployment, "sha256": descriptor.descriptor_sha256},
         "command": list(command),
         "model": copy.deepcopy(profile["model"]),
         "options": copy.deepcopy(profile.get("options", {})),
         "credential_refs": copy.deepcopy(profile.get("credential_refs", [])),
         "platform": platform,
+        "policies": {"project": project_policy, "trusted": host_policy},
     }
     raw = canonical_json_bytes(semantic)
     return ResolvedProfile(role, selected, runtime_id, runtime["adapter"], platform, raw, hashlib.sha256(raw).hexdigest(),
-                           (({"source_kind": "project", "path": "/profiles/" + selected},
-                             {"source_kind": "project", "path": "/runtimes/" + runtime_id}),))
+                           ({"source_kind": "project", "path": "/profiles/" + selected},
+                            {"source_kind": "project", "path": "/runtimes/" + runtime_id}))
 
 
 __all__ = ["AdapterDescriptor", "AdapterRegistry", "ConfigError", "ResolvedProfile", "apply_local_overrides",
