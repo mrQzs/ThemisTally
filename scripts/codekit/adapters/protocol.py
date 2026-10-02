@@ -8,6 +8,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
+from ..protocols import DEFAULT_MAX_BYTES, ProtocolError, check_json_value
 from ..runtime import RuntimeErrorCode, validate_argv
 
 
@@ -21,8 +22,15 @@ class AdapterError(ValueError):
 
 
 def _text(value: Any, name: str) -> str:
-    if type(value) is not str or not value or "\x00" in value:
+    if type(value) is not str or not value:
         raise AdapterError("E_ADAPTER_SCHEMA", f"{name} must be a non-empty string")
+    # Adapter fields are protocol text, not a shell or a log escape channel.
+    # Reject all C0/C1 controls, DEL, and surrogate code points before hashing
+    # or passing values to a platform adapter.  Valid non-ASCII scalar text is
+    # retained byte-for-byte.
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
+        raise AdapterError("E_ADAPTER_SCHEMA", f"{name} contains a control or non-scalar character")
     return value
 
 
@@ -102,6 +110,18 @@ class NormalizedEvent:
     source: str
     payload: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        if type(self.seq) is not int or self.seq < 0:
+            raise AdapterError("E_ADAPTER_EVENT_SEQ", "seq must be a non-negative integer", seq=self.seq if type(self.seq) is int else None)
+        _text(self.event_id, "event_id")
+        _text(self.event_type, "event_type")
+        if self.event_type not in EVENT_TYPES | {"unknown"}:
+            raise AdapterError("E_ADAPTER_EVENT_TYPE", "unknown event type", seq=self.seq)
+        _text(self.source, "source")
+        if type(self.payload) is not dict:
+            raise AdapterError("E_ADAPTER_EVENT", "payload must be an object", seq=self.seq)
+        _check_payload(self.payload, self.seq)
+
 
 @dataclass(frozen=True)
 class AdapterResult:
@@ -113,13 +133,32 @@ class AdapterResult:
     raw_complete: bool
 
 
+def _check_payload(payload: Any, seq: Optional[int]) -> None:
+    """Require a bounded, acyclic, finite JSON object for event payloads."""
+    if type(payload) is not dict:
+        raise AdapterError("E_ADAPTER_EVENT", "payload must be an object", seq=seq)
+    try:
+        check_json_value(payload, max_bytes=DEFAULT_MAX_BYTES)
+    except ProtocolError as exc:
+        raise AdapterError("E_ADAPTER_EVENT", "payload must be finite, acyclic JSON", seq=seq) from exc
+
+
 def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: str, preserve_unknown: bool = False) -> Tuple[NormalizedEvent, ...]:
+    _text(expected_source, "expected_source")
+    if type(preserve_unknown) is not bool:
+        raise AdapterError("E_ADAPTER_SCHEMA", "preserve_unknown must be boolean")
     result = []
     seen_ids = set()
     expected_seq = 0
-    for raw in events:
-        if not isinstance(raw, Mapping):
+    try:
+        iterator = iter(events)
+    except TypeError as exc:
+        raise AdapterError("E_ADAPTER_EVENT", "events must be iterable") from exc
+    for raw in iterator:
+        if type(raw) is not dict:
             raise AdapterError("E_ADAPTER_EVENT", "event must be an object", seq=expected_seq)
+        if any(type(key) is not str for key in raw):
+            raise AdapterError("E_ADAPTER_EVENT", "event fields must have string names", seq=expected_seq)
         if set(raw) - {"seq", "event_id", "type", "source", "payload"}:
             raise AdapterError("E_ADAPTER_EVENT", "unknown event field", seq=expected_seq)
         seq = raw.get("seq")
@@ -132,17 +171,22 @@ def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: st
             raise AdapterError("E_ADAPTER_EVENT_DUPLICATE", "event_id repeated", seq=seq)
         seen_ids.add(event_id)
         event_type = _text(raw.get("type"), "type")
+        source = _text(raw.get("source"), "source")
+        raw_payload = raw.get("payload", {})
+        _check_payload(raw_payload, seq)
         if event_type not in EVENT_TYPES:
             if not preserve_unknown:
                 raise AdapterError("E_ADAPTER_EVENT_TYPE", "unknown event type", seq=seq)
+            try:
+                check_json_value(raw, max_bytes=DEFAULT_MAX_BYTES)
+            except ProtocolError as exc:
+                raise AdapterError("E_ADAPTER_EVENT", "unknown event must be JSON-safe", seq=seq) from exc
             payload = {"raw_event": copy.deepcopy(dict(raw)), "unknown_type": event_type}
             event_type = "unknown"
-        source = _text(raw.get("source"), "source")
         if source != expected_source:
             raise AdapterError("E_ADAPTER_SOURCE", "event source does not match adapter", seq=seq)
-        payload = raw.get("payload", {}) if event_type in EVENT_TYPES else payload
-        if not isinstance(payload, Mapping):
-            raise AdapterError("E_ADAPTER_EVENT", "payload must be an object", seq=seq)
+        if event_type in EVENT_TYPES:
+            payload = raw_payload
         result.append(NormalizedEvent(seq, event_id, event_type, source, copy.deepcopy(dict(payload))))
         expected_seq += 1
     return tuple(result)

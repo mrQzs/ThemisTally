@@ -9,6 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
+import re
+from typing import Any
 
 from .identity import ProcessIdentity, process_identity_decision, KNOWN
 
@@ -16,7 +19,7 @@ from .identity import ProcessIdentity, process_identity_decision, KNOWN
 class LeaseError(ValueError):
     def __init__(self, code: str, message: str = "lease rejected") -> None:
         self.code = code
-        super().__init__(message)
+        super().__init__(f"{code}: {message}")
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,9 @@ class RuntimeLease:
     expires_at: float
     token: str
 
+    def __post_init__(self) -> None:
+        _validate_lease_fields(self)
+
 
 @dataclass(frozen=True)
 class LeaseDecision:
@@ -34,28 +40,83 @@ class LeaseDecision:
     reasons: tuple[str, ...] = ()
 
 
-def issue_lease(run_id: str, owner: ProcessIdentity, *, generation: int, expires_at: float) -> RuntimeLease:
-    if type(run_id) is not str or not run_id or type(generation) is not int or generation < 1:
-        raise LeaseError("E_LEASE_SCHEMA")
-    if type(expires_at) not in (int, float) or expires_at < 0:
-        raise LeaseError("E_LEASE_SCHEMA")
-    if process_identity_decision(owner).status != KNOWN:
+_TOKEN_RE = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def _lease_text(value: Any, field: str) -> str:
+    if type(value) is not str or not value:
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} must be non-empty text")
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} contains a control or non-scalar character")
+    return value
+
+
+def _lease_generation(value: Any, field: str) -> int:
+    if type(value) is not int or value < 1:
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a positive integer")
+    return value
+
+
+def _lease_time(value: Any, field: str) -> float:
+    if type(value) not in (int, float) or not math.isfinite(float(value)) or value < 0:
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a finite non-negative number")
+    return float(value)
+
+
+def _owner_key(owner: Any, *, allow_unknown: bool = False) -> str | None:
+    if not isinstance(owner, ProcessIdentity):
         raise LeaseError("E_OWNER_UNKNOWN")
-    raw = json.dumps({"run_id": run_id, "generation": generation, "owner": owner.canonical_key,
-                      "expires_at": expires_at}, sort_keys=True, separators=(",", ":"))
-    token = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return RuntimeLease(run_id, generation, owner, float(expires_at), token)
+    decision = process_identity_decision(owner)
+    if decision.status != KNOWN or owner.canonical_key is None:
+        if allow_unknown:
+            return None
+        raise LeaseError("E_OWNER_UNKNOWN")
+    return owner.canonical_key
+
+
+def _derive_token(run_id: str, generation: int, owner_key: str, expires_at: float) -> str:
+    raw = json.dumps({"run_id": run_id, "generation": generation, "owner": owner_key,
+                      "expires_at": expires_at}, sort_keys=True, separators=(",", ":"),
+                     allow_nan=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _validate_lease_fields(lease: RuntimeLease) -> None:
+    if type(lease) is not RuntimeLease:
+        raise LeaseError("E_LEASE_SCHEMA")
+    run_id = _lease_text(lease.run_id, "run_id")
+    generation = _lease_generation(lease.generation, "generation")
+    expires_at = _lease_time(lease.expires_at, "expires_at")
+    owner_key = _owner_key(lease.owner)
+    if type(lease.token) is not str or _TOKEN_RE.fullmatch(lease.token) is None:
+        raise LeaseError("E_LEASE_TOKEN", "token must be lowercase SHA-256")
+    if lease.token != _derive_token(run_id, generation, owner_key, expires_at):
+        raise LeaseError("E_LEASE_TOKEN", "token does not bind lease fields")
+
+
+def issue_lease(run_id: str, owner: ProcessIdentity, *, generation: int, expires_at: float) -> RuntimeLease:
+    run_id = _lease_text(run_id, "run_id")
+    generation = _lease_generation(generation, "generation")
+    expires_at = _lease_time(expires_at, "expires_at")
+    owner_key = _owner_key(owner)
+    return RuntimeLease(run_id, generation, owner, expires_at,
+                        _derive_token(run_id, generation, owner_key, expires_at))
 
 
 def assess_lease(lease: RuntimeLease, *, current_generation: int, observed_owner: ProcessIdentity,
                  process_alive: bool | None, now: float) -> LeaseDecision:
-    if type(lease) is not RuntimeLease or type(current_generation) is not int or current_generation < 1:
-        raise LeaseError("E_LEASE_SCHEMA")
-    if type(now) not in (int, float) or now < 0 or type(process_alive) not in (bool, type(None)):
+    _validate_lease_fields(lease)
+    current_generation = _lease_generation(current_generation, "current_generation")
+    now = _lease_time(now, "now")
+    if type(process_alive) not in (bool, type(None)):
         raise LeaseError("E_LEASE_SCHEMA")
     if current_generation != lease.generation:
         return LeaseDecision("BLOCK", ("FENCED_GENERATION",))
-    if observed_owner.canonical_key != lease.owner.canonical_key:
+    observed_key = _owner_key(observed_owner, allow_unknown=True)
+    if observed_key is None:
+        return LeaseDecision("BLOCK", ("OWNER_IDENTITY_MISMATCH",))
+    if observed_key != lease.owner.canonical_key:
         return LeaseDecision("BLOCK", ("OWNER_IDENTITY_MISMATCH",))
     if now <= lease.expires_at:
         return LeaseDecision("ACTIVE")
@@ -67,9 +128,12 @@ def assess_lease(lease: RuntimeLease, *, current_generation: int, observed_owner
 
 
 def release_lease(lease: RuntimeLease, *, token: str, owner: ProcessIdentity, generation: int) -> LeaseDecision:
+    _validate_lease_fields(lease)
+    generation = _lease_generation(generation, "generation")
     if type(token) is not str or token != lease.token:
         return LeaseDecision("BLOCK", ("LEASE_TOKEN_MISMATCH",))
-    if generation != lease.generation or owner.canonical_key != lease.owner.canonical_key:
+    owner_key = _owner_key(owner, allow_unknown=True)
+    if generation != lease.generation or owner_key is None or owner_key != lease.owner.canonical_key:
         return LeaseDecision("BLOCK", ("OWNER_FENCED",))
     return LeaseDecision("RELEASE_ALLOWED")
 

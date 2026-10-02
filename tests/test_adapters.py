@@ -1,5 +1,6 @@
 import sys
 import unittest
+import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -91,6 +92,25 @@ class AdapterTests(unittest.TestCase):
             OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_finished", {"tool_id": "t1"}), event(2, "run_finished")])
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_started", {"tool_id": "t1"}), event(2, "tool_finished", {"tool_id": "t1"}), event(3, "run_finished")])
         self.assertTrue(result.settled)
+
+    def test_text_and_payload_boundaries_are_strict(self):
+        for bad in ("line\nfeed", "\x1f", "\x7f", "\ud800"):
+            with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+                AdapterDescriptor(bad, "v1", (), (), True)
+        cyclic = {}
+        cyclic["self"] = cyclic
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_EVENT"):
+            normalize_events([event(0, "run_started", cyclic)], expected_source="offline")
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_EVENT"):
+            normalize_events([event(0, "usage", {"value": math.nan})], expected_source="offline")
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+            normalize_events([], expected_source="offline", preserve_unknown=1)
+
+    def test_unknown_event_is_explicit_and_terminal_stream_is_closed(self):
+        result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "future_event")])
+        self.assertEqual(result.events[-1].event_type, "unknown")
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "run_finished"), event(2, "future_event")])
 
 
 if __name__ == "__main__":

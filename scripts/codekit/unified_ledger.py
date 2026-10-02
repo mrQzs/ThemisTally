@@ -4,11 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import re
 import sqlite3
 from typing import Any, Mapping
 
 from .atomic_claim_budget import AtomicClaimBudgetStore, AtomicLedgerError
+from .protocols import MAX_SAFE_INTEGER
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -31,13 +33,15 @@ def _id(value: Any, field: str) -> str:
 
 
 def _positive(value: Any, field: str) -> int:
-    if type(value) is not int or isinstance(value, bool) or value < 1:
+    if (type(value) is not int or isinstance(value, bool) or value < 1
+            or value > MAX_SAFE_INTEGER):
         raise AtomicLedgerError("E_SCHEMA_TYPE", (field,))
     return value
 
 
 def _sequence(value: Any, field: str) -> int:
-    if type(value) is not int or isinstance(value, bool) or value < 0:
+    if (type(value) is not int or isinstance(value, bool) or value < 0
+            or value > MAX_SAFE_INTEGER):
         raise AtomicLedgerError("E_SCHEMA_TYPE", (field,))
     return value
 
@@ -48,14 +52,61 @@ def _ref(value: Any, field: str) -> str | None:
     return _id(value, field)
 
 
+def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = None,
+                     _depth: int = 0) -> Any:
+    """Normalize evidence payloads to strict, acyclic JSON values."""
+    if _depth > 64:
+        raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+    if _stack is None:
+        _stack = set()
+    if isinstance(value, str):
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+        return value
+    if type(value) is int and (value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER):
+        raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+    if isinstance(value, float) and not math.isfinite(value):
+        raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in _stack:
+            raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+        _stack.add(identity)
+        try:
+            result = {}
+            for key, item in value.items():
+                if type(key) is not str:
+                    raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+                result[key] = _canonical_value(item, path + "." + key,
+                                                _stack=_stack, _depth=_depth + 1)
+            return result
+        finally:
+            _stack.remove(identity)
+    if isinstance(value, (list, tuple)):
+        identity = id(value)
+        if identity in _stack:
+            raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+        _stack.add(identity)
+        try:
+            return [_canonical_value(item, f"{path}[{index}]", _stack=_stack,
+                                     _depth=_depth + 1)
+                    for index, item in enumerate(value)]
+        finally:
+            _stack.remove(identity)
+    return value
+
+
 def _json(value: Mapping[str, Any]) -> str:
     try:
-        return json.dumps(dict(value), ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as exc:
+        normalized = _canonical_value(value)
+        return json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",)) from exc
 
 
 def evidence_hash(payload: Mapping[str, Any]) -> str:
+    if not isinstance(payload, Mapping):
+        raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
     return hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
 
 

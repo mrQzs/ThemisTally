@@ -29,6 +29,7 @@ _IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _CURRENCY = re.compile(r"[A-Z][A-Z0-9]{2,11}\Z")
 _VISIBILITY = frozenset(("complete", "partial", "unknown"))
 _MAX_ITEMS = 512
+_MAX_CANONICAL_DEPTH = 64
 
 
 def _text(value: Any, name: str, *, pattern: re.Pattern[str] = _IDENT) -> str:
@@ -50,32 +51,49 @@ def _units(value: Any, name: str, *, minimum: int = 0) -> int:
     return value
 
 
-def _no_float(value: Any, path: str = "$") -> None:
+def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = None,
+                     _depth: int = 0) -> Any:
+    """Copy JSON-shaped values while fencing cycles and invalid Unicode.
+
+    The provider adapter fingerprints caller-supplied fixture values.  A
+    recursive container or an isolated surrogate must become a stable
+    ``EconomicsError`` rather than leaking ``RecursionError`` or
+    ``UnicodeEncodeError`` from the serializer.
+    """
+    if _depth > _MAX_CANONICAL_DEPTH:
+        raise EconomicsError("E_CANONICAL", path)
     if isinstance(value, float):
         raise EconomicsError("E_FLOAT", path)
+    if isinstance(value, str) and any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise EconomicsError("E_CANONICAL", path)
+    if _stack is None:
+        _stack = set()
     if isinstance(value, Mapping):
-        for key, item in value.items():
-            if type(key) is not str:
-                raise EconomicsError("E_CANONICAL", path)
-            _no_float(item, path + "." + key)
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            _no_float(item, "%s[%d]" % (path, index))
-
-
-def _canonical_value(value: Any, path: str = "$") -> Any:
-    """Copy JSON-shaped mappings to plain builtins before serialization."""
-    _no_float(value, path)
-    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in _stack:
+            raise EconomicsError("E_CANONICAL", path)
+        _stack.add(identity)
         result = {}
-        for key, item in value.items():
-            if type(key) is not str:
-                raise EconomicsError("E_CANONICAL", path)
-            result[key] = _canonical_value(item, path + "." + key)
-        return result
+        try:
+            for key, item in value.items():
+                if type(key) is not str:
+                    raise EconomicsError("E_CANONICAL", path)
+                result[key] = _canonical_value(item, path + "." + key,
+                                                _stack=_stack, _depth=_depth + 1)
+            return result
+        finally:
+            _stack.remove(identity)
     if isinstance(value, (list, tuple)):
-        return [_canonical_value(item, "%s[%d]" % (path, index))
-                for index, item in enumerate(value)]
+        identity = id(value)
+        if identity in _stack:
+            raise EconomicsError("E_CANONICAL", path)
+        _stack.add(identity)
+        try:
+            return [_canonical_value(item, "%s[%d]" % (path, index),
+                                     _stack=_stack, _depth=_depth + 1)
+                    for index, item in enumerate(value)]
+        finally:
+            _stack.remove(identity)
     return value
 
 
@@ -85,7 +103,7 @@ def canonical_json(value: Any) -> str:
     try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
                           allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise EconomicsError("E_CANONICAL", "payload is not canonical JSON") from exc
 
 
@@ -96,8 +114,7 @@ def canonical_sha256(value: Any) -> str:
 def _freeze_mapping(values: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     if not isinstance(values, Mapping) or len(values) > _MAX_ITEMS:
         raise EconomicsError("E_ECONOMIC_VALUE", name)
-    copy = {key: value for key, value in values.items()}
-    _no_float(copy, name)
+    copy = _canonical_value(values, name)
     # Fingerprinting must not depend on mutation of a caller-owned dict.
     return MappingProxyType(copy)
 

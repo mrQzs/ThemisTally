@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import dataclasses
+import math
 import sys
 import unittest
 
@@ -42,6 +44,33 @@ class RuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(assess_lease(lease, current_generation=2, observed_owner=other, process_alive=False, now=11).reasons, ("OWNER_IDENTITY_MISMATCH",))
         self.assertEqual(release_lease(lease, token="bad", owner=first, generation=2).decision, "BLOCK")
         self.assertEqual(release_lease(lease, token=lease.token, owner=first, generation=2).decision, "RELEASE_ALLOWED")
+
+    def test_issue_rejects_control_nonfinite_and_boolean_boundaries(self):
+        for run_id in ("bad\nrun", "\x1f", "\ud800"):
+            with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+                issue_lease(run_id, owner(), generation=1, expires_at=1)
+        for generation in (True, 0, "1"):
+            with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+                issue_lease("run", owner(), generation=generation, expires_at=1)
+        for expires_at in (math.nan, math.inf, -math.inf, -1):
+            with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+                issue_lease("run", owner(), generation=1, expires_at=expires_at)
+        with self.assertRaisesRegex(LeaseError, "E_OWNER_UNKNOWN"):
+            issue_lease("run", None, generation=1, expires_at=1)
+
+    def test_assessment_and_release_fence_unknown_time_generation_and_token(self):
+        lease = issue_lease("run", owner(), generation=1, expires_at=10)
+        for now in (math.nan, math.inf):
+            with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+                assess_lease(lease, current_generation=1, observed_owner=owner(), process_alive=False, now=now)
+        with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+            assess_lease(lease, current_generation=True, observed_owner=owner(), process_alive=False, now=1)
+        self.assertEqual(assess_lease(lease, current_generation=1, observed_owner=ProcessIdentity(pid=7), process_alive=False, now=11).reasons,
+                         ("OWNER_IDENTITY_MISMATCH",))
+        with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
+            release_lease(lease, token=lease.token, owner=owner(), generation=True)
+        with self.assertRaisesRegex(LeaseError, "E_LEASE_TOKEN"):
+            dataclasses.replace(lease, token="a" * 64)
 
 
 if __name__ == "__main__":

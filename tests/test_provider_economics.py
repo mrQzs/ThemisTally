@@ -48,6 +48,16 @@ class ProviderEconomicsTests(unittest.TestCase):
             canonical_json({"amount": 1.5})
         self.assertEqual(ctx.exception.code, "E_FLOAT")
 
+    def test_canonical_rejects_cycles_and_surrogate_scalars(self):
+        value = {}
+        value["self"] = value
+        with self.assertRaises(EconomicsError) as cycle:
+            canonical_json(value)
+        self.assertEqual(cycle.exception.code, "E_CANONICAL")
+        with self.assertRaises(EconomicsError) as surrogate:
+            canonical_json({"value": "\ud800"})
+        self.assertEqual(surrogate.exception.code, "E_CANONICAL")
+
     def test_provider_identity_isolated_by_account_source_and_model(self):
         first = ProviderIdentity("vendor", "model", "acct-a", "offline")
         second = ProviderIdentity("vendor", "model", "acct-b", "offline")
