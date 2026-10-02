@@ -58,6 +58,11 @@ class ContractAndCandidateTests(unittest.TestCase):
         expected = candidate_ref()
         actual = {"candidate_ref": expected, "roundtrip_verified": True}
         self.assertEqual(verify_fixed_candidate(expected, actual).decision, PASS)
+        dispatcher_candidate = {"tree": "b" * 40, "patch_sha256": "c" * 64,
+                               "roundtrip_verified": True}
+        self.assertEqual(verify_fixed_candidate(dispatcher_candidate, dispatcher_candidate).decision, PASS)
+        self.assertEqual(verify_fixed_candidate(dispatcher_candidate,
+                                                 {**dispatcher_candidate, "tree": "d" * 40}).decision, BLOCKED)
         self.assertEqual(verify_fixed_candidate(expected, {"candidate_ref": {**expected, "id": "latest"},
                                                               "roundtrip_verified": True}).decision, BLOCKED)
         self.assertEqual(verify_fixed_candidate(expected, {"candidate_ref": expected,

@@ -84,12 +84,21 @@ def contract_digest(contract: Any) -> str:
     """
     if isinstance(contract, (bytes, bytearray, memoryview)):
         return sha256_hex(contract)
+    if not isinstance(contract, Mapping):
+        raise IntegrationGateError("E_CONTRACT", "/contract", "contract object or serialized bytes required")
     return sha256_hex(canonical_json(contract))
 
 
 def _digest(value: Any, field: str) -> str:
     if type(value) is not str or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
         raise IntegrationGateError("E_HASH", field, "lowercase SHA-256 required")
+    return value
+
+
+def _tree_oid(value: Any, field: str) -> str:
+    if type(value) is not str or len(value) not in (40, 64) \
+            or any(ch not in "0123456789abcdef" for ch in value):
+        raise IntegrationGateError("E_TREE_OID", field, "lowercase SHA-1 or SHA-256 tree id required")
     return value
 
 
@@ -100,7 +109,7 @@ def _text(value: Any, field: str) -> str:
 
 
 def _identity_ref(value: Any, field: str) -> tuple[str, str, str]:
-    if type(value) is not dict:
+    if not isinstance(value, Mapping):
         raise IntegrationGateError("E_REFERENCE", field, "reference object required")
     required = {"kind", "id", "sha256"}
     if not required.issubset(value):
@@ -150,33 +159,60 @@ def _candidate_ref(value: Any, field: str) -> tuple[str, str, str]:
 def verify_fixed_candidate(expected_ref: Mapping[str, Any], candidate: Mapping[str, Any]) -> GateDecision:
     """Verify one candidate is the recorded fixed candidate.
 
-    ``candidate`` must contain ``candidate_ref`` (``ref`` is accepted as a
-    compatibility spelling), ``roundtrip_verified`` and, when the expected
-    record carries them, matching ``tree_sha`` and ``patch_sha256``.  Missing
-    runtime observations wait; explicit mismatches block.
+    ``candidate`` must contain ``roundtrip_verified`` and matching fixed
+    ``tree``/``tree_sha`` and ``patch_sha256`` values when the expected record
+    is a dispatcher ``candidate.json``.  Published candidate resources may
+    use ``candidate_ref`` (``ref`` is accepted as a compatibility spelling).
+    Missing runtime observations wait; explicit mismatches block.
     """
-    expected = _candidate_ref(dict(expected_ref), "/expected_candidate_ref")
-    if type(candidate) is not dict:
+    if not isinstance(expected_ref, Mapping):
+        raise IntegrationGateError("E_REFERENCE", "/expected_candidate_ref", "reference object required")
+    # Dispatcher candidate.json records a tree and patch hash directly.  A
+    # published candidate resource may additionally carry a ResourceRef.  Both
+    # forms are fixed identities; the former is intentionally not upgraded to
+    # a mutable alias.
+    embedded_ref = expected_ref.get("candidate_ref", expected_ref.get("ref"))
+    if embedded_ref is None and {"kind", "id", "sha256"}.issubset(expected_ref):
+        embedded_ref = expected_ref
+    expected_identity: tuple[str, str, str] | None = None
+    if embedded_ref is not None:
+        expected_identity = _candidate_ref(embedded_ref, "/expected_candidate_ref")
+    expected_tree = expected_ref.get("tree_sha", expected_ref.get("tree"))
+    expected_patch = expected_ref.get("patch_sha256")
+    if expected_identity is None and expected_tree is None and expected_patch is None:
+        raise IntegrationGateError("E_REFERENCE", "/expected_candidate_ref", "fixed candidate identity required")
+    if expected_tree is not None:
+        expected_tree = _tree_oid(expected_tree, "/expected_candidate_ref/tree")
+    if expected_patch is not None:
+        expected_patch = _digest(expected_patch, "/expected_candidate_ref/patch_sha256")
+    if not isinstance(candidate, Mapping):
         raise IntegrationGateError("E_CANDIDATE", "/candidate", "candidate object required")
     actual_ref_value = candidate.get("candidate_ref", candidate.get("ref"))
     reasons: list[str] = []
-    evidence: dict[str, Any] = {"expected_ref": expected}
+    evidence: dict[str, Any] = {"expected_ref": expected_identity,
+                                "identity_mode": "resource_ref" if expected_identity else "tree_patch"}
     if actual_ref_value is None:
-        reasons.append("CANDIDATE_REFERENCE_UNKNOWN")
+        # A dispatcher candidate.json is identified externally by the expected
+        # resource reference; its payload need only carry the fixed tree/patch
+        # evidence.  If neither payload identity is present, keep waiting for
+        # the reference instead of silently accepting it.
+        if expected_identity is not None and expected_tree is None and expected_patch is None:
+            reasons.append("CANDIDATE_REFERENCE_UNKNOWN")
     else:
         try:
             actual_ref = _candidate_ref(actual_ref_value, "/candidate/candidate_ref")
             evidence["actual_ref"] = actual_ref
-            if actual_ref != expected:
+            if expected_identity is not None and actual_ref != expected_identity:
                 reasons.append("CANDIDATE_REFERENCE_MISMATCH")
         except IntegrationGateError as exc:
             reasons.append(exc.code)
 
-    for key, reason in (("tree_sha", "CANDIDATE_TREE_MISMATCH"),
-                        ("patch_sha256", "CANDIDATE_PATCH_MISMATCH")):
-        if key in expected_ref:
-            expected_value = _digest(expected_ref[key], f"/expected_candidate_ref/{key}")
+    for key, expected_value, reason in (("tree_sha", expected_tree, "CANDIDATE_TREE_MISMATCH"),
+                                        ("patch_sha256", expected_patch, "CANDIDATE_PATCH_MISMATCH")):
+        if expected_value is not None:
             actual_value = candidate.get(key)
+            if actual_value is None and key == "tree_sha":
+                actual_value = candidate.get("tree")
             if actual_value is None:
                 reasons.append("CANDIDATE_%s_UNKNOWN" % key.upper())
             elif type(actual_value) is not str or actual_value != expected_value:
