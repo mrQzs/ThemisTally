@@ -112,4 +112,4 @@ any dispatch. Therefore all 01–06 and 08 stage gates remain `REVISE/BLOCKED`; 
 `PASS`-shaped fixture results remain `LOCAL_REFERENCE` or `REFERENCE_ONLY` and
 cannot release production.
 
-The planner then generated 39 current-base v2 contract pairs in `aa82aaf`, all bound to `9a75389` and accepted by `pi_dispatch validate`. The v2 contracts add explicit inputs/outputs, failure handling, rollback boundaries, and the required global checks; they still have no Pi attempts or independent acceptance verdicts. `07-roadmap.v1.md` remains an orphan historical roadmap without a JSON pair and is not dispatchable.
+The planner then generated 39 current-base v2 contract pairs in `aa82aaf`, later rebased them to the offline implementation candidate `7a29008`; all pairs were accepted by `pi_dispatch validate`. The v2 contracts add explicit inputs/outputs, failure handling, rollback boundaries, and the required global checks; they still have no Pi attempts or independent acceptance verdicts. `07-roadmap.v1.md` remains an orphan historical roadmap without a JSON pair and is not dispatchable.

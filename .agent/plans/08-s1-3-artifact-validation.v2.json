@@ -4,7 +4,7 @@
   "plan_version": 2,
   "title": "08 S1.3 产物负例与限制",
   "repository": "Code-Kit",
-  "base_sha": "9a75389b1907927c5ce6a779094e1c099cdc3d4b",
+  "base_sha": "7a290086e879b6bbb829d67821e9ea138d08f1a1",
   "risk_level": "high",
   "authorization": {
     "executor": [

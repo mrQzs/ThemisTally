@@ -11,6 +11,8 @@
 | 05 | `d1c54cb`, `ee151c2` | argv/shell 互斥、Invocation、进程身份、生命周期 generation fence 和 START_UNKNOWN 对账；5 项测试通过 | Windows/macOS 原生进程树和 shell 未运行 |
 | 06 | `358af12`, `8bd8b8c`, `df8f482` | manifest、ResourceRef、依赖拓扑、冲突、动态加载拒绝、manifest-bound lock 和七个离线插件 fixture；插件 ID/版本、数组、lock 行和目录输入严格校验；15 项测试及 WSL Schema 元校验通过 | 真实插件目录、跨平台资源锁和生产 prepare/run 未运行 |
 
+后续离线收紧提交包括 `ebdc0c2`（currentness 类型错误统一为结构化 `ProtocolError`）、`7a29008`（插件可变别名/非序列输入、配方计划状态、目录 fixture 错误边界，以及统一账本 v3 schema/持久行恢复校验）。插件与账本组合定向测试通过；这些提交仍不提供 Pi、真实进程、provider 或外部连接器证据。
+
 ## 门禁结论
 
 01–06 当前只能标记为 `REVISE/BLOCKED`：新增模块覆盖了离线结构和最小 happy-path，但增强验收所需的权限交集、持久对账、事件原始证据、进程 fence、资源锁闭包和真实故障证据尚未齐全。08 的离线实现已按双门槛作为 `LOCAL_REFERENCE` 继续推进，但不能据此签发 01–06 阶段 PASS 或生产放行。任何 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED` 结果都不能转化为生产 PASS；真实连接器接入仍是后续生产门禁。
