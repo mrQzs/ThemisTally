@@ -46,7 +46,7 @@
 最新环境复核已确认 `bb/step-5-preview` 可用且认证 ready，但本轮按双门槛与生产隔离约束未运行真实 Pi/provider；因此执行器证据仍为 `NOT_RUN`，不把环境可用性误写成阶段 PASS。
 
 
-`dda848dd` 收紧 atomic/budget/scheduler outbox 的严格 JSON、连续序列、请求/操作闭包和数据库范围 high-water；账本定向套件与 01–06/08 组合验收共 398 项通过、8 项环境跳过。插件/配方边界也完成离线收紧；真实 Pi/provider、原生平台和外部连接器仍未运行。
+`a64f3a8` 收紧 atomic/budget/scheduler outbox 的严格 JSON、连续序列、请求/操作闭包和数据库范围 high-water；账本定向套件与 01–06/08 组合验收共 398 项通过、8 项环境跳过。插件/配方边界也完成离线收紧；真实 Pi/provider、原生平台和外部连接器仍未运行。
 
 Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳过，7 项 schema 实例不再跳过；Windows Python 3.9.23 的跳过保持为环境事实。
 

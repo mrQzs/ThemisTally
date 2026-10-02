@@ -38,6 +38,8 @@
 
 ## 最新离线候选记录
 
-`dda848ddfadd28bb06ac8c5b603623f06a54c767` 收紧 atomic/budget/scheduler outbox 的严格 JSON、连续序列、请求/操作闭包和数据库范围 high-water；插件与业务 artifact 统一拒绝控制字符、代理字符、不安全整数和超大 canonical bytes，ResourceRef/manifest/lock 路径在摘要前规范化，离线配方拒绝网络命令与 URL。组合验收命令为 398 项通过、8 项环境跳过；新增账本/插件定向套件通过。该结果仍是 `LOCAL_REFERENCE`，环境虽已可派遣但本轮按约束未运行真实 Pi/provider，生产门禁继续关闭。
+`a64f3a836f5f5c0ca5f405c2b21efb210086b3e4` 收紧 atomic/budget/scheduler outbox 的严格 JSON、连续序列、请求/操作闭包和数据库范围 high-water；插件与业务 artifact 统一拒绝控制字符、代理字符、不安全整数和超大 canonical bytes，ResourceRef/manifest/lock 路径在摘要前规范化，离线配方拒绝网络命令与 URL。组合验收命令为 398 项通过、8 项环境跳过；新增账本/插件定向套件通过。该结果仍是 `LOCAL_REFERENCE`，环境虽已可派遣但本轮按约束未运行真实 Pi/provider，生产门禁继续关闭。
 
 `python3 -m unittest` 在 Git Bash Python 3.12.3 上复核同一 398 项组合套件为 398 项通过、1 项跳过；Windows Python 3.9.23 的 8 项跳过来自环境能力差异。WSL/3.12 schema 实例 7 项全部通过。该复核仍是离线本地证据。
+
+`dda848ddfadd28bb06ac8c5b603623f06a54c767` 继续收紧 adapter 事件闭集与安全整数、离线未知/错误终止、配置快照与平台覆盖、ResourceClaim 身份文本，以及授权 ResourceRef 和严格 JSON 输入边界；定向边界回归 105 项通过，组合套件保持 398 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。

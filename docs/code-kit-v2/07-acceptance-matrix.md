@@ -64,4 +64,6 @@ S6 v1 合同仍记录 `contract_base_sha=175653e`，而本候选是 `candidate_s
 
 ## 当前候选增量
 
-当前候选 `dda848ddfadd28bb06ac8c5b603623f06a54c767` 的统一命令包含账本、插件、配方和 schema 边界套件，结果为 398 项通过、8 项跳过。对应 39 对 v2 合同已绑定该完整代码提交并通过 `pi_dispatch validate`；没有 Pi attempt，生产门禁仍为 `REVISE/BLOCKED`。
+前一候选 `a64f3a836f5f5c0ca5f405c2b21efb210086b3e4` 的统一命令包含账本、插件、配方和 schema 边界套件，结果为 398 项通过、8 项跳过。对应 39 对 v2 合同已绑定该完整代码提交并通过 `pi_dispatch validate`；没有 Pi attempt，生产门禁仍为 `REVISE/BLOCKED`。
+
+当前候选 `dda848ddfadd28bb06ac8c5b603623f06a54c767` 在上述组合回归保持 398 项通过、8 项环境跳过，并新增适配器、配置、身份和授权严格边界定向回归 105 项通过；39 对 v2 合同均已绑定该代码基线并通过 `pi_dispatch validate`。
