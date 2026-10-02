@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -124,6 +125,25 @@ class S6ProjectionTests(unittest.TestCase):
             reopened = PersistentProjectionStore(store.path)
             self.assertEqual(reopened.cursor, 0)
             self.assertEqual(reopened.events["authority"]["payload"]["rows"], [{"id": "authority"}])
+
+    def test_persistent_projection_rejects_forged_checkpoint_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            store = PersistentProjectionStore(path)
+            store.consume([ProjectionEvent(1, "authority", "ready", {"id": "r1"})], generation=1)
+            valid = {"kind": "checkpoint", "generation": 1, "cursor": store.cursor,
+                     "source_vector": store.source_vector, "events": store.events}
+            path.write_text(json.dumps(valid, separators=(",", ":")) + "\n", encoding="utf-8")
+            self.assertEqual(PersistentProjectionStore(path).cursor, 1)
+            for changed, code in (
+                ({**valid, "extra": True}, "E_JOURNAL_CORRUPT"),
+                ({**valid, "source_vector": {}}, "E_JOURNAL_CORRUPT"),
+                ({**valid, "events": {"forged": next(iter(valid["events"].values()))}}, "E_EVENT_ID"),
+            ):
+                path.write_text(json.dumps(changed, separators=(",", ":")) + "\n", encoding="utf-8")
+                with self.subTest(code=code):
+                    with self.assertRaisesRegex(ArtifactError, code):
+                        PersistentProjectionStore(path)
 
 if __name__ == "__main__":
     unittest.main()

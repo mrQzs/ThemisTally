@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .builtin_artifacts import ArtifactError
-from .builtin_projections import CursorProjection, ProjectionEvent
+from .builtin_projections import CursorProjection, ProjectionEvent, _event_id
 
 
 def _fail(code: str, message: str) -> None:
@@ -34,6 +34,15 @@ def _event_dict(event: ProjectionEvent) -> dict[str, Any]:
 def _event_from(value: Mapping[str, Any]) -> ProjectionEvent:
     if not isinstance(value, Mapping):
         _fail("E_JOURNAL", "event record must contain a mapping")
+    if set(value) != {"seq", "source", "event_type", "payload", "event_id"}:
+        _fail("E_JOURNAL_CORRUPT", "event record fields must be closed")
+    if (type(value.get("seq")) is not int or value["seq"] < 1
+            or type(value.get("source")) is not str or not value["source"]
+            or type(value.get("event_type")) is not str or not value["event_type"]
+            or not isinstance(value.get("payload"), Mapping)):
+        _fail("E_JOURNAL_CORRUPT", "event record has invalid identity or payload")
+    if value.get("event_id") is not None and type(value["event_id"]) is not str:
+        _fail("E_JOURNAL_CORRUPT", "event record ID must be a string or null")
     return ProjectionEvent(
         seq=value.get("seq"),
         source=value.get("source"),
@@ -41,6 +50,69 @@ def _event_from(value: Mapping[str, Any]) -> ProjectionEvent:
         payload=value.get("payload", {}),
         event_id=value.get("event_id"),
     )
+
+
+def _validated_checkpoint(record: Mapping[str, Any], current_generation: int) -> dict[str, Any]:
+    """Validate a persisted checkpoint before replacing projection state.
+
+    Checkpoints are recovery input, not trusted Python state.  A malformed or
+    forged snapshot must not be able to reset the cursor, alias an event ID, or
+    silently move the consumer backwards.
+    """
+    if set(record) != {"kind", "generation", "cursor", "source_vector", "events"}:
+        _fail("E_JOURNAL_CORRUPT", "checkpoint fields must be closed")
+    generation = record.get("generation")
+    cursor = record.get("cursor")
+    source_vector = record.get("source_vector")
+    events = record.get("events")
+    if type(generation) is not int or generation < 1 or generation < current_generation:
+        _fail("E_JOURNAL_FENCE", "checkpoint generation must not move backwards")
+    if type(cursor) is not int or cursor < 0:
+        _fail("E_JOURNAL_CORRUPT", "checkpoint cursor must be a non-negative integer")
+    if not isinstance(source_vector, Mapping):
+        _fail("E_JOURNAL_CORRUPT", "checkpoint source_vector must be an object")
+    vector: dict[str, int] = {}
+    for source, seq in source_vector.items():
+        if type(source) is not str or not source or type(seq) is not int or seq < 0 or seq > cursor:
+            _fail("E_JOURNAL_CORRUPT", "checkpoint source_vector contains an invalid sequence")
+        vector[source] = seq
+    if not isinstance(events, Mapping):
+        _fail("E_JOURNAL_CORRUPT", "checkpoint events must be an object")
+    normalized: dict[str, dict[str, Any]] = {}
+    positive_sequences: dict[int, str] = {}
+    source_max: dict[str, int] = {}
+    for event_key, event in events.items():
+        if type(event_key) is not str or not event or not isinstance(event, Mapping):
+            _fail("E_JOURNAL_CORRUPT", "checkpoint event identity is invalid")
+        if set(event) != {"seq", "source", "type", "payload"}:
+            _fail("E_JOURNAL_CORRUPT", "checkpoint event fields must be closed")
+        seq, source, event_type, payload = (event.get("seq"), event.get("source"),
+                                            event.get("type"), event.get("payload"))
+        if type(seq) is not int or seq < 0 or type(source) is not str or not source \
+                or type(event_type) is not str or not event_type or not isinstance(payload, Mapping):
+            _fail("E_JOURNAL_CORRUPT", "checkpoint event has invalid identity or payload")
+        if seq == 0:
+            if event_key != "authority" or source != "authority" or event_type != "rebuild":
+                _fail("E_JOURNAL_CORRUPT", "only the authority rebuild marker may use sequence zero")
+        else:
+            if seq > cursor or seq in positive_sequences:
+                _fail("E_JOURNAL_CORRUPT", "checkpoint event sequence is duplicated or outside cursor")
+            positive_sequences[seq] = event_key
+            source_max[source] = max(source_max.get(source, 0), seq)
+            if event_key != _event_id(source, event_type, payload):
+                _fail("E_EVENT_ID", "checkpoint event ID does not match its payload")
+        normalized[event_key] = {"seq": seq, "source": source, "type": event_type,
+                                 "payload": deepcopy(dict(payload))}
+    if (max(positive_sequences, default=0) != cursor
+            or vector != source_max):
+        _fail("E_JOURNAL_CORRUPT", "checkpoint cursor and source_vector do not match events")
+    if generation != current_generation:
+        # A checkpoint may adopt a newer generation only as the first record of
+        # a reopened journal.  Existing state must advance via an explicit handoff.
+        if current_generation != 1 or cursor != 0:
+            _fail("E_JOURNAL_FENCE", "checkpoint generation change requires handoff")
+    return {"generation": generation, "cursor": cursor,
+            "source_vector": vector, "events": normalized}
 
 
 class PersistentProjectionStore:
@@ -109,18 +181,11 @@ class PersistentProjectionStore:
             self.projection.consume([_event_from(record.get("event", {}))], generation=self.generation)
             return
         if kind == "checkpoint":
-            generation = record.get("generation")
-            cursor = record.get("cursor")
-            vector = record.get("source_vector", {})
-            events = record.get("events", {})
-            if type(generation) is not int or type(cursor) is not int or not isinstance(vector, Mapping) or not isinstance(events, Mapping):
-                _fail("E_JOURNAL_CORRUPT", "invalid checkpoint")
-            if generation < 1 or cursor < 0:
-                _fail("E_JOURNAL_CORRUPT", "invalid checkpoint generation or cursor")
-            self.projection.generation = generation
-            self.projection.cursor = cursor
-            self.projection.source_vector = {str(k): int(v) for k, v in vector.items()}
-            self.projection.events = deepcopy(dict(events))
+            checkpoint = _validated_checkpoint(record, self.generation)
+            self.projection.generation = checkpoint["generation"]
+            self.projection.cursor = checkpoint["cursor"]
+            self.projection.source_vector = checkpoint["source_vector"]
+            self.projection.events = checkpoint["events"]
             return
         if kind == "handoff":
             old = record.get("from_generation")
