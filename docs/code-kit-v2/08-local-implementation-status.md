@@ -63,3 +63,6 @@
 当前离线代码基线推进到 `86a92fc`，39 对 v2 合同已重新绑定并通过校验；新增配置与 Git 来源边界仍只证明本地输入防护，不改变真实 provider、Pi、原生平台和 09/10 连接器的 `NOT_RUN/BLOCKED` 状态。
 
 当前离线候选推进到 `86a92fc`：授权账本、scheduler hold、projection journal 和 acceptance binding 完成边界收紧；结果仍是 `LOCAL_REFERENCE`，不能代替真实 dispatcher、provider、原生平台或 09/10 连接器验收。
+
+
+当前候选 `cf3a1cd` 补齐投影事件 canonical JSON、严格重建输入、截断尾 repair CAS、09/10 健康/来源向量一致性，以及运行时进程身份和恢复租约边界。相关定向套件 62 项通过，统一验收命令 348 项通过、1 项跳过；没有 dispatcher receipt、Pi attempt、真实 provider、原生平台或 09/10 生产连接器证据。

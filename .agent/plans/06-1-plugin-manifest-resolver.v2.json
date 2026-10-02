@@ -4,7 +4,7 @@
   "plan_version": 2,
   "title": "06.1 插件清单 Schema 与依赖解析",
   "repository": "Code-Kit",
-  "base_sha": "1e1363a34857873609bead54d43812c0cd45611a",
+  "base_sha": "cf3a1cdff2302cfb89c3efbcfdc53d78b8f4be5b",
   "risk_level": "medium",
   "authorization": {
     "executor": [
