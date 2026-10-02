@@ -1,0 +1,369 @@
+"""Offline integration gates for the 07/S5 boundary.
+
+The 07 core has several small, deliberately pure projections.  They are useful
+fixtures, but they are not evidence that a real 03/04/05/06/09/10 connector is
+installed or authorized.  This module is the narrow seam between those
+projections and an eventual integration layer:
+
+* contract and candidate identities are fixed by content hashes;
+* an uncommitted candidate never creates a commit implicitly;
+* 09 readiness and 10 brief projections remain read-only and linked to the
+  same state high-water marks; and
+* absent or synthetic production connectors are reported as BLOCKED.
+
+Everything here consumes caller-supplied facts.  It never reads Git, starts a
+process, resolves a provider, reads credentials, writes an outbox, or commits
+files.  ``PASS`` therefore means that the supplied offline facts are
+internally consistent; production readiness is a separate, explicit result.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping, Sequence
+
+
+class IntegrationGateError(ValueError):
+    """Invalid input to an offline integration gate."""
+
+    def __init__(self, code: str, field: str = "", reason: str = "invalid integration gate input") -> None:
+        self.code = code
+        self.field = field
+        self.reason = reason
+        super().__init__(f"{code} {field}: {reason}" if field else f"{code}: {reason}")
+
+
+PASS = "PASS"
+BLOCKED = "BLOCKED"
+WAIT = "WAIT"
+PRODUCTION_BLOCKED = "PRODUCTION_BLOCKED"
+OFFLINE_WIRED = "OFFLINE_WIRED"
+
+REQUIRED_CONNECTORS = ("03", "04", "05", "06", "09", "10")
+MUTABLE_ALIASES = frozenset(("latest", "head", "current", "tip", "default"))
+
+
+@dataclass(frozen=True)
+class GateDecision:
+    """Deterministic decision and evidence from one gate."""
+
+    decision: str
+    reasons: tuple[str, ...] = ()
+    evidence: Mapping[str, Any] = MappingProxyType({})
+
+    @property
+    def ok(self) -> bool:
+        return self.decision in (PASS, OFFLINE_WIRED)
+
+
+def canonical_json(value: Any) -> bytes:
+    """Encode a JSON value canonically for a stable identity hash."""
+    try:
+        return (json.dumps(value, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise IntegrationGateError("E_CANONICAL_JSON", reason="JSON value is not canonicalizable") from exc
+
+
+def sha256_hex(value: bytes | bytearray | memoryview) -> str:
+    """Return a lower-case SHA-256 digest for bytes-like content."""
+    if not isinstance(value, (bytes, bytearray, memoryview)):
+        raise IntegrationGateError("E_BYTES", reason="bytes required")
+    return hashlib.sha256(bytes(value)).hexdigest()
+
+
+def contract_digest(contract: Any) -> str:
+    """Hash a contract object or its exact serialized bytes.
+
+    The dispatcher records the hash of ``contract.json`` bytes.  Mapping input
+    is normalized for deterministic fixtures; bytes input preserves the file
+    hash exactly so a gate can verify dispatcher metadata without rewriting
+    the contract first.
+    """
+    if isinstance(contract, (bytes, bytearray, memoryview)):
+        return sha256_hex(contract)
+    return sha256_hex(canonical_json(contract))
+
+
+def _digest(value: Any, field: str) -> str:
+    if type(value) is not str or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise IntegrationGateError("E_HASH", field, "lowercase SHA-256 required")
+    return value
+
+
+def _text(value: Any, field: str) -> str:
+    if type(value) is not str or not value or "\x00" in value:
+        raise IntegrationGateError("E_TEXT", field, "nonempty text required")
+    return value
+
+
+def _identity_ref(value: Any, field: str) -> tuple[str, str, str]:
+    if type(value) is not dict:
+        raise IntegrationGateError("E_REFERENCE", field, "reference object required")
+    required = {"kind", "id", "sha256"}
+    if not required.issubset(value):
+        raise IntegrationGateError("E_REFERENCE", field, "kind, id and sha256 required")
+    kind = _text(value["kind"], f"{field}/kind")
+    identity = _text(value["id"], f"{field}/id")
+    if identity.lower() in MUTABLE_ALIASES:
+        raise IntegrationGateError("E_REFERENCE_ALIAS", f"{field}/id", "mutable alias is forbidden")
+    digest = _digest(value["sha256"], f"{field}/sha256")
+    return kind, identity, digest
+
+
+def verify_contract_hash(contract: Any, expected_sha256: str | None,
+                         *, declared_ref: Mapping[str, Any] | None = None) -> GateDecision:
+    """Verify a contract against a fixed hash.
+
+    A missing expected hash is ``WAIT`` rather than success.  If a declaration
+    contains a resource reference its identity digest must agree with the same
+    expected value; a path or version alias cannot stand in for a digest.
+    """
+    if expected_sha256 is None:
+        return GateDecision(WAIT, ("CONTRACT_HASH_UNKNOWN",), MappingProxyType({"actual_sha256": contract_digest(contract)}))
+    expected = _digest(expected_sha256, "/expected_sha256")
+    actual = contract_digest(contract)
+    reasons: list[str] = []
+    if actual != expected:
+        reasons.append("CONTRACT_HASH_MISMATCH")
+    if declared_ref is not None:
+        try:
+            _kind, _id, declared = _identity_ref(dict(declared_ref), "/contract_ref")
+            if declared != expected:
+                reasons.append("CONTRACT_REF_HASH_MISMATCH")
+        except IntegrationGateError as exc:
+            reasons.append(exc.code)
+    evidence = MappingProxyType({"expected_sha256": expected, "actual_sha256": actual})
+    return GateDecision(PASS if not reasons else BLOCKED, tuple(dict.fromkeys(reasons)), evidence)
+
+
+# Alias used by callers that describe this as identity rather than hashing.
+verify_contract_identity = verify_contract_hash
+
+
+def _candidate_ref(value: Any, field: str) -> tuple[str, str, str]:
+    return _identity_ref(value, field)
+
+
+def verify_fixed_candidate(expected_ref: Mapping[str, Any], candidate: Mapping[str, Any]) -> GateDecision:
+    """Verify one candidate is the recorded fixed candidate.
+
+    ``candidate`` must contain ``candidate_ref`` (``ref`` is accepted as a
+    compatibility spelling), ``roundtrip_verified`` and, when the expected
+    record carries them, matching ``tree_sha`` and ``patch_sha256``.  Missing
+    runtime observations wait; explicit mismatches block.
+    """
+    expected = _candidate_ref(dict(expected_ref), "/expected_candidate_ref")
+    if type(candidate) is not dict:
+        raise IntegrationGateError("E_CANDIDATE", "/candidate", "candidate object required")
+    actual_ref_value = candidate.get("candidate_ref", candidate.get("ref"))
+    reasons: list[str] = []
+    evidence: dict[str, Any] = {"expected_ref": expected}
+    if actual_ref_value is None:
+        reasons.append("CANDIDATE_REFERENCE_UNKNOWN")
+    else:
+        try:
+            actual_ref = _candidate_ref(actual_ref_value, "/candidate/candidate_ref")
+            evidence["actual_ref"] = actual_ref
+            if actual_ref != expected:
+                reasons.append("CANDIDATE_REFERENCE_MISMATCH")
+        except IntegrationGateError as exc:
+            reasons.append(exc.code)
+
+    for key, reason in (("tree_sha", "CANDIDATE_TREE_MISMATCH"),
+                        ("patch_sha256", "CANDIDATE_PATCH_MISMATCH")):
+        if key in expected_ref:
+            expected_value = _digest(expected_ref[key], f"/expected_candidate_ref/{key}")
+            actual_value = candidate.get(key)
+            if actual_value is None:
+                reasons.append("CANDIDATE_%s_UNKNOWN" % key.upper())
+            elif type(actual_value) is not str or actual_value != expected_value:
+                reasons.append(reason)
+            evidence[f"expected_{key}"] = expected_value
+            evidence[f"actual_{key}"] = actual_value
+
+    roundtrip = candidate.get("roundtrip_verified")
+    if roundtrip is not True:
+        reasons.append("CANDIDATE_ROUNDTRIP_REJECTED" if roundtrip is False else "CANDIDATE_ROUNDTRIP_UNKNOWN")
+    evidence["roundtrip_verified"] = roundtrip
+    return GateDecision(PASS if not reasons else (WAIT if all(r.endswith("_UNKNOWN") for r in reasons) else BLOCKED),
+                        tuple(dict.fromkeys(reasons)), MappingProxyType(evidence))
+
+
+def evaluate_commit_permission(*, has_uncommitted_changes: bool | None,
+                               integration_actions: Iterable[str] = (),
+                               commit_sha: str | None = None) -> GateDecision:
+    """Apply the no-implicit-commit boundary to a candidate patch.
+
+    ``local_commit`` is the explicit executor permission.  A generic
+    integration ``commit`` action is intentionally not treated as permission
+    to mutate an uncommitted worktree.  This gate only records whether the
+    supplied permission/evidence is sufficient; it never creates a commit.
+    """
+    if has_uncommitted_changes is not None and type(has_uncommitted_changes) is not bool:
+        raise IntegrationGateError("E_BOOL", "/has_uncommitted_changes", "boolean or null required")
+    actions = tuple(_text(action, "/integration_actions") for action in integration_actions)
+    if commit_sha is not None:
+        _digest(commit_sha, "/commit_sha")
+    if has_uncommitted_changes is None:
+        return GateDecision(WAIT, ("WORKTREE_STATUS_UNKNOWN",), MappingProxyType({"actions": actions}))
+    if not has_uncommitted_changes:
+        return GateDecision(PASS, ("NO_COMMIT_REQUIRED",), MappingProxyType({"actions": actions, "commit_sha": commit_sha}))
+    if "local_commit" not in actions:
+        return GateDecision(BLOCKED, ("COMMIT_PERMISSION_REQUIRED",), MappingProxyType({"actions": actions}))
+    if commit_sha is None:
+        return GateDecision(WAIT, ("COMMIT_EVIDENCE_UNKNOWN",), MappingProxyType({"actions": actions}))
+    return GateDecision(PASS, (), MappingProxyType({"actions": actions, "commit_sha": commit_sha}))
+
+
+def _as_projection(value: Any, field: str) -> Mapping[str, Any]:
+    if hasattr(value, "__dict__") and all(hasattr(value, name) for name in ("can_refine", "can_start_planner", "can_execute", "reasons")):
+        return {name: getattr(value, name) for name in ("can_refine", "can_start_planner", "can_execute", "reasons")}
+    if type(value) is not dict:
+        raise IntegrationGateError("E_PROJECTION", field, "projection object required")
+    return value
+
+
+def verify_09_10_wiring(*, readiness: Any, state: Mapping[str, Any], brief: Mapping[str, Any]) -> GateDecision:
+    """Check offline 09 readiness → 10 brief wiring without granting dispatch."""
+    projection = _as_projection(readiness, "/readiness")
+    reasons: list[str] = []
+    if type(state) is not dict or type(brief) is not dict:
+        raise IntegrationGateError("E_PROJECTION", "/state", "state and brief objects required")
+    for field in ("can_refine", "can_start_planner", "can_execute"):
+        if type(projection.get(field)) is not bool:
+            reasons.append("READINESS_%s_UNKNOWN" % field.upper())
+    if projection.get("can_execute") is True and projection.get("can_start_planner") is not True:
+        reasons.append("READINESS_LEVEL_ORDER_INVALID")
+    if not isinstance(projection.get("reasons", ()), (tuple, list)):
+        reasons.append("READINESS_REASONS_INVALID")
+
+    for field in ("indexed_cursor", "applied_cursor"):
+        value = state.get(field)
+        if type(value) is not int or value < 0:
+            reasons.append("STATE_%s_UNKNOWN" % field.upper())
+    if type(state.get("indexed_cursor")) is int and type(state.get("applied_cursor")) is int \
+            and state["applied_cursor"] > state["indexed_cursor"]:
+        reasons.append("STATE_CURSOR_ORDER_INVALID")
+    if not _nonempty_text(state.get("verification_ref")):
+        reasons.append("STATE_VERIFICATION_REF_UNKNOWN")
+    if not _nonempty_text(state.get("as_of")):
+        reasons.append("STATE_AS_OF_UNKNOWN")
+    if state.get("source_coverage") not in {"complete", "partial", "unknown"}:
+        reasons.append("STATE_SOURCE_COVERAGE_INVALID")
+    if state.get("budget_coverage") not in {"complete", "partial", "unknown"}:
+        reasons.append("STATE_BUDGET_COVERAGE_INVALID")
+
+    # 10 is a read model.  It cannot turn a brief into an execution permit.
+    if brief.get("dispatch_eligibility") != "not_evaluated":
+        reasons.append("BRIEF_DISPATCH_FIELD_NOT_NEUTRAL")
+    if brief.get("source_coverage") != state.get("source_coverage"):
+        reasons.append("BRIEF_SOURCE_COVERAGE_MISMATCH")
+    if brief.get("health") != state.get("health"):
+        reasons.append("BRIEF_HEALTH_MISMATCH")
+    expected_budget = "预算快照已核验" if state.get("budget_coverage") == "complete" else "[未知] 无可核验预算快照"
+    if brief.get("budget") != expected_budget:
+        reasons.append("BRIEF_BUDGET_COVERAGE_MISMATCH")
+    if brief.get("truncated") is not bool(state.get("truncated", False)):
+        reasons.append("BRIEF_TRUNCATION_MISMATCH")
+    if "truncated" not in brief:
+        reasons.append("BRIEF_TRUNCATION_UNKNOWN")
+    evidence = MappingProxyType({
+        "readiness": dict(projection),
+        "state_verification_ref": state.get("verification_ref"),
+        "indexed_cursor": state.get("indexed_cursor"),
+        "applied_cursor": state.get("applied_cursor"),
+        "dispatch_eligibility": brief.get("dispatch_eligibility"),
+        "offline_only": True,
+    })
+    return GateDecision(OFFLINE_WIRED if not reasons else BLOCKED,
+                        tuple(dict.fromkeys(reasons)), evidence)
+
+
+def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] | None,
+                                   *, required: Sequence[str] = REQUIRED_CONNECTORS) -> GateDecision:
+    """Require explicit production evidence for each cross-stage connector.
+
+    Synthetic/offline fixtures are retained in evidence and always produce a
+    production ``BLOCKED`` result.  No caller can obtain a production PASS by
+    omitting a connector or by setting ``available`` without ``production``.
+    """
+    if connectors is None:
+        return GateDecision(PRODUCTION_BLOCKED,
+                            tuple("CONNECTOR_%s_MISSING" % stage for stage in required),
+                            MappingProxyType({"required": tuple(required), "connectors": {}}))
+    if type(connectors) is not dict:
+        raise IntegrationGateError("E_CONNECTORS", "/connectors", "connector map required")
+    reasons: list[str] = []
+    evidence: dict[str, Any] = {"required": tuple(required), "connectors": {}}
+    for stage in required:
+        item = connectors.get(stage)
+        if type(item) is not dict:
+            reasons.append("CONNECTOR_%s_MISSING" % stage)
+            continue
+        status = item.get("status")
+        production = item.get("production")
+        available = item.get("available")
+        evidence["connectors"][stage] = {
+            "status": status, "production": production, "available": available,
+            "evidence_ref": item.get("evidence_ref"),
+        }
+        if production is not True or available is not True or status != "verified":
+            if status in {"offline_fixture", "synthetic", "local"} or production is False:
+                reasons.append("CONNECTOR_%s_OFFLINE_ONLY" % stage)
+            else:
+                reasons.append("CONNECTOR_%s_NOT_VERIFIED" % stage)
+    return GateDecision(PASS if not reasons else PRODUCTION_BLOCKED,
+                        tuple(dict.fromkeys(reasons)), MappingProxyType(evidence))
+
+
+def evaluate_integration_gates(*, contract: Any, expected_contract_sha256: str | None,
+                               candidate_ref: Mapping[str, Any], candidate: Mapping[str, Any],
+                               has_uncommitted_changes: bool | None,
+                               integration_actions: Iterable[str], readiness: Any,
+                               state: Mapping[str, Any], brief: Mapping[str, Any],
+                               connectors: Mapping[str, Mapping[str, Any]] | None) -> GateDecision:
+    """Compose all S5.3 offline and production-boundary decisions."""
+    decisions = (
+        verify_contract_hash(contract, expected_contract_sha256),
+        verify_fixed_candidate(candidate_ref, candidate),
+        evaluate_commit_permission(has_uncommitted_changes=has_uncommitted_changes,
+                                   integration_actions=integration_actions,
+                                   commit_sha=candidate.get("commit_sha")),
+        verify_09_10_wiring(readiness=readiness, state=state, brief=brief),
+        evaluate_production_connectors(connectors),
+    )
+    reasons = tuple(dict.fromkeys(reason for item in decisions for reason in item.reasons))
+    evidence = MappingProxyType({
+        "contract": decisions[0].evidence,
+        "candidate": decisions[1].evidence,
+        "commit": decisions[2].evidence,
+        "wiring": decisions[3].evidence,
+        "production": decisions[4].evidence,
+        "production_decision": decisions[4].decision,
+    })
+    # Offline wiring can be sound while the actual cross-stage connectors are
+    # absent.  Keep that distinction explicit in the composite result.
+    if decisions[4].decision == PRODUCTION_BLOCKED:
+        decision = PRODUCTION_BLOCKED
+    elif any(item.decision == BLOCKED for item in decisions):
+        decision = BLOCKED
+    elif any(item.decision == WAIT for item in decisions):
+        decision = WAIT
+    else:
+        decision = PASS
+    return GateDecision(decision, reasons, evidence)
+
+
+def _nonempty_text(value: Any) -> bool:
+    return type(value) is str and bool(value) and "\x00" not in value
+
+
+__all__ = [
+    "BLOCKED", "GateDecision", "IntegrationGateError", "OFFLINE_WIRED", "PASS", "PRODUCTION_BLOCKED",
+    "REQUIRED_CONNECTORS", "WAIT", "canonical_json", "contract_digest", "evaluate_commit_permission",
+    "evaluate_integration_gates", "evaluate_production_connectors", "sha256_hex", "verify_09_10_wiring",
+    "verify_contract_hash", "verify_contract_identity", "verify_fixed_candidate",
+]
