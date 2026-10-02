@@ -39,9 +39,10 @@ class PersistentApprovalStore:
 
     @staticmethod
     def _journal_text(value: Any, field: str, line: int) -> str:
-        if type(value) is not str or not value or len(value) > 256 or "\x00" in value:
+        if type(value) is not str or not value or len(value) > 256:
             raise AuthorizationStoreError("E_AUTH_JOURNAL", "/journal", f"invalid {field} at line {line}")
-        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF
+               for ch in value):
             raise AuthorizationStoreError("E_AUTH_JOURNAL", "/journal", f"invalid {field} at line {line}")
         return value
 
@@ -141,6 +142,10 @@ class PersistentApprovalStore:
             self._operation_events.add(operation_key)
 
     def _append(self, event: Mapping[str, Any]) -> None:
+        # Apply the same line-oriented boundary to new events that replay uses
+        # for existing journal bytes.  Build the candidate ledger first; a
+        # rejected event therefore cannot publish in-memory state.
+        self._validate_event_fields(event, self.high_water + 1)
         line = canonical_bytes(dict(event))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("ab") as handle:

@@ -118,6 +118,25 @@ class PersistentAuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
                 PersistentApprovalStore(path)
 
+    def test_journal_text_boundary_rejects_controls_and_surrogates(self):
+        bad_values = ("\x01", "\x1f", "\x7f", "\x80", "\x9f", "\ud800")
+        for bad in bad_values:
+            with self.subTest(codepoint=ord(bad)):
+                with tempfile.TemporaryDirectory() as area:
+                    path = Path(area) / "auth.jsonl"
+                    store = PersistentApprovalStore(path)
+                    with self.assertRaises(AuthorizationError):
+                        store.put(scope="scope" + bad, operation_id="put-1",
+                                  expected_generation=0, record=approval())
+                    self.assertFalse(path.exists())
+
+                    event = {"seq": 1, "type": "approval", "scope": "scope" + bad,
+                             "operation_id": "put-1", "expected_generation": 0,
+                             "record": approval()}
+                    path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+                    with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
+                        PersistentApprovalStore(path)
+
     def test_append_failure_does_not_publish_head_and_fences_writes(self):
         with tempfile.TemporaryDirectory() as area:
             path = Path(area) / "auth.jsonl"

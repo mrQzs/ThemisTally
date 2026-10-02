@@ -176,6 +176,36 @@ class SchedulerStoreTests(unittest.TestCase):
             self.store.cancel_unstarted(result.operation_id, owner="owner-b", generation=1)
         self.assertEqual(caught.exception.code, "E_FENCED")
 
+    def test_text_boundaries_reject_controls_and_surrogates(self) -> None:
+        bad_values = ("\x01", "\x1f", "\x7f", "\x80", "\x9f", "\ud800")
+        for bad in bad_values:
+            with self.subTest(codepoint=ord(bad)):
+                with self.assertRaises(SchedulerStoreError):
+                    self.store.seed_request("request" + bad, "code-kit")
+                with self.assertRaises(SchedulerStoreError):
+                    self.store.claim(request(), facts(), owner="owner" + bad,
+                                     lease_until=100, reservation={"dispatches": 1}, resource_keys=[])
+                with self.assertRaises(SchedulerStoreError):
+                    self.store.claim(request(), facts(), owner="owner-a", lease_until=100,
+                                     reservation={"dispatches": 1}, resource_keys=["src/" + bad])
+                with self.assertRaises(SchedulerStoreError):
+                    self.store.stop(REQUEST_ID, "reason" + bad)
+
+    def test_reopen_rejects_control_text_in_persisted_identity(self) -> None:
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE requests SET repo_id=? WHERE request_id=?", ("code\x1fkit", REQUEST_ID))
+        db.commit()
+        db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE requests SET repo_id=? WHERE request_id=?", ("code-kit", REQUEST_ID))
+        db.commit()
+        db.close()
+        self.store = SchedulerStore(self.path)
+
     def test_expired_lease_and_unknown_budget_remain_blocked(self) -> None:
         result = self.store.claim(request(), facts(), owner="owner-a", lease_until=10,
                                   reservation={"dispatches": 1}, resource_keys=[])

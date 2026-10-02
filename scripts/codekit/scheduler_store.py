@@ -141,16 +141,18 @@ def _finite(value: object, field: str) -> float:
 def _db_text(value: object, field: str, *, nullable: bool = False, limit: int = 512) -> None:
     if nullable and value is None:
         return
-    if type(value) is not str or not value or len(value) > limit or "\x00" in value:
+    if type(value) is not str or not value or len(value) > limit:
         raise SchedulerStoreError("E_SCHEMA_INVALID", (field,))
-    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
         raise SchedulerStoreError("E_SCHEMA_INVALID", (field,))
 
 
 def _input_text(value: object, field: str, *, limit: int = 512, code: str = "E_SCHEMA_TYPE") -> str:
-    if type(value) is not str or not value or len(value) > limit or "\x00" in value:
+    if type(value) is not str or not value or len(value) > limit:
         raise SchedulerStoreError(code, (field,))
-    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
         raise SchedulerStoreError(code, (field,))
     return value
 
@@ -192,8 +194,9 @@ def _resources(value: Sequence[str]) -> tuple[str, ...]:
         raise SchedulerStoreError("E_RESOURCE_KEYS")
     result = []
     for item in value:
-        if (type(item) is not str or not item or len(item) > 200 or "\x00" in item
-                or any(0xD800 <= ord(char) <= 0xDFFF for char in item)):
+        if (type(item) is not str or not item or len(item) > 200
+                or any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+                       or 0xD800 <= ord(char) <= 0xDFFF for char in item)):
             raise SchedulerStoreError("E_RESOURCE_KEYS")
         result.append(item)
     if len(result) > MAX_RESOURCE_KEYS or len(_json(sorted(result)).encode("utf-8")) > MAX_RESOURCE_JSON_BYTES:
