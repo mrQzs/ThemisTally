@@ -139,7 +139,9 @@ def verify_contract_hash(contract: Any, expected_sha256: str | None,
         reasons.append("CONTRACT_HASH_MISMATCH")
     if declared_ref is not None:
         try:
-            _kind, _id, declared = _identity_ref(dict(declared_ref), "/contract_ref")
+            if not isinstance(declared_ref, Mapping):
+                raise IntegrationGateError("E_REFERENCE", "/contract_ref", "reference object required")
+            _kind, _id, declared = _identity_ref(declared_ref, "/contract_ref")
             if declared != expected:
                 reasons.append("CONTRACT_REF_HASH_MISMATCH")
         except IntegrationGateError as exc:
@@ -241,7 +243,12 @@ def evaluate_commit_permission(*, has_uncommitted_changes: bool | None,
     """
     if has_uncommitted_changes is not None and type(has_uncommitted_changes) is not bool:
         raise IntegrationGateError("E_BOOL", "/has_uncommitted_changes", "boolean or null required")
-    actions = tuple(_text(action, "/integration_actions") for action in integration_actions)
+    if integration_actions is None or isinstance(integration_actions, (str, bytes)):
+        raise IntegrationGateError("E_ACTIONS", "/integration_actions", "action sequence required")
+    try:
+        actions = tuple(_text(action, "/integration_actions") for action in integration_actions)
+    except TypeError as exc:
+        raise IntegrationGateError("E_ACTIONS", "/integration_actions", "action sequence required") from exc
     if commit_sha is not None:
         _digest(commit_sha, "/commit_sha")
     if has_uncommitted_changes is None:
@@ -288,9 +295,9 @@ def verify_09_10_wiring(*, readiness: Any, state: Mapping[str, Any], brief: Mapp
         reasons.append("STATE_VERIFICATION_REF_UNKNOWN")
     if not _nonempty_text(state.get("as_of")):
         reasons.append("STATE_AS_OF_UNKNOWN")
-    if state.get("source_coverage") not in {"complete", "partial", "unknown"}:
+    if type(state.get("source_coverage")) is not str or state.get("source_coverage") not in {"complete", "partial", "unknown"}:
         reasons.append("STATE_SOURCE_COVERAGE_INVALID")
-    if state.get("budget_coverage") not in {"complete", "partial", "unknown"}:
+    if type(state.get("budget_coverage")) is not str or state.get("budget_coverage") not in {"complete", "partial", "unknown"}:
         reasons.append("STATE_BUDGET_COVERAGE_INVALID")
 
     # 10 is a read model.  It cannot turn a brief into an execution permit.
@@ -327,6 +334,10 @@ def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] |
     production ``BLOCKED`` result.  No caller can obtain a production PASS by
     omitting a connector or by setting ``available`` without ``production``.
     """
+    if (not isinstance(required, Sequence) or isinstance(required, (str, bytes)) or not required
+            or any(type(stage) is not str or not stage for stage in required)
+            or len(set(required)) != len(required)):
+        raise IntegrationGateError("E_CONNECTORS", "/required", "unique connector stage names required")
     if connectors is None:
         return GateDecision(PRODUCTION_BLOCKED,
                             tuple("CONNECTOR_%s_MISSING" % stage for stage in required),
@@ -375,7 +386,7 @@ def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] |
         }
         if (production is True and (not shape_ok or normalized_ref is None or not _nonempty_text(connector_id))) \
                 or production is not True or available is not True or status != "verified":
-            if status in {"offline_fixture", "synthetic", "local"} or production is False:
+            if (type(status) is str and status in {"offline_fixture", "synthetic", "local"}) or production is False:
                 reasons.append("CONNECTOR_%s_OFFLINE_ONLY" % stage)
             else:
                 reasons.append("CONNECTOR_%s_NOT_VERIFIED" % stage)
