@@ -8,7 +8,7 @@ an independent `review-pi` verdict.
 
 ## Verified local evidence
 
-- 93 focused 01–06/08 tests pass, including authorization journal recovery,
+- 95 focused 01–06/08 tests pass, including authorization journal recovery,
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
@@ -23,7 +23,7 @@ an independent `review-pi` verdict.
 ## Scope of the new offline boundary
 
 - `authorization_store.py` is an append-only JSONL replay store with torn-tail
-  recovery and operation idempotency; it is not the production authorization
+  recovery, recovery-state write fencing and operation idempotency; it is not the production authorization
   service.
 - `projection_store.py` persists projection events, checkpoints and generation
   handoff, fsyncs each append, with cursor CAS and conservative reconciliation; it is not wired to

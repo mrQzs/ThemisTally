@@ -102,6 +102,8 @@ class S6ProjectionTests(unittest.TestCase):
             self.assertEqual(recovered.generation, 2)
             self.assertEqual(recovered.cursor, 2)
             self.assertTrue(recovered.reconcile(expected_generation=2, expected_cursor=2)["ok"])
+            with self.assertRaisesRegex(ArtifactError, "E_RECOVERY"):
+                recovered.consume([ProjectionEvent(3, "authority", "later", {})], generation=2)
 
     def test_persistent_projection_rebuild_uses_cursor_cas(self):
         with tempfile.TemporaryDirectory() as tmp:

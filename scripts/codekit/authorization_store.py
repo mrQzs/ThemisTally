@@ -84,7 +84,12 @@ class PersistentApprovalStore:
             os.fsync(handle.fileno())
         self.high_water = int(event["seq"])
 
+    def _ensure_writable(self) -> None:
+        if self.recovery.get("status") != "CLEAN":
+            raise AuthorizationStoreError("E_AUTH_RECOVERY", "/journal", "reconcile or repair recovery tail before writing")
+
     def put(self, *, scope: str, operation_id: str, expected_generation: int, record: Mapping[str, Any]) -> ApprovalHead:
+        self._ensure_writable()
         normalized = validate_approval(record)
         replay = ("approval", operation_id) in self._operation_events
         head = self.ledger.put(scope=scope, operation_id=operation_id, expected_generation=expected_generation, record=normalized)
@@ -96,6 +101,7 @@ class PersistentApprovalStore:
         return head
 
     def lock(self, *, scope: str, receipt_id: str, operation_id: str, bindings: list[Mapping[str, Any]]) -> InputLock:
+        self._ensure_writable()
         replay = ("lock", operation_id) in self._operation_events
         lock = self.ledger.lock(scope=scope, receipt_id=receipt_id, operation_id=operation_id, bindings=bindings)
         if replay:

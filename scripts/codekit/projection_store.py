@@ -132,6 +132,8 @@ class PersistentProjectionStore:
         _fail("E_JOURNAL_CORRUPT", "unknown journal record kind")
 
     def consume(self, events: Sequence[ProjectionEvent], *, generation: int) -> str:
+        if self.recovery != "CLEAN":
+            _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
         before = set(self.projection.events)
         result = self.projection.consume(events, generation=generation)
         if result == "APPLIED":
@@ -148,6 +150,8 @@ class PersistentProjectionStore:
 
     def rebuild(self, authority_rows: Sequence[Mapping[str, Any]], *, generation: int,
                 expected_cursor: int | None = None) -> None:
+        if self.recovery != "CLEAN":
+            _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
         if expected_cursor is not None and expected_cursor != self.cursor:
             _fail("E_CAS", "projection cursor changed")
         self.projection.rebuild(authority_rows, generation=generation)
@@ -160,6 +164,8 @@ class PersistentProjectionStore:
         })
 
     def handoff(self, *, new_generation: int, expected_generation: int) -> None:
+        if self.recovery != "CLEAN":
+            _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
         if expected_generation != self.generation:
             _fail("E_FENCED", "stale handoff generation")
         if type(new_generation) is not int or new_generation <= self.generation:

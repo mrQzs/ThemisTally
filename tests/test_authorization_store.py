@@ -51,6 +51,8 @@ class PersistentAuthorizationTests(unittest.TestCase):
             restored = PersistentApprovalStore(path)
             self.assertEqual(restored.ledger.head("scope").generation, 1)
             self.assertEqual(restored.reconcile()["recovery"]["status"], "TRUNCATED_TAIL")
+            with self.assertRaisesRegex(AuthorizationError, "E_AUTH_RECOVERY"):
+                restored.put(scope="scope", operation_id="put-2", expected_generation=1, record=approval())
 
     def test_non_tail_corruption_is_not_silently_reconciled(self):
         with tempfile.TemporaryDirectory() as area:
