@@ -72,6 +72,16 @@ an independent `review-pi` verdict.
 - `f060b94` requires canonical plugin-lock ordering and rejects duplicate
   permission or non-text platform policy inputs. Plugin boundary checks pass 23
   tests; Windows Schema instance checks remain environment-skipped.
+- `29ade8d` closes deterministic-check evidence fields and bounds identity,
+  output, and reason values. The S5 focused checks pass 17 tests; no trusted
+  dispatcher receipt is inferred.
+- `811ab7a` closes the durable projection state boundary for cursors, source
+  vectors, verification/as-of values, issue lists, and boolean flags. This is
+  still a read-only offline projection.
+- `b2b9dff` closes catalog input types, recipe compile-receipt identity/version
+  fields, and projection event sequence boundaries. The related S4/S5/S6
+  regression set passes 37 tests; these are main-model offline checks, not Pi
+  attempt evidence.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
@@ -94,6 +104,8 @@ an independent `review-pi` verdict.
   receipt is supplied; the new builder checks prevent a plugin caller from
   manufacturing that receipt or status.
 
-Therefore all 01–06 and 08 stage gates remain `REVISE/BLOCKED`; offline
+The 39 v1 contracts are historical planning drafts from an older base and have
+no attempt evidence; they must be superseded by current-base v2 contracts before
+any dispatch. Therefore all 01–06 and 08 stage gates remain `REVISE/BLOCKED`; offline
 `PASS`-shaped fixture results remain `LOCAL_REFERENCE` or `REFERENCE_ONLY` and
 cannot release production.
