@@ -16,6 +16,6 @@
 
 S1–S6 聚焦测试共 32 项通过，`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过；六份 artifact Schema 在 WSL Python 3.12 的 Draft 2020-12 元校验通过。01–06 的新增定向测试与已有协议/基线测试分别通过。
 
-`python -m unittest discover -s tests -q` 和 `python tests/test_dispatch.py` 启动后进入既有进程/调度 fixture；在当前 Pi 模型未列出、凭据未就绪的环境中未产生可用的完整退出证据，已停止并归类为 `BLOCKED/NOT_RUN`，不把它们写成 PASS。39 个新增合同仍由 `pi_dispatch validate` 生成时通过；真实执行器没有派遣。
+`python tests/test_dispatch.py` 在 WSL Python 3.12 的本地 stub 环境完成 260 项检查、0 failed；该结果只证明调度器自测，不是 Pi 生产证据。`python -m unittest discover -s tests -q` 进入既有生命周期/调度 fixture 后耗时过长，本轮停止，不能据此宣称全量通过。39 个新增合同的 v1 文件已生成并通过规划期校验；真实执行器没有派遣。独立复审会话因本机 Codex rollout 不可用而 `BLOCKED`，没有伪造复审结论。
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。
