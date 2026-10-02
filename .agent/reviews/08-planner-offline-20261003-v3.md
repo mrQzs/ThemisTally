@@ -2,18 +2,18 @@
 
 Verdict: `REVISE` / production gate `BLOCKED`.
 
-This planner-side follow-up covers `5a3ef84` and the offline commits before
+This planner-side follow-up covers `c6599b0` and the offline commits before
 it. It records local evidence only; it is not a Pi attempt and does not replace
 an independent `review-pi` verdict.
 
 ## Verified local evidence
 
-- 95 focused 01–06/08 tests pass, including authorization journal recovery,
+- 96 focused 01–06/08 tests pass, including strict v2 authorization and journal recovery,
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
 - The broader suite excluding long lifecycle dispatcher and legacy end-to-end
-  modules passes 829 tests with 27 skips.
+  modules passes 830 tests with 27 skips.
 - `python -m compileall -q scripts/codekit tests` and `git diff --check` pass.
 - WSL Python 3.12 Draft 2020-12 meta-validation passes for 14 schemas.
 - The earlier WSL local stub run recorded 260 dispatcher self-checks with zero
@@ -29,7 +29,8 @@ an independent `review-pi` verdict.
   handoff, fsyncs each append, with cursor CAS and conservative reconciliation; it is not wired to
   the core dispatcher outbox.
 - `offline_runner.py` runs explicit local argv commands without a shell,
-  rejects credential-like environment overrides, records candidate/runner/environment hashes,
+  uses a small runtime environment allowlist, rejects credential-like overrides,
+  and records candidate/runner/environment hashes,
   and classifies timeout/start, syntax/import and nonzero outcomes. Mutation inputs are caller-supplied
   commands; no isolated candidate mutation dispatcher is connected.
 - Catalog loading now verifies manifest-bound locks and repository resource
