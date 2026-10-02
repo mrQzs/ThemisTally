@@ -101,6 +101,8 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
             normalized["old_path"] = _path(value["old_path"], f"{field}/old_path")
             if change_type not in {"renamed", "copied"}:
                 _fail("E_CHANGE_SCHEMA", f"{field}/old_path", "old_path only applies to rename/copy")
+            if not _in_scope(normalized["old_path"], scope):
+                _fail("E_CHANGE_SCOPE", f"{field}/old_path", "old path is outside declared scope")
         elif change_type in {"renamed", "copied"}:
             _fail("E_CHANGE_SCHEMA", field, "rename/copy requires old_path")
         for mode in ("old_mode", "new_mode"):

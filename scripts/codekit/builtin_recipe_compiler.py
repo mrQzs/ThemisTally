@@ -145,6 +145,14 @@ def validate_compile_receipt(receipt: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_RECIPE_DRIFT", "/receipt_sha256", "receipt bytes do not match")
     if receipt["record_type"] != RECEIPT_RECORD_TYPE or receipt["schema_version"] != 1 or receipt["status"] not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_RECEIPT", "/", "invalid receipt header")
+    if type(receipt["receipt_id"]) is not str or not receipt["receipt_id"]:
+        _fail("E_RECIPE_RECEIPT", "/receipt_id", "non-empty receipt id required")
+    if type(receipt["recipe_version"]) is not int or receipt["recipe_version"] < 1:
+        _fail("E_RECIPE_RECEIPT", "/recipe_version", "positive integer required")
+    if not isinstance(receipt["ordered_step_ids"], list) or not isinstance(receipt["stage_kinds"], list) or len(receipt["ordered_step_ids"]) != len(receipt["stage_kinds"]):
+        _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step and stage arrays must align")
+    if not isinstance(receipt["errors"], list) or any(type(item) is not str for item in receipt["errors"]):
+        _fail("E_RECIPE_RECEIPT", "/errors", "string error array required")
     if receipt["dispatcher_submitted"] is not False:
         _fail("E_RECIPE_RECEIPT", "/dispatcher_submitted", "offline compiler cannot submit to dispatcher")
     return copy.deepcopy(dict(receipt))
@@ -199,6 +207,11 @@ def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
         if STAGE_MAP[stage["business_kind"]] != stage["kind"] or stage["deterministic"] is not True or stage["dispatcher_stage"] is not False:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}", "invalid stage mapping flags")
         _command(stage["command"], f"/payload/stages/{index}/command")
+        if not isinstance(stage["depends_on"], list) or any(item not in ids or item == stage["id"] for item in stage["depends_on"]):
+            _fail("E_RECIPE_PLAN", f"/payload/stages/{index}/depends_on", "unknown stage dependency")
+    expected_mapping = {stage["id"]: stage["kind"] for stage in payload["stages"]}
+    if payload["mapping"] != expected_mapping:
+        _fail("E_RECIPE_PLAN", "/payload/mapping", "stage mapping drift")
     return normalized
 
 
