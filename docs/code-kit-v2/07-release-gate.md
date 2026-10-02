@@ -3,7 +3,7 @@
 ## 候选与证据
 
 - 候选提交：`dda848ddfadd28bb06ac8c5b603623f06a54c767`（当前离线实现候选；合同基线已刷新）。
-- 远端：`origin/master` 与当前候选一致；工作树核验为干净。
+- 远端：`origin/master` 已包含当前候选及其后续文档提交；工作树核验为干净。
 - 当前验收矩阵定向套件：398 项通过、8 项跳过（`docs/code-kit-v2/07-acceptance-matrix.md` 中的组合命令）；此前三组 279 项结果仍作为历史分组记录保留。另有 happy/timeout/validate/stuck/budget/preflight/v2 planner 等 dispatch stub 场景通过，但完整调度回归仍未形成通过证据。
 - 调度器回归：本轮 Windows `python tests/test_dispatch.py` 长时间无输出后停止，不能形成新的通过证据；此前 Windows/WSL stub 记录分别为 258/263 checks，均是历史本地证据。
 - 结构门禁：`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。
