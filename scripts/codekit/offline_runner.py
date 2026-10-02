@@ -16,7 +16,7 @@ import sys
 from time import monotonic
 from typing import Any, Mapping, Sequence
 
-from .builtin_artifacts import ArtifactError, canonical_bytes
+from .builtin_artifacts import ArtifactError, canonical_bytes, resource_ref
 from .deterministic_check import check_execution_id
 
 
@@ -108,6 +108,14 @@ def run_command(*, target: str, command: Sequence[str], cwd: str | Path,
     if any(not k or "=" in k for k in env):
         _err("E_RUNNER_ENV", "environment names must be non-empty")
     root, path = _workspace_path(cwd, target_path)
+    normalized_candidate_ref = None
+    if candidate_ref is not None:
+        try:
+            normalized_candidate_ref = resource_ref(candidate_ref, "/candidate_ref")
+        except ArtifactError as exc:
+            _err("E_RUNNER_CANDIDATE", str(exc))
+        if normalized_candidate_ref["sha256"] != candidate_digest:
+            _err("E_RUNNER_CANDIDATE", "candidate_ref sha256 differs from candidate_digest")
     env_digest = _environment_digest(cwd=root, env=env)
     if environment_digest is not None and environment_digest != env_digest:
         _err("E_RUNNER_ENV", "environment digest differs from the actual runtime environment")
@@ -142,7 +150,7 @@ def run_command(*, target: str, command: Sequence[str], cwd: str | Path,
         "check_execution_id": execution_id,
         "check_plan_id": check_plan_id,
         "candidate_digest": candidate_digest,
-        "candidate_ref": dict(candidate_ref) if candidate_ref is not None else None,
+        "candidate_ref": normalized_candidate_ref,
         "environment_digest": env_digest,
         "target": target,
         "command": argv,

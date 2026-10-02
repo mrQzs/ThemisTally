@@ -77,6 +77,20 @@ class OfflineRunnerTests(unittest.TestCase):
             self.assertTrue(record["flaky"])
             self.assertEqual(record["status"], "BLOCKED")
 
+    def test_candidate_ref_is_closed_and_binds_the_candidate_digest(self):
+        candidate = {"kind": "file", "id": "candidate", "path": "candidate.patch", "sha256": "a" * 64}
+        with tempfile.TemporaryDirectory() as tmp:
+            accepted = run_command(target="candidate", command=self._command("pass"), cwd=tmp,
+                                   check_plan_id="cp", candidate_digest="a" * 64, candidate_ref=candidate)
+            self.assertEqual(accepted["candidate_ref"], candidate)
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_CANDIDATE"):
+                run_command(target="candidate", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="b" * 64, candidate_ref=candidate)
+            unsafe = {**candidate, "path": "../candidate.patch"}
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_CANDIDATE"):
+                run_command(target="candidate", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="a" * 64, candidate_ref=unsafe)
+
 
 if __name__ == "__main__":
     unittest.main()
