@@ -9,6 +9,8 @@
 ## 证据
 
 - `python -m unittest tests.test_workflow ... tests.test_attempt_allocator -q`：256 项通过，1 项明确跳过。
+- `python -m unittest discover -s tests -q`：879 项，31 项跳过；唯一失败是 Python 3.9 缺少 `sys.stdlib_module_names` 的既知 F049 环境探针。
+- `python tests/test_dispatch.py`：255 checks，0 failed。
 - `python -m compileall -q scripts/codekit tests`：通过。
 - `git diff --check`：通过。
 
