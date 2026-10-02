@@ -50,6 +50,13 @@ an independent `review-pi` verdict.
   docs-change/review-bundle builders refuse an explicit production `PASS`.
   The resulting 93-test focused suite passes on Windows; this is local fixture
   evidence only.
+- `1fb8c6e` closes SourceAnchor provenance for AnalysisReport and docs-change:
+  anchors must point to an exactly declared `source_refs` entry. The expanded
+  focused suite passes 100 tests on Windows; no file-byte or production review
+  claim is made by this check.
+- `1371ce6` closes the review-oracle observation envelope and bounds check IDs,
+  test maps, bindings, and statuses. Malformed or unhashable inputs now produce
+  explicit `E_CHECK_*` errors instead of leaking type errors or readiness.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
