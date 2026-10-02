@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import posixpath
 import ntpath
 import re
@@ -19,6 +20,8 @@ PLUGIN_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 # identity.  They are rejected at every plugin boundary, including registry
 # keys, dependency names and lock rows.
 MUTABLE_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
+MAX_DEPTH = 64
+MAX_ARRAY_ITEMS = 512
 
 
 class PluginError(ValueError):
@@ -31,7 +34,45 @@ def _fail(code: str, path: str, message: str) -> None:
     raise PluginError(code, path, message)
 
 
+def _strict_json(value: Any, *, path: str = "/", depth: int = 0,
+                 active: set[int] | None = None) -> None:
+    if depth > MAX_DEPTH:
+        _fail("E_PLUGIN_JSON", path, "maximum JSON depth exceeded")
+    if value is None or type(value) is bool or type(value) is int:
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            _fail("E_PLUGIN_JSON", path, "finite JSON number required")
+        return
+    if type(value) is str:
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            _fail("E_PLUGIN_JSON", path, "safe Unicode text required")
+        return
+    if type(value) not in (dict, list):
+        _fail("E_PLUGIN_JSON", path, "strict JSON value required")
+    if active is None:
+        active = set()
+    marker = id(value)
+    if marker in active:
+        _fail("E_PLUGIN_JSON", path, "cyclic JSON value")
+    active.add(marker)
+    try:
+        if type(value) is dict:
+            for key, child in value.items():
+                if type(key) is not str:
+                    _fail("E_PLUGIN_JSON", path, "string object keys required")
+                _strict_json(child, path=f"{path}{key}/", depth=depth + 1, active=active)
+        else:
+            if len(value) > MAX_ARRAY_ITEMS:
+                _fail("E_PLUGIN_SCHEMA", path, "array exceeds limit")
+            for index, child in enumerate(value):
+                _strict_json(child, path=f"{path}{index}/", depth=depth + 1, active=active)
+    finally:
+        active.remove(marker)
+
+
 def canonical_bytes(value: Any) -> bytes:
+    _strict_json(value)
     try:
         return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
     except (TypeError, ValueError) as exc:
@@ -43,12 +84,12 @@ def digest(value: Any) -> str:
 
 
 def _identifier(value: Any, path: str) -> None:
-    if not isinstance(value, str) or not PLUGIN_ID.fullmatch(value) or value.lower() in MUTABLE_ALIASES:
+    if type(value) is not str or not PLUGIN_ID.fullmatch(value) or value.lower() in MUTABLE_ALIASES:
         _fail("E_PLUGIN_IDENTITY", path, "lowercase plugin id required")
 
 
 def _exact_version(value: Any, path: str) -> None:
-    if not isinstance(value, str) or not VERSION_RE.fullmatch(value):
+    if type(value) is not str or not VERSION_RE.fullmatch(value):
         _fail("E_PLUGIN_VERSION", path, "exact semantic version required")
 
 
@@ -64,7 +105,10 @@ def _sequence(value: Any, path: str, message: str) -> list[Any]:
 
 
 def _strings(value: Any, path: str) -> None:
-    if not isinstance(value, list) or any(not isinstance(x, str) or not x or "\0" in x for x in value):
+    if not isinstance(value, list) or len(value) > MAX_ARRAY_ITEMS or any(
+            type(x) is not str or not x or len(x) > 256
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in x)
+            for x in value):
         _fail("E_PLUGIN_SCHEMA", path, "unique non-empty string array required")
     if len(set(value)) != len(value):
         _fail("E_PLUGIN_SCHEMA", path, "duplicate value")
@@ -74,10 +118,12 @@ def resource_ref(value: Any, path: str) -> Dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "id", "path", "sha256"}:
         _fail("E_PLUGIN_RESOURCE", path, "closed ResourceRef required")
     for key in ("kind", "id", "path"):
-        if not isinstance(value[key], str) or not value[key]:
+        if type(value[key]) is not str or not value[key] or any(
+                ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+                for ch in value[key]):
             _fail("E_PLUGIN_RESOURCE", f"{path}/{key}", "non-empty string required")
     name = value["path"].replace("\\", "/")
-    if name.startswith("/") or ntpath.splitdrive(name)[0] or name.startswith("./") or any(part in {"", ".", ".."} for part in name.split("/")) or any(ord(ch) < 32 for ch in name):
+    if name.startswith("/") or ntpath.splitdrive(name)[0] or name.startswith("./") or any(part in {"", ".", ".."} for part in name.split("/")) or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
         _fail("E_PLUGIN_PATH", f"{path}/path", "absolute and traversal paths are forbidden")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_PLUGIN_RESOURCE", f"{path}/sha256", "lowercase SHA-256 required")
@@ -110,7 +156,7 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
         for index, name in enumerate(manifest.get(field, [])):
             _identifier(name, f"/{field}/{index}")
     resources = manifest.get("resources", [])
-    if not isinstance(resources, list):
+    if not isinstance(resources, list) or len(resources) > MAX_ARRAY_ITEMS:
         _fail("E_PLUGIN_SCHEMA", "/resources", "resource array required")
     refs = [resource_ref(value, f"/resources/{i}") for i, value in enumerate(resources)]
     if len({(x["kind"], x["id"]) for x in refs}) != len(refs):
@@ -121,7 +167,15 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(checks, list) or any(not isinstance(x, dict) for x in checks):
         _fail("E_PLUGIN_SCHEMA", "/checks", "check descriptor array required")
     for i, check in enumerate(checks):
-        if set(check) != {"id", "command", "deterministic"} or not isinstance(check.get("id"), str) or not check["id"] or "\0" in check["id"] or not isinstance(check.get("command"), list) or not check["command"] or any(not isinstance(arg, str) or not arg or "\0" in arg for arg in check["command"]) or type(check.get("deterministic")) is not bool:
+        if (set(check) != {"id", "command", "deterministic"} or type(check.get("id")) is not str
+                or not check["id"] or len(check["id"]) > 256
+                or any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in check["id"])
+                or not isinstance(check.get("command"), list) or not check["command"]
+                or len(check["command"]) > MAX_ARRAY_ITEMS
+                or any(type(arg) is not str or not arg or len(arg) > 4096
+                       or any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in arg)
+                       for arg in check["command"])
+                or type(check.get("deterministic")) is not bool):
             _fail("E_PLUGIN_CHECK", f"/checks/{i}", "closed id/command/deterministic check required")
         flat = " ".join(str(x) for x in check["command"])
         if any(token in flat.lower() for token in ("importlib", "__import__", "eval(", "exec(", "http://", "https://")) or _contains_mutable_alias(flat):

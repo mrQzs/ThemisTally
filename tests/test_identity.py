@@ -41,6 +41,14 @@ class IdentityTests(unittest.TestCase):
         self.assertNotIn("src", left)
         self.assertRegex(left, r"^opaque:v1:path:[0-9a-f]{64}$")
 
+    def test_identity_hash_rejects_cycles_and_non_scalar_unicode(self) -> None:
+        with self.assertRaises(IdentityModelError):
+            canonical_opaque_key("path", "bad\ud800")
+        cyclic = []
+        cyclic.append(cyclic)
+        with self.assertRaises(IdentityModelError):
+            canonical_opaque_key("path", cyclic)
+
     def test_host_boot_environment_worktree_are_known_only_with_complete_facts(self) -> None:
         host = self.host()
         self.assertEqual(host.status, KNOWN)

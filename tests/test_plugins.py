@@ -69,6 +69,18 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(blocked["missing_permissions"], ["write-candidate"])
         self.assertTrue(blocked["platform_blocked"])
 
+    def test_canonical_bytes_rejects_non_json_values_and_unsafe_text(self):
+        from codekit.plugins import canonical_bytes
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_JSON"):
+            canonical_bytes(("tuple",))
+        cyclic = []
+        cyclic.append(cyclic)
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_JSON"):
+            canonical_bytes(cyclic)
+        bad = manifest(); bad["checks"][0]["command"] = ["python", "a\x7fb"]
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_CHECK"):
+            validate_manifest(bad)
+
 
 if __name__ == "__main__":
     unittest.main()

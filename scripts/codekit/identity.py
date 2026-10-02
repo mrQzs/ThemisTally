@@ -43,6 +43,8 @@ def _text(value: object, field: str, *, allow_empty: bool = False) -> str:
         raise IdentityModelError("E_IDENTITY_FIELD", field, "text_required")
     if "\r" in value or "\n" in value:
         raise IdentityModelError("E_IDENTITY_FIELD", field, "line_break_forbidden")
+    if any(ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise IdentityModelError("E_IDENTITY_FIELD", field, "unicode_scalar_required")
     return value
 
 
@@ -52,7 +54,7 @@ def _optional_text(value: object, field: str) -> Optional[str]:
     return _text(value, field)
 
 
-def _canonical_value(value: Any, field: str = "/value") -> Any:
+def _canonical_value(value: Any, field: str = "/value", active: set[int] | None = None) -> Any:
     """Return a JSON-safe value without normalizing strings or paths."""
     if value is None or type(value) in (str, bool, int):
         if type(value) is str:
@@ -67,13 +69,26 @@ def _canonical_value(value: Any, field: str = "/value") -> Any:
     if isinstance(value, Mapping):
         if any(type(key) is not str for key in value):
             raise IdentityModelError("E_IDENTITY_FIELD", field, "string_keys_required")
-        result = {}
-        for key in sorted(value):
-            result[key] = _canonical_value(value[key], f"{field}/{key}")
-        return result
-    if isinstance(value, (list, tuple)):
-        return [_canonical_value(item, f"{field}/{index}") for index, item in enumerate(value)]
-    raise IdentityModelError("E_IDENTITY_FIELD", field, "json_value_required")
+        container = value
+    elif isinstance(value, (list, tuple)):
+        container = value
+    else:
+        raise IdentityModelError("E_IDENTITY_FIELD", field, "json_value_required")
+    if active is None:
+        active = set()
+    marker = id(value)
+    if marker in active:
+        raise IdentityModelError("E_IDENTITY_FIELD", field, "cyclic_value")
+    active.add(marker)
+    try:
+        if isinstance(container, Mapping):
+            result = {}
+            for key in sorted(container):
+                result[key] = _canonical_value(container[key], f"{field}/{key}", active)
+            return result
+        return [_canonical_value(item, f"{field}/{index}", active) for index, item in enumerate(container)]
+    finally:
+        active.remove(marker)
 
 
 def canonical_opaque_key(namespace: str, value: Any) -> str:
