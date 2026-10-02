@@ -65,6 +65,9 @@ def _environment_digest(*, cwd: Path, env: Mapping[str, str]) -> str:
 def _safe_environment(overrides: Mapping[str, str]) -> dict[str, str]:
     """Keep runtime basics while filtering conventional credential names."""
     blocked = ("TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "COOKIE", "AUTH")
+    unsafe_overrides = [key for key in overrides if any(part in key.upper() for part in blocked)]
+    if unsafe_overrides:
+        _err("E_RUNNER_ENV", "credential-like environment overrides are forbidden")
     result = {key: value for key, value in os.environ.items()
               if not any(part in key.upper() for part in blocked)}
     result.update(overrides)

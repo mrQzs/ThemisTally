@@ -59,6 +59,16 @@ class PersistentAuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
                 PersistentApprovalStore(path)
 
+    def test_newline_terminated_bad_tail_and_malformed_lock_are_rejected(self):
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            path.write_bytes(b"not-json\n")
+            with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
+                PersistentApprovalStore(path)
+            path.write_text(json.dumps({"seq": 1, "type": "lock"}) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
+                PersistentApprovalStore(path)
+
 
 if __name__ == "__main__":
     unittest.main()

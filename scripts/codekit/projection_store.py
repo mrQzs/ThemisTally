@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -76,6 +77,7 @@ class PersistentProjectionStore:
         with self.path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(encoded + "\n")
             handle.flush()
+            os.fsync(handle.fileno())
 
     def _load(self) -> None:
         if not self.path.exists():

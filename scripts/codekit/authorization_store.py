@@ -47,17 +47,24 @@ class PersistentApprovalStore:
             try:
                 event = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                if index == len(lines) - 1:
+                if index == len(lines) - 1 and not complete:
                     self.recovery = {"status": "TRUNCATED_TAIL", "ignored_tail": True, "line": index + 1}
                     break
                 self._fail("E_AUTH_JOURNAL", f"invalid non-tail event at line {index + 1}")
             if not complete and index == len(lines) - 1:
                 self.recovery = {"status": "TRUNCATED_TAIL", "ignored_tail": True, "line": index + 1}
                 break
-            if not isinstance(event, dict) or set(event) != {"seq", "type", "scope", "operation_id", "expected_generation", "record"} and event.get("type") != "lock":
-                # Lock events carry a different closed shape and are handled below.
-                if not isinstance(event, dict) or set(event) != {"seq", "type", "scope", "operation_id", "receipt_id", "bindings"}:
-                    self._fail("E_AUTH_JOURNAL", f"invalid event shape at line {index + 1}")
+            if not isinstance(event, dict):
+                self._fail("E_AUTH_JOURNAL", f"event must be an object at line {index + 1}")
+            event_type = event.get("type")
+            approval_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "record"}
+            lock_shape = {"seq", "type", "scope", "operation_id", "receipt_id", "bindings"}
+            if event_type == "approval" and set(event) != approval_shape:
+                self._fail("E_AUTH_JOURNAL", f"invalid approval shape at line {index + 1}")
+            if event_type == "lock" and set(event) != lock_shape:
+                self._fail("E_AUTH_JOURNAL", f"invalid lock shape at line {index + 1}")
+            if event_type not in {"approval", "lock"}:
+                self._fail("E_AUTH_JOURNAL", f"unknown event type at line {index + 1}")
             seq = event.get("seq")
             if type(seq) is not int or seq != self.high_water + 1:
                 self._fail("E_AUTH_JOURNAL", f"non-contiguous sequence at line {index + 1}")
@@ -67,8 +74,6 @@ class PersistentApprovalStore:
                 self.ledger.put(scope=event["scope"], operation_id=event["operation_id"], expected_generation=event["expected_generation"], record=event["record"])
             elif event["type"] == "lock":
                 self.ledger.lock(scope=event["scope"], receipt_id=event["receipt_id"], operation_id=event["operation_id"], bindings=event["bindings"])
-            else:
-                self._fail("E_AUTH_JOURNAL", f"unknown event type at line {index + 1}")
 
     def _append(self, event: Mapping[str, Any]) -> None:
         line = canonical_bytes(dict(event))
