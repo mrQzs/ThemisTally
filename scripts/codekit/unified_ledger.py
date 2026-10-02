@@ -129,15 +129,208 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             # sqlite3.executescript performs its own implicit commit.  Run
             # schema DDL outside the inherited transaction context, then
             # persist the activation marker in the normal atomic path.
+            v3_tables = {"ledger_meta", "attempts", "consumer_cursors", "migration_batches"}
+            existing_v3 = {
+                row[0]
+                for row in self.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?,?,?,?)",
+                    tuple(sorted(v3_tables)),
+                )
+            }
+            if existing_v3 and existing_v3 != v3_tables:
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("v3_partial_schema",))
+            existing_meta = bool(
+                existing_v3
+                and self.db.execute("SELECT 1 FROM ledger_meta LIMIT 1").fetchone() is not None
+            )
             self.db.executescript(DDL_V3)
+            self._validate_v3_schema()
             with self._tx():
+                if existing_v3 and not existing_meta:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", ("ledger_meta",))
                 self.db.execute("INSERT OR IGNORE INTO ledger_meta(singleton,schema_version,activated_generation) VALUES(1,3,(SELECT generation FROM controller WHERE singleton=1))")
                 row = self.db.execute("SELECT schema_version FROM ledger_meta WHERE singleton=1").fetchone()
                 if row is None or row[0] != 3:
                     raise AtomicLedgerError("E_SCHEMA_INVALID", ("ledger_meta",))
+                self._validate_v3_rows()
+        except sqlite3.DatabaseError as exc:
+            self.close()
+            raise AtomicLedgerError("E_SCHEMA_INVALID", ("v3_ddl",)) from exc
         except Exception:
             self.close()
             raise
+
+    def _validate_v3_schema(self) -> None:
+        """Reject a partial or altered v3 schema at the reopen boundary.
+
+        ``CREATE TABLE IF NOT EXISTS`` is intentionally used by the prototype
+        so a v2 database can be upgraded in place.  It must not, however,
+        silently accept an existing v3 table with a missing column, constraint,
+        foreign key, or uniqueness guard.  The inherited v2 validator protects
+        only the original tables, so the v3 additions need their own closed
+        schema check before any activation write is attempted.
+        """
+        expected_columns = {
+            "ledger_meta": {"singleton", "schema_version", "activated_generation"},
+            "attempts": {"attempt_id", "operation_id", "run_id", "stage_id", "plan_version", "generation", "state", "evidence_ref", "sequence"},
+            "consumer_cursors": {"consumer_id", "next_seq", "high_water", "updated_seq"},
+            "migration_batches": {"migration_id", "source_db", "source_schema", "row_hash", "state", "conflict_count"},
+        }
+        expected_pk = {
+            "ledger_meta": ("singleton",),
+            "attempts": ("attempt_id",),
+            "consumer_cursors": ("consumer_id",),
+            "migration_batches": ("migration_id",),
+        }
+        required_notnull = {
+            "ledger_meta": {"schema_version", "activated_generation"},
+            "attempts": {"operation_id", "run_id", "stage_id", "plan_version", "generation", "state", "sequence"},
+            "consumer_cursors": {"next_seq", "high_water", "updated_seq"},
+            "migration_batches": {"source_db", "source_schema", "row_hash", "state", "conflict_count"},
+        }
+        expected_types = {
+            "ledger_meta": {"singleton": "INTEGER", "schema_version": "INTEGER", "activated_generation": "INTEGER"},
+            "attempts": {"attempt_id": "TEXT", "operation_id": "TEXT", "run_id": "TEXT", "stage_id": "TEXT", "plan_version": "INTEGER", "generation": "INTEGER", "state": "TEXT", "evidence_ref": "TEXT", "sequence": "INTEGER"},
+            "consumer_cursors": {"consumer_id": "TEXT", "next_seq": "INTEGER", "high_water": "INTEGER", "updated_seq": "INTEGER"},
+            "migration_batches": {"migration_id": "TEXT", "source_db": "TEXT", "source_schema": "INTEGER", "row_hash": "TEXT", "state": "TEXT", "conflict_count": "INTEGER"},
+        }
+        checks = {
+            "ledger_meta": ("check(singleton=1)", "check(schema_version=3)", "check(activated_generation>=1)"),
+            "attempts": ("check(plan_version>=1)", "check(generation>=1)", "check(statein('admitted','starting','start_unknown','started','review_pending','finished','cancelled'))", "check(sequence>=0)"),
+            "consumer_cursors": ("check(next_seq>=0)", "check(high_water>=0)", "check(updated_seq>=0)"),
+            "migration_batches": ("check(source_schema>=1)", "check(statein('planned','imported','activated','recovery'))", "check(conflict_count>=0)"),
+        }
+
+        def table_sql(name: str) -> str:
+            row = self.db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+            ).fetchone()
+            if row is None or row[0] is None:
+                raise AtomicLedgerError("E_SCHEMA_INVALID", (f"table:{name}",))
+            return re.sub(r"\s+", "", str(row[0])).lower()
+
+        try:
+            actual_tables = {
+                row[0] for row in self.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            for table, columns in expected_columns.items():
+                if table not in actual_tables:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"table:{table}",))
+                info = list(self.db.execute(f"PRAGMA table_info({table})"))
+                actual = {row[1] for row in info}
+                if not columns.issubset(actual):
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"columns:{table}",))
+                types = {row[1]: str(row[2]).upper() for row in info}
+                if any(types.get(name) != type_name for name, type_name in expected_types[table].items()):
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"types:{table}",))
+                notnull = {row[1] for row in info if row[3]}
+                if not required_notnull[table].issubset(notnull):
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"not_null:{table}",))
+                actual_pk = tuple(
+                    row[1] for row in sorted(info, key=lambda item: item[5]) if row[5]
+                )
+                if actual_pk != expected_pk[table]:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"primary_key:{table}",))
+                sql = table_sql(table)
+                if any(needle not in sql for needle in checks[table]):
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"checks:{table}",))
+
+            foreign_keys = {
+                (row[2], row[3], row[4])
+                for row in self.db.execute("PRAGMA foreign_key_list(attempts)")
+            }
+            if ("operations", "operation_id", "operation_id") not in foreign_keys:
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("foreign_keys:attempts",))
+
+            def has_unique_index(table: str, columns: tuple[str, ...]) -> bool:
+                for row in self.db.execute(f"PRAGMA index_list({table})"):
+                    if row[2] != 1:
+                        continue
+                    indexed = tuple(
+                        item[2]
+                        for item in self.db.execute("SELECT * FROM pragma_index_info(?)", (row[1],))
+                    )
+                    if indexed == columns:
+                        return True
+                return False
+
+            if not has_unique_index("attempts", ("operation_id", "stage_id")):
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("unique:attempts_operation_stage",))
+            if not has_unique_index("attempts", ("run_id", "stage_id")):
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("unique:attempts_run_stage",))
+            active = next(
+                (row for row in self.db.execute("PRAGMA index_list(attempts)") if row[1] == "active_attempts_v3"),
+                None,
+            )
+            if active is None or active[2] != 0 or active[4] != 1:
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("index:active_attempts_v3",))
+            active_columns = tuple(
+                item[2]
+                for item in self.db.execute("SELECT * FROM pragma_index_info(?)", ("active_attempts_v3",))
+            )
+            if active_columns != ("operation_id", "stage_id"):
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("index:active_attempts_v3",))
+            active_sql_row = self.db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name='active_attempts_v3'"
+            ).fetchone()
+            active_sql = re.sub(r"\s+", "", str(active_sql_row[0] if active_sql_row else "")).lower()
+            if "wherestatenotin('finished','cancelled')" not in active_sql:
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("index:active_attempts_v3",))
+        except AtomicLedgerError:
+            raise
+        except (sqlite3.DatabaseError, TypeError, ValueError) as exc:
+            raise AtomicLedgerError("E_SCHEMA_INVALID", ("v3_schema",)) from exc
+
+    def _validate_v3_rows(self) -> None:
+        """Validate persisted v3 rows before exposing a reopened ledger."""
+        try:
+            meta = self.db.execute("SELECT singleton,schema_version,activated_generation FROM ledger_meta").fetchall()
+            if len(meta) != 1 or tuple(meta[0])[:2] != (1, 3):
+                raise AtomicLedgerError("E_SCHEMA_INVALID", ("ledger_meta",))
+            _positive(meta[0][2], "activated_generation")
+            max_seq = int(self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()[0])
+            operations = {
+                row["operation_id"]: row
+                for row in self.db.execute("SELECT operation_id,generation,claim_generation FROM operations")
+            }
+            for row in self.db.execute("SELECT * FROM attempts"):
+                attempt_id = _id(row["attempt_id"], "attempt_id")
+                operation_id = _id(row["operation_id"], "operation_id")
+                _id(row["run_id"], "run_id")
+                _id(row["stage_id"], "stage_id")
+                _positive(row["plan_version"], "plan_version")
+                generation = _positive(row["generation"], "generation")
+                if row["state"] not in _ATTEMPT_STATES:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", ("attempt_state",))
+                _ref(row["evidence_ref"], "evidence_ref")
+                sequence = _sequence(row["sequence"], "sequence")
+                operation = operations.get(operation_id)
+                if operation is None or generation != operation["generation"] or generation != operation["claim_generation"]:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_binding:{attempt_id}",))
+                if sequence < 1 or sequence > max_seq:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_sequence:{attempt_id}",))
+            for row in self.db.execute("SELECT * FROM consumer_cursors"):
+                _id(row["consumer_id"], "consumer_id")
+                next_seq = _sequence(row["next_seq"], "next_seq")
+                high_water = _sequence(row["high_water"], "high_water")
+                updated_seq = _sequence(row["updated_seq"], "updated_seq")
+                if next_seq > high_water or high_water > max_seq or updated_seq < 1 or updated_seq > max_seq:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", ("cursor_high_water",))
+            for row in self.db.execute("SELECT * FROM migration_batches"):
+                _id(row["migration_id"], "migration_id")
+                _id(row["source_db"], "source_db")
+                _positive(row["source_schema"], "source_schema")
+                if type(row["row_hash"]) is not str or _HASH.fullmatch(row["row_hash"]) is None:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", ("migration_hash",))
+                if row["state"] not in {"PLANNED", "IMPORTED", "ACTIVATED", "RECOVERY"}:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", ("migration_state",))
+                _sequence(row["conflict_count"], "conflict_count")
+        except AtomicLedgerError as exc:
+            raise AtomicLedgerError("E_SCHEMA_INVALID", ("v3_persisted_rows", *exc.reasons)) from exc
+        except (sqlite3.DatabaseError, TypeError, ValueError, KeyError) as exc:
+            raise AtomicLedgerError("E_SCHEMA_INVALID", ("v3_persisted_rows",)) from exc
 
     def manifest(self) -> dict[str, Any]:
         row = self.db.execute("SELECT schema_version,activated_generation FROM ledger_meta WHERE singleton=1").fetchone()

@@ -15,6 +15,7 @@ STATUSES = {"DRAFT_VALIDATED", "READY", "PASS", "FAIL", "UNKNOWN", "BLOCKED", "N
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+MUTABLE_PLUGIN_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 MAX_BYTES = 1_048_576
 MAX_DEPTH = 32
 
@@ -125,7 +126,8 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
     for i, item in enumerate(catalog["plugins"]):
         if not isinstance(item, dict) or set(item) != {"plugin_id", "version", "manifest_ref", "lock_ref"}:
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}", "catalog item is not closed")
-        if not isinstance(item["plugin_id"], str) or not PLUGIN_ID_RE.fullmatch(item["plugin_id"]):
+        if (not isinstance(item["plugin_id"], str) or not PLUGIN_ID_RE.fullmatch(item["plugin_id"])
+                or item["plugin_id"].lower() in MUTABLE_PLUGIN_ALIASES):
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/plugin_id", "lowercase plugin id required")
         if not isinstance(item["version"], str) or not VERSION_RE.fullmatch(item["version"]):
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/version", "exact semantic version required")

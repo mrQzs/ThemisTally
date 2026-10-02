@@ -1,12 +1,12 @@
 """Catalog selection and readiness projection for the 08 plugin directory."""
 from __future__ import annotations
-from copy import deepcopy
 import json
 import re
 from pathlib import Path
+from os import PathLike
 from typing import Any, Mapping, Sequence
 from .builtin_artifacts import ArtifactError, validate_catalog
-from .plugins import validate_lock, validate_manifest
+from .plugins import VERSION_RE, validate_lock, validate_manifest
 
 REQUIRED_PLUGIN_IDS = frozenset({"repo-analysis", "code-change", "python-checks", "docs-change", "docs-checks", "regression-tests", "mutation-review"})
 REQUIRED_RECIPE_IDS = frozenset({"repair", "docs", "regression"})
@@ -14,6 +14,24 @@ REQUIRED_RECIPE_IDS = frozenset({"repair", "docs", "regression"})
 
 def _err(code: str, message: str) -> None:
     raise ArtifactError(code, "/catalog", message)
+
+
+def _root(value: str | PathLike[str] | Path, *, kind: str) -> Path:
+    if not isinstance(value, (str, PathLike, Path)) or isinstance(value, (bytes, bytearray)):
+        _err(kind, "fixture root path required")
+    try:
+        return Path(value)
+    except (TypeError, ValueError) as exc:
+        _err(kind, "fixture root path required")
+        raise AssertionError from exc
+
+
+def _read_json(path: Path, *, kind: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        _err(kind, f"invalid JSON fixture {path.name}")
+        raise AssertionError from exc
 
 
 def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -55,15 +73,15 @@ def project_catalog_readiness(catalog: Mapping[str, Any], *, requested: Sequence
 
 def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
     """Load and validate the seven checked-in offline plugin fixtures."""
-    base = Path(root)
+    base = _root(root, kind="E_CATALOG_FIXTURE")
     rows = []
     for plugin_id in sorted(REQUIRED_PLUGIN_IDS):
         manifest_path = base / plugin_id / "manifest.json"
         lock_path = base / plugin_id / "lock.json"
         if not manifest_path.is_file() or not lock_path.is_file():
             _err("E_CATALOG_FIXTURE", f"missing manifest/lock for {plugin_id}")
-        manifest = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
-        lock = validate_lock(json.loads(lock_path.read_text(encoding="utf-8")), {plugin_id: manifest})
+        manifest = validate_manifest(_read_json(manifest_path, kind="E_CATALOG_FIXTURE"))
+        lock = validate_lock(_read_json(lock_path, kind="E_CATALOG_FIXTURE"), {plugin_id: manifest})
         if manifest["plugin_id"] != plugin_id or len(lock["plugins"]) != 1 or lock["plugins"][0]["plugin_id"] != plugin_id:
             _err("E_CATALOG_IDENTITY", f"manifest/lock identity mismatch for {plugin_id}")
         # Resource refs are repository-relative.  Verify their bytes while
@@ -81,13 +99,13 @@ def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
 
 
 def load_builtin_recipes(root: str | Path = "workflows") -> dict[str, Any]:
-    base = Path(root)
+    base = _root(root, kind="E_RECIPE_FIXTURE")
     recipes = []
     for recipe_id in sorted(REQUIRED_RECIPE_IDS):
         path = base / f"{recipe_id}.json"
         if not path.is_file():
             _err("E_RECIPE_FIXTURE", f"missing recipe {recipe_id}")
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = _read_json(path, kind="E_RECIPE_FIXTURE")
         if not isinstance(value, dict) or set(value) != {"record_type", "schema_version", "recipe_id", "recipe_version", "stages", "evidence_status"} or value["record_type"] != "builtin-workflow-recipe" or value["schema_version"] != 1 or value["recipe_id"] != recipe_id or value["evidence_status"] != "REFERENCE_ONLY":
             _err("E_RECIPE_FIXTURE", f"invalid recipe {recipe_id}")
         if (not isinstance(value["stages"], list) or any(not isinstance(stage, Mapping) for stage in value["stages"])
@@ -108,7 +126,7 @@ def load_builtin_recipes(root: str | Path = "workflows") -> dict[str, Any]:
                     _err("E_RECIPE_FIXTURE", "freeze/review belong to core")
             elif (stage["execution"] != "plugin" or stage["plugin_id"] not in REQUIRED_PLUGIN_IDS
                   or type(stage["plugin_version"]) is not str
-                  or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", stage["plugin_version"])):
+                  or not VERSION_RE.fullmatch(stage["plugin_version"])):
                 _err("E_RECIPE_FIXTURE", "plugin stages require a registered plugin and exact version")
             visited.add(stage["id"])
         recipes.append(value)

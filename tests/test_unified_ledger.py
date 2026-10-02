@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from codekit.atomic_claim_budget import AtomicLedgerError
+from codekit.atomic_claim_budget import AtomicClaimBudgetStore, AtomicLedgerError
 from codekit.claim_model import ClaimFacts, ClaimRequest
 from codekit.budget import BudgetPolicy
 from codekit.unified_ledger import UnifiedLedgerStore, evidence_hash
@@ -177,6 +178,63 @@ class UnifiedLedgerTests(unittest.TestCase):
                 "migration-a", source_db="scheduler-v1", source_schema=1,
                 row_hash=evidence_hash({"row": 2})
             )
+
+    def test_reopen_rejects_partial_v3_schema_before_activation(self):
+        self.store.close()
+        base = AtomicClaimBudgetStore(self.path)
+        base.close()
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute("DROP TABLE attempts")
+            db.execute("CREATE TABLE attempts(attempt_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL)")
+            db.commit()
+        finally:
+            db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertIn("v3_ddl", caught.exception.reasons)
+
+    def test_reopen_rejects_missing_v3_table_in_existing_ledger(self):
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute("DROP TABLE attempts")
+            db.commit()
+        finally:
+            db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertIn("v3_partial_schema", caught.exception.reasons)
+
+    def test_reopen_rejects_v3_attempt_generation_tampering(self):
+        operation = self.claim()
+        self.store.create_attempt("attempt-tampered", operation.operation_id, "run-tampered", "stage-tampered", 1)
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE attempts SET generation=99 WHERE attempt_id=?", ("attempt-tampered",))
+        db.commit()
+        db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertTrue(any(reason.startswith("attempt_binding:") for reason in caught.exception.reasons))
+
+    def test_reopen_rejects_cursor_high_water_regression(self):
+        operation = self.claim()
+        self.store.create_attempt("attempt-cursor-tampered", operation.operation_id, "run-cursor-tampered", "stage-cursor-tampered", 1)
+        high_water = self.store.outbox()[-1]["seq"]
+        self.store.upsert_consumer_cursor("projection-tampered", expected_seq=0, next_seq=high_water)
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE consumer_cursors SET high_water=0 WHERE consumer_id=?", ("projection-tampered",))
+        db.commit()
+        db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertIn("cursor_high_water", caught.exception.reasons)
 
 
 if __name__ == "__main__":

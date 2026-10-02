@@ -89,7 +89,7 @@ class PluginValidationBoundaryTests(unittest.TestCase):
                 self.assert_plugin_error(lambda bad=bad: validate_manifest(bad))
 
     def test_plugin_id_and_version_are_strict(self):
-        for value in ("Demo", "1demo", "demo_plugin", "demo.", "demo/child", "" , "a" * 65):
+        for value in ("Demo", "1demo", "demo_plugin", "demo.", "demo/child", "", "latest", "head", "current", "stable", "a" * 65):
             bad = manifest(value)
             with self.subTest(plugin_id=value):
                 self.assert_plugin_error(lambda bad=bad: validate_manifest(bad))
@@ -97,6 +97,18 @@ class PluginValidationBoundaryTests(unittest.TestCase):
             bad = manifest()
             bad["version"] = value
             with self.subTest(version=value):
+                self.assert_plugin_error(lambda bad=bad: validate_manifest(bad))
+
+        for value in ("latest", "head", "current", "stable", "main"):
+            bad = manifest()
+            bad["api_version"] = value
+            with self.subTest(api_version=value):
+                self.assert_plugin_error(lambda bad=bad: validate_manifest(bad))
+
+        for value in ("latest", "head", "current"):
+            bad = manifest()
+            bad["checks"][0]["command"] = ["python", value]
+            with self.subTest(check_alias=value):
                 self.assert_plugin_error(lambda bad=bad: validate_manifest(bad))
 
     def test_declared_arrays_are_arrays_of_unique_nonempty_strings(self):
@@ -178,12 +190,19 @@ class PluginValidationBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_POLICY"):
             check_permission_intersection(bad_manifest, allowed_permissions=[], platform_name=1)
 
+    def test_lock_builder_rejects_non_sequences_and_duplicate_manifests(self):
+        for value in (None, "not-a-sequence", b"bytes", (item for item in [manifest()])):
+            with self.subTest(value=type(value).__name__):
+                self.assert_plugin_error(lambda value=value: build_lock(value, compiler_sha256="b" * 64))
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK"):
+            build_lock([manifest(), manifest()], compiler_sha256="b" * 64)
+
     def test_catalog_rows_require_string_id_exact_version_and_closed_refs(self):
         ref = {"kind": "file", "id": "manifest", "path": "plugins/demo/manifest.json", "sha256": "a" * 64}
         good = {"record_type": "builtin-task-plugin-catalog", "schema_version": 1,
                 "plugins": [{"plugin_id": "demo", "version": "1.0.0", "manifest_ref": ref, "lock_ref": {**ref, "id": "lock"}}]}
         validate_catalog(good)
-        for value in ("Demo", "", 1, [], {"id": "demo"}):
+        for value in ("Demo", "", "latest", "head", 1, [], {"id": "demo"}):
             bad = copy.deepcopy(good)
             bad["plugins"][0]["plugin_id"] = value
             self.assert_artifact_error(lambda bad=bad: validate_catalog(bad))

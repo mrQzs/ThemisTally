@@ -19,6 +19,9 @@ BUSINESS_KINDS = {"analysis", "change", "freeze", "check", "review"}
 STAGE_MAP = {"analysis": "execute", "change": "execute", "freeze": "freeze", "check": "check", "review": "verdict"}
 RECEIPT_RECORD_TYPE = "compile-receipt"
 _ID_RE = re.compile(r"^[a-z][a-z0-9._:-]{0,127}$")
+_PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+_MUTABLE_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 _DYNAMIC_MARKERS = ("$", "`", ";", "&&", "||", "|", ">", "<", "eval(", "exec(", "__import__", "importlib")
 _NETWORK_TOOLS = {"curl", "wget", "nc", "netcat", "ssh", "scp", "pip", "npm", "cargo"}
 
@@ -35,6 +38,34 @@ def _id(value: Any, path: str) -> str:
     return value
 
 
+def _plugin_id(value: Any, path: str) -> str:
+    if type(value) is not str or not _PLUGIN_ID_RE.fullmatch(value):
+        _fail("E_RECIPE_ID", path, "lowercase plugin id required")
+    if value.lower() in _MUTABLE_ALIASES:
+        _fail("E_RECIPE_VERSION", path, "mutable alias is forbidden")
+    return value
+
+
+def _plugin_version(value: Any, path: str, *, code: str = "E_RECIPE_VERSION") -> str:
+    if type(value) is not str or not _VERSION_RE.fullmatch(value):
+        _fail(code, path, "exact semantic version required")
+    return value
+
+
+def _text_list(value: Any, path: str, message: str) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        _fail("E_RECIPE_SCHEMA", path, message)
+    values = list(value)
+    if any(type(item) is not str or not item for item in values):
+        _fail("E_RECIPE_SCHEMA", path, message)
+    return values
+
+
+def _mutable_alias_in_command(value: str) -> bool:
+    lowered = value.lower()
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", lowered) for alias in _MUTABLE_ALIASES)
+
+
 def _command(value: Any, path: str) -> list[str]:
     if not isinstance(value, list) or not value or any(type(item) is not str or not item for item in value):
         _fail("E_RECIPE_COMMAND", path, "non-empty argv array required")
@@ -43,7 +74,7 @@ def _command(value: Any, path: str) -> list[str]:
         _fail("E_RECIPE_COMMAND", path, "dynamic shell expression is forbidden")
     if any(token in _NETWORK_TOOLS for token in value[:1]) or any(token in flat.split() for token in _NETWORK_TOOLS):
         _fail("E_RECIPE_COMMAND", path, "external command is forbidden in offline recipe")
-    if "latest" in flat:
+    if _mutable_alias_in_command(flat):
         _fail("E_RECIPE_VERSION", path, "mutable latest alias is forbidden")
     return list(value)
 
@@ -115,9 +146,8 @@ def validate_recipe(recipe: Mapping[str, Any]) -> Dict[str, Any]:
     _id(recipe["recipe_id"], "/recipe_id")
     if type(recipe["recipe_version"]) is not int or recipe["recipe_version"] < 1:
         _fail("E_RECIPE_VERSION", "/recipe_version", "positive integer required")
-    _id(recipe["plugin_id"], "/plugin_id")
-    if type(recipe["plugin_version"]) is not str or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", recipe["plugin_version"]):
-        _fail("E_RECIPE_VERSION", "/plugin_version", "exact semantic version required")
+    _plugin_id(recipe["plugin_id"], "/plugin_id")
+    _plugin_version(recipe["plugin_version"], "/plugin_version")
     steps, _ = _steps(recipe)
     normalized = copy.deepcopy(dict(recipe)); normalized["steps"] = steps
     return normalized
@@ -128,13 +158,14 @@ def _receipt(*, receipt_id: str, recipe: Mapping[str, Any], ordered_ids: Sequenc
     if type(status) is not str or status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_STATUS", "/status", "compile receipt cannot claim production success")
     by_id = {step["id"]: step for step in recipe["steps"]}
+    error_values = _text_list(errors, "/errors", "string error array required")
     receipt = {"record_type": RECEIPT_RECORD_TYPE, "schema_version": 1, "receipt_id": receipt_id,
                "recipe_id": recipe["recipe_id"], "recipe_version": recipe["recipe_version"],
                "plugin_id": recipe["plugin_id"], "plugin_version": recipe["plugin_version"],
                "ordered_step_ids": list(ordered_ids), "stage_kinds": [STAGE_MAP[next(s["kind"] for s in recipe["steps"] if s["id"] == item)] for item in ordered_ids],
                "step_dependencies": {item: list(by_id[item]["depends_on"]) for item in ordered_ids},
                "recipe_sha256": digest(recipe),
-               "status": status, "errors": list(errors), "dispatcher_submitted": False}
+               "status": status, "errors": error_values, "dispatcher_submitted": False}
     receipt["receipt_sha256"] = digest(receipt)
     return receipt
 
@@ -151,9 +182,8 @@ def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Map
     if type(receipt["receipt_id"]) is not str or not receipt["receipt_id"]:
         _fail("E_RECIPE_RECEIPT", "/receipt_id", "non-empty receipt id required")
     _id(receipt["recipe_id"], "/recipe_id")
-    _id(receipt["plugin_id"], "/plugin_id")
-    if type(receipt["plugin_version"]) is not str or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", receipt["plugin_version"]):
-        _fail("E_RECIPE_RECEIPT", "/plugin_version", "exact semantic version required")
+    _plugin_id(receipt["plugin_id"], "/plugin_id")
+    _plugin_version(receipt["plugin_version"], "/plugin_version", code="E_RECIPE_RECEIPT")
     if type(receipt["recipe_version"]) is not int or receipt["recipe_version"] < 1:
         _fail("E_RECIPE_RECEIPT", "/recipe_version", "positive integer required")
     if not isinstance(receipt["ordered_step_ids"], list) or not isinstance(receipt["stage_kinds"], list) or len(receipt["ordered_step_ids"]) != len(receipt["stage_kinds"]):
@@ -193,6 +223,10 @@ def compile_recipe(recipe: Mapping[str, Any], *, artifact_id: str, producer: Map
                    environment_ref: Optional[Mapping[str, Any]], status: str = "REFERENCE_ONLY") -> Dict[str, Any]:
     if type(status) is not str or status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_STATUS", "/status", "compile receipt cannot claim production success")
+    if not isinstance(producer, Mapping):
+        _fail("E_RECIPE_SCHEMA", "/producer", "producer object required")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes, bytearray)):
+        _fail("E_RECIPE_SCHEMA", "/source_refs", "source refs sequence required")
     normalized = validate_recipe(recipe)
     steps, order = _steps(normalized)
     stages = []
@@ -218,12 +252,24 @@ def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
     normalized = validate_artifact(record)
     if normalized["record_type"] != CHECK_PLAN_RECORD_TYPE:
         _fail("E_RECIPE_PLAN", "/record_type", "check-plan required")
+    if normalized["status"] in {"READY", "PASS"}:
+        _fail("E_RECIPE_PLAN", "/status", "offline check-plan cannot claim production readiness")
+    producer = normalized["producer"]
+    if producer["kind"] == "builtin-plugin":
+        _plugin_id(producer["id"], "/producer/id")
+        _plugin_version(producer["version"], "/producer/version", code="E_RECIPE_PLAN")
     payload = normalized["payload"]
     required = {"recipe_id", "recipe_version", "plugin_id", "plugin_version", "execution_mode", "production_ready", "stages", "mapping", "compile_receipt_id"}
     if set(payload) != required:
         _fail("E_RECIPE_PLAN", "/payload", "closed check-plan payload required")
     if payload["execution_mode"] != "deterministic_check" or payload["production_ready"] is not False:
         _fail("E_RECIPE_PLAN", "/payload", "plan must remain deterministic reference-only")
+    _id(payload["recipe_id"], "/payload/recipe_id")
+    if type(payload["recipe_version"]) is not int or payload["recipe_version"] < 1:
+        _fail("E_RECIPE_PLAN", "/payload/recipe_version", "positive integer required")
+    _plugin_id(payload["plugin_id"], "/payload/plugin_id")
+    _plugin_version(payload["plugin_version"], "/payload/plugin_version", code="E_RECIPE_PLAN")
+    _id(payload["compile_receipt_id"], "/payload/compile_receipt_id")
     if not isinstance(payload["stages"], list) or not payload["stages"]:
         _fail("E_RECIPE_PLAN", "/payload/stages", "stage array required")
     ids = set()
@@ -242,10 +288,13 @@ def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
         if STAGE_MAP[stage["business_kind"]] != stage["kind"] or stage["deterministic"] is not True or stage["dispatcher_stage"] is not False:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}", "invalid stage mapping flags")
         _command(stage["command"], f"/payload/stages/{index}/command")
-        if not isinstance(stage["depends_on"], list) or any(item not in ids or item == stage["id"] for item in stage["depends_on"]):
+        dependencies = stage["depends_on"]
+        if (not isinstance(dependencies, list)
+                or any(type(item) is not str or item not in ids or item == stage["id"] for item in dependencies)
+                or len(set(dependencies)) != len(dependencies)):
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}/depends_on", "unknown stage dependency")
     expected_mapping = {stage["id"]: stage["kind"] for stage in payload["stages"]}
-    if payload["mapping"] != expected_mapping:
+    if not isinstance(payload["mapping"], Mapping) or payload["mapping"] != expected_mapping:
         _fail("E_RECIPE_PLAN", "/payload/mapping", "stage mapping drift")
     return normalized
 

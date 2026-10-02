@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from codekit.builtin_artifacts import ArtifactError, digest
-from codekit.builtin_recipe_compiler import compile_recipe, validate_compile_receipt, validate_recipe
+from codekit.builtin_recipe_compiler import compile_recipe, validate_check_plan, validate_compile_receipt, validate_recipe
 
 
 def ref(name="source"):
@@ -84,6 +84,30 @@ class RecipeCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_STATUS"):
             compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
                            source_refs=[ref()], candidate_ref=None, environment_ref=None, status=[])
+
+    def test_plan_rejects_mutable_plugin_identity_and_duplicate_dependencies(self):
+        result = compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
+                                source_refs=[ref()], candidate_ref=None, environment_ref=None)
+        plan = copy.deepcopy(result["check_plan"])
+        plan["payload"]["plugin_version"] = "latest"
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_PLAN"):
+            validate_check_plan(plan)
+        plan = copy.deepcopy(result["check_plan"])
+        plan["payload"]["stages"][1]["depends_on"] = ["analysis", "analysis"]
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_PLAN"):
+            validate_check_plan(plan)
+
+    def test_compile_rejects_none_or_non_sequence_inputs(self):
+        kwargs = {"artifact_id": "plan-1", "producer": {"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
+                  "candidate_ref": None, "environment_ref": None}
+        for source_refs in (None, "source", b"source"):
+            with self.subTest(source_refs=type(source_refs).__name__):
+                with self.assertRaisesRegex(ArtifactError, "E_RECIPE_SCHEMA"):
+                    compile_recipe(recipe(), source_refs=source_refs, **kwargs)
+        bad_kwargs = dict(kwargs)
+        bad_kwargs["producer"] = None
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_SCHEMA"):
+            compile_recipe(recipe(), source_refs=[], **bad_kwargs)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,10 @@ from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+# These names identify a moving reference rather than an immutable plugin
+# identity.  They are rejected at every plugin boundary, including registry
+# keys, dependency names and lock rows.
+MUTABLE_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 
 
 class PluginError(ValueError):
@@ -39,8 +43,24 @@ def digest(value: Any) -> str:
 
 
 def _identifier(value: Any, path: str) -> None:
-    if not isinstance(value, str) or not PLUGIN_ID.fullmatch(value):
+    if not isinstance(value, str) or not PLUGIN_ID.fullmatch(value) or value.lower() in MUTABLE_ALIASES:
         _fail("E_PLUGIN_IDENTITY", path, "lowercase plugin id required")
+
+
+def _exact_version(value: Any, path: str) -> None:
+    if not isinstance(value, str) or not VERSION_RE.fullmatch(value):
+        _fail("E_PLUGIN_VERSION", path, "exact semantic version required")
+
+
+def _contains_mutable_alias(value: str) -> bool:
+    lowered = value.lower()
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", lowered) for alias in MUTABLE_ALIASES)
+
+
+def _sequence(value: Any, path: str, message: str) -> list[Any]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        _fail("E_PLUGIN_SCHEMA", path, message)
+    return list(value)
 
 
 def _strings(value: Any, path: str) -> None:
@@ -80,9 +100,8 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
     if manifest["record_type"] != "builtin-task-plugin-manifest" or type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1:
         _fail("E_PLUGIN_VERSION", "/record_type", "manifest schema version 1 required")
     _identifier(manifest["plugin_id"], "/plugin_id")
-    if not VERSION_RE.fullmatch(manifest["version"]):
-        _fail("E_PLUGIN_VERSION", "/version", "exact semantic version required")
-    if "latest" in manifest["version"].lower() or "latest" in manifest["api_version"].lower():
+    _exact_version(manifest["version"], "/version")
+    if _contains_mutable_alias(manifest["api_version"]):
         _fail("E_PLUGIN_VERSION", "/version", "mutable aliases are forbidden")
     for field in ("roles", "capabilities", "depends_on", "conflicts", "platforms", "permissions"):
         if field in manifest:
@@ -105,7 +124,7 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
         if set(check) != {"id", "command", "deterministic"} or not isinstance(check.get("id"), str) or not check["id"] or "\0" in check["id"] or not isinstance(check.get("command"), list) or not check["command"] or any(not isinstance(arg, str) or not arg or "\0" in arg for arg in check["command"]) or type(check.get("deterministic")) is not bool:
             _fail("E_PLUGIN_CHECK", f"/checks/{i}", "closed id/command/deterministic check required")
         flat = " ".join(str(x) for x in check["command"])
-        if any(token in flat.lower() for token in ("importlib", "__import__", "eval(", "exec(", "http://", "https://", "latest")):
+        if any(token in flat.lower() for token in ("importlib", "__import__", "eval(", "exec(", "http://", "https://")) or _contains_mutable_alias(flat):
             _fail("E_PLUGIN_CHECK", f"/checks/{i}/command", "dynamic import, network and mutable alias are forbidden")
     if len({check["id"] for check in checks}) != len(checks):
         _fail("E_PLUGIN_CHECK", "/checks", "duplicate check id")
@@ -155,7 +174,11 @@ def resolve_plugins(manifests: Mapping[str, Mapping[str, Any]], enabled: Sequenc
 def build_lock(manifests: Sequence[Mapping[str, Any]], *, compiler_sha256: str, generation: int = 1) -> Dict[str, Any]:
     if not isinstance(compiler_sha256, str) or not HEX64.fullmatch(compiler_sha256) or type(generation) is not int or generation < 1:
         _fail("E_PLUGIN_LOCK", "/", "compiler hash and positive generation required")
-    normalized_manifests = [validate_manifest(x) for x in manifests]
+    values = _sequence(manifests, "/manifests", "manifest sequence required")
+    normalized_manifests = [validate_manifest(x) for x in values]
+    identifiers = [item["plugin_id"] for item in normalized_manifests]
+    if len(set(identifiers)) != len(identifiers):
+        _fail("E_PLUGIN_LOCK", "/manifests", "duplicate plugin id")
     resolve_plugins({item["plugin_id"]: item for item in normalized_manifests}, [item["plugin_id"] for item in normalized_manifests])
     rows = []
     for manifest in sorted(normalized_manifests, key=lambda x: x["plugin_id"]):
@@ -228,7 +251,7 @@ def check_permission_intersection(manifest: Mapping[str, Any], *, allowed_permis
     intersection; a missing permission or platform keeps the plugin blocked.
     """
     normalized = validate_manifest(manifest)
-    if not isinstance(allowed_permissions, Sequence) or isinstance(allowed_permissions, (str, bytes)):
+    if not isinstance(allowed_permissions, Sequence) or isinstance(allowed_permissions, (str, bytes, bytearray)):
         _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list required")
     if any(not isinstance(value, str) or not value for value in allowed_permissions):
         _fail("E_PLUGIN_POLICY", "/allowed_permissions", "permission list must contain non-empty strings")
