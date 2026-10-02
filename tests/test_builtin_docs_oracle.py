@@ -38,4 +38,27 @@ class DocsOracleTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_REVIEW_PRODUCTION_GATE"):
             build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=[observation], readiness=readiness, status="PASS")
 
+    def test_quality_issues_rejects_malformed_observation_and_test_collections(self):
+        valid = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
+        for malformed in (None, [], {**valid, "check_id": []}, {**valid, "tests": {1: {"status": "PASSED"}}}, {**valid, "tests": {"docs": {"status": []}}}):
+            with self.subTest(malformed=malformed), self.assertRaisesRegex(ArtifactError, "E_CHECK_"):
+                quality_issues(malformed, {"docs"})
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
+            quality_issues(valid, ["docs"])
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
+            quality_issues(valid, {f"check-{index}" for index in range(1001)})
+
+    def test_review_readiness_rejects_malformed_observation_and_collections(self):
+        binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
+        valid = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
+        for observations in (None, "docs", [None], [{**valid, "binding": {}}]):
+            with self.subTest(observations=observations), self.assertRaisesRegex(ArtifactError, "E_CHECK_"):
+                review_readiness(binding, observations, {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_BINDING"):
+            review_readiness(None, [valid], {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
+            review_readiness(binding, [valid], ["docs"], {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_OBSERVATION"):
+            review_readiness(binding, [valid] * 1001, {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+
 if __name__ == "__main__": unittest.main()

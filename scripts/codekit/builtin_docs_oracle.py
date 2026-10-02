@@ -9,6 +9,74 @@ from .builtin_artifacts import ArtifactError, digest, validate_artifact
 from .builtin_docs_checks import validate_docs_check
 
 
+_OBSERVATION_FIELDS = frozenset({
+    "check_id", "binding", "source_kind", "transport_complete", "exit_code", "tests",
+})
+_BINDING_FIELDS = frozenset({"candidate_sha256", "check_set_sha256", "environment_sha256"})
+_TEST_STATUSES = frozenset({"PASSED", "ASSERTION_FAILURE", "ERROR", "SKIPPED", "XFAIL", "XPASS"})
+_MAX_COLLECTION = 1000
+_MAX_TEXT = 4096
+
+
+def _invalid(code: str, path: str, message: str) -> None:
+    raise ArtifactError(code, path, message)
+
+
+def _text(value: Any, path: str) -> str:
+    if type(value) is not str or not value or len(value) > _MAX_TEXT or any(ord(char) < 32 for char in value):
+        _invalid("E_CHECK_SCHEMA", path, "bounded non-empty text required")
+    return value
+
+
+def _name_set(value: Any, path: str) -> set[str]:
+    if not isinstance(value, (set, frozenset)):
+        _invalid("E_CHECK_SET", path, "set of check IDs required")
+    if len(value) > _MAX_COLLECTION:
+        _invalid("E_CHECK_SET", path, "check ID set exceeds limit")
+    result: set[str] = set()
+    for index, item in enumerate(value):
+        result.add(_text(item, f"{path}/{index}"))
+    return result
+
+
+def _binding(value: Any, path: str) -> dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != _BINDING_FIELDS:
+        _invalid("E_CHECK_BINDING", path, "closed check binding required")
+    normalized: dict[str, str] = {}
+    for name in sorted(_BINDING_FIELDS):
+        item = value[name]
+        if type(item) is not str or len(item) != 64 or any(char not in "0123456789abcdef" for char in item):
+            _invalid("E_CHECK_BINDING", f"{path}/{name}", "lowercase SHA-256 required")
+        normalized[name] = item
+    return normalized
+
+
+def _observation(value: Any, path: str = "/observation") -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _OBSERVATION_FIELDS:
+        _invalid("E_CHECK_OBSERVATION", path, "closed check observation required")
+    _text(value["check_id"], f"{path}/check_id")
+    _binding(value["binding"], f"{path}/binding")
+    _text(value["source_kind"], f"{path}/source_kind")
+    if type(value["transport_complete"]) is not bool:
+        _invalid("E_CHECK_OBSERVATION", f"{path}/transport_complete", "boolean required")
+    if value["exit_code"] is not None and type(value["exit_code"]) is not int:
+        _invalid("E_CHECK_OBSERVATION", f"{path}/exit_code", "integer or null required")
+    tests = value["tests"]
+    if not isinstance(tests, Mapping):
+        _invalid("E_CHECK_OBSERVATION", f"{path}/tests", "test result map required")
+    if len(tests) > _MAX_COLLECTION:
+        _invalid("E_CHECK_OBSERVATION", f"{path}/tests", "test result map exceeds limit")
+    for ident, row in tests.items():
+        _text(ident, f"{path}/tests/id")
+        if not isinstance(row, Mapping) or set(row) - {"status", "assertion_id"} or "status" not in row:
+            _invalid("E_CHECK_OBSERVATION", f"{path}/tests/{ident}", "closed test result required")
+        if type(row["status"]) is not str or row["status"] not in _TEST_STATUSES:
+            _invalid("E_CHECK_OBSERVATION", f"{path}/tests/{ident}/status", "unsupported test status")
+        if "assertion_id" in row and row["assertion_id"] is not None:
+            _text(row["assertion_id"], f"{path}/tests/{ident}/assertion_id")
+    return value
+
+
 @dataclass(frozen=True)
 class CheckBinding(object):
     candidate_sha256: str
@@ -42,6 +110,8 @@ def content_oracle(document: Any, expected_text: str, *, encoding: str = "utf-8"
 
 
 def quality_issues(observation: Mapping[str, Any], required_tests: Set[str]) -> list:
+    observation = _observation(observation)
+    required = _name_set(required_tests, "/required_tests")
     issues = []
     if observation.get("transport_complete") is not True:
         issues.append("E_CHECK_INCOMPLETE")
@@ -50,10 +120,10 @@ def quality_issues(observation: Mapping[str, Any], required_tests: Set[str]) -> 
     tests = observation.get("tests", {})
     if not isinstance(tests, Mapping) or not tests:
         issues.append("E_NO_TESTS")
-    missing = sorted(required_tests - set(tests))
+    missing = sorted(required - set(tests))
     if missing:
         issues.append("E_TARGET_TEST_MISSING")
-    for ident in sorted(required_tests & set(tests)):
+    for ident in sorted(required & set(tests)):
         row = tests[ident]
         if not isinstance(row, Mapping) or row.get("status") != "PASSED":
             issues.append("E_TARGET_NOT_PASSED:" + ident)
@@ -63,19 +133,28 @@ def quality_issues(observation: Mapping[str, Any], required_tests: Set[str]) -> 
 
 
 def review_readiness(expected: CheckBinding, observations: Sequence[Mapping[str, Any]], required_check_ids: Set[str], required_tests: Set[str], content_status: str, core_gates: str) -> dict:
+    if not isinstance(expected, CheckBinding):
+        _invalid("E_CHECK_BINDING", "/expected", "CheckBinding required")
+    required_ids = _name_set(required_check_ids, "/required_check_ids")
+    required = _name_set(required_tests, "/required_tests")
+    if not isinstance(observations, (list, tuple)) or len(observations) > _MAX_COLLECTION:
+        _invalid("E_CHECK_OBSERVATION", "/observations", "bounded observation sequence required")
+    normalized_observations = [_observation(observation, f"/observations/{index}") for index, observation in enumerate(observations)]
+    _text(content_status, "/content_status")
+    _text(core_gates, "/core_gates")
     issues = []
-    ids = [o.get("check_id") for o in observations]
+    ids = [o["check_id"] for o in normalized_observations]
     if len(ids) != len(set(ids)):
         issues.append("E_CHECK_DUPLICATE")
-    if set(ids) != set(required_check_ids):
+    if set(ids) != required_ids:
         issues.append("E_CHECK_SET")
     binding = {"candidate_sha256": expected.candidate_sha256, "check_set_sha256": expected.check_set_sha256, "environment_sha256": expected.environment_sha256}
-    for observation in observations:
+    for observation in normalized_observations:
         if observation.get("binding") != binding:
             issues.append("E_CANDIDATE_OR_ENV_DRIFT")
         if observation.get("source_kind") != "core_observation":
             issues.append("E_SELF_REPORT")
-        issues.extend(quality_issues(observation, required_tests))
+        issues.extend(quality_issues(observation, required))
     if content_status != "REVIEWED_SATISFIED":
         issues.append("E_CONTENT_REVIEW_REQUIRED")
     if core_gates != "SATISFIED":
