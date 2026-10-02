@@ -8337,9 +8337,33 @@ stages["protocols"] = sorted(set(sys.modules) - before)
 import codekit.sealing  # noqa
 stages["sealing"] = sorted(set(sys.modules) - before)
 import codekit.baseline  # noqa
+active[0] = False
+stdlib_names = getattr(sys, "stdlib_module_names", None)
+if stdlib_names is None:
+    import importlib.util, sysconfig
+    stdlib_roots = {os.path.realpath(sysconfig.get_paths()["stdlib"]),
+                    os.path.realpath(sysconfig.get_paths().get("platstdlib", ""))}
+    destshared = sysconfig.get_config_var("DESTSHARED")
+    if destshared:
+        stdlib_roots.add(os.path.realpath(destshared))
+    stdlib_roots.add(os.path.realpath(os.path.join(os.path.dirname(sys.executable), "DLLs")))
+    def is_stdlib(name):
+        if name in sys.builtin_module_names:
+            return True
+        spec = importlib.util.find_spec(name)
+        origin = getattr(spec, "origin", None)
+        if origin == "built-in":
+            return True
+        if not isinstance(origin, str):
+            return False
+        resolved = os.path.realpath(origin)
+        return any(resolved.startswith(root + os.sep) for root in stdlib_roots if root and root != os.sep)
+else:
+    def is_stdlib(name):
+        return name in stdlib_names
 nonstd = {}
 for stage, names in stages.items():
-    tops = sorted({n.split(".")[0] for n in names} - set(sys.stdlib_module_names) - {"codekit"})
+    tops = sorted({n.split(".")[0] for n in names if not is_stdlib(n.split(".")[0]) and n.split(".")[0] != "codekit"})
     nonstd[stage] = tops
 emit({"nonstdlib": nonstd})
 '''
