@@ -8,7 +8,7 @@
 | S1 | `37c4d75` | 八类 artifact 公共 envelope、ResourceRef/SourceAnchor、catalog/recipes Schema 与负例校验 | 只产生本地确定性记录，未登记核心 dispatcher |
 | S2 | `511e56a`, `313b54f` | AnalysisReport、ChangeReport、范围/漂移校验、静态 CheckPlan/CompileReceipt；编译仅映射既有 `execute/freeze/check/verdict` | `dispatcher_submitted=false`；无生产执行 |
 | S3 | `e7a10b1`, `a175417` | docs-change、CommonMark AST 本地链接检查、危险 scheme/越界/锚点分类、固定内容 oracle 与 review bundle | 外链不访问；语义复审只支持固定 oracle |
-| S4 | `4b7dcd7`, `6436a0b`, `runner commit below` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、显式 argv 离线 runner、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
+| S4 | `4b7dcd7`, `6436a0b`, `f05fe2a` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、显式 argv 离线 runner、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
 | S5 | `4b7dcd7`, `6436a0b` | deterministic_check evidence、平台观察/失败归类、超时/取消/丢失与 reconcile 边界、持久 cursor/outbox journal 和截断尾恢复 | evidence 标为 `REFERENCE_ONLY`；真实平台/provider 为 `NOT_RUN/BLOCKED` |
 | S6 | `4b7dcd7`, `df8f482`, `6436a0b` | catalog/readiness、七个离线插件 manifest/lock、三份配方、state/brief/outbox/cursor 去重、持久重建与 handoff generation fence | 只读投影；09/10 生产连接器未接线 |
 
