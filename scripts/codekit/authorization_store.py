@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
@@ -60,7 +61,7 @@ class PersistentApprovalStore:
             event_type = event.get("type")
             approval_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "record"}
             lock_shape = {"seq", "type", "scope", "operation_id", "receipt_id", "bindings"}
-            consume_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "action", "input_refs"}
+            consume_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "action", "input_refs", "consumed_at"}
             if event_type == "approval" and set(event) != approval_shape:
                 self._fail("E_AUTH_JOURNAL", f"invalid approval shape at line {index + 1}")
             if event_type == "lock" and set(event) != lock_shape:
@@ -79,9 +80,15 @@ class PersistentApprovalStore:
             elif event["type"] == "lock":
                 self.ledger.lock(scope=event["scope"], receipt_id=event["receipt_id"], operation_id=event["operation_id"], bindings=event["bindings"])
             elif event["type"] == "consume":
+                try:
+                    consumed_at = datetime.fromisoformat(event["consumed_at"].replace("Z", "+00:00"))
+                except (AttributeError, TypeError, ValueError):
+                    self._fail("E_AUTH_JOURNAL", f"invalid consumed_at at line {index + 1}")
+                if consumed_at.tzinfo is None or consumed_at.utcoffset() is None:
+                    self._fail("E_AUTH_JOURNAL", f"consumed_at must include timezone at line {index + 1}")
                 if not self.ledger.consume_once(scope=event["scope"], action=event["action"],
                                                 input_refs=event["input_refs"], operation_id=event["operation_id"],
-                                                expected_generation=event["expected_generation"]):
+                                                expected_generation=event["expected_generation"], now=consumed_at):
                     self._fail("E_AUTH_JOURNAL", f"consume event was not applicable at line {index + 1}")
 
     def _append(self, event: Mapping[str, Any]) -> None:
@@ -131,13 +138,19 @@ class PersistentApprovalStore:
                      now: Any = None) -> bool:
         self._ensure_writable()
         replay = ("consume", operation_id) in self._operation_events
+        effective_now = now or datetime.now(timezone.utc)
+        if effective_now.tzinfo is None or effective_now.utcoffset() is None:
+            self._fail("E_AUTHORIZATION_TIME", "consume time must include timezone")
         result = self.ledger.consume_once(scope=scope, action=action, input_refs=input_refs,
-                                          operation_id=operation_id, expected_generation=expected_generation, now=now)
+                                          operation_id=operation_id, expected_generation=expected_generation,
+                                          now=effective_now)
         if not result or replay:
             return result
+        consumed_at = effective_now
         self._append({"seq": self.high_water + 1, "type": "consume", "scope": scope,
                       "operation_id": operation_id, "expected_generation": expected_generation,
-                      "action": action, "input_refs": copy.deepcopy(input_refs)})
+                      "action": action, "input_refs": copy.deepcopy(input_refs),
+                      "consumed_at": consumed_at.isoformat().replace("+00:00", "Z")})
         self._operation_events.add(("consume", operation_id))
         return True
 

@@ -210,6 +210,17 @@ class ApprovalLedger:
     def head(self, scope: str) -> Optional[ApprovalHead]:
         return copy.deepcopy(self._heads.get(scope))
 
+    def assert_current(self, *, scope: str, generation: int, record_sha256: str) -> ApprovalHead:
+        """Return the approved head only when its generation and bytes match."""
+        if type(generation) is not int or generation < 1 or not isinstance(record_sha256, str) or not HEX64.fullmatch(record_sha256):
+            _fail("E_CURRENTNESS", "/head", "generation and record hash are required")
+        head = self._heads.get(scope)
+        if head is None or head.generation != generation or head.record_sha256 != record_sha256:
+            _fail("E_CURRENTNESS", "/head", "approval head is stale")
+        if head.record.get("decision") != "APPROVED":
+            _fail("E_CURRENTNESS", "/head/decision", "approval is not currently approved")
+        return copy.deepcopy(head)
+
     def history(self, scope: str) -> Tuple[ApprovalHead, ...]:
         return tuple(copy.deepcopy(self._history.get(scope, ())))
 
@@ -249,7 +260,10 @@ class ApprovalLedger:
         if type(expected_generation) is not int or expected_generation < 1:
             _fail("E_CONSUME_SCHEMA", "/expected_generation", "positive generation required")
         refs = [_ref(value, "/input_refs") for value in input_refs]
-        ref_hash = sha256(sorted(sha256(value) for value in refs))
+        ref_hashes = [sha256(value) for value in refs]
+        if len(ref_hashes) != len(set(ref_hashes)):
+            _fail("E_CONSUME_BINDING", "/input_refs", "duplicate input reference")
+        ref_hash = sha256(sorted(ref_hashes))
         request = (scope, action, ref_hash, expected_generation)
         existing = self._consumptions.get(operation_id)
         if existing is not None:

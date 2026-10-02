@@ -79,6 +79,25 @@ class AuthorizationTests(unittest.TestCase):
             ledger.consume_once(scope="scope", action="run", input_refs=[ref("input")],
                                 operation_id="consume-3", expected_generation=2)
 
+    def test_currentness_binds_generation_hash_and_decision(self):
+        ledger = ApprovalLedger()
+        head = ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval())
+        self.assertEqual(ledger.assert_current(scope="scope", generation=1,
+                                                record_sha256=head.record_sha256), head)
+        with self.assertRaisesRegex(AuthorizationError, "E_CURRENTNESS"):
+            ledger.assert_current(scope="scope", generation=1, record_sha256="b" * 64)
+        ledger.revoke(scope="scope", operation_id="op2", expected_generation=1, reason="stop")
+        with self.assertRaisesRegex(AuthorizationError, "E_CURRENTNESS"):
+            ledger.assert_current(scope="scope", generation=2,
+                                  record_sha256=ledger.head("scope").record_sha256)
+
+    def test_consume_once_rejects_duplicate_input_refs(self):
+        ledger = ApprovalLedger()
+        ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval())
+        with self.assertRaisesRegex(AuthorizationError, "E_CONSUME_BINDING"):
+            ledger.consume_once(scope="scope", action="run", input_refs=[ref("input"), ref("input")],
+                                operation_id="consume-1", expected_generation=1)
+
 
 if __name__ == "__main__":
     unittest.main()

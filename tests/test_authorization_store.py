@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -45,6 +46,18 @@ class PersistentAuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(AuthorizationError, "E_ALREADY_CONSUMED"):
                 restored.consume_once(scope="scope", action="run", input_refs=[ref("input")],
                                      operation_id="consume-2", expected_generation=1)
+
+    def test_consume_replay_uses_original_time_window(self):
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            store = PersistentApprovalStore(path)
+            record = {**approval(), "expires_at": "2025-12-31T00:00:00Z"}
+            store.put(scope="scope", operation_id="put-1", expected_generation=0, record=record)
+            store.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                               operation_id="consume-1", expected_generation=1,
+                               now=datetime(2025, 1, 2, tzinfo=timezone.utc))
+            restored = PersistentApprovalStore(path)
+            self.assertTrue(restored.reconcile()["recovery"]["status"] == "CLEAN")
 
     def test_replay_is_idempotent_without_duplicate_events(self):
         with tempfile.TemporaryDirectory() as area:
