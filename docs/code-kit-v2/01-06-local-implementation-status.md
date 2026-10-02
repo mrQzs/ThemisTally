@@ -16,3 +16,5 @@
 ## 门禁结论
 
 01–06 当前只能标记为 `REVISE/BLOCKED`：新增模块覆盖了离线结构和最小 happy-path，但增强验收所需的权限交集、持久对账、事件原始证据、进程 fence、资源锁闭包和真实故障证据尚未齐全。08 的离线实现已按双门槛作为 `LOCAL_REFERENCE` 继续推进，但不能据此签发 01–06 阶段 PASS 或生产放行。任何 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED` 结果都不能转化为生产 PASS；真实连接器接入仍是后续生产门禁。
+
+`8df094a` 收紧 InvocationSpec、ProcessIdentity、Lifecycle 及 START_UNKNOWN 对账的类型和 generation 边界；`b3f40aa` 收紧 adapter descriptor/invocation 向量与 provider 观察的跨 run MIRROR 语义。运行时/适配器 22 项、provider/结算 28 项定向测试通过；全量离线回归仍保留 3 项既有 legacy source-lock 失败，真实运行时与 provider 证据继续为 `NOT_RUN/BLOCKED`。
