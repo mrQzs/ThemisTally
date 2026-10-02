@@ -35,7 +35,9 @@ def _name_set(value: Any, path: str) -> set[str]:
         _invalid("E_CHECK_SET", path, "check ID set exceeds limit")
     result: set[str] = set()
     for index, item in enumerate(value):
-        result.add(_text(item, f"{path}/{index}"))
+        if type(item) is not str or not item or len(item) > _MAX_TEXT or any(ord(char) < 32 for char in item):
+            _invalid("E_CHECK_SET", f"{path}/{index}", "bounded check ID text required")
+        result.add(item)
     return result
 
 

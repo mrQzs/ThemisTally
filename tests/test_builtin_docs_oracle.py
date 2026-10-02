@@ -58,6 +58,8 @@ class DocsOracleTests(unittest.TestCase):
             review_readiness(None, [valid], {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
             review_readiness(binding, [valid], ["docs"], {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
+            review_readiness(binding, [valid], {"docs"}, ["docs"], "REVIEWED_SATISFIED", "SATISFIED")
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_OBSERVATION"):
             review_readiness(binding, [valid] * 1001, {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
 
