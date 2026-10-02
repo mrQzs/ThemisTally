@@ -149,6 +149,8 @@ class PersistentProjectionStore:
         try:
             _check_json_value(record)
             encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        except ArtifactError as exc:
+            raise ArtifactError("E_JOURNAL", "/projection_store", "record must contain strict JSON") from exc
         except (TypeError, ValueError) as exc:
             _fail("E_JOURNAL", f"record is not JSON serializable: {exc}")
         try:
