@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/builtin-task-artifacts/docs-change.schema.json",
+  "allOf": [
+    {"$ref": "artifacts.schema.json"},
+    {
+      "properties": {
+        "record_type": {"const": "docs-change"},
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["changes", "scope", "mapping_version"],
+          "properties": {
+            "mapping_version": {"const": 1},
+            "scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["writable", "protected"],
+              "properties": {
+                "writable": {"type": "array", "items": {"type": "string"}},
+                "protected": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "kind", "before_sha256", "after_sha256", "purpose", "reader", "source_anchors"],
+                "properties": {
+                  "path": {"type": "string"},
+                  "kind": {"enum": ["add", "modify", "delete"]},
+                  "before_sha256": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]},
+                  "after_sha256": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]},
+                  "purpose": {"type": "string", "minLength": 1},
+                  "reader": {"type": "string", "minLength": 1},
+                  "source_anchors": {"type": "array"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
