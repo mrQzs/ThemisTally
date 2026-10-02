@@ -2,9 +2,9 @@
 
 ## 候选与证据
 
-- 候选提交：`dda848ddfadd28bb06ac8c5b603623f06a54c767`（当前离线实现候选；合同基线已刷新）。
+- 候选提交：`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b`（当前离线实现候选；合同基线已刷新）。
 - 远端：`origin/master` 已包含当前候选及其后续文档提交；工作树核验为干净。
-- 当前验收矩阵定向套件：398 项通过、8 项跳过（`docs/code-kit-v2/07-acceptance-matrix.md` 中的组合命令）；此前三组 279 项结果仍作为历史分组记录保留。另有 happy/timeout/validate/stuck/budget/preflight/v2 planner 等 dispatch stub 场景通过，但完整调度回归仍未形成通过证据。
+- 当前验收矩阵定向套件：478 项通过、8 项跳过（`docs/code-kit-v2/07-acceptance-matrix.md` 中的组合命令）；此前三组 279 项结果仍作为历史分组记录保留。另有 happy/timeout/validate/stuck/budget/preflight/v2 planner 等 dispatch stub 场景通过，但完整调度回归仍未形成通过证据。
 - 调度器回归：本轮 Windows `python tests/test_dispatch.py` 长时间无输出后停止，不能形成新的通过证据；此前 Windows/WSL stub 记录分别为 258/263 checks，均是历史本地证据。
 - 结构门禁：`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。
 - 全量 unittest（排除会长时间无输出的 dispatch 回归）：1067 项、38 项跳过、0 errors；3 项 legacy source-lock 失败仍未解决，因此不是全绿结果。
@@ -13,7 +13,7 @@
 
 | 门禁 | 结果 | 说明 |
 |---|---|---|
-| G1 候选固定且工作树干净 | LOCAL_REFERENCE | `dda848ddfadd28bb06ac8c5b603623f06a54c767` 为当前离线实现候选；仍缺独立 attempt 快照 |
+| G1 候选固定且工作树干净 | LOCAL_REFERENCE | `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 为当前离线实现候选；仍缺独立 attempt 快照 |
 | G2 定向实现与结构检查 | LOCAL_REFERENCE | 验收矩阵组合命令 398 项通过、8 项跳过，且 compileall/diff check 通过；不等价于生产阶段通过 |
 | G3 旧调度器回归 | NOT_RUN | 本轮调度器回归未完成；历史 stub 结果不能替代当前复核 |
 | G4 Pi 环境与执行器证据 | NOT_RUN | 最新 doctor 已确认 `bb/step-5-preview` 可用且认证 ready；按路线图约束本轮未运行 smoke 或派遣，因此没有 attempt 证据 |
@@ -43,3 +43,7 @@
 `python3 -m unittest` 在 Git Bash Python 3.12.3 上复核同一 398 项组合套件为 398 项通过、1 项跳过；Windows Python 3.9.23 的 8 项跳过来自环境能力差异。WSL/3.12 schema 实例 7 项全部通过。该复核仍是离线本地证据。
 
 `dda848ddfadd28bb06ac8c5b603623f06a54c767` 继续收紧 adapter 事件闭集与安全整数、离线未知/错误终止、配置快照与平台覆盖、ResourceClaim 身份文本，以及授权 ResourceRef 和严格 JSON 输入边界；定向边界回归 105 项通过，组合套件保持 398 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。
+
+`24760ceec4c3350327a0cf194c58a48a9d9cabf2` 收紧统一账本 attempt/migration 状态边界、refund call_key 幂等和跨 operation 归属，并加固 builtin projection 与持久 journal 的文本、计数、generation/CAS 和生命周期安全整数 fence；扩展组合验收为 474 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。
+
+`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 进一步统一旧 projections readiness/outbox 接口的 C1/代理字符、generation/cursor 安全整数和 event_id 早期拒绝；扩展组合验收为 478 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。

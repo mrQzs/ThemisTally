@@ -77,3 +77,9 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 
 
 最新离线候选 `dda848ddfadd28bb06ac8c5b603623f06a54c767` 同步刷新 39 对 v2 合同基线，并记录 adapter/config/identity/authorization 严格边界回归；105 项定向边界测试和 398 项组合套件通过（Windows 8 项环境跳过）。这仍是 `LOCAL_REFERENCE`，不产生 Pi/provider、原生平台或 09/10 连接器证据。
+
+
+最新离线候选 `24760ceec4c3350327a0cf194c58a48a9d9cabf2` 重绑定 39 对 v2 合同，并加固统一账本、结算、builtin projection、持久 journal 和 runtime generation fence；扩展组合套件 474 项通过、8 项环境跳过。仍为 `LOCAL_REFERENCE`，没有 Pi/provider、原生平台或 09/10 连接器证据。
+
+
+最新离线候选 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 继续收紧旧 projections readiness/outbox 投影的文本、游标、代际与 event_id 边界；扩展组合套件 478 项通过、8 项环境跳过。仍为 `LOCAL_REFERENCE`，没有 Pi/provider、原生平台或 09/10 连接器证据。

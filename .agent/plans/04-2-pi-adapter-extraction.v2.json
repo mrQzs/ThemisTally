@@ -4,7 +4,7 @@
   "plan_version": 2,
   "title": "04.2 Pi 适配器提取与确定性调用",
   "repository": "Code-Kit",
-  "base_sha": "dda848ddfadd28bb06ac8c5b603623f06a54c767",
+  "base_sha": "ef5ff25e9f41cea1096f75d31b027ef4dafcb66b",
   "risk_level": "high",
   "authorization": {
     "executor": [

@@ -52,3 +52,9 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 
 
 `dda848ddfadd28bb06ac8c5b603623f06a54c767` 继续收紧 adapter 事件闭集与安全整数、离线未知/错误终止语义、配置 canonical JSON/平台覆盖边界、ResourceClaim 身份文本，以及授权 ResourceRef/严格 JSON/输入引用上限；适配器、身份、配置、授权和接受边界定向回归 105 项通过，全量组合回归 398 项通过、8 项环境跳过。真实 Pi/provider、原生平台和外部连接器仍为 `NOT_RUN/BLOCKED`。
+
+
+`24760ceec4c3350327a0cf194c58a48a9d9cabf2` 继续收紧统一账本 attempt/migration 状态、refund call_key 幂等与跨 operation 归属，并强化 builtin projection/journal 的安全整数、文本和 generation/CAS 边界；扩展组合回归 474 项通过、8 项环境跳过。真实 Pi/provider、原生平台和外部连接器仍为 `NOT_RUN/BLOCKED`。
+
+
+`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 对旧 projections readiness/outbox 接口补齐 C1/代理字符、generation/cursor 安全整数、event_id 和状态文本闭集；扩展组合回归 478 项通过、8 项环境跳过。真实 Pi/provider、原生平台和外部连接器仍为 `NOT_RUN/BLOCKED`。

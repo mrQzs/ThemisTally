@@ -145,3 +145,6 @@ The same 398-test suite passed with one skip under Git Bash Python 3.12.3; all s
 
 
 Follow-up candidate `dda848ddfadd28bb06ac8c5b603623f06a54c767` tightened adapter/config/identity/authorization strict boundaries. Targeted boundary regression passed 105 tests and the combined suite remained 398 passed with 8 environment skips; no Pi/provider/native-platform/connector run was started.
+
+
+Follow-up candidate `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` aligned the legacy readiness/outbox projection boundary with the builtin projection rules; the expanded suite passed 478 tests with 8 environment skips. No Pi/provider/native-platform/connector run was started.
