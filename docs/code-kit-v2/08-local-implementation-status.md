@@ -10,11 +10,11 @@
 | S3 | `e7a10b1`, `a175417` | docs-change、CommonMark AST 本地链接检查、危险 scheme/越界/锚点分类、固定内容 oracle 与 review bundle | 外链不访问；语义复审只支持固定 oracle |
 | S4 | `4b7dcd7` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约，不使用 best-of | 未启动真实 runner 或 mutation dispatcher |
 | S5 | `4b7dcd7` | deterministic_check evidence、平台观察/失败归类、超时/取消/丢失与 reconcile 边界 | evidence 标为 `REFERENCE_ONLY`；真实平台/provider 为 `NOT_RUN/BLOCKED` |
-| S6 | `4b7dcd7` | catalog/readiness、state/brief/outbox/cursor 去重、缺口和重建投影 | 只读投影；09/10 生产连接器未接线 |
+| S6 | `4b7dcd7`, `df8f482` | catalog/readiness、七个离线插件 manifest/lock、三份配方、state/brief/outbox/cursor 去重、缺口和重建投影 | 只读投影；09/10 生产连接器未接线 |
 
 ## 证据与验证
 
-S1–S6 聚焦测试共 32 项通过，`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过；六份 artifact Schema 在 WSL Python 3.12 的 Draft 2020-12 元校验通过。01–06 的新增定向测试与已有协议/基线测试分别通过。
+01–06 边界与 08 聚焦测试合计 80 项通过，`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过；14 份 Schema 在 WSL Python 3.12 的 Draft 2020-12 元校验通过。七个 plugin fixture 的 manifest/lock 和三份 recipe 可被离线 loader 校验。
 
 `python tests/test_dispatch.py` 在 WSL Python 3.12 的本地 stub 环境完成 260 项检查、0 failed；该结果只证明调度器自测，不是 Pi 生产证据。`python -m unittest discover -s tests -q` 进入既有生命周期/调度 fixture 后耗时过长，本轮停止，不能据此宣称全量通过。39 个新增合同的 v1 文件已生成并通过规划期校验；真实执行器没有派遣。独立复审会话因本机 Codex rollout 不可用而 `BLOCKED`，没有伪造复审结论。
 
