@@ -16,6 +16,20 @@ def event(seq, typ, payload=None, event_id=None):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_invocation_rejects_string_vectors_and_non_string_environment(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+            Invocation("req", "run", "executor", "offline-profile", "python", (), "a" * 64)
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+            Invocation("req", "run", "executor", "offline-profile", ("python",), "structured-events", "a" * 64)
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_INVOCATION"):
+            Invocation("req", "run", "executor", "offline-profile", ("python",), (), 1)
+
+    def test_descriptor_rejects_duplicate_or_non_string_contract_entries(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+            AdapterDescriptor("offline", "v1", ("events", "events"), (), True)
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
+            AdapterDescriptor("offline", "v1", (1,), (), True)
+
     def test_registry_rejects_unknown_and_duplicate(self):
         reg = AdapterRegistry([AdapterDescriptor("offline", "v1", ("structured-events",), ("executor",), True)])
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_UNKNOWN"):

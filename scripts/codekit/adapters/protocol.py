@@ -19,9 +19,24 @@ class AdapterError(ValueError):
 
 
 def _text(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not value:
+    if type(value) is not str or not value or "\x00" in value:
         raise AdapterError("E_ADAPTER_SCHEMA", f"{name} must be a non-empty string")
     return value
+
+
+def _text_tuple(value: Any, name: str, *, nonempty: bool = False) -> Tuple[str, ...]:
+    """Validate immutable string vectors used by adapter contracts."""
+    if type(value) is not tuple or (nonempty and not value):
+        raise AdapterError("E_ADAPTER_SCHEMA", f"{name} must be a tuple of strings")
+    result = []
+    seen = set()
+    for index, item in enumerate(value):
+        _text(item, f"{name}[{index}]")
+        if item in seen:
+            raise AdapterError("E_ADAPTER_SCHEMA", f"{name} contains a duplicate entry")
+        seen.add(item)
+        result.append(item)
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -31,6 +46,14 @@ class AdapterDescriptor:
     capabilities: Tuple[str, ...]
     roles: Tuple[str, ...]
     offline: bool = False
+
+    def __post_init__(self) -> None:
+        _text(self.adapter_id, "adapter_id")
+        _text(self.protocol_version, "protocol_version")
+        _text_tuple(self.capabilities, "capabilities")
+        _text_tuple(self.roles, "roles")
+        if type(self.offline) is not bool:
+            raise AdapterError("E_ADAPTER_SCHEMA", "offline must be boolean")
 
 
 @dataclass(frozen=True)
@@ -48,9 +71,11 @@ class Invocation:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id"); _text(self.role, "role"); _text(self.profile_id, "profile_id")
         if self.adapter_id is not None:
             _text(self.adapter_id, "adapter_id")
-        if not self.command or any(not isinstance(x, str) or not x for x in self.command):
-            raise AdapterError("E_ADAPTER_INVOCATION", "command must be a non-empty argv tuple")
-        if len(self.environment_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.environment_sha256):
+        _text_tuple(self.command, "command", nonempty=True)
+        _text_tuple(self.capabilities, "capabilities")
+        if (type(self.environment_sha256) is not str
+                or len(self.environment_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in self.environment_sha256)):
             raise AdapterError("E_ADAPTER_INVOCATION", "environment_sha256 must be lowercase SHA-256")
 
     def digest(self) -> str:

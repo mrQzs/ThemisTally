@@ -262,6 +262,21 @@ class ProviderCallObservation:
         return canonical_sha256(self.semantic_payload())
 
     @property
+    def call_payload_hash(self) -> str:
+        """Fingerprint the economic facts independently of evidence location.
+
+        Evidence references identify where one observer saw a fact.  They are
+        part of the observation idempotency payload, but they are not part of
+        the provider call's economic value.  Two runs can therefore report the
+        same call with different local evidence anchors and still be recorded
+        as a mirror.  Revision, visibility, units, amount, and provider
+        identity remain bound to this fingerprint.
+        """
+        payload = self.semantic_payload()
+        payload.pop("evidence_ref", None)
+        return canonical_sha256(payload)
+
+    @property
     def call_key(self) -> str:
         return self.identity.call_key
 
@@ -370,7 +385,11 @@ class OfflineBillingAdapter:
             raise EconomicsError("E_OBSERVATION_CONFLICT", "observation id payload conflict")
         prior = self._calls.get(observation.call_key)
         if prior is not None:
-            if prior.payload_hash != observation.payload_hash:
+            # Evidence references are observer-local anchors.  Keep them in
+            # ``payload_hash`` so replaying one observation id with a changed
+            # anchor is a conflict, while cross-run observations of the same
+            # economic call compare only the call facts.
+            if prior.call_payload_hash != observation.call_payload_hash:
                 raise EconomicsError("E_CALL_CONFLICT", "economic call payload conflict")
             self._observations[observation.observation_id] = observation
             return BillingDecision("MIRROR", historical=True, coverage=observation.coverage)

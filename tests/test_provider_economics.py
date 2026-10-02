@@ -82,6 +82,21 @@ class ProviderEconomicsTests(unittest.TestCase):
         self.assertEqual(result.status, "MIRROR")
         self.assertEqual(len(adapter.observations), 2)
 
+    def test_same_call_with_run_local_evidence_is_mirror(self):
+        adapter = OfflineBillingAdapter()
+        first = observation(observation_id="obs-a", run_id="run-a")
+        second = ProviderCallObservation(
+            "obs-b", identity(run_id="run-b"), "complete",
+            {"input_tokens": 4, "output_tokens": 8}, "USD", 12,
+            "run-b-evidence",
+        )
+        self.assertNotEqual(first.payload_hash, second.payload_hash)
+        self.assertEqual(first.call_payload_hash, second.call_payload_hash)
+        adapter.observe(first)
+        result = adapter.observe(second)
+        self.assertEqual(result.status, "MIRROR")
+        self.assertTrue(result.historical)
+
     def test_same_call_different_payload_is_conflict(self):
         adapter = OfflineBillingAdapter()
         adapter.observe(observation())
