@@ -42,9 +42,12 @@ class Invocation:
     command: Tuple[str, ...]
     capabilities: Tuple[str, ...]
     environment_sha256: str
+    adapter_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id"); _text(self.role, "role"); _text(self.profile_id, "profile_id")
+        if self.adapter_id is not None:
+            _text(self.adapter_id, "adapter_id")
         if not self.command or any(not isinstance(x, str) or not x for x in self.command):
             raise AdapterError("E_ADAPTER_INVOCATION", "command must be a non-empty argv tuple")
         if len(self.environment_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.environment_sha256):
@@ -54,6 +57,8 @@ class Invocation:
         payload = {"request_id": self.request_id, "run_id": self.run_id, "role": self.role,
                    "profile_id": self.profile_id, "command": list(self.command),
                    "capabilities": list(self.capabilities), "environment_sha256": self.environment_sha256}
+        if self.adapter_id is not None:
+            payload["adapter_id"] = self.adapter_id
         return hashlib.sha256((json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()).hexdigest()
 
 
@@ -125,6 +130,15 @@ class AdapterRegistry:
             raise AdapterError("E_ADAPTER_UNKNOWN", "adapter is not registered")
         if role is not None and role not in descriptor.roles:
             raise AdapterError("E_ADAPTER_CAPABILITY", "adapter does not support role")
+        return descriptor
+
+    def validate_invocation(self, invocation: Invocation) -> AdapterDescriptor:
+        if invocation.adapter_id is None:
+            raise AdapterError("E_ADAPTER_IDENTITY", "invocation must bind an adapter descriptor")
+        descriptor = self.resolve(invocation.adapter_id, role=invocation.role)
+        missing = set(descriptor.capabilities) - set(invocation.capabilities)
+        if missing:
+            raise AdapterError("E_ADAPTER_CAPABILITY", "invocation is missing descriptor capabilities")
         return descriptor
 
 
