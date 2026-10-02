@@ -57,6 +57,20 @@ class AdapterTests(unittest.TestCase):
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "assistant")])
         self.assertFalse(result.settled); self.assertEqual(result.status, "UNKNOWN"); self.assertFalse(result.raw_complete)
 
+    def test_terminal_is_unique_and_final(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "error"), event(2, "run_finished")])
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "run_finished"), event(2, "assistant")])
+
+    def test_tool_events_must_form_closed_pairs_before_terminal(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_TOOL"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_started", {"tool_id": "t1"}), event(2, "run_finished")])
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_TOOL"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_finished", {"tool_id": "t1"}), event(2, "run_finished")])
+        result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_started", {"tool_id": "t1"}), event(2, "tool_finished", {"tool_id": "t1"}), event(3, "run_finished")])
+        self.assertTrue(result.settled)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,28 @@ class OfflineAdapter:
         normalized = normalize_events(events, expected_source=self.adapter_id, preserve_unknown=True)
         if not normalized or normalized[0].event_type != "run_started":
             raise AdapterError("E_ADAPTER_SETTLEMENT", "run_started is required")
+        terminal_indexes = [index for index, event in enumerate(normalized)
+                            if event.event_type in {"run_finished", "error"}]
+        if len(terminal_indexes) > 1 or (terminal_indexes and terminal_indexes[0] != len(normalized) - 1):
+            raise AdapterError("E_ADAPTER_SETTLEMENT", "terminal event must be unique and final")
+        open_tools = set()
+        for event in normalized:
+            if event.event_type == "run_started" and event.seq != 0:
+                raise AdapterError("E_ADAPTER_SETTLEMENT", "run_started must be the first event", seq=event.seq)
+            if event.event_type == "tool_started":
+                tool_id = event.payload.get("tool_id")
+                if not isinstance(tool_id, str) or not tool_id:
+                    raise AdapterError("E_ADAPTER_TOOL", "tool_started requires a tool_id", seq=event.seq)
+                if tool_id in open_tools:
+                    raise AdapterError("E_ADAPTER_TOOL", "tool_started repeated before tool_finished", seq=event.seq)
+                open_tools.add(tool_id)
+            elif event.event_type == "tool_finished":
+                tool_id = event.payload.get("tool_id")
+                if not isinstance(tool_id, str) or not tool_id or tool_id not in open_tools:
+                    raise AdapterError("E_ADAPTER_TOOL", "tool_finished must close an open tool", seq=event.seq)
+                open_tools.remove(tool_id)
+        if terminal_indexes and open_tools:
+            raise AdapterError("E_ADAPTER_TOOL", "terminal event arrived with open tools")
         terminal = normalized[-1].event_type
         settled = terminal in {"run_finished", "error"}
         if not settled:
