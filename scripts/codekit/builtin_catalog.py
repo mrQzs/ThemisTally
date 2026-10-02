@@ -17,6 +17,8 @@ def _err(code: str, message: str) -> None:
 
 
 def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if not isinstance(plugins, Sequence) or isinstance(plugins, (str, bytes)):
+        _err("E_CATALOG", "plugin rows sequence required")
     rows = []
     for item in plugins:
         if not isinstance(item, Mapping) or set(item) != {"plugin_id", "version", "manifest_ref", "lock_ref"}:
@@ -30,6 +32,8 @@ def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def project_catalog_readiness(catalog: Mapping[str, Any], *, requested: Sequence[str],
                               dependencies_ready: bool = True, platform_ready: bool = True) -> dict[str, Any]:
     catalog = validate_catalog(catalog)
+    if type(dependencies_ready) is not bool or type(platform_ready) is not bool:
+        _err("E_READINESS", "readiness flags must be boolean")
     if not isinstance(requested, Sequence) or isinstance(requested, (str, bytes)) or any(type(x) is not str or not x for x in requested):
         _err("E_READINESS", "requested plugin IDs required")
     if len(set(requested)) != len(requested):

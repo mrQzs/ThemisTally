@@ -67,6 +67,18 @@ class RecipeCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_RECEIPT"):
             validate_compile_receipt(receipt)
 
+    def test_receipt_identity_and_status_types_are_closed(self):
+        result = compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
+                                source_refs=[ref()], candidate_ref=None, environment_ref=None)
+        for field, value, error in (("status", [], "E_RECIPE_RECEIPT"), ("recipe_id", [], "E_RECIPE_ID"),
+                                    ("plugin_id", [], "E_RECIPE_ID"), ("plugin_version", "latest", "E_RECIPE_RECEIPT")):
+            receipt = copy.deepcopy(result["compile_receipt"])
+            receipt[field] = value
+            unsigned = dict(receipt); unsigned.pop("receipt_sha256")
+            receipt["receipt_sha256"] = digest(unsigned)
+            with self.assertRaisesRegex(ArtifactError, error):
+                validate_compile_receipt(receipt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,10 @@ def make_check_evidence(*, check_plan_id: str, candidate_digest: str, environmen
 def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                          environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                          plan: Mapping[str, Any], evidence: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(plan, Mapping):
+        _err("E_CHECK_PLAN", "check plan mapping required")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
+        _err("E_CHECK_EVIDENCE", "source refs sequence required")
     base_evidence_fields = {"execution_mode", "check_execution_id", "check_plan_id", "candidate_digest",
                             "environment_digest", "status", "observed_status", "output_digest", "reason"}
     evidence_fields = set(evidence) if isinstance(evidence, Mapping) else set()

@@ -43,6 +43,8 @@ class CursorProjection:
     def consume(self, events: Sequence[ProjectionEvent], *, generation: int) -> str:
         if generation != self.generation:
             _err("E_FENCED", "stale consumer generation")
+        if not isinstance(events, Sequence) or isinstance(events, (str, bytes)):
+            _err("E_EVENT", "event sequence required")
         expected = self.cursor + 1
         trial = dict(self.events); trial_sources = dict(self.source_vector)
         applied = False
@@ -75,15 +77,17 @@ class CursorProjection:
     def rebuild(self, authority_rows: Sequence[Mapping[str, Any]], *, generation: int) -> None:
         if generation != self.generation:
             _err("E_FENCED", "stale consumer generation")
+        if not isinstance(authority_rows, Sequence) or isinstance(authority_rows, (str, bytes)) or any(not isinstance(row, Mapping) for row in authority_rows):
+            _err("E_REBUILD", "authority rows must be a sequence of mappings")
         self.events = {"authority": {"seq": 0, "source": "authority", "type": "rebuild",
                                       "payload": {"rows": deepcopy([dict(x) for x in authority_rows])}}}
         self.source_vector = {}; self.cursor = 0
 
 def project_state(*, cursor: int, source_vector: Mapping[str, int], status: str,
                   issues: Sequence[str] = (), coverage: str = "complete") -> dict[str, Any]:
-    if type(cursor) is not int or cursor < 0 or coverage not in {"complete", "partial", "unknown"}:
+    if type(cursor) is not int or cursor < 0 or type(coverage) is not str or coverage not in {"complete", "partial", "unknown"}:
         _err("E_STATE", "invalid cursor or coverage")
-    if status not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
+    if type(status) is not str or status not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_STATE", "invalid status")
     if not isinstance(source_vector, Mapping) or any(type(key) is not str or not key or type(value) is not int or value < 0 for key, value in source_vector.items()):
         _err("E_STATE", "source vector must map names to non-negative cursors")
@@ -98,18 +102,21 @@ def project_state(*, cursor: int, source_vector: Mapping[str, int], status: str,
 def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(state, Mapping):
         _err("E_BRIEF", "state mapping required")
-    if state.get("status", "UNKNOWN") not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
+    status = state.get("status", "UNKNOWN")
+    health = state.get("health", "degraded")
+    coverage = state.get("coverage", "unknown")
+    if type(status) is not str or status not in {"READY", "PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_BRIEF", "invalid status")
-    if state.get("health", "degraded") not in {"healthy", "degraded"}:
+    if type(health) is not str or health not in {"healthy", "degraded"}:
         _err("E_BRIEF", "invalid health")
     if type(state.get("cursor", 0)) is not int or state.get("cursor", 0) < 0:
         _err("E_BRIEF", "invalid cursor")
-    if state.get("coverage", "unknown") not in {"complete", "partial", "unknown"}:
+    if type(coverage) is not str or coverage not in {"complete", "partial", "unknown"}:
         _err("E_BRIEF", "invalid coverage")
     if isinstance(state.get("issues", []), (str, bytes)) or not isinstance(state.get("issues", []), Sequence) or any(type(item) is not str or not item for item in state.get("issues", [])):
         _err("E_BRIEF", "issues must be a sequence of non-empty strings")
-    return {"status": state.get("status", "UNKNOWN"), "health": state.get("health", "degraded"),
-            "cursor": state.get("cursor", 0), "coverage": state.get("coverage", "unknown"),
+    return {"status": status, "health": health,
+            "cursor": state.get("cursor", 0), "coverage": coverage,
             "issues": list(state.get("issues", [])), "dispatch_eligibility": "not_evaluated"}
 
 __all__ = ["CursorProjection", "ProjectionEvent", "project_state", "render_brief"]

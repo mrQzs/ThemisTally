@@ -146,16 +146,22 @@ def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Map
     copy_value = dict(receipt); supplied = copy_value.pop("receipt_sha256")
     if supplied != digest(copy_value):
         _fail("E_RECIPE_DRIFT", "/receipt_sha256", "receipt bytes do not match")
-    if receipt["record_type"] != RECEIPT_RECORD_TYPE or receipt["schema_version"] != 1 or receipt["status"] not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
+    if receipt["record_type"] != RECEIPT_RECORD_TYPE or receipt["schema_version"] != 1 or type(receipt["status"]) is not str or receipt["status"] not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_RECEIPT", "/", "invalid receipt header")
     if type(receipt["receipt_id"]) is not str or not receipt["receipt_id"]:
         _fail("E_RECIPE_RECEIPT", "/receipt_id", "non-empty receipt id required")
+    _id(receipt["recipe_id"], "/recipe_id")
+    _id(receipt["plugin_id"], "/plugin_id")
+    if type(receipt["plugin_version"]) is not str or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", receipt["plugin_version"]):
+        _fail("E_RECIPE_RECEIPT", "/plugin_version", "exact semantic version required")
     if type(receipt["recipe_version"]) is not int or receipt["recipe_version"] < 1:
         _fail("E_RECIPE_RECEIPT", "/recipe_version", "positive integer required")
     if not isinstance(receipt["ordered_step_ids"], list) or not isinstance(receipt["stage_kinds"], list) or len(receipt["ordered_step_ids"]) != len(receipt["stage_kinds"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step and stage arrays must align")
     if any(type(item) is not str or not item for item in receipt["ordered_step_ids"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step ids must be non-empty strings")
+    for index, item in enumerate(receipt["ordered_step_ids"]):
+        _id(item, f"/ordered_step_ids/{index}")
     if len(set(receipt["ordered_step_ids"])) != len(receipt["ordered_step_ids"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "duplicate step id")
     if any(item not in {"execute", "freeze", "check", "verdict"} for item in receipt["stage_kinds"]):

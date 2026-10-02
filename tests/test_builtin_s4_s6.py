@@ -76,6 +76,12 @@ class S5ExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
             build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
                                  candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence={**evidence, "forged": True})
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_PLAN"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=[], plan=None, evidence=evidence)
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=None, plan={}, evidence=evidence)
 
     def test_platform_failures_reconcile_conservatively(self):
         obs = make_platform_observation(os_name="windows", adapter_id="native-windows")
@@ -106,6 +112,10 @@ class S6ProjectionTests(unittest.TestCase):
         self.assertEqual(ready["status"], "READY")
         self.assertEqual(ready["dispatch_eligibility"], "not_evaluated")
         self.assertEqual(project_catalog_readiness(catalog, requested=["missing"])["status"], "BLOCKED")
+        with self.assertRaisesRegex(ArtifactError, "E_READINESS"):
+            project_catalog_readiness(catalog, requested=["docs"], dependencies_ready=1)
+        with self.assertRaisesRegex(ArtifactError, "E_CATALOG"):
+            build_catalog(plugins=None)
 
     def test_checked_in_seven_plugin_and_three_recipe_fixtures(self):
         catalog = load_builtin_catalog()
@@ -126,13 +136,21 @@ class S6ProjectionTests(unittest.TestCase):
     def test_projection_inputs_reject_noncanonical_payloads_and_state_types(self):
         p = CursorProjection()
         with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
+            p.consume(None, generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_REBUILD"):
+            p.rebuild(["forged"], generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
             p.consume([ProjectionEvent(1, "s", "x", [])], generation=1)
         with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
             p.consume([ProjectionEvent(1, "s", "x", {"v": float("nan")})], generation=1)
         with self.assertRaisesRegex(ArtifactError, "E_STATE"):
             project_state(cursor=0, source_vector={"s": "1"}, status="READY")
+        with self.assertRaisesRegex(ArtifactError, "E_STATE"):
+            project_state(cursor=0, source_vector={}, status=[])
         with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
             render_brief({"status": "READY", "health": "healthy", "cursor": 0, "coverage": "complete", "issues": "bad"})
+        with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
+            render_brief({"status": [], "health": "healthy", "cursor": 0, "coverage": "complete", "issues": []})
 
     def test_state_and_brief_are_read_only_projections(self):
         state = project_state(cursor=2, source_vector={"s": 2}, status="PASS")
