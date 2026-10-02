@@ -72,3 +72,5 @@
 
 
 当前候选 `a64f3a8` 收紧八类业务 artifact、插件 manifest/lock、ResourceRef 路径摘要和离线 recipe 命令边界，并补齐 outbox 连续性与请求/操作闭包校验。新增组合验收结果为 398 项通过、8 项环境跳过；没有 Pi attempt、provider call、原生平台或 09/10 外部连接器证据。
+
+Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳过，schema 实例 7 项全部通过；这仍不生成 Pi/provider/连接器证据。
