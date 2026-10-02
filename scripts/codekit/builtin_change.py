@@ -86,7 +86,7 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
         if not _in_scope(path, scope):
             _fail("E_CHANGE_SCOPE", f"{field}/path", "changed path is outside declared scope")
         change_type = value["change_type"]
-        if change_type not in CHANGE_TYPES:
+        if type(change_type) is not str or change_type not in CHANGE_TYPES:
             _fail("E_CHANGE_TYPE", f"{field}/change_type", "unsupported change type")
         old_sha = _sha(value["old_sha256"], f"{field}/old_sha256", nullable=True)
         new_sha = _sha(value["new_sha256"], f"{field}/new_sha256", nullable=True)
@@ -152,16 +152,24 @@ def build_change_report(*, artifact_id: str, producer: Mapping[str, Any], source
                         status: str = "DRAFT_VALIDATED", evidence_class: str = "OFFLINE_FIXTURE") -> Dict[str, Any]:
     if type(artifact_id) is not str or not artifact_id:
         _fail("E_CHANGE_SCHEMA", "/artifact_id", "non-empty artifact id required")
-    if status not in CHANGE_STATUSES:
+    if type(status) is not str or status not in CHANGE_STATUSES:
         _fail("E_CHANGE_STATUS", "/status", "change report cannot claim production PASS")
-    if evidence_class not in EVIDENCE_CLASSES:
+    if type(evidence_class) is not str or evidence_class not in EVIDENCE_CLASSES:
         _fail("E_CHANGE_EVIDENCE", "/payload/evidence_class", "unknown evidence class")
-    if mode not in {"offline", "local_reference", "production"}:
+    if type(mode) is not str or mode not in {"offline", "local_reference", "production"}:
         _fail("E_CHANGE_MODE", "/payload/mode", "unsupported mode")
     if mode != "production" and evidence_class == "PRODUCTION":
         _fail("E_CHANGE_EVIDENCE", "/payload/evidence_class", "production evidence requires production mode")
-    if change_mode not in {"working-tree", "commit", "patch", "unknown"}:
+    if type(change_mode) is not str or change_mode not in {"working-tree", "commit", "patch", "unknown"}:
         _fail("E_CHANGE_MODE", "/payload/change_mode", "unsupported change mode")
+    if not isinstance(scope, Sequence) or isinstance(scope, (str, bytes)):
+        _fail("E_CHANGE_SCOPE", "/payload/scope", "scope sequence required")
+    if not isinstance(files, Sequence) or isinstance(files, (str, bytes)):
+        _fail("E_CHANGE_SCHEMA", "/payload/files", "files sequence required")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
+        _fail("E_CHANGE_SCHEMA", "/source_refs", "source refs sequence required")
+    if not isinstance(link_bindings, Sequence) or isinstance(link_bindings, (str, bytes)):
+        _fail("E_CHANGE_LINK", "/payload/link_bindings", "link sequence required")
     normalized_scope = _scope(list(scope)); normalized_files = _files(list(files), normalized_scope)
     payload = {"mode": mode, "evidence_class": evidence_class, "change_mode": change_mode,
                "scope": normalized_scope, "files": normalized_files, "link_bindings": _links(list(link_bindings))}

@@ -45,4 +45,12 @@ class DocsChangeTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_DOCS_PROVENANCE"):
             validate_docs_change(forged)
 
+    def test_builder_rejects_untyped_snapshot_and_sequences(self):
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SNAPSHOT"):
+            build_docs_change({"docs/a.md": "old"}, {}, writable_paths=["docs/a.md"])
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SCOPE"):
+            build_docs_change({}, {"docs/a.md": b"new"}, writable_paths=None)
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SCHEMA"):
+            build_docs_change({}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"], status=[])
+
 if __name__ == "__main__": unittest.main()

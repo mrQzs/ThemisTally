@@ -55,6 +55,12 @@ class AnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_PROVENANCE"):
             self.report_with(facts=[{"id": "f", "statement": "fact", "source_anchors": [{"ref": foreign, "start_byte": 0, "end_byte": 1, "excerpt_sha256": "b" * 64}]}])
 
+    def test_builder_rejects_untyped_status_and_sources(self):
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_STATUS"):
+            self.report_with(status=[])
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_SOURCE"):
+            self.report_with(source_refs=None)
+
 
 if __name__ == "__main__":
     unittest.main()

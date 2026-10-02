@@ -81,16 +81,18 @@ def build_analysis_report(*, artifact_id: str, producer: Mapping[str, Any], sour
     """Build and validate one deterministic AnalysisReport envelope."""
     if type(artifact_id) is not str or not artifact_id:
         _fail("E_ANALYSIS_SCHEMA", "/artifact_id", "non-empty artifact id required")
-    if status not in ANALYSIS_STATUSES:
+    if type(status) is not str or status not in ANALYSIS_STATUSES:
         _fail("E_ANALYSIS_STATUS", "/status", "analysis cannot claim a production PASS")
-    if evidence_class not in EVIDENCE_CLASSES:
+    if type(evidence_class) is not str or evidence_class not in EVIDENCE_CLASSES:
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "unknown evidence class")
-    if analysis_mode not in {"offline", "local_reference", "production"}:
+    if type(analysis_mode) is not str or analysis_mode not in {"offline", "local_reference", "production"}:
         _fail("E_ANALYSIS_MODE", "/payload/analysis_mode", "unsupported analysis mode")
     if analysis_mode != "production" and evidence_class == "PRODUCTION":
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "offline analysis cannot use production evidence")
     if status == "READY" and evidence_class in {"OFFLINE_FIXTURE", "SYNTHETIC"}:
         _fail("E_ANALYSIS_STATUS", "/status", "synthetic evidence cannot be ready for production")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
+        _fail("E_ANALYSIS_SOURCE", "/source_refs", "source refs sequence required")
     refs = [resource_ref(item, f"/source_refs/{index}") for index, item in enumerate(source_refs)]
     if check_set_ref is not None:
         check_set_ref = resource_ref(check_set_ref, "/payload/check_set_ref")

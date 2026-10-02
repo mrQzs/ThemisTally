@@ -38,6 +38,14 @@ class ChangeTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CHANGE_HASH"):
             self.report(files=[{"path": "src/new.py", "change_type": "added", "old_sha256": "a" * 64, "new_sha256": "b" * 64}])
 
+    def test_builder_rejects_untyped_status_and_sequences(self):
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_STATUS"):
+            self.report(status=[])
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCOPE"):
+            self.report(scope=None)
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
+            self.report(files=None)
+
 
 if __name__ == "__main__":
     unittest.main()

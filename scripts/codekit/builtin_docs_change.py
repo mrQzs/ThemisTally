@@ -68,6 +68,14 @@ def build_docs_change(
     """
     if not isinstance(before, Mapping) or not isinstance(after, Mapping):
         raise ArtifactError("E_DOCS_SNAPSHOT", "/", "before and after mappings required")
+    if any(type(value) is not bytes for value in before.values()) or any(type(value) is not bytes for value in after.values()):
+        raise ArtifactError("E_DOCS_SNAPSHOT", "/", "snapshot values must be bytes")
+    if not isinstance(writable_paths, Sequence) or isinstance(writable_paths, (str, bytes)):
+        raise ArtifactError("E_DOCS_SCOPE", "/writable_paths", "writable paths sequence required")
+    if not isinstance(protected_paths, Sequence) or isinstance(protected_paths, (str, bytes)):
+        raise ArtifactError("E_DOCS_SCOPE", "/protected_paths", "protected paths sequence required")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
+        raise ArtifactError("E_DOCS_SOURCE", "/source_refs", "source refs sequence required")
     writable = {_path(p, "/writable_paths") for p in writable_paths}
     protected = {_path(p, "/protected_paths") for p in protected_paths}
     if not writable.isdisjoint(protected):
@@ -97,6 +105,8 @@ def build_docs_change(
         })
     for ref in source_refs:
         resource_ref(ref)
+    if type(status) is not str:
+        raise ArtifactError("E_DOCS_SCHEMA", "/status", "status must be text")
     if status == "PASS":
         raise ArtifactError("E_DOCS_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     payload = {"changes": changes, "scope": {"writable": sorted(writable), "protected": sorted(protected)}, "mapping_version": 1}
