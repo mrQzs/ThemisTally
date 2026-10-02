@@ -18,3 +18,7 @@
 01–06 当前只能标记为 `REVISE/BLOCKED`：新增模块覆盖了离线结构和最小 happy-path，但增强验收所需的权限交集、持久对账、事件原始证据、进程 fence、资源锁闭包和真实故障证据尚未齐全。08 的离线实现已按双门槛作为 `LOCAL_REFERENCE` 继续推进，但不能据此签发 01–06 阶段 PASS 或生产放行。任何 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED` 结果都不能转化为生产 PASS；真实连接器接入仍是后续生产门禁。
 
 `8df094a` 收紧 InvocationSpec、ProcessIdentity、Lifecycle 及 START_UNKNOWN 对账的类型和 generation 边界；`b3f40aa` 收紧 adapter descriptor/invocation 向量与 provider 观察的跨 run MIRROR 语义。运行时/适配器 22 项、provider/结算 28 项定向测试通过；全量离线回归仍保留 3 项既有 legacy source-lock 失败，真实运行时与 provider 证据继续为 `NOT_RUN/BLOCKED`。
+
+`fbe94d5` 收紧配置输入与平台/占位符边界；`5da5e6a`、`e6bac39` 收紧 Git 探针计划、环境覆盖、LFS/ancestor 观测类型。配置 19 项、Git 探针/ancestor 25 项定向测试通过；这些仍是 `LOCAL_REFERENCE`，真实仓库授权、跨平台环境和 Pi 证据未运行。
+
+`c57c016` 进一步固定 Git probe 的 RawResult/result mapping 字段闭集，拒绝未知观测键并保持 malformed 事实为 `UNKNOWN`；Git 来源相关离线复核扩大到 51 项通过，仍不等价于真实仓库授权或平台接线。
