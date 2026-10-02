@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -11,6 +12,7 @@ from codekit.deterministic_check import check_execution_id, make_check_evidence
 from codekit.builtin_platform import classify_failure, make_platform_observation, reconcile_failure
 from codekit.builtin_catalog import build_catalog, load_builtin_catalog, load_builtin_recipes, project_catalog_readiness
 from codekit.builtin_projections import CursorProjection, ProjectionEvent, project_state, render_brief
+from codekit.projection_store import PersistentProjectionStore
 
 
 def ref(name):
@@ -84,6 +86,32 @@ class S6ProjectionTests(unittest.TestCase):
         self.assertEqual(state["health"], "healthy")
         brief = render_brief(state)
         self.assertEqual(brief["dispatch_eligibility"], "not_evaluated")
+
+    def test_persistent_projection_recovers_tail_and_fences_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            store = PersistentProjectionStore(path)
+            event = ProjectionEvent(1, "authority", "ready", {"id": "r1"})
+            self.assertEqual(store.consume([event], generation=1), "APPLIED")
+            store.handoff(new_generation=2, expected_generation=1)
+            self.assertEqual(store.consume([ProjectionEvent(2, "authority", "done", {})], generation=2), "APPLIED")
+            with path.open("ab") as handle:
+                handle.write(b'{"kind":"event"')
+            recovered = PersistentProjectionStore(path)
+            self.assertEqual(recovered.recovery, "TRUNCATED_TAIL")
+            self.assertEqual(recovered.generation, 2)
+            self.assertEqual(recovered.cursor, 2)
+            self.assertTrue(recovered.reconcile(expected_generation=2, expected_cursor=2)["ok"])
+
+    def test_persistent_projection_rebuild_uses_cursor_cas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PersistentProjectionStore(Path(tmp) / "projection.jsonl")
+            with self.assertRaisesRegex(ArtifactError, "E_CAS"):
+                store.rebuild([], generation=1, expected_cursor=1)
+            store.rebuild([{"id": "authority"}], generation=1, expected_cursor=0)
+            reopened = PersistentProjectionStore(store.path)
+            self.assertEqual(reopened.cursor, 0)
+            self.assertEqual(reopened.events["authority"]["payload"]["rows"], [{"id": "authority"}])
 
 if __name__ == "__main__":
     unittest.main()
