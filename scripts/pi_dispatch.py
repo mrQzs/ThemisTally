@@ -1214,6 +1214,22 @@ def normalize_contract(raw: Dict[str, Any]) -> Dict[str, Any]:
     return contract
 
 
+def require_authorized_action(contract: Dict[str, Any], action: str, *, integration: bool = False) -> None:
+    """在产生副作用的入口再次核对合同授权。
+
+    合同在 prepare 时已经过静态校验，但 attempt 目录中的合同是运行时输入，
+    因此 branch 等入口不能只依赖 prepare 的结论。这里不把某个相近动作当作
+    替代授权：例如创建候选分支必须明确拥有 integration.local_branch。
+    """
+    section = "integration" if integration else "executor"
+    authorization = contract.get("authorization") if isinstance(contract, dict) else None
+    actions = authorization.get(section) if isinstance(authorization, dict) else None
+    if not isinstance(actions, list) or not all(isinstance(item, str) for item in actions):
+        raise DispatchError("合同授权无效：authorization.%s 必须是字符串数组" % section, EXIT_BLOCKED)
+    if action not in actions:
+        raise DispatchError("合同未授权动作：authorization.%s 缺少 %s" % (section, action), EXIT_BLOCKED)
+
+
 def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
@@ -4327,7 +4343,11 @@ def latest_verdict(run_dir: Path) -> Dict[str, Any]:
 def cmd_branch(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
-    meta, _contract = load_attempt(repo, run_dir)
+    meta, contract = load_attempt(repo, run_dir)
+    problems = verify_inputs(run_dir, meta)
+    if problems:
+        raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
+    require_authorized_action(contract, "local_branch", integration=True)
     verdict = latest_verdict(run_dir).get("verdict")
     if verdict not in PASSING_VERDICTS and not (args.rework and verdict == "REVISE"):
         raise DispatchError("最新结论为 %s：只有 PASS / ACCEPTED_WITH_EXCEPTION（或 --rework 时的 REVISE）"

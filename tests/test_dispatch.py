@@ -284,6 +284,22 @@ def test_happy():
     check("mark integrated", code == 0 and state(repo) == "INTEGRATED", out)
 
 
+def test_branch_requires_integration_authorization():
+    """创建本地候选分支必须由 integration.local_branch 明确授权。"""
+    authorization = {"executor": ["local_edit", "local_test"], "integration": []}
+    repo, _base = make_repo("branch-auth", authorization=authorization)
+    run_ok(repo)
+    tool(repo, "check", "normalize-query/attempt-001")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                     review(repo, "PASS"))
+    check("branch authorization fixture reaches PASS", code == 0, out)
+    code, out = tool(repo, "branch", "normalize-query/attempt-001")
+    ref = subprocess.run(["git", "show-ref", "--verify", "--quiet",
+                          "refs/heads/pi/normalize-query-v1-a001"], cwd=str(repo)).returncode
+    check("branch refuses without integration.local_branch", code == pd.EXIT_BLOCKED and "local_branch" in out, out)
+    check("unauthorized branch is not created", ref != 0, ref)
+
+
 def test_candidate_drift_and_artifacts():
     """Codex #1：检查前出现的候选之外文件不能被忽略；缓存类文件允许；检查自己产生的文件会让 G4 失败。"""
     repo, base = make_repo("drift")
