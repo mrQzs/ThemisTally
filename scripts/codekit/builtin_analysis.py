@@ -117,15 +117,15 @@ def validate_analysis_report(record: Mapping[str, Any]) -> Dict[str, Any]:
     normalized = validate_artifact(record)
     if normalized["record_type"] != ANALYSIS_RECORD_TYPE:
         _fail("E_ANALYSIS_SCHEMA", "/record_type", "analysis-report required")
-    if normalized["status"] not in ANALYSIS_STATUSES:
+    if type(normalized["status"]) is not str or normalized["status"] not in ANALYSIS_STATUSES:
         _fail("E_ANALYSIS_STATUS", "/status", "analysis status is not offline-safe")
     payload = normalized["payload"]
     required = {"analysis_mode", "evidence_class", "facts", "inferences", "assumptions", "questions", "check_set_ref"}
     if set(payload) != required:
         _fail("E_ANALYSIS_SCHEMA", "/payload", "closed analysis payload required")
-    if payload["analysis_mode"] not in {"offline", "local_reference", "production"}:
+    if type(payload["analysis_mode"]) is not str or payload["analysis_mode"] not in {"offline", "local_reference", "production"}:
         _fail("E_ANALYSIS_MODE", "/payload/analysis_mode", "unsupported analysis mode")
-    if payload["evidence_class"] not in EVIDENCE_CLASSES:
+    if type(payload["evidence_class"]) is not str or payload["evidence_class"] not in EVIDENCE_CLASSES:
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "unknown evidence class")
     for name in ("facts", "inferences", "assumptions", "questions"):
         payload[name] = _items(payload[name], f"/payload/{name}", kind=name[:-1])

@@ -27,6 +27,12 @@ class BuiltinArtifactsTests(unittest.TestCase):
         bad = artifact(); bad["unexpected"] = True
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SCHEMA"):
             validate_artifact(bad)
+        bad = artifact(); bad["record_type"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_VERSION"):
+            validate_artifact(bad)
+        bad = artifact(); bad["status"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_STATUS"):
+            validate_artifact(bad)
         bad = artifact(); bad["source_refs"] = [{**ref(), "path": "../secret"}]
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_PATH"):
             validate_artifact(bad)

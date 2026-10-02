@@ -135,7 +135,7 @@ def validate_docs_change(record: Mapping[str, Any]) -> dict:
         if not isinstance(item, dict) or set(item) != required:
             raise ArtifactError("E_DOCS_SCHEMA", "/payload/changes/%d" % i, "closed change row required")
         path = _path(item["path"], "/payload/changes/%d/path" % i)
-        if item["kind"] not in {"add", "modify", "delete"}:
+        if type(item["kind"]) is not str or item["kind"] not in {"add", "modify", "delete"}:
             raise ArtifactError("E_DOCS_SCHEMA", path, "unsupported change kind")
         _sha(item["before_sha256"], "/payload/changes/%d/before_sha256" % i)
         _sha(item["after_sha256"], "/payload/changes/%d/after_sha256" % i)

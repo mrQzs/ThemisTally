@@ -191,7 +191,8 @@ def validate_change_report(record: Mapping[str, Any]) -> Dict[str, Any]:
     payload = normalized["payload"]
     if set(payload) != {"mode", "evidence_class", "change_mode", "scope", "files", "link_bindings"}:
         _fail("E_CHANGE_SCHEMA", "/payload", "closed change payload required")
-    if payload["mode"] not in {"offline", "local_reference", "production"} or payload["evidence_class"] not in EVIDENCE_CLASSES:
+    if (type(payload["mode"]) is not str or payload["mode"] not in {"offline", "local_reference", "production"}
+            or type(payload["evidence_class"]) is not str or payload["evidence_class"] not in EVIDENCE_CLASSES):
         _fail("E_CHANGE_SCHEMA", "/payload", "invalid mode or evidence class")
     if payload["mode"] != "production" and payload["evidence_class"] == "PRODUCTION":
         _fail("E_CHANGE_EVIDENCE", "/payload/evidence_class", "production evidence requires production mode")

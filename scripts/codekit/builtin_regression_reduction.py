@@ -10,7 +10,8 @@ def reduce_regression_and_mutation(regression: Mapping[str, Any], mutation: Mapp
     remains visible as ``BLOCKED``.  Only two PASS outcomes produce PASS.
     """
     for name, value in (("regression", regression), ("mutation", mutation)):
-        if not isinstance(value, Mapping) or value.get("outcome") not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN"}:
+        if (not isinstance(value, Mapping) or type(value.get("outcome")) is not str
+                or value.get("outcome") not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN"}):
             raise ArtifactError("E_REDUCTION", f"/{name}", "invalid outcome")
     outcomes = (regression["outcome"], mutation["outcome"])
     if "FAIL" in outcomes:

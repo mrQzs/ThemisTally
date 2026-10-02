@@ -44,6 +44,9 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaises(ProjectionError) as caught:
             consumer.consume_batch([ProjectionEvent(1, "ledger", "usage", {"units": 3}, event_id)], generation=1)
         self.assertEqual(caught.exception.code, "E_EVENT_ID")
+        with self.assertRaises(ProjectionError) as caught:
+            event_identity("ledger", "usage", [])
+        self.assertEqual(caught.exception.code, "E_EVENT_PAYLOAD")
 
     def test_consumer_requires_contiguous_sequences_and_generation(self):
         consumer = OutboxProjection(generation=2)
@@ -85,6 +88,12 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaises(ProjectionError) as caught:
             render_brief({"health": "degraded", "issues": None})
         self.assertEqual(caught.exception.code, "E_ISSUES")
+        with self.assertRaises(ProjectionError) as caught:
+            project_state(**{**common, "source_coverage": []})
+        self.assertEqual(caught.exception.code, "E_COVERAGE")
+        with self.assertRaises(ProjectionError) as caught:
+            render_brief({"health": [], "source_coverage": "complete", "issues": []})
+        self.assertEqual(caught.exception.code, "E_STATE")
 
 
 if __name__ == "__main__":

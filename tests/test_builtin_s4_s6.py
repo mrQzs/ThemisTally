@@ -47,6 +47,8 @@ class S4RegressionMutationTests(unittest.TestCase):
     def test_reduction_does_not_use_best_of(self):
         self.assertEqual(reduce_regression_and_mutation({"outcome": "PASS"}, {"outcome": "BLOCKED"})["outcome"], "BLOCKED")
         self.assertEqual(reduce_regression_and_mutation({"outcome": "FAIL"}, {"outcome": "PASS"})["outcome"], "FAIL")
+        with self.assertRaisesRegex(ArtifactError, "E_REDUCTION"):
+            reduce_regression_and_mutation({"outcome": []}, {"outcome": "PASS"})
 
 class S5ExecutionTests(unittest.TestCase):
     def test_deterministic_evidence_is_reference_only_without_dispatcher(self):
@@ -70,6 +72,8 @@ class S5ExecutionTests(unittest.TestCase):
                                  candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=forged)
 
     def test_check_evidence_rejects_malformed_boundary_values(self):
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_STATUS"):
+            make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status=[])
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_RECEIPT"):
             make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=1)
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):

@@ -1,4 +1,5 @@
 import sys
+import copy
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,18 @@ class ChangeTests(unittest.TestCase):
             self.report(scope=None)
         with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
             self.report(files=None)
+
+    def test_validator_rejects_untyped_payload_enums(self):
+        report = self.report()
+        forged = copy.deepcopy(report)
+        forged["payload"]["mode"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
+            from codekit.builtin_change import validate_change_report
+            validate_change_report(forged)
+        forged = copy.deepcopy(report)
+        forged["payload"]["evidence_class"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
+            validate_change_report(forged)
 
 
 if __name__ == "__main__":

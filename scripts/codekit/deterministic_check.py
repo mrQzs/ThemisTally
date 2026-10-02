@@ -26,7 +26,7 @@ def make_check_evidence(*, check_plan_id: str, candidate_digest: str, environmen
                         status: str, dispatcher_connected: bool = False,
                         output_digest: str | None = None, reason: str | None = None,
                         dispatcher_receipt: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    if status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
+    if type(status) is not str or status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_CHECK_STATUS", "unsupported check status")
     if type(dispatcher_connected) is not bool:
         _err("E_CHECK_RECEIPT", "dispatcher_connected must be boolean")
@@ -78,7 +78,7 @@ def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candi
             for field in ("check_execution_id", "check_plan_id", "candidate_digest", "environment_digest")):
         _err("E_CHECK_EVIDENCE", "deterministic check evidence required")
     status = evidence["status"]
-    if status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN", "REFERENCE_ONLY"}:
+    if type(status) is not str or status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN", "REFERENCE_ONLY"}:
         _err("E_CHECK_EVIDENCE", "invalid evidence status")
     required = {"check_execution_id", "check_plan_id", "candidate_digest", "environment_digest", "status"}
     if not required.issubset(evidence):
@@ -97,7 +97,7 @@ def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candi
         if ref is not None and ref.get("sha256") != evidence[field]:
             _err("E_CHECK_EVIDENCE", "artifact binding differs from check evidence")
     observed = evidence.get("observed_status", status)
-    if observed not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
+    if type(observed) is not str or observed not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_CHECK_EVIDENCE", "observed check status required")
     for field in ("output_digest", "reason"):
         value = evidence.get(field)

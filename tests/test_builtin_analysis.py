@@ -61,6 +61,17 @@ class AnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_SOURCE"):
             self.report_with(source_refs=None)
 
+    def test_validator_rejects_untyped_payload_enums(self):
+        report = self.report()
+        forged = copy.deepcopy(report)
+        forged["payload"]["analysis_mode"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_MODE"):
+            validate_analysis_report(forged)
+        forged = copy.deepcopy(report)
+        forged["payload"]["evidence_class"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_EVIDENCE"):
+            validate_analysis_report(forged)
+
 
 if __name__ == "__main__":
     unittest.main()

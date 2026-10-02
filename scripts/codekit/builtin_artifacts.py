@@ -92,12 +92,12 @@ def validate_artifact(record: Mapping[str, Any]) -> Dict[str, Any]:
     required = {"record_type", "schema_version", "artifact_id", "producer", "status", "source_refs", "candidate_ref", "environment_ref", "payload"}
     if not isinstance(record, dict) or set(record) != required:
         _fail("E_ARTIFACT_SCHEMA", "/", "artifact has unknown or missing fields")
-    if record["record_type"] not in FAMILIES or record["schema_version"] != 1:
+    if type(record["record_type"]) is not str or record["record_type"] not in FAMILIES or record["schema_version"] != 1:
         _fail("E_ARTIFACT_VERSION", "/record_type", "unsupported artifact family/version")
     if not isinstance(record["artifact_id"], str) or not record["artifact_id"]:
         _fail("E_ARTIFACT_SCHEMA", "/artifact_id", "non-empty artifact id required")
     _producer(record["producer"])
-    if record["status"] not in STATUSES:
+    if type(record["status"]) is not str or record["status"] not in STATUSES:
         _fail("E_ARTIFACT_STATUS", "/status", "unknown artifact status")
     refs = record["source_refs"]
     if not isinstance(refs, list):

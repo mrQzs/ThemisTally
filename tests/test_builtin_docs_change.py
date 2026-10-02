@@ -1,4 +1,5 @@
 import hashlib
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -52,5 +53,10 @@ class DocsChangeTests(unittest.TestCase):
             build_docs_change({}, {"docs/a.md": b"new"}, writable_paths=None)
         with self.assertRaisesRegex(ArtifactError, "E_DOCS_SCHEMA"):
             build_docs_change({}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"], status=[])
+        record = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])
+        forged = copy.deepcopy(record)
+        forged["payload"]["changes"][0]["kind"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SCHEMA"):
+            validate_docs_change(forged)
 
 if __name__ == "__main__": unittest.main()

@@ -44,6 +44,9 @@ class RecipeCompilerTests(unittest.TestCase):
         bad = recipe(); bad["steps"][0]["command"] = ["sh", "-c", "echo $TOKEN"]
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_COMMAND"):
             validate_recipe(bad)
+        bad = recipe(); bad["steps"][0]["kind"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_KIND"):
+            validate_recipe(bad)
 
     def test_receipt_drift_is_rejected(self):
         result = compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
@@ -78,6 +81,9 @@ class RecipeCompilerTests(unittest.TestCase):
             receipt["receipt_sha256"] = digest(unsigned)
             with self.assertRaisesRegex(ArtifactError, error):
                 validate_compile_receipt(receipt)
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_STATUS"):
+            compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
+                           source_refs=[ref()], candidate_ref=None, environment_ref=None, status=[])
 
 
 if __name__ == "__main__":

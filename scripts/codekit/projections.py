@@ -74,6 +74,8 @@ def _canonical(value: Any) -> str:
 def event_identity(source_key: str, event_type: str, payload: Mapping[str, Any]) -> tuple[str, str]:
     if type(source_key) is not str or not source_key or type(event_type) is not str or not event_type:
         raise ProjectionError("E_EVENT_ID", "source and event type required")
+    if not isinstance(payload, Mapping):
+        raise ProjectionError("E_EVENT_PAYLOAD", "event payload mapping required")
     payload_hash = hashlib.sha256(_canonical(dict(payload)).encode("utf-8")).hexdigest()
     raw = _canonical({"source_key": source_key, "event_type": event_type, "payload_hash": payload_hash}).encode("utf-8")
     return hashlib.sha256(raw).hexdigest(), payload_hash
@@ -163,7 +165,8 @@ def project_state(*, indexed_cursor: int, applied_cursor: int, source_vector: Ma
         raise ProjectionError("E_SOURCE_VECTOR", "source vector must map names to non-negative cursors")
     if type(verification_ref) is not str or not verification_ref or type(as_of) is not str or not as_of:
         raise ProjectionError("E_STATE", "verification reference and timestamp are required")
-    if source_coverage not in {"complete", "partial", "unknown"} or budget_coverage not in {"complete", "partial", "unknown"}:
+    if (type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}
+            or type(budget_coverage) is not str or budget_coverage not in {"complete", "partial", "unknown"}):
         raise ProjectionError("E_COVERAGE", "unsupported coverage")
     if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
         raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
@@ -188,7 +191,8 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
     source_coverage = state.get("source_coverage", "unknown")
     issues = state.get("issues", [])
     truncated = state.get("truncated", False)
-    if health not in {"healthy", "degraded"} or source_coverage not in {"complete", "partial", "unknown"}:
+    if (type(health) is not str or health not in {"healthy", "degraded"}
+            or type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}):
         raise ProjectionError("E_STATE", "invalid health or source coverage")
     if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
         raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")

@@ -64,7 +64,7 @@ def _steps(recipe: Mapping[str, Any]) -> Tuple[list[Dict[str, Any]], Tuple[str, 
         if step_id in by_id:
             _fail("E_RECIPE_DUPLICATE", f"{field}/id", "duplicate step id")
         kind = raw["kind"]
-        if kind not in BUSINESS_KINDS:
+        if type(kind) is not str or kind not in BUSINESS_KINDS:
             _fail("E_RECIPE_KIND", f"{field}/kind", "unsupported business step kind")
         deps = raw["depends_on"]
         if not isinstance(deps, list) or any(type(item) is not str for item in deps) or len(set(deps)) != len(deps):
@@ -125,7 +125,7 @@ def validate_recipe(recipe: Mapping[str, Any]) -> Dict[str, Any]:
 
 def _receipt(*, receipt_id: str, recipe: Mapping[str, Any], ordered_ids: Sequence[str], status: str,
              errors: Sequence[str]) -> Dict[str, Any]:
-    if status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
+    if type(status) is not str or status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_STATUS", "/status", "compile receipt cannot claim production success")
     by_id = {step["id"]: step for step in recipe["steps"]}
     receipt = {"record_type": RECEIPT_RECORD_TYPE, "schema_version": 1, "receipt_id": receipt_id,
@@ -164,7 +164,7 @@ def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Map
         _id(item, f"/ordered_step_ids/{index}")
     if len(set(receipt["ordered_step_ids"])) != len(receipt["ordered_step_ids"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "duplicate step id")
-    if any(item not in {"execute", "freeze", "check", "verdict"} for item in receipt["stage_kinds"]):
+    if any(type(item) is not str or item not in {"execute", "freeze", "check", "verdict"} for item in receipt["stage_kinds"]):
         _fail("E_RECIPE_RECEIPT", "/stage_kinds", "invalid dispatcher stage")
     if not isinstance(receipt["step_dependencies"], Mapping) or set(receipt["step_dependencies"]) != set(receipt["ordered_step_ids"]):
         _fail("E_RECIPE_RECEIPT", "/step_dependencies", "dependency map must bind every step")
@@ -191,6 +191,8 @@ def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Map
 def compile_recipe(recipe: Mapping[str, Any], *, artifact_id: str, producer: Mapping[str, Any],
                    source_refs: Sequence[Mapping[str, Any]], candidate_ref: Optional[Mapping[str, Any]],
                    environment_ref: Optional[Mapping[str, Any]], status: str = "REFERENCE_ONLY") -> Dict[str, Any]:
+    if type(status) is not str or status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
+        _fail("E_RECIPE_STATUS", "/status", "compile receipt cannot claim production success")
     normalized = validate_recipe(recipe)
     steps, order = _steps(normalized)
     stages = []
@@ -234,7 +236,8 @@ def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
         ids.add(stage["id"])
         if type(stage["order"]) is not int or stage["order"] != index:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}/order", "stage order must be contiguous")
-        if stage["kind"] not in {"execute", "freeze", "check", "verdict"} or stage["business_kind"] not in BUSINESS_KINDS:
+        if (type(stage["kind"]) is not str or stage["kind"] not in {"execute", "freeze", "check", "verdict"}
+                or type(stage["business_kind"]) is not str or stage["business_kind"] not in BUSINESS_KINDS):
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}", "unsupported stage mapping")
         if STAGE_MAP[stage["business_kind"]] != stage["kind"] or stage["deterministic"] is not True or stage["dispatcher_stage"] is not False:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}", "invalid stage mapping flags")
