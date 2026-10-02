@@ -2,13 +2,13 @@
 
 Verdict: `REVISE` / production gate `BLOCKED`.
 
-This planner-side follow-up covers `94b2b3b` and the two offline commits before
+This planner-side follow-up covers `5a3ef84` and the offline commits before
 it. It records local evidence only; it is not a Pi attempt and does not replace
 an independent `review-pi` verdict.
 
 ## Verified local evidence
 
-- 92 focused 01–06/08 tests pass, including authorization journal recovery,
+- 94 focused 01–06/08 tests pass, including authorization journal recovery,
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
@@ -26,11 +26,11 @@ an independent `review-pi` verdict.
   recovery and operation idempotency; it is not the production authorization
   service.
 - `projection_store.py` persists projection events, checkpoints and generation
-  handoff, with cursor CAS and conservative reconciliation; it is not wired to
+  handoff, fsyncs each append, with cursor CAS and conservative reconciliation; it is not wired to
   the core dispatcher outbox.
 - `offline_runner.py` runs explicit local argv commands without a shell,
-  records candidate/runner/environment hashes, and classifies timeout/start,
-  syntax/import and nonzero outcomes. Mutation inputs are caller-supplied
+  rejects credential-like environment overrides, records candidate/runner/environment hashes,
+  and classifies timeout/start, syntax/import and nonzero outcomes. Mutation inputs are caller-supplied
   commands; no isolated candidate mutation dispatcher is connected.
 - Catalog loading now verifies manifest-bound locks and repository resource
   bytes. Permission/platform checks return a readiness projection only.
