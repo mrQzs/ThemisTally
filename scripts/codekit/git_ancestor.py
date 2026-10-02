@@ -53,7 +53,11 @@ def interpret_ancestor(result: RawResult | Mapping[str, Any]) -> AncestorObserva
             return AncestorObservation("UNKNOWN", ("invalid_result",))
     if not isinstance(result, RawResult):
         return AncestorObservation("UNKNOWN", ("invalid_result",))
-    if result.timed_out or result.truncated or type(result.returncode) is not int or type(result.stdout) is not bytes:
+    if (result.timed_out or result.truncated or type(result.timed_out) is not bool
+            or type(result.truncated) is not bool
+            or (result.returncode is not None and type(result.returncode) is not int)
+            or type(result.stdout) is not bytes or type(result.stderr) is not bytes
+            or (result.path_exists is not None and type(result.path_exists) is not bool)):
         return AncestorObservation("UNKNOWN", ("probe_incomplete",))
     if result.returncode == 0:
         if result.stdout not in (b"", b"\n", b"\r\n"):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import os
 import shutil
 import sys
@@ -72,6 +73,22 @@ class GitProbeTests(unittest.TestCase):
         self.assertIn("OTHER_FLAG", result)
         for key, value in GIT_ENV_SET:
             self.assertEqual(result[key], value)
+
+    def test_environment_policy_rejects_non_text_and_all_git_overrides(self) -> None:
+        result = build_git_env({
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.filemode",
+            "GIT_CONFIG_VALUE_0": "false", "GIT_OBJECT_DIRECTORY": "redirect",
+            "GCM_INTERACTIVE": "yes", "KEEP": "yes",
+        })
+        self.assertNotIn("GIT_CONFIG_COUNT", result)
+        self.assertNotIn("GIT_CONFIG_KEY_0", result)
+        self.assertNotIn("GIT_CONFIG_VALUE_0", result)
+        self.assertNotIn("GIT_OBJECT_DIRECTORY", result)
+        self.assertEqual(result["GCM_INTERACTIVE"], "never")
+        self.assertEqual(result["KEEP"], "yes")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            build_git_env({"KEEP": 1})  # type: ignore[dict-item]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
 
     def test_injected_runner_receives_only_fixed_commands_and_sanitized_env(self) -> None:
         captured = []
@@ -218,6 +235,31 @@ class GitProbeTests(unittest.TestCase):
         self.assertEqual(observation.unknown_reasons, ())
         self.assertFalse(observation.authorization_verified)
         self.assertFalse(observation.coverage_verified)
+
+    def test_plan_and_lfs_inputs_cannot_bypass_fixed_boundaries(self) -> None:
+        tampered = replace(self.plan, commands=self.plan.commands + (("git", "status"),))
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            interpret_probe(tampered, valid_results(), lfs_status=False)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_FIELDS")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            run_probe(tampered, runner=lambda *_args: RawResult(1, b""))
+        self.assertEqual(caught.exception.code, "E_SCHEMA_FIELDS")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            inspect_lfs_evidence([], {}, complete=True)  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            inspect_lfs_evidence({}, {}, complete=None)  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+
+    def test_malformed_lfs_status_or_path_fact_stays_unknown(self) -> None:
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            interpret_probe(self.plan, valid_results(), lfs_status="false")  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+        results = valid_results()
+        results[GRAFTS] = RawResult(0, b"D:/repo/.git/info/grafts\n", path_exists="false")  # type: ignore[arg-type]
+        observation = interpret_probe(self.plan, results, lfs_status=False)
+        self.assertIn("grafts_probe_unknown", observation.unknown_reasons)
+        self.assertFalse(observation.verified)
 
     def test_metadata_identity_and_object_format_mismatch_block(self) -> None:
         results = valid_results()

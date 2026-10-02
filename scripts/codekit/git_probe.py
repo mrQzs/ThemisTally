@@ -116,22 +116,7 @@ def build_probe_plan(binding: BaselineBinding | Mapping[str, Any],
     if validated.object_format != identity.object_format:
         _error("E_CONTEXT_BINDING", "/object_format", "object_format_identity_mismatch")
 
-    prefix = ("git", "-C", identity.worktree_root)
-    commands = (
-        prefix + ("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
-                   "--git-common-dir", "--show-object-format=storage", "--is-inside-work-tree",
-                   "--is-shallow-repository"),
-        prefix + ("cat-file", "-t", validated.base_sha),
-        prefix + ("rev-parse", "--verify", "--quiet", "--end-of-options",
-                   f"{validated.base_sha}^{{tree}}"),
-        prefix + ("cat-file", "-t", validated.tree_sha),
-        prefix + ("replace", "-l"),
-        prefix + ("rev-parse", "--path-format=absolute", "--git-path", "info/grafts"),
-        prefix + ("config", "--get", "extensions.partialClone"),
-        prefix + ("config", "--get-regexp", r"^remote\..*\.promisor$"),
-        prefix + ("rev-parse", "--path-format=absolute", "--git-path", "objects/info/alternates"),
-        prefix + ("ls-tree", "-r", "-z", "--full-tree", validated.base_sha),
-    )
+    commands = _probe_commands(identity, validated.base_sha, validated.tree_sha)
     return ProbePlan(identity, validated.base_sha, validated.tree_sha, commands)
 
 
@@ -139,8 +124,17 @@ def build_git_env(source: Mapping[str, str]) -> dict[str, str]:
     """Return the probe environment policy without mutating the caller's env."""
     if not isinstance(source, Mapping):
         _error("E_SCHEMA_TYPE", "/environment", "mapping_required")
-    result = {key: value for key, value in source.items()
-              if type(key) is str and key.upper() not in GIT_REDIRECT_VARS}
+    result: dict[str, str] = {}
+    for key, value in source.items():
+        if type(key) is not str or type(value) is not str:
+            _error("E_SCHEMA_TYPE", "/environment", "string_key_value_required")
+        # Git has a large family of environment overrides. Keeping even a
+        # non-redirect GIT_* variable (for example GIT_CONFIG_COUNT or
+        # GIT_CONFIG_GLOBAL) lets the caller change object/config resolution.
+        # The probe owns all Git policy and re-adds only the fixed settings.
+        if key.upper().startswith("GIT_") or key.upper() == "GCM_INTERACTIVE":
+            continue
+        result[key] = value
     result.update(dict(GIT_ENV_SET))
     return result
 
@@ -157,6 +151,7 @@ def run_probe(plan: ProbePlan, *, runner: ProbeRunner | None = None,
     """
     if not isinstance(plan, ProbePlan):
         _error("E_SCHEMA_TYPE", "/plan", "probe_plan_required")
+    _validate_probe_plan(plan)
     env = build_git_env(dict(os.environ) if source_env is None else source_env)
     execute = _run_subprocess if runner is None else runner
     results: dict[str, RawResult] = {}
@@ -175,6 +170,11 @@ def run_probe(plan: ProbePlan, *, runner: ProbeRunner | None = None,
 def interpret_probe(plan: ProbePlan, results: Mapping[str, RawResult], *, lfs_status: bool | None = None
                     ) -> GitProbeObservation:
     """Interpret bounded command results without executing or authorizing anything."""
+    if not isinstance(plan, ProbePlan):
+        _error("E_SCHEMA_TYPE", "/plan", "probe_plan_required")
+    _validate_probe_plan(plan)
+    if lfs_status is not None and type(lfs_status) is not bool:
+        _error("E_SCHEMA_TYPE", "/lfs_status", "boolean_or_null_required")
     blocked: set[str] = set()
     unknown: set[str] = set()
     facts: dict[str, bool | None] = {
@@ -282,6 +282,12 @@ def inspect_lfs_evidence(attributes: Mapping[str, bytes], blobs: Mapping[str, by
     clean repository.  A positive marker blocks immediately; otherwise the
     result is clean only when the caller declares the scan complete.
     """
+    if not isinstance(attributes, Mapping):
+        _error("E_SCHEMA_TYPE", "/attributes", "mapping_required")
+    if not isinstance(blobs, Mapping):
+        _error("E_SCHEMA_TYPE", "/blobs", "mapping_required")
+    if type(complete) is not bool:
+        _error("E_SCHEMA_TYPE", "/complete", "boolean_required")
     protocols.require_int(max_bytes, field="/max_bytes", minimum=1)
     reasons: set[str] = set()
     for path, raw in attributes.items():
@@ -346,9 +352,14 @@ def _result(results: Mapping[str, RawResult], name: str, unknown: set[str]) -> R
 
 
 def _usable(result: RawResult) -> bool:
-    if result.timed_out or result.truncated or type(result.stdout) is not bytes:
+    if (result.timed_out or result.truncated or type(result.timed_out) is not bool
+            or type(result.truncated) is not bool):
         return False
-    return type(result.returncode) is int
+    if (result.returncode is not None and type(result.returncode) is not int):
+        return False
+    if type(result.stdout) is not bytes or type(result.stderr) is not bytes:
+        return False
+    return result.path_exists is None or type(result.path_exists) is bool
 
 
 def _lines(raw: bytes) -> list[str] | None:
@@ -407,7 +418,8 @@ def _interpret_path(results: Mapping[str, RawResult], name: str, present: str, u
     result = _result(results, name, unknown)
     if result is None:
         return
-    if not _usable(result) or result.returncode != 0 or result.path_exists is None:
+    if (not _usable(result) or result.returncode != 0 or result.path_exists is None
+            or type(result.path_exists) is not bool):
         unknown.add(unavailable)
     elif result.path_exists:
         blocked.add(present)
@@ -503,6 +515,11 @@ def _path_exists_within_common_dir(result: RawResult, common_dir: str) -> bool |
     if lines is None or len(lines) != 1:
         return None
     try:
+        # The fixed command asks Git for an absolute path. Resolving an
+        # injected relative path against the adapter process cwd would make a
+        # malformed runner result look like a safe in-repository path.
+        if not os.path.isabs(lines[0]):
+            return None
         target = os.path.realpath(lines[0])
         root = os.path.realpath(common_dir)
         if os.path.commonpath((target, root)) != root:
@@ -510,6 +527,41 @@ def _path_exists_within_common_dir(result: RawResult, common_dir: str) -> bool |
         return Path(target).exists()
     except (OSError, ValueError):
         return None
+
+
+def _probe_commands(identity: TrustedRepositoryIdentity, base_sha: str, tree_sha: str
+                    ) -> tuple[tuple[str, ...], ...]:
+    prefix = ("git", "-C", identity.worktree_root)
+    return (
+        prefix + ("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
+                   "--git-common-dir", "--show-object-format=storage", "--is-inside-work-tree",
+                   "--is-shallow-repository"),
+        prefix + ("cat-file", "-t", base_sha),
+        prefix + ("rev-parse", "--verify", "--quiet", "--end-of-options", f"{base_sha}^{{tree}}"),
+        prefix + ("cat-file", "-t", tree_sha),
+        prefix + ("replace", "-l"),
+        prefix + ("rev-parse", "--path-format=absolute", "--git-path", "info/grafts"),
+        prefix + ("config", "--get", "extensions.partialClone"),
+        prefix + ("config", "--get-regexp", r"^remote\..*\.promisor$"),
+        prefix + ("rev-parse", "--path-format=absolute", "--git-path", "objects/info/alternates"),
+        prefix + ("ls-tree", "-r", "-z", "--full-tree", base_sha),
+    )
+
+
+def _validate_probe_plan(plan: ProbePlan) -> None:
+    """Reject hand-built plans that bypass the fixed read-only command set."""
+    _validate_identity(plan.identity)
+    protocols.validate_git_oid(plan.base_sha, plan.identity.object_format, field="/plan/base_sha")
+    protocols.validate_git_oid(plan.tree_sha, plan.identity.object_format, field="/plan/tree_sha")
+    if type(plan.commands) is not tuple or plan.commands != _probe_commands(
+            plan.identity, plan.base_sha, plan.tree_sha):
+        _error("E_SCHEMA_FIELDS", "/plan/commands", "fixed_probe_commands_required")
+    if plan.environment_remove != GIT_REDIRECT_VARS:
+        _error("E_SCHEMA_FIELDS", "/plan/environment_remove", "fixed_environment_policy_required")
+    if plan.environment_set != GIT_ENV_SET:
+        _error("E_SCHEMA_FIELDS", "/plan/environment_set", "fixed_environment_policy_required")
+    protocols.require_int(plan.timeout_seconds, field="/plan/timeout_seconds", minimum=1)
+    protocols.require_int(plan.max_output_bytes, field="/plan/max_output_bytes", minimum=1)
 
 
 __all__ = [
