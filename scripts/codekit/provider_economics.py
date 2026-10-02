@@ -62,10 +62,21 @@ def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = N
     """
     if _depth > _MAX_CANONICAL_DEPTH:
         raise EconomicsError("E_CANONICAL", path)
+    # Economic counters are integral.  Keep bool as a distinct JSON scalar
+    # (``bool`` is an ``int`` subclass) and reject arbitrary numeric subclasses
+    # so fingerprints cannot depend on serializer coercion.
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is int:
+        if value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER:
+            raise EconomicsError("E_CANONICAL", path)
+        return value
     if isinstance(value, float):
         raise EconomicsError("E_FLOAT", path)
-    if isinstance(value, str) and any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
-        raise EconomicsError("E_CANONICAL", path)
+    if type(value) is str:
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise EconomicsError("E_CANONICAL", path)
+        return value
     if _stack is None:
         _stack = set()
     if isinstance(value, Mapping):
@@ -94,7 +105,7 @@ def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = N
                     for index, item in enumerate(value)]
         finally:
             _stack.remove(identity)
-    return value
+    raise EconomicsError("E_CANONICAL", path)
 
 
 def canonical_json(value: Any) -> str:

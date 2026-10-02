@@ -69,6 +69,20 @@ class UnifiedLedgerTests(unittest.TestCase):
                 evidence_hash(payload)
             self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
 
+    def test_evidence_hash_accepts_json_boolean_and_finite_float(self):
+        self.assertNotEqual(evidence_hash({"value": True}), evidence_hash({"value": 1}))
+        self.assertNotEqual(evidence_hash({"value": 1.0}), evidence_hash({"value": 1}))
+
+    def test_evidence_hash_rejects_unsupported_numeric_subclass(self):
+        from enum import IntEnum
+
+        class Value(IntEnum):
+            ONE = 1
+
+        with self.assertRaises(AtomicLedgerError) as caught:
+            evidence_hash({"value": Value.ONE})
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+
     def test_attempt_lifecycle_is_fenced_and_idempotent(self):
         operation = self.claim()
         self.assertEqual(self.store.create_attempt(

@@ -58,6 +58,22 @@ class ProviderEconomicsTests(unittest.TestCase):
             canonical_json({"value": "\ud800"})
         self.assertEqual(surrogate.exception.code, "E_CANONICAL")
 
+    def test_canonical_rejects_unsafe_integer_and_numeric_subclass(self):
+        with self.assertRaises(EconomicsError) as unsafe:
+            canonical_json({"value": 2**53})
+        self.assertEqual(unsafe.exception.code, "E_CANONICAL")
+        from enum import IntEnum
+
+        class Value(IntEnum):
+            ONE = 1
+
+        with self.assertRaises(EconomicsError) as subclass:
+            canonical_json({"value": Value.ONE})
+        self.assertEqual(subclass.exception.code, "E_CANONICAL")
+
+    def test_canonical_keeps_boolean_distinct_from_integer(self):
+        self.assertEqual(canonical_json({"value": True}), '{"value":true}')
+
     def test_provider_identity_isolated_by_account_source_and_model(self):
         first = ProviderIdentity("vendor", "model", "acct-a", "offline")
         second = ProviderIdentity("vendor", "model", "acct-b", "offline")

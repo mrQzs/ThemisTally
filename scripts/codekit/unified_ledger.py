@@ -59,14 +59,20 @@ def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = N
         raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
     if _stack is None:
         _stack = set()
-    if isinstance(value, str):
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is str:
         if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
             raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
         return value
     if type(value) is int and (value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER):
         raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
-    if isinstance(value, float) and not math.isfinite(value):
-        raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+    if type(value) is int:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
+        return value
     if isinstance(value, Mapping):
         identity = id(value)
         if identity in _stack:
@@ -93,7 +99,7 @@ def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = N
                     for index, item in enumerate(value)]
         finally:
             _stack.remove(identity)
-    return value
+    raise AtomicLedgerError("E_SCHEMA_TYPE", ("payload",))
 
 
 def _json(value: Mapping[str, Any]) -> str:

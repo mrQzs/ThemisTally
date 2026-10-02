@@ -10,7 +10,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from codekit.protocols import MAX_SAFE_INTEGER
-from codekit.usage_settlement import SettlementError, SettlementFact, SettlementPolicy, UsageSettlement
+from codekit.usage_settlement import (SettlementError, SettlementFact, SettlementPolicy,
+                                       UsageSettlement, _canonical)
 
 
 class UsageSettlementTests(unittest.TestCase):
@@ -185,6 +186,17 @@ class UsageSettlementTests(unittest.TestCase):
             return ledger
         self.assertEqual(build().audit_fingerprint(), build().audit_fingerprint())
         self.assertEqual(build().audit_record(), build().audit_record())
+
+    def test_canonical_rejects_cycles_unsafe_values_and_unknown_objects(self) -> None:
+        value = {}
+        value["self"] = value
+        for payload in (value, {"value": 2**53}, {"value": float("nan")},
+                        {"value": "\ud800"}, {1: "integer-key"}, {"value": object()}):
+            with self.subTest(payload=payload if payload is not value else "cycle"), self.assertRaises(SettlementError):
+                _canonical(payload)
+
+    def test_canonical_distinguishes_boolean_and_integer(self) -> None:
+        self.assertNotEqual(_canonical({"value": True}), _canonical({"value": 1}))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -29,6 +30,7 @@ _DIMENSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _CURRENCY = re.compile(r"[A-Z][A-Z0-9]{2,11}\Z")
 _KINDS = frozenset(("cumulative", "final", "unknown", "refund"))
 _REFUND_POLICIES = frozenset(("record_only", "release"))
+_MAX_CANONICAL_DEPTH = 64
 
 
 class SettlementError(ValueError):
@@ -79,11 +81,68 @@ def _mapping(values: Mapping[str, int], name: str, *, nonempty: bool = False) ->
     return MappingProxyType(result)
 
 
+def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = None,
+                     _depth: int = 0) -> Any:
+    """Copy strict JSON values before hashing settlement history.
+
+    Audit fingerprints must fail as a typed settlement error for cycles,
+    surrogate text, non-string object keys, unsafe integers, non-finite floats,
+    and unsupported Python objects.  ``json.dumps`` alone would otherwise leak
+    implementation exceptions or silently coerce values such as ``IntEnum``.
+    """
+    if _depth > _MAX_CANONICAL_DEPTH:
+        raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is str:
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+        return value
+    if type(value) is int:
+        if value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER:
+            raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+        return value
+    if _stack is None:
+        _stack = set()
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in _stack:
+            raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+        _stack.add(identity)
+        try:
+            result: dict[str, Any] = {}
+            for key, item in value.items():
+                if type(key) is not str:
+                    raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+                result[key] = _canonical_value(item, path + "." + key,
+                                                _stack=_stack, _depth=_depth + 1)
+            return result
+        finally:
+            _stack.remove(identity)
+    if isinstance(value, (list, tuple)):
+        identity = id(value)
+        if identity in _stack:
+            raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+        _stack.add(identity)
+        try:
+            return [_canonical_value(item, f"{path}[{index}]", _stack=_stack,
+                                     _depth=_depth + 1)
+                    for index, item in enumerate(value)]
+        finally:
+            _stack.remove(identity)
+    raise SettlementError("E_SETTLEMENT_CANONICAL", path)
+
+
 def _canonical(value: Any) -> str:
     try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        normalized = _canonical_value(value)
+        return json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
                           allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise SettlementError("E_SETTLEMENT_CANONICAL", "canonical JSON required") from exc
 
 
