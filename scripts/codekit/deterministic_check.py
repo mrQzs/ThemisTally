@@ -64,7 +64,14 @@ def make_check_evidence(*, check_plan_id: str, candidate_digest: str, environmen
 def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                          environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                          plan: Mapping[str, Any], evidence: Mapping[str, Any]) -> dict[str, Any]:
-    if not isinstance(evidence, Mapping) or evidence.get("execution_mode") != "deterministic_check" or not evidence.get("check_execution_id"):
+    base_evidence_fields = {"execution_mode", "check_execution_id", "check_plan_id", "candidate_digest",
+                            "environment_digest", "status", "observed_status", "output_digest", "reason"}
+    evidence_fields = set(evidence) if isinstance(evidence, Mapping) else set()
+    if not isinstance(evidence, Mapping) or evidence_fields not in (base_evidence_fields, base_evidence_fields | {"dispatcher_receipt"}):
+        _err("E_CHECK_EVIDENCE", "closed deterministic check evidence required")
+    if evidence.get("execution_mode") != "deterministic_check" or any(
+            type(evidence.get(field)) is not str or not evidence[field]
+            for field in ("check_execution_id", "check_plan_id", "candidate_digest", "environment_digest")):
         _err("E_CHECK_EVIDENCE", "deterministic check evidence required")
     status = evidence["status"]
     if status not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN", "REFERENCE_ONLY"}:
@@ -88,6 +95,10 @@ def build_check_artifact(*, artifact_id: str, producer: Mapping[str, str], candi
     observed = evidence.get("observed_status", status)
     if observed not in {"PASS", "FAIL", "BLOCKED", "NOT_RUN", "UNKNOWN"}:
         _err("E_CHECK_EVIDENCE", "observed check status required")
+    for field in ("output_digest", "reason"):
+        value = evidence.get(field)
+        if value is not None and (type(value) is not str or not value or len(value) > (256 if field == "output_digest" else 4096)):
+            _err("E_CHECK_EVIDENCE", f"{field} must be bounded text or null")
     expected_status = "REFERENCE_ONLY" if observed in {"PASS", "FAIL"} else observed
     if status not in {observed, expected_status}:
         _err("E_CHECK_EVIDENCE", "evidence status differs from observed status")

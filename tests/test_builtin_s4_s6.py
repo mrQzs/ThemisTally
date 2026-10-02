@@ -67,6 +67,15 @@ class S5ExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
             build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
                                  candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=None)
+        evidence = make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS")
+        forged = dict(evidence); forged["extra"] = True
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=forged)
+        evidence = make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="FAIL")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence={**evidence, "forged": True})
 
     def test_platform_failures_reconcile_conservatively(self):
         obs = make_platform_observation(os_name="windows", adapter_id="native-windows")
