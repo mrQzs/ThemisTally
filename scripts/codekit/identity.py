@@ -43,7 +43,8 @@ def _text(value: object, field: str, *, allow_empty: bool = False) -> str:
         raise IdentityModelError("E_IDENTITY_FIELD", field, "text_required")
     if "\r" in value or "\n" in value:
         raise IdentityModelError("E_IDENTITY_FIELD", field, "line_break_forbidden")
-    if any(ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+    if any(ord(ch) == 0x7F or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF
+           for ch in value):
         raise IdentityModelError("E_IDENTITY_FIELD", field, "unicode_scalar_required")
     return value
 
@@ -84,6 +85,7 @@ def _canonical_value(value: Any, field: str = "/value", active: set[int] | None 
         if isinstance(container, Mapping):
             result = {}
             for key in sorted(container):
+                _text(key, f"{field}/{key}", allow_empty=True)
                 result[key] = _canonical_value(container[key], f"{field}/{key}", active)
             return result
         return [_canonical_value(item, f"{field}/{index}", active) for index, item in enumerate(container)]
@@ -397,6 +399,13 @@ class ResourceIdentity:
 class ResourceClaim:
     resource: ResourceIdentity
     mode: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.resource, ResourceIdentity):
+            raise IdentityModelError("E_IDENTITY_TYPE", "/claim/resource", "resource_identity_required")
+        if type(self.mode) is not str or not self.mode:
+            raise IdentityModelError("E_IDENTITY_FIELD", "/claim/mode", "mode_required")
+        _text(self.mode, "/claim/mode")
 
     @property
     def status(self) -> str:

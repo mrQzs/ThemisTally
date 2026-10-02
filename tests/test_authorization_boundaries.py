@@ -13,7 +13,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from codekit.authorization import ApprovalLedger, AuthorizationError, validate_approval
+from codekit.authorization import ApprovalLedger, AuthorizationError, canonical_bytes, sha256, validate_approval
 
 
 def ref(name: str = "task", *, path: Optional[str] = None) -> dict:
@@ -222,6 +222,33 @@ class ApprovalLedgerBoundaryTests(unittest.TestCase):
             ledger.consume_once(scope="scope", action="run", input_refs=None, operation_id="consume", expected_generation=1)
         with self.assertRaisesRegex(AuthorizationError, "E_LOCK_BINDINGS"):
             ledger.lock(scope="scope", receipt_id="receipt", operation_id="lock", bindings=None)
+
+    def test_authorization_fingerprints_reject_non_strict_json_and_byte_subclasses(self) -> None:
+        # json.dumps would otherwise coerce both tuple values and integer keys,
+        # allowing a non-JSON Python value to obtain a valid authorization hash.
+        for value in (("tuple",), {1: "integer-key"}, {"x": object()}):
+            with self.subTest(value=repr(value)), self.assertRaises(AuthorizationError):
+                canonical_bytes(value)
+        class BytesSubclass(bytes):
+            pass
+        with self.assertRaisesRegex(AuthorizationError, "E_RESOURCE_BYTES"):
+            sha256(BytesSubclass(b"payload"))
+        self.assertEqual(sha256(b"payload"), sha256(b"payload"))
+
+    def test_resource_refs_use_immutable_identity_and_portable_path_profile(self) -> None:
+        for field, value in (("id", "latest"), ("id", "UPPER"), ("kind", "Not-a-kind"),
+                             ("kind", "k" * 65), ("path", "fixtures/file\x7f.json"),
+                             ("path", "fixtures/CON/file.json"), ("path", "fixtures/file\ud800.json")):
+            bad = approval()
+            bad["subject_ref"] = {**ref(), field: value}
+            with self.subTest(field=field, value=repr(value)), self.assertRaises(AuthorizationError):
+                validate_approval(bad)
+
+    def test_approval_input_refs_have_bounded_nonempty_shape(self) -> None:
+        with self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_SCHEMA"):
+            validate_approval({**approval(), "input_refs": []})
+        with self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_SCHEMA"):
+            validate_approval({**approval(), "input_refs": [ref(str(index)) for index in range(1025)]})
 
 
 if __name__ == "__main__":

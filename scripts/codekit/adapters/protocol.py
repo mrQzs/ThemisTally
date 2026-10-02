@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
-from ..protocols import DEFAULT_MAX_BYTES, ProtocolError, check_json_value
+from ..protocols import DEFAULT_MAX_BYTES, MAX_SAFE_INTEGER, ProtocolError, check_json_value
 from ..runtime import RuntimeErrorCode, validate_argv
 
 
@@ -111,7 +111,7 @@ class NormalizedEvent:
     payload: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if type(self.seq) is not int or self.seq < 0:
+        if type(self.seq) is not int or not 0 <= self.seq <= MAX_SAFE_INTEGER:
             raise AdapterError("E_ADAPTER_EVENT_SEQ", "seq must be a non-negative integer", seq=self.seq if type(self.seq) is int else None)
         _text(self.event_id, "event_id")
         _text(self.event_type, "event_type")
@@ -159,10 +159,14 @@ def normalize_events(events: Iterable[Mapping[str, Any]], *, expected_source: st
             raise AdapterError("E_ADAPTER_EVENT", "event must be an object", seq=expected_seq)
         if any(type(key) is not str for key in raw):
             raise AdapterError("E_ADAPTER_EVENT", "event fields must have string names", seq=expected_seq)
+        required = {"seq", "event_id", "type", "source", "payload"}
+        missing = required - set(raw)
+        if missing:
+            raise AdapterError("E_ADAPTER_EVENT", "event is missing a required field", seq=expected_seq)
         if set(raw) - {"seq", "event_id", "type", "source", "payload"}:
             raise AdapterError("E_ADAPTER_EVENT", "unknown event field", seq=expected_seq)
         seq = raw.get("seq")
-        if type(seq) is not int or seq < 0:
+        if type(seq) is not int or not 0 <= seq <= MAX_SAFE_INTEGER:
             raise AdapterError("E_ADAPTER_EVENT_SEQ", "seq must be a non-negative integer", seq=expected_seq)
         if seq != expected_seq:
             raise AdapterError("E_ADAPTER_EVENT_GAP", f"expected seq {expected_seq}, got {seq}", seq=seq)

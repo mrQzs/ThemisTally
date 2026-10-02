@@ -28,6 +28,7 @@ PLATFORMS = frozenset({"linux", "macos", "windows"})
 LOCAL_TOP_LEVEL = {"schema_version", "runtimes", "platforms"}
 LOCAL_RUNTIME_KEYS = {"executable_by_platform"}
 LOCAL_PLATFORM_KEYS = {"shell_executable", "tools"}
+MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class ConfigError(ValueError):
@@ -88,16 +89,7 @@ def load_strict_json(raw: bytes | str) -> Dict[str, Any]:
         raise ConfigError("E_JSON_SYNTAX", "/", str(exc)) from exc
     if not isinstance(value, dict):
         _fail("E_CFG_SCHEMA", "/", "top-level configuration must be an object")
-    def check_depth(item: Any, depth: int = 0) -> None:
-        if depth > 64:
-            _fail("E_JSON_DEPTH", "/", "configuration nesting exceeds 64 levels")
-        if isinstance(item, float) and not math.isfinite(item):
-            _fail("E_JSON_NUMBER", "/", "non-finite number is forbidden")
-        if isinstance(item, dict):
-            for child in item.values(): check_depth(child, depth + 1)
-        elif isinstance(item, list):
-            for child in item: check_depth(child, depth + 1)
-    check_depth(value)
+    _validate_json_tree(value)
     if "schema_version" in value and type(value["schema_version"]) is bool:
         _fail("E_CFG_VERSION", "/schema_version", "boolean is not a schema version")
     return value
@@ -107,21 +99,88 @@ def canonical_json_bytes(value: Any) -> bytes:
     """Return the v2 semantic snapshot encoding (UTF-8, sorted, newline)."""
 
     try:
+        _validate_json_tree(value)
         return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except ConfigError:
+        raise
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise ConfigError("E_JSON_NUMBER", "/", str(exc)) from exc
+
+
+def _validate_json_tree(value: Any, *, path: str = "/", depth: int = 0,
+                        active: Optional[set[int]] = None) -> None:
+    """Validate values before semantic JSON serialization.
+
+    ``json.dumps`` otherwise coerces integer keys and accepts arbitrarily
+    large integers.  Direct callers also can supply cycles, tuples, controls
+    or surrogate-containing strings that cannot come from strict JSON input.
+    """
+    if depth > 64:
+        _fail("E_JSON_DEPTH", path, "configuration nesting exceeds 64 levels")
+    if value is None or type(value) is bool:
+        return
+    if type(value) is int:
+        if abs(value) > MAX_SAFE_INTEGER:
+            _fail("E_JSON_NUMBER", path, "integer exceeds safe JSON range")
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            _fail("E_JSON_NUMBER", path, "non-finite number is forbidden")
+        return
+    if type(value) is str:
+        # Empty strings are valid JSON values; protocol text fields apply their
+        # own non-empty checks later.
+        _string(value, path, nonempty=False, control_code="E_JSON_ENCODING")
+        return
+    if type(value) is dict:
+        if active is None:
+            active = set()
+        marker = id(value)
+        if marker in active:
+            _fail("E_JSON_CYCLE", path, "cyclic configuration value")
+        active.add(marker)
+        try:
+            for key, child in value.items():
+                if type(key) is not str:
+                    _fail("E_JSON_TYPE", path, "object keys must be strings")
+                child_path = f"{path.rstrip('/')}/{key}"
+                _string(key, child_path, nonempty=False, control_code="E_JSON_ENCODING")
+                _validate_json_tree(child, path=child_path, depth=depth + 1, active=active)
+        finally:
+            active.remove(marker)
+        return
+    if type(value) is list:
+        if active is None:
+            active = set()
+        marker = id(value)
+        if marker in active:
+            _fail("E_JSON_CYCLE", path, "cyclic configuration value")
+        active.add(marker)
+        try:
+            for index, child in enumerate(value):
+                _validate_json_tree(child, path=f"{path.rstrip('/')}/{index}", depth=depth + 1, active=active)
+        finally:
+            active.remove(marker)
+        return
+    _fail("E_JSON_TYPE", path, "value must be a JSON-native type")
 
 
 def _object(value: Any, path: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         _fail("E_CFG_SCHEMA", path, "object required")
+    if any(type(key) is not str for key in value):
+        _fail("E_CFG_SCHEMA", path, "object keys must be strings")
     return value
 
 
 def _string(value: Any, path: str, *, nonempty: bool = True, control_code: str = "E_CFG_SCHEMA") -> str:
     if type(value) is not str or (nonempty and not value):
         _fail("E_CFG_SCHEMA", path, "non-empty string required")
-    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+    # Configuration strings cross JSON/argv/environment boundaries.  Reject
+    # all C0/C1 controls, DEL and isolated UTF-16 surrogates before they can
+    # enter a semantic snapshot or diagnostic.
+    if any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
         _fail(control_code, path, "control characters are forbidden")
     return value
 
@@ -149,8 +208,13 @@ def _string_list(value: Any, path: str, *, nonempty: bool = False, control_code:
     if not isinstance(value, list) or (nonempty and not value):
         _fail("E_CFG_SCHEMA", path, "string array required")
     result = []
+    seen = set()
     for index, item in enumerate(value):
-        result.append(_string(item, f"{path}/{index}", control_code=control_code))
+        item = _string(item, f"{path}/{index}", control_code=control_code)
+        if item in seen:
+            _fail("E_CFG_SCHEMA", f"{path}/{index}", "duplicate string entry")
+        seen.add(item)
+        result.append(item)
     return result
 
 
@@ -168,7 +232,8 @@ def _check_notes(obj: Mapping[str, Any], path: str, allowed: set[str]) -> None:
                 _fail("E_CFG_NOTE_SHADOW", f"{path}/{key}", "unregistered or semantic note name")
             if type(value) is not str or len(value) > 4096:
                 _fail("E_CFG_SCHEMA", f"{path}/{key}", "note must be a string up to 4096 characters")
-            if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            if any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+                   for char in value):
                 _fail("E_CFG_SCHEMA", f"{path}/{key}", "control characters are forbidden")
 
 
@@ -182,6 +247,31 @@ class AdapterDescriptor:
     provider: Optional[str] = None
     deployment: Optional[str] = None
     descriptor_sha256: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # Descriptors are trusted inputs to the resolver.  Reject malformed
+        # identities at registration time rather than after a profile picks
+        # one, and keep vectors immutable/deduplicated.
+        _id(self.adapter_id, "/adapter/adapter_id")
+        _string(self.descriptor_version, "/adapter/descriptor_version")
+        for field, values in (("capabilities", self.capabilities),
+                              ("model_ids", self.model_ids),
+                              ("option_keys", self.option_keys)):
+            if type(values) is not tuple:
+                _fail("E_CFG_ADAPTER", f"/adapter/{field}", "tuple required")
+            seen = set()
+            for index, value in enumerate(values):
+                _string(value, f"/adapter/{field}/{index}")
+                if value in seen:
+                    _fail("E_CFG_ADAPTER", f"/adapter/{field}/{index}", "duplicate descriptor entry")
+                seen.add(value)
+        for field, value in (("provider", self.provider), ("deployment", self.deployment)):
+            if value is not None:
+                _string(value, f"/adapter/{field}")
+        if self.descriptor_sha256 is not None and (
+                type(self.descriptor_sha256) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}", self.descriptor_sha256)):
+            _fail("E_CFG_ADAPTER", "/adapter/descriptor_sha256", "lowercase SHA-256 required")
 
     def validate_model(self, model: Mapping[str, Any], path: str) -> None:
         _object(model, path)
@@ -406,7 +496,10 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
     _platform(platform, "/platform")
     result = copy.deepcopy(dict(config))
     obj = _object(local, "/local")
-    unknown_top = set(obj) - LOCAL_TOP_LEVEL - {k for k in obj if k.startswith("_")}
+    # Local declarations are an intentionally tiny patch language.  Silently
+    # accepting arbitrary underscore-prefixed keys would turn a typo into an
+    # unreviewed extension point and diverge from the strict project schema.
+    unknown_top = set(obj) - LOCAL_TOP_LEVEL
     if unknown_top:
         _fail("E_CFG_PATH", "/local", f"local field is not allowed: {sorted(unknown_top)}")
     if "schema_version" in obj and obj["schema_version"] != config.get("schema_version"):
@@ -435,12 +528,18 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
     platforms = obj.get("platforms", {})
     if not isinstance(platforms, dict):
         _fail("E_CFG_PATH", "/local/platforms", "platform patch map required")
+    if set(platforms) - {platform}:
+        _fail("E_CFG_PLATFORM", "/local/platforms", "patch target must be the selected platform")
     if platform in platforms:
+        if platform not in result.get("platforms", {}):
+            _fail("E_CFG_REFERENCE", f"/local/platforms/{platform}", "platform is not declared by project")
         patch = _object(platforms[platform], f"/local/platforms/{platform}")
         if set(patch) - LOCAL_PLATFORM_KEYS:
             _fail("E_CFG_PATH", f"/local/platforms/{platform}", "unsupported local platform field")
         target = result.setdefault("platforms", {}).setdefault(platform, {})
         if "shell_executable" in patch:
+            if "shell_executable" not in target:
+                _fail("E_CFG_REFERENCE", f"/local/platforms/{platform}/shell_executable", "shell is not declared")
             target["shell_executable"] = _absolute_path(patch["shell_executable"], f"/local/platforms/{platform}/shell_executable", platform=platform)
         if "tools" in patch:
             tools = _object(patch["tools"], f"/local/platforms/{platform}/tools")

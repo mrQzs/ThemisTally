@@ -12,15 +12,20 @@ import copy
 import hashlib
 import json
 import re
-import ntpath
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
+from . import protocols
+
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+LOGICAL_ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
+RESOURCE_KIND = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 DECISIONS = {"APPROVED", "REJECTED", "REVOKED", "UNKNOWN"}
 MAX_SAFE_INTEGER = 2**53 - 1
+MAX_INPUT_REFS = 1024
+MAX_AUTHORIZATION_REFS = 64
 
 
 class AuthorizationError(ValueError):
@@ -48,28 +53,47 @@ def _identity(value: Any, path: str, *, code: str = "E_APPROVAL_SCHEMA") -> str:
 
 
 def canonical_bytes(value: Any) -> bytes:
+    """Return the canonical strict-JSON bytes used for authorization hashes."""
     try:
+        # json.dumps alone coerces tuples and non-string object keys.  Such
+        # coercion would let distinct Python values share one fingerprint.
+        protocols.check_json_value(value, max_bytes=protocols.DEFAULT_MAX_BYTES)
         return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+    except protocols.ProtocolError as exc:
+        raise AuthorizationError(exc.code, exc.field or "/", exc.reason) from exc
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise AuthorizationError("E_JSON_NUMBER", "/", str(exc)) from exc
 
 
 def sha256(value: Any) -> str:
-    return hashlib.sha256(canonical_bytes(value) if not isinstance(value, bytes) else value).hexdigest()
+    if type(value) is bytes:
+        return hashlib.sha256(value).hexdigest()
+    if isinstance(value, bytes):
+        _fail("E_RESOURCE_BYTES", "/", "exact bytes required")
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
 def _ref(value: Any, path: str) -> Dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {"kind", "id", "path", "sha256"}:
+    if type(value) is not dict or set(value) != {"kind", "id", "path", "sha256"}:
         _fail("E_RESOURCE_FIELD", path, "ResourceRef must be closed")
-    for key in ("kind", "id", "path"):
-        if not isinstance(value[key], str) or not value[key]:
-            _fail("E_RESOURCE_FIELD", f"{path}/{key}", "non-empty string required")
+    kind, ref_id, raw_path = value["kind"], value["id"], value["path"]
+    if type(kind) is not str or RESOURCE_KIND.fullmatch(kind) is None:
+        _fail("E_RESOURCE_FIELD", f"{path}/kind", "resource kind syntax required")
+    if type(ref_id) is not str or LOGICAL_ID.fullmatch(ref_id) is None:
+        _fail("E_RESOURCE_FIELD", f"{path}/id", "immutable logical id required")
+    if ref_id.lower() in {"latest", "head", "current"}:
+        _fail("E_RESOURCE_FIELD", f"{path}/id", "mutable aliases are forbidden")
+    if type(raw_path) is not str or not raw_path:
+        _fail("E_RESOURCE_PATH", f"{path}/path", "non-empty path required")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_RESOURCE_HASH", f"{path}/sha256", "lowercase SHA-256 required")
-    normalized = value["path"].replace("\\", "/")
-    if (normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(ord(ch) < 32 for ch in normalized)):
-        _fail("E_RESOURCE_PATH", f"{path}/path", "path traversal is forbidden")
-    result = copy.deepcopy(value); result["path"] = normalized
+    normalized = raw_path.replace("\\", "/")
+    try:
+        protocols.validate_business_path(normalized, field=f"{path}/path")
+    except protocols.ProtocolError as exc:
+        _fail("E_RESOURCE_PATH", f"{path}/path", exc.reason)
+    result = copy.deepcopy(value)
+    result["path"] = normalized
     return result
 
 
@@ -77,8 +101,12 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
     required = {"record_type", "schema_version", "approval_id", "request_id", "subject_ref", "input_refs",
                 "reviewed_actions", "decision", "recorded_at", "reviewer"}
     allowed = required | {"authorization_refs", "conditions", "expires_at", "not_before", "purpose", "rationale", "supersedes"}
-    if not isinstance(record, dict):
+    if type(record) is not dict:
         _fail("E_APPROVAL_SCHEMA", "/", "approval must be an object")
+    try:
+        protocols.check_json_value(record, max_bytes=protocols.DEFAULT_MAX_BYTES)
+    except protocols.ProtocolError as exc:
+        _fail(exc.code, exc.field or "/", exc.reason)
     unknown = set(record) - allowed
     if unknown:
         _fail("E_APPROVAL_UNKNOWN_FIELD", "/", f"unknown fields: {sorted(unknown)}")
@@ -102,7 +130,7 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
                 _fail("E_APPROVAL_TIME", f"/{timestamp}", "timezone offset required")
     if record.get("not_before") and record.get("expires_at") and datetime.fromisoformat(record["not_before"].replace("Z", "+00:00")) >= datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00")):
         _fail("E_APPROVAL_TIME", "/expires_at", "expiry must follow not_before")
-    if not isinstance(record["input_refs"], list):
+    if type(record["input_refs"]) is not list or not record["input_refs"] or len(record["input_refs"]) > MAX_INPUT_REFS:
         _fail("E_APPROVAL_SCHEMA", "/input_refs", "unique ResourceRef array required")
     input_refs = [_ref(value, f"/input_refs/{i}") for i, value in enumerate(record["input_refs"])]
     if len({sha256(value) for value in input_refs}) != len(input_refs):
@@ -120,7 +148,7 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
     normalized_refs = {}
     for name in ("authorization_refs",):
         if name in record:
-            if not isinstance(record[name], list):
+            if type(record[name]) is not list or len(record[name]) > MAX_AUTHORIZATION_REFS:
                 _fail("E_APPROVAL_SCHEMA", f"/{name}", "array required")
             fingerprints = set()
             normalized_refs[name] = []

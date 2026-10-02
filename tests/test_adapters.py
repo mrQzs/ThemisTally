@@ -68,6 +68,10 @@ class AdapterTests(unittest.TestCase):
             normalize_events([event(0, "wat")], expected_source="offline")
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SOURCE"):
             normalize_events([{**event(0, "run_started"), "source": "pi"}], expected_source="offline")
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_EVENT"):
+            normalize_events([{k: v for k, v in event(0, "run_started").items() if k != "payload"}], expected_source="offline")
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_EVENT_SEQ"):
+            normalize_events([event(2**53, "run_started")], expected_source="offline")
 
     def test_offline_adapter_preserves_unknown_events_as_unsettled_evidence(self):
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "future_event")])
@@ -78,6 +82,22 @@ class AdapterTests(unittest.TestCase):
     def test_missing_terminal_is_unknown_not_success(self):
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "assistant")])
         self.assertFalse(result.settled); self.assertEqual(result.status, "UNKNOWN"); self.assertFalse(result.raw_complete)
+
+    def test_unknown_record_before_terminal_cannot_be_promoted_to_success(self):
+        result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "future_event"), event(2, "run_finished")])
+        self.assertFalse(result.settled)
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertFalse(result.raw_complete)
+
+    def test_explicit_error_is_a_complete_terminal_observation(self):
+        result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "error")])
+        self.assertTrue(result.settled)
+        self.assertEqual(result.status, "ERROR")
+        self.assertTrue(result.raw_complete)
+
+    def test_non_invocation_is_structured_error(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_INVOCATION"):
+            OfflineAdapter().run({}, [event(0, "run_started")])
 
     def test_terminal_is_unique_and_final(self):
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
@@ -105,6 +125,8 @@ class AdapterTests(unittest.TestCase):
             normalize_events([event(0, "usage", {"value": math.nan})], expected_source="offline")
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SCHEMA"):
             normalize_events([], expected_source="offline", preserve_unknown=1)
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_TOOL"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_started", {"tool_id": "bad\x01"})])
 
     def test_unknown_event_is_explicit_and_terminal_stream_is_closed(self):
         result = OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "future_event")])
