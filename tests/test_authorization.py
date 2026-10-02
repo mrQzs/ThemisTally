@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from codekit.authorization import ApprovalLedger, AuthorizationError, sha256, validate_approval
+from codekit.authorization import ApprovalLedger, AuthorizationError, sha256, validate_approval, validate_authorization
 
 
 def ref(name="task"):
@@ -52,6 +52,13 @@ class AuthorizationTests(unittest.TestCase):
         lock = ledger.lock(scope="scope", receipt_id="lock1", operation_id="lock-op", bindings=[ref("input")])
         self.assertEqual(lock.head_generation, 1)
         self.assertEqual(lock.bindings[0][1], 1)
+
+    def test_strict_v2_authorization_requires_explicit_context(self):
+        with self.assertRaisesRegex(AuthorizationError, "E_AUTHORIZATION_SCHEMA"):
+            validate_authorization(approval())
+        value = {**approval(), "purpose": "run approved checks", "authorization_refs": [ref("auth")],
+                 "conditions": {"platform": "offline"}, "rationale": "reviewed fixture"}
+        self.assertEqual(validate_authorization(value)["purpose"], "run approved checks")
 
 
 if __name__ == "__main__":

@@ -106,6 +106,33 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
     return copy.deepcopy(dict(record))
 
 
+def validate_authorization(record: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate the stricter v2 authorization envelope.
+
+    ``validate_approval`` remains the compatibility parser for legacy records;
+    this entry point is used when a new authorization is being issued and
+    requires the explicit purpose, evidence references, conditions and reason
+    fields from the 03 contract.
+    """
+    normalized = validate_approval(record)
+    required = {"purpose", "authorization_refs", "conditions", "rationale"}
+    missing = sorted(required - set(normalized))
+    if missing:
+        _fail("E_AUTHORIZATION_SCHEMA", "/", f"missing fields: {missing}")
+    if type(normalized["purpose"]) is not str or not normalized["purpose"].strip():
+        _fail("E_AUTHORIZATION_SCHEMA", "/purpose", "non-empty purpose required")
+    refs = normalized["authorization_refs"]
+    if not isinstance(refs, list) or not refs:
+        _fail("E_AUTHORIZATION_SCHEMA", "/authorization_refs", "non-empty ResourceRef array required")
+    for index, value in enumerate(refs):
+        _ref(value, f"/authorization_refs/{index}")
+    if not isinstance(normalized["conditions"], dict):
+        _fail("E_AUTHORIZATION_SCHEMA", "/conditions", "conditions object required")
+    if type(normalized["rationale"]) is not str or not normalized["rationale"].strip():
+        _fail("E_AUTHORIZATION_SCHEMA", "/rationale", "non-empty rationale required")
+    return normalized
+
+
 @dataclass(frozen=True)
 class ApprovalHead:
     scope: str
@@ -233,4 +260,4 @@ class ApprovalLedger:
         return copy.deepcopy(lock)
 
 
-__all__ = ["ApprovalHead", "ApprovalLedger", "AuthorizationError", "InputLock", "canonical_bytes", "sha256", "validate_approval"]
+__all__ = ["ApprovalHead", "ApprovalLedger", "AuthorizationError", "InputLock", "canonical_bytes", "sha256", "validate_approval", "validate_authorization"]
