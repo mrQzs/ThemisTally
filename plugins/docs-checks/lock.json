@@ -1,0 +1,22 @@
+{
+  "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
+  "generation": 1,
+  "lock_sha256": "1b1ed44ae45d48ac03d1b1498577417fdd3424011e3f67a495ae0f1145897dad",
+  "plugins": [
+    {
+      "manifest_sha256": "5b77e9ce752be58c133ddb3f97b46abf410754e78a5f6c365452a1efc7c109c2",
+      "plugin_id": "docs-checks",
+      "resources": [
+        {
+          "id": "docs-checks.readme",
+          "kind": "file",
+          "path": "plugins/docs-checks/README.md",
+          "sha256": "e24bda01dad233b807b69553d7729a0f3c239fc007e3167ded5d2a7a151fdfe5"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "record_type": "plugin-lock",
+  "schema_version": 1
+}

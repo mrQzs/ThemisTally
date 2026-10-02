@@ -1,0 +1,22 @@
+{
+  "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
+  "generation": 1,
+  "lock_sha256": "ad7b4e3692b397e604e430a5402ca988bfc869405188148aad5d114d8e31dfcb",
+  "plugins": [
+    {
+      "manifest_sha256": "eeec61185cee41fe472c10ff5ca9ca558ce68ad065126425571f785897e78b46",
+      "plugin_id": "repo-analysis",
+      "resources": [
+        {
+          "id": "repo-analysis.readme",
+          "kind": "file",
+          "path": "plugins/repo-analysis/README.md",
+          "sha256": "cb7a22bb081e47c2c657f75668f5b491df3d0e89261e7ab827a8aafc7628bb3b"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "record_type": "plugin-lock",
+  "schema_version": 1
+}

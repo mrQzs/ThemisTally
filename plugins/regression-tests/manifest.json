@@ -1,0 +1,43 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "regression-tests",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "regression-tests.readme",
+      "kind": "file",
+      "path": "plugins/regression-tests/README.md",
+      "sha256": "736d04cbd57e53a15106e6a86362ad6a5717c76251d426ef13c9b83d4bbd20e6"
+    }
+  ],
+  "roles": [
+    "planner"
+  ],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

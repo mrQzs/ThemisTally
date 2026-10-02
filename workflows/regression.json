@@ -1,0 +1,57 @@
+{
+  "evidence_status": "REFERENCE_ONLY",
+  "recipe_id": "regression",
+  "recipe_version": 1,
+  "record_type": "builtin-workflow-recipe",
+  "schema_version": 1,
+  "stages": [
+    {
+      "depends_on": [],
+      "execution": "plugin",
+      "id": "analysis",
+      "kind": "analysis",
+      "plugin_id": "repo-analysis",
+      "plugin_version": "1.0.0"
+    },
+    {
+      "depends_on": [
+        "analysis"
+      ],
+      "execution": "plugin",
+      "id": "change",
+      "kind": "change",
+      "plugin_id": "regression-tests",
+      "plugin_version": "1.0.0"
+    },
+    {
+      "depends_on": [
+        "change"
+      ],
+      "execution": "core",
+      "id": "freeze",
+      "kind": "freeze",
+      "plugin_id": null,
+      "plugin_version": null
+    },
+    {
+      "depends_on": [
+        "freeze"
+      ],
+      "execution": "plugin",
+      "id": "check",
+      "kind": "check",
+      "plugin_id": "mutation-review",
+      "plugin_version": "1.0.0"
+    },
+    {
+      "depends_on": [
+        "check"
+      ],
+      "execution": "core",
+      "id": "review",
+      "kind": "review",
+      "plugin_id": null,
+      "plugin_version": null
+    }
+  ]
+}

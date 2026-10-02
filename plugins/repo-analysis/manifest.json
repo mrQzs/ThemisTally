@@ -1,0 +1,43 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "repo-analysis",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "repo-analysis.readme",
+      "kind": "file",
+      "path": "plugins/repo-analysis/README.md",
+      "sha256": "cb7a22bb081e47c2c657f75668f5b491df3d0e89261e7ab827a8aafc7628bb3b"
+    }
+  ],
+  "roles": [
+    "planner"
+  ],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

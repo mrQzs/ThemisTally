@@ -9,7 +9,7 @@ from codekit.builtin_mutation import build_mutation_plan, reduce_mutation_result
 from codekit.builtin_regression_reduction import reduce_regression_and_mutation
 from codekit.deterministic_check import check_execution_id, make_check_evidence
 from codekit.builtin_platform import classify_failure, make_platform_observation, reconcile_failure
-from codekit.builtin_catalog import build_catalog, project_catalog_readiness
+from codekit.builtin_catalog import build_catalog, load_builtin_catalog, load_builtin_recipes, project_catalog_readiness
 from codekit.builtin_projections import CursorProjection, ProjectionEvent, project_state, render_brief
 
 
@@ -62,6 +62,12 @@ class S6ProjectionTests(unittest.TestCase):
         self.assertEqual(ready["status"], "READY")
         self.assertEqual(ready["dispatch_eligibility"], "not_evaluated")
         self.assertEqual(project_catalog_readiness(catalog, requested=["missing"])["status"], "BLOCKED")
+
+    def test_checked_in_seven_plugin_and_three_recipe_fixtures(self):
+        catalog = load_builtin_catalog()
+        self.assertEqual({row["plugin_id"] for row in catalog["plugins"]}, {"repo-analysis", "code-change", "python-checks", "docs-change", "docs-checks", "regression-tests", "mutation-review"})
+        recipes = load_builtin_recipes()
+        self.assertEqual({row["recipe_id"] for row in recipes["recipes"]}, {"repair", "docs", "regression"})
 
     def test_cursor_dedup_gap_and_rebuild(self):
         p = CursorProjection()

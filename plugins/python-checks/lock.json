@@ -1,0 +1,22 @@
+{
+  "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
+  "generation": 1,
+  "lock_sha256": "f133c3b868aac5016c45d8c78f10f2523c18b988493d601b3eb820dac85c0b31",
+  "plugins": [
+    {
+      "manifest_sha256": "2e1cf724a8003632225b9feb66d01201c7a3748675502550223660d22953c8bd",
+      "plugin_id": "python-checks",
+      "resources": [
+        {
+          "id": "python-checks.readme",
+          "kind": "file",
+          "path": "plugins/python-checks/README.md",
+          "sha256": "d7aa044c27a99f29553b99016a8a52289bf1d894c71902639520562c3b178236"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "record_type": "plugin-lock",
+  "schema_version": 1
+}
