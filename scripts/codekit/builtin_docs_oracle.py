@@ -96,6 +96,10 @@ def content_oracle(document: Any, expected_text: str, *, encoding: str = "utf-8"
     """Compare one fixed expected sentence; no model or semantic inference."""
     if not isinstance(expected_text, str) or not expected_text:
         raise ArtifactError("E_CONTENT_ORACLE", "/expected_text", "fixed expected text required")
+    if type(encoding) is not str or not encoding:
+        raise ArtifactError("E_CONTENT_ENCODING", "/encoding", "encoding name required")
+    if document_sha256 is not None and (type(document_sha256) is not str or len(document_sha256) != 64 or any(char not in "0123456789abcdef" for char in document_sha256)):
+        raise ArtifactError("E_CONTENT_ORACLE", "/document_sha256", "lowercase SHA-256 required")
     if isinstance(document, bytes):
         try:
             text = document.decode(encoding)
@@ -166,13 +170,21 @@ def review_readiness(expected: CheckBinding, observations: Sequence[Mapping[str,
 
 def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mapping[str, Any], observations: Sequence[Mapping[str, Any]], readiness: Mapping[str, Any], source_refs: Sequence[Mapping[str, str]] = (), candidate_ref: Optional[Mapping[str, str]] = None, environment_ref: Optional[Mapping[str, str]] = None, artifact_id: str = "review-bundle", status: Optional[str] = None) -> dict:
     """Assemble a review-bundle; never promotes readiness to a core verdict."""
+    if status is not None and type(status) is not str:
+        raise ArtifactError("E_REVIEW_INPUT", "/status", "status must be text or null")
     if status == "PASS":
         raise ArtifactError("E_REVIEW_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher verdict")
     if not isinstance(docs_check, Mapping) or docs_check.get("record_type") != "docs-check":
         raise ArtifactError("E_REVIEW_INPUT", "/docs_check", "validated docs-check artifact required")
     docs_check = validate_docs_check(docs_check)
-    if not isinstance(content_review, Mapping) or content_review.get("status") not in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH", "UNKNOWN"}:
+    if not isinstance(content_review, Mapping) or type(content_review.get("status")) is not str or content_review.get("status") not in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH", "UNKNOWN"}:
         raise ArtifactError("E_REVIEW_INPUT", "/content_review", "fixed oracle result required")
+    if not isinstance(observations, Sequence) or isinstance(observations, (str, bytes)):
+        raise ArtifactError("E_REVIEW_INPUT", "/observations", "observation sequence required")
+    if not isinstance(readiness, Mapping):
+        raise ArtifactError("E_REVIEW_INPUT", "/readiness", "readiness mapping required")
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
+        raise ArtifactError("E_REVIEW_INPUT", "/source_refs", "source refs sequence required")
     payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}
     if status is None:
         status = "READY" if readiness.get("status") == "READY_FOR_SUPERVISOR_DECISION" else "BLOCKED"

@@ -43,14 +43,15 @@ def reduce_mutation_results(plan: Mapping[str, Any], baseline_status: str, resul
     if dict(plan) != normalized_plan:
         _err("E_MUTATION_PLAN", "mutation plan is not canonical")
     plan = normalized_plan
-    if baseline_status not in _ALLOWED:
+    if type(baseline_status) is not str or baseline_status not in _ALLOWED:
         _err("E_MUTATION_RESULT", "invalid baseline status")
     if not isinstance(results, Sequence) or isinstance(results, (str, bytes)):
         _err("E_MUTATION_RESULT", "mutation results must be an array")
     wanted = {row["id"] for row in plan["mutations"]}
     got: dict[str, str] = {}
     for row in results:
-        if not isinstance(row, Mapping) or set(row) != {"id", "status"} or row["id"] not in wanted or row["status"] not in _ALLOWED:
+        if (not isinstance(row, Mapping) or set(row) != {"id", "status"} or type(row.get("id")) is not str
+                or row["id"] not in wanted or type(row.get("status")) is not str or row["status"] not in _ALLOWED):
             _err("E_MUTATION_RESULT", "invalid mutation result")
         if row["id"] in got:
             _err("E_MUTATION_RESULT", "duplicate mutation result")

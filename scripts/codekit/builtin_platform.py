@@ -14,7 +14,7 @@ def _err(code: str, message: str) -> None:
 
 def make_platform_observation(*, os_name: str, adapter_id: str, connected: bool = False,
                               command: Sequence[str] | None = None, environment_digest: str | None = None) -> dict[str, Any]:
-    if os_name not in OS_NAMES or type(adapter_id) is not str or not adapter_id or len(adapter_id) > 128 or any(ord(ch) < 32 for ch in adapter_id):
+    if type(os_name) is not str or os_name not in OS_NAMES or type(adapter_id) is not str or not adapter_id or len(adapter_id) > 128 or any(ord(ch) < 32 for ch in adapter_id):
         _err("E_PLATFORM", "known OS and adapter id required")
     if type(connected) is not bool:
         _err("E_PLATFORM", "connected must be boolean")
@@ -28,7 +28,7 @@ def make_platform_observation(*, os_name: str, adapter_id: str, connected: bool 
 
 def classify_failure(*, kind: str, detail: str | None = None, expected_generation: int | None = None,
                      observed_generation: int | None = None) -> dict[str, Any]:
-    if kind not in FAILURE_KINDS:
+    if type(kind) is not str or kind not in FAILURE_KINDS:
         _err("E_FAILURE", "unknown failure kind")
     if detail is not None and (type(detail) is not str or not detail or len(detail) > 4096 or any(ord(ch) < 32 for ch in detail)):
         _err("E_FAILURE", "detail must be bounded text")

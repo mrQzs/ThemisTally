@@ -39,6 +39,10 @@ class S4RegressionMutationTests(unittest.TestCase):
         self.assertEqual(reduce_mutation_results(plan, "PASS", [{"id": "m1", "status": "FAIL"}, {"id": "m2", "status": "FAIL"}])["outcome"], "PASS")
         self.assertEqual(reduce_mutation_results(plan, "PASS", [{"id": "m1", "status": "PASS"}, {"id": "m2", "status": "FAIL"}])["outcome"], "FAIL")
         self.assertEqual(reduce_mutation_results(plan, "NOT_RUN", [{"id": "m1", "status": "FAIL"}, {"id": "m2", "status": "FAIL"}])["outcome"], "BLOCKED")
+        with self.assertRaisesRegex(ArtifactError, "E_MUTATION_RESULT"):
+            reduce_mutation_results(plan, [], [])
+        with self.assertRaisesRegex(ArtifactError, "E_MUTATION_RESULT"):
+            reduce_mutation_results(plan, "PASS", [{"id": "m1", "status": []}, {"id": "m2", "status": "FAIL"}])
 
     def test_reduction_does_not_use_best_of(self):
         self.assertEqual(reduce_regression_and_mutation({"outcome": "PASS"}, {"outcome": "BLOCKED"})["outcome"], "BLOCKED")
@@ -100,6 +104,8 @@ class S5ExecutionTests(unittest.TestCase):
 
     def test_platform_observation_and_failure_inputs_are_closed(self):
         with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
+            make_platform_observation(os_name=[], adapter_id="native")
+        with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
             make_platform_observation(os_name="windows", adapter_id="native-windows", connected=1)
         with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
             make_platform_observation(os_name="windows", adapter_id="native-windows", command=[])
@@ -107,6 +113,8 @@ class S5ExecutionTests(unittest.TestCase):
             make_platform_observation(os_name="windows", adapter_id="native-windows", environment_digest="bad")
         with self.assertRaisesRegex(ArtifactError, "E_FAILURE"):
             classify_failure(kind="timeout", detail=[])
+        with self.assertRaisesRegex(ArtifactError, "E_FAILURE"):
+            classify_failure(kind=[])
         failure = classify_failure(kind="timeout")
         with self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
             reconcile_failure({}, {**failure, "extra": True})

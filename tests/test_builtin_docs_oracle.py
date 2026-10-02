@@ -11,6 +11,10 @@ class DocsOracleTests(unittest.TestCase):
         self.assertEqual(content_oracle(b"stable sentence", "stable sentence")["status"], "REVIEWED_SATISFIED")
         self.assertEqual(content_oracle(b"wrong", "stable sentence")["status"], "CONTENT_MISMATCH")
         self.assertEqual(content_oracle(b"stable sentence", "stable sentence", document_sha256="0" * 64)["status"], "UNKNOWN")
+        with self.assertRaisesRegex(ArtifactError, "E_CONTENT_ENCODING"):
+            content_oracle(b"stable", "stable", encoding=[])
+        with self.assertRaisesRegex(ArtifactError, "E_CONTENT_ORACLE"):
+            content_oracle(b"stable", "stable", document_sha256="bad")
 
     def test_readiness_requires_core_observations_and_content(self):
         binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
@@ -37,6 +41,13 @@ class DocsOracleTests(unittest.TestCase):
         docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
         with self.assertRaisesRegex(ArtifactError, "E_REVIEW_PRODUCTION_GATE"):
             build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=[observation], readiness=readiness, status="PASS")
+
+    def test_bundle_rejects_untyped_inputs(self):
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        readiness = {"status": "BLOCKED", "issues": []}
+        for kwargs, error in (({"observations": None}, "E_REVIEW_INPUT"), ({"readiness": None}, "E_REVIEW_INPUT"), ({"status": []}, "E_REVIEW_INPUT")):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ArtifactError, error):
+                build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=kwargs.get("observations", []), readiness=kwargs.get("readiness", readiness), **({"status": kwargs["status"]} if "status" in kwargs else {}))
 
     def test_quality_issues_rejects_malformed_observation_and_test_collections(self):
         valid = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
