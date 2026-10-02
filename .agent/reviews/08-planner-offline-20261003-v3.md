@@ -12,6 +12,8 @@ an independent `review-pi` verdict.
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
+- The broader suite excluding long lifecycle dispatcher and legacy end-to-end
+  modules passes 828 tests with 27 skips.
 - `python -m compileall -q scripts/codekit tests` and `git diff --check` pass.
 - WSL Python 3.12 Draft 2020-12 meta-validation passes for 14 schemas.
 - The earlier WSL local stub run recorded 260 dispatcher self-checks with zero
