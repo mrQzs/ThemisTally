@@ -19,6 +19,13 @@ class RuntimeErrorCode(ValueError):
         super().__init__(f"{code}: {message}")
 
 
+def _runtime_text(value: Any, code: str, field: str) -> str:
+    """Validate text fields before hashing or passing them to an adapter."""
+    if type(value) is not str or not value or "\x00" in value:
+        raise RuntimeErrorCode(code, f"{field} must be non-empty text without NUL")
+    return value
+
+
 def validate_argv(command: Any, *, shell: bool = False) -> Tuple[str, ...]:
     if shell:
         raise RuntimeErrorCode("E_RUNTIME_SHELL_ARGV", "shell execution must use a registered shell command contract")
@@ -45,10 +52,14 @@ class InvocationSpec:
     shell: bool = False
 
     def __post_init__(self) -> None:
-        if not self.request_id or not self.run_id or not self.cwd:
-            raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "request, run and cwd are required")
+        _runtime_text(self.request_id, "E_RUNTIME_INVOCATION", "request_id")
+        _runtime_text(self.run_id, "E_RUNTIME_INVOCATION", "run_id")
+        _runtime_text(self.cwd, "E_RUNTIME_INVOCATION", "cwd")
+        if type(self.shell) is not bool:
+            raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "shell must be boolean")
         validate_argv(self.command, shell=self.shell)
-        if len(self.environment_sha256) != 64 or any(x not in "0123456789abcdef" for x in self.environment_sha256):
+        if (type(self.environment_sha256) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}", self.environment_sha256)):
             raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "environment SHA-256 must be lowercase")
         if type(self.timeout_seconds) is not int or self.timeout_seconds <= 0:
             raise RuntimeErrorCode("E_RUNTIME_TIMEOUT", "timeout must be a positive integer")
@@ -68,8 +79,11 @@ class ProcessIdentity:
     def __post_init__(self) -> None:
         if type(self.pid) is not int or self.pid <= 0:
             raise RuntimeErrorCode("E_RUNTIME_PID", "pid must be positive")
-        if not self.boot_id or not self.worktree_id or not re.fullmatch(r"[0-9a-f]{64}", self.executable_sha256):
-            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "complete process identity is required")
+        _runtime_text(self.boot_id, "E_RUNTIME_IDENTITY", "boot_id")
+        _runtime_text(self.worktree_id, "E_RUNTIME_IDENTITY", "worktree_id")
+        if (type(self.executable_sha256) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}", self.executable_sha256)):
+            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "executable_sha256 must be lowercase SHA-256")
 
 
 LIFECYCLE = ("NEW", "STARTING", "STARTED", "STOPPING", "STOPPED", "FAILED", "START_UNKNOWN")
@@ -86,13 +100,26 @@ class Lifecycle:
     generation: int = 0
     identity: Optional[ProcessIdentity] = None
 
+    def __post_init__(self) -> None:
+        if type(self.state) is not str or self.state not in LIFECYCLE:
+            raise RuntimeErrorCode("E_RUNTIME_TRANSITION", "unknown lifecycle state")
+        if type(self.generation) is not int or self.generation < 0:
+            raise RuntimeErrorCode("E_RUNTIME_FENCE", "generation must be a non-negative integer")
+        if self.identity is not None and not isinstance(self.identity, ProcessIdentity):
+            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "identity must be ProcessIdentity")
+        if self.state == "STARTED" and self.identity is None:
+            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "STARTED requires process identity")
+
     def transition(self, state: str, *, identity: Optional[ProcessIdentity] = None, expected_generation: Optional[int] = None) -> "Lifecycle":
-        if expected_generation is not None and expected_generation != self.generation:
-            raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation changed")
+        if expected_generation is not None:
+            if type(expected_generation) is not int or expected_generation != self.generation:
+                raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation changed")
         if self.state == "START_UNKNOWN" and expected_generation is None:
             raise RuntimeErrorCode("E_RUNTIME_FENCE", "START_UNKNOWN requires a generation fence")
         if state not in LIFECYCLE or state not in ALLOWED_TRANSITIONS[self.state]:
             raise RuntimeErrorCode("E_RUNTIME_TRANSITION", f"invalid transition {self.state}->{state}")
+        if identity is not None and not isinstance(identity, ProcessIdentity):
+            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "identity must be ProcessIdentity")
         if state == "STARTED" and identity is None:
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "STARTED requires process identity")
         return replace(self, state=state, generation=self.generation + 1, identity=identity or self.identity)
@@ -101,6 +128,12 @@ class Lifecycle:
 def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapping[str, Any]], expected: InvocationSpec) -> str:
     """Classify an uncertain handoff without guessing that a process started."""
 
+    if type(expected) is not InvocationSpec:
+        raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "expected InvocationSpec is required")
+    if type(handoff_accepted) is not bool:
+        raise RuntimeErrorCode("E_RUNTIME_OBSERVATION", "handoff_accepted must be boolean")
+    if started_observation is not None and not isinstance(started_observation, Mapping):
+        raise RuntimeErrorCode("E_RUNTIME_OBSERVATION", "started_observation must be an object")
     if started_observation is None:
         return "START_UNKNOWN" if handoff_accepted else "NOT_STARTED"
     if started_observation.get("run_id") != expected.run_id or started_observation.get("environment_sha256") != expected.environment_sha256:
@@ -115,6 +148,8 @@ def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapp
 def reconcile(expected: InvocationSpec, observed: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return a conservative reconciliation result for an observation."""
 
+    if not isinstance(observed, Mapping):
+        raise RuntimeErrorCode("E_RUNTIME_OBSERVATION", "observed must be an object")
     status = classify_start(handoff_accepted=True, started_observation=observed, expected=expected)
     return {"status": status, "run_id": expected.run_id, "expected_environment_sha256": expected.environment_sha256,
             "observed_environment_sha256": observed.get("environment_sha256"), "replay_allowed": status == "NOT_STARTED" or (status in {"FAILED", "STOPPED"} and observed.get("cleanup_confirmed") is True)}

@@ -19,6 +19,55 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_ARGV"):
             validate_argv(["cmd\x00bad"])
 
+    def test_invocation_and_process_identity_fields_are_strict_text(self):
+        cases = [
+            {"request_id": 1},
+            {"run_id": b"run"},
+            {"cwd": Path("C:/repo")},
+            {"cwd": "C:\x00repo"},
+            {"environment_sha256": None},
+            {"shell": 1},
+        ]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                values = {
+                    "request_id": "req", "run_id": "run", "command": ("python",),
+                    "cwd": "C:/repo", "environment_sha256": "a" * 64,
+                    "timeout_seconds": 30,
+                }
+                values.update(changes)
+                with self.assertRaises(RuntimeErrorCode):
+                    InvocationSpec(**values)
+        for changes in ({"boot_id": 1}, {"worktree_id": b"tree"}, {"executable_sha256": None}):
+            with self.subTest(changes=changes):
+                values = {"pid": 10, "boot_id": "boot", "executable_sha256": "b" * 64,
+                          "worktree_id": "tree"}
+                values.update(changes)
+                with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_IDENTITY"):
+                    ProcessIdentity(**values)
+
+    def test_observation_inputs_are_rejected_before_attribute_errors(self):
+        spec = invocation()
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_OBSERVATION"):
+            classify_start(handoff_accepted=True, started_observation="started", expected=spec)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_OBSERVATION"):
+            classify_start(handoff_accepted=1, started_observation=None, expected=spec)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_OBSERVATION"):
+            reconcile(spec, "started")
+
+    def test_lifecycle_rejects_invalid_state_generation_and_identity(self):
+        for kwargs, code in (
+            ({"state": "BROKEN"}, "E_RUNTIME_TRANSITION"),
+            ({"generation": True}, "E_RUNTIME_FENCE"),
+            ({"identity": "pid-only"}, "E_RUNTIME_IDENTITY"),
+            ({"state": "STARTED"}, "E_RUNTIME_IDENTITY"),
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(RuntimeErrorCode, code):
+                    Lifecycle(**kwargs)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_FENCE"):
+            Lifecycle().transition("STARTING", expected_generation=True)
+
     def test_lifecycle_requires_identity_and_fences_transitions(self):
         identity = ProcessIdentity(10, "boot", "b" * 64, "tree")
         state = Lifecycle().transition("STARTING")
