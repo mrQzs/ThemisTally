@@ -142,3 +142,6 @@ The latest no-model doctor check confirms `bb/step-5-preview` is listed and auth
 The candidate advanced to `a64f3a8`: atomic/budget/scheduler outbox rows now enforce strict JSON, contiguous sequences, request/operation closure, and database-wide high-water semantics; artifact/plugin/resource identities normalize paths before hashing, reject unsafe text and integers, and offline recipes reject network commands and URLs. The expanded acceptance command passed 398 tests with 8 environment skips. This remains local reference evidence; the environment is dispatch-ready, but no Pi/provider/native-platform/connector run was started under the explicit isolation constraint.
 
 The same 398-test suite passed with one skip under Git Bash Python 3.12.3; all seven schema-instance checks passed there. The Windows Python 3.9 skip count remains an environment fact, not an implementation failure.
+
+
+Follow-up candidate `dda848ddfadd28bb06ac8c5b603623f06a54c767` tightened adapter/config/identity/authorization strict boundaries. Targeted boundary regression passed 105 tests and the combined suite remained 398 passed with 8 environment skips; no Pi/provider/native-platform/connector run was started.
