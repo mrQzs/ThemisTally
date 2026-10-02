@@ -22,6 +22,8 @@ PLUGIN_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 MUTABLE_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 MAX_DEPTH = 64
 MAX_ARRAY_ITEMS = 512
+MAX_BYTES = 1_048_576
+MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class PluginError(ValueError):
@@ -38,7 +40,11 @@ def _strict_json(value: Any, *, path: str = "/", depth: int = 0,
                  active: set[int] | None = None) -> None:
     if depth > MAX_DEPTH:
         _fail("E_PLUGIN_JSON", path, "maximum JSON depth exceeded")
-    if value is None or type(value) is bool or type(value) is int:
+    if value is None or type(value) is bool:
+        return
+    if type(value) is int:
+        if abs(value) > MAX_SAFE_INTEGER:
+            _fail("E_PLUGIN_JSON", path, "integer exceeds exact JSON range")
         return
     if type(value) is float:
         if not math.isfinite(value):
@@ -61,6 +67,8 @@ def _strict_json(value: Any, *, path: str = "/", depth: int = 0,
             for key, child in value.items():
                 if type(key) is not str:
                     _fail("E_PLUGIN_JSON", path, "string object keys required")
+                if any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in key):
+                    _fail("E_PLUGIN_JSON", path, "safe Unicode object keys required")
                 _strict_json(child, path=f"{path}{key}/", depth=depth + 1, active=active)
         else:
             if len(value) > MAX_ARRAY_ITEMS:
@@ -74,9 +82,12 @@ def _strict_json(value: Any, *, path: str = "/", depth: int = 0,
 def canonical_bytes(value: Any) -> bytes:
     _strict_json(value)
     try:
-        return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError) as exc:
+        raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise PluginError("E_PLUGIN_JSON", "/", str(exc)) from exc
+    if len(raw) > MAX_BYTES:
+        _fail("E_PLUGIN_SCHEMA", "/", "canonical plugin record exceeds byte limit")
+    return raw
 
 
 def digest(value: Any) -> str:
@@ -184,8 +195,14 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_PLUGIN_CHECK", "/checks", "duplicate check id")
     if not manifest["roles"] and (not checks or any(not check["deterministic"] for check in checks)):
         _fail("E_PLUGIN_CHECK", "/checks", "role-free plugins require explicit deterministic checks")
-    canonical_bytes(manifest)
-    return copy.deepcopy(dict(manifest))
+    normalized = copy.deepcopy(dict(manifest))
+    # ResourceRef paths are part of the identity bytes.  Preserve the
+    # normalized slash form returned by resource_ref before hashing and
+    # returning the manifest; otherwise a lock could bind one spelling while
+    # consumers use another.
+    normalized["resources"] = refs
+    canonical_bytes(normalized)
+    return normalized
 
 
 def resolve_plugins(manifests: Mapping[str, Mapping[str, Any]], enabled: Sequence[str]) -> Tuple[Dict[str, Any], ...]:
@@ -257,6 +274,7 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
         _fail("E_PLUGIN_LOCK", "/plugins", "plugin array required")
     seen = set()
     plugin_order = []
+    normalized_rows = []
     for index, row in enumerate(lock["plugins"]):
         path = f"/plugins/{index}"
         if not isinstance(row, dict) or set(row) != {"plugin_id", "version", "manifest_sha256", "resources"}:
@@ -277,9 +295,15 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
             _fail("E_PLUGIN_LOCK", f"{path}/resources", "duplicate resource identity")
         if [(ref["kind"], ref["id"]) for ref in refs] != sorted((ref["kind"], ref["id"]) for ref in refs):
             _fail("E_PLUGIN_LOCK", f"{path}/resources", "resources must be in canonical order")
+        normalized_rows.append({"plugin_id": row["plugin_id"], "version": row["version"],
+                                "manifest_sha256": row["manifest_sha256"],
+                                "resources": refs})
     if plugin_order != sorted(plugin_order):
         _fail("E_PLUGIN_LOCK", "/plugins", "plugins must be in canonical order")
-    expected = dict(lock); supplied = expected.pop("lock_sha256")
+    expected = {"record_type": lock["record_type"], "schema_version": lock["schema_version"],
+                "generation": lock["generation"], "compiler_sha256": lock["compiler_sha256"],
+                "plugins": normalized_rows}
+    supplied = lock["lock_sha256"]
     if supplied != digest(expected):
         _fail("E_PLUGIN_LOCK_DRIFT", "/lock_sha256", "lock bytes do not match")
     if manifests is not None:
@@ -289,11 +313,13 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
         resolve_plugins(normalized, list(normalized))
         if {row["plugin_id"] for row in lock["plugins"]} != set(normalized):
             _fail("E_PLUGIN_LOCK_BINDING", "/plugins", "lock plugin set does not match manifests")
-        for row in lock["plugins"]:
+        for row in normalized_rows:
             manifest = normalized[row["plugin_id"]]
             if row["version"] != manifest["version"] or row["manifest_sha256"] != digest(manifest) or row["resources"] != sorted(manifest.get("resources", []), key=lambda x: (x["kind"], x["id"])):
                 _fail("E_PLUGIN_LOCK_BINDING", f"/plugins/{row['plugin_id']}", "lock is not bound to manifest bytes")
-    return copy.deepcopy(dict(lock))
+    result = copy.deepcopy(dict(lock))
+    result["plugins"] = normalized_rows
+    return result
 
 
 def check_permission_intersection(manifest: Mapping[str, Any], *, allowed_permissions: Sequence[str],

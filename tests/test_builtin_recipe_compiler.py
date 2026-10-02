@@ -44,6 +44,15 @@ class RecipeCompilerTests(unittest.TestCase):
         bad = recipe(); bad["steps"][0]["command"] = ["sh", "-c", "echo $TOKEN"]
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_COMMAND"):
             validate_recipe(bad)
+        bad = recipe(); bad["steps"][0]["command"] = ["/usr/bin/curl", "https://example.invalid"]
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_COMMAND"):
+            validate_recipe(bad)
+        bad = recipe(); bad["steps"][0]["command"] = ["python", "-c", "bad\ud800"]
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_COMMAND"):
+            validate_recipe(bad)
+        bad = recipe(); bad["recipe_version"] = 2 ** 53
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_VERSION"):
+            validate_recipe(bad)
         bad = recipe(); bad["steps"][0]["kind"] = []
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_KIND"):
             validate_recipe(bad)

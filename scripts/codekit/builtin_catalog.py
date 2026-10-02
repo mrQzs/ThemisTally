@@ -87,14 +87,20 @@ def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
         # Resource refs are repository-relative.  Verify their bytes while
         # loading the catalog so a checked-in manifest cannot claim content it
         # does not actually bind.
-        project_root = base.parent if base.name == "plugins" else Path(".")
+        # ResourceRef paths are candidate-relative even when callers provide
+        # an absolute fixture root (as isolated tests commonly do).  Resolve
+        # the manifest's declared resource paths from that same fixture root,
+        # then emit the manifest/lock references relative to its parent.
+        project_root = base.parent
+        manifest_ref_path = manifest_path.relative_to(project_root).as_posix()
+        lock_ref_path = lock_path.relative_to(project_root).as_posix()
         for resource in manifest.get("resources", []):
             resource_path = project_root / resource["path"]
             if not resource_path.is_file() or _sha_file(resource_path) != resource["sha256"]:
                 _err("E_CATALOG_RESOURCE", f"resource bytes do not match {resource['path']}")
         rows.append({"plugin_id": plugin_id, "version": manifest["version"],
-                     "manifest_ref": {"kind": "file", "id": f"{plugin_id}.manifest", "path": str(manifest_path).replace("\\", "/"), "sha256": _sha_file(manifest_path)},
-                     "lock_ref": {"kind": "file", "id": f"{plugin_id}.lock", "path": str(lock_path).replace("\\", "/"), "sha256": _sha_file(lock_path)}})
+                     "manifest_ref": {"kind": "file", "id": f"{plugin_id}.manifest", "path": manifest_ref_path, "sha256": _sha_file(manifest_path)},
+                     "lock_ref": {"kind": "file", "id": f"{plugin_id}.lock", "path": lock_ref_path, "sha256": _sha_file(lock_path)}})
     return build_catalog(plugins=rows)
 
 

@@ -19,6 +19,7 @@ VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 MUTABLE_PLUGIN_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 MAX_BYTES = 1_048_576
 MAX_DEPTH = 32
+MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class ArtifactError(ValueError):
@@ -43,13 +44,23 @@ def _strict_json_value(value: Any, *, path: str = "/", level: int = 0,
     """
     if level > MAX_DEPTH:
         _fail("E_ARTIFACT_DEPTH", path, "artifact nesting exceeds limit")
-    if value is None or type(value) is bool or type(value) is int:
+    if value is None or type(value) is bool:
+        return
+    if type(value) is int:
+        if abs(value) > MAX_SAFE_INTEGER:
+            _fail("E_ARTIFACT_JSON", path, "integer exceeds exact JSON range")
         return
     if type(value) is float:
         if not math.isfinite(value):
             _fail("E_ARTIFACT_JSON", path, "non-finite number is not JSON")
         return
     if type(value) is str:
+        # ``json.dumps`` will escape a few control characters, but accepting
+        # them here still lets an artifact carry ambiguous line/protocol data.
+        # Lone UTF-16 surrogates are even more dangerous: the encoder can
+        # produce a Python string that then fails only while UTF-8 encoding.
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            _fail("E_ARTIFACT_JSON", path, "safe Unicode text required")
         return
     if type(value) not in (dict, list):
         _fail("E_ARTIFACT_JSON", path, "strict JSON value required")
@@ -64,6 +75,8 @@ def _strict_json_value(value: Any, *, path: str = "/", level: int = 0,
             for key, child in value.items():
                 if type(key) is not str:
                     _fail("E_ARTIFACT_JSON", path, "object keys must be strings")
+                if any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in key):
+                    _fail("E_ARTIFACT_JSON", path, "safe Unicode object keys required")
                 _strict_json_value(child, path=f"{path}{key}/", level=level + 1, active=active)
         else:
             for index, child in enumerate(value):
@@ -76,7 +89,7 @@ def canonical_bytes(value: Any) -> bytes:
     _strict_json_value(value)
     try:
         raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise ArtifactError("E_ARTIFACT_JSON", "/", str(exc)) from exc
     if len(raw) > MAX_BYTES:
         _fail("E_ARTIFACT_SIZE", "/", "artifact exceeds byte limit")
@@ -90,13 +103,16 @@ def digest(value: Any) -> str:
 def resource_ref(value: Any, path: str = "/resource_ref") -> Dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "id", "path", "sha256"}:
         _fail("E_ARTIFACT_REF", path, "closed ResourceRef required")
-    if any(not isinstance(value[x], str) or not value[x] or any(ord(ch) < 32 or ord(ch) == 127 for ch in value[x])
+    if any(not isinstance(value[x], str) or not value[x] or any(
+            ord(ch) < 32 or ord(ch) == 127 or 0xD800 <= ord(ch) <= 0xDFFF
+            for ch in value[x])
            for x in ("kind", "id", "path")):
         _fail("E_ARTIFACT_REF", path, "kind/id/path must be non-empty strings")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_ARTIFACT_REF", f"{path}/sha256", "lowercase SHA-256 required")
     normalized = value["path"].replace("\\", "/")
-    if normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
+    if normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(
+            ord(ch) < 32 or ord(ch) == 127 or 0xD800 <= ord(ch) <= 0xDFFF for ch in normalized):
         _fail("E_ARTIFACT_PATH", f"{path}/path", "path must stay within the candidate")
     return {"kind": value["kind"], "id": value["id"], "path": normalized, "sha256": value["sha256"]}
 
@@ -105,7 +121,10 @@ def source_anchor(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"ref", "start_byte", "end_byte", "excerpt_sha256"}:
         _fail("E_ARTIFACT_SOURCE", "/source_anchor", "closed source anchor required")
     result = resource_ref(value["ref"], "/source_anchor/ref")
-    if type(value["start_byte"]) is not int or type(value["end_byte"]) is not int or value["start_byte"] < 0 or value["end_byte"] <= value["start_byte"]:
+    if (type(value["start_byte"]) is not int or type(value["end_byte"]) is not int
+            or not 0 <= value["start_byte"] <= MAX_SAFE_INTEGER
+            or not 0 < value["end_byte"] <= MAX_SAFE_INTEGER
+            or value["end_byte"] <= value["start_byte"]):
         _fail("E_ARTIFACT_SOURCE", "/source_anchor", "invalid byte range")
     if not isinstance(value["excerpt_sha256"], str) or not HEX64.fullmatch(value["excerpt_sha256"]):
         _fail("E_ARTIFACT_SOURCE", "/source_anchor/excerpt_sha256", "lowercase SHA-256 required")
@@ -115,7 +134,9 @@ def source_anchor(value: Any) -> Dict[str, Any]:
 def _producer(value: Any) -> Dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "id", "version"}:
         _fail("E_ARTIFACT_PRODUCER", "/producer", "closed producer identity required")
-    if any(not isinstance(value[x], str) or not value[x] or any(ord(ch) < 32 or ord(ch) == 127 for ch in value[x])
+    if any(not isinstance(value[x], str) or not value[x] or any(
+            ord(ch) < 32 or ord(ch) == 127 or 0xD800 <= ord(ch) <= 0xDFFF
+            for ch in value[x])
            for x in ("kind", "id", "version")):
         _fail("E_ARTIFACT_PRODUCER", "/producer", "producer fields must be non-empty strings")
     return dict(value)
@@ -127,7 +148,9 @@ def validate_artifact(record: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_ARTIFACT_SCHEMA", "/", "artifact has unknown or missing fields")
     if type(record["record_type"]) is not str or record["record_type"] not in FAMILIES or record["schema_version"] != 1:
         _fail("E_ARTIFACT_VERSION", "/record_type", "unsupported artifact family/version")
-    if not isinstance(record["artifact_id"], str) or not record["artifact_id"]:
+    if (not isinstance(record["artifact_id"], str) or not record["artifact_id"]
+            or any(ord(ch) < 32 or ord(ch) == 127 or 0xD800 <= ord(ch) <= 0xDFFF
+                   for ch in record["artifact_id"])):
         _fail("E_ARTIFACT_SCHEMA", "/artifact_id", "non-empty artifact id required")
     _producer(record["producer"])
     if type(record["status"]) is not str or record["status"] not in STATUSES:
@@ -154,6 +177,7 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
     if catalog["record_type"] != "builtin-task-plugin-catalog" or catalog["schema_version"] != 1 or not isinstance(catalog["plugins"], list):
         _fail("E_CATALOG_SCHEMA", "/", "invalid catalog header")
     ids = []
+    normalized_rows = []
     for i, item in enumerate(catalog["plugins"]):
         if not isinstance(item, dict) or set(item) != {"plugin_id", "version", "manifest_ref", "lock_ref"}:
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}", "catalog item is not closed")
@@ -162,10 +186,15 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/plugin_id", "lowercase plugin id required")
         if not isinstance(item["version"], str) or not VERSION_RE.fullmatch(item["version"]):
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/version", "exact semantic version required")
-        ids.append(item["plugin_id"]); resource_ref(item["manifest_ref"], f"/plugins/{i}/manifest_ref"); resource_ref(item["lock_ref"], f"/plugins/{i}/lock_ref")
+        ids.append(item["plugin_id"])
+        normalized_rows.append({"plugin_id": item["plugin_id"], "version": item["version"],
+                                "manifest_ref": resource_ref(item["manifest_ref"], f"/plugins/{i}/manifest_ref"),
+                                "lock_ref": resource_ref(item["lock_ref"], f"/plugins/{i}/lock_ref")})
     if len(set(ids)) != len(ids):
         _fail("E_CATALOG_SCHEMA", "/plugins", "duplicate plugin id")
-    return copy.deepcopy(dict(catalog))
+    result = copy.deepcopy(dict(catalog))
+    result["plugins"] = normalized_rows
+    return result
 
 
 __all__ = ["ArtifactError", "FAMILIES", "canonical_bytes", "digest", "resource_ref", "source_anchor", "validate_artifact", "validate_catalog"]

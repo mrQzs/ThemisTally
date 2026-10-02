@@ -175,6 +175,34 @@ class BudgetStoreV2Tests(unittest.TestCase):
             with self.assertRaises(BudgetStoreError):
                 BudgetStore(path)
 
+    def test_reopen_rejects_unsafe_outbox_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsafe.sqlite"
+            store = BudgetStore(path)
+            store.seed_policy("req-a", BudgetPolicy({"tokens": 10, "charge:USD": 20},
+                                                      {"task-a": {"tokens": 8, "charge:USD": 20}}))
+            self._reserve_on(store, operation="op-a")
+            store.close()
+            db = sqlite3.connect(path)
+            db.execute("UPDATE outbox SET payload_json=? WHERE event_type='budget.operation_reserved'",
+                       ('{"n":9007199254740992}',))
+            db.commit(); db.close()
+            with self.assertRaises(BudgetStoreError) as caught:
+                BudgetStore(path)
+            self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+    def test_snapshot_as_of_seq_is_database_wide(self):
+        before = self.store.snapshot("req-a").as_of_seq
+        self.store.seed_policy("req-b", BudgetPolicy({"tokens": 10}))
+        self.store.reserve("op-b", "req-b", "task-b", {"tokens": 1}, 1)
+        after = self.store.snapshot("req-a").as_of_seq
+        self.assertGreater(after, before)
+
+    @staticmethod
+    def _reserve_on(store, *, operation):
+        return store.reserve(operation, "req-a", "task-a",
+                             {"tokens": 5, "charge:USD": 0}, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

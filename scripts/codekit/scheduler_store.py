@@ -22,6 +22,7 @@ from .claim_model import (
     ACTIVE_TASK_STATES, ClaimFacts, ClaimReceipt, ClaimRequest, Decision,
     HandoffFacts, claim_decision, handoff_decision,
 )
+from .protocols import ProtocolError, check_json_value, strict_json_loads
 
 
 _DIMENSION_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -115,15 +116,19 @@ class ClaimResult:
 
 def _json(value: Any) -> str:
     try:
+        check_json_value(value)
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (ProtocolError, TypeError, ValueError) as exc:
         raise SchedulerStoreError("E_SCHEMA_TYPE", ("json",)) from exc
 
 
 def _loads(value: Any) -> Any:
     if type(value) is not str:
         raise ValueError("json_text_required")
-    return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
+    try:
+        return strict_json_loads(value.encode("utf-8"))
+    except (UnicodeEncodeError, ProtocolError) as exc:
+        raise ValueError("strict_json_invalid") from exc
 
 
 def _finite(value: object, field: str) -> float:
@@ -384,6 +389,7 @@ class SchedulerStore:
             self.db.close()
             raise SchedulerStoreError("E_SCHEMA_INVALID", ("controller.generation",))
         _db_integer(generation[0], "controller.generation", minimum=1)
+        generation = generation[0]
         try:
             requests = {row["request_id"]: row for row in self.db.execute("SELECT * FROM requests").fetchall()}
             tasks = {(row["request_id"], row["task_id"]): row for row in self.db.execute("SELECT * FROM tasks").fetchall()}
@@ -425,8 +431,12 @@ class SchedulerStore:
                 normalized_resources = _resources(resources)
                 if row["controller_generation"] != row["claim_generation"]:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.generation",))
+                if row["controller_generation"] > generation:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.generation_ahead",))
+                request = requests.get(row["request_id"])
+                if request is None or row["stop_epoch"] > request["stop_epoch"]:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.stop_epoch",))
                 if row["state"] in ACTIVE_TASK_STATES:
-                    request = requests.get(row["request_id"])
                     task = tasks.get((row["request_id"], row["task_id"]))
                     if request is None or task is None:
                         raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.scope",))
@@ -446,15 +456,34 @@ class SchedulerStore:
                             for row in self.db.execute("SELECT repo_id,resource_key,operation_id FROM resource_holds")}
             if actual_holds != expected_holds:
                 raise SchedulerStoreError("E_SCHEMA_INVALID", ("resource_holds.mismatch",))
-            for row in self.db.execute("SELECT * FROM outbox").fetchall():
+            outbox_rows = self.db.execute("SELECT * FROM outbox ORDER BY seq").fetchall()
+            expected_seq = 1
+            for row in outbox_rows:
                 _db_integer(row["seq"], "outbox.seq", minimum=1)
+                if row["seq"] != expected_seq:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.sequence",))
+                expected_seq += 1
+                operation_id = row["operation_id"]
+                if operation_id is not None:
+                    operation = operations.get(operation_id)
+                    if operation is None:
+                        raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.operation",))
                 _db_text(row["operation_id"], "outbox.operation_id", nullable=True)
                 _db_text(row["event_type"], "outbox.event_type")
                 _db_text(row["payload_json"], "outbox.payload_json")
                 if len(row["payload_json"]) > MAX_RESOURCE_JSON_BYTES:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.payload_size",))
-                if type(_loads(row["payload_json"])) is not dict:
+                payload = _loads(row["payload_json"])
+                if type(payload) is not dict:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.payload_json",))
+                if operation_id is not None:
+                    operation = operations[operation_id]
+                    payload_operation = payload.get("operation_id")
+                    if payload_operation is not None and payload_operation != operation_id:
+                        raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.operation_payload",))
+                    payload_request = payload.get("request_id")
+                    if payload_request is not None and payload_request != operation["request_id"]:
+                        raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.request_payload",))
         except SchedulerStoreError:
             self.db.close()
             raise

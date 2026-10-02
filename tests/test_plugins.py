@@ -77,6 +77,9 @@ class PluginTests(unittest.TestCase):
         cyclic.append(cyclic)
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_JSON"):
             canonical_bytes(cyclic)
+        for key in ("bad\nkey", "bad\ud800"):
+            with self.subTest(key=repr(key)), self.assertRaisesRegex(PluginError, "E_PLUGIN_JSON"):
+                canonical_bytes({key: "value"})
         bad = manifest(); bad["checks"][0]["command"] = ["python", "a\x7fb"]
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_CHECK"):
             validate_manifest(bad)

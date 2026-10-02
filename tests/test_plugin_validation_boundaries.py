@@ -190,6 +190,26 @@ class PluginValidationBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_POLICY"):
             check_permission_intersection(bad_manifest, allowed_permissions=[], platform_name=1)
 
+    def test_manifest_resource_paths_are_normalized_before_lock_hashing(self):
+        value = manifest()
+        value["resources"][0]["path"] = "fixtures\\demo.json"
+        normalized = validate_manifest(value)
+        self.assertEqual(normalized["resources"][0]["path"], "fixtures/demo.json")
+        lock = build_lock([value], compiler_sha256="b" * 64)
+        self.assertEqual(lock["plugins"][0]["resources"][0]["path"], "fixtures/demo.json")
+        forged = copy.deepcopy(lock)
+        forged["plugins"][0]["resources"][0]["path"] = "fixtures\\demo.json"
+        forged["lock_sha256"] = digest({key: item for key, item in forged.items() if key != "lock_sha256"})
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK_DRIFT"):
+            validate_lock(forged)
+
+    def test_plugin_canonical_bytes_has_a_bounded_utf8_representation(self):
+        from codekit.plugins import canonical_bytes
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_SCHEMA"):
+            canonical_bytes({"text": "x" * (1024 * 1024)})
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_JSON"):
+            canonical_bytes({"count": 2 ** 53})
+
     def test_lock_builder_rejects_non_sequences_and_duplicate_manifests(self):
         for value in (None, "not-a-sequence", b"bytes", (item for item in [manifest()])):
             with self.subTest(value=type(value).__name__):

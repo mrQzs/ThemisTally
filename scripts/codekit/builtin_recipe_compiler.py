@@ -24,6 +24,7 @@ _VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _MUTABLE_ALIASES = frozenset({"latest", "head", "current", "stable", "default", "main", "master", "dev", "tip"})
 _DYNAMIC_MARKERS = ("$", "`", ";", "&&", "||", "|", ">", "<", "eval(", "exec(", "__import__", "importlib")
 _NETWORK_TOOLS = {"curl", "wget", "nc", "netcat", "ssh", "scp", "pip", "npm", "cargo"}
+_MAX_SAFE_INTEGER = 2**53 - 1
 
 
 def _fail(code: str, path: str, message: str) -> None:
@@ -56,7 +57,9 @@ def _text_list(value: Any, path: str, message: str) -> list[str]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         _fail("E_RECIPE_SCHEMA", path, message)
     values = list(value)
-    if any(type(item) is not str or not item for item in values):
+    if any(type(item) is not str or not item or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+            for ch in item) for item in values):
         _fail("E_RECIPE_SCHEMA", path, message)
     return values
 
@@ -67,12 +70,24 @@ def _mutable_alias_in_command(value: str) -> bool:
 
 
 def _command(value: Any, path: str) -> list[str]:
-    if not isinstance(value, list) or not value or any(type(item) is not str or not item for item in value):
+    if not isinstance(value, list) or not value or any(
+            type(item) is not str or not item or any(
+                ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+                for ch in item) for item in value):
         _fail("E_RECIPE_COMMAND", path, "non-empty argv array required")
     flat = " ".join(value).lower()
-    if any(marker in flat for marker in _DYNAMIC_MARKERS):
+    if any(marker in flat for marker in _DYNAMIC_MARKERS) or any(
+            scheme in flat for scheme in ("http://", "https://", "file://")):
         _fail("E_RECIPE_COMMAND", path, "dynamic shell expression is forbidden")
-    if any(token in _NETWORK_TOOLS for token in value[:1]) or any(token in flat.split() for token in _NETWORK_TOOLS):
+    # A path-qualified executable (``/usr/bin/curl`` or ``tools\\wget.exe``)
+    # is still a network command.  Compare normalized basenames as well as
+    # the literal argv tokens so callers cannot bypass the offline policy by
+    # spelling the executable with a path.
+    tokens = []
+    for item in value:
+        token = item.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        tokens.append(token[:-4] if token.endswith(".exe") else token)
+    if any(token in _NETWORK_TOOLS for token in tokens) or any(token in _NETWORK_TOOLS for token in flat.split()):
         _fail("E_RECIPE_COMMAND", path, "external command is forbidden in offline recipe")
     if _mutable_alias_in_command(flat):
         _fail("E_RECIPE_VERSION", path, "mutable latest alias is forbidden")
@@ -144,7 +159,7 @@ def validate_recipe(recipe: Mapping[str, Any]) -> Dict[str, Any]:
     if recipe["record_type"] != "builtin-task-recipe" or recipe["schema_version"] != 1:
         _fail("E_RECIPE_VERSION", "/record_type", "recipe schema version 1 required")
     _id(recipe["recipe_id"], "/recipe_id")
-    if type(recipe["recipe_version"]) is not int or recipe["recipe_version"] < 1:
+    if (type(recipe["recipe_version"]) is not int or not 1 <= recipe["recipe_version"] <= _MAX_SAFE_INTEGER):
         _fail("E_RECIPE_VERSION", "/recipe_version", "positive integer required")
     _plugin_id(recipe["plugin_id"], "/plugin_id")
     _plugin_version(recipe["plugin_version"], "/plugin_version")
@@ -184,7 +199,8 @@ def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Map
     _id(receipt["recipe_id"], "/recipe_id")
     _plugin_id(receipt["plugin_id"], "/plugin_id")
     _plugin_version(receipt["plugin_version"], "/plugin_version", code="E_RECIPE_RECEIPT")
-    if type(receipt["recipe_version"]) is not int or receipt["recipe_version"] < 1:
+    if (type(receipt["recipe_version"]) is not int
+            or not 1 <= receipt["recipe_version"] <= _MAX_SAFE_INTEGER):
         _fail("E_RECIPE_RECEIPT", "/recipe_version", "positive integer required")
     if not isinstance(receipt["ordered_step_ids"], list) or not isinstance(receipt["stage_kinds"], list) or len(receipt["ordered_step_ids"]) != len(receipt["stage_kinds"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step and stage arrays must align")

@@ -20,7 +20,8 @@ import uuid
 from .budget import (BudgetError, BudgetOperation, BudgetPolicy, BudgetSnapshot,
                      BudgetState, UsageObservation, stable_observation_fingerprint)
 from .claim_model import ClaimFacts, ClaimModelError, ClaimRequest, claim_decision
-from .protocols import MAX_SAFE_INTEGER, ProtocolError
+from .protocols import (MAX_SAFE_INTEGER, ProtocolError, check_json_value,
+                        strict_json_loads)
 
 
 class AtomicLedgerError(RuntimeError):
@@ -84,8 +85,13 @@ def _finite(value: Any, field: str) -> float:
 
 def _json(value: Any) -> str:
     try:
+        # The ledger persists only the protocol JSON value profile.  The
+        # stdlib encoder otherwise coerces int subclasses and non-string keys
+        # (and accepts unsafe integers), which would make a replayed row's
+        # bytes depend on the caller's Python object types.
+        check_json_value(value)
         return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (ProtocolError, TypeError, ValueError) as exc:
         raise AtomicLedgerError("E_SCHEMA_TYPE", ("json",)) from exc
 
 
@@ -93,7 +99,10 @@ def _loads(value: Any) -> Any:
     """Decode persisted JSON without accepting NaN/Infinity extensions."""
     if type(value) is not str:
         raise ValueError("json_text_required")
-    return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
+    try:
+        return strict_json_loads(value.encode("utf-8"))
+    except (UnicodeEncodeError, ProtocolError) as exc:
+        raise ValueError("strict_json_invalid") from exc
 
 
 def _resources(value: Sequence[str]) -> tuple[str, ...]:
@@ -342,6 +351,9 @@ class AtomicClaimBudgetStore:
                 _int(row["guard_version"], "guard_version", 1)
                 _int(row["max_attempts"], "max_attempts", 1)
             operations = {row["operation_id"]: row for row in self.db.execute("SELECT * FROM operations")}
+            controller_generation = self.db.execute(
+                "SELECT generation FROM controller WHERE singleton=1"
+            ).fetchone()[0]
             expected_holds: set[tuple[str, str, str]] = set()
             for operation_id, row in operations.items():
                 if (row["request_id"], row["task_id"]) not in tasks:
@@ -357,6 +369,12 @@ class AtomicClaimBudgetStore:
                 _int(row["claim_generation"], "claim_generation", 1)
                 _int(row["guard_version"], "guard_version", 1)
                 _int(row["stop_epoch"], "stop_epoch", 0)
+                if row["generation"] != row["claim_generation"]:
+                    raise ValueError("operation_generation_mismatch")
+                if row["generation"] > controller_generation:
+                    raise ValueError("operation_generation_ahead")
+                if row["stop_epoch"] > requests[row["request_id"]]["stop_epoch"]:
+                    raise ValueError("operation_stop_epoch_ahead")
                 if row["lease_until"] is not None:
                     _finite(row["lease_until"], "lease_until")
                 if row["state"] not in {"CLAIMED", "HANDOFF_ACCEPTED", "FINISHED", "CANCELLED_NOT_STARTED", "START_UNKNOWN"}:
@@ -390,8 +408,28 @@ class AtomicClaimBudgetStore:
                     raise ValueError("stop_reason_mismatch")
                 _text(row["reason"], "stop_reason")
                 _int(row["stop_epoch"], "stop_epoch", 1)
-            for row in self.db.execute("SELECT seq,event_type,payload_json FROM outbox"):
+            outbox_rows = self.db.execute(
+                "SELECT seq,request_id,operation_id,event_type,payload_json FROM outbox ORDER BY seq"
+            ).fetchall()
+            expected_seq = 1
+            for row in outbox_rows:
                 _int(row["seq"], "outbox.seq", 1)
+                if row["seq"] != expected_seq:
+                    raise ValueError("outbox_sequence_gap")
+                expected_seq += 1
+                request_id = row["request_id"]
+                operation_id = row["operation_id"]
+                if request_id is not None:
+                    _text(request_id, "outbox.request_id")
+                    if request_id not in requests:
+                        raise ValueError("outbox_request_mismatch")
+                if operation_id is not None:
+                    _text(operation_id, "outbox.operation_id")
+                    operation = operations.get(operation_id)
+                    if operation is None:
+                        raise ValueError("outbox_operation_mismatch")
+                    if request_id is None or operation["request_id"] != request_id:
+                        raise ValueError("outbox_scope_mismatch")
                 _text(row["event_type"], "outbox.event_type")
                 payload = _loads(row["payload_json"])
                 if type(payload) is not dict:

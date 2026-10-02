@@ -358,6 +358,30 @@ class SchedulerStoreTests(unittest.TestCase):
         with self.assertRaises(SchedulerStoreError):
             SchedulerStore(valid)
 
+    def test_reopen_rejects_outbox_operation_drift_and_unsafe_json(self) -> None:
+        valid = Path(self.temp.name) / "outbox-closure.sqlite3"
+        store = SchedulerStore(valid)
+        store.seed_request(REQUEST_ID, "code-kit")
+        store.seed_task(REQUEST_ID, "task-a")
+        result = store.claim(request(), facts(), owner="owner-a", lease_until=100,
+                             reservation={"dispatches": 1}, resource_keys=[])
+        store.close()
+        db = sqlite3.connect(valid)
+        db.execute("UPDATE outbox SET operation_id=? WHERE event_type='scheduler.claimed'",
+                   ("op-missing",))
+        db.commit(); db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(valid)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+        db = sqlite3.connect(valid)
+        db.execute("UPDATE outbox SET operation_id=?, payload_json=? WHERE event_type='scheduler.claimed'",
+                   (result.operation_id, '{"n":9007199254740992}'))
+        db.commit(); db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(valid)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

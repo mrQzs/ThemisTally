@@ -357,11 +357,36 @@ class AtomicClaimBudgetTests(unittest.TestCase):
         with self.assertRaises(AtomicLedgerError) as caught:
             AtomicClaimBudgetStore(self.path)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
         db = sqlite3.connect(self.path)
-        db.execute("UPDATE operations SET reservation_json=? WHERE operation_id=?", (json.dumps({"tokens": 5, "dispatches": 1}), result.operation_id))
+        db.execute("UPDATE operations SET reservation_json=? WHERE operation_id=?",
+                   (json.dumps({"tokens": 5, "dispatches": 1}), result.operation_id))
         db.execute("UPDATE outbox SET payload_json='[]' WHERE event_type='atomic.claimed'")
         db.commit()
         db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            AtomicClaimBudgetStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+    def test_reopen_rejects_outbox_scope_and_unsafe_json(self) -> None:
+        result = self.claim(resource_keys=[])
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE outbox SET operation_id=? WHERE event_type='atomic.claimed'",
+                   ("op-missing",))
+        db.commit(); db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            AtomicClaimBudgetStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+        # Keep the row shape valid and exercise the strict persisted JSON
+        # profile independently from the outbox identity check.
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE outbox SET operation_id=? WHERE event_type='atomic.claimed'",
+                   (result.operation_id,))
+        db.execute("UPDATE outbox SET payload_json=? WHERE event_type='atomic.claimed'",
+                   ('{"n":9007199254740992}',))
+        db.commit(); db.close()
         with self.assertRaises(AtomicLedgerError) as caught:
             AtomicClaimBudgetStore(self.path)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")

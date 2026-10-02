@@ -78,6 +78,11 @@ class BuiltinArtifactsTests(unittest.TestCase):
         bad = artifact(); cycle = {}; cycle["self"] = cycle; bad["payload"] = cycle
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
             validate_artifact(bad)
+        for key in ("bad\nkey", "bad\ud800"):
+            bad = artifact(); bad["payload"] = {key: "value"}
+            with self.subTest(key=repr(key)):
+                with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+                    validate_artifact(bad)
 
     def test_artifact_refs_reject_control_characters(self):
         for field in ("kind", "id", "path"):
@@ -85,6 +90,38 @@ class BuiltinArtifactsTests(unittest.TestCase):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_REF|E_ARTIFACT_PATH"):
                     validate_artifact(bad)
+
+    def test_artifact_rejects_controls_and_lone_surrogates_before_hashing(self):
+        for payload in ({"text": "line\nfeed"}, {"text": "bad\ud800"}):
+            bad = artifact(); bad["payload"] = payload
+            with self.subTest(payload=repr(payload)):
+                with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+                    validate_artifact(bad)
+        for field in ("artifact_id",):
+            bad = artifact(); bad[field] = "id\udfff"
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SCHEMA"):
+                    validate_artifact(bad)
+        bad = artifact(); bad["producer"] = {"kind": "builtin-plugin", "id": "repo-analysis", "version": "1.0.0\ud800"}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_PRODUCER"):
+            validate_artifact(bad)
+        bad = artifact(); bad["payload"] = {"count": 2 ** 53}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_artifact(bad)
+
+    def test_source_anchor_rejects_unsafe_byte_offsets(self):
+        bad = {"ref": ref(), "start_byte": 2 ** 53, "end_byte": 2 ** 53 + 1,
+               "excerpt_sha256": "b" * 64}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            source_anchor(bad)
+
+    def test_catalog_returns_canonical_resource_paths(self):
+        item = {"plugin_id": "demo", "version": "1.0.0", "manifest_ref": ref("manifest"), "lock_ref": ref("lock")}
+        item["manifest_ref"]["path"] = "recipes\\manifest.json"
+        item["lock_ref"]["path"] = "recipes\\lock.json"
+        normalized = validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": [item]})
+        self.assertEqual(normalized["plugins"][0]["manifest_ref"]["path"], "recipes/manifest.json")
+        self.assertEqual(normalized["plugins"][0]["lock_ref"]["path"], "recipes/lock.json")
 
 
 if __name__ == "__main__":

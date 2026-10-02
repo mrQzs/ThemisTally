@@ -20,7 +20,8 @@ from .budget import (
     BudgetError, BudgetOperation, BudgetPolicy, BudgetSnapshot, BudgetState,
     UsageObservation, _current, stable_observation_fingerprint,
 )
-from .protocols import MAX_SAFE_INTEGER
+from .protocols import (MAX_SAFE_INTEGER, ProtocolError, check_json_value,
+                        strict_json_loads)
 
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
@@ -65,8 +66,9 @@ def _integer(value: Any, field: str, *, minimum: int = 0) -> int:
 
 def _json(value: Any) -> str:
     try:
+        check_json_value(value, max_bytes=_MAX_JSON)
         result = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (ProtocolError, TypeError, ValueError) as exc:
         raise BudgetStoreError("E_SCHEMA_TYPE", ("json",)) from exc
     if len(result.encode("utf-8")) > _MAX_JSON:
         raise BudgetStoreError("E_SCHEMA_SIZE", ("json",))
@@ -76,8 +78,8 @@ def _json(value: Any) -> str:
 def _decode_json(value: Any, field: str) -> Any:
     _text(value, field, limit=_MAX_JSON)
     try:
-        return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
-    except (TypeError, ValueError) as exc:
+        return strict_json_loads(value.encode("utf-8"), max_bytes=_MAX_JSON)
+    except (UnicodeEncodeError, ProtocolError, TypeError, ValueError) as exc:
         raise BudgetStoreError("E_SCHEMA_INVALID", (field,)) from exc
 
 
@@ -367,6 +369,13 @@ class BudgetStore:
             raise BudgetStoreError("E_SCHEMA_INVALID", ("integrity",))
         # Validate every stored value through the same value model before use.
         try:
+            policy_ids = {
+                row[0] for row in self.db.execute("SELECT request_id FROM policies")
+            }
+            operation_rows = {
+                row["operation_id"]: row
+                for row in self.db.execute("SELECT operation_id,request_id FROM operations")
+            }
             for row in self.db.execute("SELECT request_id,policy_json FROM policies"):
                 _text(row[0], "policies.request_id", limit=128)
                 _policy_from_payload(_decode_json(row[1], "policies.policy_json"))
@@ -410,12 +419,36 @@ class BudgetStore:
                 _text(row["reason"], "stop_reasons.reason", limit=128)
                 _integer(row["stop_epoch"], "stop_reasons.stop_epoch", minimum=1)
                 _integer(row["sequence"], "stop_reasons.sequence", minimum=1)
-            for row in self.db.execute("SELECT * FROM outbox"):
+            outbox_rows = self.db.execute("SELECT * FROM outbox ORDER BY seq").fetchall()
+            expected_seq = 1
+            for row in outbox_rows:
                 _integer(row["seq"], "outbox.seq", minimum=1)
+                if row["seq"] != expected_seq:
+                    raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.sequence",))
+                expected_seq += 1
                 _text(row["request_id"], "outbox.request_id", nullable=True, limit=128)
                 _text(row["operation_id"], "outbox.operation_id", nullable=True, limit=128)
+                if row["request_id"] is not None and row["request_id"] not in policy_ids:
+                    raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.request",))
+                operation_id = row["operation_id"]
+                if operation_id is not None:
+                    operation = operation_rows.get(operation_id)
+                    if operation is None:
+                        raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.operation",))
+                    if (row["request_id"] is not None
+                            and row["request_id"] != operation["request_id"]):
+                        raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.scope",))
                 _text(row["event_type"], "outbox.event_type", limit=128)
-                _decode_json(row["payload_json"], "outbox.payload_json")
+                payload = _decode_json(row["payload_json"], "outbox.payload_json")
+                if type(payload) is not dict:
+                    raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.payload_json",))
+                if operation_id is not None:
+                    payload_operation = payload.get("operation_id")
+                    if payload_operation is not None and payload_operation != operation_id:
+                        raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.operation_payload",))
+                    payload_request = payload.get("request_id")
+                    if payload_request is not None and payload_request != operation["request_id"]:
+                        raise BudgetStoreError("E_SCHEMA_INVALID", ("outbox.request_payload",))
         except (BudgetError, BudgetStoreError, TypeError, ValueError) as exc:
             if isinstance(exc, BudgetStoreError):
                 raise
@@ -443,7 +476,10 @@ class BudgetStore:
         for row in self.db.execute("SELECT payload_json FROM observations WHERE request_id=? ORDER BY sequence, rowid", (request_id,)):
             obs.append(_observation_from_payload(_decode_json(row[0], "payload_json")))
         reasons = tuple(row[0] for row in self.db.execute("SELECT reason FROM stop_reasons WHERE request_id=? ORDER BY sequence", (request_id,)))
-        seq_row = self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox WHERE request_id=?", (request_id,)).fetchone()
+        # ``as_of_seq`` is a database-wide journal high-water mark.  A
+        # request-local max could make two consumers report the same cursor
+        # while another request committed an event between their reads.
+        seq_row = self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()
         state = BudgetState(policy)._evolve(operations=tuple(ops), observations=tuple(obs), stop_reasons=reasons,
                                            stop_epoch=1 if reasons else 0, sequence=int(seq_row[0] or 0), request_id=request_id)
         return state
