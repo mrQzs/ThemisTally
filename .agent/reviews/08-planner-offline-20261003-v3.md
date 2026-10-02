@@ -69,6 +69,9 @@ an independent `review-pi` verdict.
 - `e5f89ef` hardens the in-memory projection path against non-mapping or
   non-canonical event payloads and loose state/brief fields. The S6 projection
   checks pass 17 tests; this remains a read-only offline projection.
+- `f060b94` requires canonical plugin-lock ordering and rejects duplicate
+  permission or non-text platform policy inputs. Plugin boundary checks pass 23
+  tests; Windows Schema instance checks remain environment-skipped.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
