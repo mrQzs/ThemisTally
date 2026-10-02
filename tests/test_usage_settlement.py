@@ -46,6 +46,7 @@ class UsageSettlementTests(unittest.TestCase):
         self.assertEqual(ledger.record(self.fact(fact_id="final", kind="final", revision=2, amount=5)).status, "APPLIED")
         current = ledger.snapshot().dimensions["tokens"]
         self.assertEqual((current.gross_known, current.known, current.held, current.exposure), (5, 5, 0, 5))
+        self.assertEqual(ledger.operations[0].state, "provisional")
         self.assertEqual(len(ledger.facts), 3)
         exported = ledger.audit_record()
         self.assertEqual(exported["facts"][0]["fact_id"], "fact-a")
@@ -82,6 +83,7 @@ class UsageSettlementTests(unittest.TestCase):
         ledger = self.ledger()
         self.reserve(ledger, amount=5)
         ledger.record(self.fact(kind="unknown", amount=None, unknown_reason="provider-timeout"))
+        self.assertEqual(ledger.operations[0].state, "unknown")
         current = ledger.snapshot().dimensions["tokens"]
         self.assertEqual((current.known, current.held, current.exposure), (0, 5, 5))
         self.assertEqual((current.coverage, current.unknown_operations, current.enforcement),
@@ -91,6 +93,7 @@ class UsageSettlementTests(unittest.TestCase):
         # A late final closes the series but does not erase the durable stop reason.
         ledger.record(self.fact(fact_id="final", revision=2, kind="final", amount=3))
         self.assertEqual(ledger.snapshot().dimensions["tokens"].unknown_operations, ())
+        self.assertEqual(ledger.operations[0].state, "provisional")
         self.assertIn("USAGE_UNKNOWN", ledger.stop_reasons)
 
     def test_actual_usage_over_cap_is_accepted_and_stops(self) -> None:

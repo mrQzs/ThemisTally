@@ -395,6 +395,21 @@ class UsageSettlement:
             enforcement=enforcement,
         )
 
+    def _refresh_operation(self, operation_id: str) -> None:
+        """Derive lifecycle state from current facts without deleting history."""
+        operation = self._operations[operation_id]
+        if operation.state == "cancelled_not_started":
+            return
+        currents = [self._current(operation_id, dimension)[0] for dimension in self.policy.caps]
+        all_closed = all(current is not None and current.kind == "final" for current in currents)
+        unknown = any(current is not None and current.kind == "unknown" for current in currents)
+        if operation.finished and not all_closed:
+            unknown = True
+        state = "unknown" if unknown else ("reconciled" if all_closed else "provisional")
+        self._operations[operation_id] = SettlementOperation(operation.operation_id, operation.request_id,
+                                                              operation.task_id, operation.reservation,
+                                                              state=state, finished=operation.finished)
+
     def snapshot(self) -> SettlementSnapshot:
         dimensions = {dim: self._project_dimension(dim) for dim in sorted(self.policy.caps)}
         coverage = "complete"
@@ -511,6 +526,7 @@ class UsageSettlement:
         return self._post_fact(fact, "HISTORICAL_ONLY" if historical else "APPLIED", historical=historical)
 
     def _post_fact(self, fact: SettlementFact, status: str, *, historical: bool = False) -> SettlementDecision:
+        self._refresh_operation(fact.operation_id)
         snapshot = self.snapshot()
         for dimension, item in snapshot.dimensions.items():
             if item.over_limit:
@@ -533,6 +549,7 @@ class UsageSettlement:
         self._operations[operation_id] = SettlementOperation(operation.operation_id, operation.request_id,
                                                              operation.task_id, operation.reservation,
                                                              state=operation.state, finished=True)
+        self._refresh_operation(operation_id)
         self._event("operation.settled", {"operation_id": operation_id})
         snapshot = self.snapshot()
         for item in snapshot.dimensions.values():
