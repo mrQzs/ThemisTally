@@ -66,6 +66,9 @@ an independent `review-pi` verdict.
   deterministic-check evidence against loose booleans, unbounded text, malformed
   receipts, and non-mapping evidence. The S4/S5 focused checks pass 31 tests;
   no dispatcher receipt is inferred.
+- `e5f89ef` hardens the in-memory projection path against non-mapping or
+  non-canonical event payloads and loose state/brief fields. The S6 projection
+  checks pass 17 tests; this remains a read-only offline projection.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
