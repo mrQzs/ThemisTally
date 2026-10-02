@@ -125,6 +125,13 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(self.view(state).unknown_operations, ("op-a",))
         self.assertIn("USAGE_UNKNOWN", state.stop_reasons)
 
+    def test_late_lower_revision_after_unknown_does_not_rewrite_current_subtotal(self):
+        state = self.record(self.reserve(), observation_id="obs-unknown", kind="unknown", amount=None,
+                            revision=3, unknown_reason="provider-unavailable")
+        state = self.record(state, observation_id="obs-late", amount=9, revision=1)
+        self.assertEqual((self.view(state).known, self.view(state).held), (0, 5))
+        self.assertEqual(self.view(state).unknown_operations, ("op-a",))
+
     def test_unknown_on_one_sequence_is_not_cleared_by_another_operation(self):
         state = self.reserve(amount=3)
         state = self.reserve(state, op="op-b", amount=3, task="task-b")

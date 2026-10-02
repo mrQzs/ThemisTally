@@ -216,8 +216,25 @@ def _current(observations: tuple[UsageObservation, ...], operation_id: str,
     rows = _canonical_rows(observations, operation_id, dimension)
     if not rows:
         return None, 0
-    known = next((obs.amount for obs in reversed(rows) if obs.kind != "unknown"), 0)
-    return rows[-1], known
+    current = rows[-1]
+    if current.kind != "unknown":
+        return current, current.amount or 0
+    # An unknown revision retains the last known subtotal that was observed
+    # before that unknown fact arrived.  A late, lower revision is history and
+    # must not silently rewrite the current projection.
+    current_index = next(
+        index
+        for index, obs in enumerate(observations)
+        if obs.operation_id == operation_id
+        and obs.dimension == dimension
+        and obs.revision == current.revision
+    )
+    prior_known: dict[int, int] = {}
+    for obs in observations[:current_index]:
+        if obs.operation_id == operation_id and obs.dimension == dimension and obs.kind != "unknown":
+            prior_known.setdefault(obs.revision, obs.amount or 0)
+    known = prior_known[max(prior_known)] if prior_known else 0
+    return current, known
 
 
 @dataclass(frozen=True)

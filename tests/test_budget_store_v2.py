@@ -94,6 +94,15 @@ class BudgetStoreV2Tests(unittest.TestCase):
         self.assertEqual(dim.unknown_operations, ("op-a",))
         self.assertIn("USAGE_UNKNOWN", self.store.snapshot("req-a").stop_reasons)
 
+    def test_late_lower_revision_after_unknown_does_not_rewrite_projection(self):
+        self.reserve()
+        self.store.observe(self.obs(observation_id="obs-unknown", kind="unknown", amount=None,
+                                    revision=3, unknown_reason="provider-unavailable"))
+        self.store.observe(self.obs(observation_id="obs-late", amount=9, revision=1))
+        dim = self.store.snapshot("req-a").dimensions["tokens"]
+        self.assertEqual((dim.known, dim.held, dim.exposure), (0, 5, 5))
+        self.assertEqual(dim.unknown_operations, ("op-a",))
+
     def test_overrun_and_correction(self):
         self.reserve()
         self.store.observe(self.obs(amount=12))

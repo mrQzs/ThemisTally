@@ -188,6 +188,20 @@ class AtomicClaimBudgetTests(unittest.TestCase):
             self.claim(request={"task_id": "task-b", "idempotency_key": "key-b", "request_fingerprint": "fp-b"}, reservation={"tokens": 1, "dispatches": 1}, resource_keys=[])
         self.assertEqual(caught.exception.code, "E_CLAIM_BLOCKED")
 
+    def test_late_lower_revision_after_unknown_does_not_rewrite_projection(self) -> None:
+        result = self.claim()
+        self.store.observe(observation(result.operation_id, kind="unknown", amount=None,
+                                       revision=3, unknown_reason="provider_timeout"))
+        self.store.observe(observation(result.operation_id, observation_id="obs-late",
+                                       amount=9, revision=1))
+        snapshot = self.store.snapshot(REQUEST_ID).dimensions["tokens"]
+        self.assertEqual((snapshot.known, snapshot.held, snapshot.exposure), (0, 5, 5))
+        self.assertEqual(snapshot.unknown_operations, (result.operation_id,))
+        self.store.close()
+        self.store = AtomicClaimBudgetStore(self.path)
+        snapshot = self.store.snapshot(REQUEST_ID).dimensions["tokens"]
+        self.assertEqual((snapshot.known, snapshot.held, snapshot.exposure), (0, 5, 5))
+
     def test_start_unknown_recovery_reason_survives_reopen(self) -> None:
         result = self.claim(lease_until=10)
         self.store.handoff(result.operation_id, owner="owner-a", now=1, budget_available=True, resources_available=True)
