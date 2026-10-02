@@ -285,5 +285,30 @@ class S6ProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
                 PersistentProjectionStore(path)
 
+    def test_persistent_projection_can_repair_only_a_truncated_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            store = PersistentProjectionStore(path)
+            self.assertEqual(store.consume([ProjectionEvent(1, "s", "ready", {})], generation=1), "APPLIED")
+            with path.open("ab") as handle:
+                handle.write(b'{"kind":"event"')
+            recovered = PersistentProjectionStore(path)
+            self.assertEqual(recovered.recovery, "TRUNCATED_TAIL")
+            with self.assertRaisesRegex(ArtifactError, "E_CAS"):
+                recovered.repair_tail(expected_generation=2, expected_cursor=1)
+            result = recovered.repair_tail(expected_generation=1, expected_cursor=1)
+            self.assertTrue(result["ok"])
+            self.assertEqual(recovered.recovery, "CLEAN")
+            self.assertEqual(recovered.consume([ProjectionEvent(2, "s", "done", {})], generation=1), "APPLIED")
+            self.assertEqual(PersistentProjectionStore(path).cursor, 2)
+
+    def test_persistent_projection_does_not_repair_unknown_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            store = PersistentProjectionStore(path)
+            store.recovery = "WRITE_UNKNOWN"
+            with self.assertRaisesRegex(ArtifactError, "E_RECOVERY"):
+                store.repair_tail(expected_generation=1, expected_cursor=0)
+
 if __name__ == "__main__":
     unittest.main()

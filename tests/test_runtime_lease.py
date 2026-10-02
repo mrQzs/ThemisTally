@@ -30,6 +30,11 @@ class RuntimeLeaseTests(unittest.TestCase):
             issue_lease("run", ProcessIdentity(pid=123), generation=1, expires_at=10)
         self.assertEqual(caught.exception.code, "E_OWNER_UNKNOWN")
 
+    def test_owner_with_unrepresentable_pid_is_unknown(self):
+        invalid = dataclasses.replace(owner(), pid=2**53)
+        with self.assertRaisesRegex(LeaseError, "E_OWNER_UNKNOWN"):
+            issue_lease("run", invalid, generation=1, expires_at=10)
+
     def test_expired_live_owner_is_held_and_unknown_is_blocked(self):
         lease = issue_lease("run", owner(), generation=1, expires_at=10)
         self.assertEqual(assess_lease(lease, current_generation=1, observed_owner=owner(), process_alive=True, now=11).decision, "HOLD")
@@ -49,10 +54,10 @@ class RuntimeLeaseTests(unittest.TestCase):
         for run_id in ("bad\nrun", "\x1f", "\ud800"):
             with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
                 issue_lease(run_id, owner(), generation=1, expires_at=1)
-        for generation in (True, 0, "1"):
+        for generation in (True, 0, "1", 2**53):
             with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
                 issue_lease("run", owner(), generation=generation, expires_at=1)
-        for expires_at in (math.nan, math.inf, -math.inf, -1):
+        for expires_at in (math.nan, math.inf, -math.inf, -1, 2**53, 10**400):
             with self.assertRaisesRegex(LeaseError, "E_LEASE_SCHEMA"):
                 issue_lease("run", owner(), generation=1, expires_at=expires_at)
         with self.assertRaisesRegex(LeaseError, "E_OWNER_UNKNOWN"):

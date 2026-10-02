@@ -10,7 +10,7 @@ from .protocols import MAX_SAFE_INTEGER
 class RecoveryError(ValueError):
     def __init__(self, code: str, message: str = "recovery rejected") -> None:
         self.code = code
-        super().__init__(message)
+        super().__init__(f"{code}: {message}")
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,8 @@ HIGH_WATERS = ("backup_high_water", "journal_high_water", "resource_high_water",
 
 def resume_recovery_decision(facts: Mapping[str, Any], *, expected_generation: int) -> RecoveryDecision:
     """Require matching generation, non-regressing high waters, and all gates."""
-    if type(facts) is not dict or type(expected_generation) is not int or expected_generation < 1:
+    if (type(facts) is not dict or type(expected_generation) is not int
+            or expected_generation < 1 or expected_generation > MAX_SAFE_INTEGER):
         raise RecoveryError("E_RECOVERY_SCHEMA")
     required = {"recorded_generation", *BOOL_FACTS, *HIGH_WATERS}
     if set(facts) != required:

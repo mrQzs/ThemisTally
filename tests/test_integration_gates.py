@@ -12,7 +12,8 @@ if str(ROOT / "scripts") not in sys.path:
 from codekit.integration_gates import (BLOCKED, OFFLINE_WIRED, PASS, PRODUCTION_BLOCKED, WAIT, IntegrationGateError,
                                        contract_digest, evaluate_commit_permission,
                                        evaluate_integration_gates, evaluate_production_connectors,
-                                       verify_09_10_wiring, verify_contract_hash, verify_fixed_candidate)
+                                       verify_09_10_wiring, verify_contract_hash, verify_fixed_candidate,
+                                       canonical_json)
 from codekit.projections import project_readiness, project_state, render_brief
 
 
@@ -38,6 +39,16 @@ def candidate_ref() -> dict[str, str]:
 
 
 class ContractAndCandidateTests(unittest.TestCase):
+    def test_canonical_json_rejects_coercive_values(self) -> None:
+        with self.assertRaisesRegex(IntegrationGateError, "E_CANONICAL_JSON"):
+            canonical_json({1: "coerced-key"})
+        with self.assertRaisesRegex(IntegrationGateError, "E_CANONICAL_JSON"):
+            canonical_json({"value": (1, 2)})
+        cycle: dict[str, object] = {}
+        cycle["self"] = cycle
+        with self.assertRaisesRegex(IntegrationGateError, "E_CANONICAL_JSON"):
+            canonical_json(cycle)
+
     def test_contract_hash_is_fixed_and_declared_reference_must_match(self) -> None:
         contract = {"task_id": "07-s5-3", "plan_version": 1, "checks": ["offline"]}
         digest = contract_digest(contract)
@@ -125,6 +136,19 @@ class WiringAndProductionTests(unittest.TestCase):
                                              state=state,
                                              brief={**brief, "source_coverage": "partial"}).decision,
                          BLOCKED)
+
+    def test_wiring_rejects_forged_state_and_brief_health(self) -> None:
+        state, brief = state_and_brief()
+        forged_state = {**state, "health": "healthy", "source_coverage": "partial"}
+        decision = verify_09_10_wiring(readiness=project_readiness(readiness_facts()),
+                                       state=forged_state, brief=brief)
+        self.assertEqual(decision.decision, BLOCKED)
+        self.assertIn("STATE_HEALTH_CONTRADICTION", decision.reasons)
+        forged_brief = {**brief, "issues": "forged"}
+        decision = verify_09_10_wiring(readiness=project_readiness(readiness_facts()),
+                                       state=state, brief=forged_brief)
+        self.assertEqual(decision.decision, BLOCKED)
+        self.assertIn("BRIEF_ISSUES_INVALID", decision.reasons)
 
     def test_missing_and_synthetic_connectors_are_explicitly_production_blocked(self) -> None:
         missing = evaluate_production_connectors(None)

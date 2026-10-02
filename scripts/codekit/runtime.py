@@ -13,6 +13,12 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional, Tuple
 
 
+# Runtime records cross a JSON boundary in the scheduler.  Keep counters and
+# identifiers within the same exact-integer envelope as the rest of Code-Kit;
+# accepting a larger integer would make a later float/JSON round-trip lossy.
+_MAX_SAFE_INTEGER = 2**53 - 1
+
+
 class RuntimeErrorCode(ValueError):
     def __init__(self, code: str, message: str):
         self.code = code
@@ -23,6 +29,9 @@ def _runtime_text(value: Any, code: str, field: str) -> str:
     """Validate text fields before hashing or passing them to an adapter."""
     if type(value) is not str or not value or "\x00" in value:
         raise RuntimeErrorCode(code, f"{field} must be non-empty text without NUL")
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+           for char in value):
+        raise RuntimeErrorCode(code, f"{field} contains a control or non-scalar character")
     return value
 
 
@@ -67,7 +76,8 @@ class InvocationSpec:
         if (type(self.environment_sha256) is not str
                 or not re.fullmatch(r"[0-9a-f]{64}", self.environment_sha256)):
             raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "environment SHA-256 must be lowercase")
-        if type(self.timeout_seconds) is not int or self.timeout_seconds <= 0:
+        if (type(self.timeout_seconds) is not int or self.timeout_seconds <= 0
+                or self.timeout_seconds > _MAX_SAFE_INTEGER):
             raise RuntimeErrorCode("E_RUNTIME_TIMEOUT", "timeout must be a positive integer")
 
     def digest(self) -> str:
@@ -83,13 +93,32 @@ class ProcessIdentity:
     worktree_id: str
 
     def __post_init__(self) -> None:
-        if type(self.pid) is not int or self.pid <= 0:
+        if type(self.pid) is not int or self.pid <= 0 or self.pid > _MAX_SAFE_INTEGER:
             raise RuntimeErrorCode("E_RUNTIME_PID", "pid must be positive")
         _runtime_text(self.boot_id, "E_RUNTIME_IDENTITY", "boot_id")
         _runtime_text(self.worktree_id, "E_RUNTIME_IDENTITY", "worktree_id")
         if (type(self.executable_sha256) is not str
                 or not re.fullmatch(r"[0-9a-f]{64}", self.executable_sha256)):
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "executable_sha256 must be lowercase SHA-256")
+
+
+def _observation_identity(value: Any) -> ProcessIdentity:
+    """Decode the identity attached to a STARTED observation.
+
+    A run/environment pair is not enough to prove that an OS process belongs
+    to this invocation.  Accept either the in-memory value used by adapters or
+    its closed JSON shape; callers must attach all four identity facts.
+    """
+    if isinstance(value, ProcessIdentity):
+        return value
+    if not isinstance(value, Mapping) or set(value) != {"pid", "boot_id", "executable_sha256", "worktree_id"}:
+        raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "process_identity must be a closed object")
+    try:
+        return ProcessIdentity(**dict(value))
+    except RuntimeErrorCode:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "process_identity is invalid") from exc
 
 
 LIFECYCLE = ("NEW", "STARTING", "STARTED", "STOPPING", "STOPPED", "FAILED", "START_UNKNOWN")
@@ -109,7 +138,8 @@ class Lifecycle:
     def __post_init__(self) -> None:
         if type(self.state) is not str or self.state not in LIFECYCLE:
             raise RuntimeErrorCode("E_RUNTIME_TRANSITION", "unknown lifecycle state")
-        if type(self.generation) is not int or self.generation < 0:
+        if (type(self.generation) is not int or self.generation < 0
+                or self.generation > _MAX_SAFE_INTEGER):
             raise RuntimeErrorCode("E_RUNTIME_FENCE", "generation must be a non-negative integer")
         if self.identity is not None and not isinstance(self.identity, ProcessIdentity):
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "identity must be ProcessIdentity")
@@ -118,7 +148,9 @@ class Lifecycle:
 
     def transition(self, state: str, *, identity: Optional[ProcessIdentity] = None, expected_generation: Optional[int] = None) -> "Lifecycle":
         if expected_generation is not None:
-            if type(expected_generation) is not int or expected_generation != self.generation:
+            if (type(expected_generation) is not int or expected_generation < 0
+                    or expected_generation > _MAX_SAFE_INTEGER
+                    or expected_generation != self.generation):
                 raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation changed")
         if self.state == "START_UNKNOWN" and expected_generation is None:
             raise RuntimeErrorCode("E_RUNTIME_FENCE", "START_UNKNOWN requires a generation fence")
@@ -144,10 +176,16 @@ def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapp
         return "START_UNKNOWN" if handoff_accepted else "NOT_STARTED"
     if started_observation.get("run_id") != expected.run_id or started_observation.get("environment_sha256") != expected.environment_sha256:
         return "IDENTITY_MISMATCH"
-    if started_observation.get("state") == "STARTED":
+    observed_state = started_observation.get("state")
+    if observed_state == "NOT_STARTED":
+        return "NOT_STARTED"
+    if observed_state == "STARTED":
+        if "process_identity" not in started_observation:
+            return "START_UNKNOWN"
+        _observation_identity(started_observation["process_identity"])
         return "STARTED"
-    if started_observation.get("state") in {"FAILED", "STOPPED"}:
-        return str(started_observation["state"])
+    if observed_state in {"FAILED", "STOPPED"}:
+        return str(observed_state)
     return "START_UNKNOWN"
 
 

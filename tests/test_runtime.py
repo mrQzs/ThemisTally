@@ -11,6 +11,10 @@ def invocation():
     return InvocationSpec("req", "run", ("python", "-c", "pass"), "C:\\repo", "a" * 64, 30)
 
 
+def process_identity():
+    return ProcessIdentity(10, "boot", "b" * 64, "tree")
+
+
 class RuntimeTests(unittest.TestCase):
     def test_argv_preserves_empty_repeated_and_multiline_arguments(self):
         argv = ("python", "-c", "pass\n", "--tag", "same", "--tag", "same", "")
@@ -32,8 +36,11 @@ class RuntimeTests(unittest.TestCase):
             {"run_id": b"run"},
             {"cwd": Path("C:/repo")},
             {"cwd": "C:\x00repo"},
+            {"request_id": "req\nline"},
+            {"run_id": "run\ud800"},
             {"environment_sha256": None},
             {"shell": 1},
+            {"timeout_seconds": 2**53},
         ]
         for changes in cases:
             with self.subTest(changes=changes):
@@ -45,12 +52,19 @@ class RuntimeTests(unittest.TestCase):
                 values.update(changes)
                 with self.assertRaises(RuntimeErrorCode):
                     InvocationSpec(**values)
-        for changes in ({"boot_id": 1}, {"worktree_id": b"tree"}, {"executable_sha256": None}):
+        identity_cases = [
+            ({"boot_id": 1}, "E_RUNTIME_IDENTITY"),
+            ({"worktree_id": b"tree"}, "E_RUNTIME_IDENTITY"),
+            ({"worktree_id": "tree\x7f"}, "E_RUNTIME_IDENTITY"),
+            ({"executable_sha256": None}, "E_RUNTIME_IDENTITY"),
+            ({"pid": 2**53}, "E_RUNTIME_PID"),
+        ]
+        for changes, code in identity_cases:
             with self.subTest(changes=changes):
                 values = {"pid": 10, "boot_id": "boot", "executable_sha256": "b" * 64,
                           "worktree_id": "tree"}
                 values.update(changes)
-                with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_IDENTITY"):
+                with self.assertRaisesRegex(RuntimeErrorCode, code):
                     ProcessIdentity(**values)
 
     def test_observation_inputs_are_rejected_before_attribute_errors(self):
@@ -90,9 +104,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(classify_start(handoff_accepted=False, started_observation=None, expected=spec), "NOT_STARTED")
         self.assertEqual(reconcile(spec, {"state": "STARTED", "run_id": "other", "environment_sha256": "a" * 64})["status"], "IDENTITY_MISMATCH")
 
+    def test_started_observation_requires_process_identity(self):
+        spec = invocation()
+        incomplete = {"state": "STARTED", "run_id": spec.run_id,
+                      "environment_sha256": spec.environment_sha256}
+        self.assertEqual(classify_start(handoff_accepted=True, started_observation=incomplete, expected=spec),
+                         "START_UNKNOWN")
+        malformed = {**incomplete, "process_identity": {"pid": 10}}
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_IDENTITY"):
+            classify_start(handoff_accepted=True, started_observation=malformed, expected=spec)
+
+    def test_explicit_not_started_observation_allows_replay(self):
+        spec = invocation()
+        observed = {"state": "NOT_STARTED", "run_id": spec.run_id,
+                    "environment_sha256": spec.environment_sha256}
+        self.assertEqual(classify_start(handoff_accepted=True, started_observation=observed, expected=spec),
+                         "NOT_STARTED")
+        self.assertTrue(reconcile(spec, observed)["replay_allowed"])
+
     def test_matching_observation_is_started_and_replay_policy_is_conservative(self):
         spec = invocation()
-        observation = {"state": "STARTED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256}
+        observation = {"state": "STARTED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256,
+                       "process_identity": process_identity()}
         self.assertEqual(classify_start(handoff_accepted=True, started_observation=observation, expected=spec), "STARTED")
         self.assertFalse(reconcile(spec, observation)["replay_allowed"])
         self.assertFalse(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256})["replay_allowed"])

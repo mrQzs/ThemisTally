@@ -24,6 +24,8 @@ import json
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
+from . import protocols
+
 
 class IntegrationGateError(ValueError):
     """Invalid input to an offline integration gate."""
@@ -61,9 +63,10 @@ class GateDecision:
 def canonical_json(value: Any) -> bytes:
     """Encode a JSON value canonically for a stable identity hash."""
     try:
+        protocols.check_json_value(value, max_bytes=protocols.DEFAULT_MAX_BYTES - 1)
         return (json.dumps(value, ensure_ascii=False, sort_keys=True,
                            separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+    except (protocols.ProtocolError, TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise IntegrationGateError("E_CANONICAL_JSON", reason="JSON value is not canonicalizable") from exc
 
 
@@ -103,7 +106,9 @@ def _tree_oid(value: Any, field: str) -> str:
 
 
 def _text(value: Any, field: str) -> str:
-    if type(value) is not str or not value or "\x00" in value:
+    if (type(value) is not str or not value or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+            for ch in value)):
         raise IntegrationGateError("E_TEXT", field, "nonempty text required")
     return value
 
@@ -305,7 +310,7 @@ def verify_09_10_wiring(*, readiness: Any, state: Mapping[str, Any], brief: Mapp
 
     for field in ("indexed_cursor", "applied_cursor"):
         value = state.get(field)
-        if type(value) is not int or value < 0:
+        if type(value) is not int or not 0 <= value <= protocols.MAX_SAFE_INTEGER:
             reasons.append("STATE_%s_UNKNOWN" % field.upper())
     if type(state.get("indexed_cursor")) is int and type(state.get("applied_cursor")) is int \
             and state["applied_cursor"] > state["indexed_cursor"]:
@@ -314,14 +319,38 @@ def verify_09_10_wiring(*, readiness: Any, state: Mapping[str, Any], brief: Mapp
         reasons.append("STATE_VERIFICATION_REF_UNKNOWN")
     if not _nonempty_text(state.get("as_of")):
         reasons.append("STATE_AS_OF_UNKNOWN")
+    source_vector = state.get("source_vector")
+    if (not isinstance(source_vector, Mapping)
+            or any(type(source) is not str or not _nonempty_text(source)
+                   or type(seq) is not int or not 0 <= seq <= protocols.MAX_SAFE_INTEGER
+                   or (type(state.get("indexed_cursor")) is int and seq > state["indexed_cursor"])
+                   for source, seq in source_vector.items())):
+        reasons.append("STATE_SOURCE_VECTOR_INVALID")
     if type(state.get("source_coverage")) is not str or state.get("source_coverage") not in {"complete", "partial", "unknown"}:
         reasons.append("STATE_SOURCE_COVERAGE_INVALID")
     if type(state.get("budget_coverage")) is not str or state.get("budget_coverage") not in {"complete", "partial", "unknown"}:
         reasons.append("STATE_BUDGET_COVERAGE_INVALID")
+    if type(state.get("health")) is not str or state.get("health") not in {"healthy", "degraded"}:
+        reasons.append("STATE_HEALTH_INVALID")
+    elif state.get("health") == "healthy" and (
+            state.get("source_coverage") != "complete"
+            or state.get("budget_coverage") != "complete"
+            or state.get("issues") not in ([], ())):
+        reasons.append("STATE_HEALTH_CONTRADICTION")
 
     # 10 is a read model.  It cannot turn a brief into an execution permit.
     if brief.get("dispatch_eligibility") != "not_evaluated":
         reasons.append("BRIEF_DISPATCH_FIELD_NOT_NEUTRAL")
+    if type(brief.get("health")) is not str or brief.get("health") not in {"healthy", "degraded"}:
+        reasons.append("BRIEF_HEALTH_INVALID")
+    if type(brief.get("source_coverage")) is not str or brief.get("source_coverage") not in {"complete", "partial", "unknown"}:
+        reasons.append("BRIEF_SOURCE_COVERAGE_INVALID")
+    if (isinstance(brief.get("issues"), (str, bytes))
+            or not isinstance(brief.get("issues"), Sequence)
+            or any(type(item) is not str or not item for item in brief.get("issues", ()) )):
+        reasons.append("BRIEF_ISSUES_INVALID")
+    if type(brief.get("truncated")) is not bool:
+        reasons.append("BRIEF_TRUNCATION_INVALID")
     if brief.get("source_coverage") != state.get("source_coverage"):
         reasons.append("BRIEF_SOURCE_COVERAGE_MISMATCH")
     if brief.get("health") != state.get("health"):
@@ -455,7 +484,9 @@ def evaluate_integration_gates(*, contract: Any, expected_contract_sha256: str |
 
 
 def _nonempty_text(value: Any) -> bool:
-    return type(value) is str and bool(value) and "\x00" not in value
+    return type(value) is str and bool(value) and all(
+        ord(ch) >= 0x20 and ord(ch) != 0x7F and not 0xD800 <= ord(ch) <= 0xDFFF
+        for ch in value)
 
 
 # Descriptive aliases keep call sites readable without creating alternate

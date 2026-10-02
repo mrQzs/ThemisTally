@@ -13,7 +13,10 @@ import math
 import re
 from typing import Any
 
-from .identity import ProcessIdentity, process_identity_decision, KNOWN
+from .identity import IdentityModelError, ProcessIdentity, process_identity_decision, KNOWN
+
+
+_MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class LeaseError(ValueError):
@@ -53,26 +56,41 @@ def _lease_text(value: Any, field: str) -> str:
 
 
 def _lease_generation(value: Any, field: str) -> int:
-    if type(value) is not int or value < 1:
+    if type(value) is not int or value < 1 or value > _MAX_SAFE_INTEGER:
         raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a positive integer")
     return value
 
 
 def _lease_time(value: Any, field: str) -> float:
-    if type(value) not in (int, float) or not math.isfinite(float(value)) or value < 0:
+    if type(value) not in (int, float) or value < 0:
         raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a finite non-negative number")
-    return float(value)
+    # Converting an oversized integer to float raises OverflowError on some
+    # Python versions; map that malformed input to the contract error rather
+    # than leaking an implementation exception.
+    try:
+        converted = float(value)
+    except (OverflowError, ValueError):
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a finite non-negative number")
+    if not math.isfinite(converted) or converted > _MAX_SAFE_INTEGER:
+        raise LeaseError("E_LEASE_SCHEMA", f"{field} must be a finite non-negative number")
+    return converted
 
 
 def _owner_key(owner: Any, *, allow_unknown: bool = False) -> str | None:
     if not isinstance(owner, ProcessIdentity):
         raise LeaseError("E_OWNER_UNKNOWN")
-    decision = process_identity_decision(owner)
-    if decision.status != KNOWN or owner.canonical_key is None:
+    try:
+        decision = process_identity_decision(owner)
+        owner_key = owner.canonical_key
+    except IdentityModelError as exc:
+        if allow_unknown:
+            return None
+        raise LeaseError("E_OWNER_UNKNOWN") from exc
+    if decision.status != KNOWN or owner_key is None:
         if allow_unknown:
             return None
         raise LeaseError("E_OWNER_UNKNOWN")
-    return owner.canonical_key
+    return owner_key
 
 
 def _derive_token(run_id: str, generation: int, owner_key: str, expires_at: float) -> str:

@@ -11,6 +11,8 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
+from . import protocols
+
 
 class ProjectionError(ValueError):
     def __init__(self, code: str, message: str = "projection rejected") -> None:
@@ -64,19 +66,39 @@ def project_readiness(facts: Mapping[str, Any]) -> ReadinessProjection:
     return ReadinessProjection(can_refine, can_start_planner, can_execute, tuple(reasons))
 
 
+def _text(value: Any, field: str) -> str:
+    """Validate an identity/text field before it participates in a digest."""
+    if type(value) is not str or not value or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+            for ch in value):
+        raise ProjectionError("E_EVENT_ID", field)
+    return value
+
+
 def _canonical(value: Any) -> str:
     try:
+        # json.dumps coerces integer mapping keys and tuples.  Projection IDs
+        # must describe the exact value that is persisted, so validate the
+        # native JSON subset before serializing it.
+        protocols.check_json_value(value, max_bytes=protocols.DEFAULT_MAX_BYTES)
+    except protocols.ProtocolError as exc:
+        raise ProjectionError("E_EVENT_PAYLOAD", "strict bounded JSON required") from exc
+    try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise ProjectionError("E_EVENT_PAYLOAD", "canonical JSON required") from exc
 
 
 def event_identity(source_key: str, event_type: str, payload: Mapping[str, Any]) -> tuple[str, str]:
-    if type(source_key) is not str or not source_key or type(event_type) is not str or not event_type:
-        raise ProjectionError("E_EVENT_ID", "source and event type required")
+    _text(source_key, "source_key")
+    _text(event_type, "event_type")
     if not isinstance(payload, Mapping):
         raise ProjectionError("E_EVENT_PAYLOAD", "event payload mapping required")
-    payload_hash = hashlib.sha256(_canonical(dict(payload)).encode("utf-8")).hexdigest()
+    try:
+        payload_value = dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise ProjectionError("E_EVENT_PAYLOAD", "event payload mapping required") from exc
+    payload_hash = hashlib.sha256(_canonical(payload_value).encode("utf-8")).hexdigest()
     raw = _canonical({"source_key": source_key, "event_type": event_type, "payload_hash": payload_hash}).encode("utf-8")
     return hashlib.sha256(raw).hexdigest(), payload_hash
 
@@ -106,13 +128,16 @@ class OutboxProjection:
     def consume_batch(self, events: Sequence[ProjectionEvent], *, generation: int) -> str:
         if generation != self.generation:
             raise ProjectionError("E_FENCED", "consumer generation is stale")
+        if not isinstance(events, Sequence) or isinstance(events, (str, bytes)):
+            raise ProjectionError("E_EVENT", "event sequence required")
         trial_events = dict(self._events)
         trial_projection = deepcopy(self.projection)
         trial_source = dict(self.source_vector)
         expected = self.indexed_cursor + 1
         replayed = True
         for event in events:
-            if type(event) is not ProjectionEvent or type(event.seq) is not int or event.seq < 1:
+            if (type(event) is not ProjectionEvent or type(event.seq) is not int
+                    or not 1 <= event.seq <= protocols.MAX_SAFE_INTEGER):
                 raise ProjectionError("E_EVENT", "valid projection event required")
             calculated, payload_hash = event_identity(event.source_key, event.event_type, event.payload)
             event_id = event.event_id or calculated
@@ -145,7 +170,18 @@ class OutboxProjection:
     def rebuild_from_authority(self, rows: Sequence[Mapping[str, Any]], *, generation: int) -> None:
         if generation != self.generation:
             raise ProjectionError("E_FENCED", "consumer generation is stale")
-        self.projection = {"authority_rows": deepcopy([dict(row) for row in rows]), "events": {}}
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
+            raise ProjectionError("E_REBUILD", "authority rows sequence required")
+        if any(not isinstance(row, Mapping) for row in rows):
+            raise ProjectionError("E_REBUILD", "authority rows must be mappings")
+        try:
+            authority_rows = [dict(row) for row in rows]
+            protocols.check_json_value(authority_rows, max_bytes=protocols.DEFAULT_MAX_BYTES)
+        except (TypeError, ValueError) as exc:
+            raise ProjectionError("E_REBUILD", "authority rows must be JSON mappings") from exc
+        except protocols.ProtocolError as exc:
+            raise ProjectionError("E_REBUILD", "authority rows must be strict JSON") from exc
+        self.projection = {"authority_rows": deepcopy(authority_rows), "events": {}}
         self._events.clear()
         self.source_vector.clear()
         self.indexed_cursor = 0
@@ -160,10 +196,14 @@ def project_state(*, indexed_cursor: int, applied_cursor: int, source_vector: Ma
     if type(indexed_cursor) is not int or indexed_cursor < 0 or type(applied_cursor) is not int or applied_cursor < 0 or applied_cursor > indexed_cursor:
         raise ProjectionError("E_CURSOR", "cursors must be non-negative and applied must not exceed indexed")
     if not isinstance(source_vector, Mapping) or any(
-            type(key) is not str or not key or type(value) is not int or value < 0
+            type(key) is not str or not key or type(value) is not int
+            or not 0 <= value <= protocols.MAX_SAFE_INTEGER
             for key, value in source_vector.items()):
         raise ProjectionError("E_SOURCE_VECTOR", "source vector must map names to non-negative cursors")
-    if type(verification_ref) is not str or not verification_ref or type(as_of) is not str or not as_of:
+    if (type(verification_ref) is not str or not verification_ref
+            or type(as_of) is not str or not as_of
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7F
+                   or 0xD800 <= ord(ch) <= 0xDFFF for ch in verification_ref + as_of)):
         raise ProjectionError("E_STATE", "verification reference and timestamp are required")
     if (type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}
             or type(budget_coverage) is not str or budget_coverage not in {"complete", "partial", "unknown"}):

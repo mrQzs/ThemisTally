@@ -33,12 +33,14 @@ class ResumeRecoveryTests(unittest.TestCase):
         self.assertIn("WAIT_EXTERNAL_SCOPE_EMPTY", blocked.reasons)
 
     def test_schema_is_closed_and_high_water_cannot_regress(self):
-        with self.assertRaises(RecoveryError):
+        with self.assertRaisesRegex(RecoveryError, "E_RECOVERY_FIELDS"):
             resume_recovery_decision({**facts(), "extra": True}, expected_generation=3)
         blocked = resume_recovery_decision(facts(backup_high_water=1), expected_generation=3)
         self.assertIn("WAIT_BACKUP_HIGH_WATER", blocked.reasons)
-        with self.assertRaises(RecoveryError):
+        with self.assertRaisesRegex(RecoveryError, "E_RECOVERY_SCHEMA"):
             resume_recovery_decision(facts(journal_high_water=2**53), expected_generation=3)
+        with self.assertRaisesRegex(RecoveryError, "E_RECOVERY_SCHEMA"):
+            resume_recovery_decision(facts(), expected_generation=2**53)
 
 
 if __name__ == "__main__":

@@ -283,5 +283,44 @@ class PersistentProjectionStore:
             "recovery": self.recovery,
         }
 
+    def repair_tail(self, *, expected_generation: int, expected_cursor: int) -> dict[str, Any]:
+        """Discard only an uncommitted final byte tail, then clear recovery.
+
+        A missing newline is the journal's commit boundary.  Recovery never
+        guesses whether a complete record was durable: it first requires the
+        caller to confirm the generation and cursor already replayed, then
+        truncates exactly the bytes after the last committed newline.  A
+        ``WRITE_UNKNOWN`` state is deliberately not repairable because the
+        failed append may have changed an arbitrary prefix.
+        """
+        if type(expected_generation) is not int or expected_generation < 1:
+            _fail("E_FENCED", "expected generation must be a positive integer")
+        if type(expected_cursor) is not int or expected_cursor < 0:
+            _fail("E_CAS", "expected cursor must be a non-negative integer")
+        if expected_generation != self.generation or expected_cursor != self.cursor:
+            _fail("E_CAS", "projection state changed")
+        if self.recovery == "CLEAN":
+            return self.reconcile(expected_generation=expected_generation, expected_cursor=expected_cursor)
+        if self.recovery != "TRUNCATED_TAIL":
+            _fail("E_RECOVERY", "only a truncated final tail is repairable")
+        try:
+            raw = self.path.read_bytes() if self.path.exists() else b""
+            if raw.endswith(b"\n"):
+                # The recovery marker can only be stale if another actor
+                # completed the append; preserve the durable bytes and clear
+                # the local marker after rechecking the state.
+                self.recovery = "CLEAN"
+                return self.reconcile(expected_generation=expected_generation, expected_cursor=expected_cursor)
+            boundary = raw.rfind(b"\n") + 1
+            with self.path.open("r+b") as handle:
+                handle.truncate(boundary)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            self.recovery = "WRITE_UNKNOWN"
+            raise ArtifactError("E_JOURNAL_WRITE", "/projection_store", "journal tail repair durability unknown") from exc
+        self.recovery = "CLEAN"
+        return self.reconcile(expected_generation=expected_generation, expected_cursor=expected_cursor)
+
 
 __all__ = ["PersistentProjectionStore"]

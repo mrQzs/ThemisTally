@@ -51,11 +51,31 @@ class ProjectionTests(unittest.TestCase):
     def test_consumer_requires_contiguous_sequences_and_generation(self):
         consumer = OutboxProjection(generation=2)
         with self.assertRaises(ProjectionError) as caught:
+            consumer.consume_batch(None, generation=2)
+        self.assertEqual(caught.exception.code, "E_EVENT")
+        with self.assertRaises(ProjectionError) as caught:
             consumer.consume_batch([ProjectionEvent(2, "ledger", "usage", {})], generation=2)
         self.assertEqual(caught.exception.code, "E_EVENT_GAP")
         with self.assertRaises(ProjectionError) as caught:
             consumer.consume_batch([], generation=1)
         self.assertEqual(caught.exception.code, "E_FENCED")
+
+    def test_event_identity_rejects_coercive_or_unsafe_payloads(self):
+        with self.assertRaises(ProjectionError) as caught:
+            event_identity("ledger", "usage", {1: "coerced-key"})
+        self.assertEqual(caught.exception.code, "E_EVENT_PAYLOAD")
+        with self.assertRaises(ProjectionError) as caught:
+            event_identity("ledger", "usage", {"units": 2 ** 53})
+        self.assertEqual(caught.exception.code, "E_EVENT_PAYLOAD")
+        with self.assertRaises(ProjectionError) as caught:
+            event_identity("ledger\n", "usage", {})
+        self.assertEqual(caught.exception.code, "E_EVENT_ID")
+
+    def test_rebuild_rejects_coercive_rows(self):
+        consumer = OutboxProjection()
+        with self.assertRaises(ProjectionError) as caught:
+            consumer.rebuild_from_authority([{1: "coerced-key"}], generation=1)
+        self.assertEqual(caught.exception.code, "E_REBUILD")
 
     def test_rebuild_and_brief_preserve_unknown_budget_and_truncation(self):
         consumer = OutboxProjection()
