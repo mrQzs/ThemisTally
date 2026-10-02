@@ -53,6 +53,15 @@ class GitAncestorTests(unittest.TestCase):
         self.assertEqual(interpret_ancestor({"returncode": 0, "stdout": b""}).decision, "ANCESTOR")
         self.assertEqual(interpret_ancestor({"returncode": 0, "stdout": ""}).decision, "UNKNOWN")
 
+    def test_mapping_result_rejects_malformed_control_fields(self) -> None:
+        for result in (
+            {"returncode": 0, "stdout": b"", "timed_out": "false"},
+            {"returncode": 0, "stdout": b"", "stderr": "unexpected"},
+            {"returncode": 0, "stdout": b"", "path_exists": "false"},
+        ):
+            with self.subTest(result=result):
+                self.assertEqual(interpret_ancestor(result).decision, "UNKNOWN")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
