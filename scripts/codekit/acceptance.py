@@ -309,7 +309,12 @@ def _validate_ref_map(value: Any, field: str, *, nonempty: bool = False) -> dict
 
 
 def _same_ref(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    return all(left.get(name) == right.get(name) for name in ("kind", "id", "sha256"))
+    # The path is part of a ResourceRef's fixed binding.  The digest proves
+    # the bytes, while the path identifies which declared port/source was
+    # bound; silently accepting a path-only change would permit an artifact to
+    # be relabelled under a different location without a new receipt.
+    return all(left.get(name) == right.get(name)
+               for name in ("kind", "id", "sha256", "path"))
 
 
 def _id(value: Any, field: str) -> str:
@@ -354,13 +359,27 @@ def _freeze(value: Any) -> Any:
     return value
 
 
-def _thaw(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if type(value) is tuple:
-        return [_thaw(item) for item in value]
-    if type(value) is list:
-        return [_thaw(item) for item in value]
+def _thaw(value: Any, *, depth: int = 0, active: set[int] | None = None,
+          remaining: list[int] | None = None) -> Any:
+    remaining = [protocols.DEFAULT_MAX_BYTES] if remaining is None else remaining
+    remaining[0] -= max(1, len(value)) if type(value) is str else 1
+    if remaining[0] < 0:
+        _error("E_JSON_LIMIT", "", "materialized_size_limit_exceeded")
+    if isinstance(value, Mapping) or type(value) in (tuple, list):
+        active = set() if active is None else active
+        identity = id(value)
+        if identity in active:
+            _error("E_JSON_CYCLE", "", "cyclic_container")
+        if depth >= protocols.DEFAULT_MAX_DEPTH:
+            _error("E_JSON_LIMIT", "", "nesting_limit_exceeded")
+        active.add(identity)
+        try:
+            if isinstance(value, Mapping):
+                return {key: _thaw(item, depth=depth + 1, active=active, remaining=remaining)
+                        for key, item in value.items()}
+            return [_thaw(item, depth=depth + 1, active=active, remaining=remaining) for item in value]
+        finally:
+            active.remove(identity)
     return value
 
 

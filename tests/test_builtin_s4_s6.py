@@ -12,7 +12,7 @@ from codekit.builtin_regression_reduction import reduce_regression_and_mutation
 from codekit.deterministic_check import build_check_artifact, check_execution_id, make_check_evidence
 from codekit.builtin_platform import classify_failure, make_platform_observation, reconcile_failure
 from codekit.builtin_catalog import build_catalog, load_builtin_catalog, load_builtin_recipes, project_catalog_readiness
-from codekit.builtin_projections import CursorProjection, ProjectionEvent, project_state, render_brief
+from codekit.builtin_projections import CursorProjection, ProjectionEvent, _event_id, project_state, render_brief
 from codekit.projection_store import PersistentProjectionStore
 
 
@@ -161,14 +161,37 @@ class S6ProjectionTests(unittest.TestCase):
             p.consume([ProjectionEvent(1, "s", "x", [])], generation=1)
         with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
             p.consume([ProjectionEvent(1, "s", "x", {"v": float("nan")})], generation=1)
+        event = ProjectionEvent(1, "s", "x", {"v": 1})
+        self.assertEqual(p.consume([event], generation=1), "APPLIED")
+        with self.assertRaisesRegex(ArtifactError, "E_EVENT_CONFLICT"):
+            p.consume([ProjectionEvent(2, "s", "x", {"v": 1})], generation=1)
+        with self.assertRaisesRegex(ArtifactError, "E_EVENT"):
+            p.consume([ProjectionEvent(2, "s", "x", {"v": (1, 2)})], generation=1)
         with self.assertRaisesRegex(ArtifactError, "E_STATE"):
             project_state(cursor=0, source_vector={"s": "1"}, status="READY")
+        with self.assertRaisesRegex(ArtifactError, "E_STATE"):
+            project_state(cursor=0, source_vector={"s": 1}, status="READY")
         with self.assertRaisesRegex(ArtifactError, "E_STATE"):
             project_state(cursor=0, source_vector={}, status=[])
         with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
             render_brief({"status": "READY", "health": "healthy", "cursor": 0, "coverage": "complete", "issues": "bad"})
         with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
             render_brief({"status": [], "health": "healthy", "cursor": 0, "coverage": "complete", "issues": []})
+        with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
+            render_brief({"status": "PASS", "health": "healthy", "cursor": 0,
+                          "coverage": "complete", "issues": [], "extra": True})
+        with self.assertRaisesRegex(ArtifactError, "E_BRIEF"):
+            render_brief({"status": "BLOCKED", "health": "healthy", "cursor": 0,
+                          "coverage": "complete", "issues": []})
+
+    def test_rebuild_accepts_tuples_but_rejects_non_json_rows(self):
+        p = CursorProjection()
+        p.rebuild(({"id": "authority"},), generation=1)
+        self.assertEqual(p.events["authority"]["payload"]["rows"], [{"id": "authority"}])
+        row = {}
+        row["self"] = row
+        with self.assertRaisesRegex(ArtifactError, "E_REBUILD"):
+            p.rebuild([row], generation=1)
 
     def test_state_and_brief_are_read_only_projections(self):
         state = project_state(cursor=2, source_vector={"s": 2}, status="PASS")
@@ -242,6 +265,25 @@ class S6ProjectionTests(unittest.TestCase):
             handoff_path.write_text(json.dumps(handoff) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
                 PersistentProjectionStore(handoff_path)
+
+    def test_persistent_projection_requires_newline_commit_and_contiguous_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            path.write_text(json.dumps({"kind": "event", "generation": 1,
+                                        "event": {"seq": 1, "source": "s", "event_type": "x",
+                                                   "payload": {}, "event_id": None}}), encoding="utf-8")
+            restored = PersistentProjectionStore(path)
+            self.assertEqual(restored.recovery, "TRUNCATED_TAIL")
+            self.assertEqual(restored.cursor, 0)
+            self.assertEqual(restored.reconcile(expected_generation=1, expected_cursor=0)["ok"], True)
+
+            valid = {"kind": "checkpoint", "generation": 1, "cursor": 3,
+                     "source_vector": {"s": 3},
+                     "events": {_event_id("s", "x", {}): {"seq": 1, "source": "s", "type": "x", "payload": {}},
+                                _event_id("s", "y", {}): {"seq": 3, "source": "s", "type": "y", "payload": {}}}}
+            path.write_text(json.dumps(valid, separators=(",", ":")) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
+                PersistentProjectionStore(path)
 
 if __name__ == "__main__":
     unittest.main()

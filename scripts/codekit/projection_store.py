@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .builtin_artifacts import ArtifactError
-from .builtin_projections import CursorProjection, ProjectionEvent, _event_id
+from .builtin_projections import CursorProjection, ProjectionEvent, _check_json_value, _event_id
+from . import protocols
 
 
 def _fail(code: str, message: str) -> None:
@@ -52,7 +53,8 @@ def _event_from(value: Mapping[str, Any]) -> ProjectionEvent:
     )
 
 
-def _validated_checkpoint(record: Mapping[str, Any], current_generation: int) -> dict[str, Any]:
+def _validated_checkpoint(record: Mapping[str, Any], current_generation: int,
+                          *, first_record: bool) -> dict[str, Any]:
     """Validate a persisted checkpoint before replacing projection state.
 
     Checkpoints are recovery input, not trusted Python state.  A malformed or
@@ -94,6 +96,9 @@ def _validated_checkpoint(record: Mapping[str, Any], current_generation: int) ->
         if seq == 0:
             if event_key != "authority" or source != "authority" or event_type != "rebuild":
                 _fail("E_JOURNAL_CORRUPT", "only the authority rebuild marker may use sequence zero")
+            if (set(payload) != {"rows"} or type(payload["rows"]) is not list
+                    or any(not isinstance(row, Mapping) for row in payload["rows"])):
+                _fail("E_JOURNAL_CORRUPT", "authority rebuild marker must contain row objects")
         else:
             if seq > cursor or seq in positive_sequences:
                 _fail("E_JOURNAL_CORRUPT", "checkpoint event sequence is duplicated or outside cursor")
@@ -103,13 +108,13 @@ def _validated_checkpoint(record: Mapping[str, Any], current_generation: int) ->
                 _fail("E_EVENT_ID", "checkpoint event ID does not match its payload")
         normalized[event_key] = {"seq": seq, "source": source, "type": event_type,
                                  "payload": deepcopy(dict(payload))}
-    if (max(positive_sequences, default=0) != cursor
+    if (len(positive_sequences) != cursor or max(positive_sequences, default=0) != cursor
             or vector != source_max):
         _fail("E_JOURNAL_CORRUPT", "checkpoint cursor and source_vector do not match events")
     if generation != current_generation:
         # A checkpoint may adopt a newer generation only as the first record of
         # a reopened journal.  Existing state must advance via an explicit handoff.
-        if current_generation != 1 or cursor != 0:
+        if not first_record or current_generation != 1 or cursor != 0:
             _fail("E_JOURNAL_FENCE", "checkpoint generation change requires handoff")
     return {"generation": generation, "cursor": cursor,
             "source_vector": vector, "events": normalized}
@@ -142,14 +147,21 @@ class PersistentProjectionStore:
 
     def _append(self, record: Mapping[str, Any]) -> None:
         try:
-            encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            _check_json_value(record)
+            encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError) as exc:
             _fail("E_JOURNAL", f"record is not JSON serializable: {exc}")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(encoded + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(encoded + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            # The append may already have reached the journal.  Fence this
+            # instance until a fresh replay establishes the durable prefix.
+            self.recovery = "WRITE_UNKNOWN"
+            raise ArtifactError("E_JOURNAL_WRITE", "/projection_store", "journal append durability unknown") from exc
 
     def _load(self) -> None:
         if not self.path.exists():
@@ -162,18 +174,20 @@ class PersistentProjectionStore:
             complete = line.endswith(b"\n")
             if not complete and index != len(lines) - 1:
                 _fail("E_JOURNAL_CORRUPT", "non-final journal line is truncated")
+            if not complete:
+                # A newline is the journal commit delimiter, even if the
+                # incomplete tail happens to contain parseable JSON.
+                self.recovery = "TRUNCATED_TAIL"
+                break
             try:
-                record = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                if index == len(lines) - 1 and not complete:
-                    self.recovery = "TRUNCATED_TAIL"
-                    break
-                _fail("E_JOURNAL_CORRUPT", f"invalid journal record: {exc}")
+                record = protocols.strict_json_loads(line)
+            except protocols.ProtocolError as exc:
+                raise ArtifactError("E_JOURNAL_CORRUPT", "/projection_store", "invalid strict JSON journal record") from exc
             if not isinstance(record, Mapping):
                 _fail("E_JOURNAL_CORRUPT", "journal record must be an object")
-            self._replay(record)
+            self._replay(record, first_record=index == 0)
 
-    def _replay(self, record: Mapping[str, Any]) -> None:
+    def _replay(self, record: Mapping[str, Any], *, first_record: bool = False) -> None:
         kind = record.get("kind")
         if kind == "event":
             if set(record) != {"kind", "generation", "event"}:
@@ -185,7 +199,9 @@ class PersistentProjectionStore:
             self.projection.consume([_event_from(record.get("event", {}))], generation=self.generation)
             return
         if kind == "checkpoint":
-            checkpoint = _validated_checkpoint(record, self.generation)
+            checkpoint = _validated_checkpoint(record, self.generation, first_record=first_record)
+            if checkpoint["cursor"] < self.cursor and checkpoint["events"].keys() != {"authority"}:
+                _fail("E_JOURNAL_CORRUPT", "checkpoint cannot roll the cursor back without authority rebuild")
             self.projection.generation = checkpoint["generation"]
             self.projection.cursor = checkpoint["cursor"]
             self.projection.source_vector = checkpoint["source_vector"]
@@ -208,46 +224,56 @@ class PersistentProjectionStore:
         if self.recovery != "CLEAN":
             _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
         before = set(self.projection.events)
-        result = self.projection.consume(events, generation=generation)
+        trial = deepcopy(self.projection)
+        result = trial.consume(events, generation=generation)
         if result == "APPLIED":
-            for event in events:
-                event_id = event.event_id
-                if event_id is None:
-                    # CursorProjection calculates an ID; replaying the same
-                    # event will be idempotent, so derive it from the record.
-                    from .builtin_projections import _event_id
-                    event_id = _event_id(event.source, event.event_type, event.payload)
-                if event_id not in before:
-                    self._append({"kind": "event", "generation": generation, "event": _event_dict(event)})
+            try:
+                for event in events:
+                    event_id = event.event_id
+                    if event_id is None:
+                        event_id = _event_id(event.source, event.event_type, event.payload)
+                    if event_id not in before:
+                        self._append({"kind": "event", "generation": generation, "event": _event_dict(event)})
+                        before.add(event_id)
+            except ArtifactError:
+                self.recovery = "WRITE_UNKNOWN"
+                raise
+            self.projection = trial
         return result
 
     def rebuild(self, authority_rows: Sequence[Mapping[str, Any]], *, generation: int,
                 expected_cursor: int | None = None) -> None:
         if self.recovery != "CLEAN":
             _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
-        if expected_cursor is not None and expected_cursor != self.cursor:
+        if expected_cursor is not None and (type(expected_cursor) is not int or expected_cursor != self.cursor):
             _fail("E_CAS", "projection cursor changed")
-        self.projection.rebuild(authority_rows, generation=generation)
+        trial = deepcopy(self.projection)
+        trial.rebuild(authority_rows, generation=generation)
         self._append({
             "kind": "checkpoint",
-            "generation": self.generation,
-            "cursor": self.cursor,
-            "source_vector": self.source_vector,
-            "events": self.events,
+            "generation": trial.generation,
+            "cursor": trial.cursor,
+            "source_vector": trial.source_vector,
+            "events": trial.events,
         })
+        self.projection = trial
 
     def handoff(self, *, new_generation: int, expected_generation: int) -> None:
         if self.recovery != "CLEAN":
             _fail("E_RECOVERY", "reconcile or repair recovery tail before writing")
-        if expected_generation != self.generation:
+        if type(expected_generation) is not int or expected_generation != self.generation:
             _fail("E_FENCED", "stale handoff generation")
         if type(new_generation) is not int or new_generation <= self.generation:
             _fail("E_FENCE", "new generation must advance")
         old = self.generation
-        self.projection.generation = new_generation
         self._append({"kind": "handoff", "from_generation": old, "to_generation": new_generation})
+        self.projection.generation = new_generation
 
     def reconcile(self, *, expected_generation: int, expected_cursor: int) -> dict[str, Any]:
+        if type(expected_generation) is not int or expected_generation < 1:
+            _fail("E_FENCED", "expected generation must be a positive integer")
+        if type(expected_cursor) is not int or expected_cursor < 0:
+            _fail("E_CAS", "expected cursor must be a non-negative integer")
         return {
             "ok": expected_generation == self.generation and expected_cursor == self.cursor,
             "generation": self.generation,

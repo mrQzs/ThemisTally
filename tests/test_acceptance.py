@@ -106,6 +106,19 @@ class AcceptanceTests(unittest.TestCase):
                                              expected_guard_version=7)
             self.assertEqual(decision.decision, "BLOCK", field)
 
+    def test_resource_ref_path_is_part_of_the_fixed_binding(self) -> None:
+        result = validate_accepted_result(accepted())
+        for field, changed in (
+            ("candidate_ref", ref("candidate", "candidate-3", HASHES["candidate"], "candidate-copy.json")),
+            ("output_ref", ref("artifact", "result-3", HASHES["output"], "out/relocated.json")),
+            ("target_schema_ref", ref("schema", "schema-1", HASHES["schema"], "schemas/other.json")),
+            ("check_set_ref", ref("check-set", "checks-3", HASHES["checks"], "checks-copy.json")),
+        ):
+            decision = resolve_input_binding(receipt(**{field: changed}), [result],
+                                             expected_request_id=REQUEST, expected_task_id="consumer-a",
+                                             expected_plan_version=4, expected_guard_version=7)
+            self.assertEqual(decision.decision, "BLOCK", field)
+
     def test_missing_port_or_acceptance_is_blocked(self) -> None:
         result = validate_accepted_result(accepted())
         missing = resolve_input_binding(receipt(upstream_acceptance_id="accept-missing"), [result],
