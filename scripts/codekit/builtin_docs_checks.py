@@ -288,7 +288,7 @@ def _validate_docs_payload(payload: Any) -> dict:
         raise ArtifactError("E_DOC_PAYLOAD", "/payload", "closed docs-check payload required")
     if payload["profile"] != _PROFILE:
         raise ArtifactError("E_DOC_PAYLOAD", "/payload/profile", "unsupported docs-check profile")
-    if payload["parser"] not in _PARSER_PROFILES:
+    if type(payload["parser"]) is not str or payload["parser"] not in _PARSER_PROFILES:
         raise ArtifactError("E_DOC_PAYLOAD", "/payload/parser", "unsupported parser profile")
     if payload["semantic_review"] != "NOT_PERFORMED":
         raise ArtifactError("E_DOC_PAYLOAD", "/payload/semantic_review", "semantic review is not performed by this plugin")
@@ -305,7 +305,7 @@ def _validate_docs_payload(payload: Any) -> dict:
             raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/source", "source path required")
         if not isinstance(finding["target"], str):
             raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/target", "target must be text")
-        if finding["status"] not in _FINDING_STATUSES:
+        if type(finding["status"]) is not str or finding["status"] not in _FINDING_STATUSES:
             raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/status", "unknown finding status")
         normalized.append({"source": finding["source"], "target": finding["target"], "status": finding["status"]})
     expected_unchecked = sum(row["status"] in _EXTERNAL_STATUSES for row in normalized)
@@ -332,8 +332,12 @@ def validate_docs_check(record: Mapping[str, Any]) -> dict:
 
 
 def build_docs_check(snapshot: Snapshot, source_paths: Sequence[str], *, source_refs: Sequence[Mapping[str, str]] = (), candidate_ref: Optional[Mapping[str, str]] = None, environment_ref: Optional[Mapping[str, str]] = None, artifact_id: str = "docs-check", producer_version: str = "1.0.0", status: Optional[str] = None) -> dict:
+    if not isinstance(snapshot, Snapshot):
+        raise ArtifactError("E_DOC_SNAPSHOT", "/snapshot", "Snapshot required")
     if isinstance(source_refs, (str, bytes)) or not isinstance(source_refs, Sequence):
         raise ArtifactError("E_DOC_PROVENANCE", "/source_refs", "a sequence of ResourceRef values is required")
+    if isinstance(source_paths, (str, bytes)) or not isinstance(source_paths, Sequence):
+        raise ArtifactError("E_DOC_SOURCE", "/source_paths", "a sequence of repository paths is required")
     normalized_paths = [_repo_path(p) for p in source_paths]
     if len(set(normalized_paths)) != len(normalized_paths):
         raise ArtifactError("E_DOC_SOURCE", "/source_paths", "duplicate source path is ambiguous")
@@ -356,6 +360,8 @@ def build_docs_check(snapshot: Snapshot, source_paths: Sequence[str], *, source_
         raise ArtifactError("E_DOC_PROVENANCE", "/source_refs", "source reference coverage is incomplete")
     if status is None:
         status = "REFERENCE_ONLY" if payload["local_status"] == "SATISFIED" else "FAIL"
+    if status is not None and type(status) is not str:
+        raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "status must be text or null")
     if status == "PASS":
         raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     record = {"record_type": "docs-check", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": producer_version}, "status": status, "source_refs": normalized_refs, "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}

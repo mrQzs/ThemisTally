@@ -75,5 +75,17 @@ class DocsChecksTests(unittest.TestCase):
             validate_docs_check(forged)
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
+
+    def test_builder_rejects_untyped_snapshot_paths_status_and_parser(self):
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_SNAPSHOT"):
+            build_docs_check(None, ["docs/index.md"])
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_SOURCE"):
+            build_docs_check(self.snapshot, None)
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PRODUCTION_GATE"):
+            build_docs_check(self.snapshot, ["docs/index.md"], source_refs=[self.snapshot.ref("docs/index.md")], status=[])
+        record = build_docs_check(self.snapshot, ["docs/index.md"], source_refs=[self.snapshot.ref("docs/index.md")])
+        forged = dict(record); forged["payload"] = dict(record["payload"]); forged["payload"]["parser"] = []
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PAYLOAD"):
+            validate_docs_check(forged)
 if __name__ == "__main__": unittest.main()
 
