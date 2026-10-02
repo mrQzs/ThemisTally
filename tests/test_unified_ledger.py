@@ -64,7 +64,8 @@ class UnifiedLedgerTests(unittest.TestCase):
     def test_evidence_hash_rejects_cycles_non_string_keys_and_unsafe_integers(self):
         value = {}
         value["self"] = value
-        for payload in (value, {1: "integer-key"}, {"n": 2**53}, [("key", "value")]):
+        for payload in (value, {1: "integer-key"}, {"\ud800": "surrogate-key"},
+                        {"n": 2**53}, [("key", "value")]):
             with self.subTest(payload=payload if payload is not value else "cycle"), self.assertRaises(AtomicLedgerError) as caught:
                 evidence_hash(payload)
             self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")

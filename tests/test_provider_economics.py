@@ -57,6 +57,8 @@ class ProviderEconomicsTests(unittest.TestCase):
         with self.assertRaises(EconomicsError) as surrogate:
             canonical_json({"value": "\ud800"})
         self.assertEqual(surrogate.exception.code, "E_CANONICAL")
+        with self.assertRaises(EconomicsError):
+            canonical_sha256({"\ud800": "value"})
 
     def test_canonical_rejects_unsafe_integer_and_numeric_subclass(self):
         with self.assertRaises(EconomicsError) as unsafe:

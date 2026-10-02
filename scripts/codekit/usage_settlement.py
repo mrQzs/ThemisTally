@@ -116,7 +116,8 @@ def _canonical_value(value: Any, path: str = "$", *, _stack: set[int] | None = N
         try:
             result: dict[str, Any] = {}
             for key, item in value.items():
-                if type(key) is not str:
+                if (type(key) is not str
+                        or any(0xD800 <= ord(ch) <= 0xDFFF for ch in key)):
                     raise SettlementError("E_SETTLEMENT_CANONICAL", path)
                 result[key] = _canonical_value(item, path + "." + key,
                                                 _stack=_stack, _depth=_depth + 1)

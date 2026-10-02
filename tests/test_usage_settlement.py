@@ -191,7 +191,8 @@ class UsageSettlementTests(unittest.TestCase):
         value = {}
         value["self"] = value
         for payload in (value, {"value": 2**53}, {"value": float("nan")},
-                        {"value": "\ud800"}, {1: "integer-key"}, {"value": object()}):
+                        {"value": "\ud800"}, {"\ud800": "surrogate-key"},
+                        {1: "integer-key"}, {"value": object()}):
             with self.subTest(payload=payload if payload is not value else "cycle"), self.assertRaises(SettlementError):
                 _canonical(payload)
 
