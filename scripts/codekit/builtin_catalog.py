@@ -2,6 +2,7 @@
 from __future__ import annotations
 from copy import deepcopy
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from .builtin_artifacts import ArtifactError, validate_catalog
@@ -21,6 +22,7 @@ def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if not isinstance(item, Mapping) or set(item) != {"plugin_id", "version", "manifest_ref", "lock_ref"}:
             _err("E_CATALOG", "catalog plugin rows are closed")
         rows.append(dict(item))
+    validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": rows})
     rows.sort(key=lambda row: (row["plugin_id"], row["version"]))
     return validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": rows})
 
@@ -30,6 +32,8 @@ def project_catalog_readiness(catalog: Mapping[str, Any], *, requested: Sequence
     catalog = validate_catalog(catalog)
     if not isinstance(requested, Sequence) or isinstance(requested, (str, bytes)) or any(type(x) is not str or not x for x in requested):
         _err("E_READINESS", "requested plugin IDs required")
+    if len(set(requested)) != len(requested):
+        _err("E_READINESS", "requested plugin IDs must be unique")
     index = {row["plugin_id"]: row for row in catalog["plugins"]}
     missing = sorted(set(requested) - set(index))
     selected = sorted(set(requested) & set(index))
@@ -82,10 +86,29 @@ def load_builtin_recipes(root: str | Path = "workflows") -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict) or set(value) != {"record_type", "schema_version", "recipe_id", "recipe_version", "stages", "evidence_status"} or value["record_type"] != "builtin-workflow-recipe" or value["schema_version"] != 1 or value["recipe_id"] != recipe_id or value["evidence_status"] != "REFERENCE_ONLY":
             _err("E_RECIPE_FIXTURE", f"invalid recipe {recipe_id}")
-        if not isinstance(value["stages"], list) or [stage.get("kind") for stage in value["stages"]] != ["analysis", "change", "freeze", "check", "review"]:
+        if (not isinstance(value["stages"], list) or any(not isinstance(stage, Mapping) for stage in value["stages"])
+                or any(set(stage) != {"id", "kind", "depends_on", "execution", "plugin_id", "plugin_version"} for stage in value["stages"])
+                or [stage.get("kind") for stage in value["stages"]] != ["analysis", "change", "freeze", "check", "review"]):
             _err("E_RECIPE_FIXTURE", f"recipe {recipe_id} must have five ordered business stages")
+        if type(value["schema_version"]) is not int or type(value["recipe_version"]) is not int or value["recipe_version"] < 1:
+            _err("E_RECIPE_FIXTURE", f"invalid recipe version for {recipe_id}")
+        visited = set()
+        for stage in value["stages"]:
+            if type(stage["id"]) is not str or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", stage["id"]) or stage["id"] in visited:
+                _err("E_RECIPE_FIXTURE", "stage IDs must be unique lowercase names")
+            deps = stage["depends_on"]
+            if not isinstance(deps, list) or any(type(dep) is not str or dep not in visited for dep in deps) or len(set(deps)) != len(deps):
+                _err("E_RECIPE_FIXTURE", "stage dependencies must precede their stage")
+            if stage["kind"] in {"freeze", "review"}:
+                if stage["execution"] != "core" or stage["plugin_id"] is not None or stage["plugin_version"] is not None:
+                    _err("E_RECIPE_FIXTURE", "freeze/review belong to core")
+            elif (stage["execution"] != "plugin" or stage["plugin_id"] not in REQUIRED_PLUGIN_IDS
+                  or type(stage["plugin_version"]) is not str
+                  or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", stage["plugin_version"])):
+                _err("E_RECIPE_FIXTURE", "plugin stages require a registered plugin and exact version")
+            visited.add(stage["id"])
         recipes.append(value)
-    return {"record_type": "builtin-workflow-recipes", "schema_version": 1, "recipes": recipes}
+    return {"record_type": "builtin-task-workflow-recipes", "schema_version": 1, "recipes": recipes}
 
 
 def _sha_file(path: Path) -> str:

@@ -64,6 +64,8 @@ class OfflineRunnerTests(unittest.TestCase):
                 repeat=2,
             )
             self.assertEqual(all_killed["outcome"], "PASS")
+        with self.assertRaisesRegex(ValueError, "E_MUTATION_RUN"):
+            run_mutation_commands(baseline={"command": self._command("pass")}, mutations=[])
 
     def test_repeat_detects_flaky_status_without_best_of(self):
         with tempfile.TemporaryDirectory() as tmp:

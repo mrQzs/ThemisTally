@@ -1,6 +1,7 @@
 """Controlled mutation plans and deterministic reduction rules."""
 from __future__ import annotations
 from copy import deepcopy
+import ntpath
 from typing import Any, Mapping, Sequence
 from .builtin_artifacts import ArtifactError, validate_artifact
 
@@ -8,6 +9,14 @@ _ALLOWED = {"FAIL", "PASS", "BLOCKED", "NOT_RUN"}
 
 def _err(code: str, msg: str) -> None:
     raise ArtifactError(code, "/mutation", msg)
+
+
+def _safe_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value or "\0" in value:
+        return False
+    normalized = value.replace("\\", "/")
+    return not (normalized.startswith("/") or ntpath.splitdrive(normalized)[0]
+                or any(part in {"", ".", ".."} for part in normalized.split("/")))
 
 def build_mutation_plan(mutations: Sequence[Mapping[str, Any]], *, baseline_id: str) -> dict[str, Any]:
     if type(baseline_id) is not str or not baseline_id:
@@ -21,17 +30,23 @@ def build_mutation_plan(mutations: Sequence[Mapping[str, Any]], *, baseline_id: 
             _err("E_MUTATION_PLAN", "mutation rows are closed id/path/description objects")
         if any(type(row[k]) is not str or not row[k] for k in row):
             _err("E_MUTATION_PLAN", "mutation fields must be non-empty strings")
-        if row["id"] in ids or row["path"].replace("\\", "/").startswith("/") or ".." in row["path"].replace("\\", "/").split("/"):
+        if row["id"] in ids or not _safe_path(row["path"]):
             _err("E_MUTATION_PLAN", "duplicate id or unsafe path")
         ids.add(row["id"]); rows.append(dict(row))
     rows.sort(key=lambda x: x["id"])
     return {"baseline_id": baseline_id, "mutations": rows, "policy": "baseline_pass_and_every_valid_mutation_fail"}
 
 def reduce_mutation_results(plan: Mapping[str, Any], baseline_status: str, results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    if not isinstance(plan, Mapping) or set(plan) != {"baseline_id", "mutations", "policy"} or plan["policy"] != "baseline_pass_and_every_valid_mutation_fail":
+    if not isinstance(plan, Mapping) or set(plan) != {"baseline_id", "mutations", "policy"} or plan.get("policy") != "baseline_pass_and_every_valid_mutation_fail":
         _err("E_MUTATION_PLAN", "invalid mutation plan")
+    normalized_plan = build_mutation_plan(plan.get("mutations"), baseline_id=plan.get("baseline_id"))
+    if dict(plan) != normalized_plan:
+        _err("E_MUTATION_PLAN", "mutation plan is not canonical")
+    plan = normalized_plan
     if baseline_status not in _ALLOWED:
         _err("E_MUTATION_RESULT", "invalid baseline status")
+    if not isinstance(results, Sequence) or isinstance(results, (str, bytes)):
+        _err("E_MUTATION_RESULT", "mutation results must be an array")
     wanted = {row["id"] for row in plan["mutations"]}
     got: dict[str, str] = {}
     for row in results:
@@ -58,6 +73,14 @@ def reduce_mutation_results(plan: Mapping[str, Any], baseline_status: str, resul
 def build_mutation_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                             environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                             plan: Mapping[str, Any], summary: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(summary, Mapping) or set(summary) != {"outcome", "baseline_status", "results", "surviving", "unavailable"}:
+        _err("E_MUTATION_RESULT", "closed mutation summary required")
+    if not isinstance(summary["results"], Mapping):
+        _err("E_MUTATION_RESULT", "mutation result map required")
+    rows = [{"id": key, "status": value} for key, value in summary["results"].items()]
+    expected = reduce_mutation_results(plan, summary["baseline_status"], rows)
+    if dict(summary) != expected:
+        _err("E_MUTATION_RESULT", "mutation summary does not match plan results")
     outcome = summary["outcome"]
     record_status = "REFERENCE_ONLY" if outcome == "PASS" else outcome
     return validate_artifact({"record_type": "mutation-review", "schema_version": 1, "artifact_id": artifact_id,

@@ -28,13 +28,17 @@ def collect_targets(spec: Mapping[str, Any], available: Iterable[str] | None = N
     targets = spec.get("targets", [])
     if not isinstance(targets, list) or any(type(x) is not str or not x for x in targets):
         _err("E_REGRESSION_SPEC", "targets must be a list of non-empty strings")
+    if len(set(targets)) != len(targets):
+        _err("E_REGRESSION_SPEC", "duplicate target")
     skip = spec.get("skip", [])
     xfail = spec.get("xfail", [])
     for name, values in (("skip", skip), ("xfail", xfail)):
         if not isinstance(values, list) or any(type(x) is not str or not x for x in values):
             _err("E_REGRESSION_SPEC", f"{name} must be a list of non-empty strings")
+        if len(set(values)) != len(values):
+            _err("E_REGRESSION_SPEC", f"duplicate {name} target")
     all_names = sorted(set(targets))
-    if set(skip) - set(all_names) or set(xfail) - set(all_names):
+    if set(skip) & set(xfail) or set(skip) - set(all_names) or set(xfail) - set(all_names):
         _err("E_REGRESSION_SPEC", "skip/xfail target must be declared in targets")
     inventory = None if available is None else set(available)
     selected = [x for x in all_names if x not in set(skip) and x not in set(xfail)]
@@ -53,6 +57,21 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
     """Reduce target results with explicit skip/xfail/zero-test semantics."""
     if not isinstance(plan, Mapping) or set(plan) != {"targets", "selected", "skipped", "expected_failures", "missing", "zero_tests"}:
         _err("E_REGRESSION_PLAN", "invalid target plan")
+    targets = plan["targets"]
+    if (not isinstance(targets, list) or targets != sorted(set(targets)) or
+            any(type(name) is not str or not name for name in targets)):
+        _err("E_REGRESSION_PLAN", "targets are not canonical")
+    if not isinstance(plan["skipped"], list) or not isinstance(plan["expected_failures"], list) or not isinstance(plan["missing"], list):
+        _err("E_REGRESSION_PLAN", "derived arrays are required")
+    if any(name not in targets for name in plan["skipped"] + plan["expected_failures"] + plan["missing"]):
+        _err("E_REGRESSION_PLAN", "derived target is unknown")
+    if set(plan["skipped"]) & set(plan["expected_failures"]):
+        _err("E_REGRESSION_PLAN", "skip and xfail overlap")
+    expected_selected = sorted(set(targets) - set(plan["skipped"]) - set(plan["expected_failures"]))
+    if plan["selected"] != expected_selected or plan["zero_tests"] is not (len(targets) == 0):
+        _err("E_REGRESSION_PLAN", "derived selection is not canonical")
+    if len(set(plan["missing"])) != len(plan["missing"]) or any(name not in expected_selected for name in plan["missing"]):
+        _err("E_REGRESSION_PLAN", "missing target list is invalid")
     expected = set(plan["targets"])
     seen: dict[str, str] = {}
     for row in results:
@@ -69,13 +88,14 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
     blocked = sorted(name for name, status in seen.items() if status in {"BLOCKED", "NOT_RUN"})
     selected = set(plan["selected"])
     expected_failures = set(plan["expected_failures"])
-    bad_xfail = sorted(name for name in expected_failures if seen.get(name) not in {"XFAIL", "SKIP"})
+    bad_xfail = sorted(name for name in expected_failures if seen.get(name) != "XFAIL")
+    bad_skip = sorted(name for name in set(plan["skipped"]) if seen.get(name) not in {"SKIP", None})
     unexpected_pass = sorted(name for name in expected_failures if seen.get(name) == "PASS")
     if plan["zero_tests"]:
         outcome = "NOT_RUN"
     elif missing_results or plan["missing"] or blocked:
         outcome = "NOT_RUN" if not failures else "FAIL"
-    elif failures or bad_xfail or unexpected_pass:
+    elif failures or bad_xfail or bad_skip or unexpected_pass:
         outcome = "FAIL"
     elif selected and all(seen.get(name) == "PASS" for name in selected):
         outcome = "PASS"
@@ -90,6 +110,14 @@ def summarize_results(plan: Mapping[str, Any], results: Sequence[Mapping[str, An
 def build_regression_artifact(*, artifact_id: str, producer: Mapping[str, str], candidate_ref: Mapping[str, str] | None,
                               environment_ref: Mapping[str, str] | None, source_refs: Sequence[Mapping[str, str]],
                               plan: Mapping[str, Any], summary: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(summary, Mapping) or set(summary) != {"outcome", "results", "missing_results", "failures", "blocked", "bad_xfail", "unexpected_pass"}:
+        _err("E_REGRESSION_RESULT", "closed regression summary required")
+    if not isinstance(summary["results"], Mapping):
+        _err("E_REGRESSION_RESULT", "regression result map required")
+    rows = [{"target": key, "status": value} for key, value in summary["results"].items()]
+    expected = summarize_results(plan, rows)
+    if dict(summary) != expected:
+        _err("E_REGRESSION_RESULT", "regression summary does not match plan results")
     outcome = summary["outcome"]
     record_status = "REFERENCE_ONLY" if outcome == "PASS" else outcome
     record = {"record_type": "regression-plan", "schema_version": 1, "artifact_id": artifact_id,

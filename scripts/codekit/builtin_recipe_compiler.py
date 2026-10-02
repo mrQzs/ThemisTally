@@ -127,17 +127,20 @@ def _receipt(*, receipt_id: str, recipe: Mapping[str, Any], ordered_ids: Sequenc
              errors: Sequence[str]) -> Dict[str, Any]:
     if status not in {"REFERENCE_ONLY", "BLOCKED", "FAIL"}:
         _fail("E_RECIPE_STATUS", "/status", "compile receipt cannot claim production success")
+    by_id = {step["id"]: step for step in recipe["steps"]}
     receipt = {"record_type": RECEIPT_RECORD_TYPE, "schema_version": 1, "receipt_id": receipt_id,
                "recipe_id": recipe["recipe_id"], "recipe_version": recipe["recipe_version"],
                "plugin_id": recipe["plugin_id"], "plugin_version": recipe["plugin_version"],
                "ordered_step_ids": list(ordered_ids), "stage_kinds": [STAGE_MAP[next(s["kind"] for s in recipe["steps"] if s["id"] == item)] for item in ordered_ids],
+               "step_dependencies": {item: list(by_id[item]["depends_on"]) for item in ordered_ids},
+               "recipe_sha256": digest(recipe),
                "status": status, "errors": list(errors), "dispatcher_submitted": False}
     receipt["receipt_sha256"] = digest(receipt)
     return receipt
 
 
-def validate_compile_receipt(receipt: Mapping[str, Any]) -> Dict[str, Any]:
-    required = {"record_type", "schema_version", "receipt_id", "recipe_id", "recipe_version", "plugin_id", "plugin_version", "ordered_step_ids", "stage_kinds", "status", "errors", "dispatcher_submitted", "receipt_sha256"}
+def validate_compile_receipt(receipt: Mapping[str, Any], *, recipe: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    required = {"record_type", "schema_version", "receipt_id", "recipe_id", "recipe_version", "plugin_id", "plugin_version", "ordered_step_ids", "stage_kinds", "step_dependencies", "recipe_sha256", "status", "errors", "dispatcher_submitted", "receipt_sha256"}
     if not isinstance(receipt, Mapping) or set(receipt) != required:
         _fail("E_RECIPE_RECEIPT", "/", "closed compile receipt required")
     copy_value = dict(receipt); supplied = copy_value.pop("receipt_sha256")
@@ -151,10 +154,31 @@ def validate_compile_receipt(receipt: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_RECIPE_RECEIPT", "/recipe_version", "positive integer required")
     if not isinstance(receipt["ordered_step_ids"], list) or not isinstance(receipt["stage_kinds"], list) or len(receipt["ordered_step_ids"]) != len(receipt["stage_kinds"]):
         _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step and stage arrays must align")
+    if any(type(item) is not str or not item for item in receipt["ordered_step_ids"]):
+        _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "step ids must be non-empty strings")
+    if len(set(receipt["ordered_step_ids"])) != len(receipt["ordered_step_ids"]):
+        _fail("E_RECIPE_RECEIPT", "/ordered_step_ids", "duplicate step id")
+    if any(item not in {"execute", "freeze", "check", "verdict"} for item in receipt["stage_kinds"]):
+        _fail("E_RECIPE_RECEIPT", "/stage_kinds", "invalid dispatcher stage")
+    if not isinstance(receipt["step_dependencies"], Mapping) or set(receipt["step_dependencies"]) != set(receipt["ordered_step_ids"]):
+        _fail("E_RECIPE_RECEIPT", "/step_dependencies", "dependency map must bind every step")
+    positions = {step_id: index for index, step_id in enumerate(receipt["ordered_step_ids"])}
+    for step_id, dependencies in receipt["step_dependencies"].items():
+        if not isinstance(dependencies, list) or len(set(dependencies)) != len(dependencies) or any(type(dep) is not str or dep not in positions or positions[dep] >= positions[step_id] for dep in dependencies):
+            _fail("E_RECIPE_RECEIPT", "/step_dependencies", "dependencies must precede their step")
+    if not isinstance(receipt["recipe_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", receipt["recipe_sha256"]):
+        _fail("E_RECIPE_RECEIPT", "/recipe_sha256", "recipe digest required")
     if not isinstance(receipt["errors"], list) or any(type(item) is not str for item in receipt["errors"]):
         _fail("E_RECIPE_RECEIPT", "/errors", "string error array required")
     if receipt["dispatcher_submitted"] is not False:
         _fail("E_RECIPE_RECEIPT", "/dispatcher_submitted", "offline compiler cannot submit to dispatcher")
+    if recipe is not None:
+        normalized_recipe = validate_recipe(recipe)
+        _, order = _steps(normalized_recipe)
+        expected = _receipt(receipt_id=receipt["receipt_id"], recipe=normalized_recipe, ordered_ids=order,
+                            status=receipt["status"], errors=receipt["errors"])
+        if dict(receipt) != expected:
+            _fail("E_RECIPE_RECEIPT", "/recipe_sha256", "receipt does not bind the supplied recipe")
     return copy.deepcopy(dict(receipt))
 
 
@@ -179,7 +203,7 @@ def compile_recipe(recipe: Mapping[str, Any], *, artifact_id: str, producer: Map
             "environment_ref": None if environment_ref is None else resource_ref(environment_ref, "/environment_ref"), "payload": payload}
     plan = validate_check_plan(plan)
     receipt = _receipt(receipt_id=f"{artifact_id}.receipt", recipe=normalized, ordered_ids=order, status=status, errors=[])
-    return {"check_plan": plan, "compile_receipt": validate_compile_receipt(receipt)}
+    return {"check_plan": plan, "compile_receipt": validate_compile_receipt(receipt, recipe=normalized)}
 
 
 def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
@@ -202,6 +226,8 @@ def validate_check_plan(record: Mapping[str, Any]) -> Dict[str, Any]:
         if stage["id"] in ids:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}/id", "duplicate stage id")
         ids.add(stage["id"])
+        if type(stage["order"]) is not int or stage["order"] != index:
+            _fail("E_RECIPE_PLAN", f"/payload/stages/{index}/order", "stage order must be contiguous")
         if stage["kind"] not in {"execute", "freeze", "check", "verdict"} or stage["business_kind"] not in BUSINESS_KINDS:
             _fail("E_RECIPE_PLAN", f"/payload/stages/{index}", "unsupported stage mapping")
         if STAGE_MAP[stage["business_kind"]] != stage["kind"] or stage["deterministic"] is not True or stage["dispatcher_stage"] is not False:

@@ -108,7 +108,9 @@ def run_command(*, target: str, command: Sequence[str], cwd: str | Path,
     if any(not k or "=" in k for k in env):
         _err("E_RUNNER_ENV", "environment names must be non-empty")
     root, path = _workspace_path(cwd, target_path)
-    env_digest = environment_digest or _environment_digest(cwd=root, env=env)
+    env_digest = _environment_digest(cwd=root, env=env)
+    if environment_digest is not None and environment_digest != env_digest:
+        _err("E_RUNNER_ENV", "environment digest differs from the actual runtime environment")
     target_bytes_digest = _digest(path.read_bytes()) if path is not None else _digest(target.encode("utf-8"))
     execution_id = check_execution_id(check_plan_id=check_plan_id, candidate_digest=candidate_digest,
                                       environment_digest=env_digest)
@@ -169,8 +171,19 @@ def run_repeated(*, repeat: int = 1, **kwargs: Any) -> dict[str, Any]:
 def run_mutation_commands(*, baseline: Mapping[str, Any], mutations: Sequence[Mapping[str, Any]],
                           repeat: int = 1) -> dict[str, Any]:
     """Run a baseline and explicit mutant commands; no best-of reduction."""
-    if not isinstance(baseline, Mapping) or not isinstance(mutations, Sequence) or isinstance(mutations, (str, bytes)):
+    if not isinstance(baseline, Mapping) or not isinstance(mutations, Sequence) or isinstance(mutations, (str, bytes)) or not mutations:
         _err("E_MUTATION_RUN", "baseline and mutation commands are required")
+    mutation_ids = [mutation.get("id") if isinstance(mutation, Mapping) else None for mutation in mutations]
+    if any(type(value) is not str or not value for value in mutation_ids) or len(set(mutation_ids)) != len(mutation_ids):
+        _err("E_MUTATION_RUN", "mutation ids must be unique non-empty strings")
+    command_fields = {"target", "command", "cwd", "check_plan_id", "candidate_digest", "environment_digest",
+                      "environment", "target_path", "candidate_ref", "timeout_seconds"}
+    required_fields = {"target", "command", "cwd", "check_plan_id", "candidate_digest"}
+    for item in [baseline, *mutations]:
+        if not isinstance(item, Mapping) or set(item) - command_fields - {"id"} or not required_fields.issubset(item):
+            _err("E_MUTATION_RUN", "closed baseline and mutation command records are required")
+    if "id" in baseline:
+        _err("E_MUTATION_RUN", "baseline must not have a mutation id")
     baseline_result = run_repeated(repeat=repeat, **dict(baseline))
     rows = []
     for mutation in sorted(mutations, key=lambda row: row.get("id", "")):

@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from codekit.builtin_artifacts import ArtifactError
+from codekit.builtin_artifacts import ArtifactError, digest
 from codekit.builtin_recipe_compiler import compile_recipe, validate_compile_receipt, validate_recipe
 
 
@@ -50,6 +50,21 @@ class RecipeCompilerTests(unittest.TestCase):
                                 source_refs=[ref()], candidate_ref=None, environment_ref=None)
         receipt = copy.deepcopy(result["compile_receipt"]); receipt["ordered_step_ids"].reverse()
         with self.assertRaisesRegex(ArtifactError, "E_RECIPE_DRIFT"):
+            validate_compile_receipt(receipt)
+
+    def test_receipt_dependency_order_and_plan_order_are_bound(self):
+        result = compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
+                                source_refs=[ref()], candidate_ref=None, environment_ref=None)
+        plan = copy.deepcopy(result["check_plan"])
+        plan["payload"]["stages"][0]["order"] = 9
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_PLAN"):
+            from codekit.builtin_recipe_compiler import validate_check_plan
+            validate_check_plan(plan)
+        receipt = copy.deepcopy(result["compile_receipt"])
+        receipt["ordered_step_ids"].reverse()
+        unsigned = dict(receipt); unsigned.pop("receipt_sha256")
+        receipt["receipt_sha256"] = digest(unsigned)
+        with self.assertRaisesRegex(ArtifactError, "E_RECIPE_RECEIPT"):
             validate_compile_receipt(receipt)
 
 

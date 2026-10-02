@@ -8,7 +8,7 @@ from codekit.builtin_artifacts import ArtifactError
 from codekit.builtin_regression import collect_targets, summarize_results
 from codekit.builtin_mutation import build_mutation_plan, reduce_mutation_results
 from codekit.builtin_regression_reduction import reduce_regression_and_mutation
-from codekit.deterministic_check import check_execution_id, make_check_evidence
+from codekit.deterministic_check import build_check_artifact, check_execution_id, make_check_evidence
 from codekit.builtin_platform import classify_failure, make_platform_observation, reconcile_failure
 from codekit.builtin_catalog import build_catalog, load_builtin_catalog, load_builtin_recipes, project_catalog_readiness
 from codekit.builtin_projections import CursorProjection, ProjectionEvent, project_state, render_brief
@@ -46,7 +46,17 @@ class S5ExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CHECK_RECEIPT"):
             make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True)
         receipt = {"check_execution_id": a, "check_plan_id": "cp", "candidate_digest": "c", "environment_digest": "e", "status": "PASS"}
-        self.assertEqual(make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True, dispatcher_receipt=receipt)["status"], "PASS")
+        self.assertEqual(make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS", dispatcher_connected=True, dispatcher_receipt=receipt)["status"], "REFERENCE_ONLY")
+
+    def test_check_artifact_rejects_mismatched_dispatcher_receipt(self):
+        evidence = make_check_evidence(check_plan_id="cp", candidate_digest="c", environment_digest="e", status="PASS",
+                                       dispatcher_connected=True,
+                                       dispatcher_receipt={"check_execution_id": check_execution_id(check_plan_id="cp", candidate_digest="c", environment_digest="e"),
+                                                           "check_plan_id": "cp", "candidate_digest": "c", "environment_digest": "e", "status": "PASS"})
+        forged = dict(evidence); forged["dispatcher_receipt"] = {**evidence["dispatcher_receipt"], "status": "FAIL"}
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_EVIDENCE"):
+            build_check_artifact(artifact_id="check", producer={"kind": "builtin-plugin", "id": "python-checks", "version": "1.0.0"},
+                                 candidate_ref=None, environment_ref=None, source_refs=[], plan={}, evidence=forged)
 
     def test_platform_failures_reconcile_conservatively(self):
         obs = make_platform_observation(os_name="windows", adapter_id="native-windows")

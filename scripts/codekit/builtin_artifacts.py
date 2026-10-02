@@ -13,6 +13,8 @@ from typing import Any, Dict, Iterable, Mapping, Tuple
 FAMILIES = {"analysis-report", "change-report", "docs-change", "docs-check", "regression-plan", "mutation-review", "check-plan", "review-bundle"}
 STATUSES = {"DRAFT_VALIDATED", "READY", "PASS", "FAIL", "UNKNOWN", "BLOCKED", "NOT_RUN", "REFERENCE_ONLY"}
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 MAX_BYTES = 1_048_576
 MAX_DEPTH = 32
 
@@ -120,6 +122,10 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
     for i, item in enumerate(catalog["plugins"]):
         if not isinstance(item, dict) or set(item) != {"plugin_id", "version", "manifest_ref", "lock_ref"}:
             _fail("E_CATALOG_SCHEMA", f"/plugins/{i}", "catalog item is not closed")
+        if not isinstance(item["plugin_id"], str) or not PLUGIN_ID_RE.fullmatch(item["plugin_id"]):
+            _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/plugin_id", "lowercase plugin id required")
+        if not isinstance(item["version"], str) or not VERSION_RE.fullmatch(item["version"]):
+            _fail("E_CATALOG_SCHEMA", f"/plugins/{i}/version", "exact semantic version required")
         ids.append(item["plugin_id"]); resource_ref(item["manifest_ref"], f"/plugins/{i}/manifest_ref"); resource_ref(item["lock_ref"], f"/plugins/{i}/lock_ref")
     if len(set(ids)) != len(ids):
         _fail("E_CATALOG_SCHEMA", "/plugins", "duplicate plugin id")

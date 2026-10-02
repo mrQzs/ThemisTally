@@ -1,5 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://code-kit.invalid/schemas/builtin-task-artifacts/recipes.schema.json",
   "type": "object", "additionalProperties": false, "required": ["record_type", "schema_version", "recipes"],
-  "properties": {"record_type": {"const": "builtin-task-workflow-recipes"}, "schema_version": {"const": 1}, "recipes": {"type": "array"}}
+  "properties": {"record_type": {"const": "builtin-task-workflow-recipes"}, "schema_version": {"const": 1},
+    "recipes": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["record_type", "schema_version", "recipe_id", "recipe_version", "stages", "evidence_status"],
+      "properties": {"record_type": {"const": "builtin-workflow-recipe"}, "schema_version": {"const": 1}, "recipe_id": {"type": "string", "minLength": 1},
+        "recipe_version": {"type": "integer", "minimum": 1}, "evidence_status": {"enum": ["REFERENCE_ONLY", "BLOCKED", "NOT_RUN"]},
+        "stages": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+          "required": ["id", "kind", "depends_on", "execution", "plugin_id", "plugin_version"],
+          "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["analysis", "change", "freeze", "check", "review"]},
+            "depends_on": {"type": "array", "items": {"type": "string"}}, "execution": {"enum": ["plugin", "core"]},
+            "plugin_id": {"type": ["string", "null"]}, "plugin_version": {"type": ["string", "null"]}}}}}}
+    }
+  }
 }
