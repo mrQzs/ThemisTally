@@ -1,0 +1,46 @@
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from codekit.runtime import InvocationSpec, Lifecycle, ProcessIdentity, RuntimeErrorCode, classify_start, reconcile, validate_argv
+
+
+def invocation():
+    return InvocationSpec("req", "run", ("python", "-c", "pass"), "C:\\repo", "a" * 64, 30)
+
+
+class RuntimeTests(unittest.TestCase):
+    def test_argv_and_shell_are_mutually_exclusive(self):
+        self.assertEqual(validate_argv(["cmd", "中文"]), ("cmd", "中文"))
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_SHELL_ARGV"):
+            validate_argv(["cmd"], shell=True)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_ARGV"):
+            validate_argv(["cmd\x00bad"])
+
+    def test_lifecycle_requires_identity_and_fences_transitions(self):
+        identity = ProcessIdentity(10, "boot", "b" * 64, "tree")
+        state = Lifecycle().transition("STARTING")
+        state = state.transition("STARTED", identity=identity)
+        state = state.transition("STOPPING")
+        self.assertEqual(state.transition("STOPPED").state, "STOPPED")
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_TRANSITION"):
+            state.transition("STARTED", identity=identity)
+
+    def test_unknown_handoff_never_becomes_started(self):
+        spec = invocation()
+        self.assertEqual(classify_start(handoff_accepted=True, started_observation=None, expected=spec), "START_UNKNOWN")
+        self.assertEqual(classify_start(handoff_accepted=False, started_observation=None, expected=spec), "NOT_STARTED")
+        self.assertEqual(reconcile(spec, {"state": "STARTED", "run_id": "other", "environment_sha256": "a" * 64})["status"], "IDENTITY_MISMATCH")
+
+    def test_matching_observation_is_started_and_replay_policy_is_conservative(self):
+        spec = invocation()
+        observation = {"state": "STARTED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256}
+        self.assertEqual(classify_start(handoff_accepted=True, started_observation=observation, expected=spec), "STARTED")
+        self.assertFalse(reconcile(spec, observation)["replay_allowed"])
+        self.assertTrue(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256})["replay_allowed"])
+
+
+if __name__ == "__main__":
+    unittest.main()
