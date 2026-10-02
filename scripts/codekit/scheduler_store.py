@@ -373,6 +373,10 @@ class SchedulerStore:
             raise SchedulerStoreError("E_SCHEMA_INVALID", ("controller.generation",))
         _db_integer(generation[0], "controller.generation", minimum=1)
         try:
+            requests = {row["request_id"]: row for row in self.db.execute("SELECT * FROM requests").fetchall()}
+            tasks = {(row["request_id"], row["task_id"]): row for row in self.db.execute("SELECT * FROM tasks").fetchall()}
+            expected_holds: set[tuple[str, str, str]] = set()
+            operations = {}
             for row in self.db.execute("SELECT * FROM requests").fetchall():
                 _db_text(row["request_id"], "requests.request_id")
                 _db_text(row["repo_id"], "requests.repo_id")
@@ -389,6 +393,7 @@ class SchedulerStore:
                 _db_integer(row["guard_version"], "tasks.guard_version", minimum=1)
                 _db_integer(row["max_attempts"], "tasks.max_attempts", minimum=1)
             for row in self.db.execute("SELECT * FROM operations").fetchall():
+                operations[row["operation_id"]] = row
                 for column in ("operation_id", "request_id", "task_id", "idempotency_key",
                                "request_fingerprint", "owner"):
                     _db_text(row[column], f"operations.{column}")
@@ -405,11 +410,30 @@ class SchedulerStore:
                 reservation = json.loads(row["reservation_json"])
                 _reservation(reservation)
                 resources = json.loads(row["resource_json"])
-                _resources(resources)
+                normalized_resources = _resources(resources)
+                if row["controller_generation"] != row["claim_generation"]:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.generation",))
+                if row["state"] in ACTIVE_TASK_STATES:
+                    request = requests.get(row["request_id"])
+                    task = tasks.get((row["request_id"], row["task_id"]))
+                    if request is None or task is None:
+                        raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.scope",))
+                    expected_holds.update((request["repo_id"], resource, row["operation_id"])
+                                          for resource in normalized_resources)
             for row in self.db.execute("SELECT * FROM resource_holds").fetchall():
                 _db_text(row["repo_id"], "resource_holds.repo_id")
                 _db_text(row["resource_key"], "resource_holds.resource_key", limit=200)
                 _db_text(row["operation_id"], "resource_holds.operation_id")
+                operation = operations.get(row["operation_id"])
+                if operation is None or operation["state"] not in ACTIVE_TASK_STATES:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("resource_holds.operation",))
+                request = requests.get(operation["request_id"])
+                if request is None or row["repo_id"] != request["repo_id"]:
+                    raise SchedulerStoreError("E_SCHEMA_INVALID", ("resource_holds.repo",))
+            actual_holds = {(row["repo_id"], row["resource_key"], row["operation_id"])
+                            for row in self.db.execute("SELECT repo_id,resource_key,operation_id FROM resource_holds")}
+            if actual_holds != expected_holds:
+                raise SchedulerStoreError("E_SCHEMA_INVALID", ("resource_holds.mismatch",))
             for row in self.db.execute("SELECT * FROM outbox").fetchall():
                 _db_integer(row["seq"], "outbox.seq", minimum=1)
                 _db_text(row["operation_id"], "outbox.operation_id", nullable=True)

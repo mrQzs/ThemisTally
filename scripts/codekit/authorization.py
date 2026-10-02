@@ -20,6 +20,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DECISIONS = {"APPROVED", "REJECTED", "REVOKED", "UNKNOWN"}
+MAX_SAFE_INTEGER = 2**53 - 1
 
 
 class AuthorizationError(ValueError):
@@ -32,10 +33,24 @@ def _fail(code: str, path: str, message: str) -> None:
     raise AuthorizationError(code, path, message)
 
 
+def _identity(value: Any, path: str, *, code: str = "E_APPROVAL_SCHEMA") -> str:
+    """Validate a map key used as an authorization identity.
+
+    Dict membership raises ``TypeError`` for list/dict keys before the normal
+    protocol error can be returned.  All public ledger entry points use this
+    helper so malformed identities stay inside the documented error boundary.
+    """
+    if type(value) is not str or not value or len(value) > 256 or "\x00" in value:
+        _fail(code, path, "non-empty string required")
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        _fail(code, path, "unicode scalar required")
+    return value
+
+
 def canonical_bytes(value: Any) -> bytes:
     try:
         return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise AuthorizationError("E_JSON_NUMBER", "/", str(exc)) from exc
 
 
@@ -70,12 +85,12 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
     missing = required - set(record)
     if missing:
         _fail("E_APPROVAL_SCHEMA", "/", f"missing fields: {sorted(missing)}")
-    if record["record_type"] != "approval-record" or record["schema_version"] != 1:
+    if record["record_type"] != "approval-record" or type(record["schema_version"]) is not int or record["schema_version"] != 1:
         _fail("E_APPROVAL_VERSION", "/record_type", "approval-record schema version 1 required")
     for key in ("approval_id", "request_id"):
         if not isinstance(record[key], str) or not record[key]:
             _fail("E_APPROVAL_SCHEMA", f"/{key}", "non-empty string required")
-    _ref(record["subject_ref"], "/subject_ref")
+    subject_ref = _ref(record["subject_ref"], "/subject_ref")
     for timestamp in ("recorded_at", "not_before", "expires_at"):
         if timestamp in record and record[timestamp] is not None:
             if not isinstance(record[timestamp], str): _fail("E_APPROVAL_TIME", f"/{timestamp}", "ISO-8601 timestamp required")
@@ -87,23 +102,40 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
                 _fail("E_APPROVAL_TIME", f"/{timestamp}", "timezone offset required")
     if record.get("not_before") and record.get("expires_at") and datetime.fromisoformat(record["not_before"].replace("Z", "+00:00")) >= datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00")):
         _fail("E_APPROVAL_TIME", "/expires_at", "expiry must follow not_before")
-    if not isinstance(record["input_refs"], list) or len({json.dumps(x, sort_keys=True) for x in record["input_refs"]}) != len(record["input_refs"]):
+    if not isinstance(record["input_refs"], list):
         _fail("E_APPROVAL_SCHEMA", "/input_refs", "unique ResourceRef array required")
-    for i, value in enumerate(record["input_refs"]):
-        _ref(value, f"/input_refs/{i}")
-    if not isinstance(record["reviewed_actions"], list) or not record["reviewed_actions"] or any(not isinstance(x, str) or not x for x in record["reviewed_actions"]):
+    input_refs = [_ref(value, f"/input_refs/{i}") for i, value in enumerate(record["input_refs"])]
+    if len({sha256(value) for value in input_refs}) != len(input_refs):
+        _fail("E_APPROVAL_SCHEMA", "/input_refs", "unique ResourceRef array required")
+    if (not isinstance(record["reviewed_actions"], list) or not record["reviewed_actions"]
+            or any(type(x) is not str or not x for x in record["reviewed_actions"])
+            or len(set(record["reviewed_actions"])) != len(record["reviewed_actions"])):
         _fail("E_APPROVAL_SCHEMA", "/reviewed_actions", "non-empty action array required")
-    if record["decision"] not in DECISIONS:
+    if type(record["decision"]) is not str or record["decision"] not in DECISIONS:
         _fail("E_APPROVAL_SCHEMA", "/decision", "unknown approval decision")
-    if not isinstance(record["reviewer"], dict) or not isinstance(record["reviewer"].get("mode"), str):
+    if (not isinstance(record["reviewer"], dict)
+            or type(record["reviewer"].get("mode")) is not str
+            or not record["reviewer"].get("mode")):
         _fail("E_APPROVAL_SCHEMA", "/reviewer", "reviewer mode required")
+    normalized_refs = {}
     for name in ("authorization_refs",):
         if name in record:
             if not isinstance(record[name], list):
                 _fail("E_APPROVAL_SCHEMA", f"/{name}", "array required")
+            fingerprints = set()
+            normalized_refs[name] = []
             for i, value in enumerate(record[name]):
-                _ref(value, f"/{name}/{i}")
-    return copy.deepcopy(dict(record))
+                normalized_ref = _ref(value, f"/{name}/{i}")
+                fingerprint = sha256(normalized_ref)
+                if fingerprint in fingerprints:
+                    _fail("E_APPROVAL_SCHEMA", f"/{name}", "unique ResourceRef array required")
+                fingerprints.add(fingerprint)
+                normalized_refs[name].append(normalized_ref)
+    result = copy.deepcopy(dict(record))
+    result["subject_ref"] = subject_ref
+    result["input_refs"] = input_refs
+    result.update(normalized_refs)
+    return result
 
 
 def validate_authorization(record: Mapping[str, Any]) -> Dict[str, Any]:
@@ -124,8 +156,6 @@ def validate_authorization(record: Mapping[str, Any]) -> Dict[str, Any]:
     refs = normalized["authorization_refs"]
     if not isinstance(refs, list) or not refs:
         _fail("E_AUTHORIZATION_SCHEMA", "/authorization_refs", "non-empty ResourceRef array required")
-    for index, value in enumerate(refs):
-        _ref(value, f"/authorization_refs/{index}")
     if not isinstance(normalized["conditions"], dict):
         _fail("E_AUTHORIZATION_SCHEMA", "/conditions", "conditions object required")
     if type(normalized["rationale"]) is not str or not normalized["rationale"].strip():
@@ -164,8 +194,10 @@ class ApprovalLedger:
         self._consumed_keys: Dict[Tuple[str, str, str, int], str] = {}
 
     def put(self, *, scope: str, operation_id: str, expected_generation: int, record: Mapping[str, Any]) -> ApprovalHead:
-        if not scope or not operation_id:
-            _fail("E_APPROVAL_SCHEMA", "/", "scope and operation_id are required")
+        _identity(scope, "/scope")
+        _identity(operation_id, "/operation_id")
+        if type(expected_generation) is not int or not 0 <= expected_generation < MAX_SAFE_INTEGER:
+            _fail("E_APPROVAL_SCHEMA", "/expected_generation", "non-negative integer required")
         normalized = validate_approval(record)
         request_hash = sha256(normalized)
         if operation_id in self._operations:
@@ -191,6 +223,12 @@ class ApprovalLedger:
                         expected_generation=expected_generation, record=normalized)
 
     def revoke(self, *, scope: str, operation_id: str, expected_generation: int, reason: str) -> ApprovalHead:
+        _identity(scope, "/scope")
+        _identity(operation_id, "/operation_id")
+        if type(expected_generation) is not int or not 1 <= expected_generation < MAX_SAFE_INTEGER:
+            _fail("E_APPROVAL_SCHEMA", "/expected_generation", "positive integer required")
+        if type(reason) is not str or not reason or "\x00" in reason or any(0xD800 <= ord(ch) <= 0xDFFF for ch in reason):
+            _fail("E_APPROVAL_SCHEMA", "/reason", "non-empty reason required")
         if operation_id in self._revoke_operations:
             old_scope, old_generation, old_reason, old_head = self._revoke_operations[operation_id]
             if (old_scope, old_generation, old_reason) != (scope, expected_generation, reason):
@@ -208,11 +246,13 @@ class ApprovalLedger:
         return copy.deepcopy(head)
 
     def head(self, scope: str) -> Optional[ApprovalHead]:
+        _identity(scope, "/scope")
         return copy.deepcopy(self._heads.get(scope))
 
     def assert_current(self, *, scope: str, generation: int, record_sha256: str) -> ApprovalHead:
         """Return the approved head only when its generation and bytes match."""
-        if type(generation) is not int or generation < 1 or not isinstance(record_sha256, str) or not HEX64.fullmatch(record_sha256):
+        _identity(scope, "/scope")
+        if type(generation) is not int or not 1 <= generation <= MAX_SAFE_INTEGER or not isinstance(record_sha256, str) or not HEX64.fullmatch(record_sha256):
             _fail("E_CURRENTNESS", "/head", "generation and record hash are required")
         head = self._heads.get(scope)
         if head is None or head.generation != generation or head.record_sha256 != record_sha256:
@@ -222,20 +262,28 @@ class ApprovalLedger:
         return copy.deepcopy(head)
 
     def history(self, scope: str) -> Tuple[ApprovalHead, ...]:
+        _identity(scope, "/scope")
         return tuple(copy.deepcopy(self._history.get(scope, ())))
 
     def consume(self, *, scope: str, action: str, input_refs: Iterable[Mapping[str, Any]], now: Optional[datetime] = None) -> bool:
+        _identity(scope, "/scope")
+        _identity(action, "/action")
+        try:
+            refs_input = list(input_refs)
+        except TypeError:
+            _fail("E_APPROVAL_SCHEMA", "/input_refs", "iterable required")
         head = self._heads.get(scope)
         if head is None or head.record["decision"] != "APPROVED":
             return False
         if action not in head.record["reviewed_actions"]:
             return False
-        current_refs = {sha256(_ref(x, "/input_refs")) for x in input_refs}
+        current_refs = {sha256(_ref(x, "/input_refs")) for x in refs_input}
         approved_refs = {sha256(x) for x in head.record["input_refs"]}
         if current_refs != approved_refs:
             return False
-        now = now or datetime.now(timezone.utc)
-        if now.tzinfo is None or now.utcoffset() is None:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
             _fail("E_APPROVAL_TIME", "/now", "timezone-aware current time required")
         not_before = head.record.get("not_before")
         if not_before and now < datetime.fromisoformat(not_before.replace("Z", "+00:00")):
@@ -253,13 +301,15 @@ class ApprovalLedger:
                      operation_id: str, expected_generation: int,
                      now: Optional[datetime] = None) -> bool:
         """Consume one approved input set exactly once with an idempotent key."""
-        if not isinstance(scope, str) or not scope or not isinstance(action, str) or not action:
-            _fail("E_CONSUME_SCHEMA", "/scope", "scope and action are required")
-        if not isinstance(operation_id, str) or not operation_id:
-            _fail("E_CONSUME_SCHEMA", "/operation_id", "operation id is required")
-        if type(expected_generation) is not int or expected_generation < 1:
+        _identity(scope, "/scope", code="E_CONSUME_SCHEMA")
+        _identity(action, "/action", code="E_CONSUME_SCHEMA")
+        _identity(operation_id, "/operation_id", code="E_CONSUME_SCHEMA")
+        if type(expected_generation) is not int or not 1 <= expected_generation <= MAX_SAFE_INTEGER:
             _fail("E_CONSUME_SCHEMA", "/expected_generation", "positive generation required")
-        refs = [_ref(value, "/input_refs") for value in input_refs]
+        try:
+            refs = [_ref(value, "/input_refs") for value in list(input_refs)]
+        except TypeError:
+            _fail("E_CONSUME_BINDING", "/input_refs", "iterable required")
         ref_hashes = [sha256(value) for value in refs]
         if len(ref_hashes) != len(set(ref_hashes)):
             _fail("E_CONSUME_BINDING", "/input_refs", "duplicate input reference")
@@ -283,14 +333,25 @@ class ApprovalLedger:
         return True
 
     def lock(self, *, scope: str, receipt_id: str, operation_id: str, bindings: Iterable[Mapping[str, Any]]) -> InputLock:
-        if not receipt_id or not operation_id:
-            _fail("E_LOCK_BINDINGS", "/", "receipt and operation ids are required")
+        _identity(scope, "/scope", code="E_LOCK_BINDINGS")
+        _identity(receipt_id, "/receipt_id", code="E_LOCK_BINDINGS")
+        _identity(operation_id, "/operation_id", code="E_LOCK_BINDINGS")
         head = self._heads.get(scope)
         if head is None or head.record["decision"] != "APPROVED":
             _fail("E_APPROVAL_CURRENT", "/scope", "an approved current head is required")
         rows = []
-        for value in bindings:
-            rows.append((_ref(value, "/bindings"), head.generation))
+        try:
+            binding_values = list(bindings)
+        except TypeError:
+            _fail("E_LOCK_BINDINGS", "/bindings", "iterable required")
+        seen_bindings = set()
+        for value in binding_values:
+            normalized = _ref(value, "/bindings")
+            fingerprint = sha256(normalized)
+            if fingerprint in seen_bindings:
+                _fail("E_LOCK_BINDINGS", "/bindings", "duplicate binding")
+            seen_bindings.add(fingerprint)
+            rows.append((normalized, head.generation))
         binding_hash = sha256([{**ref, "binding_generation": gen} for ref, gen in rows])
         if operation_id in self._lock_operations:
             old_scope, old_receipt, old_binding_hash, old_lock = self._lock_operations[operation_id]

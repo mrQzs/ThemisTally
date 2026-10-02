@@ -37,6 +37,42 @@ class PersistentApprovalStore:
     def _fail(self, code: str, message: str) -> None:
         raise AuthorizationStoreError(code, "/journal", message)
 
+    @staticmethod
+    def _journal_text(value: Any, field: str, line: int) -> str:
+        if type(value) is not str or not value or len(value) > 256 or "\x00" in value:
+            raise AuthorizationStoreError("E_AUTH_JOURNAL", "/journal", f"invalid {field} at line {line}")
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise AuthorizationStoreError("E_AUTH_JOURNAL", "/journal", f"invalid {field} at line {line}")
+        return value
+
+    def _validate_event_fields(self, event: Mapping[str, Any], line: int) -> None:
+        """Keep malformed JSON values inside the journal error boundary.
+
+        A JSON object can contain arrays/objects where the ledger expects a
+        hashable identity.  Validating those fields before inserting into the
+        operation sets prevents raw ``TypeError`` escapes during recovery.
+        """
+        self._journal_text(event.get("type"), "type", line)
+        self._journal_text(event.get("scope"), "scope", line)
+        self._journal_text(event.get("operation_id"), "operation_id", line)
+        if event["type"] == "approval":
+            generation = event.get("expected_generation")
+            if type(generation) is not int or generation < 0:
+                self._fail("E_AUTH_JOURNAL", f"invalid expected_generation at line {line}")
+        elif event["type"] == "lock":
+            self._journal_text(event.get("receipt_id"), "receipt_id", line)
+            if not isinstance(event.get("bindings"), list):
+                self._fail("E_AUTH_JOURNAL", f"invalid bindings at line {line}")
+        else:
+            generation = event.get("expected_generation")
+            if type(generation) is not int or generation < 1:
+                self._fail("E_AUTH_JOURNAL", f"invalid expected_generation at line {line}")
+            self._journal_text(event.get("action"), "action", line)
+            if not isinstance(event.get("input_refs"), list):
+                self._fail("E_AUTH_JOURNAL", f"invalid input_refs at line {line}")
+            consumed_at = event.get("consumed_at")
+            self._journal_text(consumed_at, "consumed_at", line)
+
     def _load(self) -> None:
         if not self.path.exists():
             return
@@ -58,7 +94,7 @@ class PersistentApprovalStore:
                 break
             if not isinstance(event, dict):
                 self._fail("E_AUTH_JOURNAL", f"event must be an object at line {index + 1}")
-            event_type = event.get("type")
+            event_type = self._journal_text(event.get("type"), "type", index + 1)
             approval_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "record"}
             lock_shape = {"seq", "type", "scope", "operation_id", "receipt_id", "bindings"}
             consume_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "action", "input_refs", "consumed_at"}
@@ -70,15 +106,24 @@ class PersistentApprovalStore:
                 self._fail("E_AUTH_JOURNAL", f"invalid consume shape at line {index + 1}")
             if event_type not in {"approval", "lock", "consume"}:
                 self._fail("E_AUTH_JOURNAL", f"unknown event type at line {index + 1}")
+            self._validate_event_fields(event, index + 1)
             seq = event.get("seq")
             if type(seq) is not int or seq != self.high_water + 1:
                 self._fail("E_AUTH_JOURNAL", f"non-contiguous sequence at line {index + 1}")
+            operation_key = (event["type"], event["operation_id"])
+            if operation_key in self._operation_events:
+                self._fail("E_AUTH_JOURNAL", f"duplicate operation event at line {index + 1}")
             self.high_water = seq
-            self._operation_events.add((event["type"], event["operation_id"]))
             if event["type"] == "approval":
-                self.ledger.put(scope=event["scope"], operation_id=event["operation_id"], expected_generation=event["expected_generation"], record=event["record"])
+                try:
+                    self.ledger.put(scope=event["scope"], operation_id=event["operation_id"], expected_generation=event["expected_generation"], record=event["record"])
+                except (AuthorizationError, TypeError, KeyError, ValueError) as exc:
+                    self._fail("E_AUTH_JOURNAL", f"invalid approval at line {index + 1}: {exc}")
             elif event["type"] == "lock":
-                self.ledger.lock(scope=event["scope"], receipt_id=event["receipt_id"], operation_id=event["operation_id"], bindings=event["bindings"])
+                try:
+                    self.ledger.lock(scope=event["scope"], receipt_id=event["receipt_id"], operation_id=event["operation_id"], bindings=event["bindings"])
+                except (AuthorizationError, TypeError, KeyError, ValueError) as exc:
+                    self._fail("E_AUTH_JOURNAL", f"invalid lock at line {index + 1}: {exc}")
             elif event["type"] == "consume":
                 try:
                     consumed_at = datetime.fromisoformat(event["consumed_at"].replace("Z", "+00:00"))
@@ -86,10 +131,14 @@ class PersistentApprovalStore:
                     self._fail("E_AUTH_JOURNAL", f"invalid consumed_at at line {index + 1}")
                 if consumed_at.tzinfo is None or consumed_at.utcoffset() is None:
                     self._fail("E_AUTH_JOURNAL", f"consumed_at must include timezone at line {index + 1}")
-                if not self.ledger.consume_once(scope=event["scope"], action=event["action"],
-                                                input_refs=event["input_refs"], operation_id=event["operation_id"],
-                                                expected_generation=event["expected_generation"], now=consumed_at):
-                    self._fail("E_AUTH_JOURNAL", f"consume event was not applicable at line {index + 1}")
+                try:
+                    if not self.ledger.consume_once(scope=event["scope"], action=event["action"],
+                                                    input_refs=event["input_refs"], operation_id=event["operation_id"],
+                                                    expected_generation=event["expected_generation"], now=consumed_at):
+                        self._fail("E_AUTH_JOURNAL", f"consume event was not applicable at line {index + 1}")
+                except (AuthorizationError, TypeError, KeyError, ValueError) as exc:
+                    self._fail("E_AUTH_JOURNAL", f"invalid consume at line {index + 1}: {exc}")
+            self._operation_events.add(operation_key)
 
     def _append(self, event: Mapping[str, Any]) -> None:
         line = canonical_bytes(dict(event))
@@ -104,16 +153,31 @@ class PersistentApprovalStore:
         if self.recovery.get("status") != "CLEAN":
             raise AuthorizationStoreError("E_AUTH_RECOVERY", "/journal", "reconcile or repair recovery tail before writing")
 
+    def _commit(self, candidate: ApprovalLedger, event: Mapping[str, Any]) -> None:
+        """Publish in-memory state only after its append has been durable.
+
+        An append/fsync error has an unknown disk outcome.  Retain the last
+        durable in-memory state and fence further writes until the journal is
+        reopened and reconciled; a retry must not silently use a ghost head.
+        """
+        try:
+            self._append(event)
+        except OSError as exc:
+            self.recovery = {"status": "WRITE_UNKNOWN", "ignored_tail": False}
+            raise AuthorizationStoreError("E_AUTH_WRITE_UNKNOWN", "/journal", "journal append outcome is unknown") from exc
+        self.ledger = candidate
+        self._operation_events.add((event["type"], event["operation_id"]))
+
     def put(self, *, scope: str, operation_id: str, expected_generation: int, record: Mapping[str, Any]) -> ApprovalHead:
         self._ensure_writable()
         normalized = validate_approval(record)
+        candidate = copy.deepcopy(self.ledger)
+        head = candidate.put(scope=scope, operation_id=operation_id, expected_generation=expected_generation, record=normalized)
         replay = ("approval", operation_id) in self._operation_events
-        head = self.ledger.put(scope=scope, operation_id=operation_id, expected_generation=expected_generation, record=normalized)
         if replay:
             return head
-        self._append({"seq": self.high_water + 1, "type": "approval", "scope": scope, "operation_id": operation_id,
-                      "expected_generation": expected_generation, "record": normalized})
-        self._operation_events.add(("approval", operation_id))
+        self._commit(candidate, {"seq": self.high_water + 1, "type": "approval", "scope": scope, "operation_id": operation_id,
+                                 "expected_generation": expected_generation, "record": normalized})
         return head
 
     def put_authorization(self, *, scope: str, operation_id: str, expected_generation: int,
@@ -124,34 +188,42 @@ class PersistentApprovalStore:
 
     def lock(self, *, scope: str, receipt_id: str, operation_id: str, bindings: list[Mapping[str, Any]]) -> InputLock:
         self._ensure_writable()
+        try:
+            binding_list = copy.deepcopy(list(bindings))
+        except TypeError as exc:
+            self._fail("E_LOCK_BINDINGS", "bindings must be iterable")
+        candidate = copy.deepcopy(self.ledger)
+        lock = candidate.lock(scope=scope, receipt_id=receipt_id, operation_id=operation_id, bindings=binding_list)
         replay = ("lock", operation_id) in self._operation_events
-        lock = self.ledger.lock(scope=scope, receipt_id=receipt_id, operation_id=operation_id, bindings=bindings)
         if replay:
             return lock
-        self._append({"seq": self.high_water + 1, "type": "lock", "scope": scope, "operation_id": operation_id,
-                      "receipt_id": receipt_id, "bindings": copy.deepcopy(bindings)})
-        self._operation_events.add(("lock", operation_id))
+        self._commit(candidate, {"seq": self.high_water + 1, "type": "lock", "scope": scope, "operation_id": operation_id,
+                                 "receipt_id": receipt_id, "bindings": binding_list})
         return lock
 
     def consume_once(self, *, scope: str, action: str, input_refs: list[Mapping[str, Any]],
                      operation_id: str, expected_generation: int,
                      now: Any = None) -> bool:
         self._ensure_writable()
-        replay = ("consume", operation_id) in self._operation_events
-        effective_now = now or datetime.now(timezone.utc)
-        if effective_now.tzinfo is None or effective_now.utcoffset() is None:
+        effective_now = datetime.now(timezone.utc) if now is None else now
+        if not isinstance(effective_now, datetime) or effective_now.tzinfo is None or effective_now.utcoffset() is None:
             self._fail("E_AUTHORIZATION_TIME", "consume time must include timezone")
-        result = self.ledger.consume_once(scope=scope, action=action, input_refs=input_refs,
-                                          operation_id=operation_id, expected_generation=expected_generation,
-                                          now=effective_now)
+        try:
+            input_refs_list = copy.deepcopy(list(input_refs))
+        except TypeError:
+            self._fail("E_CONSUME_BINDING", "input_refs must be iterable")
+        candidate = copy.deepcopy(self.ledger)
+        result = candidate.consume_once(scope=scope, action=action, input_refs=input_refs_list,
+                                         operation_id=operation_id, expected_generation=expected_generation,
+                                         now=effective_now)
+        replay = ("consume", operation_id) in self._operation_events
         if not result or replay:
             return result
         consumed_at = effective_now
-        self._append({"seq": self.high_water + 1, "type": "consume", "scope": scope,
-                      "operation_id": operation_id, "expected_generation": expected_generation,
-                      "action": action, "input_refs": copy.deepcopy(input_refs),
-                      "consumed_at": consumed_at.isoformat().replace("+00:00", "Z")})
-        self._operation_events.add(("consume", operation_id))
+        self._commit(candidate, {"seq": self.high_water + 1, "type": "consume", "scope": scope,
+                                 "operation_id": operation_id, "expected_generation": expected_generation,
+                      "action": action, "input_refs": input_refs_list,
+                                 "consumed_at": consumed_at.isoformat().replace("+00:00", "Z")})
         return True
 
     def _has_lock_receipt(self, receipt_id: str) -> bool:

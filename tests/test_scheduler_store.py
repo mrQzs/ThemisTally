@@ -267,6 +267,55 @@ class SchedulerStoreTests(unittest.TestCase):
             SchedulerStore(corrupted)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
 
+    def test_reopen_rejects_resource_hold_drift_and_generation_split(self) -> None:
+        valid = Path(self.temp.name) / "drift.sqlite3"
+        store = SchedulerStore(valid)
+        store.seed_request(REQUEST_ID, "code-kit")
+        store.seed_task(REQUEST_ID, "task-a")
+        result = store.claim(request(), facts(), owner="owner-a", lease_until=100,
+                             reservation={"dispatches": 1}, resource_keys=["src/a"])
+        store.close()
+        db = sqlite3.connect(valid)
+        db.execute("UPDATE operations SET controller_generation=2 WHERE operation_id=?", (result.operation_id,))
+        db.commit()
+        db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(valid)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+        valid = Path(self.temp.name) / "hold-drift.sqlite3"
+        store = SchedulerStore(valid)
+        store.seed_request(REQUEST_ID, "code-kit")
+        store.seed_task(REQUEST_ID, "task-a")
+        result = store.claim(request(), facts(), owner="owner-a", lease_until=100,
+                             reservation={"dispatches": 1}, resource_keys=["src/a"])
+        store.close()
+        db = sqlite3.connect(valid)
+        db.execute("DELETE FROM resource_holds WHERE operation_id=?", (result.operation_id,))
+        db.commit()
+        db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(valid)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+    def test_reopen_rejects_hold_for_finished_operation(self) -> None:
+        valid = Path(self.temp.name) / "finished-hold.sqlite3"
+        store = SchedulerStore(valid)
+        store.seed_request(REQUEST_ID, "code-kit")
+        store.seed_task(REQUEST_ID, "task-a")
+        result = store.claim(request(), facts(), owner="owner-a", lease_until=100,
+                             reservation={"dispatches": 1}, resource_keys=[])
+        store.close()
+        db = sqlite3.connect(valid)
+        db.execute("UPDATE operations SET state='ACCEPTED' WHERE operation_id=?", (result.operation_id,))
+        db.execute("INSERT INTO resource_holds(repo_id,resource_key,operation_id) VALUES(?,?,?)",
+                   ("code-kit", "stray", result.operation_id))
+        db.commit()
+        db.close()
+        with self.assertRaises(SchedulerStoreError) as caught:
+            SchedulerStore(valid)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

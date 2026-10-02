@@ -175,6 +175,54 @@ class ApprovalLedgerBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(AuthorizationError, "E_IDEMPOTENCY_CONFLICT"):
             ledger.revoke(scope="scope", operation_id="revoke-op", expected_generation=1, reason="different policy")
 
+    def test_malformed_identities_and_cas_generations_are_classified(self) -> None:
+        ledger = ApprovalLedger()
+        for bad in ([], {}, 1, True, "", "bad\x00id", "bad\ud800id"):
+            with self.subTest(kind="scope", value=repr(bad)), self.assertRaises(AuthorizationError):
+                ledger.put(scope=bad, operation_id="put-op", expected_generation=0, record=approval())
+            with self.subTest(kind="operation", value=repr(bad)), self.assertRaises(AuthorizationError):
+                ledger.put(scope="scope", operation_id=bad, expected_generation=0, record=approval())
+            with self.subTest(kind="revoke", value=repr(bad)), self.assertRaises(AuthorizationError):
+                ledger.revoke(scope="scope", operation_id=bad, expected_generation=1, reason="revoked")
+            with self.subTest(kind="read", value=repr(bad)), self.assertRaises(AuthorizationError):
+                ledger.head(bad)
+        for generation in (True, False, -1, 0.0, "0", 2**53 - 1, 2**53):
+            with self.subTest(generation=generation), self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_SCHEMA"):
+                ledger.put(scope="scope", operation_id="put-op", expected_generation=generation, record=approval())
+        self.assertIsNone(ledger.head("scope"))
+        self.assertEqual(ledger.put(scope="scope", operation_id="put-op", expected_generation=0, record=approval()).generation, 1)
+
+    def test_duplicate_normalized_refs_and_lock_bindings_are_rejected(self) -> None:
+        slash = ref("input")
+        backslash = {**slash, "path": "fixtures\\input.json"}
+        for field in ("input_refs", "authorization_refs"):
+            with self.subTest(field=field), self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_SCHEMA"):
+                validate_approval(approval(**{field: [slash, backslash]}))
+        ledger = ApprovalLedger()
+        head = ledger.put(scope="scope", operation_id="put-op", expected_generation=0,
+                          record=approval(input_refs=[backslash]))
+        self.assertEqual(head.record["input_refs"], [slash])
+        self.assertTrue(ledger.consume(scope="scope", action="run", input_refs=[slash]))
+        with self.assertRaisesRegex(AuthorizationError, "E_LOCK_BINDINGS"):
+            ledger.lock(scope="scope", receipt_id="receipt", operation_id="lock", bindings=[slash, backslash])
+        self.assertEqual(len(ledger.lock(scope="scope", receipt_id="receipt", operation_id="lock", bindings=[slash]).bindings), 1)
+
+    def test_malformed_approval_fields_and_clock_do_not_escape_protocol_errors(self) -> None:
+        for fields in ({"schema_version": True}, {"decision": []}, {"decision": {}},
+                       {"input_refs": [object()]}, {"reviewed_actions": ["run", "run"]},
+                       {"reviewer": {"mode": ""}}):
+            with self.subTest(fields=fields), self.assertRaises(AuthorizationError):
+                validate_approval(approval(**fields))
+        ledger = ApprovalLedger()
+        ledger.put(scope="scope", operation_id="put", expected_generation=0, record=approval())
+        for now in (False, 0, "today", []):
+            with self.subTest(now=now), self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_TIME"):
+                ledger.consume(scope="scope", action="run", input_refs=[ref("input")], now=now)
+        with self.assertRaisesRegex(AuthorizationError, "E_CONSUME_BINDING"):
+            ledger.consume_once(scope="scope", action="run", input_refs=None, operation_id="consume", expected_generation=1)
+        with self.assertRaisesRegex(AuthorizationError, "E_LOCK_BINDINGS"):
+            ledger.lock(scope="scope", receipt_id="receipt", operation_id="lock", bindings=None)
+
 
 if __name__ == "__main__":
     unittest.main()
