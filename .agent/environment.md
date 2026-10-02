@@ -2,7 +2,7 @@
 
 <!-- 由 check-pi-env 技能生成或更新；不记录凭据或完整环境变量。 -->
 
-- 记录时间：2026-10-02
+- 记录时间：2026-10-03
 - 记录者：Codex
 - 结论：有阻塞：Pi 执行模型未列出且凭据未就绪，当前不可派遣
 
@@ -10,7 +10,7 @@
 
 | 字段 | 值 |
 |---|---|
-| 工具与版本 | doctor：Codex CLI 0.157.1；Claude Code 2.1.287 |
+| 工具与版本 | doctor：Codex CLI 0.160.0；Claude Code 2.1.288 |
 | 规划模型 | 当前 Codex 会话模型由宿主配置；未覆盖执行模型 |
 | 模型配置来源 | Codex 宿主配置 |
 | 思考或推理强度 | 由当前 Codex 会话配置 |
@@ -24,10 +24,10 @@
 |---|---|
 | pi 版本 | 1.0.0 |
 | pi 调用方式 | `node .../@earendil-works/pi-coding-agent/dist/bundle/cli.js` |
-| 执行模型 | `step/step-5-preview`（未在当前可用模型列表中） |
+| 执行模型 | `step/step-5-preview`（本次 doctor 仍未列出） |
 | 思考级别 | high（请求级别） |
 | 思考预算设置 | 未设置（使用默认） |
-| 凭据就绪 | not_ready；`pi auth check --no-refresh` 退出码 2 |
+| 凭据就绪 | not_ready；本次 `pi auth check --no-refresh` 退出码 2，状态 `invalid_state` |
 | 工具集 | read, bash, powershell, edit, write, grep, find, ls |
 | Pi 可用的思考级别 | off, minimal, low, medium, high, xhigh, max |
 | rg / fd | 已安装/可用 |
@@ -63,7 +63,7 @@
 
 | 项目 | 结果 | 证据 |
 |---|---|---|
-| doctor（不调用模型） | 有阻塞：模型不在列表，凭据未就绪 | `.agent/runs/_env/doctor.json` |
+| doctor（不调用模型） | 有阻塞：模型不在列表，凭据未就绪；本次模型列表命令退出 0 但仅返回 1 行且未列出目标模型 | `.agent/runs/_env/doctor.json` |
 | 无工具连通性 | 未运行 | 用户未要求 smoke，且凭据未就绪 |
 | 最小工具任务（写文件并读回） | 未运行 | 同上 |
 | 代表性代码任务 | 未派遣；T1A 由主模型本地完成 | 当前工作区定向测试 |
@@ -74,3 +74,4 @@
 |---|---|---|
 | 2026-09-29 | 首次记录；pi 0.87.0 / step-5-preview 核验 | Pi 或模型更换后重跑 doctor；模型调用前另行记录 smoke 状态 |
 | 2026-10-02 | 重新核验发现 pi 1.0.0、step/step-5-preview 未列出且 auth check 未就绪；记录 Python 3.9/3.12 双运行时 | Pi 模型、凭据或运行时修复后重跑 doctor；不得据此派遣 |
+| 2026-10-03 | doctor 2.2.2 / Codex 0.160.0 / Claude Code 2.1.288；目标模型仍未列出，auth 状态为 `invalid_state`，仓库干净且 AGENTS.md 已提交 | 外部环境修复后重新核验；当前保持 `BLOCKED`，不调用 smoke 或派遣 |
