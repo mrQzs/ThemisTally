@@ -115,3 +115,5 @@ cannot release production.
 The planner then generated 39 current-base v2 contract pairs in `aa82aaf`, later rebased them to the offline implementation candidate `7a29008`; all pairs were accepted by `pi_dispatch validate`. The v2 contracts add explicit inputs/outputs, failure handling, rollback boundaries, and the required global checks; they still have no Pi attempts or independent acceptance verdicts. `07-roadmap.v1.md` remains an orphan historical roadmap without a JSON pair and is not dispatchable.
 
 After the runtime and provider boundary hardening commits `8df094a` and `b3f40aa`, the 39 v2 contract pairs were refreshed to base `b3f40aa` and revalidated. The full offline suite remains limited by three pre-existing legacy source-lock failures; no Pi attempt or production connector evidence exists.
+
+The latest offline candidate `061900a` also hardens authorization journal recovery, scheduler hold closure, projection journal durability and acceptance ResourceRef path binding. Targeted suites pass, while the production gate remains `REVISE/BLOCKED` because no Pi attempt or external connector evidence exists.

@@ -22,3 +22,5 @@
 `fbe94d5` 收紧配置输入与平台/占位符边界；`5da5e6a`、`e6bac39` 收紧 Git 探针计划、环境覆盖、LFS/ancestor 观测类型。配置 19 项、Git 探针/ancestor 25 项定向测试通过；这些仍是 `LOCAL_REFERENCE`，真实仓库授权、跨平台环境和 Pi 证据未运行。
 
 `c57c016` 进一步固定 Git probe 的 RawResult/result mapping 字段闭集，拒绝未知观测键并保持 malformed 事实为 `UNKNOWN`；Git 来源相关离线复核扩大到 51 项通过，仍不等价于真实仓库授权或平台接线。
+
+`d456361` 加固 authorization journal candidate-commit、WRITE_UNKNOWN fencing、scheduler resource hold 闭包；`061900a` 加固 projection journal durable publish、cursor/checkpoint 连续性与 acceptance ResourceRef path 绑定。授权/调度 70 项、投影/验收 64 项、配置/Git/adapter/runtime 68 项定向测试通过；生产连接器和独立 Pi 证据仍为 `BLOCKED/NOT_RUN`。
