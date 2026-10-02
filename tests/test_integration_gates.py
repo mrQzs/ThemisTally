@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from codekit.integration_gates import (BLOCKED, OFFLINE_WIRED, PASS, PRODUCTION_BLOCKED, WAIT,
+from codekit.integration_gates import (BLOCKED, OFFLINE_WIRED, PASS, PRODUCTION_BLOCKED, WAIT, IntegrationGateError,
                                        contract_digest, evaluate_commit_permission,
                                        evaluate_integration_gates, evaluate_production_connectors,
                                        verify_09_10_wiring, verify_contract_hash, verify_fixed_candidate)
@@ -84,6 +84,8 @@ class ContractAndCandidateTests(unittest.TestCase):
         generic_commit = evaluate_commit_permission(has_uncommitted_changes=True, integration_actions=("commit",),
                                                     commit_sha="e" * 64)
         self.assertEqual(generic_commit.decision, BLOCKED)
+        with self.assertRaisesRegex(IntegrationGateError, "E_ACTIONS"):
+            evaluate_commit_permission(has_uncommitted_changes=False, integration_actions=None)
 
 
 class WiringAndProductionTests(unittest.TestCase):
@@ -122,6 +124,8 @@ class WiringAndProductionTests(unittest.TestCase):
         blocked = evaluate_production_connectors(synthetic)
         self.assertEqual(blocked.decision, PRODUCTION_BLOCKED)
         self.assertTrue(all(reason.endswith("_OFFLINE_ONLY") for reason in blocked.reasons))
+        with self.assertRaisesRegex(IntegrationGateError, "E_CONNECTORS"):
+            evaluate_production_connectors({}, required=[])
 
     def test_verified_connector_without_identity_or_evidence_cannot_pass(self) -> None:
         forged = {stage: {"status": "verified", "production": True, "available": True}
