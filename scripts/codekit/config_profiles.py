@@ -172,7 +172,9 @@ class AdapterDescriptor:
 
 class AdapterRegistry:
     def __init__(self, descriptors: Iterable[AdapterDescriptor] = ()):
-        self._items = {item.adapter_id: item for item in descriptors}
+        self._items: dict[str, AdapterDescriptor] = {}
+        for descriptor in descriptors:
+            self.register(descriptor)
 
     def register(self, descriptor: AdapterDescriptor) -> None:
         if descriptor.adapter_id in self._items:

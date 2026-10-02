@@ -27,6 +27,11 @@ def config():
 
 
 class ConfigProfilesTests(unittest.TestCase):
+    def test_registry_constructor_rejects_duplicate_descriptors(self):
+        descriptor = AdapterDescriptor("offline", "offline-v1")
+        with self.assertRaisesRegex(ConfigError, "E_CFG_ADAPTER"):
+            AdapterRegistry([descriptor, descriptor])
+
     def test_strict_json_rejects_duplicate_and_nan(self):
         with self.assertRaisesRegex(ConfigError, "E_JSON_DUPLICATE"):
             load_strict_json('{"schema_version":2,"schema_version":2}')
