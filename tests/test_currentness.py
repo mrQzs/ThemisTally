@@ -14,6 +14,7 @@ from codekit.coverage import CoverageDecision  # noqa: E402
 from codekit.currentness import evaluate_baseline_currentness  # noqa: E402
 from codekit.git_ancestor import AncestorObservation  # noqa: E402
 from codekit.git_probe import GitProbeObservation  # noqa: E402
+from codekit import protocols  # noqa: E402
 
 
 BASE = "a" * 40
@@ -71,6 +72,24 @@ class CurrentnessTests(unittest.TestCase):
         before = copy.deepcopy(raw)
         evaluate_baseline_currentness(raw, git(), AncestorObservation("ANCESTOR"), CoverageDecision("COVERAGE_VERIFIED"), authorization_current=True, guard_match=True)
         self.assertEqual(raw, before)
+
+    def test_malformed_gate_inputs_are_structured_errors(self):
+        cases = (
+            ("/git_observation", [], AncestorObservation("ANCESTOR"), CoverageDecision("COVERAGE_VERIFIED"), True, True),
+            ("/ancestor_observation", git(), [], CoverageDecision("COVERAGE_VERIFIED"), True, True),
+            ("/coverage_decision", git(), AncestorObservation("ANCESTOR"), [], True, True),
+            ("/authorization_current", git(), AncestorObservation("ANCESTOR"), CoverageDecision("COVERAGE_VERIFIED"), [], True),
+            ("/guard_match", git(), AncestorObservation("ANCESTOR"), CoverageDecision("COVERAGE_VERIFIED"), True, []),
+        )
+        for field, git_observation, ancestor_observation, coverage_decision, authorization_current, guard_match in cases:
+            with self.subTest(field=field):
+                with self.assertRaises(protocols.ProtocolError) as caught:
+                    evaluate_baseline_currentness(binding(), git_observation, ancestor_observation,
+                                                  coverage_decision,
+                                                  authorization_current=authorization_current,
+                                                  guard_match=guard_match)
+                self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+                self.assertEqual(caught.exception.field, field)
 
 
 if __name__ == "__main__":

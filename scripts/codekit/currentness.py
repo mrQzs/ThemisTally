@@ -15,6 +15,7 @@ from .baseline_binding import BaselineBinding, validate_baseline_binding
 from .coverage import CoverageDecision
 from .git_ancestor import AncestorObservation
 from .git_probe import GitProbeObservation
+from . import protocols
 
 
 @dataclass(frozen=True)
@@ -37,15 +38,20 @@ def evaluate_baseline_currentness(
     if not isinstance(binding, BaselineBinding):
         binding = validate_baseline_binding(binding)
     if not isinstance(git_observation, GitProbeObservation):
-        raise TypeError("git_observation must be GitProbeObservation")
+        raise protocols.ProtocolError("E_SCHEMA_TYPE", field="/git_observation", phase="currentness",
+                                      reason="git_observation_required")
     if not isinstance(ancestor_observation, AncestorObservation):
-        raise TypeError("ancestor_observation must be AncestorObservation")
+        raise protocols.ProtocolError("E_SCHEMA_TYPE", field="/ancestor_observation", phase="currentness",
+                                      reason="ancestor_observation_required")
     if not isinstance(coverage_decision, CoverageDecision):
-        raise TypeError("coverage_decision must be CoverageDecision")
+        raise protocols.ProtocolError("E_SCHEMA_TYPE", field="/coverage_decision", phase="currentness",
+                                      reason="coverage_decision_required")
     if authorization_current is not None and type(authorization_current) is not bool:
-        raise TypeError("authorization_current must be bool or None")
+        raise protocols.ProtocolError("E_SCHEMA_TYPE", field="/authorization_current", phase="currentness",
+                                      reason="boolean_or_null_required")
     if guard_match is not None and type(guard_match) is not bool:
-        raise TypeError("guard_match must be bool or None")
+        raise protocols.ProtocolError("E_SCHEMA_TYPE", field="/guard_match", phase="currentness",
+                                      reason="boolean_or_null_required")
 
     reasons: list[str] = []
     if git_observation.verified is not True:
