@@ -57,6 +57,8 @@ an independent `review-pi` verdict.
 - `1371ce6` closes the review-oracle observation envelope and bounds check IDs,
   test maps, bindings, and statuses. Malformed or unhashable inputs now produce
   explicit `E_CHECK_*` errors instead of leaking type errors or readiness.
+- `739cc91` adds list-versus-set collection regressions so callers cannot widen
+  those closed ID-set inputs without a failing test.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,

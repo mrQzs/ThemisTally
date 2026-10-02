@@ -22,6 +22,6 @@
 
 后续 `1fb8c6e` 将 AnalysisReport 的 SourceAnchor 以及 docs-change 的 anchor 引用限制在已声明的 `source_refs` 闭包内，并以 100 项跨插件定向回归复核。该校验仍不等价于读取真实文件字节或生产审查结论。
 
-`1371ce6` 进一步固定 review oracle 的 observation、binding、check/test ID 与结果状态的闭合结构和数量上限；malformed/unhashable 输入均归类为明确的 `E_CHECK_*`，没有把异常输入当作 readiness。
+`1371ce6` 进一步固定 review oracle 的 observation、binding、check/test ID 与结果状态的闭合结构和数量上限；malformed/unhashable 输入均归类为明确的 `E_CHECK_*`，没有把异常输入当作 readiness。`739cc91` 补齐 list/set 类型负例，避免集合参数回归到宽松接受。
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。
