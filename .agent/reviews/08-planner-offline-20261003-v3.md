@@ -12,13 +12,20 @@ an independent `review-pi` verdict.
   projection JSONL recovery/handoff, explicit argv runner identity, timeout and
   flaky classification, plugin lock/resource binding, and permission/platform
   intersection.
+- `a414b04` adds a runtime `authorization.integration.local_branch` gate and
+  verifies the prepared contract hash before branch-side Git writes. The
+  dispatcher stub suite passes 258 checks on Windows and 263 checks under WSL.
 - The broader suite excluding long lifecycle dispatcher and legacy end-to-end
   modules passes 870 tests with 34 skips (seven Windows Schema instance checks are skipped because `jsonschema` is unavailable there; WSL runs them).
+- The required Windows `python -m unittest discover -s tests -q` run completed
+  1029 tests with 38 skips and three expected legacy source-lock failures: the
+  locked `a4fa199` digest cannot match after the authorized `pi_dispatch.py`
+  change. This is recorded as not-all-green rather than a production pass.
 - `python -m compileall -q scripts/codekit tests` and `git diff --check` pass.
 - WSL Python 3.12 Draft 2020-12 meta-validation passes for 14 schemas.
-- The earlier WSL local stub run recorded 260 dispatcher self-checks with zero
-  failures. A Windows rerun entered the existing long lifecycle fixture and
-  was stopped; it is `NOT_RUN`, not a pass.
+- The latest dispatcher self-check evidence is the 263-check WSL run and the
+  258-check Windows run above; both completed with zero failures. These are
+  local stub runs, not Pi production evidence.
 
 ## Scope of the new offline boundary
 
