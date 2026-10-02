@@ -86,6 +86,7 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
     """Assemble a review-bundle; never promotes readiness to a core verdict."""
     if not isinstance(docs_check, Mapping) or docs_check.get("record_type") != "docs-check":
         raise ArtifactError("E_REVIEW_INPUT", "/docs_check", "validated docs-check artifact required")
+    docs_check = validate_artifact(docs_check)
     if not isinstance(content_review, Mapping) or content_review.get("status") not in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH", "UNKNOWN"}:
         raise ArtifactError("E_REVIEW_INPUT", "/content_review", "fixed oracle result required")
     payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}

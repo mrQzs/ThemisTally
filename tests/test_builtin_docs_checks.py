@@ -46,7 +46,6 @@ class DocsChecksTests(unittest.TestCase):
         self.assertTrue(any(x["status"] == "UNSUPPORTED_HTML" for x in result["findings"]))
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
-        self.assertTrue(any(x["status"] == "UNSUPPORTED_HTML" for x in result["findings"]))
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
 if __name__ == "__main__": unittest.main()
