@@ -26,3 +26,5 @@
 `d456361` 加固 authorization journal candidate-commit、WRITE_UNKNOWN fencing、scheduler resource hold 闭包；`061900a` 加固 projection journal durable publish、cursor/checkpoint 连续性与 acceptance ResourceRef path 绑定。授权/调度 70 项、投影/验收 64 项、配置/Git/adapter/runtime 68 项定向测试通过；生产连接器和独立 Pi 证据仍为 `BLOCKED/NOT_RUN`。
 
 `86a92fc` 将 projection journal 中非法 JSON 值统一映射为 `E_JOURNAL`，避免私有持久化输入泄漏业务层错误；投影定向回归保持通过。
+
+`1caeb6e` 继续收紧离线账本与运行边界：atomic claim/budget、attempt allocator、usage settlement、resume recovery、scheduler/budget store 拒绝非规范 JSON 常量、控制字符、越界整数和不完整持久化闭包；offline runner 保留空 argv 参数、固定环境白名单并按完整可观察证据识别重复运行漂移；回归/变异 artifact 在加载时重算 summary/status，candidate ResourceRef 保留 path 绑定，未知 connector 阶段阻断。相关三组定向套件分别为 87、69、110 项通过；这些结果仍为 `LOCAL_REFERENCE`，不产生 Pi、provider、原生平台或外部连接器证据。
