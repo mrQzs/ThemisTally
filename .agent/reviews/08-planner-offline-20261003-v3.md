@@ -134,3 +134,9 @@ The candidate advanced to `1e1363a`: all three canonical helpers also reject sur
 
 
 The candidate advanced to `cf3a1cd`: runtime process identity, `START_UNKNOWN`/`NOT_STARTED` reconciliation, safe lease bounds, projection canonical JSON, repairable truncated tails, cursor/generation CAS, and 09/10 health/source-vector consistency were hardened. The runtime/projection focused suite passed 62 tests; the expanded acceptance command passed 348 tests with 1 skip, and compileall/diff checks passed. This remains local reference evidence only; no Pi attempt, dispatcher receipt, real provider, native platform, or external connector evidence exists.
+
+
+The latest no-model doctor check confirms `bb/step-5-preview` is listed and authentication is ready. No smoke, Pi attempt, provider call, native-platform run, or external connector was started under the route's explicit production isolation constraint, so the execution evidence remains `NOT_RUN` and the release gate stays closed.
+
+
+The candidate advanced to `a64f3a8`: atomic/budget/scheduler outbox rows now enforce strict JSON, contiguous sequences, request/operation closure, and database-wide high-water semantics; artifact/plugin/resource identities normalize paths before hashing, reject unsafe text and integers, and offline recipes reject network commands and URLs. The expanded acceptance command passed 398 tests with 8 environment skips. This remains local reference evidence; the environment is dispatch-ready, but no Pi/provider/native-platform/connector run was started under the explicit isolation constraint.

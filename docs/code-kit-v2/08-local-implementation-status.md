@@ -66,3 +66,9 @@
 
 
 当前候选 `cf3a1cd` 补齐投影事件 canonical JSON、严格重建输入、截断尾 repair CAS、09/10 健康/来源向量一致性，以及运行时进程身份和恢复租约边界。相关定向套件 62 项通过，统一验收命令 348 项通过、1 项跳过；没有 dispatcher receipt、Pi attempt、真实 provider、原生平台或 09/10 生产连接器证据。
+
+
+最新环境复核已确认 `bb/step-5-preview` 可用且认证 ready；本轮仍未运行 smoke、Pi、provider 或外部连接器，S5/S6 生产证据继续为 `NOT_RUN/BLOCKED`。
+
+
+当前候选 `a64f3a8` 收紧八类业务 artifact、插件 manifest/lock、ResourceRef 路径摘要和离线 recipe 命令边界，并补齐 outbox 连续性与请求/操作闭包校验。新增组合验收结果为 398 项通过、8 项环境跳过；没有 Pi attempt、provider call、原生平台或 09/10 外部连接器证据。

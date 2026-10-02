@@ -41,3 +41,9 @@
 
 
 `cf3a1cd` 补齐 05 运行时的进程身份闭包、`START_UNKNOWN`/`NOT_STARTED` 对账、安全整数和租约异常边界，并加固 08 投影/09/10 离线投影的 strict JSON、截断尾修复、generation/cursor CAS 与健康/来源一致性。运行时与投影定向套件 62 项通过，统一验收命令 348 项通过、1 项跳过；结果仍为 `LOCAL_REFERENCE`，真实 Pi、provider、原生平台和外部连接器继续为 `BLOCKED/NOT_RUN`。
+
+
+最新环境复核已确认 `bb/step-5-preview` 可用且认证 ready，但本轮按双门槛与生产隔离约束未运行真实 Pi/provider；因此执行器证据仍为 `NOT_RUN`，不把环境可用性误写成阶段 PASS。
+
+
+`a64f3a8` 收紧 atomic/budget/scheduler outbox 的严格 JSON、连续序列、请求/操作闭包和数据库范围 high-water；账本定向套件与 01–06/08 组合验收共 398 项通过、8 项环境跳过。插件/配方边界也完成离线收紧；真实 Pi/provider、原生平台和外部连接器仍未运行。

@@ -1,6 +1,6 @@
 # 07 验收矩阵（候选提交）
 
-候选提交：`cf3a1cdff2302cfb89c3efbcfdc53d78b8f4be5b`（当前离线实现候选；下文早期 v1 行保留为历史映射）。该矩阵只记录当前工作树可复核的离线候选；没有 Pi attempt、真实 provider、真实 OS 进程或 09/10 生产连接证据时，不得使用 `PASS`。
+候选提交：`a64f3a836f5f5c0ca5f405c2b21efb210086b3e4`（当前离线实现候选；下文早期 v1 行保留为历史映射）。该矩阵只记录当前工作树可复核的离线候选；没有 Pi attempt、真实 provider、真实 OS 进程或 09/10 生产连接证据时，不得使用 `PASS`。
 
 ## 统一验证命令
 
@@ -10,7 +10,7 @@
 python -m unittest tests.test_workflow tests.test_readiness tests.test_baseline_binding tests.test_git_probe tests.test_git_ancestor tests.test_coverage tests.test_claim_model tests.test_scheduler_store tests.test_parallel tests.test_budget tests.test_budget_store_v2 tests.test_retry tests.test_atomic_claim_budget tests.test_acceptance tests.test_recovery tests.test_identity tests.test_provider_economics tests.test_offline_provider tests.test_unified_ledger tests.test_currentness tests.test_baseline_use tests.test_projections tests.test_runtime tests.test_runtime_lease tests.test_resume_recovery tests.test_builtin_s4_s6 tests.test_attempt_allocator tests.test_integration_gates tests.test_usage_settlement -q
 ```
 
-当前结果：348 项通过，1 项跳过。早期结果保留在历史记录中。通用门禁：`python -m compileall -q scripts/codekit tests`、`git diff --check` 通过；当前 `python tests/test_dispatch.py` 未形成新通过证据，历史 255 checks 记录仅供参考。旧候选全量结果 895 项、31 项跳过、1 项环境失败也仅保留为历史记录。
+当前结果：398 项通过，8 项跳过。早期结果保留在历史记录中。通用门禁：`python -m compileall -q scripts/codekit tests`、`git diff --check` 通过；当前 `python tests/test_dispatch.py` 未形成新通过证据，历史 255 checks 记录仅供参考。旧候选全量结果 895 项、31 项跳过、1 项环境失败也仅保留为历史记录。
 
 原始调度器证据目录只有 `.agent/runs/_env/` 的 doctor 记录；本轮没有生成 Pi attempt。因此下表的“证据”列是可定位的源文件/测试和本审计报告，而不是伪造的运行证据。
 
@@ -59,9 +59,9 @@ S6 v1 合同仍记录 `contract_base_sha=175653e`，而本候选是 `candidate_s
 
 - `LOCAL_PARTIAL` 表示源码与定向单测可复核，不代表真实接线或独立 S6 通过。
 - `NOT_RUN` 表示当前没有合格输入、生产连接或 Pi attempt 证据。
-- 本矩阵的早期历史行绑定候选提交 `a2357b0`；当前候选为 `cf3a1cdff2302cfb89c3efbcfdc53d78b8f4be5b`，变更候选后必须重新生成命令输出和审计报告，不能沿用旧结论。
+- 本矩阵的早期历史行绑定候选提交 `a2357b0`；当前候选为 `a64f3a836f5f5c0ca5f405c2b21efb210086b3e4`，变更候选后必须重新生成命令输出和审计报告，不能沿用旧结论。
 
 
 ## 当前候选增量
 
-当前候选 `cf3a1cdff2302cfb89c3efbcfdc53d78b8f4be5b` 的统一命令增加 `tests.test_runtime` 与 `tests.test_builtin_s4_s6`，结果为 348 项通过、1 项跳过。对应 39 对 v2 合同已绑定该完整代码提交并通过 `pi_dispatch validate`；没有 Pi attempt，生产门禁仍为 `REVISE/BLOCKED`。
+当前候选 `a64f3a836f5f5c0ca5f405c2b21efb210086b3e4` 的统一命令包含账本、插件、配方和 schema 边界套件，结果为 398 项通过、8 项跳过。对应 39 对 v2 合同已绑定该完整代码提交并通过 `pi_dispatch validate`；没有 Pi attempt，生产门禁仍为 `REVISE/BLOCKED`。

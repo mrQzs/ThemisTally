@@ -4,7 +4,7 @@
   "plan_version": 2,
   "title": "08 S4.2 变异复审计划",
   "repository": "Code-Kit",
-  "base_sha": "cf3a1cdff2302cfb89c3efbcfdc53d78b8f4be5b",
+  "base_sha": "a64f3a836f5f5c0ca5f405c2b21efb210086b3e4",
   "risk_level": "high",
   "authorization": {
     "executor": [

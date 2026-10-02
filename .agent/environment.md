@@ -75,3 +75,8 @@
 | 2026-09-29 | 首次记录；pi 0.87.0 / step-5-preview 核验 | Pi 或模型更换后重跑 doctor；模型调用前另行记录 smoke 状态 |
 | 2026-10-02 | 重新核验发现 pi 1.0.0、step/step-5-preview 未列出且 auth check 未就绪；记录 Python 3.9/3.12 双运行时 | Pi 模型、凭据或运行时修复后重跑 doctor；不得据此派遣 |
 | 2026-10-03 | doctor 2.2.2 / Codex 0.160.0 / Claude Code 2.1.288；目标模型仍未列出，auth 状态为 `invalid_state`，仓库干净且 AGENTS.md 已提交 | 外部环境修复后重新核验；当前保持 `BLOCKED`，不调用 smoke 或派遣 |
+
+
+## 最新核验（2026-10-03）
+
+本次不调用模型的 doctor 使用精确执行模型 `bb/step-5-preview` 和 high 思考级别：模型列表命中 1 行，`pi auth check --no-refresh` 返回 `ready`，仓库干净，AGENTS.md 已提交。该结果说明执行环境目前具备派遣前提，但按当前路线图约束未运行 smoke、未派遣真实 Pi，也未产生 provider、原生平台或外部连接器证据；这些门禁继续保持 `NOT_RUN/BLOCKED`。
