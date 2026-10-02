@@ -6,7 +6,7 @@
 |---|---|---|---|
 | 01 | `ccb64b6` | 公共协议导入探针在 Python 3.9/3.12 兼容；协议、基线、Git 探针和 legacy fixture 定向测试通过 | Pi、原生平台、真实外部输入未运行 |
 | 02 | `52af491`, `a6f214a` | 严格 v2 配置/profile Schema、adapter registry、role 解析、policy 交集、受限 local 覆盖和语义快照；17 项边界测试及 WSL Schema 元校验通过 | 真实 CLI/认证/路径预检未运行 |
-| 03 | `8546a4d`, `a6f214a`, `4d2b2b3`, `c6599b0`, `0aa19dc` | approval/input-lock ledger、CAS、幂等、撤销、时间窗口、路径安全和精确输入绑定；追加日志、截断尾恢复、恢复态写入拒绝、严格 v2 authorization envelope、一次消费 fence 和持久回放；20 项相关测试及 WSL Schema 元校验通过 | 真实并发进程、外部授权服务未运行 |
+| 03 | `8546a4d`, `a6f214a`, `4d2b2b3`, `c6599b0`, `0aa19dc`, `993987b` | approval/input-lock ledger、CAS、幂等、撤销、时间窗口、路径安全和精确输入绑定；追加日志、截断尾恢复、恢复态写入拒绝、严格 v2 authorization envelope、当前性 generation/hash fence、一次消费 fence、重复输入拒绝、消费时间持久化和持久回放；23 项相关测试及 WSL Schema 元校验通过 | 真实并发进程、外部授权服务未运行 |
 | 04 | `978a258`, `097d510`, `4b98152` | adapter descriptor/registry、Invocation identity、事件序列、未知事件保留、usage 和离线 adapter；7 项测试通过 | 真实 provider、Pi 模型和 CLI 事件未运行 |
 | 05 | `d1c54cb`, `ee151c2` | argv/shell 互斥、Invocation、进程身份、生命周期 generation fence 和 START_UNKNOWN 对账；5 项测试通过 | Windows/macOS 原生进程树和 shell 未运行 |
 | 06 | `358af12`, `8bd8b8c`, `df8f482` | manifest、ResourceRef、依赖拓扑、冲突、动态加载拒绝、manifest-bound lock 和七个离线插件 fixture；15 项测试及 WSL Schema 元校验通过 | 真实插件目录、跨平台资源锁和生产 prepare/run 未运行 |
