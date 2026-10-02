@@ -150,6 +150,7 @@ def verify_contract_hash(contract: Any, expected_sha256: str | None,
 
 # Alias used by callers that describe this as identity rather than hashing.
 verify_contract_identity = verify_contract_hash
+contract_hash = contract_digest
 
 
 def _candidate_ref(value: Any, field: str) -> tuple[str, str, str]:
@@ -397,9 +398,19 @@ def _nonempty_text(value: Any) -> bool:
     return type(value) is str and bool(value) and "\x00" not in value
 
 
+# Descriptive aliases keep call sites readable without creating alternate
+# semantics or a second implementation.
+fixed_candidate_gate = verify_fixed_candidate
+commit_gate = evaluate_commit_permission
+production_connector_gate = evaluate_production_connectors
+projection_wiring_gate = verify_09_10_wiring
+
+
 __all__ = [
     "BLOCKED", "GateDecision", "IntegrationGateError", "OFFLINE_WIRED", "PASS", "PRODUCTION_BLOCKED",
-    "REQUIRED_CONNECTORS", "WAIT", "canonical_json", "contract_digest", "evaluate_commit_permission",
+    "REQUIRED_CONNECTORS", "WAIT", "canonical_json", "contract_digest", "contract_hash",
+    "evaluate_commit_permission",
     "evaluate_integration_gates", "evaluate_production_connectors", "sha256_hex", "verify_09_10_wiring",
-    "verify_contract_hash", "verify_contract_identity", "verify_fixed_candidate",
+    "verify_contract_hash", "verify_contract_identity", "verify_fixed_candidate", "fixed_candidate_gate",
+    "commit_gate", "production_connector_gate", "projection_wiring_gate",
 ]
