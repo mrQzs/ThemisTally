@@ -50,6 +50,10 @@
 
 候选随后推进到 `9980f27`：授权 journal 与 scheduler SQLite 的协议文本边界拒绝 C0/C1、DEL 和孤立代理字符，并覆盖写入、重放、输入和重开路径；验收矩阵组合命令现为 305 项通过、1 项跳过。该候选仍只提供 `LOCAL_REFERENCE`，没有可信 dispatcher receipt、真实 provider、原生平台或 09/10 生产连接器证据。
 
+候选随后推进到 `137dae4`：provider economics、unified ledger 和 usage settlement 的 canonical 指纹拒绝不安全整数、数值子类、循环、代理、非有限数和未知对象；验收矩阵组合命令现为 311 项通过、1 项跳过。该候选仍只提供 `LOCAL_REFERENCE`，没有可信 dispatcher receipt、真实 provider、原生平台或 09/10 生产连接器证据。
+
+候选随后推进到 `1e1363a`：三套 canonical helper 对代理对象键统一返回结构化拒绝，验收矩阵计数不变；仍没有可信 dispatcher receipt、真实 provider、原生平台或 09/10 生产连接器证据。
+
 合同基线已更新：`aa82aaf` 新增 39 对当前合同 `v2`（01–06 各 3 个、08 的 S0–S6 各 3 个），统一绑定前一提交 `9a75389`，并补齐 Inputs/Outputs、Failure handling、Rollback boundary 以及全局验证命令。39 份合同均通过 `python scripts/pi_dispatch.py validate <task>.v2`；这只是合同结构校验，没有生成 Pi attempt 或阶段验收证据。旧版 39 对 `v1` 仍是历史草稿，`07-roadmap.v1.md` 仍无配套 JSON，均不可直接派遣。
 
 代码基线随后推进到 `7a29008`，39 对 v2 合同已重新绑定该提交；插件目录/配方边界与统一账本 v3 重开校验的定向回归仍属于 `LOCAL_REFERENCE`。合同校验不产生执行器或生产接线证据。

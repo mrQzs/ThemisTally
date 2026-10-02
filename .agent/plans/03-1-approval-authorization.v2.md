@@ -3,7 +3,7 @@
 ## Identity
 - plan_version: 2
 - repository: Code-Kit
-- base_sha: 9980f273dd722b36318a7162230074fff98075d7
+- base_sha: 1e1363a34857873609bead54d43812c0cd45611a
 - risk_level: medium
 - authorized_actions: local_edit, local_test
 - integration_actions: none
@@ -20,7 +20,7 @@
 - 入口：03-approvals-and-locks-审阅增强版.md；产品实现位于 scripts/codekit/，本任务只增加测试、fixture、文档和外围适配器。
 - 调用关系与现有约定：Python 标准库 unittest，测试按文件单独运行；unknown、NOT_RUN、BLOCKED 必须保留。
 - 工具链与锁文件：Python 3.9/3.12，无项目依赖锁文件；调度器 scripts/dispatch-pi.sh。
-- 基线检查：基线 SHA 为 9980f273dd722b36318a7162230074fff98075d7；以离线静态检查和新增文件存在性为证据。
+- 基线检查：基线 SHA 为 1e1363a34857873609bead54d43812c0cd45611a；以离线静态检查和新增文件存在性为证据。
 
 ## Scope
 - allowed_modified_files:

@@ -34,3 +34,7 @@
 `98a4ed5` 继续收紧 adapter 事件与 payload、runtime lease 的身份/代际/token/时间边界，以及 provider economics 和 unified ledger 的 canonical JSON、循环、Unicode、有限数和安全整数边界；本轮相关组合回归 137 项通过，验收矩阵组合命令 303 项通过、1 项跳过，compileall 和 diff check 通过。结果仍为 `LOCAL_REFERENCE`，真实 Pi、provider、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
 
 `9980f27` 收紧授权 journal 与 scheduler SQLite 的协议文本边界，拒绝 C0/C1、DEL 和孤立代理字符，并覆盖写入、重放和重开路径；相关组合回归 112 项通过，验收矩阵组合命令 305 项通过、1 项跳过。结果仍为 `LOCAL_REFERENCE`，真实授权服务、Pi、provider、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
+
+`137dae4` 将 provider economics、unified ledger 和 usage settlement 的指纹输入统一收紧为严格 JSON，拒绝不安全整数、数值子类、循环、代理、非有限数和未知对象；相关定向回归 74 项通过，验收矩阵组合命令 311 项通过、1 项跳过。结果仍为 `LOCAL_REFERENCE`，真实 provider、计费系统、Pi、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
+
+`1e1363a` 补齐三套 canonical helper 对代理对象键的拒绝，避免 Unicode 编码异常越过结构化错误边界；相关定向回归 44 项通过，验收矩阵计数不变。结果仍为 `LOCAL_REFERENCE`。
