@@ -32,6 +32,20 @@ class PersistentAuthorizationTests(unittest.TestCase):
             self.assertEqual(restored.high_water, 2)
             self.assertEqual(restored.reconcile()["recovery"]["status"], "CLEAN")
 
+    def test_consume_once_is_journaled_and_replayed(self):
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            store = PersistentApprovalStore(path)
+            store.put(scope="scope", operation_id="put-1", expected_generation=0, record=approval())
+            self.assertTrue(store.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                               operation_id="consume-1", expected_generation=1))
+            restored = PersistentApprovalStore(path)
+            self.assertTrue(restored.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                                  operation_id="consume-1", expected_generation=1))
+            with self.assertRaisesRegex(AuthorizationError, "E_ALREADY_CONSUMED"):
+                restored.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                     operation_id="consume-2", expected_generation=1)
+
     def test_replay_is_idempotent_without_duplicate_events(self):
         with tempfile.TemporaryDirectory() as area:
             path = Path(area) / "auth.jsonl"

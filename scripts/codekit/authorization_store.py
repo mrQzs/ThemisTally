@@ -14,7 +14,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
-from .authorization import ApprovalLedger, ApprovalHead, AuthorizationError, InputLock, canonical_bytes, validate_approval
+from .authorization import (ApprovalLedger, ApprovalHead, AuthorizationError, InputLock,
+                            canonical_bytes, validate_approval, validate_authorization)
 
 
 class AuthorizationStoreError(AuthorizationError):
@@ -59,11 +60,14 @@ class PersistentApprovalStore:
             event_type = event.get("type")
             approval_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "record"}
             lock_shape = {"seq", "type", "scope", "operation_id", "receipt_id", "bindings"}
+            consume_shape = {"seq", "type", "scope", "operation_id", "expected_generation", "action", "input_refs"}
             if event_type == "approval" and set(event) != approval_shape:
                 self._fail("E_AUTH_JOURNAL", f"invalid approval shape at line {index + 1}")
             if event_type == "lock" and set(event) != lock_shape:
                 self._fail("E_AUTH_JOURNAL", f"invalid lock shape at line {index + 1}")
-            if event_type not in {"approval", "lock"}:
+            if event_type == "consume" and set(event) != consume_shape:
+                self._fail("E_AUTH_JOURNAL", f"invalid consume shape at line {index + 1}")
+            if event_type not in {"approval", "lock", "consume"}:
                 self._fail("E_AUTH_JOURNAL", f"unknown event type at line {index + 1}")
             seq = event.get("seq")
             if type(seq) is not int or seq != self.high_water + 1:
@@ -74,6 +78,11 @@ class PersistentApprovalStore:
                 self.ledger.put(scope=event["scope"], operation_id=event["operation_id"], expected_generation=event["expected_generation"], record=event["record"])
             elif event["type"] == "lock":
                 self.ledger.lock(scope=event["scope"], receipt_id=event["receipt_id"], operation_id=event["operation_id"], bindings=event["bindings"])
+            elif event["type"] == "consume":
+                if not self.ledger.consume_once(scope=event["scope"], action=event["action"],
+                                                input_refs=event["input_refs"], operation_id=event["operation_id"],
+                                                expected_generation=event["expected_generation"]):
+                    self._fail("E_AUTH_JOURNAL", f"consume event was not applicable at line {index + 1}")
 
     def _append(self, event: Mapping[str, Any]) -> None:
         line = canonical_bytes(dict(event))
@@ -100,6 +109,12 @@ class PersistentApprovalStore:
         self._operation_events.add(("approval", operation_id))
         return head
 
+    def put_authorization(self, *, scope: str, operation_id: str, expected_generation: int,
+                          record: Mapping[str, Any]) -> ApprovalHead:
+        validate_authorization(record)
+        return self.put(scope=scope, operation_id=operation_id,
+                        expected_generation=expected_generation, record=record)
+
     def lock(self, *, scope: str, receipt_id: str, operation_id: str, bindings: list[Mapping[str, Any]]) -> InputLock:
         self._ensure_writable()
         replay = ("lock", operation_id) in self._operation_events
@@ -110,6 +125,21 @@ class PersistentApprovalStore:
                       "receipt_id": receipt_id, "bindings": copy.deepcopy(bindings)})
         self._operation_events.add(("lock", operation_id))
         return lock
+
+    def consume_once(self, *, scope: str, action: str, input_refs: list[Mapping[str, Any]],
+                     operation_id: str, expected_generation: int,
+                     now: Any = None) -> bool:
+        self._ensure_writable()
+        replay = ("consume", operation_id) in self._operation_events
+        result = self.ledger.consume_once(scope=scope, action=action, input_refs=input_refs,
+                                          operation_id=operation_id, expected_generation=expected_generation, now=now)
+        if not result or replay:
+            return result
+        self._append({"seq": self.high_water + 1, "type": "consume", "scope": scope,
+                      "operation_id": operation_id, "expected_generation": expected_generation,
+                      "action": action, "input_refs": copy.deepcopy(input_refs)})
+        self._operation_events.add(("consume", operation_id))
+        return True
 
     def _has_lock_receipt(self, receipt_id: str) -> bool:
         # The in-memory ledger intentionally exposes no mutable receipt map; a

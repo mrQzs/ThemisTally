@@ -41,6 +41,9 @@ class OfflineRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ENV"):
                 run_command(target="secret", command=self._command("pass"), cwd=tmp,
                             check_plan_id="cp", candidate_digest="candidate", environment={"API_TOKEN": "blocked"})
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ENV"):
+                run_command(target="unlisted", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate", environment={"UNLISTED": "blocked"})
 
     def test_mutation_requires_stable_baseline_and_kills_all_mutants(self):
         with tempfile.TemporaryDirectory() as tmp:

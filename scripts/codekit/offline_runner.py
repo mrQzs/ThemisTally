@@ -70,6 +70,9 @@ def _safe_environment(overrides: Mapping[str, str]) -> dict[str, str]:
         _err("E_RUNNER_ENV", "credential-like environment overrides are forbidden")
     allowed = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
                "LANG", "LC_ALL", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "PYTHONIOENCODING"}
+    invalid_overrides = [key for key in overrides if key.upper() not in allowed]
+    if invalid_overrides:
+        _err("E_RUNNER_ENV", "environment override is not allowlisted")
     result = {key: value for key, value in os.environ.items() if key.upper() in allowed}
     result.update(overrides)
     return result

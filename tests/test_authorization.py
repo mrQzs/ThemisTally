@@ -59,6 +59,25 @@ class AuthorizationTests(unittest.TestCase):
         value = {**approval(), "purpose": "run approved checks", "authorization_refs": [ref("auth")],
                  "conditions": {"platform": "offline"}, "rationale": "reviewed fixture"}
         self.assertEqual(validate_authorization(value)["purpose"], "run approved checks")
+        ledger = ApprovalLedger()
+        with self.assertRaisesRegex(AuthorizationError, "E_AUTHORIZATION_SCHEMA"):
+            ledger.put_authorization(scope="scope", operation_id="strict-1", expected_generation=0, record=approval())
+        self.assertEqual(ledger.put_authorization(scope="scope", operation_id="strict-1", expected_generation=0,
+                                                  record=value).generation, 1)
+
+    def test_consume_once_is_idempotent_and_fenced(self):
+        ledger = ApprovalLedger()
+        ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval())
+        self.assertTrue(ledger.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                            operation_id="consume-1", expected_generation=1))
+        self.assertTrue(ledger.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                            operation_id="consume-1", expected_generation=1))
+        with self.assertRaisesRegex(AuthorizationError, "E_ALREADY_CONSUMED"):
+            ledger.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                operation_id="consume-2", expected_generation=1)
+        with self.assertRaisesRegex(AuthorizationError, "E_CAS_CONFLICT"):
+            ledger.consume_once(scope="scope", action="run", input_refs=[ref("input")],
+                                operation_id="consume-3", expected_generation=2)
 
 
 if __name__ == "__main__":

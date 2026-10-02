@@ -160,6 +160,8 @@ class ApprovalLedger:
         self._lock_operations: Dict[str, Tuple[str, str, str, InputLock]] = {}
         self._receipts: Dict[str, InputLock] = {}
         self._revoke_operations: Dict[str, Tuple[str, int, str, ApprovalHead]] = {}
+        self._consumptions: Dict[str, Tuple[str, str, str, int]] = {}
+        self._consumed_keys: Dict[Tuple[str, str, str, int], str] = {}
 
     def put(self, *, scope: str, operation_id: str, expected_generation: int, record: Mapping[str, Any]) -> ApprovalHead:
         if not scope or not operation_id:
@@ -180,6 +182,13 @@ class ApprovalLedger:
         self._history.setdefault(scope, []).append(head)
         self._operations[operation_id] = (scope, expected_generation, request_hash, head)
         return copy.deepcopy(head)
+
+    def put_authorization(self, *, scope: str, operation_id: str, expected_generation: int,
+                          record: Mapping[str, Any]) -> ApprovalHead:
+        """Write a new v2 authorization after strict envelope validation."""
+        normalized = validate_authorization(record)
+        return self.put(scope=scope, operation_id=operation_id,
+                        expected_generation=expected_generation, record=normalized)
 
     def revoke(self, *, scope: str, operation_id: str, expected_generation: int, reason: str) -> ApprovalHead:
         if operation_id in self._revoke_operations:
@@ -227,6 +236,36 @@ class ApprovalLedger:
                     return False
             except ValueError:
                 return False
+        return True
+
+    def consume_once(self, *, scope: str, action: str, input_refs: Iterable[Mapping[str, Any]],
+                     operation_id: str, expected_generation: int,
+                     now: Optional[datetime] = None) -> bool:
+        """Consume one approved input set exactly once with an idempotent key."""
+        if not isinstance(scope, str) or not scope or not isinstance(action, str) or not action:
+            _fail("E_CONSUME_SCHEMA", "/scope", "scope and action are required")
+        if not isinstance(operation_id, str) or not operation_id:
+            _fail("E_CONSUME_SCHEMA", "/operation_id", "operation id is required")
+        if type(expected_generation) is not int or expected_generation < 1:
+            _fail("E_CONSUME_SCHEMA", "/expected_generation", "positive generation required")
+        refs = [_ref(value, "/input_refs") for value in input_refs]
+        ref_hash = sha256(sorted(sha256(value) for value in refs))
+        request = (scope, action, ref_hash, expected_generation)
+        existing = self._consumptions.get(operation_id)
+        if existing is not None:
+            if existing != request:
+                _fail("E_IDEMPOTENCY_CONFLICT", "/operation_id", "consume operation reused with different content")
+            return True
+        head = self._heads.get(scope)
+        if head is None or head.generation != expected_generation:
+            _fail("E_CAS_CONFLICT", "/expected_generation", "approval head changed")
+        consumed_key = (scope, action, ref_hash, head.generation)
+        if consumed_key in self._consumed_keys:
+            _fail("E_ALREADY_CONSUMED", "/input_refs", "approved input set was already consumed")
+        if not self.consume(scope=scope, action=action, input_refs=refs, now=now):
+            return False
+        self._consumptions[operation_id] = request
+        self._consumed_keys[consumed_key] = operation_id
         return True
 
     def lock(self, *, scope: str, receipt_id: str, operation_id: str, bindings: Iterable[Mapping[str, Any]]) -> InputLock:
