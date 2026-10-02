@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, Set
 
 from .builtin_artifacts import ArtifactError, digest, validate_artifact
+from .builtin_docs_checks import validate_docs_check
 
 
 @dataclass(frozen=True)
@@ -84,9 +85,11 @@ def review_readiness(expected: CheckBinding, observations: Sequence[Mapping[str,
 
 def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mapping[str, Any], observations: Sequence[Mapping[str, Any]], readiness: Mapping[str, Any], source_refs: Sequence[Mapping[str, str]] = (), candidate_ref: Optional[Mapping[str, str]] = None, environment_ref: Optional[Mapping[str, str]] = None, artifact_id: str = "review-bundle", status: Optional[str] = None) -> dict:
     """Assemble a review-bundle; never promotes readiness to a core verdict."""
+    if status == "PASS":
+        raise ArtifactError("E_REVIEW_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher verdict")
     if not isinstance(docs_check, Mapping) or docs_check.get("record_type") != "docs-check":
         raise ArtifactError("E_REVIEW_INPUT", "/docs_check", "validated docs-check artifact required")
-    docs_check = validate_artifact(docs_check)
+    docs_check = validate_docs_check(docs_check)
     if not isinstance(content_review, Mapping) or content_review.get("status") not in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH", "UNKNOWN"}:
         raise ArtifactError("E_REVIEW_INPUT", "/content_review", "fixed oracle result required")
     payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}

@@ -56,6 +56,12 @@ class BuiltinArtifactsTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_PATH"):
             validate_artifact(bad)
 
+    def test_artifact_rejects_refs_that_collide_after_path_normalization(self):
+        value = artifact()
+        value["source_refs"] = [ref(), {**ref(), "path": "docs\\source.md"}]
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_REF"):
+            validate_artifact(value)
+
 
 if __name__ == "__main__":
     unittest.main()

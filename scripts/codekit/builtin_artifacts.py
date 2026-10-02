@@ -100,9 +100,12 @@ def validate_artifact(record: Mapping[str, Any]) -> Dict[str, Any]:
     if record["status"] not in STATUSES:
         _fail("E_ARTIFACT_STATUS", "/status", "unknown artifact status")
     refs = record["source_refs"]
-    if not isinstance(refs, list) or len({digest(x) for x in refs}) != len(refs):
-        _fail("E_ARTIFACT_REF", "/source_refs", "unique source refs required")
+    if not isinstance(refs, list):
+        _fail("E_ARTIFACT_REF", "/source_refs", "source refs list required")
     normalized = [resource_ref(x, f"/source_refs/{i}") for i, x in enumerate(refs)]
+    identities = {(x["kind"], x["id"], x["path"], x["sha256"]) for x in normalized}
+    if len(identities) != len(normalized):
+        _fail("E_ARTIFACT_REF", "/source_refs", "unique canonical source refs required")
     candidate = None if record["candidate_ref"] is None else resource_ref(record["candidate_ref"], "/candidate_ref")
     environment = None if record["environment_ref"] is None else resource_ref(record["environment_ref"], "/environment_ref")
     if not isinstance(record["payload"], dict):

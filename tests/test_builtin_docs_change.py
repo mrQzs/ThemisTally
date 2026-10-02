@@ -32,4 +32,9 @@ class DocsChangeTests(unittest.TestCase):
             bad = dict(result); bad["payload"] = dict(result["payload"]); bad["payload"]["changes"] = [dict(row, after_sha256="a" * 64)]
             validate_docs_change(bad)
 
+    def test_offline_docs_change_rejects_production_pass(self):
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_PRODUCTION_GATE"):
+            build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+                              writable_paths=["docs/a.md"], status="PASS")
+
 if __name__ == "__main__": unittest.main()

@@ -22,6 +22,15 @@ except ImportError:  # pragma: no cover - exercised on Windows Python 3.9
 MAX_BYTES = 1_048_576
 MAX_FILES = 4096
 _PROFILE = "commonmark-explicit-anchors-v1"
+_EXTERNAL_STATUSES = {"NOT_CHECKED_EXTERNAL", "NOT_CHECKED_NONFILE"}
+_OK_STATUSES = {"LOCAL_OK"}
+_FINDING_STATUSES = {
+    "BROKEN_FRAGMENT", "BROKEN_LOCAL_LINK", "DIRECTORY_TARGET_UNSUPPORTED",
+    "DUPLICATE_ANCHOR", "FORBIDDEN_PATH", "FORBIDDEN_SCHEME", "INVALID_URL",
+    "LOCAL_OK", "NOT_CHECKED_EXTERNAL", "NOT_CHECKED_NONFILE",
+    "UNSUPPORTED_FRAGMENT_TARGET", "UNSUPPORTED_HTML", "UNSUPPORTED_QUERY",
+}
+_PARSER_PROFILES = {"markdown-it-py", "fallback-commonmark-subset"}
 
 
 def _repo_path(value: Any) -> str:
@@ -232,13 +241,18 @@ def local_target(source: str, url: str) -> Tuple[str, str, str]:
 
 
 def docs_check(snapshot: Snapshot, source_paths: Sequence[str]) -> dict:
+    if isinstance(source_paths, (str, bytes)) or not isinstance(source_paths, Sequence):
+        raise ArtifactError("E_DOC_SOURCE", "/source_paths", "a sequence of repository paths is required")
     findings = []
     cache = {}
     def facts(path):
         if path not in cache:
             cache[path] = markdown_facts(snapshot.read(path))
         return cache[path]
-    paths = sorted(set(_repo_path(p) for p in source_paths))
+    normalized_paths = [_repo_path(p) for p in source_paths]
+    if len(set(normalized_paths)) != len(normalized_paths):
+        raise ArtifactError("E_DOC_SOURCE", "/source_paths", "duplicate source path is ambiguous")
+    paths = sorted(normalized_paths)
     for path in paths:
         links, anchors, unsupported = facts(path)
         if len(anchors) != len(set(anchors)):
@@ -269,16 +283,83 @@ def docs_check(snapshot: Snapshot, source_paths: Sequence[str]) -> dict:
     return {"profile": _PROFILE, "findings": findings, "local_status": "SATISFIED" if not errors else "FAILED_OR_INCOMPLETE", "unchecked": sum(f["status"] in excluded for f in findings), "semantic_review": "NOT_PERFORMED", "parser": "markdown-it-py" if MarkdownIt is not None else "fallback-commonmark-subset"}
 
 
+def _validate_docs_payload(payload: Any) -> dict:
+    if not isinstance(payload, Mapping) or set(payload) != {"profile", "findings", "local_status", "unchecked", "semantic_review", "parser"}:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload", "closed docs-check payload required")
+    if payload["profile"] != _PROFILE:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/profile", "unsupported docs-check profile")
+    if payload["parser"] not in _PARSER_PROFILES:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/parser", "unsupported parser profile")
+    if payload["semantic_review"] != "NOT_PERFORMED":
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/semantic_review", "semantic review is not performed by this plugin")
+    if type(payload["unchecked"]) is not int or payload["unchecked"] < 0:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/unchecked", "non-negative integer required")
+    findings = payload["findings"]
+    if not isinstance(findings, list):
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/findings", "finding list required")
+    normalized = []
+    for index, finding in enumerate(findings):
+        if not isinstance(finding, Mapping) or set(finding) != {"source", "target", "status"}:
+            raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}", "closed finding required")
+        if not isinstance(finding["source"], str) or not finding["source"]:
+            raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/source", "source path required")
+        if not isinstance(finding["target"], str):
+            raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/target", "target must be text")
+        if finding["status"] not in _FINDING_STATUSES:
+            raise ArtifactError("E_DOC_FINDING", f"/payload/findings/{index}/status", "unknown finding status")
+        normalized.append({"source": finding["source"], "target": finding["target"], "status": finding["status"]})
+    expected_unchecked = sum(row["status"] in _EXTERNAL_STATUSES for row in normalized)
+    expected_status = "SATISFIED" if all(row["status"] in _OK_STATUSES | _EXTERNAL_STATUSES for row in normalized) else "FAILED_OR_INCOMPLETE"
+    if payload["unchecked"] != expected_unchecked:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/unchecked", "unchecked count does not match findings")
+    if payload["local_status"] != expected_status:
+        raise ArtifactError("E_DOC_PAYLOAD", "/payload/local_status", "local status does not match findings")
+    return {"profile": payload["profile"], "findings": normalized, "local_status": payload["local_status"], "unchecked": payload["unchecked"], "semantic_review": payload["semantic_review"], "parser": payload["parser"]}
+
+
+def validate_docs_check(record: Mapping[str, Any]) -> dict:
+    normalized = validate_artifact(record)
+    if normalized["record_type"] != "docs-check":
+        raise ArtifactError("E_DOC_PAYLOAD", "/record_type", "docs-check artifact required")
+    if normalized["status"] == "PASS":
+        raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
+    normalized["payload"] = _validate_docs_payload(normalized["payload"])
+    declared = {ref["path"] for ref in normalized["source_refs"]}
+    for index, finding in enumerate(normalized["payload"]["findings"]):
+        if finding["source"] not in declared:
+            raise ArtifactError("E_DOC_PROVENANCE", f"/payload/findings/{index}/source", "finding source is not declared in source_refs")
+    return normalized
+
+
 def build_docs_check(snapshot: Snapshot, source_paths: Sequence[str], *, source_refs: Sequence[Mapping[str, str]] = (), candidate_ref: Optional[Mapping[str, str]] = None, environment_ref: Optional[Mapping[str, str]] = None, artifact_id: str = "docs-check", producer_version: str = "1.0.0", status: Optional[str] = None) -> dict:
+    if isinstance(source_refs, (str, bytes)) or not isinstance(source_refs, Sequence):
+        raise ArtifactError("E_DOC_PROVENANCE", "/source_refs", "a sequence of ResourceRef values is required")
+    normalized_paths = [_repo_path(p) for p in source_paths]
+    if len(set(normalized_paths)) != len(normalized_paths):
+        raise ArtifactError("E_DOC_SOURCE", "/source_paths", "duplicate source path is ambiguous")
     payload = docs_check(snapshot, source_paths)
-    for ref in source_refs:
-        snapshot.verify(ref)
+    if len(source_refs) != len(normalized_paths):
+        raise ArtifactError("E_DOC_PROVENANCE", "/source_refs", "one source reference is required for each source path")
+    seen = set()
+    normalized_refs = []
+    for index, ref in enumerate(source_refs):
+        if not isinstance(ref, Mapping):
+            raise ArtifactError("E_DOC_PROVENANCE", f"/source_refs/{index}", "ResourceRef required")
+        verified = snapshot.verify(ref)
+        del verified
+        path = resource_ref(ref, f"/source_refs/{index}")["path"]
+        if path not in normalized_paths or path in seen:
+            raise ArtifactError("E_DOC_PROVENANCE", f"/source_refs/{index}", "source reference does not match source paths")
+        seen.add(path)
+        normalized_refs.append(dict(ref))
+    if seen != set(normalized_paths):
+        raise ArtifactError("E_DOC_PROVENANCE", "/source_refs", "source reference coverage is incomplete")
     if status is None:
         status = "REFERENCE_ONLY" if payload["local_status"] == "SATISFIED" else "FAIL"
     if status == "PASS":
         raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
-    record = {"record_type": "docs-check", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": producer_version}, "status": status, "source_refs": [dict(x) for x in source_refs], "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}
-    return validate_artifact(record)
+    record = {"record_type": "docs-check", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": producer_version}, "status": status, "source_refs": normalized_refs, "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}
+    return validate_docs_check(record)
 
 
-__all__ = ["Snapshot", "markdown_facts", "local_target", "docs_check", "build_docs_check"]
+__all__ = ["Snapshot", "markdown_facts", "local_target", "docs_check", "build_docs_check", "validate_docs_check"]

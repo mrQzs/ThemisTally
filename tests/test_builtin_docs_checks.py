@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from codekit.builtin_artifacts import ArtifactError
-from codekit.builtin_docs_checks import Snapshot, build_docs_check, docs_check, local_target, markdown_facts
+from codekit.builtin_docs_checks import Snapshot, build_docs_check, docs_check, local_target, markdown_facts, validate_docs_check
 
 class DocsChecksTests(unittest.TestCase):
     def setUp(self):
@@ -45,6 +45,34 @@ class DocsChecksTests(unittest.TestCase):
         self.assertTrue(any(x["status"] == "UNSUPPORTED_HTML" for x in result["findings"]))
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
+
+    def test_source_refs_must_cover_exact_source_paths(self):
+        ref = self.snapshot.ref("docs/index.md")
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PROVENANCE"):
+            build_docs_check(self.snapshot, ["docs/index.md", "docs/guide.md"], source_refs=[ref])
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PROVENANCE"):
+            build_docs_check(self.snapshot, ["docs/index.md"], source_refs=[self.snapshot.ref("docs/guide.md")])
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_SOURCE"):
+            docs_check(self.snapshot, ["docs/index.md", "docs/index.md"])
+
+    def test_payload_validation_rejects_forged_or_unknown_findings(self):
+        record = build_docs_check(self.snapshot, ["docs/index.md"], source_refs=[self.snapshot.ref("docs/index.md")])
+        forged = dict(record)
+        forged["payload"] = dict(record["payload"])
+        forged["payload"]["findings"] = [{"source": "docs/index.md", "target": "x", "status": "LOCAL_OK", "extra": 1}]
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_FINDING"):
+            validate_docs_check(forged)
+        forged = dict(record)
+        forged["payload"] = dict(record["payload"])
+        forged["payload"]["unchecked"] = 99
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PAYLOAD"):
+            validate_docs_check(forged)
+        forged = dict(record)
+        forged["payload"] = dict(record["payload"])
+        forged["payload"]["findings"] = [{"source": "docs/foreign.md", "target": "x", "status": "LOCAL_OK"}]
+        forged["payload"]["unchecked"] = 0
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PROVENANCE"):
+            validate_docs_check(forged)
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
 if __name__ == "__main__": unittest.main()

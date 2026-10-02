@@ -97,6 +97,8 @@ def build_docs_change(
         })
     for ref in source_refs:
         resource_ref(ref)
+    if status == "PASS":
+        raise ArtifactError("E_DOCS_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     payload = {"changes": changes, "scope": {"writable": sorted(writable), "protected": sorted(protected)}, "mapping_version": 1}
     record = {
         "record_type": "docs-change", "schema_version": 1, "artifact_id": artifact_id,
