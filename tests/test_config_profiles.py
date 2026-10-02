@@ -37,6 +37,10 @@ class ConfigProfilesTests(unittest.TestCase):
             load_strict_json('{"schema_version":2,"schema_version":2}')
         with self.assertRaisesRegex(ConfigError, "E_JSON_NUMBER"):
             load_strict_json('{"schema_version":2,"x":NaN}')
+        with self.assertRaisesRegex(ConfigError, "E_JSON_TYPE"):
+            load_strict_json(42)
+        with self.assertRaisesRegex(ConfigError, "E_JSON_ENCODING"):
+            load_strict_json('{"schema_version":2,"x":"' + "\ud800" + '"}')
 
     def test_valid_config_and_semantic_snapshot_are_deterministic(self):
         doc = validate_config(config(), registry())
@@ -71,6 +75,30 @@ class ConfigProfilesTests(unittest.TestCase):
     def test_local_path_must_be_normalized_absolute(self):
         with self.assertRaisesRegex(ConfigError, "E_CFG_PATH"):
             apply_local_overrides(config(), {"runtimes": {"demo": {"executable_by_platform": {"windows": "tool.exe"}}}}, platform="windows")
+
+    def test_commands_reject_controls_placeholders_and_unknown_platforms(self):
+        bad = config()
+        bad["runtimes"]["demo"]["command"] = ["python\x00", "-m", "demo"]
+        with self.assertRaisesRegex(ConfigError, "E_CFG_COMMAND"):
+            validate_config(bad, registry())
+
+        bad = config()
+        bad["runtimes"]["demo"]["command"] = ["<CLI_EXECUTABLE>"]
+        with self.assertRaisesRegex(ConfigError, "E_CFG_PLACEHOLDER"):
+            validate_config(bad, registry())
+
+        bad = config()
+        bad["profiles"]["planning"]["model"]["id"] = "EXACT_MODEL"
+        with self.assertRaisesRegex(ConfigError, "E_CFG_PLACEHOLDER"):
+            validate_config(bad, registry())
+
+        bad = config()
+        bad["runtimes"]["demo"]["command_by_platform"] = {"android": ["python"]}
+        with self.assertRaisesRegex(ConfigError, "E_CFG_PLATFORM"):
+            validate_config(bad, registry())
+
+        with self.assertRaisesRegex(ConfigError, "E_CFG_PLATFORM"):
+            resolve_profile(config(), registry(), role="planner", platform="android")
 
     def test_credential_values_never_enter_snapshot(self):
         doc = config(); doc["profiles"]["planning"]["credential_refs"] = [{"kind": "env", "name": "TOKEN"}]

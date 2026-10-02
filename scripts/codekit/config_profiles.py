@@ -21,8 +21,10 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 NOTE_RE = re.compile(r"^_[A-Za-z][A-Za-z0-9_]{0,63}$")
+PLACEHOLDER_RE = re.compile(r"(?:EXACT_MODEL|ADAPTER_[A-Z]|CLI_[A-Z]|YOUR_|REPLACE_ME|<[^>]+>|\$\{)")
 RESERVED_NOTES = {"_model", "_permissions", "_policies", "_command", "_schema_version"}
 ROLES = ("supervisor", "planner", "executor", "observer")
+PLATFORMS = frozenset({"linux", "macos", "windows"})
 LOCAL_TOP_LEVEL = {"schema_version", "runtimes", "platforms"}
 LOCAL_RUNTIME_KEYS = {"executable_by_platform"}
 LOCAL_PLATFORM_KEYS = {"shell_executable", "tools"}
@@ -61,6 +63,8 @@ def _reject_constant(value: str) -> Any:
 def load_strict_json(raw: bytes | str) -> Dict[str, Any]:
     """Parse UTF-8 JSON with duplicate-key and non-finite-number rejection."""
 
+    if type(raw) not in (bytes, str):
+        _fail("E_JSON_TYPE", "/", "configuration input must be UTF-8 bytes or text")
     if isinstance(raw, bytes):
         if raw.startswith(b"\xef\xbb\xbf"):
             raise ConfigError("E_JSON_ENCODING", "/", "UTF-8 BOM is forbidden")
@@ -68,7 +72,11 @@ def load_strict_json(raw: bytes | str) -> Dict[str, Any]:
             raw = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ConfigError("E_JSON_ENCODING", "/", "configuration must be UTF-8") from exc
-    if len(raw.encode("utf-8")) > 1_048_576:
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ConfigError("E_JSON_ENCODING", "/", "configuration must contain valid Unicode") from exc
+    if len(encoded) > 1_048_576:
         _fail("E_JSON_SIZE", "/", "configuration exceeds one MiB")
     if raw.startswith("\ufeff"):
         _fail("E_JSON_ENCODING", "/", "UTF-8 BOM is forbidden")
@@ -110,9 +118,11 @@ def _object(value: Any, path: str) -> Dict[str, Any]:
     return value
 
 
-def _string(value: Any, path: str, *, nonempty: bool = True) -> str:
-    if not isinstance(value, str) or (nonempty and not value):
+def _string(value: Any, path: str, *, nonempty: bool = True, control_code: str = "E_CFG_SCHEMA") -> str:
+    if type(value) is not str or (nonempty and not value):
         _fail("E_CFG_SCHEMA", path, "non-empty string required")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        _fail(control_code, path, "control characters are forbidden")
     return value
 
 
@@ -123,12 +133,31 @@ def _id(value: Any, path: str) -> str:
     return value
 
 
-def _string_list(value: Any, path: str, *, nonempty: bool = False) -> list[str]:
+def _platform(value: Any, path: str) -> str:
+    value = _string(value, path)
+    if value not in PLATFORMS:
+        _fail("E_CFG_PLATFORM", path, "platform must be linux, macos, or windows")
+    return value
+
+
+def _reject_placeholder(value: str, path: str) -> None:
+    if PLACEHOLDER_RE.search(value):
+        _fail("E_CFG_PLACEHOLDER", path, "documentation placeholder is not a concrete value")
+
+
+def _string_list(value: Any, path: str, *, nonempty: bool = False, control_code: str = "E_CFG_SCHEMA") -> list[str]:
     if not isinstance(value, list) or (nonempty and not value):
         _fail("E_CFG_SCHEMA", path, "string array required")
     result = []
     for index, item in enumerate(value):
-        result.append(_string(item, f"{path}/{index}"))
+        result.append(_string(item, f"{path}/{index}", control_code=control_code))
+    return result
+
+
+def _command_list(value: Any, path: str) -> list[str]:
+    result = _string_list(value, path, nonempty=True, control_code="E_CFG_COMMAND")
+    for index, item in enumerate(result):
+        _reject_placeholder(item, f"{path}/{index}")
     return result
 
 
@@ -137,8 +166,10 @@ def _check_notes(obj: Mapping[str, Any], path: str, allowed: set[str]) -> None:
         if key.startswith("_"):
             if key in RESERVED_NOTES or not NOTE_RE.fullmatch(key) or key not in allowed:
                 _fail("E_CFG_NOTE_SHADOW", f"{path}/{key}", "unregistered or semantic note name")
-            if not isinstance(value, str) or len(value) > 4096:
+            if type(value) is not str or len(value) > 4096:
                 _fail("E_CFG_SCHEMA", f"{path}/{key}", "note must be a string up to 4096 characters")
+            if any(ord(char) < 32 or ord(char) == 127 for char in value):
+                _fail("E_CFG_SCHEMA", f"{path}/{key}", "control characters are forbidden")
 
 
 @dataclass(frozen=True)
@@ -155,11 +186,16 @@ class AdapterDescriptor:
     def validate_model(self, model: Mapping[str, Any], path: str) -> None:
         _object(model, path)
         model_id = _string(model.get("id"), f"{path}/id")
+        _reject_placeholder(model_id, f"{path}/id")
         if self.model_ids and model_id not in self.model_ids:
             _fail("E_CFG_ADAPTER_SCHEMA", f"{path}/id", "model is not in the registered adapter descriptor")
         unknown = set(model) - {"id", "provider", "deployment", "region"}
         if unknown:
             _fail("E_CFG_ADAPTER_SCHEMA", path, f"unknown model fields: {sorted(unknown)}")
+        for key in ("id", "provider", "deployment", "region"):
+            if key in model:
+                value = _string(model[key], f"{path}/{key}")
+                _reject_placeholder(value, f"{path}/{key}")
 
     def validate_options(self, options: Mapping[str, Any], path: str) -> None:
         if not isinstance(options, dict):
@@ -198,13 +234,13 @@ def _validate_runtime(runtime_id: str, runtime: Any, registry: AdapterRegistry) 
         _fail("E_CFG_UNKNOWN_FIELD", path, f"unknown runtime fields: {sorted(unknown)}")
     adapter_id = _id(obj.get("adapter"), f"{path}/adapter")
     descriptor = registry.require(adapter_id, f"{path}/adapter")
-    _string_list(obj.get("command"), f"{path}/command", nonempty=True)
+    _command_list(obj.get("command"), f"{path}/command")
     branches = obj.get("command_by_platform", {})
     if not isinstance(branches, dict):
         _fail("E_CFG_SCHEMA", f"{path}/command_by_platform", "platform map required")
     for platform, command in branches.items():
-        _id(platform, f"{path}/command_by_platform/{platform}")
-        _string_list(command, f"{path}/command_by_platform/{platform}", nonempty=True)
+        _platform(platform, f"{path}/command_by_platform/{platform}")
+        _command_list(command, f"{path}/command_by_platform/{platform}")
     if descriptor.adapter_id != adapter_id:
         _fail("E_CFG_ADAPTER", f"{path}/adapter", "registry identity mismatch")
 
@@ -283,6 +319,9 @@ def validate_config(config: Mapping[str, Any], registry: AdapterRegistry) -> Dic
     platforms = root.get("platforms", {})
     if platforms is not None and not isinstance(platforms, dict):
         _fail("E_CFG_SCHEMA", "/platforms", "object required")
+    if isinstance(platforms, dict):
+        for platform in platforms:
+            _platform(platform, f"/platforms/{platform}")
     return copy.deepcopy(dict(root))
 
 
@@ -364,6 +403,7 @@ def _absolute_path(value: Any, path: str, *, platform: Optional[str] = None) -> 
 def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *, platform: str) -> Dict[str, Any]:
     """Apply only the explicitly permitted local executable/shell patches."""
 
+    _platform(platform, "/platform")
     result = copy.deepcopy(dict(config))
     obj = _object(local, "/local")
     unknown_top = set(obj) - LOCAL_TOP_LEVEL - {k for k in obj if k.startswith("_")}
@@ -383,6 +423,8 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
         if set(patch_obj) - LOCAL_RUNTIME_KEYS:
             _fail("E_CFG_PATH", f"/local/runtimes/{runtime_id}", "only executable_by_platform is allowed")
         branches = _object(patch_obj.get("executable_by_platform", {}), f"/local/runtimes/{runtime_id}/executable_by_platform")
+        for branch_platform in branches:
+            _platform(branch_platform, f"/local/runtimes/{runtime_id}/executable_by_platform/{branch_platform}")
         if platform in branches:
             result["runtimes"][runtime_id].setdefault("command_by_platform", {})
             command = list(result["runtimes"][runtime_id]["command_by_platform"].get(platform, result["runtimes"][runtime_id]["command"]))
@@ -407,6 +449,8 @@ def apply_local_overrides(config: Mapping[str, Any], local: Mapping[str, Any], *
                 if tool_id not in target_tools:
                     _fail("E_CFG_REFERENCE", f"/local/platforms/{platform}/tools/{tool_id}", "tool is not declared")
                 target_tools[tool_id] = _absolute_path(executable, f"/local/platforms/{platform}/tools/{tool_id}", platform=platform)
+    for local_platform in platforms:
+        _platform(local_platform, f"/local/platforms/{local_platform}")
     return result
 
 
@@ -427,6 +471,8 @@ def resolve_profile(config: Mapping[str, Any], registry: AdapterRegistry, *, rol
                    trusted_policy: Optional[Mapping[str, Any]] = None) -> ResolvedProfile:
     """Resolve one explicit role/profile without probing or starting a runtime."""
 
+    if platform is not None:
+        _platform(platform, "/platform")
     if local is not None and not platform:
         _fail("E_CFG_PLATFORM", "/local", "local overrides require an explicit platform")
     effective = apply_local_overrides(config, local, platform=platform) if local is not None else copy.deepcopy(dict(config))
