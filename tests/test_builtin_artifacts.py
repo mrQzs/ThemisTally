@@ -48,6 +48,14 @@ class BuiltinArtifactsTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CATALOG_SCHEMA"):
             validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": [item, item]})
 
+    def test_artifact_rejects_nonfinite_oversize_and_drive_refs(self):
+        bad = artifact(); bad["payload"] = {"value": float("nan")}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_artifact(bad)
+        bad = artifact(); bad["source_refs"] = [{**ref(), "path": "C:/outside.md"}]
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_PATH"):
+            validate_artifact(bad)
+
 
 if __name__ == "__main__":
     unittest.main()

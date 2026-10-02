@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import re
+import ntpath
 from typing import Any, Dict, Iterable, Mapping, Tuple
 
 
@@ -48,7 +49,7 @@ def resource_ref(value: Any, path: str = "/resource_ref") -> Dict[str, str]:
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_ARTIFACT_REF", f"{path}/sha256", "lowercase SHA-256 required")
     normalized = value["path"].replace("\\", "/")
-    if normalized.startswith("/") or ".." in normalized.split("/"):
+    if normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(ord(ch) < 32 for ch in normalized):
         _fail("E_ARTIFACT_PATH", f"{path}/path", "path must stay within the candidate")
     return {"kind": value["kind"], "id": value["id"], "path": normalized, "sha256": value["sha256"]}
 
@@ -105,6 +106,7 @@ def validate_artifact(record: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(record["payload"], dict):
         _fail("E_ARTIFACT_SCHEMA", "/payload", "payload must be an object")
     _depth(record)
+    canonical_bytes(record)
     result = copy.deepcopy(dict(record)); result["source_refs"] = normalized; result["candidate_ref"] = candidate; result["environment_ref"] = environment
     return result
 
