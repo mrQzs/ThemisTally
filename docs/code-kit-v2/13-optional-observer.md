@@ -2,7 +2,7 @@
 
 状态：拟议实施说明，尚未实现；本文件不是已审核或可直接派遣的任务合同。
 上位设计：[总设计](../code-kit-v2-design.md)第 8 节；导航：[实施索引](README.md)。
-本模块是可选增强，不阻塞 [12 集成交付](12-integration-and-migration.md)，默认依靠确定性 brief。
+本模块是可选增强，不阻塞 [12 集成交付](12-integration-and-migration-审阅增强版.md)，默认依靠确定性 brief。
 
 ## 1. 目标与非目标
 

@@ -4674,9 +4674,9 @@ Markdown 自身的摘要保存在**独立 JSON 验证报告**，不会嵌入本�
 P 系列是用户提供的项目材料；“现有函数已经怎样工作”的表述仅按这些材料记录，并未转成源码实测。增强版文件只核对本次明确引用的片段。W 系列是官方或维护者技术资料，访问日期 **2026-09-25**；用于说明技术语义和设计限制，不替代实际部署版本证据，也不要求升级工具。
 
 [^P09]: 用户提供《09 CLI 规划与合同发布》，文件 [09-planning-and-contracts.md](09-planning-and-contracts.md)，尤其第 4.1–4.5、7–8 节。完整原始字节 SHA-256 见附录 C。
-[^P01]: 用户提供《01 基准与公共协议》，[01-baseline-and-protocols.md](01-baseline-and-protocols.md)，第 4.1–4.4 节：标识、完整字节哈希、严格 JSON、版本边界与预算根。
-[^P02]: 用户提供《02 配置与角色绑定》，[02-config-and-profiles.md](02-config-and-profiles.md)，第 4.2–4.4 节：说明字段例外范围、配置语义与环境分离、显式兼容。
-[^P03]: 用户提供《03 审核记录与输入锁定》，[03-approvals-and-locks.md](03-approvals-and-locks.md)，第 4.1–4.4 节：双格式审核、业务授权、当前校验、不回填、精确失效。
+[^P01]: 用户提供《01 基准与公共协议》，[01-baseline-and-protocols-审阅增强版.md](01-baseline-and-protocols-审阅增强版.md)，第 4.1–4.4 节：标识、完整字节哈希、严格 JSON、版本边界与预算根。
+[^P02]: 用户提供《02 配置与角色绑定》，[02-config-and-profiles-审阅增强版.md](02-config-and-profiles-审阅增强版.md)，第 4.2–4.4 节：说明字段例外范围、配置语义与环境分离、显式兼容。
+[^P03]: 用户提供《03 审核记录与输入锁定》，[03-approvals-and-locks-审阅增强版.md](03-approvals-and-locks-审阅增强版.md)，第 4.1–4.4 节：双格式审核、业务授权、当前校验、不回填、精确失效。
 [^P07]: 用户提供《07 工作流与任务调度》，[07-workflows-and-scheduling.md](07-workflows-and-scheduling.md)，第 4.1–4.4 节：任务/阶段、两类就绪、真实基线、累计预算。
 [^P08]: 用户提供《08 首批任务插件》，[08-builtin-task-plugins.md](08-builtin-task-plugins.md)，第 4.1–4.4 节：插件职责、候选检查、静态草稿和权限边界。
 [^P03E]: 本会话提供 [03-approvals-and-locks-审阅增强版.md](03-approvals-and-locks-审阅增强版.md)，本次核对输入来源、subject_ref/input_refs、动作/授权及 binding_generation 相关片段；它仍是拟议实施说明与离线参考。

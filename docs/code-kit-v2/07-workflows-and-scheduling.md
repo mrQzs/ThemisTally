@@ -15,7 +15,7 @@
 
 ## 2. 依赖与输入输出
 
-前置依赖：[03 审核与锁定](03-approvals-and-locks.md)、[06 插件](06-plugin-manifests-and-locks.md)。
+前置依赖：[03 审核与锁定](03-approvals-and-locks-审阅增强版.md)、[06 插件](06-plugin-manifests-and-locks-审阅增强版.md)。
 插件层已经承接配置和平台能力；本模块消费解析后的结果，避免复制其规则。
 首次验证使用人工创建并通过审核的正式合同或离线 fixture；09 是后续生产者，不是本模块前置依赖。
 

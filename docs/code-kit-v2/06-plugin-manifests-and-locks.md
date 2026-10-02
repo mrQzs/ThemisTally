@@ -16,7 +16,7 @@
 
 ## 2. 依赖与输入输出
 
-前置依赖：[02 配置](02-config-and-profiles.md)、[03 审核与锁定](03-approvals-and-locks.md)、[05 平台执行](05-cross-platform-runtime.md)。
+前置依赖：[02 配置](02-config-and-profiles-审阅增强版.md)、[03 审核与锁定](03-approvals-and-locks-审阅增强版.md)、[05 平台执行](05-cross-platform-runtime-审阅增强版.md)。
 03 的审核机制仅接收通用资源引用；本模块向它提供插件锁引用，不反向要求 03 认识插件字段。
 
 | 方向 | 内容 | 所有者 |

@@ -18,7 +18,7 @@
 
 ## 2. 依赖与输入输出
 
-基础依赖：[01 公共协议](01-baseline-and-protocols.md)、[03 审核与锁定](03-approvals-and-locks.md)、[07 工作流](07-workflows-and-scheduling.md)。
+基础依赖：[01 公共协议](01-baseline-and-protocols-审阅增强版.md)、[03 审核与锁定](03-approvals-and-locks-审阅增强版.md)、[07 工作流](07-workflows-and-scheduling-审阅增强版.md)。
 完整接入：[09 规划与合同](09-planning-and-contracts.md)的草稿、审核和发布事件。
 可选消费者：[13 Observer](13-optional-observer.md)；关闭它不影响本模块功能。
 

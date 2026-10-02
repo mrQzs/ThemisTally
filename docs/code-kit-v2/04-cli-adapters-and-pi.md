@@ -15,7 +15,7 @@ adapter 构建调用并解释协议；进程启动、超时、取消、进程树
 
 ## 2. 依赖与输入输出
 
-依赖：[01 基准与公共协议](01-baseline-and-protocols.md)、[02 配置与角色绑定](02-config-and-profiles.md)。
+依赖：[01 基准与公共协议](01-baseline-and-protocols-审阅增强版.md)、[02 配置与角色绑定](02-config-and-profiles-审阅增强版.md)。
 输入：锁定的角色请求、有效 profile、平台和工作目录、允许工具、协议能力要求。
 输出：Invocation、能力/版本探测记录、标准化事件、结果报告与用量/身份的证据等级。
 使用 01 的事件、资源引用和 `request_id`/`run_id`，不能按 vendor 会话 ID 替代本地运行 ID。

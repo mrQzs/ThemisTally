@@ -15,7 +15,7 @@
 
 ## 2. 依赖与输入输出
 
-前置依赖：[03 审核](03-approvals-and-locks.md)、[04 CLI 适配](04-cli-adapters-and-pi.md)、[07 调度](07-workflows-and-scheduling.md)、[08 插件](08-builtin-task-plugins.md)。
+前置依赖：[03 审核](03-approvals-and-locks-审阅增强版.md)、[04 CLI 适配](04-cli-adapters-and-pi-审阅增强版.md)、[07 调度](07-workflows-and-scheduling-审阅增强版.md)、[08 插件](08-builtin-task-plugins-审阅增强版.md)。
 03 已提供通用审核记录与输入锁；本模块增加规划审核和合同发布的消费流程。
 
 | 输入 | 输出 |

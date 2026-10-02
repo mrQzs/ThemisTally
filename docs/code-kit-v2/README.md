@@ -9,15 +9,15 @@
 | 编号 | 实施文档 | 直接前置 | 对应总设计阶段 | 核心产物 |
 |---|---|---|---|---|
 | 01 | [基准与公共协议](01-baseline-and-protocols-审阅增强版.md) | 无 | P0 | 回归基准、公共标识、资源引用、兼容约定 |
-| 02 | [配置与角色绑定](02-config-and-profiles-╔≤╘─╘÷╟┐░µ.md) | 01 | P1 | runtime/profile/role 解析、语义快照 |
-| 03 | [审核记录与输入锁定](03-approvals-and-locks-╔≤╘─╘÷╟┐░µ.md) | 01、02 | P1 | 通用审核、输入哈希、失效和操作检查 |
-| 04 | [CLI 适配器与 Pi 迁移](04-cli-adapters-and-pi.md) | 01、02 | P1 | adapter 协议、Pi 实现、统一事件证据 |
-| 05 | [三平台命令与入口](05-cross-platform-runtime.md) | 04 | P2 | 平台 runner、包装器、命令变体 |
-| 06 | [插件定义与锁定](06-plugin-manifests-and-locks.md) | 02、03、05 | P3 | manifest、内容锁、能力与资源校验 |
-| 07 | [工作流与任务调度](07-workflows-and-scheduling.md) | 03、06 | P3 | DAG、冲突、就绪、request 累计预算 |
-| 08 | [首批任务插件](08-builtin-task-plugins.md) | 06、07 | P3 | 修复、文档、测试三类组合 |
-| 09 | [CLI 规划与合同发布](09-planning-and-contracts.md) | 03、04、07、08 | P4 | PlanningBundle、草稿审核、正式合同 |
-| 10 | [项目状态与恢复简报](10-project-state-and-brief.md) | 基础：01、03、07；完整接入：09 | P5 | 进度投影、决定索引、brief、恢复入口 |
+| 02 | [配置与角色绑定](02-config-and-profiles-审阅增强版.md) | 01 | P1 | runtime/profile/role 解析、语义快照 |
+| 03 | [审核记录与输入锁定](03-approvals-and-locks-审阅增强版.md) | 01、02 | P1 | 通用审核、输入哈希、失效和操作检查 |
+| 04 | [CLI 适配器与 Pi 迁移](04-cli-adapters-and-pi-审阅增强版.md) | 01、02 | P1 | adapter 协议、Pi 实现、统一事件证据 |
+| 05 | [三平台命令与入口](05-cross-platform-runtime-审阅增强版.md) | 04 | P2 | 平台 runner、包装器、命令变体 |
+| 06 | [插件定义与锁定](06-plugin-manifests-and-locks-审阅增强版.md) | 02、03、05 | P3 | manifest、内容锁、能力与资源校验 |
+| 07 | [工作流与任务调度](07-workflows-and-scheduling-审阅增强版.md) | 03、06 | P3 | DAG、冲突、就绪、request 累计预算 |
+| 08 | [首批任务插件](08-builtin-task-plugins-审阅增强版.md) | 06、07 | P3 | 修复、文档、测试三类组合 |
+| 09 | [CLI 规划与合同发布](09-planning-and-contracts-审阅增强版.md) | 03、04、07、08 | P4 | PlanningBundle、草稿审核、正式合同 |
+| 10 | [项目状态与恢复简报](10-project-state-and-brief-审阅增强版.md) | 基础：01、03、07；完整接入：09 | P5 | 进度投影、决定索引、brief、恢复入口 |
 | 11 | [第二种真实 CLI 接入](11-second-cli-adapter.md) | 04、05；异构全链路接入：09 | P6，可提前 | 第二 adapter、真实能力矩阵 |
 | 12 | [集成验收与迁移交付](12-integration-and-migration-审阅增强版.md) | 01–11 | P6 | 完整验收、兼容迁移、使用手册 |
 | 13 | [摘要 Observer（可选）](13-optional-observer.md) | 10；复用 04、07 | P5 可选增强 | 可追溯摘要、预算上限、降级策略 |

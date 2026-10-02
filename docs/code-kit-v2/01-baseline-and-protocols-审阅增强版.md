@@ -745,8 +745,8 @@ JSON Schema 的字段验证不能发现已经被解析器覆盖的重复键。�
 
 | 模块 | 对 01 的依赖 | 01 不接管的职责 |
 |---|---|---|
-| [02 配置与 profiles](02-config-and-profiles.md) | 标识、严格 JSON、资源引用、快照字节规则 | 配置字段、默认值、继承、语义投影规则 |
-| [03 审核与锁](03-approvals-and-locks.md) | 通用 `input_refs: ResourceRef[]`、结构化错误 | 审核主体、操作许可、失效与消费守卫 |
+| [02 配置与 profiles](02-config-and-profiles-审阅增强版.md) | 标识、严格 JSON、资源引用、快照字节规则 | 配置字段、默认值、继承、语义投影规则 |
+| [03 审核与锁](03-approvals-and-locks-审阅增强版.md) | 通用 `input_refs: ResourceRef[]`、结构化错误 | 审核主体、操作许可、失效与消费守卫 |
 | [04 CLI 适配器与 Pi](04-cli-adapters-and-pi.md) | 事件封装、来源引用、未知量表示 | 厂商协议、真实事件类型、解析与完整性 |
 | [06 插件清单与锁](06-plugin-manifests-and-locks.md) | 注册插件锁资源类型并提供 ResourceRef | 插件来源、信任、加载、依赖与执行 |
 | [07 工作流与调度](07-workflows-and-scheduling.md) | request/run/attempt 归属、错误、观测协议 | 预算、锁、进程生命周期、重试与唯一记账 |
