@@ -8,7 +8,7 @@
 | S1 | `37c4d75`, `3347906` | 八类 artifact 公共 envelope、ResourceRef/SourceAnchor、canonical ResourceRef 去重、catalog/recipes Schema 与负例校验 | 只产生本地确定性记录，未登记核心 dispatcher |
 | S2 | `511e56a`, `313b54f`, `1fb8c6e` | AnalysisReport、ChangeReport、范围/漂移校验、source anchor 与 source_refs 闭包、静态 CheckPlan/CompileReceipt；编译仅映射既有 `execute/freeze/check/verdict` | `dispatcher_submitted=false`；无生产执行 |
 | S3 | `e7a10b1`, `a175417`, `3347906`, `1371ce6` | docs-change、CommonMark AST 本地链接检查、危险 scheme/越界/锚点分类、来源引用闭包与严格 payload 校验、固定内容 oracle 与 review bundle 观察记录闭合校验 | 外链不访问；语义复审只支持固定 oracle；离线插件拒绝生产 `PASS` |
-| S4 | `4b7dcd7`, `6436a0b`, `f05fe2a`, `5a3ef84`, `c6599b0`, `be3de10`, `97a6c6f`, `ece2203` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、计划/summary 重算、显式 argv 离线 runner、环境白名单和凭据覆盖拒绝、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
+| S4 | `4b7dcd7`, `6436a0b`, `f05fe2a`, `5a3ef84`, `c6599b0`, `be3de10`, `97a6c6f`, `ece2203`, `242a2f4` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、计划/summary 重算与非规范 derived array 拒绝、显式 argv 离线 runner、环境白名单和凭据覆盖拒绝、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
 | S5 | `4b7dcd7`, `6436a0b`, `5a3ef84`, `87d5e91`, `97a6c6f`, `ece2203`, `a414b04` | deterministic_check evidence、receipt 身份/候选环境绑定、平台观察/失败归类、超时/取消/丢失与 reconcile 边界、持久 cursor/outbox journal、fsync 发布、截断尾恢复和恢复态写入拒绝；候选分支入口复核 `integration.local_branch` 并先核对合同哈希 | evidence 标为 `REFERENCE_ONLY`；真实平台/provider 为 `NOT_RUN/BLOCKED` |
 | S6 | `4b7dcd7`, `df8f482`, `6436a0b`, `a453f94` | catalog/readiness、七个离线插件 manifest/lock、资源字节绑定、权限交集/平台阻断、三份配方、state/brief/outbox/cursor 去重、持久重建与 handoff generation fence | 只读投影；09/10 生产连接器未接线 |
 
@@ -23,5 +23,7 @@
 后续 `1fb8c6e` 将 AnalysisReport 的 SourceAnchor 以及 docs-change 的 anchor 引用限制在已声明的 `source_refs` 闭包内，并以 100 项跨插件定向回归复核。该校验仍不等价于读取真实文件字节或生产审查结论。
 
 `1371ce6` 进一步固定 review oracle 的 observation、binding、check/test ID 与结果状态的闭合结构和数量上限；malformed/unhashable 输入均归类为明确的 `E_CHECK_*`，没有把异常输入当作 readiness。`739cc91` 补齐 list/set 类型负例，避免集合参数回归到宽松接受。
+
+`242a2f4` 补齐 regression plan 的 derived array 规范性校验，重复、乱序或非文本目标现在在归约前失败；30 项 regression/mutation 边界回归通过。
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。

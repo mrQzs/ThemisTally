@@ -59,6 +59,9 @@ an independent `review-pi` verdict.
   explicit `E_CHECK_*` errors instead of leaking type errors or readiness.
 - `739cc91` adds list-versus-set collection regressions so callers cannot widen
   those closed ID-set inputs without a failing test.
+- `242a2f4` rejects duplicate, unsorted, or non-text derived arrays in
+  regression plans before result reduction; the regression/mutation boundary
+  suite passes 30 tests.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
