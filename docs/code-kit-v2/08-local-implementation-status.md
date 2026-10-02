@@ -44,6 +44,8 @@
 
 最新候选 `1caeb6e` 增加了 regression/mutation artifact 加载重算、candidate path 绑定、未知 connector 阶段阻断、offline runner 完整输出稳定性，以及持久 budget/scheduler ledger 对 NaN/Infinity 的拒绝。相关复合定向套件与 01–06 恢复/账本套件合计 266 项通过；完整调度器回归仍 `NOT_RUN`，真实生产接线仍 `BLOCKED`。
 
+当前候选已推进到 `e94056a`：插件清单 canonical JSON、数组/深度/控制字符限制和身份哈希循环/Unicode 边界已补齐；这些仍是离线结构证据，未改变真实 Pi/provider/平台/09/10 的阻塞状态。
+
 合同基线已更新：`aa82aaf` 新增 39 对当前合同 `v2`（01–06 各 3 个、08 的 S0–S6 各 3 个），统一绑定前一提交 `9a75389`，并补齐 Inputs/Outputs、Failure handling、Rollback boundary 以及全局验证命令。39 份合同均通过 `python scripts/pi_dispatch.py validate <task>.v2`；这只是合同结构校验，没有生成 Pi attempt 或阶段验收证据。旧版 39 对 `v1` 仍是历史草稿，`07-roadmap.v1.md` 仍无配套 JSON，均不可直接派遣。
 
 代码基线随后推进到 `7a29008`，39 对 v2 合同已重新绑定该提交；插件目录/配方边界与统一账本 v3 重开校验的定向回归仍属于 `LOCAL_REFERENCE`。合同校验不产生执行器或生产接线证据。

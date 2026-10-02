@@ -2,7 +2,7 @@
 
 ## 候选与证据
 
-- 候选提交：`1caeb6e`（当前离线实现候选；合同基线已刷新）。
+- 候选提交：`e94056a`（当前离线实现候选；合同基线已刷新）。
 - 远端：`origin/master` 与当前候选一致；工作树核验为干净。
 - 当前定向套件：账本/调度/恢复 87 项、投影/验收 69 项、配置/Git/adapter/runtime/插件/离线 runner 110 项通过，共 266 项；另有 happy/timeout/validate/stuck/budget/preflight/v2 planner 等 dispatch stub 场景通过，但完整调度回归仍未形成通过证据。
 - 调度器回归：本轮 Windows `python tests/test_dispatch.py` 长时间无输出后停止，不能形成新的通过证据；此前 Windows/WSL stub 记录分别为 258/263 checks，均是历史本地证据。
@@ -13,7 +13,7 @@
 
 | 门禁 | 结果 | 说明 |
 |---|---|---|
-| G1 候选固定且工作树干净 | LOCAL_REFERENCE | `1caeb6e` 为当前离线实现候选；仍缺独立 attempt 快照 |
+| G1 候选固定且工作树干净 | LOCAL_REFERENCE | `e94056a` 为当前离线实现候选；仍缺独立 attempt 快照 |
 | G2 定向实现与结构检查 | LOCAL_REFERENCE | 266 项离线边界测试与结构检查通过，不等价于生产阶段通过 |
 | G3 旧调度器回归 | NOT_RUN | 本轮调度器回归未完成；历史 stub 结果不能替代当前复核 |
 | G4 Pi 环境与执行器证据 | BLOCKED | `step/step-5-preview` 不可用，认证未就绪；没有 attempt 证据 |
