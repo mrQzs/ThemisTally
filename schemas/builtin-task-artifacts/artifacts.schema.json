@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/builtin-task-artifacts/artifacts.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "artifact_id", "producer", "status", "source_refs", "candidate_ref", "environment_ref", "payload"],
+  "properties": {
+    "record_type": {"enum": ["analysis-report", "change-report", "docs-change", "docs-check", "regression-plan", "mutation-review", "check-plan", "review-bundle"]},
+    "schema_version": {"const": 1}, "artifact_id": {"type": "string", "minLength": 1}, "producer": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "version"]},
+    "status": {"enum": ["DRAFT_VALIDATED", "READY", "PASS", "FAIL", "UNKNOWN", "BLOCKED", "NOT_RUN", "REFERENCE_ONLY"]},
+    "source_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}, "candidate_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "environment_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}, "payload": {"type": "object"}
+  },
+  "$defs": {"ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {"kind": {"type": "string"}, "id": {"type": "string"}, "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+}

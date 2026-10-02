@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://code-kit.invalid/schemas/builtin-task-artifacts/catalog.schema.json",
+  "type": "object", "additionalProperties": false, "required": ["record_type", "schema_version", "plugins"],
+  "properties": {"record_type": {"const": "builtin-task-plugin-catalog"}, "schema_version": {"const": 1}, "plugins": {"type": "array"}}
+}
