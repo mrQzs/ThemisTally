@@ -158,7 +158,7 @@ def run_probe(plan: ProbePlan, *, runner: ProbeRunner | None = None,
     for name, argv in zip(PROBE_COMMANDS, plan.commands):
         result = execute(argv, plan.identity.worktree_root, env,
                          plan.timeout_seconds, plan.max_output_bytes)
-        if not isinstance(result, RawResult):
+        if not _raw_result_shape(result):
             _error("E_SCHEMA_TYPE", f"/results/{name}", "raw_result_required")
         if name in (GRAFTS, ALTERNATES):
             result = replace(result, path_exists=_path_exists_within_common_dir(
@@ -175,6 +175,11 @@ def interpret_probe(plan: ProbePlan, results: Mapping[str, RawResult], *, lfs_st
     _validate_probe_plan(plan)
     if lfs_status is not None and type(lfs_status) is not bool:
         _error("E_SCHEMA_TYPE", "/lfs_status", "boolean_or_null_required")
+    if not isinstance(results, Mapping):
+        _error("E_SCHEMA_TYPE", "/results", "mapping_required")
+    unknown_result_names = set(results) - set(PROBE_COMMANDS)
+    if unknown_result_names:
+        _error("E_SCHEMA_FIELDS", "/results", "unknown_probe_result")
     blocked: set[str] = set()
     unknown: set[str] = set()
     facts: dict[str, bool | None] = {
@@ -360,6 +365,18 @@ def _usable(result: RawResult) -> bool:
     if type(result.stdout) is not bytes or type(result.stderr) is not bytes:
         return False
     return result.path_exists is None or type(result.path_exists) is bool
+
+
+def _raw_result_shape(result: Any) -> bool:
+    return (
+        isinstance(result, RawResult)
+        and (result.returncode is None or type(result.returncode) is int)
+        and type(result.stdout) is bytes
+        and type(result.stderr) is bytes
+        and type(result.timed_out) is bool
+        and type(result.truncated) is bool
+        and (result.path_exists is None or type(result.path_exists) is bool)
+    )
 
 
 def _lines(raw: bytes) -> list[str] | None:

@@ -245,6 +245,15 @@ class GitProbeTests(unittest.TestCase):
             run_probe(tampered, runner=lambda *_args: RawResult(1, b""))
         self.assertEqual(caught.exception.code, "E_SCHEMA_FIELDS")
         with self.assertRaises(protocols.ProtocolError) as caught:
+            run_probe(self.plan, runner=lambda *_args: RawResult(0, "text"))  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            interpret_probe(self.plan, [])  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            interpret_probe(self.plan, {"unexpected": RawResult(0, b"")})
+        self.assertEqual(caught.exception.code, "E_SCHEMA_FIELDS")
+        with self.assertRaises(protocols.ProtocolError) as caught:
             inspect_lfs_evidence([], {}, complete=True)  # type: ignore[arg-type]
         self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
         with self.assertRaises(protocols.ProtocolError) as caught:
