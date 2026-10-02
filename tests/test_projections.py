@@ -71,6 +71,70 @@ class ProjectionTests(unittest.TestCase):
             event_identity("ledger\n", "usage", {})
         self.assertEqual(caught.exception.code, "E_EVENT_ID")
 
+    def test_projection_identity_text_rejects_c1_del_and_surrogates(self):
+        for bad in ("ledger\x80", "ledger\x7f", "ledger\ud800"):
+            with self.assertRaises(ProjectionError) as caught:
+                event_identity(bad, "usage", {})
+            self.assertEqual(caught.exception.code, "E_EVENT_ID")
+        for bad in ("usage\x80", "usage\x7f", "usage\udfff"):
+            with self.assertRaises(ProjectionError) as caught:
+                event_identity("ledger", bad, {})
+            self.assertEqual(caught.exception.code, "E_EVENT_ID")
+
+    def test_consume_and_rebuild_reject_empty_or_control_event_ids(self):
+        consumer = OutboxProjection()
+        for event_id in ("", "\x80", "\x7f", "\ud800"):
+            with self.assertRaises(ProjectionError) as caught:
+                consumer.consume_batch([ProjectionEvent(1, "ledger", "usage", {}, event_id)], generation=1)
+            self.assertEqual(caught.exception.code, "E_EVENT_ID")
+            self.assertEqual(consumer.indexed_cursor, 0)
+        for row_event_id in ("", "\x80", "\x7f", "\udfff"):
+            with self.assertRaises(ProjectionError) as caught:
+                consumer.rebuild_from_authority([{"event_id": row_event_id}], generation=1)
+            self.assertEqual(caught.exception.code, "E_REBUILD")
+            self.assertEqual(consumer.indexed_cursor, 0)
+
+    def test_generation_and_cursors_are_exact_safe_integers(self):
+        for bad in (True, 1.0, 2 ** 53):
+            with self.assertRaises(ProjectionError) as caught:
+                OutboxProjection(generation=bad)
+            self.assertEqual(caught.exception.code, "E_GENERATION")
+        consumer = OutboxProjection()
+        for bad in (True, 1.0, 2 ** 53):
+            with self.assertRaises(ProjectionError) as caught:
+                consumer.consume_batch([], generation=bad)
+            self.assertEqual(caught.exception.code, "E_FENCED")
+            with self.assertRaises(ProjectionError) as caught:
+                consumer.rebuild_from_authority([], generation=bad)
+            self.assertEqual(caught.exception.code, "E_FENCED")
+        common = dict(indexed_cursor=0, applied_cursor=0, source_vector={}, verification_ref="v1",
+                      as_of="2026-10-02T00:00:00Z", source_coverage="complete", issues=[], budget_coverage="complete")
+        for field in ("indexed_cursor", "applied_cursor"):
+            for bad in (True, 1.0, 2 ** 53):
+                with self.assertRaises(ProjectionError) as caught:
+                    project_state(**{**common, field: bad})
+                self.assertEqual(caught.exception.code, "E_CURSOR")
+
+    def test_state_text_fields_reject_c1_del_and_surrogates(self):
+        common = dict(indexed_cursor=0, applied_cursor=0, source_vector={}, verification_ref="v1",
+                      as_of="2026-10-02T00:00:00Z", source_coverage="complete", issues=[], budget_coverage="complete")
+        for bad in ("ledger\x80", "ledger\x7f", "ledger\ud800"):
+            with self.assertRaises(ProjectionError) as caught:
+                project_state(**{**common, "source_vector": {bad: 0}})
+            self.assertEqual(caught.exception.code, "E_SOURCE_VECTOR")
+        for field in ("verification_ref", "as_of"):
+            for bad in ("v\x80", "v\x7f", "v\ud800"):
+                with self.assertRaises(ProjectionError) as caught:
+                    project_state(**{**common, field: bad})
+                self.assertEqual(caught.exception.code, "E_STATE")
+        for bad in ("issue\x80", "issue\x7f", "issue\ud800"):
+            with self.assertRaises(ProjectionError) as caught:
+                project_state(**{**common, "issues": [bad]})
+            self.assertEqual(caught.exception.code, "E_ISSUES")
+            with self.assertRaises(ProjectionError) as caught:
+                render_brief({"health": "degraded", "issues": [bad]})
+            self.assertEqual(caught.exception.code, "E_ISSUES")
+
     def test_rebuild_rejects_coercive_rows(self):
         consumer = OutboxProjection()
         with self.assertRaises(ProjectionError) as caught:

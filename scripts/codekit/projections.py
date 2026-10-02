@@ -66,12 +66,26 @@ def project_readiness(facts: Mapping[str, Any]) -> ReadinessProjection:
     return ReadinessProjection(can_refine, can_start_planner, can_execute, tuple(reasons))
 
 
-def _text(value: Any, field: str) -> str:
-    """Validate an identity/text field before it participates in a digest."""
+def _text(value: Any, field: str, *, code: str = "E_EVENT_ID") -> str:
+    """Validate scalar text before it participates in a digest or snapshot.
+
+    Projection identity fields use the same closed text set as the 08
+    projections: C0 controls, DEL, the remaining C1 controls, and isolated
+    UTF-16 surrogates are never accepted.  ``type`` is intentionally exact so
+    subclasses cannot bypass the boundary with coercive JSON behaviour.
+    """
     if type(value) is not str or not value or any(
-            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
-            for ch in value):
-        raise ProjectionError("E_EVENT_ID", field)
+            ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+            or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise ProjectionError(code, field)
+    return value
+
+
+def _safe_int(value: Any, field: str, *, minimum: int = 0,
+              code: str = "E_CURSOR") -> int:
+    """Require an exact, JSON-safe integer in the supplied range."""
+    if type(value) is not int or value < minimum or value > protocols.MAX_SAFE_INTEGER:
+        raise ProjectionError(code, field)
     return value
 
 
@@ -116,9 +130,8 @@ class OutboxProjection:
     """Small atomic in-memory consumer suitable for deterministic fixtures."""
 
     def __init__(self, *, generation: int = 1) -> None:
-        if type(generation) is not int or generation < 1:
-            raise ProjectionError("E_GENERATION", "positive generation required")
-        self.generation = generation
+        self.generation = _safe_int(generation, "positive generation required",
+                                    minimum=1, code="E_GENERATION")
         self.indexed_cursor = 0
         self.applied_cursor = 0
         self.source_vector: dict[str, int] = {}
@@ -126,10 +139,15 @@ class OutboxProjection:
         self.projection: dict[str, Any] = {"events": {}}
 
     def consume_batch(self, events: Sequence[ProjectionEvent], *, generation: int) -> str:
-        if generation != self.generation:
+        if (type(generation) is not int or not 1 <= generation <= protocols.MAX_SAFE_INTEGER
+                or generation != self.generation):
             raise ProjectionError("E_FENCED", "consumer generation is stale")
         if not isinstance(events, Sequence) or isinstance(events, (str, bytes)):
             raise ProjectionError("E_EVENT", "event sequence required")
+        _safe_int(self.indexed_cursor, "indexed cursor", code="E_CURSOR")
+        _safe_int(self.applied_cursor, "applied cursor", code="E_CURSOR")
+        if self.applied_cursor > self.indexed_cursor:
+            raise ProjectionError("E_CURSOR", "applied cursor exceeds indexed cursor")
         trial_events = dict(self._events)
         trial_projection = deepcopy(self.projection)
         trial_source = dict(self.source_vector)
@@ -139,6 +157,8 @@ class OutboxProjection:
             if (type(event) is not ProjectionEvent or type(event.seq) is not int
                     or not 1 <= event.seq <= protocols.MAX_SAFE_INTEGER):
                 raise ProjectionError("E_EVENT", "valid projection event required")
+            if event.event_id is not None:
+                _text(event.event_id, "event_id")
             calculated, payload_hash = event_identity(event.source_key, event.event_type, event.payload)
             event_id = event.event_id or calculated
             if event_id != calculated:
@@ -168,7 +188,8 @@ class OutboxProjection:
         return "REPLAY"
 
     def rebuild_from_authority(self, rows: Sequence[Mapping[str, Any]], *, generation: int) -> None:
-        if generation != self.generation:
+        if (type(generation) is not int or not 1 <= generation <= protocols.MAX_SAFE_INTEGER
+                or generation != self.generation):
             raise ProjectionError("E_FENCED", "consumer generation is stale")
         if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
             raise ProjectionError("E_REBUILD", "authority rows sequence required")
@@ -176,6 +197,9 @@ class OutboxProjection:
             raise ProjectionError("E_REBUILD", "authority rows must be mappings")
         try:
             authority_rows = [dict(row) for row in rows]
+            for row in authority_rows:
+                if "event_id" in row:
+                    _text(row["event_id"], "event_id", code="E_REBUILD")
             protocols.check_json_value(authority_rows, max_bytes=protocols.DEFAULT_MAX_BYTES)
         except (TypeError, ValueError) as exc:
             raise ProjectionError("E_REBUILD", "authority rows must be JSON mappings") from exc
@@ -193,23 +217,35 @@ def project_state(*, indexed_cursor: int, applied_cursor: int, source_vector: Ma
                   budget_coverage: str, start_unknown: bool = False, revoked: bool = False,
                   truncated: bool = False) -> dict[str, Any]:
     """Build a read model whose dispatch field is deliberately non-authoritative."""
-    if type(indexed_cursor) is not int or indexed_cursor < 0 or type(applied_cursor) is not int or applied_cursor < 0 or applied_cursor > indexed_cursor:
+    _safe_int(indexed_cursor, "indexed cursor", code="E_CURSOR")
+    _safe_int(applied_cursor, "applied cursor", code="E_CURSOR")
+    if applied_cursor > indexed_cursor:
         raise ProjectionError("E_CURSOR", "cursors must be non-negative and applied must not exceed indexed")
-    if not isinstance(source_vector, Mapping) or any(
-            type(key) is not str or not key or type(value) is not int
-            or not 0 <= value <= protocols.MAX_SAFE_INTEGER
-            for key, value in source_vector.items()):
+    if not isinstance(source_vector, Mapping):
         raise ProjectionError("E_SOURCE_VECTOR", "source vector must map names to non-negative cursors")
-    if (type(verification_ref) is not str or not verification_ref
-            or type(as_of) is not str or not as_of
-            or any(ord(ch) < 0x20 or ord(ch) == 0x7F
-                   or 0xD800 <= ord(ch) <= 0xDFFF for ch in verification_ref + as_of)):
-        raise ProjectionError("E_STATE", "verification reference and timestamp are required")
+    for key, value in source_vector.items():
+        try:
+            _text(key, "source_vector key", code="E_SOURCE_VECTOR")
+            _safe_int(value, "source vector cursor", code="E_SOURCE_VECTOR")
+        except ProjectionError as exc:
+            if exc.code == "E_SOURCE_VECTOR":
+                raise
+            raise ProjectionError("E_SOURCE_VECTOR", "source vector must map names to non-negative cursors") from exc
+    try:
+        _text(verification_ref, "verification_ref", code="E_STATE")
+        _text(as_of, "as_of", code="E_STATE")
+    except ProjectionError as exc:
+        raise ProjectionError("E_STATE", "verification reference and timestamp are required") from exc
     if (type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}
             or type(budget_coverage) is not str or budget_coverage not in {"complete", "partial", "unknown"}):
         raise ProjectionError("E_COVERAGE", "unsupported coverage")
-    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence):
         raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
+    for issue in issues:
+        try:
+            _text(issue, "issue", code="E_ISSUES")
+        except ProjectionError as exc:
+            raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings") from exc
     if type(start_unknown) is not bool or type(revoked) is not bool or type(truncated) is not bool:
         raise ProjectionError("E_STATE", "boolean state flags required")
     degraded = source_coverage != "complete" or budget_coverage != "complete" or start_unknown or revoked or bool(issues)
@@ -234,7 +270,11 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
     if (type(health) is not str or health not in {"healthy", "degraded"}
             or type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}):
         raise ProjectionError("E_STATE", "invalid health or source coverage")
-    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+    if (isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence)
+            or any(type(item) is not str or not item
+                   or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                          or 0xD800 <= ord(ch) <= 0xDFFF for ch in item)
+                   for item in issues)):
         raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
     if type(truncated) is not bool:
         raise ProjectionError("E_STATE", "truncated must be boolean")
