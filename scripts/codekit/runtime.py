@@ -8,6 +8,7 @@ process is created, killed, or inspected here.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional, Tuple
 
@@ -67,7 +68,7 @@ class ProcessIdentity:
     def __post_init__(self) -> None:
         if type(self.pid) is not int or self.pid <= 0:
             raise RuntimeErrorCode("E_RUNTIME_PID", "pid must be positive")
-        if not self.boot_id or not self.worktree_id or len(self.executable_sha256) != 64:
+        if not self.boot_id or not self.worktree_id or not re.fullmatch(r"[0-9a-f]{64}", self.executable_sha256):
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "complete process identity is required")
 
 
@@ -85,7 +86,11 @@ class Lifecycle:
     generation: int = 0
     identity: Optional[ProcessIdentity] = None
 
-    def transition(self, state: str, *, identity: Optional[ProcessIdentity] = None) -> "Lifecycle":
+    def transition(self, state: str, *, identity: Optional[ProcessIdentity] = None, expected_generation: Optional[int] = None) -> "Lifecycle":
+        if expected_generation is not None and expected_generation != self.generation:
+            raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation changed")
+        if self.state == "START_UNKNOWN" and expected_generation is None:
+            raise RuntimeErrorCode("E_RUNTIME_FENCE", "START_UNKNOWN requires a generation fence")
         if state not in LIFECYCLE or state not in ALLOWED_TRANSITIONS[self.state]:
             raise RuntimeErrorCode("E_RUNTIME_TRANSITION", f"invalid transition {self.state}->{state}")
         if state == "STARTED" and identity is None:
@@ -112,7 +117,7 @@ def reconcile(expected: InvocationSpec, observed: Mapping[str, Any]) -> Mapping[
 
     status = classify_start(handoff_accepted=True, started_observation=observed, expected=expected)
     return {"status": status, "run_id": expected.run_id, "expected_environment_sha256": expected.environment_sha256,
-            "observed_environment_sha256": observed.get("environment_sha256"), "replay_allowed": status in {"NOT_STARTED", "FAILED", "STOPPED"}}
+            "observed_environment_sha256": observed.get("environment_sha256"), "replay_allowed": status == "NOT_STARTED" or (status in {"FAILED", "STOPPED"} and observed.get("cleanup_confirmed") is True)}
 
 
 __all__ = ["ALLOWED_TRANSITIONS", "InvocationSpec", "Lifecycle", "ProcessIdentity", "RuntimeErrorCode", "classify_start", "reconcile", "validate_argv"]

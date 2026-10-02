@@ -39,7 +39,15 @@ class RuntimeTests(unittest.TestCase):
         observation = {"state": "STARTED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256}
         self.assertEqual(classify_start(handoff_accepted=True, started_observation=observation, expected=spec), "STARTED")
         self.assertFalse(reconcile(spec, observation)["replay_allowed"])
-        self.assertTrue(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256})["replay_allowed"])
+        self.assertFalse(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256})["replay_allowed"])
+        self.assertTrue(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256, "cleanup_confirmed": True})["replay_allowed"])
+
+    def test_unknown_state_requires_generation_fence(self):
+        identity = ProcessIdentity(10, "boot", "b" * 64, "tree")
+        state = Lifecycle().transition("STARTING").transition("START_UNKNOWN")
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_FENCE"):
+            state.transition("FAILED")
+        self.assertEqual(state.transition("FAILED", expected_generation=state.generation).state, "FAILED")
 
 
 if __name__ == "__main__":
