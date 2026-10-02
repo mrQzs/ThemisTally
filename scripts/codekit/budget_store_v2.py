@@ -65,7 +65,7 @@ def _integer(value: Any, field: str, *, minimum: int = 0) -> int:
 
 def _json(value: Any) -> str:
     try:
-        result = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        result = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise BudgetStoreError("E_SCHEMA_TYPE", ("json",)) from exc
     if len(result.encode("utf-8")) > _MAX_JSON:
@@ -76,7 +76,7 @@ def _json(value: Any) -> str:
 def _decode_json(value: Any, field: str) -> Any:
     _text(value, field, limit=_MAX_JSON)
     try:
-        return json.loads(value)
+        return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
     except (TypeError, ValueError) as exc:
         raise BudgetStoreError("E_SCHEMA_INVALID", (field,)) from exc
 

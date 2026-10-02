@@ -155,8 +155,24 @@ verify_contract_identity = verify_contract_hash
 contract_hash = contract_digest
 
 
-def _candidate_ref(value: Any, field: str) -> tuple[str, str, str]:
-    return _identity_ref(value, field)
+def _candidate_ref(value: Any, field: str) -> tuple[str, str, str, str | None]:
+    """Normalize a candidate ResourceRef while retaining its path binding.
+
+    The compact identity used by connector evidence has no path, but a
+    candidate ResourceRef does.  Dropping that field would let a same-id/file
+    hash from a different location pass a fixed-candidate gate.
+    """
+    kind, identity, digest = _identity_ref(value, field)
+    path = value.get("path") if isinstance(value, Mapping) else None
+    if path is not None:
+        if type(path) is not str or not path or "\x00" in path:
+            raise IntegrationGateError("E_REFERENCE", f"{field}/path", "candidate path must be non-empty text")
+        normalized = path.replace("\\", "/")
+        if (normalized.startswith("/") or any(part in {"", ".", ".."} for part in normalized.split("/"))
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized)):
+            raise IntegrationGateError("E_REFERENCE", f"{field}/path", "candidate path must be relative")
+        path = normalized
+    return kind, identity, digest, path
 
 
 def verify_fixed_candidate(expected_ref: Mapping[str, Any], candidate: Mapping[str, Any]) -> GateDecision:
@@ -177,7 +193,7 @@ def verify_fixed_candidate(expected_ref: Mapping[str, Any], candidate: Mapping[s
     embedded_ref = expected_ref.get("candidate_ref", expected_ref.get("ref"))
     if embedded_ref is None and {"kind", "id", "sha256"}.issubset(expected_ref):
         embedded_ref = expected_ref
-    expected_identity: tuple[str, str, str] | None = None
+    expected_identity: tuple[str, str, str, str | None] | None = None
     if embedded_ref is not None:
         expected_identity = _candidate_ref(embedded_ref, "/expected_candidate_ref")
     expected_tree = expected_ref.get("tree_sha", expected_ref.get("tree"))
@@ -205,8 +221,11 @@ def verify_fixed_candidate(expected_ref: Mapping[str, Any], candidate: Mapping[s
         try:
             actual_ref = _candidate_ref(actual_ref_value, "/candidate/candidate_ref")
             evidence["actual_ref"] = actual_ref
-            if expected_identity is not None and actual_ref != expected_identity:
-                reasons.append("CANDIDATE_REFERENCE_MISMATCH")
+            if expected_identity is not None:
+                if expected_identity[3] is not None and actual_ref[3] is None:
+                    reasons.append("CANDIDATE_REFERENCE_UNKNOWN")
+                elif actual_ref != expected_identity:
+                    reasons.append("CANDIDATE_REFERENCE_MISMATCH")
         except IntegrationGateError as exc:
             reasons.append(exc.code)
 
@@ -347,6 +366,9 @@ def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] |
     reasons: list[str] = []
     evidence: dict[str, Any] = {"required": tuple(required), "connectors": {}}
     connector_ids: set[str] = set()
+    unknown_stages = sorted(set(connectors) - set(required), key=lambda item: (type(item).__name__, repr(item)))
+    for stage in unknown_stages:
+        reasons.append("CONNECTOR_%s_UNEXPECTED" % stage if type(stage) is str else "CONNECTOR_UNKNOWN_KEY")
     for stage in required:
         item = connectors.get(stage)
         if type(item) is not dict:

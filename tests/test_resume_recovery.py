@@ -37,6 +37,8 @@ class ResumeRecoveryTests(unittest.TestCase):
             resume_recovery_decision({**facts(), "extra": True}, expected_generation=3)
         blocked = resume_recovery_decision(facts(backup_high_water=1), expected_generation=3)
         self.assertIn("WAIT_BACKUP_HIGH_WATER", blocked.reasons)
+        with self.assertRaises(RecoveryError):
+            resume_recovery_decision(facts(journal_high_water=2**53), expected_generation=3)
 
 
 if __name__ == "__main__":

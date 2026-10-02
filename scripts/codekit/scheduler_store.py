@@ -114,7 +114,16 @@ class ClaimResult:
 
 
 def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise SchedulerStoreError("E_SCHEMA_TYPE", ("json",)) from exc
+
+
+def _loads(value: Any) -> Any:
+    if type(value) is not str:
+        raise ValueError("json_text_required")
+    return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
 
 
 def _finite(value: object, field: str) -> float:
@@ -407,9 +416,9 @@ class SchedulerStore:
                 _db_text(row["resource_json"], "operations.resource_json")
                 if len(row["reservation_json"]) > MAX_RESOURCE_JSON_BYTES or len(row["resource_json"]) > MAX_RESOURCE_JSON_BYTES:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.json_size",))
-                reservation = json.loads(row["reservation_json"])
+                reservation = _loads(row["reservation_json"])
                 _reservation(reservation)
-                resources = json.loads(row["resource_json"])
+                resources = _loads(row["resource_json"])
                 normalized_resources = _resources(resources)
                 if row["controller_generation"] != row["claim_generation"]:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.generation",))
@@ -441,7 +450,7 @@ class SchedulerStore:
                 _db_text(row["payload_json"], "outbox.payload_json")
                 if len(row["payload_json"]) > MAX_RESOURCE_JSON_BYTES:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.payload_size",))
-                if type(json.loads(row["payload_json"])) is not dict:
+                if type(_loads(row["payload_json"])) is not dict:
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("outbox.payload_json",))
         except SchedulerStoreError:
             self.db.close()

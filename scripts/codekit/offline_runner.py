@@ -8,6 +8,7 @@ the core dispatcher supplies a trusted receipt.
 from __future__ import annotations
 
 from hashlib import sha256
+import math
 import os
 from pathlib import Path
 import platform
@@ -28,11 +29,25 @@ def _digest(value: bytes) -> str:
     return sha256(value).hexdigest()
 
 
+def _identity(value: Any, name: str) -> str:
+    if type(value) is not str or not value or len(value) > 256 or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        _err("E_RUNNER_ID", f"{name} must be bounded text")
+    return value
+
+
 def _argv(command: Sequence[str]) -> list[str]:
     if isinstance(command, (str, bytes)) or not isinstance(command, Sequence) or not command:
         _err("E_RUNNER_ARGV", "command must be a non-empty argv sequence")
-    if any(type(item) is not str or not item for item in command):
-        _err("E_RUNNER_ARGV", "argv entries must be non-empty strings")
+    for index, item in enumerate(command):
+        # Empty arguments after argv[0] are meaningful and must survive the
+        # shell-free adapter.  The executable itself remains non-empty.
+        if type(item) is not str or (index == 0 and not item):
+            _err("E_RUNNER_ARGV", "argv[0] must be a non-empty string")
+        if "\x00" in item or any(0xD800 <= ord(ch) <= 0xDFFF for ch in item):
+            _err("E_RUNNER_ARGV", "argv contains NUL or a non-Unicode scalar")
+        if index == 0 and ("\r" in item or "\n" in item):
+            _err("E_RUNNER_ARGV", "executable contains a line break")
     return list(command)
 
 
@@ -64,16 +79,28 @@ def _environment_digest(*, cwd: Path, env: Mapping[str, str]) -> str:
 
 def _safe_environment(overrides: Mapping[str, str]) -> dict[str, str]:
     """Keep only explicit runtime basics; never pass the ambient environment wholesale."""
+    if not isinstance(overrides, Mapping):
+        _err("E_RUNNER_ENV", "environment overrides must be a mapping")
     blocked = ("TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "COOKIE", "AUTH")
+    if any(type(key) is not str or type(value) is not str for key, value in overrides.items()):
+        _err("E_RUNNER_ENV", "environment names and values must be strings")
     unsafe_overrides = [key for key in overrides if any(part in key.upper() for part in blocked)]
     if unsafe_overrides:
         _err("E_RUNNER_ENV", "credential-like environment overrides are forbidden")
     allowed = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
                "LANG", "LC_ALL", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "PYTHONIOENCODING"}
-    invalid_overrides = [key for key in overrides if key.upper() not in allowed]
+    # Environment names are intentionally case-sensitive here.  Accepting
+    # ``path`` on POSIX while retaining ambient ``PATH`` would produce two
+    # different runtime values and an ambiguous digest.
+    invalid_overrides = [key for key in overrides if key not in allowed]
     if invalid_overrides:
         _err("E_RUNNER_ENV", "environment override is not allowlisted")
-    result = {key: value for key, value in os.environ.items() if key.upper() in allowed}
+    canonical_names = {key.upper(): key for key in allowed}
+    result: dict[str, str] = {}
+    for key, value in os.environ.items():
+        canonical = canonical_names.get(key.upper())
+        if canonical is not None and canonical not in result:
+            result[canonical] = value
     result.update(overrides)
     return result
 
@@ -96,14 +123,16 @@ def run_command(*, target: str, command: Sequence[str], cwd: str | Path,
                 candidate_ref: Mapping[str, str] | None = None,
                 timeout_seconds: float = 30.0) -> dict[str, Any]:
     """Run one explicit local command and return a closed evidence record."""
-    if type(target) is not str or not target:
+    if type(target) is not str or not target or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in target):
         _err("E_RUNNER_TARGET", "target is required")
     argv = _argv(command)
-    if type(check_plan_id) is not str or not check_plan_id or type(candidate_digest) is not str or not candidate_digest:
-        _err("E_RUNNER_ID", "check plan and candidate digest are required")
-    if type(timeout_seconds) not in (int, float) or timeout_seconds <= 0:
+    _identity(check_plan_id, "check_plan_id")
+    _identity(candidate_digest, "candidate_digest")
+    if type(timeout_seconds) not in (int, float) or not math.isfinite(float(timeout_seconds)) or timeout_seconds <= 0:
         _err("E_RUNNER_TIMEOUT", "positive timeout required")
-    env_overrides = {str(k): str(v) for k, v in (environment or {}).items()}
+    if environment is not None and not isinstance(environment, Mapping):
+        _err("E_RUNNER_ENV", "environment overrides must be a mapping")
+    env_overrides = {} if environment is None else dict(environment)
     env = _safe_environment(env_overrides)
     if any(not k or "=" in k for k in env):
         _err("E_RUNNER_ENV", "environment names must be non-empty")
@@ -171,7 +200,13 @@ def run_repeated(*, repeat: int = 1, **kwargs: Any) -> dict[str, Any]:
         _err("E_RUNNER_REPEAT", "repeat must be between 1 and 20")
     records = [run_command(**kwargs) for _ in range(repeat)]
     statuses = [row["status"] for row in records]
-    stable = len(set(statuses)) == 1
+    # A repeated check is deterministic only when its observable evidence is
+    # identical.  Duration is expected to vary, but output/error hashes,
+    # return code and failure classification must not be reduced to a status
+    # vote (which would hide a flaky command that always exits zero).
+    def stable_key(row: Mapping[str, Any]) -> bytes:
+        return canonical_bytes({key: value for key, value in row.items() if key != "duration_ms"})
+    stable = len({stable_key(row) for row in records}) == 1 and len(set(statuses)) == 1
     status = statuses[0] if stable else "BLOCKED"
     return {"status": status, "flaky": not stable, "runs": records}
 

@@ -102,10 +102,13 @@ class SettlementPolicy:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "caps", _mapping(self.caps, "caps", nonempty=True))
+        for dimension in self.caps:
+            if dimension.startswith("charge:"):
+                _currency(dimension.split(":", 1)[1])
         object.__setattr__(self, "policy_ref", _text(self.policy_ref, "policy_ref"))
-        if self.unknown_policy != "stop":
+        if type(self.unknown_policy) is not str or self.unknown_policy != "stop":
             raise SettlementError("E_SETTLEMENT_POLICY", "only stop unknown_policy is supported")
-        if self.refund_policy not in _REFUND_POLICIES:
+        if type(self.refund_policy) is not str or self.refund_policy not in _REFUND_POLICIES:
             raise SettlementError("E_SETTLEMENT_POLICY", "unsupported refund_policy")
 
 
@@ -122,7 +125,7 @@ class SettlementOperation:
         for name in ("operation_id", "request_id", "task_id"):
             object.__setattr__(self, name, _text(getattr(self, name), name))
         object.__setattr__(self, "reservation", _mapping(self.reservation, "reservation", nonempty=True))
-        if self.state not in {"reserved", "provisional", "reconciled", "unknown", "cancelled_not_started"}:
+        if type(self.state) is not str or self.state not in {"reserved", "provisional", "reconciled", "unknown", "cancelled_not_started"}:
             raise SettlementError("E_SETTLEMENT_STATE", "state")
         _boolean(self.finished, "finished")
 
@@ -150,7 +153,7 @@ class SettlementFact:
             object.__setattr__(self, name, _text(getattr(self, name), name))
         object.__setattr__(self, "dimension", _text(self.dimension, "dimension", pattern=_DIMENSION))
         _revision(self.revision)
-        if self.kind not in _KINDS:
+        if type(self.kind) is not str or self.kind not in _KINDS:
             raise SettlementError("E_SETTLEMENT_KIND", "unsupported settlement kind")
         _boolean(self.correction, "correction")
         if self.amount is not None:
@@ -180,6 +183,13 @@ class SettlementFact:
             object.__setattr__(self, "evidence_ref", _text(self.evidence_ref, "evidence_ref"))
         if self.dimension.startswith("charge:"):
             expected = self.dimension.split(":", 1)[1]
+            # Currency dimensions are an accounting boundary; accepting an
+            # arbitrary suffix would make ``charge:USD/evil`` a valid unit
+            # while bypassing the currency allowlist.
+            _currency(expected)
+            if type(self.currency) is not str:
+                raise SettlementError("E_SETTLEMENT_CURRENCY", "charge dimension requires currency")
+            _currency(self.currency)
             if self.currency != expected:
                 raise SettlementError("E_SETTLEMENT_CURRENCY", "charge dimension currency mismatch")
         elif self.currency is not None:
@@ -487,7 +497,8 @@ class UsageSettlement:
             target_seen = any(item.call_key == fact.refund_for
                               and item.dimension == fact.dimension
                               and item.operation_id == fact.operation_id
-                              for item in self._facts if item.kind != "refund")
+                               and item.kind != "unknown"
+                               for item in self._facts if item.kind != "refund")
             if not target_seen:
                 raise SettlementError("E_SETTLEMENT_REFUND_TARGET", "refund target is unknown")
             self._facts.append(fact)

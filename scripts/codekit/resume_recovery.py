@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .protocols import MAX_SAFE_INTEGER
+
 
 class RecoveryError(ValueError):
     def __init__(self, code: str, message: str = "recovery rejected") -> None:
@@ -28,14 +30,16 @@ def resume_recovery_decision(facts: Mapping[str, Any], *, expected_generation: i
     required = {"recorded_generation", *BOOL_FACTS, *HIGH_WATERS}
     if set(facts) != required:
         raise RecoveryError("E_RECOVERY_FIELDS")
-    if type(facts["recorded_generation"]) is not int or facts["recorded_generation"] < 1:
+    if (type(facts["recorded_generation"]) is not int
+            or facts["recorded_generation"] < 1
+            or facts["recorded_generation"] > MAX_SAFE_INTEGER):
         raise RecoveryError("E_RECOVERY_SCHEMA")
     reasons: list[str] = []
     if facts["recorded_generation"] != expected_generation:
         reasons.append("WAIT_GENERATION_RECHECK")
     for name in HIGH_WATERS:
         value = facts[name]
-        if type(value) is not int or value < 0:
+        if type(value) is not int or value < 0 or value > MAX_SAFE_INTEGER:
             raise RecoveryError("E_RECOVERY_SCHEMA")
         if value < facts["recorded_generation"] - 1:
             reasons.append("WAIT_" + name.upper())

@@ -147,7 +147,35 @@ def build_regression_artifact(*, artifact_id: str, producer: Mapping[str, str], 
               "producer": dict(producer), "status": record_status, "source_refs": list(source_refs),
               "candidate_ref": candidate_ref, "environment_ref": environment_ref,
               "payload": {"plan": deepcopy(dict(plan)), "summary": deepcopy(dict(summary))}}
-    return validate_artifact(record)
+    return validate_regression_artifact(record)
 
 
-__all__ = ["build_regression_artifact", "collect_targets", "summarize_results"]
+def validate_regression_artifact(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a regression artifact by replaying its target reduction.
+
+    ``validate_artifact`` only knows the closed envelope.  A caller loading a
+    persisted record must also prove that its plan, result rows and derived
+    outcome still agree; otherwise an edited summary could look like a valid
+    reference-only result.
+    """
+    normalized = validate_artifact(record)
+    if normalized["record_type"] != "regression-plan":
+        _err("E_REGRESSION_PLAN", "regression-plan artifact required")
+    payload = normalized["payload"]
+    if set(payload) != {"plan", "summary"} or not isinstance(payload["plan"], Mapping) or not isinstance(payload["summary"], Mapping):
+        _err("E_REGRESSION_RESULT", "closed regression artifact payload required")
+    summary = payload["summary"]
+    required = {"outcome", "results", "missing_results", "failures", "blocked", "bad_xfail", "unexpected_pass"}
+    if set(summary) != required or not isinstance(summary["results"], Mapping):
+        _err("E_REGRESSION_RESULT", "closed regression summary required")
+    rows = [{"target": key, "status": value} for key, value in summary["results"].items()]
+    expected = summarize_results(payload["plan"], rows)
+    if dict(summary) != expected:
+        _err("E_REGRESSION_RESULT", "regression summary does not match plan results")
+    expected_status = "REFERENCE_ONLY" if expected["outcome"] == "PASS" else expected["outcome"]
+    if normalized["status"] != expected_status:
+        _err("E_REGRESSION_STATUS", "artifact status does not match regression outcome")
+    return normalized
+
+
+__all__ = ["build_regression_artifact", "collect_targets", "summarize_results", "validate_regression_artifact"]

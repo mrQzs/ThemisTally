@@ -16,10 +16,12 @@ def _safe_path(value: Any) -> bool:
         return False
     normalized = value.replace("\\", "/")
     return not (normalized.startswith("/") or ntpath.splitdrive(normalized)[0]
-                or any(part in {"", ".", ".."} for part in normalized.split("/")))
+                or any(part in {"", ".", ".."} for part in normalized.split("/"))
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized))
 
 def build_mutation_plan(mutations: Sequence[Mapping[str, Any]], *, baseline_id: str) -> dict[str, Any]:
-    if type(baseline_id) is not str or not baseline_id:
+    if (type(baseline_id) is not str or not baseline_id
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in baseline_id)):
         _err("E_MUTATION_PLAN", "baseline_id required")
     if not isinstance(mutations, Sequence) or isinstance(mutations, (str, bytes)) or not mutations:
         _err("E_MUTATION_PLAN", "at least one mutation required")
@@ -28,11 +30,15 @@ def build_mutation_plan(mutations: Sequence[Mapping[str, Any]], *, baseline_id: 
     for row in mutations:
         if not isinstance(row, Mapping) or set(row) != {"id", "path", "description"}:
             _err("E_MUTATION_PLAN", "mutation rows are closed id/path/description objects")
-        if any(type(row[k]) is not str or not row[k] for k in row):
+        if any(type(row[k]) is not str or not row[k]
+               or any(ord(ch) < 32 or ord(ch) == 127 for ch in row[k]) for k in row):
             _err("E_MUTATION_PLAN", "mutation fields must be non-empty strings")
-        if row["id"] in ids or not _safe_path(row["path"]):
+        normalized_path = row["path"].replace("\\", "/")
+        if row["id"] in ids or not _safe_path(normalized_path):
             _err("E_MUTATION_PLAN", "duplicate id or unsafe path")
-        ids.add(row["id"]); rows.append(dict(row))
+        ids.add(row["id"])
+        normalized = dict(row); normalized["path"] = normalized_path
+        rows.append(normalized)
     rows.sort(key=lambda x: x["id"])
     return {"baseline_id": baseline_id, "mutations": rows, "policy": "baseline_pass_and_every_valid_mutation_fail"}
 
@@ -84,9 +90,36 @@ def build_mutation_artifact(*, artifact_id: str, producer: Mapping[str, str], ca
         _err("E_MUTATION_RESULT", "mutation summary does not match plan results")
     outcome = summary["outcome"]
     record_status = "REFERENCE_ONLY" if outcome == "PASS" else outcome
-    return validate_artifact({"record_type": "mutation-review", "schema_version": 1, "artifact_id": artifact_id,
+    return validate_mutation_artifact({"record_type": "mutation-review", "schema_version": 1, "artifact_id": artifact_id,
       "producer": dict(producer), "status": record_status, "source_refs": list(source_refs),
       "candidate_ref": candidate_ref, "environment_ref": environment_ref,
       "payload": {"plan": deepcopy(dict(plan)), "summary": deepcopy(dict(summary))}})
 
-__all__ = ["build_mutation_artifact", "build_mutation_plan", "reduce_mutation_results"]
+
+def validate_mutation_artifact(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a mutation artifact and recompute every derived result.
+
+    The generic artifact envelope checks provenance, but cannot tell whether a
+    summary was produced from the declared mutation plan.  Recomputing here
+    prevents a forged ``REFERENCE_ONLY``/``PASS`` record from being accepted
+    after it has left the builder.
+    """
+    normalized = validate_artifact(record)
+    if normalized["record_type"] != "mutation-review":
+        _err("E_MUTATION_SCHEMA", "mutation-review artifact required")
+    payload = normalized["payload"]
+    if set(payload) != {"plan", "summary"} or not isinstance(payload["plan"], Mapping) or not isinstance(payload["summary"], Mapping):
+        _err("E_MUTATION_RESULT", "closed mutation artifact payload required")
+    summary = payload["summary"]
+    if set(summary) != {"outcome", "baseline_status", "results", "surviving", "unavailable"} or not isinstance(summary["results"], Mapping):
+        _err("E_MUTATION_RESULT", "closed mutation summary required")
+    rows = [{"id": key, "status": value} for key, value in summary["results"].items()]
+    expected = reduce_mutation_results(payload["plan"], summary["baseline_status"], rows)
+    if dict(summary) != expected:
+        _err("E_MUTATION_RESULT", "mutation summary does not match plan results")
+    expected_status = "REFERENCE_ONLY" if expected["outcome"] == "PASS" else expected["outcome"]
+    if normalized["status"] != expected_status:
+        _err("E_MUTATION_STATUS", "artifact status does not match mutation outcome")
+    return normalized
+
+__all__ = ["build_mutation_artifact", "build_mutation_plan", "reduce_mutation_results", "validate_mutation_artifact"]

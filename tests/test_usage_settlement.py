@@ -156,6 +156,26 @@ class UsageSettlementTests(unittest.TestCase):
             with self.subTest(amount=amount), self.assertRaises(SettlementError):
                 self.fact(amount=amount)  # type: ignore[arg-type]
 
+    def test_fact_policy_and_currency_types_fail_as_settlement_errors(self) -> None:
+        with self.assertRaises(SettlementError):
+            SettlementPolicy({"tokens": 1}, unknown_policy=[] )  # type: ignore[arg-type]
+        with self.assertRaises(SettlementError):
+            SettlementPolicy({"charge:usd": 1})
+        with self.assertRaises(SettlementError):
+            self.fact(kind=[])  # type: ignore[arg-type]
+        with self.assertRaises(SettlementError):
+            self.fact(dimension="charge:usd", currency="usd")
+        with self.assertRaises(SettlementError):
+            self.fact(dimension="charge:USD", currency=[])  # type: ignore[arg-type]
+
+    def test_refund_cannot_target_an_unknown_call(self) -> None:
+        ledger = self.ledger()
+        self.reserve(ledger)
+        ledger.record(self.fact(kind="unknown", amount=None, unknown_reason="provider-timeout"))
+        with self.assertRaisesRegex(SettlementError, "target"):
+            ledger.record(self.fact(fact_id="refund", kind="refund", amount=1,
+                                    call_key="refund", refund_for="call-a"))
+
     def test_audit_fingerprint_is_deterministic_for_same_fixture(self) -> None:
         def build() -> UsageSettlement:
             ledger = self.ledger()

@@ -316,6 +316,18 @@ class SchedulerStoreTests(unittest.TestCase):
             SchedulerStore(valid)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
 
+    def test_reopen_rejects_nonstandard_json_constants(self) -> None:
+        valid = Path(self.temp.name) / "nan.sqlite3"
+        store = SchedulerStore(valid)
+        store.seed_request(REQUEST_ID, "code-kit")
+        store.close()
+        db = sqlite3.connect(valid)
+        db.execute("INSERT INTO outbox(operation_id,event_type,payload_json) VALUES(?,?,?)",
+                   (None, "tampered", '{"value":NaN}'))
+        db.commit(); db.close()
+        with self.assertRaises(SchedulerStoreError):
+            SchedulerStore(valid)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

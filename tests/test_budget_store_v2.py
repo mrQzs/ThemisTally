@@ -162,6 +162,19 @@ class BudgetStoreV2Tests(unittest.TestCase):
             with self.assertRaises(BudgetStoreError):
                 BudgetStore(path)
 
+    def test_reopen_rejects_nonstandard_json_constants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nan.sqlite"
+            store = BudgetStore(path)
+            self.reserve()
+            store.close()
+            db = sqlite3.connect(path)
+            db.execute("INSERT INTO outbox(request_id,operation_id,event_type,payload_json) VALUES(?,?,?,?)",
+                       ("req-a", "op-a", "tampered", '{"value":NaN}'))
+            db.commit(); db.close()
+            with self.assertRaises(BudgetStoreError):
+                BudgetStore(path)
+
 
 if __name__ == "__main__":
     unittest.main()

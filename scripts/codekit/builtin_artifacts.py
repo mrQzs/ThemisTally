@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import re
 import ntpath
 from typing import Any, Dict, Iterable, Mapping, Tuple
@@ -30,7 +31,49 @@ def _fail(code: str, path: str, message: str) -> None:
     raise ArtifactError(code, path, message)
 
 
+def _strict_json_value(value: Any, *, path: str = "/", level: int = 0,
+                       active: set[int] | None = None) -> None:
+    """Reject Python values that JSON encoders silently coerce.
+
+    ``json.dumps`` accepts tuples and non-string mapping keys by converting
+    them on the way out.  That is unsafe for artifact identities: the value
+    that was validated must be the value whose bytes are hashed.  A recursive
+    cycle is rejected before encoding as well, so malformed input cannot
+    escape as ``RecursionError``.
+    """
+    if level > MAX_DEPTH:
+        _fail("E_ARTIFACT_DEPTH", path, "artifact nesting exceeds limit")
+    if value is None or type(value) is bool or type(value) is int:
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            _fail("E_ARTIFACT_JSON", path, "non-finite number is not JSON")
+        return
+    if type(value) is str:
+        return
+    if type(value) not in (dict, list):
+        _fail("E_ARTIFACT_JSON", path, "strict JSON value required")
+    if active is None:
+        active = set()
+    marker = id(value)
+    if marker in active:
+        _fail("E_ARTIFACT_JSON", path, "cyclic value is not JSON")
+    active.add(marker)
+    try:
+        if type(value) is dict:
+            for key, child in value.items():
+                if type(key) is not str:
+                    _fail("E_ARTIFACT_JSON", path, "object keys must be strings")
+                _strict_json_value(child, path=f"{path}{key}/", level=level + 1, active=active)
+        else:
+            for index, child in enumerate(value):
+                _strict_json_value(child, path=f"{path}{index}/", level=level + 1, active=active)
+    finally:
+        active.remove(marker)
+
+
 def canonical_bytes(value: Any) -> bytes:
+    _strict_json_value(value)
     try:
         raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
     except (TypeError, ValueError) as exc:
@@ -47,12 +90,13 @@ def digest(value: Any) -> str:
 def resource_ref(value: Any, path: str = "/resource_ref") -> Dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "id", "path", "sha256"}:
         _fail("E_ARTIFACT_REF", path, "closed ResourceRef required")
-    if any(not isinstance(value[x], str) or not value[x] for x in ("kind", "id", "path")):
+    if any(not isinstance(value[x], str) or not value[x] or any(ord(ch) < 32 or ord(ch) == 127 for ch in value[x])
+           for x in ("kind", "id", "path")):
         _fail("E_ARTIFACT_REF", path, "kind/id/path must be non-empty strings")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_ARTIFACT_REF", f"{path}/sha256", "lowercase SHA-256 required")
     normalized = value["path"].replace("\\", "/")
-    if normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(ord(ch) < 32 for ch in normalized):
+    if normalized.startswith("/") or ntpath.splitdrive(normalized)[0] or any(part in {"", ".", ".."} for part in normalized.split("/")) or any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
         _fail("E_ARTIFACT_PATH", f"{path}/path", "path must stay within the candidate")
     return {"kind": value["kind"], "id": value["id"], "path": normalized, "sha256": value["sha256"]}
 
@@ -68,23 +112,11 @@ def source_anchor(value: Any) -> Dict[str, Any]:
     return {"ref": result, "start_byte": value["start_byte"], "end_byte": value["end_byte"], "excerpt_sha256": value["excerpt_sha256"]}
 
 
-def _depth(value: Any, level: int = 0) -> None:
-    if level > MAX_DEPTH:
-        _fail("E_ARTIFACT_DEPTH", "/", "artifact nesting exceeds limit")
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if not isinstance(key, str):
-                _fail("E_ARTIFACT_SCHEMA", "/", "object keys must be text")
-            _depth(child, level + 1)
-    elif isinstance(value, list):
-        for child in value:
-            _depth(child, level + 1)
-
-
 def _producer(value: Any) -> Dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "id", "version"}:
         _fail("E_ARTIFACT_PRODUCER", "/producer", "closed producer identity required")
-    if any(not isinstance(value[x], str) or not value[x] for x in ("kind", "id", "version")):
+    if any(not isinstance(value[x], str) or not value[x] or any(ord(ch) < 32 or ord(ch) == 127 for ch in value[x])
+           for x in ("kind", "id", "version")):
         _fail("E_ARTIFACT_PRODUCER", "/producer", "producer fields must be non-empty strings")
     return dict(value)
 
@@ -111,7 +143,6 @@ def validate_artifact(record: Mapping[str, Any]) -> Dict[str, Any]:
     environment = None if record["environment_ref"] is None else resource_ref(record["environment_ref"], "/environment_ref")
     if not isinstance(record["payload"], dict):
         _fail("E_ARTIFACT_SCHEMA", "/payload", "payload must be an object")
-    _depth(record)
     canonical_bytes(record)
     result = copy.deepcopy(dict(record)); result["source_refs"] = normalized; result["candidate_ref"] = candidate; result["environment_ref"] = environment
     return result

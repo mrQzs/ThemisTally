@@ -68,6 +68,24 @@ class BuiltinArtifactsTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_REF"):
             validate_artifact(value)
 
+    def test_artifact_hash_boundary_rejects_python_only_values_and_cycles(self):
+        bad = artifact(); bad["payload"] = {"tuple": (1, 2)}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_artifact(bad)
+        bad = artifact(); bad["payload"] = {1: "non-text key"}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_artifact(bad)
+        bad = artifact(); cycle = {}; cycle["self"] = cycle; bad["payload"] = cycle
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_artifact(bad)
+
+    def test_artifact_refs_reject_control_characters(self):
+        for field in ("kind", "id", "path"):
+            bad = artifact(); bad["source_refs"] = [{**ref(), field: "source\x7f"}]
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_REF|E_ARTIFACT_PATH"):
+                    validate_artifact(bad)
+
 
 if __name__ == "__main__":
     unittest.main()

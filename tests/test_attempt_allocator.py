@@ -33,6 +33,22 @@ class AttemptAllocatorTests(unittest.TestCase):
         with self.assertRaises(AllocationError):
             Candidate("a", 1, 1, ("z", "a"))
 
+    def test_candidate_and_hold_inputs_are_closed_and_identifiers_are_safe(self):
+        with self.assertRaises(AllocationError):
+            Candidate("a\nlog", 1, 1)
+        with self.assertRaises(AllocationError):
+            Candidate("a", 1, 1, ["resource"])  # resource vectors are immutable tuples
+        with self.assertRaises(AllocationError):
+            Candidate("a", 1, 1, ("resource",), wait_reason=[])  # type: ignore[arg-type]
+        with self.assertRaises(AllocationError):
+            Candidate("a", 2**53, 1)
+        with self.assertRaises(AllocationError):
+            order_candidates([Candidate("a", 1, 1), Candidate("a", 0, 2)])
+        with self.assertRaises(AllocationError):
+            allocate_candidates([Candidate("a", 1, 1)], capacity=1, held_resources="resource")
+        with self.assertRaises(AllocationError):
+            allocate_candidates([Candidate("a", 1, 1)], capacity=1, held_resources=["resource", "resource"])
+
 
 if __name__ == "__main__":
     unittest.main()

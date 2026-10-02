@@ -25,7 +25,9 @@ def _path(value: Any, field: str, *, allow_empty: bool = False) -> str:
     if type(value) is not str or (not value and not allow_empty):
         _fail("E_CHANGE_PATH", field, "relative path required")
     value = value.replace("\\", "/")
-    if value.startswith("/") or ".." in value.split("/") or "//" in value or "\x00" in value:
+    parts = value.split("/")
+    if (value.startswith("/") or any(part in {"", ".", ".."} for part in parts)
+            or "\x00" in value or any(ord(ch) < 32 or ord(ch) == 127 for ch in value)):
         _fail("E_CHANGE_PATH", field, "unsafe relative path")
     if value.startswith("./"):
         _fail("E_CHANGE_PATH", field, "dot prefix is not canonical")

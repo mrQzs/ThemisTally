@@ -69,6 +69,17 @@ class ContractAndCandidateTests(unittest.TestCase):
                                                             "roundtrip_verified": False}).decision, BLOCKED)
         self.assertEqual(verify_fixed_candidate(expected, {"candidate_ref": expected}).decision, WAIT)
 
+    def test_fixed_candidate_binds_resource_path_when_present(self) -> None:
+        expected = candidate_ref()
+        changed_path = {**expected, "path": "other/candidate.json"}
+        decision = verify_fixed_candidate(expected, {"candidate_ref": changed_path, "roundtrip_verified": True})
+        self.assertEqual(decision.decision, BLOCKED)
+        self.assertIn("CANDIDATE_REFERENCE_MISMATCH", decision.reasons)
+        missing_path = {key: value for key, value in expected.items() if key != "path"}
+        decision = verify_fixed_candidate(expected, {"candidate_ref": missing_path, "roundtrip_verified": True})
+        self.assertEqual(decision.decision, WAIT)
+        self.assertIn("CANDIDATE_REFERENCE_UNKNOWN", decision.reasons)
+
     def test_commit_permission_never_creates_a_commit(self) -> None:
         blocked = evaluate_commit_permission(has_uncommitted_changes=True, integration_actions=())
         self.assertEqual(blocked.decision, BLOCKED)
@@ -126,6 +137,16 @@ class WiringAndProductionTests(unittest.TestCase):
         self.assertTrue(all(reason.endswith("_OFFLINE_ONLY") for reason in blocked.reasons))
         with self.assertRaisesRegex(IntegrationGateError, "E_CONNECTORS"):
             evaluate_production_connectors({}, required=[])
+
+    def test_unexpected_connector_stage_cannot_be_ignored(self) -> None:
+        connectors = {stage: {"status": "offline_fixture", "production": False, "available": True}
+                     for stage in ("03", "04", "05", "06", "09", "10")}
+        connectors["11"] = {"status": "verified", "production": True, "available": True,
+                             "connector_id": "connector-11",
+                             "evidence_ref": {"kind": "proof", "id": "proof-11", "sha256": "a" * 64}}
+        decision = evaluate_production_connectors(connectors)
+        self.assertEqual(decision.decision, PRODUCTION_BLOCKED)
+        self.assertIn("CONNECTOR_11_UNEXPECTED", decision.reasons)
 
     def test_verified_connector_without_identity_or_evidence_cannot_pass(self) -> None:
         forged = {stage: {"status": "verified", "production": True, "available": True}

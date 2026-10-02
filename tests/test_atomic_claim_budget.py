@@ -344,6 +344,19 @@ class AtomicClaimBudgetTests(unittest.TestCase):
         with self.assertRaises(AtomicLedgerError) as caught:
             AtomicClaimBudgetStore(self.path)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+
+    def test_reopen_rejects_non_finite_json_and_control_identifiers(self) -> None:
+        with self.assertRaises(AtomicLedgerError):
+            self.store.seed("req\nunsafe", "code-kit", policy())
+        result = self.claim()
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE operations SET reservation_json=? WHERE operation_id=?", ('{"tokens":NaN,"dispatches":1}', result.operation_id))
+        db.commit()
+        db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            AtomicClaimBudgetStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
         db = sqlite3.connect(self.path)
         db.execute("UPDATE operations SET reservation_json=? WHERE operation_id=?", (json.dumps({"tokens": 5, "dispatches": 1}), result.operation_id))
         db.execute("UPDATE outbox SET payload_json='[]' WHERE event_type='atomic.claimed'")

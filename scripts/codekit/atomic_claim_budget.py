@@ -58,7 +58,8 @@ INSERT OR IGNORE INTO controller(singleton,generation) VALUES(1,1);
 
 
 def _text(value: Any, field: str, limit: int = 256) -> str:
-    if type(value) is not str or not value or len(value) > limit or "\x00" in value or any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+    if type(value) is not str or not value or len(value) > limit or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
         raise AtomicLedgerError("E_SCHEMA_TYPE", (field,))
     return value
 
@@ -83,9 +84,16 @@ def _finite(value: Any, field: str) -> float:
 
 def _json(value: Any) -> str:
     try:
-        return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise AtomicLedgerError("E_SCHEMA_TYPE", ("json",)) from exc
+
+
+def _loads(value: Any) -> Any:
+    """Decode persisted JSON without accepting NaN/Infinity extensions."""
+    if type(value) is not str:
+        raise ValueError("json_text_required")
+    return json.loads(value, parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
 
 
 def _resources(value: Sequence[str]) -> tuple[str, ...]:
@@ -102,7 +110,9 @@ def _policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
 
 def _policy(value: str) -> BudgetPolicy:
     try:
-        raw = json.loads(value)
+        raw = _loads(value)
+        if type(raw) is not dict or set(raw) != {"limits", "task_limits", "policy_ref", "unknown_policy"}:
+            raise ValueError("closed_policy_required")
         return BudgetPolicy(raw["limits"], raw["task_limits"], policy_ref=raw["policy_ref"], unknown_policy=raw["unknown_policy"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, BudgetError) as exc:
         raise AtomicLedgerError("E_SCHEMA_INVALID", ("policy_json",)) from exc
@@ -311,6 +321,7 @@ class AtomicClaimBudgetStore:
         try:
             requests = {row["request_id"]: row for row in self.db.execute("SELECT * FROM requests")}
             policies = {row["request_id"]: row for row in self.db.execute("SELECT * FROM policies")}
+            policy_objects = {request_id: _policy(row["policy_json"]) for request_id, row in policies.items()}
             tasks = {(row["request_id"], row["task_id"]): row for row in self.db.execute("SELECT * FROM tasks")}
             if set(requests) != set(policies):
                 raise ValueError("request_policy_mismatch")
@@ -324,7 +335,7 @@ class AtomicClaimBudgetStore:
                 _int(row["stop_epoch"], "stop_epoch", 0)
                 if row["stop_reason"] is not None:
                     _text(row["stop_reason"], "stop_reason")
-                _policy(policies[request_id]["policy_json"])
+                policy_objects[request_id]
             for key, row in tasks.items():
                 _text(key[0], "task.request_id")
                 _text(key[1], "task_id")
@@ -350,8 +361,10 @@ class AtomicClaimBudgetStore:
                     _finite(row["lease_until"], "lease_until")
                 if row["state"] not in {"CLAIMED", "HANDOFF_ACCEPTED", "FINISHED", "CANCELLED_NOT_STARTED", "START_UNKNOWN"}:
                     raise ValueError("operation_state")
-                reservation = json.loads(row["reservation_json"])
-                resource_keys = _resources(json.loads(row["resource_json"]))
+                reservation = _loads(row["reservation_json"])
+                resource_keys = _resources(_loads(row["resource_json"]))
+                if type(reservation) is not dict or set(reservation) != set(policy_objects[row["request_id"]].limits):
+                    raise ValueError("operation_reservation_dimensions")
                 BudgetOperation(operation_id, row["request_id"], row["task_id"], reservation,
                                 state=("cancelled_not_started" if row["state"] == "CANCELLED_NOT_STARTED" else ("unknown_liability" if row["state"] == "START_UNKNOWN" else "reserved")),
                                 generation=row["claim_generation"], finished=row["state"] in ("CANCELLED_NOT_STARTED", "FINISHED", "START_UNKNOWN"))
@@ -366,7 +379,7 @@ class AtomicClaimBudgetStore:
                 operation = operations.get(row["operation_id"])
                 if operation is None or operation["request_id"] != row["request_id"]:
                     raise ValueError("observation_scope_mismatch")
-                observation = _observation_from_payload(json.loads(row["payload_json"]))
+                observation = _observation_from_payload(_loads(row["payload_json"]))
                 if observation.observation_id != row["observation_id"] or observation.operation_id != row["operation_id"]:
                     raise ValueError("observation_identity_mismatch")
                 if stable_observation_fingerprint(observation) != row["fingerprint"]:
@@ -380,7 +393,7 @@ class AtomicClaimBudgetStore:
             for row in self.db.execute("SELECT seq,event_type,payload_json FROM outbox"):
                 _int(row["seq"], "outbox.seq", 1)
                 _text(row["event_type"], "outbox.event_type")
-                payload = json.loads(row["payload_json"])
+                payload = _loads(row["payload_json"])
                 if type(payload) is not dict:
                     raise ValueError("outbox_payload")
         except AtomicLedgerError as exc:
@@ -425,8 +438,8 @@ class AtomicClaimBudgetStore:
         for row in self.db.execute("SELECT * FROM operations WHERE request_id=? ORDER BY rowid", (request_id,)):
             row_state = row["state"]
             is_unknown = row_state == "START_UNKNOWN"
-            ops.append(BudgetOperation(row["operation_id"], row["request_id"], row["task_id"], json.loads(row["reservation_json"]), state=("cancelled_not_started" if row_state == "CANCELLED_NOT_STARTED" else ("unknown_liability" if is_unknown else "reserved")), generation=row["claim_generation"], finished=row_state in ("CANCELLED_NOT_STARTED", "FINISHED", "START_UNKNOWN"), cancellation_conflict=is_unknown))
-        observations = tuple(_observation_from_payload(json.loads(row[0])) for row in self.db.execute("SELECT payload_json FROM observations WHERE request_id=? ORDER BY rowid", (request_id,)))
+            ops.append(BudgetOperation(row["operation_id"], row["request_id"], row["task_id"], _loads(row["reservation_json"]), state=("cancelled_not_started" if row_state == "CANCELLED_NOT_STARTED" else ("unknown_liability" if is_unknown else "reserved")), generation=row["claim_generation"], finished=row_state in ("CANCELLED_NOT_STARTED", "FINISHED", "START_UNKNOWN"), cancellation_conflict=is_unknown))
+        observations = tuple(_observation_from_payload(_loads(row[0])) for row in self.db.execute("SELECT payload_json FROM observations WHERE request_id=? ORDER BY rowid", (request_id,)))
         request = self.db.execute("SELECT stop_epoch FROM requests WHERE request_id=?", (request_id,)).fetchone()
         reasons = tuple(row[0] for row in self.db.execute("SELECT reason FROM stop_reasons WHERE request_id=? ORDER BY rowid", (request_id,)))
         if not reasons:
@@ -442,7 +455,7 @@ class AtomicClaimBudgetStore:
         return state._evolve(stop_reasons=reasons, stop_epoch=request[0], sequence=self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()[0])
 
     def claim(self, request: ClaimRequest, facts: ClaimFacts, *, owner: str, reservation: Mapping[str, int], resource_keys: list[str], lease_until: float | None = None) -> AtomicClaimResult:
-        if not isinstance(request, ClaimRequest) or not isinstance(facts, ClaimFacts):
+        if type(request) is not ClaimRequest or type(facts) is not ClaimFacts:
             raise AtomicLedgerError("E_SCHEMA_TYPE", ("claim",))
         _text(owner, "owner"); resources = _resources(resource_keys); _int(request.controller_generation, "generation", 1)
         lease = None if lease_until is None else _finite(lease_until, "lease_until")
@@ -466,8 +479,8 @@ class AtomicClaimBudgetStore:
                         and existing["claim_generation"] == request.controller_generation
                         and existing["guard_version"] == request.guard_version
                         and existing["stop_epoch"] == request.stop_epoch
-                        and json.loads(existing["reservation_json"]) == reserve
-                        and json.loads(existing["resource_json"]) == list(resources)):
+                        and _loads(existing["reservation_json"]) == reserve
+                        and _loads(existing["resource_json"]) == list(resources)):
                     return AtomicClaimResult(existing["operation_id"], existing["state"], True)
                 raise AtomicLedgerError("E_IDEMPOTENCY_CONFLICT")
             if gate.decision != "CLAIMED":
@@ -522,7 +535,7 @@ class AtomicClaimBudgetStore:
             budget_state = self._state(row["request_id"])
             if budget_state.stop_decision()[0]:
                 raise AtomicLedgerError("E_HANDOFF_BLOCKED", ("ledger_budget_stopped",))
-            expected_resources = set(json.loads(row["resource_json"]))
+            expected_resources = set(_loads(row["resource_json"]))
             held_resources = {(item[0], item[1]) for item in self.db.execute(
                 "SELECT repo_id,resource_key FROM resource_holds WHERE operation_id=?", (operation_id,))}
             if held_resources != {(root["repo_id"], key) for key in expected_resources}:
@@ -562,7 +575,7 @@ class AtomicClaimBudgetStore:
             if row["state"] != "HANDOFF_ACCEPTED":
                 raise AtomicLedgerError("E_START_UNKNOWN_STATE")
             try:
-                expected_resources = set(json.loads(row["resource_json"]))
+                expected_resources = set(_loads(row["resource_json"]))
                 root = self.db.execute("SELECT repo_id FROM requests WHERE request_id=?", (row["request_id"],)).fetchone()
                 held_resources = {(item[0], item[1]) for item in self.db.execute(
                     "SELECT repo_id,resource_key FROM resource_holds WHERE operation_id=?", (operation_id,))}

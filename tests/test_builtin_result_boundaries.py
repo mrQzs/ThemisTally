@@ -14,11 +14,13 @@ from codekit.builtin_mutation import (
     build_mutation_artifact,
     build_mutation_plan,
     reduce_mutation_results,
+    validate_mutation_artifact,
 )
 from codekit.builtin_regression import (
     build_regression_artifact,
     collect_targets,
     summarize_results,
+    validate_regression_artifact,
 )
 
 
@@ -120,6 +122,13 @@ class MutationResultBoundaries(unittest.TestCase):
                     reduce_mutation_results(plan, "PASS", [])
                 self.assertEqual(caught.exception.code, "E_MUTATION_PLAN")
 
+    def test_mutation_paths_are_canonicalized_before_hashing(self) -> None:
+        plan = build_mutation_plan(
+            [{"id": "m1", "path": "src\\a.py", "description": "remove guard"}],
+            baseline_id="known-good",
+        )
+        self.assertEqual(plan["mutations"][0]["path"], "src/a.py")
+
     def test_duplicate_result_is_rejected_instead_of_best_of(self) -> None:
         with self.assertRaises(ArtifactError) as caught:
             reduce_mutation_results(mutation_plan(), "PASS", [
@@ -145,6 +154,22 @@ class MutationResultBoundaries(unittest.TestCase):
         for summary in ({}, {"outcome": "PASS"}, {"outcome": "PASS", "results": []}):
             with self.subTest(summary=summary), self.assertRaises(ArtifactError):
                 build_mutation_artifact(**artifact_arguments(), plan=mutation_plan(), summary=summary)
+
+    def test_persisted_mutation_artifact_replays_plan_and_status(self) -> None:
+        plan = mutation_plan()
+        summary = reduce_mutation_results(plan, "PASS", [
+            {"id": "m1", "status": "FAIL"}, {"id": "m2", "status": "FAIL"},
+        ])
+        artifact = build_mutation_artifact(**artifact_arguments(), plan=plan, summary=summary)
+        self.assertEqual(validate_mutation_artifact(artifact)["status"], "REFERENCE_ONLY")
+        forged = copy.deepcopy(artifact)
+        forged["payload"]["summary"]["outcome"] = "FAIL"
+        with self.assertRaisesRegex(ArtifactError, "E_MUTATION_RESULT"):
+            validate_mutation_artifact(forged)
+        forged = copy.deepcopy(artifact)
+        forged["status"] = "PASS"
+        with self.assertRaisesRegex(ArtifactError, "E_MUTATION_STATUS"):
+            validate_mutation_artifact(forged)
 
 
 class RegressionResultBoundaries(unittest.TestCase):
@@ -246,6 +271,20 @@ class RegressionResultBoundaries(unittest.TestCase):
         for summary in ({}, {"outcome": "PASS"}, {"outcome": "PASS", "results": []}):
             with self.subTest(summary=summary), self.assertRaises(ArtifactError):
                 build_regression_artifact(**artifact_arguments(), plan=regression_plan(), summary=summary)
+
+    def test_persisted_regression_artifact_replays_plan_and_status(self) -> None:
+        plan = regression_plan()
+        summary = summarize_results(plan, regression_results())
+        artifact = build_regression_artifact(**artifact_arguments(), plan=plan, summary=summary)
+        self.assertEqual(validate_regression_artifact(artifact)["status"], "REFERENCE_ONLY")
+        forged = copy.deepcopy(artifact)
+        forged["payload"]["summary"]["outcome"] = "FAIL"
+        with self.assertRaisesRegex(ArtifactError, "E_REGRESSION_RESULT"):
+            validate_regression_artifact(forged)
+        forged = copy.deepcopy(artifact)
+        forged["status"] = "PASS"
+        with self.assertRaisesRegex(ArtifactError, "E_REGRESSION_STATUS"):
+            validate_regression_artifact(forged)
 
 
 if __name__ == "__main__":

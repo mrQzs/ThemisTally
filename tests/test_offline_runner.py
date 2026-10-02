@@ -44,6 +44,24 @@ class OfflineRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ENV"):
                 run_command(target="unlisted", command=self._command("pass"), cwd=tmp,
                             check_plan_id="cp", candidate_digest="candidate", environment={"UNLISTED": "blocked"})
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ENV"):
+                run_command(target="bad-type", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate", environment={"PATH": None})  # type: ignore[arg-type]
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_TIMEOUT"):
+                run_command(target="bad-timeout", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate", timeout_seconds=float("nan"))
+
+    def test_shell_free_argv_preserves_empty_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_command(target="argv", command=[sys.executable, "-c", "import sys; raise SystemExit(0 if sys.argv[1] == '' else 1)", ""], cwd=tmp,
+                                 check_plan_id="cp", candidate_digest="candidate")
+            self.assertEqual(result["status"], "PASS")
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ARGV"):
+                run_command(target="argv", command=[sys.executable, "-c", "pass", "a\x00b"], cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate")
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ID"):
+                run_command(target="identity", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp\nunsafe", candidate_digest="candidate")
 
     def test_mutation_requires_stable_baseline_and_kills_all_mutants(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +91,15 @@ class OfflineRunnerTests(unittest.TestCase):
             marker = Path(tmp) / "marker"
             code = f"from pathlib import Path; p=Path({str(marker)!r}); first=not p.exists(); p.write_text('x'); raise SystemExit(1 if first else 0)"
             record = run_repeated(target="flaky", command=self._command(code), cwd=tmp,
+                                  check_plan_id="cp", candidate_digest="candidate", repeat=2)
+            self.assertTrue(record["flaky"])
+            self.assertEqual(record["status"], "BLOCKED")
+
+    def test_repeat_detects_flaky_output_even_when_status_is_stable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "counter"
+            code = f"from pathlib import Path; p=Path({str(marker)!r}); n=int(p.read_text()) + 1 if p.exists() else 1; p.write_text(str(n)); print(n)"
+            record = run_repeated(target="flaky-output", command=self._command(code), cwd=tmp,
                                   check_plan_id="cp", candidate_digest="candidate", repeat=2)
             self.assertTrue(record["flaky"])
             self.assertEqual(record["status"], "BLOCKED")
