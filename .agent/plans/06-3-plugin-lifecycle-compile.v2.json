@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "task_id": "06-3-plugin-lifecycle-compile",
+  "plan_version": 2,
+  "title": "06.3 插件发布、权限与编译边界",
+  "repository": "Code-Kit",
+  "base_sha": "9a75389b1907927c5ce6a779094e1c099cdc3d4b",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "adapters/plugin_lifecycle.py",
+      "adapters/plugin_compile.py",
+      "tests/test_plugin_lifecycle.py",
+      "tests/fixtures/plugins/lifecycle/**",
+      "docs/code-kit-v2/06-plugin-lifecycle-evidence.md"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_plugin_lifecycle"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 420,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran\\s+[1-9]\\d* tests"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "adapters",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "tests/test_dispatch.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "G02",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "G03",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "提供锁的离线发布/代际幂等、pin/GC、能力与权限交集、声明式编译和 prepare/run 核验；权限不足、伪 PASS、动态代码或旁路入口阻塞。",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "每条 Behavior contract 的合法、边界、错误及状态规则都有独立离线",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "修改只在 Scope，未改变依赖、网络、凭据或生产锁",
+      "evidence": [
+        "scope",
+        "V03"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试、入口和历史",
+      "evidence": [
+        "review",
+        "G01",
+        "G02",
+        "G03"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "inputs": [
+    "current HEAD at the declared base_sha",
+    "approved requirements and reference documents",
+    "existing offline fixtures and scoped repository files"
+  ],
+  "outputs": [
+    "deterministic scoped implementation, tests, fixtures, or documentation",
+    "evidence record, or explicit BLOCKED/NOT_RUN record when external capability is unavailable"
+  ],
+  "failure_handling": [
+    "reject malformed, drifted, missing, unsupported, or out-of-scope inputs with explicit error/UNKNOWN/BLOCKED/NOT_RUN state",
+    "never promote fixture or offline evidence to production PASS"
+  ],
+  "rollback_boundary": [
+    "revert only files listed in scope; protected rules, dispatch scripts, agent directories, credentials, dependencies, and external systems remain untouched"
+  ]
+}
