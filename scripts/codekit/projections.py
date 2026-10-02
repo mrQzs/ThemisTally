@@ -155,8 +155,20 @@ def project_state(*, indexed_cursor: int, applied_cursor: int, source_vector: Ma
                   budget_coverage: str, start_unknown: bool = False, revoked: bool = False,
                   truncated: bool = False) -> dict[str, Any]:
     """Build a read model whose dispatch field is deliberately non-authoritative."""
+    if type(indexed_cursor) is not int or indexed_cursor < 0 or type(applied_cursor) is not int or applied_cursor < 0 or applied_cursor > indexed_cursor:
+        raise ProjectionError("E_CURSOR", "cursors must be non-negative and applied must not exceed indexed")
+    if not isinstance(source_vector, Mapping) or any(
+            type(key) is not str or not key or type(value) is not int or value < 0
+            for key, value in source_vector.items()):
+        raise ProjectionError("E_SOURCE_VECTOR", "source vector must map names to non-negative cursors")
+    if type(verification_ref) is not str or not verification_ref or type(as_of) is not str or not as_of:
+        raise ProjectionError("E_STATE", "verification reference and timestamp are required")
     if source_coverage not in {"complete", "partial", "unknown"} or budget_coverage not in {"complete", "partial", "unknown"}:
         raise ProjectionError("E_COVERAGE", "unsupported coverage")
+    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+        raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
+    if type(start_unknown) is not bool or type(revoked) is not bool or type(truncated) is not bool:
+        raise ProjectionError("E_STATE", "boolean state flags required")
     degraded = source_coverage != "complete" or budget_coverage != "complete" or start_unknown or revoked or bool(issues)
     return {
         "indexed_cursor": indexed_cursor, "applied_cursor": applied_cursor,
@@ -172,10 +184,20 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
     """Render a pull-only brief; it cannot grant an execution decision."""
     if type(state) is not dict:
         raise ProjectionError("E_STATE", "state object required")
+    health = state.get("health", "degraded")
+    source_coverage = state.get("source_coverage", "unknown")
+    issues = state.get("issues", [])
+    truncated = state.get("truncated", False)
+    if health not in {"healthy", "degraded"} or source_coverage not in {"complete", "partial", "unknown"}:
+        raise ProjectionError("E_STATE", "invalid health or source coverage")
+    if isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence) or any(type(item) is not str or not item for item in issues):
+        raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
+    if type(truncated) is not bool:
+        raise ProjectionError("E_STATE", "truncated must be boolean")
     budget = "[未知] 无可核验预算快照" if state.get("budget_coverage") != "complete" else "预算快照已核验"
-    return {"health": state.get("health", "degraded"), "dispatch_eligibility": "not_evaluated",
-            "source_coverage": state.get("source_coverage", "unknown"), "budget": budget,
-            "issues": list(state.get("issues", [])), "truncated": bool(state.get("truncated", False))}
+    return {"health": health, "dispatch_eligibility": "not_evaluated",
+            "source_coverage": source_coverage, "budget": budget,
+            "issues": list(issues), "truncated": truncated}
 
 
 __all__ = ["OutboxProjection", "ProjectionError", "ProjectionEvent", "ReadinessProjection",

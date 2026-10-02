@@ -67,6 +67,25 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(brief["dispatch_eligibility"], "not_evaluated")
         self.assertTrue(brief["truncated"])
 
+    def test_state_and_brief_reject_untyped_projection_fields(self):
+        common = dict(indexed_cursor=0, applied_cursor=0, source_vector={}, verification_ref="v1",
+                      as_of="2026-10-02T00:00:00Z", source_coverage="complete", issues=[], budget_coverage="complete")
+        with self.assertRaises(ProjectionError) as caught:
+            project_state(**{**common, "indexed_cursor": "0"})
+        self.assertEqual(caught.exception.code, "E_CURSOR")
+        with self.assertRaises(ProjectionError) as caught:
+            project_state(**{**common, "source_vector": {"ledger": "0"}})
+        self.assertEqual(caught.exception.code, "E_SOURCE_VECTOR")
+        with self.assertRaises(ProjectionError) as caught:
+            project_state(**{**common, "issues": "source_gap"})
+        self.assertEqual(caught.exception.code, "E_ISSUES")
+        with self.assertRaises(ProjectionError) as caught:
+            render_brief({"health": 1})
+        self.assertEqual(caught.exception.code, "E_STATE")
+        with self.assertRaises(ProjectionError) as caught:
+            render_brief({"health": "degraded", "issues": None})
+        self.assertEqual(caught.exception.code, "E_ISSUES")
+
 
 if __name__ == "__main__":
     unittest.main()
