@@ -48,6 +48,6 @@
 
 当前代码基线推进到 `b3f40aa`：运行时、适配器和 provider 观察边界完成离线收紧；39 对 v2 合同已绑定该基线并通过结构校验。新增结果仍是 `LOCAL_REFERENCE`，没有 Pi attempt、真实 provider、原生平台或 09/10 连接器证据。
 
-当前离线代码基线推进到 `061900a`，39 对 v2 合同已重新绑定并通过校验；新增配置与 Git 来源边界仍只证明本地输入防护，不改变真实 provider、Pi、原生平台和 09/10 连接器的 `NOT_RUN/BLOCKED` 状态。
+当前离线代码基线推进到 `86a92fc`，39 对 v2 合同已重新绑定并通过校验；新增配置与 Git 来源边界仍只证明本地输入防护，不改变真实 provider、Pi、原生平台和 09/10 连接器的 `NOT_RUN/BLOCKED` 状态。
 
-当前离线候选推进到 `061900a`：授权账本、scheduler hold、projection journal 和 acceptance binding 完成边界收紧；结果仍是 `LOCAL_REFERENCE`，不能代替真实 dispatcher、provider、原生平台或 09/10 连接器验收。
+当前离线候选推进到 `86a92fc`：授权账本、scheduler hold、projection journal 和 acceptance binding 完成边界收紧；结果仍是 `LOCAL_REFERENCE`，不能代替真实 dispatcher、provider、原生平台或 09/10 连接器验收。

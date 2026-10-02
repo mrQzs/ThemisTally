@@ -3,7 +3,7 @@
 ## Identity
 - plan_version: 2
 - repository: Code-Kit
-- base_sha: 061900ab6a125d999f8e2c8c60ef1e9dbdf069f2
+- base_sha: 86a92fcb8cc062a15063685e9b762d5780bb0b53
 - risk_level: medium
 - authorized_actions: local_edit, local_test
 - integration_actions: none

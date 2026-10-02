@@ -24,3 +24,5 @@
 `c57c016` 进一步固定 Git probe 的 RawResult/result mapping 字段闭集，拒绝未知观测键并保持 malformed 事实为 `UNKNOWN`；Git 来源相关离线复核扩大到 51 项通过，仍不等价于真实仓库授权或平台接线。
 
 `d456361` 加固 authorization journal candidate-commit、WRITE_UNKNOWN fencing、scheduler resource hold 闭包；`061900a` 加固 projection journal durable publish、cursor/checkpoint 连续性与 acceptance ResourceRef path 绑定。授权/调度 70 项、投影/验收 64 项、配置/Git/adapter/runtime 68 项定向测试通过；生产连接器和独立 Pi 证据仍为 `BLOCKED/NOT_RUN`。
+
+`86a92fc` 将 projection journal 中非法 JSON 值统一映射为 `E_JOURNAL`，避免私有持久化输入泄漏业务层错误；投影定向回归保持通过。

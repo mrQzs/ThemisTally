@@ -117,3 +117,5 @@ The planner then generated 39 current-base v2 contract pairs in `aa82aaf`, later
 After the runtime and provider boundary hardening commits `8df094a` and `b3f40aa`, the 39 v2 contract pairs were refreshed to base `b3f40aa` and revalidated. The full offline suite remains limited by three pre-existing legacy source-lock failures; no Pi attempt or production connector evidence exists.
 
 The latest offline candidate `061900a` also hardens authorization journal recovery, scheduler hold closure, projection journal durability and acceptance ResourceRef path binding. Targeted suites pass, while the production gate remains `REVISE/BLOCKED` because no Pi attempt or external connector evidence exists.
+
+The follow-up `86a92fc` maps invalid projection journal JSON to the journal error family; the targeted projection suite remains green and production evidence remains unavailable.
