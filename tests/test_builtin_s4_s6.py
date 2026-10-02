@@ -145,5 +145,25 @@ class S6ProjectionTests(unittest.TestCase):
                     with self.assertRaisesRegex(ArtifactError, code):
                         PersistentProjectionStore(path)
 
+    def test_persistent_projection_rejects_open_event_and_handoff_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "projection.jsonl"
+            store = PersistentProjectionStore(path)
+            store.consume([ProjectionEvent(1, "authority", "ready", {"id": "r1"})], generation=1)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            event = json.loads(lines[0]); event["extra"] = True
+            path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
+                PersistentProjectionStore(path)
+
+            store = PersistentProjectionStore(path=Path(tmp) / "handoff.jsonl")
+            store.handoff(new_generation=2, expected_generation=1)
+            handoff_path = store.path
+            handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+            handoff["extra"] = True
+            handoff_path.write_text(json.dumps(handoff) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
+                PersistentProjectionStore(handoff_path)
+
 if __name__ == "__main__":
     unittest.main()

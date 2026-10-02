@@ -176,6 +176,10 @@ class PersistentProjectionStore:
     def _replay(self, record: Mapping[str, Any]) -> None:
         kind = record.get("kind")
         if kind == "event":
+            if set(record) != {"kind", "generation", "event"}:
+                _fail("E_JOURNAL_CORRUPT", "event journal fields must be closed")
+            if type(record.get("generation")) is not int or record["generation"] < 1:
+                _fail("E_JOURNAL_CORRUPT", "event journal generation must be a positive integer")
             if record.get("generation") != self.generation:
                 _fail("E_JOURNAL_FENCE", "event generation does not match projection")
             self.projection.consume([_event_from(record.get("event", {}))], generation=self.generation)
@@ -188,9 +192,13 @@ class PersistentProjectionStore:
             self.projection.events = checkpoint["events"]
             return
         if kind == "handoff":
+            if set(record) != {"kind", "from_generation", "to_generation"}:
+                _fail("E_JOURNAL_CORRUPT", "handoff journal fields must be closed")
             old = record.get("from_generation")
             new = record.get("to_generation")
-            if old != self.generation or type(new) is not int or new <= old:
+            if type(old) is not int or old < 1 or type(new) is not int or new <= old:
+                _fail("E_JOURNAL_FENCE", "invalid handoff generation")
+            if old != self.generation:
                 _fail("E_JOURNAL_FENCE", "invalid handoff generation")
             self.projection.generation = new
             return
