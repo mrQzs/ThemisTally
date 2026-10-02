@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "task_id": "07-s4-2-handoff-reconcile",
+  "plan_version": 1,
+  "title": "S4.2 交接、取消与 reconcile",
+  "repository": "Code-Kit",
+  "base_sha": "175653ebbe3059c012166dacfbf13b7eac67b41f",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "commit",
+      "push"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "tests/test_handoff_reconcile.py"
+    ],
+    "allowed_new_files": [
+      "tests/test_handoff_reconcile.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_workflow",
+        "tests.test_readiness",
+        "tests.test_baseline_binding",
+        "tests.test_git_probe",
+        "tests.test_git_ancestor",
+        "tests.test_coverage",
+        "tests.test_claim_model",
+        "tests.test_scheduler_store",
+        "tests.test_parallel",
+        "tests.test_budget",
+        "tests.test_budget_store_v2",
+        "tests.test_retry",
+        "tests.test_atomic_claim_budget",
+        "tests.test_acceptance",
+        "tests.test_recovery"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran\\s+[1-9]\\d* tests"
+      ],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "实现 HANDOFF_ACCEPTED、START_UNKNOWN、STARTED、CANCEL_REQUESTED、cleanup、reconcile 的状态分离与 CAS。",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "未知、重复、乱序、并发或恢复输入不会被静默当作成功",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "所有修改都在允许集合内且无依赖变化",
+      "evidence": [
+        "scope",
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试未删除、跳过或弱化",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "execution_lane": "main-model",
+  "dispatchable": false,
+  "planner_owned_protected_paths": [
+    "scripts/codekit/**",
+    "schemas/**"
+  ]
+}
