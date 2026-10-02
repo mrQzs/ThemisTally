@@ -32,3 +32,5 @@
 `e94056a` 收紧插件清单的严格 JSON、深度/数组上限、控制字符、路径和检查 argv 边界，并使身份哈希拒绝循环值与非法 Unicode 标量；插件/身份定向回归继续通过，合同基线已刷新到该提交。
 
 `98a4ed5` 继续收紧 adapter 事件与 payload、runtime lease 的身份/代际/token/时间边界，以及 provider economics 和 unified ledger 的 canonical JSON、循环、Unicode、有限数和安全整数边界；本轮相关组合回归 137 项通过，验收矩阵组合命令 303 项通过、1 项跳过，compileall 和 diff check 通过。结果仍为 `LOCAL_REFERENCE`，真实 Pi、provider、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
+
+`9980f27` 收紧授权 journal 与 scheduler SQLite 的协议文本边界，拒绝 C0/C1、DEL 和孤立代理字符，并覆盖写入、重放和重开路径；相关组合回归 112 项通过，验收矩阵组合命令 305 项通过、1 项跳过。结果仍为 `LOCAL_REFERENCE`，真实授权服务、Pi、provider、原生平台和外部连接器证据继续为 `BLOCKED/NOT_RUN`。
