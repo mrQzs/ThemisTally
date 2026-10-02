@@ -62,6 +62,10 @@ an independent `review-pi` verdict.
 - `242a2f4` rejects duplicate, unsorted, or non-text derived arrays in
   regression plans before result reduction; the regression/mutation boundary
   suite passes 30 tests.
+- `2bdee7d` hardens platform observations, failure classifications, and
+  deterministic-check evidence against loose booleans, unbounded text, malformed
+  receipts, and non-mapping evidence. The S4/S5 focused checks pass 31 tests;
+  no dispatcher receipt is inferred.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
