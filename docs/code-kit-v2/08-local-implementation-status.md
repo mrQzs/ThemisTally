@@ -8,7 +8,7 @@
 | S1 | `37c4d75`, `3347906` | 八类 artifact 公共 envelope、ResourceRef/SourceAnchor、canonical ResourceRef 去重、catalog/recipes Schema 与负例校验 | 只产生本地确定性记录，未登记核心 dispatcher |
 | S2 | `511e56a`, `313b54f`, `1fb8c6e` | AnalysisReport、ChangeReport、范围/漂移校验、source anchor 与 source_refs 闭包、静态 CheckPlan/CompileReceipt；编译仅映射既有 `execute/freeze/check/verdict` | `dispatcher_submitted=false`；无生产执行 |
 | S3 | `e7a10b1`, `a175417`, `3347906`, `1371ce6` | docs-change、CommonMark AST 本地链接检查、危险 scheme/越界/锚点分类、来源引用闭包与严格 payload 校验、固定内容 oracle 与 review bundle 观察记录闭合校验 | 外链不访问；语义复审只支持固定 oracle；离线插件拒绝生产 `PASS` |
-| S4 | `4b7dcd7`, `6436a0b`, `f05fe2a`, `5a3ef84`, `c6599b0`, `be3de10`, `97a6c6f`, `ece2203`, `242a2f4` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、计划/summary 重算与非规范 derived array 拒绝、显式 argv 离线 runner、环境白名单和凭据覆盖拒绝、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
+| S4 | `4b7dcd7`, `6436a0b`, `f05fe2a`, `5a3ef84`, `c6599b0`, `be3de10`, `97a6c6f`, `ece2203`, `242a2f4`, `b396873` | regression/mutation artifacts、skip/xfail/零测试语义、重复结果归约、计划/summary 重算与非规范 derived array/输入拒绝、显式 argv 离线 runner、环境白名单和凭据覆盖拒绝、超时/启动/语法/导入分类、重复运行 flaky 记录 | 未接入真实 mutation dispatcher；runner 结果仍是 `REFERENCE_ONLY` |
 | S5 | `4b7dcd7`, `6436a0b`, `5a3ef84`, `87d5e91`, `97a6c6f`, `ece2203`, `a414b04`, `2bdee7d`, `29ade8d` | deterministic_check evidence、receipt 身份/候选环境绑定与闭集、平台观察/失败归类与严格输入、超时/取消/丢失与 reconcile 边界、持久 cursor/outbox journal、fsync 发布、截断尾恢复和恢复态写入拒绝；候选分支入口复核 `integration.local_branch` 并先核对合同哈希 | evidence 标为 `REFERENCE_ONLY`；真实平台/provider 为 `NOT_RUN/BLOCKED` |
 | S6 | `4b7dcd7`, `df8f482`, `6436a0b`, `a453f94`, `e5f89ef`, `f060b94`, `811ab7a`, `b2b9dff` | catalog/readiness、七个离线插件 manifest/lock、资源字节绑定、权限交集/平台阻断、插件 lock/权限输入规范化、recipe receipt 身份闭包、三份配方、state/brief/outbox/cursor 去重与严格输入、持久重建与 handoff generation fence | 只读投影；09/10 生产连接器未接线 |
 
@@ -37,5 +37,7 @@
 `811ab7a` 收紧持久 projection 的 cursor、source vector、verification/as-of、issues 与布尔字段，S6 投影回归继续保持通过；该实现仍是只读离线投影，不代表 09/10 生产接线。
 
 `b2b9dff` 收紧 catalog 输入、recipe compile receipt 身份与版本、以及 projection 事件序列边界；相关 S4/S5/S6 回归 37 项通过。它们仍是主模型维护的离线实现，未形成 Pi attempt 证据。
+
+`b396873` 进一步拒绝 regression inventory、plan、summary 和 result 中的错误类型或非序列输入；S4 regression/mutation 边界仍保持通过。
 
 当前可复核状态为 `LOCAL_REFERENCE`、`NOT_RUN` 或 `BLOCKED`。这些结果只能证明离线边界和失败分类，不能转化为生产 `PASS`；下一阶段必须先获得真实执行模型、provider、原生平台和核心 dispatcher 的独立证据。

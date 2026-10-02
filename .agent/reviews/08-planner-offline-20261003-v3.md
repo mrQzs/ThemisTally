@@ -82,6 +82,8 @@ an independent `review-pi` verdict.
   fields, and projection event sequence boundaries. The related S4/S5/S6
   regression set passes 37 tests; these are main-model offline checks, not Pi
   attempt evidence.
+- `b396873` rejects malformed inventory, plan, summary, and result sequence
+  inputs before regression reduction; this extends the offline S4 boundary.
 - `offline_runner.py` runs explicit local argv commands without a shell,
   uses a small runtime environment allowlist, rejects credential-like overrides,
   and records candidate/runner/environment hashes,
