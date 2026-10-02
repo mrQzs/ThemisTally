@@ -8,7 +8,7 @@
 
 ## 证据
 
-- `python -m unittest tests.test_workflow ... tests.test_resume_recovery -q`：252 项通过，1 项明确跳过。
+- `python -m unittest tests.test_workflow ... tests.test_attempt_allocator -q`：256 项通过，1 项明确跳过。
 - `python -m compileall -q scripts/codekit tests`：通过。
 - `git diff --check`：通过。
 
