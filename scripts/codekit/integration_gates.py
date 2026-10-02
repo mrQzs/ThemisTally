@@ -335,6 +335,7 @@ def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] |
         raise IntegrationGateError("E_CONNECTORS", "/connectors", "connector map required")
     reasons: list[str] = []
     evidence: dict[str, Any] = {"required": tuple(required), "connectors": {}}
+    connector_ids: set[str] = set()
     for stage in required:
         item = connectors.get(stage)
         if type(item) is not dict:
@@ -343,11 +344,37 @@ def evaluate_production_connectors(connectors: Mapping[str, Mapping[str, Any]] |
         status = item.get("status")
         production = item.get("production")
         available = item.get("available")
+        connector_id = item.get("connector_id")
+        evidence_ref = item.get("evidence_ref")
+        normalized_ref = None
+        shape_ok = True
+        # Offline/synthetic declarations are intentionally small and only need
+        # to explain why production is blocked.  The stricter closed identity
+        # and evidence contract applies once a caller claims production=True.
+        if production is True:
+            shape_ok = set(item) == {"connector_id", "status", "production", "available", "evidence_ref"}
+            if not shape_ok:
+                reasons.append("CONNECTOR_%s_SCHEMA_INVALID" % stage)
+            if not _nonempty_text(connector_id) or connector_id.lower() in MUTABLE_ALIASES:
+                reasons.append("CONNECTOR_%s_IDENTITY_INVALID" % stage)
+            elif connector_id in connector_ids:
+                reasons.append("CONNECTOR_%s_IDENTITY_DUPLICATE" % stage)
+            else:
+                connector_ids.add(connector_id)
+            if not isinstance(evidence_ref, Mapping):
+                reasons.append("CONNECTOR_%s_EVIDENCE_UNKNOWN" % stage)
+            else:
+                try:
+                    kind, identity, digest = _identity_ref(evidence_ref, "/connectors/%s/evidence_ref" % stage)
+                    normalized_ref = {"kind": kind, "id": identity, "sha256": digest}
+                except IntegrationGateError:
+                    reasons.append("CONNECTOR_%s_EVIDENCE_INVALID" % stage)
         evidence["connectors"][stage] = {
-            "status": status, "production": production, "available": available,
-            "evidence_ref": item.get("evidence_ref"),
+            "connector_id": connector_id, "status": status, "production": production,
+            "available": available, "evidence_ref": normalized_ref,
         }
-        if production is not True or available is not True or status != "verified":
+        if (production is True and (not shape_ok or normalized_ref is None or not _nonempty_text(connector_id))) \
+                or production is not True or available is not True or status != "verified":
             if status in {"offline_fixture", "synthetic", "local"} or production is False:
                 reasons.append("CONNECTOR_%s_OFFLINE_ONLY" % stage)
             else:

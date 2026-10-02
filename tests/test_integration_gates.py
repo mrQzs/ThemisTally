@@ -123,6 +123,25 @@ class WiringAndProductionTests(unittest.TestCase):
         self.assertEqual(blocked.decision, PRODUCTION_BLOCKED)
         self.assertTrue(all(reason.endswith("_OFFLINE_ONLY") for reason in blocked.reasons))
 
+    def test_verified_connector_without_identity_or_evidence_cannot_pass(self) -> None:
+        forged = {stage: {"status": "verified", "production": True, "available": True}
+                  for stage in ("03", "04", "05", "06", "09", "10")}
+        decision = evaluate_production_connectors(forged)
+        self.assertEqual(decision.decision, PRODUCTION_BLOCKED)
+        self.assertTrue(any(reason.endswith("_EVIDENCE_UNKNOWN") for reason in decision.reasons))
+        self.assertTrue(any(reason.endswith("_IDENTITY_INVALID") for reason in decision.reasons))
+
+    def test_verified_connector_requires_unique_bound_evidence(self) -> None:
+        evidence = {"kind": "connector-proof", "id": "proof-1", "sha256": "a" * 64}
+        connectors = {stage: {"connector_id": "connector-" + stage, "status": "verified",
+                              "production": True, "available": True, "evidence_ref": evidence}
+                      for stage in ("03", "04", "05", "06", "09", "10")}
+        self.assertEqual(evaluate_production_connectors(connectors).decision, PASS)
+        connectors["10"]["connector_id"] = "connector-09"
+        decision = evaluate_production_connectors(connectors)
+        self.assertEqual(decision.decision, PRODUCTION_BLOCKED)
+        self.assertIn("CONNECTOR_10_IDENTITY_DUPLICATE", decision.reasons)
+
     def test_composite_gate_keeps_offline_evidence_and_production_block(self) -> None:
         contract = {"task_id": "07-s5-3", "plan_version": 1}
         expected = candidate_ref()
