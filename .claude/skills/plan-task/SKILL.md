@@ -12,6 +12,14 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 
 你是规划器：负责调查、设计决定、拆分与验收设计，不修改产品代码。合同要让 Pi 执行器**不需要再做设计决定**就能完成，并让验收端能逐项核对。
 
+## 09 planner 交接（离线能力）
+
+仓库的 09 planner 只产生受校验的 PlanningRequest/PlanningBundle、任务图和候选合同建议。
+它不授予批准、执行、发布或额外预算，不直接写 .agent/plans/、.agent/runs/，也不执行草稿
+中的 setup/check。主模型必须审核固定的 Markdown/JSON 字节、输入闭包和来源后，才能通过核心发布
+入口登记正式合同；人工按本文件直接起草的 v1 合同继续有效。没有真实 provider、CLI、原生进程
+或外部连接器证据时，保持 NOT_RUN/BLOCKED，不能把离线 stub 的通过结果写成生产接线。
+
 命令统一写作 `bash scripts/dispatch-pi.sh <子命令>`（它会找到可用的 Python 3.8+；也可直接用 `python scripts/pi_dispatch.py`）。
 
 ## 0. 先判断是否值得委派

@@ -997,7 +997,8 @@ def extra_protected_paths(config: Dict[str, Any]) -> List[str]:
 
 #: 规划器在派遣期间会写的主工作区路径（合同、复审记录、路线图等）。运行期间这些路径的变化
 #: 只作备注，不列入“复审需要关注”；其余路径的变化仍然提示复审确认。
-DEFAULT_PLANNER_PATHS = (".agent/plans/**", ".agent/reviews/**", ".agent/design/**", ".agent/*.md")
+DEFAULT_PLANNER_PATHS = (".agent/plans/**", ".agent/reviews/**", ".agent/design/**",
+                         ".agent/publications/**", ".agent/*.md")
 
 
 def planner_paths(config: Dict[str, Any]) -> List[str]:
@@ -1681,14 +1682,38 @@ def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], 
             errors.append("合同不能是符号链接：%s" % display_path(path, repo.root))
     if errors:
         return None, errors, []
+    # Keep the historical v1 decode boundary: invalid Markdown UTF-8 is an
+    # uncaught legacy input error (the locked CLI fixture relies on that
+    # behavior).  Planner-v2 still receives the exact bytes below for its
+    # strict, fixed-pair gate.
     md_text = md_path.read_text(encoding="utf-8")
     try:
-        raw = json.loads(json_path.read_text(encoding="utf-8"))
-    except ValueError as exc:
+        md_bytes = md_path.read_bytes()
+        json_bytes = json_path.read_bytes()
+    except OSError as exc:
+        return None, ["合同文件无法按固定字节读取：%s" % exc], []
+    try:
+        # Legacy v1 remains parsed by the historical loader.  Planner v2 is
+        # required to use the strict public JSON decoder so duplicate keys,
+        # non-finite values and trailing documents cannot be hidden by the
+        # normal json.loads last-value behaviour.
+        if b'"contract_family"' in json_bytes and b'"planner-v2"' in json_bytes:
+            try:
+                from codekit.protocols import strict_json_loads
+                raw = strict_json_loads(json_bytes)
+            except ModuleNotFoundError as exc:
+                return None, ["planner-v2 严格 JSON 解码器不可用：%s" % exc], []
+        else:
+            raw = json.loads(json_bytes.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
         return None, ["JSON 合同解析失败：%s" % exc], []
     contract, errors, warnings = validate_contract(md_text, raw, plan_key, extra_protected_paths(repo.config()))
     warnings.extend(invisible_char_warnings(md_text, "Markdown"))
-    warnings.extend(invisible_char_warnings(json_path.read_text(encoding="utf-8"), "JSON"))
+    warnings.extend(invisible_char_warnings(json_bytes.decode("utf-8", "replace"), "JSON"))
+    if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
+        errors.extend(verify_planner_publication(repo, plan_key, md_bytes, json_bytes))
+        if errors:
+            contract = None
     base = raw.get("base_sha") if isinstance(raw, dict) else None
     if isinstance(base, str) and SHA_RE.match(base):
         if resolve_commit(repo.root, base) != base:
@@ -1704,6 +1729,60 @@ def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], 
     if git(["check-ignore", "-q", ".agent/runs/probe"], repo.root, check=False).returncode != 0:
         warnings.append(".agent/runs/ 尚未被 .gitignore 忽略；prepare 会拒绝运行")
     return contract, errors, warnings
+
+
+def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_bytes: bytes) -> List[str]:
+    """Require an external publication receipt for planner-v2 contracts.
+
+    The receipt is a small core-owned sidecar under ``.agent/publications``;
+    it is deliberately separate from the reviewed contract bytes.  A missing
+    or half-written receipt keeps the contract on the explicit legacy/manual
+    compatibility path and therefore cannot masquerade as a published v2
+    contract.
+    """
+    task_id, version = plan_key.rsplit(".v", 1)
+    root = repo.root / ".agent" / "publications"
+    receipt_path = root / ("%s.v%s.json" % (task_id, version))
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        return ["planner-v2 合同缺少登记回执：%s（旧人工 v1 需移除 contract_family 或走显式兼容登记）"
+                % display_path(receipt_path, repo.root)]
+    try:
+        raw_receipt = receipt_path.read_bytes()
+        try:
+            from codekit.protocols import strict_json_loads
+            receipt = strict_json_loads(raw_receipt)
+        except ModuleNotFoundError as exc:
+            return ["planner-v2 发布回执缺少严格 JSON 解码器：%s" % exc]
+    except Exception as exc:
+        return ["planner-v2 发布回执解析失败：%s" % exc]
+    if not isinstance(receipt, dict):
+        return ["planner-v2 发布回执必须是对象"]
+    required_receipt = {"record_type", "schema_version", "publication_id", "candidate_id",
+                        "task_id", "plan_version", "members", "review_ref",
+                        "idempotency_key", "generation", "state", "outbox_seq"}
+    if set(receipt) != required_receipt:
+        return ["planner-v2 发布回执字段不完整"]
+    if receipt.get("record_type") != "publication-receipt" or receipt.get("schema_version") != 1:
+        return ["planner-v2 发布回执类型或版本不受支持"]
+    if receipt.get("state") not in ("PUBLISHED", "REGISTERED"):
+        return ["planner-v2 发布回执不是当前登记状态：%r" % receipt.get("state")]
+    if receipt.get("task_id") != task_id or receipt.get("plan_version") != int(version):
+        return ["planner-v2 发布回执的任务或版本不匹配"]
+    if type(receipt.get("generation")) is not int or receipt["generation"] < 1 \
+            or type(receipt.get("outbox_seq")) is not int or receipt["outbox_seq"] < 1:
+        return ["planner-v2 发布回执缺少登记 generation/outbox 序号"]
+    review = receipt.get("review_ref")
+    if not isinstance(review, dict) or review.get("decision") != "APPROVED":
+        return ["planner-v2 发布回执缺少当前 APPROVED 审核绑定"]
+    members = receipt.get("members")
+    if not isinstance(members, dict):
+        return ["planner-v2 发布回执缺少双格式成员摘要"]
+    expected = {"markdown_sha256": hashlib.sha256(md_bytes).hexdigest(),
+                "json_sha256": hashlib.sha256(json_bytes).hexdigest()}
+    for key, digest in expected.items():
+        if members.get(key) != digest:
+            return ["planner-v2 发布回执的 %s 与固定合同字节不一致" % key]
+    return []
 
 
 NOTE_PREFIX = "NOTE："
@@ -3024,6 +3103,30 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_planner(args: argparse.Namespace) -> int:
+    """Validate an offline 09 planner record without writing managed state."""
+    path = Path(args.path).resolve()
+    if not path.is_file() or path.is_symlink():
+        raise DispatchError("planner 输入必须是普通文件：%s" % path, EXIT_USAGE)
+    try:
+        from codekit.planner_protocol import (strict_planner_json_loads,
+                                               validate_context_manifest,
+                                               validate_planner_request,
+                                               validate_planning_bundle)
+        value = strict_planner_json_loads(path.read_bytes())
+        if args.kind == "request":
+            result = validate_planner_request(value)
+        elif args.kind == "context":
+            result = validate_context_manifest(value)
+        else:
+            result = validate_planning_bundle(value)
+    except Exception as exc:
+        print("planner 记录无效：%s" % exc)
+        return EXIT_USAGE
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+    return EXIT_OK
+
+
 def cmd_derive_json(args: argparse.Namespace) -> int:
     """由 .agent/plans/<plan-key>.md 生成同名 .json，然后立即校验两者是否一致。"""
     repo = Repo.discover(args.repo)
@@ -3031,7 +3134,18 @@ def cmd_derive_json(args: argparse.Namespace) -> int:
     md_path, json_path = repo.plan_paths(key)
     if not md_path.is_file():
         raise DispatchError("缺少文件：%s" % display_path(md_path, repo.root), EXIT_USAGE)
-    contract, problems = derive_contract_json(md_path.read_text(encoding="utf-8"), args.title)
+    md_bytes = md_path.read_bytes()
+    md_text = md_bytes.decode("utf-8")
+    identity = _md_identity(md_text)
+    if identity.get("contract_family") == "planner-v2":
+        raise DispatchError("planner-v2 合同必须由发布登记入口冻结，derive-json 不得降级生成 v1 JSON；请使用显式兼容登记或重新生成候选",
+                            EXIT_BLOCKED)
+    if json_path.is_file():
+        existing_json = json_path.read_bytes()
+        if b'"contract_family"' in existing_json and b'"planner-v2"' in existing_json:
+            raise DispatchError("现有 JSON 已声明 planner-v2，derive-json 不得用 v1 输出覆盖登记合同",
+                                EXIT_BLOCKED)
+    contract, problems = derive_contract_json(md_text, args.title)
     for problem in problems:
         print("WARN  %s" % problem)
     derived_title = contract.get("title") or ""
@@ -3208,8 +3322,32 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     run_dir, number = allocate_attempt(repo, task_id)
     attempt_id = "%s.v%d.a%03d" % (task_id, version, number)
     try:
-        shutil.copyfile(str(md_path), str(run_dir / "plan.md"))
-        shutil.copyfile(str(json_path), str(run_dir / "contract.json"))
+        # Freeze the exact validated pair in memory before creating the
+        # attempt.  A second path-based copy after validate_plan would allow a
+        # replacement window to pair bytes that were never reviewed together.
+        frozen_md = md_path.read_bytes()
+        frozen_json = json_path.read_bytes()
+        try:
+            if b'"contract_family"' in frozen_json and b'"planner-v2"' in frozen_json:
+                try:
+                    from codekit.protocols import strict_json_loads
+                    frozen_raw = strict_json_loads(frozen_json)
+                except ModuleNotFoundError as exc:
+                    raise DispatchError("planner-v2 严格 JSON 解码器不可用：%s" % exc, EXIT_BLOCKED)
+            else:
+                frozen_raw = json.loads(frozen_json.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise DispatchError("固定合同字节无法解析：%s" % exc, EXIT_USAGE)
+        frozen_contract, frozen_errors, _frozen_warnings = validate_contract(
+            frozen_md.decode("utf-8"), frozen_raw, args.plan_key, extra_protected_paths(repo.config()))
+        if frozen_errors or frozen_contract is None:
+            raise DispatchError("验证后的合同字节在冻结时发生变化：%s" % "；".join(frozen_errors), EXIT_DRIFT)
+        if isinstance(frozen_raw, dict) and frozen_raw.get("contract_family") == "planner-v2":
+            publication_errors = verify_planner_publication(repo, args.plan_key, frozen_md, frozen_json)
+            if publication_errors:
+                raise DispatchError("固定合同字节未通过 planner-v2 发布门禁：%s" % "；".join(publication_errors), EXIT_BLOCKED)
+        (run_dir / "plan.md").write_bytes(frozen_md)
+        (run_dir / "contract.json").write_bytes(frozen_json)
         # 唯一的空目录：不复用、不删除来历不明的旧目录（git 允许在空目录上建立 worktree）。
         worktree = Path(tempfile.mkdtemp(prefix="%s-%s-a%03d-" % (repo.root.name[:16], task_id[:24], number),
                                          dir=str(worktree_root))).resolve()
@@ -3272,6 +3410,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise DispatchError("attempt 状态为 %s%s，只能运行未领取的 PREPARED attempt；返工请重新 prepare。"
                             % (state, "（已领取）" if (run_dir / "claim").exists() else ""))
     problems = verify_inputs(run_dir, meta)
+    attempt_contract = read_json_or(run_dir / "contract.json", {})
+    if isinstance(attempt_contract, dict) and attempt_contract.get("contract_family") == "planner-v2":
+        try:
+            planner_publication_errors = verify_planner_publication(
+                repo, meta["plan_key"], (run_dir / "plan.md").read_bytes(), (run_dir / "contract.json").read_bytes())
+            problems.extend(planner_publication_errors)
+        except OSError as exc:
+            problems.append("planner-v2 固定合同字节读取失败：%s" % exc)
     work_dir = Path(meta["worktree"])
     if not work_dir.is_dir():
         problems.append("worktree 不存在：%s" % work_dir)
