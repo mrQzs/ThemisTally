@@ -89,3 +89,10 @@ compileall、`git diff --check`、WSL Python 3.12 Schema 7 项和 stub dispatch 
 ## 2026-10-03 最终候选（C1 边界修复后）
 
 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 已推送。新的 capture 为 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/`（102 收集、95 通过、7 跳过）和 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`（542 收集、534 通过、8 跳过）；两者返回码均为 0，且 `baseline_consistent=true`、无漂移。C1 控制字符负例已纳入 docs-change、docs-check 和 review oracle。Pi/provider/native/09/10 仍未运行，门禁继续 `REVISE/BLOCKED`。
+
+
+## 2026-10-03 Current Candidate (296135c)
+
+The current code candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`. The runtime and artifact boundary fixes were re-captured: `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` contains 103 collected, 96 passed, and 7 skipped; `.agent/runs/offline-01-06-08-20261003-expanded-all-06/` contains 544 collected, 536 passed, and 8 skipped. Both captures returned 0, completed fully, and show no input drift.
+
+SourceAnchor byte binding and InvocationSpec argv freezing improve offline verifiability only. There is still no Pi attempt or independent `review-pi` verdict, so A/F rows remain `LOCAL_REFERENCE`, `NOT_RUN`, or `BLOCKED` and cannot become a stage PASS.

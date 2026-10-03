@@ -64,3 +64,8 @@
 ## 2026-10-03 最终候选（C1 边界修复后）
 
 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 的两组 raw capture 均无漂移；C1 控制字符拒绝覆盖 docs path、local target、scope 和 review text。对应故障只可记为 `LOCAL_REFERENCE`，真实平台/provider/handoff/consumer 故障继续 `NOT_RUN/BLOCKED`。
+
+
+## 2026-10-03 Current Candidate (296135c)
+
+Fault and boundary captures for `296135cb8eef4cbf54585d755f3ca437f7e74a51` use `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`. SourceAnchor resource drift, out-of-range spans, forged excerpt digests, and post-construction InvocationSpec argv mutation have regression coverage; these results are `LOCAL_REFERENCE` only. Real PID/boot, cross-platform process, provider billing, handoff, external consumer, and recovery drills remain `NOT_RUN/BLOCKED`.

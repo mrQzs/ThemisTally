@@ -114,3 +114,8 @@
 ## 2026-10-03 最终候选（C1 边界修复后）
 
 最终证据目录为 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`（542/534/8）和 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/`（102/95/7）。C1 控制字符负例的实际测试入口为 `tests.test_builtin_docs_checks.DocsChecksTests.test_local_target_classifies_without_network`、`tests.test_builtin_docs_change.DocsChangeTests.test_validator_rejects_forged_scope_paths_and_duplicates` 和 `tests.test_builtin_docs_oracle.DocsOracleTests.test_fixed_content_oracle_distinguishes_match_mismatch_and_drift`。它们只支持离线参考映射，不改变未运行项。
+
+
+## Current Offline Candidate (296135c)
+
+The code candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`. The latest builtin capture has 103 collected, 96 passed, and 7 environment skips; the 01-06/08 expanded capture has 544 collected, 536 passed, and 8 environment skips. Both captures show no drift. SourceAnchor now supports frozen-resource byte binding and InvocationSpec freezes argv; 08 remains `LOCAL_REFERENCE`, while the real dispatcher, Pi/provider, native platform, and 09/10 connector gates remain `NOT_RUN/BLOCKED`.

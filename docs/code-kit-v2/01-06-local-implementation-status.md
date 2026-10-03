@@ -62,3 +62,15 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 ## 2026-10-03 当前离线候选
 
 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 收紧授权/配置 canonical JSON 的编码后字节上限、approval subject/input 闭包、空 option schema，并补充 docs/plugin artifact 的 scope、生产状态和 review readiness 重放校验。01–06/08 扩展组合为 542 项收集、534 项通过、8 项环境跳过；插件全集为 102 项收集、95 项通过、7 项环境跳过。该结果是规划端离线 `LOCAL_REFERENCE`，没有 Pi attempt、真实 provider、原生平台或 09/10 连接器证据，阶段门继续 `REVISE/BLOCKED`。
+
+
+## 2026-10-03 Latest Offline Candidate (SourceAnchor and InvocationSpec hardening)
+
+The code candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`. `d44a7a9` binds SourceAnchor to frozen resource bytes, the complete resource digest, a half-open range, and the excerpt digest. `296135c` freezes InvocationSpec argv as an immutable tuple so a caller cannot change the digest after construction.
+
+Latest raw captures:
+
+- `.agent/runs/offline-01-06-08-20261003-builtin-all-06/`: 103 collected, 96 executed passes, 7 skips because optional Schema dependencies are unavailable on Windows; return code 0, `baseline_consistent=true`, no drift.
+- `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`: 544 collected, 536 executed passes, 8 skips for the same environment condition; return code 0, `baseline_consistent=true`, no drift.
+
+These remain offline `LOCAL_REFERENCE` results. No Pi attempt, real provider, Windows/macOS native process, external 09/10 consumer, or production dispatcher was run. The 01-06 and 08 gates remain `REVISE/BLOCKED`, and the production release gate stays closed.

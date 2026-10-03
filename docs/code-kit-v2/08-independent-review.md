@@ -20,3 +20,10 @@
 最新固定候选为 `e8935e84f9b6c196394ac576115317ef3b2e1d1d`，最终规划端复核报告为 `.agent/reviews/offline-acceptance-20261003-final-v2.md`；早期候选和报告保留作历史证据。
 
 最新复核文件已更新至候选 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`，证据目录为 `offline-01-06-08-20261003-builtin-all-04` 和 `offline-01-06-08-20261003-expanded-all-04`；结论仍为 `REVISE/BLOCKED`。
+
+
+## Current Candidate Review Update
+
+The current candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`; raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`. Both returned 0, have `baseline_consistent=true`, and show no drift. The latest contract pairs are rebound to this SHA and 39 pairs pass `pi_dispatch validate`.
+
+This proves only repeatable offline reference behavior on the fixed worktree. There is no Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence; the independent stage conclusion remains `REVISE/BLOCKED`.
