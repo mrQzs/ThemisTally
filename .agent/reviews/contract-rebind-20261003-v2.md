@@ -12,7 +12,7 @@
 - Each current task has a Markdown/JSON pair with an incremented version and the full current base SHA.
 - Current V01 checks point to real unittest modules or the checked-in builtin test discovery; V02 is compileall and V03 is git diff check.
 - Each contract states `LOCAL_REFERENCE`, `NOT_RUN`, and `BLOCKED` behavior and retains the no-production-gate rule.
-- The newest pair for each of the 39 route tasks passed `python scripts/pi_dispatch.py validate` (39 valid, 0 failed).
+- The newest pair for each of the 39 route tasks passed `python scripts/pi_dispatch.py validate` before publication (39 valid, 0 failed). A post-publication validation also reports 39 valid and 0 failed, with one expected base-selection warning per contract because commit `444d15b` publishes the contracts and review documents on top of the code candidate `296135c`.
 
 ## Evidence binding
 
