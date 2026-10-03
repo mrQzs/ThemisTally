@@ -280,6 +280,27 @@ class CliEvent:
         if self.provider_model is not None:
             _text(self.provider_model, "provider_model")
 
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "run_id": self.run_id,
+            "seq": self.seq,
+            "role": self.role,
+            "event_id": self.event_id,
+            "event_type": self.event_type,
+            "payload": dict(self.payload),
+            "raw_record_ref": dict(self.raw_record_ref),
+            "raw_start": self.raw_start,
+            "raw_end": self.raw_end,
+            "adapter_revision": self.adapter_revision,
+            "actual_model": self.actual_model,
+            "terminal": self.terminal,
+            "complete": self.complete,
+            "tool_id": self.tool_id,
+            "cli_model": self.cli_model,
+            "provider_model": self.provider_model,
+        }
+
     def to_result_event(self) -> dict[str, Any]:
         return {"event_id": self.event_id, "event_type": "result" if self.terminal else self.event_type,
                 "payload": dict(self.payload), "complete": self.complete,

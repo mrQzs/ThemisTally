@@ -80,26 +80,7 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             seq=1,
             role="planner",
         )
-        event_record = {
-            "request_id": event.request_id,
-            "run_id": event.run_id,
-            "seq": event.seq,
-            "role": event.role,
-            "event_id": event.event_id,
-            "event_type": event.event_type,
-            "payload": dict(event.payload),
-            "raw_record_ref": dict(event.raw_record_ref),
-            "raw_start": event.raw_start,
-            "raw_end": event.raw_end,
-            "adapter_revision": event.adapter_revision,
-            "actual_model": event.actual_model,
-            "terminal": event.terminal,
-            "complete": event.complete,
-            "tool_id": event.tool_id,
-            "cli_model": event.cli_model,
-            "provider_model": event.provider_model,
-        }
-        _assert_closed(self, event_record, "second-cli-event-v1.schema.json")
+        _assert_closed(self, event.to_mapping(), "second-cli-event-v1.schema.json")
 
         handoff = ProfileHandoff(
             "req",
