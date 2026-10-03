@@ -126,7 +126,8 @@ class Decision:
 def _text(value: object, field: str, *, max_len: int = 256) -> str:
     if type(value) is not str or not value or len(value) > max_len or "\x00" in value:
         raise ClaimModelError("E_SCHEMA_FIELDS", field, "nonempty_text_required")
-    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+           or 0xD800 <= ord(char) <= 0xDFFF for char in value):
         raise ClaimModelError("E_SCHEMA_FIELDS", field, "unicode_scalar_required")
     return value
 
@@ -177,8 +178,9 @@ def _validate_receipt(receipt: ClaimReceipt) -> None:
         _positive(getattr(receipt, name), f"/receipt/{name}")
     _nonnegative(receipt.stop_epoch, "/receipt/stop_epoch")
     _text(receipt.owner, "/receipt/owner")
-    if type(receipt.lease_until) is not float or not math.isfinite(receipt.lease_until):
-        raise ClaimModelError("E_SCHEMA_TYPE", "/receipt/lease_until", "finite_float_required")
+    if (type(receipt.lease_until) is not float or not math.isfinite(receipt.lease_until)
+            or receipt.lease_until < 0 or receipt.lease_until > protocols.MAX_SAFE_INTEGER):
+        raise ClaimModelError("E_SCHEMA_TYPE", "/receipt/lease_until", "finite_nonnegative_float_required")
     _text(receipt.idempotency_key, "/receipt/idempotency_key")
     _text(receipt.request_fingerprint, "/receipt/request_fingerprint")
 

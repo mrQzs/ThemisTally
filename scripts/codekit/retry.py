@@ -197,6 +197,18 @@ def backoff(policy: RetryPolicy, attempt: int) -> int:
     return min(value, MAX_SAFE_INTEGER)
 
 
+def _safe_next_attempt(total: int) -> int:
+    """Keep a diagnostic attempt number inside the public integer range."""
+    return MAX_SAFE_INTEGER if total >= MAX_SAFE_INTEGER else total + 1
+
+
+def _safe_due(sequence: int, delay: int) -> tuple[int, bool]:
+    """Return a bounded retry sequence and whether the true value overflowed."""
+    if sequence > MAX_SAFE_INTEGER - delay:
+        return MAX_SAFE_INTEGER, True
+    return sequence + delay, False
+
+
 def cumulative_attempts(facts: Iterable[AttemptFact], *, request: str, task: str) -> int:
     """Count attempts for one stable request/task identity across all plans."""
     _text(request, "/request")
@@ -290,7 +302,13 @@ def decide(policy: RetryPolicy, fact: AttemptFact, context: RetryContext,
         elif current > policy.valid_until_seq:
             no_retry_reasons.append("policy_expired")
 
-    observed = cumulative_attempts(history, request=fact.request, task=fact.task)
+    # The triggering fact is itself an allocated attempt.  A stale or omitted
+    # context counter must not make the next retry reuse attempt number 1.
+    history_items = tuple(history)
+    observed = cumulative_attempts(history_items, request=fact.request, task=fact.task)
+    if not any(item.request == fact.request and item.task == fact.task
+               and item.operation == fact.operation for item in history_items):
+        observed += 1
     if observed and observed > context.total_attempts:
         wait_reasons.append("attempt_count_stale")
     total = max(context.total_attempts, observed)
@@ -318,10 +336,15 @@ def decide(policy: RetryPolicy, fact: AttemptFact, context: RetryContext,
     elif authorization is not True:
         no_retry_reasons.append("authorization_denied")
 
+    due, due_saturated = _safe_due(fact.sequence, backoff(policy, fact.attempt))
     if current is None:
         wait_reasons.append("sequence_unknown")
+    elif due_saturated:
+        # There is no representable observation sequence beyond the public
+        # bound.  Keep the decision waiting instead of treating a saturated
+        # value as already due at MAX_SAFE_INTEGER.
+        wait_reasons.append("sequence_limit_reached")
     else:
-        due = fact.sequence + backoff(policy, fact.attempt)
         if current < due:
             wait_reasons.append("backoff_active")
 
@@ -331,17 +354,17 @@ def decide(policy: RetryPolicy, fact: AttemptFact, context: RetryContext,
     # Stop and terminal facts take precedence over count, while an exhausted
     # otherwise-valid attempt is reported as EXHAUSTED.  This ordering is fixed.
     if stop_reasons:
-        return RetryDecision(STOP, tuple(reasons), total + 1, None)
+        return RetryDecision(STOP, tuple(reasons), _safe_next_attempt(total), None)
     if no_retry_reasons:
-        return RetryDecision(NO_RETRY, tuple(reasons), total + 1, None)
+        return RetryDecision(NO_RETRY, tuple(reasons), _safe_next_attempt(total), None)
     if exhausted:
-        return RetryDecision(EXHAUSTED, tuple(reasons), total + 1, None)
+        return RetryDecision(EXHAUSTED, tuple(reasons), _safe_next_attempt(total), None)
     if wait_reasons:
         retry_after = None
         if current is not None:
-            retry_after = fact.sequence + backoff(policy, fact.attempt)
-        return RetryDecision(WAIT, tuple(reasons), total + 1, retry_after)
-    return RetryDecision(RETRY_ALLOWED, ("retry_authorized",), total + 1, None)
+            retry_after = due
+        return RetryDecision(WAIT, tuple(reasons), _safe_next_attempt(total), retry_after)
+    return RetryDecision(RETRY_ALLOWED, ("retry_authorized",), _safe_next_attempt(total), None)
 
 
 __all__ = [

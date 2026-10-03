@@ -167,6 +167,31 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(RetryError):
             RetryContext(total_dispatches=True)
 
+    def test_retry_outputs_stay_within_safe_integer_range(self) -> None:
+        maximum = 2**53 - 1
+        exhausted = decide(
+            self.policy(max_attempts_total=maximum, min_backoff_seconds=0,
+                        valid_until_seq=maximum),
+            self.fact(sequence=maximum),
+            self.context(total_attempts=maximum, sequence=maximum),
+        )
+        self.assertEqual(exhausted.status, EXHAUSTED)
+        self.assertEqual(exhausted.next_attempt, maximum)
+
+        overflow = decide(
+            self.policy(min_backoff_seconds=2, valid_until_seq=maximum),
+            self.fact(sequence=maximum),
+            self.context(sequence=maximum),
+        )
+        self.assertEqual(overflow.status, WAIT)
+        self.assertIn("sequence_limit_reached", overflow.reasons)
+        self.assertEqual(overflow.retry_after_seq, maximum)
+
+    def test_triggering_fact_counts_toward_next_attempt_when_context_is_stale(self) -> None:
+        result = decide(self.policy(), self.fact(), self.context(total_attempts=0))
+        self.assertEqual((result.status, result.next_attempt), (WAIT, 2))
+        self.assertIn("attempt_count_stale", result.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

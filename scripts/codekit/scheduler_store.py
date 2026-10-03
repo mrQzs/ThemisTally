@@ -18,6 +18,7 @@ import sqlite3
 from typing import Any, Iterator, Mapping, Optional, Sequence
 import uuid
 
+from . import protocols
 from .claim_model import (
     ACTIVE_TASK_STATES, ClaimFacts, ClaimReceipt, ClaimRequest, Decision,
     HandoffFacts, claim_decision, handoff_decision,
@@ -139,6 +140,14 @@ def _finite(value: object, field: str) -> float:
     except (OverflowError, ValueError):
         raise SchedulerStoreError("E_SCHEMA_TYPE", (field,)) from None
     if not math.isfinite(converted):
+        raise SchedulerStoreError("E_SCHEMA_TYPE", (field,))
+    return converted
+
+
+def _lease_finite(value: object, field: str) -> float:
+    """Validate the bounded lease scalar used by claim receipts."""
+    converted = _finite(value, field)
+    if converted < 0 or converted > protocols.MAX_SAFE_INTEGER:
         raise SchedulerStoreError("E_SCHEMA_TYPE", (field,))
     return converted
 
@@ -418,7 +427,7 @@ class SchedulerStore:
                 for column in ("plan_version", "controller_generation", "claim_generation", "guard_version"):
                     _db_integer(row[column], f"operations.{column}", minimum=1)
                 _db_integer(row["stop_epoch"], "operations.stop_epoch")
-                _finite(row["lease_until"], "operations.lease_until")
+                _lease_finite(row["lease_until"], "operations.lease_until")
                 if row["state"] not in _STATE_SQL.replace("'", "").split(","):
                     raise SchedulerStoreError("E_SCHEMA_INVALID", ("operations.state",))
                 _db_text(row["reservation_json"], "operations.reservation_json")
@@ -598,7 +607,7 @@ class SchedulerStore:
         _input_integer(request.guard_version, "request.guard_version", minimum=1)
         _input_integer(request.stop_epoch, "request.stop_epoch")
         _input_text(owner, "owner", limit=200, code="E_OWNER")
-        lease = _finite(lease_until, "lease_until")
+        lease = _lease_finite(lease_until, "lease_until")
         reserve = _reservation(reservation)
         resources = _resources(resource_keys)
         with self.tx():

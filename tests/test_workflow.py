@@ -221,6 +221,16 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaises(protocols.ProtocolError):
                 workflow.validate_workflow(value)
 
+    def test_budget_currency_caps_are_bounded(self) -> None:
+        value = copy.deepcopy(self.doc)
+        value["nodes"][0]["budget"]["currency_caps"] = {
+            f"{chr(65 + index // 26)}{chr(65 + index % 26)}A": "1"
+            for index in range(workflow.MAX_MAPPING_ENTRIES + 1)
+        }
+        with self.assertRaises(protocols.ProtocolError) as caught:
+            workflow.validate_workflow(value)
+        self.assertEqual(caught.exception.code, "E_JSON_LIMIT")
+
     def test_parse_workflow_accepts_bytes_only(self) -> None:
         result = workflow.parse_workflow(FIXTURE.read_bytes())
         self.assertEqual(result.task_order, ("alpha", "beta"))

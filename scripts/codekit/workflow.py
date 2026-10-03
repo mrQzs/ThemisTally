@@ -381,6 +381,8 @@ def _validate_budget(value: Any, field: str) -> None:
     _closed(obj, {"max_dispatches", "currency_caps"}, field)
     _expect_int(obj.get("max_dispatches"), f"{field}/max_dispatches", minimum=1)
     caps = _expect_dict(obj.get("currency_caps"), f"{field}/currency_caps", "currency_caps")
+    if len(caps) > MAX_MAPPING_ENTRIES:
+        _error("E_JSON_LIMIT", f"{field}/currency_caps", "mapping_limit_exceeded")
     for currency, amount in caps.items():
         if type(currency) is not str or re.fullmatch(r"[A-Z]{3}", currency) is None:
             _error("E_SCHEMA_FIELDS", f"{field}/currency_caps/{_escape(str(currency))}", "currency_syntax")

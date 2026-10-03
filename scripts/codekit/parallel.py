@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import re
 from typing import Mapping, Optional, Sequence
 
+from . import protocols
+
 
 MAX_SAFE_INTEGER = 2**53 - 1
 CLAIM_KINDS = frozenset(("path", "key"))
@@ -23,6 +25,8 @@ ACTIVE_STATES = frozenset((
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
+MAX_CLAIMS = 256
+MAX_SCOPE_REFS = 256
 
 
 class ParallelModelError(ValueError):
@@ -115,14 +119,15 @@ def _optional_bool(value: object, field: str) -> None:
 
 
 def _path_key(value: object, field: str) -> str:
-    if type(value) is not str or not value or len(value) > 1024 or "\x00" in value:
-        raise ParallelModelError("E_RESOURCE_KEY", field, "invalid_path")
-    if "\\" in value or value.startswith("/") or any(char in value for char in "*?[]{}"):
+    if type(value) is str and (len(value) > 1024 or any(char in value for char in "[]{}")):
         raise ParallelModelError("E_RESOURCE_KEY", field, "nonportable_path")
-    parts = value.split("/")
-    if any(part in ("", ".", "..") for part in parts):
-        raise ParallelModelError("E_RESOURCE_KEY", field, "unsafe_path")
-    return value
+    try:
+        return protocols.validate_business_path(value, field=field)
+    except protocols.ProtocolError as error:
+        # Keep this module's error family stable while reusing the canonical
+        # business-path profile (including control, bidi, reserved-name and
+        # Unicode scalar checks).
+        raise ParallelModelError("E_RESOURCE_KEY", field, error.reason) from None
 
 
 def validate_claim(claim: ResourceClaim, *, field: str = "/claim") -> ResourceClaim:
@@ -141,6 +146,8 @@ def validate_claim(claim: ResourceClaim, *, field: str = "/claim") -> ResourceCl
 def normalize_claims(claims: Sequence[ResourceClaim], *, field: str = "/claims") -> tuple[ResourceClaim, ...]:
     if type(claims) not in (tuple, list):
         raise ParallelModelError("E_SCHEMA_TYPE", field, "claims_array_required")
+    if len(claims) > MAX_CLAIMS:
+        raise ParallelModelError("E_JSON_LIMIT", field, "claim_limit_exceeded")
     if not claims:
         return ()
     normalized = tuple(validate_claim(item, field=f"{field}/{index}") for index, item in enumerate(claims))
@@ -165,7 +172,8 @@ def claims_from_task(repo_id: str, task: Mapping[str, object]) -> tuple[Resource
     if type(scopes) not in (tuple, list) or type(keys) not in (tuple, list):
         raise ParallelModelError("E_SCHEMA_TYPE", "/task", "claims_arrays_required")
     for index, scope in enumerate(scopes):
-        if not isinstance(scope, Mapping) or scope.get("kind") not in ("file", "tree"):
+        if (not isinstance(scope, Mapping) or set(scope) != {"path", "kind"}
+                or scope.get("kind") not in ("file", "tree")):
             raise ParallelModelError("E_SCHEMA_FIELDS", f"/task/write_scope/{index}", "scope_required")
         claims.append(ResourceClaim(repo_id, "path", scope.get("path"), "write"))  # type: ignore[arg-type]
     for index, key in enumerate(keys):
@@ -201,10 +209,11 @@ def _validate_candidate(candidate: AdmissionCandidate, field: str) -> AdmissionC
         _optional_bool(getattr(candidate, name), f"{field}/{name}")
     proof = candidate.independence_proof
     if proof is not None:
-        if not isinstance(proof, IndependenceProof) or type(proof.scope_refs) is not tuple or not proof.scope_refs:
+        if (not isinstance(proof, IndependenceProof) or type(proof.scope_refs) is not tuple
+                or not proof.scope_refs or len(proof.scope_refs) > MAX_SCOPE_REFS):
             raise ParallelModelError("E_SCHEMA_TYPE", f"{field}/independence_proof", "proof_required")
         for index, ref in enumerate(proof.scope_refs):
-            _text(ref, f"{field}/independence_proof/scope_refs/{index}", pattern=_KEY_RE)
+            _proof_ref(ref, f"{field}/independence_proof/scope_refs/{index}")
         if type(proof.digest) is not str or _HASH_RE.fullmatch(proof.digest) is None:
             raise ParallelModelError("E_SCHEMA_FIELDS", f"{field}/independence_proof/digest", "sha256_required")
         _integer(proof.guard_version, f"{field}/independence_proof/guard_version", minimum=1)
@@ -278,6 +287,10 @@ def admit_candidates(candidates: Sequence[AdmissionCandidate], holds: Sequence[R
             raise ParallelModelError("E_SCHEMA_FIELDS", "/candidates", "duplicate_task")
         seen.add(identity)
     checked_holds = tuple(_validate_hold(item, f"/holds/{index}") for index, item in enumerate(holds))
+    # A caller may provide a stale lower count while the hold snapshot already
+    # proves active operations.  Fail closed by counting the proven holds;
+    # never let an underreported scalar open an extra concurrency slot.
+    active_count = max(active_count, len(checked_holds))
     occupied = [claim for hold in checked_holds for claim in hold.claims]
     active_tasks = {(hold.repo_id, hold.request_id, hold.task_id) for hold in checked_holds}
     ordered = sorted(checked, key=lambda item: (-item.priority, item.admission_seq, item.task_id,
@@ -325,8 +338,21 @@ def no_progress_reason(result: AdmissionResult, *, required_remaining: Optional[
     return "WAIT_NO_READY"
 
 
+def _proof_ref(value: object, field: str) -> str:
+    """Validate an independence reference without rejecting Unicode paths."""
+    # A canonical ``path:<business-path>`` reference may add the kind prefix
+    # to the business-path byte limit; leave room for that prefix and Unicode
+    # code-point expansion while retaining a finite bound.
+    if type(value) is not str or not value or len(value) > 8192:
+        raise ParallelModelError("E_SCHEMA_FIELDS", field, "invalid_scope_ref")
+    if any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+           or 0xD800 <= ord(char) <= 0xDFFF for char in value):
+        raise ParallelModelError("E_SCHEMA_FIELDS", field, "invalid_scope_ref")
+    return value
+
+
 __all__ = [
-    "ACTIVE_STATES", "CLAIM_KINDS", "CLAIM_MODES", "Admission", "AdmissionCandidate", "AdmissionResult",
+    "ACTIVE_STATES", "CLAIM_KINDS", "CLAIM_MODES", "MAX_CLAIMS", "MAX_SCOPE_REFS", "Admission", "AdmissionCandidate", "AdmissionResult",
     "IndependenceProof", "ParallelModelError", "ResourceClaim", "ResourceHold", "admit_candidates", "claims_conflict",
     "claims_from_task", "no_progress_reason", "normalize_claims", "validate_claim",
 ]

@@ -170,6 +170,12 @@ class SchedulerStoreTests(unittest.TestCase):
             self.store.claim(request(), facts(), owner="owner-a", lease_until=10 ** 10000,
                              reservation={"dispatches": 1}, resource_keys=[])
         self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
+        for lease_until in (-1, 2 ** 53):
+            with self.subTest(lease_until=lease_until):
+                with self.assertRaises(SchedulerStoreError) as caught:
+                    self.store.claim(request(), facts(), owner="owner-a", lease_until=lease_until,
+                                     reservation={"dispatches": 1}, resource_keys=[])
+                self.assertEqual(caught.exception.code, "E_SCHEMA_TYPE")
         result = self.store.claim(request(), facts(), owner="owner-a", lease_until=100,
                                   reservation={"dispatches": 1}, resource_keys=["src/a"])
         with self.assertRaises(SchedulerStoreError) as caught:

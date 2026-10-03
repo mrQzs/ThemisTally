@@ -72,6 +72,12 @@ class ClaimModelTests(unittest.TestCase):
             validate_claim_receipt(receipt(lease_until=float("nan")))
         with self.assertRaises(ClaimModelError):
             validate_claim_receipt(receipt(owner="\ud800"))
+        with self.assertRaises(ClaimModelError):
+            validate_claim_receipt(receipt(owner="owner\nlog"))
+        with self.assertRaises(ClaimModelError):
+            validate_claim_receipt(receipt(lease_until=-1.0))
+        with self.assertRaises(ClaimModelError):
+            validate_claim_receipt(receipt(lease_until=float(2**53)))
 
     def test_idempotency_replay_and_conflict(self) -> None:
         self.assertEqual(idempotency_decision(None, key="k", request_fingerprint="f").decision, "NEW")

@@ -13,7 +13,8 @@ if str(SCRIPTS) not in sys.path:
 
 from codekit.parallel import (  # noqa: E402
     AdmissionCandidate, IndependenceProof, ParallelModelError, ResourceClaim, ResourceHold,
-    admit_candidates, claims_conflict, claims_from_task, no_progress_reason,
+    MAX_CLAIMS, admit_candidates, claims_conflict, claims_from_task, no_progress_reason,
+    normalize_claims,
 )
 
 
@@ -58,6 +59,9 @@ class ParallelTests(unittest.TestCase):
         self.assertEqual([(item.kind, item.key, item.mode) for item in mapped],
                          [("key", "module:a", "exclusive"), ("path", "src/a", "write")])
         self.assertEqual(claims_from_task(REPO, {"write_scope": [], "resource_keys": []}), ())
+        with self.assertRaises(ParallelModelError):
+            claims_from_task(REPO, {"write_scope": [{"path": "src/a", "kind": "tree", "extra": True}],
+                                    "resource_keys": []})
 
     def test_stable_order_is_priority_sequence_then_task(self) -> None:
         result = admit_candidates([
@@ -117,10 +121,33 @@ class ParallelTests(unittest.TestCase):
         with self.assertRaises(ParallelModelError):
             claims_conflict(claim("bad\\path", kind="path"), claim("x"))
         with self.assertRaises(ParallelModelError):
+            claims_conflict(claim("src/line\nfeed", kind="path"), claim("x"))
+        for path in ("src/[ab]", "src/{a,b}", "/".join(["a" * 200] * 6)):
+            with self.subTest(path=path), self.assertRaises(ParallelModelError):
+                claims_conflict(claim(path, kind="path"), claim("x"))
+        with self.assertRaises(ParallelModelError):
             admit_candidates([candidate("a", ready=1)], (), max_parallel_tasks=1)  # type: ignore[arg-type]
         with self.assertRaises(ParallelModelError):
             admit_candidates([candidate("a", claims=(claim("x"),), independence=IndependenceProof(("x",), "bad", 1))],
                              (), max_parallel_tasks=2)
+
+    def test_unicode_path_scope_can_be_bound_by_independence_proof(self) -> None:
+        item = claim("src/模块", kind="path")
+        result = admit_candidates(
+            [candidate("unicode", claims=(item,), independence=proof("path:src/模块"))],
+            (), max_parallel_tasks=2,
+        )
+        self.assertEqual(tuple(admission.task_id for admission in result.admitted), ("unicode",))
+
+    def test_claim_vector_has_a_bounded_size(self) -> None:
+        items = tuple(claim(f"module:{index}") for index in range(MAX_CLAIMS + 1))
+        with self.assertRaises(ParallelModelError):
+            normalize_claims(items)
+
+    def test_underreported_active_count_fails_closed_from_holds(self) -> None:
+        hold = ResourceHold(REPO, "req-" + "b" * 32, "held", "op-held", "STARTED", ())
+        result = admit_candidates([candidate("next")], (hold,), max_parallel_tasks=1, active_count=0)
+        self.assertEqual(result.blocked, (("next", "WAIT_CONCURRENCY"),))
 
 
 if __name__ == "__main__":
