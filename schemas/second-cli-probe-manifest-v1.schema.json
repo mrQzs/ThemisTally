@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-probe-manifest:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "adapter_id", "executable", "version", "platform", "environment_kind", "roles_declared", "model_status", "authentication_status", "provider_status", "version_evidence", "help_evidence", "observed_capabilities", "declared_from_help", "limitations"],
+  "properties": {
+    "record_type": {"const": "second-cli-probe-manifest"},
+    "schema_version": {"const": 1},
+    "adapter_id": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "platform": {"enum": ["linux", "macos", "windows"]},
+    "environment_kind": {"enum": ["native", "wsl"]},
+    "roles_declared": {"type": "array", "items": {"enum": ["planner", "executor", "observer"]}, "minItems": 1, "uniqueItems": true},
+    "model_status": {"enum": ["NOT_RUN", "OBSERVED", "BLOCKED"]},
+    "authentication_status": {"enum": ["NOT_INSPECTED", "READY", "MISSING", "BLOCKED"]},
+    "provider_status": {"enum": ["NOT_RUN", "OBSERVED", "BLOCKED"]},
+    "version_evidence": {"$ref": "#/$defs/evidence"},
+    "help_evidence": {"$ref": "#/$defs/evidence"},
+    "observed_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "declared_from_help": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}
+  },
+  "$defs": {
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "bytes", "exit_code"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "bytes": {"type": "integer", "minimum": 1}, "exit_code": {"type": "integer"}}}
+  }
+}

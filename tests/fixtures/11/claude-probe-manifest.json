@@ -1,0 +1,42 @@
+{
+  "adapter_id": "claude-code",
+  "authentication_status": "NOT_INSPECTED",
+  "declared_from_help": [
+    "streaming_events",
+    "model_identity",
+    "tool_events",
+    "terminal_event"
+  ],
+  "environment_kind": "native",
+  "executable": "claude",
+  "help_evidence": {
+    "bytes": 22040,
+    "exit_code": 0,
+    "path": "tests/fixtures/11/claude-help.txt",
+    "sha256": "a58ca2282c01312250fc8d861088dae6e46340ad55346557fcdbc0053f415367"
+  },
+  "limitations": [
+    "model request not run",
+    "native process lifecycle not verified",
+    "usage billing not observed",
+    "credentials not inspected"
+  ],
+  "model_status": "NOT_RUN",
+  "observed_capabilities": [],
+  "platform": "windows",
+  "provider_status": "NOT_RUN",
+  "record_type": "second-cli-probe-manifest",
+  "roles_declared": [
+    "planner",
+    "executor",
+    "observer"
+  ],
+  "schema_version": 1,
+  "version": "2.1.288",
+  "version_evidence": {
+    "bytes": 22,
+    "exit_code": 0,
+    "path": "tests/fixtures/11/claude-version.txt",
+    "sha256": "633e048600d3b521510cbcd629063291d140105c64e042c345b30850e9cf0c2d"
+  }
+}

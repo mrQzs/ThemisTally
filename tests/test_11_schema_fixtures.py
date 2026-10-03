@@ -130,6 +130,7 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             "second-cli-probe-v1.schema.json",
             "second-cli-handoff-v1.schema.json",
             "second-cli-recovery-v1.schema.json",
+            "second-cli-probe-manifest-v1.schema.json",
         ):
             schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
             self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
@@ -144,6 +145,19 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             handoff_schema["$defs"]["resource_ref"]["required"],
             ["kind", "id", "path", "sha256"],
         )
+
+    def test_local_probe_manifest_hashes_are_reproducible_and_non_production(self) -> None:
+        manifest_path = ROOT / "tests" / "fixtures" / "11" / "claude-probe-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        _assert_closed(self, manifest, "second-cli-probe-manifest-v1.schema.json")
+        for evidence in (manifest["version_evidence"], manifest["help_evidence"]):
+            raw = (ROOT / evidence["path"]).read_bytes()
+            self.assertEqual(len(raw), evidence["bytes"])
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), evidence["sha256"])
+            self.assertEqual(evidence["exit_code"], 0)
+        self.assertEqual(manifest["model_status"], "NOT_RUN")
+        self.assertEqual(manifest["provider_status"], "NOT_RUN")
+        self.assertEqual(manifest["authentication_status"], "NOT_INSPECTED")
 
     def test_unknown_usage_is_blocked_and_does_not_settle(self) -> None:
         records = [
