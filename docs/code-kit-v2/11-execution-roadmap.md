@@ -27,7 +27,7 @@
 - S2：已实现 Claude stream-json 离线事件归一化、原始记录引用、终态/模型/用量/工具闭合检查和 replay 冲突拒绝。
 - S3：已实现统一 facade、argv/no-shell 调用快照、平台/环境/能力/环境名快照、stdin/资源闭包摘要、可验证的 raw byte fixture、事件上下文/终态/工具审计和取消/响应丢失分类；尚未接入真实 05 进程 runner。
 - S4：已实现只读 planner→executor 跨会话 handoff、`validate_run_context(for_executor_dispatch=True)` 绑定、generation 校验、共享 `PlanningBudgetLedger` role gate 和 executor start gate；尚未接入 03 ApprovalLedger、09 PlanningService 的真实启动入口。
-- S5：已补 provider-neutral `ProfileRouter`、旧 `OfflineAdapter` 回归覆盖和保守取消状态（含 `CANCEL_AFTER_EXIT`）；尚未接入 Pi dispatcher、真实进程清理或重试协调。
+- S5：已补 provider-neutral `ProfileRouter`、旧 `OfflineAdapter` 回归覆盖、保守取消状态（含 `CANCEL_AFTER_EXIT`）、幂等恢复账本和显式 fallback/re-review 门禁；尚未接入 Pi dispatcher、真实进程清理或重试协调。
 - S6：已实现离线 `PreflightResult` 和 machine-checkable independent release gate；真实异构链路、平台矩阵和独立发布门禁仍继续 `NOT_RUN/BLOCKED`。
 
 ## 所有权与验证

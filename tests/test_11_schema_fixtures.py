@@ -133,6 +133,7 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             "second-cli-handoff-v1.schema.json",
             "second-cli-recovery-v1.schema.json",
             "second-cli-probe-manifest-v1.schema.json",
+            "second-cli-fallback-decision-v1.schema.json",
         ):
             schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
             self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")

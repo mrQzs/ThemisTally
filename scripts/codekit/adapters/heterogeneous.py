@@ -344,6 +344,60 @@ def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
     return IndependentReleaseGate(not reasons, tuple(dict.fromkeys(reasons)), refs)
 
 
+@dataclass(frozen=True)
+class FallbackDecision:
+    allowed: bool
+    primary_profile_id: str
+    fallback_profile_id: str
+    reasons: tuple[str, ...]
+    requires_review: bool = True
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "second-cli-fallback-decision", "schema_version": 1,
+                "allowed": self.allowed, "primary_profile_id": self.primary_profile_id,
+                "fallback_profile_id": self.fallback_profile_id, "reasons": list(self.reasons),
+                "requires_review": self.requires_review}
+
+
+def select_fallback(*, primary_profile_id: str, fallback_profile_id: str,
+                    primary: PreflightResult, fallback: PreflightResult,
+                    authorized: bool = False, re_reviewed: bool = False) -> FallbackDecision:
+    """Choose a fallback only after an explicit, separately reviewed decision."""
+    reasons: list[str] = []
+    if primary_profile_id == fallback_profile_id:
+        reasons.append("FALLBACK_PROFILE_DUPLICATE")
+    if primary.status == "READY":
+        reasons.append("PRIMARY_PROFILE_HAS_NO_FAILURE")
+    if fallback.status != "READY":
+        reasons.append("FALLBACK_NOT_READY")
+    if not authorized:
+        reasons.append("FALLBACK_AUTHORIZATION_REQUIRED")
+    if not re_reviewed:
+        reasons.append("FALLBACK_REVIEW_REQUIRED")
+    return FallbackDecision(not reasons, primary_profile_id, fallback_profile_id,
+                            tuple(dict.fromkeys(reasons)), True)
+
+
+class RecoveryLedger:
+    """Idempotent offline recovery observation store; no retry or process action."""
+
+    def __init__(self) -> None:
+        self._items: dict[tuple[str, str, int], CancellationObservation] = {}
+
+    def record(self, observation: CancellationObservation) -> str:
+        key = (observation.request_id, observation.run_id, observation.generation)
+        previous = self._items.get(key)
+        if previous is not None:
+            if previous == observation:
+                return "REPLAY"
+            raise AdapterFacadeError("E_RECOVERY_CONFLICT", "recovery identity has different observation")
+        self._items[key] = observation
+        return "APPLIED"
+
+    def get(self, request_id: str, run_id: str, generation: int) -> CancellationObservation | None:
+        return self._items.get((request_id, run_id, generation))
+
+
 def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
                     handoff: ProfileHandoff | None = None,
                     ledger: PlanningBudgetLedger | None = None,
@@ -477,6 +531,6 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
 
 
 __all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
-           "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff", "ProfileRouter",
-           "RoleGate", "StartGate", "check_role_gate", "evaluate_independent_release_gate",
-           "evaluate_start_gate", "validate_handoff"]
+           "FallbackDecision", "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff",
+           "ProfileRouter", "RecoveryLedger", "RoleGate", "StartGate", "check_role_gate",
+           "evaluate_independent_release_gate", "evaluate_start_gate", "select_fallback", "validate_handoff"]

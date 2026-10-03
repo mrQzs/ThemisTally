@@ -7,6 +7,8 @@ from scripts.codekit.adapters.heterogeneous import (
     CancellationObservation,
     HeterogeneousAdapterFacade,
     evaluate_independent_release_gate,
+    RecoveryLedger,
+    select_fallback,
     ProfileHandoff,
     ProfileRouter,
     check_role_gate,
@@ -77,6 +79,40 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                                              independent_review=True, external_connectors=True)
         self.assertFalse(missing_evidence.allowed)
         self.assertIn("EVIDENCE_REF_MISSING:real_model_chain", missing_evidence.reasons)
+
+    def test_fallback_requires_explicit_authorization_and_review(self):
+        adapter = ClaudeCodeAdapter()
+        capability = adapter.probe(timeout=1).capability
+        primary = preflight_profile(capability, role="planner", platform=capability.platforms[0],
+                                    required_capabilities=("terminal_event",), requested_model="m",
+                                    authentication_status="READY", version_supported=False,
+                                    reported_model="m")
+        fallback = preflight_profile(capability, role="planner", platform=capability.platforms[0],
+                                     required_capabilities=("terminal_event",), requested_model="m2",
+                                     authentication_status="READY", version_supported=True,
+                                     reported_model="m2")
+        denied = select_fallback(primary_profile_id="primary", fallback_profile_id="fallback",
+                                 primary=primary, fallback=fallback)
+        self.assertFalse(denied.allowed)
+        self.assertIn("FALLBACK_AUTHORIZATION_REQUIRED", denied.reasons)
+        accepted = select_fallback(primary_profile_id="primary", fallback_profile_id="fallback",
+                                   primary=primary, fallback=fallback,
+                                   authorized=True, re_reviewed=True)
+        self.assertTrue(accepted.allowed)
+        self.assertEqual(accepted.to_mapping()["requires_review"], True)
+
+    def test_recovery_ledger_replays_same_observation_and_rejects_conflict(self):
+        ledger = RecoveryLedger()
+        observation = CancellationObservation.classify(request_id="req", run_id="run", generation=1,
+                                                        cancel_requested=True, exit_code=None,
+                                                        response_lost=True, process_observed=None)
+        self.assertEqual(ledger.record(observation), "APPLIED")
+        self.assertEqual(ledger.record(observation), "REPLAY")
+        conflict = CancellationObservation.classify(request_id="req", run_id="run", generation=1,
+                                                     cancel_requested=True, exit_code=130,
+                                                     process_observed=False)
+        with self.assertRaisesRegex(AdapterFacadeError, "E_RECOVERY_CONFLICT"):
+            ledger.record(conflict)
 
     def test_invocation_digest_binds_stdin_and_resource_allowlist(self):
         adapter = ClaudeCodeAdapter()

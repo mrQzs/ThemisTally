@@ -460,13 +460,16 @@ class ClaudeCodeAdapter:
         model = record.get("model")
         if model is None and isinstance(record.get("message"), dict):
             model = record["message"].get("model")
+        cli_model = record.get("cli_model")
+        if cli_model is None and isinstance(record.get("message"), dict):
+            cli_model = record["message"].get("cli_model")
         provider_model = record.get("provider_model")
         if provider_model is None and isinstance(record.get("message"), dict):
             provider_model = record["message"].get("provider_model")
         if not isinstance(kind, str) or kind not in _KNOWN_TYPES:
             return CliEvent(request_id, run_id, seq, role, event_id, "unknown", {"raw": record}, ref, 0, len(raw),
                             adapter_revision, actual_model=model if isinstance(model, str) else None, complete=False,
-                            cli_model=model if isinstance(model, str) else None,
+                            cli_model=cli_model if isinstance(cli_model, str) else None,
                             provider_model=provider_model if isinstance(provider_model, str) else None)
         event_type = {"system": "run_started", "assistant": "assistant", "user": "user",
                       "tool_use": "tool_started", "tool_result": "tool_finished", "result": "run_finished",
@@ -484,7 +487,7 @@ class ClaudeCodeAdapter:
         return CliEvent(request_id, run_id, seq, role, event_id, event_type, payload, ref, 0, len(raw), adapter_revision,
                         actual_model=model if isinstance(model, str) else None, terminal=terminal, complete=complete,
                         tool_id=tool_id if isinstance(tool_id, str) else None,
-                        cli_model=model if isinstance(model, str) else None,
+                        cli_model=cli_model if isinstance(cli_model, str) else None,
                         provider_model=provider_model if isinstance(provider_model, str) else None)
 
     def normalize_events(self, records: Iterable[bytes | str], *, request_id: str, run_id: str,
@@ -547,7 +550,7 @@ class ClaudeCodeAdapter:
             reasons.append("CANCELLED")
         if response_lost:
             reasons.append("RESPONSE_LOST")
-        models = {event.cli_model or event.actual_model for event in events if event.cli_model or event.actual_model}
+        models = {event.actual_model for event in events if event.actual_model}
         actual_model = next(iter(models)) if len(models) == 1 else None
         if len(models) > 1:
             reasons.append("MODEL_IDENTITY_CONFLICT")
