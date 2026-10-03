@@ -104,3 +104,13 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 代码候选已推进到 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a` 并推送。AnalysisReport validator 重新执行 synthetic/offline `READY` 禁止；ChangeReport validator 重新校验 change mode、路径安全和变更事实闭包；ReviewBundle 的 `READY` 必须绑定 `REFERENCE_ONLY` 且 `SATISFIED` 的 docs-check。相关 08-S2/S3 定向回归已纳入 113 项通过结果。
 
 本批仍只提供离线构造器与输入边界，未生成 dispatcher receipt、Pi attempt、真实 provider/native 或 09/10 连接器证据；S4–S6 和生产发布门禁继续 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 当前修复候选（08-S4～S6 边界）
+
+代码候选已推进到 `35b550fb7b49e55f502c56a011db9a648be0a897` 并推送。S6 离线投影现拒绝 event_id 换序列重放和超过 indexed cursor 的 source vector；S4 regression/mutation/offline runner 与 S5 deterministic evidence/persistent store 审计未发现可安全落地的更高优先级离线修复。
+
+S4/S5 的真实 mutation dispatcher、provider/OS receipt 仍未接入，S6 的 09/10 consumer 仍未连接；以上能力保持 `NOT_RUN/BLOCKED`，不能形成生产 PASS。
+
+## 2026-10-03 当前修复候选（S4 runner 边界）
+
+代码候选已推进到 `f38df44` 并推送。offline runner 对 cwd/path/environment/target 的非法类型、控制字符和 surrogate 输入统一拒绝；S4 定向回归已覆盖这些失败分类。真实 mutation dispatcher、provider/OS receipt 和 09/10 consumer 仍为 `NOT_RUN/BLOCKED`。

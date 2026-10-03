@@ -72,6 +72,16 @@ G1/G2 可保留为离线 `LOCAL_REFERENCE`；G3 当前候选没有新的 dispatc
 
 门禁结论不变：G1/G2 只能保留 `LOCAL_REFERENCE`；G3 当前 dispatcher 回归没有新的可信 capture；G4–G7 的真实 Pi/provider/native/09/10 证据仍 `NOT_RUN/BLOCKED`；G8 仍 `REVISE/BLOCKED`。生产发布门禁继续关闭。
 
+## 2026-10-03 05/06 与 08-S6 修复候选
+
+当前代码候选为 `35b550fb7b49e55f502c56a011db9a648be0a897`，已推送且工作区待文档提交。05 的身份 fence、06 的资源路径别名拒绝、08-S6 的 event/cursor fence 已通过定向回归；S4/S5 仍只有离线 reference 结果。
+
+G1/G2 仍为 `LOCAL_REFERENCE`；G3 当前 dispatcher、G4–G7 真实 Pi/provider/native/09/10、G8 独立 attempt/review 证据继续 `NOT_RUN/BLOCKED` 或 `REVISE/BLOCKED`，生产门禁不放行。
+
+## 2026-10-03 S4 runner 修复候选
+
+候选已推进到 `f38df44` 并推送，offline runner 输入边界回归通过。该结果仍是 `LOCAL_REFERENCE`；真实 dispatcher、Pi/provider/native/09/10 证据和 G8 独立复审没有变化，生产门禁继续关闭。
+
 ## 2026-10-03 当前合同基线与离线复核
 
 代码候选 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee` 已推送；39 对 01–06/08 合同以新版本发布于 `db46200d75ff1462837996bab7450e09a9a88f46`，均绑定精确 `bb/step-5-preview` 元数据，并通过 `pi_dispatch validate`。当前原始取证目录为 `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`，两者均 `baseline_consistent=true`、无 drift。

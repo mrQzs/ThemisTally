@@ -112,3 +112,13 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 代码候选已推进到 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a` 并推送。03 阶段阻止 `CANCELLED_NOT_STARTED` operation 的旧 attempt 重新进入启动态，并在重开时绑定 attempt 与 outbox 事件；04 阶段将 provider call 的经济身份从 request/task/run 观察范围中解耦，跨范围重复观察归为 `MIRROR`；usage settlement 不再把已证明未启动的释放操作误报为 `unknown`。相关定向回归 113 项通过。
 
 这些修复仍属于离线 `LOCAL_REFERENCE`。真实 Pi/provider、原生进程、外部连接器和生产恢复证据继续为 `NOT_RUN/BLOCKED`，01–06 阶段门仍未放行。全量 discover 当前为 1208 项收集、3 项既有 legacy `a4fa199` source-lock 失败、39 项环境跳过；该失败不属于本批业务逻辑新增失败。
+
+## 2026-10-03 当前修复候选（05/06 阶段边界）
+
+代码候选已推进到 `35b550fb7b49e55f502c56a011db9a648be0a897` 并推送。05 阶段固定已观测进程身份，拒绝矛盾的 `NOT_STARTED + process_identity` 重放；06 阶段拒绝 manifest、已解析插件集合和 lock 中的大小写/Unicode 等价资源路径别名。相关 runtime/lease/账本回归 65 项通过，plugin/边界回归 23 项通过。
+
+这些仍是离线 `LOCAL_REFERENCE`。真实 Windows/macOS/WSL 进程、Pi、provider、插件 prepare/run 和外部连接器继续 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 当前修复候选（S4 输入边界）
+
+代码候选已推进到 `f38df44` 并推送。offline runner 现在将非法工作目录、目标路径、环境控制字符/代理字符和目标 surrogate 统一归类为稳定的 `ArtifactError`，避免在 digest 或 subprocess 边界泄漏原生异常。该修复属于离线故障分类，不能替代真实 dispatcher 或平台运行证据。

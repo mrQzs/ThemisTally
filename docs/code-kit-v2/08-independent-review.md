@@ -51,6 +51,16 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 
 本补充仍是规划端离线复核，未产生 Pi attempt、`review-pi` verdict、真实 provider/native/09/10 或生产 dispatcher receipt，因此总体结论保持 `REVISE/BLOCKED`。
 
+## 2026-10-03 05/06 与 08-S6 复核补充
+
+候选 `35b550fb7b49e55f502c56a011db9a648be0a897` 已推送。runtime identity fence、plugin resource path alias fence、projection event/cursor fence 的离线回归已通过；S4/S5 审计没有将 reference-only 结果升级为生产证据。
+
+仍不存在 Pi attempt、`review-pi` verdict、真实 OS/provider、mutation dispatcher 或 09/10 consumer receipt，因此独立结论保持 `REVISE/BLOCKED`。
+
+## 2026-10-03 S4 runner 复核补充
+
+候选 `f38df44` 的 offline runner 输入边界修复已通过定向回归。该结果只证明离线错误分类与确定性边界；仍不存在真实 mutation dispatcher、Pi/provider/native 或 09/10 receipt，独立结论保持 `REVISE/BLOCKED`。
+
 ## Current Candidate Review Update (eae9bfc / db46200)
 
 The fixed code candidate is `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`; the 39-contract publication is `db46200d75ff1462837996bab7450e09a9a88f46`. New raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` and `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`. The builtin suite is 117 collected / 109 passed / 8 optional skips with return code 0. The expanded matrix is 1040 collected / 1 known legacy source-lock failure / 35 environment skips with return code 1. Both captures are complete, `baseline_consistent=true`, and drift-free.
