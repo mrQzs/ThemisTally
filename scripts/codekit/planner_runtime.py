@@ -248,6 +248,8 @@ class PlanningBudgetLedger:
             raise PlannerRuntimeError("E_BUDGET_BINDING", "PlanningBudgetLedger requires a core BudgetState and request id")
         if type(self.task_id) is not str or not self.task_id or type(self.generation) is not int or self.generation < 1:
             raise PlannerRuntimeError("E_BUDGET_BINDING", "task and generation are required")
+        if self.state.request_id is not None and self.state.request_id != self.request_id:
+            raise PlannerRuntimeError("E_BUDGET_BINDING", "core budget state belongs to another request")
 
     @classmethod
     def calls(cls, request_id: str, task_id: str, limit: int) -> "PlanningBudgetLedger":
@@ -284,6 +286,30 @@ class PlanningBudgetLedger:
         except Exception as exc:
             raise PlannerRuntimeError(getattr(exc, "code", "E_BUDGET"), str(exc)) from exc
         return replace(self, state=state), decision.status
+
+    def require_operation(self, operation_id: str, *, active_states: Sequence[str] = ("reserved", "provisional")) -> None:
+        """Require an active reservation owned by this request/task/generation.
+
+        Role gates may call this before dispatch so an unreserved executor
+        cannot accidentally bypass the shared 07 request budget.  The method
+        is read-only and deliberately leaves the historical no-argument gate
+        usable for pure profile fixtures.
+        """
+        if type(operation_id) is not str or not operation_id:
+            raise PlannerRuntimeError("E_BUDGET_OPERATION", "operation id is required")
+        if not isinstance(active_states, Sequence) or isinstance(active_states, (str, bytes)):
+            raise PlannerRuntimeError("E_BUDGET_OPERATION", "active states must be a sequence")
+        if self.state.stop_decision()[0]:
+            raise PlannerRuntimeError("E_BUDGET_STOPPED", "budget is stopped")
+        operation = next((item for item in self.state.operations if item.operation_id == operation_id), None)
+        if operation is None:
+            raise PlannerRuntimeError("E_BUDGET_OPERATION", "operation is not reserved")
+        if operation.request_id != self.request_id or operation.task_id != self.task_id:
+            raise PlannerRuntimeError("E_BUDGET_SCOPE", "operation belongs to another request/task")
+        if operation.generation != self.generation:
+            raise PlannerRuntimeError("E_GENERATION", "operation uses a stale controller generation")
+        if operation.finished or operation.state not in tuple(active_states):
+            raise PlannerRuntimeError("E_BUDGET_OPERATION", "operation is not active")
 
     def stop(self, reason: str) -> "PlanningBudgetLedger":
         try:

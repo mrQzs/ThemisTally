@@ -1,5 +1,6 @@
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -80,6 +81,18 @@ class PlannerRuntimeTests(unittest.TestCase):
         ledger, status = ledger.settle("op-core")
         self.assertEqual(status, "SETTLED")
         self.assertEqual(ledger.snapshot().dimensions["calls"].known, 1)
+
+    def test_planning_budget_operation_binding_is_read_only_and_generation_fenced(self):
+        ledger = PlanningBudgetLedger.calls("req-core", "task-core", 2)
+        with self.assertRaisesRegex(PlannerRuntimeError, "E_BUDGET_OPERATION"):
+            ledger.require_operation("missing")
+        ledger, _ = ledger.reserve("op-bound", 1)
+        ledger.require_operation("op-bound")
+        with self.assertRaisesRegex(PlannerRuntimeError, "E_GENERATION"):
+            replace(ledger, generation=2).require_operation("op-bound")
+        stopped = ledger.stop("cancelled")
+        with self.assertRaisesRegex(PlannerRuntimeError, "E_BUDGET_STOPPED"):
+            stopped.require_operation("op-bound")
 
 
 if __name__ == "__main__":
