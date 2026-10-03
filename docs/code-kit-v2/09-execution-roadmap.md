@@ -54,4 +54,14 @@ git diff --check
 
 ## 当实现记录
 
-截至本阶段提交，S1–S6 的离线核心已有可复核实现：严格协议与 Schema、跨记录 request/context/bundle 绑定、草稿/CAS、同源合同渲染、候选与发布收据、可选 03 ApprovalLedger currentness/input-lock、三门 readiness、有限修复与 request 预算、离线 adapter、09/10 正交投影，以及 validate/prepare/baseline/run 的 planner-v2 固定字节门禁。真实 planner/provider/Pi、原生进程和外部连接器仍为 NOT_RUN/BLOCKED；这些离线测试不构成生产发布通过。
+当前实现按阶段保留真实边界：
+
+- S0：路线图、追踪矩阵和 21 份合同已提交；合同基线仍是 `330d3716d65e068c38a5861e2a1a4bf4c84cf043`，后续核心修补以新的提交继续推进。
+- S1：PlannerRequest/ContextManifest/PlanningBundle 的严格解码、ResourceRef/SourceAnchor 字节核验、任务图闭环、上下文条目与合同草稿绑定已补齐离线负例。插件锁和完整 06/08 catalog 语义仍是 PARTIAL。
+- S2：DraftStore CAS/单调版本槽、ContractIR 同源 MD/JSON、双成员候选、重复输入/同源目标拒绝已实现；跨 request 的持久 task owner 仍是 PARTIAL。
+- S3：ApprovalLedger 的 `publish_contract` 动作、时间窗、input lock 和 generation 检查，发布 ID 冲突拒绝、持久 outbox、固定字节门禁和跨进程精确 pair 恢复已实现。外部独立 ledger 重查仍不能由离线 dispatcher 自己伪造为 PASS。
+- S4：三个 readiness 判断和面向 07 `BudgetState` 的 `PlanningBudgetLedger` 适配已实现；旧 `RequestBudget` 兼容层、复杂修复语义和真实 START_UNKNOWN 仍为 PARTIAL/BLOCKED。
+- S5：离线结果唯一性、响应丢失/截断拒绝和 planner adapter 已有；真实 planner/provider/Pi 与原生进程仍 `NOT_RUN/BLOCKED`。
+- S6：`PUBLISHED` 正交投影和 validate/prepare/baseline/run/check/collect/mutate/branch 的 planner-v2 固定字节发布门已接线；10 的真实 outbox/cursor 外部连接器和生产发布仍未接入。
+
+本轮可复核提交为 `c13560e`、`45ce853`；测试证据和剩余缺口见 `docs/code-kit-v2/09-implementation-status.md`。任何离线 PASS 都不等于真实 planner/provider、Pi、原生平台或外部连接器生产放行。
