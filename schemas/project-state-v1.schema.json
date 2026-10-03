@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:project-state:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["indexed_cursor", "applied_cursor", "source_vector", "source_coverage", "budget_coverage", "verification_ref", "as_of", "tasks", "decisions", "budgets", "issues", "dispatch_eligibility"],
+  "properties": {
+    "indexed_cursor": {"type": "integer", "minimum": 0}, "applied_cursor": {"type": "integer", "minimum": 0},
+    "source_vector": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "source_coverage": {"enum": ["complete", "partial", "unknown"]}, "budget_coverage": {"enum": ["complete", "partial", "unknown"]},
+    "verification_ref": {"type": "string", "minLength": 1}, "as_of": {"type": "string", "minLength": 1},
+    "tasks": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": true}},
+    "decisions": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": true}},
+    "budgets": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": true}},
+    "issues": {"type": "array", "items": {"type": "string"}}, "dispatch_eligibility": {"const": "not_evaluated"}
+  }
+}
