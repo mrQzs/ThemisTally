@@ -1,12 +1,12 @@
 """Catalog selection and readiness projection for the 08 plugin directory."""
 from __future__ import annotations
-import json
 import re
 from pathlib import Path
 from os import PathLike
 from typing import Any, Mapping, Sequence
-from .builtin_artifacts import ArtifactError, validate_catalog
+from .builtin_artifacts import ArtifactError, canonical_bytes, validate_catalog
 from .plugins import VERSION_RE, validate_lock, validate_manifest
+from .protocols import ProtocolError, strict_json_loads
 
 REQUIRED_PLUGIN_IDS = frozenset({"repo-analysis", "code-change", "python-checks", "docs-change", "docs-checks", "regression-tests", "mutation-review"})
 REQUIRED_RECIPE_IDS = frozenset({"repair", "docs", "regression"})
@@ -28,10 +28,37 @@ def _root(value: str | PathLike[str] | Path, *, kind: str) -> Path:
 
 def _read_json(path: Path, *, kind: str) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return strict_json_loads(path.read_bytes())
+    except (OSError, UnicodeError, ProtocolError) as exc:
         _err(kind, f"invalid JSON fixture {path.name}")
         raise AssertionError from exc
+
+
+def _safe_file(path: Path, root: Path, *, kind: str) -> Path:
+    """Resolve a fixture file without allowing symlink/junction escapes."""
+    try:
+        root_resolved = root.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _err(kind, f"fixture path cannot be resolved: {path.name}")
+        raise AssertionError from exc
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        _err(kind, f"fixture path escapes root: {path.name}")
+        raise AssertionError from exc
+    current = root_resolved
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = Path(path.name)
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            _err(kind, f"symlink fixture path is not allowed: {path.name}")
+    if not resolved.is_file():
+        _err(kind, f"fixture file is missing: {path.name}")
+    return resolved
 
 
 def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -44,7 +71,12 @@ def build_catalog(*, plugins: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         rows.append(dict(item))
     validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": rows})
     rows.sort(key=lambda row: (row["plugin_id"], row["version"]))
-    return validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": rows})
+    result = validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": rows})
+    try:
+        canonical_bytes(result)
+    except ArtifactError as exc:
+        _err(exc.code, "catalog exceeds canonical JSON limits")
+    return result
 
 
 def project_catalog_readiness(catalog: Mapping[str, Any], *, requested: Sequence[str],
@@ -74,12 +106,15 @@ def project_catalog_readiness(catalog: Mapping[str, Any], *, requested: Sequence
 def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
     """Load and validate the seven checked-in offline plugin fixtures."""
     base = _root(root, kind="E_CATALOG_FIXTURE")
+    try:
+        base = base.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _err("E_CATALOG_FIXTURE", "fixture root cannot be resolved")
+        raise AssertionError from exc
     rows = []
     for plugin_id in sorted(REQUIRED_PLUGIN_IDS):
-        manifest_path = base / plugin_id / "manifest.json"
-        lock_path = base / plugin_id / "lock.json"
-        if not manifest_path.is_file() or not lock_path.is_file():
-            _err("E_CATALOG_FIXTURE", f"missing manifest/lock for {plugin_id}")
+        manifest_path = _safe_file(base / plugin_id / "manifest.json", base, kind="E_CATALOG_FIXTURE")
+        lock_path = _safe_file(base / plugin_id / "lock.json", base, kind="E_CATALOG_FIXTURE")
         manifest = validate_manifest(_read_json(manifest_path, kind="E_CATALOG_FIXTURE"))
         lock = validate_lock(_read_json(lock_path, kind="E_CATALOG_FIXTURE"), {plugin_id: manifest})
         if manifest["plugin_id"] != plugin_id or len(lock["plugins"]) != 1 or lock["plugins"][0]["plugin_id"] != plugin_id:
@@ -91,12 +126,12 @@ def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
         # an absolute fixture root (as isolated tests commonly do).  Resolve
         # the manifest's declared resource paths from that same fixture root,
         # then emit the manifest/lock references relative to its parent.
-        project_root = base.parent
+        project_root = base.parent.resolve(strict=True)
         manifest_ref_path = manifest_path.relative_to(project_root).as_posix()
         lock_ref_path = lock_path.relative_to(project_root).as_posix()
         for resource in manifest.get("resources", []):
-            resource_path = project_root / resource["path"]
-            if not resource_path.is_file() or _sha_file(resource_path) != resource["sha256"]:
+            resource_path = _safe_file(project_root / resource["path"], project_root, kind="E_CATALOG_RESOURCE")
+            if _sha_file(resource_path) != resource["sha256"]:
                 _err("E_CATALOG_RESOURCE", f"resource bytes do not match {resource['path']}")
         rows.append({"plugin_id": plugin_id, "version": manifest["version"],
                      "manifest_ref": {"kind": "file", "id": f"{plugin_id}.manifest", "path": manifest_ref_path, "sha256": _sha_file(manifest_path)},
@@ -106,11 +141,14 @@ def load_builtin_catalog(root: str | Path = "plugins") -> dict[str, Any]:
 
 def load_builtin_recipes(root: str | Path = "workflows") -> dict[str, Any]:
     base = _root(root, kind="E_RECIPE_FIXTURE")
+    try:
+        base = base.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _err("E_RECIPE_FIXTURE", "fixture root cannot be resolved")
+        raise AssertionError from exc
     recipes = []
     for recipe_id in sorted(REQUIRED_RECIPE_IDS):
-        path = base / f"{recipe_id}.json"
-        if not path.is_file():
-            _err("E_RECIPE_FIXTURE", f"missing recipe {recipe_id}")
+        path = _safe_file(base / f"{recipe_id}.json", base, kind="E_RECIPE_FIXTURE")
         value = _read_json(path, kind="E_RECIPE_FIXTURE")
         if not isinstance(value, dict) or set(value) != {"record_type", "schema_version", "recipe_id", "recipe_version", "stages", "evidence_status"} or value["record_type"] != "builtin-workflow-recipe" or value["schema_version"] != 1 or value["recipe_id"] != recipe_id or value["evidence_status"] != "REFERENCE_ONLY":
             _err("E_RECIPE_FIXTURE", f"invalid recipe {recipe_id}")

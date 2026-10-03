@@ -138,6 +138,13 @@ class BuiltinArtifactsTests(unittest.TestCase):
         self.assertEqual(normalized["plugins"][0]["manifest_ref"]["path"], "recipes/manifest.json")
         self.assertEqual(normalized["plugins"][0]["lock_ref"]["path"], "recipes/lock.json")
 
+    def test_catalog_enforces_canonical_size_limit(self):
+        item = {"plugin_id": "demo", "version": "1.0.0",
+                "manifest_ref": {**ref("manifest"), "path": "x" * (1024 * 1024)},
+                "lock_ref": ref("lock")}
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SIZE"):
+            validate_catalog({"record_type": "builtin-task-plugin-catalog", "schema_version": 1, "plugins": [item]})
+
 
 if __name__ == "__main__":
     unittest.main()

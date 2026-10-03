@@ -358,7 +358,7 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             max_seq = int(self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()[0])
             operations = {
                 row["operation_id"]: row
-                for row in self.db.execute("SELECT operation_id,generation,claim_generation FROM operations")
+                for row in self.db.execute("SELECT operation_id,plan_version,generation,claim_generation FROM operations")
             }
             for row in self.db.execute("SELECT * FROM attempts"):
                 attempt_id = _id(row["attempt_id"], "attempt_id")
@@ -372,7 +372,8 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
                 _ref(row["evidence_ref"], "evidence_ref")
                 sequence = _sequence(row["sequence"], "sequence")
                 operation = operations.get(operation_id)
-                if operation is None or generation != operation["generation"] or generation != operation["claim_generation"]:
+                if (operation is None or row["plan_version"] != operation["plan_version"]
+                        or generation != operation["generation"] or generation != operation["claim_generation"]):
                     raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_binding:{attempt_id}",))
                 if sequence < 1 or sequence > max_seq:
                     raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_sequence:{attempt_id}",))
@@ -381,7 +382,8 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
                 next_seq = _sequence(row["next_seq"], "next_seq")
                 high_water = _sequence(row["high_water"], "high_water")
                 updated_seq = _sequence(row["updated_seq"], "updated_seq")
-                if next_seq > high_water or high_water > max_seq or updated_seq < 1 or updated_seq > max_seq:
+                initial_cursor = next_seq == 0 and high_water == 0 and updated_seq == 0
+                if next_seq > high_water or high_water > max_seq or (updated_seq < 1 and not initial_cursor) or updated_seq > max_seq:
                     raise AtomicLedgerError("E_SCHEMA_INVALID", ("cursor_high_water",))
             for row in self.db.execute("SELECT * FROM migration_batches"):
                 _id(row["migration_id"], "migration_id")
@@ -428,9 +430,11 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
                 if same:
                     return AttemptResult(attempt_id, current["state"], True, current["sequence"])
                 raise AtomicLedgerError("E_IDEMPOTENCY_CONFLICT", ("attempt_id",))
-            op = self.db.execute("SELECT request_id FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
+            op = self.db.execute("SELECT request_id,plan_version FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
             if op is None:
                 raise AtomicLedgerError("E_SCOPE_UNKNOWN", ("operation",))
+            if plan_version != op[1]:
+                raise AtomicLedgerError("E_ATTEMPT_PLAN", ("plan_version",))
             operation = self.db.execute("SELECT state,generation,claim_generation FROM operations WHERE operation_id=?", (operation_id,)).fetchone()
             if operation["state"] not in ("CLAIMED", "HANDOFF_ACCEPTED", "START_UNKNOWN"):
                 raise AtomicLedgerError("E_ATTEMPT_STATE", ("operation_not_active",))
@@ -500,6 +504,15 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             high_water_available = int(self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()[0])
             if next_seq > high_water_available:
                 raise AtomicLedgerError("E_CURSOR_GAP", ("next_seq_beyond_outbox",))
+            if row is None and next_seq == current:
+                # Establishing a fresh cursor at zero is a durable no-op.  It
+                # must not emit a cursor_advanced event or create a phantom
+                # outbox side effect.
+                self.db.execute(
+                    "INSERT INTO consumer_cursors(consumer_id,next_seq,high_water,updated_seq) VALUES(?,?,?,?)",
+                    (consumer_id, current, high_water, 0),
+                )
+                return CursorResult(consumer_id, current, True)
             if row is not None and next_seq == current:
                 return CursorResult(consumer_id, current, True)
             seq = self._emit_seq(None, None, "ledger.cursor_advanced", {"consumer_id": consumer_id, "from": current, "to": next_seq})

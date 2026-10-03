@@ -114,4 +114,34 @@ class DocsChangeTests(unittest.TestCase):
                 source_anchors_by_path={"docs/a.md": [anchor]},
             )
 
+    def test_snapshot_paths_are_normalized_before_diffing_and_aliases_rejected(self):
+        result = build_docs_change({"docs\\a.md": b"old"}, {"docs\\a.md": b"new"},
+                                   writable_paths=["docs/a.md"])
+        self.assertEqual(result["payload"]["changes"][0]["path"], "docs/a.md")
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SNAPSHOT"):
+            build_docs_change({"docs/a.md": b"old", "docs\\a.md": b"old"}, {},
+                              writable_paths=["docs/a.md"])
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SNAPSHOT"):
+            build_docs_change({"docs/a.md": b"old", "DOCS/A.md": b"old"}, {},
+                              writable_paths=["docs/a.md"])
+
+    def test_validator_rejects_impossible_duplicate_and_unsorted_rows(self):
+        record = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+                                   writable_paths=["docs/a.md"])
+        row = record["payload"]["changes"][0]
+        for forged in (
+            dict(row, kind="modify", before_sha256=None),
+            dict(row, kind="modify", after_sha256=row["before_sha256"]),
+            dict(row, kind="add", before_sha256=None, after_sha256=None),
+            dict(row, path="secret.txt"),
+        ):
+            value = copy.deepcopy(record)
+            value["payload"]["changes"] = [forged]
+            with self.subTest(forged=forged), self.assertRaisesRegex(ArtifactError, "E_DOCS_SCHEMA"):
+                validate_docs_change(value)
+        forged = copy.deepcopy(record)
+        forged["payload"]["changes"][0]["after_sha256"] = b"bytes-not-a-digest"
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_JSON"):
+            validate_docs_change(forged)
+
 if __name__ == "__main__": unittest.main()

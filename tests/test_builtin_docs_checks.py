@@ -49,6 +49,16 @@ class DocsChecksTests(unittest.TestCase):
         plain = docs_check(Snapshot({"a.md": b"[bad](a.md#missing)"}), ["a.md"])
         self.assertTrue(any(x["status"] == "BROKEN_FRAGMENT" for x in plain["findings"]))
 
+    def test_fallback_shortcut_reference_links_are_checked(self):
+        snap = Snapshot({"a.md": b"[broken]\n\n[broken]: missing.md\n"})
+        result = docs_check(snap, ["a.md"])
+        self.assertTrue(any(x["status"] == "BROKEN_LOCAL_LINK" for x in result["findings"]))
+
+    def test_fallback_duplicate_reference_definitions_keep_first_target(self):
+        snap = Snapshot({"a.md": b"[guide]\n\n[guide]: good.md\n[guide]: missing.md\n", "good.md": b"# good\n"})
+        result = docs_check(snap, ["a.md"])
+        self.assertFalse(any(x["status"] == "BROKEN_LOCAL_LINK" for x in result["findings"]))
+
     def test_source_refs_must_cover_exact_source_paths(self):
         ref = self.snapshot.ref("docs/index.md")
         with self.assertRaisesRegex(ArtifactError, "E_DOC_PROVENANCE"):
@@ -90,5 +100,11 @@ class DocsChecksTests(unittest.TestCase):
         forged = dict(record); forged["payload"] = dict(record["payload"]); forged["payload"]["parser"] = []
         with self.assertRaisesRegex(ArtifactError, "E_DOC_PAYLOAD"):
             validate_docs_check(forged)
+        failed = build_docs_check(Snapshot({"a.md": b"[bad](missing.md)"}), ["a.md"],
+                                  source_refs=[Snapshot({"a.md": b"[bad](missing.md)"}).ref("a.md")])
+        forged_status = dict(failed)
+        forged_status["status"] = "READY"
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PRODUCTION_GATE"):
+            validate_docs_check(forged_status)
 if __name__ == "__main__": unittest.main()
 

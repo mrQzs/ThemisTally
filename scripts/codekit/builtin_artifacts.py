@@ -263,6 +263,7 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_CATALOG_SCHEMA", "/plugins", "duplicate plugin id")
     result = copy.deepcopy(dict(catalog))
     result["plugins"] = normalized_rows
+    canonical_bytes(result)
     return result
 
 

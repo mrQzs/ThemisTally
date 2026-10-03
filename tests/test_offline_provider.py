@@ -15,12 +15,13 @@ from codekit.provider_economics import (  # noqa: E402
     InvoiceLine,
     OfflineBillingAdapter,
 )
-def observation(*, observation_id="obs-a", run_id="run-a", call_id="call-a", amount=12):
+def observation(*, observation_id="obs-a", run_id="run-a", call_id="call-a", amount=12,
+                account="acct-a", source="fixture", currency="USD", visibility="complete"):
     from codekit.provider_economics import EconomicCallIdentity, ProviderCallObservation
-    identity = EconomicCallIdentity(call_id, "offline", "fixture-v1", "acct-a", "fixture",
+    identity = EconomicCallIdentity(call_id, "offline", "fixture-v1", account, source,
                                     request_id="request-a", task_id="task-a", run_id=run_id)
-    return ProviderCallObservation(observation_id, identity, "complete",
-                                   {"input_tokens": 4, "output_tokens": 8}, "USD", amount,
+    return ProviderCallObservation(observation_id, identity, visibility,
+                                   {"input_tokens": 4, "output_tokens": 8}, currency, amount,
                                    "fixture-evidence")
 
 
@@ -80,6 +81,25 @@ class OfflineProviderTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(EconomicsError) as ctx:
                 adapter.allocate(entry(entry_id="alloc-" + next(iter(kwargs)), **kwargs))
             self.assertEqual(ctx.exception.code, "E_ALLOCATION_SCOPE")
+
+    def test_allocation_matches_observed_call_identity(self):
+        adapter = OfflineBillingAdapter()
+        observed = observation(observation_id="obs-bad", call_id="call-bad", account="acct-b",
+                               source="other", currency="JPY")
+        adapter.observe(observed)
+        adapter.add_invoice_line(InvoiceLine("invoice-a", "line-a", "acct-a", "fixture", "USD", 12))
+        with self.assertRaises(EconomicsError) as ctx:
+            adapter.allocate(entry(entry_id="alloc-bad", call_key=observed.call_key))
+        self.assertEqual(ctx.exception.code, "E_ALLOCATION_SCOPE")
+
+    def test_allocation_rejects_incomplete_observed_call(self):
+        adapter = OfflineBillingAdapter()
+        observed = observation(observation_id="obs-partial", call_id="call-partial", visibility="partial")
+        adapter.observe(observed)
+        adapter.add_invoice_line(InvoiceLine("invoice-a", "line-a", "acct-a", "fixture", "USD", 12))
+        with self.assertRaises(EconomicsError) as ctx:
+            adapter.allocate(entry(entry_id="alloc-partial", call_key=observed.call_key))
+        self.assertEqual(ctx.exception.code, "E_ALLOCATION_COVERAGE")
 
     def test_same_target_different_amount_conflicts(self):
         adapter = setup_adapter()

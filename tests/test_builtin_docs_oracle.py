@@ -59,6 +59,30 @@ class DocsOracleTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_REVIEW_BINDING"):
             build_review_bundle(docs_check=docs, content_review=content_oracle("wrong", "ok"), observations=[], readiness=forged)
 
+    def test_bundle_status_cannot_claim_ready_when_readiness_is_blocked(self):
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_BINDING"):
+            build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"),
+                                observations=[], readiness={"status": "BLOCKED", "issues": ["E_CORE_GATES"]},
+                                status="READY")
+
+    def test_bundle_rejects_forged_content_oracle_shape(self):
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
+        observation = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
+        readiness = review_readiness(binding, [observation], {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_INPUT"):
+            build_review_bundle(docs_check=docs, content_review={"status": "REVIEWED_SATISFIED"}, observations=[observation], readiness=readiness)
+
+    def test_bundle_rejects_candidate_reference_mismatch(self):
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
+        observation = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
+        readiness = review_readiness(binding, [observation], {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        wrong = {"kind": "candidate", "id": "candidate", "path": "candidate.json", "sha256": "d" * 64}
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_BINDING"):
+            build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=[observation], readiness=readiness, candidate_ref=wrong)
+
     def test_quality_issues_rejects_malformed_observation_and_test_collections(self):
         valid = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
         for malformed in (None, [], {**valid, "check_id": []}, {**valid, "tests": {1: {"status": "PASSED"}}}, {**valid, "tests": {"docs": {"status": []}}}):

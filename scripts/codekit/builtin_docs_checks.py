@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - exercised on Windows Python 3.9
 
 MAX_BYTES = 1_048_576
 MAX_FILES = 4096
+MAX_TOTAL_BYTES = 16 * 1_048_576
 _PROFILE = "commonmark-explicit-anchors-v1"
 _EXTERNAL_STATUSES = {"NOT_CHECKED_EXTERNAL", "NOT_CHECKED_NONFILE"}
 _OK_STATUSES = {"LOCAL_OK"}
@@ -53,10 +54,14 @@ class Snapshot(object):
             raise ArtifactError("E_DOC_SNAPSHOT", "/", "bounded file mapping required")
         result = {}
         folded = set()
+        total_bytes = 0
         for raw_path, raw_data in files.items():
             path = _repo_path(raw_path)
             if not isinstance(raw_data, bytes) or len(raw_data) > MAX_BYTES:
                 raise ArtifactError("E_DOC_RESOURCE", path, "UTF-8 bytes within size limit required")
+            total_bytes += len(raw_data)
+            if total_bytes > MAX_TOTAL_BYTES:
+                raise ArtifactError("E_DOC_LIMIT", "/", "snapshot exceeds total byte limit")
             key = path.casefold()
             if key in folded:
                 raise ArtifactError("E_DOC_PATH_COLLISION", path, "portable path collision")
@@ -138,7 +143,9 @@ def _fallback_facts(text: str) -> Tuple[list, list, list]:
             continue
         m = re.match(r"^ {0,3}\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))(?:\s+.*)?$", line)
         if m:
-            definitions[m.group(1).strip().casefold()] = m.group(2) or m.group(3)
+            key = m.group(1).strip().casefold()
+            # CommonMark uses the first definition when a label is repeated.
+            definitions.setdefault(key, m.group(2) or m.group(3))
             masked.append("")
         else:
             masked.append(line)
@@ -156,6 +163,13 @@ def _fallback_facts(text: str) -> Tuple[list, list, list]:
             if target is None:
                 continue
         links.append(target)
+    # CommonMark shortcut reference links use a definition without a second
+    # bracket pair, e.g. ``[guide]`` with ``[guide]: guide.md`` below.
+    shortcut = re.compile(r"(?<![!A-Za-z0-9_])\[([^\]\n]+)\](?!\s*(?:\(|\[))")
+    for match in shortcut.finditer(source):
+        target = definitions.get(match.group(1).strip().casefold())
+        if target is not None:
+            links.append(target)
     # Explicit HTML is parsed independently from markdown links.
     for html in re.findall(r"<(?:(?:a|img|br)\b[^>]*|[A-Za-z][^>]*)>", source):
         hlinks, hanchors, hunsupported = _html_facts(html)
@@ -324,6 +338,13 @@ def validate_docs_check(record: Mapping[str, Any]) -> dict:
     if normalized["status"] == "PASS":
         raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     normalized["payload"] = _validate_docs_payload(normalized["payload"])
+    local_status = normalized["payload"]["local_status"]
+    if normalized["status"] in {"READY", "PASS"}:
+        raise ArtifactError("E_DOC_PRODUCTION_GATE", "/status", "docs-check cannot grant readiness or PASS")
+    if local_status == "SATISFIED" and normalized["status"] == "FAIL":
+        raise ArtifactError("E_DOC_PAYLOAD", "/status", "FAIL status contradicts satisfied local checks")
+    if local_status == "FAILED_OR_INCOMPLETE" and normalized["status"] == "REFERENCE_ONLY":
+        raise ArtifactError("E_DOC_PAYLOAD", "/status", "reference-only status requires satisfied local checks")
     declared = {ref["path"] for ref in normalized["source_refs"]}
     for index, finding in enumerate(normalized["payload"]["findings"]):
         if finding["source"] not in declared:

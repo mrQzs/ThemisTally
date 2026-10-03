@@ -85,6 +85,14 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_OBSERVATION"):
             reconcile(spec, "started")
 
+    def test_malformed_observation_state_is_conservative(self):
+        spec = invocation()
+        self.assertEqual(classify_start(
+            handoff_accepted=True,
+            started_observation={"state": [], "run_id": spec.run_id,
+                                 "environment_sha256": spec.environment_sha256},
+            expected=spec), "START_UNKNOWN")
+
     def test_lifecycle_rejects_invalid_state_generation_and_identity(self):
         for kwargs, code in (
             ({"state": "BROKEN"}, "E_RUNTIME_TRANSITION"),
@@ -123,6 +131,14 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_IDENTITY"):
             classify_start(handoff_accepted=True, started_observation=malformed, expected=spec)
 
+    def test_rejected_handoff_cannot_adopt_started_observation(self):
+        spec = invocation()
+        observation = {"state": "STARTED", "run_id": spec.run_id,
+                       "environment_sha256": spec.environment_sha256,
+                       "process_identity": process_identity()}
+        self.assertEqual(classify_start(handoff_accepted=False, started_observation=observation, expected=spec),
+                         "IDENTITY_MISMATCH")
+
     def test_explicit_not_started_observation_allows_replay(self):
         spec = invocation()
         observed = {"state": "NOT_STARTED", "run_id": spec.run_id,
@@ -138,7 +154,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(classify_start(handoff_accepted=True, started_observation=observation, expected=spec), "STARTED")
         self.assertFalse(reconcile(spec, observation)["replay_allowed"])
         self.assertFalse(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256})["replay_allowed"])
-        self.assertTrue(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id, "environment_sha256": spec.environment_sha256, "cleanup_confirmed": True})["replay_allowed"])
+        self.assertFalse(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id,
+                                          "environment_sha256": spec.environment_sha256,
+                                          "cleanup_confirmed": True})["replay_allowed"])
+        self.assertTrue(reconcile(spec, {"state": "FAILED", "run_id": spec.run_id,
+                                         "environment_sha256": spec.environment_sha256,
+                                         "process_identity": process_identity(),
+                                         "cleanup_confirmed": True})["replay_allowed"])
 
     def test_unknown_state_requires_generation_fence(self):
         identity = ProcessIdentity(10, "boot", "b" * 64, "tree")

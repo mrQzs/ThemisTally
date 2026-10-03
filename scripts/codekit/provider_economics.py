@@ -464,6 +464,13 @@ class OfflineBillingAdapter:
             raise EconomicsError("E_ALLOCATION_SCOPE", "currency/account/source mismatch")
         if entry.call_key not in self._calls:
             raise EconomicsError("E_CALL_UNKNOWN", "call must be observed before allocation")
+        observed = self._calls[entry.call_key]
+        if observed.coverage != CallVisibility.COMPLETE:
+            raise EconomicsError("E_ALLOCATION_COVERAGE", "allocation requires complete call coverage")
+        if (observed.identity.account != entry.account
+                or observed.identity.source != entry.source
+                or observed.currency != entry.currency):
+            raise EconomicsError("E_ALLOCATION_SCOPE", "allocation does not match observed call identity")
         existing = self._allocations.get(entry.entry_id)
         if existing is not None:
             if existing.payload_hash == entry.payload_hash:

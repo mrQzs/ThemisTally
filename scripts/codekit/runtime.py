@@ -183,8 +183,12 @@ def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapp
     if started_observation.get("run_id") != expected.run_id or started_observation.get("environment_sha256") != expected.environment_sha256:
         return "IDENTITY_MISMATCH"
     observed_state = started_observation.get("state")
+    if type(observed_state) is not str:
+        return "START_UNKNOWN"
     if observed_state == "NOT_STARTED":
         return "NOT_STARTED"
+    if not handoff_accepted:
+        return "IDENTITY_MISMATCH"
     if observed_state == "STARTED":
         if "process_identity" not in started_observation:
             return "START_UNKNOWN"
@@ -201,8 +205,13 @@ def reconcile(expected: InvocationSpec, observed: Mapping[str, Any]) -> Mapping[
     if not isinstance(observed, Mapping):
         raise RuntimeErrorCode("E_RUNTIME_OBSERVATION", "observed must be an object")
     status = classify_start(handoff_accepted=True, started_observation=observed, expected=expected)
+    terminal_identity = False
+    if status in {"FAILED", "STOPPED"} and observed.get("cleanup_confirmed") is True:
+        if "process_identity" in observed:
+            _observation_identity(observed["process_identity"])
+            terminal_identity = True
     return {"status": status, "run_id": expected.run_id, "expected_environment_sha256": expected.environment_sha256,
-            "observed_environment_sha256": observed.get("environment_sha256"), "replay_allowed": status == "NOT_STARTED" or (status in {"FAILED", "STOPPED"} and observed.get("cleanup_confirmed") is True)}
+            "observed_environment_sha256": observed.get("environment_sha256"), "replay_allowed": status == "NOT_STARTED" or (terminal_identity and status in {"FAILED", "STOPPED"})}
 
 
 __all__ = ["ALLOWED_TRANSITIONS", "InvocationSpec", "Lifecycle", "ProcessIdentity", "RuntimeErrorCode", "classify_start", "reconcile", "validate_argv"]

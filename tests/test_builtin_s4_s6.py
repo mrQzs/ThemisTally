@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 import json
+import os
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -11,7 +12,8 @@ from codekit.builtin_mutation import build_mutation_plan, reduce_mutation_result
 from codekit.builtin_regression_reduction import reduce_regression_and_mutation
 from codekit.deterministic_check import build_check_artifact, check_execution_id, make_check_evidence
 from codekit.builtin_platform import classify_failure, make_platform_observation, reconcile_failure
-from codekit.builtin_catalog import build_catalog, load_builtin_catalog, load_builtin_recipes, project_catalog_readiness
+from codekit.builtin_catalog import (_read_json, _safe_file, build_catalog, load_builtin_catalog,
+                                      load_builtin_recipes, project_catalog_readiness)
 from codekit.builtin_projections import CursorProjection, ProjectionEvent, _event_id, project_state, render_brief
 from codekit.projection_store import PersistentProjectionStore
 
@@ -376,6 +378,30 @@ class S6ProjectionTests(unittest.TestCase):
                                         "to_generation": 2**53}) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ArtifactError, "E_JOURNAL_CORRUPT"):
                 PersistentProjectionStore(path)
+
+class CatalogBoundaryTests(unittest.TestCase):
+    def test_catalog_json_loader_rejects_duplicate_and_nonfinite_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.json"
+            for raw in (b'{"x":1,"x":2}', b'{"x":NaN}'):
+                path.write_bytes(raw)
+                with self.subTest(raw=raw), self.assertRaisesRegex(ArtifactError, "E_CATALOG"):
+                    _read_json(path, kind="E_CATALOG")
+
+    def test_catalog_file_loader_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            outside = Path(tmp) / "outside.json"
+            root.mkdir()
+            outside.write_text("{}", encoding="utf-8")
+            link = root / "link.json"
+            try:
+                link.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation unavailable")
+            with self.assertRaisesRegex(ArtifactError, "E_CATALOG"):
+                _safe_file(link, root, kind="E_CATALOG")
+
 
 if __name__ == "__main__":
     unittest.main()

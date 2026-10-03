@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
+import unicodedata
 from typing import Any, Mapping, Optional, Sequence
 
 from .builtin_artifacts import (ArtifactError, SourceRefKey, digest, resource_ref,
@@ -21,7 +22,7 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 def _path(value: Any, field: str = "/path") -> str:
     if not isinstance(value, str) or not value or len(value) > 512:
         raise ArtifactError("E_DOCS_PATH", field, "non-empty relative path required")
-    normalized = value.replace("\\", "/")
+    normalized = unicodedata.normalize("NFC", value.replace("\\", "/"))
     if normalized.startswith("/") or ":" in normalized or any(p in {"", ".", ".."} for p in normalized.split("/")):
         raise ArtifactError("E_DOCS_PATH", field, "absolute, empty and traversal paths are forbidden")
     if any(ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F for ch in normalized):
@@ -29,11 +30,27 @@ def _path(value: Any, field: str = "/path") -> str:
     return normalized
 
 
+def _snapshot(value: Any, field: str) -> dict[str, bytes]:
+    """Normalize a frozen snapshot once and reject alias collisions."""
+    if not isinstance(value, Mapping):
+        raise ArtifactError("E_DOCS_SNAPSHOT", field, "snapshot mapping required")
+    result: dict[str, bytes] = {}
+    folded: set[str] = set()
+    for index, (raw_path, raw_bytes) in enumerate(value.items()):
+        path = _path(raw_path, f"{field}/{index}/path")
+        key = path.casefold()
+        if key in folded:
+            raise ArtifactError("E_DOCS_SNAPSHOT", f"{field}/{index}/path", "duplicate canonical snapshot path")
+        if type(raw_bytes) is not bytes:
+            raise ArtifactError("E_DOCS_SNAPSHOT", f"{field}/{index}/bytes", "snapshot values must be bytes")
+        result[path] = bytes(raw_bytes)
+        folded.add(key)
+    return result
+
+
 def _sha(value: Any, field: str) -> Optional[str]:
     if value is None:
         return None
-    if isinstance(value, bytes):
-        return hashlib.sha256(value).hexdigest()
     if isinstance(value, str) and _HEX64.fullmatch(value):
         return value
     raise ArtifactError("E_DOCS_HASH", field, "sha256 hex or null required")
@@ -75,9 +92,10 @@ def _scope_paths(value: Any, field: str) -> list[str]:
     seen = set()
     for index, item in enumerate(value):
         path = _path(item, f"{field}/{index}")
-        if path in seen:
+        key = path.casefold()
+        if key in seen:
             raise ArtifactError("E_DOCS_SCOPE", field, "duplicate scope path")
-        seen.add(path)
+        seen.add(key)
         result.append(path)
     return sorted(result)
 
@@ -106,10 +124,8 @@ def build_docs_change(
     changed path must be explicitly writable and end in ``.md`` or ``.markdown``;
     protected paths always win over writable paths.
     """
-    if not isinstance(before, Mapping) or not isinstance(after, Mapping):
-        raise ArtifactError("E_DOCS_SNAPSHOT", "/", "before and after mappings required")
-    if any(type(value) is not bytes for value in before.values()) or any(type(value) is not bytes for value in after.values()):
-        raise ArtifactError("E_DOCS_SNAPSHOT", "/", "snapshot values must be bytes")
+    before_snapshot = _snapshot(before, "/before")
+    after_snapshot = _snapshot(after, "/after")
     if not isinstance(writable_paths, Sequence) or isinstance(writable_paths, (str, bytes)):
         raise ArtifactError("E_DOCS_SCOPE", "/writable_paths", "writable paths sequence required")
     if not isinstance(protected_paths, Sequence) or isinstance(protected_paths, (str, bytes)):
@@ -120,18 +136,24 @@ def build_docs_change(
         raise ArtifactError("E_DOCS_SOURCE", "/source_anchors_by_path", "mapping of paths to anchor arrays required")
     writable = {_path(p, "/writable_paths") for p in writable_paths}
     protected = {_path(p, "/protected_paths") for p in protected_paths}
+    writable_keys = {path.casefold() for path in writable}
+    protected_keys = {path.casefold() for path in protected}
+    if len(writable_keys) != len(writable) or len(protected_keys) != len(protected):
+        raise ArtifactError("E_DOCS_SCOPE", "/writable_paths", "portable path collision")
+    if writable_keys.intersection(protected_keys):
+        raise ArtifactError("E_DOCS_PROTECTED", "/writable_paths", "protected path cannot be writable")
     if not writable.isdisjoint(protected):
         raise ArtifactError("E_DOCS_PROTECTED", "/writable_paths", "protected path cannot be writable")
-    all_paths = {_path(p) for p in before.keys()} | {_path(p) for p in after.keys()}
+    all_paths = set(before_snapshot) | set(after_snapshot)
     changes = []
     for path in sorted(all_paths):
-        old = before.get(path)
-        new = after.get(path)
+        old = before_snapshot.get(path)
+        new = after_snapshot.get(path)
         if old == new:
             continue
-        if path not in writable:
+        if path.casefold() not in writable_keys:
             raise ArtifactError("E_DOCS_SCOPE", path, "changed path is outside writable scope")
-        if path in protected:
+        if path.casefold() in protected_keys:
             raise ArtifactError("E_DOCS_PROTECTED", path, "protected path cannot change")
         if not (path.endswith(".md") or path.endswith(".markdown")):
             raise ArtifactError("E_DOCS_SCOPE", path, "docs-change accepts Markdown paths only")
@@ -146,17 +168,18 @@ def build_docs_change(
             "source_anchors": [],
         })
     anchor_specs = {}
-    changed_paths = {row["path"] for row in changes}
+    changed_paths = {row["path"].casefold() for row in changes}
     if source_anchors_by_path is not None:
         for raw_path, anchors in source_anchors_by_path.items():
             path = _path(raw_path, "/source_anchors_by_path")
-            if path in anchor_specs:
+            key = path.casefold()
+            if key in anchor_specs:
                 raise ArtifactError("E_DOCS_SOURCE", "/source_anchors_by_path", "duplicate canonical anchor path")
-            if path not in changed_paths:
+            if key not in changed_paths:
                 raise ArtifactError("E_DOCS_SOURCE", path, "anchors require a changed Markdown path")
             if not isinstance(anchors, (list, tuple)):
                 raise ArtifactError("E_DOCS_SOURCE", path, "anchor array required")
-            anchor_specs[path] = list(anchors)
+            anchor_specs[key] = list(anchors)
     normalized_refs = []
     for index, ref in enumerate(source_refs):
         normalized_ref = resource_ref(ref, f"/source_refs/{index}")
@@ -170,7 +193,7 @@ def build_docs_change(
         declared={resource_ref_key(ref) for ref in normalized_refs},
     )
     for row in changes:
-        row["source_anchors"] = _anchors(anchor_specs.get(row["path"], []), frozen_source_bytes,
+        row["source_anchors"] = _anchors(anchor_specs.get(row["path"].casefold(), []), frozen_source_bytes,
                                           require_frozen_source=True)
     payload = {"changes": changes, "scope": {"writable": sorted(writable), "protected": sorted(protected)}, "mapping_version": 1}
     record = {
@@ -202,26 +225,41 @@ def validate_docs_change(record: Mapping[str, Any], *,
     )
     writable = _scope_paths(payload["scope"]["writable"], "/payload/scope/writable")
     protected = _scope_paths(payload["scope"]["protected"], "/payload/scope/protected")
-    if set(writable).intersection(protected):
+    writable_keys = {path.casefold() for path in writable}
+    protected_keys = {path.casefold() for path in protected}
+    if writable_keys.intersection(protected_keys):
         raise ArtifactError("E_DOCS_PROTECTED", "/payload/scope", "protected path cannot be writable")
     payload["scope"] = {"writable": writable, "protected": protected}
+    seen_paths = set()
+    change_paths = []
     for i, item in enumerate(payload["changes"]):
         required = {"path", "kind", "before_sha256", "after_sha256", "purpose", "reader", "source_anchors"}
         if not isinstance(item, dict) or set(item) != required:
             raise ArtifactError("E_DOCS_SCHEMA", "/payload/changes/%d" % i, "closed change row required")
         path = _path(item["path"], "/payload/changes/%d/path" % i)
-        if path not in writable:
+        item["path"] = path
+        key = path.casefold()
+        if key in seen_paths:
+            raise ArtifactError("E_DOCS_SCHEMA", "/payload/changes/%d/path" % i, "duplicate change path")
+        seen_paths.add(key)
+        change_paths.append(path)
+        if not (path.endswith(".md") or path.endswith(".markdown")):
+            raise ArtifactError("E_DOCS_SCHEMA", path, "docs-change accepts Markdown paths only")
+        if key not in writable_keys:
             raise ArtifactError("E_DOCS_SCOPE", path, "changed path is outside writable scope")
-        if path in protected:
+        if key in protected_keys:
             raise ArtifactError("E_DOCS_PROTECTED", path, "protected path cannot change")
         if type(item["kind"]) is not str or item["kind"] not in {"add", "modify", "delete"}:
             raise ArtifactError("E_DOCS_SCHEMA", path, "unsupported change kind")
-        _sha(item["before_sha256"], "/payload/changes/%d/before_sha256" % i)
-        _sha(item["after_sha256"], "/payload/changes/%d/after_sha256" % i)
-        if item["kind"] == "add" and item["before_sha256"] is not None:
-            raise ArtifactError("E_DOCS_SCHEMA", path, "add must not have before hash")
-        if item["kind"] == "delete" and item["after_sha256"] is not None:
-            raise ArtifactError("E_DOCS_SCHEMA", path, "delete must not have after hash")
+        before_sha = _sha(item["before_sha256"], "/payload/changes/%d/before_sha256" % i)
+        after_sha = _sha(item["after_sha256"], "/payload/changes/%d/after_sha256" % i)
+        item["before_sha256"], item["after_sha256"] = before_sha, after_sha
+        if item["kind"] == "add" and (before_sha is not None or after_sha is None):
+            raise ArtifactError("E_DOCS_SCHEMA", path, "add requires only after hash")
+        if item["kind"] == "delete" and (before_sha is None or after_sha is not None):
+            raise ArtifactError("E_DOCS_SCHEMA", path, "delete requires only before hash")
+        if item["kind"] == "modify" and (before_sha is None or after_sha is None or before_sha == after_sha):
+            raise ArtifactError("E_DOCS_SCHEMA", path, "modify requires two different hashes")
         if not isinstance(item["purpose"], str) or not item["purpose"] or not isinstance(item["reader"], str) or not item["reader"]:
             raise ArtifactError("E_DOCS_SCHEMA", path, "purpose and reader are required")
         anchors = _anchors(item["source_anchors"], frozen_source_bytes)
@@ -231,6 +269,8 @@ def validate_docs_change(record: Mapping[str, Any], *,
             ref = anchor["ref"]
             if (ref["kind"], ref["id"], ref["path"], ref["sha256"]) not in declared:
                 raise ArtifactError("E_DOCS_PROVENANCE", "/payload/changes/%d/source_anchors/%d/ref" % (i, anchor_index), "anchor reference is not declared in source_refs")
+    if change_paths != sorted(change_paths):
+        raise ArtifactError("E_DOCS_SCHEMA", "/payload/changes", "changes must be sorted by canonical path")
     return copy.deepcopy(value)
 
 

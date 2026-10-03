@@ -5,7 +5,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence, Set
 
-from .builtin_artifacts import ArtifactError, digest, validate_artifact
+from .builtin_artifacts import ArtifactError, digest, resource_ref, validate_artifact
 from .builtin_docs_checks import validate_docs_check
 
 
@@ -115,6 +115,38 @@ def content_oracle(document: Any, expected_text: str, *, encoding: str = "utf-8"
     return {"status": "REVIEWED_SATISFIED" if expected_text in text else "CONTENT_MISMATCH", "expected_sha256": digest(expected_text.encode("utf-8")), "document_sha256": actual_sha256, "match_count": text.count(expected_text), "oracle": "fixed-substring-v1"}
 
 
+def _content_review(value: Any, path: str = "/content_review") -> dict[str, Any]:
+    """Validate the closed, deterministic result emitted by ``content_oracle``."""
+    if not isinstance(value, Mapping) or type(value.get("status")) is not str:
+        _invalid("E_REVIEW_INPUT", path, "fixed oracle result required")
+    status = value["status"]
+    if status in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH"}:
+        required = {"status", "expected_sha256", "document_sha256", "match_count", "oracle"}
+        if set(value) != required:
+            _invalid("E_REVIEW_INPUT", path, "closed content oracle result required")
+        for field in ("expected_sha256", "document_sha256"):
+            item = value[field]
+            if type(item) is not str or len(item) != 64 or any(char not in "0123456789abcdef" for char in item):
+                _invalid("E_REVIEW_INPUT", f"{path}/{field}", "lowercase SHA-256 required")
+        if type(value["match_count"]) is not int or value["match_count"] < 0:
+            _invalid("E_REVIEW_INPUT", f"{path}/match_count", "non-negative integer required")
+        if value["oracle"] != "fixed-substring-v1":
+            _invalid("E_REVIEW_INPUT", f"{path}/oracle", "unsupported content oracle")
+        if status == "REVIEWED_SATISFIED" and value["match_count"] < 1:
+            _invalid("E_REVIEW_INPUT", path, "satisfied result requires a match")
+        if status == "CONTENT_MISMATCH" and value["match_count"] != 0:
+            _invalid("E_REVIEW_INPUT", path, "mismatch result cannot report a match")
+    elif status == "UNKNOWN":
+        if set(value) != {"status", "reason", "document_sha256"} or value["reason"] != "DOCUMENT_DRIFT":
+            _invalid("E_REVIEW_INPUT", path, "closed drift result required")
+        item = value["document_sha256"]
+        if type(item) is not str or len(item) != 64 or any(char not in "0123456789abcdef" for char in item):
+            _invalid("E_REVIEW_INPUT", f"{path}/document_sha256", "lowercase SHA-256 required")
+    else:
+        _invalid("E_REVIEW_INPUT", f"{path}/status", "unsupported content oracle status")
+    return dict(value)
+
+
 def quality_issues(observation: Mapping[str, Any], required_tests: Set[str]) -> list:
     observation = _observation(observation)
     required = _name_set(required_tests, "/required_tests")
@@ -177,8 +209,7 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
     if not isinstance(docs_check, Mapping) or docs_check.get("record_type") != "docs-check":
         raise ArtifactError("E_REVIEW_INPUT", "/docs_check", "validated docs-check artifact required")
     docs_check = validate_docs_check(docs_check)
-    if not isinstance(content_review, Mapping) or type(content_review.get("status")) is not str or content_review.get("status") not in {"REVIEWED_SATISFIED", "CONTENT_MISMATCH", "UNKNOWN"}:
-        raise ArtifactError("E_REVIEW_INPUT", "/content_review", "fixed oracle result required")
+    content_review = _content_review(content_review)
     if not isinstance(observations, Sequence) or isinstance(observations, (str, bytes)):
         raise ArtifactError("E_REVIEW_INPUT", "/observations", "observation sequence required")
     if not isinstance(readiness, Mapping):
@@ -189,7 +220,22 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
         raise ArtifactError("E_REVIEW_INPUT", "/readiness/status", "unsupported readiness status")
     if not isinstance(readiness["issues"], list) or any(type(issue) is not str or not issue for issue in readiness["issues"]):
         raise ArtifactError("E_REVIEW_INPUT", "/readiness/issues", "readiness issue list required")
+    if status == "READY" and readiness["status"] != "READY_FOR_SUPERVISOR_DECISION":
+        raise ArtifactError("E_REVIEW_BINDING", "/status", "READY requires a ready readiness result")
+    if status == "BLOCKED" and readiness["status"] != "BLOCKED":
+        raise ArtifactError("E_REVIEW_BINDING", "/status", "BLOCKED requires a blocked readiness result")
     checked_observations = [_observation(observation, f"/observations/{index}") for index, observation in enumerate(observations)]
+    normalized_candidate = None if candidate_ref is None else resource_ref(candidate_ref, "/candidate_ref")
+    normalized_environment = None if environment_ref is None else resource_ref(environment_ref, "/environment_ref")
+    bindings = {tuple(sorted(observation["binding"].items())) for observation in checked_observations}
+    if len(bindings) == 1:
+        binding = dict(bindings.pop())
+        for ref, field in ((normalized_candidate, "candidate_sha256"),
+                           (normalized_environment, "environment_sha256"),
+                           (docs_check.get("candidate_ref"), "candidate_sha256"),
+                           (docs_check.get("environment_ref"), "environment_sha256")):
+            if ref is not None and ref["sha256"] != binding[field]:
+                raise ArtifactError("E_REVIEW_BINDING", f"/{field}", "resource reference does not match observation binding")
     if readiness["status"] == "READY_FOR_SUPERVISOR_DECISION":
         if readiness["issues"] or not checked_observations or content_review["status"] != "REVIEWED_SATISFIED":
             raise ArtifactError("E_REVIEW_BINDING", "/readiness", "ready result is inconsistent with review inputs")
@@ -208,7 +254,7 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
     payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(checked_observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}
     if status is None:
         status = "READY" if readiness.get("status") == "READY_FOR_SUPERVISOR_DECISION" else "BLOCKED"
-    record = {"record_type": "review-bundle", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-review-oracle", "version": "1.0.0"}, "status": status, "source_refs": [dict(x) for x in source_refs], "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}
+    record = {"record_type": "review-bundle", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-review-oracle", "version": "1.0.0"}, "status": status, "source_refs": [dict(x) for x in source_refs], "candidate_ref": normalized_candidate, "environment_ref": normalized_environment, "payload": payload}
     return validate_artifact(record)
 
 

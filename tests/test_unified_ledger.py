@@ -136,6 +136,12 @@ class UnifiedLedgerTests(unittest.TestCase):
         with self.assertRaises(AtomicLedgerError):
             self.store.create_attempt("attempt-b", operation.operation_id, "run-b", "stage-a", 1)
 
+    def test_attempt_plan_version_is_bound_to_operation(self):
+        operation = self.claim()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            self.store.create_attempt("attempt-plan-mismatch", operation.operation_id, "run-plan-mismatch", "stage-a", 2)
+        self.assertEqual(caught.exception.code, "E_ATTEMPT_PLAN")
+
     def test_transition_rejects_untyped_states_with_stable_error(self):
         operation = self.claim()
         self.store.create_attempt("attempt-typed-state", operation.operation_id, "run-typed-state", "stage-a", 1)
@@ -163,6 +169,23 @@ class UnifiedLedgerTests(unittest.TestCase):
         self.assertTrue(self.store.upsert_consumer_cursor(
             "projection-10", expected_seq=high_water, next_seq=high_water
         ).replayed)
+
+    def test_fresh_zero_cursor_is_a_noop_without_outbox_event(self):
+        before = len(self.store.outbox())
+        result = self.store.upsert_consumer_cursor("projection-zero", expected_seq=0, next_seq=0)
+        self.assertTrue(result.replayed)
+        self.assertEqual(result.next_seq, 0)
+        self.assertEqual(len(self.store.outbox()), before)
+
+    def test_fresh_zero_cursor_survives_reopen(self):
+        self.store.upsert_consumer_cursor("projection-zero-reopen", expected_seq=0, next_seq=0)
+        self.store.close()
+        self.store = UnifiedLedgerStore(self.path)
+        row = self.store.db.execute(
+            "SELECT next_seq,high_water,updated_seq FROM consumer_cursors WHERE consumer_id=?",
+            ("projection-zero-reopen",),
+        ).fetchone()
+        self.assertEqual(tuple(row), (0, 0, 0))
 
     def test_attempt_cannot_revive_cancelled_or_stopped_operation(self):
         operation = self.claim()
