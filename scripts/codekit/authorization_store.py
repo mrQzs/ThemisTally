@@ -17,6 +17,7 @@ from typing import Any, Dict, Mapping, Optional
 
 from .authorization import (ApprovalLedger, ApprovalHead, AuthorizationError, InputLock,
                             canonical_bytes, validate_approval, validate_authorization)
+from . import protocols
 
 
 class AuthorizationStoreError(AuthorizationError):
@@ -84,8 +85,12 @@ class PersistentApprovalStore:
         for index, line in enumerate(lines):
             complete = line.endswith(b"\n")
             try:
-                event = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+                # Journal replay must use the same strict bounded JSON profile
+                # as new ledger writes.  ``json.loads`` would silently accept
+                # duplicate keys, non-finite numbers, over-deep values and
+                # records larger than the protocol byte limit.
+                event = protocols.strict_json_loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError, protocols.ProtocolError):
                 if index == len(lines) - 1 and not complete:
                     self.recovery = {"status": "TRUNCATED_TAIL", "ignored_tail": True, "line": index + 1}
                     break

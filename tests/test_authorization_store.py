@@ -89,6 +89,57 @@ class PersistentAuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
                 PersistentApprovalStore(path)
 
+    def test_complete_journal_records_reject_duplicate_json_keys(self):
+        event = {"seq": 1, "type": "approval", "scope": "scope", "operation_id": "put-1",
+                 "expected_generation": 0, "record": approval()}
+        encoded = json.dumps(event)
+        corrupt_records = (
+            encoded.replace('"scope": "scope"', '"scope": "other", "scope": "scope"'),
+            encoded.replace('"decision": "APPROVED"',
+                            '"decision": "REVOKED", "decision": "APPROVED"'),
+            encoded.replace('"seq": 1', '"seq": 0, "\\u0073eq": 1'),
+        )
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            for record in corrupt_records:
+                with self.subTest(record=record):
+                    original = (record + "\n").encode("utf-8")
+                    path.write_bytes(original)
+                    with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
+                        PersistentApprovalStore(path)
+                    self.assertEqual(path.read_bytes(), original)
+
+    def test_complete_journal_records_apply_json_byte_and_depth_limits(self):
+        event = {"seq": 1, "type": "approval", "scope": "scope", "operation_id": "put-1",
+                 "expected_generation": 0, "record": approval()}
+        encoded = json.dumps(event).encode("utf-8")
+        corrupt_records = (
+            b" " * (1 << 20) + encoded + b"\n",
+            b'{"record":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}\n",
+        )
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            for raw in corrupt_records:
+                with self.subTest(size=len(raw)):
+                    path.write_bytes(raw)
+                    with self.assertRaisesRegex(AuthorizationError, "E_AUTH_JOURNAL"):
+                        PersistentApprovalStore(path)
+                    self.assertEqual(path.read_bytes(), raw)
+
+    def test_uncommitted_strict_json_failure_keeps_the_durable_prefix(self):
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            store = PersistentApprovalStore(path)
+            store.put(scope="scope", operation_id="put-1", expected_generation=0, record=approval())
+            with path.open("ab") as handle:
+                handle.write(b'{"seq":2,"seq":3}')
+            original = path.read_bytes()
+            restored = PersistentApprovalStore(path)
+            self.assertEqual(restored.high_water, 1)
+            self.assertEqual(restored.ledger.head("scope").generation, 1)
+            self.assertEqual(restored.recovery["status"], "TRUNCATED_TAIL")
+            self.assertEqual(path.read_bytes(), original)
+
     def test_newline_terminated_bad_tail_and_malformed_lock_are_rejected(self):
         with tempfile.TemporaryDirectory() as area:
             path = Path(area) / "auth.jsonl"

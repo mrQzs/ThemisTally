@@ -119,9 +119,47 @@ class S5ExecutionTests(unittest.TestCase):
             classify_failure(kind="timeout", detail=[])
         with self.assertRaisesRegex(ArtifactError, "E_FAILURE"):
             classify_failure(kind=[])
+        with self.assertRaisesRegex(ArtifactError, "E_PLATFORM"):
+            make_platform_observation(os_name="windows", adapter_id="native\x80")
         failure = classify_failure(kind="timeout")
         with self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+            reconcile_failure({}, failure)
+        forged_observation = make_platform_observation(os_name="windows", adapter_id="native-windows")
+        forged_observation["execution_mode"] = "dispatcher"
+        with self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+            reconcile_failure(forged_observation, failure)
+        with self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
             reconcile_failure({}, {**failure, "extra": True})
+
+    def test_reconcile_rejects_forged_observation_fields(self):
+        observation = make_platform_observation(os_name="linux", adapter_id="offline", command=["python", "check.py"], environment_digest="a" * 64)
+        failure = classify_failure(kind="timeout")
+        for changes in (
+                {"extra": True}, {"os": []}, {"adapter_id": "offline\ud800"},
+                {"connected": 1}, {"execution_mode": "dispatcher"},
+                {"command": None}, {"command": ("python",)},
+                {"command": [""]}, {"command": ["python\x85"]},
+                {"environment_digest": "A" * 64}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+                reconcile_failure({**observation, **changes}, failure)
+        for field in observation:
+            forged = dict(observation)
+            del forged[field]
+            with self.subTest(missing=field), self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+                reconcile_failure(forged, failure)
+
+    def test_reconcile_rejects_noncanonical_failure_classification(self):
+        observation = make_platform_observation(os_name="linux", adapter_id="offline")
+        for kind in ("timeout", "environment"):
+            failure = classify_failure(kind=kind)
+            for changes in ({"recoverable": not failure["recoverable"]},
+                            {"recoverable": int(failure["recoverable"])},
+                            {"detail": None}):
+                with self.subTest(kind=kind, changes=changes), self.assertRaisesRegex(ArtifactError, "E_RECONCILE"):
+                    reconcile_failure(observation, {**failure, **changes})
+            result = reconcile_failure(observation, failure)
+            self.assertEqual(result["failure"], failure)
+            self.assertFalse(result["production_ready"])
 
 class S6ProjectionTests(unittest.TestCase):
     def test_catalog_readiness_and_dispatch_boundary(self):
