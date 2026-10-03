@@ -88,3 +88,7 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 ## 2026-10-03 当前离线候选（5d141298）
 
 `5d141298d052b291c1dba3fe35075d6303f0bbc8` 补齐 analysis/docs-change 的冻结 SourceAnchor 字节接线，并将 authorization store 的锁回执探针切换到 strict JSON。新增组合验收为 552 项收集、544 项通过、8 项环境跳过；插件全集为 107 项收集、100 项通过、7 项环境跳过。39 对最新合同已绑定该候选并通过结构校验。结果仍为 `LOCAL_REFERENCE`，没有 Pi/provider、原生平台或 09/10 连接器证据。
+
+## 2026-10-03 Full Discover Timeout Update
+
+Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.

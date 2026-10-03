@@ -91,3 +91,7 @@ These remain offline `LOCAL_REFERENCE` results. Real Pi/provider, native process
 ## 2026-10-03 当前离线候选（SourceAnchor 构建器与严格回执探针）
 
 `5d141298d052b291c1dba3fe35075d6303f0bbc8` 要求 analysis/docs-change 构建器在生成 SourceAnchor 时提供冻结资源字节，并校验 ResourceRef、半开字节区间和 excerpt 摘要；授权锁回执探针统一使用 strict JSON。新增 builder 级漂移、缺少快照和重复键回归。插件全集取证为 107 项收集、100 项通过、7 项可选 Schema 依赖跳过；01–06/08 扩展取证为 552 项收集、544 项通过、8 项跳过。结果仍是 `LOCAL_REFERENCE`；真实 Pi/provider、原生平台和外部连接器为 `NOT_RUN/BLOCKED`，阶段门继续 `REVISE/BLOCKED`。
+
+## 2026-10-03 Full Discover Timeout Update
+
+Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.
