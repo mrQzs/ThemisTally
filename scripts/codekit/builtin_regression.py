@@ -23,7 +23,7 @@ def collect_targets(spec: Mapping[str, Any], available: Iterable[str] | None = N
     ``available`` is an optional offline inventory.  Unknown targets become
     ``NOT_RUN`` rather than being silently invented.
     """
-    if not isinstance(spec, Mapping) or set(spec) - {"targets", "skip", "xfail", "include"}:
+    if not isinstance(spec, Mapping) or set(spec) - {"targets", "skip", "xfail"}:
         _err("E_REGRESSION_SPEC", "unknown fields in target spec")
     targets = spec.get("targets", [])
     if not isinstance(targets, list) or any(type(x) is not str or not x for x in targets):
