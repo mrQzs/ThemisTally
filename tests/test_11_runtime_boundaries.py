@@ -101,8 +101,25 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertTrue(accepted.allowed)
         self.assertEqual(accepted.to_mapping()["requires_review"], True)
 
+    def test_fallback_rejects_malformed_controller_input(self):
+        adapter = ClaudeCodeAdapter()
+        capability = adapter.probe(timeout=1).capability
+        fallback = preflight_profile(capability, role="planner", platform=capability.platforms[0],
+                                     required_capabilities=("terminal_event",), requested_model="m",
+                                     authentication_status="READY", version_supported=True,
+                                     reported_model="m")
+        denied = select_fallback(primary_profile_id="primary", fallback_profile_id="fallback",
+                                 primary={"status": "VERSION_INCOMPATIBLE"}, fallback=fallback)  # type: ignore[arg-type]
+        self.assertFalse(denied.allowed)
+        self.assertEqual(denied.reasons, ("FALLBACK_INPUT_INVALID",))
+        with self.assertRaisesRegex(AdapterFacadeError, "E_FALLBACK_SCHEMA"):
+            select_fallback(primary_profile_id="", fallback_profile_id="fallback",
+                            primary=fallback, fallback=fallback)
+
     def test_recovery_ledger_replays_same_observation_and_rejects_conflict(self):
         ledger = RecoveryLedger()
+        with self.assertRaisesRegex(AdapterFacadeError, "E_RECOVERY_SCHEMA"):
+            ledger.record({})  # type: ignore[arg-type]
         observation = CancellationObservation.classify(request_id="req", run_id="run", generation=1,
                                                         cancel_requested=True, exit_code=None,
                                                         response_lost=True, process_observed=None)

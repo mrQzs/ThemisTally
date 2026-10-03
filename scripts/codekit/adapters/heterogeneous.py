@@ -363,6 +363,21 @@ def select_fallback(*, primary_profile_id: str, fallback_profile_id: str,
                     primary: PreflightResult, fallback: PreflightResult,
                     authorized: bool = False, re_reviewed: bool = False) -> FallbackDecision:
     """Choose a fallback only after an explicit, separately reviewed decision."""
+    # Keep malformed controller input in the same conservative boundary as a
+    # failed preflight.  Profile ids are part of the persisted decision and
+    # therefore must be valid before we can construct a closed record; facts
+    # that should have been PreflightResult objects can be represented as a
+    # denied decision without leaking AttributeError from ``.status``.
+    for value, field in ((primary_profile_id, "primary_profile_id"),
+                         (fallback_profile_id, "fallback_profile_id")):
+        if type(value) is not str or not value:
+            raise AdapterFacadeError("E_FALLBACK_SCHEMA", f"{field} must be non-empty text")
+    if type(authorized) is not bool or type(re_reviewed) is not bool:
+        return FallbackDecision(False, primary_profile_id, fallback_profile_id,
+                                ("FALLBACK_INPUT_INVALID",), True)
+    if not isinstance(primary, PreflightResult) or not isinstance(fallback, PreflightResult):
+        return FallbackDecision(False, primary_profile_id, fallback_profile_id,
+                                ("FALLBACK_INPUT_INVALID",), True)
     reasons: list[str] = []
     if primary_profile_id == fallback_profile_id:
         reasons.append("FALLBACK_PROFILE_DUPLICATE")
@@ -385,6 +400,8 @@ class RecoveryLedger:
         self._items: dict[tuple[str, str, int], CancellationObservation] = {}
 
     def record(self, observation: CancellationObservation) -> str:
+        if not isinstance(observation, CancellationObservation):
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CancellationObservation required")
         key = (observation.request_id, observation.run_id, observation.generation)
         previous = self._items.get(key)
         if previous is not None:
