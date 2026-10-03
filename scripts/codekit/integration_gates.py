@@ -337,6 +337,13 @@ def verify_09_10_wiring(*, readiness: Any, state: Mapping[str, Any], brief: Mapp
             or state.get("budget_coverage") != "complete"
             or state.get("issues") not in ([], ())):
         reasons.append("STATE_HEALTH_CONTRADICTION")
+    state_issues = state.get("issues", [])
+    if (isinstance(state_issues, (str, bytes))
+            or not isinstance(state_issues, Sequence)
+            or any(not _nonempty_text(item) for item in state_issues)):
+        reasons.append("STATE_ISSUES_INVALID")
+    if type(state.get("truncated", False)) is not bool:
+        reasons.append("STATE_TRUNCATION_INVALID")
 
     # 10 is a read model.  It cannot turn a brief into an execution permit.
     if brief.get("dispatch_eligibility") != "not_evaluated":

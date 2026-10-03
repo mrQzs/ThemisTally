@@ -150,6 +150,15 @@ class WiringAndProductionTests(unittest.TestCase):
         self.assertEqual(decision.decision, BLOCKED)
         self.assertIn("BRIEF_ISSUES_INVALID", decision.reasons)
 
+    def test_wiring_rejects_forged_state_issue_and_truncation_types(self) -> None:
+        state, brief = state_and_brief()
+        forged = {**state, "issues": "forged", "truncated": "yes"}
+        decision = verify_09_10_wiring(readiness=project_readiness(readiness_facts()),
+                                       state=forged, brief=brief)
+        self.assertEqual(decision.decision, BLOCKED)
+        self.assertIn("STATE_ISSUES_INVALID", decision.reasons)
+        self.assertIn("STATE_TRUNCATION_INVALID", decision.reasons)
+
     def test_missing_and_synthetic_connectors_are_explicitly_production_blocked(self) -> None:
         missing = evaluate_production_connectors(None)
         self.assertEqual(missing.decision, PRODUCTION_BLOCKED)
