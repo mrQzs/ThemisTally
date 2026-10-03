@@ -350,6 +350,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertFalse(not_ready.allowed)
         self.assertIn("PREFLIGHT_NOT_READY", not_ready.reasons)
 
+        invocation_block = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                               ledger=ledger, approval_binding=approval_binding,
+                                               preflight=preflight)
+        self.assertFalse(invocation_block.allowed)
+        self.assertIn("INVOCATION_UNBOUND", invocation_block.reasons)
+
         malformed_lock = replace(input_lock, bindings=(("malformed",),))
         malformed_binding = replace(approval_binding, input_lock=malformed_lock)
         malformed = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,

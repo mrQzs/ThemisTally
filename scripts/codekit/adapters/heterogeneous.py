@@ -649,26 +649,27 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
         if binding.capability_digest != profile.capability_digest:
             reasons.append("PREFLIGHT_CAPABILITY_DRIFT")
 
-    if invocation is not None:
-        if not isinstance(invocation, SecondCliInvocation):
-            reasons.append("INVOCATION_SCHEMA")
-        else:
-            adapter = invocation.adapter
-            runtime = invocation.runtime
-            if adapter.request_id != handoff.request_id or runtime.request_id != handoff.request_id:
-                reasons.append("INVOCATION_REQUEST_MISMATCH")
-            if adapter.run_id != handoff.run_id or runtime.run_id != handoff.run_id:
-                reasons.append("INVOCATION_RUN_MISMATCH")
-            if adapter.role != "executor" or profile.role != "executor":
-                reasons.append("INVOCATION_ROLE_MISMATCH")
-            if adapter.profile_id != handoff.executor_profile_id or profile.profile_id != handoff.executor_profile_id:
-                reasons.append("INVOCATION_PROFILE_MISMATCH")
-            if adapter.adapter_id != profile.adapter_id:
-                reasons.append("INVOCATION_ADAPTER_MISMATCH")
-            if invocation.read_only is not True:
-                reasons.append("INVOCATION_SCOPE_UNKNOWN")
-            if invocation.session_id != handoff.executor_session_id:
-                reasons.append("INVOCATION_SESSION_MISMATCH")
+    if invocation is None:
+        reasons.append("INVOCATION_UNBOUND")
+    elif not isinstance(invocation, SecondCliInvocation):
+        reasons.append("INVOCATION_SCHEMA")
+    else:
+        adapter = invocation.adapter
+        runtime = invocation.runtime
+        if adapter.request_id != handoff.request_id or runtime.request_id != handoff.request_id:
+            reasons.append("INVOCATION_REQUEST_MISMATCH")
+        if adapter.run_id != handoff.run_id or runtime.run_id != handoff.run_id:
+            reasons.append("INVOCATION_RUN_MISMATCH")
+        if adapter.role != "executor" or profile.role != "executor":
+            reasons.append("INVOCATION_ROLE_MISMATCH")
+        if adapter.profile_id != handoff.executor_profile_id or profile.profile_id != handoff.executor_profile_id:
+            reasons.append("INVOCATION_PROFILE_MISMATCH")
+        if adapter.adapter_id != profile.adapter_id:
+            reasons.append("INVOCATION_ADAPTER_MISMATCH")
+        if invocation.read_only is not True:
+            reasons.append("INVOCATION_SCOPE_UNKNOWN")
+        if invocation.session_id != handoff.executor_session_id:
+            reasons.append("INVOCATION_SESSION_MISMATCH")
 
     return StartGate(not reasons, tuple(dict.fromkeys(reasons)), report)
 
