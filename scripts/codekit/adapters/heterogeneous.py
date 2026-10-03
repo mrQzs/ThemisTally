@@ -564,7 +564,8 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
                         handoff: ProfileHandoff, ledger: PlanningBudgetLedger,
                         invocation: SecondCliInvocation | None = None,
                         generation: int | None = None,
-                        approval_binding: ApprovalBinding | None = None) -> StartGate:
+                        approval_binding: ApprovalBinding | None = None,
+                        preflight: PreflightResult | None = None) -> StartGate:
     """Recheck all local bindings immediately before executor dispatch.
 
     This is deliberately provider-neutral: the only provider-specific object
@@ -630,6 +631,23 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
             _verify_approval_binding(approval_binding, expected_input_refs=handoff.input_refs)
         except AdapterFacadeError as exc:
             reasons.append(exc.code)
+
+    if preflight is None:
+        reasons.append("PREFLIGHT_UNBOUND")
+    elif not isinstance(preflight, PreflightResult):
+        reasons.append("PREFLIGHT_SCHEMA")
+    else:
+        if preflight.status != "READY":
+            reasons.append("PREFLIGHT_NOT_READY")
+        binding = preflight.binding
+        if binding.adapter_id != profile.adapter_id:
+            reasons.append("PREFLIGHT_ADAPTER_MISMATCH")
+        if binding.role != profile.role or binding.platform != profile.platform:
+            reasons.append("PREFLIGHT_PROFILE_MISMATCH")
+        if binding.model_id != profile.model_id:
+            reasons.append("PREFLIGHT_MODEL_MISMATCH")
+        if binding.capability_digest != profile.capability_digest:
+            reasons.append("PREFLIGHT_CAPABILITY_DRIFT")
 
     if invocation is not None:
         if not isinstance(invocation, SecondCliInvocation):

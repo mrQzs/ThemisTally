@@ -240,6 +240,14 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def test_start_gate_rechecks_run_context_handoff_budget_and_invocation(self):
         adapter = ClaudeCodeAdapter()
         capability = adapter.probe(timeout=1).capability
+        capability = replace(
+            capability,
+            evidence=tuple(
+                CapabilityEvidence(item.capability, "observed", source_ref=ref("start-" + item.capability),
+                                   note="offline observed fixture")
+                for item in capability.evidence
+            ),
+        )
         platform = capability.platforms[0]
         request_id = "req-11111111111141118111111111111111"
         run_id = "run-22222222222242228222222222222222"
@@ -281,47 +289,72 @@ class RuntimeBoundaryTests(unittest.TestCase):
             (ref("input"),),
             input_lock,
         )
+        preflight = preflight_profile(
+            capability,
+            role="executor",
+            platform=platform,
+            required_capabilities=profile.capabilities,
+            requested_model=profile.model_id,
+            reported_model=profile.model_id,
+            authentication_status="READY",
+            version_supported=True,
+            require_observed=True,
+        )
+        self.assertEqual(preflight.status, "READY", preflight.reasons)
         invocation = adapter.build_invocation(profile, request_id=request_id, run_id=run_id, cwd=".",
                                               environment={}, prompt=b"execute",
                                               resource_allowlist=(ref("input"),))
         allowed = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                       ledger=ledger, invocation=invocation,
-                                      approval_binding=approval_binding)
+                                      approval_binding=approval_binding, preflight=preflight)
         self.assertTrue(allowed.allowed, allowed.reasons)
         self.assertEqual(allowed.context_report["record_type"], "run-context")
         router = ProfileRouter(HeterogeneousAdapterFacade([adapter]))
         router.register(profile, capability=capability)
         self.assertTrue(router.start_gate(profile.profile_id, run_context=context, handoff=handoff,
                                           ledger=ledger, invocation=invocation,
-                                          approval_binding=approval_binding).allowed)
+                                          approval_binding=approval_binding, preflight=preflight).allowed)
 
         blocked = evaluate_start_gate(run_context=dict(context, run_id="run-33333333333343338333333333333333"),
                                       profile=profile, handoff=handoff, ledger=ledger,
-                                      invocation=invocation, approval_binding=approval_binding)
+                                      invocation=invocation, approval_binding=approval_binding,
+                                      preflight=preflight)
         self.assertFalse(blocked.allowed)
         self.assertIn("RUN_MISMATCH", blocked.reasons)
         stopped = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                       ledger=ledger.stop("USER_STOP"), invocation=invocation,
-                                      approval_binding=approval_binding)
+                                      approval_binding=approval_binding, preflight=preflight)
         self.assertFalse(stopped.allowed)
         self.assertIn("BUDGET_USER_STOP", stopped.reasons)
         wrong_session = replace(invocation, session_id="other-session")
         session_block = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                              ledger=ledger, invocation=wrong_session,
-                                             approval_binding=approval_binding)
+                                             approval_binding=approval_binding, preflight=preflight)
         self.assertFalse(session_block.allowed)
         self.assertIn("INVOCATION_SESSION_MISMATCH", session_block.reasons)
 
         unbound = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
-                                      ledger=ledger, invocation=invocation)
+                                      ledger=ledger, invocation=invocation, preflight=preflight)
         self.assertFalse(unbound.allowed)
         self.assertIn("APPROVAL_UNBOUND", unbound.reasons)
+
+        preflight_block = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                              ledger=ledger, invocation=invocation,
+                                              approval_binding=approval_binding)
+        self.assertFalse(preflight_block.allowed)
+        self.assertIn("PREFLIGHT_UNBOUND", preflight_block.reasons)
+        not_ready = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                        ledger=ledger, invocation=invocation,
+                                        approval_binding=approval_binding,
+                                        preflight=replace(preflight, status="NOT_RUN"))
+        self.assertFalse(not_ready.allowed)
+        self.assertIn("PREFLIGHT_NOT_READY", not_ready.reasons)
 
         malformed_lock = replace(input_lock, bindings=(("malformed",),))
         malformed_binding = replace(approval_binding, input_lock=malformed_lock)
         malformed = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                         ledger=ledger, invocation=invocation,
-                                        approval_binding=malformed_binding)
+                                        approval_binding=malformed_binding, preflight=preflight)
         self.assertFalse(malformed.allowed)
         self.assertIn("E_INPUT_LOCK_SCHEMA", malformed.reasons)
 
@@ -329,7 +362,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                expected_generation=approval_head.generation, reason="stopped")
         stale = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                     ledger=ledger, invocation=invocation,
-                                    approval_binding=approval_binding)
+                                    approval_binding=approval_binding, preflight=preflight)
         self.assertFalse(stale.allowed)
         self.assertIn("E_APPROVAL_CURRENTNESS", stale.reasons)
 
