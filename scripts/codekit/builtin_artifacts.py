@@ -117,7 +117,16 @@ def resource_ref(value: Any, path: str = "/resource_ref") -> Dict[str, str]:
     return {"kind": value["kind"], "id": value["id"], "path": normalized, "sha256": value["sha256"]}
 
 
-def source_anchor(value: Any) -> Dict[str, Any]:
+def source_anchor(value: Any, source_bytes: bytes | None = None) -> Dict[str, Any]:
+    """Validate a source anchor and, when supplied, bind it to resource bytes.
+
+    The artifact envelope stores only a ``ResourceRef`` and the half-open byte
+    range.  Syntax validation alone cannot prove that ``excerpt_sha256`` is
+    the bytes at that range (or that the referenced resource itself is the
+    bytes being inspected), so callers that have the frozen source should pass
+    it here.  Omitting ``source_bytes`` preserves envelope-only validation for
+    deserializers that do not yet have the resource snapshot.
+    """
     if not isinstance(value, dict) or set(value) != {"ref", "start_byte", "end_byte", "excerpt_sha256"}:
         _fail("E_ARTIFACT_SOURCE", "/source_anchor", "closed source anchor required")
     result = resource_ref(value["ref"], "/source_anchor/ref")
@@ -128,6 +137,16 @@ def source_anchor(value: Any) -> Dict[str, Any]:
         _fail("E_ARTIFACT_SOURCE", "/source_anchor", "invalid byte range")
     if not isinstance(value["excerpt_sha256"], str) or not HEX64.fullmatch(value["excerpt_sha256"]):
         _fail("E_ARTIFACT_SOURCE", "/source_anchor/excerpt_sha256", "lowercase SHA-256 required")
+    if source_bytes is not None:
+        if type(source_bytes) is not bytes:
+            _fail("E_ARTIFACT_SOURCE", "/source_anchor/source_bytes", "source bytes required")
+        if hashlib.sha256(source_bytes).hexdigest() != result["sha256"]:
+            _fail("E_ARTIFACT_SOURCE", "/source_anchor/ref/sha256", "source resource digest mismatch")
+        start, end = value["start_byte"], value["end_byte"]
+        if end > len(source_bytes):
+            _fail("E_ARTIFACT_SOURCE", "/source_anchor", "byte range exceeds source resource")
+        if hashlib.sha256(source_bytes[start:end]).hexdigest() != value["excerpt_sha256"]:
+            _fail("E_ARTIFACT_SOURCE", "/source_anchor/excerpt_sha256", "excerpt digest mismatch")
     return {"ref": result, "start_byte": value["start_byte"], "end_byte": value["end_byte"], "excerpt_sha256": value["excerpt_sha256"]}
 
 

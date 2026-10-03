@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import sys
 import unittest
 from pathlib import Path
@@ -114,6 +115,20 @@ class BuiltinArtifactsTests(unittest.TestCase):
                "excerpt_sha256": "b" * 64}
         with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
             source_anchor(bad)
+
+    def test_source_anchor_binds_resource_and_excerpt_bytes(self):
+        source = "甲乙丙".encode("utf-8")
+        anchor = {"ref": {**ref(), "sha256": hashlib.sha256(source).hexdigest()},
+                  "start_byte": 3, "end_byte": 6,
+                  "excerpt_sha256": hashlib.sha256("乙".encode("utf-8")).hexdigest()}
+        self.assertEqual(source_anchor(anchor, source)["start_byte"], 3)
+
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            source_anchor(anchor, b"changed")
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            source_anchor({**anchor, "end_byte": len(source) + 1}, source)
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            source_anchor({**anchor, "excerpt_sha256": "b" * 64}, source)
 
     def test_catalog_returns_canonical_resource_paths(self):
         item = {"plugin_id": "demo", "version": "1.0.0", "manifest_ref": ref("manifest"), "lock_ref": ref("lock")}
