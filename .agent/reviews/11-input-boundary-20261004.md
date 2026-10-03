@@ -1,6 +1,6 @@
 # 11 S5 输入边界复审（2026-10-04）
 
-当前代码头 `6e8d96a` 补齐了恢复与 fallback 控制器的离线输入边界。`select_fallback` 对非法 profile id 抛出 `E_FALLBACK_SCHEMA`，对 malformed `PreflightResult` 或非布尔授权输入返回 `FALLBACK_INPUT_INVALID`；`RecoveryLedger.record` 对非 `CancellationObservation` 返回 `E_RECOVERY_SCHEMA`。这些错误不会通过 `AttributeError` 泄漏未分类状态。
+当前代码头 `0d2b099` 补齐了恢复与 fallback 控制器的离线输入边界，并用实际 `FallbackDecision.to_mapping()` 验证 fallback Schema 闭合。`select_fallback` 对非法 profile id 抛出 `E_FALLBACK_SCHEMA`，对 malformed `PreflightResult` 或非布尔授权输入返回 `FALLBACK_INPUT_INVALID`；`RecoveryLedger.record` 对非 `CancellationObservation` 返回 `E_RECOVERY_SCHEMA`。这些错误不会通过 `AttributeError` 泄漏未分类状态。
 
 验证：
 

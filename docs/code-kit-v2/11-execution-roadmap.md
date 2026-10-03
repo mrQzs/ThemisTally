@@ -1,6 +1,6 @@
 # Code-Kit v2：11 第二 CLI 接入分阶段路线图
 
-规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`6e8d96a`（文档更新随后单独提交）。附件 `11-second-cli-adapter.md` 只作为需求与设计参考；不替代 `AGENTS.md`、合同或复审结论。
+规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`0d2b099`（文档更新随后单独提交）。附件 `11-second-cli-adapter.md` 只作为需求与设计参考；不替代 `AGENTS.md`、合同或复审结论。
 
 ## 目标与边界
 
