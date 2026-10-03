@@ -229,10 +229,15 @@ def _verify_approval_binding(binding: ApprovalBinding, *, expected_input_refs: S
         if lock.approval_ref != expected_approval_ref or lock.head_generation != head.generation:
             raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock is bound to a stale approval")
         rows = set()
-        for value, generation in lock.bindings:
-            if type(generation) is not int or generation != head.generation:
-                raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock binding generation is stale")
-            rows.add((approval_sha256(_ref(dict(value), "/input_lock/bindings")), generation))
+        try:
+            for value, generation in lock.bindings:
+                if type(generation) is not int or generation != head.generation:
+                    raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock binding generation is stale")
+                rows.add((approval_sha256(_ref(dict(value), "/input_lock/bindings")), generation))
+        except AdapterFacadeError:
+            raise
+        except (TypeError, ValueError, KeyError) as exc:
+            raise AdapterFacadeError("E_INPUT_LOCK_SCHEMA", "input lock bindings are malformed") from exc
         expected_rows = {(approval_sha256(ref), head.generation) for ref in expected_refs}
         if rows != expected_rows:
             raise AdapterFacadeError("E_INPUT_LOCK_BINDINGS", "input lock bindings do not match handoff inputs")

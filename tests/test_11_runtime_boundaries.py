@@ -303,6 +303,14 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertFalse(unbound.allowed)
         self.assertIn("APPROVAL_UNBOUND", unbound.reasons)
 
+        malformed_lock = replace(input_lock, bindings=(("malformed",),))
+        malformed_binding = replace(approval_binding, input_lock=malformed_lock)
+        malformed = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                        ledger=ledger, invocation=invocation,
+                                        approval_binding=malformed_binding)
+        self.assertFalse(malformed.allowed)
+        self.assertIn("E_INPUT_LOCK_SCHEMA", malformed.reasons)
+
         approval_ledger.revoke(scope="run-approval", operation_id="revoke-op",
                                expected_generation=approval_head.generation, reason="stopped")
         stale = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
