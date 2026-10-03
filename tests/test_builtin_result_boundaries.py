@@ -190,6 +190,7 @@ class RegressionResultBoundaries(unittest.TestCase):
             {"targets": ["a"], "skip": ["a", "a"]},
             {"targets": ["a"], "xfail": ["a", "a"]},
             {"targets": ["a"], "skip": ["a"], "xfail": ["a"]},
+            {"targets": ["a"], "include": ["a"]},
         ):
             with self.subTest(spec=spec):
                 with self.assertRaises(ArtifactError) as caught:
