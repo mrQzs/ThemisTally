@@ -1,6 +1,6 @@
 # 07 发布门禁与阶段收尾
 
-当前固定候选已推进至 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`；下方早期候选段落保留为历史记录，最终离线复核见文末。
+当前固定代码候选为 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`，合同发布提交为 `db46200d75ff1462837996bab7450e09a9a88f46`；下方早期候选段落保留为历史记录，最新离线复核见文末。
 
 ## 候选与证据
 
@@ -15,7 +15,7 @@
 
 | 门禁 | 结果 | 说明 |
 |---|---|---|
-| G1 候选固定且工作树干净 | LOCAL_REFERENCE | `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 为当前离线实现候选；仍缺独立 attempt 快照 |
+| G1 候选固定且工作树干净 | LOCAL_REFERENCE | 代码候选 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee` 与合同发布提交 `db46200d75ff1462837996bab7450e09a9a88f46` 已推送且工作树干净；仍缺独立 attempt 快照 |
 | G2 定向实现与结构检查 | LOCAL_REFERENCE | 验收矩阵组合命令 398 项通过、8 项跳过，且 compileall/diff check 通过；不等价于生产阶段通过 |
 | G3 旧调度器回归 | NOT_RUN | 本轮调度器回归未完成；历史 stub 结果不能替代当前复核 |
 | G4 Pi 环境与执行器证据 | NOT_RUN | 最新 doctor 已确认 `bb/step-5-preview` 可用且认证 ready；按路线图约束本轮未运行 smoke 或派遣，因此没有 attempt 证据 |
@@ -65,3 +65,9 @@ G1/G2 可保留为离线 `LOCAL_REFERENCE`；G3 当前候选没有新的 dispatc
 ## 2026-10-03 最终候选（C1 边界修复后）
 
 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 的插件和扩展 capture 分别为 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`，结果为 102/95/7 与 542/534/8（收集/通过/跳过）。离线边界继续为 `LOCAL_REFERENCE`；没有新的 dispatcher、Pi attempt 或真实连接器证据，G3–G8 不放行。
+
+## 2026-10-03 当前合同基线与离线复核
+
+代码候选 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee` 已推送；39 对 01–06/08 合同以新版本发布于 `db46200d75ff1462837996bab7450e09a9a88f46`，均绑定精确 `bb/step-5-preview` 元数据，并通过 `pi_dispatch validate`。当前原始取证目录为 `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`，两者均 `baseline_consistent=true`、无 drift。
+
+插件全集为 117 项收集、109 项通过、8 项可选 Schema 依赖跳过，返回码 0。01–06/08 扩展组合为 1040 项收集、1 项既有 `scripts/pi_dispatch.py` legacy source-lock 失败、35 项环境跳过，返回码 1；失败不是本批业务模块新失败。`compileall` 与 `git diff --check` 通过。G1/G2 仍为离线 `LOCAL_REFERENCE`；G3 当前调度器回归未形成新通过证据；G4–G7（真实 Pi/provider、原生 OS、09/10）继续 `NOT_RUN/BLOCKED`；G8 继续 `REVISE/BLOCKED`，生产发布门禁关闭。

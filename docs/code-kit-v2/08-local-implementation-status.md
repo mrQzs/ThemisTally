@@ -92,3 +92,9 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 ## 2026-10-03 Full Discover Timeout Update
 
 Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.
+
+## 2026-10-03 当前 08 离线候选与新合同
+
+08 离线代码候选为 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`，39 对 01–06/08 合同的新版本随 `db46200d75ff1462837996bab7450e09a9a88f46` 发布；合同执行器记录统一为 `bb/step-5-preview`，未派遣真实 Pi。插件全集 capture `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 为 117/109/8（收集/通过/跳过），扩展 capture `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/` 为 1040 收集、1 个既有 `scripts/pi_dispatch.py` source-lock 失败、35 个环境跳过，返回码 1；两者均无 drift。
+
+本轮离线边界修复覆盖 source snapshot portable collision、fixed content oracle closed shape、candidate/environment binding、zero cursor reopen、attempt plan version、rejected handoff 和 CommonMark first-definition 语义。定向回归 114 项通过、1 项跳过；这些结果仍为 `LOCAL_REFERENCE`，不能授予批准、运行、计费或发布权限。真实 provider、Pi、Windows/macOS 原生进程、核心 dispatcher 和 09/10 连接器保持 `NOT_RUN/BLOCKED`，S6 独立验收与生产门禁继续关闭。

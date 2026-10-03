@@ -38,10 +38,15 @@ This is repeatable offline reference evidence only. No Pi attempt, `review-pi` v
 
 ## Current Candidate Review Update (5d141298)
 
-The current candidate is `5d141298d052b291c1dba3fe35075d6303f0bbc8b`. Raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-08/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-08/`; they report 107/100/7 and 552/544/8 (collected/passed/skipped), return code 0, `baseline_consistent=true`, and no drift.
+The current candidate is `5d141298d052b291c1dba3fe35075d6303f0bbc8`. Raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-08/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-08/`; they report 107/100/7 and 552/544/8 (collected/passed/skipped), return code 0, `baseline_consistent=true`, and no drift.
 
 SourceAnchor builder wiring and the strict authorization receipt probe are covered by new offline tests. The latest 39 contract pairs validate with 0 warnings. This remains planning-side `LOCAL_REFERENCE` evidence only: there is no Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence, so the independent conclusion remains `REVISE/BLOCKED`.
 
 ## 2026-10-03 Full Discover Timeout Update
 
 Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.
+## Current Candidate Review Update (eae9bfc / db46200)
+
+The fixed code candidate is `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`; the 39-contract publication is `db46200d75ff1462837996bab7450e09a9a88f46`. New raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` and `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`. The builtin suite is 117 collected / 109 passed / 8 optional skips with return code 0. The expanded matrix is 1040 collected / 1 known legacy source-lock failure / 35 environment skips with return code 1. Both captures are complete, `baseline_consistent=true`, and drift-free.
+
+The candidate hardens offline provider allocation scope, catalog/recipe fixture file boundaries, docs-change portable path and hash shapes, fixed content-oracle closure, review-bundle candidate/environment binding, runtime rejected-handoff behavior, and unified-ledger zero-cursor reopen and attempt plan-version binding. These are planning-side `LOCAL_REFERENCE` results. There is no Pi attempt, `review-pi` verdict, trusted dispatcher receipt, real provider, native OS process, or 09/10 consumer evidence; the independent stage conclusion remains `REVISE/BLOCKED` and the production gate stays closed. The detailed review is `.agent/reviews/offline-acceptance-20261003-final-v7.md`.

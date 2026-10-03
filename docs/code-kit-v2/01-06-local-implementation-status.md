@@ -95,3 +95,14 @@ These remain offline `LOCAL_REFERENCE` results. Real Pi/provider, native process
 ## 2026-10-03 Full Discover Timeout Update
 
 Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.
+
+## 2026-10-03 当前代码候选与合同复核
+
+代码候选为 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`，合同发布提交为 `db46200d75ff1462837996bab7450e09a9a88f46`。本轮收紧离线插件、catalog/recipe 资源边界、provider allocation scope、运行时 handoff/reconcile、统一账本 zero cursor/attempt plan binding，以及 docs-change/review-bundle 的闭合与引用绑定。
+
+最新原始证据：
+
+- `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/`：117 项收集、109 项通过、8 项 Windows 可选 Schema 依赖跳过，返回码 0，`baseline_consistent=true`，无 drift。
+- `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`：1040 项收集、1 项既有 `scripts/pi_dispatch.py` legacy source-lock 失败、35 项环境跳过，返回码 1，`baseline_consistent=true`，无 drift。
+
+定向修复回归为 114 项通过、1 项跳过；`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。扩展套件的唯一失败仍是被测试明确标注的旧版 `a4fa199` 字节锁定，不代表本批离线业务实现通过或失败。01–06 仍为 `LOCAL_REFERENCE/REVISE/BLOCKED`；真实 Pi/provider、原生平台、外部连接器和生产恢复证据保持 `NOT_RUN/BLOCKED`。
