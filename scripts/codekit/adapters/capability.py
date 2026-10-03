@@ -156,6 +156,22 @@ class PreflightResult:
             raise CapabilityError("E_PREFLIGHT_SCHEMA", "version_supported must be boolean or null")
         if type(self.reasons) is not tuple or any(type(reason) is not str or not reason for reason in self.reasons):
             raise CapabilityError("E_PREFLIGHT_SCHEMA", "preflight reasons must be a tuple of text")
+        # A caller may construct this immutable record directly, so do not
+        # let a forged ``READY`` status bypass the same evidence contract as
+        # ``preflight_profile``.  The executor gate treats status as an
+        # admission fact; every other field must therefore be internally
+        # consistent before the record can claim readiness.
+        if self.status == "READY":
+            if not self.binding.supported:
+                raise CapabilityError("E_PREFLIGHT_READY", "READY requires a supported profile binding")
+            if self.reasons:
+                raise CapabilityError("E_PREFLIGHT_READY", "READY cannot carry blocking reasons")
+            if self.authentication_status != "READY":
+                raise CapabilityError("E_PREFLIGHT_READY", "READY requires ready authentication")
+            if self.version_supported is not True:
+                raise CapabilityError("E_PREFLIGHT_READY", "READY requires a supported version")
+            if self.requested_model is not None and self.reported_model != self.requested_model:
+                raise CapabilityError("E_PREFLIGHT_READY", "READY model identity does not match request")
 
     @property
     def allowed(self) -> bool:

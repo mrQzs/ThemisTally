@@ -15,6 +15,6 @@
     "response_lost": {"type": "boolean"},
     "process_observed": {"type": ["boolean", "null"]},
     "cancel_after_exit": {"type": "boolean"},
-    "state": {"enum": ["CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "START_UNKNOWN", "RECOVERY_REQUIRED"]}
+    "state": {"enum": ["CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "NOT_CANCELLED", "START_UNKNOWN", "RECOVERY_REQUIRED"]}
   }
 }

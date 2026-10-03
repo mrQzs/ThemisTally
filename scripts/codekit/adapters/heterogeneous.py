@@ -83,19 +83,60 @@ class HeterogeneousAdapterFacade:
         return adapter
 
     def probe(self, adapter_id: str, **kwargs: Any) -> ProbeResult:
-        return self.resolve(adapter_id).probe(**kwargs)
+        result = self.resolve(adapter_id).probe(**kwargs)
+        if not isinstance(result, ProbeResult) or not isinstance(result.capability, AdapterCapability):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "probe must return ProbeResult")
+        if result.capability.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "probe capability adapter does not match route")
+        return result
 
     def validate_profile(self, adapter_id: str, capability: AdapterCapability, **kwargs: Any) -> SecondCliProfile:
-        return self.resolve(adapter_id).validate_profile(capability, **kwargs)
+        if not isinstance(capability, AdapterCapability) or capability.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "capability snapshot does not match route")
+        result = self.resolve(adapter_id).validate_profile(capability, **kwargs)
+        if not isinstance(result, SecondCliProfile):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "validate_profile must return SecondCliProfile")
+        if result.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "profile adapter does not match route")
+        return result
 
     def build_invocation(self, adapter_id: str, profile: SecondCliProfile, **kwargs: Any) -> SecondCliInvocation:
-        return self.resolve(adapter_id).build_invocation(profile, **kwargs)
+        if not isinstance(profile, SecondCliProfile) or profile.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_PROFILE_ADAPTER", "profile does not match route")
+        result = self.resolve(adapter_id).build_invocation(profile, **kwargs)
+        if not isinstance(result, SecondCliInvocation):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "build_invocation must return SecondCliInvocation")
+        if result.adapter.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "invocation adapter does not match route")
+        if result.adapter.profile_id != profile.profile_id:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation profile does not match route")
+        if result.adapter.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation role does not match profile")
+        if result.capability_digest != profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation capability does not match profile")
+        if result.runtime.command != result.adapter.command:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "runtime and adapter argv differ")
+        for field in ("request_id", "run_id"):
+            expected = kwargs.get(field)
+            if expected is not None and getattr(result.adapter, field) != expected:
+                raise AdapterFacadeError("E_INVOCATION_IDENTITY", field + " does not match route input")
+        return result
 
     def normalize_event(self, adapter_id: str, raw_record: bytes | str, **kwargs: Any) -> CliEvent:
-        return self.resolve(adapter_id).normalize_event(raw_record, **kwargs)
+        result = self.resolve(adapter_id).normalize_event(raw_record, **kwargs)
+        if not isinstance(result, CliEvent):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "normalize_event must return CliEvent")
+        for field in ("request_id", "run_id", "role"):
+            expected = kwargs.get(field)
+            if expected is not None and getattr(result, field) != expected:
+                raise AdapterFacadeError("E_EVENT_CONTEXT", field + " does not match route input")
+        return result
 
     def collect_result(self, adapter_id: str, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult:
-        return self.resolve(adapter_id).collect_result(events, **kwargs)
+        result = self.resolve(adapter_id).collect_result(events, **kwargs)
+        if not isinstance(result, CollectionResult):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "collect_result must return CollectionResult")
+        return result
 
     def adapter_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._adapters))
@@ -110,6 +151,8 @@ class ProfileRouter:
 
     def register(self, profile: SecondCliProfile, *, capability: AdapterCapability | None = None,
                  require_observed: bool = False) -> None:
+        if not isinstance(profile, SecondCliProfile):
+            raise AdapterFacadeError("E_PROFILE_SCHEMA", "SecondCliProfile is required")
         if profile.profile_id in self._profiles:
             raise AdapterFacadeError("E_PROFILE_DUPLICATE", "profile id already registered")
         self.facade.resolve(profile.adapter_id)
@@ -137,21 +180,43 @@ class ProfileRouter:
 
     def build_invocation(self, profile_id: str, **kwargs: Any) -> SecondCliInvocation:
         adapter_id, profile = self.resolve(profile_id)
-        return self.facade.build_invocation(adapter_id, profile, **kwargs)
+        result = self.facade.build_invocation(adapter_id, profile, **kwargs)
+        if result.adapter.profile_id != profile_id:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation profile does not match routed profile")
+        if result.adapter.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation role does not match routed profile")
+        if result.platform != profile.platform or result.environment_kind != profile.environment_kind:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation platform does not match routed profile")
+        if result.session_id != profile.session_id and profile.session_id is not None:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation session does not match routed profile")
+        return result
 
     def probe(self, profile_id: str, **kwargs: Any) -> ProbeResult:
         adapter_id, profile = self.resolve(profile_id)
         kwargs.setdefault("executable", profile.executable)
         kwargs.setdefault("platform", profile.platform)
         kwargs.setdefault("environment_kind", profile.environment_kind)
-        return self.facade.probe(adapter_id, **kwargs)
+        result = self.facade.probe(adapter_id, **kwargs)
+        if profile.platform not in result.capability.platforms:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "probe platform does not match routed profile")
+        if profile.environment_kind not in result.capability.environment_kinds:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "probe environment does not match routed profile")
+        return result
 
     def normalize_event(self, profile_id: str, raw_record: bytes | str, **kwargs: Any) -> CliEvent:
-        adapter_id, _ = self.resolve(profile_id)
-        return self.facade.normalize_event(adapter_id, raw_record, **kwargs)
+        adapter_id, profile = self.resolve(profile_id)
+        kwargs.setdefault("role", profile.role)
+        result = self.facade.normalize_event(adapter_id, raw_record, **kwargs)
+        if result.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "event role does not match routed profile")
+        return result
 
     def collect_result(self, profile_id: str, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult:
-        adapter_id, _ = self.resolve(profile_id)
+        adapter_id, profile = self.resolve(profile_id)
+        if not isinstance(events, (tuple, list)):
+            raise AdapterFacadeError("E_PROFILE_EVENT", "events must be a sequence")
+        if any(not isinstance(event, CliEvent) or event.role != profile.role for event in events):
+            raise AdapterFacadeError("E_PROFILE_EVENT", "event identity does not match routed profile")
         return self.facade.collect_result(adapter_id, events, **kwargs)
 
     def start_gate(self, profile_id: str, **kwargs: Any) -> "StartGate":
@@ -361,8 +426,23 @@ class CancellationObservation:
             raise AdapterFacadeError("E_RECOVERY_SCHEMA", "exit_code must be integer or null")
         if self.process_observed is not None and type(self.process_observed) is not bool:
             raise AdapterFacadeError("E_RECOVERY_SCHEMA", "process_observed must be boolean or null")
-        if self.state not in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "START_UNKNOWN", "RECOVERY_REQUIRED"}:
+        if self.state not in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "NOT_CANCELLED",
+                              "START_UNKNOWN", "RECOVERY_REQUIRED"}:
             raise AdapterFacadeError("E_RECOVERY_STATE", "unsupported recovery state")
+        if self.state in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT"} and not self.cancel_requested:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", self.state + " requires cancel_requested")
+        if self.cancel_after_exit and not self.cancel_requested:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "cancel_after_exit requires cancel_requested")
+        if self.state == "CANCEL_AFTER_EXIT" and not self.cancel_after_exit:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CANCEL_AFTER_EXIT requires cancel_after_exit")
+        if self.state == "CANCELLED":
+            if self.cancel_after_exit or self.response_lost or self.exit_code is None or self.process_observed is not False:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CANCELLED requires a complete cancelled observation")
+        if self.state == "NOT_CANCELLED":
+            if self.cancel_requested or self.cancel_after_exit or self.response_lost:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "NOT_CANCELLED cannot carry cancellation or loss facts")
+            if self.exit_code is None or self.process_observed is not False:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "NOT_CANCELLED requires observed process exit")
 
     @classmethod
     def classify(cls, *, request_id: str, run_id: str, generation: int,
@@ -370,9 +450,13 @@ class CancellationObservation:
                  response_lost: bool = False, process_observed: bool | None = None,
                  cancel_after_exit: bool = False) -> "CancellationObservation":
         if not cancel_requested:
-            state = "RECOVERY_REQUIRED" if response_lost or exit_code is None else "CANCEL_REQUESTED"
+            if cancel_after_exit:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "cancel_after_exit requires cancel_requested")
+            state = ("RECOVERY_REQUIRED" if response_lost or exit_code is None or process_observed is None
+                     else "NOT_CANCELLED")
         elif cancel_after_exit:
-            state = "CANCEL_AFTER_EXIT"
+            state = ("START_UNKNOWN" if response_lost or exit_code is None or process_observed is not False
+                     else "CANCEL_AFTER_EXIT")
         elif process_observed:
             state = "RECOVERY_REQUIRED"
         elif response_lost or exit_code is None or process_observed is None:
@@ -424,10 +508,18 @@ def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
             reasons.append("EVIDENCE_REFS_INVALID")
         else:
             for key, value in evidence_refs.items():
+                if (type(key) is not str or not key
+                        or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                               or 0xD800 <= ord(ch) <= 0xDFFF for ch in key)):
+                    # ``IndependentReleaseGate.to_mapping`` is a closed JSON
+                    # record.  Reject non-text/unsafe keys before they can be
+                    # coerced by a JSON encoder or escape the evidence map.
+                    reasons.append("EVIDENCE_REF_KEY_INVALID")
+                    continue
                 try:
-                    refs[key] = _ref(dict(value), "/evidence_refs/" + str(key))
+                    refs[key] = _ref(dict(value), "/evidence_refs/" + key)
                 except (TypeError, ValueError, AdapterFacadeError):
-                    reasons.append("EVIDENCE_REF_INVALID:" + str(key))
+                    reasons.append("EVIDENCE_REF_INVALID:" + key)
     for key, value, reason in (("real_model_chain", real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
                                ("real_platform_lifecycle", real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
                                ("independent_review", independent_review, "INDEPENDENT_REVIEW_MISSING"),
@@ -509,6 +601,9 @@ class RecoveryLedger:
         return "APPLIED"
 
     def get(self, request_id: str, run_id: str, generation: int) -> CancellationObservation | None:
+        if (type(request_id) is not str or not request_id or type(run_id) is not str or not run_id
+                or type(generation) is not int or generation < 1):
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "recovery identity is malformed")
         return self._items.get((request_id, run_id, generation))
 
 
@@ -517,27 +612,35 @@ def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
                     ledger: PlanningBudgetLedger | None = None,
                     generation: int | None = None) -> RoleGate:
     reasons: list[str] = []
+    if not isinstance(profile, SecondCliProfile):
+        return RoleGate(False, ("PROFILE_SCHEMA",))
     if profile.role != expected_role:
         reasons.append("ROLE_MISMATCH")
     if expected_role == "executor" and profile.read_only is not True:
         reasons.append("EXECUTOR_SCOPE_UNKNOWN")
     if handoff is not None:
-        try:
-            validate_handoff(handoff, request_id=handoff.request_id,
-                             budget_generation=generation if generation is not None else handoff.budget_generation,
-                             planner_profile_id=handoff.planner_profile_id,
-                             executor_profile_id=handoff.executor_profile_id)
-        except AdapterFacadeError as exc:
-            reasons.append(exc.code)
+        if not isinstance(handoff, ProfileHandoff):
+            reasons.append("HANDOFF_SCHEMA")
+        else:
+            try:
+                validate_handoff(handoff, request_id=handoff.request_id,
+                                 budget_generation=generation if generation is not None else handoff.budget_generation,
+                                 planner_profile_id=handoff.planner_profile_id,
+                                 executor_profile_id=handoff.executor_profile_id)
+            except AdapterFacadeError as exc:
+                reasons.append(exc.code)
     if ledger is None:
         reasons.append("BUDGET_UNBOUND")
+    elif not isinstance(ledger, PlanningBudgetLedger):
+        reasons.append("BUDGET_SCHEMA")
     else:
         if generation is not None and ledger.generation != generation:
             reasons.append("STALE_GENERATION")
         stopped, stop_reasons = ledger.state.stop_decision()
         if stopped:
             reasons.extend("BUDGET_" + reason for reason in stop_reasons)
-        if ledger.request_id != (handoff.request_id if handoff is not None else ledger.request_id):
+        if (isinstance(handoff, ProfileHandoff)
+                and ledger.request_id != handoff.request_id):
             reasons.append("REQUEST_MISMATCH")
     return RoleGate(not reasons, tuple(dict.fromkeys(reasons)))
 
@@ -586,17 +689,22 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
         except protocols.ProtocolError as exc:
             reasons.append("CONTEXT_" + exc.code)
 
-    expected_generation = handoff.budget_generation if generation is None else generation
+    handoff_valid = isinstance(handoff, ProfileHandoff)
+    if not handoff_valid:
+        reasons.append("HANDOFF_SCHEMA")
+    expected_generation = (handoff.budget_generation if generation is None and handoff_valid
+                           else generation)
     if type(expected_generation) is not int or expected_generation < 1:
         reasons.append("GENERATION_INVALID")
     try:
-        role_gate = check_role_gate(profile=profile, expected_role="executor", handoff=handoff,
-                                    ledger=ledger, generation=expected_generation)
-        reasons.extend(role_gate.reasons)
+        if handoff_valid:
+            role_gate = check_role_gate(profile=profile, expected_role="executor", handoff=handoff,
+                                        ledger=ledger, generation=expected_generation)
+            reasons.extend(role_gate.reasons)
     except (AdapterFacadeError, TypeError, AttributeError):
         reasons.append("ROLE_GATE_SCHEMA")
 
-    if context is not None and not any(item.startswith("CONTEXT_") for item in reasons):
+    if handoff_valid and context is not None and not any(item.startswith("CONTEXT_") for item in reasons):
         if context.get("request_id") != handoff.request_id:
             reasons.append("REQUEST_MISMATCH")
         if context.get("run_id") != handoff.run_id:
@@ -626,6 +734,8 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
         reasons.append("APPROVAL_UNBOUND")
     elif not isinstance(approval_binding, ApprovalBinding):
         reasons.append("APPROVAL_SCHEMA")
+    elif not handoff_valid:
+        reasons.append("APPROVAL_CONTEXT_UNKNOWN")
     else:
         try:
             _verify_approval_binding(approval_binding, expected_input_refs=handoff.input_refs)
@@ -656,6 +766,9 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
     else:
         adapter = invocation.adapter
         runtime = invocation.runtime
+        if not handoff_valid:
+            reasons.append("INVOCATION_CONTEXT_UNKNOWN")
+            return StartGate(False, tuple(dict.fromkeys(reasons)), report)
         if adapter.request_id != handoff.request_id or runtime.request_id != handoff.request_id:
             reasons.append("INVOCATION_REQUEST_MISMATCH")
         if adapter.run_id != handoff.run_id or runtime.run_id != handoff.run_id:
