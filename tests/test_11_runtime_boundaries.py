@@ -338,6 +338,17 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                           approval_binding=approval_binding, preflight=preflight)
         self.assertFalse(drift_block.allowed)
         self.assertIn("INVOCATION_CAPABILITY_DRIFT", drift_block.reasons)
+        resource_block = evaluate_start_gate(
+            run_context=context,
+            profile=profile,
+            handoff=handoff,
+            ledger=ledger,
+            invocation=replace(invocation, resource_allowlist=(ref("other"),)),
+            approval_binding=approval_binding,
+            preflight=preflight,
+        )
+        self.assertFalse(resource_block.allowed)
+        self.assertIn("INVOCATION_RESOURCE_MISMATCH", resource_block.reasons)
 
         unbound = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                       ledger=ledger, invocation=invocation, preflight=preflight)

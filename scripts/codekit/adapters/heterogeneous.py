@@ -670,6 +670,12 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
             reasons.append("INVOCATION_CAPABILITY_DRIFT")
         if invocation.platform != profile.platform or invocation.environment_kind != profile.environment_kind:
             reasons.append("INVOCATION_PLATFORM_MISMATCH")
+        invocation_refs = {tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+                           for ref in invocation.resource_allowlist}
+        handoff_refs = {tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+                        for ref in handoff.input_refs}
+        if invocation_refs != handoff_refs:
+            reasons.append("INVOCATION_RESOURCE_MISMATCH")
         if invocation.read_only is not True:
             reasons.append("INVOCATION_SCOPE_UNKNOWN")
         if invocation.session_id != handoff.executor_session_id:
