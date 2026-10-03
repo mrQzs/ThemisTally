@@ -162,11 +162,24 @@ class Lifecycle:
             raise RuntimeErrorCode("E_RUNTIME_TRANSITION", f"invalid transition {self.state}->{state}")
         if identity is not None and not isinstance(identity, ProcessIdentity):
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "identity must be ProcessIdentity")
+        # Once an OS identity has been observed it is the fence for every
+        # subsequent lifecycle transition.  Allowing a caller to replace it
+        # while moving through STOPPING/STOPPED (or FAILED) would make a
+        # stale/reused PID look like the original process and would erase the
+        # evidence needed for conservative recovery.  STARTING and
+        # START_UNKNOWN may still attach the first identity when STARTED is
+        # confirmed.
+        if self.identity is not None and identity is not None and identity != self.identity:
+            raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "process identity changed")
         if state == "STARTED" and identity is None:
             raise RuntimeErrorCode("E_RUNTIME_IDENTITY", "STARTED requires process identity")
         if self.generation >= _MAX_SAFE_INTEGER:
             raise RuntimeErrorCode("E_RUNTIME_FENCE", "lifecycle generation exhausted")
-        return replace(self, state=state, generation=self.generation + 1, identity=identity or self.identity)
+        # Test identity presence explicitly; relying on truthiness would let
+        # a false-y ProcessIdentity subclass silently discard a newly
+        # observed identity and keep the stale one in the lifecycle record.
+        return replace(self, state=state, generation=self.generation + 1,
+                       identity=identity if identity is not None else self.identity)
 
 
 def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapping[str, Any]], expected: InvocationSpec) -> str:
@@ -186,6 +199,12 @@ def classify_start(*, handoff_accepted: bool, started_observation: Optional[Mapp
     if type(observed_state) is not str:
         return "START_UNKNOWN"
     if observed_state == "NOT_STARTED":
+        # A process identity is direct evidence that an OS object existed.
+        # Do not let a contradictory NOT_STARTED label authorize a replay;
+        # validate the identity and retain the conservative unknown outcome.
+        if "process_identity" in started_observation:
+            _observation_identity(started_observation["process_identity"])
+            return "START_UNKNOWN"
         return "NOT_STARTED"
     if not handoff_accepted:
         return "IDENTITY_MISMATCH"

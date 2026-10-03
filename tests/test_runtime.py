@@ -115,6 +115,13 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_TRANSITION"):
             state.transition("STARTED", identity=identity)
 
+    def test_lifecycle_identity_cannot_be_replaced_after_start(self):
+        first = ProcessIdentity(10, "boot", "b" * 64, "tree")
+        reused_pid = ProcessIdentity(10, "new-boot", "c" * 64, "tree")
+        state = Lifecycle().transition("STARTING").transition("STARTED", identity=first)
+        with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_IDENTITY"):
+            state.transition("STOPPING", identity=reused_pid)
+
     def test_unknown_handoff_never_becomes_started(self):
         spec = invocation()
         self.assertEqual(classify_start(handoff_accepted=True, started_observation=None, expected=spec), "START_UNKNOWN")
@@ -146,6 +153,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(classify_start(handoff_accepted=True, started_observation=observed, expected=spec),
                          "NOT_STARTED")
         self.assertTrue(reconcile(spec, observed)["replay_allowed"])
+
+    def test_not_started_with_process_identity_is_unknown_and_not_replayable(self):
+        spec = invocation()
+        observed = {"state": "NOT_STARTED", "run_id": spec.run_id,
+                    "environment_sha256": spec.environment_sha256,
+                    "process_identity": process_identity()}
+        self.assertEqual(classify_start(handoff_accepted=True, started_observation=observed, expected=spec),
+                         "START_UNKNOWN")
+        self.assertFalse(reconcile(spec, observed)["replay_allowed"])
 
     def test_matching_observation_is_started_and_replay_policy_is_conservative(self):
         spec = invocation()
