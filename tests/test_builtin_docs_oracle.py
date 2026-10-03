@@ -48,6 +48,8 @@ class DocsOracleTests(unittest.TestCase):
         for kwargs, error in (({"observations": None}, "E_REVIEW_INPUT"), ({"readiness": None}, "E_REVIEW_INPUT"), ({"status": []}, "E_REVIEW_INPUT")):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ArtifactError, error):
                 build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=kwargs.get("observations", []), readiness=kwargs.get("readiness", readiness), **({"status": kwargs["status"]} if "status" in kwargs else {}))
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_INPUT"):
+            build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=[], readiness={"status": [], "issues": []})
 
     def test_bundle_rejects_forged_ready_result(self):
         docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}

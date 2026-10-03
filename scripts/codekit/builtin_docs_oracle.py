@@ -185,7 +185,7 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
         raise ArtifactError("E_REVIEW_INPUT", "/readiness", "readiness mapping required")
     if set(readiness) != {"status", "issues"}:
         raise ArtifactError("E_REVIEW_INPUT", "/readiness", "closed readiness result required")
-    if readiness["status"] not in {"BLOCKED", "READY_FOR_SUPERVISOR_DECISION"}:
+    if type(readiness["status"]) is not str or readiness["status"] not in {"BLOCKED", "READY_FOR_SUPERVISOR_DECISION"}:
         raise ArtifactError("E_REVIEW_INPUT", "/readiness/status", "unsupported readiness status")
     if not isinstance(readiness["issues"], list) or any(type(issue) is not str or not issue for issue in readiness["issues"]):
         raise ArtifactError("E_REVIEW_INPUT", "/readiness/issues", "readiness issue list required")
