@@ -1,6 +1,6 @@
 # Code-Kit v2：10 项目状态与恢复简报分阶段路线图
 
-基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
+基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`；当前离线实现推进到 `74973115e42ab2c01671b0f15daad747e0eb3d0a`（S6 投递代码尚未提交）。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
 
 ## 目标与边界
 
@@ -23,6 +23,18 @@
 21 份子任务各有固定 Markdown/JSON 合同，合同基线为上述完整 SHA；已派遣版本不修改，范围变化必须出新版本。每阶段先跑定向测试、Schema/严格 JSON 校验、compileall 和 `git diff --check`，再独立复审、提交和推送；后续阶段只从新提交开始。
 
 S0 只冻结边界和证据。S1/S2 建立来源和归约；S3 做补录与恢复；S4 固定视图和简报；S5 接入 09/技能检查点；S6 只实现可选通知边界并输出验收门禁。真实能力不可用时只能记录 `NOT_RUN/BLOCKED`。
+
+## 当前实施状态
+
+| 阶段 | 离线状态 | 已推送提交 | 生产边界 |
+|---|---|---|---|
+| S0 | ACCEPTED_WITH_EXCEPTION | `6590565` | 不涉及运行能力 |
+| S1 | ACCEPTED_WITH_EXCEPTION | `f32330c` | 真实来源/平台 NOT_RUN/BLOCKED |
+| S2 | ACCEPTED_WITH_EXCEPTION | `23c5110` | 03/07 权威仍为只读观察 |
+| S3 | ACCEPTED_WITH_EXCEPTION | `e88e557` | 断电/网络盘/原生恢复 NOT_RUN/BLOCKED |
+| S4 | ACCEPTED_WITH_EXCEPTION | `eed5d33` | 宿主 current/通知接线 NOT_RUN/BLOCKED |
+| S5 | ACCEPTED_WITH_EXCEPTION | `7497311` | 03/07/09/05、Pi/provider NOT_RUN/BLOCKED |
+| S6 | IN PROGRESS | — | 发布门禁 BLOCKED |
 
 ## 复用与禁止
 

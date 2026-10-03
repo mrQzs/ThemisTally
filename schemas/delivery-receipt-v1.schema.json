@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:delivery-receipt:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "delivery_id", "view_id", "mode", "status", "reason"],
+  "properties": {"record_type": {"const": "delivery-receipt"}, "schema_version": {"const": 1},
+    "delivery_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "view_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mode": {"const": "pull"}, "status": {"enum": ["NOT_RUN", "DELIVERED", "BLOCKED"]}, "reason": {"type": "string", "minLength": 1}}
+}
