@@ -1,6 +1,6 @@
 # Code-Kit v2：10 项目状态与恢复简报分阶段路线图
 
-基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`；当前离线实现推进到 `74973115e42ab2c01671b0f15daad747e0eb3d0a`（S6 投递代码尚未提交）。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
+基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`；当前离线实现推进到 `4d40de6`。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
 
 ## 目标与边界
 
@@ -34,7 +34,7 @@ S0 只冻结边界和证据。S1/S2 建立来源和归约；S3 做补录与恢�
 | S3 | ACCEPTED_WITH_EXCEPTION | `e88e557` | 断电/网络盘/原生恢复 NOT_RUN/BLOCKED |
 | S4 | ACCEPTED_WITH_EXCEPTION | `eed5d33` | 宿主 current/通知接线 NOT_RUN/BLOCKED |
 | S5 | ACCEPTED_WITH_EXCEPTION | `7497311` | 03/07/09/05、Pi/provider NOT_RUN/BLOCKED |
-| S6 | IN PROGRESS | — | 发布门禁 BLOCKED |
+| S6 | ACCEPTED_WITH_EXCEPTION | `4d40de6` | 发布门禁 BLOCKED |
 
 ## 复用与禁止
 
