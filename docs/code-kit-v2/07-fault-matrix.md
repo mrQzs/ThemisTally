@@ -74,3 +74,8 @@ Fault and boundary captures for `296135cb8eef4cbf54585d755f3ca437f7e74a51` use `
 ## 2026-10-03 Current Candidate (8348af6)
 
 The current fault captures use `.agent/runs/offline-01-06-08-20261003-builtin-all-07/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`. They cover forged or incomplete platform observations, inconsistent execution modes, non-canonical failure records, duplicate-key journal records, oversized/deep journal records, and strict-JSON truncated tails. These are `LOCAL_REFERENCE` only; real processes, provider billing, external consumers, and recovery drills remain `NOT_RUN/BLOCKED`.
+
+
+## 2026-10-03 最新离线故障边界
+
+`5d141298d052b291c1dba3fe35075d6303f0bbc8` 新增并验证 SourceAnchor 构建器缺少冻结字节、资源摘要漂移、excerpt 摘要漂移，以及 authorization store 回执探针重复键记录。插件与扩展 capture 分别为 107/100/7 和 552/544/8，均无 baseline drift。这些是 `LOCAL_REFERENCE` 故障证据；真实 provider 计费、原生进程、跨平台恢复和外部 consumer 故障仍为 `NOT_RUN/BLOCKED`。

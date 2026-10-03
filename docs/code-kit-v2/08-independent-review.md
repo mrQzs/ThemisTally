@@ -34,3 +34,10 @@ This proves only repeatable offline reference behavior on the fixed worktree. Th
 The current candidate is `8348af691d33e08f111b5cebbe852cb66f31a80b`; raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-07/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`. Both returned 0, completed fully, have `baseline_consistent=true`, and show no drift. The current 39 contract pairs are rebound to this code SHA and validate successfully.
 
 This is repeatable offline reference evidence only. No Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence exists; the independent conclusion remains `REVISE/BLOCKED`.
+
+
+## Current Candidate Review Update (5d141298)
+
+The current candidate is `5d141298d052b291c1dba3fe35075d6303f0bbc8b`. Raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-08/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-08/`; they report 107/100/7 and 552/544/8 (collected/passed/skipped), return code 0, `baseline_consistent=true`, and no drift.
+
+SourceAnchor builder wiring and the strict authorization receipt probe are covered by new offline tests. The latest 39 contract pairs validate with 0 warnings. This remains planning-side `LOCAL_REFERENCE` evidence only: there is no Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence, so the independent conclusion remains `REVISE/BLOCKED`.

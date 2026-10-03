@@ -83,3 +83,8 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 
 
 最新离线候选 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 继续收紧旧 projections readiness/outbox 投影的文本、游标、代际与 event_id 边界；扩展组合套件 478 项通过、8 项环境跳过。仍为 `LOCAL_REFERENCE`，没有 Pi/provider、原生平台或 09/10 连接器证据。
+
+
+## 2026-10-03 当前离线候选（5d141298）
+
+`5d141298d052b291c1dba3fe35075d6303f0bbc8` 补齐 analysis/docs-change 的冻结 SourceAnchor 字节接线，并将 authorization store 的锁回执探针切换到 strict JSON。新增组合验收为 552 项收集、544 项通过、8 项环境跳过；插件全集为 107 项收集、100 项通过、7 项环境跳过。39 对最新合同已绑定该候选并通过结构校验。结果仍为 `LOCAL_REFERENCE`，没有 Pi/provider、原生平台或 09/10 连接器证据。

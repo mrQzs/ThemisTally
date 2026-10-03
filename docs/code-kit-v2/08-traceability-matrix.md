@@ -124,3 +124,8 @@ The code candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`. The latest bui
 ## Current Offline Candidate (8348af6)
 
 The code candidate is `8348af691d33e08f111b5cebbe852cb66f31a80b`. The latest builtin capture is 105 collected, 98 passed, 7 environment skips; the expanded capture is 549 collected, 541 passed, 8 environment skips. Both captures are complete and drift-free. Platform reconciliation and authorization journal replay are now tighter offline, while real dispatcher, Pi/provider, native platform, and 09/10 connector gates remain `NOT_RUN/BLOCKED`.
+
+
+## 2026-10-03 当前固定候选
+
+候选 `5d141298d052b291c1dba3fe35075d6303f0bbc8` 的 SourceAnchor 构建器现在要求冻结 `source_bytes_by_ref`，并在 analysis/docs-change 入口校验资源摘要、范围和 excerpt 摘要；授权回执探针的 journal 解析也使用 strict JSON。对应 capture 为 `.agent/runs/offline-01-06-08-20261003-builtin-all-08/`（107/100/7）与 `.agent/runs/offline-01-06-08-20261003-expanded-all-08/`（552/544/8）。这些证据仅支持离线 `LOCAL_REFERENCE`；Pi/provider、原生平台和 09/10 连接器仍保持 `NOT_RUN/BLOCKED`。

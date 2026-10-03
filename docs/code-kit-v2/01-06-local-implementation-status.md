@@ -86,3 +86,8 @@ Latest raw captures:
 - `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`: 549 collected, 541 executed passes, 8 optional Schema dependency skips; return code 0, `baseline_consistent=true`, no drift.
 
 These remain offline `LOCAL_REFERENCE` results. Real Pi/provider, native process, external consumer, billing, and recovery evidence remains `NOT_RUN/BLOCKED`; the stage and production gates remain closed.
+
+
+## 2026-10-03 当前离线候选（SourceAnchor 构建器与严格回执探针）
+
+`5d141298d052b291c1dba3fe35075d6303f0bbc8` 要求 analysis/docs-change 构建器在生成 SourceAnchor 时提供冻结资源字节，并校验 ResourceRef、半开字节区间和 excerpt 摘要；授权锁回执探针统一使用 strict JSON。新增 builder 级漂移、缺少快照和重复键回归。插件全集取证为 107 项收集、100 项通过、7 项可选 Schema 依赖跳过；01–06/08 扩展取证为 552 项收集、544 项通过、8 项跳过。结果仍是 `LOCAL_REFERENCE`；真实 Pi/provider、原生平台和外部连接器为 `NOT_RUN/BLOCKED`，阶段门继续 `REVISE/BLOCKED`。
