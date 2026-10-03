@@ -72,7 +72,11 @@ class InvocationSpec:
         _runtime_text(self.cwd, "E_RUNTIME_INVOCATION", "cwd")
         if type(self.shell) is not bool:
             raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "shell must be boolean")
-        validate_argv(self.command, shell=self.shell)
+        # ``validate_argv`` accepts lists for callers that are still building
+        # a command, but an InvocationSpec is the locked runtime snapshot.
+        # Store its canonical tuple so mutating the caller's list cannot alter
+        # the invocation or its digest after construction.
+        object.__setattr__(self, "command", validate_argv(self.command, shell=self.shell))
         if (type(self.environment_sha256) is not str
                 or not re.fullmatch(r"[0-9a-f]{64}", self.environment_sha256)):
             raise RuntimeErrorCode("E_RUNTIME_INVOCATION", "environment SHA-256 must be lowercase")

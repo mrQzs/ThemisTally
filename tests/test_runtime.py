@@ -30,6 +30,15 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeErrorCode, "E_RUNTIME_ARGV"):
             validate_argv(["cmd\x00bad"])
 
+    def test_invocation_canonicalizes_mutable_argv(self):
+        argv = ["python", "-c", "pass"]
+        spec = InvocationSpec("req", "run", argv, "C:/repo", "a" * 64, 30)
+        digest = spec.digest()
+        argv.append("mutated-after-construction")
+        self.assertIsInstance(spec.command, tuple)
+        self.assertEqual(spec.command, ("python", "-c", "pass"))
+        self.assertEqual(spec.digest(), digest)
+
     def test_invocation_and_process_identity_fields_are_strict_text(self):
         cases = [
             {"request_id": 1},
