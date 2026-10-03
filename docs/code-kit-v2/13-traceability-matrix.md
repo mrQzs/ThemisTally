@@ -13,7 +13,7 @@
 | A05 | 全局 request 与 observer 子预算共同计量；重试/切换不清零 | S3/S6 | OFFLINE_ACCEPTED_WITH_BOUNDARY |
 | A06 | 超时、无结束事件、unknown 用量、来源冲突有可读降级 | S3/S4/S6 | OFFLINE_ACCEPTED_WITH_BOUNDARY |
 | A07 | 保留实际游标；新事件到达后旧摘要不冒充最新全量 | S1/S5/S6 | OFFLINE_ACCEPTED_WITH_BOUNDARY |
-| A08 | 无宿主推送时只宣称 pull；投递与阅读记录分离 | S5/S6 | PLANNED |
+| A08 | 无宿主推送时只宣称 pull；投递与阅读记录分离 | S5/S6 | OFFLINE_ACCEPTED_WITH_BOUNDARY |
 | A09 | 工具/输出受控；缺强隔离能力时拒绝用途；流程约束不冒称 OS 强制只读 | S2/S4/S6 | BLOCKED_REAL_CAPABILITY |
 
 ## I 项工程不变量

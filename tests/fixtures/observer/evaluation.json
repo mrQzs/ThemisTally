@@ -1,0 +1,173 @@
+{
+  "fixture_id": "observer-value-evaluation-v1",
+  "schema_version": 1,
+  "measurement_status": "NOT_RUN",
+  "deterministic_brief": {
+    "summary": "The project remains pending review; one source event is incomplete.",
+    "state": "pending",
+    "cursor": {
+      "start": 1,
+      "end": 4,
+      "stream": "project"
+    }
+  },
+  "source_registry": [
+    {
+      "kind": "brief",
+      "id": "brief-eval",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "agent/project/brief-eval.json"
+    },
+    {
+      "kind": "event",
+      "id": "event-1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "path": "agent/project/event-1.json"
+    },
+    {
+      "kind": "event",
+      "id": "event-2",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "path": "agent/project/event-2.json"
+    },
+    {
+      "kind": "event",
+      "id": "event-3",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "path": "agent/project/event-3.json"
+    },
+    {
+      "kind": "event",
+      "id": "event-4",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "path": "agent/project/event-4.json"
+    }
+  ],
+  "request": {
+    "record_type": "observer-request",
+    "schema_version": 1,
+    "request_id": "eval-request",
+    "project_id": "project-eval",
+    "source_cursor": {
+      "start": 1,
+      "end": 4,
+      "stream": "project"
+    },
+    "brief_ref": {
+      "kind": "brief",
+      "id": "brief-eval",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "agent/project/brief-eval.json"
+    },
+    "source_refs": [
+      {
+        "kind": "event",
+        "id": "event-1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "path": "agent/project/event-1.json"
+      },
+      {
+        "kind": "event",
+        "id": "event-2",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "path": "agent/project/event-2.json"
+      },
+      {
+        "kind": "event",
+        "id": "event-3",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "path": "agent/project/event-3.json"
+      },
+      {
+        "kind": "event",
+        "id": "event-4",
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "path": "agent/project/event-4.json"
+      }
+    ],
+    "output_limits": {
+      "max_bytes": 4096,
+      "max_items": 16,
+      "max_text": 1024
+    },
+    "profile_ref": null,
+    "environment_ref": null,
+    "timeout_seconds": 10,
+    "max_retries": 1,
+    "budget_reservation_ref": null,
+    "trigger": "explicit_request"
+  },
+  "cases": [
+    {
+      "case_id": "complete-baseline",
+      "category": "complete",
+      "expected_classification": "CORRECT",
+      "expected_protocol": "VALID",
+      "source_event_ids": ["event-1", "event-2"],
+      "notes": "All factual entries are cited and agree with the deterministic brief."
+    },
+    {
+      "case_id": "omitted-item",
+      "category": "omission",
+      "expected_classification": "OMITTED_WITH_REASON",
+      "expected_protocol": "VALID",
+      "source_event_ids": ["event-1", "event-2", "event-3"],
+      "notes": "The output records an omitted event and a reason instead of silently claiming coverage."
+    },
+    {
+      "case_id": "conflicting-fact",
+      "category": "conflict",
+      "expected_classification": "UNTRUSTED_CONFLICT",
+      "expected_protocol": "VALID",
+      "source_event_ids": ["event-1", "event-2"],
+      "notes": "A cited statement conflicts with the deterministic pending state and must remain a suggestion for review."
+    },
+    {
+      "case_id": "duplicate-input",
+      "category": "duplicate",
+      "expected_classification": "DEDUPLICATED",
+      "expected_protocol": "RUNTIME_DEDUPE",
+      "source_event_ids": ["event-1", "event-2"],
+      "notes": "A repeated request with a different request id consumes one reserved run."
+    },
+    {
+      "case_id": "uncertain-result",
+      "category": "uncertain",
+      "expected_classification": "UNCERTAIN",
+      "expected_protocol": "VALID",
+      "source_event_ids": ["event-3"],
+      "notes": "The result exposes missing information and an unknown risk instead of converting uncertainty to a fact."
+    },
+    {
+      "case_id": "missing-citation",
+      "category": "invalid",
+      "expected_classification": "INVALID_MISSING_CITATION",
+      "expected_protocol": "REJECTED",
+      "source_event_ids": [],
+      "notes": "A fact without an input source is rejected."
+    },
+    {
+      "case_id": "out-of-scope-source",
+      "category": "invalid",
+      "expected_classification": "INVALID_OUT_OF_SCOPE",
+      "expected_protocol": "REJECTED",
+      "source_event_ids": ["event-outside"],
+      "notes": "A source not in the request closure is rejected."
+    },
+    {
+      "case_id": "unknown-usage",
+      "category": "uncertain",
+      "expected_classification": "UNKNOWN_COST_DEGRADED",
+      "expected_protocol": "RUNTIME_STOP",
+      "source_event_ids": ["event-4"],
+      "notes": "A lost response keeps cost unknown and stops further observer admission."
+    }
+  ],
+  "real_capability_gate": {
+    "observer_provider": "NOT_RUN",
+    "host_push": "BLOCKED",
+    "native_platform_isolation": "BLOCKED",
+    "token_savings_measurement": "NOT_RUN",
+    "release_default": "OFF"
+  }
+}
