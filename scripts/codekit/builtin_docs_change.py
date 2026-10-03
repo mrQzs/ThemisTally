@@ -21,7 +21,7 @@ def _path(value: Any, field: str = "/path") -> str:
     normalized = value.replace("\\", "/")
     if normalized.startswith("/") or ":" in normalized or any(p in {"", ".", ".."} for p in normalized.split("/")):
         raise ArtifactError("E_DOCS_PATH", field, "absolute, empty and traversal paths are forbidden")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
+    if any(ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F for ch in normalized):
         raise ArtifactError("E_DOCS_PATH", field, "control character in path")
     return normalized
 

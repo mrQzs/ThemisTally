@@ -23,7 +23,7 @@ def _invalid(code: str, path: str, message: str) -> None:
 
 
 def _text(value: Any, path: str) -> str:
-    if type(value) is not str or not value or len(value) > _MAX_TEXT or any(ord(char) < 32 for char in value):
+    if type(value) is not str or not value or len(value) > _MAX_TEXT or any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F for char in value):
         _invalid("E_CHECK_SCHEMA", path, "bounded non-empty text required")
     return value
 
@@ -35,7 +35,7 @@ def _name_set(value: Any, path: str) -> set[str]:
         _invalid("E_CHECK_SET", path, "check ID set exceeds limit")
     result: set[str] = set()
     for index, item in enumerate(value):
-        if type(item) is not str or not item or len(item) > _MAX_TEXT or any(ord(char) < 32 for char in item):
+        if type(item) is not str or not item or len(item) > _MAX_TEXT or any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F for char in item):
             _invalid("E_CHECK_SET", f"{path}/{index}", "bounded check ID text required")
         result.add(item)
     return result

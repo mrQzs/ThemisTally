@@ -25,6 +25,9 @@ class DocsChecksTests(unittest.TestCase):
         self.assertEqual(local_target("docs/index.md", "https://example.test")[0], "NOT_CHECKED_EXTERNAL")
         self.assertEqual(local_target("docs/index.md", "javascript:alert(1)")[0], "FORBIDDEN_SCHEME")
         self.assertEqual(local_target("docs/index.md", "../../secret")[0], "FORBIDDEN_PATH")
+        self.assertEqual(local_target("docs/index.md", "guide\x80.md")[0], "FORBIDDEN_PATH")
+        with self.assertRaisesRegex(ArtifactError, "E_DOC_PATH"):
+            Snapshot({"docs/\x80.md": b"x"})
 
     def test_docs_check_reports_links_and_drift(self):
         result = docs_check(self.snapshot, ["docs/index.md"])

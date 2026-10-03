@@ -41,7 +41,7 @@ def _repo_path(value: Any) -> str:
     parts = value.split("/")
     if any(x in {"", ".", ".."} for x in parts):
         raise ArtifactError("E_DOC_PATH", "/path", "empty, dot and traversal segments forbidden")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+    if any(ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F for ch in value):
         raise ArtifactError("E_DOC_PATH", "/path", "control character forbidden")
     return value
 
@@ -199,7 +199,7 @@ def markdown_facts(data: bytes) -> Tuple[list, list, list]:
 def local_target(source: str, url: str) -> Tuple[str, str, str]:
     """Classify a link without reading or contacting its target."""
     _repo_path(source)
-    if not isinstance(url, str) or any(ord(ch) < 32 or ord(ch) == 127 for ch in url) or "\\" in url:
+    if not isinstance(url, str) or any(ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F for ch in url) or "\\" in url:
         return "FORBIDDEN_PATH", "", ""
     try:
         split = urlsplit(url)
@@ -221,7 +221,7 @@ def local_target(source: str, url: str) -> Tuple[str, str, str]:
         path, fragment = unquote(split.path, encoding="utf-8", errors="strict"), unquote(split.fragment, encoding="utf-8", errors="strict")
     except UnicodeDecodeError:
         return "INVALID_URL", "", ""
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in path + fragment) or "\\" in path or ":" in path:
+    if any(ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F for ch in path + fragment) or "\\" in path or ":" in path:
         return "FORBIDDEN_PATH", "", ""
     if not path:
         return "LOCAL", source, fragment

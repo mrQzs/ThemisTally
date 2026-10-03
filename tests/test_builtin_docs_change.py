@@ -37,6 +37,7 @@ class DocsChangeTests(unittest.TestCase):
         record = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])
         for writable, error in (([1], "E_DOCS_SCOPE|E_DOCS_PATH"),
                                 (["../secret"], "E_DOCS_PATH"),
+                                (["docs/\x80.md"], "E_DOCS_PATH"),
                                 (["docs/a.md", "docs/a.md"], "E_DOCS_SCOPE"),
                                 ("docs/a.md", "E_DOCS_SCOPE")):
             forged = copy.deepcopy(record)

@@ -15,6 +15,8 @@ class DocsOracleTests(unittest.TestCase):
             content_oracle(b"stable", "stable", encoding=[])
         with self.assertRaisesRegex(ArtifactError, "E_CONTENT_ORACLE"):
             content_oracle(b"stable", "stable", document_sha256="bad")
+        with self.assertRaisesRegex(ArtifactError, "E_CHECK_SET"):
+            quality_issues({"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core", "transport_complete": True, "exit_code": 0, "tests": {}}, {"docs\x80"})
 
     def test_readiness_requires_core_observations_and_content(self):
         binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
