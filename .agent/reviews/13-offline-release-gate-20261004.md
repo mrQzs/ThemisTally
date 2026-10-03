@@ -37,3 +37,7 @@ observer-schema-ok 4
 真实 observer model/provider、第二 CLI、Pi 执行、Windows/macOS 原生隔离、宿主 push、持久化 observer ledger、10 outbox/cursor 接线、价值评估和外部连接器均为 `NOT_RUN/BLOCKED`。observer 默认关闭；离线 runtime 与 fixture 不构成生产发布 PASS，也不能提升核心审批、预算、任务状态或 release gate。
 
 S5/S6 合同仍是后续工作；若要继续接入持久化账本、10 投影或真实平台，必须以新的基线和合同版本重新规划、复审和放行。
+
+## 后续离线阶段更新
+
+提交 `3132cba` 已补齐 S5 的投影/通知/重建测试（10 项）和 S6 的固定价值 fixture、A01–A09 验收（14 项）。这些测试把可验证的离线部分标为 `OFFLINE_ACCEPTED_WITH_BOUNDARY`；持久化账本、10 outbox/cursor 生产接线、真实 host/provider 和原生隔离仍保持 `NOT_RUN/BLOCKED`，所以发布门仍为 `BLOCKED`、默认仍为 `OFF`。详见 `.agent/reviews/13-s5-offline-projection-20261004.md` 与 `.agent/reviews/13-s6-offline-acceptance-20261004.md`。
