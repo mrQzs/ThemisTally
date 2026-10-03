@@ -1,6 +1,6 @@
 # Code-Kit v2：11 第二 CLI 接入分阶段路线图
 
-规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`0d2b099`（文档更新随后单独提交）。附件 `11-second-cli-adapter.md` 只作为需求与设计参考；不替代 `AGENTS.md`、合同或复审结论。
+规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`8cfe42a`（文档更新随后单独提交）。附件 `11-second-cli-adapter.md` 只作为需求与设计参考；不替代 `AGENTS.md`、合同或复审结论。
 
 ## 目标与边界
 
@@ -23,7 +23,7 @@
 ## 当前阶段状态（2026-10-04）
 
 - S0：已建立路线图、追踪矩阵、21 份合同草案和离线环境门禁；合同仍是规划材料，不能替代实现证据。
-- S1：已实现能力 Schema、严格 profile binding、本机版本/help fixture/manifest 和 `PreflightResult`；版本不兼容、认证缺失、模型缺失/不匹配会分别阻塞或保持 `NOT_RUN`，模型调用与平台能力仍未观察。
+- S1：已实现能力 Schema、严格 profile binding、本机版本/help fixture/manifest 和 `PreflightResult`；版本不兼容、认证缺失、模型缺失/不匹配以及未观察 capability evidence 会分别阻塞或保持 `NOT_RUN`，模型调用与平台能力仍未观察。
 - S2：已实现 Claude stream-json 离线事件归一化、原始记录引用、终态/模型/用量/工具闭合检查和 replay 冲突拒绝。
 - S3：已实现统一 facade、argv/no-shell 调用快照、平台/环境/能力/环境名快照、stdin/资源闭包摘要、可验证的 raw byte fixture、事件上下文/终态/工具审计和取消/响应丢失分类；尚未接入真实 05 进程 runner。
 - S4：已实现只读 planner→executor 跨会话 handoff、`validate_run_context(for_executor_dispatch=True)` 绑定、generation 校验、共享 `PlanningBudgetLedger` role gate 和 executor start gate；尚未接入 03 ApprovalLedger、09 PlanningService 的真实启动入口。
