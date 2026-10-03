@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:adapter-capability:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "adapter_id", "protocol_version", "version", "platforms", "roles", "capabilities", "model_selection", "shell", "evidence", "offline", "environment_kinds"],
+  "properties": {
+    "record_type": {"const": "adapter-capability"}, "schema_version": {"const": 1}, "adapter_id": {"type": "string", "minLength": 1}, "protocol_version": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1},
+    "platforms": {"type": "array", "items": {"enum": ["linux", "macos", "windows"]}, "minItems": 1, "uniqueItems": true}, "roles": {"type": "array", "items": {"enum": ["planner", "executor", "observer"]}, "minItems": 1, "uniqueItems": true}, "capabilities": {"type": "array", "items": {"enum": ["streaming_events", "terminal_event", "model_identity", "tool_events", "usage", "read_only_mode"]}, "minItems": 1, "uniqueItems": true},
+    "model_selection": {"enum": ["required", "optional", "unknown"]}, "shell": {"type": "string", "minLength": 1}, "offline": {"type": "boolean"}, "environment_kinds": {"type": "array", "items": {"enum": ["native", "wsl"]}, "minItems": 1, "uniqueItems": true},
+    "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["capability", "level", "source_ref", "note"], "properties": {"capability": {"type": "string"}, "level": {"enum": ["observed", "sample", "declared", "synthetic", "unknown"]}, "source_ref": {"anyOf": [{"type": "object", "required": ["kind", "id", "path", "sha256"], "additionalProperties": false, "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}, {"type": "null"}]}, "note": {"anyOf": [{"type": "string"}, {"type": "null"}]}}}}
+  }
+}
