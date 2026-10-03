@@ -88,6 +88,8 @@ G1/G2 仍为 `LOCAL_REFERENCE`；G3 当前 dispatcher、G4–G7 真实 Pi/provid
 
 最新候选为 `618c827`，补齐 wiring identity 的 C1 控制字符校验；仍属于 `LOCAL_REFERENCE`，G3–G8 门禁结论不变。
 
+当前 HEAD 为 `def46f7`，S4 regression target 输入闭集校验已补齐；该修复不改变 G3–G8 的 `NOT_RUN/BLOCKED` 或 `REVISE/BLOCKED` 结论。
+
 ## 2026-10-03 当前合同基线与离线复核
 
 代码候选 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee` 已推送；39 对 01–06/08 合同以新版本发布于 `db46200d75ff1462837996bab7450e09a9a88f46`，均绑定精确 `bb/step-5-preview` 元数据，并通过 `pi_dispatch validate`。当前原始取证目录为 `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`，两者均 `baseline_consistent=true`、无 drift。

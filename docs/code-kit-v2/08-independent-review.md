@@ -67,6 +67,8 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 
 候选随后推进到 `618c827`，wiring identity C1 控制字符边界回归通过；没有新增真实连接器或 dispatcher 证据，独立结论仍为 `REVISE/BLOCKED`。
 
+当前 HEAD 为 `def46f7`，S4 regression target 输入闭集回归通过；没有新增真实连接器或 dispatcher 证据，独立结论仍为 `REVISE/BLOCKED`。
+
 ## Current Candidate Review Update (eae9bfc / db46200)
 
 The fixed code candidate is `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`; the 39-contract publication is `db46200d75ff1462837996bab7450e09a9a88f46`. New raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` and `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`. The builtin suite is 117 collected / 109 passed / 8 optional skips with return code 0. The expanded matrix is 1040 collected / 1 known legacy source-lock failure / 35 environment skips with return code 1. Both captures are complete, `baseline_consistent=true`, and drift-free.

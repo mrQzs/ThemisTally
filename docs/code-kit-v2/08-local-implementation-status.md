@@ -120,3 +120,5 @@ S4/S5 的真实 mutation dispatcher、provider/OS receipt 仍未接入，S6 的 
 候选随后推进到 `addfab1`：09/10 wiring gate 拒绝 state issues/truncated 的错误类型；定向接线回归 29 项通过。真实 09/10 consumer 仍未连接。
 
 候选随后推进到 `618c827`，wiring identity 进一步拒绝 C1 控制字符；定向接线回归 30 项通过，真实 09/10 consumer 仍未连接。
+
+当前 HEAD 为 `def46f7`，S4 regression target spec 拒绝未实现且会被静默忽略的 `include` 字段；该结果仍属于离线 `LOCAL_REFERENCE`。
