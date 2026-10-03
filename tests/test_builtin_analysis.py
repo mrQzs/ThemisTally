@@ -76,6 +76,14 @@ class AnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_EVIDENCE"):
             validate_analysis_report(forged)
 
+    def test_validator_rechecks_ready_evidence_boundary(self):
+        # A replayed/edited envelope must not bypass the builder's synthetic
+        # evidence guard by calling the validator directly.
+        forged = copy.deepcopy(self.report_with())
+        forged["status"] = "READY"
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_STATUS"):
+            validate_analysis_report(forged)
+
     def test_builder_binds_anchors_to_frozen_source_bytes(self):
         source = b"abcdef"
         frozen_ref = {"kind": "file", "id": "frozen", "path": "src/frozen.py",

@@ -237,6 +237,15 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
             if ref is not None and ref["sha256"] != binding[field]:
                 raise ArtifactError("E_REVIEW_BINDING", f"/{field}", "resource reference does not match observation binding")
     if readiness["status"] == "READY_FOR_SUPERVISOR_DECISION":
+        # A caller may provide a structurally valid docs-check with a failed
+        # local check (or an unresolved/unknown producer status) and a forged
+        # ready readiness mapping.  Readiness must be derived from the docs
+        # result as well as from core observations; otherwise bad docs evidence
+        # can be composed into a READY review bundle.
+        docs_payload = docs_check["payload"]
+        if (docs_check["status"] != "REFERENCE_ONLY"
+                or docs_payload["local_status"] != "SATISFIED"):
+            raise ArtifactError("E_REVIEW_BINDING", "/docs_check", "ready result requires a satisfied reference-only docs check")
         if readiness["issues"] or not checked_observations or content_review["status"] != "REVIEWED_SATISFIED":
             raise ArtifactError("E_REVIEW_BINDING", "/readiness", "ready result is inconsistent with review inputs")
         bindings = {tuple(sorted(observation["binding"].items())) for observation in checked_observations}

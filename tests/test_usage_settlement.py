@@ -97,6 +97,18 @@ class UsageSettlementTests(unittest.TestCase):
         self.assertEqual(ledger.operations[0].state, "provisional")
         self.assertIn("USAGE_UNKNOWN", ledger.stop_reasons)
 
+    def test_proven_unstarted_release_is_not_reclassified_as_unknown(self) -> None:
+        ledger = self.ledger()
+        self.reserve(ledger, amount=5)
+        decision = ledger.release_proven_unstarted("op-a", not_started_proven=True)
+        self.assertEqual(decision.status, "RELEASED")
+        snapshot = ledger.snapshot()
+        self.assertEqual(snapshot.coverage, "complete")
+        self.assertEqual(snapshot.dimensions["tokens"].unknown_operations, ())
+        self.assertEqual(snapshot.dimensions["tokens"].enforcement, "allow")
+        # The released reservation must not poison the next admission.
+        self.reserve(ledger, operation="op-b", amount=1)
+
     def test_actual_usage_over_cap_is_accepted_and_stops(self) -> None:
         ledger = self.ledger()
         self.reserve(ledger, amount=5)

@@ -21,14 +21,16 @@ from codekit.provider_economics import (  # noqa: E402
 )
 
 
-def identity(*, run_id="run-a", call_id="call-a"):
+def identity(*, run_id="run-a", call_id="call-a", request_id="request-a", task_id="task-a"):
     return EconomicCallIdentity(call_id, "offline", "fixture-v1", "acct-a", "fixture",
-                                request_id="request-a", task_id="task-a", run_id=run_id)
+                                request_id=request_id, task_id=task_id, run_id=run_id)
 
 
 def observation(*, observation_id="obs-a", run_id="run-a", call_id="call-a", amount=12,
-                visibility="complete"):
-    return ProviderCallObservation(observation_id, identity(run_id=run_id, call_id=call_id), visibility,
+                visibility="complete", request_id="request-a", task_id="task-a"):
+    return ProviderCallObservation(observation_id, identity(run_id=run_id, call_id=call_id,
+                                                            request_id=request_id,
+                                                            task_id=task_id), visibility,
                                    {"input_tokens": 4, "output_tokens": 8},
                                    "USD", amount, "fixture-evidence")
 
@@ -86,6 +88,31 @@ class ProviderEconomicsTests(unittest.TestCase):
     def test_call_key_excludes_run_for_cross_run_dedupe(self):
         self.assertEqual(identity(run_id="run-a").call_key, identity(run_id="run-b").call_key)
         self.assertNotEqual(identity(call_id="call-a").call_key, identity(call_id="call-b").call_key)
+
+    def test_call_key_excludes_request_and_task_for_cross_scope_dedupe(self):
+        first = identity(run_id="run-a", request_id="request-a", task_id="task-a")
+        second = identity(run_id="run-b", request_id="request-b", task_id="task-b")
+        self.assertEqual(first.call_key, second.call_key)
+        self.assertEqual(first.as_call_dict(), second.as_call_dict())
+
+    def test_same_call_same_payload_across_tasks_and_requests_is_mirror(self):
+        adapter = OfflineBillingAdapter()
+        adapter.observe(observation(observation_id="obs-a", run_id="run-a",
+                                    request_id="request-a", task_id="task-a"))
+        result = adapter.observe(observation(observation_id="obs-b", run_id="run-b",
+                                             request_id="request-b", task_id="task-b"))
+        self.assertEqual(result.status, "MIRROR")
+        self.assertTrue(result.historical)
+        self.assertEqual(len(adapter.observations), 2)
+
+    def test_same_call_different_scope_with_different_facts_is_conflict(self):
+        adapter = OfflineBillingAdapter()
+        adapter.observe(observation(observation_id="obs-a", request_id="request-a",
+                                    task_id="task-a"))
+        with self.assertRaises(EconomicsError) as ctx:
+            adapter.observe(observation(observation_id="obs-b", request_id="request-b",
+                                        task_id="task-b", amount=13))
+        self.assertEqual(ctx.exception.code, "E_CALL_CONFLICT")
 
     def test_observation_visibility_and_units_are_bounded(self):
         item = observation(visibility=CallVisibility.PARTIAL)

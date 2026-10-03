@@ -355,7 +355,13 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             if len(meta) != 1 or tuple(meta[0])[:2] != (1, 3):
                 raise AtomicLedgerError("E_SCHEMA_INVALID", ("ledger_meta",))
             _positive(meta[0][2], "activated_generation")
-            max_seq = int(self.db.execute("SELECT COALESCE(MAX(seq),0) FROM outbox").fetchone()[0])
+            outbox_rows = {
+                int(row["seq"]): row
+                for row in self.db.execute(
+                    "SELECT seq,operation_id,event_type,payload_json FROM outbox"
+                )
+            }
+            max_seq = max(outbox_rows, default=0)
             operations = {
                 row["operation_id"]: row
                 for row in self.db.execute("SELECT operation_id,plan_version,generation,claim_generation FROM operations")
@@ -377,6 +383,41 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
                     raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_binding:{attempt_id}",))
                 if sequence < 1 or sequence > max_seq:
                     raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_sequence:{attempt_id}",))
+                event = outbox_rows.get(sequence)
+                if event is None or event["operation_id"] != operation_id:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
+                try:
+                    event_payload = json.loads(event["payload_json"])
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",)) from exc
+                if type(event_payload) is not dict or event_payload.get("attempt_id") != attempt_id:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
+                if event["event_type"] == "ledger.attempt_admitted":
+                    expected_admission = {
+                        "run_id": row["run_id"],
+                        "stage_id": row["stage_id"],
+                        "plan_version": row["plan_version"],
+                        "generation": generation,
+                    }
+                    if row["state"] != "ADMITTED" or any(
+                        event_payload.get(field) != value
+                        for field, value in expected_admission.items()
+                    ):
+                        raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
+                    # Older admission events omitted evidence_ref.  Such an
+                    # event is valid only when the row also has no evidence.
+                    if ("evidence_ref" not in event_payload
+                            and row["evidence_ref"] is not None) or (
+                                "evidence_ref" in event_payload
+                                and event_payload["evidence_ref"] != row["evidence_ref"]):
+                        raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
+                elif event["event_type"] == "ledger.attempt_transition":
+                    if (event_payload.get("to") != row["state"]
+                            or event_payload.get("generation") != generation
+                            or event_payload.get("evidence_ref") != row["evidence_ref"]):
+                        raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
+                else:
+                    raise AtomicLedgerError("E_SCHEMA_INVALID", (f"attempt_event_binding:{attempt_id}",))
             for row in self.db.execute("SELECT * FROM consumer_cursors"):
                 _id(row["consumer_id"], "consumer_id")
                 next_seq = _sequence(row["next_seq"], "next_seq")
@@ -446,7 +487,11 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
                 raise AtomicLedgerError("E_STOPPED", ("request_stopped",))
             if request[0]:
                 raise AtomicLedgerError("E_STOPPED", ("request_stopped",))
-            seq = self._emit_seq(op[0], operation_id, "ledger.attempt_admitted", {"attempt_id": attempt_id, "run_id": run_id, "stage_id": stage_id, "plan_version": plan_version, "generation": generation})
+            seq = self._emit_seq(op[0], operation_id, "ledger.attempt_admitted", {
+                "attempt_id": attempt_id, "run_id": run_id, "stage_id": stage_id,
+                "plan_version": plan_version, "generation": generation,
+                "evidence_ref": evidence_ref,
+            })
             try:
                 self.db.execute("INSERT INTO attempts(attempt_id,operation_id,run_id,stage_id,plan_version,generation,state,evidence_ref,sequence) VALUES(?,?,?,?,?,?,?,?,?)", (attempt_id, operation_id, run_id, stage_id, plan_version, generation, "ADMITTED", evidence_ref, seq))
             except sqlite3.IntegrityError as exc:
@@ -466,7 +511,22 @@ class UnifiedLedgerStore(AtomicClaimBudgetStore):
             controller = self.db.execute("SELECT generation FROM controller WHERE singleton=1").fetchone()[0]
             if current.generation != generation or controller != generation:
                 raise AtomicLedgerError("E_FENCED", ("generation",))
-            request_id = self.db.execute("SELECT request_id FROM operations WHERE operation_id=?", (current.operation_id,)).fetchone()[0]
+            operation = self.db.execute(
+                "SELECT request_id,state FROM operations WHERE operation_id=?",
+                (current.operation_id,),
+            ).fetchone()
+            if operation is None:
+                raise AtomicLedgerError("E_SCOPE_UNKNOWN", ("operation",))
+            request_id = operation[0]
+            # Cancellation releases the operation's claim, but an attempt row
+            # may already have been admitted in the same generation.  Do not
+            # let that stale attempt revive the cancelled operation.  A
+            # cancellation transition remains possible so callers can close
+            # the attempt explicitly.
+            if (operation[1] == "CANCELLED_NOT_STARTED"
+                    and current.state in ("ADMITTED", "STARTING")
+                    and next_state in ("STARTING", "START_UNKNOWN", "STARTED", "REVIEW_PENDING")):
+                raise AtomicLedgerError("E_ATTEMPT_STATE", ("operation_cancelled",))
             request = self.db.execute("SELECT stopped FROM requests WHERE request_id=?", (request_id,)).fetchone()
             if request is None:
                 raise AtomicLedgerError("E_STOPPED", ("request_stopped",))

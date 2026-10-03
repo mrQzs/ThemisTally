@@ -59,6 +59,21 @@ class ChangeTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
             validate_change_report(forged)
 
+    def test_paths_and_change_facts_are_portable_and_consistent(self):
+        for unsafe in ("C:/repo/a.py", "src/a:b.py", "src/CON.txt", "src/a\u202e.py"):
+            with self.subTest(unsafe=unsafe), self.assertRaisesRegex(ArtifactError, "E_CHANGE_PATH"):
+                self.report(files=[{"path": unsafe, "change_type": "modified",
+                                    "old_sha256": "a" * 64, "new_sha256": "b" * 64}])
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_HASH"):
+            self.report(files=[{"path": "src/a.py", "change_type": "modified",
+                                "old_sha256": "a" * 64, "new_sha256": "a" * 64}])
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_SCHEMA"):
+            self.report(files=[{"path": "src/a.py", "old_path": "src/a.py", "change_type": "renamed",
+                                "old_sha256": "a" * 64, "new_sha256": "a" * 64}])
+        with self.assertRaisesRegex(ArtifactError, "E_CHANGE_MODE"):
+            self.report(files=[{"path": "src/a.py", "change_type": "mode-only",
+                                "old_sha256": "a" * 64, "new_sha256": "a" * 64}])
+
 
 if __name__ == "__main__":
     unittest.main()

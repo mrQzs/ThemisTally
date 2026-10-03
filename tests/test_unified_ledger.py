@@ -194,9 +194,27 @@ class UnifiedLedgerTests(unittest.TestCase):
         with self.assertRaises(AtomicLedgerError) as caught:
             self.store.create_attempt("attempt-cancelled", operation.operation_id, "run-cancelled", "stage-a", 1)
         self.assertEqual(caught.exception.code, "E_ATTEMPT_STATE")
+
+        # An attempt admitted before cancellation must not cross the startup
+        # boundary after the operation has become CANCELLED_NOT_STARTED.
         self.store.add_task(REQUEST, "task-b")
         operation = self.store.claim(
             replace(request(), task_id="task-b", idempotency_key="key-b", request_fingerprint="fingerprint-b"),
+            facts(), owner="owner-a", reservation={"tokens": 3}, resource_keys=[], lease_until=100,
+        )
+        self.store.create_attempt("attempt-cancelled-race", operation.operation_id, "run-cancelled-race", "stage-a", 1)
+        self.store.cancel_unstarted(operation.operation_id, owner="owner-a", generation=1,
+                                     not_started_proven=True)
+        with self.assertRaises(AtomicLedgerError) as caught:
+            self.store.transition_attempt(
+                "attempt-cancelled-race", expected_state="ADMITTED",
+                next_state="STARTING", generation=1,
+            )
+        self.assertEqual(caught.exception.code, "E_ATTEMPT_STATE")
+        self.assertEqual(caught.exception.reasons, ("operation_cancelled",))
+        self.store.add_task(REQUEST, "task-c")
+        operation = self.store.claim(
+            replace(request(), task_id="task-c", idempotency_key="key-c", request_fingerprint="fingerprint-c"),
             facts(), owner="owner-a", reservation={"tokens": 3}, resource_keys=[], lease_until=100,
         )
         self.store.create_attempt("attempt-stopped", operation.operation_id, "run-stopped", "stage-a", 1)
@@ -289,6 +307,44 @@ class UnifiedLedgerTests(unittest.TestCase):
             UnifiedLedgerStore(self.path)
         self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
         self.assertTrue(any(reason.startswith("attempt_binding:") for reason in caught.exception.reasons))
+
+    def test_reopen_rejects_attempt_sequence_bound_to_other_event(self):
+        operation = self.claim()
+        self.store.create_attempt("attempt-sequence-tampered", operation.operation_id, "run-sequence-tampered", "stage-sequence-tampered", 1)
+        claimed_seq = self.store.db.execute(
+            "SELECT seq FROM outbox WHERE event_type=? AND operation_id=?",
+            ("atomic.claimed", operation.operation_id),
+        ).fetchone()[0]
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute("UPDATE attempts SET sequence=? WHERE attempt_id=?", (claimed_seq, "attempt-sequence-tampered"))
+        db.commit()
+        db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertTrue(any(reason.startswith("attempt_event_binding:") for reason in caught.exception.reasons))
+
+    def test_reopen_rejects_attempt_evidence_ref_tampering(self):
+        operation = self.claim()
+        evidence_ref = evidence_hash({"attempt": "original"})
+        self.store.create_attempt(
+            "attempt-evidence-tampered", operation.operation_id,
+            "run-evidence-tampered", "stage-evidence-tampered", 1,
+            evidence_ref=evidence_ref,
+        )
+        self.store.close()
+        db = sqlite3.connect(self.path)
+        db.execute(
+            "UPDATE attempts SET evidence_ref=? WHERE attempt_id=?",
+            (evidence_hash({"attempt": "forged"}), "attempt-evidence-tampered"),
+        )
+        db.commit()
+        db.close()
+        with self.assertRaises(AtomicLedgerError) as caught:
+            UnifiedLedgerStore(self.path)
+        self.assertEqual(caught.exception.code, "E_SCHEMA_INVALID")
+        self.assertTrue(any(reason.startswith("attempt_event_binding:") for reason in caught.exception.reasons))
 
     def test_reopen_rejects_cursor_high_water_regression(self):
         operation = self.claim()

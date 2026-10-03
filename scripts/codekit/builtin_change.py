@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import fnmatch
 import re
+import unicodedata
+import ntpath
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 from .builtin_artifacts import ArtifactError, resource_ref, validate_artifact
@@ -24,13 +26,26 @@ def _fail(code: str, path: str, message: str) -> None:
 def _path(value: Any, field: str, *, allow_empty: bool = False) -> str:
     if type(value) is not str or (not value and not allow_empty):
         _fail("E_CHANGE_PATH", field, "relative path required")
-    value = value.replace("\\", "/")
+    value = unicodedata.normalize("NFC", value.replace("\\", "/"))
     parts = value.split("/")
-    if (value.startswith("/") or any(part in {"", ".", ".."} for part in parts)
-            or "\x00" in value or any(ord(ch) < 32 or ord(ch) == 127 for ch in value)):
+    # Change reports are consumed on Windows and POSIX.  Keep the path profile
+    # portable and lexical: a report must never smuggle a drive/UNC path, URL,
+    # control character, or a name which aliases on common filesystems.
+    if (value.startswith("/") or ntpath.splitdrive(value)[0] or ":" in value
+            or any(part in {"", ".", ".."} for part in parts)
+            or "\x00" in value
+            or any(ord(ch) < 32 or 0x7f <= ord(ch) <= 0x9f for ch in value)
+            or any(ch in value for ch in "\u2028\u2029\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2069")
+            or len(value.encode("utf-8")) > 4096
+            or any(len(part.encode("utf-8")) > 255 or part.endswith((".", " ")) for part in parts)):
         _fail("E_CHANGE_PATH", field, "unsafe relative path")
-    if value.startswith("./"):
-        _fail("E_CHANGE_PATH", field, "dot prefix is not canonical")
+    # Windows device names remain special even when an extension is attached.
+    for part in parts:
+        basename = part.split(".", 1)[0].rstrip(" ").upper()
+        if basename in {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                        "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+                        "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}:
+            _fail("E_CHANGE_PATH", field, "unsafe relative path")
     return value
 
 
@@ -54,7 +69,8 @@ def _scope(value: Any) -> list[str]:
     if not isinstance(value, list) or not value:
         _fail("E_CHANGE_SCOPE", "/payload/scope", "non-empty scope array required")
     result = [_path(item, f"/payload/scope/{index}") for index, item in enumerate(value)]
-    if len(set(result)) != len(result):
+    folded = [unicodedata.normalize("NFC", path).casefold() for path in result]
+    if len(set(folded)) != len(folded):
         _fail("E_CHANGE_SCOPE", "/payload/scope", "duplicate scope path")
     return sorted(result)
 
@@ -82,9 +98,10 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
         if set(value) - allowed or {"path", "change_type", "old_sha256", "new_sha256"} - set(value):
             _fail("E_CHANGE_SCHEMA", field, "closed changed-file object required")
         path = _path(value["path"], f"{field}/path")
-        if path in seen:
+        path_key = unicodedata.normalize("NFC", path).casefold()
+        if path_key in seen:
             _fail("E_CHANGE_DUPLICATE", f"{field}/path", "duplicate changed path")
-        seen.add(path)
+        seen.add(path_key)
         if not _in_scope(path, scope):
             _fail("E_CHANGE_SCOPE", f"{field}/path", "changed path is outside declared scope")
         change_type = value["change_type"]
@@ -96,7 +113,9 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
             _fail("E_CHANGE_HASH", field, "added file requires new content and no old content")
         if change_type == "deleted" and (new_sha is not None or old_sha is None):
             _fail("E_CHANGE_HASH", field, "deleted file requires old content and no new content")
-        if change_type in {"modified", "mode-only", "submodule"} and old_sha is None and new_sha is None:
+        if change_type == "modified" and old_sha is not None and old_sha == new_sha:
+            _fail("E_CHANGE_HASH", field, "modified file must change content")
+        if change_type in {"modified", "submodule"} and old_sha is None and new_sha is None:
             _fail("E_CHANGE_HASH", field, "change requires at least one content hash")
         normalized: Dict[str, Any] = {"path": path, "change_type": change_type, "old_sha256": old_sha, "new_sha256": new_sha}
         if "old_path" in value:
@@ -105,8 +124,19 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
                 _fail("E_CHANGE_SCHEMA", f"{field}/old_path", "old_path only applies to rename/copy")
             if not _in_scope(normalized["old_path"], scope):
                 _fail("E_CHANGE_SCOPE", f"{field}/old_path", "old path is outside declared scope")
+            if unicodedata.normalize("NFC", normalized["old_path"]).casefold() == path_key:
+                _fail("E_CHANGE_SCHEMA", f"{field}/old_path", "rename/copy source must differ from destination")
+            if old_sha is None and new_sha is None:
+                _fail("E_CHANGE_HASH", field, "rename/copy requires content identity")
         elif change_type in {"renamed", "copied"}:
             _fail("E_CHANGE_SCHEMA", field, "rename/copy requires old_path")
+        if change_type == "mode-only":
+            if "old_mode" not in value or "new_mode" not in value:
+                _fail("E_CHANGE_MODE", field, "mode-only change requires old and new mode")
+            if value["old_mode"] == value["new_mode"]:
+                _fail("E_CHANGE_MODE", field, "mode-only change must change mode")
+            if old_sha is None or new_sha is None or old_sha != new_sha:
+                _fail("E_CHANGE_HASH", field, "mode-only change requires unchanged content")
         for mode in ("old_mode", "new_mode"):
             if mode in value:
                 if type(value[mode]) is not str or not re.fullmatch(r"[0-7]{6}", value[mode]):
@@ -121,6 +151,13 @@ def _files(values: Any, scope: Sequence[str]) -> list[Dict[str, Any]]:
                                         "path": _path(sub["path"], f"{field}/submodule/path")}
             if change_type != "submodule":
                 _fail("E_CHANGE_SUBMODULE", f"{field}/submodule", "submodule binding requires submodule change type")
+            if (unicodedata.normalize("NFC", normalized["submodule"]["path"]).casefold()
+                    != path_key):
+                _fail("E_CHANGE_SUBMODULE", f"{field}/submodule/path", "submodule path must match changed path")
+            if normalized["submodule"]["old_commit"] is None and normalized["submodule"]["new_commit"] is None:
+                _fail("E_CHANGE_SUBMODULE", f"{field}/submodule", "submodule commit identity required")
+        elif change_type == "submodule":
+            _fail("E_CHANGE_SUBMODULE", field, "submodule change requires binding")
         result.append(normalized)
     return sorted(result, key=lambda item: item["path"])
 
@@ -198,6 +235,10 @@ def validate_change_report(record: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_CHANGE_SCHEMA", "/payload", "invalid mode or evidence class")
     if payload["mode"] != "production" and payload["evidence_class"] == "PRODUCTION":
         _fail("E_CHANGE_EVIDENCE", "/payload/evidence_class", "production evidence requires production mode")
+    if normalized["status"] == "READY" and payload["evidence_class"] in {"OFFLINE_FIXTURE", "SYNTHETIC"}:
+        _fail("E_CHANGE_STATUS", "/status", "synthetic evidence cannot be ready for production")
+    if type(payload["change_mode"]) is not str or payload["change_mode"] not in {"working-tree", "commit", "patch", "unknown"}:
+        _fail("E_CHANGE_MODE", "/payload/change_mode", "unsupported change mode")
     payload["scope"] = _scope(payload["scope"]); payload["files"] = _files(payload["files"], payload["scope"]); payload["link_bindings"] = _links(payload["link_bindings"])
     return normalized
 

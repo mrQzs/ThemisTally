@@ -439,7 +439,11 @@ class UsageSettlement:
             if current is not None and current.kind == "unknown":
                 unknown.append(operation.operation_id)
             closed = current is not None and current.kind == "final"
-            if operation.finished and not closed and operation.operation_id not in unknown:
+            # A cancellation proven before start closes the reservation without
+            # creating an execution series.  It must not be reclassified as an
+            # unknown finished operation merely because no final fact exists.
+            if (operation.finished and operation.state != "cancelled_not_started"
+                    and not closed and operation.operation_id not in unknown):
                 unknown.append(operation.operation_id)
             if current is None and not operation.finished:
                 provisional = True

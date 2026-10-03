@@ -183,10 +183,15 @@ class ProviderIdentity:
 
 @dataclass(frozen=True)
 class EconomicCallIdentity:
-    """The provider call key shared by retries and multiple runs.
+    """The provider call key shared by retries, runs, tasks, and requests.
 
-    ``run_id`` is provenance and is intentionally excluded from ``call_key``;
-    the same provider call observed by two runs therefore becomes MIRROR.
+    ``run_id``, ``task_id``, and ``request_id`` are observation provenance and
+    are intentionally excluded from ``call_key``.  A provider call can be
+    observed after a handoff, retry, or cross-task/request projection; those
+    observations must still refer to one economic call and become ``MIRROR``
+    records rather than charging the call twice.  Provider/account/model/
+    source/region and the provider's call id remain part of the key so calls
+    from different economic identities cannot alias.
     """
 
     call_id: str
@@ -219,9 +224,25 @@ class EconomicCallIdentity:
             result["run_id"] = self.run_id
         return result
 
+    def as_call_dict(self) -> dict[str, Any]:
+        """Return the stable economic identity, excluding run/request scope.
+
+        ``as_dict`` remains the full observation identity for serialized
+        evidence and replay checks.  This narrower view is used only for the
+        cross-scope economic key and deliberately excludes fields that
+        describe where a call was observed rather than which provider call it
+        was.
+        """
+        result: dict[str, Any] = {"call_id": self.call_id, "provider": self.provider,
+                                  "model": self.model, "account": self.account,
+                                  "source": self.source}
+        if self.region is not None:
+            result["region"] = self.region
+        return result
+
     @property
     def call_key(self) -> str:
-        return canonical_sha256(self.as_dict(include_run=False))
+        return canonical_sha256(self.as_call_dict())
 
     @property
     def fingerprint(self) -> str:
@@ -302,6 +323,12 @@ class ProviderCallObservation:
         identity remain bound to this fingerprint.
         """
         payload = self.semantic_payload()
+        # The observation payload retains request/task/run provenance for
+        # evidence replay, but the economic facts must compare independently
+        # of the scope in which they were observed.  Otherwise a provider
+        # call mirrored by another task or request would be treated as a
+        # conflicting second charge instead of a mirror.
+        payload["identity"] = self.identity.as_call_dict()
         payload.pop("evidence_ref", None)
         return canonical_sha256(payload)
 

@@ -66,6 +66,14 @@ class DocsOracleTests(unittest.TestCase):
                                 observations=[], readiness={"status": "BLOCKED", "issues": ["E_CORE_GATES"]},
                                 status="READY")
 
+    def test_bundle_ready_requires_reference_only_satisfied_docs_check(self):
+        binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)
+        observation = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
+        readiness = review_readiness(binding, [observation], {"docs"}, {"docs"}, "REVIEWED_SATISFIED", "SATISFIED")
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "UNKNOWN", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_BINDING"):
+            build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=[observation], readiness=readiness)
+
     def test_bundle_rejects_forged_content_oracle_shape(self):
         docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
         binding = CheckBinding("a" * 64, "b" * 64, "c" * 64)

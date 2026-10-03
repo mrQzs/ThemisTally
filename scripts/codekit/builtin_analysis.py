@@ -149,6 +149,12 @@ def validate_analysis_report(record: Mapping[str, Any], *,
         _fail("E_ANALYSIS_MODE", "/payload/analysis_mode", "unsupported analysis mode")
     if type(payload["evidence_class"]) is not str or payload["evidence_class"] not in EVIDENCE_CLASSES:
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "unknown evidence class")
+    # The builder rejects this combination before serialization, but reports can
+    # also arrive through replay/restore paths.  Re-apply the status/evidence
+    # boundary here so a forged or edited envelope cannot promote a fixture to
+    # READY merely by bypassing build_analysis_report().
+    if normalized["status"] == "READY" and payload["evidence_class"] in {"OFFLINE_FIXTURE", "SYNTHETIC"}:
+        _fail("E_ANALYSIS_STATUS", "/status", "synthetic evidence cannot be ready for production")
     frozen_source_bytes = None if source_bytes_by_ref is None else normalize_source_bytes_by_ref(
         source_bytes_by_ref,
         declared={resource_ref_key(ref) for ref in normalized["source_refs"]},
