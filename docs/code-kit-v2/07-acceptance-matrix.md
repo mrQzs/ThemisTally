@@ -96,3 +96,10 @@ compileall、`git diff --check`、WSL Python 3.12 Schema 7 项和 stub dispatch 
 The current code candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`. The runtime and artifact boundary fixes were re-captured: `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` contains 103 collected, 96 passed, and 7 skipped; `.agent/runs/offline-01-06-08-20261003-expanded-all-06/` contains 544 collected, 536 passed, and 8 skipped. Both captures returned 0, completed fully, and show no input drift.
 
 SourceAnchor byte binding and InvocationSpec argv freezing improve offline verifiability only. There is still no Pi attempt or independent `review-pi` verdict, so A/F rows remain `LOCAL_REFERENCE`, `NOT_RUN`, or `BLOCKED` and cannot become a stage PASS.
+
+
+## 2026-10-03 Current Candidate (8348af6)
+
+The current code candidate is `8348af691d33e08f111b5cebbe852cb66f31a80b`. The platform reconciliation and authorization journal replay fixes were re-captured: builtin tests are 105 collected, 98 passed, 7 skipped; the 01-06/08 expanded set is 549 collected, 541 passed, 8 skipped. Both captures returned 0 and show no input drift.
+
+The new checks only strengthen offline boundary evidence. There is no Pi attempt, independent `review-pi` verdict, real provider, native process, or 09/10 connector evidence, so A/F rows remain `LOCAL_REFERENCE`, `NOT_RUN`, or `BLOCKED`.

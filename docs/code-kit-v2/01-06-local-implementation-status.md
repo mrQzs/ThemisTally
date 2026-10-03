@@ -74,3 +74,15 @@ Latest raw captures:
 - `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`: 544 collected, 536 executed passes, 8 skips for the same environment condition; return code 0, `baseline_consistent=true`, no drift.
 
 These remain offline `LOCAL_REFERENCE` results. No Pi attempt, real provider, Windows/macOS native process, external 09/10 consumer, or production dispatcher was run. The 01-06 and 08 gates remain `REVISE/BLOCKED`, and the production release gate stays closed.
+
+
+## 2026-10-03 Latest Offline Candidate (runtime reconciliation and journal replay hardening)
+
+The code candidate is `8348af691d33e08f111b5cebbe852cb66f31a80b`. `8348af6` hardens persisted platform reconciliation (closed observation, connected/execution-mode consistency, safe command and environment digest) and authorization journal replay (strict JSON duplicate-key, byte, depth, and non-finite rejection while preserving truncated-tail durable-prefix recovery).
+
+Latest raw captures:
+
+- `.agent/runs/offline-01-06-08-20261003-builtin-all-07/`: 105 collected, 98 executed passes, 7 optional Schema dependency skips; return code 0, `baseline_consistent=true`, no drift.
+- `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`: 549 collected, 541 executed passes, 8 optional Schema dependency skips; return code 0, `baseline_consistent=true`, no drift.
+
+These remain offline `LOCAL_REFERENCE` results. Real Pi/provider, native process, external consumer, billing, and recovery evidence remains `NOT_RUN/BLOCKED`; the stage and production gates remain closed.

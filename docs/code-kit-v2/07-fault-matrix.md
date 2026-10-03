@@ -69,3 +69,8 @@
 ## 2026-10-03 Current Candidate (296135c)
 
 Fault and boundary captures for `296135cb8eef4cbf54585d755f3ca437f7e74a51` use `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`. SourceAnchor resource drift, out-of-range spans, forged excerpt digests, and post-construction InvocationSpec argv mutation have regression coverage; these results are `LOCAL_REFERENCE` only. Real PID/boot, cross-platform process, provider billing, handoff, external consumer, and recovery drills remain `NOT_RUN/BLOCKED`.
+
+
+## 2026-10-03 Current Candidate (8348af6)
+
+The current fault captures use `.agent/runs/offline-01-06-08-20261003-builtin-all-07/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`. They cover forged or incomplete platform observations, inconsistent execution modes, non-canonical failure records, duplicate-key journal records, oversized/deep journal records, and strict-JSON truncated tails. These are `LOCAL_REFERENCE` only; real processes, provider billing, external consumers, and recovery drills remain `NOT_RUN/BLOCKED`.

@@ -27,3 +27,10 @@
 The current candidate is `296135cb8eef4cbf54585d755f3ca437f7e74a51`; raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-06/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-06/`. Both returned 0, have `baseline_consistent=true`, and show no drift. The latest contract pairs are rebound to this SHA and 39 pairs pass `pi_dispatch validate`.
 
 This proves only repeatable offline reference behavior on the fixed worktree. There is no Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence; the independent stage conclusion remains `REVISE/BLOCKED`.
+
+
+## Current Candidate Review Update (8348af6)
+
+The current candidate is `8348af691d33e08f111b5cebbe852cb66f31a80b`; raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-all-07/` and `.agent/runs/offline-01-06-08-20261003-expanded-all-07/`. Both returned 0, completed fully, have `baseline_consistent=true`, and show no drift. The current 39 contract pairs are rebound to this code SHA and validate successfully.
+
+This is repeatable offline reference evidence only. No Pi attempt, `review-pi` verdict, real provider, native process, or 09/10 consumer evidence exists; the independent conclusion remains `REVISE/BLOCKED`.
