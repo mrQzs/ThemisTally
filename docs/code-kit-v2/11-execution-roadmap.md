@@ -23,12 +23,12 @@
 ## 当前阶段状态（2026-10-04）
 
 - S0：已建立路线图、追踪矩阵、21 份合同草案和离线环境门禁；合同仍是规划材料，不能替代实现证据。
-- S1：已实现能力 Schema、严格 profile binding 和本机版本/help 探针；模型调用与平台能力仍未观察。
+- S1：已实现能力 Schema、严格 profile binding、本机版本/help fixture/manifest 和 `PreflightResult`；版本不兼容、认证缺失、模型缺失/不匹配会分别阻塞或保持 `NOT_RUN`，模型调用与平台能力仍未观察。
 - S2：已实现 Claude stream-json 离线事件归一化、原始记录引用、终态/模型/用量/工具闭合检查和 replay 冲突拒绝。
 - S3：已实现统一 facade、argv/no-shell 调用快照、stdin/资源闭包摘要、可验证的 raw byte fixture、事件上下文/终态/工具审计和取消/响应丢失分类；尚未接入真实 05 进程 runner。
 - S4：已实现只读 planner→executor 跨会话 handoff、`validate_run_context(for_executor_dispatch=True)` 绑定、generation 校验、共享 `PlanningBudgetLedger` role gate 和 executor start gate；尚未接入 03 ApprovalLedger、09 PlanningService 的真实启动入口。
 - S5：已补 provider-neutral `ProfileRouter`、旧 `OfflineAdapter` 回归覆盖和保守取消状态（含 `CANCEL_AFTER_EXIT`）；尚未接入 Pi dispatcher、真实进程清理或重试协调。
-- S6：未完成。真实异构链路、平台矩阵和独立发布门禁继续 `NOT_RUN/BLOCKED`。
+- S6：已实现离线 `PreflightResult` 和 machine-checkable independent release gate；真实异构链路、平台矩阵和独立发布门禁仍继续 `NOT_RUN/BLOCKED`。
 
 ## 所有权与验证
 

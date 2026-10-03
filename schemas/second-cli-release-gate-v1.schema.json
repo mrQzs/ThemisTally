@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-release-gate:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "allowed", "reasons"],
+  "properties": {
+    "record_type": {"const": "second-cli-release-gate"},
+    "schema_version": {"const": 1},
+    "allowed": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

@@ -6,6 +6,7 @@ from scripts.codekit.adapters.heterogeneous import (
     AdapterFacadeError,
     CancellationObservation,
     HeterogeneousAdapterFacade,
+    evaluate_independent_release_gate,
     ProfileHandoff,
     ProfileRouter,
     check_role_gate,
@@ -13,6 +14,7 @@ from scripts.codekit.adapters.heterogeneous import (
     validate_handoff,
 )
 from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
+from scripts.codekit.adapters.capability import preflight_profile
 from scripts.codekit.planner_runtime import PlanningBudgetLedger
 
 
@@ -56,6 +58,20 @@ class RuntimeBoundaryTests(unittest.TestCase):
             adapter.validate_profile(capability, role="planner", platform=capability.platforms[0],
                                      model_id="offline-test-model", profile_id="requires-real-evidence",
                                      required_capabilities=("terminal_event",), require_observed=True)
+
+    def test_release_gate_keeps_real_chain_blocked_until_all_evidence_exists(self):
+        adapter = ClaudeCodeAdapter()
+        capability = adapter.probe(timeout=1).capability
+        preflight = preflight_profile(capability, role="planner", platform=capability.platforms[0],
+                                      required_capabilities=("terminal_event",), requested_model="m",
+                                      authentication_status="NOT_INSPECTED", version_supported=True)
+        gate = evaluate_independent_release_gate(preflights=(preflight,), real_model_chain=False,
+                                                 real_platform_lifecycle=False, independent_review=True,
+                                                 external_connectors=False)
+        self.assertFalse(gate.allowed)
+        self.assertIn("PREFLIGHT_NOT_READY", gate.reasons)
+        self.assertIn("REAL_MODEL_CHAIN_MISSING", gate.reasons)
+        self.assertEqual(gate.to_mapping()["record_type"], "second-cli-release-gate")
 
     def test_invocation_digest_binds_stdin_and_resource_allowlist(self):
         adapter = ClaudeCodeAdapter()

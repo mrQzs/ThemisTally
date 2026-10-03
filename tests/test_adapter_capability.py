@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.codekit.adapters.capability import AdapterCapability, CapabilityError, CapabilityEvidence, bind_profile
+from scripts.codekit.adapters.capability import AdapterCapability, CapabilityError, CapabilityEvidence, bind_profile, preflight_profile
 
 
 def capability():
@@ -48,6 +48,36 @@ class AdapterCapabilityTests(unittest.TestCase):
             AdapterCapability("x", "v", "v", ("linux",), ("planner",), ("unknown",), "unknown", "posix", (), True)
         schema = json.loads(Path("schemas/adapter-capability-v1.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(schema["$id"], "urn:codekit:adapter-capability:1")
+
+    def test_preflight_distinguishes_not_run_model_and_incompatible_version(self):
+        value = capability()
+        pending = preflight_profile(value, role="planner", platform="linux",
+                                     required_capabilities=("terminal_event",), requested_model="m",
+                                     authentication_status="NOT_INSPECTED", version_supported=True)
+        self.assertEqual(pending.status, "NOT_RUN")
+        self.assertFalse(pending.allowed)
+        self.assertIn("MODEL_NOT_RUN", pending.reasons)
+        mismatch = preflight_profile(value, role="planner", platform="linux",
+                                      required_capabilities=("terminal_event",), requested_model="m",
+                                      reported_model="other", authentication_status="READY",
+                                      version_supported=True)
+        self.assertEqual(mismatch.status, "BLOCKED")
+        self.assertIn("MODEL_MISMATCH", mismatch.reasons)
+        incompatible = preflight_profile(value, role="planner", platform="linux",
+                                         required_capabilities=("terminal_event",), requested_model="m",
+                                         authentication_status="READY", version_supported=False,
+                                         reported_model="m")
+        self.assertEqual(incompatible.status, "VERSION_INCOMPATIBLE")
+
+    def test_preflight_never_selects_a_fallback_automatically(self):
+        value = capability()
+        result = preflight_profile(value, role="planner", platform="linux",
+                                   required_capabilities=("terminal_event",), requested_model="m",
+                                   authentication_status="MISSING", version_supported=True)
+        self.assertEqual(result.status, "AUTH_UNAVAILABLE")
+        self.assertNotIn("fallback_model", result.to_mapping())
+        schema = json.loads(Path("schemas/adapter-preflight-v1.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(result.to_mapping()), set(schema["required"]))
 
 
 if __name__ == "__main__":

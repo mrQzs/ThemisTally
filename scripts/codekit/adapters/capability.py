@@ -20,6 +20,7 @@ ROLE_NAMES = ("planner", "executor", "observer")
 PLATFORMS = ("linux", "macos", "windows")
 ENVIRONMENT_KINDS = ("native", "wsl")
 EVIDENCE_LEVELS = ("observed", "sample", "declared", "synthetic", "unknown")
+PREFLIGHT_STATUSES = ("READY", "NOT_RUN", "BLOCKED", "VERSION_INCOMPATIBLE", "AUTH_UNAVAILABLE")
 
 
 def _text(value: Any, field: str) -> str:
@@ -128,6 +129,42 @@ class ProfileBinding:
                 "supported": self.supported, "reasons": list(self.reasons)}
 
 
+@dataclass(frozen=True)
+class PreflightResult:
+    """Machine-readable profile status before any model or process call."""
+
+    status: str
+    binding: ProfileBinding
+    requested_model: str | None
+    reported_model: str | None
+    authentication_status: str
+    version_supported: bool | None
+    reasons: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.status not in PREFLIGHT_STATUSES:
+            raise CapabilityError("E_PREFLIGHT_SCHEMA", "unsupported preflight status")
+        if type(self.binding) is not ProfileBinding:
+            raise CapabilityError("E_PREFLIGHT_SCHEMA", "profile binding required")
+        if self.authentication_status not in {"NOT_INSPECTED", "READY", "MISSING", "BLOCKED"}:
+            raise CapabilityError("E_PREFLIGHT_SCHEMA", "unsupported authentication status")
+        if self.version_supported is not None and type(self.version_supported) is not bool:
+            raise CapabilityError("E_PREFLIGHT_SCHEMA", "version_supported must be boolean or null")
+        if type(self.reasons) is not tuple or any(type(reason) is not str or not reason for reason in self.reasons):
+            raise CapabilityError("E_PREFLIGHT_SCHEMA", "preflight reasons must be a tuple of text")
+
+    @property
+    def allowed(self) -> bool:
+        return self.status == "READY"
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "adapter-preflight", "schema_version": 1,
+                "status": self.status, "binding": self.binding.to_mapping(),
+                "requested_model": self.requested_model, "reported_model": self.reported_model,
+                "authentication_status": self.authentication_status,
+                "version_supported": self.version_supported, "reasons": list(self.reasons)}
+
+
 def bind_profile(capability: AdapterCapability, *, role: str, platform: str,
                  required_capabilities: Sequence[str], model_id: str | None = None,
                  require_observed: bool = False, environment_kind: str = "native") -> ProfileBinding:
@@ -157,4 +194,48 @@ def bind_profile(capability: AdapterCapability, *, role: str, platform: str,
     return ProfileBinding(capability.adapter_id, role, platform, model_id, digest, not reasons, tuple(reasons))
 
 
-__all__ = ["AdapterCapability", "CapabilityEvidence", "CapabilityError", "EVIDENCE_LEVELS", "ProfileBinding", "bind_profile"]
+def preflight_profile(capability: AdapterCapability, *, role: str, platform: str,
+                      required_capabilities: Sequence[str], requested_model: str | None = None,
+                      environment_kind: str = "native", require_observed: bool = False,
+                      reported_model: str | None = None, authentication_status: str = "NOT_INSPECTED",
+                      version_supported: bool | None = None) -> PreflightResult:
+    """Classify profile readiness without inspecting credentials or starting a call.
+
+    A version/help probe can produce ``NOT_RUN`` but never ``READY`` when the
+    model identity or authentication state is still unknown.  Fallback is not
+    selected here; a caller must submit a separately reviewed profile.
+    """
+    binding = bind_profile(capability, role=role, platform=platform,
+                           environment_kind=environment_kind,
+                           required_capabilities=required_capabilities,
+                           model_id=requested_model, require_observed=require_observed)
+    reasons = list(binding.reasons)
+    if version_supported is False:
+        reasons.append("VERSION_INCOMPATIBLE")
+    if authentication_status == "MISSING":
+        reasons.append("AUTH_UNAVAILABLE")
+    elif authentication_status == "BLOCKED":
+        reasons.append("AUTH_BLOCKED")
+    if reported_model is not None and requested_model is not None and reported_model != requested_model:
+        reasons.append("MODEL_MISMATCH")
+    elif reported_model is None and require_observed:
+        reasons.append("MODEL_UNKNOWN")
+    if "VERSION_INCOMPATIBLE" in reasons:
+        status = "VERSION_INCOMPATIBLE"
+    elif "AUTH_UNAVAILABLE" in reasons:
+        status = "AUTH_UNAVAILABLE"
+    elif not binding.supported or any(reason in {"AUTH_BLOCKED", "MODEL_MISMATCH", "MODEL_UNKNOWN", "REAL_CAPABILITY_REQUIRED"} for reason in reasons):
+        status = "BLOCKED"
+    elif version_supported is not True or authentication_status != "READY" or reported_model is None:
+        status = "NOT_RUN"
+        if reported_model is None and "MODEL_NOT_RUN" not in reasons:
+            reasons.append("MODEL_NOT_RUN")
+    else:
+        status = "READY"
+    return PreflightResult(status, binding, requested_model, reported_model,
+                           authentication_status, version_supported,
+                           tuple(dict.fromkeys(reasons)))
+
+
+__all__ = ["AdapterCapability", "CapabilityEvidence", "CapabilityError", "EVIDENCE_LEVELS",
+           "PREFLIGHT_STATUSES", "PreflightResult", "ProfileBinding", "bind_profile", "preflight_profile"]

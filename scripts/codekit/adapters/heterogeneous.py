@@ -14,7 +14,7 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 from .. import protocols
 from ..builtin_artifacts import resource_ref
 from ..planner_runtime import PlanningBudgetLedger
-from .capability import AdapterCapability, bind_profile
+from .capability import AdapterCapability, PreflightResult, bind_profile
 from .second_cli import (
     CliEvent, CollectionResult, ProbeResult, SecondCliInvocation,
     SecondCliProfile,
@@ -299,6 +299,36 @@ class RoleGate:
     reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class IndependentReleaseGate:
+    allowed: bool
+    reasons: tuple[str, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "second-cli-release-gate", "schema_version": 1,
+                "allowed": self.allowed, "reasons": list(self.reasons)}
+
+
+def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
+                                     real_model_chain: bool, real_platform_lifecycle: bool,
+                                     independent_review: bool, external_connectors: bool) -> IndependentReleaseGate:
+    """Machine-checkable final gate; offline fixtures cannot satisfy it."""
+    reasons: list[str] = []
+    if type(preflights) is not tuple or not preflights:
+        reasons.append("PREFLIGHTS_MISSING")
+    elif any(item.status != "READY" for item in preflights):
+        reasons.append("PREFLIGHT_NOT_READY")
+    for value, reason in ((real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
+                          (real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
+                          (independent_review, "INDEPENDENT_REVIEW_MISSING"),
+                          (external_connectors, "EXTERNAL_CONNECTORS_MISSING")):
+        if type(value) is not bool:
+            reasons.append(reason + "_UNKNOWN")
+        elif not value:
+            reasons.append(reason)
+    return IndependentReleaseGate(not reasons, tuple(dict.fromkeys(reasons)))
+
+
 def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
                     handoff: ProfileHandoff | None = None,
                     ledger: PlanningBudgetLedger | None = None,
@@ -432,5 +462,6 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
 
 
 __all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
-           "HeterogeneousAdapterFacade", "ProfileHandoff", "ProfileRouter", "RoleGate",
-           "StartGate", "check_role_gate", "evaluate_start_gate", "validate_handoff"]
+           "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff", "ProfileRouter",
+           "RoleGate", "StartGate", "check_role_gate", "evaluate_independent_release_gate",
+           "evaluate_start_gate", "validate_handoff"]
