@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:project-checkpoint:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "checkpoint_id", "status", "read_only"],
+  "properties": {"record_type": {"const": "project-checkpoint"}, "schema_version": {"const": 1},
+    "checkpoint_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "status": {"type": "object"}, "read_only": {"const": true}}
+}
