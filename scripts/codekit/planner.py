@@ -356,6 +356,8 @@ def build_candidate(*, candidate_id: str, draft: DraftRevision,
     _text(candidate_id, "/candidate_id", pattern=IDENTITY_RE)
     src = validate_resource_ref(source_ref, "/source_ref")
     target = validate_resource_ref(target_ref, "/target_ref")
+    if canonical_json_bytes(src) == canonical_json_bytes(target):
+        _fail("E_CANDIDATE_BINDING", "source and target ResourceRef must be distinct", "/target_ref")
     if type(md_bytes) is not bytes or type(json_bytes) is not bytes:
         _fail("E_RESOURCE_BYTES", "candidate members must be bytes")
     if not md_bytes or not json_bytes:
@@ -369,6 +371,9 @@ def build_candidate(*, candidate_id: str, draft: DraftRevision,
                {"representation": "json", "ref": make_resource_ref("contract-json", candidate_id + "-json", "contracts/%s.json" % ir.task_id, json_bytes),
                 "sha256": sha256_bytes(json_bytes), "bytes": json_bytes})
     refs = tuple(validate_resource_ref(x, "/input_refs") for x in input_refs)
+    ref_keys = [canonical_json_bytes(ref) for ref in refs]
+    if len(ref_keys) != len(set(ref_keys)):
+        _fail("E_CANDIDATE_BINDING", "input_refs must be unique", "/input_refs")
     return ContractCandidate(candidate_id, draft.draft_id, draft.revision, ir.task_id, ir.plan_version,
                               src, target, members, refs, _text(summary or "contract candidate", "/summary", max_len=1024))
 
@@ -423,6 +428,8 @@ def validate_contract_candidate(value: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_SCHEMA_FIELDS", "positive plan version required", "/plan_version")
     validate_resource_ref(value["source_ref"], "/source_ref")
     validate_resource_ref(value["target_ref"], "/target_ref")
+    if canonical_json_bytes(value["source_ref"]) == canonical_json_bytes(value["target_ref"]):
+        _fail("E_CANDIDATE_BINDING", "source and target ResourceRef must be distinct", "/target_ref")
     members = value["members"]
     if type(members) is not list or len(members) != 2:
         _fail("E_CANDIDATE_MEMBERS", "exactly markdown and json members required", "/members")
@@ -441,6 +448,9 @@ def validate_contract_candidate(value: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_SCHEMA_TYPE", "input_refs array required", "/input_refs")
     for i, ref in enumerate(value["input_refs"]):
         validate_resource_ref(ref, f"/input_refs/{i}")
+    input_keys = [canonical_json_bytes(ref) for ref in value["input_refs"]]
+    if len(input_keys) != len(set(input_keys)):
+        _fail("E_CANDIDATE_BINDING", "input_refs must be unique", "/input_refs")
     _text(value["summary"], "/summary", max_len=1024)
     if value["state"] not in {"CANDIDATE", "WITHDRAWN", "PUBLISHED"}:
         _fail("E_SCHEMA_FIELDS", "invalid candidate state", "/state")
@@ -490,8 +500,21 @@ def validate_publication_receipt(value: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_SCHEMA_FIELDS", "both member hashes required", "/members")
     _text(members["markdown_sha256"], "/members/markdown_sha256", pattern=HEX64)
     _text(members["json_sha256"], "/members/json_sha256", pattern=HEX64)
-    if type(value["review_ref"]) is not dict or value["review_ref"].get("decision") != "APPROVED":
+    review = value["review_ref"]
+    if type(review) is not dict or review.get("decision") != "APPROVED":
         _fail("E_REVIEW_BINDING", "approved review reference required", "/review_ref")
+    if "approval_id" not in review and "approval_ref" not in review:
+        _fail("E_REVIEW_BINDING", "approval reference required", "/review_ref")
+    if "candidate_id" in review and review["candidate_id"] != value["candidate_id"]:
+        _fail("E_REVIEW_BINDING", "review candidate id does not match receipt", "/review_ref/candidate_id")
+    approval_ref = review.get("approval_ref")
+    if approval_ref is not None:
+        if type(approval_ref) is not dict or set(approval_ref) != {"scope", "generation", "sha256"}:
+            _fail("E_REVIEW_BINDING", "approval_ref must be a closed currentness proof", "/review_ref/approval_ref")
+        _text(approval_ref["scope"], "/review_ref/approval_ref/scope", pattern=IDENTITY_RE)
+        if type(approval_ref["generation"]) is not int or approval_ref["generation"] < 1:
+            _fail("E_REVIEW_BINDING", "approval_ref generation required", "/review_ref/approval_ref/generation")
+        _text(approval_ref["sha256"], "/review_ref/approval_ref/sha256", pattern=HEX64)
     if type(value["generation"]) is not int or value["generation"] < 1:
         _fail("E_SCHEMA_FIELDS", "positive generation required", "/generation")
     if value["state"] != "PUBLISHED" or type(value["outbox_seq"]) is not int or value["outbox_seq"] < 1:
@@ -558,6 +581,8 @@ class PublicationStore:
         member_binding = review_ref.get("members")
         if member_binding is not None and member_binding != {"markdown_sha256": md_hash, "json_sha256": json_hash}:
             _fail("E_REVIEW_BINDING", "review member digests do not match candidate", "/review_ref/members")
+        bound_review = _copy(dict(review_ref))
+        bound_review.setdefault("candidate_id", candidate.candidate_id)
         with self._lock:
             prior_id = self._by_key.get(idempotency_key)
             if prior_id:
@@ -572,13 +597,19 @@ class PublicationStore:
                 _fail("E_VERSION_REUSED", "published plan version slot cannot be reused", "/plan_version")
             pub_id = publication_id or "pub-" + uuid.uuid4().hex
             _text(pub_id, "/publication_id", pattern=IDENTITY_RE)
+            existing = self._receipts.get(pub_id)
+            if existing is not None:
+                if (existing.candidate_id, existing.md_sha256, existing.json_sha256,
+                        existing.idempotency_key) == (candidate.candidate_id, md_hash, json_hash, idempotency_key):
+                    return _copy(existing)
+                _fail("E_PUBLICATION_CONFLICT", "publication id is already bound to another publication", "/publication_id")
             # Both members are installed before the receipt/outbox is visible.
             self._bytes[md_hash] = candidate.members[0]["bytes"]
             self._bytes[json_hash] = candidate.members[1]["bytes"]
             seq = len(self._outbox) + 1
             receipt = PublicationReceipt(pub_id, candidate.candidate_id, candidate.task_id,
                                          candidate.plan_version, md_hash, json_hash,
-                                         _copy(review_ref), idempotency_key, current_gen + 1,
+                                         bound_review, idempotency_key, current_gen + 1,
                                          "PUBLISHED", seq)
             self._receipts[pub_id] = receipt; self._by_key[idempotency_key] = pub_id
             self._published_versions[candidate.task_id].add(candidate.plan_version)
@@ -607,15 +638,15 @@ class PublicationStore:
         missing/half-written sidecar instead of treating a file pair as a
         published contract.
         """
-        receipt = self.publish(candidate, review_ref=review_ref,
-                               idempotency_key=idempotency_key,
-                               expected_generation=expected_generation,
-                               publication_id=publication_id)
         root = Path(repo_root).resolve()
         plans = root / ".agent" / "plans"
         publications = root / ".agent" / "publications"
         plans.mkdir(parents=True, exist_ok=True)
         publications.mkdir(parents=True, exist_ok=True)
+        receipt = self.publish(candidate, review_ref=review_ref,
+                               idempotency_key=idempotency_key,
+                               expected_generation=expected_generation,
+                               publication_id=publication_id)
 
         def atomic_bytes(path: Path, raw: bytes) -> None:
             temp = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
@@ -629,14 +660,23 @@ class PublicationStore:
         canonical = self.candidate(candidate.candidate_id)
         md = canonical.members[0]["bytes"]
         machine = canonical.members[1]["bytes"]
+        receipt_raw = (json.dumps(receipt.to_mapping(), ensure_ascii=False, sort_keys=True,
+                                  separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        ledger_path = publications / "outbox.jsonl"
+        prior_ledger = ledger_path.read_bytes() if ledger_path.exists() else b""
+        ledger_lines = [line for line in prior_ledger.splitlines() if line]
+        if not any(line == receipt_raw.rstrip(b"\n") for line in ledger_lines):
+            ledger_bytes = prior_ledger
+            if ledger_bytes and not ledger_bytes.endswith(b"\n"):
+                ledger_bytes += b"\n"
+            atomic_bytes(ledger_path, ledger_bytes + receipt_raw)
         md_path = plans / (f"{candidate.task_id}.v{candidate.plan_version}.md")
         json_path = plans / (f"{candidate.task_id}.v{candidate.plan_version}.json")
         atomic_bytes(md_path, md)
         atomic_bytes(json_path, machine)
         receipt_record = receipt.to_mapping()
         atomic_bytes(publications / (f"{candidate.task_id}.v{candidate.plan_version}.json"),
-                     (json.dumps(receipt_record, ensure_ascii=False, sort_keys=True,
-                                 separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8"))
+                     receipt_raw)
         return receipt
 
     def bytes_for(self, publication_id: str, representation: str) -> bytes:
@@ -670,6 +710,55 @@ class PublicationStore:
                     self._heads[receipt.task_id] = (receipt.generation, receipt.publication_id)
                 return _copy(receipt)
         _fail("E_PUBLICATION_MISSING", "publication cannot be recovered", "/publication_id")
+
+    def recover_from_repository(self, repo_root: str | Path, publication_id: str) -> PublicationReceipt:
+        """Recover a receipt and its exact pair after a fresh process starts."""
+        root = Path(repo_root).resolve()
+        publications = root / ".agent" / "publications"
+        matches: list[dict[str, Any]] = []
+        for path in sorted(publications.glob("*.json")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                value = validate_publication_receipt(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError, PlannerError):
+                continue
+            if value.get("publication_id") == publication_id:
+                matches.append(value)
+        if len(matches) != 1:
+            _fail("E_PUBLICATION_MISSING", "publication receipt is missing or ambiguous", "/publication_id")
+        value = matches[0]
+        ledger_path = publications / "outbox.jsonl"
+        ledger_matches = []
+        if ledger_path.is_file() and not ledger_path.is_symlink():
+            for line in ledger_path.read_bytes().splitlines():
+                if not line:
+                    continue
+                try:
+                    item = validate_publication_receipt(json.loads(line.decode("utf-8")))
+                except (UnicodeDecodeError, ValueError, PlannerError):
+                    continue
+                if item.get("publication_id") == publication_id:
+                    ledger_matches.append(item)
+        if len(ledger_matches) != 1 or ledger_matches[0] != value:
+            _fail("E_PUBLICATION_MISSING", "publication receipt is not present in persistent outbox", "/publication_id")
+        task_version = f"{value['task_id']}.v{value['plan_version']}"
+        md_path = root / ".agent" / "plans" / (task_version + ".md")
+        json_path = root / ".agent" / "plans" / (task_version + ".json")
+        md = md_path.read_bytes() if md_path.is_file() else b""
+        machine = json_path.read_bytes() if json_path.is_file() else b""
+        if sha256_bytes(md) != value["members"]["markdown_sha256"] or sha256_bytes(machine) != value["members"]["json_sha256"]:
+            _fail("E_PUBLICATION_CORRUPT", "published contract pair is missing or changed")
+        receipt = PublicationReceipt(value["publication_id"], value["candidate_id"], value["task_id"], value["plan_version"],
+                                     value["members"]["markdown_sha256"], value["members"]["json_sha256"], value["review_ref"],
+                                     value["idempotency_key"], value["generation"], value["state"], value["outbox_seq"])
+        with self._lock:
+            self._receipts[publication_id] = receipt
+            self._by_key[receipt.idempotency_key] = publication_id
+            self._bytes[receipt.md_sha256] = bytes(md); self._bytes[receipt.json_sha256] = bytes(machine)
+            self._published_versions.setdefault(receipt.task_id, set()).add(receipt.plan_version)
+            self._heads[receipt.task_id] = (receipt.generation, receipt.publication_id)
+        return _copy(receipt)
 
 
 class PlanningService:
@@ -739,6 +828,20 @@ class PlanningService:
                     or approval_ref.get("generation") != head.generation
                     or approval_ref.get("sha256") != head.record_sha256):
                 _fail("E_REVIEW_CURRENT", "input lock is bound to a stale approval", "/review_ref/input_lock_ref")
+            # Currentness alone is not permission.  Publishing consumes the
+            # reviewed action, which also enforces reviewed_actions,
+            # not_before, expires_at and the ledger's idempotent generation
+            # fence.  A deterministic operation key makes a retry after a
+            # response loss safe without creating a second budget/action.
+            try:
+                consumed = self.approval_ledger.consume_once(
+                    scope=result["scope"], action="publish_contract", input_refs=approved_refs,
+                    operation_id="publication-review-" + candidate.candidate_id,
+                    expected_generation=head.generation)
+            except Exception as exc:
+                _fail("E_REVIEW_CURRENT", str(exc), "/review_ref")
+            if consumed is not True:
+                _fail("E_REVIEW_CURRENT", "publish_contract approval is not currently consumable", "/review_ref")
         return result
 
     def request_planning(self, draft_id: str, ir: Mapping[str, Any], **kwargs: Any) -> DraftRevision:
@@ -787,7 +890,9 @@ class PlanningService:
     def get_publication(self, publication_id: str) -> PublicationReceipt:
         return self.publications.get(publication_id)
 
-    def recover_publication(self, publication_id: str) -> PublicationReceipt:
+    def recover_publication(self, publication_id: str, *, repo_root: str | Path | None = None) -> PublicationReceipt:
+        if repo_root is not None:
+            return self.publications.recover_from_repository(repo_root, publication_id)
         return self.publications.recover(publication_id)
 
 

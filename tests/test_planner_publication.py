@@ -86,6 +86,18 @@ class PlannerPublicationTests(unittest.TestCase):
                 md_bytes=md + b"x", json_bytes=raw)
         self.assertEqual(ctx.exception.code, "E_CANDIDATE_BYTES")
 
+    def test_candidate_rejects_duplicate_input_and_same_source_target(self):
+        ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
+        draft = DraftStore().create_draft("draft-duplicates", ir.to_mapping())
+        source = make_resource_ref("planner-input", "source-duplicates", "inputs/source.json", raw=b"source")
+        target = make_resource_ref("contract-target", "target-duplicates", "contracts/target.json", raw=b"target")
+        with self.assertRaisesRegex(PlannerError, "E_CANDIDATE_BINDING"):
+            build_candidate(candidate_id="candidate-duplicate-input", draft=draft, source_ref=source, target_ref=target,
+                            md_bytes=md, json_bytes=raw, input_refs=(source, source))
+        with self.assertRaisesRegex(PlannerError, "E_CANDIDATE_BINDING"):
+            build_candidate(candidate_id="candidate-same-target", draft=draft, source_ref=source, target_ref=source,
+                            md_bytes=md, json_bytes=raw)
+
     def test_publication_registers_before_outbox_and_is_idempotent(self):
         ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
         draft = DraftStore().create_draft("draft-3", ir.to_mapping())
@@ -105,6 +117,67 @@ class PlannerPublicationTests(unittest.TestCase):
         with self.assertRaises(PlannerError):
             store.publish(candidate, review_ref={"decision": "REVOKED", "approval_id": "approval-1"},
                           idempotency_key="publish-2")
+
+    def test_publication_id_collision_is_rejected(self):
+        ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
+        first_draft = DraftStore().create_draft("draft-collision-a", sample_ir())
+        first = build_candidate(candidate_id="candidate-collision-a", draft=first_draft,
+            source_ref=make_resource_ref("planner-input", "source-ca", "inputs/source-a.json", raw=b"source-a"),
+            target_ref=make_resource_ref("contract-target", "target-ca", "contracts/target-a.json", raw=b"target-a"),
+            md_bytes=md, json_bytes=raw)
+        other_ir = dict(sample_ir()); other_ir["task_id"] = "other-contract"
+        other_md, other_raw = render_contract_ir(ContractIR.from_mapping(other_ir))
+        second_draft = DraftStore().create_draft("draft-collision-b", other_ir)
+        second = build_candidate(candidate_id="candidate-collision-b", draft=second_draft,
+            source_ref=make_resource_ref("planner-input", "source-cb", "inputs/source-b.json", raw=b"source-b"),
+            target_ref=make_resource_ref("contract-target", "target-cb", "contracts/target-b.json", raw=b"target-b"),
+            md_bytes=other_md, json_bytes=other_raw)
+        store = PublicationStore()
+        store.publish(first, review_ref={"decision": "APPROVED", "approval_id": "a"},
+                      idempotency_key="collision-a", publication_id="same-publication")
+        with self.assertRaisesRegex(PlannerError, "E_PUBLICATION_CONFLICT"):
+            store.publish(second, review_ref={"decision": "APPROVED", "approval_id": "b"},
+                          idempotency_key="collision-b", publication_id="same-publication")
+
+    def test_fresh_store_recovers_receipt_and_exact_pair_from_repository(self):
+        ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
+        draft = DraftStore().create_draft("draft-recover", ir.to_mapping())
+        candidate = build_candidate(candidate_id="candidate-recover", draft=draft,
+            source_ref=make_resource_ref("planner-input", "source-recover", "inputs/source.json", raw=b"source"),
+            target_ref=make_resource_ref("contract-target", "target-recover", "contracts/target.json", raw=b"target"),
+            md_bytes=md, json_bytes=raw)
+        with tempfile.TemporaryDirectory() as directory:
+            original = PublicationStore()
+            receipt = original.publish_to_repository(directory, candidate,
+                review_ref={"decision": "APPROVED", "approval_id": "approval-recover"},
+                idempotency_key="recover-1")
+            restored = PublicationStore().recover_from_repository(directory, receipt.publication_id)
+            self.assertEqual(restored, receipt)
+            self.assertEqual(restored.md_sha256,
+                             hashlib.sha256((Path(directory) / ".agent" / "plans" / "offline-contract.v1.md").read_bytes()).hexdigest())
+
+    def test_approval_action_and_expiry_are_checked_before_publish(self):
+        ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
+        draft = DraftStore().create_draft("draft-action", ir.to_mapping())
+        source = make_resource_ref("planner-input", "source-action", "inputs/source.json", raw=b"source")
+        target = make_resource_ref("contract-target", "target-action", "contracts/target.json", raw=b"target")
+        candidate = build_candidate(candidate_id="candidate-action", draft=draft, source_ref=source, target_ref=target,
+                                    md_bytes=md, json_bytes=raw)
+        ledger = ApprovalLedger()
+        subject = make_resource_ref("approval-subject", "subject-action", "inputs/subject.json", raw=b"subject")
+        approval = {"record_type": "approval-record", "schema_version": 1, "approval_id": "approval-action",
+                    "request_id": "request-action", "subject_ref": subject, "input_refs": [source, target],
+                    "reviewed_actions": ["read_only"], "decision": "APPROVED",
+                    "recorded_at": "2026-10-03T00:00:00Z", "expires_at": "2026-10-03T01:00:00Z",
+                    "reviewer": {"mode": "offline"}}
+        head = ledger.put(scope="scope-action", operation_id="approval-op-action", expected_generation=0, record=approval)
+        service = PlanningService(approval_ledger=ledger)
+        review = {"decision": "APPROVED", "approval_id": "approval-action", "scope": "scope-action",
+                  "generation": head.generation, "record_sha256": head.record_sha256, "input_refs": [source, target],
+                  "input_lock_receipt_id": "lock-action", "input_lock_operation_id": "lock-op-action"}
+        service.submit_plan_review(candidate, review)
+        with self.assertRaisesRegex(PlannerError, "E_REVIEW_CURRENT"):
+            service.publish_contract(candidate, idempotency_key="action-publish")
 
     def test_service_publish_contract_projects_registered_pair(self):
         ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)

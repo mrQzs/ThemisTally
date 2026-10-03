@@ -11,7 +11,7 @@
     "task_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "plan_version": {"type": "integer", "minimum": 1},
     "members": {"type": "object", "additionalProperties": false, "required": ["markdown_sha256", "json_sha256"],
       "properties": {"markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "json_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
-    "review_ref": {"type": "object", "required": ["decision"], "properties": {"decision": {"const": "APPROVED"}}, "additionalProperties": true},
+    "review_ref": {"type": "object", "required": ["decision"], "allOf": [{"anyOf": [{"required": ["approval_id"]}, {"required": ["approval_ref"]}]}], "properties": {"decision": {"const": "APPROVED"}, "candidate_id": {"type": "string", "minLength": 1}, "approval_id": {"type": "string", "minLength": 1}, "approval_ref": {"type": "object", "required": ["scope", "generation", "sha256"], "additionalProperties": false, "properties": {"scope": {"type": "string", "minLength": 1}, "generation": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}, "additionalProperties": true},
     "idempotency_key": {"type": "string", "minLength": 1}, "generation": {"type": "integer", "minimum": 1},
     "state": {"const": "PUBLISHED"}, "outbox_seq": {"type": "integer", "minimum": 1}
   }

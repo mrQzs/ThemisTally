@@ -34,6 +34,12 @@ class PlannerProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "E_FENCED"):
             cursor.consume([event], generation=2)
 
+    def test_published_is_a_valid_publication_projection_state(self):
+        projection = project_planning(planning_state="APPROVED", review_state="APPROVED",
+                                      publication_state="PUBLISHED", execution_state="NOT_STARTED",
+                                      currentness="CURRENT")
+        self.assertEqual(projection.publication_state, "PUBLISHED")
+
 
 if __name__ == "__main__":
     unittest.main()

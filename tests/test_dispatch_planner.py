@@ -31,10 +31,25 @@ class PlannerDispatchGateTests(unittest.TestCase):
             }
             path = receipt_dir / "demo.v1.json"
             path.write_text(json.dumps(receipt), encoding="utf-8")
+            (receipt_dir / "outbox.jsonl").write_text(json.dumps(receipt) + "\n", encoding="utf-8")
             repo = dispatch.Repo(root)
             self.assertEqual(dispatch.verify_planner_publication(repo, "demo.v1", md, machine), [])
             bad = machine + b" "
             self.assertTrue(dispatch.verify_planner_publication(repo, "demo.v1", md, bad))
+
+    def test_planner_publication_rejects_sidecar_without_registration_outbox(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); receipt_dir = root / ".agent" / "publications"; receipt_dir.mkdir(parents=True)
+            md = b"# TASK: demo.v1\n"; machine = b'{"contract_family":"planner-v2"}\n'
+            receipt = {
+                "record_type": "publication-receipt", "schema_version": 1,
+                "publication_id": "pub-1", "candidate_id": "candidate-1", "task_id": "demo", "plan_version": 1,
+                "members": {"markdown_sha256": hashlib.sha256(md).hexdigest(), "json_sha256": hashlib.sha256(machine).hexdigest()},
+                "review_ref": {"decision": "APPROVED", "approval_id": "approval-1"},
+                "idempotency_key": "publish-1", "generation": 1, "state": "PUBLISHED", "outbox_seq": 1,
+            }
+            (receipt_dir / "demo.v1.json").write_text(json.dumps(receipt), encoding="utf-8")
+            self.assertTrue(dispatch.verify_planner_publication(dispatch.Repo(root), "demo.v1", md, machine))
 
     def test_derive_json_refuses_planner_v2_downgrade(self):
         with tempfile.TemporaryDirectory() as directory:

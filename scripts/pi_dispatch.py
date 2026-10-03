@@ -1693,10 +1693,12 @@ def _load_fixed_contract_pair(repo: Repo, plan_key: str, md_bytes: bytes,
     """
     if md_text is None:
         md_text = md_bytes.decode("utf-8")
-    if b'"contract_family"' in json_bytes and b'"planner-v2"' in json_bytes:
+    # Identify the family from parsed JSON, then strictly decode every
+    # planner-v2 byte stream.  A byte substring check is bypassable with JSON
+    # Unicode escapes.
+    raw = json.loads(json_bytes.decode("utf-8"))
+    if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
         raw = _planner_strict_json_loads(json_bytes)
-    else:
-        raw = json.loads(json_bytes.decode("utf-8"))
     contract, errors, _warnings = validate_contract(
         md_text, raw, plan_key, extra_protected_paths(repo.config()))
     if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
@@ -1785,7 +1787,7 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
         return ["planner-v2 发布回执字段不完整"]
     if receipt.get("record_type") != "publication-receipt" or receipt.get("schema_version") != 1:
         return ["planner-v2 发布回执类型或版本不受支持"]
-    if receipt.get("state") not in ("PUBLISHED", "REGISTERED"):
+    if receipt.get("state") != "PUBLISHED":
         return ["planner-v2 发布回执不是当前登记状态：%r" % receipt.get("state")]
     if receipt.get("task_id") != task_id or receipt.get("plan_version") != int(version):
         return ["planner-v2 发布回执的任务或版本不匹配"]
@@ -1795,6 +1797,19 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
     review = receipt.get("review_ref")
     if not isinstance(review, dict) or review.get("decision") != "APPROVED":
         return ["planner-v2 发布回执缺少当前 APPROVED 审核绑定"]
+    if "approval_id" not in review and "approval_ref" not in review:
+        return ["planner-v2 发布回执缺少 approval_id/approval_ref"]
+    if review.get("candidate_id") not in (None, receipt.get("candidate_id")):
+        return ["planner-v2 发布回执 candidate_id 与审核绑定不一致"]
+    approval_ref = review.get("approval_ref")
+    if approval_ref is not None:
+        if not isinstance(approval_ref, dict) or set(approval_ref) != {"scope", "generation", "sha256"}:
+            return ["planner-v2 发布回执 approval_ref 不完整"]
+        if type(approval_ref.get("generation")) is not int or approval_ref["generation"] < 1 \
+                or not isinstance(approval_ref.get("scope"), str) \
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", approval_ref["scope"]) \
+                or not re.fullmatch(r"[0-9a-f]{64}", str(approval_ref.get("sha256"))):
+            return ["planner-v2 发布回执 approval_ref currentness proof 无效"]
     members = receipt.get("members")
     if not isinstance(members, dict):
         return ["planner-v2 发布回执缺少双格式成员摘要"]
@@ -1803,7 +1818,40 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
     for key, digest in expected.items():
         if members.get(key) != digest:
             return ["planner-v2 发布回执的 %s 与固定合同字节不一致" % key]
+    # The sidecar is a projection.  A persistent outbox record is the
+    # registration proof; a hand-written sidecar without it must not enter any
+    # execution consumer.  PublicationStore writes the canonical receipt as
+    # one JSONL record before projecting the two contract members.
+    outbox_path = root / "outbox.jsonl"
+    if not outbox_path.is_file() or outbox_path.is_symlink():
+        return ["planner-v2 发布回执缺少持久 outbox 登记"]
+    try:
+        ledger_matches = []
+        for line in outbox_path.read_bytes().splitlines():
+            if not line:
+                continue
+            item = _planner_strict_json_loads(line)
+            if isinstance(item, dict) and item.get("publication_id") == receipt.get("publication_id"):
+                ledger_matches.append(item)
+    except Exception as exc:
+        return ["planner-v2 持久 outbox 无法解析：%s" % exc]
+    if len(ledger_matches) != 1 or ledger_matches[0] != receipt:
+        return ["planner-v2 回执与持久 outbox 登记不一致"]
     return []
+
+
+def planner_attempt_publication_errors(repo: Repo, run_dir: Path, contract: Dict[str, Any]) -> List[str]:
+    """Apply the planner-v2 registration gate to every attempt consumer."""
+    if not isinstance(contract, dict) or contract.get("contract_family") != "planner-v2":
+        return []
+    try:
+        md = (run_dir / "plan.md").read_bytes()
+        machine = (run_dir / "contract.json").read_bytes()
+    except OSError as exc:
+        return ["planner-v2 固定合同字节读取失败：%s" % exc]
+    task_id = run_dir.name.split(".v", 1)[0]
+    key = task_id + ".v" + str(contract.get("plan_version"))
+    return verify_planner_publication(repo, key, md, machine)
 
 
 NOTE_PREFIX = "NOTE："
@@ -3163,7 +3211,11 @@ def cmd_derive_json(args: argparse.Namespace) -> int:
                             EXIT_BLOCKED)
     if json_path.is_file():
         existing_json = json_path.read_bytes()
-        if b'"contract_family"' in existing_json and b'"planner-v2"' in existing_json:
+        try:
+            existing_value = json.loads(existing_json.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            existing_value = None
+        if isinstance(existing_value, dict) and existing_value.get("contract_family") == "planner-v2":
             raise DispatchError("现有 JSON 已声明 planner-v2，derive-json 不得用 v1 输出覆盖登记合同",
                                 EXIT_BLOCKED)
     contract, problems = derive_contract_json(md_text, args.title)
@@ -3349,13 +3401,12 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         frozen_md = md_path.read_bytes()
         frozen_json = json_path.read_bytes()
         try:
-            if b'"contract_family"' in frozen_json and b'"planner-v2"' in frozen_json:
+            frozen_raw = json.loads(frozen_json.decode("utf-8"))
+            if isinstance(frozen_raw, dict) and frozen_raw.get("contract_family") == "planner-v2":
                 try:
                     frozen_raw = _planner_strict_json_loads(frozen_json)
                 except ModuleNotFoundError as exc:
                     raise DispatchError("planner-v2 严格 JSON 解码器不可用：%s" % exc, EXIT_BLOCKED)
-            else:
-                frozen_raw = json.loads(frozen_json.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
             raise DispatchError("固定合同字节无法解析：%s" % exc, EXIT_USAGE)
         frozen_contract, frozen_errors, _frozen_warnings = validate_contract(
@@ -3594,6 +3645,9 @@ def cmd_collect(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
     meta, contract = load_attempt(repo, run_dir)
+    publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
+    if publication_errors:
+        raise DispatchError("planner-v2 发布门禁拒绝恢复收集：%s" % "；".join(publication_errors), EXIT_BLOCKED)
     state = get_state(run_dir)
     claimed = (run_dir / "claim").is_dir()
     recoverable = state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and claimed)
@@ -3774,6 +3828,9 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
     meta, contract = load_attempt(repo, run_dir)
+    publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
+    if publication_errors:
+        raise DispatchError("planner-v2 发布门禁拒绝变异检查：%s" % "；".join(publication_errors), EXIT_BLOCKED)
     state = get_state(run_dir)
     if state not in REVIEWABLE_STATES and state != "INTEGRATED":
         raise DispatchError("状态 %s 不能做变异检查" % state)
@@ -4140,6 +4197,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
     meta, contract = load_attempt(repo, run_dir)
+    publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
+    if publication_errors:
+        raise DispatchError("planner-v2 发布门禁拒绝验收检查：%s" % "；".join(publication_errors), EXIT_BLOCKED)
     state = get_state(run_dir)
     if state not in REVIEWABLE_STATES:
         raise DispatchError("状态 %s 不能运行验收检查" % state)
@@ -4358,6 +4418,9 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
         gates[gate]["passed"] = False
         gates[gate]["problems"].append(message)
 
+    for problem in planner_attempt_publication_errors(repo, run_dir, contract):
+        fail("G0", problem)
+
     for problem in verify_inputs(run_dir, meta):
         fail("G0", problem)
     if resolve_commit(repo.root, meta["base_sha"]) != meta["base_sha"]:
@@ -4529,6 +4592,9 @@ def cmd_branch(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
     meta, contract = load_attempt(repo, run_dir)
+    publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
+    if publication_errors:
+        raise DispatchError("planner-v2 发布门禁拒绝创建分支：%s" % "；".join(publication_errors), EXIT_BLOCKED)
     problems = verify_inputs(run_dir, meta)
     if problems:
         raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
