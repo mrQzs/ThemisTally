@@ -4,9 +4,9 @@
 
 ## 目标与边界
 
-11 验证调度核心可以通过 adapter/profile 接入第二种 CLI，而不依赖 Pi 命令、事件或会话格式。首轮只完成候选能力模型、通用协议、离线第二 CLI stub、跨角色隔离、异常证据和 09 交接边界；不选择品牌、不安装依赖、不读取凭据、不调用真实 provider/CLI。
+11 验证调度核心可以通过 adapter/profile 接入第二种 CLI，而不依赖 Pi 命令、事件或会话格式。按用户选择，候选优先使用本机已安装且支持结构化输出的 CLI：本机已完成 `claude --version`/`claude --help` 免费探针（Claude Code 2.1.288），并保留 `codex --version`/`codex exec --help` 作为第二候选（codex-cli 0.160.0）。探针只证明可执行文件和帮助面可观察；没有启动模型请求，精确模型、认证、费用和生产能力仍未验证。
 
-真实版本、help、模型、平台、shell、取消、用量和端到端异构链路必须经过独立授权与真实证据；离线通过只记 `LOCAL_REFERENCE`，真实项记 `NOT_RUN/BLOCKED`。
+真实模型、平台进程、shell、取消、用量和端到端异构链路必须经过独立授权与真实证据；离线通过只记 `LOCAL_REFERENCE`，真实项记 `NOT_RUN/BLOCKED`。本轮已实现 provider-neutral 注册/路由、调用摘要绑定、只读跨会话 handoff、取消/响应丢失恢复分类和共享预算门禁；这些仍是离线协议实现，不构成生产接线。
 
 ## 阶段与子任务
 
@@ -19,6 +19,15 @@
 | S4 09 交接 | `11-s4-1-planner-handoff`；`11-s4-2-executor-handoff`；`11-s4-3-budget-role-gates` | planner/executor 双 profile 交接和准入边界 | S3、09 |
 | S5 Pi 兼容 | `11-s5-1-pi-regression`；`11-s5-2-profile-routing`；`11-s5-3-error-recovery` | Pi 历史行为保护、注册表路由、失败回退 | S2–S4 |
 | S6 独立验收 | `11-s6-1-real-capability-preflight`；`11-s6-2-heterogeneous-matrix`；`11-s6-3-independent-gate` | 真实能力清单、异构矩阵和发布门禁 | 全部 |
+
+## 当前阶段状态（2026-10-04）
+
+- S0：已建立路线图、追踪矩阵、21 份合同草案和离线环境门禁；合同仍是规划材料，不能替代实现证据。
+- S1：已实现能力 Schema、严格 profile binding 和本机版本/help 探针；模型调用与平台能力仍未观察。
+- S2：已实现 Claude stream-json 离线事件归一化、原始记录引用、终态/模型/用量/工具闭合检查和 replay 冲突拒绝。
+- S3：已实现统一 facade、argv/no-shell 调用快照、stdin/资源闭包摘要、事件上下文检查和取消/响应丢失分类；尚未接入真实 05 进程 runner。
+- S4：已实现只读 planner→executor 跨会话 handoff 记录、generation 校验和共享 `PlanningBudgetLedger` role gate；尚未接入 03 ApprovalLedger、09 PlanningService 的真实启动入口。
+- S5–S6：未完成。Pi 历史回归、生产路由、真实异构链路和独立发布门禁继续 `NOT_RUN/BLOCKED`。
 
 ## 所有权与验证
 

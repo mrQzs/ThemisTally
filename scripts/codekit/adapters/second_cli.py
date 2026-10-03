@@ -36,7 +36,8 @@ class SecondCliError(ValueError):
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_KNOWN_TYPES = {"system", "assistant", "user", "result", "tool_use", "tool_result"}
+_KNOWN_TYPES = {"system", "assistant", "user", "result", "tool_use", "tool_result", "usage"}
+_EVENT_TYPES = {"run_started", "assistant", "user", "tool_started", "tool_finished", "usage", "run_finished", "unknown", "protocol_error"}
 
 
 def _text(value: Any, field: str, *, allow_empty: bool = False) -> str:
@@ -121,6 +122,10 @@ class SecondCliProfile:
     profile_id: str
     read_only: bool = True
     capabilities: tuple[str, ...] = ("streaming_events", "terminal_event", "model_identity")
+    capability_digest: str | None = None
+    session_id: str | None = None
+    history_policy: str = "none"
+    environment_lock_sha256: str | None = None
 
     def __post_init__(self) -> None:
         for field in ("adapter_id", "executable", "role", "platform", "environment_kind", "model_id", "profile_id"):
@@ -129,6 +134,17 @@ class SecondCliProfile:
             raise SecondCliError("E_CLI_MODEL", "an exact model identifier is required")
         if type(self.read_only) is not bool or type(self.capabilities) is not tuple or not self.capabilities:
             raise SecondCliError("E_CLI_PROFILE", "invalid read-only or capability declaration")
+        for capability in self.capabilities:
+            if capability not in {"streaming_events", "terminal_event", "model_identity", "tool_events", "usage", "read_only_mode"}:
+                raise SecondCliError("E_CLI_PROFILE", "unsupported capability")
+        for field in ("capability_digest", "environment_lock_sha256"):
+            value = getattr(self, field)
+            if value is not None and (type(value) is not str or not _SHA256.fullmatch(value)):
+                raise SecondCliError("E_CLI_PROFILE", f"{field} must be lowercase SHA-256")
+        if self.session_id is not None:
+            _text(self.session_id, "session_id")
+        if self.history_policy not in {"none", "read_only_snapshot"}:
+            raise SecondCliError("E_CLI_PROFILE", "unsupported history policy")
 
 
 @dataclass(frozen=True)
@@ -136,16 +152,34 @@ class SecondCliInvocation:
     runtime: InvocationSpec
     adapter: Invocation
     stdin: bytes
-    resource_allowlist: tuple[str, ...]
+    resource_allowlist: tuple[Mapping[str, str], ...]
     read_only: bool
+    session_id: str = ""
 
     def __post_init__(self) -> None:
         if type(self.stdin) is not bytes:
             raise SecondCliError("E_CLI_INVOCATION", "stdin must be bytes")
-        if type(self.resource_allowlist) is not tuple or len(set(self.resource_allowlist)) != len(self.resource_allowlist):
+        if type(self.resource_allowlist) is not tuple:
             raise SecondCliError("E_CLI_INVOCATION", "resource allowlist must be unique")
+        refs = []
+        normalized_refs = []
+        for index, value in enumerate(self.resource_allowlist):
+            try:
+                normalized = resource_ref(dict(value), f"/resource_allowlist/{index}")
+            except Exception as exc:
+                raise SecondCliError("E_CLI_INVOCATION", "resource allowlist must contain ResourceRefs") from exc
+            key = tuple(normalized[name] for name in ("kind", "id", "path", "sha256"))
+            if key in refs:
+                raise SecondCliError("E_CLI_INVOCATION", "resource allowlist must be unique")
+            refs.append(key)
+            normalized_refs.append(normalized)
+        # Freeze caller-owned mappings before they can become invocation evidence.
+        object.__setattr__(self, "resource_allowlist", tuple(normalized_refs))
         if type(self.read_only) is not bool:
             raise SecondCliError("E_CLI_INVOCATION", "read_only must be boolean")
+        if not self.session_id:
+            raise SecondCliError("E_CLI_SESSION", "session id is required")
+        _text(self.session_id, "session_id")
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -159,8 +193,19 @@ class SecondCliInvocation:
             "stdin_sha256": hashlib.sha256(self.stdin).hexdigest(),
             "resource_allowlist": list(self.resource_allowlist),
             "read_only": self.read_only,
-            "invocation_sha256": self.runtime.digest(),
+            "session_id": self.session_id,
+            "invocation_sha256": self.invocation_sha256(),
         }
+
+    def invocation_sha256(self) -> str:
+        payload = {
+            "runtime_sha256": self.runtime.digest(),
+            "stdin_sha256": hashlib.sha256(self.stdin).hexdigest(),
+            "resource_allowlist": [dict(ref) for ref in self.resource_allowlist],
+            "profile_id": self.adapter.profile_id,
+            "adapter_id": self.adapter.adapter_id,
+        }
+        return hashlib.sha256((json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -184,6 +229,8 @@ class CliEvent:
     def __post_init__(self) -> None:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id"); _text(self.role, "role")
         _text(self.event_id, "event_id"); _text(self.event_type, "event_type"); _text(self.adapter_revision, "adapter_revision")
+        if self.event_type not in _EVENT_TYPES:
+            raise SecondCliError("E_CLI_EVENT", "unsupported normalized event type")
         if type(self.seq) is not int or self.seq < 1:
             raise SecondCliError("E_CLI_EVENT_SEQ", "seq must be one-based")
         if type(self.payload) is not dict:
@@ -265,10 +312,12 @@ class ClaudeCodeAdapter:
             capabilities.append("model_identity")
         if "tool" in text.lower():
             capabilities.append("tool_events")
-        ref = {"kind": "cli-probe", "id": self.adapter_id + "-version", "path": "probe/claude-version.txt",
-               "sha256": hashlib.sha256(version_raw).hexdigest()}
-        evidence = tuple(CapabilityEvidence(name, "observed" if name == "terminal_event" else "declared",
-                                             source_ref=ref if name == "terminal_event" else None,
+        version_ref = {"kind": "cli-probe", "id": self.adapter_id + "-version", "path": "probe/claude-version.txt",
+                       "sha256": hashlib.sha256(version_raw).hexdigest()}
+        help_ref = {"kind": "cli-probe", "id": self.adapter_id + "-help", "path": "probe/claude-help.txt",
+                    "sha256": hashlib.sha256(help_raw).hexdigest()}
+        evidence = tuple(CapabilityEvidence(name, "declared",
+                                             source_ref=version_ref if name == "terminal_event" else help_ref,
                                              note="version/help probe; model request not run") for name in capabilities)
         capability = AdapterCapability(self.adapter_id, self.protocol_version, version, (selected_platform,),
                                        ("planner", "executor", "observer"), tuple(capabilities), "required", "argv",
@@ -286,11 +335,11 @@ class ClaudeCodeAdapter:
         if not binding.supported:
             raise SecondCliError("E_CLI_PROFILE", ";".join(binding.reasons))
         return SecondCliProfile(capability.adapter_id, executable, role, platform, environment_kind, model_id,
-                                profile_id, True, tuple(required_capabilities))
+                                profile_id, True, tuple(required_capabilities), binding.capability_digest)
 
     def build_invocation(self, profile: SecondCliProfile, *, request_id: str, run_id: str,
                          cwd: str, environment: Mapping[str, str], prompt: bytes | str,
-                         resource_allowlist: Sequence[str] = ()) -> SecondCliInvocation:
+                         resource_allowlist: Sequence[Mapping[str, str]] = ()) -> SecondCliInvocation:
         _text(request_id, "request_id"); _text(run_id, "run_id"); _text(cwd, "cwd")
         prompt_bytes = _raw(prompt)
         command = (profile.executable, "--print", "--output-format", "stream-json", "--verbose",
@@ -298,10 +347,17 @@ class ClaudeCodeAdapter:
         if profile.read_only:
             command += ("--tools", "")
         env_digest = _env_digest(dict(environment))
+        if profile.environment_lock_sha256 is not None and profile.environment_lock_sha256 != env_digest:
+            raise SecondCliError("E_CLI_ENV", "environment lock does not match invocation")
+        session_id = profile.session_id or hashlib.sha256((request_id + "\0" + run_id + "\0" + profile.profile_id).encode("utf-8")).hexdigest()[:32]
+        if profile.history_policy != "none":
+            raise SecondCliError("E_CLI_SESSION", "second CLI requires no persisted history")
         runtime = InvocationSpec(request_id, run_id, command, cwd, env_digest, 900, False)
         adapter = Invocation(request_id, run_id, profile.role, profile.profile_id, command,
                              profile.capabilities, env_digest, profile.adapter_id)
-        return SecondCliInvocation(runtime, adapter, prompt_bytes, tuple(resource_allowlist), profile.read_only)
+        if not session_id:
+            raise SecondCliError("E_CLI_SESSION", "session id could not be derived")
+        return SecondCliInvocation(runtime, adapter, prompt_bytes, tuple(resource_allowlist), profile.read_only, session_id)
 
     def normalize_event(self, raw_record: bytes | str, *, request_id: str, run_id: str, seq: int,
                         role: str, adapter_revision: str = "claude-stream-json-v1",
@@ -329,8 +385,9 @@ class ClaudeCodeAdapter:
         if kind not in _KNOWN_TYPES:
             return CliEvent(request_id, run_id, seq, role, event_id, "unknown", {"raw": record}, ref, 0, len(raw),
                             adapter_revision, actual_model=model if isinstance(model, str) else None, complete=False)
-        event_type = {"system": "run_started", "assistant": "assistant", "user": "tool_finished",
-                      "tool_use": "tool_started", "tool_result": "tool_finished", "result": "run_finished"}[kind]
+        event_type = {"system": "run_started", "assistant": "assistant", "user": "user",
+                      "tool_use": "tool_started", "tool_result": "tool_finished", "result": "run_finished",
+                      "usage": "usage"}[kind]
         terminal = kind == "result"
         complete = True
         if terminal:
@@ -360,8 +417,12 @@ class ClaudeCodeAdapter:
 
     def collect_result(self, events: Sequence[CliEvent], *, invocation_sha256: str,
                        exit_code: int | None, expected_model: str | None = None,
-                       cancelled: bool = False, response_lost: bool = False) -> CollectionResult:
+                       cancelled: bool = False, response_lost: bool = False,
+                       expected_request_id: str | None = None, expected_run_id: str | None = None,
+                       expected_role: str | None = None) -> CollectionResult:
         reasons: list[str] = []
+        if type(invocation_sha256) is not str or not _SHA256.fullmatch(invocation_sha256):
+            reasons.append("INVOCATION_ID_INVALID")
         if not events:
             reasons.append("NO_EVENTS")
         unique_events: list[CliEvent] = []
@@ -369,6 +430,12 @@ class ClaudeCodeAdapter:
         expected_seq = 1
         if events:
             bound = (events[0].request_id, events[0].run_id, events[0].role)
+            if expected_request_id is not None and bound[0] != expected_request_id:
+                reasons.append("REQUEST_CONTEXT_MISMATCH")
+            if expected_run_id is not None and bound[1] != expected_run_id:
+                reasons.append("RUN_CONTEXT_MISMATCH")
+            if expected_role is not None and bound[2] != expected_role:
+                reasons.append("ROLE_CONTEXT_MISMATCH")
             for event in events:
                 if (event.request_id, event.run_id, event.role) != bound:
                     reasons.append("EVENT_CONTEXT_MISMATCH")
@@ -379,7 +446,9 @@ class ClaudeCodeAdapter:
                     expected_seq = max(expected_seq, event.seq + 1)
                     by_id[event.event_id] = event
                     unique_events.append(event)
-                elif previous.raw_record_ref != event.raw_record_ref:
+                elif (previous.raw_record_ref != event.raw_record_ref or previous.payload != event.payload
+                      or previous.event_type != event.event_type or previous.seq != event.seq
+                      or previous.complete != event.complete or previous.terminal != event.terminal):
                     reasons.append("EVENT_REPLAY_CONFLICT")
         events = tuple(unique_events)
         if exit_code is None:
@@ -408,6 +477,22 @@ class ClaudeCodeAdapter:
             elif event.event_type == "tool_finished":
                 if event.tool_id in active_tools:
                     active_tools.remove(event.tool_id)
+            # Claude may nest tool blocks inside assistant/user records. Keep
+            # those ids in the same audit set as top-level tool events.
+            source = event.payload.get("message", event.payload)
+            nested = source.get("content", []) if isinstance(source, dict) else []
+            if isinstance(nested, list):
+                for block in nested:
+                    if not isinstance(block, dict):
+                        continue
+                    block_type = block.get("type")
+                    block_id = block.get("id") or block.get("tool_use_id")
+                    if not isinstance(block_id, str):
+                        continue
+                    if block_type == "tool_use":
+                        active_tools.add(block_id)
+                    elif block_type == "tool_result":
+                        active_tools.discard(block_id)
         if active_tools:
             reasons.append("TOOL_AUDIT_INCOMPLETE")
         terminals = [event for event in events if event.terminal]
