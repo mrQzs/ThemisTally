@@ -33,10 +33,30 @@ class DocsChangeTests(unittest.TestCase):
             bad = dict(result); bad["payload"] = dict(result["payload"]); bad["payload"]["changes"] = [dict(row, after_sha256="a" * 64)]
             validate_docs_change(bad)
 
+    def test_validator_rejects_forged_scope_paths_and_duplicates(self):
+        record = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])
+        for writable, error in (([1], "E_DOCS_SCOPE|E_DOCS_PATH"),
+                                (["../secret"], "E_DOCS_PATH"),
+                                (["docs/a.md", "docs/a.md"], "E_DOCS_SCOPE"),
+                                ("docs/a.md", "E_DOCS_SCOPE")):
+            forged = copy.deepcopy(record)
+            forged["payload"]["scope"]["writable"] = writable
+            with self.subTest(writable=writable), self.assertRaisesRegex(ArtifactError, error):
+                validate_docs_change(forged)
+        forged = copy.deepcopy(record)
+        forged["payload"]["scope"]["protected"] = ["docs/a.md"]
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_PROTECTED"):
+            validate_docs_change(forged)
+
     def test_offline_docs_change_rejects_production_pass(self):
         with self.assertRaisesRegex(ArtifactError, "E_DOCS_PRODUCTION_GATE"):
             build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"},
                               writable_paths=["docs/a.md"], status="PASS")
+        record = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])
+        forged = copy.deepcopy(record)
+        forged["status"] = "PASS"
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_PRODUCTION_GATE"):
+            validate_docs_change(forged)
 
     def test_change_anchor_must_be_declared_by_source_refs(self):
         result = build_docs_change({"docs/a.md": b"old"}, {"docs/a.md": b"new"}, writable_paths=["docs/a.md"])

@@ -44,6 +44,27 @@ def _anchors(value: Any) -> list:
     return [source_anchor(item) for item in value]
 
 
+def _scope_paths(value: Any, field: str) -> list[str]:
+    """Normalize and validate one persisted docs-change scope list.
+
+    Builders receive a general sequence, but the artifact itself must contain
+    a closed list of canonical repository-relative paths.  Re-validating this
+    at load time prevents a hand-edited record from bypassing the scope that
+    the builder enforced.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ArtifactError("E_DOCS_SCOPE", field, "path array required")
+    result = []
+    seen = set()
+    for index, item in enumerate(value):
+        path = _path(item, f"{field}/{index}")
+        if path in seen:
+            raise ArtifactError("E_DOCS_SCOPE", field, "duplicate scope path")
+        seen.add(path)
+        result.append(path)
+    return sorted(result)
+
+
 def build_docs_change(
     before: Mapping[str, bytes],
     after: Mapping[str, bytes],
@@ -125,16 +146,27 @@ def validate_docs_change(record: Mapping[str, Any]) -> dict:
     value = validate_artifact(record)
     if value["record_type"] != "docs-change":
         raise ArtifactError("E_DOCS_TYPE", "/record_type", "docs-change record required")
+    if value["status"] == "PASS":
+        raise ArtifactError("E_DOCS_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
     payload = value["payload"]
     if set(payload) != {"changes", "scope", "mapping_version"} or payload["mapping_version"] != 1:
         raise ArtifactError("E_DOCS_SCHEMA", "/payload", "closed docs-change payload required")
     if not isinstance(payload["changes"], list) or not isinstance(payload["scope"], dict) or set(payload["scope"]) != {"writable", "protected"}:
         raise ArtifactError("E_DOCS_SCHEMA", "/payload", "invalid changes or scope")
+    writable = _scope_paths(payload["scope"]["writable"], "/payload/scope/writable")
+    protected = _scope_paths(payload["scope"]["protected"], "/payload/scope/protected")
+    if set(writable).intersection(protected):
+        raise ArtifactError("E_DOCS_PROTECTED", "/payload/scope", "protected path cannot be writable")
+    payload["scope"] = {"writable": writable, "protected": protected}
     for i, item in enumerate(payload["changes"]):
         required = {"path", "kind", "before_sha256", "after_sha256", "purpose", "reader", "source_anchors"}
         if not isinstance(item, dict) or set(item) != required:
             raise ArtifactError("E_DOCS_SCHEMA", "/payload/changes/%d" % i, "closed change row required")
         path = _path(item["path"], "/payload/changes/%d/path" % i)
+        if path not in writable:
+            raise ArtifactError("E_DOCS_SCOPE", path, "changed path is outside writable scope")
+        if path in protected:
+            raise ArtifactError("E_DOCS_PROTECTED", path, "protected path cannot change")
         if type(item["kind"]) is not str or item["kind"] not in {"add", "modify", "delete"}:
             raise ArtifactError("E_DOCS_SCHEMA", path, "unsupported change kind")
         _sha(item["before_sha256"], "/payload/changes/%d/before_sha256" % i)

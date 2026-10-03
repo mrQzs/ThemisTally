@@ -49,6 +49,12 @@ class DocsOracleTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ArtifactError, error):
                 build_review_bundle(docs_check=docs, content_review=content_oracle("ok", "ok"), observations=kwargs.get("observations", []), readiness=kwargs.get("readiness", readiness), **({"status": kwargs["status"]} if "status" in kwargs else {}))
 
+    def test_bundle_rejects_forged_ready_result(self):
+        docs = {"record_type": "docs-check", "schema_version": 1, "artifact_id": "d", "producer": {"kind": "builtin-plugin", "id": "docs-checks", "version": "1.0.0"}, "status": "REFERENCE_ONLY", "source_refs": [], "candidate_ref": None, "environment_ref": None, "payload": {"profile": "commonmark-explicit-anchors-v1", "findings": [], "local_status": "SATISFIED", "unchecked": 0, "semantic_review": "NOT_PERFORMED", "parser": "fallback-commonmark-subset"}}
+        forged = {"status": "READY_FOR_SUPERVISOR_DECISION", "issues": []}
+        with self.assertRaisesRegex(ArtifactError, "E_REVIEW_BINDING"):
+            build_review_bundle(docs_check=docs, content_review=content_oracle("wrong", "ok"), observations=[], readiness=forged)
+
     def test_quality_issues_rejects_malformed_observation_and_test_collections(self):
         valid = {"check_id": "docs", "binding": {"candidate_sha256": "a" * 64, "check_set_sha256": "b" * 64, "environment_sha256": "c" * 64}, "source_kind": "core_observation", "transport_complete": True, "exit_code": 0, "tests": {"docs": {"status": "PASSED"}}}
         for malformed in (None, [], {**valid, "check_id": []}, {**valid, "tests": {1: {"status": "PASSED"}}}, {**valid, "tests": {"docs": {"status": []}}}):

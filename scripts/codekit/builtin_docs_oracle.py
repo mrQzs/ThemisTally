@@ -183,9 +183,29 @@ def build_review_bundle(*, docs_check: Mapping[str, Any], content_review: Mappin
         raise ArtifactError("E_REVIEW_INPUT", "/observations", "observation sequence required")
     if not isinstance(readiness, Mapping):
         raise ArtifactError("E_REVIEW_INPUT", "/readiness", "readiness mapping required")
+    if set(readiness) != {"status", "issues"}:
+        raise ArtifactError("E_REVIEW_INPUT", "/readiness", "closed readiness result required")
+    if readiness["status"] not in {"BLOCKED", "READY_FOR_SUPERVISOR_DECISION"}:
+        raise ArtifactError("E_REVIEW_INPUT", "/readiness/status", "unsupported readiness status")
+    if not isinstance(readiness["issues"], list) or any(type(issue) is not str or not issue for issue in readiness["issues"]):
+        raise ArtifactError("E_REVIEW_INPUT", "/readiness/issues", "readiness issue list required")
+    checked_observations = [_observation(observation, f"/observations/{index}") for index, observation in enumerate(observations)]
+    if readiness["status"] == "READY_FOR_SUPERVISOR_DECISION":
+        if readiness["issues"] or not checked_observations or content_review["status"] != "REVIEWED_SATISFIED":
+            raise ArtifactError("E_REVIEW_BINDING", "/readiness", "ready result is inconsistent with review inputs")
+        bindings = {tuple(sorted(observation["binding"].items())) for observation in checked_observations}
+        if len(bindings) != 1 or any(
+            observation["source_kind"] != "core_observation"
+            or observation["transport_complete"] is not True
+            or observation["exit_code"] != 0
+            or not observation["tests"]
+            or any(row.get("status") != "PASSED" for row in observation["tests"].values())
+            for observation in checked_observations
+        ):
+            raise ArtifactError("E_REVIEW_BINDING", "/readiness", "ready result is inconsistent with observations")
     if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
         raise ArtifactError("E_REVIEW_INPUT", "/source_refs", "source refs sequence required")
-    payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}
+    payload = {"docs_check": copy.deepcopy(dict(docs_check)), "content_review": copy.deepcopy(dict(content_review)), "observations": copy.deepcopy(list(checked_observations)), "readiness": copy.deepcopy(dict(readiness)), "semantic_review": "FIXED_ORACLE_ONLY"}
     if status is None:
         status = "READY" if readiness.get("status") == "READY_FOR_SUPERVISOR_DECISION" else "BLOCKED"
     record = {"record_type": "review-bundle", "schema_version": 1, "artifact_id": artifact_id, "producer": {"kind": "builtin-plugin", "id": "docs-review-oracle", "version": "1.0.0"}, "status": status, "source_refs": [dict(x) for x in source_refs], "candidate_ref": None if candidate_ref is None else dict(candidate_ref), "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload}
