@@ -296,12 +296,14 @@ class CollectionResult:
     usage: Mapping[str, Any]
     invocation_sha256: str
     provider_model: str | None = None
+    cli_model: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         return {"settled": self.settled, "status": self.status, "reasons": list(self.reasons),
                 "result": None if self.result is None else dict(self.result),
                 "actual_model": self.actual_model, "usage": dict(self.usage),
-                "invocation_sha256": self.invocation_sha256, "provider_model": self.provider_model}
+                "invocation_sha256": self.invocation_sha256,
+                "provider_model": self.provider_model, "cli_model": self.cli_model}
 
 
 class RawRecordStore:
@@ -550,12 +552,23 @@ class ClaudeCodeAdapter:
             reasons.append("CANCELLED")
         if response_lost:
             reasons.append("RESPONSE_LOST")
-        models = {event.actual_model for event in events if event.actual_model}
-        actual_model = next(iter(models)) if len(models) == 1 else None
-        if len(models) > 1:
+        observed_models = {event.actual_model for event in events if event.actual_model}
+        actual_model = next(iter(observed_models)) if len(observed_models) == 1 else None
+        if len(observed_models) > 1:
             reasons.append("MODEL_IDENTITY_CONFLICT")
-        if expected_model is not None and actual_model != expected_model:
-            reasons.append("MODEL_MISMATCH" if actual_model else "MODEL_UNKNOWN")
+        cli_models = {event.cli_model for event in events if event.cli_model}
+        cli_model = next(iter(cli_models)) if len(cli_models) == 1 else None
+        if len(cli_models) > 1:
+            reasons.append("CLI_MODEL_IDENTITY_CONFLICT")
+        # Older stream records expose only ``model``.  Treat that field as a
+        # compatibility fallback for the explicit CLI identity, while keeping
+        # the two evidence fields distinct whenever both are present.
+        if cli_model is None and actual_model is not None:
+            cli_model = actual_model
+        elif cli_model is not None and actual_model is not None and cli_model != actual_model:
+            reasons.append("MODEL_SOURCE_CONFLICT")
+        if expected_model is not None and cli_model != expected_model:
+            reasons.append("MODEL_MISMATCH" if cli_model else "MODEL_UNKNOWN")
         provider_models = {event.provider_model for event in events if event.provider_model}
         provider_model = next(iter(provider_models)) if len(provider_models) == 1 else None
         if len(provider_models) > 1:
@@ -610,7 +623,8 @@ class ClaudeCodeAdapter:
         if not usage:
             reasons.append("USAGE_UNKNOWN")
         status = "SETTLED" if not reasons and result is not None else ("UNKNOWN" if any(code.endswith("UNKNOWN") or code in {"NO_EVENTS", "EXIT_UNKNOWN", "RESPONSE_LOST"} for code in reasons) else "BLOCKED")
-        return CollectionResult(status == "SETTLED", status, tuple(dict.fromkeys(reasons)), result, actual_model, usage, invocation_sha256, provider_model)
+        return CollectionResult(status == "SETTLED", status, tuple(dict.fromkeys(reasons)), result,
+                                actual_model, usage, invocation_sha256, provider_model, cli_model)
 
 
 __all__ = ["ClaudeCodeAdapter", "CollectionResult", "CliEvent", "ProbeResult", "RawRecordStore",

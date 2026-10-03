@@ -87,7 +87,20 @@ class SecondCliProtocolTests(unittest.TestCase):
                                               expected_model="cli-model")
         self.assertTrue(result.settled)
         self.assertEqual(result.actual_model, "cli-model")
+        self.assertEqual(result.cli_model, "cli-model")
         self.assertEqual(result.provider_model, "provider-model")
+
+    def test_explicit_cli_model_is_used_when_legacy_model_is_absent(self):
+        records = [
+            b'{"type":"system","cli_model":"cli-model","subtype":"init"}\n',
+            b'{"type":"result","subtype":"success","is_error":false,"cli_model":"cli-model","result":{"ok":true},"usage":{"output_tokens":1}}\n',
+        ]
+        events = self.adapter.normalize_events(records, request_id="req", run_id="run", role="planner")
+        result = self.adapter.collect_result(events, invocation_sha256="d" * 64, exit_code=0,
+                                              expected_model="cli-model")
+        self.assertTrue(result.settled)
+        self.assertIsNone(result.actual_model)
+        self.assertEqual(result.cli_model, "cli-model")
 
     def test_nonzero_exit_and_model_mismatch_cannot_settle(self):
         records = [b'{"type":"result","subtype":"success","is_error":false,"model":"other","result":{"ok":true},"usage":{"output_tokens":1}}\n']
