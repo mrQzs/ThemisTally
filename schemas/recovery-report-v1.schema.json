@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:recovery-report:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["old_generation", "new_generation", "old_cursor", "new_cursor", "reset_required", "source_event_count", "status"],
+  "properties": {
+    "old_generation": {"type": "integer", "minimum": 1}, "new_generation": {"type": "integer", "minimum": 1},
+    "old_cursor": {"type": "integer", "minimum": 0}, "new_cursor": {"type": "integer", "minimum": 0},
+    "reset_required": {"const": true}, "source_event_count": {"type": "integer", "minimum": 0}, "status": {"const": "REBUILT"}
+  }
+}
