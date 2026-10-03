@@ -12,8 +12,8 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.codekit.adapters.capability import AdapterCapability, CapabilityEvidence
-from scripts.codekit.adapters.heterogeneous import CancellationObservation, ProfileHandoff
+from scripts.codekit.adapters.capability import AdapterCapability, CapabilityEvidence, preflight_profile
+from scripts.codekit.adapters.heterogeneous import CancellationObservation, ProfileHandoff, select_fallback
 from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, ProbeResult, RawRecordStore, SecondCliError
 
 
@@ -124,6 +124,34 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             process_observed=None,
         )
         _assert_closed(self, recovery.to_mapping(), "second-cli-recovery-v1.schema.json")
+
+        primary = preflight_profile(
+            capability,
+            role="planner",
+            platform="linux",
+            required_capabilities=("terminal_event",),
+            requested_model="fixture-primary",
+            authentication_status="READY",
+            version_supported=False,
+            reported_model="fixture-primary",
+        )
+        fallback = preflight_profile(
+            capability,
+            role="planner",
+            platform="linux",
+            required_capabilities=("terminal_event",),
+            requested_model="fixture-fallback",
+            authentication_status="READY",
+            version_supported=True,
+            reported_model="fixture-fallback",
+        )
+        fallback_decision = select_fallback(
+            primary_profile_id="fixture-primary",
+            fallback_profile_id="fixture-fallback",
+            primary=primary,
+            fallback=fallback,
+        )
+        _assert_closed(self, fallback_decision.to_mapping(), "second-cli-fallback-decision-v1.schema.json")
 
     def test_schema_files_have_closed_root_and_resource_ref_shape(self) -> None:
         for name in (
