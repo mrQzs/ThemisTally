@@ -47,3 +47,9 @@
 `24760ceec4c3350327a0cf194c58a48a9d9cabf2` 收紧统一账本 attempt/migration 状态边界、refund call_key 幂等和跨 operation 归属，并加固 builtin projection 与持久 journal 的文本、计数、generation/CAS 和生命周期安全整数 fence；扩展组合验收为 474 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。
 
 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 进一步统一旧 projections readiness/outbox 接口的 C1/代理字符、generation/cursor 安全整数和 event_id 早期拒绝；扩展组合验收为 478 项通过、8 项环境跳过。该结果仍是 `LOCAL_REFERENCE`，没有 Pi/provider/native/connector 证据。
+
+## 2026-10-03 最新门禁记录
+
+`ffce46b5400d1688ecb25bc754c487db3a1f05dc` 已推送到 `origin/master`。当前扩展组合为 484 项收集、476 项通过、8 项环境跳过；完整发现为 1164 项收集、38 项跳过和 3 项既有 legacy source-lock 失败。stub dispatch、compileall、diff-check 与 WSL Schema 复核均已用新的 baseline capture 记录，取证路径和命令见 `docs/code-kit-v2/07-acceptance-matrix.md` 最新条目。
+
+本提交只推进离线边界：lease、资源 claim、retry 和 workflow Schema 的拒绝规则已跨运行时、账本和 Schema 对齐。G1/G2 仍为 `LOCAL_REFERENCE`；G3 的当前 stub 回归已通过但不是生产 dispatcher 证据；G4–G7（真实 Pi/provider、原生 OS、09/10）继续 `NOT_RUN/BLOCKED`；G8 继续 `REVISE/BLOCKED`，因为尚无 Pi attempt 和规定的独立复审 verdict。合同审计仍发现 01-2、08-s5-1、08-s6-3 的部分检查需要下一合同版本绑定实际测试函数和故障输入，不能用文件存在性结论放行阶段。

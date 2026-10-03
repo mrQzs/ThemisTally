@@ -69,3 +69,11 @@ S6 v1 合同仍记录 `contract_base_sha=175653e`，而本候选是 `candidate_s
 当前候选 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 在扩展组合回归保持 478 项通过、8 项环境跳过，并覆盖适配器、配置、身份和授权边界定向回归；39 对 v2 合同均已绑定该代码基线并通过 `pi_dispatch validate`。
 
 当前候选 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 另加入旧 projections readiness/outbox 接口的 C1/代理/安全整数/event_id 边界回归；`tests.test_projections` 与集成套件通过，扩展组合共 478 项通过、8 项环境跳过。
+
+## 2026-10-03 最新固定候选
+
+最新候选为 `ffce46b5400d1688ecb25bc754c487db3a1f05dc`，由 `fix: harden claim retry and workflow boundaries` 提交并已推送。扩展组合取证目录为 `.agent/runs/offline-01-06-08-20261003-final-expanded-01/`；命令实际结果为 `Ran 484 tests`、`OK (skipped=8)`，即 476 项执行通过、8 项因 Windows 环境缺少可选 Schema 依赖而跳过。取证记录确认命令已执行、返回码为 0、前后输入清单无漂移。
+
+新增边界覆盖包括 claim receipt 与 SQLite lease 的非负安全整数范围、并行资源键的公共路径规则及容量上限、retry attempt/sequence 饱和与溢出等待、workflow currency cap 的运行时与 Schema 上限。相关定向取证目录为 `.agent/runs/offline-01-06-08-20261003-targeted-02/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-05/`；完整发现取证为 `.agent/runs/offline-01-06-08-20261003-full-discover-01/`，结果 `Ran 1164 tests`、`FAILED (failures=3, skipped=38)`，三项均为既有 `a4fa199` legacy source-lock，不是本提交新增失败。
+
+compileall、`git diff --check`、WSL Python 3.12 Schema 7 项和 stub dispatch 取证均通过，分别见 `.agent/runs/offline-01-06-08-20261003-compile-01/`、`diffcheck-01/`、`schema-wsl-01/` 和 `dispatch-01/`。这些是本地离线/fixture 证据；没有 Pi attempt、真实 provider、原生 macOS/Windows 进程或 09/10 外部连接器证据，因此 A/F 与生产门禁仍不能标记 PASS。
