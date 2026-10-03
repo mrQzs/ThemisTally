@@ -329,7 +329,7 @@ def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
             for key, value in evidence_refs.items():
                 try:
                     refs[key] = _ref(dict(value), "/evidence_refs/" + str(key))
-                except (TypeError, AdapterFacadeError):
+                except (TypeError, ValueError, AdapterFacadeError):
                     reasons.append("EVIDENCE_REF_INVALID:" + str(key))
     for key, value, reason in (("real_model_chain", real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
                                ("real_platform_lifecycle", real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),

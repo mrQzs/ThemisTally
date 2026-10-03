@@ -87,6 +87,9 @@ class AdapterCapabilityTests(unittest.TestCase):
                                    reported_model="m")
         self.assertEqual(result.status, "NOT_RUN")
         self.assertIn("OFFLINE_CAPABILITY", result.reasons)
+        with self.assertRaises(CapabilityError):
+            preflight_profile(value, role="planner", platform="linux",
+                              required_capabilities=("terminal_event",), requested_model=123)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

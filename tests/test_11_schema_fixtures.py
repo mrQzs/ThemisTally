@@ -96,6 +96,8 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
             "terminal": event.terminal,
             "complete": event.complete,
             "tool_id": event.tool_id,
+            "cli_model": event.cli_model,
+            "provider_model": event.provider_model,
         }
         _assert_closed(self, event_record, "second-cli-event-v1.schema.json")
 

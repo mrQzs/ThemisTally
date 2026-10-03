@@ -249,6 +249,8 @@ class CliEvent:
     terminal: bool = False
     complete: bool = True
     tool_id: str | None = None
+    cli_model: str | None = None
+    provider_model: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id"); _text(self.role, "role")
@@ -273,6 +275,10 @@ class CliEvent:
             raise SecondCliError("E_CLI_EVENT", "terminal and complete must be boolean")
         if self.actual_model is not None:
             _text(self.actual_model, "actual_model")
+        if self.cli_model is not None:
+            _text(self.cli_model, "cli_model")
+        if self.provider_model is not None:
+            _text(self.provider_model, "provider_model")
 
     def to_result_event(self) -> dict[str, Any]:
         return {"event_id": self.event_id, "event_type": "result" if self.terminal else self.event_type,
@@ -289,12 +295,13 @@ class CollectionResult:
     actual_model: str | None
     usage: Mapping[str, Any]
     invocation_sha256: str
+    provider_model: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         return {"settled": self.settled, "status": self.status, "reasons": list(self.reasons),
                 "result": None if self.result is None else dict(self.result),
                 "actual_model": self.actual_model, "usage": dict(self.usage),
-                "invocation_sha256": self.invocation_sha256}
+                "invocation_sha256": self.invocation_sha256, "provider_model": self.provider_model}
 
 
 class RawRecordStore:
@@ -453,9 +460,14 @@ class ClaudeCodeAdapter:
         model = record.get("model")
         if model is None and isinstance(record.get("message"), dict):
             model = record["message"].get("model")
+        provider_model = record.get("provider_model")
+        if provider_model is None and isinstance(record.get("message"), dict):
+            provider_model = record["message"].get("provider_model")
         if not isinstance(kind, str) or kind not in _KNOWN_TYPES:
             return CliEvent(request_id, run_id, seq, role, event_id, "unknown", {"raw": record}, ref, 0, len(raw),
-                            adapter_revision, actual_model=model if isinstance(model, str) else None, complete=False)
+                            adapter_revision, actual_model=model if isinstance(model, str) else None, complete=False,
+                            cli_model=model if isinstance(model, str) else None,
+                            provider_model=provider_model if isinstance(provider_model, str) else None)
         event_type = {"system": "run_started", "assistant": "assistant", "user": "user",
                       "tool_use": "tool_started", "tool_result": "tool_finished", "result": "run_finished",
                       "usage": "usage"}[kind]
@@ -471,7 +483,9 @@ class ClaudeCodeAdapter:
             tool_id = record.get("tool_use_id")
         return CliEvent(request_id, run_id, seq, role, event_id, event_type, payload, ref, 0, len(raw), adapter_revision,
                         actual_model=model if isinstance(model, str) else None, terminal=terminal, complete=complete,
-                        tool_id=tool_id if isinstance(tool_id, str) else None)
+                        tool_id=tool_id if isinstance(tool_id, str) else None,
+                        cli_model=model if isinstance(model, str) else None,
+                        provider_model=provider_model if isinstance(provider_model, str) else None)
 
     def normalize_events(self, records: Iterable[bytes | str], *, request_id: str, run_id: str,
                          role: str, adapter_revision: str = "claude-stream-json-v1") -> tuple[CliEvent, ...]:
@@ -520,7 +534,8 @@ class ClaudeCodeAdapter:
                 elif (previous.raw_record_ref != event.raw_record_ref or previous.payload != event.payload
                       or previous.event_type != event.event_type or previous.seq != event.seq
                       or previous.complete != event.complete or previous.terminal != event.terminal
-                      or previous.actual_model != event.actual_model or previous.tool_id != event.tool_id
+                      or previous.actual_model != event.actual_model or previous.cli_model != event.cli_model
+                      or previous.provider_model != event.provider_model or previous.tool_id != event.tool_id
                       or previous.adapter_revision != event.adapter_revision):
                     reasons.append("EVENT_REPLAY_CONFLICT")
         events = tuple(unique_events)
@@ -532,12 +547,16 @@ class ClaudeCodeAdapter:
             reasons.append("CANCELLED")
         if response_lost:
             reasons.append("RESPONSE_LOST")
-        models = {event.actual_model for event in events if event.actual_model}
+        models = {event.cli_model or event.actual_model for event in events if event.cli_model or event.actual_model}
         actual_model = next(iter(models)) if len(models) == 1 else None
         if len(models) > 1:
             reasons.append("MODEL_IDENTITY_CONFLICT")
         if expected_model is not None and actual_model != expected_model:
             reasons.append("MODEL_MISMATCH" if actual_model else "MODEL_UNKNOWN")
+        provider_models = {event.provider_model for event in events if event.provider_model}
+        provider_model = next(iter(provider_models)) if len(provider_models) == 1 else None
+        if len(provider_models) > 1:
+            reasons.append("PROVIDER_MODEL_IDENTITY_CONFLICT")
         if any(not event.complete or event.event_type in {"unknown", "protocol_error"} for event in events):
             reasons.append("PROTOCOL_INCOMPLETE")
         active_tools: set[str] = set()
@@ -588,7 +607,7 @@ class ClaudeCodeAdapter:
         if not usage:
             reasons.append("USAGE_UNKNOWN")
         status = "SETTLED" if not reasons and result is not None else ("UNKNOWN" if any(code.endswith("UNKNOWN") or code in {"NO_EVENTS", "EXIT_UNKNOWN", "RESPONSE_LOST"} for code in reasons) else "BLOCKED")
-        return CollectionResult(status == "SETTLED", status, tuple(dict.fromkeys(reasons)), result, actual_model, usage, invocation_sha256)
+        return CollectionResult(status == "SETTLED", status, tuple(dict.fromkeys(reasons)), result, actual_model, usage, invocation_sha256, provider_model)
 
 
 __all__ = ["ClaudeCodeAdapter", "CollectionResult", "CliEvent", "ProbeResult", "RawRecordStore",

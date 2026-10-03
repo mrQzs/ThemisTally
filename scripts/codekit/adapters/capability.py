@@ -146,6 +146,10 @@ class PreflightResult:
             raise CapabilityError("E_PREFLIGHT_SCHEMA", "unsupported preflight status")
         if type(self.binding) is not ProfileBinding:
             raise CapabilityError("E_PREFLIGHT_SCHEMA", "profile binding required")
+        for field in ("requested_model", "reported_model"):
+            value = getattr(self, field)
+            if value is not None:
+                _text(value, "/" + field)
         if self.authentication_status not in {"NOT_INSPECTED", "READY", "MISSING", "BLOCKED"}:
             raise CapabilityError("E_PREFLIGHT_SCHEMA", "unsupported authentication status")
         if self.version_supported is not None and type(self.version_supported) is not bool:
@@ -172,6 +176,8 @@ def bind_profile(capability: AdapterCapability, *, role: str, platform: str,
         raise CapabilityError("E_PROFILE_SCHEMA", "unsupported role/platform")
     if environment_kind not in ENVIRONMENT_KINDS:
         raise CapabilityError("E_PROFILE_SCHEMA", "unsupported environment kind")
+    if model_id is not None:
+        _text(model_id, "/model_id")
     required = set(_unique(tuple(required_capabilities), CAPABILITY_NAMES, "/required_capabilities"))
     reasons: list[str] = []
     if role not in capability.roles:

@@ -77,6 +77,18 @@ class SecondCliProtocolTests(unittest.TestCase):
         self.assertFalse(blocked.settled)
         self.assertIn("PROTOCOL_INCOMPLETE", blocked.reasons)
 
+    def test_cli_and_provider_models_remain_separate_evidence(self):
+        records = [
+            b'{"type":"system","model":"cli-model","provider_model":"provider-model","subtype":"init"}\n',
+            b'{"type":"result","subtype":"success","is_error":false,"model":"cli-model","provider_model":"provider-model","result":{"ok":true},"usage":{"output_tokens":1}}\n',
+        ]
+        events = self.adapter.normalize_events(records, request_id="req", run_id="run", role="planner")
+        result = self.adapter.collect_result(events, invocation_sha256="a" * 64, exit_code=0,
+                                              expected_model="cli-model")
+        self.assertTrue(result.settled)
+        self.assertEqual(result.actual_model, "cli-model")
+        self.assertEqual(result.provider_model, "provider-model")
+
     def test_nonzero_exit_and_model_mismatch_cannot_settle(self):
         records = [b'{"type":"result","subtype":"success","is_error":false,"model":"other","result":{"ok":true},"usage":{"output_tokens":1}}\n']
         events = self.adapter.normalize_events(records, request_id="req", run_id="run", role="executor")
