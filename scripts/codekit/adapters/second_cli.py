@@ -408,6 +408,8 @@ class ClaudeCodeAdapter:
                          cwd: str, environment: Mapping[str, str], prompt: bytes | str,
                          resource_allowlist: Sequence[Mapping[str, str]] = ()) -> SecondCliInvocation:
         _text(request_id, "request_id"); _text(run_id, "run_id"); _text(cwd, "cwd")
+        if not profile.capability_digest:
+            raise SecondCliError("E_CLI_PROFILE", "invocation requires a bound capability digest")
         prompt_bytes = _raw(prompt)
         command = (profile.executable, "--print", "--output-format", "stream-json", "--verbose",
                    "--no-session-persistence", "--model", profile.model_id)

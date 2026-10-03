@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from scripts.codekit.adapters.capability import AdapterCapability, CapabilityEvidence
-from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
+from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError, SecondCliProfile
 
 
 def synthetic_capability():
@@ -43,6 +43,11 @@ class SecondCliProtocolTests(unittest.TestCase):
         with self.assertRaises(SecondCliError):
             self.adapter.validate_profile(synthetic_capability(), role="planner", platform="linux",
                                           model_id="EXACT_MODEL", profile_id="bad")
+        unbound = SecondCliProfile("claude-code", "claude", "planner", "linux", "native",
+                                   "claude-test-model", "unbound")
+        with self.assertRaisesRegex(SecondCliError, "E_CLI_PROFILE"):
+            self.adapter.build_invocation(unbound, request_id="req-11", run_id="run-11", cwd=".",
+                                          environment={}, prompt="plan")
 
     def test_normalization_retains_raw_ref_and_model_identity(self):
         raw = b'{"type":"system","model":"claude-test-model","subtype":"init"}\n'

@@ -3,11 +3,12 @@
   "$id": "urn:codekit:second-cli-release-gate:1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["record_type", "schema_version", "allowed", "reasons"],
+  "required": ["record_type", "schema_version", "allowed", "reasons", "evidence_refs"],
   "properties": {
     "record_type": {"const": "second-cli-release-gate"},
     "schema_version": {"const": 1},
     "allowed": {"type": "boolean"},
-    "reasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+    "reasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "evidence_refs": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
   }
 }

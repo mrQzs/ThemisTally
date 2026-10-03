@@ -72,6 +72,11 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("PREFLIGHT_NOT_READY", gate.reasons)
         self.assertIn("REAL_MODEL_CHAIN_MISSING", gate.reasons)
         self.assertEqual(gate.to_mapping()["record_type"], "second-cli-release-gate")
+        missing_evidence = evaluate_independent_release_gate(preflights=(), real_model_chain=True,
+                                                             real_platform_lifecycle=True,
+                                                             independent_review=True, external_connectors=True)
+        self.assertFalse(missing_evidence.allowed)
+        self.assertIn("EVIDENCE_REF_MISSING:real_model_chain", missing_evidence.reasons)
 
     def test_invocation_digest_binds_stdin_and_resource_allowlist(self):
         adapter = ClaudeCodeAdapter()

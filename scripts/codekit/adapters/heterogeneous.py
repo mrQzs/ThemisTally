@@ -303,30 +303,45 @@ class RoleGate:
 class IndependentReleaseGate:
     allowed: bool
     reasons: tuple[str, ...]
+    evidence_refs: Mapping[str, Mapping[str, str]]
 
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "second-cli-release-gate", "schema_version": 1,
-                "allowed": self.allowed, "reasons": list(self.reasons)}
+                "allowed": self.allowed, "reasons": list(self.reasons),
+                "evidence_refs": {key: dict(value) for key, value in self.evidence_refs.items()}}
 
 
 def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
                                      real_model_chain: bool, real_platform_lifecycle: bool,
-                                     independent_review: bool, external_connectors: bool) -> IndependentReleaseGate:
+                                     independent_review: bool, external_connectors: bool,
+                                     evidence_refs: Mapping[str, Mapping[str, str]] | None = None) -> IndependentReleaseGate:
     """Machine-checkable final gate; offline fixtures cannot satisfy it."""
     reasons: list[str] = []
     if not isinstance(preflights, (tuple, list)) or not preflights:
         reasons.append("PREFLIGHTS_MISSING")
     elif any(type(item) is not PreflightResult or item.status != "READY" for item in preflights):
         reasons.append("PREFLIGHT_NOT_READY")
-    for value, reason in ((real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
-                          (real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
-                          (independent_review, "INDEPENDENT_REVIEW_MISSING"),
-                          (external_connectors, "EXTERNAL_CONNECTORS_MISSING")):
+    refs: dict[str, Mapping[str, str]] = {}
+    if evidence_refs is not None:
+        if not isinstance(evidence_refs, Mapping):
+            reasons.append("EVIDENCE_REFS_INVALID")
+        else:
+            for key, value in evidence_refs.items():
+                try:
+                    refs[key] = _ref(dict(value), "/evidence_refs/" + str(key))
+                except (TypeError, AdapterFacadeError):
+                    reasons.append("EVIDENCE_REF_INVALID:" + str(key))
+    for key, value, reason in (("real_model_chain", real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
+                               ("real_platform_lifecycle", real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
+                               ("independent_review", independent_review, "INDEPENDENT_REVIEW_MISSING"),
+                               ("external_connectors", external_connectors, "EXTERNAL_CONNECTORS_MISSING")):
         if type(value) is not bool:
             reasons.append(reason + "_UNKNOWN")
         elif not value:
             reasons.append(reason)
-    return IndependentReleaseGate(not reasons, tuple(dict.fromkeys(reasons)))
+        elif key not in refs:
+            reasons.append("EVIDENCE_REF_MISSING:" + key)
+    return IndependentReleaseGate(not reasons, tuple(dict.fromkeys(reasons)), refs)
 
 
 def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
