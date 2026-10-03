@@ -135,7 +135,11 @@ class OutboxProjection:
         self.indexed_cursor = 0
         self.applied_cursor = 0
         self.source_vector: dict[str, int] = {}
-        self._events: dict[str, str] = {}
+        # Keep the original sequence together with the payload digest.  An
+        # event id is content based, so accepting the same id at a different
+        # outbox sequence would silently turn a replay into a fabricated
+        # delivery and could hide a cursor gap.
+        self._events: dict[str, tuple[int, str]] = {}
         self.projection: dict[str, Any] = {"events": {}}
 
     def consume_batch(self, events: Sequence[ProjectionEvent], *, generation: int) -> str:
@@ -163,16 +167,19 @@ class OutboxProjection:
             event_id = event.event_id or calculated
             if event_id != calculated:
                 raise ProjectionError("E_EVENT_ID", "event id mismatch")
-            previous_hash = trial_events.get(event_id)
-            if previous_hash is not None:
-                if previous_hash != payload_hash:
+            previous = trial_events.get(event_id)
+            if previous is not None:
+                previous_seq, previous_hash = previous
+                if previous_hash != payload_hash or previous_seq != event.seq:
                     raise ProjectionError("E_EVENT_CONFLICT", "event id payload conflict")
-                if event.seq > self.indexed_cursor:
-                    raise ProjectionError("E_EVENT_DUPLICATE", "new sequence reused an event id")
+                # The duplicate may be in this batch (before the cursor has
+                # advanced) or a replay of an already committed event.  In
+                # both cases matching the stored sequence is sufficient to
+                # distinguish idempotent delivery from a fabricated event.
                 continue
             if event.seq != expected:
                 raise ProjectionError("E_EVENT_GAP", "outbox sequence must be contiguous")
-            trial_events[event_id] = payload_hash
+            trial_events[event_id] = (event.seq, payload_hash)
             trial_projection["events"][event_id] = {"type": event.event_type, "payload": deepcopy(dict(event.payload))}
             trial_source[event.source_key] = event.seq
             expected += 1
@@ -227,6 +234,8 @@ def project_state(*, indexed_cursor: int, applied_cursor: int, source_vector: Ma
         try:
             _text(key, "source_vector key", code="E_SOURCE_VECTOR")
             _safe_int(value, "source vector cursor", code="E_SOURCE_VECTOR")
+            if value > indexed_cursor:
+                raise ProjectionError("E_SOURCE_VECTOR", "source vector cursor exceeds indexed cursor")
         except ProjectionError as exc:
             if exc.code == "E_SOURCE_VECTOR":
                 raise

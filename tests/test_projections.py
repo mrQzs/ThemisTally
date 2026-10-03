@@ -48,6 +48,22 @@ class ProjectionTests(unittest.TestCase):
             event_identity("ledger", "usage", [])
         self.assertEqual(caught.exception.code, "E_EVENT_PAYLOAD")
 
+    def test_duplicate_event_id_is_idempotent_within_batch_but_cannot_change_sequence(self):
+        first = ProjectionEvent(1, "ledger", "usage", {"units": 2})
+        event_id, _ = event_identity(first.source_key, first.event_type, first.payload)
+        consumer = OutboxProjection()
+        # A retried delivery can duplicate a row in the same fetch batch; it
+        # must not advance the cursor twice or be treated as a new event.
+        self.assertEqual(consumer.consume_batch([
+            first, ProjectionEvent(1, "ledger", "usage", {"units": 2}, event_id)
+        ], generation=1), "APPLIED")
+        self.assertEqual(consumer.indexed_cursor, 1)
+        with self.assertRaises(ProjectionError) as caught:
+            consumer.consume_batch([
+                ProjectionEvent(2, "ledger", "usage", {"units": 2}, event_id)
+            ], generation=1)
+        self.assertEqual(caught.exception.code, "E_EVENT_CONFLICT")
+
     def test_consumer_requires_contiguous_sequences_and_generation(self):
         consumer = OutboxProjection(generation=2)
         with self.assertRaises(ProjectionError) as caught:
@@ -134,6 +150,14 @@ class ProjectionTests(unittest.TestCase):
             with self.assertRaises(ProjectionError) as caught:
                 render_brief({"health": "degraded", "issues": [bad]})
             self.assertEqual(caught.exception.code, "E_ISSUES")
+
+    def test_state_source_vector_cannot_run_ahead_of_indexed_cursor(self):
+        common = dict(indexed_cursor=1, applied_cursor=1, verification_ref="v1",
+                      as_of="2026-10-02T00:00:00Z", source_coverage="complete",
+                      issues=[], budget_coverage="complete")
+        with self.assertRaises(ProjectionError) as caught:
+            project_state(**{**common, "source_vector": {"ledger": 2}})
+        self.assertEqual(caught.exception.code, "E_SOURCE_VECTOR")
 
     def test_rebuild_rejects_coercive_rows(self):
         consumer = OutboxProjection()
