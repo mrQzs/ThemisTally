@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/publication-receipt-v1.schema.json",
+  "title": "Code-Kit 09 PublicationReceipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "publication_id", "candidate_id", "task_id", "plan_version", "members", "review_ref", "idempotency_key", "generation", "state", "outbox_seq"],
+  "properties": {
+    "record_type": {"const": "publication-receipt"}, "schema_version": {"const": 1},
+    "publication_id": {"type": "string", "minLength": 1}, "candidate_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "plan_version": {"type": "integer", "minimum": 1},
+    "members": {"type": "object", "additionalProperties": false, "required": ["markdown_sha256", "json_sha256"],
+      "properties": {"markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "json_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "review_ref": {"type": "object", "required": ["decision"], "properties": {"decision": {"const": "APPROVED"}}, "additionalProperties": true},
+    "idempotency_key": {"type": "string", "minLength": 1}, "generation": {"type": "integer", "minimum": 1},
+    "state": {"const": "PUBLISHED"}, "outbox_seq": {"type": "integer", "minimum": 1}
+  }
+}

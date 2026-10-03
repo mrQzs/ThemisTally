@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/contract-candidate-v1.schema.json",
+  "title": "Code-Kit 09 ContractCandidate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "candidate_id", "draft_id", "draft_revision", "task_id", "plan_version", "source_ref", "target_ref", "members", "input_refs", "summary", "state"],
+  "properties": {
+    "record_type": {"const": "contract-candidate"}, "schema_version": {"const": 1},
+    "candidate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "draft_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "draft_revision": {"type": "integer", "minimum": 1},
+    "task_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "plan_version": {"type": "integer", "minimum": 1},
+    "source_ref": {"$ref": "#/$defs/ref"}, "target_ref": {"$ref": "#/$defs/ref"},
+    "members": {"type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/member"}, {"properties": {"representation": {"const": "markdown"}}}]},
+        {"allOf": [{"$ref": "#/$defs/member"}, {"properties": {"representation": {"const": "json"}}}]}
+      ],
+      "items": false},
+    "input_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}, "maxItems": 1024},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "state": {"enum": ["CANDIDATE", "WITHDRAWN", "PUBLISHED"]}
+  },
+  "$defs": {
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"],
+      "properties": {"kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1, "maxLength": 4096}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "member": {"type": "object", "additionalProperties": false, "required": ["representation", "ref", "sha256"],
+      "properties": {"representation": {"enum": ["markdown", "json"]}, "ref": {"$ref": "#/$defs/ref"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+  }
+}
