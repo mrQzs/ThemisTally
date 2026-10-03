@@ -1780,6 +1780,14 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
         return ["planner-v2 发布回执解析失败：%s" % exc]
     if not isinstance(receipt, dict):
         return ["planner-v2 发布回执必须是对象"]
+    try:
+        try:
+            from scripts.codekit.planner import validate_publication_receipt
+        except ModuleNotFoundError:
+            from codekit.planner import validate_publication_receipt
+        validate_publication_receipt(receipt)
+    except Exception as exc:
+        return ["planner-v2 发布回执严格校验失败：%s" % exc]
     required_receipt = {"record_type", "schema_version", "publication_id", "candidate_id",
                         "task_id", "plan_version", "members", "review_ref",
                         "idempotency_key", "generation", "state", "outbox_seq"}
@@ -1791,6 +1799,9 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
         return ["planner-v2 发布回执不是当前登记状态：%r" % receipt.get("state")]
     if receipt.get("task_id") != task_id or receipt.get("plan_version") != int(version):
         return ["planner-v2 发布回执的任务或版本不匹配"]
+    for field in ("publication_id", "candidate_id", "idempotency_key"):
+        if not isinstance(receipt.get(field), str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", receipt[field]) is None:
+            return ["planner-v2 发布回执 %s 标识无效" % field]
     if type(receipt.get("generation")) is not int or receipt["generation"] < 1 \
             or type(receipt.get("outbox_seq")) is not int or receipt["outbox_seq"] < 1:
         return ["planner-v2 发布回执缺少登记 generation/outbox 序号"]
