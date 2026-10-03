@@ -10,7 +10,7 @@ from scripts.codekit.adapters.heterogeneous import (
     check_role_gate,
     validate_handoff,
 )
-from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter
+from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
 from scripts.codekit.planner_runtime import PlanningBudgetLedger
 
 
@@ -43,6 +43,14 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertEqual(invocation.adapter.adapter_id, "claude-code")
         with self.assertRaisesRegex(AdapterFacadeError, "E_PROFILE_UNKNOWN"):
             router.resolve("missing")
+
+    def test_local_probe_does_not_unlock_production_profile(self):
+        adapter = ClaudeCodeAdapter()
+        capability = adapter.probe(timeout=1).capability
+        with self.assertRaisesRegex(SecondCliError, "E_CLI_PROFILE"):
+            adapter.validate_profile(capability, role="planner", platform=capability.platforms[0],
+                                     model_id="offline-test-model", profile_id="requires-real-evidence",
+                                     required_capabilities=("terminal_event",), require_observed=True)
 
     def test_invocation_digest_binds_stdin_and_resource_allowlist(self):
         adapter = ClaudeCodeAdapter()
