@@ -122,3 +122,5 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 ## 2026-10-03 当前修复候选（S4 输入边界）
 
 代码候选已推进到 `f38df44` 并推送。offline runner 现在将非法工作目录、目标路径、环境控制字符/代理字符和目标 surrogate 统一归类为稳定的 `ArtifactError`，避免在 digest 或 subprocess 边界泄漏原生异常。该修复属于离线故障分类，不能替代真实 dispatcher 或平台运行证据。
+
+随后候选推进到 `ea25ed2`：09/10 离线投影的 `healthy` brief 现在必须同时绑定完整 source/budget coverage 且无 issues；S6 定向投影回归 28 项通过。

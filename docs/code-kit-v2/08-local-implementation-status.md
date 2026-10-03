@@ -114,3 +114,5 @@ S4/S5 的真实 mutation dispatcher、provider/OS receipt 仍未接入，S6 的 
 ## 2026-10-03 当前修复候选（S4 runner 边界）
 
 代码候选已推进到 `f38df44` 并推送。offline runner 对 cwd/path/environment/target 的非法类型、控制字符和 surrogate 输入统一拒绝；S4 定向回归已覆盖这些失败分类。真实 mutation dispatcher、provider/OS receipt 和 09/10 consumer 仍为 `NOT_RUN/BLOCKED`。
+
+随后候选推进到 `ea25ed2`：S6 brief 禁止在 source 或 budget coverage 不完整、或存在 issues 时宣称 `healthy`；投影/集成定向回归 28 项通过。该修复仍是离线边界，不改变 09/10 连接器的 `NOT_RUN/BLOCKED` 状态。
