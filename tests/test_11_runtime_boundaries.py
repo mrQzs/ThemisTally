@@ -332,6 +332,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                              approval_binding=approval_binding, preflight=preflight)
         self.assertFalse(session_block.allowed)
         self.assertIn("INVOCATION_SESSION_MISMATCH", session_block.reasons)
+        drifted_invocation = replace(invocation, capability_digest="0" * 64)
+        drift_block = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                          ledger=ledger, invocation=drifted_invocation,
+                                          approval_binding=approval_binding, preflight=preflight)
+        self.assertFalse(drift_block.allowed)
+        self.assertIn("INVOCATION_CAPABILITY_DRIFT", drift_block.reasons)
 
         unbound = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
                                       ledger=ledger, invocation=invocation, preflight=preflight)
