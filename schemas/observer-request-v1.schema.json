@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:observer-request:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "request_id", "source_cursor", "brief_ref", "source_refs", "output_limits", "profile_ref", "environment_ref", "timeout_seconds", "max_retries", "budget_reservation_ref"],
+  "properties": {
+    "record_type": {"const": "observer-request"}, "schema_version": {"const": 1},
+    "request_id": {"$ref": "#/$defs/id"}, "project_id": {"$ref": "#/$defs/id"}, "observer_ref": {"$ref": "#/$defs/id"},
+    "trigger": {"enum": ["threshold", "stage_boundary", "explicit_request", "recovery"]},
+    "source_cursor": {"$ref": "#/$defs/cursor"}, "brief_ref": {"$ref": "#/$defs/ref"},
+    "source_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}, "maxItems": 512, "uniqueItems": true},
+    "output_limits": {"type": "object", "additionalProperties": false, "required": ["max_bytes", "max_items"], "properties": {"max_bytes": {"type": "integer", "minimum": 1}, "max_items": {"type": "integer", "minimum": 1}, "max_text": {"type": "integer", "minimum": 1}}},
+    "profile_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "environment_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "budget_reservation_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "timeout_seconds": {"type": "integer", "minimum": 1}, "max_retries": {"type": "integer", "minimum": 0}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "sha256", "path"], "properties": {"kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"}, "sha256": {"$ref": "#/$defs/sha"}, "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)[.][.](?:/|$))(?!.*//)[^\\\n]+$"}}},
+    "cursor": {"type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": {"start": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 0}, "stream": {"type": "string", "minLength": 1, "maxLength": 128}, "generation": {"type": "integer", "minimum": 0}}}
+  }
+}
