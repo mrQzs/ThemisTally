@@ -32,6 +32,27 @@ class ProjectStateTests(unittest.TestCase):
         self.assertEqual(state.budgets["ledger"]["snapshot"]["known_amount"], "2.00")
         self.assertEqual(state.budget_coverage, "complete")
 
+    def test_acceptance_and_integration_are_separate_dimensions(self):
+        accepted = event(event_type="task.accepted", source_record_id="accept", immutable_facet_id="accepted",
+                         payload={"task_id": "task-1", "revision": 1}).assigned(1, 1)
+        integrated = event(event_type="task.integrated", source_record_id="integrate", immutable_facet_id="integrated",
+                           payload={"task_id": "task-1", "revision": 2}).assigned(1, 2)
+        state = reduce_project_events([accepted, integrated], verification_ref="v", as_of="now",
+                                      verification={accepted.source_key.digest: "verified", integrated.source_key.digest: "verified"})
+        task = state.tasks["task-1"]
+        self.assertEqual(task["acceptance_status"], "ACCEPTED")
+        self.assertEqual(task["integration_status"], "INTEGRATED")
+
+    def test_latest_unverified_budget_does_not_fallback_to_old_snapshot(self):
+        first = event(event_type="budget.snapshot.observed", source_record_id="budget-old", immutable_facet_id="snapshot-old",
+                      payload={"ledger_id": "ledger", "ledger_revision": 1, "known_amount": "1.00"}).assigned(1, 1)
+        latest = event(event_type="budget.snapshot.observed", source_record_id="budget-new", immutable_facet_id="snapshot-new",
+                       payload={"ledger_id": "ledger", "ledger_revision": 2, "known_amount": "2.00"}).assigned(1, 2)
+        state = reduce_project_events([first, latest], verification_ref="v", as_of="now",
+                                      verification={first.source_key.digest: "verified", latest.source_key.digest: "missing"})
+        self.assertEqual(state.budget_coverage, "unknown")
+        self.assertEqual(state.budgets["ledger"]["currentness"], "unknown")
+
     def test_gap_and_unassigned_event_are_rejected(self):
         assigned = event().assigned(1, 2)
         with self.assertRaisesRegex(ProjectStateError, "contiguous"):

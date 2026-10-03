@@ -21,6 +21,8 @@ class ProjectViewTests(unittest.TestCase):
             self.assertEqual(first, second)
             manifest, state, loaded_brief = store.read_current()
             self.assertEqual(manifest, first); self.assertEqual(state, STATE); self.assertEqual(loaded_brief, brief)
+            self.assertEqual(manifest.brief_byte_length, len(brief.encode("utf-8")))
+            self.assertGreaterEqual(manifest.displayed_item_count, 1)
             receipt = make_read_receipt(manifest, observer_ref="observer-1", read_cursor=2)
             self.assertEqual(receipt, make_read_receipt(manifest, observer_ref="observer-1", read_cursor=2))
 

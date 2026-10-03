@@ -129,13 +129,18 @@ class ProjectJournal:
         self.source_index[key] = event_id
         self.events[event_id] = event
 
-    def append(self, event: ProjectEvent) -> AppendReceipt:
+    def append(self, event: ProjectEvent, *, expected_generation: int | None = None,
+               expected_cursor: int | None = None) -> AppendReceipt:
         if type(event) is not ProjectEvent or event.generation is not None or event.seq is not None:
             raise ProjectJournalError("E_EVENT", "unassigned ProjectEvent required")
         with WriterLock(self.lock_path, timeout=self.lock_timeout):
             self._load()
             if self.recovery != "CLEAN":
                 raise ProjectJournalError("E_RECOVERY", "repair truncated tail before append")
+            if expected_generation is not None and expected_generation != self.generation:
+                raise ProjectJournalError("E_CAS", "journal generation changed")
+            if expected_cursor is not None and expected_cursor != self.cursor:
+                raise ProjectJournalError("E_CAS", "journal cursor changed")
             event_id = event.derived_event_id
             source_key = event.source_key.digest
             existing_id = self.source_index.get(source_key)

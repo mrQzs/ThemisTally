@@ -127,8 +127,19 @@ def reduce_project_events(events: Sequence[ProjectEvent], *, verification_ref: s
             else:
                 current = tasks.get(task_id)
                 if current is None or revision > current["revision"]:
-                    tasks[task_id] = {"status": status, "revision": revision, "event_id": event_id,
-                                      "source_key": source_key}
+                    updated = {} if current is None else copy.deepcopy(current)
+                    updated.update({"status": status, "revision": revision, "event_id": event_id,
+                                    "source_key": source_key})
+                    if status == "ACCEPTED":
+                        updated.update({"acceptance_status": "ACCEPTED", "acceptance_event_id": event_id,
+                                        "acceptance_source_key": source_key})
+                    elif status == "INTEGRATED":
+                        updated.update({"integration_status": "INTEGRATED", "integration_event_id": event_id,
+                                        "integration_source_key": source_key})
+                    elif status == "SUPERSEDED":
+                        updated.update({"integration_status": "SUPERSEDED", "superseded_event_id": event_id,
+                                        "superseded_source_key": source_key})
+                    tasks[task_id] = updated
                 elif revision == current["revision"] and status != current["status"]:
                     issues.append("task-revision-conflict:" + task_id)
             continue
@@ -143,7 +154,8 @@ def reduce_project_events(events: Sequence[ProjectEvent], *, verification_ref: s
             current = decisions.get(decision_id)
             if current is None or revision > current["revision"]:
                 decisions[decision_id] = {"status": status, "revision": revision, "event_id": event_id,
-                                           "source_key": source_key, "payload": copy.deepcopy(payload)}
+                                           "source_key": source_key, "payload": copy.deepcopy(payload),
+                                           "currentness": "observed"}
             elif revision == current["revision"] and canonical_bytes(payload) != canonical_bytes(current.get("payload", {})):
                 issues.append("decision-revision-conflict:" + decision_id)
             continue
@@ -170,7 +182,24 @@ def reduce_project_events(events: Sequence[ProjectEvent], *, verification_ref: s
     else:
         source_coverage = "partial"
         issues.extend("source-" + key + ":" + value for key, value in sorted(verification.items()) if value != "verified")
-    budget_coverage = "complete" if budgets and not any(issue.startswith("budget-") for issue in issues) else ("unknown" if not budgets else "partial")
+    # Never fall back to an older accepted value when the latest authoritative
+    # observation is missing or corrupt.  Keep the historical snapshot for
+    # diagnosis, but expose currentness/coverage as unknown.
+    latest_budget_unverified = False
+    for ledger_id, budget in budgets.items():
+        source_status = verification.get(budget["source_key"], "unknown")
+        if source_status != "verified":
+            budget["currentness"] = "unknown"
+            latest_budget_unverified = True
+            issues.append("budget-source-" + ledger_id + ":" + source_status)
+    for decision_id, decision in decisions.items():
+        source_status = verification.get(decision["source_key"], "unknown")
+        if source_status != "verified":
+            decision["currentness"] = "unknown"
+            issues.append("decision-source-" + decision_id + ":" + source_status)
+    budget_coverage = ("unknown" if latest_budget_unverified else
+                       ("complete" if budgets and not any(issue.startswith("budget-") for issue in issues)
+                        else ("unknown" if not budgets else "partial")))
     return ProjectState(expected - 1, expected - 1, source_vector, source_coverage, budget_coverage,
                         verification_ref, as_of, tasks, decisions, budgets,
                         tuple(dict.fromkeys(issues)))

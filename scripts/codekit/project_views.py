@@ -41,7 +41,7 @@ def render_project_brief(state: Mapping[str, Any], *, max_bytes: int = 64 * 1024
     if type(issues) is not list or any(type(item) is not str or not item for item in issues):
         raise ProjectViewError("E_BRIEF", "issues must be non-empty strings")
     lines.append("issues:")
-    lines.extend("- " + item for item in sorted(issues))
+    lines.extend("- [issue] " + item for item in sorted(issues))
     for section in ("tasks", "decisions", "budgets"):
         values = state.get(section, {})
         if type(values) is not dict:
@@ -64,12 +64,18 @@ class ViewManifest:
     state_sha256: str
     brief_sha256: str
     manifest_sha256: str
+    state_byte_length: int
+    brief_byte_length: int
+    displayed_item_count: int
+    omitted_item_count: int
 
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "project-view-manifest", "schema_version": 1,
                 "view_id": self.view_id, "generation": self.generation, "cursor": self.cursor,
                 "state_sha256": self.state_sha256, "brief_sha256": self.brief_sha256,
-                "manifest_sha256": self.manifest_sha256}
+                "manifest_sha256": self.manifest_sha256, "state_byte_length": self.state_byte_length,
+                "brief_byte_length": self.brief_byte_length, "displayed_item_count": self.displayed_item_count,
+                "omitted_item_count": self.omitted_item_count}
 
 
 @dataclass(frozen=True)
@@ -127,14 +133,19 @@ class ViewPackageStore:
         brief_raw = brief.encode("utf-8")
         if len(brief_raw) > 64 * 1024:
             raise ProjectViewError("E_BRIEF_LIMIT", "brief exceeds byte budget")
+        item_count = sum(len(state.get(section, {})) for section in ("tasks", "decisions", "budgets")) + len(state.get("issues", []))
         view_body = {"generation": generation, "cursor": cursor, "state_sha256": _digest(state_raw),
-                     "brief_sha256": _digest(brief_raw)}
+                     "brief_sha256": _digest(brief_raw), "state_byte_length": len(state_raw),
+                     "brief_byte_length": len(brief_raw), "displayed_item_count": item_count,
+                     "omitted_item_count": 0}
         view_id = _digest(canonical_bytes(view_body))
         manifest_base = {"record_type": "project-view-manifest", "schema_version": 1,
                          "view_id": view_id, **view_body}
         manifest_sha256 = _digest(canonical_bytes(manifest_base))
         manifest = ViewManifest(view_id, generation, cursor, view_body["state_sha256"],
-                                view_body["brief_sha256"], manifest_sha256)
+                                view_body["brief_sha256"], manifest_sha256, view_body["state_byte_length"],
+                                view_body["brief_byte_length"], view_body["displayed_item_count"],
+                                view_body["omitted_item_count"])
         package = self.views / view_id
         with WriterLock(self.lock_path):
             current = self._read_pointer()
@@ -176,12 +187,15 @@ class ViewPackageStore:
             brief_raw = (package / "brief.md").read_bytes()
         except (OSError, protocols.ProtocolError) as exc:
             raise ProjectViewError("E_VIEW_INCOMPLETE", "current package is incomplete") from exc
-        if _digest(state_raw) != manifest.get("state_sha256") or _digest(brief_raw) != manifest.get("brief_sha256"):
+        if (_digest(state_raw) != manifest.get("state_sha256") or _digest(brief_raw) != manifest.get("brief_sha256")
+                or len(state_raw) != manifest.get("state_byte_length") or len(brief_raw) != manifest.get("brief_byte_length")):
             raise ProjectViewError("E_VIEW_DRIFT", "view bytes do not match manifest")
         if pointer["manifest_sha256"] != manifest.get("manifest_sha256"):
             raise ProjectViewError("E_CURRENT", "pointer does not match manifest")
         return (ViewManifest(manifest["view_id"], manifest["generation"], manifest["cursor"],
-                             manifest["state_sha256"], manifest["brief_sha256"], manifest["manifest_sha256"]),
+                             manifest["state_sha256"], manifest["brief_sha256"], manifest["manifest_sha256"],
+                             manifest["state_byte_length"], manifest["brief_byte_length"],
+                             manifest["displayed_item_count"], manifest["omitted_item_count"]),
                 protocols.strict_json_loads(state_raw), brief_raw.decode("utf-8"))
 
 

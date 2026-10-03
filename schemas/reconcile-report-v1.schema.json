@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:reconcile-report:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "generation", "start_cursor", "end_cursor", "appended", "replayed", "pending", "conflicts", "status"],
+  "properties": {"record_type": {"const": "reconcile-report"}, "schema_version": {"const": 1},
+    "generation": {"type": "integer", "minimum": 1}, "start_cursor": {"type": "integer", "minimum": 0}, "end_cursor": {"type": "integer", "minimum": 0},
+    "appended": {"type": "integer", "minimum": 0}, "replayed": {"type": "integer", "minimum": 0}, "pending": {"type": "array", "items": {"type": "string"}}, "conflicts": {"type": "array", "items": {"type": "string"}}, "status": {"enum": ["APPLIED", "PARTIAL", "BLOCKED"]}}
+}

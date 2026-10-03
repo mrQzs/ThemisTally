@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:currentness-observation:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "status", "related_changes", "unrelated_changes"],
+  "properties": {"record_type": {"const": "currentness-observation"}, "schema_version": {"const": 1}, "status": {"enum": ["CURRENT", "STALE"]}, "related_changes": {"type": "array", "items": {"type": "string"}}, "unrelated_changes": {"type": "array", "items": {"type": "string"}}}
+}
