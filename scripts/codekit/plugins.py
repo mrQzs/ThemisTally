@@ -9,6 +9,7 @@ import math
 import posixpath
 import ntpath
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
 
@@ -133,12 +134,40 @@ def resource_ref(value: Any, path: str) -> Dict[str, str]:
                 ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
                 for ch in value[key]):
             _fail("E_PLUGIN_RESOURCE", f"{path}/{key}", "non-empty string required")
-    name = value["path"].replace("\\", "/")
+    # Resource paths are persisted in lock bytes.  Normalize Unicode before
+    # applying traversal checks so canonically equivalent names cannot bypass
+    # the same-path policy on a platform whose filesystem normalizes names.
+    kind = unicodedata.normalize("NFC", value["kind"])
+    resource_id = unicodedata.normalize("NFC", value["id"])
+    name = unicodedata.normalize("NFC", value["path"].replace("\\", "/"))
     if name.startswith("/") or ntpath.splitdrive(name)[0] or name.startswith("./") or any(part in {"", ".", ".."} for part in name.split("/")) or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
         _fail("E_PLUGIN_PATH", f"{path}/path", "absolute and traversal paths are forbidden")
     if not isinstance(value["sha256"], str) or not HEX64.fullmatch(value["sha256"]):
         _fail("E_PLUGIN_RESOURCE", f"{path}/sha256", "lowercase SHA-256 required")
-    return {"kind": value["kind"], "id": value["id"], "path": name, "sha256": value["sha256"]}
+    return {"kind": kind, "id": resource_id, "path": name, "sha256": value["sha256"]}
+
+
+def _resource_path_key(value: Mapping[str, str]) -> str:
+    """Return the conservative cross-platform identity of a resource path.
+
+    Windows and macOS commonly compare paths case-insensitively (and macOS
+    may normalize Unicode).  Treating aliases as distinct resources lets two
+    plugin declarations silently target one file and makes lock consumption
+    depend on traversal order.  The path itself remains case-preserving in
+    the manifest; this key is only used for collision detection.
+    """
+    return unicodedata.normalize("NFC", value["path"]).casefold()
+
+
+def _reject_resource_path_collisions(refs: Sequence[Mapping[str, str]], path: str) -> None:
+    seen: Dict[str, int] = {}
+    for index, ref in enumerate(refs):
+        key = _resource_path_key(ref)
+        previous = seen.get(key)
+        if previous is not None:
+            _fail("E_PLUGIN_RESOURCE", f"{path}/{index}/path",
+                  f"resource path aliases entry {previous}")
+        seen[key] = index
 
 
 def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
@@ -172,6 +201,7 @@ def validate_manifest(manifest: Mapping[str, Any]) -> Dict[str, Any]:
     refs = [resource_ref(value, f"/resources/{i}") for i, value in enumerate(resources)]
     if len({(x["kind"], x["id"]) for x in refs}) != len(refs):
         _fail("E_PLUGIN_RESOURCE", "/resources", "duplicate resource identity")
+    _reject_resource_path_collisions(refs, "/resources")
     entrypoints = manifest.get("entrypoints", [])
     _strings(entrypoints, "/entrypoints")
     checks = manifest.get("checks", [])
@@ -239,6 +269,19 @@ def resolve_plugins(manifests: Mapping[str, Mapping[str, Any]], enabled: Sequenc
         conflict = names.intersection(manifest.get("conflicts", []))
         if conflict:
             _fail("E_PLUGIN_CONFLICT", f"/plugins/{manifest['plugin_id']}/conflicts", f"enabled conflict {sorted(conflict)}")
+    # A resolved set has one namespace.  Even when resource IDs differ, two
+    # case/Unicode-equivalent paths would make consumption order-dependent on
+    # Windows/macOS.  Reject the combination unless a future schema explicitly
+    # introduces a shared-resource namespace.
+    paths: Dict[str, tuple[str, int]] = {}
+    for manifest in result:
+        for index, ref in enumerate(manifest.get("resources", [])):
+            key = _resource_path_key(ref)
+            if key in paths:
+                other_plugin, other_index = paths[key]
+                _fail("E_PLUGIN_RESOURCE", f"/plugins/{manifest['plugin_id']}/resources/{index}/path",
+                      f"resource path collides with {other_plugin}/resources/{other_index}")
+            paths[key] = (manifest["plugin_id"], index)
     return tuple(result)
 
 
@@ -275,6 +318,7 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
     seen = set()
     plugin_order = []
     normalized_rows = []
+    resource_paths: Dict[str, tuple[str, int]] = {}
     for index, row in enumerate(lock["plugins"]):
         path = f"/plugins/{index}"
         if not isinstance(row, dict) or set(row) != {"plugin_id", "version", "manifest_sha256", "resources"}:
@@ -293,6 +337,14 @@ def validate_lock(lock: Mapping[str, Any], manifests: Mapping[str, Mapping[str, 
         refs = [resource_ref(value, f"{path}/resources/{i}") for i, value in enumerate(row["resources"])]
         if len({(ref["kind"], ref["id"]) for ref in refs}) != len(refs):
             _fail("E_PLUGIN_LOCK", f"{path}/resources", "duplicate resource identity")
+        _reject_resource_path_collisions(refs, f"{path}/resources")
+        for resource_index, ref in enumerate(refs):
+            key = _resource_path_key(ref)
+            if key in resource_paths:
+                other_plugin, other_index = resource_paths[key]
+                _fail("E_PLUGIN_RESOURCE", f"{path}/resources/{resource_index}/path",
+                      f"resource path collides with {other_plugin}/resources/{other_index}")
+            resource_paths[key] = (row["plugin_id"], resource_index)
         if [(ref["kind"], ref["id"]) for ref in refs] != sorted((ref["kind"], ref["id"]) for ref in refs):
             _fail("E_PLUGIN_LOCK", f"{path}/resources", "resources must be in canonical order")
         normalized_rows.append({"plugin_id": row["plugin_id"], "version": row["version"],

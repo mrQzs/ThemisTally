@@ -27,6 +27,24 @@ class PluginTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_PATH"):
             validate_manifest(bad)
 
+    def test_manifest_rejects_case_and_unicode_alias_resource_paths(self):
+        value = manifest()
+        value["resources"].append({"kind": "schema", "id": "other", "path": "FIXTURES/demo.json", "sha256": "b" * 64})
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_RESOURCE"):
+            validate_manifest(value)
+        value = manifest()
+        value["resources"].append({"kind": "schema", "id": "other", "path": "fixtures/e\u0301.json", "sha256": "b" * 64})
+        value["resources"][0]["path"] = "fixtures/\u00e9.json"
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_RESOURCE"):
+            validate_manifest(value)
+
+    def test_resolved_plugins_reject_cross_plugin_path_aliases(self):
+        left = manifest("left")
+        right = manifest("right")
+        right["resources"][0]["path"] = "FIXTURES/left.json"
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_RESOURCE"):
+            resolve_plugins({"left": left, "right": right}, ["left", "right"])
+
     def test_dependencies_are_sorted_and_missing_or_cycles_block(self):
         ordered = resolve_plugins({"a": manifest("a", ["b"]), "b": manifest("b")}, ["a"])
         self.assertEqual([x["plugin_id"] for x in ordered], ["b", "a"])
@@ -41,6 +59,13 @@ class PluginTests(unittest.TestCase):
         changed = copy.deepcopy(lock); changed["plugins"][0]["version"] = "1.0.1"
         with self.assertRaisesRegex(PluginError, "E_PLUGIN_LOCK_DRIFT"):
             validate_lock(changed)
+
+    def test_lock_rejects_resource_path_aliases_across_plugins(self):
+        left = manifest("left")
+        right = manifest("right")
+        right["resources"][0]["path"] = "FIXTURES/left.json"
+        with self.assertRaisesRegex(PluginError, "E_PLUGIN_RESOURCE"):
+            build_lock([left, right], compiler_sha256="b" * 64)
 
     def test_conflicting_plugins_are_rejected(self):
         left = manifest("left"); right = manifest("right"); left["conflicts"] = ["right"]
