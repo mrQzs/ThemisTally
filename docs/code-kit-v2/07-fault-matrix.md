@@ -40,3 +40,17 @@
 每行的故障记录字段为：`row_id`（F01–F30）、`contract_ref`、`contract_base_sha=175653e`、`candidate_sha=a2357b0`、`injection_method`（表中可复核入口或 `NONE`）、`expected_state`（相应 F 规则要求）、`actual_evidence`（离线状态与测试入口）、`environment_blocker`（生产状态及缺口）、`raw_evidence`（`.agent/runs/<task>/attempt-*` 路径及 SHA-256）。本轮没有 Pi attempt，所有行的 `raw_evidence` 均为 `NONE/NO_ATTEMPT`；因此离线状态不会被解释成生产通过。
 
 上述 LOCAL_PARTIAL 项不能升级为 PASS：本轮没有 `.agent/runs/<task>/attempt-*` 原始执行证据，也没有独立复审在固定候选上运行 `mutate`。Pi 环境证据见 `.agent/environment.md` 与 `.agent/runs/_env/`；其中执行模型和凭据未就绪，故真实执行器故障矩阵保持阻塞。
+
+## 当前固定候选的新增离线证据
+
+固定候选为 `ffce46b5400d1688ecb25bc754c487db3a1f05dc`。以下条目使用 `.agent/runs/offline-01-06-08-20261003-final-expanded-01/` 和 `.agent/runs/offline-01-06-08-20261003-dispatch-01/` 的原始取证；它们仍是 `LOCAL_REFERENCE`，不会覆盖真实环境状态：
+
+| 故障 | 当前离线结果 | 故障输入/测试入口 | 限制 |
+|---|---|---|---|
+| F06 | LOCAL_REFERENCE | `S4MutationTests.test_mutation_requires_baseline_and_kills_every_mutant` | 没有固定候选真实 dispatcher mutate |
+| F09、F11、F12 | LOCAL_REFERENCE | `S5ExecutionTests.test_platform_failures_reconcile_conservatively`；`test_deterministic_evidence_is_reference_only_without_dispatcher` | 无真实响应丢失、handoff 或 START_UNKNOWN 进程 |
+| F16、F17 | LOCAL_REFERENCE | `tests.test_parallel` 资源冲突、Unicode 路径和容量边界测试 | 无多进程共享锁压力 |
+| F20–F25 | NOT_RUN | `tests.test_provider_economics`、`tests.test_usage_settlement` 仅离线 fixture | 无真实 provider 隐藏调用和账单 |
+| F18、F21、F28–F30 | BLOCKED/NOT_RUN | — | 原生平台、外部 consumer、真实恢复演练不可用 |
+
+三项完整发现失败仍是 `a4fa199` legacy source-lock，不属于上述新增故障路径；详见固定候选复审报告。

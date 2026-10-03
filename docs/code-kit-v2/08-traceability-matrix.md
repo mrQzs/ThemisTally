@@ -82,3 +82,18 @@
 - `LOCAL_REFERENCE`：A02–A04、A10、A12、A18–A21、A23–A25，以及 T02–T04、T06、T08、T11、T13–T15、T17–T24；这些条目有离线纯函数、fixture、显式 argv runner 或持久 journal 证据，但没有核心 dispatcher、真实候选或平台证据。
 - `REVISE/BLOCKED`：A01、A05–A09、A11、A13–A17、A22、A26–A28，以及 T01、T05、T07、T12、T16、T25–T30；核心 dispatcher 绑定的可信候选与环境身份、真实测试/变异执行、生产 outbox/consumer、发布 CAS 和 handoff 响应丢失恢复尚未闭合。
 - 真实 Pi、provider、Windows/macOS 原生进程和 09/10 连接器统一为 `BLOCKED/NOT_RUN`。任何离线 `PASS` 只能作为 `REFERENCE_ONLY`，不能转成生产发布 PASS。
+
+## 2026-10-03 当前离线证据映射
+
+上面的初始表和规划端复核摘要保留历史分母；当前固定代码候选为 `ffce46b5400d1688ecb25bc754c487db3a1f05dc`。最新扩展取证目录为 `.agent/runs/offline-01-06-08-20261003-final-expanded-01/`，实际收集 484 项、476 项通过、8 项环境跳过，且前后输入清单无漂移。以下映射只把有当前测试和原始取证的条目标为 `LOCAL_REFERENCE`，未列出的条目保持 `PLANNED/NOT_RUN/REVISE`，不从缺失证据推导通过：
+
+| 条目 | 当前离线结果 | 精确测试入口 | 证据与限制 |
+|---|---|---|---|
+| A02、A04 | LOCAL_REFERENCE | `S4MutationTests.test_mutation_requires_baseline_and_kills_every_mutant`；`S4MutationTests.test_reduction_does_not_use_best_of` | `tests/test_builtin_s4_s6.py`；无真实变异 dispatcher |
+| A05、A09、A22 | LOCAL_REFERENCE | `S5ExecutionTests.test_deterministic_evidence_is_reference_only_without_dispatcher`；`test_check_artifact_rejects_mismatched_dispatcher_receipt` | 离线 deterministic_check 只产生 `REFERENCE_ONLY` |
+| A08、A26 | LOCAL_REFERENCE | `S5ExecutionTests.test_platform_failures_reconcile_conservatively`；`test_platform_observation_and_failure_inputs_are_closed` | 仅模型化平台故障；原生 OS 仍 BLOCKED |
+| A28 | LOCAL_REFERENCE | `S6ProjectionTests.test_checked_in_seven_plugin_and_three_recipe_fixtures`；WSL `tests.test_builtin_schema_instances` 7/7 | 目录和 Schema 可复核，不能授予批准/运行权限 |
+| T02–T04、T06、T08 | LOCAL_REFERENCE | 同上 S4/S5/S6 测试类及扩展组合命令 | 仍无 Pi attempt 和生产连接器 |
+| T09、T10、T28、T29 | BLOCKED | — | Windows/macOS 原生进程、真实 handoff/响应丢失环境不可用 |
+
+独立复审报告为 `.agent/reviews/offline-acceptance-20261003-final.md`；它是规划端固定候选复核，不是 `review-pi` verdict。真实 Pi、provider、原生平台和 09/10 连接器仍统一为 `BLOCKED/NOT_RUN`。
