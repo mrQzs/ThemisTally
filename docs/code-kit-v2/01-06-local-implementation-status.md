@@ -126,3 +126,5 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 随后候选推进到 `ea25ed2`：09/10 离线投影的 `healthy` brief 现在必须同时绑定完整 source/budget coverage 且无 issues；S6 定向投影回归 28 项通过。
 
 候选随后推进到 `addfab1`：09/10 wiring gate 现在拒绝 state issues/truncated 的伪造类型；相关接线与投影回归 29 项通过。
+
+候选随后推进到 `618c827`，补齐 09/10 wiring identity 对 C1 控制字符的拒绝；相关接线回归 30 项通过。

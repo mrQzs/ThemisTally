@@ -118,3 +118,5 @@ S4/S5 的真实 mutation dispatcher、provider/OS receipt 仍未接入，S6 的 
 随后候选推进到 `ea25ed2`：S6 brief 禁止在 source 或 budget coverage 不完整、或存在 issues 时宣称 `healthy`；投影/集成定向回归 28 项通过。该修复仍是离线边界，不改变 09/10 连接器的 `NOT_RUN/BLOCKED` 状态。
 
 候选随后推进到 `addfab1`：09/10 wiring gate 拒绝 state issues/truncated 的错误类型；定向接线回归 29 项通过。真实 09/10 consumer 仍未连接。
+
+候选随后推进到 `618c827`，wiring identity 进一步拒绝 C1 控制字符；定向接线回归 30 项通过，真实 09/10 consumer 仍未连接。
