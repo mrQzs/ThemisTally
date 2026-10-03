@@ -8,6 +8,7 @@ from codekit.planner_runtime import (  # noqa: E402
     PlannerRuntimeError,
     RepairController,
     RequestBudget,
+    PlanningBudgetLedger,
     extract_unique_result,
     readiness_projection,
 )
@@ -69,6 +70,16 @@ class PlannerRuntimeTests(unittest.TestCase):
         ledger.restart_controller()
         with self.assertRaisesRegex(PlannerRuntimeError, "E_GENERATION"):
             ledger.settle(1, generation=1)
+
+    def test_planning_budget_delegates_to_core_ledger(self):
+        ledger = PlanningBudgetLedger.calls("req-core", "task-core", 3)
+        ledger, status = ledger.reserve("op-core", 2)
+        self.assertEqual(status, "RESERVED")
+        ledger, status = ledger.observe("op-core", 1, observation_id="obs-core")
+        self.assertEqual(status, "APPLIED")
+        ledger, status = ledger.settle("op-core")
+        self.assertEqual(status, "SETTLED")
+        self.assertEqual(ledger.snapshot().dimensions["calls"].known, 1)
 
 
 if __name__ == "__main__":

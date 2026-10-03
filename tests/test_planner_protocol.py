@@ -74,6 +74,16 @@ class PlannerProtocolTests(unittest.TestCase):
     def test_unbound_future_draft_cannot_contain_sha(self):
         bad = bundle(); bad["contract_drafts"][0]["baseline"]["reason"] = "sha " + "a" * 64
         with self.assertRaises(ProtocolError): validate_planning_bundle(bad)
+
+    def test_bundle_requires_nonempty_graph_bound_drafts_and_context_task_ids(self):
+        bad = bundle(); bad["contract_drafts"] = []
+        with self.assertRaises(ProtocolError): validate_planning_bundle(bad)
+        bad = bundle(); bad["questions"] = [{"id": "q1", "text": "open", "task_ids": ["missing-task"],
+                                             "blocks": ["publish"], "state": "open", "decision_ref": None}]
+        with self.assertRaises(ProtocolError): validate_planning_bundle(bad)
+        bad = bundle(); bad["assumptions"] = [{"id": "fact1", "text": "duplicate", "task_ids": [],
+                                                "state": "unconfirmed", "decision_ref": None}]
+        with self.assertRaises(ProtocolError): validate_planning_bundle(bad)
         bad = bundle(); bad["contract_drafts"][0]["completeness"] = "complete"
         with self.assertRaises(ProtocolError): validate_planning_bundle(bad)
 

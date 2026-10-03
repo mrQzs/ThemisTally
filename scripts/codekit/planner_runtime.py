@@ -7,12 +7,13 @@ handed from 04/05 into the 09 draft and publication flow.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from typing import Any, Iterable, Mapping, Sequence
 
 from . import protocols
+from .budget import BudgetPolicy, BudgetState, UsageObservation
 
 
 class PlannerRuntimeError(ValueError):
@@ -226,5 +227,73 @@ class RequestBudget:
         return self.generation
 
 
+@dataclass(frozen=True)
+class PlanningBudgetLedger:
+    """09 adapter over the core 07 ``BudgetState`` request ledger.
+
+    Planner repair, refinement and execution handoff must reserve against one
+    request root.  This adapter deliberately exposes no independent counters;
+    every reservation and observation is delegated to ``BudgetState`` so
+    unknown usage, late observations, cancellation conflicts and stop epochs
+    remain visible to the same core ledger.
+    """
+
+    state: BudgetState
+    request_id: str
+    task_id: str
+    generation: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.state) is not BudgetState or type(self.request_id) is not str or not self.request_id:
+            raise PlannerRuntimeError("E_BUDGET_BINDING", "PlanningBudgetLedger requires a core BudgetState and request id")
+        if type(self.task_id) is not str or not self.task_id or type(self.generation) is not int or self.generation < 1:
+            raise PlannerRuntimeError("E_BUDGET_BINDING", "task and generation are required")
+
+    @classmethod
+    def calls(cls, request_id: str, task_id: str, limit: int) -> "PlanningBudgetLedger":
+        if type(limit) is not int or limit < 1:
+            raise PlannerRuntimeError("E_BUDGET_AMOUNT", "positive calls limit required")
+        return cls(BudgetState(BudgetPolicy({"calls": limit})), request_id, task_id)
+
+    def reserve(self, operation_id: str, amount: int) -> tuple["PlanningBudgetLedger", str]:
+        try:
+            state, decision = self.state.reserve_for_operation(operation_id, self.request_id, self.task_id,
+                                                               {"calls": amount}, generation=self.generation)
+        except Exception as exc:
+            raise PlannerRuntimeError(getattr(exc, "code", "E_BUDGET"), str(exc)) from exc
+        return replace(self, state=state), decision.status
+
+    def observe(self, operation_id: str, amount: int | None, *, observation_id: str,
+                unknown_reason: str | None = None, final: bool = True) -> tuple["PlanningBudgetLedger", str]:
+        kind = "unknown" if amount is None else ("final" if final else "cumulative")
+        observation = UsageObservation(observation_id=observation_id, operation_id=operation_id,
+                                       dimension="calls", kind=kind, amount=amount,
+                                       economic_call_key=operation_id, final=(kind == "final"),
+                                       unknown_reason=unknown_reason, evidence_ref=observation_id,
+                                       request_id=self.request_id,
+                                       task_id=self.task_id)
+        try:
+            state, decision = self.state.record_usage_observation(observation)
+        except Exception as exc:
+            raise PlannerRuntimeError(getattr(exc, "code", "E_BUDGET"), str(exc)) from exc
+        return replace(self, state=state), decision.status
+
+    def settle(self, operation_id: str) -> tuple["PlanningBudgetLedger", str]:
+        try:
+            state, decision = self.state.settle_operation(operation_id)
+        except Exception as exc:
+            raise PlannerRuntimeError(getattr(exc, "code", "E_BUDGET"), str(exc)) from exc
+        return replace(self, state=state), decision.status
+
+    def stop(self, reason: str) -> "PlanningBudgetLedger":
+        try:
+            return replace(self, state=self.state.request_stop(reason))
+        except Exception as exc:
+            raise PlannerRuntimeError(getattr(exc, "code", "E_BUDGET"), str(exc)) from exc
+
+    def snapshot(self) -> Any:
+        return self.state.snapshot()
+
+
 __all__ = ["PlannerRuntimeError", "readiness_projection", "extract_unique_result",
-           "RepairPolicy", "RepairController", "RequestBudget"]
+           "RepairPolicy", "RepairController", "RequestBudget", "PlanningBudgetLedger"]

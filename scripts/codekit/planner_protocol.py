@@ -392,7 +392,28 @@ def validate_planning_bundle(value: Any) -> dict[str, Any]:
             for j, tid in enumerate(tids): _id(tid, f + "/task_ids/{j}")
             if item["decision_ref"] is not None: validate_resource_ref(item["decision_ref"], field=f + "/decision_ref")
     req_ids = {r["id"] for r in refs}; graph = _validate_task_graph(value["task_graph"], req_ids)
-    drafts = _array(value["contract_drafts"], "/contract_drafts", MAX_TASKS); drafts_out = [_validate_draft(d, f"/contract_drafts/{i}") for i, d in enumerate(drafts)]
+    graph_task_ids = {task["id"] for task in graph["tasks"]}
+    if len({fact["id"] for fact in facts_out}) != len(facts_out):
+        _fail("/facts", "duplicate_context_entry_id")
+    all_context_ids: set[str] = {fact["id"] for fact in facts_out}
+    for name in ("assumptions", "questions", "risks"):
+        for i, item in enumerate(value[name]):
+            item_id = item["id"]
+            if item_id in all_context_ids:
+                _fail(f"/{name}/{i}/id", "duplicate_context_entry_id")
+            all_context_ids.add(item_id)
+            for j, task_id in enumerate(item["task_ids"]):
+                if task_id not in graph_task_ids:
+                    _fail(f"/{name}/{i}/task_ids/{j}", "unknown_task_id", "E_CONTEXT_BINDING")
+    drafts = _array(value["contract_drafts"], "/contract_drafts", MAX_TASKS)
+    if not drafts:
+        _fail("/contract_drafts", "contract_draft_required")
+    drafts_out = [_validate_draft(d, f"/contract_drafts/{i}") for i, d in enumerate(drafts)]
+    draft_task_ids = [draft["task_id"] for draft in drafts_out]
+    if len(draft_task_ids) != len(set(draft_task_ids)):
+        _fail("/contract_drafts", "duplicate_draft_task_id")
+    if any(task_id not in graph_task_ids for task_id in draft_task_ids):
+        _fail("/contract_drafts", "draft_task_not_in_graph", "E_CONTEXT_BINDING")
     if mode == "graph" and any(d["completeness"] != "template" for d in drafts_out): _fail("/contract_drafts", "graph_mode_only_allows_templates")
     if mode == "refine":
         matches = [d for d in drafts_out if d["task_id"] == value["target_task_id"]]

@@ -20,7 +20,7 @@
     "questions": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/Question"}},
     "risks": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/Risk"}},
     "task_graph": {"$ref": "#/$defs/TaskGraph"},
-    "contract_drafts": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/ContractDraft"}},
+    "contract_drafts": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/ContractDraft"}},
     "budget_proposal": {"$ref": "#/$defs/BudgetProposal"},
     "stop_conditions": {"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": {"enum": ["budget_exhausted", "repair_limit", "no_baseline", "decision_required", "authorization_missing", "protocol_incomplete"]}}
   },
