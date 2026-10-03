@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codekit/backup-snapshot-v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "backup_id", "entries", "source_generation", "verified"],
+  "properties": {
+    "record_type": {"const": "backup-snapshot"}, "schema_version": {"const": 1}, "backup_id": {"type": "string", "pattern": "^[a-z][a-z0-9._:-]{0,127}$"},
+    "entries": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "source_generation": {"type": "integer", "minimum": 1}, "verified": {"const": true}
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:integration-records:1",
+  "title": "Code-Kit module 12 offline integration records",
+  "oneOf": [
+    {"$ref": "#/$defs/IntegrationTarget"},
+    {"$ref": "#/$defs/CheckCatalog"},
+    {"$ref": "#/$defs/CheckObservation"},
+    {"$ref": "#/$defs/EvidenceManifest"},
+    {"$ref": "#/$defs/CoverageReport"},
+    {"$ref": "#/$defs/DeliveryDecision"}
+  ],
+  "$defs": {
+    "Id": {"type": "string", "pattern": "^(?!(?:latest|head|current|tip|default|stable)$)[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "Hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "Kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "Path": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "Ref": {"type": "object", "additionalProperties": false, "properties": {"kind": {"$ref": "#/$defs/Kind"}, "id": {"$ref": "#/$defs/Id"}, "path": {"$ref": "#/$defs/Path"}, "sha256": {"$ref": "#/$defs/Hash"}}, "required": ["kind", "id", "path", "sha256"]},
+    "Refs": {"type": "array", "items": {"$ref": "#/$defs/Ref"}, "maxItems": 10000, "uniqueItems": true},
+    "NullableRef": {"anyOf": [{"$ref": "#/$defs/Ref"}, {"type": "null"}]},
+    "IntegrationTarget": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "record_type": {"const": "integration-target"}, "schema_version": {"const": 1},
+        "integration_id": {"$ref": "#/$defs/Id"}, "repository_id": {"$ref": "#/$defs/Id"}, "request_id": {"$ref": "#/$defs/Id"},
+        "base_ref": {"$ref": "#/$defs/Ref"}, "candidate_ref": {"$ref": "#/$defs/Ref"}, "contract_refs": {"$ref": "#/$defs/Refs"},
+        "config_ref": {"$ref": "#/$defs/NullableRef"}, "plugin_lock_ref": {"$ref": "#/$defs/NullableRef"},
+        "rule_refs": {"$ref": "#/$defs/Refs"}, "check_catalog_ref": {"$ref": "#/$defs/Ref"}, "checker_refs": {"$ref": "#/$defs/Refs"},
+        "environment_refs": {"$ref": "#/$defs/Refs"}, "adapter_refs": {"$ref": "#/$defs/Refs"}, "dependency_refs": {"$ref": "#/$defs/Refs"},
+        "source_binding_versions": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "scope_ref": {"$ref": "#/$defs/Ref"}
+      },
+      "required": ["record_type", "schema_version", "integration_id", "repository_id", "request_id", "base_ref", "candidate_ref", "contract_refs", "config_ref", "plugin_lock_ref", "rule_refs", "check_catalog_ref", "checker_refs", "environment_refs", "adapter_refs", "dependency_refs", "source_binding_versions", "scope_ref"]
+    },
+    "Case": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "case_id": {"$ref": "#/$defs/Id"}, "requirement_id": {"type": "string", "minLength": 1, "maxLength": 64}, "description": {"type": "string", "minLength": 1},
+        "target_ref": {"$ref": "#/$defs/Ref"}, "environment_refs": {"$ref": "#/$defs/Refs"}, "command_ref": {"$ref": "#/$defs/Ref"},
+        "expected": {}, "evidence_kinds": {"type": "array", "items": {"enum": ["synthetic", "processed", "captured", "local", "document"]}, "minItems": 1, "uniqueItems": true},
+        "required": {"type": "boolean"}, "reviewers": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+      },
+      "required": ["case_id", "requirement_id", "description", "target_ref", "environment_refs", "command_ref", "expected", "evidence_kinds", "required", "reviewers", "timeout_seconds"]
+    },
+    "CheckCatalog": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"record_type": {"const": "check-catalog"}, "schema_version": {"const": 1}, "catalog_id": {"$ref": "#/$defs/Id"}, "target_ref": {"$ref": "#/$defs/Ref"}, "cases": {"type": "array", "items": {"$ref": "#/$defs/Case"}, "minItems": 1, "maxItems": 10000}},
+      "required": ["record_type", "schema_version", "catalog_id", "target_ref", "cases"]
+    },
+    "CheckObservation": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "record_type": {"const": "check-observation"}, "schema_version": {"const": 1}, "observation_id": {"$ref": "#/$defs/Id"}, "attempt_id": {"$ref": "#/$defs/Id"}, "case_id": {"$ref": "#/$defs/Id"},
+        "target_ref": {"$ref": "#/$defs/Ref"}, "command_ref": {"$ref": "#/$defs/Ref"}, "exit_code": {"anyOf": [{"type": "integer"}, {"type": "null"}]}, "signal": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "stdout_ref": {"$ref": "#/$defs/NullableRef"}, "stderr_ref": {"$ref": "#/$defs/NullableRef"}, "protocol_status": {"enum": ["VALID", "INVALID", "UNKNOWN"]}, "collection_status": {"enum": ["COMPLETE", "PARTIAL", "MISSING", "CONFLICT"]},
+        "environment_ref": {"$ref": "#/$defs/Ref"}, "expected_match": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}, "outcome": {"enum": ["PASS", "FAIL", "ERROR", "SKIPPED", "CANCELLED", "INCOMPLETE", "WAIVED", "NOT_RUN"]}, "failure_reason": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}, "source_kind": {"enum": ["synthetic", "processed", "captured", "local", "document"]}, "evidence_refs": {"$ref": "#/$defs/Refs"}
+      },
+      "required": ["record_type", "schema_version", "observation_id", "attempt_id", "case_id", "target_ref", "command_ref", "exit_code", "signal", "stdout_ref", "stderr_ref", "protocol_status", "collection_status", "environment_ref", "expected_match", "outcome", "failure_reason", "source_kind", "evidence_refs"]
+    },
+    "ManifestEntry": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"ref": {"$ref": "#/$defs/Ref"}, "size": {"type": "integer", "minimum": 0, "maximum": 1048576}, "purpose": {"type": "string", "minLength": 1, "maxLength": 256}, "case_ids": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "uniqueItems": true}},
+      "required": ["ref", "size", "purpose", "case_ids"]
+    },
+    "EvidenceManifest": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"record_type": {"const": "evidence-manifest"}, "schema_version": {"const": 1}, "manifest_id": {"$ref": "#/$defs/Id"}, "target_ref": {"$ref": "#/$defs/Ref"}, "entries": {"type": "array", "items": {"$ref": "#/$defs/ManifestEntry"}, "minItems": 1, "maxItems": 10000}},
+      "required": ["record_type", "schema_version", "manifest_id", "target_ref", "entries"]
+    },
+    "CaseResult": {"type": "object", "additionalProperties": false, "properties": {"case_id": {"$ref": "#/$defs/Id"}, "required": {"type": "boolean"}, "status": {"type": "string", "minLength": 1}, "reason": {"anyOf": [{"type": "string"}, {"type": "null"}]}}, "required": ["case_id", "required", "status", "reason"]},
+    "CoverageException": {"type": "object", "additionalProperties": false, "properties": {"case_id": {"$ref": "#/$defs/Id"}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}, "scope": {"type": "object"}}, "required": ["case_id", "reason", "scope"]},
+    "CoverageReport": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"record_type": {"const": "coverage-report"}, "schema_version": {"const": 1}, "target_ref": {"$ref": "#/$defs/Ref"}, "catalog_ref": {"$ref": "#/$defs/Ref"}, "required_total": {"type": "integer", "minimum": 0}, "required_passed": {"type": "integer", "minimum": 0}, "evidence_readiness": {"enum": ["COMPLETE", "PARTIAL", "NONE", "BLOCKED"]}, "cases": {"type": "array", "items": {"$ref": "#/$defs/CaseResult"}}, "unresolved_failures": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "uniqueItems": true}, "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "exceptions": {"type": "array", "items": {"$ref": "#/$defs/CoverageException"}, "uniqueItems": true}},
+      "required": ["record_type", "schema_version", "target_ref", "catalog_ref", "required_total", "required_passed", "evidence_readiness", "cases", "unresolved_failures", "limitations"]
+    },
+    "DeliveryDecision": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"record_type": {"const": "delivery-decision"}, "schema_version": {"const": 1}, "decision": {"enum": ["FULL", "PARTIAL", "BLOCKED", "WITHDRAWN"]}, "target_ref": {"$ref": "#/$defs/Ref"}, "coverage_ref": {"$ref": "#/$defs/Ref"}, "scope": {"type": "object"}, "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "accepted": {"type": "boolean"}, "dispatch_authorized": {"const": false}, "integration_authorized": {"const": false}},
+      "required": ["record_type", "schema_version", "decision", "target_ref", "coverage_ref", "scope", "reasons", "limitations", "accepted", "dispatch_authorized", "integration_authorized"]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codekit/history-integrity-report-v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "status", "unchanged", "missing", "changed", "unplanned_added", "unreadable"],
+  "properties": {
+    "record_type": {"const": "history-integrity-report"}, "schema_version": {"const": 1},
+    "status": {"enum": ["PASS", "BLOCKED", "UNKNOWN"]},
+    "unchanged": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "missing": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "changed": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "unplanned_added": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "unreadable": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codekit/migration-preflight-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "migration_id", "repository_id", "request_id", "checks", "status", "state", "offline_only"],
+  "properties": {
+    "record_type": {"const": "migration-preflight"},
+    "schema_version": {"const": 1},
+    "migration_id": {"$ref": "#/$defs/id"},
+    "repository_id": {"$ref": "#/$defs/id"},
+    "request_id": {"$ref": "#/$defs/id"},
+    "checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/check"}},
+    "status": {"enum": ["READY", "BLOCKED", "UNKNOWN", "NOT_APPLICABLE"]},
+    "state": {"enum": ["DISCOVERED", "PREFLIGHTED", "HOLD", "FAILED"]},
+    "offline_only": {"const": true}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._:-]{0,127}$"},
+    "rid": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "id", "sha256"],
+      "properties": {"kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"$ref": "#/$defs/rid"}, "sha256": {"$ref": "#/$defs/sha"}, "path": {"type": "string", "minLength": 1}}
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["check_id", "status", "source_ref", "remediation", "requires_write", "requires_network", "requires_cost"],
+      "properties": {
+        "check_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["READY", "BLOCKED", "UNKNOWN", "NOT_APPLICABLE"]},
+        "source_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+        "remediation": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "requires_write": {"type": "boolean"}, "requires_network": {"type": "boolean"}, "requires_cost": {"type": "boolean"}
+      }
+    }
+  }
+}
