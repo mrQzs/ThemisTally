@@ -100,7 +100,10 @@ def canonical_json_bytes(value: Any) -> bytes:
 
     try:
         _validate_json_tree(value)
-        return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        if len(raw) > 1024 * 1024:
+            raise ConfigError("E_JSON_LIMIT", "/", "canonical JSON byte limit exceeded")
+        return raw
     except ConfigError:
         raise
     except (TypeError, ValueError, UnicodeError) as exc:
@@ -290,10 +293,9 @@ class AdapterDescriptor:
     def validate_options(self, options: Mapping[str, Any], path: str) -> None:
         if not isinstance(options, dict):
             _fail("E_CFG_ADAPTER_SCHEMA", path, "options must be an object")
-        if self.option_keys:
-            unknown = set(options) - set(self.option_keys)
-            if unknown:
-                _fail("E_CFG_ADAPTER_SCHEMA", path, f"unknown option fields: {sorted(unknown)}")
+        unknown = set(options) - set(self.option_keys)
+        if unknown:
+            _fail("E_CFG_ADAPTER_SCHEMA", path, f"unknown option fields: {sorted(unknown)}")
 
 
 class AdapterRegistry:

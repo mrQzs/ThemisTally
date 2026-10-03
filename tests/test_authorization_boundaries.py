@@ -235,6 +235,15 @@ class ApprovalLedgerBoundaryTests(unittest.TestCase):
             sha256(BytesSubclass(b"payload"))
         self.assertEqual(sha256(b"payload"), sha256(b"payload"))
 
+    def test_authorization_canonical_bytes_enforce_encoded_size(self) -> None:
+        for value in ({"x": "\n" * 600000}, {"x": "界" * 400000}):
+            with self.subTest(size=len(value["x"])), self.assertRaisesRegex(AuthorizationError, "E_JSON_LIMIT"):
+                canonical_bytes(value)
+
+    def test_approval_subject_is_not_an_input_dependency(self) -> None:
+        with self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_BINDING"):
+            validate_approval({**approval(), "input_refs": [ref()]})
+
     def test_resource_refs_use_immutable_identity_and_portable_path_profile(self) -> None:
         for field, value in (("id", "latest"), ("id", "UPPER"), ("kind", "Not-a-kind"),
                              ("kind", "k" * 65), ("path", "fixtures/file\x7f.json"),

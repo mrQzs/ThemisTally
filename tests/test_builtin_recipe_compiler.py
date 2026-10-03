@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from codekit.builtin_artifacts import ArtifactError, digest
+from codekit.builtin_catalog import load_builtin_catalog, load_builtin_recipes
 from codekit.builtin_recipe_compiler import compile_recipe, validate_check_plan, validate_compile_receipt, validate_recipe
 
 
@@ -25,6 +26,27 @@ def recipe():
 
 
 class RecipeCompilerTests(unittest.TestCase):
+    def test_all_checked_in_recipes_bind_catalog_versions_and_closed_stage_dag(self):
+        catalog = load_builtin_catalog()
+        versions = {row["plugin_id"]: row["version"] for row in catalog["plugins"]}
+        recipes = load_builtin_recipes()
+        self.assertEqual({row["recipe_id"] for row in recipes["recipes"]}, {"repair", "docs", "regression"})
+        for recipe_value in recipes["recipes"]:
+            with self.subTest(recipe=recipe_value["recipe_id"]):
+                stages = recipe_value["stages"]
+                self.assertEqual([stage["kind"] for stage in stages],
+                                 ["analysis", "change", "freeze", "check", "review"])
+                seen = set()
+                for stage in stages:
+                    self.assertTrue(set(stage) == {"id", "kind", "depends_on", "execution", "plugin_id", "plugin_version"})
+                    self.assertTrue(set(stage["depends_on"]).issubset(seen))
+                    if stage["execution"] == "plugin":
+                        self.assertIn(stage["plugin_id"], versions)
+                        self.assertEqual(stage["plugin_version"], versions[stage["plugin_id"]])
+                    else:
+                        self.assertEqual((stage["plugin_id"], stage["plugin_version"]), (None, None))
+                    seen.add(stage["id"])
+
     def test_compile_maps_business_ports_to_existing_stage_kinds(self):
         result = compile_recipe(recipe(), artifact_id="plan-1", producer={"kind": "builtin-plugin", "id": "code-change", "version": "1.0.0"},
                                 source_refs=[ref()], candidate_ref=ref("candidate"), environment_ref=ref("environment"))

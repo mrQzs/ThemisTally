@@ -110,6 +110,17 @@ class ConfigProfilesTests(unittest.TestCase):
         with self.assertRaises(ConfigError):
             canonical_json_bytes({"value": float("nan")})
 
+    def test_canonical_bytes_enforce_encoded_size(self):
+        with self.assertRaisesRegex(ConfigError, "E_JSON_LIMIT"):
+            canonical_json_bytes({"value": "界" * 400000})
+
+    def test_empty_option_descriptor_rejects_options(self):
+        empty = AdapterRegistry([AdapterDescriptor("offline", "offline-v1", ("structured-events",), ("demo-model",), ())])
+        bad = config()
+        bad["profiles"]["planning"]["options"] = {"unexpected": True}
+        with self.assertRaisesRegex(ConfigError, "E_CFG_ADAPTER_SCHEMA"):
+            validate_config(bad, empty)
+
 
 if __name__ == "__main__":
     unittest.main()

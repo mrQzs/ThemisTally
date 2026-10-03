@@ -25,6 +25,11 @@ class AuthorizationTests(unittest.TestCase):
         with self.assertRaisesRegex(AuthorizationError, "E_RESOURCE_HASH"):
             bad = approval(); bad["subject_ref"] = {**ref(), "sha256": "A" * 64}; validate_approval(bad)
 
+    def test_recorded_at_is_required_and_not_nullable(self):
+        with self.assertRaisesRegex(AuthorizationError, "E_APPROVAL_TIME"):
+            validate_approval({**approval(), "recorded_at": None})
+        self.assertIsNone(validate_approval({**approval(), "not_before": None, "expires_at": None})["not_before"])
+
     def test_cas_and_idempotency(self):
         ledger = ApprovalLedger(); head = ledger.put(scope="scope", operation_id="op1", expected_generation=0, record=approval())
         self.assertEqual(head.generation, 1)

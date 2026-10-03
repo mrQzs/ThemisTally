@@ -58,7 +58,10 @@ def canonical_bytes(value: Any) -> bytes:
         # json.dumps alone coerces tuples and non-string object keys.  Such
         # coercion would let distinct Python values share one fingerprint.
         protocols.check_json_value(value, max_bytes=protocols.DEFAULT_MAX_BYTES)
-        return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        raw = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+        if len(raw) > protocols.DEFAULT_MAX_BYTES:
+            raise AuthorizationError("E_JSON_LIMIT", "/", "canonical JSON byte limit exceeded")
+        return raw
     except protocols.ProtocolError as exc:
         raise AuthorizationError(exc.code, exc.field or "/", exc.reason) from exc
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
@@ -120,7 +123,11 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
             _fail("E_APPROVAL_SCHEMA", f"/{key}", "non-empty string required")
     subject_ref = _ref(record["subject_ref"], "/subject_ref")
     for timestamp in ("recorded_at", "not_before", "expires_at"):
-        if timestamp in record and record[timestamp] is not None:
+        if timestamp in record and record[timestamp] is None:
+            if timestamp == "recorded_at":
+                _fail("E_APPROVAL_TIME", "/recorded_at", "recorded_at is required")
+            continue
+        if timestamp in record:
             if not isinstance(record[timestamp], str): _fail("E_APPROVAL_TIME", f"/{timestamp}", "ISO-8601 timestamp required")
             try:
                 parsed = datetime.fromisoformat(record[timestamp].replace("Z", "+00:00"))
@@ -135,6 +142,8 @@ def validate_approval(record: Mapping[str, Any]) -> Dict[str, Any]:
     input_refs = [_ref(value, f"/input_refs/{i}") for i, value in enumerate(record["input_refs"])]
     if len({sha256(value) for value in input_refs}) != len(input_refs):
         _fail("E_APPROVAL_SCHEMA", "/input_refs", "unique ResourceRef array required")
+    if sha256(subject_ref) in {sha256(value) for value in input_refs}:
+        _fail("E_APPROVAL_BINDING", "/input_refs", "subject_ref must not be listed as an input")
     if (not isinstance(record["reviewed_actions"], list) or not record["reviewed_actions"]
             or any(type(x) is not str or not x for x in record["reviewed_actions"])
             or len(set(record["reviewed_actions"])) != len(record["reviewed_actions"])):
