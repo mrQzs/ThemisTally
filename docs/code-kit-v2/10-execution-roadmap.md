@@ -1,6 +1,6 @@
 # Code-Kit v2：10 项目状态与恢复简报分阶段路线图
 
-基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`；当前离线实现推进到 `fc520e5`。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
+基线：`bbe0121c15ad9ac3b78f34c1683a08f7f81f9178`；当前离线实现推进到 `3046dc6`。附件 `10-project-state-and-brief-审阅增强版.md` 只作为需求矩阵和设计参考；不替代 `AGENTS.md`、合同或复审结论。
 
 ## 目标与边界
 
@@ -36,7 +36,7 @@ S0 只冻结边界和证据。S1/S2 建立来源和归约；S3 做补录与恢�
 | S5 | ACCEPTED_WITH_EXCEPTION | `7497311` | 03/07/09/05、Pi/provider NOT_RUN/BLOCKED |
 | S6 | ACCEPTED_WITH_EXCEPTION | `4d40de6` | 发布门禁 BLOCKED |
 
-后续离线收口提交：`86c7e66`（补录、修订链、currentness、请求映射）、`fc520e5`（读取持久化、尾部备份、分页扫描、brief 脱敏）。这些提交只提升离线 `PARTIAL` 覆盖，未解除真实发布门禁。
+后续离线收口提交：`86c7e66`（补录、修订链、currentness、请求映射）、`fc520e5`（读取持久化、尾部备份、分页扫描、brief 脱敏）、`3046dc6`（回退防护、receipt 自校验、来源覆盖）。这些提交只提升离线 `PARTIAL` 覆盖，未解除真实发布门禁。
 
 ## 复用与禁止
 
