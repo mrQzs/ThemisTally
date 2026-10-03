@@ -30,11 +30,10 @@
     "context_files": "project"
   },
   "scope": {
-    "allowed_modified_files": [
-      "docs/code-kit-v2/09-execution-roadmap.md",
-      "tests/test_codekit09_contract_routing.py"
-    ],
+    "allowed_modified_files": [],
     "allowed_new_files": [
+      "docs/code-kit-v2/09-execution-roadmap.md",
+      "tests/test_codekit09_contract_routing.py",
       "tests/fixtures/codekit09/routing/**"
     ],
     "allowed_deleted_files": [],

@@ -30,11 +30,10 @@
     "context_files": "project"
   },
   "scope": {
-    "allowed_modified_files": [
-      "docs/code-kit-v2/09-traceability-matrix.md",
-      "docs/code-kit-v2/09-interface-boundaries.md"
-    ],
+    "allowed_modified_files": [],
     "allowed_new_files": [
+      "docs/code-kit-v2/09-traceability-matrix.md",
+      "docs/code-kit-v2/09-interface-boundaries.md",
       "tests/fixtures/codekit09/traceability/**"
     ],
     "allowed_deleted_files": [],

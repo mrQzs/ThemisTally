@@ -30,11 +30,10 @@
     "context_files": "project"
   },
   "scope": {
-    "allowed_modified_files": [
-      "tests/test_codekit09_acceptance.py",
-      "docs/code-kit-v2/09-acceptance-report.md"
-    ],
+    "allowed_modified_files": [],
     "allowed_new_files": [
+      "tests/test_codekit09_acceptance.py",
+      "docs/code-kit-v2/09-acceptance-report.md",
       "tests/fixtures/codekit09/s6-acceptance/**"
     ],
     "allowed_deleted_files": [],
