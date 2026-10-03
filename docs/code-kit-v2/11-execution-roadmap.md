@@ -27,7 +27,8 @@
 - S2：已实现 Claude stream-json 离线事件归一化、原始记录引用、终态/模型/用量/工具闭合检查和 replay 冲突拒绝。
 - S3：已实现统一 facade、argv/no-shell 调用快照、stdin/资源闭包摘要、事件上下文检查和取消/响应丢失分类；尚未接入真实 05 进程 runner。
 - S4：已实现只读 planner→executor 跨会话 handoff 记录、generation 校验和共享 `PlanningBudgetLedger` role gate；尚未接入 03 ApprovalLedger、09 PlanningService 的真实启动入口。
-- S5–S6：未完成。Pi 历史回归、生产路由、真实异构链路和独立发布门禁继续 `NOT_RUN/BLOCKED`。
+- S5：已补 provider-neutral `ProfileRouter`、旧 `OfflineAdapter` 回归覆盖和保守取消状态（含 `CANCEL_AFTER_EXIT`）；尚未接入 Pi dispatcher、真实进程清理或重试协调。
+- S6：未完成。真实异构链路、平台矩阵和独立发布门禁继续 `NOT_RUN/BLOCKED`。
 
 ## 所有权与验证
 

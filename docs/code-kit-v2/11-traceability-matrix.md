@@ -6,7 +6,7 @@
 
 | ID | 覆盖阶段 | 验收主题 | 当前状态 |
 |---|---|---|---|
-| A01 | S1/S2/S5 | 注册表和 profile 接入无需核心品牌分支 | PARTIAL：已实现 provider-neutral facade；未接入生产 dispatcher |
+| A01 | S1/S2/S5 | 注册表和 profile 接入无需核心品牌分支 | PARTIAL：已实现 facade/profile router；未接入生产 dispatcher |
 | A02 | S1/S6 | 精确版本、模型、平台能力有来源；不支持组合预检阻塞 | PARTIAL：版本/help 有本机证据；精确模型/原生平台未观察 |
 | A03 | S2/S3 | 畸形、截断、无结束、非零退出不能正常成功 | PARTIAL：离线归一化/收集拒绝已覆盖 |
 | A04 | S2/S4 | 实际模型缺失/不符不由配置值填补 | PARTIAL：模型身份需事件证据；真实调用未运行 |

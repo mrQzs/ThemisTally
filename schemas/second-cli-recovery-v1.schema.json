@@ -3,7 +3,7 @@
   "$id": "urn:codekit:second-cli-recovery:1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["record_type", "schema_version", "request_id", "run_id", "generation", "cancel_requested", "exit_code", "response_lost", "process_observed", "state"],
+  "required": ["record_type", "schema_version", "request_id", "run_id", "generation", "cancel_requested", "exit_code", "response_lost", "process_observed", "cancel_after_exit", "state"],
   "properties": {
     "record_type": {"const": "second-cli-recovery"},
     "schema_version": {"const": 1},
@@ -14,6 +14,7 @@
     "exit_code": {"type": ["integer", "null"]},
     "response_lost": {"type": "boolean"},
     "process_observed": {"type": ["boolean", "null"]},
-    "state": {"enum": ["CANCEL_REQUESTED", "CANCELLED", "START_UNKNOWN", "RECOVERY_REQUIRED"]}
+    "cancel_after_exit": {"type": "boolean"},
+    "state": {"enum": ["CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "START_UNKNOWN", "RECOVERY_REQUIRED"]}
   }
 }

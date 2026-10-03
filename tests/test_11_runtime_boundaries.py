@@ -6,6 +6,7 @@ from scripts.codekit.adapters.heterogeneous import (
     CancellationObservation,
     HeterogeneousAdapterFacade,
     ProfileHandoff,
+    ProfileRouter,
     check_role_gate,
     validate_handoff,
 )
@@ -28,6 +29,20 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIsInstance(facade.resolve("claude-code"), ClaudeCodeAdapter)
         with self.assertRaisesRegex(AdapterFacadeError, "E_ADAPTER_UNKNOWN"):
             facade.resolve("missing")
+
+    def test_profile_router_binds_profile_to_registered_adapter(self):
+        adapter = ClaudeCodeAdapter()
+        capability = adapter.probe(timeout=1).capability
+        profile = adapter.validate_profile(capability, role="planner", platform=capability.platforms[0],
+                                           model_id="offline-test-model", profile_id="router-planner",
+                                           required_capabilities=("terminal_event",), require_observed=False)
+        router = ProfileRouter(HeterogeneousAdapterFacade([adapter]))
+        router.register(profile)
+        invocation = router.build_invocation("router-planner", request_id="req", run_id="run", cwd=".",
+                                             environment={}, prompt="plan")
+        self.assertEqual(invocation.adapter.adapter_id, "claude-code")
+        with self.assertRaisesRegex(AdapterFacadeError, "E_PROFILE_UNKNOWN"):
+            router.resolve("missing")
 
     def test_invocation_digest_binds_stdin_and_resource_allowlist(self):
         adapter = ClaudeCodeAdapter()
@@ -74,6 +89,10 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                                       cancel_requested=True, exit_code=130,
                                                       process_observed=False)
         self.assertEqual(cancelled.state, "CANCELLED")
+        after_exit = CancellationObservation.classify(request_id="req", run_id="run", generation=1,
+                                                       cancel_requested=True, exit_code=0,
+                                                       process_observed=False, cancel_after_exit=True)
+        self.assertEqual(after_exit.state, "CANCEL_AFTER_EXIT")
         recovery = CancellationObservation.classify(request_id="req", run_id="run", generation=1,
                                                      cancel_requested=True, exit_code=None,
                                                      process_observed=True)

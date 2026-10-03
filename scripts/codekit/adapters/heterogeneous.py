@@ -84,6 +84,30 @@ class HeterogeneousAdapterFacade:
         return tuple(sorted(self._adapters))
 
 
+class ProfileRouter:
+    """Bind profile ids to the facade without embedding provider branches."""
+
+    def __init__(self, facade: HeterogeneousAdapterFacade) -> None:
+        self.facade = facade
+        self._profiles: dict[str, tuple[str, SecondCliProfile]] = {}
+
+    def register(self, profile: SecondCliProfile) -> None:
+        if profile.profile_id in self._profiles:
+            raise AdapterFacadeError("E_PROFILE_DUPLICATE", "profile id already registered")
+        self.facade.resolve(profile.adapter_id)
+        self._profiles[profile.profile_id] = (profile.adapter_id, profile)
+
+    def resolve(self, profile_id: str) -> tuple[str, SecondCliProfile]:
+        binding = self._profiles.get(profile_id)
+        if binding is None:
+            raise AdapterFacadeError("E_PROFILE_UNKNOWN", "profile is not registered")
+        return binding
+
+    def build_invocation(self, profile_id: str, **kwargs: Any) -> SecondCliInvocation:
+        adapter_id, profile = self.resolve(profile_id)
+        return self.facade.build_invocation(adapter_id, profile, **kwargs)
+
+
 def _text(value: Any, field: str) -> str:
     if type(value) is not str or not value or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
         raise AdapterFacadeError("E_HANDOFF_SCHEMA", f"{field} must be safe non-empty text")
@@ -175,41 +199,46 @@ class CancellationObservation:
     exit_code: int | None
     response_lost: bool = False
     process_observed: bool | None = None
+    cancel_after_exit: bool = False
     state: str = "UNKNOWN"
 
     def __post_init__(self) -> None:
         _text(self.request_id, "request_id"); _text(self.run_id, "run_id")
         if type(self.generation) is not int or self.generation < 1:
             raise AdapterFacadeError("E_RECOVERY_GENERATION", "positive generation required")
-        if type(self.cancel_requested) is not bool or type(self.response_lost) is not bool:
+        if type(self.cancel_requested) is not bool or type(self.response_lost) is not bool or type(self.cancel_after_exit) is not bool:
             raise AdapterFacadeError("E_RECOVERY_SCHEMA", "boolean recovery facts required")
         if self.exit_code is not None and type(self.exit_code) is not int:
             raise AdapterFacadeError("E_RECOVERY_SCHEMA", "exit_code must be integer or null")
         if self.process_observed is not None and type(self.process_observed) is not bool:
             raise AdapterFacadeError("E_RECOVERY_SCHEMA", "process_observed must be boolean or null")
-        if self.state not in {"CANCEL_REQUESTED", "CANCELLED", "START_UNKNOWN", "RECOVERY_REQUIRED"}:
+        if self.state not in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "START_UNKNOWN", "RECOVERY_REQUIRED"}:
             raise AdapterFacadeError("E_RECOVERY_STATE", "unsupported recovery state")
 
     @classmethod
     def classify(cls, *, request_id: str, run_id: str, generation: int,
                  cancel_requested: bool, exit_code: int | None,
-                 response_lost: bool = False, process_observed: bool | None = None) -> "CancellationObservation":
+                 response_lost: bool = False, process_observed: bool | None = None,
+                 cancel_after_exit: bool = False) -> "CancellationObservation":
         if not cancel_requested:
             state = "RECOVERY_REQUIRED" if response_lost or exit_code is None else "CANCEL_REQUESTED"
+        elif cancel_after_exit:
+            state = "CANCEL_AFTER_EXIT"
         elif process_observed:
             state = "RECOVERY_REQUIRED"
         elif response_lost or exit_code is None or process_observed is None:
             state = "START_UNKNOWN"
         else:
             state = "CANCELLED"
-        return cls(request_id, run_id, generation, cancel_requested, exit_code, response_lost, process_observed, state)
+        return cls(request_id, run_id, generation, cancel_requested, exit_code, response_lost, process_observed, cancel_after_exit, state)
 
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "second-cli-recovery", "schema_version": 1,
                 "request_id": self.request_id, "run_id": self.run_id,
                 "generation": self.generation, "cancel_requested": self.cancel_requested,
                 "exit_code": self.exit_code, "response_lost": self.response_lost,
-                "process_observed": self.process_observed, "state": self.state}
+                "process_observed": self.process_observed, "cancel_after_exit": self.cancel_after_exit,
+                "state": self.state}
 
 
 @dataclass(frozen=True)
@@ -249,5 +278,5 @@ def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
 
 
 __all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
-           "HeterogeneousAdapterFacade", "ProfileHandoff", "RoleGate", "check_role_gate",
-           "validate_handoff"]
+           "HeterogeneousAdapterFacade", "ProfileHandoff", "ProfileRouter", "RoleGate",
+           "check_role_gate", "validate_handoff"]
