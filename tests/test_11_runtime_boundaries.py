@@ -17,6 +17,7 @@ from scripts.codekit.adapters.heterogeneous import (
     evaluate_start_gate,
     validate_handoff,
 )
+from scripts.codekit.adapters import AdapterDescriptor, AdapterRegistry, Invocation, OfflineAdapter
 from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
 from scripts.codekit.adapters.capability import CapabilityEvidence, preflight_profile
 from scripts.codekit.planner_runtime import PlanningBudgetLedger
@@ -31,6 +32,17 @@ class AlternateAdapter(ClaudeCodeAdapter):
 
 
 class RuntimeBoundaryTests(unittest.TestCase):
+    def test_legacy_offline_adapter_is_rejected_without_an_implicit_bridge(self):
+        legacy = OfflineAdapter()
+        with self.assertRaisesRegex(AdapterFacadeError, "E_ADAPTER_LEGACY"):
+            HeterogeneousAdapterFacade([legacy])
+
+        descriptor = AdapterDescriptor("offline", "offline-adapter-v1", ("structured-events",), ("executor",), True)
+        registry = AdapterRegistry([descriptor])
+        invocation = Invocation("req", "run", "executor", "offline-profile", ("python",),
+                                ("structured-events",), "a" * 64, "offline")
+        self.assertIs(registry.validate_invocation(invocation), descriptor)
+
     def test_facade_routes_by_identity_without_provider_branch(self):
         facade = HeterogeneousAdapterFacade([ClaudeCodeAdapter(), AlternateAdapter()])
         self.assertEqual(facade.adapter_ids(), ("alternate-cli", "claude-code"))
@@ -45,7 +57,9 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                            model_id="offline-test-model", profile_id="router-planner",
                                            required_capabilities=("terminal_event",), require_observed=False)
         router = ProfileRouter(HeterogeneousAdapterFacade([adapter]))
-        router.register(profile)
+        with self.assertRaisesRegex(AdapterFacadeError, "E_PROFILE_CAPABILITY"):
+            router.register(profile)
+        router.register(profile, capability=capability)
         invocation = router.build_invocation("router-planner", request_id="req", run_id="run", cwd=".",
                                              environment={}, prompt="plan")
         self.assertEqual(invocation.adapter.adapter_id, "claude-code")
@@ -276,7 +290,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertTrue(allowed.allowed, allowed.reasons)
         self.assertEqual(allowed.context_report["record_type"], "run-context")
         router = ProfileRouter(HeterogeneousAdapterFacade([adapter]))
-        router.register(profile)
+        router.register(profile, capability=capability)
         self.assertTrue(router.start_gate(profile.profile_id, run_context=context, handoff=handoff,
                                           ledger=ledger, invocation=invocation,
                                           approval_binding=approval_binding).allowed)

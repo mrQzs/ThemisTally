@@ -43,7 +43,14 @@ class AdapterFacadeError(ValueError):
 
 
 class HeterogeneousAdapterFacade:
-    """Route all five adapter operations by registered adapter identity."""
+    """Route all five adapter operations by registered adapter identity.
+
+    The legacy ``OfflineAdapter``/``AdapterRegistry`` protocol is deliberately
+    kept on its own path.  It exposes ``run`` and normalized legacy events,
+    which cannot be losslessly inferred as the five second-CLI operations;
+    registering it here therefore fails explicitly instead of silently
+    dropping evidence or changing settlement semantics.
+    """
 
     def __init__(self, adapters: Iterable[AdapterFacadeProtocol] = ()) -> None:
         self._adapters: dict[str, AdapterFacadeProtocol] = {}
@@ -56,9 +63,17 @@ class HeterogeneousAdapterFacade:
             raise AdapterFacadeError("E_ADAPTER_IDENTITY", "adapter_id is required")
         if adapter_id in self._adapters:
             raise AdapterFacadeError("E_ADAPTER_DUPLICATE", "adapter id already registered")
-        for method in ("probe", "validate_profile", "build_invocation", "normalize_event", "collect_result"):
-            if not callable(getattr(adapter, method, None)):
-                raise AdapterFacadeError("E_ADAPTER_PROTOCOL", f"missing adapter method: {method}")
+        required_methods = ("probe", "validate_profile", "build_invocation", "normalize_event", "collect_result")
+        missing = [method for method in required_methods if not callable(getattr(adapter, method, None))]
+        if missing:
+            # OfflineAdapter has the old ``probe``/``run`` surface.  Do not
+            # advertise an implicit bridge: callers must use AdapterRegistry
+            # and its legacy AdapterResult contract explicitly.
+            if callable(getattr(adapter, "probe", None)) and callable(getattr(adapter, "run", None)):
+                raise AdapterFacadeError("E_ADAPTER_LEGACY",
+                                         "legacy adapter requires AdapterRegistry; no implicit bridge")
+            method = missing[0]
+            raise AdapterFacadeError("E_ADAPTER_PROTOCOL", f"missing adapter method: {method}")
         self._adapters[adapter_id] = adapter
 
     def resolve(self, adapter_id: str) -> AdapterFacadeProtocol:
@@ -100,17 +115,18 @@ class ProfileRouter:
         self.facade.resolve(profile.adapter_id)
         if not profile.capability_digest:
             raise AdapterFacadeError("E_PROFILE_UNBOUND", "profile must carry a capability digest")
-        if capability is not None:
-            if capability.adapter_id != profile.adapter_id:
-                raise AdapterFacadeError("E_PROFILE_ADAPTER", "capability adapter does not match profile")
-            binding = bind_profile(capability, role=profile.role, platform=profile.platform,
-                                   environment_kind=profile.environment_kind,
-                                   required_capabilities=profile.capabilities,
-                                   model_id=profile.model_id, require_observed=require_observed)
-            if not binding.supported:
-                raise AdapterFacadeError("E_PROFILE_CAPABILITY", ";".join(binding.reasons))
-            if binding.capability_digest != profile.capability_digest:
-                raise AdapterFacadeError("E_PROFILE_DRIFT", "capability digest changed")
+        if capability is None:
+            raise AdapterFacadeError("E_PROFILE_CAPABILITY", "capability snapshot is required")
+        if capability.adapter_id != profile.adapter_id:
+            raise AdapterFacadeError("E_PROFILE_ADAPTER", "capability adapter does not match profile")
+        binding = bind_profile(capability, role=profile.role, platform=profile.platform,
+                               environment_kind=profile.environment_kind,
+                               required_capabilities=profile.capabilities,
+                               model_id=profile.model_id, require_observed=require_observed)
+        if not binding.supported:
+            raise AdapterFacadeError("E_PROFILE_CAPABILITY", ";".join(binding.reasons))
+        if binding.capability_digest != profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_DRIFT", "capability digest changed")
         self._profiles[profile.profile_id] = (profile.adapter_id, profile)
 
     def resolve(self, profile_id: str) -> tuple[str, SecondCliProfile]:
