@@ -51,6 +51,14 @@ class OfflineRunnerTests(unittest.TestCase):
                 run_command(target="bad-timeout", command=self._command("pass"), cwd=tmp,
                             check_plan_id="cp", candidate_digest="candidate", timeout_seconds=float("nan"))
 
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ENV"):
+                run_command(target="bad-env", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate", environment={"PATH": "bad\x00path"})
+
+        with self.assertRaisesRegex(ArtifactError, "E_RUNNER_CWD"):
+            run_command(target="bad-cwd", command=self._command("pass"), cwd=None,  # type: ignore[arg-type]
+                        check_plan_id="cp", candidate_digest="candidate")
+
     def test_shell_free_argv_preserves_empty_arguments(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = run_command(target="argv", command=[sys.executable, "-c", "import sys; raise SystemExit(0 if sys.argv[1] == '' else 1)", ""], cwd=tmp,
@@ -62,6 +70,9 @@ class OfflineRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ArtifactError, "E_RUNNER_ID"):
                 run_command(target="identity", command=self._command("pass"), cwd=tmp,
                             check_plan_id="cp\nunsafe", candidate_digest="candidate")
+            with self.assertRaisesRegex(ArtifactError, "E_RUNNER_TARGET"):
+                run_command(target="bad\ud800", command=self._command("pass"), cwd=tmp,
+                            check_plan_id="cp", candidate_digest="candidate")
 
     def test_mutation_requires_stable_baseline_and_kills_all_mutants(self):
         with tempfile.TemporaryDirectory() as tmp:

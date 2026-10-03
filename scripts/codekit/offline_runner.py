@@ -52,12 +52,18 @@ def _argv(command: Sequence[str]) -> list[str]:
 
 
 def _workspace_path(cwd: str | Path, relative: str | Path | None = None) -> tuple[Path, Path | None]:
-    root = Path(cwd).resolve()
+    try:
+        root = Path(cwd).resolve()
+    except (TypeError, ValueError, OSError):
+        _err("E_RUNNER_CWD", "working directory must be a valid path")
     if not root.is_dir():
         _err("E_RUNNER_CWD", "working directory must exist")
     if relative is None:
         return root, None
-    candidate = (root / Path(relative)).resolve()
+    try:
+        candidate = (root / Path(relative)).resolve()
+    except (TypeError, ValueError, OSError):
+        _err("E_RUNNER_PATH", "target path must be a valid relative path")
     try:
         candidate.relative_to(root)
     except ValueError:
@@ -84,6 +90,10 @@ def _safe_environment(overrides: Mapping[str, str]) -> dict[str, str]:
     blocked = ("TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "COOKIE", "AUTH")
     if any(type(key) is not str or type(value) is not str for key, value in overrides.items()):
         _err("E_RUNNER_ENV", "environment names and values must be strings")
+    if any(any(ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF
+               for ch in key + value)
+           for key, value in overrides.items()):
+        _err("E_RUNNER_ENV", "environment names and values must be safe text")
     unsafe_overrides = [key for key in overrides if any(part in key.upper() for part in blocked)]
     if unsafe_overrides:
         _err("E_RUNNER_ENV", "credential-like environment overrides are forbidden")
@@ -123,7 +133,8 @@ def run_command(*, target: str, command: Sequence[str], cwd: str | Path,
                 candidate_ref: Mapping[str, str] | None = None,
                 timeout_seconds: float = 30.0) -> dict[str, Any]:
     """Run one explicit local command and return a closed evidence record."""
-    if type(target) is not str or not target or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in target):
+    if type(target) is not str or not target or any(
+            ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF for ch in target):
         _err("E_RUNNER_TARGET", "target is required")
     argv = _argv(command)
     _identity(check_plan_id, "check_plan_id")
