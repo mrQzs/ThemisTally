@@ -1,12 +1,12 @@
 # Code-Kit v2：11 第二 CLI 追踪矩阵
 
-规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`c4a05ba`（文档更新随后单独提交）。附件需求矩阵不自动授予真实调用或费用权限。
+规划基线：`62ef7021e3d8df711ecde0a4ee1b3f0a1a5148e2`；当前实现头：`3ea20c5`（文档更新随后单独提交）。附件需求矩阵不自动授予真实调用或费用权限。
 
 ## 11-A01–A08
 
 | ID | 覆盖阶段 | 验收主题 | 当前状态 |
 |---|---|---|---|
-| A01 | S1/S2/S5 | 注册表和 profile 接入无需核心品牌分支 | PARTIAL：已实现 facade/profile router；未接入生产 dispatcher |
+| A01 | S1/S2/S5 | 注册表和 profile 接入无需核心品牌分支 | PARTIAL：已实现 provider-neutral facade/profile router，并要求 capability snapshot；未接入生产 dispatcher |
 | A02 | S1/S6 | 精确版本、模型、平台能力有来源；不支持组合预检阻塞 | PARTIAL：版本/help 有本机证据；未观察 capability evidence 或精确模型/原生平台时保持 `NOT_RUN` |
 | A03 | S2/S3 | 畸形、截断、无结束、非零退出不能正常成功 | PARTIAL：离线归一化/收集拒绝已覆盖 |
 | A04 | S2/S4 | 实际模型缺失/不符不由配置值填补 | PARTIAL：模型身份需事件证据，executor gate 还需当前 ApprovalBinding；真实调用未运行 |
