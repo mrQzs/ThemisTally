@@ -42,13 +42,24 @@ def render_project_brief(state: Mapping[str, Any], *, max_bytes: int = 64 * 1024
         raise ProjectViewError("E_BRIEF", "issues must be non-empty strings")
     lines.append("issues:")
     lines.extend("- [issue] " + item for item in sorted(issues))
+    def safe_display(value: Any, *, key: str = "") -> Any:
+        if any(token in key.lower() for token in ("secret", "token", "password", "api_key", "authorization", "credential")):
+            return "[REDACTED]"
+        if isinstance(value, dict):
+            return {str(name): safe_display(item, key=str(name)) for name, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+        if isinstance(value, list):
+            return [safe_display(item, key=key) for item in value]
+        if isinstance(value, str):
+            return value.replace("\r", "\\r").replace("\n", "\\n").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+        return value
+
     for section in ("tasks", "decisions", "budgets"):
         values = state.get(section, {})
         if type(values) is not dict:
             raise ProjectViewError("E_BRIEF", section + " must be object")
         lines.append(section + ":")
         for key in sorted(values):
-            lines.append("- " + key + ": " + json.dumps(values[key], ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+            lines.append("- " + key + ": " + json.dumps(safe_display(values[key], key=key), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     brief = "\n".join(lines) + "\n"
     raw = brief.encode("utf-8")
     if type(max_bytes) is not int or max_bytes < 1 or len(raw) > max_bytes:
@@ -83,6 +94,7 @@ class BriefReadReceipt:
     receipt_id: str
     view_id: str
     manifest_sha256: str
+    brief_sha256: str
     observer_ref: str
     read_cursor: int
     outcome: str
@@ -90,7 +102,8 @@ class BriefReadReceipt:
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "brief-read-receipt", "schema_version": 1,
                 "receipt_id": self.receipt_id, "view_id": self.view_id,
-                "manifest_sha256": self.manifest_sha256, "observer_ref": self.observer_ref,
+                "manifest_sha256": self.manifest_sha256, "brief_sha256": self.brief_sha256,
+                "observer_ref": self.observer_ref,
                 "read_cursor": self.read_cursor, "outcome": self.outcome}
 
 
@@ -98,13 +111,16 @@ def make_read_receipt(manifest: ViewManifest, *, observer_ref: str, read_cursor:
                       outcome: str = "READ") -> BriefReadReceipt:
     if type(observer_ref) is not str or not observer_ref or type(read_cursor) is not int or read_cursor < 0:
         raise ProjectViewError("E_RECEIPT", "observer and cursor required")
+    if read_cursor != manifest.cursor:
+        raise ProjectViewError("E_RECEIPT", "read cursor must match manifest cursor")
     if outcome not in {"READ", "REJECTED"}:
         raise ProjectViewError("E_RECEIPT", "unsupported outcome")
     body = {"view_id": manifest.view_id, "manifest_sha256": manifest.manifest_sha256,
+            "brief_sha256": manifest.brief_sha256,
             "observer_ref": observer_ref, "read_cursor": read_cursor, "outcome": outcome}
     receipt_id = _digest(canonical_bytes(body))
     return BriefReadReceipt(receipt_id, manifest.view_id, manifest.manifest_sha256,
-                            observer_ref, read_cursor, outcome)
+                            manifest.brief_sha256, observer_ref, read_cursor, outcome)
 
 
 class ViewPackageStore:

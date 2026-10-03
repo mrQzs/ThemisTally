@@ -1,6 +1,7 @@
 import tempfile
 import threading
 import unittest
+import hashlib
 from pathlib import Path
 
 from scripts.codekit.project_events import ProjectEvent
@@ -33,6 +34,20 @@ class ProjectJournalTests(unittest.TestCase):
                 recovered.append(event(source_record_id="source-2", immutable_facet_id="prepared-2"))
             recovered.repair_tail(expected_generation=1, expected_cursor=1)
             self.assertEqual(recovered.recovery, "CLEAN")
+            self.assertTrue(path.with_name(path.name + ".tail-backup").exists())
+
+    def test_tail_repair_checks_expected_bytes_before_truncating(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"; journal = ProjectJournal(path); journal.append(event())
+            path.write_bytes(path.read_bytes() + b'{"tail":')
+            recovered = ProjectJournal(path)
+            with self.assertRaisesRegex(ProjectJournalError, "bytes changed"):
+                recovered.repair_tail(expected_generation=1, expected_cursor=1, expected_sha256="0" * 64)
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            original = path.read_bytes()
+            backup = Path(tmp) / "preserved-tail.bin"
+            recovered.repair_tail(expected_generation=1, expected_cursor=1, expected_sha256=digest, backup_path=backup)
+            self.assertEqual(backup.read_bytes(), original)
 
     def test_middle_corruption_is_not_silently_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:

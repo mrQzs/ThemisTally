@@ -24,6 +24,9 @@ class ProjectRecoveryTests(unittest.TestCase):
             limited = scan_source_tree(root, cutoff_ns=2**53 - 1, max_entries=1)
             self.assertFalse(limited.complete)
             self.assertIn("entry_limit", limited.issues)
+            resumed = scan_source_tree(root, cutoff_ns=2**53 - 1, max_entries=10, after_path=limited.next_page)
+            self.assertTrue(resumed.complete)
+            self.assertEqual([item["path"] for item in resumed.items], ["b.txt"])
 
     def test_rebuild_advances_generation_and_requires_reset(self):
         with tempfile.TemporaryDirectory() as tmp:

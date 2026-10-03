@@ -3,11 +3,11 @@
   "$id": "urn:codekit:source-scan:1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scan_id", "complete", "cutoff_ns", "max_entries", "items", "issues"],
+  "required": ["scan_id", "complete", "cutoff_ns", "max_entries", "items", "issues", "next_page"],
   "properties": {
     "scan_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "complete": {"type": "boolean"},
     "cutoff_ns": {"type": "integer", "minimum": 0}, "max_entries": {"type": "integer", "minimum": 1},
     "items": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "byte_length", "kind", "id"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "byte_length": {"type": "integer", "minimum": 0}, "kind": {"type": "string"}, "id": {"type": "string"}}}},
-    "issues": {"type": "array", "items": {"type": "string"}}
+    "issues": {"type": "array", "items": {"type": "string"}}, "next_page": {"anyOf": [{"type": "string"}, {"type": "null"}]}
   }
 }

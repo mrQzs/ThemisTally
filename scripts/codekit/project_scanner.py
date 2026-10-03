@@ -25,19 +25,22 @@ class SourceScanReport:
     max_entries: int
     items: tuple[dict[str, Any], ...]
     issues: tuple[str, ...]
+    next_page: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         return {"scan_id": self.scan_id, "complete": self.complete, "cutoff_ns": self.cutoff_ns,
                 "max_entries": self.max_entries, "items": [dict(x) for x in self.items],
-                "issues": list(self.issues)}
+                "issues": list(self.issues), "next_page": self.next_page}
 
 
 def scan_source_tree(root: str | Path, *, cutoff_ns: int, max_entries: int = 1000,
-                     kind: str = "fixture-source") -> SourceScanReport:
+                     kind: str = "fixture-source", after_path: str | None = None) -> SourceScanReport:
     if type(cutoff_ns) is not int or cutoff_ns < 0:
         raise SourceScanError("E_CUTOFF", "non-negative cutoff_ns required")
     if type(max_entries) is not int or not 1 <= max_entries <= 100_000:
         raise SourceScanError("E_LIMIT", "bounded max_entries required")
+    if after_path is not None and (type(after_path) is not str or "\n" in after_path or "\r" in after_path):
+        raise SourceScanError("E_PAGE", "after_path must be safe text")
     root_path = Path(root)
     try:
         root_resolved = root_path.resolve(strict=True)
@@ -60,10 +63,6 @@ def scan_source_tree(root: str | Path, *, cutoff_ns: int, max_entries: int = 100
         except OSError:
             issues.append("read_incomplete:" + relative); return
         for entry in entries:
-            if len(items) >= max_entries:
-                truncated = True
-                issues.append("entry_limit")
-                return
             rel = entry.name if not relative else relative + "/" + entry.name
             path = Path(entry.path)
             try:
@@ -71,6 +70,12 @@ def scan_source_tree(root: str | Path, *, cutoff_ns: int, max_entries: int = 100
                     issues.append("symlink:" + rel); continue
                 if entry.is_dir(follow_symlinks=False):
                     visit(path, rel); continue
+                if after_path is not None and rel <= after_path:
+                    continue
+                if len(items) >= max_entries:
+                    truncated = True
+                    issues.append("entry_limit")
+                    return
                 if not entry.is_file(follow_symlinks=False):
                     issues.append("unsupported:" + rel); continue
                 stat = entry.stat(follow_symlinks=False)
@@ -91,11 +96,12 @@ def scan_source_tree(root: str | Path, *, cutoff_ns: int, max_entries: int = 100
         complete = False
     else:
         complete = True
-    body = {"cutoff_ns": cutoff_ns, "max_entries": max_entries,
-            "items": items, "issues": issues}
+    next_page = items[-1]["path"] if truncated and items else None
+    body = {"cutoff_ns": cutoff_ns, "max_entries": max_entries, "after_path": after_path,
+            "items": items, "issues": issues, "next_page": next_page}
     scan_id = hashlib.sha256(canonical_bytes(body)).hexdigest()
     return SourceScanReport(scan_id, complete, cutoff_ns, max_entries,
-                            tuple(items), tuple(issues))
+                            tuple(items), tuple(issues), next_page)
 
 
 __all__ = ["SourceScanError", "SourceScanReport", "scan_source_tree"]

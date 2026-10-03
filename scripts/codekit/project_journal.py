@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -162,7 +163,9 @@ class ProjectJournal:
             self._index(assigned); self.cursor = assigned.seq or self.cursor
             return AppendReceipt(assigned, False)
 
-    def repair_tail(self, *, expected_generation: int, expected_cursor: int) -> None:
+    def repair_tail(self, *, expected_generation: int, expected_cursor: int,
+                    expected_sha256: str | None = None,
+                    backup_path: str | Path | None = None) -> str | None:
         if expected_generation != self.generation or expected_cursor != self.cursor:
             raise ProjectJournalError("E_CAS", "journal state changed")
         if self.recovery != "TRUNCATED_TAIL":
@@ -171,12 +174,29 @@ class ProjectJournal:
             raise ProjectJournalError("E_RECOVERY", "only truncated tail is repairable")
         with WriterLock(self.lock_path, timeout=self.lock_timeout):
             raw = self.path.read_bytes() if self.path.exists() else b""
+            actual_sha256 = hashlib.sha256(raw).hexdigest()
+            if expected_sha256 is not None and actual_sha256 != expected_sha256:
+                raise ProjectJournalError("E_CAS", "journal bytes changed")
             if raw.endswith(b"\n"):
-                self.recovery = "CLEAN"; self._load(); return
+                self.recovery = "CLEAN"; self._load(); return None
             boundary = raw.rfind(b"\n") + 1
+            backup = Path(backup_path) if backup_path is not None else self.path.with_name(self.path.name + ".tail-backup")
+            try:
+                if backup.exists():
+                    if hashlib.sha256(backup.read_bytes()).hexdigest() != actual_sha256:
+                        raise ProjectJournalError("E_BACKUP_CONFLICT", "tail backup already contains different bytes")
+                else:
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    with backup.open("xb") as handle:
+                        handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+            except ProjectJournalError:
+                raise
+            except OSError as exc:
+                raise ProjectJournalError("E_BACKUP", "cannot preserve original tail bytes") from exc
             with self.path.open("r+b") as handle:
                 handle.truncate(boundary); handle.flush(); os.fsync(handle.fileno())
             self._load()
+            return str(backup)
 
     def handoff(self, *, new_generation: int, expected_generation: int) -> None:
         if expected_generation != self.generation or type(new_generation) is not int or new_generation <= self.generation:
