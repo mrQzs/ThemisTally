@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "task_id": "09-s1-1",
+  "plan_version": 1,
+  "title": "S1 严格规划协议",
+  "repository": "Code-Kit",
+  "base_sha": "330d3716d65e068c38a5861e2a1a4bf4c84cf043",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash",
+      "powershell"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "tests/test_codekit09_protocol.py",
+      "docs/code-kit-v2/09-protocol-notes.md"
+    ],
+    "allowed_new_files": [
+      "tests/fixtures/codekit09/s1-protocol/**"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_dispatch",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran "
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "A11–A14 的离线行为、边界和负例有对应 fixture、定向测试与证据，结果保持 LOCAL_REFERENCE。",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "I11–I13 每项都有故障注入，或在缺少真实能力时明确记录 NOT_RUN/BLOCKED，不得把 fixture 当生产 PASS。",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "所有修改均在合同 Scope 内，未修改代理规则、合同、调度脚本、依赖或原始证据。",
+      "evidence": [
+        "V02",
+        "V03",
+        "scope"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "完整基线 SHA、输入闭包、失败分类和回滚边界均写入执行报告；未知行为停止并上报。",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "inputs": [
+    "complete base 330d3716d65e068c38a5861e2a1a4bf4c84cf043",
+    "S0 合同、ResourceRef 规则、严格 JSON helper",
+    "acceptance coverage A11–A14",
+    "integration coverage I11–I13",
+    "approved 09 requirements and current 01–08 interface summaries",
+    "offline evidence remains LOCAL_REFERENCE; real capability remains NOT_RUN/BLOCKED"
+  ],
+  "outputs": [
+    "09-s1-1 fixtures/tests/documentation within Scope",
+    "V01–V03 output and review evidence",
+    "explicit NOT_RUN/BLOCKED records for real planner/provider/Pi/native/external capability"
+  ],
+  "failure_handling": [
+    "stop on base mismatch, scope drift, contract conflict, missing dependency, or unclassified behavior",
+    "classify assertion failure, optional dependency skip, environment block, response loss, and publication/currentness failure separately",
+    "never weaken tests, bypass registration, or promote fixture/offline evidence to production PASS"
+  ],
+  "rollback_boundary": [
+    "revert only files in this contract Scope; preserve accepted prior stage and immutable raw evidence",
+    "do not edit AGENTS.md, contracts, .agent/, dispatch scripts, dependencies, credentials, or external systems"
+  ]
+}
