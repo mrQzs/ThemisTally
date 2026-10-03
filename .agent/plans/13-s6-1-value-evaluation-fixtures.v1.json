@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "task_id": "13-s6-1-value-evaluation-fixtures",
+  "plan_version": 1,
+  "title": "建立阅读价值评估夹具",
+  "repository": "Code-Kit",
+  "base_sha": "cf44ae17fa2722cd998c5991722a0db7e373d7a8",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash",
+      "powershell"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "tests/fixtures/observer/evaluation.json",
+      "tests/test_13_observer_evaluation.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/runs/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_13_observer_evaluation",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_dispatch",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "建立阅读价值评估夹具 的行为契约及最小负例可复核",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "编译、既有回归和范围检查通过",
+      "evidence": [
+        "V02",
+        "V03",
+        "V04",
+        "scope"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "真实能力保持 NOT_RUN/BLOCKED，离线结果不宣称生产通过",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "failure_handling": [
+    "输入/引用/环境冲突即停止并记录",
+    "不改变既有事实、授权、预算或证据"
+  ],
+  "stop_conditions": [
+    "基线不符",
+    "需要越界修改或外部能力",
+    "合同冲突或达到时限"
+  ],
+  "report_back": [
+    "commands and exit codes",
+    "evidence paths",
+    "scope audit",
+    "unrun capabilities"
+  ]
+}
