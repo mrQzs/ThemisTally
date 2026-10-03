@@ -241,6 +241,8 @@ class SecondCliSchemaFixtureTests(unittest.TestCase):
         store = RawRecordStore()
         ref = store.add(raw, raw_path="stdout/record.jsonl", record_id="record-1")
         self.assertEqual(store.verify(ref, raw_start=0, raw_end=len(raw)), raw)
+        with self.assertRaisesRegex(SecondCliError, "E_CLI_RAW_REPLAY"):
+            store.add(raw + b"x", raw_path="stdout/record.jsonl", record_id="record-1")
         with self.assertRaisesRegex(SecondCliError, "E_CLI_RAW_DRIFT"):
             store.verify(ref, raw_start=0, raw_end=len(raw), expected_bytes=raw + b"x")
         with self.assertRaisesRegex(SecondCliError, "E_CLI_RAW_MISSING"):

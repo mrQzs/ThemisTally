@@ -45,6 +45,9 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertEqual(invocation.adapter.adapter_id, "claude-code")
         with self.assertRaisesRegex(AdapterFacadeError, "E_PROFILE_UNKNOWN"):
             router.resolve("missing")
+        drifted = replace(profile, capability_digest="0" * 64, profile_id="router-drift")
+        with self.assertRaisesRegex(AdapterFacadeError, "E_PROFILE_DRIFT"):
+            ProfileRouter(HeterogeneousAdapterFacade([adapter])).register(drifted, capability=capability)
 
     def test_local_probe_does_not_unlock_production_profile(self):
         adapter = ClaudeCodeAdapter()

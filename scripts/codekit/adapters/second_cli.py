@@ -282,7 +282,7 @@ class RawRecordStore:
     """
 
     def __init__(self) -> None:
-        self._records: dict[tuple[str, str, str, str], bytes] = {}
+        self._records: dict[tuple[str, str, str], tuple[str, bytes]] = {}
 
     def add(self, raw_record: bytes | str, *, raw_path: str, record_id: str | None = None) -> dict[str, str]:
         raw = _raw(raw_record)
@@ -292,11 +292,11 @@ class RawRecordStore:
         ref = {"kind": "raw-segment", "id": record_id, "path": raw_path,
                "sha256": hashlib.sha256(raw).hexdigest()}
         normalized = resource_ref(ref, "/raw_record_ref")
-        key = tuple(normalized[name] for name in ("kind", "id", "path", "sha256"))
+        key = tuple(normalized[name] for name in ("kind", "id", "path"))
         previous = self._records.get(key)
-        if previous is not None and previous != raw:
+        if previous is not None and (previous[0] != normalized["sha256"] or previous[1] != raw):
             raise SecondCliError("E_CLI_RAW_REPLAY", "raw record identity has different bytes")
-        self._records[key] = raw
+        self._records[key] = (normalized["sha256"], raw)
         return normalized
 
     def verify(self, raw_record_ref: Mapping[str, str], *, raw_start: int, raw_end: int,
@@ -304,11 +304,12 @@ class RawRecordStore:
         normalized = resource_ref(dict(raw_record_ref), "/raw_record_ref")
         if type(raw_start) is not int or type(raw_end) is not int or not 0 <= raw_start < raw_end:
             raise SecondCliError("E_CLI_RAW_RANGE", "raw range must be half-open")
-        key = tuple(normalized[name] for name in ("kind", "id", "path", "sha256"))
-        raw = self._records.get(key)
-        if raw is None:
+        key = tuple(normalized[name] for name in ("kind", "id", "path"))
+        stored = self._records.get(key)
+        if stored is None:
             raise SecondCliError("E_CLI_RAW_MISSING", "raw record is not retained")
-        if hashlib.sha256(raw).hexdigest() != normalized["sha256"] or raw_end > len(raw):
+        stored_sha, raw = stored
+        if stored_sha != normalized["sha256"] or hashlib.sha256(raw).hexdigest() != normalized["sha256"] or raw_end > len(raw):
             raise SecondCliError("E_CLI_RAW_DRIFT", "raw record bytes do not match reference")
         if expected_bytes is not None and _raw(expected_bytes) != raw:
             raise SecondCliError("E_CLI_RAW_DRIFT", "provided raw bytes differ from retained evidence")

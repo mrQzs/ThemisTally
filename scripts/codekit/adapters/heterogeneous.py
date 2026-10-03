@@ -14,7 +14,7 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 from .. import protocols
 from ..builtin_artifacts import resource_ref
 from ..planner_runtime import PlanningBudgetLedger
-from .capability import AdapterCapability
+from .capability import AdapterCapability, bind_profile
 from .second_cli import (
     CliEvent, CollectionResult, ProbeResult, SecondCliInvocation,
     SecondCliProfile,
@@ -92,10 +92,24 @@ class ProfileRouter:
         self.facade = facade
         self._profiles: dict[str, tuple[str, SecondCliProfile]] = {}
 
-    def register(self, profile: SecondCliProfile) -> None:
+    def register(self, profile: SecondCliProfile, *, capability: AdapterCapability | None = None,
+                 require_observed: bool = False) -> None:
         if profile.profile_id in self._profiles:
             raise AdapterFacadeError("E_PROFILE_DUPLICATE", "profile id already registered")
         self.facade.resolve(profile.adapter_id)
+        if not profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_UNBOUND", "profile must carry a capability digest")
+        if capability is not None:
+            if capability.adapter_id != profile.adapter_id:
+                raise AdapterFacadeError("E_PROFILE_ADAPTER", "capability adapter does not match profile")
+            binding = bind_profile(capability, role=profile.role, platform=profile.platform,
+                                   environment_kind=profile.environment_kind,
+                                   required_capabilities=profile.capabilities,
+                                   model_id=profile.model_id, require_observed=require_observed)
+            if not binding.supported:
+                raise AdapterFacadeError("E_PROFILE_CAPABILITY", ";".join(binding.reasons))
+            if binding.capability_digest != profile.capability_digest:
+                raise AdapterFacadeError("E_PROFILE_DRIFT", "capability digest changed")
         self._profiles[profile.profile_id] = (profile.adapter_id, profile)
 
     def resolve(self, profile_id: str) -> tuple[str, SecondCliProfile]:
@@ -107,6 +121,21 @@ class ProfileRouter:
     def build_invocation(self, profile_id: str, **kwargs: Any) -> SecondCliInvocation:
         adapter_id, profile = self.resolve(profile_id)
         return self.facade.build_invocation(adapter_id, profile, **kwargs)
+
+    def probe(self, profile_id: str, **kwargs: Any) -> ProbeResult:
+        adapter_id, profile = self.resolve(profile_id)
+        kwargs.setdefault("executable", profile.executable)
+        kwargs.setdefault("platform", profile.platform)
+        kwargs.setdefault("environment_kind", profile.environment_kind)
+        return self.facade.probe(adapter_id, **kwargs)
+
+    def normalize_event(self, profile_id: str, raw_record: bytes | str, **kwargs: Any) -> CliEvent:
+        adapter_id, _ = self.resolve(profile_id)
+        return self.facade.normalize_event(adapter_id, raw_record, **kwargs)
+
+    def collect_result(self, profile_id: str, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult:
+        adapter_id, _ = self.resolve(profile_id)
+        return self.facade.collect_result(adapter_id, events, **kwargs)
 
     def start_gate(self, profile_id: str, **kwargs: Any) -> "StartGate":
         """Evaluate an executor start gate for a registered profile.
