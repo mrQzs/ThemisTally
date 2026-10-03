@@ -274,10 +274,12 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
         raise ProjectionError("E_STATE", "state object required")
     health = state.get("health", "degraded")
     source_coverage = state.get("source_coverage", "unknown")
+    budget_coverage = state.get("budget_coverage", "unknown")
     issues = state.get("issues", [])
     truncated = state.get("truncated", False)
     if (type(health) is not str or health not in {"healthy", "degraded"}
-            or type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}):
+            or type(source_coverage) is not str or source_coverage not in {"complete", "partial", "unknown"}
+            or type(budget_coverage) is not str or budget_coverage not in {"complete", "partial", "unknown"}):
         raise ProjectionError("E_STATE", "invalid health or source coverage")
     if (isinstance(issues, (str, bytes)) or not isinstance(issues, Sequence)
             or any(type(item) is not str or not item
@@ -287,7 +289,9 @@ def render_brief(state: Mapping[str, Any]) -> dict[str, Any]:
         raise ProjectionError("E_ISSUES", "issues must be a sequence of non-empty strings")
     if type(truncated) is not bool:
         raise ProjectionError("E_STATE", "truncated must be boolean")
-    budget = "[未知] 无可核验预算快照" if state.get("budget_coverage") != "complete" else "预算快照已核验"
+    if health == "healthy" and (source_coverage != "complete" or budget_coverage != "complete" or issues):
+        raise ProjectionError("E_STATE", "healthy state contradicts coverage or issues")
+    budget = "[未知] 无可核验预算快照" if budget_coverage != "complete" else "预算快照已核验"
     return {"health": health, "dispatch_eligibility": "not_evaluated",
             "source_coverage": source_coverage, "budget": budget,
             "issues": list(issues), "truncated": truncated}

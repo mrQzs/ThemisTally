@@ -178,6 +178,16 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(brief["dispatch_eligibility"], "not_evaluated")
         self.assertTrue(brief["truncated"])
 
+    def test_brief_cannot_claim_healthy_with_unknown_budget_or_partial_source(self):
+        for changes in (
+                {"budget_coverage": "unknown"},
+                {"source_coverage": "partial"},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ProjectionError) as caught:
+                render_brief({"health": "healthy", "source_coverage": "complete",
+                              "budget_coverage": "complete", "issues": [], **changes})
+            self.assertEqual(caught.exception.code, "E_STATE")
+
     def test_state_and_brief_reject_untyped_projection_fields(self):
         common = dict(indexed_cursor=0, applied_cursor=0, source_vector={}, verification_ref="v1",
                       as_of="2026-10-02T00:00:00Z", source_coverage="complete", issues=[], budget_coverage="complete")
