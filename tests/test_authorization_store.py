@@ -246,6 +246,18 @@ class PersistentAuthorizationTests(unittest.TestCase):
             with self.assertRaisesRegex(AuthorizationError, "E_AUTH_RECOVERY"):
                 restored.lock(scope="scope", receipt_id="lock", operation_id="lock", bindings=[ref("input")])
 
+    def test_lock_receipt_probe_uses_strict_json(self):
+        with tempfile.TemporaryDirectory() as area:
+            path = Path(area) / "auth.jsonl"
+            store = PersistentApprovalStore(path)
+            store.put(scope="scope", operation_id="put-1", expected_generation=0, record=approval())
+            store.lock(scope="scope", receipt_id="lock-1", operation_id="lock-1", bindings=[ref("input")])
+            self.assertTrue(store._has_lock_receipt("lock-1"))
+            raw = path.read_bytes()
+            forged = raw.replace(b'"receipt_id":"lock-1"', b'"receipt_id":"other","receipt_id":"lock-1"')
+            path.write_bytes(forged)
+            self.assertFalse(store._has_lock_receipt("lock-1"))
+
 
 if __name__ == "__main__":
     unittest.main()

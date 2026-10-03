@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import sys
 import unittest
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from codekit.builtin_analysis import assert_analysis_current, build_analysis_report, validate_analysis_report
-from codekit.builtin_artifacts import ArtifactError
+from codekit.builtin_artifacts import ArtifactError, resource_ref_key
 
 
 def ref(name="source"):
@@ -52,8 +53,11 @@ class AnalysisTests(unittest.TestCase):
 
     def test_anchor_must_be_declared_by_source_refs(self):
         foreign = ref("foreign")
+        report = self.report_with(facts=[{"id": "f", "statement": "fact"}])
+        report["payload"]["facts"][0]["source_anchors"] = [{"ref": foreign, "start_byte": 0,
+                                                               "end_byte": 1, "excerpt_sha256": "b" * 64}]
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_PROVENANCE"):
-            self.report_with(facts=[{"id": "f", "statement": "fact", "source_anchors": [{"ref": foreign, "start_byte": 0, "end_byte": 1, "excerpt_sha256": "b" * 64}]}])
+            validate_analysis_report(report)
 
     def test_builder_rejects_untyped_status_and_sources(self):
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_STATUS"):
@@ -71,6 +75,36 @@ class AnalysisTests(unittest.TestCase):
         forged["payload"]["evidence_class"] = []
         with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_EVIDENCE"):
             validate_analysis_report(forged)
+
+    def test_builder_binds_anchors_to_frozen_source_bytes(self):
+        source = b"abcdef"
+        frozen_ref = {"kind": "file", "id": "frozen", "path": "src/frozen.py",
+                      "sha256": hashlib.sha256(source).hexdigest()}
+        anchor = {"ref": frozen_ref, "start_byte": 1, "end_byte": 4,
+                  "excerpt_sha256": hashlib.sha256(source[1:4]).hexdigest()}
+        report = self.report_with(
+            source_refs=[frozen_ref],
+            facts=[{"id": "f", "statement": "fact", "source_anchors": [anchor]}],
+            source_bytes_by_ref={resource_ref_key(frozen_ref): source},
+        )
+        self.assertEqual(report["payload"]["facts"][0]["source_anchors"][0]["end_byte"], 4)
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            self.report_with(
+                source_refs=[frozen_ref],
+                facts=[{"id": "f", "statement": "fact", "source_anchors": [anchor]}],
+                source_bytes_by_ref={resource_ref_key(frozen_ref): b"changed"},
+            )
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_SOURCE"):
+            self.report_with(
+                source_refs=[frozen_ref],
+                facts=[{"id": "f", "statement": "fact", "source_anchors": [anchor]}],
+                source_bytes_by_ref={},
+            )
+        with self.assertRaisesRegex(ArtifactError, "E_ANALYSIS_SOURCE"):
+            self.report_with(
+                source_refs=[frozen_ref],
+                facts=[{"id": "f", "statement": "fact", "source_anchors": [anchor]}],
+            )
 
 
 if __name__ == "__main__":

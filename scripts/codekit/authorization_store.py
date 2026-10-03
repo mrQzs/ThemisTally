@@ -243,10 +243,10 @@ class PersistentApprovalStore:
             return False
         for line in self.path.read_bytes().splitlines():
             try:
-                event = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+                event = protocols.strict_json_loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError, protocols.ProtocolError):
                 continue
-            if event.get("type") == "lock" and event.get("receipt_id") == receipt_id:
+            if isinstance(event, dict) and event.get("type") == "lock" and event.get("receipt_id") == receipt_id:
                 return True
         return False
 

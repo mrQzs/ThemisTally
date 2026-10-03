@@ -12,7 +12,10 @@ import copy
 import re
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
-from .builtin_artifacts import ArtifactError, digest, resource_ref, source_anchor, validate_artifact
+from .builtin_artifacts import (ArtifactError, SourceRefKey, digest, resource_ref,
+                                resource_ref_key, source_anchor,
+                                source_bytes_by_ref as normalize_source_bytes_by_ref,
+                                validate_artifact)
 
 
 ANALYSIS_RECORD_TYPE = "analysis-report"
@@ -31,7 +34,9 @@ def _id(value: Any, path: str) -> str:
     return value
 
 
-def _items(values: Any, field: str, *, kind: str) -> list[Dict[str, Any]]:
+def _items(values: Any, field: str, *, kind: str,
+           frozen_source_bytes: Mapping[SourceRefKey, bytes] | None = None,
+           require_frozen_source: bool = False) -> list[Dict[str, Any]]:
     if not isinstance(values, (list, tuple)):
         _fail("E_ANALYSIS_SCHEMA", field, "array required")
     result = []
@@ -65,7 +70,18 @@ def _items(values: Any, field: str, *, kind: str) -> list[Dict[str, Any]]:
         normalized["source_anchors"] = []
         for anchor_index, anchor in enumerate(anchors):
             try:
-                normalized["source_anchors"].append(source_anchor(anchor))
+                normalized_anchor = source_anchor(anchor)
+                if require_frozen_source and frozen_source_bytes is None:
+                    _fail("E_ANALYSIS_SOURCE", f"{path}/source_anchors/{anchor_index}",
+                          "frozen source bytes are required when building anchored artifacts")
+                frozen = None
+                if frozen_source_bytes is not None:
+                    key = resource_ref_key(normalized_anchor["ref"], f"{path}/source_anchors/{anchor_index}/ref")
+                    if key not in frozen_source_bytes:
+                        _fail("E_ANALYSIS_SOURCE", f"{path}/source_anchors/{anchor_index}/ref",
+                              "frozen source bytes required for anchor reference")
+                    frozen = frozen_source_bytes[key]
+                normalized["source_anchors"].append(source_anchor(anchor, frozen))
             except ArtifactError as exc:
                 _fail(exc.code, f"{path}/source_anchors/{anchor_index}", str(exc))
         result.append(normalized)
@@ -77,7 +93,8 @@ def build_analysis_report(*, artifact_id: str, producer: Mapping[str, Any], sour
                           facts: Sequence[Mapping[str, Any]], inferences: Sequence[Mapping[str, Any]] = (),
                           assumptions: Sequence[Mapping[str, Any]] = (), questions: Sequence[Mapping[str, Any]] = (),
                           status: str = "DRAFT_VALIDATED", evidence_class: str = "OFFLINE_FIXTURE",
-                          check_set_ref: Optional[Mapping[str, Any]] = None, analysis_mode: str = "offline") -> Dict[str, Any]:
+                          check_set_ref: Optional[Mapping[str, Any]] = None, analysis_mode: str = "offline",
+                          source_bytes_by_ref: Mapping[SourceRefKey, bytes] | None = None) -> Dict[str, Any]:
     """Build and validate one deterministic AnalysisReport envelope."""
     if type(artifact_id) is not str or not artifact_id:
         _fail("E_ANALYSIS_SCHEMA", "/artifact_id", "non-empty artifact id required")
@@ -94,15 +111,19 @@ def build_analysis_report(*, artifact_id: str, producer: Mapping[str, Any], sour
     if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
         _fail("E_ANALYSIS_SOURCE", "/source_refs", "source refs sequence required")
     refs = [resource_ref(item, f"/source_refs/{index}") for index, item in enumerate(source_refs)]
+    frozen_source_bytes = None if source_bytes_by_ref is None else normalize_source_bytes_by_ref(
+        source_bytes_by_ref,
+        declared={resource_ref_key(ref) for ref in refs},
+    )
     if check_set_ref is not None:
         check_set_ref = resource_ref(check_set_ref, "/payload/check_set_ref")
     payload = {
         "analysis_mode": analysis_mode,
         "evidence_class": evidence_class,
-        "facts": _items(facts, "/payload/facts", kind="fact"),
-        "inferences": _items(inferences, "/payload/inferences", kind="inference"),
-        "assumptions": _items(assumptions, "/payload/assumptions", kind="assumption"),
-        "questions": _items(questions, "/payload/questions", kind="question"),
+        "facts": _items(facts, "/payload/facts", kind="fact", frozen_source_bytes=frozen_source_bytes, require_frozen_source=True),
+        "inferences": _items(inferences, "/payload/inferences", kind="inference", frozen_source_bytes=frozen_source_bytes, require_frozen_source=True),
+        "assumptions": _items(assumptions, "/payload/assumptions", kind="assumption", frozen_source_bytes=frozen_source_bytes, require_frozen_source=True),
+        "questions": _items(questions, "/payload/questions", kind="question", frozen_source_bytes=frozen_source_bytes, require_frozen_source=True),
         "check_set_ref": check_set_ref,
     }
     record = {"record_type": ANALYSIS_RECORD_TYPE, "schema_version": 1, "artifact_id": artifact_id,
@@ -110,10 +131,11 @@ def build_analysis_report(*, artifact_id: str, producer: Mapping[str, Any], sour
               "candidate_ref": None if candidate_ref is None else resource_ref(candidate_ref, "/candidate_ref"),
               "environment_ref": None if environment_ref is None else resource_ref(environment_ref, "/environment_ref"),
               "payload": payload}
-    return validate_analysis_report(record)
+    return validate_analysis_report(record, source_bytes_by_ref=frozen_source_bytes)
 
 
-def validate_analysis_report(record: Mapping[str, Any]) -> Dict[str, Any]:
+def validate_analysis_report(record: Mapping[str, Any], *,
+                             source_bytes_by_ref: Mapping[SourceRefKey, bytes] | None = None) -> Dict[str, Any]:
     normalized = validate_artifact(record)
     if normalized["record_type"] != ANALYSIS_RECORD_TYPE:
         _fail("E_ANALYSIS_SCHEMA", "/record_type", "analysis-report required")
@@ -127,8 +149,12 @@ def validate_analysis_report(record: Mapping[str, Any]) -> Dict[str, Any]:
         _fail("E_ANALYSIS_MODE", "/payload/analysis_mode", "unsupported analysis mode")
     if type(payload["evidence_class"]) is not str or payload["evidence_class"] not in EVIDENCE_CLASSES:
         _fail("E_ANALYSIS_EVIDENCE", "/payload/evidence_class", "unknown evidence class")
+    frozen_source_bytes = None if source_bytes_by_ref is None else normalize_source_bytes_by_ref(
+        source_bytes_by_ref,
+        declared={resource_ref_key(ref) for ref in normalized["source_refs"]},
+    )
     for name in ("facts", "inferences", "assumptions", "questions"):
-        payload[name] = _items(payload[name], f"/payload/{name}", kind=name[:-1])
+        payload[name] = _items(payload[name], f"/payload/{name}", kind=name[:-1], frozen_source_bytes=frozen_source_bytes)
     if payload["check_set_ref"] is not None:
         payload["check_set_ref"] = resource_ref(payload["check_set_ref"], "/payload/check_set_ref")
     if payload["analysis_mode"] != "production" and payload["evidence_class"] == "PRODUCTION":

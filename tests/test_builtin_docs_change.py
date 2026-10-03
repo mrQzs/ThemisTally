@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from codekit.builtin_docs_change import build_docs_change, validate_docs_change
-from codekit.builtin_artifacts import ArtifactError
+from codekit.builtin_artifacts import ArtifactError, resource_ref_key
 
 class DocsChangeTests(unittest.TestCase):
     def test_change_mapping_is_deterministic_and_closed(self):
@@ -79,5 +79,39 @@ class DocsChangeTests(unittest.TestCase):
         forged["payload"]["changes"][0]["kind"] = []
         with self.assertRaisesRegex(ArtifactError, "E_DOCS_SCHEMA"):
             validate_docs_change(forged)
+
+    def test_builder_binds_change_anchors_to_frozen_source_bytes(self):
+        source = b"abcdef"
+        frozen_ref = {"kind": "file", "id": "frozen", "path": "docs/source.md",
+                      "sha256": hashlib.sha256(source).hexdigest()}
+        anchor = {"ref": frozen_ref, "start_byte": 1, "end_byte": 4,
+                  "excerpt_sha256": hashlib.sha256(source[1:4]).hexdigest()}
+        result = build_docs_change(
+            {"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+            writable_paths=["docs/a.md"], source_refs=[frozen_ref],
+            source_anchors_by_path={"docs/a.md": [anchor]},
+            source_bytes_by_ref={resource_ref_key(frozen_ref): source},
+        )
+        self.assertEqual(result["payload"]["changes"][0]["source_anchors"][0]["end_byte"], 4)
+        with self.assertRaisesRegex(ArtifactError, "E_ARTIFACT_SOURCE"):
+            build_docs_change(
+                {"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+                writable_paths=["docs/a.md"], source_refs=[frozen_ref],
+                source_anchors_by_path={"docs/a.md": [anchor]},
+                source_bytes_by_ref={resource_ref_key(frozen_ref): b"changed"},
+            )
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SOURCE"):
+            build_docs_change(
+                {"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+                writable_paths=["docs/a.md"], source_refs=[frozen_ref],
+                source_anchors_by_path={"docs/a.md": [anchor]},
+                source_bytes_by_ref={},
+            )
+        with self.assertRaisesRegex(ArtifactError, "E_DOCS_SOURCE"):
+            build_docs_change(
+                {"docs/a.md": b"old"}, {"docs/a.md": b"new"},
+                writable_paths=["docs/a.md"], source_refs=[frozen_ref],
+                source_anchors_by_path={"docs/a.md": [anchor]},
+            )
 
 if __name__ == "__main__": unittest.main()

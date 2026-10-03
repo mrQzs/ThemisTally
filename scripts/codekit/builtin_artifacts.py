@@ -20,6 +20,7 @@ MUTABLE_PLUGIN_ALIASES = frozenset({"latest", "head", "current", "stable", "defa
 MAX_BYTES = 1_048_576
 MAX_DEPTH = 32
 MAX_SAFE_INTEGER = 2**53 - 1
+SourceRefKey = Tuple[str, str, str, str]
 
 
 class ArtifactError(ValueError):
@@ -115,6 +116,55 @@ def resource_ref(value: Any, path: str = "/resource_ref") -> Dict[str, str]:
             ord(ch) < 32 or ord(ch) == 127 or 0xD800 <= ord(ch) <= 0xDFFF for ch in normalized):
         _fail("E_ARTIFACT_PATH", f"{path}/path", "path must stay within the candidate")
     return {"kind": value["kind"], "id": value["id"], "path": normalized, "sha256": value["sha256"]}
+
+
+def resource_ref_key(value: Any, path: str = "/resource_ref") -> SourceRefKey:
+    """Return the canonical, hash-bearing key used by frozen source bytes.
+
+    A path or logical id alone is not sufficient to identify a resource: two
+    revisions may legitimately use the same path.  The key therefore includes
+    every ResourceRef field in its canonical order.  Callers can use the
+    resulting tuple as a dictionary key without ever embedding a mutable dict
+    in the API.
+    """
+    normalized = resource_ref(value, path)
+    return tuple(normalized[field] for field in ("kind", "id", "path", "sha256"))
+
+
+def source_bytes_by_ref(value: Any, *, declared: Iterable[SourceRefKey] | None = None,
+                        path: str = "/source_bytes_by_ref") -> Dict[SourceRefKey, bytes]:
+    """Validate and normalize a frozen source-byte mapping.
+
+    The public mapping is keyed by ``resource_ref_key(ref)`` tuples and holds
+    immutable ``bytes`` values.  ``declared`` optionally limits keys to the
+    caller's declared ``source_refs``; this prevents an unbound byte snapshot
+    from being silently accepted.  The mapping is an optional builder input,
+    so omitting it preserves the historical envelope-only validation path.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        _fail("E_ARTIFACT_SOURCE", path, "mapping of ResourceRef keys to bytes required")
+    allowed = None if declared is None else set(declared)
+    result: Dict[SourceRefKey, bytes] = {}
+    for index, (key, raw) in enumerate(value.items()):
+        item_path = f"{path}/{index}"
+        if type(key) is not tuple or len(key) != 4 or any(type(part) is not str for part in key):
+            _fail("E_ARTIFACT_SOURCE", f"{item_path}/ref", "canonical ResourceRef tuple key required")
+        ref_value = {"kind": key[0], "id": key[1], "path": key[2], "sha256": key[3]}
+        canonical = resource_ref_key(ref_value, f"{item_path}/ref")
+        if key != canonical:
+            _fail("E_ARTIFACT_SOURCE", f"{item_path}/ref", "ResourceRef tuple key must be canonical")
+        if allowed is not None and canonical not in allowed:
+            _fail("E_ARTIFACT_SOURCE", f"{item_path}/ref", "source bytes reference is not declared")
+        if type(raw) is not bytes:
+            _fail("E_ARTIFACT_SOURCE", f"{item_path}/bytes", "frozen source bytes required")
+        if len(raw) > MAX_BYTES:
+            _fail("E_ARTIFACT_SIZE", f"{item_path}/bytes", "source bytes exceed byte limit")
+        if hashlib.sha256(raw).hexdigest() != canonical[3]:
+            _fail("E_ARTIFACT_SOURCE", f"{item_path}/bytes", "frozen source bytes digest mismatch")
+        result[canonical] = bytes(raw)
+    return result
 
 
 def source_anchor(value: Any, source_bytes: bytes | None = None) -> Dict[str, Any]:
@@ -216,4 +266,4 @@ def validate_catalog(catalog: Mapping[str, Any]) -> Dict[str, Any]:
     return result
 
 
-__all__ = ["ArtifactError", "FAMILIES", "canonical_bytes", "digest", "resource_ref", "source_anchor", "validate_artifact", "validate_catalog"]
+__all__ = ["ArtifactError", "FAMILIES", "SourceRefKey", "canonical_bytes", "digest", "resource_ref", "resource_ref_key", "source_bytes_by_ref", "source_anchor", "validate_artifact", "validate_catalog"]

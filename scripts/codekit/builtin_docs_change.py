@@ -10,7 +10,10 @@ import hashlib
 import re
 from typing import Any, Mapping, Optional, Sequence
 
-from .builtin_artifacts import ArtifactError, digest, resource_ref, source_anchor, validate_artifact
+from .builtin_artifacts import (ArtifactError, SourceRefKey, digest, resource_ref,
+                                resource_ref_key, source_anchor,
+                                source_bytes_by_ref as normalize_source_bytes_by_ref,
+                                validate_artifact)
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -36,12 +39,26 @@ def _sha(value: Any, field: str) -> Optional[str]:
     raise ArtifactError("E_DOCS_HASH", field, "sha256 hex or null required")
 
 
-def _anchors(value: Any) -> list:
+def _anchors(value: Any, frozen_source_bytes: Mapping[SourceRefKey, bytes] | None = None,
+             *, require_frozen_source: bool = False) -> list:
     if value is None:
         return []
     if not isinstance(value, list):
         raise ArtifactError("E_DOCS_SOURCE", "/source_anchors", "array required")
-    return [source_anchor(item) for item in value]
+    result = []
+    for index, item in enumerate(value):
+        normalized = source_anchor(item)
+        if require_frozen_source and frozen_source_bytes is None:
+            raise ArtifactError("E_DOCS_SOURCE", f"/source_anchors/{index}",
+                                "frozen source bytes are required when building anchored artifacts")
+        frozen = None
+        if frozen_source_bytes is not None:
+            key = resource_ref_key(normalized["ref"], f"/source_anchors/{index}/ref")
+            if key not in frozen_source_bytes:
+                raise ArtifactError("E_DOCS_SOURCE", f"/source_anchors/{index}/ref", "frozen source bytes required for anchor reference")
+            frozen = frozen_source_bytes[key]
+        result.append(source_anchor(normalized, frozen))
+    return result
 
 
 def _scope_paths(value: Any, field: str) -> list[str]:
@@ -80,6 +97,8 @@ def build_docs_change(
     status: str = "DRAFT_VALIDATED",
     purpose: str = "documentation maintenance",
     reader: str = "repository users",
+    source_anchors_by_path: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    source_bytes_by_ref: Mapping[SourceRefKey, bytes] | None = None,
 ) -> dict:
     """Build a deterministic docs-change artifact from fixed byte mappings.
 
@@ -97,6 +116,8 @@ def build_docs_change(
         raise ArtifactError("E_DOCS_SCOPE", "/protected_paths", "protected paths sequence required")
     if not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes)):
         raise ArtifactError("E_DOCS_SOURCE", "/source_refs", "source refs sequence required")
+    if source_anchors_by_path is not None and not isinstance(source_anchors_by_path, Mapping):
+        raise ArtifactError("E_DOCS_SOURCE", "/source_anchors_by_path", "mapping of paths to anchor arrays required")
     writable = {_path(p, "/writable_paths") for p in writable_paths}
     protected = {_path(p, "/protected_paths") for p in protected_paths}
     if not writable.isdisjoint(protected):
@@ -124,24 +145,46 @@ def build_docs_change(
             "reader": reader,
             "source_anchors": [],
         })
-    for ref in source_refs:
-        resource_ref(ref)
+    anchor_specs = {}
+    changed_paths = {row["path"] for row in changes}
+    if source_anchors_by_path is not None:
+        for raw_path, anchors in source_anchors_by_path.items():
+            path = _path(raw_path, "/source_anchors_by_path")
+            if path in anchor_specs:
+                raise ArtifactError("E_DOCS_SOURCE", "/source_anchors_by_path", "duplicate canonical anchor path")
+            if path not in changed_paths:
+                raise ArtifactError("E_DOCS_SOURCE", path, "anchors require a changed Markdown path")
+            if not isinstance(anchors, (list, tuple)):
+                raise ArtifactError("E_DOCS_SOURCE", path, "anchor array required")
+            anchor_specs[path] = list(anchors)
+    normalized_refs = []
+    for index, ref in enumerate(source_refs):
+        normalized_ref = resource_ref(ref, f"/source_refs/{index}")
+        normalized_refs.append(normalized_ref)
     if type(status) is not str:
         raise ArtifactError("E_DOCS_SCHEMA", "/status", "status must be text")
     if status == "PASS":
         raise ArtifactError("E_DOCS_PRODUCTION_GATE", "/status", "PASS requires a trusted dispatcher receipt")
+    frozen_source_bytes = None if source_bytes_by_ref is None else normalize_source_bytes_by_ref(
+        source_bytes_by_ref,
+        declared={resource_ref_key(ref) for ref in normalized_refs},
+    )
+    for row in changes:
+        row["source_anchors"] = _anchors(anchor_specs.get(row["path"], []), frozen_source_bytes,
+                                          require_frozen_source=True)
     payload = {"changes": changes, "scope": {"writable": sorted(writable), "protected": sorted(protected)}, "mapping_version": 1}
     record = {
         "record_type": "docs-change", "schema_version": 1, "artifact_id": artifact_id,
         "producer": {"kind": "builtin-plugin", "id": producer_id, "version": producer_version},
-        "status": status, "source_refs": [dict(x) for x in source_refs],
+        "status": status, "source_refs": normalized_refs,
         "candidate_ref": None if candidate_ref is None else dict(candidate_ref),
         "environment_ref": None if environment_ref is None else dict(environment_ref), "payload": payload,
     }
-    return validate_artifact(record)
+    return validate_docs_change(record, source_bytes_by_ref=frozen_source_bytes)
 
 
-def validate_docs_change(record: Mapping[str, Any]) -> dict:
+def validate_docs_change(record: Mapping[str, Any], *,
+                         source_bytes_by_ref: Mapping[SourceRefKey, bytes] | None = None) -> dict:
     """Validate a docs-change envelope and its closed payload fields."""
     value = validate_artifact(record)
     if value["record_type"] != "docs-change":
@@ -153,6 +196,10 @@ def validate_docs_change(record: Mapping[str, Any]) -> dict:
         raise ArtifactError("E_DOCS_SCHEMA", "/payload", "closed docs-change payload required")
     if not isinstance(payload["changes"], list) or not isinstance(payload["scope"], dict) or set(payload["scope"]) != {"writable", "protected"}:
         raise ArtifactError("E_DOCS_SCHEMA", "/payload", "invalid changes or scope")
+    frozen_source_bytes = None if source_bytes_by_ref is None else normalize_source_bytes_by_ref(
+        source_bytes_by_ref,
+        declared={resource_ref_key(ref) for ref in value["source_refs"]},
+    )
     writable = _scope_paths(payload["scope"]["writable"], "/payload/scope/writable")
     protected = _scope_paths(payload["scope"]["protected"], "/payload/scope/protected")
     if set(writable).intersection(protected):
@@ -177,7 +224,8 @@ def validate_docs_change(record: Mapping[str, Any]) -> dict:
             raise ArtifactError("E_DOCS_SCHEMA", path, "delete must not have after hash")
         if not isinstance(item["purpose"], str) or not item["purpose"] or not isinstance(item["reader"], str) or not item["reader"]:
             raise ArtifactError("E_DOCS_SCHEMA", path, "purpose and reader are required")
-        anchors = _anchors(item["source_anchors"])
+        anchors = _anchors(item["source_anchors"], frozen_source_bytes)
+        item["source_anchors"] = anchors
         declared = {(ref["kind"], ref["id"], ref["path"], ref["sha256"]) for ref in value["source_refs"]}
         for anchor_index, anchor in enumerate(anchors):
             ref = anchor["ref"]
