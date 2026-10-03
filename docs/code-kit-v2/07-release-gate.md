@@ -1,8 +1,10 @@
 # 07 发布门禁与阶段收尾
 
+当前固定候选已推进至 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`；下方早期候选段落保留为历史记录，最终离线复核见文末。
+
 ## 候选与证据
 
-- 候选提交：`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b`（当前离线实现候选；合同基线已刷新）。
+- 历史候选提交：`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b`（合同基线已刷新）。
 - 远端：`origin/master` 已包含当前候选及其后续文档提交；工作树核验为干净。
 - 当前验收矩阵定向套件：478 项通过、8 项跳过（`docs/code-kit-v2/07-acceptance-matrix.md` 中的组合命令）；此前三组 279 项结果仍作为历史分组记录保留。另有 happy/timeout/validate/stuck/budget/preflight/v2 planner 等 dispatch stub 场景通过，但完整调度回归仍未形成通过证据。
 - 调度器回归：本轮 Windows `python tests/test_dispatch.py` 长时间无输出后停止，不能形成新的通过证据；此前 Windows/WSL stub 记录分别为 258/263 checks，均是历史本地证据。
@@ -53,3 +55,13 @@
 `ffce46b5400d1688ecb25bc754c487db3a1f05dc` 已推送到 `origin/master`。当前扩展组合为 484 项收集、476 项通过、8 项环境跳过；完整发现为 1164 项收集、38 项跳过和 3 项既有 legacy source-lock 失败。stub dispatch、compileall、diff-check 与 WSL Schema 复核均已用新的 baseline capture 记录，取证路径和命令见 `docs/code-kit-v2/07-acceptance-matrix.md` 最新条目。
 
 本提交只推进离线边界：lease、资源 claim、retry 和 workflow Schema 的拒绝规则已跨运行时、账本和 Schema 对齐。G1/G2 仍为 `LOCAL_REFERENCE`；G3 的当前 stub 回归已通过但不是生产 dispatcher 证据；G4–G7（真实 Pi/provider、原生 OS、09/10）继续 `NOT_RUN/BLOCKED`；G8 继续 `REVISE/BLOCKED`，因为尚无 Pi attempt 和规定的独立复审 verdict。合同审计仍发现 01-2、08-s5-1、08-s6-3 的部分检查需要下一合同版本绑定实际测试函数和故障输入，不能用文件存在性结论放行阶段。
+
+## 2026-10-03 最终离线门禁记录
+
+`e8935e84f9b6c196394ac576115317ef3b2e1d1d` 已推送。插件全集为 102 项收集、95 项通过、7 项可选 Schema 依赖跳过；01–06/08 扩展组合为 542 项收集、534 项通过、8 项跳过。证据目录分别为 `.agent/runs/offline-01-06-08-20261003-builtin-all-03/` 和 `.agent/runs/offline-01-06-08-20261003-expanded-all-03/`，两者均无 baseline drift。
+
+G1/G2 可保留为离线 `LOCAL_REFERENCE`；G3 当前候选没有新的 dispatch capture，G4–G7（Pi/provider、原生平台、09/10）继续 `NOT_RUN/BLOCKED`，G8 继续 `REVISE/BLOCKED`。离线测试通过不授予生产执行、批准或发布权限。
+
+## 2026-10-03 最终候选（C1 边界修复后）
+
+`8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 的插件和扩展 capture 分别为 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`，结果为 102/95/7 与 542/534/8（收集/通过/跳过）。离线边界继续为 `LOCAL_REFERENCE`；没有新的 dispatcher、Pi attempt 或真实连接器证据，G3–G8 不放行。

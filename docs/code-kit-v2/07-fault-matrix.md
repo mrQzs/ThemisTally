@@ -1,5 +1,7 @@
 # 07 故障矩阵（离线候选）
 
+当前固定候选为 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`；顶部早期候选记录保留为历史，最新故障证据见文末。
+
 候选提交：`a2357b0`。`LOCAL_PARTIAL` 只表示已有纯 Python/SQLite 故障式单测或明确门禁；真实进程、provider、跨平台和外部系统故障仍为 `NOT_RUN`。
 
 | 故障 | 当前状态 | 可复核入口 | 生产/环境缺口 |
@@ -54,3 +56,11 @@
 | F18、F21、F28–F30 | BLOCKED/NOT_RUN | — | 原生平台、外部 consumer、真实恢复演练不可用 |
 
 三项完整发现失败仍是 `a4fa199` legacy source-lock，不属于上述新增故障路径；详见固定候选复审报告。
+
+## 2026-10-03 最终离线故障证据
+
+插件故障/边界取证使用 `.agent/runs/offline-01-06-08-20261003-builtin-all-03/`（102 收集、95 通过、7 跳过），组合取证使用 `.agent/runs/offline-01-06-08-20261003-expanded-all-03/`（542 收集、534 通过、8 跳过）。新增 scope 伪造、生产 `PASS` 重放、READY 绑定不一致、授权 subject/input 闭包和编码后超限负例均在离线测试中执行。它们只能标记 `LOCAL_REFERENCE`；真实 PID/boot、provider 账单、跨平台进程、handoff/响应丢失和外部 consumer 故障继续 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 最终候选（C1 边界修复后）
+
+`8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 的两组 raw capture 均无漂移；C1 控制字符拒绝覆盖 docs path、local target、scope 和 review text。对应故障只可记为 `LOCAL_REFERENCE`，真实平台/provider/handoff/consumer 故障继续 `NOT_RUN/BLOCKED`。

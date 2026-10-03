@@ -1,5 +1,7 @@
 # 08 验收追踪矩阵
 
+当前固定候选为 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`；前置表格和早期映射保留其建立时状态，最终证据映射见本文末尾。
+
 状态含义：`PLANNED` 表示已有合同但未执行；`LOCAL_REFERENCE` 只表示离线参考覆盖；`NOT_RUN` 表示缺少真实接线；`BLOCKED` 表示环境或前置条件缺失。任何状态都不能替代生产 PASS。
 
 ## 原有验收项
@@ -97,3 +99,18 @@
 | T09、T10、T28、T29 | BLOCKED | — | Windows/macOS 原生进程、真实 handoff/响应丢失环境不可用 |
 
 独立复审报告为 `.agent/reviews/offline-acceptance-20261003-final.md`；它是规划端固定候选复核，不是 `review-pi` verdict。真实 Pi、provider、原生平台和 09/10 连接器仍统一为 `BLOCKED/NOT_RUN`。
+
+## 2026-10-03 最终离线证据映射
+
+最终候选 `e8935e84f9b6c196394ac576115317ef3b2e1d1d` 的原始证据为 `.agent/runs/offline-01-06-08-20261003-expanded-all-03/`（542 收集、534 通过、8 跳过）和 `.agent/runs/offline-01-06-08-20261003-builtin-all-03/`（102 收集、95 通过、7 跳过）。新增可绑定的离线条目包括：
+
+- A01/T01：`tests.test_builtin_recipe_compiler.RecipeCompilerTests.test_all_checked_in_recipes_bind_catalog_versions_and_closed_stage_dag`；
+- A05/A27/T06/T13：`tests.test_builtin_docs_change.DocsChangeTests.test_validator_rejects_forged_scope_paths_and_duplicates` 及 `test_offline_docs_change_rejects_production_pass`；
+- A03/A27/T06：`tests.test_builtin_docs_oracle.DocsOracleTests.test_bundle_rejects_forged_ready_result` 及 `test_bundle_rejects_untyped_inputs`；
+- 01–03 的授权/配置边界：`tests.test_authorization*`、`tests.test_config_profiles`、`tests.test_config_policy_boundaries` 中本轮新增负例。
+
+以上只提升对应行至 `LOCAL_REFERENCE`，不改变未覆盖的 A/T 行；没有当前 Pi attempt，真实 provider、原生平台、生产 dispatcher 和 09/10 consumer 仍为 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 最终候选（C1 边界修复后）
+
+最终证据目录为 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`（542/534/8）和 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/`（102/95/7）。C1 控制字符负例的实际测试入口为 `tests.test_builtin_docs_checks.DocsChecksTests.test_local_target_classifies_without_network`、`tests.test_builtin_docs_change.DocsChangeTests.test_validator_rejects_forged_scope_paths_and_duplicates` 和 `tests.test_builtin_docs_oracle.DocsOracleTests.test_fixed_content_oracle_distinguishes_match_mismatch_and_drift`。它们只支持离线参考映射，不改变未运行项。

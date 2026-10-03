@@ -1,6 +1,8 @@
 # 07 验收矩阵（候选提交）
 
-候选提交：`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b`（当前离线实现候选；下文早期 v1 行保留为历史映射）。该矩阵只记录当前工作树可复核的离线候选；没有 Pi attempt、真实 provider、真实 OS 进程或 09/10 生产连接证据时，不得使用 `PASS`。
+当前固定候选已推进至 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`；文档中的早期候选和计数均保留为历史映射，最新离线取证见本文末尾。
+
+历史候选提交：`ef5ff25e9f41cea1096f75d31b027ef4dafcb66b`（下文早期 v1 行保留为历史映射）。该矩阵只记录可复核的离线候选；没有 Pi attempt、真实 provider、真实 OS 进程或 09/10 生产连接证据时，不得使用 `PASS`。
 
 ## 统一验证命令
 
@@ -77,3 +79,13 @@ S6 v1 合同仍记录 `contract_base_sha=175653e`，而本候选是 `candidate_s
 新增边界覆盖包括 claim receipt 与 SQLite lease 的非负安全整数范围、并行资源键的公共路径规则及容量上限、retry attempt/sequence 饱和与溢出等待、workflow currency cap 的运行时与 Schema 上限。相关定向取证目录为 `.agent/runs/offline-01-06-08-20261003-targeted-02/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-05/`；完整发现取证为 `.agent/runs/offline-01-06-08-20261003-full-discover-01/`，结果 `Ran 1164 tests`、`FAILED (failures=3, skipped=38)`，三项均为既有 `a4fa199` legacy source-lock，不是本提交新增失败。
 
 compileall、`git diff --check`、WSL Python 3.12 Schema 7 项和 stub dispatch 取证均通过，分别见 `.agent/runs/offline-01-06-08-20261003-compile-01/`、`diffcheck-01/`、`schema-wsl-01/` 和 `dispatch-01/`。这些是本地离线/fixture 证据；没有 Pi attempt、真实 provider、原生 macOS/Windows 进程或 09/10 外部连接器证据，因此 A/F 与生产门禁仍不能标记 PASS。
+
+## 2026-10-03 最终离线候选复核
+
+最终候选为 `e8935e84f9b6c196394ac576115317ef3b2e1d1d`，已推送到 `origin/master`。插件全集取证目录为 `.agent/runs/offline-01-06-08-20261003-builtin-all-03/`，实际 `Ran 102 tests`、`OK (skipped=7)`，即 95 项执行通过、7 项因 Windows 环境缺少可选 Schema 依赖而跳过。01–06/08 扩展组合取证目录为 `.agent/runs/offline-01-06-08-20261003-expanded-all-03/`，实际 `Ran 542 tests`、`OK (skipped=8)`，即 534 项执行通过、8 项跳过。两份 capture 均记录返回码 0、命令已执行、前后输入清单无漂移。
+
+本轮新增证据覆盖授权/配置编码后字节上限、approval subject/input 闭包、空 adapter option schema、三 recipe 的 catalog 版本与闭合 DAG、docs-change scope/生产状态重验证，以及 review readiness 的闭合绑定。它们仍是离线 `LOCAL_REFERENCE`；没有当前候选的 Pi attempt、真实 provider、原生 Windows/macOS 进程、09/10 连接器或独立 `review-pi` verdict，因此阶段和生产发布门禁继续为 `REVISE/BLOCKED`。
+
+## 2026-10-03 最终候选（C1 边界修复后）
+
+`8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 已推送。新的 capture 为 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/`（102 收集、95 通过、7 跳过）和 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`（542 收集、534 通过、8 跳过）；两者返回码均为 0，且 `baseline_consistent=true`、无漂移。C1 控制字符负例已纳入 docs-change、docs-check 和 review oracle。Pi/provider/native/09/10 仍未运行，门禁继续 `REVISE/BLOCKED`。

@@ -58,3 +58,7 @@ Git Bash Python 3.12.3 对同一组合套件复核为 398 项通过、1 项跳�
 
 
 `ef5ff25e9f41cea1096f75d31b027ef4dafcb66b` 对旧 projections readiness/outbox 接口补齐 C1/代理字符、generation/cursor 安全整数、event_id 和状态文本闭集；扩展组合回归 478 项通过、8 项环境跳过。真实 Pi/provider、原生平台和外部连接器仍为 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 当前离线候选
+
+`8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 收紧授权/配置 canonical JSON 的编码后字节上限、approval subject/input 闭包、空 option schema，并补充 docs/plugin artifact 的 scope、生产状态和 review readiness 重放校验。01–06/08 扩展组合为 542 项收集、534 项通过、8 项环境跳过；插件全集为 102 项收集、95 项通过、7 项环境跳过。该结果是规划端离线 `LOCAL_REFERENCE`，没有 Pi attempt、真实 provider、原生平台或 09/10 连接器证据，阶段门继续 `REVISE/BLOCKED`。

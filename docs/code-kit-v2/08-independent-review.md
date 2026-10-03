@@ -16,3 +16,7 @@
 ## 下一次独立复审输入
 
 独立复审者应读取对应 attempt 的 `plan.md`、`summary.md`、`scope.json`、`candidate.patch` 和最新 checks/mutations，并在固定候选上重新运行合同检查。当前没有符合这些条件的 Pi attempt，因此 08 阶段结论保持 `REVISE/BLOCKED`。
+
+最新固定候选为 `e8935e84f9b6c196394ac576115317ef3b2e1d1d`，最终规划端复核报告为 `.agent/reviews/offline-acceptance-20261003-final-v2.md`；早期候选和报告保留作历史证据。
+
+最新复核文件已更新至候选 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf`，证据目录为 `offline-01-06-08-20261003-builtin-all-04` 和 `offline-01-06-08-20261003-expanded-all-04`；结论仍为 `REVISE/BLOCKED`。
