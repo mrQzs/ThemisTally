@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from .. import protocols
 from ..builtin_artifacts import resource_ref
 from ..planner_runtime import PlanningBudgetLedger
 from .capability import AdapterCapability
@@ -107,6 +108,17 @@ class ProfileRouter:
         adapter_id, profile = self.resolve(profile_id)
         return self.facade.build_invocation(adapter_id, profile, **kwargs)
 
+    def start_gate(self, profile_id: str, **kwargs: Any) -> "StartGate":
+        """Evaluate an executor start gate for a registered profile.
+
+        The router only supplies the provider-neutral profile binding.  The
+        gate itself still rechecks the run context, handoff and shared budget
+        at the point where a caller would pass an invocation to the 05
+        process runner; it never starts a process or grants approval.
+        """
+        _, profile = self.resolve(profile_id)
+        return evaluate_start_gate(profile=profile, **kwargs)
+
 
 def _text(value: Any, field: str) -> str:
     if type(value) is not str or not value or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
@@ -136,6 +148,7 @@ class ProfileHandoff:
     budget_generation: int
     read_only: bool = True
     state: str = "READY"
+    executor_context: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for field in ("request_id", "run_id", "planner_profile_id", "executor_profile_id",
@@ -162,6 +175,15 @@ class ProfileHandoff:
             raise AdapterFacadeError("E_HANDOFF_SCOPE", "handoff must remain read-only")
         if self.state not in {"READY", "REQUIRES_REVIEW", "BLOCKED", "RECOVERY_REQUIRED"}:
             raise AdapterFacadeError("E_HANDOFF_STATE", "unsupported handoff state")
+        if self.executor_context is not None:
+            try:
+                context = dict(self.executor_context)
+                protocols.validate_run_context(context, for_executor_dispatch=True)
+            except Exception as exc:
+                raise AdapterFacadeError("E_HANDOFF_CONTEXT", "executor context is not dispatch-valid") from exc
+            if context["request_id"] != self.request_id or context["run_id"] != self.run_id:
+                raise AdapterFacadeError("E_HANDOFF_CONTEXT", "executor context identity does not match handoff")
+            object.__setattr__(self, "executor_context", context)
 
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "profile-handoff", "schema_version": 1,
@@ -173,7 +195,8 @@ class ProfileHandoff:
                 "contract_ref": dict(self.contract_ref),
                 "input_refs": [dict(ref) for ref in self.input_refs],
                 "budget_generation": self.budget_generation,
-                "read_only": self.read_only, "state": self.state}
+                "read_only": self.read_only, "state": self.state,
+                **({"executor_context": dict(self.executor_context)} if self.executor_context is not None else {})}
 
 
 def validate_handoff(handoff: ProfileHandoff, *, request_id: str, budget_generation: int,
@@ -277,6 +300,108 @@ def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
     return RoleGate(not reasons, tuple(dict.fromkeys(reasons)))
 
 
+@dataclass(frozen=True)
+class StartGate:
+    """Point-in-time executor admission decision for an offline runtime.
+
+    ``allowed`` means only that the supplied, already-built invocation may be
+    handed to a trusted 05 runner.  It is not evidence that a process started
+    and it does not consume budget or approval.
+    """
+
+    allowed: bool
+    reasons: tuple[str, ...]
+    context_report: Mapping[str, Any] | None = None
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"allowed": self.allowed, "reasons": list(self.reasons),
+                "context_report": dict(self.context_report) if self.context_report is not None else None}
+
+
+def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliProfile,
+                        handoff: ProfileHandoff, ledger: PlanningBudgetLedger,
+                        invocation: SecondCliInvocation | None = None,
+                        generation: int | None = None) -> StartGate:
+    """Recheck all local bindings immediately before executor dispatch.
+
+    This is deliberately provider-neutral: the only provider-specific object
+    is the adapter-created ``SecondCliInvocation``.  The gate validates the
+    shared RunContext contract and identity, then checks the cross-session
+    handoff, profile role, generation and core ``PlanningBudgetLedger``.  A
+    missing or mismatched fact is a conservative block, never an implicit
+    start or retry.
+    """
+    reasons: list[str] = []
+    report: Mapping[str, Any] | None = None
+    context: Mapping[str, Any] | None = run_context if isinstance(run_context, Mapping) else None
+    if context is None:
+        reasons.append("CONTEXT_SCHEMA")
+    else:
+        try:
+            report = protocols.validate_run_context(dict(context), for_executor_dispatch=True)
+        except protocols.ProtocolError as exc:
+            reasons.append("CONTEXT_" + exc.code)
+
+    expected_generation = handoff.budget_generation if generation is None else generation
+    if type(expected_generation) is not int or expected_generation < 1:
+        reasons.append("GENERATION_INVALID")
+    try:
+        role_gate = check_role_gate(profile=profile, expected_role="executor", handoff=handoff,
+                                    ledger=ledger, generation=expected_generation)
+        reasons.extend(role_gate.reasons)
+    except (AdapterFacadeError, TypeError, AttributeError):
+        reasons.append("ROLE_GATE_SCHEMA")
+
+    if context is not None and not any(item.startswith("CONTEXT_") for item in reasons):
+        if context.get("request_id") != handoff.request_id:
+            reasons.append("REQUEST_MISMATCH")
+        if context.get("run_id") != handoff.run_id:
+            reasons.append("RUN_MISMATCH")
+        if context.get("role") != "executor":
+            reasons.append("ROLE_MISMATCH")
+        if context.get("platform") != profile.platform:
+            reasons.append("PLATFORM_MISMATCH")
+        try:
+            context_ref = _ref(dict(context["contract_ref"]), "/context/contract_ref")
+            if context_ref != handoff.contract_ref:
+                reasons.append("CONTRACT_MISMATCH")
+        except (KeyError, TypeError, AdapterFacadeError):
+            reasons.append("CONTRACT_MISMATCH")
+        if handoff.executor_context is not None and dict(context) != dict(handoff.executor_context):
+            reasons.append("CONTEXT_DRIFT")
+
+    if isinstance(ledger, PlanningBudgetLedger):
+        if context is not None and ledger.request_id != context.get("request_id"):
+            reasons.append("REQUEST_MISMATCH")
+        if expected_generation != ledger.generation:
+            reasons.append("STALE_GENERATION")
+    else:
+        reasons.append("BUDGET_UNBOUND")
+
+    if invocation is not None:
+        if not isinstance(invocation, SecondCliInvocation):
+            reasons.append("INVOCATION_SCHEMA")
+        else:
+            adapter = invocation.adapter
+            runtime = invocation.runtime
+            if adapter.request_id != handoff.request_id or runtime.request_id != handoff.request_id:
+                reasons.append("INVOCATION_REQUEST_MISMATCH")
+            if adapter.run_id != handoff.run_id or runtime.run_id != handoff.run_id:
+                reasons.append("INVOCATION_RUN_MISMATCH")
+            if adapter.role != "executor" or profile.role != "executor":
+                reasons.append("INVOCATION_ROLE_MISMATCH")
+            if adapter.profile_id != handoff.executor_profile_id or profile.profile_id != handoff.executor_profile_id:
+                reasons.append("INVOCATION_PROFILE_MISMATCH")
+            if adapter.adapter_id != profile.adapter_id:
+                reasons.append("INVOCATION_ADAPTER_MISMATCH")
+            if invocation.read_only is not True:
+                reasons.append("INVOCATION_SCOPE_UNKNOWN")
+            if invocation.session_id != handoff.executor_session_id:
+                reasons.append("INVOCATION_SESSION_MISMATCH")
+
+    return StartGate(not reasons, tuple(dict.fromkeys(reasons)), report)
+
+
 __all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
            "HeterogeneousAdapterFacade", "ProfileHandoff", "ProfileRouter", "RoleGate",
-           "check_role_gate", "validate_handoff"]
+           "StartGate", "check_role_gate", "evaluate_start_gate", "validate_handoff"]

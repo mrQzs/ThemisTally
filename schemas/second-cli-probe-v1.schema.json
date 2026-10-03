@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-probe:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "adapter_id",
+    "executable",
+    "version_exit_code",
+    "help_exit_code",
+    "status",
+    "capability",
+    "version_sha256",
+    "help_sha256"
+  ],
+  "properties": {
+    "record_type": {"const": "second-cli-probe"},
+    "schema_version": {"const": 1},
+    "adapter_id": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "version_exit_code": {"type": "integer"},
+    "help_exit_code": {"type": "integer"},
+    "status": {"enum": ["OBSERVED_EXECUTABLE", "BLOCKED"]},
+    "capability": {"$ref": "adapter-capability-v1.schema.json"},
+    "version_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "help_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

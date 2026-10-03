@@ -273,6 +273,48 @@ class CollectionResult:
                 "invocation_sha256": self.invocation_sha256}
 
 
+class RawRecordStore:
+    """Small in-memory raw-byte evidence store used by offline fixtures.
+
+    The store is deliberately not a production spool.  It proves that a
+    ResourceRef and half-open byte range can be checked against the exact
+    UTF-8 bytes retained by a caller before an event is accepted.
+    """
+
+    def __init__(self) -> None:
+        self._records: dict[tuple[str, str, str, str], bytes] = {}
+
+    def add(self, raw_record: bytes | str, *, raw_path: str, record_id: str | None = None) -> dict[str, str]:
+        raw = _raw(raw_record)
+        _text(raw_path, "raw_path")
+        record_id = record_id or hashlib.sha256(raw).hexdigest()[:32]
+        _text(record_id, "record_id")
+        ref = {"kind": "raw-segment", "id": record_id, "path": raw_path,
+               "sha256": hashlib.sha256(raw).hexdigest()}
+        normalized = resource_ref(ref, "/raw_record_ref")
+        key = tuple(normalized[name] for name in ("kind", "id", "path", "sha256"))
+        previous = self._records.get(key)
+        if previous is not None and previous != raw:
+            raise SecondCliError("E_CLI_RAW_REPLAY", "raw record identity has different bytes")
+        self._records[key] = raw
+        return normalized
+
+    def verify(self, raw_record_ref: Mapping[str, str], *, raw_start: int, raw_end: int,
+               expected_bytes: bytes | str | None = None) -> bytes:
+        normalized = resource_ref(dict(raw_record_ref), "/raw_record_ref")
+        if type(raw_start) is not int or type(raw_end) is not int or not 0 <= raw_start < raw_end:
+            raise SecondCliError("E_CLI_RAW_RANGE", "raw range must be half-open")
+        key = tuple(normalized[name] for name in ("kind", "id", "path", "sha256"))
+        raw = self._records.get(key)
+        if raw is None:
+            raise SecondCliError("E_CLI_RAW_MISSING", "raw record is not retained")
+        if hashlib.sha256(raw).hexdigest() != normalized["sha256"] or raw_end > len(raw):
+            raise SecondCliError("E_CLI_RAW_DRIFT", "raw record bytes do not match reference")
+        if expected_bytes is not None and _raw(expected_bytes) != raw:
+            raise SecondCliError("E_CLI_RAW_DRIFT", "provided raw bytes differ from retained evidence")
+        return raw[raw_start:raw_end]
+
+
 def _probe_command(executable: str, args: Sequence[str], timeout: float) -> tuple[int, bytes, bool]:
     try:
         completed = subprocess.run((executable, *args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -322,7 +364,7 @@ class ClaudeCodeAdapter:
         capability = AdapterCapability(self.adapter_id, self.protocol_version, version, (selected_platform,),
                                        ("planner", "executor", "observer"), tuple(capabilities), "required", "argv",
                                        evidence, False, (environment_kind,))
-        status = "OBSERVED_EXECUTABLE" if version_exit == 0 and help_exit == 0 and not version_timeout and not help_timeout else "BLOCKED"
+        status = "OBSERVED_EXECUTABLE" if version_exit == 0 and help_exit == 0 and not version_timeout and not help_timeout and version != "unknown" else "BLOCKED"
         return ProbeResult(capability, executable_path, version_raw, help_raw, version_exit, help_exit, status)
 
     def validate_profile(self, capability: AdapterCapability, *, role: str, platform: str,
@@ -382,7 +424,7 @@ class ClaudeCodeAdapter:
         model = record.get("model")
         if model is None and isinstance(record.get("message"), dict):
             model = record["message"].get("model")
-        if kind not in _KNOWN_TYPES:
+        if not isinstance(kind, str) or kind not in _KNOWN_TYPES:
             return CliEvent(request_id, run_id, seq, role, event_id, "unknown", {"raw": record}, ref, 0, len(raw),
                             adapter_revision, actual_model=model if isinstance(model, str) else None, complete=False)
         event_type = {"system": "run_started", "assistant": "assistant", "user": "user",
@@ -448,7 +490,9 @@ class ClaudeCodeAdapter:
                     unique_events.append(event)
                 elif (previous.raw_record_ref != event.raw_record_ref or previous.payload != event.payload
                       or previous.event_type != event.event_type or previous.seq != event.seq
-                      or previous.complete != event.complete or previous.terminal != event.terminal):
+                      or previous.complete != event.complete or previous.terminal != event.terminal
+                      or previous.actual_model != event.actual_model or previous.tool_id != event.tool_id
+                      or previous.adapter_revision != event.adapter_revision):
                     reasons.append("EVENT_REPLAY_CONFLICT")
         events = tuple(unique_events)
         if exit_code is None:
@@ -498,6 +542,8 @@ class ClaudeCodeAdapter:
         terminals = [event for event in events if event.terminal]
         if len(terminals) != 1:
             reasons.append("TERMINAL_MISSING" if not terminals else "TERMINAL_AMBIGUOUS")
+        elif any(event.seq > terminals[0].seq for event in events):
+            reasons.append("TERMINAL_NOT_FINAL")
         result: Mapping[str, Any] | None = None
         try:
             if terminals:
@@ -516,4 +562,5 @@ class ClaudeCodeAdapter:
         return CollectionResult(status == "SETTLED", status, tuple(dict.fromkeys(reasons)), result, actual_model, usage, invocation_sha256)
 
 
-__all__ = ["ClaudeCodeAdapter", "CollectionResult", "CliEvent", "ProbeResult", "SecondCliError", "SecondCliInvocation", "SecondCliProfile"]
+__all__ = ["ClaudeCodeAdapter", "CollectionResult", "CliEvent", "ProbeResult", "RawRecordStore",
+           "SecondCliError", "SecondCliInvocation", "SecondCliProfile"]
