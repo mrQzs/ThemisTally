@@ -159,6 +159,14 @@ class WiringAndProductionTests(unittest.TestCase):
         self.assertIn("STATE_ISSUES_INVALID", decision.reasons)
         self.assertIn("STATE_TRUNCATION_INVALID", decision.reasons)
 
+    def test_wiring_rejects_c1_controls_in_state_identity(self) -> None:
+        state, brief = state_and_brief()
+        forged = {**state, "source_vector": {"ledger\x80": 2}}
+        decision = verify_09_10_wiring(readiness=project_readiness(readiness_facts()),
+                                       state=forged, brief=brief)
+        self.assertEqual(decision.decision, BLOCKED)
+        self.assertIn("STATE_SOURCE_VECTOR_INVALID", decision.reasons)
+
     def test_missing_and_synthetic_connectors_are_explicitly_production_blocked(self) -> None:
         missing = evaluate_production_connectors(None)
         self.assertEqual(missing.decision, PRODUCTION_BLOCKED)

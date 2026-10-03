@@ -492,7 +492,7 @@ def evaluate_integration_gates(*, contract: Any, expected_contract_sha256: str |
 
 def _nonempty_text(value: Any) -> bool:
     return type(value) is str and bool(value) and all(
-        ord(ch) >= 0x20 and ord(ch) != 0x7F and not 0xD800 <= ord(ch) <= 0xDFFF
+        ord(ch) >= 0x20 and not 0x7F <= ord(ch) <= 0x9F and not 0xD800 <= ord(ch) <= 0xDFFF
         for ch in value)
 
 
