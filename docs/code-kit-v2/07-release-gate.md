@@ -66,6 +66,12 @@ G1/G2 可保留为离线 `LOCAL_REFERENCE`；G3 当前候选没有新的 dispatc
 
 `8c16333ff8d3b80eda8c95216d1236d9f3fe23cf` 的插件和扩展 capture 分别为 `.agent/runs/offline-01-06-08-20261003-builtin-all-04/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-all-04/`，结果为 102/95/7 与 542/534/8（收集/通过/跳过）。离线边界继续为 `LOCAL_REFERENCE`；没有新的 dispatcher、Pi attempt 或真实连接器证据，G3–G8 不放行。
 
+## 2026-10-03 当前修复候选
+
+当前代码候选为 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a`，已推送且工作区干净。03/04、usage settlement 和 08-S2/S3 的离线边界修复通过 113 项定向测试、compileall 与 diff-check；全量 discover 为 1208 项收集、3 项既有 legacy source-lock 失败、39 项环境跳过。
+
+门禁结论不变：G1/G2 只能保留 `LOCAL_REFERENCE`；G3 当前 dispatcher 回归没有新的可信 capture；G4–G7 的真实 Pi/provider/native/09/10 证据仍 `NOT_RUN/BLOCKED`；G8 仍 `REVISE/BLOCKED`。生产发布门禁继续关闭。
+
 ## 2026-10-03 当前合同基线与离线复核
 
 代码候选 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee` 已推送；39 对 01–06/08 合同以新版本发布于 `db46200d75ff1462837996bab7450e09a9a88f46`，均绑定精确 `bb/step-5-preview` 元数据，并通过 `pi_dispatch validate`。当前原始取证目录为 `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 与 `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`，两者均 `baseline_consistent=true`、无 drift。

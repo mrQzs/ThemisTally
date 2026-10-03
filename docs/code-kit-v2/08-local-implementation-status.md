@@ -98,3 +98,9 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 08 离线代码候选为 `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`，39 对 01–06/08 合同的新版本随 `db46200d75ff1462837996bab7450e09a9a88f46` 发布；合同执行器记录统一为 `bb/step-5-preview`，未派遣真实 Pi。插件全集 capture `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` 为 117/109/8（收集/通过/跳过），扩展 capture `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/` 为 1040 收集、1 个既有 `scripts/pi_dispatch.py` source-lock 失败、35 个环境跳过，返回码 1；两者均无 drift。
 
 本轮离线边界修复覆盖 source snapshot portable collision、fixed content oracle closed shape、candidate/environment binding、zero cursor reopen、attempt plan version、rejected handoff 和 CommonMark first-definition 语义。定向回归 114 项通过、1 项跳过；这些结果仍为 `LOCAL_REFERENCE`，不能授予批准、运行、计费或发布权限。真实 provider、Pi、Windows/macOS 原生进程、核心 dispatcher 和 09/10 连接器保持 `NOT_RUN/BLOCKED`，S6 独立验收与生产门禁继续关闭。
+
+## 2026-10-03 当前修复候选（08-S2/S3 报告边界）
+
+代码候选已推进到 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a` 并推送。AnalysisReport validator 重新执行 synthetic/offline `READY` 禁止；ChangeReport validator 重新校验 change mode、路径安全和变更事实闭包；ReviewBundle 的 `READY` 必须绑定 `REFERENCE_ONLY` 且 `SATISFIED` 的 docs-check。相关 08-S2/S3 定向回归已纳入 113 项通过结果。
+
+本批仍只提供离线构造器与输入边界，未生成 dispatcher receipt、Pi attempt、真实 provider/native 或 09/10 连接器证据；S4–S6 和生产发布门禁继续 `NOT_RUN/BLOCKED`。

@@ -45,6 +45,12 @@ SourceAnchor builder wiring and the strict authorization receipt probe are cover
 ## 2026-10-03 Full Discover Timeout Update
 
 Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implementation candidate; publication commit is \`99bda89b9f61754b7bbdc206f4a1ed97425e16a5\`. The fresh capture \`.agent/runs/offline-01-06-08-20261003-full-discover-09/\` attempted \`python -B -m unittest discover -s tests -q\` under the supervisor for 900.031 seconds. It timed out with \`returncode=null\`, \`timed_out=true\`, \`termination_confirmed=true\`, \`stray_processes=false\`, empty stdout/stderr, and no baseline drift. \`execution_status=complete\` only means the capture itself is complete; the test result is \`TIMEOUT/BLOCKED\`, not PASS. The 01–06 and 08 stage gates therefore remain \`REVISE/BLOCKED\`, with real Pi/provider/native platform/09/10 connector evidence still \`NOT_RUN/BLOCKED\`.
+## 2026-10-03 修复候选复核补充
+
+候选 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a` 已推送。新增修复覆盖取消 operation 后 stale attempt 复活、attempt/outbox 重开绑定、provider 跨 task/request 经济去重、已释放未启动预算的 unknown 误判，以及 AnalysisReport/ChangeReport/ReviewBundle 的 READY 组合边界。定向回归 113 项通过；全量 discover 的 3 项失败仍是既有 `a4fa199` legacy source-lock，不产生新的业务失败结论。
+
+本补充仍是规划端离线复核，未产生 Pi attempt、`review-pi` verdict、真实 provider/native/09/10 或生产 dispatcher receipt，因此总体结论保持 `REVISE/BLOCKED`。
+
 ## Current Candidate Review Update (eae9bfc / db46200)
 
 The fixed code candidate is `eae9bfca4cf7351b02b7b5eafd6f101664b418ee`; the 39-contract publication is `db46200d75ff1462837996bab7450e09a9a88f46`. New raw captures are `.agent/runs/offline-01-06-08-20261003-builtin-contracts-eae9bfc/` and `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`. The builtin suite is 117 collected / 109 passed / 8 optional skips with return code 0. The expanded matrix is 1040 collected / 1 known legacy source-lock failure / 35 environment skips with return code 1. Both captures are complete, `baseline_consistent=true`, and drift-free.

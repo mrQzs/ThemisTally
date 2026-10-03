@@ -106,3 +106,9 @@ Candidate \`5d141298d052b291c1dba3fe35075d6303f0bbc8\` remains the last implemen
 - `.agent/runs/offline-01-06-08-20261003-expanded-contracts-eae9bfc/`：1040 项收集、1 项既有 `scripts/pi_dispatch.py` legacy source-lock 失败、35 项环境跳过，返回码 1，`baseline_consistent=true`，无 drift。
 
 定向修复回归为 114 项通过、1 项跳过；`python -m compileall -q scripts/codekit tests` 与 `git diff --check` 通过。扩展套件的唯一失败仍是被测试明确标注的旧版 `a4fa199` 字节锁定，不代表本批离线业务实现通过或失败。01–06 仍为 `LOCAL_REFERENCE/REVISE/BLOCKED`；真实 Pi/provider、原生平台、外部连接器和生产恢复证据保持 `NOT_RUN/BLOCKED`。
+
+## 2026-10-03 当前修复候选（03/04 与账本边界）
+
+代码候选已推进到 `a1e15c157734af1ec84ce46ce8bc6ef1e2455c0a` 并推送。03 阶段阻止 `CANCELLED_NOT_STARTED` operation 的旧 attempt 重新进入启动态，并在重开时绑定 attempt 与 outbox 事件；04 阶段将 provider call 的经济身份从 request/task/run 观察范围中解耦，跨范围重复观察归为 `MIRROR`；usage settlement 不再把已证明未启动的释放操作误报为 `unknown`。相关定向回归 113 项通过。
+
+这些修复仍属于离线 `LOCAL_REFERENCE`。真实 Pi/provider、原生进程、外部连接器和生产恢复证据继续为 `NOT_RUN/BLOCKED`，01–06 阶段门仍未放行。全量 discover 当前为 1208 项收集、3 项既有 legacy `a4fa199` source-lock 失败、39 项环境跳过；该失败不属于本批业务逻辑新增失败。
