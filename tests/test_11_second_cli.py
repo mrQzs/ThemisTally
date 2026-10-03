@@ -1,6 +1,7 @@
 import hashlib
 import json
 import unittest
+from pathlib import Path
 
 from scripts.codekit.adapters.capability import AdapterCapability, CapabilityEvidence
 from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
@@ -34,6 +35,11 @@ class SecondCliProtocolTests(unittest.TestCase):
         self.assertFalse(invocation.runtime.shell)
         self.assertIn("--output-format", invocation.runtime.command)
         self.assertEqual(invocation.adapter.adapter_id, "claude-code")
+        snapshot = invocation.to_mapping()
+        schema = json.loads(Path("schemas/second-cli-invocation-v1.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(snapshot), set(schema["required"]))
+        self.assertEqual(snapshot["environment_names"], ["LANG"])
+        self.assertEqual(snapshot["platform"], "linux")
         with self.assertRaises(SecondCliError):
             self.adapter.validate_profile(synthetic_capability(), role="planner", platform="linux",
                                           model_id="EXACT_MODEL", profile_id="bad")

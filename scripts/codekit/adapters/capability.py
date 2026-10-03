@@ -232,6 +232,9 @@ def preflight_profile(capability: AdapterCapability, *, role: str, platform: str
             reasons.append("MODEL_NOT_RUN")
     else:
         status = "READY"
+    if status == "READY" and capability.offline:
+        status = "NOT_RUN"
+        reasons.append("OFFLINE_CAPABILITY")
     return PreflightResult(status, binding, requested_model, reported_model,
                            authentication_status, version_supported,
                            tuple(dict.fromkeys(reasons)))

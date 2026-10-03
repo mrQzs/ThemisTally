@@ -155,6 +155,10 @@ class SecondCliInvocation:
     resource_allowlist: tuple[Mapping[str, str], ...]
     read_only: bool
     session_id: str = ""
+    platform: str = ""
+    environment_kind: str = ""
+    capability_digest: str | None = None
+    environment_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.stdin) is not bytes:
@@ -180,6 +184,18 @@ class SecondCliInvocation:
         if not self.session_id:
             raise SecondCliError("E_CLI_SESSION", "session id is required")
         _text(self.session_id, "session_id")
+        if self.platform not in {"linux", "macos", "windows"}:
+            raise SecondCliError("E_CLI_PLATFORM", "unsupported invocation platform")
+        if self.environment_kind not in {"native", "wsl"}:
+            raise SecondCliError("E_CLI_PLATFORM", "unsupported invocation environment")
+        if self.capability_digest is not None and not _SHA256.fullmatch(self.capability_digest):
+            raise SecondCliError("E_CLI_INVOCATION", "capability digest must be lowercase SHA-256")
+        if type(self.environment_names) is not tuple or any(type(name) is not str for name in self.environment_names):
+            raise SecondCliError("E_CLI_ENV", "environment names must be a tuple")
+        if len(set(self.environment_names)) != len(self.environment_names):
+            raise SecondCliError("E_CLI_ENV", "environment names must be unique")
+        for name in self.environment_names:
+            _text(name, "environment_name")
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -194,6 +210,10 @@ class SecondCliInvocation:
             "resource_allowlist": list(self.resource_allowlist),
             "read_only": self.read_only,
             "session_id": self.session_id,
+            "platform": self.platform,
+            "environment_kind": self.environment_kind,
+            "capability_digest": self.capability_digest,
+            "environment_names": list(self.environment_names),
             "invocation_sha256": self.invocation_sha256(),
         }
 
@@ -204,6 +224,10 @@ class SecondCliInvocation:
             "resource_allowlist": [dict(ref) for ref in self.resource_allowlist],
             "profile_id": self.adapter.profile_id,
             "adapter_id": self.adapter.adapter_id,
+            "platform": self.platform,
+            "environment_kind": self.environment_kind,
+            "capability_digest": self.capability_digest,
+            "environment_names": list(self.environment_names),
         }
         return hashlib.sha256((json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")).hexdigest()
 
@@ -400,7 +424,9 @@ class ClaudeCodeAdapter:
                              profile.capabilities, env_digest, profile.adapter_id)
         if not session_id:
             raise SecondCliError("E_CLI_SESSION", "session id could not be derived")
-        return SecondCliInvocation(runtime, adapter, prompt_bytes, tuple(resource_allowlist), profile.read_only, session_id)
+        return SecondCliInvocation(runtime, adapter, prompt_bytes, tuple(resource_allowlist), profile.read_only, session_id,
+                                   profile.platform, profile.environment_kind, profile.capability_digest,
+                                   tuple(sorted(environment)))
 
     def normalize_event(self, raw_record: bytes | str, *, request_id: str, run_id: str, seq: int,
                         role: str, adapter_revision: str = "claude-stream-json-v1",

@@ -79,6 +79,15 @@ class AdapterCapabilityTests(unittest.TestCase):
         schema = json.loads(Path("schemas/adapter-preflight-v1.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(set(result.to_mapping()), set(schema["required"]))
 
+    def test_offline_capability_cannot_become_ready_from_synthetic_facts(self):
+        value = capability()
+        result = preflight_profile(value, role="planner", platform="linux",
+                                   required_capabilities=("terminal_event",), requested_model="m",
+                                   authentication_status="READY", version_supported=True,
+                                   reported_model="m")
+        self.assertEqual(result.status, "NOT_RUN")
+        self.assertIn("OFFLINE_CAPABILITY", result.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

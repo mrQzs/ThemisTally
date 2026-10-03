@@ -314,9 +314,9 @@ def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
                                      independent_review: bool, external_connectors: bool) -> IndependentReleaseGate:
     """Machine-checkable final gate; offline fixtures cannot satisfy it."""
     reasons: list[str] = []
-    if type(preflights) is not tuple or not preflights:
+    if not isinstance(preflights, (tuple, list)) or not preflights:
         reasons.append("PREFLIGHTS_MISSING")
-    elif any(item.status != "READY" for item in preflights):
+    elif any(type(item) is not PreflightResult or item.status != "READY" for item in preflights):
         reasons.append("PREFLIGHT_NOT_READY")
     for value, reason in ((real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
                           (real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
