@@ -226,21 +226,36 @@ def preflight_profile(capability: AdapterCapability, *, role: str, platform: str
         reasons.append("MODEL_MISMATCH")
     elif reported_model is None and require_observed:
         reasons.append("MODEL_UNKNOWN")
+    # A caller-supplied model string is not evidence by itself.  A profile can
+    # become READY only after the capability required by the profile (and the
+    # model identity capability when a model was requested) has an observed
+    # source.  This keeps version/help declarations and configuration values
+    # in NOT_RUN instead of allowing them to unlock a real dispatch gate.
+    observed = {item.capability for item in capability.evidence if item.level == "observed"}
+    readiness_capabilities = set(required_capabilities)
+    if requested_model is not None:
+        readiness_capabilities.add("model_identity")
+    missing_observed = sorted(readiness_capabilities - observed)
+    if missing_observed:
+        reasons.extend("EVIDENCE_NOT_OBSERVED:" + item for item in missing_observed)
     if "VERSION_INCOMPATIBLE" in reasons:
         status = "VERSION_INCOMPATIBLE"
     elif "AUTH_UNAVAILABLE" in reasons:
         status = "AUTH_UNAVAILABLE"
     elif not binding.supported or any(reason in {"AUTH_BLOCKED", "MODEL_MISMATCH", "MODEL_UNKNOWN", "REAL_CAPABILITY_REQUIRED"} for reason in reasons):
         status = "BLOCKED"
-    elif version_supported is not True or authentication_status != "READY" or reported_model is None:
+    elif version_supported is not True or authentication_status != "READY" or reported_model is None or missing_observed:
         status = "NOT_RUN"
         if reported_model is None and "MODEL_NOT_RUN" not in reasons:
             reasons.append("MODEL_NOT_RUN")
     else:
         status = "READY"
+    if capability.offline and status == "NOT_RUN" and "OFFLINE_CAPABILITY" not in reasons:
+        reasons.append("OFFLINE_CAPABILITY")
     if status == "READY" and capability.offline:
         status = "NOT_RUN"
-        reasons.append("OFFLINE_CAPABILITY")
+        if "OFFLINE_CAPABILITY" not in reasons:
+            reasons.append("OFFLINE_CAPABILITY")
     return PreflightResult(status, binding, requested_model, reported_model,
                            authentication_status, version_supported,
                            tuple(dict.fromkeys(reasons)))

@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scripts.codekit.adapters.capability import AdapterCapability, CapabilityError, CapabilityEvidence, bind_profile, preflight_profile
@@ -78,6 +79,22 @@ class AdapterCapabilityTests(unittest.TestCase):
         self.assertNotIn("fallback_model", result.to_mapping())
         schema = json.loads(Path("schemas/adapter-preflight-v1.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(set(result.to_mapping()), set(schema["required"]))
+
+    def test_declared_capability_facts_do_not_unlock_ready_preflight(self):
+        value = replace(capability(), offline=False)
+        result = preflight_profile(
+            value,
+            role="planner",
+            platform="linux",
+            required_capabilities=("terminal_event",),
+            requested_model="m",
+            reported_model="m",
+            authentication_status="READY",
+            version_supported=True,
+        )
+        self.assertEqual(result.status, "NOT_RUN")
+        self.assertIn("EVIDENCE_NOT_OBSERVED:model_identity", result.reasons)
+        self.assertIn("EVIDENCE_NOT_OBSERVED:terminal_event", result.reasons)
 
     def test_offline_capability_cannot_become_ready_from_synthetic_facts(self):
         value = capability()

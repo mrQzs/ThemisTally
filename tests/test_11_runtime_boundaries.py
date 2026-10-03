@@ -16,7 +16,7 @@ from scripts.codekit.adapters.heterogeneous import (
     validate_handoff,
 )
 from scripts.codekit.adapters.second_cli import ClaudeCodeAdapter, SecondCliError
-from scripts.codekit.adapters.capability import preflight_profile
+from scripts.codekit.adapters.capability import CapabilityEvidence, preflight_profile
 from scripts.codekit.planner_runtime import PlanningBudgetLedger
 
 
@@ -83,6 +83,14 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def test_fallback_requires_explicit_authorization_and_review(self):
         adapter = ClaudeCodeAdapter()
         capability = adapter.probe(timeout=1).capability
+        capability = replace(
+            capability,
+            evidence=tuple(
+                CapabilityEvidence(item.capability, "observed", source_ref=ref("observed-" + item.capability),
+                                   note="offline observed fixture")
+                for item in capability.evidence
+            ),
+        )
         primary = preflight_profile(capability, role="planner", platform=capability.platforms[0],
                                     required_capabilities=("terminal_event",), requested_model="m",
                                     authentication_status="READY", version_supported=False,
