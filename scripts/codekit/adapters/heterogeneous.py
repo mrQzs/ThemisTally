@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from ..authorization import ApprovalLedger, AuthorizationError, InputLock, sha256 as approval_sha256
 from .. import protocols
 from ..builtin_artifacts import resource_ref
 from ..planner_runtime import PlanningBudgetLedger
@@ -160,6 +161,81 @@ def _ref(value: Any, field: str) -> dict[str, str]:
         return resource_ref(value, field)
     except Exception as exc:
         raise AdapterFacadeError("E_HANDOFF_REF", f"{field} must be a ResourceRef") from exc
+
+
+@dataclass(frozen=True)
+class ApprovalBinding:
+    """Read-only currentness proof supplied by the core approval ledger.
+
+    The adapter boundary may verify this proof before a trusted runtime is
+    called, but it never creates, mutates, or consumes approval state.
+    """
+
+    ledger: ApprovalLedger
+    scope: str
+    generation: int
+    record_sha256: str
+    action: str
+    input_refs: tuple[Mapping[str, str], ...]
+    input_lock: InputLock | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ledger, ApprovalLedger):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "ApprovalLedger is required")
+        _text(self.scope, "approval_scope")
+        _text(self.action, "approval_action")
+        if type(self.generation) is not int or self.generation < 1:
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval generation must be positive")
+        if type(self.record_sha256) is not str or len(self.record_sha256) != 64 or any(
+                char not in "0123456789abcdef" for char in self.record_sha256):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval record hash must be lowercase SHA-256")
+        if type(self.input_refs) is not tuple or not self.input_refs:
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be a non-empty tuple")
+        normalized = []
+        seen = set()
+        for index, value in enumerate(self.input_refs):
+            try:
+                ref = _ref(dict(value), f"/approval_input_refs/{index}")
+            except (TypeError, ValueError, AdapterFacadeError) as exc:
+                raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be ResourceRefs") from exc
+            key = tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+            if key in seen:
+                raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be unique")
+            seen.add(key)
+            normalized.append(ref)
+        object.__setattr__(self, "input_refs", tuple(normalized))
+        if self.input_lock is not None and not isinstance(self.input_lock, InputLock):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "input_lock must be an InputLock")
+
+
+def _verify_approval_binding(binding: ApprovalBinding, *, expected_input_refs: Sequence[Mapping[str, str]]) -> None:
+    """Verify approval currentness without changing the ledger."""
+    expected_refs = tuple(_ref(dict(value), "/handoff/input_refs") for value in expected_input_refs)
+    if {approval_sha256(ref) for ref in binding.input_refs} != {approval_sha256(ref) for ref in expected_refs}:
+        raise AdapterFacadeError("E_APPROVAL_INPUT", "approval inputs do not match handoff inputs")
+    try:
+        head = binding.ledger.assert_current(scope=binding.scope, generation=binding.generation,
+                                             record_sha256=binding.record_sha256)
+        if not binding.ledger.consume(scope=binding.scope, action=binding.action,
+                                      input_refs=binding.input_refs):
+            raise AdapterFacadeError("E_APPROVAL_ACTION", "approval action or input set is not currently consumable")
+    except AuthorizationError as exc:
+        code = exc.code if exc.code.startswith("E_APPROVAL_") else "E_APPROVAL_" + exc.code.removeprefix("E_")
+        raise AdapterFacadeError(code, str(exc)) from exc
+    if binding.input_lock is not None:
+        lock = binding.input_lock
+        expected_approval_ref = {"scope": head.scope, "generation": head.generation,
+                                 "sha256": head.record_sha256}
+        if lock.approval_ref != expected_approval_ref or lock.head_generation != head.generation:
+            raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock is bound to a stale approval")
+        rows = set()
+        for value, generation in lock.bindings:
+            if type(generation) is not int or generation != head.generation:
+                raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock binding generation is stale")
+            rows.add((approval_sha256(_ref(dict(value), "/input_lock/bindings")), generation))
+        expected_rows = {(approval_sha256(ref), head.generation) for ref in expected_refs}
+        if rows != expected_rows:
+            raise AdapterFacadeError("E_INPUT_LOCK_BINDINGS", "input lock bindings do not match handoff inputs")
 
 
 @dataclass(frozen=True)
@@ -466,7 +542,8 @@ class StartGate:
 def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliProfile,
                         handoff: ProfileHandoff, ledger: PlanningBudgetLedger,
                         invocation: SecondCliInvocation | None = None,
-                        generation: int | None = None) -> StartGate:
+                        generation: int | None = None,
+                        approval_binding: ApprovalBinding | None = None) -> StartGate:
     """Recheck all local bindings immediately before executor dispatch.
 
     This is deliberately provider-neutral: the only provider-specific object
@@ -523,6 +600,16 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
     else:
         reasons.append("BUDGET_UNBOUND")
 
+    if approval_binding is None:
+        reasons.append("APPROVAL_UNBOUND")
+    elif not isinstance(approval_binding, ApprovalBinding):
+        reasons.append("APPROVAL_SCHEMA")
+    else:
+        try:
+            _verify_approval_binding(approval_binding, expected_input_refs=handoff.input_refs)
+        except AdapterFacadeError as exc:
+            reasons.append(exc.code)
+
     if invocation is not None:
         if not isinstance(invocation, SecondCliInvocation):
             reasons.append("INVOCATION_SCHEMA")
@@ -548,6 +635,6 @@ def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliPro
 
 
 __all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
-           "FallbackDecision", "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff",
+           "ApprovalBinding", "FallbackDecision", "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff",
            "ProfileRouter", "RecoveryLedger", "RoleGate", "StartGate", "check_role_gate",
            "evaluate_independent_release_gate", "evaluate_start_gate", "select_fallback", "validate_handoff"]

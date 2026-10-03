@@ -2,8 +2,10 @@ import hashlib
 import unittest
 from dataclasses import replace
 
+from scripts.codekit.authorization import ApprovalLedger
 from scripts.codekit.adapters.heterogeneous import (
     AdapterFacadeError,
+    ApprovalBinding,
     CancellationObservation,
     HeterogeneousAdapterFacade,
     evaluate_independent_release_gate,
@@ -239,32 +241,75 @@ class RuntimeBoundaryTests(unittest.TestCase):
                                  "planner-session", "executor-session", contract, (ref("input"),), 1,
                                  executor_context=context)
         ledger = PlanningBudgetLedger.calls(request_id, "task-11", 1)
+        approval_ledger = ApprovalLedger()
+        approval_record = {
+            "record_type": "approval-record",
+            "schema_version": 1,
+            "approval_id": "approval-11",
+            "request_id": request_id,
+            "subject_ref": ref("subject"),
+            "input_refs": [ref("input")],
+            "reviewed_actions": ["run"],
+            "decision": "APPROVED",
+            "recorded_at": "2026-01-01T00:00:00Z",
+            "reviewer": {"mode": "current_session"},
+        }
+        approval_head = approval_ledger.put(scope="run-approval", operation_id="approval-op",
+                                            expected_generation=0, record=approval_record)
+        input_lock = approval_ledger.lock(scope="run-approval", receipt_id="lock-11",
+                                          operation_id="lock-op", bindings=[ref("input")])
+        approval_binding = ApprovalBinding(
+            approval_ledger,
+            "run-approval",
+            approval_head.generation,
+            approval_head.record_sha256,
+            "run",
+            (ref("input"),),
+            input_lock,
+        )
         invocation = adapter.build_invocation(profile, request_id=request_id, run_id=run_id, cwd=".",
                                               environment={}, prompt=b"execute",
                                               resource_allowlist=(ref("input"),))
         allowed = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
-                                      ledger=ledger, invocation=invocation)
+                                      ledger=ledger, invocation=invocation,
+                                      approval_binding=approval_binding)
         self.assertTrue(allowed.allowed, allowed.reasons)
         self.assertEqual(allowed.context_report["record_type"], "run-context")
         router = ProfileRouter(HeterogeneousAdapterFacade([adapter]))
         router.register(profile)
         self.assertTrue(router.start_gate(profile.profile_id, run_context=context, handoff=handoff,
-                                          ledger=ledger, invocation=invocation).allowed)
+                                          ledger=ledger, invocation=invocation,
+                                          approval_binding=approval_binding).allowed)
 
         blocked = evaluate_start_gate(run_context=dict(context, run_id="run-33333333333343338333333333333333"),
                                       profile=profile, handoff=handoff, ledger=ledger,
-                                      invocation=invocation)
+                                      invocation=invocation, approval_binding=approval_binding)
         self.assertFalse(blocked.allowed)
         self.assertIn("RUN_MISMATCH", blocked.reasons)
         stopped = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
-                                      ledger=ledger.stop("USER_STOP"), invocation=invocation)
+                                      ledger=ledger.stop("USER_STOP"), invocation=invocation,
+                                      approval_binding=approval_binding)
         self.assertFalse(stopped.allowed)
         self.assertIn("BUDGET_USER_STOP", stopped.reasons)
         wrong_session = replace(invocation, session_id="other-session")
         session_block = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
-                                             ledger=ledger, invocation=wrong_session)
+                                             ledger=ledger, invocation=wrong_session,
+                                             approval_binding=approval_binding)
         self.assertFalse(session_block.allowed)
         self.assertIn("INVOCATION_SESSION_MISMATCH", session_block.reasons)
+
+        unbound = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                      ledger=ledger, invocation=invocation)
+        self.assertFalse(unbound.allowed)
+        self.assertIn("APPROVAL_UNBOUND", unbound.reasons)
+
+        approval_ledger.revoke(scope="run-approval", operation_id="revoke-op",
+                               expected_generation=approval_head.generation, reason="stopped")
+        stale = evaluate_start_gate(run_context=context, profile=profile, handoff=handoff,
+                                    ledger=ledger, invocation=invocation,
+                                    approval_binding=approval_binding)
+        self.assertFalse(stale.allowed)
+        self.assertIn("E_APPROVAL_CURRENTNESS", stale.reasons)
 
 
 if __name__ == "__main__":
