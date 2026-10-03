@@ -36,6 +36,13 @@ class ProjectViewTests(unittest.TestCase):
             with self.assertRaisesRegex(ProjectViewError, "bytes"):
                 store.read_current()
 
+    def test_publish_rejects_older_cursor_without_explicit_rebase(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ViewPackageStore(tmp); brief = render_project_brief(STATE)
+            store.publish(STATE, brief, generation=1, cursor=2)
+            with self.assertRaisesRegex(ProjectViewError, "backwards"):
+                store.publish({**STATE, "indexed_cursor": 1, "applied_cursor": 1}, brief, generation=1, cursor=1)
+
     def test_brief_budget_is_refusal_and_schemas_are_valid_json(self):
         with self.assertRaisesRegex(ProjectViewError, "budget"):
             render_project_brief(STATE, max_bytes=1)

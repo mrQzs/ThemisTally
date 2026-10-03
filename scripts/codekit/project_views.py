@@ -99,6 +99,15 @@ class BriefReadReceipt:
     read_cursor: int
     outcome: str
 
+    def __post_init__(self) -> None:
+        if self.outcome not in {"READ", "REJECTED"}:
+            raise ProjectViewError("E_RECEIPT", "unsupported outcome")
+        body = {"view_id": self.view_id, "manifest_sha256": self.manifest_sha256,
+                "brief_sha256": self.brief_sha256, "observer_ref": self.observer_ref,
+                "read_cursor": self.read_cursor, "outcome": self.outcome}
+        if self.receipt_id != _digest(canonical_bytes(body)):
+            raise ProjectViewError("E_RECEIPT", "receipt id does not match binding")
+
     def to_mapping(self) -> dict[str, Any]:
         return {"record_type": "brief-read-receipt", "schema_version": 1,
                 "receipt_id": self.receipt_id, "view_id": self.view_id,
@@ -167,6 +176,10 @@ class ViewPackageStore:
             current = self._read_pointer()
             if expected_view_id is not None and (current is None or current.get("view_id") != expected_view_id):
                 raise ProjectViewError("E_CAS", "current view changed")
+            if current is not None:
+                if current.get("generation", generation) > generation or (
+                        current.get("generation") == generation and current.get("cursor", cursor) > cursor):
+                    raise ProjectViewError("E_ROLLBACK", "new view would move current backwards")
             package.mkdir(parents=True, exist_ok=True)
             self._write(package / "state.json", state_raw)
             self._write(package / "brief.md", brief_raw)
@@ -206,7 +219,13 @@ class ViewPackageStore:
         if (_digest(state_raw) != manifest.get("state_sha256") or _digest(brief_raw) != manifest.get("brief_sha256")
                 or len(state_raw) != manifest.get("state_byte_length") or len(brief_raw) != manifest.get("brief_byte_length")):
             raise ProjectViewError("E_VIEW_DRIFT", "view bytes do not match manifest")
-        if pointer["manifest_sha256"] != manifest.get("manifest_sha256"):
+        expected_manifest_fields = {"record_type", "schema_version", "view_id", "generation", "cursor",
+                                    "state_sha256", "brief_sha256", "manifest_sha256", "state_byte_length",
+                                    "brief_byte_length", "displayed_item_count", "omitted_item_count"}
+        if set(manifest) != expected_manifest_fields or manifest.get("record_type") != "project-view-manifest":
+            raise ProjectViewError("E_VIEW_INCOMPLETE", "closed manifest required")
+        if (pointer["manifest_sha256"] != manifest.get("manifest_sha256") or
+                pointer.get("generation") != manifest.get("generation") or pointer.get("cursor") != manifest.get("cursor")):
             raise ProjectViewError("E_CURRENT", "pointer does not match manifest")
         return (ViewManifest(manifest["view_id"], manifest["generation"], manifest["cursor"],
                              manifest["state_sha256"], manifest["brief_sha256"], manifest["manifest_sha256"],

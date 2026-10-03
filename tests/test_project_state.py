@@ -53,6 +53,11 @@ class ProjectStateTests(unittest.TestCase):
         self.assertEqual(state.budget_coverage, "unknown")
         self.assertEqual(state.budgets["ledger"]["currentness"], "unknown")
 
+    def test_missing_source_verification_is_not_complete(self):
+        assigned = event().assigned(1, 1)
+        state = reduce_project_events([assigned], verification_ref="v", as_of="now", verification={})
+        self.assertEqual(state.source_coverage, "unknown")
+
     def test_gap_and_unassigned_event_are_rejected(self):
         assigned = event().assigned(1, 2)
         with self.assertRaisesRegex(ProjectStateError, "contiguous"):

@@ -175,9 +175,13 @@ def reduce_project_events(events: Sequence[ProjectEvent], *, verification_ref: s
             continue
     verification = {} if verification is None else dict(verification)
     verification_values = set(verification.values())
+    required_sources = set(source_ids)
+    missing_verification = sorted(required_sources - set(verification))
+    if missing_verification:
+        issues.extend("source-unobserved:" + key for key in missing_verification)
     if not verification:
         source_coverage = "unknown" if seen else "complete"
-    elif all(value == "verified" for value in verification_values):
+    elif not missing_verification and all(value == "verified" for value in verification_values):
         source_coverage = "complete"
     else:
         source_coverage = "partial"
