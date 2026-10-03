@@ -720,8 +720,8 @@ class PublicationStore:
             if path.is_symlink() or not path.is_file():
                 continue
             try:
-                value = validate_publication_receipt(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError, PlannerError):
+                value = validate_publication_receipt(protocols.strict_json_loads(path.read_bytes()))
+            except (OSError, ValueError, PlannerError, protocols.ProtocolError):
                 continue
             if value.get("publication_id") == publication_id:
                 matches.append(value)
@@ -735,8 +735,8 @@ class PublicationStore:
                 if not line:
                     continue
                 try:
-                    item = validate_publication_receipt(json.loads(line.decode("utf-8")))
-                except (UnicodeDecodeError, ValueError, PlannerError):
+                    item = validate_publication_receipt(protocols.strict_json_loads(line))
+                except (UnicodeDecodeError, ValueError, PlannerError, protocols.ProtocolError):
                     continue
                 if item.get("publication_id") == publication_id:
                     ledger_matches.append(item)
