@@ -1670,6 +1670,42 @@ def invisible_char_warnings(text: str, label: str, limit: int = 5) -> List[str]:
     return found
 
 
+def _planner_strict_json_loads(raw: bytes) -> Any:
+    """Load planner-v2 JSON with the repository's strict decoder in both import modes."""
+    try:
+        from codekit.protocols import strict_json_loads
+    except ModuleNotFoundError as first:
+        try:
+            from scripts.codekit.protocols import strict_json_loads
+        except ModuleNotFoundError:
+            raise first
+    return strict_json_loads(raw)
+
+
+def _load_fixed_contract_pair(repo: Repo, plan_key: str, md_bytes: bytes,
+                              json_bytes: bytes, md_text: Optional[str] = None
+                              ) -> Tuple[Optional[Dict[str, Any]], List[str], Any]:
+    """Parse and validate one already-read MD/JSON byte pair.
+
+    Consumers that execute a contract must operate on the same bytes that
+    passed validation.  Keeping parsing behind this helper prevents a later
+    path read from silently pairing a different Markdown and JSON file.
+    """
+    if md_text is None:
+        md_text = md_bytes.decode("utf-8")
+    if b'"contract_family"' in json_bytes and b'"planner-v2"' in json_bytes:
+        raw = _planner_strict_json_loads(json_bytes)
+    else:
+        raw = json.loads(json_bytes.decode("utf-8"))
+    contract, errors, _warnings = validate_contract(
+        md_text, raw, plan_key, extra_protected_paths(repo.config()))
+    if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
+        errors.extend(verify_planner_publication(repo, plan_key, md_bytes, json_bytes))
+        if errors:
+            contract = None
+    return contract, errors, raw
+
+
 def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], List[str], List[str]]:
     if not PLAN_KEY_RE.match(plan_key):
         return None, ["计划标识不合法：%s（格式 task-id.vN，例如 normalize-query.v1）" % plan_key], []
@@ -1684,36 +1720,22 @@ def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], 
         return None, errors, []
     # Keep the historical v1 decode boundary: invalid Markdown UTF-8 is an
     # uncaught legacy input error (the locked CLI fixture relies on that
-    # behavior).  Planner-v2 still receives the exact bytes below for its
-    # strict, fixed-pair gate.
-    md_text = md_path.read_text(encoding="utf-8")
+    # behavior).  Read both members first, then decode/parse that exact pair.
     try:
         md_bytes = md_path.read_bytes()
         json_bytes = json_path.read_bytes()
     except OSError as exc:
         return None, ["合同文件无法按固定字节读取：%s" % exc], []
+    md_text = md_bytes.decode("utf-8")
     try:
-        # Legacy v1 remains parsed by the historical loader.  Planner v2 is
-        # required to use the strict public JSON decoder so duplicate keys,
-        # non-finite values and trailing documents cannot be hidden by the
-        # normal json.loads last-value behaviour.
-        if b'"contract_family"' in json_bytes and b'"planner-v2"' in json_bytes:
-            try:
-                from codekit.protocols import strict_json_loads
-                raw = strict_json_loads(json_bytes)
-            except ModuleNotFoundError as exc:
-                return None, ["planner-v2 严格 JSON 解码器不可用：%s" % exc], []
-        else:
-            raw = json.loads(json_bytes.decode("utf-8"))
+        contract, errors, raw = _load_fixed_contract_pair(repo, plan_key, md_bytes, json_bytes, md_text)
+    except ModuleNotFoundError as exc:
+        return None, ["planner-v2 严格 JSON 解码器不可用：%s" % exc], []
     except (ValueError, UnicodeDecodeError) as exc:
         return None, ["JSON 合同解析失败：%s" % exc], []
-    contract, errors, warnings = validate_contract(md_text, raw, plan_key, extra_protected_paths(repo.config()))
+    warnings: List[str] = []
     warnings.extend(invisible_char_warnings(md_text, "Markdown"))
     warnings.extend(invisible_char_warnings(json_bytes.decode("utf-8", "replace"), "JSON"))
-    if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
-        errors.extend(verify_planner_publication(repo, plan_key, md_bytes, json_bytes))
-        if errors:
-            contract = None
     base = raw.get("base_sha") if isinstance(raw, dict) else None
     if isinstance(base, str) and SHA_RE.match(base):
         if resolve_commit(repo.root, base) != base:
@@ -1749,8 +1771,7 @@ def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_
     try:
         raw_receipt = receipt_path.read_bytes()
         try:
-            from codekit.protocols import strict_json_loads
-            receipt = strict_json_loads(raw_receipt)
+            receipt = _planner_strict_json_loads(raw_receipt)
         except ModuleNotFoundError as exc:
             return ["planner-v2 发布回执缺少严格 JSON 解码器：%s" % exc]
     except Exception as exc:
@@ -3330,8 +3351,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         try:
             if b'"contract_family"' in frozen_json and b'"planner-v2"' in frozen_json:
                 try:
-                    from codekit.protocols import strict_json_loads
-                    frozen_raw = strict_json_loads(frozen_json)
+                    frozen_raw = _planner_strict_json_loads(frozen_json)
                 except ModuleNotFoundError as exc:
                     raise DispatchError("planner-v2 严格 JSON 解码器不可用：%s" % exc, EXIT_BLOCKED)
             else:
@@ -4244,6 +4264,25 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     _print_messages(errors, warnings)
     if errors or contract is None:
         raise DispatchError("合同校验失败，无法运行基线检查。", EXIT_USAGE)
+    # Freeze and revalidate the exact pair consumed by the baseline run.  A
+    # replacement between validate_plan() and this point must not turn into a
+    # valid but unreviewed contract execution.
+    md_path, json_path = repo.plan_paths(key)
+    try:
+        frozen_md = md_path.read_bytes()
+        frozen_json = json_path.read_bytes()
+        frozen_text = frozen_md.decode("utf-8")
+        frozen_contract, frozen_errors, _frozen_raw = _load_fixed_contract_pair(
+            repo, key, frozen_md, frozen_json, frozen_text)
+    except ModuleNotFoundError as exc:
+        raise DispatchError("planner-v2 严格 JSON 解码器不可用：%s" % exc, EXIT_BLOCKED)
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        raise DispatchError("基线合同固定字节无法重新校验：%s" % exc, EXIT_DRIFT)
+    if frozen_errors or frozen_contract is None:
+        raise DispatchError("基线合同固定字节未通过校验：%s" % "；".join(frozen_errors), EXIT_DRIFT)
+    if frozen_contract != contract:
+        raise DispatchError("合同在校验后发生变化，拒绝运行基线检查。", EXIT_DRIFT)
+    contract = frozen_contract
     checks = contract["checks"]
     if args.only:
         wanted = [x.strip() for x in args.only.split(",") if x.strip()]

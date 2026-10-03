@@ -12,6 +12,7 @@ from codekit.planner_protocol import (
     validate_bundle,
     validate_context_manifest,
     validate_planner_request,
+    validate_planning_binding,
     validate_planning_bundle,
     validate_source_anchor,
 )
@@ -89,6 +90,15 @@ class PlannerProtocolTests(unittest.TestCase):
         base = ref("base")
         request = {"record_type": "planner-request", "schema_version": 1, "request_id": "req-1", "run_id": "run-1", "operation_id": "op-1", "mode": "graph", "target_task_id": None, "requirements_ref": ref("requirements"), "context_manifest_ref": ref("context"), "graph_ref": None, "baseline_ref": base, "planner_config_ref": ref("config"), "environment_ref": ref("env"), "catalog_ref": ref("catalog"), "rules_refs": [], "decision_refs": [], "output_contract_ref": ref("output"), "planning_budget_ref": ref("budget"), "authorization_refs": [], "repair_policy_ref": ref("repair"), "stop_policy_ref": ref("stop")}
         self.assertEqual(validate_planner_request(request)["mode"], "graph")
+        manifest = {"record_type": "context-manifest", "schema_version": 1, "request_id": "req-1",
+                    "resources": [request[name] for name in
+                                   ("requirements_ref", "baseline_ref", "planner_config_ref", "environment_ref",
+                                    "catalog_ref", "output_contract_ref", "planning_budget_ref",
+                                    "repair_policy_ref", "stop_policy_ref")]}
+        self.assertEqual(validate_planning_binding(request, manifest)["request"]["request_id"], "req-1")
+        bad = dict(manifest); bad["request_id"] = "other-request"
+        with self.assertRaises(ProtocolError):
+            validate_planning_binding(request, bad)
 
 
 if __name__ == "__main__":

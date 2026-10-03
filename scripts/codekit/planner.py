@@ -675,10 +675,71 @@ class PublicationStore:
 class PlanningService:
     """Convenience facade used by an eventual CLI; all operations stay offline."""
 
-    def __init__(self, drafts: DraftStore | None = None, publications: PublicationStore | None = None) -> None:
+    def __init__(self, drafts: DraftStore | None = None, publications: PublicationStore | None = None,
+                 approval_ledger: Any | None = None) -> None:
         self.drafts = drafts or DraftStore()
         self.publications = publications or PublicationStore()
+        self.approval_ledger = approval_ledger
         self._reviews: Dict[str, Dict[str, Any]] = {}
+
+    @staticmethod
+    def _candidate_approval_refs(candidate: ContractCandidate) -> list[Mapping[str, Any]]:
+        return [candidate.source_ref, candidate.target_ref, *candidate.input_refs]
+
+    def _check_current_review(self, candidate: ContractCandidate, review_ref: Mapping[str, Any], *, lock: bool) -> Dict[str, Any]:
+        """Bind optional 03 ApprovalLedger currentness and input-lock checks."""
+        if self.approval_ledger is None:
+            return _copy(dict(review_ref))
+        required = ("scope", "generation", "record_sha256", "input_refs")
+        if any(name not in review_ref for name in required):
+            _fail("E_REVIEW_CURRENT", "ApprovalLedger currentness fields are required", "/review_ref")
+        try:
+            head = self.approval_ledger.assert_current(
+                scope=review_ref["scope"], generation=review_ref["generation"],
+                record_sha256=review_ref["record_sha256"])
+        except Exception as exc:
+            _fail("E_REVIEW_CURRENT", str(exc), "/review_ref")
+        approval_id = review_ref.get("approval_id")
+        if approval_id is not None and head.record.get("approval_id") != approval_id:
+            _fail("E_REVIEW_CURRENT", "review approval id is stale", "/review_ref/approval_id")
+        approved_refs = review_ref["input_refs"]
+        if type(approved_refs) is not list:
+            _fail("E_REVIEW_CURRENT", "review input_refs must be an array", "/review_ref/input_refs")
+        try:
+            expected = {canonical_json_bytes(dict(ref)) for ref in self._candidate_approval_refs(candidate)}
+            supplied = {canonical_json_bytes(dict(ref)) for ref in approved_refs}
+        except (TypeError, ValueError) as exc:
+            _fail("E_REVIEW_CURRENT", str(exc), "/review_ref/input_refs")
+        if supplied != expected:
+            _fail("E_REVIEW_CURRENT", "review input closure does not match candidate", "/review_ref/input_refs")
+        result = _copy(dict(review_ref))
+        if lock:
+            receipt_id = result.get("input_lock_receipt_id")
+            lock_operation_id = result.get("input_lock_operation_id")
+            if type(receipt_id) is not str or type(lock_operation_id) is not str:
+                _fail("E_REVIEW_CURRENT", "input lock receipt and operation ids are required", "/review_ref")
+            try:
+                input_lock = self.approval_ledger.lock(
+                    scope=result["scope"], receipt_id=receipt_id,
+                    operation_id=lock_operation_id, bindings=approved_refs)
+            except Exception as exc:
+                _fail("E_REVIEW_CURRENT", str(exc), "/review_ref/input_refs")
+            result["input_lock_ref"] = _copy({
+                "receipt_id": input_lock.receipt_id,
+                "approval_ref": input_lock.approval_ref,
+                "head_generation": input_lock.head_generation,
+                "receipt_sha256": input_lock.receipt_sha256,
+            })
+        else:
+            lock_ref = result.get("input_lock_ref")
+            if type(lock_ref) is not dict or lock_ref.get("head_generation") != head.generation:
+                _fail("E_REVIEW_CURRENT", "current input lock is required before publish", "/review_ref/input_lock_ref")
+            approval_ref = lock_ref.get("approval_ref")
+            if (type(approval_ref) is not dict or approval_ref.get("scope") != result["scope"]
+                    or approval_ref.get("generation") != head.generation
+                    or approval_ref.get("sha256") != head.record_sha256):
+                _fail("E_REVIEW_CURRENT", "input lock is bound to a stale approval", "/review_ref/input_lock_ref")
+        return result
 
     def request_planning(self, draft_id: str, ir: Mapping[str, Any], **kwargs: Any) -> DraftRevision:
         return self.drafts.create_draft(draft_id, ir, **kwargs)
@@ -695,11 +756,19 @@ class PlanningService:
 
     def publish_contract(self, candidate: ContractCandidate, *, repo_root: str | Path | None = None,
                          **kwargs: Any) -> PublicationReceipt:
+        stored_review = self._reviews.get(candidate.candidate_id)
+        if self.approval_ledger is not None:
+            if stored_review is None:
+                _fail("E_REVIEW_BINDING", "submit_plan_review is required before publish")
+            if "review_ref" in kwargs and kwargs["review_ref"] != stored_review:
+                _fail("E_REVIEW_BINDING", "published review must be the bound review", "/review_ref")
+            kwargs["review_ref"] = _copy(stored_review)
         if "review_ref" not in kwargs:
-            review_ref = self._reviews.get(candidate.candidate_id)
+            review_ref = stored_review
             if review_ref is None:
                 _fail("E_REVIEW_BINDING", "submit_plan_review is required before publish")
             kwargs["review_ref"] = _copy(review_ref)
+        kwargs["review_ref"] = self._check_current_review(candidate, kwargs["review_ref"], lock=False)
         if repo_root is not None:
             return self.publications.publish_to_repository(repo_root, candidate, **kwargs)
         return self.publications.publish(candidate, **kwargs)
@@ -710,9 +779,10 @@ class PlanningService:
             _fail("E_REVIEW_BINDING", "APPROVED review required")
         if review_ref.get("candidate_id") not in (None, candidate.candidate_id):
             _fail("E_REVIEW_BINDING", "review is bound to another candidate")
+        bound_review = self._check_current_review(candidate, review_ref, lock=True)
         self.publications.register_candidate(candidate)
-        self._reviews[candidate.candidate_id] = _copy(review_ref)
-        return _copy(review_ref)
+        self._reviews[candidate.candidate_id] = _copy(bound_review)
+        return _copy(bound_review)
 
     def get_publication(self, publication_id: str) -> PublicationReceipt:
         return self.publications.get(publication_id)

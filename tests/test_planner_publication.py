@@ -9,6 +9,7 @@ from scripts.codekit.planner import (
     make_resource_ref, render_contract_ir, validate_contract_candidate,
     validate_publication_receipt,
 )
+from scripts.codekit.authorization import ApprovalLedger
 from scripts import pi_dispatch
 
 
@@ -123,6 +124,33 @@ class PlannerPublicationTests(unittest.TestCase):
             self.assertEqual(pi_dispatch.verify_planner_publication(
                 pi_dispatch.Repo(root), "offline-contract.v1", md, raw), [])
             self.assertEqual(receipt.state, "PUBLISHED")
+
+    def test_service_rechecks_approval_currentness_and_input_lock(self):
+        ir = ContractIR.from_mapping(sample_ir()); md, raw = render_contract_ir(ir)
+        draft = DraftStore().create_draft("draft-ledger", ir.to_mapping())
+        source = make_resource_ref("planner-input", "source-ledger", "inputs/source.json", raw=b"source")
+        target = make_resource_ref("contract-target", "target-ledger", "contracts/target.json", raw=b"target")
+        candidate = build_candidate(candidate_id="candidate-ledger", draft=draft,
+            source_ref=source, target_ref=target, md_bytes=md, json_bytes=raw)
+        ledger = ApprovalLedger()
+        subject = make_resource_ref("approval-subject", "subject-ledger", "inputs/subject.json", raw=b"subject")
+        approval = {
+            "record_type": "approval-record", "schema_version": 1, "approval_id": "approval-ledger",
+            "request_id": "request-ledger", "subject_ref": subject, "input_refs": [source, target],
+            "reviewed_actions": ["publish_contract"], "decision": "APPROVED",
+            "recorded_at": "2026-10-03T00:00:00Z", "reviewer": {"mode": "offline"},
+        }
+        head = ledger.put(scope="scope-ledger", operation_id="approval-op", expected_generation=0, record=approval)
+        service = PlanningService(approval_ledger=ledger)
+        review = {"decision": "APPROVED", "approval_id": "approval-ledger", "scope": "scope-ledger",
+                  "generation": head.generation, "record_sha256": head.record_sha256,
+                  "input_refs": [source, target], "input_lock_receipt_id": "lock-ledger",
+                  "input_lock_operation_id": "lock-op-ledger"}
+        bound = service.submit_plan_review(candidate, review)
+        self.assertEqual(bound["input_lock_ref"]["head_generation"], 1)
+        ledger.revoke(scope="scope-ledger", operation_id="revoke-op", expected_generation=1, reason="changed")
+        with self.assertRaisesRegex(PlannerError, "E_REVIEW_CURRENT"):
+            service.publish_contract(candidate, idempotency_key="ledger-publish")
 
 
 if __name__ == "__main__":

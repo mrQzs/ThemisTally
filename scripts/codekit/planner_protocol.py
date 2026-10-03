@@ -404,6 +404,47 @@ def validate_planning_bundle(value: Any) -> dict[str, Any]:
     return {**copy.deepcopy(value), "facts": facts_out, "task_graph": graph, "contract_drafts": drafts_out}
 
 
+def _same_ref(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    return all(left.get(key) == right.get(key) for key in ("kind", "id", "sha256", "path"))
+
+
+def validate_planning_binding(request: Any, context: Any, bundle: Any | None = None) -> dict[str, Any]:
+    """Validate cross-record request/context/bundle identity and input closure."""
+    normalized_request = validate_planner_request(request)
+    normalized_context = validate_context_manifest(context)
+    if normalized_request["request_id"] != normalized_context["request_id"]:
+        _fail("/request_id", "request_context_id_mismatch", "E_CONTEXT_BINDING")
+    resources = normalized_context["resources"]
+    required_refs = [normalized_request[name] for name in
+                     ("requirements_ref", "baseline_ref", "planner_config_ref", "environment_ref",
+                      "catalog_ref", "output_contract_ref", "planning_budget_ref",
+                      "repair_policy_ref", "stop_policy_ref")]
+    required_refs.extend(normalized_request["rules_refs"])
+    required_refs.extend(normalized_request["decision_refs"])
+    required_refs.extend(normalized_request["authorization_refs"])
+    for ref in required_refs:
+        if not any(_same_ref(ref, candidate) for candidate in resources):
+            _fail("/resources", "request_ref_missing_from_context", "E_CONTEXT_BINDING")
+    if bundle is None:
+        return {"request": normalized_request, "context": normalized_context}
+    normalized_bundle = validate_planning_bundle(bundle)
+    if normalized_bundle["request_id"] != normalized_request["request_id"]:
+        _fail("/request_id", "request_bundle_id_mismatch", "E_CONTEXT_BINDING")
+    if normalized_bundle["mode"] != normalized_request["mode"]:
+        _fail("/mode", "request_bundle_mode_mismatch", "E_CONTEXT_BINDING")
+    if normalized_bundle["target_task_id"] != normalized_request["target_task_id"]:
+        _fail("/target_task_id", "request_bundle_target_mismatch", "E_CONTEXT_BINDING")
+    if not any(_same_ref(normalized_request["requirements_ref"], ref)
+               for ref in normalized_bundle["requirement_refs"]):
+        _fail("/requirement_refs", "request_requirements_not_in_bundle", "E_CONTEXT_BINDING")
+    if not _same_ref(normalized_request["baseline_ref"], normalized_bundle["investigation_baseline_ref"]):
+        _fail("/investigation_baseline_ref", "request_bundle_baseline_mismatch", "E_CONTEXT_BINDING")
+    if normalized_request["graph_ref"] is not None and not _same_ref(
+            normalized_request["graph_ref"], normalized_bundle["graph_ref"]):
+        _fail("/graph_ref", "request_bundle_graph_mismatch", "E_CONTEXT_BINDING")
+    return {"request": normalized_request, "context": normalized_context, "bundle": normalized_bundle}
+
+
 def validate_bundle(value: Any) -> dict[str, Any]:
     """Return a stable diagnostic report instead of raising for a bundle."""
     try:
@@ -422,6 +463,7 @@ def validate_planning_json(raw: bytes) -> dict[str, Any]:
 __all__ = [
     "PLANNER_SCHEMA_VERSION", "PlannerProtocolError", "strict_planner_json_loads", "validate_resource_ref",
     "validate_source_anchor", "validate_planner_request", "validate_context_manifest", "validate_planning_bundle",
+    "validate_planning_binding",
     "validate_bundle", "validate_planning_json",
 ]
 

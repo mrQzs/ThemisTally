@@ -52,6 +52,6 @@ git diff --check
 
 每阶段通过定向测试和独立复审后，仅暂存该阶段 Scope 内文件，创建阶段提交并推送；后续阶段以新的完整 SHA 为基线。当前 21 份合同均先固定在上述基线，执行前若基线变化必须重新生成版本，不得隐式漂移。
 
-## 当前实现记录
+## 当实现记录
 
-截至本阶段提交，S1–S6 的离线核心已有可复核实现：严格协议与 Schema、草稿/CAS、同源合同渲染、候选与发布收据、三门 readiness、有限修复与 request 预算、离线 adapter、09/10 正交投影，以及 validate/derive-json/prepare/baseline/run 的 planner-v2 固定字节门禁。真实 planner/provider/Pi、原生进程和外部连接器仍为 NOT_RUN/BLOCKED；这些离线测试不构成生产发布通过。
+截至本阶段提交，S1–S6 的离线核心已有可复核实现：严格协议与 Schema、跨记录 request/context/bundle 绑定、草稿/CAS、同源合同渲染、候选与发布收据、可选 03 ApprovalLedger currentness/input-lock、三门 readiness、有限修复与 request 预算、离线 adapter、09/10 正交投影，以及 validate/prepare/baseline/run 的 planner-v2 固定字节门禁。真实 planner/provider/Pi、原生进程和外部连接器仍为 NOT_RUN/BLOCKED；这些离线测试不构成生产发布通过。
