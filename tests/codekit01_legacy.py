@@ -496,19 +496,24 @@ _LEGACY_MODULES: Dict[str, types.ModuleType] = {}
 
 
 def load_legacy_pi_dispatch(*, require_locked_bytes: bool = True) -> types.ModuleType:
-    """读取 scripts/pi_dispatch.py，从读到的同一份字节编译执行，返回模块对象。
+    """加载旧调度器的固定源码，从读到的同一份字节编译执行。
 
-    require_locked_bytes=True（生成预期与 --check 的默认）：字节必须等于 a4fa199（LEGACY_PI_DISPATCH_SHA256），
-    否则 RuntimeError——预期只能由旧实现生成。
-    require_locked_bytes=False（只供差分测试）：按当前字节加载，用来比较“当前实现的判断”与锁定预期的 cases；
-    字节是否仍为 a4fa199 由单独的测试判断，两件事分开报告。
-    不经 import 系统（不读写 __pycache__），模块名与 tests/test_dispatch.py 的 pi_dispatch 不同，互不影响。
+    ``require_locked_bytes=True``（生成预期与 ``--check`` 的默认）从
+    ``SOURCE_REVISION`` 的 Git blob 读取；这样后续版本可以继续演进工作区
+    调度器，而旧投影仍由不可变的 a4fa199 源码生成。``False``（只供差分
+    测试）读取当前工作区字节，用来比较当前实现与锁定预期的 cases。
     """
     path = repo_path(LEGACY_PI_DISPATCH_PATH)
-    raw = path.read_bytes()
+    if require_locked_bytes:
+        try:
+            raw = _git_blob_bytes("%s:%s" % (SOURCE_REVISION, LEGACY_PI_DISPATCH_PATH), command="show")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("无法读取 %s 的固定旧调度器源码：%s" % (SOURCE_REVISION[:12], exc)) from exc
+    else:
+        raw = path.read_bytes()
     digest = sha256_hex(raw)
     if require_locked_bytes and digest != LEGACY_PI_DISPATCH_SHA256:
-        raise RuntimeError("scripts/pi_dispatch.py 与 a4fa199 的字节不同（sha256=%s），不能用来生成旧预期" % digest)
+        raise RuntimeError("%s 的旧调度器 blob 摘要不匹配（sha256=%s），不能用来生成旧预期" % (SOURCE_REVISION[:12], digest))
     cached = _LEGACY_MODULES.get(digest)
     if cached is not None:
         return cached
@@ -702,19 +707,28 @@ def project_contracts_cli_temp_repo(cases: Sequence[Tuple[str, str, bytes, bytes
     require_locked_bytes 的含义同 load_legacy_pi_dispatch。
     """
     pd_path = repo_path(LEGACY_PI_DISPATCH_PATH)
-    if require_locked_bytes and sha256_hex(pd_path.read_bytes()) != LEGACY_PI_DISPATCH_SHA256:
-        raise RuntimeError("scripts/pi_dispatch.py 与 a4fa199 的字节不同")
     out: Dict[str, Dict[str, Any]] = {}
     root = _make_owned_tempdir("codekit01-legacy-repo-")
+    source_root: Optional[Path] = None
     try:
         repo, env, head = _make_temp_repo(root)
+        command_path = pd_path
+        if require_locked_bytes:
+            # The live dispatcher is a successor. Materialize only the
+            # immutable historical blob inside our owned temp area.
+            source_root = _make_owned_tempdir("codekit01-legacy-dispatch-")
+            command_path = source_root / "pi_dispatch.py"
+            command_path.write_bytes(_git_blob_bytes(
+                "%s:%s" % (SOURCE_REVISION, LEGACY_PI_DISPATCH_PATH), command="show"))
+            if sha256_hex(command_path.read_bytes()) != LEGACY_PI_DISPATCH_SHA256:
+                raise RuntimeError("%s 的旧调度器 blob 摘要不匹配" % SOURCE_REVISION[:12])
         plans = repo / ".agent" / "plans"
         for case_id, plan_key, md_raw, json_raw in cases:
             for leftover in plans.iterdir():
                 leftover.unlink()
             (plans / (plan_key + ".md")).write_bytes(md_raw)
             (plans / (plan_key + ".json")).write_bytes(json_raw)
-            proc = subprocess.run([sys.executable, str(pd_path), "--repo", str(repo), "validate", plan_key],
+            proc = subprocess.run([sys.executable, str(command_path), "--repo", str(repo), "validate", plan_key],
                                   cwd=str(repo), env=env, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             stdout = _normalize_cli_text(proc.stdout)
@@ -728,6 +742,8 @@ def project_contracts_cli_temp_repo(cases: Sequence[Tuple[str, str, bytes, bytes
                             "stdout": _cli_stream_view(proc.stdout),
                             "stderr": _cli_stream_view(proc.stderr)}
     finally:
+        if source_root is not None:
+            _rmtree(source_root)
         _rmtree(root)
     return out
 
@@ -744,7 +760,7 @@ def _force_remove(func: Callable[..., Any], path: str, _exc: Any) -> None:
 #: 本模块建立临时目录时允许的目录名前缀；_rmtree 只删除名称以其中之一开头的目录。后两个供
 #: tests/test_codekit01_fixtures.py 借用同一套建立与归属核对（生成护栏的链接实测、归属核对的对照用例），
 #: 该文件不另写递归删除。
-OWNED_TEMP_PREFIXES = ("codekit01-legacy-repo-", "codekit01-legacy-work-", "codekit01-legacy-stub-",
+OWNED_TEMP_PREFIXES = ("codekit01-legacy-repo-", "codekit01-legacy-work-", "codekit01-legacy-stub-", "codekit01-legacy-dispatch-",
                        "codekit01-fixtures-guard-", "codekit01-fixtures-cleanup-")
 #: 所有权标记文件名。内容是建立目录时生成的随机令牌，令牌只保存在本进程内（_OWNED_TEMP_DIRS），不能从磁盘伪造。
 OWNER_MARKER_NAME = ".codekit01-legacy-owner"

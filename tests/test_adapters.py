@@ -105,6 +105,12 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
             OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "run_finished"), event(2, "assistant")])
 
+    def test_run_started_is_unique_and_first(self):
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
+            OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "run_started"), event(2, "run_finished")])
+        with self.assertRaisesRegex(AdapterError, "E_ADAPTER_SETTLEMENT"):
+            OfflineAdapter().run(invocation(), [event(0, "assistant"), event(1, "run_started"), event(2, "run_finished")])
+
     def test_tool_events_must_form_closed_pairs_before_terminal(self):
         with self.assertRaisesRegex(AdapterError, "E_ADAPTER_TOOL"):
             OfflineAdapter().run(invocation(), [event(0, "run_started"), event(1, "tool_started", {"tool_id": "t1"}), event(2, "run_finished")])

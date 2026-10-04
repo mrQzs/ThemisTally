@@ -583,12 +583,21 @@ class PublicationStore:
             _fail("E_REVIEW_BINDING", "review member digests do not match candidate", "/review_ref/members")
         bound_review = _copy(dict(review_ref))
         bound_review.setdefault("candidate_id", candidate.candidate_id)
+        # The idempotency key covers the complete reviewed action.  Binding it
+        # only to the candidate would let a retry with a different approval
+        # payload replay the original publication receipt and bypass the
+        # caller's currentness/approval checks.  Canonicalize once before
+        # entering the store lock so malformed review data is rejected at the
+        # same boundary as the rest of the publication request.
+        review_binding = canonical_json_bytes(bound_review)
         with self._lock:
             prior_id = self._by_key.get(idempotency_key)
             if prior_id:
                 prior = self._receipts[prior_id]
                 if (prior.candidate_id, prior.md_sha256, prior.json_sha256) != (candidate.candidate_id, md_hash, json_hash):
                     _fail("E_IDEMPOTENCY_CONFLICT", "idempotency key reused with another candidate")
+                if canonical_json_bytes(dict(prior.review_ref)) != review_binding:
+                    _fail("E_IDEMPOTENCY_CONFLICT", "idempotency key reused with another review")
                 return _copy(prior)
             current_gen, current_pub = self._heads.get(candidate.task_id, (0, ""))
             if expected_generation != current_gen:

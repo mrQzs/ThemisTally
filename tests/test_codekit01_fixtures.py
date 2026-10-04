@@ -1921,7 +1921,9 @@ class DifferentialTests(unittest.TestCase):
         for path, digest in ((L.LEGACY_PI_DISPATCH_PATH, L.LEGACY_PI_DISPATCH_SHA256),
                              (L.LEGACY_STUB_PATH, L.LEGACY_STUB_SHA256)):
             with self.subTest(path=path):
-                self.assertEqual(P.sha256_hex(read_fixture(path)), digest,
+                raw = (L._git_blob_bytes("%s:%s" % (L.SOURCE_REVISION, path), command="show")
+                       if path == L.LEGACY_PI_DISPATCH_PATH else read_fixture(path))
+                self.assertEqual(P.sha256_hex(raw), digest,
                                  "%s 的字节与 a4fa199 不同。这一项只说明字节变了；判断是否漂移看 "
                                  "test_legacy_*_projection_unchanged 列出的用例与字段" % path)
 

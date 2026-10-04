@@ -27,6 +27,15 @@ class OfflineAdapter:
                             if event.event_type in {"run_finished", "error"}]
         if len(terminal_indexes) > 1 or (terminal_indexes and terminal_indexes[0] != len(normalized) - 1):
             raise AdapterError("E_ADAPTER_SETTLEMENT", "terminal event must be unique and final")
+        # A stream has one lifecycle start.  ``normalize_events`` guarantees
+        # sequence continuity and event-id uniqueness, but it intentionally
+        # permits repeated event types so adapters can apply their own
+        # protocol semantics.  Accepting a second ``run_started`` would make
+        # a replayed/concatenated prefix look like one successful invocation.
+        start_indexes = [index for index, event in enumerate(normalized)
+                         if event.event_type == "run_started"]
+        if len(start_indexes) != 1 or start_indexes[0] != 0:
+            raise AdapterError("E_ADAPTER_SETTLEMENT", "run_started must be unique and first")
         open_tools = set()
         for event in normalized:
             if event.event_type == "run_started" and event.seq != 0:

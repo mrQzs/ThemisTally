@@ -200,24 +200,52 @@ def legacy_source_digest(kit: Optional[Path] = None) -> str:
     return sha256_file((kit or kit_dir()) / "scripts" / "pi_dispatch.py")
 
 
+def _locked_legacy_source(kit: Path) -> Optional[bytes]:
+    """Read the immutable legacy dispatcher blob for the default KIT.
+
+    ``scripts/pi_dispatch.py`` is now a live successor, so its worktree bytes
+    cannot remain the historical source of the legacy characterization suite.
+    A caller-supplied KIT is deliberately treated as a mutation fixture and
+    continues to load its own bytes.
+    """
+    if os.environ.get(KIT_ENV_VAR):
+        return None
+    try:
+        proc = subprocess.run(
+            ["git", "show", "%s:%s" % (SOURCE_REVISION, "scripts/pi_dispatch.py")],
+            cwd=str(kit), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL, timeout=30,
+            env={key: value for key, value in os.environ.items()
+                 if key.upper() not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY"}},
+            check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bytes(proc.stdout) if proc.returncode == 0 else None
+
+
 def legacy_facts(kit: Optional[Path] = None) -> Dict[str, Any]:
     """被测来源与本机事实（不含环境变量值）：供测试报告记录“测的是什么、在哪测的”。
 
-    pi_dispatch_sha256 是 KIT 中原始字节的摘要；pi_dispatch_sha256_lf 是把 CRLF 归一为 LF 之后的摘要。
-    pi_dispatch_matches_a4fa199 用后者与锁定值（a4fa199 的 blob 字节，LF 行尾）比较：该文件没有 eol 属性，本机
-    系统级 core.autocrlf=true，重新检出、新克隆或新建 worktree 得到的是 CRLF 字节，内容仍是 a4fa199（Python 编译时
-    两种行尾等价）。LF 工作区中两个摘要相同。
+    默认 KIT 的 ``pi_dispatch_sha256`` 与 ``pi_dispatch_sha256_lf`` 来自
+    ``SOURCE_REVISION`` 的不可变 blob；工作区 successor 的摘要另记在
+    ``pi_dispatch_worktree_sha256``。设置 ``CODEKIT_LEGACY_KIT_DIR`` 做变异
+    反测时没有历史 blob，字段退回记录被测副本字节。
     """
     kit = kit or kit_dir()
     stub = stub_pi_path(kit)
-    digest = legacy_source_digest(kit)
-    digest_lf = hashlib.sha256((kit / "scripts" / "pi_dispatch.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    worktree_digest = legacy_source_digest(kit)
+    locked_raw = _locked_legacy_source(kit)
+    digest = hashlib.sha256(locked_raw).hexdigest() if locked_raw is not None else worktree_digest
+    digest_lf = hashlib.sha256((locked_raw if locked_raw is not None else
+                                (kit / "scripts" / "pi_dispatch.py").read_bytes()).replace(b"\r\n", b"\n")).hexdigest()
     return {
         "kit_dir": str(kit),
         "kit_overridden": bool(os.environ.get(KIT_ENV_VAR)),
         "pi_dispatch_sha256": digest,
         "pi_dispatch_sha256_lf": digest_lf,
         "pi_dispatch_matches_a4fa199": digest_lf == LOCKED_PI_DISPATCH_SHA256,
+        "pi_dispatch_worktree_sha256": worktree_digest,
+        "pi_dispatch_worktree_matches_a4fa199": worktree_digest == LOCKED_PI_DISPATCH_SHA256,
         "locked_pi_dispatch_sha256": LOCKED_PI_DISPATCH_SHA256,
         "source_revision": SOURCE_REVISION,
         "dispatch_sh_sha256": sha256_file(kit / "scripts" / "dispatch-pi.sh"),
@@ -242,7 +270,7 @@ def load_legacy_module(kit: Optional[Path] = None) -> types.ModuleType:
     同一份字节只加载一次；模块名带摘要前缀，与 test_dispatch 的 pi_dispatch、codekit01_legacy 的模块互不影响。
     """
     path = (kit or kit_dir()) / "scripts" / "pi_dispatch.py"
-    raw = path.read_bytes()
+    raw = _locked_legacy_source(path.parent.parent) or path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     cached = _LEGACY_MODULES.get(digest)
     if cached is not None:

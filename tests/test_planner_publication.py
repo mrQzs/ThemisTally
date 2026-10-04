@@ -114,6 +114,9 @@ class PlannerPublicationTests(unittest.TestCase):
         self.assertEqual(store.bytes_for(receipt.publication_id, "markdown"), md)
         self.assertEqual(validate_publication_receipt(receipt.to_mapping())["state"], "PUBLISHED")
         self.assertEqual(store.recover(receipt.publication_id), receipt)
+        with self.assertRaisesRegex(PlannerError, "E_IDEMPOTENCY_CONFLICT"):
+            store.publish(candidate, review_ref={"decision": "APPROVED", "approval_id": "another-approval"},
+                          idempotency_key="publish-1")
         with self.assertRaises(PlannerError):
             store.publish(candidate, review_ref={"decision": "REVOKED", "approval_id": "approval-1"},
                           idempotency_key="publish-2")
