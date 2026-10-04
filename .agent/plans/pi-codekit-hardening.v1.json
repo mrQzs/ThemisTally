@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "task_id": "pi-codekit-hardening",
+  "plan_version": 1,
+  "title": "Pi harden Code-Kit publication, branch binding, and release gates",
+  "repository": "Code-Kit",
+  "base_sha": "1c416de2a3c948ffc7f60baf8b0f52f03161f672",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash",
+      "powershell"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "scripts/pi_dispatch.py",
+      "scripts/codekit/project_delivery.py"
+    ],
+    "allowed_new_files": [
+      "tests/test_dispatch_hardening.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/runs/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-c",
+        "from pathlib import Path; p=Path(r'tests/test_dispatch_hardening.py'); assert p.exists() and p.stat().st_size>0; print('PI_CODEKIT_HARDENING_ARTIFACT_OK')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "PI_CODEKIT_HARDENING_ARTIFACT_OK"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_dispatch_hardening.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_dispatch.py",
+        "tests/test_planner_publication.py",
+        "tests/test_project_delivery.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "scripts/pi_dispatch.py",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "planner-v2 publication lookup derives task identity from immutable attempt metadata, so check/evaluate_gates/branch do not confuse attempt-001 with the task id; published and missing receipts have distinct deterministic outcomes.",
+      "evidence": [
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "branch binds the latest accepted verdict to the exact candidate tree and revalidates patch-to-tree before creating a local branch; forged candidate metadata is rejected.",
+      "evidence": [
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "INTEGRATED is fail-closed: current attempt state and contract integration authorization are checked, the ref is validated against the accepted candidate/branch evidence, and ABANDONED/SUPERSEDED attempts cannot be promoted by a made-up ref.",
+      "evidence": [
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "release gate requires an explicit non-empty real capability set for production release; an empty or missing capability map remains BLOCKED/NOT_RUN.",
+      "evidence": [
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "No dependency, credential, network, or external repository side effects; full compile and diff checks pass.",
+      "evidence": [
+        "V04",
+        "V05"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 1,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 1800,
+    "cost_budget": null
+  }
+}
