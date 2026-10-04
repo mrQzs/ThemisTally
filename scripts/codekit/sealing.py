@@ -51,13 +51,25 @@ import hashlib
 import hmac
 import importlib.util
 import os
-import secrets
 import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
+
+
+class _LazySecrets:
+    """首次使用时才导入 secrets：它会导入 random，random 导入时就取熵播种，macOS 自带的 Python 3.9 为此
+    打开 /dev/urandom，违反“导入无副作用”（01-A14，2026-10-04 实测）。保留模块属性 secrets，测试可以替换它。"""
+
+    def __getattr__(self, name: str) -> Any:
+        import secrets as real_secrets
+
+        return getattr(real_secrets, name)
+
+
+secrets: Any = _LazySecrets()
 
 #: POSIX 上发布后 fsync 父目录；Windows 跳过（标准库无法打开目录句柄做 fsync）。
 DIRECTORY_FSYNC_SUPPORTED = os.name != "nt"

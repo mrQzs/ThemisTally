@@ -1,5 +1,35 @@
 # 变更记录
 
+## 未发布：KitExperiment 迁移到 macOS 后的自测反馈
+
+两个仓库从 Windows 拷到 macOS 15.7.9（x86_64）后，第一次在 POSIX 上跑全量自测：Python 3.9.6 下 1408 项中 4 项失败、66 项报错。
+
+- **产品缺陷：POSIX 上路径静态审阅不可用**。
+  - 现象：`protocols._link_target_text` 直接引用 `stat.IO_REPARSE_TAG_MOUNT_POINT`，这个常量只在 Windows 上定义。macOS/Linux 上每个非链接分段都抛 AttributeError，`resolve_existing_path_for_review`、`seal_bytes` 与 `read_sealed` 因此无法使用。
+  - 修复：改为模块常量（getattr，缺省 0xA0000003）。POSIX 的 lstat 没有 `st_reparse_tag`，标签按 0 处理。
+- **产品缺陷：macOS 自带 Python 3.9.6 上导入有副作用（违反 01-A14）**。
+  - 现象：导入 `codekit.sealing` 与 `codekit.baseline` 时会打开 `/dev/urandom`。原因是 secrets 与 tempfile 都导入 random，random 一导入就取熵播种。这正是 `dispatch-pi.sh` 首选的 `python3`；Python 3.12 不受影响。
+  - 修复：sealing 改用首次使用才导入的代理，保留可被测试替换的模块属性 `secrets`；baseline 改为在函数内导入。
+- **测试的平台假设：符号链接用例**。
+  - 现象：PhysicalPathTests 与 SealingTests 用未解析的临时目录写绝对链接目标。macOS 上 `/var → /private/var` 是根外的系统链接，逐跳核对按设计判为 `E_PATH_ESCAPE`，用例测到的就不再是它要测的规则。
+  - 修复：POSIX 上改用 resolve 后的临时目录，Windows 不变。
+  - 产品行为不变：目标路径经过根外系统链接的绝对链接，仍按设计失败关闭。
+- **测试的平台假设：legacy CLI 用例**。
+  - Markdown 检查行按解释器文件名生成（macOS 上是 `python3`），三个用例却写死了 `python`。其中 LB-CONTRACT-018 因替换落空而空转通过，现补上替换前的计数断言。
+  - LB-EXIT-026 用 PY 所在目录模拟“没有 git”，但 Xcode 的 `usr/bin` 里同时有 git。POSIX 上改为空目录，Windows 不变。
+- **新增两项静态检查**：上面两处产品缺陷只在 POSIX 上，或只在 macOS 自带的 Python 3.9 上暴露，在 Windows 上跑自测发现不了。所以补了两项在所有平台都会运行的源码检查：
+  - codekit 源码不得直接引用 `stat.IO_REPARSE_TAG_*` 与 `stat.FILE_ATTRIBUTE_*`；
+  - F049 导入的模块在模块级不导入 random、secrets 与 tempfile。
+
+  两项检查都能在修复前的源码上命中对应缺陷。
+- **实测结果**：
+  - Python 3.9.6 与 3.12.14 的全量 unittest 都是 1408 项全部通过，跳过 39 项：Windows/NTFS 特性、大小写不敏感的 APFS、未安装 jsonschema，以及归属其他模块的用例。
+  - 两项静态检查是在全量运行之后补的，单独运行通过（ImportSideEffectTests 5 项）。
+  - `tests/test_dispatch.py` 在两个解释器上都是 262 项全部通过。
+- **跨机复审**：在 macOS 上复审了 Windows 上派遣的 attempt。
+  - in_place 检查因 worktree 不在本机而拒绝运行；`check --fresh` 按 prepare 时记录的 `core.autocrlf=true` 快照，与候选树一致。
+  - `verdict` 在 worktree 不存在时跳过重新快照，以候选补丁的往返校验为准。
+
 ## 未发布：Fiction-Wiki 的 macOS 执行反馈
 
 - 离线适配器现在要求 `run_started` 恰好出现一次且位于序号 0，拒绝拼接或重放前缀被误结算为成功；新增对应回归测试。

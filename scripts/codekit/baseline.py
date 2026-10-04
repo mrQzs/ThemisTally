@@ -31,12 +31,10 @@ import json
 import os
 import platform
 import re
-import secrets
 import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 import types
 from pathlib import Path
@@ -226,6 +224,10 @@ def validate_capture_id(value: str) -> Optional[str]:
 
 
 def default_capture_id() -> str:
+    # 延迟导入：secrets 与 tempfile 都会导入 random，后者导入时就取熵播种，macOS 自带的 Python 3.9 为此
+    # 打开 /dev/urandom，违反“导入无副作用”（01-A14，2026-10-04 实测）。
+    import secrets
+
     return "bl-%s-%s" % (_dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"), secrets.token_hex(4))
 
 
@@ -1337,6 +1339,8 @@ def cmd_archive(opts: argparse.Namespace) -> int:
     if repo_root is not None:
         roots["<REPO>"].append(str(repo_root))
     roots["<HOME>"].extend([str(Path.home()), os.path.expanduser("~")])
+    import tempfile  # 延迟导入，原因见 default_capture_id
+
     roots["<TEMP>"].append(tempfile.gettempdir())
     roots["<PYDIR>"].append(os.path.dirname(sys.executable))
     captured_python = _captured_python_executable(capture_dir, record)

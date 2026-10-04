@@ -1067,6 +1067,11 @@ def _os_path(path: Path) -> Any:
 #: OS（或文件系统过滤驱动）解析路径时可能跟随它。
 _REPARSE_TAG_NAME_SURROGATE = 0x20000000
 
+#: junction/挂载点的重解析点标签。stat.IO_REPARSE_TAG_MOUNT_POINT 只在 Windows 上定义：POSIX 上直接引用会让
+#: 每个非链接分段抛 AttributeError（2026-10-04 macOS 实测）。POSIX 的 lstat 没有 st_reparse_tag，标签按 0 处理，
+#: 永远不等于它。
+_IO_REPARSE_TAG_MOUNT_POINT = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
+
 
 class _UnsupportedLinkKind(Exception):
     """_link_target_text 遇到无法确定语义的链接类型（R-P9 失败关闭）；调用方映射为 E_PATH_RESOLUTION_FAILED。"""
@@ -1088,7 +1093,7 @@ def _link_target_text(path: Path) -> str | None:
     except FileNotFoundError:
         return None
     tag = getattr(info, "st_reparse_tag", 0) or 0
-    if stat.S_ISLNK(info.st_mode) or tag == stat.IO_REPARSE_TAG_MOUNT_POINT:
+    if stat.S_ISLNK(info.st_mode) or tag == _IO_REPARSE_TAG_MOUNT_POINT:
         return os.readlink(os_path)
     if tag & _REPARSE_TAG_NAME_SURROGATE:
         raise _UnsupportedLinkKind(tag)

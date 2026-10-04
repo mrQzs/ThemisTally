@@ -2732,6 +2732,15 @@ class BusinessPathTests(ProtocolTestCase):
                                                       "srcx/d.py", "a.txt", "a.txt"]))
 
 
+def _symlink_case_top(name: str) -> Path:
+    """符号链接用例的临时目录。POSIX 上取 resolve 后的路径：macOS 的临时目录经由 /var → /private/var 这样的
+    系统符号链接，用未解析的路径写绝对链接目标时，逐跳核对按设计把根外的系统链接判为 E_PATH_ESCAPE，用例
+    测到的就不再是它要测的规则（2026-10-04 macOS 实测）。Windows 保持原样：那里的临时目录含 8.3 短名，原有
+    用例正是按未解析的路径设计的。"""
+    path = Path(name)
+    return path if os.name == "nt" else path.resolve(strict=True)
+
+
 class PhysicalPathTests(ProtocolTestCase):
     """4.1.6 物理层静态审阅；比较时一律用 resolve 后的根（本机临时目录含 8.3 短名）。"""
 
@@ -2739,7 +2748,7 @@ class PhysicalPathTests(ProtocolTestCase):
         super().setUp()
         self._td = tempfile.TemporaryDirectory(prefix="codekit-path-")
         self.addCleanup(self._td.cleanup)
-        self.top = Path(self._td.name)
+        self.top = _symlink_case_top(self._td.name)
         self.root = self.top / "repo"
         self.root.mkdir()
         self.outside = self.top / "outside"
@@ -7436,7 +7445,7 @@ class SealingTests(ProtocolTestCase):
         super().setUp()
         self._td = tempfile.TemporaryDirectory(prefix="codekit-seal-")
         self.addCleanup(self._td.cleanup)
-        self.top = Path(self._td.name)
+        self.top = _symlink_case_top(self._td.name)
         self.store = self.top / "store"
         (self.store / "evidence").mkdir(parents=True)
         self.outside = self.top / "outside"
@@ -8458,6 +8467,34 @@ class ImportSideEffectTests(unittest.TestCase):
                     found.add(node.name)
             with self.subTest(module=name):
                 self.assertEqual(found, set())
+
+    def test_A14_import_surface_has_no_random_seeding_modules(self):
+        """01-A14：2026-10-04 macOS 实测新增。random 一导入就取熵播种，macOS 自带的 Python 3.9 为此打开
+        /dev/urandom，secrets 与 tempfile 都会导入 random。F049 的运行时探针只在这类解释器上看得到，这里在
+        所有平台上静态检查 F049 导入的模块：模块级语句不导入它们（函数内的延迟导入不受限制）。"""
+        for name in ("__init__.py", "protocols.py", "sealing.py", "baseline.py"):
+            tree = ast.parse((SCRIPTS_DIR / "codekit" / name).read_text(encoding="utf-8"))
+            imported = set()
+            for node in tree.body:
+                if isinstance(node, ast.Import):
+                    imported.update(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    imported.add(node.module.split(".")[0])
+            with self.subTest(module=name):
+                self.assertEqual(imported & {"random", "secrets", "tempfile"}, set())
+
+    def test_sources_do_not_reference_windows_only_stat_constants(self):
+        """2026-10-04 macOS 实测新增：stat.IO_REPARSE_TAG_* 与 stat.FILE_ATTRIBUTE_* 只在 Windows 上定义，
+        直接引用会让 POSIX 上的路径静态审阅对每个非链接分段抛 AttributeError。codekit 源码只能经 getattr
+        取用这类常量；这条检查在 Windows 上同样生效。"""
+        for path in sorted((SCRIPTS_DIR / "codekit").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            found = sorted({node.attr for node in ast.walk(tree)
+                            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                            and node.value.id == "stat"
+                            and node.attr.startswith(("IO_REPARSE_TAG_", "FILE_ATTRIBUTE_"))})
+            with self.subTest(module=path.name):
+                self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

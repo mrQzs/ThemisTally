@@ -56,6 +56,9 @@ from legacy_harness import (  # noqa: E402
 RUN_REL = ".agent/runs/normalize-query/attempt-001"
 #: 进程内校验用的基线 ID（validate_contract 只查格式，不查仓库）。
 FAKE_BASE = "a" * 40
+#: build_md 把检查的 argv[0] 写成解释器的文件名（stem）：Windows 上是 python，macOS 自带的是 python3。
+#: 用例按它拼 Markdown 中的检查行，不能写死 python（2026-10-04 macOS 实测：写死时替换落空）。
+V01_LINE = "- V01: %s run_tests.py" % Path(PY).stem
 #: Windows 上被 CTRL_BREAK 的默认处理结束的进程退出码（STATUS_CONTROL_C_EXIT）。
 STATUS_CONTROL_C_EXIT = 0xC000013A
 FAILURE_CLASS_LIST = ("PLAN_ERROR, EXECUTION_ERROR, INFRA_FAILURE, SCOPE_VIOLATION, REQUIREMENT_BLOCKED, TIMEOUT, "
@@ -224,12 +227,12 @@ class LegacyMarkdownJsonConsistencyTest(unittest.TestCase):
 
     def test_LB_CONTRACT_017_md_validation_argv_changed(self) -> None:
         """LB-CONTRACT-017（:1623-1630、1416-1429）；01-A07，C.4“Markdown/JSON 一致性”。"""
-        errors = self.md_errors("- V01: python run_tests.py", "- V01: python run_all.py")
+        errors = self.md_errors(V01_LINE, V01_LINE.replace("run_tests.py", "run_all.py"))
         self.assertEqual(errors, ["Markdown 中 V01 的命令与 JSON argv 不一致：%s run_tests.py" % PY])
 
     def test_LB_CONTRACT_017_md_validation_line_removed(self) -> None:
         """LB-CONTRACT-017（:1623-1628）；01-A07，C.4“Markdown/JSON 一致性”。"""
-        self.assertEqual(self.md_errors("- V01: python run_tests.py", "- 运行测试"),
+        self.assertEqual(self.md_errors(V01_LINE, "- 运行测试"),
                          ["Markdown Validation commands 未列出 V01"])
 
     def test_LB_CONTRACT_017_md_forbidden_path_removed(self) -> None:
@@ -243,9 +246,10 @@ class LegacyMarkdownJsonConsistencyTest(unittest.TestCase):
         可疑：只检查 JSON→Markdown 一个方向；Markdown 多列的路径、多出的检查行、改写的 DoD 文字都不报错，
         调度器只按 JSON 执行（legacy-inventory.md 11.2 第 1 条 (4)、第 2 条）。
         """
+        self.assertEqual(self.md.count(V01_LINE), 1, V01_LINE)  # 替换落空时用例会空转通过
         md = (self.md.replace("- allowed_new_files: tests/test_normalize.py",
                               "- allowed_new_files: tests/test_normalize.py, src/extra.py")
-              .replace("- V01: python run_tests.py", "- V01: python run_tests.py\n- V02: python other.py")
+              .replace(V01_LINE, V01_LINE + "\n- V02: python other.py")
               .replace("行为正确", "完全不同的验收文字"))
         self.assertNotEqual(md, self.md)
         self.assertEqual(self.pd.validate_contract(md, self.raw, PLAN_KEY)[1:], ([], []))
@@ -664,8 +668,13 @@ class LegacyWaitTest(_CliCase):
         """
         repo = self.mini_repo()
         self.fake_attempt(repo, {"state": "NEEDS_REVIEW"})
-        code, out, err = self.tool_split(repo, "wait", "normalize-query/attempt-001",
-                                         env={"PATH": os.path.dirname(PY)})
+        # PATH 只留一个没有 git 的目录。PY 所在目录在 macOS 上不行：/usr/bin/python3 实际运行 Xcode 的
+        # Developer/usr/bin/python3，同一目录就有 git（2026-10-04 实测）。Windows 保持原有写法。
+        path = os.path.dirname(PY)
+        if not IS_WINDOWS:
+            path = str(self.work / "path-without-git")
+            os.mkdir(path)
+        code, out, err = self.tool_split(repo, "wait", "normalize-query/attempt-001", env={"PATH": path})
         self.assertEqual((code, out), (3, ""))
         self.assertEqual(lines(err), ["ERROR: 未找到 git，请先安装 Git。"])
 
