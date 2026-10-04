@@ -26,6 +26,18 @@
   - Python 3.9.6 与 3.12.14 的全量 unittest 都是 1408 项全部通过，跳过 39 项：Windows/NTFS 特性、大小写不敏感的 APFS、未安装 jsonschema，以及归属其他模块的用例。
   - 两项静态检查是在全量运行之后补的，单独运行通过（ImportSideEffectTests 5 项）。
   - `tests/test_dispatch.py` 在两个解释器上都是 262 项全部通过。
+- **规划指南（KitExperiment runtime 移植的实机反馈）**：
+  - plan-task 新增三条：
+    - 要求与现有实现逐项一致时，把参考源码与参考测试放进基线，并由规划端提交 oracle 测试（逐字移植的参考测试、失败关闭用例、与参考逐项比较的差分测试）作为验收标准，不在合同里意译接口；
+    - 草稿验证统计失败用例时把 pytest 的 `SUBFAILED` 算进去；
+    - 列出要改掉的旧断言时写明“下列旧断言是错的”，不要只写“至少包括”的列表。
+  - 实测结果：
+    - 前四份只给意译接口的合同，候选都与参考不同；
+    - 按新做法写的 v2 一次完成，canonical 层与参考逐个定义的 AST 相同，27 个变异全部被抓住。
+- **执行器的临时文件写法**：
+  - 问题：执行器为了“保留真实退出码”把检查输出写到固定的 `/tmp/v01.txt` 等路径再 `rm -f`，KitExperiment 已出现两次。
+  - 改进：合同模板 Validation 一节与 AGENTS.md 执行器一节补上合规写法——直接运行检查命令，确要截短就用 `T=$(mktemp -d)` … `rm -rf "$T"`。
+  - 未改动：`pi_dispatch.py` 的执行说明属于锁定的旧实现（a4fa199），本次没有修改。
 - **跨机复审**：在 macOS 上复审了 Windows 上派遣的 attempt。
   - in_place 检查因 worktree 不在本机而拒绝运行；`check --fresh` 按 prepare 时记录的 `core.autocrlf=true` 快照，与候选树一致。
   - `verdict` 在 worktree 不存在时跳过重新快照，以候选补丁的往返校验为准。
