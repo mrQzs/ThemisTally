@@ -21,6 +21,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | posix-identity-env v2 a002 | fresh 237 passed；规划端探针 4/4 | 只用执行器测试 11/16，加探针 12/16；漏掉的 3 个被另一条规则遮蔽，1 个等价 | REVISE / EXECUTION_ERROR（测试隔离）；预算用尽后由规划端补全 `2191050`（含独立复审发现的违反协议的映射），a001/a002 标记 SUPERSEDED |
 | posix-supervisor v1 a001 | fresh：oracle 11 passed，全量 269 passed | oracle 加执行器测试 17/19；漏掉的 2 个是测试缺口 | REVISE / EXECUTION_ERROR：观察记录改写成 START_UNKNOWN，执行器测试也照此断言；发信号的 PermissionError 冒出（macOS 对只剩僵尸进程的组返回 EPERM）；第二次中断冒出 |
 | posix-supervisor v2 a002 | fresh：探针 7/7，全量 282 passed | 合起来 29/30，追加 0/2；只用执行器测试 15/30（其中 14 个按分工由 oracle 与探针把守） | REVISE / EXECUTION_ERROR：中断落在截止时刻时，已被 CPython 回收的组长仍被判为未退出；轮询间隔用例与模块常量比较。预算用尽后由规划端补全 `cd7c918`，a001/a002 标记 SUPERSEDED |
+| posix-reconcile-integration v1 a001 | fresh：oracle 11/11，全量 310 passed | 合起来 25/27（漏掉的是不可观察的 fsync 与被遮蔽的普通文件检查）；只用执行器测试 18/27 | ACCEPTED_WITH_EXCEPTION（内层类型校验超出合同、越出 worktree 的只读访问）；集成 `a2c0e71`。独立复审发现合同遗漏导致的失败开放（旧观察记录放行重放），由规划端在 `c12a88f` 修正并补测 |
 
 ## 有效的做法
 
@@ -42,6 +43,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   这样派遣前就能确认每个探针把守的是哪条规则。
 - **用真实信号测中断，并握手进入窗口**。探针向测试进程自己发 SIGINT，发送前用文件与进程状态确认被测代码已进入宽限等待或回收轮询；处理器只在被测调用期间生效。连跑 5 次结果一致，比只打补丁的写法更接近真实情况。
 - **独立复审的内存探针**。复审者没有运行任何进程，用一个替身对象复现了“CPython 在截止时刻回收子进程后仍重新抛出中断”的边界情况，主审在固定候选上用 `python -B` 跑一遍即可确认。
+- **独立复审能找出规划端自己的遗漏**。posix-reconcile-integration 的候选完全按合同实现，检查与变异都通过；独立复审仍找出了合同遗漏造成的失败开放（预先存在的观察记录），并给出探针。主审在固定候选上复现：进程确实运行了，判定却是 NOT_STARTED、允许重放。
 
 ## 执行器反复出现的偏差
 
@@ -52,6 +54,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **推理正确，代码偏离，报告也不提**：supervisor a001 的推理中得出了第 8 条的正确读法（观察记录保留组长结局），代码与测试却写成相反的样子，报告没有列出合同问题。
 - **上界断言与被测模块的常量比较**：supervisor a002 的轮询间隔用例拿每次休眠与 `_REAP_POLL_SECONDS` 比较，常量改大时用例照样通过。
 - **执行报告的 JSON 写错**：supervisor a002 的报告末尾 JSON 多了一个值，调度器记为 json_invalid，门禁 G1 只作提示。正文与证据一致。
+- **超出合同的解读写在 limitations 里，没有进 contract_conflicts**：reconcile-integration a001 自行加了内层类型校验，并把“删除 partial”解读为只删自己创建的。两处都在报告中如实说明了，但没有按 AGENTS.md 放进 `contract_conflicts`。
 
 ## 待改进（调度工具，`pi_dispatch.py` 锁定在 a4fa199，本次未改）
 
@@ -73,6 +76,15 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **`mutate` 把 pytest 会话中断也记为 caught**。supervisor a002 只用执行器测试时，变异让 KeyboardInterrupt 冒出测试，pytest 以退出码 2 结束，日志里只跑了 7 个用例，工具仍记为 caught。
   - 建议把退出码 2，或日志中的 `!!! KeyboardInterrupt !!!`，单独标为“会话中断”，不计入 caught。
   - 现在靠 mutation-check.md 提醒人工读日志。
+- **合同附件名暴露主仓库的绝对路径**。执行器收到的是 `<file name="/…/KitExperiment/.agent/runs/<task>/attempt-001/plan.md">`。reconcile-integration a001 据此做了三件事：
+  - 读取了主仓库的设计说明；
+  - `cd` 到主仓库，执行 `git log`、`ls`、`wc`、`git branch -a`、`git status --short`；
+  - 把主仓库约 30 个未提交文件的名称与全部分支名发给了提供商。
+
+  主仓库没有被修改，读到的设计说明与基线相同。之前的运行没有这样做，说明执行器会用到它看到的任何路径。
+  - 建议附件只用 `plan.md` 这样的相对名称，或者把合同复制到 worktree 里被忽略的位置；
+  - 执行说明写明“只读写 worktree 内的路径”；
+  - 范围扫描把 shell 命令里的 `cd <绝对路径>` 也计入 `outside_worktree_paths`。这一次只有 read 工具那一条被记录。
 
 ## 合同设计的教训（规划端）
 
@@ -85,3 +97,4 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
   v2 补上后，纯 Python 吸收中断的残留窗口也应在合同里写明。写入 plan-task。
 - **时间规则要两侧把守**：v2 探针只断言了“中断后没有提前结束”，“中断后重置截止时间”的两个变异因此存活，由规划端补测。写入 plan-task。
+- **落盘与重放判定类合同要核对“失败时判为 X”是否与判定规则一致**。reconcile-integration 合同第 3 条写“观察记录写入失败判为 START_UNKNOWN”，但第 4 条的判定规则遇到预先存在的旧观察记录时会读它，结果是失败开放。草稿与 oracle 都没覆盖这个前提，是独立复审发现的。同一合同还漏了 FIFO 阻塞、读写上限与 close 错误，以及监督器 `worktree_id` 的字符规则与 `ProcessIdentity` 不一致。写入 plan-task。
