@@ -17,6 +17,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | pi-runtime-contract-port v1 a001（Windows 派遣，macOS 复审） | fresh 120 passed | 未运行（行为缺陷已定） | REVISE / EXECUTION_ERROR：reconcile 对空、缺失与不成形的观察放行重放；合同只给了意译接口 |
 | pi-runtime-contract-port v2 a002 | fresh 158 passed | 合起来 26/26 + 追加 1/1；执行器文件单独 19/26 | ACCEPTED_WITH_EXCEPTION（固定 `/tmp` 文件，第二次）；集成 `2c3c115`，规划端补测 `8e09793` |
 | runner-posix-cleanup v1 a001 | fresh 171 passed | 合起来 9/13；漏掉的 4 个由规划端补测，补后 6/6 | PASS；集成 `136657c`，规划端补测 `fd57f49` |
+| posix-identity-env v1 a001 | fresh 215 passed | 22 个抓住 21 个（漏掉的是等价变异） | REVISE / EXECUTION_ERROR：`file_sha256(True)` 把 1 号描述符当作文件读完并关闭；含 NUL 的路径冒出 ValueError；执行器在临时副本里自做变异 |
 
 ## 有效的做法
 
@@ -31,6 +32,13 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - 教训：只在基线上验证“失败”不够，场景本身的前提也要核对。
 - **执行器的输出截取写法**。固定 `/tmp/vNN.txt` 偏差出现两次后，合同模板与 AGENTS.md 补上了合规写法。下一次执行器全部改用 `T=$(mktemp -d)` … `rm -rf "$T"`，规则生效。
 
+## 执行器反复出现的偏差
+
+- **固定临时路径**：pi-acceptance a002 与 runtime-contract-port a002 都把检查输出写到 `/tmp/vNN.txt` 再删除。合同模板补上合规写法后，下一次不再出现。
+- **自做变异检查**：posix-identity-env a001 把仓库复制到 `T=$(mktemp -d)`，在其中以子进程跑 pytest，三轮共套用约 20 个自拟变异。
+  - 这违反执行说明第 5、7、8 条，用时 1124 s（三份合同中最长）。
+  - 执行说明本来就写了“验收端会做变异检查”，执行器仍然做了。合同模板现在在 Validation 一节里重复这条禁令，因为执行器会逐字读合同。
+
 ## 待改进（调度工具，`pi_dispatch.py` 锁定在 a4fa199，本次未改）
 
 - **范围扫描漏报工作目录外的读取**。runner a001 的一条命令 `ls /usr/bin/python3* /usr/local/bin/python3* …` 列出了系统目录，`outside_worktree_paths` 为空，没有提示。
@@ -38,6 +46,9 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **执行说明第 5 条**仍只要求“保留真实退出码”，没有给出合规写法。现在靠合同模板补充；解锁调度器时应同步进执行说明。
 - **“rm -rf "$T" 必须是最后一步”的形式偏差**：执行器在删除之后追加只读命令（`date`、`git status`、`ps`），可疑命令扫描照常列出，复审只能人工判断。
   - 可以考虑把“删除之后只有不涉及 `$T` 的只读命令”标为备注而不是可疑命令；判断要保守，避免被构造的命令骗过。
+- **`derive-json` 不覆盖已有 JSON，`validate` 也不比较“基线应失败”**。改了 Markdown 中检查行的“基线应失败”标注后，重新 derive 会因 JSON 已存在而拒绝（需要 `--force`）。`validate` 不比较 `expect_on_base`，于是 Markdown 与 JSON 的标注可以不一致而不被发现。
+  - 本次影响只限 `baseline` 的期望标注，执行器看到的摘要相同。
+  - 建议 `validate` 把检查行的“基线应失败”与 JSON 的 `expect_on_base` 一并比较。
 - **跨机器复审可以运行，但没有提示**。在 macOS 上复审 Windows 派遣的 attempt 时：
   - in_place 检查因 worktree 不在本机而拒绝；
   - `check --fresh` 按记录的 `core.autocrlf=true` 快照，结果正确；
