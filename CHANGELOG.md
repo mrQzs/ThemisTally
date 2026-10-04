@@ -4,6 +4,8 @@
 
 两个仓库从 Windows 拷到 macOS 15.7.9（x86_64）后，第一次在 POSIX 上跑全量自测：Python 3.9.6 下 1408 项中 4 项失败、66 项报错。
 
+逐任务记录、有效做法与待改进项（含因调度器锁定暂未修改的扫描与执行说明问题）见 [KitExperiment 实机反馈](docs/KitExperiment实机反馈.md)。
+
 - **产品缺陷：POSIX 上路径静态审阅不可用**。
   - 现象：`protocols._link_target_text` 直接引用 `stat.IO_REPARSE_TAG_MOUNT_POINT`，这个常量只在 Windows 上定义。macOS/Linux 上每个非链接分段都抛 AttributeError，`resolve_existing_path_for_review`、`seal_bytes` 与 `read_sealed` 因此无法使用。
   - 修复：改为模块常量（getattr，缺省 0xA0000003）。POSIX 的 lstat 没有 `st_reparse_tag`，标签按 0 处理。
