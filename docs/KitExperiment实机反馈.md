@@ -18,6 +18,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | pi-runtime-contract-port v2 a002 | fresh 158 passed | 合起来 26/26 + 追加 1/1；执行器文件单独 19/26 | ACCEPTED_WITH_EXCEPTION（固定 `/tmp` 文件，第二次）；集成 `2c3c115`，规划端补测 `8e09793` |
 | runner-posix-cleanup v1 a001 | fresh 171 passed | 合起来 9/13；漏掉的 4 个由规划端补测，补后 6/6 | PASS；集成 `136657c`，规划端补测 `fd57f49` |
 | posix-identity-env v1 a001 | fresh 215 passed | 22 个抓住 21 个（漏掉的是等价变异） | REVISE / EXECUTION_ERROR：`file_sha256(True)` 把 1 号描述符当作文件读完并关闭；含 NUL 的路径冒出 ValueError；执行器在临时副本里自做变异 |
+| posix-identity-env v2 a002 | fresh 237 passed；规划端探针 4/4 | 只用执行器测试 11/16，加探针 12/16；漏掉的 3 个被另一条规则遮蔽，1 个等价 | REVISE / EXECUTION_ERROR（测试隔离）；预算用尽后由规划端补全 `2191050`（含独立复审发现的违反协议的映射），a001/a002 标记 SUPERSEDED |
 
 ## 有效的做法
 
@@ -46,6 +47,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **执行说明第 5 条**仍只要求“保留真实退出码”，没有给出合规写法。现在靠合同模板补充；解锁调度器时应同步进执行说明。
 - **“rm -rf "$T" 必须是最后一步”的形式偏差**：执行器在删除之后追加只读命令（`date`、`git status`、`ps`），可疑命令扫描照常列出，复审只能人工判断。
   - 可以考虑把“删除之后只有不涉及 `$T` 的只读命令”标为备注而不是可疑命令；判断要保守，避免被构造的命令骗过。
+- **`validate` 没有核对 Repository facts 中的 `.agent/` 文件是否在基线里**：posix-identity-env v2 要求执行器读取 v1 合同与上一轮复审，但侧分支基线中没有这两个文件，`validate` 没有提示；执行器只能在报告中说明。2.2.1 的“Repository facts 文件不在基线”核对可能跳过了规划路径。
 - **`derive-json` 不覆盖已有 JSON，`validate` 也不比较“基线应失败”**。改了 Markdown 中检查行的“基线应失败”标注后，重新 derive 会因 JSON 已存在而拒绝（需要 `--force`）。`validate` 不比较 `expect_on_base`，于是 Markdown 与 JSON 的标注可以不一致而不被发现。
   - 本次影响只限 `baseline` 的期望标注，执行器看到的摘要相同。
   - 建议 `validate` 把检查行的“基线应失败”与 JSON 的 `expect_on_base` 一并比较。
