@@ -22,6 +22,9 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | posix-supervisor v1 a001 | fresh：oracle 11 passed，全量 269 passed | oracle 加执行器测试 17/19；漏掉的 2 个是测试缺口 | REVISE / EXECUTION_ERROR：观察记录改写成 START_UNKNOWN，执行器测试也照此断言；发信号的 PermissionError 冒出（macOS 对只剩僵尸进程的组返回 EPERM）；第二次中断冒出 |
 | posix-supervisor v2 a002 | fresh：探针 7/7，全量 282 passed | 合起来 29/30，追加 0/2；只用执行器测试 15/30（其中 14 个按分工由 oracle 与探针把守） | REVISE / EXECUTION_ERROR：中断落在截止时刻时，已被 CPython 回收的组长仍被判为未退出；轮询间隔用例与模块常量比较。预算用尽后由规划端补全 `cd7c918`，a001/a002 标记 SUPERSEDED |
 | posix-reconcile-integration v1 a001 | fresh：oracle 11/11，全量 310 passed | 合起来 25/27（漏掉的是不可观察的 fsync 与被遮蔽的普通文件检查）；只用执行器测试 18/27 | ACCEPTED_WITH_EXCEPTION（内层类型校验超出合同、越出 worktree 的只读访问）；集成 `a2c0e71`。独立复审发现合同遗漏导致的失败开放（旧观察记录放行重放），由规划端在 `c12a88f` 修正并补测 |
+| scheduler-supervised-transitions v1 a001 | fresh：oracle 10/10，全量 345 passed | 合起来 15/16（漏掉的是等价变异）；只用执行器测试 12/16 | REVISE / EXECUTION_ERROR：str 子类（含 `StrEnum`）通过 `isinstance` 检查，先改账本，再在事件编码时报错；一条测试顺序写反 |
+| scheduler-supervised-transitions v2 a002 | fresh：探针 7/7，全量 357 passed | 合起来 22/23（漏掉的是等价变异）；只用执行器测试 19/23 | PASS；集成 `12ba34f`，规划端补测 `68b6e05`（`True` 代际、身份检查顺序、Python 3.10 的 `StrEnum` 回退） |
+| supervised-operation-bridge v1 a001 | fresh：oracle 13/13，全量 386 passed | 合起来 14/15（漏掉的被另一条规则遮蔽）；只用执行器测试 10/15 | ACCEPTED_WITH_EXCEPTION（又一次经附件路径只读访问主仓库）；集成 `dc06d57`。独立复审发现子进程能伪造“未启动”的记录，由规划端在 `368b91a` 改为以监督器返回的事实为准并补测 |
 
 ## 有效的做法
 
@@ -55,6 +58,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **上界断言与被测模块的常量比较**：supervisor a002 的轮询间隔用例拿每次休眠与 `_REAP_POLL_SECONDS` 比较，常量改大时用例照样通过。
 - **执行报告的 JSON 写错**：supervisor a002 的报告末尾 JSON 多了一个值，调度器记为 json_invalid，门禁 G1 只作提示。正文与证据一致。
 - **超出合同的解读写在 limitations 里，没有进 contract_conflicts**：reconcile-integration a001 自行加了内层类型校验，并把“删除 partial”解读为只删自己创建的。两处都在报告中如实说明了，但没有按 AGENTS.md 放进 `contract_conflicts`。
+  - 之后合同在 Report back 里加了一句“任何解读写进 contract_conflicts 或 unresolved_questions”，接下来三次运行都照做了（例如 scheduler a001 把身份校验的先后写进了 `contract_conflicts`）。
 
 ## 待改进（调度工具，`pi_dispatch.py` 锁定在 a4fa199，本次未改）
 
@@ -85,6 +89,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - 建议附件只用 `plan.md` 这样的相对名称，或者把合同复制到 worktree 里被忽略的位置；
   - 执行说明写明“只读写 worktree 内的路径”；
   - 范围扫描把 shell 命令里的 `cd <绝对路径>` 也计入 `outside_worktree_paths`。这一次只有 read 工具那一条被记录。
+  - **第二次（bridge a001）**：合同的 Forbidden 已经明文写“不访问工作副本以外的路径（包括主仓库）”，执行器仍在会话开头用主仓库路径读了设计说明与一个模块，之后才改用相对路径。这说明光在合同里禁止不够，需要在调度器里修：解锁 `pi_dispatch.py` 后，附件改用相对名称，并把读主仓库的工具调用标为违规。
 
 ## 合同设计的教训（规划端）
 
@@ -98,3 +103,5 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   v2 补上后，纯 Python 吸收中断的残留窗口也应在合同里写明。写入 plan-task。
 - **时间规则要两侧把守**：v2 探针只断言了“中断后没有提前结束”，“中断后重置截止时间”的两个变异因此存活，由规划端补测。写入 plan-task。
 - **落盘与重放判定类合同要核对“失败时判为 X”是否与判定规则一致**。reconcile-integration 合同第 3 条写“观察记录写入失败判为 START_UNKNOWN”，但第 4 条的判定规则遇到预先存在的旧观察记录时会读它，结果是失败开放。草稿与 oracle 都没覆盖这个前提，是独立复审发现的。同一合同还漏了 FIFO 阻塞、读写上限与 close 错误，以及监督器 `worktree_id` 的字符规则与 `ProcessIdentity` 不一致。写入 plan-task。
+- **“是 str / dict / int”要写成精确类型**：scheduler 合同只写“是 str”，执行器用了 `isinstance`。str 子类（包括 `StrEnum`）通过检查后先改了账本，再在事件规范化时报错，违反“被拒绝的调用不改变账本”。v2 写明 `type(x) is str`。同时，测试用到 `StrEnum` 这类 3.11 才有的标准库特性时，要对照项目声明的最低 Python 版本（3.10）给出回退。写入 plan-task。
+- **被监督进程能写证据目录**：bridge 合同规定“由落盘记录决定”，子进程却能伪造“未启动”的观察记录，或删掉交接记录再锁住目录，让一次确实运行过的进程被释放。实时路径应以监督器返回的事实为准，并要求落盘记录与之一致；只有恢复路径只能看记录，在同账户环境下要写明“记录只是关联证据”。写入 plan-task。
