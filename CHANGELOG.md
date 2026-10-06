@@ -75,6 +75,10 @@
   - Python 3.9.6 与 3.12.14 的全量 unittest 都是 1408 项全部通过，跳过 39 项：Windows/NTFS 特性、大小写不敏感的 APFS、未安装 jsonschema，以及归属其他模块的用例。
   - 两项静态检查是在全量运行之后补的，单独运行通过（ImportSideEffectTests 5 项）。
   - `tests/test_dispatch.py` 在两个解释器上都是 262 项全部通过。
+- **规划指南（scheduler-exact-inputs 的实机反馈）**：plan-task 的 test-design.md 在“分支与类型逐项隔离”一节新增一行：
+  - 多个参数共用一条类型规则时，每个参数各自用两种反例：与合法值相等的子类，以及不可哈希的值；
+  - 说明 `None`、`5` 分辨不出 `isinstance` 与精确类型。
+  - 实机：调度器合同只对一个参数测了不可哈希的值，`observe` 冒出 `TypeError`，要靠 v2 返工修正。
 - **规划指南（KitExperiment runtime 移植的实机反馈）**：
   - plan-task 新增三条：
     - 要求与现有实现逐项一致时，把参考源码与参考测试放进基线，并由规划端提交 oracle 测试（逐字移植的参考测试、失败关闭用例、与参考逐项比较的差分测试）作为验收标准，不在合同里意译接口；
