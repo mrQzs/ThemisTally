@@ -643,7 +643,9 @@ class G6Integrable(LegacyGateCase):
         01-A07；C.4“G0–G6”、C.4“补丁往返/完整性”。
 
         特征化：cleanup 移除 worktree 后，G6 不再比较漂移（整段跳过），只检查补丁：补丁被改时 PASS 仍被 G6 拒绝；
-        补丁恢复后 PASS 被接受，G6 没有问题也没有备注。可疑（legacy-inventory 11.2 第 6 条：worktree 不存在时跳过比较，意图未知）。
+        补丁恢复后 PASS 被接受，G6 没有问题。可疑（legacy-inventory 11.2 第 6 条：worktree 不存在时跳过比较，意图未知）。
+        旧实现（a4fa199）此时 G6 也没有备注；调度器 2.4.0 起有意补上一条备注，写明没有重新快照、只凭补丁往返校验
+        （KitExperiment 跨机器复审的反馈，见 docs/KitExperiment实机反馈.md），这里按后继实现断言。
         """
         repo, _base = self.start("g6-nowt")
         wt = self.worktree_of(repo)
@@ -657,7 +659,10 @@ class G6Integrable(LegacyGateCase):
         self.assert_pass_refused(repo, code, out, ["G6"], ["G6 " + PATCH_BAD])
         code, out = self.verdict(repo, "PASS")
         self.assertEqual((code, self.state(repo)), (0, "PASS"), out)
-        self.assertEqual(self.verdict_record(repo, 1)["gates"]["G6"], {"passed": True, "problems": [], "notes": []})
+        missing_note = ("执行 worktree 不存在（已清理，或在派遣 attempt 的另一台机器上）：%s。"
+                        "没有重新快照，G6 只凭候选补丁的往返校验" % wt)
+        self.assertEqual(self.verdict_record(repo, 1)["gates"]["G6"],
+                         {"passed": True, "problems": [], "notes": [missing_note]})
 
 
 class PatchIntegrity(LegacyGateCase):

@@ -1961,8 +1961,9 @@ def test_v23_attachments_main_repo_and_session_abort():
     ev, _text = pd.summarize_events(stream / "events.jsonl", stream,
                                     {"provider": "step", "model": "step-5-preview", "thinking": "high"},
                                     allowed_outside=[run_dir], protected_roots=[main])
-    flagged = [(item["tool"], item.get("main_repo")) for item in ev["outside_worktree_paths"]]
-    check("main-repo reads and cd commands are flagged; the run dir and a sibling are not",
+    # 2.4.0 起同名前缀的兄弟目录与 /usr/bin 也记为工作副本外路径，但不算主仓库。
+    flagged = [(item["tool"], item.get("main_repo")) for item in ev["outside_worktree_paths"] if item.get("main_repo")]
+    check("main-repo reads and cd commands are flagged as main_repo; the run dir and a sibling are not",
           flagged == [("read", True), ("bash", True)], ev["outside_worktree_paths"])
 
     # 3. G2：执行器在主仓库写文件（stub 的 outside 场景），PASS 被拒，只能按例外豁免。
@@ -2002,6 +2003,141 @@ def test_v23_attachments_main_repo_and_session_abort():
     check("a session interrupted by KeyboardInterrupt is an error, not a caught mutation",
           code == 0 and statuses == ["error", "caught", "caught"]
           and "KeyboardInterrupt" in record["results"][0]["reason"], (out, statuses))
+
+
+def test_v24_outside_paths_validation_and_cross_machine():
+    """2.4.0：命令里的工作副本外路径、执行说明的临时目录写法、validate 的两项核对与跨机器复审提示。"""
+    # 1. 扫描：shell 命令里的系统目录与家目录记为工作副本外路径（不算主仓库），同一路径只记一次并计数；
+    #    /dev/null、"$T"/x、运行目录、sed 表达式与临时路径不算。主仓库路径仍逐条记为 main_repo。
+    stream = WORK / "v24-outside-scan"
+    stream.mkdir(parents=True, exist_ok=True)
+    main = WORK / "v24 main repo"
+    run_dir = main / ".agent" / "runs" / "t" / "attempt-001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    system_dir = "C:\\Windows" if IS_WINDOWS else "/usr/bin"
+    calls = [('ls %s/python3* 2>/dev/null' % system_dir, False),
+             ('cat "%s"; cd "%s"' % (main / "README.md", run_dir), False),
+             ('T=$(mktemp -d); %s run_tests.py > "$T/out" 2>&1; tail "$T"/out; rm -rf "$T"' % PROG, False),
+             ("sed -i 's|/zz-not-a-root|/q|' src/normalize.py", False),
+             ('ls %s/python3*' % system_dir, False),
+             ("cat ~/.profile", True)]
+    lines = []
+    for i, (command, failed) in enumerate(calls):
+        lines.append(json.dumps({"type": "tool_execution_start", "toolCallId": "c%d" % i, "toolName": "bash",
+                                 "args": {"command": command}}))
+        lines.append(json.dumps({"type": "tool_execution_end", "toolCallId": "c%d" % i, "toolName": "bash",
+                                 "result": {}, "isError": failed}))
+    (stream / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ev, _text = pd.summarize_events(stream / "events.jsonl", stream,
+                                    {"provider": "step", "model": "step-5-preview", "thinking": "high"},
+                                    allowed_outside=[run_dir], protected_roots=[main])
+    records = ev["outside_worktree_paths"]
+    check("system and home paths in commands are outside paths, deduplicated with a count",
+          [(r["path"], r["main_repo"], r.get("occurrences"), r["event_line"], r["failed"]) for r in records]
+          == [(system_dir + "/python3*", False, 2, 1, False), (str(main / "README.md"), True, None, 3, False),
+              ("~/.profile", False, 1, 11, True)], records)
+
+    # 2. G2 只作提示（命令失败也提示），summary 写出事件流行号与次数；执行说明给出合规的临时目录写法。
+    repo, base = make_repo("v24notes")
+    run_ok(repo)
+    instruction = (rd(repo) / "instruction.md").read_text(encoding="utf-8")
+    check("instruction gives the compliant truncation form and forbids commands after the cleanup",
+          'echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"' in instruction
+          and "删除之后不再接任何命令" in instruction and "ls /usr/bin/python3*" in instruction, instruction)
+    summary_path = rd(repo) / "events-summary.json"
+    events = jload(summary_path)
+    events["outside_worktree_paths"] = [r for r in records if not r["main_repo"]]
+    summary_path.write_text(json.dumps(events, ensure_ascii=False), encoding="utf-8")
+    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    check("summary shows the event line and the number of commands",
+          "工作副本外路径（bash，调用成功，事件流第 1 行，共 2 条命令）：`%s/python3*`" % system_dir in summary
+          and "工作副本外路径（bash，调用失败，事件流第 11 行）：`~/.profile`" in summary, summary)
+    tool(repo, "check", "normalize-query/attempt-001")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                     review(repo, "PASS"))
+    notes = jload(rd(repo) / "verdicts/01.json")["gates"]["G2"]["notes"] if code == 0 else []
+    check("outside paths in commands are G2 notes, including a failed command",
+          code == 0 and "执行器的命令里出现工作副本外路径：%s/python3*（bash，事件流第 1 行）" % system_dir in notes
+          and "执行器的命令里出现工作副本外路径：~/.profile（bash，事件流第 11 行）" in notes, (out, notes))
+
+    # 3. validate：Repository facts 里不在基线中的 .agent/ 文件单独提示；在基线里的不提示。
+    repo, base = make_repo("v24facts")
+    (repo / ".agent/design").mkdir(parents=True, exist_ok=True)
+    (repo / ".agent/design/notes.md").write_text("# notes\n", encoding="utf-8")
+    git(repo, "add", ".agent/design/notes.md")
+    git(repo, "commit", "-qm", "design notes")
+    base2 = git(repo, "rev-parse", "HEAD")
+    facts = ("- 上一轮复审：`.agent/reviews/normalize-query/attempt-001.md`；设计说明：`.agent/design/notes.md`。\n"
+             "- 实现在 `src/normalize.py`，新模块写在 `src/missing_mod.py`。")
+    write_plan(repo, base2, 2, md=build_md(contract(base2, 2)).replace("- src/normalize.py 中的 normalize(q)。", facts))
+    code, out = tool(repo, "validate", "normalize-query.v2")
+    check("planner files missing from the base get their own warning",
+          code == 0 and "规划文件在基线 %s 中不存在：.agent/reviews/normalize-query/attempt-001.md——" % base2[:12] in out
+          and "提到的文件在基线 %s 中不存在：src/missing_mod.py——" % base2[:12] in out
+          and ".agent/design/notes.md" not in out, out)
+
+    # 4. validate：Markdown 写的“基线应失败 / 基线应通过”必须与 JSON 的 expect_on_base 一致；只有 JSON 写了是警告。
+    strict = "- V01（必要，基线应失败）：`%s run_tests.py` · cwd：仓库根 · 超时：120s" % PROG
+    loose = "- V01: %s run_tests.py" % PROG
+    fail_checks = [dict(default_checks()[0], expect_on_base="fail")]
+    for version, md_line, checks, needle, valid in (
+            (3, strict, default_checks(), "ERROR Markdown 中 V01 的基线期望（基线应失败）与 JSON 的 expect_on_base（any）不一致",
+             False),
+            (4, strict.replace("基线应失败", "基线应通过"), fail_checks,
+             "ERROR Markdown 中 V01 的基线期望（基线应通过）与 JSON 的 expect_on_base（fail）不一致", False),
+            (5, strict + "\n- V01 说明：基线应通过", fail_checks, "ERROR Markdown 中 V01 的检查行对基线期望说法不一", False),
+            (6, loose, fail_checks, "WARN  JSON 中 V01 的 expect_on_base 是 fail，Markdown 的检查行没有写“基线应失败”",
+             True),
+            (7, strict, fail_checks, None, True)):
+        md = build_md(contract(base2, version)).replace(loose, md_line)
+        write_plan(repo, base2, version, md=md, checks=checks)
+        code, out = tool(repo, "validate", "normalize-query.v%d" % version)
+        if needle:
+            check("baseline expectation v%d: %s" % (version, needle[:5].strip()),
+                  (code == 0) == valid and needle in out, out)
+        else:
+            check("matching baseline expectations validate", code == 0 and "基线期望" not in out
+                  and "expect_on_base" not in out, out)
+    # bbe0121 起 validate 丢掉了合同校验本身的警告（例如必要检查没有被 DoD 引用），2.4.0 恢复。
+    write_plan(repo, base2, 8, definition_of_done=[{"id": "D01", "text": "行为正确", "evidence": ["review"]},
+                                                   {"id": "D02", "text": "范围合规", "evidence": ["scope"]}])
+    code, out = tool(repo, "validate", "normalize-query.v8")
+    check("validate shows the contract's own warnings again",
+          code == 0 and "WARN  必要检查 V01 没有被任何 DoD 引用" in out, out)
+
+    # 5. 跨机器复审：check 与 verdict 提示 attempt 来自另一台机器；worktree 不存在时 G6 写明只凭补丁往返校验。
+    repo, base = make_repo("v24foreign")
+    run_ok(repo)
+    code, out = tool(repo, "check", "normalize-query/attempt-001")
+    check("an attempt dispatched here has no origin note", code == 0 and "NOTE  attempt 在" not in out, out)
+    meta_path = rd(repo) / "meta.json"
+    meta = jload(meta_path)
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    check("summary records where the attempt was dispatched",
+          "- 派遣环境：%s · Python %s · 仓库 `%s`" % (meta["platform"], meta["python"], meta["repository"]) in summary,
+          summary)
+    repo_obj = pd.Repo(Path(meta["repository"]))
+    moved = pd.attempt_origin_notes(repo_obj, dict(meta, repository=str(WORK / "elsewhere")))
+    check("a moved repository on the same system is noted as another location",
+          len(moved) == 1 and moved[0].startswith("attempt 在另一处仓库派遣"), moved)
+    meta.update(platform="macOS-15.7.9-x86_64-i386-64bit" if IS_WINDOWS else "Windows-10-10.0.26200-SP0",
+                repository="/Users/someone/repo" if IS_WINDOWS else "C:\\Users\\someone\\repo")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    sh(["git", "worktree", "remove", "--force", meta["worktree"]], repo)
+    code, out = tool(repo, "check", "normalize-query/attempt-001")
+    check("in-place check of a foreign attempt explains the missing worktree", code != 0
+          and "NOTE  attempt 在另一台机器上派遣" in out and "（attempt 不在本机派遣）" in out, out)
+    code, out = tool(repo, "check", "normalize-query/attempt-001", "--fresh")
+    check("fresh check of a foreign attempt runs and repeats the note",
+          code == 0 and "NOTE  attempt 在另一台机器上派遣" in out, out)
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                     review(repo, "PASS"))
+    gates = jload(rd(repo) / "verdicts/01.json")["gates"] if code == 0 else {}
+    check("verdict notes the origin and that G6 rests on the patch round trip only",
+          code == 0 and "NOTE  G0 attempt 在另一台机器上派遣" in out and "NOTE  G6 执行 worktree 不存在" in out
+          and any("只凭候选补丁的往返校验" in note for note in gates["G6"]["notes"]), out)
+
 
 if __name__ == "__main__":
     argv = sys.argv[1:]

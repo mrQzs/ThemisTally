@@ -7,7 +7,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 环境：
 - macOS 15.7.9 x86_64，Bash 3.2.57；
 - Claude Code 2.1.289；pi 1.0.2；执行模型 `step/step-5-preview`，请求 thinking high（提供商未回报实际级别，费用记 unknown）；
-- 调度器 pi_dispatch 2.2.2（2026-10-06 起为 2.3.0，见下文“待改进”）；
+- 调度器 pi_dispatch 2.2.2（2026-10-06 起先后为 2.3.0 与 2.4.0，见下文“待改进”）；
 - 检查用共享 venv（Python 3.12.14 + pytest 9.1.1）。
 
 ## 任务记录
@@ -62,23 +62,30 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 ## 待改进（调度工具）
 
-`pi_dispatch.py` 原来锁定在 a4fa199（2.2.2）。2026-10-06 用户同意解锁，2.3.0 修了下面标注“2.3.0 已修”的几项，其余仍待处理。
+`pi_dispatch.py` 原来锁定在 a4fa199（2.2.2）。2026-10-06 用户同意解锁，2.3.0 与 2.4.0 处理了下面全部各项，每项标注版本；做法与回放结果见 CHANGELOG。
 
-- **范围扫描漏报工作目录外的读取**（2.3.0 部分已修：shell 命令里的主仓库路径已纳入扫描；主仓库以外的系统路径仍不扫描）。runner a001 的一条命令 `ls /usr/bin/python3* /usr/local/bin/python3* …` 列出了系统目录，`outside_worktree_paths` 为空，没有提示。
-  - 当前扫描只看临时路径写法与工具调用的路径参数，shell 命令里的绝对路径读取不在范围内。
-- **执行说明第 5 条**仍只要求“保留真实退出码”，没有给出合规写法。现在靠合同模板补充；解锁调度器时应同步进执行说明。
+- **范围扫描漏报工作目录外的读取**（2.3.0 修了主仓库路径；2.4.0 修完：shell 命令里系统目录、家目录、其他仓库或 worktree 的绝对路径也记为工作副本外路径，只作提示）。runner a001 的一条命令 `ls /usr/bin/python3* /usr/local/bin/python3* …` 列出了系统目录，`outside_worktree_paths` 为空，没有提示。
+  - 原来的扫描只看临时路径写法与工具调用的路径参数，shell 命令里的绝对路径读取不在范围内。用 2.4.0 回放这次运行，命令里的三个路径都会列出。
+- **执行说明第 5 条**原来只要求“保留真实退出码”，没有给出合规写法，靠合同模板补充（2.4.0 已修：执行说明写进合规的截短写法）。
 - **“rm -rf "$T" 必须是最后一步”的形式偏差**：执行器在删除之后追加只读命令（`date`、`git status`、`ps`），可疑命令扫描照常列出，复审只能人工判断。
   - 可以考虑把“删除之后只有不涉及 `$T` 的只读命令”标为备注而不是可疑命令；判断要保守，避免被构造的命令骗过。
+  - 2.4.0 的处理：扫描不放宽，执行说明写明删除之后不再接任何命令。2.1.0 的 Codex 审查表明，这类“安全清理”判断能被构造的命令骗过；“删除之后只剩只读命令”同样要靠 shell 解析。
 - **`validate` 没有核对 Repository facts 中的 `.agent/` 文件是否在基线里**：posix-identity-env v2 要求执行器读取 v1 合同与上一轮复审，但侧分支基线中没有这两个文件，`validate` 没有提示；执行器只能在报告中说明。2.2.1 的“Repository facts 文件不在基线”核对可能跳过了规划路径。
+  - 2.4.0 已修：路径规则原来要求首字符是字母或数字，点目录下的路径从未核对。现在不在基线里的规划文件单独提示；用全部合同回放，只在 posix-identity-env v2 上提示。
 - **`derive-json` 不覆盖已有 JSON，`validate` 也不比较“基线应失败”**。改了 Markdown 中检查行的“基线应失败”标注后，重新 derive 会因 JSON 已存在而拒绝（需要 `--force`）。`validate` 不比较 `expect_on_base`，于是 Markdown 与 JSON 的标注可以不一致而不被发现。
   - 本次影响只限 `baseline` 的期望标注，执行器看到的摘要相同。
   - 建议 `validate` 把检查行的“基线应失败”与 JSON 的 `expect_on_base` 一并比较。
+  - 2.4.0 已修：Markdown 写了而 JSON 不同是错误，只有 JSON 写了是警告，错误信息提示用 `derive-json --force` 重新生成。posix-identity-env v2 的 V06 现在报错。
 - **跨机器复审可以运行，但没有提示**。在 macOS 上复审 Windows 派遣的 attempt 时：
   - in_place 检查因 worktree 不在本机而拒绝；
   - `check --fresh` 按记录的 `core.autocrlf=true` 快照，结果正确；
   - `verdict` 在 worktree 不存在时跳过重新快照，G6 只凭补丁往返校验，但没有在门禁备注里说明。
 
   建议补一条备注，并在 summary 中标出 attempt 来自另一台机器（`meta.json` 的 platform 与 repository 路径）。
+  - 2.4.0 已修：
+    - summary 记下派遣环境；
+    - `check` 与 `verdict` 打印来源提示，G0 留备注；
+    - worktree 不存在时，G6 写明只凭补丁往返校验。
 - **`mutate` 把 pytest 会话中断也记为 caught**（2.3.0 已修：记为出错并写明原因）。supervisor a002 只用执行器测试时，变异让 KeyboardInterrupt 冒出测试，pytest 以退出码 2 结束，日志里只跑了 7 个用例，工具仍记为 caught。
   - 建议把退出码 2，或日志中的 `!!! KeyboardInterrupt !!!`，单独标为“会话中断”，不计入 caught。
   - 现在靠 mutation-check.md 提醒人工读日志。
@@ -92,6 +99,8 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - 执行说明写明“只读写 worktree 内的路径”；
   - 范围扫描把 shell 命令里的 `cd <绝对路径>` 也计入 `outside_worktree_paths`。这一次只有 read 工具那一条被记录。
   - **第二次（bridge a001）**：合同的 Forbidden 已经明文写“不访问工作副本以外的路径（包括主仓库）”，执行器仍在会话开头用主仓库路径读了设计说明与一个模块，之后才改用相对路径。这说明光在合同里禁止不够，需要在调度器里修：解锁 `pi_dispatch.py` 后，附件改用相对名称，并把读主仓库的工具调用标为违规。
+
+- **修这些问题时发现的回归**（2.4.0 已修）：bbe0121（2026-10-03）起，validate 与 prepare 不再显示合同校验本身的警告，例如必要检查没有被 DoD 引用。这与 KitExperiment 无关，是给 `expect_on_base` 加“只有 JSON 写了”的警告时发现的。
 
 ## 合同设计的教训（规划端）
 

@@ -104,6 +104,10 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - **“某条 finding 由哪些模块产生”一类的事实要实测**：用小输入跑一次，列出所有来源。只读一个模块容易漏掉，例如解析器自己也会报同一规则。
 - **设计代价公式、阈值一类的算法参数时，用参差的真实形态数据模拟**：只用等长、等间隔的例子，容易恰好掩盖公式的缺陷。实机上 v1 的对齐代价在等长对子上表现正确，时长不等时却仍把 80–91% 的 cue 揉进大组。先在副本上做原型，用独立复审的对照程序验证，再写进合同。
 - 行号会随其他任务的集成漂移。Repository facts 引用代码时以函数、类等符号为主，行号只写“约 N 行”作辅助。
+- **Repository facts 引用的上一轮合同、复审记录或设计说明（`.agent/` 下的文件）必须在基线里**。执行器的 worktree 按基线创建，读不到基线之后才提交的文件，也不得去主仓库读。
+  - 侧分支基线常常不含这些文件，这时把需要的内容直接写进合同。
+  - validate 会提示不在基线里的文件（调度工具 2.4.0 起）。
+  - 实机：posix-identity-env v2 要求执行器读取 v1 合同与上一轮复审，两份都不在基线里。
 - 用编辑工具写合同时，`\u200e` 这类转义序列可能被写成实际的不可见字符（Claude Code 的 Write / Edit 实测如此）。探针里需要这类字符时用 `chr(0x200E)`；validate 会对不可见格式字符给出警告。
 - 字段含义、授权词表、检查与 DoD 的写法见 [contract-guide.md](contract-guide.md)。
 - 执行模型默认用 Step 系列，`thinking: high`。provider 与 model 必须是本机 `pi --list-models step` 列出的精确 ID，并与 `.agent/environment.md` 一致。
@@ -118,6 +122,9 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 3. 所有 ERROR 必须修正。WARN 要么修正，要么在合同里写明理由。
 4. 修复类任务运行 `bash scripts/dispatch-pi.sh baseline <task-id>.vN`，确认用来证明修复的探针在基线上失败。
    - 这类探针在 JSON 中标 `"expect_on_base": "fail"`，Markdown 的检查行写“基线应失败”。
+     - validate 比较两处标注（调度工具 2.4.0 起）：Markdown 写了而 JSON 不同是错误，只在 JSON 写了是警告。
+     - 改了 Markdown 的标注后，用 `derive-json --force` 重新生成 JSON。
+     - 实机：posix-identity-env v2 的 V06 在 Markdown 写了“基线应失败”，JSON 却是 any，baseline 根本没有核对它。
    - 在基线上就能通过的探针区分不了修复前后，要改写。
    - **只补测试、不改产品行为的任务**：基线上的产品代码本来就是对的，baseline 证明不了新测试有效。检查行按检查的形态写：
      - 只选中新增测试节点的检查（例如 `pytest tests/test_x.py::test_new`）：基线上收集不到用例，写“基线应失败”，并在合同中写明失败的原因是缺用例；

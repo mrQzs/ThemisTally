@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.3.0"
+TOOL_VERSION = "2.4.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -205,6 +205,67 @@ def _protected_mentions(command: str, forms: Sequence[str]) -> List[str]:
             excerpt = command[start:end]
             if excerpt not in found:
                 found.append(excerpt)
+    return found
+
+
+#: shell 命令里绝对路径参数的起点：POSIX 的 `/x`、`~` 与 Windows 盘符。左边必须是参数的开头（行首、空白、`=`、
+#: 括号、命令分隔符、重定向符、逗号、反引号或开引号），所以相对路径中间的 `/`、URL 的 `//`、`$T/x`、`"$T"/x`
+#: 与已屏蔽的 `<worktree>/x` 都不算。
+_ABS_PATH_START_RE = re.compile(
+    r"(?:^|(?<=[\s=(;|&<>,`\"']))(?<!<worktree>)(?:/(?=[\w.~-])|~(?=[/\s;|&)<>\"'`]|$)|[A-Za-z]:[\\/])", re.M)
+#: 不算访问的设备路径：输出丢弃与标准流。
+_DEVICE_PATH_RE = re.compile(r"^/dev/(?:null|stdin|stdout|stderr|tty|fd/\d+)$")
+
+
+def _root_entry_exists(text: str) -> bool:
+    """绝对路径的第一段（`/usr`、`C:\\`、Git Bash 的 `/c`）在本机是否存在；`~` 总是存在。
+
+    用来排除命令里形似路径、其实不是路径的文字，例如 sed 表达式或 python -c 里的 `/x/`。
+    """
+    if text.startswith("~"):
+        return True
+    drive = re.match(r"^([A-Za-z]):[\\/]", text)
+    if drive:
+        return IS_WINDOWS and os.path.isdir(drive.group(1) + ":\\")
+    first = re.match(r"^/([^/\\]+)", text)
+    if not first:
+        return False
+    if IS_WINDOWS and len(first.group(1)) == 1:
+        return os.path.isdir(first.group(1) + ":\\")
+    return os.path.lexists("/" + first.group(1))
+
+
+def _outside_mentions(command: str, skip_forms: Sequence[str]) -> List[str]:
+    """命令里出现的工作副本外绝对路径：系统目录、家目录、其他仓库或 worktree（2.4.0）。
+
+    先用 _mask_paths 屏蔽 worktree 与本 attempt 的运行目录、附件目录，再调用本函数。以下不计入：
+    - 位于 skip_forms（主仓库）之内的路径：由 _protected_mentions 记录，G2 判为不通过；
+    - 系统临时路径：已由 TEMP_PATH_RE 记入 temp_path_uses；
+    - `/dev/null` 与标准流；
+    - 第一段在本机不存在的“路径”：多半是正则、sed 表达式一类的文字，即使真是路径，也没有读到东西。
+    与 _protected_mentions 一样，这是复审线索，不是 shell 解析。
+    """
+    flags = re.I if IS_WINDOWS else 0
+    found: List[str] = []
+    for match in _ABS_PATH_START_RE.finditer(command):
+        start = match.start()
+        quote = command[start - 1] if start > 0 and command[start - 1] in "\"'" else ""
+        if quote:
+            # 只认开引号：引号前面还连着别的内容（例如 "$T"/x 的结束引号）时，路径接在变量后面，不是绝对路径。
+            if start >= 2 and not re.match(r"[\s=(;|&<>,`]", command[start - 2]):
+                continue
+            end = command.find(quote, start)
+            end = len(command) if end < 0 else end
+        else:
+            tail = re.search(r"[\s;|&()<>,\"'`]", command[start:])
+            end = start + (tail.start() if tail else len(command) - start)
+        excerpt = command[start:end]
+        if not excerpt or _DEVICE_PATH_RE.match(excerpt) or TEMP_PATH_RE.search(excerpt):
+            continue
+        if any(re.match(re.escape(form) + r"(?:[/\\]|$)", excerpt, flags) for form in skip_forms):
+            continue
+        if _root_entry_exists(excerpt) and excerpt not in found:
+            found.append(excerpt)
     return found
 
 
@@ -1348,13 +1409,41 @@ def _md_command_items(md: str, section_name: str) -> Tuple[List[Dict[str, Any]],
         must_not = re.search(r"不得(?:出现|匹配)\s*[:：]?\s*(.*)$", rest)
         if must_not:
             item["output_must_not_match"] = re.findall(r"`([^`]+)`", must_not.group(1))
-        markers = kind + rest
-        if section_name == "Validation commands" and "基线应失败" in markers:
-            item["expect_on_base"] = "fail"
-        elif section_name == "Validation commands" and "基线应通过" in markers:
-            item["expect_on_base"] = "pass"
+        expectation = _md_base_expectation(kind + rest)
+        if section_name == "Validation commands" and expectation != "any":
+            item["expect_on_base"] = expectation
         items.append(item)
     return items, problems
+
+
+def _md_base_expectation(markers: str) -> str:
+    """检查行命令之外的文字里写的基线期望：“基线应失败”为 fail，否则“基线应通过”为 pass，都没写为 any。"""
+    if "基线应失败" in markers:
+        return "fail"
+    return "pass" if "基线应通过" in markers else "any"
+
+
+def _md_check_base_expectations(validation: str) -> Dict[str, List[str]]:
+    """Validation commands 中每个检查编号的基线期望，供 validate 与 JSON 的 expect_on_base 比较（2.4.0）。
+
+    标准格式的检查行（derive-json 能解析的）只看命令之外的括注与行尾说明，与 derive-json 一致；
+    其他以编号开头的列表行（例如 `- V01 (required): …`）去掉反引号里的命令后再找标注。
+    同一编号有多行时逐行记录，由调用方判断是否前后一致。
+    """
+    found: Dict[str, List[str]] = {}
+    for line in validation.splitlines():
+        text = line.strip()
+        match = _CHECK_LINE_RE.match(text)
+        if match:
+            cid = match.group("id")
+            markers = (match.group("kind") or match.group("kind2") or "") + match.group("rest")
+        else:
+            loose = re.match(r"^[-*]\s*`?(?P<id>[A-Z][A-Z0-9_-]{0,31})`?(?![A-Za-z0-9_-])", text)
+            if not loose:
+                continue
+            cid, markers = loose.group("id"), re.sub(r"`[^`]*`", "", text[loose.end():])
+        found.setdefault(cid, []).append(_md_base_expectation(markers))
+    return found
 
 
 #: derive-json 没有 --title、从 Goal 第一行取到的标题超过这个字数时提示改用 --title。
@@ -1679,6 +1768,25 @@ def _validate_contract(md_text: str, raw: Any, plan_key: str,
             errors.append("Markdown Validation commands 未列出 %s" % check["id"])
         elif _is_str_list(argv) and argv and not any(_argv_in_line(argv, line) for line in lines):
             errors.append("Markdown 中 %s 的命令与 JSON argv 不一致：%s" % (check["id"], " ".join(argv)))
+    # 基线期望：Markdown 写给验收端与执行器，JSON 的 expect_on_base 决定 baseline 的判定与执行说明里的写法（2.4.0）。
+    # Markdown 写了而 JSON 不同是错误：规划端以为 baseline 核对过探针，实际没有核对（KitExperiment 实机）。
+    # 只有 JSON 写了是警告：baseline 照常核对，只是 plan.md 里看不到。
+    labels = {"fail": "基线应失败", "pass": "基线应通过", "any": "未标注"}
+    declared_expectations = _md_check_base_expectations(validation)
+    for check in checks:
+        declared = declared_expectations.get(check["id"])
+        expected = check.get("expect_on_base", "any")
+        if not declared or expected not in labels:
+            continue
+        if len(set(declared)) > 1:
+            errors.append("Markdown 中 %s 的检查行对基线期望说法不一：%s"
+                          % (check["id"], "、".join(labels[value] for value in declared)))
+        elif declared[0] != "any" and declared[0] != expected:
+            errors.append("Markdown 中 %s 的基线期望（%s）与 JSON 的 expect_on_base（%s）不一致；改了 Markdown 的标注时，"
+                          "用 derive-json --force 重新生成 JSON，或手工同步" % (check["id"], labels[declared[0]], expected))
+        elif declared[0] != expected:
+            warnings.append("JSON 中 %s 的 expect_on_base 是 %s，Markdown 的检查行没有写“%s”：baseline 照常核对，"
+                            "但执行器读 plan.md 看不到；按约定两处都写" % (check["id"], expected, labels[expected]))
     for item_id in dod_ids:
         if not re.search(r"\b%s\b" % re.escape(item_id), md_text):
             errors.append("Markdown 未出现 JSON 中的编号：%s" % item_id)
@@ -1717,13 +1825,16 @@ def _planner_strict_json_loads(raw: bytes) -> Any:
 
 
 def _load_fixed_contract_pair(repo: Repo, plan_key: str, md_bytes: bytes,
-                              json_bytes: bytes, md_text: Optional[str] = None
+                              json_bytes: bytes, md_text: Optional[str] = None,
+                              warnings_out: Optional[List[str]] = None
                               ) -> Tuple[Optional[Dict[str, Any]], List[str], Any]:
     """Parse and validate one already-read MD/JSON byte pair.
 
     Consumers that execute a contract must operate on the same bytes that
     passed validation.  Keeping parsing behind this helper prevents a later
     path read from silently pairing a different Markdown and JSON file.
+    ``warnings_out`` collects validate_contract's warnings; bbe0121 dropped
+    them, so validate and prepare stopped showing them until 2.4.0.
     """
     if md_text is None:
         md_text = md_bytes.decode("utf-8")
@@ -1733,8 +1844,10 @@ def _load_fixed_contract_pair(repo: Repo, plan_key: str, md_bytes: bytes,
     raw = json.loads(json_bytes.decode("utf-8"))
     if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
         raw = _planner_strict_json_loads(json_bytes)
-    contract, errors, _warnings = validate_contract(
+    contract, errors, contract_warnings = validate_contract(
         md_text, raw, plan_key, extra_protected_paths(repo.config()))
+    if warnings_out is not None:
+        warnings_out.extend(contract_warnings)
     if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
         errors.extend(verify_planner_publication(repo, plan_key, md_bytes, json_bytes))
         if errors:
@@ -1763,13 +1876,13 @@ def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], 
     except OSError as exc:
         return None, ["合同文件无法按固定字节读取：%s" % exc], []
     md_text = md_bytes.decode("utf-8")
+    warnings: List[str] = []
     try:
-        contract, errors, raw = _load_fixed_contract_pair(repo, plan_key, md_bytes, json_bytes, md_text)
+        contract, errors, raw = _load_fixed_contract_pair(repo, plan_key, md_bytes, json_bytes, md_text, warnings)
     except ModuleNotFoundError as exc:
         return None, ["planner-v2 严格 JSON 解码器不可用：%s" % exc], []
     except (ValueError, UnicodeDecodeError) as exc:
         return None, ["JSON 合同解析失败：%s" % exc], []
-    warnings: List[str] = []
     warnings.extend(invisible_char_warnings(md_text, "Markdown"))
     warnings.extend(invisible_char_warnings(json_bytes.decode("utf-8", "replace"), "JSON"))
     base = raw.get("base_sha") if isinstance(raw, dict) else None
@@ -1901,8 +2014,9 @@ def planner_attempt_publication_errors(repo: Repo, run_dir: Path, contract: Dict
 
 NOTE_PREFIX = "NOTE："
 
-#: Repository facts 里用反引号写的仓库相对文件：至少一个 `/`，以扩展名结尾，不含通配符。
-FACT_PATH_RE = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8})`")
+#: Repository facts 里用反引号写的仓库相对文件：至少一个 `/`，以扩展名结尾，不含通配符。可以从点目录开始
+#: （例如 `.agent/reviews/x.md`）：2.4.0 之前这类路径不在核对范围内，上一轮合同与复审不在基线里时没有提示。
+FACT_PATH_RE = re.compile(r"`(\.?[A-Za-z0-9_][A-Za-z0-9_./-]*/[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8})`")
 
 
 def missing_fact_path_warnings(repo: "Repo", md_text: str, raw: Any, base: str) -> List[str]:
@@ -1911,6 +2025,9 @@ def missing_fact_path_warnings(repo: "Repo", md_text: str, raw: Any, base: str) 
     并行派遣时最容易把同批另一份合同要产出的文件当成基线已含（2026-09-24 实机：netperf-diff 的合同
     引用了同批 netperf-report 才会产出的 report.ts，执行器只能 BLOCKED，一轮 attempt 白跑）。
     allowed_new_files 里的路径是本任务要新建的，不算；含通配符的模式不查。
+
+    `.agent/` 下的文件（上一轮合同、复审记录、设计说明）单独提示：它们不会由别的合同产出，规划端提交它们的
+    提交又常在基线之后，执行器的 worktree 里没有，也不得去主仓库读（KitExperiment 实机，2.4.0）。
     """
     section = _md_section(md_text, "Repository facts") or ""
     scope = raw.get("scope") if isinstance(raw, dict) else None
@@ -1937,10 +2054,17 @@ def missing_fact_path_warnings(repo: "Repo", md_text: str, raw: Any, base: str) 
         return False
 
     missing = [p for p in candidates if not exists_in_base(p)]
-    if not missing:
-        return []
-    return ["Repository facts 提到的文件在基线 %s 中不存在：%s——若它由同批的另一份合同产出，"
-            "等那份集成后再以新 HEAD 为基线" % (base[:12], "、".join(missing[:8]))]
+    planner_files = [p for p in missing if p.startswith(".agent/")]
+    others = [p for p in missing if p not in planner_files]
+    warnings: List[str] = []
+    if others:
+        warnings.append("Repository facts 提到的文件在基线 %s 中不存在：%s——若它由同批的另一份合同产出，"
+                        "等那份集成后再以新 HEAD 为基线" % (base[:12], "、".join(others[:8])))
+    if planner_files:
+        warnings.append("Repository facts 提到的规划文件在基线 %s 中不存在：%s——执行器的 worktree 按基线创建，"
+                        "读不到它们，也不得去主仓库读：改用包含它们的提交作为基线，或把需要的内容写进合同"
+                        % (base[:12], "、".join(planner_files[:8])))
+    return warnings
 
 
 def base_behind_head_message(repo: "Repo", base: str, head: str) -> str:
@@ -2379,7 +2503,8 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
     plan.md 与 instruction.md）；访问这些目录只记入 own_run_paths，不算工作副本外访问。
     plan_text：本 attempt 的 plan.md，用来排除合同本身的领域用语（见 ambiguity_domain_words）。
     protected_roots：执行器不得访问的目录（主仓库）。工具参数落在其中、或 shell 命令里出现其中的路径时，
-    记录带 ``main_repo: true``，verdict 的 G2 据此判为不通过（2.3.0）。
+    记录带 ``main_repo: true``，verdict 的 G2 据此判为不通过（2.3.0）。shell 命令里其他工作副本外的绝对路径
+    （系统目录、家目录、其他仓库或 worktree）记为 ``main_repo: false``，只作提示（2.4.0，见 _outside_mentions）。
     """
     data = events_path.read_bytes() if events_path.exists() else b""
     own_path_forms = _path_forms([work_dir] + list(allowed_outside))
@@ -2400,6 +2525,7 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
     cache_cleanups: List[Dict[str, Any]] = []
     outside_paths: List[Dict[str, Any]] = []
     outside_by_call: Dict[str, List[Dict[str, Any]]] = {}
+    shell_outside: Dict[str, Dict[str, Any]] = {}
     own_run_paths: List[Dict[str, str]] = []
     mentions: List[Dict[str, Any]] = []
     domain_words = ambiguity_domain_words(plan_text)
@@ -2458,9 +2584,21 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                 command = str(args.get("command", ""))
                 commands.append(command[:500])
                 scan = _mask_paths(command, own_path_forms)
-                for excerpt in _protected_mentions(scan, protected_forms):
+                # 主仓库里的路径判 G2 不通过（2.3.0）；其他工作副本外的绝对路径只作提示（2.4.0）。
+                shell_paths = [(excerpt, True) for excerpt in _protected_mentions(scan, protected_forms)]
+                shell_paths += [(excerpt, False) for excerpt in _outside_mentions(scan, protected_forms)]
+                for excerpt, in_main_repo in shell_paths:
+                    # 主仓库路径逐条命令记录；其他路径常是测试数据里的字面量（例如 PATH 的取值），同一路径只记第一次
+                    # 出现的事件流行号，并计数。
+                    first = None if in_main_repo else shell_outside.get(excerpt)
+                    if first is not None:
+                        first["occurrences"] += 1
+                        continue
                     record = {"tool": name, "path": excerpt[:300], "exists": None, "failed": None,
-                              "main_repo": True, "event_line": number}
+                              "main_repo": in_main_repo, "event_line": number}
+                    if not in_main_repo:
+                        record["occurrences"] = 1
+                        shell_outside[excerpt] = record
                     outside_paths.append(record)
                     call_id = event.get("toolCallId")
                     if isinstance(call_id, str):
@@ -2886,6 +3024,28 @@ def verify_inputs(run_dir: Path, meta: Dict[str, Any]) -> List[str]:
     return problems
 
 
+def _platform_family(text: Any) -> str:
+    """platform.platform() 的系统名（Windows、macOS、Linux…）：同一台机器升级系统后版本号会变，只比较系统名。"""
+    return str(text or "").split("-", 1)[0].lower()
+
+
+def attempt_origin_notes(repo: Repo, meta: Dict[str, Any]) -> List[str]:
+    """attempt 在另一台机器或另一处仓库上派遣时的提示（2.4.0）。
+
+    跨机器复审可以进行，但与在本机派遣有两处不同：执行 worktree 只在派遣的机器上，in_place 检查不可用，
+    要用 check --fresh；verdict 无法重新快照 worktree，G6 只凭候选补丁的往返校验。
+    """
+    recorded_platform, recorded_repo = meta.get("platform"), meta.get("repository")
+    here = platform.platform()
+    other_machine = bool(recorded_platform) and _platform_family(recorded_platform) != _platform_family(here)
+    other_repo = bool(recorded_repo) and norm_case(str(recorded_repo)) != norm_case(str(repo.root))
+    if not (other_machine or other_repo):
+        return []
+    return ["attempt 在%s派遣（prepare 时 %s，仓库 %s；本机 %s，仓库 %s）：执行 worktree 只在派遣的位置，"
+            "验收检查用 check --fresh；verdict 不重新快照 worktree，G6 只凭候选补丁的往返校验"
+            % ("另一台机器上" if other_machine else "另一处仓库", recorded_platform, recorded_repo, here, repo.root)]
+
+
 def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     executor = dict(contract["executor"])
     for field, env_name in (("provider", "PI_EXEC_PROVIDER"), ("model", "PI_EXEC_MODEL"),
@@ -2944,7 +3104,7 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
 2. 不修改合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/ 与 scripts/pi_dispatch.py、scripts/dispatch-pi.sh。
 3. 不删除、跳过或弱化测试与断言来获得通过。
 4. {commit_rule}不要用 git stash、git checkout -- 或 git reset 临时撤掉自己的改动来对比基线行为：恢复一旦失败，改动就会丢失。确实需要对比时，在报告中说明，由验收端在基线副本上运行。
-5. 不访问工作目录之外的路径。唯一的例外是临时文件，只用来存放测试或命令的中间产物：测试框架管理的临时目录（例如 pytest 的 tmp_path）可以使用；确需在命令里新建临时目录时，只能写成 `T=$(mktemp -d)`，并以 `rm -rf "$T"` 作为这条命令的最后一步，不要切换到其中运行命令，也不要读写其他工作目录之外的路径。不读取、打印或写入任何凭据。读写工作目录中的文件一律使用相对路径（工具的当前目录就是工作目录），不要手写绝对路径——手写的长路径容易拼错而落到工作目录之外；`"$T"` 这样运行时生成的临时路径不受此限。plan.md 与本说明已随消息附上，不需要再去读取它们的原始文件。
+5. 不访问工作目录之外的路径，包括主仓库、其他 worktree、家目录与系统目录（例如不要用 `ls /usr/bin/python3*` 查找解释器，直接用 PATH 上的命令）。唯一的例外是临时文件，只用来存放测试或命令的中间产物：测试框架管理的临时目录（例如 pytest 的 tmp_path）可以使用；确需在命令里新建临时目录时，只能写成 `T=$(mktemp -d)`，并以 `rm -rf "$T"` 作为这条命令的最后一步，删除之后不再接任何命令（`date`、`git status` 这类只读命令也不要接，需要时另起一条命令）；不要切换到其中运行命令，也不要读写其他工作目录之外的路径。需要截短输出又要保留真实退出码时，直接运行检查命令即可（工具会返回完整输出与退出码）；确要截短，写成 `T=$(mktemp -d); <命令> > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"`，不要写到 `/tmp/v01.txt` 这类固定路径。不读取、打印或写入任何凭据。读写工作目录中的文件一律使用相对路径（工具的当前目录就是工作目录），不要手写绝对路径——手写的长路径容易拼错而落到工作目录之外；`"$T"` 这样运行时生成的临时路径不受此限。plan.md 与本说明已随消息附上，不需要再去读取它们的原始文件。
 6. 遇到未定义行为、需求冲突、基线不符或环境缺失：停止并报告，不要猜测。合同内部前后矛盾（例如行为说明、步骤、DoD 或测试要求对同一行为说法不同）也属于需求冲突，不要自行选定一种解释当作完成。其余部分能独立完成时可以继续，但要把两处原文、你暂时采用的做法和理由写进报告的 `contract_conflicts`，并把相关 DoD 标为 blocked。
 {self_check_rule}
 8. 验收端会在固定候选上做变异检查（mutate），你不需要自己做突变反测；确要临时改坏文件验证测试时，备份放在工作目录内（例如 `x.ts.orig`），同一条命令里改回并删除备份，不要用系统临时目录。
@@ -3075,6 +3235,8 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         "",
         "- 状态：**%s**" % state,
         "- 基线：`%s`" % meta.get("base_sha"),
+        # 换一台机器复审时，据此知道 attempt 从哪里来（2.4.0）。
+        "- 派遣环境：%s · Python %s · 仓库 `%s`" % (meta.get("platform"), meta.get("python"), meta.get("repository")),
         "- 候选树：`%s`（补丁往返校验：%s）" % (candidate.get("tree"), yes_no(candidate.get("patch_roundtrip_verified"))),
         "- 要求的执行模型：%s/%s · thinking=%s · 工具=%s" % (
             executor.get("provider"), executor.get("model"), executor.get("thinking"),
@@ -3147,7 +3309,11 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
             detail.append("调用成功")
         if item.get("exists") is False:
             detail.append("路径不存在，可能是手写绝对路径时拼错")
-        attention.append("工作副本外路径（%s）：`%s`" % ("，".join(detail), item["path"]))
+        if item.get("event_line"):
+            detail.append("事件流第 %s 行" % item["event_line"])
+        if (item.get("occurrences") or 0) > 1:
+            detail.append("共 %d 条命令" % item["occurrences"])
+        attention.append("工作副本外路径（%s）：`%s`" % ("，".join(detail), item["path"].replace("`", "'")))
     own_reads = sorted({item["path"] for item in events.get("own_run_paths", [])})
     if own_reads:
         notes.append("执行器访问了本 attempt 运行目录中的文件（合同与执行说明）：%s"
@@ -4291,6 +4457,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     state = get_state(run_dir)
     if state not in REVIEWABLE_STATES:
         raise DispatchError("状态 %s 不能运行验收检查" % state)
+    origin_notes = attempt_origin_notes(repo, meta)
+    for note in origin_notes:
+        print("NOTE  %s" % note)
     candidate = read_json_or(run_dir / "candidate.json", {})
     if not candidate.get("tree"):
         raise DispatchError("没有候选记录（candidate.json），无法把检查绑定到确切内容")
@@ -4327,7 +4496,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     else:
         work_dir = Path(meta["worktree"])
         if not work_dir.is_dir():
-            raise DispatchError("worktree 已不存在：%s；可用 --fresh 在干净副本上验收" % work_dir)
+            raise DispatchError("worktree 已不存在：%s%s；可用 --fresh 在干净副本上验收"
+                                % (work_dir, "（attempt 不在本机派遣）" if origin_notes else ""))
     try:
         tree_before = snapshot_tree(work_dir, meta["base_sha"], out_dir, "before", meta.get("git_autocrlf"))
         drift_before = tree_drift(work_dir, candidate["tree"], tree_before)
@@ -4513,6 +4683,7 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
         fail("G0", problem)
     if resolve_commit(repo.root, meta["base_sha"]) != meta["base_sha"]:
         fail("G0", "基线提交不可用")
+    gates["G0"]["notes"].extend(attempt_origin_notes(repo, meta))
     state = get_state(run_dir)
     run = read_json_or(run_dir / "run.json", {})
     events = read_json_or(run_dir / "events-summary.json", {})
@@ -4551,6 +4722,10 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
         if item.get("main_repo") and (shell or item.get("failed") is not True):
             # 主仓库是规划端的工作区：执行器读写它，会把未提交的内容带进候选，或改动规划端的状态（2.3.0）。
             fail("G2", "执行器访问了主仓库：%s（%s）" % (item.get("path"), item.get("tool")))
+        elif shell:
+            # 命令失败不代表没有读到路径（2.4.0）。
+            gates["G2"]["notes"].append("执行器的命令里出现工作副本外路径：%s（%s，事件流第 %s 行）"
+                                        % (item.get("path"), item.get("tool"), item.get("event_line")))
         elif item.get("failed") is not True:
             gates["G2"]["notes"].append("执行器访问了工作副本外路径：%s（%s）" % (item.get("path"), item.get("tool")))
     candidate = read_json_or(run_dir / "candidate.json", {})
@@ -4607,6 +4782,10 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
                                             % ", ".join(drift["added"][:10]))
         except DispatchError as exc:
             fail("G6", "无法重新快照：%s" % exc)
+    elif candidate.get("tree"):
+        # 以前这里静默跳过，复审者看不出 G6 少了一项依据（跨机器复审实机，2.4.0）。
+        gates["G6"]["notes"].append("执行 worktree 不存在（已清理，或在派遣 attempt 的另一台机器上）：%s。"
+                                    "没有重新快照，G6 只凭候选补丁的往返校验" % work_dir)
     if not candidate_patch_ok(run_dir, candidate):
         fail("G6", "候选补丁缺失、被改动或未通过往返校验")
     return {"state_at_review": state, "gates": gates}
@@ -4635,8 +4814,9 @@ def cmd_verdict(args: argparse.Namespace) -> int:
         waivers[gate] = reason.strip()
     evaluation = evaluate_gates(repo, run_dir, meta, contract)
     failed = [g for g, info in evaluation["gates"].items() if not info["passed"]]
-    for note in evaluation["gates"]["G3"]["notes"]:  # 合同矛盾一类的提示：下结论前应已在复审中裁定
-        print("NOTE  G3 %s" % note)
+    for gate in ("G0", "G3", "G6"):  # 来源、合同矛盾与快照依据一类的提示：下结论前应已在复审中核对
+        for note in evaluation["gates"][gate]["notes"]:
+            print("NOTE  %s %s" % (gate, note))
     if verdict == "PASS":
         if failed:
             for gate in failed:

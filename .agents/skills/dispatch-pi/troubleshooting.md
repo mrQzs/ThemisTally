@@ -12,6 +12,9 @@
 | `… 第 N 行含不可见格式字符 U+200E …` | 编辑工具把转义序列（如 `\u200e`）写成了实际字符；Markdown 看起来与 JSON 一致，逐项比对却对不上 | 把字符改回转义文本；探针里需要这类字符时用 `chr(0x200E)` |
 | `与未集成的 … 改动范围重叠` | 另一个任务最新的 attempt 尚未集成，且允许修改的文件与本合同重叠（同一任务较早的 REVISE attempt 不计入） | 把本任务放到下一批，等对方集成后以新 HEAD 为基线；确需并行时由后集成的一方负责合并。<br>那个 attempt 的候选若其实已经并入后续提交（例如由规划器补齐后集成），用 `mark … SUPERSEDED --ref … --reason …` 记录，提示随之消失 |
 | `baseline` 提示“基线上已通过” | 探针在修复前就能通过，区分不了修复前后 | 改写探针，让它断言修复后的新行为；并标注 `expect_on_base: fail` |
+| `Markdown 中 Vxx 的基线期望（…）与 JSON 的 expect_on_base（…）不一致` | 改了 Markdown 检查行的“基线应失败 / 基线应通过”，没有同步 JSON（2.4.0 起为错误） | 用 `derive-json --force` 重新生成 JSON，或手工同步；只在 JSON 写了的是警告，按约定在 Markdown 补上 |
+| `Repository facts 提到的规划文件在基线 … 中不存在` | 合同引用的上一轮合同、复审记录或设计说明在基线之后才提交（2.4.0 起提示） | 改用包含它们的提交作为基线，或把需要的内容写进合同；执行器不得去主仓库读 |
+| `attempt 在另一台机器上派遣`（`check` / `verdict` 的 NOTE） | attempt 在别的机器或别处仓库 prepare，执行 worktree 不在本机 | 用 `check --fresh`；verdict 的 G6 只凭候选补丁的往返校验，门禁备注会写明 |
 | `合同无效：…ERROR…` | Markdown 与 JSON 不一致、占位符残留、受保护路径等 | 按错误修改合同；已派遣过的版本改为出新版本 |
 | `请先把 .agent/runs/ 加入 .gitignore` | 运行证据可能被提交 | 追加 `gitignore.append.txt` 中的规则 |
 | `base_sha 在本仓库中不存在` | 示例或旧合同的基线 | 用 `git rev-parse HEAD` 核对后更新 |
@@ -51,7 +54,7 @@
 | 思考级别“未回报” | 该协议或配置不回报 `providerThinkingLevel`（本机 Step 配置即如此），不是错误 | 只能确认请求的级别；anthropic-messages 预算模式下 high 对应 thinking 预算 16384 |
 | 大量 `tool_errors` | 执行器命令用法、依赖缺失 | 缺依赖就补 setup；命令用法问题在合同 Steps 中说明 |
 | `suspicious_commands` | git 写操作、依赖安装、网络下载、读取环境变量 | 结合 scope 与合同判断是否越权。`git stash list`、`git tag -l` 等只读命令不再计入 |
-| `outside_worktree_paths` | 执行器访问了 worktree 之外的路径 | 看摘要标注的结果：<br>- “调用失败，路径不存在”多是执行器手写绝对路径时拼错（实机见过 `pi-worktres`），没有写入；<br>- “调用成功”的写入要立即检查目标路径，并按 SCOPE_VIOLATION 处理。<br>读取本 attempt 运行目录中的 plan.md 或 instruction.md 属于正常行为，只记在“备注”中 |
+| `outside_worktree_paths` | 执行器访问了 worktree 之外的路径 | 看摘要标注的结果：<br>- “调用失败，路径不存在”多是执行器手写绝对路径时拼错（实机见过 `pi-worktres`），没有写入；<br>- “调用成功”的写入要立即检查目标路径，并按 SCOPE_VIOLATION 处理；<br>- “位于主仓库，G2 不通过”：执行器碰了主仓库（2.3.0 起），只能显式豁免；<br>- bash 记录带事件流行号（2.4.0 起）：命令里出现的系统目录、家目录、其他仓库或 worktree 路径，只作提示。多是测试数据里的字面量，按行号确认是否真的读写了。<br>读取随消息附上的 plan.md 或 instruction.md 属于正常行为，只记在“备注”中 |
 | 执行过程中有 N 处提到合同的歧义、矛盾或一致性（摘要“复审需要关注”） | 执行器在推理或回复中提到合同的歧义或矛盾，但报告的 `contract_conflicts` 与 `unresolved_questions` 都为空 | 读 `ambiguity_mentions` 摘录。<br>- 确属合同矛盾：由规划器裁定，必要时出新版本合同；<br>- 只是在检查、并没有发现问题，或只是领域用语（如对齐状态 ambiguous）：忽略。<br>关键词后面直接跟着独立否定答案的说法（如“inconsistencies: none found.”“矛盾：无。”），以及合同正文（停止条件与禁止事项除外）出现两次以上的词，会自动排除；只是在检查的句子仍会提示 |
 | 执行器在命令中创建或使用了系统临时目录（摘要“复审需要关注”） | 执行器用 tempfile、mktemp、`/tmp`、`$TEMP` 等在工作目录之外建了目录或读写了文件 | 按事件流行号看命令，先核对写法是否符合 AGENTS.md：只允许测试框架管理的临时目录，或在同一条命令里用 `T=$(mktemp -d)` 新建、以 `rm -rf "$T"` 作为最后一步。这种写法里的 `rm -rf "$T"` 也会列为可疑命令。<br>- 写法符合、只存放中间产物、也确实删除了：记为备注即可；<br>- 用 tempfile 等其他方式自建目录、留下目录、切换进去运行命令，或读写了其他工作目录之外的路径：按 SCOPE_VIOLATION 处理 |
 | 执行器报告了 N 处合同矛盾 | 执行器按执行说明声明了合同矛盾，并写明暂时采用的做法 | 逐条裁定。采用的做法与裁定一致时可以 PASS；不一致时判 REVISE（PLAN_ERROR），在新版本合同中把两处写一致 |

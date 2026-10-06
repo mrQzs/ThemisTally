@@ -1,5 +1,42 @@
 # 变更记录
 
+## 2.4.0：调度器修完 KitExperiment 实机反馈的其余问题（2026-10-06）
+
+2.3.0 之后，[KitExperiment 实机反馈](docs/KitExperiment实机反馈.md)“待改进（调度工具）”里还剩六项，这一版全部处理；另外修了一处回归。
+
+- **shell 命令里的工作副本外路径**。2.3.0 只扫描命令里的主仓库路径；现在系统目录、家目录、其他仓库或 worktree 的绝对路径也记入 `outside_worktree_paths`（`main_repo: false`）。
+  - 同一路径只记一次，带第一次出现的事件流行号与命令条数。
+  - G2 只作提示，命令失败也提示：失败不代表没有读到。
+  - 不计入的：`/dev/null` 与标准流、已由临时路径扫描记录的路径、`"$T"/x` 与 `$(pwd)/x` 这类接在变量后面的路径，以及第一段在本机不存在的“路径”（sed 表达式、正则一类的文字）。
+  - 回放 KitExperiment 的全部 15 个历史 attempt：
+    - runner a001 的 `ls /usr/bin/python3* /usr/local/bin/python3* /opt/homebrew/bin/python3*` 现在会列出；
+    - 另有三个 attempt 的命令里出现测试数据或被测调用里的系统路径（`'PATH': '/usr/bin:/bin'`、`resolve_executable('/bin/sh', …)`、测试源码里的 `"/etc"`），只作提示。
+- **执行说明第 5 条**。补上合规的截短写法：`T=$(mktemp -d); <命令> > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"`。同时写明 `rm -rf "$T"` 之后不再接任何命令（`date`、`git status` 这类只读命令也不接），并点名主仓库、其他 worktree、家目录与系统目录都在禁止之列。
+- **`rm -rf "$T"` 之后追加只读命令**：扫描不放宽，仍列为可疑命令；改从执行说明上避免这种写法。
+  - 2.1.0 取消临时目录删除豁免时，Codex 审查给出过四种构造命令（删除不可达、只是注释、删的是字面量、变量实际指向源码），都能骗过“这条删除是安全清理”的判断。
+  - “删除之后只剩只读命令”的判断同样依赖 shell 解析，所以不做。
+- **validate 核对 Repository facts 里的 `.agent/` 文件**。路径规则原来要求首字符是字母或数字，`.agent/reviews/…` 这类点目录路径从未被核对。
+  - 现在不在基线里的规划文件单独提示：执行器的 worktree 按基线创建，读不到它们，也不得去主仓库读。
+  - 用 KitExperiment 的全部合同回放：只在 posix-identity-env v2 上提示，正是反馈里的那一例（上一轮复审与 v1 合同不在侧分支基线里）。
+- **validate 比较“基线应失败 / 基线应通过”与 `expect_on_base`**。
+  - Markdown 写了而 JSON 不同是错误：规划端以为 baseline 核对过探针，实际没有核对。
+  - 只有 JSON 写了是警告：baseline 照常核对，只是 plan.md 里看不到。
+  - 同一检查的几行说法不一也是错误。
+  - derive-json 与 validate 共用同一个标注解析。
+  - 两个仓库的 420 份合同只有 posix-identity-env v2 的 V06 报错（Markdown 写“基线应失败”，JSON 是 any）。
+- **跨机器复审的提示**：
+  - summary 记下派遣环境（platform、Python 与仓库路径）；
+  - attempt 在另一台机器（按系统名比较）或另一处仓库派遣时，`check` 与 `verdict` 打印 NOTE，门禁 G0 留备注；
+  - 执行 worktree 不存在时，G6 写明没有重新快照、只凭候选补丁的往返校验，此前是静默跳过；
+  - verdict 除 G3 外也打印 G0 与 G6 的备注。
+- **回归：validate 与 prepare 丢掉了合同校验的警告**。bbe0121（2026-10-03）引入固定字节加载时，`validate_contract` 返回的警告被丢弃，例如“必要检查没有被任何 DoD 引用”与“授权了 local_test 但工具集没有 shell”。现已恢复；两个仓库的现有合同因此多出 5 条“必要检查 V01 没有被任何 DoD 引用”。
+- **测试**：
+  - `tests/test_dispatch.py` 新增 17 项检查（共 288 项）；用 2.3.0 运行新测试时，其中 10 项失败、2 项守护已有行为。
+  - 2.3.0 的主仓库扫描用例改为只比较主仓库记录：兄弟目录与 `/usr/bin` 现在记为工作副本外路径。
+  - 旧行为特征化用例 LB-GATES-030 原来断言“worktree 不存在时 G6 没有备注”，那是标注为“可疑”的旧行为；现在按后继实现断言新增的备注。
+  - 全量 unittest 1410 项通过，跳过 39 项。
+  - `codekit01_legacy.py --check` 仍只有合同模板一处已知差异。
+
 ## 2.3.0：调度器按 KitExperiment 实机反馈修正（2026-10-06）
 
 `scripts/pi_dispatch.py` 此前锁定在 a4fa199（2.2.2），用户同意解锁后修正以下四处。旧实现的锁定预期仍由 a4fa199 的 Git 对象生成，不受影响。
