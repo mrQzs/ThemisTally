@@ -27,6 +27,8 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | supervised-operation-bridge v1 a001 | fresh：oracle 13/13，全量 386 passed | 合起来 14/15（漏掉的被另一条规则遮蔽）；只用执行器测试 10/15 | ACCEPTED_WITH_EXCEPTION（又一次经附件路径只读访问主仓库）；集成 `dc06d57`。独立复审发现子进程能伪造“未启动”的记录，由规划端在 `368b91a` 改为以监督器返回的事实为准并补测 |
 | scheduler-exact-inputs v1 a001 | fresh：oracle 56/56，全量 463 passed | 合起来 36/36；只用执行器测试 4/36（合同让执行器测的 `None`、`5` 分辨不出精确类型） | REVISE / EXECUTION_ERROR：`observe` 收到不可哈希的 dimension 冒出 `TypeError`（违反合同第 2 条）；三处测试名不副实 |
 | scheduler-exact-inputs v2 a002 | fresh：探针 2/2，全量 465 passed | 合起来 37/37（含“撤回修正”）；只用执行器测试 19/37 | PASS；连同 oracle、a001 与探针集成为 `3cd668d`…`44d9dd2` |
+| adapter-protocol-port v1 a001 | fresh：参考 oracle 18、差分 oracle 9，全量 502 passed | 合起来 10/10；只用执行器测试 3/10（行为一致性由两份 oracle 把守） | PASS；逐字移植 Code-Kit 的 adapter 边界，集成 `928145a` |
+| adapter-supervised-run v1 a001 | fresh：oracle 16/16，全量 534 passed | 合起来 17/18（漏掉的是检查顺序，只有多故障用例才看得出）；只用执行器测试 9/18 | PASS；集成 `bba63ec`。独立复审发现桥接遇到非 str 的 `evidence_dir` 会让操作停在 HANDOFF_ACCEPTED，由规划端在 `9726844` 修正并补测 |
 
 ## 有效的做法
 
@@ -55,6 +57,10 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **账本比较连同精确类型**：scheduler-exact-inputs 的 oracle 用一个把每个值的类型一起记下的函数比较整个账本，str 子类换掉同值的 str 也能发现。
   - 每个被拒绝的调用之后，还在同一账本上执行一次合法调用。
   - 17 份只修一部分的草稿，各自只让对应规则的用例失败。
+- **逐字移植加差分 oracle 再次一次完成**：adapter-protocol-port 把 Code-Kit 的 adapter 边界冻结为参考。
+  - 差分 oracle 加载冻结的源码，只改写包内 import，并断言每处改写恰好一次；
+  - 在描述符、调用、规范化与穷举的结算序列上逐项比较，包括错误码与消息；
+  - 候选与参考逐字一致，只差模块文档字符串与 `__all__` 的换行。
 
 ## 执行器反复出现的偏差
 
@@ -135,3 +141,12 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **返工合同的基线常常不含上一版合同与复审记录**：v2 基线建在上一轮候选上，v1 合同与复审记录却在 master 上，晚于基线提交。
   - 调度工具 2.4.0 的 validate 会提示这种情况，执行器也不得去主仓库读。
   - 做法：v2 照录 v1 的全部规则，把复审发现写进 Repository facts。
+- **跨模块的结算时机要先在草稿上跑通**：adapter-supervised-run 最初的设计是运行结束后再记用量。草稿跑 oracle 才发现，`finish()` 检查预算时用量不是最终值，会把整个 request 永久停止。
+  - 改为借桥接的 `candidate_hash` 挂钩：它只在结束复审的路径上、操作还是 RUNNING 时被调用。
+  - 合同把这条事实与挂钩的时机写进 Repository facts，执行器一次写对。
+  - 只读模块文档、不跑端到端，看不出这类问题。
+- **被遮蔽的守卫要单独构造输入**：这一轮有三处检查一开始测不出来。
+  - 链接指向 `/dev/null` 时，普通文件检查也会拒绝，测不出 `O_NOFOLLOW`；改为指向伪造的完整事件流。
+  - adapter 对未结算的结果本来就清空用量，测不出“只在已结算且完整时记用量”；改用返回指定结果的子类 adapter。
+  - 交接前的入口检查后面还有一道精确类型检查，单点出错时观察不到差别；要用多故障用例锁住合同写明的顺序。
+  - 写入 plan-task 的 test-design.md。
