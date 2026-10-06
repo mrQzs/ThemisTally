@@ -27,6 +27,7 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
    - `mutations.json`：每个变异的结果、日志路径与汇总；
    - `spec.json`：清单副本；
    - `baseline.log` 与 `M01.log` 等每次运行的日志。
+     - 日志按清单中的位置编号，与变异名称里自带的编号无关；命令输出的每行结果都写着位置编号与日志路径（调度工具 2.4.1 起）。
 5. 执行 worktree 与候选都不受影响。
 
 ## 清单格式

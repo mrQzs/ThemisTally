@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.4.0"
+TOOL_VERSION = "2.4.1"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -4156,7 +4156,11 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                                       timed_out=bool(run.get("timed_out")), log=run.get("log"),
                                       reason=run.get("reason") or "")
             results.append(record)
-            print("%-7s %s  %s" % (record["status"].upper(), item["name"], record.get("reason") or ""), flush=True)
+            # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
+            detail = [part for part in (record.get("reason") or "",
+                                        "日志 mutations/%s" % record["log"] if record.get("log") else "") if part]
+            print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
+                                    "".join("  " + part for part in detail)), flush=True)
         tree_after = snapshot_tree(workspace, meta["base_sha"], out_dir, "after", meta.get("git_autocrlf"))
         drifted = tree_drift(workspace, candidate["tree"], tree_after)["modified"]
     finally:

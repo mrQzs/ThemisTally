@@ -2139,6 +2139,26 @@ def test_v24_outside_paths_validation_and_cross_machine():
           and any("只凭候选补丁的往返校验" in note for note in gates["G6"]["notes"]), out)
 
 
+def test_v241_mutate_result_lines_name_their_logs():
+    """2.4.1：变异结果的每一行写明位置编号与日志路径；日志按清单位置编号，与名称里自带的编号无关。"""
+    repo, base = make_repo("v241mutate")
+    run_ok(repo)
+    spec = {"command": [PY, "run_tests.py"], "timeout_seconds": 120,
+            "mutations": [{"name": "M09 不转小写", "file": "src/normalize.py", "old": ".lower()", "new": ""},
+                          {"name": "M03 等价改写", "file": "src/normalize.py", "old": "q.split()",
+                           "new": "q.split(None)"},
+                          {"name": "锚点写错", "file": "src/normalize.py", "old": "no-such-anchor", "new": "x"}]}
+    spec_path = WORK / "v241-spec.json"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path))
+    lines = [line for line in out.splitlines() if line.startswith(("CAUGHT", "MISSED", "SKIPPED"))]
+    check("each result line names its position and log, whatever number the name carries",
+          code == 0 and lines == ["CAUGHT  M01 M09 不转小写  退出码 1 ≠ 期望 0  日志 mutations/01/M01.log",
+                                  "MISSED  M02 M03 等价改写  日志 mutations/01/M02.log",
+                                  "SKIPPED M03 锚点写错  old 出现 0 次，期望 1 次"]
+          and (rd(repo) / "mutations/01/M01.log").is_file(), out)
+
+
 if __name__ == "__main__":
     argv = sys.argv[1:]
     keep = "--keep" in argv
