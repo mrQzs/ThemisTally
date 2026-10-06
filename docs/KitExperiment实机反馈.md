@@ -7,7 +7,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 环境：
 - macOS 15.7.9 x86_64，Bash 3.2.57；
 - Claude Code 2.1.289；pi 1.0.2；执行模型 `step/step-5-preview`，请求 thinking high（提供商未回报实际级别，费用记 unknown）；
-- 调度器 pi_dispatch 2.2.2；
+- 调度器 pi_dispatch 2.2.2（2026-10-06 起为 2.3.0，见下文“待改进”）；
 - 检查用共享 venv（Python 3.12.14 + pytest 9.1.1）。
 
 ## 任务记录
