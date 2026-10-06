@@ -60,9 +60,11 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **超出合同的解读写在 limitations 里，没有进 contract_conflicts**：reconcile-integration a001 自行加了内层类型校验，并把“删除 partial”解读为只删自己创建的。两处都在报告中如实说明了，但没有按 AGENTS.md 放进 `contract_conflicts`。
   - 之后合同在 Report back 里加了一句“任何解读写进 contract_conflicts 或 unresolved_questions”，接下来三次运行都照做了（例如 scheduler a001 把身份校验的先后写进了 `contract_conflicts`）。
 
-## 待改进（调度工具，`pi_dispatch.py` 锁定在 a4fa199，本次未改）
+## 待改进（调度工具）
 
-- **范围扫描漏报工作目录外的读取**。runner a001 的一条命令 `ls /usr/bin/python3* /usr/local/bin/python3* …` 列出了系统目录，`outside_worktree_paths` 为空，没有提示。
+`pi_dispatch.py` 原来锁定在 a4fa199（2.2.2）。2026-10-06 用户同意解锁，2.3.0 修了下面标注“2.3.0 已修”的几项，其余仍待处理。
+
+- **范围扫描漏报工作目录外的读取**（2.3.0 部分已修：shell 命令里的主仓库路径已纳入扫描；主仓库以外的系统路径仍不扫描）。runner a001 的一条命令 `ls /usr/bin/python3* /usr/local/bin/python3* …` 列出了系统目录，`outside_worktree_paths` 为空，没有提示。
   - 当前扫描只看临时路径写法与工具调用的路径参数，shell 命令里的绝对路径读取不在范围内。
 - **执行说明第 5 条**仍只要求“保留真实退出码”，没有给出合规写法。现在靠合同模板补充；解锁调度器时应同步进执行说明。
 - **“rm -rf "$T" 必须是最后一步”的形式偏差**：执行器在删除之后追加只读命令（`date`、`git status`、`ps`），可疑命令扫描照常列出，复审只能人工判断。
@@ -77,10 +79,10 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - `verdict` 在 worktree 不存在时跳过重新快照，G6 只凭补丁往返校验，但没有在门禁备注里说明。
 
   建议补一条备注，并在 summary 中标出 attempt 来自另一台机器（`meta.json` 的 platform 与 repository 路径）。
-- **`mutate` 把 pytest 会话中断也记为 caught**。supervisor a002 只用执行器测试时，变异让 KeyboardInterrupt 冒出测试，pytest 以退出码 2 结束，日志里只跑了 7 个用例，工具仍记为 caught。
+- **`mutate` 把 pytest 会话中断也记为 caught**（2.3.0 已修：记为出错并写明原因）。supervisor a002 只用执行器测试时，变异让 KeyboardInterrupt 冒出测试，pytest 以退出码 2 结束，日志里只跑了 7 个用例，工具仍记为 caught。
   - 建议把退出码 2，或日志中的 `!!! KeyboardInterrupt !!!`，单独标为“会话中断”，不计入 caught。
   - 现在靠 mutation-check.md 提醒人工读日志。
-- **合同附件名暴露主仓库的绝对路径**。执行器收到的是 `<file name="/…/KitExperiment/.agent/runs/<task>/attempt-001/plan.md">`。reconcile-integration a001 据此做了三件事：
+- **合同附件名暴露主仓库的绝对路径**（2.3.0 已修：附件放在中性的临时目录；访问主仓库判 G2 不通过）。执行器收到的是 `<file name="/…/KitExperiment/.agent/runs/<task>/attempt-001/plan.md">`。reconcile-integration a001 据此做了三件事：
   - 读取了主仓库的设计说明；
   - `cd` 到主仓库，执行 `git log`、`ls`、`wc`、`git branch -a`、`git status --short`；
   - 把主仓库约 30 个未提交文件的名称与全部分支名发给了提供商。

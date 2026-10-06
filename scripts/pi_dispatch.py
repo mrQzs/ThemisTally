@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.2.2"
+TOOL_VERSION = "2.3.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -172,6 +172,40 @@ def _escapes(rest: str) -> bool:
         elif part not in ("", "."):
             depth += 1
     return False
+
+
+def _protected_mentions(command: str, forms: Sequence[str]) -> List[str]:
+    """命令里出现的、位于受保护目录（主仓库）之内的路径参数，返回去重后的片段。
+
+    先用 _mask_paths 屏蔽 worktree 与本 attempt 的运行目录，再调用本函数：剩下的主仓库路径就是执行器
+    越出工作副本、碰到主仓库的证据（例如 `cd "<主仓库>"`、`cat <主仓库>/src/x.py`）。左边界与
+    _mask_paths 相同；片段取到空白、引号或命令分隔符为止。这是复审线索，不是 shell 解析。
+    """
+    flags = re.I if os.name == "nt" else 0
+    found: List[str] = []
+    taken: List[Tuple[int, int]] = []
+    for form in forms:
+        for match in re.finditer(r"(?<![\w./\\~-])" + re.escape(form), command, flags):
+            start = match.start()
+            if any(lo <= start < hi for lo, hi in taken):
+                continue
+            # 右边界：目录之后必须是路径分隔符、空白、引号、命令分隔符或参数结束，
+            # 否则是同名前缀的另一个目录（例如 `<主仓库>-other`）。
+            following = command[match.end():match.end() + 1]
+            if following and not re.match(r"[/\\\s;|&)<>\"']", following):
+                continue
+            quote = command[start - 1] if start > 0 and command[start - 1] in "\"'" else ""
+            if quote:
+                end = command.find(quote, match.end())
+                end = len(command) if end < 0 else end
+            else:
+                tail = re.search(r"[\s;|&)<>\"']", command[match.end():])
+                end = match.end() + (tail.start() if tail else len(command) - match.end())
+            taken.append((start, end))
+            excerpt = command[start:end]
+            if excerpt not in found:
+                found.append(excerpt)
+    return found
 
 
 def _mask_paths(command: str, forms: Sequence[str]) -> str:
@@ -2336,16 +2370,21 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                      stderr_path: Optional[Path] = None,
                      expects_settled: Optional[bool] = None,
                      allowed_outside: Sequence[Path] = (),
-                     plan_text: str = "") -> Tuple[Dict[str, Any], str]:
+                     plan_text: str = "",
+                     protected_roots: Sequence[Path] = ()) -> Tuple[Dict[str, Any], str]:
     """解析 JSONL 事件流。返回（摘要, 最终 assistant 文本）。进程退出码不代表任务成功。
 
     expects_settled：已知 pi 版本会输出 agent_settled（≥ 0.80.4）时为 True，此时只有 agent_end 不算完成。
     allowed_outside：worktree 之外、允许执行器访问的目录（本 attempt 的运行目录，其中有随消息附上的
     plan.md 与 instruction.md）；访问这些目录只记入 own_run_paths，不算工作副本外访问。
     plan_text：本 attempt 的 plan.md，用来排除合同本身的领域用语（见 ambiguity_domain_words）。
+    protected_roots：执行器不得访问的目录（主仓库）。工具参数落在其中、或 shell 命令里出现其中的路径时，
+    记录带 ``main_repo: true``，verdict 的 G2 据此判为不通过（2.3.0）。
     """
     data = events_path.read_bytes() if events_path.exists() else b""
     own_path_forms = _path_forms([work_dir] + list(allowed_outside))
+    protected_forms = _path_forms(list(protected_roots))
+    protected = [Path(p).resolve() for p in protected_roots]
     lines = data.split(b"\n")
     counts: Dict[str, int] = {}
     parse_errors: List[int] = []
@@ -2360,7 +2399,7 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
     temp_paths: List[Dict[str, Any]] = []
     cache_cleanups: List[Dict[str, Any]] = []
     outside_paths: List[Dict[str, Any]] = []
-    outside_by_call: Dict[str, Dict[str, Any]] = {}
+    outside_by_call: Dict[str, List[Dict[str, Any]]] = {}
     own_run_paths: List[Dict[str, str]] = []
     mentions: List[Dict[str, Any]] = []
     domain_words = ambiguity_domain_words(plan_text)
@@ -2419,6 +2458,13 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                 command = str(args.get("command", ""))
                 commands.append(command[:500])
                 scan = _mask_paths(command, own_path_forms)
+                for excerpt in _protected_mentions(scan, protected_forms):
+                    record = {"tool": name, "path": excerpt[:300], "exists": None, "failed": None,
+                              "main_repo": True, "event_line": number}
+                    outside_paths.append(record)
+                    call_id = event.get("toolCallId")
+                    if isinstance(call_id, str):
+                        outside_by_call.setdefault(call_id, []).append(record)
                 # Keep each distinct excerpt: an early mktemp must not hide a later
                 # fixed path, even on the same long line. This is review evidence,
                 # not shell parsing or a claim that cleanup was safe.
@@ -2455,16 +2501,16 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                     if any(is_within(resolved, root) for root in allowed_roots):
                         own_run_paths.append({"tool": name, "path": value[:300]})
                         continue
-                    record = {"tool": name, "path": value[:300], "exists": resolved.exists(), "failed": None}
+                    record = {"tool": name, "path": value[:300], "exists": resolved.exists(), "failed": None,
+                              "main_repo": any(is_within(resolved, root) for root in protected)}
                     outside_paths.append(record)
                     call_id = event.get("toolCallId")
                     if isinstance(call_id, str):
-                        outside_by_call[call_id] = record
+                        outside_by_call.setdefault(call_id, []).append(record)
         elif kind == "tool_execution_end":
             if event.get("isError"):
                 tool_errors += 1
-            record = outside_by_call.pop(str(event.get("toolCallId")), None)
-            if record is not None:
+            for record in outside_by_call.pop(str(event.get("toolCallId")), []):
                 record["failed"] = bool(event.get("isError"))
         elif kind == "agent_end":
             agent_end_count += 1
@@ -3093,6 +3139,8 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
                                      caches[0]["command"].replace("`", "'")))
     for item in events.get("outside_worktree_paths", []):
         detail = [item["tool"]]
+        if item.get("main_repo"):
+            detail.append("位于主仓库，G2 不通过")
         if item.get("failed") is True:
             detail.append("调用失败")
         elif item.get("failed") is False:
@@ -3535,8 +3583,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                           "--thinking", executor["thinking"], "--no-session"] + RESOURCE_FLAGS
     if executor["context_files"] == "none":
         cmd.append("--no-context-files")
+    # 合同与执行说明从中性的临时目录附上：附件名会原样出现在发给执行器的消息里，放在运行目录下会暴露主仓库的
+    # 绝对路径，执行器据此读过主仓库（KitExperiment 实机，2.3.0）。两份副本与运行目录中的文件逐字节相同。
+    attach_dir = Path(tempfile.mkdtemp(prefix="pi-attach-"))
+    shutil.copyfile(str(run_dir / "plan.md"), str(attach_dir / "plan.md"))
     cmd += ["--tools", ",".join(executor["tools"]), "--mode", "json",
-            "@" + str(run_dir / "plan.md"), "@" + str(run_dir / "instruction.md")]
+            "@" + str(attach_dir / "plan.md"), "@" + str(attach_dir / "instruction.md")]
     ensure_argv_safe(cmd)
     ignored_before = ignored_inventory(work_dir)
     main_before = main_repo_fingerprint(repo.root, run_dir)
@@ -3559,12 +3611,16 @@ def cmd_run(args: argparse.Namespace) -> int:
                    {"timeout_seconds": timeout, "pid": os.getpid(), "at": utc_now()}, exclusive=True)
     run_info: Dict[str, Any] = {"command": cmd, "cwd": str(work_dir), "timeout_seconds": timeout,
                                 "env_removed": removed, "started_at": utc_now(), "main_repo_before": main_before,
-                                "expects_agent_settled": expects_settled}
+                                "expects_agent_settled": expects_settled, "attachments_dir": str(attach_dir)}
     try:
         write_json(run_dir / "executor.json", executor, exclusive=True)
         write_text(run_dir / "instruction.md", render_instruction(meta, contract, executor, timeout,
                                                                   extra_protected_paths(config),
                                                                   read_json_or(run_dir / "setup.json", [])))
+        shutil.copyfile(str(run_dir / "instruction.md"), str(attach_dir / "instruction.md"))
+        run_info["attachments"] = [{"name": name, "path": str(attach_dir / name),
+                                    "sha256": sha256_file(attach_dir / name)}
+                                   for name in ("plan.md", "instruction.md")]
         write_json(run_dir / "ignored-before.json", ignored_before, exclusive=True)
         write_json(run_dir / "run-started.json", run_info, exclusive=True)
         set_state(run_dir, "RUNNING")
@@ -3580,8 +3636,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     def record_pid(pid: int) -> None:
         write_text(run_dir / "pid.txt", "%d\n" % pid)
 
-    with open(run_dir / "events.jsonl", "xb") as out, open(run_dir / "stderr.log", "xb") as err:
-        result = run_supervised(cmd, work_dir, env, out, err, timeout, grace, on_spawn=record_pid)
+    try:
+        with open(run_dir / "events.jsonl", "xb") as out, open(run_dir / "stderr.log", "xb") as err:
+            result = run_supervised(cmd, work_dir, env, out, err, timeout, grace, on_spawn=record_pid)
+    finally:
+        shutil.rmtree(str(attach_dir), ignore_errors=True)
     run_info.update(result)
     run_info["ended_at"] = utc_now()
     write_json(run_dir / "run.json", run_info, exclusive=True)
@@ -3599,8 +3658,10 @@ def collect(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Dict[str,
     base = meta["base_sha"]
     events, final_text = summarize_events(run_dir / "events.jsonl", work_dir, executor, run_dir / "stderr.log",
                                           expects_settled=run_info.get("expects_agent_settled"),
-                                          allowed_outside=[run_dir],
-                                          plan_text=read_text_or(run_dir / "plan.md"))
+                                          allowed_outside=[run_dir] + ([Path(run_info["attachments_dir"])]
+                                                                       if run_info.get("attachments_dir") else []),
+                                          plan_text=read_text_or(run_dir / "plan.md"),
+                                          protected_roots=[repo.root])
     write_json(run_dir / "events-summary.json", events)
     write_json(run_dir / "report-status.json", extract_report(final_text, run_dir))
     candidate: Dict[str, Any] = {}
@@ -3829,6 +3890,17 @@ def _apply_mutation(path: Path, old: str, new: str, count: int) -> Tuple[bytes, 
     return original, found
 
 
+def _session_aborted(log_path: Path, run: Dict[str, Any]) -> bool:
+    """pytest 被 KeyboardInterrupt 打断整个会话：退出码 2，日志里有 `!!! KeyboardInterrupt !!!` 横幅。"""
+    if run.get("exit_code") != 2:
+        return False
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return re.search(r"!{3,}\s*KeyboardInterrupt\s*!{3,}", text) is not None
+
+
 def cmd_mutate(args: argparse.Namespace) -> int:
     """在干净副本（基线 + 候选补丁 + setup）上逐个套用最小变异，看测试能否抓住。
 
@@ -3907,6 +3979,11 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                             path.write_bytes(original)
                         if run["status"] == "blocked":
                             status = "error"
+                        elif not run["passed"] and _session_aborted(out_dir / ("%s.log" % mid), run):
+                            # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
+                            status = "error"
+                            run = dict(run, reason="测试会话被 KeyboardInterrupt 中断（退出码 2），后面的用例没有运行，"
+                                                   "不算抓住；让测试拦住冒出的中断后重跑")
                         else:
                             status = "missed" if run["passed"] else "caught"
                         record.update(status=status, exit_code=run.get("exit_code"),
@@ -4470,7 +4547,11 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
     if changes.get("head_changed") or changes.get("other_paths"):
         gates["G2"]["notes"].append("运行期间主工作区有规划路径之外的变化，复审时确认来源（见 summary.md）")
     for item in events.get("outside_worktree_paths", []):
-        if item.get("failed") is not True:
+        shell = item.get("tool") in ("bash", "powershell")
+        if item.get("main_repo") and (shell or item.get("failed") is not True):
+            # 主仓库是规划端的工作区：执行器读写它，会把未提交的内容带进候选，或改动规划端的状态（2.3.0）。
+            fail("G2", "执行器访问了主仓库：%s（%s）" % (item.get("path"), item.get("tool")))
+        elif item.get("failed") is not True:
             gates["G2"]["notes"].append("执行器访问了工作副本外路径：%s（%s）" % (item.get("path"), item.get("tool")))
     candidate = read_json_or(run_dir / "candidate.json", {})
     latest = _latest_numbered(run_dir / "checks")

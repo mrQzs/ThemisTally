@@ -32,6 +32,7 @@ import datetime as _dt
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -731,7 +732,10 @@ class LegacyMainEntryTest(_CliCase):
     def test_LB_EXIT_003_version_exit_0(self) -> None:
         """LB-EXIT-003（:4835、48）；01-A07，C.4“wait/退出码语义”。"""
         code, out, err = self.tool_split(self.scripts_dir(), "--version")
-        self.assertEqual((code, lines(out), err), (0, ["pi_dispatch 2.2.2"], ""))
+        # a4fa199 输出 "pi_dispatch 2.2.2"；工作区的后续版本（2.3.0 起）输出自己的 TOOL_VERSION，格式与退出码不变。
+        live = (self.kit / "scripts" / "pi_dispatch.py").read_text(encoding="utf-8")
+        version = re.search(r'^TOOL_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$', live, re.M).group(1)
+        self.assertEqual((code, lines(out), err), (0, ["pi_dispatch " + version], ""))
 
     def test_LB_EXIT_002_uncaught_exception_traceback_exit_1(self) -> None:
         """LB-EXIT-002、LB-CONTRACT-030、LB-EXIT-040（:1668 在 try 外读取 Markdown）；01-A07，C.4“wait/退出码语义”。

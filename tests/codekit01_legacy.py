@@ -79,6 +79,9 @@ STUB_CWD_PLACEHOLDER = "<redacted:stub-cwd>"
 LEGACY_PI_DISPATCH_PATH = "scripts/pi_dispatch.py"
 LEGACY_PI_DISPATCH_SHA256 = "a00d693452b4345d6093efa9864de6e1b4cefacece867b617e68e6a8efce3ad4"
 LEGACY_PI_DISPATCH_BLOB = "8e7df57c91fc589895c171254e71cbc3d056c313"
+#: a4fa199 的 TOOL_VERSION。预期文件头描述的是这份旧实现，不随工作区的后续版本变化；
+#: 差分测试用当前实现重算文件头时也写这个值（pi_dispatch 2.3.0 起工作区版本不再是 2.2.2）。
+LEGACY_TOOL_VERSION = "2.2.2"
 #: tests/stub_pi.py 在 a4fa199 的字节摘要。
 LEGACY_STUB_PATH = "tests/stub_pi.py"
 LEGACY_STUB_SHA256 = "96c0d4a5ba775e9c23ce104176f1e2f0fbe6eb2925eafef5b0c5fd5c248e916a"
@@ -917,7 +920,7 @@ def compute_expected_contracts(*, require_locked_bytes: bool = True) -> Dict[str
         "projection_revision": PROJECTION_REVISION,
         "source_revision": SOURCE_REVISION,
         "legacy_implementation": {"path": LEGACY_PI_DISPATCH_PATH, "sha256": LEGACY_PI_DISPATCH_SHA256,
-                                  "git_blob": LEGACY_PI_DISPATCH_BLOB, "tool_version": pd.TOOL_VERSION,
+                                  "git_blob": LEGACY_PI_DISPATCH_BLOB, "tool_version": LEGACY_TOOL_VERSION,
                                   "functions": ["normalize_contract", "validate_contract", "invisible_char_warnings",
                                                 "derive_contract_json", "main（validate 子命令，临时仓库）"]},
         "generator": {"path": "tests/codekit01_legacy.py", "write_command": WRITE_COMMAND,
@@ -1034,7 +1037,7 @@ def compute_expected_events(*, require_locked_bytes: bool = True) -> Dict[str, A
         "projection_revision": PROJECTION_REVISION,
         "source_revision": SOURCE_REVISION,
         "legacy_implementation": {"path": LEGACY_PI_DISPATCH_PATH, "sha256": LEGACY_PI_DISPATCH_SHA256,
-                                  "git_blob": LEGACY_PI_DISPATCH_BLOB, "tool_version": pd.TOOL_VERSION,
+                                  "git_blob": LEGACY_PI_DISPATCH_BLOB, "tool_version": LEGACY_TOOL_VERSION,
                                   "functions": ["summarize_events"]},
         "stub": {"path": LEGACY_STUB_PATH, "sha256": LEGACY_STUB_SHA256,
                  "argv_template": stub_argv_template(pd),

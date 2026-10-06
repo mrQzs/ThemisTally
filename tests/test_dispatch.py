@@ -1920,6 +1920,89 @@ def test_v22_netperf_feedback():
     check("branch prints a machine-readable commit= line", code == 0 and ("commit=%s branch=pi/normalize-query-v1-a001" % sha) in out, out)
 
 
+
+def test_v23_attachments_main_repo_and_session_abort():
+    """2.3.0：附件不暴露主仓库路径；执行器访问主仓库判 G2 不通过；pytest 会话被中断不算抓住。"""
+    # 1. 合同与执行说明从中性的临时目录附上，副本与运行目录中的文件逐字节相同，运行结束后删除。
+    repo, base = make_repo("v23attach")
+    run_ok(repo, STUB_SCENARIO="readplan")
+    info = jload(rd(repo) / "run.json")
+    attached = [Path(arg[1:]) for arg in info["command"] if arg.startswith("@")]
+    check("attachments are outside the main repository",
+          [a.name for a in attached] == ["plan.md", "instruction.md"]
+          and not any(pd.is_within(a.resolve(), repo.resolve()) for a in attached), attached)
+    check("attachment copies match the run directory and are removed after the run",
+          [a["sha256"] for a in info["attachments"]]
+          == [pd.sha256_file(rd(repo) / "plan.md"), pd.sha256_file(rd(repo) / "instruction.md")]
+          and not Path(info["attachments_dir"]).exists(), info.get("attachments"))
+    ev = jload(rd(repo) / "events-summary.json")
+    check("reading an attachment is an own path, not an outside access",
+          not ev["outside_worktree_paths"] and ev["own_run_paths"], ev.get("outside_worktree_paths"))
+
+    # 2. 扫描：工具参数或 shell 命令里出现主仓库路径，记为 main_repo；运行目录与同名前缀的目录不算。
+    stream = WORK / "v23-main-repo-scan"
+    stream.mkdir(parents=True, exist_ok=True)
+    main = WORK / "v23 main repo"
+    run_dir = main / ".agent" / "runs" / "t" / "attempt-001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (main / "README.md").write_text("main\n", encoding="utf-8")
+    calls = [("read", {"path": str(main / "README.md")}),
+             ("bash", {"command": 'cd "%s" && git status --short' % main}),
+             ("bash", {"command": 'cat "%s"' % (run_dir / "plan.md")}),
+             ("bash", {"command": 'ls "%s-other"' % main}),
+             ("bash", {"command": "ls /usr/bin"})]
+    lines = []
+    for i, (name, args) in enumerate(calls):
+        lines.append(json.dumps({"type": "tool_execution_start", "toolCallId": "c%d" % i, "toolName": name,
+                                 "args": args}))
+        lines.append(json.dumps({"type": "tool_execution_end", "toolCallId": "c%d" % i, "toolName": name,
+                                 "result": {}, "isError": False}))
+    (stream / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ev, _text = pd.summarize_events(stream / "events.jsonl", stream,
+                                    {"provider": "step", "model": "step-5-preview", "thinking": "high"},
+                                    allowed_outside=[run_dir], protected_roots=[main])
+    flagged = [(item["tool"], item.get("main_repo")) for item in ev["outside_worktree_paths"]]
+    check("main-repo reads and cd commands are flagged; the run dir and a sibling are not",
+          flagged == [("read", True), ("bash", True)], ev["outside_worktree_paths"])
+
+    # 3. G2：执行器在主仓库写文件（stub 的 outside 场景），PASS 被拒，只能按例外豁免。
+    repo, base = make_repo("v23mainrepo")
+    run_ok(repo, STUB_SCENARIO="outside", STUB_MAIN_REPO=str(repo))
+    record = jload(rd(repo) / "events-summary.json")["outside_worktree_paths"][0]
+    check("a write into the main repository is marked main_repo", record.get("main_repo") is True, record)
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    check("summary says the path is in the main repository", "位于主仓库" in summary, summary)
+    tool(repo, "check", "normalize-query/attempt-001")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                     review(repo, "PASS"))
+    check("PASS is refused when the executor touched the main repository",
+          code != 0 and "执行器访问了主仓库" in out and state(repo) != "PASS", out)
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "ACCEPTED_WITH_EXCEPTION",
+                     "--review", review(repo, "ACCEPTED_WITH_EXCEPTION"), "--waive", "G2=reviewed: test fixture",
+                     "--decided-by", "tester")
+    check("the main-repo access can only be waived explicitly", code == 0
+          and state(repo) == "ACCEPTED_WITH_EXCEPTION", out)
+
+    # 4. mutate：退出码 2 且日志里有 KeyboardInterrupt 横幅的变异记为出错，不算抓住。
+    repo, base = make_repo("v23abort")
+    run_ok(repo)
+    code_text = ("import sys; t = open('src/normalize.py', encoding='utf-8').read(); a = 'ABORT' in t; "
+                 "print('!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!') if a else None; "
+                 "sys.exit(2 if a or 'PLAIN2' in t else (1 if 'FAIL' in t else 0))")
+    spec = {"command": [PY, "-c", code_text], "timeout_seconds": 60,
+            "mutations": [{"name": "会话被中断", "file": "src/normalize.py", "old": ".lower()", "new": ".lower()  # ABORT"},
+                          {"name": "普通失败", "file": "src/normalize.py", "old": ".lower()", "new": ".lower()  # FAIL"},
+                          {"name": "退出码 2 但没有横幅", "file": "src/normalize.py", "old": ".lower()",
+                           "new": ".lower()  # PLAIN2"}]}
+    spec_path = WORK / "v23-abort-spec.json"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path))
+    record = jload(rd(repo) / "mutations/01/mutations.json")
+    statuses = [r["status"] for r in record.get("results", [])]
+    check("a session interrupted by KeyboardInterrupt is an error, not a caught mutation",
+          code == 0 and statuses == ["error", "caught", "caught"]
+          and "KeyboardInterrupt" in record["results"][0]["reason"], (out, statuses))
+
 if __name__ == "__main__":
     argv = sys.argv[1:]
     keep = "--keep" in argv
