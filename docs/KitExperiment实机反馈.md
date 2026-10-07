@@ -29,6 +29,8 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | scheduler-exact-inputs v2 a002 | fresh：探针 2/2，全量 465 passed | 合起来 37/37（含“撤回修正”）；只用执行器测试 19/37 | PASS；连同 oracle、a001 与探针集成为 `3cd668d`…`44d9dd2` |
 | adapter-protocol-port v1 a001 | fresh：参考 oracle 18、差分 oracle 9，全量 502 passed | 合起来 10/10；只用执行器测试 3/10（行为一致性由两份 oracle 把守） | PASS；逐字移植 Code-Kit 的 adapter 边界，集成 `928145a` |
 | adapter-supervised-run v1 a001 | fresh：oracle 16/16，全量 534 passed | 合起来 17/18（漏掉的是检查顺序，只有多故障用例才看得出）；只用执行器测试 9/18 | PASS；集成 `bba63ec`。独立复审发现桥接遇到非 str 的 `evidence_dir` 会让操作停在 HANDOFF_ACCEPTED，由规划端在 `9726844` 修正并补测 |
+| supervisor-stream-facts v1 a001 | fresh：oracle 16/16，全量 565 passed | 合起来 33/37（M05 是规划端写错的插入式变异，M14 等价，M10、M24 是测试缺口）；只用执行器测试 5/37 | REVISE / EXECUTION_ERROR：`streams_match` 对含 NUL 或孤立代理字符的路径抛出，违反“从不抛出”；身份不符时，回滚按路径删掉了别人的文件。独立复审另发现，子进程一次 `ftruncate` 就能让监督器去读任意大小的稀疏文件。这是规划缺口，v2 把摘要上限定为 256 MiB |
+| scheduler-operation-view v1 a001 | fresh：oracle 8/8，全量 554 passed | 合起来 11/11；只用执行器测试 7/11（构造函数上限与 rollover 顺序由 oracle 把守） | PASS；集成 `88dff4b` |
 
 ## 有效的做法
 
@@ -115,6 +117,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - **第二次（bridge a001）**：合同的 Forbidden 已经明文写“不访问工作副本以外的路径（包括主仓库）”，执行器仍在会话开头用主仓库路径读了设计说明与一个模块，之后才改用相对路径。这说明光在合同里禁止不够，需要在调度器里修：解锁 `pi_dispatch.py` 后，附件改用相对名称，并把读主仓库的工具调用标为违规。
 
 - **`mutate` 的日志按清单位置编号**（2.4.1 已修：每行结果写出位置编号与日志路径）：日志名是 `M01.log`…（按位置），清单名称里自带的编号与它无关。在清单中间插入一项后，名称里写着 M37 的变异，日志是 `M17.log`；抽查时容易看错文件。CAUGHT/MISSED 行也不打印日志文件名。建议每行结果附上日志文件名。
+- **只插入代码的变异**（2.4.2 已修：开头给出 WARN，结果行与记录都标出）：supervisor-stream-facts 复审时，一条“回收之前计算事实”的变异在回收之前多算了一次，回收之后的计算还在。结果是漏掉，规划端几乎把它当成测试缺口。`new` 包含完整的 `old` 就是这种情况。这类变异不能一律拒绝，因为“在前面插入一个提前返回”是正当的变异，所以只提示。
 - **修这些问题时发现的回归**（2.4.0 已修）：bbe0121（2026-10-03）起，validate 与 prepare 不再显示合同校验本身的警告，例如必要检查没有被 DoD 引用。这与 KitExperiment 无关，是给 `expect_on_base` 加“只有 JSON 写了”的警告时发现的。
 
 ## 合同设计的教训（规划端）
@@ -135,6 +138,9 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
   - oracle 只对 operation id 用了不可哈希的值，Step 3 也没有点名其他参数。
   - 结果 `observe` 先用 dimension 查字典，list 冒出 `TypeError`；变异检查没发现，是规划端自查与独立复审确认的。
   - v2 要求表中每个参数各一个 list 用例。写入 plan-task 的 test-design.md。
+- **由被测对象控制的上界不是上界**：supervisor-stream-facts v1 合同只写了“摘要读到 `fstat` 报告的大小为止”。可是子进程拿到的写描述符不带 `O_APPEND`，一次 `ftruncate` 就能把输出文件变成任意大小的稀疏文件，自己什么都不写。监督器随后要读满它，内存也随之增长，“在有界时间内报告”的保证就没有了。v2 由规划端写死上限（256 MiB，超过时不做摘要）。写入 plan-task 的 test-design.md。
+- **“从不抛出”要点名路径参数**：含 NUL 或孤立代理字符的 str，会让 `os.open` 抛出 `ValueError` 或 `UnicodeEncodeError`，而不是 `OSError`。posix-identity-env a001 与 supervisor-stream-facts a001 两次漏在这里。写入 test-design.md 的类型矩阵。
+- **检测到替换之后按路径回滚，删的是别人的文件**：钉住时发现路径上已经不是自己创建的文件，这恰恰说明此时按路径 `unlink` 会删掉替换上来的文件。回滚与清理要先用 `lstat` 核对身份，一致才删除。
 - **分给执行器的用例要能分辨规则**：v1 让执行器测 `None`、`5` 这类非 str 值，它们在旧实现上就会被拒绝，测不出“`isinstance` 改成 `type is`”。
   - 只用执行器测试时，36 个变异只抓住 4 个。
   - v2 改用不可哈希的值，能抓住“查字典之前没有检查类型”，执行器测试抓住 19 个。

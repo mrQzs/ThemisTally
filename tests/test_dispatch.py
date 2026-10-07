@@ -2159,6 +2159,32 @@ def test_v241_mutate_result_lines_name_their_logs():
           and (rd(repo) / "mutations/01/M01.log").is_file(), out)
 
 
+def test_v242_mutate_warns_about_insertion_only_mutations():
+    """2.4.2：new 包含完整的 old 时只是插入了代码，开头提示并在结果行与记录里标出；不阻止运行。"""
+    repo, base = make_repo("v242mutate")
+    run_ok(repo)
+    keep = "return ' '.join(q.split()).lower()"
+    spec = {"command": [PY, "run_tests.py"], "timeout_seconds": 120,
+            "mutations": [{"name": "多算一次", "file": "src/normalize.py", "old": ".lower()", "new": ".lower().lower()"},
+                          {"name": "提前返回", "file": "src/normalize.py", "old": keep,
+                           "new": "return q\n    " + keep},
+                          {"name": "不转小写", "file": "src/normalize.py", "old": ".lower()", "new": ""}]}
+    spec_path = WORK / "v242-spec.json"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path))
+    warns = [line for line in out.splitlines() if line.startswith("WARN  M")]
+    lines = [line for line in out.splitlines() if line.startswith(("CAUGHT", "MISSED"))]
+    record = json.loads((rd(repo) / "mutations/01/mutations.json").read_text(encoding="utf-8"))
+    check("insertion-only mutations are flagged before the run, on their result lines and in the record",
+          code == 0 and len(warns) == 2 and warns[0].startswith("WARN  M01 多算一次") and warns[1].startswith("WARN  M02 提前返回")
+          and out.index("WARN  M01") < out.index("MUTATE baseline")
+          and lines == ["MISSED  M01 多算一次  只插入代码  日志 mutations/01/M01.log",
+                        "CAUGHT  M02 提前返回  退出码 1 ≠ 期望 0  只插入代码  日志 mutations/01/M02.log",
+                        "CAUGHT  M03 不转小写  退出码 1 ≠ 期望 0  日志 mutations/01/M03.log"]
+          and len(record["warnings"]) == 2
+          and [r["insertion_only"] for r in record["results"]] == [True, True, False], out)
+
+
 if __name__ == "__main__":
     argv = sys.argv[1:]
     keep = "--keep" in argv

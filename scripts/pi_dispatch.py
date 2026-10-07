@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.4.1"
+TOOL_VERSION = "2.4.2"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -4035,6 +4035,28 @@ def _load_mutation_spec(path: Path) -> Tuple[Dict[str, Any], List[str]]:
     return spec, problems
 
 
+def _insertion_only(item: Dict[str, Any]) -> bool:
+    """new 包含完整的 old：原代码仍在，变异只是插入了新代码（2.4.2）。"""
+    old, new = item.get("old"), item.get("new")
+    return isinstance(old, str) and isinstance(new, str) and bool(old) and old in new
+
+
+def _mutation_spec_warnings(spec: Dict[str, Any]) -> List[str]:
+    """不阻止运行的清单提示（2.4.2）。
+
+    只插入代码的变异，原有逻辑照样执行：插入的代码不改变被测行为时，结果必然是漏掉，
+    却不说明缺少测试。KitExperiment 实机：一条“回收之前计算事实”的变异多算了一次，
+    没有替换回收之后的那次计算，复审差点据此要求补一条本来就测不出的测试。
+    """
+    warnings: List[str] = []
+    for index, item in enumerate(spec.get("mutations") or [], start=1):
+        if isinstance(item, dict) and _insertion_only(item):
+            warnings.append("M%02d %s：new 包含完整的 old，原代码仍在，只插入了新代码。插入的代码不改变被测行为时，"
+                            "漏掉不说明缺少测试；确认它确实改变了行为（例如提前返回、改写结果）"
+                            % (index, item.get("name")))
+    return warnings
+
+
 def _apply_mutation(path: Path, old: str, new: str, count: int) -> Tuple[bytes, int]:
     """把文件中的 old 全部换成 new，但只在它恰好出现 count 次时才写入。
 
@@ -4092,6 +4114,9 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         for problem in problems:
             print("ERROR %s" % problem)
         raise DispatchError("变异清单无效：%d 个问题" % len(problems), EXIT_USAGE)
+    warnings = _mutation_spec_warnings(spec)
+    for warning in warnings:
+        print("WARN  %s" % warning)
     config = repo.config()
     env, _removed = child_env(config)
     grace = float(config.get("kill_grace_seconds", 15))
@@ -4125,7 +4150,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
             mid = "M%02d" % index
             count = item.get("count", 1)
             record: Dict[str, Any] = {"id": mid, "name": item["name"], "file": item["file"],
-                                      "count_expected": count}
+                                      "count_expected": count, "insertion_only": _insertion_only(item)}
             path = workspace / item["file"]
             if not path.is_file() or not is_within(path.resolve(), workspace):
                 record.update(status="skipped", reason="文件不存在或位于工作副本之外")
@@ -4158,6 +4183,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
             results.append(record)
             # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
             detail = [part for part in (record.get("reason") or "",
+                                        "只插入代码" if record["insertion_only"] else "",
                                         "日志 mutations/%s" % record["log"] if record.get("log") else "") if part]
             print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
                                     "".join("  " + part for part in detail)), flush=True)
@@ -4172,7 +4198,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
                "cwd": spec.get("cwd", "."), "workspace": str(workspace),
                "workspace_kept": bool(args.keep_workspace), "candidate_files_left_modified": drifted,
-               "baseline": baseline, "counts": counts, "results": results}
+               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     log_event(run_dir, "mutations", run=number, **counts)
     print("变异 %d 个：抓住 %d，漏掉 %d，跳过 %d，出错 %d · %s"
