@@ -31,6 +31,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | adapter-supervised-run v1 a001 | fresh：oracle 16/16，全量 534 passed | 合起来 17/18（漏掉的是检查顺序，只有多故障用例才看得出）；只用执行器测试 9/18 | PASS；集成 `bba63ec`。独立复审发现桥接遇到非 str 的 `evidence_dir` 会让操作停在 HANDOFF_ACCEPTED，由规划端在 `9726844` 修正并补测 |
 | supervisor-stream-facts v1 a001 | fresh：oracle 16/16，全量 565 passed | 合起来 33/37（M05 是规划端写错的插入式变异，M14 等价，M10、M24 是测试缺口）；只用执行器测试 5/37 | REVISE / EXECUTION_ERROR：`streams_match` 对含 NUL 或孤立代理字符的路径抛出，违反“从不抛出”；身份不符时，回滚按路径删掉了别人的文件。独立复审另发现，子进程一次 `ftruncate` 就能让监督器去读任意大小的稀疏文件。这是规划缺口，v2 把摘要上限定为 256 MiB |
 | scheduler-operation-view v1 a001 | fresh：oracle 8/8，全量 554 passed | 合起来 11/11；只用执行器测试 7/11（构造函数上限与 rollover 顺序由 oracle 把守） | PASS；集成 `88dff4b` |
+| supervisor-stream-facts v2 a002 | fresh：规划端测试 10/10，全量 579 passed | 合起来 30/32，补跑 1/1。M19 是规划端写错的变异；M09 漏掉，是因为规划端的顺序用例只是概率性的，补全之后变成确定性的。只用执行器测试 13/32 | PASS；连同 oracle、a001 与规划端测试集成为 `c3d8728`…`6a10888`。规划端补全 `d69d45d`：把取身份放进回滚的保护之内，补测 `lstat` 与“超过上限不打开”，顺序用例改为由测试发信号 |
 
 ## 有效的做法
 
