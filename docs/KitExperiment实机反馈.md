@@ -32,6 +32,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | supervisor-stream-facts v1 a001 | fresh：oracle 16/16，全量 565 passed | 合起来 33/37（M05 是规划端写错的插入式变异，M14 等价，M10、M24 是测试缺口）；只用执行器测试 5/37 | REVISE / EXECUTION_ERROR：`streams_match` 对含 NUL 或孤立代理字符的路径抛出，违反“从不抛出”；身份不符时，回滚按路径删掉了别人的文件。独立复审另发现，子进程一次 `ftruncate` 就能让监督器去读任意大小的稀疏文件。这是规划缺口，v2 把摘要上限定为 256 MiB |
 | scheduler-operation-view v1 a001 | fresh：oracle 8/8，全量 554 passed | 合起来 11/11；只用执行器测试 7/11（构造函数上限与 rollover 顺序由 oracle 把守） | PASS；集成 `88dff4b` |
 | supervisor-stream-facts v2 a002 | fresh：规划端测试 10/10，全量 579 passed | 合起来 30/32，补跑 1/1。M19 是规划端写错的变异；M09 漏掉，是因为规划端的顺序用例只是概率性的，补全之后变成确定性的。只用执行器测试 13/32 | PASS；连同 oracle、a001 与规划端测试集成为 `c3d8728`…`6a10888`。规划端补全 `d69d45d`：把取身份放进回滚的保护之内，补测 `lstat` 与“超过上限不打开”，顺序用例改为由测试发信号 |
+| verified-review v1 a001 | fresh：oracle 16/16，全量 620 passed | 合起来 22/24（漏掉的两个都是等价写法：不可达的 `lstat` 错误、状态为 ok 时摘要必然相同）；只用执行器测试 10/24 | PASS；集成 `5a2eae7`…`69ddefc`。独立复审建议 REVISE：流核对在保护之外，中断会让操作停在 RUNNING。合同没有要求这一点，由规划端在 `4fb0ceb` 补全，并补测多故障下的检查顺序 |
 
 ## 有效的做法
 
@@ -142,6 +143,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **由被测对象控制的上界不是上界**：supervisor-stream-facts v1 合同只写了“摘要读到 `fstat` 报告的大小为止”。可是子进程拿到的写描述符不带 `O_APPEND`，一次 `ftruncate` 就能把输出文件变成任意大小的稀疏文件，自己什么都不写。监督器随后要读满它，内存也随之增长，“在有界时间内报告”的保证就没有了。v2 由规划端写死上限（256 MiB，超过时不做摘要）。写入 plan-task 的 test-design.md。
 - **“从不抛出”要点名路径参数**：含 NUL 或孤立代理字符的 str，会让 `os.open` 抛出 `ValueError` 或 `UnicodeEncodeError`，而不是 `OSError`。posix-identity-env a001 与 supervisor-stream-facts a001 两次漏在这里。写入 test-design.md 的类型矩阵。
 - **检测到替换之后按路径回滚，删的是别人的文件**：钉住时发现路径上已经不是自己创建的文件，这恰恰说明此时按路径 `unlink` 会删掉替换上来的文件。回滚与清理要先用 `lstat` 核对身份，一致才删除。
+- **往“出错必须落定”的序列里加步骤，要写明它也受保护**：verified-review 合同在 `mark_running` 之后加了一步流核对，却只列出钩子、`candidate_hash` 与 `finish` 抛出时的处理。核对要把两个流各重读一遍，中断落在这里，操作就停在 RUNNING。执行器照合同字面实现，问题在合同，所以由规划端补全，结论判 PASS。写入 plan-task。
 - **分给执行器的用例要能分辨规则**：v1 让执行器测 `None`、`5` 这类非 str 值，它们在旧实现上就会被拒绝，测不出“`isinstance` 改成 `type is`”。
   - 只用执行器测试时，36 个变异只抓住 4 个。
   - v2 改用不可哈希的值，能抓住“查字典之前没有检查类型”，执行器测试抓住 19 个。
