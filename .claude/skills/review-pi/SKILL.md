@@ -92,6 +92,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
        - HEAD 仍是基线时第一个候选可以 `git merge --ff-only`；HEAD 已因合同提交前进时每个候选都 `git cherry-pick`（它们的父提交是同一基线；`branch` 的输出会给出合适的命令）；
        - 全部集成后在组合结果上跑一次全量测试并记录；
        - 本批所有 run 结束之前不要合并，见 dispatch-pi 技能的“并行批次”。
+     - 挑入之前先确认要挑入的提交不碰工作区里有本地改动的文件（例如只差换行符的文件）。git 会在那个提交之前停下，只留下 `.git/sequencer`，没有 `CHERRY_PICK_HEAD`；这时 `git cherry-pick --continue` 会把被挡住的提交当作已处理跳过，接着去挑下一个，结果冲突。做法：先处理那个文件（只差换行符时，按约定统一它的换行符），再 `git cherry-pick --abort` 回到起点，完整重挑。KitExperiment ledger-cli 实机。
      - 完成后运行 `bash scripts/dispatch-pi.sh mark <run-dir> INTEGRATED --ref <提交或 PR>`，ref 写实际集成的提交（cherry-pick 后的新提交）。
    - **REVISE**：按 [rework.md](rework.md) 决定从原基线重做，还是在候选上继续，然后用 plan-task 出 vN+1。
      - 预算用尽、剩余部分又小而明确时，可以由规划器在返工提交上直接补齐，作为单独的提交，并按同样的验收标准检查（检查、全量测试、必要时变异检查）。
