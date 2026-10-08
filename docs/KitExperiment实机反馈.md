@@ -38,6 +38,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 | restart-recovery v1 a001 | fresh：oracle 12/12，全量 702 passed | 合起来 40/40；只用执行器测试 35/40（漏掉的 5 个由 oracle 把守，取消分支的错误处理反过来只有执行器测试把守） | PASS；集成 `8d9af39`…`49e40d4`。独立复审发现命令列表先检查后复制（只在调用方并发修改时可达）、两个测试缺口（中断推迟到循环结束、描述先于 guard 校验）与合同隐含的桥接变化，规划端补全 `b9a68be`（补全后 42 个变异抓住 41 个，漏掉的只在并发时有差别） |
 | request-resume v1 a001 | fresh：两份 oracle 27/27，全量 739 passed | 合起来 29/30（漏掉的“运维名接受子类”与 `_runtime_text` 的精确类型检查重复，等价）；只用执行器测试 25/30 | PASS；集成 `6d4bb29`…`74b9e47`，规划端补全 `0419531`（五对检查顺序的用例）。独立复审发现两个合同缺口：恢复只比对第一个停止原因，后来叠加的显式暂停会被一并清掉（中）；账本记得已运行过的操作仍可判为未启动，未补记的用量按 0 计（低）。交给后续合同 |
 | resume-holds v1 a001 | fresh：三份 oracle 36/36，全量 762 passed | 合起来 23/23；只用执行器测试 22/23（“先查冲突再查状态”由 oracle 守住） | PASS；集成 `9d2220e`…`2eb579a`，规划端补全 `84c9a57`（先复制再检查不为空、测试默认值每次新建）。独立复审发现用户决定的覆盖面不足：桥接事后才登记开始，运行中途崩溃的用量仍能判未启动归零；两次同文字的暂停合并成一项。交用户决定 |
+| explicit-holds v1 a001 | fresh：四份 oracle 45/45，全量 785 passed | 合起来 9/9；只用执行器测试也是 9/9 | PASS；集成 `dd2d453`…`fe92d11`。独立复审发现规划端决定 P13（“`recover` 不改”）留下了绕过：换一代之后 `recover(NOT_STARTED)` 仍能把已判定的受监督运行判为未启动，执行器测试还把它当成了预期。规划端补全 `d26c986` 并更正为 P16 |
 
 ## 有效的做法
 
@@ -82,6 +83,8 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **执行报告的 JSON 写错**：supervisor a002 的报告末尾 JSON 多了一个值，调度器记为 json_invalid，门禁 G1 只作提示。正文与证据一致。
 - **超出合同的解读写在 limitations 里，没有进 contract_conflicts**：reconcile-integration a001 自行加了内层类型校验，并把“删除 partial”解读为只删自己创建的。两处都在报告中如实说明了，但没有按 AGENTS.md 放进 `contract_conflicts`。
   - 之后合同在 Report back 里加了一句“任何解读写进 contract_conflicts 或 unresolved_questions”，接下来三次运行都照做了（例如 scheduler a001 把身份校验的先后写进了 `contract_conflicts`）。
+
+- **工具名偶尔写成乱码**：durable-ledger a002 调用了 `ash_value`，resume-holds a001 调用了 `ash`，explicit-holds a001 调用了 `gash`——都是 `bash` 写坏了。每次都收到“Tool not found”，随即改用正确的工具，没有影响结果，只在 G1 记为工具错误。
 
 ## 待改进（调度工具）
 
@@ -176,3 +179,4 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **比对式的守卫要比对完整的状态**：恢复只比对第一个停止原因，叠加的显式暂停被一并清掉，是独立复审发现的。写入 plan-task。
 - **检查顺序要两两组合地测**：合同写明了顺序，就为每一对相邻检查配一个两个错误同时出现的用例。写入 test-design.md。
 - **把用户决定写成合同前，先查清决定里每个条件在代码里何时成立**：“账本见过运行”取决于账本何时登记开始，而桥接是事后补登记，最常见的崩溃恰好不在覆盖面内。写入 plan-task。
+- **写“X 不改”之前，列出所有能产生同一结果的入口**：explicit-holds 的“`recover` 不改”留下了第二条路，是独立复审发现的。写入 plan-task。
