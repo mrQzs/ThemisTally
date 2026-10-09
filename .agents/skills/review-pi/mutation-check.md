@@ -88,6 +88,10 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
     - 处理：另用一次性探针实测该行为，把结果写进报告；需要长期保护时补测试。
 - **跳过**多半是锚点写错了，修正清单后重跑，编号会递增。
 
+## 在草稿上先跑一遍
+
+`mutate` 只接受 attempt 目录。规划端在派遣前用草稿验证 oracle 时，可以用同一种清单（`command`、`file`、`old`、`new`、`count`）写一个小脚本：逐个替换、运行命令、恢复文件，退出码非 0 记 CAUGHT。清单在派遣后原样交给 `mutate` 复核候选（锚点换成候选的写法）。实机：KitExperiment pi-native-events 的草稿 32 个偏差全部抓住，漏掉的一个（空工具名）当场补进 oracle。
+
 ## 实机经验（KitExperiment）
 - posix-supervisor a002：
   - oracle、探针与执行器测试合起来，30 个变异抓住 29 个。漏掉的是“轮询间隔改为 0.5 秒”：执行器拿每次休眠与模块常量比较，属于执行器少写，由规划端补测。

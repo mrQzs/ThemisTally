@@ -61,6 +61,7 @@
     - 先 `mkdir -p .agent/runs/_tmp`，再加 pytest 的 `--basetemp=.agent/runs/_tmp/pytest`：pytest 不会创建上级目录；
     - 放在 `.agent/runs/` 下，是因为它被 Git 忽略，不会改变主工作区的指纹；
     - pytest 每次运行前会清空 basetemp，只能指向专门的目录；同时运行几组测试时，各用一个子目录。
+    - 有的测试断言自己的临时目录不在任何 Git 仓库里（KitExperiment 的 `test_baseline_rejects_non_repository`）：basetemp 放进工作区它就失败。遇到这种项目，改用仓库之外的目录（规划端会话的 scratchpad，或 `%TEMP%` 下的专用子目录）。
   - PowerShell 中找不到 `bash` 时，用 `python scripts/pi_dispatch.py <子命令>`，与 `bash scripts/dispatch-pi.sh <子命令>` 等价。
 - **独立复审**：复审要求见 `review-pi` 技能的 `independent-review.md`。
   - Claude Code：交给 `pi-reviewer` 子代理；

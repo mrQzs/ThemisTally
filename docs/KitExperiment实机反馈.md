@@ -183,3 +183,51 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **写“X 不改”之前，列出所有能产生同一结果的入口**：explicit-holds 的“`recover` 不改”留下了第二条路，是独立复审发现的。写入 plan-task。
 - **多提交挑入被本地改动挡住时不要 `--continue`**：它会把被挡住的提交当作已处理跳过。先处理那个文件，再 `--abort` 完整重挑。写入 review-pi。
 - **关闭类规则要留住实例来测**；**入口的必填参数要查下游是否把空值当缺省**；**提交之后的失败不能与参数错误共用退出码**。写入 test-design.md 与 plan-task。
+
+## 2026-10-08 至 10-09：回到 Windows，Pi 原生事件转换
+
+两个仓库于 2026-10-08 从 macOS 整体复制回 Windows（Windows Server 2025，Administrator 账户），规划端换成 Claude Code 2.1.295（claude-fable-5-1）。
+
+环境：
+- pi 0.99.2（macOS 上最后是 1.0.4）；执行模型仍是 `step/step-5-preview` · high；doctor 与两步 smoke 通过；
+- 系统 Python 3.12.10 + pytest 9.1.1，没有 venv；Git 2.55，`core.autocrlf=true`，工作区干净；
+- 调度器 pi_dispatch 2.4.2。
+
+### 迁移后的基线
+
+- 全量在本机第一次跑：557 passed / 251 skipped / 33 failed。33 个失败没有一个是产品语义问题：`process_identity` 按 `:` 切 PATH、boot id 没有 Windows 分支、chmod 0 在 Windows 上挡不住读取；`durable_ledger` 的测试用 `/dev/fd` 数描述符、用 `SIGKILL`、用只读目录拒写、依赖符号链接后 `..` 的内核语义、依赖 NTFS 不接受孤立代理字符；`adapter_run.read_stream` 用 `O_NOFOLLOW`。规划端按监督器测试已有的写法给 19 处加了 `@unittest.skipIf(os.name != "posix", …)`（两个类、一个类、十六个方法），单独提交；之后 551 passed / 286 skipped。写入 check-pi-env。
+- 规划端自己的两个失误：把 pytest 的 `--basetemp` 放进仓库，`test_baseline_rejects_non_repository` 因此失败（它要求临时目录不在任何仓库里）；Windows 控制台是 cp1252，打印非 ASCII 的 Python 一行脚本直接报错，要设 `PYTHONUTF8=1`。写入 AGENTS.md 模板与 check-pi-env。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| pi-native-events v1 a001（pi 0.99.2，Windows，912 s，0 工具错误） | fresh：oracle 26/26，执行器 22/22，全量 599 passed / 288 skipped | 合起来 35/36（漏掉的“交给父类的是拷贝”是执行器的空断言，规划端补全后 36/36）；只用执行器测试 26/36（10 个按分工由 oracle 把守） | ACCEPTED_WITH_EXCEPTION（豁免 G5：合同点名的拷贝用例写成空断言，实现正确）；集成 `0ab0211`…`301857c`，规划端补全 `a97f3cd`。独立复审另找出四处合同没写明的读法（畸形首头算不算头、终止后非对象帧的检查先后、超长标识符由归约器拒绝、摘要的二次退路），记为规划端决定并钉进 oracle。规划端在本机对 31 次完整流复核，与调度器全部一致 |
+
+### 有效的做法
+
+- **调度器录下的真实流就是录得证据**。`.agent/runs/*/attempt-*/events.jsonl` 是 Pi `--mode json` 的 stdout 原样（`run` 以 `xb` 打开它作为子进程 stdout），本机有 30 次真实 Step 运行（pi 1.0.1/1.0.2/1.0.4，两个平台）。Pi 原生事件转换这条线因此不需要调用 provider：
+  - 仓库里放缩减脚本 `tests/fixtures/pi_native/reduce.py`，从 attempt 目录生成缩减流与 meta（来源、pi 版本、平台、原文件 sha256，以及调度器的汇总）；每一帧与全部结构字段保留，只省略流式更新帧（每条消息、每次工具调用各保留首尾两条）并截短长字符串；
+  - `events-summary.json` 里调度器自己算的用量、消息数、工具调用数、工具错误数、终止事件，是另一份代码的独立结果，oracle 拿它当差分对照；
+  - 规划端专用测试 `tests/test_pi_events_captured.py`：有 `.agent/runs` 时对 30 次完整流复核，并断言完整流与缩减流翻译结果相同（除带行号的事件 id）；执行器的 worktree 里它只会跳过，合同写明这是预期；
+  - 体积：缩减后每份 97–356 KB，主要是结构而不是文本，原拟的 300 KB 上限按实测改成 400 KB。写入 plan-task。
+- **草稿上的偏差检查**：`mutate` 只接受 attempt 目录，规划端用同一种清单格式写了一个小脚本在草稿上跑，32 个偏差 31 个抓住，漏掉的“空工具名”当场补进 oracle 再跑到 32/32。写入 mutation-check.md。
+
+### 执行器的偏差（本轮）
+
+- **合同点名的用例写成空断言**：合同 Step 3 写了“`run` 传给父类的是事件的拷贝”，执行器的用例把父类收到的事件与**另一次** `translate()` 的结果比身份，永远不同，什么都测不出；fresh 检查看不出，只用执行器测试的变异检查也看不出（对应变异在两轮里都存活），是独立复审读了变异日志才指出的。写入 test-design.md。
+- **裁定留在思考里**：事件流第 27093 行执行器自己裁定了合同第 7 条（终止之后的帧都是未知帧）与第 9 条（不是对象的帧是畸形帧）对同一输入的先后，报告的 `unresolved_questions` 却是空的，`contract_conflicts` 只写了字段顺序。合同 Report back 已经写了“任何解读写进 contract_conflicts 或 unresolved_questions”，这是第二次出现“推理里裁定、报告不提”（上一次是 supervisor a001）。调度器的备注抓到了 8 处歧义提及并提示核对，这次靠独立复审读事件流才确认。
+- 其余都好：范围干净，没有临时路径，没有自做变异，报告 JSON 合法，执行器指出了设计说明与合同的字段顺序不一致并按合同实现。
+
+### 规划端的教训（本轮）
+
+- **合同里两条规则对同一输入都适用时要写明先后**：“终止之后的任何帧都是未知帧”与“不是对象的帧是畸形帧”都没说谁先，执行器只能自己选。写入 plan-task。
+- **设计说明和 oracle 要一起提交**：oracle 提交进基线后又改了设计说明（缩减阈值 96/80 → 64/48），基线里的设计说明因此落后，执行器据实指出。写合同之前核对基线里的设计说明就是最新的。
+- **错误原因文字用全等**：oracle 自己也用了前缀匹配，“assistant content” 同时匹配两种 reason。写入 test-design.md。
+- **变异漏掉的归因要在复审里再想一遍**：主审先把 M33 归为“等价变异（父类不改输入，拷贝与否不可观察）”，独立复审指出这是执行器用例写错了：用 mock 截获 `run` 内部那次翻译就能观察。“不可观察”多半是“测试没找对观察点”。
+
+### 待改进（调度工具）
+
+- `mutate` 可以接受一个树（`--tree <路径>`）而不只是 attempt 目录，规划端验证草稿时就不用另写脚本。
+- 歧义提及的备注可以把“judgment call”“I'll note this as an interpretation”这类执行器自己宣布裁定的短语单独标出，和一般的“在检查一致性”分开。
+- `doctor` 不带 `--provider/--model` 时不做执行模型与凭据检查（`executor_*` 三个键不出现），输出里也没有提示“未检查执行器”；技能写了要带参数，但容易漏。建议在 `notes` 里写一句。

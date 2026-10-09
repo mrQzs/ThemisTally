@@ -59,6 +59,10 @@ KitExperiment 实机里，含 NUL 的路径两次漏网：posix-identity-env a00
 
 测“每条命令都关闭它打开的账本”这类规则时同理：CPython 在函数返回时就回收没人持有的实例，数描述符看不出漏关。KitExperiment ledger-cli 的“不关账本”变异两套测试都没抓住，改为包装打开函数、留住每个实例并断言它已关闭之后才抓住。
 
+测“传给下游的是拷贝”时，要在**同一次调用内部**拿到原对象：用 `mock.patch` 包装被测函数调用的入口（例如模块级的 `translate`）记录它的返回值，再与下游收到的对象比身份，并在下游篡改一处、断言原对象没变。拿另一次调用的结果比身份永远不同，什么都测不出。KitExperiment pi-native-events a001 的执行器就是这样写的，变异检查两轮都没抓住，是独立复审读变异日志才发现的。
+
+错误原因、错误码一类的文字用全等断言，不用前缀：“assistant content” 同时匹配 “assistant content is not a list” 与 “assistant content block is malformed”，两条规则互换也不会失败。合同点名了 reason 文字，测试就比对整句。
+
 测“出错时关闭连接”时，要留住底层的真实对象。异常原样冒出时，`assertRaises` 去掉了 traceback，帧随之释放，CPython 回收时顺手关闭了连接，只数描述符看不出泄漏。让包装的连接工厂把真实连接存进列表，再断言它已经关闭（`execute` 抛出 `ProgrammingError`）。
 
 ## 摘要要保护具体字段

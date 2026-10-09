@@ -49,6 +49,8 @@ argument-hint: "[provider/model] [--smoke]"
      - 沙箱模式与审批策略；
      - 本仓库是否已受信任。未受信任时，项目的 `.codex/` 配置不会生效。
 4. **项目工具链**：从锁文件与配置（如 package.json 的 packageManager / engines、.nvmrc、pyproject.toml、go.mod）识别需要的工具，运行它们的 `--version` 并记录版本。版本不符时只报告，不要升级。
+   - 换了机器或操作系统之后，在当前工作区跑一次项目的全量检查，把结果写进“验证记录”，并与上一台机器记录的数字比较。只在新平台失败的用例先分类：测试夹具的平台假设（`/dev/fd`、`SIGKILL`、chmod、符号链接后的 `..`）还是产品的平台专用代码（PATH 分隔符、`O_NOFOLLOW`、boot id）。两类都按项目已有的写法加平台跳过标记（例如 `@unittest.skipIf(os.name != "posix", …)`），作为单独的规划端提交成为本机基线；不要让每份合同各自回避全量检查。实机：KitExperiment 从 macOS 回到 Windows 时 33 个用例失败，全是这两类，补标记后 551 passed / 286 skipped。
+   - Windows 原生终端的控制台编码是 cp1252：规划端自己的 Python 脚本打印非 ASCII 之前设 `PYTHONUTF8=1`；调度器与检查命令不受影响。
 5. **可选的连通性试跑**（会调用模型并产生少量费用）：只有参数包含 `--smoke`，或用户确认后才运行。
    ```bash
    bash scripts/dispatch-pi.sh smoke --provider <provider> --model <model> --thinking high --out .agent/runs/_env/smoke.json
