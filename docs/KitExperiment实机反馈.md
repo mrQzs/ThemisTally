@@ -231,3 +231,39 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - `mutate` 可以接受一个树（`--tree <路径>`）而不只是 attempt 目录，规划端验证草稿时就不用另写脚本。
 - 歧义提及的备注可以把“judgment call”“I'll note this as an interpretation”这类执行器自己宣布裁定的短语单独标出，和一般的“在检查一致性”分开。
 - `doctor` 不带 `--provider/--model` 时不做执行模型与凭据检查（`executor_*` 三个键不出现），输出里也没有提示“未检查执行器”；技能写了要带参数，但容易漏。建议在 `notes` 里写一句。
+
+## 2026-10-09：崩溃运行的参考用量（ledger-reference）
+
+环境同上一节（Windows Server 2025，pi 0.99.2，`step/step-5-preview` · high，系统 Python 3.12.10，pi_dispatch 2.4.2）。方向是用户候选清单里的第 2 项“从输出流算出用量，只作参考值”；规划端先写设计说明，再用 AskUserQuestion 问了四个语义（入口、方言、不完整的流、Windows 读流），用户全选推荐项。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| ledger-reference v1 a001（pi 0.99.2，Windows，737 s，2 个无害的 edit 工具错误） | fresh：oracle 28/28，执行器 53/53，全量 684 passed / 289 skipped | 合起来 32/34，只用执行器测试也是 32/34；漏掉的两个是等价（数额为 None 永远不是最终值）与被遮蔽（`lstat` 的普通文件检查）的变异，草稿阶段已知 | PASS；集成 `02b04ef`、`015fe05`，规划端补全 `1e5832e`。独立复审 PASS，唯一的低级别发现是合同措辞与草稿不一致（见下），裁定以候选为准并钉进 oracle |
+
+### 有效的做法
+
+- **草稿先于合同，合同从草稿推导**：规划端先在临时 worktree 里写出实现草稿与 oracle，在草稿上跑 34 个故意偏差（32 个抓住，2 个当场判定为等价或被遮蔽），再写合同。派遣后同一份清单换成候选的锚点交给 `mutate`，两轮（oracle 加执行器测试、只用执行器测试）都是 32/34，和草稿一致。候选与草稿在全部真实流和合成流上行为相同。
+- **只用执行器测试再跑一轮变异**，能直接回答“执行器的测试单独能不能把守合同”：这一轮 32/34，说明 53 个用例不是抄 oracle 凑数的（虽然约 15 个与 oracle 近乎同文，那是合同 Step 3 点名的内容）。
+- **独立复审的内存探针**：子代理在只读约束下用 `python -B` 和 `mock.patch` 重绑定函数做变异探针，不写任何文件，给出的结论与正式 `mutate` 一致；可以作为 `mutate` 之前的快速旁证，但正式记录仍要跑 `mutate`。
+- **Windows 分支本机可验**：没有 `O_NOFOLLOW` 的平台按“`lstat` 先行、拒绝链接与重解析点、`O_BINARY` 打开、`fstat` 身份等于 `lstat`”读流，符号链接与硬链接在 Administrator 账户下都能建，8 个原生用例无一跳过；POSIX 分支逐字不动，由独立复审对照基线 diff 核对。
+
+### 执行器的偏差（本轮）
+
+- **自检命令带管道**：执行器把 `pytest … 2>&1 | tail -n N` 的结果当作检查结果，合同的 Validation commands 明文不允许用管道的退出码作证据。验收证据是调度器在固定候选上的 checks/01，不受影响；但 summary 没有标出这一点，是独立复审读 `events-summary.json` 的 `shell_commands` 才发现的。
+- **把合同里的指代读歪**：Repository facts 写“规划端专用，`.agent/runs` 不存在时跳过；执行器的工作副本里没有它”，“它”指 `.agent/runs`，执行器读成测试文件，写进 limitations 并未停止，处理合理。规划端措辞问题。
+- 其余都好：范围干净、没有临时路径、没有自做变异、报告 JSON 合法、`contract_conflicts` 与 `unresolved_questions` 为空且与事件流一致。
+
+### 规划端的教训（本轮）
+
+- **逐步列出的异常映射要从草稿代码推导**：合同第 7.3 条写“打开阶段 `OSError` → `unreadable`”，草稿的结构却是外层统一处理 `FileNotFoundError` → `missing`；候选与草稿一致，与合同字面不一致，只在 `lstat` 与 `open` 之间文件被删的竞态下可达。独立复审找出来后裁定以候选为准（与 POSIX 分支相同），记为规划端决定 R10 并用 mock `os.open` 钉住。写合同时把每一步的异常类型从草稿里抄出来，不要凭记忆复述。写入 plan-task。
+- **oracle 不能从被测模块导入文件名来构造输入**：草稿阶段“流文件名改成 `stderr.log`”的变异漏网，因为 oracle 用 `adapter_run.STREAM_NAME` 写文件，常量改了测试跟着改。改成字面量 `"stdout.log"` 之后抓住。与“上界要由规划端给定”是同一条规则。写入 test-design.md。
+- **“只插入代码”的提示要按日志判断**：`mutate` 对 `x if c else y`、`a or b` 这类包含完整旧文本的变异也给 WARN，这三个变异都改变了行为并被抓住。写入 mutation-check.md。
+- **合同里的指代写全**：见上面执行器的偏差。写入 plan-task。
+- **被遮蔽的守卫要在复审里注明，不算缺口**：`lstat` 的普通文件检查被重解析点属性（符号链接）与 `os.open` 的 `PermissionError`（目录）遮蔽，Windows 上构造不出只剩它挡在中间的输入；留着它是为了可读性，复审记录写明。
+
+### 待改进（调度工具）
+
+- summary 可以标出自检命令里 `| tail`、`| head` 这类掩盖退出码的管道（从 `shell_commands` 里就能看出来），不必等独立复审读事件流。
+- `mutate --tree <路径>` 仍然是规划端最想要的：这一轮草稿上的 34 个偏差又是用临时脚本跑的。

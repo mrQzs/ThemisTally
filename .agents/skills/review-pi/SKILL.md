@@ -28,6 +28,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - 需要确认：事件流是否完整，最终 stopReason，实际模型，stderr 标记。
    - 思考级别：本机 Step 配置不会回报 providerThinkingLevel，只能确认请求的是 high（Pi 会把它映射为 thinking 预算）；提供商回报了其他级别时，按问题处理。
    - TIMEOUT / CANCELLED / INFRA_FAILURE 不能 PASS。
+   - 看 `events-summary.json` 的 `shell_commands`：执行器自检时把检查命令接上 `| tail`、`| head` 这类管道（合同明文不允许用管道的退出码作证据）是过程偏差，记入复审；验收证据仍是调度器在固定候选上的 `check`。KitExperiment ledger-reference a001 是独立复审读事件摘要才发现的。
 3. **G2 范围**：读 `scope.json` 与 summary 的“复审需要关注”。
    - 任何越界都要先查清影响，尤其是：受保护路径、HEAD 移动、worktree 之外的路径、主工作区变化、新增被忽略的文件（如 `.env`）。
    - 可疑命令一项写明命中所在的行与事件流行号，完整命令按行号到 `events.jsonl` 中查看。
