@@ -97,7 +97,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
      - 完成后运行 `bash scripts/dispatch-pi.sh mark <run-dir> INTEGRATED --ref <提交或 PR>`，ref 写实际集成的提交（cherry-pick 后的新提交）。
    - **REVISE**：按 [rework.md](rework.md) 决定从原基线重做，还是在候选上继续，然后用 plan-task 出 vN+1。
      - 预算用尽、剩余部分又小而明确时，可以由规划器在返工提交上直接补齐，作为单独的提交，并按同样的验收标准检查（检查、全量测试、必要时变异检查）。
-     - 超时（TIMEOUT）而候选已经完整时，缺的只是执行报告：规划器逐项复审代替报告，写进复审记录，直接集成返工提交，不必为一份报告再派一轮（见 dispatch-pi 技能的 [troubleshooting.md](../dispatch-pi/troubleshooting.md)）。
+     - 超时（TIMEOUT）而候选已经完整时，缺的只是执行报告：规划器逐项复审代替报告，写进复审记录，直接集成返工提交，不必为一份报告再派一轮（见 dispatch-pi 技能的 [troubleshooting.md](../dispatch-pi/troubleshooting.md)）。KitExperiment ledger-compaction a001 照此处理：fresh 检查 8/8、两轮变异、独立复审 PASS 之后，复审记录按 Behavior contract 逐条写候选对应的代码位置与 Step 3 的逐项对照，verdict REVISE `--class TIMEOUT`，`branch --rework`，集成，`mark SUPERSEDED`。
      - 集成后运行 `bash scripts/dispatch-pi.sh mark <run-dir> SUPERSEDED --ref <集成提交> --reason "<由谁、怎样收尾>"`。这样这个 attempt 不再显示为待集成，其他任务 prepare 时也不会再提示范围重叠。
    - **BLOCKED / ESCALATE**：向用户说明阻塞点与需要的决定，不要自行扩大授权或更换模型。
    - 不再需要 worktree 时：`bash scripts/dispatch-pi.sh cleanup <run-dir>`。证据保留在 `.agent/runs/`。
