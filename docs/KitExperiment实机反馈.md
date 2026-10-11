@@ -417,3 +417,29 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 - **检查命令按 argv 直接执行，不经 shell**：`test -z "$(git diff …)" && echo OK` 在 baseline 上直接失败（`test` 不是程序）。"某些文件一字不改"用 `git diff --quiet <base_sha> -- <files>`（有差异时退出码 1，不需要输出匹配）。写入 plan-task SKILL.md 第 4 节。
 - 只用执行器测试的变异轮 10/31 看着低，但 21 条漏网全是清单没要求的规则：先按"oracle 空白 / 清单留给 oracle / 执行器用例弱点"三分，再决定要不要追究执行器。
 - 给下一份合同的事实要在本轮复审时就记下来（F4 描述符号复用、F5 子进程持句柄时删不掉），写进设计说明第 9 节，别等写合同时再找。
+
+## 2026-10-11：Windows 原生监督的第 3 份——Job Object（win-supervise）
+
+环境同上。这一份是高风险的那一半：`supervise` 用 `CREATE_SUSPENDED` → 入 Job → `NtResumeProcess` 启动，超时或取消直接 `TerminateJobObject`，按 `ActiveProcesses` 回收。规划端先用探针核实了全部关键事实（退出码 3221225786、整棵树 8 ms 清空、句柄数一个周期后归位），把 Code-Kit 调度器已验证的 ctypes 绑定逐字写进合同的事实段落，执行器照抄即可。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| win-supervise v1 a001（pi 0.99.2，Windows，1134 s，0 个工具错误） | fresh：oracle 22/22，执行器 7/7，全量 875 passed / 289 skipped，8/8 | 合起来 31/32（1 条出错：oracle 用例让变异体冒出的中断打断了会话）；只用执行器测试 16/32（漏掉的 16 条都是清单留给 oracle 的规则） | PASS；集成 `dc3179a`、`a387800`，规划端补全 `0cf6f8f`（只改 oracle） |
+
+### 有效的做法
+
+- **把已验证的绑定逐字写进合同**：ctypes 的函数原型与四个结构体来自调度器自己的 `_WinJob`，执行器 1134 秒内一次写对，没有一处类型宽度错误。
+- **钉"先入 Job 再恢复"用假 API 记录调用顺序**：真实进程树的时序分不出这条规则（恢复到入 Job 只差微秒），草稿变异先漏了它；换成记录调用顺序的假 API 用例后 32 条全抓住，而且在任何平台都能跑。
+- **钉 `KILL_ON_JOB_CLOSE` 用"关句柄看成员死没死"**：这条也不是 `supervise` 的可观察行为，直接对 `_Job` 做单元探针。
+
+### 执行器的偏差（本轮）
+
+- 无。范围零越界、报告无夸大、七个用例每个都先登记清理再断言。
+
+### 规划端的教训（本轮）
+
+- **断言"中断被吸收"的用例要自己拦住冒出来的中断**：变异体让 `KeyboardInterrupt` 逃出去时，pytest 整个会话被打断（退出码 2），kit 的 `mutate` 按规则不算抓住（"出错"）；用例要 `try/except KeyboardInterrupt: self.fail(...)`。规划端草稿用的变异脚本原来把任何非零退出码都算抓住，所以草稿阶段 32/32 掩盖了这一点——草稿工具的判定要与 kit 一致（只认退出码 1）。写入 review-pi 的 mutation-check 与 plan-task 的 test-design。
+- **句柄普查要先做一次失败热身**：CPython 本进程第一次失败的 `CreateProcess` 永久多 8 个句柄（独立复审 F1 实测），oracle 的普查用例只因为别的失败用例按字母序先跑才通过。Windows 上的句柄普查在取基准前先让一次裸 `Popen` 失败。
+- **kit 的 DoD 解析把一行里第一个"证据"当分隔词**：D05 的文本以"证据一半"开头，text 被解析成空串、`validate` 报"D05 缺少 text"。DoD 文本里不要出现"证据"二字（或者改进解析器只认"；证据："）。
