@@ -111,6 +111,7 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
   - 一条检查有两份时（两个函数里各一条规范检查；`O_EXCL` 之前的 `lstat` 预检），单独去掉任何一处都被另一处遮蔽，是规划端写错的变异。改它们共用的正则，或去掉更深的那一道，再用包装 `os.lstat` 的用例绕过前一道。
   - 规划端补全之后 41 个抓住 40 个：新加的通用分支吸收了“`RecursionError` 不单独映射”，它成了等价写法。
 
+- win-wiring a001：第 1 轮 25 条里 5 条 SKIPPED——锚点写在规划端草稿的措辞上，执行器用 `if/return` 代替条件表达式、改了错误消息文本；按候选措辞重锚补跑一轮（6/7），漏掉的 1 条是 oracle 缺口（几千位的文本身份让 `int()` 抛 ValueError 而不是被拒绝），规划端补用例后单独重跑确认抓住。只用执行器测试 6/20，漏掉的全是清单留给 oracle 的规则。SKIPPED 不是漏测也不是抓住，必须重锚再下结论。
 - win-supervise a001：32 个变异，oracle 加执行器测试 31/32，剩下 1 条“出错”而不是漏掉：变异体让回收轮询里的 `KeyboardInterrupt` 逃出去，pytest 整个会话被打断（退出码 2），不算抓住。断言“中断被吸收”的 oracle 用例要自己 `try/except KeyboardInterrupt` 再 `self.fail`，规划端补全后单独重跑这条变异确认抓住。只用执行器测试 16/32，漏掉的 16 条全是清单留给 oracle 的规则（平台守卫、挂起与入 Job 的顺序、退出码数值、子进程环境与 cwd、启动失败的形状、`KILL_ON_JOB_CLOSE`）。
 - win-evidence a001：31 个变异，oracle 加执行器测试 30/31（漏掉的 1 条等价：lstat 的大小检查在前，读到的字节数不同时摘要不可能相等）；只用执行器测试 10/31，漏掉的 21 条全部是合同清单留给 oracle 的规则（pin 的三重身份要靠假 lstat/open 才能分开、记录读取的重解析点要靠假 `st_file_attributes`），没有执行器用例因错误原因通过。低比例本身不是问题，三分类之后才下结论。
 - win-identity a001：33 个变异，oracle 加执行器测试 31/33（漏掉的两条是 oracle 自己的空白：PATH 前一项的 `.cmd` 会遮住后一项的 `.exe`、带扩展名的名字仍被补后缀——合同写了、oracle 没钉，规划端补 oracle 后 31/31）；只用执行器测试 23/33，其中一条是执行器用例因错误的原因通过（拒绝用例的环境里没有 PATH）。漏网先分三类：oracle 空白（规划端补）、合同留给 oracle 的规则（记录）、执行器用例弱点（复审定级）。
