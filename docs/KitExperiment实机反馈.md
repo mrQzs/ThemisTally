@@ -228,9 +228,9 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 ### 待改进（调度工具）
 
-- `mutate` 可以接受一个树（`--tree <路径>`）而不只是 attempt 目录，规划端验证草稿时就不用另写脚本。
-- 歧义提及的备注可以把“judgment call”“I'll note this as an interpretation”这类执行器自己宣布裁定的短语单独标出，和一般的“在检查一致性”分开。
-- `doctor` 不带 `--provider/--model` 时不做执行模型与凭据检查（`executor_*` 三个键不出现），输出里也没有提示“未检查执行器”；技能写了要带参数，但容易漏。建议在 `notes` 里写一句。
+- `mutate` 可以接受一个树（`--tree <路径>`）而不只是 attempt 目录，规划端验证草稿时就不用另写脚本。（2.5.0 已做）
+- 歧义提及的备注可以把“judgment call”“I'll note this as an interpretation”这类执行器自己宣布裁定的短语单独标出，和一般的“在检查一致性”分开。（2.5.0 已做）
+- `doctor` 不带 `--provider/--model` 时不做执行模型与凭据检查（`executor_*` 三个键不出现），输出里也没有提示“未检查执行器”；技能写了要带参数，但容易漏。建议在 `notes` 里写一句。（2.5.0 已做）
 
 ## 2026-10-09：崩溃运行的参考用量（ledger-reference）
 
@@ -265,8 +265,8 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 ### 待改进（调度工具）
 
-- summary 可以标出自检命令里 `| tail`、`| head` 这类掩盖退出码的管道（从 `shell_commands` 里就能看出来），不必等独立复审读事件流。
-- `mutate --tree <路径>` 仍然是规划端最想要的：这一轮草稿上的 34 个偏差又是用临时脚本跑的。
+- summary 可以标出自检命令里 `| tail`、`| head` 这类掩盖退出码的管道（从 `shell_commands` 里就能看出来），不必等独立复审读事件流。（2.5.0 已做）
+- `mutate --tree <路径>` 仍然是规划端最想要的：这一轮草稿上的 34 个偏差又是用临时脚本跑的。（2.5.0 已做）
 
 ## 2026-10-09：账本检查点与压缩（ledger-compaction）
 
@@ -303,9 +303,9 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 ### 待改进（调度工具）
 
-- `prepare`（或 `validate`）可以把合同“时间分配”的合计与 `max_wall_seconds_per_attempt` 比一下，合计超过上限的 70% 就警告：这一轮的 31 分钟对 30 分钟上限，验证时就能看出来。
-- summary 可以标出 `tempfile.mkdtemp()` 之后没有 `rmtree`/`rm -rf` 的命令（现在只列出命中）。
-- `mutate --tree <路径>` 仍然是规划端最想要的：草稿上的 46 个偏差又是用临时脚本跑的。
+- `prepare`（或 `validate`）可以把合同“时间分配”的合计与 `max_wall_seconds_per_attempt` 比一下，合计超过上限的 70% 就警告：这一轮的 31 分钟对 30 分钟上限，验证时就能看出来。（2.5.0 已做）
+- summary 可以标出 `tempfile.mkdtemp()` 之后没有 `rmtree`/`rm -rf` 的命令（现在只列出命中）。（2.5.0 已做）
+- `mutate --tree <路径>` 仍然是规划端最想要的：草稿上的 46 个偏差又是用临时脚本跑的。（2.5.0 已做）
 
 ## 2026-10-09：运维读事件（ledger-events）
 
@@ -442,7 +442,7 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - **断言"中断被吸收"的用例要自己拦住冒出来的中断**：变异体让 `KeyboardInterrupt` 逃出去时，pytest 整个会话被打断（退出码 2），kit 的 `mutate` 按规则不算抓住（"出错"）；用例要 `try/except KeyboardInterrupt: self.fail(...)`。规划端草稿用的变异脚本原来把任何非零退出码都算抓住，所以草稿阶段 32/32 掩盖了这一点——草稿工具的判定要与 kit 一致（只认退出码 1）。写入 review-pi 的 mutation-check 与 plan-task 的 test-design。
 - **句柄普查要先做一次失败热身**：CPython 本进程第一次失败的 `CreateProcess` 永久多 8 个句柄（独立复审 F1 实测），oracle 的普查用例只因为别的失败用例按字母序先跑才通过。Windows 上的句柄普查在取基准前先让一次裸 `Popen` 失败。
-- **kit 的 DoD 解析把一行里第一个"证据"当分隔词**：D05 的文本以"证据一半"开头，text 被解析成空串、`validate` 报"D05 缺少 text"。DoD 文本里不要出现"证据"二字（或者改进解析器只认"；证据："）。
+- **kit 的 DoD 解析把一行里第一个"证据"当分隔词**：D05 的文本以"证据一半"开头，text 被解析成空串、`validate` 报"D05 缺少 text"。DoD 文本里不要出现"证据"二字（或者改进解析器只认"；证据："）。（2.5.0 已做：以“；证据”分隔）
 
 ## 2026-10-11：Windows 原生监督的第 4 份——接线（win-wiring）
 

@@ -1,6 +1,6 @@
 # 设计说明：把 KitExperiment 的教训回流成 Code-Kit 2.5（回流）
 
-状态：用户 2026-10-12 决定第 5 节四项均选推荐项；规划端直接做 2.5.0。
+状态：用户 2026-10-12 决定第 5 节四项均选推荐项；2.5.0 已做完（2026-10-12）。
 前置：Code-Kit 2.4.2（`02aa096`）；KitExperiment 自 2.4.2 之后又跑了 13 轮（pi-native-events → task-done），教训只进了 `docs/KitExperiment实机反馈.md` 与几条技能文本，调度器一行未改。
 
 ## 1. 为什么做
@@ -66,3 +66,4 @@ F. **自测与版本**：每项 A–D 在 `tests/test_dispatch.py` 加检查（A
 ## 9. 进度与遗留
 
 - 2026-10-12：核对第 2 节；用户决定第 5 节四项均选推荐项。
+- 2026-10-12：A–F 全部做完，`TOOL_VERSION` 2.5.0，CHANGELOG 一节；`tests/test_dispatch.py` 新增 3 项场景 25 个检查。A 另用 KitExperiment task-done 的真实清单（29 条）对候选树验收，结果见 CHANGELOG 与提交说明。

@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2.5.0：把 KitExperiment 的教训回流（2026-10-12）
+
+设计说明 [docs/code-kit-2.5-回流.md](docs/code-kit-2.5-回流.md)。2.4.2 之后 KitExperiment 跑了 13 轮，反馈文档“待改进（调度工具）”里的条目没有一条实现过；这一版全部处理，并把“每轮必须回流”写成 review-pi 的必做步骤。
+
+- **`mutate --tree <路径>`**：对任意一棵树（规划端的草稿 worktree）原地做变异，不要求 attempt；判定与 attempt 模式是同一段代码（循环抽成 `_run_mutation_rounds`：只认退出码非 0 或超时，会话中断记为出错，只插入代码标出）。记录写到系统临时目录（结束时打印路径）或 `--out` 指定的空目录，不写进被变异的树；每条变异之后恢复原文件，结束时核对清单里的文件逐字节未变。`--check-anchors` 只核对每条 `old` 的出现次数，不运行命令、不写文件，有不符时退出码 1。attempt 模式的输出与记录不变。
+  - 起因：三轮反馈点名“规划端最想要的”；规划端的临时脚本曾把任何非零退出码都算抓住，掩盖了会话中断。
+- **`validate`**：Budget 的“时间分配”子项“约 N 分钟”合计超过 `max_wall_seconds_per_attempt` 的 70% 时警告（run-cli-once 的 31 分钟对 1800 秒在 validate 时就能看出）。DoD 行以“；证据”分隔，正文里的“证据”二字不再截断（win-supervise 的 D05 以“证据一半”开头被解析成空串）；没有“；证据”的老写法仍按第一个“证据”分，历史合同回放不变。
+- **summary**：三类新备注——掩盖退出码的写法（`| tail`、`| head`、`|| true` 等，开了 pipefail 或读了 PIPESTATUS 的不计）、创建了临时目录而同一条命令里没有清理（`mkdtemp(`、`mktemp`；上下文管理器的 `TemporaryDirectory()` 不算）、执行器自己宣布裁定的短语（“judgment call”“I'll note this as an interpretation”“我理解为”等，与“提到歧义”分开列：报告没有列出 contract_conflicts / unresolved_questions 时是“复审需要关注”，列出了就是备注）。events-summary.json 多四个键：`masked_exit_commands`、`temp_dirs_without_cleanup`、`interpretation_mention_count`、`interpretation_mentions`。都只作提示，不参与门禁判定。
+- **`doctor`**：不带 `--provider/--model` 时在 `notes` 写明未检查执行模型与凭据。
+- **技能**：plan-task 加“新方向先量钉住面”“码名、事件名先在草稿上跑一遍”“oracle 的 harness 照顾进程内与持久两种对象”“heredoc 会折叠反斜杠”；review-pi 的 mutation-check 把“草稿上先跑一遍”改成 `mutate --tree` 的用法并加锚点预检；review-pi SKILL 加第 11 步**回流**：没有 Code-Kit 的改动提交或“本轮无需改动”记录不算收尾。
+- 测试：`tests/test_dispatch.py` 新增 3 项场景（25 个检查）：`--tree` 的判定、恢复、记录位置、`--out`、`--check-anchors`、参数组合与基线失败；时间分配警告与 DoD 分隔；三类备注的识别、事件摘要与 summary.md、doctor 的提示。
+
 ## 2.4.2：提示只插入代码的变异（2026-10-07）
 
 - `mutate` 读入清单后，对 `new` 包含完整 `old` 的变异给出 WARN：原代码仍在，只插入了新代码；插入的代码不改变被测行为时，漏掉说明不了缺少测试。
