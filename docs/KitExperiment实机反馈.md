@@ -543,3 +543,26 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - **子集用例不要含被测维度**：M15（pi 作业背后被加上 `total_tokens`）漏掉，是因为 oracle 的"只列部分维度"用例恰好列了 `total_tokens`。写"只结算作业列出的"这类断言时，用 `assertEqual(set(usage), 精确集合)` 而不是只断言列出的那些存在。
 - **Write 工具会吃掉 `\u0000` 这类转义**：oracle 里的 NUL 变体写成 `"pi" + chr(0)`；写完先扫一遍文件有没有残留的反斜杠 u。
+
+## 2026-10-11：规划端直接做的一次真实运行——live-pi-run（候选 1b）
+
+环境同上，pi 升到 1.1.0。这一轮没有 Pi 合同：凭据与联网必须用户批准，又不能经过执行器，所以按"设计说明 → AskUserQuestion 三问（均选推荐项）→ 规划端执行一次 → 证据归约入库 → 回放测试"走完。
+
+### 记录
+
+| 步骤 | 结果 |
+| --- | --- |
+| 干跑（批准前） | `node.exe` + pi `cli.js --version` 经 `smctl run once`：`REVIEW_PENDING`，身份 `executable_sha256` 等于 node.exe 的摘要，流 `invalid`（意料之中） |
+| 真实运行（批准后，一次） | `--provider step --model step-5-preview --thinking off --no-tools -p "Reply with exactly: OK"`：15 帧全部认出，回答 `OK`，五个维度 536/3/0/0/539 结算进账本，`smctl ledger reference` 一致，`stderr.log` 0 字节 |
+| 入库 | `reduce.py` 归约成夹具 `windows-pi110-live-smctl-a001`（14 行，4965 字节），meta 多一个 `live_run` 块；`tests/test_live_pi_fixture.py` 两个用例回放；全量 955 passed |
+
+### 有效的做法
+
+- **先干跑再问批准**：`--version` 不碰凭据与网络，却把"真实程序在 Job Object 下启动、被记录、被归约"整条路径先证明了，批准后只剩 provider 调用这一个变量；设计说明第 2 节能写实测而不是推断。
+- **凭据只走程序自己的配置**：作业文件的 `environment` 只列九个普通变量，`allowed_secret_names` 为空，pi 自己读 `auth.json`；规划端从头到尾没有读、印、提交任何值。提交前对归约后的流和 meta 跑凭据形状的 grep（布尔结果），`stderr.log` 只看长度。
+- **把规划端的证据做成派发器格式**：手工写一个 attempt 目录（`events.jsonl` + 按 pi 自己的帧算的 `events-summary.json` + `meta.json` + `preflight.json`），现成的 `reduce.py` 与 `test_pi_events_captured.py` 就都能用，不用新工具。
+
+### 规划端的教训（本轮）
+
+- **AskUserQuestion 的三问要把"不做"也写成选项**：批准/暂不批准、模型/其它、入库/不入库——用户一次答完，执行阶段没有再问。
+- **归约后的流仍带本机路径前缀**（会话头与系统提示的 cwd，截到 48 字符）：与既有夹具同类，推送前照旧提醒用户。
