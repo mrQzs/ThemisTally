@@ -3486,6 +3486,18 @@
         "reason": "复审证据（缓存目录清理），不产生 problem"
       },
       {
+        "field": "interpretation_mention_count",
+        "reason": "执行器自宣裁定的短语（2.5.0），只进入 summary.md，不产生 problem"
+      },
+      {
+        "field": "interpretation_mentions",
+        "reason": "同 interpretation_mention_count"
+      },
+      {
+        "field": "masked_exit_commands",
+        "reason": "复审证据（掩盖退出码的写法，2.5.0），不产生 problem"
+      },
+      {
         "field": "outside_worktree_paths",
         "reason": "复审证据（工作副本外路径及其 exists），依赖 work_dir 与本机文件系统（机器定位），不产生 problem"
       },
@@ -3500,6 +3512,10 @@
       {
         "field": "suspicious_commands",
         "reason": "复审证据（可疑命令），不产生 problem"
+      },
+      {
+        "field": "temp_dirs_without_cleanup",
+        "reason": "复审证据（没有清理的临时目录，2.5.0），不产生 problem"
       },
       {
         "field": "temp_path_use_count",

@@ -1446,7 +1446,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1504,7 +1504,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1562,7 +1562,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1620,7 +1620,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1678,7 +1678,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1736,7 +1736,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1794,7 +1794,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1852,7 +1852,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1910,7 +1910,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -1968,7 +1968,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -2026,7 +2026,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -2084,7 +2084,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -2142,7 +2142,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -2200,7 +2200,7 @@
           "id": "expected-legacy-events",
           "kind": "fixture",
           "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-          "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+          "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
         },
         "outcome": "legacy-judgment"
       },
@@ -2339,7 +2339,7 @@
         "id": "expected-legacy-events",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-        "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+        "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
       },
       "schema_version": 1
     },
@@ -3009,7 +3009,7 @@
         "id": "synthetic-manifest-entry-legacy-stub-events-ok",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/synthetic/manifest-entry-legacy-stub-events-ok.json",
-        "sha256": "c67f2c2bdb69db9fa1fcf5023400d2ee18297261883e07305297d078ca6c491f"
+        "sha256": "9dc009d7dc850dc2706bb6a4815693360d00b72fa87385664bc6de8bc0038e0c"
       },
       "schema_version": 1
     },
@@ -9435,7 +9435,7 @@
         "id": "negative-protocol-fixture-manifest-entry-legacy-untraceable",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/negative/protocol/fixture-manifest-entry/legacy-untraceable.json",
-        "sha256": "5e38691ce30758b073be41e517b93475029ed34c1ca3cd168202354f2a63f3b5"
+        "sha256": "5f7d5bfa40c466ede8bc6a3feab72f0cc173e94055da2495176126744ab4a895"
       },
       "schema_version": 1
     },
@@ -9639,7 +9639,7 @@
         "id": "negative-protocol-fixture-manifest-claims-legacy-stub-claims-real-cli-compatibility",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/negative/protocol/fixture-manifest-claims/legacy-stub-claims-real-cli-compatibility.json",
-        "sha256": "1ae310c811c4b6884092f968a947b49e53d34a49714334278c8fcb0ce42dddf8"
+        "sha256": "f229b4d2d6c3f7b6dbf47220e349ee86495aee9a3616f2cab4060165d7c3e251"
       },
       "schema_version": 1
     },
@@ -9690,7 +9690,7 @@
         "id": "negative-protocol-fixture-manifest-claims-legacy-stub-claims-vendor-protocol",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/negative/protocol/fixture-manifest-claims/legacy-stub-claims-vendor-protocol.json",
-        "sha256": "0f876d9f65528cc3a9c6f543040412b8fa47aac42898414b733dc7478f677048"
+        "sha256": "e94f11195f9696fe5c315b7965234219d678514c95b9dd77c0a397d2543c3e44"
       },
       "schema_version": 1
     },
@@ -9741,7 +9741,7 @@
         "id": "negative-protocol-fixture-manifest-claims-legacy-stub-claims-unlisted-legacy-capability",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/negative/protocol/fixture-manifest-claims/legacy-stub-claims-unlisted-legacy-capability.json",
-        "sha256": "8a9f6d1619154416e957c67103b8714eba0bf1e49241b1ca4713088c2a248ff1"
+        "sha256": "c788ca6cf744c389aa71e84b1cdbcd56ee8d5c7510723ef2eac6d6663b674453"
       },
       "schema_version": 1
     },
@@ -9792,7 +9792,7 @@
         "id": "negative-protocol-fixture-manifest-claims-legacy-stub-claims-uppercase-real-cli-compatibility",
         "kind": "fixture",
         "path": "tests/fixtures/codekit01/negative/protocol/fixture-manifest-claims/legacy-stub-claims-uppercase-real-cli-compatibility.json",
-        "sha256": "37cedbac33452ad607ab534d859ca7575163a0a090aa5494168d4cc703166655"
+        "sha256": "098dc0bbb65c9ea9fb4b0e5cdedf97d12e8c53f180848935298ee74bfba28239"
       },
       "schema_version": 1
     },

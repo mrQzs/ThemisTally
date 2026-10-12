@@ -955,6 +955,11 @@ EVENT_SUMMARY_EXCLUDED = {
     "ambiguity_mention_count": "歧义提示，依赖 plan_text 调用参数，只进入 summary.md 与 G3 备注，不产生 problem",
     "ambiguity_domain_words": "同 ambiguity_mention_count",
     "ambiguity_mentions": "同 ambiguity_mention_count",
+    # 2.5.0 新增的复审提示：旧实现没有这些字段，只进入 summary.md 的备注与关注项，不产生 problem。
+    "interpretation_mention_count": "执行器自宣裁定的短语（2.5.0），只进入 summary.md，不产生 problem",
+    "interpretation_mentions": "同 interpretation_mention_count",
+    "masked_exit_commands": "复审证据（掩盖退出码的写法，2.5.0），不产生 problem",
+    "temp_dirs_without_cleanup": "复审证据（没有清理的临时目录，2.5.0），不产生 problem",
 }
 EVENT_PROJECTION_NOTES = {
     "call": "summarize_events(<fixture 路径>, <空临时目录>, REQUESTED_EXECUTOR, stderr_path=None, "
@@ -982,9 +987,11 @@ def project_event_stream(events_path: Path, work_dir: Path, expects_settled: Opt
                                                allowed_outside=(), plan_text="")
     keys = set(summary)
     expected_keys = set(EVENT_SUMMARY_INCLUDED) | set(EVENT_SUMMARY_EXCLUDED)
-    if keys != expected_keys:
+    # 投影之外的字段一律不允许；排除表里的字段可以缺席：旧实现（a4fa199）没有后来版本加的复审提示字段
+    # （2.5.0 起四个），它们不进投影，缺席不算差异。投影内的字段必须齐全。
+    if keys - expected_keys or set(EVENT_SUMMARY_INCLUDED) - keys:
         raise AssertionError("summarize_events 的字段与投影定义不符：多 %s，少 %s"
-                             % (sorted(keys - expected_keys), sorted(expected_keys - keys)))
+                             % (sorted(keys - expected_keys), sorted(set(EVENT_SUMMARY_INCLUDED) - keys)))
     return {key: summary[key] for key in EVENT_SUMMARY_INCLUDED}
 
 

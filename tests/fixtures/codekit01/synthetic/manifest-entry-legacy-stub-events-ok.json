@@ -14,7 +14,7 @@
       "id": "expected-legacy-events",
       "kind": "fixture",
       "path": "tests/fixtures/codekit01/expected/legacy-events.json",
-      "sha256": "6bfad73dd52b02f70fc01bd27eb06f6dd3954a25b8514e5b3a3fb57568023759"
+      "sha256": "30e251e152a55fd0629783baf86679b23118912de4a8c7b9eb33f05d974b2ee7"
     },
     "outcome": "legacy-judgment"
   },
