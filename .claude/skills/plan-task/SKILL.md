@@ -33,6 +33,7 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - 任务依赖主工作区未提交的改动时，请用户决定提交还是排除；不要 stash、reset 或 clean。
 - worktree 从基线提交创建：AGENTS.md、被测代码和测试辅助文件必须已在基线里。AGENTS.md 未提交时提醒用户。
 - 中高风险任务：在当前工作区运行相关的现有检查，记录基线结果；已知失败写明用例与错误指纹。
+- **新方向先量钉住面**：把设计里的规则在一棵草稿 worktree 上写成最小改动（往往一行），跑全量，记下哪些测试钉住了旧行为。这些测试随 oracle 提交一起改，合同的 Repository facts 据此写死。KitExperiment task-done：一行规则让 971 个测试里恰好 1 个失败，执行器零取舍、544 秒完成。
 
 ## 2. 分清事实、假设与未决问题
 
@@ -130,11 +131,14 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - **设计代价公式、阈值一类的算法参数时，用参差的真实形态数据模拟**：只用等长、等间隔的例子，容易恰好掩盖公式的缺陷。实机上 v1 的对齐代价在等长对子上表现正确，时长不等时却仍把 80–91% 的 cue 揉进大组。先在副本上做原型，用独立复审的对照程序验证，再写进合同。
 - **检查命令按 argv 直接执行，不经 shell**（调度工具的 `baseline`/`check` 都如此）：不能写 `$(…)`、`&&`、`test`、管道或重定向。“某些文件一字不改”写 `git diff --quiet <base_sha> -- <文件…>`（有差异时退出码 1，不需要输出匹配）；需要组合时写成一条 `python -c` 命令。实机：KitExperiment win-evidence 的 V08 第一版写成 `test -z "$(git diff …)" && echo OK`，baseline 直接失败。
 - 行号会随其他任务的集成漂移。Repository facts 引用代码时以函数、类等符号为主，行号只写“约 N 行”作辅助。
+- **Repository facts 里的每个码名、事件名与字段名先在草稿上跑一遍**：写断言前 grep `_emit(`、`raise` 找到真正的名字，再实跑确认。KitExperiment run-cli-recover 与 run-cli-pi 的草稿 oracle 第一遍都错在这里（`E_LEDGER_MISSING` 不是 `E_LEDGER_OPEN`，候选写在 `scheduler.recovered` 的 payload 里而不是 `run.finished_for_review`）。
+- **oracle 的 harness 要同时照顾进程内与持久两种对象**：同一套用例跑 `Scheduler` 与持久账本时，先查两者的差别——内存对象没有 `seq`（用 `getattr`）、持久账本把幂等重放也记成一条命令（“重放不改东西”要断言操作集合与事件，不是 `seq`）、恢复会把请求停掉（再领取前先 resume）。KitExperiment task-done 的草稿 oracle 三处都栽在这里。
 - **Repository facts 引用的上一轮合同、复审记录或设计说明（`.agent/` 下的文件）必须在基线里**。执行器的 worktree 按基线创建，读不到基线之后才提交的文件，也不得去主仓库读。
   - 侧分支基线常常不含这些文件，这时把需要的内容直接写进合同。
   - validate 会提示不在基线里的文件（调度工具 2.4.0 起）。
   - 实机：posix-identity-env v2 要求执行器读取 v1 合同与上一轮复审，两份都不在基线里。
 - 用编辑工具写合同时，`\u200e` 这类转义序列可能被写成实际的不可见字符（Claude Code 的 Write / Edit 实测如此）。探针里需要这类字符时用 `chr(0x200E)`；validate 会对不可见格式字符给出警告。
+  - Bash heredoc 里写含 `\\` 或 `\"` 的 Python 补丁脚本会被折叠（`\n` 变成真换行、`\"` 锚点对不上）：补丁脚本与 oracle 用 Write 工具写，或用 `chr(92)` 拼接，不要在 heredoc 里写反斜杠（KitExperiment review-verdict 两次改坏补丁脚本）。
 - 字段含义、授权词表、检查与 DoD 的写法见 [contract-guide.md](contract-guide.md)。
 - 执行模型默认用 Step 系列，`thinking: high`。provider 与 model 必须是本机 `pi --list-models step` 列出的精确 ID，并与 `.agent/environment.md` 一致。
 - 参考示例：

@@ -52,6 +52,7 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
   - 按 LF 书写即可。文件是 CRLF 时，工具先按 LF 比对，写回时再换回 CRLF。
   - `old` 必须恰好出现 `count` 次（缺省 1），全部替换。
   - 锚点选得太短，同一段文字会出现多次，这时要么写全上下文，要么写明 `count`。
+  - 先用 `mutate --tree <树> --spec <清单> --check-anchors` 核对每条锚点的出现次数（调度工具 2.5.0 起），再跑变异；候选的注释行也可以进锚点（KitExperiment review-verdict：4 条因锚点在两个方法里各出现一次而跳过）。
   - `new` 包含完整的 `old` 时，原代码仍在，变异只是插入了新代码。插入的代码不改变被测行为时，结果必然是漏掉，却说明不了缺少测试。调度工具 2.4.2 起会在开头给出 WARN，并在结果行标“只插入代码”。顺序类变异要把计算真的挪走：例如“回收之前计算事实”要删掉回收之后的那次计算，不能只在前面多算一次。
   - 这个提示只看文字包含：`x if c else y`、`a or b`、在原语句前插入一次写入，都包含完整的 `old` 却改变了行为（KitExperiment ledger-reference 的三个 WARN 都被抓住）。按日志判断，不按提示判断。
 - 用 Write 工具写清单时，`\u` 转义可能被写成实际字符（见 plan-task 第 4 节）。清单里需要这类字符时直接写字符本身。
@@ -91,7 +92,18 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
 
 ## 在草稿上先跑一遍
 
-`mutate` 只接受 attempt 目录。规划端在派遣前用草稿验证 oracle 时，可以用同一种清单（`command`、`file`、`old`、`new`、`count`）写一个小脚本：逐个替换、运行命令、恢复文件，退出码非 0 记 CAUGHT。清单在派遣后原样交给 `mutate` 复核候选（锚点换成候选的写法）。实机：KitExperiment pi-native-events 的草稿 32 个偏差全部抓住，漏掉的一个（空工具名）当场补进 oracle。
+规划端在派遣前用草稿验证 oracle 时，用同一种清单对草稿树跑 `mutate --tree`（调度工具 2.5.0 起；此前要另写临时脚本，KitExperiment 三轮反馈都点名要它）：
+
+```bash
+bash scripts/dispatch-pi.sh mutate --tree <草稿 worktree> --spec <清单.json> [--out <空目录>]
+bash scripts/dispatch-pi.sh mutate --tree <草稿 worktree> --spec <清单.json> --check-anchors
+```
+
+- 判定与 attempt 模式是同一段代码：只有退出码非 0 或超时算抓住，会话中断记为出错，只插入代码的变异标出。规划端此前的临时脚本把任何非零退出码都算抓住，掩盖过一次会话中断（KitExperiment win-supervise）。
+- 记录写到系统临时目录（结束时打印路径）或 `--out` 指定的空目录，不写进被变异的树；每条变异之后恢复原文件，结束时核对清单里的文件逐字节未变。
+- `--check-anchors` 只核对每条 `old` 的出现次数，不运行命令、不写文件：候选固定后按候选措辞重锚时先跑它，`MISMATCH` 的锚点改好再跑变异。
+- 清单在派遣后原样交给 `mutate <run-dir>` 复核候选（锚点换成候选的写法）。
+- 漏掉的变异先问数据能不能区分（字母序的种子分不出“排序”与“种子顺序”、单个请求分不出“忽略请求”），再判等价（KitExperiment task-done 两条草稿变异就是这样补的）。实机：pi-native-events 的草稿 32 个偏差全部抓住，漏掉的一个（空工具名）当场补进 oracle。
 
 ## 实机经验（KitExperiment）
 - posix-supervisor a002：

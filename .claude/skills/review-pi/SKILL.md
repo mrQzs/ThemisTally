@@ -103,5 +103,6 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - 不再需要 worktree 时：`bash scripts/dispatch-pi.sh cleanup <run-dir>`。证据保留在 `.agent/runs/`。
      worktree 里有候选之外的改动时，cleanup 会列出（`LOSS …`）并拒绝执行。先保存需要的内容，确认放弃后才加 `--force`。
 10. **回复用户**：结论、每个 DoD 的证据（检查 ID 与结果）、越界与残余风险、已做和待做的集成动作。
+11. **回流**（每轮必做，用本 kit 做实验的仓库尤其如此）：把本轮的教训落成 Code-Kit 的改动——调度器（`scripts/pi_dispatch.py` 及其测试 `tests/test_dispatch.py`）、技能文本或模板——并提交；确实没有可改的，在反馈文档（`docs/<仓库>实机反馈.md`）本轮小节写“本轮无需改动”及理由。只在反馈文档里记一句“待改进”不算收尾：KitExperiment 自 2.4.2 起 13 轮的“待改进（调度工具）”没有一条被实现，`mutate --tree` 被点名三次才在 2.5.0 做出来。
 
 指标汇总：`bash scripts/dispatch-pi.sh metrics`（方案第 13 节口径）。
