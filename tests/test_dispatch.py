@@ -2185,6 +2185,323 @@ def test_v242_mutate_warns_about_insertion_only_mutations():
           and [r["insertion_only"] for r in record["results"]] == [True, True, False], out)
 
 
+def test_v250_mutate_tree():
+    """2.5.0：mutate --tree 对任意一棵树原地做变异（判定与 attempt 模式相同），记录不写进树；--check-anchors 只核对锚点。"""
+    repo, base = make_repo("v250tree")
+    # 一棵带未提交草稿的树：实现与测试都只在工作区里。
+    (repo / "src/normalize.py").write_text("def normalize(q):\n    return ' '.join(q.split()).lower()\n", encoding="utf-8")
+    (repo / "tests/test_normalize.py").write_text(
+        "import unittest\nfrom normalize import normalize\n\n\nclass T(unittest.TestCase):\n"
+        "    def test_spaces(self):\n        self.assertEqual(normalize('  A  B '), 'a b')\n", encoding="utf-8")
+    spec = {"command": [PY, "run_tests.py"], "timeout_seconds": 120,
+            "mutations": [{"name": "不转小写", "file": "src/normalize.py", "old": ".lower()", "new": ""},
+                          {"name": "等价改写", "file": "src/normalize.py", "old": "q.split()", "new": "q.split(None)"},
+                          {"name": "锚点不存在", "file": "src/normalize.py", "old": "strip()", "new": "x"},
+                          {"name": "次数不符", "file": "src/normalize.py", "old": ".lower()", "new": ".upper()", "count": 2},
+                          {"name": "多算一次", "file": "src/normalize.py", "old": ".lower()", "new": ".lower().lower()"}]}
+    spec_path = WORK / "v250-spec.json"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    before = (repo / "src/normalize.py").read_bytes()
+    status_before = git(repo, "status", "--porcelain")
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(spec_path))
+    record_line = [line for line in out.splitlines() if line.startswith("变异 ")]
+    record_path = Path(record_line[0].split(" · ", 1)[1]) if record_line else None
+    record = jload(record_path) if record_path and record_path.is_file() else {}
+    statuses = [r["status"] for r in record.get("results", [])]
+    lines = [line for line in out.splitlines() if line.startswith(("CAUGHT", "MISSED", "SKIPPED", "WARN  M"))]
+    check("mutate --tree judges like the attempt mode and names its logs without the mutations/ prefix",
+          code == 0 and statuses == ["caught", "missed", "skipped", "skipped", "missed"]
+          and record["counts"] == {"caught": 1, "missed": 2, "skipped": 2, "error": 0}
+          and lines[0].startswith("WARN  M05 多算一次")
+          and lines[1] == "CAUGHT  M01 不转小写  退出码 1 ≠ 期望 0  日志 M01.log"
+          and lines[2] == "MISSED  M02 等价改写  日志 M02.log"
+          and lines[5] == "MISSED  M05 多算一次  只插入代码  日志 M05.log", (out, statuses))
+    check("mutate --tree restores the tree and writes nothing into it",
+          (repo / "src/normalize.py").read_bytes() == before and git(repo, "status", "--porcelain") == status_before
+          and record.get("files_left_modified") == [] and record.get("tree") == str(repo.resolve())
+          and record_path is not None and not str(record_path).startswith(str(repo)), (record_path, out))
+    check("mutate --tree keeps the baseline log and the spec next to the record",
+          record_path is not None and (record_path.parent / "baseline.log").is_file()
+          and (record_path.parent / "spec.json").is_file() and (record_path.parent / "M01.log").is_file())
+    out_dir = WORK / "v250-out"
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(spec_path), "--out", str(out_dir))
+    check("--out takes an empty directory", code == 0 and (out_dir / "mutations.json").is_file()
+          and str((out_dir / "mutations.json").resolve()) in out, out)
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(spec_path), "--out", str(out_dir))
+    check("--out refuses a directory that has content", code == pd.EXIT_USAGE and "已有内容" in out, out)
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(spec_path), "--out", str(repo / "out"))
+    check("--out refuses a directory inside the tree", code == pd.EXIT_USAGE and "不能在被变异的树里面" in out
+          and not (repo / "out").exists(), out)
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(spec_path), "--check-anchors")
+    anchor_lines = [line for line in out.splitlines() if line.startswith(("OK", "MISMATCH", "MISSING"))]
+    check("--check-anchors only counts the anchors, runs nothing and writes nothing",
+          code == pd.EXIT_FAIL and anchor_lines == ["OK       M01 不转小写  出现 1 次",
+                                                    "OK       M02 等价改写  出现 1 次",
+                                                    "MISMATCH M03 锚点不存在  出现 0 次，期望 1 次",
+                                                    "MISMATCH M04 次数不符  出现 1 次，期望 2 次",
+                                                    "OK       M05 多算一次  出现 1 次"]
+          and "锚点核对：5 条，2 条不符" in out and "MUTATE baseline" not in out
+          and git(repo, "status", "--porcelain") == status_before, out)
+    good = dict(spec, mutations=spec["mutations"][:2])
+    good_path = WORK / "v250-good.json"
+    good_path.write_text(json.dumps(good, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(good_path), "--check-anchors")
+    check("--check-anchors exits 0 when every anchor is unique", code == 0 and "2 条，0 条不符" in out, out)
+    code, out = tool(repo, "mutate", "--spec", str(spec_path))
+    check("mutate without run_dir and without --tree is a usage error", code == pd.EXIT_USAGE and "--tree" in out, out)
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--tree", str(repo), "--spec", str(spec_path))
+    check("run_dir and --tree together are refused", code == pd.EXIT_USAGE and "二选一" in out, out)
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path), "--check-anchors")
+    check("--check-anchors needs --tree", code == pd.EXIT_USAGE and "--tree 模式" in out, out)
+    failing = dict(spec, command=[PY, "-c", "import sys; sys.exit(3)"])
+    failing_path = WORK / "v250-failing.json"
+    failing_path.write_text(json.dumps(failing, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "--tree", str(repo), "--spec", str(failing_path))
+    check("mutate --tree refuses when the command fails without mutations",
+          code != 0 and "没有通过" in out and "这棵树" in out and (repo / "src/normalize.py").read_bytes() == before, out)
+
+
+def test_v250_summary_notes_and_doctor_note():
+    """2.5.0：summary 备注掩盖退出码的管道、没有清理的临时目录、执行器自宣的解读；doctor 不带模型参数时说明未检查。"""
+    cases = {
+        "python -m pytest -q | tail -n 5": True,
+        "python -m pytest -q 2>&1 | head -20": True,
+        "python run_tests.py || true": True,
+        "set -o pipefail; python -m pytest -q | tail -n 5": False,
+        "python -m pytest -q | tail -n 5; echo ${PIPESTATUS[0]}": False,
+        'T=$(mktemp -d); python run_tests.py > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"': False,
+        "ls | wc -l": True,
+        "git status --short": False,
+    }
+    wrong = {cmd: pd._masked_exit_mention(cmd) for cmd, expected in cases.items()
+             if bool(pd._masked_exit_mention(cmd)) != expected}
+    check("masked exit codes are recognised, pipefail and PIPESTATUS are not", not wrong, wrong)
+    leak_cases = {
+        "T=$(mktemp -d); python x.py > $T/out; cat $T/out": True,
+        'T=$(mktemp -d); python x.py > "$T/out"; rm -rf "$T"': False,
+        "python -c \"import tempfile; d = tempfile.mkdtemp(); print(d)\"": True,
+        "python -c \"import tempfile, shutil; d = tempfile.mkdtemp(); shutil.rmtree(d)\"": False,
+        "python -c \"import tempfile; from pathlib import Path\nwith tempfile.TemporaryDirectory() as d: print(d)\"": False,
+        "python -m pytest -q": False,
+    }
+    wrong = {cmd: pd._temp_dir_without_cleanup(cmd) for cmd, expected in leak_cases.items()
+             if bool(pd._temp_dir_without_cleanup(cmd)) != expected}
+    check("temp dirs without a cleanup in the same command are recognised", not wrong, wrong)
+    msg = lambda text, kind="thinking": {"content": [{"type": kind, kind: text}]}  # noqa: E731
+    phrase_cases = [("This is a judgment call; I'll go with the stricter reading.", 1),
+                    ("I'll note this as an interpretation and move on.", 1),
+                    ("The contract is explicit here, no interpretation needed.", 0),
+                    ("我理解为两个键都要保留，按这个实现。", 1),
+                    ("按合同第 3 条实现。", 0)]
+    wrong = [(text, len(pd.interpretation_mentions(msg(text), 7)))
+             for text, expected in phrase_cases if len(pd.interpretation_mentions(msg(text), 7)) != expected]
+    check("self-declared interpretations are recognised in text and thinking", not wrong, wrong)
+
+    repo, base = make_repo("v250summary")
+    run_ok(repo)
+    events_path = WORK / "v250-events.jsonl"
+    worktree = worktree_of(repo)
+    events = [
+        {"type": "session", "version": 3, "id": "s", "timestamp": "t", "cwd": str(worktree)},
+        {"type": "agent_start"},
+        {"type": "tool_execution_start", "toolCallId": "b1", "toolName": "bash",
+         "args": {"command": "python run_tests.py 2>&1 | tail -n 3"}},
+        {"type": "tool_execution_end", "toolCallId": "b1", "toolName": "bash", "result": {}, "isError": False},
+        {"type": "tool_execution_start", "toolCallId": "b2", "toolName": "bash",
+         "args": {"command": "T=$(mktemp -d); python run_tests.py > $T/out; cat $T/out"}},
+        {"type": "tool_execution_end", "toolCallId": "b2", "toolName": "bash", "result": {}, "isError": False},
+        {"type": "message_end", "message": {"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "The spec says one thing and the tests another. I'll note this as an "
+                                             "interpretation: keep both keys."},
+            {"type": "text", "text": "Done."}], "provider": "step", "model": "step-5-preview",
+            "stopReason": "stop", "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0,
+                                            "totalTokens": 2, "cost": {"total": 0.0}}}},
+        {"type": "agent_end", "messages": [], "willRetry": False},
+        {"type": "agent_settled"},
+    ]
+    events_path.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    summary, _final = pd.summarize_events(events_path, worktree, {"provider": "step", "model": "step-5-preview",
+                                                                    "thinking": "high"})
+    check("the event summary records the three new observations",
+          [m["event_line"] for m in summary["masked_exit_commands"]] == [3]
+          and "| tail" in summary["masked_exit_commands"][0]["match"]
+          and [m["event_line"] for m in summary["temp_dirs_without_cleanup"]] == [5]
+          and summary["interpretation_mention_count"] == 1
+          and summary["interpretation_mentions"][0]["line"] == 7
+          and summary["interpretation_mentions"][0]["kind"] == "thinking", summary)
+    # 写进 attempt 的 events-summary.json，再生成 summary.md：报告没有列出解读时是“复审需要关注”，管道与临时目录是备注。
+    ev_path = rd(repo) / "events-summary.json"
+    ev = jload(ev_path)
+    ev.update({k: summary[k] for k in ("masked_exit_commands", "temp_dirs_without_cleanup",
+                                       "interpretation_mention_count", "interpretation_mentions")})
+    ev_path.write_text(json.dumps(ev, ensure_ascii=False), encoding="utf-8")
+    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
+    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    attention = text.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in text else ""
+    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
+    check("summary lists the masked pipe and the temp dir as notes and the unreported interpretation as attention",
+          "掩盖退出码的写法（1 条命令，例如事件流第 3 行" in notes
+          and "创建了临时目录、同一条命令里没有清理（1 条，例如事件流第 5 行" in notes
+          and "执行器自行宣布了 1 处解读" in attention and "都为空" in attention, text)
+    status_path = rd(repo) / "report-status.json"
+    status = jload(status_path)
+    status["unresolved_questions"] = 1
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
+    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
+    check("a reported question turns the interpretation line into a note",
+          "执行器自行宣布了 1 处解读" in notes and "核对它们都在报告" in notes, text)
+
+    code, out = tool(repo, "doctor")
+    data = json.loads(out)
+    check("doctor without --provider/--model says the executor was not checked",
+          any("未检查执行模型与凭据" in note for note in data["notes"]) and "executor_model_listed" not in data, data)
+    code, out = tool(repo, "doctor", "--provider", "step", "--model", "step-5-preview")
+    data = json.loads(out)
+    check("doctor with the model arguments does not add the note",
+          not any("未检查执行模型" in note for note in data["notes"]) and "executor_model_listed" in data, data)
+
+
+def test_v250_validate_time_allocation_and_dod_separator():
+    """2.5.0：validate 把时间分配合计与单轮上限比（超过 70% 警告）；DoD 以“；证据”分隔，正文里的“证据”不再截断。"""
+    repo, base = make_repo("v250validate")
+    over = {"budget": {"max_attempts_total": 3, "max_wall_seconds_per_attempt": 600,
+                       "max_wall_seconds_total": 1800, "cost_budget": None}}
+
+    def budget_md(version, minutes):
+        md = build_md(contract(base, version, **over))
+        extra = ["- 时间分配（上限 10 分钟，按 7 分钟规划）：", "  - 阅读约 %d 分钟；" % minutes[0],
+                 "  - 实现约 %d 分钟（两个文件）；" % minutes[1], "  - 测试约 %d 分钟；" % minutes[2],
+                 "  - 运行检查约 30 秒。", ""]
+        return md.replace("\n## Report back", "\n" + "\n".join(extra) + "## Report back")
+
+    write_plan(repo, base, 2, md=budget_md(2, (3, 4, 2)), **over)
+    code, out = tool(repo, "validate", "normalize-query.v2")
+    check("an allocation above 70% of the per-attempt limit is a warning, not an error",
+          code == 0 and "合同有效" in out and "时间分配合计 9 分钟，是单轮上限 600 秒的 90%" in out, out)
+    write_plan(repo, base, 3, md=budget_md(3, (2, 2, 2)), **over)
+    code, out = tool(repo, "validate", "normalize-query.v3")
+    check("an allocation within 70% is silent", code == 0 and "时间分配合计" not in out, out)
+    write_plan(repo, base, 4, **over)
+    code, out = tool(repo, "validate", "normalize-query.v4")
+    check("a budget without an allocation is silent", code == 0 and "时间分配合计" not in out, out)
+
+    dod_md = build_md(contract(base, 5)).replace(
+        "- D01: 行为正确；证据：V01。", "- D01: 证据一半来自规划端的 oracle，另一半来自执行器；证据：V01。")
+    derived, problems = pd.derive_contract_json(dod_md, "分隔符")
+    d01 = derived["definition_of_done"][0]
+    check("a DoD text that starts with 证据 keeps its text and its evidence",
+          d01["text"] == "证据一半来自规划端的 oracle，另一半来自执行器" and d01["evidence"] == ["V01"], (problems, d01))
+    legacy_md = build_md(contract(base, 6)).replace("- D01: 行为正确；证据：V01。", "- D01: 行为正确，证据 V01。")
+    derived, problems = pd.derive_contract_json(legacy_md, "旧写法")
+    d01 = derived["definition_of_done"][0]
+    check("a DoD line without ；证据 still splits on the first 证据",
+          d01["text"] == "行为正确" and d01["evidence"] == ["V01"], (problems, d01))
+
+
+def test_v250_summary_notes_and_doctor_note():
+    """2.5.0：summary 备注掩盖退出码的管道、没有清理的临时目录、执行器自宣的解读；doctor 不带模型参数时说明未检查。"""
+    cases = {
+        "python -m pytest -q | tail -n 5": True,
+        "python -m pytest -q 2>&1 | head -20": True,
+        "python run_tests.py || true": True,
+        "set -o pipefail; python -m pytest -q | tail -n 5": False,
+        "python -m pytest -q | tail -n 5; echo ${PIPESTATUS[0]}": False,
+        'T=$(mktemp -d); python run_tests.py > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"': False,
+        "ls | wc -l": True,
+        "git status --short": False,
+    }
+    wrong = {cmd: pd._masked_exit_mention(cmd) for cmd, expected in cases.items()
+             if bool(pd._masked_exit_mention(cmd)) != expected}
+    check("masked exit codes are recognised, pipefail and PIPESTATUS are not", not wrong, wrong)
+    leak_cases = {
+        "T=$(mktemp -d); python x.py > $T/out; cat $T/out": True,
+        'T=$(mktemp -d); python x.py > "$T/out"; rm -rf "$T"': False,
+        "python -c \"import tempfile; d = tempfile.mkdtemp(); print(d)\"": True,
+        "python -c \"import tempfile, shutil; d = tempfile.mkdtemp(); shutil.rmtree(d)\"": False,
+        "python -c \"import tempfile; from pathlib import Path\nwith tempfile.TemporaryDirectory() as d: print(d)\"": False,
+        "python -m pytest -q": False,
+    }
+    wrong = {cmd: pd._temp_dir_without_cleanup(cmd) for cmd, expected in leak_cases.items()
+             if bool(pd._temp_dir_without_cleanup(cmd)) != expected}
+    check("temp dirs without a cleanup in the same command are recognised", not wrong, wrong)
+    msg = lambda text, kind="thinking": {"content": [{"type": kind, kind: text}]}  # noqa: E731
+    phrase_cases = [("This is a judgment call; I'll go with the stricter reading.", 1),
+                    ("I'll note this as an interpretation and move on.", 1),
+                    ("The contract is explicit here, no interpretation needed.", 0),
+                    ("我理解为两个键都要保留，按这个实现。", 1),
+                    ("按合同第 3 条实现。", 0)]
+    wrong = [(text, len(pd.interpretation_mentions(msg(text), 7)))
+             for text, expected in phrase_cases if len(pd.interpretation_mentions(msg(text), 7)) != expected]
+    check("self-declared interpretations are recognised in text and thinking", not wrong, wrong)
+
+    repo, base = make_repo("v250summary")
+    run_ok(repo)
+    events_path = WORK / "v250-events.jsonl"
+    worktree = worktree_of(repo)
+    events = [
+        {"type": "session", "version": 3, "id": "s", "timestamp": "t", "cwd": str(worktree)},
+        {"type": "agent_start"},
+        {"type": "tool_execution_start", "toolCallId": "b1", "toolName": "bash",
+         "args": {"command": "python run_tests.py 2>&1 | tail -n 3"}},
+        {"type": "tool_execution_end", "toolCallId": "b1", "toolName": "bash", "result": {}, "isError": False},
+        {"type": "tool_execution_start", "toolCallId": "b2", "toolName": "bash",
+         "args": {"command": "T=$(mktemp -d); python run_tests.py > $T/out; cat $T/out"}},
+        {"type": "tool_execution_end", "toolCallId": "b2", "toolName": "bash", "result": {}, "isError": False},
+        {"type": "message_end", "message": {"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "The spec says one thing and the tests another. I'll note this as an "
+                                             "interpretation: keep both keys."},
+            {"type": "text", "text": "Done."}], "provider": "step", "model": "step-5-preview",
+            "stopReason": "stop", "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0,
+                                            "totalTokens": 2, "cost": {"total": 0.0}}}},
+        {"type": "agent_end", "messages": [], "willRetry": False},
+        {"type": "agent_settled"},
+    ]
+    events_path.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    summary, _final = pd.summarize_events(events_path, worktree, {"provider": "step", "model": "step-5-preview",
+                                                                    "thinking": "high"})
+    check("the event summary records the three new observations",
+          [m["event_line"] for m in summary["masked_exit_commands"]] == [3]
+          and "| tail" in summary["masked_exit_commands"][0]["match"]
+          and [m["event_line"] for m in summary["temp_dirs_without_cleanup"]] == [5]
+          and summary["interpretation_mention_count"] == 1
+          and summary["interpretation_mentions"][0]["line"] == 7
+          and summary["interpretation_mentions"][0]["kind"] == "thinking", summary)
+    # 写进 attempt 的 events-summary.json，再生成 summary.md：报告没有列出解读时是“复审需要关注”，管道与临时目录是备注。
+    ev_path = rd(repo) / "events-summary.json"
+    ev = jload(ev_path)
+    ev.update({k: summary[k] for k in ("masked_exit_commands", "temp_dirs_without_cleanup",
+                                       "interpretation_mention_count", "interpretation_mentions")})
+    ev_path.write_text(json.dumps(ev, ensure_ascii=False), encoding="utf-8")
+    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
+    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    attention = text.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in text else ""
+    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
+    check("summary lists the masked pipe and the temp dir as notes and the unreported interpretation as attention",
+          "掩盖退出码的写法（1 条命令，例如事件流第 3 行" in notes
+          and "创建了临时目录、同一条命令里没有清理（1 条，例如事件流第 5 行" in notes
+          and "执行器自行宣布了 1 处解读" in attention and "都为空" in attention, text)
+    status_path = rd(repo) / "report-status.json"
+    status = jload(status_path)
+    status["unresolved_questions"] = 1
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
+    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
+    check("a reported question turns the interpretation line into a note",
+          "执行器自行宣布了 1 处解读" in notes and "核对它们都在报告" in notes, text)
+
+    code, out = tool(repo, "doctor")
+    data = json.loads(out)
+    check("doctor without --provider/--model says the executor was not checked",
+          any("未检查执行模型与凭据" in note for note in data["notes"]) and "executor_model_listed" not in data, data)
+    code, out = tool(repo, "doctor", "--provider", "step", "--model", "step-5-preview")
+    data = json.loads(out)
+    check("doctor with the model arguments does not add the note",
+          not any("未检查执行模型" in note for note in data["notes"]) and "executor_model_listed" in data, data)
+
+
 if __name__ == "__main__":
     argv = sys.argv[1:]
     keep = "--keep" in argv

@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.4.2"
+TOOL_VERSION = "2.5.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -362,6 +362,69 @@ STDERR_WARNING_PATTERNS = (
 # 执行器在推理或回复中提到“合同有歧义或矛盾”的说法。只用来提示验收端核对执行器是否自行选定了某种解释，
 # 不参与门禁判定。前面紧跟否定词（no / not / un- / 没有 / 无 / 不 …）的不算。
 AMBIGUITY_RE = re.compile(r"ambigu|contradict|inconsisten|矛盾|歧义|含义不明|前后不一致|说法不一", re.I)
+# 执行器自己宣布裁定的短语（2.5.0）：与“提到歧义”分开列，因为这些句子已经不是在检查，而是在替合同做决定。
+# 只作提示，不参与门禁判定；KitExperiment pi-native-events 实机：执行器写“I'll note this as an interpretation”
+# 之后按自己的解释实现，报告的 unresolved_questions 却是空的。
+INTERPRETATION_RE = re.compile(
+    r"judge?ment call"
+    r"|(?:I(?:'ll| will| am going to)?|we(?:'ll| will)?)\s+(?:note|record|treat|take|log|flag)\s+(?:this|it|that)\s+as\s+"
+    r"(?:an?\s+|my\s+|our\s+)?interpretation"
+    r"|\b(?:I|we)(?:'ll| will)?\s+interpret\b|\bmy interpretation\b|\binterpreting (?:this|the contract|the spec)\b"
+    r"|\b(?:I|we)(?:'ll| will)\s+(?:go with|assume)\b"
+    r"|我(?:就|暂)?理解为|按我的理解|我的理解是|我把[^，。；\n]{0,20}(?:理解|解读)(?:成|为)|自行裁定|(?:就|暂)按[^，。；\n]{0,16}(?:解读|处理|实现)",
+    re.I)
+# 掩盖退出码的写法（2.5.0）：管道之后 shell 的退出码是最后一个命令的，`|| true` 直接抹掉；开了 pipefail 或读了
+# PIPESTATUS 的命令不计。只作备注：执行说明已经写明合规的截短写法，这里提示验收端核对报告里的退出码来自谁。
+MASKED_EXIT_RE = re.compile(
+    r"\|\s*(?:tail|head|grep|egrep|sed|awk|cut|sort|uniq|wc|cat|less|more|tee)\b"
+    r"|\|\|\s*(?:true|:)(?=\s|$)|;\s*(?:true|exit\s+0)\s*$", re.M)
+_PIPEFAIL_RE = re.compile(r"pipefail|PIPESTATUS")
+# 创建了临时目录、同一条命令里却没有清理（2.5.0）：`TemporaryDirectory()` 作上下文管理器会自己清理，不算创建。
+_TEMP_DIR_CREATE_RE = re.compile(r"\bmkdtemp\s*\(|\bmktemp\b|New-TemporaryFile|GetTempFileName\s*\(", re.I)
+_TEMP_DIR_CLEANUP_RE = re.compile(
+    r"\brmtree\b|\brm\s+-[A-Za-z]*[rRf]|\bRemove-Item\b|\baddCleanup\b|\bcleanup\s*\(|\bunlink\b|\bos\.remove\b"
+    r"|\brmdir\b|\bDelete\s*\(", re.I)
+
+
+def _masked_exit_mention(command: str) -> str:
+    """命令里第一处掩盖退出码的写法的摘录；没有，或命令自己处理了管道退出码时为空（2.5.0）。"""
+    if _PIPEFAIL_RE.search(command):
+        return ""
+    found = MASKED_EXIT_RE.search(command)
+    return _match_excerpt(command, found.start(), found.end()) if found else ""
+
+
+def _temp_dir_without_cleanup(command: str) -> str:
+    """命令创建了临时目录却没有在同一条命令里清理时，创建处的摘录；否则为空（2.5.0）。"""
+    found = _TEMP_DIR_CREATE_RE.search(command)
+    if not found or _TEMP_DIR_CLEANUP_RE.search(command):
+        return ""
+    return _match_excerpt(command, found.start(), found.end())
+
+
+def interpretation_mentions(message: Dict[str, Any], line_no: int) -> List[Dict[str, Any]]:
+    """一条 assistant 消息的正文与推理里，执行器自己宣布裁定的短语（2.5.0）。同一段落里相邻的只记一次。"""
+    found: List[Dict[str, Any]] = []
+    content = message.get("content")
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+    if not isinstance(blocks, list):
+        return found
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        body = block.get("text") if kind == "text" else block.get("thinking") if kind == "thinking" else None
+        if not isinstance(body, str):
+            continue
+        covered = -1
+        for match in INTERPRETATION_RE.finditer(body):
+            if match.start() < covered:
+                continue
+            start, end = max(0, match.start() - 100), min(len(body), match.end() + 140)
+            covered = end
+            found.append({"line": line_no, "kind": kind, "keyword": match.group(0),
+                          "excerpt": " ".join(body[start:end].split())[:260]})
+    return found
 # 否定必须紧挨关键词，中间只允许固定的填充词（any、real、seem、任何、发现……）：“no fix for this inconsistency”
 # “不可调和的矛盾”否定的不是矛盾本身，仍然计入；merely、仅等词不在填充词里，所以“not merely / 不仅”这类递进
 # 也不算否定。
@@ -1330,6 +1393,25 @@ def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _md_time_allocation_minutes(md: str) -> Optional[int]:
+    """Budget 段“时间分配”条目下各子项“约 N 分钟”的合计；没有这样的条目时为 None（2.5.0）。"""
+    section = _md_section(md, "Budget") or ""
+    lines = section.splitlines()
+    start = next((i for i, line in enumerate(lines) if "时间分配" in line), None)
+    if start is None:
+        return None
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    total = 0
+    for line in lines[start + 1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped[0] in "-*" and len(line) - len(line.lstrip()) <= indent:
+            break
+        total += sum(int(n) for n in re.findall(r"约\s*(\d+)\s*分钟", line))
+    return total or None
+
+
 def _md_budget(md: str) -> Dict[str, str]:
     section = _md_section(md, "Budget") or ""
     found: Dict[str, str] = {}
@@ -1491,7 +1573,14 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
         match = re.match(r"^\s*[-*]\s*(D\d{2,})\s*[:：]\s*(.+?)\s*$", line)
         if not match:
             continue
-        text, _sep, evidence_text = match.group(2).partition("证据")
+        body = match.group(2)
+        # 以“；证据”为分隔：正文里的“证据”二字不再截断（2.5.0；KitExperiment win-supervise 的 D05 以
+        # “证据一半”开头，text 被解析成空串）。没有“；证据”时沿用第一个“证据”，老合同的解析不变。
+        separator = re.search(r"[；;]\s*证据", body)
+        if separator:
+            text, evidence_text = body[:separator.start()], body[separator.end():]
+        else:
+            text, _sep, evidence_text = body.partition("证据")
         evidence = []
         for ref in re.findall(r"(?<![A-Za-z0-9])([A-Z]\d{2,}|scope|review)(?![A-Za-z0-9])", evidence_text):
             if ref not in evidence:
@@ -1760,6 +1849,13 @@ def _validate_contract(md_text: str, raw: Any, plan_key: str,
                        ("max_wall_seconds_total", total)):
         if md_budget.get(key) != str(value):
             errors.append("Markdown Budget 的 %s（%s）与 JSON（%s）不一致" % (key, md_budget.get(key), value))
+    # 时间分配合计超过单轮上限的 70% 时警告（2.5.0）：KitExperiment run-cli-once 的合同按 31 分钟分配、上限
+    # 1800 秒，执行器写完清单里的用例就超时；在 validate 时就能看出来。
+    allocation = _md_time_allocation_minutes(md_text)
+    if per_attempt and allocation is not None and allocation * 60 > per_attempt * 0.7:
+        warnings.append("Budget 的时间分配合计 %d 分钟，是单轮上限 %d 秒的 %d%%：超过 70%% 时执行器没有余量写报告；"
+                        "压缩清单或提高 max_wall_seconds_per_attempt"
+                        % (allocation, per_attempt, allocation * 60 * 100 // per_attempt))
     validation = _md_section(md_text, "Validation commands") or ""
     for check in checks:
         lines = [line for line in validation.splitlines() if re.search(r"\b%s\b" % re.escape(check["id"]), line)]
@@ -2522,6 +2618,9 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
     commands: List[str] = []
     suspicious: List[Dict[str, Any]] = []
     temp_paths: List[Dict[str, Any]] = []
+    masked_exits: List[Dict[str, Any]] = []
+    temp_leaks: List[Dict[str, Any]] = []
+    interpretations: List[Dict[str, Any]] = []
     cache_cleanups: List[Dict[str, Any]] = []
     outside_paths: List[Dict[str, Any]] = []
     outside_by_call: Dict[str, List[Dict[str, Any]]] = {}
@@ -2562,6 +2661,9 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                 for item in ambiguity_mentions(message, number, domain_words):
                     item["message"] = len(assistant)
                     mentions.append(item)
+                for item in interpretation_mentions(message, number):
+                    item["message"] = len(assistant)
+                    interpretations.append(item)
                 assistant.append(message)
                 _add_usage(totals, message.get("usage"))
             elif role == "toolResult":
@@ -2583,6 +2685,12 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
             if name in ("bash", "powershell"):
                 command = str(args.get("command", ""))
                 commands.append(command[:500])
+                masked = _masked_exit_mention(command)
+                if masked:
+                    masked_exits.append({"event_line": number, "match": masked})
+                leak = _temp_dir_without_cleanup(command)
+                if leak:
+                    temp_leaks.append({"event_line": number, "match": leak})
                 scan = _mask_paths(command, own_path_forms)
                 # 主仓库里的路径判 G2 不通过（2.3.0）；其他工作副本外的绝对路径只作提示（2.4.0）。
                 shell_paths = [(excerpt, True) for excerpt in _protected_mentions(scan, protected_forms)]
@@ -2762,6 +2870,10 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
         "ambiguity_mention_count": len(mentions),
         "ambiguity_domain_words": domain_words,
         "ambiguity_mentions": mentions[:20],
+        "interpretation_mention_count": len(interpretations),
+        "interpretation_mentions": interpretations[:20],
+        "masked_exit_commands": masked_exits[:50],
+        "temp_dirs_without_cleanup": temp_leaks[:50],
         "problems": problems,
         "ok": not problems,
     }
@@ -3347,6 +3459,26 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
     if conflicts:
         attention.append("执行器报告了 %d 处合同矛盾或含义不明（executor-report.json 的 contract_conflicts）："
                          "逐条裁定后再下结论；相关实现是执行器的临时选择" % conflicts)
+    masked = events.get("masked_exit_commands") or []
+    if masked:
+        notes.append("掩盖退出码的写法（%d 条命令，例如事件流第 %s 行 `%s`）：管道之后的退出码是最后一个命令的，"
+                     "`|| true` 直接抹掉；核对报告里的退出码来自被检查的程序"
+                     % (len(masked), masked[0]["event_line"], masked[0]["match"].replace("`", "'")))
+    leaks = events.get("temp_dirs_without_cleanup") or []
+    if leaks:
+        notes.append("创建了临时目录、同一条命令里没有清理（%d 条，例如事件流第 %s 行 `%s`）：核对它之后是否被删除"
+                     % (len(leaks), leaks[0]["event_line"], leaks[0]["match"].replace("`", "'")))
+    interpretation_count = events.get("interpretation_mention_count") or 0
+    if interpretation_count:
+        first_interpretation = (events.get("interpretation_mentions") or [{}])[0]
+        text = "执行器自行宣布了 %d 处解读（例如事件流第 %s 行：“%s”）" % (
+            interpretation_count, first_interpretation.get("line"),
+            str(first_interpretation.get("excerpt", "")).replace("`", "'")[:160])
+        if declared:
+            notes.append(text + "；核对它们都在报告的 contract_conflicts / unresolved_questions 里")
+        else:
+            attention.append(text + "；报告的 contract_conflicts 与 unresolved_questions 都为空：这些解读没有被报告"
+                             "（全部摘录见 events-summary.json 的 interpretation_mentions）")
     mention_count = events.get("ambiguity_mention_count") or 0
     if mention_count:
         first = (events.get("ambiguity_mentions") or [{}])[0]
@@ -4095,7 +4227,14 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     先不做变异运行一次 command，必须通过；之后每个变异单独运行，command 失败（退出码
     非 0 或超时）记为“抓住”，通过记为“漏掉”，old 的出现次数与 count 不符记为“跳过”。
     每次运行后恢复原文件。记录写到 <run-dir>/mutations/NN/。
+    ``--tree <路径>`` 对任意一棵树原地做同样的事（2.5.0，见 _mutate_tree）。
     """
+    if args.tree:
+        return _mutate_tree(args)
+    if not args.run_dir:
+        raise DispatchError("缺少 run_dir：对 attempt 给 run_dir，对草稿树用 --tree <路径>", EXIT_USAGE)
+    if args.out or args.check_anchors:
+        raise DispatchError("--out 与 --check-anchors 只在 --tree 模式下有效", EXIT_USAGE)
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
     meta, contract = load_attempt(repo, run_dir)
@@ -4132,68 +4271,23 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         write_json(out_dir / "mutations.json", {"aborted": "fresh_workspace_failed", "error": str(exc),
                                                 "at": utc_now()}, exclusive=True)
         raise DispatchError("无法建立干净副本：%s" % exc)
-    base_item = {"argv": spec["command"], "cwd": spec.get("cwd", "."),
-                 "timeout_seconds": spec.get("timeout_seconds", MUTATION_DEFAULT_TIMEOUT), "expected_exit_code": 0}
     results: List[Dict[str, Any]] = []
     baseline: Optional[Dict[str, Any]] = None
     drifted: List[str] = []
     started = utc_now()
     try:
-        print("MUTATE baseline ...", flush=True)
-        baseline = _run_command_item(dict(base_item, id="baseline"), workspace, env, out_dir, grace)
+        baseline, results = _run_mutation_rounds(spec, workspace, out_dir, env, grace, "mutations/")
         if not baseline["passed"]:
             write_json(out_dir / "mutations.json", {"aborted": "baseline_failed", "baseline": baseline,
                                                     "at": utc_now()}, exclusive=True)
             raise DispatchError("不做变异时 command 没有通过（%s），变异结果没有意义；先让它在候选上通过"
                                 % (baseline.get("reason") or baseline.get("status")))
-        for index, item in enumerate(spec["mutations"], start=1):
-            mid = "M%02d" % index
-            count = item.get("count", 1)
-            record: Dict[str, Any] = {"id": mid, "name": item["name"], "file": item["file"],
-                                      "count_expected": count, "insertion_only": _insertion_only(item)}
-            path = workspace / item["file"]
-            if not path.is_file() or not is_within(path.resolve(), workspace):
-                record.update(status="skipped", reason="文件不存在或位于工作副本之外")
-            else:
-                try:
-                    original, found = _apply_mutation(path, item["old"], item["new"], count)
-                except UnicodeDecodeError:
-                    record.update(status="skipped", reason="文件不是 UTF-8 文本")
-                else:
-                    record["count_found"] = found
-                    if found != count:
-                        record.update(status="skipped", reason="old 出现 %d 次，期望 %d 次" % (found, count))
-                    else:
-                        try:
-                            run = _run_command_item(dict(base_item, id=mid), workspace, env, out_dir, grace)
-                        finally:
-                            path.write_bytes(original)
-                        if run["status"] == "blocked":
-                            status = "error"
-                        elif not run["passed"] and _session_aborted(out_dir / ("%s.log" % mid), run):
-                            # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
-                            status = "error"
-                            run = dict(run, reason="测试会话被 KeyboardInterrupt 中断（退出码 2），后面的用例没有运行，"
-                                                   "不算抓住；让测试拦住冒出的中断后重跑")
-                        else:
-                            status = "missed" if run["passed"] else "caught"
-                        record.update(status=status, exit_code=run.get("exit_code"),
-                                      timed_out=bool(run.get("timed_out")), log=run.get("log"),
-                                      reason=run.get("reason") or "")
-            results.append(record)
-            # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
-            detail = [part for part in (record.get("reason") or "",
-                                        "只插入代码" if record["insertion_only"] else "",
-                                        "日志 mutations/%s" % record["log"] if record.get("log") else "") if part]
-            print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
-                                    "".join("  " + part for part in detail)), flush=True)
         tree_after = snapshot_tree(workspace, meta["base_sha"], out_dir, "after", meta.get("git_autocrlf"))
         drifted = tree_drift(workspace, candidate["tree"], tree_after)["modified"]
     finally:
         if not args.keep_workspace:
             remove_worktree(repo, workspace)
-    counts = {status: sum(1 for r in results if r["status"] == status)
-              for status in ("caught", "missed", "skipped", "error")}
+    counts = _mutation_counts(results)
     payload = {"run": number, "started_at": started, "ended_at": utc_now(), "candidate_tree": candidate["tree"],
                "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
                "cwd": spec.get("cwd", "."), "workspace": str(workspace),
@@ -4201,15 +4295,182 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                "baseline": baseline, "counts": counts, "warnings": warnings, "results": results}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     log_event(run_dir, "mutations", run=number, **counts)
-    print("变异 %d 个：抓住 %d，漏掉 %d，跳过 %d，出错 %d · %s"
-          % (len(results), counts["caught"], counts["missed"], counts["skipped"], counts["error"],
-             display_path(out_dir / "mutations.json", repo.root)))
-    if counts["missed"]:
-        print("漏掉的变异说明没有测试覆盖对应规则：合同测试清单遗漏的，由规划端补测试并单独提交；"
-              "执行器少写的，记入复审（必要时 REVISE）。")
+    _print_mutation_totals(results, counts, display_path(out_dir / "mutations.json", repo.root))
     if drifted:
         print("WARN  变异后候选文件没有恢复原样：%s（记录仍有效，干净副本%s）"
               % (", ".join(drifted[:10]), "已保留" if args.keep_workspace else "已移除"))
+    return EXIT_OK
+
+
+def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, env: Dict[str, str],
+                         grace: float, log_prefix: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """先不做变异跑一次 command，再逐个套用变异、运行、恢复；返回（基线记录, 结果列表）。
+
+    基线没有通过时结果列表为空，调用方决定怎么报告。判定与打印两个入口（attempt 与 --tree）完全相同：
+    只有退出码非 0 或超时算抓住，会话中断记为出错，只插入代码的变异在结果行标出（2.5.0 抽出）。
+    ``log_prefix`` 是结果行里日志路径前面的目录（attempt 模式是 ``mutations/``，--tree 模式为空）。
+    """
+    base_item = {"argv": spec["command"], "cwd": spec.get("cwd", "."),
+                 "timeout_seconds": spec.get("timeout_seconds", MUTATION_DEFAULT_TIMEOUT), "expected_exit_code": 0}
+    results: List[Dict[str, Any]] = []
+    print("MUTATE baseline ...", flush=True)
+    baseline = _run_command_item(dict(base_item, id="baseline"), workspace, env, out_dir, grace)
+    if not baseline["passed"]:
+        return baseline, results
+    for index, item in enumerate(spec["mutations"], start=1):
+        mid = "M%02d" % index
+        count = item.get("count", 1)
+        record: Dict[str, Any] = {"id": mid, "name": item["name"], "file": item["file"],
+                                  "count_expected": count, "insertion_only": _insertion_only(item)}
+        path = workspace / item["file"]
+        if not path.is_file() or not is_within(path.resolve(), workspace):
+            record.update(status="skipped", reason="文件不存在或位于工作副本之外")
+        else:
+            try:
+                original, found = _apply_mutation(path, item["old"], item["new"], count)
+            except UnicodeDecodeError:
+                record.update(status="skipped", reason="文件不是 UTF-8 文本")
+            else:
+                record["count_found"] = found
+                if found != count:
+                    record.update(status="skipped", reason="old 出现 %d 次，期望 %d 次" % (found, count))
+                else:
+                    try:
+                        run = _run_command_item(dict(base_item, id=mid), workspace, env, out_dir, grace)
+                    finally:
+                        path.write_bytes(original)
+                    if run["status"] == "blocked":
+                        status = "error"
+                    elif not run["passed"] and _session_aborted(out_dir / ("%s.log" % mid), run):
+                        # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
+                        status = "error"
+                        run = dict(run, reason="测试会话被 KeyboardInterrupt 中断（退出码 2），后面的用例没有运行，"
+                                               "不算抓住；让测试拦住冒出的中断后重跑")
+                    else:
+                        status = "missed" if run["passed"] else "caught"
+                    record.update(status=status, exit_code=run.get("exit_code"),
+                                  timed_out=bool(run.get("timed_out")), log=run.get("log"),
+                                  reason=run.get("reason") or "")
+        results.append(record)
+        # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
+        # --tree 模式的记录目录没有固定名字：结果行只写日志文件名，attempt 模式照旧写 mutations/NN/Mxx.log。
+        shown_log = (log_prefix + record["log"] if log_prefix else record["log"].rsplit("/", 1)[-1])             if record.get("log") else ""
+        detail = [part for part in (record.get("reason") or "",
+                                    "只插入代码" if record["insertion_only"] else "",
+                                    "日志 %s" % shown_log if shown_log else "") if part]
+        print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
+                                "".join("  " + part for part in detail)), flush=True)
+    return baseline, results
+
+
+def _mutation_counts(results: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+    return {status: sum(1 for r in results if r["status"] == status)
+            for status in ("caught", "missed", "skipped", "error")}
+
+
+def _print_mutation_totals(results: Sequence[Dict[str, Any]], counts: Dict[str, int], record_path: str) -> None:
+    print("变异 %d 个：抓住 %d，漏掉 %d，跳过 %d，出错 %d · %s"
+          % (len(results), counts["caught"], counts["missed"], counts["skipped"], counts["error"], record_path))
+    if counts["missed"]:
+        print("漏掉的变异说明没有测试覆盖对应规则：合同测试清单遗漏的，由规划端补测试并单独提交；"
+              "执行器少写的，记入复审（必要时 REVISE）。")
+
+
+def _anchor_count(path: Path, old: str) -> int:
+    """old 在文件里的出现次数，按 _apply_mutation 的口径（CRLF 先按 LF 比对）。"""
+    text = path.read_bytes().decode("utf-8")
+    return text.replace(chr(13) + chr(10), chr(10)).count(old)
+
+
+def _check_anchors(tree: Path, spec: Dict[str, Any]) -> int:
+    """--check-anchors：只核对每条 old 的出现次数，不运行命令，不写任何文件（2.5.0）。"""
+    mismatched = 0
+    for index, item in enumerate(spec["mutations"], start=1):
+        mid = "M%02d" % index
+        count = item.get("count", 1)
+        path = tree / item["file"]
+        if not path.is_file() or not is_within(path.resolve(), tree):
+            status, detail = "MISSING", "文件不存在或位于树之外"
+        else:
+            try:
+                found = _anchor_count(path, item["old"])
+            except UnicodeDecodeError:
+                status, detail = "MISSING", "文件不是 UTF-8 文本"
+            else:
+                status = "OK" if found == count else "MISMATCH"
+                detail = "出现 %d 次" % found if found == count else "出现 %d 次，期望 %d 次" % (found, count)
+        if status != "OK":
+            mismatched += 1
+        print("%-8s %s %s  %s" % (status, mid, item["name"], detail), flush=True)
+    total = len(spec["mutations"])
+    print("锚点核对：%d 条，%d 条不符" % (total, mismatched))
+    return EXIT_OK if not mismatched else EXIT_FAIL
+
+
+def _mutate_tree(args: argparse.Namespace) -> int:
+    """mutate --tree：对任意一棵树（规划端的草稿 worktree）原地做变异，不要求 attempt（2.5.0）。
+
+    判定与 attempt 模式是同一段代码；记录不写进被变异的树（默认系统临时目录，结束时打印），每条变异之后
+    恢复原文件，结束时再核对清单里的每个文件与开始时逐字节相同。KitExperiment 的三轮反馈都点名要它：
+    规划端此前每轮用临时脚本跑草稿变异，判定口径曾与 kit 不一致（任何非零退出码都算抓住，掩盖了会话中断）。
+    """
+    if args.run_dir:
+        raise DispatchError("--tree 与 run_dir 二选一：对 attempt 用 run_dir，对草稿树用 --tree", EXIT_USAGE)
+    tree = Path(args.tree).resolve()
+    if not tree.is_dir():
+        raise DispatchError("--tree 不是目录：%s" % tree, EXIT_USAGE)
+    spec_path = Path(args.spec)
+    spec, problems = _load_mutation_spec(spec_path)
+    if problems:
+        for problem in problems:
+            print("ERROR %s" % problem)
+        raise DispatchError("变异清单无效：%d 个问题" % len(problems), EXIT_USAGE)
+    if args.check_anchors:
+        return _check_anchors(tree, spec)
+    warnings = _mutation_spec_warnings(spec)
+    for warning in warnings:
+        print("WARN  %s" % warning)
+    try:
+        config = Repo.discover(args.repo).config()
+    except DispatchError:
+        config = {}
+    env, _removed = child_env(config)
+    grace = float(config.get("kill_grace_seconds", 15))
+    if args.out:
+        out_dir = Path(args.out).resolve()
+        if is_within(out_dir, tree):
+            raise DispatchError("--out 不能在被变异的树里面：%s" % out_dir, EXIT_USAGE)
+        if out_dir.exists() and any(out_dir.iterdir()):
+            raise DispatchError("--out 目录已有内容：%s" % out_dir, EXIT_USAGE)
+        out_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="pi-mutate-tree-")).resolve()
+    shutil.copyfile(str(spec_path), str(out_dir / "spec.json"))
+    before: Dict[str, bytes] = {}
+    for item in spec["mutations"]:
+        path = tree / item["file"]
+        if item["file"] not in before and path.is_file() and is_within(path.resolve(), tree):
+            before[item["file"]] = path.read_bytes()
+    started = utc_now()
+    baseline, results = _run_mutation_rounds(spec, tree, out_dir, env, grace, "")
+    left = [name for name, data in before.items() if (tree / name).read_bytes() != data]
+    if not baseline["passed"]:
+        write_json(out_dir / "mutations.json", {"aborted": "baseline_failed", "baseline": baseline, "tree": str(tree),
+                                                "at": utc_now()}, exclusive=True)
+        raise DispatchError("不做变异时 command 没有通过（%s），变异结果没有意义；先让它在这棵树上通过 · 记录 %s"
+                            % (baseline.get("reason") or baseline.get("status"), out_dir / "mutations.json"))
+    for record in results:
+        if record.get("log"):
+            record["log"] = record["log"].rsplit("/", 1)[-1]
+    counts = _mutation_counts(results)
+    payload = {"tree": str(tree), "started_at": started, "ended_at": utc_now(),
+               "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
+               "cwd": spec.get("cwd", "."), "files_left_modified": left,
+               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results}
+    write_json(out_dir / "mutations.json", payload, exclusive=True)
+    _print_mutation_totals(results, counts, str(out_dir / "mutations.json"))
+    if left:
+        print("WARN  变异后文件没有恢复原样：%s" % ", ".join(left[:10]))
     return EXIT_OK
 
 
@@ -5297,6 +5558,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 problems.append("执行模型凭据未就绪（pi auth check --no-refresh 退出码 %s）" % code)
             if args.thinking and args.thinking not in info["thinking_levels"]:
                 problems.append("思考级别 %s 不受本机 pi 支持" % args.thinking)
+        else:
+            # 2.5.0：技能写了要带参数，但容易漏；没有 executor_* 三个键的输出要自己说明。
+            notes.append("未检查执行模型与凭据：带 --provider 与 --model（可加 --thinking）再运行 doctor，"
+                         "才会核对 pi 的模型列表、auth check 与思考级别")
     except DispatchError as exc:
         problems.append(str(exc))
     try:
@@ -5463,9 +5728,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("mutate", help="在干净副本上逐个套用最小变异，检查测试能否抓住")
-    p.add_argument("run_dir")
+    p.add_argument("run_dir", nargs="?", help="attempt 目录；对草稿树用 --tree 时不填")
     p.add_argument("--spec", required=True, help="变异清单 JSON（格式见 review-pi/mutation-check.md）")
     p.add_argument("--keep-workspace", action="store_true", help="保留干净副本，便于排查")
+    p.add_argument("--tree", help="对这棵树（例如规划端的草稿 worktree）原地做变异，不要求 attempt（2.5.0）")
+    p.add_argument("--out", help="--tree 模式的记录目录，须为空且不在树内（默认系统临时目录，结束时打印）")
+    p.add_argument("--check-anchors", action="store_true",
+                   help="--tree 模式：只核对每条 old 的出现次数，不运行命令、不写文件；有不符时退出码 1")
     p.set_defaults(func=cmd_mutate)
 
     p = sub.add_parser("wait", help="等待运行中的 attempt 结束（给没有完成通知的规划端轮询）")
