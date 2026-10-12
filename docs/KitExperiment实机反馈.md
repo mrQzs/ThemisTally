@@ -492,3 +492,29 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 ### 规划端的教训（本轮）
 
 - **合同引用的行为要先在同一轮里核实码名**：`open_ledger` 对不存在的路径是 `E_LEDGER_MISSING` 不是 `E_LEDGER_OPEN`，同幂等键不同意图是 `E_IDEMPOTENCY_CONFLICT` 不是重放——草稿 oracle 第一遍就错在这些码名上，靠实跑改正。写 Repository facts 时把每个码名都跑一遍。
+
+## 2026-10-11：操作员命令的第 2 份——`smctl run recover`（run-cli-recover）
+
+环境同上。把重启恢复驱动串成第三个一次性命令，并关闭上一份复审留下的 F4（作业环境的预检）。oracle 用真实 `smctl` 进程把 request-resume 的崩溃闭环以产品命令跑通：杀掉正在 `once` 的控制器、另一个进程 `recover`、操作员 `settle`/`resolve`/`resume`、再 `once`。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| run-cli-recover v1 a001（pi 0.99.2，Windows，605 s，1 个工具错误） | fresh：oracle 6/6，执行器 5/5，全量 943 passed / 281 skipped，8/8 | 按候选措辞 28 条：oracle + 执行器测试 27/28（漏掉的 1 条等价：`except ValueError` 与 `except RuntimeErrorCode` 相同，后者是前者的子类）；只用执行器测试 24/28（另 3 条是合同留给 oracle 的规则） | PASS；集成 `25c3cd8`，规划端补全 `43f4f5a` |
+
+### 有效的做法
+
+- **合同把顺序逐字写出时，草稿锚点能直接用**：这轮草稿与候选对 `recover` 的写法几乎一字不差（调用行、候选来源、`register` 都是合同里给的），14 条草稿变异不用重锚就能当正式的一轮；上一份 20/29 跳过是因为执行器从零写一个模块。结论：锚点失效的程度取决于合同给了多少逐字的形状，不取决于执行器。
+- **操作员序列要用真实命令实测，不能用库函数推断**：库里 `ledger.settle(op, {两个维度})` 一次结算，`smctl ledger settle` 一次一个维度，第一个维度结算后账本会追加 `USAGE_UNKNOWN`，`resume` 必须两个理由都点名。草稿 oracle 照 request-resume oracle（库函数）写时漏了这条，真实命令一跑就暴露。
+- **低级发现记给下一份合同是可行的闭环**：上一份的 F4（环境变量名在领取之后才被拒）写进设计说明第 9 节，本合同用 Goal 第 2 条 + oracle 用例关掉它，复审确认候选只在该处改了 `once`。
+
+### 执行器的偏差（本轮）
+
+- 无行为偏差；独立复审五个低级发现：两处文档串把“账本原样”“settles nothing”说宽了，执行器测试比较缺省候选的一个值而不是函数本身，拒绝用例没有自己的合法基线，报告 JSON 的 `changed_files` 漏列新增的测试文件（散文与 `changes.json` 正确）。前三处规划端补全改掉，后两处只记录。
+- 用时 605 s（上一份 1067 s）：清单 5 项、改一个已有模块约 80 行，是目前最短的一轮。
+
+### 规划端的教训（本轮）
+
+- **oracle 里核对事件名**：`Scheduler.recover` 的候选写在 `scheduler.recovered` 事件的 payload，不是 `run.finished_for_review`——草稿 oracle 第一遍就错在这里。写断言前 grep `_emit(` 找到真正的事件类型。
+- **Windows 上判断 pid 存活不能用 `os.kill(pid, 0)`**：它在 Windows 上是 `TerminateProcess`。oracle 的平台分支用 `OpenProcess` + `GetExitCodeProcess`（沿用 win-wiring oracle 的写法）。
