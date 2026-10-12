@@ -518,3 +518,28 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - **oracle 里核对事件名**：`Scheduler.recover` 的候选写在 `scheduler.recovered` 事件的 payload，不是 `run.finished_for_review`——草稿 oracle 第一遍就错在这里。写断言前 grep `_emit(` 找到真正的事件类型。
 - **Windows 上判断 pid 存活不能用 `os.kill(pid, 0)`**：它在 Windows 上是 `TerminateProcess`。oracle 的平台分支用 `OpenProcess` + `GetExitCodeProcess`（沿用 win-wiring oracle 的写法）。
+
+## 2026-10-11：操作员命令的第 3 份——pi 适配器进 `smctl run once`（run-cli-pi）
+
+环境同上。controller-cli 方向的最后一份：作业文件可以指名 `pi`，命令按注册表取 adapter，其它一切不变；真实 pi 仍 NOT_RUN，oracle 用 `python -c` 子进程回放 `tests/fixtures/pi_native/` 的捕获流，结算结果对照夹具旁 dispatcher 的数字。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| run-cli-pi v1 a001（pi 0.99.2，Windows，484 s，1 个工具错误） | fresh：oracle 5/5，执行器 5/5，全量 953 passed / 281 skipped，8/8 | 按候选措辞 15 条：oracle + 执行器 13/15，只用执行器 13/15；漏掉的 M11 只插入死代码（预期），M15 是 oracle 盲点（子集用例恰好含被加上的那个维度），补全改用例后单独验证抓住 | PASS；集成 `c72ee3f`，规划端补全 `5786d0b` |
+
+### 有效的做法
+
+- **设计说明里的"按平台规则解析可执行文件"在合同里变成"命令不解析"**：监督器已经按平台规则解析 argv0 并拒绝 `.cmd` 垫片，命令再做一遍只会多一个读环境的地方。合同把它写成禁止项（第 3 条）并让 oracle 钉住垫片的 `NOT_STARTED`，复审确认候选零解析代码。设计说明的措辞要在拆合同时落到"谁来做"。
+- **真实流当桩，数字对照独立来源**：五个维度对照夹具 `.meta.json` 里 dispatcher 自己算的用量，再对照 `smctl ledger reference`；三方一致才算结算正确，不是"有数就行"。
+- **三轮合同越来越短**：1067 s → 605 s → 484 s。清单 5 项、改一个已有模块几十行、合同逐字给形状，是这个量级的稳定配方。
+
+### 执行器的偏差（本轮）
+
+- 无行为偏差；复审两个低级发现（四个大小写/空白变体只断言 detail 不断言 code；一处重复断言），补全已改。报告的 `changed_files` 这次列全了（上一轮的 F5 没有重复）。
+
+### 规划端的教训（本轮）
+
+- **子集用例不要含被测维度**：M15（pi 作业背后被加上 `total_tokens`）漏掉，是因为 oracle 的"只列部分维度"用例恰好列了 `total_tokens`。写"只结算作业列出的"这类断言时，用 `assertEqual(set(usage), 精确集合)` 而不是只断言列出的那些存在。
+- **Write 工具会吃掉 `\u0000` 这类转义**：oracle 里的 NUL 变体写成 `"pi" + chr(0)`；写完先扫一遍文件有没有残留的反斜杠 u。
