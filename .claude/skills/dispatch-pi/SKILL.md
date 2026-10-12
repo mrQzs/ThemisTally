@@ -43,7 +43,7 @@ argument-hint: "<task-id>.vN"
      - 在后台终端中运行，或请用户在另一个终端运行。
      - 然后反复运行 `bash scripts/dispatch-pi.sh wait <run-dir>`：它最多阻塞 9 分钟（可用 `--timeout` 调整）；attempt 结束时退出 0，仍在运行时退出 3 并打印进度。在 PowerShell 中后面加 `; exit $LASTEXITCODE`，否则退出码 3 可能显示成 1。
      - `run` 要写仓库之外的 worktree 与 Git 元数据，还要联网调用执行模型。`workspace-write` 沙箱中 `.git` 是只读的，所以要按提示批准它在沙箱外运行。`prepare`、`check`、`baseline`、`mutate`、`verdict`、`branch`、`cleanup`、`collect` 同样如此；`smoke` 在系统临时目录中运行并联网，也要在沙箱外运行。
-   - 运行中可以用 `status <task-id>` 查看进度。
+   - 运行中可以用 `status <task-id>` 查看进度；决策模式开着时加 `--assess`（2.6.0）让决策模型判断一次运行健康（推进 / 被挡 / 打转 / 完成，建议 keep_waiting / prepare_next_contract / collect）。Codex 的 `wait` 加 `--assess` 则每 60 秒判断一次。代码先算没有新事件多久、尾部是否重复，静默超过 180 秒时事实优先于模型；建议只用来决定要不要提前准备下一版合同，**运行永远不会被它停止**。
 5. **读摘要**：完成后先读 `<run-dir>/summary.md`，不要把整个 events.jsonl 读进上下文。
 6. **按结果分流**：
 
@@ -56,6 +56,17 @@ argument-hint: "<task-id>.vN"
 | `INFRA_FAILURE` | 模型没有产生任何回复，或证据收集失败 | 读 `stderr.log` 与 `preflight/`，修正后重新 prepare |
 
 7. **同一前提反复失败时不要重复派遣。** 把原因分成环境、合同、能力三类，再决定下一步。
+
+## 决策模型（2.6.0）
+
+`dispatch.config.json` 的 `decisions.mode` 为 shadow / on 时，调度器在收集证据（报告筛查）、变异检查（等价判断）与 `--assess`（运行健康）三处向决策模型提问。规则来自 hermes-jev-skills 在真实机队上的教训：
+
+- **先 shadow**：付全价、记全日志、不改任何输出；跑两三轮后 `decisions replay` 对照 verdict 与复审记录，分得开的问题再开 on。没人会复审自己认为已经对的策略，所以复审要发生在策略还不起作用的时候。
+- **日志安静证明不了功能在跑**：用 `doctor` 看生效的模式与原因；配置是 on、实际 off 的四种原因（标记文件、插件未启用、权限缺失、插件目录缺失）doctor 都会写出来。
+- **在它真正运行的地方验证**：`doctor --probe-decisions`（要用户批准）从规划端会话发一次最小请求；通过的单元测试证明不了这个会话里环境变量可见。
+- **按时钟不按条数**：每条命令的决策调用总时长有上限（`budget_seconds`，默认 20 秒），到点后剩下的都是“无意见”，命令照常完成。
+- **一切 fail-open，门禁不读它**：无 key、超时、限流、畸形或自相矛盾的回复都记为“无意见”；G0–G6、verdict、变异计数、退出码与它无关。标记文件 `.agent/DECISIONS_OFF` 一票否决（给内容不能出机器的仓库）。
+- **只发脱敏后的相关片段**：凭据只认环境变量名；看起来含凭据的片段整段不发；记录里不存 state 原文。
 
 ## 并行批次
 

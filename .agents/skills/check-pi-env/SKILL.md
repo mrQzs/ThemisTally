@@ -37,6 +37,7 @@ argument-hint: "[provider/model] [--smoke]"
    - 规划端适配：`.claude/skills/` 是否与 `.agents/skills/` 一致，仓库有 CLAUDE.md 时其中是否有 `@AGENTS.md`，AGENTS.md 是否超过 Codex 的 32 KiB 上限；
    - Pi 会加载的上下文文件（全局与祖先目录）、全局 SYSTEM.md；
    - `problems` 与 `notes`。
+   - `decisions`（2.6.0）：决策模型的生效模式与原因（配置是 on、实际 off 时 notes 会说明：标记文件、插件未启用、权限缺失、插件目录缺失）、凭据环境变量的**名字**与是否已设置（布尔值，不记值）、端点、钉住的模型、问题清单摘要。“日志安静”证明不了功能在跑：以 doctor 列出的生效模式为准。
 3. **规划端事实**：按实际使用的工具记录，两种都用时各记一份。规则文件或技能中写的模型名不算配置。
    - **Claude Code**：
      - `claude --version`；
@@ -57,6 +58,7 @@ argument-hint: "[provider/model] [--smoke]"
    ```
    它分两步：先做无工具的一问一答，再在临时目录里写一个文件并读回。两步都通过，才能说明模型、凭据与工具调用可用。
    在 Codex 中，smoke 要联网并写系统临时目录，需要按提示批准在沙箱外运行。
+   - 决策模型同理（2.6.0）：只有用户确认后才运行 `bash scripts/dispatch-pi.sh doctor --probe-decisions`——一次最小请求（一个 noul，几十个 token），在它真正运行的地方验证环境变量可见、端点应答、回复形状与本工具一致。用户只告知环境变量名，不要让 key 出现在对话、文件或 `environment.md` 里。
 6. **写入 `.agent/environment.md`**：
    - 以 [environment-template.md](environment-template.md) 为模板，写事实而不是期望。
    - 路径写成相对仓库或 `~` 开头的形式。

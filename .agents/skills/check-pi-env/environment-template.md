@@ -45,6 +45,7 @@
 | worktree 所在目录链上的上下文文件 | 【doctor 中 scope 为 ancestor 的文件，或 无】 | worktree 默认位于系统临时目录下 |
 | 项目 .pi/ 资源 | 【有 / 无】 | 调度器用 --no-approve 忽略 |
 | 仓库 AGENTS.md（及 CLAUDE.md，如有） | 【是否已提交到 HEAD】 | 未提交的规则不会出现在 worktree 中 |
+| 决策模型（2.6.0） | 【doctor 的 decisions 块：模式与原因、环境变量名（不记值）、端点、模型】 | 配置是 on、实际 off 时写明原因 |
 
 ## 操作系统与仓库
 

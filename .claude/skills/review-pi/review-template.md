@@ -12,7 +12,7 @@ Verdict: 【PASS | ACCEPTED_WITH_EXCEPTION | REVISE | BLOCKED | ESCALATE 中的�
 - 实际模型：【events-summary 的 actual_models；providerThinkingLevel】
 - 运行：【退出码 · 用时 / 上限 · 是否超时或取消】
 - 费用：【cost.total（status）】
-- 复审者：【规划/验收会话；中高风险注明 pi-reviewer 是否参与】
+- 复审者：【规划/验收会话；中高风险注明 pi-reviewer 是否参与；换一家审查时写工具与模型】
 
 ## 门禁
 | 门禁 | 结果 | 说明 |

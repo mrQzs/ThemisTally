@@ -29,6 +29,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - 思考级别：本机 Step 配置不会回报 providerThinkingLevel，只能确认请求的是 high（Pi 会把它映射为 thinking 预算）；提供商回报了其他级别时，按问题处理。
    - TIMEOUT / CANCELLED / INFRA_FAILURE 不能 PASS。
    - 看 `events-summary.json` 的 `shell_commands`：执行器自检时把检查命令接上 `| tail`、`| head` 这类管道（合同明文不允许用管道的退出码作证据）是过程偏差，记入复审；验收证据仍是调度器在固定候选上的 `check`。KitExperiment ledger-reference a001 是独立复审读事件摘要才发现的。
+   - summary 的“决策”节（调度工具 2.6.0，`decisions.mode` 为 shadow / on 时才有）：决策模型对执行报告的五个判断（自述完成而无证据、自行解读合同、超出范围、弱化测试、误导程度）与置信度。它是提示，不是证据，门禁也不读它：p 高的按证据核实（读报告、补丁与事件流），p 低的不等于没问题。`on` 模式下 p ≥ 0.70 的会进“复审需要关注”，每行标着“决策模型提示”。中文报告上的准确率未经测量之前，只把它当作读报告的顺序提示。
 3. **G2 范围**：读 `scope.json` 与 summary 的“复审需要关注”。
    - 任何越界都要先查清影响，尤其是：受保护路径、HEAD 移动、worktree 之外的路径、主工作区变化、新增被忽略的文件（如 `.env`）。
    - 可疑命令一项写明命中所在的行与事件流行号，完整命令按行号到 `events.jsonl` 中查看。
@@ -61,6 +62,8 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - **中高风险任务做一轮变异检查**：`bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json>`。
      - 对合同的每条规则各做一个最小变异，在干净副本上只跑相关测试，看测试能否抓住；清单格式与结果处理见 [mutation-check.md](mutation-check.md)。
      - 漏掉的变异就是测试缺口。合同测试清单遗漏的，由规划端补测试并单独提交；执行器少写的，记入复审。
+     - 变异按 DoD 的“目的”子句设计（2.6.0）：每条目的至少一个变异，证明测试保住的是目的，不只是让检查变绿。
+     - 决策模式开着时，每条 MISSED 会带 `决策：可能等价 p=…` / `可能是测试缺口 p=…` 后缀（`on`）或只记在 `mutations.json` 的 `decision` 里（shadow）。它只决定你先读哪条；等价与否仍按 mutation-check.md 的四类原因读代码判定，复审记录写你的判定，回放时与它对照。
      - 实机：export-command 11 个变异抓住 10 个，negation-coverage 9 个抓住 8 个。漏掉的“相对路径”“去重”都是 fresh 检查看不出的缺口。
    - **合同矛盾要逐条裁定**：
      - 执行报告的 `contract_conflicts` 非空时，逐条写明以哪一处为准；执行器暂时采用的做法与裁定一致才能 PASS。
@@ -74,6 +77,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
      codex exec --sandbox read-only -o .agent/reviews/<task-id>/<attempt>-independent.md "按 .agents/skills/review-pi/independent-review.md 复审 <run-dir 的绝对路径>；重点：<风险>"
      ```
      它读完证据后只输出结论与发现，由你决定是否采纳。
+   - **换一家审查**（opus-manager 的做法，2.6.0）：写代码的模型不审自己的代码，复审模型也最好不是执行模型同一家。本机有另一家厂商的只读 CLI 时（例如 `codex exec --sandbox read-only`，或 environment.md 记录的第二 CLI），用它跑 independent-review.md，并在复审记录的“复审者”一行写明工具与模型。审查意见仍要逐条核实：成立的打包进返工合同，不成立的在记录里写明理由。
 7. **写复审报告**：按 [review-template.md](review-template.md) 写到 `.agent/reviews/<task-id>/<attempt>.md`，其中 `Verdict:` 一行只写一个结论。
 8. **记录结论**：
    ```bash
@@ -88,6 +92,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
        - 它需要 Git 作者身份：没有配置 user.name / user.email 时，先提供 GIT_AUTHOR_* 与 GIT_COMMITTER_* 环境变量。doctor 会提前提示身份缺失。
        - dispatch.config.json 的 `commit_trailers` 是仓库级的固定尾注。本次规划端与其中的署名不符时，用 `--no-config-trailers` 去掉它们，再用 `--trailer "Key: value"`（可重复）写上实际的署名。
      - commit / open_pr / push / merge / deploy：只在已授权时做。核对暂存文件列表与候选补丁一致，不要 `git add -A`。
+       - 推送前先 `bash scripts/dispatch-pi.sh release-check`（2.6.0）：扫描已跟踪文件里的凭据形状、家目录路径、内网地址与仓库之外拒绝清单里的字符串。夹具里已知的本机路径前缀写进 `dispatch.config.json` 的 `release_check.allow`，不要每次口头提醒；列为未扫描的二进制文件人眼看一遍。命中退出码 1；扫到 0 个文件也是失败，不是通过。
      - 主分支已前进或需要解决冲突时，要在组合结果上重新运行受影响的检查。
      - 并行批次：
        - HEAD 仍是基线时第一个候选可以 `git merge --ff-only`；HEAD 已因合同提交前进时每个候选都 `git cherry-pick`（它们的父提交是同一基线；`branch` 的输出会给出合适的命令）；
@@ -106,3 +111,5 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
 11. **回流**（每轮必做，用本 kit 做实验的仓库尤其如此）：把本轮的教训落成 Code-Kit 的改动——调度器（`scripts/pi_dispatch.py` 及其测试 `tests/test_dispatch.py`）、技能文本或模板——并提交；确实没有可改的，在反馈文档（`docs/<仓库>实机反馈.md`）本轮小节写“本轮无需改动”及理由。只在反馈文档里记一句“待改进”不算收尾：KitExperiment 自 2.4.2 起 13 轮的“待改进（调度工具）”没有一条被实现，`mutate --tree` 被点名三次才在 2.5.0 做出来。
 
 指标汇总：`bash scripts/dispatch-pi.sh metrics`（方案第 13 节口径）。
+
+决策回放：`bash scripts/dispatch-pi.sh decisions replay`（2.6.0）把 shadow / on 的答案与 verdict、变异、运行健康 tick 并排。每轮验收后看一眼：report-screen 各题在通过类与未通过类 attempt 上的均值分不开的，这个仓库上不能开 on；分得开的，阈值放在两者之间（官方文档：用自己的数据画置信度对准确率的曲线，按动作风险定阈值）。
