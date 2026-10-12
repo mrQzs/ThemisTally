@@ -1,5 +1,22 @@
 # 变更记录
 
+## 2.6.0：决策插件（Jev）与跨库引入（2026-10-12）
+
+设计说明 [docs/code-kit-2.6-决策插件.md](docs/code-kit-2.6-决策插件.md)。把“便宜但要判断”的事交给决策模型：它对一个 state 回答类型化的问题（choice / score / noul），返回概率与置信度，不写文本。三条不变量：**决策只是意见，G0–G6、verdict、计数、退出码永远不读它**；**一切 fail-open**（无 key、超时、限流、422、畸形或自相矛盾的回复都记为“无意见”，命令照常完成）；**只发脱敏后的相关片段**，凭据只认环境变量名，记录不存 state 原文。本轮全部离线验证，真实调用 NOT_RUN。
+
+- **插件 `plugins/decisions/`**（声明式：manifest、锁、`questions/*.json` 问题清单进内容锁，permission `network-decisions`）与受信任核心模块 `scripts/codekit/decisions.py`（标准库：问题形状校验、回复校验——概率键集合等于选项集合、和为 1、choice 必须是最大项、score 均值与分布一致——脱敏与“整段不发”、时钟预算、记录、可注入的传输）。接口形状按 TypeSafe 的 `POST /v1/systemone`；模型钉 `jev-1.13.0`（别名会漂移，调过阈值的要钉版本）。
+- **配置** `.agent/dispatch.config.json` 的 `decisions`：`mode`（`off | shadow | on`，缺省 off）、`api_key_env`（缺省 `TYPESAFE_API_KEY`；自定义 `base_url` 必须配自己的变量名，官方凭据不会发给别的主机）、`model`、`timeout_seconds`、`budget_seconds`（每条命令的总时钟预算）、`max_state_chars`、`points`。标记文件 `.agent/DECISIONS_OFF` 一票否决；`plugins.enabled` / `allowed_permissions` 存在却没有列入时等同 off。配置写错在 prepare 就报（用法错误），不悄悄变成 off。
+- **D1 报告筛查**（`run`/`collect`）：报告自述完成而无证据、自行解读合同、超出范围、弱化测试（noul）与误导程度（score）；summary.md 新节“决策”列出每题的 p 与置信度；`on` 模式下 p ≥ 0.70 或 severity ≥ 2 的进“复审需要关注”，每行标注“决策模型提示”。
+- **D2 变异等价**（`mutate`，attempt 与 `--tree` 都是）：每条 MISSED 问“等价改写 / 测试缺口”；`mutations.json` 每条加 `decision`，`on` 模式下结果行加后缀 `决策：可能等价 p=0.85`；caught/missed/skipped/error 的判定与计数不变。记录在 `mutations/NN/decisions.jsonl`（`--tree` 在记录目录）。
+- **D3 运行健康**（`wait --assess [--assess-interval 60]`、`status --assess`）：代码先算没有新事件多久、尾部是否重复，模型只判推进 / 被挡 / 打转 / 完成与建议（keep_waiting / prepare_next_contract / collect）；静默超过 180 秒时事实优先于模型；连续两次或一次高置信度的非等待建议才在 `on` 模式下提示。**永远不停止运行。**
+- **`decisions replay`**：把 shadow / on 的答案与后来的 verdict、变异、tick 并排，按通过类 / 未通过类给每题均值：分不开的问题在这个仓库上不能开 on，分得开的阈值放在两者之间（官方“用自己的数据画曲线”）。`metrics` 多一行决策调用数、token 与估算费用。
+- **`doctor`** 的 `decisions` 块：生效模式与原因、环境变量名与是否已设置（只记布尔值）、端点、清单摘要、官方 SDK 常量对照；`--probe-decisions` 发一次最小请求（会联网、会花钱，只在用户批准后）。
+- **`release-check`**（来自 hermes-jev-skills 的 `check_release.py`）：扫描 `git ls-files -co --exclude-standard` 里的凭据形状、家目录路径（含 Windows 写法）、内网地址；仓库之外的拒绝清单（`CODEKIT_RELEASE_DENYLIST` 或 `~/.config/code-kit/release-denylist.txt`，命中只报编号）；二进制列为未扫描；扫到 0 个文件算失败；`--allow <glob>:<模式名>` 与配置 `release_check.allow` 放过假阳性。推送前跑它，代替口头提醒“夹具带本机路径前缀”。
+- **DoD 的“目的”子句**（来自 opus-manager 的“为什么这样验收”）：`- D01: 文本；证据：V01；目的：…` 进 JSON 的 `definition_of_done[].intent`（可写在证据前后；老合同不受影响）；变异设计与独立复审按它判断。
+- **技能**：plan-task / contract-guide 写“目的”子句；review-pi 读“决策”节的方法、D2 后缀的含义、推送前 `release-check`、独立复审可换另一家只读 CLI（复审记录写明工具与模型）；check-pi-env 的 doctor 决策块与探测要批准；dispatch-pi 的 `wait --assess`；hermes 的运维规则：先 shadow、日志安静不算在跑、在真正运行的地方验证、按时钟设上限。
+- 语言风险（官方文档）：英语为主，中日韩准确率较低；问题全部英文，state 里优先放代码与命令。先 shadow 若干轮，回放之后再定。
+- 测试：`tests/test_decisions.py`（pytest，20 个用例，离线）；`tests/test_dispatch.py` 新增 3 项场景 32 个检查（本机回放服务：shadow / on、fail-open、标记文件、配置错误、D3 的 state 与两次 tick、doctor、replay、metrics、release-check、intent）。另外去掉了 2.5.0 时重复追加的一份 `test_v250_summary_notes_and_doctor_note`。
+
 ## 2.5.0：把 KitExperiment 的教训回流（2026-10-12）
 
 设计说明 [docs/code-kit-2.5-回流.md](docs/code-kit-2.5-回流.md)。2.4.2 之后 KitExperiment 跑了 13 轮，反馈文档“待改进（调度工具）”里的条目没有一条实现过；这一版全部处理，并把“每轮必须回流”写成 review-pi 的必做步骤。

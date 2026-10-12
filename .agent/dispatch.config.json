@@ -10,5 +10,14 @@
     "tests/test_codekit01_fixtures.py",
     "tests/test_baseline_tool.py",
     "docs/code-kit-v2/01-baseline/**"
-  ]
+  ],
+  "release_check": {
+    "allow": [
+      "docs/**:home path",
+      "tests/**:home path",
+      "tests/**:api key",
+      "tests/**:private address",
+      "scripts/codekit/baseline.py:home path"
+    ]
+  }
 }

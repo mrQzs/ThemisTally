@@ -84,7 +84,7 @@ Code-Kit 的流程里有一类工作“便宜但要判断”：报告里哪句�
 
 ## 6. 记录与回放
 
-- attempt 内的调用追加到 `<run-dir>/decisions.jsonl`；`validate` 与 `mutate --tree` 的调用写到 `.agent/decisions/<plan-key 或 tree 名>.jsonl`。每条：时间、模式、决策点 id 与清单哈希、模型、`state_sha256`、字符数、脱敏次数、答案（全部概率与置信度）、`latency_ms`、`usage`、错误码。
+- D1 与 D3 的调用追加到 `<run-dir>/decisions.jsonl`；D2 的写在变异记录旁边（attempt 是 `mutations/NN/decisions.jsonl`，`--tree` 是记录目录里的 `decisions.jsonl`），与它判断的那轮变异放在一起（实施时的调整：一个 attempt 可以做多轮变异）。每条：时间、模式、决策点 id 与清单哈希、模型、`state_sha256`、字符数、脱敏次数、答案（全部概率与置信度）、`latency_ms`、`usage`、错误码。
 - `decisions replay`：把 shadow 记录与后来的事实配对——D1 对 verdict 结论与复审记录的发现、D2 对复审记录里“等价/测试缺口”的人工判定——按问题输出命中、漏报、误报与置信度分布，给出“这个问题在这个仓库上能不能开 on、阈值放哪”的依据。这是官方“用自己的数据画曲线”与 hermes `measuring-a-router` 的做法。
 - `metrics` 汇总决策调用的次数、token 与费用（按官方定价算，输出免费）。
 
@@ -133,3 +133,5 @@ Code-Kit 的流程里有一类工作“便宜但要判断”：报告里哪句�
 ## 11. 进度与遗留
 
 - 2026-10-12：核对官方文档与四个本地库，写成本说明；用户决定第 10 节四项。
+- 2026-10-12：2.6.0 做完（见 CHANGELOG）：`decisions.py`、插件目录、D1–D3、`decisions replay`、`release-check`、DoD 的目的子句、技能文本。全部离线验证：`tests/test_decisions.py` 20 个用例，`tests/test_dispatch.py` 新增 3 项场景 32 个检查。真实 Jev 调用 NOT_RUN，等用户给出环境变量名后另行批准 `doctor --probe-decisions`。
+- 实施时的调整：`run-health` 的 state 用 `tool_calls_recent`（尾部里的工具调用数）；D2 的记录放在变异记录旁边（§6）；`release-check` 对 Code-Kit 自身的 130 处命中全是文档与测试里的示例路径与示例 key，已写进 `.agent/dispatch.config.json` 的 `release_check.allow`；`scripts/codekit/baseline.py` 的一处注释示例带本机用户名的 8.3 短名，已改成中性示例。

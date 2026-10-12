@@ -616,3 +616,15 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 ### 规划端的教训（本轮）
 
 - **oracle 的 harness 要照顾进程内与持久两种对象**：`Scheduler` 没有 `seq`（用 `getattr`）；持久账本把幂等重放也记成一条命令（`seq` 会增），"重放不改东西"要断言操作集合与事件，不是 `seq`；`run recover` 会把请求停掉（`RECOVERY_REQUIRED`），再领取前先 `resume`。
+
+## 2026-10-12：决策插件（Code-Kit 2.6.0，本轮没有派发）
+
+用户要求把 Jev 决策模型以插件形式引入 kit，并把 PLan 下其他库的可用功能引入。设计说明 `Code-Kit/docs/code-kit-2.6-决策插件.md`，用户决定四项（D1+D2+D3、on 只加提示行、本轮全部离线、E1–E5 全做），规划端直接实施。
+
+### 下一轮在本仓库怎么用
+
+- 用户准备好 key 后只告知环境变量名（缺省 `TYPESAFE_API_KEY`），规划端先 `doctor --probe-decisions`（要批准，一次最小请求），再在 `.agent/dispatch.config.json` 写 `"decisions": {"mode": "shadow"}`。
+- shadow 跑两三轮派发之后 `decisions replay`：D1 的答案对照 verdict，D2 的答案对照复审记录里对漏掉变异的人工判定（等价 / 缺口），看中文合同与报告上的准确率；分得开的问题再开 `on`。
+- 推送前跑 `release-check`：本仓库夹具里的本机路径前缀（会话头与系统提示的 cwd）要写进 `release_check.allow`，而不是每次口头提醒。
+- 合同的 DoD 从下一份起写“目的”子句。
+
