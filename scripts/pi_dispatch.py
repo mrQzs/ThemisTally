@@ -23,6 +23,8 @@
   mutate    在干净副本上逐个套用最小变异，检查测试能否抓住
   wait      等待运行中的 attempt 结束（给没有完成通知的规划端轮询）
   sync-adapters  把 .agents/skills 中的技能复制到 .claude/skills（Claude Code 适配）
+  decisions  决策模型（Jev）记录的回放：shadow 答案对照 verdict 与复审记录（2.6.0）
+  release-check  推送前扫描已跟踪文件里的凭据形状、家目录路径与内网地址（2.6.0）
 
 它不是安全沙箱：Pi、setup 与检查命令都以调用者的操作系统账户运行。
 无人值守或不可信输入必须放进容器、虚拟机或受控沙箱（第 5.4 节）。
@@ -45,7 +47,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.5.0"
+TOOL_VERSION = "2.6.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -1574,6 +1576,13 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
         if not match:
             continue
         body = match.group(2)
+        # “；目的：…”子句（2.6.0，来自 opus-manager 工单的“为什么这样验收”）：过了检查不是目标，这句才是。
+        # 可以写在证据前或证据后；进 JSON 的 intent，变异设计与独立复审按它判断。
+        intent = None
+        intent_match = re.search(r"[；;]\s*目的\s*[:：]\s*([^；;]+)", body)
+        if intent_match:
+            intent = intent_match.group(1).strip().rstrip("。．. ")
+            body = (body[:intent_match.start()] + body[intent_match.end():]).strip()
         # 以“；证据”为分隔：正文里的“证据”二字不再截断（2.5.0；KitExperiment win-supervise 的 D05 以
         # “证据一半”开头，text 被解析成空串）。没有“；证据”时沿用第一个“证据”，老合同的解析不变。
         separator = re.search(r"[；;]\s*证据", body)
@@ -1585,7 +1594,10 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
         for ref in re.findall(r"(?<![A-Za-z0-9])([A-Z]\d{2,}|scope|review)(?![A-Za-z0-9])", evidence_text):
             if ref not in evidence:
                 evidence.append(ref)
-        dod.append({"id": match.group(1), "text": text.rstrip("；;，, "), "evidence": evidence})
+        item: Dict[str, Any] = {"id": match.group(1), "text": text.rstrip("；;，, "), "evidence": evidence}
+        if intent:
+            item["intent"] = intent
+        dod.append(item)
     scope = _md_scope_lists(md)
     budget = _md_budget(md)
     for key in ("max_attempts_total", "max_wall_seconds_per_attempt", "max_wall_seconds_total"):
@@ -1778,6 +1790,8 @@ def _validate_contract(md_text: str, raw: Any, plan_key: str,
         dod_ids.append(did)
         if not isinstance(item.get("text"), str) or not item.get("text"):
             errors.append("%s 缺少 text" % did)
+        if "intent" in item and (not isinstance(item["intent"], str) or not item["intent"].strip()):
+            errors.append("%s 的 intent（目的）必须是非空字符串" % did)
         evidence = item.get("evidence")
         if not _is_str_list(evidence) or not evidence:
             errors.append("%s 的 evidence 必须是非空字符串数组（检查 id、scope 或 review）" % did)
@@ -3489,10 +3503,14 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         else:
             attention.append(text + "；报告的 contract_conflicts 与 unresolved_questions 都为空：核对执行器是否"
                              "自行选定了某种解释（全部摘录见 events-summary.json 的 ambiguity_mentions）")
+    decision_lines, decision_attention = _decisions_summary(run_dir)
+    attention += decision_attention
     if attention:
         lines += ["## 复审需要关注", ""] + ["- %s" % a for a in attention] + [""]
     if notes:
         lines += ["## 备注", ""] + ["- %s" % n for n in notes] + [""]
+    if decision_lines:
+        lines += ["## 决策", ""] + decision_lines + [""]
     rel = display_path(run_dir, repo.root)
     lines += ["## 下一步", "", "```bash",
               "bash scripts/dispatch-pi.sh check %s" % rel,
@@ -3505,6 +3523,279 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
 # ---------------------------------------------------------------------------
 # 子命令
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 决策模型（2.6.0）：类型化问题交给 Jev，答案只作提示，门禁永远不读
+# ---------------------------------------------------------------------------
+
+#: 本工具所在的 kit 根目录：插件目录按它定位（目标仓库可以用绝对路径调用本工具）。
+KIT_ROOT = Path(__file__).resolve().parent.parent
+DECISIONS_PLUGIN_DIR = KIT_ROOT / "plugins" / "decisions"
+DECISIONS_RECORD = "decisions.jsonl"
+#: 发给决策模型的报告正文与事件尾部的上限（字符）；事件文件只读尾部这么多字节。
+DECISIONS_REPORT_CHARS = 12000
+DECISIONS_TAIL_CHARS = 3000
+DECISIONS_TAIL_BYTES = 262144
+RUN_HEALTH_ACTIONS = ("keep_waiting", "prepare_next_contract", "collect")
+
+
+def _decisions_module():
+    """scripts/codekit/decisions.py；不在本工具旁边时返回 None（决策功能等同 off，doctor 会说明）。"""
+    try:
+        from codekit import decisions as module
+    except ModuleNotFoundError:
+        try:
+            from scripts.codekit import decisions as module
+        except ModuleNotFoundError:
+            return None
+    return module
+
+
+def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_path: Optional[Path],
+                      point: Optional[str] = None):
+    """按 dispatch.config.json 的 decisions 建一个会话；模式 off、模块或插件缺失、决策点未启用时返回 None。
+
+    配置写错是用法错误（DispatchError）：否则每条命令都会悄悄变成 off，而“日志安静”证明不了功能在跑。
+    """
+    module = _decisions_module()
+    if module is None:
+        return None
+    try:
+        settings = module.settings_from_config(config, agent_dir, DECISIONS_PLUGIN_DIR)
+    except module.DecisionError as exc:
+        raise DispatchError("dispatch.config.json 的 decisions 无效：%s" % exc.detail, EXIT_USAGE)
+    if not settings.active or (point is not None and point not in settings.points):
+        return None
+    try:
+        batteries = module.load_batteries(DECISIONS_PLUGIN_DIR / "questions")
+    except module.DecisionError as exc:
+        raise DispatchError("决策插件的问题清单无效：%s" % exc.detail, EXIT_USAGE)
+    session = module.Session(settings, record_path)
+    session.batteries = batteries
+    return session
+
+
+def decide_report_screen(repo: "Repo", run_dir: Path, contract: Dict[str, Any], events: Dict[str, Any],
+                         final_text: str, scope: Dict[str, Any], observations: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """D1：把执行报告、合同要点与调度器自己的观察交给决策模型筛查。只记录，summary 再读记录。"""
+    session = decisions_session(repo.config(), repo.agent_dir, run_dir / DECISIONS_RECORD, "report-screen")
+    if session is None:
+        return None
+    report = read_json_or(run_dir / "executor-report.json", {})
+    if not isinstance(report, dict):
+        report = {}
+    plan_md = read_text_or(run_dir / "plan.md")
+    dod = []
+    for item in contract.get("definition_of_done", []):
+        entry = {"id": item.get("id"), "text": item.get("text"), "evidence": item.get("evidence")}
+        if item.get("intent"):
+            entry["intent"] = item["intent"]
+        dod.append(entry)
+    scope_spec = contract.get("scope", {}) if isinstance(contract.get("scope"), dict) else {}
+    state = {
+        "contract_goal": (_md_section(plan_md, "Goal") or "").strip()[:2000],
+        "contract_scope": {key: scope_spec.get(key) for key in ("allowed_modified_files", "allowed_new_files",
+                                                                "allowed_deleted_files", "forbidden_paths")},
+        "definition_of_done": dod,
+        "executor_report": {
+            "text": final_text[:DECISIONS_REPORT_CHARS],
+            "executor_status": report.get("executor_status"),
+            "contract_conflicts": len(report.get("contract_conflicts") or []),
+            "unresolved_questions": len(report.get("unresolved_questions") or []),
+        },
+        "observations": {
+            "changed_files": [{"status": f.get("status"), "path": f.get("path"), "scope": f.get("scope")}
+                              for f in scope.get("files", [])][:100],
+            "scope_violations": len(scope.get("violations", [])),
+            "shell_commands": list(events.get("shell_commands") or [])[-40:],
+            "review_hints": observations.get("review_hints") or {},
+            "masked_exit_commands": len(events.get("masked_exit_commands") or []),
+            "interpretation_mentions": [m.get("excerpt") for m in (events.get("interpretation_mentions") or [])][:10],
+        },
+    }
+    return session.ask(session.batteries["report-screen"], state, {"attempt": run_dir.name})
+
+
+def _decisions_summary(run_dir: Path) -> Tuple[List[str], List[str]]:
+    """summary.md 的“决策”节与（on 模式下）要进“复审需要关注”的行。没有记录时都为空。"""
+    module = _decisions_module()
+    if module is None:
+        return [], []
+    record = module.latest_by_point(module.read_records(run_dir / DECISIONS_RECORD)).get("report-screen")
+    if not record:
+        return [], []
+    lines = ["模式 %s · 模型 %s · 清单 report-screen %s（%s）" % (
+        record.get("mode"), record.get("model"), record.get("battery_version"), (record.get("battery_sha256") or "")[:12]),
+        "", "决策模型的答案只是提示，门禁不读它；中文输入上的准确率先用 shadow 记录对照（`decisions replay`）再决定开 on。", ""]
+    attention: List[str] = []
+    if record.get("status") != "answered":
+        lines.append("- 无意见：%s%s" % (record.get("reason"), "（%s）" % record["detail"] if record.get("detail") else ""))
+        return lines, attention
+    try:
+        battery = module.load_batteries(DECISIONS_PLUGIN_DIR / "questions").get("report-screen")
+    except module.DecisionError:
+        battery = None
+    labels = battery["labels"] if battery else {}
+    thresholds = battery["thresholds"] if battery else {}
+    action = thresholds.get("action", 0.7)
+    severity_action = thresholds.get("severity_action", 2.0)
+    for name, answer in record.get("answers", {}).items():
+        shown, confidence = module.answer_value(answer)
+        label = labels.get(name, name)
+        lines.append("- %s（%s）：%s · 置信度 %.2f" % (label, name, shown, confidence))
+        if record.get("mode") != "on":
+            continue
+        if answer.get("type") == "noul" and float(answer.get("noul", 0.0)) >= action:
+            attention.append("决策模型提示（report-screen/%s p=%.2f）：%s；按证据核实，这不是裁定"
+                             % (name, float(answer["noul"]), label))
+        elif answer.get("type") == "score" and float(answer.get("score", 0.0)) >= severity_action:
+            attention.append("决策模型提示（report-screen/severity %.2f）：报告可能误导不核对证据的复审者"
+                             % float(answer["score"]))
+    lines.append("- 用时 %s ms · 输入 token %s" % (record.get("latency_ms"), (record.get("usage") or {}).get("input_tokens")))
+    return lines, attention
+
+
+def _decide_mutation(session, item: Dict[str, Any], original: bytes, spec: Dict[str, Any], mid: str) -> Dict[str, Any]:
+    """D2：一条漏掉的变异，问“等价改写还是测试缺口”。state 是文件相对路径、old/new 与前后各 8 行。"""
+    try:
+        source = original.decode("utf-8").replace(chr(13) + chr(10), chr(10))
+    except UnicodeDecodeError:
+        source = ""
+    index = source.find(item["old"])
+    if index >= 0:
+        before = source[:index].splitlines()[-8:]
+        after = source[index + len(item["old"]):].splitlines()[:8]
+        context = "\n".join(before) + "\n[[MUTATION HERE]]\n" + "\n".join(after)
+    else:
+        context = ""
+    state = {"file": item["file"], "mutation": {"name": item["name"], "old": item["old"], "new": item["new"]},
+             "context": context[:4000], "test_command": " ".join(str(part) for part in spec["command"])}
+    return session.ask(session.batteries["mutation-equivalence"], state, {"mutation": mid, "name": item["name"]})
+
+
+def _mutation_decision_note(decision: Optional[Dict[str, Any]], session) -> str:
+    """on 模式下结果行的后缀；shadow 只记录不显示。"""
+    if not decision or session is None or session.mode != "on" or decision.get("status") != "answered":
+        return ""
+    hint = session.batteries["mutation-equivalence"]["thresholds"].get("hint", 0.7)
+    equivalent = float(decision["answers"]["equivalent"]["noul"])
+    untested = float(decision["answers"]["untested"]["noul"])
+    if equivalent >= hint:
+        return "决策：可能等价 p=%.2f" % equivalent
+    if untested >= hint:
+        return "决策：可能是测试缺口 p=%.2f" % untested
+    return "决策：等价 p=%.2f · 缺口 p=%.2f" % (equivalent, untested)
+
+
+def _run_health_state(run_dir: Path, tracker: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """D3 的 state：事件尾部的 assistant 文本与最近的工具调用，加上代码算出的事实（静默秒数、是否重复）。"""
+    events_path = run_dir / "events.jsonl"
+    try:
+        stat = events_path.stat()
+        with open(events_path, "rb") as handle:
+            if stat.st_size > DECISIONS_TAIL_BYTES:
+                handle.seek(stat.st_size - DECISIONS_TAIL_BYTES)
+            data = handle.read()
+    except OSError:
+        return None
+    raw_lines = data.split(b"\n")
+    if stat.st_size > DECISIONS_TAIL_BYTES:
+        raw_lines = raw_lines[1:]  # 第一行多半是半截
+    texts: List[str] = []
+    tools: List[Dict[str, Any]] = []
+    for raw in raw_lines:
+        try:
+            event = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if kind == "message_end":
+            message = event.get("message") if isinstance(event.get("message"), dict) else {}
+            if message.get("role") == "assistant":
+                body = _message_text(message)
+                if body.strip():
+                    texts.append(body)
+        elif kind == "tool_execution_end":
+            tools.append({"tool": event.get("toolName"), "error": bool(event.get("isError"))})
+    recent = "\n".join(texts)[-DECISIONS_TAIL_CHARS:]
+    fingerprint = hashlib.sha256(" ".join(recent.split()).encode("utf-8")).hexdigest()
+    seen = list(tracker.get("seen", []))
+    repeating = fingerprint == tracker.get("fingerprint") and seen.count(fingerprint) >= 2
+    seen = (seen + [fingerprint])[-12:]
+    now = time.time()
+    started = read_json_or(run_dir / "run-started.json", {}).get("started_at")
+    elapsed = None
+    if started:
+        try:
+            begin = _dt.datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_dt.timezone.utc)
+            elapsed = int((_dt.datetime.now(_dt.timezone.utc) - begin).total_seconds())
+        except ValueError:
+            elapsed = None
+    quiet = max(0, int(now - stat.st_mtime))
+    plan_md = read_text_or(run_dir / "plan.md")
+    state = {"goal": (_md_section(plan_md, "Goal") or "").strip()[:1500], "recent_output": recent,
+             "recent_tools": tools[-10:], "seconds_since_new_event": quiet, "seconds_running": elapsed,
+             "tool_calls_recent": len(tools), "output_is_repeating": repeating}
+    return {"state": state, "fingerprint": fingerprint, "seen": seen, "quiet": quiet, "repeating": repeating}
+
+
+def assess_run(run_dir: Path, session, tracker: Dict[str, Any]) -> str:
+    """D3：一次运行健康判断，返回要打印的文字（可能两行）。永远不停止运行。
+
+    代码先算免费能算的事实（没有新事件多久、尾部是否重复），模型只判它判不了的；事实优先于模型：
+    静默超过 stall_seconds 时即使模型说 keep_waiting 也建议准备下一版合同。无意见时只按事实。
+    连续 alert_after 次相同的非 keep_waiting 建议，或一次置信度达到 action 阈值的建议，才算提示（on 模式）。
+    """
+    health = _run_health_state(run_dir, tracker)
+    if health is None:
+        return ""
+    tracker.update(fingerprint=health["fingerprint"], seen=health["seen"], ticks=tracker.get("ticks", 0) + 1)
+    battery = session.batteries["run-health"]
+    thresholds = battery["thresholds"]
+    stall = thresholds.get("stall_seconds", 180)
+    result = session.ask(battery, health["state"], {"tick": tracker["ticks"], "quiet_seconds": health["quiet"]})
+    strong = False
+    if result.get("status") != "answered":
+        action = "prepare_next_contract" if (health["repeating"] or health["quiet"] >= stall) else "keep_waiting"
+        line = "决策（run-health, %s）：无意见（%s），只按活动信号 · 静默 %d 秒 · 重复 %s · 建议 %s" % (
+            session.mode, result.get("reason"), health["quiet"], "是" if health["repeating"] else "否", action)
+    else:
+        answers = result["answers"]
+        chosen = answers["action"]
+        action, confidence = chosen["choice"], float(chosen["confidence"])
+        strong = confidence >= thresholds.get("action", 0.7)
+        note = ""
+        if health["quiet"] >= stall and action == "keep_waiting":
+            action, note = "prepare_next_contract", "；%d 秒没有新事件，事实优先于模型" % health["quiet"]
+        line = "决策（run-health, %s）：推进 %.2f · 被挡 %.2f · 打转 %.2f · 完成 %.2f · 建议 %s（置信度 %.2f）%s" % (
+            session.mode, float(answers["progressing"]["noul"]), float(answers["blocked"]["noul"]),
+            float(answers["looping"]["noul"]), float(answers["done"]["noul"]), action, confidence, note)
+    streak = dict(tracker.get("streak", {}))
+    for key in RUN_HEALTH_ACTIONS:
+        streak[key] = streak.get(key, 0) + 1 if action == key else 0
+    tracker["streak"] = streak
+    alert_after = int(thresholds.get("alert_after", 2))
+    if action != "keep_waiting" and (streak[action] >= alert_after or strong) and session.mode == "on":
+        line += "\n决策模型提示：建议 %s（连续 %d 次）。运行不会被停止；可以开始准备下一步，结论仍以证据为准" % (
+            action, streak[action])
+    return line
+
+
+def decisions_records_of(run_dir: Path) -> List[Dict[str, Any]]:
+    """一个 attempt 的全部决策记录：attempt 目录的 decisions.jsonl 加每轮 mutations/NN/ 的。"""
+    module = _decisions_module()
+    if module is None:
+        return []
+    records = module.read_records(run_dir / DECISIONS_RECORD)
+    mutations = run_dir / "mutations"
+    if mutations.is_dir():
+        for sub in sorted(mutations.iterdir()):
+            if sub.is_dir():
+                records += module.read_records(sub / DECISIONS_RECORD)
+    return records
+
 
 def _print_messages(errors: Sequence[str], warnings: Sequence[str]) -> None:
     for warning in warnings:
@@ -3734,6 +4025,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if git(["check-ignore", "-q", ".agent/runs/probe"], repo.root, check=False).returncode != 0:
         raise DispatchError("请先把 .agent/runs/ 加入 .gitignore：运行证据含源码与日志，不应进入提交。", EXIT_BLOCKED)
     config = repo.config()
+    decisions_session(config, repo.agent_dir, None)  # 配置写错在这里就报，不等到收集证据时悄悄 off（2.6.0）
     md_path, json_path = repo.plan_paths(args.plan_key)
     raw_executor = read_json(json_path).get("executor", {})
     if raw_executor.get("provider") and raw_executor.get("model"):
@@ -3994,6 +4286,13 @@ def collect(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Dict[str,
         observations["main_repo_changes"] = {"changed": observations["main_repo_changed"], "diff_error": str(exc)}
     if candidate.get("tree") and (run_dir / "candidate.patch").exists():
         observations["review_hints"] = review_hints(run_dir / "candidate.patch")
+    try:
+        decision = decide_report_screen(repo, run_dir, contract, events, final_text,
+                                        read_json_or(run_dir / "scope.json", {}), observations)
+        if decision is not None:
+            observations["decisions"] = {"report_screen": decision.get("status"), "reason": decision.get("reason")}
+    except DispatchError as exc:
+        observations["decisions_error"] = str(exc)
     write_json(run_dir / "observations.json", observations)
     if run_info.get("spawn_error") or collect_errors or not candidate.get("tree"):
         state = "INFRA_FAILURE"
@@ -4265,6 +4564,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     out_dir = root / ("%02d" % number)
     out_dir.mkdir()
     shutil.copyfile(str(spec_path), str(out_dir / "spec.json"))
+    session = decisions_session(config, repo.agent_dir, out_dir / DECISIONS_RECORD, "mutation-equivalence")
     try:
         workspace = prepare_fresh_workspace(repo, run_dir, meta, contract, candidate, config, out_dir, env, grace)
     except (DispatchError, OSError) as exc:
@@ -4276,7 +4576,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     drifted: List[str] = []
     started = utc_now()
     try:
-        baseline, results = _run_mutation_rounds(spec, workspace, out_dir, env, grace, "mutations/")
+        baseline, results = _run_mutation_rounds(spec, workspace, out_dir, env, grace, "mutations/", session)
         if not baseline["passed"]:
             write_json(out_dir / "mutations.json", {"aborted": "baseline_failed", "baseline": baseline,
                                                     "at": utc_now()}, exclusive=True)
@@ -4292,10 +4592,12 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
                "cwd": spec.get("cwd", "."), "workspace": str(workspace),
                "workspace_kept": bool(args.keep_workspace), "candidate_files_left_modified": drifted,
-               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results}
+               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results,
+               "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     log_event(run_dir, "mutations", run=number, **counts)
     _print_mutation_totals(results, counts, display_path(out_dir / "mutations.json", repo.root))
+    _print_mutation_decisions(session, out_dir / DECISIONS_RECORD)
     if drifted:
         print("WARN  变异后候选文件没有恢复原样：%s（记录仍有效，干净副本%s）"
               % (", ".join(drifted[:10]), "已保留" if args.keep_workspace else "已移除"))
@@ -4303,12 +4605,14 @@ def cmd_mutate(args: argparse.Namespace) -> int:
 
 
 def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, env: Dict[str, str],
-                         grace: float, log_prefix: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+                         grace: float, log_prefix: str, session=None) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """先不做变异跑一次 command，再逐个套用变异、运行、恢复；返回（基线记录, 结果列表）。
 
     基线没有通过时结果列表为空，调用方决定怎么报告。判定与打印两个入口（attempt 与 --tree）完全相同：
     只有退出码非 0 或超时算抓住，会话中断记为出错，只插入代码的变异在结果行标出（2.5.0 抽出）。
     ``log_prefix`` 是结果行里日志路径前面的目录（attempt 模式是 ``mutations/``，--tree 模式为空）。
+    ``session`` 是决策会话（2.6.0）：每条漏掉的变异问一次“等价改写还是测试缺口”，答案进记录的 ``decision``，
+    on 模式下进结果行后缀；caught/missed/skipped/error 的判定与计数与它无关。
     """
     base_item = {"argv": spec["command"], "cwd": spec.get("cwd", "."),
                  "timeout_seconds": spec.get("timeout_seconds", MUTATION_DEFAULT_TIMEOUT), "expected_exit_code": 0}
@@ -4351,16 +4655,36 @@ def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, e
                     record.update(status=status, exit_code=run.get("exit_code"),
                                   timed_out=bool(run.get("timed_out")), log=run.get("log"),
                                   reason=run.get("reason") or "")
+                    if status == "missed" and session is not None:
+                        record["decision"] = _decide_mutation(session, item, original, spec, mid)
         results.append(record)
         # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
         # --tree 模式的记录目录没有固定名字：结果行只写日志文件名，attempt 模式照旧写 mutations/NN/Mxx.log。
         shown_log = (log_prefix + record["log"] if log_prefix else record["log"].rsplit("/", 1)[-1])             if record.get("log") else ""
         detail = [part for part in (record.get("reason") or "",
                                     "只插入代码" if record["insertion_only"] else "",
-                                    "日志 %s" % shown_log if shown_log else "") if part]
+                                    "日志 %s" % shown_log if shown_log else "",
+                                    _mutation_decision_note(record.get("decision"), session)) if part]
         print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
                                 "".join("  " + part for part in detail)), flush=True)
     return baseline, results
+
+
+def _mutation_decisions_payload(session) -> Optional[Dict[str, Any]]:
+    if session is None:
+        return None
+    module = _decisions_module()
+    payload = {"mode": session.mode, "model": session.settings.model}
+    payload.update(module.usage_totals(session.records))
+    return payload
+
+
+def _print_mutation_decisions(session, record_path: Path) -> None:
+    if session is None:
+        return
+    totals = _mutation_decisions_payload(session) or {}
+    print("决策（mutation-equivalence, %s）：%d 次调用，%d 次有答案 · 记录 %s" % (
+        session.mode, totals.get("calls", 0), totals.get("answered", 0), record_path))
 
 
 def _mutation_counts(results: Sequence[Dict[str, Any]]) -> Dict[str, int]:
@@ -4430,8 +4754,10 @@ def _mutate_tree(args: argparse.Namespace) -> int:
     warnings = _mutation_spec_warnings(spec)
     for warning in warnings:
         print("WARN  %s" % warning)
+    repo_of_tree: Optional[Repo] = None
     try:
-        config = Repo.discover(args.repo).config()
+        repo_of_tree = Repo.discover(args.repo)
+        config = repo_of_tree.config()
     except DispatchError:
         config = {}
     env, _removed = child_env(config)
@@ -4452,7 +4778,9 @@ def _mutate_tree(args: argparse.Namespace) -> int:
         if item["file"] not in before and path.is_file() and is_within(path.resolve(), tree):
             before[item["file"]] = path.read_bytes()
     started = utc_now()
-    baseline, results = _run_mutation_rounds(spec, tree, out_dir, env, grace, "")
+    session = decisions_session(config, repo_of_tree.agent_dir if repo_of_tree else None,
+                                out_dir / DECISIONS_RECORD, "mutation-equivalence")
+    baseline, results = _run_mutation_rounds(spec, tree, out_dir, env, grace, "", session)
     left = [name for name, data in before.items() if (tree / name).read_bytes() != data]
     if not baseline["passed"]:
         write_json(out_dir / "mutations.json", {"aborted": "baseline_failed", "baseline": baseline, "tree": str(tree),
@@ -4466,9 +4794,11 @@ def _mutate_tree(args: argparse.Namespace) -> int:
     payload = {"tree": str(tree), "started_at": started, "ended_at": utc_now(),
                "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
                "cwd": spec.get("cwd", "."), "files_left_modified": left,
-               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results}
+               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results,
+               "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     _print_mutation_totals(results, counts, str(out_dir / "mutations.json"))
+    _print_mutation_decisions(session, out_dir / DECISIONS_RECORD)
     if left:
         print("WARN  变异后文件没有恢复原样：%s" % ", ".join(left[:10]))
     return EXIT_OK
@@ -4711,9 +5041,21 @@ def cmd_wait(args: argparse.Namespace) -> int:
         raise DispatchError("--timeout 必须是正整数（秒）", EXIT_USAGE)
     started = time.monotonic()
     shown = display_path(run_dir, repo.root)
+    session = None
+    if getattr(args, "assess", False):
+        session = decisions_session(repo.config(), repo.agent_dir, run_dir / DECISIONS_RECORD, "run-health")
+        if session is None:
+            print("NOTE  --assess：决策模式为 off 或 run-health 未启用，只按状态等待")
+    tracker: Dict[str, Any] = {}
+    last_assessed = -1e9
     while True:
         state = get_state(run_dir)
         elapsed = time.monotonic() - started
+        if session is not None and state == "RUNNING" and elapsed - last_assessed >= args.assess_interval:
+            last_assessed = elapsed
+            line = assess_run(run_dir, session, tracker)
+            if line:
+                print(line, flush=True)
         if state in WAIT_ACTIVE_STATES or (state == "PREPARED" and elapsed < min(60, args.timeout)):
             if elapsed >= args.timeout:
                 progress = _live_progress(run_dir) if state == "RUNNING" else ""
@@ -5393,11 +5735,20 @@ def cmd_status(args: argparse.Namespace) -> int:
             sorted(d.name for d in repo.runs_dir.iterdir() if d.is_dir()) if repo.runs_dir.is_dir() else [])
         attempts = [attempt for task in tasks for attempt in task_attempts(repo, task)]
     rows = [_attempt_row(repo, attempt) for attempt in attempts]
+    assessments: List[str] = []
     for row, attempt in zip(rows, attempts):
         if row["state"] == "RUNNING":
             row["events_ok"] = _live_progress(attempt)
+            if getattr(args, "assess", False):
+                session = decisions_session(repo.config(), repo.agent_dir, attempt / DECISIONS_RECORD, "run-health")
+                if session is not None:
+                    line = assess_run(attempt, session, {})
+                    if line:
+                        assessments.append("%s：%s" % (row["attempt"], line))
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
+        for line in assessments:
+            print(line)
         return EXIT_OK
     if not rows:
         print("没有 attempt 记录。")
@@ -5409,6 +5760,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     widths = [max(len(str(row[i])) for row in table) for i in range(len(header))]
     for row in table:
         print("  ".join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)))
+    for line in assessments:
+        print(line)
     return EXIT_OK
 
 
@@ -5452,6 +5805,10 @@ def cmd_metrics(args: argparse.Namespace) -> int:
             "human_minutes": sum(r["human_minutes"] or 0 for r in started),
             "failure_classes": sorted({r["failure_class"] for r in started if r["failure_class"]}),
         })
+    decision_records = [record for task in tasks for attempt in task_attempts(repo, task)
+                        for record in decisions_records_of(attempt)]
+    decisions_module = _decisions_module()
+    decision_totals = decisions_module.usage_totals(decision_records) if decisions_module and decision_records else None
     total = len(per_task)
     rate = lambda n: "%.0f%%" % (100.0 * n / total) if total else "-"  # noqa: E731
     known_total = sum(t["known_cost"] or 0 for t in per_task)
@@ -5467,7 +5824,11 @@ def cmd_metrics(args: argparse.Namespace) -> int:
              "| 执行轮次合计 | %d |" % sum(t["attempts"] for t in per_task),
              "| 已知执行费用（估算，仅 Pi 执行端） | %.4f%s |" % (
                  known_total, "（另有 %d 轮费用未知或不完整，实际更高）" % unknown_attempts if unknown_attempts else ""),
-             "| 人工介入分钟 | %s |" % sum(t["human_minutes"] for t in per_task), "",
+             "| 人工介入分钟 | %s |" % sum(t["human_minutes"] for t in per_task),
+             "| 决策调用（Jev，2.6.0） | %s |" % (
+                 "%d 次，有答案 %d · 输入 token %d · 估算费用 %.4f 美元" % (
+                     decision_totals["calls"], decision_totals["answered"], decision_totals["input_tokens"],
+                     decision_totals["estimated_cost_usd"]) if decision_totals else "无记录"), "",
              "规划与复审（规划端）费用不在此表，请按同一口径另行记录后再比较（方案第 13 节）。", "",
              "| 任务 | 轮次 | 首轮 PASS | 最终结果 | 越界 | 墙钟(s) | tokens | 已知费用 | 失败分类 |",
              "|---|---|---|---|---|---|---|---|---|"]
@@ -5590,6 +5951,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         notes.extend(facts["pi_context_from_repo_root"]["warnings"])
     except DispatchError as exc:
         notes.append("未在 Git 仓库中运行：%s" % exc)
+    _doctor_decisions(args, facts, problems, notes)
     facts["problems"] = problems
     facts["notes"] = notes
     facts["ok"] = not problems
@@ -5598,6 +5960,258 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         out_path.write_text(text + "\n", encoding="utf-8")
     print(text)
     return EXIT_OK if not problems else EXIT_FAIL
+
+
+def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems: List[str], notes: List[str]) -> None:
+    """doctor 的 decisions 块：生效模式与原因、凭据环境变量名与是否已设置（只记布尔值）、清单摘要（2.6.0）。
+
+    ``--probe-decisions`` 另外发一次最小请求（会联网、会花钱，只在用户批准后使用）：这是“在它真正运行的
+    地方验证”——环境变量在这个会话里是否可见、端点是否应答、回复形状是否与本工具一致。
+    """
+    module = _decisions_module()
+    if module is None:
+        facts["decisions"] = {"mode": "off", "reason": "module_missing"}
+        notes.append("决策模块不可用：scripts/codekit/decisions.py 不在本工具旁边，决策功能等同 off")
+        return
+    try:
+        repo = Repo.discover(args.repo)
+        config, agent_dir = repo.config(), repo.agent_dir
+    except DispatchError:
+        config, agent_dir = {}, None
+    try:
+        settings = module.settings_from_config(config, agent_dir, DECISIONS_PLUGIN_DIR)
+    except module.DecisionError as exc:
+        facts["decisions"] = {"mode": "off", "reason": "config_invalid"}
+        problems.append("dispatch.config.json 的 decisions 无效：%s" % exc.detail)
+        return
+    described = module.describe(settings, DECISIONS_PLUGIN_DIR)
+    # 键名避开 redact_obj 会遮蔽的“api_key”写法：这里记的是环境变量的名字与有无，不是值。
+    facts["decisions"] = {
+        "mode": described["mode"], "configured_mode": described["configured_mode"], "reason": described["reason"],
+        "env_var_name": described["api_key_env"], "env_var_set": described["api_key_set"],
+        "base_url": described["base_url"], "official_endpoint": described["official_endpoint"],
+        "model": described["model"], "points": described["points"], "marker_present": described["marker_present"],
+        "plugin_dir": described["plugin_dir"], "batteries": described["batteries"],
+        "sdk_reference": described["sdk_reference"],
+    }
+    problems.extend("决策插件的问题清单无效：%s" % item for item in described["battery_problems"])
+    if settings.configured_mode != "off" and not settings.active:
+        notes.append("决策配置为 %s，实际生效 off：%s" % (settings.configured_mode, settings.reason))
+    if settings.active and not described["api_key_set"]:
+        notes.append("决策模式为 %s，但环境变量 %s 在本会话里未设置：%s" % (
+            settings.mode, settings.api_key_env,
+            "每次调用都会记为无意见（no_key）" if settings.official else "自定义端点将不带凭据头调用"))
+    if settings.active:
+        notes.append("决策功能生效（%s）：先用 shadow 记录对照 verdict 与复审记录（decisions replay），再决定开 on"
+                     % settings.mode)
+    if getattr(args, "probe_decisions", False):
+        if settings.official and not described["api_key_set"]:
+            problems.append("--probe-decisions：环境变量 %s 未设置，无法探测" % settings.api_key_env)
+        else:
+            result = module.probe(settings)
+            facts["decisions"]["probe"] = result
+            if not result["ok"]:
+                problems.append("决策探测失败：%s%s" % (result["reason"], "（%s）" % result["detail"] if result.get("detail") else ""))
+    else:
+        facts["decisions"]["probe"] = None
+
+
+def cmd_decisions(args: argparse.Namespace) -> int:
+    """decisions replay：把 shadow / on 的记录与后来的事实并排——D1 对 verdict，D2 按变异列出，D3 按 tick 统计。"""
+    if args.decisions_cmd != "replay":
+        raise DispatchError("decisions 需要子命令 replay", EXIT_USAGE)
+    out_path = safe_output_path(args)
+    repo = Repo.discover(args.repo)
+    module = _decisions_module()
+    if module is None:
+        raise DispatchError("决策模块不可用：scripts/codekit/decisions.py 不在本工具旁边", EXIT_USAGE)
+    tasks = [args.task_id] if args.task_id else (
+        sorted(d.name for d in repo.runs_dir.iterdir() if d.is_dir()) if repo.runs_dir.is_dir() else [])
+    screen_rows: List[Dict[str, Any]] = []
+    mutation_rows: List[Dict[str, Any]] = []
+    health_rows: List[Dict[str, Any]] = []
+    all_records: List[Dict[str, Any]] = []
+    for task in tasks:
+        for attempt in task_attempts(repo, task):
+            records = decisions_records_of(attempt)
+            if not records:
+                continue
+            all_records += records
+            name = display_path(attempt, repo.runs_dir)
+            verdict = latest_verdict(attempt).get("verdict")
+            latest = module.latest_by_point(records)
+            screen = latest.get("report-screen")
+            if screen and screen.get("status") == "answered":
+                row = {"attempt": name, "verdict": verdict, "mode": screen.get("mode")}
+                for question, answer in screen["answers"].items():
+                    row[question] = round(float(answer.get("noul")), 2) if answer.get("type") == "noul" else (
+                        round(float(answer.get("score")), 2) if answer.get("type") == "score" else answer.get("choice"))
+                screen_rows.append(row)
+            for record in records:
+                if record.get("point") == "mutation-equivalence" and record.get("status") == "answered":
+                    mutation_rows.append({"attempt": name, "mutation": (record.get("context") or {}).get("mutation"),
+                                          "name": (record.get("context") or {}).get("name"),
+                                          "equivalent": round(float(record["answers"]["equivalent"]["noul"]), 2),
+                                          "untested": round(float(record["answers"]["untested"]["noul"]), 2)})
+            ticks = [r for r in records if r.get("point") == "run-health"]
+            if ticks:
+                actions: Dict[str, int] = {}
+                for record in ticks:
+                    choice_ = (record.get("answers") or {}).get("action", {}).get("choice") if record.get("status") == "answered" else "无意见"
+                    actions[str(choice_)] = actions.get(str(choice_), 0) + 1
+                health_rows.append({"attempt": name, "ticks": len(ticks), "actions": actions})
+    totals = module.usage_totals(all_records)
+    if args.json:
+        payload = {"generated_at": utc_now(), "totals": totals, "report_screen": screen_rows,
+                   "mutation_equivalence": mutation_rows, "run_health": health_rows}
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    else:
+        lines = ["# 决策回放", "", "生成时间：%s · 记录 %d 条，有答案 %d · 输入 token %d · 估算费用 %.4f 美元" % (
+            utc_now(), totals["calls"], totals["answered"], totals["input_tokens"], totals["estimated_cost_usd"]), ""]
+        if totals["no_opinion_reasons"]:
+            lines += ["无意见的原因：" + "，".join("%s %d" % (k, v) for k, v in sorted(totals["no_opinion_reasons"].items())), ""]
+        questions = ["claims_unsupported", "chose_interpretation", "scope_creep", "weakened_tests", "severity"]
+        lines += ["## report-screen（对照 verdict）", ""]
+        if screen_rows:
+            lines += ["| attempt | verdict | 模式 | " + " | ".join(questions) + " |", "|---|---|---|" + "---|" * len(questions)]
+            for row in screen_rows:
+                lines.append("| %s | %s | %s | %s |" % (row["attempt"], row.get("verdict") or "-", row.get("mode"),
+                                                       " | ".join(str(row.get(q, "-")) for q in questions)))
+            passing = [r for r in screen_rows if r.get("verdict") in PASSING_VERDICTS]
+            failing = [r for r in screen_rows if r.get("verdict") and r.get("verdict") not in PASSING_VERDICTS]
+            mean = lambda rows, q: ("%.2f" % (sum(float(r.get(q, 0) or 0) for r in rows) / len(rows))) if rows else "-"  # noqa: E731
+            lines += ["", "| 问题 | 通过类 attempt 均值（%d） | 未通过类均值（%d） |" % (len(passing), len(failing)), "|---|---|---|"]
+            lines += ["| %s | %s | %s |" % (q, mean(passing, q), mean(failing, q)) for q in questions]
+            lines += ["", "通过类与未通过类的均值分不开的问题，在这个仓库上还不能开 on；分得开的，阈值放在两者之间。"]
+        else:
+            lines.append("没有有答案的 report-screen 记录。")
+        lines += ["", "## mutation-equivalence（对照复审记录里的人工判定）", ""]
+        if mutation_rows:
+            lines += ["| attempt | 变异 | 名称 | 等价 p | 缺口 p |", "|---|---|---|---|---|"]
+            lines += ["| %s | %s | %s | %s | %s |" % (r["attempt"], r["mutation"], r["name"], r["equivalent"], r["untested"])
+                      for r in mutation_rows]
+        else:
+            lines.append("没有有答案的 mutation-equivalence 记录。")
+        lines += ["", "## run-health", ""]
+        if health_rows:
+            lines += ["| attempt | tick 数 | 建议分布 |", "|---|---|---|"]
+            lines += ["| %s | %d | %s |" % (r["attempt"], r["ticks"], "，".join("%s %d" % (k, v) for k, v in sorted(r["actions"].items())))
+                      for r in health_rows]
+        else:
+            lines.append("没有 run-health 记录。")
+        text = "\n".join(lines) + "\n"
+    if out_path is not None:
+        out_path.write_text(text, encoding="utf-8")
+        print("已写入 %s" % out_path)
+    else:
+        print(text)
+    return EXIT_OK
+
+
+#: release-check 的模式（2.6.0，来自 hermes-jev-skills 的 check_release.py）：凭据形状、家目录路径、内网地址。
+RELEASE_PATTERNS = {
+    "api key": re.compile(r"\b(?:apikey_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}"
+                          r"|AIza[0-9A-Za-z_-]{35}|xox[abprs]-[A-Za-z0-9-]{10,})\b"),
+    "home path": re.compile(r"(?<![A-Za-z0-9_])(?:/Users/[A-Za-z][A-Za-z0-9_.-]*/|/home/[a-z][a-z0-9_.-]*/"
+                            r"|[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s\"'<>*?|]+[\\/])"),
+    "private address": re.compile(r"\b(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])|192\.168|10|172\.(?:1[6-9]|2\d|3[01]))"
+                                  r"(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){2,3}\b(?!\.\d)|\b[a-z0-9-]+\.ts\.net\b"),
+}
+RELEASE_BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".ico", ".zip", ".gz", ".pyc"}
+RELEASE_DENYLIST_ENV = "CODEKIT_RELEASE_DENYLIST"
+
+
+def _release_allow_rules(config: Dict[str, Any], extra: Sequence[str]) -> List[Tuple[str, str]]:
+    """允许规则 `<glob>:<模式名>`（配置 release_check.allow 与 --allow）；模式名为 * 时该文件全部模式都放过。"""
+    rules: List[Tuple[str, str]] = []
+    configured = (config.get("release_check") or {}).get("allow", []) if isinstance(config.get("release_check"), dict) else []
+    for rule in list(configured) + list(extra):
+        if not isinstance(rule, str) or ":" not in rule:
+            raise DispatchError("release-check 的允许规则要写成 <glob>:<模式名>，例如 tests/fixtures/**:home path：%r" % (rule,), EXIT_USAGE)
+        pattern, label = rule.rsplit(":", 1)
+        label = label.strip()
+        if label != "*" and label not in RELEASE_PATTERNS:
+            raise DispatchError("release-check 没有名为 %r 的模式（可用：%s 或 *）" % (label, "、".join(RELEASE_PATTERNS)), EXIT_USAGE)
+        rules.append((pattern.strip(), label))
+    return rules
+
+
+def cmd_release_check(args: argparse.Namespace) -> int:
+    """推送前扫描：已跟踪与未忽略的文件里有没有凭据形状、家目录路径、内网地址，以及仓库之外拒绝清单里的字符串。
+
+    扫到 0 个文件算失败不算通过（不在 Git 检出里、或 git 失败时，“clean: 0 files”是假的绿灯）；
+    二进制文件列为未扫描，要人眼看。拒绝清单放在仓库之外（环境变量 %s 指路径，缺省 ~/.config/code-kit/
+    release-denylist.txt）：把不能出现的字符串写进仓库就等于发布了它们；命中只报编号。
+    """ % RELEASE_DENYLIST_ENV
+    repo = Repo.discover(args.repo)
+    config = repo.config()
+    rules = _release_allow_rules(config, args.allow or [])
+    proc = git(["ls-files", "-co", "--exclude-standard", "-z"], repo.root, check=False)
+    names = [x.decode("utf-8", "replace") for x in proc.stdout.split(b"\0") if x]
+    if proc.returncode != 0 or not names:
+        raise DispatchError("release-check 没有扫描任何文件（不是 Git 检出，或 git 失败）：这不是通过", EXIT_FAIL)
+    deny_path = Path(args.denylist) if args.denylist else Path(
+        os.environ.get(RELEASE_DENYLIST_ENV) or (Path.home() / ".config" / "code-kit" / "release-denylist.txt"))
+    if is_within(deny_path.resolve(), repo.root):
+        raise DispatchError("拒绝清单不能放在仓库里面：%s" % deny_path, EXIT_USAGE)
+    deny: List[str] = []
+    if deny_path.is_file():
+        deny = [line.strip().lower() for line in deny_path.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.startswith("#")]
+    self_name = display_path(Path(__file__).resolve(), repo.root).replace(os.sep, "/")
+    problems: List[str] = []
+    unscanned: List[str] = []
+    scanned = 0
+    for name in names:
+        path = repo.root / name
+        if not path.is_file() or _is_link_or_junction(str(path)):
+            continue
+        if path.suffix.lower() in RELEASE_BINARY_SUFFIXES:
+            unscanned.append(name)
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            unscanned.append(name)
+            continue
+        scanned += 1
+        allowed = {label for pattern, label in rules if fnmatch_path(name, pattern)}
+        for label, pattern in RELEASE_PATTERNS.items():
+            if "*" in allowed or label in allowed or name == self_name:
+                continue
+            for match in pattern.finditer(content):
+                line_no = content.count("\n", 0, match.start()) + 1
+                problems.append("%s:%d: %s: %s…" % (name, line_no, label, match.group(0)[:24]))
+                if sum(1 for p in problems if p.startswith(name + ":")) >= 20:
+                    problems.append("%s: 命中过多，其余省略" % name)
+                    break
+            else:
+                continue
+            break
+        lowered = content.lower()
+        for index, entry in enumerate(deny, 1):
+            if entry in lowered:
+                problems.append("%s: 含拒绝清单第 %d 项" % (name, index))
+    if unscanned:
+        print("NOT SCANNED（%d 个二进制或不可读文件）：%s——推送前人眼看一遍" % (len(unscanned), ", ".join(unscanned[:30])))
+    for problem in problems:
+        print(problem)
+    if problems:
+        print("release-check：%d 处命中，%d 个文本文件。确认是假阳性的，用 --allow '<glob>:<模式名>' 或 "
+              "dispatch.config.json 的 release_check.allow 放过" % (len(problems), scanned))
+        return EXIT_FAIL
+    print("clean: %d 个文本文件%s" % (scanned, "，拒绝清单 %d 项" % len(deny) if deny else "，没有拒绝清单"))
+    return EXIT_OK
+
+
+def fnmatch_path(name: str, pattern: str) -> bool:
+    """仓库相对路径对 glob 的匹配，口径与合同 Scope 相同（glob_regex：`**` 跨目录，`*` 不跨）；
+    以 `/` 结尾的写法是目录前缀。"""
+    name = name.replace(os.sep, "/")
+    pattern = pattern.replace(os.sep, "/")
+    if pattern.endswith("/"):
+        return name.startswith(pattern)
+    return glob_regex(pattern, False).fullmatch(name) is not None
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
@@ -5678,6 +6292,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model")
     p.add_argument("--thinking")
     p.add_argument("--out", help="同时写入 JSON 文件（仅限 .agent/runs/_env/ 或 _reports/）")
+    p.add_argument("--probe-decisions", action="store_true",
+                   help="向决策模型发一次最小请求（会联网、会产生极少费用），验证凭据、端点与回复形状（2.6.0）")
     p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("smoke", help="最小连通性试跑（会调用模型并产生费用）")
@@ -5741,6 +6357,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_dir")
     p.add_argument("--timeout", type=int, default=540, help="最多等待的秒数（默认 540；到时仍在运行时退出码 3）")
     p.add_argument("--interval", type=float, default=5.0, help=argparse.SUPPRESS)
+    p.add_argument("--assess", action="store_true",
+                   help="等待时定期让决策模型判断运行健康（run-health，2.6.0）；只打印建议，永不停止运行")
+    p.add_argument("--assess-interval", type=float, default=60.0, help="两次健康判断的最小间隔秒数（默认 60）")
     p.set_defaults(func=cmd_wait)
 
     p = sub.add_parser("sync-adapters", help="把 .agents/skills 中的技能复制到 .claude/skills（Claude Code 适配）")
@@ -5761,7 +6380,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", help="列出 attempt")
     p.add_argument("task_id", nargs="?", help="task-id（列出全部）、task-id.vN、task-id/attempt-NNN 或 attempt 路径")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--assess", action="store_true", help="对运行中的 attempt 做一次运行健康判断（run-health，2.6.0）")
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("decisions", help="决策模型记录的回放（2.6.0）")
+    dsub = p.add_subparsers(dest="decisions_cmd")
+    pr = dsub.add_parser("replay", help="把 shadow / on 的答案与 verdict、变异、tick 并排列出")
+    pr.add_argument("task_id", nargs="?", help="只看这个任务（缺省全部）")
+    pr.add_argument("--json", action="store_true")
+    pr.add_argument("--out", help="写到文件（仅限 .agent/runs/_env/ 或 _reports/）")
+    p.set_defaults(func=cmd_decisions)
+
+    p = sub.add_parser("release-check", help="推送前扫描凭据形状、家目录路径、内网地址与仓库外的拒绝清单（2.6.0）")
+    p.add_argument("--allow", action="append", help="放过 <glob>:<模式名>（可重复；模式名 * 放过该文件全部模式）")
+    p.add_argument("--denylist", help="拒绝清单路径（缺省读环境变量 %s 或 ~/.config/code-kit/release-denylist.txt）"
+                                      % RELEASE_DENYLIST_ENV)
+    p.set_defaults(func=cmd_release_check)
 
     p = sub.add_parser("metrics", help="汇总试运行指标")
     p.add_argument("--out")

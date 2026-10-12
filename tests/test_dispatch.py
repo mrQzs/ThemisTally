@@ -2400,106 +2400,316 @@ def test_v250_validate_time_allocation_and_dod_separator():
           d01["text"] == "行为正确" and d01["evidence"] == ["V01"], (problems, d01))
 
 
-def test_v250_summary_notes_and_doctor_note():
-    """2.5.0：summary 备注掩盖退出码的管道、没有清理的临时目录、执行器自宣的解读；doctor 不带模型参数时说明未检查。"""
-    cases = {
-        "python -m pytest -q | tail -n 5": True,
-        "python -m pytest -q 2>&1 | head -20": True,
-        "python run_tests.py || true": True,
-        "set -o pipefail; python -m pytest -q | tail -n 5": False,
-        "python -m pytest -q | tail -n 5; echo ${PIPESTATUS[0]}": False,
-        'T=$(mktemp -d); python run_tests.py > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"': False,
-        "ls | wc -l": True,
-        "git status --short": False,
-    }
-    wrong = {cmd: pd._masked_exit_mention(cmd) for cmd, expected in cases.items()
-             if bool(pd._masked_exit_mention(cmd)) != expected}
-    check("masked exit codes are recognised, pipefail and PIPESTATUS are not", not wrong, wrong)
-    leak_cases = {
-        "T=$(mktemp -d); python x.py > $T/out; cat $T/out": True,
-        'T=$(mktemp -d); python x.py > "$T/out"; rm -rf "$T"': False,
-        "python -c \"import tempfile; d = tempfile.mkdtemp(); print(d)\"": True,
-        "python -c \"import tempfile, shutil; d = tempfile.mkdtemp(); shutil.rmtree(d)\"": False,
-        "python -c \"import tempfile; from pathlib import Path\nwith tempfile.TemporaryDirectory() as d: print(d)\"": False,
-        "python -m pytest -q": False,
-    }
-    wrong = {cmd: pd._temp_dir_without_cleanup(cmd) for cmd, expected in leak_cases.items()
-             if bool(pd._temp_dir_without_cleanup(cmd)) != expected}
-    check("temp dirs without a cleanup in the same command are recognised", not wrong, wrong)
-    msg = lambda text, kind="thinking": {"content": [{"type": kind, kind: text}]}  # noqa: E731
-    phrase_cases = [("This is a judgment call; I'll go with the stricter reading.", 1),
-                    ("I'll note this as an interpretation and move on.", 1),
-                    ("The contract is explicit here, no interpretation needed.", 0),
-                    ("我理解为两个键都要保留，按这个实现。", 1),
-                    ("按合同第 3 条实现。", 0)]
-    wrong = [(text, len(pd.interpretation_mentions(msg(text), 7)))
-             for text, expected in phrase_cases if len(pd.interpretation_mentions(msg(text), 7)) != expected]
-    check("self-declared interpretations are recognised in text and thinking", not wrong, wrong)
+def _decision_server(answers_by_name):
+    """本机回放服务：按问题名给答案（noul 的 p、choice 的选项名、score 的等级），其他形状照官方文档。
 
-    repo, base = make_repo("v250summary")
-    run_ok(repo)
-    events_path = WORK / "v250-events.jsonl"
-    worktree = worktree_of(repo)
-    events = [
-        {"type": "session", "version": 3, "id": "s", "timestamp": "t", "cwd": str(worktree)},
-        {"type": "agent_start"},
-        {"type": "tool_execution_start", "toolCallId": "b1", "toolName": "bash",
-         "args": {"command": "python run_tests.py 2>&1 | tail -n 3"}},
-        {"type": "tool_execution_end", "toolCallId": "b1", "toolName": "bash", "result": {}, "isError": False},
-        {"type": "tool_execution_start", "toolCallId": "b2", "toolName": "bash",
-         "args": {"command": "T=$(mktemp -d); python run_tests.py > $T/out; cat $T/out"}},
-        {"type": "tool_execution_end", "toolCallId": "b2", "toolName": "bash", "result": {}, "isError": False},
-        {"type": "message_end", "message": {"role": "assistant", "content": [
-            {"type": "thinking", "thinking": "The spec says one thing and the tests another. I'll note this as an "
-                                             "interpretation: keep both keys."},
-            {"type": "text", "text": "Done."}], "provider": "step", "model": "step-5-preview",
-            "stopReason": "stop", "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0,
-                                            "totalTokens": 2, "cost": {"total": 0.0}}}},
-        {"type": "agent_end", "messages": [], "willRetry": False},
-        {"type": "agent_settled"},
-    ]
-    events_path.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
-    summary, _final = pd.summarize_events(events_path, worktree, {"provider": "step", "model": "step-5-preview",
-                                                                    "thinking": "high"})
-    check("the event summary records the three new observations",
-          [m["event_line"] for m in summary["masked_exit_commands"]] == [3]
-          and "| tail" in summary["masked_exit_commands"][0]["match"]
-          and [m["event_line"] for m in summary["temp_dirs_without_cleanup"]] == [5]
-          and summary["interpretation_mention_count"] == 1
-          and summary["interpretation_mentions"][0]["line"] == 7
-          and summary["interpretation_mentions"][0]["kind"] == "thinking", summary)
-    # 写进 attempt 的 events-summary.json，再生成 summary.md：报告没有列出解读时是“复审需要关注”，管道与临时目录是备注。
-    ev_path = rd(repo) / "events-summary.json"
-    ev = jload(ev_path)
-    ev.update({k: summary[k] for k in ("masked_exit_commands", "temp_dirs_without_cleanup",
-                                       "interpretation_mention_count", "interpretation_mentions")})
-    ev_path.write_text(json.dumps(ev, ensure_ascii=False), encoding="utf-8")
-    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
-    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
-    attention = text.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in text else ""
-    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
-    check("summary lists the masked pipe and the temp dir as notes and the unreported interpretation as attention",
-          "掩盖退出码的写法（1 条命令，例如事件流第 3 行" in notes
-          and "创建了临时目录、同一条命令里没有清理（1 条，例如事件流第 5 行" in notes
-          and "执行器自行宣布了 1 处解读" in attention and "都为空" in attention, text)
-    status_path = rd(repo) / "report-status.json"
-    status = jload(status_path)
-    status["unresolved_questions"] = 1
-    status_path.write_text(json.dumps(status), encoding="utf-8")
-    pd.write_summary(rd(repo), pd.Repo(repo.resolve()))
-    text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
-    notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
-    check("a reported question turns the interpretation line into a note",
-          "执行器自行宣布了 1 处解读" in notes and "核对它们都在报告" in notes, text)
+    `answers_by_name[name]` 也可以是一个 (status_code, body) 元组，模拟 422/429/529；`"__crash__"` 让回复不是 JSON。
+    返回 (server, port, calls)；用完 server.shutdown(); server.server_close()。
+    """
+    import http.server
+    import threading
+    calls = []
 
-    code, out = tool(repo, "doctor")
-    data = json.loads(out)
-    check("doctor without --provider/--model says the executor was not checked",
-          any("未检查执行模型与凭据" in note for note in data["notes"]) and "executor_model_listed" not in data, data)
-    code, out = tool(repo, "doctor", "--provider", "step", "--model", "step-5-preview")
-    data = json.loads(out)
-    check("doctor with the model arguments does not add the note",
-          not any("未检查执行模型" in note for note in data["notes"]) and "executor_model_listed" in data, data)
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            request = json.loads(self.rfile.read(length).decode("utf-8"))
+            calls.append({"path": self.path, "request": request, "auth": self.headers.get("Authorization")})
+            special = answers_by_name.get("__status__")
+            if special:
+                code, body = special
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+                return
+            answers = {}
+            for name, question in request["questions"].items():
+                kind = question["type"]
+                wanted = answers_by_name.get(name)
+                if kind == "noul":
+                    answers[name] = {"type": "noul", "noul": 0.1 if wanted is None else float(wanted)}
+                elif kind == "choice":
+                    options = list(question["criteria"])
+                    pick = wanted if wanted in options else options[0]
+                    rest = 0.25 / (len(options) - 1)
+                    answers[name] = {"type": "choice", "choice": pick,
+                                     "probabilities": {o: (0.75 if o == pick else rest) for o in options},
+                                     "confidence": 0.625}
+                else:
+                    n = len(question["criteria"])
+                    level = int(wanted) if wanted is not None else 0
+                    answers[name] = {"type": "score", "score": float(level),
+                                     "probabilities": {str(i): (1.0 if i == level else 0.0) for i in range(n)},
+                                     "confidence": 1.0, "legend": {str(i): "L%d" % i for i in range(n)}}
+            body = json.dumps({"model": "jev-test-1.13.0", "answers": answers,
+                               "usage": {"input_tokens": 321, "output_tokens": 0}}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1], calls
+
+
+def _install_decisions(repo):
+    """测试仓库只复制了 pi_dispatch.py：把决策模块与插件目录也放进去（真实用法里它们在 kit 旁边）。"""
+    (repo / "scripts/codekit").mkdir(exist_ok=True)
+    (repo / "scripts/codekit/__init__.py").write_text("", encoding="utf-8")
+    shutil.copy(str(KIT / "scripts/codekit/decisions.py"), str(repo / "scripts/codekit/decisions.py"))
+    shutil.copytree(str(KIT / "plugins/decisions"), str(repo / "plugins/decisions"))
+
+
+def _decisions_config(repo, port, mode="shadow", **extra):
+    write_config(repo, decisions=dict({"mode": mode, "base_url": "http://127.0.0.1:%d" % port,
+                                       "api_key_env": "CODEKIT_TEST_DECISIONS_KEY", "timeout_seconds": 5,
+                                       "budget_seconds": 30}, **extra))
+
+
+def test_v260_decisions_shadow_and_on():
+    """2.6.0：D1 报告筛查进 summary 的“决策”节（shadow 不改关注项，on 加提示行）；D2 变异等价进结果行；fail-open。"""
+    repo, base = make_repo("v260decisions")
+    _install_decisions(repo)
+    server, port, calls = _decision_server({"claims_unsupported": 0.9, "weakened_tests": 0.2, "severity": 2,
+                                            "equivalent": 0.85, "untested": 0.1})
+    try:
+        _decisions_config(repo, port, "shadow")
+        env = {"CODEKIT_TEST_DECISIONS_KEY": "local-test-key"}
+        code, out = run_ok(repo, **env)
+        summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+        records = [json.loads(line) for line in (rd(repo) / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
+        obs = jload(rd(repo) / "observations.json")
+        check("shadow: the report screen is asked once, recorded without the state text, and shown as a section",
+              code == 0 and len(records) == 1 and records[0]["point"] == "report-screen"
+              and records[0]["status"] == "answered" and "state_sha256" in records[0] and "state" not in records[0]
+              and "## 决策" in summary and "自述完成而无证据（claims_unsupported）：p=0.90" in summary
+              and "误导程度（severity）：2.00/3" in summary and obs.get("decisions") == {"report_screen": "answered", "reason": ""},
+              (out, summary, records))
+        check("shadow: nothing reaches the attention list and the gates do not read it",
+              "决策模型提示" not in summary and jload(rd(repo) / "events-summary.json").get("ok") is True, summary)
+        request = calls[0]
+        check("the request has the documented shape and the local key only",
+              request["path"] == "/v1/systemone" and request["request"]["model"] == "jev-1.13.0"
+              and set(request["request"]["questions"]) == {"claims_unsupported", "chose_interpretation", "scope_creep",
+                                                            "weakened_tests", "severity"}
+              and request["auth"] == "Bearer local-test-key"
+              and request["request"]["state"]["executor_report"]["text"]
+              and "definition_of_done" in request["request"]["state"], request)
+        # on 模式：第二个 attempt；高概率的 noul 与 severity 进“复审需要关注”，并标注来源。
+        _decisions_config(repo, port, "on")
+        tool(repo, "prepare", "normalize-query.v1")
+        code, out = tool(repo, "run", "normalize-query/attempt-002", env=dict(env, STUB_SCENARIO="ok"))
+        summary2 = (rd(repo, 2) / "summary.md").read_text(encoding="utf-8")
+        attention = summary2.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in summary2 else ""
+        check("on: a noul above the action threshold and the severity become attention lines marked as the model's",
+              "决策模型提示（report-screen/claims_unsupported p=0.90）" in attention
+              and "决策模型提示（report-screen/severity 2.00）" in attention
+              and "weakened_tests" not in attention and "这不是裁定" in attention, summary2)
+        # D2：漏掉的变异在 on 模式下带后缀，计数不变；shadow 只记录。
+        spec = {"command": [PY, "run_tests.py"], "timeout_seconds": 120,
+                "mutations": [{"name": "等价改写", "file": "src/normalize.py", "old": "q.split()", "new": "q.split(None)"},
+                              {"name": "不转小写", "file": "src/normalize.py", "old": ".lower()", "new": ""}]}
+        spec_path = WORK / "v260-spec.json"
+        spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+        code, out = tool(repo, "mutate", "normalize-query/attempt-002", "--spec", str(spec_path), env=env)
+        record = jload(rd(repo, 2) / "mutations/01/mutations.json")
+        lines = [line for line in out.splitlines() if line.startswith(("CAUGHT", "MISSED"))]
+        check("on: a missed mutation carries the equivalence hint, the caught one does not, counts are unchanged",
+              code == 0 and record["counts"] == {"caught": 1, "missed": 1, "skipped": 0, "error": 0}
+              and lines[0].startswith("MISSED  M01 等价改写") and "决策：可能等价 p=0.85" in lines[0]
+              and lines[1].startswith("CAUGHT  M02") and "决策" not in lines[1]
+              and record["results"][0]["decision"]["status"] == "answered" and "decision" not in record["results"][1]
+              and record["decisions"]["calls"] == 1 and record["decisions"]["mode"] == "on"
+              and (rd(repo, 2) / "mutations/01/decisions.jsonl").is_file()
+              and "决策（mutation-equivalence, on）：1 次调用，1 次有答案" in out, (out, record))
+        # fail-open：服务返回 429 时命令照常完成，记录是无意见。
+        calls.clear()
+        server.shutdown(); server.server_close()
+    finally:
+        server.shutdown(); server.server_close()
+    server2, port2, calls2 = _decision_server({"__status__": (429, '{"error": "slow down"}')})
+    try:
+        _decisions_config(repo, port2, "on")
+        code, out = tool(repo, "mutate", "normalize-query/attempt-002", "--spec", str(spec_path), env=env)
+        record = jload(rd(repo, 2) / "mutations/02/mutations.json")
+        check("fail-open: a rate-limited endpoint leaves the mutation run intact and records no_opinion",
+              code == 0 and record["counts"]["missed"] == 1
+              and record["results"][0]["decision"]["status"] == "no_opinion"
+              and record["results"][0]["decision"]["reason"] == "rate_limited"
+              and "决策" not in [l for l in out.splitlines() if l.startswith("MISSED")][0]
+              and len(calls2) == 2, (out, record))  # 一次重试
+    finally:
+        server2.shutdown(); server2.server_close()
+    # 没有 key、标记文件、模式 off：都不调用。
+    _decisions_config(repo, port2, "on")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-002", "--spec", str(spec_path))
+    record = jload(rd(repo, 2) / "mutations/03/mutations.json")
+    check("a custom endpoint without its own key is still called without a header; a dead endpoint is fail-open",
+          code == 0 and record["counts"]["missed"] == 1 and record["results"][0]["decision"]["status"] == "no_opinion"
+          and record["results"][0]["decision"]["reason"] == "network", record["results"][0].get("decision"))
+    (repo / ".agent/DECISIONS_OFF").write_text("", encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-002", "--spec", str(spec_path), env=env)
+    record = jload(rd(repo, 2) / "mutations/04/mutations.json")
+    check("the marker file turns decisions off whatever the config says",
+          code == 0 and record["decisions"] is None and "decision" not in record["results"][0], record)
+    (repo / ".agent/DECISIONS_OFF").unlink()
+    write_config(repo, decisions={"mode": "maybe"})
+    code, out = tool(repo, "prepare", "normalize-query.v1")
+    check("a broken decisions config is a usage error at prepare, not a silent off",
+          code == pd.EXIT_USAGE and "decisions 无效" in out, out)
+    write_config(repo, decisions={"mode": "on", "base_url": "http://127.0.0.1:%d" % port2})
+    code, out = tool(repo, "prepare", "normalize-query.v1")
+    check("a custom endpoint must name its own key variable",
+          code == pd.EXIT_USAGE and "api_key_env" in out, out)
+
+
+def test_v260_run_health_doctor_replay_and_metrics():
+    """2.6.0：D3 的 state 与判断在进程内用假传输验证；doctor 的 decisions 块；decisions replay；metrics 的一行。"""
+    repo, base = make_repo("v260health")
+    _install_decisions(repo)
+    server, port, calls = _decision_server({"progressing": 0.2, "blocked": 0.8, "looping": 0.1, "done": 0.05,
+                                            "action": "prepare_next_contract", "claims_unsupported": 0.3})
+    env = {"CODEKIT_TEST_DECISIONS_KEY": "local-test-key"}
+    try:
+        _decisions_config(repo, port, "on")
+        run_ok(repo, **env)
+        run_dir = rd(repo)
+        # 进程内：用本仓库的 pi_dispatch 与一个指向回放服务的会话评估已结束 attempt 的事件流。
+        sys.path.insert(0, str(repo / "scripts"))
+        import importlib
+        decisions = importlib.import_module("codekit.decisions")
+        settings = decisions.settings_from_config(jload(repo / ".agent/dispatch.config.json"), repo / ".agent",
+                                                  repo / "plugins/decisions")
+        session = decisions.Session(settings, run_dir / "decisions.jsonl", environ=env)
+        session.batteries = decisions.load_batteries(repo / "plugins/decisions/questions")
+        tracker = {}
+        first = pd.assess_run(run_dir, session, tracker)
+        second = pd.assess_run(run_dir, session, tracker)
+        state = calls[-1]["request"]["state"]
+        check("run-health: the state carries the goal, the recent output, tools and measured facts",
+              state["goal"] and state["recent_output"] and isinstance(state["recent_tools"], list)
+              and state["tool_calls_recent"] >= 1 and state["seconds_since_new_event"] >= 0
+              and state["output_is_repeating"] is False, state)
+        check("run-health: the line shows the four readings and the suggestion; two consecutive ticks raise the hint",
+              "决策（run-health, on）：推进 0.20 · 被挡 0.80 · 打转 0.10 · 完成 0.05 · 建议 prepare_next_contract" in first
+              and "决策模型提示" not in first and "决策模型提示：建议 prepare_next_contract（连续 2 次）" in second
+              and tracker["streak"]["prepare_next_contract"] == 2, (first, second))
+        wait_code, wait_out = tool(repo, "wait", "normalize-query/attempt-001", "--assess", "--timeout", "5", env=env)
+        check("wait --assess on a finished attempt just ends", wait_code == 0 and "已结束" in wait_out, wait_out)
+        status_code, status_out = tool(repo, "status", "normalize-query", "--assess", env=env)
+        check("status --assess prints the table without assessments when nothing is running",
+              status_code == 0 and "决策" not in status_out, status_out)
+        # doctor：decisions 块只记环境变量名与布尔值。
+        code, out = tool(repo, "doctor", env=env)
+        facts = json.loads(out)["decisions"]
+        check("doctor describes the decisions setup without the key value",
+              facts["mode"] == "on" and facts["env_var_name"] == "CODEKIT_TEST_DECISIONS_KEY"
+              and facts["env_var_set"] is True and facts["official_endpoint"] is False
+              and [b["id"] for b in facts["batteries"]] == ["mutation-equivalence", "report-screen", "run-health"]
+              and facts["probe"] is None and "local-test-key" not in out, out)
+        code, out = tool(repo, "doctor", "--probe-decisions", env=env)
+        facts = json.loads(out)["decisions"]
+        check("doctor --probe-decisions makes one minimal call and reports it",
+              facts["probe"]["ok"] is True and facts["probe"]["served_model"] == "jev-test-1.13.0"
+              and calls[-1]["request"]["questions"] == {"ok": {"type": "noul",
+                                                              "instructions": "The text reports that every test passed."}}, facts)
+        code, out = tool(repo, "doctor")
+        data = json.loads(out)
+        check("doctor without the variable says every call would be no_key",
+              data["decisions"]["env_var_set"] is False and any("未设置" in n for n in data["notes"]), data["notes"])
+        # replay 与 metrics。
+        tool(repo, "check", "normalize-query/attempt-001")
+        code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", review(repo, "PASS"))
+        check("verdict recorded for the replay", code == 0, out)
+        code, out = tool(repo, "decisions", "replay")
+        check("decisions replay pairs the report screen with the verdict and lists the health ticks",
+              code == 0 and "| normalize-query/attempt-001 | PASS | on | 0.3 |" in out
+              and "通过类 attempt 均值（1）" in out and "| normalize-query/attempt-001 | 2 | prepare_next_contract 2 |" in out, out)
+        code, out = tool(repo, "decisions", "replay", "--json")
+        payload = json.loads(out)
+        check("decisions replay --json has totals", payload["totals"]["calls"] >= 3 and payload["report_screen"][0]["verdict"] == "PASS", payload)
+        code, out = tool(repo, "metrics")
+        check("metrics counts the decision calls and estimates the cost",
+              code == 0 and "| 决策调用（Jev，2.6.0） | 3 次，有答案 3 · 输入 token 963 · 估算费用 0.0000 美元 |" in out, out)
+    finally:
+        server.shutdown(); server.server_close()
+        if str(repo / "scripts") in sys.path:
+            sys.path.remove(str(repo / "scripts"))
+        for name in [m for m in sys.modules if m == "codekit" or m.startswith("codekit.")]:
+            del sys.modules[name]
+
+
+def test_v260_release_check_and_dod_intent():
+    """2.6.0：release-check 的命中、放过、拒绝清单与零文件；DoD 的“目的”子句进 JSON 的 intent。"""
+    repo, base = make_repo("v260release")
+    (repo / "notes.md").write_text("see /Users/alice/work and C:\\Users\\bob\\x and 192.168.1.20 and host.ts.net\n",
+                                   encoding="utf-8")
+    (repo / "tests/fixtures").mkdir()
+    (repo / "tests/fixtures/sample.txt").write_text("path /home/carol/repo ok\n", encoding="utf-8")
+    (repo / "key.txt").write_text("token sk-abcdefghijklmnopqrstuvwxyz0123\n", encoding="utf-8")
+    (repo / "logo.png").write_bytes(b"\x89PNG\r\n")
+    (repo / "version.txt").write_text("Windows 10.0.26100.1234 build\n", encoding="utf-8")
+    code, out = tool(repo, "release-check")
+    check("release-check finds home paths, private addresses and key shapes, lists binaries, and fails",
+          code == pd.EXIT_FAIL and "notes.md:1: home path: /Users/alice/" in out and "home path: C:\\Users\\bob\\" in out
+          and "private address: 192.168.1.20" in out and "private address: host.ts.net" in out
+          and "tests/fixtures/sample.txt:1: home path: /home/carol/" in out and "key.txt:1: api key: sk-abcdefghij" in out
+          and "NOT SCANNED（1 个二进制或不可读文件）：logo.png" in out and "version.txt" not in out
+          and "scripts/pi_dispatch.py" not in out, out)
+    code, out = tool(repo, "release-check", "--allow", "tests/fixtures/**:home path", "--allow", "notes.md:*")
+    check("--allow silences a pattern for a glob and everything for a file",
+          code == pd.EXIT_FAIL and "sample.txt" not in out and "notes.md" not in out and "key.txt:1: api key" in out, out)
+    write_config(repo, release_check={"allow": ["tests/fixtures/**:home path", "notes.md:*", "key.txt:api key"]})
+    deny = WORK / "deny.txt"
+    deny.write_text("# comment\nCAROL\n", encoding="utf-8")
+    code, out = tool(repo, "release-check", "--denylist", str(deny))
+    check("the config allow list and the external denylist (reported by index only) work together",
+          code == pd.EXIT_FAIL and "sample.txt: 含拒绝清单第 1 项" in out and "carol" not in out.split("含拒绝清单")[1][:40]
+          and "api key" not in out, out)
+    deny_other = WORK / "deny-other.txt"
+    deny_other.write_text("ZEBRA" + chr(10), encoding="utf-8")
+    code, out = tool(repo, "release-check", "--denylist", str(deny_other), "--allow", "tests/fixtures/**:*",
+                     "--allow", ".agent/**:home path")
+    check("clean when everything is allowed (the test config's worktree_root is a home path too)",
+          code == 0 and "clean:" in out and "拒绝清单 1 项" in out, out)
+    (repo / "deny-inside.txt").write_text("x\n", encoding="utf-8")
+    code, out = tool(repo, "release-check", "--denylist", str(repo / "deny-inside.txt"))
+    check("a denylist inside the repository is refused", code == pd.EXIT_USAGE and "仓库里面" in out, out)
+    code, out = tool(repo, "release-check", "--allow", "bad-rule")
+    check("a malformed allow rule is a usage error", code == pd.EXIT_USAGE and "<glob>:<模式名>" in out, out)
+    empty = WORK / "v260-empty"
+    remove_tree(empty)
+    empty.mkdir()
+    code, out = sh([PY, str(KIT / "scripts/pi_dispatch.py"), "--repo", str(empty), "release-check"], empty, check=False)
+    check("outside a git checkout release-check is not a pass", code != 0, out)
+    # DoD 的“目的”子句。
+    md = build_md(contract(base, 2)).replace(
+        "- D01: 行为正确；证据：V01。", "- D01: 行为正确；证据：V01；目的：保住空白折叠与小写化的真实语义，而不是让测试变绿。")
+    derived, problems = pd.derive_contract_json(md, "目的")
+    d01 = derived["definition_of_done"][0]
+    check("a DoD line's 目的 clause becomes intent and leaves text and evidence intact",
+          d01["text"] == "行为正确" and d01["evidence"] == ["V01"]
+          and d01["intent"] == "保住空白折叠与小写化的真实语义，而不是让测试变绿" and "intent" not in derived["definition_of_done"][1],
+          (problems, d01))
+    md2 = build_md(contract(base, 2)).replace("- D01: 行为正确；证据：V01。", "- D01: 行为正确；目的：真实语义；证据：V01。")
+    derived2, _ = pd.derive_contract_json(md2, "目的在前")
+    check("the 目的 clause may precede the evidence", derived2["definition_of_done"][0]["intent"] == "真实语义"
+          and derived2["definition_of_done"][0]["evidence"] == ["V01"], derived2["definition_of_done"][0])
+    data = contract(base, 2)
+    data["definition_of_done"][0]["intent"] = "真实语义"
+    write_plan(repo, base, 2, md=md2, raw=data)
+    code, out = tool(repo, "validate", "normalize-query.v2")
+    check("validate accepts an intent", code == 0 and "合同有效" in out, out)
+    data["definition_of_done"][0]["intent"] = ""
+    write_plan(repo, base, 3, md=md2, raw=data)
+    code, out = tool(repo, "validate", "normalize-query.v3")
+    check("validate rejects an empty intent", code != 0 and "intent（目的）必须是非空字符串" in out, out)
 
 
 if __name__ == "__main__":

@@ -1161,7 +1161,7 @@ def root_patterns(value: str) -> List[Tuple[str, int, int]]:
     """为一个根路径生成按分段匹配的正则 [(regex, 分段数, 最长写法长度)]。
 
     写法来源：原值、realpath，以及二者在 Windows 上的 8.3 短名与长名形式。分段数相同的写法逐段合并为
-    “长名|短名”的备选，所以只有部分分段写成短名的混合写法（例如 C:\\Users\\ADMINI~1\\AppData\\...\\长名目录）
+    “长名|短名”的备选，所以只有部分分段写成短名的混合写法（例如 C:\\Users\\SOMEON~1\\AppData\\...\\长名目录）
     也能匹配。盘符可写成 C: 或 MSYS 的 /c。
     """
     variants: List[str] = []

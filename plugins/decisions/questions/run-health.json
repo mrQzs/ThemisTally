@@ -1,0 +1,55 @@
+{
+  "id": "run-health",
+  "version": "1.0.0",
+  "description": "D3: while an attempt is running, is the executor progressing, blocked, looping or done? Code measures silence and repetition first; the model judges only what code cannot. Asked by `wait --assess` and `status --assess`; the answer never stops the run.",
+  "state_fields": ["goal", "recent_output", "recent_tools", "seconds_since_new_event", "seconds_running", "tool_calls_recent", "output_is_repeating"],
+  "questions": {
+    "progressing": {
+      "type": "noul",
+      "label": "在推进",
+      "instructions": "`recent_output` and `recent_tools` show real progress toward `goal`: new files edited, new commands run, new results obtained. Restating the plan, re-reading the same files or summarising what was already done is not progress.",
+      "criteria": {
+        "true": "New concrete steps toward the goal appear in the recent output.",
+        "false": "The recent output restates, re-plans, re-reads or repeats without new results."
+      }
+    },
+    "blocked": {
+      "type": "noul",
+      "label": "被挡住",
+      "instructions": "The executor hit an error, a missing dependency, a contradiction in its instructions or a permission it cannot grant itself, and `recent_output` does not show it getting past that obstacle.",
+      "criteria": {
+        "true": "An unresolved obstacle is visible and the executor is not past it.",
+        "false": "No obstacle is visible, or the executor already got past it."
+      }
+    },
+    "looping": {
+      "type": "noul",
+      "label": "在打转",
+      "instructions": "`recent_output` shows the same edit, command or line of reasoning repeated with no change in outcome. `output_is_repeating` is a measured fact about the text; judge whether the repetition is a loop rather than a legitimate retry that differs each time.",
+      "criteria": {
+        "true": "The same action is repeated with the same result.",
+        "false": "Repeated actions differ or converge on a result."
+      }
+    },
+    "done": {
+      "type": "noul",
+      "label": "已完成",
+      "instructions": "`goal` has been completed and the executor is writing, or has written, its final report; nothing of the task remains to be done.",
+      "criteria": {
+        "true": "The work is complete and only the final report remains.",
+        "false": "Work is still in progress, or the report is not the final one."
+      }
+    },
+    "action": {
+      "type": "choice",
+      "label": "建议",
+      "instructions": "What should the planner do about this run right now? Judge from the measured facts and the recent output. The run is never stopped by this answer; the planner only decides what to prepare.",
+      "criteria": {
+        "keep_waiting": "Work is underway and nothing is needed from the planner.",
+        "prepare_next_contract": "The run has stalled, looped or is blocked in a way that will not resolve by itself; the planner should prepare the next contract version while this run finishes or times out.",
+        "collect": "The goal looks finished; the planner should expect the run to end soon and prepare the review."
+      }
+    }
+  },
+  "thresholds": {"action": 0.70, "alert_after": 2, "stall_seconds": 180}
+}

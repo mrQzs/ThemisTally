@@ -1,0 +1,61 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "decision-questions",
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "scripts/codekit/decisions.py",
+        "--check-battery",
+        "plugins/decisions/questions"
+      ],
+      "deterministic": true,
+      "id": "battery-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "network-decisions"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "decisions",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "decisions.readme",
+      "kind": "file",
+      "path": "plugins/decisions/README.md",
+      "sha256": "dd232798d2bfe9cace86a742fbd2431547b067601ffbcce1519929041e9388b4"
+    },
+    {
+      "id": "decisions.mutation-equivalence",
+      "kind": "file",
+      "path": "plugins/decisions/questions/mutation-equivalence.json",
+      "sha256": "e4d9ce1adeb5d61296b0606964c38f809e11faacc0b84f1c68b2001ae67ba92f"
+    },
+    {
+      "id": "decisions.report-screen",
+      "kind": "file",
+      "path": "plugins/decisions/questions/report-screen.json",
+      "sha256": "a7de4ac53d19acd6977a453ce5efe3f477506d4fed689d5bf0021484c8540511"
+    },
+    {
+      "id": "decisions.run-health",
+      "kind": "file",
+      "path": "plugins/decisions/questions/run-health.json",
+      "sha256": "655bd2d59039e188478687cfb5ad607eb3c330c4b2f8ba8f70f32db56839df85"
+    }
+  ],
+  "roles": [],
+  "schema_version": 1,
+  "version": "1.0.0"
+}
