@@ -1,5 +1,15 @@
 # 变更记录
 
+## 2.7.0：配置管理器（2026-10-13）
+
+设计说明 [docs/code-kit-2.7-配置管理器.md](docs/code-kit-2.7-配置管理器.md)。用户要求一个简单的配置管理器，能配置 Jev key 等；四项决定均选推荐项（CLI 加一次性本机网页、系统凭据库、全部键、规划端直接做）。
+
+- **`scripts/kit_config.py`**（标准库单文件，调度器的 `config …` 子命令原样转发）：`show [--json]` 列出 `dispatch.config.json` 每个键的生效值、来源（config / default / 环境变量）与说明，决策模式的生效值与原因、标记文件、凭据来源；`validate` 整份校验（复用调度器各键自己的校验函数：`extra_protected_paths`、`planner_paths`、`commit_trailers`、`release_check`、`decisions` 等，未知键是错误，下划线说明键放过）；`set <键路径> <值>` / `unset`（值先按 JSON 解析，键路径最多两层；写前整份校验，无效不写；原子替换，保留说明键与顺序）；`init` 从 kit 的示例生成；`decisions off|shadow|on` 与 `decisions marker on|off`。
+- **凭据库 `scripts/codekit/secrets.py`**：以环境变量名为名字；解析顺序环境变量 → 系统凭据库（Windows 凭据管理器经 `ctypes` 调 `advapi32`，`TargetName` 为 `code-kit:<名>`；macOS `security`；Linux `secret-tool`）→ `~/.config/code-kit/secrets/<名>`（0600，Windows 上 `icacls` 只留当前用户）；进程级开关 `CODEKIT_SECRET_STORE=system|file|off`。只报有无与来源，不报值。`decisions.py` 在环境变量缺失时问它；`doctor` 多报 `secret_source` 与 `secret_store_mode`。Windows 凭据管理器用一次性测试条目实机往返过（存、读、删）。
+- **`config secret set <名>`**：一次性本机网页（`127.0.0.1` 随机端口、24 字节随机令牌路径、拒绝外来 Host、`no-referrer`、`autocomplete=off`、只接受一次 POST、十分钟关闭、不记日志），用户粘贴后值直接进凭据库；`--tty` 用 `getpass`；规划端只看到 `{"stored": true, "backend": …, "verified": null}`；`--verify` 存完向决策模型发一次最小请求（会联网、会花钱，要用户明确加）。`secret check` 报来源，`secret remove` 报从哪里删了；没有打印值的命令。
+- **技能**：check-pi-env 第 8、9 步（配置与凭据都走配置管理器）、dispatch-pi 的决策一节、review-pi 的 `release_check.allow` 写法。
+- 测试：`tests/test_kit_config.py`（12 个用例：配置命令、文件凭据库、假 advapi32 的 Windows 后端往返、一次性网页的令牌/Host/一次性/超时、命令从不打印值、决策模型取存着的 key）；`tests/test_dispatch.py` 新增 1 项场景 11 个检查（转发、doctor 来源、环境变量缺失时决策调用带上凭据库里的 key、标记文件、没有 kit_config.py 时的提示）；既有测试把 `CODEKIT_SECRET_STORE` 设为 off，不碰真实凭据库。
+
 ## 2.6.1：测试命令的退出码被掩盖时进“复审需要关注”（2026-10-12）
 
 - **summary**：掩盖退出码的命令按是否测试或检查命令（pytest、unittest、run_tests、npm test、go test、cargo test、tox、compileall、mypy、ruff、eslint、tsc 等）分开：有测试命令被 `| tail` 之类掩盖时，写进“复审需要关注”——执行器没有看到被检查程序的退出码，报告里的 `reported_exit_code` 是推断值，以 `check` 为准；只有探索命令（grep、git diff 接 head）时仍是备注。`events-summary.json` 的 `masked_exit_commands` 每条多一个 `check` 布尔值。

@@ -92,7 +92,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
        - 它需要 Git 作者身份：没有配置 user.name / user.email 时，先提供 GIT_AUTHOR_* 与 GIT_COMMITTER_* 环境变量。doctor 会提前提示身份缺失。
        - dispatch.config.json 的 `commit_trailers` 是仓库级的固定尾注。本次规划端与其中的署名不符时，用 `--no-config-trailers` 去掉它们，再用 `--trailer "Key: value"`（可重复）写上实际的署名。
      - commit / open_pr / push / merge / deploy：只在已授权时做。核对暂存文件列表与候选补丁一致，不要 `git add -A`。
-       - 推送前先 `bash scripts/dispatch-pi.sh release-check`（2.6.0）：扫描已跟踪文件里的凭据形状、家目录路径、内网地址与仓库之外拒绝清单里的字符串。夹具里已知的本机路径前缀写进 `dispatch.config.json` 的 `release_check.allow`，不要每次口头提醒；列为未扫描的二进制文件人眼看一遍。命中退出码 1；扫到 0 个文件也是失败，不是通过。
+       - 推送前先 `bash scripts/dispatch-pi.sh release-check`（2.6.0）：扫描已跟踪文件里的凭据形状、家目录路径、内网地址与仓库之外拒绝清单里的字符串。夹具里已知的本机路径前缀写进 `dispatch.config.json` 的 `release_check.allow`（`config set release_check.allow '["<glob>:home path"]'`，2.7.0），不要每次口头提醒；列为未扫描的二进制文件人眼看一遍。命中退出码 1；扫到 0 个文件也是失败，不是通过。
      - 主分支已前进或需要解决冲突时，要在组合结果上重新运行受影响的检查。
      - 并行批次：
        - HEAD 仍是基线时第一个候选可以 `git merge --ff-only`；HEAD 已因合同提交前进时每个候选都 `git cherry-pick`（它们的父提交是同一基线；`branch` 的输出会给出合适的命令）；

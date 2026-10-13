@@ -66,7 +66,8 @@ argument-hint: "<task-id>.vN"
 - **在它真正运行的地方验证**：`doctor --probe-decisions`（要用户批准）从规划端会话发一次最小请求；通过的单元测试证明不了这个会话里环境变量可见。
 - **按时钟不按条数**：每条命令的决策调用总时长有上限（`budget_seconds`，默认 20 秒），到点后剩下的都是“无意见”，命令照常完成。
 - **一切 fail-open，门禁不读它**：无 key、超时、限流、畸形或自相矛盾的回复都记为“无意见”；G0–G6、verdict、变异计数、退出码与它无关。标记文件 `.agent/DECISIONS_OFF` 一票否决（给内容不能出机器的仓库）。
-- **只发脱敏后的相关片段**：凭据只认环境变量名；看起来含凭据的片段整段不发；记录里不存 state 原文。
+- **只发脱敏后的相关片段**：凭据只认环境变量名（环境变量没有时问凭据库，2.7.0）；看起来含凭据的片段整段不发；记录里不存 state 原文。
+- **开关都走配置管理器**：`bash scripts/dispatch-pi.sh config decisions shadow|on|off`、`config decisions marker on|off`（标记文件一票否决）、`config secret set <环境变量名>`（用户在一次性本机网页里粘贴）。
 
 ## 并行批次
 

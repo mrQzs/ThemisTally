@@ -1,6 +1,6 @@
 # Code-Kit 2.7 设计说明：配置管理器（`kit-config`）
 
-状态：草案（2026-10-12）。等用户决定第 6 节，再实施。
+状态：2.7.0 已做完（2026-10-13）。
 
 ## 1. 为什么做
 
@@ -53,4 +53,5 @@
 
 ## 7. 进度与遗留
 
-- 2026-10-12：核对现状与 hermes 的两处实现，写成本说明。
+- 2026-10-12：核对现状与 hermes 的两处实现，写成本说明；用户决定第 6 节四项。
+- 2026-10-13：2.7.0 做完（见 CHANGELOG）：`scripts/kit_config.py`、`scripts/codekit/secrets.py`、调度器 `config` 转发与 doctor 来源、`decisions.py` 问凭据库；Windows 凭据管理器用 `KIT_CONFIG_SELFTEST` 条目实机往返（存、读、删）；其余全部离线。真实 Jev 的 `--verify` NOT_RUN。
