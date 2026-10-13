@@ -614,7 +614,7 @@ class Session:
         if remaining <= 0.1:
             self._record(self._no_opinion(result, "budget"))
             return result
-        key = self.environ.get(settings.api_key_env) or ""
+        key = self.environ.get(settings.api_key_env) or _stored_secret(settings.api_key_env) or ""
         if settings.official and not key:
             self._record(self._no_opinion(result, "no_key"))
             return result
@@ -725,11 +725,39 @@ def usage_totals(records: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             "no_opinion_reasons": reasons}
 
 
+def _stored_secret(name: str) -> Optional[str]:
+    """环境变量没有时问凭据库（2.7.0，codekit/secrets.py）；值只在这里经过一次。进程级开关 CODEKIT_SECRET_STORE。"""
+    try:
+        from . import secrets as store
+    except ImportError:  # pragma: no cover - the module sits next to this one
+        return None
+    try:
+        return store.resolve(name)
+    except (store.SecretError, OSError):
+        return None
+
+
+def _secret_source(name: str, environ: Mapping[str, str]) -> str:
+    if environ.get(name):
+        return "env"
+    try:
+        from . import secrets as store
+        return store.source(name)
+    except (ImportError, OSError):  # pragma: no cover
+        return "none"
+
+
 def describe(settings: Settings, plugin_dir: Optional[Path], environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
-    """给 doctor 的事实：生效模式与原因、凭据环境变量名与是否已设置（只记布尔值）、清单摘要、SDK 对照。"""
+    """给 doctor 的事实：生效模式与原因、凭据环境变量名、是否已设置与来源（只记名字与来源）、清单摘要、SDK 对照。"""
     environ = environ if environ is not None else os.environ
     facts = settings.as_dict()
     facts["api_key_set"] = bool(environ.get(settings.api_key_env))
+    facts["api_key_source"] = _secret_source(settings.api_key_env, environ)
+    try:
+        from . import secrets as store
+        facts["secret_store_mode"] = store.store_mode()
+    except ImportError:  # pragma: no cover
+        facts["secret_store_mode"] = None
     facts["official_endpoint"] = settings.official
     facts["plugin_dir"] = str(plugin_dir) if plugin_dir else None
     batteries: List[Dict[str, Any]] = []

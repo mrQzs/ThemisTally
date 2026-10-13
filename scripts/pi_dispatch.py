@@ -25,6 +25,7 @@
   sync-adapters  把 .agents/skills 中的技能复制到 .claude/skills（Claude Code 适配）
   decisions  决策模型（Jev）记录的回放：shadow 答案对照 verdict 与复审记录（2.6.0）
   release-check  推送前扫描已跟踪文件里的凭据形状、家目录路径与内网地址（2.6.0）
+  config     配置管理器（scripts/kit_config.py）：看、改、校验 dispatch.config.json，决策开关，凭据存取（2.7.0）
 
 它不是安全沙箱：Pi、setup 与检查命令都以调用者的操作系统账户运行。
 无人值守或不可信输入必须放进容器、虚拟机或受控沙箱（第 5.4 节）。
@@ -47,7 +48,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.6.1"
+TOOL_VERSION = "2.7.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -6004,6 +6005,7 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
     facts["decisions"] = {
         "mode": described["mode"], "configured_mode": described["configured_mode"], "reason": described["reason"],
         "env_var_name": described["api_key_env"], "env_var_set": described["api_key_set"],
+        "secret_source": described.get("api_key_source"), "secret_store_mode": described.get("secret_store_mode"),
         "base_url": described["base_url"], "official_endpoint": described["official_endpoint"],
         "model": described["model"], "points": described["points"], "marker_present": described["marker_present"],
         "plugin_dir": described["plugin_dir"], "batteries": described["batteries"],
@@ -6012,16 +6014,17 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
     problems.extend("决策插件的问题清单无效：%s" % item for item in described["battery_problems"])
     if settings.configured_mode != "off" and not settings.active:
         notes.append("决策配置为 %s，实际生效 off：%s" % (settings.configured_mode, settings.reason))
-    if settings.active and not described["api_key_set"]:
-        notes.append("决策模式为 %s，但环境变量 %s 在本会话里未设置：%s" % (
+    if settings.active and described.get("api_key_source") == "none":
+        notes.append("决策模式为 %s，但凭据 %s 既不在环境变量也不在凭据库里：%s（用 `config secret set %s` 存入）" % (
             settings.mode, settings.api_key_env,
-            "每次调用都会记为无意见（no_key）" if settings.official else "自定义端点将不带凭据头调用"))
+            "每次调用都会记为无意见（no_key）" if settings.official else "自定义端点将不带凭据头调用",
+            settings.api_key_env))
     if settings.active:
         notes.append("决策功能生效（%s）：先用 shadow 记录对照 verdict 与复审记录（decisions replay），再决定开 on"
                      % settings.mode)
     if getattr(args, "probe_decisions", False):
-        if settings.official and not described["api_key_set"]:
-            problems.append("--probe-decisions：环境变量 %s 未设置，无法探测" % settings.api_key_env)
+        if settings.official and described.get("api_key_source") == "none":
+            problems.append("--probe-decisions：凭据 %s 既不在环境变量也不在凭据库里，无法探测" % settings.api_key_env)
         else:
             result = module.probe(settings)
             facts["decisions"]["probe"] = result
@@ -6029,6 +6032,15 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
                 problems.append("决策探测失败：%s%s" % (result["reason"], "（%s）" % result["detail"] if result.get("detail") else ""))
     else:
         facts["decisions"]["probe"] = None
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    """config …：转发给 scripts/kit_config.py（配置管理器，2.7.0）；参数原样传过去，--repo 一并传。"""
+    try:
+        import kit_config
+    except ModuleNotFoundError:
+        raise DispatchError("配置管理器不可用：scripts/kit_config.py 不在本工具旁边", EXIT_USAGE)
+    return kit_config.main(list(args.args), repo=args.repo)
 
 
 def cmd_decisions(args: argparse.Namespace) -> int:
@@ -6405,6 +6417,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--json", action="store_true")
     pr.add_argument("--out", help="写到文件（仅限 .agent/runs/_env/ 或 _reports/）")
     p.set_defaults(func=cmd_decisions)
+
+    p = sub.add_parser("config", help="配置管理器：show / validate / set / unset / init / decisions / secret（2.7.0）")
+    p.add_argument("args", nargs=argparse.REMAINDER, help="交给 scripts/kit_config.py 的参数；`config --help` 看全部")
+    p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("release-check", help="推送前扫描凭据形状、家目录路径、内网地址与仓库外的拒绝清单（2.6.0）")
     p.add_argument("--allow", action="append", help="放过 <glob>:<模式名>（可重复；模式名 * 放过该文件全部模式）")

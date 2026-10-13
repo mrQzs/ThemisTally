@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -49,6 +50,11 @@ def good_transport(p_noul=0.2, choice_index=0, score_level=1, tokens=42):
 
     transport.calls = calls
     return transport
+
+
+def setUpModule():
+    # 决策测试不碰真实凭据库：只认环境变量。
+    os.environ["CODEKIT_SECRET_STORE"] = "off"
 
 
 def settings(mode="shadow", **extra):

@@ -27,6 +27,7 @@ PROG = Path(PY).stem
 IS_WINDOWS = os.name == "nt"
 BASE_ENV = dict(os.environ)
 BASE_ENV["PI_DISPATCH_PI_CMD"] = json.dumps([PY, str(HERE / "stub_pi.py")])
+BASE_ENV["CODEKIT_SECRET_STORE"] = "off"  # 端到端测试不碰真实凭据库（2.7.0）
 for _name in ("PI_EXEC_PROVIDER", "PI_EXEC_MODEL", "PI_EXEC_THINKING", "STUB_SCENARIO", "STUB_MODELS", "STUB_AUTH",
               "STUB_PTL", "STUB_NOCOST", "STUB_LIST_FAIL", "STUB_AUTH_DETAIL"):
     BASE_ENV.pop(_name, None)
@@ -2626,7 +2627,8 @@ def test_v260_run_health_doctor_replay_and_metrics():
         code, out = tool(repo, "doctor")
         data = json.loads(out)
         check("doctor without the variable says every call would be no_key",
-              data["decisions"]["env_var_set"] is False and any("未设置" in n for n in data["notes"]), data["notes"])
+              data["decisions"]["env_var_set"] is False and data["decisions"]["secret_source"] == "none"
+              and any("既不在环境变量也不在凭据库" in n for n in data["notes"]), data["notes"])
         # replay 与 metrics。
         tool(repo, "check", "normalize-query/attempt-001")
         code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", review(repo, "PASS"))
@@ -2714,6 +2716,67 @@ def test_v260_release_check_and_dod_intent():
     write_plan(repo, base, 3, md=md2, raw=data)
     code, out = tool(repo, "validate", "normalize-query.v3")
     check("validate rejects an empty intent", code != 0 and "intent（目的）必须是非空字符串" in out, out)
+
+
+def test_v270_config_manager_through_the_dispatcher():
+    """2.7.0：`config …` 转发给 kit_config；doctor 报告凭据来源；决策模型从文件凭据库取 key（环境变量缺失时）。"""
+    repo, base = make_repo("v270config")
+    _install_decisions(repo)
+    shutil.copy(str(KIT / "scripts/kit_config.py"), str(repo / "scripts/kit_config.py"))
+    shutil.copy(str(KIT / "scripts/codekit/secrets.py"), str(repo / "scripts/codekit/secrets.py"))
+    (repo / ".agent").mkdir(exist_ok=True)
+    shutil.copy(str(KIT / ".agent/dispatch.config.example.json"), str(repo / ".agent/dispatch.config.example.json"))
+    xdg = WORK / "v270-xdg"
+    env = {"CODEKIT_SECRET_STORE": "file", "XDG_CONFIG_HOME": str(xdg)}
+    code, out = tool(repo, "config", "show", "--json", env=env)
+    facts = json.loads(out)
+    check("config show --json is forwarded and reports the test config's worktree_root",
+          code == 0 and facts["keys"][1]["key"] == "worktree_root" and facts["keys"][1]["source"] == "config"
+          and facts["decisions"]["mode"] == "off" and facts["decisions"]["secret"]["store_mode"] == "file", out)
+    server, port, calls = _decision_server({"equivalent": 0.9})
+    try:
+        code, out = tool(repo, "config", "set", "decisions", json.dumps(
+            {"mode": "on", "base_url": "http://127.0.0.1:%d" % port, "api_key_env": "CODEKIT_TEST_STORED_KEY",
+             "timeout_seconds": 5, "budget_seconds": 30}), env=env)
+        check("config set writes a validated decisions block", code == 0 and "已写入" in out
+              and jload(repo / ".agent/dispatch.config.json")["decisions"]["mode"] == "on"
+              and jload(repo / ".agent/dispatch.config.json")["worktree_root"] == str(WORK / "worktrees"), out)
+        code, out = tool(repo, "config", "set", "decisions.mode", "maybe", env=env)
+        check("config set refuses an invalid value through the dispatcher", code == 1 and "没有写入" in out, out)
+        code, out = tool(repo, "config", "secret", "check", "CODEKIT_TEST_STORED_KEY", env=env)
+        check("config secret check reports none before storing", code == 0 and json.loads(out)["source"] == "none", out)
+        # 规划端不粘贴 key：测试直接用凭据库模块存一个测试值，模拟用户在网页里粘贴过。
+        sh([PY, "-c", "import sys; sys.path.insert(0, 'scripts'); from codekit import secrets; "
+                      "secrets.store('CODEKIT_TEST_STORED_KEY', 'stored-test-key-0123456789')"], repo,
+           env=dict(BASE_ENV, **env))
+        code, out = tool(repo, "config", "secret", "check", "CODEKIT_TEST_STORED_KEY", env=env)
+        check("config secret check reports the file store and never the value",
+              code == 0 and json.loads(out)["source"] == "file" and "stored-test-key" not in out, out)
+        code, out = tool(repo, "doctor", env=env)
+        data = json.loads(out)["decisions"]
+        check("doctor reports the secret source without the value",
+              data["env_var_set"] is False and data["secret_source"] == "file" and data["secret_store_mode"] == "file"
+              and "stored-test-key" not in out and not any("既不在环境变量也不在凭据库" in n for n in json.loads(out)["notes"]), out)
+        run_ok(repo, **env)
+        spec = {"command": [PY, "run_tests.py"], "timeout_seconds": 120,
+                "mutations": [{"name": "等价改写", "file": "src/normalize.py", "old": "q.split()", "new": "q.split(None)"}]}
+        spec_path = WORK / "v270-spec.json"
+        spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+        code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path), env=env)
+        check("the decision model is called with the stored key when the variable is unset",
+              code == 0 and "决策：可能等价 p=0.90" in out and calls and calls[-1]["auth"] == "Bearer stored-test-key-0123456789", out)
+        code, out = tool(repo, "config", "secret", "remove", "CODEKIT_TEST_STORED_KEY", env=env)
+        check("config secret remove reports where it removed from", code == 0 and json.loads(out)["removed_from"] == ["file"], out)
+        code, out = tool(repo, "config", "decisions", "marker", "on", env=env)
+        code, out = tool(repo, "config", "show", env=env)
+        check("the marker shows as the effective reason", code == 0 and "生效 off（配置 on，原因 marker）" in out, out)
+    finally:
+        server.shutdown(); server.server_close()
+    code, out = tool(repo, "config", "nope", env=env)
+    check("an unknown config subcommand is a usage error", code == 2, out)
+    repo_no = make_repo("v270nokit")[0]
+    code, out = tool(repo_no, "config", "show")
+    check("without kit_config.py next to the dispatcher the command says so", code == pd.EXIT_USAGE and "配置管理器不可用" in out, out)
 
 
 if __name__ == "__main__":
