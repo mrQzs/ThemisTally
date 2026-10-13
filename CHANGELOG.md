@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2.6.1：测试命令的退出码被掩盖时进“复审需要关注”（2026-10-12）
+
+- **summary**：掩盖退出码的命令按是否测试或检查命令（pytest、unittest、run_tests、npm test、go test、cargo test、tox、compileall、mypy、ruff、eslint、tsc 等）分开：有测试命令被 `| tail` 之类掩盖时，写进“复审需要关注”——执行器没有看到被检查程序的退出码，报告里的 `reported_exit_code` 是推断值，以 `check` 为准；只有探索命令（grep、git diff 接 head）时仍是备注。`events-summary.json` 的 `masked_exit_commands` 每条多一个 `check` 布尔值。
+  - 起因：KitExperiment serve-loop a001 的 15 条掩盖退出码的命令里 7 条是 pytest 自检（V01–V04 全部 `2>&1 | tail -n N`），2.6.0 的备注把它们与 8 条 grep/head 探索命令混在一起，独立复审逐条读事件流才分出来。
+- **plan-task/test-design**：同一信号的两个窗口各钉一条（serve-loop 的 oracle 漏钉“运行当中的中断”，变异 M14 漏掉，独立复审顺带发现 `running` 标志放在建目录之后的缝）。
+- 测试：`tests/test_dispatch.py` 的 2.5.0 场景改为核对关注项与 `check` 标记。
+
 ## 2.6.0：决策插件（Jev）与跨库引入（2026-10-12）
 
 设计说明 [docs/code-kit-2.6-决策插件.md](docs/code-kit-2.6-决策插件.md)。把“便宜但要判断”的事交给决策模型：它对一个 state 回答类型化的问题（choice / score / noul），返回概率与置信度，不写文本。三条不变量：**决策只是意见，G0–G6、verdict、计数、退出码永远不读它**；**一切 fail-open**（无 key、超时、限流、422、畸形或自相矛盾的回复都记为“无意见”，命令照常完成）；**只发脱敏后的相关片段**，凭据只认环境变量名，记录不存 state 原文。本轮全部离线验证，真实调用 NOT_RUN。
