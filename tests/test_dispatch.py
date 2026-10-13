@@ -2310,6 +2310,9 @@ def test_v250_summary_notes_and_doctor_note():
         {"type": "tool_execution_start", "toolCallId": "b2", "toolName": "bash",
          "args": {"command": "T=$(mktemp -d); python run_tests.py > $T/out; cat $T/out"}},
         {"type": "tool_execution_end", "toolCallId": "b2", "toolName": "bash", "result": {}, "isError": False},
+        {"type": "tool_execution_start", "toolCallId": "b3", "toolName": "bash",
+         "args": {"command": "grep -n def src/normalize.py | head -5"}},
+        {"type": "tool_execution_end", "toolCallId": "b3", "toolName": "bash", "result": {}, "isError": False},
         {"type": "message_end", "message": {"role": "assistant", "content": [
             {"type": "thinking", "thinking": "The spec says one thing and the tests another. I'll note this as an "
                                              "interpretation: keep both keys."},
@@ -2323,11 +2326,11 @@ def test_v250_summary_notes_and_doctor_note():
     summary, _final = pd.summarize_events(events_path, worktree, {"provider": "step", "model": "step-5-preview",
                                                                     "thinking": "high"})
     check("the event summary records the three new observations",
-          [m["event_line"] for m in summary["masked_exit_commands"]] == [3]
+          [(m["event_line"], m["check"]) for m in summary["masked_exit_commands"]] == [(3, True), (7, False)]
           and "| tail" in summary["masked_exit_commands"][0]["match"]
           and [m["event_line"] for m in summary["temp_dirs_without_cleanup"]] == [5]
           and summary["interpretation_mention_count"] == 1
-          and summary["interpretation_mentions"][0]["line"] == 7
+          and summary["interpretation_mentions"][0]["line"] == 9
           and summary["interpretation_mentions"][0]["kind"] == "thinking", summary)
     # 写进 attempt 的 events-summary.json，再生成 summary.md：报告没有列出解读时是“复审需要关注”，管道与临时目录是备注。
     ev_path = rd(repo) / "events-summary.json"
@@ -2339,8 +2342,9 @@ def test_v250_summary_notes_and_doctor_note():
     text = (rd(repo) / "summary.md").read_text(encoding="utf-8")
     attention = text.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in text else ""
     notes = text.split("## 备注")[1].split("\n## ")[0] if "## 备注" in text else ""
-    check("summary lists the masked pipe and the temp dir as notes and the unreported interpretation as attention",
-          "掩盖退出码的写法（1 条命令，例如事件流第 3 行" in notes
+    check("summary lists the masked test command as attention (2.6.1), the temp dir as a note, the unreported interpretation as attention",
+          "测试或检查命令的退出码被管道掩盖（1 条，例如事件流第 3 行" in attention and "另有 1 条探索命令" in attention
+          and "掩盖退出码" not in notes
           and "创建了临时目录、同一条命令里没有清理（1 条，例如事件流第 5 行" in notes
           and "执行器自行宣布了 1 处解读" in attention and "都为空" in attention, text)
     status_path = rd(repo) / "report-status.json"

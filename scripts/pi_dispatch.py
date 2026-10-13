@@ -47,7 +47,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.6.0"
+TOOL_VERSION = "2.6.1"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -381,6 +381,12 @@ MASKED_EXIT_RE = re.compile(
     r"\|\s*(?:tail|head|grep|egrep|sed|awk|cut|sort|uniq|wc|cat|less|more|tee)\b"
     r"|\|\|\s*(?:true|:)(?=\s|$)|;\s*(?:true|exit\s+0)\s*$", re.M)
 _PIPEFAIL_RE = re.compile(r"pipefail|PIPESTATUS")
+#: 测试或检查类的命令（2.6.1）：这类命令接上掩盖退出码的管道时，执行器没有看到被检查程序的退出码，报告里的
+#: reported_exit_code 是推断值——这不只是备注，复审要关注。KitExperiment serve-loop a001：15 条掩盖退出码的
+#: 命令里 7 条是 pytest 自检，独立复审逐条读事件流才分出来。
+_CHECK_COMMAND_RE = re.compile(
+    r"\b(?:pytest|unittest|run_tests|npm (?:run )?test|yarn test|pnpm test|go test|cargo test|tox|nox|ctest"
+    r"|make (?:test|check)|compileall|mypy|ruff|flake8|eslint|tsc)\b")
 # 创建了临时目录、同一条命令里却没有清理（2.5.0）：`TemporaryDirectory()` 作上下文管理器会自己清理，不算创建。
 _TEMP_DIR_CREATE_RE = re.compile(r"\bmkdtemp\s*\(|\bmktemp\b|New-TemporaryFile|GetTempFileName\s*\(", re.I)
 _TEMP_DIR_CLEANUP_RE = re.compile(
@@ -2701,7 +2707,8 @@ def summarize_events(events_path: Path, work_dir: Path, executor: Dict[str, Any]
                 commands.append(command[:500])
                 masked = _masked_exit_mention(command)
                 if masked:
-                    masked_exits.append({"event_line": number, "match": masked})
+                    masked_exits.append({"event_line": number, "match": masked,
+                                         "check": bool(_CHECK_COMMAND_RE.search(command))})
                 leak = _temp_dir_without_cleanup(command)
                 if leak:
                     temp_leaks.append({"event_line": number, "match": leak})
@@ -3474,9 +3481,17 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         attention.append("执行器报告了 %d 处合同矛盾或含义不明（executor-report.json 的 contract_conflicts）："
                          "逐条裁定后再下结论；相关实现是执行器的临时选择" % conflicts)
     masked = events.get("masked_exit_commands") or []
-    if masked:
+    masked_checks = [item for item in masked if item.get("check")]
+    if masked_checks:
+        # 2.6.1：测试或检查命令的退出码被管道掩盖，报告里的 reported_exit_code 是推断值，复审要关注；
+        # 验收证据仍是调度器在固定候选上的 check。
+        attention.append("测试或检查命令的退出码被管道掩盖（%d 条，例如事件流第 %s 行 `%s`；另有 %d 条探索命令也如此）："
+                         "执行器没有看到被检查程序的退出码，报告里的 reported_exit_code 是推断值，以 check 的结果为准"
+                         % (len(masked_checks), masked_checks[0]["event_line"],
+                            masked_checks[0]["match"].replace("`", "'"), len(masked) - len(masked_checks)))
+    elif masked:
         notes.append("掩盖退出码的写法（%d 条命令，例如事件流第 %s 行 `%s`）：管道之后的退出码是最后一个命令的，"
-                     "`|| true` 直接抹掉；核对报告里的退出码来自被检查的程序"
+                     "`|| true` 直接抹掉；都不是测试或检查命令"
                      % (len(masked), masked[0]["event_line"], masked[0]["match"].replace("`", "'")))
     leaks = events.get("temp_dirs_without_cleanup") or []
     if leaks:
