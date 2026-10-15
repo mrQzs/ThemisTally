@@ -36,6 +36,7 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -48,7 +49,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.7.0"
+TOOL_VERSION = "2.8.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -87,12 +88,20 @@ REQUIRED_MD_SECTIONS = ("Identity", "Goal", "Non-goals", "Repository facts", "Sc
                         "Steps", "Validation commands", "Definition of done", "Stop conditions", "Budget",
                         "Report back", "Forbidden")
 
+#: 调度器运行时实际加载的 kit 文件（2.8.0）：目标仓库把 kit 复制进 scripts/ 时，它们与调度器本身一样受保护。
+#: 只列实际加载的（配置管理器、决策与凭据、planner-v2 发布门禁及其依赖、决策插件），不列整个 scripts/codekit/：
+#: v2 参考实现的其余模块是否还交给执行器做，另行决定。tests/test_dispatch.py 用 import 扫描核对这份清单。
+KIT_LOADED_FILES = (
+    "scripts/kit_config.py", "scripts/codekit/__init__.py", "scripts/codekit/decisions.py",
+    "scripts/codekit/secrets.py", "scripts/codekit/plugins.py", "scripts/codekit/planner.py",
+    "scripts/codekit/planner_protocol.py", "scripts/codekit/protocols.py", "plugins/decisions/**",
+)
 # 执行器永远不得修改的路径：合同、证据、代理规则与调度器本身（不区分大小写匹配）。
 PROTECTED_PATTERNS = (
     ".agent/**", ".claude/**", ".codex/**", ".pi/**", ".agents/**", ".gitmodules",
     "**/AGENTS.md", "**/AGENTS.override.md", "**/CLAUDE.md", "**/CLAUDE.local.md",
     "scripts/pi_dispatch.py", "scripts/dispatch-pi.sh",
-)
+) + KIT_LOADED_FILES
 DEPENDENCY_PATTERNS = (
     "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json", "**/pnpm-lock.yaml",
     "**/pnpm-workspace.yaml", "**/yarn.lock", "**/bun.lock", "**/bun.lockb", "**/.npmrc",
@@ -1160,6 +1169,75 @@ def extra_protected_paths(config: Dict[str, Any]) -> List[str]:
     if not isinstance(values, list) or not all(isinstance(v, str) and not pattern_error(v) for v in values):
         raise DispatchError("dispatch.config.json 的 extra_protected_paths 必须是仓库相对路径模式的数组", EXIT_USAGE)
     return list(values)
+
+
+#: 价格表每个模型可写的单价字段（2.8.0）：每 per_tokens 个 token 的价格。
+PRICE_FIELDS = ("input", "output", "cache_read", "cache_write")
+#: events-summary.json 的 usage 字段 → 价格表的单价字段。
+USAGE_PRICE_FIELDS = (("input", "input"), ("output", "output"), ("cacheRead", "cache_read"), ("cacheWrite", "cache_write"))
+PRICE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def pricing_table(config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """dispatch.config.json 的 pricing（2.8.0）：按 ``<provider>/<model>`` 给执行模型的单价，metrics 用 token 乘单价估算费用。
+
+    kit 不内置任何价格，也不联网去查：单价、币种、来源与日期都由用户填（``config set pricing.<provider>/<model> …``）。
+    input、output 必填；cache_read、cache_write 可省，但某一轮用到了没有单价的类别时，这一轮不估算（不猜）。
+    """
+    table = config.get("pricing", {})
+
+    def bad(message: str) -> None:
+        raise DispatchError("dispatch.config.json 的 pricing 无效：%s" % message, EXIT_USAGE)
+
+    if not isinstance(table, dict):
+        bad("必须是对象，键为 <provider>/<model>")
+    out: Dict[str, Dict[str, Any]] = {}
+    for key, entry in table.items():
+        parts = key.split("/", 1) if isinstance(key, str) else []
+        if len(parts) != 2 or not all(MODEL_TOKEN_RE.match(part) for part in parts):
+            bad("键 %r 必须是 <provider>/<model>" % (key,))
+        if not isinstance(entry, dict):
+            bad("%s 必须是对象" % key)
+        unknown = sorted(set(entry) - set(PRICE_FIELDS) - {"currency", "per_tokens", "source", "as_of"})
+        if unknown:
+            bad("%s 有未知字段 %s" % (key, ", ".join(unknown)))
+        for field in PRICE_FIELDS:
+            value = entry.get(field)
+            if value is None and field in ("input", "output"):
+                bad("%s 缺少 %s 单价" % (key, field))
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value) or value < 0):
+                bad("%s.%s 必须是非负数" % (key, field))
+        per_tokens = entry.get("per_tokens", 1000000)
+        if isinstance(per_tokens, bool) or not isinstance(per_tokens, int) or per_tokens <= 0:
+            bad("%s.per_tokens 必须是正整数（缺省 1000000）" % key)
+        currency = entry.get("currency", "USD")
+        if not isinstance(currency, str) or not CURRENCY_RE.match(currency):
+            bad("%s.currency 必须是三个大写字母（例如 USD）" % key)
+        if not isinstance(entry.get("source"), str) or not entry["source"].strip():
+            bad("%s.source 必须写明价格来源（例如价格页与访问日期）" % key)
+        if not isinstance(entry.get("as_of"), str) or not PRICE_DATE_RE.match(entry["as_of"]):
+            bad("%s.as_of 必须是 YYYY-MM-DD" % key)
+        out[key] = dict(entry, per_tokens=per_tokens, currency=currency)
+    return out
+
+
+def estimate_cost(usage: Any, price: Dict[str, Any]) -> Optional[float]:
+    """按单价估算一轮的费用；某类 token 用到了却没有单价、或 usage 不完整时返回 None。"""
+    if not isinstance(usage, dict):
+        return None
+    total = 0.0
+    for usage_key, price_key in USAGE_PRICE_FIELDS:
+        tokens = usage.get(usage_key) or 0
+        if isinstance(tokens, bool) or not isinstance(tokens, (int, float)):
+            return None
+        if tokens:
+            unit = price.get(price_key)
+            if unit is None:
+                return None
+            total += tokens * float(unit) / price["per_tokens"]
+    return round(total, 6)
 
 
 #: 规划器在派遣期间会写的主工作区路径（合同、复审记录、路线图等）。运行期间这些路径的变化
@@ -3568,10 +3646,12 @@ def _decisions_module():
 
 
 def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_path: Optional[Path],
-                      point: Optional[str] = None):
+                      point: Optional[str] = None, *, strict: bool = False):
     """按 dispatch.config.json 的 decisions 建一个会话；模式 off、模块或插件缺失、决策点未启用时返回 None。
 
     配置写错是用法错误（DispatchError）：否则每条命令都会悄悄变成 off，而“日志安静”证明不了功能在跑。
+    问题清单与插件内容锁不符（2.8.0）时：``strict``（prepare）同样是用法错误，规划端当场修；
+    收集证据、变异、等待时本次不问，打印并记一条 ``battery_drift`` 无意见记录，命令照常完成。
     """
     module = _decisions_module()
     if module is None:
@@ -3583,12 +3663,31 @@ def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_
     if not settings.active or (point is not None and point not in settings.points):
         return None
     try:
-        batteries = module.load_batteries(DECISIONS_PLUGIN_DIR / "questions")
+        batteries = module.load_locked_batteries(DECISIONS_PLUGIN_DIR)
     except module.DecisionError as exc:
-        raise DispatchError("决策插件的问题清单无效：%s" % exc.detail, EXIT_USAGE)
+        if exc.code != "battery_drift" or strict:
+            raise DispatchError("决策插件的问题清单无效：%s" % exc.detail, EXIT_USAGE)
+        _record_battery_drift(settings, record_path, point, exc.detail)
+        return None
     session = module.Session(settings, record_path)
     session.batteries = batteries
     return session
+
+
+def _record_battery_drift(settings, record_path: Optional[Path], point: Optional[str], detail: str) -> None:
+    """问题清单与内容锁不符、本次不问：打印一行，并在记录里留一条无意见（summary 与 replay 读得到）。"""
+    print("NOTE  决策：问题清单与插件内容锁不符（battery_drift），本次不问决策模型：%s" % detail[:300], flush=True)
+    if record_path is None:
+        return
+    record = {"at": utc_now(), "point": point or "-", "battery_version": None, "battery_sha256": None,
+              "mode": settings.mode, "model": settings.model, "status": "no_opinion", "reason": "battery_drift",
+              "detail": detail[:300], "answers": {}, "latency_ms": 0, "usage": {}}
+    try:
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(record_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + chr(10))
+    except OSError:
+        pass
 
 
 def decide_report_screen(repo: "Repo", run_dir: Path, contract: Dict[str, Any], events: Dict[str, Any],
@@ -3640,8 +3739,9 @@ def _decisions_summary(run_dir: Path) -> Tuple[List[str], List[str]]:
     record = module.latest_by_point(module.read_records(run_dir / DECISIONS_RECORD)).get("report-screen")
     if not record:
         return [], []
-    lines = ["模式 %s · 模型 %s · 清单 report-screen %s（%s）" % (
-        record.get("mode"), record.get("model"), record.get("battery_version"), (record.get("battery_sha256") or "")[:12]),
+    lines = ["模式 %s · 模型 %s · 清单 report-screen %s" % (
+        record.get("mode"), record.get("model"), "与内容锁不符，本次没有问" if record.get("reason") == "battery_drift"
+        else "%s（%s）" % (record.get("battery_version"), (record.get("battery_sha256") or "")[:12])),
         "", "决策模型的答案只是提示，门禁不读它；中文输入上的准确率先用 shadow 记录对照（`decisions replay`）再决定开 on。", ""]
     attention: List[str] = []
     if record.get("status") != "answered":
@@ -3685,7 +3785,8 @@ def _decide_mutation(session, item: Dict[str, Any], original: bytes, spec: Dict[
     else:
         context = ""
     state = {"file": item["file"], "mutation": {"name": item["name"], "old": item["old"], "new": item["new"]},
-             "context": context[:4000], "test_command": " ".join(str(part) for part in spec["command"])}
+             "context": context[:4000],
+             "test_command": " ; ".join(" ".join(str(part) for part in c["argv"]) for c in spec["_commands"])}
     return session.ask(session.batteries["mutation-equivalence"], state, {"mutation": mid, "name": item["name"]})
 
 
@@ -4041,7 +4142,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if git(["check-ignore", "-q", ".agent/runs/probe"], repo.root, check=False).returncode != 0:
         raise DispatchError("请先把 .agent/runs/ 加入 .gitignore：运行证据含源码与日志，不应进入提交。", EXIT_BLOCKED)
     config = repo.config()
-    decisions_session(config, repo.agent_dir, None)  # 配置写错在这里就报，不等到收集证据时悄悄 off（2.6.0）
+    # 配置写错（2.6.0）或问题清单与内容锁不符（2.8.0）在这里就报，不等到收集证据时悄悄 off
+    decisions_session(config, repo.agent_dir, None, strict=True)
     md_path, json_path = repo.plan_paths(args.plan_key)
     raw_executor = read_json(json_path).get("executor", {})
     if raw_executor.get("provider") and raw_executor.get("model"):
@@ -4426,6 +4528,9 @@ def prepare_fresh_workspace(repo: Repo, run_dir: Path, meta: Dict[str, Any], con
 
 #: 变异清单里 command 的缺省时限（秒）。
 MUTATION_DEFAULT_TIMEOUT = 600
+#: 一份变异清单最多几条命令；命令 id 会写进日志文件名（2.8.0）。
+MUTATION_MAX_COMMANDS = 8
+MUTATION_COMMAND_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
 
 def _load_mutation_spec(path: Path) -> Tuple[Dict[str, Any], List[str]]:
@@ -4442,14 +4547,49 @@ def _load_mutation_spec(path: Path) -> Tuple[Dict[str, Any], List[str]]:
         return isinstance(value, str) and bool(value) and not os.path.isabs(value) \
             and ".." not in Path(value).parts
 
-    command = spec.get("command")
-    if not (isinstance(command, list) and command and all(isinstance(x, str) and x for x in command)):
-        problems.append("command 必须是非空的字符串数组（argv，不经过 shell）")
+    def argv_ok(value: Any) -> bool:
+        return isinstance(value, list) and bool(value) and all(isinstance(x, str) and x for x in value)
+
+    def timeout_ok(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
     if not relative_ok(spec.get("cwd", ".")):
         problems.append("cwd 必须是工作副本内的相对路径")
     timeout = spec.get("timeout_seconds", MUTATION_DEFAULT_TIMEOUT)
-    if not (isinstance(timeout, int) and not isinstance(timeout, bool) and timeout > 0):
+    if not timeout_ok(timeout):
         problems.append("timeout_seconds 必须是正整数")
+    commands: List[Dict[str, Any]] = []
+    if "commands" in spec and "command" in spec:
+        problems.append("command 与 commands 只能写一个（commands 是 2.8.0 的多条命令）")
+    elif "commands" in spec:
+        raw_commands = spec.get("commands")
+        if not (isinstance(raw_commands, list) and 1 <= len(raw_commands) <= MUTATION_MAX_COMMANDS):
+            problems.append("commands 必须是 1 到 %d 个对象的数组" % MUTATION_MAX_COMMANDS)
+            raw_commands = []
+        for index, entry in enumerate(raw_commands, start=1):
+            label = "commands[%d]" % index
+            if not isinstance(entry, dict) or set(entry) - {"id", "argv", "cwd", "timeout_seconds"}:
+                problems.append("%s 必须是只含 id、argv、cwd、timeout_seconds 的对象" % label)
+                continue
+            cid = entry.get("id")
+            if not isinstance(cid, str) or not MUTATION_COMMAND_ID_RE.match(cid):
+                problems.append("%s.id 必须匹配 %s（会写进日志文件名）" % (label, MUTATION_COMMAND_ID_RE.pattern))
+            elif any(c["id"] == cid for c in commands):
+                problems.append("%s.id 重复：%s" % (label, cid))
+            if not argv_ok(entry.get("argv")):
+                problems.append("%s.argv 必须是非空的字符串数组（argv，不经过 shell）" % label)
+            if not relative_ok(entry.get("cwd", spec.get("cwd", "."))):
+                problems.append("%s.cwd 必须是工作副本内的相对路径" % label)
+            if not timeout_ok(entry.get("timeout_seconds", timeout)):
+                problems.append("%s.timeout_seconds 必须是正整数" % label)
+            commands.append({"id": cid, "argv": entry.get("argv"), "cwd": entry.get("cwd", spec.get("cwd", ".")),
+                             "timeout_seconds": entry.get("timeout_seconds", timeout)})
+    elif not argv_ok(spec.get("command")):
+        problems.append("command 必须是非空的字符串数组（argv，不经过 shell）；多条命令写 commands（2.8.0）")
+    else:
+        commands.append({"id": "main", "argv": spec["command"], "cwd": spec.get("cwd", "."),
+                         "timeout_seconds": timeout})
+    known_ids = {c["id"] for c in commands}
     mutations = spec.get("mutations")
     if not (isinstance(mutations, list) and mutations):
         problems.append("mutations 必须是非空数组")
@@ -4479,7 +4619,35 @@ def _load_mutation_spec(path: Path) -> Tuple[Dict[str, Any], List[str]]:
         count = item.get("count", 1)
         if not (isinstance(count, int) and not isinstance(count, bool) and count >= 1):
             problems.append("%s.count 必须是正整数" % label)
+        expect_missed = item.get("expect_missed")
+        if expect_missed is not None:
+            if not (isinstance(expect_missed, list) and expect_missed
+                    and all(isinstance(x, str) for x in expect_missed) and len(set(expect_missed)) == len(expect_missed)):
+                problems.append("%s.expect_missed 必须是不重复的命令 id 数组" % label)
+            elif set(expect_missed) - known_ids:
+                problems.append("%s.expect_missed 里有清单没有的命令：%s"
+                                % (label, ", ".join(sorted(set(expect_missed) - known_ids))))
+        equivalent = item.get("equivalent")
+        if equivalent is not None:
+            if not isinstance(equivalent, str) or not equivalent.strip():
+                problems.append("%s.equivalent 必须是写明等价理由的非空字符串" % label)
+            elif expect_missed is not None:
+                problems.append("%s 同时写了 equivalent 与 expect_missed：等价已表示每条命令都预期漏掉" % label)
+    if not problems:
+        spec["_commands"] = commands
     return spec, problems
+
+
+def _mutation_expected(item: Dict[str, Any], command_id: str) -> str:
+    """这条变异在这条命令下预期的结果（2.8.0）：标了等价或列进 expect_missed 的预期漏掉，其余预期抓住。"""
+    if item.get("equivalent") or command_id in (item.get("expect_missed") or []):
+        return "missed"
+    return "caught"
+
+
+def _spec_has_expectations(spec: Dict[str, Any]) -> bool:
+    return any(isinstance(item, dict) and (item.get("equivalent") or item.get("expect_missed"))
+               for item in spec.get("mutations") or [])
 
 
 def _insertion_only(item: Dict[str, Any]) -> bool:
@@ -4603,16 +4771,16 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     finally:
         if not args.keep_workspace:
             remove_worktree(repo, workspace)
-    counts = _mutation_counts(results)
+    counts = _mutation_counts(results, spec["_commands"][0]["id"] if len(spec["_commands"]) > 1 else None)
     payload = {"run": number, "started_at": started, "ended_at": utc_now(), "candidate_tree": candidate["tree"],
-               "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
-               "cwd": spec.get("cwd", "."), "workspace": str(workspace),
+               "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["_commands"][0]["argv"],
+               "cwd": spec["_commands"][0]["cwd"], "commands": spec["_commands"], "workspace": str(workspace),
                "workspace_kept": bool(args.keep_workspace), "candidate_files_left_modified": drifted,
-               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results,
-               "decisions": _mutation_decisions_payload(session)}
+               "baseline": baseline, "counts": counts, "counts_by_command": _mutation_counts_by_command(results, spec),
+               "warnings": warnings, "results": results, "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
-    log_event(run_dir, "mutations", run=number, **counts)
-    _print_mutation_totals(results, counts, display_path(out_dir / "mutations.json", repo.root))
+    log_event(run_dir, "mutations", run=number, commands=[c["id"] for c in spec["_commands"]], **counts)
+    _print_mutation_totals(results, spec, display_path(out_dir / "mutations.json", repo.root))
     _print_mutation_decisions(session, out_dir / DECISIONS_RECORD)
     if drifted:
         print("WARN  变异后候选文件没有恢复原样：%s（记录仍有效，干净副本%s）"
@@ -4622,26 +4790,56 @@ def cmd_mutate(args: argparse.Namespace) -> int:
 
 def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, env: Dict[str, str],
                          grace: float, log_prefix: str, session=None) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """先不做变异跑一次 command，再逐个套用变异、运行、恢复；返回（基线记录, 结果列表）。
+    """先不做变异把每条命令各跑一次，再逐个套用变异、依次跑每条命令、恢复；返回（基线记录, 结果列表）。
 
     基线没有通过时结果列表为空，调用方决定怎么报告。判定与打印两个入口（attempt 与 --tree）完全相同：
     只有退出码非 0 或超时算抓住，会话中断记为出错，只插入代码的变异在结果行标出（2.5.0 抽出）。
     ``log_prefix`` 是结果行里日志路径前面的目录（attempt 模式是 ``mutations/``，--tree 模式为空）。
-    ``session`` 是决策会话（2.6.0）：每条漏掉的变异问一次“等价改写还是测试缺口”，答案进记录的 ``decision``，
+    ``session`` 是决策会话（2.6.0）：意外漏掉的变异问一次“等价改写还是测试缺口”，答案进记录的 ``decision``，
     on 模式下进结果行后缀；caught/missed/skipped/error 的判定与计数与它无关。
+
+    2.8.0：清单可以有多条命令（``commands``），每条变异只套用一次、每条命令各跑一次，结果按命令记在
+    ``commands`` 里（第一条命令的结果同时留在记录顶层，单命令清单的记录形状不变）；每条变异可标预期
+    （``expect_missed`` / ``equivalent``），与预期不同的结果列进 ``unexpected``。
     """
-    base_item = {"argv": spec["command"], "cwd": spec.get("cwd", "."),
-                 "timeout_seconds": spec.get("timeout_seconds", MUTATION_DEFAULT_TIMEOUT), "expected_exit_code": 0}
+    commands = spec["_commands"]
+    multi = len(commands) > 1
+    labelled = multi or _spec_has_expectations(spec)
+
+    def run_id(base: str, command: Dict[str, Any]) -> str:
+        return "%s-%s" % (base, command["id"]) if multi else base
+
+    def item_for(command: Dict[str, Any], rid: str) -> Dict[str, Any]:
+        return {"id": rid, "argv": command["argv"], "cwd": command["cwd"],
+                "timeout_seconds": command["timeout_seconds"], "expected_exit_code": 0}
+
     results: List[Dict[str, Any]] = []
     print("MUTATE baseline ...", flush=True)
-    baseline = _run_command_item(dict(base_item, id="baseline"), workspace, env, out_dir, grace)
-    if not baseline["passed"]:
+    baseline_runs: Dict[str, Dict[str, Any]] = {}
+    for command in commands:
+        baseline_runs[command["id"]] = _run_command_item(item_for(command, run_id("baseline", command)), workspace,
+                                                         env, out_dir, grace)
+        if not baseline_runs[command["id"]]["passed"]:
+            break
+    failed = next((cid for cid, run in baseline_runs.items() if not run["passed"]), None)
+    baseline = dict(baseline_runs[failed] if failed else baseline_runs[commands[-1]["id"]])
+    if multi:
+        baseline["commands"] = baseline_runs
+        if failed:
+            baseline["failed_command"] = failed
+            baseline["reason"] = "命令 %s：%s" % (failed, baseline.get("reason") or baseline.get("status"))
+    if failed:
         return baseline, results
     for index, item in enumerate(spec["mutations"], start=1):
         mid = "M%02d" % index
         count = item.get("count", 1)
         record: Dict[str, Any] = {"id": mid, "name": item["name"], "file": item["file"],
                                   "count_expected": count, "insertion_only": _insertion_only(item)}
+        for key in ("equivalent", "expect_missed"):
+            if item.get(key):
+                record[key] = item[key]
+        runs: Dict[str, Dict[str, Any]] = {}
+        original = b""
         path = workspace / item["file"]
         if not path.is_file() or not is_within(path.resolve(), workspace):
             record.update(status="skipped", reason="文件不存在或位于工作副本之外")
@@ -4656,34 +4854,75 @@ def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, e
                     record.update(status="skipped", reason="old 出现 %d 次，期望 %d 次" % (found, count))
                 else:
                     try:
-                        run = _run_command_item(dict(base_item, id=mid), workspace, env, out_dir, grace)
+                        for command in commands:
+                            rid = run_id(mid, command)
+                            run = _run_command_item(item_for(command, rid), workspace, env, out_dir, grace)
+                            runs[command["id"]] = _mutation_outcome(run, out_dir / ("%s.log" % rid))
                     finally:
                         path.write_bytes(original)
-                    if run["status"] == "blocked":
-                        status = "error"
-                    elif not run["passed"] and _session_aborted(out_dir / ("%s.log" % mid), run):
-                        # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
-                        status = "error"
-                        run = dict(run, reason="测试会话被 KeyboardInterrupt 中断（退出码 2），后面的用例没有运行，"
-                                               "不算抓住；让测试拦住冒出的中断后重跑")
-                    else:
-                        status = "missed" if run["passed"] else "caught"
-                    record.update(status=status, exit_code=run.get("exit_code"),
-                                  timed_out=bool(run.get("timed_out")), log=run.get("log"),
-                                  reason=run.get("reason") or "")
-                    if status == "missed" and session is not None:
-                        record["decision"] = _decide_mutation(session, item, original, spec, mid)
+        if runs:
+            first = runs[commands[0]["id"]]
+            record.update({key: first[key] for key in ("status", "exit_code", "timed_out", "log", "reason")})
+            if multi:
+                record["commands"] = runs
+        statuses = {cid: run["status"] for cid, run in runs.items()} or {c["id"]: record["status"] for c in commands}
+        record["unexpected"] = [cid for cid, status in statuses.items()
+                                if status in ("caught", "missed") and status != _mutation_expected(item, cid)]
+        if session is not None and any(statuses[cid] == "missed" for cid in record["unexpected"]):
+            record["decision"] = _decide_mutation(session, item, original, spec, mid)
         results.append(record)
-        # 日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
-        # --tree 模式的记录目录没有固定名字：结果行只写日志文件名，attempt 模式照旧写 mutations/NN/Mxx.log。
-        shown_log = (log_prefix + record["log"] if log_prefix else record["log"].rsplit("/", 1)[-1])             if record.get("log") else ""
-        detail = [part for part in (record.get("reason") or "",
-                                    "只插入代码" if record["insertion_only"] else "",
-                                    "日志 %s" % shown_log if shown_log else "",
-                                    _mutation_decision_note(record.get("decision"), session)) if part]
-        print("%-7s %s %s%s" % (record["status"].upper(), mid, item["name"],
-                                "".join("  " + part for part in detail)), flush=True)
+        _print_mutation_record(record, item, commands, runs, multi, labelled, log_prefix, session)
     return baseline, results
+
+
+def _mutation_outcome(run: Dict[str, Any], log_path: Path) -> Dict[str, Any]:
+    """一次变异运行的判定：只有退出码非 0 或超时算抓住；被拦下的命令与中断的测试会话是出错。"""
+    if run["status"] == "blocked":
+        status = "error"
+    elif not run["passed"] and _session_aborted(log_path, run):
+        # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
+        status = "error"
+        run = dict(run, reason="测试会话被 KeyboardInterrupt 中断（退出码 2），后面的用例没有运行，"
+                               "不算抓住；让测试拦住冒出的中断后重跑")
+    else:
+        status = "missed" if run["passed"] else "caught"
+    return {"status": status, "exit_code": run.get("exit_code"), "timed_out": bool(run.get("timed_out")),
+            "log": run.get("log"), "reason": run.get("reason") or ""}
+
+
+def _print_mutation_record(record: Dict[str, Any], item: Dict[str, Any], commands: Sequence[Dict[str, Any]],
+                           runs: Dict[str, Dict[str, Any]], multi: bool, labelled: bool, log_prefix: str,
+                           session) -> None:
+    """结果行。单命令、没有预期标注的清单与 2.7 一样一条一行；否则每条命令一行，带 [命令] 与预期（2.8.0）。
+
+    日志按清单位置编号（M01…），与变异名称里自带的编号无关：每行写明位置编号与日志路径（2.4.1）。
+    --tree 模式的记录目录没有固定名字：结果行只写日志文件名，attempt 模式照旧写 mutations/NN/Mxx.log。
+    """
+    def shown_log(log: Optional[str]) -> str:
+        if not log:
+            return ""
+        return "日志 %s" % (log_prefix + log if log_prefix else log.rsplit("/", 1)[-1])
+
+    note = _mutation_decision_note(record.get("decision"), session)
+    rows = [(cid, runs[cid]) for cid in (c["id"] for c in commands) if cid in runs] or [(None, record)]
+    for cid, run in rows:
+        expectation = ""
+        if labelled and cid is not None and run["status"] in ("caught", "missed"):
+            expected = _mutation_expected(item, cid)
+            if run["status"] == "missed" and expected == "missed":
+                expectation = ("预期内：等价（%s）" % item["equivalent"] if item.get("equivalent")
+                               else "预期内（expect_missed）")
+            elif run["status"] == "missed":
+                expectation = "意外漏掉"
+            elif expected == "missed":
+                expectation = "意外：标了预期漏掉，却被抓住"
+        detail = [part for part in (run.get("reason") or "", expectation,
+                                    "只插入代码" if record["insertion_only"] else "", shown_log(run.get("log")),
+                                    note if run["status"] == "missed" and cid in record["unexpected"] + [None] else "")
+                  if part]
+        print("%-7s %s %s%s%s" % (run["status"].upper(), record["id"], item["name"],
+                                  " [%s]" % cid if multi and cid is not None else "",
+                                  "".join("  " + part for part in detail)), flush=True)
 
 
 def _mutation_decisions_payload(session) -> Optional[Dict[str, Any]]:
@@ -4703,17 +4942,58 @@ def _print_mutation_decisions(session, record_path: Path) -> None:
         session.mode, totals.get("calls", 0), totals.get("answered", 0), record_path))
 
 
-def _mutation_counts(results: Sequence[Dict[str, Any]]) -> Dict[str, int]:
-    return {status: sum(1 for r in results if r["status"] == status)
+def _mutation_counts(results: Sequence[Dict[str, Any]], command_id: Optional[str] = None) -> Dict[str, int]:
+    """计数；给了 command_id 时按那条命令的结果计（多命令清单，2.8.0），跳过的变异对每条命令都算跳过。"""
+    def status_of(record: Dict[str, Any]) -> str:
+        if command_id is not None and command_id in (record.get("commands") or {}):
+            return record["commands"][command_id]["status"]
+        return record["status"]
+    return {status: sum(1 for r in results if status_of(r) == status)
             for status in ("caught", "missed", "skipped", "error")}
 
 
-def _print_mutation_totals(results: Sequence[Dict[str, Any]], counts: Dict[str, int], record_path: str) -> None:
-    print("变异 %d 个：抓住 %d，漏掉 %d，跳过 %d，出错 %d · %s"
-          % (len(results), counts["caught"], counts["missed"], counts["skipped"], counts["error"], record_path))
-    if counts["missed"]:
-        print("漏掉的变异说明没有测试覆盖对应规则：合同测试清单遗漏的，由规划端补测试并单独提交；"
-              "执行器少写的，记入复审（必要时 REVISE）。")
+def _mutation_counts_by_command(results: Sequence[Dict[str, Any]], spec: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """每条命令的计数，加上预期内与意外的条目（2.8.0）。"""
+    out: Dict[str, Dict[str, Any]] = {}
+    multi = len(spec["_commands"]) > 1
+    for command in spec["_commands"]:
+        cid = command["id"]
+        counts: Dict[str, Any] = dict(_mutation_counts(results, cid if multi else None))
+        counts["unexpected_missed"] = [r["id"] for r in results if cid in r.get("unexpected", [])
+                                       and (r.get("commands", {}).get(cid, r))["status"] == "missed"]
+        counts["unexpected_caught"] = [r["id"] for r in results if cid in r.get("unexpected", [])
+                                       and (r.get("commands", {}).get(cid, r))["status"] == "caught"]
+        counts["expected_missed"] = counts["missed"] - len(counts["unexpected_missed"])
+        out[cid] = counts
+    return out
+
+
+def _print_mutation_totals(results: Sequence[Dict[str, Any]], spec: Dict[str, Any], record_path: str) -> None:
+    by_command = _mutation_counts_by_command(results, spec)
+    labelled = len(spec["_commands"]) > 1 or _spec_has_expectations(spec)
+    if not labelled:
+        counts = by_command[spec["_commands"][0]["id"]]
+        print("变异 %d 个：抓住 %d，漏掉 %d，跳过 %d，出错 %d · %s"
+              % (len(results), counts["caught"], counts["missed"], counts["skipped"], counts["error"], record_path))
+        if counts["missed"]:
+            print("漏掉的变异说明没有测试覆盖对应规则：合同测试清单遗漏的，由规划端补测试并单独提交；"
+                  "执行器少写的，记入复审（必要时 REVISE）。")
+        return
+    multi = len(spec["_commands"]) > 1
+    for cid, counts in by_command.items():
+        unexpected = counts["unexpected_missed"]
+        surprise = counts["unexpected_caught"]
+        print("变异 %d 个%s：抓住 %d，漏掉 %d（预期 %d，意外 %d%s），跳过 %d，出错 %d%s" % (
+            len(results), " · %s" % cid if multi else "", counts["caught"], counts["missed"],
+            counts["expected_missed"], len(unexpected), "：" + " ".join(unexpected) if unexpected else "",
+            counts["skipped"], counts["error"],
+            "；标了预期漏掉却被抓住 %d：%s" % (len(surprise), " ".join(surprise)) if surprise else ""))
+    print("记录：%s" % record_path)
+    if any(counts["unexpected_missed"] for counts in by_command.values()):
+        print("意外漏掉的变异说明没有测试覆盖对应规则：合同测试清单遗漏的，由规划端补测试并单独提交；"
+              "执行器少写的，记入复审（必要时 REVISE）。预期内的不用再判。")
+    if any(counts["unexpected_caught"] for counts in by_command.values()):
+        print("标了预期漏掉却被抓住：等价判断或“留给 oracle”的划分不对，复审记录里更正。")
 
 
 def _anchor_count(path: Path, old: str) -> int:
@@ -4722,9 +5002,42 @@ def _anchor_count(path: Path, old: str) -> int:
     return text.replace(chr(13) + chr(10), chr(10)).count(old)
 
 
+#: --check-anchors 的“最相近”提示：相似度不到这个值的行不列出。
+ANCHOR_HINT_MIN_RATIO = 0.6
+
+
+def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
+    """锚点对不上时该往哪里改（2.8.0）。
+
+    出现 0 次：按 old 的第一个非空行，列出文件里最相近的至多 3 行（行号与原文）——常见原因是候选改了
+    措辞、拆了句子或换了缩进。出现多次：列出每一处的起始行号与锚点之后的下一行，方便补一行上下文让它唯一。
+    """
+    import difflib
+    lines = path.read_bytes().decode("utf-8").replace(chr(13) + chr(10), chr(10)).split(chr(10))
+    if found == 0:
+        first = next((line.strip() for line in old.split(chr(10)) if line.strip()), "")
+        if not first:
+            return []
+        scored = sorted(((difflib.SequenceMatcher(None, first, line.strip()).ratio(), number, line)
+                         for number, line in enumerate(lines, start=1) if line.strip()), key=lambda x: (-x[0], x[1]))
+        return ["最相近 L%d（%.0f%%）：%s" % (number, ratio * 100, line.strip()[:160])
+                for ratio, number, line in scored[:3] if ratio >= ANCHOR_HINT_MIN_RATIO] or ["文件里没有相近的行"]
+    text = chr(10).join(lines)
+    hints: List[str] = []
+    start = text.find(old)
+    while start != -1 and len(hints) < 5:
+        line_no = text.count(chr(10), 0, start) + 1
+        end_line = text.count(chr(10), 0, start + len(old)) + 1
+        following = lines[end_line] if end_line < len(lines) else ""
+        hints.append("出现在 L%d；锚点之后的下一行：%s" % (line_no, following.strip()[:160] or "（空行）"))
+        start = text.find(old, start + 1)
+    return hints
+
+
 def _check_anchors(tree: Path, spec: Dict[str, Any]) -> int:
     """--check-anchors：只核对每条 old 的出现次数，不运行命令，不写任何文件（2.5.0）。"""
     mismatched = 0
+    hints: List[str] = []
     for index, item in enumerate(spec["mutations"], start=1):
         mid = "M%02d" % index
         count = item.get("count", 1)
@@ -4739,9 +5052,14 @@ def _check_anchors(tree: Path, spec: Dict[str, Any]) -> int:
             else:
                 status = "OK" if found == count else "MISMATCH"
                 detail = "出现 %d 次" % found if found == count else "出现 %d 次，期望 %d 次" % (found, count)
+                if found != count:
+                    hints = _anchor_hints(path, item["old"], found)
         if status != "OK":
             mismatched += 1
         print("%-8s %s %s  %s" % (status, mid, item["name"], detail), flush=True)
+        for hint in hints:
+            print("         %s" % hint, flush=True)
+        hints = []
     total = len(spec["mutations"])
     print("锚点核对：%d 条，%d 条不符" % (total, mismatched))
     return EXIT_OK if not mismatched else EXIT_FAIL
@@ -4804,16 +5122,17 @@ def _mutate_tree(args: argparse.Namespace) -> int:
         raise DispatchError("不做变异时 command 没有通过（%s），变异结果没有意义；先让它在这棵树上通过 · 记录 %s"
                             % (baseline.get("reason") or baseline.get("status"), out_dir / "mutations.json"))
     for record in results:
-        if record.get("log"):
-            record["log"] = record["log"].rsplit("/", 1)[-1]
-    counts = _mutation_counts(results)
+        for run in [record] + list((record.get("commands") or {}).values()):
+            if run.get("log"):
+                run["log"] = run["log"].rsplit("/", 1)[-1]
+    counts = _mutation_counts(results, spec["_commands"][0]["id"] if len(spec["_commands"]) > 1 else None)
     payload = {"tree": str(tree), "started_at": started, "ended_at": utc_now(),
-               "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["command"],
-               "cwd": spec.get("cwd", "."), "files_left_modified": left,
-               "baseline": baseline, "counts": counts, "warnings": warnings, "results": results,
-               "decisions": _mutation_decisions_payload(session)}
+               "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["_commands"][0]["argv"],
+               "cwd": spec["_commands"][0]["cwd"], "commands": spec["_commands"], "files_left_modified": left,
+               "baseline": baseline, "counts": counts, "counts_by_command": _mutation_counts_by_command(results, spec),
+               "warnings": warnings, "results": results, "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
-    _print_mutation_totals(results, counts, str(out_dir / "mutations.json"))
+    _print_mutation_totals(results, spec, str(out_dir / "mutations.json"))
     _print_mutation_decisions(session, out_dir / DECISIONS_RECORD)
     if left:
         print("WARN  变异后文件没有恢复原样：%s" % ", ".join(left[:10]))
@@ -5452,6 +5771,10 @@ def cmd_verdict(args: argparse.Namespace) -> int:
     if not review_path.is_file() or review_path.stat().st_size == 0:
         raise DispatchError("找不到复审报告：%s" % review_path, EXIT_USAGE)
     review_text = review_path.read_text(encoding="utf-8")
+    unfilled = [line.strip() for line in review_text.splitlines() if PLACEHOLDER_RE.search(line)]
+    if unfilled:
+        raise DispatchError("复审报告还有 %d 处【待填】（review-draft 生成的骨架要填完再交），第一处：%s"
+                            % (len(unfilled), unfilled[0][:160]), EXIT_USAGE)
     declared = re.search(r"^\s*Verdict:\s*([A-Z_]+)\s*$", review_text, re.M)
     if not declared or declared.group(1) != verdict:
         raise DispatchError("复审报告中的 'Verdict:' 行必须恰好是 %s" % verdict, EXIT_USAGE)
@@ -5509,6 +5832,73 @@ def latest_verdict(run_dir: Path) -> Dict[str, Any]:
     return read_json_or(files[-1], {}) if files else {}
 
 
+def _branch_trailers(repo: Repo, args: argparse.Namespace) -> List[str]:
+    """候选提交的尾注：dispatch.config.json 的 commit_trailers（--no-config-trailers 去掉）加上 --trailer。"""
+    trailers = [] if args.no_config_trailers else commit_trailers(repo.config())
+    for extra in args.trailer or []:
+        if not valid_trailer(extra):
+            raise DispatchError("--trailer 必须是单行 `Key: value`，不能含回车、换行等控制字符：%r" % extra, EXIT_USAGE)
+        trailers.append(extra)
+    return trailers
+
+
+def _candidate_commit(repo: Repo, run_dir: Path, meta: Dict[str, Any], verdict: str, *, name: Optional[str],
+                      rework: bool, trailers: Sequence[str], create_ref: bool = True,
+                      reuse: bool = False) -> Dict[str, Any]:
+    """按候选树建提交（父提交是基线），``create_ref`` 时再建本地分支并留记录；branch 与 integrate 共用（2.8.0 抽出）。
+
+    ``reuse``：同名分支已指向这个候选（树相同、父提交是基线）时直接复用，不再建新提交。
+    调用方先核对授权、结论与 Git 身份。
+    """
+    candidate = read_json_or(run_dir / "candidate.json", {})
+    tree = candidate.get("tree")
+    if not tree:
+        raise DispatchError("缺少候选记录")
+    if git(["cat-file", "-e", tree + "^{tree}"], repo.root, check=False).returncode != 0:
+        rebuilt = tree_from_patch(repo.root, meta["base_sha"], run_dir / "candidate.patch", run_dir,
+                                  meta.get("git_autocrlf"))
+        if rebuilt != tree:
+            raise DispatchError("候选树对象已丢失，且补丁重建结果不一致")
+    prefix = "pi-rework" if rework else "pi"
+    name = name or "%s/%s-v%s-a%03d" % (prefix, meta["task_id"], meta["plan_version"], meta["attempt_no"])
+    if git(["check-ref-format", "--branch", name], repo.root, check=False).returncode != 0:
+        raise DispatchError("分支名不合法：%s" % name, EXIT_USAGE)
+    existing = git(["rev-parse", "--verify", "--quiet", "refs/heads/" + name], repo.root, check=False)
+    if create_ref and existing.returncode == 0:
+        commit = existing.stdout.decode("utf-8", "replace").strip()
+        same = (git_text(["rev-parse", commit + "^{tree}"], repo.root) == tree
+                and git(["rev-parse", "--verify", "--quiet", commit + "^"], repo.root,
+                        check=False).stdout.decode().strip() == meta["base_sha"])
+        if reuse and same:
+            return {"branch": name, "commit": commit, "tree": tree, "verdict": verdict, "rework": rework,
+                    "reused": True}
+        raise DispatchError("分支已存在：%s%s" % (name, "" if same else "（指向的不是这个候选）"))
+    raw_contract = read_json_or(run_dir / "contract.json", {})
+    title = raw_contract.get("title") if isinstance(raw_contract, dict) else None
+    executor = read_json_or(run_dir / "executor.json", {})
+    subject = branch_subject(meta["task_id"], title, meta["plan_version"], meta["attempt_no"])
+    lines = [subject, "",
+             "Pi-Dispatch-Attempt: %s" % meta["attempt_id"],
+             "Pi-Executor: %s/%s (thinking %s)" % (executor.get("provider"), executor.get("model"),
+                                                   executor.get("thinking")),
+             "Candidate-Tree: %s" % tree,
+             "Verdict: %s" % verdict]
+    if trailers:
+        lines += [""] + list(trailers)
+    message = "\n".join(lines) + "\n"
+    message_file = run_dir / "branch-message.txt"
+    # 以字节写入：Windows 的文本模式会把换行写成 CRLF，commit-tree 会原样写进提交说明。
+    message_file.write_bytes(message.encode("utf-8"))
+    commit = git_text(["commit-tree", tree, "-p", meta["base_sha"], "-F", str(message_file)], repo.root)
+    record = {"branch": name if create_ref else None, "commit": commit, "tree": tree, "verdict": verdict,
+              "rework": bool(rework), "created_at": utc_now(), "reused": False}
+    if create_ref:
+        git(["branch", name, commit], repo.root)
+        write_json(run_dir / ("branch-%s.json" % re.sub(r"[^A-Za-z0-9._-]", "_", name)), record)
+        log_event(run_dir, "branch_created", **record)
+    return record
+
+
 def cmd_branch(args: argparse.Namespace) -> int:
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
@@ -5528,48 +5918,10 @@ def cmd_branch(args: argparse.Namespace) -> int:
     identity = git_identity_problem(repo.root)
     if identity:
         raise DispatchError(identity)
-    trailers = [] if args.no_config_trailers else commit_trailers(repo.config())
-    for extra in args.trailer or []:
-        if not valid_trailer(extra):
-            raise DispatchError("--trailer 必须是单行 `Key: value`，不能含回车、换行等控制字符：%r" % extra, EXIT_USAGE)
-        trailers.append(extra)
-    candidate = read_json_or(run_dir / "candidate.json", {})
-    tree = candidate.get("tree")
-    if not tree:
-        raise DispatchError("缺少候选记录")
-    if git(["cat-file", "-e", tree + "^{tree}"], repo.root, check=False).returncode != 0:
-        rebuilt = tree_from_patch(repo.root, meta["base_sha"], run_dir / "candidate.patch", run_dir,
-                                  meta.get("git_autocrlf"))
-        if rebuilt != tree:
-            raise DispatchError("候选树对象已丢失，且补丁重建结果不一致")
-    prefix = "pi-rework" if args.rework else "pi"
-    name = args.name or "%s/%s-v%s-a%03d" % (prefix, meta["task_id"], meta["plan_version"], meta["attempt_no"])
-    if git(["check-ref-format", "--branch", name], repo.root, check=False).returncode != 0:
-        raise DispatchError("分支名不合法：%s" % name, EXIT_USAGE)
-    if git(["rev-parse", "--verify", "--quiet", "refs/heads/" + name], repo.root, check=False).returncode == 0:
-        raise DispatchError("分支已存在：%s" % name)
-    raw_contract = read_json_or(run_dir / "contract.json", {})
-    title = raw_contract.get("title") if isinstance(raw_contract, dict) else None
-    executor = read_json_or(run_dir / "executor.json", {})
-    subject = branch_subject(meta["task_id"], title, meta["plan_version"], meta["attempt_no"])
-    lines = [subject, "",
-             "Pi-Dispatch-Attempt: %s" % meta["attempt_id"],
-             "Pi-Executor: %s/%s (thinking %s)" % (executor.get("provider"), executor.get("model"),
-                                                   executor.get("thinking")),
-             "Candidate-Tree: %s" % tree,
-             "Verdict: %s" % verdict]
-    if trailers:
-        lines += [""] + trailers
-    message = "\n".join(lines) + "\n"
-    message_file = run_dir / "branch-message.txt"
-    # 以字节写入：Windows 的文本模式会把换行写成 CRLF，commit-tree 会原样写进提交说明。
-    message_file.write_bytes(message.encode("utf-8"))
-    commit = git_text(["commit-tree", tree, "-p", meta["base_sha"], "-F", str(message_file)], repo.root)
-    git(["branch", name, commit], repo.root)
-    record = {"branch": name, "commit": commit, "tree": tree, "verdict": verdict, "rework": bool(args.rework),
-              "created_at": utc_now()}
-    write_json(run_dir / ("branch-%s.json" % re.sub(r"[^A-Za-z0-9._-]", "_", name)), record)
-    log_event(run_dir, "branch_created", **record)
+    trailers = _branch_trailers(repo, args)
+    record = _candidate_commit(repo, run_dir, meta, verdict, name=args.name, rework=bool(args.rework),
+                               trailers=trailers)
+    name, commit = record["branch"], record["commit"]
     print("已创建本地分支 %s → %s（未推送）。" % (name, commit))
     print("commit=%s branch=%s" % (commit, name))
     if args.rework:
@@ -5577,10 +5929,469 @@ def cmd_branch(args: argparse.Namespace) -> int:
     else:
         head = git_text(["rev-parse", "HEAD"], repo.root)
         if head == meta["base_sha"]:
-            print("集成：HEAD 仍是基线，可以 git merge --ff-only %s" % name)
+            print("集成：HEAD 仍是基线，可以 git merge --ff-only %s；或用 integrate 在当前末端上验证后落地（2.8.0）" % name)
         else:
-            print("集成：HEAD（%s）已比基线前进，用 git cherry-pick %s（父提交是基线，不能 ff-only）"
-                  % (head[:12], commit[:12]))
+            print("集成：HEAD（%s）已比基线前进，用 integrate 在当前末端上验证后落地（2.8.0），"
+                  "或 git cherry-pick %s（父提交是基线，不能 ff-only）" % (head[:12], commit[:12]))
+    return EXIT_OK
+
+
+#: review-draft 里给复审判断留的占位；verdict 拒收仍含它的复审记录（PLACEHOLDER_RE）。
+REVIEW_TODO = "【待填】"
+GATE_LABELS = (("G0", "输入一致"), ("G1", "执行完整"), ("G2", "范围合规"), ("G3", "行为正确"), ("G4", "回归检查"),
+               ("G5", "质量复审"), ("G6", "可集成"))
+
+
+def _cell(value: Any, limit: int = 400) -> str:
+    """表格单元：单行、不含竖线、截断。"""
+    text = re.sub(r"\s+", " ", str(value)).replace("|", "/").strip()
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _summary_section(summary_text: str, heading: str) -> List[str]:
+    """summary.md 里某一节的非空行（到下一个二级标题为止）。"""
+    lines = summary_text.splitlines()
+    if "## " + heading not in lines:
+        return []
+    out: List[str] = []
+    for line in lines[lines.index("## " + heading) + 1:]:
+        if line.startswith("## "):
+            break
+        if line.strip():
+            out.append(line.rstrip())
+    return out
+
+
+def _mutation_review_lines(run_dir: Path) -> Tuple[List[str], List[str]]:
+    """复审记录的变异一节与简报里的意外漏掉（2.8.0）。
+
+    每轮每条命令一行计数；意外漏掉的逐条写成复审模板的固定格式，归因与处理留【待填】；标了等价的预填
+    “等价变异”；列进 expect_missed 的合并成一行“预期内”。2.8 之前的记录没有预期标注，漏掉的都算意外。
+    """
+    lines: List[str] = []
+    brief: List[str] = []
+    root = run_dir / "mutations"
+    for path in sorted(root.glob("*/mutations.json")) if root.is_dir() else []:
+        data = read_json_or(path, None)
+        label = "mutations/%s" % path.parent.name
+        if not isinstance(data, dict) or data.get("aborted"):
+            lines.append("- %s：没有结果（%s）" % (label, data.get("aborted") if isinstance(data, dict) else "记录无法读取"))
+            continue
+        results = [r for r in data.get("results") or [] if isinstance(r, dict)]
+        commands = [c.get("id") for c in data.get("commands") or [] if isinstance(c, dict)] or ["main"]
+        multi = len(commands) > 1
+
+        def status_under(record: Dict[str, Any], cid: str) -> str:
+            runs = record.get("commands") or {}
+            return (runs.get(cid) or {}).get("status") or record.get("status") if multi else record.get("status")
+
+        def unexpected_missed(record: Dict[str, Any]) -> List[str]:
+            listed = record["unexpected"] if "unexpected" in record else commands
+            return [cid for cid in listed if status_under(record, cid) == "missed"]
+
+        lines.append("- %s：%d 条%s" % (label, len(results), "，命令 " + "、".join(commands) if multi else ""))
+        for cid in commands:
+            counts = {status: sum(1 for r in results if status_under(r, cid) == status)
+                      for status in ("caught", "missed", "skipped", "error")}
+            surprise = [r["id"] for r in results if cid in unexpected_missed(r)]
+            caught_anyway = [r["id"] for r in results if cid in (r.get("unexpected") or [])
+                             and status_under(r, cid) == "caught"]
+            lines.append("  - %s抓住 %d，漏掉 %d（意外 %d%s），跳过 %d，出错 %d%s" % (
+                "%s：" % cid if multi else "", counts["caught"], counts["missed"], len(surprise),
+                "：" + " ".join(surprise) if surprise else "", counts["skipped"], counts["error"],
+                "；标了预期漏掉却被抓住：%s" % " ".join(caught_anyway) if caught_anyway else ""))
+        owned: List[str] = []
+        for record in results:
+            name = str(record.get("name") or "")
+            shown = name if name.startswith(str(record.get("id"))) else "%s %s" % (record.get("id"), name)
+            missed_unexpected = unexpected_missed(record)
+            if missed_unexpected:
+                lines.append("  - `%s`%s → 归因：%s（合同遗漏 | 执行器少写 | 等价变异 | 输入观察不到） → 处理：%s"
+                             "（规划端补测 <提交> | REVISE | 注明 | 探针实测）"
+                             % (shown, "（%s 意外漏掉）" % "、".join(missed_unexpected) if multi else "",
+                                REVIEW_TODO, REVIEW_TODO))
+                brief.append("%s（%s，%s）" % (shown, record.get("file"), label))
+            elif record.get("equivalent") and any(status_under(record, cid) == "missed" for cid in commands):
+                lines.append("  - `%s` → 归因：等价变异（%s） → 处理：注明" % (shown, record["equivalent"]))
+            elif record.get("expect_missed") and any(status_under(record, cid) == "missed" for cid in commands):
+                owned.append(str(record.get("id")))
+        if owned:
+            lines.append("  - 预期内的漏掉（expect_missed：合同交给其他命令覆盖的规则）：%s → 处理：注明" % " ".join(owned))
+    return lines, brief
+
+
+def cmd_review_draft(args: argparse.Namespace) -> int:
+    """按证据生成复审记录骨架与独立复审简报（2.8.0）。
+
+    能从证据里取的都填好（基线、候选、模型、用时、token、门禁的机械部分、DoD 的检查结果与目的、各轮变异、
+    执行报告的自述、摘要的关注项），判断留【待填】；verdict 拒收仍有【待填】的记录。简报写到
+    <run-dir>/review-brief.md，交给 pi-reviewer 或另一家厂商的只读 CLI。
+    """
+    repo = Repo.discover(args.repo)
+    run_dir = resolve_run_dir(repo, args.run_dir)
+    meta, contract = load_attempt(repo, run_dir)
+    state = get_state(run_dir)
+    if state in ("PREPARING", "PREPARED", "RUNNING", "COLLECTING"):
+        raise DispatchError("attempt 处于 %s：运行结束、证据收集完之后再生成复审骨架" % state, EXIT_USAGE)
+    out_path = Path(args.out).resolve() if args.out else repo.reviews_dir / meta["task_id"] / ("%s.md" % run_dir.name)
+    if out_path.exists() and not args.force:
+        raise DispatchError("%s 已存在：确认要覆盖（例如重新生成骨架）时加 --force" % display_path(out_path, repo.root),
+                            EXIT_USAGE)
+    executor = read_json_or(run_dir / "executor.json", {})
+    events = read_json_or(run_dir / "events-summary.json", {})
+    run = read_json_or(run_dir / "run.json", {})
+    candidate = read_json_or(run_dir / "candidate.json", {})
+    scope = read_json_or(run_dir / "scope.json", {}) or {}
+    report = read_json_or(run_dir / "executor-report.json", {})
+    report = report if isinstance(report, dict) else {}
+    report_status = read_json_or(run_dir / "report-status.json", {}).get("status")
+    summary_text = read_text_or(run_dir / "summary.md")
+    usage, cost = events.get("usage") or {}, events.get("cost") or {}
+    budget = contract.get("budget") or {}
+    stat_lines = read_text_or(run_dir / "candidate.stat.txt").strip().splitlines()
+    latest = _latest_numbered(run_dir / "checks")
+    checks = read_json_or(latest / "checks.json", {}) if latest else {}
+    check_results = {r["id"]: r for r in checks.get("results", [])} if not checks.get("aborted") else {}
+    ran = list(check_results.values())
+    checks_line = ("checks/%s（%s，%d/%d 通过）" % (latest.name, checks.get("mode"), sum(1 for r in ran if r.get("passed")),
+                                               len(ran)) if latest and not checks.get("aborted") else "没有有效的检查记录")
+    gates = evaluate_gates(repo, run_dir, meta, contract)["gates"]
+    actual = "、".join("%s/%s" % (m.get("provider"), m.get("model")) for m in events.get("actual_models") or []) or "未知"
+    levels = "、".join(str(x) for x in events.get("provider_thinking_levels") or []) or "未回报"
+    ending = "超时" if run.get("timed_out") else ("取消" if run.get("interrupted") else "正常结束")
+    cost_text = ("%s（%s）" % (cost.get("total"), cost.get("status")) if cost.get("total") is not None
+                 else "unknown（%s）" % cost.get("status", "无记录"))
+    lines = ["# REVIEW：%s v%s · %s" % (meta["task_id"], meta["plan_version"], run_dir.name), "",
+             "Verdict: %s（PASS / ACCEPTED_WITH_EXCEPTION / REVISE / BLOCKED / ESCALATE 中的一个）" % REVIEW_TODO, "",
+             "<!-- review-draft 生成（%s，调度工具 %s）：事实取自 %s；%s 处是复审判断，全部填完 verdict 才收。"
+             % (utc_now(), TOOL_VERSION, display_path(run_dir, repo.root), REVIEW_TODO),
+             "     Verdict 行只能写一个结论，并与 verdict 命令的 --verdict 一致。 -->", "",
+             "## 基本信息",
+             "- 基线：`%s`" % meta["base_sha"],
+             "- 候选树：`%s`（补丁往返校验%s；%s）" % (candidate.get("tree"), "通过" if candidate.get("patch_roundtrip_verified")
+                                                 else "未通过", stat_lines[-1].strip() if stat_lines else "无改动"),
+             "- 要求的执行模型：%s/%s · thinking %s" % (executor.get("provider"), executor.get("model"), executor.get("thinking")),
+             "- 实际模型：%s；providerThinkingLevel：%s" % (actual, levels),
+             "- 运行：退出码 %s · 用时 %s s / 上限 %s s · %s · 工具错误 %s" % (
+                 run.get("exit_code"), run.get("wall_seconds"), budget.get("max_wall_seconds_per_attempt"), ending,
+                 events.get("tool_errors")),
+             "- token：输入 %s · 输出 %s · 缓存读 %s · 缓存写 %s；费用 %s" % (
+                 usage.get("input"), usage.get("output"), usage.get("cacheRead"), usage.get("cacheWrite"), cost_text),
+             "- 复审者：%s（规划/验收会话；中高风险写明独立复审者的工具与模型，换一家审查时写厂商）" % REVIEW_TODO, "",
+             "## 门禁", "", "| 门禁 | 结果 | 说明 |", "|---|---|---|"]
+    for gate, label in GATE_LABELS:
+        info = gates[gate]
+        mechanical = "工具：%s" % ("通过" if info["passed"] else "不通过")
+        detail = "；".join(info["problems"] + info["notes"])
+        if gate == "G4":
+            detail = "检查记录：%s%s" % (checks_line, "；" + detail if detail else "")
+        result = REVIEW_TODO if gate in ("G3", "G5") else ("passed" if info["passed"] else "failed")
+        lines.append("| %s %s | %s | %s |" % (gate, label, result, _cell("%s%s" % (mechanical, "；" + detail if detail else ""))))
+    lines += ["", "## DoD 映射", "", "| DoD | 结果 | 证据 | 说明 |", "|---|---|---|---|"]
+    violations = scope.get("violations", [])
+    for item in contract.get("definition_of_done", []):
+        evidence = []
+        for ref in item.get("evidence", []):
+            if ref == "scope":
+                evidence.append("scope（越界 %d）" % len(violations))
+            elif ref == "review":
+                evidence.append("复审")
+            else:
+                record = check_results.get(ref)
+                evidence.append("%s %s" % (ref, record.get("status") if record else "未运行"))
+        note = str(item.get("text") or "") + ("；目的：%s" % item["intent"] if item.get("intent") else "")
+        lines.append("| %s | %s | %s | %s |" % (item.get("id"), REVIEW_TODO, _cell("、".join(evidence)), _cell(note)))
+    mutation_lines, surprising = _mutation_review_lines(run_dir)
+    lines += ["", "## 范围与质量",
+              "- 越界与警告：越界 %d、警告 %d%s" % (len(violations), len(scope.get("warnings", [])),
+                                             "：" + "；".join("%s %s" % (v.get("kind"), v.get("path")) for v in violations[:10])
+                                             if violations else ""),
+              "- 测试可信度：%s（用例数量、能否在旧实现上失败、有无 skip 或弱化）" % REVIEW_TODO]
+    if mutation_lines:
+        lines += ["- 变异检查："] + ["  " + line for line in mutation_lines]
+    else:
+        lines.append("- 变异检查：没有记录（中高风险任务要做一轮，见 review-pi/mutation-check.md）")
+    lines += ["- 兼容性与残余风险：%s" % REVIEW_TODO,
+              "- 执行器自述与证据是否一致：%s" % REVIEW_TODO,
+              "  - 执行报告：%s（executor_status %s）" % (report_status, report.get("executor_status"))]
+    for key, label in (("contract_conflicts", "合同矛盾"), ("limitations", "限制与取舍"),
+                       ("unresolved_questions", "未决问题")):
+        values = report.get(key) or []
+        if not values:
+            lines.append("  - %s：无" % label)
+            continue
+        lines.append("  - %s（%d，原文）：" % (label, len(values)))
+        for value in values:
+            shown = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            lines.append("    - %s" % _cell(shown, 1200))
+    attention = _summary_section(summary_text, "复审需要关注")
+    lines += ["- 摘要里的“复审需要关注”（原文）："] + (["  " + line for line in attention] or ["  - 无"])
+    integration = (contract.get("authorization") or {}).get("integration") or []
+    if "local_branch" in integration and "merge" in integration:
+        action = "local_branch、merge：`bash scripts/dispatch-pi.sh integrate %s`（当前末端上验证后落地）" % display_path(run_dir, repo.root)
+    elif "local_branch" in integration:
+        action = ("local_branch：`integrate %s` 只验证并打印落地命令（合同没有 merge），或 `branch %s`"
+                  % (display_path(run_dir, repo.root), display_path(run_dir, repo.root)))
+    else:
+        action = "合同没有授权集成动作：交付候选，等待决定"
+    lines += ["", "## 结论理由", REVIEW_TODO, "",
+              "## 后续动作",
+              "- 需要修正的具体差异（REVISE）：%s（没有写“无”）" % REVIEW_TODO,
+              "- 待决的业务或环境问题（BLOCKED / ESCALATE）：%s（没有写“无”）" % REVIEW_TODO,
+              "- 已授权且可以继续的集成动作：%s" % action,
+              "- 人工介入：%s（分钟数与原因，用于 --human-minutes）" % REVIEW_TODO, ""]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(("\n".join(lines)).encode("utf-8"))
+    worktree = Path(meta["worktree"])
+    brief = ["# 独立复审简报：%s v%s · %s" % (meta["task_id"], meta["plan_version"], run_dir.name), "",
+             "按 `.agents/skills/review-pi/independent-review.md` 复审：只读，不修改任何文件，只输出结论与发现。", "",
+             "- RUN：`%s`" % run_dir,
+             "- 合同：RUN/plan.md；候选：RUN/candidate.patch；检查：%s" % checks_line,
+             "- worktree：`%s`%s" % (worktree, "" if worktree.is_dir() else "（已清理：用 git show %s:<路径> 对照补丁）"
+                                    % meta["base_sha"][:12]), "",
+             "## 重点", "", "- 每条 DoD 的目的（检查通过而目的没有保住，就是不满足）："]
+    for item in contract.get("definition_of_done", []):
+        brief.append("  - %s：%s" % (item.get("id"), _cell(item.get("intent") or item.get("text") or "", 600)))
+    brief += ["- 摘要里的“复审需要关注”："] + (["  " + line for line in attention] or ["  - 无"])
+    brief += ["- 意外漏掉的变异（测试可能有缺口，或是等价改写）："] + (["  - %s" % item for item in surprising] or ["  - 无"])
+    stated = [(label, report.get(key) or []) for key, label in (("contract_conflicts", "合同矛盾"),
+                                                              ("limitations", "限制与取舍"),
+                                                              ("unresolved_questions", "未决问题"))]
+    brief += ["- 执行器自述的取舍（核对是否越出合同字面）："] + (
+        ["  - %s：%s" % (label, _cell(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False), 600))
+         for label, values in stated for v in values] or ["  - 无"])
+    brief += ["- 规划端补充的风险：（交给复审者前在这里补充）", "",
+              "## 输出", "",
+              "按 independent-review.md 的“输出”一节：建议结论、按严重度排序的发现（文件:行、问题、证据、建议的修正）、"
+              "无法判断的项以及需要主会话补跑的检查。", ""]
+    (run_dir / "review-brief.md").write_bytes("\n".join(brief).encode("utf-8"))
+    log_event(run_dir, "review_draft", path=str(out_path))
+    todo = sum(1 for line in lines if REVIEW_TODO in line)
+    print("已写复审记录骨架：%s（%d 处%s）" % (display_path(out_path, repo.root), todo, REVIEW_TODO))
+    print("独立复审简报：%s（交给 pi-reviewer，或另一家厂商的只读 CLI）" % display_path(run_dir / "review-brief.md", repo.root))
+    return EXIT_OK
+
+
+def _running_attempts(repo: Repo) -> List[str]:
+    """正在运行或收集的 attempt：落地会改动主工作区，它们的复审会把这次改动列为主工作区变化。"""
+    found: List[str] = []
+    tasks = sorted(d.name for d in repo.runs_dir.iterdir() if d.is_dir()) if repo.runs_dir.is_dir() else []
+    for task in tasks:
+        for attempt in task_attempts(repo, task):
+            if get_state(attempt) in ("RUNNING", "COLLECTING"):
+                found.append(display_path(attempt, repo.runs_dir))
+    return found
+
+
+def _merge_preview(repo: Repo, base: str, head: str, commit: str) -> Tuple[Optional[str], List[str]]:
+    """在对象库里预演“基线→候选”合并到 head，不碰任何工作区：返回（合并后的树, 冲突文件）。"""
+    proc = git(["merge-tree", "--write-tree", "--name-only", "--merge-base=%s" % base, head, commit], repo.root,
+               check=False)
+    lines = proc.stdout.decode("utf-8", "replace").splitlines()
+    if proc.returncode not in (0, 1) or not lines or not SHA_RE.match(lines[0].strip()):
+        raise DispatchError("git merge-tree --write-tree 失败（需要 Git 2.40 以上）：%s"
+                            % (proc.stderr.decode("utf-8", "replace").strip() or proc.returncode))
+    if proc.returncode == 0:
+        return lines[0].strip(), []
+    conflicts: List[str] = []
+    for line in lines[1:]:
+        if not line.strip():
+            break
+        conflicts.append(line.strip())
+    return None, sorted(set(conflicts))
+
+
+def _commit_message_bytes(repo: Repo, commit: str) -> bytes:
+    """提交说明的原始字节（cat-file，不经 log 的格式化，末尾换行不多不少）。"""
+    raw = git(["cat-file", "commit", commit], repo.root).stdout
+    return raw.split(b"\n\n", 1)[1] if b"\n\n" in raw else b""
+
+
+def cmd_integrate(args: argparse.Namespace) -> int:
+    """验证后落地（2.8.0）：建分支 → 预演合并到当前分支末端 → 干净副本上跑合同检查 → 快进 → 标记 → 清理。
+
+    主工作区从头到尾不停在 cherry-pick 的中间状态：合并在 git merge-tree 里预演，检查在临时 worktree
+    里跑（末端 + 候选改动未暂存，与 check --fresh 同一布局），主工作区只做最后一步 git merge --ff-only——
+    有会被覆盖的本地改动时 git 拒绝，干净失败。落地要合同 integration 含 merge（建分支要 local_branch）；
+    没有 merge 时做到验证为止，建好提交并打印落地命令，退出码 3。
+    """
+    repo = Repo.discover(args.repo)
+    run_dir = resolve_run_dir(repo, args.run_dir)
+    meta, contract = load_attempt(repo, run_dir)
+    publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
+    if publication_errors:
+        raise DispatchError("planner-v2 发布门禁拒绝集成：%s" % "；".join(publication_errors), EXIT_BLOCKED)
+    problems = verify_inputs(run_dir, meta)
+    if problems:
+        raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
+    require_authorized_action(contract, "local_branch", integration=True)
+    may_land = "merge" in contract["authorization"]["integration"]
+    state = get_state(run_dir)
+    verdict = latest_verdict(run_dir).get("verdict")
+    if state == "INTEGRATED":
+        raise DispatchError("attempt 已集成（ref %s）" % read_json_or(run_dir / "state.json", {}).get("ref"), EXIT_USAGE)
+    if verdict not in PASSING_VERDICTS or state not in PASSING_VERDICTS:
+        raise DispatchError("最新结论为 %s（状态 %s）：只有 PASS / ACCEPTED_WITH_EXCEPTION 可以 integrate；返工或"
+                            "规划端补完的候选照旧 branch --rework、手工集成，再 mark SUPERSEDED" % (verdict, state),
+                            EXIT_BLOCKED)
+    skip = [x.strip() for x in (args.skip or "").split(",") if x.strip()]
+    unknown = sorted(set(skip) - {c["id"] for c in contract["checks"]})
+    if unknown:
+        raise DispatchError("未知检查：%s" % ", ".join(unknown), EXIT_USAGE)
+    if skip and not (args.reason or "").strip():
+        raise DispatchError("--skip 需要 --reason：写明这项检查为什么在当前末端上不成立（例如只对基线成立）", EXIT_USAGE)
+    symbolic = git(["symbolic-ref", "-q", "HEAD"], repo.root, check=False)
+    if symbolic.returncode != 0:
+        raise DispatchError("主工作区是游离 HEAD：integrate 只落到当前分支，先切到要集成的分支", EXIT_USAGE)
+    target = symbolic.stdout.decode("utf-8", "replace").strip()
+    head = git_text(["rev-parse", "HEAD"], repo.root)
+    if may_land and not args.dry_run and not args.while_running:
+        running = _running_attempts(repo)
+        if running:
+            raise DispatchError("有 attempt 正在运行或收集：%s。落地会改动主工作区，它们的复审会把这次改动列为主工作区"
+                                "变化；等它们结束再集成（调度器已退出的先 collect --recover），或加 --while-running "
+                                "明确接受" % ", ".join(running[:5]), EXIT_BLOCKED)
+    identity = git_identity_problem(repo.root)
+    if identity:
+        raise DispatchError(identity)
+    trailers = _branch_trailers(repo, args)
+    branch = _candidate_commit(repo, run_dir, meta, verdict, name=args.name, rework=False, trailers=trailers,
+                               create_ref=not args.dry_run, reuse=True)
+    if branch["branch"]:
+        print("分支 %s → %s%s" % (branch["branch"], branch["commit"][:12], "（复用已有分支）" if branch["reused"] else ""))
+    base = meta["base_sha"]
+    if git(["merge-base", "--is-ancestor", base, head], repo.root, check=False).returncode != 0:
+        print("NOTE  基线 %s 不在当前分支的历史里：按“基线→候选”的改动挑入当前末端（等同 cherry-pick）" % base[:12])
+    integrations = run_dir / "integrations"
+    integrations.mkdir(exist_ok=True)
+    number = _next_number(integrations)
+    out_dir = integrations / ("%02d" % number)
+    out_dir.mkdir()
+    record: Dict[str, Any] = {
+        "run": number, "started_at": utc_now(), "target": target, "head": head, "base_sha": base,
+        "branch": branch["branch"], "candidate_commit": branch["commit"], "candidate_tree": branch["tree"],
+        "merge_authorized": may_land, "dry_run": bool(args.dry_run), "skipped_checks": skip,
+        "skip_reason": args.reason if skip else None, "landed": False}
+
+    def finish(outcome: str, **extra: Any) -> None:
+        record.update(extra, outcome=outcome, ended_at=utc_now())
+        write_json(out_dir / "integration.json", record, exclusive=True)
+        log_event(run_dir, "integration", run=number, outcome=outcome, head=head, commit=record.get("commit"),
+                  target=target)
+
+    merged_tree, conflicts = _merge_preview(repo, base, head, branch["commit"])
+    if merged_tree is None:
+        finish("conflict", conflicts=conflicts)
+        print("CONFLICT 候选与当前末端 %s 冲突：%s" % (head[:12], ", ".join(conflicts[:20])))
+        print("什么都没落地%s。以当前末端为基线出返工合同，或规划端手工合并后 mark SUPERSEDED。"
+              % ("（只多了本地分支 %s）" % branch["branch"] if branch["branch"] else ""))
+        return EXIT_FAIL
+    record["merged_tree"] = merged_tree
+    config = repo.config()
+    env, removed = child_env(config)
+    grace = float(config.get("kill_grace_seconds", 15))
+    artifacts = artifact_matchers(config)
+    worktree_root = repo.worktree_root(config)
+    worktree_root.mkdir(parents=True, exist_ok=True)
+    workspace = Path(tempfile.mkdtemp(prefix="%s-%s-a%03d-integrate-" % (
+        repo.root.name[:16], meta["task_id"][:24], meta["attempt_no"]), dir=str(worktree_root))).resolve()
+    results: List[Dict[str, Any]] = []
+    try:
+        git(["worktree", "add", "--detach", str(workspace), head], repo.root)
+        patch = out_dir / "integration.patch"
+        patch.write_bytes(git(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index",
+                               "--src-prefix=a/", "--dst-prefix=b/", head, merged_tree], repo.root).stdout)
+        if patch.stat().st_size > 0:
+            git(["apply", "--binary", "--whitespace=nowarn", str(patch)], workspace)
+        if snapshot_tree(workspace, head, out_dir, "integrate", meta.get("git_autocrlf")) != merged_tree:
+            raise DispatchError("验证副本与合并结果不一致：%s" % workspace)
+        if contract["setup"]:
+            setup_dir = out_dir / "setup"
+            setup_dir.mkdir()
+            for item in contract["setup"]:
+                setup = _run_command_item(item, workspace, env, setup_dir, grace)
+                if not setup["passed"]:
+                    raise DispatchError("验证副本的 setup %s 失败：%s" % (item["id"], setup.get("reason")))
+            if snapshot_tree(workspace, head, out_dir, "integrate-setup", meta.get("git_autocrlf")) != merged_tree:
+                raise DispatchError("setup 改动了验证副本中的文件或产生了未忽略的新文件")
+        for item in contract["checks"]:
+            if item["id"] in skip:
+                results.append({"id": item["id"], "required": item.get("required", True), "status": "skipped",
+                                "passed": None, "reason": args.reason})
+                print("CHECK %s skipped（%s）" % (item["id"], args.reason), flush=True)
+                continue
+            print("CHECK %s ..." % item["id"], flush=True)
+            result = _run_command_item(item, workspace, env, out_dir, grace)
+            results.append(result)
+            print("CHECK %s %s %s" % (item["id"], result["status"], result.get("reason") or ""), flush=True)
+        after = snapshot_tree(workspace, head, out_dir, "integrate-after", meta.get("git_autocrlf"))
+        drift = tree_drift(workspace, merged_tree, after)
+        _artifact_files, unexpected = split_extras(drift["added"], artifacts)
+        modified = drift["modified"]
+    except (DispatchError, OSError) as exc:
+        finish("workspace_failed", error=str(exc), results=results)
+        raise DispatchError("无法在当前末端上验证（什么都没落地）：%s" % exc)
+    finally:
+        if not args.keep_workspace:
+            remove_worktree(repo, workspace)
+    ran = [r for r in results if r["status"] != "skipped"]
+    checks_ok = all(r["passed"] for r in ran if r.get("required", True))
+    passed = checks_ok and not modified and not unexpected
+    shown = "%d/%d%s" % (sum(1 for r in ran if r["passed"]), len(ran), "，豁免 %s" % ",".join(skip) if skip else "")
+    record.update(results=results, checks_passed=checks_ok, modified_by_checks=modified,
+                  unexpected_files_by_checks=unexpected[:200], workspace=str(workspace),
+                  workspace_kept=bool(args.keep_workspace), env_removed=removed)
+    if not passed:
+        finish("checks_failed")
+        if modified:
+            print("WARN  检查修改了文件：%s" % ", ".join(modified[:10]))
+        if unexpected:
+            print("WARN  检查产生了新文件：%s（缓存或报告类加入 .gitignore 或 check_artifact_patterns）"
+                  % ", ".join(unexpected[:10]))
+        print("当前末端 %s + 候选上的检查没有全部通过（%s）：什么都没落地 · %s"
+              % (head[:12], shown, display_path(out_dir / "integration.json", repo.root)))
+        return EXIT_FAIL
+    if args.dry_run:
+        finish("verified")
+        print("验证通过（dry-run，没有建提交、没有落地）：当前末端 %s + 候选，检查 %s · %s"
+              % (head[:12], shown, display_path(out_dir / "integration.json", repo.root)))
+        return EXIT_OK
+    message_file = out_dir / "message.txt"
+    message_file.write_bytes(_commit_message_bytes(repo, branch["commit"]))
+    commit = git_text(["commit-tree", merged_tree, "-p", head, "-F", str(message_file)], repo.root)
+    record["commit"] = commit
+    shown_run = display_path(run_dir, repo.root)
+    if not may_land:
+        finish("verified_not_authorized")
+        print("验证通过（检查 %s），但合同 integration 没有 merge：没有落地。提交 %s 已建好，落地命令：" % (shown, commit[:12]))
+        print("  git merge --ff-only %s" % commit)
+        print("  bash scripts/dispatch-pi.sh mark %s INTEGRATED --ref %s" % (shown_run, commit))
+        return EXIT_BLOCKED
+    now_target = git(["symbolic-ref", "-q", "HEAD"], repo.root, check=False).stdout.decode("utf-8", "replace").strip()
+    now_head = git(["rev-parse", "--verify", "--quiet", "HEAD"], repo.root, check=False).stdout.decode().strip()
+    if now_target != target or now_head != head:
+        finish("head_moved", now_head=now_head, now_target=now_target)
+        print("分支末端在验证期间变了（%s → %s）：什么都没落地，重跑 integrate。" % (head[:12], (now_head or "?")[:12]))
+        return EXIT_FAIL
+    ff = git(["merge", "--ff-only", commit], repo.root, check=False)
+    if ff.returncode != 0:
+        error = (ff.stderr.decode("utf-8", "replace") or ff.stdout.decode("utf-8", "replace")).strip()
+        finish("ff_refused", error=error[-2000:])
+        print("快进被拒：%s" % error[-600:])
+        print("什么都没落地。提交 %s 已建好：处理主工作区（例如只差换行符的文件按约定统一）之后 git merge --ff-only %s，"
+              "再 mark %s INTEGRATED --ref %s" % (commit[:12], commit, shown_run, commit))
+        return EXIT_FAIL
+    record["landed"] = True
+    finish("landed")
+    set_state(run_dir, "INTEGRATED", ref=commit, reason="integrate %02d" % number, previous_state=state)
+    print("已集成 %s → %s %s（基于 %s，检查 %s，分支 %s）" % (
+        display_path(run_dir, repo.runs_dir), target[len("refs/heads/"):] if target.startswith("refs/heads/") else target,
+        commit[:12], head[:12], shown, branch["branch"]))
+    if not args.keep_worktree:
+        try:
+            cmd_cleanup(argparse.Namespace(repo=args.repo, run_dir=str(run_dir), force=False))
+        except DispatchError as exc:
+            print("NOTE  集成已完成；attempt 的 worktree 没有清理：%s" % exc)
     return EXIT_OK
 
 
@@ -5796,19 +6607,62 @@ def safe_output_path(args: argparse.Namespace) -> Optional[Path]:
     return target
 
 
+#: metrics 的最终去向（2.8.0）：按各 attempt 的 state.json，而不是只看验收结论。
+FINAL_OUTCOMES = (("integrated", "直接集成"), ("superseded", "补完后集成"), ("abandoned", "放弃"), ("pending", "未定"))
+
+
+def _final_outcome(attempts: Sequence[Path]) -> Tuple[str, Optional[str]]:
+    """一个任务的最终去向与集成提交：有 INTEGRATED 是直接集成；没有而有带 ref 的 SUPERSEDED 是补完后集成
+    （返工或规划端补完之后集成）；最后一个 attempt 是 ABANDONED 是放弃；其余（待集成、待返工、在跑）未定。"""
+    states = [read_json_or(a / "state.json", {}) for a in attempts]
+    integrated = [s for s in states if s.get("state") == "INTEGRATED"]
+    if integrated:
+        return "integrated", integrated[-1].get("ref")
+    superseded = [s for s in states if s.get("state") == "SUPERSEDED" and s.get("ref")]
+    if superseded:
+        return "superseded", superseded[-1].get("ref")
+    if states and states[-1].get("state") == "ABANDONED":
+        return "abandoned", None
+    return "pending", None
+
+
+def _priced_attempt(run_dir: Path, pricing: Dict[str, Dict[str, Any]]) -> Tuple[Optional[str], Optional[float]]:
+    """（币种, 按配置价格估算的费用）；这一轮的执行模型没有价格或 token 不全时费用为 None。"""
+    executor = read_json_or(run_dir / "executor.json", {})
+    price = pricing.get("%s/%s" % (executor.get("provider"), executor.get("model")))
+    if not price:
+        return None, None
+    usage = (read_json_or(run_dir / "events-summary.json", {}) or {}).get("usage")
+    return price["currency"], estimate_cost(usage, price)
+
+
 def cmd_metrics(args: argparse.Namespace) -> int:
     out_path = safe_output_path(args)
     repo = Repo.discover(args.repo)
+    pricing = pricing_table(repo.config())
     tasks = sorted(d.name for d in repo.runs_dir.iterdir() if d.is_dir()) if repo.runs_dir.is_dir() else []
     per_task = []
     for task in tasks:
-        rows = [_attempt_row(repo, a) for a in task_attempts(repo, task)]
+        attempts = task_attempts(repo, task)
+        rows = [_attempt_row(repo, a) for a in attempts]
         started = [r for r in rows if r["started"]]
         if not started:
             continue
         verdicts = [r["verdict"] for r in started]
         known_costs = [r["cost"] for r in started if r["cost"] is not None]
+        final, final_ref = _final_outcome(attempts)
+        priced: Dict[str, float] = {}
+        unpriced = 0
+        for attempt, row in zip(attempts, rows):
+            if not row["started"]:
+                continue
+            currency, value = _priced_attempt(attempt, pricing)
+            if value is None:
+                unpriced += 1
+            else:
+                priced[currency] = round(priced.get(currency, 0.0) + value, 6)
         per_task.append({
+            "final": final, "final_ref": final_ref, "priced_cost": priced, "unpriced_attempts": unpriced,
             "task_id": task, "attempts": len(started),
             "first_attempt_pass": verdicts[0] == "PASS",
             "passed": "PASS" in verdicts,
@@ -5829,32 +6683,54 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     rate = lambda n: "%.0f%%" % (100.0 * n / total) if total else "-"  # noqa: E731
     known_total = sum(t["known_cost"] or 0 for t in per_task)
     unknown_attempts = sum(t["unknown_cost_attempts"] for t in per_task)
+    finals = {key: sum(1 for t in per_task if t["final"] == key) for key, _label in FINAL_OUTCOMES}
+    priced_total: Dict[str, float] = {}
+    for t in per_task:
+        for currency, value in t["priced_cost"].items():
+            priced_total[currency] = round(priced_total.get(currency, 0.0) + value, 6)
+    unpriced_total = sum(t["unpriced_attempts"] for t in per_task)
+    if pricing:
+        priced_text = "%s%s；单价来源：%s" % (
+            " + ".join("%.4f %s" % (value, currency) for currency, value in sorted(priced_total.items())) or "0",
+            "（另有 %d 轮没有价格或 token 不全）" % unpriced_total if unpriced_total else "",
+            "；".join("%s %s（%s）" % (key, price["source"], price["as_of"]) for key, price in sorted(pricing.items())))
+    else:
+        priced_text = "没有配置价格（单价由用户填：config set pricing.<provider>/<model> …）"
     lines = ["# Pi 执行试运行指标", "", "生成时间：%s · 任务数：%d" % (utc_now(), total), "",
              "PASS 与 ACCEPTED_WITH_EXCEPTION 分开统计：通过率只计 PASS。", "",
              "| 指标 | 数值 |", "|---|---|",
              "| 首次验收通过率（PASS） | %s |" % rate(sum(t["first_attempt_pass"] for t in per_task)),
              "| 有限重试内通过率（PASS） | %s |" % rate(sum(t["passed"] for t in per_task)),
              "| 豁免接受（ACCEPTED_WITH_EXCEPTION）任务 | %d |" % sum(t["accepted_with_exception"] for t in per_task),
-             "| 未通过任务 | %d |" % sum(1 for t in per_task if not t["passed"] and not t["accepted_with_exception"]),
+             "| 验收未通过任务（最终去向见下两行） | %d |" % sum(1 for t in per_task
+                                                     if not t["passed"] and not t["accepted_with_exception"]),
+             "| 最终集成率（直接集成 + 补完后集成，2.8.0） | %s |" % rate(finals["integrated"] + finals["superseded"]),
+             "| 最终去向 | %s |" % " · ".join("%s %d" % (label, finals[key]) for key, label in FINAL_OUTCOMES),
              "| 越界率 | %s |" % rate(sum(t["violation_any"] for t in per_task)),
              "| 执行轮次合计 | %d |" % sum(t["attempts"] for t in per_task),
              "| 已知执行费用（估算，仅 Pi 执行端） | %.4f%s |" % (
                  known_total, "（另有 %d 轮费用未知或不完整，实际更高）" % unknown_attempts if unknown_attempts else ""),
+             "| 执行费用（按配置价格估算，2.8.0） | %s |" % priced_text,
              "| 人工介入分钟 | %s |" % sum(t["human_minutes"] for t in per_task),
              "| 决策调用（Jev，2.6.0） | %s |" % (
                  "%d 次，有答案 %d · 输入 token %d · 估算费用 %.4f 美元" % (
                      decision_totals["calls"], decision_totals["answered"], decision_totals["input_tokens"],
                      decision_totals["estimated_cost_usd"]) if decision_totals else "无记录"), "",
              "规划与复审（规划端）费用不在此表，请按同一口径另行记录后再比较（方案第 13 节）。", "",
-             "| 任务 | 轮次 | 首轮 PASS | 最终结果 | 越界 | 墙钟(s) | tokens | 已知费用 | 失败分类 |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "| 任务 | 轮次 | 首轮 PASS | 验收结论 | 最终 | 越界 | 墙钟(s) | tokens | 已知费用 | 价格估算 | 失败分类 |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    labels = dict(FINAL_OUTCOMES)
     for t in per_task:
         outcome = "PASS" if t["passed"] else ("豁免接受" if t["accepted_with_exception"] else "未通过")
         cost_text = "unknown" if t["known_cost"] is None else "%s%s" % (
             t["known_cost"], "（不完整）" if t["unknown_cost_attempts"] else "")
-        lines.append("| %s | %d | %s | %s | %s | %s | %s | %s | %s |" % (
-            t["task_id"], t["attempts"], "是" if t["first_attempt_pass"] else "否", outcome,
-            "是" if t["violation_any"] else "否", t["wall_seconds"], t["tokens"], cost_text,
+        final_text = labels[t["final"]] + (" `%s`" % str(t["final_ref"])[:12] if t["final_ref"] else "")
+        priced_cell = (" + ".join("%.4f %s" % (v, c) for c, v in sorted(t["priced_cost"].items()))
+                       + ("（%d 轮无价）" % t["unpriced_attempts"] if t["unpriced_attempts"] else "")
+                       if t["priced_cost"] else "-")
+        lines.append("| %s | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            t["task_id"], t["attempts"], "是" if t["first_attempt_pass"] else "否", outcome, final_text,
+            "是" if t["violation_any"] else "否", t["wall_seconds"], t["tokens"], cost_text, priced_cell,
             ", ".join(t["failure_classes"]) or "-"))
     text = "\n".join(lines) + "\n"
     if out_path is not None:
@@ -6009,7 +6885,7 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
         "base_url": described["base_url"], "official_endpoint": described["official_endpoint"],
         "model": described["model"], "points": described["points"], "marker_present": described["marker_present"],
         "plugin_dir": described["plugin_dir"], "batteries": described["batteries"],
-        "sdk_reference": described["sdk_reference"],
+        "battery_lock": described.get("battery_lock"), "sdk_reference": described["sdk_reference"],
     }
     problems.extend("决策插件的问题清单无效：%s" % item for item in described["battery_problems"])
     if settings.configured_mode != "off" and not settings.active:
@@ -6441,6 +7317,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-config-trailers", action="store_true",
                    help="不附加 dispatch.config.json 的 commit_trailers（它们是仓库级的固定尾注）")
     p.set_defaults(func=cmd_branch)
+
+    p = sub.add_parser("review-draft", help="按证据生成复审记录骨架与独立复审简报（2.8.0）")
+    p.add_argument("run_dir")
+    p.add_argument("--out", help="骨架写到这里（缺省 .agent/reviews/<task-id>/<attempt>.md）")
+    p.add_argument("--force", action="store_true", help="覆盖已有的骨架或复审记录")
+    p.set_defaults(func=cmd_review_draft)
+
+    p = sub.add_parser("integrate", help="验证后落地：当前分支末端 + 候选在干净副本上跑合同检查，通过才快进（2.8.0）")
+    p.add_argument("run_dir")
+    p.add_argument("--dry-run", action="store_true", help="只验证，不建分支与提交、不落地（等于在当前末端上跑检查）")
+    p.add_argument("--skip", help="豁免的检查 ID，逗号分隔（只对基线成立、在当前末端上不成立的检查）；需要 --reason")
+    p.add_argument("--reason", help="--skip 的理由，写进记录")
+    p.add_argument("--name", help="候选分支名（缺省 pi/<task>-v<N>-a<NNN>；已指向这个候选时复用）")
+    p.add_argument("--trailer", action="append", default=[],
+                   help="追加一条提交尾注（单行 Key: value，可重复），例如本次规划端的署名")
+    p.add_argument("--no-config-trailers", action="store_true",
+                   help="不附加 dispatch.config.json 的 commit_trailers（它们是仓库级的固定尾注）")
+    p.add_argument("--keep-worktree", action="store_true", help="落地后不清理 attempt 的 worktree")
+    p.add_argument("--keep-workspace", action="store_true", help="保留验证副本，便于排查")
+    p.add_argument("--while-running", action="store_true",
+                   help="有 attempt 正在运行时也落地（它们的复审会把这次改动列为主工作区变化）")
+    p.set_defaults(func=cmd_integrate)
 
     p = sub.add_parser("mark", help="标记 INTEGRATED / ABANDONED / SUPERSEDED")
     p.add_argument("run_dir")

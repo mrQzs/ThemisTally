@@ -150,9 +150,15 @@ def _check_release(config: Dict[str, Any], _repo: Any) -> None:
 
 def _check_decisions(config: Dict[str, Any], repo: Any) -> None:
     try:
-        _decisions.settings_from_config(config, repo.agent_dir if repo is not None else None, pd.DECISIONS_PLUGIN_DIR)
+        settings = _decisions.settings_from_config(config, repo.agent_dir if repo is not None else None,
+                                                   pd.DECISIONS_PLUGIN_DIR)
     except _decisions.DecisionError as exc:
         raise ConfigError("decisions 无效：%s" % exc.detail)
+    if settings.active:  # 2.8.0：生效时问题清单必须与插件内容锁一致，否则 prepare 也会拒绝
+        try:
+            _decisions.verify_battery_lock(pd.DECISIONS_PLUGIN_DIR)
+        except _decisions.DecisionError as exc:
+            raise ConfigError("decisions 的问题清单与插件内容锁不符：%s" % exc.detail)
 
 
 #: 键 → (说明, 缺省值的文字, 校验函数)。顺序就是 show 的顺序。
@@ -167,6 +173,9 @@ KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
     "env_remove": ("在默认列表之外还要对执行器移除的环境变量名", "[]", _check_env_names("env_remove")),
     "env_keep": ("默认移除列表里确实要保留的环境变量名", "[]", _check_env_names("env_keep")),
     "release_check": ("release-check 的放过规则 allow（`<glob>:<模式名>`）与拒绝清单路径 denylist", "{}", _check_release),
+    "pricing": ("执行模型单价（2.8.0）：<provider>/<model> → input、output、cache_read、cache_write（每 per_tokens 个 token，"
+                "缺省一百万）、currency、source、as_of；metrics 用 token 乘单价估算费用。kit 不内置价格，由你填",
+                "{}（不估算）", _check_via(pd.pricing_table)),
     "decisions": ("决策模型：mode（off/shadow/on）、api_key_env、base_url、model、timeout_seconds、budget_seconds、max_state_chars、points",
                   "mode off", _check_decisions),
 }
@@ -234,8 +243,9 @@ def parse_value(text: str) -> Any:
 
 
 def split_path(key_path: str) -> List[str]:
-    parts = key_path.split(".")
-    if not 1 <= len(parts) <= 2 or any(not part for part in parts) or parts[0] not in KEYS:
+    """``键`` 或 ``键.子键``；只在第一个点处分开（2.8.0）：子键可以含点，例如 ``pricing.openai/gpt-4.1``。"""
+    parts = key_path.split(".", 1)
+    if any(not part for part in parts) or parts[0] not in KEYS:
         raise ConfigError("键路径必须是已知键，最多两层（例如 decisions.mode）：%r；已知键：%s" % (key_path, ", ".join(KEYS)), EXIT_USAGE)
     return parts
 
@@ -271,6 +281,7 @@ def cmd_show(args: argparse.Namespace) -> int:
                               "reason": described["reason"], "marker_present": described["marker_present"],
                               "model": described["model"], "base_url": described["base_url"],
                               "points": described["points"], "env_var_name": settings.api_key_env,
+                              "battery_lock": described.get("battery_lock"),
                               "secret": _store.describe(settings.api_key_env)}
     except _decisions.DecisionError as exc:
         facts["decisions"] = {"error": exc.detail}

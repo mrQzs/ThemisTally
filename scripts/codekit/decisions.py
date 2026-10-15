@@ -47,7 +47,7 @@ OFF_MARKER = "DECISIONS_OFF"
 POINTS = ("report-screen", "mutation-equivalence", "run-health")
 PLUGIN_ID = "decisions"
 PERMISSION = "network-decisions"
-USER_AGENT = "code-kit-decisions/2.6.0"
+USER_AGENT = "code-kit-decisions/2.8.0"
 #: 官方定价：每百万输入 token 0.042 美元，输出免费（models 页，2026-10-12）。
 PRICE_USD_PER_MILLION_INPUT = 0.042
 #: 官方 Python SDK 的常量，只作对照（sdk/python/api/constants、retries 页，2026-10-12）。
@@ -287,6 +287,116 @@ def load_batteries(root: Path) -> Dict[str, Dict[str, Any]]:
             raise DecisionError("battery_invalid", "%s: file name must equal the battery id %s" % (path, battery["id"]))
         found[battery["id"]] = battery
     return found
+
+
+# ---------------------------------------------------------------------------
+# 内容锁（2.8.0）：运行时只用锁里记着的问题清单
+# ---------------------------------------------------------------------------
+
+def _plugin_records():
+    """codekit/plugins.py：规范 JSON 与锁校验的唯一实现。以脚本方式运行本文件时也能找到它。"""
+    try:
+        from . import plugins as module  # type: ignore[no-redef]
+    except ImportError:
+        if __package__:  # 作为 codekit 包的一部分导入：plugins.py 就是不在
+            raise
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from codekit import plugins as module  # type: ignore[no-redef]
+    return module
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def verify_battery_lock(plugin_dir: Path) -> Dict[str, str]:
+    """问题清单与插件的 manifest / lock 一致（2.8.0）。返回 {清单文件名: sha256}。
+
+    锁自身的摘要、锁与 manifest 的绑定由 codekit/plugins.py 的 validate_lock 核对；这里再核对
+    questions/ 下每份清单的字节与锁里同一路径的 sha256 相同，目录里多出或缺少的清单都算不符。
+    不符时抛 DecisionError("battery_drift")：问题清单是插件资源，改了就要重算锁
+    （``decisions.py --write-lock <插件目录>``），否则运行时问的不是复审过的那一份。
+    """
+    plugin_dir = Path(plugin_dir)
+    try:
+        manifest = json.loads((plugin_dir / "manifest.json").read_text(encoding="utf-8"))
+        lock = json.loads((plugin_dir / "lock.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DecisionError("battery_drift", "plugin manifest or lock unreadable: %s" % exc)
+    try:
+        records = _plugin_records()
+    except ImportError as exc:
+        raise DecisionError("battery_drift", "codekit/plugins.py is missing: %s" % exc)
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("plugin_id"), str):
+        raise DecisionError("battery_drift", "plugin manifest has no plugin_id")
+    try:
+        records.validate_lock(lock, {manifest["plugin_id"]: manifest})
+    except records.PluginError as exc:
+        raise DecisionError("battery_drift", "lock does not verify: %s" % exc)
+    prefix = "plugins/%s/questions/" % manifest["plugin_id"]
+    locked = {ref["path"][len(prefix):]: ref["sha256"] for ref in manifest["resources"]
+              if ref.get("kind") == "file" and ref["path"].startswith(prefix)}
+    present = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
+    problems = ["%s is not in the lock" % name for name in present if name not in locked]
+    problems += ["%s is locked but missing" % name for name in sorted(locked) if name not in present]
+    for name in present:
+        if name not in locked:
+            continue
+        data = (plugin_dir / "questions" / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != locked[name]:
+            crlf = (chr(13) + chr(10)).encode()
+            only_eol = hashlib.sha256(data.replace(crlf, chr(10).encode())).hexdigest() == locked[name]
+            problems.append("%s differs from the locked bytes%s" % (
+                name, " only in line endings (checked out with CRLF; .gitattributes keeps plugins/decisions/** -text)"
+                if only_eol else ""))
+    if problems:
+        raise DecisionError("battery_drift", "; ".join(problems)
+                            + "; after a reviewed change run: python scripts/codekit/decisions.py --write-lock "
+                            + str(plugin_dir))
+    return locked
+
+
+def load_locked_batteries(plugin_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """运行时的入口（2.8.0）：先核对内容锁，再读清单，读到的字节也要等于锁里的。"""
+    locked = verify_battery_lock(plugin_dir)
+    batteries = load_batteries(Path(plugin_dir) / "questions")
+    for battery in batteries.values():
+        name = Path(battery["path"]).name
+        if locked.get(name) != battery["sha256"]:
+            raise DecisionError("battery_drift", "%s changed while it was being read" % name)
+    return batteries
+
+
+def write_lock(plugin_dir: Path) -> str:
+    """改过问题清单之后重算 manifest 的资源哈希与锁（2.8.0；原先是规划端临时目录里的生成脚本）。
+
+    资源是 README.md（有就记）加 questions/*.json，id 为 ``<plugin_id>.readme`` 与 ``<plugin_id>.<文件名>``；
+    manifest 的其余字段不动，锁的 compiler_sha256 与 generation 沿用旧锁。写之前先校验每份清单的形状，
+    写完再核对一遍。返回新锁的 lock_sha256。
+    """
+    plugin_dir = Path(plugin_dir).resolve()
+    records = _plugin_records()
+    manifest_path, lock_path = plugin_dir / "manifest.json", plugin_dir / "lock.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    previous = json.loads(lock_path.read_text(encoding="utf-8"))
+    load_batteries(plugin_dir / "questions")
+    base = "plugins/%s/" % manifest["plugin_id"]
+    resources: List[Dict[str, str]] = []
+    if (plugin_dir / "README.md").is_file():
+        resources.append({"kind": "file", "id": manifest["plugin_id"] + ".readme", "path": base + "README.md",
+                          "sha256": _sha256(plugin_dir / "README.md")})
+    for path in sorted((plugin_dir / "questions").glob("*.json")):
+        resources.append({"kind": "file", "id": "%s.%s" % (manifest["plugin_id"], path.stem),
+                          "path": base + "questions/" + path.name, "sha256": _sha256(path)})
+    manifest["resources"] = resources
+    normalized = records.validate_manifest(manifest)
+    lock = records.build_lock([normalized], compiler_sha256=previous["compiler_sha256"],
+                              generation=previous["generation"])
+    for path, data in ((manifest_path, manifest), (lock_path, lock)):
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + chr(10),
+                        encoding="utf-8", newline=chr(10))
+    verify_battery_lock(plugin_dir)
+    return lock["lock_sha256"]
 
 
 # ---------------------------------------------------------------------------
@@ -762,7 +872,14 @@ def describe(settings: Settings, plugin_dir: Optional[Path], environ: Optional[M
     facts["plugin_dir"] = str(plugin_dir) if plugin_dir else None
     batteries: List[Dict[str, Any]] = []
     problems: List[str] = []
+    facts["battery_lock"] = None
     if plugin_dir and (Path(plugin_dir) / "questions").is_dir():
+        try:
+            verify_battery_lock(Path(plugin_dir))
+            facts["battery_lock"] = "ok"
+        except DecisionError as exc:
+            facts["battery_lock"] = "drift"
+            problems.append(str(exc))
         try:
             for battery in load_batteries(Path(plugin_dir) / "questions").values():
                 batteries.append({"id": battery["id"], "version": battery["version"], "sha256": battery["sha256"],
@@ -792,10 +909,24 @@ def probe(settings: Settings, *, transport: Optional[Transport] = None,
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """``python scripts/codekit/decisions.py --check-battery <目录或文件>...``：校验问题清单（插件的确定性检查）。"""
+    """``python scripts/codekit/decisions.py --check-battery <目录或文件>...``：校验问题清单（插件的确定性检查）。
+
+    ``--check-lock <插件目录>`` 核对清单与内容锁一致；``--write-lock <插件目录>`` 在复审过的改动之后重算锁（2.8.0）。
+    """
     args = list(sys.argv[1:] if argv is None else argv)
+    if len(args) == 2 and args[0] in ("--check-lock", "--write-lock"):
+        try:
+            if args[0] == "--write-lock":
+                print("OK    lock written %s" % write_lock(Path(args[1]))[:12])
+            else:
+                print("OK    %d batteries match the lock" % len(verify_battery_lock(Path(args[1]))))
+        except (DecisionError, OSError, ValueError, KeyError) as exc:
+            print("ERROR %s" % exc)
+            return 1
+        return 0
     if not args or args[0] != "--check-battery" or len(args) < 2:
-        print("usage: decisions.py --check-battery <directory or file>...", file=sys.stderr)
+        print("usage: decisions.py --check-battery <directory or file>... | --check-lock <plugin dir> "
+              "| --write-lock <plugin dir>", file=sys.stderr)
         return 2
     failures = 0
     for target in args[1:]:

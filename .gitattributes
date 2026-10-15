@@ -21,3 +21,6 @@ tests/test_legacy_*.py -text
 tests/test_protocols.py -text
 docs/code-kit-v2/** -text
 docs/code-kit-v2-design.md -text
+
+# 2.8.0：决策插件的问题清单、manifest 与锁按完整字节核对（decisions.verify_battery_lock）；系统级 core.autocrlf=true 会在检出时转成 CRLF，使哈希失配。
+plugins/decisions/** -text

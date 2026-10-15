@@ -2468,6 +2468,8 @@ def _install_decisions(repo):
     (repo / "scripts/codekit").mkdir(exist_ok=True)
     (repo / "scripts/codekit/__init__.py").write_text("", encoding="utf-8")
     shutil.copy(str(KIT / "scripts/codekit/decisions.py"), str(repo / "scripts/codekit/decisions.py"))
+    # 2.8.0：问题清单按插件内容锁核对，锁的校验在 codekit/plugins.py
+    shutil.copy(str(KIT / "scripts/codekit/plugins.py"), str(repo / "scripts/codekit/plugins.py"))
     shutil.copytree(str(KIT / "plugins/decisions"), str(repo / "plugins/decisions"))
 
 
@@ -2777,6 +2779,271 @@ def test_v270_config_manager_through_the_dispatcher():
     repo_no = make_repo("v270nokit")[0]
     code, out = tool(repo_no, "config", "show")
     check("without kit_config.py next to the dispatcher the command says so", code == pd.EXIT_USAGE and "配置管理器不可用" in out, out)
+
+
+def test_v280_integrate():
+    """2.8.0：integrate 在“当前末端 + 候选”的干净副本上跑合同检查，通过才快进；没有 merge 授权、冲突、检查失败、
+    快进被拒、有 attempt 在跑时都不落地。"""
+    landing = {"executor": ["local_edit", "local_test"], "integration": ["local_branch", "merge"]}
+
+    def accepted(name, authorization=None):
+        repo, base = make_repo(name, authorization=authorization or landing)
+        run_ok(repo)
+        tool(repo, "check", "normalize-query/attempt-001")
+        code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                         review(repo, "PASS"))
+        assert code == 0, out
+        return repo, base
+
+    def advance(repo, rel, content, message):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(content, encoding="utf-8")
+        git(repo, "add", rel)
+        git(repo, "commit", "-qm", message)
+        return git(repo, "rev-parse", "HEAD")
+
+    def no_branch(repo):
+        return sh(["git", "rev-parse", "--verify", "--quiet", "refs/heads/pi/normalize-query-v1-a001"], repo,
+                  check=False)[0] != 0
+
+    repo, base = accepted("v280-integrate")
+    head = advance(repo, "README.md", "# Test\n\nmaster moved on\n", "tip")
+    worktree = worktree_of(repo)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run")
+    record = jload(rd(repo) / "integrations/01/integration.json")
+    check("integrate --dry-run verifies on the tip without a branch or a landing",
+          code == 0 and "dry-run" in out and record["outcome"] == "verified" and record["head"] == head
+          and git(repo, "rev-parse", "HEAD") == head and state(repo) == "PASS" and no_branch(repo), out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001")
+    landed = git(repo, "rev-parse", "HEAD")
+    record = jload(rd(repo) / "integrations/02/integration.json")
+    status = jload(rd(repo) / "state.json")
+    check("integrate lands on the current branch: parent is the old tip, the tree has both changes",
+          code == 0 and "已集成" in out and landed != head and git(repo, "rev-parse", "HEAD^") == head
+          and git(repo, "show", "HEAD:README.md").endswith("master moved on")
+          and "lower()" in git(repo, "show", "HEAD:src/normalize.py")
+          and record["outcome"] == "landed" and record["commit"] == landed, out)
+    check("integrate marks INTEGRATED with the landed commit and cleans the worktree",
+          status["state"] == "INTEGRATED" and status["ref"] == landed and not worktree.exists(), (status, out))
+    check("integrate keeps the candidate branch on the base and reuses its commit message",
+          git(repo, "rev-parse", "pi/normalize-query-v1-a001^") == base
+          and git(repo, "log", "-1", "--format=%B", "HEAD") == git(repo, "log", "-1", "--format=%B",
+                                                                   "pi/normalize-query-v1-a001"), out)
+    check("the main worktree has no tracked changes after the landing",
+          git(repo, "status", "--porcelain", "--untracked-files=no") == "", out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001")
+    check("integrate refuses an attempt that is already integrated", code == pd.EXIT_USAGE and "已集成" in out, out)
+
+    repo2, _ = accepted("v280-integrate-nomerge",
+                        authorization={"executor": ["local_edit", "local_test"], "integration": ["local_branch"]})
+    head2 = advance(repo2, "README.md", "# Test\n\nmoved\n", "tip")
+    code, out = tool(repo2, "integrate", "normalize-query/attempt-001")
+    record = jload(rd(repo2) / "integrations/01/integration.json")
+    check("without integration.merge integrate verifies, builds the commit and prints the landing commands",
+          code == pd.EXIT_BLOCKED and "没有 merge" in out and ("git merge --ff-only %s" % record["commit"]) in out
+          and git(repo2, "rev-parse", "HEAD") == head2 and state(repo2) == "PASS"
+          and record["outcome"] == "verified_not_authorized", out)
+
+    repo3, _ = accepted("v280-integrate-conflict")
+    head3 = advance(repo3, "src/normalize.py", "def normalize(q):\n    return q.strip()\n", "tip edits the same line")
+    code, out = tool(repo3, "integrate", "normalize-query/attempt-001")
+    record = jload(rd(repo3) / "integrations/01/integration.json")
+    check("a conflict with the tip lands nothing and names the file",
+          code == 1 and "CONFLICT" in out and "src/normalize.py" in out and git(repo3, "rev-parse", "HEAD") == head3
+          and state(repo3) == "PASS" and record["outcome"] == "conflict", out)
+
+    repo4, _ = accepted("v280-integrate-fail")
+    head4 = advance(repo4, "tests/test_tip.py",
+                    "import unittest\n\n\nclass Tip(unittest.TestCase):\n    def test_tip(self):\n"
+                    "        from normalize import normalize\n        self.assertEqual(normalize('A'), 'A')\n",
+                    "tip pins the old behaviour")
+    code, out = tool(repo4, "integrate", "normalize-query/attempt-001")
+    record = jload(rd(repo4) / "integrations/01/integration.json")
+    check("checks failing on the tip plus the candidate land nothing and remove the workspace",
+          code == 1 and "没有全部通过" in out and git(repo4, "rev-parse", "HEAD") == head4 and state(repo4) == "PASS"
+          and record["outcome"] == "checks_failed" and not Path(record["workspace"]).exists(), out)
+    code, out = tool(repo4, "integrate", "normalize-query/attempt-001", "--skip", "V01")
+    check("--skip needs --reason", code == pd.EXIT_USAGE and "--reason" in out, out)
+
+    repo5, _ = accepted("v280-integrate-dirty")
+    head5 = advance(repo5, "README.md", "# Test\n\nmoved\n", "tip")
+    (repo5 / "src/normalize.py").write_text("def normalize(q):\n    return q  # local edit\n", encoding="utf-8")
+    code, out = tool(repo5, "integrate", "normalize-query/attempt-001")
+    record = jload(rd(repo5) / "integrations/01/integration.json")
+    check("a local change in a touched file refuses the fast-forward and lands nothing",
+          code == 1 and "快进被拒" in out and git(repo5, "rev-parse", "HEAD") == head5 and state(repo5) == "PASS"
+          and record["outcome"] == "ff_refused"
+          and "local edit" in (repo5 / "src/normalize.py").read_text(encoding="utf-8"), out)
+
+    repo6, _ = accepted("v280-integrate-running")
+    other = repo6 / ".agent/runs/other-task/attempt-001"
+    other.mkdir(parents=True)
+    (other / "state.json").write_text(json.dumps({"state": "RUNNING"}), encoding="utf-8")
+    code, out = tool(repo6, "integrate", "normalize-query/attempt-001")
+    check("integrate waits for running attempts", code == pd.EXIT_BLOCKED and "other-task/attempt-001" in out, out)
+    code, out = tool(repo6, "integrate", "normalize-query/attempt-001", "--while-running")
+    check("--while-running lands anyway", code == 0 and state(repo6) == "INTEGRATED", out)
+
+
+def test_v280_mutation_expectations_and_review_draft():
+    """2.8.0：一份清单两条命令、变异带预期；review-draft 写出复审骨架与简报，verdict 拒收没填完的骨架。"""
+    repo, base = make_repo("v280mutate")
+    run_ok(repo)
+    tool(repo, "check", "normalize-query/attempt-001", "--fresh")
+    spec = {"commands": [{"id": "all", "argv": [PY, "run_tests.py"]}, {"id": "smoke", "argv": [PY, "-c", "print('ok')"]}],
+            "timeout_seconds": 120,
+            "mutations": [
+                {"name": "去掉 lower", "file": "src/normalize.py", "old": ".lower()", "new": "", "expect_missed": ["smoke"]},
+                {"name": "split(None) 等价", "file": "src/normalize.py", "old": "q.split()", "new": "q.split(None)",
+                 "equivalent": "split() 与 split(None) 行为相同"},
+                {"name": "连接符改成下划线", "file": "src/normalize.py", "old": "' '.join", "new": "'_'.join"},
+                {"name": "upper 标了预期漏掉", "file": "src/normalize.py", "old": ".lower()", "new": ".upper()",
+                 "expect_missed": ["all", "smoke"]}]}
+    spec_path = WORK / "v280-spec.json"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path))
+    record = jload(rd(repo) / "mutations/01/mutations.json")
+    by = record["counts_by_command"]
+    check("mutate runs every command on each mutation and separates expected from unexpected",
+          code == 0 and "变异 4 个 · all：抓住 3，漏掉 1（预期 1，意外 0），跳过 0，出错 0；标了预期漏掉却被抓住 1：M04" in out
+          and "变异 4 个 · smoke：抓住 0，漏掉 4（预期 3，意外 1：M03），跳过 0，出错 0" in out
+          and "MISSED  M03 连接符改成下划线 [smoke]  意外漏掉  日志 mutations/01/M03-smoke.log" in out
+          and "预期内：等价（split() 与 split(None) 行为相同）" in out, out)
+    check("the record keeps the first command at the top level and every command under commands",
+          record["results"][0]["status"] == "caught" and record["results"][0]["commands"]["smoke"]["status"] == "missed"
+          and record["results"][2]["unexpected"] == ["smoke"] and record["results"][3]["unexpected"] == ["all"]
+          and by["smoke"]["unexpected_missed"] == ["M03"] and by["all"]["unexpected_caught"] == ["M04"]
+          and [c["id"] for c in record["commands"]] == ["all", "smoke"]
+          and (rd(repo) / "mutations/01/M01-all.log").is_file() and (rd(repo) / "mutations/01/baseline-smoke.log").is_file(),
+          record)
+    bad = dict(spec, command=[PY, "run_tests.py"])
+    spec_path.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "normalize-query/attempt-001", "--spec", str(spec_path))
+    check("command and commands together are a usage error", code == pd.EXIT_USAGE and "只能写一个" in out, out)
+    anchors = {"command": [PY, "run_tests.py"], "mutations": [
+        {"name": "改写过的锚点", "file": "src/normalize.py", "old": "return ' '.join(q.split()).upper()", "new": "x"},
+        {"name": "太短的锚点", "file": "src/normalize.py", "old": "q", "new": "p"}]}
+    spec_path.write_text(json.dumps(anchors, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "mutate", "--tree", str(worktree_of(repo)), "--spec", str(spec_path), "--check-anchors")
+    check("--check-anchors names the nearest line and every occurrence",
+          code == 1 and "最相近 L2" in out and "return ' '.join(q.split()).lower()" in out and "出现在 L1" in out, out)
+
+    code, out = tool(repo, "review-draft", "normalize-query/attempt-001")
+    draft_path = repo / ".agent/reviews/normalize-query/attempt-001.md"
+    draft = draft_path.read_text(encoding="utf-8") if draft_path.is_file() else ""
+    brief = (rd(repo) / "review-brief.md").read_text(encoding="utf-8") if (rd(repo) / "review-brief.md").is_file() else ""
+    check("review-draft fills the facts and leaves the judgments",
+          code == 0 and "Verdict: 【待填】" in draft and "- 基线：`%s`" % base in draft
+          and "| G4 回归检查 | passed |" in draft and "checks/01（fresh，1/1 通过）" in draft
+          and "| D01 | 【待填】 | V01 passed | 行为正确 |" in draft and "| G3 行为正确 | 【待填】 |" in draft
+          and "step/step-5-preview" in draft, (out, draft))
+    check("review-draft writes the mutation lines in the template's fixed format",
+          "`M03 连接符改成下划线`（smoke 意外漏掉） → 归因：【待填】" in draft
+          and "`M02 split(None) 等价` → 归因：等价变异（split() 与 split(None) 行为相同） → 处理：注明" in draft
+          and "预期内的漏掉（expect_missed：合同交给其他命令覆盖的规则）：M01 M04" in draft
+          and "smoke：抓住 0，漏掉 4（意外 1：M03）" in draft, draft)
+    check("review-draft writes the independent review brief next to the evidence",
+          str(rd(repo).resolve()) in brief and "independent-review.md" in brief and "M03 连接符改成下划线" in brief
+          and "D01：行为正确" in brief, brief)
+    code, out = tool(repo, "review-draft", "normalize-query/attempt-001")
+    check("review-draft does not overwrite without --force", code == pd.EXIT_USAGE and "--force" in out, out)
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", str(draft_path))
+    check("verdict refuses a review that still has 【待填】", code == pd.EXIT_USAGE and "【待填】" in out and state(repo) == "NEEDS_REVIEW", out)
+    filled = draft.replace("Verdict: 【待填】（PASS / ACCEPTED_WITH_EXCEPTION / REVISE / BLOCKED / ESCALATE 中的一个）",
+                           "Verdict: PASS").replace("【待填】", "已核对")
+    draft_path.write_text(filled, encoding="utf-8")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", str(draft_path))
+    check("a filled draft is accepted", code == 0 and state(repo) == "PASS", out)
+
+
+def test_v280_battery_lock_and_protected_kit_files():
+    """2.8.0：问题清单与插件内容锁不符时 prepare 与 config validate 拒绝、doctor 报出；运行中才变的，收集时跳过、照常完成。
+    kit 自己加载的文件不能写进合同范围。"""
+    repo, base = make_repo("v280lock")
+    _install_decisions(repo)
+    shutil.copy(str(KIT / "scripts/kit_config.py"), str(repo / "scripts/kit_config.py"))
+    shutil.copy(str(KIT / "scripts/codekit/secrets.py"), str(repo / "scripts/codekit/secrets.py"))
+    server, port, calls = _decision_server({})
+    try:
+        _decisions_config(repo, port, "shadow")
+        env = {"CODEKIT_TEST_DECISIONS_KEY": "local-test-key"}
+        battery = repo / "plugins/decisions/questions/report-screen.json"
+        original = battery.read_bytes()
+        battery.write_bytes(original + b" ")
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=env)
+        check("prepare refuses a battery that drifted from the plugin lock",
+              code == pd.EXIT_USAGE and "report-screen.json differs from the locked bytes" in out
+              and not rd(repo).exists(), out)
+        code, out = tool(repo, "doctor", env=env)
+        facts = json.loads(out)
+        check("doctor reports the drift as a problem",
+              facts["decisions"]["battery_lock"] == "drift"
+              and any("differs from the locked bytes" in problem for problem in facts["problems"]), out)
+        code, out = tool(repo, "config", "validate", env=env)
+        check("config validate refuses active decisions over a drifted battery", code == 1 and "内容锁" in out, out)
+        battery.write_bytes(original)
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=env)
+        check("prepare goes ahead once the battery matches the lock again", code == 0, out)
+        battery.write_bytes(original + b" ")
+        code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(env, STUB_SCENARIO="ok"))
+        summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+        records = [json.loads(line) for line in (rd(repo) / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
+        check("a battery that drifts during the run is skipped at collect and the run completes",
+              code == 0 and state(repo) == "NEEDS_REVIEW" and "battery_drift" in out and not calls
+              and records[-1]["reason"] == "battery_drift" and records[-1]["point"] == "report-screen"
+              and "与内容锁不符，本次没有问" in summary, (out, summary))
+    finally:
+        server.shutdown()
+        server.server_close()
+    scope = {"allowed_modified_files": ["src/normalize.py", "scripts/kit_config.py"],
+             "allowed_new_files": ["tests/test_normalize.py", "plugins/decisions/questions/extra.json"],
+             "allowed_deleted_files": [], "forbidden_paths": ["package.json"], "dependency_changes": "forbidden"}
+    repo2, _ = make_repo("v280protect", scope=scope)
+    code, out = tool(repo2, "validate", "normalize-query.v1")
+    check("a contract may not delegate the kit files the dispatcher loads",
+          code != 0 and "受保护路径 scripts/kit_config.py" in out
+          and "受保护路径 plugins/decisions/questions/extra.json" in out, out)
+
+
+def test_v280_metrics_final_outcome_and_pricing():
+    """2.8.0：metrics 按 state.json 给最终去向；价格表由用户填，按 token 估算费用；pricing 可经 config set 写入（子键含点）。"""
+    repo, base = make_repo("v280metrics")
+    run_ok(repo)
+    tool(repo, "check", "normalize-query/attempt-001")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "REVISE", "--class", "EXECUTION_ERROR",
+                     "--review", review(repo, "REVISE"))
+    code, out = tool(repo, "mark", "normalize-query/attempt-001", "SUPERSEDED", "--ref", "abc1234def",
+                     "--reason", "规划端补完后集成")
+    code, out = tool(repo, "metrics")
+    check("metrics: a REVISE that was completed and integrated counts as integrated in the end",
+          code == 0 and "| 验收未通过任务（最终去向见下两行） | 1 |" in out
+          and "| 最终集成率（直接集成 + 补完后集成，2.8.0） | 100% |" in out
+          and "| 最终去向 | 直接集成 0 · 补完后集成 1 · 放弃 0 · 未定 0 |" in out
+          and "| 补完后集成 `abc1234def` |" in out and "没有配置价格" in out, out)
+    price = {"input": 1.0, "output": 2.0, "cache_read": 0.5, "currency": "USD", "source": "测试价格表", "as_of": "2026-10-14"}
+    write_config(repo, pricing={"step/step-5-preview": price})
+    code, out = tool(repo, "metrics")
+    ev = jload(rd(repo) / "events-summary.json")["usage"]
+    expected = (ev["input"] * 1.0 + ev["output"] * 2.0 + (ev.get("cacheRead") or 0) * 0.5) / 1000000
+    check("metrics estimates the cost from the tokens and the configured price, naming the source",
+          code == 0 and ("| 执行费用（按配置价格估算，2.8.0） | %.4f USD；单价来源：step/step-5-preview 测试价格表（2026-10-14） |"
+                         % expected) in out, (out, ev))
+    write_config(repo, pricing={"step/step-5-preview": dict(price, input=-1)})
+    code, out = tool(repo, "metrics")
+    check("an invalid price table is a usage error", code == pd.EXIT_USAGE and "pricing" in out and "非负数" in out, out)
+    shutil.copy(str(KIT / "scripts/kit_config.py"), str(repo / "scripts/kit_config.py"))
+    (repo / "scripts/codekit").mkdir(exist_ok=True)
+    (repo / "scripts/codekit/__init__.py").write_text("", encoding="utf-8")
+    for name in ("decisions.py", "secrets.py", "plugins.py"):
+        shutil.copy(str(KIT / "scripts/codekit" / name), str(repo / "scripts/codekit" / name))
+    write_config(repo)
+    code, out = tool(repo, "config", "set", "pricing.openai/gpt-4.1",
+                     json.dumps({"input": 2, "output": 8, "source": "price page", "as_of": "2026-10-14"}))
+    written = jload(repo / ".agent/dispatch.config.json").get("pricing", {})
+    check("config set takes a pricing entry whose model name has a dot",
+          code == 0 and written.get("openai/gpt-4.1", {}).get("output") == 8, (out, written))
+    code, out = tool(repo, "config", "set", "pricing.openai/gpt-4.1", json.dumps({"input": 2, "output": 8}))
+    check("config set refuses a price without its source and date", code == 1 and "source" in out, out)
 
 
 if __name__ == "__main__":
