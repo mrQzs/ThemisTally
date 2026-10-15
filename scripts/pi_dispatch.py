@@ -49,7 +49,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.9.0"
+TOOL_VERSION = "2.10.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -2995,9 +2995,13 @@ def extract_report(final_text: str, run_dir: Path) -> Dict[str, Any]:
     write_json(run_dir / "executor-report.json", data)
     fields = data if isinstance(data, dict) else {}
     counted = {key: len(fields[key]) if isinstance(fields.get(key), list) else 0
-               for key in ("contract_conflicts", "unresolved_questions")}
-    return dict({"status": "json_ok", "executor_status": fields.get("executor_status"),
-                 "path": "executor-report.json"}, **counted)
+               for key in ("contract_conflicts", "unresolved_questions", "interpretations")}
+    result = dict({"status": "json_ok", "executor_status": fields.get("executor_status"),
+                   "path": "executor-report.json"}, **counted)
+    if not isinstance(fields.get("interpretations"), list):
+        # 2.10.0 起报告格式里有自定解读的列表；缺失或不是列表（旧执行器、格式偏差）时摘要写一句备注。
+        result["interpretations_missing"] = True
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -3316,8 +3320,8 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
 2. 不修改合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/ 与 scripts/pi_dispatch.py、scripts/dispatch-pi.sh。
 3. 不删除、跳过或弱化测试与断言来获得通过。
 4. {commit_rule}不要用 git stash、git checkout -- 或 git reset 临时撤掉自己的改动来对比基线行为：恢复一旦失败，改动就会丢失。确实需要对比时，在报告中说明，由验收端在基线副本上运行。
-5. 不访问工作目录之外的路径，包括主仓库、其他 worktree、家目录与系统目录（例如不要用 `ls /usr/bin/python3*` 查找解释器，直接用 PATH 上的命令）。唯一的例外是临时文件，只用来存放测试或命令的中间产物：测试框架管理的临时目录（例如 pytest 的 tmp_path）可以使用；确需在命令里新建临时目录时，只能写成 `T=$(mktemp -d)`，并以 `rm -rf "$T"` 作为这条命令的最后一步，删除之后不再接任何命令（`date`、`git status` 这类只读命令也不要接，需要时另起一条命令）；不要切换到其中运行命令，也不要读写其他工作目录之外的路径。需要截短输出又要保留真实退出码时，直接运行检查命令即可（工具会返回完整输出与退出码）；确要截短，写成 `T=$(mktemp -d); <命令> > "$T/out" 2>&1; echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"`，不要写到 `/tmp/v01.txt` 这类固定路径。不读取、打印或写入任何凭据。读写工作目录中的文件一律使用相对路径（工具的当前目录就是工作目录），不要手写绝对路径——手写的长路径容易拼错而落到工作目录之外；`"$T"` 这样运行时生成的临时路径不受此限。plan.md 与本说明已随消息附上，不需要再去读取它们的原始文件。
-6. 遇到未定义行为、需求冲突、基线不符或环境缺失：停止并报告，不要猜测。合同内部前后矛盾（例如行为说明、步骤、DoD 或测试要求对同一行为说法不同）也属于需求冲突，不要自行选定一种解释当作完成。其余部分能独立完成时可以继续，但要把两处原文、你暂时采用的做法和理由写进报告的 `contract_conflicts`，并把相关 DoD 标为 blocked。
+5. 不访问工作目录之外的路径，包括主仓库、其他 worktree、家目录与系统目录（例如不要用 `ls /usr/bin/python3*` 查找解释器，直接用 PATH 上的命令）。唯一的例外是临时文件，只用来存放测试或命令的中间产物：测试框架管理的临时目录（例如 pytest 的 tmp_path）可以使用；确需在命令里新建临时目录时，只能写成 `T=$(mktemp -d)`，并以 `rm -rf "$T"` 作为这条命令的最后一步，删除之后不再接任何命令（`date`、`git status` 这类只读命令也不要接，需要时另起一条命令）；不要切换到其中运行命令，也不要读写其他工作目录之外的路径。需要截短输出时，照抄“机器合同摘要”里每条检查的“自检照抄”写法：bash 的写法以 `set -o pipefail;` 开头，管道的退出码就是被测程序自己的退出码；自己临时写的测试命令要接 `| tail` 之类的管道时，开头同样加 `set -o pipefail;`。不要把输出写到 `/tmp/v01.txt` 这类固定路径。不读取、打印或写入任何凭据。读写工作目录中的文件一律使用相对路径（工具的当前目录就是工作目录），不要手写绝对路径——手写的长路径容易拼错而落到工作目录之外；`"$T"` 这样运行时生成的临时路径不受此限。plan.md 与本说明已随消息附上，不需要再去读取它们的原始文件。
+6. 遇到未定义行为、需求冲突、基线不符或环境缺失：停止并报告，不要猜测。合同内部前后矛盾（例如行为说明、步骤、DoD 或测试要求对同一行为说法不同）也属于需求冲突，不要自行选定一种解释当作完成。其余部分能独立完成时可以继续，但要把两处原文、你暂时采用的做法和理由写进报告的 `contract_conflicts`，并把相关 DoD 标为 blocked。合同没有写死、需要你自己定的地方（某个边界算不算、出错时走哪条路、两种读法都说得通时选哪一种）不算矛盾：按最合理的读法继续，并写进报告的 `interpretations`。
 {self_check_rule}
 8. 验收端会在固定候选上做变异检查（mutate），你不需要自己做突变反测；确要临时改坏文件验证测试时，备份放在工作目录内（例如 `x.ts.orig`），同一条命令里改回并删除备份，不要用系统临时目录。
 9. 合同要求编写测试时，每个拒绝反例先验证合法基线，再只改受测条件并断言具体错误；避免另一条规则提前拒绝而掩盖缺口。比较摘要时固定其余字段，分别验证每个语义字段；非空、partial 等有不同分支的形态按合同分别覆盖。只从非法输入得到异常、或测试数量增加，不代表目标规则已被保护。
@@ -3330,7 +3334,8 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
 ## 最后一条消息必须是执行报告
 只输出一份报告：先用中文逐项说明 DoD（{dod_ids}）的完成情况、运行过的自检命令与结果、合同中的矛盾与你的处理、遗留问题与阻塞原因；
 然后给出一个 JSON 代码块，字段如下（自检结果属于自述，最终验收由验收端独立完成）。
-`contract_conflicts` 的每一项写成 `{{"quotes": ["合同原文 1", "合同原文 2"], "adopted": "暂时采用的做法", "reason": "理由"}}`；没有矛盾时保留空列表：
+`contract_conflicts` 的每一项写成 `{{"quotes": ["合同原文 1", "合同原文 2"], "adopted": "暂时采用的做法", "reason": "理由"}}`；没有矛盾时保留空列表。
+`interpretations` 列出合同没有写死、由你自己定下的做法，每一项写成 `{{"quote": "合同原文或条目号", "adopted": "你采用的做法", "reason": "理由"}}`；命名、函数拆分这类实现细节不算，没有就保留空列表。验收端会把它和你在推理里说过的取舍逐条对照：
 
 ```json
 {{
@@ -3342,6 +3347,7 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
   "self_checks": [{{"id": "V01", "command": "实际命令", "reported_exit_code": 0, "summary": "关键输出"}}],
   "dod": [{{"id": "D01", "status": "done | not_done | blocked", "note": "说明"}}],
   "contract_conflicts": [],
+  "interpretations": [],
   "unresolved_questions": [],
   "limitations": []
 }}
@@ -3381,15 +3387,45 @@ def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor:
     else:
         self_check_rule = "7. 你没有可用的 shell 工具或未获自检授权：不要声称运行过测试，检查由验收端执行。"
     dod_ids = ", ".join(d.get("id", "?") for d in contract["definition_of_done"])
+    self_check_tools = tools if has_shell and "local_test" in actions else ()
     return INSTRUCTION_TEMPLATE.format(
         task_id=meta["task_id"], version=meta["plan_version"], attempt_id=meta["attempt_id"],
         work_dir=meta["worktree"], base=meta["base_sha"], tools=",".join(tools), timeout=timeout,
         commit_rule=commit_rule, self_check_rule=self_check_rule, dod_ids=dod_ids,
         setup_facts=setup_facts_text(setup_results),
-        machine_summary=machine_summary(contract, extra_protected))
+        machine_summary=machine_summary(contract, extra_protected, self_check_tools))
 
 
-def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = ()) -> str:
+#: 自检照抄的写法保留的输出行数（2.10.0）。
+SELF_CHECK_TAIL_LINES = 40
+
+
+def self_check_command(check: Dict[str, Any], tools: Sequence[str]) -> Optional[str]:
+    """执行器自检照抄的写法（2.10.0）：截短输出，退出码仍是被检查程序自己的。
+
+    kit-install a001：20 条掩盖退出码的命令里 12 条是照抄合同的检查命令、再接 `2>&1 | tail -N`，执行说明里那句
+    合规写法没有挡住。这里直接给出现成的写法：bash 开 pipefail（摘要的检测把它算作合规）；只有 PowerShell 时
+    打印 $LASTEXITCODE。没有 shell 时没有写法。
+    """
+    argv = [str(a) for a in check["argv"]]
+    env = check.get("env") or {}
+    cwd = str(check.get("cwd", "."))
+    here = cwd in ("", ".", "./")
+    if "bash" in tools:
+        assign = "".join("%s=%s " % (key, shlex_quote(str(value))) for key, value in sorted(env.items()))
+        return "set -o pipefail; %s%s%s 2>&1 | tail -n %d" % (
+            "" if here else "cd %s && " % shlex_quote(cwd), assign, " ".join(shlex_quote(a) for a in argv),
+            SELF_CHECK_TAIL_LINES)
+    if "powershell" in tools:
+        quote = lambda value: "'%s'" % value.replace("'", "''")  # noqa: E731
+        assign = "".join("$env:%s = %s; " % (key, quote(str(value))) for key, value in sorted(env.items()))
+        return '%s%s& %s 2>&1 | Select-Object -Last %d; "exit=$LASTEXITCODE"' % (
+            "" if here else "Set-Location %s; " % quote(cwd), assign, " ".join(quote(a) for a in argv),
+            SELF_CHECK_TAIL_LINES)
+    return None
+
+
+def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (), tools: Sequence[str] = ()) -> str:
     scope = contract["scope"]
 
     def listing(values: Sequence[str]) -> str:
@@ -3412,10 +3448,16 @@ def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (
         "pass": "；基线上已通过（回归保护），完成后仍须通过",
     }
     for check in contract["checks"]:
-        lines.append("  - %s%s：`%s`（cwd %s，超时 %ss%s）" % (
+        expected = check.get("expected_exit_code", 0)
+        lines.append("  - %s%s：`%s`（cwd %s，超时 %ss%s%s）" % (
             check["id"], "（必要）" if check.get("required", True) else "",
             subprocess.list2cmdline(check["argv"]) if IS_WINDOWS else " ".join(shlex_quote(a) for a in check["argv"]),
-            check.get("cwd", "."), check["timeout_seconds"], base_notes.get(check.get("expect_on_base", "any"), "")))
+            check.get("cwd", "."), check["timeout_seconds"], "，期望退出码 %s" % expected if expected != 0 else "",
+            base_notes.get(check.get("expect_on_base", "any"), "")))
+        form = self_check_command(check, tools)
+        if form:
+            # 2.10.0：执行器照抄合同的检查命令再接管道，退出码就成了 tail 的；给出现成的截短写法。
+            lines.append("    自检照抄：`%s`" % form)
     return "\n".join(lines)
 
 
@@ -3555,7 +3597,8 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
     for flag in events.get("stderr_flags", []):
         attention.append("stderr 标记：%s" % flag)
     conflicts = report.get("contract_conflicts") or 0
-    declared = conflicts + (report.get("unresolved_questions") or 0)
+    # 2.10.0：执行器列出的自定解读（interpretations）也算报告过的取舍。
+    declared = conflicts + (report.get("unresolved_questions") or 0) + (report.get("interpretations") or 0)
     if conflicts:
         attention.append("执行器报告了 %d 处合同矛盾或含义不明（executor-report.json 的 contract_conflicts）："
                          "逐条裁定后再下结论；相关实现是执行器的临时选择" % conflicts)
@@ -3566,6 +3609,7 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         # 验收证据仍是调度器在固定候选上的 check。
         attention.append("测试或检查命令的退出码被管道掩盖（%d 条，例如事件流第 %s 行 `%s`；另有 %d 条探索命令也如此）："
                          "执行器没有看到被检查程序的退出码，报告里的 reported_exit_code 是推断值，以 check 的结果为准"
+                         "（2.10.0 起执行说明给了每条检查的自检照抄写法）"
                          % (len(masked_checks), masked_checks[0]["event_line"],
                             masked_checks[0]["match"].replace("`", "'"), len(masked) - len(masked_checks)))
     elif masked:
@@ -3583,20 +3627,22 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
             interpretation_count, first_interpretation.get("line"),
             str(first_interpretation.get("excerpt", "")).replace("`", "'")[:160])
         if declared:
-            notes.append(text + "；核对它们都在报告的 contract_conflicts / unresolved_questions 里")
+            notes.append(text + "；核对它们都在报告的 interpretations / contract_conflicts / unresolved_questions 里")
         else:
-            attention.append(text + "；报告的 contract_conflicts 与 unresolved_questions 都为空：这些解读没有被报告"
-                             "（全部摘录见 events-summary.json 的 interpretation_mentions）")
+            attention.append(text + "；报告的 interpretations、contract_conflicts 与 unresolved_questions 都为空："
+                             "这些解读没有被报告（全部摘录见 events-summary.json 的 interpretation_mentions）")
+    if report.get("interpretations_missing"):
+        notes.append("执行报告没有 interpretations 列表（2.10.0 起报告格式里有）：执行器自定的解读只能从事件流核对")
     mention_count = events.get("ambiguity_mention_count") or 0
     if mention_count:
         first = (events.get("ambiguity_mentions") or [{}])[0]
         text = "执行过程中有 %d 处提到合同的歧义、矛盾或一致性，可能只是在检查，需要核实（例如事件流第 %s 行：“%s”）" % (
             mention_count, first.get("line"), str(first.get("excerpt", "")).replace("`", "'")[:160])
         if declared:
-            notes.append(text + "；报告列出了 contract_conflicts / unresolved_questions，核对两者是否一致")
+            notes.append(text + "；报告列出了 interpretations / contract_conflicts / unresolved_questions，核对两者是否一致")
         else:
-            attention.append(text + "；报告的 contract_conflicts 与 unresolved_questions 都为空：核对执行器是否"
-                             "自行选定了某种解释（全部摘录见 events-summary.json 的 ambiguity_mentions）")
+            attention.append(text + "；报告的 interpretations、contract_conflicts 与 unresolved_questions 都为空："
+                             "核对执行器是否自行选定了某种解释（全部摘录见 events-summary.json 的 ambiguity_mentions）")
     decision_lines, decision_attention = _decisions_summary(run_dir)
     attention += decision_attention
     if attention:
@@ -3717,6 +3763,7 @@ def decide_report_screen(repo: "Repo", run_dir: Path, contract: Dict[str, Any], 
             "executor_status": report.get("executor_status"),
             "contract_conflicts": len(report.get("contract_conflicts") or []),
             "unresolved_questions": len(report.get("unresolved_questions") or []),
+            "interpretations": len(report["interpretations"]) if isinstance(report.get("interpretations"), list) else 0,
         },
         "observations": {
             "changed_files": [{"status": f.get("status"), "path": f.get("path"), "scope": f.get("scope")}
@@ -5224,12 +5271,12 @@ def claude_skill_target(repo_root: Path, name: str) -> Path:
 
 
 def claude_adapters_installed(repo_root: Path) -> bool:
-    """仓库里是否装了 Claude Code 的技能副本（任一 PI-Kit 技能目录存在即算）；路径先经链接校验。"""
+    """仓库里是否装了 Claude Code 的技能副本（任一 Code-Kit 技能目录存在即算）；路径先经链接校验。"""
     return any(claude_skill_target(repo_root, name).exists() for name in KIT_SKILLS)
 
 
 def adapter_drift(repo_root: Path) -> Tuple[List[str], List[str]]:
-    """比较 .agents/skills 与 .claude/skills 中的 PI-Kit 技能。
+    """比较 .agents/skills 与 .claude/skills 中的 Code-Kit 技能。
 
     返回（源目录中缺少的技能, 副本与源不一致之处）。只比较 KIT_SKILLS，逐字节比较。源与副本都先经过
     链接校验（skill_source、claude_skill_target）：任何一侧指向仓库之外时抛 DispatchError，不读取其内容。
@@ -5320,7 +5367,7 @@ def planner_file_notes(repo_root: Path, facts: Dict[str, Any]) -> List[str]:
             notes.append("技能仍只在 .claude/skills（1.x 布局）：Codex 读不到。按 README 的升级说明移到 .agents/skills，"
                          "再运行 sync-adapters")
         else:
-            notes.append("没有找到 PI-Kit 技能（.agents/skills/%s 等）" % KIT_SKILLS[0])
+            notes.append("没有找到 Code-Kit 技能（.agents/skills/%s 等）" % KIT_SKILLS[0])
     elif missing:
         notes.append(".agents/skills 中缺少技能：%s" % ", ".join(missing))
     if drift and installed:
@@ -5457,8 +5504,8 @@ def cmd_check(args: argparse.Namespace) -> int:
             fresh_workspace = prepare_fresh_workspace(repo, run_dir, meta, contract, candidate, config, out_dir,
                                                       env, grace)
         except (DispatchError, OSError) as exc:
-            write_json(out_dir / "checks.json", {"aborted": "fresh_workspace_failed", "error": str(exc),
-                                                 "at": utc_now()}, exclusive=True)
+            write_json(out_dir / "checks.json", {"aborted": "fresh_workspace_failed", "mode": "fresh",
+                                                 "error": str(exc), "at": utc_now()}, exclusive=True)
             raise DispatchError("无法建立干净的验收副本：%s" % exc)
         work_dir = fresh_workspace
     else:
@@ -5471,7 +5518,9 @@ def cmd_check(args: argparse.Namespace) -> int:
         drift_before = tree_drift(work_dir, candidate["tree"], tree_before)
         pre_artifacts, pre_unexpected = split_extras(drift_before["added"], artifacts)
         if drift_before["modified"] or pre_unexpected:
-            write_json(out_dir / "checks.json", {"aborted": "candidate_drift", "tree_now": tree_before,
+            write_json(out_dir / "checks.json", {"aborted": "candidate_drift",
+                                                 "mode": "fresh" if args.fresh else "in_place",
+                                                 "tree_now": tree_before,
                                                  "candidate_tree": candidate["tree"],
                                                  "modified": drift_before["modified"],
                                                  "unexpected_files": pre_unexpected, "at": utc_now()},
@@ -5674,7 +5723,8 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
     if report.get("contract_conflicts"):
         gates["G3"]["notes"].append("执行报告列出了 %d 处合同矛盾：PASS 前在复审中逐条裁定"
                                     % report["contract_conflicts"])
-    elif events.get("ambiguity_mention_count") and not report.get("unresolved_questions"):
+    elif (events.get("ambiguity_mention_count") and not report.get("unresolved_questions")
+          and not report.get("interpretations")):
         gates["G3"]["notes"].append("执行过程中提到合同的歧义、矛盾或一致性，报告没有列出：复审时核对（见 summary.md）")
     scope = read_json_or(run_dir / "scope.json", None)
     if scope is None:
@@ -6020,6 +6070,24 @@ def _mutation_review_lines(run_dir: Path) -> Tuple[List[str], List[str]]:
     return lines, brief
 
 
+#: 复审骨架与简报照录的执行报告字段（2.10.0 加了 interpretations）。
+REPORT_STATEMENTS = (("contract_conflicts", "合同矛盾"), ("interpretations", "自定解读"), ("limitations", "限制与取舍"),
+                     ("unresolved_questions", "未决问题"))
+#: 复审骨架列出的解读线索条数上限。
+REVIEW_CLUE_LIMIT = 10
+
+
+def _interpretation_clue_lines(events: Dict[str, Any]) -> List[str]:
+    """事件流里执行器自己宣布裁定的句子（2.5.0 的 interpretation_mentions），按行号与摘录列出（2.10.0）。"""
+    clues = [item for item in events.get("interpretation_mentions") or [] if isinstance(item, dict)]
+    lines = ["  - 第 %s 行（%s）：%s" % (item.get("line"), item.get("kind"), _cell(item.get("excerpt", ""), 300))
+             for item in clues[:REVIEW_CLUE_LIMIT]]
+    total = events.get("interpretation_mention_count") or len(clues)
+    if total > len(lines) and lines:
+        lines.append("  - 另有 %d 处，见 events-summary.json 的 interpretation_mentions" % (total - len(lines)))
+    return lines
+
+
 def cmd_review_draft(args: argparse.Namespace) -> int:
     """按证据生成复审记录骨架与独立复审简报（2.8.0）。
 
@@ -6115,9 +6183,11 @@ def cmd_review_draft(args: argparse.Namespace) -> int:
     lines += ["- 兼容性与残余风险：%s" % REVIEW_TODO,
               "- 执行器自述与证据是否一致：%s" % REVIEW_TODO,
               "  - 执行报告：%s（executor_status %s）" % (report_status, report.get("executor_status"))]
-    for key, label in (("contract_conflicts", "合同矛盾"), ("limitations", "限制与取舍"),
-                       ("unresolved_questions", "未决问题")):
+    for key, label in REPORT_STATEMENTS:
         values = report.get(key) or []
+        if key == "interpretations" and report_status == "json_ok" and not isinstance(report.get(key), list):
+            lines.append("  - %s：报告没有这个列表（2.10.0 起报告格式里有）" % label)
+            continue
         if not values:
             lines.append("  - %s：无" % label)
             continue
@@ -6125,6 +6195,9 @@ def cmd_review_draft(args: argparse.Namespace) -> int:
         for value in values:
             shown = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
             lines.append("    - %s" % _cell(shown, 1200))
+    clues = _interpretation_clue_lines(events)
+    lines += ["  - 事件流里的解读线索（逐条核对是否都在上面的自定解读、合同矛盾或未决问题里）："
+              if clues else "  - 事件流里的解读线索：无"] + ["  " + line for line in clues]
     attention = _summary_section(summary_text, "复审需要关注")
     lines += ["- 摘要里的“复审需要关注”（原文）："] + (["  " + line for line in attention] or ["  - 无"])
     integration = (contract.get("authorization") or {}).get("integration") or []
@@ -6155,12 +6228,12 @@ def cmd_review_draft(args: argparse.Namespace) -> int:
         brief.append("  - %s：%s" % (item.get("id"), _cell(item.get("intent") or item.get("text") or "", 600)))
     brief += ["- 摘要里的“复审需要关注”："] + (["  " + line for line in attention] or ["  - 无"])
     brief += ["- 意外漏掉的变异（测试可能有缺口，或是等价改写）："] + (["  - %s" % item for item in surprising] or ["  - 无"])
-    stated = [(label, report.get(key) or []) for key, label in (("contract_conflicts", "合同矛盾"),
-                                                              ("limitations", "限制与取舍"),
-                                                              ("unresolved_questions", "未决问题"))]
+    stated = [(label, report.get(key) if isinstance(report.get(key), list) else [])
+              for key, label in REPORT_STATEMENTS]
     brief += ["- 执行器自述的取舍（核对是否越出合同字面）："] + (
         ["  - %s：%s" % (label, _cell(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False), 600))
          for label, values in stated for v in values] or ["  - 无"])
+    brief += ["- 事件流里的解读线索（核对是否都已写进报告；没写的就是没有报告的自定解读）："] + (clues or ["  - 无"])
     brief += ["- 规划端补充的风险：（交给复审者前在这里补充）", "",
               "## 输出", "",
               "按 independent-review.md 的“输出”一节：建议结论、按严重度排序的发现（文件:行、问题、证据、建议的修正）、"
@@ -6208,6 +6281,56 @@ def _commit_message_bytes(repo: Repo, commit: str) -> bytes:
     return raw.split(b"\n\n", 1)[1] if b"\n\n" in raw else b""
 
 
+def _fresh_check_reuse(repo: Repo, run_dir: Path, contract: Dict[str, Any], candidate_tree: str,
+                       merged_tree: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """integrate 能否沿用最近一次 check --fresh 的结果（2.10.0）：返回（沿用信息, 不能沿用的原因）。
+
+    那次记录要干净：没有中止，测的是同一棵候选树，合同的每条检查都跑过（包括非必要的），必要检查全过，没有
+    改动候选文件或产生新文件。合并后的树相对候选树只能在规划路径（planner_paths）下有差异：合同、复审记录、
+    设计说明不进检查。只看内容，不看时间：环境变了要重测，用 --recheck。
+    """
+    checks_root = run_dir / "checks"
+    numbered = sorted((p for p in checks_root.iterdir() if p.is_dir() and p.name.isdigit()),
+                      key=lambda p: int(p.name), reverse=True) if checks_root.is_dir() else []
+    latest: Optional[Tuple[Path, Dict[str, Any]]] = None
+    for folder in numbered:
+        data = read_json_or(folder / "checks.json", None)
+        if not isinstance(data, dict):
+            continue
+        # 2.10.0 之前中止的记录没有 mode：建不起干净副本的那种只会出自 --fresh。
+        if data.get("mode") == "fresh" or (not data.get("mode") and data.get("aborted") == "fresh_workspace_failed"):
+            latest = (folder, data)
+            break
+    if latest is None:
+        return None, "没有 check --fresh 的记录"
+    folder, data = latest
+    label = "checks/%s" % folder.name
+    if data.get("aborted"):
+        return None, "最近一次 check --fresh（%s）中止了：%s" % (label, data["aborted"])
+    if data.get("candidate_tree") != candidate_tree:
+        return None, "%s 测的不是这个候选树" % label
+    results = [r for r in data.get("results") or [] if isinstance(r, dict)]
+    ran = {r.get("id") for r in results}
+    missing = [c["id"] for c in contract["checks"] if c["id"] not in ran]
+    if missing:
+        return None, "%s 没有跑 %s" % (label, ", ".join(missing))
+    failed = [str(r.get("id")) for r in results if r.get("required", True) and not r.get("passed")]
+    if failed or not data.get("all_required_passed"):
+        return None, "%s 的必要检查没有全过（%s）" % (label, ", ".join(failed) or "all_required_passed 为假")
+    if data.get("modified_by_checks") or data.get("unexpected_files_by_checks"):
+        return None, "%s 的检查改动了候选文件或产生了新文件" % label
+    extra: List[str] = []
+    if merged_tree != candidate_tree:
+        raw = git(["diff-tree", "-r", "--no-renames", "--name-only", "-z", candidate_tree, merged_tree], repo.root).stdout
+        extra = [p for p in raw.decode("utf-8", "replace").split("\0") if p]
+        compiled = compile_patterns(planner_paths(repo.config()), ignore_case=IS_WINDOWS)
+        outside = [p for p in extra if not matches(compiled, p)]
+        if outside:
+            return None, "当前末端相对候选多了规划路径之外的改动：%s%s" % (
+                "、".join(outside[:5]), " 等 %d 个" % len(outside) if len(outside) > 5 else "")
+    return {"record": label, "ended_at": data.get("ended_at"), "planner_paths": extra[:200], "results": results}, ""
+
+
 def cmd_integrate(args: argparse.Namespace) -> int:
     """验证后落地（2.8.0）：建分支 → 预演合并到当前分支末端 → 干净副本上跑合同检查 → 快进 → 标记 → 清理。
 
@@ -6215,6 +6338,9 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     里跑（末端 + 候选改动未暂存，与 check --fresh 同一布局），主工作区只做最后一步 git merge --ff-only——
     有会被覆盖的本地改动时 git 拒绝，干净失败。落地要合同 integration 含 merge（建分支要 local_branch）；
     没有 merge 时做到验证为止，建好提交并打印落地命令，退出码 3。
+
+    2.10.0：最近一次 check --fresh 干净、要落地的树相对它只多了规划路径下的文件时，沿用那次的结果，不建验证
+    副本、不重跑（--recheck 强制重跑；--skip 也意味着重跑）。
     """
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
@@ -6292,56 +6418,77 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     env, removed = child_env(config)
     grace = float(config.get("kill_grace_seconds", 15))
     artifacts = artifact_matchers(config)
-    worktree_root = repo.worktree_root(config)
-    worktree_root.mkdir(parents=True, exist_ok=True)
-    workspace = Path(tempfile.mkdtemp(prefix="%s-%s-a%03d-integrate-" % (
-        repo.root.name[:16], meta["task_id"][:24], meta["attempt_no"]), dir=str(worktree_root))).resolve()
+    reuse: Optional[Dict[str, Any]] = None
+    if args.recheck:
+        reuse_reason = "加了 --recheck"
+    elif skip:
+        reuse_reason = "加了 --skip：豁免只在重跑时成立"
+    else:
+        reuse, reuse_reason = _fresh_check_reuse(repo, run_dir, contract, branch["tree"], merged_tree)
     results: List[Dict[str, Any]] = []
-    try:
-        git(["worktree", "add", "--detach", str(workspace), head], repo.root)
-        patch = out_dir / "integration.patch"
-        patch.write_bytes(git(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index",
-                               "--src-prefix=a/", "--dst-prefix=b/", head, merged_tree], repo.root).stdout)
-        if patch.stat().st_size > 0:
-            git(["apply", "--binary", "--whitespace=nowarn", str(patch)], workspace)
-        if snapshot_tree(workspace, head, out_dir, "integrate", meta.get("git_autocrlf")) != merged_tree:
-            raise DispatchError("验证副本与合并结果不一致：%s" % workspace)
-        if contract["setup"]:
-            setup_dir = out_dir / "setup"
-            setup_dir.mkdir()
-            for item in contract["setup"]:
-                setup = _run_command_item(item, workspace, env, setup_dir, grace)
-                if not setup["passed"]:
-                    raise DispatchError("验证副本的 setup %s 失败：%s" % (item["id"], setup.get("reason")))
-            if snapshot_tree(workspace, head, out_dir, "integrate-setup", meta.get("git_autocrlf")) != merged_tree:
-                raise DispatchError("setup 改动了验证副本中的文件或产生了未忽略的新文件")
-        for item in contract["checks"]:
-            if item["id"] in skip:
-                results.append({"id": item["id"], "required": item.get("required", True), "status": "skipped",
-                                "passed": None, "reason": args.reason})
-                print("CHECK %s skipped（%s）" % (item["id"], args.reason), flush=True)
-                continue
-            print("CHECK %s ..." % item["id"], flush=True)
-            result = _run_command_item(item, workspace, env, out_dir, grace)
-            results.append(result)
-            print("CHECK %s %s %s" % (item["id"], result["status"], result.get("reason") or ""), flush=True)
-        after = snapshot_tree(workspace, head, out_dir, "integrate-after", meta.get("git_autocrlf"))
-        drift = tree_drift(workspace, merged_tree, after)
-        _artifact_files, unexpected = split_extras(drift["added"], artifacts)
-        modified = drift["modified"]
-    except (DispatchError, OSError) as exc:
-        finish("workspace_failed", error=str(exc), results=results)
-        raise DispatchError("无法在当前末端上验证（什么都没落地）：%s" % exc)
-    finally:
-        if not args.keep_workspace:
-            remove_worktree(repo, workspace)
+    workspace: Optional[Path] = None
+    if reuse is not None:
+        # 2.10.0：要落地的树与最近一次 check --fresh 测过的树只差规划文件，沿用那次的结果，不再把全量重跑一遍
+        # （kit-install 那一轮 check --fresh 368 秒、integrate 370 秒，两次测的是同一份代码）。
+        results = [dict(item, reused_from=reuse["record"]) for item in reuse["results"]]
+        modified, unexpected = [], []
+        record["checks_reused"] = {key: reuse[key] for key in ("record", "ended_at", "planner_paths")}
+        print("检查沿用 %s（check --fresh，%s 结束）：当前末端 + 候选与那次测过的树%s" % (
+            reuse["record"], reuse["ended_at"] or "时间未知",
+            "只差规划文件 %s" % "、".join(reuse["planner_paths"][:5]) if reuse["planner_paths"] else "完全相同"),
+            flush=True)
+    else:
+        print("NOTE  在当前末端上重跑检查：%s" % reuse_reason, flush=True)
+        worktree_root = repo.worktree_root(config)
+        worktree_root.mkdir(parents=True, exist_ok=True)
+        workspace = Path(tempfile.mkdtemp(prefix="%s-%s-a%03d-integrate-" % (
+            repo.root.name[:16], meta["task_id"][:24], meta["attempt_no"]), dir=str(worktree_root))).resolve()
+        try:
+            git(["worktree", "add", "--detach", str(workspace), head], repo.root)
+            patch = out_dir / "integration.patch"
+            patch.write_bytes(git(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-renames", "--full-index",
+                                   "--src-prefix=a/", "--dst-prefix=b/", head, merged_tree], repo.root).stdout)
+            if patch.stat().st_size > 0:
+                git(["apply", "--binary", "--whitespace=nowarn", str(patch)], workspace)
+            if snapshot_tree(workspace, head, out_dir, "integrate", meta.get("git_autocrlf")) != merged_tree:
+                raise DispatchError("验证副本与合并结果不一致：%s" % workspace)
+            if contract["setup"]:
+                setup_dir = out_dir / "setup"
+                setup_dir.mkdir()
+                for item in contract["setup"]:
+                    setup = _run_command_item(item, workspace, env, setup_dir, grace)
+                    if not setup["passed"]:
+                        raise DispatchError("验证副本的 setup %s 失败：%s" % (item["id"], setup.get("reason")))
+                if snapshot_tree(workspace, head, out_dir, "integrate-setup", meta.get("git_autocrlf")) != merged_tree:
+                    raise DispatchError("setup 改动了验证副本中的文件或产生了未忽略的新文件")
+            for item in contract["checks"]:
+                if item["id"] in skip:
+                    results.append({"id": item["id"], "required": item.get("required", True), "status": "skipped",
+                                    "passed": None, "reason": args.reason})
+                    print("CHECK %s skipped（%s）" % (item["id"], args.reason), flush=True)
+                    continue
+                print("CHECK %s ..." % item["id"], flush=True)
+                result = _run_command_item(item, workspace, env, out_dir, grace)
+                results.append(result)
+                print("CHECK %s %s %s" % (item["id"], result["status"], result.get("reason") or ""), flush=True)
+            after = snapshot_tree(workspace, head, out_dir, "integrate-after", meta.get("git_autocrlf"))
+            drift = tree_drift(workspace, merged_tree, after)
+            _artifact_files, unexpected = split_extras(drift["added"], artifacts)
+            modified = drift["modified"]
+        except (DispatchError, OSError) as exc:
+            finish("workspace_failed", error=str(exc), results=results)
+            raise DispatchError("无法在当前末端上验证（什么都没落地）：%s" % exc)
+        finally:
+            if not args.keep_workspace:
+                remove_worktree(repo, workspace)
     ran = [r for r in results if r["status"] != "skipped"]
     checks_ok = all(r["passed"] for r in ran if r.get("required", True))
     passed = checks_ok and not modified and not unexpected
-    shown = "%d/%d%s" % (sum(1 for r in ran if r["passed"]), len(ran), "，豁免 %s" % ",".join(skip) if skip else "")
+    shown = "%d/%d%s%s" % (sum(1 for r in ran if r["passed"]), len(ran), "，豁免 %s" % ",".join(skip) if skip else "",
+                           "，沿用 %s" % reuse["record"] if reuse else "")
     record.update(results=results, checks_passed=checks_ok, modified_by_checks=modified,
-                  unexpected_files_by_checks=unexpected[:200], workspace=str(workspace),
-                  workspace_kept=bool(args.keep_workspace), env_removed=removed)
+                  unexpected_files_by_checks=unexpected[:200], workspace=str(workspace) if workspace else None,
+                  workspace_kept=bool(args.keep_workspace and workspace), env_removed=removed)
     if not passed:
         finish("checks_failed")
         if modified:
@@ -7387,6 +7534,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="只验证，不建分支与提交、不落地（等于在当前末端上跑检查）")
     p.add_argument("--skip", help="豁免的检查 ID，逗号分隔（只对基线成立、在当前末端上不成立的检查）；需要 --reason")
     p.add_argument("--reason", help="--skip 的理由，写进记录")
+    p.add_argument("--recheck", action="store_true",
+                   help="不沿用 check --fresh 的结果，在当前末端上重跑全部检查（2.10.0；例如环境变了）")
     p.add_argument("--name", help="候选分支名（缺省 pi/<task>-v<N>-a<NNN>；已指向这个候选时复用）")
     p.add_argument("--trailer", action="append", default=[],
                    help="追加一条提交尾注（单行 Key: value，可重复），例如本次规划端的署名")

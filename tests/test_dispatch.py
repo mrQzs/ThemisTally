@@ -2042,8 +2042,9 @@ def test_v24_outside_paths_validation_and_cross_machine():
     repo, base = make_repo("v24notes")
     run_ok(repo)
     instruction = (rd(repo) / "instruction.md").read_text(encoding="utf-8")
+    # 2.10.0：截短的写法改成每条检查下面的“自检照抄”（set -o pipefail），不再是临时目录加 echo。
     check("instruction gives the compliant truncation form and forbids commands after the cleanup",
-          'echo "exit=$?"; tail -n 20 "$T/out"; rm -rf "$T"' in instruction
+          "开头同样加 `set -o pipefail;`" in instruction and "自检照抄：`set -o pipefail; " in instruction
           and "删除之后不再接任何命令" in instruction and "ls /usr/bin/python3*" in instruction, instruction)
     summary_path = rd(repo) / "events-summary.json"
     events = jload(summary_path)
@@ -3083,6 +3084,113 @@ def test_v290_doctor_reports_the_kit_layout():
     facts = json.loads(out)
     check("the kit run from outside the repository is the external layout", facts["kit"]["layout"] == "external"
           and facts["kit"]["missing"] == [], out)
+
+
+def test_v2100_integrate_reuse_self_checks_and_interpretations():
+    """2.10.0：integrate 沿用最近一次干净的 check --fresh（末端相对候选只多了规划文件时不重跑，其余情况重跑并说出
+    原因）；执行说明给出每条检查的自检照抄写法；复审骨架列出执行报告的自定解读与事件流里的解读线索。"""
+    landing = {"executor": ["local_edit", "local_test"], "integration": ["local_branch", "merge"]}
+    probe = {"id": "V02", "argv": [PY, "-c", "print('PROBE_OK')"], "cwd": ".", "timeout_seconds": 60,
+             "required": False, "expected_exit_code": 0, "output_must_match": ["PROBE_OK"]}
+
+    def accepted(name):
+        repo, base = make_repo(name, authorization=landing, checks=default_checks() + [probe])
+        run_ok(repo)
+        code, out = tool(repo, "check", "normalize-query/attempt-001", "--fresh")
+        assert code == 0, out
+        code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review",
+                         review(repo, "PASS"))
+        assert code == 0, out
+        return repo, base
+
+    def advance(repo, rel, content, message):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(content, encoding="utf-8")
+        git(repo, "add", rel)
+        git(repo, "commit", "-qm", message)
+        return git(repo, "rev-parse", "HEAD")
+
+    repo, base = accepted("v2100-reuse")
+    instruction = (rd(repo) / "instruction.md").read_text(encoding="utf-8")
+    forms = ["set -o pipefail; %s run_tests.py 2>&1 | tail -n 40" % pd.shlex_quote(PY),
+             "set -o pipefail; %s -c %s 2>&1 | tail -n 40" % (pd.shlex_quote(PY), pd.shlex_quote("print('PROBE_OK')"))]
+    rules = instruction.split("## 必须遵守")[1].split("## 机器合同摘要")[0]
+    check("the instruction gives every check a self-check form that keeps the exit code, and asks for interpretations",
+          all(("自检照抄：`%s`" % form) in instruction for form in forms) and "set -o pipefail;" in rules
+          and "`interpretations`" in rules and '"interpretations": []' in instruction, instruction[-3000:])
+    status = jload(rd(repo) / "report-status.json")
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    check("a report without the interpretations list is recorded and noted",
+          status.get("interpretations_missing") is True and status.get("interpretations") == 0
+          and "执行报告没有 interpretations 列表" in summary, (status, summary))
+
+    # 复审骨架：桩的报告没有 interpretations，这里改写证据文件，模拟报告列了一条、事件流里有一处线索。
+    report_path = rd(repo) / "executor-report.json"
+    report = jload(report_path)
+    report["interpretations"] = [{"quote": "Behavior contract：折叠空白", "adopted": "制表符也算空白",
+                                  "reason": "split() 的缺省行为"}]
+    report_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    ev_path = rd(repo) / "events-summary.json"
+    ev = jload(ev_path)
+    ev.update(interpretation_mention_count=1, interpretation_mentions=[
+        {"line": 9, "kind": "thinking", "keyword": "I'll go with", "excerpt": "I'll go with tabs as whitespace"}])
+    ev_path.write_text(json.dumps(ev, ensure_ascii=False), encoding="utf-8")
+    code, out = tool(repo, "review-draft", "normalize-query/attempt-001")
+    draft_path = repo / ".agent/reviews/normalize-query/attempt-001.md"
+    draft = draft_path.read_text(encoding="utf-8") if draft_path.is_file() else ""
+    brief = (rd(repo) / "review-brief.md").read_text(encoding="utf-8") if (rd(repo) / "review-brief.md").is_file() else ""
+    check("review-draft lists the reported interpretations next to the clues from the event stream",
+          code == 0 and "自定解读（1，原文）" in draft and "制表符也算空白" in draft
+          and "事件流里的解读线索（逐条核对" in draft and "第 9 行（thinking）：I'll go with tabs as whitespace" in draft
+          and "自定解读：" in brief and "第 9 行（thinking）：I'll go with tabs as whitespace" in brief,
+          (out, draft[-1500:], brief[-1200:]))
+
+    # 末端与候选的树完全相同：沿用。
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run")
+    record = jload(rd(repo) / "integrations/01/integration.json")
+    check("integrate --dry-run reuses the fresh check when the trees are the same",
+          code == 0 and "检查沿用 checks/01" in out and "完全相同" in out and "CHECK V01" not in out
+          and record["outcome"] == "verified" and record["workspace"] is None
+          and record["checks_reused"]["planner_paths"] == [], out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run", "--recheck")
+    check("--recheck reruns the checks on the tip", code == 0 and "重跑检查：加了 --recheck" in out
+          and "CHECK V01 passed" in out and "CHECK V02 passed" in out, out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run", "--skip", "V02", "--reason", "只对基线成立")
+    check("--skip reruns the checks, because a waiver only means something on a rerun",
+          code == 0 and "重跑检查：加了 --skip" in out and "CHECK V02 skipped" in out, out)
+
+    # 末端只多了规划文件（提交复审骨架）：沿用并落地，不建验证副本。
+    head = advance(repo, ".agent/reviews/normalize-query/attempt-001.md", draft, "review record")
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001")
+    record = jload(rd(repo) / "integrations/04/integration.json")
+    check("integrate reuses the fresh check and lands when the tip only adds planner files",
+          code == 0 and "检查沿用 checks/01" in out and "只差规划文件 .agent/reviews/normalize-query/attempt-001.md" in out
+          and "CHECK V01" not in out and "沿用 checks/01" in out and record["outcome"] == "landed"
+          and record["workspace"] is None and record["checks_reused"]["record"] == "checks/01"
+          and record["checks_reused"]["planner_paths"] == [".agent/reviews/normalize-query/attempt-001.md"]
+          and [r.get("reused_from") for r in record["results"]] == ["checks/01", "checks/01"]
+          and state(repo) == "INTEGRATED" and git(repo, "rev-parse", "HEAD^") == head
+          and "lower()" in git(repo, "show", "HEAD:src/normalize.py"), out)
+
+    # 末端多了规划路径之外的改动：重跑，并说出是哪个文件。
+    repo2, _ = accepted("v2100-reuse-readme")
+    advance(repo2, "README.md", "# Test\n\nmoved\n", "tip")
+    code, out = tool(repo2, "integrate", "normalize-query/attempt-001", "--dry-run")
+    record = jload(rd(repo2) / "integrations/01/integration.json")
+    check("a tip with changes outside the planner paths reruns the checks and names the file",
+          code == 0 and "重跑检查：当前末端相对候选多了规划路径之外的改动：README.md" in out and "CHECK V01 passed" in out
+          and "checks_reused" not in record and record["outcome"] == "verified", out)
+
+    # 后来又跑了一次只含部分检查的 --fresh：以最近一次为准，不沿用；再跑一次完整的、之后的就地检查不影响沿用。
+    code, out = tool(repo2, "check", "normalize-query/attempt-001", "--fresh", "--only", "V01")
+    git(repo2, "reset", "-q", "--hard", "HEAD~1")
+    code, out = tool(repo2, "integrate", "normalize-query/attempt-001", "--dry-run")
+    check("the newest fresh check decides: a partial one is not reused",
+          code == 0 and "重跑检查：checks/02 没有跑 V02" in out and "CHECK V02 passed" in out, out)
+    tool(repo2, "check", "normalize-query/attempt-001", "--fresh")
+    tool(repo2, "check", "normalize-query/attempt-001")
+    code, out = tool(repo2, "integrate", "normalize-query/attempt-001", "--dry-run")
+    check("an in-place check after the fresh one does not hide it", code == 0 and "检查沿用 checks/03" in out, out)
 
 
 RECORD_290 = ".agent/kit-install.json"
