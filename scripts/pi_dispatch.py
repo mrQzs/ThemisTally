@@ -49,7 +49,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-TOOL_VERSION = "2.8.0"
+TOOL_VERSION = "2.9.0"
 CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
@@ -6063,8 +6063,9 @@ def cmd_review_draft(args: argparse.Namespace) -> int:
                  else "unknown（%s）" % cost.get("status", "无记录"))
     lines = ["# REVIEW：%s v%s · %s" % (meta["task_id"], meta["plan_version"], run_dir.name), "",
              "Verdict: %s（PASS / ACCEPTED_WITH_EXCEPTION / REVISE / BLOCKED / ESCALATE 中的一个）" % REVIEW_TODO, "",
-             "<!-- review-draft 生成（%s，调度工具 %s）：事实取自 %s；%s 处是复审判断，全部填完 verdict 才收。"
-             % (utc_now(), TOOL_VERSION, display_path(run_dir, repo.root), REVIEW_TODO),
+             # 说明里不能出现占位记号本身：verdict 按行拒收含它的记录，填完判断也交不上（2.9.0，kit-install 实机）。
+             "<!-- review-draft 生成（%s，调度工具 %s）：事实取自 %s；标着“待填”的地方是复审判断，全部填完 verdict 才收。"
+             % (utc_now(), TOOL_VERSION, display_path(run_dir, repo.root)),
              "     Verdict 行只能写一个结论，并与 verdict 命令的 --verdict 一致。 -->", "",
              "## 基本信息",
              "- 基线：`%s`" % meta["base_sha"],
@@ -6843,6 +6844,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         notes.extend(facts["pi_context_from_repo_root"]["warnings"])
     except DispatchError as exc:
         notes.append("未在 Git 仓库中运行：%s" % exc)
+    try:
+        kit_repo: Optional[Repo] = Repo.discover(args.repo)
+    except DispatchError:
+        kit_repo = None
+    _doctor_kit(kit_repo, facts, notes)
     _doctor_decisions(args, facts, problems, notes)
     facts["problems"] = problems
     facts["notes"] = notes
@@ -6852,6 +6858,58 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         out_path.write_text(text + "\n", encoding="utf-8")
     print(text)
     return EXIT_OK if not problems else EXIT_FAIL
+
+
+#: kit_install.py 在目标仓库里写的安装记录（2.9.0）。
+KIT_INSTALL_RECORD = ".agent/kit-install.json"
+
+
+def kit_layout(repo_root: Optional[Path]) -> str:
+    """调度器与仓库的关系（2.9.0）。
+
+    ``source``：本仓库就是 kit（有 ``scripts/kit_install.py``）；``installed``：kit 装在本仓库的 ``scripts/`` 里；
+    ``external``：调度器从仓库之外的 kit 目录运行（KitExperiment 的用法，不需要安装）；``unknown``：不在仓库里。
+    """
+    if repo_root is None:
+        return "unknown"
+    if norm_case(str(KIT_ROOT)) != norm_case(str(Path(repo_root).resolve())):
+        return "external"
+    return "source" if (KIT_ROOT / "scripts" / "kit_install.py").is_file() else "installed"
+
+
+def _doctor_kit(repo: Optional["Repo"], facts: Dict[str, Any], notes: List[str]) -> None:
+    """kit 是否齐全、是哪种布局、装进来的文件在安装之后有没有变化（2.9.0）。
+
+    只作提示：缺文件时调度照常，只是决策、配置管理器等功能不可用；本地改过的文件 update 时列为 KEEP，不会被覆盖。
+    """
+    needed = ["scripts/pi_dispatch.py", "scripts/dispatch-pi.sh"] + list(KIT_LOADED_FILES)
+    missing = [rel for rel in needed if not ((KIT_ROOT / rel[:-3]).is_dir() if rel.endswith("/**")
+                                             else (KIT_ROOT / rel).is_file())]
+    layout = kit_layout(repo.root if repo is not None else None)
+    kit: Dict[str, Any] = {"root": str(KIT_ROOT), "layout": layout, "missing": missing}
+    if missing:
+        notes.append("kit 不完整（%s 下缺少 %s）：决策与配置管理器等功能不可用。从 kit 目录运行 "
+                     "`python <kit>/scripts/kit_install.py update <本仓库>` 补齐（2.9.0）" % (KIT_ROOT, "、".join(missing[:8])))
+    if layout == "installed" and repo is not None:
+        record = read_json_or(repo.root / KIT_INSTALL_RECORD, None)
+        if not isinstance(record, dict) or not isinstance(record.get("files"), dict):
+            notes.append("kit 装在本仓库里，但没有安装记录 %s：多半是手工复制的。用 kit 目录的 kit_install.py install 登记"
+                         "（已有的文件会列为 CONFLICT，核对后加 --force）" % KIT_INSTALL_RECORD)
+        else:
+            changed: List[str] = []
+            gone: List[str] = []
+            for rel, digest in sorted(record["files"].items()):
+                path = repo.root / rel
+                if not path.is_file():
+                    gone.append(rel)
+                elif sha256_file(path) != digest:
+                    changed.append(rel)
+            kit["record"] = {"kit_version": record.get("kit_version"), "kit_commit": record.get("kit_commit"),
+                             "changed": changed[:50], "missing": gone[:50]}
+            if changed or gone:
+                notes.append("kit 文件在安装之后有变化：改过 %d 个、缺 %d 个（%s）。update 时改过的列为 KEEP，不会被覆盖；"
+                             "缺的会补回" % (len(changed), len(gone), "、".join((changed + gone)[:6])))
+    facts["kit"] = kit
 
 
 def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems: List[str], notes: List[str]) -> None:

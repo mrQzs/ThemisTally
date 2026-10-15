@@ -2945,6 +2945,8 @@ def test_v280_mutation_expectations_and_review_draft():
     check("review-draft writes the independent review brief next to the evidence",
           str(rd(repo).resolve()) in brief and "independent-review.md" in brief and "M03 连接符改成下划线" in brief
           and "D01：行为正确" in brief, brief)
+    check("the skeleton's own comment carries no placeholder, so filling the judgments is enough",
+          not [line for line in draft.splitlines() if line.startswith("<!--") and "【待填" in line], draft[:600])
     code, out = tool(repo, "review-draft", "normalize-query/attempt-001")
     check("review-draft does not overwrite without --force", code == pd.EXIT_USAGE and "--force" in out, out)
     code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", str(draft_path))
@@ -3044,6 +3046,46 @@ def test_v280_metrics_final_outcome_and_pricing():
           code == 0 and written.get("openai/gpt-4.1", {}).get("output") == 8, (out, written))
     code, out = tool(repo, "config", "set", "pricing.openai/gpt-4.1", json.dumps({"input": 2, "output": 8}))
     check("config set refuses a price without its source and date", code == 1 and "source" in out, out)
+
+
+def test_v290_doctor_reports_the_kit_layout():
+    """2.9.0：doctor 报告 kit 的布局与完整性；装进目标仓库后按安装记录报告本地改过与缺失的文件。"""
+    repo, _base = make_repo("v290layout")
+    code, out = tool(repo, "doctor")
+    facts = json.loads(out)
+    check("a repo with only the dispatcher copied is an incomplete installed kit without a record",
+          facts["kit"]["layout"] == "installed" and "scripts/kit_config.py" in facts["kit"]["missing"]
+          and any("kit 不完整" in n for n in facts["notes"]) and any("没有安装记录" in n for n in facts["notes"])
+          and facts["ok"] is True, out)
+    target = WORK / "v290target"
+    remove_tree(target)
+    target.mkdir()
+    sh(["git", "init", "-q"], target)
+    code, out = sh([PY, str(KIT / "scripts/kit_install.py"), "install", str(target)], target, check=False)
+    check("kit_install.py installs the kit into a fresh repository", code == 0 and (target / RECORD_290).is_file(), out)
+    code, out = sh([PY, "scripts/pi_dispatch.py", "doctor"], target, check=False)
+    facts = json.loads(out)
+    check("the installed dispatcher sees a complete kit with an unchanged record",
+          facts["kit"]["layout"] == "installed" and facts["kit"]["missing"] == []
+          and facts["kit"]["record"]["changed"] == [] and facts["kit"]["record"]["missing"] == []
+          and not any("kit" in n and ("不完整" in n or "安装记录" in n or "有变化" in n) for n in facts["notes"]), out)
+    skill = target / ".agents/skills/plan-task/test-design.md"
+    skill.write_bytes(skill.read_bytes() + b"\nlocal\n")
+    (target / "scripts/codekit/secrets.py").unlink()
+    code, out = sh([PY, "scripts/pi_dispatch.py", "doctor"], target, check=False)
+    facts = json.loads(out)
+    check("doctor names the files changed or missing since the install",
+          facts["kit"]["record"]["changed"] == [".agents/skills/plan-task/test-design.md"]
+          and facts["kit"]["record"]["missing"] == ["scripts/codekit/secrets.py"]
+          and "scripts/codekit/secrets.py" in facts["kit"]["missing"]
+          and any("改过 1 个、缺 1 个" in n for n in facts["notes"]), out)
+    code, out = sh([PY, str(KIT / "scripts/pi_dispatch.py"), "--repo", str(repo), "doctor"], repo, check=False)
+    facts = json.loads(out)
+    check("the kit run from outside the repository is the external layout", facts["kit"]["layout"] == "external"
+          and facts["kit"]["missing"] == [], out)
+
+
+RECORD_290 = ".agent/kit-install.json"
 
 
 if __name__ == "__main__":
