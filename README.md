@@ -4,6 +4,8 @@
 
 [13 份实施子文档与依赖索引](docs/code-kit-v2/README.md)
 
+每轮提速与执行器纪律（2.10.0）：`integrate` 在当前末端相对候选只多了规划文件时，沿用最近一次干净的 `check --fresh`，不再把全量重跑一遍（`--recheck` 强制重跑）；执行说明在每条检查下面给出保留退出码的“自检照抄”写法；执行报告多一个 `interpretations` 列表，`review-draft` 把它和事件流里的解读线索并排列出。设计说明 [docs/code-kit-2.10-集成沿用与执行器纪律.md](docs/code-kit-2.10-集成沿用与执行器纪律.md)。
+
 安装与更新（2.9.0）：两种用法。
 - **从 kit 目录运行**（KitExperiment 的做法）：在目标仓库根目录执行 `python <kit>/scripts/pi_dispatch.py <命令>`，不用往目标里复制任何东西；目标只需要 `.agent/` 与把 `.agent/runs/` 加进 `.gitignore`。
 - **装进目标仓库**：`python <kit>/scripts/kit_install.py check|install|update <目标仓库> [--force]` 把调度器、它加载的模块、决策插件、四个技能（含 Claude Code 副本）与示例按字节复制进去，留安装记录 `.agent/kit-install.json`；之后技能里的 `bash scripts/dispatch-pi.sh …` 直接可用。已有的 AGENTS.md 不动（输出列出要手工合并的章节），本地改过的文件不覆盖（`--force` 先备份），`.gitignore` / `.gitattributes` 只追加缺少的规则。`doctor` 报告布局、缺的文件与安装之后的改动。设计说明 [docs/code-kit-2.9-安装与更新.md](docs/code-kit-2.9-安装与更新.md)。

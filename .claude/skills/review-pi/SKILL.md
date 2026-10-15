@@ -28,7 +28,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - 需要确认：事件流是否完整，最终 stopReason，实际模型，stderr 标记。
    - 思考级别：本机 Step 配置不会回报 providerThinkingLevel，只能确认请求的是 high（Pi 会把它映射为 thinking 预算）；提供商回报了其他级别时，按问题处理。
    - TIMEOUT / CANCELLED / INFRA_FAILURE 不能 PASS。
-   - 看 `events-summary.json` 的 `shell_commands`：执行器自检时把检查命令接上 `| tail`、`| head` 这类管道（合同明文不允许用管道的退出码作证据）是过程偏差，记入复审；验收证据仍是调度器在固定候选上的 `check`。KitExperiment ledger-reference a001 是独立复审读事件摘要才发现的。
+   - 看 `events-summary.json` 的 `shell_commands`：执行器自检时把检查命令接上 `| tail`、`| head` 这类管道（合同明文不允许用管道的退出码作证据）是过程偏差，记入复审；验收证据仍是调度器在固定候选上的 `check`。KitExperiment ledger-reference a001 是独立复审读事件摘要才发现的。2.10.0 起执行说明在每条检查下面给了“自检照抄”写法（`set -o pipefail;` 开头），照抄的不算掩盖；仍然掩盖的，复审记录写明条数。
    - summary 的“决策”节（调度工具 2.6.0，`decisions.mode` 为 shadow / on 时才有）：决策模型对执行报告的五个判断（自述完成而无证据、自行解读合同、超出范围、弱化测试、误导程度）与置信度。它是提示，不是证据，门禁也不读它：p 高的按证据核实（读报告、补丁与事件流），p 低的不等于没问题。`on` 模式下 p ≥ 0.70 的会进“复审需要关注”，每行标着“决策模型提示”。中文报告上的准确率未经测量之前，只把它当作读报告的顺序提示。
 3. **G2 范围**：读 `scope.json` 与 summary 的“复审需要关注”。
    - 任何越界都要先查清影响，尤其是：受保护路径、HEAD 移动、worktree 之外的路径、主工作区变化、新增被忽略的文件（如 `.env`）。
@@ -69,10 +69,11 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - **合同矛盾要逐条裁定**：
      - 执行报告的 `contract_conflicts` 非空时，逐条写明以哪一处为准；执行器暂时采用的做法与裁定一致才能 PASS。
      - 摘要提示“执行过程中提到合同的歧义、矛盾或一致性”、而报告没有列出时，读 `events-summary.json` 的 `ambiguity_mentions` 摘录，确认执行器是否自行选定了某种解释。
+     - 执行报告的 `interpretations`（2.10.0）是执行器自定的解读：合同没写死、它自己定下的做法。逐条判断做法是否在合同允许的范围内。`review-draft` 把它和事件流里的解读线索（`interpretation_mentions`）并排列出：线索没有对应条目的，就是没报告的自定解读，写进复审。kit-install a001 的 R4（“I'll go with toplevel check”只在思考里）就是这种。
      - limitations 中出现“按合同……”一类的说法、而相关 DoD 标为 done 时，也要对照合同原文。
      - 实机上出现过这样的情况：执行器发现“按 finding_id 去重”与“该 cue 只有一条”互相矛盾，自行选了前者，把测试写成断言两条，并把 DoD 标为 done；报告只在 limitations 里写了一句“按合同不去重”。
 6. **中高风险任务做独立复审**：复审者看不到本对话，只按 [independent-review.md](independent-review.md) 读证据。把 `<run-dir>` 的绝对路径和需要重点看的风险交给它，再把它的发现纳入判断。
-   - `review-draft`（第 7 步，2.8.0）同时写 `<run-dir>/review-brief.md`：RUN 路径、每条 DoD 的目的、摘要的关注项、意外漏掉的变异、执行器自述的取舍都已列好。补上你要它重点看的风险，整份交给复审者。
+   - `review-draft`（第 7 步，2.8.0）同时写 `<run-dir>/review-brief.md`：RUN 路径、每条 DoD 的目的、摘要的关注项、意外漏掉的变异、执行器自述的取舍（含自定解读）与事件流里的解读线索都已列好。补上你要它重点看的风险，整份交给复审者。
    - **Claude Code**：交给 `pi-reviewer` 子代理（`.claude/agents/pi-reviewer.md`）。
    - **Codex**：另开只读会话，例如：
      ```bash
@@ -81,7 +82,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
      它读完证据后只输出结论与发现，由你决定是否采纳。
    - **换一家审查**（opus-manager 的做法，2.6.0）：写代码的模型不审自己的代码，复审模型也最好不是执行模型同一家。本机有另一家厂商的只读 CLI 时（例如 `codex exec --sandbox read-only`，或 environment.md 记录的第二 CLI），用它跑 independent-review.md，并在复审记录的“复审者”一行写明工具与模型。审查意见仍要逐条核实：成立的打包进返工合同，不成立的在记录里写明理由。
 7. **写复审报告**：先 `bash scripts/dispatch-pi.sh review-draft <run-dir>`（2.8.0），按 [review-template.md](review-template.md) 生成 `.agent/reviews/<task-id>/<attempt>.md` 的骨架。
-   - 能从证据里取的都已填好：基线、候选、模型、用时、token、门禁的机械部分、DoD 的检查结果与目的、各轮变异（意外漏掉的已写成固定格式）、执行报告与摘要的原文。
+   - 能从证据里取的都已填好：基线、候选、模型、用时、token、门禁的机械部分、DoD 的检查结果与目的、各轮变异（意外漏掉的已写成固定格式）、执行报告与摘要的原文（2.10.0 起含自定解读与事件流里的解读线索）。
    - 判断处留 `【待填】`，逐处填完；`Verdict:` 一行只写一个结论。verdict 拒收仍有 `【待填` 的记录。
    - 已有记录时加 `--force` 才覆盖；不想用骨架时照旧按模板手写。
 8. **记录结论**：
@@ -95,6 +96,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - **PASS / ACCEPTED_WITH_EXCEPTION**：只做合同 `integration` 中已授权的动作。
      - **`local_branch` + `merge`：`bash scripts/dispatch-pi.sh integrate <run-dir>`（2.8.0）**。
        - 它建候选分支，在对象库里预演合并到当前分支末端，再在临时 worktree（末端加候选的改动，未暂存）上跑合同的 setup 与全部检查。全部通过才在主工作区 `git merge --ff-only`，然后 `mark INTEGRATED --ref <新提交>` 并清理 worktree。
+       - 2.10.0：最近一次 `check --fresh` 跑了全部检查、必要检查全过、没有留下改动，而当前末端相对候选只多了规划路径（`planner_paths`：合同、复审记录、设计说明）下的文件时，沿用那次的结果，不建验证副本、不重跑（输出“检查沿用 checks/NN”，`integration.json` 记 `checks_reused`）。其余情况照旧重跑，并先说明原因。环境变了要重测时加 `--recheck`；`--skip` 也意味着重跑。先提交复审记录再 integrate，同样能沿用。
        - 冲突、检查失败、主工作区有会被覆盖的本地改动时，什么也不落地（退出码 1），主工作区不会停在 cherry-pick 的中间状态。
        - 有 attempt 在跑时它拒绝落地（`--while-running` 明确接受）；`--dry-run` 只验证。
        - 只对基线成立的检查（例如“这些文件与基线逐字相同”）在并行批次里可以 `--skip <ID> --reason <理由>`，豁免写进 `integrations/NN/integration.json`。

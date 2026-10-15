@@ -42,3 +42,4 @@
 ### 回流（本轮）
 
 - Code-Kit 2.9.0：`kit_install.py`、doctor 的 kit 检查、`.gitattributes` 的字节文件、README 的两种用法、check-pi-env 第 9 步。
+- Code-Kit 2.10.0（规划端直接做）：执行说明的“自检照抄”（针对 R4 的 12 条掩盖退出码）、执行报告的 `interpretations`（针对 R4 只在思考里定下的解读）、AGENTS.md 改名（针对 R5）；integrate 沿用 `check --fresh` 的结果（这一轮两遍全量各约 6 分钟，测的是同一份代码）。

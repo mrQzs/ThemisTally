@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2.10.0：integrate 沿用检查结果，执行器的自检写法与解读清单（2026-10-15）
+
+设计说明 [docs/code-kit-2.10-集成沿用与执行器纪律.md](docs/code-kit-2.10-集成沿用与执行器纪律.md)。2026-10-15 的评估选了两类小改动，每轮都省时间、少返工；用户决定的两项均选推荐项。改动都在调度器、规则文件与技能里，由规划端直接做。
+
+- **integrate 沿用 `check --fresh` 的结果**：最近一次 `check --fresh` 没有中止、测的是同一棵候选树、合同的每条检查都跑过（含非必要的）、必要检查全过、没有改动候选文件或产生新文件，而预演合并得到的树相对候选树只在 `planner_paths`（合同、复审记录、设计说明）下有差异时，不建验证副本、不重跑；`integration.json` 记 `checks_reused`（哪份记录、检查时间、多出的规划文件），结果逐条标 `reused_from`。其余情况照旧重跑，并先打印原因（例如“当前末端相对候选多了规划路径之外的改动：README.md”）。`--recheck` 强制重跑，`--skip` 也意味着重跑；只看内容、不看时间。kit-install 那一轮 `check --fresh` 368 秒、integrate 370 秒，末端只比基线多了合同文件，这种情况现在省掉一遍全量。`check` 中止的记录也写 `mode`。
+- **执行说明的“自检照抄”**：执行器有 shell 且合同授权 `local_test` 时，机器合同摘要在每条检查下面给出现成的写法：bash 是 `set -o pipefail; <命令> 2>&1 | tail -n 40`（cwd 不是 `.` 时前面加 `cd <cwd> &&`，env 写在命令前）；只有 PowerShell 时是 `& '<程序>' … 2>&1 | Select-Object -Last 40; "exit=$LASTEXITCODE"`。期望退出码不是 0 的检查写明期望值。第 5 条与 AGENTS.md 的截短规则改成“照抄这一行；自己临时写的测试命令接管道时，开头加 `set -o pipefail;`”。起因：有记录的两轮都掩盖了测试退出码（serve-loop 7 条、kit-install 12 条），写法都是照抄合同的检查命令再接 `2>&1 | tail -N`。
+- **执行报告的 `interpretations`**：报告格式多一个必填列表，合同没写死、执行器自己定下的做法每条一项 `{"quote", "adopted", "reason"}`，没有就是空列表。规则第 6 条与 AGENTS.md 的“Pi 执行器”一节写明这类地方不算矛盾，按最合理的读法继续并写进这个列表。`report-status.json` 记条数，缺失或不是列表时记 `interpretations_missing`。摘要把它和 `contract_conflicts`、`unresolved_questions` 一样算作报告过的取舍，缺失时写一句备注。`review-draft` 的骨架与独立复审简报把它和事件流里的解读线索（`interpretation_mentions`，最多 10 条，带行号）并排列出。只提示，不挡门禁（用户决定）。起因：pi-native-events 与 kit-install 的执行器都只在推理里定下解读，报告的 `unresolved_questions` 是空的。
+- **改名**：AGENTS.md（“本仓库用 Code-Kit 协作”）、`.codex/config.example.toml`，以及调度器的文档串和提示里的 PI-Kit 改成 Code-Kit（执行器照抄进过 `kit_install.py` 的文档串）。已经装进别的仓库的 AGENTS.md 不会被 `kit_install` 改写。
+- 技能：review-pi（integrate 沿用的条件与 `--recheck`、自定解读的复审、自检照抄）、dispatch-pi 排错表两行、plan-task 的合同说明与 test-design、review-template 与 independent-review。
+- 测试：`tests/test_kit_v2100.py`（40 个：沿用条件的每一种不满足、规划路径差异与配置、自检写法的 bash / cwd / env / PowerShell、执行说明与报告格式、报告字段的计数与缺失、摘要的三种情况、复审骨架的线索、改名）；`tests/test_dispatch.py` 新增 1 项场景（10 个检查：执行说明的自检写法与解读字段、缺字段的备注、复审骨架列出解读与线索、树相同与只多复审记录时沿用并落地、`--recheck`、`--skip`、多了 README 时重跑、最近一次 fresh 只跑了一部分时不沿用、之后的就地检查不影响沿用）。
+
 ## 2.9.0：安装与更新——Code-Kit 的第一轮实战（2026-10-15）
 
 设计说明 [docs/code-kit-2.9-安装与更新.md](docs/code-kit-2.9-安装与更新.md)。用户决定让 Code-Kit 先在自己身上实战：Pi 执行器实现主体，规划端写 oracle、合同与复审，并第一次实机使用 2.8 的多命令变异、`review-draft` 与 `integrate`。实机记录见 [docs/Code-Kit实机反馈.md](docs/Code-Kit实机反馈.md)。

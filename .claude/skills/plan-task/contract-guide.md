@@ -200,7 +200,7 @@ Pi 读 Markdown，调度器执行 JSON，所以与执行相关的内容都要比
 - 每个 DoD ID 都在 Markdown 中出现。
 - 两份文件中都不能残留 `【待填` 或 `REPLACE_WITH`。
 
-setup 命令只由调度器执行，不做比较。另外，调度器会把 JSON 中的范围、依赖策略、授权与检查命令写进执行说明的“机器合同摘要”，与 plan.md 一起交给 Pi；两者不一致时，执行器应停止并报告。
+setup 命令只由调度器执行，不做比较。另外，调度器会把 JSON 中的范围、依赖策略、授权与检查命令写进执行说明的“机器合同摘要”，与 plan.md 一起交给 Pi；两者不一致时，执行器应停止并报告。执行器有 shell、合同又授权了 `local_test` 时，摘要里每条检查下面还有一行“自检照抄”（2.10.0）：bash 写成 `set -o pipefail; <命令> 2>&1 | tail -n 40`，截短输出而保留被测程序自己的退出码。合同里不必再写截短的写法，也不要另写与它冲突的规定。
 
 **用 `derive-json` 避免手工同步**：`bash scripts/dispatch-pi.sh derive-json <plan-key> --title "<标题>"` 会从 Markdown 生成 JSON，写完立即校验。Markdown 需按模板书写：
 
