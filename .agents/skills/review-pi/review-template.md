@@ -3,7 +3,8 @@
 Verdict: 【PASS | ACCEPTED_WITH_EXCEPTION | REVISE | BLOCKED | ESCALATE 中的一个】
 
 <!-- 保存为 .agent/reviews/<task-id>/<attempt>.md。上面的 Verdict 行只能写一个结论，
-     并且必须与 verdict 命令的 --verdict 参数一致。 -->
+     并且必须与 verdict 命令的 --verdict 参数一致。
+     2.8.0 起用 `review-draft <run-dir>` 生成这份骨架：能从证据里取的事实已填好，判断处是【待填】，verdict 拒收没填完的。 -->
 
 ## 基本信息
 - 基线：`【base_sha】`

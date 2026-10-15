@@ -659,3 +659,17 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - Code-Kit 2.6.1：测试命令的退出码被掩盖时进“复审需要关注”；test-design 加“两个窗口各钉一条”。
 
+## 2026-10-15：规划端吞吐（Code-Kit 2.8.0，本轮没有派发）
+
+用户同意评估里“先做规划端吞吐加两处保护缺口”的建议。设计说明 `Code-Kit/docs/code-kit-2.8-规划端吞吐.md`，用户决定四项（均选推荐项），规划端直接实施。改动的来源都是前几轮记在本文档里的手工步骤：serve-loop 写了两份变异清单、第二轮漏掉的 20 条逐条手判；每轮的复审记录从证据目录手抄；cherry-pick 在主工作区停在 sequencer 中间（ledger-cli）；metrics 把补完后集成的 7 个任务记成“未通过”。
+
+### 下一轮在本仓库怎么用
+
+- 合同的 `integration_actions` 写 `local_branch, merge`（用户 2026-09-23 的长期授权）。验收后一条 `integrate <run-dir>` 落地，代替 branch → cherry-pick → 全量 → mark → cleanup。只对基线成立的检查（V08 那类“这些文件与基线逐字相同”）在末端前进之后可能不成立，用 `--skip V08 --reason …` 豁免并写进记录。
+- 候选的变异写一份清单：`commands` 两条（all / executor）；合同留给 oracle 的规则标 `"expect_missed": ["executor"]`，草稿阶段已经判过的等价写 `"equivalent": "<理由>"`。只判意外的。
+- `review-draft <run-dir>` 生成复审骨架与 `review-brief.md`，填完【待填】再 verdict。
+- `metrics` 看“最终去向”。在本仓库的真实记录上：直接集成 30、补完后集成 7、放弃 1，最终集成率 97%（原来只显示“有限重试内通过 68%”）。要费用估算，先由用户给出 Step 的单价，再 `config set pricing.step/step-5-preview '{...}'`（来源与日期必填）。
+
+### 回流（本轮）
+
+- 本轮就是回流：四项都来自前几轮的“规划端的教训”和评估里点名的手工步骤。下一轮第一次实机用 integrate 与多命令清单时，在这里记它们省下了哪几步、有没有新的卡点。

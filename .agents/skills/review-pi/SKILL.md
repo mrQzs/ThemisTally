@@ -60,6 +60,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - **记录 nit 之前先核实**。写进复审报告的问题要能复现；误报要在报告里更正，不要静默删除。
    - 合同本身有疏漏时，在报告中写明是规划问题，不要算作执行错误。
    - **中高风险任务做一轮变异检查**：`bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json>`。
+     - 2.8.0：两轮（oracle 加执行器测试、只用执行器测试）写进同一份清单的 `commands`，每条变异只套用一次。合同交给 oracle 的规则标 `"expect_missed": ["executor"]`，等价改写标 `"equivalent": "<理由>"`；结果行与汇总把预期内与意外分开，只判意外的（格式见 mutation-check.md）。
      - 对合同的每条规则各做一个最小变异，在干净副本上只跑相关测试，看测试能否抓住；清单格式与结果处理见 [mutation-check.md](mutation-check.md)。
      - 漏掉的变异就是测试缺口。合同测试清单遗漏的，由规划端补测试并单独提交；执行器少写的，记入复审。
      - 变异按 DoD 的“目的”子句设计（2.6.0）：每条目的至少一个变异，证明测试保住的是目的，不只是让检查变绿。
@@ -71,6 +72,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
      - limitations 中出现“按合同……”一类的说法、而相关 DoD 标为 done 时，也要对照合同原文。
      - 实机上出现过这样的情况：执行器发现“按 finding_id 去重”与“该 cue 只有一条”互相矛盾，自行选了前者，把测试写成断言两条，并把 DoD 标为 done；报告只在 limitations 里写了一句“按合同不去重”。
 6. **中高风险任务做独立复审**：复审者看不到本对话，只按 [independent-review.md](independent-review.md) 读证据。把 `<run-dir>` 的绝对路径和需要重点看的风险交给它，再把它的发现纳入判断。
+   - `review-draft`（第 7 步，2.8.0）同时写 `<run-dir>/review-brief.md`：RUN 路径、每条 DoD 的目的、摘要的关注项、意外漏掉的变异、执行器自述的取舍都已列好。补上你要它重点看的风险，整份交给复审者。
    - **Claude Code**：交给 `pi-reviewer` 子代理（`.claude/agents/pi-reviewer.md`）。
    - **Codex**：另开只读会话，例如：
      ```bash
@@ -78,7 +80,10 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
      ```
      它读完证据后只输出结论与发现，由你决定是否采纳。
    - **换一家审查**（opus-manager 的做法，2.6.0）：写代码的模型不审自己的代码，复审模型也最好不是执行模型同一家。本机有另一家厂商的只读 CLI 时（例如 `codex exec --sandbox read-only`，或 environment.md 记录的第二 CLI），用它跑 independent-review.md，并在复审记录的“复审者”一行写明工具与模型。审查意见仍要逐条核实：成立的打包进返工合同，不成立的在记录里写明理由。
-7. **写复审报告**：按 [review-template.md](review-template.md) 写到 `.agent/reviews/<task-id>/<attempt>.md`，其中 `Verdict:` 一行只写一个结论。
+7. **写复审报告**：先 `bash scripts/dispatch-pi.sh review-draft <run-dir>`（2.8.0），按 [review-template.md](review-template.md) 生成 `.agent/reviews/<task-id>/<attempt>.md` 的骨架。
+   - 能从证据里取的都已填好：基线、候选、模型、用时、token、门禁的机械部分、DoD 的检查结果与目的、各轮变异（意外漏掉的已写成固定格式）、执行报告与摘要的原文。
+   - 判断处留 `【待填】`，逐处填完；`Verdict:` 一行只写一个结论。verdict 拒收仍有 `【待填` 的记录。
+   - 已有记录时加 `--force` 才覆盖；不想用骨架时照旧按模板手写。
 8. **记录结论**：
    ```bash
    bash scripts/dispatch-pi.sh verdict <run-dir> --verdict <结论> --review <报告路径> [--class <失败分类>] [--human-minutes <分钟>]
@@ -88,6 +93,12 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    - REVISE / BLOCKED / ESCALATE 必须带 `--class`。分类见 gates.md。
 9. **后续动作**：
    - **PASS / ACCEPTED_WITH_EXCEPTION**：只做合同 `integration` 中已授权的动作。
+     - **`local_branch` + `merge`：`bash scripts/dispatch-pi.sh integrate <run-dir>`（2.8.0）**。
+       - 它建候选分支，在对象库里预演合并到当前分支末端，再在临时 worktree（末端加候选的改动，未暂存）上跑合同的 setup 与全部检查。全部通过才在主工作区 `git merge --ff-only`，然后 `mark INTEGRATED --ref <新提交>` 并清理 worktree。
+       - 冲突、检查失败、主工作区有会被覆盖的本地改动时，什么也不落地（退出码 1），主工作区不会停在 cherry-pick 的中间状态。
+       - 有 attempt 在跑时它拒绝落地（`--while-running` 明确接受）；`--dry-run` 只验证。
+       - 只对基线成立的检查（例如“这些文件与基线逐字相同”）在并行批次里可以 `--skip <ID> --reason <理由>`，豁免写进 `integrations/NN/integration.json`。
+       - 合同只有 `local_branch` 时，它验证后建好提交、打印落地命令并退出 3。
      - `local_branch`：`bash scripts/dispatch-pi.sh branch <run-dir>`，会基于候选树创建提交与本地分支，不推送。
        - 它需要 Git 作者身份：没有配置 user.name / user.email 时，先提供 GIT_AUTHOR_* 与 GIT_COMMITTER_* 环境变量。doctor 会提前提示身份缺失。
        - dispatch.config.json 的 `commit_trailers` 是仓库级的固定尾注。本次规划端与其中的署名不符时，用 `--no-config-trailers` 去掉它们，再用 `--trailer "Key: value"`（可重复）写上实际的署名。
@@ -95,11 +106,12 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
        - 推送前先 `bash scripts/dispatch-pi.sh release-check`（2.6.0）：扫描已跟踪文件里的凭据形状、家目录路径、内网地址与仓库之外拒绝清单里的字符串。夹具里已知的本机路径前缀写进 `dispatch.config.json` 的 `release_check.allow`（`config set release_check.allow '["<glob>:home path"]'`，2.7.0），不要每次口头提醒；列为未扫描的二进制文件人眼看一遍。命中退出码 1；扫到 0 个文件也是失败，不是通过。
      - 主分支已前进或需要解决冲突时，要在组合结果上重新运行受影响的检查。
      - 并行批次：
+       - 2.8.0 起逐个 `integrate`：每个都在前一个落地后的末端上验证，候选之间冲突时停在预演合并，什么也不落地；
        - HEAD 仍是基线时第一个候选可以 `git merge --ff-only`；HEAD 已因合同提交前进时每个候选都 `git cherry-pick`（它们的父提交是同一基线；`branch` 的输出会给出合适的命令）；
        - 全部集成后在组合结果上跑一次全量测试并记录；
        - 本批所有 run 结束之前不要合并，见 dispatch-pi 技能的“并行批次”。
      - 挑入之前先确认要挑入的提交不碰工作区里有本地改动的文件（例如只差换行符的文件）。git 会在那个提交之前停下，只留下 `.git/sequencer`，没有 `CHERRY_PICK_HEAD`；这时 `git cherry-pick --continue` 会把被挡住的提交当作已处理跳过，接着去挑下一个，结果冲突。做法：先处理那个文件（只差换行符时，按约定统一它的换行符），再 `git cherry-pick --abort` 回到起点，完整重挑。KitExperiment ledger-cli 实机。
-     - 完成后运行 `bash scripts/dispatch-pi.sh mark <run-dir> INTEGRATED --ref <提交或 PR>`，ref 写实际集成的提交（cherry-pick 后的新提交）。
+     - 手工集成（没有用 integrate）时，完成后运行 `bash scripts/dispatch-pi.sh mark <run-dir> INTEGRATED --ref <提交或 PR>`，ref 写实际集成的提交（cherry-pick 后的新提交）。
    - **REVISE**：按 [rework.md](rework.md) 决定从原基线重做，还是在候选上继续，然后用 plan-task 出 vN+1。
      - 预算用尽、剩余部分又小而明确时，可以由规划器在返工提交上直接补齐，作为单独的提交，并按同样的验收标准检查（检查、全量测试、必要时变异检查）。
      - 超时（TIMEOUT）而候选已经完整时，缺的只是执行报告：规划器逐项复审代替报告，写进复审记录，直接集成返工提交，不必为一份报告再派一轮（见 dispatch-pi 技能的 [troubleshooting.md](../dispatch-pi/troubleshooting.md)）。KitExperiment ledger-compaction a001 照此处理：fresh 检查 8/8、两轮变异、独立复审 PASS 之后，复审记录按 Behavior contract 逐条写候选对应的代码位置与 Step 3 的逐项对照，verdict REVISE `--class TIMEOUT`，`branch --rework`，集成，`mark SUPERSEDED`。

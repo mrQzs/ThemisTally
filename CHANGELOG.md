@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2.8.0：规划端吞吐与两处保护缺口（2026-10-15）
+
+设计说明 [docs/code-kit-2.8-规划端吞吐.md](docs/code-kit-2.8-规划端吞吐.md)。执行端已经稳定（KitExperiment 最近 14 轮里 13 轮首轮 PASS），每轮的成本在规划端的手工步骤；另补 2.6/2.7 漏下的两处保护。用户决定的四项均选推荐项。
+
+- **`integrate <run-dir>`**：验证后落地。建候选分支 → `git merge-tree --write-tree` 在对象库里预演合并到当前分支末端（冲突就停）→ 临时 worktree 停在末端、写入候选的改动（未暂存，与 `check --fresh` 同一布局），跑合同的 setup 与全部检查，前后快照都要等于合并结果 → 全部通过才 `commit-tree` 加主工作区 `git merge --ff-only` → `mark INTEGRATED --ref <新提交>` → 清理 worktree。主工作区从头到尾不停在 cherry-pick 的中间状态；冲突、检查失败、快进被拒（主工作区有会被覆盖的本地改动）都什么也不落地，退出码 1。落地要合同 `integration` 含 `merge`；只有 `local_branch` 时验证后建好提交、打印落地命令，退出码 3。有 attempt 在跑时拒绝落地（`--while-running`）；`--dry-run` 只验证；只对基线成立的检查可以 `--skip <ID> --reason`。记录在 `<run-dir>/integrations/NN/`。`branch` 与它共用建候选提交的代码，并在提示里指向 integrate。
+- **`mutate` 一份清单多条命令，变异带预期**：`commands`（每条 `id`、`argv`，可选 `cwd`、`timeout_seconds`）代替两份清单，每条变异只套用一次、每条命令各跑一次；`expect_missed`（这些命令预期漏掉，例如合同留给 oracle 的规则）与 `equivalent`（等价理由，所有命令都预期漏掉）。结果行带 `[命令]` 与“预期内 / 意外漏掉 / 意外：标了预期漏掉却被抓住”，汇总按命令分预期与意外，`mutations.json` 多 `commands`、`unexpected`、`counts_by_command`（单命令清单的记录形状与输出不变）；退出码不变。决策模型只问意外漏掉的。`--check-anchors` 不符时列出最相近的至多 3 行，或每一处出现的行号与下一行。
+- **`review-draft <run-dir>`**：按 review-template 写 `.agent/reviews/<task-id>/<attempt>.md` 的骨架（已存在要 `--force`）：基线、候选、模型、用时、token、门禁的机械部分（`evaluate_gates`）、DoD 的检查结果与目的、各轮变异（意外漏掉的写成固定格式）、执行报告的 `contract_conflicts` / `limitations` / `unresolved_questions` 与摘要“复审需要关注”的原文；判断留 `【待填】`。同时写 `<run-dir>/review-brief.md` 给独立复审。**verdict 拒收仍含 `【待填` 的复审记录。**
+- **metrics 的最终去向与价格估算**：按各 attempt 的 `state.json` 分直接集成 / 补完后集成（SUPERSEDED 带 ref）/ 放弃 / 未定，加“最终集成率”与表里的“最终”列（KitExperiment：验收未通过的 8 个任务里 7 个补完后集成，最终集成率 97%）。配置新键 `pricing`（按 `<provider>/<model>` 给每百万 token 的 input / output / cache_read / cache_write 单价、币种、来源、日期），metrics 用 token 乘单价估算费用并注明来源；kit 不内置价格、不联网查。`config set` 的键路径只在第一个点处分开，`pricing.openai/gpt-4.1` 这样的子键可以写。
+- **kit 自己加载的文件受保护**：`KIT_LOADED_FILES`（`scripts/kit_config.py`，`scripts/codekit/` 下的 `__init__`、`decisions`、`secrets`、`plugins`、`planner`、`planner_protocol`、`protocols`，`plugins/decisions/**`）并入内置的受保护路径：目标仓库把 kit 复制进 `scripts/` 时，合同不能把它们委派出去，执行器改了是 G2 越界。只列实际加载的，v2 参考实现的其余模块不在其列；单元测试用 import 扫描核对这份清单。
+- **决策问题清单核对内容锁**：`decisions.load_locked_batteries` 先用 `codekit/plugins.py` 的 `validate_lock` 核对锁与 manifest，再核对 questions/ 下每份清单的字节与锁里的 sha256，多出或缺少都算不符（`battery_drift`；只差 CRLF 时直说）。`prepare`（决策生效时）、`doctor`、`config validate` 把它当错误；`collect`、`mutate`、`wait --assess` 本次不问、记一条无意见并在 summary 写明，命令照常完成。生成锁的脚本进 kit：`python scripts/codekit/decisions.py --write-lock plugins/decisions`（`--check-lock` 只核对）。`.gitattributes` 把 `plugins/decisions/**` 设为 `-text`：系统级 `core.autocrlf=true` 会在检出时把清单转成 CRLF。
+- 技能：review-pi 第 5–9 步（多命令变异、复审简报、review-draft、integrate 与并行批次）、mutation-check.md 新增“多条命令与预期”、review-template 与 independent-review 的说明、plan-task 合同模板与指南的 `merge`、dispatch-pi 的并行批次。
+- 测试：`tests/test_kit_v280.py`（15 个：内容锁的各种不符、`--write-lock` 逐字节重现与复审过的改动、受保护清单与 import 一致、变异清单校验、锚点提示）；`tests/test_dispatch.py` 新增 4 项场景（integrate 的落地、dry-run、没有 merge、冲突、末端上检查失败、快进被拒、有 attempt 在跑；多命令变异、锚点提示、review-draft、verdict 拒收；锁不符时 prepare / doctor / config validate 与运行中跳过、kit 文件不能进合同范围；metrics 最终去向、价格估算、`config set pricing`）。
+
 ## 2.7.0：配置管理器（2026-10-13）
 
 设计说明 [docs/code-kit-2.7-配置管理器.md](docs/code-kit-2.7-配置管理器.md)。用户要求一个简单的配置管理器，能配置 Jev key 等；四项决定均选推荐项（CLI 加一次性本机网页、系统凭据库、全部键、规划端直接做）。

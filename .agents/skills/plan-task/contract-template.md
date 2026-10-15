@@ -11,7 +11,7 @@
 - base_sha: 【待填：40 或 64 位完整提交 ID】
 - risk_level: 【待填：low | medium | high】
 - authorized_actions: local_edit, local_test
-- integration_actions: 【待填：none | local_branch | commit | open_pr | …（只写用户已经授权的）】
+- integration_actions: 【待填：none | local_branch | local_branch, merge | commit | open_pr | …（只写用户已经授权的；用户已长期授权集成的仓库写 local_branch, merge，integrate 才会落地）】
 - executor: 【待填：provider/model】 · thinking high
 
 ## Goal

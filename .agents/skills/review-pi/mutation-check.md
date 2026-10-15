@@ -57,6 +57,32 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
   - 这个提示只看文字包含：`x if c else y`、`a or b`、在原语句前插入一次写入，都包含完整的 `old` 却改变了行为（KitExperiment ledger-reference 的三个 WARN 都被抓住）。按日志判断，不按提示判断。
 - 用 Write 工具写清单时，`\u` 转义可能被写成实际字符（见 plan-task 第 4 节）。清单里需要这类字符时直接写字符本身。
 
+## 多条命令与预期（2.8.0）
+
+候选固定后通常要跑两轮：oracle 加执行器测试一轮，只用执行器测试一轮。2.8.0 起写进同一份清单，每条变异只套用一次、每条命令各跑一次：
+
+```json
+{
+  "commands": [
+    {"id": "all", "argv": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_x_oracle.py", "tests/test_x.py"]},
+    {"id": "executor", "argv": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_x.py"]}
+  ],
+  "timeout_seconds": 600,
+  "mutations": [
+    {"name": "M01 跳过的原因改名", "file": "pkg/x.py", "old": "...", "new": "...", "expect_missed": ["executor"]},
+    {"name": "M07 逻辑时钟自增", "file": "pkg/x.py", "old": "...", "new": "...", "equivalent": "自增的步长在输出里观察不到"}
+  ]
+}
+```
+
+- `commands` 与 `command` 只能写一个。`id` 写进日志文件名（`M01-all.log`、`baseline-executor.log`）和结果行的 `[all]`；每条命令可以有自己的 `cwd` 与 `timeout_seconds`，缺省用清单顶层的。
+- `expect_missed`：这些命令预期漏掉。合同交给 oracle、没有列给执行器的规则标 `["executor"]`。
+- `equivalent`：写明等价的理由，表示每条命令都预期漏掉；与 `expect_missed` 只能写一个。
+- 结果行与汇总把预期与意外分开，例如 `executor：抓住 12，漏掉 20（预期 18，意外 2：M07 M14）`。只判意外的。标了预期漏掉却被抓住的也是意外：等价判断或“留给 oracle”的划分错了，复审记录里更正。
+- `mutations.json` 每条结果的顶层是第一条命令的结果（单命令清单的形状不变），`commands` 里是每条命令的，`unexpected` 列出与预期不符的命令，`counts_by_command` 是每条命令的计数。退出码不变：意外只列出，不改退出码。
+- 决策模型（2.6.0）只问意外漏掉的条目。
+- `review-draft` 按这些标注写复审记录：意外漏掉的写成固定格式、归因留【待填】，等价的预填“等价变异”，`expect_missed` 的合并成一行“预期内”。
+
 ## 怎样选变异
 - 先看合同 DoD 的“目的”子句（2.6.0）：每条目的至少一个变异。变异证明的是测试保住了目的，不是让检查变绿。
 合同 Behavior contract 的**每一条规则各做一个最小变异**：
@@ -104,6 +130,7 @@ bash scripts/dispatch-pi.sh mutate --tree <草稿 worktree> --spec <清单.json>
 - 判定与 attempt 模式是同一段代码：只有退出码非 0 或超时算抓住，会话中断记为出错，只插入代码的变异标出。规划端此前的临时脚本把任何非零退出码都算抓住，掩盖过一次会话中断（KitExperiment win-supervise）。
 - 记录写到系统临时目录（结束时打印路径）或 `--out` 指定的空目录，不写进被变异的树；每条变异之后恢复原文件，结束时核对清单里的文件逐字节未变。
 - `--check-anchors` 只核对每条 `old` 的出现次数，不运行命令、不写文件：候选固定后按候选措辞重锚时先跑它，`MISMATCH` 的锚点改好再跑变异。
+  - 2.8.0 起不符时给出提示：出现 0 次，列出文件里最相近的至多 3 行（行号与原文）；出现多次，列出每一处的行号与锚点之后的下一行，补一行上下文就能唯一。
 - 清单在派遣后原样交给 `mutate <run-dir>` 复核候选（锚点换成候选的写法）。
 - 漏掉的变异先问数据能不能区分（字母序的种子分不出“排序”与“种子顺序”、单个请求分不出“忽略请求”），再判等价（KitExperiment task-done 两条草稿变异就是这样补的）。实机：pi-native-events 的草稿 32 个偏差全部抓住，漏掉的一个（空工具名）当场补进 oracle。
 

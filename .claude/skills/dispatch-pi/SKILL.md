@@ -87,10 +87,11 @@ argument-hint: "<task-id>.vN"
    - 合并、提交、编辑源码都会出现在“复审需要关注”中。
    - 下一批的合同与复审记录可以先写；合并等本批全部结束后再做。
 6. **全部结束后逐个复审**，然后集成：
+   - 2.8.0 起逐个 `bash scripts/dispatch-pi.sh integrate <run-dir>`（合同 integration 要有 `merge`）：每个都在当前末端上验证后才快进，后一个的末端就是前一个落地后的提交；候选之间冲突时停在预演合并，什么也不落地。下面是手工集成的做法：
    - HEAD 仍是基线时，第一个候选可以 `git merge --ff-only`；按「先提交合同再派遣」的流程 HEAD 通常已经比基线多了合同提交，这时每个候选都用 `git cherry-pick`（`branch` 会按当前 HEAD 打印合适的命令）；
    - 其余候选同样 `git cherry-pick`（它们的父提交是同一基线）；
    - `mark INTEGRATED --ref` 记录实际集成的提交。
-7. **在组合结果上重跑全量测试**，并写进执行记录，然后以新 HEAD 作为下一批的基线。
+7. **在组合结果上重跑全量测试**，并写进执行记录，然后以新 HEAD 作为下一批的基线。用 integrate 时每次落地前都已在当时的末端上跑过合同检查（合同检查含全量时就是这一步）；手工集成时照旧单独跑。
 
 `status` 可以查看运行中 attempt 的进度（已完成的工具调用次数与已用时间）。参数可以是 task-id、task-id.vN、task-id/attempt-NNN 或 attempt 路径。
 

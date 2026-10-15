@@ -46,7 +46,8 @@
 | `local_commit` | 在 worktree 中创建本地提交（很少需要；未授权时 HEAD 移动算越界） |
 | `network` | 访问模型服务之外的网络（只是提示，不能强制；需要强制时在网络层实现） |
 | `local_branch`（集成） | 为通过验收的候选建本地分支 |
-| `commit` / `push` / `open_pr` / `merge` / `deploy`（集成） | 验收端在 PASS 后可执行的动作，执行器永远不做 |
+| `merge`（集成） | `integrate` 在当前分支末端上验证候选后快进落地（2.8.0）；没有它时 integrate 只验证、建好提交并打印落地命令。用户已长期授权集成的仓库写 `local_branch, merge` |
+| `commit` / `push` / `open_pr` / `deploy`（集成） | 验收端在 PASS 后可执行的动作，执行器永远不做 |
 
 ## 三、风险等级
 
