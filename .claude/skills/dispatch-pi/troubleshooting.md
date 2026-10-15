@@ -16,7 +16,7 @@
 | `Repository facts 提到的规划文件在基线 … 中不存在` | 合同引用的上一轮合同、复审记录或设计说明在基线之后才提交（2.4.0 起提示） | 改用包含它们的提交作为基线，或把需要的内容写进合同；执行器不得去主仓库读 |
 | `attempt 在另一台机器上派遣`（`check` / `verdict` 的 NOTE） | attempt 在别的机器或别处仓库 prepare，执行 worktree 不在本机 | 用 `check --fresh`；verdict 的 G6 只凭候选补丁的往返校验，门禁备注会写明 |
 | `合同无效：…ERROR…` | Markdown 与 JSON 不一致、占位符残留、受保护路径等 | 按错误修改合同；已派遣过的版本改为出新版本 |
-| `请先把 .agent/runs/ 加入 .gitignore` | 运行证据可能被提交 | 追加 `gitignore.append.txt` 中的规则 |
+| `请先把 .agent/runs/ 加入 .gitignore` | 运行证据可能被提交 | 追加 `gitignore.append.txt` 中的规则；装进目标仓库时 `kit_install.py install` 会自动追加（2.9.0） |
 | `base_sha 在本仓库中不存在` | 示例或旧合同的基线 | 用 `git rev-parse HEAD` 核对后更新 |
 | `基线提交中没有 AGENTS.md` | worktree 从基线创建，执行器看不到规则 | 先提交 AGENTS.md，再以新提交为基线 |
 | `PREPARE_FAILED` | setup 失败，或 setup 改了已跟踪文件（如锁文件） | 读 `setup/*.log`；锁文件漂移要先在主仓库解决 |

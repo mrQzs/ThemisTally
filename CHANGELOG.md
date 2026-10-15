@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2.9.0：安装与更新——Code-Kit 的第一轮实战（2026-10-15）
+
+设计说明 [docs/code-kit-2.9-安装与更新.md](docs/code-kit-2.9-安装与更新.md)。用户决定让 Code-Kit 先在自己身上实战：Pi 执行器实现主体，规划端写 oracle、合同与复审，并第一次实机使用 2.8 的多命令变异、`review-draft` 与 `integrate`。实机记录见 [docs/Code-Kit实机反馈.md](docs/Code-Kit实机反馈.md)。
+
+- **`scripts/kit_install.py`**（Pi 执行器实现，合同 kit-install.v1，attempt-001 600 秒一次通过）：`check` / `install` / `update <目标仓库> [--force]`。发放内容取自调度器的常量（`pi_dispatch.py`、`dispatch-pi.sh`、`KIT_LOADED_FILES`、四个技能的两份副本、五个示例与说明；不含 `__pycache__` 与 `.pyc`），每个文件一行状态 `ADD|SAME|UPDATE|KEEP|CONFLICT|APPEND|MANUAL|REMOVED`，最后一行 JSON 汇总。安装记录 `.agent/kit-install.json` 记每个文件装进去时的 sha256：目标仍是上次装的原样而 kit 更新了是 `UPDATE`，目标改过是 `KEEP`（不覆盖，`--force` 先备份到 `.agent/kit-backup/<时间>/`）。已有的 AGENTS.md 永远不写，只列出缺少的 kit 章节；`.gitignore` / `.gitattributes` 只追加缺少的规则；已有的 `dispatch.config.json` 不碰。目标不是 Git 仓库根、就是 kit 自己、路径上有符号链接或 junction、记录损坏等一律拒绝（退出 2），拒绝时一个字节都不写。
+- **规划端补全**（独立复审建议 REVISE，依据是 R1；R1 是合同与 oracle 的疏漏，所以 PASS 加补全）：R1 写入用的临时文件名先查后用——目标里一个同名的符号链接原先会让 kit 字节写到仓库外，现在写前用 `lexists` 核对、临时文件以 `O_CREAT | O_EXCL` 新建，备份目录选名也用 `lexists`；R2 git 不在 PATH、记录嵌套过深、kit 缺文件与其余读写失败都是一行 `ERROR:` 加退出 2，不再抛堆栈；R3 AGENTS.md 的章节按合同第 3 条比较去掉首尾空白的整行；文档串里 kit 的名字；执行器拒绝用例的合法基线。oracle 补五个用例。
+- **doctor 的 kit 检查**：`facts.kit` 报告布局（`source` 本仓库就是 kit、`installed` 装在本仓库、`external` 从外部 kit 目录运行）、缺少的运行时文件，装进来的布局再按安装记录列出安装之后改过与缺失的文件；都只作提示，不让 doctor 判失败。
+- **`.gitattributes`**：`plugins/*/README.md` 与 `tests/fixtures/11/*.txt` 设为 `-text`。v2 的测试按字节核对它们，系统级 `core.autocrlf=true` 下新检出的 worktree 会把它们转成 CRLF，干净副本上的全量因此失败 6 项——这会让每一次 `check --fresh` 与 `integrate` 的全量检查失败。草稿树上的全量跑出来的。
+- **`review-draft` 的说明注释**不再含占位记号：verdict 按行拒收含它的记录，原来填完判断也交不上（端到端测试一次替换掉所有占位，掩盖了它；实机第一次用就撞上）。
+- 测试：oracle `tests/test_kit_install_oracle.py`（规划端，21 个用例）、执行器测试 `tests/test_kit_install.py`（5 个）、`tests/test_dispatch.py` 新增 doctor 布局场景并给 review-draft 加了注释的断言；`plan-task/test-design.md` 新增“写入安全按写入的每一个路径列”。
+
 ## 2.8.0：规划端吞吐与两处保护缺口（2026-10-15）
 
 设计说明 [docs/code-kit-2.8-规划端吞吐.md](docs/code-kit-2.8-规划端吞吐.md)。执行端已经稳定（KitExperiment 最近 14 轮里 13 轮首轮 PASS），每轮的成本在规划端的手工步骤；另补 2.6/2.7 漏下的两处保护。用户决定的四项均选推荐项。
