@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""kit_install —— 把 PI-Kit 装进另一个 Git 仓库，并按安装记录分辨“kit 更新了”与“目标本地改过”。
+"""kit_install —— 把 Code-Kit 装进另一个 Git 仓库，并按安装记录分辨“kit 更新了”与“目标本地改过”。
 
 用法：
   python scripts/kit_install.py check <目标仓库>               只读：列出每个条目的状态与汇总，不写任何文件
@@ -13,11 +13,11 @@
 另一种布局是从 kit 目录直接运行调度器（例如 KitExperiment），那样不需要安装，也不该用本脚本。
 
 每个条目输出一行 `<状态> <路径>`，最后一行是 JSON 汇总。状态：
-  ADD       目标里没有这个文件，本次写入 kit 的字节
+  ADD       目标里没有这个文件；install / update 写入 kit 的字节（check 只报告）
   SAME      目标里的字节与 kit 相同
-  UPDATE    目标是上次安装时的原样而 kit 已经更新，本次写入 kit 的新字节
+  UPDATE    目标是上次安装时的原样而 kit 已经更新，install / update 写入新字节；--force 覆盖的行也记为 UPDATE
   KEEP      目标与安装记录不同，是本地改过的，不写（--force 才覆盖并备份）
-  CONFLICT  目标已有同名文件而安装记录里没有它，不写（--force 才覆盖并备份）
+  CONFLICT  目标已有内容不同的同名文件，安装记录里没有它，不写（--force 才覆盖并备份）
   APPEND    目标的 .gitignore / .gitattributes 缺少 kit 的规则，本次只在末尾追加，原内容一个字节不改
   MANUAL    AGENTS.md 已存在，永不改写；列出目标里缺少的 kit 章节，由人手工合并
   REMOVED   安装记录里有而 kit 已不再发放的路径，只报告，不删文件
@@ -66,6 +66,8 @@ EXTRA_FILES = (".claude/agents/pi-reviewer.md", ".agent/README.md", ".agent/disp
                ".codex/config.example.toml", ".claude/settings.example.json")
 EXIT_OK, EXIT_UNRESOLVED, EXIT_USAGE = 0, 1, 2
 REPARSE_POINT = 0x400  # Windows 的 FILE_ATTRIBUTE_REPARSE_POINT：junction、符号链接都带
+#: 写入用的临时文件名后缀；写前检查核对目标里没有这个名字（规划端补全，复审 F1）。
+TMP_SUFFIX = ".kit-install.tmp"
 
 
 class InstallError(Exception):
@@ -111,8 +113,11 @@ def _link_level(root: Path, rel: str) -> Optional[str]:
 
 
 def _git_toplevel(path: Path) -> Optional[Path]:
-    proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError:  # git 不在 PATH：按“rev-parse 失败”处理，是拒绝而不是堆栈（规划端补全，复审 F2）
+        return None
     if proc.returncode != 0:
         return None
     out = proc.stdout.decode("utf-8", "replace").strip()
@@ -120,18 +125,27 @@ def _git_toplevel(path: Path) -> Optional[Path]:
 
 
 def _git_head(kit_root: Path) -> Optional[str]:
-    proc = subprocess.run(["git", "-C", str(kit_root), "rev-parse", "--verify", "HEAD"],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        proc = subprocess.run(["git", "-C", str(kit_root), "rev-parse", "--verify", "HEAD"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     return proc.stdout.decode("utf-8", "replace").strip() or None
 
 
 def _write_bytes(path: Path, data: bytes) -> None:
-    """按字节写入：先写同一目录里的临时文件，再 os.replace；父目录不存在就建。"""
+    """按字节写入：先新建同一目录里的临时文件，再 os.replace；父目录不存在就建。
+
+    临时文件以 O_CREAT | O_EXCL 新建（有 O_NOFOLLOW 时也带上），不复用、不跟随已有的同名路径；写前检查已经
+    核对目标里没有这个名字。原先 open(tmp, "wb") 会跟随指向仓库外的链接，把 kit 字节写到仓库外，再把链接
+    换成目标文件（规划端补全，复审 F1）。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.parent / (path.name + ".kit-install.tmp")
-    with open(tmp, "wb") as handle:
+    tmp = path.parent / (path.name + TMP_SUFFIX)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(str(tmp), flags, 0o666), "wb") as handle:
         handle.write(data)
     os.replace(str(tmp), str(path))
 
@@ -225,7 +239,7 @@ def _check_target_path(target: Path, rel: str, want: str) -> None:
 def _load_record(path: Path) -> Dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise InstallError("安装记录 %s 读不出来或不是 JSON：%s" % (RECORD, exc))
     if not isinstance(data, dict):
         raise InstallError("安装记录 %s 不是 JSON 对象" % RECORD)
@@ -267,12 +281,20 @@ def _run(command: str, target_arg: str, force: bool) -> int:
     if toplevel is None or _norm(toplevel) != _norm(target):
         raise InstallError("目标不是 Git 工作区的根目录：%s" % target_arg)
     files = payload(kit_root)
+    for name in [AGENTS_NAME] + [snippet for _, snippet in RULE_SNIPPETS]:  # 规划端补全，复审 F2
+        if _link_level(kit_root, name) is not None or not (kit_root / name).is_file():
+            raise InstallError("kit 缺少 %s，或它是符号链接 / junction" % name)
     kit_bytes = {rel: (kit_root / rel).read_bytes() for rel in files}
 
     for rel in list(files) + [AGENTS_NAME, CONFIG_NAME] + [name for name, _ in RULE_SNIPPETS]:
         _check_target_path(target, rel, "file")
     _check_target_path(target, RECORD, "file")
     _check_target_path(target, BACKUP_DIR, "dir")
+    if command in ("install", "update"):  # 临时文件名被占用就拒绝：链接、目录或上次中断留下的文件（复审 F1）
+        for rel in list(files) + [AGENTS_NAME, CONFIG_NAME, RECORD] + [name for name, _ in RULE_SNIPPETS]:
+            if os.path.lexists(str(target / (rel + TMP_SUFFIX))):
+                raise InstallError("目标里已有 %s%s（链接、目录或上次中断留下的文件）：临时文件名被占用，核对后删掉再运行"
+                                   % (rel, TMP_SUFFIX))
 
     record: Optional[Dict[str, Any]] = None
     if (target / RECORD).is_file():
@@ -296,7 +318,7 @@ def _run(command: str, target_arg: str, force: bool) -> int:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             candidate = "%s/%s" % (BACKUP_DIR, stamp)
             index = 2
-            while (target / candidate).exists():
+            while os.path.lexists(str(target / candidate)):
                 candidate = "%s/%s-%d" % (BACKUP_DIR, stamp, index)
                 index += 1
             backup_rel = candidate
@@ -341,11 +363,11 @@ def _run(command: str, target_arg: str, force: bool) -> int:
         if writable:
             writes.append((AGENTS_NAME, (kit_root / AGENTS_NAME).read_bytes()))
     else:
-        kit_heads = [line[3:].strip() for line in (kit_root / AGENTS_NAME).read_text(encoding="utf-8").splitlines()
+        # 合同第 3 条：两边都去掉首尾空白后比较整行，缩进的标题也算在（规划端补全，复审 F3）。
+        kit_heads = [line.strip() for line in (kit_root / AGENTS_NAME).read_text(encoding="utf-8").splitlines()
                      if line.startswith("## ")]
-        mine = set(line[3:].strip() for line in agents_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                   if line.startswith("## "))
-        missing = [head for head in kit_heads if head not in mine]
+        mine = set(_lines(agents_path.read_text(encoding="utf-8", errors="replace")))
+        missing = [head[3:].strip() for head in kit_heads if head not in mine]
         if missing:
             rows.append(("MANUAL", AGENTS_NAME, "缺少 kit 章节：" + "、".join(missing)))
         else:
@@ -439,7 +461,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="kit_install", description="把 PI-Kit 装进另一个 Git 仓库，并按记录分辨更新与本地改动",
+    parser = _Parser(prog="kit_install", description="把 Code-Kit 装进另一个 Git 仓库，并按记录分辨更新与本地改动",
                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("check", "install", "update"),
                         help="check 只读；install 首次安装；update 按安装记录更新")
@@ -460,6 +482,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _run(args.command, args.target, bool(args.force))
     except InstallError as exc:
         print("ERROR: %s" % exc.message, file=sys.stderr)
+        return EXIT_USAGE
+    except OSError as exc:  # 规划端补全，复审 F2：读写失败也是一行 ERROR，不是堆栈
+        print("ERROR: 读写失败：%s（发生在写入阶段时，目标可能已写入一部分、没有新的安装记录；修好后重跑）" % exc,
+              file=sys.stderr)
         return EXIT_USAGE
 
 

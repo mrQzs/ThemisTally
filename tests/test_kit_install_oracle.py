@@ -130,6 +130,81 @@ class KitInstallOracle(unittest.TestCase):
 
     # ------------------------------------------------------------------ install
 
+    def test_indented_kit_headings_count_as_present(self):
+        """第 3 条：两边去掉首尾空白比较整行（规划端补全，复审 F3：候选只认行首的 `## `）。"""
+        kit, target = self.make_kit(), self.make_target()
+        heads = [line for line in (kit / "AGENTS.md").read_text(encoding="utf-8").splitlines() if line.startswith("## ")]
+        (target / "AGENTS.md").write_bytes(("# mine\n" + "\n".join("  " + h + "  " for h in heads) + "\n").encode("utf-8"))
+        code, rows, summary, err = self.run_kit(kit, "check", target)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.status_of(rows, "AGENTS.md"), ("SAME", None))
+
+    def test_git_missing_from_path_is_a_refusal(self):
+        """第 6 条：`git rev-parse --show-toplevel` 失败（git 根本不在 PATH）是拒绝，不是堆栈（复审 F2）。"""
+        kit, target = self.make_kit(), self.make_target()
+        empty = self.tmp / "no-tools"
+        empty.mkdir()
+        env = dict(os.environ, PYTHONUTF8="1", PATH=str(empty))
+        proc = subprocess.run([sys.executable, str(kit / "scripts" / "kit_install.py"), "install", str(target)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=120)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.stdout, b"")
+        self.assertTrue(proc.stderr.decode("utf-8", "replace").startswith("ERROR: "), proc.stderr)
+        self.assertEqual(tree_bytes(target), {})
+
+    def test_a_taken_temporary_name_is_refused_before_writing(self):
+        """D04 的目的：写入用的临时文件名被占用（目录、指向仓库外的链接）时拒绝，一个字节都不写（复审 F1）。"""
+        kit, target = self.make_kit(), self.make_target()
+        (target / "AGENTS.md.kit-install.tmp").mkdir()
+        code, rows, summary, err = self.run_kit(kit, "install", target)
+        self.assertEqual(code, 2, err)
+        self.assertIn("kit-install.tmp", err)
+        self.assertEqual(tree_bytes(target), {})
+        self.assertFalse((target / RECORD).exists())
+        target2 = self.make_target("target2")
+        outside = self.tmp / "outside.txt"
+        outside.write_bytes(b"victim\n")
+        (target2 / "scripts").mkdir()
+        try:
+            os.symlink(str(outside), str(target2 / "scripts" / "pi_dispatch.py.kit-install.tmp"))
+        except (OSError, NotImplementedError):
+            self.skipTest("cannot create a file symlink here")
+        code, rows, summary, err = self.run_kit(kit, "install", target2)
+        self.assertEqual(code, 2, err)
+        self.assertEqual(outside.read_bytes(), b"victim\n")
+        self.assertFalse((target2 / "scripts" / "pi_dispatch.py").exists())
+        self.assertFalse((target2 / RECORD).exists())
+
+    def test_a_broken_record_is_refused_without_writing(self):
+        """第 6 条：记录不是 JSON、不是对象、record_type 不对、files 不是对象、嵌套深得解析不了，都拒绝（复审 F2）。"""
+        kit = self.make_kit()
+        bodies = ["{not json", "[]", json.dumps({"record_type": "other", "files": {}}),
+                  json.dumps({"record_type": "code-kit-install", "files": []}), "[" * 100000 + "]" * 100000]
+        for index, body in enumerate(bodies):
+            target = self.make_target("broken-%d" % index)
+            (target / ".agent").mkdir()
+            (target / RECORD).write_text(body, encoding="utf-8")
+            before = tree_bytes(target)
+            code, rows, summary, err = self.run_kit(kit, "update", target)
+            self.assertEqual(code, 2, (index, err[-300:]))
+            self.assertTrue(err.startswith("ERROR: "), (index, err[-300:]))
+            self.assertEqual(tree_bytes(target), before, index)
+
+    def test_update_keeps_installed_at_and_the_record_keys(self):
+        """第 7 条：update 保留 installed_at、更新 updated_at；记录的键恰好八个。"""
+        kit, target = self.make_kit(), self.make_target()
+        self.run_kit(kit, "install", target)
+        record = self.record(target)
+        self.assertEqual(set(record), {"record_type", "schema_version", "kit_version", "kit_commit", "kit_dirty",
+                                       "installed_at", "updated_at", "files"})
+        record["installed_at"] = "2001-02-03T04:05:06Z"
+        (target / RECORD).write_text(json.dumps(record), encoding="utf-8")
+        code, rows, summary, err = self.run_kit(kit, "update", target)
+        self.assertEqual(code, 0, err)
+        again = self.record(target)
+        self.assertEqual(again["installed_at"], "2001-02-03T04:05:06Z")
+        self.assertRegex(again["updated_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
     def test_fresh_install_writes_the_payload_byte_for_byte_and_nothing_else(self):
         kit, target = self.make_kit(), self.make_target()
         payload = expected_payload(kit)

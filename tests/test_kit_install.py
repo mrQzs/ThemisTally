@@ -135,6 +135,8 @@ class KitInstallTest(unittest.TestCase):
 
     def test_a_refusal_prints_nothing_on_stdout_and_one_error_line_on_stderr(self):
         target = self.make_target()
+        code, _rows, _summary, err = self.run_kit("check", target)  # 合法基线（规划端补全，复审 F6）
+        self.assertEqual(code, 0, err)
         proc = subprocess.run([sys.executable, str(REPO / "scripts" / "kit_install.py"), "install",
                                str(self.tmp / "missing")],
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
@@ -144,6 +146,7 @@ class KitInstallTest(unittest.TestCase):
         self.assertTrue(stderr.startswith("ERROR: "), stderr)
         self.assertEqual(len(stderr.strip().splitlines()), 1, stderr)
         self.assertEqual(sorted(path.name for path in target.iterdir()), [".git"])
+        self.assertFalse((self.tmp / "missing").exists())
 
 
 if __name__ == "__main__":
