@@ -92,6 +92,8 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
    ```
    - 工具会执行 G0–G6 机械门禁，并把报告复制、计算哈希。
    - PASS 被拒绝时不要绕过。只有用户（或已有的授权）明确接受某项缺口时，才改用 `ACCEPTED_WITH_EXCEPTION --waive G<n>=<理由> --decided-by <决定者>`。
+   - 一种可以接受的情形：fresh 检查里失败的用例与候选无关。先复现定性——在候选树与基线上各单独重跑，并确认候选没有动相关文件（例如保护文件的 `git diff --quiet` 检查通过）；是既有缺陷就先在主线修好并补确定性用例，再 `ACCEPTED_WITH_EXCEPTION --waive G3=… --waive G4=… --decided-by <规划端，按长期授权>`，由 `integrate` 在带修复的末端上重跑全部检查来核销。末端带着规划端在基线之后的提交时，“与基线逐字相同”那类检查用 `integrate --skip V<n> --reason …` 豁免。KitExperiment ledger-catch-up：两次 fresh 各撞上一次 serve-parallel 的 `Thread.join` 缺陷，修在 `c41d557`，integrate 在末端 8/8 落地。
+   - 同一用例在 `integrate` 的全量里反复失败、单独跑与在 worktree 里跑全量都通过时，不要急着归因：KitExperiment 的 Windows 监管器 oracle（残留进程标志、句柄数）在三次 integrate 里失败、第四次通过，原因至今未明；“调用方没有控制台”只在 `DETACHED_PROCESS` 下复现，并不是那三次的原因（经 `run_supervised` 在前台起 pytest 照样通过）。记成待查问题，重跑落地。
    - REVISE / BLOCKED / ESCALATE 必须带 `--class`。分类见 gates.md。
 9. **后续动作**：
    - **PASS / ACCEPTED_WITH_EXCEPTION**：只做合同 `integration` 中已授权的动作。

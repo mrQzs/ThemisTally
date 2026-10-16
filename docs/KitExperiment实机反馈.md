@@ -715,3 +715,46 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - 技能：plan-task（并发合同只读一次、简报点名竞态）、test-design（两次中断的落空）、review-pi（review-draft 的时机），两份副本同步；合同模板的截短句（`40a198f`）；2.10 设计说明更正 KitExperiment AGENTS.md 那句并记下实测效果。
 - 调度器代码本轮无需改动：三处卡点都是规划端的写法与时机，规则写进技能即可。
+
+## 2026-10-16：Jev 影子决策接入，账本补读与 serve 轮询（ledger-catch-up、serve-watch）
+
+环境同上，调度工具 2.10.0。用户给出 Jev 的 key，要求按“3 → 2 → 1”推进：先接上决策模型的 shadow，再做 serve 的轮询模式，最后做第二个 CLI 的 adapter。
+
+### 方案 3：Jev 影子决策
+
+- key 用 `codekit.secrets.store` 从标准输入存进 Windows 凭据库，`secret check` 只报来源；`doctor --probe-decisions` 一次：218 毫秒，jev-1.13.0，285 个输入 token。KitExperiment 的 `decisions.mode` 设为 shadow（`beb3cb8`）。
+- **D1 报告筛查的历史回填**：规划端脚本用 kit 自己的 `decide_report_screen` 对 42 个有结论的历史 attempt 补跑，`decisions replay` 对照 verdict：五个问题在通过类（31）与未通过类（11）上的均值分不开（`chose_interpretation` 通过类反而更高），约 25 万 token、0.011 美元。D1 在这个仓库上还不能开 on。两次实时运行里 `chose_interpretation` 给出 0.95、0.92，报告里各有 4 条解读，方向一致。
+- **D2 变异等价**：本节三份清单共 8 次有答案，全部答“不等价”（等价概率 0.07–0.21），“测试没覆盖”都在 0.38–0.56；8 条里真正等价的只有 1 条（补读的“不单独查检查点”），恰好答错。“测试没覆盖”的把握始终在 0.5 附近，还看不出分辨力，要等更多真正等价的样本。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| ledger-catch-up v1 a001（Windows，1198 s，约 2.11 元，4 条解读） | fresh 两次各 8/9：失败的是 serve-parallel 与此无关的一个既有缺陷（见下）；integrate 在带修复的末端 8/8（豁免只对基线成立的 V09） | 草稿 19 条：18 抓住、1 等价；候选 20 条：oracle + 执行器 20/20，只用执行器 13/20 | ACCEPTED_WITH_EXCEPTION（G3、G4 豁免既有缺陷）；集成 `43fbd73`，规划端补全 `5929586`（写入路径两处中断窗口 M1、M2，4 个进程内用例） |
+| serve-watch v1 a001（Windows，2375 s / 上限 2400 s，约 5.72 元，6 个工具错误） | fresh 8/8 | 草稿 20 条：16 抓住、4 条预期（观察不到的时序）；候选 18 条：oracle + 执行器 16/18 | PASS；integrate 沿用 checks/01 落地 `83fd9b2`，规划端补全 `b54ed9d`（第一次读时钟回到吸收中断的 try 里；执行器用例改为只替换 `run_cli.time`） |
+
+### 有效的做法
+
+- **先实测再设计**：设计 serve 轮询前，用真实 `smctl` 进程实测“serve 有运行在跑时，另一进程 `ledger stop`”的后果——运行以 `E_LEDGER_STALE` 结束、操作停在未决、预算保留量还挂着。这一条让用户的选择（账本补读）有了依据，也成了合同一 oracle 的真实进程用例。
+- **在草稿树上量钉住面**：补读改的是账本的核心不变量，草稿上全量只有 4 个测试钉住“别的实例写过就 STALE”；“别的进程换代就 STALE”那个测试照旧成立，因为补读遇到 `rollover` 仍然失效。4 个旧测试随 oracle 改写为补读后的结果。
+- **遍数确定的 oracle**：serve-watch 的 oracle 用 `mock.patch.object(run_cli, "_sleep", …)` 在第 k 次停顿时让另一个账本实例扮演操作员，遍数、停顿次数都能精确断言；另留一个真实进程的端到端用例，遍数只断言下限。
+- **候选变异与独立复审并行**：fresh 检查跑完就跑变异，独立复审子代理同时读代码；复审的发现（M1、M2、F1）都是 oracle 时序不到的窗口。
+
+### 验收中撞出的既有问题
+
+- **serve-parallel 的收尾用 `Thread.join(0.1)` 等运行**：Python 3.12 上 Ctrl-C 落在带超时的 join 里时，会把仍在运行的线程标成已结束，收尾不再等它、报告漏掉它、账本在它底下关掉。补读候选的两次 fresh 检查各撞上一次（serve-parallel 的第一次中断用例）。规划端修在 `c41d557`（改成 sleep），新用例在旧写法上 5/5 失败。根因在 serve-parallel 的合同把 join 列成了可选写法。
+- **没有控制台的父进程**：pytest 以 `DETACHED_PROCESS` 启动时，KitExperiment 的 Windows 监管器把每个子进程的 `conhost.exe`（落进它的 Job Object、晚一点退出）当成残留进程杀掉并报告，稳定复现。这是产品问题，留作后续方向。
+- **integrate 里的偶发失败**：三次 `integrate` 的全量里 Windows 监管器 oracle 失败（残留进程标志两次、句柄数一次），第四次通过；单独跑、在 worktree 里跑全量都通过。我先把它归因于“前台没有控制台”，并据此写了 Code-Kit 2.10.1（给检查进程加隐藏控制台）；随后实测经调度器在前台起的检查进程是有控制台的、那组用例照样通过，归因不成立，2.10.1 撤回，原因记为未查明。
+
+### 规划端的教训（本轮）
+
+- **等待线程不写成 `Thread.join(timeout)`**；**“推进内存里的头”与提交放在同一个 try**；**“先回滚再失效”写成 `try/finally`**（已进 plan-task）。
+- **与候选无关的 fresh 失败**：复现定性、修在主线、`ACCEPTED_WITH_EXCEPTION --waive --decided-by`、integrate 在末端核销；反复出现又找不到原因的失败不急着归因（已进 review-pi）。本轮我就犯了一次：看到“前台失败、后台通过”就下了结论、写了 kit 改动，实验一做就推翻了。
+- **validate 的两个解析习惯**：检查清单外以 `- V01` 开头的行会被当成检查行；时间分配会把括号里的“约 N 分钟”加进合计（已进 plan-task）。
+- **两个进程争用的用例要留在 SQLite 的 5 秒忙等之内**（已进 test-design）：各写 120 条在重负载下超时一次，降到 60 条后变异“写入用延迟事务”三次都被抓住。
+- **时限偏紧**：serve-watch 合同按 28 分钟规划、上限 40 分钟，实际用了 2375 秒（只剩 25 秒），事件流 35914 行。改动约 120 行加 13 个用例、全量约 5 分钟的合同，下次给 3000 秒。
+
+### 回流（本轮）
+
+- 技能：plan-task（等待线程、头与提交同一个 try、validate 的解析习惯、时限的这一个数据点）、test-design（进程争用与忙等）、review-pi（与候选无关的失败、不急着归因），两份副本同步。
+- 调度器代码本轮无需改动：2.10.1 的隐藏控制台改动因归因不成立而撤回；integrate、豁免、沿用都按现有功能工作（serve-watch 的 integrate 沿用了 fresh 检查）。
