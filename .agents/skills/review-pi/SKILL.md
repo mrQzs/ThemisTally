@@ -84,6 +84,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
 7. **写复审报告**：先 `bash scripts/dispatch-pi.sh review-draft <run-dir>`（2.8.0），按 [review-template.md](review-template.md) 生成 `.agent/reviews/<task-id>/<attempt>.md` 的骨架。
    - 能从证据里取的都已填好：基线、候选、模型、用时、token、门禁的机械部分、DoD 的检查结果与目的、各轮变异（意外漏掉的已写成固定格式）、执行报告与摘要的原文（2.10.0 起含自定解读与事件流里的解读线索）。
    - 判断处留 `【待填】`，逐处填完；`Verdict:` 一行只写一个结论。verdict 拒收仍有 `【待填` 的记录。
+   - 等 `check --fresh` 与 `mutate` 都结束再生成：在它们之前生成的骨架把检查写成“未运行”、变异写成“没有记录”。先生成了就在它们结束后用 `review-draft <run-dir> --force` 重新生成（KitExperiment serve-parallel 的第一份骨架就是这样，G3、G4 与 DoD 的证据全是未运行）。
    - 已有记录时加 `--force` 才覆盖；不想用骨架时照旧按模板手写。
 8. **记录结论**：
    ```bash

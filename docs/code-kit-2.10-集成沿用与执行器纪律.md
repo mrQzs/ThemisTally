@@ -56,7 +56,7 @@
   - 有 bash：`set -o pipefail; <命令> 2>&1 | tail -n 40`。cwd 不是 `.` 时前面加 `cd <cwd> &&`，有 env 时写成 `变量=值 <命令>`。`pipefail` 让管道的退出码就是测试自己的退出码，工具返回的也就是真实退出码；摘要的检测本来就把开了 `pipefail` 的命令算作合规。
   - 只有 powershell：`<命令> 2>&1 | Select-Object -Last 40; "exit=$LASTEXITCODE"`。
   - 期望退出码不是 0 的检查，在同一行写明期望值。
-- **截短规则**：执行说明第 5 条和 AGENTS.md 关于截短的那句改成：截短时照抄摘要里的写法；自己临时写的测试命令接管道时，开头同样加 `set -o pipefail;`。KitExperiment 的 AGENTS.md 是它自己的英文说明，没有这两条规则；执行说明由调度器生成，改动在那边自动生效。
+- **截短规则**：执行说明第 5 条和 AGENTS.md 关于截短的那句改成：截短时照抄摘要里的写法；自己临时写的测试命令接管道时，开头同样加 `set -o pipefail;`。执行说明由调度器生成，改动在 KitExperiment 那边自动生效。（更正，2026-10-15：KitExperiment 的 AGENTS.md 其实有一句旧的截短写法 `T=$(mktemp -d)…`，2.10.0 时漏看；serve-parallel 一轮随 oracle 一起改成了 `set -o pipefail;` 的写法。合同模板 `plan-task/contract-template.md` 的同一句也漏改了，在 `40a198f` 补上。）
 - **摘要**：“退出码被掩盖”这一关注项的判定不变，文字里指向执行说明的自检写法。
 
 ### 3.3 执行报告加“自定解读”清单
@@ -120,3 +120,4 @@
 - 2026-10-15：核对现状，写成本说明；用户决定第 6 节两项（均选推荐项）。
 - 2026-10-15：规划端实现，核心 `ad24274`，技能与文档随后一个提交。端到端 405 项 0 失败（新场景 10 项），pytest 1516 passed / 7 skipped（新增 `tests/test_kit_v2100.py` 40 个），legacy check 只有那条常年存在的差异，release-check 干净。旧的 2.4.0 断言找的是原来那句截短写法，随规则一起改了。
 - 遗留：效果要等下一轮实战来测（执行器还掩盖几条测试退出码，解读清单有没有被填写）；端到端并行、v2 测试分级与 CI 另立方向。
+- 2026-10-16：第一次实测（KitExperiment serve-parallel a001）：自检照抄之后测试命令没有一条掩盖退出码（kit-install 是 12 条）；报告填了 5 条 `interpretations`，事件流里没有未报告的解读线索；`integrate` 沿用 checks/01，0.9 秒落地。同一轮发现合同模板与 KitExperiment AGENTS.md 里还留着旧截短写法，均已改掉。
