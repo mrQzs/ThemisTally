@@ -81,7 +81,8 @@ bash scripts/dispatch-pi.sh mutate <run-dir> --spec <清单.json> [--keep-worksp
 - 结果行与汇总把预期与意外分开，例如 `executor：抓住 12，漏掉 20（预期 18，意外 2：M07 M14）`。只判意外的。标了预期漏掉却被抓住的也是意外：等价判断或“留给 oracle”的划分错了，复审记录里更正。
 - `mutations.json` 每条结果的顶层是第一条命令的结果（单命令清单的形状不变），`commands` 里是每条命令的，`unexpected` 列出与预期不符的命令，`counts_by_command` 是每条命令的计数。退出码不变：意外只列出，不改退出码。
 - 决策模型（2.6.0）只问意外漏掉的条目。
-- 命令照上例写 `all`（oracle 加执行器测试）与 `executor`，不要拆成 `oracle`、`executor` 两条单文件命令：拆开时，oracle 抓住、执行器按合同分工不测的规则在 `executor` 那边全算“意外漏掉”，复审骨架每条都要手工归因为“命令分工”（KitExperiment claude-adapter：24 条里 13 条）。`all` 判真正的漏洞；`executor` 那边给 oracle 把守的规则标 `expect_missed: ["executor"]`。
+- 命令照上例写 `all`（oracle 加执行器测试）与 `executor`，不要拆成 `oracle`、`executor` 两条单文件命令：拆开时，oracle 抓住、执行器按合同分工不测的规则在 `executor` 那边全算“意外漏掉”，复审骨架每条都要手工归因为“命令分工”（KitExperiment claude-adapter：24 条里 13 条）。`all` 判真正的漏洞；`executor` 那边给 oracle 把守的规则标 `expect_missed: ["executor"]`。只换命令名、不标这一项等于没改：claude-tools 写了 `all` + `executor`，43 条里 26 条仍要逐条归因。
+- 改锚到候选时先读一遍变异点前后：同一个值读两次（校验一次、发事件时再取一次）只改一处，或者去掉一个被总和上限兜住的分项上限检查，都是等价变异，标 `equivalent` 并写明理由（claude-tools 的 M05、M33）。
 - `review-draft` 按这些标注写复审记录：意外漏掉的写成固定格式、归因留【待填】，等价的预填“等价变异”，`expect_missed` 的合并成一行“预期内”。
 
 ## 怎样选变异

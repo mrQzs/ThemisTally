@@ -34,7 +34,7 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - worktree 从基线提交创建：AGENTS.md、被测代码和测试辅助文件必须已在基线里。AGENTS.md 未提交时提醒用户。
 - 中高风险任务：在当前工作区运行相关的现有检查，记录基线结果；已知失败写明用例与错误指纹。
 - **新方向先量钉住面**：把设计里的规则在一棵草稿 worktree 上写成最小改动（往往一行），跑全量，记下哪些测试钉住了旧行为。这些测试随 oracle 提交一起改，合同的 Repository facts 据此写死。KitExperiment task-done：一行规则让 971 个测试里恰好 1 个失败，执行器零取舍、544 秒完成。claude-adapter：注册表加一项，草稿全量里 2 个测试钉死“恰好两个 adapter”与拒绝信息，随 oracle 提交改成三项，那条检查标“基线应失败”。
-- **要真实 CLI 形状的方向，先录再写合同**：用户批准的一次最小调用（空目录、禁用工具与设置、花费上限），录下的流缩减成夹具，oracle 与 Repository facts 写真实帧的字段名。文档没提的帧（Claude Code 的 `rate_limit_event`）只有录制才发现；凭文档写死，执行器那里就是“未知帧，流不结算”。
+- **要真实 CLI 形状的方向，先录再写合同**：用户批准的一次最小调用（空目录、禁用工具与设置、花费上限），录下的流缩减成夹具，oracle 与 Repository facts 写真实帧的字段名。文档没提的帧（Claude Code 的 `rate_limit_event`）只有录制才发现；凭文档写死，执行器那里就是“未知帧，流不结算”。问用户的问题若建立在“录制会证实”的前提上，设计说明里写明“录制推翻就重问”，录完逐条核对：KitExperiment claude-tools 的录制显示 `result.usage` 不含被撤回的那一轮、逐消息的输出不是终值，两项重问之后用户改选 `modelUsage`。
 
 ## 2. 分清事实、假设与未决问题
 
@@ -112,6 +112,7 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - **Repository facts 写执行器会撞上的事实**：例如 `claim` 把 `resource_keys` 排序后存、预留维度必须等于 caps 的维度；每条缺失都让执行器多跑一轮测试（ledger-compaction a001）。
 - **提交之后的失败不能与参数错误共用退出码**：ledger-cli 的输出在变更提交之后才写，终端编码写不出时 `main` 返回 2，运维照“失败”重试一个不幂等的 `stop`，就多了一个暂停。输出不依赖终端编码（写 UTF-8 字节），提交之后的失败要说清已经生效。
 - **两条规则对同一输入都适用时，写明先后**。KitExperiment pi-native-events 的合同写了“终止之后的任何帧都是未知帧”，又写了“不是对象的帧是畸形帧”，没说终止之后来了一个不是对象的帧算哪一种。执行器在思考里自己选了一种，报告没写，是独立复审读事件流才发现的。每写一条“任何 X 都 Y”的规则，就对照其他规则找同时成立的输入，把先后写进合同，并给 oracle 一个用例。
+- **“不是某类型的值也算 X”的规则，oracle 至少给 None、数字、list、dict 各一例**：list、dict 不可哈希，代码若先做集合或字典查找就会抛 `TypeError`，而不是按规则失败关闭。KitExperiment claude-tools 的草稿与 oracle 只试了文本 subtype，候选在 `subtype in frozenset` 上崩溃，`smctl run once` 退出码 2；是独立复审用 list subtype 探出来的。
 - **oracle 提交之后别再改基线里的设计说明**：设计说明与 oracle 要在同一个提交里定稿；基线建好之后改动设计说明，执行器看到的仍是旧稿，会如实指出不一致。
 - **“是 str / dict / int”一律写成精确类型**（`type(x) is str`）。用 `isinstance` 时，子类（包括 `StrEnum`）能通过检查，等到事件或记录规范化时才失败，而这时状态可能已经改了。
   - 测试里用到较新的标准库特性（例如 3.11 才有的 `StrEnum`），要对照项目声明的最低 Python 版本给出回退。
