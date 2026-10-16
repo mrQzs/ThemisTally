@@ -758,3 +758,44 @@ KitExperiment 是 Code-Kit v2 合同的标准库参考实现（SentinelMesh）�
 
 - 技能：plan-task（等待线程、头与提交同一个 try、validate 的解析习惯、时限的这一个数据点）、test-design（进程争用与忙等）、review-pi（与候选无关的失败、不急着归因），两份副本同步。
 - 调度器代码本轮无需改动：2.10.1 的隐藏控制台改动因归因不成立而撤回；integrate、豁免、沿用都按现有功能工作（serve-watch 的 integrate 沿用了 fresh 检查）。
+
+## 2026-10-16：第二个 CLI adapter（claude-adapter）
+
+环境同上，调度工具 2.10.0。“3 → 2 → 1”的最后一项：给 KitExperiment 的 `smctl run once/serve` 接上 Claude Code 的 `--output-format stream-json`，adapter id `claude`。用户四项均选推荐项：Claude Code、批准一次最小调用、只记 token、只做翻译与结算。
+
+### 录制
+
+- 规划端在空的临时目录里用 `smctl run init/once` 跑 `claude.exe` 2.1.301：
+  - 参数 `-p 'Reply with exactly: OK' --output-format stream-json --verbose --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence --max-budget-usd 0.5`；
+  - 环境映射只给九个路径类变量，没有任何 key，Claude Code 自己读 OAuth 登录；
+  - `--bare` 不能用，它只认 `ANTHROPIC_API_KEY`。
+- 先干跑 `--version`：Job Object 下 `REVIEW_PENDING`、退出码 0，观测记录的可执行文件摘要就是 `claude.exe` 的。原生 exe 不需要像 pi 那样点名 `node.exe` 加脚本。
+- 那一次调用的结果：
+  - 4 帧：`system`/`init`、`assistant`、`rate_limit_event`、`result`。`rate_limit_event` 文档里没有，只有录制才发现；
+  - 用量 2 / 4 / 649 / 2330，CLI 报告 0.0188578 美元。
+- 缩减脚本把超过 32 个字符或像路径的字符串换成长度加摘要，限额数值清零，夹具不需要 release-check 放行。
+
+### 任务记录
+
+| 任务 / attempt | 独立检查 | 变异结果 | 结论 |
+| --- | --- | --- | --- |
+| claude-adapter v1 a001（Windows，997 s / 上限 3000 s，约 1.91 元，7 条解读） | fresh 8/8 | 草稿 20 条：19 抓住、1 等价；候选 24 条：oracle 与执行器测试合起来 22/24，漏掉的 2 条都等价 | PASS；integrate 沿用 checks/01 落地 `ec6881a`，规划端补全 `fbdfa88`（措辞、`num_turns` 上限、三例测试） |
+
+### 有效的做法
+
+- **录制先于合同**：oracle 与 Repository facts 写的是真实帧的字段名，不是文档上的猜测；文档没提的 `rate_limit_event` 进了合同第 1 条，而不是在执行器那里变成“未知帧，流不结算”。
+- **草稿全量找钉死面**：注册表加一项后，草稿全量里 `test_run_cli_pi.py` 有 2 个测试钉死“恰好两个 adapter”与拒绝信息。它们随 oracle 提交改成三项，V03 标“基线应失败”。执行器没有碰已有测试，零冲突。
+- **草稿变异修正了草稿本身**：第一轮“前面有异常帧也结算”漏掉，查下去是草稿在 `result` 之后的异常帧上没清空用量。改了草稿与 oracle，合同第 5 条写成“任何异常帧都清空”，执行器照此实现。
+- **独立复审做端到端探针**：复审子代理把空流、只有 `result`、错位的 init 等十来种输入真正跑到归约器，并把标记字符串塞进思考、正文、工具输入、init 的 `cwd`，确认事件里都没有。这比读代码可信。
+
+### 规划端的教训（本轮）
+
+- **validate 的“`- V01` 行”习惯又踩了一次**：plan-task 已经写明，合同里的基线说明仍写成了以 `- V01、V04、V07 失败…` 开头的列表，validate 报“基线期望说法不一”。工具候选改进：validate 报错时指出那一行在检查清单之外。
+- **`derive-json` 要完整的 40 位 `base_sha`**：先写了短 SHA，报错后改。
+- **多命令变异照文档写 `all` + `executor`**：这次写成 `oracle`、`executor` 两条单文件命令，oracle 抓住、执行器测试按合同分工不测的 13 条在执行器那边都算“意外漏掉”，复审骨架多出 13 处逐条归因为“命令分工”。用 `all`（oracle 加执行器测试）判真正的漏洞，`executor` 那边给 oracle 把守的规则标 `expect_missed`。工具候选改进：`review-draft` 遇到别的命令已抓住的条目时预填“命令分工”。
+- **决策模型 D2**：16 次有答案，仍然全部答“不等价”，真等价的 C23 只给 0.10。连同上一节，真等价样本 2 条都答错，D2 不能开 on。
+
+### 回流（本轮）
+
+- 技能：plan-task（钉死面的这个数据点、录制先于合同、validate 习惯又踩一次）、review-pi/mutation-check（多命令清单的命令划分）。
+- 调度器代码本轮不改；上面两条工具候选改进留待用户决定。

@@ -33,7 +33,8 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
 - 任务依赖主工作区未提交的改动时，请用户决定提交还是排除；不要 stash、reset 或 clean。
 - worktree 从基线提交创建：AGENTS.md、被测代码和测试辅助文件必须已在基线里。AGENTS.md 未提交时提醒用户。
 - 中高风险任务：在当前工作区运行相关的现有检查，记录基线结果；已知失败写明用例与错误指纹。
-- **新方向先量钉住面**：把设计里的规则在一棵草稿 worktree 上写成最小改动（往往一行），跑全量，记下哪些测试钉住了旧行为。这些测试随 oracle 提交一起改，合同的 Repository facts 据此写死。KitExperiment task-done：一行规则让 971 个测试里恰好 1 个失败，执行器零取舍、544 秒完成。
+- **新方向先量钉住面**：把设计里的规则在一棵草稿 worktree 上写成最小改动（往往一行），跑全量，记下哪些测试钉住了旧行为。这些测试随 oracle 提交一起改，合同的 Repository facts 据此写死。KitExperiment task-done：一行规则让 971 个测试里恰好 1 个失败，执行器零取舍、544 秒完成。claude-adapter：注册表加一项，草稿全量里 2 个测试钉死“恰好两个 adapter”与拒绝信息，随 oracle 提交改成三项，那条检查标“基线应失败”。
+- **要真实 CLI 形状的方向，先录再写合同**：用户批准的一次最小调用（空目录、禁用工具与设置、花费上限），录下的流缩减成夹具，oracle 与 Repository facts 写真实帧的字段名。文档没提的帧（Claude Code 的 `rate_limit_event`）只有录制才发现；凭文档写死，执行器那里就是“未知帧，流不结算”。
 
 ## 2. 分清事实、假设与未决问题
 
@@ -133,7 +134,7 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
   - 检查行上的“基线应失败”是写给验收端的；执行器看到的机器合同摘要会把它写成“完成后必须通过”（调度工具 1.2.2 起）。
 - **“某条 finding 由哪些模块产生”一类的事实要实测**：用小输入跑一次，列出所有来源。只读一个模块容易漏掉，例如解析器自己也会报同一规则。
 - **设计代价公式、阈值一类的算法参数时，用参差的真实形态数据模拟**：只用等长、等间隔的例子，容易恰好掩盖公式的缺陷。实机上 v1 的对齐代价在等长对子上表现正确，时长不等时却仍把 80–91% 的 cue 揉进大组。先在副本上做原型，用独立复审的对照程序验证，再写进合同。
-- **validate 的两个解析习惯**：Validation commands 一节里以 `- V01` 这类编号开头的行一律当检查行解析——在检查清单之外写“- V01、V05 在基线上失败”会被当成同一检查的第二行，报“基线期望说法不一”；Budget 的时间分配会把括号里的“约 2 分钟”也加进合计。说明文字写成段落，括号里的时长写成秒（KitExperiment ledger-catch-up 的第一版合同两处都踩了）。
+- **validate 的两个解析习惯**：Validation commands 一节里以 `- V01` 这类编号开头的行一律当检查行解析——在检查清单之外写“- V01、V05 在基线上失败”会被当成同一检查的第二行，报“基线期望说法不一”；Budget 的时间分配会把括号里的“约 2 分钟”也加进合计。说明文字写成段落，括号里的时长写成秒（KitExperiment ledger-catch-up 的第一版合同两处都踩了，claude-adapter 又踩了第一处：基线说明写成了以 `- V01、V04、V07 失败…` 开头的列表）。
 - **检查命令按 argv 直接执行，不经 shell**（调度工具的 `baseline`/`check` 都如此）：不能写 `$(…)`、`&&`、`test`、管道或重定向。“某些文件一字不改”写 `git diff --quiet <base_sha> -- <文件…>`（有差异时退出码 1，不需要输出匹配）；需要组合时写成一条 `python -c` 命令。实机：KitExperiment win-evidence 的 V08 第一版写成 `test -z "$(git diff …)" && echo OK`，baseline 直接失败。
 - 行号会随其他任务的集成漂移。Repository facts 引用代码时以函数、类等符号为主，行号只写“约 N 行”作辅助。
 - **Repository facts 里的每个码名、事件名与字段名先在草稿上跑一遍**：写断言前 grep `_emit(`、`raise` 找到真正的名字，再实跑确认。KitExperiment run-cli-recover 与 run-cli-pi 的草稿 oracle 第一遍都错在这里（`E_LEDGER_MISSING` 不是 `E_LEDGER_OPEN`，候选写在 `scheduler.recovered` 的 payload 里而不是 `run.finished_for_review`）。
