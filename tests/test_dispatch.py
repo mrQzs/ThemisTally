@@ -2584,6 +2584,11 @@ def test_v260_run_health_doctor_replay_and_metrics():
     server, port, calls = _decision_server({"progressing": 0.2, "blocked": 0.8, "looping": 0.1, "done": 0.05,
                                             "action": "prepare_next_contract", "claims_unsupported": 0.3})
     env = {"CODEKIT_TEST_DECISIONS_KEY": "local-test-key"}
+    # pytest 先收集、后执行：别的测试模块已经拿着自己的 codekit 类。结束时把原来的
+    # 模块放回去，而不是一删了之；否则它们之后重新导入，拿到的是新的异常类，
+    # assertRaises 接不住（全量里 11 个失败）。
+    saved_modules = {name: module for name, module in sys.modules.items()
+                     if name == "codekit" or name.startswith("codekit.")}
     try:
         _decisions_config(repo, port, "on")
         run_ok(repo, **env)
@@ -2652,6 +2657,7 @@ def test_v260_run_health_doctor_replay_and_metrics():
             sys.path.remove(str(repo / "scripts"))
         for name in [m for m in sys.modules if m == "codekit" or m.startswith("codekit.")]:
             del sys.modules[name]
+        sys.modules.update(saved_modules)
 
 
 def test_v260_release_check_and_dod_intent():
