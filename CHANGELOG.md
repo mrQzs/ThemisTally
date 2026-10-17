@@ -2,7 +2,7 @@
 
 ## 未发布（themis-3.0 分支）：3.0 第一轮——日志管理与插件管理
 
-设计说明 [docs/themis-tally-3.0-四端分层解耦架构.md](docs/themis-tally-3.0-四端分层解耦架构.md)（总体，拟议第 2 版）与 [docs/themis-tally-3.0-r1-日志与插件管理.md](docs/themis-tally-3.0-r1-日志与插件管理.md)（第一轮，2gate 闸一四轮后零 Blocking）。第一轮按 3.0 自己的做法推进：T1（`logs`）由规划端子代理写合同与 oracle（A 组），T2（`plugins`）由 Pi 作为合同端起草合同与 oracle、规划审核端审定后发布（B 组），两项实现都派给 Pi；实测记录在 `.agent/design/3.0-首轮实测.md`。
+设计说明 [docs/themis-tally-3.0-四端分层解耦架构.md](docs/themis-tally-3.0-四端分层解耦架构.md)（总体，拟议第 2 版）与 [docs/themis-tally-3.0-r1-日志与插件管理.md](docs/themis-tally-3.0-r1-日志与插件管理.md)（第一轮，2gate 闸一四轮、闸二三轮后零 Blocking）。第一轮按 3.0 自己的做法推进：T1（`logs`）由规划端子代理写合同与 oracle（A 组），T2（`plugins`）由 Pi 作为合同端起草合同与 oracle、规划审核端审定后发布（B 组），两项实现都派给 Pi；实测记录在 `.agent/design/3.0-首轮实测.md`。
 
 - **`logs`（`scripts/kit_logs.py`，只读）**：`list`、`show`、`search`、`usage`。证据枚举不走 `os.walk`，每一级先查链接（junction 也算），显式路径按段栈处理 `..`，所有写法的目标都还要 `resolve` 后落在 runs 根之下；列不出来的目录按层处理（runs 根退出 1、目标解析退出 2、其余跳过）；`usage` 汇总执行端的 `events-summary.json` 与 `--transcript` 给出的 Claude Code 会话记录（按 `message.id` 分组、只比较最终记录、流式中间记录不计数），只报 token、注明是下界。
 - **`plugins`（`scripts/kit_plugins.py`）**：`list`、`show`、`verify` 只读，`enable`、`disable` 只改配置的 `plugins` 段。插件目录、清单、资源与决策插件题库在读之前逐级查链接（悬空链接也算），锁列只取 一致 / 漂移 / 无效 / 本轮不支持，链接类失败的原因写 `无效：链接`；状态用 `check_permission_intersection` 判定；改配置之前先查原配置，不合法就拒绝并附一条在原配置上执行得了的修复提示；写入只经 `write_checked`，决策插件生效时先核对题库并给出恢复顺序，`--dry-run` 与无变化走同一条检查链；变化摘要 `plugins.<键>: 旧 → 新`。带 `depends_on` 或 `conflicts` 的插件本轮不支持启用。
