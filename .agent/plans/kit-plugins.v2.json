@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-plugins",
+  "plan_version": 2,
+  "title": "kit_plugins 插件管理第一片：返工 v2（review 第 0–14 项与 oracle 的 v2 增补）",
+  "repository": "ThemisTally",
+  "base_sha": "355d94389eef46e449149b75095b5d0bccc447cc",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": ["local_branch", "merge"]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": ["scripts/kit_plugins.py"],
+    "allowed_new_files": ["tests/test_kit_plugins.py"],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_kit_plugins_oracle.py",
+      "plugins/**",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/pi_dispatch.py",
+      "scripts/codekit/**",
+      "tests/test_kit_config.py",
+      "tests/test_dispatch.py",
+      "tests/test_kit_v280.py",
+      "docs/**",
+      "README.md",
+      "CHANGELOG.md",
+      "AGENTS.md",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["python", "-m", "pytest", "tests/test_kit_plugins_oracle.py", "-q"],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["[1-9]\\d* passed"],
+      "output_must_not_match": [],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": ["python", "-m", "pytest", "tests/test_kit_plugins.py", "-q"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["[1-9]\\d* passed"],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V03",
+      "argv": ["python", "-m", "py_compile", "scripts/kit_plugins.py"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V04",
+      "argv": ["python", "scripts/kit_plugins.py", "--help"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["usage:"],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "list、show、verify 按第二节与第八节输出锁列四值（一致/漂移/无效/本轮不支持）、资源列、状态词（READY/BLOCKED、是/否/不限制）与退出码，坏插件不拖垮命令", "evidence": ["V01"]},
+    {"id": "D02", "text": "enable、disable 按第十节改变 plugins.enabled 与 plugins.allowed_permissions，含 --dry-run、--allow-permission 与非列表值拒绝，授予路径的读前链接检查", "evidence": ["V01"]},
+    {"id": "D03", "text": "写入只经 kit_config.write_checked，校验不过或写入失败时配置字节不变；命令级错误打印一行 ERROR 并返回退出码，不输出堆栈", "evidence": ["V01"]},
+    {"id": "D04", "text": "读前逐级链接与边界检查只用 pi_dispatch 的 is_link_or_junction、first_link_component、is_within，不另写同类实现", "evidence": ["V01", "review"]},
+    {"id": "D05", "text": "所有修改都在允许集合内（scripts/kit_plugins.py 修改，tests/test_kit_plugins.py 新增）", "evidence": ["scope"]},
+    {"id": "D06", "text": "没有删除、跳过或弱化既有测试（含 oracle），执行端自己的测试只用合成副本、不改真实 plugins/", "evidence": ["review", "V02"]},
+    {"id": "D07", "text": "scripts/kit_plugins.py 可编译", "evidence": ["V03"]},
+    {"id": "D08", "text": "命令行可运行，--help 输出 usage:", "evidence": ["V04"]},
+    {"id": "D09", "text": "插件 ID 先按 PLUGIN_ID 校验（B3），枚举与存在性（链接目录列出，悬空链接算链接，plugins 根是链接时枚举为空），G1、G2，检查顺序", "evidence": ["V01"]},
+    {"id": "D10", "text": "题库门禁（无变化路径与写入共用）、show 的 generation 与 lock_sha256 原值、变化摘要、allowed_permissions 去重排序、disable 的显式列表排除链接目录、不提供 --version", "evidence": ["V01"]},
+    {"id": "D11", "text": "执行端测试 tests/test_kit_plugins.py 覆盖 review 第 1–5 项（授予路径的链接目录问题行、锁列四值、资源读取失败、plugins 段不合法的五个子命令、无变化路径的题库门禁）", "evidence": ["V02"]},
+    {"id": "D12", "text": "review 第 6–13 项的实现（权限状态与调用条件、未安装口径、show、检查顺序、变化摘要、逐插件收集、verify 标题、悬空链接）由 V01 的增补用例覆盖", "evidence": ["V01"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 2700,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  },
+  "outline_ref": {
+    "kind": "execution-outline",
+    "id": "ol-kit-plugins",
+    "path": ".agent/requests/r1-kit-plugins/outline.r1.json",
+    "sha256": "e2885dd535bca98b04d0582bca398790942056acffbd67a2fcfb028732fda728"
+  },
+  "coverage": [
+    {"step": "S0", "scope": ["tests/test_kit_plugins.py"], "dod": ["D06", "D11"], "checks": ["V02"]},
+    {"step": "S1", "scope": ["scripts/kit_plugins.py"], "dod": ["D02", "D04", "D12"], "checks": ["V01"]},
+    {"step": "S2", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D12"], "checks": ["V01"]},
+    {"step": "S3", "scope": ["scripts/kit_plugins.py"], "dod": ["D01"], "checks": ["V01"]},
+    {"step": "S4", "scope": ["scripts/kit_plugins.py"], "dod": ["D03", "D11"], "checks": ["V01", "V02"]},
+    {"step": "S5", "scope": ["scripts/kit_plugins.py"], "dod": ["D02", "D03", "D10"], "checks": ["V01", "V02"]},
+    {"step": "S6", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D12"], "checks": ["V01"]},
+    {"step": "S7", "scope": ["scripts/kit_plugins.py"], "dod": ["D09", "D12"], "checks": ["V01"]},
+    {"step": "S8", "scope": ["scripts/kit_plugins.py"], "dod": ["D10"], "checks": ["V01"]},
+    {"step": "S9", "scope": ["scripts/kit_plugins.py"], "dod": ["D09", "D12"], "checks": ["V01"]},
+    {"step": "S10", "scope": ["scripts/kit_plugins.py"], "dod": ["D02", "D10", "D12"], "checks": ["V01"]},
+    {"step": "S11", "scope": ["scripts/kit_plugins.py"], "dod": ["D09", "D12"], "checks": ["V01"]},
+    {"step": "S12", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D12"], "checks": ["V01"]},
+    {"step": "S13", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D12"], "checks": ["V01"]},
+    {"step": "S14", "scope": ["scripts/kit_plugins.py", "tests/test_kit_plugins.py"], "dod": ["D05", "D06", "D07", "D08"], "checks": ["V03", "V04"]}
+  ],
+  "deviations": []
+}

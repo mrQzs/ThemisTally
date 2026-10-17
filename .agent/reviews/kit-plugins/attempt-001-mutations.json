@@ -1,0 +1,154 @@
+{
+ "commands": [
+  {
+   "id": "oracle",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_plugins_oracle.py",
+    "--deselect",
+    "tests/test_kit_plugins_oracle.py::test_b2_grant_path_other_plugin_dir_link_not_read_and_reported"
+   ]
+  }
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "K01 授予权限允许多给",
+   "file": "scripts/kit_plugins.py",
+   "old": "            if set(supplied) != set(missing):",
+   "new": "            if not set(missing) <= set(supplied):"
+  },
+  {
+   "name": "K02 写入前不核对决策题库",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if not settings.active:\n        return\n    try:\n        decisions.verify_battery_lock(pd.DECISIONS_PLUGIN_DIR)",
+   "new": "    if True:\n        return\n    try:\n        decisions.verify_battery_lock(pd.DECISIONS_PLUGIN_DIR)"
+  },
+  {
+   "name": "K03 dry-run 不做整份校验",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if dry_run:\n        errors = kit_config.validate_config(new_config, repo)",
+   "new": "    if dry_run:\n        errors = []"
+  },
+  {
+   "name": "K04 disable 的显式列表含链接目录",
+   "file": "scripts/kit_plugins.py",
+   "old": "        new_enabled = sorted(name for name in _installed_ids() if name != plugin_id)",
+   "new": "        new_enabled = sorted(name for name, _ in _enumerate_entries() if name != plugin_id)"
+  },
+  {
+   "name": "K05 enabled 缺省显示为“是”",
+   "file": "scripts/kit_plugins.py",
+   "old": "        return \"不限制\"",
+   "new": "        return \"是\""
+  },
+  {
+   "name": "K06 缺的权限恒为空",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if not view[\"allowed_present\"] or not isinstance(allowed, list):\n        return []",
+   "new": "    if True:\n        return []"
+  },
+  {
+   "name": "K07 CRLF 不单独说明",
+   "file": "scripts/kit_plugins.py",
+   "old": "                problems.append(\"资源 %s 不一致：仅行尾不同（CRLF）\" % rel)",
+   "new": "                problems.append(\"资源 %s 与锁不一致\" % rel)"
+  },
+  {
+   "name": "K08 漂移判成无效",
+   "file": "scripts/kit_plugins.py",
+   "old": "        report[\"lock_status\"] = _DRIFT if code in (\"E_PLUGIN_LOCK_DRIFT\", \"E_PLUGIN_LOCK_BINDING\") else _INVALID",
+   "new": "        report[\"lock_status\"] = _INVALID"
+  },
+  {
+   "name": "K09 show 不查 ID 是否存在",
+   "file": "scripts/kit_plugins.py",
+   "old": "    plugin_id = _validate_id(args.plugin_id)\n    _require_exists(plugin_id)\n    config = kit_config.load_config(repo)\n    view = _plugins_view(config)\n    report = _check_plugin(plugin_id)\n    manifest = report[\"manifest\"]",
+   "new": "    plugin_id = _validate_id(args.plugin_id)\n    config = kit_config.load_config(repo)\n    view = _plugins_view(config)\n    report = _check_plugin(plugin_id)\n    manifest = report[\"manifest\"]"
+  },
+  {
+   "name": "K10 不校验插件 ID 格式",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if not isinstance(plugin_id, str) or not plugins.PLUGIN_ID.match(plugin_id):",
+   "new": "    if not isinstance(plugin_id, str):"
+  },
+  {
+   "name": "K11 资源路径不查前缀",
+   "file": "scripts/kit_plugins.py",
+   "old": "        if not rel.startswith(prefix):",
+   "new": "        if False:"
+  },
+  {
+   "name": "K12 本轮不支持判成无效",
+   "file": "scripts/kit_plugins.py",
+   "old": "        report[\"lock_status\"] = _UNSUPPORTED",
+   "new": "        report[\"lock_status\"] = _INVALID"
+  },
+  {
+   "name": "K13 verify 不把 plugins 根是链接算问题",
+   "file": "scripts/kit_plugins.py",
+   "old": "    problematic = root_link or bool(not_installed) or any(not _is_consistent(r) for r in reports)",
+   "new": "    problematic = bool(not_installed) or any(not _is_consistent(r) for r in reports)"
+  },
+  {
+   "name": "K14 verify --json 恒为 0",
+   "file": "scripts/kit_plugins.py",
+   "old": "        return EXIT_FAIL if problematic else EXIT_OK\n    if root_link:",
+   "new": "        return EXIT_OK\n    if root_link:"
+  },
+  {
+   "name": "K15 verify 不报列入但未安装",
+   "file": "scripts/kit_plugins.py",
+   "old": "        not_installed = _not_installed(config)\n    reports",
+   "new": "        not_installed = []\n    reports"
+  },
+  {
+   "name": "K16 allowed_permissions 不排序",
+   "file": "scripts/kit_plugins.py",
+   "old": "            new_allowed = sorted(set(view[\"allowed_value\"]) | set(supplied))",
+   "new": "            new_allowed = list(view[\"allowed_value\"]) + [p for p in supplied if p not in view[\"allowed_value\"]]"
+  },
+  {
+   "name": "K17 关掉 decisions 不提示 off",
+   "file": "scripts/kit_plugins.py",
+   "old": "        messages.append(\"决策插件会因此变为 off\")",
+   "new": "        pass"
+  },
+  {
+   "name": "K18 一致性不看资源列",
+   "file": "scripts/kit_plugins.py",
+   "old": "    return report[\"lock_status\"] == _OK and report[\"resource_status\"] == _OK",
+   "new": "    return report[\"lock_status\"] == _OK"
+  },
+  {
+   "name": "K19 manifest 读前不查链接",
+   "file": "scripts/kit_plugins.py",
+   "old": "    link = _link_level(kit_root, rel)\n    if link is not None:\n        return None, True, \"链接：%s\" % link",
+   "new": "    link = None\n    if link is not None:\n        return None, True, \"链接：%s\" % link"
+  },
+  {
+   "name": "K20 题库文件不查链接",
+   "file": "scripts/kit_plugins.py",
+   "old": "        if file_link is not None:",
+   "new": "        if False:"
+  },
+  {
+   "name": "K21 enable 不要求插件一致",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if not _is_consistent(report):\n        raise kit_config.ConfigError",
+   "new": "    if False:\n        raise kit_config.ConfigError"
+  },
+  {
+   "name": "K22 写入不经整份校验",
+   "file": "scripts/kit_plugins.py",
+   "old": "        kit_config.write_checked(repo, new_config)",
+   "new": "        kit_config.write_config(repo, new_config)"
+  }
+ ]
+}
