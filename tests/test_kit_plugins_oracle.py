@@ -984,3 +984,692 @@ def test_p12c_two_broken_manifests_disable_one(tmp_path):
         code, _, _ = run(["disable", "docs-change"], env.repo)
         assert code == 0
         assert env.read_config()["plugins"]["enabled"] == ["code-change", "docs-checks"]
+
+
+# ---------------------------------------------------------------------------
+# v2 增补（kit-plugins 返工）。每例只断言 v2 合同写明的词、退出码、插件 ID、文件字节，以及
+# “被拒绝的路径从未被读取”。每例都断言输出里没有堆栈。字符串值用递归遍历查找，不依赖 JSON 键名。
+# ---------------------------------------------------------------------------
+
+_V2_LINK = "无效：链接"
+
+
+def _v2_clean(out, err):
+    assert "Traceback" not in out and "Traceback" not in err, (out, err)
+
+
+def _v2_norm(path):
+    return str(path).replace("\\", "/")
+
+
+def _v2_strings(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _v2_strings(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _v2_strings(value)
+
+
+def _v2_title(out, plugin_id):
+    """verify 的标题行：以“插件 ID 加一个空格”开头的行（问题行缩进两个空格，不会匹配）。"""
+    lines = [line for line in out.splitlines() if line.startswith(plugin_id + " ")]
+    assert lines, (plugin_id, out)
+    return lines[0]
+
+
+def _v2_row(out, plugin_id):
+    """list 的一行：第一个词是插件 ID。"""
+    lines = [line for line in out.splitlines() if line.split()[:1] == [plugin_id]]
+    assert lines, (plugin_id, out)
+    return lines[0]
+
+
+@contextlib.contextmanager
+def _v2_fail_reads(suffix, error):
+    """读取路径以 suffix（/ 分隔）结尾的文件时抛 error；覆盖 Path 与 io 的读取入口，其余读取照常。"""
+    def hit(file):
+        return _v2_norm(file).endswith(suffix)
+
+    real_rb, real_rt, real_po = pathlib.Path.read_bytes, pathlib.Path.read_text, pathlib.Path.open
+    real_open, real_io_open = builtins.open, io.open
+
+    def rb(self, *a, **k):
+        if hit(self):
+            raise error
+        return real_rb(self, *a, **k)
+
+    def rt(self, *a, **k):
+        if hit(self):
+            raise error
+        return real_rt(self, *a, **k)
+
+    def po(self, *a, **k):
+        if hit(self):
+            raise error
+        return real_po(self, *a, **k)
+
+    def op(file, *a, **k):
+        if hit(file):
+            raise error
+        return real_open(file, *a, **k)
+
+    def iop(file, *a, **k):
+        if hit(file):
+            raise error
+        return real_io_open(file, *a, **k)
+
+    with mock.patch.object(pathlib.Path, "read_bytes", rb), \
+            mock.patch.object(pathlib.Path, "read_text", rt), \
+            mock.patch.object(pathlib.Path, "open", po), \
+            mock.patch.object(builtins, "open", op), \
+            mock.patch.object(io, "open", iop):
+        yield
+
+
+@contextlib.contextmanager
+def _v2_links_at(suffix):
+    """只让 pi_dispatch.is_link_or_junction 把路径以 suffix 结尾的那一个路径判为链接；其余照常。"""
+    real = pd.is_link_or_junction
+
+    def fake(path):
+        if _v2_norm(path).endswith(suffix):
+            return True
+        return real(path)
+
+    with mock.patch.object(pd, "is_link_or_junction", fake):
+        yield
+
+
+@contextlib.contextmanager
+def _v2_spy_permission_check():
+    calls = []
+    real = plugins.check_permission_intersection
+
+    def wrapper(*args, **kwargs):
+        calls.append(kwargs.get("allowed_permissions"))
+        return real(*args, **kwargs)
+
+    with mock.patch.object(plugins, "check_permission_intersection", wrapper):
+        yield calls
+
+
+def _v2_tamper_lock_sha(env, plugin_id):
+    lock_path = env.plugin(plugin_id) / "lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["lock_sha256"] = "1" * 64
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    return lock
+
+
+def _v2_break_decisions_battery_dir(env):
+    question = env.plugin("decisions") / "questions" / "run-health.json"
+    question.unlink()
+    question.mkdir()
+
+
+def _v2_move_dir_into_junction(env, tmp_path, plugin_id):
+    real = tmp_path / ("real_" + plugin_id.replace("-", "_"))
+    shutil.move(str(env.plugin(plugin_id)), str(real))
+    assert make_dir_link(env.plugin(plugin_id), real)
+
+
+# 01：verify --json 的退出码
+
+def test_v2_01a_verify_json_all_consistent_exit_0(tmp_path):
+    with make_env(tmp_path) as env:
+        code, out, err = run(["verify", "--json"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert isinstance(json.loads(out), dict)
+
+
+def test_v2_01b_verify_json_problem_exit_1(tmp_path):
+    with make_env(tmp_path) as env:
+        break_manifest(env, "docs-change")
+        code, out, err = run(["verify", "--json"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert isinstance(json.loads(out), dict)
+
+
+def test_v2_01c_verify_one_json_problem_exit_1(tmp_path):
+    with make_env(tmp_path) as env:
+        break_manifest(env, "docs-change")
+        code, out, err = run(["verify", "docs-change", "--json"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert any("无效" in s for s in _v2_strings(json.loads(out)))
+
+
+def test_v2_01d_verify_json_unknown_id_exit_2(tmp_path):
+    with make_env(tmp_path) as env:
+        code, out, err = run(["verify", "no-such-plugin", "--json"], env.repo)
+        _v2_clean(out, err)
+        assert code == 2
+
+
+# 02：list 的启用列（是 / 否 / 不限制）
+
+def test_v2_02a_enabled_column_unrestricted(tmp_path):
+    with make_env(tmp_path) as env:
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        for pid in EIGHT_PLUGIN_IDS:
+            assert "不限制" in _v2_row(out, pid), pid
+
+
+def test_v2_02b_enabled_column_yes_and_no(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["docs-change"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "是" in _v2_row(out, "docs-change")
+        assert "否" in _v2_row(out, "code-change")
+        assert "不限制" not in _v2_row(out, "code-change")
+
+
+# 03：锁列只取四个值；链接变体（插件目录、manifest.json、资源）
+
+def test_v2_03a_plugin_dir_junction_lock_invalid(tmp_path):
+    with make_env(tmp_path) as env:
+        _v2_move_dir_into_junction(env, tmp_path, "docs-change")
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and _V2_LINK in _v2_row(out, "docs-change")
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert _v2_title(out, "docs-change") == "docs-change 无效"
+        assert _V2_LINK in out
+
+
+def test_v2_03b_list_json_lock_value_is_plain_invalid(tmp_path):
+    with make_env(tmp_path) as env:
+        _v2_move_dir_into_junction(env, tmp_path, "docs-change")
+        code, out, err = run(["list", "--json"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        strings = list(_v2_strings(json.loads(out)))
+        assert "无效" in strings          # 锁列的值之一
+        assert _V2_LINK not in strings    # “无效：链接”不作为单独的值出现
+        assert any(_V2_LINK in s for s in strings)  # 只出现在原因或问题文字里
+
+
+def test_v2_03c_manifest_junction_lock_invalid(tmp_path):
+    with make_env(tmp_path) as env:
+        env.plugin("docs-change").joinpath("manifest.json").unlink()
+        target = tmp_path / "docs_change_manifest_dir"
+        target.mkdir()
+        assert make_dir_link(env.plugin("docs-change") / "manifest.json", target)
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert _v2_title(out, "docs-change") == "docs-change 无效"
+        assert _V2_LINK in out
+
+
+def test_v2_03d_resource_junction_lock_invalid(tmp_path):
+    with make_env(tmp_path) as env:
+        readme = env.plugin("docs-change") / "README.md"
+        readme.unlink()
+        target = tmp_path / "docs_change_readme_dir"
+        target.mkdir()
+        assert make_dir_link(readme, target)
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert _v2_title(out, "docs-change") == "docs-change 无效"
+        assert _V2_LINK in out
+        code, out, err = run(["show", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        rows = _resource_rows(out, "README.md")
+        assert rows and all(_V2_LINK in row for row in rows), rows
+
+
+# 04：资源读取失败（文件存在，读取抛 PermissionError）
+
+def test_v2_04a_resource_read_failure_verify_and_show(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_fail_reads("plugins/code-change/README.md", PermissionError("denied")):
+            code_v, out_v, err_v = run(["verify", "code-change"], env.repo)
+            code_s, out_s, err_s = run(["show", "code-change"], env.repo)
+        _v2_clean(out_v, err_v)
+        assert code_v == 1
+        assert _v2_title(out_v, "code-change") == "code-change 无效"
+        assert "资源读取失败" in out_v
+        _v2_clean(out_s, err_s)
+        assert code_s == 0
+        rows = _resource_rows(out_s, "README.md")
+        assert rows and all("不一致" in row for row in rows), rows
+
+
+def test_v2_04b_resource_read_failure_list_row(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_fail_reads("plugins/code-change/README.md", PermissionError("denied")):
+            code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        row = _v2_row(out, "code-change")
+        assert "不一致" in row and "无效" in row and "BLOCKED" in row
+
+
+# 05：列入但未安装（枚举结果里没有的 ID 才算未安装；链接目录算已安装）
+
+def test_v2_05a_enabled_not_installed_lines(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["docs-change", "ghost-plugin"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and "ghost-plugin 未安装" in out
+        code, out, err = run(["verify"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and "ghost-plugin 未安装" in out
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+
+
+def test_v2_05b_linked_plugin_dir_counts_as_installed(tmp_path):
+    with make_env(tmp_path) as env:
+        _v2_move_dir_into_junction(env, tmp_path, "docs-change")
+        env.write_config({"plugins": {"enabled": ["docs-change"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "docs-change 未安装" not in out
+        assert _V2_LINK in _v2_row(out, "docs-change")
+
+
+# 06：plugins 段不是对象（None / [] / "x"）：五个子命令都拒绝；修复提示执行后成功；其他键保持
+
+@pytest.mark.parametrize("bad", [None, [], "x"], ids=["null", "list", "string"])
+def test_v2_06_plugins_not_object_all_subcommands(tmp_path, bad):
+    with make_env(tmp_path) as env:
+        env.write_config({"kill_grace_seconds": 20, "plugins": bad})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        for argv in (["enable", "docs-change"], ["disable", "docs-change"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 1, argv
+            assert "ERROR:" in err and "修复：" in err, argv
+            assert path.read_bytes() == before, argv
+        for argv in (["list"], ["show", "docs-change"], ["verify"], ["verify", "docs-change"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 1, argv
+            assert "ERROR:" in err, argv
+        assert path.read_bytes() == before
+        code, out, err = run(["disable", "docs-change"], env.repo)
+        hint_code, _, herr = run_hint(hint_from(err), env.repo)
+        assert hint_code == 0, herr
+        assert env.read_config()["kill_grace_seconds"] == 20
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+
+
+# 07：修复提示只来自原配置，执行后成功
+
+def test_v2_07a_hint_fixes_one_bad_subkey_keeps_others(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"kill_grace_seconds": 20,
+                          "plugins": {"enabled": "docs-change", "allowed_permissions": ["read-candidate"]}})
+        code, out, err = run(["disable", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and "修复：" in err
+        hint_code, _, herr = run_hint(hint_from(err), env.repo)
+        assert hint_code == 0, herr
+        cfg = env.read_config()
+        assert cfg["plugins"]["allowed_permissions"] == ["read-candidate"]
+        assert cfg["kill_grace_seconds"] == 20
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+
+
+def test_v2_07b_hint_computed_from_original_config_runs(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"kill_grace_seconds": 20, "plugins": {"enabled": "x", "foo": 1}})
+        code, out, err = run(["enable", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and "修复：" in err
+        hint_code, _, herr = run_hint(hint_from(err), env.repo)
+        assert hint_code == 0, herr
+        assert env.read_config()["kill_grace_seconds"] == 20
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+
+
+# 08：无变化路径与写入共用题库门禁（决策插件生效且题库坏：门禁给恢复顺序，配置不变）
+
+def test_v2_08a_no_change_path_runs_battery_gate(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"decisions": {"mode": "shadow"}, "plugins": {"enabled": ["decisions"]}})
+        _v2_break_decisions_battery_dir(env)
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        code, out, err = run(["disable", "docs-change"], env.repo)  # docs-change 不在列表里：没有变化
+        _v2_clean(out, err)
+        assert code == 1
+        assert "plugins disable decisions" in err and "config decisions off" in err
+        assert "没有变化" not in out
+        assert path.read_bytes() == before
+
+
+def test_v2_08b_disable_decisions_recovers_exit_0(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"decisions": {"mode": "shadow"}, "plugins": {"enabled": ["decisions"]}})
+        _v2_break_decisions_battery_dir(env)
+        code, out, err = run(["disable", "decisions"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "decisions" not in env.read_config()["plugins"]["enabled"]
+        assert "决策插件会因此变为 off" in out
+
+
+# 09：列表元素不合法：五个子命令都拒绝（退出 1），不冒堆栈，配置字节不变
+
+@pytest.mark.parametrize("plugins_value", [
+    {"enabled": ["code-change", 5]},
+    {"allowed_permissions": ["network-decisions", 5]},
+    {"enabled": [["x"]]},
+], ids=["enabled-number", "allowed-number", "enabled-nested-list"])
+def test_v2_09_list_element_invalid_all_subcommands(tmp_path, plugins_value):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": plugins_value})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        for argv in (["list"], ["show", "docs-change"], ["verify"], ["verify", "docs-change"],
+                     ["enable", "docs-change"], ["disable", "docs-change"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 1, argv
+            assert "ERROR:" in err, argv
+            assert path.read_bytes() == before, argv
+
+
+# 10：检查顺序：G1 → ID 格式 → ID 存在 → 读配置；配置读不出时，ID 错误仍是 2
+
+def test_v2_10_check_order_id_before_config(tmp_path):
+    with make_env(tmp_path) as env:
+        (env.repo / ".agent" / "dispatch.config.json").write_text("{ not json", encoding="utf-8")
+        for argv, expected in (
+                (["verify", "no-such-plugin"], 2), (["verify", "../x"], 2),
+                (["show", "no-such-plugin"], 2), (["enable", "no-such-plugin"], 2),
+                (["verify", "docs-change"], 1), (["list"], 1)):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == expected, argv
+            assert "ERROR:" in err, argv
+
+
+# 11：show 的 generation 与 lock_sha256 原值；锁漂移时照常输出
+
+def test_v2_11_show_lock_drift_prints_generation_and_value(tmp_path):
+    with make_env(tmp_path) as env:
+        lock = _v2_tamper_lock_sha(env, "docs-change")
+        code, out, err = run(["show", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "漂移" in out
+        gen_lines = [line for line in out.splitlines() if "generation" in line]
+        assert gen_lines and str(lock["generation"]) in gen_lines[0], out
+        assert "1" * 64 in out
+
+
+# 12：状态与权限核对：只有限制权限时才调用 check_permission_intersection；READY 与 BLOCKED 的依据
+
+def test_v2_12a_unrestricted_does_not_call_permission_check(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_spy_permission_check() as calls:
+            code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and calls == []
+
+
+def test_v2_12b_restricted_calls_permission_check(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["read-candidate", "network-decisions"]}})
+        with _v2_spy_permission_check() as calls:
+            code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and len(calls) > 0
+
+
+def test_v2_12c_consistent_not_enabled_is_ready(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"], "allowed_permissions": ["read-candidate"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        row = _v2_row(out, "docs-change")
+        assert "READY" in row and "否" in row
+
+
+def test_v2_12d_drift_is_blocked_with_drift_word(tmp_path):
+    with make_env(tmp_path) as env:
+        _v2_tamper_lock_sha(env, "docs-change")
+        env.write_config({"plugins": {"allowed_permissions": ["read-candidate"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        row = _v2_row(out, "docs-change")
+        assert "BLOCKED" in row and "漂移" in row
+
+
+def test_v2_12e_missing_permission_blocks_and_is_named(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        row = _v2_row(out, "docs-change")
+        assert "BLOCKED" in row and "read-candidate" in row
+
+
+# 13：变化摘要 plugins.<键>: 旧 → 新（写入与 --dry-run 都有）
+
+def test_v2_13a_enable_writes_summary(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        code, out, err = run(["enable", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "plugins.enabled" in out and "→" in out
+        assert env.read_config()["plugins"]["enabled"] == ["decisions", "docs-change"]
+
+
+def test_v2_13b_enable_dry_run_summary_no_write(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        code, out, err = run(["enable", "docs-change", "--dry-run"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "plugins.enabled" in out and "→" in out
+        assert path.read_bytes() == before
+
+
+def test_v2_13c_grant_summary_allowed_permissions(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        code, out, err = run(["enable", "python-checks", "--allow-permission", "read-candidate"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "plugins.allowed_permissions" in out and "→" in out
+
+
+# 14：“没有变化”只说一次；决策插件的 off 提示只在它真的被关掉时出现
+
+def test_v2_14a_no_change_printed_once_when_not_listed(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        code, out, err = run(["disable", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert out.count("没有变化") == 1
+        assert "决策插件会因此变为 off" not in out
+
+
+def test_v2_14b_no_change_printed_once_when_unrestricted_enable(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({})
+        code, out, err = run(["enable", "code-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert out.count("没有变化") == 1
+
+
+def test_v2_14c_docs_change_disable_no_off_hint(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions", "docs-change"]}})
+        code, out, err = run(["disable", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "决策插件会因此变为 off" not in out
+        assert env.read_config()["plugins"]["enabled"] == ["decisions"]
+
+
+def test_v2_14d_disable_decisions_not_listed_no_off_hint(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["docs-change"]}})
+        code, out, err = run(["disable", "decisions"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert out.count("没有变化") == 1
+        assert "决策插件会因此变为 off" not in out
+
+
+# 15：悬空链接（指向已删除目标的 junction）仍按链接处理
+
+def test_v2_15a_plugins_root_dangling_junction(tmp_path):
+    with make_env(tmp_path) as env:
+        moved = tmp_path / "moved_plugins"
+        shutil.move(str(env.plugins), str(moved))
+        assert make_dir_link(env.plugins, moved)
+        shutil.rmtree(str(moved))
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and "无效：链接 plugins" in out
+        code, out, err = run(["verify"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and "无效：链接 plugins" in out
+
+
+def test_v2_15b_dangling_plugin_dir_junction_is_link(tmp_path):
+    with make_env(tmp_path) as env:
+        moved = tmp_path / "moved_docs_change"
+        shutil.move(str(env.plugin("docs-change")), str(moved))
+        assert make_dir_link(env.plugin("docs-change"), moved)
+        shutil.rmtree(str(moved))
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert _v2_title(out, "docs-change") == "docs-change 无效"
+        assert _V2_LINK in out
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and _V2_LINK in _v2_row(out, "docs-change")
+
+
+# 16：文件级链接（用 is_link_or_junction 替身判定）；被拒绝的路径从未被读取；
+#     题库链接或非普通文件时不调用 verify_battery_lock；verify 标题行不把资源不一致打成“一致”
+
+def test_v2_16a_manifest_link_not_read(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_links_at("plugins/code-change/manifest.json"), read_spy() as reads:
+            code, out, err = run(["verify", "code-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and _V2_LINK in out
+        assert _v2_title(out, "code-change") == "code-change 无效"
+        assert not any(_v2_norm(p).endswith("plugins/code-change/manifest.json") for p in reads)
+
+
+def test_v2_16b_lock_link_not_read(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_links_at("plugins/code-change/lock.json"), read_spy() as reads:
+            code, out, err = run(["verify", "code-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and _V2_LINK in out
+        assert _v2_title(out, "code-change") == "code-change 无效"
+        assert not any(_v2_norm(p).endswith("plugins/code-change/lock.json") for p in reads)
+
+
+def test_v2_16c_resource_link_not_read(tmp_path):
+    with make_env(tmp_path) as env:
+        with _v2_links_at("plugins/code-change/README.md"), read_spy() as reads:
+            code, out, err = run(["verify", "code-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and _V2_LINK in out
+        assert _v2_title(out, "code-change") == "code-change 无效"
+        assert not any(_v2_norm(p).endswith("plugins/code-change/README.md") for p in reads)
+
+
+def test_v2_16d_battery_file_link_no_battery_call(tmp_path):
+    with make_env(tmp_path) as env:
+        add_extra_question(env)
+        with _v2_links_at("plugins/decisions/questions/zz-extra.json"), \
+                mock.patch.object(decisions, "verify_battery_lock",
+                                  wraps=decisions.verify_battery_lock) as spy, \
+                read_spy() as reads:
+            code, out, err = run(["verify", "decisions"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and _V2_LINK in out
+        spy.assert_not_called()
+        assert not any(_v2_norm(p).endswith("plugins/decisions/questions/zz-extra.json") for p in reads)
+
+
+def test_v2_16e_battery_extra_dir_is_link_class_no_battery_call(tmp_path):
+    with make_env(tmp_path) as env:
+        (env.plugin("decisions") / "questions" / "zz-extra.json").mkdir()
+        with mock.patch.object(decisions, "verify_battery_lock",
+                               wraps=decisions.verify_battery_lock) as spy:
+            code, out, err = run(["verify", "decisions"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and _V2_LINK in out and "zz-extra.json" in out
+        spy.assert_not_called()
+
+
+def test_v2_16f_verify_title_resource_inconsistent(tmp_path):
+    with make_env(tmp_path) as env:
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0 and _v2_title(out, "docs-change") == "docs-change 一致"
+        readme = env.plugin("docs-change") / "README.md"
+        readme.write_bytes(readme.read_bytes() + b"x")
+        code, out, err = run(["verify", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        title = _v2_title(out, "docs-change")
+        assert "不一致" in title and "一致" not in title.replace("不一致", "")
+
+
+# 17：授予路径上其他插件 manifest 的读取失败也要报告，不静默跳过
+
+def test_v2_17_grant_path_read_failure_reported(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        with _v2_fail_reads("plugins/docs-change/manifest.json", PermissionError("denied")):
+            code, out, err = run(["enable", "python-checks", "--allow-permission", "read-candidate"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "docs-change" in out and "无效" in out
+        impact = _impact_lines(out)
+        assert impact and all("docs-change" not in line for line in impact), impact
+
+
+# 18：argparse 自身的错误退出 2，不冒堆栈
+
+def test_v2_18_argparse_errors_exit_2_no_traceback(tmp_path):
+    with make_env(tmp_path) as env:
+        for argv in (["show"], ["enable", "docs-change", "--bogus"], ["verify", "a", "b"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 2, argv
