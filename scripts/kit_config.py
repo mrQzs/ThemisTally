@@ -45,9 +45,11 @@ import pi_dispatch as pd  # noqa: E402
 
 try:
     from codekit import decisions as _decisions
+    from codekit import plugins as _plugins
     from codekit import secrets as _store
 except ModuleNotFoundError:  # pragma: no cover - the package sits next to this file in the kit
     from scripts.codekit import decisions as _decisions  # type: ignore[no-redef]
+    from scripts.codekit import plugins as _plugins  # type: ignore[no-redef]
     from scripts.codekit import secrets as _store  # type: ignore[no-redef]
 
 TOOL_VERSION = pd.TOOL_VERSION
@@ -161,6 +163,39 @@ def _check_decisions(config: Dict[str, Any], repo: Any) -> None:
             raise ConfigError("decisions 的问题清单与插件内容锁不符：%s" % exc.detail)
 
 
+PLUGINS_SUBKEYS = ("enabled", "allowed_permissions")
+
+
+def _check_plugins(config: Dict[str, Any], _repo: Any) -> None:
+    """3.0 第一轮：plugins.enabled 与 plugins.allowed_permissions（决策插件读它们，codekit/decisions.py）。
+
+    缺省就是不限制；存在时必须是列表。只校验格式，不校验是否已安装：同一份配置要在外部运行与
+    安装布局下都合法，“列入但未安装”由 plugins list / verify 报告。修复提示由 validate_config 附上。
+    """
+    if "plugins" not in config:
+        return
+    value = config["plugins"]
+    if not isinstance(value, dict):
+        raise ConfigError("plugins 必须是对象（子键 enabled、allowed_permissions），现在是 %s" % json.dumps(value, ensure_ascii=False))
+    unknown = sorted(str(key) for key in value if not (isinstance(key, str) and (key in PLUGINS_SUBKEYS or key.startswith("_"))))
+    if unknown:
+        raise ConfigError("plugins 有未知子键：%s（只允许 enabled、allowed_permissions 与下划线开头的说明）" % ", ".join(unknown))
+    for key in PLUGINS_SUBKEYS:
+        if key in value and not isinstance(value[key], list):
+            raise ConfigError("plugins.%s 必须是列表，现在是 %s；不写这个子键表示不限制" % (key, json.dumps(value[key], ensure_ascii=False)))
+    for index, item in enumerate(value.get("enabled", [])):
+        if not isinstance(item, str) or not _plugins.PLUGIN_ID.match(item):
+            raise ConfigError("plugins.enabled[%d] 不是合法的插件 ID：%s" % (index, json.dumps(item, ensure_ascii=False)))
+    for index, item in enumerate(value.get("allowed_permissions", [])):
+        if not isinstance(item, str) or not item:
+            raise ConfigError("plugins.allowed_permissions[%d] 必须是非空字符串：%s" % (index, json.dumps(item, ensure_ascii=False)))
+    for key in PLUGINS_SUBKEYS:
+        items = value.get(key, [])
+        duplicates = sorted({item for item in items if items.count(item) > 1})
+        if duplicates:
+            raise ConfigError("plugins.%s 有重复项：%s" % (key, ", ".join(duplicates)))
+
+
 #: 键 → (说明, 缺省值的文字, 校验函数)。顺序就是 show 的顺序。
 KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
     "allowed_executors": ("允许的执行模型 [{provider, model, thinking}]；为空不限制", "[]（不限制）", _check_allowed_executors),
@@ -178,6 +213,8 @@ KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
                 "{}（不估算）", _check_via(pd.pricing_table)),
     "decisions": ("决策模型：mode（off/shadow/on）、api_key_env、base_url、model、timeout_seconds、budget_seconds、max_state_chars、points",
                   "mode off", _check_decisions),
+    "plugins": ("插件的启用与权限（3.0）：enabled 插件 ID 列表，allowed_permissions 权限名列表；不写的子键表示不限制",
+                "不限制", _check_plugins),
 }
 
 
@@ -209,8 +246,12 @@ def load_config(repo: Any) -> Dict[str, Any]:
     return data
 
 
-def validate_config(config: Dict[str, Any], repo: Any) -> List[str]:
-    """整份校验；返回错误列表（空表示有效）。未知键是错误，下划线键是说明。"""
+def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) -> List[str]:
+    """整份校验；返回错误列表（空表示有效）。未知键是错误，下划线键是说明。
+
+    hints 为真时，plugins 键的错误后面附上 plugins_fix_hint 给出的修复命令；plugins_fix_hint 模拟候选时
+    传 hints=False，所以不会重入。
+    """
     errors: List[str] = []
     for key in config:
         if not isinstance(key, str):
@@ -221,8 +262,66 @@ def validate_config(config: Dict[str, Any], repo: Any) -> List[str]:
         try:
             check(config, repo)
         except ConfigError as exc:
-            errors.append(str(exc))
+            message = str(exc)
+            if key == "plugins" and hints:
+                hint = plugins_fix_hint(config, repo)
+                if hint:
+                    message += "；修复：%s" % hint
+            errors.append(message)
     return errors
+
+
+def _installed_plugin_ids() -> List[str]:
+    """当前布局下 KIT_ROOT/plugins/ 里的插件目录名（匹配插件 ID、不是链接），按名字排序。"""
+    root = pd.KIT_ROOT / "plugins"
+    if not root.is_dir() or pd.is_link_or_junction(root):
+        return []
+    return sorted(entry.name for entry in root.iterdir()
+                  if _plugins.PLUGIN_ID.match(entry.name) and entry.is_dir() and not pd.is_link_or_junction(entry))
+
+
+def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
+    """plugins 存在非列表的子键（或 plugins 本身不是对象）时，给出一条执行后能通过整份校验的命令；没有则 None。
+
+    D6、D7 共用（3.0 第一轮设计）。候选依次是：删掉非法的子键；决策插件生效且题库不一致时，换成
+    enabled =“当前布局全部插件减去 decisions”的合法对象（一次替换同时修好非法值并关掉决策插件）。
+    每个候选先用 validate_config(…, hints=False) 模拟，通过才给出；都不通过时返回 None。
+    """
+    if "plugins" not in config:
+        return None
+    section = config["plugins"]
+    if isinstance(section, dict):
+        bad = [key for key in PLUGINS_SUBKEYS if key in section and not isinstance(section[key], list)]
+        if not bad:
+            return None
+    else:
+        bad = list(PLUGINS_SUBKEYS)
+    candidates: List[Tuple[str, Dict[str, Any]]] = []
+    removed = json.loads(json.dumps(config))
+    if isinstance(section, dict) and len(bad) == 1:
+        del removed["plugins"][bad[0]]
+        if not removed["plugins"]:
+            del removed["plugins"]
+        candidates.append(("config unset plugins.%s" % bad[0], removed))
+    else:
+        del removed["plugins"]
+        candidates.append(("config unset plugins", removed))
+    replacement: Dict[str, Any] = {}
+    if isinstance(section, dict):
+        replacement = {key: value for key, value in section.items()
+                       if key.startswith("_") or (key in PLUGINS_SUBKEYS and isinstance(value, list))}
+    # 已有合法的 enabled 列表：保持原样只去掉 decisions；缺省或非法（都等于不限制）：全部已安装插件减去 decisions。
+    kept = replacement.get("enabled")
+    base = kept if isinstance(kept, list) else _installed_plugin_ids()
+    replacement["enabled"] = [name for name in base if name != _decisions.PLUGIN_ID]
+    replaced = json.loads(json.dumps(config))
+    replaced["plugins"] = replacement
+    candidates.append(("config set plugins '%s'" % json.dumps(replacement, ensure_ascii=False, separators=(",", ":")),
+                       replaced))
+    for command, candidate in candidates:
+        if not validate_config(candidate, repo, hints=False):
+            return command
+    return None
 
 
 def write_config(repo: Any, config: Dict[str, Any]) -> Path:
@@ -319,11 +418,15 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_OK if not errors else EXIT_FAIL
 
 
-def _write_checked(repo: Any, config: Dict[str, Any]) -> None:
+def write_checked(repo: Any, config: Dict[str, Any]) -> None:
+    """整份校验后原子写入；有错一个字节都不写（3.0 第一轮起公开，kit_plugins 用它写 plugins 段）。"""
     errors = validate_config(config, repo)
     if errors:
         raise ConfigError("没有写入：" + "；".join(errors))
     write_config(repo, config)
+
+
+_write_checked = write_checked  # 旧名保留
 
 
 def cmd_set(args: argparse.Namespace) -> int:

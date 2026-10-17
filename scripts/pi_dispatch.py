@@ -5200,11 +5200,12 @@ KIT_SKILLS = ("check-pi-env", "plan-task", "dispatch-pi", "review-pi")
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
 
-def _is_link_or_junction(path: str) -> bool:
-    """符号链接、Windows junction 或其他重解析点。
+def is_link_or_junction(path: Any) -> bool:
+    """符号链接、Windows junction 或其他重解析点；接受 str 或 Path。
 
     Python 3.12 之前 os.path.islink 不认 junction，os.walk(followlinks=False) 也会进入 junction，
     所以在 Windows 上另外检查重解析点属性。把所有重解析点都当作链接，是保守的做法。
+    3.0 第一轮起公开，kit_logs、kit_plugins 只调用它，不另写同类实现。
     """
     if os.path.islink(path):
         return True
@@ -5218,6 +5219,27 @@ def _is_link_or_junction(path: str) -> bool:
             return False
         return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
     return False
+
+
+_is_link_or_junction = is_link_or_junction  # 旧名保留
+
+
+def first_link_component(root: Path, rel: str) -> Optional[str]:
+    """``root`` 之下 ``rel`` 从根往下第一个是链接或 junction 的那一级（相对 root 的 POSIX 路径），没有则 None。
+
+    只查 rel 的各级，不查 root 本身。rel 必须是 root 之下不含 ``..`` 的相对路径（调用方先做词法规范化），
+    否则 ValueError。与 kit_install._link_level 同义；3.0 第一轮起供 kit_logs、kit_plugins 共用。
+    """
+    text = rel.replace("\\", "/")
+    parts = [part for part in text.split("/") if part not in ("", ".")]
+    if text.startswith("/") or os.path.isabs(rel) or os.path.splitdrive(rel)[0] or ".." in parts:
+        raise ValueError("first_link_component 需要 root 之下不含 .. 的相对路径：%r" % rel)
+    current = Path(root)
+    for index, part in enumerate(parts):
+        current = current / part
+        if is_link_or_junction(current):
+            return "/".join(parts[:index + 1])
+    return None
 
 
 def _tree_files(root: Path) -> Dict[str, bytes]:

@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -276,6 +277,138 @@ class OneTimePage(TempRepo):
         self.assertEqual(json.loads(out)["removed_from"], ["file"])
         code, _, err = run_config(["secret", "check", "bad name"], self.repo)
         self.assertEqual(code, 2)
+
+
+class PluginsKey(TempRepo):
+    """3.0 第一轮 D7：plugins 键只校验格式；非列表值的修复提示先模拟整份校验（C1–C3）。"""
+
+    def write(self, value):
+        path = self.repo / ".agent" / "dispatch.config.json"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        return path
+
+    def hint_of(self, out):
+        marker = "修复："
+        self.assertIn(marker, out)
+        return out.split(marker, 1)[1].strip().splitlines()[0]
+
+    def run_hint(self, hint):
+        """把提示里的 `config …` 命令拆成参数再交给 kit_config（提示用单引号包住 JSON 值）。"""
+        self.assertTrue(hint.startswith("config "), hint)
+        words = hint[len("config "):].split(" ", 2)
+        if len(words) == 3 and words[2].startswith("'") and words[2].endswith("'"):
+            words[2] = words[2][1:-1]
+        return run_config(words, self.repo)
+
+    def test_valid_section_is_shown_and_accepted(self):
+        self.write({"plugins": {"enabled": ["decisions"], "allowed_permissions": ["network-decisions"], "_note": "ok"}})
+        code, out, _ = run_config(["validate"], self.repo)
+        self.assertEqual((code, "配置有效" in out), (0, True), out)
+        code, out, _ = run_config(["show", "--json"], self.repo)
+        by_key = {row["key"]: row for row in json.loads(out)["keys"]}
+        self.assertEqual((code, by_key["plugins"]["source"]), (0, "config"))
+        self.write({})
+        code, out, _ = run_config(["show", "--json"], self.repo)
+        self.assertEqual({row["key"]: row for row in json.loads(out)["keys"]}["plugins"]["source"], "default")
+
+    def test_set_works_and_an_uninstalled_id_is_only_a_format_question(self):
+        code, out, _ = run_config(["set", "plugins.enabled", '["decisions", "not-installed-here"]'], self.repo)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.config()["plugins"], {"enabled": ["decisions", "not-installed-here"]})
+        code, out, _ = run_config(["set", "plugins.allowed_permissions", '["network-decisions"]'], self.repo)
+        self.assertEqual(code, 0, out)
+        code, out, _ = run_config(["unset", "plugins.enabled"], self.repo)
+        self.assertEqual((code, self.config()["plugins"]), (0, {"allowed_permissions": ["network-decisions"]}))
+
+    def test_format_errors_are_refused_without_a_hint(self):
+        cases = [({"enabled": ["Bad"]}, "不是合法的插件 ID"), ({"enabled": ["decisions", "decisions"]}, "重复项"),
+                 ({"allowed_permissions": [""]}, "非空字符串"), ({"allowed_permissions": ["a", "a"]}, "重复项"),
+                 ({"enabled": [7]}, "不是合法的插件 ID"), ({"surprise": []}, "未知子键")]
+        for section, needle in cases:
+            self.write({"plugins": section})
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual((code, needle in out, "修复：" in out), (1, True, False), (section, out))
+
+    def test_non_list_values_get_a_hint_that_actually_works(self):
+        for section, expected in [({"enabled": None}, "config unset plugins.enabled"),
+                                  ({"enabled": ["decisions"], "allowed_permissions": None},
+                                   "config unset plugins.allowed_permissions"),
+                                  ({"enabled": None, "allowed_permissions": None}, "config unset plugins")]:
+            self.write({"plugins": section, "kill_grace_seconds": 20})
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual(code, 1, out)
+            hint = self.hint_of(out)
+            self.assertEqual(hint, expected)
+            code, out, err = self.run_hint(hint)
+            self.assertEqual(code, 0, (section, out, err))
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual((code, self.config()["kill_grace_seconds"]), (0, 20), out)
+        self.write({"plugins": None})
+        code, out, _ = run_config(["validate"], self.repo)
+        self.assertEqual((code, self.hint_of(out)), (1, "config unset plugins"))
+
+    def test_no_hint_when_another_key_would_still_block_the_write(self):
+        self.write({"plugins": {"enabled": None}, "kill_grace_seconds": 0})
+        code, out, _ = run_config(["validate"], self.repo)
+        self.assertEqual((code, "修复：" in out), (1, False), out)
+
+    def test_broken_battery_with_decisions_active_gets_the_switch_off_hint(self):
+        kit = self.work / "kit"
+        shutil.copytree(str(ROOT / "plugins"), str(kit / "plugins"))
+        (kit / "plugins" / "decisions" / "questions" / "extra.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(kit_config.pd, "KIT_ROOT", kit), \
+                mock.patch.object(kit_config.pd, "DECISIONS_PLUGIN_DIR", kit / "plugins" / "decisions"):
+            self.write({"decisions": {"mode": "shadow"}, "plugins": {"enabled": None, "allowed_permissions": None}})
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual(code, 1, out)
+            hint = self.hint_of(out)
+            self.assertTrue(hint.startswith("config set plugins '"), hint)
+            replacement = json.loads(hint.split(" ", 3)[3][1:-1])
+            installed = sorted(p.name for p in (kit / "plugins").iterdir() if p.is_dir())
+            self.assertEqual(replacement, {"enabled": [name for name in installed if name != "decisions"]})
+            code, out, err = self.run_hint(hint)
+            self.assertEqual(code, 0, (out, err))
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual(code, 0, out)
+            # 已有合法的 enabled 列表时，替换只去掉 decisions，不把其他插件加进来。
+            self.write({"decisions": {"mode": "shadow"},
+                        "plugins": {"enabled": ["code-change", "decisions"], "allowed_permissions": None}})
+            code, out, _ = run_config(["validate"], self.repo)
+            hint = self.hint_of(out)
+            self.assertEqual(json.loads(hint.split(" ", 3)[3][1:-1]), {"enabled": ["code-change"]})
+
+
+class LinkHelpers(unittest.TestCase):
+    """3.0 第一轮 D11：pi_dispatch.is_link_or_junction 与 first_link_component（kit_logs、kit_plugins 共用）。"""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="kit-links-")).resolve()
+        self.addCleanup(lambda: subprocess.run(["cmd", "/c", "rmdir", "/s", "/q", str(self.root)], check=False)
+                        if os.name == "nt" else subprocess.run(["rm", "-rf", str(self.root)], check=False))
+        (self.root / "real" / "inner").mkdir(parents=True)
+        (self.root / "real" / "inner" / "file.txt").write_text("x", encoding="utf-8")
+        (self.root / "outside").mkdir()
+        link = self.root / "real" / "linked"
+        if os.name == "nt":
+            done = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(self.root / "outside")],
+                                  capture_output=True, check=False)
+            if done.returncode != 0:
+                self.skipTest("不能建 junction")
+        else:
+            os.symlink(str(self.root / "outside"), str(link))
+
+    def test_first_link_component(self):
+        pd = kit_config.pd
+        self.assertIsNone(pd.first_link_component(self.root, "real/inner/file.txt"))
+        self.assertEqual(pd.first_link_component(self.root, "real/linked/anything"), "real/linked")
+        self.assertEqual(pd.first_link_component(self.root, "real\\linked"), "real/linked")
+        self.assertTrue(pd.is_link_or_junction(self.root / "real" / "linked"))
+        self.assertTrue(pd.is_link_or_junction(str(self.root / "real" / "linked")))
+        self.assertFalse(pd.is_link_or_junction(self.root / "real" / "inner"))
+        self.assertIs(pd._is_link_or_junction, pd.is_link_or_junction)
+        for bad in ("../real", "real/../real", "/abs", "C:" + chr(92) + "x", "C:x"):
+            with self.assertRaises(ValueError, msg=bad):
+                pd.first_link_component(self.root, bad)
 
 
 if __name__ == "__main__":

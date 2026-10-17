@@ -10,6 +10,7 @@
 
 | 编号 | 结论 | 本稿处置 |
 |---|---|---|
+| impl-2 | 实现记录：修复提示原定三个候选，其中“换成语义等价的合法对象”与“删掉非法子键”得到的配置完全相同，永远不会被选中；第三个候选若无条件取“全部插件减去 decisions”，会把用户已有的显式列表扩大 | D6 的候选改为两个；第二个候选保持已有的合法 `enabled` 列表、只去掉 `decisions`（`tests/test_kit_config.py` 的 `PluginsKey` 覆盖） |
 | impl-1 | 实现前自查（过闸后，闸二核对）：D6 与 D7 共用的修复提示生成函数、`logs` 与 `plugins` 共用的链接检查，若不先定下位置，两个 Pi 任务会各自手抄一份（2gate 第 ③ 步禁止） | 新增 D11：两者都由规划端先实现，执行端只调用。`kit_config.plugins_fix_hint`；`validate_config` 加 `hints` 参数，模拟候选时传 `hints=False`，避免重入。`pi_dispatch.py` 把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`）公开为 `is_link_or_junction`，新增 `first_link_component`。写进 §7.1 |
 | r3-S1 | 第 3 轮 Should-fix：D8 的“找第一个非选项词”会把 `--version plugins …`、`-h plugins …`、`--unknown plugins …`、`-- plugins list` 也截获 | 过闸后采纳：截获只消费完整合法的 `--repo <值>` / `--repo=<值>`；遇到其他任何以 `-` 开头的词（含 `--`、`-h`、`--version`、未知选项）或 `--repo` 缺值，立即把完整原始 argv 交给 argparse，不再寻找。W1 补对应用例，并断言这些输入下游调用次数为零 |
 | r3-S2 | 第 3 轮 Should-fix：决策插件生效且题库损坏、同时两个子键都是 `null` 时，三种修复提示全部写不进去 | 过闸后采纳：修复提示在给出之前，先用同一整份校验模拟“执行该命令后的配置”，模拟通过才给出；候选依次是：删掉非法子键；把 `plugins` 换成等价的合法对象；决策插件生效且题库不一致时，换成“`enabled` = 当前布局全部插件减去 `decisions`”的合法对象（一次替换同时修好非法值并关掉决策插件）。都不通过时只报告错误、不给提示。D6 的“可以落盘”加前提：其余配置与环境校验通过（`kill_grace_seconds`、`worktree_root` 等仍可能挡住写入，这是既有行为）。P13、C2 补这个组合 |
@@ -181,10 +182,9 @@
   具体规则：
   - **非列表值**：`plugins.enabled` 或 `plugins.allowed_permissions` 存在但不是列表（例如 `null`）→ 拒绝，不做隐式规范化。
   - **修复提示**（D6 与 D7 共用一个生成函数）：给出之前，先用同一整份校验模拟“执行该命令之后的配置”，模拟通过才给出。候选依次是：
-    1. 删掉非法的子键：只有一个非法时 `config unset plugins.<子键>`，两个都非法时 `config unset plugins`（两者在决策插件的读法里都等于不限制）；
-    2. 用 `config set plugins '<JSON>'` 换成语义等价的合法对象；
-    3. 决策插件生效且题库不一致时，用 `config set plugins '<JSON>'` 换成 `enabled` 为“当前布局全部插件减去 `decisions`”的合法对象，一次替换同时修好非法值并关掉决策插件。
-    都模拟不过时只报告错误，不给出执行不了的提示。
+    1. 删掉非法的子键：只有一个非法时 `config unset plugins.<子键>`，两个都非法（或 `plugins` 本身不是对象）时 `config unset plugins`（两者在决策插件的读法里都等于不限制）；
+    2. 用 `config set plugins '<JSON>'` 一次替换成合法对象，其中 `enabled` 去掉 `decisions`：原来有合法的 `enabled` 列表就保持原样、只去掉 `decisions`；原来缺省或非法（都等于不限制）就取当前布局全部插件减去 `decisions`。合法的 `allowed_permissions` 与下划线说明保留。这一条用于决策插件生效且题库不一致的情况：一次替换同时修好非法值并关掉决策插件。
+    都模拟不过时只报告错误，不给出执行不了的提示。（实现时发现，“换成语义等价的合法对象”与第 1 条得到的配置完全相同，永远不会被选中，所以去掉了，见 §0 的 impl-2。）
   - **`enable X`**：
     - X 的 manifest、lock、资源文件（以及 `decisions` 的题库核对）必须全部一致；`depends_on` 或 `conflicts` 非空 → 拒绝（本轮不支持）。不校验其他插件的 manifest、lock 与资源文件。
     - `enabled` 缺省（不限制）时不改 `enabled`，提示“当前不限制，所有插件都算启用”；`enabled` 是列表时加入 X（去重、按 ID 排序）。
@@ -314,7 +314,7 @@
 | `tests/test_kit_plugins.py` | 新文件 | 执行端自己的测试 | T2（Pi） |
 | `scripts/kit_config.py` | `KEYS`（`165-185`）、新增 `_check_plugins`、`_write_checked`（`322-326`）旁加公开名、`validate_config`（`212-225`）加 `hints` 参数、新增 `plugins_fix_hint` | D7、D11 | 规划端 |
 | `scripts/pi_dispatch.py`（先行） | `_is_link_or_junction`（`5203-5220`）旁加公开名 `is_link_or_junction`；新增 `first_link_component` | D11 | 规划端，先于 T1、T2 |
-| `tests/test_kit_config.py` | 新增用例 | 第 9 节 C 组 | 规划端 |
+| `tests/test_kit_config.py` | 新增用例 | 第 9 节 C 组与 D11 的链接检查 | 规划端 |
 | `scripts/pi_dispatch.py` | `KIT_LOADED_FILES`（`94-98`）；文档串命令表（`28` 附近）；`cmd_config` 旁新增 `cmd_logs`、`cmd_plugins`（`7118-7124`）；解析器（`7502-7504` 附近） | D8 | 规划端 |
 | `tests/test_kit_v280.py` | import 扫描（`120-144`） | D8 | 规划端 |
 | `tests/test_dispatch.py` | 新增转发与安装布局场景 | 第 9 节 W 组 | 规划端 |
