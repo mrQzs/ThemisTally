@@ -1912,3 +1912,82 @@ def test_gate2_s2_plugin_id_with_a_trailing_newline_is_rejected(tmp_path):
             code, out, err = run(argv, env.repo)
             _v2_clean(out, err)
             assert code == 2, argv
+
+
+# ---------------------------------------------------------------------------
+# 闸二第 2 轮（Codex）的回归用例：B1 门禁连决策插件的 manifest、lock 也先查链接；B2 插件根的 is_dir() 抛错、
+# 配置不合法且根列不出来；S1 弯单引号
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["manifest.json", "lock.json"])
+def test_gate2r2_b1_battery_gate_checks_manifest_and_lock_links(tmp_path, name):
+    with make_env(tmp_path) as env:
+        env.write_config({"decisions": {"mode": "on"}})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        suffix = "plugins/decisions/" + name
+        with _v2_links_at(suffix), read_spy() as reads:
+            code, out, err = run(["disable", "code-change", "--dry-run"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1, (out, err)
+        assert _V2_LINK in err, err
+        assert not any(_v2_norm(p).endswith(suffix) for p in reads), reads
+        assert path.read_bytes() == before
+
+
+def test_gate2r2_b2_plugins_root_is_dir_raising(tmp_path):
+    with make_env(tmp_path) as env:
+        root = _v2_norm(env.plugins)
+        real_is_dir = pathlib.Path.is_dir
+
+        def is_dir(self, *args, **kwargs):
+            if _v2_norm(self) == root:
+                raise PermissionError(13, "拒绝访问（替身）", str(self))
+            return real_is_dir(self, *args, **kwargs)
+
+        with mock.patch.object(pathlib.Path, "is_dir", is_dir):
+            code, out, err = run(["list"], env.repo)
+            _v2_clean(out, err)
+            assert code == 0 and "列不出来" in out, (out, err)
+            code, out, err = run(["verify"], env.repo)
+            _v2_clean(out, err)
+            assert code == 1 and "列不出来" in out, (out, err)
+            code, out, err = run(["show", "code-change"], env.repo)
+            _v2_clean(out, err)
+            assert code == 2, (out, err)
+
+
+def test_gate2r2_b2_invalid_section_and_unlistable_root(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": None}})
+        root = _v2_norm(env.plugins)
+        real_iterdir = pathlib.Path.iterdir
+
+        def iterdir(self):
+            if _v2_norm(self) == root:
+                raise PermissionError(13, "列目录被拒绝（替身）", str(self))
+            return real_iterdir(self)
+
+        with mock.patch.object(pathlib.Path, "iterdir", iterdir):
+            for argv in (["list"], ["verify"], ["disable", "code-change"]):
+                code, out, err = run(argv, env.repo)
+                _v2_clean(out, err)
+                assert code in (1, 2) and "ERROR:" in err, (argv, out, err)
+                # 根列不出来时不给“换成显式列表”的提示：那会把全部插件关掉
+                assert "config set plugins" not in err, (argv, err)
+
+
+def test_gate2r2_s1_fix_hint_escapes_curly_quotes(tmp_path):
+    with make_env(tmp_path) as env:
+        note = "don’t ‘x’"  # U+2019、U+2018：PowerShell 也把它们当作单引号
+        env.write_config({"decisions": {"mode": "on"}, "plugins": {"enabled": None, "_note": note}})
+        add_extra_question(env)
+        code, out, err = run(["disable", "code-change"], env.repo)
+        assert code == 1, (out, err)
+        hint = hint_from(err)
+        quoted = hint[len("config set plugins '"):-1]
+        assert hint.startswith("config set plugins '") and hint.endswith("'"), hint
+        assert all(ord(ch) < 128 for ch in quoted) and "'" not in quoted, hint
+        assert json.loads(quoted)["_note"] == note
+        code, _, herr = run_hint(hint, env.repo)
+        assert code == 0, herr

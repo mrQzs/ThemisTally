@@ -174,26 +174,35 @@ def battery_link_problem() -> Optional[str]:
     """
     plugin_dir = Path(pd.DECISIONS_PLUGIN_DIR)
     try:  # 按字面求相对路径，不 resolve：resolve 会顺着链接走出去，漏掉链接那一级
-        base = plugin_dir.relative_to(Path(pd.KIT_ROOT)).as_posix()
+        base: Optional[str] = plugin_dir.relative_to(Path(pd.KIT_ROOT)).as_posix()
     except ValueError:
         base = None
-    questions = plugin_dir / "questions"
-    names: List[str] = []
+
+    def first_link(rel: str) -> Optional[str]:
+        if base is None:  # 插件目录不在 KIT_ROOT 之下：查插件目录本身与这一项
+            for path in (plugin_dir, plugin_dir / rel):
+                if pd.is_link_or_junction(path):
+                    return str(path)
+            return None
+        try:
+            return pd.first_link_component(Path(pd.KIT_ROOT), "%s/%s" % (base, rel))
+        except ValueError:
+            return "%s/%s" % (base, rel)
+
+    # 与 verify_battery_lock 的读取顺序相同（闸二第 2 轮 B1）：先读 manifest.json 与 lock.json，再列 questions/、
+    # 读其中每个 *.json。每一项连同它的各级上级目录都在读或列之前查过，查过的上级目录不会先被跟随着列举。
+    for rel in ("manifest.json", "lock.json", "questions"):
+        link = first_link(rel)
+        if link is not None:
+            return link
     try:
-        if not pd.is_link_or_junction(questions) and questions.is_dir():
-            names = sorted(path.name for path in questions.glob("*.json"))
+        names = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
     except OSError:
-        names = []
-    for rel in ["questions"] + ["questions/%s" % name for name in names]:
-        if base is not None:
-            try:
-                link = pd.first_link_component(Path(pd.KIT_ROOT), "%s/%s" % (base, rel))
-            except ValueError:
-                return "%s/%s" % (base, rel)
-            if link is not None:
-                return link
-        elif pd.is_link_or_junction(plugin_dir / rel):
-            return str(plugin_dir / rel)
+        return None  # 列不出来交给 verify_battery_lock 报 battery_drift
+    for name in names:
+        link = first_link("questions/%s" % name)
+        if link is not None:
+            return link
     return None
 
 
@@ -318,13 +327,20 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
     return errors
 
 
-def _installed_plugin_ids() -> List[str]:
-    """当前布局下 KIT_ROOT/plugins/ 里的插件目录名（匹配插件 ID、不是链接），按名字排序。"""
+def _installed_plugin_ids() -> Optional[List[str]]:
+    """当前布局下 KIT_ROOT/plugins/ 里的插件目录名（匹配插件 ID、不是链接），按名字排序。
+
+    plugins/ 根是目录却列不出来时 None（闸二第 2 轮 B2）：调用方不能把它当作“没有插件”。
+    """
     root = pd.KIT_ROOT / "plugins"
-    if not root.is_dir() or pd.is_link_or_junction(root):
-        return []
-    return sorted(entry.name for entry in root.iterdir()
-                  if _plugins.PLUGIN_ID.fullmatch(entry.name) and entry.is_dir() and not pd.is_link_or_junction(entry))
+    try:
+        if pd.is_link_or_junction(root) or not root.is_dir():
+            return []
+        return sorted(entry.name for entry in root.iterdir()
+                      if _plugins.PLUGIN_ID.fullmatch(entry.name) and entry.is_dir()
+                      and not pd.is_link_or_junction(entry))
+    except OSError:
+        return None
 
 
 def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
@@ -360,11 +376,17 @@ def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
     # 已有合法的 enabled 列表：保持原样只去掉 decisions；缺省或非法（都等于不限制）：全部已安装插件减去 decisions。
     kept = replacement.get("enabled")
     base = kept if isinstance(kept, list) else _installed_plugin_ids()
+    if base is None:  # plugins/ 根列不出来：不给“换成显式列表”的提示，它会把全部插件关掉
+        for command, candidate in candidates:
+            if not validate_config(candidate, repo, hints=False):
+                return command
+        return None
     replacement["enabled"] = [name for name in base if name != _decisions.PLUGIN_ID]
     replaced = json.loads(json.dumps(config))
     replaced["plugins"] = replacement
     # 单引号写成 JSON 的 \u0027 转义：整段放进单引号，bash 与 PowerShell 都能原样执行（闸二 S1）
-    text = json.dumps(replacement, ensure_ascii=False, separators=(",", ":")).replace("'", "\\u0027")
+    # 闸二第 2 轮 S1：非 ASCII 字符（含 PowerShell 也当作单引号的弯引号 U+2018–U+201B）一并写成 JSON 转义
+    text = json.dumps(replacement, ensure_ascii=True, separators=(",", ":")).replace("'", "\\u0027")
     candidates.append(("config set plugins '%s'" % text, replaced))
     for command, candidate in candidates:
         if not validate_config(candidate, repo, hints=False):

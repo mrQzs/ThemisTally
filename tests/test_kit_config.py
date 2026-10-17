@@ -447,6 +447,28 @@ class PluginsKey(TempRepo):
             code, out, err = self.run_hint(hint)
             self.assertEqual(code, 0, (out, err))
 
+    def test_gate2r2_decisions_dir_link_is_found_before_listing_questions(self):
+        # 闸二第 2 轮 B1：整个 decisions 目录是 junction 时，先在上级目录查到链接，不跟随它去列 questions/
+        kit = self._kit_with_plugins()
+        decisions_dir = kit / "plugins" / "decisions"
+        real = self.work / "real_decisions"
+        shutil.copytree(str(decisions_dir), str(real))
+        shutil.rmtree(str(decisions_dir))
+        if os.name == "nt":
+            if subprocess.run(["cmd", "/c", "mklink", "/J", str(decisions_dir), str(real)],
+                              capture_output=True).returncode != 0:
+                self.skipTest("mklink /J 不可用")
+        else:
+            os.symlink(str(real), str(decisions_dir), target_is_directory=True)
+
+        def no_glob(*args, **kwargs):
+            raise AssertionError("不该跟随链接去列 questions/")
+
+        with mock.patch.object(kit_config.pd, "KIT_ROOT", kit), \
+                mock.patch.object(kit_config.pd, "DECISIONS_PLUGIN_DIR", decisions_dir), \
+                mock.patch.object(Path, "glob", no_glob):
+            self.assertEqual(kit_config.battery_link_problem(), "plugins/decisions")
+
 
 class LinkHelpers(unittest.TestCase):
     """3.0 第一轮 D11：pi_dispatch.is_link_or_junction 与 first_link_component（kit_logs、kit_plugins 共用）。"""

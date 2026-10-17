@@ -88,9 +88,9 @@ def _enumerate_entries() -> List[Tuple[str, bool]]:
     链接目录（含悬空链接）也列出，list / verify 把它报成“无效：链接”。普通文件不列出。
     """
     root = _plugins_root()
-    if pd.is_link_or_junction(root) or not root.is_dir():
-        return []
-    try:
+    try:  # 根与子目录的 is_dir() 遇到 EACCES 也会抛（闸二第 2 轮 B2）；根的问题由 _root_problem 报出
+        if pd.is_link_or_junction(root) or not root.is_dir():
+            return []
         children = sorted(root.iterdir())
     except OSError:
         return []
@@ -99,8 +99,11 @@ def _enumerate_entries() -> List[Tuple[str, bool]]:
         if not plugins.PLUGIN_ID.fullmatch(child.name):  # match 会放过末尾的换行
             continue
         is_link = pd.is_link_or_junction(child)
-        if not is_link and not child.is_dir():
-            continue
+        try:
+            if not is_link and not child.is_dir():
+                continue
+        except OSError:
+            pass  # 判断不了是不是目录：照常列出，由逐插件核对报“无效”
         entries.append((child.name, is_link))
     return entries
 
