@@ -56,6 +56,7 @@
 - **Codex 的沙箱**：
   - `prepare`、`run`、`check`、`baseline`、`mutate`、`verdict`、`branch`、`cleanup`、`collect` 会写 Git 元数据（`.git` 下的 objects、worktrees、refs）或仓库之外的 worktree，`run` 还要联网调用执行模型。其中 `verdict` 会重新快照候选，也写 Git 对象。`smoke` 在系统临时目录中运行，并联网调用执行模型。`workspace-write` 沙箱中 `.git` 是只读的，所以这些命令都要按提示批准在沙箱外运行。
   - `validate`、`derive-json`、`status`、`metrics`、`wait`、`doctor`、`sync-adapters`、`mark` 只读，或只写工作区（`mark` 只改 `.agent/runs/` 中的状态），可以在沙箱内运行。
+  - `logs`（`list`、`show`、`search`、`usage`）与 `plugins list`、`plugins show`、`plugins verify` 只读；`plugins enable`、`plugins disable` 只写工作区（`.agent/dispatch.config.json` 的 `plugins` 段）。都可以在沙箱内运行。
     - 例外：沙箱内的 `doctor` 可能列不出执行模型；这时它会报“list-models 执行失败”或“pi 没有任何可用模型”，改在沙箱外运行再判断。
   - 在沙箱内运行测试，遇到系统临时目录的权限错误（例如 pytest 的 WinError 5）时，把测试的临时目录放进工作区，或在沙箱外运行：
     - 先 `mkdir -p .agent/runs/_tmp`，再加 pytest 的 `--basetemp=.agent/runs/_tmp/pytest`：pytest 不会创建上级目录；

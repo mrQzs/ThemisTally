@@ -61,6 +61,7 @@ Themis Tally 把 AI 编码拆成三方分工，并且只凭证据验收：
 - **验证后落地**：`integrate` 在当前分支末端加候选的干净副本上跑合同检查，通过才快进。
 - **双规划端**：Claude Code 与 Codex 共用同一份 `AGENTS.md` 和同一套技能。
 - **配置与决策插件**：`config` 子命令管理配置与凭据；决策插件（Jev）可按 `off` / `shadow` / `on` 接管“便宜但要判断”的问题。
+- **日志与插件管理**（3.0，`themis-3.0` 分支）：`logs` 只读地列出 attempt、查看摘要、搜索证据、统计执行端与规划端的 token 用量；`plugins` 列出、核对、启用与停用插件。
 - **推送前自查**：`release-check` 扫描已跟踪文件中的凭据形状、家目录路径与内网地址。
 - **跨平台**：调度器主体只依赖 Python 标准库，可在 Windows、macOS 与 Linux 上运行。
 
@@ -185,6 +186,8 @@ bash scripts/dispatch-pi.sh integrate <run-dir>       # 验证后落地
 | | `mark` | 标记 INTEGRATED / ABANDONED / SUPERSEDED |
 | | `cleanup` | 移除 attempt 的 worktree，保留证据 |
 | 维护 | `config` | 配置管理器 |
+| | `logs` | 只读的日志管理：`list` / `show` / `search` / `usage`（attempt 证据与 token 用量） |
+| | `plugins` | 插件管理：`list` / `show` / `verify` / `enable` / `disable`；改的是配置里的 `plugins` 段 |
 | | `release-check` | 推送前扫描凭据形状、家目录路径、内网地址与仓库外的拒绝清单 |
 | | `metrics` | 汇总试运行指标 |
 | | `sync-adapters` | 把 `.agents/skills` 中的技能复制到 `.claude/skills` |
@@ -208,6 +211,7 @@ bash scripts/dispatch-pi.sh config secret set <环境变量名> # 把凭据直�
 - 写回是原子的：先整份校验，再写临时文件替换。
 - 配置管理器不打印、不记录任何凭据的值；`secret check <环境变量名>` 只报告在哪一层找到。
 - 存在 `.agent/DECISIONS_OFF` 文件时，决策插件一票否决，相当于关闭。
+- 插件的启用与权限在配置的 `plugins` 段（`enabled`、`allowed_permissions`，缺省为不限制），用 `plugins enable|disable` 修改。从 kit 目录运行时有全部内置插件；`kit_install` 装进目标仓库时只发放决策插件（`plugins/decisions/**`），`plugins list` 在目标里只列出它，配置里列了别的插件时由 `plugins verify` 报告“列入但未安装”。
 
 执行模型默认用 Step 系列，思考级别 `high`。provider 与 model 必须与 `.agent/environment.md` 和 `pi --list-models` 中的精确 ID 一致。
 
@@ -252,6 +256,8 @@ ThemisTally/
 │   ├── dispatch-pi.sh         # Bash 入口，自动寻找可用的 Python
 │   ├── kit_install.py         # 安装 / 更新到目标仓库
 │   ├── kit_config.py          # 配置管理器
+│   ├── kit_logs.py            # 日志管理（logs，只读）
+│   ├── kit_plugins.py         # 插件管理（plugins）
 │   └── codekit/               # 调度器加载的模块
 ├── .agents/skills/            # 四个技能的唯一来源
 ├── .claude/                   # Claude Code 适配：技能副本、pi-reviewer 子代理、权限示例

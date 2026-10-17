@@ -1359,6 +1359,10 @@ CC Switch 是一个开源桌面工具：给 Claude Code、Codex、Gemini CLI 管
     - A（推荐）：不改。宿主的模型由宿主自己（例如 Claude Code 的 `/model`）或 CC Switch 管，Themis 只记录声明；无头角色按次传参，互不干扰；
     - B：像 CC Switch 一样改写宿主 CLI 的全局配置。会影响本机所有项目与会话，和 CC Switch 同时用时会互相覆盖；
     - C：与 CC Switch 对接：读取它当前选的供应商作为声明来源，必要时调用它切换。要先实测它的存储与命令。
+13. **起草（合同端）返工的基线**（首轮 T2 实测发现：起草合同不授权集成，2.10 的 `branch --rework` 因缺 `local_branch` 拒绝建返工基线，规划端只好用 `git commit-tree` 手工建）：
+    - A（推荐）：内核为被判 REVISE 的起草 attempt 建返工基线，挂在 `refs/themis/draft/<task-id>/a<NNN>`，不建分支、不移动任何分支，与 oracle 提交（4.7）同一授权；
+    - B：起草合同一律带 `local_branch` 授权，返工基线照旧是 `pi-rework/…` 分支；
+    - C：起草不在候选上继续，每次从原基线重写（实测一次起草约 36 分钟，代价高）。
 
 ## 16. 进度与遗留
 

@@ -6,6 +6,12 @@
       "Bash(bash scripts/dispatch-pi.sh doctor *)",
       "Bash(bash scripts/dispatch-pi.sh metrics *)",
       "Bash(bash scripts/dispatch-pi.sh wait *)",
+      "Bash(bash scripts/dispatch-pi.sh logs *)",
+      "Bash(bash scripts/dispatch-pi.sh plugins list)",
+      "Bash(bash scripts/dispatch-pi.sh plugins list *)",
+      "Bash(bash scripts/dispatch-pi.sh plugins show *)",
+      "Bash(bash scripts/dispatch-pi.sh plugins verify)",
+      "Bash(bash scripts/dispatch-pi.sh plugins verify *)",
       "Bash(bash scripts/dispatch-pi.sh sync-adapters --check)",
       "Bash(pi --version)",
       "Bash(pi --list-models *)"

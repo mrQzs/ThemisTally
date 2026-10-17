@@ -12,6 +12,8 @@
 |---|---|---|
 | r4-S1 | 第 4 轮 Should-fix：L1、L2 测不出“取最后一条”“只认 `tool_use` / `end_turn`”“只比较中间记录的 model”三种错误实现；原有的固定夹具若不带 `stop_reason` 会全部变成“未完成” | 采纳：L1 对流式夹具做全排列（最终记录不在最后）并把同一 id 拆到不同文件；`stop_reason` 为 `max_tokens` 的记录也是最终记录；L2 补“中间记录 `isSidechain` 与最终记录不同”；L2 的 A、A、B 与五类固定输入都带最终标记 |
 | r4-N1 | 第 4 轮 Nit：D4 第 7 步的允许读取字段漏了 `message.stop_reason` | 采纳：第 7 步加上 |
+| impl-5 | 实现中发现（T1 attempt-001 复审时用含 NUL 的目标做探针）：`pi_dispatch.is_link_or_junction` 在 Windows 上对含 NUL 的路径抛 `ValueError`——`os.path.islink` 对这类路径返回假，但随后的 `os.lstat` 抛 `ValueError`，而函数只捕获 `OSError`。它是 D11 的公共谓词，调用方都按“是不是链接”使用 | 捕获 `(OSError, ValueError)` 并返回假，与 `os.path.islink` 一致；`tests/test_kit_v300.py` 的 `LinkPredicateInputs` 覆盖（含 NUL、孤立代理字符，以及 `first_link_component` 经过它的路径） |
+| impl-4 | 实现中发现：§7.1 把 W1、W2 放在 `tests/test_dispatch.py`，但那里的场景用 `check()` 记录结果、不抛异常，用 pytest 跑全量时失败的检查也显示为通过（只有以脚本方式运行才汇总失败） | W1、W2 改放新的 unittest 模块 `tests/test_kit_v300.py`（§7.1 相应改写）；`test_dispatch.py` 这一既有问题不在本轮范围，记入第 6 节 |
 | impl-3 | 实现中发现（T1 规划子代理完成后核对它的会话记录）：子代理的会话记录在 `<会话目录>/subagents/agent-<id>.jsonl`，同一回复先写若干条 `message.stop_reason` 为 null、`output_tokens` 未到终值的中间记录，最后一条才带最终用量与 `stop_reason`；40 个 `message.id` 里 33 个各条用量不同。按原 D4，这些 id 全被判为冲突、不计入。主会话记录里每条都是最终记录（145 个 id 全部一致），所以第 2 轮的实测没有暴露这一点 | D4 第 3 步改为：组内只比较最终记录（`stop_reason` 为非空字符串）；中间记录不参与计数，但其模型与 `isSidechain` 必须与最终记录一致；没有最终记录的 id 记为未完成、不计入、结果标“部分”。§2.2 补事实；计数与 id 分类相应增加；L1、L2 补流式用例。送闸一第 4 轮 |
 | impl-2 | 实现记录：修复提示原定三个候选，其中“换成语义等价的合法对象”与“删掉非法子键”得到的配置完全相同，永远不会被选中；第三个候选若无条件取“全部插件减去 decisions”，会把用户已有的显式列表扩大 | D6 的候选改为两个；第二个候选保持已有的合法 `enabled` 列表、只去掉 `decisions`（`tests/test_kit_config.py` 的 `PluginsKey` 覆盖） |
 | impl-1 | 实现前自查（过闸后，闸二核对）：D6 与 D7 共用的修复提示生成函数、`logs` 与 `plugins` 共用的链接检查，若不先定下位置，两个 Pi 任务会各自手抄一份（2gate 第 ③ 步禁止） | 新增 D11：两者都由规划端先实现，执行端只调用。`kit_config.plugins_fix_hint`；`validate_config` 加 `hints` 参数，模拟候选时传 `hints=False`，避免重入。`pi_dispatch.py` 把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`）公开为 `is_link_or_junction`，新增 `first_link_component`。写进 §7.1 |
@@ -313,6 +315,7 @@
 - 不改 `scripts/codekit/plugins.py` 与 `scripts/codekit/decisions.py`（受保护；本轮只调用它们的公开函数）。
 - 不改任何证据文件；不给 `pricing` 加 `bb/step-5-preview`（用户决定）。
 - 多个进程同时改配置的竞争：`write_config` 用固定的临时文件名（`kit_config.py:228-235`），本轮沿用，不另加锁（第 10 节第 3 项）。
+- `tests/test_dispatch.py` 的场景在 pytest 下不会失败（`check()` 只记录结果，impl-4）：既有问题，影响所有版本的端到端场景，另立任务；本轮的新场景放在 unittest 模块里。
 
 ## 7. 影响面清单
 
@@ -331,7 +334,7 @@
 | `tests/test_kit_config.py` | 新增用例 | 第 9 节 C 组与 D11 的链接检查 | 规划端 |
 | `scripts/pi_dispatch.py` | `KIT_LOADED_FILES`（`94-98`）；文档串命令表（`28` 附近）；`cmd_config` 旁新增 `cmd_logs`、`cmd_plugins`（`7118-7124`）；解析器（`7502-7504` 附近） | D8 | 规划端 |
 | `tests/test_kit_v280.py` | import 扫描（`120-144`） | D8 | 规划端 |
-| `tests/test_dispatch.py` | 新增转发与安装布局场景 | 第 9 节 W 组 | 规划端 |
+| `tests/test_kit_v300.py` | 新文件：转发与安装布局场景（impl-4），以及公共链接谓词的输入（impl-5） | 第 9 节 W 组 | 规划端 |
 | `README.md`、`AGENTS.md`、`.claude/settings.example.json`、`CHANGELOG.md` | 命令表、Codex 沙箱一节、放行规则、未发布一节 | D9 | 规划端 |
 | `.agent/design/3.0-首轮实测.md` | 新文件 | 实测记录 | 规划端 |
 | `.agent/plans/kit-logs.v1.*`、`.agent/plans/kit-plugins.v1.*`、`.agent/reviews/…` | 新文件 | 合同与复审记录 | 规划端 |
