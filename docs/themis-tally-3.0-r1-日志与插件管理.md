@@ -60,7 +60,7 @@
   - 同一份摘要有 `parse_error_lines`、`truncated`、`complete`（`pi_dispatch.py:2933-2940`）。
 - `metrics` 读同一个 `usage`（`pi_dispatch.py:6783`），并在输出里写明“规划与复审（规划端）费用不在此表”（`pi_dispatch.py:6867`）。
 - AGENTS.md：证据只读，不提交、不删除、不编辑；读取时先看 `summary.md`，大文件按需截取。
-- 链接检查的现成做法：`kit_install._is_link` 同时识别符号链接与 Windows 重解析点（junction），`_link_level` 从根往下逐级查（`scripts/kit_install.py:92-110`）。
+- 链接检查的现成做法：`kit_install._is_link` 同时识别符号链接与 Windows 重解析点（junction），`_link_level` 从根往下逐级查（`scripts/kit_install.py:92-112`）。
 
 ### 2.2 宿主会话记录（Claude Code，2026-10-17 在本机核对）
 
