@@ -1,5 +1,5 @@
 __pycache__/
 *.pyc
-# 01-T1 基线取证的原始证据（含机器路径），不提交；脱敏归档见 docs/themis-tally-v2/01-baseline/evidence/
+# 01-T1 基线取证的原始证据（含机器路径），不提交
 .agent/baseline/
 .agent/runs/

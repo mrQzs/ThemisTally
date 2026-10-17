@@ -1,5 +1,0 @@
-PI_CODING_AGENT_DIR=<TEMP>/codekit-empty-pi-agent-*
-removed_path_entries=<HOME>/.local/bin,<HOME>/AppData/Roaming/npm
-unset=CLAUDE_CODE_MESSAGING_TOKEN
-shell=Git Bash
-command=python scripts/codekit/baseline.py capture --out-root .agent/baseline/01-T1 --capture-id bl-01t1-legacy-20260925 --timeout 3600 -- python tests/test_dispatch.py

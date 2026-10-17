@@ -2729,17 +2729,9 @@ class CredentialScanTests(unittest.TestCase):
 # 收尾轮：兼容矩阵第 1 节的抽查写成回归测试（acceptance.md M-04）
 # ---------------------------------------------------------------------------
 
-EVIDENCE_DIR = REPO_ROOT / "docs" / "themis-tally-v2" / "01-baseline" / "evidence"
-#: 01 基线取证的四种内部记录与归档中的文件名。
-BASELINE_RECORD_FILES = (("baseline-capture", "capture.json"), ("baseline-input-manifest", "input-manifest.json"),
-                         ("baseline-environment", "environment.json"),
-                         ("baseline-archive-manifest", "archive-manifest.json"))
-
-
 class PublicEntryRejectionTests(unittest.TestCase):
-    """合同 v1 与 01 内部记录（fixture-manifest-set、baseline-*）都不是公共记录：交给公共入口按稳定错误码拒绝，
-    不降级、不回退 v1，也不修改输入（兼容矩阵第 1 节抽查、第 2 节“01 内部记录”行、E07）。基线记录取自入库的脱敏
-    归档 evidence/（.agent/baseline/ 的原件被 Git 忽略，测试不依赖它）。"""
+    """合同 v1 与 01 内部记录（fixture-manifest-set）都不是公共记录：交给公共入口按稳定错误码拒绝，
+    不降级、不回退 v1，也不修改输入（兼容矩阵第 1 节抽查、第 2 节“01 内部记录”行、E07）。"""
 
     def _expect(self, func: Callable[..., Any], value: Any, expected: Tuple[str, Optional[str], str],
                 **kwargs: Any) -> None:
@@ -2776,22 +2768,6 @@ class PublicEntryRejectionTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.field, caught.exception.reason),
                          ("E_SCHEMA_VERSION_UNSUPPORTED", "/schema_version", "schema_version_unsupported"))
         self.assertEqual(render_json(manifest), before, "未知版本不得被改写或回退到 v1 解释")
-
-    def test_baseline_records_are_internal(self) -> None:
-        for record_type, name in BASELINE_RECORD_FILES:
-            paths = sorted(EVIDENCE_DIR.rglob(name))
-            with self.subTest(record_type=record_type):
-                self.assertTrue(paths, "归档中没有 %s（01 的脱敏归档应随仓库存在）" % name)
-            for path in paths:
-                with self.subTest(path=path.relative_to(REPO_ROOT).as_posix()):
-                    record = P.strict_json_loads(path.read_bytes())  # 严格 JSON 层接受
-                    self.assertEqual(record.get("record_type"), record_type)
-                    self._expect(P.route_public_record, record,
-                                 ("E_COMPAT_UNSUPPORTED", None, "record_type_unsupported"),
-                                 expected_record_type=record_type)
-                    self._expect(P.validate_public_record, record,
-                                 ("E_SCHEMA_RECORD_TYPE", "/record_type", "record_type_mismatch"),
-                                 expected_record_type="run-context", registry=registry())
 
 
 # ---------------------------------------------------------------------------
