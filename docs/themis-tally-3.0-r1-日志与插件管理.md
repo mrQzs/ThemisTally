@@ -1,6 +1,6 @@
 # Themis Tally 3.0 第一轮设计：日志管理与插件管理的第一片
 
-状态：2gate 闸一第 3 轮零 Blocking（2026-10-17）后进入实现；实现中发现 D4 的去重前提在子代理会话记录上不成立，按 2gate 改设计并补送闸一第 4 轮（只审 D4 的改动，见 §0 的 impl-3）。第 3 轮的 Should-fix 与 Nit 在过闸后直接采纳（见 §0 的 r3 各行），由闸二一并核对。
+状态：2gate 闸一第 3 轮零 Blocking（2026-10-17）后进入实现；实现中发现 D4 的去重前提在子代理会话记录上不成立，按 2gate 改设计并补送闸一第 4 轮（只审 D4 的改动，见 §0 的 impl-3），第 4 轮零 Blocking。第 3 轮的 Should-fix 与 Nit 在过闸后直接采纳（见 §0 的 r3 各行），由闸二一并核对。
 
 - 分支：`themis-3.0`（本地，不推送）。起点 `8fb12ed`（master），之上是设计说明提交 `0f4879c` 与本文的历次提交。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md` 第 8.2 节（日志管理）、8.3 节（插件管理）、13 节（首轮实战）。
@@ -10,6 +10,8 @@
 
 | 编号 | 结论 | 本稿处置 |
 |---|---|---|
+| r4-S1 | 第 4 轮 Should-fix：L1、L2 测不出“取最后一条”“只认 `tool_use` / `end_turn`”“只比较中间记录的 model”三种错误实现；原有的固定夹具若不带 `stop_reason` 会全部变成“未完成” | 采纳：L1 对流式夹具做全排列（最终记录不在最后）并把同一 id 拆到不同文件；`stop_reason` 为 `max_tokens` 的记录也是最终记录；L2 补“中间记录 `isSidechain` 与最终记录不同”；L2 的 A、A、B 与五类固定输入都带最终标记 |
+| r4-N1 | 第 4 轮 Nit：D4 第 7 步的允许读取字段漏了 `message.stop_reason` | 采纳：第 7 步加上 |
 | impl-3 | 实现中发现（T1 规划子代理完成后核对它的会话记录）：子代理的会话记录在 `<会话目录>/subagents/agent-<id>.jsonl`，同一回复先写若干条 `message.stop_reason` 为 null、`output_tokens` 未到终值的中间记录，最后一条才带最终用量与 `stop_reason`；40 个 `message.id` 里 33 个各条用量不同。按原 D4，这些 id 全被判为冲突、不计入。主会话记录里每条都是最终记录（145 个 id 全部一致），所以第 2 轮的实测没有暴露这一点 | D4 第 3 步改为：组内只比较最终记录（`stop_reason` 为非空字符串）；中间记录不参与计数，但其模型与 `isSidechain` 必须与最终记录一致；没有最终记录的 id 记为未完成、不计入、结果标“部分”。§2.2 补事实；计数与 id 分类相应增加；L1、L2 补流式用例。送闸一第 4 轮 |
 | impl-2 | 实现记录：修复提示原定三个候选，其中“换成语义等价的合法对象”与“删掉非法子键”得到的配置完全相同，永远不会被选中；第三个候选若无条件取“全部插件减去 decisions”，会把用户已有的显式列表扩大 | D6 的候选改为两个；第二个候选保持已有的合法 `enabled` 列表、只去掉 `decisions`（`tests/test_kit_config.py` 的 `PluginsKey` 覆盖） |
 | impl-1 | 实现前自查（过闸后，闸二核对）：D6 与 D7 共用的修复提示生成函数、`logs` 与 `plugins` 共用的链接检查，若不先定下位置，两个 Pi 任务会各自手抄一份（2gate 第 ③ 步禁止） | 新增 D11：两者都由规划端先实现，执行端只调用。`kit_config.plugins_fix_hint`；`validate_config` 加 `hints` 参数，模拟候选时传 `hints=False`，避免重入。`pi_dispatch.py` 把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`）公开为 `is_link_or_junction`，新增 `first_link_component`。写进 §7.1 |
@@ -163,7 +165,7 @@
   4. **代表时间**：记录的 `timestamp` 必须是带时区（`Z` 或偏移）的 ISO 8601 时间，统一换算到 UTC；不带时区或无法解析的记录时间不可用，计数。代表时间是同一组里所有可用时间的最小值；一个可用时间都没有的 id 计数后跳过。
   5. **窗口**：去重之后再按代表时间过滤，`--since` 含、`--until` 不含；命令行的时间必须带时区（`Z` 或偏移），否则用法错误。
   6. **计数字段**：某个字段不是整数时，这条消息的该字段记 unknown 并计数，其余字段照常计入。
-  7. **输出**：按模型、主线与子代理（`isSidechain`）分组的四项 token，以及下面这些计数。只读用量、时间、模型与 `isSidechain`，不读也不输出 `content` 或其他字段。
+  7. **输出**：按模型、主线与子代理（`isSidechain`）分组的四项 token，以及下面这些计数。只读用量、时间、模型、`isSidechain` 与 `message.stop_reason`，不读也不输出 `content` 或其他字段。
      - `skipped_lines`：按原因分开（`bad_json`、`not_object`、`not_candidate`），单位是行；
      - `intermediate_records`：所有组里中间记录的条数；
      - `duplicate_records`：只在既不冲突也非未完成的组里统计，等于组内最终记录数减 1 的总和；
@@ -366,8 +368,8 @@
 
 | 编号 | 场景 | 防止的失败 |
 |---|---|---|
-| L1 | 同一 `message.id` 写三条、usage 相同且都带 `stop_reason`（主会话写法）；另一 id 先写三条 `stop_reason` 为 null、`output_tokens` 为 8 的中间记录，再写一条 `stop_reason` 为 `tool_use`、`output_tokens` 为 800 的最终记录（子代理写法） | 按三次计数；把子代理写法判为冲突；取到中间记录的 8 而不是最终的 800 |
-| L2 | 同一 `message.id` 两条最终记录：四项计数不同；或 `model` 不同；或 `isSidechain` 不同；中间记录的 `model` 与最终记录不同；只有中间记录、没有最终记录（断言 `incomplete_ids` 为 1、结果标“部分”）。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0。再加一组固定输入：一个冲突 id、一个无可用时间的 id、一个窗口外的 id、一个计入且两条记录都带 `output_tokens: null` 的 id，断言四类 id 各为 1、`non_integer_fields` 为 1 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
+| L1 | 同一 `message.id` 写三条、usage 相同且都带 `stop_reason`（主会话写法）；另一 id 先写三条 `stop_reason` 为 null、`output_tokens` 为 8 的中间记录，再写一条 `stop_reason` 为 `tool_use`、`output_tokens` 为 800 的最终记录（子代理写法）。对子代理写法的记录做全排列（最终记录不一定在最后），并把同一 id 拆到两个文件；另有一个 id 的最终记录 `stop_reason` 为 `max_tokens` | 按三次计数；把子代理写法判为冲突；取到中间记录的 8 而不是最终的 800；“取最后一条”；只认 `tool_use` / `end_turn` 为最终 |
+| L2 | 同一 `message.id` 两条最终记录：四项计数不同；或 `model` 不同；或 `isSidechain` 不同；中间记录的 `model` 与最终记录不同；中间记录的 `model` 相同但 `isSidechain` 不同；只有中间记录、没有最终记录（断言 `incomplete_ids` 为 1、结果标“部分”）。下面的固定输入都带 `stop_reason` 最终标记。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0。再加一组固定输入：一个冲突 id、一个无可用时间的 id、一个窗口外的 id、一个计入且两条记录都带 `output_tokens: null` 的 id，断言四类 id 各为 1、`non_integer_fields` 为 1 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
 | L3 | 坏 JSON 行、非对象行、没有 usage 的记录、`message.id` 不是字符串、计数字段不是整数 | 崩溃，或悄悄算进去 |
 | L4 | 同一 `message.id` 分在两个文件里、时间分别在窗口边界两侧；记录恰好落在 `--since` 与 `--until` 上。对文件参数顺序、文件内记录顺序做全部置换，结果必须完全相同 | 结果随读取顺序变化；窗口边界错位；跨文件重复计数 |
 | L5 | 命令行时间不带时区；记录的 `timestamp` 无法解析；记录的 `timestamp` 可解析但不带时区（与同 id 另一条带 `Z` 的记录并存） | 把不带时区的时间当本地时间；把无时间的记录算进窗口；代表时间随运行环境的时区变化 |
