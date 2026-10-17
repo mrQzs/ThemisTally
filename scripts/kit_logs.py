@@ -11,6 +11,10 @@
 
 TARGET 的四种写法：`task.vN`（按 meta.json 的 plan_version 选）、`task`（编号最大的 attempt）、
 `task/attempt-NNN`、以及显式路径（相对于当前工作目录；`..` 按段栈逐段处理，出栈越过 runs 根或经过链接即拒绝）。
+四种写法解析出来的目标都还要真的位于 runs 之下：resolve 之后用 is_within 兜底核对，这一步独立于链接检查。
+
+列举失败按层处理（B11(a)）：runs 根列不出来是退出码 1；目标解析中列不出来、目标 attempt 的证据目录列不出来是
+退出码 2；其余目录跳过且不计数。正则、时间换算与深嵌套 JSON 的溢出/递归都按合同归类，不冒出堆栈（B11(c)）。
 
 只读：不写、不改、不删 `.agent/` 下的任何文件；不自动查找会话记录，规划端只统计 `--transcript` 显式给出的路径，
 也不输出会话记录的正文。链接（符号链接、junction 与其它重解析点）一律不跟随、计入“跳过的链接”。
@@ -96,6 +100,11 @@ def _exists(path: Any) -> bool:
         return False
 
 
+def _listable(directory: Any) -> bool:
+    """目录能不能列出来（B11(a) 的分层判断用；列不出来不等于不存在）。"""
+    return _scan(directory) is not None
+
+
 def _is_dir(path: Any) -> bool:
     try:
         return stat.S_ISDIR(os.lstat(path).st_mode)
@@ -110,13 +119,16 @@ def _is_regular(path: Any) -> bool:
         return False
 
 
-def _scan(directory: Any) -> List[Tuple[str, Path]]:
-    """目录的直接子项 (名字, 路径)，按名字排序；列不出来是运行错误（退出码 1）。"""
+def _scan(directory: Any) -> Optional[List[Tuple[str, Path]]]:
+    """目录的直接子项 (名字, 路径)，按名字排序；列不出来时返回 None。
+
+    列不出来按层处理（B11(a)）：由调用方决定是退出码 1、退出码 2 还是跳过，这里不替它决定。
+    """
     try:
         with os.scandir(str(directory)) as entries:
             found = [(entry.name, Path(entry.path)) for entry in entries]
-    except (OSError, ValueError) as exc:
-        raise LogsError("无法列出 %s：%s" % (directory, exc), EXIT_FAIL)
+    except (OSError, ValueError):
+        return None
     found.sort(key=lambda item: item[0])
     return found
 
@@ -138,7 +150,8 @@ def _read_json(path: Any) -> Any:
         return None
     try:
         return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        # RecursionError：深嵌套的 JSON 也是解析失败（B11(c)），不得冒出堆栈。
         return None
 
 
@@ -168,7 +181,11 @@ def _task_entries(runs: Path, links: LinkTally) -> List[Tuple[str, Path]]:
     if not _exists(runs):
         return []
     found: List[Tuple[str, Path]] = []
-    for name, path in _scan(runs):
+    entries = _scan(runs)
+    if entries is None:
+        # runs 根存在但列不出来：运行错误（B11(a)），退出码 1 与一行 ERROR。
+        raise LogsError("无法列出 %s" % runs, EXIT_FAIL)
+    for name, path in entries:
         if not pd.TASK_ID_RE.match(name):
             continue
         if _is_link(path):
@@ -183,7 +200,11 @@ def _task_entries(runs: Path, links: LinkTally) -> List[Tuple[str, Path]]:
 def _attempt_entries(task_dir: Path, links: LinkTally) -> List[Tuple[str, int, Path]]:
     """任务目录下名字匹配 attempt 目录的非链接目录，按编号整数升序。"""
     found: List[Tuple[str, int, Path]] = []
-    for name, path in _scan(task_dir):
+    entries = _scan(task_dir)
+    if entries is None:
+        # 任务目录列不出来：跳过它的全部 attempt（B11(a)），不计入跳过的链接。
+        return []
+    for name, path in entries:
         match = pd.ATTEMPT_DIR_RE.match(name)
         if not match:
             continue
@@ -205,13 +226,20 @@ def _attempts_of(runs: Path, task: str, links: LinkTally) -> List[Tuple[str, int
     return _attempt_entries(task_dir, links)
 
 
-def _evidence(attempt_dir: Path, links: LinkTally) -> List[Tuple[str, int]]:
-    """attempt 之下递归枚举的普通文件 [(POSIX 相对路径, 字节数)]，按路径字符串升序。"""
+def _evidence(attempt_dir: Path, links: LinkTally) -> Optional[List[Tuple[str, int]]]:
+    """attempt 之下递归枚举的普通文件 [(POSIX 相对路径, 字节数)]，按路径字符串升序。
+
+    attempt 目录本身列不出来时返回 None（B11(a)）：由调用方按层决定——list/search 跳过该 attempt，
+    show 的目标 attempt 退出码 2。之下的子目录列不出来只是它自己的内容不计入，同层的其它证据照常计入。
+    """
+    entries = _scan(attempt_dir)
+    if entries is None:
+        return None
     found: List[Tuple[str, int]] = []
-    pending: List[Tuple[str, Path]] = [("", attempt_dir)]
+    pending: List[Tuple[str, List[Tuple[str, Path]]]] = [("", entries)]
     while pending:
-        rel, directory = pending.pop()
-        for name, path in _scan(directory):
+        rel, here = pending.pop()
+        for name, path in here:
             child = rel + "/" + name if rel else name
             if _is_link(path):
                 links.hit()
@@ -221,7 +249,9 @@ def _evidence(attempt_dir: Path, links: LinkTally) -> List[Tuple[str, int]]:
             except (OSError, ValueError):
                 continue
             if stat.S_ISDIR(info.st_mode):
-                pending.append((child, path))
+                nested = _scan(path)
+                if nested is not None:
+                    pending.append((child, nested))
             elif stat.S_ISREG(info.st_mode):
                 found.append((child, info.st_size))
     found.sort(key=lambda item: item[0])
@@ -266,11 +296,27 @@ def _summary(attempt_dir: Path) -> Optional[Dict[str, Any]]:
 def _resolve_target(runs: Path, target: str) -> Tuple[str, str, Path]:
     """TARGET → (任务名, attempt 目录名, attempt 路径)；找不到、越界或含链接时退出码 2。"""
     try:
-        return _resolve_forms(runs, target)
+        task, attempt, path = _resolve_forms(runs, target)
+        _check_within_runs(runs, path)
+        return task, attempt, path
     except LogsError:
         raise
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         raise LogsError("目标不存在或不可读：%s" % exc, EXIT_USAGE)
+
+
+def _check_within_runs(runs: Path, target: Path) -> None:
+    """B5.5 兜底：形式 A、B、C、D 解析出的目标都必须真的位于 runs 之下。
+
+    这一步独立于链接检查：即使 is_link_or_junction 永远返回假，指向 runs 之外的 junction 也要被拒绝。
+    """
+    try:
+        resolved = Path(str(target)).resolve()
+        root = runs.resolve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise LogsError("目标无法解析：%s" % exc, EXIT_USAGE)
+    if not pd.is_within(resolved, root):
+        raise LogsError("目标不在 runs 根之下：%s" % target, EXIT_USAGE)
 
 
 def _resolve_forms(runs: Path, target: str) -> Tuple[str, str, Path]:
@@ -371,8 +417,6 @@ def _by_explicit_path(runs: Path, target: str) -> Tuple[str, str, Path]:
     attempt_dir = _under(runs, stack)
     if _is_link(attempt_dir) or not _is_dir(attempt_dir):
         raise LogsError("目标不是目录：%s" % target, EXIT_USAGE)
-    if not pd.is_within(Path(str(attempt_dir)).resolve(), runs.resolve()):
-        raise LogsError("目标不在 runs 根之下：%s" % target, EXIT_USAGE)
     return stack[0], stack[1], attempt_dir
 
 
@@ -387,11 +431,15 @@ def _parse_iso(text: Any) -> Optional[datetime]:
     value = text[:-1] + "+00:00" if text.endswith("Z") else text
     try:
         moment = datetime.fromisoformat(value)
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
     if moment.utcoffset() is None:
         return None
-    return moment.astimezone(timezone.utc)
+    try:
+        return moment.astimezone(timezone.utc)
+    except (OverflowError, ValueError):
+        # 换算到 UTC 时溢出（例如 0001-01-01T00:30:00+01:00）也是不可用时间（B11(c)）。
+        return None
 
 
 def _cli_time(text: str, option: str) -> datetime:
@@ -421,6 +469,9 @@ def _collect_attempts(runs: Path, task: Optional[str], state: Optional[str],
         if task is not None and name != task:
             continue
         for attempt, _number, attempt_dir in _attempt_entries(task_dir, links):
+            if not _listable(attempt_dir):
+                # attempt 目录列不出来：跳过该 attempt，不列出也不计入证据（B11(a)）。
+                continue
             state_value, state_at = _read_state(attempt_dir)
             if state is not None and state_value != state:
                 continue
@@ -432,7 +483,8 @@ def _collect_attempts(runs: Path, task: Optional[str], state: Optional[str],
                 "state_at": state_at,
                 "evidence_files": len(evidence),
                 "evidence_bytes": sum(size for _rel, size in evidence),
-                "has_summary": _is_regular(attempt_dir / "summary.md") and not _is_link(attempt_dir / "summary.md"),
+                "has_summary": (not _is_link(attempt_dir / "summary.md")
+                                and _is_regular(attempt_dir / "summary.md")),
             })
     return rows
 
@@ -466,6 +518,9 @@ def cmd_show(args: argparse.Namespace) -> int:
     state, state_at = _read_state(attempt_dir)
     summary = _summary(attempt_dir)
     evidence = _evidence(attempt_dir, links)
+    if evidence is None:
+        # 目标 attempt 的证据目录列不出来：按目标解析失败处理，退出码 2（B11(a)）。
+        raise LogsError("无法列出 %s" % attempt_dir, EXIT_USAGE)
     facts = {
         "task": task,
         "attempt": attempt,
@@ -512,7 +567,8 @@ def cmd_search(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     try:
         pattern = re.compile(args.pattern)
-    except re.error as exc:
+    except (re.error, OverflowError, RecursionError) as exc:
+        # 溢出与深嵌套的正则同样是编译失败（B11(c)）：用法错误，退出码 2。
         raise LogsError("PATTERN 不是合法的正则表达式：%s" % exc, EXIT_USAGE)
     if args.max < 1:
         raise LogsError("--max 必须是不小于 1 的整数：%d" % args.max, EXIT_USAGE)
@@ -524,7 +580,11 @@ def cmd_search(args: argparse.Namespace) -> int:
         if task is not None and name != task:
             continue
         for attempt, _number, attempt_dir in _attempt_entries(task_dir, links):
-            for rel, _size in _evidence(attempt_dir, links):
+            evidence = _evidence(attempt_dir, links)
+            if evidence is None:
+                # attempt 目录列不出来：跳过该 attempt（B11(a)）。
+                continue
+            for rel, _size in evidence:
                 if not rel.endswith(SEARCH_SUFFIXES):
                     continue
                 number = 0
@@ -663,7 +723,8 @@ def _classify(raw: bytes) -> Tuple[Optional[str], Optional[_Record]]:
         return "bad_json", None
     try:
         obj = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # 深嵌套的一行同样是坏行（B11(c)）。
         return "bad_json", None
     if not isinstance(obj, dict):
         return "not_object", None
@@ -706,11 +767,17 @@ def _read_transcript(path: Path, groups: Dict[str, List[_Record]], skipped: Dict
     return True
 
 
-def _transcript_files(path: Path, planner: Dict[str, int]) -> List[Path]:
-    """一个 --transcript 参数要读的文件：目录只取直接一层 .jsonl，否则读路径本身。"""
+def _transcript_files(path: Path, planner: Dict[str, int]) -> Optional[List[Path]]:
+    """一个 --transcript 参数要读的文件：目录只取直接一层 .jsonl，否则读路径本身。
+
+    目录列不出来时返回 None（B11(b)）：调用方把 unreadable_files 加 1 并继续下一个参数。
+    """
     if os.path.isdir(str(path)):
+        entries = _scan(path)
+        if entries is None:
+            return None
         found: List[Path] = []
-        for name, child in _scan(path):
+        for name, child in entries:
             if not name.endswith(TRANSCRIPT_SUFFIX):
                 continue
             if _is_link(child):
@@ -745,7 +812,12 @@ def _planner_stats(paths: Sequence[str], since: Optional[datetime], until: Optio
     groups: Dict[str, List[_Record]] = {}
     for text in paths:
         target = Path(text)
-        for path in _transcript_files(target, stats):
+        files = _transcript_files(target, stats)
+        if files is None:
+            # 目录型参数列不出来：不中止，计入不可读文件并标部分（B11(b)）。
+            stats["unreadable_files"] += 1
+            continue
+        for path in files:
             if not _read_transcript(path, groups, stats["skipped_lines"]):
                 stats["unreadable_files"] += 1
     by_model: Dict[Tuple[Optional[str], bool], Dict[str, Any]] = {}
@@ -931,6 +1003,10 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     except LogsError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return exc.code
+    except (RecursionError, OverflowError) as exc:
+        # 最后一道防线（B11(c)）：任何路径都只留一行 ERROR，不冒堆栈。
+        print("ERROR: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+        return EXIT_FAIL
     except KeyboardInterrupt:
         print("已取消。", file=sys.stderr)
         return 130

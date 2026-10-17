@@ -1,13 +1,14 @@
 """scripts/kit_logs.py 的执行端自测：只补 oracle 没有覆盖的细节（kit-logs v1）。
 
-覆盖：时间解析（Z、+08:00、小数位）、--max/--state 的参数错误、--since 晚于 --until、
+覆盖：时间解析（Z、+08:00、小数位）、--max 的参数错误、--since 晚于 --until、
 requested_model 不是对象时的分组、state.json 的异常取值。夹具都在 pytest 的 tmp_path 里现场生成，
 不读取任何真实的会话记录或用户目录；不用 tempfile 自建目录。
+
+v2 起，命令行入口用子进程运行（`python scripts/kit_logs.py --repo …`），与 oracle 的进程内调用不同写法；
+--state 的精确匹配与 --task 的格式错误由 oracle 覆盖，这里不再重复。
 """
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import os
 import subprocess
@@ -19,7 +20,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import kit_logs  # noqa: E402
 import pi_dispatch as pd  # noqa: E402
 
 IN_WINDOW = "2026-10-17T10:15:00Z"
@@ -70,13 +70,17 @@ def transcript(path, rows):
 
 
 def run_logs(argv, repo):
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        try:
-            code = kit_logs.main([str(item) for item in argv], repo=str(repo))
-        except SystemExit as exc:  # argparse
-            code = exc.code if isinstance(exc.code, int) else 1
-    return code, out.getvalue(), err.getvalue()
+    """起一个真实的解释器进程跑命令行入口，返回 (退出码, stdout, stderr)。
+
+    这里走 `python scripts/kit_logs.py --repo <repo>`，与 oracle 的进程内调用是两套写法，
+    顺带覆盖 V04 那条入口（导入与 `--help` 之外的完整进程路径）。
+    """
+    command = [sys.executable, str(ROOT / "scripts" / "kit_logs.py"), "--repo", str(repo)]
+    command += [str(item) for item in argv]
+    proc = subprocess.run(command, capture_output=True, cwd=str(ROOT))
+    return (proc.returncode,
+            proc.stdout.decode("utf-8", "replace"),
+            proc.stderr.decode("utf-8", "replace"))
 
 
 def jrun(argv, repo):
@@ -113,15 +117,16 @@ def test_cli_times_accept_offsets_and_fractional_seconds(tmp_path):
 
 def test_record_timestamp_forms_decide_usability(tmp_path):
     repo = make_repo(tmp_path)
+    # 一位小数秒（`.5Z`）的写法随 Python 版本而变：3.10 的 fromisoformat 不接受，3.11 起接受，
+    # 所以这里不断言它的可用性，只覆盖各版本一致的写法。
     rows = [
         rec("a1", ts="2026-10-17T18:15:00+08:00"),   # 10:15Z：可用
-        rec("a2", ts="2026-10-17T10:15:00.5Z"),      # 一位小数秒：3.10 的 fromisoformat 不接受
         rec("a3", ts="2026-10-17T10:15:00.500Z"),    # 三位小数秒：可用
         rec("a4", ts="2026-10-17T10:15:00"),         # 不带时区：不可用
         rec("a5", ts=1792321700),                    # 不是字符串：不可用
     ]
     p = planner(tmp_path, repo, rows, "--since", SINCE, "--until", UNTIL)
-    assert (p["included_messages"], p["ids_without_time"], p["unusable_timestamps"]) == (2, 3, 3)
+    assert (p["included_messages"], p["ids_without_time"], p["unusable_timestamps"]) == (2, 2, 2)
 
 
 def test_since_after_until_is_a_usage_error(tmp_path):
@@ -149,32 +154,6 @@ def test_max_must_be_a_positive_integer(tmp_path):
         code, out, err = run_logs(["search", "x", "--max", value], repo)
         assert code == 2, (value, out, err)
         assert "Traceback" not in err, value
-
-
-def test_state_filter_is_an_exact_string_match(tmp_path):
-    repo = make_repo(tmp_path)
-    attempt(repo, "task-a", 1, state="PASS")
-    attempt(repo, "task-a", 2, state="pass")
-    attempt(repo, "task-a", 3, state="RUNNING")
-    code, obj, err = jrun(["list", "--state", "PASS"], repo)
-    assert code == 0, err
-    assert [row["attempt"] for row in obj["attempts"]] == ["attempt-001"]
-    code, obj, err = jrun(["list", "--state", "pass"], repo)
-    assert [row["attempt"] for row in obj["attempts"]] == ["attempt-002"]
-    code, obj, err = jrun(["list", "--state", "PASSING"], repo)
-    assert (code, obj["attempts"]) == (0, [])
-    code, out, err = run_logs(["list", "--state", "NOPE"], repo)
-    assert code == 0
-    assert "没有 attempt" in out
-
-
-def test_bad_task_id_is_a_usage_error_for_every_subcommand(tmp_path):
-    repo = make_repo(tmp_path)
-    attempt(repo, "task-a", 1)
-    for argv in (["list", "--task", "Task-A"], ["search", "x", "--task", "../x"], ["usage", "--task", ""]):
-        code, out, err = run_logs(argv, repo)
-        assert code == 2, (argv, out, err)
-        assert "Traceback" not in err, argv
 
 
 # ---------------------------------------------------------------------------
