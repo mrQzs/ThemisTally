@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-plugins-draft",
+  "plan_version": 2,
+  "title": "kit-plugins 起草 v2：复审返工（B1–B4、M1–M3、m1–m5）",
+  "repository": "ThemisTally",
+  "base_sha": "c1c2e196e7766207927f28f6218cf470cb556343",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "drafts/kit-plugins/contract.md",
+      "drafts/kit-plugins/contract.json",
+      "tests/test_kit_plugins_oracle.py",
+      "scripts/kit_plugins.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "plugins/**",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/pi_dispatch.py",
+      "scripts/codekit/**",
+      "tests/test_kit_config.py",
+      "tests/test_dispatch.py",
+      "tests/test_kit_v280.py",
+      "docs/**",
+      "README.md",
+      "CHANGELOG.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_plugins_oracle.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-c",
+        "import json; d = json.load(open('drafts/kit-plugins/contract.json', encoding='utf-8')); missing = [k for k in ('task_id', 'scope', 'checks', 'definition_of_done') if k not in d]; assert not missing, missing; print('JSON_OK')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "JSON_OK"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "py_compile",
+        "scripts/kit_plugins.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_plugins_oracle.py",
+        "-q",
+        "-k",
+        "test_g1_ or test_g2_ or test_g4_ or test_b3_"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "三个交付物修正：合同草稿符合 v2 要求，JSON 必需键齐全，coverage 与 scope 已修正",
+      "evidence": [
+        "V02",
+        "scope"
+      ],
+      "intent": "草稿可以被审核端直接改写成正式合同"
+    },
+    {
+      "id": "D02",
+      "text": "复审记录 B1–B4、M1–M3、m1–m5 逐条有对应修改，执行报告逐条列出改动位置",
+      "evidence": [
+        "review"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "oracle 补齐写死的用例（G1、G2、G4、B2、B3、M1、M2、m1、m2、m3、m5 对应的用例名）且全部通过",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "oracle 能区分正确实现与错误实现，而不是只能证明“能跑”"
+    },
+    {
+      "id": "D04",
+      "text": "参考实现修正后通过 oracle，只调用既有公开函数，不另写同类实现",
+      "evidence": [
+        "V01",
+        "V03",
+        "review"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "所有修改都在允许集合内",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "没有删除、跳过或弱化既有测试，既有用例只允许加强断言",
+      "evidence": [
+        "review"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "探针 V04 在基线上失败（pytest 退出码 5，没有用例被选中），修完后通过",
+      "evidence": [
+        "V04"
+      ],
+      "intent": "证明这五个用例确实针对本轮的修改，而不是空跑"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3200,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  }
+}

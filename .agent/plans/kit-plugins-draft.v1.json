@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-plugins-draft",
+  "plan_version": 1,
+  "title": "kit-plugins 起草：合同草稿、oracle 与参考实现",
+  "repository": "ThemisTally",
+  "base_sha": "ce04541889a5b6cfbc34ce603a65b42afd08c241",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": []
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "drafts/kit-plugins/contract.md",
+      "drafts/kit-plugins/contract.json",
+      "tests/test_kit_plugins_oracle.py",
+      "scripts/kit_plugins.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "plugins/**",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/pi_dispatch.py",
+      "scripts/codekit/**",
+      "tests/test_kit_config.py",
+      "tests/test_dispatch.py",
+      "tests/test_kit_v280.py",
+      "docs/**",
+      "README.md",
+      "CHANGELOG.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["python", "-m", "pytest", "tests/test_kit_plugins_oracle.py", "-q"],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["[1-9]\\d* passed"],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V02",
+      "argv": ["python", "-c", "import json; d = json.load(open('drafts/kit-plugins/contract.json', encoding='utf-8')); missing = [k for k in ('task_id', 'scope', 'checks', 'definition_of_done') if k not in d]; assert not missing, missing; print('JSON_OK')"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["JSON_OK"],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V03",
+      "argv": ["python", "-m", "py_compile", "scripts/kit_plugins.py"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "三个交付物就位，合同草稿按模板并通过 JSON 必需键检查", "evidence": ["V02", "scope"], "intent": "草稿可以被审核端直接改写成正式合同"},
+    {"id": "D02", "text": "oracle 覆盖 §9 的 P1–P17（能写的都写），在本机真正运行（执行报告写明跳过的用例数与原因，若有），只用合成副本，从不修改仓库里的真实 plugins/", "evidence": ["V01", "review"], "intent": "oracle 能区分正确实现与错误实现，而不是只能证明“能跑”"},
+    {"id": "D03", "text": "参考实现让 oracle 全部通过，只调用既有公开函数，不另写同类实现", "evidence": ["V01", "V03", "review"], "intent": "证明 oracle 在正确实现上可以通过（上位设计 4.7 第 2 步）"},
+    {"id": "D04", "text": "所有修改都在允许集合内", "evidence": ["scope"]},
+    {"id": "D05", "text": "没有修改既有文件，没有删除、跳过或弱化既有测试", "evidence": ["review"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 2700,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  }
+}

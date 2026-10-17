@@ -1,0 +1,195 @@
+{
+  "commands": [
+    {
+      "id": "all",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_kit_logs_oracle.py",
+        "tests/test_kit_logs.py"
+      ]
+    },
+    {
+      "id": "executor",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_kit_logs.py"
+      ]
+    }
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "M01 只认 tool_use/end_turn 为最终记录",
+      "file": "scripts/kit_logs.py",
+      "old": "final = isinstance(stop, str) and stop != \"\"",
+      "new": "final = stop in (\"tool_use\", \"end_turn\")",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M02 计数取组内第一条记录（可能是中间记录）",
+      "file": "scripts/kit_logs.py",
+      "old": "for name, value in zip(TOKEN_KEYS, finals[0].counts):",
+      "new": "for name, value in zip(TOKEN_KEYS, records[0].counts):",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M03 最终记录之间的计数不同不判冲突",
+      "file": "scripts/kit_logs.py",
+      "old": "if any(_canonical(a) != _canonical(b) for a, b in zip(record.counts, other.counts)):",
+      "new": "if False:",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M04 isSidechain 不同不判冲突",
+      "file": "scripts/kit_logs.py",
+      "old": "if record.model != other.model or record.sidechain != other.sidechain:",
+      "new": "if record.model != other.model:",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M05 没有最终记录时把中间记录当最终记录",
+      "file": "scripts/kit_logs.py",
+      "old": "if not finals:\n            stats[\"incomplete_ids\"] += 1\n            continue",
+      "new": "if not finals:\n            finals = records",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M06 --until 变成含边界",
+      "file": "scripts/kit_logs.py",
+      "old": "if until is not None and moment >= until:",
+      "new": "if until is not None and moment > until:",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M07 代表时间取最大值",
+      "file": "scripts/kit_logs.py",
+      "old": "moment = min(times)",
+      "new": "moment = max(times)",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M08 读不出的文件不标部分",
+      "file": "scripts/kit_logs.py",
+      "old": "stats[\"partial\"] = bool(stats[\"conflict_ids\"] or stats[\"incomplete_ids\"] or stats[\"unreadable_files\"])",
+      "new": "stats[\"partial\"] = bool(stats[\"conflict_ids\"] or stats[\"incomplete_ids\"])",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M09 空行计为 bad_json",
+      "file": "scripts/kit_logs.py",
+      "old": "if not line.strip():\n        return None, None",
+      "new": "if not line.strip():\n        return \"bad_json\", None",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M10 不带时区的时间按 UTC 接受",
+      "file": "scripts/kit_logs.py",
+      "old": "if moment.utcoffset() is None:\n        return None",
+      "new": "if moment.utcoffset() is None:\n        moment = moment.replace(tzinfo=timezone.utc)",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M11 证据枚举不查链接",
+      "file": "scripts/kit_logs.py",
+      "old": "            child = rel + \"/\" + name if rel else name\n            if _is_link(path):\n                links.hit()\n                continue",
+      "new": "            child = rel + \"/\" + name if rel else name",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M12 显式路径不查被 .. 抵消的那一级",
+      "file": "scripts/kit_logs.py",
+      "old": "stack.append(part)\n        if _is_link(_under(runs, stack)):",
+      "new": "stack.append(part)\n        if False and _is_link(_under(runs, stack)):",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M13 执行端 complete 为假不记部分",
+      "file": "scripts/kit_logs.py",
+      "old": "if (data.get(\"complete\") is not True or data.get(\"truncated\") is True",
+      "new": "if (data.get(\"truncated\") is True",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M14 执行端非整数用量按 0 计",
+      "file": "scripts/kit_logs.py",
+      "old": "if isinstance(value, bool) or not isinstance(value, int):\n            return \"unknown\", model, None",
+      "new": "if isinstance(value, bool) or not isinstance(value, int):\n            value = 0",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M15 search 上限差一",
+      "file": "scripts/kit_logs.py",
+      "old": "if len(lines) >= args.max:",
+      "new": "if len(lines) > args.max:",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M16 摘要恰好 65536 字节也算截断",
+      "file": "scripts/kit_logs.py",
+      "old": "\"truncated\": size > MAX_SUMMARY_BYTES",
+      "new": "\"truncated\": size >= MAX_SUMMARY_BYTES",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M17 isSidechain 取真值而不是 JSON true",
+      "file": "scripts/kit_logs.py",
+      "old": "obj.get(\"isSidechain\") is True",
+      "new": "bool(obj.get(\"isSidechain\"))",
+      "expect_missed": [
+        "executor"
+      ]
+    },
+    {
+      "name": "M18 state.json 是链接也读",
+      "file": "scripts/kit_logs.py",
+      "old": "path = attempt_dir / \"state.json\"\n    if _is_link(path) or not _is_regular(path):",
+      "new": "path = attempt_dir / \"state.json\"\n    if not _is_regular(path):",
+      "expect_missed": [
+        "executor"
+      ]
+    }
+  ]
+}

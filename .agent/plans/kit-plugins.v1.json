@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-plugins",
+  "plan_version": 1,
+  "title": "kit_plugins 插件管理第一片：list/show/verify/enable/disable",
+  "repository": "ThemisTally",
+  "base_sha": "db228add2e1ed72dab694454e0d3fd403d4237ca",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": ["local_branch", "merge"]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": ["scripts/kit_plugins.py", "tests/test_kit_plugins.py"],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_kit_plugins_oracle.py",
+      "plugins/**",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/pi_dispatch.py",
+      "scripts/codekit/**",
+      "tests/test_kit_config.py",
+      "tests/test_dispatch.py",
+      "tests/test_kit_v280.py",
+      "docs/**",
+      "README.md",
+      "CHANGELOG.md",
+      "AGENTS.md",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["python", "-m", "pytest", "tests/test_kit_plugins_oracle.py", "-q"],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["[1-9]\\d* passed"],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V02",
+      "argv": ["python", "-m", "pytest", "tests/test_kit_plugins.py", "-q"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["[1-9]\\d* passed"],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V03",
+      "argv": ["python", "-m", "py_compile", "scripts/kit_plugins.py"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V04",
+      "argv": ["python", "scripts/kit_plugins.py", "--help"],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["usage:"],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "list、show、verify 只读命令按 §4.2 输出状态词（一致/漂移/无效/本轮不支持/不一致、READY/BLOCKED、是/否/不限制）与退出码（0/1/2），坏插件不拖垮命令", "evidence": ["V01"]},
+    {"id": "D02", "text": "enable、disable 按 D6 改变 plugins.enabled 与 plugins.allowed_permissions，含 --dry-run、--allow-permission 与非列表值拒绝，授予路径对其他插件 manifest 的读前链接检查", "evidence": ["V01"]},
+    {"id": "D03", "text": "写入只经 kit_config.write_checked，校验不过或写入失败时配置字节不变；命令级错误打印一行 ERROR 并返回退出码，不输出堆栈", "evidence": ["V01"]},
+    {"id": "D04", "text": "读前逐级链接与边界检查只用 pi_dispatch.is_link_or_junction、first_link_component 与 is_within，不另写同类实现", "evidence": ["V01", "review"]},
+    {"id": "D05", "text": "所有修改都在允许集合内", "evidence": ["scope"]},
+    {"id": "D06", "text": "没有删除、跳过或弱化既有测试，执行端自己的测试只用合成副本、不改真实 plugins/", "evidence": ["review", "V02"]},
+    {"id": "D07", "text": "scripts/kit_plugins.py 可编译", "evidence": ["V03"]},
+    {"id": "D08", "text": "命令行可运行，--help 输出 usage:", "evidence": ["V04"]},
+    {"id": "D09", "text": "插件 ID 先按 PLUGIN_ID 校验，枚举与存在性规则（含 plugins 根是链接时枚举为空、链接目录也列出），G1、G2", "evidence": ["V01"]},
+    {"id": "D10", "text": "题库阶段收集 OSError 与 ValueError；show 输出 generation 与逐资源核对；allowed_permissions 去重排序；disable 的显式列表排除链接目录；不提供 --version", "evidence": ["V01"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 2700,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  },
+  "outline_ref": {
+    "kind": "execution-outline",
+    "id": "ol-kit-plugins",
+    "path": ".agent/requests/r1-kit-plugins/outline.r1.json",
+    "sha256": "e2885dd535bca98b04d0582bca398790942056acffbd67a2fcfb028732fda728"
+  },
+  "coverage": [
+    {"step": "S1", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D04"], "checks": ["V01"]},
+    {"step": "S2", "scope": ["scripts/kit_plugins.py"], "dod": ["D01"], "checks": ["V01"]},
+    {"step": "S3", "scope": ["scripts/kit_plugins.py"], "dod": ["D02", "D03"], "checks": ["V01", "V02"]},
+    {"step": "S4", "scope": ["scripts/kit_plugins.py"], "dod": ["D02"], "checks": ["V01", "V02"]},
+    {"step": "S5", "scope": ["scripts/kit_plugins.py"], "dod": ["D02"], "checks": ["V01", "V02"]},
+    {"step": "S6", "scope": ["scripts/kit_plugins.py"], "dod": ["D03"], "checks": ["V01", "V02"]},
+    {"step": "S7", "scope": ["scripts/kit_plugins.py"], "dod": ["D01", "D02", "D03", "D07", "D08"], "checks": ["V03", "V04"]},
+    {"step": "S8", "scope": ["tests/test_kit_plugins.py"], "dod": ["D06"], "checks": ["V02"]},
+    {"step": "S9", "scope": ["scripts/kit_plugins.py"], "dod": ["D09"], "checks": ["V01"]},
+    {"step": "S10", "scope": ["scripts/kit_plugins.py"], "dod": ["D10"], "checks": ["V01"]}
+  ],
+  "deviations": []
+}

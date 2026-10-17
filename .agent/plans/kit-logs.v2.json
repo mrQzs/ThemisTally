@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-logs",
+  "plan_version": 2,
+  "title": "只读的 logs 子命令（v2 返工：F1–F3、F5、F6）",
+  "repository": "ThemisTally",
+  "base_sha": "9368e8cd540b6d4c4440e1bae633d7f3085304ab",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "scripts/kit_logs.py",
+      "tests/test_kit_logs.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_kit_logs_oracle.py",
+      "scripts/pi_dispatch.py",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/codekit/**",
+      "README.md",
+      "CHANGELOG.md",
+      ".claude/settings.example.json"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_logs_oracle.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "\\bskipped\\b"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_logs.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "\\bskipped\\b"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "py_compile",
+        "scripts/kit_logs.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "scripts/kit_logs.py",
+        "--help"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "usage:"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "F2。任何输入都不冒出堆栈：正则的溢出与深嵌套、时间换算溢出、深嵌套 JSON 都按 B11(c) 处理",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "调用方靠退出码与 ERROR 行区分用法错误与证据缺失，不会看到堆栈（V01 中 `ReworkV2` 的 F2 用例）"
+    },
+    {
+      "id": "D02",
+      "text": "F1。所有形式（A、B、C、D）的目标目录都过 B5.5 的兜底，且兜底不依赖链接检查",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "指向 runs 之外的 junction 不能被 `show task-x`、`show task-x.v1`、`show task-x/attempt-001` 读到（V01 中 `ReworkV2` 的 F1 用例）"
+    },
+    {
+      "id": "D03",
+      "text": "F3。列举失败按 B11(a)、(b) 分层：runs 根退出码 1；目标解析中找不到退出码 2；其余目录跳过且不计数；`--transcript` 目录列不出来计入 `unreadable_files` 并标部分",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "一个目录列不出来不能拖垮整条命令，也不能让它的内容被计入（V01 中 `ReworkV2` 的 F3 用例）"
+    },
+    {
+      "id": "D04",
+      "text": "F6。`has_summary` 先判断链接再 lstat",
+      "evidence": [
+        "review"
+      ],
+      "intent": "与 B0.8 的顺序一致，链接不会被 lstat 之后再判断"
+    },
+    {
+      "id": "D05",
+      "text": "F5。执行器自测不随 Python 版本变化，不照抄 oracle 的辅助函数，并删除了 Steps 第 6 条指定的两个重复用例",
+      "evidence": [
+        "V02",
+        "review"
+      ],
+      "intent": "自测不随解释器版本变化，也不与 oracle 重复"
+    },
+    {
+      "id": "D06",
+      "text": "回归。基线上的 71 项既有用例与 v1 的行为不变，新增的 17 项也通过",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "修正不改变已接受的行为"
+    },
+    {
+      "id": "D07",
+      "text": "链接判断只调用 `pi_dispatch` 的 `is_link_or_junction`、`first_link_component`、`is_within`，不复用 `resolve_run_dir` 与 `task_attempts`，源码中不出现 B0.7 列出的直接判断写法",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "D11 要求单一实现，不许另写同类判断"
+    },
+    {
+      "id": "D08",
+      "text": "范围：只修改 `scripts/kit_logs.py` 与 `tests/test_kit_logs.py`",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "不改调度器、配置、oracle 与其它模块，接入由规划端在集成后做"
+    },
+    {
+      "id": "D09",
+      "text": "执行报告列出所有 `interpretations` 与 `contract_conflicts`（格式见执行说明），每条写出合同原文与采用的做法。报告里必须写明：目标 attempt 的证据目录列不出来时退出码 2（B11(a)）是合同的哪一条规定",
+      "evidence": [
+        "review"
+      ],
+      "intent": "验收端能核对每个未经合同规定的取舍"
+    },
+    {
+      "id": "D10",
+      "text": "不弱化。`tests/test_kit_logs.py` 只允许按 Steps 第 6 条删除两个重复用例、改写一处版本依赖断言、替换 `run_logs` 副本；oracle 中任何用例与辅助函数都不得改动",
+      "evidence": [
+        "review"
+      ],
+      "intent": "修正不能靠删测试或改 oracle 来通过"
+    },
+    {
+      "id": "D11",
+      "text": "过程。没有使用固定临时路径（例如 `/tmp/dbgkit`），临时目录只用 `T=$(mktemp -d)` … `rm -rf \"$T\"` 的写法；报告中披露每条临时目录命令",
+      "evidence": [
+        "review"
+      ],
+      "intent": "遵守 AGENTS.md 的临时目录规定，事后可以核对"
+    },
+    {
+      "id": "D12",
+      "text": "可导入与可运行。`py_compile` 与 `--help` 通过",
+      "evidence": [
+        "V03",
+        "V04"
+      ],
+      "intent": "模块不会在导入或命令行入口处就失败"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 3600,
+    "cost_budget": null
+  }
+}

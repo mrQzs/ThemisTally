@@ -1,0 +1,46 @@
+{
+ "commands": [
+  {
+   "id": "all",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_logs_oracle.py",
+    "tests/test_kit_logs.py"
+   ]
+  }
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "S1 list 不处理 None（恢复竞态崩溃）",
+   "file": "scripts/kit_logs.py",
+   "old": "            if evidence is None:\n                # attempt 目录列不出来：跳过该 attempt，不列出也不计入证据（B11(a)）。只列一次，",
+   "new": "            if False:\n                # attempt 目录列不出来：跳过该 attempt，不列出也不计入证据（B11(a)）。只列一次，"
+  },
+  {
+   "name": "S2 search 不处理 None",
+   "file": "scripts/kit_logs.py",
+   "old": "            if evidence is None:\n                # attempt 目录列不出来：跳过该 attempt（B11(a)）。",
+   "new": "            if False:\n                # attempt 目录列不出来：跳过该 attempt（B11(a)）。"
+  },
+  {
+   "name": "S3 search、usage 不校验 --task",
+   "file": "scripts/kit_logs.py",
+   "old": "    task = _check_task(args.task)",
+   "new": "    task = args.task",
+   "count": 2
+  },
+  {
+   "name": "S4 usage 跳过列不出来的 attempt",
+   "file": "scripts/kit_logs.py",
+   "old": "            status, model, values = _executor_row(attempt_dir, links)",
+   "new": "            if _scan(attempt_dir) is None:\n                continue\n            status, model, values = _executor_row(attempt_dir, links)"
+  }
+ ]
+}

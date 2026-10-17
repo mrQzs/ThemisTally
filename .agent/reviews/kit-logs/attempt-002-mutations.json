@@ -1,0 +1,307 @@
+{
+ "commands": [
+  {
+   "id": "all",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_logs_oracle.py",
+    "tests/test_kit_logs.py"
+   ]
+  },
+  {
+   "id": "executor",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_logs.py"
+   ]
+  }
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "M01 只认 tool_use/end_turn 为最终记录",
+   "file": "scripts/kit_logs.py",
+   "old": "final = isinstance(stop, str) and stop != \"\"",
+   "new": "final = stop in (\"tool_use\", \"end_turn\")",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M02 计数取组内第一条记录（可能是中间记录）",
+   "file": "scripts/kit_logs.py",
+   "old": "for name, value in zip(TOKEN_KEYS, finals[0].counts):",
+   "new": "for name, value in zip(TOKEN_KEYS, records[0].counts):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M03 最终记录之间的计数不同不判冲突",
+   "file": "scripts/kit_logs.py",
+   "old": "if any(_canonical(a) != _canonical(b) for a, b in zip(record.counts, other.counts)):",
+   "new": "if False:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M04 isSidechain 不同不判冲突",
+   "file": "scripts/kit_logs.py",
+   "old": "if record.model != other.model or record.sidechain != other.sidechain:",
+   "new": "if record.model != other.model:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M05 没有最终记录时把中间记录当最终记录",
+   "file": "scripts/kit_logs.py",
+   "old": "if not finals:\n            stats[\"incomplete_ids\"] += 1\n            continue",
+   "new": "if not finals:\n            finals = records",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M06 --until 变成含边界",
+   "file": "scripts/kit_logs.py",
+   "old": "if until is not None and moment >= until:",
+   "new": "if until is not None and moment > until:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M07 代表时间取最大值",
+   "file": "scripts/kit_logs.py",
+   "old": "moment = min(times)",
+   "new": "moment = max(times)",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M08 读不出的文件不标部分",
+   "file": "scripts/kit_logs.py",
+   "old": "stats[\"partial\"] = bool(stats[\"conflict_ids\"] or stats[\"incomplete_ids\"] or stats[\"unreadable_files\"])",
+   "new": "stats[\"partial\"] = bool(stats[\"conflict_ids\"] or stats[\"incomplete_ids\"])",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M09 空行计为 bad_json",
+   "file": "scripts/kit_logs.py",
+   "old": "if not line.strip():\n        return None, None",
+   "new": "if not line.strip():\n        return \"bad_json\", None",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M10 不带时区的时间按 UTC 接受",
+   "file": "scripts/kit_logs.py",
+   "old": "if moment.utcoffset() is None:\n        return None",
+   "new": "if moment.utcoffset() is None:\n        moment = moment.replace(tzinfo=timezone.utc)"
+  },
+  {
+   "name": "M11 证据枚举不查链接",
+   "file": "scripts/kit_logs.py",
+   "old": "            child = rel + \"/\" + name if rel else name\n            if _is_link(path):\n                links.hit()\n                continue",
+   "new": "            child = rel + \"/\" + name if rel else name",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M12 显式路径不查被 .. 抵消的那一级",
+   "file": "scripts/kit_logs.py",
+   "old": "stack.append(part)\n        if _is_link(_under(runs, stack)):",
+   "new": "stack.append(part)\n        if False and _is_link(_under(runs, stack)):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M13 执行端 complete 为假不记部分",
+   "file": "scripts/kit_logs.py",
+   "old": "if (data.get(\"complete\") is not True or data.get(\"truncated\") is True",
+   "new": "if (data.get(\"truncated\") is True",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M14 执行端非整数用量按 0 计",
+   "file": "scripts/kit_logs.py",
+   "old": "if isinstance(value, bool) or not isinstance(value, int):\n            return \"unknown\", model, None",
+   "new": "if isinstance(value, bool) or not isinstance(value, int):\n            value = 0",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M15 search 上限差一",
+   "file": "scripts/kit_logs.py",
+   "old": "if len(lines) >= args.max:",
+   "new": "if len(lines) > args.max:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M16 摘要恰好 65536 字节也算截断",
+   "file": "scripts/kit_logs.py",
+   "old": "\"truncated\": size > MAX_SUMMARY_BYTES",
+   "new": "\"truncated\": size >= MAX_SUMMARY_BYTES",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M17 isSidechain 取真值而不是 JSON true",
+   "file": "scripts/kit_logs.py",
+   "old": "obj.get(\"isSidechain\") is True",
+   "new": "bool(obj.get(\"isSidechain\"))",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M18 state.json 是链接也读",
+   "file": "scripts/kit_logs.py",
+   "old": "path = attempt_dir / \"state.json\"\n    if _is_link(path) or not _is_regular(path):",
+   "new": "path = attempt_dir / \"state.json\"\n    if not _is_regular(path):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M19 F1 去掉所有形式的 is_within 兜底",
+   "file": "scripts/kit_logs.py",
+   "old": "        _check_within_runs(runs, path)",
+   "new": "        pass",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M20 F1 兜底不 resolve（不跟随 junction）",
+   "file": "scripts/kit_logs.py",
+   "old": "        resolved = Path(str(target)).resolve()",
+   "new": "        resolved = Path(str(target))",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M21 F2 正则编译只捕获 re.error",
+   "file": "scripts/kit_logs.py",
+   "old": "    except (re.error, OverflowError, RecursionError) as exc:",
+   "new": "    except re.error as exc:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M22 F2 证据 JSON 不捕获 RecursionError",
+   "file": "scripts/kit_logs.py",
+   "old": "    except (UnicodeDecodeError, ValueError, RecursionError):",
+   "new": "    except (UnicodeDecodeError, ValueError):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M23 F2 换算到 UTC 不捕获溢出",
+   "file": "scripts/kit_logs.py",
+   "old": "        return moment.astimezone(timezone.utc)\n    except (OverflowError, ValueError):",
+   "new": "        return moment.astimezone(timezone.utc)\n    except (ValueError,):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M24 F2 会话记录行不捕获 RecursionError",
+   "file": "scripts/kit_logs.py",
+   "old": "    except (ValueError, RecursionError):\n        # 深嵌套的一行同样是坏行（B11(c)）。",
+   "new": "    except (ValueError,):\n        # 深嵌套的一行同样是坏行（B11(c)）。",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M25 F3 runs 根列不出来当作空",
+   "file": "scripts/kit_logs.py",
+   "old": "        raise LogsError(\"无法列出 %s\" % runs, EXIT_FAIL)",
+   "new": "        return []",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M26 F3 任务目录列不出来中止整条命令",
+   "file": "scripts/kit_logs.py",
+   "old": "        # 任务目录列不出来：跳过它的全部 attempt（B11(a)），不计入跳过的链接。",
+   "new": "        raise LogsError(\"无法列出 %s\" % task_dir, EXIT_FAIL)",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M27 F3 list 不跳过列不出来的 attempt",
+   "file": "scripts/kit_logs.py",
+   "old": "            if not _listable(attempt_dir):",
+   "new": "            if False:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M28 F3 证据子目录列不出来中止整条命令",
+   "file": "scripts/kit_logs.py",
+   "old": "                if nested is not None:",
+   "new": "                if nested is None:\n                    raise LogsError(\"无法列出 %s\" % path, EXIT_FAIL)\n                if True:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M29 F3 show 的目标证据目录列不出来当作空",
+   "file": "scripts/kit_logs.py",
+   "old": "        raise LogsError(\"无法列出 %s\" % attempt_dir, EXIT_USAGE)",
+   "new": "        evidence = []",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M30 F3 --transcript 目录列不出来不计入不可读",
+   "file": "scripts/kit_logs.py",
+   "old": "            # 目录型参数列不出来：不中止，计入不可读文件并标部分（B11(b)）。",
+   "new": "            stats[\"unreadable_files\"] -= 1",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "M31 main 的兜底改成不捕获",
+   "file": "scripts/kit_logs.py",
+   "old": "    except (RecursionError, OverflowError) as exc:",
+   "new": "    except (KeyError,) as exc:",
+   "equivalent": "兜底只在合同点名的三处之外生效；oracle 的 F2 用例都由各处的具体捕获处理，去掉兜底观察不到"
+  }
+ ]
+}
