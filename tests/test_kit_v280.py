@@ -63,6 +63,17 @@ class BatteryLock(unittest.TestCase):
         self.assertIn("extra.json is not in the lock", caught.exception.detail)
         self.assertIn("mutation-equivalence.json is locked but missing", caught.exception.detail)
 
+    def test_an_unreadable_battery_is_drift_not_an_oserror(self):
+        # 3.0 第一轮：调用方（kit_config、doctor、load_locked_batteries）都只捕获 DecisionError
+        plugin = self.copy_plugin()
+        path = plugin / "questions" / "run-health.json"
+        path.unlink()
+        path.mkdir()
+        with self.assertRaises(d.DecisionError) as caught:
+            d.verify_battery_lock(plugin)
+        self.assertEqual(caught.exception.code, "battery_drift")
+        self.assertIn("run-health.json cannot be read", caught.exception.detail)
+
     def test_a_hand_edited_lock_does_not_verify(self):
         plugin = self.copy_plugin()
         lock = json.loads((plugin / "lock.json").read_text(encoding="utf-8"))

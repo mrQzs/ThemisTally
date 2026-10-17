@@ -196,6 +196,19 @@ def _check_plugins(config: Dict[str, Any], _repo: Any) -> None:
             raise ConfigError("plugins.%s 有重复项：%s" % (key, ", ".join(duplicates)))
 
 
+def plugins_section_error(config: Dict[str, Any]) -> Optional[str]:
+    """plugins 段的格式错误（与 validate_config 报的同一句，不带修复提示）；合法或缺省时为 None。
+
+    3.0 第一轮：plugins enable / disable 在计算变化之前先查原配置，不合法就拒绝并附上
+    plugins_fix_hint(原配置)——按变化之后的配置算出的提示，在原配置上未必执行得了。
+    """
+    try:
+        _check_plugins(config, None)
+    except ConfigError as exc:
+        return str(exc)
+    return None
+
+
 #: 键 → (说明, 缺省值的文字, 校验函数)。顺序就是 show 的顺序。
 KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
     "allowed_executors": ("允许的执行模型 [{provider, model, thinking}]；为空不限制", "[]（不限制）", _check_allowed_executors),

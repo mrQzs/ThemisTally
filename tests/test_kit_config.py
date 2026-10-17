@@ -292,6 +292,19 @@ class PluginsKey(TempRepo):
         self.assertIn(marker, out)
         return out.split(marker, 1)[1].strip().splitlines()[0]
 
+    def test_plugins_section_error_is_the_same_message_without_a_hint(self):
+        # 3.0 第一轮：kit_plugins 改配置之前先用它查原配置
+        for config in ({}, {"plugins": {}}, {"plugins": {"enabled": ["code-change"], "allowed_permissions": []}}):
+            self.assertIsNone(kit_config.plugins_section_error(config), config)
+        for config in ({"plugins": None}, {"plugins": []}, {"plugins": {"enabled": None}},
+                       {"plugins": {"allowed_permissions": ["x", 5]}}, {"plugins": {"enabled": ["a", "a"]}},
+                       {"plugins": {"surprise": []}}):
+            message = kit_config.plugins_section_error(config)
+            self.assertIsInstance(message, str, config)
+            self.assertNotIn("修复：", message)
+            self.assertIn(message, kit_config.validate_config(config, kit_config.pd.Repo.discover(str(self.repo)),
+                                                              hints=False), config)
+
     def run_hint(self, hint):
         """把提示里的 `config …` 命令拆成参数再交给 kit_config（提示用单引号包住 JSON 值）。"""
         self.assertTrue(hint.startswith("config "), hint)

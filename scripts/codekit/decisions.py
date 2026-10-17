@@ -336,13 +336,20 @@ def verify_battery_lock(plugin_dir: Path) -> Dict[str, str]:
     prefix = "plugins/%s/questions/" % manifest["plugin_id"]
     locked = {ref["path"][len(prefix):]: ref["sha256"] for ref in manifest["resources"]
               if ref.get("kind") == "file" and ref["path"].startswith(prefix)}
-    present = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
+    try:
+        present = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
+    except OSError as exc:
+        raise DecisionError("battery_drift", "questions/ cannot be listed: %s" % exc)
     problems = ["%s is not in the lock" % name for name in present if name not in locked]
     problems += ["%s is locked but missing" % name for name in sorted(locked) if name not in present]
     for name in present:
         if name not in locked:
             continue
-        data = (plugin_dir / "questions" / name).read_bytes()
+        try:  # 3.0 第一轮：读不出（例如被换成同名目录）也是不符，调用方都只捕获 DecisionError
+            data = (plugin_dir / "questions" / name).read_bytes()
+        except OSError as exc:
+            problems.append("%s cannot be read: %s" % (name, exc))
+            continue
         if hashlib.sha256(data).hexdigest() != locked[name]:
             crlf = (chr(13) + chr(10)).encode()
             only_eol = hashlib.sha256(data.replace(crlf, chr(10).encode())).hexdigest() == locked[name]
