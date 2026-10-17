@@ -10,6 +10,7 @@
 
 | 编号 | 结论 | 本稿处置 |
 |---|---|---|
+| impl-1 | 实现前自查（过闸后，闸二核对）：D6 与 D7 共用的修复提示生成函数、`logs` 与 `plugins` 共用的链接检查，若不先定下位置，两个 Pi 任务会各自手抄一份（2gate 第 ③ 步禁止） | 新增 D11：两者都由规划端先实现，执行端只调用。`kit_config.plugins_fix_hint`；`validate_config` 加 `hints` 参数，模拟候选时传 `hints=False`，避免重入。`pi_dispatch.py` 把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`）公开为 `is_link_or_junction`，新增 `first_link_component`。写进 §7.1 |
 | r3-S1 | 第 3 轮 Should-fix：D8 的“找第一个非选项词”会把 `--version plugins …`、`-h plugins …`、`--unknown plugins …`、`-- plugins list` 也截获 | 过闸后采纳：截获只消费完整合法的 `--repo <值>` / `--repo=<值>`；遇到其他任何以 `-` 开头的词（含 `--`、`-h`、`--version`、未知选项）或 `--repo` 缺值，立即把完整原始 argv 交给 argparse，不再寻找。W1 补对应用例，并断言这些输入下游调用次数为零 |
 | r3-S2 | 第 3 轮 Should-fix：决策插件生效且题库损坏、同时两个子键都是 `null` 时，三种修复提示全部写不进去 | 过闸后采纳：修复提示在给出之前，先用同一整份校验模拟“执行该命令后的配置”，模拟通过才给出；候选依次是：删掉非法子键；把 `plugins` 换成等价的合法对象；决策插件生效且题库不一致时，换成“`enabled` = 当前布局全部插件减去 `decisions`”的合法对象（一次替换同时修好非法值并关掉决策插件）。都不通过时只报告错误、不给提示。D6 的“可以落盘”加前提：其余配置与环境校验通过（`kill_grace_seconds`、`worktree_root` 等仍可能挡住写入，这是既有行为）。P13、C2 补这个组合 |
 | r3-S3 | 第 3 轮 Should-fix：P5 只断言报错，测不出“先读取、后检查”的错误实现 | 过闸后采纳：P5 用读取替身断言被拒绝的路径从未被读取，并断言检查失败后没有调用 `verify_battery_lock` |
@@ -217,6 +218,13 @@
   - `KIT_LOADED_FILES` 加两个文件。
   - `tests/test_kit_v280.py` 的 import 扫描改为同时跟随 `import kit_<名>` 形式的导入（只在 `scripts/kit_<名>.py` 存在时），让清单与实际加载一致。
 - **D9 文档与权限**：README 命令表加 `logs`、`plugins`，并写明安装布局下只有决策插件；AGENTS.md“Codex 的沙箱”一节把 `logs` 与 `plugins list/show/verify` 列为只读，`plugins enable/disable` 列为只写工作区；`.claude/settings.example.json` 放行 `logs` 与 `plugins list|show|verify`；CHANGELOG 加“未发布（themis-3.0 分支）”一节。
+- **D11 共用代码由规划端先实现，执行端只调用**（2gate：会被抄散的谓词统一收口）：
+  - `kit_config.plugins_fix_hint(config, repo) -> Optional[str]`：D6、D7 的修复提示生成函数，规则见 D6。它用 `validate_config(candidate, repo, hints=False)` 模拟候选。
+  - `kit_config.validate_config(config, repo, *, hints=True)`：`plugins` 键的校验出错、并且 `hints` 为真时，在这条错误后面附上 `plugins_fix_hint` 的结果；`_check_plugins` 自己只报不带提示的错误。所以模拟候选时不会再次生成提示，不会重入。
+  - `pi_dispatch.is_link_or_junction(path)`：把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`，含 Python 3.12 的 `isjunction` 与 Windows 重解析点属性）公开，旧名保留。
+  - `pi_dispatch.first_link_component(root, rel) -> Optional[str]`：从 `root` 往下逐级检查 `rel` 的每一级，返回第一个是链接或 junction 的那一级（相对 `root` 的 POSIX 路径），没有则 `None`；与 `kit_install._link_level`（`kit_install.py:104-112`）同义。`kit_install` 里那份既有的副本本轮不动。
+  - 边界判断用现有的 `pi_dispatch.is_within`（`pi_dispatch.py:558-560`）。
+  - `kit_logs` 与 `kit_plugins` 只能调用这些函数，不得另写同类实现。
 - **D10 错误处理**：
   - `plugins`：逐插件收集 `ValueError`（含 `ProtocolError`、`PluginError`）、`DecisionError`（`RuntimeError` 的子类，2.3）与 `OSError`，记为该插件的问题，其余插件照常列出与核对。
   - `logs`：逐文件收集 `OSError` 与解码问题，计数后继续。
@@ -274,7 +282,10 @@
 | 实测记录 | 规划端 | `.agent/design/3.0-首轮实测.md`：各阶段起止时间、子代理用量、Pi 用量、审核意见、修订轮数、verdict、变异抓住率 |
 
 - 执行端与合同端都用 Pi + `bb/step-5-preview`，思考级别 high。每次派遣最多 2 个 attempt，每个 attempt 不超过 1800 秒。
-- 规划端的合同、oracle、概要步骤与审核在新的子代理里做（与本会话同一模型），用量取子代理结果里报告的数字；取不到时按上位设计 13.3 的弱信号口径记录。
+- 规划端的合同、oracle、概要步骤与审核在新的子代理里做（与本会话同一模型），用量取子代理结果里报告的数字；取不到时按上位设计 13.3 的弱信号口径记录。第一次启动子代理时先核实三件事：它的用量记在哪里（单独的文件，还是主会话记录里 `isSidechain` 为真的记录）、`message.model` 是什么、Agent 结果里有没有 token 合计。
+- 两组的规划端子代理依次运行，不让时间窗口重叠（D4 只按模型与 `isSidechain` 分组，重叠的子代理分不开）；Pi 的派遣可以并行。
+- 测量的含义要写清楚：2gate 已经为两组都产出了经审核的详细设计，所以本轮比较的是“谁把一份已批准的设计展开成合同与 oracle”，不是“从概要步骤到合同”。B 组的规划端成本 = 写起草派遣的 `TASK:` 合同 + 审核起草结果；合同端成本 = 起草那次 Pi 运行，按 task-id 与执行端的运行分开记。
+- B 组起草派遣的参考实现放在草稿 worktree 里的真实路径 `scripts/kit_plugins.py`，oracle 正常导入它；发布时只取合同与 oracle。起草的 attempt 给出 verdict 后用 `mark SUPERSEDED --ref <发布提交>` 收尾，永不 `integrate`。起草运行内只检查草稿 JSON 能否解析；正式的 `validate` 在发布进 `.agent/plans/` 时做。
 - B 组起草派遣的 `TASK:` 合同写明：合同里哪些取舍交给它在本文 4.2 与 D5、D6 的范围内决定，每一项都要写进执行报告的 `interpretations`。
 
 ## 6. 刻意不做
@@ -301,7 +312,8 @@
 | `scripts/kit_plugins.py` | 新文件 | 4.2 | T2（Pi） |
 | `tests/test_kit_plugins_oracle.py` | 新文件 | 合同端起草、规划端审核的 oracle，覆盖第 9 节 P 组 | B 组合同端 |
 | `tests/test_kit_plugins.py` | 新文件 | 执行端自己的测试 | T2（Pi） |
-| `scripts/kit_config.py` | `KEYS`（`165-185`）、新增 `_check_plugins`、`_write_checked`（`322-326`）旁加公开名 | D7 | 规划端 |
+| `scripts/kit_config.py` | `KEYS`（`165-185`）、新增 `_check_plugins`、`_write_checked`（`322-326`）旁加公开名、`validate_config`（`212-225`）加 `hints` 参数、新增 `plugins_fix_hint` | D7、D11 | 规划端 |
+| `scripts/pi_dispatch.py`（先行） | `_is_link_or_junction`（`5203-5220`）旁加公开名 `is_link_or_junction`；新增 `first_link_component` | D11 | 规划端，先于 T1、T2 |
 | `tests/test_kit_config.py` | 新增用例 | 第 9 节 C 组 | 规划端 |
 | `scripts/pi_dispatch.py` | `KIT_LOADED_FILES`（`94-98`）；文档串命令表（`28` 附近）；`cmd_config` 旁新增 `cmd_logs`、`cmd_plugins`（`7118-7124`）；解析器（`7502-7504` 附近） | D8 | 规划端 |
 | `tests/test_kit_v280.py` | import 扫描（`120-144`） | D8 | 规划端 |
