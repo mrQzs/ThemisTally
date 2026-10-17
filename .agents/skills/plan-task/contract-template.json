@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "task_id": "【待填：task-id】",
+  "plan_version": 1,
+  "title": "【待填：一句话目标】",
+  "repository": "【待填：仓库名】",
+  "base_sha": "【待填：完整提交 ID】",
+  "risk_level": "low",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": []
+  },
+  "executor": {
+    "provider": "【待填：pi --list-models step 显示的 provider，例如 step】",
+    "model": "【待填：精确模型 ID，例如 step-5-preview】",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": ["【待填：确切路径】"],
+    "allowed_new_files": ["【待填：确切路径】"],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["【待填：程序】", "【待填：参数】"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["【待填：证明测试真的运行了的输出，例如 Tests\\s+[1-9]\\d* passed】"],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "【待填：行为】", "evidence": ["V01"]},
+    {"id": "D02", "text": "所有修改都在允许集合内", "evidence": ["scope"]},
+    {"id": "D03", "text": "没有删除、跳过或弱化既有测试", "evidence": ["review"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  }
+}

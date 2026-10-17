@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:workflow-definition:1",
+  "title": "Code-Kit workflow definition v1",
+  "description": "Strict static shape for a workflow-definition. Cross-object graph and schema compatibility checks are implemented by scripts/codekit/workflow.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "workflow_id",
+    "workflow_version",
+    "request_id",
+    "repo_id",
+    "platforms",
+    "plugin_lock_ref",
+    "nodes",
+    "max_parallel_tasks"
+  ],
+  "properties": {
+    "record_type": { "const": "workflow-definition" },
+    "schema_version": { "const": 1 },
+    "workflow_id": { "$ref": "#/$defs/logicalId" },
+    "workflow_version": { "$ref": "#/$defs/positiveInteger" },
+    "request_id": { "$ref": "#/$defs/requestId" },
+    "repo_id": { "$ref": "#/$defs/logicalId" },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "enum": ["linux", "macos", "windows"] }
+    },
+    "plugin_lock_ref": { "$ref": "#/$defs/resourceRef" },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "max_parallel_tasks": { "$ref": "#/$defs/positiveInteger" }
+  },
+  "$defs": {
+    "logicalId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?![\\s\\S])"
+    },
+    "taskId": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^req-[0-9a-f]{32}(?![\\s\\S])"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "businessPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "resourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "sha256", "path"],
+      "properties": {
+        "kind": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])" },
+        "id": { "$ref": "#/$defs/logicalId" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "path": { "$ref": "#/$defs/businessPath" }
+      }
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_ref", "required"],
+      "properties": {
+        "schema_ref": { "$ref": "#/$defs/resourceRef" },
+        "required": { "type": "boolean" }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_ref", "stage_id"],
+      "properties": {
+        "schema_ref": { "$ref": "#/$defs/resourceRef" },
+        "stage_id": { "$ref": "#/$defs/logicalId" }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "role", "depends_on", "plugin_step_ref"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logicalId" },
+        "kind": { "enum": ["execute", "freeze", "check", "verdict"] },
+        "role": { "enum": ["executor", "core", "independent-review", "supervisor"] },
+        "depends_on": { "type": "array", "items": { "$ref": "#/$defs/logicalId" }, "maxItems": 128, "uniqueItems": true },
+        "plugin_step_ref": {
+          "anyOf": [{ "$ref": "#/$defs/resourceRef" }, { "type": "null" }]
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind"],
+      "properties": {
+        "path": { "$ref": "#/$defs/businessPath" },
+        "kind": { "enum": ["tree", "file"] }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_dispatches", "currency_caps"],
+      "properties": {
+        "max_dispatches": { "$ref": "#/$defs/positiveInteger" },
+        "currency_caps": {
+          "type": "object",
+          "maxProperties": 128,
+          "additionalProperties": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?![\\s\\S])" },
+          "propertyNames": { "pattern": "^[A-Z]{3}(?![\\s\\S])" }
+        }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_attempts_total", "min_backoff_seconds"],
+      "properties": {
+        "max_attempts_total": { "$ref": "#/$defs/positiveInteger" },
+        "min_backoff_seconds": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "binding": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "artifact_ref", "schema_ref"],
+          "properties": {
+            "kind": { "const": "external" },
+            "artifact_ref": { "$ref": "#/$defs/resourceRef" },
+            "schema_ref": { "$ref": "#/$defs/resourceRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id", "port"],
+          "properties": {
+            "kind": { "const": "task-output" },
+            "task_id": { "$ref": "#/$defs/taskId" },
+            "port": { "$ref": "#/$defs/logicalId" }
+          }
+        }
+      ]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "depends_on", "inputs", "input_bindings", "outputs", "stages", "write_scope", "resource_keys",
+        "contract_ref", "baseline_ref", "budget", "retry_policy", "priority"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/taskId" },
+        "depends_on": { "type": "array", "items": { "$ref": "#/$defs/taskId" }, "maxItems": 1000, "uniqueItems": true },
+        "inputs": { "type": "object", "maxProperties": 128, "propertyNames": { "$ref": "#/$defs/logicalId" }, "additionalProperties": { "$ref": "#/$defs/port" } },
+        "input_bindings": { "type": "object", "maxProperties": 128, "propertyNames": { "$ref": "#/$defs/logicalId" }, "additionalProperties": { "$ref": "#/$defs/binding" } },
+        "outputs": { "type": "object", "maxProperties": 128, "propertyNames": { "$ref": "#/$defs/logicalId" }, "additionalProperties": { "$ref": "#/$defs/output" } },
+        "stages": { "type": "array", "minItems": 4, "maxItems": 128, "items": { "$ref": "#/$defs/stage" } },
+        "write_scope": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/scope" } },
+        "resource_keys": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/logicalId" }, "uniqueItems": true },
+        "contract_ref": { "anyOf": [{ "$ref": "#/$defs/resourceRef" }, { "type": "null" }] },
+        "baseline_ref": { "anyOf": [{ "$ref": "#/$defs/resourceRef" }, { "type": "null" }] },
+        "budget": { "$ref": "#/$defs/budget" },
+        "retry_policy": { "$ref": "#/$defs/retryPolicy" },
+        "priority": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/config-profile-v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "runtimes", "profiles", "roles"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "runtimes": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/runtime"}},
+    "profiles": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/profile"}},
+    "roles": {"type": "object", "additionalProperties": {"$ref": "#/$defs/role"}},
+    "policies": {"type": "object"},
+    "platforms": {"type": "object"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "runtime": {
+      "type": "object", "additionalProperties": false, "required": ["adapter", "command"],
+      "properties": {
+        "adapter": {"$ref": "#/$defs/id"},
+        "command": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "command_by_platform": {"type": "object", "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}
+      }
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false, "required": ["runtime", "model"],
+      "properties": {
+        "runtime": {"$ref": "#/$defs/id"}, "model": {"type": "object", "required": ["id"]},
+        "options": {"type": "object"}, "credential_refs": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "role": {"type": "object", "additionalProperties": false, "properties": {"mode": {"type": "string"}, "profile": {"$ref": "#/$defs/id"}}}
+  }
+}

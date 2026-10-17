@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:proposal:09:planner-request:1",
+  "title": "Code-Kit 09 PlannerRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "request_id", "run_id", "operation_id", "mode", "target_task_id", "requirements_ref", "context_manifest_ref", "graph_ref", "baseline_ref", "planner_config_ref", "environment_ref", "catalog_ref", "rules_refs", "decision_refs", "output_contract_ref", "planning_budget_ref", "authorization_refs", "repair_policy_ref", "stop_policy_ref"],
+  "properties": {
+    "record_type": {"const": "planner-request"},
+    "schema_version": {"const": 1},
+    "request_id": {"$ref": "#/$defs/id"}, "run_id": {"$ref": "#/$defs/id"}, "operation_id": {"$ref": "#/$defs/id"},
+    "mode": {"enum": ["graph", "refine"]},
+    "target_task_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "graph_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "requirements_ref": {"$ref": "#/$defs/ref"}, "context_manifest_ref": {"$ref": "#/$defs/ref"},
+    "baseline_ref": {"$ref": "#/$defs/ref"}, "planner_config_ref": {"$ref": "#/$defs/ref"},
+    "environment_ref": {"$ref": "#/$defs/ref"}, "catalog_ref": {"$ref": "#/$defs/ref"},
+    "output_contract_ref": {"$ref": "#/$defs/ref"}, "planning_budget_ref": {"$ref": "#/$defs/ref"},
+    "repair_policy_ref": {"$ref": "#/$defs/ref"}, "stop_policy_ref": {"$ref": "#/$defs/ref"},
+    "rules_refs": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}},
+    "decision_refs": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}},
+    "authorization_refs": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "sha256", "path"], "properties": {
+      "kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "path": {"type": "string", "minLength": 1, "maxLength": 4096}
+    }}
+  }
+}

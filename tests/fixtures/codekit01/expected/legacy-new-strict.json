@@ -1,0 +1,405 @@
+{
+  "entry": "codekit.protocols.strict_json_loads(raw, max_bytes=1048576, max_depth=64)",
+  "expected_kind": "legacy-new-strict",
+  "generator": {
+    "check_command": "PYTHONDONTWRITEBYTECODE=1 python tests/codekit01_legacy.py --check",
+    "function": "compute_new_strict_expected",
+    "path": "tests/codekit01_legacy.py",
+    "write_command": "PYTHONDONTWRITEBYTECODE=1 python tests/codekit01_legacy.py --write-expected"
+  },
+  "implementation": {
+    "note": "按当前文件计算，不记录其摘要；判断一旦变化，差分测试即失败",
+    "path": "scripts/codekit/protocols.py"
+  },
+  "json_documents": {
+    "legacy-contract-auth-refresh-401-v1-json": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/legacy/contracts/auth-refresh-401.v1.json",
+      "sha256": "57b95ee0300445ec2fe94f47b9bc6c639968313ff4f546988fb48962c10a6275"
+    },
+    "legacy-contract-normalize-query-v1-json": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/legacy/contracts/normalize-query.v1.json",
+      "sha256": "bd9df7f47cda0a6f8c92991279c427d46ac3a29ed3a7c87a55c8f44b0c320be7"
+    },
+    "legacy-contract-template-json": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/legacy/contracts/contract-template.json",
+      "sha256": "45139836a52a1fb234a61f256e27c6e776d857ccadc2065bb9f3df50462912f3"
+    },
+    "negative-legacy-contract-json-base-sha-short-oid": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-base-sha-short-oid/normalize-query.v1.json",
+      "sha256": "db5a65044dd0a332c36b4904cc47e8e91dc02266308969fb623bfaa78fb9d490"
+    },
+    "negative-legacy-contract-json-base-sha-trailing-newline": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-base-sha-trailing-newline/normalize-query.v1.json",
+      "sha256": "74a4df27291519bd00e36c966d81afaca20df634f6143a5eb4f67fb2f875282c"
+    },
+    "negative-legacy-contract-json-cost-budget-infinity": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_NON_FINITE",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": "/budget/cost_budget/amount",
+        "reason": "non_finite_literal"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-cost-budget-infinity/normalize-query.v1.json",
+      "sha256": "fdf8e4ea368719cbbdf285d08f857b6b9c32f13d4aae5cdea2949a35242e0f45"
+    },
+    "negative-legacy-contract-json-cost-budget-nan": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_NON_FINITE",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": "/budget/cost_budget/amount",
+        "reason": "non_finite_literal"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-cost-budget-nan/normalize-query.v1.json",
+      "sha256": "b056e228c34c16fa3d0afab0d5571a96c718983a1fda535f8f1a05efb0854264"
+    },
+    "negative-legacy-contract-json-deep-nesting": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_LIMIT",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": "decoder_recursion_limit_exceeded"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-deep-nesting/normalize-query.v1.json",
+      "sha256": "d575813d0816551f5410d6a671135a098aa31eb680f1dc48e407da0e05e08f12"
+    },
+    "negative-legacy-contract-json-duplicate-key-first-differs": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_DUPLICATE_KEY",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": "/risk_level",
+        "reason": "duplicate_object_member"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-duplicate-key-first-differs/normalize-query.v1.json",
+      "sha256": "cb550676f335ca81be9600b20fe85c8b371b6b1b276d405d4bda32bd3893805f"
+    },
+    "negative-legacy-contract-json-duplicate-key-last-differs": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_DUPLICATE_KEY",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": "/risk_level",
+        "reason": "duplicate_object_member"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-duplicate-key-last-differs/normalize-query.v1.json",
+      "sha256": "75aa5f083e33af4b7dc95516d77d05112cbed6ca15b9e3faf0d72ecffbaeba68"
+    },
+    "negative-legacy-contract-json-invalid-utf8": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_ENCODING",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": "utf8_decoding_failed"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-invalid-utf8/normalize-query.v1.json",
+      "sha256": "7bb38fa515438b48b0f78f9e4e4e85246effd2ee1a59e8465f8a6a4a97acad7e"
+    },
+    "negative-legacy-contract-json-missing-task-id": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-missing-task-id/normalize-query.v1.json",
+      "sha256": "a2275515b4b4138f51a3f907754ec4f94147494b099cf6450286637e6721bb7d"
+    },
+    "negative-legacy-contract-json-plan-version-float": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-plan-version-float/normalize-query.v1.json",
+      "sha256": "8c3756e99dfbb4a52de5a8435c09cba952323816f52fffbf718e929036065d13"
+    },
+    "negative-legacy-contract-json-plan-version-string": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-plan-version-string/normalize-query.v1.json",
+      "sha256": "051de60aa8fb9a1e68e53e1638a9a6f05ff95b3c424e69b37e7807e994cdf85b"
+    },
+    "negative-legacy-contract-json-schema-version-true": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-schema-version-true/normalize-query.v1.json",
+      "sha256": "e8456fd3fc96af1b49d1280b94da74bdef40397e0e7502f715ce890921058a58"
+    },
+    "negative-legacy-contract-json-setup-id-trailing-newline": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-setup-id-trailing-newline/normalize-query.v1.json",
+      "sha256": "18ca0a6df788a0ff97660795c480e10854f9cccb8ce1514df10bcddd46b99d1c"
+    },
+    "negative-legacy-contract-json-task-id-mismatch": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-task-id-mismatch/normalize-query.v1.json",
+      "sha256": "703fd6004b28c7fc493e2a4420d8037eefb2439fbf4a16aa5eb691e7fd94790f"
+    },
+    "negative-legacy-contract-json-unknown-top-level-field": {
+      "new_strict": {
+        "accepted": true,
+        "code": null,
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": null
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-unknown-top-level-field/normalize-query.v1.json",
+      "sha256": "0c7e53933c186f9f9124f6eeb8098ea239048000cdc62ad02733313d640cb2df"
+    },
+    "negative-legacy-contract-json-utf8-bom": {
+      "new_strict": {
+        "accepted": false,
+        "code": "E_JSON_BOM",
+        "entry": "codekit.protocols.strict_json_loads",
+        "field": null,
+        "reason": "utf8_bom_not_accepted"
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-contracts/json-utf8-bom/normalize-query.v1.json",
+      "sha256": "e2fec60665a48f76eeee320deac6f47fd460c1305c06c21ab61884c900bb1171"
+    }
+  },
+  "jsonl_streams": {
+    "legacy-stub-events-error": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/error.jsonl",
+      "sha256": "3f6f6de5c9a8781d9e45150066d7e0b4166d62c005a757d853b5d6b01fe8ac68"
+    },
+    "legacy-stub-events-model": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/model.jsonl",
+      "sha256": "54982f942f30dde4bdde47803dbb135130dd4a0b5e97b9cdc1a79b6c305e5486"
+    },
+    "legacy-stub-events-nosettle": {
+      "new_strict": {
+        "accepted_lines": 18,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 18,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/nosettle.jsonl",
+      "sha256": "3497b725d1df1f8d0960bce5542a0ce77169e9bc2385eedcf73c0e537a8f29d3"
+    },
+    "legacy-stub-events-ok": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/ok.jsonl",
+      "sha256": "31a7eccaa84d7a70c714c0216bae63f8d6e2dc2b7e63ce5d8103aace0cd1e9db"
+    },
+    "legacy-stub-events-ok-nocost": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/ok-nocost.jsonl",
+      "sha256": "446c6e1b37f8089c902100fecae4be9a4dc2c25c77b60b39e3c03fb7fc26576c"
+    },
+    "legacy-stub-events-ok-ptl-high": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/ok-ptl-high.jsonl",
+      "sha256": "29da3e9a825db4d89edc753654e0a85c4b7105429db2d3099a6ff26dc5f12422"
+    },
+    "legacy-stub-events-ok-ptl-low": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/ok-ptl-low.jsonl",
+      "sha256": "7e3d85d0fee24b5138b207a5ae95a60f21fd581e55ad6539f3bfca46e9279808"
+    },
+    "legacy-stub-events-scope": {
+      "new_strict": {
+        "accepted_lines": 25,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 25,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/scope.jsonl",
+      "sha256": "a8a0a6df793a9aa9ba4b109674c47a50fb985b5104e02b2417da955ec6ecfb68"
+    },
+    "legacy-stub-events-startfail": {
+      "new_strict": {
+        "accepted_lines": 1,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 1,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/startfail.jsonl",
+      "sha256": "1d887c3e7aca3fc0d01a051dd48f21fe8e24b9aa1847b6e906e6109b11785b02"
+    },
+    "legacy-stub-events-textcall": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/legacy/stub-events/textcall.jsonl",
+      "sha256": "fc69758de295b909d7f183f1177a8ac1071a49c2e43288c2ffdb4c3acc623521"
+    },
+    "negative-legacy-events-ok-duplicate-final-message-end": {
+      "new_strict": {
+        "accepted_lines": 20,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 20,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-events/ok-duplicate-final-message-end/events.jsonl",
+      "sha256": "93c127f42c8cc3ce638729ede7953028e5219f032a8f7fb6ac19763300c0bcf4"
+    },
+    "negative-legacy-events-ok-final-usage-missing-tokens": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 19,
+        "rejected_lines": []
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-events/ok-final-usage-missing-tokens/events.jsonl",
+      "sha256": "99f2255827e34c0ea087a9e470e9fc9be69aa9f4f085e503fa681d8219f39fd8"
+    },
+    "negative-legacy-events-ok-truncated-tail": {
+      "new_strict": {
+        "accepted_lines": 18,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": false,
+        "lines": 19,
+        "rejected_lines": [
+          {
+            "code": "E_JSON_SYNTAX",
+            "field": null,
+            "line": 19,
+            "reason": "syntax_error"
+          }
+        ]
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-events/ok-truncated-tail/events.jsonl",
+      "sha256": "8efa045cbcb38581d947c0a8286c335b267184cbea87620b05144ef8c1d0475e"
+    },
+    "negative-legacy-events-ok-unparseable-line": {
+      "new_strict": {
+        "accepted_lines": 19,
+        "entry": "codekit.protocols.strict_json_loads（逐行）",
+        "final_line_terminated": true,
+        "lines": 20,
+        "rejected_lines": [
+          {
+            "code": "E_JSON_SYNTAX",
+            "field": null,
+            "line": 2,
+            "reason": "syntax_error"
+          }
+        ]
+      },
+      "path": "tests/fixtures/codekit01/negative/legacy-events/ok-unparseable-line/events.jsonl",
+      "sha256": "95d133f0dff11025f5e66ae6c7a13f43e9cc35c8695af167200ad539f86736ae"
+    }
+  },
+  "projection_revision": "codekit01-new-strict-projection-v1",
+  "record_type": "codekit01-new-strict-expected",
+  "schema_version": 1,
+  "semantics": [
+    "只判断严格 JSON 层；合同 v1 的字段语义（task_id、plan_version 类型、未知字段等）不属于 01 的新入口，01 不对合同 v1 做新 Schema 判断",
+    "与 expected/legacy-contracts.json、legacy-events.json 中的旧实现判断分开存放；两边不同是兼容矩阵的输入，不是失败",
+    "json_documents：整份文件交给 strict_json_loads",
+    "jsonl_streams：按 LF 切分，文件以 LF 结尾时丢弃最后的空片段，每行原样（含行尾 CR）交给 strict_json_loads；只说明每行能否作为单个严格 JSON 文档，原始厂商流的解析与结束判定归 04（01-D07）"
+  ],
+  "source_revision": "a4fa199b0e5bdc658215765ee7558b9fe6723940"
+}

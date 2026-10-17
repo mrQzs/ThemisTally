@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/plugin-manifest-v1.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "plugin_id", "version", "api_version", "roles", "capabilities", "resources", "checks"],
+  "properties": {
+    "record_type": {"const": "builtin-task-plugin-manifest"}, "schema_version": {"const": 1},
+    "plugin_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "api_version": {"type": "string", "minLength": 1},
+    "roles": {"type": "array", "items": {"type": "string"}}, "capabilities": {"type": "array", "items": {"type": "string"}},
+    "entrypoints": {"type": "array", "items": {"type": "string"}}, "depends_on": {"type": "array", "items": {"type": "string"}}, "conflicts": {"type": "array", "items": {"type": "string"}},
+    "platforms": {"type": "array", "items": {"type": "string"}}, "permissions": {"type": "array", "items": {"type": "string"}},
+    "resources": {"type": "array", "items": {"$ref": "#/$defs/ref"}}, "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}}
+  },
+  "$defs": {
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {"kind": {"type": "string"}, "id": {"type": "string"}, "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "check": {"type": "object", "additionalProperties": false, "required": ["id", "command", "deterministic"], "properties": {"id": {"type": "string"}, "command": {"type": "array", "items": {"type": "string"}}, "deterministic": {"type": "boolean"}}}
+  }
+}

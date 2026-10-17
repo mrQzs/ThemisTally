@@ -1,0 +1,1142 @@
+{
+ "area": "tests",
+ "items": [
+  {
+   "id": "LB-TEST-H01",
+   "title": "自测夹具：临时目录、执行器替身、临时仓库与合同样本",
+   "source_locations": [
+    "tests/test_dispatch.py:1 模块 docstring",
+    "tests/test_dispatch.py:22-39 模块级全局",
+    "tests/test_dispatch.py:43 sh",
+    "tests/test_dispatch.py:55 tool",
+    "tests/test_dispatch.py:61 check",
+    "tests/test_dispatch.py:108 contract",
+    "tests/test_dispatch.py:128 build_md",
+    "tests/test_dispatch.py:169 make_repo",
+    "tests/test_dispatch.py:231 run_ok",
+    "scripts/pi_dispatch.py:1760 resolve_pi_command"
+   ],
+   "rule": "导入模块即执行 WORK=tempfile.mkdtemp(prefix=\"pi-dispatch-e2e-\")（L24），并把 KIT/scripts 插入 sys.path 后 import pi_dispatch as pd（L38-39）。BASE_ENV=dict(os.environ)，设 PI_DISPATCH_PI_CMD=json.dumps([sys.executable, tests/stub_pi.py])（L29），删除 PI_EXEC_PROVIDER、PI_EXEC_MODEL、PI_EXEC_THINKING、STUB_SCENARIO、STUB_MODELS、STUB_AUTH、STUB_PTL、STUB_NOCOST、STUB_LIST_FAIL、STUB_AUTH_DETAIL（L30-32），不删除 STUB_MAIN_REPO。tool() 在临时仓库中运行 [PY, \"scripts/pi_dispatch.py\", ...]（该文件是 make_repo 从 KIT/scripts 复制的副本，L186-187），stdout 与 stderr 合并，非 0 不抛错（check=False）。make_repo：git init，user.email=t@example.invalid，core.autocrlf=false，commit.gpgsign=false；src/normalize.py 为恒等实现；run_tests.py 成功时输出 \"Tests N passed\"，否则输出 \"FAILED\"；另写 README.md、package.json、.gitignore（默认 .agent/runs/、.env、node_modules/）、AGENTS.md；提交 base；写 .agent/dispatch.config.json（worktree_root=WORK/worktrees）和 normalize-query.v1.{md,json}。contract() 默认值：step/step-5-preview、thinking high、7 个工具、allowed_modified [src/normalize.py]、allowed_new [tests/test_normalize.py]、forbidden [package.json]、dependency_changes forbidden、预算 3/600/1800、V01=[PY, run_tests.py]（必要，匹配 \"Tests [1-9][0-9]* passed\"）、DoD D01(V01)/D02(scope)。build_md() 按 JSON 生成一致的 Markdown。check(name, cond, detail) 追加到 RESULTS，打印 \"PASS <name>\"，失败时打印 \"FAIL <name>  <- <detail 前 1500 字>\"。run_ok() 先 prepare normalize-query.v1，再 run（STUB_SCENARIO 默认 ok），不检查 prepare 的结果。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "导入即在系统临时目录建目录（decisions.md 01-L04 已记录）。STUB_MAIN_REPO 未从 BASE_ENV 清除，外部已设置时会传入所有运行。make_repo 复制的是 KIT 工作区中的 scripts，不是 HEAD 中的版本，基线取证需要记录工作区哈希。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "规则内容大体属实，有两处行号错误：sys.path.insert 和 import pd 在 L39-40，不是 L38-39；make_repo 复制 pi_dispatch.py 与 dispatch-pi.sh 在 L189-190，不是 L186-187（L186-187 写的是 package.json 和 .gitignore）。遗漏以下几点：导入时把 stdout/stderr 重设为 UTF-8（L34-38）；run_tests.py 要求 testsRun>0 才输出 'Tests N passed'（L183-184）；make_repo 在提交 base 之后才写 .agent/dispatch.config.json 和合同，所以这些文件在主仓库里是未跟踪文件（test_v22 在 L1786-1788 专门先提交它们）；BASE_ENV 只删掉列出的变量，其余环境原样继承。STUB_MAIN_REPO 没有被清除这一点属实，但只有 outside、touchmain、planner 三个场景读取它，三处测试也都显式传入，现有场景不受影响。"
+   }
+  },
+  {
+   "id": "LB-TEST-H02",
+   "title": "__main__ 入口：选择、汇总行与退出码",
+   "source_locations": [
+    "tests/test_dispatch.py:1907-1929 __main__",
+    "tests/test_dispatch.py:94 remove_tree"
+   ],
+   "rule": "运行方式：python tests/test_dispatch.py [test_名 ...] [--keep]（docstring L3-9 要求 Python 3.8+、git、bash，Windows 上为 Git Bash）。按 globals() 定义顺序遍历以 test_ 开头的函数；没有参数时全部运行，有参数时只运行名称在参数中的函数。每个函数运行前打印 \"== <name>\"。函数抛异常时 traceback.print_exc()，并追加一条 (name, False, repr(exc)) 失败记录，该函数其余 check 不再执行（L1914-1918）。汇总行格式为 \"\\n%d checks, %d failed\"：N=len(RESULTS)，包含异常记录；M 为失败记录数（L1919-1920）。--keep 时打印 \"保留测试目录：<WORK>\"；否则对 WORK 下每个含 .git 的目录执行 git worktree prune，再 remove_tree(WORK)（失败时先 chmod 0o700 去掉只读，L94-100）。有任何失败时退出码为 1，否则为 0（L1929）。测试名不存在时不报错：不运行任何函数，输出 \"0 checks, 0 failed\"，退出 0。整体和单个函数都没有超时。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "0 checks 时退出码也是 0，基线报告需要另加规则，不能记为 PASS（01-A01）。汇总行不区分异常记录和普通 check。清理阶段 git worktree prune 在删除 worktree 目录之前运行，实际不会修剪任何条目，但整个 WORK 随后被删除。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "行号有偏差：异常处理在 L1914-1919（不是 1914-1918），failed 列表和汇总行在 L1920-1921（不是 1919-1920）。汇总格式、退出码 1/0、0 checks 时退出 0 均属实。遗漏以下几点：`except Exception` 捕获不到 KeyboardInterrupt/SystemExit，中断时不会打印汇总行；清理（remove_tree）在汇总行之后执行，二次删除失败时异常未被捕获，进程以 1 退出，即使汇总显示 0 failed；同时给出有效和拼错的测试名时，拼错的会被静默忽略。“git worktree prune 实际不修剪任何条目”是推断，不是源码事实。"
+   }
+  },
+  {
+   "id": "LB-TEST-S01",
+   "title": "stub_pi.py 运行场景与事件序列（模拟 Pi 0.87 JSON 模式）",
+   "source_locations": [
+    "tests/stub_pi.py:1-9 docstring",
+    "tests/stub_pi.py:67 scenario",
+    "tests/stub_pi.py:72-75 session/startfail",
+    "tests/stub_pi.py:98-100 prompt 校验",
+    "tests/stub_pi.py:102-116 assistant",
+    "tests/stub_pi.py:125-146 公共事件",
+    "tests/stub_pi.py:147-209 场景分支",
+    "tests/stub_pi.py:210-235 收尾"
+   ],
+   "rule": "场景由 STUB_SCENARIO 选择，默认 ok（L67）。docstring 列出 19 个：ok、scope、error、hang、commit、outside、touchmain、model、noreport、nosettle、startfail、readplan、typo、planner、ambiguous、conflict、checkonly、textcall、tmpclean；代码另实现 tempsequence（L173-181），docstring 未列出。任务运行路径要求 @ 附带文件的内容同时含 \"TASK:\" 和 \"执行说明\"，否则 stderr 输出 \"stub: prompt did not include plan and instruction\" 并 exit 3（L98-100）。公共事件序列：session(version 3) → agent_start → turn_start → system message_start/message_end → assistant(toolCall, stopReason toolUse) message_start → message_update(usage, text_delta) → message_end → tool_execution_start/end（写 src/normalize.py 为 ' '.join(q.split()).lower()，写 tests/test_normalize.py）→ [场景] → turn_end → turn_start → 最终 assistant message_start/message_end → turn_end → agent_end(willRetry false) → agent_settled（nosettle 除外）→ exit 0。每条 assistant 消息：api \"anthropic-messages\"，provider=--provider，model/responseModel=actual_model，usage input 1000/output 200/totalTokens 1200，cost.total 0.00043。STUB_NOCOST=1 时 cost 各项为 0；STUB_PTL 设置时带 providerThinkingLevel。各场景：model 把实际模型设为 \"stepfun/step-3.5-flash\"；startfail 发出 session 后 stderr 输出 \"Error: No API key found for provider <p>\" 并 exit 1；error 的最终消息 content=[]、stopReason \"error\"、errorMessage \"429 rate limited\"；noreport 的最终文本为 \"Done.\"；textcall 的最终文本为 Hermes 风格 <tool_call>；scope 改 README.md 和 package.json（加 left-pad），写 .env，并发出 bash \"git push origin HEAD\"（isError true）；commit 在 worktree 内 git add -A 后提交；outside 写 STUB_MAIN_REPO/leak.txt；touchmain 改写 STUB_MAIN_REPO/README.md；planner 写 STUB_MAIN_REPO/.agent/plans/next-task.v1.md；readplan 用 read 读取附带的 plan.md；typo 让 edit 访问 <cwd>-typo/src/normalize.py，isError true；ambiguous 与 conflict 多发一条含 \"step 4 says B. This is ambiguous\" 的 thinking 消息，conflict 的报告另带 contract_conflicts 1 条，D01 为 blocked；checkonly 的 thinking 为 \"contract_conflicts: none found. Let me double check for inconsistencies ...\"，正文为 \"### 合同矛盾\\n未发现。\"；tmpclean 发出 5 条 bash 命令事件，tempsequence 发出 54 条 bash 命令事件，这些命令都只作为事件文本，不会执行；hang 启动孙进程 sleep 600，把孙进程 PID 写入 cwd/child.pid，自身 sleep 600。报告为 \"## 执行报告\" 下的 json 代码块（executor_status completed）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_scope check \"README out_of_scope\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case model {}\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"summary makes truncated temp evidence explicit\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "stub 忽略 --thinking、--tools、--mode、--no-session 和各 RESOURCE_FLAGS，不校验收到的参数。以下情况 stub 都不模拟：stderr 警告（Using custom model id、Invalid thinking level、Unknown option、Extension error）、compaction、自动重试、thinking_level_changed、不可解析或截断的事件行、pi 版本低于 0.80.4。outside、touchmain、planner 三个场景在缺少 STUB_MAIN_REPO 时会触发 KeyError。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "19 个 docstring 场景加上未列出的 tempsequence（L173-181）属实；各场景行为、公共事件序列、usage/cost 数值、L98-100 的前置条件与 exit 3 均属实。补充两点：ambiguous、conflict、checkonly 追加的思考消息只发 message_end，不发 message_start；readplan 读取的 files[0] 是 plan.md，因为 cmd_run 先附 @plan.md、再附 @instruction.md（scripts/pi_dispatch.py:3294-3295 附近）。"
+   }
+  },
+  {
+   "id": "LB-TEST-S02",
+   "title": "stub 的非运行命令（--help/--version/auth/--list-models/冒烟）与真实启动入口的覆盖边界",
+   "source_locations": [
+    "tests/stub_pi.py:33-35 --help",
+    "tests/stub_pi.py:36-38 --version",
+    "tests/stub_pi.py:39-45 auth",
+    "tests/stub_pi.py:46-65 --list-models",
+    "tests/stub_pi.py:76-97 冒烟消息路径",
+    "tests/stub_pi_help.txt:13 pi auth",
+    "tests/stub_pi_help.txt:40 --thinking",
+    "tests/stub_pi_help.txt:177-185 Built-in Tool Names",
+    "scripts/pi_dispatch.py:1760-1787 resolve_pi_command",
+    "scripts/pi_dispatch.py:1789-1795 ensure_argv_safe",
+    "scripts/pi_dispatch.py:2014-2062 pi_preflight"
+   ],
+   "rule": "--help 原样打印 tests/stub_pi_help.txt（186 行），exit 0。帮助文本含 \"pi auth <command>\"（预检据此运行 auth check，pi_dispatch.py:2051），\"--thinking <level> ... off, minimal, low, medium, high, xhigh, max\"，全部 REQUIRED_PI_FLAGS 和 --no-context-files，以及 Built-in Tool Names read/bash/powershell/edit/write/grep/find/ls。--version 打印 \"0.87.0\"。auth 输出 JSON {status, provider, model[, error=STUB_AUTH_DETAIL]}；STUB_AUTH 默认 ready，ready 时 exit 0，否则 exit 1。--list-models：STUB_LIST_FAIL=1 时 stderr 输出 \"Warning: errors loading models.json:\"、含 DEMO_TOKEN_FOR_REVIEW 的 JSON 片段和 \"Error: EPERM: operation not permitted\"，然后 exit 1；否则按 STUB_MODELS 列出（默认 \"step step-5-preview\"，条目以 ; 分隔，每条用空白分开 provider 与 model）。列表为空时输出 \"No models available. Use /login ...\"，没有匹配时输出 'No models matching \"<pattern>\"'，这两种都 exit 0，不输出表格；否则输出以 \"provider    model\" 开头的表格。没有 @ 文件但带消息时走冒烟路径：消息含 smoke.txt 时写入并读取 smoke.txt，回复 \"DONE\"，否则回复 \"PI_SMOKE_OK\"；usage input 10，cost 0.00001。所有测试都通过 PI_DISPATCH_PI_CMD 的 JSON 数组路径接入（pi_dispatch.py:1762-1770）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor ok with stub\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor reports a failing list-models run as such\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"smoke both steps ok\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"auth not ready -> preflight fail\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "stub 不覆盖真实启动入口：以下路径均无测试——shutil.which(\"pi\") 查找、\"PATH 中找不到 pi\" 错误（L1771-1773）、Windows 下从 npm .cmd 包装解析出 node 和入口脚本（L1774-1786）、ensure_argv_safe 对 .cmd/.bat 的特殊字符拒绝（L1789-1795）、PI_DISPATCH_PI_CMD 非法值的 EXIT_USAGE。stub_pi_help.txt 与真实 pi 0.87 帮助是否逐字一致，本次无法核实（禁止调用 pi）。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "预检里判断 'pi auth' 的正则位于 scripts/pi_dispatch.py:2057，不是 2051。resolve_pi_command 的说法需要修正：PI_DISPATCH_PI_CMD 不是 JSON 时会被当作单个可执行路径 [override] 接受（L1764-1767），只有解码成 JSON 但不是非空字符串数组时才报 EXIT_USAGE；'PATH 中找不到 pi' 用的是 DispatchError 默认码 EXIT_BLOCKED=3。stub 的 --help、--version、auth、--list-models 以及冒烟路径的描述属实；帮助文本包含 --no-approve 等全部 REQUIRED_PI_FLAGS 和 --no-context-files，已逐项 grep 确认。"
+   }
+  },
+  {
+   "id": "LB-TEST-001",
+   "title": "test_happy：成功路径的完整生命周期",
+   "source_locations": [
+    "tests/test_dispatch.py:241 test_happy",
+    "scripts/pi_dispatch.py:3214 cmd_prepare worktree add",
+    "scripts/pi_dispatch.py:3488 prepare_fresh_workspace",
+    "scripts/pi_dispatch.py:2515 record_candidate"
+   ],
+   "rule": "场景 ok；静态 18 个 check，运行时也是 18 个。断言：validate 退出 0；run 退出 0 且 state=NEEDS_REVIEW；events-summary.complete 为真且 terminal_event==\"agent_settled\"；usage.input==2000（两条 assistant message_end 各 1000，message_update 中的 usage 不计入）且 cost.status==\"estimated\"；provider_thinking_levels==[]，thinking_evidence 以 \"not_reported\" 开头，且 ok 为真；instruction.md 含 \"机器合同摘要\"、\"`src/normalize.py`\"、\"run_tests.py\"；claim/reservation.json 的 timeout_seconds==600；candidate.json 的 patch_roundtrip_verified 为真；check 和 check --fresh 都退出 0，checks/02/checks.json 的 mode==\"fresh\"，且其 workspace 已删除；review 文件的 Verdict 行为 REVISE 而传入 --verdict PASS 时退出码非 0；--verdict PASS --human-minutes 4 之后 state=PASS；branch 生成的 pi/normalize-query-v1-a001 树等于 candidate.tree，父提交等于 base，主题为 \"normalize-query: Pi 候选 v1 attempt 001\"；metrics 输出含 \"| 首次验收通过率（PASS） | 100% |\"；cleanup 后 worktree 不存在；mark INTEGRATED --ref local-branch 后 state=INTEGRATED。依赖：git 仓库、git worktree（prepare、--fresh、cleanup）；stub 为同步子进程；无平台分支；不需要 bash。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"validate ok\"",
+    "tests/test_dispatch.py::test_happy check \"run ok -> NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_happy check \"events complete via agent_settled\"",
+    "tests/test_dispatch.py::test_happy check \"usage sums assistant message_end only\"",
+    "tests/test_dispatch.py::test_happy check \"thinking not reported -> evidence says so, no problem\"",
+    "tests/test_dispatch.py::test_happy check \"instruction has machine summary from JSON\"",
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\"",
+    "tests/test_dispatch.py::test_happy check \"candidate roundtrip verified\"",
+    "tests/test_dispatch.py::test_happy check \"in-place check passes\"",
+    "tests/test_dispatch.py::test_happy check \"fresh check passes in clean copy and removes it\"",
+    "tests/test_dispatch.py::test_happy check \"verdict line mismatch refused\"",
+    "tests/test_dispatch.py::test_happy check \"PASS accepted\"",
+    "tests/test_dispatch.py::test_happy check \"branch tree == candidate tree\"",
+    "tests/test_dispatch.py::test_happy check \"branch parent == base\"",
+    "tests/test_dispatch.py::test_happy check \"branch subject without a title\"",
+    "tests/test_dispatch.py::test_happy check \"metrics first PASS 100%\"",
+    "tests/test_dispatch.py::test_happy check \"cleanup removes worktree\"",
+    "tests/test_dispatch.py::test_happy check \"mark integrated\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "\"verdict line mismatch refused\" 只断言退出码非 0，没有断言码值和错误文本。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "静态和运行时都是 18 个 check，断言逐条属实。source_locations 中的 3488 是 prepare_fresh_workspace 里执行 worktree add 的那一行，函数定义在 3480。"
+   }
+  },
+  {
+   "id": "LB-TEST-002",
+   "title": "test_candidate_drift_and_artifacts：候选漂移、缓存产物与 G4",
+   "source_locations": [
+    "tests/test_dispatch.py:287 test_candidate_drift_and_artifacts",
+    "scripts/pi_dispatch.py:4001-4014 cmd_check 漂移拒绝",
+    "scripts/pi_dispatch.py:4214-4215 evaluate_gates G4"
+   ],
+   "rule": "场景 ok；静态 5 个 check，运行时 5 个。在 worktree 中新增 src/helper.py 后，原地 check 的退出码 == pd.EXIT_DRIFT（4），输出含 \"helper.py\"（错误原文 \"工作副本与候选不一致，检查结果无法代表候选\"）；check --fresh 忽略 worktree 中的额外文件，退出 0；删除 helper.py、放入 src/__pycache__/normalize.cpython-312.pyc 后原地 check 退出 0（缓存产物被允许）。第二个仓库 checkwrites 的 V01 会写 report.txt：check 退出 1 且输出含 \"report.txt\"；随后 verdict --verdict PASS 退出码非 0，输出含 \"G4\"（原文 \"检查产生了候选之外的新文件\"）。依赖 git worktree（--fresh）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"fresh check ignores worktree extras\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"python cache files are allowed artifacts\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"check creating unexpected file -> exit 1\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"PASS refused when checks created files (G4)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "只测了新增文件，未测 check 前候选文件被修改（drift_before.modified）的原地拒绝。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "5 个 check 属实：EXIT_DRIFT=4（L53），原文“工作副本与候选不一致，检查结果无法代表候选”；G4 原文见 scripts/pi_dispatch.py:4215。"
+   }
+  },
+  {
+   "id": "LB-TEST-003",
+   "title": "test_cleanup_protects_unsaved_work：cleanup 不静默丢弃候选外改动",
+   "source_locations": [
+    "tests/test_dispatch.py:315 test_cleanup_protects_unsaved_work",
+    "scripts/pi_dispatch.py:4430 cmd_cleanup"
+   ],
+   "rule": "场景 ok；静态 2 个 check，运行时 2 个。候选记录后改写 worktree 中的 src/normalize.py，先执行 verdict REVISE --class EXECUTION_ERROR（结果未断言）。之后 cleanup 退出码非 0，worktree 仍存在，输出含 \"normalize.py\"；cleanup --force 退出 0 且 worktree 被删除。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup refuses when candidate files were modified\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup --force removes and logs discarded content\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "check 名称称“logs discarded content”，但断言只检查退出码和目录是否存在，没有检查日志内容。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "2 个 check 属实；先执行的 verdict REVISE 没有断言结果。"
+   }
+  },
+  {
+   "id": "LB-TEST-004",
+   "title": "test_budget_race：并发争用最后一次额度",
+   "source_locations": [
+    "tests/test_dispatch.py:330 test_budget_race",
+    "scripts/pi_dispatch.py:2583-2613 TaskLock",
+    "scripts/pi_dispatch.py:3272-3310 cmd_run 领取临界区"
+   ],
+   "rule": "attempts=2。run_ok 领取 attempt-001，再 prepare 两次得到 attempt-002 和 attempt-003；用 subprocess.Popen 并发启动两个 run（STUB_SCENARIO=ok）。断言：两个 attempt 中恰好一个存在 claim/ 目录，且任一输出含 \"BUDGET_EXCEEDED\"。机制：TaskLock 用 mkdir 创建 .task.lock 目录实现互斥，在锁内重算 budget_usage，超额时报 \"BUDGET_EXCEEDED：已达到 max_attempts_total=%d。\"。静态 1 个 check，运行时 1 个。依赖后台并发进程和 git worktree。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未断言失败方的退出码（DispatchError 默认 3）。BUDGET_EXCEEDED 可能来自锁外的预判（L3274-3275），也可能来自锁内（L3302-3303），取决于时序，测试不区分。锁等待超时和过期锁清理都未覆盖。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实。补充：两个 run 都会先在锁外完成预检，再进入 TaskLock；失败一方的退出码是 DispatchError 默认值 3，测试没有断言。"
+   }
+  },
+  {
+   "id": "LB-TEST-005",
+   "title": "test_scope：范围违规、依赖变更、可疑命令与 G2",
+   "source_locations": [
+    "tests/test_dispatch.py:346 test_scope",
+    "scripts/pi_dispatch.py:2436 evaluate_scope",
+    "scripts/pi_dispatch.py:4189-4193 evaluate_gates G2"
+   ],
+   "rule": "场景 scope；静态 7 个 check，运行时 7 个。scope.json 的 violations 含 (README.md, out_of_scope)、(package.json, forbidden_path)、(package.json, dependency_change)；observations.new_ignored_paths 含 \".env\"；events-summary.suspicious_commands 中有 label==\"git 写操作\" 的条目（来自 git push origin HEAD）；check 之后 verdict PASS 退出码非 0，输出含 \"G2\"；verdict REVISE --class SCOPE_VIOLATION 退出 0，state=REVISE；branch --rework 退出 0，输出含 \"pi-rework/\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_scope check \"README out_of_scope\"",
+    "tests/test_dispatch.py::test_scope check \"package.json forbidden + dependency\"",
+    "tests/test_dispatch.py::test_scope check \".env reported as new ignored path\"",
+    "tests/test_dispatch.py::test_scope check \"git push flagged\"",
+    "tests/test_dispatch.py::test_scope check \"PASS refused on scope violation (G2)\"",
+    "tests/test_dispatch.py::test_scope check \"REVISE recorded\"",
+    "tests/test_dispatch.py::test_scope check \"rework branch from REVISE\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "该场景下 D02 引用 scope 证据，G3 同样应失败，但测试只断言了 G2。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "7 个 check 属实。已从源码确认：同一次 verdict 中 G3 确实失败（D02 的证据 scope 有违规，scripts/pi_dispatch.py:4232），但测试只断言了 'G2'。"
+   }
+  },
+  {
+   "id": "LB-TEST-006",
+   "title": "test_events_and_thinking：事件完整性、G1、豁免、实际模型/思考级别/费用证据",
+   "source_locations": [
+    "tests/test_dispatch.py:367 test_events_and_thinking",
+    "tests/test_dispatch.py:383-393 场景循环",
+    "scripts/pi_dispatch.py:2326-2366 summarize_events 问题判定",
+    "scripts/pi_dispatch.py:3395-3404 collect 状态判定"
+   ],
+   "rule": "静态 7 个 check；运行时 11 个（L383-393 的循环有 5 例，各 1 个 check）。error 场景：run 退出 1 但 state=NEEDS_REVIEW；verdict PASS 退出码非 0，输出含 \"G1\"；ACCEPTED_WITH_EXCEPTION --waive G1=trial --decided-by owner 退出 0；metrics 含 \"| 首次验收通过率（PASS） | 0% |\" 和 \"| 豁免接受（ACCEPTED_WITH_EXCEPTION）任务 | 1 |\"。循环各例：model → model_match 为假（原文 \"实际模型 ... 与要求 ... 不一致或缺失\"）；startfail → state=INFRA_FAILURE；nosettle → complete 为假，且 problems 中有含 \"agent_settled\" 的一条（原文 \"没有 agent_settled：该 pi 版本应以它结束\"）；ok + STUB_PTL=low → ok 为假，problems 含 \"思考级别\"（原文 \"提供商报告的思考级别 ['low'] 与要求的 high 不一致\"）；ok + STUB_NOCOST=1 → cost.total 为 None，cost.status==\"unknown\"。之后 status 输出含 \"unknown\"。noreport → check 后 verdict PASS 退出 0（缺少 JSON 报告不阻止 PASS）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"PASS refused on G1\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"ACCEPTED_WITH_EXCEPTION with waiver\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"metrics counts exception acceptance separately\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case model {}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case startfail {}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case nosettle {}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case ok {'STUB_PTL': 'low'}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case ok {'STUB_NOCOST': '1'}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"status shows unknown cost\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"missing JSON report does not block PASS\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "费用为 0 时被判为 unknown（cost_total>0 才算 estimated，pi_dispatch.py:2334-2336），测试把这一点当作“没有费用”的等价物。没有 providerThinkingLevel 与要求一致的正例。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "场景循环在 L382-393，不是 383-393。静态 7 个、运行时 11 个 check；cost 在 cost_total>0 时才算 estimated（L2334-2336），否则 total=None（L2392），均属实。补充：“status shows unknown cost”用的是循环里最后一个仓库（STUB_NOCOST 例），依赖循环顺序；run 的退出码只有在 NEEDS_REVIEW 且 events ok 时才为 0（L3349）。"
+   }
+  },
+  {
+   "id": "LB-TEST-007",
+   "title": "test_commit_outside_main：HEAD 移动、越界写入与主工作区变化",
+   "source_locations": [
+    "tests/test_dispatch.py:404 test_commit_outside_main"
+   ],
+   "rule": "静态 6 个 check，运行时 6 个。commit 场景：scope.json 中有 kind==\"head_moved\" 的违规。outside 场景（STUB_MAIN_REPO=仓库根）：events-summary.outside_worktree_paths 非空，observations.main_repo_changed 为真。touchmain 场景（运行前 README.md 已是脏文件）：main_repo_changed 为真；main_repo_changes.other_paths 中有以 README.md 结尾的路径，head_changed 为假；summary.md 中 \"## 复审需要关注\" 之后的内容含 \"README.md\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_commit_outside_main check \"HEAD moved is a violation\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"outside path flagged\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"main repo change detected\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"re-modification of an already dirty file detected (Codex #12)\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"main repo change lists the non-planner path\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"summary names the changed main repo file\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "主工作区变化只进 G2 的 notes（pi_dispatch.py:4195-4196），不阻止 PASS；测试未经 verdict 验证这一点。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "6 个 check 属实；主工作区变化只进 G2 的 notes（L4195-4196）。"
+   }
+  },
+  {
+   "id": "LB-TEST-008",
+   "title": "test_timeout：超时判定与孙进程回收",
+   "source_locations": [
+    "tests/test_dispatch.py:425 test_timeout",
+    "tests/test_dispatch.py:66 alive",
+    "tests/test_dispatch.py:84 kill_hard",
+    "scripts/pi_dispatch.py:649 run_supervised",
+    "scripts/pi_dispatch.py:670 kill_method job-object"
+   ],
+   "rule": "配置 kill_grace_seconds=2；执行 run --timeout 6，STUB_SCENARIO=hang。断言：state=TIMEOUT 且 run.json 的 timed_out 为真；耗时小于 40s；sleep 1 之后 worktree/child.pid 记录的孙进程不再存活。check 名称带 run.kill_method，按源码推断 Windows 上为 \"job-object\"，其他平台为 \"process-group\"。alive() 在 Windows 上用 tasklist /FI \"PID eq n\" /NH，在 POSIX 上用 os.kill(pid,0) 加 /proc/<pid>/stat 判断僵尸进程。收尾对孙进程执行 kill_hard（Windows 用 taskkill /F /T，否则 SIGKILL）。静态 3 个 check，运行时 3 个。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout enforced quickly (<40s)\"",
+    "tests/test_dispatch.py::test_timeout check \"grandchild process killed (<kill_method>)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "child.pid 不存在时 grandchild 为 None，第三个 check 失败，但不抛异常。超时后的 verdict（G1 \"运行超时\"）未测。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实：kill_method 在 L670 为 job-object，L675 为 process-group；run_supervised 的参数顺序已核对。"
+   }
+  },
+  {
+   "id": "LB-TEST-009",
+   "title": "test_dispatcher_killed：调度器被强杀后的进程回收与恢复",
+   "source_locations": [
+    "tests/test_dispatch.py:443 test_dispatcher_killed",
+    "scripts/pi_dispatch.py:501-505 Job Object KILL_ON_JOB_CLOSE",
+    "scripts/pi_dispatch.py:556 PR_SET_PDEATHSIG",
+    "scripts/pi_dispatch.py:3411-3440 cmd_collect --recover"
+   ],
+   "rule": "后台 Popen 启动调度器 run（STUB_SCENARIO=hang），最多轮询 150×0.2s，等待 pid.txt 和 worktree/child.pid 出现。之后：Windows 执行 taskkill /PID <dispatcher> /F（不带 /T），其他平台发 SIGKILL；wait 后 sleep 2。平台分支：Windows 断言 \"Job Object reaps pi and grandchild\"（pi 和孙进程都不存活）；Linux 只断言 \"PDEATHSIG stops pi\"，孙进程残留时只打印 NOTE；其他平台只打印 NOTE，没有 check。随后：mark ABANDONED（不带 --force）退出码非 0，输出含 \"--force\"；collect --recover 退出 0，且 state 为 CANCELLED 或 INFRA_FAILURE。check 静态 4 个；运行时 Windows 3 个、Linux 3 个、其他平台 2 个。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"Job Object reaps pi and grandchild\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"PDEATHSIG stops pi\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"mark ABANDONED on RUNNING requires --force\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "恢复后的状态断言接受两种结果，不能区分“取消”和“基础设施失败”。30s 内 pid 文件未出现时，read_text 抛异常，整个函数记为一条失败。collect 在 pid 仍存活时拒绝（L3424-3425）未测。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "平台分支与 check 数属实，但对恢复结果的理解需要修正：调度器是在 run_supervised 期间被杀的，没有写出 run.json，cmd_collect 会用 run-started.json 合成 interrupted=True、spawn_error=None 的 run_info（scripts/pi_dispatch.py:3426-3434），collect 随后走 CANCELLED 分支（L3399-3400）。正常情况下应得到 CANCELLED，只有候选记录失败时才得 INFRA_FAILURE；测试两者都接受，所以没有锁定。mark ABANDONED 的拒绝原文为“attempt 处于 RUNNING；如果确认调度器已退出，可加 --force 放弃”（L4415），退出码 3。"
+   }
+  },
+  {
+   "id": "LB-TEST-010",
+   "title": "test_stuck_states：已领取未启动的恢复与 PREPARING 强制放弃",
+   "source_locations": [
+    "tests/test_dispatch.py:479 test_stuck_states",
+    "scripts/pi_dispatch.py:3255-3257 cmd_run 已领取拒绝",
+    "scripts/pi_dispatch.py:3428-3433 cmd_collect 未启动恢复"
+   ],
+   "rule": "静态 3 个 check，运行时 3 个；不启动 pi。prepare 后手工创建 claim/：run 退出码非 0，输出含 \"已领取\"（原文 \"attempt 状态为 PREPARED（已领取），只能运行未领取的 PREPARED attempt\"）；collect --recover 退出 0，state=INFRA_FAILURE（spawn_error \"领取后调度器退出，未启动 Pi\"）。第二个 attempt 用 pd.set_state 直接置为 PREPARING，mark ABANDONED --force --reason stuck 后 state=ABANDONED。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_stuck_states check \"claimed PREPARED attempt cannot run again\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed-but-not-started attempt recovers as INFRA_FAILURE\"",
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "状态由测试直接写入 state.json 注入，没有经过真实崩溃。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实：拒绝原文在 L3256-3257；恢复时没有 run-started.json，spawn_error 为“领取后调度器退出，未启动 Pi”（L3432），结果为 INFRA_FAILURE。"
+   }
+  },
+  {
+   "id": "LB-TEST-011",
+   "title": "test_preflight_and_budget：预检、次数预算与固定思考级别",
+   "source_locations": [
+    "tests/test_dispatch.py:495 test_preflight_and_budget",
+    "scripts/pi_dispatch.py:2014 pi_preflight",
+    "scripts/pi_dispatch.py:2668-2700 resolve_executor",
+    "scripts/pi_dispatch.py:3183-3186 cmd_prepare 预算"
+   ],
+   "rule": "attempts=2；静态 7 个 check，运行时 7 个。STUB_MODELS=\"openrouter stepfun/step-3.7-flash\" 时 run 退出码非 0，state 仍为 PREPARED，且没有 claim/（原文 \"预检失败：attempt 保持 PREPARED，未计入尝试次数\"）；STUB_AUTH=not_ready 时退出码非 0，输出含 \"auth\"；PI_EXEC_MODEL=other/model 时退出码非 0，输出含 \"冲突\"（\"... 与合同 executor.model=... 冲突\"，EXIT_USAGE）；修正后 run 得到 NEEDS_REVIEW；第二个 attempt 运行后，第三次 prepare 退出码非 0，输出含 \"BUDGET_EXCEEDED\"（\"任务 %s 已运行 %d 次，达到 max_attempts_total=%d\"）。allowlist 仓库配置 allowed_executors [{step, step-5-preview, high}] 时 prepare 退出 0；v2 合同 thinking=low 时 prepare 退出码非 0，输出含 \"思考级别\"（\"该执行模型的思考级别固定为 high，合同为 low\"）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"auth not ready -> preflight fail\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"env/contract model conflict refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"run after fixing env\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"allowlisted executor with pinned high thinking ok\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"pinned thinking mismatch refused\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "预检还有这些问题没有对应测试：不支持的参数、思考级别不在帮助列表中、未知工具名、版本不可读或低于 0.80.4。max_wall_seconds_total 预算未测。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实。补充各条拒绝的退出码：预检失败为 3（L3284 附近），PI_EXEC_* 与合同冲突为 EXIT_USAGE=2（L2677-2678），prepare 预算超限为 3（L3183-3185），固定思考级别不符为 EXIT_BLOCKED=3，该检查在 prepare 阶段经 resolve_executor 执行（L2696-2698）。另外，allowed_executors 未命中（EXIT_BLOCKED）也没有测试。"
+   }
+  },
+  {
+   "id": "LB-TEST-012",
+   "title": "test_validate：合同拒绝原因、Markdown/JSON 一致性与示例合同",
+   "source_locations": [
+    "tests/test_dispatch.py:520 test_validate",
+    "tests/test_dispatch.py:524-530 expect_error",
+    "tests/test_dispatch.py:547-557 仅改 JSON 的一致性循环",
+    "tests/test_dispatch.py:563-581 示例合同",
+    "scripts/pi_dispatch.py:1656 validate_plan"
+   ],
+   "rule": "静态 3 个 check：其中 1 个在内部函数 expect_error 中。运行时 18 个：expect_error 调用 15 次，另有 prepare 1 次、示例 2 次。expect_error 从 v2 起递增版本号写合同，断言 validate 退出码非 0、输出含给定片段、且不含 \"Traceback\"。15 例（改动 → 期望片段）：thinking=turbo → \"thinking\"；allowed_modified 含 AGENTS.md → \"受保护\"；allowed_new 含 .codex/config.toml → \"受保护\"；\"../x.py\" → \"'..'\"；executor=[\"x\"] → \"executor\"；authorization.executor=[{}] → \"authorization.executor\"；evidence=[{\"a\":1}] → \"evidence\"；checks=[] → \"required\"；\"## Budget\" 改为 \"## Budgets\" → \"Budget\"；追加 \"【待填：x】\" → \"占位符\"。以下 5 例 Markdown 不变、只改 JSON：argv → \"argv\"；max_attempts_total=20 → \"max_attempts_total\"；integration=[\"deploy\"] → \"integration_actions\"；forbidden 加 secrets.txt → \"secrets.txt\"；thinking=low → \"thinking\"。.gitignore 不忽略 .agent/runs 时，prepare 退出码非 0，输出含 \".gitignore\"（EXIT_BLOCKED，发生在 worktree add 之前）。读取 KIT/.agents/skills/plan-task/examples 下的 normalize-query.v1 和 auth-refresh-401.v1，把两个虚构 SHA 替换为测试基线，并先提交 5 个 Repository facts 文件；两者 validate 退出 0，输出含 \"0 个警告\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"invalid thinking rejected\"",
+    "tests/test_dispatch.py::test_validate check \"protected path in scope rejected\"",
+    "tests/test_dispatch.py::test_validate check \"codex config dir is protected\"",
+    "tests/test_dispatch.py::test_validate check \"parent traversal rejected\"",
+    "tests/test_dispatch.py::test_validate check \"wrong executor type reported, no crash\"",
+    "tests/test_dispatch.py::test_validate check \"non-string authorization items, no crash (Codex #11)\"",
+    "tests/test_dispatch.py::test_validate check \"non-string evidence items, no crash\"",
+    "tests/test_dispatch.py::test_validate check \"contract without required checks rejected (Codex #13)\"",
+    "tests/test_dispatch.py::test_validate check \"missing md section rejected\"",
+    "tests/test_dispatch.py::test_validate check \"placeholder rejected\"",
+    "tests/test_dispatch.py::test_validate check \"argv change detected\"",
+    "tests/test_dispatch.py::test_validate check \"budget change detected\"",
+    "tests/test_dispatch.py::test_validate check \"integration change detected\"",
+    "tests/test_dispatch.py::test_validate check \"forbidden path change detected\"",
+    "tests/test_dispatch.py::test_validate check \"thinking change detected\"",
+    "tests/test_dispatch.py::test_validate check \"prepare refuses when .agent/runs not ignored\"",
+    "tests/test_dispatch.py::test_validate check \"example normalize-query.v1 validates\"",
+    "tests/test_dispatch.py::test_validate check \"example auth-refresh-401.v1 validates\"",
+    "tests/test_dispatch.py::test_validate check \"<dynamic: name>\"",
+    "tests/test_dispatch.py::test_validate check \"<dynamic: \\\"example %s validates\\\" % key>\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "断言只要求退出码非 0，没有锁定码值（prepare 为 EXIT_USAGE 2，validate 的码值未核实）。依赖 kit 工作区的示例合同文件。拒绝的先后顺序和同时存在多个缺陷的情况未测。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "规则部分属实，.gitignore 前置检查确为 EXIT_BLOCKED=3（L3174-3175，在 worktree add 之前）。open_questions 中“prepare 为 EXIT_USAGE 2，validate 的码值未核实”有误：validate 有错误时返回 EXIT_USAGE=2（L3004-3006）；prepare 只有在合同校验失败时才是 2，.gitignore 拒绝是 3。related_tests 里的 '<dynamic: ...>' 是重复的占位条目，应删除。示例合同确实包含那两个虚构 SHA。"
+   }
+  },
+  {
+   "id": "LB-TEST-013",
+   "title": "test_output_paths：--out 路径保护",
+   "source_locations": [
+    "tests/test_dispatch.py:584 test_output_paths"
+   ],
+   "rule": "场景 ok；静态 3 个 check，运行时 3 个。metrics --out README.md 的退出码 == pd.EXIT_USAGE（2），且 README.md 内容仍为 \"# Test\\n\"；doctor --out .agent/runs/normalize-query/attempt-001/events.jsonl 的退出码 == EXIT_USAGE；metrics --out .agent/runs/_reports/metrics.md 退出 0，且文件存在。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_output_paths check \"metrics --out README.md refused, README untouched\"",
+    "tests/test_dispatch.py::test_output_paths check \"doctor --out into evidence refused\"",
+    "tests/test_dispatch.py::test_output_paths check \"metrics --out under _reports allowed\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3 个 check 属实。"
+   }
+  },
+  {
+   "id": "LB-TEST-014",
+   "title": "test_units：glob fullmatch、invalid_path 与 on_spawn 失败处理",
+   "source_locations": [
+    "tests/test_dispatch.py:597 test_units",
+    "scripts/pi_dispatch.py:649 run_supervised",
+    "scripts/pi_dispatch.py:2436 evaluate_scope"
+   ],
+   "rule": "不建 git 仓库，不经过命令行；静态 3 个 check，运行时 3 个。compile_patterns([\"src/a.py\"]) 不匹配 \"src/a.py\\n\"，匹配 \"src/a.py\"。对路径含换行符的条目和带 path_decode_error 的条目，evaluate_scope 给出的 violations kinds == [\"invalid_path\", \"invalid_path\"]。run_supervised 启动 [PY, -c, sleep 60]（timeout 120，grace 2.0），on_spawn 抛出 RuntimeError(\"on_spawn failed\")：异常向上传播，1s 后被捕获 PID 的子进程不再存活。依赖后台子进程。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_units check \"glob uses fullmatch (no trailing newline match)\"",
+    "tests/test_dispatch.py::test_units check \"control chars / decode errors are invalid_path violations\"",
+    "tests/test_dispatch.py::test_units check \"on_spawn failure terminates the child (Codex #2)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "normalize_contract 只作为输入准备调用，默认值没有被断言。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实：run_supervised 的第 6、7 个参数是 timeout=120 和 grace=2.0；on_spawn 抛出异常后走 BaseException 分支终止进程树并重新抛出（L707-710）。"
+   }
+  },
+  {
+   "id": "LB-TEST-015",
+   "title": "test_repo_config_features：仓库级受保护路径与提交尾注",
+   "source_locations": [
+    "tests/test_dispatch.py:625 test_repo_config_features"
+   ],
+   "rule": "静态 6 个 check，运行时 6 个。配置 extra_protected_paths=[\"spec.md\", \".orchestration/**\"]，commit_trailers=[\"Co-Authored-By: Example Bot <bot@example.invalid>\"]。v2 合同的 scope 含 spec.md 时，validate 退出码非 0，输出含 \"spec.md\" 和 \"受保护\"。evaluate_scope 对 .orchestration/plan.md 的 kinds == [\"protected_path\"]。instruction.md 含 \"`.orchestration/**`\"。PASS 后 branch 的提交消息含该尾注和 \"Pi-Executor: step/step-5-preview (thinking high)\"。commit_trailers 含换行时，validate 仍退出 0；branch --name pi/second 的退出码 == EXIT_USAGE，输出含 \"commit_trailers\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_repo_config_features check \"repo-level protected path rejected in scope\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"repo-level protected path is a violation\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"instruction lists repo read-only paths\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"branch commit carries executor and trailers\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"invalid commit_trailers config is ignored by validate\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"invalid commit_trailers config rejected by branch\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "6 个 check 属实；L649 的 write_config 会覆盖整个配置，extra_protected_paths 随之被丢弃。"
+   }
+  },
+  {
+   "id": "LB-TEST-016",
+   "title": "test_wrapper_interpreters_and_literal_arguments：dispatch-pi.sh 的解释器选择与参数原样传递（仅 POSIX）",
+   "source_locations": [
+    "tests/test_dispatch.py:656 test_wrapper_interpreters_and_literal_arguments",
+    "tests/test_dispatch.py:658-659 IS_WINDOWS return"
+   ],
+   "rule": "Windows 上直接 return（L658-659），运行时 0 个 check。POSIX 上，shell 取 shutil.which(\"bash\") 和 /bin/bash 去重后的集合，运行时 check 数 = 4 × shell 数。做法：把 dispatch-pi.sh 复制到含空格的目录，放一个假的 pi_dispatch.py，它打印 json(argv) 并 exit 7；PATH 只含 bindir，里面有 python3、python、py 三个 shim 和 dirname 的符号链接；传入参数 [\"validate\", \"a plan.v1\", \"\", \"--literal=$(not-a-command)\", \"`not-a-command`\", \"中文\"]。WRAPPER_TEST_ACCEPT=none 时退出 2，输出含 \"需要 Python 3.8+\"；为 python3、python、py 时退出 7，JSON 输出与传入参数逐项相等。静态 2 个 check。依赖 bash 和符号链接。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_wrapper_interpreters_and_literal_arguments check \"wrapper reports unsupported interpreters: <shell>\"",
+    "tests/test_dispatch.py::test_wrapper_interpreters_and_literal_arguments check \"wrapper preserves argv and exit code via <python3|python|py>: <shell>\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "注释称 Windows 由 test_setup_wrapper_doctor 覆盖，但那里只断言 validate 退出 0 且含 \"合同有效\"。Windows 上参数原样传递、解释器回退和 exit 7 透传都未测。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实：Windows 上在 L658-659 直接 return，POSIX 上运行时 check 数为 4×shell 数。"
+   }
+  },
+  {
+   "id": "LB-TEST-017",
+   "title": "test_setup_wrapper_doctor：setup、bash 包装、doctor 与 smoke",
+   "source_locations": [
+    "tests/test_dispatch.py:701 test_setup_wrapper_doctor",
+    "tests/test_dispatch.py:710-714 bash 探测",
+    "scripts/pi_dispatch.py:4657 cmd_doctor",
+    "scripts/pi_dispatch.py:4765 cmd_smoke"
+   ],
+   "rule": "静态 11 个 check；找到 bash 时运行时 11 个，否则 10 个。setup S01 在 prepare 时运行，并生成 setup/S01.log；setup 修改已跟踪的 README.md 时 prepare 退出码非 0，state=PREPARE_FAILED。bash 包装：Windows 上若存在 C:\\Program Files\\Git\\bin\\bash.exe 就用它，否则用 shutil.which(\"bash\")；执行 scripts/dispatch-pi.sh validate 应退出 0，输出含 \"合同有效\"；找不到 bash 时静默跳过。doctor --provider step --model step-5-preview --thinking high 的 JSON 输出：ok、executor_model_listed 为真，executor_model_list.exit_code==0、rows==1，repository.git_identity 为 True。STUB_LIST_FAIL=1：退出码非 0，executor_model_listed 为 None，problems 含 \"list-models 执行失败（退出码 1）\" 与 \"沙箱外\"，stderr_tail 含 \"EPERM\"，且没有 \"不在可用模型列表中\"；输出不含 DEMO_TOKEN_FOR_REVIEW，含 \"<redacted>\"。STUB_MODELS=\"\"：executor_model_listed 为 False，empty_reason 为 no_models，problems 含 \"pi 没有任何可用模型\"。STUB_MODELS=\"step other-model\"：empty_reason 为 no_match，problems 含 \"没有与 step-5-preview 匹配的\"。STUB_MODELS=\"other step-5-preview\"：某条 problem 以 \"不在可用模型列表中\" 结尾。smoke --provider step --model step-5-preview 退出 0，ok 为真，steps 长度为 2。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"setup command runs in prepare\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"setup modifying tracked file -> PREPARE_FAILED\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"bash wrapper finds python\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor ok with stub\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor records the model list and the git identity\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor reports a failing list-models run as such\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor redacts credentials echoed by pi\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor explains that pi has no models at all\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor explains that no model matches\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"a model listed under another provider keeps the short message\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"smoke both steps ok\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "找不到 bash 时少一个 check 且不报告，基线需要记录 bash 路径。smoke 在系统临时目录中运行。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "11 个 check 属实；bash 包装的 validate 在 setupdirty 仓库中运行。smoke 使用 tempfile.mkdtemp(prefix='pi-smoke-')（scripts/pi_dispatch.py:4778），即系统临时目录。"
+   }
+  },
+  {
+   "id": "LB-TEST-018",
+   "title": "test_feedback_v11（1.1.0 反馈）：计划路径、status、运行目录读取、越界失败、规划路径、范围重叠、baseline、derive-json",
+   "source_locations": [
+    "tests/test_dispatch.py:814 test_feedback_v11",
+    "tests/test_dispatch.py:753 DERIVE_MD"
+   ],
+   "rule": "静态 28 个 check，运行时 28 个；场景 ok、readplan、typo、planner（STUB_MAIN_REPO）。validate 接受相对的 .md 路径和绝对的 .json 路径；计划路径在 .agent/plans 之外时报 \"必须位于\"；\"Not A Key\" 报 \"task-id.vN\"；含 U+200E 时退出 0 并警告 \"U+200E\"。status 接受 attempt 引用和绝对路径（输出中 \"attempt-\" 只出现 1 次）。readplan：outside_worktree_paths 为空，own_run_paths 非空；summary 含 \"## 备注\"，不含 \"工作副本外路径\"。typo：越界记录的 failed 为 True、exists 为 False，summary 含 \"调用失败\" 和 \"路径不存在\"。instruction 含 \"读写工作目录中的文件一律使用相对路径\"、\"git stash\"、\"date +%s\"、\"五分之一\"。planner_paths({}) 含 \".agent/design/**\"。planner 场景：变化计入 planner_paths，other_paths 为空，head_changed 为假；\"复审需要关注\" 中不含 next-task.v1.md，summary 含 \"规划路径有变化\"。范围重叠：prepare other-task 退出 0，输出含 \"改动范围重叠\" 和 \"src/normalize.py\"。baseline 退出 0，输出含 \"V01\"，不创建 attempt；expect_on_base=fail 的探针在基线上已通过时，baseline 退出码非 0，输出含 \"区分不了\"，baseline/02/checks.json 的 mismatches==[\"V02\"]；expect_on_base=sometimes 时 validate 失败并报 \"expect_on_base\"。derive-json --title 输出含 \"合同有效\"：派生出的 checks 保留 argv、cwd、timeout、output_must_match 和 output_must_not_match=[\"FAILED\"]，V02 的 expect_on_base 为 fail，V03 的 required 为 False；scope、DoD 证据、integration 与 budget 2400 都与 Markdown 一致；不带 --force 时拒绝覆盖（\"--force\"）；--print 从 Goal 取标题。SUSPICIOUS_COMMANDS[0][0] 不匹配 git stash list/show -p、git tag -l，匹配 git stash、git stash push、git tag v1、git push。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"validate accepts a relative md path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"validate accepts an absolute json path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"plan path outside .agent/plans rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"bad plan key still explains the format\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"invisible format character is warned\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"status accepts an attempt ref\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"status accepts an attempt path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"reading the attached plan.md is not an outside access\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"own run-dir reads go to notes\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"failed outside access is marked failed and missing\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"summary explains the failed, missing path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"instruction asks for relative paths\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"instruction forbids stashing own changes\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"instruction tells the executor how to track elapsed time\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"planner paths include the design folder by default\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"planner path change classified as planner\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"planner change is a note, not an attention item\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"prepare warns about an overlapping pending attempt\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"baseline runs checks on base without an attempt\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"baseline flags a probe that already passes on base\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"baseline record lists the mismatch\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"invalid expect_on_base rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json writes a contract that validates\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived checks keep argv, cwd, timeout and patterns\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived scope and DoD\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json refuses to overwrite without --force\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json --print takes the title from Goal\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"read-only git stash/tag listing is not a write op\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "函数名中的 v11 指工具 1.1.0 版本（docstring L815），与 v2 新架构无关。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "28 个 check 属实。只读命令样本共 4 条，另有 'git status && git stash list'，草稿没有列出。"
+   }
+  },
+  {
+   "id": "LB-TEST-019",
+   "title": "test_feedback_v12（1.2.x 反馈）：合同矛盾提示、SUPERSEDED、文本工具调用、可疑命令与临时路径证据",
+   "source_locations": [
+    "tests/test_dispatch.py:936 test_feedback_v12",
+    "tests/test_dispatch.py:926 AMBIGUITY_PLAN",
+    "tests/test_dispatch.py:969-1044 歧义语句表",
+    "scripts/pi_dispatch.py:4183-4187 G3 notes"
+   ],
+   "rule": "静态 34 个 check，运行时 34 个；场景 ambiguous、conflict、textcall、tmpclean、tempsequence、ok。ambiguous：ambiguity_mention_count==1，kind 为 thinking，excerpt 含 \"step 4\"；\"复审需要关注\" 中含 \"提到合同的歧义、矛盾或一致性\" 和 \"都为空\"；instruction 含 contract_conflicts、\"前后矛盾\"、'\"contract_conflicts\": []'；verdict REVISE --class PLAN_ERROR 退出 0，输出含 \"NOTE  G3\"。conflict：report-status.contract_conflicts==1，unresolved_questions==0；\"复审需要关注\" 中含 \"报告了 1 处合同矛盾\"，提及条目移到 \"## 备注\"。单个 check 覆盖 63 条语句的 ambiguity_mentions 判定（否定、双重否定、上下文）；ambiguity_domain_words(AMBIGUITY_PLAN)==[\"ambigu\"]，领域词被跳过。范围重叠只提示每个任务最新的 attempt（attempt-002），INTEGRATED 后不再提示；mark SUPERSEDED 缺 --ref 时报 \"--ref\"，REVISE 状态可以标为 SUPERSEDED，之后不再计入待集成；对 PREPARED 状态拒绝，输出含 \"PREPARED\"。machine_summary 在 V02 行写明 \"完成后它必须通过\"。textcall：problems 含 \"未执行的工具调用\"，verdict PASS 被拒且输出含 \"G1\"。branch_subject 7 例；derive-json 的标题取自过长的 Goal 时输出含 \"NOTE\" 和 \"--title\"，给了 --title 时没有 NOTE；_cache_dir_cleanup 9 例（只认相对路径下的缓存目录）；_live_progress 以 \"live:3t\" 开头，在 LONG_THINKING_DELTAS 条件下输出 \"长时间没有工具调用（%d 个增量）\"。tmpclean：可疑命令的 match 依次为 ['rm -rf \"$TMPD\"', 'rm -rf \"$T\"/build']，match_line 7/command_lines 7，summary 含 '命令第 7 / 7 行 `rm -rf \"$T\"/build`'；cache_dir_cleanups 为 \"rm -rf src/__pycache__ tests/__pycache__\"；temp_path_uses 共 3 条，\"复审需要关注\" 中含 \"系统临时路径线索（3 个命中片段）\"。tempsequence：同一命令中后出现的 /tmp/backup_dir 也被记录；summary 含 \"不能证明此前未覆盖既有内容\"；temp_path_use_count==56，保留 50 条，summary 含 \"另有 6 个命中片段未展示\" 和 \"events.jsonl 原始命令\"。单值字段后带括号说明时，派生结果去掉说明（dependency_changes 为 forbidden，risk_level 为 medium）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v12 check \"ambiguity mention in thinking is recorded\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"undeclared ambiguity is an attention item\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"instruction asks to declare contract conflicts\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"verdict prints the G3 note about undeclared ambiguity\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"report-status counts contract conflicts\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"declared conflicts need a ruling; the mention becomes a note\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"ambiguity detector handles negation and context\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"domain words come from the plan body, not stop conditions\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"domain words are skipped\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"overlap warning names the latest pending attempt only\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"no overlap warning once the latest attempt is integrated\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED needs --ref and --reason\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"REVISE attempt can be marked SUPERSEDED\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"a superseded attempt is not pending integration\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED is refused for an attempt that never ran\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"machine summary explains a base-failing probe\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"textual tool call in the final message is an integrity problem\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"PASS is refused when the run ended on a textual tool call\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"branch subject does not repeat the task id\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"derive-json notes a long title taken from Goal\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"no title note when --title is given\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"cache dir cleanup is recognised only for relative cache paths\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"live status flags a long stretch without tool calls\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"mktemp removals are listed like any other deletion\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"suspicious command records the matched line\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"summary shows the matched line\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"cache cleanup is a note, not a suspicious command\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"temp path uses are recorded, the worktree itself is not\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"temp path uses are an attention item\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"later fixed temp path in the same command is recorded\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"temp write read and cleanup evidence all remain in summary\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"a fixed temp path late on one long line remains visible\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"summary makes truncated temp evidence explicit\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"annotated single values are derived without the note\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "63 条歧义语句合在一个 check 里，任一条失败都只显示为 1 个失败。状态由 pd.set_state 直接注入。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "34 个 check 属实；AST 统计歧义语句 63 条（L969-1043），branch_subject 7 例，_cache_dir_cleanup 9 例。"
+   }
+  },
+  {
+   "id": "LB-TEST-020",
+   "title": "test_mutate（1.3.0）：变异检查的抓住、漏掉与跳过",
+   "source_locations": [
+    "tests/test_dispatch.py:1220 test_mutate",
+    "scripts/pi_dispatch.py:3585 cmd_mutate",
+    "scripts/pi_dispatch.py:3617 prepare_fresh_workspace"
+   ],
+   "rule": "场景 ok；静态 7 个 check，运行时 7 个。spec 含 5 个变异，结果 statuses==[caught, missed, skipped, skipped, caught]，counts=={caught 2, missed 1, skipped 2, error 0}，输出含 \"抓住 2，漏掉 1，跳过 2\" 和 \"锚点不存在\"。results[3] 的 count_found==1，reason 含 \"出现 1 次，期望 2 次\"。mutations/01/ 下有 M01.log、baseline.log、spec.json。执行 worktree 中的 src/normalize.py 字节不变，candidate_files_left_modified==[]，干净副本已删除；mutate 之后 check 仍退出 0。无效 spec（command 为空、file 为 ../a.py、old==new）时退出 2，输出含 \"command\"、\"file\"、\"不构成变异\"，且不生成 mutations/02。命令本身失败时退出码非 0，输出含 \"没有通过\"，aborted==\"baseline_failed\"。依赖 git worktree（干净副本）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_mutate check \"mutate reports caught / missed / skipped\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate records the reason for a skipped mutation\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate keeps logs and the spec\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate leaves the executor worktree and candidate untouched\"",
+    "tests/test_dispatch.py::test_mutate check \"check still passes after mutate\"",
+    "tests/test_dispatch.py::test_mutate check \"invalid mutation spec is rejected with every problem listed\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate refuses when the command fails without mutations\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "spec 文件写在系统临时目录 WORK 下。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "7 个 check 属实；3617 是 cmd_mutate 中调用 prepare_fresh_workspace 的位置，函数定义在 3480。"
+   }
+  },
+  {
+   "id": "LB-TEST-021",
+   "title": "test_v2_planner_adapters（2.0.0）：技能副本同步、规划端文件提示与 wait 退出码",
+   "source_locations": [
+    "tests/test_dispatch.py:1275 test_v2_planner_adapters",
+    "scripts/pi_dispatch.py:3694 CODEX_PROJECT_DOC_MAX_BYTES",
+    "scripts/pi_dispatch.py:3917-3950 cmd_wait"
+   ],
+   "rule": "静态 18 个 check，运行时 18 个。前 3 个读取 KIT 的真实工作区：pd.adapter_drift(KIT)==([], [])；KIT 没有 CLAUDE.md，也没有 .claude/rules；KIT/AGENTS.md 大小不超过 32768。临时仓库中：没有 .agents/skills 时 sync-adapters --check 退出码非 0，输出含 \"1.x\"；副本缺失时退出 1，输出含 \"DRIFT plan-task/SKILL.md\"；sync 整目录复制；之后 --check 退出 0，输出含 \"一致\"；副本被改或多出文件时退出 1，输出含 \"plan-task/SKILL.md：内容不同\" 和 \"plan-task/stray.md：副本多出\"；再次 sync 恢复副本，不动其他技能（own-skill）。planner_file_notes 的提示：CLAUDE.md 不含 @AGENTS.md 时提示 \"@AGENTS.md\"，内容为 \"@AGENTS.md\\n\" 时不提示；AGENTS.md 超过限制时提示 \"project_doc_max_bytes\"；删掉 .agents 时提示 \"1.x\"。wait：已结束的 attempt 退出 0，输出含 \"已结束\" 和 \"NEEDS_REVIEW\"；注入 RUNNING 后，--timeout 1 --interval 0.2 退出 3，输出含 \"仍在运行\"；新 PREPARED 的 attempt 退出 3，输出含 \"PREPARED\"。instruction 含 \".agents/、.claude/、.codex/\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"kit adapters are in sync with .agents/skills\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"kit has no CLAUDE.md and no legacy rules\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"kit AGENTS.md fits Codex project_doc_max_bytes\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters refuses a repo without .agents/skills\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check reports missing copies\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters copies whole skill directories\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check passes after sync\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check reports edited and stray copies\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters restores the copy and leaves other skills alone\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"doctor notes: nothing to report for a synced repo with AGENTS.md\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"doctor notes a CLAUDE.md without @AGENTS.md\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"doctor accepts a CLAUDE.md that imports AGENTS.md\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"doctor notes an AGENTS.md over the Codex limit\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"doctor notes the 1.x layout\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"execution instructions protect .agents/ and .codex/\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "名称中的 v2 指工具 2.0.0 版本，不代表覆盖新架构。前 3 个 check 依赖 kit 工作区的真实状态：在仓库中新增 CLAUDE.md 或改动 .claude/skills 会让它们失败，这与被测代码无关。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "18 个 check 属实，CODEX_PROJECT_DOC_MAX_BYTES=32768（L3694）。前 3 个 check 依赖的 kit 前提已只读核对，目前成立：没有 CLAUDE.md，没有 .claude/rules，AGENTS.md 为 10932 字节，.agents/skills 与 .claude/skills 经 diff -rq 一致；没有调用 adapter_drift。"
+   }
+  },
+  {
+   "id": "LB-TEST-022",
+   "title": "test_v2_review_fixes（2.0.0 审查修正）：链接与 junction 边界、缺失源、wait 读不到状态",
+   "source_locations": [
+    "tests/test_dispatch.py:1380 test_v2_review_fixes",
+    "tests/test_dispatch.py:1344 _dir_link",
+    "tests/test_dispatch.py:1361 _junction_or_link",
+    "tests/test_dispatch.py:1373 _remove_dir_link",
+    "scripts/pi_dispatch.py:3943-3945 cmd_wait 未知状态"
+   ],
+   "rule": "静态 22 个 check；运行时 12 到 16 个：6 个无条件，另有 6 组链接相关的分支，每组能建链接时产生 1–2 个，不能建时产生 1 个 check(..., True) 空通过。_dir_link 先尝试 os.symlink(target_is_directory=True)，Windows 上失败后改建 junction；_junction_or_link 在 Windows 上优先建 junction。只有 Codex 端的安装不被报成副本漂移；sync-adapters 能建出副本；删掉 review-pi 源后，--check 退出 1，输出含 \"缺少源文件\"，sync 退出 1，输出含 \"review-pi\"。.claude/skills 是链接时 sync 拒绝（\"链接\"），且不写入链接目标；是 junction 镜像时，即使内容一致，--check 也拒绝，且不输出 \"一致。\"；doctor 报告链接。移除链接后 sync 重建真实副本。不跟随源技能目录中嵌套的链接，adapter_drift 同样忽略它。.agents/skills 是链接时 sync 拒绝，副本不变，doctor 报告链接。源缺失时，副本若是链接也会被报出。CLAUDE.md 是指向 AGENTS.md 的符号链接时接受；指向仓库之外时报 \"CLAUDE.md 是指向仓库之外的链接\"。state.json 被写成 \"{\" 时，wait 退出 1，输出含 \"无法确定\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_review_fixes check \"codex-only install is not reported as adapter drift\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters creates the copies\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters --check fails when one source is missing\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters reports skills it could not sync\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters refuses a linked .claude/skills and leaves the target alone\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"directory links unavailable here; link refusal not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters --check refuses a linked copy even when its content matches\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"doctor reports a linked .claude/skills\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"directory links unavailable here; linked copy not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters recreates real copies after the link is removed\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters does not follow a nested <symlink|junction> in a source skill\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"drift check ignores the nested <symlink|junction> too\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"directory links unavailable here; nested link not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"sync-adapters refuses a linked .agents/skills (<symlink|junction>)\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"doctor reports a linked .agents/skills instead of crashing\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"directory links unavailable here; linked source not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"doctor reports a linked copy even when its source is missing\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"directory links unavailable here; linked copy without source not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"CLAUDE.md linked to AGENTS.md is accepted\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"CLAUDE.md linked outside the repo is reported\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"file symlinks unavailable here; CLAUDE.md link cases not exercised\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"wait does not report an unreadable state as finished\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "建不了链接时 check 恒为 PASS，基线报告需要分开统计“真实执行”和“空通过”。本机（Windows Server 2025，管理员）能否建目录或文件符号链接未知，要看运行输出里的具体 check 名称。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "静态 22 个 check；运行时 12–16 个，按分支逐组计算属实。推断：Windows 上 _junction_or_link 先建 junction，不需要特权，所以第 2–5 组多半会真实执行；第 6 组文件符号链接取决于本机权限，需要运行确认。"
+   }
+  },
+  {
+   "id": "LB-TEST-023",
+   "title": "test_v21_codex_trial_feedback（2.1.0）：临时路径识别、脱敏、模型表解析、规则文本、尾注与 Git 身份",
+   "source_locations": [
+    "tests/test_dispatch.py:1531 test_v21_codex_trial_feedback",
+    "tests/test_dispatch.py:1528 IDENTITY_VARS",
+    "tests/test_dispatch.py:1740-1748 删除松散树对象"
+   ],
+   "rule": "静态 27 个 check；运行时 29 个（L1757-1760 对 3 个无效 --trailer 循环）；场景 checkonly、ok。单元部分：TEMP_PATH_RE 25 例；_path_forms/_mask_paths 在 3 种写法下都把 worktree 屏蔽为 <worktree>，同前缀的兄弟目录和经 .. 跳出的路径不屏蔽，按完整参数判断；summarize_events 处理 51 条命令时 temp_path_use_count==51，保留 50 条。checkonly 场景：ambiguity_mention_count==1，summary 含 \"可能只是在检查\"。redact_secrets 覆盖 34 个凭据样本，另有 PEM、NUL、深层嵌套、孤立代理码点保留转义、结构化 JSON 保留计数字段、先脱敏后截断（problems 含 \"最终 assistant 错误\" 而不含秘密）。list_models_rows 与 list_models_empty_reason 识别 no_models 和 no_match。预检：STUB_AUTH=not_ready 加 STUB_AUTH_DETAIL=apiKey=DEMO_REVIEW_SECRET 时，退出码非 0，输出含 \"auth\"，run 目录下任何文件都不含该秘密。KIT/AGENTS.md 与 pd.INSTRUCTION_TEMPLATE 都含 \"中间产物\"、\"T=$(mktemp -d)\"、'rm -rf \"$T\"'、\"不要切换到其中运行命令\"、\"不受此限\"；AGENTS.md 含 \"mkdir -p .agent/runs/_tmp\" 和 \"; exit $LASTEXITCODE\"；plan-task/SKILL.md 含 \"只选中新增测试节点\"。valid_trailer 拒绝 CR、LF、TAB 和空值。branch_subject 把换行合并为空格。没有 setup 时 prepare 提示 \"出新版本合同补上 setup\" 和 \"check --fresh 无法复现\"。Git 身份：用空的 GIT_CONFIG_GLOBAL、GIT_CONFIG_NOSYSTEM=1、user.useConfigOnly=true，并去掉 IDENTITY_VARS，doctor 的 git_identity 为 False，notes 含 \"没有可用的 Git 作者身份\"；删除松散的候选树对象（先 chmod 0o600）后，branch 退出码非 0，输出含 \"没有可用的 Git 作者身份\" 和 \"GIT_AUTHOR_NAME\"，不建分支，也不重建树。无效的 --trailer 退出 EXIT_USAGE，输出含 \"--trailer\"；配置的尾注含 CR 时退出 EXIT_USAGE，输出含 \"commit_trailers\"。--no-config-trailers --trailer 会按补丁重建树，只带本次尾注，提交含 Pi-Executor，作者为 planner <p@example.invalid>；--trailer 追加在配置尾注之后；提交对象中没有 CR。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"temp path pattern covers common forms and skips workspace paths\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"the worktree path is masked in every spelling before the temp scan\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"paths outside the worktree are not masked\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"masking works on whole arguments\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"temp path uses keep 50 records and the full count\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"a checking sentence is still mentioned, with a softened hint\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"embedded JSON keeps metadata and a JSON value of a secret key is masked whole\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"PEM blocks are masked whole, NUL and deep nesting are harmless\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"lone surrogates stay escaped so the output can be written as UTF-8\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"redact_secrets masks common credential forms\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"redacted JSON stays valid JSON\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"structured redaction keeps counts and flags\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"a long final error is redacted before it is cut\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"model table parsing ignores pi's no-model messages\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"preflight records and output are redacted\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"the temp-file exception reads the same in AGENTS.md and the executor instruction\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"planner docs carry the 2.1.0 guidance\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"trailers reject control characters\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch subject is a single line\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"prepare without setup points to a new contract version\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"doctor notes a missing git identity early\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch refuses before rebuilding the tree or creating anything when the identity is missing\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"an invalid --trailer is a usage error: 'Bad trailer'\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"an invalid --trailer is a usage error: 'Key: value\\r'\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"an invalid --trailer is a usage error: 'Key: value\\rInjected: extra'\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"a configured trailer with CR is rejected\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch rebuilds the tree and uses the per-run trailer instead of the configured one\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"--trailer is appended after the configured trailers\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch commit message has LF line endings only\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "依赖 KIT 工作区的 AGENTS.md 和 .agents/skills/plan-task/SKILL.md 原文，改动规则文本会让测试失败。删除树对象的步骤假定对象是松散的；若对象已被 pack，unlink 会抛异常，整个函数记为失败。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "静态 27 个、运行时 29 个 check 属实；TEMP_PATH_RE 样本 25 条，凭据样本 18+16=34 条。open question 的细节需要修正：对象已被 pack 时，先失败的是 os.chmod（FileNotFoundError），不是 unlink；结果仍是整个函数记为一条失败。"
+   }
+  },
+  {
+   "id": "LB-TEST-024",
+   "title": "test_v22_netperf_feedback（2.2.x）：基线落后分级、集成命令提示、autocrlf 固定与 Repository facts",
+   "source_locations": [
+    "tests/test_dispatch.py:1782 test_v22_netperf_feedback",
+    "scripts/pi_dispatch.py:4238-4253 evaluate_gates G6 行尾判定"
+   ],
+   "rule": "静态 17 个 check，运行时 17 个；场景 ok。base_sha 只落后规划路径的提交时，validate 退出 0，输出 \"NOTE  base_sha 不是当前 HEAD\" 且不含 WARN；落后代码提交时输出 \"WARN  base_sha 不是当前 HEAD\"。baseline 遇到基线上不存在的新增测试文件时，退出 0，输出 \"只新增测试文件的合同在基线上本就如此\"。branch：HEAD 仍是基线时提示 \"git merge --ff-only\"，HEAD 已前移时提示 \"git cherry-pick\"。core.autocrlf=true：meta.git_autocrlf==\"true\"，check 退出 0；之后把配置改回 false，verdict PASS 仍退出 0（快照沿用 prepare 记录的值），branch 仍退出 0。line_endings_only 能识别只差 CRLF 的两棵树，内容有差异时返回假。instruction 在有 setup 时含 \"准备阶段已经做过的事\"、\"S01\"、\"退出码 0\"，没有 setup 时不含这一节；instruction 前 200 字含 \"变异检查（mutate）\"。Repository facts 中点名的文件不在基线时，输出含 \"在基线\" 和 \"src/report.ts\"；文件都存在时不提示；路径可以相对各检查的 cwd 解析。branch 打印 \"commit=<sha> branch=pi/normalize-query-v1-a001\"。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"base behind HEAD by planner paths only is a NOTE\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"base behind HEAD by code is still a WARN\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"baseline explains a missing test file instead of implying a fix task\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch suggests ff-only while HEAD is still the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch suggests cherry-pick once HEAD moved past the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"prepare records the effective core.autocrlf\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"check passes with autocrlf=true worktree\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"verdict PASS survives a later autocrlf change (snapshot pinned to the recorded value)\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch rebuilds the tree with the recorded autocrlf\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"line_endings_only recognises CRLF-only drift\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"instruction tells the executor which setup already ran\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"instruction says the reviewer runs mutate, executor need not self-mutate\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"instruction has no setup section when the contract has no setup\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate warns about a Repository-facts file missing from the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate is quiet when every Repository-facts file exists in the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate resolves Repository-facts paths against each check cwd too\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch prints a machine-readable commit= line\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "G6 只测了“配置变化后仍通过”的正向情形；只差行尾时的失败文本（pi_dispatch.py:4244）没有经过 verdict 触发。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“instruction 前 200 字含‘变异检查（mutate）’”有误：断言针对 instruction 全文（L1863），instruction[:200] 只是失败时打印的详情。其余 17 个 check 属实。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-01",
+   "title": "C.4 旧合同默认值：没有直接覆盖",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1189-1213 normalize_contract",
+    "tests/test_dispatch.py:602 test_units",
+    "tests/test_dispatch.py:702 test_setup_wrapper_doctor"
+   ],
+   "rule": "normalize_contract 的默认值为：executor thinking=DEFAULT_THINKING，tools=DEFAULT_TOOLS，context_files=project；scope 各列表为空，dependency_changes=forbidden；authorization executor=[local_edit, local_test]，integration=[]；budget 2/1200/2400，cost_budget=None；checks 的 cwd=\".\"、required=True、expected_exit_code=0；setup 的 cwd=\".\"、expected_exit_code=0。这些默认值都没有 check 断言。测试合同 contract() 显式给出全部字段；只有 setup S01 省略 expected_exit_code，间接用到默认值 0。derive-json 的 check 断言的是从 Markdown 派生的值，不是默认值。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_units check \"control chars / decode errors are invalid_path violations\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"setup command runs in prepare\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "这是缺口，需要在 01-A02 中补默认值样本，并与旧结果做比较投影。DEFAULT_THINKING 和 DEFAULT_TOOLS 的具体值不在本区域范围内。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "默认值与源码 L1189-1213 一致。补充：DEFAULT_THINKING='high'，DEFAULT_TOOLS 为 7 项（L66-67）；setup、checks、definition_of_done 缺省为 []。间接用到默认值的还有 test_v22 的 setup（L1856）。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-02",
+   "title": "C.4 Markdown/JSON 一致性：直接覆盖",
+   "source_locations": [
+    "tests/test_dispatch.py:543-557 test_validate",
+    "tests/test_dispatch.py:896-915 test_feedback_v11",
+    "tests/test_dispatch.py:1116-1124 test_feedback_v12",
+    "tests/test_dispatch.py:1206-1216 test_feedback_v12",
+    "tests/test_dispatch.py:1869-1895 test_v22_netperf_feedback"
+   ],
+   "rule": "Markdown 不变、只改 JSON 的 argv、max_attempts_total、integration、forbidden_paths、thinking 时，validate 分别报出对应字段；缺少 Markdown 章节时报 \"Budget\"；含占位符时报 \"占位符\"。derive-json 从 Markdown 派生的合同能通过校验，字段逐项断言；括号说明被去除。instruction 带 JSON 生成的机器合同摘要，expect_on_base 探针的行写明 \"完成后它必须通过\"。Repository facts 按基线核对。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"argv change detected\"",
+    "tests/test_dispatch.py::test_validate check \"budget change detected\"",
+    "tests/test_dispatch.py::test_validate check \"integration change detected\"",
+    "tests/test_dispatch.py::test_validate check \"forbidden path change detected\"",
+    "tests/test_dispatch.py::test_validate check \"thinking change detected\"",
+    "tests/test_dispatch.py::test_validate check \"missing md section rejected\"",
+    "tests/test_dispatch.py::test_validate check \"placeholder rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json writes a contract that validates\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived checks keep argv, cwd, timeout and patterns\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived scope and DoD\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"annotated single values are derived without the note\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"machine summary explains a base-failing probe\"",
+    "tests/test_dispatch.py::test_happy check \"instruction has machine summary from JSON\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate warns about a Repository-facts file missing from the base\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未单独测试：JSON 中 allowed_modified_files、allowed_new_files、allowed_deleted_files、DoD、checks 其他字段的不一致；改 Markdown 而 JSON 不变的方向；拒绝的先后顺序。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "行号与断言属实。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-03",
+   "title": "C.4 范围检查：直接覆盖",
+   "source_locations": [
+    "tests/test_dispatch.py:346-364 test_scope",
+    "tests/test_dispatch.py:603-607 test_units",
+    "tests/test_dispatch.py:633-638 test_repo_config_features",
+    "tests/test_dispatch.py:533-535 test_validate",
+    "tests/test_dispatch.py:406-408 test_commit_outside_main"
+   ],
+   "rule": "已覆盖的违规类型：out_of_scope、forbidden_path、dependency_change、invalid_path、protected_path、head_moved，另有 new_ignored_paths 观察项。校验阶段拒绝受保护路径（AGENTS.md、.codex/、仓库级 extra_protected_paths）和 '..'。范围重叠提示只针对最新的待集成 attempt。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_scope check \"README out_of_scope\"",
+    "tests/test_dispatch.py::test_scope check \"package.json forbidden + dependency\"",
+    "tests/test_dispatch.py::test_scope check \".env reported as new ignored path\"",
+    "tests/test_dispatch.py::test_units check \"control chars / decode errors are invalid_path violations\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"repo-level protected path is a violation\"",
+    "tests/test_dispatch.py::test_validate check \"protected path in scope rejected\"",
+    "tests/test_dispatch.py::test_validate check \"parent traversal rejected\"",
+    "tests/test_dispatch.py::test_commit_outside_main check \"HEAD moved is a violation\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"prepare warns about an overlapping pending attempt\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"overlap warning names the latest pending attempt only\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：删除文件越界（allowed_deleted_files）、文件模式（mode）变化、大小写不同的受保护路径、真实的非 UTF-8 文件名（只注入了 path_decode_error 字段）。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实；通读全部测试后确认，没有任何用例删除文件或改文件模式。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-04",
+   "title": "C.4 G0–G6：部分覆盖（G0、G5 无，G3 与 G6 只有提示或正向用例）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4152-4257 evaluate_gates",
+    "tests/test_dispatch.py:374 test_events_and_thinking",
+    "tests/test_dispatch.py:359 test_scope",
+    "tests/test_dispatch.py:312 test_candidate_drift_and_artifacts",
+    "tests/test_dispatch.py:954 test_feedback_v12",
+    "tests/test_dispatch.py:1101 test_feedback_v12",
+    "tests/test_dispatch.py:1835 test_v22_netperf_feedback"
+   ],
+   "rule": "G0：没有测试让 plan.md 或 contract.json 的哈希不一致（原文 \"%s 的哈希与 prepare 时记录的不一致\"），也没有测试让基线不可用（\"基线提交不可用\"）。G1 失败有 error stopReason 和文本工具调用两种，另有 --waive G1 豁免。G2 失败有范围违规。G3 只有提示 \"NOTE  G3\"，没有失败用例（\"%s 依赖的 %s 未通过或未运行\"）。G4 失败只有“检查产生了候选之外的新文件”一种。G5 只写固定提示（L4154），没有测试。G6 只有 autocrlf 变化后 PASS 仍通过的正向用例和 line_endings_only 单元测试；\"候选文件在记录后被修改\"、\"候选补丁缺失、被改动或未通过往返校验\"、\"无法重新快照\" 都没有测试。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_events_and_thinking check \"PASS refused on G1\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"ACCEPTED_WITH_EXCEPTION with waiver\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"PASS is refused when the run ended on a textual tool call\"",
+    "tests/test_dispatch.py::test_scope check \"PASS refused on scope violation (G2)\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"verdict prints the G3 note about undeclared ambiguity\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"PASS refused when checks created files (G4)\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"verdict PASS survives a later autocrlf change (snapshot pinned to the recorded value)\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"line_endings_only recognises CRLF-only drift\"",
+    "tests/test_dispatch.py::test_happy check \"PASS accepted\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "以下是缺口：G0 失败；G1 的超时、中断、非 0 退出码经 verdict 触发；G3 失败；G4 的 \"最近一次检查不是针对当前候选\"、\"没有覆盖全部必要检查（使用了 --only？）\"、\"检查过程修改了候选文件\"、必要检查失败；G6 失败。01-A07 要求逐条映射，目前无法满足。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“G3 没有失败用例”不准确：G3 失败在 test_scope 中实际发生（L4232），只是没有被断言。未覆盖清单漏了 G4 的“没有有效的独立检查记录”（L4205，同时导致 G3 失败，L4204），以及 G1 的“缺少 run.json”、“运行被取消”（L4168、L4172）。G0 失败在 L4161/4163，G6 失败在 L4244/4248/4253/4255。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-05",
+   "title": "C.4 候选树漂移：check 与 cleanup 层直接覆盖，verdict 层缺失",
+   "source_locations": [
+    "tests/test_dispatch.py:290-302 test_candidate_drift_and_artifacts",
+    "tests/test_dispatch.py:318-327 test_cleanup_protects_unsaved_work",
+    "tests/test_dispatch.py:1252 test_mutate",
+    "tests/test_dispatch.py:1826-1851 test_v22_netperf_feedback",
+    "scripts/pi_dispatch.py:4001-4014 cmd_check"
+   ],
+   "rule": "原地 check 遇到候选之外的新文件时，以 EXIT_DRIFT(4) 拒绝；--fresh 忽略 worktree 中的额外文件；__pycache__ 视为允许的产物；cleanup 在候选文件被修改时拒绝，--force 可强制；mutate 不改动执行 worktree；autocrlf 固定为 prepare 时记录的值；line_endings_only 单元测试。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"fresh check ignores worktree extras\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"python cache files are allowed artifacts\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup refuses when candidate files were modified\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup --force removes and logs discarded content\"",
+    "tests/test_dispatch.py::test_mutate check \"mutate leaves the executor worktree and candidate untouched\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"verdict PASS survives a later autocrlf change (snapshot pinned to the recorded value)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：check 前修改候选文件（drift_before.modified）；verdict 时的 G6 漂移失败；多出文件在 G6 中只作提示（L4249-4251）。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实；G6 中多出的新文件只写入 notes（L4250）。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-06",
+   "title": "C.4 补丁往返与完整性：只有正向用例",
+   "source_locations": [
+    "tests/test_dispatch.py:258-275 test_happy",
+    "tests/test_dispatch.py:1738-1770 test_v21_codex_trial_feedback",
+    "tests/test_dispatch.py:1837 test_v22_netperf_feedback",
+    "scripts/pi_dispatch.py:2515-2533 record_candidate",
+    "scripts/pi_dispatch.py:3988-3989 check --fresh 补丁校验"
+   ],
+   "rule": "已覆盖：candidate.json 的 patch_roundtrip_verified 为真；--fresh 用“基线 + 补丁”建干净副本并通过检查；分支树等于候选树；树对象被删除后，branch 按补丁重建（身份缺失时在重建之前拒绝）；按记录的 autocrlf 重建。未覆盖：candidate.patch 缺失、被篡改、sha256 不符、往返失败时 --fresh 的拒绝（\"候选补丁缺失、被改动或未通过往返校验，不能建立干净副本\"）以及 G6 失败。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"candidate roundtrip verified\"",
+    "tests/test_dispatch.py::test_happy check \"fresh check passes in clean copy and removes it\"",
+    "tests/test_dispatch.py::test_happy check \"branch tree == candidate tree\"",
+    "tests/test_dispatch.py::test_happy check \"branch parent == base\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch refuses before rebuilding the tree or creating anything when the identity is missing\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"branch rebuilds the tree and uses the per-run trailer instead of the configured one\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"branch rebuilds the tree with the recorded autocrlf\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "完整性的负向路径是缺口。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实；candidate_patch_ok 检查 patch_roundtrip_verified、文件存在以及 sha256（L3475-3478 附近）。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-07",
+   "title": "C.4 锁与预算竞争：部分覆盖",
+   "source_locations": [
+    "tests/test_dispatch.py:330-343 test_budget_race",
+    "tests/test_dispatch.py:507-510 test_preflight_and_budget",
+    "tests/test_dispatch.py:256-257 test_happy",
+    "scripts/pi_dispatch.py:2583-2613 TaskLock",
+    "scripts/pi_dispatch.py:2562-2580 budget_usage"
+   ],
+   "rule": "已覆盖：并发的两个 run 中只有一个能领取最后一次额度，输出含 BUDGET_EXCEEDED；第三次 prepare 被 max_attempts_total 拒绝；领取时记录 reservation.timeout_seconds=600；预检失败不领取、不计次数。budget_usage 只统计有 claim/ 的 attempt；没有 run.json 的 attempt 按预留的 timeout 计入墙钟时间。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：TaskLock 等待 30s 后报 \"任务锁被占用\"；超过 300s 的过期锁清理；max_wall_seconds_total 耗尽（prepare 的 \"累计运行 %.0fs\"、run 的 \"剩余墙钟预算 %.0fs，不足 60s\"）；--timeout 被预算截短；预留时间计入墙钟。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实；budget_usage 定义在 L2566（草稿写 2562）。TaskLock 等待 30s、过期阈值 300s、报“任务锁被占用”均已核对。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-08",
+   "title": "C.4 超时：直接覆盖",
+   "source_locations": [
+    "tests/test_dispatch.py:425-440 test_timeout",
+    "tests/test_dispatch.py:610-622 test_units",
+    "tests/test_dispatch.py:1334-1335 test_v2_planner_adapters"
+   ],
+   "rule": "run --timeout 6 时状态为 TIMEOUT，run.json 的 timed_out 为真，40s 内结束，孙进程被回收；on_spawn 失败时子进程被终止；wait --timeout 1 对 RUNNING 退出 3。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout enforced quickly (<40s)\"",
+    "tests/test_dispatch.py::test_timeout check \"grandchild process killed (<kill_method>)\"",
+    "tests/test_dispatch.py::test_units check \"on_spawn failure terminates the child (Codex #2)\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：检查命令（timeout_seconds）超时、setup 超时、超时后 verdict 的 G1 失败。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-09",
+   "title": "C.4 取消：没有直接覆盖",
+   "source_locations": [
+    "scripts/pi_dispatch.py:440 _Interrupted",
+    "scripts/pi_dispatch.py:576 信号名单",
+    "scripts/pi_dispatch.py:703-706 run_supervised interrupted",
+    "scripts/pi_dispatch.py:3399-3400 collect CANCELLED",
+    "tests/test_dispatch.py:475-476 test_dispatcher_killed"
+   ],
+   "rule": "没有测试向 run 发送 SIGINT、SIGTERM、SIGHUP、SIGBREAK 或 Ctrl+C。以下路径均未被触发：run_supervised 捕获 _Interrupted 后置 interrupted=True 并终止进程树，collect 据此判为 CANCELLED，main 中 KeyboardInterrupt 打印 \"已取消。\" 并返回 130。唯一相关的断言是调度器被强杀后 collect --recover 的结果：state 为 CANCELLED 或 INFRA_FAILURE，两者都接受。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "这是缺口，需要新增取消用例，或在 01-T1 中记录为 NOT_COVERED。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“collect 据此判为 CANCELLED 的路径未被触发”有误：test_dispatcher_killed 的 collect --recover 会合成 interrupted=True（L3430），多半会经过 CANCELLED 分支，只是 L476 同时接受 INFRA_FAILURE，结果没有锁定。真正没有测试的是：信号经 _Interrupted 进入 run_supervised 的中断分支（L576、L703-706）；G1“运行被取消或调度器中断”（L4172）；main 的 KeyboardInterrupt 返回 130（L4969-4971，只适用于 run 之外的命令，因为 run 期间 SIGINT 走 _Interrupted）。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-10",
+   "title": "C.4 进程恢复：直接覆盖，但部分断言宽松",
+   "source_locations": [
+    "tests/test_dispatch.py:443-476 test_dispatcher_killed",
+    "tests/test_dispatch.py:479-492 test_stuck_states",
+    "scripts/pi_dispatch.py:3411-3440 cmd_collect"
+   ],
+   "rule": "已覆盖：Windows 上 Job Object 回收 pi 与孙进程；Linux 上 PDEATHSIG 结束 pi；RUNNING 状态执行 mark ABANDONED 需要 --force；调度器死亡后 collect --recover 可以恢复；已领取的 PREPARED 不能再次 run，恢复为 INFRA_FAILURE；PREPARING 可以用 --force 放弃。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"Job Object reaps pi and grandchild\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"PDEATHSIG stops pi\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"mark ABANDONED on RUNNING requires --force\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed PREPARED attempt cannot run again\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed-but-not-started attempt recovers as INFRA_FAILURE\"",
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：pid 仍存活时 collect 拒绝（\"记录的 Pi 进程 %s 可能仍在运行\"）；COLLECTING 状态的恢复；*.partial 重命名；macOS 等平台完全没有进程回收断言。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“macOS 等平台完全没有进程回收断言”说得过宽：test_timeout 的孙进程回收断言在所有平台都有效；只有“调度器被强杀”这一场景在非 Windows、非 Linux 平台上没有断言。另外补充两项未测：collect 在非可恢复状态或缺 --recover 时的 EXIT_USAGE（L3418-3420），以及 .partial 重命名（L3436-3439）。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-11",
+   "title": "C.4 实际模型与思考级别证据：直接覆盖，预检分支有缺口",
+   "source_locations": [
+    "tests/test_dispatch.py:251 test_happy",
+    "tests/test_dispatch.py:383-393 test_events_and_thinking",
+    "tests/test_dispatch.py:495-517 test_preflight_and_budget",
+    "tests/test_dispatch.py:715-746 test_setup_wrapper_doctor",
+    "scripts/pi_dispatch.py:2326-2362 summarize_events"
+   ],
+   "rule": "已覆盖：提供商未回报思考级别时 thinking_evidence 为 not_reported，这不算问题；实际模型不一致时 model_match 为假；回报的思考级别不一致时记为问题；模型不在列表中时预检失败；环境变量与合同冲突时拒绝；允许列表固定思考级别；validate 拒绝无效思考级别；doctor 覆盖模型列表的四种状态；分支提交记录 Pi-Executor。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"thinking not reported -> evidence says so, no problem\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case model {}\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case ok {'STUB_PTL': 'low'}\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"env/contract model conflict refused\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"pinned thinking mismatch refused\"",
+    "tests/test_dispatch.py::test_validate check \"invalid thinking rejected\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"doctor ok with stub\"",
+    "tests/test_dispatch.py::test_v21_codex_trial_feedback check \"model table parsing ignores pi's no-model messages\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"branch commit carries executor and trailers\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：预检中 \"思考级别 %s 不在本机 pi 支持列表\"、\"本机 pi 没有这些内置工具\"、\"无法读取 pi 版本\"；pi 低于 0.80.4 时退回 agent_end 判断；stderr 警告 custom_model_id、invalid_thinking、unknown_option；回报的思考级别与要求一致的正例。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实；预检的思考级别、工具名、版本分支在 L2032/2037/2043/2045。另外补充两项未测：doctor 的“思考级别 %s 不受本机 pi 支持”（L4726），以及 allowed_executors 未命中。"
+   }
+  },
+  {
+   "id": "LB-TEST-COV-12",
+   "title": "C.4 wait 与退出码语义：直接覆盖",
+   "source_locations": [
+    "tests/test_dispatch.py:1329-1341 test_v2_planner_adapters",
+    "tests/test_dispatch.py:1517-1525 test_v2_review_fixes",
+    "scripts/pi_dispatch.py:53 EXIT_*",
+    "scripts/pi_dispatch.py:307 DispatchError 默认码",
+    "scripts/pi_dispatch.py:3917-3950 cmd_wait"
+   ],
+   "rule": "wait：已结束（TERMINAL_STATES，包括 NEEDS_REVIEW）退出 0，输出 \"已结束：\"；在 WAIT_ACTIVE_STATES 中且超时时退出 3，输出 \"仍在运行：...\"；PREPARED 超过 min(60, timeout) 仍未开始时退出 3；state.json 缺失或损坏时退出 1，输出 \"无法确定 attempt 的状态\"。其他退出码：EXIT_DRIFT=4（check 漂移）；检查失败为 1；error stopReason 时 run 退出 1 但状态为 NEEDS_REVIEW（退出码不代表通过与否）；EXIT_USAGE=2（--out、trailer、commit_trailers、无效 mutate spec）；sync-adapters --check 发现漂移为 1；wrapper 在 POSIX 上透传 7，找不到解释器为 2。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\"",
+    "tests/test_dispatch.py::test_v2_review_fixes check \"wait does not report an unreadable state as finished\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"in-place check refuses unexpected extra file\"",
+    "tests/test_dispatch.py::test_candidate_drift_and_artifacts check \"check creating unexpected file -> exit 1\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_output_paths check \"metrics --out README.md refused, README untouched\"",
+    "tests/test_dispatch.py::test_mutate check \"invalid mutation spec is rejected with every problem listed\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"sync-adapters --check reports missing copies\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "未测：wait --timeout<1 时报 EXIT_USAGE；PREPARED 的 60s 宽限上限；main 返回 130；DispatchError 默认码 3 在多数拒绝测试中只断言“非 0”。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "属实。补充：wait 的“仍在运行 / 未开始”返回 EXIT_BLOCKED（L53，值为 3），与 DispatchError 默认码同值；state.json 缺失时 get_state 返回 'UNKNOWN'（L2554-2555），这种情况只测了“损坏”，没测“缺失”；main 在 DispatchError 时把 'ERROR: ...' 写到 stderr 并返回 exc.code。"
+   }
+  }
+ ],
+ "missing_items_added_by_verifier": [
+  "test_dispatch 导入时把 stdout/stderr 重设为 UTF-8（tests/test_dispatch.py:34-38），影响 Windows 上的输出取证",
+  "BASE_ENV 只删除列出的变量，其余环境（含 HOME、用户全局 git 配置等）原样继承；PI_DISPATCH_PI_CMD 只在 :29 设置、从不删除，test_v21 的 bare 环境（:1732）也由它派生，所以任何测试路径都调用不到本机真实的 pi",
+  "fixture 仓库在提交 base 之后才写 .agent/dispatch.config.json 和合同，主仓库因此带未跟踪文件（source_worktree_dirty），test_v22 在 :1786-1788 特意先提交",
+  "__main__ 的 except Exception 捕获不到 KeyboardInterrupt，中断时没有汇总行；汇总之后的清理异常会让进程以 1 退出，即使汇总为 0 failed；混入的拼错测试名被静默忽略",
+  "run 的退出码规则：只有 NEEDS_REVIEW 且 events ok 时才为 0（scripts/pi_dispatch.py:3349）；main 在 DispatchError 时输出 'ERROR: ...' 并返回 exc.code（:4966-4968）",
+  "collect --recover 缺 run.json 时合成 interrupted=True（:3430），test_dispatcher_killed 多半经过 CANCELLED 分支，但没有锁定",
+  "G3 失败在 test_scope 中实际发生（:4232）但没有断言；G4/G3 的“没有有效的独立检查记录”（:4204-4205）以及 G1 的“缺少 run.json”“运行被取消”（:4168、:4172）没有测试",
+  "resolve_pi_command 把非 JSON 的 PI_DISPATCH_PI_CMD 当作单个可执行路径接受（:1764-1767）；'PATH 中找不到 pi' 的退出码是 3",
+  "test_validate 的退出码：validate 错误为 EXIT_USAGE=2，prepare 的 .gitignore 拒绝为 EXIT_BLOCKED=3；test_preflight 的固定思考级别拒绝发生在 prepare 阶段，为 3",
+  "wait 的“仍在运行”复用 EXIT_BLOCKED=3 常量；state.json 缺失（UNKNOWN）的情况没有测试",
+  "doctor 的“思考级别不受本机 pi 支持”（:4726）和 allowed_executors 未命中都没有测试",
+  "test_events_and_thinking 的“status shows unknown cost”依赖循环顺序（最后一个仓库是 STUB_NOCOST 例）",
+  "工作区有未跟踪的 scripts/codekit/（__init__.py、baseline.py），而 sys.path[0] 是 KIT/scripts；测试不导入它，但基线输入清单应记录",
+  "kit 前提的当前状态已只读核对：没有 CLAUDE.md，没有 .claude/rules，AGENTS.md 为 10932 字节，技能副本经 diff -rq 一致，test_v21 所需短语与示例 SHA 都存在",
+  "3.2 最低记录单位中，legacy_observation、comparison_projection_revision、new_consumer_module、acceptance_ids 无法从源码得到，需要 01-T1 运行和后续模块补齐"
+ ]
+}

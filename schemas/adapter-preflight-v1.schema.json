@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:adapter-preflight:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "status", "binding", "requested_model", "reported_model", "authentication_status", "version_supported", "reasons"],
+  "properties": {
+    "record_type": {"const": "adapter-preflight"},
+    "schema_version": {"const": 1},
+    "status": {"enum": ["READY", "NOT_RUN", "BLOCKED", "VERSION_INCOMPATIBLE", "AUTH_UNAVAILABLE"]},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["adapter_id", "role", "platform", "model_id", "capability_digest", "supported", "reasons"], "properties": {"adapter_id": {"type": "string", "minLength": 1}, "role": {"type": "string", "minLength": 1}, "platform": {"type": "string", "minLength": 1}, "model_id": {"type": ["string", "null"]}, "capability_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "supported": {"type": "boolean"}, "reasons": {"type": "array", "items": {"type": "string"}}}},
+    "requested_model": {"type": ["string", "null"]},
+    "reported_model": {"type": ["string", "null"]},
+    "authentication_status": {"enum": ["NOT_INSPECTED", "READY", "MISSING", "BLOCKED"]},
+    "version_supported": {"type": ["boolean", "null"]},
+    "reasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

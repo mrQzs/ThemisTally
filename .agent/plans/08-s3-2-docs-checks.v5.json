@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "task_id": "08-s3-2-docs-checks",
+  "plan_version": 5,
+  "title": "当前候选离线复核：08-s3-2-docs-checks",
+  "repository": "Code-Kit",
+  "base_sha": "8348af691d33e08f111b5cebbe852cb66f31a80b",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "docs/themis-tally-v2/contract-evidence/08-s3-2-docs-checks.md"
+    ],
+    "allowed_new_files": [
+      "docs/themis-tally-v2/contract-evidence/08-s3-2-docs-checks.md"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_builtin_docs_checks",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran "
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "当前离线实现由真实测试模块复核：tests.test_builtin_docs_checks",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "编译和工作树格式检查通过，未修改合同范围外文件",
+      "evidence": [
+        "V02",
+        "V03",
+        "scope"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "真实 Pi、provider、原生平台和外部连接器明确保持 NOT_RUN/BLOCKED",
+      "evidence": [
+        "V01",
+        "scope"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "当前证据绑定到完整基线 SHA，不以旧合同或文件存在性检查替代行为测试",
+      "evidence": [
+        "V01",
+        "scope"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "inputs": [
+    "current HEAD 296135cb8eef4cbf54585d755f3ca437f7e74a51",
+    "approved requirements and reference documents",
+    "actual validation modules: tests.test_builtin_docs_checks",
+    "offline evidence remains LOCAL_REFERENCE"
+  ],
+  "outputs": [
+    "test output and compile/diff evidence",
+    "explicit BLOCKED/NOT_RUN record for unavailable external capability"
+  ],
+  "failure_handling": [
+    "classify test failure, optional dependency skip, scope drift, and unavailable external systems separately",
+    "never promote offline or fixture evidence to production PASS",
+    "stop on base mismatch or any attempted out-of-scope edit"
+  ],
+  "rollback_boundary": [
+    "no source or test edits are authorized by this audit contract; discard only local transient outputs",
+    "do not edit AGENTS.md, dispatch scripts, .agent, credentials, dependencies, or external systems"
+  ]
+}

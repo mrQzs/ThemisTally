@@ -1,0 +1,27 @@
+{
+  "id": "mutation-equivalence",
+  "version": "1.0.0",
+  "description": "D2: for every mutation the tests missed, is the replacement an equivalent rewrite or a real test gap? Asked per missed mutation by `mutate`; the answers only annotate the result line and mutations.json, never the counts.",
+  "state_fields": ["file", "mutation", "context", "test_command"],
+  "questions": {
+    "equivalent": {
+      "type": "noul",
+      "label": "等价改写",
+      "instructions": "`mutation.new` replaces `mutation.old` at the marked position inside `context`. Judge only whether the replaced code has the same observable behaviour as the original for every input the surrounding code can pass to it: the same return values, the same exceptions, the same side effects. Different wording with the same behaviour is equivalent.",
+      "criteria": {
+        "true": "The replacement behaves exactly like the original for every possible input.",
+        "false": "Some input makes the replacement behave differently from the original."
+      }
+    },
+    "untested": {
+      "type": "noul",
+      "label": "测试缺口",
+      "instructions": "Assume the replacement does change behaviour for some input, and `test_command` still passed with the replacement in place. Judge only whether that means no test reaches the changed behaviour.",
+      "criteria": {
+        "true": "The changed behaviour is not exercised by any test, so the test suite cannot notice the change.",
+        "false": "The change is equivalent or unobservable from the tests' point of view, so a passing run proves nothing about coverage."
+      }
+    }
+  },
+  "thresholds": {"hint": 0.70}
+}

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "task_id": "auth-refresh-401",
+  "plan_version": 1,
+  "title": "401 刷新协调：单次刷新、最多重放一次、并发与会话安全",
+  "repository": "example-web-client",
+  "base_sha": "89abcdef0123456789abcdef0123456789abcdef",
+  "risk_level": "high",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": []
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": ["src/api/client.ts"],
+    "allowed_new_files": ["src/api/refresh-coordinator.ts", "src/api/client.refresh.test.ts"],
+    "allowed_deleted_files": [],
+    "forbidden_paths": ["src/auth/store.ts", "src/auth/refresh.ts", "package.json", "pnpm-lock.yaml"],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {"id": "S01", "argv": ["pnpm", "install", "--frozen-lockfile"], "cwd": ".", "timeout_seconds": 900}
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["pnpm", "exec", "vitest", "run", "src/api/client.refresh.test.ts"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["Tests\\s+(1[2-9]|[2-9]\\d|\\d{3,}) passed"],
+      "output_must_not_match": ["No test files found", "\\bskipped\\b", "\\btodo\\b"]
+    },
+    {
+      "id": "V02",
+      "argv": ["pnpm", "exec", "vitest", "run", "src/api"],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["Tests\\s+[1-9]\\d* passed"]
+    },
+    {
+      "id": "V03",
+      "argv": ["pnpm", "exec", "tsc", "--noEmit", "-p", "tsconfig.json"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "A01–A12 全部通过", "evidence": ["V01"]},
+    {"id": "D02", "text": "既有 API 客户端测试不回归", "evidence": ["V02"]},
+    {"id": "D03", "text": "类型检查通过，request 签名不变", "evidence": ["V03"]},
+    {"id": "D04", "text": "修改都在允许集合内，store 与 refresh 模块未被修改", "evidence": ["scope"]},
+    {"id": "D05", "text": "并发与取消路径没有泄漏的 promise，测试断言调用次数", "evidence": ["review"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 3600,
+    "cost_budget": null
+  }
+}

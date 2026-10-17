@@ -1,0 +1,41 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "python-checks",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "python-checks.readme",
+      "kind": "file",
+      "path": "plugins/python-checks/README.md",
+      "sha256": "d7aa044c27a99f29553b99016a8a52289bf1d894c71902639520562c3b178236"
+    }
+  ],
+  "roles": [],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

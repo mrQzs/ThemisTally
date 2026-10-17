@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:project-view-manifest:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "view_id", "generation", "cursor", "state_sha256", "brief_sha256", "manifest_sha256", "state_byte_length", "brief_byte_length", "displayed_item_count", "omitted_item_count"],
+  "properties": {
+    "record_type": {"const": "project-view-manifest"}, "schema_version": {"const": 1},
+    "view_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "generation": {"type": "integer", "minimum": 1}, "cursor": {"type": "integer", "minimum": 0},
+    "state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "brief_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "state_byte_length": {"type": "integer", "minimum": 0}, "brief_byte_length": {"type": "integer", "minimum": 0}, "displayed_item_count": {"type": "integer", "minimum": 0}, "omitted_item_count": {"type": "integer", "minimum": 0}
+  }
+}

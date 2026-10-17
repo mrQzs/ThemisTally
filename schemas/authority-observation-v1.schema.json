@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:authority-observation:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "authority", "status", "source_ref", "snapshot", "reason"],
+  "properties": {
+    "record_type": {"const": "authority-observation"}, "schema_version": {"const": 1},
+    "authority": {"enum": ["approval", "readiness", "planning", "runtime"]},
+    "status": {"enum": ["observed", "missing", "unknown", "blocked"]},
+    "source_ref": {"anyOf": [{"$ref": "project-event-v1.schema.json#/$defs/ref"}, {"type": "null"}]},
+    "snapshot": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "reason": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+  }
+}

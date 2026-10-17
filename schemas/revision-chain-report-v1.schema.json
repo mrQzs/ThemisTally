@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:revision-chain-report:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "status", "heads", "issues"],
+  "properties": {"record_type": {"const": "revision-chain-report"}, "schema_version": {"const": 1}, "status": {"enum": ["VALID", "UNKNOWN"]}, "heads": {"type": "object", "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "null"}]}}, "issues": {"type": "array", "items": {"type": "string"}}}
+}

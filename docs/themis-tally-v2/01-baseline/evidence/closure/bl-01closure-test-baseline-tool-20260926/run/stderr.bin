@@ -1,0 +1,45 @@
+test_archive_redacts_8dot3_short_and_mixed_forms (__main__.ArchiveTests.test_archive_redacts_8dot3_short_and_mixed_forms) ... ok
+test_archive_redacts_bomless_utf16_instead_of_mislabeling_it (__main__.ArchiveTests.test_archive_redacts_bomless_utf16_instead_of_mislabeling_it) ... ok
+test_archive_redacts_repo_path_and_records_changes (__main__.ArchiveTests.test_archive_redacts_repo_path_and_records_changes) ... ok
+test_archive_refuses_capture_with_wrong_digest (__main__.ArchiveTests.test_archive_refuses_capture_with_wrong_digest) ... ok
+test_environment_values_are_not_recorded (__main__.CaptureTests.test_environment_values_are_not_recorded) ... ok
+test_exclude_is_exact_prefix_and_does_not_hide_porcelain_changes (__main__.CaptureTests.test_exclude_is_exact_prefix_and_does_not_hide_porcelain_changes) ... ok
+test_existing_capture_dir_is_not_overwritten (__main__.CaptureTests.test_existing_capture_dir_is_not_overwritten) ... ok
+test_ignored_name_change_is_drift (__main__.CaptureTests.test_ignored_name_change_is_drift) ... ok
+test_ignored_names_respect_exclude (__main__.CaptureTests.test_ignored_names_respect_exclude) ... ok
+test_missing_executable_is_null_returncode_and_incomplete (__main__.CaptureTests.test_missing_executable_is_null_returncode_and_incomplete) ... ok
+test_modifying_tracked_file_is_drift (__main__.CaptureTests.test_modifying_tracked_file_is_drift) ... ok
+test_new_file_under_excluded_prefix_causes_no_unexplained_manifest_drift (__main__.CaptureTests.test_new_file_under_excluded_prefix_causes_no_unexplained_manifest_drift) ... ok
+test_new_untracked_file_is_drift (__main__.CaptureTests.test_new_untracked_file_is_drift) ... ok
+test_output_inside_repo_must_be_git_ignored (__main__.CaptureTests.test_output_inside_repo_must_be_git_ignored) ... ok
+test_run_output_write_failure_is_incomplete_and_command_not_run (__main__.CaptureTests.test_run_output_write_failure_is_incomplete_and_command_not_run) ... ok
+test_timeout_forces_job_termination_when_ctrl_break_is_ignored (__main__.CaptureTests.test_timeout_forces_job_termination_when_ctrl_break_is_ignored) ... ok
+test_timeout_is_recorded_and_process_tree_ended (__main__.CaptureTests.test_timeout_is_recorded_and_process_tree_ended) ... ok
+test_unchanged_command_is_consistent (__main__.CaptureTests.test_unchanged_command_is_consistent) ... ok
+test_usage_errors (__main__.CaptureTests.test_usage_errors) ... ok
+test_import_runs_no_command_and_writes_nothing (__main__.ImportSideEffectTests.test_import_runs_no_command_and_writes_nothing) ... ok
+test_echoed_unknown_option_is_not_recorded_as_object_format (__main__.ObjectFormatTests.test_echoed_unknown_option_is_not_recorded_as_object_format) ... ok
+test_archive_dest_inside_capture_dir_is_refused_under_any_spelling (__main__.PathContainmentTests.test_archive_dest_inside_capture_dir_is_refused_under_any_spelling) ... ok
+test_capture_out_root_in_kelvin_sibling_of_repo_is_outside_repo (__main__.PathContainmentTests.test_capture_out_root_in_kelvin_sibling_of_repo_is_outside_repo) ... ok
+test_capture_out_root_under_other_spelling_of_repo_is_inside_repo (__main__.PathContainmentTests.test_capture_out_root_under_other_spelling_of_repo_is_inside_repo) ... ok
+test_case_sensitive_directory_sibling_is_outside (__main__.PathContainmentTests.test_case_sensitive_directory_sibling_is_outside) ... ok
+test_kelvin_sign_sibling_is_outside (__main__.PathContainmentTests.test_kelvin_sign_sibling_is_outside) ... ok
+test_other_spellings_of_same_directory_are_inside (__main__.PathContainmentTests.test_other_spellings_of_same_directory_are_inside) ... ok
+test_empty_output (__main__.PorcelainParserTests.test_empty_output) ... ok
+test_malformed_records_are_rejected (__main__.PorcelainParserTests.test_malformed_records_are_rejected) ... ok
+test_newline_in_path_is_not_split (__main__.PorcelainParserTests.test_newline_in_path_is_not_split) ... ok
+test_non_utf8_path_is_flagged (__main__.PorcelainParserTests.test_non_utf8_path_is_flagged) ... ok
+test_real_git_output_with_rename (__main__.PorcelainParserTests.test_real_git_output_with_rename) ... ok
+test_rename_copy_space_and_chinese_paths (__main__.PorcelainParserTests.test_rename_copy_space_and_chinese_paths) ... ok
+test_canonical_json (__main__.RuleTests.test_canonical_json) ... ok
+test_capture_id_rules (__main__.RuleTests.test_capture_id_rules) ... ok
+test_exclusion_is_exact_prefix (__main__.RuleTests.test_exclusion_is_exact_prefix) ... ok
+test_invalid_excludes (__main__.RuleTests.test_invalid_excludes) ... ok
+test_command_that_did_not_run_is_always_incomplete (__main__.RunReasonTests.test_command_that_did_not_run_is_always_incomplete) ... ok
+test_completed_command_is_complete_whatever_its_exit_code (__main__.RunReasonTests.test_completed_command_is_complete_whatever_its_exit_code) ... ok
+test_detects_utf16_and_keeps_nul_separated_utf8 (__main__.TextEncodingTests.test_detects_utf16_and_keeps_nul_separated_utf8) ... ok
+
+----------------------------------------------------------------------
+Ran 40 tests in 57.652s
+
+OK

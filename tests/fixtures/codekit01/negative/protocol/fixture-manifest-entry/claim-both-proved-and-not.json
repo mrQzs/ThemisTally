@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "fixture-manifest",
+  "fixture_id": "synthetic-protocol-sample-1",
+  "origin": {
+    "class": "synthetic",
+    "source_revision": null,
+    "source_test_id": null,
+    "source_path": null,
+    "generator_revision": "review-expanded-2026-09-25",
+    "derived_from": null,
+    "fault": null,
+    "description": "用于完整字节哈希和来源标签的合成示例，不是厂商输出。",
+    "traceable": true
+  },
+  "representation": "synthetic_fixture",
+  "redaction": {
+    "applied": false,
+    "rule_revision": null,
+    "length_changed": null,
+    "reason": "构造时不包含真实凭据或真实用户数据。",
+    "protocol_structure_preserved": null
+  },
+  "resource": {
+    "kind": "fixture",
+    "id": "synthetic-protocol-sample-1",
+    "sha256": "0036dde35a13e287320b6399674c46649365553a0ab6d3edf2a2111d6f83c4e1",
+    "path": "tests/fixtures/synthetic-protocol-sample-1.json"
+  },
+  "proves": ["exact_byte_digest", "synthetic_provenance_label"],
+  "does_not_prove": ["real_cli_compatibility", "legacy_dispatch_behavior", "exact_byte_digest"],
+  "expected": {"outcome": "accept", "code": null, "entry": "strict_json_loads", "expected_ref": null},
+  "integrity": "complete",
+  "platform_scope": ["any"],
+  "capture": null
+}

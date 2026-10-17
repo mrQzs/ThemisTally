@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-invocation:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "run_id", "role", "profile_id", "argv", "cwd", "environment_sha256", "stdin_sha256", "resource_allowlist", "read_only", "session_id", "platform", "environment_kind", "capability_digest", "environment_names", "invocation_sha256"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "role": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "minLength": 1},
+    "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "cwd": {"type": "string", "minLength": 1},
+    "environment_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "stdin_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resource_allowlist": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "read_only": {"type": "boolean"},
+    "session_id": {"type": "string", "minLength": 1},
+    "platform": {"enum": ["linux", "macos", "windows"]},
+    "environment_kind": {"enum": ["native", "wsl"]},
+    "capability_digest": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]},
+    "environment_names": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "invocation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

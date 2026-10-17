@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/builtin-task-artifacts/review-bundle.schema.json",
+  "allOf": [
+    {"$ref": "artifacts.schema.json"},
+    {
+      "properties": {
+        "record_type": {"const": "review-bundle"},
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["docs_check", "content_review", "observations", "readiness", "semantic_review"],
+          "properties": {
+            "docs_check": {"type": "object"},
+            "content_review": {"type": "object"},
+            "observations": {"type": "array"},
+            "readiness": {"type": "object"},
+            "semantic_review": {"const": "FIXED_ORACLE_ONLY"}
+          }
+        }
+      }
+    }
+  ]
+}

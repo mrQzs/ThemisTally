@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:observer-suggestion:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "suggestion_id", "request_id", "category", "text", "source_refs", "affected_task_ids", "requires_authorization"],
+  "properties": {
+    "record_type": {"const": "observer-suggestion"}, "schema_version": {"const": 1},
+    "suggestion_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "request_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "category": {"enum": ["hypothesis", "risk", "open_question", "suggested_next_action"]},
+    "text": {"type": "string", "minLength": 1, "maxLength": 16384, "not": {"pattern": "(?i)\\b(pass(?:ed)?|approved?|authori[sz](?:e|ed|ation)|published?|released?)\\b"}},
+    "source_refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}, "minItems": 1, "maxItems": 512, "uniqueItems": true},
+    "affected_task_ids": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 64}, "maxItems": 256, "uniqueItems": true},
+    "requires_authorization": {"type": "boolean"}
+  },
+  "$defs": {
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "sha256", "path"], "properties": {"kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)[.][.](?:/|$))(?!.*//)[^\\\n]+$"}}}
+  }
+}

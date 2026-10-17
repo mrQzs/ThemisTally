@@ -1,0 +1,34 @@
+{
+  "extra_protected_paths": [
+    "scripts/codekit/**",
+    "schemas/**",
+    "tests/fixtures/codekit01/**",
+    "tests/codekit01_legacy.py",
+    "tests/legacy_harness.py",
+    "tests/test_legacy_*.py",
+    "tests/test_protocols.py",
+    "tests/test_codekit01_fixtures.py",
+    "tests/test_baseline_tool.py",
+    "docs/themis-tally-v2/01-baseline/**"
+  ],
+  "release_check": {
+    "allow": [
+      "docs/**:home path",
+      "tests/**:home path",
+      "tests/**:api key",
+      "tests/**:private address",
+      "scripts/codekit/baseline.py:home path"
+    ]
+  },
+  "pricing": {
+    "step/step-5-preview": {
+      "input": 7,
+      "output": 20,
+      "cache_read": 0.35,
+      "cache_write": 0,
+      "currency": "CNY",
+      "source": "阶跃开放平台定价页 platform.stepfun.com/docs/zh/guides/pricing/details（国内按量付费；10 月 14 日前已用 API 调过该模型的账户缓存命中沿用 0.35；缓存写入含在未命中价里）",
+      "as_of": "2026-10-15"
+    }
+  }
+}

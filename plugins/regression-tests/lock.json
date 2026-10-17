@@ -1,0 +1,22 @@
+{
+  "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
+  "generation": 1,
+  "lock_sha256": "402f60ac922478d4565f3e26c0f987ccbfb3b3936b48a24faa7bf3a81313d04f",
+  "plugins": [
+    {
+      "manifest_sha256": "4f6bcd69c18b71c7a78afa509ff327c75a9466a8342d43f841036c73726eeb47",
+      "plugin_id": "regression-tests",
+      "resources": [
+        {
+          "id": "regression-tests.readme",
+          "kind": "file",
+          "path": "plugins/regression-tests/README.md",
+          "sha256": "736d04cbd57e53a15106e6a86362ad6a5717c76251d426ef13c9b83d4bbd20e6"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "record_type": "plugin-lock",
+  "schema_version": 1
+}

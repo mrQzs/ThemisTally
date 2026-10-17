@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:project-event:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "repository_namespace", "project_id", "event_id", "request_id", "event_type", "subject", "producer_namespace", "source_record_id", "immutable_facet_id", "source_ref", "producer_revision", "predecessor_refs", "causes", "occurred_at", "extractor_ref", "payload", "recovered_from", "cursor"],
+  "properties": {
+    "record_type": {"const": "project-event"}, "schema_version": {"const": 1},
+    "repository_namespace": {"$ref": "#/$defs/id"}, "project_id": {"$ref": "#/$defs/id"},
+    "event_id": {"$ref": "#/$defs/sha"}, "request_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "event_type": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*){0,3}$"},
+    "subject": {"type": "object"}, "producer_namespace": {"$ref": "#/$defs/id"},
+    "source_record_id": {"$ref": "#/$defs/resource_id"}, "immutable_facet_id": {"$ref": "#/$defs/resource_id"},
+    "source_ref": {"$ref": "#/$defs/ref"}, "producer_revision": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+    "predecessor_refs": {"type": "array", "items": {"type": "object"}}, "causes": {"type": "array", "items": {"type": "object"}},
+    "occurred_at": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "extractor_ref": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "payload": {"type": "object"}, "recovered_from": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "cursor": {"type": "object", "additionalProperties": false, "required": ["generation", "seq"], "properties": {"generation": {"type": "integer", "minimum": 1}, "seq": {"type": "integer", "minimum": 1}}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "resource_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "sha256"], "properties": {"kind": {"type": "string"}, "id": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "path": {"type": "string"}}}
+  }
+}

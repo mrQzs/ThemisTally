@@ -1,0 +1,13 @@
+{
+  "code": "E_JSON_DUPLICATE_KEY",
+  "message": "输入对象包含重复字段，不能形成审核输入。",
+  "details": {
+    "field": "/profiles/default/model",
+    "source_ref": null,
+    "phase": "decode",
+    "reason": "duplicate_object_member",
+    "reason": "retry_allowed",
+    "hint": "修正重复字段后重新提交；不要保留最后一个值后继续审核。"
+  },
+  "retryable": false
+}

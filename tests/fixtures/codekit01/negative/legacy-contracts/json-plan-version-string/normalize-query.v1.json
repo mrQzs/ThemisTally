@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "task_id": "normalize-query",
+  "plan_version": "1",
+  "title": "normalizeQuery：NFKC、压缩空白、小写化",
+  "repository": "example-search-app",
+  "base_sha": "0123456789abcdef0123456789abcdef01234567",
+  "risk_level": "low",
+  "authorization": {
+    "executor": ["local_edit", "local_test"],
+    "integration": ["local_branch"]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": ["src/search/normalize.ts"],
+    "allowed_new_files": ["src/search/normalize.test.ts"],
+    "allowed_deleted_files": [],
+    "forbidden_paths": ["package.json", "pnpm-lock.yaml", "tsconfig.json", "vitest.config.ts"],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {"id": "S01", "argv": ["pnpm", "install", "--frozen-lockfile"], "cwd": ".", "timeout_seconds": 900}
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": ["pnpm", "exec", "vitest", "run", "src/search/normalize.test.ts"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": ["Tests\\s+[1-9]\\d* passed"],
+      "output_must_not_match": ["No test files found"]
+    },
+    {
+      "id": "V02",
+      "argv": ["pnpm", "exec", "tsc", "--noEmit", "-p", "tsconfig.json"],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {"id": "D01", "text": "首尾空白去除、内部空白压缩", "evidence": ["V01"]},
+    {"id": "D02", "text": "空串与纯空白（含全角空格）返回空串", "evidence": ["V01"]},
+    {"id": "D03", "text": "全角字符经 NFKC 规范化", "evidence": ["V01"]},
+    {"id": "D04", "text": "小写化不依赖 locale", "evidence": ["V01"]},
+    {"id": "D05", "text": "类型检查通过，签名不变", "evidence": ["V02"]},
+    {"id": "D06", "text": "所有修改都在允许集合内", "evidence": ["scope"]},
+    {"id": "D07", "text": "没有删除、跳过或弱化既有测试", "evidence": ["review"]}
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  }
+}

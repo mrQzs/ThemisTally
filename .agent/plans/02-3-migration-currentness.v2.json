@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "task_id": "02-3-migration-currentness",
+  "plan_version": 2,
+  "title": "离线契约测试与证据",
+  "repository": "Code-Kit",
+  "base_sha": "ef5ff25e9f41cea1096f75d31b027ef4dafcb66b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "docs/contracts/02-3-migration-currentness.v2.md"
+    ],
+    "allowed_new_files": [
+      "tests/test_codekit02_migration_currentness.py",
+      "docs/contracts/02-3-migration-currentness.v2.md"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "schemas/**",
+      "scripts/codekit/**",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-c",
+        "from pathlib import Path; p=Path(r'tests/test_codekit02_migration_currentness.py'); assert p.exists() and p.stat().st_size>0; print('TEST_ARTIFACT_OK')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "TEST_ARTIFACT_OK"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-c",
+        "from pathlib import Path; p=Path(r'docs/contracts/02-3-migration-currentness.v2.md'); assert p.exists() and p.stat().st_size>0; print('DOC_ARTIFACT_OK')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "DOC_ARTIFACT_OK"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "tests/test_dispatch.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "G02",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "G03",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "测试与 fixture 覆盖 Behavior contract",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "文档明确离线范围、未知状态和不宣称真实接线",
+      "evidence": [
+        "V02"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "未修改产品核心、Schema 或依赖",
+      "evidence": [
+        "scope",
+        "V03"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试未删除、跳过或弱化",
+      "evidence": [
+        "review",
+        "G01",
+        "G02",
+        "G03"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "inputs": [
+    "current HEAD at the declared base_sha",
+    "approved requirements and reference documents",
+    "existing offline fixtures and scoped repository files"
+  ],
+  "outputs": [
+    "deterministic scoped implementation, tests, fixtures, or documentation",
+    "evidence record, or explicit BLOCKED/NOT_RUN record when external capability is unavailable"
+  ],
+  "failure_handling": [
+    "reject malformed, drifted, missing, unsupported, or out-of-scope inputs with explicit error/UNKNOWN/BLOCKED/NOT_RUN state",
+    "never promote fixture or offline evidence to production PASS"
+  ],
+  "rollback_boundary": [
+    "revert only files listed in scope; protected rules, dispatch scripts, agent directories, credentials, dependencies, and external systems remain untouched"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-fallback-decision:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "allowed", "primary_profile_id", "fallback_profile_id", "reasons", "requires_review"],
+  "properties": {
+    "record_type": {"const": "second-cli-fallback-decision"},
+    "schema_version": {"const": 1},
+    "allowed": {"type": "boolean"},
+    "primary_profile_id": {"type": "string", "minLength": 1},
+    "fallback_profile_id": {"type": "string", "minLength": 1},
+    "reasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "requires_review": {"const": true}
+  }
+}

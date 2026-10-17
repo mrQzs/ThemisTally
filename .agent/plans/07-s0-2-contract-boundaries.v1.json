@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "task_id": "07-s0-2-contract-boundaries",
+  "plan_version": 1,
+  "title": "S0.2 接口与责任边界",
+  "repository": "Code-Kit",
+  "base_sha": "175653ebbe3059c012166dacfbf13b7eac67b41f",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "commit",
+      "push"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "docs/themis-tally-v2/07-contract-boundaries.md"
+    ],
+    "allowed_new_files": [
+      "docs/themis-tally-v2/07-contract-boundaries.md"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-c",
+        "from pathlib import Path; p=Path('docs/themis-tally-v2/07-contract-boundaries.md'); assert p.exists() and p.stat().st_size > 0; print('ARTIFACT_OK')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ARTIFACT_OK"
+      ],
+      "output_must_not_match": []
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [],
+      "output_must_not_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "固定 workflow、readiness、baseline、coverage、acceptance、claim、budget、recovery 的接口、证据所有权和受保护路径责任。",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "未知、重复、乱序、并发或恢复输入不会被静默当作成功",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "所有修改都在允许集合内且无依赖变化",
+      "evidence": [
+        "scope",
+        "V02"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试未删除、跳过或弱化",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "execution_lane": "planner",
+  "dispatchable": false
+}

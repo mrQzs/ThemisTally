@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "task_id": "10-s4-1-atomic-view-package",
+  "plan_version": 1,
+  "title": "不可变视图包与指针",
+  "repository": "Code-Kit",
+  "base_sha": "bbe0121c15ad9ac3b78f34c1683a08f7f81f9178",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "tests/test_project_views.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_project_views",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran "
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "B01–B04 与 A02,A05,A18,A19 的离线覆盖有可复核定向测试或文档；最小变异不能仍通过",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "Scope、严格 JSON/Schema 和编译检查通过，未改历史",
+      "evidence": [
+        "V02",
+        "V03",
+        "scope",
+        "review"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "真实环境和连接器缺口逐项标 NOT_RUN/BLOCKED，合成通过仅 LOCAL_REFERENCE",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "execution_owner": "main-model",
+  "acceptance_ids": [
+    "A02",
+    "A05",
+    "A18",
+    "A19"
+  ],
+  "dependencies": [
+    "s2",
+    "s3"
+  ]
+}

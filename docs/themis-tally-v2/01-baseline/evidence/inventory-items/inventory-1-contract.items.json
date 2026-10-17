@@ -1,0 +1,585 @@
+{
+ "area": "contract",
+ "items": [
+  {
+   "id": "LB-CONTRACT-001",
+   "title": "标识正则与 schema 版本常量",
+   "source_locations": [
+    "scripts/pi_dispatch.py:49 CONTRACT_SCHEMA_VERSION",
+    "scripts/pi_dispatch.py:55 PLAN_KEY_RE",
+    "scripts/pi_dispatch.py:56 TASK_ID_RE",
+    "scripts/pi_dispatch.py:57 SHA_RE",
+    "scripts/pi_dispatch.py:58 ITEM_ID_RE",
+    "scripts/pi_dispatch.py:59 MODEL_TOKEN_RE",
+    "scripts/pi_dispatch.py:60 ENV_NAME_RE",
+    "scripts/pi_dispatch.py:61 PLACEHOLDER_RE"
+   ],
+   "rule": "schema_version 固定为 1。PLAN_KEY_RE 的格式是 task-id.vN：task 为 1–64 个 [a-z0-9-]，首字符不能是连字符；N 为 1–9999，不能有前导 0。SHA_RE 只接受 40 或 64 位小写十六进制。ITEM_ID_RE 用于检查、setup 与 DoD 的 id：大写字母开头，其后 0–31 个 [A-Z0-9_-]。MODEL_TOKEN_RE 用于 provider 与 model：字母或数字开头，其后 0–199 个 [A-Za-z0-9._:/@+-]。ENV_NAME_RE 用于 env 的变量名：字母或下划线开头，最长 128 个字符。PLACEHOLDER_RE 匹配 `【待填` 或 `REPLACE_WITH`。这些正则都用 re.match 加 `$` 结尾，`$` 也匹配末尾换行之前的位置。实测 SHA_RE.match('0'*40+'\\n')、ITEM_ID_RE.match('V01\\n')、PLAN_KEY_RE.match('normalize-query.v1\\n') 都返回匹配。TASK_ID_RE 不参与合同校验，只在 :2636 与 :4554 使用；task_id 取自 PLAN_KEY_RE 的 task 组。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"bad plan key still explains the format\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "`$` 接受末尾换行，是否属于 v2 要保留的旧行为？未实测：JSON 中 base_sha 带末尾换行时，能通过 SHA_RE，但在 validate_plan 的 resolve_commit 比较中大概率失败。v2 是否改用 fullmatch，需要设计决定。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "行号 :49、:55-61 核对无误。PLAN_KEY_RE 的边界已实测：v0、v01、v10000 和以 - 开头的 task 都被拒绝，64 字符的 task 通过、65 字符的被拒绝。末尾换行已实测：SHA/ITEM/PLAN/MODEL/ENV 五个正则都匹配。小修正：PLACEHOLDER_RE 不锚定，调用方式是 search，不属于「re.match 加 $」那一组。开放问题已实测解决：JSON 的 base_sha 带末尾换行时报两条错误（Identity base_sha 不一致；base_sha 在本仓库中不存在），退出码 2。CLI 的计划标识会先 strip（:1013），带不进换行。glob 已为同一原因改用 fullmatch（:1092 注释；test_units 有 check「glob uses fullmatch」），ID 正则没有改。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-002",
+   "title": "枚举词表、受保护模式与必需章节",
+   "source_locations": [
+    "scripts/pi_dispatch.py:65 KNOWN_TOOLS",
+    "scripts/pi_dispatch.py:66 DEFAULT_TOOLS",
+    "scripts/pi_dispatch.py:67 DEFAULT_THINKING",
+    "scripts/pi_dispatch.py:68 FALLBACK_THINKING_LEVELS",
+    "scripts/pi_dispatch.py:71 EXECUTOR_ACTIONS",
+    "scripts/pi_dispatch.py:72 INTEGRATION_ACTIONS",
+    "scripts/pi_dispatch.py:73 RISK_LEVELS",
+    "scripts/pi_dispatch.py:74 EVIDENCE_TOKENS",
+    "scripts/pi_dispatch.py:83-85 REQUIRED_MD_SECTIONS",
+    "scripts/pi_dispatch.py:88-92 PROTECTED_PATTERNS"
+   ],
+   "rule": "各词表取值：\n- KNOWN_TOOLS：read, bash, powershell, edit, write, grep, find, ls。\n- DEFAULT_TOOLS：read, grep, find, ls, edit, write, bash。\n- DEFAULT_THINKING：high。\n- FALLBACK_THINKING_LEVELS：off, minimal, low, medium, high, xhigh, max。\n- EXECUTOR_ACTIONS：local_edit, local_test, local_commit, network。\n- INTEGRATION_ACTIONS：local_branch, commit, push, open_pr, merge, deploy。\n- RISK_LEVELS：low, medium, high。\n- EVIDENCE_TOKENS：scope, review。\n- REQUIRED_MD_SECTIONS 共 13 个，依次为 Identity, Goal, Non-goals, Repository facts, Scope, Behavior contract, Steps, Validation commands, Definition of done, Stop conditions, Budget, Report back, Forbidden；Setup 不在其中。\n- PROTECTED_PATTERNS：.agent/**, .claude/**, .codex/**, .pi/**, .agents/**, .gitmodules, **/AGENTS.md, **/AGENTS.override.md, **/CLAUDE.md, **/CLAUDE.local.md, scripts/pi_dispatch.py, scripts/dispatch-pi.sh。校验时忽略大小写，并与 dispatch.config.json 的 extra_protected_paths 合并。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"invalid thinking rejected\"",
+    "tests/test_dispatch.py::test_validate check \"codex config dir is protected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "FALLBACK_THINKING_LEVELS 的名称说明它只是回退词表。与 pi 实际支持级别的比较在预检里做（不属于本区域），这里没有核实。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "各词表的取值与行号（:65-74、:83-85、:88-92）逐项核对无误。受保护模式忽略大小写，并与 extra_protected_paths 合并（:1500）。validate 直接把 FALLBACK_THINKING_LEVELS 当作硬性词表（:1489），resolve_executor 也用它（:2686）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-003",
+   "title": "normalize_contract 的 schema v1 缺省值",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1189-1214 normalize_contract",
+    "scripts/pi_dispatch.py:1193 executor defaults",
+    "scripts/pi_dispatch.py:1194-1195 scope defaults",
+    "scripts/pi_dispatch.py:1196 authorization defaults",
+    "scripts/pi_dispatch.py:1197-1198 budget defaults",
+    "scripts/pi_dispatch.py:1205-1206 list sections",
+    "scripts/pi_dispatch.py:1207-1208 command item defaults"
+   ],
+   "rule": "各字段缺失时补的值：\n- executor.thinking=\"high\"；executor.tools=[\"read\",\"grep\",\"find\",\"ls\",\"edit\",\"write\",\"bash\"]；executor.context_files=\"project\"。\n- scope.allowed_modified_files、allowed_new_files、allowed_deleted_files、forbidden_paths 都为 []；scope.dependency_changes=\"forbidden\"。\n- authorization.executor=[\"local_edit\",\"local_test\"]；authorization.integration=[]。\n- budget.max_attempts_total=2；max_wall_seconds_per_attempt=1200；max_wall_seconds_total=2400；cost_budget=null。\n- setup、checks、definition_of_done 都为 []。\n- checks[] 的每一项补 cwd=\".\"、required=true、expected_exit_code=0。\n- setup[] 的每一项补 cwd=\".\"、expected_exit_code=0，不补 required。\n\n没有缺省、必须写明的字段：schema_version、task_id、plan_version、base_sha、risk_level、executor.provider、executor.model，命令项的 id、argv、timeout_seconds，以及 DoD 的全部字段。实测 normalize_contract({}) 的输出与上述一致。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_units check \"control chars / decode errors are invalid_path violations\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived scope and DoD\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试直接断言缺省值。test_units 只把 normalize_contract 的结果当作 evaluate_scope 的输入。缺省值的回归需要新建 fixture。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "缺省值与行号正确，normalize_contract({}) 的实测结果一致。错误：把 executor.provider、executor.model 列为「没有缺省、必须写明」。这两个字段确实没有缺省，但 validate 不要求：:1484-1487 只在值非 null 时校验，CLI 实测两者都缺失时退出码为 0。补充：title、repository 也没有缺省，同样不校验，只受占位符检查约束。所列相关测试都不断言缺省值：derived scope and DoD 断言的 2400 取自 Markdown。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-004",
+   "title": "缺省值补齐方式与读取时缺省",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1191 deep copy",
+    "scripts/pi_dispatch.py:1200-1213 setdefault",
+    "scripts/pi_dispatch.py:1161 cwd default",
+    "scripts/pi_dispatch.py:1167 expected_exit_code default",
+    "scripts/pi_dispatch.py:1169-1171 required/expect_on_base default",
+    "scripts/pi_dispatch.py:1174 output patterns default",
+    "scripts/pi_dispatch.py:1183 env default",
+    "scripts/pi_dispatch.py:2653-2656 load_attempt"
+   ],
+   "rule": "1. 先用 json.loads(json.dumps(raw)) 深拷贝。raw 含不可 JSON 序列化的对象时抛 TypeError，被 validate_contract 包装成“合同结构无效：TypeError: …”（实测 set）。\n2. 只在键缺失时用 setdefault 补齐，显式 null 保留：实测 executor.thinking=null 仍报“executor.thinking 必须是 … 之一”。\n3. executor、scope、authorization、budget 存在但不是对象，或 setup、checks、definition_of_done 存在但不是数组时，不补齐，交给校验报错。数组里的非对象项也不补。\n4. _validate_command 与必要检查判断另有只在读取时生效、不写回的缺省：cwd 为 \".\"，expected_exit_code 为 0，required 为 True，expect_on_base 为 \"any\"，output_must_match 与 output_must_not_match 为 []，env 为 {}。\n5. load_attempt 读取 attempt 内的 contract.json 时，也再做一次 normalize_contract。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"wrong executor type reported, no crash\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "显式 null 与键缺失处理不同，这是否算刻意语义？源码和文档都没有说明。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1191 深拷贝、:1200-1213 setdefault、读取时缺省（:1161/1167/1169/1171/1174/1183），以及 :2655 都已核实。显式 null 保留已实测；thinking 为 null 时只报一条取值错误，因为 :1610 的 Markdown 比较要求值是 str。补充：TypeError 包装只在进程内调用时可达，CLI 下 raw 来自 json.loads，不会出现 set 等类型。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-005",
+   "title": "validate_contract 的异常包装与未捕获异常",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1432-1437 validate_contract",
+    "scripts/pi_dispatch.py:1178-1182 _validate_command regex compile"
+   ],
+   "rule": "validate_contract 捕获 TypeError、AttributeError、ValueError、KeyError，返回 (None, [\"合同结构无效：<异常类名>: <消息>\"], [])，并丢弃已经收集的警告。其他异常不捕获。实测：checks[].output_must_match 含 `a{4294967296}` 时，re.compile 抛 OverflowError（不是 re.error），validate_contract 把它直接抛出。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"wrong executor type reported, no crash\"",
+    "tests/test_dispatch.py::test_validate check \"non-string authorization items, no crash (Codex #11)\"",
+    "tests/test_dispatch.py::test_validate check \"non-string evidence items, no crash\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "OverflowError 只在内存中调用时复现过。经过 CLI 时应当是 Python traceback 加退出码 1，但没有通过 CLI 实测。它算应保留的旧行为还是缺陷，没有定论。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1432-1437 捕获四类异常，并丢弃已收集的警告。OverflowError（a{4294967296}）已补做 CLI 实测：输出 traceback，退出码 1。另有一条未捕获路径发生在 validate_contract 之前：深度嵌套的 JSON 在 :1670 的 json.loads 处抛 RecursionError，CLI 实测退出码 1。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-006",
+   "title": "校验前置的早退出顺序",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1444-1446 plan key",
+    "scripts/pi_dispatch.py:1447-1448 top-level object",
+    "scripts/pi_dispatch.py:1450-1458 section types",
+    "scripts/pi_dispatch.py:1634 return"
+   ],
+   "rule": "_validate_contract 的前三步，命中就返回：\n1. plan_key 不匹配 PLAN_KEY_RE：“计划标识不合法：<key>（格式 task-id.vN）”。\n2. raw 不是 dict：“机器合同顶层必须是 JSON 对象”。\n3. normalize 之后逐节检查：executor、scope、authorization、budget 不是对象，报“<节> 必须是对象”；setup、checks、definition_of_done 不是数组，报“<节> 必须是数组”。本组全部收集完，只要有错误就返回，不再检查字段，也不比较 Markdown。实测 executor=[\"x\"] 加 checks={} 只得到这两条。\n\n此后的检查只追加 errors 或 warnings，不再早退。最后 errors 非空时返回 contract=None，否则返回 normalize 之后的合同。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"wrong executor type reported, no crash\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "行号正确。实测 executor=[x] 且 checks={} 时只得到两条错误：executor 必须是对象、checks 必须是数组。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-007",
+   "title": "顶层身份字段校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1459-1469 _validate_contract"
+   ],
+   "rule": "依次检查：\n1. schema_version != 1：“schema_version 必须为 1”。\n2. task_id 不等于计划标识的 task 组：“task_id 应为 <task>，实际为 <repr>”。\n3. plan_version 不等于计划标识中的版本整数：“plan_version 应为 <N>，实际为 <repr>”。\n4. base_sha 不是 str 或不匹配 SHA_RE：“base_sha 必须是完整的 40/64 位小写提交 ID”。\n5. risk_level 不在 low、medium、high 中：“risk_level 必须是 low/medium/high 之一”。\n\n比较用 Python 的 `!=`：实测 schema_version 写成 true 或 1.0、plan_version 写成 1.0 或 true（对 v1）都能通过。repository、title 与其他未知字段不校验。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖这 5 条。true 和 1.0 被接受是 Python 相等比较的副作用，v2 的严格 schema 是否保留，需要决定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1459-1469 的条件与文本一致。实测 schema_version 为 true 或 1.0、plan_version 为 1.0 或 true 时都能通过；字符串 1 被拒绝。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-008",
+   "title": "authorization 校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1471-1481 _validate_contract",
+    "scripts/pi_dispatch.py:1217-1218 _is_str_list"
+   ],
+   "rule": "1. authorization.executor 不是字符串数组，或含 EXECUTOR_ACTIONS 之外的值：“authorization.executor 只能包含：local_edit, local_test, local_commit, network”。此后把它视为未知（None），后面的 Markdown 比较跳过这一项。\n2. 格式合法但不含 local_edit：“authorization.executor 必须包含 local_edit”。\n3. authorization.integration 不是字符串数组，或含 INTEGRATION_ACTIONS 之外的值：“authorization.integration 只能包含：local_branch, commit, push, open_pr, merge, deploy”。同样跳过 Markdown 比较。\n\n重复项不报错（实测）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"non-string authorization items, no crash (Codex #11)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1471-1481 核对无误。重复项能通过，已实测。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-009",
+   "title": "executor 字段校验与 local_test 警告",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1483-1497 _validate_contract"
+   ],
+   "rule": "1. provider、model 为 null 或缺失时不报错，validate 不要求它们存在。非 null 时必须是 str 且匹配 MODEL_TOKEN_RE，否则“executor.<field> 不合法：<repr>”。\n2. thinking 不在词表中：“executor.thinking 必须是 off, minimal, low, medium, high, xhigh, max 之一”。\n3. tools 不是非空字符串数组，或含 KNOWN_TOOLS 之外的值：“executor.tools 必须是非空字符串数组，且只含：read, bash, powershell, edit, write, grep, find, ls”。\n4. tools 合法、authorization.executor 合法且含 local_test，但 tools 既没有 bash 也没有 powershell：WARN“授权了 local_test 但工具集没有 bash/powershell：执行器无法自检，检查将只由验收端运行”。\n5. context_files 不是 project 或 none：“executor.context_files 必须是 project 或 none”。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"invalid thinking rejected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "provider 或 model 缺失时 validate 能通过（实测）。prepare 只在两者都存在时才调用 resolve_executor（:3178-3180），缺失时从哪里取值属于执行器解析区域，这里没有核实。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1483-1497 核对无误。实测：provider 为空串报「executor.provider 不合法：''」；provider 与 model 缺失时通过；没有 shell 工具时给出 local_test 警告。开放问题可从源码回答一部分：run 阶段的 resolve_executor（:2668-2685，调用点 :3271）在原始 JSON 没写 provider、model 或 thinking 时，取 PI_EXEC_PROVIDER / PI_EXEC_MODEL / PI_EXEC_THINKING；仍然缺失时抛 DispatchError，退出码 2。这部分未实测，属于执行器解析区域。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-010",
+   "title": "scope 路径模式与依赖策略校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1499-1526 _validate_contract",
+    "scripts/pi_dispatch.py:1100-1113 pattern_error",
+    "scripts/pi_dispatch.py:1063-1093 glob_regex/matches",
+    "scripts/pi_dispatch.py:990-995 extra_protected_paths"
+   ],
+   "rule": "1. 依次处理 allowed_modified_files、allowed_new_files、allowed_deleted_files、forbidden_paths。不是数组时报“scope.<field> 必须是数组”。\n2. 每个模式交给 pattern_error，按顺序报第一个问题：必须是非空字符串 → 包含控制字符 → 请使用正斜杠 → 不能是绝对路径（以 /、盘符或 ~ 开头）→ 不能包含空段、'.' 或 '..' → 范围过宽（恰为 *、** 或 **/*）。报错文本为“scope.<field> 中的 <repr> <问题>”。\n3. 三个 allowed 集合中合法的模式，用字面文本匹配受保护模式（PROTECTED_PATTERNS 加 extra_protected_paths，忽略大小写）。命中时报“scope.<field> 包含受保护路径 <p>（合同、代理规则与调度器不得委派修改）”。\n4. allowed_modified_files 与 allowed_new_files 都为空：“scope 至少要允许修改或新增一个文件”。\n5. 不含 * 的允许模式被 forbidden_paths 的 glob 完整匹配（区分大小写）：“路径 <p> 同时出现在允许集合与 forbidden_paths”。\n6. dependency_changes 不是 forbidden 或 allowed：“scope.dependency_changes 必须是 forbidden 或 allowed”。\n\nglob 语义：* 与 ? 只匹配单层，** 匹配任意层，整串匹配（fullmatch）。\n\n实测：\n- 通配模式 *.md 与 **/*.md 不被拒绝；agents.md、docs/CLAUDE.md、.Agent/x、scripts/PI_DISPATCH.py 被拒绝；.github/workflows/ci.yml（属于 SENSITIVE_PATTERNS）在这一步不被拒绝。\n- 通配允许模式与禁止路径重叠（src/*.txt 对 src/a.txt）不报错；只差大小写（src/normalize.py 对 SRC/normalize.py）也不报错。\n- 只允许删除文件时，报“至少要允许修改或新增一个文件”。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"protected path in scope rejected\"",
+    "tests/test_dispatch.py::test_validate check \"codex config dir is protected\"",
+    "tests/test_dispatch.py::test_validate check \"parent traversal rejected\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"repo-level protected path rejected in scope\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "这一步不把通配模式展开后再对照受保护路径，要靠运行时的 evaluate_scope 兜底（不属于本区域，没有核实）。extra_protected_paths 格式不合法时抛 DispatchError，退出码 2。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "行号与规则一致，所列实测全部复现：*.md、**/*.md、.github/workflows/ci.yml 通过；agents.md、docs/CLAUDE.md、.Agent/x、scripts/PI_DISPATCH.py、.agent/* 被拒绝；通配或只差大小写的重叠不报错；只允许删除时报「至少」。补充三点：「至少允许」判断的是原值的真假，[空串] 或非数组字符串都不会触发（已实测）；重叠检查只排除含 * 的模式，含 ? 的模式按字面比较；a:b 被当作盘符形式的绝对路径拒绝（已实测）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-011",
+   "title": "setup/checks 命令项校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1144-1186 _validate_command",
+    "scripts/pi_dispatch.py:1528-1531 _validate_contract"
+   ],
+   "rule": "先检查 setup 再检查 checks，两组共用一个 seen 集合。每一项依次检查：\n1. 不是对象：“<group> 项 必须是对象”，该项到此为止。\n2. id 不是 str 或不匹配 ITEM_ID_RE：“<group> 项 的 id 不合法：<repr>（例如 V01、S01）”。\n3. id 与前面的 setup 或 checks 重复：“id 重复：<id>”。\n4. argv 不是非空字符串数组（元素不能为空串）：“<id> argv 必须是非空字符串数组”。含 NUL 时：“<id> argv 含 NUL 字符”。\n5. cwd（读取时缺省为 .）不等于 . 且 pattern_error 报了问题：“<id> cwd 不合法：<问题>”。实测 cwd=\"\" 得到“必须是非空字符串”。\n6. timeout_seconds 不是 1..86400 的整数（bool 拒绝，没有缺省）：“<id> timeout_seconds 必须是 1..86400 的整数”。\n7. expected_exit_code 不是 int：“<id> expected_exit_code 必须是整数”。bool 能通过（实测 true）。\n8. 仅 checks：required 不是 bool，报“<id> required 必须是布尔值”；expect_on_base 不在 any、fail、pass 中，报“<id> expect_on_base 只能是 fail、pass 或 any”。\n9. output_must_match 与 output_must_not_match 不是字符串数组：“<id> <key> 必须是字符串数组”；正则编译抛 re.error：“<id> <key> 正则无效：<异常>”。\n10. env 不是 {ENV_NAME_RE 变量名: str}：“<id> env 必须是 {变量名: 字符串}”。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"invalid expect_on_base rejected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "大部分分支没有测试断言。本次只用内存探针实测了“id 重复”“cwd 为空”“缺少 timeout”三条。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1144-1186、:1528-1531 核对无误。三条实测（id 重复、cwd 为空、缺少 timeout）都已复现，expected_exit_code=true 能通过。补充：不合法的 id 以 str(id) 记入 seen，并继续参与 check_ids、必要检查警告和 Markdown 比较。实测 id 为 v01 时，另报「必要检查 v01 没有被任何 DoD 引用」。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-012",
+   "title": "必要检查与 Definition of done 校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1532-1563 _validate_contract"
+   ],
+   "rule": "只考虑 checks 中是对象且 id 为 str 的项。\n1. 没有任何项 required is True：“至少需要一个 required 为 true 的检查：没有可独立运行的检查，验收门禁无法通过”。\n2. definition_of_done 为空：“definition_of_done 必须是非空数组”。\n3. 逐项检查 DoD：\n   - 不是对象：“definition_of_done 项必须是对象”。\n   - id 不是 str、不匹配 ITEM_ID_RE、与前面的 DoD 重复或与某个检查 id 同名：“DoD id 不合法或重复：<repr>”。与 setup id 同名不报错。\n   - text 不是非空 str：“<id> 缺少 text”。\n   - evidence 不是非空字符串数组：“<id> 的 evidence 必须是非空字符串数组（检查 id、scope 或 review）”，该项的其余检查跳过。\n   - evidence 中的某项既不是检查 id，也不是 scope 或 review：“<id> 的证据 <repr> 不是已定义的检查 id，也不是 scope/review”。引用 setup id 也报这条。\n4. required 为真值、但没有被任何 DoD 引用的检查：WARN“必要检查 <id> 没有被任何 DoD 引用”。required=false 的检查不警告（实测）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"contract without required checks rejected (Codex #13)\"",
+    "tests/test_dispatch.py::test_validate check \"non-string evidence items, no crash\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1532-1563 核对无误。实测：DoD 引用 setup id 报错；DoD id 与 setup id 同名不报错，与检查 id 同名报错；required=false 的检查不警告。补充：required 写成 yes 时，同时报类型错误和「至少需要一个 required 为 true 的检查」。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-013",
+   "title": "budget 校验",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1565-1580 _validate_contract"
+   ],
+   "rule": "1. max_attempts_total 必须是 1..20 的 int（bool 拒绝）：“budget.max_attempts_total 必须是 1..20 的整数”。\n2. max_wall_seconds_per_attempt 必须是 60..86400 的 int：“budget.max_wall_seconds_per_attempt 必须是 60..86400 的整数”。不合法时把 per_attempt 记为 None。\n3. max_wall_seconds_total 必须是 int（bool 拒绝）；per_attempt 合法时还不能小于它：“budget.max_wall_seconds_total 必须是整数且不小于单轮上限”。没有上限；per_attempt 不合法时只检查类型（实测 per_attempt=10、total=5 不报 total 错误）。\n4. cost_budget 必须是 null，或 {amount: 非 bool 的 int/float 且 >=0, currency: str}：“budget.cost_budget 必须为 null 或 {amount, currency}”。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"budget change detected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "budget 的取值范围没有测试直接断言。“budget change detected”测的是 Markdown 与 JSON 的一致性。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "取值范围与报错文本正确，但实测结论不完整。per_attempt=10、total=5 时，除了范围错误，还因为 JSON 侧记为 None（:1573）而在 :1619-1622 多报一条「Markdown Budget 的 max_wall_seconds_per_attempt（10）与 JSON（None）不一致」。补充（CLI 实测）：cost_budget.amount 为 Infinity 时通过，为 NaN 时被拒；max_attempts_total 写成字符串 3 时只报范围错误，因为 Markdown 比较用 str() 后两边相等。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-014",
+   "title": "占位符拒绝",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1583-1587 _validate_contract",
+    "scripts/pi_dispatch.py:61 PLACEHOLDER_RE"
+   ],
+   "rule": "字段检查全部结束后、Markdown 比较开始前检查占位符：\n1. Markdown 全文匹配 PLACEHOLDER_RE：error“Markdown 合同仍包含占位符（【待填…】或 REPLACE_WITH…）”。\n2. 原始 JSON 匹配：error“JSON 合同仍包含占位符（【待填…】或 REPLACE_WITH…）”。这里用的是未经 normalize 的原始 JSON，按 json.dumps(ensure_ascii=False) 序列化后再匹配。\n\n两条都是 error，不是 warning。未知字段里的占位符同样拒绝（实测 title=\"REPLACE_WITH x\"）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"placeholder rejected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1583-1587 核对无误。补充（均已实测）：匹配区分大小写，小写 replace_with 拦不住；JSON 文件中用 Unicode 转义序列写的【待填也能检出，因为检查的是 ensure_ascii=False 重新序列化后的文本；占位符出现在 Markdown 任何位置（包括 Forbidden 节）都会被拒绝。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-015",
+   "title": "Markdown 必需章节与标题行",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1588-1593 _validate_contract",
+    "scripts/pi_dispatch.py:1120-1122 _md_section"
+   ],
+   "rule": "1. 必需章节：REQUIRED_MD_SECTIONS 的 13 个章节逐个用 _md_section 查找。匹配方式是正则 ^##\\s+<名称>\\s*$，忽略大小写，多行模式；节体到下一个以“## ”开头的行或文末为止。缺失时报“Markdown 缺少章节：## <名称>”。\n2. 标题：在全文中找第一处行首匹配 ^#\\s+TASK:\\s*`?([a-z0-9-]+) 的位置，捕获值必须等于 task，否则报“Markdown 标题应为 '# TASK: <task>'”。\n\n实测：\n- “## budget”算作存在；“## Budget (v1)”算作缺失，并连带报三条 Budget 不一致。\n- 标题不在第一行也能通过，带反引号也能通过；“# TASK: normalize-query-x”不通过。\n- Markdown 以 BOM 开头、又没有别的标题行时，报标题错误。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"missing md section rejected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "validate 允许标题带反引号、也不要求标题在第一行；derive-json 要求第一行是不带反引号的 `# TASK: <id>`（:1335）。两者不一致。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1588-1593、:1120-1122 核对无误，所列实测均已复现。补充（均已实测）：### Budget 同样算缺失；标题的捕获在第一个不属于 [a-z0-9-] 的字符处停止，所以 normalize-queryX、normalize-query_v2 这类标题能通过；# 后没有空白的 #TASK: 被 validate 拒绝，但 derive 的正则（:1335）允许；Markdown 以 BOM 开头时，还会触发 U+FEFF 不可见字符警告（CLI 实测）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-016",
+   "title": "Identity 一致性",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1594-1611 _validate_contract",
+    "scripts/pi_dispatch.py:1134-1141 _md_identity",
+    "scripts/pi_dispatch.py:1126-1131 _md_value",
+    "scripts/pi_dispatch.py:1409-1413 _md_action_set"
+   ],
+   "rule": "解析：_md_identity 读取 Identity 节中形如 `^\\s*[-*]\\s*key\\s*:\\s*value` 的行（key 为 [A-Za-z_]+），缩进行也算，同名键以后出现的为准。取值经 _md_value 去掉首尾的反引号与空格，再去掉结尾一个全角或半角括号说明。\n\n比较：\n1. plan_version 与计划标识中的版本字符串比较（不是 JSON 的 plan_version）；base_sha 与 JSON 的 base_sha 比较；risk_level 与 JSON 的 risk_level 比较。三者都要求字符串完全相等，否则报“Markdown Identity 的 <field>（<md repr>）与 JSON（<repr>）不一致”。\n2. authorized_actions、integration_actions：缺失时报“Markdown Identity 缺少 <field>”。存在时，取值中所有 [a-z_]+ 词（去掉 none）组成集合，与 JSON 的集合比较；JSON 侧不合法时跳过。不一致时报“Markdown Identity 的 <field>（<排序后逗号分隔，空集为 none>）与 JSON（…）不一致”。写“无”“none”或留空都表示空集。\n3. executor：provider 与 model 都为真值时，Identity 的 executor 值必须包含子串 provider/model，否则报“Markdown Identity 的 executor 应写明 <p>/<m>”。thinking 为 str 时，executor 值必须匹配 thinking\\s+<thinking>\\b，否则报“Markdown Identity 的 executor 应写明 thinking <t>”。\n\n实测：\n- 写“local_edit and local_test”会多出 and，报不一致。\n- 键重复时以后者为准。\n- 值后面的“（说明）”被忽略。\n- risk_level 写成 Low 时报两条：取值非法，以及与 Markdown 不一致。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"integration change detected\"",
+    "tests/test_dispatch.py::test_validate check \"thinking change detected\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"annotated single values are derived without the note\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "plan_version 实际与文件名中的版本比较，报错文本却写“与 JSON（…）不一致”。实测：v2 文件中 Markdown 写 1、JSON 写 1 时，报“（'1'）与 JSON（'2'）不一致”。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "两处不准确。(1)「留空表示空集」：`- integration_actions:` 冒号后没有任何字符时，正则 :1138 不匹配，报「Markdown Identity 缺少 integration_actions」（已实测）；只有冒号后跟空白、写「无」或 none 时才是空集。(2)「risk_level 写成 Low 时报两条」只在 JSON 为 Low、Markdown 为 low 时成立；两边都写 Low 时只报一条取值错误（已实测）。补充：Identity 只认半角冒号，用全角冒号写的键视为缺失（实测 base_sha 报「（None）与 JSON（…）不一致」）；plan_version、base_sha、risk_level 缺失时报「不一致」，不报「缺少」；动作名写成大写时被拆成碎片（实测 Local_Branch 变成 ocal_ 与 ranch）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-017",
+   "title": "Scope 路径、依赖策略、Budget、检查命令与 DoD 编号的一致性",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1612-1633 _validate_contract",
+    "scripts/pi_dispatch.py:1221-1228 _md_budget",
+    "scripts/pi_dispatch.py:1416-1429 _argv_in_line"
+   ],
+   "rule": "1. 路径：JSON 中通过 pattern_error 的每个 allowed_* 与 forbidden_paths 模式，都必须以子串形式出现在 Markdown 全文的某处（不限于 Scope 节），否则报“Markdown 未列出 JSON 中的路径：<p>”。Markdown 多列、JSON 没有的路径不检查（实测）。\n2. dependency_changes：在 Scope 节中找第一处 dependency_changes\\s*:\\s*`?([a-z]+)，与 JSON 值比较，否则报“Markdown Scope 的 dependency_changes 与 JSON（<v>）不一致”。\n3. Budget：_md_budget 在 Budget 节中按 ^\\s*[-*]\\s*<key>\\s*:\\s*`?(\\d+) 取出三个数值（后面可以跟说明），与 JSON 值的 str() 比较；per_attempt 不合法时 JSON 侧记为 None。不一致时报“Markdown Budget 的 <key>（<md>）与 JSON（<json>）不一致”。cost_budget 不比较。\n4. 检查命令：对每个检查（是对象且 id 为 str），在 Validation commands 节中找含 \\b<id>\\b 的行。找不到时报“Markdown Validation commands 未列出 <id>”。找到且 argv 是非空字符串数组时，至少一行要满足 _argv_in_line：argv[0] 取文件名、去掉 .exe/.cmd/.bat 后不区分大小写查找，其后各参数区分大小写、按顺序出现。否则报“Markdown 中 <id> 的命令与 JSON argv 不一致：<argv 用空格连接>”。\n5. DoD：每个 DoD id 都必须在 Markdown 全文中以 \\b<id>\\b 出现，否则报“Markdown 未出现 JSON 中的编号：<id>”。\n\n不比较的内容：setup 与 Setup 节；repository、title；checks 的 cwd、timeout、expected_exit_code、output 模式、required、expect_on_base；executor.tools 与 context_files；Markdown 中多出来的检查或 DoD。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"argv change detected\"",
+    "tests/test_dispatch.py::test_validate check \"budget change detected\"",
+    "tests/test_dispatch.py::test_validate check \"forbidden path change detected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "路径只做全文子串匹配、只比较 JSON 到 Markdown 一个方向：v2 要保留这种宽松比较，还是收紧到 Scope 节并做双向比较？需要设计决定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1612-1633、:1221-1228、:1416-1429 核对无误。补充（均已实测）：package.json.bak 能满足 package.json；路径写在非 scope 的键下也能通过；dependency_changes 用全角冒号时不识别，散文中先出现的写法优先；Budget 的数值必须紧跟冒号，写「约 3」取不到；python3 run_tests.pyx 能满足 argv [python, run_tests.py]；DoD 的 text 与 evidence 不和 Markdown 比较，改动后仍能通过。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-018",
+   "title": "Markdown/JSON 冲突时的优先级",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1582 comment",
+    "scripts/pi_dispatch.py:1634 _validate_contract return",
+    "scripts/pi_dispatch.py:3011-3039 cmd_derive_json",
+    "scripts/pi_dispatch.py:2732-2733 INSTRUCTION_TEMPLATE"
+   ],
+   "rule": "validate 不设优先级：任何被比较的项不一致都是 error，validate 返回 2，prepare 与 baseline 拒绝继续，不会自动采用任何一方。源码注释的说法是：Pi 读 Markdown，调度器执行 JSON，与执行相关的内容必须一致（:1582）。derive-json 的方向是由 Markdown 生成 JSON，已有 JSON 需要 --force 才覆盖。运行时执行说明中的“机器合同摘要”由 JSON 生成，并写明“它与 plan.md 有任何不一致时，停止并在报告中指出，不要自行选择其一”。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"argv change detected\"",
+    "tests/test_dispatch.py::test_validate check \"thinking change detected\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "一致性检查之外的字段（例如 checks 的 timeout、output 模式）只按 JSON 执行，Markdown 写成别的值也不会被发现。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1582、:1634、:3172-3173、:4083-4084、:2732-2733 都已核实。另外 :2713 执行说明开头也写明，二者冲突时停止并报告。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-019",
+   "title": "validate_plan 的文件层检查与整体顺序",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1656-1690 validate_plan",
+    "scripts/pi_dispatch.py:966-967 Repo.plan_paths"
+   ],
+   "rule": "执行顺序：\n1. plan_key 不匹配：“计划标识不合法：<key>（格式 task-id.vN，例如 normalize-query.v1）”，返回。\n2. 分别检查 .agent/plans/<key>.md 与 .json：不存在时报“缺少文件：<相对路径>”；是符号链接时报“合同不能是符号链接：<路径>”。两个文件都检查完，有错误就返回。\n3. 以 UTF-8 读取 Markdown，不捕获解码错误。实测非 UTF-8 时抛 UnicodeDecodeError traceback，退出码 1。\n4. 解析 JSON，失败（ValueError，包括带 BOM 的情况，实测报“Unexpected UTF-8 BOM”）时报“JSON 合同解析失败：<异常>”并立即返回，也不报不可见字符。\n5. 调用 validate_contract，extra_protected 取 extra_protected_paths(config)。\n6. 追加 Markdown 与 JSON 的不可见字符警告。\n7. base_sha 相关检查。\n8. .agent/runs/probe 没有被 gitignore 时：WARN“.agent/runs/ 尚未被 .gitignore 忽略；prepare 会拒绝运行”。\n\n第 5 步已经报错时，第 6–8 步照样执行。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"validate ok\"",
+    "tests/test_dispatch.py::test_validate check \"example normalize-query.v1 validates\"",
+    "tests/test_dispatch.py::test_validate check \"example auth-refresh-401.v1 validates\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "符号链接这条分支没有在 Windows 上实测。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "顺序与行号正确。补充（均已实测）：(1) JSON 的读取也在 try 内（:1669-1672），非 UTF-8 的 JSON 报「JSON 合同解析失败：'utf-8' codec …」，退出码 2；(2) 深度嵌套的 JSON 抛 RecursionError，未被捕获，退出码 1；(3) 符号链接分支已在本机实测，退出码 2；(4) 以 CRLF 换行的 Markdown 经文本模式读取后能通过；(5) 顶层为数组的 JSON 报「机器合同顶层必须是 JSON 对象」，并跳过 base 检查。另外 extra_protected_paths(repo.config()) 在调用 validate_contract 之前求值。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-020",
+   "title": "base_sha 的仓库核验与基线相关提示",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1676-1687 validate_plan",
+    "scripts/pi_dispatch.py:768-770 resolve_commit",
+    "scripts/pi_dispatch.py:1737-1750 base_behind_head_message",
+    "scripts/pi_dispatch.py:1000-1008 planner_paths"
+   ],
+   "rule": "只在原始 JSON 的 base_sha 是 str 且匹配 SHA_RE 时进行：\n1. resolve_commit（git rev-parse --verify --quiet <sha>^{commit}）的结果不等于 base：error“base_sha 在本仓库中不存在或不是提交：<sha>”，contract 置为 None，本组其余检查跳过（实测退出码 2）。\n2. 否则，git cat-file -e <base>:AGENTS.md 失败：WARN“基线提交中没有 AGENTS.md：worktree 基于基线创建，执行器将看不到执行规则”。\n3. HEAD 不等于 base 时，看 git diff --name-only base HEAD：\n   - diff 成功、差异非空、且全部匹配 planner_paths（缺省 .agent/plans/**、.agent/reviews/**、.agent/design/**、.agent/*.md；Windows 上忽略大小写）：输出 NOTE“base_sha 不是当前 HEAD（<前12位>），但差异只在规划路径（…）：按「先提交合同再派遣」的流程属正常”。\n   - 其他情况：WARN“base_sha 不是当前 HEAD（<前12位>）；确认这是有意选择的输入版本”。\n4. 最后追加 missing_fact_path_warnings。\n\ngit rev-parse HEAD 以 check=True 运行，失败时抛 DispatchError，缺省退出码 3。planner_paths 配置不合法时抛 DispatchError，退出码 2。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"base behind HEAD by planner paths only is a NOTE\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"base behind HEAD by code is still a WARN\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "“基线中没有 AGENTS.md”这条警告没有测试覆盖。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "规则主体正确；「基线中没有 AGENTS.md」这条警告已实测。需要修正三处：(1) NOTE 与 WARN 括号中的 12 位是 HEAD 的前 12 位，不是 base（:1748、:1750 用的是 head[:12]）；(2) planner_paths 不合法导致退出码 2，只在 base 合法、存在且 HEAD 不等于 base 时才会发生，实测 HEAD 等于 base 时退出码为 0；(3) HEAD 不等于 base、但 diff 为空（例如空提交）时，给出的也是 WARN（已实测）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-021",
+   "title": "不可见格式字符警告",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1637-1653 invisible_char_warnings",
+    "scripts/pi_dispatch.py:1674-1675 validate_plan"
+   ],
+   "rule": "对 Markdown 与 JSON 文件原文逐行检查（splitlines，行号从 1 开始），找出 Unicode 类别为 Cf 的字符，例如零宽字符、双向控制符、BOM、软连字符。每行一条 WARN：“<Markdown|JSON> 第 N 行含不可见格式字符 U+XXXX、…：如果本意是写转义序列，请改回转义文本（或在探针里用 chr()）”，字符按码位排序去重。每个文件最多报 5 条（limit=5，实测 8 行只报前 5 行）。只是警告，不影响退出码。JSON 中写成转义文本的 ‎ 不算，只有字面字符才算。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"invisible format character is warned\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "corrected",
+    "note": "规则与行号正确；已实测：8 行只报前 5 条，同一行的多个字符去重并按码位排序后合成一条。草稿本身的文本有问题：「写成转义文本的 … 不算」一句中，本该写反斜杠加 u200e 的转义文本，实际嵌入了一个字面的 U+200E 不可见字符，正是本条要警告的情况。最终文本改为反引号内的转义写法。补充：JSON 解析失败（包括带 BOM）时不产生这类警告；Markdown 带 BOM 时产生 U+FEFF 警告。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-022",
+   "title": "Repository facts 文件在基线中缺失的警告",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1696 FACT_PATH_RE",
+    "scripts/pi_dispatch.py:1699-1734 missing_fact_path_warnings"
+   ],
+   "rule": "1. 取候选：在 Repository facts 节中找用反引号括起、匹配 FACT_PATH_RE 的路径（至少含一个 /，以 1–8 位字母数字扩展名结尾）。跳过重复的、属于原始 JSON scope.allowed_new_files 的、以及含 * ? { } 的路径。\n2. 查找：对每个候选，先以仓库根为前缀，再以 checks 与 setup 中每个非根 cwd（去掉首尾 /）为前缀，执行 git cat-file -e <base>:<path>。\n3. 所有前缀下都不存在的路径汇总成一条 WARN：“Repository facts 提到的文件在基线 <base 前12位> 中不存在：<最多 8 个，用、连接>——若它由同批的另一份合同产出，等那份集成后再以新 HEAD 为基线”。\n\n实测缺陷：raw 的 scope.allowed_new_files 含不可哈希元素（例如 {}），或 checks 是不可迭代值（例如 5）时，抛 TypeError 且没有被捕获，CLI 输出 traceback、退出码 1。即使 validate_contract 已经报出对应错误，也会这样。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate warns about a Repository-facts file missing from the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate is quiet when every Repository-facts file exists in the base\"",
+    "tests/test_dispatch.py::test_v22_netperf_feedback check \"validate resolves Repository-facts paths against each check cwd too\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "这个 TypeError 导致 traceback，是需要修复的缺陷，还是 v2 要复现的旧行为？需要规划端判断。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1696、:1699-1734 已核实，两种 TypeError 均已实测复现；此外 allowed_new_files=5 也抛 TypeError。补充：FACT_PATH_RE 的字符集不含 * ? { }，所以源码中跳过这些字符的分支实际不会触发（实测 src/**/*.py 不被当作候选）；扩展名超过 8 位的也不算候选；缺失超过 8 个时只列前 8 个，没有省略标记（已实测）；整个检查只在原始 base_sha 合法且在仓库中存在时运行。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-023",
+   "title": "validate 子命令的输出与退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2999-3008 cmd_validate",
+    "scripts/pi_dispatch.py:2988-2996 _print_messages",
+    "scripts/pi_dispatch.py:4953-4971 main",
+    "scripts/pi_dispatch.py:304-309 DispatchError",
+    "scripts/pi_dispatch.py:955-979 Repo.discover/config",
+    "scripts/pi_dispatch.py:747-761 git"
+   ],
+   "rule": "输出：先用 plan_key_from_arg 解析参数，再调用 validate_plan。_print_messages 先打印全部警告到 stdout：以“NOTE：”开头的打印成“NOTE  <正文>”，其余打印成“WARN  <文本>”；然后打印“ERROR <文本>”。\n\n退出码：\n- 有 error：打印“合同无效：<n> 个错误，<m> 个警告。”，返回 2（EXIT_USAGE）。\n- 没有 error：打印“合同有效：<key>（<m> 个警告）。”，返回 0。NOTE 也计入警告数，警告不影响退出码。\n- DispatchError 由 main 以“ERROR: <msg>”打印到 stderr，按其 code 退出：\n  - 返回 2：不在 Git 仓库中，或在 worktree 中运行；计划标识不合法，或合同路径不在 .agent/plans 下；dispatch.config.json 无法解析或顶层不是对象；extra_protected_paths 或 planner_paths 不合法。\n  - 返回 3（DispatchError 的缺省 EXIT_BLOCKED）：找不到 git，或 git rev-parse HEAD 失败。\n- 未捕获的异常：Python 缺省退出码 1。\n- KeyboardInterrupt：130。\n- 没有子命令：打印帮助，返回 2。\n\n实测：缺少 JSON、JSON 解析失败、base_sha 不存在都返回 2；非法计划标识、合同路径在 .agent/plans 之外都返回 2；Markdown 非 UTF-8、allowed_new_files 含 {} 都返回 1。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"validate ok\"",
+    "tests/test_dispatch.py::test_setup_wrapper_doctor check \"bash wrapper finds python\"",
+    "tests/test_dispatch.py::test_repo_config_features check \"invalid commit_trailers config is ignored by validate\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "validate 从不返回 1（EXIT_FAIL）或 4（EXIT_DRIFT），1 只来自未捕获的异常。设计文档 3.3 要求逐入口核实退出码，本条就是 validate 这个入口的结论。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "已列出的退出码都正确，但有遗漏（均已实测）：(1) argparse 的用法错误（缺少 plan_key、未知子命令）退出码 2，usage 输出到 stderr；(2) --version 退出码 0；(3) 非 UTF-8 的 JSON 退出码 2，深度嵌套的 JSON 退出码 1；(4) OverflowError 已通过 CLI 实测为 1；(5) planner_paths 出错的前提条件见 020。另外，配置顶层不是对象时，报错信息中是配置文件的绝对路径（已实测）。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-024",
+   "title": "derive_contract_json 的生成规则",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1327-1397 derive_contract_json",
+    "scripts/pi_dispatch.py:1400-1406 _md_action_list",
+    "scripts/pi_dispatch.py:1310 LONG_TITLE_CHARS"
+   ],
+   "rule": "解析问题（problems）：\n- 第一行不匹配 ^#\\s*TASK:\\s*([a-z0-9][a-z0-9-]*)\\s*$（不允许反引号）：“第一行必须是 `# TASK: <task-id>`”，task_id 记为 null。\n- Identity 的 executor 不匹配 ^([^/\\s]+)/(\\S+)\\s*·\\s*thinking\\s+(\\S+)：“Identity 的 executor 应写成 `provider/model · thinking <级别>`”，provider 与 model 记为 null，thinking 记为 high。\n- 没有标题：“没有标题：请用 --title 指定，或在 Goal 第一行写一句话概括”。\n- Budget 缺少三个键中的某个：“Budget 缺少 <key>”。JSON 中省略这个键；validate 时 normalize 会补上缺省值，再与 Markdown 中的缺失值比较，从而报不一致（实测）。\n\n字段取值：\n- title：取 --title；没有时取 Goal 节第一条非空行，并去掉首尾的 -、* 与空格。截断到 120 字。\n- checks 解析自 Validation commands，setup 解析自 Setup，两者的解析问题合并。\n- DoD：只识别 Definition of done 节中 `- Dnn：…` 的行（D 后接两位以上数字）。以第一个“证据”分割：前半去掉末尾的“；;，, ”作为 text；后半中独立出现的 [A-Z]\\d{2,}、scope、review 按出现顺序去重，作为 evidence。\n- schema_version=1。\n- plan_version：Identity 的值全为数字时转成 int，否则为 null，不与文件名核对。\n- repository、base_sha、risk_level 原样取 Identity 的值。\n- authorization：用 _md_action_list 解析，保留书写顺序、去重、去掉 none。\n- executor.tools=DEFAULT_TOOLS，context_files=\"project\"。\n- scope 缺失项为 [] 或 \"forbidden\"。\n- budget 只含解析到的键；cost_budget 恒为 null，不读取 Markdown 的 cost_budget 行。\n\n实测：用 contract-template.md 生成时只报“第一行必须是…”一条问题，其余占位符留给 validate 拒绝。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived checks keep argv, cwd, timeout and patterns\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived scope and DoD\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"annotated single values are derived without the note\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "exec_match 会把模板中的“【待填：provider/model】”解析成 provider=“【待填：provider”。这类占位符只能靠 validate 的占位符检查拦下。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "主体正确；用模板生成时只报一条问题，已实测，同时 integration 被解析成 local_branch、commit、open_pr。需要补充或修正：(1) plan_version 的「全为数字时转 int」用的是 str.isdigit，上标数字 ² 能通过 isdigit，但 int() 会抛 ValueError，CLI 实测 traceback、退出码 1；(2) --title 同样会被截断到 120 字；(3) Identity 缺少 authorized_actions 时写入 []，不用 normalize 的缺省值，validate 随后报 local_edit 必须包含；(4) DoD 行中没有「证据」时 evidence 为 []（已实测）；(5) 第一行的正则允许 # 后没有空白，validate 则不允许。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-025",
+   "title": "derive-json 的 Scope 与命令行解析",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1231-1254 _md_scope_lists",
+    "scripts/pi_dispatch.py:1257-1258 _CHECK_LINE_RE",
+    "scripts/pi_dispatch.py:1261-1306 _md_command_items"
+   ],
+   "rule": "_md_scope_lists：\n- 只识别 Scope 节中不缩进、形如 ^[-*]\\s*([a-z_]+)\\s*:\\s*(.*?)\\s*$ 的行。\n- dependency_changes 的值用 _md_value 处理。\n- 其他键：同一行有值、不以“无”开头、也不是 none 或 [] 时，按半角逗号、全角逗号或顿号分割，并去掉反引号；否则收集紧随其后的缩进“- item”行，遇到不缩进的行停止。\n\n_md_command_items：\n1. 行 strip 后要匹配：- <ID：[A-Z]\\d{2,}>（可选的（kind）或 (kind)）：`<cmd>` <rest>。不匹配的行静默忽略（实测 X1: 被忽略）。\n2. argv：cmd 以 python -c \" 开头并以 \" 结尾时，argv=[python, -c, 中间原文]。否则用 shlex.split(posix)：抛 ValueError 时记问题“<id> 的命令无法拆分：<异常>”；任一 token 不在原行中时，记问题“<id> 的命令含引号或转义，无法可靠地还原参数；请手写 JSON 中的 argv”，并丢弃该项。\n3. cwd：取 rest 中的“cwd：值”；值为仓库根、. 或 repo root 时记为 .。\n4. timeout：“超时：Ns”或“timeout: N”，缺省 600。\n5. required（仅 Validation commands）：kind 含“可选”或 optional（不区分大小写）时为 false，否则为 true。\n6. expected_exit_code：“期望退出码：N”，缺省 0。\n7. output_must_match：“输出须匹配”之后、“，不得”之前反引号中的内容。output_must_not_match：“不得出现”或“不得匹配”之后反引号中的内容。\n8. expect_on_base（仅 Validation commands）：kind 加 rest 含“基线应失败”时为 fail；否则含“基线应通过”时为 pass。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived checks keep argv, cwd, timeout and patterns\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derived scope and DoD\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "引号参数（例如 echo 'a  b'）的 token 仍会出现在原行中，所以能通过“含引号或转义”检查（实测 argv=['echo','a  b']）。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "两处不准确。(1)「遇到不缩进的行停止」：实际是在第一条不匹配「缩进的 - item」的行停止，空行也会终止收集（实测 allowed_modified_files: 后空一行再写列表，结果为 []）。(2) 空值规则：值以「无」开头，或整个值（不区分大小写）等于 none 或 []；none（无）会被当作一个路径（已实测）。补充（均已实测）：列表项中的括号说明不会去掉，例如 tests/a.py（新建）；中文超时必须写成「超时：Ns」，写「超时：90秒」时静默取缺省 600；命令行的 ID 必须是一个大写字母加两位以上数字，比 ITEM_ID_RE 严格。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-026",
+   "title": "derive-json 子命令的流程与退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3011-3039 cmd_derive_json",
+    "scripts/pi_dispatch.py:4858-4863 argparse derive-json"
+   ],
+   "rule": "1. Markdown 不是文件：DispatchError“缺少文件：<路径>”，返回 2。\n2. 每个解析问题打印成“WARN  <问题>”。没有 --title 且标题超过 60 字时，打印“NOTE  标题取自 Goal 第一行（N 字）…较长时用 --title 指定一句短标题（加 --force 覆盖已生成的 JSON）”。\n3. --print：打印 JSON（indent=2，ensure_ascii=False），不写文件、不校验；有问题返回 2，否则返回 0。\n4. 不带 --print 时：JSON 已存在且没有 --force，DispatchError“<路径> 已存在；确认要覆盖时加 --force”，返回 2。\n5. 有解析问题时仍然写入 JSON（实测），打印“已写入 <路径>”。\n6. 写入后调用 validate_plan 并打印结果。校验有错：“合同无效：…”，返回 2。校验无错：“合同有效：…”，但有解析问题时仍返回 2，否则返回 0。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json writes a contract that validates\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json refuses to overwrite without --force\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"derive-json --print takes the title from Goal\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"derive-json notes a long title taken from Goal\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"no title note when --title is given\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "有解析问题仍写入 JSON，可能留下一份无效的 JSON（实测）。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3011-3039、:4858-4863 与实测一致：有解析问题时仍写入 JSON；--print 有问题时退出码 2。补充（均已实测）：写入用文本模式，Windows 上生成的 JSON 为 CRLF 换行、无 BOM；--print 在「已存在」检查之前返回，JSON 已存在时也能用，退出码 0；NOTE 中的字数在截断之后计算，最多显示 120。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-027",
+   "title": "计划标识参数解析 plan_key_from_arg",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1011-1028 plan_key_from_arg"
+   ],
+   "rule": "参数 strip 后若匹配 PLAN_KEY_RE，直接使用。否则按路径处理：文件名去掉 .md 或 .json 后缀后要匹配 PLAN_KEY_RE，并且解析后的父目录（相对路径按 cwd 解析，用 normcase 比较）必须等于 .agent/plans，这时使用该 key；父目录不符时报“合同文件必须位于 .agent/plans 下：<原文>”。其他情况报“计划标识不合法：<原文>（格式 task-id.vN，例如 normalize-query.v1；也可以写成 .agent/plans/<task-id>.vN.md）”。两种错误的退出码都是 2。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v11 check \"validate accepts a relative md path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"validate accepts an absolute json path\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"plan path outside .agent/plans rejected\"",
+    "tests/test_dispatch.py::test_feedback_v11 check \"bad plan key still explains the format\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":1011-1028 与 CLI 实测一致（错误文本、退出码 2）。相对路径按进程的当前目录解析，不按 --repo 解析。"
+   }
+  },
+  {
+   "id": "LB-CONTRACT-028",
+   "title": "validate_plan 在 validate 之外的调用方",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3162-3175 cmd_prepare",
+    "scripts/pi_dispatch.py:4073-4084 cmd_baseline",
+    "scripts/pi_dispatch.py:2653-2656 load_attempt"
+   ],
+   "rule": "- cmd_prepare 与 cmd_baseline 都调用 validate_plan，先打印警告与错误。有 error 或 contract 为 None 时抛 DispatchError(EXIT_USAGE=2)，文本分别为“合同校验失败，未创建 attempt。”和“合同校验失败，无法运行基线检查。”。\n- .agent/runs 未被忽略时，validate 只给 WARN，prepare 则报错“请先把 .agent/runs/ 加入 .gitignore：运行证据含源码与日志，不应进入提交。”，退出码 3。\n- prepare 与 baseline 使用 validate 返回的、已补齐缺省值的合同。\n- load_attempt 对 attempt 目录里的 contract.json 再做一次 normalize_contract。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_validate check \"prepare refuses when .agent/runs not ignored\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "prepare 之后的预算、并行重叠与执行器解析不属于本区域，没有展开。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": ":3162-3175、:4073-4084、:2653-2656 已核实。补充：attempt 中保存的是原始 JSON 文件的拷贝（:3196），normalize 在 load_attempt 时再做；prepare 在打印之前还会追加与其他 attempt 的范围重叠警告（:3166-3170），不属于本区域。"
+   }
+  }
+ ],
+ "missing_items_added_by_verifier": [
+  "LB-CONTRACT-029 JSON 入口的宽松行为：json.loads（scripts/pi_dispatch.py:1670）接受重复键，后出现的生效，实测重复的 risk_level 以后者为准且通过；接受 NaN 与 Infinity，cost_budget.amount 为 Infinity 时通过，为 NaN 时被拒（:1577-1580）；Markdown 与 JSON 都以文本模式读取，CRLF 被规范成 LF，实测 CRLF 合同能通过。",
+  "LB-CONTRACT-030 validate 入口未捕获的异常汇总（均导致 traceback、退出码 1）：Markdown 不是 UTF-8（:1668）；JSON 深度嵌套时抛 RecursionError（:1670）；输出模式正则抛 OverflowError（:1180）；facts 检查中的 TypeError（:1708、:1718）。对照：JSON 不是 UTF-8 时 UnicodeDecodeError 属于 ValueError，会被 :1671 捕获，退出码 2。以上都已通过 CLI 实测。",
+  "LB-CONTRACT-031 CLI 到达不了的报错分支：_validate_contract 的计划标识错误（:1444-1446）与 validate_plan 的计划标识错误（:1657-1658）都在 plan_key_from_arg（:1011-1028）之后，通过 CLI 调用时标识已先被拒绝；validate_contract 对 TypeError 等异常的包装（:1436-1437）只在进程内直接调用时可达。",
+  "LB-CONTRACT-032 validate 不检查的内容：allowed_executors 与 pi 的模型列表（在 prepare 的 :3179-3180 与 run 的 :3271 由 resolve_executor 检查）；SENSITIVE_PATTERNS 与 DEPENDENCY_PATTERNS（只在 evaluate_scope 中使用，:2445-2446）；scope 中的路径和检查的 cwd 在基线中是否存在（只有 Repository facts 给出提示）；dispatch.config.json 中除 extra_protected_paths 与 planner_paths 以外的键（实测 allowed_executors=5、commit_trailers=7 时 validate 退出码 0）。",
+  "LB-CONTRACT-033 运行时对 executor 缺省值的改写（源码推断，未实测，属执行器解析区域）：原始 JSON 没写 provider、model 或 thinking 时，run 阶段的 resolve_executor 从 PI_EXEC_PROVIDER / PI_EXEC_MODEL / PI_EXEC_THINKING 取值（:2670-2680，调用点 :3271）。thinking 经 normalize 补成 high 后已与 Markdown 核对过，运行时却可能被环境变量替换。",
+  "LB-CONTRACT-034 argparse 与 main 入口的退出码：缺少 plan_key 或子命令未知时，argparse 以退出码 2 结束，usage 打到 stderr；--version 与 -h 以退出码 0 结束（:4834-4835）；没有子命令时打印帮助并返回 2（:4961-4963）；以上都已实测。",
+  "LB-CONTRACT-035 级联错误（均已实测）：per_attempt 不合法时，JSON 侧记为 None，Budget 比较多报一条；Budget 章节缺失，或标题写成 `## Budget (v1)`、`### Budget` 时，报缺少章节外加 3 条 Budget 不一致；非法的检查 id 仍参与 DoD 与必要检查的判断；JSON 的 risk_level 为 Low、Markdown 为 low 时报两条；base_sha 带末尾换行时报两条。",
+  "LB-CONTRACT-036 derive-json 的额外可观测行为（均已实测）：写入的 JSON 在 Windows 上为 CRLF 换行（:3031 使用文本模式的 write_text）；plan_version 写成 ² 这类 Unicode 数字时，isdigit 为真，但 int() 抛 ValueError，导致 traceback、退出码 1（:1369）；--print 在「已存在」检查之前返回（:3026-3028）。"
+ ]
+}

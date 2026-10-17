@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:brief-read-receipt:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "receipt_id", "view_id", "manifest_sha256", "brief_sha256", "observer_ref", "read_cursor", "outcome"],
+  "properties": {
+    "record_type": {"const": "brief-read-receipt"}, "schema_version": {"const": 1},
+    "receipt_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "view_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "brief_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "observer_ref": {"type": "string", "minLength": 1},
+    "read_cursor": {"type": "integer", "minimum": 0}, "outcome": {"enum": ["READ", "REJECTED"]}
+  }
+}

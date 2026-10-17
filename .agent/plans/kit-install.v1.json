@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-install",
+  "plan_version": 1,
+  "title": "kit_install.py check/install/update: copy the kit into another repository",
+  "repository": "Code-Kit",
+  "base_sha": "b0f762544d792f69169080750cd42577a0c7ad58",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "scripts/kit_install.py",
+      "tests/test_kit_install.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_kit_install_oracle.py",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh",
+      "scripts/kit_config.py",
+      "scripts/codekit/**",
+      "plugins/**",
+      "schemas/**",
+      "docs/**",
+      "README.md",
+      "CHANGELOG.md",
+      "AGENTS.md",
+      "gitignore.append.txt",
+      "gitattributes.append.txt",
+      "tests/test_dispatch.py",
+      "tests/stub_pi.py",
+      "tests/test_kit_v280.py",
+      "tests/test_kit_config.py",
+      "tests/test_decisions.py"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_kit_install_oracle.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_kit_install.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/test_kit_v280.py",
+        "tests/test_kit_config.py",
+        "tests/test_decisions.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--ignore=tests/test_dispatch.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "python",
+        "-c",
+        "import sys; sys.path.insert(0, 'scripts'); import kit_install as k; assert k.STATUSES == ('ADD', 'SAME', 'UPDATE', 'KEEP', 'CONFLICT', 'APPEND', 'MANUAL', 'REMOVED') and k.RECORD == '.agent/kit-install.json' and callable(k.payload) and callable(k.main); print('kit_install ok')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "kit_install ok"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "发放内容与每个发放文件的状态（第 1–2 条）",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "装进目标仓库的 kit 与 kit 本身逐字节一致，kit 一升级就能分清哪些文件过期、哪些被本地改过"
+    },
+    {
+      "id": "D02",
+      "text": "AGENTS.md、两个规则文件与 dispatch 配置（第 3 条）",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "目标仓库自己的规则与配置一个字节都不被改写，缺什么都说清楚"
+    },
+    {
+      "id": "D03",
+      "text": "三个命令与 `--force`（第 4–5 条）",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "本地改过的东西不会在更新时悄悄丢失，覆盖之前一定有备份"
+    },
+    {
+      "id": "D04",
+      "text": "拒绝（第 6 条）",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "链接与仓库之外的路径一个字节都不写，拒绝时目标原封不动"
+    },
+    {
+      "id": "D05",
+      "text": "安装记录、输出与退出码（第 7–8 条）",
+      "evidence": [
+        "V01",
+        "V02",
+        "V07"
+      ],
+      "intent": "被脚本调用时最后一行就能读到结果，记录足以支撑下一次 update 与 doctor"
+    },
+    {
+      "id": "D06",
+      "text": "其它模块与测试不受影响，文档串与导入按第 9 条，Step 4 的测试齐全，不自行做变异检查，所有修改在允许集合内，无依赖变更",
+      "evidence": [
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "scope",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 3600,
+    "cost_budget": null
+  }
+}

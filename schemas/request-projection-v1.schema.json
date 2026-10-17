@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:request-projection:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "request_id", "matched_event_ids", "unknown_event_ids", "foreign_event_ids", "mapping_method"],
+  "properties": {"record_type": {"const": "request-projection"}, "schema_version": {"const": 1}, "request_id": {"type": "string", "minLength": 1}, "matched_event_ids": {"type": "array", "items": {"type": "string"}}, "unknown_event_ids": {"type": "array", "items": {"type": "string"}}, "foreign_event_ids": {"type": "array", "items": {"type": "string"}}, "mapping_method": {"const": "exact_request_id"}}
+}

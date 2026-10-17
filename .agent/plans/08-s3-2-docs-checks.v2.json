@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "task_id": "08-s3-2-docs-checks",
+  "plan_version": 2,
+  "title": "08 S3.2 Markdown AST 与本地链接检查",
+  "repository": "Code-Kit",
+  "base_sha": "ef5ff25e9f41cea1096f75d31b027ef4dafcb66b",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "commit",
+      "push"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "tests/test_builtin_docs_checks.py"
+    ],
+    "allowed_new_files": [
+      "tests/test_builtin_docs_checks.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 180,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "tests/test_dispatch.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "目标接口/产物和全部行为规则在允许文件内实现，并有正负例",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "漂移、越界、重复、缺失、未知和伪造输入不能静默成功",
+      "evidence": [
+        "V02",
+        "V03"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "离线结果与真实平台/provider/生产接线状态明确分离",
+      "evidence": [
+        "V02",
+        "scope"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试未删除、跳过或弱化，改动范围可由 scope 报告复核",
+      "evidence": [
+        "V03",
+        "V04",
+        "scope"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  },
+  "inputs": [
+    "current HEAD at the declared base_sha",
+    "approved requirements and reference documents",
+    "existing offline fixtures and scoped repository files"
+  ],
+  "outputs": [
+    "deterministic scoped implementation, tests, fixtures, or documentation",
+    "evidence record, or explicit BLOCKED/NOT_RUN record when external capability is unavailable"
+  ],
+  "failure_handling": [
+    "reject malformed, drifted, missing, unsupported, or out-of-scope inputs with explicit error/UNKNOWN/BLOCKED/NOT_RUN state",
+    "never promote fixture or offline evidence to production PASS"
+  ],
+  "rollback_boundary": [
+    "revert only files listed in scope; protected rules, dispatch scripts, agent directories, credentials, dependencies, and external systems remain untouched"
+  ]
+}

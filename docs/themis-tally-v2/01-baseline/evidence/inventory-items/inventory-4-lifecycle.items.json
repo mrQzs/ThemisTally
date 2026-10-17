@@ -1,0 +1,664 @@
+{
+ "area": "lifecycle",
+ "items": [
+  {
+   "id": "LB-LIFE-001",
+   "title": "attempt 目录名、编号格式与派生标识",
+   "source_locations": [
+    "scripts/pi_dispatch.py:62 ATTEMPT_DIR_RE",
+    "scripts/pi_dispatch.py:2558-2563 task_attempts",
+    "scripts/pi_dispatch.py:2623 allocate_attempt",
+    "scripts/pi_dispatch.py:3193 cmd_prepare",
+    "scripts/pi_dispatch.py:3198 cmd_prepare",
+    "scripts/pi_dispatch.py:3204 cmd_prepare",
+    "scripts/pi_dispatch.py:4354 cmd_branch"
+   ],
+   "rule": "attempt 目录名须匹配 `^attempt-(?P<n>\\d{3,})$`；分配时按 \"attempt-%03d\" 生成（不足 3 位补零，达到 1000 时为 attempt-1000，仍匹配正则）。attempt_id = \"<task_id>.v<plan_version>.a%03d\"（3193），meta.json 的 attempt_no 为整数（3204）；worktree 临时目录前缀为 \"<仓库名前16字符>-<task_id前24字符>-a%03d-\"（3198）；branch 默认名 \"pi/<task>-v<ver>-a%03d\"，--rework 时前缀改为 pi-rework（4353-4354）。task_attempts 只收 .agent/runs/<task_id>/ 下匹配正则的目录，并按整数 n 升序排列（2562-2563）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"branch tree == candidate tree\"",
+    "tests/test_dispatch.py::test_happy check \"branch subject without a title\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖 attempt-1000 以上的编号，以及 display/排序在 4 位编号下的表现。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "行号与规则均正确：62、2558-2563、2623、3193、3198、3204、4353-4354；runs_dir=.agent/runs 见 952。补充（探针）：少于 3 位的 attempt-01 被忽略；attempt-0007 按整数 7 参与 max，下一个生成 attempt-008；--name 可覆盖默认分支名（4354）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-002",
+   "title": "首次 attempt 编号为 1（决策 01-D03 的依据）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2619-2621 allocate_attempt",
+    "scripts/pi_dispatch.py:2623 allocate_attempt",
+    "scripts/pi_dispatch.py:3192-3193 cmd_prepare",
+    "tests/test_dispatch.py:208-209 rd"
+   ],
+   "rule": "number = max(已有编号, default=0) + 1（2621）。任务目录为空时，首个 attempt 为 1，即目录 attempt-001、attempt_id 后缀 .a001。工具从不生成 attempt-000：即使手工放入 attempt-000，下一次仍分配 1（max(0)+1）。测试辅助函数 rd(repo, n=1) 默认指向 attempt-001，test_happy 的分支名为 pi/normalize-query-v1-a001，提交标题为 \"normalize-query: Pi 候选 v1 attempt 001\"（test_dispatch.py:274,277）。辅助探针（在临时目录直接调用 allocate_attempt，不是正式取证）：空目录得到 ('attempt-001', 1)；已有 attempt-000 得到 ('attempt-001', 1)；已有 001、005 得到 006；已有 999 得到 attempt-1000。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\"",
+    "tests/test_dispatch.py::test_happy check \"branch subject without a title\"",
+    "tests/test_dispatch.py::test_happy check \"mark integrated\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "新协议 attempt 允许非负整数，但旧实现的实际下界是 1；0 只可能来自手工创建的目录。是否把 0 作为非法的历史值，由 01-D03 与 07 决定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "2621 `max(existing, default=0) + 1`、2623 `attempt-%03d`、3193 `.a%03d` 核对无误；测试 208-209、273-277 核对无误。自跑探针复现：空→001/1，已有 000→001/1，001+005→006，999→attempt-1000（仍匹配正则）。补充：verdicts/checks/mutations 的 NN 也从 01 开始（_next_number 3453-3455）。open_questions 中“新协议允许非负整数”出自设计文档 4.1.1（第 239 行），是文档说法，不是源码事实。"
+   }
+  },
+  {
+   "id": "LB-LIFE-003",
+   "title": "编号递增条件与作用域",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2616-2629 allocate_attempt",
+    "scripts/pi_dispatch.py:3165-3192 cmd_prepare",
+    "scripts/pi_dispatch.py:3220-3233 cmd_prepare"
+   ],
+   "rule": "只有 prepare 分配编号。分配发生在以下检查都通过之后：合同校验（3172-3173）、.agent/runs/ 已被 git 忽略（3174-3175）、executor 允许列表（3179-3180）、预算预检（3183-3189）、创建 worktree_root（3190-3191）。编号的作用域是 .agent/runs/<task_id>/（2617），跨 plan_version 连续，新版本合同不从 1 重新开始。编号分配后，即使之后 PREPARE_FAILED、预检失败、从未 run 或 run 时 BUDGET_EXCEEDED，编号也不释放。取值是最大编号加一，不回填空缺。mkdir 遇到 FileExistsError（并发 prepare）时编号加一重试，最多 1000 次，全部失败报 \"无法分配 attempt 目录\"（2622-2629）。编号与是否领取（是否计入预算）无关。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"overlap warning names the latest pending attempt only\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "跨 plan_version 的编号连续、并发 prepare 撞名重试都没有直接测试。按 max+1 的写法，删除最高编号目录后该编号会被复用；这是源码推导，未验证，且流程规则禁止删除 runs 证据。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "主体正确，但“executor 允许列表（3179-3180）”是有条件的：只有 JSON 合同的 executor 显式写了 provider 与 model 时 prepare 才调用 resolve_executor；它会以退出码 2（env 冲突、无效模型或思考级别）或 3（不在 allowed_executors、思考级别不符）拒绝（2668-2699）。合同校验失败退出码 2（3173），runs 未忽略退出码 3（3175）。其余（作用域、max+1、不回填、1000 次撞名重试 2622-2629）无误。"
+   }
+  },
+  {
+   "id": "LB-LIFE-004",
+   "title": "恢复和预检失败复用同一 attempt；重试必须重新 prepare",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3254-3257 cmd_run",
+    "scripts/pi_dispatch.py:3281-3285 cmd_run",
+    "scripts/pi_dispatch.py:3310-3313 cmd_run",
+    "scripts/pi_dispatch.py:3411-3443 cmd_collect"
+   ],
+   "rule": "预检失败时报 \"预检失败：attempt 保持 PREPARED，未计入尝试次数。修正环境后可再次 run。\"，同一目录可以再次 run（3285）。状态不是 PREPARED，或 claim/ 已存在时，run 报 \"attempt 状态为 %s%s，只能运行未领取的 PREPARED attempt；返工请重新 prepare。\"，已领取时在状态后插入 \"（已领取）\"，退出码 3（3255-3257）。collect --recover 在原 run_dir 上补做收集，不分配新编号，也不新建 claim（3413,3440）。所以恢复沿用同一个 attempt 编号；重新执行只能新 prepare，得到新编号。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"run after fixing env\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed PREPARED attempt cannot run again\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3255-3257 文本与“（已领取）”插入正确，退出码 3（DispatchError 默认）；3285 文本正确；collect --recover 不分配编号、不建 claim。补充：run 入口用 `(run_dir/\"claim\").exists()`，budget_usage/collect/status 用 is_dir()（2572、3416、4498）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-005",
+   "title": "TaskLock 的位置、获取与等待",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2583-2610 TaskLock.__init__/__enter__",
+    "scripts/pi_dispatch.py:307 DispatchError",
+    "scripts/pi_dispatch.py:3300 cmd_run"
+   ],
+   "rule": "锁是目录 .agent/runs/<task_id>/.task.lock（2587），父目录不存在时先创建（2592），用 mkdir 原子获取（2596）。获取成功后以独占模式写 owner.json：{\"pid\": os.getpid(), \"at\": UTC}（2597）。锁已存在时每 0.2s 重试一次（2610），最多等待 wait_seconds=30s（2586,2593,2607）。超时抛 DispatchError：\"任务锁被占用：<路径>（另一个 run 正在领取；如确认无人使用可删除该目录）\"，默认退出码 3（307）。锁目录名不匹配 ATTEMPT_DIR_RE，不会被当成 attempt。辅助探针：持锁期间第二个 TaskLock 在 wait 0.5s 后以退出码 3 失败；退出 with 块后锁目录已删除。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试直接覆盖“锁被占用”的报错文本与 30s 等待。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "2586-2610 全部核对无误；write_text 默认 exclusive=True（364-366）。自跑探针：持锁期间 wait_seconds=0.5 的第二个 TaskLock 约 0.6s 后以退出码 3 失败；with 结束后锁目录已删除。"
+   }
+  },
+  {
+   "id": "LB-LIFE-006",
+   "title": "TaskLock 的过期接管与归属判断",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2599-2606 TaskLock.__enter__",
+    "scripts/pi_dispatch.py:2612-2613 TaskLock.__exit__",
+    "scripts/pi_dispatch.py:2597 TaskLock.__enter__"
+   ],
+   "rule": "是否过期只看锁目录的 mtime：time.time() - st_mtime > stale_seconds=300 时视为持有者已崩溃，rmtree 后重新获取；stat 失败时按 age=0 处理（2600-2606）。owner.json 在全文件中只在 2597 写入，从不读取，因此不校验 pid 是否存活：持有者已死、但锁不足 300s 时，其他 run 等满 30s 后仍会失败（辅助探针：owner pid=999999 的新锁在 wait 0.6s 后以退出码 3 拒绝；把 mtime 改成 400s 前的锁则被接管，owner.json 改写为当前 pid）。__exit__ 无条件 rmtree(ignore_errors=True)，不核对 owner 是否仍是自己（2612-2613）。mkdir 成功后写 owner.json 时出现异常，__enter__ 会直接上抛，__exit__ 不会执行，锁目录残留到 300s 过期。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "有一个竞态未测试：过期接管后，原持有者的 __exit__ 会删掉新持有者的锁。mtime 在各文件系统上的更新语义也未验证。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "mtime>300s 视为过期、stat 失败 age=0、owner.json 只写不读（grep 只命中 2597）、__exit__ 无条件 rmtree 均正确，探针复现“owner pid 999999 的新锁被拒，400s 前的锁被接管”。需要修正两点：(1)“写 owner.json 时异常直接上抛”只适用于非 FileExistsError 的异常；FileExistsError 会被 2599 的 except 当成“锁已存在”继续等待（推导）。(2) 原列为未测竞态的“过期接管后原持有者 __exit__ 删掉新持有者的锁”，已由顺序模拟探针复现（A 持锁→mtime 改为 400s 前→B 接管→A.__exit__ 后 B 的锁目录不存在）；仍然没有正式测试。"
+   }
+  },
+  {
+   "id": "LB-LIFE-007",
+   "title": "锁只串行化 run 的预算复核与领取；claim/ 是 attempt 级互斥",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3300-3315 cmd_run",
+    "scripts/pi_dispatch.py:3316-3326 cmd_run",
+    "scripts/pi_dispatch.py:3183-3192 cmd_prepare"
+   ],
+   "rule": "全文件只在 cmd_run 使用一次 TaskLock（3300）。临界区依次：重新计算 budget_usage（排除本 attempt）、检查次数与剩余墙钟、计算本轮时限、mkdir claim/、独占写 claim/reservation.json {\"timeout_seconds\", \"pid\"（调度器 pid）, \"at\"}（3300-3315）。离开临界区后才写 executor.json、instruction.md、ignored-before.json、run-started.json 并设为 RUNNING（3319-3326）。prepare、collect、mark、verdict、cleanup 都不取锁。每个 attempt 的 claim/ 目录本身是第二道互斥：mkdir 遇到 FileExistsError 时报 \"该 attempt 已被领取，不能重复运行。\"（3310-3313）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\"",
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖同一 attempt 被并发 run 两次时“已被领取”的分支。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "TaskLock 只在 3300 使用；临界区 3300-3315 与临界区外 3319-3326 的顺序正确；3313 文本正确。补充：reservation.json 写入失败时 claim/ 已存在但无 reservation，按 0 秒计入、状态仍为 PREPARED（推导）；status 的 started 列就是 claim is_dir（4498）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-008",
+   "title": "预算字段默认值与校验范围",
+   "source_locations": [
+    "scripts/pi_dispatch.py:1197-1198 normalize_contract",
+    "scripts/pi_dispatch.py:1565-1580 _validate_contract",
+    "scripts/pi_dispatch.py:1618-1622 _validate_contract"
+   ],
+   "rule": "默认值：max_attempts_total=2，max_wall_seconds_per_attempt=1200，max_wall_seconds_total=2400，cost_budget=None。校验：attempts 为 1..20 的 int，不接受 bool，否则报 \"budget.max_attempts_total 必须是 1..20 的整数\"；per_attempt 为 60..86400 的 int；total 为 int 且不小于 per_attempt，否则报 \"budget.max_wall_seconds_total 必须是整数且不小于单轮上限\"；cost_budget 为 null 或 {amount≥0, currency:str}。Markdown Budget 的三项必须与 JSON 一致。cost_budget 只做校验，预算核算与 run 都不使用它：全文件只在 1198、1396、1576-1580 出现。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "cost_budget 的“只校验、不拦截”语义是否保留，待 07 决定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "默认值 1197-1198、校验 1565-1580、Markdown 一致性 1618-1622 均正确；cost_budget 只出现在 1198、1396、1576、1580。补充：JSON 缺省时虽补默认值，但 Markdown Budget 必须写出与 JSON 相同的三项，否则报“Markdown Budget 的 %s（%s）与 JSON（%s）不一致”；derive-json 要求 Markdown 三项齐全（1362-1364）；per_attempt 无效时 total 只检查是否为 int。"
+   }
+  },
+  {
+   "id": "LB-LIFE-009",
+   "title": "budget_usage 的计算规则",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2566-2580 budget_usage",
+    "scripts/pi_dispatch.py:2558-2563 task_attempts",
+    "scripts/pi_dispatch.py:3430-3431 cmd_collect"
+   ],
+   "rule": "遍历 .agent/runs/<task_id>/ 下的全部 attempt（跨 plan_version），可用 exclude 排除一个（norm_case 比较）。只有存在 claim/ 目录的 attempt 计入 attempts_started。对每个已领取的 attempt，run.json 存在且 wall_seconds 不为 None 时累加实际值，否则累加 claim/reservation.json 的 timeout_seconds（缺失按 0）。未领取的 PREPARED、PREPARE_FAILED、预检失败的 attempt 既不计次数也不计时长。恢复时合成的 run.json 中 wall_seconds=None（3431），所以这类 attempt 按预留时限计入。辅助探针：reservation 600，加上 run.json(None)+reservation 300，加上 run.json 12.5，再加一个未领取的 attempt，结果为 attempts_started=3、wall_seconds_used=912.5。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "计次覆盖同一 task 的全部版本，比较的却是当前版本合同的 budget，新版本调大预算即等于追加额度。这是源码推导，没有测试。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "计算规则（2566-2580）与探针数值正确（自跑探针：600+300+12.5=912.5；多放一个已领取但无 reservation 的 attempt 计 1 次、0 秒）。open_questions 中“比较的却是当前版本合同的 budget”不准确：prepare 用正在准备的 .agent/plans/<key> 合同（3165、3182），run 用 attempt 目录中复制的 contract.json（load_attempt 2653-2656 → 3272）。计次跨所有版本，限额取各自的合同版本。另补：超时时实际 wall_seconds 含 grace 与回收等待，可能超过 reservation。"
+   }
+  },
+  {
+   "id": "LB-LIFE-010",
+   "title": "prepare 的预算预检（在锁外）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3182-3189 cmd_prepare"
+   ],
+   "rule": "用当前合同版本的 budget 与该 task 的已领取用量比较。attempts_started ≥ max_attempts_total 时报 \"BUDGET_EXCEEDED：任务 %s 已运行 %d 次，达到 max_attempts_total=%d。\"；wall_seconds_used ≥ max_wall_seconds_total 时报 \"BUDGET_EXCEEDED：累计运行 %.0fs，达到 max_wall_seconds_total=%d。\"。两者都是 DispatchError，退出码 3，发生在分配编号之前，不创建 attempt。这项检查不取锁，而且只数已领取的 attempt，所以可以 prepare 出多于剩余额度的 PREPARED attempt。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"budget: 3rd attempt refused\"",
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3182-3189 文本、退出码 3、在 allocate 之前均正确。补充：prepare 只在 used ≥ total 时拒绝，run 要求剩余 ≥60s（3305），剩余 1..59s 时 prepare 成功但 run 拒绝。"
+   }
+  },
+  {
+   "id": "LB-LIFE-011",
+   "title": "run 的预算复核与本轮时限",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3272-3275 cmd_run",
+    "scripts/pi_dispatch.py:3300-3315 cmd_run",
+    "scripts/pi_dispatch.py:4877 build_parser"
+   ],
+   "rule": "锁外先查一次次数，超限报 \"BUDGET_EXCEEDED：已达到 max_attempts_total=%d。\"（3273-3275）。锁内复查次数，文本相同；然后 remaining_total = max_wall_seconds_total - wall_seconds_used，小于 60 时报 \"BUDGET_EXCEEDED：剩余墙钟预算 %.0fs，不足 60s。\"。本轮时限 timeout = int(min(max_wall_seconds_per_attempt, remaining_total))。指定 run --timeout N（N 非 0）时 timeout = max(1, min(timeout, N))，只能收紧（3304-3309）。领取后把 timeout 写入 reservation.json 的 timeout_seconds。以上拒绝都保持 PREPARED：不写 claim，也不写 history。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"claim records reserved timeout\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖“剩余墙钟不足 60s”的分支。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3273-3275、3301-3309 正确；`if args.timeout:` 使 N=0 不生效、N 为负数时得到 1。锁外预检位于 G0 与 resolve_executor（3271）之后、pi_preflight（3278）之前。拒绝时不写 claim，也不写 history。"
+   }
+  },
+  {
+   "id": "LB-LIFE-012",
+   "title": "预算竞争的结果",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3300-3313 cmd_run",
+    "scripts/pi_dispatch.py:2566-2580 budget_usage",
+    "tests/test_dispatch.py:330-343 test_budget_race"
+   ],
+   "rule": "两个已 prepare 的 attempt 并发 run、争最后一次额度时，锁把领取串行化。先进入者 mkdir claim 成功。后进入者在锁内调用 budget_usage（只排除自己），看到对方的 claim，报 \"BUDGET_EXCEEDED：已达到 max_attempts_total=%d。\"，退出码 3；它保持 PREPARED、没有 claim，worktree 保留，需要 cleanup --force 或 mark ABANDONED 收尾。测试断言恰好一个 attempt 有 claim，且某个输出含 BUDGET_EXCEEDED。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_budget_race check \"exactly one attempt claims the last budget slot\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "测试没有断言落败方的状态仍为 PREPARED，也没有断言其退出码为 3。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“后进入者在锁内调用 budget_usage 看到对方 claim”只是其中一种时序：落败方若在对方领取之后才走到 3273，会被锁外预检拒绝；文本相同，都是退出码 3。结论不变：只有一个 claim，落败方保持 PREPARED、无 claim，worktree 保留（cleanup 需要 --force，mark ABANDONED 可直接用）。测试 330-343 只断言恰好一个 claim、输出含 BUDGET_EXCEEDED。"
+   }
+  },
+  {
+   "id": "LB-LIFE-013",
+   "title": "run 启动前的拒绝路径：状态不变",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3254-3269 cmd_run",
+    "scripts/pi_dispatch.py:2659-2665 verify_inputs",
+    "scripts/pi_dispatch.py:3278-3285 cmd_run"
+   ],
+   "rule": "状态不是 PREPARED 或已领取时拒绝（见 LB-LIFE-004）。输入核对的问题包括：\"%s 的哈希与 prepare 时记录的不一致\"（plan.md/contract.json）、\"worktree 不存在：...\"、\"worktree HEAD 已不是基线提交\"、\"worktree 在运行前已有未忽略的变更\"；出现任一项时 log_event \"run_refused\"，并报 \"输入不一致（G0）：...\"。预检失败时 log_event \"preflight_failed\"，逐条打印 \"PREFLIGHT <问题>\"，再报 \"预检失败：attempt 保持 PREPARED...\"。以上都是退出码 3，状态保持 PREPARED，不领取，不计次数。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_preflight_and_budget check \"model not listed -> preflight fail, stays PREPARED\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"auth not ready -> preflight fail\"",
+    "tests/test_dispatch.py::test_preflight_and_budget check \"env/contract model conflict refused\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "corrected",
+    "note": "G0 文本、run_refused/preflight_failed 事件、PREFLIGHT 打印均正确，但遗漏了 resolve_executor（3271）：它在 G0 之后、预算预检之前执行，env 冲突/无效模型/无效思考级别以退出码 2 拒绝，不在允许列表或思考级别不符以退出码 3 拒绝，而且不写 history。草稿引用的测试“env/contract model conflict refused”对应退出码 2，与“以上都是退出码 3”矛盾。另补：pi_preflight 与 context-files.json 都以覆盖方式写入（2017-2067、3280），再次 run 会覆盖上一次的预检证据，history 中的 preflight_failed 事件保留。"
+   }
+  },
+  {
+   "id": "LB-LIFE-014",
+   "title": "领取后、启动前失败时转为 INFRA_FAILURE",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3316-3332 cmd_run"
+   ],
+   "rule": "领取成功后依次独占写 executor.json、instruction.md、ignored-before.json、run-started.json，然后 set_state RUNNING。这一段任一异常（BaseException）都会：写 run.json（非独占），其中 spawn_error=\"领取后、启动前失败：<类型>: <消息>\"、exit_code=None、wall_seconds=0.0；set_state INFRA_FAILURE(reason=spawn_error)；然后重新抛出。这个 attempt 已计入次数（claim 存在），墙钟按 run.json 的 0.0 计入。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "这一分支没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3319-3332 正确（run.json 非独占写，含 ended_at）。补充重新抛出后的退出码：DispatchError→3，KeyboardInterrupt→130，OSError 等其他异常 main 不捕获→Python traceback、退出码 1（4964-4971）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-015",
+   "title": "run_supervised 的进程隔离与启动失败",
+   "source_locations": [
+    "scripts/pi_dispatch.py:649-690 run_supervised",
+    "scripts/pi_dispatch.py:444-548 _WinJob",
+    "scripts/pi_dispatch.py:551-558 _linux_parent_death_signal",
+    "scripts/pi_dispatch.py:3336-3340 cmd_run"
+   ],
+   "rule": "stdin 固定为 DEVNULL（659）。Windows：先建 Job Object，LimitFlags=0x2000 即 KILL_ON_JOB_CLOSE（505）；建不成时 spawn_error=\"无法创建 Windows Job Object，拒绝在没有进程树监督的情况下运行：...\"，不启动进程（663-667）。进程以 CREATE_NEW_PROCESS_GROUP|CREATE_SUSPENDED(0x4) 创建（669），先 AssignProcessToJobObject 再 NtResumeProcess；失败时 TerminateProcess，spawn_error=\"进程未能加入 Job Object，已在启动前终止\"（686-688）；kill_method=\"job-object\"。POSIX：start_new_session=True；Linux 另在 preexec 中设 PR_SET_PDEATHSIG=SIGTERM，失败时静默；kill_method=\"process-group\"。Popen 抛 OSError 时 spawn_error=\"<类型>: <消息>\"。on_spawn(pid) 由 cmd_run 以独占模式写 pid.txt（Pi 顶层进程 pid）。返回字段：exit_code、timed_out、interrupted、spawn_error、wall_seconds、stray_processes、kill_method、pid。collect 看到 spawn_error 时判为 INFRA_FAILURE。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_timeout check \"grandchild process killed (%s)\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"Job Object reaps pi and grandchild\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "Job Object 创建失败和加入 Job 失败的分支都没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "659、505、663-667、669、512-533、686-688、672-675、681-684 均正确。补充：Job 创建失败时在安装信号处理器与计时之前返回，wall_seconds=0.0，kill_method=None；加入 Job 失败时不调用 on_spawn，没有 pid.txt；on_spawn 在加入 Job 并恢复进程后才调用（689-690）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-016",
+   "title": "超时",
+   "source_locations": [
+    "scripts/pi_dispatch.py:678 run_supervised",
+    "scripts/pi_dispatch.py:691-697 run_supervised",
+    "scripts/pi_dispatch.py:720 run_supervised",
+    "scripts/pi_dispatch.py:3334 cmd_run",
+    "scripts/pi_dispatch.py:3395-3398 collect",
+    "scripts/pi_dispatch.py:4169-4170 evaluate_gates"
+   ],
+   "rule": "deadline = 单调时钟起点 + timeout；每次最多 wait 1s。到期时置 timed_out=True 并调用 _terminate_tree(grace)。grace 取 dispatch.config.json 的 kill_grace_seconds，默认 15。collect 中没有 spawn_error、没有收集错误且有候选树时，timed_out 判为 TIMEOUT；这一判断先于 interrupted 和“无助手消息”。run 退出码为 1；G1 记 \"运行超时\"。wall_seconds 是单调时钟差，包含终止宽限与之后的等待。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout enforced quickly (<40s)\"",
+    "tests/test_dispatch.py::test_timeout check \"grandchild process killed (%s)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "按判定顺序，超时后若候选记录失败，会判为 INFRA_FAILURE 而不是 TIMEOUT。这是源码推导，没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "678、691-699、3334、3395-3398、4169-4170 均正确。cmd_run 传入的 timeout 总是 ≥1，所以一定有 deadline。"
+   }
+  },
+  {
+   "id": "LB-LIFE-017",
+   "title": "取消（调度器收到信号）",
+   "source_locations": [
+    "scripts/pi_dispatch.py:571-585 _install_interrupt_handlers",
+    "scripts/pi_dispatch.py:703-710 run_supervised",
+    "scripts/pi_dispatch.py:3399-3400 collect",
+    "scripts/pi_dispatch.py:4171-4172 evaluate_gates",
+    "scripts/pi_dispatch.py:4969-4971 main"
+   ],
+   "rule": "run_supervised 运行期间，为 SIGINT、SIGTERM、SIGHUP、SIGBREAK 中平台存在的信号安装处理器，收到时抛 _Interrupted，置 interrupted=True 并调用 _terminate_tree(grace)。之后照常写 run.json、设 COLLECTING、执行 collect；没有 spawn_error、收集错误或候选缺失时判为 CANCELLED。其他 BaseException 调用 _terminate_tree(min(grace,5)) 后重新抛出，状态停在 RUNNING。在 run_supervised 之外按 Ctrl+C 时由 main 处理：打印 \"已取消。\"，退出码 130，状态停在当时的位置；prepare 期间会变为 PREPARE_FAILED（3220-3224）。G1 对 interrupted 记 \"运行被取消或调度器中断\"。",
+   "related_tests": [],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试向调度器发送 SIGINT/CTRL_BREAK 来验证非恢复路径下的 CANCELLED。_terminate_tree 期间再收到一次信号时，_Interrupted 会从 run_supervised 抛出，而 main 不捕获它，状态停在 RUNNING。这是源码推导，未验证。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "run_supervised 内的行为（571-585、703-710）正确。“run_supervised 之外按 Ctrl+C”需要按阶段细分：prepare 的 setup 命令也经 run_supervised 运行（3087），此时 Ctrl+C 被转成 _Interrupted，setup 记为“被取消”，attempt 变为 PREPARE_FAILED，退出码 1 而不是 130（3097-3098、3225-3229）；只有 3194-3219 的其他位置才是 PREPARE_FAILED 后重新抛出、退出码 130。run 中：领取前→保持 PREPARED；3311-3318→PREPARED 且已领取；3319-3326→INFRA_FAILURE；3326 之后到 run_supervised 之前，以及 run_supervised 返回之后→停在 RUNNING 或 COLLECTING；这些都退出 130。未安装处理器的阶段，SIGTERM/SIGBREAK 按系统默认直接结束进程，不经过 main（Python 语言行为，推导）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-018",
+   "title": "终止进程树与回收残留进程",
+   "source_locations": [
+    "scripts/pi_dispatch.py:596-626 _terminate_tree",
+    "scripts/pi_dispatch.py:629-646 _reap_stragglers",
+    "scripts/pi_dispatch.py:561-568 _killpg",
+    "scripts/pi_dispatch.py:711-722 run_supervised"
+   ],
+   "rule": "Windows：发送 CTRL_BREAK_EVENT，等 grace；有 Job 时 TerminateJobObject(1)，否则 taskkill /PID <pid> /T /F；再等 30s。POSIX：对进程组 killpg SIGTERM，等 grace，再 killpg SIGKILL，再等 30s。finally 中依次：恢复原信号处理器、wait 30s、调用 _reap_stragglers。Windows 按 Job 的 ActiveProcesses 判断：>0 时终止并返回 True，=0 返回 False，查询失败或没有 Job 返回 None。POSIX 用 killpg(pid,0) 探测：进程组仍在时 SIGKILL 并返回 True，ProcessLookupError 返回 False，PermissionError 返回 None。结果写入 stray_processes，summary.md 显示为 \"残留进程\"（2865-2867）。最后关闭 Job 句柄。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_timeout check \"grandchild process killed (%s)\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "596-646、711-722、2865-2867 均正确。_killpg 对 ProcessLookupError 和 PermissionError 都返回 False，返回值未被使用。"
+   }
+  },
+  {
+   "id": "LB-LIFE-019",
+   "title": "collect 的最终状态判定顺序",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3364-3374 collect",
+    "scripts/pi_dispatch.py:3395-3408 collect"
+   ],
+   "rule": "按顺序判定：spawn_error、收集错误（record_candidate/diff/scope 抛 DispatchError 或 OSError）或没有候选树 → INFRA_FAILURE；否则 timed_out → TIMEOUT；否则 interrupted → CANCELLED；否则 events 中没有 assistant_messages → INFRA_FAILURE；其余一律 NEEDS_REVIEW，不看 Pi 退出码与 events.ok。set_state 时附带 exit_code、events_ok、scope_ok，然后写 summary.md。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"run ok -> NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"events case startfail {}\"",
+    "tests/test_dispatch.py::test_timeout check \"timeout -> TIMEOUT state\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3364-3374、3395-3407 均正确。补充（推导）：summarize_events、extract_report、main_repo_fingerprint 等抛出的异常不在 3373 的捕获范围内，会让状态停在 COLLECTING。"
+   }
+  },
+  {
+   "id": "LB-LIFE-020",
+   "title": "run 与 collect 的退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:53 EXIT_*",
+    "scripts/pi_dispatch.py:307 DispatchError",
+    "scripts/pi_dispatch.py:3349 cmd_run",
+    "scripts/pi_dispatch.py:3443 cmd_collect",
+    "scripts/pi_dispatch.py:4966-4971 main"
+   ],
+   "rule": "EXIT_OK=0，EXIT_FAIL=1，EXIT_USAGE=2，EXIT_BLOCKED=3，EXIT_DRIFT=4。run 只有在最终状态为 NEEDS_REVIEW 且 events-summary.ok 为真时返回 0；其他情况返回 1，包括 TIMEOUT、CANCELLED、INFRA_FAILURE，以及 NEEDS_REVIEW 但事件有问题。DispatchError 默认退出码 3，涵盖 BUDGET_EXCEEDED、锁被占用、已领取、G0、预检失败；显式指定 EXIT_USAGE 的返回 2。KeyboardInterrupt 返回 130。collect --recover 恢复成功后一律返回 0，不管恢复出什么状态。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"run ok -> NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_events_and_thinking check \"error stopReason -> exit 1 but NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "退出码 3 同时表示“阻断错误”和 wait 的“仍在运行”，要按入口区分。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "EXIT_* 值、run 返回 0 的条件（3349）、collect 恒返回 0（3443）、130 均正确。遗漏：非 DispatchError、非 KeyboardInterrupt 的异常（OSError、_Interrupted 等）main 不捕获，Python 打印 traceback 并以退出码 1 结束（4964-4971）；信号取消最后得到 CANCELLED，run 的退出码是 1 而不是 130；PASS 被门禁拒绝的退出码为 1（4289-4290）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-021",
+   "title": "调度器被强制结束后的进程回收",
+   "source_locations": [
+    "scripts/pi_dispatch.py:505 _WinJob.__init__",
+    "scripts/pi_dispatch.py:551-558 _linux_parent_death_signal",
+    "scripts/pi_dispatch.py:672-675 run_supervised",
+    "tests/test_dispatch.py:443-470 test_dispatcher_killed"
+   ],
+   "rule": "Windows：调度器进程死亡时 Job 句柄随之关闭，KILL_ON_JOB_CLOSE 终止 Pi 及其子孙进程；测试用 taskkill /F 杀掉调度器后，断言 Pi 与孙进程都已退出。Linux：只有 PR_SET_PDEATHSIG 让 Pi 收到 SIGTERM，普通孙进程可能残留，测试把它打印为已知限制。macOS 等其他平台没有父进程死亡通知，Pi 可能残留。state.json 停在调度器死亡时的状态（通常为 RUNNING），不会自动恢复。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"Job Object reaps pi and grandchild\"",
+    "tests/test_dispatch.py::test_dispatcher_killed check \"PDEATHSIG stops pi\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "Linux 与 macOS 的残留行为无法在本机（Windows）取证。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "505、551-558、672-675 以及测试 443-470 均正确。状态停在调度器死亡时的位置：可能是 RUNNING、COLLECTING，或已领取的 PREPARED。"
+   }
+  },
+  {
+   "id": "LB-LIFE-022",
+   "title": "collect --recover 的入口条件与合成 run.json",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3411-3434 cmd_collect",
+    "scripts/pi_dispatch.py:4880-4883 build_parser"
+   ],
+   "rule": "前提：state 属于 {RUNNING, COLLECTING}，或者是 PREPARED 且 claim/ 存在；同时必须带 --recover。不满足时报 \"collect 只用于调度器异常退出后的恢复：需要状态 RUNNING/COLLECTING（或已领取的 PREPARED）且指定 --recover（当前 %s）。\"，退出码 2。pid.txt 中的 Pi pid 经 pid_alive 判为存活时，报 \"记录的 Pi 进程 %s 可能仍在运行；确认终止后再恢复。\"，退出码 3。run.json 不存在时合成一份：继承 run-started.json 的字段，exit_code=None、timed_out=False、interrupted=True、recovered=True、wall_seconds=None；有 run-started.json 时 spawn_error=None，没有时 spawn_error=\"领取后调度器退出，未启动 Pi\"；expects_agent_settled 取自 run-started，或按 preflight/pi-version.txt 推断；以独占模式写入。run.json 已存在（调度器死在 COLLECTING）时，沿用其中的 timed_out、interrupted、wall_seconds。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed-but-not-started attempt recovers as INFRA_FAILURE\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "调度器死在 COLLECTING、run.json 已存在的恢复分支没有测试。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "前提、文本、退出码 2/3、合成字段均正确（3416-3434）。“run.json 已存在（调度器死在 COLLECTING）”太窄：run.json 在 3343 写入，COLLECTING 在 3344 设置，调度器死在两者之间时状态是 RUNNING 且 run.json 已存在；只要 run.json 可读，就原样沿用其中的全部字段。另：`started.get(\"expects_agent_settled\", …)` 在 run-started 中该键存在时（即使为 None）优先取它。"
+   }
+  },
+  {
+   "id": "LB-LIFE-023",
+   "title": "恢复收集的结果与证据处理",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3435-3443 cmd_collect",
+    "scripts/pi_dispatch.py:4167-4174 evaluate_gates",
+    "scripts/pi_dispatch.py:2577-2579 budget_usage"
+   ],
+   "rule": "executor 取 executor.json，缺失时回落到合同中的 executor。已存在的 candidate.json、changes.json、scope.json、candidate.patch 先改名为 *.partial，再重跑 collect；这条路径不经过 COLLECTING。之后 log_event \"recovered_collection\"，打印 \"<状态>（恢复收集；事件可能不完整）\"，返回 0。结果：Pi 未启动时为 INFRA_FAILURE；Pi 已启动时通常为 CANCELLED（interrupted=True），候选缺失或有收集错误时为 INFRA_FAILURE。由于 interrupted=True 且 exit_code=None，G1 必然失败（\"运行被取消或调度器中断\"、\"Pi 退出码为 None\"），PASS 会被拒绝。预算上，claim 仍在，计 1 次；wall_seconds=None，按预留时限计入。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\"",
+    "tests/test_dispatch.py::test_stuck_states check \"claimed-but-not-started attempt recovers as INFRA_FAILURE\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "再次恢复（前一次恢复中途崩溃、状态仍为 COLLECTING）时 *.partial 已存在，Windows 上 Path.rename 会抛 FileExistsError；它不属于 DispatchError，main 不捕获，未验证。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "改名为 *.partial、不经过 COLLECTING、recovered_collection、恒返回 0 均正确。“G1 必然失败、PASS 被拒绝”“按预留时限计入”只适用于合成的 run.json（interrupted=True、exit_code=None、wall_seconds=None）。沿用已有 run.json 时，按原记录判定：可能是 NEEDS_REVIEW，G1 可能通过，也按实际 wall_seconds 计时。合成 run.json 的 timed_out 固定为 False，即使 Pi 实际超时，恢复结果也不会是 TIMEOUT。candidate.patch 以 xb 独占写（2520），因此必须先改名。"
+   }
+  },
+  {
+   "id": "LB-LIFE-024",
+   "title": "pid_alive 的判定",
+   "source_locations": [
+    "scripts/pi_dispatch.py:726-740 pid_alive",
+    "scripts/pi_dispatch.py:3422-3425 cmd_collect",
+    "scripts/pi_dispatch.py:4416-4419 cmd_mark"
+   ],
+   "rule": "pid 为空或 0 时返回 None。Windows 执行 tasklist /FI \"PID eq N\" /NH（超时 20s）：命令失败返回 None，否则看输出分词中是否有该 pid。POSIX 用 os.kill(pid,0)：ProcessLookupError 返回 False，PermissionError 返回 True，其余返回 True（僵尸进程也算存活）。调用方只在返回真值时拒绝，None 视为可以继续。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"recover after dispatcher death\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "PID 复用会被误判为存活；tasklist 失败返回 None 会被当作不存活。两者都未验证。",
+   "verification": {
+    "verdict": "corrected",
+    "note": "“POSIX 其余返回 True”有误：只有 os.kill 成功时返回 True；ProcessLookupError→False，PermissionError→True，其他异常（如 OverflowError、其他 OSError）不捕获，直接上抛（734-740）。Windows 部分正确：run_capture 超时返回 124、找不到命令返回 127，都被当作 None（393-405、730-733）。自跑探针（Windows）：None/0→None，自身 pid→True，999999→False。"
+   }
+  },
+  {
+   "id": "LB-LIFE-025",
+   "title": "mark 的状态转换",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4395-4422 cmd_mark",
+    "scripts/pi_dispatch.py:4319-4324 latest_verdict",
+    "scripts/pi_dispatch.py:4938-4944 build_parser"
+   ],
+   "rule": "目标状态只能是 INTEGRATED、ABANDONED、SUPERSEDED（argparse choices）。INTEGRATED：最新 verdicts/NN.json 的 verdict 须属于 {PASS, ACCEPTED_WITH_EXCEPTION}，否则报 \"只有通过验收的候选可以标记为 INTEGRATED；候选已并入后续提交（返工或规划器补齐）时用 SUPERSEDED\"（退出码 3）；还需要 --ref（缺失时退出码 2）；不检查当前状态。SUPERSEDED：当前状态须属于 {REVISE, ESCALATE, BLOCKED, NEEDS_REVIEW, TIMEOUT, CANCELLED, INFRA_FAILURE}，否则报 \"SUPERSEDED 只用于已结束、尚未集成的 attempt（当前 %s）\"（退出码 2）；需要 --ref 与 --reason。ABANDONED：当前为 RUNNING、COLLECTING、PREPARING 时须加 --force，否则报 \"attempt 处于 %s；如果确认调度器已退出，可加 --force 放弃\"；pid.txt 记录的进程仍存活时报 \"记录的 Pi 进程 %s 仍在运行，不能放弃\"。其他任何状态（含 PREPARED、PREPARE_FAILED、PASS、INTEGRATED）不需要 --force，直接允许。新状态记录附带 ref、reason、previous_state。mark 不取锁，也不删 claim，已领取的 attempt 仍计入预算。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_dispatcher_killed check \"mark ABANDONED on RUNNING requires --force\"",
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\"",
+    "tests/test_dispatch.py::test_happy check \"mark integrated\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED needs --ref and --reason\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"REVISE attempt can be marked SUPERSEDED\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"SUPERSEDED is refused for an attempt that never ran\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "INTEGRATED 不检查当前状态：例如已 ABANDONED、但最新 verdict 为 PASS 时仍可标 INTEGRATED。这是源码推导，没有测试。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "4395-4422 与 4938-4944 均正确，测试名均存在（1073、1076、1084、474、492、284）。补充：mark 不调用 load_attempt，只需 resolve_run_dir 能找到 meta.json；UNKNOWN、ABANDONED、SUPERSEDED 也可以直接转为 ABANDONED。"
+   }
+  },
+  {
+   "id": "LB-LIFE-026",
+   "title": "verdict 的状态转换与 REVIEWABLE_STATES",
+   "source_locations": [
+    "scripts/pi_dispatch.py:80 REVIEWABLE_STATES",
+    "scripts/pi_dispatch.py:4263-4265 cmd_verdict",
+    "scripts/pi_dispatch.py:4301-4312 cmd_verdict",
+    "scripts/pi_dispatch.py:3961-3963 cmd_check",
+    "scripts/pi_dispatch.py:3596 cmd_mutate"
+   ],
+   "rule": "verdict 只接受 REVIEWABLE_STATES，即 NEEDS_REVIEW、TIMEOUT、CANCELLED、INFRA_FAILURE，加上五种 verdict（PASS、ACCEPTED_WITH_EXCEPTION、REVISE、BLOCKED、ESCALATE）；其他状态报 \"状态 %s 不能记录验收结论\"。因此已有 verdict 的 attempt 可以再次记录任意 verdict：verdicts/NN 按序递增保留历史，记录中带 state_before。INTEGRATED、ABANDONED、SUPERSEDED、PREPARE_FAILED、PREPARED 以及运行中的状态都不能记录。check 同样要求 REVIEWABLE_STATES（\"状态 %s 不能运行验收检查\"）；mutate 额外允许 INTEGRATED。TIMEOUT 和 CANCELLED 的 G1 必然失败，PASS 会被拒绝。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"PASS accepted\"",
+    "tests/test_dispatch.py::test_scope check \"REVISE recorded\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖“重新记录 verdict”，也没有覆盖在非 REVIEWABLE 状态下记录 verdict 被拒绝。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "80、4263-4265、4301-4312、3961-3963、3596 均正确。补充：TIMEOUT/CANCELLED 不能 PASS，但仍可用 ACCEPTED_WITH_EXCEPTION 加 --waive G1=… 与 --decided-by 记录（4293-4298）；PASS 被门禁拒绝时退出码 1。"
+   }
+  },
+  {
+   "id": "LB-LIFE-027",
+   "title": "旧 attempt 状态全集与持久化方式",
+   "source_locations": [
+    "scripts/pi_dispatch.py:2539-2544 set_state",
+    "scripts/pi_dispatch.py:2547-2551 log_event",
+    "scripts/pi_dispatch.py:2554-2555 get_state",
+    "scripts/pi_dispatch.py:351-361 write_json",
+    "scripts/pi_dispatch.py:75 VERDICTS"
+   ],
+   "rule": "旧 attempt 状态共 17 个，全部来自 set_state 调用：PREPARING(3213)、PREPARE_FAILED(3221/3226/3231)、PREPARED(3234)、RUNNING(3326)、INFRA_FAILURE(3331/3396/3402)、COLLECTING(3344)、TIMEOUT(3398)、CANCELLED(3400)、NEEDS_REVIEW(3404)、PASS/ACCEPTED_WITH_EXCEPTION/REVISE/BLOCKED/ESCALATE(4312)、INTEGRATED/ABANDONED/SUPERSEDED(4420)。另有一个读取时的伪状态 UNKNOWN：state.json 缺失、损坏或没有 state 字段时 get_state 返回它。set_state 先向 history.jsonl 追加 {\"state\",\"at\",...}（UTF-8、LF），再用 tmp+os.replace 原子覆盖 state.json。log_event 只向 history.jsonl 追加 {\"event\",\"at\",...}，不改变状态；事件名有 run_refused、preflight_failed、recovered_collection、checks、mutations、branch_created、cleanup。没有集中的转换表，各命令自行检查前置状态。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_happy check \"run ok -> NEEDS_REVIEW\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "grep set_state 的全部调用点与草稿一致，共 17 个状态；log_event 的 7 种事件名与 grep 一致。自跑探针：state.json 缺失、JSON 损坏、没有 state 字段时 get_state 都返回 UNKNOWN。"
+   }
+  },
+  {
+   "id": "LB-LIFE-028",
+   "title": "prepare 的状态转换",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3192-3242 cmd_prepare"
+   ],
+   "rule": "分配编号后，先复制 plan.md 与 contract.json、用 mkdtemp 建 worktree 空目录、写 source-status.z、以独占模式写 meta.json，然后才 set_state PREPARING。在此之前的窗口里，attempt 目录没有 state.json，读到的是 UNKNOWN。随后执行 git worktree add --detach 与 setup。任何异常都设为 PREPARE_FAILED(reason=\"<类型>: <消息>\")；其中 DispatchError 与 OSError 转为 \"prepare 失败（%s 已标记 PREPARE_FAILED）：%s\"（退出码 3），其他异常（含 KeyboardInterrupt）原样抛出。setup 失败时设为 PREPARE_FAILED(reason=\"setup <id> 失败：<原因>\")，打印 \"...本 attempt 未领取，不计入尝试次数。\"，退出码 1。setup 后 worktree 有未忽略的变更时，设为 PREPARE_FAILED(reason=\"setup 后 worktree 有未忽略的变更\")，退出码 1。以上都没有发生时设为 PREPARED，退出码 0。进程直接崩溃（不是异常）会停在 PREPARING。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_stuck_states check \"PREPARING can be abandoned with --force\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "异常发生在写 meta.json 之前时，目录里只有 state.json=PREPARE_FAILED、没有 meta.json：按路径 resolve_run_dir 会失败；按 task-id 解析后 load_attempt 抛出未捕获的 OSError。这是源码推导，未验证。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3192-3242 正确；git() 失败抛 DispatchError（747-762）。补充：Ctrl+C 发生在 setup 期间时走 setup 失败路径（PREPARE_FAILED、退出码 1），见 LB-LIFE-017 的修正。open question 的推导成立：resolve_run_dir 按 task-id 取最新目录时不检查 meta.json（2643-2649），load_attempt 随后抛出 FileNotFoundError。"
+   }
+  },
+  {
+   "id": "LB-LIFE-029",
+   "title": "wait 的状态分类与退出码",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3913-3950 cmd_wait",
+    "scripts/pi_dispatch.py:81-82 TERMINAL_STATES",
+    "scripts/pi_dispatch.py:4898-4902 build_parser"
+   ],
+   "rule": "WAIT_ACTIVE_STATES 为 PREPARING、RUNNING、COLLECTING；PREPARED 额外最多等 min(60, --timeout) 秒。处于活动状态到时：打印 \"仍在运行：<路径> · <状态>[ · live:...]。再次运行 wait 继续等待。\"，退出码 3。PREPARED 超过等待窗口：打印 \"attempt 仍是 PREPARED：run 没有开始（或启动前就失败了）。检查后台命令的输出：%s\"，退出码 3。状态属于 TERMINAL_STATES（五种 verdict，加上 INTEGRATED、ABANDONED、SUPERSEDED、TIMEOUT、CANCELLED、INFRA_FAILURE、PREPARE_FAILED、NEEDS_REVIEW）：打印 \"已结束：%s · %s\"，有 summary.md 时再打印 \"摘要：...\"，退出码 0。其他状态（含 UNKNOWN）：打印 \"无法确定 attempt 的状态（%s）：state.json 缺失、损坏或状态未知。检查 %s\"，退出码 1。--timeout 默认 540，小于 1 时退出码 2。TERMINAL_STATES 只表示 wait 意义上的“已结束”，其中 NEEDS_REVIEW、TIMEOUT、PASS 等仍可继续转换。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait returns at once for a finished attempt\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait times out on a running attempt with exit code 3\"",
+    "tests/test_dispatch.py::test_v2_planner_adapters check \"wait reports an attempt that never started\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "没有测试覆盖状态为 UNKNOWN 时退出码 1 的分支。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3913-3950、81-82、4898-4902 均正确；测试名均存在（1332、1335、1341）。"
+   }
+  },
+  {
+   "id": "LB-LIFE-030",
+   "title": "cleanup 在生命周期中的限制",
+   "source_locations": [
+    "scripts/pi_dispatch.py:4430-4482 cmd_cleanup"
+   ],
+   "rule": "RUNNING、COLLECTING 时拒绝：\"attempt 正在运行或收集（%s），不能清理；调度器已退出时先 collect --recover\"。PREPARED、PREPARING 且未加 --force 时拒绝：\"attempt 尚未运行（%s）；确定放弃请加 --force\"。其他状态允许。对已登记的 worktree，若存在候选之外的内容（无候选记录、补丁缺失或未通过往返校验、候选记录之后被修改的文件、候选之外的新文件），打印 \"LOSS  ...\" 并拒绝：\"拒绝清理：以上内容不在已保存的候选中，删除 worktree 会丢失它们。...\"；--force 可以覆盖。未登记但非空的目录一律拒绝删除。cleanup 不改变状态，只追加 log_event \"cleanup\"（含 forced、discarded）。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup refuses when candidate files were modified\"",
+    "tests/test_dispatch.py::test_cleanup_protects_unsaved_work check \"cleanup --force removes and logs discarded content\"",
+    "tests/test_dispatch.py::test_happy check \"cleanup removes worktree\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "4430-4482 正确。补充：没有候选记录的 attempt（PREPARE_FAILED、领取后启动前的 INFRA_FAILURE、预算竞争落败的 PREPARED）只要 worktree 已登记，就会出现 LOSS“没有候选记录”，必须加 --force；cleanup 需要 load_attempt，也就是 meta.json 与 contract.json 都要存在。"
+   }
+  },
+  {
+   "id": "LB-LIFE-031",
+   "title": "并行提示使用的“待集成”状态集合",
+   "source_locations": [
+    "scripts/pi_dispatch.py:3111-3113 PENDING_INTEGRATION_STATES",
+    "scripts/pi_dispatch.py:3126-3159 pending_attempt_notes",
+    "scripts/pi_dispatch.py:3166-3171 cmd_prepare"
+   ],
+   "rule": "PENDING_INTEGRATION_STATES 为 PREPARING、PREPARED、RUNNING、COLLECTING、NEEDS_REVIEW、PASS、ACCEPTED_WITH_EXCEPTION、REVISE。prepare 检查其他任务的最新 attempt：处于这些状态且 scope 文件与本合同重叠时发出警告 \"与未集成的 %s（%s）改动范围重叠：...\"。同时统计全部任务中状态为 RUNNING 的 attempt，打印 NOTE \"有 %d 个 attempt 正在运行（...）：它们结束前不要合并、提交或改动规划路径之外的主工作区文件\"。这些只是提示，不阻止 prepare。",
+   "related_tests": [
+    "tests/test_dispatch.py::test_feedback_v12 check \"overlap warning names the latest pending attempt only\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"no overlap warning once the latest attempt is integrated\"",
+    "tests/test_dispatch.py::test_feedback_v12 check \"a superseded attempt is not pending integration\""
+   ],
+   "evidence_basis": "source_inspected",
+   "open_questions": "",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "3111-3159、3166-3171 正确。补充：RUNNING 计数包括本任务自己的 attempt（3141-3143 在跳过本任务的判断之前）；runs 下的 _env、_reports 等目录也会被遍历，因为没有 attempt 而被跳过。"
+   }
+  },
+  {
+   "id": "LB-LIFE-032",
+   "title": "技能文档中的状态表与源码的差异",
+   "source_locations": [
+    ".agents/skills/review-pi/gates.md:60-69",
+    ".agents/skills/dispatch-pi/SKILL.md:85-93",
+    ".agents/skills/dispatch-pi/troubleshooting.md:33",
+    "scripts/pi_dispatch.py:4264 cmd_verdict",
+    "scripts/pi_dispatch.py:4408 cmd_mark",
+    "scripts/pi_dispatch.py:4412 cmd_mark"
+   ],
+   "rule": "gates.md 的状态表没有列出 SUPERSEDED，并写明 PASS/ACCEPTED_WITH_EXCEPTION 之后只能到 INTEGRATED/ABANDONED、REVISE/BLOCKED/ESCALATE 之后只能到 ABANDONED。源码实际还允许：处于 verdict 状态时重新记录任意 verdict（4264）；REVISE、BLOCKED、ESCALATE、NEEDS_REVIEW、TIMEOUT、CANCELLED、INFRA_FAILURE 转为 SUPERSEDED（4408）；任何非运行中状态直接转为 ABANDONED（4412）。troubleshooting.md:33 称锁“超过 5 分钟未释放会被视为过期”，与源码的 300s 一致。SKILL.md:87-91 的恢复步骤（collect --recover；PREPARING 用 mark ABANDONED --force）与源码一致。迁移以源码为准，文档差异只登记，不补猜。",
+   "related_tests": [],
+   "evidence_basis": "source_reported",
+   "open_questions": "技能文档的状态表是否需要随 v2 更新，由 12（集成与迁移）决定。",
+   "verification": {
+    "verdict": "confirmed",
+    "note": "gates.md:60-69、SKILL.md:85-93、troubleshooting.md:33 的行号与内容核对无误。补充一处差异：SKILL.md:90 说恢复的证据“不能直接作为 PASS 依据”；源码只在合成 run.json 时通过 G1 强制执行这一点，沿用已有 run.json 时不强制。"
+   }
+  }
+ ],
+ "missing_items_added_by_verifier": [
+  "LB-LIFE-033 恢复与各命令的 attempt 定位（resolve_run_dir 2632-2650）：接受 attempt 路径、task-id/attempt-NNN、task-id（取编号最大的目录，不看版本、不看 meta.json）、task-id.vN（取该版本编号最大的目录）；目录必须位于 .agent/runs 下，否则退出码 2；找不到时报“找不到 attempt：%s”，退出码 2。风险（推导）：`collect --recover <task-id>` 会定位到最新的 attempt，未必是卡住的那个。",
+  "LB-LIFE-034 预算限额的来源不同（2653-2656、3165、3182、3272）：prepare 用 .agent/plans 中正在准备的合同版本，run 用 attempt 目录内复制的 contract.json；计次覆盖该 task 的全部版本。",
+  "LB-LIFE-035 各阶段收到 Ctrl+C 或信号后的状态（3087、3097-3098、3194-3229、3300-3345、703-710、4969-4971）：setup 期间→PREPARE_FAILED、退出码 1；run 领取前→PREPARED；3311-3318→PREPARED 且已领取；3319-3326→INFRA_FAILURE；启动 Pi 前后的其余位置→停在 RUNNING 或 COLLECTING、退出码 130；run_supervised 期间→CANCELLED、退出码 1。",
+  "LB-LIFE-036 run 领取前 resolve_executor 的拒绝（3271、2668-2699）：env 冲突、无效模型或思考级别→退出码 2；不在 allowed_executors 或思考级别不符→退出码 3；不写 history，保持 PREPARED。",
+  "LB-LIFE-037 预检证据在再次 run 时被覆盖（2017-2067、3280）：preflight/*.txt、preflight.json、context-files.json 都以覆盖方式写入；只有 history.jsonl 中的 preflight_failed 事件保留。",
+  "LB-LIFE-038 claim 的判断方式不一致（3255、2572、3416、4498）：run 入口用 exists()，其他位置用 is_dir()；reservation.json 缺失的已领取 attempt 计 1 次、0 秒。",
+  "LB-LIFE-039 实际用时可超过预留（678、696、715、720、2575-2576）：超时后的 wall_seconds 还包括 grace 与最多两次 30s 等待，累计用量可能超过 max_wall_seconds_total；prepare 在 used ≥ total 时拒绝，run 在剩余不足 60s 时拒绝。",
+  "LB-LIFE-040 其他编号基数（3453-3455、4303-4304、3612-3613）：verdicts、checks、mutations 目录的 NN 也从 01 开始，可作为 01-D03 的旁证。"
+ ]
+}

@@ -1,0 +1,8 @@
+capture_dir: <REPO>\.agent\baseline\01-T1\bl-01t1-legacy-20260925
+execution_status: complete
+run: executed=True returncode=0 reason=None timed_out=False duration=250.219s
+baseline_consistent: True
+drift: none
+note: exit code reports capture completeness only; whether the command passed is judged in the report
+tool_exit=0
+0

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-event:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "run_id", "seq", "role", "event_id", "event_type", "payload", "raw_record_ref", "raw_start", "raw_end", "adapter_revision", "actual_model", "terminal", "complete", "tool_id", "cli_model", "provider_model"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "seq": {"type": "integer", "minimum": 1},
+    "role": {"type": "string", "minLength": 1},
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"},
+    "raw_record_ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"], "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "raw_start": {"type": "integer", "minimum": 0},
+    "raw_end": {"type": "integer", "minimum": 1},
+    "adapter_revision": {"type": "string", "minLength": 1},
+    "actual_model": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "terminal": {"type": "boolean"},
+    "complete": {"type": "boolean"},
+    "tool_id": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "cli_model": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "provider_model": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "task_id": "12-s6-2-fault-platform-blockers",
+  "plan_version": 1,
+  "title": "12-s6-2-fault-platform-blockers",
+  "repository": "Code-Kit",
+  "base_sha": "c71014517e3579e5bb465d277a6712c214e565b4",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "offline-reference",
+    "model": "dormant",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "tests/fixtures/12/**"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "AGENTS.md",
+      ".agent/runs/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "expected_exit_code": 0,
+      "cwd": ".",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_12_integration_records",
+        "-q"
+      ],
+      "required": true,
+      "id": "T01",
+      "timeout_seconds": 600
+    },
+    {
+      "expected_exit_code": 0,
+      "cwd": ".",
+      "argv": [
+        "python",
+        "-B",
+        "-m",
+        "compileall",
+        "-q",
+        "scripts/codekit",
+        "tests"
+      ],
+      "required": true,
+      "id": "T02",
+      "timeout_seconds": 180
+    },
+    {
+      "expected_exit_code": 0,
+      "cwd": ".",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "required": true,
+      "id": "T03",
+      "timeout_seconds": 60
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "Offline record behavior and negative cases are covered by targeted evidence.",
+      "evidence": [
+        "T01",
+        "review"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "Schema, compileall and scope checks pass.",
+      "evidence": [
+        "T02",
+        "T03",
+        "review"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "Real capabilities are explicitly NOT_RUN/BLOCKED.",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "failure_handling": [
+    "输入冲突或环境缺失即停止并记录",
+    "不改变旧证据和真相源"
+  ],
+  "stop_conditions": [
+    "基线不符",
+    "需要越界修改",
+    "需要真实外部调用"
+  ],
+  "report_back": [
+    "commands and exit codes",
+    "evidence paths",
+    "scope audit",
+    "unrun capabilities"
+  ]
+}

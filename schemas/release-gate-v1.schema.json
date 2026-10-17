@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:codekit:release-gate:1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "status", "production_release", "reasons", "fault_matrix"],
+  "properties": {"record_type": {"const": "release-gate"}, "schema_version": {"const": 1},
+    "status": {"enum": ["PASS", "BLOCKED"]}, "production_release": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string"}}, "fault_matrix": {"type": "array", "items": {"type": "object"}}}
+}

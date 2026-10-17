@@ -1,0 +1,20 @@
+record: codekit01 closure captures (operator loop output)
+date_utc: 2026-09-26T14:47:09Z
+shell: GNU bash, version 5.3.15(2)-release (x86_64-pc-cygwin)
+controls: PATH entries removed=<HOME>/.local/bin,<HOME>/AppData/Roaming/npm (dirs holding real claude/pi/codex); unset CLAUDE_CODE_MESSAGING_TOKEN; PI_CODING_AGENT_DIR=<TEMP>/codekit-empty-pi-agent-* (empty); PYTHONPYCACHEPREFIX=<TEMP>/codekit-pycache-prefix-* (empty before run, R-01)
+which_under_controls: pi=absent claude=absent codex=absent 
+pycache_prefix_entries_before=0
+protected_diff_lines_before=0
+bl-01closure-test-dispatch-20260926 | argv=python tests/test_dispatch.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=235.828s baseline_consistent: True  | 256 checks, 0 failed  | leaked=[]
+bl-01closure-test-protocols-20260926 | argv=python tests/test_protocols.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=4.578s baseline_consistent: True  | Ran 342 tests in 4.291s OK (skipped=4)  | leaked=[]
+bl-01closure-test-baseline-tool-20260926 | argv=python tests/test_baseline_tool.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=58.063s baseline_consistent: True  | Ran 40 tests in 57.652s OK  | leaked=[]
+bl-01closure-test-legacy-gates-20260926 | argv=python tests/test_legacy_gates.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=128.735s baseline_consistent: True  | Ran 24 tests in 128.419s OK  | leaked=[]
+bl-01closure-test-legacy-lifecycle-20260926 | argv=python tests/test_legacy_lifecycle.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=140.469s baseline_consistent: True  | Ran 26 tests in 140.098s OK (skipped=2)  | leaked=[]
+bl-01closure-test-legacy-cli-20260926 | argv=python tests/test_legacy_cli.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=93.234s baseline_consistent: True  | Ran 75 tests in 92.991s OK (skipped=1)  | leaked=[]
+bl-01closure-test-legacy-events-20260926 | argv=python tests/test_legacy_events.py | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=52.0s baseline_consistent: True  | Ran 34 tests in 51.774s OK  | leaked=[]
+bl-01closure-test-codekit01-fixtures-v-20260926 | argv=python tests/test_codekit01_fixtures.py -v | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=11.61s baseline_consistent: True  | Ran 75 tests in 11.260s OK  | leaked=[]
+bl-01closure-legacy-check-20260926 | argv=python tests/codekit01_legacy.py --check | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=9.703s baseline_consistent: True  | 38 checks, 0 differ  | leaked=[]
+bl-01closure-legacy-check-stub-regen-20260926 | argv=python tests/codekit01_legacy.py --check-stub-regen | tool_exit=0 | run: executed=True returncode=0 reason=None timed_out=False duration=0.703s baseline_consistent: True  | 10 checks, 0 differ  | leaked=[]
+empty_dir_entries_after=0
+protected_diff_lines_after=0
+repo_pycache_dirs_newer_than_start=0

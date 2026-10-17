@@ -1,0 +1,12 @@
+{
+  "schema_version": true,
+  "record_type": "run-context",
+  "request_id": "req-11111111111141118111111111111111",
+  "task_id": "baseline-review",
+  "plan_version": null,
+  "run_id": "run-22222222222242228222222222222222",
+  "attempt": null,
+  "role": "planner",
+  "platform": "linux",
+  "contract_ref": null
+}

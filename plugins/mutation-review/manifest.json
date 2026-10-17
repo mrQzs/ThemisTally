@@ -1,0 +1,41 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "mutation-review",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "mutation-review.readme",
+      "kind": "file",
+      "path": "plugins/mutation-review/README.md",
+      "sha256": "5b7aa35173fd8df053880a5e5ee899b5c752c87ee6874ee5e7a947c765f8a180"
+    }
+  ],
+  "roles": [],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

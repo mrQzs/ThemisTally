@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:baseline-binding:1",
+  "type": "object",
+  "properties": {
+    "record_type": {"const": "baseline-binding"},
+    "schema_version": {"const": 1},
+    "repo_id": {"$ref": "#/$defs/logicalId"},
+    "environment_id": {"$ref": "#/$defs/logicalId"},
+    "object_format": {"enum": ["sha1", "sha256"]},
+    "base_sha": {"$ref": "#/$defs/gitOid"},
+    "tree_sha": {"$ref": "#/$defs/gitOid"},
+    "upstream_results": {"type": "array", "items": {"$ref": "#/$defs/resourceRef"}, "maxItems": 1024},
+    "coverage_mode": {"enum": ["exact_tree", "pinned_artifact_set", "revalidated_integration"]},
+    "coverage_refs": {"type": "array", "items": {"$ref": "#/$defs/resourceRef"}, "minItems": 1, "maxItems": 1024},
+    "authorization_ref": {"$ref": "#/$defs/resourceRef"},
+    "observation_ref": {"$ref": "#/$defs/resourceRef"},
+    "guard_version": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+  },
+  "required": [
+    "record_type", "schema_version", "repo_id", "environment_id", "object_format",
+    "base_sha", "tree_sha", "upstream_results", "coverage_mode", "coverage_refs",
+    "authorization_ref", "observation_ref", "guard_version"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "logicalId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?![\\s\\S])"},
+    "immutableId": {"type": "string", "pattern": "^(?!(?:latest|head|current)$)[a-z0-9][a-z0-9._:-]{0,127}(?![\\s\\S])"},
+    "gitOid": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])"},
+    "resourceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])"},
+        "id": {"$ref": "#/$defs/immutableId"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])"},
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024}
+      },
+      "required": ["kind", "id", "sha256", "path"],
+      "additionalProperties": false
+    }
+  }
+}

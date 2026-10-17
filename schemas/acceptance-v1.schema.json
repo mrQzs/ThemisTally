@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:acceptance:1",
+  "title": "Code-Kit immutable acceptance and input binding records v1",
+  "description": "Strict structural shape for accepted-result, input-binding-receipt, and acceptance-revocation records. Cross-record provenance, current guard checks, and revocation closure are enforced by scripts/codekit/acceptance.py.",
+  "oneOf": [
+    { "$ref": "#/$defs/acceptedResult" },
+    { "$ref": "#/$defs/inputBindingReceipt" },
+    { "$ref": "#/$defs/acceptanceRevocation" }
+  ],
+  "$defs": {
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "logicalId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?![\\s\\S])"
+    },
+    "immutableId": {
+      "allOf": [
+        { "$ref": "#/$defs/logicalId" },
+        { "not": { "enum": ["latest", "head", "current"] } }
+      ]
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^req-[0-9a-f]{32}(?![\\s\\S])"
+    },
+    "taskId": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"
+    },
+    "resourceKind": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "businessPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "resourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "sha256", "path"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/resourceKind" },
+        "id": { "$ref": "#/$defs/immutableId" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "path": { "$ref": "#/$defs/businessPath" }
+      }
+    },
+    "acceptedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type", "schema_version", "acceptance_id", "request_id", "task_id",
+        "plan_version", "guard_version", "candidate_ref", "check_set_ref", "verdict_ref",
+        "output_refs", "target_schema_refs", "upstream_acceptance_ids"
+      ],
+      "properties": {
+        "record_type": { "const": "accepted-result" },
+        "schema_version": { "const": 1 },
+        "acceptance_id": { "$ref": "#/$defs/immutableId" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "task_id": { "$ref": "#/$defs/taskId" },
+        "plan_version": { "$ref": "#/$defs/positiveInteger" },
+        "guard_version": { "$ref": "#/$defs/positiveInteger" },
+        "candidate_ref": { "$ref": "#/$defs/resourceRef" },
+        "check_set_ref": { "$ref": "#/$defs/resourceRef" },
+        "verdict_ref": { "$ref": "#/$defs/resourceRef" },
+        "output_refs": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "propertyNames": { "$ref": "#/$defs/logicalId" },
+          "additionalProperties": { "$ref": "#/$defs/resourceRef" }
+        },
+        "target_schema_refs": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "propertyNames": { "$ref": "#/$defs/logicalId" },
+          "additionalProperties": { "$ref": "#/$defs/resourceRef" }
+        },
+        "upstream_acceptance_ids": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/immutableId" }
+        }
+      }
+    },
+    "inputBindingReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type", "schema_version", "request_id", "task_id", "plan_version",
+        "source_plan_version", "guard_version", "source_guard_version", "source_task_id",
+        "source_port", "upstream_acceptance_id", "candidate_ref", "output_ref",
+        "target_schema_ref", "check_set_ref"
+      ],
+      "properties": {
+        "record_type": { "const": "input-binding-receipt" },
+        "schema_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "task_id": { "$ref": "#/$defs/taskId" },
+        "plan_version": { "$ref": "#/$defs/positiveInteger" },
+        "source_plan_version": { "$ref": "#/$defs/positiveInteger" },
+        "guard_version": { "$ref": "#/$defs/positiveInteger" },
+        "source_guard_version": { "$ref": "#/$defs/positiveInteger" },
+        "source_task_id": { "$ref": "#/$defs/taskId" },
+        "source_port": { "$ref": "#/$defs/logicalId" },
+        "upstream_acceptance_id": { "$ref": "#/$defs/immutableId" },
+        "candidate_ref": { "$ref": "#/$defs/resourceRef" },
+        "output_ref": { "$ref": "#/$defs/resourceRef" },
+        "target_schema_ref": { "$ref": "#/$defs/resourceRef" },
+        "check_set_ref": { "$ref": "#/$defs/resourceRef" }
+      }
+    },
+    "acceptanceRevocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type", "schema_version", "revocation_id", "acceptance_id",
+        "reason", "guard_version", "evidence_ref"
+      ],
+      "properties": {
+        "record_type": { "const": "acceptance-revocation" },
+        "schema_version": { "const": 1 },
+        "revocation_id": { "$ref": "#/$defs/immutableId" },
+        "acceptance_id": { "$ref": "#/$defs/immutableId" },
+        "reason": { "$ref": "#/$defs/immutableId" },
+        "guard_version": { "$ref": "#/$defs/positiveInteger" },
+        "evidence_ref": { "$ref": "#/$defs/immutableId" }
+      }
+    }
+  }
+}

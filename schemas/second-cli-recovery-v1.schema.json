@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codekit:second-cli-recovery:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "schema_version", "request_id", "run_id", "generation", "cancel_requested", "exit_code", "response_lost", "process_observed", "cancel_after_exit", "state"],
+  "properties": {
+    "record_type": {"const": "second-cli-recovery"},
+    "schema_version": {"const": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "cancel_requested": {"type": "boolean"},
+    "exit_code": {"type": ["integer", "null"]},
+    "response_lost": {"type": "boolean"},
+    "process_observed": {"type": ["boolean", "null"]},
+    "cancel_after_exit": {"type": "boolean"},
+    "state": {"enum": ["CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "NOT_CANCELLED", "START_UNKNOWN", "RECOVERY_REQUIRED"]}
+  }
+}

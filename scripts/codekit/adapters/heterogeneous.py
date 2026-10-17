@@ -1,0 +1,803 @@
+"""Provider-neutral routing and handoff records for the second CLI boundary.
+
+The registry deliberately knows only the adapter protocol.  It does not
+contain provider names, start processes, grant approval, or own a budget.  The
+handoff and recovery records are immutable observations that the 03/05/07/09
+controllers can consume after applying their own authorization and process
+guards.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Protocol, Sequence
+
+from ..authorization import ApprovalLedger, AuthorizationError, InputLock, sha256 as approval_sha256
+from .. import protocols
+from ..builtin_artifacts import resource_ref
+from ..planner_runtime import PlanningBudgetLedger
+from .capability import AdapterCapability, PreflightResult, bind_profile
+from .second_cli import (
+    CliEvent, CollectionResult, ProbeResult, SecondCliInvocation,
+    SecondCliProfile,
+)
+
+
+class AdapterFacadeProtocol(Protocol):
+    adapter_id: str
+
+    def probe(self, executable: str = "claude", **kwargs: Any) -> ProbeResult: ...
+
+    def validate_profile(self, capability: AdapterCapability, **kwargs: Any) -> SecondCliProfile: ...
+
+    def build_invocation(self, profile: SecondCliProfile, **kwargs: Any) -> SecondCliInvocation: ...
+
+    def normalize_event(self, raw_record: bytes | str, **kwargs: Any) -> CliEvent: ...
+
+    def collect_result(self, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult: ...
+
+
+class AdapterFacadeError(ValueError):
+    def __init__(self, code: str, message: str = "adapter facade input rejected") -> None:
+        self.code = code
+        super().__init__(f"{code}: {message}")
+
+
+class HeterogeneousAdapterFacade:
+    """Route all five adapter operations by registered adapter identity.
+
+    The legacy ``OfflineAdapter``/``AdapterRegistry`` protocol is deliberately
+    kept on its own path.  It exposes ``run`` and normalized legacy events,
+    which cannot be losslessly inferred as the five second-CLI operations;
+    registering it here therefore fails explicitly instead of silently
+    dropping evidence or changing settlement semantics.
+    """
+
+    def __init__(self, adapters: Iterable[AdapterFacadeProtocol] = ()) -> None:
+        self._adapters: dict[str, AdapterFacadeProtocol] = {}
+        for adapter in adapters:
+            self.register(adapter)
+
+    def register(self, adapter: AdapterFacadeProtocol) -> None:
+        adapter_id = getattr(adapter, "adapter_id", None)
+        if type(adapter_id) is not str or not adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "adapter_id is required")
+        if adapter_id in self._adapters:
+            raise AdapterFacadeError("E_ADAPTER_DUPLICATE", "adapter id already registered")
+        required_methods = ("probe", "validate_profile", "build_invocation", "normalize_event", "collect_result")
+        missing = [method for method in required_methods if not callable(getattr(adapter, method, None))]
+        if missing:
+            # OfflineAdapter has the old ``probe``/``run`` surface.  Do not
+            # advertise an implicit bridge: callers must use AdapterRegistry
+            # and its legacy AdapterResult contract explicitly.
+            if callable(getattr(adapter, "probe", None)) and callable(getattr(adapter, "run", None)):
+                raise AdapterFacadeError("E_ADAPTER_LEGACY",
+                                         "legacy adapter requires AdapterRegistry; no implicit bridge")
+            method = missing[0]
+            raise AdapterFacadeError("E_ADAPTER_PROTOCOL", f"missing adapter method: {method}")
+        self._adapters[adapter_id] = adapter
+
+    def resolve(self, adapter_id: str) -> AdapterFacadeProtocol:
+        adapter = self._adapters.get(adapter_id)
+        if adapter is None:
+            raise AdapterFacadeError("E_ADAPTER_UNKNOWN", "adapter is not registered")
+        return adapter
+
+    def probe(self, adapter_id: str, **kwargs: Any) -> ProbeResult:
+        result = self.resolve(adapter_id).probe(**kwargs)
+        if not isinstance(result, ProbeResult) or not isinstance(result.capability, AdapterCapability):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "probe must return ProbeResult")
+        if result.capability.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "probe capability adapter does not match route")
+        return result
+
+    def validate_profile(self, adapter_id: str, capability: AdapterCapability, **kwargs: Any) -> SecondCliProfile:
+        if not isinstance(capability, AdapterCapability) or capability.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "capability snapshot does not match route")
+        result = self.resolve(adapter_id).validate_profile(capability, **kwargs)
+        if not isinstance(result, SecondCliProfile):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "validate_profile must return SecondCliProfile")
+        if result.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "profile adapter does not match route")
+        return result
+
+    def build_invocation(self, adapter_id: str, profile: SecondCliProfile, **kwargs: Any) -> SecondCliInvocation:
+        if not isinstance(profile, SecondCliProfile) or profile.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_PROFILE_ADAPTER", "profile does not match route")
+        result = self.resolve(adapter_id).build_invocation(profile, **kwargs)
+        if not isinstance(result, SecondCliInvocation):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "build_invocation must return SecondCliInvocation")
+        if result.adapter.adapter_id != adapter_id:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "invocation adapter does not match route")
+        if result.adapter.profile_id != profile.profile_id:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation profile does not match route")
+        if result.adapter.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation role does not match profile")
+        if result.capability_digest != profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation capability does not match profile")
+        if result.runtime.command != result.adapter.command:
+            raise AdapterFacadeError("E_ADAPTER_IDENTITY", "runtime and adapter argv differ")
+        for field in ("request_id", "run_id"):
+            expected = kwargs.get(field)
+            if expected is not None and getattr(result.adapter, field) != expected:
+                raise AdapterFacadeError("E_INVOCATION_IDENTITY", field + " does not match route input")
+        return result
+
+    def normalize_event(self, adapter_id: str, raw_record: bytes | str, **kwargs: Any) -> CliEvent:
+        result = self.resolve(adapter_id).normalize_event(raw_record, **kwargs)
+        if not isinstance(result, CliEvent):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "normalize_event must return CliEvent")
+        for field in ("request_id", "run_id", "role"):
+            expected = kwargs.get(field)
+            if expected is not None and getattr(result, field) != expected:
+                raise AdapterFacadeError("E_EVENT_CONTEXT", field + " does not match route input")
+        return result
+
+    def collect_result(self, adapter_id: str, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult:
+        result = self.resolve(adapter_id).collect_result(events, **kwargs)
+        if not isinstance(result, CollectionResult):
+            raise AdapterFacadeError("E_ADAPTER_RESULT", "collect_result must return CollectionResult")
+        return result
+
+    def adapter_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._adapters))
+
+
+class ProfileRouter:
+    """Bind profile ids to the facade without embedding provider branches."""
+
+    def __init__(self, facade: HeterogeneousAdapterFacade) -> None:
+        self.facade = facade
+        self._profiles: dict[str, tuple[str, SecondCliProfile]] = {}
+
+    def register(self, profile: SecondCliProfile, *, capability: AdapterCapability | None = None,
+                 require_observed: bool = False) -> None:
+        if not isinstance(profile, SecondCliProfile):
+            raise AdapterFacadeError("E_PROFILE_SCHEMA", "SecondCliProfile is required")
+        if profile.profile_id in self._profiles:
+            raise AdapterFacadeError("E_PROFILE_DUPLICATE", "profile id already registered")
+        self.facade.resolve(profile.adapter_id)
+        if not profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_UNBOUND", "profile must carry a capability digest")
+        if capability is None:
+            raise AdapterFacadeError("E_PROFILE_CAPABILITY", "capability snapshot is required")
+        if capability.adapter_id != profile.adapter_id:
+            raise AdapterFacadeError("E_PROFILE_ADAPTER", "capability adapter does not match profile")
+        binding = bind_profile(capability, role=profile.role, platform=profile.platform,
+                               environment_kind=profile.environment_kind,
+                               required_capabilities=profile.capabilities,
+                               model_id=profile.model_id, require_observed=require_observed)
+        if not binding.supported:
+            raise AdapterFacadeError("E_PROFILE_CAPABILITY", ";".join(binding.reasons))
+        if binding.capability_digest != profile.capability_digest:
+            raise AdapterFacadeError("E_PROFILE_DRIFT", "capability digest changed")
+        self._profiles[profile.profile_id] = (profile.adapter_id, profile)
+
+    def resolve(self, profile_id: str) -> tuple[str, SecondCliProfile]:
+        binding = self._profiles.get(profile_id)
+        if binding is None:
+            raise AdapterFacadeError("E_PROFILE_UNKNOWN", "profile is not registered")
+        return binding
+
+    def build_invocation(self, profile_id: str, **kwargs: Any) -> SecondCliInvocation:
+        adapter_id, profile = self.resolve(profile_id)
+        result = self.facade.build_invocation(adapter_id, profile, **kwargs)
+        if result.adapter.profile_id != profile_id:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation profile does not match routed profile")
+        if result.adapter.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation role does not match routed profile")
+        if result.platform != profile.platform or result.environment_kind != profile.environment_kind:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation platform does not match routed profile")
+        if result.session_id != profile.session_id and profile.session_id is not None:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "invocation session does not match routed profile")
+        return result
+
+    def probe(self, profile_id: str, **kwargs: Any) -> ProbeResult:
+        adapter_id, profile = self.resolve(profile_id)
+        kwargs.setdefault("executable", profile.executable)
+        kwargs.setdefault("platform", profile.platform)
+        kwargs.setdefault("environment_kind", profile.environment_kind)
+        result = self.facade.probe(adapter_id, **kwargs)
+        if profile.platform not in result.capability.platforms:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "probe platform does not match routed profile")
+        if profile.environment_kind not in result.capability.environment_kinds:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "probe environment does not match routed profile")
+        return result
+
+    def normalize_event(self, profile_id: str, raw_record: bytes | str, **kwargs: Any) -> CliEvent:
+        adapter_id, profile = self.resolve(profile_id)
+        kwargs.setdefault("role", profile.role)
+        result = self.facade.normalize_event(adapter_id, raw_record, **kwargs)
+        if result.role != profile.role:
+            raise AdapterFacadeError("E_PROFILE_RESULT", "event role does not match routed profile")
+        return result
+
+    def collect_result(self, profile_id: str, events: Sequence[CliEvent], **kwargs: Any) -> CollectionResult:
+        adapter_id, profile = self.resolve(profile_id)
+        if not isinstance(events, (tuple, list)):
+            raise AdapterFacadeError("E_PROFILE_EVENT", "events must be a sequence")
+        if any(not isinstance(event, CliEvent) or event.role != profile.role for event in events):
+            raise AdapterFacadeError("E_PROFILE_EVENT", "event identity does not match routed profile")
+        return self.facade.collect_result(adapter_id, events, **kwargs)
+
+    def start_gate(self, profile_id: str, **kwargs: Any) -> "StartGate":
+        """Evaluate an executor start gate for a registered profile.
+
+        The router only supplies the provider-neutral profile binding.  The
+        gate itself still rechecks the run context, handoff and shared budget
+        at the point where a caller would pass an invocation to the 05
+        process runner; it never starts a process or grants approval.
+        """
+        _, profile = self.resolve(profile_id)
+        return evaluate_start_gate(profile=profile, **kwargs)
+
+
+def _text(value: Any, field: str) -> str:
+    if type(value) is not str or not value or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise AdapterFacadeError("E_HANDOFF_SCHEMA", f"{field} must be safe non-empty text")
+    return value
+
+
+def _ref(value: Any, field: str) -> dict[str, str]:
+    try:
+        return resource_ref(value, field)
+    except Exception as exc:
+        raise AdapterFacadeError("E_HANDOFF_REF", f"{field} must be a ResourceRef") from exc
+
+
+@dataclass(frozen=True)
+class ApprovalBinding:
+    """Read-only currentness proof supplied by the core approval ledger.
+
+    The adapter boundary may verify this proof before a trusted runtime is
+    called, but it never creates, mutates, or consumes approval state.
+    """
+
+    ledger: ApprovalLedger
+    scope: str
+    generation: int
+    record_sha256: str
+    action: str
+    input_refs: tuple[Mapping[str, str], ...]
+    input_lock: InputLock | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ledger, ApprovalLedger):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "ApprovalLedger is required")
+        _text(self.scope, "approval_scope")
+        _text(self.action, "approval_action")
+        if type(self.generation) is not int or self.generation < 1:
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval generation must be positive")
+        if type(self.record_sha256) is not str or len(self.record_sha256) != 64 or any(
+                char not in "0123456789abcdef" for char in self.record_sha256):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval record hash must be lowercase SHA-256")
+        if type(self.input_refs) is not tuple or not self.input_refs:
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be a non-empty tuple")
+        normalized = []
+        seen = set()
+        for index, value in enumerate(self.input_refs):
+            try:
+                ref = _ref(dict(value), f"/approval_input_refs/{index}")
+            except (TypeError, ValueError, AdapterFacadeError) as exc:
+                raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be ResourceRefs") from exc
+            key = tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+            if key in seen:
+                raise AdapterFacadeError("E_APPROVAL_SCHEMA", "approval input refs must be unique")
+            seen.add(key)
+            normalized.append(ref)
+        object.__setattr__(self, "input_refs", tuple(normalized))
+        if self.input_lock is not None and not isinstance(self.input_lock, InputLock):
+            raise AdapterFacadeError("E_APPROVAL_SCHEMA", "input_lock must be an InputLock")
+
+
+def _verify_approval_binding(binding: ApprovalBinding, *, expected_input_refs: Sequence[Mapping[str, str]]) -> None:
+    """Verify approval currentness without changing the ledger."""
+    expected_refs = tuple(_ref(dict(value), "/handoff/input_refs") for value in expected_input_refs)
+    if {approval_sha256(ref) for ref in binding.input_refs} != {approval_sha256(ref) for ref in expected_refs}:
+        raise AdapterFacadeError("E_APPROVAL_INPUT", "approval inputs do not match handoff inputs")
+    try:
+        head = binding.ledger.assert_current(scope=binding.scope, generation=binding.generation,
+                                             record_sha256=binding.record_sha256)
+        if not binding.ledger.consume(scope=binding.scope, action=binding.action,
+                                      input_refs=binding.input_refs):
+            raise AdapterFacadeError("E_APPROVAL_ACTION", "approval action or input set is not currently consumable")
+    except AuthorizationError as exc:
+        code = exc.code if exc.code.startswith("E_APPROVAL_") else "E_APPROVAL_" + exc.code.removeprefix("E_")
+        raise AdapterFacadeError(code, str(exc)) from exc
+    if binding.input_lock is not None:
+        lock = binding.input_lock
+        expected_approval_ref = {"scope": head.scope, "generation": head.generation,
+                                 "sha256": head.record_sha256}
+        if lock.approval_ref != expected_approval_ref or lock.head_generation != head.generation:
+            raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock is bound to a stale approval")
+        rows = set()
+        try:
+            for value, generation in lock.bindings:
+                if type(generation) is not int or generation != head.generation:
+                    raise AdapterFacadeError("E_INPUT_LOCK_CURRENT", "input lock binding generation is stale")
+                rows.add((approval_sha256(_ref(dict(value), "/input_lock/bindings")), generation))
+        except AdapterFacadeError:
+            raise
+        except (TypeError, ValueError, KeyError) as exc:
+            raise AdapterFacadeError("E_INPUT_LOCK_SCHEMA", "input lock bindings are malformed") from exc
+        expected_rows = {(approval_sha256(ref), head.generation) for ref in expected_refs}
+        if rows != expected_rows:
+            raise AdapterFacadeError("E_INPUT_LOCK_BINDINGS", "input lock bindings do not match handoff inputs")
+
+
+@dataclass(frozen=True)
+class ProfileHandoff:
+    """A cross-session planner result handoff, without approval or execution."""
+
+    request_id: str
+    run_id: str
+    planner_profile_id: str
+    executor_profile_id: str
+    planner_session_id: str
+    executor_session_id: str
+    contract_ref: Mapping[str, str]
+    input_refs: tuple[Mapping[str, str], ...]
+    budget_generation: int
+    read_only: bool = True
+    state: str = "READY"
+    executor_context: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for field in ("request_id", "run_id", "planner_profile_id", "executor_profile_id",
+                      "planner_session_id", "executor_session_id"):
+            _text(getattr(self, field), field)
+        if self.planner_session_id == self.executor_session_id:
+            raise AdapterFacadeError("E_HANDOFF_SESSION", "planner and executor sessions must be distinct")
+        object.__setattr__(self, "contract_ref", _ref(dict(self.contract_ref), "/contract_ref"))
+        if type(self.input_refs) is not tuple or not self.input_refs:
+            raise AdapterFacadeError("E_HANDOFF_INPUT", "at least one input ResourceRef is required")
+        refs = []
+        normalized_refs = []
+        for index, value in enumerate(self.input_refs):
+            normalized = _ref(dict(value), f"/input_refs/{index}")
+            key = tuple(normalized[item] for item in ("kind", "id", "path", "sha256"))
+            if key in refs:
+                raise AdapterFacadeError("E_HANDOFF_INPUT", "input refs must be unique")
+            refs.append(key)
+            normalized_refs.append(normalized)
+        object.__setattr__(self, "input_refs", tuple(normalized_refs))
+        if type(self.budget_generation) is not int or self.budget_generation < 1:
+            raise AdapterFacadeError("E_HANDOFF_GENERATION", "positive budget generation required")
+        if type(self.read_only) is not bool or not self.read_only:
+            raise AdapterFacadeError("E_HANDOFF_SCOPE", "handoff must remain read-only")
+        if self.state not in {"READY", "REQUIRES_REVIEW", "BLOCKED", "RECOVERY_REQUIRED"}:
+            raise AdapterFacadeError("E_HANDOFF_STATE", "unsupported handoff state")
+        if self.executor_context is not None:
+            try:
+                context = dict(self.executor_context)
+                protocols.validate_run_context(context, for_executor_dispatch=True)
+            except Exception as exc:
+                raise AdapterFacadeError("E_HANDOFF_CONTEXT", "executor context is not dispatch-valid") from exc
+            if context["request_id"] != self.request_id or context["run_id"] != self.run_id:
+                raise AdapterFacadeError("E_HANDOFF_CONTEXT", "executor context identity does not match handoff")
+            object.__setattr__(self, "executor_context", context)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "profile-handoff", "schema_version": 1,
+                "request_id": self.request_id, "run_id": self.run_id,
+                "planner_profile_id": self.planner_profile_id,
+                "executor_profile_id": self.executor_profile_id,
+                "planner_session_id": self.planner_session_id,
+                "executor_session_id": self.executor_session_id,
+                "contract_ref": dict(self.contract_ref),
+                "input_refs": [dict(ref) for ref in self.input_refs],
+                "budget_generation": self.budget_generation,
+                "read_only": self.read_only, "state": self.state,
+                **({"executor_context": dict(self.executor_context)} if self.executor_context is not None else {})}
+
+
+def validate_handoff(handoff: ProfileHandoff, *, request_id: str, budget_generation: int,
+                     planner_profile_id: str, executor_profile_id: str) -> None:
+    if type(handoff) is not ProfileHandoff:
+        raise AdapterFacadeError("E_HANDOFF_SCHEMA", "ProfileHandoff required")
+    if handoff.request_id != request_id:
+        raise AdapterFacadeError("E_HANDOFF_REQUEST", "request identity changed")
+    if handoff.budget_generation != budget_generation:
+        raise AdapterFacadeError("E_HANDOFF_GENERATION", "stale budget generation")
+    if handoff.planner_profile_id != planner_profile_id or handoff.executor_profile_id != executor_profile_id:
+        raise AdapterFacadeError("E_HANDOFF_PROFILE", "profile binding changed")
+    if handoff.state != "READY":
+        raise AdapterFacadeError("E_HANDOFF_STATE", "handoff is not ready")
+
+
+@dataclass(frozen=True)
+class CancellationObservation:
+    request_id: str
+    run_id: str
+    generation: int
+    cancel_requested: bool
+    exit_code: int | None
+    response_lost: bool = False
+    process_observed: bool | None = None
+    cancel_after_exit: bool = False
+    state: str = "UNKNOWN"
+
+    def __post_init__(self) -> None:
+        _text(self.request_id, "request_id"); _text(self.run_id, "run_id")
+        if type(self.generation) is not int or self.generation < 1:
+            raise AdapterFacadeError("E_RECOVERY_GENERATION", "positive generation required")
+        if type(self.cancel_requested) is not bool or type(self.response_lost) is not bool or type(self.cancel_after_exit) is not bool:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "boolean recovery facts required")
+        if self.exit_code is not None and type(self.exit_code) is not int:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "exit_code must be integer or null")
+        if self.process_observed is not None and type(self.process_observed) is not bool:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "process_observed must be boolean or null")
+        if self.state not in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT", "NOT_CANCELLED",
+                              "START_UNKNOWN", "RECOVERY_REQUIRED"}:
+            raise AdapterFacadeError("E_RECOVERY_STATE", "unsupported recovery state")
+        if self.state in {"CANCEL_REQUESTED", "CANCELLED", "CANCEL_AFTER_EXIT"} and not self.cancel_requested:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", self.state + " requires cancel_requested")
+        if self.cancel_after_exit and not self.cancel_requested:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "cancel_after_exit requires cancel_requested")
+        if self.state == "CANCEL_AFTER_EXIT" and not self.cancel_after_exit:
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CANCEL_AFTER_EXIT requires cancel_after_exit")
+        if self.state == "CANCELLED":
+            if self.cancel_after_exit or self.response_lost or self.exit_code is None or self.process_observed is not False:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CANCELLED requires a complete cancelled observation")
+        if self.state == "NOT_CANCELLED":
+            if self.cancel_requested or self.cancel_after_exit or self.response_lost:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "NOT_CANCELLED cannot carry cancellation or loss facts")
+            if self.exit_code is None or self.process_observed is not False:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "NOT_CANCELLED requires observed process exit")
+
+    @classmethod
+    def classify(cls, *, request_id: str, run_id: str, generation: int,
+                 cancel_requested: bool, exit_code: int | None,
+                 response_lost: bool = False, process_observed: bool | None = None,
+                 cancel_after_exit: bool = False) -> "CancellationObservation":
+        if not cancel_requested:
+            if cancel_after_exit:
+                raise AdapterFacadeError("E_RECOVERY_SCHEMA", "cancel_after_exit requires cancel_requested")
+            state = ("RECOVERY_REQUIRED" if response_lost or exit_code is None or process_observed is None
+                     else "NOT_CANCELLED")
+        elif cancel_after_exit:
+            state = ("START_UNKNOWN" if response_lost or exit_code is None or process_observed is not False
+                     else "CANCEL_AFTER_EXIT")
+        elif process_observed:
+            state = "RECOVERY_REQUIRED"
+        elif response_lost or exit_code is None or process_observed is None:
+            state = "START_UNKNOWN"
+        else:
+            state = "CANCELLED"
+        return cls(request_id, run_id, generation, cancel_requested, exit_code, response_lost, process_observed, cancel_after_exit, state)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "second-cli-recovery", "schema_version": 1,
+                "request_id": self.request_id, "run_id": self.run_id,
+                "generation": self.generation, "cancel_requested": self.cancel_requested,
+                "exit_code": self.exit_code, "response_lost": self.response_lost,
+                "process_observed": self.process_observed, "cancel_after_exit": self.cancel_after_exit,
+                "state": self.state}
+
+
+@dataclass(frozen=True)
+class RoleGate:
+    allowed: bool
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IndependentReleaseGate:
+    allowed: bool
+    reasons: tuple[str, ...]
+    evidence_refs: Mapping[str, Mapping[str, str]]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "second-cli-release-gate", "schema_version": 1,
+                "allowed": self.allowed, "reasons": list(self.reasons),
+                "evidence_refs": {key: dict(value) for key, value in self.evidence_refs.items()}}
+
+
+def evaluate_independent_release_gate(*, preflights: Sequence[PreflightResult],
+                                     real_model_chain: bool, real_platform_lifecycle: bool,
+                                     independent_review: bool, external_connectors: bool,
+                                     evidence_refs: Mapping[str, Mapping[str, str]] | None = None) -> IndependentReleaseGate:
+    """Machine-checkable final gate; offline fixtures cannot satisfy it."""
+    reasons: list[str] = []
+    if not isinstance(preflights, (tuple, list)) or not preflights:
+        reasons.append("PREFLIGHTS_MISSING")
+    elif any(type(item) is not PreflightResult or item.status != "READY" for item in preflights):
+        reasons.append("PREFLIGHT_NOT_READY")
+    refs: dict[str, Mapping[str, str]] = {}
+    if evidence_refs is not None:
+        if not isinstance(evidence_refs, Mapping):
+            reasons.append("EVIDENCE_REFS_INVALID")
+        else:
+            for key, value in evidence_refs.items():
+                if (type(key) is not str or not key
+                        or any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F
+                               or 0xD800 <= ord(ch) <= 0xDFFF for ch in key)):
+                    # ``IndependentReleaseGate.to_mapping`` is a closed JSON
+                    # record.  Reject non-text/unsafe keys before they can be
+                    # coerced by a JSON encoder or escape the evidence map.
+                    reasons.append("EVIDENCE_REF_KEY_INVALID")
+                    continue
+                try:
+                    refs[key] = _ref(dict(value), "/evidence_refs/" + key)
+                except (TypeError, ValueError, AdapterFacadeError):
+                    reasons.append("EVIDENCE_REF_INVALID:" + key)
+    for key, value, reason in (("real_model_chain", real_model_chain, "REAL_MODEL_CHAIN_MISSING"),
+                               ("real_platform_lifecycle", real_platform_lifecycle, "REAL_PLATFORM_LIFECYCLE_MISSING"),
+                               ("independent_review", independent_review, "INDEPENDENT_REVIEW_MISSING"),
+                               ("external_connectors", external_connectors, "EXTERNAL_CONNECTORS_MISSING")):
+        if type(value) is not bool:
+            reasons.append(reason + "_UNKNOWN")
+        elif not value:
+            reasons.append(reason)
+        elif key not in refs:
+            reasons.append("EVIDENCE_REF_MISSING:" + key)
+    return IndependentReleaseGate(not reasons, tuple(dict.fromkeys(reasons)), refs)
+
+
+@dataclass(frozen=True)
+class FallbackDecision:
+    allowed: bool
+    primary_profile_id: str
+    fallback_profile_id: str
+    reasons: tuple[str, ...]
+    requires_review: bool = True
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"record_type": "second-cli-fallback-decision", "schema_version": 1,
+                "allowed": self.allowed, "primary_profile_id": self.primary_profile_id,
+                "fallback_profile_id": self.fallback_profile_id, "reasons": list(self.reasons),
+                "requires_review": self.requires_review}
+
+
+def select_fallback(*, primary_profile_id: str, fallback_profile_id: str,
+                    primary: PreflightResult, fallback: PreflightResult,
+                    authorized: bool = False, re_reviewed: bool = False) -> FallbackDecision:
+    """Choose a fallback only after an explicit, separately reviewed decision."""
+    # Keep malformed controller input in the same conservative boundary as a
+    # failed preflight.  Profile ids are part of the persisted decision and
+    # therefore must be valid before we can construct a closed record; facts
+    # that should have been PreflightResult objects can be represented as a
+    # denied decision without leaking AttributeError from ``.status``.
+    for value, field in ((primary_profile_id, "primary_profile_id"),
+                         (fallback_profile_id, "fallback_profile_id")):
+        if type(value) is not str or not value:
+            raise AdapterFacadeError("E_FALLBACK_SCHEMA", f"{field} must be non-empty text")
+    if type(authorized) is not bool or type(re_reviewed) is not bool:
+        return FallbackDecision(False, primary_profile_id, fallback_profile_id,
+                                ("FALLBACK_INPUT_INVALID",), True)
+    if not isinstance(primary, PreflightResult) or not isinstance(fallback, PreflightResult):
+        return FallbackDecision(False, primary_profile_id, fallback_profile_id,
+                                ("FALLBACK_INPUT_INVALID",), True)
+    reasons: list[str] = []
+    if primary_profile_id == fallback_profile_id:
+        reasons.append("FALLBACK_PROFILE_DUPLICATE")
+    if primary.status == "READY":
+        reasons.append("PRIMARY_PROFILE_HAS_NO_FAILURE")
+    if fallback.status != "READY":
+        reasons.append("FALLBACK_NOT_READY")
+    if not authorized:
+        reasons.append("FALLBACK_AUTHORIZATION_REQUIRED")
+    if not re_reviewed:
+        reasons.append("FALLBACK_REVIEW_REQUIRED")
+    return FallbackDecision(not reasons, primary_profile_id, fallback_profile_id,
+                            tuple(dict.fromkeys(reasons)), True)
+
+
+class RecoveryLedger:
+    """Idempotent offline recovery observation store; no retry or process action."""
+
+    def __init__(self) -> None:
+        self._items: dict[tuple[str, str, int], CancellationObservation] = {}
+
+    def record(self, observation: CancellationObservation) -> str:
+        if not isinstance(observation, CancellationObservation):
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "CancellationObservation required")
+        key = (observation.request_id, observation.run_id, observation.generation)
+        previous = self._items.get(key)
+        if previous is not None:
+            if previous == observation:
+                return "REPLAY"
+            raise AdapterFacadeError("E_RECOVERY_CONFLICT", "recovery identity has different observation")
+        self._items[key] = observation
+        return "APPLIED"
+
+    def get(self, request_id: str, run_id: str, generation: int) -> CancellationObservation | None:
+        if (type(request_id) is not str or not request_id or type(run_id) is not str or not run_id
+                or type(generation) is not int or generation < 1):
+            raise AdapterFacadeError("E_RECOVERY_SCHEMA", "recovery identity is malformed")
+        return self._items.get((request_id, run_id, generation))
+
+
+def check_role_gate(*, profile: SecondCliProfile, expected_role: str,
+                    handoff: ProfileHandoff | None = None,
+                    ledger: PlanningBudgetLedger | None = None,
+                    generation: int | None = None) -> RoleGate:
+    reasons: list[str] = []
+    if not isinstance(profile, SecondCliProfile):
+        return RoleGate(False, ("PROFILE_SCHEMA",))
+    if profile.role != expected_role:
+        reasons.append("ROLE_MISMATCH")
+    if expected_role == "executor" and profile.read_only is not True:
+        reasons.append("EXECUTOR_SCOPE_UNKNOWN")
+    if handoff is not None:
+        if not isinstance(handoff, ProfileHandoff):
+            reasons.append("HANDOFF_SCHEMA")
+        else:
+            try:
+                validate_handoff(handoff, request_id=handoff.request_id,
+                                 budget_generation=generation if generation is not None else handoff.budget_generation,
+                                 planner_profile_id=handoff.planner_profile_id,
+                                 executor_profile_id=handoff.executor_profile_id)
+            except AdapterFacadeError as exc:
+                reasons.append(exc.code)
+    if ledger is None:
+        reasons.append("BUDGET_UNBOUND")
+    elif not isinstance(ledger, PlanningBudgetLedger):
+        reasons.append("BUDGET_SCHEMA")
+    else:
+        if generation is not None and ledger.generation != generation:
+            reasons.append("STALE_GENERATION")
+        stopped, stop_reasons = ledger.state.stop_decision()
+        if stopped:
+            reasons.extend("BUDGET_" + reason for reason in stop_reasons)
+        if (isinstance(handoff, ProfileHandoff)
+                and ledger.request_id != handoff.request_id):
+            reasons.append("REQUEST_MISMATCH")
+    return RoleGate(not reasons, tuple(dict.fromkeys(reasons)))
+
+
+@dataclass(frozen=True)
+class StartGate:
+    """Point-in-time executor admission decision for an offline runtime.
+
+    ``allowed`` means only that the supplied, already-built invocation may be
+    handed to a trusted 05 runner.  It is not evidence that a process started
+    and it does not consume budget or approval.
+    """
+
+    allowed: bool
+    reasons: tuple[str, ...]
+    context_report: Mapping[str, Any] | None = None
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"allowed": self.allowed, "reasons": list(self.reasons),
+                "context_report": dict(self.context_report) if self.context_report is not None else None}
+
+
+def evaluate_start_gate(*, run_context: Mapping[str, Any], profile: SecondCliProfile,
+                        handoff: ProfileHandoff, ledger: PlanningBudgetLedger,
+                        invocation: SecondCliInvocation | None = None,
+                        generation: int | None = None,
+                        approval_binding: ApprovalBinding | None = None,
+                        preflight: PreflightResult | None = None) -> StartGate:
+    """Recheck all local bindings immediately before executor dispatch.
+
+    This is deliberately provider-neutral: the only provider-specific object
+    is the adapter-created ``SecondCliInvocation``.  The gate validates the
+    shared RunContext contract and identity, then checks the cross-session
+    handoff, profile role, generation and core ``PlanningBudgetLedger``.  A
+    missing or mismatched fact is a conservative block, never an implicit
+    start or retry.
+    """
+    reasons: list[str] = []
+    report: Mapping[str, Any] | None = None
+    context: Mapping[str, Any] | None = run_context if isinstance(run_context, Mapping) else None
+    if context is None:
+        reasons.append("CONTEXT_SCHEMA")
+    else:
+        try:
+            report = protocols.validate_run_context(dict(context), for_executor_dispatch=True)
+        except protocols.ProtocolError as exc:
+            reasons.append("CONTEXT_" + exc.code)
+
+    handoff_valid = isinstance(handoff, ProfileHandoff)
+    if not handoff_valid:
+        reasons.append("HANDOFF_SCHEMA")
+    expected_generation = (handoff.budget_generation if generation is None and handoff_valid
+                           else generation)
+    if type(expected_generation) is not int or expected_generation < 1:
+        reasons.append("GENERATION_INVALID")
+    try:
+        if handoff_valid:
+            role_gate = check_role_gate(profile=profile, expected_role="executor", handoff=handoff,
+                                        ledger=ledger, generation=expected_generation)
+            reasons.extend(role_gate.reasons)
+    except (AdapterFacadeError, TypeError, AttributeError):
+        reasons.append("ROLE_GATE_SCHEMA")
+
+    if handoff_valid and context is not None and not any(item.startswith("CONTEXT_") for item in reasons):
+        if context.get("request_id") != handoff.request_id:
+            reasons.append("REQUEST_MISMATCH")
+        if context.get("run_id") != handoff.run_id:
+            reasons.append("RUN_MISMATCH")
+        if context.get("role") != "executor":
+            reasons.append("ROLE_MISMATCH")
+        if context.get("platform") != profile.platform:
+            reasons.append("PLATFORM_MISMATCH")
+        try:
+            context_ref = _ref(dict(context["contract_ref"]), "/context/contract_ref")
+            if context_ref != handoff.contract_ref:
+                reasons.append("CONTRACT_MISMATCH")
+        except (KeyError, TypeError, AdapterFacadeError):
+            reasons.append("CONTRACT_MISMATCH")
+        if handoff.executor_context is not None and dict(context) != dict(handoff.executor_context):
+            reasons.append("CONTEXT_DRIFT")
+
+    if isinstance(ledger, PlanningBudgetLedger):
+        if context is not None and ledger.request_id != context.get("request_id"):
+            reasons.append("REQUEST_MISMATCH")
+        if expected_generation != ledger.generation:
+            reasons.append("STALE_GENERATION")
+    else:
+        reasons.append("BUDGET_UNBOUND")
+
+    if approval_binding is None:
+        reasons.append("APPROVAL_UNBOUND")
+    elif not isinstance(approval_binding, ApprovalBinding):
+        reasons.append("APPROVAL_SCHEMA")
+    elif not handoff_valid:
+        reasons.append("APPROVAL_CONTEXT_UNKNOWN")
+    else:
+        try:
+            _verify_approval_binding(approval_binding, expected_input_refs=handoff.input_refs)
+        except AdapterFacadeError as exc:
+            reasons.append(exc.code)
+
+    if preflight is None:
+        reasons.append("PREFLIGHT_UNBOUND")
+    elif not isinstance(preflight, PreflightResult):
+        reasons.append("PREFLIGHT_SCHEMA")
+    else:
+        if preflight.status != "READY":
+            reasons.append("PREFLIGHT_NOT_READY")
+        binding = preflight.binding
+        if binding.adapter_id != profile.adapter_id:
+            reasons.append("PREFLIGHT_ADAPTER_MISMATCH")
+        if binding.role != profile.role or binding.platform != profile.platform:
+            reasons.append("PREFLIGHT_PROFILE_MISMATCH")
+        if binding.model_id != profile.model_id:
+            reasons.append("PREFLIGHT_MODEL_MISMATCH")
+        if binding.capability_digest != profile.capability_digest:
+            reasons.append("PREFLIGHT_CAPABILITY_DRIFT")
+
+    if invocation is None:
+        reasons.append("INVOCATION_UNBOUND")
+    elif not isinstance(invocation, SecondCliInvocation):
+        reasons.append("INVOCATION_SCHEMA")
+    else:
+        adapter = invocation.adapter
+        runtime = invocation.runtime
+        if not handoff_valid:
+            reasons.append("INVOCATION_CONTEXT_UNKNOWN")
+            return StartGate(False, tuple(dict.fromkeys(reasons)), report)
+        if adapter.request_id != handoff.request_id or runtime.request_id != handoff.request_id:
+            reasons.append("INVOCATION_REQUEST_MISMATCH")
+        if adapter.run_id != handoff.run_id or runtime.run_id != handoff.run_id:
+            reasons.append("INVOCATION_RUN_MISMATCH")
+        if adapter.role != "executor" or profile.role != "executor":
+            reasons.append("INVOCATION_ROLE_MISMATCH")
+        if adapter.profile_id != handoff.executor_profile_id or profile.profile_id != handoff.executor_profile_id:
+            reasons.append("INVOCATION_PROFILE_MISMATCH")
+        if adapter.adapter_id != profile.adapter_id:
+            reasons.append("INVOCATION_ADAPTER_MISMATCH")
+        if invocation.capability_digest != profile.capability_digest:
+            reasons.append("INVOCATION_CAPABILITY_DRIFT")
+        if invocation.platform != profile.platform or invocation.environment_kind != profile.environment_kind:
+            reasons.append("INVOCATION_PLATFORM_MISMATCH")
+        invocation_refs = {tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+                           for ref in invocation.resource_allowlist}
+        handoff_refs = {tuple(ref[name] for name in ("kind", "id", "path", "sha256"))
+                        for ref in handoff.input_refs}
+        if invocation_refs != handoff_refs:
+            reasons.append("INVOCATION_RESOURCE_MISMATCH")
+        if invocation.read_only is not True:
+            reasons.append("INVOCATION_SCOPE_UNKNOWN")
+        if invocation.session_id != handoff.executor_session_id:
+            reasons.append("INVOCATION_SESSION_MISMATCH")
+
+    return StartGate(not reasons, tuple(dict.fromkeys(reasons)), report)
+
+
+__all__ = ["AdapterFacadeError", "AdapterFacadeProtocol", "CancellationObservation",
+           "ApprovalBinding", "FallbackDecision", "HeterogeneousAdapterFacade", "IndependentReleaseGate", "ProfileHandoff",
+           "ProfileRouter", "RecoveryLedger", "RoleGate", "StartGate", "check_role_gate",
+           "evaluate_independent_release_gate", "evaluate_start_gate", "select_fallback", "validate_handoff"]

@@ -1,0 +1,107 @@
+test_link_to_owned_directory_refused (__main__.CleanupOwnershipTests.test_link_to_owned_directory_refused) ... ok
+test_marker_link_to_valid_token_refused (__main__.CleanupOwnershipTests.test_marker_link_to_valid_token_refused)
+收尾轮返工（复审 tests-mutation 视角）：标记必须是普通文件，不能是链接，即使链接指向的文件内容恰好是正确的 ... ok
+test_marker_with_trailing_newline_refused (__main__.CleanupOwnershipTests.test_marker_with_trailing_newline_refused)
+收尾轮返工（复审 tests-mutation 视角）：标记必须与令牌逐字节相同，末尾多一个换行也不行（读取长度比令牌多， ... ok
+test_nested_directory_and_foreign_prefix_refused (__main__.CleanupOwnershipTests.test_nested_directory_and_foreign_prefix_refused) ... ok
+test_owned_directory_is_removed (__main__.CleanupOwnershipTests.test_owned_directory_is_removed) ... ok
+test_removal_unregisters_directory (__main__.CleanupOwnershipTests.test_removal_unregisters_directory)
+收尾轮返工（复审 tests-mutation 视角）：删除后注销登记。此前的断言由“目标不是目录”满足，没有检验注销： ... ok
+test_repository_paths_refused_by_read_only_check (__main__.CleanupOwnershipTests.test_repository_paths_refused_by_read_only_check) ... ok
+test_tampered_or_missing_marker_refused (__main__.CleanupOwnershipTests.test_tampered_or_missing_marker_refused) ... ok
+test_unregistered_directory_refused_even_with_forged_marker (__main__.CleanupOwnershipTests.test_unregistered_directory_refused_even_with_forged_marker) ... ok
+test_unregistered_prefix_cannot_be_created (__main__.CleanupOwnershipTests.test_unregistered_prefix_cannot_be_created) ... ok
+test_d20_non_finite_cost_amount (__main__.CompatMatrixDCaseTests.test_d20_non_finite_cost_amount) ... ok
+test_d21_deep_nesting (__main__.CompatMatrixDCaseTests.test_d21_deep_nesting) ... ok
+test_d22_invalid_utf8 (__main__.CompatMatrixDCaseTests.test_d22_invalid_utf8) ... ok
+test_d23_identifier_trailing_newline (__main__.CompatMatrixDCaseTests.test_d23_identifier_trailing_newline) ... ok
+test_every_d_case_is_a_registered_single_fault_fixture (__main__.CompatMatrixDCaseTests.test_every_d_case_is_a_registered_single_fault_fixture) ... ok
+test_allowlist_is_exact_and_documented (__main__.CredentialScanTests.test_allowlist_is_exact_and_documented)
+白名单只放行整串匹配的合成标记；标记后多出随机串就不再放行。每个条目都写明来源。 ... ok
+test_fixture_files_contain_no_credential_shapes (__main__.CredentialScanTests.test_fixture_files_contain_no_credential_shapes) ... ok
+test_scanner_detects_every_rule_in_every_view (__main__.CredentialScanTests.test_scanner_detects_every_rule_in_every_view)
+对照：每条规则的样本分别放进原字节、UTF-16 LE（两种对齐）、UTF-16 BE，以及只有解析后才可见的 JSON \u 转义， ... ok
+test_secret_key_in_json_with_random_value_detected (__main__.CredentialScanTests.test_secret_key_in_json_with_random_value_detected)
+JSON 中键名像凭据字段、值像长随机串时发现（值被 \u 转义也一样）；值像普通文字或数字时不算。 ... ok
+test_legacy_contract_projection_unchanged (__main__.DifferentialTests.test_legacy_contract_projection_unchanged) ... ok
+test_legacy_event_projection_unchanged (__main__.DifferentialTests.test_legacy_event_projection_unchanged) ... ok
+test_legacy_expected_headers_match_generator (__main__.DifferentialTests.test_legacy_expected_headers_match_generator) ... ok
+test_legacy_implementation_bytes_are_source_revision (__main__.DifferentialTests.test_legacy_implementation_bytes_are_source_revision) ... ok
+test_legacy_negative_derivations_reproducible (__main__.DifferentialTests.test_legacy_negative_derivations_reproducible) ... ok
+test_new_strict_verdicts_are_separate_from_legacy_expectations (__main__.DifferentialTests.test_new_strict_verdicts_are_separate_from_legacy_expectations) ... ok
+test_new_strict_verdicts_unchanged (__main__.DifferentialTests.test_new_strict_verdicts_unchanged) ... ok
+test_directory_has_no_unregistered_or_missing_files (__main__.FileIntegrityTests.test_directory_has_no_unregistered_or_missing_files) ... ok
+test_every_manifest_digest_matches_file_bytes (__main__.FileIntegrityTests.test_every_manifest_digest_matches_file_bytes) ... ok
+test_git_attributes_disable_line_ending_conversion (__main__.FileIntegrityTests.test_git_attributes_disable_line_ending_conversion) ... ok
+test_git_clean_filter_keeps_bytes (__main__.FileIntegrityTests.test_git_clean_filter_keeps_bytes)
+git 按路径属性与配置（本机 core.autocrlf=true）清洗后的对象摘要必须等于不经过滤的摘要。 ... ok
+test_guard_rejects_linked_directory_leaving_allowed_prefix (__main__.GeneratorGuardTests.test_guard_rejects_linked_directory_leaving_allowed_prefix)
+允许目录（或其祖先）是指向别处的链接时，按解析后的真实路径逐组件判定，拒绝写入。在 tempfile 目录中建 ... ok
+test_guard_rejects_paths_outside_allowed_prefixes (__main__.GeneratorGuardTests.test_guard_rejects_paths_outside_allowed_prefixes)
+含 ..、反斜杠的路径与允许前缀之外的路径都在写入前被拒绝（原来只做字符串前缀比较，前两类能写到允许前缀 ... ok
+test_area_is_created_owned_and_removed (__main__.HarnessCleanupOwnershipTests.test_area_is_created_owned_and_removed)
+正向对照：区域是 realpath(gettempdir()) 的直接子目录、名称带前缀、根目录有标记；区域内的子路径与区域本身都能 ... ok
+test_area_not_direct_child_of_tempdir_refused (__main__.HarnessCleanupOwnershipTests.test_area_not_direct_child_of_tempdir_refused)
+区域不是系统临时目录的直接子目录（这里：在另一个临时目录下建立后，gettempdir 恢复原值）时拒绝，区域本身与 ... ok
+test_gettempdir_changed_refused (__main__.HarnessCleanupOwnershipTests.test_gettempdir_changed_refused)
+建立区域之后 tempfile.gettempdir() 改变（区域的父目录不再是它）：拒绝；恢复后照常删除。 ... ok
+test_link_target_or_link_root_refused (__main__.HarnessCleanupOwnershipTests.test_link_target_or_link_root_refused)
+待删路径本身是链接或联接（即使目标在同一区域内）时拒绝，目标不受影响。区域根目录被换成指向原目录的联接时 ... ok
+test_marker_tampered_extended_missing_directory_or_link_refused (__main__.HarnessCleanupOwnershipTests.test_marker_tampered_extended_missing_directory_or_link_refused)
+所有权标记：内容被改（同长度）、末尾多出字节（换行、空格）、缺失、是目录、是指向正确令牌副本的链接，都拒绝 ... ok
+test_new_path_in_removed_area_refused (__main__.HarnessCleanupOwnershipTests.test_new_path_in_removed_area_refused)
+区域删除后，同一路径下新出现的目录与文件无法核对归属：拒绝，且不删除。 ... ok
+test_paths_outside_any_area_refused (__main__.HarnessCleanupOwnershipTests.test_paths_outside_any_area_refused)
+区域外的路径（其他工具登记的临时目录、其中的文件、不存在的路径）一律拒绝，不存在也不直接返回。 ... ok
+test_prefix_no_longer_owned_refused (__main__.HarnessCleanupOwnershipTests.test_prefix_no_longer_owned_refused)
+目录名前缀必须属于本工具：登记后本工具的前缀改变（模拟“目录名不以本工具前缀开头”），拒绝。 ... ok
+test_removing_area_does_not_follow_links_to_outside (__main__.HarnessCleanupOwnershipTests.test_removing_area_does_not_follow_links_to_outside)
+正向对照：区域内有指向区域外目录的联接（以及可能时指向区域外文件的符号链接）时，删除区域只删链接本身， ... ok
+test_replaced_directory_with_copied_marker_refused (__main__.HarnessCleanupOwnershipTests.test_replaced_directory_with_copied_marker_refused)
+区域根目录被替换为同名新目录、并复制了原标记（内容就是正确令牌）：目录身份（st_dev, st_ino）不同，拒绝。 ... ok
+test_unregistered_directory_refused_even_with_forged_marker (__main__.HarnessCleanupOwnershipTests.test_unregistered_directory_refused_even_with_forged_marker)
+未登记的 codekit-legacy-* 目录：没有标记、标记是伪造值、甚至标记内容恰是某个已登记区域的真实令牌，都拒绝； ... ok
+test_generator_sources_at_revision (__main__.LegacySourceTests.test_generator_sources_at_revision) ... ok
+test_legacy_copies_equal_git_show (__main__.LegacySourceTests.test_legacy_copies_equal_git_show) ... ok
+test_claim_rule_rejects_real_and_unlisted_legacy_claims (__main__.ManifestTests.test_claim_rule_rejects_real_and_unlisted_legacy_claims)
+产品来源规则与测试层规则的每个分支都能拒绝（对照：未修改的条目被接受）。 ... ok
+test_claim_spelling_variants_rejected (__main__.ManifestTests.test_claim_spelling_variants_rejected)
+P4 第 3 轮（复审 tests-mutation 视角，major）：大小写与连字符变体不能绕过来源规则。产品入口在结构层按封闭词法 ... ok
+test_counts_by_class_and_representation (__main__.ManifestTests.test_counts_by_class_and_representation) ... ok
+test_legacy_draft_merged_and_removed (__main__.ManifestTests.test_legacy_draft_merged_and_removed) ... ok
+test_manifest_is_strict_json_and_validates (__main__.ManifestTests.test_manifest_is_strict_json_and_validates) ... ok
+test_manifest_matches_generator_definitions (__main__.ManifestTests.test_manifest_matches_generator_definitions) ... ok
+test_provenance_consistency (__main__.ManifestTests.test_provenance_consistency) ... ok
+test_each_negative_yields_exactly_manifest_code (__main__.NegativeTests.test_each_negative_yields_exactly_manifest_code) ... ok
+test_negative_bytes_reproducible_from_base (__main__.NegativeTests.test_negative_bytes_reproducible_from_base) ... ok
+test_negative_catalog_is_unique (__main__.NegativeTests.test_negative_catalog_is_unique) ... ok
+test_negative_counts_by_group (__main__.NegativeTests.test_negative_counts_by_group)
+兼容矩阵按组引用这些计数；增删负例时同步更新 compatibility-matrix.md。 ... ok
+test_baseline_records_are_internal (__main__.PublicEntryRejectionTests.test_baseline_records_are_internal) ... ok
+test_contract_v1_json_is_not_a_public_record (__main__.PublicEntryRejectionTests.test_contract_v1_json_is_not_a_public_record) ... ok
+test_fixture_manifest_set_is_internal_and_version_2_rejected (__main__.PublicEntryRejectionTests.test_fixture_manifest_set_is_internal_and_version_2_rejected) ... ok
+test_c1_completed_entry_matches_protocols_api_example (__main__.R11Tests.test_c1_completed_entry_matches_protocols_api_example)
+synthetic-doc-c.1-manifest-entry-completed 与 protocols-api.md 14.1 的补齐示例逐值相同（条目 description ... ok
+test_every_entry_follows_registration_rules (__main__.R11Tests.test_every_entry_follows_registration_rules) ... ok
+test_manifest_level_errors_carry_entry_prefix (__main__.R11Tests.test_manifest_level_errors_carry_entry_prefix)
+新字段出错时，整份清单的错误 field 带 /entries/<i> 前缀；对照：同样的修改在另一些条目上被接受。 ... ok
+test_registration_counts (__main__.R11Tests.test_registration_counts)
+manifest 条目按 integrity、platform_scope 与 protocol_structure_preserved 的分布（兼容矩阵引用这些计数）。 ... ok
+test_two_step_negatives_each_step_alone_accepted (__main__.R11Tests.test_two_step_negatives_each_step_alone_accepted) ... ok
+test_whole_manifest_bytes_pass_fixture_manifest_payload_validator (__main__.R11Tests.test_whole_manifest_bytes_pass_fixture_manifest_payload_validator)
+整份 manifest.json 按资源类型 fixture-manifest 核验（R-P10：摘要 → 载荷表示 json → 校验器 ... ok
+test_stub_cwd_placeholder_and_no_local_paths (__main__.StubTests.test_stub_cwd_placeholder_and_no_local_paths) ... ok
+test_stub_regeneration_matches_locked_bytes (__main__.StubTests.test_stub_regeneration_matches_locked_bytes) ... ok
+test_c1_completed_entry_matches_doc (__main__.SyntheticTests.test_c1_completed_entry_matches_doc) ... ok
+test_doc_samples_equal_design_doc_blocks (__main__.SyntheticTests.test_doc_samples_equal_design_doc_blocks) ... ok
+test_golden_vectors_byte_exact (__main__.SyntheticTests.test_golden_vectors_byte_exact) ... ok
+test_golden_vectors_match_design_doc_table (__main__.SyntheticTests.test_golden_vectors_match_design_doc_table) ... ok
+test_literal_synthetic_files_reproducible (__main__.SyntheticTests.test_literal_synthetic_files_reproducible) ... ok
+test_sample_1_exact_bytes_and_digest (__main__.SyntheticTests.test_sample_1_exact_bytes_and_digest) ... ok
+test_stub_entry_copy_equals_manifest_entry (__main__.SyntheticTests.test_stub_entry_copy_equals_manifest_entry) ... ok
+test_synthetic_positives_accepted (__main__.SyntheticTests.test_synthetic_positives_accepted) ... ok
+
+----------------------------------------------------------------------
+Ran 75 tests in 11.260s
+
+OK

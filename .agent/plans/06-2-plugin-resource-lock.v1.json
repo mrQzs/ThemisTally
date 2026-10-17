@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "task_id": "06-2-plugin-resource-lock",
+  "plan_version": 1,
+  "title": "06.2 插件资源闭包与内容锁",
+  "repository": "Code-Kit",
+  "base_sha": "f52dc20058b0997a2abce80711a372bb463f0558",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": []
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "无"
+    ],
+    "allowed_new_files": [
+      "adapters/plugin_resources.py",
+      "tests/test_plugin_locks.py",
+      "tests/fixtures/plugins/resources/**",
+      "docs/themis-tally-v2/06-plugin-resource-lock-evidence.md"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "AGENTS.md",
+      "scripts/pi_dispatch.py",
+      "scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_plugin_locks"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 420,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Ran\\s+[1-9]\\d* tests"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "-q",
+        "adapters",
+        "tests"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": []
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "提供受控 SourceReader、资源闭包、路径/链接边界、逐字节封存、确定性 PluginLock 与漂移差异；任一声明/间接资源改一字节使旧锁失效。",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "每条 Behavior contract 的合法、边界、错误及状态规则都有独立离线",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "修改只在 Scope，未改变依赖、网络、凭据或生产锁",
+      "evidence": [
+        "scope",
+        "V03"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "既有测试、入口和历史",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  }
+}

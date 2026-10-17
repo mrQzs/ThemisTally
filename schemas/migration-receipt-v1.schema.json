@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codekit/migration-receipt-v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "migration_id", "operation_id", "idempotency_key", "plan_sha256", "from_generation", "to_generation", "before_selection_ref", "after_selection_ref", "status", "replayed", "currently_selected", "current_generation", "current_selection_ref"],
+  "properties": {
+    "record_type": {"const": "migration-receipt"}, "schema_version": {"const": 1},
+    "migration_id": {"$ref": "#/$defs/id"}, "operation_id": {"$ref": "#/$defs/id"}, "idempotency_key": {"$ref": "#/$defs/id"}, "plan_sha256": {"$ref": "#/$defs/sha"},
+    "from_generation": {"type": "integer", "minimum": 1}, "to_generation": {"type": "integer", "minimum": 1},
+    "before_selection_ref": {"$ref": "#/$defs/ref"}, "after_selection_ref": {"$ref": "#/$defs/ref"}, "status": {"enum": ["APPLIED", "REPLAYED", "ROLLED_BACK"]},
+    "replayed": {"type": "boolean"}, "currently_selected": {"type": "boolean"}, "current_generation": {"type": "integer", "minimum": 1}, "current_selection_ref": {"$ref": "#/$defs/ref"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9._:-]{0,127}$"}, "rid": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "sha256"], "properties": {"kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "id": {"$ref": "#/$defs/rid"}, "sha256": {"$ref": "#/$defs/sha"}, "path": {"type": "string", "minLength": 1}}}}
+}

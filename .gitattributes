@@ -1,0 +1,31 @@
+# shell 脚本保持 LF：Windows 开启 core.autocrlf 时，CRLF 检出的脚本 bash 无法执行
+*.sh text eol=lf
+
+# 01：协议 Schema 与 fixtures 按原始字节保存，禁止行尾转换（摘要按完整字节计算）
+schemas/*.json -text
+tests/fixtures/codekit01/** -text
+# 01：基线报告、清单与归档证据都登记了完整字节摘要；系统级 core.autocrlf=true，必须禁止行尾转换
+docs/themis-tally-v2/01-baseline/** -text
+# 01-L10：01 的证据登记了下列文件的完整字节摘要（取证输入清单、工具修订、R-P12 内联引用、旧实现锁定字节、源设计文档），
+# 系统级 core.autocrlf=true 会在检出时把 LF 转成 CRLF，使摘要失配；按原字节存取。
+scripts/codekit/*.py -text
+scripts/pi_dispatch.py -text
+tests/test_dispatch.py -text
+tests/stub_pi.py -text
+tests/stub_pi_help.txt -text
+tests/codekit01_legacy.py -text
+tests/legacy_harness.py -text
+tests/test_baseline_tool.py -text
+tests/test_codekit01_fixtures.py -text
+tests/test_legacy_*.py -text
+tests/test_protocols.py -text
+docs/themis-tally-v2/** -text
+docs/themis-tally-v2-design.md -text
+
+# 2.8.0：决策插件的问题清单、manifest 与锁按完整字节核对（decisions.verify_battery_lock）；系统级 core.autocrlf=true 会在检出时转成 CRLF，使哈希失配。
+plugins/decisions/** -text
+
+# 2.9 实战：v2 插件的资源说明与第二 CLI 探针证据按完整字节核对（测试比较 sha256 与字节数）。新检出的 worktree
+# 在系统级 core.autocrlf=true 下会把它们转成 CRLF，干净副本上的全量 pytest 因此失败 6 项。
+plugins/*/README.md -text
+tests/fixtures/11/*.txt -text

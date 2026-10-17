@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-kit.invalid/schemas/plugin-lock-v1.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["record_type", "schema_version", "generation", "compiler_sha256", "plugins", "lock_sha256"],
+  "properties": {"record_type": {"const": "plugin-lock"}, "schema_version": {"const": 1}, "generation": {"type": "integer", "minimum": 1}, "compiler_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plugins": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["plugin_id", "version", "manifest_sha256", "resources"],
+      "properties": {"plugin_id": {"type": "string", "minLength": 1}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "resources": {"type": "array", "items": {"$ref": "#/$defs/ref"}}}}},
+    "lock_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+  "$defs": {"ref": {"type": "object", "additionalProperties": false, "required": ["kind", "id", "path", "sha256"],
+    "properties": {"kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+}

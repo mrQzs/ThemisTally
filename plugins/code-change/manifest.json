@@ -1,0 +1,43 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "code-change",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "code-change.readme",
+      "kind": "file",
+      "path": "plugins/code-change/README.md",
+      "sha256": "6946a38c6f6db8826450f21302f0e6e467b80e48709c76f604018a2dfd45d4f0"
+    }
+  ],
+  "roles": [
+    "planner"
+  ],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

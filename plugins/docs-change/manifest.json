@@ -1,0 +1,43 @@
+{
+  "api_version": "08-plugin-v1",
+  "capabilities": [
+    "offline-reference"
+  ],
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "compileall"
+      ],
+      "deterministic": true,
+      "id": "manifest-shape"
+    }
+  ],
+  "conflicts": [],
+  "depends_on": [],
+  "entrypoints": [],
+  "permissions": [
+    "read-candidate"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "plugin_id": "docs-change",
+  "record_type": "builtin-task-plugin-manifest",
+  "resources": [
+    {
+      "id": "docs-change.readme",
+      "kind": "file",
+      "path": "plugins/docs-change/README.md",
+      "sha256": "86ef7319932e7d9075eb978b0f6d32904da48c489bcc0bfc0a076143088e33c7"
+    }
+  ],
+  "roles": [
+    "planner"
+  ],
+  "schema_version": 1,
+  "version": "1.0.0"
+}

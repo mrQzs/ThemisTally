@@ -1,0 +1,3 @@
+
+# PI-Kit（Claude Code / Codex × Pi）：运行证据（含源码片段、命令输出与日志），不提交
+.agent/runs/

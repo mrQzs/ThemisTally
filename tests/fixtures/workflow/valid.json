@@ -1,0 +1,118 @@
+{
+  "record_type": "workflow-definition",
+  "schema_version": 1,
+  "workflow_id": "demo-workflow",
+  "workflow_version": 1,
+  "request_id": "req-00000000000000000000000000000000",
+  "repo_id": "code-kit",
+  "platforms": ["windows"],
+  "plugin_lock_ref": {
+    "kind": "plugin-lock",
+    "id": "demo-lock",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "path": "resources/plugin-lock.json"
+  },
+  "max_parallel_tasks": 1,
+  "nodes": [
+    {
+      "id": "alpha",
+      "depends_on": [],
+      "inputs": {
+        "source": {
+          "schema_ref": {
+            "kind": "schema",
+            "id": "demo-port",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "path": "resources/port.schema.json"
+          },
+          "required": true
+        }
+      },
+      "input_bindings": {
+        "source": {
+          "kind": "external",
+          "artifact_ref": {
+            "kind": "artifact",
+            "id": "demo-input",
+            "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+            "path": "resources/input.json"
+          },
+          "schema_ref": {
+            "kind": "schema",
+            "id": "demo-port",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "path": "resources/port.schema.json"
+          }
+        }
+      },
+      "outputs": {
+        "result": {
+          "schema_ref": {
+            "kind": "schema",
+            "id": "demo-port",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "path": "resources/port.schema.json"
+          },
+          "stage_id": "check"
+        }
+      },
+      "stages": [
+        {"id": "execute", "kind": "execute", "role": "executor", "depends_on": [], "plugin_step_ref": {
+          "kind": "plugin-step", "id": "demo-step", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "path": "resources/plugin-step.json"
+        }},
+        {"id": "freeze", "kind": "freeze", "role": "core", "depends_on": ["execute"], "plugin_step_ref": null},
+        {"id": "check", "kind": "check", "role": "independent-review", "depends_on": ["freeze"], "plugin_step_ref": null},
+        {"id": "verdict", "kind": "verdict", "role": "supervisor", "depends_on": ["check"], "plugin_step_ref": null}
+      ],
+      "write_scope": [{"path": "src/alpha", "kind": "tree"}],
+      "resource_keys": ["module:alpha"],
+      "contract_ref": null,
+      "baseline_ref": null,
+      "budget": {"max_dispatches": 3, "currency_caps": {"USD": "2.000000"}},
+      "retry_policy": {"max_attempts_total": 3, "min_backoff_seconds": 10},
+      "priority": 0
+    },
+    {
+      "id": "beta",
+      "depends_on": ["alpha"],
+      "inputs": {
+        "source": {
+          "schema_ref": {
+            "kind": "schema",
+            "id": "demo-port",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "path": "resources/port.schema.json"
+          },
+          "required": true
+        }
+      },
+      "input_bindings": {"source": {"kind": "task-output", "task_id": "alpha", "port": "result"}},
+      "outputs": {
+        "result": {
+          "schema_ref": {
+            "kind": "schema",
+            "id": "demo-port",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "path": "resources/port.schema.json"
+          },
+          "stage_id": "check"
+        }
+      },
+      "stages": [
+        {"id": "execute", "kind": "execute", "role": "executor", "depends_on": [], "plugin_step_ref": {
+          "kind": "plugin-step", "id": "demo-step", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "path": "resources/plugin-step.json"
+        }},
+        {"id": "freeze", "kind": "freeze", "role": "core", "depends_on": ["execute"], "plugin_step_ref": null},
+        {"id": "check", "kind": "check", "role": "independent-review", "depends_on": ["freeze"], "plugin_step_ref": null},
+        {"id": "verdict", "kind": "verdict", "role": "supervisor", "depends_on": ["check"], "plugin_step_ref": null}
+      ],
+      "write_scope": [{"path": "src/beta", "kind": "tree"}],
+      "resource_keys": ["module:beta"],
+      "contract_ref": null,
+      "baseline_ref": null,
+      "budget": {"max_dispatches": 3, "currency_caps": {"USD": "2.000000"}},
+      "retry_policy": {"max_attempts_total": 3, "min_backoff_seconds": 10},
+      "priority": 0
+    }
+  ]
+}

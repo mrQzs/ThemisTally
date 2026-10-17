@@ -1,0 +1,40 @@
+{
+  "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
+  "generation": 1,
+  "lock_sha256": "ed5f7bef30f8e656dab5c45977c86f24efbd6a2105718a40b98f0c31e99a96e0",
+  "plugins": [
+    {
+      "manifest_sha256": "11344a607ae6767ffa22b1c52202f25c9a4b167ab354d504d3f60adce209c310",
+      "plugin_id": "decisions",
+      "resources": [
+        {
+          "id": "decisions.mutation-equivalence",
+          "kind": "file",
+          "path": "plugins/decisions/questions/mutation-equivalence.json",
+          "sha256": "e4d9ce1adeb5d61296b0606964c38f809e11faacc0b84f1c68b2001ae67ba92f"
+        },
+        {
+          "id": "decisions.readme",
+          "kind": "file",
+          "path": "plugins/decisions/README.md",
+          "sha256": "dd232798d2bfe9cace86a742fbd2431547b067601ffbcce1519929041e9388b4"
+        },
+        {
+          "id": "decisions.report-screen",
+          "kind": "file",
+          "path": "plugins/decisions/questions/report-screen.json",
+          "sha256": "a7de4ac53d19acd6977a453ce5efe3f477506d4fed689d5bf0021484c8540511"
+        },
+        {
+          "id": "decisions.run-health",
+          "kind": "file",
+          "path": "plugins/decisions/questions/run-health.json",
+          "sha256": "655bd2d59039e188478687cfb5ad607eb3c330c4b2f8ba8f70f32db56839df85"
+        }
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "record_type": "plugin-lock",
+  "schema_version": 1
+}
