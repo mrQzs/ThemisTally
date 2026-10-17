@@ -1,6 +1,6 @@
 # Themis Tally 3.0 第一轮设计：日志管理与插件管理的第一片
 
-状态：2gate 闸一审核中（第 3 轮送审稿）。本文是第一轮的实现设计，审到零 Blocking 才进入实现。
+状态：2gate 闸一已通过（第 3 轮零 Blocking，2026-10-17）；进入实现。第 3 轮的 Should-fix 与 Nit 在过闸后直接采纳（见 §0 的 r3 各行），没有再送审，由闸二一并核对。
 
 - 分支：`themis-3.0`（本地，不推送）。起点 `8fb12ed`（master），之上是设计说明提交 `0f4879c` 与本文的历次提交。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md` 第 8.2 节（日志管理）、8.3 节（插件管理）、13 节（首轮实战）。
@@ -10,6 +10,10 @@
 
 | 编号 | 结论 | 本稿处置 |
 |---|---|---|
+| r3-S1 | 第 3 轮 Should-fix：D8 的“找第一个非选项词”会把 `--version plugins …`、`-h plugins …`、`--unknown plugins …`、`-- plugins list` 也截获 | 过闸后采纳：截获只消费完整合法的 `--repo <值>` / `--repo=<值>`；遇到其他任何以 `-` 开头的词（含 `--`、`-h`、`--version`、未知选项）或 `--repo` 缺值，立即把完整原始 argv 交给 argparse，不再寻找。W1 补对应用例，并断言这些输入下游调用次数为零 |
+| r3-S2 | 第 3 轮 Should-fix：决策插件生效且题库损坏、同时两个子键都是 `null` 时，三种修复提示全部写不进去 | 过闸后采纳：修复提示在给出之前，先用同一整份校验模拟“执行该命令后的配置”，模拟通过才给出；候选依次是：删掉非法子键；把 `plugins` 换成等价的合法对象；决策插件生效且题库不一致时，换成“`enabled` = 当前布局全部插件减去 `decisions`”的合法对象（一次替换同时修好非法值并关掉决策插件）。都不通过时只报告错误、不给提示。D6 的“可以落盘”加前提：其余配置与环境校验通过（`kill_grace_seconds`、`worktree_root` 等仍可能挡住写入，这是既有行为）。P13、C2 补这个组合 |
+| r3-S3 | 第 3 轮 Should-fix：P5 只断言报错，测不出“先读取、后检查”的错误实现 | 过闸后采纳：P5 用读取替身断言被拒绝的路径从未被读取，并断言检查失败后没有调用 `verify_battery_lock` |
+| r3-N1 | 第 3 轮 Nit：`non_integer_fields` 的单位与各计数是否互斥没有说明 | 过闸后采纳：D4 第 7 步写明每个 id 恰好落入“冲突、无可用时间、窗口外、计入”四类之一；按行或按记录的计数与 id 分类可以重叠；`non_integer_fields` 按“去重后的消息 × 字段”统计，只统计计入的消息。L2 补一组固定预期 |
 | r2-B1 | 第 2 轮 Blocking：r1-B2 没有闭环。写入走 `write_checked` 的整份校验，决策插件生效时会核对它的题库（`kit_config.py:151-160`、`220-224`），题库坏了就连 `disable code-change` 也写不进去 | 保留整份校验（2.8 起的现有规则，任何配置写入都受它约束，不只是 `plugins`），收窄 D6 的承诺：不校验其他插件的 manifest、lock 与资源文件，但写入仍受整份校验约束。D6 写明这种情况的判断与恢复顺序：先 `plugins disable decisions` 或 `config decisions off`（写入后决策插件不再生效，不再触发题库核对，所以能落盘），修好题库再启用。补 P12 的“决策插件生效且题库损坏”用例 |
 | r2-S1 | 第 2 轮 Should-fix：记录里可解析但不带时区的时间无法与带时区的时间比较 | D4：记录的时间也必须带时区，统一换算到 UTC 再取最小值；不带时区的记录时间不可用并计数。补 L5 |
 | r2-S2 | 第 2 轮 Should-fix：两个子键都非法时，按提示逐个 `unset` 都写不进去（`cmd_unset` 每次整份校验，`kit_config.py:348-366`） | D6、D7 的修复提示按情况给出：只有一个非法时 `config unset plugins.<子键>`；两个都非法时 `config unset plugins`（两者在决策插件的读法里都等于不限制，删掉整个键语义不变），或用 `config set plugins '<完整 JSON>'` 一次替换。C2、P13 断言提示的命令确实能成功 |
@@ -155,7 +159,7 @@
      - `ids_without_time`：一个可用时间都没有、因而跳过的 id；
      - `outside_window_ids`：去重后因窗口被排除的 id；
      - `non_integer_fields`：计数字段不是整数的次数。
-     所有计数都在全局分组之后得出，与读取顺序无关。
+     所有计数都在全局分组之后得出，与读取顺序无关。每个 id 恰好落入四类之一：冲突、无可用时间、窗口外、计入；判定顺序是先冲突，再无可用时间，再窗口。按行或按记录的计数（`skipped_lines`、`duplicate_records`、`conflict_records`、`unusable_timestamps`）与 id 分类可以重叠，不要相加当作互斥分类。`non_integer_fields` 按“去重后的消息 × 字段”统计，只统计计入的消息。
   8. **覆盖范围**：只统计会话记录里有的调用。advisor 等不写进会话记录的调用不在其中（2.2），所以规划端用量是下界，输出里注明。
   理由：2.2 的实测；结果必须与文件顺序、记录顺序无关；不读对话内容；不越出用户指定的范围。
 - **D5 `plugins` 的只读部分复用 `codekit/plugins.py`，逐插件独立核对**：
@@ -171,10 +175,15 @@
   - 一次操作只改变 X 的启用成员资格（`enabled` 里有没有 X），外加一种会明确提示的形式变化：`disable` 把“不限制”改成显式列表；
   - 不校验其他插件的 manifest、lock 与资源文件，坏掉的其他插件不会挡住操作；
   - `--allow-permission` 写入的是共享的权限列表，会让其他需要同一权限的插件也满足权限条件，影响范围在输出里列出；
-  - 写入仍受 `kit_config` 的整份校验约束，见下面的“写入”。
+  - 写入仍受 `kit_config` 的整份校验约束，见下面的“写入”；所以“可以落盘”的前提是其余配置与环境的校验也通过（例如 `kill_grace_seconds`、`worktree_root` 仍可能挡住写入，这是既有行为）。
 
   具体规则：
-  - **非列表值**：`plugins.enabled` 或 `plugins.allowed_permissions` 存在但不是列表（例如 `null`）→ 拒绝，不做隐式规范化。修复提示按情况给出：只有一个非法时是 `config unset plugins.<子键>`；两个都非法时是 `config unset plugins`（两者在决策插件的读法里都等于不限制，删掉整个键语义不变），或用 `config set plugins '<完整 JSON>'` 一次替换。
+  - **非列表值**：`plugins.enabled` 或 `plugins.allowed_permissions` 存在但不是列表（例如 `null`）→ 拒绝，不做隐式规范化。
+  - **修复提示**（D6 与 D7 共用一个生成函数）：给出之前，先用同一整份校验模拟“执行该命令之后的配置”，模拟通过才给出。候选依次是：
+    1. 删掉非法的子键：只有一个非法时 `config unset plugins.<子键>`，两个都非法时 `config unset plugins`（两者在决策插件的读法里都等于不限制）；
+    2. 用 `config set plugins '<JSON>'` 换成语义等价的合法对象；
+    3. 决策插件生效且题库不一致时，用 `config set plugins '<JSON>'` 换成 `enabled` 为“当前布局全部插件减去 `decisions`”的合法对象，一次替换同时修好非法值并关掉决策插件。
+    都模拟不过时只报告错误，不给出执行不了的提示。
   - **`enable X`**：
     - X 的 manifest、lock、资源文件（以及 `decisions` 的题库核对）必须全部一致；`depends_on` 或 `conflicts` 非空 → 拒绝（本轮不支持）。不校验其他插件的 manifest、lock 与资源文件。
     - `enabled` 缺省（不限制）时不改 `enabled`，提示“当前不限制，所有插件都算启用”；`enabled` 是列表时加入 X（去重、按 ID 排序）。
@@ -192,13 +201,17 @@
   - `KEYS["plugins"]`，校验函数 `_check_plugins`：缺省合法；必须是对象；子键只允许 `enabled`、`allowed_permissions` 与下划线开头的说明。
   - `enabled`：字符串列表，每项匹配 `PLUGIN_ID`，不重复。**不检查是否已安装**：同一份配置要在两种布局下都合法（2.3）；列入但未安装由 `plugins list` / `verify` 报告。
   - `allowed_permissions`：非空字符串列表，不重复。
-  - 任一子键不是列表（包括 `null`）→ 错误。提示与 D6 相同、按情况给出：只有一个非法时 `config unset plugins.<子键>`；两个都非法时 `config unset plugins`，或 `config set plugins '<完整 JSON>'` 一次替换。提示的命令必须能通过整份校验（C2）。
+  - 任一子键不是列表（包括 `null`）→ 错误，修复提示用 D6 的同一个生成函数（先模拟整份校验，通过才给出）。
   - `write_checked(repo, config)` 是现有 `_write_checked` 的公开名字，旧名保留。
   - 这样 `config show` 会列出 `plugins`，`config set plugins.enabled '[…]'` 也能用（`split_path` 只认已知键）。
   理由：2.3 的缺口；`plugins` 已经被决策插件读取，配置管理器却不认识它。
 - **D8 接入沿用 `config` 的转发方式**：
   - `cmd_logs`、`cmd_plugins` 与 `cmd_config`（`pi_dispatch.py:7118-7124`）同形：从调度器所在目录导入模块，导入失败报 `DispatchError(EXIT_USAGE)`，下游退出码原样返回。
-  - **在 argparse 之前截获**（2.4：`REMAINDER` 收不进以 `-` 开头的第一个参数）：`pi_dispatch.main` 先扫描 argv，跳过全局选项（`--repo <值>`、`--repo=<值>`）；遇到的第一个非选项词是 `logs` 或 `plugins` 时，把它之后的全部参数原样交给对应模块的 `main(args, repo=<全局 --repo>)`，不经过 argparse。下游参数里自己的 `--repo` 优先（与 `kit_config.main` 的做法一致，`kit_config.py:634-635`）。其余情况照旧走 argparse。
+  - **在 argparse 之前截获**（2.4：`REMAINDER` 收不进以 `-` 开头的第一个参数）：`pi_dispatch.main` 从头扫描 argv：
+    - 只消费完整合法的全局 `--repo <值>` 或 `--repo=<值>`（值不能为空，也不能以 `-` 开头）；
+    - 遇到其他任何以 `-` 开头的词（包括 `--`、`-h`、`--help`、`--version`、未知选项）或 `--repo` 缺值，立即把**完整原始 argv** 交给 argparse，不再寻找；
+    - 遇到的第一个不以 `-` 开头的词是 `logs` 或 `plugins` 时，把它之后的全部参数原样交给对应模块的 `main(args, repo=<全局 --repo>)`，不经过 argparse；是其他词（例如 `doctor --out plugins` 里的 `doctor`）就交给 argparse。
+    - 下游参数里自己的 `--repo` 优先（与 `kit_config.main` 的做法一致，`kit_config.py:634-635`）。
   - 解析器里仍登记 `logs`、`plugins` 两个子命令，只用于 `pi_dispatch.py --help` 的命令列表。
   - `config` 的转发不在本轮改动之列（第 6 节）。
   - `KIT_LOADED_FILES` 加两个文件。
@@ -330,7 +343,7 @@
 | 编号 | 场景 | 防止的失败 |
 |---|---|---|
 | L1 | 同一 `message.id` 写三条、usage 相同 | 按三次计数 |
-| L2 | 同一 `message.id` 两条：四项计数不同；或 `model` 不同；或 `isSidechain` 不同。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
+| L2 | 同一 `message.id` 两条：四项计数不同；或 `model` 不同；或 `isSidechain` 不同。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0。再加一组固定输入：一个冲突 id、一个无可用时间的 id、一个窗口外的 id、一个计入且两条记录都带 `output_tokens: null` 的 id，断言四类 id 各为 1、`non_integer_fields` 为 1 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
 | L3 | 坏 JSON 行、非对象行、没有 usage 的记录、`message.id` 不是字符串、计数字段不是整数 | 崩溃，或悄悄算进去 |
 | L4 | 同一 `message.id` 分在两个文件里、时间分别在窗口边界两侧；记录恰好落在 `--since` 与 `--until` 上。对文件参数顺序、文件内记录顺序做全部置换，结果必须完全相同 | 结果随读取顺序变化；窗口边界错位；跨文件重复计数 |
 | L5 | 命令行时间不带时区；记录的 `timestamp` 无法解析；记录的 `timestamp` 可解析但不带时区（与同 id 另一条带 `Z` 的记录并存） | 把不带时区的时间当本地时间；把无时间的记录算进窗口；代表时间随运行环境的时区变化 |
@@ -351,7 +364,7 @@
 | P2 | 资源文件改一个字节；只把 LF 改成 CRLF；`decisions/questions/` 下多出一个锁里没有的清单。多出清单时断言：没有堆栈、`verify` 退出码 1、`list` 继续列出其他插件 | 漏报漂移；CRLF 时不给提示；漏报多出的题库；`DecisionError` 冒出去中断命令 |
 | P3 | `lock_sha256` 被改 | 漏报锁漂移 |
 | P4 | manifest 被改（与锁绑定不符） | 漏报绑定不一致 |
-| P5 | `plugins` 目录、插件目录、中间目录或资源文件是符号链接或 junction；`manifest.json` 或 `lock.json` 本身是链接（内容与原文件相同）；决策插件的 `questions/` 目录或其中某个清单是链接；资源路径解析后不在插件目录内 | 读到插件目录之外；检查失败后仍继续读取 |
+| P5 | `plugins` 目录、插件目录、中间目录或资源文件是符号链接或 junction；`manifest.json` 或 `lock.json` 本身是链接（内容与原文件相同）；决策插件的 `questions/` 目录或其中某个清单是链接；资源路径解析后不在插件目录内。用读取替身断言被拒绝的路径从未被读取，且检查失败后没有调用 `verify_battery_lock` | 读到插件目录之外；“先读取、后检查”；检查失败后仍继续读取 |
 | P6 | 目录名与 `plugin_id` 不同；manifest 有重复键；manifest 不是合法 JSON | 接受不一致的插件；一个坏插件让 `list` 整体失败 |
 | P7 | `enabled` 缺省时 `enable X` | 写出只含 X 的列表，把其他插件全关掉 |
 | P8 | `enabled` 缺省时 `disable X`，当前布局里另有一个 manifest 坏掉的插件 | 写出的列表漏掉坏插件或其他插件；不提示语义变化 |
@@ -359,7 +372,7 @@
 | P10 | 给出的 `--allow-permission` 多于、少于所缺的权限；当前不限制时给了 | 授予无关权限 |
 | P11 | `enable` 一个 `depends_on` 或 `conflicts` 非空的插件；`list` / `verify` 遇到这样的插件 | 启用依赖语义未定义的插件；因单插件注册表缺依赖而误报“锁无效” |
 | P12 | 两个插件的 manifest 坏掉时 `disable` 其中一个，以及 `disable decisions`。另：`decisions.mode` 为 on、`enabled` 缺省、决策插件题库多出一个清单时 `disable code-change` → 被拒绝、配置不变、给出恢复顺序；按提示 `disable decisions` → 成功；再 `disable code-change` → 成功 | 因为无关的坏插件拒绝关闭；决策插件题库坏时没有可行的恢复路径 |
-| P13 | `plugins.enabled` 或 `allowed_permissions` 为 `null` 时 `enable` / `disable`；两个同时为 `null`。断言给出的修复命令执行后确实成功 | 隐式改写旧值；不给修复提示；提示的命令本身写不进去 |
+| P13 | `plugins.enabled` 或 `allowed_permissions` 为 `null` 时 `enable` / `disable`；两个同时为 `null`；两个同时为 `null` 并且 `decisions.mode` 为 on、题库不一致。断言给出的修复命令执行后确实成功 | 隐式改写旧值；不给修复提示；提示的命令本身写不进去 |
 | P14 | `enable` 一个锁不一致的插件；配置里另有一个无效键时 `enable` | 启用坏插件；绕过整份校验写入 |
 | P15 | 写入中途失败（`os.replace` 抛错） | 留下半份配置 |
 | P16 | 关掉 `decisions`；`--dry-run` | 不提示决策插件会变为 off；实际写了文件 |
@@ -370,7 +383,7 @@
 | 编号 | 场景 | 防止的失败 |
 |---|---|---|
 | C1 | 合法的 `plugins` 段；`config show` | 新键不显示或被报未知 |
-| C2 | `enabled` 不是列表（含 `null`）、有重复、ID 格式错；`allowed_permissions` 有空串或重复；未知子键；两个子键同时非法。断言提示的命令执行后能通过整份校验 | 接受会让插件悄悄失效的值；错误提示里没有修复办法，或提示的命令写不进去 |
+| C2 | `enabled` 不是列表（含 `null`）、有重复、ID 格式错；`allowed_permissions` 有空串或重复；未知子键；两个子键同时非法；两个子键同时非法并且决策插件生效、题库不一致。断言提示的命令执行后能通过整份校验 | 接受会让插件悄悄失效的值；错误提示里没有修复办法，或提示的命令写不进去 |
 | C3 | `config set plugins.enabled '[…]'`；`enabled` 里有当前布局没安装的 ID | `split_path` 仍拒绝；同一份配置在安装布局下被判无效 |
 | C4 | 现有决策插件测试 | `plugins` 语义被改动 |
 
@@ -378,7 +391,7 @@
 
 | 编号 | 场景 | 防止的失败 |
 |---|---|---|
-| W1 | 通过 `pi_dispatch.main` 调用 `plugins --help`、`plugins list --json`、`logs --repo <路径> list`、`--repo <路径> plugins list`，用替身记录下游 `main` 收到的参数与 `repo`，并让替身返回非零退出码 | 转发失效；`--help` 或以 `-` 开头的参数被外层截走；全局与下游的 `--repo` 优先级错误；下游退出码被吞 |
+| W1 | 通过 `pi_dispatch.main` 调用 `plugins --help`、`plugins list --json`、`logs --repo <路径> list`、`--repo <路径> plugins list`、全局与下游给出不同的 `--repo`，用替身记录下游 `main` 收到的参数与 `repo`，并让替身返回非零退出码。另：`--version plugins …`、`-h plugins …`、`--unknown plugins …`、`-- plugins list`、`--repo`（缺值）、`--repo --version`、`doctor --out plugins`，断言下游调用次数为零 | 转发失效；`--help` 或以 `-` 开头的参数被外层截走；全局与下游的 `--repo` 优先级错误；下游退出码被吞；误截获版本、帮助或其他子命令 |
 | W2 | `KIT_LOADED_FILES` 含两个新文件；import 扫描一致；用 `kit_install install` 装进临时目标仓库，在目标里运行装好的 `plugins list` 与 `logs list` | 新文件不受保护或不被发放；安装布局下命令不能用 |
 | W3 | 全量 `python -m pytest tests` | 回归 |
 
