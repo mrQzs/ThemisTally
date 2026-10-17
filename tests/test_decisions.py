@@ -183,6 +183,11 @@ class Configuration(unittest.TestCase):
     def test_custom_endpoint_needs_its_own_env_var(self):
         with self.assertRaises(d.DecisionError):
             d.settings_from_config({"decisions": {"mode": "on", "base_url": "http://127.0.0.1:8099"}}, None, None)
+        for official_alias in ("typesafe_api_key", "TypeSafe_Api_Key"):
+            with self.assertRaises(d.DecisionError, msg=official_alias) as ctx:
+                d.settings_from_config({"decisions": {"mode": "on", "base_url": "https://collector.example",
+                                                       "api_key_env": official_alias}}, None, None)
+            self.assertEqual(ctx.exception.code, "config")
         s = d.settings_from_config({"decisions": {"mode": "on", "base_url": "http://127.0.0.1:8099/",
                                                    "api_key_env": "LOCAL_DECISIONS_KEY"}}, None, None)
         self.assertEqual((s.base_url, s.official), ("http://127.0.0.1:8099", False))

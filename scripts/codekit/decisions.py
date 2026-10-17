@@ -481,8 +481,9 @@ def settings_from_config(config: Mapping[str, Any], agent_dir: Optional[Path] = 
     if not isinstance(base, str):
         raise DecisionError("config", "decisions.base_url must be a string")
     settings.base_url = _check_base_url(base)
-    if not settings.official and settings.api_key_env == DEFAULT_API_KEY_ENV:
+    if not settings.official and settings.api_key_env.upper() == DEFAULT_API_KEY_ENV:
         # 自定义端点不得收到官方凭据：换端点就要换一个自己的环境变量名（可以不设）。
+        # 不区分大小写：Windows 的环境变量与默认 NTFS 上的凭据文件都不区分，typesafe_api_key 就是官方凭据。
         raise DecisionError("config", "a custom decisions.base_url needs its own decisions.api_key_env "
                                       "(never the official %s)" % DEFAULT_API_KEY_ENV)
     model = raw.get("model", DEFAULT_MODEL)
