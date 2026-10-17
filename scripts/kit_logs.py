@@ -100,11 +100,6 @@ def _exists(path: Any) -> bool:
         return False
 
 
-def _listable(directory: Any) -> bool:
-    """目录能不能列出来（B11(a) 的分层判断用；列不出来不等于不存在）。"""
-    return _scan(directory) is not None
-
-
 def _is_dir(path: Any) -> bool:
     try:
         return stat.S_ISDIR(os.lstat(path).st_mode)
@@ -469,13 +464,14 @@ def _collect_attempts(runs: Path, task: Optional[str], state: Optional[str],
         if task is not None and name != task:
             continue
         for attempt, _number, attempt_dir in _attempt_entries(task_dir, links):
-            if not _listable(attempt_dir):
-                # attempt 目录列不出来：跳过该 attempt，不列出也不计入证据（B11(a)）。
-                continue
             state_value, state_at = _read_state(attempt_dir)
             if state is not None and state_value != state:
-                continue
+                continue  # 先过滤再列举：被 --state 过滤掉的 attempt 不扫证据，其中的链接也不计数
             evidence = _evidence(attempt_dir, links)
+            if evidence is None:
+                # attempt 目录列不出来：跳过该 attempt，不列出也不计入证据（B11(a)）。只列一次，
+                # 不先试列再正式列——两次之间目录可能变得列不出来（kit-logs a002 复审）。
+                continue
             rows.append({
                 "task": name,
                 "attempt": attempt,

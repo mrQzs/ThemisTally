@@ -1431,5 +1431,82 @@ class ReworkV2(OracleBase):
                           obj["planner"]["partial"]), (0, 1, False))
 
 
+# ---------------------------------------------------------------------------
+# 规划端补测（kit-logs a002 复审：attempt-002 判 REVISE，预算用完，由规划端补齐）
+# ---------------------------------------------------------------------------
+
+class PlannerSupplementA002(OracleBase):
+    """kit-logs a002 复审后规划端补的用例。
+
+    - v2 合同 Steps 第 6 条让执行器删掉的 `test_bad_task_id_is_a_usage_error_for_every_subcommand` 并不完全与
+      oracle 重复：它还覆盖 search、usage 的 `--task` 校验，oracle 原来只测了 list（B3、B6、B7.1）。
+    - attempt 目录在两次列举之间变得列不出来：不得崩溃，按 B11(a) 跳过（规划端复审发现的窗口）。
+    - search 跳过列不出来的 attempt；usage 不列 attempt 目录，照常读它的 events-summary.json（B11(a)）。
+    - 目标的 `resolve()` 抛异常按找不到，退出码 2（B5.5、B5.6）。
+    """
+
+    unlistable = ReworkV2.unlistable
+    run_checked = ReworkV2.run_checked
+    json_checked = ReworkV2.json_checked
+
+    def test_bad_task_filter_is_a_usage_error_for_search_and_usage(self):
+        self.attempt("task-a", 1, summary="a\n")
+        for argv in (["search", "a", "--task", "../x"], ["search", "a", "--task", "Task-A"],
+                     ["usage", "--task", "../x"], ["usage", "--task", "Task-A"], ["usage", "--task", ""]):
+            with self.subTest(argv=argv):
+                self.assertUsageError(argv, error_line=False)
+
+    def test_attempt_directory_that_stops_being_listable_is_skipped_without_a_crash(self):
+        # 只断言不崩溃、其它 attempt 照常列出：只列一次的实现会把 attempt-002 正常列出，两次列举的实现必须跳过它。
+        self.attempt("task-a", 1, summary="A1\n")
+        self.attempt("task-a", 2, summary="A2\n")
+        flaky_dir = os.path.normcase(os.path.abspath(str(self.runs / "task-a" / "attempt-002")))
+        calls = {"n": 0}
+        real_scandir = os.scandir
+
+        def scandir(path=".", *args, **kwargs):
+            if os.path.normcase(os.path.abspath(str(path))) == flaky_dir:
+                calls["n"] += 1
+                if calls["n"] > 1:
+                    raise PermissionError(13, "第二次列目录被拒绝（替身）", str(path))
+            return real_scandir(path, *args, **kwargs)
+
+        with mock.patch.object(os, "scandir", scandir):
+            code, obj, err = self.json_checked(["list"])
+        self.assertEqual(code, 0, err)
+        rows = [(row["task"], row["attempt"]) for row in obj["attempts"]]
+        self.assertIn(("task-a", "attempt-001"), rows)
+
+    def test_search_skips_an_unlistable_attempt_directory(self):
+        self.attempt("task-a", 1, files={"notes.txt": "needle one\n"})
+        self.attempt("task-a", 2, files={"notes.txt": "needle two\n"})
+        with self.unlistable(self.runs / "task-a" / "attempt-002"):
+            code, out, err = self.run_checked(["search", "needle"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([path for path, _line, _content in match_lines(out)], ["task-a/attempt-001/notes.txt"])
+
+    def test_usage_reads_events_summary_of_an_unlistable_attempt_directory(self):
+        events = {"usage": {"input": 1, "output": 2, "cacheRead": 3, "cacheWrite": 4, "totalTokens": 10},
+                  "requested_model": MODEL_OBJ, "complete": True, "truncated": False, "parse_error_lines": []}
+        self.attempt("task-a", 1, events=events)
+        with self.unlistable(self.runs / "task-a" / "attempt-001"):
+            code, obj, err = self.json_checked(["usage"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(obj["executor"]["counts"]["known"], 1)
+        self.assertEqual(obj["executor"]["attempts"][0]["usage"]["totalTokens"], 10)
+
+    def test_target_that_cannot_be_resolved_is_a_usage_error(self):
+        self.attempt("task-a", 1, summary="a\n")
+        real_resolve = Path.resolve
+
+        def resolve(path_self, *args, **kwargs):
+            if path_self.name == "attempt-001":
+                raise RuntimeError("解析失败（替身）")
+            return real_resolve(path_self, *args, **kwargs)
+
+        with mock.patch.object(Path, "resolve", resolve):
+            self.assertUsageError(["show", "task-a/attempt-001"])
+
+
 if __name__ == "__main__":
     unittest.main()
