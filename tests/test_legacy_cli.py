@@ -758,28 +758,19 @@ class LegacyMainEntryTest(_CliCase):
         self.assertEqual((code, out), (2, ""))
         self.assertEqual(lines(err), ["ERROR: 当前目录不在 Git 仓库中：%s" % target])
 
-    @unittest.skipUnless(IS_WINDOWS, "Windows 上 subprocess 对不存在的 cwd 抛 NotADirectoryError；POSIX 见下一用例")
-    def test_LB_EXIT_029_repo_missing_path_windows_traceback_1(self) -> None:
-        """LB-EXIT-029（:957-958、754-757 只捕获 FileNotFoundError）；01-A07、01-A15，C.4“wait/退出码语义”。
+    def test_LB_EXIT_029_repo_missing_path_or_file_is_2(self) -> None:
+        """LB-EXIT-029：--repo 指向不存在的路径或一个文件。01-A07、01-A15，C.4“wait/退出码语义”。
 
-        可疑：未捕获的 NotADirectoryError 以 Traceback 退出 1（legacy-inventory.md 7.2、11.4 第 2 条）。
+        3.0 第一轮闸二（g2r1-B3）修正前：Windows 上 subprocess 以 NotADirectoryError 冒出堆栈、退出 1；POSIX 上把
+        cwd 不存在的 FileNotFoundError 误报为“未找到 git”、退出 3（legacy-inventory 11.4 第 2 条列为可疑）。
+        修正后 Repo.discover 先确认是目录，两个平台都是一行 ERROR、退出 2。
         """
         target = self.scripts_dir()
-        code, out, err = self.tool_split(target, "--repo", str(self.work / "missing"), "status")
-        self.assertEqual((code, out), (1, ""))
-        self.assertIn("Traceback (most recent call last):", err)
-        self.assertIn("NotADirectoryError: [WinError 267]", err)
-
-    @unittest.skipUnless(os.name == "posix", "POSIX 分支；本机 Windows 的结果见上一用例（本次 NOT_RUN）")
-    def test_LB_EXIT_029_repo_missing_path_posix_reported_as_git_missing_3(self) -> None:
-        """LB-EXIT-029（:756-757 把 cwd 不存在的 FileNotFoundError 误报为找不到 git）；01-A07、01-A15。
-
-        依据源码推断（legacy-inventory.md 7.9、11.4 第 2 条），本机没有运行。
-        """
-        target = self.scripts_dir()
-        code, out, err = self.tool_split(target, "--repo", str(self.work / "missing"), "status")
-        self.assertEqual((code, out), (3, ""))
-        self.assertEqual(lines(err), ["ERROR: 未找到 git，请先安装 Git。"])
+        for repo_arg in (self.work / "missing", target / "scripts" / "pi_dispatch.py"):
+            code, out, err = self.tool_split(target, "--repo", str(repo_arg), "status")
+            self.assertEqual((code, out), (2, ""), err)
+            self.assertEqual(len(lines(err)), 1, err)
+            self.assertTrue(lines(err)[0].startswith("ERROR: --repo 不是目录："), err)
 
 
 # ---------------------------------------------------------------------------
