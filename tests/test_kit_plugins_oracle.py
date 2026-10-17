@@ -1673,3 +1673,121 @@ def test_v2_18_argparse_errors_exit_2_no_traceback(tmp_path):
             code, out, err = run(argv, env.repo)
             _v2_clean(out, err)
             assert code == 2, argv
+
+
+# ---------------------------------------------------------------------------
+# 规划端补测（kit-plugins a002 复审：F1–F6 与变异 M19；attempt-002 判 REVISE，预算用完，由规划端补齐）
+# ---------------------------------------------------------------------------
+
+def test_v2_20_show_prints_problem_lines(tmp_path):
+    # F1：show 的问题行以“问题：”开头，正常路径也输出（合同第二节）
+    with make_env(tmp_path) as env:
+        with _v2_fail_reads("plugins/code-change/README.md", PermissionError(13, "denied")):
+            code, out, err = run(["show", "code-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        problems = [line for line in out.splitlines() if line.startswith("问题：")]
+        assert any("资源读取失败" in line for line in problems), out
+
+
+def test_v2_21_list_reason_names_the_link(tmp_path):
+    # F2：清单路径是链接时，list 的原因含“无效：链接”，锁列仍是“无效”（裁定表第 3 行、第二节）
+    with make_env(tmp_path) as env:
+        manifest = env.plugin("docs-change") / "manifest.json"
+        manifest.unlink()
+        target = tmp_path / "docs_change_manifest_target"
+        target.mkdir()
+        assert make_dir_link(manifest, target)
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        row = _v2_row(out, "docs-change")
+        assert _V2_LINK in row and "BLOCKED" in row, row
+        code, out, err = run(["list", "--json"], env.repo)
+        _v2_clean(out, err)
+        values = list(_v2_strings(json.loads(out)))
+        assert any(_V2_LINK in value for value in values), values
+        assert _V2_LINK not in values, values  # 不出现恰为“无效：链接”的值
+
+
+def test_v2_22_root_link_in_json(tmp_path):
+    # F3：plugins 根是链接时，list --json 与 verify --json 都含“无效：链接 plugins”（裁定表第 1 行）
+    with make_env(tmp_path) as env:
+        real = tmp_path / "real_plugins"
+        shutil.move(str(env.plugins), str(real))
+        assert make_dir_link(env.plugins, real)
+        for argv, expected in ((["list", "--json"], 0), (["verify", "--json"], 1)):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == expected, argv
+            assert any("无效：链接 plugins" in value for value in _v2_strings(json.loads(out))), (argv, out)
+
+
+def test_v2_23_show_lock_info_when_manifest_invalid(tmp_path):
+    # F4：manifest 没通过核对时，show 仍输出锁信息、“状态 <锁列值>”与问题行（第二节、第十四节）
+    with make_env(tmp_path) as env:
+        path = env.plugin("docs-change") / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["plugin_id"] = "docs-changed"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        lock = json.loads((env.plugin("docs-change") / "lock.json").read_text(encoding="utf-8"))
+        code, out, err = run(["show", "docs-change"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        lines = out.splitlines()
+        assert "generation" in out and str(lock["lock_sha256"]) in out, out
+        assert any(line.startswith("状态 无效") for line in lines), out
+        assert any(line.startswith("问题：") for line in lines), out
+
+
+def test_v2_24_permission_check_failure_is_not_ready(tmp_path):
+    # F5：权限核对抛 ValueError 时按不满足处理（BLOCKED），不放行
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["read-candidate", "network-decisions"]}})
+
+        def boom(*args, **kwargs):
+            raise ValueError("权限核对失败（替身）")
+
+        with mock.patch.object(plugins, "check_permission_intersection", boom):
+            code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        row = _v2_row(out, "code-change")
+        assert "BLOCKED" in row and "READY" not in row, row
+
+
+def test_v2_25_per_plugin_errors_are_collected(tmp_path):
+    # M19：核对中抛出的 OSError 记为该插件“无效”，不冒堆栈、不拖垮其他插件（第十六节）。
+    # Python 3.10 的 Path.is_file() 遇到 EACCES 会抛 PermissionError，这条路径真实存在。
+    with make_env(tmp_path) as env:
+        target = _v2_norm(env.plugin("docs-change") / "manifest.json")
+        real_is_file = pathlib.Path.is_file
+
+        def is_file(self, *args, **kwargs):
+            if _v2_norm(self) == target:
+                raise PermissionError(13, "拒绝访问（替身）", str(self))
+            return real_is_file(self, *args, **kwargs)
+
+        with mock.patch.object(pathlib.Path, "is_file", is_file):
+            code, out, err = run(["verify"], env.repo)
+            _v2_clean(out, err)
+            assert code == 1
+            assert "无效" in _v2_title(out, "docs-change")
+            assert _v2_title(out, "code-change").split()[1:] == ["一致"]
+            code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0
+        assert "BLOCKED" in _v2_row(out, "docs-change")
+
+
+def test_v2_26_null_manifest_and_non_object_lock(tmp_path):
+    # F6：清单内容是 JSON null、锁不是对象时，原因写具体情况（裁定表第 4、6 行），锁列“无效”
+    with make_env(tmp_path) as env:
+        (env.plugin("docs-change") / "manifest.json").write_text("null", encoding="utf-8")
+        (env.plugin("code-change") / "lock.json").write_text("[]", encoding="utf-8")
+        code, out, err = run(["verify"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1
+        assert "None" not in out, out
+        assert "无效" in _v2_title(out, "docs-change")
+        assert "无效" in _v2_title(out, "code-change")

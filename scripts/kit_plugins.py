@@ -47,6 +47,7 @@ _OK = "一致"
 _DRIFT = "漂移"
 _INVALID = "无效"
 _LINK = "无效：链接"
+_ROOT_LINK = "无效：链接 plugins"  # 第八节第 1 行：plugins 根是链接（文字与 --json 都含它）
 _UNSUPPORTED = "本轮不支持"
 _MISMATCH = "不一致"
 _READY = "READY"
@@ -126,6 +127,8 @@ def _read_json_file(kit_root: Path, rel: str) -> Tuple[Any, bool, Optional[str]]
         obj = protocols.strict_json_loads(data)
     except ValueError as exc:
         return None, False, "解析失败：%s" % exc
+    if obj is None:  # JSON 的 null：调用方把 None 当作读取失败，原因要写具体（第八节第 4、6 行）
+        return None, False, "不是对象（内容是 null）"
     return obj, False, None
 
 
@@ -262,8 +265,12 @@ def _check_plugin(plugin_id: str, allowed: Any = None) -> Dict[str, Any]:
                 normalized_manifest, allowed_permissions=allowed, platform_name=None)
             report["missing_permissions"] = list(result.get("missing_permissions", []))
             report["permission_ready"] = result.get("status") == _READY
-        except ValueError:
-            pass
+        except ValueError as exc:  # 核对不了就按不满足处理，不放行（kit-plugins a002 复审 F5）
+            report["permission_ready"] = False
+            report["problems"].append("权限核对失败：%s" % exc)
+    if not isinstance(lock, dict):  # 第八节第 6 行先于第 7 行
+        report["problems"].append("lock.json：不是对象")
+        return report
     if normalized_manifest.get("depends_on") or normalized_manifest.get("conflicts"):
         report["lock_status"] = _UNSUPPORTED
         report["problems"].append("带 depends_on 或 conflicts 的插件本轮不支持")
@@ -371,11 +378,16 @@ def _list_row(report: Dict[str, Any], view: Dict[str, Any]) -> Dict[str, Any]:
     else:
         status = _BLOCKED
         if not lock_ok:
+            # 原因带上首条问题：链接类失败因此含“无效：链接”（第二节、裁定表），漂移等词照旧可见
             reason = report["lock_status"]
+            if report["problems"]:
+                reason = "%s：%s" % (reason, report["problems"][0])
         elif not resource_ok:
             reason = "资源%s" % (report["resource_status"] or "未核对")
-        else:
+        elif missing:
             reason = "缺 %s" % "、".join(missing)
+        else:
+            reason = report["problems"][0] if report["problems"] else "权限未满足"
     return {"id": report["plugin_id"], "version": version, "enabled": enabled,
             "lock": report["lock_status"], "resource": resource, "missing": missing,
             "status": status, "reason": reason}
@@ -415,11 +427,11 @@ def cmd_list(args: argparse.Namespace) -> int:
             rows.append(_list_row(_check_plugin_safe(name, allowed), view))
     not_installed = _not_installed(config, entries)
     if args.json:
-        print(json.dumps({"plugins_root_link": root_link, "plugins": rows, "not_installed": not_installed},
-                         ensure_ascii=False))
+        print(json.dumps({"plugins_root_link": root_link, "plugins": rows, "not_installed": not_installed,
+                          "problems": [_ROOT_LINK] if root_link else []}, ensure_ascii=False))
         return EXIT_OK
     if root_link:
-        print("无效：链接 plugins")
+        print(_ROOT_LINK)
     for row in rows:
         print(_format_list_row(row))
     for name in not_installed:
@@ -459,19 +471,15 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(json.dumps(obj, ensure_ascii=False))
         return EXIT_OK
     print("插件 %s" % plugin_id)
-    if manifest is None:
-        print("状态：%s" % report["lock_status"])
-        for problem in report["problems"]:
-            print("  %s" % problem)
-        return EXIT_OK
-    print("版本 %s" % manifest.get("version"))
-    print("api_version %s" % manifest.get("api_version"))
-    print("capabilities %s" % "、".join(manifest.get("capabilities", [])))
-    print("permissions %s" % "、".join(report["permissions"]))
-    print("platforms %s" % "、".join(manifest.get("platforms", [])))
-    print("depends_on %s" % ("、".join(report["depends_on"]) if report["depends_on"] else "（无）"))
-    print("conflicts %s" % ("、".join(report["conflicts"]) if report["conflicts"] else "（无）"))
-    print("checks %s" % json.dumps(manifest.get("checks", []), ensure_ascii=False))
+    if manifest is not None:  # manifest 没通过核对时没有这些字段；锁、启用、权限、状态与问题照常输出（第二节）
+        print("版本 %s" % manifest.get("version"))
+        print("api_version %s" % manifest.get("api_version"))
+        print("capabilities %s" % "、".join(manifest.get("capabilities", [])))
+        print("permissions %s" % "、".join(report["permissions"]))
+        print("platforms %s" % "、".join(manifest.get("platforms", [])))
+        print("depends_on %s" % ("、".join(report["depends_on"]) if report["depends_on"] else "（无）"))
+        print("conflicts %s" % ("、".join(report["conflicts"]) if report["conflicts"] else "（无）"))
+        print("checks %s" % json.dumps(manifest.get("checks", []), ensure_ascii=False))
     if lock_raw is not None:
         print("锁 generation %s" % lock_raw.get("generation"))
         print("锁 lock_sha256 %s" % lock_raw.get("lock_sha256"))
@@ -482,6 +490,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     print("权限 %s" % ("缺 %s" % "、".join(missing) if missing else "无缺失"))
     print("状态 %s%s" % (report["lock_status"],
                          "" if report["resource_status"] in (None, _OK) else "／资源%s" % report["resource_status"]))
+    for problem in report["problems"]:
+        print("问题：%s" % problem)
     return EXIT_OK
 
 
@@ -509,11 +519,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
             "ok": not problematic, "plugins_root_link": root_link,
             "plugins": [{"id": r["plugin_id"], "lock": r["lock_status"],
                          "resource": r["resource_status"], "problems": r["problems"]} for r in reports],
-            "not_installed": not_installed,
+            "not_installed": not_installed, "problems": [_ROOT_LINK] if root_link else [],
         }, ensure_ascii=False))
         return EXIT_FAIL if problematic else EXIT_OK
     if root_link:
-        print("无效：链接 plugins")
+        print(_ROOT_LINK)
     for report in reports:
         print("%s %s" % (report["plugin_id"], _verify_word(report)))
         if not _is_consistent(report):
@@ -540,7 +550,7 @@ def _permission_impact(plugin_id: str, old_allowed: set, new_allowed: set
         try:
             obj, is_link_error, msg = _read_json_file(pd.KIT_ROOT, "plugins/%s/manifest.json" % name)
         except (ValueError, OSError) as exc:  # 第十六节：授予路径同样逐插件收集
-            problems.append("%s %s：%s" % (name, _INVALID, exc))
+            problems.append("%s %s：核对失败：%s" % (name, _INVALID, exc))
             continue
         if obj is None:
             if is_link_error:

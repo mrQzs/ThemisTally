@@ -231,11 +231,11 @@ def test_d11_04_plugins_section_invalid_all_subcommands(tmp_path, bad):
         env.write_config({"kill_grace_seconds": 20, "plugins": bad})
         path = env.repo / ".agent" / "dispatch.config.json"
         before = path.read_bytes()
-        # 只读三命令：退出 1、ERROR、不写
+        # 只读三命令：退出 1、ERROR、带修复提示、不写（规划端补强：合同第七节五个子命令都附提示）
         for argv in (["list"], ["show", "docs-change"], ["verify"], ["verify", "docs-change"]):
             code, out, err = run(argv, env.repo)
             assert code == 1, argv
-            assert "ERROR:" in err, argv
+            assert "ERROR:" in err and "修复：" in err, argv
             assert "Traceback" not in out and "Traceback" not in err, argv
             assert path.read_bytes() == before, argv
         # 写命令：退出 1、带修复提示、不写
