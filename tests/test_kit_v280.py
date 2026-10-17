@@ -146,7 +146,10 @@ class KitLoadedFiles(unittest.TestCase):
                     elif ".codekit." in "." + module + "." and module.split("codekit.", 1)[1:]:
                         targets.append(scripts / "codekit" / (module.split("codekit.", 1)[1].replace(".", "/") + ".py"))
                 elif isinstance(node, ast.Import):
-                    targets += [scripts / (alias.name + ".py") for alias in node.names if alias.name == "pi_dispatch"]
+                    # pi_dispatch 与 kit_<名>（配置、日志、插件管理；3.0 第一轮 D8 的转发也是 import kit_<名>），
+                    # 只跟随 scripts/ 下真实存在的文件。
+                    targets += [scripts / (alias.name + ".py") for alias in node.names
+                                if alias.name == "pi_dispatch" or alias.name.startswith("kit_")]
                 queue += [target for target in targets if target.is_file()]
         loaded = {path.relative_to(ROOT).as_posix() for path in seen} - {"scripts/pi_dispatch.py"}
         loaded.add("scripts/codekit/__init__.py")

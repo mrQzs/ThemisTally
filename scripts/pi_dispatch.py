@@ -26,6 +26,8 @@
   decisions  决策模型（Jev）记录的回放：shadow 答案对照 verdict 与复审记录（2.6.0）
   release-check  推送前扫描已跟踪文件里的凭据形状、家目录路径与内网地址（2.6.0）
   config     配置管理器（scripts/kit_config.py）：看、改、校验 dispatch.config.json，决策开关，凭据存取（2.7.0）
+  logs       日志管理（scripts/kit_logs.py，只读）：attempt 列表、摘要、证据搜索与 token 用量（3.0）
+  plugins    插件管理（scripts/kit_plugins.py）：列出、核对、启用与停用插件（3.0）
 
 它不是安全沙箱：Pi、setup 与检查命令都以调用者的操作系统账户运行。
 无人值守或不可信输入必须放进容器、虚拟机或受控沙箱（第 5.4 节）。
@@ -89,10 +91,11 @@ REQUIRED_MD_SECTIONS = ("Identity", "Goal", "Non-goals", "Repository facts", "Sc
                         "Report back", "Forbidden")
 
 #: 调度器运行时实际加载的 kit 文件（2.8.0）：目标仓库把 kit 复制进 scripts/ 时，它们与调度器本身一样受保护。
-#: 只列实际加载的（配置管理器、决策与凭据、planner-v2 发布门禁及其依赖、决策插件），不列整个 scripts/codekit/：
-#: v2 参考实现的其余模块是否还交给执行器做，另行决定。tests/test_dispatch.py 用 import 扫描核对这份清单。
+#: 只列实际加载的（配置、日志与插件管理，决策与凭据、planner-v2 发布门禁及其依赖、决策插件），不列整个
+#: scripts/codekit/：v2 参考实现的其余模块是否还交给执行器做，另行决定。tests/test_kit_v280.py 用 import 扫描核对这份清单。
 KIT_LOADED_FILES = (
-    "scripts/kit_config.py", "scripts/codekit/__init__.py", "scripts/codekit/decisions.py",
+    "scripts/kit_config.py", "scripts/kit_logs.py", "scripts/kit_plugins.py",
+    "scripts/codekit/__init__.py", "scripts/codekit/decisions.py",
     "scripts/codekit/secrets.py", "scripts/codekit/plugins.py", "scripts/codekit/planner.py",
     "scripts/codekit/planner_protocol.py", "scripts/codekit/protocols.py", "plugins/decisions/**",
 )
@@ -5215,7 +5218,7 @@ def is_link_or_junction(path: Any) -> bool:
     if os.name == "nt":
         try:
             attributes = getattr(os.lstat(path), "st_file_attributes", 0)
-        except OSError:
+        except (OSError, ValueError):  # ValueError：含 NUL 或编码不了的路径（os.path.islink 对它们返回 False）
             return False
         return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
     return False
@@ -7146,6 +7149,61 @@ def cmd_config(args: argparse.Namespace) -> int:
     return kit_config.main(list(args.args), repo=args.repo)
 
 
+def cmd_logs(args: argparse.Namespace) -> int:
+    """logs …：转发给 scripts/kit_logs.py（只读的日志管理，3.0）；由 main 在 argparse 之前截获，参数原样传过去。"""
+    try:
+        import kit_logs
+    except ModuleNotFoundError:
+        raise DispatchError("日志管理不可用：scripts/kit_logs.py 不在本工具旁边", EXIT_USAGE)
+    return kit_logs.main(list(args.args), repo=args.repo)
+
+
+def cmd_plugins(args: argparse.Namespace) -> int:
+    """plugins …：转发给 scripts/kit_plugins.py（插件管理，3.0）；由 main 在 argparse 之前截获，参数原样传过去。"""
+    try:
+        import kit_plugins
+    except ModuleNotFoundError:
+        raise DispatchError("插件管理不可用：scripts/kit_plugins.py 不在本工具旁边", EXIT_USAGE)
+    return kit_plugins.main(list(args.args), repo=args.repo)
+
+
+#: 在 argparse 之前截获、整段转发的子命令（3.0 第一轮 D8）。argparse 的 REMAINDER 收不进以 - 开头的第一个参数，
+#: `plugins --help`、`logs --repo <路径> list` 经子解析器会被外层截走或报未识别参数。
+FORWARDED_COMMANDS = {"logs": cmd_logs, "plugins": cmd_plugins}
+
+
+def forwarded_command(argv: Sequence[str]) -> Optional[argparse.Namespace]:
+    """argv 的子命令是 logs 或 plugins 时，返回交给 cmd_logs / cmd_plugins 的参数；否则 None，由 argparse 解析。
+
+    从头扫描，只消费完整合法的全局 `--repo <值>` / `--repo=<值>`（值非空、不以 - 开头）。遇到其他任何以 - 开头的词
+    （`--`、`-h`、`--help`、`--version`、未知选项、缩写）或 `--repo` 缺值，立即返回 None，完整的原始 argv
+    交给 argparse，不再寻找。第一个不以 - 开头的词是 logs 或 plugins 时，其后的全部参数原样转发；是别的词
+    （例如 `doctor --out plugins` 的 doctor）就返回 None。下游参数里自己的 --repo 优先，由下游的 main 处理。
+    """
+    repo: Optional[str] = None
+    index = 0
+    while index < len(argv):
+        word = argv[index]
+        if word == "--repo":
+            if index + 1 >= len(argv):
+                return None
+            value, step = argv[index + 1], 2
+        elif word.startswith("--repo="):
+            value, step = word[len("--repo="):], 1
+        elif word.startswith("-"):
+            return None
+        else:
+            func = FORWARDED_COMMANDS.get(word)
+            if func is None:
+                return None
+            return argparse.Namespace(command=word, args=list(argv[index + 1:]), repo=repo, func=func)
+        if not value or value.startswith("-"):
+            return None
+        repo = value
+        index += step
+    return None
+
+
 def cmd_decisions(args: argparse.Namespace) -> int:
     """decisions replay：把 shadow / on 的记录与后来的事实并排——D1 对 verdict，D2 按变异列出，D3 按 tick 统计。"""
     if args.decisions_cmd != "replay":
@@ -7525,6 +7583,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("args", nargs=argparse.REMAINDER, help="交给 scripts/kit_config.py 的参数；`config --help` 看全部")
     p.set_defaults(func=cmd_config)
 
+    # logs、plugins 由 main 在 argparse 之前截获并整段转发（forwarded_command）；这里登记只为 --help 的命令列表，
+    # 不带参数、不设 func：绕过截获走到这里的写法（例如 `-- plugins list`）按用法错误处理，不转发。
+    sub.add_parser("logs", add_help=False, help="日志管理（只读）：list / show / search / usage（3.0）；`logs --help` 看全部")
+    sub.add_parser("plugins", add_help=False,
+                   help="插件管理：list / show / verify / enable / disable（3.0）；`plugins --help` 看全部")
+
     p = sub.add_parser("release-check", help="推送前扫描凭据形状、家目录路径、内网地址与仓库外的拒绝清单（2.6.0）")
     p.add_argument("--allow", action="append", help="放过 <glob>:<模式名>（可重复；模式名 * 放过该文件全部模式）")
     p.add_argument("--denylist", help="拒绝清单路径（缺省读环境变量 %s 或 ~/.config/code-kit/release-denylist.txt）"
@@ -7590,11 +7654,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
         except (AttributeError, ValueError):
             pass
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if not getattr(args, "func", None):
-        parser.print_help()
-        return EXIT_USAGE
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = forwarded_command(raw)
+    if args is None:
+        parser = build_parser()
+        args = parser.parse_args(raw)
+        if not getattr(args, "func", None):
+            parser.print_help()
+            return EXIT_USAGE
     try:
         return int(args.func(args))
     except DispatchError as exc:
