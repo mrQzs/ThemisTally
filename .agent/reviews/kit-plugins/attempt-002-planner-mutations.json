@@ -1,0 +1,63 @@
+{
+ "commands": [
+  {
+   "id": "all",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_plugins_oracle.py",
+    "tests/test_kit_plugins.py"
+   ]
+  }
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "C1 show 正常路径不输出问题行",
+   "file": "scripts/kit_plugins.py",
+   "old": "    for problem in report[\"problems\"]:\n        print(\"问题：%s\" % problem)\n    return EXIT_OK",
+   "new": "    return EXIT_OK"
+  },
+  {
+   "name": "C2 list 原因不带首条问题",
+   "file": "scripts/kit_plugins.py",
+   "old": "            if report[\"problems\"]:\n                reason = \"%s：%s\" % (reason, report[\"problems\"][0])",
+   "new": "            if False:\n                reason = \"%s：%s\" % (reason, report[\"problems\"][0])"
+  },
+  {
+   "name": "C3 根链接不进 list 的 JSON",
+   "file": "scripts/kit_plugins.py",
+   "old": "                          \"problems\": [_ROOT_LINK] if root_link else []}, ensure_ascii=False))",
+   "new": "                          \"problems\": []}, ensure_ascii=False))"
+  },
+  {
+   "name": "C4 manifest 无效时不输出锁信息",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if lock_raw is not None:\n        print(\"锁 generation %s\" % lock_raw.get(\"generation\"))",
+   "new": "    if manifest is not None and lock_raw is not None:\n        print(\"锁 generation %s\" % lock_raw.get(\"generation\"))"
+  },
+  {
+   "name": "C5 权限核对失败仍放行",
+   "file": "scripts/kit_plugins.py",
+   "old": "            report[\"permission_ready\"] = False\n            report[\"problems\"].append(\"权限核对失败：%s\" % exc)",
+   "new": "            report[\"problems\"].append(\"权限核对失败：%s\" % exc)"
+  },
+  {
+   "name": "C6 逐插件兜底不收集异常",
+   "file": "scripts/kit_plugins.py",
+   "old": "    except (ValueError, OSError, decisions.DecisionError) as exc:\n        return {\"plugin_id\": plugin_id, \"lock_status\": _INVALID,",
+   "new": "    except (KeyError,) as exc:\n        return {\"plugin_id\": plugin_id, \"lock_status\": _INVALID,"
+  },
+  {
+   "name": "C7 null 清单不写具体原因",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if obj is None:  # JSON 的 null",
+   "new": "    if False:  # JSON 的 null"
+  }
+ ]
+}

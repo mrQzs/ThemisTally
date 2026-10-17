@@ -1,0 +1,234 @@
+{
+ "commands": [
+  {
+   "id": "all",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_plugins_oracle.py",
+    "tests/test_kit_plugins.py"
+   ]
+  },
+  {
+   "id": "executor",
+   "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_kit_plugins.py"
+   ]
+  }
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "N01 授予路径跳过链接目录",
+   "file": "scripts/kit_plugins.py",
+   "old": "    for name, _is_link in _enumerate_entries():\n        if name == plugin_id:\n            continue",
+   "new": "    for name, _is_link in _enumerate_entries():\n        if name == plugin_id or _is_link:\n            continue"
+  },
+  {
+   "name": "N02 list 的链接目录行锁列写成 无效：链接",
+   "file": "scripts/kit_plugins.py",
+   "old": "                         \"lock\": _INVALID, \"resource\": \"-\", \"missing\": [], \"status\": _BLOCKED,",
+   "new": "                         \"lock\": _LINK, \"resource\": \"-\", \"missing\": [], \"status\": _BLOCKED,"
+  },
+  {
+   "name": "N03 资源链接时锁列写成 无效：链接",
+   "file": "scripts/kit_plugins.py",
+   "old": "            problems.append(\"资源 %s：%s %s\" % (rel, _LINK, link))\n            return _INVALID, None, problems, rows",
+   "new": "            problems.append(\"资源 %s：%s %s\" % (rel, _LINK, link))\n            return _LINK, None, problems, rows"
+  },
+  {
+   "name": "N04 资源读取失败不改锁列",
+   "file": "scripts/kit_plugins.py",
+   "old": "    lock_status = _INVALID if read_failed else _OK",
+   "new": "    lock_status = _OK"
+  },
+  {
+   "name": "N05 资源读取失败的问题不含固定词",
+   "file": "scripts/kit_plugins.py",
+   "old": "            problems.append(\"资源读取失败：资源 %s：%s\" % (rel, exc))",
+   "new": "            problems.append(\"资源 %s 读取失败：%s\" % (rel, exc))"
+  },
+  {
+   "name": "N06 不检查原配置的 plugins 段",
+   "file": "scripts/kit_plugins.py",
+   "old": "    error = kit_config.plugins_section_error(config)\n    if error is None:\n        return",
+   "new": "    error = kit_config.plugins_section_error(config)\n    if True:\n        return"
+  },
+  {
+   "name": "N07 修复提示不来自原配置",
+   "file": "scripts/kit_plugins.py",
+   "old": "    hint = kit_config.plugins_fix_hint(config, repo)",
+   "new": "    hint = None"
+  },
+  {
+   "name": "N08 无变化路径不过题库门禁",
+   "file": "scripts/kit_plugins.py",
+   "old": "    _battery_gate(repo, new_config)  # 无变化与写入共用：先题库门禁",
+   "new": "    pass"
+  },
+  {
+   "name": "N09 缺权限不影响状态",
+   "file": "scripts/kit_plugins.py",
+   "old": "            report[\"permission_ready\"] = result.get(\"status\") == _READY",
+   "new": "            report[\"permission_ready\"] = True",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N10 不限制时也调用权限核对",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if isinstance(allowed, list):\n        try:\n            result = plugins.check_permission_intersection(",
+   "new": "    if True:\n        try:\n            result = plugins.check_permission_intersection(",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N11 未安装排除链接目录",
+   "file": "scripts/kit_plugins.py",
+   "old": "    present = {name for name, _ in entries}",
+   "new": "    present = {name for name, is_link in entries if not is_link}",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N12 show 只在锁一致时输出 generation",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if lock_raw is not None:\n        print(\"锁 generation %s\" % lock_raw.get(\"generation\"))",
+   "new": "    if report[\"lock\"] is not None:\n        print(\"锁 generation %s\" % lock_raw.get(\"generation\"))",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N13 verify 先读配置再校验 ID",
+   "file": "scripts/kit_plugins.py",
+   "old": "    repo = _discover(args.repo)\n    targets: List[str] = []",
+   "new": "    repo = _discover(args.repo)\n    kit_config.load_config(repo)\n    targets: List[str] = []",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N14 变化摘要不用箭头",
+   "file": "scripts/kit_plugins.py",
+   "old": "            lines.append(\"plugins.%s: %s → %s\" % (key, old_text, new_text))",
+   "new": "            lines.append(\"plugins.%s: %s -> %s\" % (key, old_text, new_text))",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N15 不在列表里时“没有变化”说两次",
+   "file": "scripts/kit_plugins.py",
+   "old": "    # 否则不在列表里：无变化",
+   "new": "    if isinstance(view[\"enabled_value\"], list) and plugin_id not in view[\"enabled_value\"]:\n        messages.append(\"没有变化\")",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N16 关掉的不是 decisions 也提示 off",
+   "file": "scripts/kit_plugins.py",
+   "old": "    if plugin_id == decisions.PLUGIN_ID and _is_enabled(view, decisions.PLUGIN_ID) \\",
+   "new": "    if plugin_id == decisions.PLUGIN_ID or True \\",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N17 悬空的 plugins 根不算链接",
+   "file": "scripts/kit_plugins.py",
+   "old": "    return pd.is_link_or_junction(_plugins_root())",
+   "new": "    return _plugins_root().exists() and pd.is_link_or_junction(_plugins_root())",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N18 悬空的插件目录不列出",
+   "file": "scripts/kit_plugins.py",
+   "old": "        if not is_link and not child.is_dir():",
+   "new": "        if not child.is_dir():",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N19 逐插件兜底不收集异常",
+   "file": "scripts/kit_plugins.py",
+   "old": "    except (ValueError, OSError, decisions.DecisionError) as exc:\n        return {\"plugin_id\": plugin_id, \"lock_status\": _INVALID,",
+   "new": "    except (KeyError,) as exc:\n        return {\"plugin_id\": plugin_id, \"lock_status\": _INVALID,",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N20 verify 标题在资源不一致时写一致",
+   "file": "scripts/kit_plugins.py",
+   "old": "        return \"资源%s\" % (report[\"resource_status\"] or \"未核对\")\n    return _OK",
+   "new": "        return _OK\n    return _OK",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N21 授予权限允许多给",
+   "file": "scripts/kit_plugins.py",
+   "old": "            if set(supplied) != set(missing):",
+   "new": "            if not set(missing) <= set(supplied):",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N22 写入不经整份校验",
+   "file": "scripts/kit_plugins.py",
+   "old": "            kit_config.write_checked(repo, new_config)  # 整份校验 + 原子写",
+   "new": "            kit_config.write_config(repo, new_config)",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N23 verify --json 恒为 0",
+   "file": "scripts/kit_plugins.py",
+   "old": "        return EXIT_FAIL if problematic else EXIT_OK\n    if root_link:",
+   "new": "        return EXIT_OK\n    if root_link:",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N24 启用列缺省显示为“是”",
+   "file": "scripts/kit_plugins.py",
+   "old": "        return \"不限制\"",
+   "new": "        return \"是\"",
+   "expect_missed": [
+    "executor"
+   ]
+  },
+  {
+   "name": "N25 资源越界不查",
+   "file": "scripts/kit_plugins.py",
+   "old": "        if not pd.is_within(kit_root / rel, kit_root / prefix):",
+   "new": "        if False:",
+   "expect_missed": [
+    "executor"
+   ]
+  }
+ ]
+}
