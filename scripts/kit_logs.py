@@ -913,8 +913,9 @@ def cmd_usage(args: argparse.Namespace) -> int:
         print("规划端：未给 --transcript，未统计规划端")
         return EXIT_OK
     skipped = planner["skipped_lines"]
-    print("规划端（下界：只统计命令行给出的会话记录，只数会话记录里有的调用）：计入消息 %d · 重复最终记录 %d · "
-          "中间记录 %d" % (planner["included_messages"], planner["duplicate_records"],
+    print("规划端（下界：只统计命令行给出的会话记录，只数会话记录里有的调用）%s：计入消息 %d · 重复最终记录 %d · "
+          "中间记录 %d" % ("，部分（有冲突、未完成或读不出的文件）" if planner["partial"] else "",
+                           planner["included_messages"], planner["duplicate_records"],
                            planner["intermediate_records"]))
     print("  冲突 %d 组 / %d 条 · 未完成 %d 组 · 无可用时间 %d · 窗口外 %d · 非整数字段 %d · 不可读文件 %d · "
           "跳过的链接 %d" % (planner["conflict_ids"], planner["conflict_records"], planner["incomplete_ids"],

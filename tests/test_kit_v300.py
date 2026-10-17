@@ -132,6 +132,22 @@ class LinkPredicateInputs(unittest.TestCase):
         self.assertIsNone(pd.first_link_component(tmp, "x\x00y/z"))
 
 
+class RepoArgument(unittest.TestCase):
+    """闸二 B3：--repo 指向文件时一行 ERROR、退出 2，不冒 NotADirectoryError 的堆栈（所有命令共用 Repo.discover）。"""
+
+    def test_repo_pointing_at_a_file_is_a_usage_error(self):
+        target = ROOT / "README.md"
+        env = dict(os.environ, PYTHONUTF8="1", CODEKIT_SECRET_STORE="off")
+        for argv in (["status"], ["logs", "list"], ["plugins", "list"]):
+            with self.subTest(argv=argv):
+                proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "pi_dispatch.py"), "--repo", str(target)]
+                                      + argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=120)
+                err = proc.stderr.decode("utf-8", "replace")
+                self.assertEqual(proc.returncode, 2, err)
+                self.assertIn("ERROR:", err)
+                self.assertNotIn("Traceback", err)
+
+
 class InstalledLayout(unittest.TestCase):
     """W2：两个新文件受保护、随 kit 发放；装进目标仓库后，装好的 logs 与 plugins 能用（安装布局只有决策插件）。"""
 
@@ -167,6 +183,13 @@ class InstalledLayout(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("decisions", out)
         self.assertNotIn("code-change", out)
+        # 闸二补强：装好的决策插件核对一致、状态 READY（不只是列出了 ID）
+        code, out, err = tool("plugins", "list")
+        self.assertEqual(code, 0, err)
+        row = [line for line in out.splitlines() if line.split()[:1] == ["decisions"]]
+        self.assertEqual(len(row), 1, out)
+        self.assertIn("READY", row[0])
+        self.assertIn("锁:一致", row[0])
         code, out, err = tool("plugins", "--help")
         self.assertEqual(code, 0, err)
         self.assertNotIn("Traceback", err)

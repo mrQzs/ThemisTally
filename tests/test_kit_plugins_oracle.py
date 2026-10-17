@@ -449,7 +449,8 @@ def test_p08_disable_unrestricted_keeps_broken_plugin(tmp_path):
         assert code == 0
         cfg = env.read_config()
         enabled = cfg["plugins"]["enabled"]
-        assert "code-change" not in enabled and "docs-change" in enabled and "decisions" in enabled
+        # 闸二补强：完整列表，不只三个 ID——坏掉的 docs-change 仍在，只少了 code-change
+        assert enabled == sorted(pid for pid in EIGHT_PLUGIN_IDS if pid != "code-change"), enabled
         assert "不会自动启用" in out
 
 
@@ -466,8 +467,18 @@ def test_p09_permission_impact(tmp_path):
         assert code == 2
         code, out, _ = run(["enable", "python-checks", "--allow-permission", "read-candidate"], env.repo)
         assert code == 0
-        for pid in ("code-change", "docs-change", "mutation-review", "repo-analysis"):
-            assert pid in out
+        # 闸二补强：受影响清单是完整集合——要求 read-candidate、且补上后不再缺任何权限的其他插件
+        allowed = {"network-decisions", "read-candidate"}
+        expected = set()
+        for pid in EIGHT_PLUGIN_IDS:
+            permissions = set(json.loads((env.plugin(pid) / "manifest.json").read_text(encoding="utf-8"))
+                              .get("permissions", []))
+            if pid != "python-checks" and "read-candidate" in permissions and permissions <= allowed:
+                expected.add(pid)
+        assert {"code-change", "docs-change", "mutation-review", "repo-analysis"} <= expected
+        impact = " ".join(_impact_lines(out))
+        for pid in EIGHT_PLUGIN_IDS:
+            assert (pid in impact) == (pid in expected), (pid, impact)
         assert env.read_config()["plugins"]["allowed_permissions"] == ["network-decisions", "read-candidate"]
 
 
@@ -478,23 +489,29 @@ def test_p09_permission_impact(tmp_path):
 def test_p10a_too_many(tmp_path):
     with make_env(tmp_path) as env:
         env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        before = (env.repo / ".agent" / "dispatch.config.json").read_bytes()
         code, _, _ = run(["enable", "python-checks", "--allow-permission", "read-candidate",
                           "--allow-permission", "network-decisions"], env.repo)
         assert code == 2
+        assert (env.repo / ".agent" / "dispatch.config.json").read_bytes() == before  # 闸二补强：拒绝前后配置字节不变
 
 
 def test_p10b_too_few(tmp_path):
     with make_env(tmp_path) as env:
         env.write_config({"plugins": {"allowed_permissions": []}})
+        before = (env.repo / ".agent" / "dispatch.config.json").read_bytes()
         code, _, _ = run(["enable", "python-checks"], env.repo)
         assert code == 2
+        assert (env.repo / ".agent" / "dispatch.config.json").read_bytes() == before
 
 
 def test_p10c_grant_when_unrestricted(tmp_path):
     with make_env(tmp_path) as env:
         env.write_config({})
+        before = (env.repo / ".agent" / "dispatch.config.json").read_bytes()
         code, _, _ = run(["enable", "python-checks", "--allow-permission", "read-candidate"], env.repo)
         assert code == 2
+        assert (env.repo / ".agent" / "dispatch.config.json").read_bytes() == before
 
 
 # ---------------------------------------------------------------------------
@@ -592,19 +609,19 @@ def test_p14a_enable_drifted_lock(tmp_path):
         lock["lock_sha256"] = ("f" if lock["lock_sha256"][0] != "f" else "0") + lock["lock_sha256"][1:]
         (env.plugin("code-change") / "lock.json").write_text(json.dumps(lock), encoding="utf-8")
         env.write_config({"plugins": {"enabled": ["docs-change"]}})
-        before = env.read_config()
+        before = (env.repo / ".agent" / "dispatch.config.json").read_bytes()  # 闸二补强：比字节，不比解析后的对象
         code, _, _ = run(["enable", "code-change"], env.repo)
         assert code == 1
-        assert env.read_config() == before
+        assert (env.repo / ".agent" / "dispatch.config.json").read_bytes() == before
 
 
 def test_p14b_enable_with_other_invalid_key(tmp_path):
     with make_env(tmp_path) as env:
         env.write_config({"surprise_key": 1, "plugins": {"enabled": ["docs-change"]}})
-        before = env.read_config()
+        before = (env.repo / ".agent" / "dispatch.config.json").read_bytes()  # 闸二补强：比字节
         code, _, err = run(["enable", "code-change"], env.repo)
         assert code == 1
-        assert env.read_config() == before
+        assert (env.repo / ".agent" / "dispatch.config.json").read_bytes() == before
 
 
 # ---------------------------------------------------------------------------
@@ -1794,3 +1811,104 @@ def test_v2_26_null_manifest_and_non_object_lock(tmp_path):
         assert "None" not in out, out
         assert "无效" in _v2_title(out, "docs-change")
         assert "无效" in _v2_title(out, "code-change")
+
+
+# ---------------------------------------------------------------------------
+# 闸二第 1 轮（Codex）的回归用例：B1 题库门禁读前查链接、B2 plugins 根列不出来、B3 深嵌套配置、
+# S1 修复提示里的单引号、S2 末尾带换行的 ID
+# ---------------------------------------------------------------------------
+
+def _questions_into_junction(env, tmp_path):
+    """把决策插件的 questions/ 换成指向内容相同副本的目录 junction：内容与锁一致，只差“是链接”。"""
+    questions = env.plugin("decisions") / "questions"
+    real = tmp_path / "real_questions"
+    shutil.copytree(str(questions), str(real))
+    shutil.rmtree(str(questions))
+    assert make_dir_link(questions, real)
+
+
+def test_gate2_b1_battery_gate_refuses_a_linked_questions_dir(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"decisions": {"mode": "on"}})
+        _questions_into_junction(env, tmp_path)
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        for argv in (["disable", "code-change", "--dry-run"], ["disable", "code-change"],
+                     ["enable", "code-change"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 1, (argv, out, err)
+            assert _V2_LINK in err, (argv, err)
+            assert "plugins disable decisions" in err and "config decisions off" in err, (argv, err)
+            assert path.read_bytes() == before, argv
+        # 恢复顺序照样走得通：关掉决策插件就不再核对题库
+        code, out, err = run(["disable", "decisions"], env.repo)
+        _v2_clean(out, err)
+        assert code == 0, (out, err)
+
+
+def test_gate2_b2_unlistable_plugins_root_is_reported(tmp_path):
+    with make_env(tmp_path) as env:
+        root = _v2_norm(env.plugins)
+        real_iterdir = pathlib.Path.iterdir
+
+        def iterdir(self):
+            if _v2_norm(self) == root:
+                raise PermissionError(13, "列目录被拒绝（替身）", str(self))
+            return real_iterdir(self)
+
+        with mock.patch.object(pathlib.Path, "iterdir", iterdir):
+            code, out, err = run(["verify", "--json"], env.repo)
+            _v2_clean(out, err)
+            assert code == 1, (out, err)
+            assert any("列不出来" in value for value in _v2_strings(json.loads(out))), out
+            code, out, err = run(["verify"], env.repo)
+            _v2_clean(out, err)
+            assert code == 1 and "列不出来" in out, (out, err)
+            code, out, err = run(["list"], env.repo)
+            _v2_clean(out, err)
+            assert code == 0 and "列不出来" in out, (out, err)
+            code, out, err = run(["show", "code-change"], env.repo)
+            _v2_clean(out, err)
+            assert code == 2 and "列不出来" in err, (out, err)
+
+
+def test_gate2_b3_deeply_nested_config_is_one_error_line(tmp_path):
+    with make_env(tmp_path) as env:
+        path = env.repo / ".agent" / "dispatch.config.json"
+        path.write_text('{"_note": ' + "[" * 5000 + "]" * 5000 + "}", encoding="utf-8")
+        for argv in (["list"], ["verify"], ["show", "code-change"], ["disable", "code-change"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 1 and "ERROR:" in err, (argv, out, err)
+
+
+def test_gate2_s1_fix_hint_survives_a_single_quote(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"decisions": {"mode": "on"}, "plugins": {"enabled": None, "_note": "don't"}})
+        add_extra_question(env)
+        code, out, err = run(["disable", "code-change"], env.repo)
+        assert code == 1, (out, err)
+        hint = hint_from(err)
+        assert hint.startswith("config set plugins '") and hint.endswith("'"), hint
+        quoted = hint[len("config set plugins '"):-1]
+        assert "'" not in quoted, hint  # 单引号里不能再有单引号：bash 与 PowerShell 都能原样执行
+        assert json.loads(quoted)["_note"] == "don't"
+        code, _, herr = run_hint(hint, env.repo)
+        assert code == 0, herr
+
+
+def test_gate2_s2_plugin_id_with_a_trailing_newline_is_rejected(tmp_path):
+    with make_env(tmp_path) as env:
+        path = env.repo / ".agent" / "dispatch.config.json"
+        env.write_config({"plugins": {"enabled": ["decisions\n"]}})
+        before = path.read_bytes()
+        code, out, err = run(["list"], env.repo)
+        _v2_clean(out, err)
+        assert code == 1 and "ERROR:" in err, (out, err)  # plugins 段不合法
+        assert path.read_bytes() == before
+        env.write_config({})
+        for argv in (["show", "decisions\n"], ["enable", "decisions\n"], ["verify", "decisions\n"]):
+            code, out, err = run(argv, env.repo)
+            _v2_clean(out, err)
+            assert code == 2, argv

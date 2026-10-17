@@ -1134,6 +1134,8 @@ class Repo:
     @classmethod
     def discover(cls, start: Optional[str]) -> "Repo":
         base = Path(start or os.getcwd()).resolve()
+        if not base.is_dir():  # 3.0 第一轮（闸二 B3）：--repo 指向文件时 git 子进程以 NotADirectoryError 冒出堆栈
+            raise DispatchError("--repo 不是目录：%s" % base, EXIT_USAGE)
         proc = git(["rev-parse", "--show-toplevel", "--git-dir", "--git-common-dir"], base, check=False)
         if proc.returncode != 0:
             raise DispatchError("当前目录不在 Git 仓库中：%s" % base, EXIT_USAGE)

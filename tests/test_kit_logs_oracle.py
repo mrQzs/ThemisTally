@@ -1508,5 +1508,25 @@ class PlannerSupplementA002(OracleBase):
             self.assertUsageError(["show", "task-a/attempt-001"])
 
 
+# ---------------------------------------------------------------------------
+# 闸二第 1 轮（Codex）的回归用例
+# ---------------------------------------------------------------------------
+
+class Gate2Round1(OracleBase):
+    """S3：规划端统计为“部分”时，文本输出也要写明（设计 D4），不只是 JSON 的 partial。"""
+
+    def test_partial_planner_stats_are_named_in_text_output(self):
+        incomplete = self.root / "incomplete.jsonl"
+        transcript(incomplete, [rec("p1", stop=None)])  # 只有中间记录：未完成，标“部分”
+        code, out, err = run_logs(["usage", "--transcript", str(incomplete)], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("部分", out)
+        complete = self.root / "complete.jsonl"
+        transcript(complete, [rec("c1")])
+        code, out, err = run_logs(["usage", "--transcript", str(complete)], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("部分", out)
+
+
 if __name__ == "__main__":
     unittest.main()

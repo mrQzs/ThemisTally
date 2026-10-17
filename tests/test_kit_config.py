@@ -390,6 +390,63 @@ class PluginsKey(TempRepo):
             hint = self.hint_of(out)
             self.assertEqual(json.loads(hint.split(" ", 3)[3][1:-1]), {"enabled": ["code-change"]})
 
+    def _kit_with_plugins(self):
+        kit = self.work / "kit"
+        shutil.copytree(str(ROOT / "plugins"), str(kit / "plugins"))
+        return kit
+
+    def test_gate2_a_linked_questions_dir_is_not_read(self):
+        # 闸二 B1：决策插件生效时，问题清单经过链接就不读，整份校验报“无效：链接”
+        kit = self._kit_with_plugins()
+        questions = kit / "plugins" / "decisions" / "questions"
+        real = self.work / "real_questions"
+        shutil.copytree(str(questions), str(real))
+        shutil.rmtree(str(questions))
+        if os.name == "nt":
+            if subprocess.run(["cmd", "/c", "mklink", "/J", str(questions), str(real)],
+                              capture_output=True).returncode != 0:
+                self.skipTest("mklink /J 不可用")
+        else:
+            os.symlink(str(real), str(questions), target_is_directory=True)
+        with mock.patch.object(kit_config.pd, "KIT_ROOT", kit), \
+                mock.patch.object(kit_config.pd, "DECISIONS_PLUGIN_DIR", kit / "plugins" / "decisions"), \
+                mock.patch.object(decisions, "verify_battery_lock", side_effect=AssertionError("不该读题库")):
+            self.assertEqual(kit_config.battery_link_problem(), "plugins/decisions/questions")
+            errors = kit_config.validate_config({"decisions": {"mode": "shadow"}}, None, hints=False)
+            self.assertTrue(any("无效：链接" in error for error in errors), errors)
+            self.assertEqual(kit_config.validate_config({}, None, hints=False), [])
+
+    def test_gate2_deeply_nested_config_is_one_error(self):
+        # 闸二 B3：嵌套过深的 JSON 是一条 ConfigError，不冒 RecursionError 的堆栈
+        (self.repo / ".agent" / "dispatch.config.json").write_text(
+            '{"_note": ' + "[" * 5000 + "]" * 5000 + "}", encoding="utf-8")
+        code, out, err = run_config(["validate"], self.repo)
+        self.assertEqual(code, 1, (out, err))
+        self.assertIn("ERROR:", out + err)
+        self.assertNotIn("Traceback", out + err)
+
+    def test_gate2_plugin_ids_must_match_in_full(self):
+        # 闸二 S2：PLUGIN_ID.match 会放过末尾的换行，配置里的 ID 要整串匹配
+        self.assertIsNotNone(kit_config.plugins_section_error({"plugins": {"enabled": ["decisions\n"]}}))
+        self.assertIsNone(kit_config.plugins_section_error({"plugins": {"enabled": ["decisions"]}}))
+
+    def test_gate2_fix_hint_has_no_bare_single_quote(self):
+        # 闸二 S1：提示整段放进单引号；JSON 里的单引号写成 '，bash 与 PowerShell 都能原样执行
+        kit = self._kit_with_plugins()
+        (kit / "plugins" / "decisions" / "questions" / "extra.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(kit_config.pd, "KIT_ROOT", kit), \
+                mock.patch.object(kit_config.pd, "DECISIONS_PLUGIN_DIR", kit / "plugins" / "decisions"):
+            self.write({"decisions": {"mode": "shadow"}, "plugins": {"enabled": None, "_note": "don't"}})
+            code, out, _ = run_config(["validate"], self.repo)
+            self.assertEqual(code, 1, out)
+            hint = self.hint_of(out)
+            self.assertTrue(hint.startswith("config set plugins '") and hint.endswith("'"), hint)
+            quoted = hint[len("config set plugins '"):-1]
+            self.assertNotIn("'", quoted)
+            self.assertEqual(json.loads(quoted)["_note"], "don't")
+            code, out, err = self.run_hint(hint)
+            self.assertEqual(code, 0, (out, err))
+
 
 class LinkHelpers(unittest.TestCase):
     """3.0 第一轮 D11：pi_dispatch.is_link_or_junction 与 first_link_component（kit_logs、kit_plugins 共用）。"""

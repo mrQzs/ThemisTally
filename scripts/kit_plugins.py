@@ -65,9 +65,21 @@ def _plugins_root() -> Path:
     return pd.KIT_ROOT / "plugins"
 
 
-def _root_is_link() -> bool:
-    """plugins/ 根是不是链接/junction（悬空链接也算；pd.is_link_or_junction 不要求目标存在）。"""
-    return pd.is_link_or_junction(_plugins_root())
+def _root_problem() -> Optional[str]:
+    """plugins/ 根本身的问题：是链接（第八节第 1 行），或是目录却列不出来（闸二 B2）；没有问题时 None。
+
+    列不出来时枚举为空，不能当作“没有插件”：list 与 verify 把它报出来，verify 因此退出 1。
+    """
+    root = _plugins_root()
+    if pd.is_link_or_junction(root):
+        return _ROOT_LINK
+    try:
+        if not root.is_dir():
+            return None
+        next(iter(root.iterdir()), None)
+    except OSError as exc:
+        return "无效：plugins 列不出来：%s" % exc
+    return None
 
 
 def _enumerate_entries() -> List[Tuple[str, bool]]:
@@ -84,7 +96,7 @@ def _enumerate_entries() -> List[Tuple[str, bool]]:
         return []
     entries: List[Tuple[str, bool]] = []
     for child in children:
-        if not plugins.PLUGIN_ID.match(child.name):
+        if not plugins.PLUGIN_ID.fullmatch(child.name):  # match 会放过末尾的换行
             continue
         is_link = pd.is_link_or_junction(child)
         if not is_link and not child.is_dir():
@@ -96,7 +108,9 @@ def _enumerate_entries() -> List[Tuple[str, bool]]:
 def _require_exists(plugin_id: str) -> None:
     names = {name for name, _ in _enumerate_entries()}
     if plugin_id not in names:
-        raise pd.DispatchError("插件不存在或未安装：%s" % plugin_id, EXIT_USAGE)
+        problem = _root_problem()
+        raise pd.DispatchError("插件不存在或未安装：%s%s" % (plugin_id, "（%s）" % problem if problem else ""),
+                               EXIT_USAGE)
 
 
 def _link_level(kit_root: Path, rel: str) -> Optional[str]:
@@ -416,7 +430,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     view = _plugins_view(config)
     allowed = _allowed_list(view)
     entries = _enumerate_entries()
-    root_link = _root_is_link()
+    root_problem = _root_problem()
     rows: List[Dict[str, Any]] = []
     for name, is_link in entries:
         if is_link:
@@ -427,11 +441,12 @@ def cmd_list(args: argparse.Namespace) -> int:
             rows.append(_list_row(_check_plugin_safe(name, allowed), view))
     not_installed = _not_installed(config, entries)
     if args.json:
-        print(json.dumps({"plugins_root_link": root_link, "plugins": rows, "not_installed": not_installed,
-                          "problems": [_ROOT_LINK] if root_link else []}, ensure_ascii=False))
+        print(json.dumps({"plugins_root_link": root_problem == _ROOT_LINK, "plugins": rows,
+                          "not_installed": not_installed, "problems": [root_problem] if root_problem else []},
+                         ensure_ascii=False))
         return EXIT_OK
-    if root_link:
-        print(_ROOT_LINK)
+    if root_problem:
+        print(root_problem)
     for row in rows:
         print(_format_list_row(row))
     for name in not_installed:
@@ -506,24 +521,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
     _require_plugins_section(config, repo)
     view = _plugins_view(config)
     allowed = _allowed_list(view)
-    root_link = _root_is_link()
+    root_problem = _root_problem() if args.plugin_id is None else None
     not_installed: List[str] = []
     if args.plugin_id is None:
         entries = _enumerate_entries()
         targets = [name for name, _ in entries]
         not_installed = _not_installed(config, entries)
     reports = [_check_plugin_safe(name, allowed) for name in targets]
-    problematic = root_link or bool(not_installed) or any(not _is_consistent(r) for r in reports)
+    problematic = bool(root_problem) or bool(not_installed) or any(not _is_consistent(r) for r in reports)
     if args.json:
         print(json.dumps({
-            "ok": not problematic, "plugins_root_link": root_link,
+            "ok": not problematic, "plugins_root_link": root_problem == _ROOT_LINK,
             "plugins": [{"id": r["plugin_id"], "lock": r["lock_status"],
                          "resource": r["resource_status"], "problems": r["problems"]} for r in reports],
-            "not_installed": not_installed, "problems": [_ROOT_LINK] if root_link else [],
+            "not_installed": not_installed, "problems": [root_problem] if root_problem else [],
         }, ensure_ascii=False))
         return EXIT_FAIL if problematic else EXIT_OK
-    if root_link:
-        print(_ROOT_LINK)
+    if root_problem:
+        print(root_problem)
     for report in reports:
         print("%s %s" % (report["plugin_id"], _verify_word(report)))
         if not _is_consistent(report):
@@ -578,6 +593,9 @@ def _battery_gate(repo: Any, new_config: Dict[str, Any]) -> None:
     if not settings.active:
         return
     try:
+        link = kit_config.battery_link_problem()  # 读之前先查链接，经过链接就不读（闸二 B1）
+        if link is not None:
+            raise decisions.DecisionError("battery_drift", "%s %s" % (_LINK, link))
         decisions.verify_battery_lock(pd.DECISIONS_PLUGIN_DIR)
     except (ValueError, OSError, decisions.DecisionError) as exc:
         raise kit_config.ConfigError(
@@ -716,7 +734,7 @@ def _discover(repo_arg: Optional[str]) -> Any:
 
 
 def _validate_id(plugin_id: Any) -> str:
-    if not isinstance(plugin_id, str) or not plugins.PLUGIN_ID.match(plugin_id):
+    if not isinstance(plugin_id, str) or not plugins.PLUGIN_ID.fullmatch(plugin_id):
         raise pd.DispatchError("插件 ID 不合法：%r" % (plugin_id,), EXIT_USAGE)
     return plugin_id
 

@@ -157,10 +157,44 @@ def _check_decisions(config: Dict[str, Any], repo: Any) -> None:
     except _decisions.DecisionError as exc:
         raise ConfigError("decisions 无效：%s" % exc.detail)
     if settings.active:  # 2.8.0：生效时问题清单必须与插件内容锁一致，否则 prepare 也会拒绝
+        link = battery_link_problem()
+        if link is not None:  # 3.0 第一轮：读之前先查链接，不跟随它去读（与 plugins verify 一致）
+            raise ConfigError("decisions 的问题清单经过链接（无效：链接 %s），没有读取" % link)
         try:
             _decisions.verify_battery_lock(pd.DECISIONS_PLUGIN_DIR)
         except _decisions.DecisionError as exc:
             raise ConfigError("decisions 的问题清单与插件内容锁不符：%s" % exc.detail)
+
+
+def battery_link_problem() -> Optional[str]:
+    """决策插件 questions/ 及其中每个 *.json 读之前的链接检查：第一个链接或 junction 的那一级，没有则 None。
+
+    3.0 第一轮（闸二 B1）：verify_battery_lock 直接读文件、不查链接；配置校验、写入门禁与修复提示的模拟
+    都先过这一关，题库经过链接时就不读。从 KIT_ROOT 往下逐级查（pd.first_link_component）。
+    """
+    plugin_dir = Path(pd.DECISIONS_PLUGIN_DIR)
+    try:  # 按字面求相对路径，不 resolve：resolve 会顺着链接走出去，漏掉链接那一级
+        base = plugin_dir.relative_to(Path(pd.KIT_ROOT)).as_posix()
+    except ValueError:
+        base = None
+    questions = plugin_dir / "questions"
+    names: List[str] = []
+    try:
+        if not pd.is_link_or_junction(questions) and questions.is_dir():
+            names = sorted(path.name for path in questions.glob("*.json"))
+    except OSError:
+        names = []
+    for rel in ["questions"] + ["questions/%s" % name for name in names]:
+        if base is not None:
+            try:
+                link = pd.first_link_component(Path(pd.KIT_ROOT), "%s/%s" % (base, rel))
+            except ValueError:
+                return "%s/%s" % (base, rel)
+            if link is not None:
+                return link
+        elif pd.is_link_or_junction(plugin_dir / rel):
+            return str(plugin_dir / rel)
+    return None
 
 
 PLUGINS_SUBKEYS = ("enabled", "allowed_permissions")
@@ -184,7 +218,7 @@ def _check_plugins(config: Dict[str, Any], _repo: Any) -> None:
         if key in value and not isinstance(value[key], list):
             raise ConfigError("plugins.%s 必须是列表，现在是 %s；不写这个子键表示不限制" % (key, json.dumps(value[key], ensure_ascii=False)))
     for index, item in enumerate(value.get("enabled", [])):
-        if not isinstance(item, str) or not _plugins.PLUGIN_ID.match(item):
+        if not isinstance(item, str) or not _plugins.PLUGIN_ID.fullmatch(item):  # match 会放过末尾的换行
             raise ConfigError("plugins.enabled[%d] 不是合法的插件 ID：%s" % (index, json.dumps(item, ensure_ascii=False)))
     for index, item in enumerate(value.get("allowed_permissions", [])):
         if not isinstance(item, str) or not item:
@@ -252,8 +286,8 @@ def load_config(repo: Any) -> Dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ConfigError("无法解析 %s：%s" % (path, exc))
+    except (OSError, ValueError, RecursionError) as exc:  # RecursionError：嵌套过深的 JSON
+        raise ConfigError("无法解析 %s：%s" % (path, type(exc).__name__ if isinstance(exc, RecursionError) else exc))
     if not isinstance(data, dict):
         raise ConfigError("%s 顶层必须是对象" % path)
     return data
@@ -290,7 +324,7 @@ def _installed_plugin_ids() -> List[str]:
     if not root.is_dir() or pd.is_link_or_junction(root):
         return []
     return sorted(entry.name for entry in root.iterdir()
-                  if _plugins.PLUGIN_ID.match(entry.name) and entry.is_dir() and not pd.is_link_or_junction(entry))
+                  if _plugins.PLUGIN_ID.fullmatch(entry.name) and entry.is_dir() and not pd.is_link_or_junction(entry))
 
 
 def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
@@ -329,8 +363,9 @@ def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
     replacement["enabled"] = [name for name in base if name != _decisions.PLUGIN_ID]
     replaced = json.loads(json.dumps(config))
     replaced["plugins"] = replacement
-    candidates.append(("config set plugins '%s'" % json.dumps(replacement, ensure_ascii=False, separators=(",", ":")),
-                       replaced))
+    # 单引号写成 JSON 的 \u0027 转义：整段放进单引号，bash 与 PowerShell 都能原样执行（闸二 S1）
+    text = json.dumps(replacement, ensure_ascii=False, separators=(",", ":")).replace("'", "\\u0027")
+    candidates.append(("config set plugins '%s'" % text, replaced))
     for command, candidate in candidates:
         if not validate_config(candidate, repo, hints=False):
             return command
