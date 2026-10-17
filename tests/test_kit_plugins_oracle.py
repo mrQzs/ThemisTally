@@ -673,12 +673,15 @@ def test_json_outputs_parse_to_objects(tmp_path):
 def test_g1_outside_git_repo_all_subcommands_exit_2(tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
-    for argv in (["list"], ["show", "decisions"], ["verify"],
-                 ["enable", "code-change"], ["disable", "code-change"]):
-        code, out, err = run(argv, plain)
-        assert code == 2, argv
-        assert "ERROR:" in (out + err), argv
-        assert "Traceback" not in (out + err), argv
+    # 规划端补强：README 的全量命令把 --basetemp 放在仓库内（.agent/runs/_tmp/），git 会从 plain 往上找到
+    # 本仓库。GIT_CEILING_DIRECTORIES 让 git 不越过 tmp_path，plain 才真的“不在 Git 仓库里”。
+    with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(tmp_path)}):
+        for argv in (["list"], ["show", "decisions"], ["verify"],
+                     ["enable", "code-change"], ["disable", "code-change"]):
+            code, out, err = run(argv, plain)
+            assert code == 2, argv
+            assert "ERROR:" in (out + err), argv
+            assert "Traceback" not in (out + err), argv
 
 
 def test_g2_unknown_id_exit_2(tmp_path):
