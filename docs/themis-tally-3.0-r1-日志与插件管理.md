@@ -1,6 +1,6 @@
 # Themis Tally 3.0 第一轮设计：日志管理与插件管理的第一片
 
-状态：2gate 闸一已通过（第 3 轮零 Blocking，2026-10-17）；进入实现。第 3 轮的 Should-fix 与 Nit 在过闸后直接采纳（见 §0 的 r3 各行），没有再送审，由闸二一并核对。
+状态：2gate 闸一第 3 轮零 Blocking（2026-10-17）后进入实现；实现中发现 D4 的去重前提在子代理会话记录上不成立，按 2gate 改设计并补送闸一第 4 轮（只审 D4 的改动，见 §0 的 impl-3）。第 3 轮的 Should-fix 与 Nit 在过闸后直接采纳（见 §0 的 r3 各行），由闸二一并核对。
 
 - 分支：`themis-3.0`（本地，不推送）。起点 `8fb12ed`（master），之上是设计说明提交 `0f4879c` 与本文的历次提交。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md` 第 8.2 节（日志管理）、8.3 节（插件管理）、13 节（首轮实战）。
@@ -10,6 +10,7 @@
 
 | 编号 | 结论 | 本稿处置 |
 |---|---|---|
+| impl-3 | 实现中发现（T1 规划子代理完成后核对它的会话记录）：子代理的会话记录在 `<会话目录>/subagents/agent-<id>.jsonl`，同一回复先写若干条 `message.stop_reason` 为 null、`output_tokens` 未到终值的中间记录，最后一条才带最终用量与 `stop_reason`；40 个 `message.id` 里 33 个各条用量不同。按原 D4，这些 id 全被判为冲突、不计入。主会话记录里每条都是最终记录（145 个 id 全部一致），所以第 2 轮的实测没有暴露这一点 | D4 第 3 步改为：组内只比较最终记录（`stop_reason` 为非空字符串）；中间记录不参与计数，但其模型与 `isSidechain` 必须与最终记录一致；没有最终记录的 id 记为未完成、不计入、结果标“部分”。§2.2 补事实；计数与 id 分类相应增加；L1、L2 补流式用例。送闸一第 4 轮 |
 | impl-2 | 实现记录：修复提示原定三个候选，其中“换成语义等价的合法对象”与“删掉非法子键”得到的配置完全相同，永远不会被选中；第三个候选若无条件取“全部插件减去 decisions”，会把用户已有的显式列表扩大 | D6 的候选改为两个；第二个候选保持已有的合法 `enabled` 列表、只去掉 `decisions`（`tests/test_kit_config.py` 的 `PluginsKey` 覆盖） |
 | impl-1 | 实现前自查（过闸后，闸二核对）：D6 与 D7 共用的修复提示生成函数、`logs` 与 `plugins` 共用的链接检查，若不先定下位置，两个 Pi 任务会各自手抄一份（2gate 第 ③ 步禁止） | 新增 D11：两者都由规划端先实现，执行端只调用。`kit_config.plugins_fix_hint`；`validate_config` 加 `hints` 参数，模拟候选时传 `hints=False`，避免重入。`pi_dispatch.py` 把现有的 `_is_link_or_junction`（`pi_dispatch.py:5203-5220`）公开为 `is_link_or_junction`，新增 `first_link_component`。写进 §7.1 |
 | r3-S1 | 第 3 轮 Should-fix：D8 的“找第一个非选项词”会把 `--version plugins …`、`-h plugins …`、`--unknown plugins …`、`-- plugins list` 也截获 | 过闸后采纳：截获只消费完整合法的 `--repo <值>` / `--repo=<值>`；遇到其他任何以 `-` 开头的词（含 `--`、`-h`、`--version`、未知选项）或 `--repo` 缺值，立即把完整原始 argv 交给 argparse，不再寻找。W1 补对应用例，并断言这些输入下游调用次数为零 |
@@ -82,6 +83,12 @@
 - 带用量的记录：`message` 是对象，里面有字符串 `id`、`model` 与 `usage` 对象。`usage` 含 `input_tokens`、`cache_creation_input_tokens`、`cache_read_input_tokens`、`output_tokens`（另有 `server_tool_use` 等字段）。记录顶层有 `timestamp`（ISO 8601，带 `Z`）、`requestId`、`sessionId`、`isSidechain`。
 - **同一次回复会写成多条记录**：每个内容块一条，每条都带同一个 `message.id` 和同一份 `usage`。本会话核对结果：174 条 usage 记录只对应 57 个 `message.id`，同一 id 的 usage 完全一致，`requestId` 与 `message.id` 一一对应。直接求和会多算两倍多。
 - 本会话里调用过的 advisor 没有出现在这些 usage 记录里：174 条记录的 `message.model` 全是主模型。
+- **子代理的会话记录不同**（2026-10-17 核对 T1 规划子代理的记录）：
+  - 位置是 `<会话目录>/subagents/agent-<id>.jsonl`，记录的 `isSidechain` 全为真；
+  - 同一回复在流式生成时先写若干条中间记录：`message.stop_reason` 为 null，`output_tokens` 还没到终值（例如 8），输入与缓存两项已经是终值；最后一条是最终记录，`stop_reason` 为 `tool_use` 或 `end_turn`，带最终的 `output_tokens`（例如 800）；
+  - 该记录 40 个 `message.id` 里，33 个的各条用量不同，全部是这种“中间记录 + 最终记录”；每个 id 都有且只有一条最终记录；
+  - 主会话记录（同日 145 个 id）每条都带 `stop_reason`，同一 id 的各条完全一致，没有中间记录；
+  - 这个子代理的 `message.model` 是 `claude-haiku-5-5`，不是主会话的模型：本环境的子代理缺省模型不同于主会话。
 - 这不是公开文档化的接口，字段与写法可能随版本变化。
 
 ### 2.3 插件与配置
@@ -149,19 +156,24 @@
 - **D4 规划端用量来自宿主会话记录，先全局去重、再按窗口过滤**：
   1. **读取**：只读命令行显式给出的 `--transcript` 路径（文件，或目录下直接一层的 `*.jsonl`），不自动到用户目录里找。
   2. **候选记录**：顶层是对象、`message` 是对象、`message.id` 是非空字符串、`message.usage` 是对象。不看 `type` 字段。坏 JSON 行、非对象行计数后跳过。
-  3. **全局去重**：把所有给定文件的候选记录按 `message.id` 分组（与读取顺序无关）。同一组里，四个计数字段（`input_tokens`、`cache_creation_input_tokens`、`cache_read_input_tokens`、`output_tokens`）、`message.model` 与 `isSidechain` 必须全部相同，相同就只算一次（记重复条数）；有任何不同就记为冲突，这个 id 整个不计入，结果标为“部分”。
+  3. **全局去重**：把所有给定文件的候选记录按 `message.id` 分组（与读取顺序无关）。组内 `message.stop_reason` 是非空字符串的记录是**最终记录**，其余是流式生成时的**中间记录**（2.2）。
+     - 中间记录不参与计数，但它们的 `message.model` 与 `isSidechain` 必须与最终记录相同，否则这个 id 记为冲突；
+     - 有最终记录时：所有最终记录的四个计数字段（`input_tokens`、`cache_creation_input_tokens`、`cache_read_input_tokens`、`output_tokens`）、`message.model` 与 `isSidechain` 必须全部相同，相同就只算一次；有任何不同就记为冲突。冲突的 id 整个不计入，结果标为“部分”；
+     - 没有最终记录（流被中断）：这个 id 记为未完成，不计入，结果标为“部分”。
   4. **代表时间**：记录的 `timestamp` 必须是带时区（`Z` 或偏移）的 ISO 8601 时间，统一换算到 UTC；不带时区或无法解析的记录时间不可用，计数。代表时间是同一组里所有可用时间的最小值；一个可用时间都没有的 id 计数后跳过。
   5. **窗口**：去重之后再按代表时间过滤，`--since` 含、`--until` 不含；命令行的时间必须带时区（`Z` 或偏移），否则用法错误。
   6. **计数字段**：某个字段不是整数时，这条消息的该字段记 unknown 并计数，其余字段照常计入。
   7. **输出**：按模型、主线与子代理（`isSidechain`）分组的四项 token，以及下面这些计数。只读用量、时间、模型与 `isSidechain`，不读也不输出 `content` 或其他字段。
      - `skipped_lines`：按原因分开（`bad_json`、`not_object`、`not_candidate`），单位是行；
-     - `duplicate_records`：只在没有冲突的组里统计，等于组内记录数减 1 的总和；
+     - `intermediate_records`：所有组里中间记录的条数；
+     - `duplicate_records`：只在既不冲突也非未完成的组里统计，等于组内最终记录数减 1 的总和；
      - `conflict_ids` 与 `conflict_records`：冲突组的个数与这些组里的记录总数（冲突组不计入 `duplicate_records`）；
+     - `incomplete_ids`：没有最终记录的组的个数；
      - `unusable_timestamps`：不带时区或无法解析的记录时间，单位是记录；
      - `ids_without_time`：一个可用时间都没有、因而跳过的 id；
      - `outside_window_ids`：去重后因窗口被排除的 id；
      - `non_integer_fields`：计数字段不是整数的次数。
-     所有计数都在全局分组之后得出，与读取顺序无关。每个 id 恰好落入四类之一：冲突、无可用时间、窗口外、计入；判定顺序是先冲突，再无可用时间，再窗口。按行或按记录的计数（`skipped_lines`、`duplicate_records`、`conflict_records`、`unusable_timestamps`）与 id 分类可以重叠，不要相加当作互斥分类。`non_integer_fields` 按“去重后的消息 × 字段”统计，只统计计入的消息。
+     所有计数都在全局分组之后得出，与读取顺序无关。每个 id 恰好落入五类之一：冲突、未完成、无可用时间、窗口外、计入；判定顺序是先冲突，再未完成，再无可用时间，再窗口。按行或按记录的计数（`skipped_lines`、`intermediate_records`、`duplicate_records`、`conflict_records`、`unusable_timestamps`）与 id 分类可以重叠，不要相加当作互斥分类。结果在 `conflict_ids` 或 `incomplete_ids` 大于 0、或有给定的会话文件读不出来时标为“部分”。`non_integer_fields` 按“去重后的消息 × 字段”统计，只统计计入的消息。
   8. **覆盖范围**：只统计会话记录里有的调用。advisor 等不写进会话记录的调用不在其中（2.2），所以规划端用量是下界，输出里注明。
   理由：2.2 的实测；结果必须与文件顺序、记录顺序无关；不读对话内容；不越出用户指定的范围。
 - **D5 `plugins` 的只读部分复用 `codekit/plugins.py`，逐插件独立核对**：
@@ -354,8 +366,8 @@
 
 | 编号 | 场景 | 防止的失败 |
 |---|---|---|
-| L1 | 同一 `message.id` 写三条、usage 相同 | 按三次计数 |
-| L2 | 同一 `message.id` 两条：四项计数不同；或 `model` 不同；或 `isSidechain` 不同。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0。再加一组固定输入：一个冲突 id、一个无可用时间的 id、一个窗口外的 id、一个计入且两条记录都带 `output_tokens: null` 的 id，断言四类 id 各为 1、`non_integer_fields` 为 1 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
+| L1 | 同一 `message.id` 写三条、usage 相同且都带 `stop_reason`（主会话写法）；另一 id 先写三条 `stop_reason` 为 null、`output_tokens` 为 8 的中间记录，再写一条 `stop_reason` 为 `tool_use`、`output_tokens` 为 800 的最终记录（子代理写法） | 按三次计数；把子代理写法判为冲突；取到中间记录的 8 而不是最终的 800 |
+| L2 | 同一 `message.id` 两条最终记录：四项计数不同；或 `model` 不同；或 `isSidechain` 不同；中间记录的 `model` 与最终记录不同；只有中间记录、没有最终记录（断言 `incomplete_ids` 为 1、结果标“部分”）。另有一组三条，usage 依次为 A、A、B：断言 `conflict_ids` 为 1、`conflict_records` 为 3、`duplicate_records` 为 0。再加一组固定输入：一个冲突 id、一个无可用时间的 id、一个窗口外的 id、一个计入且两条记录都带 `output_tokens: null` 的 id，断言四类 id 各为 1、`non_integer_fields` 为 1 | 随意取一条；冲突不报；结果不标“部分”；计数口径漂移 |
 | L3 | 坏 JSON 行、非对象行、没有 usage 的记录、`message.id` 不是字符串、计数字段不是整数 | 崩溃，或悄悄算进去 |
 | L4 | 同一 `message.id` 分在两个文件里、时间分别在窗口边界两侧；记录恰好落在 `--since` 与 `--until` 上。对文件参数顺序、文件内记录顺序做全部置换，结果必须完全相同 | 结果随读取顺序变化；窗口边界错位；跨文件重复计数 |
 | L5 | 命令行时间不带时区；记录的 `timestamp` 无法解析；记录的 `timestamp` 可解析但不带时区（与同 id 另一条带 `Z` 的记录并存） | 把不带时区的时间当本地时间；把无时间的记录算进窗口；代表时间随运行环境的时区变化 |
