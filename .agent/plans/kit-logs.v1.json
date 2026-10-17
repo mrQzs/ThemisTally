@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "task_id": "kit-logs",
+  "plan_version": 1,
+  "title": "只读的 logs 子命令（list/show/search/usage）",
+  "repository": "ThemisTally",
+  "base_sha": "ce04541889a5b6cfbc34ce603a65b42afd08c241",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "scripts/kit_logs.py",
+      "tests/test_kit_logs.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_kit_logs_oracle.py",
+      "scripts/pi_dispatch.py",
+      "scripts/kit_config.py",
+      "scripts/kit_install.py",
+      "scripts/codekit/**",
+      "README.md",
+      "CHANGELOG.md",
+      ".claude/settings.example.json"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_logs_oracle.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "\\bskipped\\b"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kit_logs.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "\\bskipped\\b"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "py_compile",
+        "scripts/kit_logs.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "scripts/kit_logs.py",
+        "--help"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "usage:"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "四个子命令与顶层 `--repo` 的参数形式按 B0、B3、B4、B6、B7 工作；参数错误与目标错误的退出码为 2，只打印一行 `ERROR:`，不输出堆栈",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "调用方靠退出码与 ERROR 行区分用法错误与证据缺失，不会看到堆栈（V01 中的参数、错误与退出码用例）"
+    },
+    {
+      "id": "D02",
+      "text": "只读：四个子命令运行前后 `.agent/` 逐字节相同，也不新建任何文件或目录",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "证据只读（AGENTS.md），运维查看证据不会改动它（V01 中的只读用例）"
+    },
+    {
+      "id": "D03",
+      "text": "枚举与链接按 B1、B2、B3 工作：名字不符、非目录、链接的条目不进入也不计入证据；每一级链接都跳过并计数，不跟随（junction 形式的中间目录不进入）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不能读到 runs 之外的内容，链接也不能被当成证据（V01 中的枚举与链接用例）"
+    },
+    {
+      "id": "D04",
+      "text": "目标解析按 B5 工作：四种写法、`task` 取编号最大的非链接 attempt、`task.vN` 按 `meta.json` 的 `plan_version` 选择、显式路径按段栈逐段处理（每压入一级都查链接，名字被 `..` 抵消的那一级也查；出栈越过 runs 根即拒绝）、大小写与合法的 `..` 写法",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "`..` 不能越过链接（含被抵消的链接级）读到外部文件，而合法写法不能被误拒（V01 中的目标解析与 `..` 用例）"
+    },
+    {
+      "id": "D05",
+      "text": "JSON 键集与类型与 B10 完全一致；`show` 的摘要按 65536 字节截断并注明",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "键名固定，测试与调用方按键名读取，大文件不会整份输出（V01 中的键集与截断用例）"
+    },
+    {
+      "id": "D06",
+      "text": "`search` 按 B6 工作：后缀过滤、顺序、200 字符截断、`--max` 缺省 50、截断注明",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "长行与大量匹配不会让输出失控（V01 中的 search 与输出上限用例）"
+    },
+    {
+      "id": "D07",
+      "text": "执行端用量按 B7.1 工作：known、partial、unknown 的判定与合计（unknown 不计为 0，partial 计入下界）、按 `requested_model` 分组、输出不含 `cost`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "缺失的数不能当作 0，费用不由本命令计算（V01 中的执行端用量用例）"
+    },
+    {
+      "id": "D08",
+      "text": "规划端用量按 B7.2 工作：最终记录（`stop_reason` 非空）与中间记录的区分、冲突、未完成、去重（只数最终记录）、代表时间（组内所有记录的最小值）、窗口（`--since` 含、`--until` 不含）、五类计数口径、部分标记、空行忽略、与文件和行顺序无关、主线与子代理分开",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "子代理的流式中间记录不能被当成独立消息，结果与读取顺序无关，计数口径不漂移（V01 中的规划端用量用例）"
+    },
+    {
+      "id": "D09",
+      "text": "规划端不输出会话记录的 `content` 与其它字段，也不自动查找会话文件",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "会话记录可能含密钥与隐私，只读用户明确给出的路径（V01 中的内容保密与目录参数用例）"
+    },
+    {
+      "id": "D10",
+      "text": "链接判断只调用 `pi_dispatch` 的 `is_link_or_junction`、`first_link_component`、`is_within`，不复用 `resolve_run_dir` 与 `task_attempts`，源码中不出现 B0.7 列出的直接判断写法",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "D11 要求单一实现，不许另写同类判断（V01 中的替身与源码扫描用例）"
+    },
+    {
+      "id": "D11",
+      "text": "范围：除 `scripts/kit_logs.py` 与 `tests/test_kit_logs.py` 外没有任何改动",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "不改调度器、配置与其它模块，接入由规划端在集成后做"
+    },
+    {
+      "id": "D12",
+      "text": "执行端自测 `tests/test_kit_logs.py` 通过，且只覆盖合同未被 oracle 覆盖的细节；`py_compile`、`--help` 通过",
+      "evidence": [
+        "V02",
+        "V03",
+        "V04"
+      ],
+      "intent": "模块可导入、可运行，自测不是空壳"
+    },
+    {
+      "id": "D13",
+      "text": "执行报告列出所有 `interpretations` 与 `contract_conflicts`（格式见执行说明），每条写出合同原文与采用的做法",
+      "evidence": [
+        "review"
+      ],
+      "intent": "验收端能核对每个未经合同规定的取舍"
+    },
+    {
+      "id": "D14",
+      "text": "没有删除、跳过或弱化既有测试",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 3600,
+    "cost_budget": null
+  }
+}
