@@ -1133,5 +1133,303 @@ class ReadOnly(OracleBase):
         self.assertLess(len(out), 70000)
 
 
+# ---------------------------------------------------------------------------
+# 文件级链接（规划端补测，kit-logs a001 复审：变异 M18 漏掉）
+# ---------------------------------------------------------------------------
+
+class FileLevelLinks(OracleBase):
+    """读取前必须对证据文件本身做链接检查（合同 B1、B2、B4、B7.1；设计 D2）。
+
+    能在测试里建出的链接（符号链接、junction）用 lstat 看都不是普通文件，“只读普通文件”这一步就会挡住，
+    去掉链接检查也测不出来（kit-logs a001 的变异 M18）。所以这里用替身让 pi_dispatch.is_link_or_junction
+    把一个普通文件当成链接：文件内容合法，只差“是链接”这一处。每个用例先在没有替身时确认同一份内容
+    确实会被读出来，所以被测结果只能来自链接检查。
+    """
+
+    def fake_links(self, *names):
+        """让 attempt 目录里名为 names 之一的普通文件被判为链接，其余路径照常判断。"""
+        real = pd.is_link_or_junction
+        wanted = set(names)
+
+        def fake(path):
+            p = Path(str(path))
+            if p.name in wanted and self.runs in p.parents and p.is_file():
+                return True
+            return real(path)
+
+        return mock.patch.object(pd, "is_link_or_junction", side_effect=fake)
+
+    def test_state_json_link_is_not_read(self):
+        self.attempt("task-a", 1, state="PASS")
+        code, obj, err = self.jrun(["list"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((obj["attempts"][0]["state"], obj["attempts"][0]["state_at"]), ("PASS", STATE_AT))
+        with self.fake_links("state.json"):
+            code, obj, err = self.jrun(["list"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((obj["attempts"][0]["state"], obj["attempts"][0]["state_at"]), ("UNKNOWN", None))
+
+    def test_summary_md_link_is_not_read(self):
+        self.attempt("task-a", 1, summary="# 摘要\n内容\n")
+        code, obj, err = self.jrun(["show", "task-a"])
+        self.assertEqual(code, 0, err)
+        self.assertIsNotNone(obj["summary"])
+        with self.fake_links("summary.md"):
+            code, obj, err = self.jrun(["show", "task-a"])
+            self.assertEqual(code, 0, err)
+            self.assertIsNone(obj["summary"])
+            code, listed, err = self.jrun(["list"])
+        self.assertEqual(code, 0, err)
+        self.assertFalse(listed["attempts"][0]["has_summary"])
+
+    def test_events_summary_link_is_unknown_and_counted(self):
+        events = {"usage": {"input": 1, "output": 2, "cacheRead": 3, "cacheWrite": 4, "totalTokens": 10},
+                  "requested_model": MODEL_OBJ, "complete": True, "truncated": False, "parse_error_lines": []}
+        self.attempt("task-a", 1, events=events)
+        code, obj, err = self.jrun(["usage"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(obj["executor"]["counts"]["known"], 1)
+        with self.fake_links("events-summary.json"):
+            code, obj, err = self.jrun(["usage"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((obj["executor"]["counts"]["known"], obj["executor"]["counts"]["unknown"]), (0, 1))
+        self.assertEqual(obj["executor"]["attempts"][0]["usage"], None)
+        self.assertGreaterEqual(obj["executor"]["skipped_links"], 1)
+
+    def test_meta_json_link_is_not_used_for_plan_version(self):
+        self.attempt("task-a", 1, plan_version=2)
+        code, obj, err = self.jrun(["show", "task-a.v2"])
+        self.assertEqual((code, obj["attempt"] if obj else None), (0, "attempt-001"), err)
+        with self.fake_links("meta.json"):
+            self.assertUsageError(["show", "task-a.v2"])
+
+
+class ReworkV2(OracleBase):
+    """kit-logs 复审 attempt-001（REVISE）的 F1、F2、F3 用例（对应合同 kit-logs.v2）。
+
+    F1（B5.5 兜底）：形式 A、B、C 的目标目录也要过 pd.is_within(resolve)。用例把 pd.is_link_or_junction
+        替身成“永远不是链接”，于是只剩兜底能拒绝 runs/task-x（指向外部的 junction）。
+    F2（异常不得冒出，B0.5、B6、B7.2.5）：正则溢出与深嵌套、时间换算溢出、深嵌套 JSON。
+    F3（列举失败按层处理，B0.5、B5.6、B9）：runs 根退出码 1；目标解析中找不到（退出码 2）；其余目录跳过且不计数；
+        --transcript 目录列不出来计入 unreadable_files 并标部分。
+
+    每个用例都断言 stderr 不含 Traceback；异常冒出时以用例失败报告（不是测试框架的 ERROR）。
+    """
+
+    OUTSIDE_MARK = "F1-OUTSIDE-MARK"
+    CONTROL_MARK = "F1-CONTROL-MARK"
+    OVERFLOW_TS = "0001-01-01T00:30:00+01:00"
+    DEEP = "[" * 100000 + "]" * 100000
+
+    def run_checked(self, argv):
+        """运行一条命令：异常冒出即按用例失败；stderr 不得含 Traceback。"""
+        try:
+            code, out, err = run_logs(list(argv), self.repo)
+        except Exception as exc:  # 异常冒出 = 堆栈输出，按用例失败报告
+            self.fail("异常冒出（应退出码 0 或 2，不得冒出堆栈）：%s: %s；命令 %r" % (type(exc).__name__, exc, list(argv)))
+        self.assertNotIn("Traceback", err, argv)
+        return code, out, err
+
+    def json_checked(self, argv):
+        code, out, err = self.run_checked(list(argv) + ["--json"])
+        return code, (json.loads(out) if code == 0 else None), err
+
+    @staticmethod
+    def has_error_line(err):
+        return any(line.startswith("ERROR:") for line in err.splitlines())
+
+    def write_attempt_files(self, base, task, marker):
+        attempt = base / "attempt-001"
+        put(attempt / "summary.md", marker + "\n")
+        put(attempt / "state.json", dump({"state": "PASS", "at": STATE_AT}))
+        put(attempt / "meta.json", dump({"task_id": task, "plan_version": 1, "attempt_no": 1,
+                                         "attempt_id": task + "-001"}))
+
+    @contextlib.contextmanager
+    def unlistable(self, *directories):
+        """让这些目录列不出来：os.listdir、os.scandir 与 Path.iterdir 都抛 PermissionError；其余路径照常。"""
+        import pathlib
+        blocked = {os.path.normcase(os.path.abspath(str(d))) for d in directories}
+
+        def denied(path):
+            return os.path.normcase(os.path.abspath(str(path))) in blocked
+
+        def guard(real):
+            def guarded(path=".", *args, **kwargs):
+                if denied(path):
+                    raise PermissionError(13, "列目录被拒绝（替身）", str(path))
+                return real(path, *args, **kwargs)
+            return guarded
+
+        real_iterdir = pathlib.Path.iterdir
+
+        def guarded_iterdir(path_self):
+            if denied(path_self):
+                raise PermissionError(13, "列目录被拒绝（替身）", str(path_self))
+            return real_iterdir(path_self)
+
+        with mock.patch.object(os, "listdir", guard(os.listdir)), \
+                mock.patch.object(os, "scandir", guard(os.scandir)), \
+                mock.patch.object(pathlib.Path, "iterdir", guarded_iterdir):
+            yield
+
+    # ---- F1：B5.5 兜底（所有形式都要过 is_within(resolve)） ----
+
+    def test_f1_junction_target_is_rejected_when_the_link_check_is_stubbed_out(self):
+        self.write_attempt_files(self.outside / "xdir", "task-x", self.OUTSIDE_MARK)
+        self.make_dir_link(self.runs / "task-x", self.outside / "xdir")
+        with mock.patch.object(pd, "is_link_or_junction", return_value=False):
+            for target in ("task-x", "task-x.v1", "task-x/attempt-001"):
+                code, out, err = self.run_checked(["show", target])
+                self.assertEqual(code, 2, (target, out, err))
+                self.assertNotIn(self.OUTSIDE_MARK, out + err, target)
+
+    def test_f1_same_content_in_a_normal_directory_is_accepted_under_the_same_stub(self):
+        self.write_attempt_files(self.runs / "task-y", "task-y", self.CONTROL_MARK)
+        with mock.patch.object(pd, "is_link_or_junction", return_value=False):
+            for target in ("task-y", "task-y.v1", "task-y/attempt-001"):
+                code, out, err = self.run_checked(["show", target])
+                self.assertEqual(code, 0, (target, out, err))
+                self.assertIn(self.CONTROL_MARK, out, target)
+
+    def test_f1_junction_target_is_rejected_by_the_link_check_without_the_stub(self):
+        # 对照：没有替身时，链接检查本身就能拒绝（这条在候选上应当通过，它区分不了兜底是否存在）。
+        self.write_attempt_files(self.outside / "xdir", "task-x", self.OUTSIDE_MARK)
+        self.make_dir_link(self.runs / "task-x", self.outside / "xdir")
+        for target in ("task-x", "task-x.v1", "task-x/attempt-001"):
+            code, out, err = self.run_checked(["show", target])
+            self.assertEqual(code, 2, (target, out, err))
+            self.assertNotIn(self.OUTSIDE_MARK, out + err, target)
+
+    # ---- F2：异常不得冒出堆栈（B0.5、B6、B7.2.5） ----
+
+    def test_f2_overflowing_repetition_in_search_pattern_is_a_usage_error(self):
+        self.attempt("task-a", 1, summary="a\n")
+        code, out, err = self.run_checked(["search", "a{4294967296}"])
+        self.assertEqual(code, 2, (out, err))
+        self.assertTrue(self.has_error_line(err), err)
+
+    def test_f2_deeply_nested_search_pattern_is_a_usage_error(self):
+        self.attempt("task-a", 1, summary="a\n")
+        code, out, err = self.run_checked(["search", "(" * 100000 + ")" * 100000])
+        self.assertEqual(code, 2, (out, err))
+        self.assertTrue(self.has_error_line(err), err)
+
+    def test_f2_overflowing_timestamp_is_unusable_not_a_crash(self):
+        path = self.root / "overflow.jsonl"
+        transcript(path, [rec("ov1", ts=self.OVERFLOW_TS), rec("ov2", ts=self.OVERFLOW_TS), rec("ov2")])
+        code, obj, err = self.json_checked(["usage", "--transcript", str(path), "--since", SINCE, "--until", UNTIL])
+        self.assertEqual(code, 0, err)
+        planner = obj["planner"]
+        self.assertEqual(planner["unusable_timestamps"], 2)  # ov1 与 ov2 的溢出记录
+        self.assertEqual(planner["ids_without_time"], 1)     # ov1 组内没有其它可用时间
+        self.assertEqual(planner["included_messages"], 1)    # ov2 由带可用时间的那条代表
+        self.assertEqual(planner["duplicate_records"], 1)
+
+    def test_f2_overflowing_since_is_a_usage_error(self):
+        path = self.root / "since.jsonl"
+        transcript(path, [rec("s1")])
+        code, out, err = self.run_checked(["usage", "--transcript", str(path), "--since", self.OVERFLOW_TS])
+        self.assertEqual(code, 2, (out, err))
+
+    def test_f2_deeply_nested_transcript_line_is_bad_json(self):
+        path = self.root / "deep-line.jsonl"
+        transcript(path, [rec("d1"), Raw(self.DEEP)])
+        code, obj, err = self.json_checked(["usage", "--transcript", str(path), "--since", SINCE, "--until", UNTIL])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(obj["planner"]["skipped_lines"], {"bad_json": 1, "not_object": 0, "not_candidate": 0})
+        self.assertEqual(obj["planner"]["included_messages"], 1)
+
+    def test_f2_deeply_nested_state_json_gives_unknown_state(self):
+        self.attempt("task-a", 1, state=None, files={"state.json": self.DEEP})
+        code, obj, err = self.json_checked(["list"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((obj["attempts"][0]["state"], obj["attempts"][0]["state_at"]), ("UNKNOWN", None))
+
+    def test_f2_deeply_nested_events_summary_makes_the_attempt_unknown(self):
+        self.attempt("task-a", 1, events=self.DEEP)
+        code, obj, err = self.json_checked(["usage", "--task", "task-a"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(obj["executor"]["attempts"][0]["status"], "unknown")
+        self.assertEqual(obj["executor"]["counts"]["unknown"], 1)
+
+    def test_f2_deeply_nested_meta_json_is_a_non_match_for_plan_version(self):
+        self.attempt("task-d", 1, plan_version=1, summary="ok\n")
+        self.attempt("task-d", 2, files={"meta.json": self.DEEP})
+        code, obj, err = self.json_checked(["show", "task-d.v1"])
+        self.assertEqual((code, obj["attempt"]), (0, "attempt-001"), err)
+        self.attempt("task-e", 1, files={"meta.json": self.DEEP})
+        code, out, err = self.run_checked(["show", "task-e.v1"])
+        self.assertEqual(code, 2, (out, err))
+
+    # ---- F3：列举失败按层处理（B0.5、B5.6、B9） ----
+
+    def test_f3_runs_root_unlistable_is_exit_1_with_one_error_line(self):
+        self.attempt("task-a", 1, summary="a\n")
+        with self.unlistable(self.runs):
+            code, out, err = self.run_checked(["list"])
+        self.assertEqual(code, 1, (out, err))
+        self.assertTrue(self.has_error_line(err), err)
+
+    def test_f3_task_directory_unlistable_is_skipped_and_show_is_usage_error(self):
+        self.attempt("task-a", 1, summary="A\n")
+        self.attempt("task-b", 1, summary="B\n")
+        with self.unlistable(self.runs / "task-a"):
+            code, obj, err = self.json_checked(["list"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual({row["task"] for row in obj["attempts"]}, {"task-b"})
+            self.assertEqual(obj["skipped_links"], 0)  # 列不出来不是链接，不计入跳过的链接
+            code, out, err = self.run_checked(["show", "task-a"])
+            self.assertEqual(code, 2, (out, err))
+
+    def test_f3_attempt_directory_unlistable_is_skipped_and_its_own_show_is_usage_error(self):
+        self.attempt("task-a", 1, summary="A1\n")
+        self.attempt("task-a", 2, summary="A2\n")
+        with self.unlistable(self.runs / "task-a" / "attempt-002"):
+            code, obj, err = self.json_checked(["list"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual([(row["task"], row["attempt"]) for row in obj["attempts"]], [("task-a", "attempt-001")])
+            code, out, err = self.run_checked(["show", "task-a/attempt-002"])
+            self.assertEqual(code, 2, (out, err))
+
+    def test_f3_evidence_subdirectory_unlistable_is_not_counted_and_the_rest_is(self):
+        self.attempt("task-a", 1, summary="S\n", files={"notes.txt": "nn", "sub/x.txt": "xyz"})
+        state_bytes = len(dump({"state": "PASS", "at": STATE_AT}).encode("utf-8"))
+        with self.unlistable(self.runs / "task-a" / "attempt-001" / "sub"):
+            code, obj, err = self.json_checked(["list"])
+            self.assertEqual(code, 0, err)
+            row = obj["attempts"][0]
+            self.assertEqual(row["evidence_files"], 3)  # notes.txt、state.json、summary.md
+            self.assertEqual(row["evidence_bytes"], 2 + state_bytes + 2)
+            code, shown, err = self.json_checked(["show", "task-a/attempt-001"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual([item["path"] for item in shown["evidence"]],
+                             ["notes.txt", "state.json", "summary.md"])
+            self.assertEqual(shown["skipped_links"], 0)
+
+    def test_f3_transcript_directory_unlistable_counts_unreadable_and_marks_partial(self):
+        directory = self.root / "transcripts"
+        transcript(directory / "a.jsonl", [rec("u1")])
+        readable = self.root / "readable.jsonl"
+        transcript(readable, [rec("u2")])
+        argv = ["usage", "--transcript", str(directory), "--transcript", str(readable),
+                "--since", SINCE, "--until", UNTIL]
+        with self.unlistable(directory):
+            code, obj, err = self.json_checked(argv)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(obj["planner"]["unreadable_files"], 1)
+        self.assertTrue(obj["planner"]["partial"])
+        self.assertEqual(obj["planner"]["included_messages"], 1)  # 只有 readable.jsonl 的 u2
+
+    def test_f3_transcript_directory_readable_control(self):
+        directory = self.root / "transcripts"
+        transcript(directory / "a.jsonl", [rec("u1")])
+        code, obj, err = self.json_checked(["usage", "--transcript", str(directory), "--since", SINCE,
+                                            "--until", UNTIL])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((obj["planner"]["unreadable_files"], obj["planner"]["included_messages"],
+                          obj["planner"]["partial"]), (0, 1, False))
+
+
 if __name__ == "__main__":
     unittest.main()
