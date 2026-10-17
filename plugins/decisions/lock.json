@@ -1,10 +1,10 @@
 {
   "compiler_sha256": "91b0662c44d286ad5caa6864e9a0d5c24007e966fe83e208d59b4f96c58dc6e5",
   "generation": 1,
-  "lock_sha256": "ed5f7bef30f8e656dab5c45977c86f24efbd6a2105718a40b98f0c31e99a96e0",
+  "lock_sha256": "ca31e55edad2bc273ab1c5225a2bd97ba6a713b1afc7abcc39e1f0b56a85f658",
   "plugins": [
     {
-      "manifest_sha256": "11344a607ae6767ffa22b1c52202f25c9a4b167ab354d504d3f60adce209c310",
+      "manifest_sha256": "312d2cfe4e54eca5efa267ae2e4ab35e6112505edbfc3c0071613b5780c0a4d1",
       "plugin_id": "decisions",
       "resources": [
         {
@@ -17,7 +17,7 @@
           "id": "decisions.readme",
           "kind": "file",
           "path": "plugins/decisions/README.md",
-          "sha256": "dd232798d2bfe9cace86a742fbd2431547b067601ffbcce1519929041e9388b4"
+          "sha256": "f2fb26a42c3ce43f726941e0f3aca4612cfb2aeb5e8084d0d4358b170c97c5c9"
         },
         {
           "id": "decisions.report-screen",

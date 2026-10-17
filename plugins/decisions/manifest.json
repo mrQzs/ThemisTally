@@ -34,7 +34,7 @@
       "id": "decisions.readme",
       "kind": "file",
       "path": "plugins/decisions/README.md",
-      "sha256": "dd232798d2bfe9cace86a742fbd2431547b067601ffbcce1519929041e9388b4"
+      "sha256": "f2fb26a42c3ce43f726941e0f3aca4612cfb2aeb5e8084d0d4358b170c97c5c9"
     },
     {
       "id": "decisions.mutation-equivalence",

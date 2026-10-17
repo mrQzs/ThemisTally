@@ -10,6 +10,6 @@
 
 三条不变量：决策只是意见，门禁不读；一切 fail-open（无 key、超时、限流、畸形或自相矛盾的回复都记为“无意见”）；只发脱敏后的相关片段，记录里不存 state 原文。
 
-配置在 `.agent/dispatch.config.json` 的 `decisions` 对象（`mode` 为 `off | shadow | on`，缺省 `off`）；标记文件 `.agent/DECISIONS_OFF` 一票否决。实现在 `scripts/codekit/decisions.py`；设计说明 `docs/code-kit-2.6-决策插件.md`。
+配置在 `.agent/dispatch.config.json` 的 `decisions` 对象（`mode` 为 `off | shadow | on`，缺省 `off`）；标记文件 `.agent/DECISIONS_OFF` 一票否决。实现在 `scripts/codekit/decisions.py`；设计说明 `docs/themis-tally-2.6-决策插件.md`。
 
 问题用英文写（官方文档：英语为主，中日韩准确率较低），state 里优先放代码、命令与英文事件文本。改清单后运行 `python scripts/codekit/decisions.py --check-battery plugins/decisions/questions`，再重新生成锁文件。
