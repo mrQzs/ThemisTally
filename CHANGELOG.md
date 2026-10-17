@@ -1,5 +1,18 @@
 # 变更记录
 
+## 未发布（themis-3.0 分支）：3.0 第一轮——日志管理与插件管理
+
+设计说明 [docs/themis-tally-3.0-四端分层解耦架构.md](docs/themis-tally-3.0-四端分层解耦架构.md)（总体，拟议第 2 版）与 [docs/themis-tally-3.0-r1-日志与插件管理.md](docs/themis-tally-3.0-r1-日志与插件管理.md)（第一轮，2gate 闸一四轮后零 Blocking）。第一轮按 3.0 自己的做法推进：T1（`logs`）由规划端子代理写合同与 oracle（A 组），T2（`plugins`）由 Pi 作为合同端起草合同与 oracle、规划审核端审定后发布（B 组），两项实现都派给 Pi；实测记录在 `.agent/design/3.0-首轮实测.md`。
+
+- **`logs`（`scripts/kit_logs.py`，只读）**：`list`、`show`、`search`、`usage`。证据枚举不走 `os.walk`，每一级先查链接（junction 也算），显式路径按段栈处理 `..`，所有写法的目标都还要 `resolve` 后落在 runs 根之下；列不出来的目录按层处理（runs 根退出 1、目标解析退出 2、其余跳过）；`usage` 汇总执行端的 `events-summary.json` 与 `--transcript` 给出的 Claude Code 会话记录（按 `message.id` 分组、只比较最终记录、流式中间记录不计数），只报 token、注明是下界。
+- **`plugins`（`scripts/kit_plugins.py`）**：`list`、`show`、`verify` 只读，`enable`、`disable` 只改配置的 `plugins` 段。插件目录、清单、资源与决策插件题库在读之前逐级查链接（悬空链接也算），锁列只取 一致 / 漂移 / 无效 / 本轮不支持，链接类失败的原因写 `无效：链接`；状态用 `check_permission_intersection` 判定；改配置之前先查原配置，不合法就拒绝并附一条在原配置上执行得了的修复提示；写入只经 `write_checked`，决策插件生效时先核对题库并给出恢复顺序，`--dry-run` 与无变化走同一条检查链；变化摘要 `plugins.<键>: 旧 → 新`。带 `depends_on` 或 `conflicts` 的插件本轮不支持启用。
+- **调度器**：`logs`、`plugins` 在 argparse 之前截获并整段转发（只消费完整合法的全局 `--repo`，遇到其他以 `-` 开头的词就交回 argparse）；`KIT_LOADED_FILES` 加两个文件（随之受保护、随 kit 发放）；公开 `is_link_or_junction` 与新增 `first_link_component`，前者对含 NUL 的路径返回假。
+- **配置管理器**：`plugins` 键（`enabled`、`allowed_permissions`，只校验格式）与修复提示（先用整份校验模拟“执行之后的配置”，模拟通过才给出）；公开 `write_checked` 与 `plugins_section_error`。
+- **决策插件**：`verify_battery_lock` 遇到读不出的问题清单也报 `battery_drift`，不再冒出 OSError（`config validate`、`prepare`、`doctor` 原来都会在这里冒堆栈）。
+- 文档：README 命令表与功能列表、AGENTS.md 的 Codex 沙箱一节、`.claude/settings.example.json` 的放行规则。
+- 测试：`tests/test_kit_logs_oracle.py`（规划端 oracle，93 个）与 `tests/test_kit_logs.py`（执行端，12 个）；`tests/test_kit_plugins_oracle.py`（合同端起草、规划审核端审定与增补，113 个，其中 4 个文件符号链接变体在没有权限的 Windows 上跳过）与 `tests/test_kit_plugins.py`（执行端，8 个）；`tests/test_kit_v300.py`（转发、链接谓词、安装布局）；`tests/test_kit_config.py`、`tests/test_kit_v280.py` 各有增补。
+- 过程：两项实现各派了两次 Pi，第二次之后都由规划端按 rework.md 第四节补齐小缺口（T1 是列举之间的竞态，T2 是 show 与 list 的输出格式）；起草任务的返工基线只能手工建（总体设计 15.2 第 13 项）。
+
 ## 2.10.0：integrate 沿用检查结果，执行器的自检写法与解读清单（2026-10-15）
 
 设计说明 [docs/themis-tally-2.10-集成沿用与执行器纪律.md](docs/themis-tally-2.10-集成沿用与执行器纪律.md)。2026-10-15 的评估选了两类小改动，每轮都省时间、少返工；用户决定的两项均选推荐项。改动都在调度器、规则文件与技能里，由规划端直接做。
