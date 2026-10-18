@@ -219,7 +219,12 @@ def plugins_section_error(config: Dict[str, Any]) -> Optional[str]:
 
     3.0 第一轮：plugins enable / disable 在计算变化之前先查原配置，不合法就拒绝并附上
     plugins_fix_hint(原配置)——按变化之后的配置算出的提示，在原配置上未必执行得了。
+    plugins 的各个命令都先经过这里：疑似凭据先报（只含位置），不再跑会回显取值的格式检查，list / verify 也不会
+    把列入的 ID 当作“未安装”打印出来（闸二第 2 片第 3 轮 B1）。
     """
+    secret = pd.secret_config_error(config, "plugins")
+    if secret is not None:
+        return secret
     try:
         _check_plugins(config, None)
     except ConfigError as exc:
@@ -315,13 +320,13 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
         if not isinstance(key, str):
             errors.append("键必须是字符串")
         elif not key.startswith("_") and key not in KEYS:
-            errors.append("未知键 %r（已知：%s）" % (key, ", ".join(KEYS)))
+            shown = pd.SECRET_KEY_SHOWN if pd.secret_like_paths({key: None}) else repr(key)  # 键名像令牌时不回显
+            errors.append("未知键 %s（已知：%s）" % (shown, ", ".join(KEYS)))
     for key, (_desc, _default, check) in KEYS.items():
-        suspicious = pd.secret_like_paths({key: config[key]}) if key in config else []
-        if suspicious:  # 只报键路径，不跑这个键自己的检查：那些错误可能把取值带进输出（闸二第 2 片 B1，D9）
-            message = SECRET_CONFIG_MESSAGE % (key, "、".join(suspicious[:5]))
-            if message not in errors:
-                errors.append(message)
+        secret = pd.secret_config_error(config, key)
+        if secret is not None:  # 只报键路径，不跑这个键自己的检查：那些错误可能把取值带进输出（闸二第 2 片 B1，D9）
+            if secret not in errors:
+                errors.append(secret)
             continue
         try:
             check(config, repo)
@@ -336,7 +341,7 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
     return errors
 
 
-SECRET_CONFIG_MESSAGE = "%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存"
+SECRET_CONFIG_MESSAGE = pd.SECRET_CONFIG_MESSAGE
 SECRET_SHOWN = "（含疑似凭据，不显示）"
 
 
@@ -701,7 +706,9 @@ class ConfigTransaction:
         after_ref = self._snapshot(data, store=True)
         before_ref = self._snapshot(self.before, store=False)
         txn = _secrets.token_hex(16)
-        intent = self._record("intent", txn=txn, action=self.action, target=self.target, actor=_actor(),
+        # target 来自命令行（例如 unset 的键路径）：有令牌形状时不记原文（D9；闸二第 2 片第 3 轮）
+        target = SECRET_SHOWN if self.target is not None and pd.secret_like_paths(self.target) else self.target
+        intent = self._record("intent", txn=txn, action=self.action, target=target, actor=_actor(),
                               confirmation=confirmation, before_ref=before_ref, after_ref=after_ref,
                               invalidated_approvals=[], note=APPROVAL_NOTE)
         try:
@@ -809,7 +816,7 @@ def _effective(config: Dict[str, Any], repo: Any) -> List[Dict[str, Any]]:
     for key, (desc, default, _check) in KEYS.items():
         if key in config:
             # 疑似凭据的取值不显示（D9）：show 与 show --json 都只说明它在哪个键下
-            value = SECRET_SHOWN if pd.secret_like_paths({key: config[key]}) else config[key]
+            value = SECRET_SHOWN if pd.secret_config_error(config, key) else config[key]
             source = "config"
         elif key == "worktree_root" and os.environ.get("PI_DISPATCH_WORKTREE_ROOT"):
             value, source = os.environ["PI_DISPATCH_WORKTREE_ROOT"], "env:PI_DISPATCH_WORKTREE_ROOT"
@@ -819,24 +826,34 @@ def _effective(config: Dict[str, Any], repo: Any) -> List[Dict[str, Any]]:
     return rows
 
 
+def _decisions_summary(config: Dict[str, Any], repo: Any) -> Dict[str, Any]:
+    """config show 的决策摘要；配置无效时 {"error": 原因}。
+
+    摘要里的模型、端点与变量名都取自 decisions：其中有疑似凭据时不解析，只报位置（闸二第 2 片第 3 轮 B1，D9）。
+    """
+    secret = pd.secret_config_error(config, "decisions")
+    if secret is not None:
+        return {"error": secret}
+    try:
+        settings = _decisions.settings_from_config(config, repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
+        described = pd.describe_decisions(_decisions, settings)  # 问题清单经过链接时不读（battery_lock 记 link）
+        return {"mode": described["mode"], "configured_mode": described["configured_mode"],
+                "reason": described["reason"], "marker_present": described["marker_present"],
+                "model": described["model"], "base_url": described["base_url"],
+                "points": described["points"], "env_var_name": settings.api_key_env,
+                "battery_lock": described.get("battery_lock"),
+                "secret": _store.describe(settings.api_key_env)}
+    except _decisions.DecisionError as exc:
+        return {"error": exc.detail}
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     config = load_config(repo)
     errors = validate_config(config, repo)
     rows = _effective(config, repo)
     facts: Dict[str, Any] = {"config_path": str(config_path(repo)), "exists": config_path(repo).exists(),
-                             "errors": errors, "keys": rows}
-    try:
-        settings = _decisions.settings_from_config(config, repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
-        described = pd.describe_decisions(_decisions, settings)  # 问题清单经过链接时不读（battery_lock 记 link）
-        facts["decisions"] = {"mode": described["mode"], "configured_mode": described["configured_mode"],
-                              "reason": described["reason"], "marker_present": described["marker_present"],
-                              "model": described["model"], "base_url": described["base_url"],
-                              "points": described["points"], "env_var_name": settings.api_key_env,
-                              "battery_lock": described.get("battery_lock"),
-                              "secret": _store.describe(settings.api_key_env)}
-    except _decisions.DecisionError as exc:
-        facts["decisions"] = {"error": exc.detail}
+                             "errors": errors, "keys": rows, "decisions": _decisions_summary(config, repo)}
     if args.json:
         print(json.dumps(facts, ensure_ascii=False, indent=2))
         return EXIT_OK if not errors else EXIT_FAIL
@@ -1308,20 +1325,31 @@ def cmd_secret(args: argparse.Namespace) -> int:
         if state["error"]:
             result["error"] = state["error"]
     if result["stored"] and args.verify:
-        repo = _repo(args.repo)
-        settings = _decisions.settings_from_config(load_config(repo), repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
-        if settings.api_key_env != name:
-            result["verified"] = None
-            result["verify_note"] = "decisions.api_key_env 是 %s，不是 %s；没有探测" % (settings.api_key_env, name)
-        else:
-            probe = _decisions.probe(settings)
-            result["verified"] = probe["ok"]
-            if not probe["ok"]:
-                result["verify_error"] = probe["reason"]
+        result.update(_verify_stored(_repo(args.repo), name))
     else:
         result["verified"] = None
     print(json.dumps(result, ensure_ascii=False))
     return EXIT_OK if result["stored"] else EXIT_FAIL
+
+
+def _verify_stored(repo: Any, name: str) -> Dict[str, Any]:
+    """secret set --verify：按 decisions 的配置探测一次刚存进去的凭据，返回要并进结果的字段。
+
+    decisions 里有疑似凭据时不解析、不探测，只报位置（闸二第 2 片第 3 轮 B1，D9）：verify_note 会写出配置里的变量名。
+    """
+    config = load_config(repo)
+    secret = pd.secret_config_error(config, "decisions")
+    if secret is not None:
+        return {"verified": None, "verify_note": "%s；没有探测" % secret}
+    settings = _decisions.settings_from_config(config, repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
+    if settings.api_key_env != name:
+        return {"verified": None,
+                "verify_note": "decisions.api_key_env 是 %s，不是 %s；没有探测" % (settings.api_key_env, name)}
+    probe = _decisions.probe(settings)
+    fields: Dict[str, Any] = {"verified": probe["ok"]}
+    if not probe["ok"]:
+        fields["verify_error"] = probe["reason"]
+    return fields
 
 
 # ---------------------------------------------------------------------------

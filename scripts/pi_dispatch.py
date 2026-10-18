@@ -2536,7 +2536,7 @@ def redact_secrets(text: str) -> str:
     """把疑似凭据替换成 <redacted>。用于写进 doctor、预检与 smoke 结果的外部命令输出。
 
     先去掉 ANSI 样式；文本里嵌着的 JSON 对象或数组按结构处理（见 _redact_json）；其余按文本处理：PEM 私钥整块，
-    Bearer 与常见令牌前缀，疑似凭据的键（含 Authorization、API key）后面的值一直遮到行尾，连同缩进的续行；值在本行
+    Bearer 与常见令牌前缀（含 release-check 的 api key 形状），疑似凭据的键（含 Authorization、API key）后面的值一直遮到行尾，连同缩进的续行；值在本行
     确定不了结束时，遮蔽这条输出的其余部分。原始记录不改动：派遣的事件流与 stderr
     在本机被 Git 忽略的 .agent/runs/ 中；smoke 的原始日志在系统临时目录的 pi-smoke-* 中，成功且没有 --keep 时删除。
     """
@@ -2553,6 +2553,7 @@ def redact_secrets(text: str) -> str:
     text = "".join(pieces) + text[last:]
     text = _SECRET_PEM_RE.sub("<redacted>", text)
     text = _SECRET_TOKEN_RE.sub("<redacted>", text)
+    text = RELEASE_PATTERNS["api key"].sub("<redacted>", text)  # 与 secret_like_paths 的形状判定一致（3.0 第二轮 D9）
     out, last = [], 0
     for match in _SECRET_KV_RE.finditer(text):
         out.append(text[last:match.start()] + match.group(1) + "<redacted>")
@@ -2594,10 +2595,14 @@ def secret_like_paths(value: Any, path: Tuple[str, ...] = ()) -> List[str]:
 
     键名像凭据（_SECRET_KEY_RE）且值不为空，或者字符串值有凭据、令牌的形状（release-check 的 api key 规则与
     _SECRET_TOKEN_RE），都算。SECRET_NAME_FIELDS 列出的位置只免掉键名这一条，值的形状照样检查。
+    键名本身有令牌的形状时也算，位置里这一级写成 SECRET_KEY_SHOWN、不再往下找：报出来的位置不含它（闸二第 2 片第 3 轮）。
     """
     found: List[str] = []
     if isinstance(value, dict):
         for key, item in value.items():
+            if _token_shaped(str(key)):
+                found.append(".".join(path + (SECRET_KEY_SHOWN,)))
+                continue
             sub = path + (str(key),)
             if (_SECRET_KEY_RE.match(str(key)) and item not in (None, "", [], {})
                     and not _secret_name_field(sub, item)):
@@ -2607,9 +2612,34 @@ def secret_like_paths(value: Any, path: Tuple[str, ...] = ()) -> List[str]:
     elif isinstance(value, list):
         for index, item in enumerate(value):
             found.extend(secret_like_paths(item, path + (str(index),)))
-    elif isinstance(value, str) and (RELEASE_PATTERNS["api key"].search(value) or _SECRET_TOKEN_RE.search(value)):
+    elif isinstance(value, str) and _token_shaped(value):
         found.append(".".join(path) or "（顶层）")
     return found
+
+
+#: secret_like_paths 报出的位置里，代替有令牌形状的键名的那一级。
+SECRET_KEY_SHOWN = "（疑似凭据的键名）"
+
+
+def _token_shaped(text: str) -> bool:
+    """有凭据、令牌的形状：release-check 的 api key 规则或 _SECRET_TOKEN_RE。"""
+    return bool(RELEASE_PATTERNS["api key"].search(text) or _SECRET_TOKEN_RE.search(text))
+
+
+#: 配置的某个键之下有疑似凭据时报的那一句（3.0 第二轮 D9）：只列位置，不带取值。
+SECRET_CONFIG_MESSAGE = "%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存"
+
+
+def secret_config_error(config: Any, key: str) -> Optional[str]:
+    """config[key] 之下有疑似凭据时返回 SECRET_CONFIG_MESSAGE 那一句，没有（或没有这个键）时 None。
+
+    配置中心拿某个键的取值去校验、摘要、列表之前都先过这一关（D9；闸二第 2 片第 3 轮 B1）：validate_config、
+    config show、plugins 的各个命令、secret set --verify 与 kit_roles.check_key 共用它，不各自判断。
+    """
+    if not isinstance(config, dict) or key not in config:
+        return None
+    suspicious = secret_like_paths({key: config[key]})
+    return SECRET_CONFIG_MESSAGE % (key, "、".join(suspicious[:5])) if suspicious else None
 
 
 def pi_preflight(pi_cmd: List[str], cwd: Path, executor: Dict[str, Any], out_dir: Path,
@@ -3206,7 +3236,12 @@ def get_state(run_dir: Path) -> str:
 def attempt_in_flight(run_dir: Path) -> bool:
     """attempt 还在运行：状态为 RUNNING、COLLECTING，或者已领取的 PREPARED。collect --recover 与配置中心的
     运行中切换确认（3.0 第二轮 D8）共用这一个判定；已经结束的 attempt 留着 claim/ 也不算。"""
-    state = get_state(run_dir)
+    return state_in_flight(get_state(run_dir), run_dir)
+
+
+def state_in_flight(state: str, run_dir: Path) -> bool:
+    """attempt_in_flight 的判定本身，state 由调用方读出：配置中心要在同一次读取上同时判断读不读得出来
+    （闸二第 2 片第 3 轮 S4），不能读两次。"""
     return state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and (run_dir / "claim").is_dir())
 
 

@@ -161,6 +161,85 @@ class Validation(RolesRepo):
                 self.assertEqual(code, 1, err)
                 self.assertNotIn("qwertyuiopasdfgh", out + err)
 
+    # 闸二第 2 片第 3 轮 B1：config show 的决策摘要不解析含疑似凭据的 decisions
+    def test_g2s2r3_b1_decisions_summary_never_shows_secret_values(self):
+        self.write({"decisions": {"model": "sk-abcdefghijklmnop"}})  # 能通过模型 ID 的格式检查
+        for argv in (["show"], ["show", "--json"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertNotIn("abcdefghijklmnop", out + err)
+                self.assertIn("decisions.model", out + err)
+        facts = json.loads(run_config(["show", "--json"], self.repo)[1])
+        self.assertEqual(list(facts["decisions"]), ["error"])
+        self.assertIn("疑似凭据", facts["decisions"]["error"])
+
+    # 闸二第 2 片第 3 轮 B1：secret set --verify 不把 decisions 里的取值写进结果，也不探测
+    def test_g2s2r3_b1_secret_verify_never_shows_secret_values(self):
+        self.write({"decisions": {"api_key_env": "ghp_" + "a" * 36}})  # 符合环境变量名的格式
+
+        def probe(_settings):
+            raise AssertionError("不应探测")
+
+        tty = mock.Mock()
+        tty.isatty.return_value = True
+        with mock.patch.object(kit_config.sys, "stdin", tty), \
+                mock.patch.object(kit_config.getpass, "getpass", lambda _prompt: "value-for-test"), \
+                mock.patch.object(kit_config._decisions, "probe", probe):
+            code, out, err = run_config(["secret", "set", "OTHER_KEY", "--tty", "--verify"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("a" * 36, out + err)
+        result = json.loads(out)
+        self.assertIsNone(result["verified"])
+        self.assertIn("疑似凭据", result["verify_note"])
+
+    # 闸二第 2 片第 3 轮：键名本身像令牌时同样拒绝；报出的位置、快照、审计与历史里都没有它
+    def test_g2s2r3_token_shaped_keys_are_secrets_too(self):
+        token = "sk-" + "k" * 24
+        fragment = "k" * 24
+        profile = {"runtime": "pi", "model": {"provider": "bb", "id": "m"}}
+        self.write(self.base())
+        code, out, err = run_config(["set", "profiles", json.dumps({token: profile})], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn(pd.SECRET_KEY_SHOWN, err)
+        self.assertNotIn(fragment, out + err)
+        self.assertEqual(pd.secret_like_paths({"profiles": {token: {"api_key": "x"}}}),
+                         ["profiles.%s" % pd.SECRET_KEY_SHOWN])
+        unknown = self.errors({token: 1})  # 顶层的未知键同样不回显
+        self.assertEqual(len(unknown), 1)
+        self.assertIn(pd.SECRET_KEY_SHOWN, unknown[0])
+        self.assertNotIn(fragment, unknown[0])
+        self.assertIn("'nope'", self.errors({"nope": 1})[0])
+        config = self.base()  # 手改进去的
+        config["profiles"][token] = profile
+        self.write(config)
+        for argv in (["show"], ["show", "--json"], ["validate"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertNotIn(fragment, out + err)
+        code, _out, err = run_config(["unset", "profiles." + token], self.repo)  # 命令行的回显不在 D9 之内
+        self.assertEqual(code, 0, err)
+        for argv in (["history"], ["history", "--json"], ["history", "show", "1"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertNotIn(fragment, out + err)
+        agent = self.repo / ".agent"
+        stored = [path for name in ("audit", "config-history") for path in (agent / name).rglob("*") if path.is_file()]
+        self.assertTrue(stored)
+        for path in stored:
+            self.assertNotIn(fragment.encode("ascii"), path.read_bytes(), path)
+
+    # 闸二第 2 片第 3 轮：doctor 等输出的文本脱敏与共用检查用同一套形状（D9 的“不在此列”一条以此为前提）
+    def test_g2s2r3_redaction_covers_every_shape_the_check_flags(self):
+        for sample in ("AKIA" + "B" * 16, "AIza" + "c" * 35, "apikey_" + "d" * 30, "xoxs-" + "e" * 12,
+                       "sk-" + "f" * 20, "ghp_" + "g" * 36):
+            with self.subTest(sample=sample[:6]):
+                self.assertTrue(pd.secret_like_paths({"v": sample}))
+                self.assertNotIn(sample, pd.redact_secrets("model %s" % sample))
+                self.assertNotIn(sample, json.dumps(pd.redact_obj({"model": sample})))
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())
@@ -241,6 +320,47 @@ class Validation(RolesRepo):
         self.assertIsNone(error)
         self.assertEqual((value["role"], value["runtime"], value["adapter"], value["active_preset"]),
                          ("contract", "pi", "pi", "eco"))
+
+
+def run_plugins(argv, repo):
+    import kit_plugins  # noqa: PLC0415
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = kit_plugins.main(list(argv), repo=str(repo))
+        except SystemExit as exc:  # argparse
+            code = exc.code
+    return code, out.getvalue(), err.getvalue()
+
+
+class PluginEntries(RolesRepo):
+    """闸二第 2 片第 3 轮 B1：plugins 的各个命令先过共用的凭据检查，含疑似凭据就拒绝，不回显、不写入。"""
+
+    def setUp(self):
+        super().setUp()
+        kit = self.work / "kit"
+        shutil.copytree(str(ROOT / "plugins"), str(kit / "plugins"))
+        for patcher in (mock.patch.object(pd, "KIT_ROOT", kit),
+                        mock.patch.object(pd, "DECISIONS_PLUGIN_DIR", kit / "plugins" / "decisions")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_g2s2r3_b1_plugin_commands_never_echo_secret_values(self):
+        commands = (["list"], ["list", "--json"], ["verify"], ["verify", "--json"], ["show", "decisions"],
+                    ["show", "decisions", "--json"], ["enable", "decisions"], ["enable", "decisions", "--dry-run"],
+                    ["disable", "decisions"], ["disable", "decisions", "--dry-run"])
+        for section in ("Bearer abcdefghijklmnop", {"enabled": ["sk-abcdefghijklmnop"]},
+                        {"enabled": ["decisions"], "allowed_permissions": ["sk-abcdefghijklmnop"]}):
+            self.write({"plugins": section})
+            before = self.config_file.read_bytes()
+            for argv in commands:
+                with self.subTest(section=section, argv=argv):
+                    code, out, err = run_plugins(argv, self.repo)
+                    self.assertEqual(code, 1, err)
+                    self.assertNotIn("abcdefghijklmnop", out + err)
+                    self.assertIn("疑似凭据", err)
+                    self.assertEqual(self.config_file.read_bytes(), before)
+        self.assertFalse((self.repo / ".agent" / "audit").exists())
 
 
 class OldLayout(unittest.TestCase):
@@ -387,6 +507,59 @@ class SwitchConfirmation(RolesRepo):
         self.assertEqual(code, 1, err)
         self.assertIn("无法确认有没有在运行的 attempt", err)
         self.assertIn("state.json", err)
+
+    def test_g2s2r3_s4_one_read_decides_both_readability_and_running(self):
+        """第一次读成功、之后的读都失败：判定只能用第一次读到的对象（闸二第 2 片第 3 轮 S4）。"""
+        run_dir = self.attempt("RUNNING")
+        state = run_dir / "state.json"
+        reads = []
+        real_bytes, real_json = Path.read_bytes, pd.read_json
+
+        def counted(path):
+            reads.append(path)
+            if len(reads) > 1:
+                raise PermissionError(13, "拒绝访问（替身）", str(path))
+
+        def read_bytes(path):
+            if path == state:
+                counted(path)
+            return real_bytes(path)
+
+        def read_json(path):
+            if Path(path) == state:
+                counted(path)
+            return real_json(path)
+
+        with mock.patch.object(Path, "read_bytes", read_bytes), mock.patch.object(pd, "read_json", read_json):
+            code, _, err = self.switch()
+        self.assertEqual(code, 1, err)
+        self.assertIn("有 attempt 在运行", err)
+        self.assertIn("t1/attempt-001", err)
+
+    def test_g2s2r3_s4_a_state_that_is_not_an_object_is_not_idle(self):
+        run_dir = self.attempt("RUNNING")
+        (run_dir / "state.json").write_text(json.dumps(["RUNNING"]), encoding="utf-8")
+        code, _, err = self.switch()
+        self.assertEqual(code, 1, err)
+        self.assertIn("无法确认有没有在运行的 attempt", err)
+        self.assertIn("不是对象", err)
+        self.assertEqual(self.switch("--yes")[0], 0)
+        self.assertEqual(self.last_confirmation(), "flag")
+
+    def test_g2s2r3_s4_an_unreadable_claim_is_not_idle(self):
+        run_dir = self.attempt("PREPARED", claimed=True)
+        real = Path.is_dir
+
+        def is_dir(path, *args, **kwargs):  # 旧版 Python 的 Path.is_dir 会把拒绝访问抛出来
+            if path == run_dir / "claim":
+                raise PermissionError(13, "拒绝访问（替身）", str(path))
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "is_dir", is_dir):
+            code, _, err = self.switch()
+        self.assertEqual(code, 1, err)
+        self.assertIn("无法确认有没有在运行的 attempt", err)
+        self.assertIn("claim", err)
 
     def test_rollback_to_a_config_without_bindings(self):
         self.config_file.unlink()

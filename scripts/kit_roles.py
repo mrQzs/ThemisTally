@@ -247,10 +247,9 @@ def check_key(config: Dict[str, Any], key: str) -> List[str]:
 
     先查这个键之下疑似凭据的位置：有就只报这一条（只含键路径），不再报其他会提到取值的错误（闸二第 2 片 B1）。
     """
-    suspicious = pd.secret_like_paths({key: config[key]})
-    if suspicious:  # kit_config.validate_config 已经先查过；这里再挡一次，直接调用时同样不回显取值
-        return ["%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存" % (
-            key, "、".join(suspicious[:5]))]
+    secret = pd.secret_config_error(config, key)
+    if secret is not None:  # kit_config.validate_config 已经先查过；这里再挡一次，直接调用时同样不回显取值
+        return [secret]
     return CHECKS[key](config)
 
 
@@ -319,7 +318,7 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
 
 def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
     """正在运行的 attempt（task/attempt-NNN）与扫描中列不出来的位置。判定与 collect --recover 相同
-    （pd.attempt_in_flight）；不跟随链接。列不出来的不当作“没有在运行”（闸二第 2 片 S4）。"""
+    （pd.state_in_flight）；不跟随链接。列不出来的不当作“没有在运行”（闸二第 2 片 S4）。"""
     found: List[str] = []
     problems: List[str] = []
     runs = repo.runs_dir
@@ -336,24 +335,30 @@ def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
             problems.append("%s（%s）" % (task, exc.strerror or exc))
             continue
         for attempt in attempts:
-            unreadable = _state_unreadable(attempt)
+            running, unreadable = _attempt_status(attempt)
             if unreadable is not None:  # 状态读不出来：不能当作“没有在运行”（闸二第 2 片第 2 轮 S4）
                 problems.append(unreadable)
-            elif pd.attempt_in_flight(attempt):
+            elif running:
                 found.append("%s/%s" % (task.name, attempt.name))
     return found, problems
 
 
-def _state_unreadable(run_dir: Path) -> Optional[str]:
-    """attempt 的 state.json 存在却读不出或不是对象时，返回说明；不存在（还没准备完）或能读时 None。"""
+def _attempt_status(run_dir: Path) -> Tuple[bool, Optional[str]]:
+    """（是否在运行, 读不出来的说明）。state.json 只读一次，可读性与是否在运行都按这一次读到的对象判断
+    （闸二第 2 片第 3 轮 S4）；不存在（还没准备完）时不算在运行，存在却读不出或不是对象时给出说明。"""
     path = run_dir / "state.json"
     if not os.path.lexists(str(path)):
-        return None
+        return False, None
     try:
         data = json.loads(path.read_bytes().decode("utf-8"))
     except (OSError, ValueError) as exc:
-        return "%s（%s）" % (path, getattr(exc, "strerror", None) or type(exc).__name__)
-    return None if isinstance(data, dict) else "%s（不是对象）" % path
+        return False, "%s（%s）" % (path, getattr(exc, "strerror", None) or type(exc).__name__)
+    if not isinstance(data, dict):
+        return False, "%s（不是对象）" % path
+    try:
+        return pd.state_in_flight(str(data.get("state", "UNKNOWN")), run_dir), None
+    except OSError as exc:  # 已领取的 PREPARED 还要看 claim/：看不了同样不当作“没有在运行”
+        return False, "%s（%s）" % (run_dir / "claim", exc.strerror or type(exc).__name__)
 
 
 def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],
