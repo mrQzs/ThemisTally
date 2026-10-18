@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 3 稿（2026-10-19）**，随架构文档第 5 稿同步闸一第 2、3 轮的处置。
+状态：**第 4 稿（2026-10-19）**，随架构文档第 6 稿同步闸一第 2–4 轮的处置。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -879,6 +879,7 @@
   - ANSI 转义序列去掉，不解释颜色；
   - 不把网址自动变成链接。
 - 大文件按段加载：底部有 [继续加载]，显示“已显示 N 页”；`done` 为真时显示“已到末尾”。行数很多时用虚拟滚动。
+- **一行的分片**：一行很长时，服务分几页给出（`part`、`parts`）。界面把同一行的分片接起来显示，行号旁标“第 k/n 片”；后面的片还没加载时，行尾显示 [继续加载]。
 - **隐藏的行**：服务对解析不了的 JSONL 行、超过 4 MiB 的行只给占位。界面显示为一行：`eye-off` 图标加 `--tt-text-3` 斜体的“这一行不是合法 JSON，已隐藏”或“这一行超过 4 MiB，已隐藏”，不能展开。
 - **文件已变化**（409）：显示 info 提示条“文件已变化”，附 [从头读取]。
 - **安全 Markdown**（摘要、复审记录用）：
@@ -1021,7 +1022,7 @@ stateDiagram-v2
   - 确认号（60 秒有效）。
 - **执行**：调用对应的写路由，带上确认号。只有预览说需要时，才带“确认切换”的含义，也就是 `--yes`，由服务处理，界面不直接拼参数。
 - **结果**：无论成败都重新读取受影响的数据，再按 `ok`、`exit_code` 与重读的结果决定显示哪种状态（7.11）。界面上的“已切换”之类的话，只在重新读取之后出现。
-- **连接中断**：确认号就是操作号。断线之后先轮询 `getOperation(id)`，拿到终态再重读；查不到时进入“结果未知”（7.11），不凭一次读取下结论。
+- **连接中断**：确认号就是操作号。断线之后先轮询 `getOperation(id)`，拿到终态再重读；查到的记录里有原命令完整的信封，WARN 与 ERROR 照常显示。查不到时进入“结果未知”（7.11），不凭一次读取下结论。
 
 ### 8.4 长作业
 
@@ -1085,7 +1086,7 @@ stateDiagram-v2
 | `subscribeEvents(onSnapshot)` | `GET /api/v1/events`（SSE） |
 | `listAttempts(task?)` | `GET /api/v1/attempts` |
 | `getAttempt(task, attempt)` | `GET /api/v1/attempts/<task>/<attempt>` |
-| `readFile(task, attempt, path, cursor?)` | `GET /api/v1/attempts/<task>/<attempt>/file`；返回 `{text, next_cursor, done}`，游标原样带回 |
+| `readFile(task, attempt, path, cursor?)` | `GET /api/v1/attempts/<task>/<attempt>/file`。按 `mode` 返回两种形状：`text` 模式是 `{mode, text, part?, parts?, next_cursor, done}`；`jsonl` 模式是 `{mode, lines, next_cursor, done}`，`lines` 的每项是一行 `{n, text}`、一行的分片 `{n, text, part, parts}` 或占位 `{n, hidden}`。游标原样带回 |
 | `search(q, task?)` | `GET /api/v1/search` |
 | `getUsage()` | `GET /api/v1/usage` |
 | `getConfig()`、`validateConfig()` | `GET /api/v1/config`、`/config/validate` |
@@ -1095,7 +1096,7 @@ stateDiagram-v2
 | `getPlugins()`、`getPlugin(id)` | `/api/v1/plugins` |
 | `listSecrets()`、`checkSecret(name)`、`startSecretEntry(name)` | `/api/v1/secrets`、`/api/v1/secrets/<name>`、`POST /api/v1/secrets/<name>/entry`（作业） |
 | `preview(action, args)` | `POST /api/v1/preview` |
-| `getOperation(id)` | `GET /api/v1/operations/<id>`：写操作的终态（运行中、已结束与退出码、已取消） |
+| `getOperation(id)` | `GET /api/v1/operations/<id>`：写操作的终态，以及完整的结果信封（含 `output`、`messages`）；断线之后用它恢复警告与报错 |
 | `setRole`、`usePreset`、`savePreset`、`removePreset`、`saveProfile`、`removeProfile`、`addRuntime`、`removeRuntime`、`setPluginEnabled`、`rollback` | 对应的写路由 |
 
 **宿主接口**（外壳在窗口里提供，见架构文档 D10）：
@@ -1178,16 +1179,17 @@ stateDiagram-v2
  "text": "## 执行报告\n\n已按合同实现 logs cat。\n\n<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字\n\n- self_checks: V01–V08 通过\n"}
 ```
 
-`events.jsonl` 的一页（示意）：合法的行给出脱敏之后的对象，坏行与超长行只给占位，界面按 7.12 显示。
+`events.jsonl` 的一页（示意）：合法的行给出按键名脱敏、紧凑序列化之后的文本；一行超过每页上限时分片给出（`part`、`parts`）；坏行与超长行只给占位。界面按 7.12 显示。
 
 ```json
 {"path": "events.jsonl", "mode": "jsonl", "done": false, "next_cursor": "c1-0001a2f3",
  "lines": [
-   {"n": 1, "json": {"type": "agent_start"}},
-   {"n": 2, "json": {"type": "tool_execution_end", "toolName": "bash", "isError": false}},
+   {"n": 1, "text": "{\"type\":\"agent_start\"}"},
+   {"n": 2, "text": "{\"type\":\"tool_execution_end\",\"toolName\":\"bash\",\"isError\":false}"},
    {"n": 3, "hidden": "not_json"},
    {"n": 4, "hidden": "too_long"},
-   {"n": 5, "json": {"type": "message_update", "text": "<redacted>"}}]}
+   {"n": 5, "text": "{\"type\":\"message_update\",\"api_key\":\"<redacted>\"}"},
+   {"n": 6, "text": "{\"type\":\"tool_result\",\"output\":\"aaaa", "part": 1, "parts": 2}]}
 ```
 
 ### 9.5 `getRoles`（`config role show --json`）
@@ -1429,4 +1431,5 @@ stateDiagram-v2
 13. 写操作无论成败都重新读取；“完成但有警告”“已部分写入”两种状态都有设计（7.11）。
 14. “下一步”复制的是精确的 attempt 目录（6.3）。
 15. 隐藏的行（不合法的 JSON、超长）有占位样式；搜索摘录只来自脱敏之后的文本（7.12、6.7）。
-16. “结果未知”状态有设计；连接中断时不凭一次读取下结论（7.11、8.3）。
+16. “结果未知”状态有设计；连接中断时不凭一次读取下结论，查到的操作记录里的 WARN 与 ERROR 照常显示（7.11、8.3）。
+17. 一行的分片能接起来显示，行号旁有“第 k/n 片”（7.12）。
