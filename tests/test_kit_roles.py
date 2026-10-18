@@ -126,6 +126,50 @@ class Validation(RolesRepo):
         ok["profiles"]["exec-step"]["credential_env"] = ["STEP_API_KEY"]  # 变量名的字段豁免键名规则
         self.assertEqual(self.errors(ok), [])
 
+    # 闸二第 2 片 B1：拒绝的时候也不回显疑似凭据
+    def test_g2s2_b1_refusals_never_echo_secret_values(self):
+        self.write(self.base())
+        for key, value in (
+                ("profiles.leak", {"runtime": "pi", "model": {"provider": "bb", "id": "Bearer abcdefghijklmnop"}}),
+                ("profiles.leak", {"runtime": "sk-" + "q" * 30, "model": {"provider": "bb", "id": "m"}}),
+                ("roles", {"execution": {"mode": "headless", "profile": "ghp_" + "w" * 36}}),
+                ("active_preset", "xoxb-" + "e" * 20)):
+            with self.subTest(key=key):
+                code, out, err = run_config(["set", key, json.dumps(value)], self.repo)
+                self.assertEqual(code, 1, err)
+                for fragment in ("abcdefghijklmnop", "q" * 30, "w" * 36, "e" * 20):
+                    self.assertNotIn(fragment, out + err)
+
+    # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
+    def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
+        self.write(self.base())
+        bad_values = (None, [], {}, 3)
+        for value in bad_values:
+            with self.subTest(value=value):
+                for key, payload in (
+                        ("runtimes", {"pi": {"adapter": value}}),
+                        ("profiles.p", {"runtime": value, "model": {"provider": "bb", "id": "m"}}),
+                        ("roles", {"execution": {"mode": value}}),
+                        ("roles", {"planning_review": {"mode": "interactive_host", "host": value}}),
+                        ("roles", {"execution": {"mode": "headless", "profile": value}}),
+                        ("active_preset", value)):
+                    code, _out, err = run_config(["set", key, json.dumps(payload)], self.repo)
+                    self.assertEqual(code, 1, (key, payload, err))
+                    self.assertNotIn("Traceback", err)
+        self.assertEqual(kit_roles.binding_tuple({"roles": {"execution": {"mode": "headless", "profile": []}},
+                                                  "profiles": {"p": {"runtime": {}}}}, "execution")[1], None)
+
+    # 闸二第 2 片 S3：说明键与 cadence_seconds
+    def test_g2s2_s3_notes_and_explicit_null_cadence(self):
+        config = self.base(roles={"scheduler_agent": {"mode": "headless", "profile": "exec-low",
+                                                       "cadence_seconds": None}})
+        self.assertTrue(any("cadence_seconds" in e for e in self.errors(config)))
+        notes = self.base(presets={"_note": "方案说明", "eco": {"roles": {"execution": {
+            "mode": "headless", "profile": "exec-step"}}}})
+        notes["runtimes"]["_note"] = "本机 CLI 登记"
+        notes["profiles"]["_note"] = {"任意": "说明"}
+        self.assertEqual(self.errors(notes), [])
+
     # C5
     def test_runtimes_carry_no_command(self):
         self.assertRefused("runtimes", {"pi": {"adapter": "pi", "command": ["evil.exe"]}}, "dispatch.local.json")
@@ -209,10 +253,13 @@ class OldLayout(unittest.TestCase):
             self.assertNotIn("Traceback", err)
         config = json.loads((repo / ".agent" / "dispatch.config.json").read_text(encoding="utf-8"))
         config["roles"] = {"execution": {"mode": "headless", "profile": "p"}}
+        config["runtimes"] = {"pi": {"adapter": "pi"}}
+        config["profiles"] = {"p": {"runtime": "pi", "model": {"provider": "bb", "id": "m"}}}
         (repo / ".agent" / "dispatch.config.json").write_text(json.dumps(config), encoding="utf-8")
         code, out, err = tool("config", "validate")
         self.assertEqual(code, 1, (out, err))  # 缺模块经整份校验报出：一行 ERROR，不冒堆栈（D12）
-        self.assertIn("kit_roles.py", out + err)
+        self.assertEqual([line for line in out.splitlines() if "kit_roles.py" in line and line.startswith("ERROR")],
+                         ["ERROR 配置里有角色绑定的键，但 scripts/kit_roles.py 不在本工具旁边"])  # 三个键只报一次
         self.assertNotIn("Traceback", err)
 
 
@@ -285,6 +332,24 @@ class SwitchConfirmation(RolesRepo):
                 code, _, err = run_config(argv, self.repo)
                 self.assertEqual(code, 1, (argv, err))
                 self.assertIn("--yes", err)
+
+    def test_g2s2_s4_an_unreadable_runs_directory_is_not_treated_as_idle(self):
+        runs = self.repo / ".agent" / "runs"
+        (runs / "t1").mkdir(parents=True)
+        real = Path.iterdir
+
+        def iterdir(path):
+            if path == runs:
+                raise PermissionError(13, "拒绝访问（替身）", str(path))
+            return real(path)
+
+        with mock.patch.object(Path, "iterdir", iterdir):
+            code, _, err = self.switch()
+            self.assertEqual(code, 1, err)
+            self.assertIn("无法确认有没有在运行的 attempt", err)
+            code, _, err = self.switch("--yes")
+            self.assertEqual(code, 0, err)
+        self.assertEqual(self.last_confirmation(), "flag")
 
     def test_rollback_to_a_config_without_bindings(self):
         self.config_file.unlink()

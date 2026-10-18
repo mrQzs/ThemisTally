@@ -325,7 +325,8 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
                 hint = plugins_fix_hint(config, repo)
                 if hint:
                     message += "；修复：%s" % hint
-            errors.append(message)
+            if message not in errors:  # 例如缺 kit_roles.py 时几个 v3 键报的是同一句，只报一次
+                errors.append(message)
     return errors
 
 
@@ -538,8 +539,10 @@ def _valid_record(record: Any) -> bool:
     """审计记录的结构：阶段与资源是已知值，事务记录有字符串的 txn，终结记录有字符串的 result，引用是 None 或带哈希的对象。"""
     if not isinstance(record, dict) or record.get("record_type") != "management-audit":
         return False
-    phase = record.get("phase")
-    if phase not in AUDIT_PHASES or record.get("resource") not in RESOURCES:
+    phase, resource = record.get("phase"), record.get("resource")
+    # 先看类型再做成员判断：不可哈希的值（数组、对象）在 dict 里查成员会抛 TypeError（闸二第 2 片 S1）
+    if not isinstance(phase, str) or phase not in AUDIT_PHASES or not isinstance(resource, str) \
+            or resource not in RESOURCES:
         return False
     if phase != "observed" and not isinstance(record.get("txn"), str):
         return False
@@ -739,12 +742,16 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
     if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
         return "none"
     roles = _kit_roles()
-    in_flight = roles.binding_switch_in_flight(repo, old_config, new_config)
-    if not in_flight:
+    in_flight, unreadable = roles.binding_switch_in_flight(repo, old_config, new_config)
+    if not in_flight and not unreadable:
         return "none"
     if not confirm:
-        raise ConfigError("有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：%s。"
-                          "运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes" % "、".join(in_flight))
+        if in_flight:
+            raise ConfigError("有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：%s。"
+                              "运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes" % "、".join(in_flight))
+        # 列不出来就判断不了有没有在运行的：不当作“没有”（闸二第 2 片 S4）
+        raise ConfigError("这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：%s）；"
+                          "确认要切换就加 --yes" % "、".join(unreadable))
     return "flag"
 
 

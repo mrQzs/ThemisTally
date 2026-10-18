@@ -72,6 +72,18 @@ def _extra_keys(obj: Dict[str, Any], allowed: Tuple[str, ...]) -> List[str]:
     return sorted(str(key) for key in obj if not str(key).startswith("_") and key not in allowed)
 
 
+def _entries(mapping: Dict[str, Any]) -> List[Tuple[str, Any]]:
+    """{ID: 对象} 这一层的条目；下划线开头的是说明键，不是条目（与每个对象里的说明键同一规则）。"""
+    return [(str(key), value) for key, value in mapping.items() if not str(key).startswith("_")]
+
+
+def _shown(value: Any) -> str:
+    """错误里要提到的值：只有像 ID、又不像凭据的字符串才原样显示，其余一律隐去（D9：不输出凭据值，闸二第 2 片 B1）。"""
+    if isinstance(value, str) and pd.TASK_ID_RE.match(value) and not pd.secret_like_paths({"v": value}):
+        return repr(value)
+    return "（值不显示）"
+
+
 def _model_errors(where: str, model: Any) -> List[str]:
     if not isinstance(model, dict):
         return ["%s.model 必须是 {provider, id}" % where]
@@ -80,16 +92,17 @@ def _model_errors(where: str, model: Any) -> List[str]:
     for field in ("provider", "id"):
         value = model.get(field)
         if not isinstance(value, str) or not pd.MODEL_TOKEN_RE.match(value) or pd.PLACEHOLDER_RE.search(value):
-            errors.append("%s.model.%s 必须是精确的 ID（%r）" % (where, field, value))
+            errors.append("%s.model.%s 必须是精确的 ID" % (where, field))
     return errors
 
 
 def _adapter_of(config: Dict[str, Any], runtime_id: Any) -> Optional[str]:
     runtimes = config.get("runtimes")
-    if not isinstance(runtimes, dict) or not isinstance(runtimes.get(runtime_id), dict):
+    if not isinstance(runtime_id, str) or runtime_id.startswith("_") or not isinstance(runtimes, dict) \
+            or not isinstance(runtimes.get(runtime_id), dict):
         return None
     adapter = runtimes[runtime_id].get("adapter")
-    return adapter if adapter in ADAPTERS else None
+    return adapter if isinstance(adapter, str) and adapter in ADAPTERS else None
 
 
 def _check_runtimes(config: Dict[str, Any]) -> List[str]:
@@ -97,7 +110,7 @@ def _check_runtimes(config: Dict[str, Any]) -> List[str]:
     if not isinstance(runtimes, dict):
         return ["runtimes 必须是对象 {ID: {adapter}}"]
     errors: List[str] = []
-    for runtime_id, spec in runtimes.items():
+    for runtime_id, spec in _entries(runtimes):
         where = "runtimes.%s" % runtime_id
         if not _id_ok(runtime_id):
             errors.append("%s：ID 不合法" % where)
@@ -107,7 +120,8 @@ def _check_runtimes(config: Dict[str, Any]) -> List[str]:
         extra = _extra_keys(spec, RUNTIME_KEYS)
         if extra:
             errors.append("%s 只接受 adapter，不能写 %s（命令路径放 .agent/dispatch.local.json）" % (where, "、".join(extra)))
-        if spec.get("adapter") not in ADAPTERS:
+        adapter = spec.get("adapter")
+        if not isinstance(adapter, str) or adapter not in ADAPTERS:
             errors.append("%s.adapter 必须是 %s 之一" % (where, "、".join(ADAPTERS)))
     return errors
 
@@ -117,7 +131,7 @@ def _check_profiles(config: Dict[str, Any]) -> List[str]:
     if not isinstance(profiles, dict):
         return ["profiles 必须是对象 {ID: {runtime, model, options, credential_env}}"]
     errors: List[str] = []
-    for profile_id, spec in profiles.items():
+    for profile_id, spec in _entries(profiles):
         where = "profiles.%s" % profile_id
         if not _id_ok(profile_id):
             errors.append("%s：ID 不合法" % where)
@@ -129,7 +143,7 @@ def _check_profiles(config: Dict[str, Any]) -> List[str]:
             errors.append("%s 有未知键：%s" % (where, "、".join(extra)))
         adapter = _adapter_of(config, spec.get("runtime"))
         if adapter is None:
-            errors.append("%s.runtime %r 没有登记（或它的 adapter 无效）" % (where, spec.get("runtime")))
+            errors.append("%s.runtime %s 没有登记（或它的 adapter 无效）" % (where, _shown(spec.get("runtime"))))
         errors += _model_errors(where, spec.get("model"))
         options = spec.get("options", {})
         if not isinstance(options, dict):
@@ -152,21 +166,24 @@ def _binding_errors(config: Dict[str, Any], where: str, role: str, binding: Any)
     if not isinstance(binding, dict):
         return ["%s 必须是对象 {mode, …}" % where]
     mode = binding.get("mode")
-    if mode not in ROLE_MODES[role]:
-        return ["%s.mode 必须是 %s 之一（%r）" % (where, "、".join(ROLE_MODES[role]), mode)]
+    if not isinstance(mode, str) or mode not in ROLE_MODES[role]:
+        return ["%s.mode 必须是 %s 之一（当前 %s）" % (where, "、".join(ROLE_MODES[role]), _shown(mode))]
     allowed = {"interactive_host": ("mode", "host"), "headless": ("mode", "profile") + (
         ("cadence_seconds",) if role == "scheduler_agent" else ()), "manual": ("mode",), "disabled": ("mode",)}[mode]
     errors = ["%s 有未知键：%s" % (where, "、".join(_extra_keys(binding, allowed)))] \
         if _extra_keys(binding, allowed) else []
-    if mode == "interactive_host" and "host" in binding and binding["host"] not in HOST_ADAPTERS:
+    if mode == "interactive_host" and "host" in binding and (
+            not isinstance(binding["host"], str) or binding["host"] not in HOST_ADAPTERS):
         errors.append("%s.host 必须是 %s 之一" % (where, "、".join(HOST_ADAPTERS)))
     if mode == "headless":
         profiles = config.get("profiles") if isinstance(config.get("profiles"), dict) else {}
-        if not isinstance(binding.get("profile"), str) or binding["profile"] not in profiles:
-            errors.append("%s.profile %r 没有登记" % (where, binding.get("profile")))
-        cadence = binding.get("cadence_seconds")
-        if cadence is not None and (isinstance(cadence, bool) or not isinstance(cadence, int) or cadence < 60):
-            errors.append("%s.cadence_seconds 必须是至少 60 的整数" % where)
+        profile = binding.get("profile")
+        if not isinstance(profile, str) or profile.startswith("_") or profile not in profiles:
+            errors.append("%s.profile %s 没有登记" % (where, _shown(profile)))
+        if "cadence_seconds" in binding:  # 写了就必须合法，null 也不行（闸二第 2 片 S3）
+            cadence = binding["cadence_seconds"]
+            if isinstance(cadence, bool) or not isinstance(cadence, int) or cadence < 60:
+                errors.append("%s.cadence_seconds 必须是至少 60 的整数" % where)
     return errors
 
 
@@ -187,7 +204,7 @@ def _check_presets(config: Dict[str, Any]) -> List[str]:
     if not isinstance(presets, dict):
         return ["presets 必须是对象 {名: {description, roles}}"]
     errors: List[str] = []
-    for name, spec in presets.items():
+    for name, spec in _entries(presets):
         where = "presets.%s" % name
         if not _id_ok(name):
             errors.append("%s：名字不合法" % where)
@@ -214,8 +231,8 @@ def _check_presets(config: Dict[str, Any]) -> List[str]:
 def _check_active_preset(config: Dict[str, Any]) -> List[str]:
     name = config.get("active_preset")
     presets = config.get("presets") if isinstance(config.get("presets"), dict) else {}
-    if not isinstance(name, str) or name not in presets:
-        return ["active_preset %r 不是已有的方案" % (name,)]
+    if not isinstance(name, str) or name.startswith("_") or name not in presets:
+        return ["active_preset %s 不是已有的方案" % _shown(name)]
     return []
 
 
@@ -224,13 +241,15 @@ CHECKS = {"runtimes": _check_runtimes, "profiles": _check_profiles, "roles": _ch
 
 
 def check_key(config: Dict[str, Any], key: str) -> List[str]:
-    """kit_config 的 KEYS 检查：key 缺省时不调用这里。形状与引用之外，这个键之下疑似凭据的位置也是错误。"""
-    errors = CHECKS[key](config)
+    """kit_config 的 KEYS 检查：key 缺省时不调用这里。
+
+    先查这个键之下疑似凭据的位置：有就只报这一条（只含键路径），不再报其他会提到取值的错误（闸二第 2 片 B1）。
+    """
     suspicious = pd.secret_like_paths({key: config[key]})
     if suspicious:
-        errors.append("%s 里有疑似凭据（%s）：凭据只写环境变量名（credential_env），值用 config secret set 存" % (
-            key, "、".join(suspicious[:5])))
-    return errors
+        return ["%s 里有疑似凭据（%s）：凭据只写环境变量名（credential_env），值用 config secret set 存" % (
+            key, "、".join(suspicious[:5]))]
+    return CHECKS[key](config)
 
 
 # ---------------------------------------------------------------------------
@@ -245,18 +264,25 @@ def effective_binding(config: Dict[str, Any], role: str) -> Optional[Dict[str, A
 
 
 def binding_tuple(config: Dict[str, Any], role: str) -> Optional[Tuple[Any, ...]]:
-    """D8 比较的元组（mode, profile, runtime, adapter, provider, model, thinking）；没有绑定时 None。"""
+    """D8 比较的元组（mode, profile, runtime, adapter, provider, model, thinking）；没有绑定时 None。
+
+    写入前的配置可能是手改坏的：任何字段类型不对都按“没有这一项”处理，这里不抛异常。
+    """
     binding = effective_binding(config, role)
     if binding is None:
         return None
-    profile_id = binding.get("profile")
+
+    def text(value: Any) -> Optional[str]:
+        return value if isinstance(value, str) else None
+
+    profile_id = text(binding.get("profile"))
     profiles = config.get("profiles") if isinstance(config.get("profiles"), dict) else {}
-    profile = profiles.get(profile_id) if isinstance(profiles.get(profile_id), dict) else {}
+    profile = profiles.get(profile_id) if profile_id is not None and isinstance(profiles.get(profile_id), dict) else {}
     model = profile.get("model") if isinstance(profile.get("model"), dict) else {}
     options = profile.get("options") if isinstance(profile.get("options"), dict) else {}
-    runtime = profile.get("runtime")
-    return (binding.get("mode"), profile_id, runtime, _adapter_of(config, runtime), model.get("provider"),
-            model.get("id"), options.get("thinking", pd.DEFAULT_THINKING) if profile else None)
+    runtime = text(profile.get("runtime"))
+    return (text(binding.get("mode")), profile_id, runtime, _adapter_of(config, runtime), text(model.get("provider")),
+            text(model.get("id")), text(options.get("thinking", pd.DEFAULT_THINKING)) if profile else None)
 
 
 def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -267,7 +293,7 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
     """
     try:
         if role not in ("execution", "contract"):
-            return None, {"message": "executor.role 只能是 execution 或 contract：%r" % role, "code": pd.EXIT_USAGE}
+            return None, {"message": "executor.role 只能是 execution 或 contract：%s" % _shown(role), "code": pd.EXIT_USAGE}
         binding = effective_binding(config, role)
         if binding is None or binding.get("mode") != "headless":
             if role == "contract" and binding is not None and binding.get("mode") == "manual":
@@ -277,7 +303,7 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
                                      % (role, role), "code": pd.EXIT_USAGE}
         mode, profile_id, runtime, adapter, provider, model, thinking = binding_tuple(config, role)
         if adapter is None or not provider or not model:
-            return None, {"message": "%s 角色绑定的 profile %r 无效：先修好配置（config validate）" % (role, profile_id),
+            return None, {"message": "%s 角色绑定的 profile %s 无效：先修好配置（config validate）" % (role, _shown(profile_id)),
                           "code": pd.EXIT_USAGE}
         if role not in ADAPTERS[adapter]["headless_roles"]:
             return None, {"message": "%s 角色绑定到 %s（runtime %s）：这个适配器本轮没有接通 %s，不派遣"
@@ -289,27 +315,32 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
         return None, {"message": "解析角色绑定失败：%s" % exc, "code": getattr(exc, "code", pd.EXIT_USAGE)}
 
 
-def in_flight_attempts(repo: Any) -> List[str]:
-    """正在运行的 attempt（task/attempt-NNN）：判定与 collect --recover 相同（pd.attempt_in_flight）。不跟随链接。"""
+def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
+    """正在运行的 attempt（task/attempt-NNN）与扫描中列不出来的位置。判定与 collect --recover 相同
+    （pd.attempt_in_flight）；不跟随链接。列不出来的不当作“没有在运行”（闸二第 2 片 S4）。"""
     found: List[str] = []
+    problems: List[str] = []
     runs = repo.runs_dir
     try:
         tasks = sorted(entry for entry in runs.iterdir() if entry.is_dir() and not pd.is_link_or_junction(entry)
                        and pd.TASK_ID_RE.match(entry.name)) if runs.is_dir() else []
-    except OSError:
-        return found
+    except OSError as exc:
+        return found, ["%s（%s）" % (runs, exc.strerror or exc)]
     for task in tasks:
         try:
             attempts = sorted(entry for entry in task.iterdir() if pd.ATTEMPT_DIR_RE.match(entry.name)
                               and entry.is_dir() and not pd.is_link_or_junction(entry))
-        except OSError:
+        except OSError as exc:
+            problems.append("%s（%s）" % (task, exc.strerror or exc))
             continue
         found += ["%s/%s" % (task.name, attempt.name) for attempt in attempts if pd.attempt_in_flight(attempt)]
-    return found
+    return found, problems
 
 
-def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> List[str]:
-    """D8：这次写入改变了 execution 或 contract 的生效绑定、而这一刻有在运行的 attempt 时，返回它们；否则空。"""
+def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],
+                             new_config: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """D8：这次写入改变了 execution 或 contract 的生效绑定时，返回（在运行的 attempt, 扫描时列不出来的位置）；
+    绑定没变时两个都是空。"""
     if all(binding_tuple(old_config, role) == binding_tuple(new_config, role) for role in ("execution", "contract")):
-        return []
+        return [], []
     return in_flight_attempts(repo)

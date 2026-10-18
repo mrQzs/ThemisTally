@@ -556,7 +556,12 @@ def publish_new(path: Path, data: bytes) -> bool:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(str(tmp), flags, 0o666)
     try:  # 临时文件建好之后的整个过程（写入、关闭、发布）都在清理范围里，包括 KeyboardInterrupt
-        with os.fdopen(descriptor, "wb") as handle:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:  # 文件对象还没接管描述符：自己关，否则 Windows 上临时文件删不掉（闸二第 2 片 S5）
+            os.close(descriptor)
+            raise
+        with handle:
             handle.write(data)
         try:
             if IS_WINDOWS:

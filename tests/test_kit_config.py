@@ -961,6 +961,11 @@ class ConfigTransactions(TempRepo):
                 pd.publish_new(self.work / "record.json", b"x")
         self.assertEqual([p.name for p in self.work.iterdir() if p.name.endswith(".tmp")], [])
         self.assertFalse((self.work / "record.json").exists())
+        # 闸二第 2 片 S5：os.fdopen 本身失败时由 publish_new 关掉描述符（关不掉，Windows 上临时文件就删不掉）
+        with mock.patch("os.fdopen", side_effect=OSError(24, "Too many open files")):
+            with self.assertRaises(OSError):
+                pd.publish_new(self.work / "record2.json", b"x")
+        self.assertEqual([p.name for p in self.work.iterdir() if p.name.endswith(".tmp")], [])
 
     def test_g2s1_s2_an_interrupted_lock_setup_leaves_no_lock(self):
         for error in (KeyboardInterrupt(), OSError(5, "denied")):
@@ -986,10 +991,15 @@ class ConfigTransactions(TempRepo):
                          b'"txn": [], "result": "published"}\n')
             handle.write(b'{"record_type": "management-audit", "resource": "config", "phase": "intent", '
                          b'"txn": "t", "action": "config.set", "after_ref": {"sha256": 5}}\n')
+            # 闸二第 2 片 S1：资源、阶段是不可哈希的值
+            handle.write(b'{"record_type": "management-audit", "phase": "commit", "resource": [], "txn": "t", '
+                         b'"result": "published"}\n')
+            handle.write(b'{"record_type": "management-audit", "phase": {}, "resource": "config", "txn": "t"}\n')
         code, _, err = self.set("kill_grace_seconds", "21")
         self.assertEqual(code, 0, err)
         records, broken = kit_config.read_audit(kit_config.pd.Repo.discover(str(self.repo)))
-        self.assertEqual(len(broken), 2)
+        self.assertEqual(len(broken), 4)
+        self.assertEqual(run_config(["history"], self.repo)[0], 0)
 
     def test_g2s1_s5_the_confirmation_hook_sees_the_state_before_the_change(self):
         self.set("kill_grace_seconds", "20")
