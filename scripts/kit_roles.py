@@ -564,8 +564,13 @@ def _shown_command(command: Optional[List[str]]) -> Optional[List[str]]:
 
 def cwd_relative_parts(command: List[str]) -> List[str]:
     """命令里不是绝对路径、却在当前目录下存在的部分。run 在 attempt 的 worktree 里运行命令，配置中心的探测在当前目录
-    运行：这样的部分两边可能指向不同的文件，探测的结果代表不了 run（闸二总复核第 3 轮 S1）。"""
-    return [part for part in command if not os.path.isabs(part) and os.path.exists(part)]
+    运行：这样的部分两边可能指向不同的文件，探测的结果代表不了 run（闸二总复核第 3 轮 S1）。
+
+    第一项不带路径分隔符时是程序名，按 PATH 找，不算（第 4 轮 S2）。只查得出直接写在命令里的路径：`python -m <模块>`
+    这类依赖当前目录的启动方式查不出，没有报出不等于与 run 等价（第 4 轮 S1，知情接受）。
+    """
+    return [part for index, part in enumerate(command)
+            if not os.path.isabs(part) and os.path.exists(part) and (index > 0 or os.path.dirname(part))]
 
 
 def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str,

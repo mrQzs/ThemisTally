@@ -1163,6 +1163,14 @@ class ConfigCenter(RolesRepo):
                          encoding="utf-8")
         code, out, err = run_config(["doctor"], self.repo)
         self.assertEqual(code, 0, out + err)
+        # 第 4 轮 S2：第一项是不带路径分隔符的程序名时按 PATH 找，当前目录下同名的目录不算
+        program = os.path.basename(sys.executable)
+        (self.work / program).mkdir()
+        local.write_text(json.dumps({"runtimes": {"pi": {"command": [program, str(self.work / "pi_rel.py")]}}}),
+                         encoding="utf-8")
+        with mock.patch.dict(os.environ, {"PATH": os.path.dirname(sys.executable) + os.pathsep + os.environ["PATH"]}):
+            code, out, err = run_config(["doctor"], self.repo)
+        self.assertEqual(code, 0, out + err)
 
     # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
     def test_shared_readiness_takes_the_environment_explicitly(self):
