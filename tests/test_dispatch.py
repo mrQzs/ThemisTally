@@ -7,7 +7,10 @@
 
 需要：Python 3.8+、git、bash（Windows 上为 Git Bash）。每次运行都在系统临时目录下新建一个唯一目录
 （pi-dispatch-e2e-*），只清理本次创建的目录，可以并行运行。不会读写你的真实仓库，也不会调用 pi。
+
+也随全量 pytest 运行：每个场景照常跑完，其中失败的 check() 汇总成该用例的失败；模块结束时同样清理临时目录。
 """
+import functools
 import json
 import os
 import shlex
@@ -28,6 +31,9 @@ IS_WINDOWS = os.name == "nt"
 BASE_ENV = dict(os.environ)
 BASE_ENV["PI_DISPATCH_PI_CMD"] = json.dumps([PY, str(HERE / "stub_pi.py")])
 BASE_ENV["CODEKIT_SECRET_STORE"] = "off"  # 端到端测试不碰真实凭据库（2.7.0）
+# 预检与 doctor 会查 Pi 全局目录里的上下文文件：指向本次的空目录，不读本机真实的 ~/.pi/agent。
+BASE_ENV["PI_CODING_AGENT_DIR"] = str(WORK / "pi-agent")
+(WORK / "pi-agent").mkdir()
 for _name in ("PI_EXEC_PROVIDER", "PI_EXEC_MODEL", "PI_EXEC_THINKING", "STUB_SCENARIO", "STUB_MODELS", "STUB_AUTH",
               "STUB_PTL", "STUB_NOCOST", "STUB_LIST_FAIL", "STUB_AUTH_DETAIL"):
     BASE_ENV.pop(_name, None)
@@ -3202,6 +3208,63 @@ def test_v2100_integrate_reuse_self_checks_and_interpretations():
 RECORD_290 = ".agent/kit-install.json"
 
 
+def remove_work():
+    for repo in WORK.iterdir():
+        if (repo / ".git").exists():
+            subprocess.run(["git", "worktree", "prune"], cwd=str(repo))
+    remove_tree(WORK)
+
+
+def fail_on_checks(fn):
+    """pytest 下运行一个场景：照常跑完，其中失败的 check() 汇总成这个用例的失败。
+
+    check() 只记录、不抛异常（脚本方式要汇总全部失败）；不包这一层，pytest 会把失败的检查也显示为通过。
+    """
+    @functools.wraps(fn)
+    def scenario():
+        start = len(RESULTS)
+        fn()
+        failed = [r for r in RESULTS[start:] if not r[1]]
+        if failed:
+            raise AssertionError("%d 个检查失败：\n%s" % (len(failed), "\n".join(
+                "FAIL %s  <- %s" % (name, str(detail)[:1500]) for name, _ok, detail in failed)))
+    return scenario
+
+
+def test_pytest_reports_failed_checks():
+    """pytest 下失败的 check() 让用例失败；脚本方式由 __main__ 汇总，这里不运行。"""
+    if __name__ == "__main__":
+        return
+    start = len(RESULTS)
+
+    def probe():
+        check("probe: a failed check", False, "expected")
+
+    try:
+        fail_on_checks(probe)()
+    except AssertionError as exc:
+        message = str(exc)
+    else:
+        message = ""
+    del RESULTS[start:]
+    assert "1 个检查失败" in message and "probe: a failed check" in message, message
+
+
+if __name__ != "__main__":  # 由 pytest 导入：每个场景包一层，模块结束时清理临时目录
+    for _name, _fn in list(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            globals()[_name] = fail_on_checks(_fn)
+    try:
+        import pytest
+    except ImportError:
+        pytest = None
+    if pytest is not None:
+        @pytest.fixture(scope="module", autouse=True)
+        def work_cleanup():
+            yield
+            remove_work()
+
+
 if __name__ == "__main__":
     argv = sys.argv[1:]
     keep = "--keep" in argv
@@ -3220,8 +3283,5 @@ if __name__ == "__main__":
     if keep:
         print("保留测试目录：%s" % WORK)
     else:
-        for repo in WORK.iterdir():
-            if (repo / ".git").exists():
-                subprocess.run(["git", "worktree", "prune"], cwd=str(repo))
-        remove_tree(WORK)
+        remove_work()
     sys.exit(1 if failed else 0)
