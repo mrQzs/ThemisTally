@@ -750,6 +750,15 @@ def config_transaction(repo: Any, action: str, target: Optional[str] = None, *, 
         yield ConfigTransaction(repo, lock, resource, action, target, confirm)
 
 
+@contextlib.contextmanager
+def config_transactions(repo: Any, action: str, target: Optional[str] = None, *, confirm: bool = False):
+    """同一把配置锁里按资源各开一个事务（3.0 第二轮第 4 步，闸二第 4 片 S1）：runtime add --command 与 remove 先改配置、
+    再改本机文件，中间不放锁，别的写入插不进两步之间。给调用方一个函数 resource → ConfigTransaction，用到时才读入
+    该资源；每个资源各记自己的历史与审计。"""
+    with ConfigLock(repo) as lock:
+        yield lambda resource: ConfigTransaction(repo, lock, resource, action, target, confirm)
+
+
 def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any],
                                  confirm: bool) -> str:
     """运行中切换的确认（D8）：返回审计的 confirmation（flag / none）。

@@ -17,7 +17,7 @@ import shutil
 import stat
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -534,16 +534,15 @@ def _run(handler: Any, args: Any) -> int:
 
 
 def _open(args: Any) -> Tuple[Any, Any, Dict[str, Any]]:
+    """读命令（含会运行只读探测的命令）的开头：整份校验配置（validate_config，含共用的凭据检查，D9）。不合法就只报错误、
+    退出 1，不显示取值、不运行任何 CLI：坏形状不会冒堆栈，配置里的取值也到不了命令参数里（闸二第 4 片 B1、S3）。"""
     kc = _kc()
     repo = kc._repo(args.repo)
-    return kc, repo, kc.load_config(repo)
-
-
-def _guard(config: Dict[str, Any], keys: Sequence[str] = V3_KEYS) -> None:
-    """显示取值之前先过共用的凭据检查（D9）：命中就只报位置、不显示。"""
-    errors = [message for message in (pd.secret_config_error(config, key) for key in keys) if message]
+    config = kc.load_config(repo)
+    errors = kc.validate_config(config, repo)
     if errors:
-        raise _error("；".join(errors))
+        raise _error("配置无效，先修好（config validate）：%s" % "；".join(errors[:5]))
+    return kc, repo, config
 
 
 def _mapping(config: Dict[str, Any], key: str) -> Dict[str, Any]:
@@ -560,7 +559,7 @@ def _print_json(payload: Any) -> None:
 
 
 def _shown_command(command: Optional[List[str]]) -> Optional[List[str]]:
-    return [pd.redact_tokens(part) for part in command] if command else None
+    return [pd.redact_secrets(part) for part in command] if command else None
 
 
 def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str) -> Tuple[Optional[List[str]], str, List[str]]:
@@ -590,7 +589,7 @@ def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str) -> Tuple
 def _probe_version(command: List[str], env: Dict[str, str]) -> Tuple[int, str]:
     pd.ensure_argv_safe(command)  # 本机文件给出的批处理包装：参数含特殊字符时不运行（D3）
     code, out, err = pd.run_capture(list(command) + ["--version"], env=env, timeout=30)
-    first = pd.redact_tokens((out or err).strip()).splitlines()
+    first = pd.redact_secrets((out or err).strip()).splitlines()  # CLI 的输出照 doctor 脱敏（闸二第 4 片 B2）
     return code, first[0] if first else ""
 
 
@@ -610,7 +609,6 @@ def cmd_runtime(args: Any) -> int:
 
 def _runtime_list(args: Any) -> int:
     _kc_, repo, config = _open(args)
-    _guard(config, ("runtimes",))
     rows = []
     for runtime_id, spec in _entries(_mapping(config, "runtimes")):
         command, source, lines = runtime_command(repo, config, runtime_id)
@@ -631,7 +629,6 @@ def _runtime_list(args: Any) -> int:
 
 def _runtime_scan(args: Any) -> int:
     kc, repo, config = _open(args)
-    _guard(config, ("runtimes",))
     env, _removed = pd.child_env(config)
     found: List[Dict[str, Any]] = []
     for adapter, spec in ADAPTERS.items():
@@ -676,30 +673,30 @@ def _parse_command(text: str) -> List[str]:
     return value
 
 
-def _write_local(repo: Any, runtime_id: str, command: Optional[List[str]]) -> bool:
+def _write_local(repo: Any, transaction: Any, runtime_id: str, command: Optional[List[str]]) -> bool:
     """写（command 为 None 时删）本机文件里 runtime 的命令（D3、M2）：写之前做同样的三项检查，形状与凭据前后各查一次；
-    经写入事务（resource local，历史只存哈希）。返回是否有变化。"""
-    kc = _kc()
+    经写入事务（resource local，历史只存哈希）。transaction 由调用方在持有配置锁时给出：与配置那一步在同一把锁里，
+    中间不放锁，别的写入插不进来（闸二第 4 片 S1）。返回是否有变化。"""
     problems = check_local(repo)
     if problems:
         raise _error("；".join(problems))
-    with kc.config_transaction(repo, "runtime.local", runtime_id, resource="local") as txn:
-        data = txn.config
-        errors = _local_errors(data) if data else []
-        if errors:
-            raise _error("；".join(errors) + "：先修好本机文件")
-        runtimes = dict(data.get("runtimes", {}))
-        if command is None:
-            if runtime_id not in runtimes:
-                return False
-            del runtimes[runtime_id]
-        else:
-            runtimes[runtime_id] = {"command": list(command)}
-        data = dict(data, runtimes=runtimes)
-        errors = _local_errors(data)
-        if errors:
-            raise _error("；".join(errors))
-        return bool(txn.publish(data))
+    txn = transaction("local")
+    data = txn.config
+    errors = _local_errors(data) if data else []
+    if errors:
+        raise _error("；".join(errors) + "：先修好本机文件")
+    runtimes = dict(data.get("runtimes", {}))
+    if command is None:
+        if runtime_id not in runtimes:
+            return False
+        del runtimes[runtime_id]
+    else:
+        runtimes[runtime_id] = {"command": list(command)}
+    data = dict(data, runtimes=runtimes)
+    errors = _local_errors(data)
+    if errors:
+        raise _error("；".join(errors))
+    return bool(txn.publish(data))
 
 
 def _runtime_add(args: Any) -> int:
@@ -710,7 +707,8 @@ def _runtime_add(args: Any) -> int:
     if args.adapter not in ADAPTERS:
         raise _error("--adapter 必须是 %s 之一" % "、".join(ADAPTERS), EXIT_USAGE)
     command = _parse_command(args.command) if args.command is not None else None
-    with kc.config_transaction(repo, "runtime.add", args.runtime_id, confirm=args.yes) as txn:
+    with kc.config_transactions(repo, "runtime.add", args.runtime_id, confirm=args.yes) as transaction:
+        txn = transaction("config")
         config = txn.config
         runtimes = dict(_mapping(config, "runtimes"))
         current = runtimes.get(args.runtime_id)
@@ -721,17 +719,18 @@ def _runtime_add(args: Any) -> int:
         runtimes[args.runtime_id] = dict(notes, adapter=args.adapter)
         config["runtimes"] = runtimes
         changed = txn.publish(config)
-    print("%s runtime %s（adapter %s）" % ("已登记" if changed else "没有变化：", args.runtime_id, args.adapter))
-    if command is not None:
-        _write_local(repo, args.runtime_id, command)
-        print("命令写进了 %s（本机文件，不进提交）" % LOCAL_REL)
+        print("%s runtime %s（adapter %s）" % ("已登记" if changed else "没有变化：", args.runtime_id, args.adapter))
+        if command is not None:
+            _write_local(repo, transaction, args.runtime_id, command)
+            print("命令写进了 %s（本机文件，不进提交）" % LOCAL_REL)
     return EXIT_OK
 
 
 def _runtime_remove(args: Any) -> int:
     kc = _kc()
     repo = kc._repo(args.repo)
-    with kc.config_transaction(repo, "runtime.remove", args.runtime_id, confirm=args.yes) as txn:
+    with kc.config_transactions(repo, "runtime.remove", args.runtime_id, confirm=args.yes) as transaction:
+        txn = transaction("config")
         config = txn.config
         runtimes = dict(_mapping(config, "runtimes"))
         if args.runtime_id not in runtimes or str(args.runtime_id).startswith("_"):
@@ -746,24 +745,23 @@ def _runtime_remove(args: Any) -> int:
         else:
             config.pop("runtimes", None)
         txn.publish(config)
-    print("已删除 runtime %s" % args.runtime_id)
-    try:
-        exists = _lstat(repo.agent_dir / LOCAL_NAME) is not None
-    except OSError as exc:
-        raise _error("%s 看不了（%s）：其中 %s 的命令没有删" % (LOCAL_REL, exc.strerror or type(exc).__name__,
-                                                             args.runtime_id))
-    if exists:
-        commands, errors, _warnings = read_local(repo, config)
-        if errors:
-            raise _error("；".join(errors) + "：其中 %s 的命令没有删" % args.runtime_id)
-        if commands and args.runtime_id in commands and _write_local(repo, args.runtime_id, None):
-            print("也删去了 %s 里的命令" % LOCAL_REL)
+        print("已删除 runtime %s" % args.runtime_id)
+        try:
+            exists = _lstat(repo.agent_dir / LOCAL_NAME) is not None
+        except OSError as exc:
+            raise _error("%s 看不了（%s）：其中 %s 的命令没有删" % (LOCAL_REL, exc.strerror or type(exc).__name__,
+                                                                 args.runtime_id))
+        if exists:
+            commands, errors, _warnings = read_local(repo, config)
+            if errors:
+                raise _error("；".join(errors) + "：其中 %s 的命令没有删" % args.runtime_id)
+            if commands and args.runtime_id in commands and _write_local(repo, transaction, args.runtime_id, None):
+                print("也删去了 %s 里的命令" % LOCAL_REL)
     return EXIT_OK
 
 
 def _runtime_probe(args: Any) -> int:
     _kc_, repo, config = _open(args)
-    _guard(config, ("runtimes",))
     adapter = _adapter_of(config, args.runtime_id)
     if adapter is None:
         raise _error("没有登记 runtime %s（或它的 adapter 无效）" % _shown(args.runtime_id))
@@ -798,7 +796,6 @@ def cmd_models(args: Any) -> int:
 
 def _models(args: Any) -> int:
     _kc_, repo, config = _open(args)
-    _guard(config, ("runtimes",))
     adapter = _adapter_of(config, args.runtime)
     if adapter is None:
         raise _error("没有登记 runtime %s（或它的 adapter 无效）" % _shown(args.runtime))
@@ -816,7 +813,7 @@ def _models(args: Any) -> int:
         raise _error("%s --list-models 退出码 %s：%s" % (args.runtime, code, pd.redact_secrets((err or out).strip())[:200]))
     allowed = [entry for entry in config.get("allowed_executors") or [] if isinstance(entry, dict)] \
         if isinstance(config.get("allowed_executors"), list) else []
-    rows = [{"provider": provider, "model": model,
+    rows = [{"provider": pd.redact_secrets(provider), "model": pd.redact_secrets(model),  # CLI 的输出（闸二第 4 片 B2）
              "allowed": any(entry.get("provider") == provider and entry.get("model") == model for entry in allowed)
              if allowed else None} for provider, model in pd.list_models_rows(out)]
     if args.json:
@@ -846,7 +843,6 @@ def _split_model(text: str) -> Tuple[str, str]:
 
 def _profile_show(args: Any) -> int:
     _kc_, _repo_, config = _open(args)
-    _guard(config, ("runtimes", "profiles"))
     items = [(profile_id, spec) for profile_id, spec in _entries(_mapping(config, "profiles"))
              if args.profile_id is None or profile_id == args.profile_id]
     if args.profile_id is not None and not items:
@@ -996,7 +992,6 @@ def _role_text(row: Dict[str, Any]) -> str:
 
 def _role_show(args: Any) -> int:
     _kc_, _repo_, config = _open(args)
-    _guard(config)
     rows = _role_rows(config)
     active = config.get("active_preset") if isinstance(config.get("active_preset"), str) else None
     if args.json:
@@ -1074,7 +1069,6 @@ def _preset_roles(presets: Dict[str, Any], name: str) -> Dict[str, Any]:
 
 def _preset_list(args: Any) -> int:
     _kc_, _repo_, config = _open(args)
-    _guard(config, ("presets", "active_preset"))
     active = config.get("active_preset")
     rows = [{"name": name, "description": spec.get("description") if isinstance(spec, dict) else None,
              "roles": sorted(role for role, _binding in _entries(spec.get("roles", {})))
@@ -1093,7 +1087,6 @@ def _preset_list(args: Any) -> int:
 
 def _preset_show(args: Any) -> int:
     _kc_, _repo_, config = _open(args)
-    _guard(config)
     roles = _preset_roles(_mapping(config, "presets"), args.name)
     current = _mapping(config, "roles")
     active = config.get("active_preset") == args.name
@@ -1183,12 +1176,14 @@ def _preset_use(args: Any) -> int:
             print("  %s：%s" % (version, status))
         changed = txn.publish(config)
     print("%s 方案 %s（覆盖 %s）" % ("已切换到" if changed else "没有变化：", args.name, "、".join(sorted(listed))))
+    for role in sorted(listed):  # 与 role set 相同的提示（闸二第 4 片 S4）
+        for warning in _binding_warnings(config, role):
+            print("WARN  %s" % warning)
     return EXIT_OK
 
 
 def _preset_diff(args: Any) -> int:
     _kc_, _repo_, config = _open(args)
-    _guard(config, ("presets",))
     presets = _mapping(config, "presets")
     left, right = _preset_roles(presets, args.a), _preset_roles(presets, args.b)
     rows = [{"role": role, "a": left.get(role), "b": right.get(role), "same": left.get(role) == right.get(role)}
@@ -1228,6 +1223,10 @@ def cmd_doctor(args: Any) -> int:
     return _run(_doctor, args)
 
 
+def _yes_no(value: Any) -> str:
+    return "不适用" if value is None else ("是" if value else "否")
+
+
 def _credential_ready(env: Dict[str, str], names: Any) -> Dict[str, bool]:
     """D9：名字出现在 child_env(config) 里（按大写比较）且值非空才算可用；只判断，不输出值。"""
     present = {name.upper(): value for name, value in env.items()}
@@ -1237,7 +1236,6 @@ def _credential_ready(env: Dict[str, str], names: Any) -> Dict[str, bool]:
 
 def _doctor(args: Any) -> int:
     _kc_, repo, config = _open(args)
-    _guard(config)
     env, _removed = pd.child_env(config)
     allowed = [entry for entry in config.get("allowed_executors") or [] if isinstance(entry, dict)] \
         if isinstance(config.get("allowed_executors"), list) else []
@@ -1286,6 +1284,8 @@ def _doctor(args: Any) -> int:
                 problems.extend(found)
                 if not out["thinking_supported"]:  # 思考级别逐个角色判断，不进缓存的键
                     problems.append("思考级别 %s 不受本机 pi 支持" % row.get("thinking"))
+                if probe["help"]["exit_code"] != 0:  # 与 runtime probe 相同（闸二第 4 片 S2）
+                    problems.append("%s --help 退出码 %s" % (runtime, probe["help"]["exit_code"]))
                 if probe["help"]["missing_flags"]:
                     problems.append("pi 缺少参数：%s" % "、".join(probe["help"]["missing_flags"]))
         out["notes"] = probe.get("notes", [])
@@ -1315,6 +1315,12 @@ def _doctor(args: Any) -> int:
         print("%-16s %s · profile %s · runtime %s（%s，%s %s）· %s" % (
             row["role"], "就绪" if row["ready"] else "未就绪", row.get("profile"), row.get("runtime"),
             row.get("adapter"), row.get("source", "missing"), " ".join(row.get("command") or []) or "", row.get("version") or ""))
+        print("%-16s 模型 %s/%s · thinking %s · 模型列表 %s · 登录 %s · 思考级别 %s · 允许列表 %s · 凭据 %s · %s" % (  # D10
+            "", row.get("provider"), row.get("model"), row.get("thinking"), _yes_no(row.get("model_listed")),
+            _yes_no(row.get("auth_ready")), _yes_no(row.get("thinking_supported")),
+            "不限制" if row.get("allowed") is None else _yes_no(row.get("allowed")),
+            "、".join("%s %s" % (name, "可用" if ready else "不可用") for name, ready in row["credentials"].items()) or "无",
+            "已接通" if row.get("connected") else "未接通"))
         for note in row.get("notes", []):
             print("  %s" % note)
         for problem in row["problems"]:

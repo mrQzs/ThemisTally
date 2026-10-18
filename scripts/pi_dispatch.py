@@ -7496,7 +7496,11 @@ def pi_model_readiness(pi_cmd: List[str], provider: str, model: str, thinking: O
     """
     facts: Dict[str, Any] = {}
     problems: List[str] = []
-    code, out, err = run_capture(pi_cmd + RESOURCE_FLAGS + ["--list-models", model], env=env, timeout=90)
+    list_cmd = pi_cmd + RESOURCE_FLAGS + ["--list-models", model]
+    auth_cmd = pi_cmd + ["auth", "check", "--provider", provider, "--model", model, "--json", "--no-refresh"]
+    for cmd in (list_cmd, auth_cmd):  # 批处理包装：模型等参数含特殊字符时不运行（闸二第 4 片 B1）
+        ensure_argv_safe(cmd)
+    code, out, err = run_capture(list_cmd, env=env, timeout=90)
     rows = list_models_rows(out)
     empty = None if rows else list_models_empty_reason(out)
     # 错误输出先脱敏再截取：Pi 转述 models.json 的解析错误时可能带出其中的凭据。
@@ -7516,8 +7520,7 @@ def pi_model_readiness(pi_cmd: List[str], provider: str, model: str, thinking: O
                 "no_match": "（pi 有可用模型，但没有与 %s 匹配的）" % model,
             }.get(empty or "", "")))
     # --no-refresh：doctor 不刷新、不改写凭据；过期的 OAuth 令牌会在真正运行时刷新。
-    code, out, err = run_capture(pi_cmd + ["auth", "check", "--provider", provider, "--model", model, "--json",
-                                           "--no-refresh"], env=env, timeout=90)
+    code, out, err = run_capture(auth_cmd, env=env, timeout=90)
     facts["executor_auth_check"] = {"exit_code": code, "output": redact_secrets((out or err).strip())[:2000],
                                     "refresh": False}
     if code != 0:

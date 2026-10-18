@@ -576,9 +576,17 @@ if log:
         handle.write(json.dumps([name] + args) + "\\n")
 if name == "pi":
     sys.argv = [os.environ["CLI_STUB_PI"]] + args
-    runpy.run_path(os.environ["CLI_STUB_PI"], run_name="__main__")
+    try:
+        runpy.run_path(os.environ["CLI_STUB_PI"], run_name="__main__")
+        code = 0
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 0
+    if "--help" in args and os.environ.get("CLI_STUB_HELP_EXIT"):
+        code = int(os.environ["CLI_STUB_HELP_EXIT"])
+    sys.stdout.flush()
+    sys.exit(code)
 elif "--version" in args:
-    print("%s 9.9.9" % name)
+    print(os.environ.get("CLI_STUB_VERSION") or "%s 9.9.9" % name)
 else:
     sys.exit(3)
 """
@@ -850,20 +858,151 @@ class ConfigCenter(RolesRepo):
         config["profiles"]["exec-step"]["model"]["id"] = "sk-" + "s" * 24
         self.write(config)
         for argv in (["profile", "show"], ["profile", "show", "--json"], ["role", "show"], ["role", "show", "--json"],
-                     ["preset", "show", "eco", "--json"], ["doctor"], ["doctor", "--json"]):
-            with self.subTest(argv=argv):
+                     ["preset", "show", "eco", "--json"], ["preset", "list"], ["preset", "diff", "eco", "eco"],
+                     ["runtime", "list", "--json"], ["runtime", "probe", "pi"], ["runtime", "scan"], ["models", "pi"],
+                     ["doctor"], ["doctor", "--json"]):
+            with self.subTest(argv=argv):  # 读命令先整份校验配置（闸二第 4 片 B1、S3）：不合法就只报错误
                 code, out, err = run_config(argv, self.repo)
                 self.assertEqual(code, 1, err)
                 self.assertIn("疑似凭据", err)
                 self.assertNotIn("s" * 24, out + err)
         self.assertEqual(self.calls(), [])  # 拒绝在探测之前
-        for argv in (["runtime", "list", "--json"], ["runtime", "probe", "pi"], ["models", "pi", "--json"],
-                     ["preset", "list"], ["preset", "diff", "eco", "eco"]):
-            with self.subTest(argv=argv):  # 不显示 profile 取值的命令照常（它们只查自己显示的键）
+
+    # 闸二第 4 片 B1：配置里的取值到不了命令参数里——先整份校验，再对完整的 argv 做批处理安全检查
+    def test_config_values_never_become_command_arguments(self):
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}})
+        config["profiles"]["exec-step"]["model"]["id"] = "x&whoami"
+        self.write(config)
+        code, out, err = run_config(["doctor"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("配置无效", err)
+        self.assertNotIn("whoami", out)
+        self.assertEqual(self.calls(), [])
+        if os.name == "nt":
+            wrapper = str(self.work / "bin" / "pi.cmd")
+            with self.assertRaises(pd.DispatchError):
+                pd.pi_model_readiness([wrapper], "bb", "x&whoami", None, ["high"], None)
+            self.assertEqual(self.calls(), [])
+
+    # 闸二第 4 片 S3：合法 JSON 里的坏字段类型不冒堆栈
+    def test_bad_shapes_are_reported_not_raised(self):
+        config = self.base()
+        config["profiles"]["exec-step"]["credential_env"] = None
+        self.write(config)
+        for argv in (["profile", "show"], ["profile", "show", "--json"], ["doctor"]):
+            with self.subTest(argv=argv):
                 code, out, err = run_config(argv, self.repo)
-                self.assertEqual(code, 0, err)
-                self.assertNotIn("s" * 24, out + err)
-        self.assertNoPrompts()
+                self.assertEqual(code, 1, err)
+                self.assertIn("credential_env", err)
+                self.assertNotIn("Traceback", err)
+
+    # 闸二第 4 片 B2：外部 CLI 的输出照 doctor 脱敏（键名、结构与令牌形状都算）
+    def test_cli_output_is_redacted(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "oc-x"}}))
+        with mock.patch.dict(os.environ, {"CLI_STUB_VERSION": '{"api_key": "ordinary-value"}',
+                                          "STUB_MODELS": "bb sk-" + "m" * 24 + ";bb step-5-preview"}):
+            for argv in (["runtime", "scan"], ["runtime", "scan", "--json"], ["runtime", "probe", "oc"],
+                         ["runtime", "probe", "oc", "--json"], ["doctor"], ["doctor", "--json"],
+                         ["models", "pi"], ["models", "pi", "--json"]):
+                with self.subTest(argv=argv):
+                    code, out, err = run_config(argv, self.repo)
+                    self.assertNotIn("ordinary-value", out + err)
+                    self.assertNotIn("m" * 24, out + err)
+            self.assertIn("step-5-preview", run_config(["models", "pi"], self.repo)[1])
+
+    # 闸二第 4 片 S1：runtime remove 的两步（配置、本机文件）在同一把配置锁里，别的写入插不进中间
+    def test_runtime_remove_holds_the_lock_across_both_files(self):
+        import threading  # noqa: PLC0415
+        config = self.base()
+        config["runtimes"]["r"] = {"adapter": "pi"}
+        self.write(config)
+        local = self.repo / ".agent" / "dispatch.local.json"
+        command = [str(self.work / "bin" / ("pi.cmd" if os.name == "nt" else "pi"))]
+        local.write_text(json.dumps({"runtimes": {"r": {"command": command}}}), encoding="utf-8")
+        paused, go = threading.Event(), threading.Event()
+        real = kit_roles.check_local
+
+        def check_local(repo):  # 删配置之后、动本机文件之前停一下
+            if threading.current_thread().name == "remover" and not paused.is_set():
+                paused.set()
+                go.wait(20)
+            return real(repo)
+
+        results = {}
+        with mock.patch.object(kit_roles, "check_local", check_local):
+            remover = threading.Thread(name="remover", target=lambda: results.setdefault(
+                "remove", run_config(["runtime", "remove", "r"], self.repo)))
+            remover.start()
+            self.assertTrue(paused.wait(20))
+            results["add"] = run_config(["runtime", "add", "r", "--adapter", "pi", "--command", json.dumps(command)],
+                                        self.repo)
+            go.set()
+            remover.join(30)
+        self.assertEqual(results["remove"][0], 0, results["remove"])
+        self.assertEqual(results["add"][0], 1, results["add"])  # 等不到配置锁就报错，不插进两步之间
+        self.assertNotIn("r", self.config()["runtimes"])
+        self.assertNotIn("r", json.loads(local.read_text(encoding="utf-8"))["runtimes"])
+
+    # 闸二第 4 片 S2：doctor 也看 --help 的退出码
+    def test_doctor_counts_a_failing_help(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}}))
+        self.assertEqual(run_config(["doctor"], self.repo)[0], 0)
+        with mock.patch.dict(os.environ, {"CLI_STUB_HELP_EXIT": "1"}):
+            code, out, err = run_config(["doctor"], self.repo)
+            self.assertEqual(run_config(["runtime", "probe", "pi"], self.repo)[0], 1)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("--help 退出码 1", out)
+
+    # 闸二第 4 片 S4：preset use 同样提示未接通
+    def test_preset_use_warns_about_unconnected_bindings(self):
+        self.write(self.base(presets={"oc": {"roles": {"execution": {"mode": "headless", "profile": "oc-x"}}}}))
+        code, out, err = run_config(["preset", "use", "oc"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARN", out)
+        self.assertIn("没有接通", out)
+
+    # 闸二第 4 片 S5：doctor 的文本输出在全部就绪时也列出 D10 的各项
+    def test_doctor_text_lists_every_item(self):
+        profiles = self.base()["profiles"]
+        profiles["exec-step"]["credential_env"] = ["STEP_KEY_SET"]
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}})
+        config["profiles"] = profiles
+        self.write(config)
+        with mock.patch.dict(os.environ, {"STEP_KEY_SET": "x"}):
+            code, out, err = run_config(["doctor"], self.repo)
+        self.assertEqual(code, 0, out + err)
+        for needle in ("模型 bb/step-5-preview", "thinking high", "模型列表 是", "登录 是", "思考级别 是", "允许列表 不限制",
+                       "凭据 STEP_KEY_SET 可用", "已接通"):
+            self.assertIn(needle, out)
+
+    # M2 补：本机文件没被忽略、或经过链接时，写也拒绝
+    def test_local_file_writes_are_refused_when_unignored_or_linked(self):
+        self.write(self.base())
+        command = json.dumps([str(self.work / "bin" / ("pi.cmd" if os.name == "nt" else "pi"))])
+        (self.repo / ".gitignore").write_text(".agent/runs/\n", encoding="utf-8")
+        code, _out, err = run_config(["runtime", "add", "pi", "--adapter", "pi", "--command", command], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("没有被 .gitignore 忽略", err)
+        self.assertFalse((self.repo / ".agent" / "dispatch.local.json").exists())
+        (self.repo / ".gitignore").write_text(IGNORE_RULES, encoding="utf-8")
+        agent, moved = self.repo / ".agent", self.work / "agent-elsewhere"
+        shutil.move(str(agent), str(moved))
+        try:
+            if os.name == "nt":
+                import _winapi  # noqa: PLC0415
+                _winapi.CreateJunction(str(moved), str(agent))
+            else:
+                os.symlink(str(moved), str(agent), target_is_directory=True)
+        except (OSError, ImportError, AttributeError):
+            shutil.move(str(moved), str(agent))
+            self.skipTest("建不了目录链接")
+        try:
+            code, _out, err = run_config(["runtime", "add", "pi", "--adapter", "pi", "--command", command], self.repo)
+        finally:
+            os.rmdir(str(agent)) if os.name == "nt" else os.unlink(str(agent))
+            shutil.move(str(moved), str(agent))
+        self.assertEqual(code, 1, err)
+        self.assertFalse((self.repo / ".agent" / "dispatch.local.json").exists())
 
     # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
     def test_shared_readiness_takes_the_environment_explicitly(self):

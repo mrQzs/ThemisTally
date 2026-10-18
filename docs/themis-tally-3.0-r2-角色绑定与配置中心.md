@@ -849,9 +849,11 @@ prepare 不运行任何 CLI。
 - **退出码**：0 成功；1 是校验失败、未就绪、需要确认，或审计记录不全；2 是用法错误。配置锁被占用、等不到时报 ERROR，退出 1。
 - **实现时的写法**（第 4 步，已核对测试 M1–M10）：
   - 命令的解析顺序只有一处说明（`kit_roles.runtime_command`），与调度器的 `resolve_pi_command` 相同：`PI_DISPATCH_PI_CMD`（只对 pi 适配器）→ 本机文件 → PATH；`runtime list` 把本机文件的问题逐个 runtime 列在下面。
-  - `runtime add --command` 先写配置、再写本机文件，是两个事务：本机文件写不进时，登记已经生效，命令照 PATH 找，退出 1 并说明。`runtime remove` 同样先删登记、再删本机文件里的条目。
-  - 显示取值的命令只对自己显示的键过共用的凭据检查（D9）：profile show、role show、preset show、doctor 查全部五个键；runtime list、probe、models 只查 runtimes；preset list、diff 只查 presets（与 active_preset）。命中时退出 1，只报位置，不运行任何 CLI。
-  - `doctor`：manual、disabled、interactive_host 的角色不跑探测，算就绪（交互宿主的模型不由 Themis 切换）；headless 角色的版本与 `--help` 按 runtime 缓存，模型列表与 auth check 按（runtime, provider, model）缓存，思考级别逐个角色判断；用的是 `pi_model_readiness` 与 `child_env(config)`。
+  - `runtime add --command` 与 `runtime remove` 在同一把配置锁里先改配置、再改本机文件（`kit_config.config_transactions`），中间不放锁，别的写入插不进两步之间；两个资源各记自己的历史与审计。本机文件写不进时，登记已经生效，命令照 PATH 找，退出 1 并说明（闸二第 4 片 S1）。
+  - 读命令（含会运行只读探测的 scan、probe、models、doctor）开头整份校验配置（`validate_config`，含共用的凭据检查）：不合法就退出 1，只报错误，不显示取值、不运行任何 CLI。配置里的取值因此到不了命令参数里，坏形状也不冒堆栈；`pi_model_readiness` 另外对完整的 argv 做批处理安全检查（闸二第 4 片 B1、S3、N1）。
+  - CLI 的输出（版本行、模型表）与命令在显示之前照 doctor 用 `redact_secrets` 脱敏：令牌形状、像凭据的键名与嵌着的 JSON 都算（闸二第 4 片 B2）。
+  - `preset use` 写入之后与 `role set` 一样提示未接通、不在允许列表（闸二第 4 片 S4）。
+  - `doctor`：文本输出逐个角色列出 D10 的各项，全部就绪时也列（闸二第 4 片 S5）；`--help` 的退出码不是 0 也算未就绪（S2）。manual、disabled、interactive_host 的角色不跑探测，算就绪（交互宿主的模型不由 Themis 切换）；headless 角色的版本与 `--help` 按 runtime 缓存，模型列表与 auth check 按（runtime, provider, model）缓存，思考级别逐个角色判断；用的是 `pi_model_readiness` 与 `child_env(config)`。
   - `preset use` 在写入之前打印影响：运行中与已准备的 attempt 不受影响；逐个列出按角色写的合同版本是“沿用版本记录”还是“还没有记录，会用新绑定”。
 - **确认选项**：写入类子命令都接受 `--yes`（D12）。
 - **环境变量**：`CODEKIT_ACTOR`。
