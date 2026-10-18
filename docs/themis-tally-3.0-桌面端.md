@@ -1,6 +1,6 @@
 # Themis Tally 3.0 桌面端设计：本机服务、设计系统与可替换外壳
 
-状态：**拟议，第 3 稿（2026-10-18）；闸一第 1 轮未完成**。Codex 审到一半因额度用尽停止（恢复时间 2026-10-25 17:00），只给出一条意见；本稿处置了它与自查的三条，见 §0。第 11 节的四项用户已拍板（见 1.1）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
+状态：**拟议，第 4 稿（2026-10-19）**。闸一已审两轮：第 1 轮因 Codex 额度用尽中途停止；第 2 轮为 3 个 Blocking、8 个 Should-fix、3 个 Nit，本稿逐条处置，见 §0。审核按 2gate 的轮数上限执行：审满 5 轮后只剩小问题就直接过闸（用户 2026-10-18 加入）。第 11 节的四项用户已拍板（见 1.1）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
 
 - 分支：`themis-3.0`（本地，不推送），起点 `9461d31`（2.12.0，与本地 master 相同）。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md`。本文细化它的 8.4（管理台）与 12 节的 M4，并按用户决定改写 1.3 的一条非目标与 15.2 第 9 项（见 1.1）。
@@ -18,7 +18,32 @@
 
 ## 0. 审核变更对照表
 
-### 0.1 第 1 轮（未完成）
+### 0.1 第 2 轮（3 个 Blocking、8 个 Should-fix、3 个 Nit）
+
+Codex 审第 3 稿（`2f8c0ad`）。三个 Blocking 与 S1–S8 都按引用的代码核实成立。核对结论里的几条实现要点也一并采纳（D3、D13）：
+- `--expect-state` 必须在拿锁之后、第一次 publish 之前一次读齐全部资源；
+- 退出码 4 用 `ConfigError(code=4)`；
+- plugins 的 dry-run 要改成纯读；
+- Windows 复用 Job Object 监督。
+
+| 编号 | 第 2 轮结论 | 本稿处置 |
+|---|---|---|
+| r2-B1 | 按任意字节偏移截取再脱敏：切片里没有 `api_key=` 一类的上下文，两道脱敏都会放过凭据片段（PD:2647） | D7、D13：分页单位改为“脱敏之后的文本”。JSONL 按完整的行读取、逐行脱敏；其他文本整份脱敏后再分页，整份超过 64 MiB 的不在界面里显示；脱敏结果按（路径、大小、修改时间）缓存。U14b 覆盖任意切点 |
+| r2-B2 | 首次启动找不到 Python 时服务起不来，由服务托管的首次启动页根本打不开；外壳接口也不够做选仓库、存设置、重启服务、外部打开 | D10：新增“外壳页”，首次启动、设置、服务状态与恢复三页打包在应用里，不经服务；宿主接口改为一张明确的白名单，路径只能经系统对话框取得 |
+| r2-B3 | 凭据录入不能套用普通路由：命令默认打开系统浏览器，地址在 stderr 的握手行里，结果要等保存（KC:1352–1362） | D6 新增“凭据录入”：以作业方式运行 `config secret set <name> --no-browser`，读 stderr 的握手拿到地址，交外壳另开窗口；保存、超时或关窗时结束作业，之后重查 |
+| r2-S1 | 写命令失败也可能已部分写入：替换成功而审计追加失败（KC:720–730）；runtime 登记成功而本机文件失败 | D6 第 4 步：无论成败都重读；退出码非 0 而状态已变时，显示“已部分写入，结果待核实” |
+| r2-S2 | 401 时原引导地址已作废；SSE 断线期间的变化可能补不上 | D4：握手多给一个只留在外壳主进程里的控制令牌，外壳用它要新的引导地址（`host.reauth()`）。D7：每次订阅先发全量快照，再发增量 |
+| r2-S3 | 多个仓库的窗口共用会话分区时，同名 cookie 会互相覆盖（cookie 不按端口隔离） | D10：每个服务实例一个独立的内存会话分区；E6 覆盖两个仓库同时打开 |
+| r2-S4 | 规划端用量的会话目录没法传给 `/usage`；“登记全部”没有对应的写动作 | D10、5.1：外壳从设置里用 `ui --transcript <目录>` 传给服务，改设置后重启服务。UI 去掉“登记全部”，改为逐个 [登记]，一次确认一条命令 |
+| r2-S5 | 示例数据与真实 JSON 类型不同：没有检查时 `checks` 为 `"-"`；运行中的 `events_ok` 是实时进度字符串（PD:7340–7343）；历史的 `resolved` 是布尔、`external_changes` 是次数（KC:1045–1049） | UI 文档第 9 节改正。D7：`status --json` 新增 `live`，不改 `events_ok` 等现有字段 |
+| r2-S6 | `role set`、`preset use` 的 WARN 打在 stdout 上（KR:1065–1067、1194–1196），信封会丢掉 | 5.3：信封加 `output`，放没有 `--json` 时 stdout 的文本行（已脱敏）；界面同时显示两处的 WARN |
+| r2-S7 | “下一步”复制 `<task>.v<N>`，会指向这个版本最新的 attempt，可能不是正在看的那个 | UI 文档 6.3：复制精确的 attempt 目录 `.agent/runs/<task>/attempt-NNN` |
+| r2-S8 | “预览之后才开始的 attempt 会让写入被拒绝”说得太满：D8 是写入前扫描，run 不拿配置锁（KC:694、725） | D6 改写：执行时扫描到运行中的 attempt 才拒绝；扫描之后、替换之前才开始的 attempt 不在保证之内（第二轮 D8 的既有语义：提醒，不是互斥） |
+| r2-N1 | 影响面清单漏列 KR | 8.1 单列 KR |
+| r2-N2 | 阶段的验收依赖前后不一致：D1 要 U6–U8，D3 要包含写入的端到端流程 | 第 9 节按阶段划分适用的测试；端到端放到 D3，依赖 D2 |
+| r2-N3 | D6 表仍写“待用户决定”；上位设计 §16 仍称“第 1 稿” | 都改为现状 |
+
+### 0.2 第 1 轮（未完成）
 
 Codex 在 2026-10-18 审第 2 稿（`4b06efa`），约 3 分钟后因额度用尽停止，只留下 r1-1。其余三条是规划端顺着它没审完的方向自查发现的。
 
@@ -250,7 +275,7 @@ flowchart LR
   - 写命令逐个执行。内核的配置锁本来也会串行化，第二轮 D7 的事务规则不变。
 - **超时与取消**：
   - 每条路由有超时；
-  - 超时或客户端取消时，结束整个子进程树（沿用 PD 的进程监督做法）；
+  - 超时或客户端取消时，结束整个子进程树。Windows 复用 PD 完整的 Job Object 监督流程：挂起创建、加入 Job 之后再恢复，加入失败就拒绝运行（不能只复用“结束父进程”那一步）；POSIX 用进程组；
   - 作业状态只在服务内存里，服务退出即丢弃，不写 `.agent/`。
 
 ### D4 本机服务的安全
@@ -261,6 +286,10 @@ flowchart LR
   - 引导地址只写进 stdout 的握手行，交给启动它的外壳（5.1），不打印到终端，也不写日志；
   - 外壳在窗口里打开它；第一次访问时，服务设置会话 cookie（32 字节随机令牌，`HttpOnly; SameSite=Strict; Path=/`），并重定向到 `/`；引导地址随即作废；
   - 令牌不出现在地址栏、历史与引用里，页面脚本也读不到（HttpOnly）。
+- **重新认证**（r2-S2）：
+  - 握手里另有一个控制令牌，只留在外壳主进程里，不进任何页面；
+  - 会话失效（401）时，页面调用 `host.reauth()`。外壳带着控制令牌 `POST /control/bootstrap`（头 `X-Themis-Control`），向服务要一个新的一次性引导地址，再在窗口里打开它；
+  - 控制接口只认这个令牌，不认 cookie；旧会话随之作废。
 - **Host 校验**：只接受 `127.0.0.1:<port>` 与 `localhost:<port>`，防 DNS 重绑定。沿用 KC:1279–1280 的做法，再加上端口。
 - **CSRF**：
   - 只有 GET（读）与 POST（写）两种方法；
@@ -290,7 +319,7 @@ flowchart LR
   - 用 null-origin 沙箱 iframe，不给 `allow-same-origin`，也不给 `allow-popups`；
   - 校验消息来源（3.2 借鉴的做法）；
   - 不认粘性的手势状态（3.3）。
-- 大文件按需截取：按字节偏移与上限读取（D7），前端不整份加载 `events.jsonl`（沿用 AGENTS.md 的读法）。
+- 大文件按需截取：分页的单位是脱敏之后的文本（D7），前端不整份加载 `events.jsonl`（沿用 AGENTS.md 的读法）。
 
 ### D6 写操作与确认
 
@@ -300,7 +329,7 @@ flowchart LR
 |---|---|---|---|
 | 读 | 状态、证据、日志、用量、配置、插件、历史、审计 | 有 | 不需要确认 |
 | 改配置 | `config role set`、`preset use/save/remove`、`profile add/edit/remove`、`runtime add/remove`、`plugins enable/disable`、`config rollback` | 有 | 先预览，再确认，再执行（见下） |
-| 花钱或集成 | `smoke`、`prepare`、`run`、`verdict`、`integrate`、`branch`、`mark`、`status --assess`、`config secret set --verify` | **待用户决定**（11 节第 2 项） | 若开放：每次单独确认；确认框写明后果，例如“会把代码发送给执行模型的提供商并产生费用”；没有“始终允许”；内核的门禁与预检一项不减 |
+| 花钱或集成 | `smoke`、`prepare`、`run`、`verdict`、`integrate`、`branch`、`mark`、`status --assess`、`config secret set --verify` | **不开放**（用户 2026-10-18 已定，11 节第 2 项） | 将来开放时：每次单独确认；确认框写明后果，例如“会把代码发送给执行模型的提供商并产生费用”；没有“始终允许”；内核的门禁与预检一项不减 |
 | 不提供 | 改或删 `.agent/runs/` 下的证据；显示凭据值；从网络安装插件；代替代理操作 | 无 | — |
 
 **改配置的流程**：
@@ -321,27 +350,42 @@ flowchart LR
 3. **执行**：写请求必须带确认号；服务核对确认号之后运行命令，带上 `--expect-state <令牌>`，只有预览说需要时才带 `--yes`。
    - 令牌在内核的配置锁里比对（D13）：与锁内读到的字节不一致，就退出 4、什么也不写；服务把退出 4 转成 409，界面要求重新预览（r1-1）。
    - 这样“核对”与“写入”在同一把锁下，外部 CLI 插不进中间。
-   - 预览只是提示：有没有在运行的 attempt，仍由内核在写入的那一刻判断（第二轮 D8）。
-   - 预览之后才开始的 attempt，会让不带 `--yes` 的写入被内核拒绝。界面照实显示内核的提示，回到第 1 步。
+   - 预览只是提示。有没有在运行的 attempt，仍由内核在执行这条命令时扫描判断（第二轮 D8）：扫描到了，不带 `--yes` 的写入就被拒绝，界面照实显示内核的提示，回到第 1 步。
+   - 扫描之后、替换之前才开始的 attempt 不会被发现（KC:694 判断、725 替换，run 不拿配置锁）。这是第二轮 D8 的既有语义：提醒，不是互斥（r2-S8）。
 4. **结果**：只看子进程的退出码与随后重新读到的状态。
+   - 无论成功、失败、超时还是连接中断，都重新读取受影响的数据（r2-S1）：写入可能已部分完成，例如替换成功而审计追加失败（KC:720–730）；
+   - 退出码非 0 而重读发现状态已变时，显示“已部分写入，结果待核实”与内核的报错；
    - 界面不做乐观更新，也不自报成功；
-   - 失败时显示内核的报错（已脱敏），附原因分类：用户取消、内核拒绝、配置已变、超时。
+   - 失败时显示内核的报错（已脱敏），附原因分类：用户取消、内核拒绝、状态已变、超时、部分写入。
 5. **审计**：
    - `actor` 记 `user-ui`（D13 扩展 `ACTOR_RE`）；
    - `confirmation` 按内核现有规则记：带 `--yes` 为 `flag`，否则 `none`。
+
+**凭据录入**（r2-B3）：它不写配置，不走上面的预览流程，也没有 `--dry-run`、`--expect-state`。
+
+1. 页面请求 `POST /api/v1/secrets/<name>/entry`，服务以作业方式运行 `config secret set <name> --no-browser`（`--no-browser` 已有，KC:1535），不打开系统浏览器；
+2. 服务读子进程 stderr 的握手行 `{"url", "note"}`（KC:1359–1360），把一次性页面的地址交回页面；页面调用 `host.openSecretWindow(url)`，由外壳另开一个小窗口（D10）；
+3. 子进程存活期间作业保持“等待保存”；用户保存后子进程退出，stdout 的结果 `{"name", "stored", "backend"}` 作为作业结果；
+4. 用户关掉小窗口、或超过 `--timeout`（缺省 600 秒）时，服务结束作业与子进程；
+5. 结束之后重查 `config secret check <name> --json`。
+6. 值只在 2.7 的一次性页面里输入，服务与界面都拿不到；作业结果与信封里都没有值。
 
 ### D7 实时状态与日志跟随
 
 - **状态快照**：服务调用与 `status --json` 共用的函数，从 `.agent/runs/` 计算 attempt 列表（只读）。
 - **推送**：
-  - `GET /api/v1/events` 用 Server-Sent Events。服务每 2 秒算一次快照，有变化才推送增量。
+  - `GET /api/v1/events` 用 Server-Sent Events。每次订阅先发一个全量快照（带序号），之后每 2 秒比对一次，有变化才推送增量；断线重连后重新从全量快照开始（r2-S2）。
   - 前端断线后按退避重连：服务给出的等待时间是下限，抖动只往后加。
   - 会话 cookie 对 EventSource 同样有效。
-- **日志跟随**：
-  - 按字节偏移读取证据文件，单次上限 256 KiB，返回下一段的偏移；
-  - 读取函数与新增的 `logs cat`（D13）共用，只认证据目录下的相对路径，不跟随链接，输出脱敏；
+- **证据的按段读取与日志跟随**（r2-B1）：
+  - 分页的单位是**脱敏之后的文本**，不是原始字节。切片里看不到上下文，单独脱敏会漏：例如只取到 `api_key=` 后面的值；
+  - JSONL（`events.jsonl` 等）按完整的行读取、逐行脱敏（每行是一条自洽的 JSON，跨行的值已被转义）；跟随时只追加已写完的新行；
+  - 其他文本文件整份脱敏之后再分页，页边界落在行边界；整份超过 64 MiB 的不在界面里显示，提示用 CLI 查看；
+  - 游标由服务给出，前端当不透明值原样带回；每页的上限是 256 KiB 的脱敏文本；
+  - 脱敏结果按（路径、大小、修改时间）缓存，总量有上限；
+  - 读取函数与新增的 `logs cat`（D13）共用，只认证据目录下的相对路径，不跟随链接；
   - 前端用滚动图钉（3.2）。
-- **运行中的进度**：`status` 的文本输出已有“已完成的工具调用次数、已用时间、长时间没有工具调用”（PD:7303–7327 的 `_live_progress`），`--json` 里还没有。D13 给 `status --json` 的运行中 attempt 补一个 `live` 对象：`tool_calls`、`elapsed_seconds`、`deltas_since_last_tool`、`long_idle`，与文本输出同一个来源。
+- **运行中的进度**：`status` 的文本输出已有“已完成的工具调用次数、已用时间、长时间没有工具调用”（PD:7303–7327 的 `_live_progress`），`--json` 里还没有。D13 给 `status --json` 的运行中 attempt 补一个 `live` 对象：`tool_calls`、`elapsed_seconds`、`deltas_since_last_tool`、`long_idle`，与文本输出同一个来源。现有字段一个都不改：运行中的行目前把实时进度字符串放在 `events_ok` 里（PD:7340–7343），照旧（r2-S5）。
 - **运行健康**：
   - 只显示上面那条“长时间没有工具调用”的提示；
   - `status --assess` 会调用决策模型，属于“花钱”一档（D6）。
@@ -398,24 +442,42 @@ flowchart LR
 
 ### D10 桌面外壳（Electron，用户已定；保留换 Tauri 的余地）
 
-**外壳只做五件事**：
+**外壳只做这些事**：
 
 1. **找 Python 与 kit**：
    - Python 的查找顺序同 `scripts/dispatch-pi.sh:9–19`，也可以在设置里指定；
    - kit 可以是设置里指定的 ThemisTally 目录，或者目标仓库里由 `kit_install` 装好的 `scripts/pi_dispatch.py`。
-2. **启动服务**：运行 `python <kit>/scripts/pi_dispatch.py --repo <仓库> ui --desktop --assets <应用自带的前端目录>`。只读 stdout 的第一行握手；之后只监视进程，不读它的输出内容。
+2. **启动服务**：运行 `python <kit>/scripts/pi_dispatch.py --repo <仓库> ui --desktop --assets <应用自带的前端目录> [--transcript <目录>]…`。
+   - `--transcript` 来自设置里的规划端会话目录（r2-S4）；改了设置就重启服务；
+   - 只读 stdout 的第一行握手；之后只监视进程，不读它的输出内容；
+   - 握手里的控制令牌只留在主进程里（D4）。
 3. **开窗口**：
    - 先加载握手给出的引导地址，之后只允许服务自己的 origin；
-   - 窗口用不落盘的会话分区，cookie 不写磁盘。
-4. **系统集成**：托盘；通知（attempt 结束、等待验收）；在资源管理器中显示文件；每个仓库单实例；切换多个仓库。
-5. **退出**：关闭窗口时结束服务；服务意外退出时提示，并允许重启。
+   - 每个服务实例一个独立的内存会话分区（分区名随机、不带 `persist:` 前缀），cookie 不写磁盘，多个仓库的会话互不覆盖（r2-S3）。
+4. **外壳页**（r2-B2）：首次启动、设置、服务状态与恢复三个页面打包在应用里，用应用自己的协议加载，不经服务，也不显示任何证据。服务起不来时（例如找不到 Python）用户仍能在这里处理。
+5. **系统集成**：托盘；通知（attempt 结束、等待验收）；在资源管理器中显示文件；每个仓库单实例；切换多个仓库。
+6. **退出与恢复**：关闭窗口时结束服务；服务意外退出时切到“服务状态”外壳页，显示退出码，并允许重启。
+
+**宿主接口**：preload 用 `contextBridge` 暴露下表，参数逐个校验；没有通用的文件、进程或 IPC 接口；渲染进程拿不到控制令牌。
+
+| 接口 | 谁能用 | 做什么 | 校验 |
+|---|---|---|---|
+| `shell.getState()` | 外壳页 | 设置、检测到的 Python 与 kit、服务状态 | — |
+| `shell.pickRepo()`、`shell.pickPython()`、`shell.pickKit()`、`shell.pickTranscriptDir()` | 外壳页 | 打开系统的选择对话框，返回选中的路径 | 路径只能来自对话框；仓库必须是 Git 仓库；Python 必须能运行且 ≥ 3.10 |
+| `shell.saveSettings(patch)` | 外壳页 | 保存主题、密度、最近的仓库、会话目录 | 只认列出的键；目录只能是对话框选过的 |
+| `shell.startService(repo)`、`shell.restartService()` | 外壳页 | 启动或重启服务，成功后打开服务页 | 仓库必须在设置的列表里 |
+| 事件 `service-state` | 外壳页 | 服务的启动中、运行中、已退出（含退出码） | — |
+| `host.reauth()` | 服务页 | 会话失效时，外壳用控制令牌要新的引导地址并重新打开（D4） | 每分钟最多 3 次 |
+| `host.openSecretWindow(url)` | 服务页 | 另开一个小窗口显示 2.7 的一次性凭据页（D6 的凭据录入） | 只认 `http://127.0.0.1:<端口>/<令牌>` 的形状；小窗口没有 preload，用自己的内存分区，只允许这个 origin |
+| `host.openExternal(url)` | 服务页、外壳页 | 外壳弹出自己的确认框，确认后交给系统浏览器 | 只允许 http/https |
+| `host.reveal(relPath)` | 服务页 | 在资源管理器中显示 | 只认 `.agent/` 下的相对路径 |
+| `host.notify(kind)` | 服务页 | 发系统通知 | 固定的类型 |
+| `host.openSettings()` | 服务页 | 切到设置外壳页 | — |
 
 **Electron 的安全设置全部显式写出**（对照 3.3）：
 
 - `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`、`allowRunningInsecureContent: false`；不开 `webviewTag`。
-- preload：
-  - 不用 preload；或者只暴露两个经过校验的函数：“在资源管理器中显示”“发通知”；
-  - 参数只接受 `.agent/` 下的相对路径与固定的通知类型。
+- preload：只暴露上面宿主接口表里的函数（外壳页与服务页各一套），参数逐个校验。
 - 导航与外部链接：
   - `setWindowOpenHandler` 一律拒绝；
   - `will-navigate` 只允许服务自己的 origin；
@@ -436,7 +498,7 @@ flowchart LR
   - 安装包大（Electron 应用通常上百 MB，未测）；
   - 攻击面大。这一点靠上面的显式设置与 10.4 的测试来约束。
 
-**Tauri 作为备选**：安装包小，权限按能力声明；但构建要 Rust 工具链，而且各平台 WebView 的行为不同。外壳的契约只有上面五件事，换成 Tauri 只需重写这一层。
+**Tauri 作为备选**：安装包小，权限按能力声明；但构建要 Rust 工具链，而且各平台 WebView 的行为不同。外壳的契约就是上面这些事与宿主接口表，换成 Tauri 只需重写这一层。
 
 ### D11 页面与命令
 
@@ -445,9 +507,9 @@ flowchart LR
 | 总览 | 运行中的 attempt（已用时间、工具调用次数、“长时间没有工具调用”的提示）；待验收（NEEDS_REVIEW）；已通过待集成；最近的配置变更 | `status --json`；`config history --json` | 是 |
 | 任务与 attempt | 任务列表；attempt 的状态、摘要、范围、检查、变异、结论；候选补丁（统一 / 分屏）；执行报告（纯文本）；事件跟随。详情页的版本、用时、token、检查结果取自 `status --json` 里这一行，摘要与证据清单取自 `logs show --json`（自查-3） | `status --json`；`logs list/show --json`；新增的 `logs cat`（D13） | 是 |
 | 角色与模型 | 四个角色的绑定与模式；方案一键切换（先看 `preset diff` 与预览）；profile 的增改删 | `config role/profile/preset … --json` 与对应的写命令 | 是 |
-| CLI 运行时 | 已登记的 runtime、命令来源、版本；扫描、探测、模型列表；就绪总览（含 `--record`） | `config runtime …`、`config models`、`config doctor` | 是（作业） |
-| 凭据 | 每个环境变量名在哪一层找到；录入时打开 2.7 的一次性页面。名单由服务从 `config show --json` 与 `config profile show --json` 合出（自查-2） | `config show`、`config profile show`、`config secret check`（补 `--json`）；`config secret set` | 是 |
-| 日志与用量 | 检索；执行端与规划端的 token 用量 | `logs search`（补 `--json`）、`logs usage --json` | 是 |
+| CLI 运行时 | 已登记的 runtime、命令来源、版本；扫描、探测、模型列表；就绪总览（含 `--record`）。扫描结果逐个登记，一次确认一条 `runtime add`（r2-S4） | `config runtime …`、`config models`、`config doctor` | 是（作业） |
+| 凭据 | 每个环境变量名在哪一层找到；录入走 D6 的凭据录入流程（r2-B3）。名单由服务从 `config show --json` 与 `config profile show --json` 合出（自查-2） | `config show`、`config profile show`、`config secret check`（补 `--json`）；`config secret set --no-browser` | 是 |
+| 日志与用量 | 检索；执行端与规划端的 token 用量。规划端用服务启动时传入的会话目录（r2-S4） | `logs search`（补 `--json`）、`logs usage [--transcript …] --json` | 是 |
 | 插件 | 列表、核对、启停（先用 `--dry-run` 预览权限差异） | `plugins …` | 是 |
 | 历史与审计 | 配置写入的历史、快照差异、回滚 | `config history …`、`config rollback` | 是 |
 | 需求与合同 | 需求、概要步骤、合同候选、审核简报、ContractReview | 等 P2、P3 的命令 | 否（推测：13.5 节已把 P3 改为更轻的形态，开工前要用户决定） |
@@ -474,13 +536,16 @@ flowchart LR
   - `config validate`、`config secret check` 补 `--json`；
   - 经 `config_transaction` / `config_transactions` 的写命令（界面用到的：`role set`、`preset use/save/remove`、`profile add/edit/remove`、`runtime add/remove`、`rollback`）加两个选项：
     - `--dry-run --json`：不进事务、不拿锁，只读配置、在内存里修改、整份校验、算运行中切换的判断（D6），输出变化、在运行的 attempt、是否需要 `--yes` 与 `state` 令牌；不写文件、不记审计；
-    - `--expect-state <令牌>`：在锁内、校验之前比对这条命令要写的每个资源的当前字节，不一致就退出 4、一个字节都不写（r1-1）；
+    - `--expect-state <令牌>`：拿到配置锁之后、第一次 publish 之前，一次读齐这条命令要写的全部资源并比对，比对之后用同一批字节构造事务；不一致就抛 `ConfigError(code=4)`，一个字节都不写（r1-1）。
+      - 两资源的命令（`runtime add --command`、`runtime remove`）在延迟创建本机文件事务之前就要比较本机文件（KC:756–764 的工厂是用到时才读）。
+      - 不能用 `pd.DispatchError`：KR 的 `_run` 会把它的退出码映射成 1。
   - 2.7 的一次性凭据页可以改用 `tokens.css` 的配色（可选）。
-- **KP**：`plugins enable|disable` 的 `--dry-run` 补 `--json` 与 `state`，并接受 `--expect-state`（它们写的是配置的 `plugins` 段）。
+- **KR**（r2-N1）：role / profile / preset / runtime 的写处理器（例如 KR:885、1038）拆出“在内存里修改配置”的纯函数，供写入与 `--dry-run` 共用；接收并传递 `--expect-state`。
+- **KP**：`plugins enable|disable` 现有的 `--dry-run` 在写入事务里运行（KP:627–653），改成同样的纯读路径，并补 `--json` 与 `state`；接受 `--expect-state`（它们写的是配置的 `plugins` 段）。
 - **PD**：`status --json` 给运行中的 attempt 补 `live` 对象（D7），文本输出不变。
 - **KL**：
   - `logs search` 补 `--json`；
-  - 新增只读的 `logs cat <run> <相对路径> [--offset N] [--limit N] --json`：按字节截取，只认证据目录下的相对路径，不跟随链接，输出脱敏。这样“读证据文件”也有对应的 CLI 命令（D1）。
+  - 新增只读的 `logs cat <run> <相对路径> [--cursor C] [--limit N] --json`：分页的单位是脱敏之后的文本（D7，r2-B1），只认证据目录下的相对路径，不跟随链接。这样“读证据文件”也有对应的 CLI 命令（D1）。
 - **共用的只读函数**：状态列表、证据文件按段读取。KL 与 PD 现有的实现抽成返回数据的函数，CLI 与服务都调用它们（D3）。
 - **新目录 `desktop/`**：
   - `desktop/web/` 是前端，`desktop/shell/` 是 Electron 外壳，各自有 `package.json` 与锁文件；
@@ -498,11 +563,12 @@ flowchart LR
 ### 5.1 `ui` 子命令
 
 ```
-ui --desktop --assets <目录> [--idle-timeout <秒>]
+ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 ```
 
 - 只给桌面外壳用（不做浏览器模式，1.1）；不带 `--desktop` 时退出 2，提示“管理台只由桌面应用启动”。
-- stdout 写一行握手 JSON：`{"themis_ui": 1, "bootstrap": "http://127.0.0.1:<port>/bootstrap/<nonce>", "origin": "http://127.0.0.1:<port>", "pid": <pid>}`；之后不再向 stdout 写任何内容。
+- stdout 写一行握手 JSON：`{"themis_ui": 1, "bootstrap": "http://127.0.0.1:<port>/bootstrap/<nonce>", "origin": "http://127.0.0.1:<port>", "control": "<控制令牌>", "pid": <pid>}`；之后不再向 stdout 写任何内容。外壳只把 `control` 留在主进程里（D4）。
+- `--transcript` 可以给多个，用量路由把它们原样传给 `logs usage`（r2-S4）。
 - 父进程退出时，服务自己退出。
 - **退出码**：
   - 0：正常关闭（空闲超时或外壳退出）；
@@ -518,9 +584,9 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | GET `/api/v1/events` | SSE，基于上一行（D7） | 读 |
 | GET `/api/v1/attempts?task=` | `logs list [--task] --json` | 读 |
 | GET `/api/v1/attempts/<task>/<attempt>` | `logs show <task>/<attempt> --json` | 读 |
-| GET `/api/v1/attempts/<task>/<attempt>/file?path=&offset=&limit=` | 与 `logs cat … --json` 共用函数（新增） | 读 |
+| GET `/api/v1/attempts/<task>/<attempt>/file?path=&cursor=` | 与 `logs cat … --json` 共用函数（新增）；分页单位是脱敏之后的文本，游标不透明（D7） | 读 |
 | GET `/api/v1/search?q=&task=` | `logs search … --json`（补） | 读 |
-| GET `/api/v1/usage` | `logs usage --json` | 读 |
+| GET `/api/v1/usage` | `logs usage --json`，加上服务启动时给的每个 `--transcript` | 读 |
 | GET `/api/v1/config`、`/config/validate` | `config show --json`、`config validate --json`（补） | 读 |
 | GET `/api/v1/config/history`、`/config/history/<n>` | `config history [show <n>] --json` | 读 |
 | GET `/api/v1/roles`、`/profiles`、`/presets`、`/presets/<a>/diff/<b>`、`/runtimes` | `config role show`、`profile show`、`preset list`、`preset diff <a> <b>`、`runtime list`（都带 `--json`） | 读 |
@@ -536,7 +602,8 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | POST `/api/v1/runtimes/<id>`（add / remove） | `config runtime add|remove …` | 改配置 |
 | POST `/api/v1/plugins/<id>/enable`、`/disable` | `plugins enable|disable <id>` | 改配置 |
 | POST `/api/v1/config/rollback/<n>` | `config rollback <n> [--yes]` | 改配置 |
-| POST `/api/v1/secrets/<name>/set` | 启动 `config secret set <name>` 的一次性页面，把它的地址交给外壳另开窗口 | 改配置 |
+| POST `/api/v1/secrets/<name>/entry` | 作业：`config secret set <name> --no-browser`；读 stderr 的握手，返回作业号与一次性页面的地址；作业在保存、超时或取消时结束（D6 的凭据录入） | 凭据录入 |
+| POST `/control/bootstrap` | 外壳专用：带控制令牌，换一个新的一次性引导地址（D4） | 控制 |
 
 “花钱或集成”一档的路由在第一阶段不登记（D6）。
 
@@ -548,6 +615,7 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 
 - **字段**：
   - `data`：子进程 stdout 里的 JSON；命令没有 `--json` 时为 null；
+  - `output`：命令没有 `--json` 时，stdout 的文本行，已脱敏。例如 `role set`、`preset use` 的 WARN 就打在这里（r2-S6）；
   - `messages`：stderr 里的 ERROR / WARN 行，已脱敏；
   - `command`：显示用的 argv，已脱敏，不含仓库的绝对路径。
 - **HTTP 状态**：
@@ -592,9 +660,10 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | `scripts/kit_ui.py`（新） | D2–D7、D13 |
 | PD 的解析器与 `KIT_LOADED_FILES`（PD:96–101） | 登记 `ui`，惰性转交；状态列表抽成共用函数；`status --json` 补 `live` |
 | KC:431 `ACTOR_RE` | 加 `user-ui` |
-| KC 的解析器与写命令 | `config validate --json`、`config secret check --json`；写命令的 `--dry-run --json` 与 `--expect-state` |
-| KP | `plugins enable|disable` 的 `--dry-run --json` 与 `--expect-state` |
-| KL | `logs search --json`；新增 `logs cat`；按段读取抽成共用函数 |
+| KC 的解析器与写命令 | `config validate --json`、`config secret check --json`；写命令的 `--dry-run --json`（纯读路径）与 `--expect-state`（锁内、第一次 publish 之前比对） |
+| KR | role / profile / preset / runtime 的写处理器拆出纯修改函数；传递 `--expect-state` |
+| KP | `plugins enable|disable` 的 `--dry-run` 改为纯读路径，补 `--json` 与 `state`；`--expect-state` |
+| KL | `logs search --json`；新增 `logs cat`（分页按脱敏之后的文本）；按段读取抽成共用函数 |
 | `.claude/settings.example.json` | `ui` 的 deny |
 | `AGENTS.md` | 代理不启动、不驱动管理台；Codex 沙箱一节 |
 | `.gitignore`、`gitignore.append.txt` | `.agent/.ui.lock/`；`desktop/` 的构建产物 |
@@ -614,9 +683,9 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | 阶段 | 内容 | 依赖 | 完成标准 |
 |---|---|---|---|
 | D0 | 本文与闸一 | 用户拍板 11 节 | 零 Blocking |
-| D1 | `kit_ui.py` 的读路由、SSE 与安全基线；`logs cat` 与各处补的 `--json`；前端的令牌、原子组件与只读页面 | 无 | 10.1、10.2 全过 |
-| D2 | 改配置的路由、预览、确认号与确认框；`ACTOR_RE`；`--dry-run --json` | D1 | 10.1 的 U5–U8 通过；审计记 `user-ui` |
-| D3 | Electron 外壳与 Windows 安装包 | D1 | 10.3、10.4 全过 |
+| D1 | `kit_ui.py` 的读路由、SSE、控制接口与安全基线；`logs cat` 与各处补的 `--json`；前端的令牌、原子组件与只读页面 | 无 | 10.1 的 U1–U5、U9–U14b、U16、U17；10.2 的 W1、W2、W4–W6 |
+| D2 | 改配置的路由、预览、确认号与确认框；凭据录入作业；`ACTOR_RE`；`--dry-run --json` 与 `--expect-state` | D1 | 10.1 的 U6–U8、U6b、U6c、U15、U18–U20；10.2 的 W3、W3b；审计记 `user-ui` |
+| D3 | Electron 外壳（含外壳页与宿主接口）与 Windows 安装包 | D1、D2 | 10.4 全过；10.3 端到端 |
 | D4 | 花钱或集成的操作（若用户同意） | D2；11 节第 2 项 | 每次确认；门禁不减 |
 | D5 | 需求与合同、四端拓扑、反馈流、推进 | 内核 P2、P3、P5、P6 | 各阶段另定 |
 
@@ -635,15 +704,22 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | U5 | 配置里有令牌形状的值与键名（第二轮 D9 的夹具） | 所有响应的 `data`、`messages`、`command` 都不含它们 |
 | U6 | 确认号缺失、过期、用第二次、换了参数 | 409，命令没有运行 |
 | U6b | 预览之后、执行之前，另一个进程用 CLI 改了配置（r1-1） | 内核在锁内比对 `--expect-state` 不一致，退出 4，配置与审计都没有变化；服务返回 409 |
+| U6c | 两资源的命令（`runtime add --command`）预览之后，只有本机文件被改了 | 同样退出 4，两个资源都没有变化 |
 | U7 | 经界面执行 `config role set` | 审计的 `actor` 为 `user-ui`；只有预览说需要时才带 `--yes` |
-| U8 | 预览之后有 attempt 开始，再执行不带 `--yes` 的切换 | 内核拒绝，配置不变；界面拿到内核的提示 |
+| U8 | 预览之后有 attempt 开始，执行时扫描能看到它，再执行不带 `--yes` 的切换 | 内核拒绝，配置不变；界面拿到内核的提示（扫描之后才开始的 attempt 不在此列，r2-S8） |
 | U9 | `/api/v1/status` 对比 `status --json`；`file` 路由对比 `logs cat --json` | 同一夹具上字段完全一致 |
 | U10 | `doctor` 作业被取消或超时 | 子进程树被结束；作业记为取消或超时 |
 | U11 | 不带 `--desktop` 启动；找不到前端资源；已有服务在运行 | 分别退出 2、2、1，提示原文；握手行之外 stdout 没有任何输出 |
 | U12 | 任意响应 | 带 CSP、`nosniff`、`no-referrer`；API 响应带 `no-store` |
 | U13 | 空闲超时；`--desktop` 的父进程退出 | 服务退出，锁目录被清除 |
-| U14 | `logs cat` 读证据目录之外的文件、路径经过链接、超过上限 | 拒绝；超过上限时截断并给出下一段的偏移 |
-| U15 | `--dry-run --json`，包括有中断事务待补判、有外部改动待记录的仓库 | 不写任何文件（含锁目录）、不记审计；报告的“是否需要 `--yes`”与真正写入时内核的判断一致（固定夹具） |
+| U14 | `logs cat` 读证据目录之外的文件、路径经过链接、超过上限 | 拒绝；超过一页时截断并给出下一段的游标 |
+| U14b | 证据里有 `api_key=…`、PEM 块、跨行的 Bearer，按任意切点分页读取（r2-B1） | 任何一页都不含凭据片段；JSONL 逐行、其他文本整份脱敏；超过 64 MiB 的文本拒绝显示 |
+| U15 | `--dry-run --json`（含插件），包括有中断事务待补判、有外部改动待记录的仓库 | 不写任何文件（含锁目录）、不记审计；报告的“是否需要 `--yes`”与真正写入时内核的判断一致（固定夹具） |
+| U16 | 401 之后 `POST /control/bootstrap`：不带控制令牌、令牌错、只带 cookie（r2-S2） | 403；带对的令牌才返回新的引导地址，旧会话作废 |
+| U17 | SSE 断线期间 attempt 由 RUNNING 变为 NEEDS_REVIEW，之后重连（r2-S2） | 重连后的第一条是全量快照，状态正确 |
+| U18 | 凭据录入作业（r2-B3）：读 stderr 握手拿到地址；保存后作业结束并重查；超时或取消时 | 作业状态与 `config secret check --json` 一致；超时或取消时子进程被结束；没有打开系统浏览器；作业结果里没有值 |
+| U19 | 写命令替换成功、审计追加失败（替身让追加抛错）（r2-S1） | 信封 `ok: false`；重读看到配置已变 |
+| U20 | `role set` 绑定到未接通的适配器（r2-S6） | 信封 `output` 里有那条 WARN |
 
 ### 10.2 前端（Vitest）
 
@@ -652,6 +728,7 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | W1 | 执行报告里有 `<img src=x onerror=…>`、`<script>` | 按原文显示为文本；DOM 里没有对应的元素 |
 | W2 | Markdown 里有原始 HTML 与 `javascript:` 链接 | 不渲染 HTML；链接被拒绝 |
 | W3 | 写操作返回退出码 3 | 显示内核的报错，状态不变；不显示“成功” |
+| W3b | 写操作退出码 1，但重读发现配置已变（r2-S1） | 显示“已部分写入，结果待核实”；不显示“成功”，也不显示“没有变化” |
 | W4 | 组件里用到未定义的 `--tt-*`，或写死颜色 | 契约检查失败 |
 | W5 | 内核新增一个 attempt 状态 | 状态令牌的覆盖检查失败（状态名与内核导出的列表比对） |
 | W6 | 对话框打开后按 Tab | 焦点不离开对话框；关闭后回到触发它的按钮 |
@@ -666,9 +743,11 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 |---|---|---|
 | E1 | 窗口的安全选项被改松 | 读取 `webPreferences` 并与快照比对：`contextIsolation`、`sandbox`、`nodeIntegration: false`、`webSecurity` |
 | E2 | 页面尝试 `window.open`、导航到外部地址、请求权限 | 全部被拒绝 |
-| E3 | preload 暴露的接口 | 与允许清单完全相同；参数越界（`.agent/` 以外的路径）被拒绝 |
+| E3 | preload 暴露的接口 | 与 D10 的宿主接口表完全相同；参数越界（`.agent/` 以外的路径、对话框之外的路径、非 http/https 的网址）被拒绝；渲染进程拿不到控制令牌 |
 | E4 | 找不到 Python、服务握手失败、服务崩溃 | 提示原因；不留下僵尸进程 |
 | E5 | Fuses | 打包后的二进制上 `RunAsNode` 等为关闭 |
+| E6 | 两个仓库的窗口同时打开、各自登录（r2-S3） | 两边的会话都有效，互不覆盖 |
+| E7 | 找不到 Python 的首次启动；设置里改会话目录（r2-B2、r2-S4） | 首次启动外壳页能打开并能选 python.exe；改目录后服务被重启并带上 `--transcript` |
 
 ## 11. 用户拍板（2026-10-18 已定）
 

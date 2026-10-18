@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 1 稿（2026-10-18）**。
+状态：**第 2 稿（2026-10-19）**，随架构文档第 4 稿同步闸一第 2 轮的处置。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -50,6 +50,7 @@
 9. **克制的动效**：没有声音；动效只用于状态变化与展开收起，并尊重系统的“减少动态效果”设置。
 10. **文字**：界面文字用简体中文（术语见第 10 节）；内核的状态码、命令、路径、模型 ID 原样显示，不翻译。
 11. **键盘可达**：所有操作都能用键盘完成；焦点清晰可见（8.6、第 11 节）。
+12. **两类页面分开**：首次启动、设置、服务状态三页是外壳页，只用 `window.themisShell`；其余是服务页，用 `src/api.ts` 与少量 `window.themisHost` 函数（5.7）。
 
 ## 1. 产品与用户
 
@@ -396,6 +397,18 @@
 | 提示条 | 页面级，放在页面头下方；色调 info / warning / danger；只有 info 可以关掉 |
 | 轻提示 | 右下角，只用于已经确认的结果（例如“已切换到方案 economy · 审计 #42”）与“已复制”；5 秒后消失，悬停时暂停；出错不用轻提示，在原处显示 |
 
+### 5.7 两类页面
+
+| | 外壳页 | 服务页 |
+|---|---|---|
+| 页面 | 首次启动（6.1）、设置（6.10）、服务状态与恢复（6.12） | 其余全部 |
+| 从哪加载 | 打包在应用里，由外壳直接加载 | 由本机服务托管 |
+| 服务没起来时 | 能打开 | 打不开 |
+| 数据与操作 | `window.themisShell`：读设置与环境、系统选择对话框、保存设置、启动与重启服务、`service-state` 事件 | `src/api.ts`（8.9），加上少量 `window.themisHost` 函数：重新认证、凭据小窗口、外部打开、在资源管理器中显示、通知、打开设置 |
+| 显示证据 | 从不 | 是（按 7.12 只当文本） |
+
+两类页面用同一套 `tokens.css` 与组件，视觉上无缝衔接，可以是同一个前端工程的两个入口。原型里两个接口都用桩函数代替（8.9）。
+
 ## 6. 页面
 
 每个页面都要设计这几种状态：
@@ -425,6 +438,7 @@
 ```
 
 - 卡片宽 560，居中。四步依次检查，每一步右侧显示 ✓、✗ 或转圈。
+- 这是外壳页（5.7）：服务还没起来时也能打开。数据来自 `themisShell.getState()`；[更换…] 与“指定…”按钮调用 `pickRepo()`、`pickPython()`、`pickKit()`（系统对话框）；第 4 步调用 `startService(repo)`，并监听 `service-state` 事件。
 - **错误与处理**（文案见第 10 节）：
 
 | 情形 | 显示 | 操作 |
@@ -449,7 +463,7 @@
 │ [待验收] logs-cat.v2 · attempt-002   28 分 39 秒   检查 8/8   [查看证据] │
 │ [超时]   plugin-verify-json.v1 · attempt-001   30 分 0 秒     [查看证据] │
 │ [升级]   secret-check-json.v1 · attempt-001                   [查看证据] │
-│ 验收在规划端会话里进行：/review-pi logs-cat.v2               [复制]     │
+│ 验收在规划端会话里进行：/review-pi .agent/runs/logs-cat/attempt-002               [复制]     │
 └──────────────────────────────────────────────────────────────────────┘
 ┌ 运行中 ──────────────────────────────────────────────────────────────┐
 │ [运行中] ui-readonly-api.v1 · attempt-001  已用 19 分 6 秒  工具调用 37 次 │
@@ -505,7 +519,7 @@
  logs-cat · attempt-002  [待验收]
  版本 v2 · 状态时间 2026-10-18 14:21 · 用时 28 分 39 秒 · token 4,210,385 · 费用 未知 · 检查 8/8（fresh）· 越界 0
 ┌ 下一步 ────────────────────────────────────────────────────────────────┐
-│ ⓘ 这个 attempt 等你验收。验收在规划端会话里进行：  /review-pi logs-cat.v2  [复制] │
+│ ⓘ 这个 attempt 等你验收。验收在规划端会话里进行：  /review-pi .agent/runs/logs-cat/attempt-002  [复制] │
 └────────────────────────────────────────────────────────────────────────┘
  [摘要] [补丁] [检查] [执行报告] [事件] [全部文件]
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -528,8 +542,8 @@
 
 | 状态 | 文字 | 可复制的内容 |
 |---|---|---|
-| 待验收那几个 | 这个 attempt 等你验收。验收在规划端会话里进行。 | `/review-pi <task>.v<N>` |
-| 待集成 | 已通过，等待集成。集成在规划端会话里进行。 | `/review-pi <task>.v<N>` |
+| 待验收那几个 | 这个 attempt 等你验收。验收在规划端会话里进行。 | `/review-pi .agent/runs/<task>/attempt-NNN`（精确到正在看的 attempt） |
+| 待集成 | 已通过，等待集成。集成在规划端会话里进行。 | `/review-pi .agent/runs/<task>/attempt-NNN`（精确到正在看的 attempt） |
 | 返工 | 需要出新版本合同返工。 | `/plan-task <task>` |
 | 升级、阻塞 | 需要你做决定，见摘要里的阻塞点。 | — |
 
@@ -634,7 +648,7 @@
   - 命令用等宽字体，太长时从中间截断，悬停显示全文；
   - “能担任”来自适配器：pi 是执行端与合同端；claude-code、codex 是交互式宿主；opencode 本轮未接通。
 - **作业类按钮**：[扫描 PATH]、[探测]、[模型]、[运行就绪检查]、[核验] 都会启动长作业（8.4），用作业进度卡片（7.17）显示，可以取消。
-- **扫描结果**：列出找到的 CLI 与版本，给 [登记全部]（预览后确认）。
+- **扫描结果**：列出找到的 CLI 与版本，每行一个 [登记]。一次确认登记一个（`config runtime add <id> --adapter <a>`），不做“登记全部”。
 - **手动登记对话框**：
   - 字段：ID、适配器（下拉）、命令（列表编辑器：程序加若干参数，每项一个文本框）；
   - 说明：“写绝对路径。命令只保存在本机文件 .agent/dispatch.local.json，不进提交的配置。”
@@ -656,7 +670,11 @@
 
 - 名单由服务合成：决策模型用的变量名，加上各个 profile 的 `credential_env`（`GET /api/v1/secrets`）。
 - “来源”标签：环境变量、系统凭据库、0600 文件、没有（danger）。
-- [录入…] 打开一个单独的小窗口，标题为“录入凭据 STEP_API_KEY”。窗口里是内核自己的一次性页面，不是本界面的组件；窗口关闭后自动重新检查。
+- [录入…]：
+  - 服务启动凭据录入作业（`startSecretEntry(name)`），拿到一次性页面的地址；
+  - 界面调用 `themisHost.openSecretWindow(url)`，外壳另开一个小窗口，标题为“录入凭据 STEP_API_KEY”。窗口里是内核自己的一次性页面，不是本界面的组件；
+  - 等待期间，这一行显示作业卡片（7.17）：“等你在弹出的窗口里粘贴并保存…”，附 [取消]；关掉小窗口也算取消；
+  - 作业结束（保存、取消或超时）后，自动重新检查这一行的来源。
 
 ### 6.7 日志与用量
 
@@ -669,7 +687,7 @@
 - **用量**：
   - 两张汇总卡：
     - **执行端（Pi）**：总 token 加分项（input、output、cacheRead、cacheWrite），以及 known、partial、unknown 的计数；
-    - **规划端**：没设置会话记录目录时显示空状态“在设置里指定会话记录目录后统计”，按钮 [去设置]；设置后按模型列出，分主线与子代理。
+    - **规划端**：没设置会话记录目录时显示空状态“在设置里指定会话记录目录后统计”，按钮 [去设置]；设置后按模型列出，分主线与子代理。目录在设置外壳页里用系统对话框选择，保存后外壳重启本机服务，新目录才生效。
   - 表格按 attempt 列出：任务、attempt、模型、状态标签（known 为 success、partial 为 warning、unknown 为 neutral）与各项 token；
   - 第二张表格按模型列出；
   - 横向条形图只用 CSS 画，不引入图表库；
@@ -716,19 +734,25 @@
 
 ### 6.10 设置
 
-设置保存在桌面应用自己的用户数据目录里，不写进仓库的配置。
+这是外壳页（5.7），服务没起来时也能打开。设置保存在桌面应用自己的用户数据目录里，不写进仓库的配置。改了 Python、kit 或会话目录，保存后外壳会重启本机服务。
 
 | 分组 | 内容 |
 |---|---|
 | 仓库 | 已添加的仓库列表（名称、路径、上次打开）；[添加仓库…]；[从列表移除]（只从应用里移除，不动仓库） |
 | 运行环境 | Python 路径（自动检测的值加 [更改…]）；kit 位置（仓库里装好的，或外部目录）；版本信息 |
-| 规划端用量 | 会话记录目录（可选），只读用量字段，不读对话内容 |
+| 规划端用量 | 会话记录目录（可选，用系统对话框选择）；只读用量字段，不读对话内容；保存后重启服务生效 |
 | 外观 | 主题：跟随系统、亮、暗；密度：标准、紧凑 |
 | 关于 | 版本；开源许可清单；项目主页链接（外部打开前确认） |
 
 ### 6.11 第一阶段不做的页面
 
 需求与合同、四端拓扑、反馈流、推进：要等内核的后续阶段（架构文档 D11）。第一阶段**不出现在导航里**，也不放“即将推出”的占位。
+
+### 6.12 服务状态与恢复（外壳页）
+
+- 服务启动失败、意外退出、或会话无法恢复（8.2）时显示，替代整个窗口的内容。
+- 内容：danger 色的状态图标、标题“本机服务已停止”、退出码、按 6.1 错误表给出的说明，按钮 [重启服务] [打开设置]。
+- 数据来自 `themisShell.getState()` 与 `service-state` 事件；[重启服务] 调用 `restartService()`。
 
 ## 7. 组件规格
 
@@ -839,8 +863,10 @@
 | 可确认 | 正常显示 |
 | 执行中 | 确认按钮转圈；对话框不能关闭，[取消] 禁用（命令已经发出，不能撤回） |
 | 完成 | 重新读取数据后，对话框关闭，并弹出轻提示“已切换到方案 economy · 审计 #42” |
-| 失败 | 对话框不关闭；显示 danger 提示条，内容是内核的报错（纯文本）与原因标签（内核拒绝、用法错误、配置已变、超时）；按钮改为 [重新预览] [关闭] |
-| 配置已变（409） | 提示“配置在你确认之前被改动了，请重新预览”，按钮 [重新预览] |
+| 完成但有警告 | 重新读取之后对话框不关闭，显示 warning 提示条，列出 WARN 行（来自信封的 `output` 与 `messages`），按钮 [知道了] |
+| 失败 | 先重新读取数据；对话框不关闭，显示 danger 提示条：内核的报错（纯文本）与原因标签（内核拒绝、用法错误、状态已变、超时）；按钮改为 [重新预览] [关闭] |
+| 已部分写入 | 退出码非 0，但重新读取发现状态已变：显示 warning 提示条“已部分写入，结果待核实”，附内核的报错；按钮 [查看历史] [关闭] |
+| 状态已变（409） | 提示“配置在你确认之前被改动了，请重新预览”，按钮 [重新预览] |
 
 - 没有“不再询问”或“始终允许”的选项。
 
@@ -951,7 +977,7 @@
 
 | 来源 | 显示 |
 |---|---|
-| 401（会话失效） | 全屏提示“会话已失效”，按钮 [重新连接]（由外壳重新打开引导地址） |
+| 401（会话失效） | 自动调用一次 `themisHost.reauth()`（外壳用控制令牌换新的引导地址并重新打开）；仍失败时切到“服务状态”外壳页（6.12） |
 | 403 | “请求被拒绝”，附技术细节（可折叠） |
 | 400 | 在对应字段下显示错误 |
 | 409 | 见 7.11 |
@@ -967,12 +993,16 @@ stateDiagram-v2
     预览中 --> 失败: 预览失败
     可确认 --> 执行中: 点击确认（带一次性确认号）
     可确认 --> [*]: 取消
-    执行中 --> 重新读取: ok = true
-    执行中 --> 失败: ok = false
+    执行中 --> 重新读取: 有结果（成功或失败）、超时或断线
     执行中 --> 预览中: 409 状态已变
-    重新读取 --> [*]: 关闭对话框，显示轻提示
+    重新读取 --> [*]: 成功，关闭对话框，显示轻提示
+    重新读取 --> 有警告: 成功但有 WARN
+    重新读取 --> 失败: 失败且状态未变
+    重新读取 --> 已部分写入: 失败但状态已变
+    有警告 --> [*]: 知道了
     失败 --> 预览中: 重新预览
     失败 --> [*]: 关闭
+    已部分写入 --> [*]: 关闭
 ```
 
 - **预览**：`POST /api/v1/preview`，请求体 `{"action", "args"}`。返回：
@@ -983,7 +1013,7 @@ stateDiagram-v2
   - `state` 令牌（界面不用解读，原样随确认号带回）；
   - 确认号（60 秒有效）。
 - **执行**：调用对应的写路由，带上确认号。只有预览说需要时，才带“确认切换”的含义，也就是 `--yes`，由服务处理，界面不直接拼参数。
-- **结果**：只看返回的 `ok` 与 `exit_code`，然后重新读取受影响的数据。界面上的“已切换”之类的话，只在重新读取之后出现。
+- **结果**：无论成败都重新读取受影响的数据，再按 `ok`、`exit_code` 与重读的结果决定显示哪种状态（7.11）。界面上的“已切换”之类的话，只在重新读取之后出现。
 
 ### 8.4 长作业
 
@@ -991,10 +1021,12 @@ stateDiagram-v2
 - 流程：`POST /api/v1/jobs` 拿到作业 ID；每秒查询一次 `GET /api/v1/jobs/<id>`；状态有排队、运行中、成功、失败、已取消、超时。
 - 离开页面后作业继续运行；回到页面时显示结果。
 - 同一类作业同时只能有一个：按钮在运行期间禁用。
+- 凭据录入也是作业（6.6），状态多一个“等待保存”。
 
 ### 8.5 连接与重连
 
 - 事件流断开后自动重连：等待 1、2、4、8、16、30 秒（封顶 30 秒），并加 0–20% 的随机延后。服务给出的重试时间是下限。
+- 每次（重新）订阅，服务先发一条全量快照：界面用它整体替换本地状态，再接收增量，所以断线期间的变化不会丢。
 - 连续 3 次失败后，在页面头显示 danger 提示条“与本机服务的连接断开”，附 [重新连接]。旧数据保留，页面标为“可能已过期”。
 - 外壳通知服务进程已退出时，显示全屏提示“本机服务已停止”，附 [重启服务] 与退出码。
 
@@ -1035,7 +1067,7 @@ stateDiagram-v2
 以架构文档 5.2、5.3 为准。所有响应都包在信封里：
 
 ```json
-{"ok": true, "exit_code": 0, "data": {}, "messages": [], "command": ["…"], "elapsed_ms": 0}
+{"ok": true, "exit_code": 0, "data": {}, "output": [], "messages": [], "command": ["…"], "elapsed_ms": 0}
 ```
 
 | 函数 | 路由 |
@@ -1045,7 +1077,7 @@ stateDiagram-v2
 | `subscribeEvents(onSnapshot)` | `GET /api/v1/events`（SSE） |
 | `listAttempts(task?)` | `GET /api/v1/attempts` |
 | `getAttempt(task, attempt)` | `GET /api/v1/attempts/<task>/<attempt>` |
-| `readFile(task, attempt, path, offset, limit)` | `GET /api/v1/attempts/<task>/<attempt>/file` |
+| `readFile(task, attempt, path, cursor?)` | `GET /api/v1/attempts/<task>/<attempt>/file`；返回 `{text, next_cursor, done}`，游标原样带回 |
 | `search(q, task?)` | `GET /api/v1/search` |
 | `getUsage()` | `GET /api/v1/usage` |
 | `getConfig()`、`validateConfig()` | `GET /api/v1/config`、`/config/validate` |
@@ -1053,9 +1085,18 @@ stateDiagram-v2
 | `getRoles()`、`getProfiles()`、`getPresets()`、`diffPresets(a, b)`、`getRuntimes()` | 同名路由 |
 | `startJob(kind, args)`、`getJob(id)`、`cancelJob(id)` | `/api/v1/jobs` |
 | `getPlugins()`、`getPlugin(id)` | `/api/v1/plugins` |
-| `listSecrets()`、`checkSecret(name)`、`openSecretPage(name)` | `/api/v1/secrets`、`/api/v1/secrets/<name>`、`/secrets/<name>/set` |
+| `listSecrets()`、`checkSecret(name)`、`startSecretEntry(name)` | `/api/v1/secrets`、`/api/v1/secrets/<name>`、`POST /api/v1/secrets/<name>/entry`（作业） |
 | `preview(action, args)` | `POST /api/v1/preview` |
 | `setRole`、`usePreset`、`savePreset`、`removePreset`、`saveProfile`、`removeProfile`、`addRuntime`、`removeRuntime`、`setPluginEnabled`、`rollback` | 对应的写路由 |
+
+**宿主接口**（外壳在窗口里提供，见架构文档 D10）：
+
+| 对象 | 谁用 | 函数与事件 |
+|---|---|---|
+| `window.themisHost` | 服务页 | `reauth()`、`openSecretWindow(url)`、`openExternal(url)`、`reveal(relPath)`、`notify(kind)`、`openSettings()` |
+| `window.themisShell` | 外壳页 | `getState()`、`pickRepo()`、`pickPython()`、`pickKit()`、`pickTranscriptDir()`、`saveSettings(patch)`、`startService(repo)`、`restartService()`；事件 `service-state` |
+
+原型里两个对象都用桩函数代替；代码里用 TypeScript 接口声明，方便之后接到真实外壳。
 
 ## 9. 示例数据（mock）
 
@@ -1072,8 +1113,9 @@ stateDiagram-v2
 ```json
 [
   {"attempt": "ui-readonly-api/attempt-001", "task_id": "ui-readonly-api", "plan_version": 1, "attempt_no": 1,
-   "state": "RUNNING", "started": true, "exit_code": null, "wall_seconds": null, "events_ok": null,
-   "violations": null, "checks": null, "check_mode": null, "verdict": null, "failure_class": null,
+   "state": "RUNNING", "started": true, "exit_code": null, "wall_seconds": null,
+   "events_ok": "live:37t 1146s 长时间没有工具调用（6420 个增量）",
+   "violations": null, "checks": "-", "check_mode": null, "verdict": null, "failure_class": null,
    "human_minutes": null, "tokens": null, "cost": null, "cost_status": "unknown",
    "live": {"tool_calls": 37, "elapsed_seconds": 1146, "deltas_since_last_tool": 6420, "long_idle": true}},
   {"attempt": "logs-cat/attempt-002", "task_id": "logs-cat", "plan_version": 2, "attempt_no": 2,
@@ -1094,7 +1136,7 @@ stateDiagram-v2
    "human_minutes": 10.0, "tokens": 3320117, "cost": null, "cost_status": "unknown"},
   {"attempt": "plugin-verify-json/attempt-001", "task_id": "plugin-verify-json", "plan_version": 1, "attempt_no": 1,
    "state": "TIMEOUT", "started": true, "exit_code": 124, "wall_seconds": 1800.0, "events_ok": true,
-   "violations": 0, "checks": null, "check_mode": null, "verdict": null, "failure_class": null,
+   "violations": 0, "checks": "-", "check_mode": null, "verdict": null, "failure_class": null,
    "human_minutes": null, "tokens": 6012447, "cost": null, "cost_status": "unknown"},
   {"attempt": "secret-check-json/attempt-001", "task_id": "secret-check-json", "plan_version": 1, "attempt_no": 1,
    "state": "ESCALATE", "started": true, "exit_code": 0, "wall_seconds": 640.2, "events_ok": true,
@@ -1103,6 +1145,10 @@ stateDiagram-v2
    "cost_status": "unknown"}
 ]
 ```
+
+字段说明：
+- 运行中的行，`events_ok` 照现状放的是实时进度字符串；新增的 `live` 是同一份数据的结构化版本，界面只用 `live`；
+- 没有检查结果时，`checks` 是 `"-"`。
 
 ### 9.3 `getAttempt`（`logs show --json`）
 
@@ -1119,7 +1165,7 @@ stateDiagram-v2
 ### 9.4 `readFile`（示意：新增的 `logs cat --json`）
 
 ```json
-{"path": "executor-report.md", "offset": 0, "length": 214, "total_bytes": 3920, "next_offset": 214,
+{"path": "executor-report.md", "mode": "whole-file", "next_cursor": null, "done": true,
  "text": "## 执行报告\n\n已按合同实现 logs cat。\n\n<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字\n\n- self_checks: V01–V08 通过\n"}
 ```
 
@@ -1208,14 +1254,14 @@ stateDiagram-v2
 ```json
 {"entries": [
   {"number": 42, "resource": "config", "at": "2026-10-18T02:02:11Z", "action": "preset.use", "target": "default",
-   "actor": "user-ui", "confirmation": "none", "state": "published", "resolved": null,
-   "changed_keys": ["active_preset", "roles"], "note": null, "external_changes": false},
+   "actor": "user-ui", "confirmation": "none", "state": "published", "resolved": false,
+   "changed_keys": ["active_preset", "roles"], "note": null, "external_changes": 0},
   {"number": 41, "resource": "local", "at": "2026-10-18T01:47:03Z", "action": "runtime.add", "target": "pi",
-   "actor": "user", "confirmation": "none", "state": "published", "resolved": null, "changed_keys": null,
-   "note": "本机文件不存快照", "external_changes": false},
+   "actor": "user", "confirmation": "none", "state": "published", "resolved": false, "changed_keys": null,
+   "note": "本机文件不存快照", "external_changes": 0},
   {"number": 40, "resource": "config", "at": "2026-10-17T13:20:45Z", "action": "config.set", "target": "pricing",
-   "actor": "agent:planning_review", "confirmation": "none", "state": "published", "resolved": null,
-   "changed_keys": ["pricing"], "note": "（含疑似凭据，不显示）", "external_changes": true}],
+   "actor": "agent:planning_review", "confirmation": "none", "state": "published", "resolved": false,
+   "changed_keys": ["pricing"], "note": "（含疑似凭据，不显示）", "external_changes": 1}],
  "broken_lines": [], "external_before_first": 0}
 ```
 
@@ -1254,9 +1300,17 @@ stateDiagram-v2
 ```
 
 ```json
-{"ok": false, "exit_code": 1, "data": null,
+{"ok": false, "exit_code": 1, "data": null, "output": [],
  "messages": ["ERROR 有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：ui-readonly-api/attempt-001。运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes"],
  "command": ["config", "preset", "use", "economy"], "elapsed_ms": 388}
+```
+
+成功但有警告（`output` 里的文字为示意）：
+
+```json
+{"ok": true, "exit_code": 0, "data": null,
+ "output": ["已设置 roles.contract", "WARN  profile oc-x 用的适配器 opencode 本轮没有接通 contract"],
+ "messages": [], "command": ["config", "role", "set", "contract", "oc-x"], "elapsed_ms": 402}
 ```
 
 ### 9.14 作业（示意）
@@ -1350,3 +1404,6 @@ stateDiagram-v2
 9. 断网时界面照常显示，不请求任何外部资源。
 10. 1024 × 640 下没有整个页面的横向滚动；1280 × 800 下信息密度合适。
 11. 没有其他产品的标识、配色、字体与文案；标识使用 4.1 的两个版本。
+12. 外壳页（首次启动、设置、服务状态）不依赖本机服务也能打开，只用 `window.themisShell`（5.7）。
+13. 写操作无论成败都重新读取；“完成但有警告”“已部分写入”两种状态都有设计（7.11）。
+14. “下一步”复制的是精确的 attempt 目录（6.3）。
