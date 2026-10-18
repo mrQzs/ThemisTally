@@ -195,5 +195,86 @@ class InstalledLayout(unittest.TestCase):
         self.assertNotIn("Traceback", err)
 
 
+def _dir_link(link, target):
+    """建指向目录的链接：Windows 上用 junction（mklink /J 不需要权限），其它平台用符号链接；建不了返回 False。"""
+    if os.name == "nt":
+        return subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True).returncode == 0
+    try:
+        os.symlink(str(target), str(link), target_is_directory=True)
+    except OSError:
+        return False
+    return True
+
+
+class RunDirBoundary(unittest.TestCase):
+    """第一轮设计第 10 节第 5 项：task-id 与 task-id.vN 也不跟随链接，结果必须在 runs 之下（原来直接返回 resolve() 的结果）。"""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp(prefix="kit-v300-rundir-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.root = tmp / "repo"
+        self.root.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self.repo = pd.Repo.discover(str(self.root))
+        self.outside = tmp / "outside"
+        for attempt in (self.repo.runs_dir / "t1" / "attempt-001", self.outside / "attempt-001"):
+            attempt.mkdir(parents=True)
+            (attempt / "meta.json").write_text(json.dumps({"plan_version": 1}), encoding="utf-8")
+
+    def link(self, link, target):
+        if not _dir_link(link, target):
+            self.skipTest("建不了目录链接")
+
+    def assertRefused(self, value):
+        with self.assertRaises(pd.DispatchError) as caught:
+            pd.resolve_run_dir(self.repo, value)
+        self.assertEqual(caught.exception.code, pd.EXIT_USAGE)
+        self.assertIn("链接", str(caught.exception))
+
+    def test_plain_attempts_still_resolve(self):
+        expected = (self.repo.runs_dir / "t1" / "attempt-001").resolve()
+        self.assertEqual(pd.resolve_run_dir(self.repo, "t1"), expected)
+        self.assertEqual(pd.resolve_run_dir(self.repo, "t1.v1"), expected)
+
+    def test_latest_attempt_that_is_a_link_is_refused(self):
+        self.link(self.repo.runs_dir / "t1" / "attempt-002", self.outside / "attempt-001")
+        self.assertRefused("t1")
+        self.assertRefused("t1.v1")
+
+    def test_version_lookup_does_not_read_through_a_link(self):
+        # 链接的编号比真实的小：只取最新的 task-id 形式照常解析；按版本筛选要读 meta.json，所以停下，且不读链接后面的文件。
+        real = self.repo.runs_dir / "t1" / "attempt-001"
+        shutil.move(str(real), str(self.repo.runs_dir / "t1" / "attempt-005"))
+        self.link(real, self.outside / "attempt-001")
+        self.assertEqual(pd.resolve_run_dir(self.repo, "t1"), (self.repo.runs_dir / "t1" / "attempt-005").resolve())
+        reads = []
+        original = pd.read_json_or
+
+        def spy(path, default):
+            reads.append(Path(path))
+            return original(path, default)
+
+        with mock.patch.object(pd, "read_json_or", spy):
+            self.assertRefused("t1.v1")
+        self.assertFalse([p for p in reads if "attempt-001" in p.as_posix()], reads)
+
+    def test_task_directory_that_is_a_link_is_refused(self):
+        self.link(self.repo.runs_dir / "t2", self.outside)
+        self.assertRefused("t2")
+        self.assertRefused("t2.v1")
+
+    def test_cli_reports_one_error_line(self):
+        self.link(self.repo.runs_dir / "t1" / "attempt-002", self.outside / "attempt-001")
+        env = dict(os.environ, PYTHONUTF8="1", CODEKIT_SECRET_STORE="off")
+        proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "pi_dispatch.py"), "--repo", str(self.root),
+                               "mark", "t1", "ABANDONED", "--reason", "x"], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, env=env, timeout=120)
+        err = proc.stderr.decode("utf-8", "replace")
+        self.assertEqual(proc.returncode, 2, err)
+        self.assertIn("不跟随", err)
+        self.assertNotIn("Traceback", err)
+        self.assertFalse((self.outside / "attempt-001" / "state.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

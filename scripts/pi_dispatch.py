@@ -3221,12 +3221,24 @@ def resolve_run_dir(repo: Repo, value: str) -> Path:
                 raise DispatchError("attempt 目录必须位于 %s 下" % repo.runs_dir, EXIT_USAGE)
             return resolved
     if task_id:
-        attempts = task_attempts(repo, task_id)
+        # 不跟随链接（第一轮设计 2.1 的缺口）：task_attempts 的 is_dir() 会跟随链接与 junction，结果可能落在 runs 之外。
+        # 按版本筛选要读每个 attempt 的 meta.json，所以 task-id.vN 遇到任何经过链接的 attempt 都停下，不读它。
+        link = first_link_component(repo.runs_dir, task_id)
+        attempts = [] if link else task_attempts(repo, task_id)
         if key:
-            attempts = [a for a in attempts
-                        if read_json_or(a / "meta.json", {}).get("plan_version") == int(key.group("ver"))]
+            link = link or next((a.relative_to(repo.runs_dir).as_posix() for a in attempts if is_link_or_junction(a)),
+                                None)
+            attempts = [] if link else [
+                a for a in attempts if read_json_or(a / "meta.json", {}).get("plan_version") == int(key.group("ver"))]
+        elif attempts and is_link_or_junction(attempts[-1]):
+            link = attempts[-1].relative_to(repo.runs_dir).as_posix()
+        if link:
+            raise DispatchError("attempt 目录经过链接或 junction，不跟随：%s" % (repo.runs_dir / link), EXIT_USAGE)
         if attempts:
-            return attempts[-1].resolve()
+            resolved = attempts[-1].resolve()
+            if not is_within(resolved, repo.runs_dir):
+                raise DispatchError("attempt 目录必须位于 %s 下" % repo.runs_dir, EXIT_USAGE)
+            return resolved
     raise DispatchError("找不到 attempt：%s" % value, EXIT_USAGE)
 
 
