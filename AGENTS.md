@@ -93,7 +93,7 @@
   - 合同的 executor 有两种写法：
     - 写死：`provider/model · thinking <级别>`，以合同为准；
     - 按角色：`role:execution`，模型来自 `config role` 的绑定。prepare 时按合同版本记在 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后的 attempt 都沿用它。
-  - provider 与 model 必须与 `.agent/environment.md` 和 `pi --list-models` 中的精确 ID 一致；按角色写时，用 `config doctor` 核对绑定。
+  - provider 与 model 必须与 `.agent/environment.md` 和 `pi --list-models` 中的精确 ID 一致；按角色写时，用 `config doctor` 核对绑定；重试已有版本记录的版本时，用 `config doctor --record <task>.vN` 核对记录。
   - 更换模型或思考级别需要用户同意。改角色绑定也算，包括 `config role set`、`preset use`、`profile edit`：
     - 写死的合同，写进新合同；
     - 按角色写的合同，出新版本才会用新绑定。

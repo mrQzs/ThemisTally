@@ -378,6 +378,23 @@ class Validation(RolesRepo):
                 self.assertNotIn("g" * 36, shown)
                 self.assertIn("<redacted>", shown)
 
+    # 闸二总复核第 2 轮 B1：说明键的名字本身像令牌时，报错的开头同样不回显它
+    def test_final_token_shaped_note_key_is_not_echoed(self):
+        key = "_note-sk-" + "n" * 24
+        config = self.base()
+        config[key] = "普通的说明"
+        self.write(config)
+        self.assertNotIn("n" * 24, pd.secret_config_error(config, key))
+        for argv in (["validate"], ["show"], ["show", "--json"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, out + err)
+                self.assertIn(pd.SECRET_KEY_SHOWN, out + err)
+                self.assertNotIn("n" * 24, out + err)
+        with self.assertRaises(pd.ConfigSecretError) as caught:
+            pd.Repo(self.repo).config()
+        self.assertNotIn("n" * 24, str(caught.exception))
+
     # 闸二总复核 S2：旧规则下留下的执行模型副本，读回时按现在的规则脱敏
     def test_final_executor_read_back_is_redacted(self):
         run_dir = self.work / "attempt"
@@ -1077,6 +1094,53 @@ class ConfigCenter(RolesRepo):
         row = {item["role"]: item for item in json.loads(out)["roles"]}["execution"]
         self.assertFalse(row["allowed"])
         self.assertTrue(any("思考级别固定为 high" in problem for problem in row["problems"]))
+
+    # 闸二总复核第 2 轮 S4：已有版本记录的合同按记录核验，命令与 run 的解析顺序相同（本机文件先于 PATH），
+    # 记录里的 runtime 不必仍在配置里登记；模型与思考级别取自记录，不看当前绑定
+    def test_final_doctor_record_checks_what_run_would_use(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-low"}}))
+        record = {"role": "execution", "profile": "exec-step", "runtime": "pi-old", "adapter": "pi", "provider": "bb",
+                  "model": "step-5-preview", "thinking": "high", "contract_json_sha256": "0" * 64,
+                  "created_at": "2026-10-18T00:00:00Z", "created_by_attempt": "attempt-001", "active_preset": None,
+                  "config_sha256": None}
+        path = self.repo / pd.binding_record_rel("demo", 1)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(record), encoding="utf-8")
+        code, out, err = run_config(["doctor", "--record", "demo.v1", "--json"], self.repo)
+        self.assertEqual(code, 0, out + err)  # 没有本机文件：与 run 一样用 PATH 上的 pi
+        row = json.loads(out)["roles"][0]
+        self.assertEqual((row["record"], row["source"], row["model"], row["thinking"], row["model_listed"]),
+                         (".agent/runs/demo/binding-v1.json", "path", "step-5-preview", "high", True))
+        # 本机文件给 pi-old 指了另一个 pi，它的模型列表里没有 step-5-preview：当前绑定照样就绪，记录不就绪
+        old = self.work / "pi_old.py"
+        old.write_text('import os, runpy, sys\nos.environ["STUB_MODELS"] = "bb step-5-mini"\n'
+                       'sys.argv = [os.environ["CLI_STUB_PI"]] + sys.argv[1:]\n'
+                       'runpy.run_path(os.environ["CLI_STUB_PI"], run_name="__main__")\n', encoding="utf-8")
+        command = [sys.executable, str(old)]
+        (self.repo / ".agent" / "dispatch.local.json").write_text(
+            json.dumps({"runtimes": {"pi-old": {"command": command}}}), encoding="utf-8")
+        self.assertEqual(run_config(["doctor"], self.repo)[0], 0)
+        code, out, err = run_config(["doctor", "--record", "demo.v1", "--json"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        row = json.loads(out)["roles"][0]
+        self.assertEqual((row["source"], row["model_listed"]), ("local", False))
+        with contextlib.redirect_stderr(io.StringIO()):  # run 解析出的是同一条命令
+            self.assertEqual(pd.resolve_pi_command(pd.Repo(self.repo), "pi-old", self.config()), command)
+        code, out, err = run_config(["doctor", "--record", "demo.v1"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("版本记录 .agent/runs/demo/binding-v1.json", out)
+        # 思考级别同样取自记录
+        (self.repo / ".agent" / "dispatch.local.json").unlink()
+        path.write_text(json.dumps(dict(record, thinking="turbo")), encoding="utf-8")
+        code, out, err = run_config(["doctor", "--record", "demo.v1", "--json"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        self.assertTrue(any("思考级别 turbo" in problem for problem in json.loads(out)["roles"][0]["problems"]))
+        # 写法不对是用法错误；没有记录时说明第一次 prepare 才建立
+        self.assertEqual(run_config(["doctor", "--record", "demo"], self.repo)[0], 2)
+        code, _out, err = run_config(["doctor", "--record", "demo.v2"], self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("还没有版本记录", err)
+        self.assertNoPrompts()
 
     # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
     def test_shared_readiness_takes_the_environment_explicitly(self):

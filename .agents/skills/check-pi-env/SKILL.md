@@ -18,7 +18,7 @@ argument-hint: "[provider/model] [--smoke]"
 ## 步骤
 
 1. **确定执行模型**。先确定这次核验针对哪种合同（看待派遣合同的 executor，或参数）；不能只凭配置里有没有绑定来决定，两种都要派遣时两种都核验：
-   - **按角色写、同一版本已有版本记录的合同**（重试已派遣过的版本）：以记录为准，不看当前绑定。读 `.agent/runs/<task>/binding-v<N>.json` 的 provider、model、thinking 与 runtime，照写死合同的方式核验这个模型（第 2 步的 doctor），pi 的命令用 `bash scripts/dispatch-pi.sh config runtime probe <runtime>` 核对；当前绑定就绪不能代表旧版本可以重试。
+   - **按角色写、同一版本已有版本记录的合同**（重试已派遣过的版本）：以记录为准，不看当前绑定。运行 `bash scripts/dispatch-pi.sh config doctor --record <task-id>.v<N>`：它按 run 的顺序解析记录里 runtime 的命令，用记录的 provider、model、thinking 与 `child_env(config)` 核对模型列表、登录与思考级别，允许列表按当前配置判断。当前绑定就绪不能代表旧版本可以重试；旧 doctor 查的是 PATH 上的 pi，也可能不是 run 会用的那一个。
    - **按角色写、还没有记录的合同**（`role:execution`，第一次派遣）：以 `bash scripts/dispatch-pi.sh config role show` 的 execution 绑定为准，模型、思考级别与 pi 的命令都来自绑定的 profile 与 runtime（命令按 `PI_DISPATCH_PI_CMD` → 本机文件 `.agent/dispatch.local.json` → PATH 解析）。第 2 步改跑 `bash scripts/dispatch-pi.sh config doctor`（不调用模型）：每个角色一行，列出命令及来源、版本、模型是否在列表、登录、思考级别、允许列表与凭据可用性。命令来自本机文件、PATH 上没有 pi 时，旧 doctor 找不到 pi 是正常的，以 `config doctor` 为准。结果写进 environment.md 的“角色绑定”一节。
    - **写死模型的合同**（即使配置里有绑定）：执行的是合同里的模型，pi 的命令照旧只看 `PI_DISPATCH_PI_CMD` 与 PATH、不读本机文件。按以下顺序选取，再照第 2 步跑 doctor：
    1. 参数中的 `provider/model`（第一个 `/` 之前是 provider）；

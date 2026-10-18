@@ -223,6 +223,7 @@ bash scripts/dispatch-pi.sh config runtime scan --add              # 在 PATH �
 bash scripts/dispatch-pi.sh config profile add step --runtime pi --model step/step-5-preview --thinking high
 bash scripts/dispatch-pi.sh config role set execution step         # 按角色写的合同（role:execution）用它
 bash scripts/dispatch-pi.sh config doctor                          # 每个角色的就绪总览，不调用模型
+bash scripts/dispatch-pi.sh config doctor --record <task-id>.v<N>   # 重试已派遣过的版本前：按它的版本记录核验
 bash scripts/dispatch-pi.sh config preset save default             # 方案：save / use / diff / list / show / remove
 ```
 

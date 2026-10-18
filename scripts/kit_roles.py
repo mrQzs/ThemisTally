@@ -562,13 +562,15 @@ def _shown_command(command: Optional[List[str]]) -> Optional[List[str]]:
     return [pd.redact_secrets(part) for part in command] if command else None
 
 
-def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str) -> Tuple[Optional[List[str]], str, List[str]]:
+def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str,
+                    adapter: Optional[str] = None) -> Tuple[Optional[List[str]], str, List[str]]:
     """runtime 的命令、来源与提示行，按 D3 的解析顺序：PI_DISPATCH_PI_CMD（只对 pi 适配器）→ 本机文件 → PATH。
 
     来源是 env、local、path 或 missing。只读，不运行命令。调度器对按角色写的合同用 resolve_pi_command 解析 pi，
-    顺序与这里相同（M2 的测试两边一起核对）。
+    顺序与这里相同（M2 的测试两边一起核对）。adapter 给出时按它解析、不要求 runtime 仍在配置里登记：版本记录里的
+    runtime 在 run 时也是这样解析的（config doctor --record，闸二总复核第 2 轮 S4）。
     """
-    adapter = _adapter_of(config, runtime_id)
+    adapter = adapter if adapter in ADAPTERS else _adapter_of(config, runtime_id)
     if adapter is None:
         return None, "missing", ["ERROR runtime %s 没有登记（或它的 adapter 无效）" % _shown(runtime_id)]
     lines: List[str] = []
@@ -1239,84 +1241,115 @@ def _credential_ready(env: Dict[str, str], names: Any) -> Dict[str, bool]:
 def _doctor(args: Any) -> int:
     _kc_, repo, config = _open(args)
     env, _removed = pd.child_env(config)
-    allowed = [entry for entry in config.get("allowed_executors") or [] if isinstance(entry, dict)] \
-        if isinstance(config.get("allowed_executors"), list) else []
-    by_runtime: Dict[str, Dict[str, Any]] = {}
-    by_model: Dict[Tuple[str, str, str], Tuple[Dict[str, Any], List[str]]] = {}
+    caches: Tuple[Dict[str, Any], Dict[Any, Any]] = ({}, {})
     rows = []
-    for row in _role_rows(config):
+    if args.record:  # 按版本记录核验：与 run 用同一条命令、同一个模型与思考级别（闸二总复核第 2 轮 S4）
+        rows.append(_record_readiness(repo, config, env, caches, args.record))
+    for row in _role_rows(config) if not args.record else []:
         binding = row["binding"]
-        out: Dict[str, Any] = {"role": row["role"], "mode": binding.get("mode") if binding else None, "problems": []}
         if binding is None or binding.get("mode") != "headless":
-            out["text"] = _role_text(row)
-            out["ready"] = True
-            rows.append(out)
+            rows.append({"role": row["role"], "mode": binding.get("mode") if binding else None, "problems": [],
+                         "text": _role_text(row), "ready": True})
             continue
-        out.update({key: row.get(key) for key in ("profile", "runtime", "adapter", "provider", "model", "thinking",
-                                                  "connected")})
-        problems = out["problems"]
-        if not row.get("connected"):
-            problems.append("适配器 %s 本轮没有接通 %s" % (row.get("adapter") or "未登记", row["role"]))
-        runtime = row.get("runtime")
-        probe = by_runtime.get(runtime) if runtime is not None else None
-        if probe is None and runtime is not None and row.get("adapter") is not None:
-            command, source, lines = runtime_command(repo, config, runtime)
-            probe = {"command": command, "source": source, "notes": lines, "version": None, "version_exit_code": None}
-            if command is not None:
-                probe["version_exit_code"], probe["version"] = _probe_version(command, env)
-                if row["adapter"] == "pi":
-                    probe["help"] = _probe_help(command, env)  # 版本与 --help 按 runtime 缓存（D10）
-            by_runtime[runtime] = probe
-        if probe is None or probe["command"] is None:
-            problems.append("找不到 runtime %s 的命令" % runtime)
-            probe = probe or {"command": None, "source": "missing", "notes": []}
-        else:
-            out.update(command=_shown_command(probe["command"]), source=probe["source"], version=probe["version"])
-            if probe["version_exit_code"] != 0:
-                problems.append("%s --version 退出码 %s" % (runtime, probe["version_exit_code"]))
-            if row["adapter"] == "pi" and row.get("provider") and row.get("model"):
-                key = (runtime, row["provider"], row["model"])
-                if key not in by_model:  # 模型列表与 auth check 按（runtime, provider, model）分别运行（D10）
-                    by_model[key] = pd.pi_model_readiness(probe["command"], row["provider"], row["model"], None,
-                                                          probe["help"]["thinking_levels"], env)
-                facts, found = by_model[key]
-                out["model_listed"] = facts.get("executor_model_listed")
-                out["auth_ready"] = facts.get("executor_auth_check", {}).get("exit_code") == 0
-                out["thinking_supported"] = row.get("thinking") in probe["help"]["thinking_levels"]
-                problems.extend(found)
-                if not out["thinking_supported"]:  # 思考级别逐个角色判断，不进缓存的键
-                    problems.append("思考级别 %s 不受本机 pi 支持" % row.get("thinking"))
-                if probe["help"]["exit_code"] != 0:  # 与 runtime probe 相同（闸二第 4 片 S2）
-                    problems.append("%s --help 退出码 %s" % (runtime, probe["help"]["exit_code"]))
-                if probe["help"]["missing_flags"]:
-                    problems.append("pi 缺少参数：%s" % "、".join(probe["help"]["missing_flags"]))
-        out["notes"] = probe.get("notes", [])
-        if row["role"] in ("execution", "contract") and allowed:  # 与内核同一个判定，含固定的 thinking（闸二总复核 S3）
-            problem = pd.allowed_executor_check(config, row.get("provider"), row.get("model"), row.get("thinking"))
-            out["allowed"] = problem is None
-            if problem is not None and problem[0] == "missing":
-                problems.append("%s/%s 不在 allowed_executors 里" % (row.get("provider"), row.get("model")))
-            elif problem is not None:
-                problems.append("allowed_executors 把 %s/%s 的思考级别固定为 %s，profile 是 %s" % (
-                    row.get("provider"), row.get("model"), problem[1], row.get("thinking")))
-        else:
-            out["allowed"] = None
-        profiles = _mapping(config, "profiles")
-        spec = profiles.get(row.get("profile")) if isinstance(profiles.get(row.get("profile")), dict) else {}
-        out["credentials"] = _credential_ready(env, spec.get("credential_env", []))
-        missing = [name for name, ready in out["credentials"].items() if not ready]
-        if missing:
-            problems.append("凭据变量不可用（被移除、没有设置或为空）：%s" % "、".join(missing))
-        out["ready"] = not problems
-        rows.append(out)
+        rows.append(_headless_readiness(repo, config, env, caches, row))
+    _print_doctor(args, rows)
+    return EXIT_OK if all(row["ready"] for row in rows) else EXIT_FAIL
+
+
+def _record_readiness(repo: Any, config: Dict[str, Any], env: Dict[str, str], caches: Any, plan_key: str) -> Dict[str, Any]:
+    """一个合同版本的执行模型记录能不能跑：命令按 run 的顺序解析（runtime 不必仍在配置里登记），模型列表、登录与思考级别
+    都用记录里的值与 child_env(config)；允许列表按当前配置判断（run 时也重新检查）。"""
+    match = pd.PLAN_KEY_RE.match(str(plan_key))
+    if match is None:
+        raise _error("--record 写成 <task-id>.v<N>：%s" % _shown(plan_key), EXIT_USAGE)
+    task_id, version = match.group("task"), int(match.group("ver"))
+    record = pd.load_binding_record(repo, task_id, version)
+    if record is None:
+        raise _error("%s 还没有版本记录：第一次 prepare 才会建立；核验当前绑定用 config doctor" % plan_key)
+    entry = {key: record[key] for key in ("role", "profile", "runtime", "adapter", "provider", "model", "thinking")}
+    entry["connected"] = record["adapter"] in ADAPTERS and record["role"] in ADAPTERS[record["adapter"]]["headless_roles"]
+    out = _headless_readiness(repo, config, env, caches, entry)
+    out["record"] = pd.binding_record_rel(task_id, version)
+    return out
+
+
+def _headless_readiness(repo: Any, config: Dict[str, Any], env: Dict[str, str], caches: Any,
+                        row: Dict[str, Any]) -> Dict[str, Any]:
+    """一个 headless 绑定（当前绑定或版本记录）的就绪事实与问题（D10）。版本与 --help 按 runtime 缓存，模型列表与
+    auth check 按（runtime, provider, model）缓存，思考级别逐个判断。"""
+    by_runtime, by_model = caches
+    allowed = config.get("allowed_executors")
+    out: Dict[str, Any] = {"role": row["role"], "mode": "headless", "problems": []}
+    out.update({key: row.get(key) for key in ("profile", "runtime", "adapter", "provider", "model", "thinking",
+                                              "connected")})
+    problems = out["problems"]
+    if not row.get("connected"):
+        problems.append("适配器 %s 本轮没有接通 %s" % (row.get("adapter") or "未登记", row["role"]))
+    runtime = row.get("runtime")
+    probe = by_runtime.get(runtime) if runtime is not None else None
+    if probe is None and runtime is not None and row.get("adapter") is not None:
+        command, source, lines = runtime_command(repo, config, runtime, row.get("adapter"))
+        probe = {"command": command, "source": source, "notes": lines, "version": None, "version_exit_code": None}
+        if command is not None:
+            probe["version_exit_code"], probe["version"] = _probe_version(command, env)
+            if row["adapter"] == "pi":
+                probe["help"] = _probe_help(command, env)  # 版本与 --help 按 runtime 缓存（D10）
+        by_runtime[runtime] = probe
+    if probe is None or probe["command"] is None:
+        problems.append("找不到 runtime %s 的命令" % runtime)
+        probe = probe or {"command": None, "source": "missing", "notes": []}
+    else:
+        out.update(command=_shown_command(probe["command"]), source=probe["source"], version=probe["version"])
+        if probe["version_exit_code"] != 0:
+            problems.append("%s --version 退出码 %s" % (runtime, probe["version_exit_code"]))
+        if row["adapter"] == "pi" and row.get("provider") and row.get("model"):
+            key = (runtime, row["provider"], row["model"])
+            if key not in by_model:  # 模型列表与 auth check 按（runtime, provider, model）分别运行（D10）
+                by_model[key] = pd.pi_model_readiness(probe["command"], row["provider"], row["model"], None,
+                                                      probe["help"]["thinking_levels"], env)
+            facts, found = by_model[key]
+            out["model_listed"] = facts.get("executor_model_listed")
+            out["auth_ready"] = facts.get("executor_auth_check", {}).get("exit_code") == 0
+            out["thinking_supported"] = row.get("thinking") in probe["help"]["thinking_levels"]
+            problems.extend(found)
+            if not out["thinking_supported"]:  # 思考级别逐个角色判断，不进缓存的键
+                problems.append("思考级别 %s 不受本机 pi 支持" % row.get("thinking"))
+            if probe["help"]["exit_code"] != 0:  # 与 runtime probe 相同（闸二第 4 片 S2）
+                problems.append("%s --help 退出码 %s" % (runtime, probe["help"]["exit_code"]))
+            if probe["help"]["missing_flags"]:
+                problems.append("pi 缺少参数：%s" % "、".join(probe["help"]["missing_flags"]))
+    out["notes"] = probe.get("notes", [])
+    if row["role"] in ("execution", "contract") and allowed:  # 与内核同一个判定，含固定的 thinking（闸二总复核 S3）
+        problem = pd.allowed_executor_check(config, row.get("provider"), row.get("model"), row.get("thinking"))
+        out["allowed"] = problem is None
+        if problem is not None and problem[0] == "missing":
+            problems.append("%s/%s 不在 allowed_executors 里" % (row.get("provider"), row.get("model")))
+        elif problem is not None:
+            problems.append("allowed_executors 把 %s/%s 的思考级别固定为 %s，profile 是 %s" % (
+                row.get("provider"), row.get("model"), problem[1], row.get("thinking")))
+    else:
+        out["allowed"] = None
+    profiles = _mapping(config, "profiles")
+    spec = profiles.get(row.get("profile")) if isinstance(profiles.get(row.get("profile")), dict) else {}
+    out["credentials"] = _credential_ready(env, spec.get("credential_env", []))
+    missing = [name for name, ready in out["credentials"].items() if not ready]
+    if missing:
+        problems.append("凭据变量不可用（被移除、没有设置或为空）：%s" % "、".join(missing))
+    out["ready"] = not problems
+    return out
+
+
+def _print_doctor(args: Any, rows: List[Dict[str, Any]]) -> None:
     ready = all(row["ready"] for row in rows)
     if args.json:
         _print_json({"ready": ready, "roles": rows})
-        return EXIT_OK if ready else EXIT_FAIL
+        return
     for row in rows:
         if "text" in row:
             print("%-16s %s" % (row["role"], row["text"]))
             continue
+        if row.get("record"):
+            print("版本记录 %s" % row["record"])
         print("%-16s %s · profile %s · runtime %s（%s，%s %s）· %s" % (
             row["role"], "就绪" if row["ready"] else "未就绪", row.get("profile"), row.get("runtime"),
             row.get("adapter"), row.get("source", "missing"), " ".join(row.get("command") or []) or "", row.get("version") or ""))
@@ -1331,4 +1364,3 @@ def _doctor(args: Any) -> int:
         for problem in row["problems"]:
             print("  - %s" % problem)
     print("全部就绪" if ready else "有未就绪的角色")
-    return EXIT_OK if ready else EXIT_FAIL

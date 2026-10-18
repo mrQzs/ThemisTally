@@ -2760,7 +2760,8 @@ def secret_config_error(config: Any, key: str) -> Optional[str]:
     if not isinstance(config, dict) or key not in config:
         return None
     suspicious = secret_like_paths({key: config[key]})
-    return SECRET_CONFIG_MESSAGE % (key, "、".join(suspicious[:5])) if suspicious else None
+    shown = SECRET_KEY_SHOWN if _token_shaped(str(key)) else key  # 下划线说明键的名字可以是任意文字（闸二总复核第 2 轮 B1）
+    return SECRET_CONFIG_MESSAGE % (shown, "、".join(suspicious[:5])) if suspicious else None
 
 
 def pi_preflight(pi_cmd: List[str], cwd: Path, executor: Dict[str, Any], out_dir: Path,

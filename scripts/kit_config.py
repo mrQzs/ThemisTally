@@ -1524,6 +1524,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_roles_command("cmd_preset"))
 
     p = sub.add_parser("doctor", help="每个角色的就绪总览：命令、版本、模型、登录、思考级别、允许列表、凭据（不调用模型）")
+    p.add_argument("--record", metavar="TASK.vN", help="改为核验这个合同版本的执行模型记录（与 run 用同一条命令）")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_roles_command("cmd_doctor"))
 

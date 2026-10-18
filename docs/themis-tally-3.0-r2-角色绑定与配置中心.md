@@ -751,6 +751,12 @@ prepare 不运行任何 CLI。
   - `config doctor` 传 `child_env(config)`。
 - 旧 doctor 的参数条件、输出与退出码都不变。
 
+**按版本记录核验**（`--record <task>.vN`，闸二总复核第 2 轮）：
+
+- 已有版本记录的合同，重试时用的是记录里的模型，不是当前绑定（D5）；当前绑定就绪不能代表它能跑。
+- 这时只报这一个记录：provider、model、thinking 取自记录；命令按 run 的顺序解析（D3：环境变量 → 本机文件里记录的 runtime → PATH），runtime 不必仍在配置里登记；探测用 `child_env(config)`；允许列表按当前配置判断（run 时 `resolve_bound_executor` 也按当前配置重查）；凭据按记录里的 profile 在当前配置中的 `credential_env`，profile 已删除时不列。
+- 记录读不出、无效或含疑似凭据时报错退出 1，与 `load_binding_record` 相同；还没有记录时说明第一次 prepare 才会建立；写法不对是用法错误。
+
 **约束**：
 
 - 不调用模型。
@@ -845,7 +851,7 @@ prepare 不运行任何 CLI。
 | `config preset list / show <名> / save <名> … / use <名> / diff <A> <B> / remove <名>` | 见 D8 | |
 | `config history [--json]`、`config history show <编号>` | 读 | 不持锁、不补判 |
 | `config rollback <编号>` | 写 | |
-| `config doctor [--json]` | 读；运行 CLI 的只读命令 | D10 |
+| `config doctor [--record <task>.vN] [--json]` | 读；运行 CLI 的只读命令 | D10；`--record` 改为核验一个合同版本的执行模型记录，命令按 run 的顺序解析（闸二总复核第 2 轮） |
 
 - **退出码**：0 成功；1 是校验失败、未就绪、需要确认，或审计记录不全；2 是用法错误。配置锁被占用、等不到时报 ERROR，退出 1。
 - **实现时的写法**（第 4 步，已核对测试 M1–M10）：
