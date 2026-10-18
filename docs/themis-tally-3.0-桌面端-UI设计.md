@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 5 稿（2026-10-19）**，随架构文档第 7 稿同步闸一第 2–5 轮的处置。
+状态：**第 6 稿（2026-10-19），随架构文档闸一通过**（第 6 轮零 Blocking），可以交给 Claude Design 实现。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -668,7 +668,7 @@
  ⓘ 录入只在单独的一次性页面里进行，值直接存进系统凭据库；这个界面拿不到值。
 ```
 
-- 名单由服务合成：决策模型用的变量名，加上各个 profile 的 `credential_env`（`GET /api/v1/secrets`）。
+- 名单由服务合成：决策模型用的变量名，加上各个 profile 的 `credential_env`（`GET /api/v1/secrets`）。“用在哪里”由结构化的 `used_by` 渲染：`{"kind": "profile", "id": "step-high"}` 显示为“profile step-high”，`{"kind": "decisions"}` 显示为“决策模型”。
 - “来源”标签：环境变量、系统凭据库、0600 文件、没有（danger）。
 - [录入…]：
   - 服务启动凭据录入作业（`startSecretEntry(name)`），拿到一次性页面的地址；
@@ -1308,8 +1308,9 @@ stateDiagram-v2
 
 ```json
 {"secrets": [
-  {"name": "STEP_API_KEY", "used_by": ["profile step-high", "profile step-low"], "source": "credential_store"},
-  {"name": "TYPESAFE_API_KEY", "used_by": ["决策模型"], "source": "none"}]}
+  {"name": "STEP_API_KEY", "used_by": [{"kind": "profile", "id": "step-high"}, {"kind": "profile", "id": "step-low"}],
+   "source": "credential_store"},
+  {"name": "TYPESAFE_API_KEY", "used_by": [{"kind": "decisions"}], "source": "none"}]}
 ```
 
 ### 9.13 `preview` 与执行失败（示意）

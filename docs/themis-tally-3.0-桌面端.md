@@ -1,6 +1,6 @@
 # Themis Tally 3.0 桌面端设计：本机服务、设计系统与可替换外壳
 
-状态：**拟议，第 7 稿（2026-10-19）**。闸一已审五轮：第 1 轮因 Codex 额度用尽中途停止；第 2 轮 3 个 Blocking、8 个 Should-fix、3 个 Nit；第 3 轮 2/4/2；第 4 轮 1/2/2；第 5 轮 1 个 Blocking、0 个 Should-fix、2 个 Nit。第 5 轮的 Blocking 会让配置中心无法使用，不属于小问题，按轮数上限的规定继续审。本稿处置第 5 轮，见 §0。审核按 2gate 的轮数上限执行：审满 5 轮后只剩小问题就直接过闸（用户 2026-10-18 加入）。第 11 节的四项用户已拍板（见 1.1）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
+状态：**闸一通过（第 6 轮零 Blocking，“可以进入实现阶段”，2026-10-19）**。共审六轮：第 1 轮因 Codex 额度用尽中途停止；第 2 轮 3 个 Blocking、8 个 Should-fix、3 个 Nit；第 3 轮 2/4/2；第 4 轮 1/2/2；第 5 轮 1/0/2（Blocking 会让配置中心无法使用，不属于小问题，按轮数上限继续审）；第 6 轮 0/1/1，两条小问题当场修掉。处置见 §0。审核按 2gate 的轮数上限执行：审满 5 轮后只剩小问题就直接过闸（用户 2026-10-18 加入）。第 11 节的四项用户已拍板（见 1.1）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
 
 - 分支：`themis-3.0`（本地，不推送），起点 `9461d31`（2.12.0，与本地 master 相同）。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md`。本文细化它的 8.4（管理台）与 12 节的 M4，并按用户决定改写 1.3 的一条非目标与 15.2 第 9 项（见 1.1）。
@@ -18,7 +18,16 @@
 
 ## 0. 审核变更对照表
 
-### 0.1 第 5 轮（1 个 Blocking、0 个 Should-fix、2 个 Nit）
+### 0.1 第 6 轮（零 Blocking，“可以进入实现阶段”）
+
+Codex 审第 7 稿（`8655904`）：零 Blocking、1 个 Should-fix、1 个 Nit，“剩余事项可随实现补齐，不需要再为此开启设计审核轮次”。r5-B1 的处置成立：白名单按路由与具体的 JSON 路径登记，值另做格式或枚举校验，证据不享受豁免；doctor 的 `credentials` 是变量名到布尔值的映射，布尔值不会被抹掉；runtime 的 `command`、history 的 `changed_keys`、preset diff 的 `a`/`b` 不在敏感的祖先键下。两条小问题按 2gate 的规定当场修掉，不再送审：
+
+| 编号 | 第 6 轮结论 | 本稿处置 |
+|---|---|---|
+| r6-S1 | 凭据名单的 `used_by` 在祖先键 `secrets` 之下，默认的结构脱敏会把它遮掉；实现若只照抄示例里的 `name`、`source`，“用在哪里”会变成 `<redacted>` | `used_by` 改为结构化的 `{"kind": "profile", "id": …}` 或 `{"kind": "decisions"}`；白名单登记 `secrets[*].used_by[*].kind`（枚举）与 `id`（必须符合 profile ID 的规则），不豁免任意描述文本；U22 断言它原样返回 |
+| r6-N1 | `/config` 白名单的示例里，`env_remove`、`env_keep` 的值像是顶层字段，实际在 `keys` 数组里按行的 `key` 区分（KC:836–846） | 示例改写为带行条件的路径 `keys[key=env_remove].value[*]`、`keys[key=env_keep].value[*]` |
+
+### 0.2 第 5 轮（1 个 Blocking、0 个 Should-fix、2 个 Nit）
 
 Codex 审第 6 稿（`76fe2a4`）。上一轮的分片游标、完整结果信封、U18b 与 E8 的划分均已闭环；大小写不同的敏感键、顶层数组、嵌套数组都由结构脱敏递归覆盖。这个 Blocking 会让配置中心无法使用，不是小问题，所以按轮数上限的规定继续审，不直接过闸。
 
@@ -28,7 +37,7 @@ Codex 审第 6 稿（`76fe2a4`）。上一轮的分片游标、完整结果信�
 | r5-N1 | UI 文档普通文本的示例仍写 `mode: "whole-file"` | 改为 `"text"` |
 | r5-N2 | “拆在多行里识别不了”说得太宽：普通文本里的 `api_key=` 换行接值、PEM 块，整份 `redact_secrets` 能处理（PD:2667–2676） | 改为“拆到不同字段或不同 JSONL 记录、失去关联的上下文时不保证识别” |
 
-### 0.2 第 4 轮（1 个 Blocking、2 个 Should-fix、2 个 Nit）
+### 0.3 第 4 轮（1 个 Blocking、2 个 Should-fix、2 个 Nit）
 
 Codex 审第 5 稿（`8a7a2c7`）。路径选择器自己保存、外壳关窗取消、等到操作终态再重读、缓存不管保留时间戳的原地改写，均未发现需要重提的问题。下列各条都按引用的代码核实成立。
 
@@ -40,7 +49,7 @@ Codex 审第 5 稿（`8a7a2c7`）。路径选择器自己保存、外壳关窗�
 | r4-N1 | `readFile` 的接口声明与 JSONL 的示例不同形 | 5.2 与 UI 文档 8.9：按 `mode` 区分两种返回 |
 | r4-N2 | U18b 包含真实的关窗，却列在 D2 的 Python 测试里 | U18b 只用替身验证控制取消接口；“服务页卸载之后关窗仍能取消”的链路放进 D3 的 E8 |
 
-### 0.3 第 3 轮（2 个 Blocking、4 个 Should-fix、2 个 Nit）
+### 0.4 第 3 轮（2 个 Blocking、4 个 Should-fix、2 个 Nit）
 
 Codex 审第 4 稿（`55347ce`）。控制令牌重新认证、SSE 重连先发全量快照、每个服务实例独立的会话分区、命令返回失败后的重读，均未发现需要重提的问题。下列各条都按引用的代码核实成立。
 
@@ -55,7 +64,7 @@ Codex 审第 4 稿（`55347ce`）。控制令牌重新认证、SSE 重连先发�
 | r3-N1 | 外壳页也要外部打开，但 UI 文档只把 `openExternal` 列在 `themisHost` | D10 与 UI 文档 8.9：两个对象都有 `openExternal` |
 | r3-N2 | 5.3 的信封示例与 U5 没有 `output` | 都已补上 |
 
-### 0.4 第 2 轮（3 个 Blocking、8 个 Should-fix、3 个 Nit）
+### 0.5 第 2 轮（3 个 Blocking、8 个 Should-fix、3 个 Nit）
 
 Codex 审第 3 稿（`2f8c0ad`）。三个 Blocking 与 S1–S8 都按引用的代码核实成立。核对结论里的几条实现要点也一并采纳（D3、D13）：
 - `--expect-state` 必须在拿锁之后、第一次 publish 之前一次读齐全部资源；
@@ -80,7 +89,7 @@ Codex 审第 3 稿（`2f8c0ad`）。三个 Blocking 与 S1–S8 都按引用的�
 | r2-N2 | 阶段的验收依赖前后不一致：D1 要 U6–U8，D3 要包含写入的端到端流程 | 第 9 节按阶段划分适用的测试；端到端放到 D3，依赖 D2 |
 | r2-N3 | D6 表仍写“待用户决定”；上位设计 §16 仍称“第 1 稿” | 都改为现状 |
 
-### 0.5 第 1 轮（未完成）
+### 0.6 第 1 轮（未完成）
 
 Codex 在 2026-10-18 审第 2 稿（`4b06efa`），约 3 分钟后因额度用尽停止，只留下 r1-1。其余三条是规划端顺着它没审完的方向自查发现的。
 
@@ -342,8 +351,9 @@ flowchart LR
 - **二道脱敏**：内核已经脱过敏，这里是第二道。分两种（r4-B1、r5-B1）：
   - **证据等不可信内容**（安全读取的 JSONL 行与文本，D7）：按键名处理的结构脱敏 `redact_json`，文本再过 `redact_secrets`，没有例外。不用 `redact_obj`：它不看键名。
   - **内核 CLI 的 `--json` 响应**（结构已知）：同样用 `redact_json`，文本行（`output`、`messages`）再过 `redact_secrets`。但每条路由登记一份字段白名单，列出必须原样保留的元数据（JSON 路径）。不登记就会误伤：`_SECRET_KEY_RE` 匹配 `credential_env`（PD:2566–2568），变量名会被整组遮掉。白名单字段另做约束校验，不符合就照样遮掉：
-    - 环境变量名（例如 `/profiles` 的 `profiles[*].credential_env[*]`、`/config` 的 `decisions.env_var_name` 与 `env_remove`、`env_keep` 的值、`/secrets` 的 `secrets[*].name`）：必须匹配 PD 的 `ENV_NAME_RE`，并且不是令牌形状；
+    - 环境变量名（例如 `/profiles` 的 `profiles[*].credential_env[*]`；`/config` 的 `decisions.env_var_name`，以及 `keys[key=env_remove].value[*]`、`keys[key=env_keep].value[*]`（`keys` 数组里按行的 `key` 区分，KC:836–846，r6-N1）；`/secrets` 的 `secrets[*].name`）：必须匹配 PD 的 `ENV_NAME_RE`，并且不是令牌形状；
     - 来源与模式的枚举（例如 `decisions.secret.source`、`store_mode`、`system_backend`，`/secrets` 的 `secrets[*].source`）：必须在 `codekit/secrets.py` 定义的取值集合里；
+    - 关联信息（`/secrets` 的 `secrets[*].used_by[*]`，r6-S1）：只能是结构化的 `{"kind": "profile", "id": …}` 或 `{"kind": "decisions"}`，`kind` 是枚举，`id` 必须符合 profile ID 的规则；不豁免任意描述文本；
     - 证据内容永远不进白名单。
   - 白名单写在路由表里，与路由一起由 U4、U22 核对。
 - **不是安全沙箱**：同一系统账户下，以上是流程约束，不是隔离（README 的安全须知照旧）。同账户的进程能连本机端口，也能附加到外壳进程上读取它的内存。
@@ -781,7 +791,7 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 | U18b | 用替身调用 `POST /control/jobs/<id>/cancel`：带对的控制令牌、令牌错、只带 cookie（r3-S1、r4-N2） | 只有对的令牌能取消；子进程被结束；作业记为取消 |
 | U19 | 写命令替换成功、审计追加失败（替身让追加抛错）（r2-S1） | 信封 `ok: false`；重读看到配置已变 |
 | U20 | `role set` 绑定到未接通的适配器（r2-S6） | 信封 `output` 里有那条 WARN |
-| U22 | 正常的 profile 与凭据元数据经过二道脱敏（r5-B1） | `/profiles` 的 `credential_env` 原样返回；界面回填之后提交，通过内核的变量名校验；`/config` 的 `decisions.secret.source` 等原样返回；把白名单字段换成令牌形状或枚举之外的值时被遮掉；证据内容不受白名单影响 |
+| U22 | 正常的 profile 与凭据元数据经过二道脱敏（r5-B1、r6-S1） | `/profiles` 的 `credential_env` 原样返回；界面回填之后提交，通过内核的变量名校验；`/config` 的 `decisions.secret.source` 与 `keys` 里 `env_remove`、`env_keep` 的值原样返回；`/secrets` 的 `name`、`source`、`used_by` 原样返回；把白名单字段换成令牌形状、枚举之外的值或任意描述文本时被遮掉；证据内容不受白名单影响 |
 | U21 | 写请求的子进程还没结束时连接断开（替身让命令在替换之前暂停），之后恢复（r3-S2、r4-S2） | 终态出来之前界面不下结论；终态出来后重读，显示与实际一致；查到的操作记录里，原命令的 WARN 与 ERROR 都在；服务重启之后查不到操作时显示“结果未知” |
 
 ### 10.2 前端（Vitest）
