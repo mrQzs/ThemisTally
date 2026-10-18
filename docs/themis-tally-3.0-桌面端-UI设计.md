@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 2 稿（2026-10-19）**，随架构文档第 4 稿同步闸一第 2 轮的处置。
+状态：**第 3 稿（2026-10-19）**，随架构文档第 5 稿同步闸一第 2、3 轮的处置。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -438,7 +438,7 @@
 ```
 
 - 卡片宽 560，居中。四步依次检查，每一步右侧显示 ✓、✗ 或转圈。
-- 这是外壳页（5.7）：服务还没起来时也能打开。数据来自 `themisShell.getState()`；[更换…] 与“指定…”按钮调用 `pickRepo()`、`pickPython()`、`pickKit()`（系统对话框）；第 4 步调用 `startService(repo)`，并监听 `service-state` 事件。
+- 这是外壳页（5.7）：服务还没起来时也能打开。数据来自 `themisShell.getState()`；[更换…] 与“指定…”按钮调用 `pickRepo()`、`pickPython()`、`pickKit()`（系统对话框）；选中且校验通过后由外壳直接保存，界面只显示返回的结果；第 4 步调用 `startService(repo)`，并监听 `service-state` 事件。
 - **错误与处理**（文案见第 10 节）：
 
 | 情形 | 显示 | 操作 |
@@ -672,8 +672,8 @@
 - “来源”标签：环境变量、系统凭据库、0600 文件、没有（danger）。
 - [录入…]：
   - 服务启动凭据录入作业（`startSecretEntry(name)`），拿到一次性页面的地址；
-  - 界面调用 `themisHost.openSecretWindow(url)`，外壳另开一个小窗口，标题为“录入凭据 STEP_API_KEY”。窗口里是内核自己的一次性页面，不是本界面的组件；
-  - 等待期间，这一行显示作业卡片（7.17）：“等你在弹出的窗口里粘贴并保存…”，附 [取消]；关掉小窗口也算取消；
+  - 界面调用 `themisHost.openSecretWindow(url, jobId)`，外壳另开一个小窗口，标题为“录入凭据 STEP_API_KEY”。窗口里是内核自己的一次性页面，不是本界面的组件；
+  - 等待期间，这一行显示作业卡片（7.17）：“等你在弹出的窗口里粘贴并保存…”，附 [取消]；关掉小窗口也算取消，由外壳通知服务，界面不用处理；
   - 作业结束（保存、取消或超时）后，自动重新检查这一行的来源。
 
 ### 6.7 日志与用量
@@ -682,7 +682,7 @@
 
 - **检索**：
   - 输入：搜索框（说明“Python 正则表达式”）、任务筛选、最多条数（缺省 50）；
-  - 结果按 attempt 分组：`路径:行号` 加命中的那一行；命中部分用 `--tt-highlight` 底色，全部按文本显示；
+  - 结果按 attempt 分组：`路径:行号` 加命中的那一行；摘录取自脱敏之后的文本，被遮蔽的值搜不到是正常的；命中部分用 `--tt-highlight` 底色，全部按文本显示；
   - 点击结果，在文本查看器里打开该文件并跳到那一行。
 - **用量**：
   - 两张汇总卡：
@@ -739,7 +739,7 @@
 | 分组 | 内容 |
 |---|---|
 | 仓库 | 已添加的仓库列表（名称、路径、上次打开）；[添加仓库…]；[从列表移除]（只从应用里移除，不动仓库） |
-| 运行环境 | Python 路径（自动检测的值加 [更改…]）；kit 位置（仓库里装好的，或外部目录）；版本信息 |
+| 运行环境 | Python 路径（自动检测的值，加 [更改…] 与 [恢复自动检测]）；kit 位置（仓库里装好的，或外部目录，同样两个按钮）；版本信息。[更改…] 调用选择器，选中且校验通过即保存；[恢复自动检测] 调用 `saveSettings` |
 | 规划端用量 | 会话记录目录（可选，用系统对话框选择）；只读用量字段，不读对话内容；保存后重启服务生效 |
 | 外观 | 主题：跟随系统、亮、暗；密度：标准、紧凑 |
 | 关于 | 版本；开源许可清单；项目主页链接（外部打开前确认） |
@@ -861,11 +861,12 @@
 |---|---|
 | 预览中 | 变化区显示骨架屏；确认按钮禁用 |
 | 可确认 | 正常显示 |
-| 执行中 | 确认按钮转圈；对话框不能关闭，[取消] 禁用（命令已经发出，不能撤回） |
+| 执行中 | 确认按钮转圈；对话框不能关闭，[取消] 禁用（命令已经发出，不能撤回）；连接中断时文字改为“连接中断，正在确认结果…”，并轮询操作终态（8.3） |
 | 完成 | 重新读取数据后，对话框关闭，并弹出轻提示“已切换到方案 economy · 审计 #42” |
 | 完成但有警告 | 重新读取之后对话框不关闭，显示 warning 提示条，列出 WARN 行（来自信封的 `output` 与 `messages`），按钮 [知道了] |
 | 失败 | 先重新读取数据；对话框不关闭，显示 danger 提示条：内核的报错（纯文本）与原因标签（内核拒绝、用法错误、状态已变、超时）；按钮改为 [重新预览] [关闭] |
 | 已部分写入 | 退出码非 0，但重新读取发现状态已变：显示 warning 提示条“已部分写入，结果待核实”，附内核的报错；按钮 [查看历史] [关闭] |
+| 结果未知 | 连接中断之后查不到操作终态（例如服务已重启）：显示 warning 提示条“结果未知，请在历史与审计里核对”，按钮 [打开历史] [关闭] |
 | 状态已变（409） | 提示“配置在你确认之前被改动了，请重新预览”，按钮 [重新预览] |
 
 - 没有“不再询问”或“始终允许”的选项。
@@ -877,7 +878,9 @@
   - 不解释 HTML；
   - ANSI 转义序列去掉，不解释颜色；
   - 不把网址自动变成链接。
-- 大文件按段加载：底部有 [加载后面 256 KB]，显示“已显示 0–256 KB / 共 2.7 MB”。行数很多时用虚拟滚动。
+- 大文件按段加载：底部有 [继续加载]，显示“已显示 N 页”；`done` 为真时显示“已到末尾”。行数很多时用虚拟滚动。
+- **隐藏的行**：服务对解析不了的 JSONL 行、超过 4 MiB 的行只给占位。界面显示为一行：`eye-off` 图标加 `--tt-text-3` 斜体的“这一行不是合法 JSON，已隐藏”或“这一行超过 4 MiB，已隐藏”，不能展开。
+- **文件已变化**（409）：显示 info 提示条“文件已变化”，附 [从头读取]。
 - **安全 Markdown**（摘要、复审记录用）：
   - 只渲染标题、段落、列表、表格、代码块、粗体、斜体、行内代码；
   - 原始 HTML 当文字显示；
@@ -993,7 +996,11 @@ stateDiagram-v2
     预览中 --> 失败: 预览失败
     可确认 --> 执行中: 点击确认（带一次性确认号）
     可确认 --> [*]: 取消
-    执行中 --> 重新读取: 有结果（成功或失败）、超时或断线
+    执行中 --> 重新读取: 有结果（成功或失败）或超时
+    执行中 --> 确认结果: 连接中断
+    确认结果 --> 重新读取: 查到终态
+    确认结果 --> 结果未知: 查不到（例如服务已重启）
+    结果未知 --> [*]: 关闭
     执行中 --> 预览中: 409 状态已变
     重新读取 --> [*]: 成功，关闭对话框，显示轻提示
     重新读取 --> 有警告: 成功但有 WARN
@@ -1014,6 +1021,7 @@ stateDiagram-v2
   - 确认号（60 秒有效）。
 - **执行**：调用对应的写路由，带上确认号。只有预览说需要时，才带“确认切换”的含义，也就是 `--yes`，由服务处理，界面不直接拼参数。
 - **结果**：无论成败都重新读取受影响的数据，再按 `ok`、`exit_code` 与重读的结果决定显示哪种状态（7.11）。界面上的“已切换”之类的话，只在重新读取之后出现。
+- **连接中断**：确认号就是操作号。断线之后先轮询 `getOperation(id)`，拿到终态再重读；查不到时进入“结果未知”（7.11），不凭一次读取下结论。
 
 ### 8.4 长作业
 
@@ -1087,14 +1095,15 @@ stateDiagram-v2
 | `getPlugins()`、`getPlugin(id)` | `/api/v1/plugins` |
 | `listSecrets()`、`checkSecret(name)`、`startSecretEntry(name)` | `/api/v1/secrets`、`/api/v1/secrets/<name>`、`POST /api/v1/secrets/<name>/entry`（作业） |
 | `preview(action, args)` | `POST /api/v1/preview` |
+| `getOperation(id)` | `GET /api/v1/operations/<id>`：写操作的终态（运行中、已结束与退出码、已取消） |
 | `setRole`、`usePreset`、`savePreset`、`removePreset`、`saveProfile`、`removeProfile`、`addRuntime`、`removeRuntime`、`setPluginEnabled`、`rollback` | 对应的写路由 |
 
 **宿主接口**（外壳在窗口里提供，见架构文档 D10）：
 
 | 对象 | 谁用 | 函数与事件 |
 |---|---|---|
-| `window.themisHost` | 服务页 | `reauth()`、`openSecretWindow(url)`、`openExternal(url)`、`reveal(relPath)`、`notify(kind)`、`openSettings()` |
-| `window.themisShell` | 外壳页 | `getState()`、`pickRepo()`、`pickPython()`、`pickKit()`、`pickTranscriptDir()`、`saveSettings(patch)`、`startService(repo)`、`restartService()`；事件 `service-state` |
+| `window.themisHost` | 服务页 | `reauth()`、`openSecretWindow(url, jobId)`、`openExternal(url)`、`reveal(relPath)`、`notify(kind)`、`openSettings()` |
+| `window.themisShell` | 外壳页 | `getState()`、`pickRepo()`、`pickPython()`、`pickKit()`、`pickTranscriptDir()`（选中且校验通过即由外壳保存）、`saveSettings(patch)`（不接受路径）、`startService(repo)`、`restartService()`、`openExternal(url)`；事件 `service-state` |
 
 原型里两个对象都用桩函数代替；代码里用 TypeScript 接口声明，方便之后接到真实外壳。
 
@@ -1167,6 +1176,18 @@ stateDiagram-v2
 ```json
 {"path": "executor-report.md", "mode": "whole-file", "next_cursor": null, "done": true,
  "text": "## 执行报告\n\n已按合同实现 logs cat。\n\n<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字\n\n- self_checks: V01–V08 通过\n"}
+```
+
+`events.jsonl` 的一页（示意）：合法的行给出脱敏之后的对象，坏行与超长行只给占位，界面按 7.12 显示。
+
+```json
+{"path": "events.jsonl", "mode": "jsonl", "done": false, "next_cursor": "c1-0001a2f3",
+ "lines": [
+   {"n": 1, "json": {"type": "agent_start"}},
+   {"n": 2, "json": {"type": "tool_execution_end", "toolName": "bash", "isError": false}},
+   {"n": 3, "hidden": "not_json"},
+   {"n": 4, "hidden": "too_long"},
+   {"n": 5, "json": {"type": "message_update", "text": "<redacted>"}}]}
 ```
 
 ### 9.5 `getRoles`（`config role show --json`）
@@ -1407,3 +1428,5 @@ stateDiagram-v2
 12. 外壳页（首次启动、设置、服务状态）不依赖本机服务也能打开，只用 `window.themisShell`（5.7）。
 13. 写操作无论成败都重新读取；“完成但有警告”“已部分写入”两种状态都有设计（7.11）。
 14. “下一步”复制的是精确的 attempt 目录（6.3）。
+15. 隐藏的行（不合法的 JSON、超长）有占位样式；搜索摘录只来自脱敏之后的文本（7.12、6.7）。
+16. “结果未知”状态有设计；连接中断时不凭一次读取下结论（7.11、8.3）。
