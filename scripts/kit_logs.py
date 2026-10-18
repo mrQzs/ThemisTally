@@ -979,7 +979,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--until", help="只统计代表时间早于它的消息（不含）")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
-    return parser
+    return pd.no_abbrev(parser)  # 长选项不接受缩写（与调度器相同，3.0 第二轮）
 
 
 def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> int:

@@ -224,6 +224,45 @@ class InstalledLayout(unittest.TestCase):
         self.assertNotIn("Traceback", err)
 
 
+class PermissionExample(unittest.TestCase):
+    """闸二第 5 片：.claude/settings.example.json 里会调用模型或写文件的选项要询问。ask 规则按完整拼写匹配，所以各个
+    解析器关掉了长选项缩写：缩写的写法根本解析不了，也就绕不过询问。两边一起核对。"""
+
+    #: （子命令, 有副作用的选项, 其余参数）
+    SIDE_EFFECTS = (("doctor", "--probe-decisions", []), ("doctor", "--out", ["x.json"]),
+                    ("status", "--assess", []), ("wait", "--assess", ["t/attempt-001"]),
+                    ("metrics", "--out", ["x.md"]))
+
+    @staticmethod
+    def matches(rule, command):
+        import re  # noqa: PLC0415
+        body = rule[len("Bash("):-1]
+        return re.fullmatch(".*".join(re.escape(part) for part in body.split("*")), command) is not None
+
+    def test_side_effect_options_need_asking_and_cannot_be_abbreviated(self):
+        rules = json.loads((ROOT / ".claude" / "settings.example.json").read_text(encoding="utf-8"))["permissions"]
+        for sub, option, rest in self.SIDE_EFFECTS:
+            command = "bash scripts/dispatch-pi.sh %s %s" % (sub, " ".join([option] + rest))
+            with self.subTest(command=command):
+                self.assertTrue(any(self.matches(rule, command) for rule in rules["allow"]), "示例本来就放行它")
+                self.assertTrue(any(self.matches(rule, command) for rule in rules["ask"]), "要询问")
+                pd.build_parser().parse_args([sub, option] + rest)  # 完整拼写照常解析
+            for cut in range(3, len(option)):
+                with self.subTest(abbreviation=option[:cut], sub=sub):
+                    with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                        pd.build_parser().parse_args([sub, option[:cut]] + rest)
+
+    def test_sub_tools_reject_abbreviations_too(self):
+        import kit_config  # noqa: PLC0415
+        import kit_logs  # noqa: PLC0415
+        import kit_plugins  # noqa: PLC0415
+        for parser, argv in ((kit_config.build_parser(), ["show", "--js"]), (kit_plugins.build_parser(), ["list", "--js"]),
+                             (kit_logs.build_parser(), ["list", "--js"])):
+            with self.subTest(prog=parser.prog):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    parser.parse_args(argv)
+
+
 def _dir_link(link, target):
     """建指向目录的链接：Windows 上用 junction（mklink /J 不需要权限），其它平台用符号链接；建不了返回 False。"""
     if os.name == "nt":

@@ -1531,7 +1531,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=PAGE_TIMEOUT, help="网页等待秒数（默认 600）")
     p.add_argument("--verify", action="store_true", help="存完向决策模型发一次最小请求（会联网、会花钱）")
     p.set_defaults(func=cmd_secret)
-    return parser
+    return pd.no_abbrev(parser)  # 长选项不接受缩写（与调度器相同，3.0 第二轮）
 
 
 def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> int:

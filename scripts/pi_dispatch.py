@@ -8252,6 +8252,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_dir")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_cleanup)
+    return no_abbrev(parser)
+
+
+def no_abbrev(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """关掉长选项的缩写，根解析器与每一层子解析器都关（3.0 第二轮，闸二第 5 片第 2 轮 B1）。
+
+    .claude/settings.example.json 的 ask 规则按完整拼写匹配（例如 --probe-decisions、--assess、--out）；argparse
+    默认接受无歧义的前缀，`doctor --probe-decision` 就会绕过询问。kit_logs、kit_plugins、kit_config 的解析器同样调用它。
+    """
+    parser.allow_abbrev = False
+    for action in parser._actions:  # noqa: SLF001  # argparse 没有公开的子解析器列表
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            for child in action.choices.values():
+                no_abbrev(child)
     return parser
 
 

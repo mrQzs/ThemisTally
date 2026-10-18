@@ -17,9 +17,9 @@ argument-hint: "[provider/model] [--smoke]"
 
 ## 步骤
 
-1. **确定执行模型**。先看 `bash scripts/dispatch-pi.sh config role show`：
-   - **execution 有 headless 绑定**（按角色写的合同用它）：以绑定为准，模型、思考级别与 pi 的命令都来自绑定的 profile 与 runtime（命令按 `PI_DISPATCH_PI_CMD` → 本机文件 `.agent/dispatch.local.json` → PATH 解析）。第 2 步改跑 `bash scripts/dispatch-pi.sh config doctor`（不调用模型）：每个角色一行，列出命令及来源、版本、模型是否在列表、登录、思考级别、允许列表与凭据可用性。命令来自本机文件、PATH 上没有 pi 时，旧 doctor 找不到 pi 是正常的，以 `config doctor` 为准。结果写进 environment.md 的“角色绑定”一节。
-   - **只有写死模型的合同、没有绑定**：按以下顺序选取，再照第 2 步跑 doctor：
+1. **确定执行模型**。先确定这次核验针对哪种合同（看待派遣合同的 executor，或参数）；不能只凭配置里有没有绑定来决定，两种都要派遣时两种都核验：
+   - **按角色写的合同**（`role:execution`）：以 `bash scripts/dispatch-pi.sh config role show` 的 execution 绑定为准，模型、思考级别与 pi 的命令都来自绑定的 profile 与 runtime（命令按 `PI_DISPATCH_PI_CMD` → 本机文件 `.agent/dispatch.local.json` → PATH 解析）。第 2 步改跑 `bash scripts/dispatch-pi.sh config doctor`（不调用模型）：每个角色一行，列出命令及来源、版本、模型是否在列表、登录、思考级别、允许列表与凭据可用性。命令来自本机文件、PATH 上没有 pi 时，旧 doctor 找不到 pi 是正常的，以 `config doctor` 为准。结果写进 environment.md 的“角色绑定”一节。
+   - **写死模型的合同**（即使配置里有绑定）：执行的是合同里的模型，pi 的命令照旧只看 `PI_DISPATCH_PI_CMD` 与 PATH、不读本机文件。按以下顺序选取，再照第 2 步跑 doctor：
    1. 参数中的 `provider/model`（第一个 `/` 之前是 provider）；
    2. `.agent/dispatch.config.json` 的 `allowed_executors`；
    3. 已有 `.agent/environment.md` 的记录。
