@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>v2.10.0</code> · Python 3.10+ · Windows / macOS / Linux · Claude Code / Codex × Pi
+  <code>v2.11.0</code> · Python 3.10+ · Windows / macOS / Linux · Claude Code / Codex × Pi
 </p>
 
 ---
@@ -299,10 +299,11 @@ python -m pytest tests --basetemp=.agent/runs/_tmp/pytest
 
 ## 文档与版本
 
-当前版本 **2.10.0**，完整变更见 [CHANGELOG.md](CHANGELOG.md)。各版本的设计说明：
+当前版本 **2.11.0**，完整变更见 [CHANGELOG.md](CHANGELOG.md)。各版本的设计说明：
 
 | 版本 | 主题 | 要点 |
 |---|---|---|
+| 2.11.0 | [3.0 第一轮：日志与插件管理](docs/themis-tally-3.0-r1-日志与插件管理.md) | `logs`（`list` / `show` / `search` / `usage`，只读；把规划端会话记录与执行端证据的用量按 token 汇总）与 `plugins`（`list` / `show` / `verify` / `enable` / `disable`，读之前逐级查链接）；3.0 的总体设计见 [四端分层解耦架构](docs/themis-tally-3.0-四端分层解耦架构.md) |
 | 2.10.0 | [集成沿用与执行器纪律](docs/themis-tally-2.10-集成沿用与执行器纪律.md) | 当前末端相对候选只多了规划文件时，`integrate` 沿用最近一次干净的 `check --fresh`（`--recheck` 强制重跑）；执行说明给出保留退出码的“自检照抄”写法；执行报告新增 `interpretations` 列表，`review-draft` 把它与事件流中的解读线索并排列出 |
 | 2.9.0 | [安装与更新](docs/themis-tally-2.9-安装与更新.md) | `kit_install.py` 的 `check` / `install` / `update`，安装记录与本地改动的分辨 |
 | 2.8.0 | [规划端吞吐](docs/themis-tally-2.8-规划端吞吐.md) | `integrate`、`review-draft`、多命令变异与预期、metrics 的最终去向与价格估算 |

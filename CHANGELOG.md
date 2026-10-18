@@ -1,6 +1,6 @@
 # 变更记录
 
-## 未发布（themis-3.0 分支）：3.0 第一轮——日志管理与插件管理
+## 2.11.0：3.0 第一轮——日志管理与插件管理（2026-10-18）
 
 设计说明 [docs/themis-tally-3.0-四端分层解耦架构.md](docs/themis-tally-3.0-四端分层解耦架构.md)（总体，拟议第 2 版）与 [docs/themis-tally-3.0-r1-日志与插件管理.md](docs/themis-tally-3.0-r1-日志与插件管理.md)（第一轮，2gate 闸一四轮、闸二三轮后零 Blocking）。第一轮按 3.0 自己的做法推进：T1（`logs`）由规划端子代理写合同与 oracle（A 组），T2（`plugins`）由 Pi 作为合同端起草合同与 oracle、规划审核端审定后发布（B 组），两项实现都派给 Pi；实测记录在 `.agent/design/3.0-首轮实测.md`。
 
