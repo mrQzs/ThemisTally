@@ -5,7 +5,9 @@
 用法：
   python scripts/kit_logs.py list [--task ID] [--state S] [--json]          运行证据的 attempt 清单
   python scripts/kit_logs.py show TARGET [--json]                          一个 attempt 的状态、摘要与证据清单
-  python scripts/kit_logs.py search PATTERN [--task ID] [--max N]          在证据的文本文件里搜索
+  python scripts/kit_logs.py search PATTERN [--task ID] [--max N] [--json] 在证据的文本文件里搜索（脱敏之后的文本）
+  python scripts/kit_logs.py cat TARGET PATH [--cursor C] [--limit N] [--json]
+                                                                            按页读一个证据文件（脱敏之后的文本）
   python scripts/kit_logs.py usage [--task ID] [--transcript PATH]… [--since T] [--until T] [--json]
                                                                             执行端与规划端的 token 用量（下界）
 
@@ -49,6 +51,12 @@ UNKNOWN_STATE = "UNKNOWN"
 NO_ATTEMPT = "没有 attempt"
 SKIPPED_LINKS_LINE = "跳过的链接：%d"
 TRANSCRIPT_SUFFIX = ".jsonl"
+#: 安全读取（3.0 桌面端 D7）：每页的上限（脱敏之后的字符数）、整份脱敏的文件上限、JSONL 单行的上限（原始字节）
+SAFE_PAGE_CHARS = 256 * 1024
+SAFE_MAX_TEXT_BYTES = 64 * 1024 * 1024
+SAFE_MAX_LINE_BYTES = 4 * 1024 * 1024
+#: 分页时一条隐藏的行按多少个字符计：免得一页里塞进无数个占位
+HIDDEN_LINE_COST = 32
 
 
 class LogsError(Exception):
@@ -545,8 +553,252 @@ def cmd_show(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+
 # ---------------------------------------------------------------------------
-# search（B6）
+# 安全读取（3.0 桌面端 D7；docs/themis-tally-3.0-桌面端.md）
+#
+# 分页的单位是脱敏之后的文本，不是原始字节：切片里看不到上下文，单独脱敏会漏（r2-B1）。
+# - JSONL 逐行先解析：合法的行按键名脱敏（redact_json）后用 json.dumps 的缺省格式写出；解析不了的行、超过
+#   SAFE_MAX_LINE_BYTES 的行只给占位，不按没有上下文的文本显示（r3-B1、r4-B1）。
+# - .json 整份能解析时按键名脱敏、带缩进写出（保持多行）；其余文本整份 redact_secrets（它遇到确定不了结束的值，
+#   会遮掉其余部分）。整份超过 SAFE_MAX_TEXT_BYTES 的不显示。
+# - 游标绑定文件的身份：普通文本要求大小、修改时间、文件号都不变；JSONL 要求文件号不变、文件只增长（r3-S3）。
+# - 单行超过一页时按片给出，片与片首尾相接（r3-S4、r4-S1）。
+# 这里是纯函数、不缓存：logs cat 是一次性的进程；缓存放在桌面端的本机服务里。
+# ---------------------------------------------------------------------------
+
+class StaleCursor(LogsError):
+    """游标对应的文件已变化（被替换、截短或改写）：从头读。"""
+
+    def __init__(self) -> None:
+        super().__init__("游标对应的文件已变化：请从头读取", EXIT_USAGE)
+
+
+def safe_mode(rel: str) -> str:
+    lower = rel.lower()
+    if lower.endswith(".jsonl"):
+        return "jsonl"
+    if lower.endswith(".json"):
+        return "json"
+    return "text"
+
+
+def file_identity(path: Path) -> Tuple[int, int, int]:
+    """（大小, 修改时间纳秒, 文件号）。"""
+    info = os.lstat(str(path))
+    return info.st_size, info.st_mtime_ns, info.st_ino
+
+
+def _dump(value: Any, indent: Optional[int] = None) -> str:
+    """与 pi_dispatch 的写法相同：孤立的代理字符写成 \\uXXXX，免得输出时编码失败。"""
+    return pd._SURROGATE_RE.sub(lambda m: chr(92) + "u%04x" % ord(m.group(0)),
+                                json.dumps(value, ensure_ascii=False, indent=indent))
+
+
+def redacted_text(path: Path, mode: str) -> str:
+    """整份读出并脱敏（json 与 text 模式）。超过上限、读不出来都抛 LogsError（退出码 2）。"""
+    try:
+        size = os.lstat(str(path)).st_size
+    except (OSError, ValueError) as exc:
+        raise LogsError("读不出来：%s" % exc, EXIT_USAGE)
+    if size > SAFE_MAX_TEXT_BYTES:
+        raise LogsError("文件太大（%d 字节，超过上限 %d 字节），不在这里显示；请直接查看文件" % (size, SAFE_MAX_TEXT_BYTES),
+                        EXIT_USAGE)
+    raw = _read_head(path, -1)
+    if raw is None:
+        raise LogsError("读不出来：%s" % path.name, EXIT_USAGE)
+    text = raw.decode("utf-8", "replace")
+    if mode == "json":
+        try:
+            return _dump(pd.redact_json(json.loads(text)), indent=2) + "\n"
+        except (ValueError, RecursionError):
+            pass  # 不是合法的 JSON（或嵌套太深）：按文本整份脱敏
+    return pd.redact_secrets(text)
+
+
+def _jsonl_records(path: Path, start: int, final: bool):
+    """从原始偏移 start 起逐行读：yield (行起点, 下一行起点, 行内容或 None)，None 表示这一行超过上限。
+
+    每次最多读 SAFE_MAX_LINE_BYTES + 1 字节，超长的行只计长度、不留内容，内存有上限。最后一行没有换行时：
+    final 为真才算写完，否则不给（跟随时它可能还在写）。"""
+    limit = SAFE_MAX_LINE_BYTES
+    with open(str(path), "rb") as handle:
+        handle.seek(start)
+        offset = start
+        while True:
+            line, length, too_long, ended = b"", 0, False, False
+            while True:
+                piece = handle.readline(limit + 1)
+                if not piece:
+                    break
+                length += len(piece)
+                if not too_long:
+                    line += piece
+                    if len(_strip_eol(line)) > limit:
+                        too_long, line = True, b""
+                if piece.endswith(b"\n"):
+                    ended = True
+                    break
+            if length == 0 or (not ended and not final):
+                return
+            yield offset, offset + length, (None if too_long else _strip_eol(line))
+            offset += length
+
+
+def _jsonl_entry(raw: Optional[bytes]) -> Dict[str, Any]:
+    """一行 JSONL 的显示：{"text": …} 或 {"hidden": "too_long" | "not_json"}。"""
+    if raw is None:
+        return {"hidden": "too_long"}
+    line = raw.decode("utf-8", "replace")
+    if not line.strip():
+        return {"text": ""}
+    try:
+        return {"text": _dump(pd.redact_json(json.loads(line)))}
+    except (ValueError, RecursionError):
+        return {"hidden": "not_json"}
+
+
+def _cursor(kind: str, *numbers: int) -> str:
+    return ":".join([kind] + ["%d" % number for number in numbers])
+
+
+def _parse_cursor(cursor: str, kind: str, count: int) -> List[int]:
+    parts = cursor.split(":")
+    if len(parts) != count + 1 or parts[0] != kind or not all(part.isdigit() for part in parts[1:]):
+        raise LogsError("游标格式不对（游标只能原样带回）", EXIT_USAGE)
+    return [int(part) for part in parts[1:]]
+
+
+def _text_page(path: Path, rel: str, mode: str, cursor: Optional[str], limit: int) -> Dict[str, Any]:
+    size, mtime, ino = file_identity(path)
+    offset = 0
+    if cursor is not None:
+        offset, c_size, c_mtime, c_ino = _parse_cursor(cursor, "t", 4)
+        if (c_size, c_mtime, c_ino) != (size, mtime, ino):
+            raise StaleCursor()
+    text = redacted_text(path, mode)
+    if offset > len(text):
+        raise StaleCursor()
+    if offset + limit >= len(text):
+        piece, after = text[offset:], len(text)
+    else:
+        window = text[offset:offset + limit]
+        cut = window.rfind("\n")
+        piece, after = (window[:cut + 1], offset + cut + 1) if cut >= 0 else (window, offset + limit)
+    page: Dict[str, Any] = {"path": rel, "mode": "text", "text": piece,
+                            "next_cursor": _cursor("t", after, size, mtime, ino), "done": after >= len(text)}
+    line_start = text.rfind("\n", 0, offset) + 1
+    line_end = text.find("\n", line_start)
+    line_end = len(text) if line_end < 0 else line_end
+    if offset > line_start or (not piece.endswith("\n") and after < len(text)):
+        # 这一页的第一行是长行的一片：标明第几片、共几片（片从行首起每 limit 个字符一片）
+        page["part"] = (offset - line_start) // limit + 1
+        page["parts"] = max(page["part"], -(-(line_end - line_start) // limit))
+    return page
+
+
+def _jsonl_page(path: Path, rel: str, cursor: Optional[str], limit: int, final: bool) -> Dict[str, Any]:
+    size, _mtime, ino = file_identity(path)
+    position, number, char = 0, 1, 0
+    if cursor is not None:
+        position, number, char, c_ino, c_size = _parse_cursor(cursor, "j", 5)
+        if c_ino != ino or size < c_size or position > size:
+            raise StaleCursor()  # 被替换或截短；只增长时旧游标照样有效
+    lines: List[Dict[str, Any]] = []
+    used = 0
+    after, after_number, after_char = position, number, char
+    for start, end, raw in _jsonl_records(path, position, final):
+        entry = _jsonl_entry(raw)
+        body = entry.get("text")
+        if body is not None and (char or len(body) > limit):
+            if lines:
+                break  # 先交出已有的行；下一页从这条长行开始
+            lines.append({"n": number, "text": body[char:char + limit], "part": char // limit + 1,
+                          "parts": -(-len(body) // limit)})
+            if char + limit < len(body):
+                after, after_number, after_char = start, number, char + limit
+            else:
+                after, after_number, after_char = end, number + 1, 0
+            break
+        cost = len(body) if body is not None else HIDDEN_LINE_COST
+        if lines and used + cost > limit:
+            break
+        lines.append(dict({"n": number}, **entry))
+        used += cost
+        number += 1
+        after, after_number, after_char = end, number, 0
+    return {"path": rel, "mode": "jsonl", "lines": lines,
+            "next_cursor": _cursor("j", after, after_number, after_char, ino, size),
+            "done": after >= size and after_char == 0}
+
+
+def safe_page(path: Path, rel: str, cursor: Optional[str] = None, limit: int = SAFE_PAGE_CHARS,
+              final: bool = True) -> Dict[str, Any]:
+    """按页读一个证据文件（脱敏之后的文本）。text 模式返回 {path, mode, text, part?, parts?, next_cursor, done}；
+    jsonl 模式返回 {path, mode, lines, next_cursor, done}。final 为假时，JSONL 最后一行没有换行就不给（跟随用）。"""
+    if not 1 <= limit <= SAFE_PAGE_CHARS:
+        raise LogsError("--limit 必须在 1 到 %d 之间：%d" % (SAFE_PAGE_CHARS, limit), EXIT_USAGE)
+    try:
+        if safe_mode(rel) == "jsonl":
+            return _jsonl_page(path, rel, cursor, limit, final)
+        return _text_page(path, rel, safe_mode(rel), cursor, limit)
+    except (OSError, ValueError) as exc:
+        raise LogsError("读不出来：%s" % exc, EXIT_USAGE)
+
+
+def safe_lines(path: Path, rel: str, prefilter: Any = None):
+    """搜索用：脱敏之后的 (行号, 文本)，隐藏的行不给。text、json 模式整份超过上限时抛 LogsError。
+
+    prefilter 给出时，JSONL 先用它在原文上筛出候选行，再脱敏：没命中的行不解析、不脱敏，省掉大部分开销；
+    结果仍以脱敏之后的文本为准（logs search 再对它匹配一次）。"""
+    if safe_mode(rel) == "jsonl":
+        number = 0
+        for _start, _end, raw in _jsonl_records(path, 0, True):
+            number += 1
+            if raw is None:
+                continue
+            if prefilter is not None and not prefilter(raw.decode("utf-8", "replace")):
+                continue
+            entry = _jsonl_entry(raw)
+            if "text" in entry:
+                yield number, entry["text"]
+        return
+    for number, line in enumerate(redacted_text(path, safe_mode(rel)).split("\n"), 1):
+        yield number, line[:-1] if line.endswith("\r") else line
+
+
+# ---------------------------------------------------------------------------
+# cat（3.0 桌面端 D13）
+# ---------------------------------------------------------------------------
+
+def cmd_cat(args: argparse.Namespace) -> int:
+    repo = _repo(args.repo)
+    task, attempt, attempt_dir = _resolve_target(repo.runs_dir, args.target)
+    links = LinkTally()
+    evidence = _evidence(attempt_dir, links)
+    if evidence is None:
+        raise LogsError("无法列出 %s" % attempt_dir, EXIT_USAGE)
+    rel = args.path.replace(chr(92), "/")
+    if rel not in {item for item, _size in evidence}:
+        # 只认证据清单里的相对路径：清单本身不含链接、不出 attempt 目录（B5、B11）
+        raise LogsError("不在 %s/%s 的证据清单里：%s" % (task, attempt, rel), EXIT_USAGE)
+    page = safe_page(_under(attempt_dir, rel.split("/")), rel, args.cursor, args.limit)
+    if args.json:
+        _emit_json(page)
+        return EXIT_OK
+    if page["mode"] == "text":
+        sys.stdout.write(page["text"])
+    else:
+        for line in page["lines"]:
+            print(line["text"] if "text" in line else "（第 %d 行已隐藏：%s）" % (
+                line["n"], "不是合法 JSON" if line["hidden"] == "not_json" else "超过 %d 字节" % SAFE_MAX_LINE_BYTES))
+    if not page["done"]:
+        print("（未完：--cursor %s）" % page["next_cursor"], file=sys.stderr)
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# search（B6；3.0 桌面端起在脱敏之后的文本里搜，r3-B1）
 # ---------------------------------------------------------------------------
 
 def _iter_lines(path: Path):
@@ -570,8 +822,9 @@ def cmd_search(args: argparse.Namespace) -> int:
         raise LogsError("--max 必须是不小于 1 的整数：%d" % args.max, EXIT_USAGE)
     task = _check_task(args.task)
     links = LinkTally()
-    lines: List[str] = []
+    matches: List[Dict[str, Any]] = []
     truncated = False
+    skipped_large = 0
     for name, task_dir in _task_entries(repo.runs_dir, links):
         if task is not None and name != task:
             continue
@@ -583,28 +836,38 @@ def cmd_search(args: argparse.Namespace) -> int:
             for rel, _size in evidence:
                 if not rel.endswith(SEARCH_SUFFIXES):
                     continue
-                number = 0
-                for text in _iter_lines(attempt_dir / rel):
-                    number += 1
-                    if not pattern.search(text):
-                        continue
-                    if len(lines) >= args.max:
-                        truncated = True
-                        break
-                    lines.append("%s/%s/%s:%d: %s" % (name, attempt, rel, number,
-                                                      text[:MAX_LINE_CHARS]))
+                try:
+                    # 在脱敏之后的文本里搜（3.0 桌面端 r3-B1）：摘录只来自脱敏之后的文本，隐藏的行不参加
+                    for number, text in safe_lines(attempt_dir / rel, rel, prefilter=pattern.search):
+                        if not pattern.search(text):
+                            continue
+                        if len(matches) >= args.max:
+                            truncated = True
+                            break
+                        matches.append({"task": name, "attempt": attempt, "path": rel, "line": number,
+                                        "text": text[:MAX_LINE_CHARS]})
+                except LogsError:
+                    skipped_large += 1  # 太大或读不出来：不搜，计数
+                except OSError:
+                    pass  # 读不出来的文件没有行（与旧行为相同）
                 if truncated:
                     break
             if truncated:
                 break
         if truncated:
             break
-    for line in lines:
-        print(line)
+    if args.json:
+        _emit_json({"matches": matches, "truncated": truncated, "skipped_links": links.count,
+                    "skipped_large": skipped_large})
+        return EXIT_OK
+    for match in matches:
+        print("%s/%s/%s:%d: %s" % (match["task"], match["attempt"], match["path"], match["line"], match["text"]))
     if truncated:
         print("（已截断：只显示前 %d 条匹配）" % args.max)
     if links.count > 0:
         print(SKIPPED_LINKS_LINE % links.count)
+    if skipped_large > 0:
+        print("跳过的大文件或读不出来的文件：%d" % skipped_large)
     return EXIT_OK
 
 
@@ -966,11 +1229,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_show)
 
-    p = sub.add_parser("search", help="在证据的 .md/.txt/.log/.json/.jsonl 里搜索")
+    p = sub.add_parser("search", help="在证据的 .md/.txt/.log/.json/.jsonl 里搜索（脱敏之后的文本）")
     p.add_argument("pattern", help="Python re 语法")
     p.add_argument("--task", help="只搜这个任务")
     p.add_argument("--max", type=int, default=DEFAULT_MAX_MATCHES, help="最多输出多少条匹配（默认 50）")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_search)
+
+    p = sub.add_parser("cat", help="按页读一个证据文件：分页的单位是脱敏之后的文本，游标原样带回")
+    p.add_argument("target", help="task.vN、task、task/attempt-NNN 或显式路径")
+    p.add_argument("path", help="证据清单里的相对路径（logs show 列出的那些）")
+    p.add_argument("--cursor", help="上一页给出的 next_cursor")
+    p.add_argument("--limit", type=int, default=SAFE_PAGE_CHARS, help="每页最多多少个字符（默认 %d）" % SAFE_PAGE_CHARS)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_cat)
 
     p = sub.add_parser("usage", help="执行端与规划端的 token 用量（下界）")
     p.add_argument("--task", help="只统计这个任务的执行端 attempt")

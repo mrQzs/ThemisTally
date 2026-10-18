@@ -902,6 +902,10 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     errors = validate_config(load_config(repo), repo)
+    if getattr(args, "json", False):  # 3.0 桌面端 D13：本机服务用它
+        print(json.dumps({"valid": not errors, "errors": errors, "config_path": str(config_path(repo))},
+                         ensure_ascii=False, indent=2))
+        return EXIT_OK if not errors else EXIT_FAIL
     for error in errors:
         print("ERROR %s" % error)
     print("配置%s：%s" % ("有效" if not errors else "无效（%d 个错误）" % len(errors), config_path(repo)))
@@ -1406,6 +1410,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_show)
 
     p = sub.add_parser("validate", help="整份校验，有错退出 1")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("set", help="设置一个键（先 JSON 解析，解析不了按字符串）")

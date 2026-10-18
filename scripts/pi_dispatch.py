@@ -49,7 +49,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 TOOL_VERSION = "2.12.0"
 CONTRACT_SCHEMA_VERSION = 1
@@ -2677,8 +2677,73 @@ def redact_secrets(text: str) -> str:
     return re.sub(chr(0) + r"(\d+)" + chr(0), lambda m: saved[int(m.group(1))], text)
 
 
+def redact_json(value: Any, allow: Optional[Dict[Tuple[str, ...], Callable[[Any], bool]]] = None) -> Any:
+    """按键名处理的结构脱敏（`_redact_json` 的公开封装，3.0 桌面端 D4、D7）。
+
+    allow 是路由登记的白名单：JSON 路径 → 校验函数。路径上的值通过校验就原样保留，即使它在疑似凭据的键下面
+    （例如 `credential_env` 里的变量名）；不通过就换成 <redacted>。路径的每一段是键名、"*"（任意键或下标）或
+    "[键=值]"（数组里这个字段等于这个值的那一项）。不在白名单里的部分与 `_redact_json` 完全相同。
+    """
+    if not allow:
+        return _redact_json(value)
+    return _redact_json_allowing(value, False, [(tuple(path), 0, check) for path, check in allow.items()])
+
+
+def _allow_step(segment: str, step: Any, element: Any) -> bool:
+    if segment == "*":
+        return True
+    if segment.startswith("[") and segment.endswith("]") and "=" in segment:
+        key, want = segment[1:-1].split("=", 1)
+        return isinstance(step, int) and isinstance(element, dict) and element.get(key) == want
+    return isinstance(step, str) and step == segment
+
+
+def _redact_json_allowing(value: Any, sensitive: bool, active: List[Tuple[Tuple[str, ...], int, Any]]) -> Any:
+    checks = [check for path, depth, check in active if depth == len(path)]
+    if checks:  # 到了白名单登记的位置：通过全部校验才原样保留
+        return value if all(check(value) for check in checks) else "<redacted>"
+    pending = [(path, depth, check) for path, depth, check in active if depth < len(path)]
+    if isinstance(value, dict):
+        out: Dict[Any, Any] = {}
+        for key, item in value.items():
+            name = key
+            if isinstance(key, str) and _token_shaped(key):  # 与 _redact_json 相同：键名像令牌就连键一起遮掉
+                name, number = "<redacted>", 2
+                while name in out:
+                    name, number = "<redacted-%d>" % number, number + 1
+            follow = [(path, depth + 1, check) for path, depth, check in pending
+                      if _allow_step(path[depth], key, item)]
+            out[name] = _redact_json_allowing(
+                item, sensitive or (isinstance(key, str) and bool(_SECRET_KEY_RE.match(key))), follow)
+        return out
+    if isinstance(value, list):
+        return [_redact_json_allowing(item, sensitive, [(path, depth + 1, check) for path, depth, check in pending
+                                                        if _allow_step(path[depth], index, item)])
+                for index, item in enumerate(value)]
+    if isinstance(value, str):
+        return "<redacted>" if sensitive and value else redact_secrets(value)
+    return value
+
+
+def allow_env_name(value: Any) -> bool:
+    """白名单的校验：环境变量名，并且不是令牌形状。"""
+    return isinstance(value, str) and bool(ENV_NAME_RE.match(value)) and not _token_shaped(value)
+
+
+def allow_id(value: Any) -> bool:
+    """白名单的校验：profile、runtime 一类的 ID（与任务 ID 同一规则），并且不是令牌形状。"""
+    return isinstance(value, str) and bool(TASK_ID_RE.match(value)) and not _token_shaped(value)
+
+
+def allow_enum(*choices: Any) -> Callable[[Any], bool]:
+    """白名单的校验：固定的取值集合（可以含 None）。"""
+    return lambda value: any(value == choice and type(value) is type(choice) for choice in choices)
+
+
 def redact_obj(value: Any) -> Any:
-    """对 JSON 结构中的每个字符串做 redact_secrets：doctor、预检与 smoke 的结果写出之前统一经过这里。"""
+    """对 JSON 结构中的每个字符串做 redact_secrets：doctor、预检与 smoke 的结果写出之前统一经过这里。
+
+    它不看键名：`{"api_key": "…"}` 的值会原样留下。不可信内容（证据）用 `redact_json`（3.0 桌面端 r4-B1）。"""
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, list):
@@ -7300,30 +7365,42 @@ def _format_cost(row: Dict[str, Any]) -> str:
 LONG_THINKING_DELTAS = 6000
 
 
+def _live_facts(run_dir: Path) -> Dict[str, Any]:
+    """运行中的 attempt 的进度事实（只读事件文件，不解析 JSON）：`status --json` 的 `live` 与文本里的 live 片段
+    同一个来源（3.0 桌面端 D7）。elapsed_seconds 在没有 run-started.json 或时间读不出时为 None。"""
+    try:
+        data = (run_dir / "events.jsonl").read_bytes()
+    except OSError:
+        data = b""
+    started = read_json_or(run_dir / "run-started.json", {}).get("started_at")
+    elapsed: Optional[int] = None
+    if started:
+        try:
+            begin = _dt.datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_dt.timezone.utc)
+            elapsed = int((_dt.datetime.now(_dt.timezone.utc) - begin).total_seconds())
+        except ValueError:
+            elapsed = None
+    marker = b'"type":"tool_execution_end"'
+    last_tool = data.rfind(marker)
+    tail = data[last_tool:] if last_tool >= 0 else data
+    deltas = tail.count(b'"type":"message_update"')
+    return {"tool_calls": data.count(marker), "elapsed_seconds": elapsed, "deltas_since_last_tool": deltas,
+            "long_idle": deltas >= LONG_THINKING_DELTAS}
+
+
 def _live_progress(run_dir: Path) -> Optional[str]:
     """运行中的 attempt：已完成的工具调用次数与已用时间（只读事件文件，不解析 JSON）。
 
     上次工具调用之后的消息增量事件很多时，另外提示“长时间没有工具调用”：执行器可能
     在长时间思考或输出，运行中无法干预，但可以据此预估是否会超时、准备下一版合同。
     """
-    try:
-        data = (run_dir / "events.jsonl").read_bytes()
-    except OSError:
-        data = b""
-    started = read_json_or(run_dir / "run-started.json", {}).get("started_at")
-    elapsed = ""
-    if started:
-        try:
-            begin = _dt.datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_dt.timezone.utc)
-            elapsed = " %ds" % (_dt.datetime.now(_dt.timezone.utc) - begin).total_seconds()
-        except ValueError:
-            elapsed = ""
-    marker = b'"type":"tool_execution_end"'
-    last_tool = data.rfind(marker)
-    tail = data[last_tool:] if last_tool >= 0 else data
-    deltas = tail.count(b'"type":"message_update"')
-    quiet = " 长时间没有工具调用（%d 个增量）" % deltas if deltas >= LONG_THINKING_DELTAS else ""
-    return "live:%dt%s%s" % (data.count(marker), elapsed, quiet)
+    return _live_text(_live_facts(run_dir))
+
+
+def _live_text(facts: Dict[str, Any]) -> str:
+    elapsed = " %ds" % facts["elapsed_seconds"] if facts["elapsed_seconds"] is not None else ""
+    quiet = " 长时间没有工具调用（%d 个增量）" % facts["deltas_since_last_tool"] if facts["long_idle"] else ""
+    return "live:%dt%s%s" % (facts["tool_calls"], elapsed, quiet)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -7340,7 +7417,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     assessments: List[str] = []
     for row, attempt in zip(rows, attempts):
         if row["state"] == "RUNNING":
-            row["events_ok"] = _live_progress(attempt)
+            facts = _live_facts(attempt)
+            row["events_ok"] = _live_text(facts)  # 现有字段照旧（文本形式）
+            row["live"] = facts  # 3.0 桌面端 D7：同一份事实的结构化版本，只有运行中的行有
             if getattr(args, "assess", False):
                 session = decisions_session(repo.config(), repo.agent_dir, attempt / DECISIONS_RECORD, "run-health")
                 if session is not None:

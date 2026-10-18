@@ -435,17 +435,20 @@ flowchart LR
 - **证据的安全读取：分页、跟随与搜索**（r2-B1、r3-B1、r3-S3、r3-S4）：
   - 分页的单位是**脱敏之后的文本**，不是原始字节。切片里看不到上下文，单独脱敏会漏：例如只取到 `api_key=` 后面的值。
   - **JSONL**（`events.jsonl` 等）：内容不保证合法，`events.jsonl` 就是执行器的原始 stdout（PD:4999–5001）。逐行先解析：
-    - 合法的行（JSON 对象或数组）用按键名处理的结构脱敏 `redact_json`，再紧凑地序列化。不用 `redact_obj`：它不看键名，`{"api_key": "…"}` 的值会原样留下（r4-B1）；
+    - 合法的行用按键名处理的结构脱敏 `redact_json`，再用 `json.dumps` 的缺省格式写出（与原来的搜索输出一致）。不用 `redact_obj`：它不看键名，`{"api_key": "…"}` 的值会原样留下（r4-B1）；
     - 解析不了的行、单行超过 4 MiB 的行一律隐藏，只显示占位，例如“（这一行不是合法 JSON，已隐藏；用 CLI 查看）”，不按没有上下文的文本显示（r3-B1）；
     - 跟随时只追加已经写完的新行。
+  - **`.json` 文件**：整份能解析时用 `redact_json` 按键名脱敏，再带缩进写出，保持多行与行号；解析不了就按其他文本处理。（`redact_secrets` 会把嵌着的多行 JSON 重写成一行，PD:2619–2645，所以不直接用它。）
   - **其他文本**：整份脱敏之后再分页（`redact_secrets` 遇到确定不了结束的值，会遮掉其余部分，PD:2667–2676）；整份超过 64 MiB 的不在界面里显示，提示用 CLI 查看。
-  - **页边界**：每页最多 256 KiB 的脱敏文本，优先放完整的行；单行超过上限时给出这一行的分片，标明第几片、共几片（r3-S4、r4-S1）。普通文本的分片在整份脱敏之后按字符切；JSONL 的分片在这一行脱敏、序列化之后按字符切。
+  - **页边界**：每页最多 256 Ki 个字符（脱敏之后），优先放完整的行；单行超过上限时给出这一行的分片，标明第几片、共几片（r3-S4、r4-S1）。普通文本的分片在整份脱敏之后按字符切；JSONL 的分片在这一行脱敏、序列化之后按字符切。
   - **缓存与游标**（r3-S3）：
     - 脱敏结果按（路径、大小、修改时间纳秒、文件号）缓存，总量有上限；
     - 游标由服务给出，前端原样带回；游标绑定上面这组标识，标识变了就返回 409“文件已变化”，前端从头读；
     - JSONL 的游标记两样：这一行在原始文件里的偏移，以及脱敏之后行内的字符位置（读到一行的中间时）；文件只增长时继续有效（r4-S1）；
     - 保留时间戳的原地改写不在范围内：证据目录按规定只读，同账户进程不在防护范围（D4）。
   - **搜索**：在同一个安全读取的结果里搜，摘录取自脱敏之后的文本；隐藏的行不参加搜索（r3-B1）。
+    - 为了速度，JSONL 先用原文筛出候选行，只对候选行解析与脱敏，再在脱敏之后的文本上确认一次：确认不过的不返回，所以不会漏出被遮蔽的值。代价是只出现在脱敏结果里的文字（例如 `<redacted>` 占位）在 JSONL 里搜不到。
+    - 实测（D1-A，本仓库 `.agent/runs` 的 447 个文件、约 78 MB，其中 JSONL 约 76 MB）：搜不到的词，原来 0.3 秒，现在约 1.1 秒；命中 364 行的词约 2.7 秒。不预筛时，19.4 万行 JSONL 全量脱敏约 30 秒。
   - **边界**：值被拆到不同字段或不同 JSONL 记录、失去关联的上下文时（例如 `{"parts":["api_key=","examplevalue"]}`），不保证识别。这是脱敏规则本身的边界，与 CLI 的其他输出相同。同一字段里完整的 `"api_key=examplevalue"`，以及普通文本里 `api_key=` 换行之后接值、PEM 块，现有规则都能遮掉（r4-B1、r5-N2）。
   - 读取函数与新增的 `logs cat`、改造后的 `logs search`（D13）共用，只认证据目录下的相对路径，不跟随链接。
   - 前端用滚动图钉（3.2）。
@@ -597,7 +600,7 @@ flowchart LR
   - 加进 `KIT_LOADED_FILES`（PD:96–101）。
 - **KC**：
   - `ACTOR_RE` 加 `user-ui`（KC:431）；
-  - `config validate`、`config secret check` 补 `--json`；
+  - `config validate` 补 `--json`；`config secret check` 本来就只输出 JSON（KC:1340–1342），不用补；
   - 经 `config_transaction` / `config_transactions` 的写命令（界面用到的：`role set`、`preset use/save/remove`、`profile add/edit/remove`、`runtime add/remove`、`rollback`）加两个选项：
     - `--dry-run --json`：不进事务、不拿锁，只读配置、在内存里修改、整份校验、算运行中切换的判断（D6），输出变化、在运行的 attempt、是否需要 `--yes` 与 `state` 令牌；不写文件、不记审计；
     - `--expect-state <令牌>`：拿到配置锁之后、第一次 publish 之前，一次读齐这条命令要写的全部资源并比对，比对之后用同一批字节构造事务；不一致就抛 `ConfigError(code=4)`，一个字节都不写（r1-1）。
@@ -659,8 +662,8 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 | POST `/api/v1/jobs`，`kind` 为 `doctor`、`doctor-record`、`runtime-scan`、`runtime-probe`、`models` | `config doctor [--record]`、`runtime scan`、`runtime probe <id>`、`models <runtime>`（都带 `--json`） | 读（作业） |
 | GET `/api/v1/jobs/<id>`；POST `/api/v1/jobs/<id>/cancel` | — | 读 |
 | GET `/api/v1/plugins`、`/plugins/<id>` | `plugins list`、`plugins show <id>`（`--json`） | 读 |
-| GET `/api/v1/secrets` | 合成：`config show --json` 与 `config profile show --json` 取名单，再逐个 `config secret check <name> --json`（自查-2） | 读 |
-| GET `/api/v1/secrets/<name>` | `config secret check <name> --json`（补） | 读 |
+| GET `/api/v1/secrets` | 合成：`config show --json` 与 `config profile show --json` 取名单，再逐个 `config secret check <name>`（自查-2） | 读 |
+| GET `/api/v1/secrets/<name>` | `config secret check <name>`（本来就输出 JSON） | 读 |
 | POST `/api/v1/preview` `{"action", "args"}` | 对应写命令的 `--dry-run --json`；返回预览、`state` 令牌与一次性确认号（D6） | 读 |
 | POST `/api/v1/roles/<role>` | `config role set <role> <profile 或模式> [--yes]` | 改配置 |
 | POST `/api/v1/presets/<name>/use`、`/save`、`/remove` | `config preset use|save|remove <name> [--yes]` | 改配置 |
@@ -728,7 +731,7 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 | `scripts/kit_ui.py`（新） | D2–D7、D13 |
 | PD 的解析器与 `KIT_LOADED_FILES`（PD:96–101） | 登记 `ui`，惰性转交；状态列表抽成共用函数；`status --json` 补 `live`；新增公开的 `redact_json` |
 | KC:431 `ACTOR_RE` | 加 `user-ui` |
-| KC 的解析器与写命令 | `config validate --json`、`config secret check --json`；写命令的 `--dry-run --json`（纯读路径）与 `--expect-state`（锁内、第一次 publish 之前比对） |
+| KC 的解析器与写命令 | `config validate --json`；写命令的 `--dry-run --json`（纯读路径）与 `--expect-state`（锁内、第一次 publish 之前比对） |
 | KR | role / profile / preset / runtime 的写处理器拆出纯修改函数；传递 `--expect-state` |
 | KP | `plugins enable|disable` 的 `--dry-run` 改为纯读路径，补 `--json` 与 `state`；`--expect-state` |
 | KL | `logs search` 改为在安全读取的脱敏结果里搜索，并补 `--json`；新增 `logs cat`；安全读取（D7）抽成共用函数 |
