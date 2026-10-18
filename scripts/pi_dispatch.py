@@ -7486,6 +7486,47 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def pi_model_readiness(pi_cmd: List[str], provider: str, model: str, thinking: Optional[str],
+                       thinking_levels: Sequence[str], env: Optional[Dict[str, str]]) -> Tuple[Dict[str, Any], List[str]]:
+    """一个执行模型的就绪事实：列模型（--list-models <模型>）、auth check --no-refresh 与思考级别（3.0 第二轮 D10）。
+
+    doctor 与 config doctor 共用这一个函数。env 显式给出：doctor 传 None（照旧继承当前环境），config doctor 传
+    child_env(config)。返回（事实, 问题）；事实的键与 doctor 原来的输出相同（executor_model_list、
+    executor_model_listed、executor_auth_check），问题的文字与顺序也不变。不调用模型。
+    """
+    facts: Dict[str, Any] = {}
+    problems: List[str] = []
+    code, out, err = run_capture(pi_cmd + RESOURCE_FLAGS + ["--list-models", model], env=env, timeout=90)
+    rows = list_models_rows(out)
+    empty = None if rows else list_models_empty_reason(out)
+    # 错误输出先脱敏再截取：Pi 转述 models.json 的解析错误时可能带出其中的凭据。
+    facts["executor_model_list"] = {"exit_code": code, "rows": len(rows), "empty_reason": empty,
+                                    "stderr_tail": redact_secrets((err or "").strip())[-300:]}
+    if code != 0:
+        facts["executor_model_listed"] = None
+        problems.append("pi --list-models 执行失败（退出码 %s）：%s。在 Codex 等沙箱中运行时，沙箱可能阻止了 pi "
+                        "读取配置或联网：改在沙箱外运行 doctor 再判断"
+                        % (code, redact_secrets((err or out).strip())[:200]))
+    else:
+        facts["executor_model_listed"] = (provider, model) in rows
+        if not facts["executor_model_listed"]:
+            problems.append("执行模型 %s/%s 不在可用模型列表中%s" % (provider, model, {
+                "no_models": "（pi 没有任何可用模型：可能读不到 ~/.pi/agent 的配置或凭据，例如在沙箱中运行；"
+                             "改在沙箱外运行 doctor 再判断）",
+                "no_match": "（pi 有可用模型，但没有与 %s 匹配的）" % model,
+            }.get(empty or "", "")))
+    # --no-refresh：doctor 不刷新、不改写凭据；过期的 OAuth 令牌会在真正运行时刷新。
+    code, out, err = run_capture(pi_cmd + ["auth", "check", "--provider", provider, "--model", model, "--json",
+                                           "--no-refresh"], env=env, timeout=90)
+    facts["executor_auth_check"] = {"exit_code": code, "output": redact_secrets((out or err).strip())[:2000],
+                                    "refresh": False}
+    if code != 0:
+        problems.append("执行模型凭据未就绪（pi auth check --no-refresh 退出码 %s）" % code)
+    if thinking and thinking not in thinking_levels:
+        problems.append("思考级别 %s 不受本机 pi 支持" % thinking)
+    return facts, problems
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """环境事实。不调用模型，不修改仓库；--out 只能写到 .agent/runs/_env/ 或 _reports/。"""
     out_path = safe_output_path(args)
@@ -7528,34 +7569,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if facts["pi_help"]["required_flags_missing"]:
             problems.append("pi 缺少参数：%s" % ", ".join(facts["pi_help"]["required_flags_missing"]))
         if args.provider and args.model:
-            code, out, err = run_capture(pi_cmd + RESOURCE_FLAGS + ["--list-models", args.model], timeout=90)
-            rows = list_models_rows(out)
-            empty = None if rows else list_models_empty_reason(out)
-            # 错误输出先脱敏再截取：Pi 转述 models.json 的解析错误时可能带出其中的凭据。
-            facts["executor_model_list"] = {"exit_code": code, "rows": len(rows), "empty_reason": empty,
-                                            "stderr_tail": redact_secrets((err or "").strip())[-300:]}
-            if code != 0:
-                facts["executor_model_listed"] = None
-                problems.append("pi --list-models 执行失败（退出码 %s）：%s。在 Codex 等沙箱中运行时，沙箱可能阻止了 pi "
-                                "读取配置或联网：改在沙箱外运行 doctor 再判断"
-                                % (code, redact_secrets((err or out).strip())[:200]))
-            else:
-                facts["executor_model_listed"] = (args.provider, args.model) in rows
-                if not facts["executor_model_listed"]:
-                    problems.append("执行模型 %s/%s 不在可用模型列表中%s" % (args.provider, args.model, {
-                        "no_models": "（pi 没有任何可用模型：可能读不到 ~/.pi/agent 的配置或凭据，例如在沙箱中运行；"
-                                     "改在沙箱外运行 doctor 再判断）",
-                        "no_match": "（pi 有可用模型，但没有与 %s 匹配的）" % args.model,
-                    }.get(empty or "", "")))
-            # --no-refresh：doctor 不刷新、不改写凭据；过期的 OAuth 令牌会在真正运行时刷新。
-            code, out, err = run_capture(pi_cmd + ["auth", "check", "--provider", args.provider, "--model",
-                                                   args.model, "--json", "--no-refresh"], timeout=90)
-            facts["executor_auth_check"] = {"exit_code": code, "output": redact_secrets((out or err).strip())[:2000],
-                                            "refresh": False}
-            if code != 0:
-                problems.append("执行模型凭据未就绪（pi auth check --no-refresh 退出码 %s）" % code)
-            if args.thinking and args.thinking not in info["thinking_levels"]:
-                problems.append("思考级别 %s 不受本机 pi 支持" % args.thinking)
+            readiness, found = pi_model_readiness(pi_cmd, args.provider, args.model, args.thinking,
+                                                  info["thinking_levels"], None)
+            facts.update(readiness)
+            problems.extend(found)
         else:
             # 2.5.0：技能写了要带参数，但容易漏；没有 executor_* 三个键的输出要自己说明。
             notes.append("未检查执行模型与凭据：带 --provider 与 --model（可加 --thinking）再运行 doctor，"

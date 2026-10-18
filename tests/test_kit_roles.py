@@ -567,6 +567,320 @@ class LocalFile(RolesRepo):
         self.assertTrue(any(line.startswith("ERROR") and "看不了" in line for line in lines), lines)
 
 
+#: PATH 上的替身（M1–M10）：记下每次调用的参数；pi 交给 tests/stub_pi.py，其余只认 --version。
+CLI_STUB = """import json, os, runpy, sys
+name, args = sys.argv[1], sys.argv[2:]
+log = os.environ.get("CLI_STUB_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps([name] + args) + "\\n")
+if name == "pi":
+    sys.argv = [os.environ["CLI_STUB_PI"]] + args
+    runpy.run_path(os.environ["CLI_STUB_PI"], run_name="__main__")
+elif "--version" in args:
+    print("%s 9.9.9" % name)
+else:
+    sys.exit(3)
+"""
+#: 提示类调用的标记：出现任何一个就是调用了模型（M9）
+PROMPT_MARKERS = ("--mode", "--no-session", "-p", "--print")
+
+
+class ConfigCenter(RolesRepo):
+    """第 4 步：配置中心的命令（设计 4.1、D3、D8、D10；测试计划 9.3 的 M1–M10）。CLI 用 PATH 上的替身。"""
+
+    def setUp(self):
+        super().setUp()
+        bin_dir = self.work / "bin"
+        bin_dir.mkdir()
+        stub = self.work / "cli_stub.py"
+        stub.write_text(CLI_STUB, encoding="utf-8")
+        for program in ("pi", "claude", "codex", "opencode"):
+            if os.name == "nt":
+                (bin_dir / (program + ".cmd")).write_text(
+                    '@"%s" "%s" %s %%*\r\n' % (sys.executable, stub, program), encoding="utf-8")
+            else:
+                path = bin_dir / program
+                path.write_text('#!/bin/sh\nexec "%s" "%s" %s "$@"\n' % (sys.executable, stub, program), encoding="utf-8")
+                path.chmod(0o755)
+        self.log = self.work / "cli.log"
+        env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""), "CLI_STUB_LOG": str(self.log),
+               "CLI_STUB_PI": str(ROOT / "tests" / "stub_pi.py"),
+               "STUB_MODELS": "bb step-5-preview;bb step-5-mini", "PI_CODING_AGENT_DIR": str(self.work / "pi-agent")}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("PI_DISPATCH_PI_CMD", "STUB_AUTH", "STUB_LIST_FAIL", "STUB_SCENARIO"):
+            os.environ.pop(name, None)
+        (self.work / "pi-agent").mkdir()
+
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def config(self):
+        return json.loads(self.config_file.read_text(encoding="utf-8"))
+
+    def assertNoPrompts(self):
+        for call in self.calls():
+            self.assertFalse(set(call[1:]) & set(PROMPT_MARKERS) or any(arg.startswith("@") for arg in call[1:]), call)
+
+    # M1
+    def test_scan_only_asks_for_versions_and_add_registers(self):
+        code, out, err = run_config(["runtime", "scan", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        found = {row["adapter"]: row for row in json.loads(out)["found"]}
+        self.assertTrue(all(found[adapter]["path"] for adapter in ("pi", "claude-code", "codex", "opencode")), found)
+        self.assertEqual(found["codex"]["version"], "codex 9.9.9")
+        self.assertTrue(self.calls() and all(call[1:] == ["--version"] for call in self.calls()), self.calls())
+        self.assertFalse(self.config_file.exists())
+        code, out, err = run_config(["runtime", "scan", "--add"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config()["runtimes"], {name: {"adapter": name}
+                                                     for name in ("pi", "claude-code", "codex", "opencode")})
+        self.assertNoPrompts()
+
+    # M2
+    def test_runtime_commands_go_to_the_local_file_only(self):
+        self.write(self.base())
+        command = [str(self.work / "bin" / ("pi.cmd" if os.name == "nt" else "pi")), "--flag"]
+        code, out, err = run_config(["runtime", "add", "pi2", "--adapter", "pi", "--command", json.dumps(command)],
+                                    self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config()["runtimes"]["pi2"], {"adapter": "pi"})  # 提交的配置里没有命令
+        local = json.loads((self.repo / ".agent" / "dispatch.local.json").read_text(encoding="utf-8"))
+        self.assertEqual(local, {"runtimes": {"pi2": {"command": command}}})
+        rows = {row["id"]: row for row in json.loads(run_config(["runtime", "list", "--json"], self.repo)[1])["runtimes"]}
+        self.assertEqual((rows["pi2"]["source"], rows["pi"]["source"], rows["oc"]["source"]), ("local", "path", "path"))
+        with mock.patch.dict(os.environ, {"PI_DISPATCH_PI_CMD": json.dumps(command)}):  # 环境变量优先于本机文件
+            rows = {row["id"]: row for row in json.loads(run_config(["runtime", "list", "--json"], self.repo)[1])["runtimes"]}
+        self.assertEqual(rows["pi2"]["source"], "env")
+        self.assertEqual(rows["oc"]["source"], "path")  # 只对 pi 适配器
+        target = pd.Repo(self.repo)
+        self.assertEqual(kit_roles.runtime_command(target, self.config(), "pi2")[:2], (command, "local"))
+        # 有引用时拒绝 remove；没有引用时连同本机文件里的命令一起删
+        code, _out, err = run_config(["runtime", "remove", "pi"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("被 profile", err)
+        code, out, err = run_config(["runtime", "remove", "pi2"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("pi2", self.config()["runtimes"])
+        self.assertEqual(json.loads((self.repo / ".agent" / "dispatch.local.json").read_text(encoding="utf-8")),
+                         {"runtimes": {}})
+        # 本机文件被跟踪时，读和写都拒绝
+        subprocess.run(["git", "add", "-f", ".agent/dispatch.local.json"], cwd=str(self.repo), check=True)
+        before = self.config_file.read_bytes()
+        code, _out, err = run_config(["runtime", "add", "pi3", "--adapter", "pi", "--command", json.dumps(command)],
+                                     self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("被 Git 跟踪", err)
+        rows = {row["id"]: row for row in json.loads(run_config(["runtime", "list", "--json"], self.repo)[1])["runtimes"]}
+        self.assertEqual(rows["pi3"]["source"], "path")  # 已登记，但本机文件不用
+        self.assertTrue(any("被 Git 跟踪" in note for note in rows["pi3"]["notes"]))
+        self.assertNotEqual(self.config_file.read_bytes(), before)  # 登记本身已写入（两份文件不是一个事务）
+        self.assertNoPrompts()
+
+    # M3
+    def test_probe_and_models(self):
+        self.write(self.base(allowed_executors=[{"provider": "bb", "model": "step-5-preview"}]))
+        code, out, err = run_config(["runtime", "probe", "pi", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        probe = json.loads(out)
+        self.assertEqual(probe["help"]["missing_flags"], [])
+        self.assertEqual([call[0] for call in self.calls()], ["pi", "pi"])
+        self.assertTrue(any("--help" in call for call in self.calls()) and any("--version" in call for call in self.calls()))
+        self.log.unlink()
+        code, out, err = run_config(["runtime", "probe", "oc", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.calls(), [["opencode", "--version"]])
+        code, out, err = run_config(["models", "pi", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        marks = {(row["provider"], row["model"]): row["allowed"] for row in json.loads(out)["models"]}
+        self.assertEqual(marks, {("bb", "step-5-preview"): True, ("bb", "step-5-mini"): False})
+        code, _out, err = run_config(["models", "oc"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertNoPrompts()
+
+    # M4
+    def test_profile_add_edit_remove(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}}))
+        code, _out, err = run_config(["profile", "add", "p1", "--runtime", "pi", "--model", "bb/step-5-mini",
+                                      "--thinking", "low", "--credential-env", "STEP_API_KEY"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config()["profiles"]["p1"], {"runtime": "pi", "model": {"provider": "bb", "id": "step-5-mini"},
+                                                           "options": {"thinking": "low"},
+                                                           "credential_env": ["STEP_API_KEY"]})
+        self.assertEqual(self.calls(), [])  # profile add 不运行任何 CLI（M9）
+        code, _out, err = run_config(["profile", "edit", "p1", "--thinking", "high"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config()["profiles"]["p1"]["options"], {"thinking": "high"})
+        self.assertEqual(self.config()["profiles"]["p1"]["model"], {"provider": "bb", "id": "step-5-mini"})
+        before = self.config_file.read_bytes()
+        code, _out, err = run_config(["profile", "edit", "p1", "--runtime", "oc"], self.repo)  # opencode 不接受 thinking
+        self.assertEqual(code, 1, err)
+        self.assertEqual(self.config_file.read_bytes(), before)
+        code, _out, err = run_config(["profile", "remove", "exec-step"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("roles.execution", err)
+        self.assertEqual(run_config(["profile", "remove", "p1"], self.repo)[0], 0)
+        self.assertNotIn("p1", self.config()["profiles"])
+
+    # M5
+    def test_role_set_modes_warnings_and_unset(self):
+        self.write(self.base())
+        for argv, expected in ((["contract", "manual"], {"mode": "manual"}),
+                               (["planning_review", "interactive_host", "--host", "codex"],
+                                {"mode": "interactive_host", "host": "codex"}),
+                               (["scheduler_agent", "exec-low", "--cadence-seconds", "120"],
+                                {"mode": "headless", "profile": "exec-low", "cadence_seconds": 120}),
+                               (["execution", "exec-step"], {"mode": "headless", "profile": "exec-step"})):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(["role", "set"] + argv, self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.config()["roles"][argv[0]], expected)
+        code, out, err = run_config(["role", "set", "execution", "oc-x"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARN", out)
+        self.assertIn("没有接通", out)
+        code, _out, err = run_config(["role", "set", "execution", "manual"], self.repo)  # execution 只能 headless
+        self.assertEqual(code, 1, err)
+        self.assertEqual(run_config(["unset", "roles.execution"], self.repo)[0], 0)
+        rows = {row["role"]: row for row in json.loads(run_config(["role", "show", "--json"], self.repo)[1])["roles"]}
+        self.assertIsNone(rows["execution"]["binding"])
+        self.assertIn("由合同决定", run_config(["role", "show"], self.repo)[1])
+
+    # M6
+    def test_presets_only_touch_listed_roles(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"},
+                                    "contract": {"mode": "manual"}}))
+        self.assertEqual(run_config(["preset", "save", "full"], self.repo)[0], 0)
+        self.assertEqual(set(self.config()["presets"]["full"]["roles"]), {"execution", "contract"})
+        self.assertEqual(run_config(["role", "set", "execution", "exec-low"], self.repo)[0], 0)
+        self.assertEqual(run_config(["preset", "save", "eco", "--roles", "execution", "--description", "便宜"],
+                                    self.repo)[0], 0)
+        self.assertEqual(run_config(["preset", "save", "eco", "--roles", "execution"], self.repo)[0], 1)  # 要 --force
+        self.assertEqual(run_config(["role", "set", "contract", "exec-step"], self.repo)[0], 0)
+        code, out, err = run_config(["preset", "use", "full"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("运行中与已准备的 attempt 不受影响", out)
+        self.assertEqual(self.config()["roles"]["execution"], {"mode": "headless", "profile": "exec-step"})
+        self.assertEqual(self.config()["active_preset"], "full")
+        code, out, err = run_config(["preset", "use", "eco"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config()["roles"]["contract"], {"mode": "manual"})  # eco 没列 contract：保持原样
+        diff = {row["role"]: row["same"] for row in json.loads(run_config(["preset", "diff", "full", "eco", "--json"],
+                                                                        self.repo)[1])["roles"]}
+        self.assertEqual(diff, {"contract": False, "execution": False})
+        self.assertEqual(run_config(["role", "set", "execution", "exec-step"], self.repo)[0], 0)
+        show = json.loads(run_config(["preset", "show", "eco", "--json"], self.repo)[1])
+        self.assertTrue(show["active"] and [row["role"] for row in show["roles"] if row["differs"]] == ["execution"])
+        rows = {row["role"]: row for row in json.loads(run_config(["role", "show", "--json"], self.repo)[1])["roles"]}
+        self.assertTrue(rows["execution"]["differs_from_preset"])
+        self.assertEqual(run_config(["preset", "remove", "eco"], self.repo)[0], 1)  # 当前在用
+        self.assertEqual(run_config(["preset", "remove", "full"], self.repo)[0], 0)
+        self.assertEqual(set(self.config()["presets"]), {"eco"})
+
+    # M8、M9
+    def test_doctor_per_role_readiness(self):
+        profiles = self.base()["profiles"]
+        profiles["exec-step"]["credential_env"] = ["STEP_KEY_SET", "GITHUB_TOKEN", "STEP_KEY_EMPTY", "STEP_KEY_DROPPED"]
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"},
+                                  "contract": {"mode": "headless", "profile": "exec-low"}},
+                           env_remove=["STEP_KEY_DROPPED"])
+        config["profiles"] = profiles
+        self.write(config)
+        env = {"STEP_KEY_SET": "x", "GITHUB_TOKEN": "y", "STEP_KEY_EMPTY": "", "STEP_KEY_DROPPED": "z",
+               "STUB_MODELS": "bb step-5-preview"}
+        with mock.patch.dict(os.environ, env):
+            code, out, err = run_config(["doctor", "--json"], self.repo)
+        self.assertEqual(code, 1, err)
+        rows = {row["role"]: row for row in json.loads(out)["roles"]}
+        self.assertEqual(rows["execution"]["credentials"], {"STEP_KEY_SET": True, "GITHUB_TOKEN": False,
+                                                            "STEP_KEY_EMPTY": False, "STEP_KEY_DROPPED": False})
+        self.assertTrue(rows["execution"]["model_listed"] and rows["execution"]["auth_ready"])
+        self.assertFalse(rows["contract"]["model_listed"])  # 共用 runtime 的两个 profile 分别判断
+        self.assertNotIn("x", json.dumps(rows["execution"]["credentials"]))
+        self.assertEqual(sum(1 for call in self.calls() if call[1:2] == ["--version"]), 1)  # 版本按 runtime 缓存
+        with mock.patch.dict(os.environ, {"STEP_KEY_SET": "x", "GITHUB_TOKEN": "y", "STEP_KEY_EMPTY": "e",
+                                          "STEP_KEY_DROPPED": "z"}):
+            config["env_keep"] = ["GITHUB_TOKEN"]
+            config["env_remove"] = []
+            config["roles"]["contract"] = {"mode": "manual"}
+            self.write(config)
+            code, out, err = run_config(["doctor", "--json"], self.repo)
+            self.assertEqual(code, 0, out + err)
+            with mock.patch.dict(os.environ, {"STUB_AUTH": "missing"}):
+                code, out, err = run_config(["doctor"], self.repo)
+            self.assertEqual(code, 1, err)
+            self.assertIn("凭据未就绪", out)
+            config["roles"]["execution"] = {"mode": "headless", "profile": "oc-x"}
+            self.write(config)
+            code, out, err = run_config(["doctor", "--json"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertTrue(any("没有接通" in problem for row in json.loads(out)["roles"] for problem in row["problems"]))
+        self.assertNoPrompts()
+        self.assertEqual(run_config(["doctor", "--bogus"], self.repo)[0], 2)
+
+    # M7（第 4 步的命令）：改变生效绑定的写入在运行中同样要 --yes
+    def test_new_writers_need_yes_while_attempts_run(self):
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "alt-p"}},
+                           presets={"eco": {"roles": {"execution": {"mode": "headless", "profile": "exec-low"}}}})
+        config["runtimes"]["alt"] = {"adapter": "pi"}  # 不带 options 的 profile：改 adapter 之后仍是合法配置
+        config["profiles"]["alt-p"] = {"runtime": "alt", "model": {"provider": "bb", "id": "step-5-preview"}}
+        self.write(config)
+        run_dir = self.repo / ".agent" / "runs" / "t1" / "attempt-001"
+        run_dir.mkdir(parents=True)
+        pd.set_state(run_dir, "RUNNING")
+        for argv in (["role", "set", "execution", "exec-low"], ["preset", "use", "eco"],
+                     ["profile", "edit", "alt-p", "--model", "bb/step-5-mini"],
+                     ["runtime", "add", "alt", "--adapter", "opencode", "--force"]):
+            with self.subTest(argv=argv[:2]):
+                before = self.config_file.read_bytes()
+                code, _out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertIn("--yes", err)
+                self.assertEqual(self.config_file.read_bytes(), before)
+        self.assertEqual(run_config(["role", "set", "execution", "exec-low", "--yes"], self.repo)[0], 0)
+
+    # D9：手改进去的疑似凭据，新命令的显示同样只报位置、不显示取值，也不运行任何 CLI
+    def test_new_commands_never_show_secret_values(self):
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}},
+                           presets={"eco": {"roles": {"execution": {"mode": "headless", "profile": "exec-step"}}}})
+        config["profiles"]["exec-step"]["model"]["id"] = "sk-" + "s" * 24
+        self.write(config)
+        for argv in (["profile", "show"], ["profile", "show", "--json"], ["role", "show"], ["role", "show", "--json"],
+                     ["preset", "show", "eco", "--json"], ["doctor"], ["doctor", "--json"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertIn("疑似凭据", err)
+                self.assertNotIn("s" * 24, out + err)
+        self.assertEqual(self.calls(), [])  # 拒绝在探测之前
+        for argv in (["runtime", "list", "--json"], ["runtime", "probe", "pi"], ["models", "pi", "--json"],
+                     ["preset", "list"], ["preset", "diff", "eco", "eco"]):
+            with self.subTest(argv=argv):  # 不显示 profile 取值的命令照常（它们只查自己显示的键）
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertNotIn("s" * 24, out + err)
+        self.assertNoPrompts()
+
+    # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
+    def test_shared_readiness_takes_the_environment_explicitly(self):
+        seen = []
+
+        def capture(cmd, cwd=None, env=None, timeout=60):
+            seen.append(env)
+            return 0, "provider model\nbb step-5-preview\n", ""
+
+        with mock.patch.object(pd, "run_capture", capture):
+            facts, problems = pd.pi_model_readiness(["pi"], "bb", "step-5-preview", "high", ["high"], None)
+            pd.pi_model_readiness(["pi"], "bb", "step-5-preview", "high", ["high"], {"ONLY": "1"})
+        self.assertEqual(seen, [None, None, {"ONLY": "1"}, {"ONLY": "1"}])
+        self.assertEqual((facts["executor_model_listed"], problems), (True, []))
+        self.assertEqual(set(facts), {"executor_model_list", "executor_model_listed", "executor_auth_check"})
+
+
 class OldLayout(unittest.TestCase):
     """C9：只拷了旧文件、没有 kit_roles.py 的布局里，没有 v3 键的配置命令与插件写入照常可用（D12）。"""
 

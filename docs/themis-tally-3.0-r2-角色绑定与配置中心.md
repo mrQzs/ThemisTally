@@ -847,6 +847,12 @@ prepare 不运行任何 CLI。
 | `config doctor [--json]` | 读；运行 CLI 的只读命令 | D10 |
 
 - **退出码**：0 成功；1 是校验失败、未就绪、需要确认，或审计记录不全；2 是用法错误。配置锁被占用、等不到时报 ERROR，退出 1。
+- **实现时的写法**（第 4 步，已核对测试 M1–M10）：
+  - 命令的解析顺序只有一处说明（`kit_roles.runtime_command`），与调度器的 `resolve_pi_command` 相同：`PI_DISPATCH_PI_CMD`（只对 pi 适配器）→ 本机文件 → PATH；`runtime list` 把本机文件的问题逐个 runtime 列在下面。
+  - `runtime add --command` 先写配置、再写本机文件，是两个事务：本机文件写不进时，登记已经生效，命令照 PATH 找，退出 1 并说明。`runtime remove` 同样先删登记、再删本机文件里的条目。
+  - 显示取值的命令只对自己显示的键过共用的凭据检查（D9）：profile show、role show、preset show、doctor 查全部五个键；runtime list、probe、models 只查 runtimes；preset list、diff 只查 presets（与 active_preset）。命中时退出 1，只报位置，不运行任何 CLI。
+  - `doctor`：manual、disabled、interactive_host 的角色不跑探测，算就绪（交互宿主的模型不由 Themis 切换）；headless 角色的版本与 `--help` 按 runtime 缓存，模型列表与 auth check 按（runtime, provider, model）缓存，思考级别逐个角色判断；用的是 `pi_model_readiness` 与 `child_env(config)`。
+  - `preset use` 在写入之前打印影响：运行中与已准备的 attempt 不受影响；逐个列出按角色写的合同版本是“沿用版本记录”还是“还没有记录，会用新绑定”。
 - **确认选项**：写入类子命令都接受 `--yes`（D12）。
 - **环境变量**：`CODEKIT_ACTOR`。
 - `config set` / `unset` 照常可以改这五个键，同样经过锁、事务与确认。

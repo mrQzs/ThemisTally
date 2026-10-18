@@ -776,6 +776,13 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
 V3_KEYS: Tuple[str, ...] = pd.V3_CONFIG_KEYS
 
 
+def _roles_command(name: str) -> Callable[[argparse.Namespace], int]:
+    """角色绑定的子命令转交 kit_roles（用到时才导入，D12）：缺 kit_roles.py 时报一行 ERROR、退出 2，不冒堆栈。"""
+    def run(args: argparse.Namespace) -> int:
+        return int(getattr(_kit_roles(), name)(args))
+    return run
+
+
 def _kit_roles() -> Any:
     """惰性导入 scripts/kit_roles.py：只有配置里有 v3 键时才需要它（D12）。"""
     try:
@@ -1417,6 +1424,95 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("what", choices=("off", "shadow", "on", "marker"))
     p.add_argument("state", nargs="?", choices=("on", "off"), help="marker 的开关")
     p.set_defaults(func=cmd_decisions)
+
+    # 3.0 第二轮：角色绑定的配置中心（设计 4.1）。实现在 kit_roles，用到时才导入（D12）
+    yes = {"action": "store_true", "help": "有 attempt 在运行时，确认要改变执行端或合同端的生效绑定"}
+    p = sub.add_parser("runtime", help="已登记的 CLI：list、scan [--add]、add、remove、probe")
+    actions = p.add_subparsers(dest="runtime_action", required=True)
+    q = actions.add_parser("list", help="已登记的 runtime、适配器与命令的来源")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("scan", help="在 PATH 上找 pi、claude、codex、opencode，只运行 --version；--add 登记找到的")
+    q.add_argument("--add", action="store_true")
+    q.add_argument("--json", action="store_true")
+    q.add_argument("--yes", **yes)
+    q = actions.add_parser("add", help="登记 runtime；--command 只写本机文件 .agent/dispatch.local.json")
+    q.add_argument("runtime_id")
+    q.add_argument("--adapter", required=True, help="pi、claude-code、codex 或 opencode")
+    q.add_argument("--command", help='JSON 字符串数组，例如 ["/usr/local/bin/pi"]')
+    q.add_argument("--force", action="store_true", help="改已登记 runtime 的 adapter")
+    q.add_argument("--yes", **yes)
+    q = actions.add_parser("remove", help="删除 runtime（有 profile 引用时拒绝），连同本机文件里的命令")
+    q.add_argument("runtime_id")
+    q.add_argument("--yes", **yes)
+    q = actions.add_parser("probe", help="运行 --version；pi 另加 --help，报缺少的参数")
+    q.add_argument("runtime_id")
+    q.add_argument("--json", action="store_true")
+    p.set_defaults(func=_roles_command("cmd_runtime"))
+
+    p = sub.add_parser("models", help="pi：列出 --list-models 的表格并标出允许列表；其他适配器退出 1")
+    p.add_argument("runtime")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_roles_command("cmd_models"))
+
+    p = sub.add_parser("profile", help="profile：show、add、edit、remove")
+    actions = p.add_subparsers(dest="profile_action", required=True)
+    q = actions.add_parser("show")
+    q.add_argument("profile_id", nargs="?")
+    q.add_argument("--json", action="store_true")
+    for name in ("add", "edit"):
+        q = actions.add_parser(name, help="不运行任何 CLI" if name == "add" else "只改给出的项")
+        q.add_argument("profile_id")
+        q.add_argument("--runtime", required=name == "add")
+        q.add_argument("--model", required=name == "add", help="<provider>/<模型 ID>")
+        q.add_argument("--thinking", help="pi 的思考级别，缺省 high")
+        q.add_argument("--credential-env", action="append", dest="credential_env", metavar="NAME",
+                       help="凭据所在的环境变量名，可重复；只写名字，不写值")
+        q.add_argument("--yes", **yes)
+    q = actions.add_parser("remove", help="有角色或方案引用时拒绝")
+    q.add_argument("profile_id")
+    q.add_argument("--yes", **yes)
+    p.set_defaults(func=_roles_command("cmd_profile"))
+
+    p = sub.add_parser("role", help="角色绑定：show、set")
+    actions = p.add_subparsers(dest="role_action", required=True)
+    q = actions.add_parser("show")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("set", help="<角色> <profile>|manual|disabled|interactive_host；未接通、不在允许列表时打 WARN")
+    q.add_argument("role")
+    q.add_argument("target")
+    q.add_argument("--host", help="interactive_host 的宿主：claude-code 或 codex")
+    q.add_argument("--cadence-seconds", type=int, dest="cadence_seconds", help="scheduler_agent 的 headless 周期（至少 60）")
+    q.add_argument("--yes", **yes)
+    p.set_defaults(func=_roles_command("cmd_role"))
+
+    p = sub.add_parser("preset", help="方案：list、show、save、use、diff、remove")
+    actions = p.add_subparsers(dest="preset_action", required=True)
+    q = actions.add_parser("list")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("show")
+    q.add_argument("name")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("save", help="把当前 roles 里的角色存为方案（缺省全部已写出的角色）")
+    q.add_argument("name")
+    q.add_argument("--description")
+    q.add_argument("--roles", help="逗号分隔的角色")
+    q.add_argument("--force", action="store_true", help="覆盖同名方案")
+    q.add_argument("--yes", **yes)
+    q = actions.add_parser("use", help="只覆盖方案里列出的角色，并记为当前方案")
+    q.add_argument("name")
+    q.add_argument("--yes", **yes)
+    q = actions.add_parser("diff", help="逐个角色比较两个方案")
+    q.add_argument("a")
+    q.add_argument("b")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("remove", help="不能删当前在用的方案")
+    q.add_argument("name")
+    q.add_argument("--yes", **yes)
+    p.set_defaults(func=_roles_command("cmd_preset"))
+
+    p = sub.add_parser("doctor", help="每个角色的就绪总览：命令、版本、模型、登录、思考级别、允许列表、凭据（不调用模型）")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_roles_command("cmd_doctor"))
 
     p = sub.add_parser("secret", help="凭据：set（网页或 --tty）、check、remove；从不打印值")
     p.add_argument("action", choices=("set", "check", "remove"))
