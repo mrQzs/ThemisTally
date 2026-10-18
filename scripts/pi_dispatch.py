@@ -2626,6 +2626,15 @@ def _token_shaped(text: str) -> bool:
     return bool(RELEASE_PATTERNS["api key"].search(text) or _SECRET_TOKEN_RE.search(text))
 
 
+def redact_tokens(text: str) -> str:
+    """只把 _token_shaped 认得的令牌形状换成 <redacted>，其余文字原样：调度器与配置中心打印错误时用（3.0 第二轮 D9）。
+
+    内核在 prepare、run 等处校验配置时，报错会带出手改进配置的取值；redact_secrets 还会按结构重排嵌着的 JSON、
+    遮键值对，不适合用在报错的文字上。
+    """
+    return RELEASE_PATTERNS["api key"].sub("<redacted>", _SECRET_TOKEN_RE.sub("<redacted>", text))
+
+
 #: 配置的某个键之下有疑似凭据时报的那一句（3.0 第二轮 D9）：只列位置，不带取值。
 SECRET_CONFIG_MESSAGE = "%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存"
 
@@ -3236,13 +3245,14 @@ def get_state(run_dir: Path) -> str:
 def attempt_in_flight(run_dir: Path) -> bool:
     """attempt 还在运行：状态为 RUNNING、COLLECTING，或者已领取的 PREPARED。collect --recover 与配置中心的
     运行中切换确认（3.0 第二轮 D8）共用这一个判定；已经结束的 attempt 留着 claim/ 也不算。"""
-    return state_in_flight(get_state(run_dir), run_dir)
+    state = get_state(run_dir)
+    return state_in_flight(state, state == "PREPARED" and (run_dir / "claim").is_dir())
 
 
-def state_in_flight(state: str, run_dir: Path) -> bool:
-    """attempt_in_flight 的判定本身，state 由调用方读出：配置中心要在同一次读取上同时判断读不读得出来
-    （闸二第 2 片第 3 轮 S4），不能读两次。"""
-    return state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and (run_dir / "claim").is_dir())
+def state_in_flight(state: str, claimed: bool) -> bool:
+    """attempt_in_flight 的判定本身；state 与“已领取”由调用方读出。配置中心在同一次读取上判定，看不了的不当作
+    没有（闸二第 2 片第 3 轮 S4），所以不在这里读文件。"""
+    return state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and claimed)
 
 
 def task_attempts(repo: Repo, task_id: str) -> List[Path]:
@@ -3881,6 +3891,9 @@ def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_
     module = _decisions_module()
     if module is None:
         return None
+    secret = secret_config_error(config, "decisions")
+    if secret is not None:  # 取值不进报错，也不拿去调用决策模型（3.0 第二轮 D9）
+        raise DispatchError("dispatch.config.json 的 decisions 无效：%s" % secret, EXIT_USAGE)
     try:
         settings = module.settings_from_config(config, agent_dir, DECISIONS_PLUGIN_DIR)
     except module.DecisionError as exc:
@@ -7282,6 +7295,11 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
         config, agent_dir = repo.config(), repo.agent_dir
     except DispatchError:
         config, agent_dir = {}, None
+    secret = secret_config_error(config, "decisions")
+    if secret is not None:  # 与 decisions_session 相同：有疑似凭据就不解析（3.0 第二轮 D9）
+        facts["decisions"] = {"mode": "off", "reason": "config_invalid"}
+        problems.append("dispatch.config.json 的 decisions 无效：%s" % secret)
+        return
     try:
         settings = module.settings_from_config(config, agent_dir, DECISIONS_PLUGIN_DIR)
     except module.DecisionError as exc:
@@ -7847,7 +7865,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         return int(args.func(args))
     except DispatchError as exc:
-        print("ERROR: %s" % exc, file=sys.stderr)
+        print("ERROR: %s" % redact_tokens(str(exc)), file=sys.stderr)  # 报错里不带令牌形状的取值（D9）
         return exc.code
     except KeyboardInterrupt:
         print("已取消。", file=sys.stderr)

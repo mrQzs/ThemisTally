@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -318,23 +319,33 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
 
 def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
     """正在运行的 attempt（task/attempt-NNN）与扫描中列不出来的位置。判定与 collect --recover 相同
-    （pd.state_in_flight）；不跟随链接。列不出来的不当作“没有在运行”（闸二第 2 片 S4）。"""
+    （pd.state_in_flight）；task 与 attempt 目录不跟随链接。列不出来的不当作“没有在运行”（闸二第 2 片 S4）：
+    每一处都用 _lstat 探测，只有“不存在”才算没有（闸二第 2 片第 3 轮之后）。"""
     found: List[str] = []
     problems: List[str] = []
     runs = repo.runs_dir
     try:
-        tasks = sorted(entry for entry in runs.iterdir() if entry.is_dir() and not pd.is_link_or_junction(entry)
-                       and pd.TASK_ID_RE.match(entry.name)) if runs.is_dir() else []
+        if _lstat(runs) is None:
+            return found, problems
+        tasks = sorted(entry for entry in runs.iterdir() if pd.TASK_ID_RE.match(entry.name))
     except OSError as exc:
-        return found, ["%s（%s）" % (runs, exc.strerror or exc)]
+        return found, [_unreadable(runs, exc)]
     for task in tasks:
         try:
-            attempts = sorted(entry for entry in task.iterdir() if pd.ATTEMPT_DIR_RE.match(entry.name)
-                              and entry.is_dir() and not pd.is_link_or_junction(entry))
+            if not _plain_dir(task):
+                continue
+            attempts = sorted(entry for entry in task.iterdir() if pd.ATTEMPT_DIR_RE.match(entry.name))
         except OSError as exc:
-            problems.append("%s（%s）" % (task, exc.strerror or exc))
+            problems.append(_unreadable(task, exc))
             continue
         for attempt in attempts:
+            try:
+                plain = _plain_dir(attempt)
+            except OSError as exc:
+                problems.append(_unreadable(attempt, exc))
+                continue
+            if not plain:
+                continue
             running, unreadable = _attempt_status(attempt)
             if unreadable is not None:  # 状态读不出来：不能当作“没有在运行”（闸二第 2 片第 2 轮 S4）
                 problems.append(unreadable)
@@ -343,22 +354,50 @@ def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
     return found, problems
 
 
+def _lstat(path: Path) -> Optional[os.stat_result]:
+    """不跟随链接的 stat；不存在（FileNotFoundError、NotADirectoryError）时 None，其余 OSError 原样抛出。
+
+    os.path.lexists 与新版的 Path.is_dir 会把“看不了”（例如拒绝访问）当成“不存在”；运行中切换的扫描要把它们
+    记为列不出来，所以这里自己探测（闸二第 2 片第 3 轮之后）。
+    """
+    try:
+        return os.lstat(str(path))
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def _plain_dir(path: Path) -> bool:
+    """是目录、而且不是链接或 junction；不存在时 False，看不了时抛 OSError。"""
+    status = _lstat(path)
+    return status is not None and stat.S_ISDIR(status.st_mode) and not pd.is_link_or_junction(path)
+
+
+def _unreadable(path: Path, exc: OSError) -> str:
+    return "%s（%s）" % (path, exc.strerror or type(exc).__name__)
+
+
 def _attempt_status(run_dir: Path) -> Tuple[bool, Optional[str]]:
     """（是否在运行, 读不出来的说明）。state.json 只读一次，可读性与是否在运行都按这一次读到的对象判断
-    （闸二第 2 片第 3 轮 S4）；不存在（还没准备完）时不算在运行，存在却读不出或不是对象时给出说明。"""
+    （闸二第 2 片第 3 轮 S4）；不存在（还没准备完）时不算在运行，存在却看不了、读不出或不是对象时给出说明。
+    已领取的 PREPARED 才看 claim/，同样用 _lstat：看不了就判断不了。"""
     path = run_dir / "state.json"
-    if not os.path.lexists(str(path)):
-        return False, None
     try:
+        if _lstat(path) is None:
+            return False, None
         data = json.loads(path.read_bytes().decode("utf-8"))
     except (OSError, ValueError) as exc:
         return False, "%s（%s）" % (path, getattr(exc, "strerror", None) or type(exc).__name__)
     if not isinstance(data, dict):
         return False, "%s（不是对象）" % path
+    state = str(data.get("state", "UNKNOWN"))
+    if state != "PREPARED":
+        return pd.state_in_flight(state, False), None
+    claim = run_dir / "claim"
     try:
-        return pd.state_in_flight(str(data.get("state", "UNKNOWN")), run_dir), None
-    except OSError as exc:  # 已领取的 PREPARED 还要看 claim/：看不了同样不当作“没有在运行”
-        return False, "%s（%s）" % (run_dir / "claim", exc.strerror or type(exc).__name__)
+        status = _lstat(claim)
+    except OSError as exc:
+        return False, _unreadable(claim, exc)
+    return pd.state_in_flight(state, status is not None and stat.S_ISDIR(status.st_mode)), None
 
 
 def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],

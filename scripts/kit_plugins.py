@@ -811,10 +811,10 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     try:
         return int(args.func(args))
     except pd.DispatchError as exc:
-        print("ERROR: %s" % exc, file=sys.stderr)
+        print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)
         return exc.code
     except kit_config.ConfigError as exc:
-        print("ERROR: %s" % exc, file=sys.stderr)
+        print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)
         return exc.code
     except KeyboardInterrupt:
         print("已取消。", file=sys.stderr)

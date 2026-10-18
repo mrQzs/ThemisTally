@@ -1431,7 +1431,7 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     try:
         return int(args.func(args))
     except ConfigError as exc:
-        print("ERROR: %s" % exc, file=sys.stderr)
+        print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)  # 共用检查之外再挡一层（D9）
         return exc.code
     except KeyboardInterrupt:
         print("已取消。", file=sys.stderr)

@@ -240,6 +240,45 @@ class Validation(RolesRepo):
                 self.assertNotIn(sample, pd.redact_secrets("model %s" % sample))
                 self.assertNotIn(sample, json.dumps(pd.redact_obj({"model": sample})))
 
+    # 闸二第 2 片第 3 轮之后：内核读 decisions 也先过共用检查；三个命令入口打印的错误都遮令牌形状
+    def test_g2s2r3_kernel_decisions_and_error_output_never_show_secret_values(self):
+        for section in ({"model": "sk-abcdefghijklmnop"}, {"sk-abcdefghijklmnop": 1}):
+            with self.subTest(section=section):
+                with self.assertRaises(pd.DispatchError) as caught:
+                    pd.decisions_session({"decisions": section}, None, None)
+                self.assertIn("疑似凭据", str(caught.exception))
+                self.assertNotIn("abcdefghijklmnop", str(caught.exception))
+                facts, problems = {}, []
+                self.write({"decisions": section})
+                pd._doctor_decisions(mock.Mock(repo=str(self.repo), probe_decisions=False), facts, problems, [])
+                self.assertEqual(facts["decisions"]["reason"], "config_invalid")
+                self.assertNotIn("abcdefghijklmnop", json.dumps([facts, problems], ensure_ascii=False))
+        self.assertEqual(pd.redact_tokens("见 AKIA%s 与 sk-%s；task-sk 不动" % ("Q" * 16, "w" * 12)),
+                         "见 <redacted> 与 <redacted>；task-sk 不动")
+        token = "Bearer zyxwvutsrqponmlk"
+
+        def boom(_args):
+            raise pd.DispatchError("替身：%s" % token)
+
+        def boom_config(_args):
+            raise kit_config.ConfigError("替身：%s" % token)
+
+        import kit_plugins  # noqa: PLC0415
+        for module, name, argv, runner in ((pd, "cmd_status", ["status"], None),
+                                           (kit_config, "cmd_validate", ["validate"], run_config),
+                                           (kit_plugins, "cmd_list", ["list"], run_plugins)):
+            with self.subTest(module=module.__name__):
+                with mock.patch.object(module, name, boom if module is not kit_config else boom_config):
+                    if runner is None:
+                        err = io.StringIO()
+                        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                            pd.main(["--repo", str(self.repo)] + argv)
+                        err = err.getvalue()
+                    else:
+                        err = runner(argv, self.repo)[2]
+                self.assertIn("替身：<redacted>", err)
+                self.assertNotIn("zyxwvutsrqponmlk", err)
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())
@@ -546,20 +585,28 @@ class SwitchConfirmation(RolesRepo):
         self.assertEqual(self.switch("--yes")[0], 0)
         self.assertEqual(self.last_confirmation(), "flag")
 
-    def test_g2s2r3_s4_an_unreadable_claim_is_not_idle(self):
+    def test_g2s2r3_s4_entries_that_cannot_be_examined_are_not_idle(self):
+        """拒绝访问时 os.path.lexists 返回 False、新版 Path.is_dir 也可能返回 False：扫描在 stat 这一层探测，
+        只有“不存在”才算没有。替身让 os.lstat 与 os.stat 对一个位置都报拒绝访问（闸二第 2 片第 3 轮之后）。"""
         run_dir = self.attempt("PREPARED", claimed=True)
-        real = Path.is_dir
+        for target in (run_dir / "claim", run_dir / "state.json", run_dir, run_dir.parent):
+            with self.subTest(target=target.name):
+                blocked = os.path.normcase(str(target))
+                real_lstat, real_stat = os.lstat, os.stat
 
-        def is_dir(path, *args, **kwargs):  # 旧版 Python 的 Path.is_dir 会把拒绝访问抛出来
-            if path == run_dir / "claim":
-                raise PermissionError(13, "拒绝访问（替身）", str(path))
-            return real(path, *args, **kwargs)
+                def guard(real):
+                    def call(path, *args, **kwargs):
+                        if os.path.normcase(os.fspath(path)) == blocked:
+                            raise PermissionError(13, "拒绝访问（替身）", os.fspath(path))
+                        return real(path, *args, **kwargs)
+                    return call
 
-        with mock.patch.object(Path, "is_dir", is_dir):
-            code, _, err = self.switch()
-        self.assertEqual(code, 1, err)
-        self.assertIn("无法确认有没有在运行的 attempt", err)
-        self.assertIn("claim", err)
+                with mock.patch.object(os, "lstat", guard(real_lstat)), mock.patch.object(os, "stat", guard(real_stat)):
+                    code, _, err = self.switch()
+                self.assertEqual(code, 1, err)
+                self.assertIn("无法确认有没有在运行的 attempt", err)
+                self.assertIn(target.name, err)
+        self.assertEqual(run_config(["validate"], self.repo)[0], 0)  # 都没写进去
 
     def test_rollback_to_a_config_without_bindings(self):
         self.config_file.unlink()
