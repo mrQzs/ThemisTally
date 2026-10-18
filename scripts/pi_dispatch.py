@@ -2537,7 +2537,13 @@ def parse_help(help_text: str) -> Dict[str, Any]:
 def list_models_rows(output: str) -> List[Tuple[str, str]]:
     """`pi --list-models` 表格中的 (provider, model)。只解析表头之后的行：没有可用或匹配的模型时，
     Pi 输出的是一句说明（No models available. …、No models matching "…"），不是表格。"""
-    rows: List[Tuple[str, str]] = []
+    return [(provider, model) for provider, model, _secret in list_models_lines(output)]
+
+
+def list_models_lines(output: str) -> List[Tuple[str, str, bool]]:
+    """与 list_models_rows 相同的解析，多一项：这一整行按 redact_secrets 有没有疑似凭据。整行判断，跨列的写法
+    （例如 `Bearer xxxx` 被拆成两列）也算；显示的一方据此遮掉整行，比较仍用原值（3.0 第二轮，闸二第 4 片第 2 轮 B2）。"""
+    rows: List[Tuple[str, str, bool]] = []
     in_table = False
     for line in strip_ansi(output).splitlines():
         parts = line.split()
@@ -2545,7 +2551,7 @@ def list_models_rows(output: str) -> List[Tuple[str, str]]:
             in_table = parts[:2] == ["provider", "model"]
             continue
         if len(parts) >= 2:
-            rows.append((parts[0], parts[1]))
+            rows.append((parts[0], parts[1], redact_secrets(line) != line))
     return rows
 
 

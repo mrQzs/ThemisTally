@@ -813,9 +813,10 @@ def _models(args: Any) -> int:
         raise _error("%s --list-models 退出码 %s：%s" % (args.runtime, code, pd.redact_secrets((err or out).strip())[:200]))
     allowed = [entry for entry in config.get("allowed_executors") or [] if isinstance(entry, dict)] \
         if isinstance(config.get("allowed_executors"), list) else []
-    rows = [{"provider": pd.redact_secrets(provider), "model": pd.redact_secrets(model),  # CLI 的输出（闸二第 4 片 B2）
+    # CLI 的输出按整行判断疑似凭据，跨列的写法也算：有就整行遮掉；允许列表仍按原值比较（闸二第 4 片 B2）
+    rows = [{"provider": "<redacted>" if secret else provider, "model": "<redacted>" if secret else model,
              "allowed": any(entry.get("provider") == provider and entry.get("model") == model for entry in allowed)
-             if allowed else None} for provider, model in pd.list_models_rows(out)]
+             if allowed else None} for provider, model, secret in pd.list_models_lines(out)]
     if args.json:
         _print_json({"runtime": args.runtime, "models": rows, "allowed_executors_set": bool(allowed)})
         return EXIT_OK

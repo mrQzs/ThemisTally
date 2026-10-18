@@ -899,15 +899,16 @@ class ConfigCenter(RolesRepo):
     # 闸二第 4 片 B2：外部 CLI 的输出照 doctor 脱敏（键名、结构与令牌形状都算）
     def test_cli_output_is_redacted(self):
         self.write(self.base(roles={"execution": {"mode": "headless", "profile": "oc-x"}}))
-        with mock.patch.dict(os.environ, {"CLI_STUB_VERSION": '{"api_key": "ordinary-value"}',
-                                          "STUB_MODELS": "bb sk-" + "m" * 24 + ";bb step-5-preview"}):
+        models = ";".join(("bb sk-" + "m" * 24, "Bearer " + "n" * 16, "bb api_key:" + "o" * 16, "bb step-5-preview"))
+        with mock.patch.dict(os.environ, {"CLI_STUB_VERSION": '{"api_key": "ordinary-value"}', "STUB_MODELS": models}):
             for argv in (["runtime", "scan"], ["runtime", "scan", "--json"], ["runtime", "probe", "oc"],
                          ["runtime", "probe", "oc", "--json"], ["doctor"], ["doctor", "--json"],
                          ["models", "pi"], ["models", "pi", "--json"]):
                 with self.subTest(argv=argv):
                     code, out, err = run_config(argv, self.repo)
                     self.assertNotIn("ordinary-value", out + err)
-                    self.assertNotIn("m" * 24, out + err)
+                    for fragment in ("m" * 24, "n" * 16, "o" * 16):  # 跨列的写法也算（闸二第 4 片第 2 轮 B2）
+                        self.assertNotIn(fragment, out + err)
             self.assertIn("step-5-preview", run_config(["models", "pi"], self.repo)[1])
 
     # 闸二第 4 片 S1：runtime remove 的两步（配置、本机文件）在同一把配置锁里，别的写入插不进中间
