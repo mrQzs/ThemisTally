@@ -61,8 +61,8 @@ Themis Tally 把 AI 编码拆成三方分工，并且只凭证据验收：
 - **验证后落地**：`integrate` 在当前分支末端加候选的干净副本上跑合同检查，通过才快进。
 - **双规划端**：Claude Code 与 Codex 共用同一份 `AGENTS.md` 和同一套技能。
 - **配置与决策插件**：`config` 子命令管理配置与凭据；决策插件（Jev）可按 `off` / `shadow` / `on` 接管“便宜但要判断”的问题。
-- **角色绑定与配置中心**（3.0 第二轮，`themis-3.0` 分支）：合同可以按角色写执行模型（`role:execution`），由配置中心的绑定决定、按合同版本记录；`config runtime` / `models` / `profile` / `role` / `preset` / `doctor` 管理 CLI、模型档案、角色与方案，写入经配置锁、整份校验、历史与审计（`config history` / `rollback`）。
-- **日志与插件管理**（3.0，`themis-3.0` 分支）：`logs` 只读地列出 attempt、查看摘要、搜索证据、统计执行端与规划端的 token 用量；`plugins` 列出、核对、启用与停用插件。
+- **角色绑定与配置中心**（3.0 第二轮）：合同可以按角色写执行模型（`role:execution`），由配置中心的绑定决定、按合同版本记录；`config runtime` / `models` / `profile` / `role` / `preset` / `doctor` 管理 CLI、模型档案、角色与方案，写入经配置锁、整份校验、历史与审计（`config history` / `rollback`）。
+- **日志与插件管理**（3.0 第一轮）：`logs` 只读地列出 attempt、查看摘要、搜索证据、统计执行端与规划端的 token 用量；`plugins` 列出、核对、启用与停用插件。
 - **推送前自查**：`release-check` 扫描已跟踪文件中的凭据形状、家目录路径与内网地址。
 - **跨平台**：调度器主体只依赖 Python 标准库，可在 Windows、macOS 与 Linux 上运行。
 
@@ -95,7 +95,7 @@ flowchart LR
 | Git | 支持 `git worktree` |
 | Python | 3.10 及以上（调度器主体兼容 3.8；`config` 子命令和决策插件重写锁文件需要 3.10） |
 | Bash | 可选。Windows 上可用 Git Bash；没有 `bash` 时用 `python scripts/pi_dispatch.py <子命令>`，与 `bash scripts/dispatch-pi.sh <子命令>` 等价 |
-| Pi 执行器 | `@earendil-works/pi-coding-agent`（需要 Node.js）；也可以用环境变量 `PI_DISPATCH_PI_CMD` 指定调用方式 |
+| Pi 执行器 | `@earendil-works/pi-coding-agent`（需要 Node.js）；也可以用环境变量 `PI_DISPATCH_PI_CMD` 指定调用方式，按角色写的合同还可以用本机文件 `.agent/dispatch.local.json` 给出命令（见[配置](#配置)） |
 | 规划端 | Claude Code（2.1.277 起原生读取 `AGENTS.md`）或 Codex CLI |
 
 ## 快速开始
@@ -119,7 +119,7 @@ cd <目标仓库>
 python <ThemisTally>/scripts/pi_dispatch.py doctor
 ```
 
-目标仓库只需要 `.agent/` 目录，并把 `.agent/runs/` 加进 `.gitignore`。目标仓库里没有 `scripts/`，所以下文的 `bash scripts/dispatch-pi.sh <子命令>` 都要换成 `python <ThemisTally>/scripts/pi_dispatch.py <子命令>`。
+目标仓库只需要 `.agent/` 目录，并把 `gitignore.append.txt` 里的规则加进 `.gitignore`：`.agent/runs/`，以及配置中心的本机状态（`dispatch.local.json`、`config-history/`、`audit/`、`.config.lock/`）。目标仓库里没有 `scripts/`，所以下文的 `bash scripts/dispatch-pi.sh <子命令>` 都要换成 `python <ThemisTally>/scripts/pi_dispatch.py <子命令>`。
 
 **方式二：装进目标仓库**，之后技能里的 `bash scripts/dispatch-pi.sh …` 直接可用：
 
@@ -138,8 +138,9 @@ python <ThemisTally>/scripts/kit_install.py update  <目标仓库>   # 按安装
 ### 3. 核验环境
 
 ```bash
-bash scripts/dispatch-pi.sh doctor   # 环境核验，不调用模型
-bash scripts/dispatch-pi.sh smoke    # 最小连通性试跑，会调用模型并产生少量费用
+bash scripts/dispatch-pi.sh doctor          # 环境核验，不调用模型
+bash scripts/dispatch-pi.sh config doctor   # 配置了角色绑定时：每个角色的就绪总览，不调用模型
+bash scripts/dispatch-pi.sh smoke           # 最小连通性试跑，会调用模型并产生少量费用
 ```
 
 然后在规划端运行 `check-pi-env` 技能，生成 `.agent/environment.md`。
@@ -195,7 +196,7 @@ bash scripts/dispatch-pi.sh integrate <run-dir>       # 验证后落地
 
 ## 配置
 
-调度配置在 `.agent/dispatch.config.json`，包括执行模型允许列表、worktree 位置、环境变量过滤等，参考 `.agent/dispatch.config.example.json`。修改前应征得用户同意。
+调度配置在 `.agent/dispatch.config.json`，包括执行模型允许列表、角色绑定（`runtimes`、`profiles`、`roles`、`presets`、`active_preset`）、worktree 位置、环境变量过滤等，参考 `.agent/dispatch.config.example.json`。修改前应征得用户同意。
 
 用配置管理器查看和修改：
 
@@ -211,6 +212,7 @@ bash scripts/dispatch-pi.sh config secret set <环境变量名> # 把凭据直�
 
 - 写回是原子的：持配置锁，整份校验，写临时文件替换，并记快照与审计（`config history`、`config history show <编号>`、`config rollback <编号>`）。有 attempt 在运行、写入又会改变 execution 或 contract 的生效绑定时，要加 `--yes`。
 - 配置管理器不打印、不记录任何凭据的值；`secret check <环境变量名>` 只报告在哪一层找到。
+- 配置与本机文件里只写环境变量名，凭据的值用 `config secret set` 存。配置里有疑似凭据（键名或取值像凭据、令牌）时，调度器整份不读这份配置，改掉之前 `prepare`、`run`、`metrics` 等命令都会拒绝；`config show` 与 `config validate` 只列出位置，不显示取值。
 - 存在 `.agent/DECISIONS_OFF` 文件时，决策插件一票否决，相当于关闭。
 - 插件的启用与权限在配置的 `plugins` 段（`enabled`、`allowed_permissions`，缺省为不限制），用 `plugins enable|disable` 修改。从 kit 目录运行时有全部内置插件；`kit_install` 装进目标仓库时只发放决策插件（`plugins/decisions/**`），`plugins list` 在目标里只列出它，配置里列了别的插件时由 `plugins verify` 报告“列入但未安装”。
 
@@ -229,6 +231,7 @@ bash scripts/dispatch-pi.sh config preset save default             # 方案：sa
 
 - 合同的 executor 写 `role:execution`（JSON 写 `{"role": "execution", …}`）时，执行模型来自绑定；第一次 prepare 记进 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后沿用。写死模型的合同照旧以合同为准。
 - 本机 CLI 的路径只写进不提交的 `.agent/dispatch.local.json`（`config runtime add <id> --adapter pi --command '["<程序>"]'`，路径写绝对路径）；提交的配置里只有适配器名。
+- 改绑定（`role set`、`preset use`、`profile edit`）等于更换执行模型，要征得用户同意。已有版本记录的合同不受影响，出新版本才会用新绑定。
 
 ## 规划端适配
 
@@ -236,7 +239,7 @@ bash scripts/dispatch-pi.sh config preset save default             # 方案：sa
 
 - **规则文件**：仓库没有 `CLAUDE.md` 时，Claude Code（2.1.277 起）直接读取 `AGENTS.md`；仓库另有 `CLAUDE.md` 时，在其中加一行 `@AGENTS.md`。
 - **技能**：`.agents/skills/` 是唯一来源，`.claude/skills/` 是给 Claude Code 生成的副本。改源文件后运行 `sync-adapters`，不要直接改副本；`sync-adapters --check` 只比较，不一致时退出 1。
-- **权限示例**：把 `.claude/settings.example.json` 复制为 `.claude/settings.json`。示例允许只读的调度命令，禁止编辑 `.agent/runs/`。
+- **权限示例**：把 `.claude/settings.example.json` 复制为 `.claude/settings.json`。示例放行只读的调度命令与配置中心的只读子命令；会调用模型或写文件的选项（`--probe-decisions`、`--assess`、`--out`）每次询问；禁止编辑 `.agent/runs/`。
 - **独立复审**：交给 `.claude/agents/pi-reviewer.md` 子代理。
 - **长时间运行**：`run` 可能持续半小时以上，用 Bash 工具的 `run_in_background` 运行，结束时会收到通知。
 
@@ -246,6 +249,7 @@ bash scripts/dispatch-pi.sh config preset save default             # 方案：sa
 - **沙箱**：`workspace-write` 沙箱中 `.git` 是只读的。
   - `prepare`、`run`、`check`、`baseline`、`mutate`、`verdict`、`branch`、`cleanup`、`collect` 会写 Git 元数据或仓库之外的 worktree，`smoke` 与 `run` 还要联网，这些命令要按提示批准在沙箱外运行。
   - `validate`、`derive-json`、`status`、`metrics`、`wait`、`doctor`、`sync-adapters`、`mark` 只读或只写工作区，可以在沙箱内运行。
+  - `logs`、`plugins list|show|verify` 与 `config` 的只读子命令只读；`config runtime scan|probe`、`config models`、`config doctor` 只运行本机 CLI 的只读探测，不调用模型；`plugins enable|disable` 与 `config` 的写入子命令只写 `.agent/` 下的文件。这些都可以在沙箱内运行；沙箱内列不出执行模型时，改在沙箱外运行 doctor 再判断。
 - **等待结果**：Codex 没有后台完成通知，用 `wait <run-dir>` 等待。每次最多等 9 分钟，退出码 3 表示仍在运行，可以重复调用。在 PowerShell 中写成 `bash scripts/dispatch-pi.sh wait <run-dir>; exit $LASTEXITCODE`。
 - **独立复审**：用 `codex exec --sandbox read-only` 另开会话。
 
@@ -273,11 +277,12 @@ ThemisTally/
 │   ├── kit_config.py          # 配置管理器
 │   ├── kit_logs.py            # 日志管理（logs，只读）
 │   ├── kit_plugins.py         # 插件管理（plugins）
+│   ├── kit_roles.py           # 角色绑定与配置中心（config runtime / models / profile / role / preset / doctor）
 │   └── codekit/               # 调度器加载的模块
 ├── .agents/skills/            # 四个技能的唯一来源
 ├── .claude/                   # Claude Code 适配：技能副本、pi-reviewer 子代理、权限示例
 ├── .codex/                    # Codex 配置示例
-├── .agent/                    # 合同、复审、环境记录与调度配置（runs/ 不提交）
+├── .agent/                    # 合同、复审、环境记录与调度配置（runs/ 与配置中心的本机状态不提交）
 ├── plugins/                   # 内置插件与决策插件
 ├── workflows/                 # 内置配方：repair、docs、regression
 ├── schemas/                   # 记录与协议的 JSON Schema
@@ -307,7 +312,8 @@ mkdir -p .agent/runs/_tmp
 python -m pytest tests --basetemp=.agent/runs/_tmp/pytest
 ```
 
-- 全量测试约需 9 分钟。
+- 全量测试约需 10 分钟；内存紧张时可以逐个文件运行。
+- `tests/test_dispatch.py` 也能以脚本方式运行（`python tests/test_dispatch.py`，约 4 分钟）：逐个打印场景，最后一行是检查数与失败数。
 - 临时目录放在 `.agent/runs/` 下：它被 Git 忽略，不会改变主工作区的指纹。pytest 每次运行前会清空 basetemp，所以只能指向专门的目录。
 - 本机设置了 `TYPESAFE_API_KEY` 时，个别决策插件测试会读到它而失败，运行前先清除这个环境变量。
 - Python 环境里如果装了名为 `tests` 的第三方包，会遮住仓库自己的 `tests/`，请换一个干净的环境。
