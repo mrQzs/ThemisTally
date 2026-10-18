@@ -33,6 +33,7 @@ argument-hint: "<task-id>.vN"
    - `.agent/environment.md` 存在，且记录的 pi 版本和执行模型与现在一致。否则先运行 check-pi-env。
    - `.agent/runs/` 已被 .gitignore 忽略。
 3. **准备**：`bash scripts/dispatch-pi.sh prepare <plan-key>`。输出中有 attempt 目录（下称 `<run-dir>`）与 worktree 路径。
+   - 按角色写的合同（`role:execution`，3.0 第二轮）：第一次 prepare 把当前绑定记进 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后的 attempt 沿用；绑定改了时 prepare 打 NOTE 说明沿用的是记录。没有绑定或绑定无效退出 2，绑定到本轮未接通的适配器退出 3，记录损坏、经过链接或合同在首次派遣之后被改过退出 4（见 [troubleshooting.md](troubleshooting.md)）。
    - 合同有 `setup` 时，依赖在这一步准备。
    - 合同没有 `setup`、但测试需要依赖时，出新版本合同补上 `setup`。不要在 worktree 里手工改源码。
    - `PREPARE_FAILED`：读 `<run-dir>/setup/*.log` 修正原因，再重新 prepare。失败的 attempt 不计入次数。

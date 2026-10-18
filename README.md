@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>v2.11.0</code> · Python 3.10+ · Windows / macOS / Linux · Claude Code / Codex × Pi
+  <code>v2.12.0</code> · Python 3.10+ · Windows / macOS / Linux · Claude Code / Codex × Pi
 </p>
 
 ---
@@ -61,6 +61,7 @@ Themis Tally 把 AI 编码拆成三方分工，并且只凭证据验收：
 - **验证后落地**：`integrate` 在当前分支末端加候选的干净副本上跑合同检查，通过才快进。
 - **双规划端**：Claude Code 与 Codex 共用同一份 `AGENTS.md` 和同一套技能。
 - **配置与决策插件**：`config` 子命令管理配置与凭据；决策插件（Jev）可按 `off` / `shadow` / `on` 接管“便宜但要判断”的问题。
+- **角色绑定与配置中心**（3.0 第二轮，`themis-3.0` 分支）：合同可以按角色写执行模型（`role:execution`），由配置中心的绑定决定、按合同版本记录；`config runtime` / `models` / `profile` / `role` / `preset` / `doctor` 管理 CLI、模型档案、角色与方案，写入经配置锁、整份校验、历史与审计（`config history` / `rollback`）。
 - **日志与插件管理**（3.0，`themis-3.0` 分支）：`logs` 只读地列出 attempt、查看摘要、搜索证据、统计执行端与规划端的 token 用量；`plugins` 列出、核对、启用与停用插件。
 - **推送前自查**：`release-check` 扫描已跟踪文件中的凭据形状、家目录路径与内网地址。
 - **跨平台**：调度器主体只依赖 Python 标准库，可在 Windows、macOS 与 Linux 上运行。
@@ -185,7 +186,7 @@ bash scripts/dispatch-pi.sh integrate <run-dir>       # 验证后落地
 | | `branch` | 为候选创建本地分支（不推送） |
 | | `mark` | 标记 INTEGRATED / ABANDONED / SUPERSEDED |
 | | `cleanup` | 移除 attempt 的 worktree，保留证据 |
-| 维护 | `config` | 配置管理器 |
+| 维护 | `config` | 配置中心：键的查看与修改、历史与回滚、凭据；角色绑定的 `runtime` / `models` / `profile` / `role` / `preset` / `doctor` |
 | | `logs` | 只读的日志管理：`list` / `show` / `search` / `usage`（attempt 证据与 token 用量） |
 | | `plugins` | 插件管理：`list` / `show` / `verify` / `enable` / `disable`；改的是配置里的 `plugins` 段 |
 | | `release-check` | 推送前扫描凭据形状、家目录路径、内网地址与仓库外的拒绝清单 |
@@ -208,12 +209,25 @@ bash scripts/dispatch-pi.sh config decisions off|shadow|on # 决策模式
 bash scripts/dispatch-pi.sh config secret set <环境变量名> # 把凭据直接存进凭据库
 ```
 
-- 写回是原子的：先整份校验，再写临时文件替换。
+- 写回是原子的：持配置锁，整份校验，写临时文件替换，并记快照与审计（`config history`、`config history show <编号>`、`config rollback <编号>`）。有 attempt 在运行、写入又会改变 execution 或 contract 的生效绑定时，要加 `--yes`。
 - 配置管理器不打印、不记录任何凭据的值；`secret check <环境变量名>` 只报告在哪一层找到。
 - 存在 `.agent/DECISIONS_OFF` 文件时，决策插件一票否决，相当于关闭。
 - 插件的启用与权限在配置的 `plugins` 段（`enabled`、`allowed_permissions`，缺省为不限制），用 `plugins enable|disable` 修改。从 kit 目录运行时有全部内置插件；`kit_install` 装进目标仓库时只发放决策插件（`plugins/decisions/**`），`plugins list` 在目标里只列出它，配置里列了别的插件时由 `plugins verify` 报告“列入但未安装”。
 
 执行模型默认用 Step 系列，思考级别 `high`。provider 与 model 必须与 `.agent/environment.md` 和 `pi --list-models` 中的精确 ID 一致。
+
+角色绑定（3.0 第二轮）：
+
+```bash
+bash scripts/dispatch-pi.sh config runtime scan --add              # 在 PATH 上找 pi、claude、codex、opencode 并登记
+bash scripts/dispatch-pi.sh config profile add step --runtime pi --model step/step-5-preview --thinking high
+bash scripts/dispatch-pi.sh config role set execution step         # 按角色写的合同（role:execution）用它
+bash scripts/dispatch-pi.sh config doctor                          # 每个角色的就绪总览，不调用模型
+bash scripts/dispatch-pi.sh config preset save default             # 方案：save / use / diff / list / show / remove
+```
+
+- 合同的 executor 写 `role:execution`（JSON 写 `{"role": "execution", …}`）时，执行模型来自绑定；第一次 prepare 记进 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后沿用。写死模型的合同照旧以合同为准。
+- 本机 CLI 的路径只写进不提交的 `.agent/dispatch.local.json`（`config runtime add <id> --adapter pi --command '["<程序>"]'`）；提交的配置里只有适配器名。
 
 ## 规划端适配
 
@@ -299,10 +313,11 @@ python -m pytest tests --basetemp=.agent/runs/_tmp/pytest
 
 ## 文档与版本
 
-当前版本 **2.11.0**，完整变更见 [CHANGELOG.md](CHANGELOG.md)。各版本的设计说明：
+当前版本 **2.12.0**，完整变更见 [CHANGELOG.md](CHANGELOG.md)。各版本的设计说明：
 
 | 版本 | 主题 | 要点 |
 |---|---|---|
+| 2.12.0 | [3.0 第二轮：角色绑定与配置中心](docs/themis-tally-3.0-r2-角色绑定与配置中心.md) | 按角色写的合同与按版本的执行模型记录；配置锁、写入事务、历史与审计；`config runtime` / `models` / `profile` / `role` / `preset` / `doctor`；本机命令文件 |
 | 2.11.0 | [3.0 第一轮：日志与插件管理](docs/themis-tally-3.0-r1-日志与插件管理.md) | `logs`（`list` / `show` / `search` / `usage`，只读；把规划端会话记录与执行端证据的用量按 token 汇总）与 `plugins`（`list` / `show` / `verify` / `enable` / `disable`，读之前逐级查链接）；3.0 的总体设计见 [四端分层解耦架构](docs/themis-tally-3.0-四端分层解耦架构.md) |
 | 2.10.0 | [集成沿用与执行器纪律](docs/themis-tally-2.10-集成沿用与执行器纪律.md) | 当前末端相对候选只多了规划文件时，`integrate` 沿用最近一次干净的 `check --fresh`（`--recheck` 强制重跑）；执行说明给出保留退出码的“自检照抄”写法；执行报告新增 `interpretations` 列表，`review-draft` 把它与事件流中的解读线索并排列出 |
 | 2.9.0 | [安装与更新](docs/themis-tally-2.9-安装与更新.md) | `kit_install.py` 的 `check` / `install` / `update`，安装记录与本地改动的分辨 |

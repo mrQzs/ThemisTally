@@ -148,6 +148,7 @@ argument-hint: "[目标描述，或 返工：<task-id> 与验收差异]"
   - Bash heredoc 里写含 `\\` 或 `\"` 的 Python 补丁脚本会被折叠（`\n` 变成真换行、`\"` 锚点对不上）：补丁脚本与 oracle 用 Write 工具写，或用 `chr(92)` 拼接，不要在 heredoc 里写反斜杠（KitExperiment review-verdict 两次改坏补丁脚本）。
 - 字段含义、授权词表、检查与 DoD 的写法见 [contract-guide.md](contract-guide.md)。
 - 执行模型默认用 Step 系列，`thinking: high`。provider 与 model 必须是本机 `pi --list-models step` 列出的精确 ID，并与 `.agent/environment.md` 一致。
+  - 配置了 execution 角色绑定（`bash scripts/dispatch-pi.sh config role show`）时，可以按角色写：Markdown `- executor: role:execution`，JSON `"executor": {"role": "execution", "tools": [...], "context_files": "project"}`，不写 provider、model、thinking。写法与取舍见 [contract-guide.md](contract-guide.md) 第四节。
 - 参考示例：
   - 低风险：[examples/normalize-query.v1.md](examples/normalize-query.v1.md) 及其 `.json`
   - 高风险语义：[examples/auth-refresh-401.v1.md](examples/auth-refresh-401.v1.md) 及其 `.json`

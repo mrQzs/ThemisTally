@@ -17,6 +17,8 @@ argument-hint: "[provider/model] [--smoke]"
 
 ## 步骤
 
+（配置里有角色绑定时，第 2 步之后另跑 `bash scripts/dispatch-pi.sh config doctor`：每个角色一行，列出命令及来源、版本、模型是否在列表、登录、思考级别、允许列表与凭据可用性，不调用模型；`config role show` 看当前绑定与方案。把结果写进 environment.md 的“角色绑定”一节。）
+
 1. **确定执行模型**。按以下顺序选取：
    1. 参数中的 `provider/model`（第一个 `/` 之前是 provider）；
    2. `.agent/dispatch.config.json` 的 `allowed_executors`；

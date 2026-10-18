@@ -27,6 +27,7 @@ argument-hint: "<run-dir | task-id | task-id.vN>"
 2. **G0 / G1 执行完整性**：看 summary 的“执行完整性问题”。
    - 需要确认：事件流是否完整，最终 stopReason，实际模型，stderr 标记。
    - 思考级别：本机 Step 配置不会回报 providerThinkingLevel，只能确认请求的是 high（Pi 会把它映射为 thinking 预算）；提供商回报了其他级别时，按问题处理。
+   - 执行模型来源（3.0 第二轮）：summary 的“执行模型来源”一行写明是合同写死、按角色绑定（profile、runtime、方案、配置哈希与版本记录的路径），还是由 `PI_EXEC_*` 补上。按角色写的合同，G0 核对 `.agent/runs/<task>/binding-v<N>.json` 与 meta 里的副本逐项相同、合同哈希一致；写死的合同与绑定不同时，prepare 打过 NOTE，meta 记 `executor_binding_note`，模型仍以合同为准。
    - TIMEOUT / CANCELLED / INFRA_FAILURE 不能 PASS。
    - 看 `events-summary.json` 的 `shell_commands`：执行器自检时把检查命令接上 `| tail`、`| head` 这类管道（合同明文不允许用管道的退出码作证据）是过程偏差，记入复审；验收证据仍是调度器在固定候选上的 `check`。KitExperiment ledger-reference a001 是独立复审读事件摘要才发现的。2.10.0 起执行说明在每条检查下面给了“自检照抄”写法（`set -o pipefail;` 开头），照抄的不算掩盖；仍然掩盖的，复审记录写明条数。
    - summary 的“决策”节（调度工具 2.6.0，`decisions.mode` 为 shadow / on 时才有）：决策模型对执行报告的五个判断（自述完成而无证据、自行解读合同、超出范围、弱化测试、误导程度）与置信度。它是提示，不是证据，门禁也不读它：p 高的按证据核实（读报告、补丁与事件流），p 低的不等于没问题。`on` 模式下 p ≥ 0.70 的会进“复审需要关注”，每行标着“决策模型提示”。中文报告上的准确率未经测量之前，只把它当作读报告的顺序提示。

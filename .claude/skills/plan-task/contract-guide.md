@@ -83,6 +83,16 @@
   - 提供商回报了级别时，调度器会记录并与合同比较，不一致即判为执行问题；没有回报时注明“只能确认请求的级别”。
   - `high` 会增加输出 token 和耗时，设置 budget 时要预留余量。
 - **不要**在合同外用环境变量改模型：`PI_EXEC_*` 与合同冲突时，调度器会拒绝运行。
+- **按角色写**（3.0 第二轮）：
+
+```json
+"executor": {"role": "execution", "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "context_files": "project"}
+```
+
+  - Markdown 的 Identity 写 `- executor: role:execution`，两边都要写、角色相同；`provider`、`model`、`thinking` 三个键一个都不写（写了值为 null 也算混用，validate 报错）。
+  - 模型来自 `config role` 的 execution 绑定（`config role show` 看当前绑定，`config doctor` 核对命令、模型列表、登录、思考级别与允许列表）。第一次 prepare 时把绑定记进 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后的 attempt 沿用它；改了绑定要用新绑定，就出新版本合同。
+  - 没有绑定、绑定不是 headless，或绑定到本轮没有接通执行的适配器时，prepare 拒绝（退出 2 或 3）；validate 先给 WARN。
+  - 选哪种：要把某个模型钉死在这一版合同上（例如复现、对比）就写死；只想“用当前选定的执行模型”就按角色写。planner-v2 合同不支持按角色写。
 - **工具组合**：
 
 | 组合 | tools | 谁运行检查 | 适用 |
@@ -189,7 +199,7 @@ Pi 读 Markdown，调度器执行 JSON，所以与执行相关的内容都要比
   - `plan_version`、`base_sha`、`risk_level` 与 JSON 相同；
   - `authorized_actions` 与 `authorization.executor` 的集合相同；
   - `integration_actions` 与 `authorization.integration` 的集合相同（没有时写 `none`）；
-  - `executor` 一行写明 `provider/model` 与 `thinking <级别>`。
+  - `executor` 一行写明 `provider/model` 与 `thinking <级别>`；按角色写时写 `role:execution`，与 JSON 的 `executor.role` 相同。
 - Scope：
   - JSON 中的每个允许路径与禁止路径都在 Markdown 中出现；
   - `dependency_changes` 的取值相同。

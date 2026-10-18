@@ -194,6 +194,35 @@ class InstalledLayout(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("Traceback", err)
 
+    def test_installed_config_center_runs_in_the_target(self):
+        """W1（3.0 第二轮）：kit_roles.py 随 kit 发放、受保护；装进目标仓库后，config role show 与 config doctor 可用。"""
+        protected = pd.compile_patterns(list(pd.PROTECTED_PATTERNS), ignore_case=True)
+        self.assertIn("scripts/kit_roles.py", pd.KIT_LOADED_FILES)
+        self.assertTrue(pd.matches(protected, "scripts/kit_roles.py"))
+        tmp = Path(tempfile.mkdtemp(prefix="kit-v300-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        target = tmp / "target"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+        env = dict(os.environ, PYTHONUTF8="1", CODEKIT_SECRET_STORE="off")
+        proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "kit_install.py"), "install", str(target)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=180)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+        self.assertTrue((target / "scripts" / "kit_roles.py").is_file())
+
+        def tool(*args):
+            done = subprocess.run([sys.executable, "scripts/pi_dispatch.py"] + list(args), cwd=str(target),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=180)
+            return done.returncode, done.stdout.decode("utf-8"), done.stderr.decode("utf-8", "replace")
+
+        code, out, err = tool("config", "role", "show")
+        self.assertEqual(code, 0, err)
+        self.assertIn("由合同决定", out)
+        code, out, err = tool("config", "doctor", "--json")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["ready"])
+        self.assertNotIn("Traceback", err)
+
 
 def _dir_link(link, target):
     """建指向目录的链接：Windows 上用 junction（mklink /J 不需要权限），其它平台用符号链接；建不了返回 False。"""

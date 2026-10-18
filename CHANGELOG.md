@@ -1,5 +1,20 @@
 # 变更记录
 
+## 2.12.0：3.0 第二轮——角色绑定与配置中心（2026-10-18）
+
+设计说明 [docs/themis-tally-3.0-r2-角色绑定与配置中心.md](docs/themis-tally-3.0-r2-角色绑定与配置中心.md)（2gate：闸一四轮零 Blocking；闸二按实现的五步分片审核，每片审到零 Blocking，逐轮记录见 `.agent/design/3.0-r2-实现进度.md`）。用户决定：P1 做轻量底座（不抽 Pi 适配器）、执行模型以绑定为准、配置写入加锁、信任边界另立任务。本轮由规划端直接实现，没有派遣 Pi。
+
+- **配置锁、写入事务、历史与审计**（D7）：所有写配置的入口都经过 `config_transaction`——配置锁（不抢占，令牌核对后才释放）、整份校验、补判中断的事务与外部改动、快照（疑似凭据只存哈希）、intent / commit 审计，再原子替换；`config history`、`history show <编号>`、`rollback <编号>`。不覆盖的原子发布 `publish_new` 供版本记录与 `kit_install` 共用。
+- **配置 v3**（D1、D2）：`runtimes`（只写适配器）、`profiles`、`roles`（四个角色各自允许的模式）、`presets`、`active_preset`，由 `scripts/kit_roles.py` 解析与校验，用到时才导入；适配器登记表（pi、claude-code、codex、opencode），本轮只有 pi 接通执行与合同两个 headless 角色。
+- **按角色写的合同与按版本的记录**（D4、D5、D6）：executor 分三类（按角色、写死、旧合同，按 raw 合同判定）。按角色写（`role:execution`）时，prepare 在分配 attempt 之前预检，冻结合同之后在任务锁内以不覆盖的方式发布 `.agent/runs/<task>/binding-v<N>.json`（别人抢先就采用胜者，最后统一核对合同哈希、`PI_EXEC_*` 与允许列表），同一版本之后的 attempt 沿用它；run、verdict、branch、integrate 的 G0 都核对记录；执行模型来源写进摘要；executor.json 缺失时各处从记录读回。写死的合同与绑定不同时只打 NOTE。
+- **运行中切换的确认**（D8）：写入会改变 execution 或 contract 的生效绑定、而这一刻有 attempt 在运行时要 `--yes`；扫描时看不了的位置不当作“没有在运行”。
+- **本机文件**（D3）：`.agent/dispatch.local.json` 只放本机 CLI 的命令，读写之前核对不被跟踪、已被忽略、不经过链接；命令的解析顺序为 `PI_DISPATCH_PI_CMD` → 本机文件 → PATH，run 在预检运行它之前就做批处理安全检查。
+- **配置中心的命令**（4.1、D10）：`config runtime list|scan|add|remove|probe`、`config models`、`config profile show|add|edit|remove`、`config role show|set`、`config preset list|show|save|use|diff|remove`、`config doctor`（每个角色的就绪总览，只运行只读探测，不调用模型）；doctor 与 `config doctor` 共用 `pi_model_readiness`。
+- **凭据不出现在输出与记录里**（D9）：共用检查 `secret_config_error`（键名像令牌也算）；配置中心的读命令先整份校验配置；内核读配置的唯一入口 `Repo.config()` 遇到疑似凭据就拒绝；三个命令入口的报错遮令牌形状；CLI 的输出照 doctor 用 `redact_secrets`；规则变严之前存下的快照与审计 target 不显示。
+- 其他：`resolve_run_dir` 不跟随链接；决策插件题库在运行时与展示时先查链接；`tests/test_dispatch.py` 在 pytest 下失败的检查会让用例失败。
+- 规则与技能：AGENTS.md（executor 的两种写法、改绑定要用户同意、`config` 子命令在 Codex 沙箱里的分类、新的 `.agent/` 文件）、plan-task（按角色写的合同）、check-pi-env（`config doctor`）、review-pi（执行模型来源与版本记录的 G0）、dispatch-pi（prepare 的记录与退出码）；README；`.claude/settings.example.json` 放行只读的 `config` 子命令。
+- 测试：`tests/test_kit_roles.py`（配置 v3、运行中切换、凭据的各个入口、本机文件、配置中心的命令 M1–M10）、`tests/test_kit_config.py`（锁与事务 T1–T12）、`tests/test_dispatch.py`（内核 K1–K17：两个进程抢发布、旧持有者恢复后采用胜者、写法漂移、G0 的注入与坏 meta、链接与损坏的记录、本机文件与批处理包装）、`tests/test_kit_v300.py`（装进目标仓库后 `config role show` 与 `config doctor` 可用）。
+
 ## 2.11.0：3.0 第一轮——日志管理与插件管理（2026-10-18）
 
 设计说明 [docs/themis-tally-3.0-四端分层解耦架构.md](docs/themis-tally-3.0-四端分层解耦架构.md)（总体，拟议第 2 版）与 [docs/themis-tally-3.0-r1-日志与插件管理.md](docs/themis-tally-3.0-r1-日志与插件管理.md)（第一轮，2gate 闸一四轮、闸二三轮后零 Blocking）。第一轮按 3.0 自己的做法推进：T1（`logs`）由规划端子代理写合同与 oracle（A 组），T2（`plugins`）由 Pi 作为合同端起草合同与 oracle、规划审核端审定后发布（B 组），两项实现都派给 Pi；实测记录在 `.agent/design/3.0-首轮实测.md`。

@@ -13,6 +13,7 @@
 - authorized_actions: local_edit, local_test
 - integration_actions: 【待填：none | local_branch | local_branch, merge | commit | open_pr | …（只写用户已经授权的；用户已长期授权集成的仓库写 local_branch, merge，integrate 才会落地）】
 - executor: 【待填：provider/model】 · thinking high
+<!-- 按角色写时这一行改成 `- executor: role:execution`（JSON 的 executor 写 {"role": "execution", …}，不写 provider、model、thinking），见 contract-guide 第四节 -->
 
 ## Goal
 【待填：用可观察的输入、输出与状态变化描述目标，一到三句】
