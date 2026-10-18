@@ -317,6 +317,12 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
         elif not key.startswith("_") and key not in KEYS:
             errors.append("未知键 %r（已知：%s）" % (key, ", ".join(KEYS)))
     for key, (_desc, _default, check) in KEYS.items():
+        suspicious = pd.secret_like_paths({key: config[key]}) if key in config else []
+        if suspicious:  # 只报键路径，不跑这个键自己的检查：那些错误可能把取值带进输出（闸二第 2 片 B1，D9）
+            message = SECRET_CONFIG_MESSAGE % (key, "、".join(suspicious[:5]))
+            if message not in errors:
+                errors.append(message)
+            continue
         try:
             check(config, repo)
         except ConfigError as exc:
@@ -328,6 +334,10 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
             if message not in errors:  # 例如缺 kit_roles.py 时几个 v3 键报的是同一句，只报一次
                 errors.append(message)
     return errors
+
+
+SECRET_CONFIG_MESSAGE = "%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存"
+SECRET_SHOWN = "（含疑似凭据，不显示）"
 
 
 def _installed_plugin_ids() -> Optional[List[str]]:
@@ -798,7 +808,9 @@ def _effective(config: Dict[str, Any], repo: Any) -> List[Dict[str, Any]]:
     rows = []
     for key, (desc, default, _check) in KEYS.items():
         if key in config:
-            value, source = config[key], "config"
+            # 疑似凭据的取值不显示（D9）：show 与 show --json 都只说明它在哪个键下
+            value = SECRET_SHOWN if pd.secret_like_paths({key: config[key]}) else config[key]
+            source = "config"
         elif key == "worktree_root" and os.environ.get("PI_DISPATCH_WORKTREE_ROOT"):
             value, source = os.environ["PI_DISPATCH_WORKTREE_ROOT"], "env:PI_DISPATCH_WORKTREE_ROOT"
         else:

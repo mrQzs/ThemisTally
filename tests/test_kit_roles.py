@@ -140,6 +140,27 @@ class Validation(RolesRepo):
                 for fragment in ("abcdefghijklmnop", "q" * 30, "w" * 36, "e" * 20):
                     self.assertNotIn(fragment, out + err)
 
+    # 闸二第 2 片第 2 轮 B1：已有的坏配置在 show 里、旧键的校验错误里，都不显示疑似凭据
+    def test_g2s2r2_b1_show_and_old_keys_never_echo_secret_values(self):
+        token = "Bearer abcdefghijklmnop"
+        config = self.base()
+        config["profiles"]["exec-step"]["model"]["id"] = token
+        config["allowed_executors"] = [{"provider": "bb", "model": "Bearer zyxwvutsrqponmlk"}]
+        self.write(config)
+        for argv in (["show"], ["show", "--json"], ["validate"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertNotIn("abcdefghijklmnop", out + err)
+                self.assertNotIn("zyxwvutsrqponmlk", out + err)
+        self.config_file.unlink()
+        for key, value in (("plugins", "Bearer qwertyuiopasdfgh"), ("plugins.enabled", "Bearer qwertyuiopasdfgh"),
+                           ("allowed_executors", [{"provider": "x", "model": "Bearer qwertyuiopasdfgh"}])):
+            with self.subTest(key=key):
+                code, out, err = run_config(["set", key, json.dumps(value)], self.repo)
+                self.assertEqual(code, 1, err)
+                self.assertNotIn("qwertyuiopasdfgh", out + err)
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())
@@ -350,6 +371,22 @@ class SwitchConfirmation(RolesRepo):
             code, _, err = self.switch("--yes")
             self.assertEqual(code, 0, err)
         self.assertEqual(self.last_confirmation(), "flag")
+
+    def test_g2s2r2_s4_an_unreadable_state_is_not_treated_as_idle(self):
+        run_dir = self.attempt("RUNNING")
+        real = Path.read_bytes
+
+        def read_bytes(path):
+            if path == run_dir / "state.json":
+                raise PermissionError(13, "拒绝访问（替身）", str(path))
+            return real(path)
+
+        with mock.patch.object(Path, "read_bytes", read_bytes), \
+                mock.patch.object(pd, "attempt_in_flight", lambda _run_dir: False):  # 吞掉错误的判定也挡不住
+            code, _, err = self.switch()
+        self.assertEqual(code, 1, err)
+        self.assertIn("无法确认有没有在运行的 attempt", err)
+        self.assertIn("state.json", err)
 
     def test_rollback_to_a_config_without_bindings(self):
         self.config_file.unlink()

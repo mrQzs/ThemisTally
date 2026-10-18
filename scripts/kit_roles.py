@@ -11,6 +11,8 @@ __main__，这里的 `import pi_dispatch` 载入的是另一份模块，两边�
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -246,8 +248,8 @@ def check_key(config: Dict[str, Any], key: str) -> List[str]:
     先查这个键之下疑似凭据的位置：有就只报这一条（只含键路径），不再报其他会提到取值的错误（闸二第 2 片 B1）。
     """
     suspicious = pd.secret_like_paths({key: config[key]})
-    if suspicious:
-        return ["%s 里有疑似凭据（%s）：凭据只写环境变量名（credential_env），值用 config secret set 存" % (
+    if suspicious:  # kit_config.validate_config 已经先查过；这里再挡一次，直接调用时同样不回显取值
+        return ["%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存" % (
             key, "、".join(suspicious[:5]))]
     return CHECKS[key](config)
 
@@ -333,8 +335,25 @@ def in_flight_attempts(repo: Any) -> Tuple[List[str], List[str]]:
         except OSError as exc:
             problems.append("%s（%s）" % (task, exc.strerror or exc))
             continue
-        found += ["%s/%s" % (task.name, attempt.name) for attempt in attempts if pd.attempt_in_flight(attempt)]
+        for attempt in attempts:
+            unreadable = _state_unreadable(attempt)
+            if unreadable is not None:  # 状态读不出来：不能当作“没有在运行”（闸二第 2 片第 2 轮 S4）
+                problems.append(unreadable)
+            elif pd.attempt_in_flight(attempt):
+                found.append("%s/%s" % (task.name, attempt.name))
     return found, problems
+
+
+def _state_unreadable(run_dir: Path) -> Optional[str]:
+    """attempt 的 state.json 存在却读不出或不是对象时，返回说明；不存在（还没准备完）或能读时 None。"""
+    path = run_dir / "state.json"
+    if not os.path.lexists(str(path)):
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        return "%s（%s）" % (path, getattr(exc, "strerror", None) or type(exc).__name__)
+    return None if isinstance(data, dict) else "%s（不是对象）" % path
 
 
 def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],
