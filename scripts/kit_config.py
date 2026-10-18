@@ -319,7 +319,11 @@ def validate_config(config: Dict[str, Any], repo: Any, *, hints: bool = True) ->
     for key in config:
         if not isinstance(key, str):
             errors.append("键必须是字符串")
-        elif not key.startswith("_") and key not in KEYS:
+        elif key.startswith("_"):  # 说明键只免形状检查，不免凭据检查：内核读配置时整份都查（闸二总复核 S1）
+            secret = pd.secret_config_error(config, key)
+            if secret is not None and secret not in errors:
+                errors.append(secret)
+        elif key not in KEYS:
             shown = pd.SECRET_KEY_SHOWN if pd.secret_like_paths({key: None}) else repr(key)  # 键名像令牌时不回显
             errors.append("未知键 %s（已知：%s）" % (shown, ", ".join(KEYS)))
     for key, (_desc, _default, check) in KEYS.items():

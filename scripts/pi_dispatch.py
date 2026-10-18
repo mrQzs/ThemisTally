@@ -2596,8 +2596,15 @@ def _redact_json(value: Any, sensitive: bool = False) -> Any:
     """JSON 结构按键名脱敏：疑似凭据的键下面的字符串（含嵌套的）换成 <redacted>，数字、布尔与 null 保留，
     所以 tokenCount、hasApiKey 这类元信息不受影响；其余字符串继续 redact_secrets（可能是嵌套的 JSON）。"""
     if isinstance(value, dict):
-        return {key: _redact_json(item, sensitive or (isinstance(key, str) and bool(_SECRET_KEY_RE.match(key))))
-                for key, item in value.items()}
+        out: Dict[Any, Any] = {}
+        for key, item in value.items():
+            name = key
+            if isinstance(key, str) and _token_shaped(key):  # 键名本身像令牌：键也遮掉，与 secret_like_paths 一致（闸二总复核 B1）
+                name, number = "<redacted>", 2
+                while name in out:
+                    name, number = "<redacted-%d>" % number, number + 1
+            out[name] = _redact_json(item, sensitive or (isinstance(key, str) and bool(_SECRET_KEY_RE.match(key))))
+        return out
     if isinstance(value, list):
         return [_redact_json(item, sensitive) for item in value]
     if isinstance(value, str):
@@ -3533,18 +3540,29 @@ def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any], source: O
                                 % (field, field.upper()), EXIT_USAGE)
     if executor.get("thinking") not in FALLBACK_THINKING_LEVELS:
         raise DispatchError("无效的思考级别：%r" % executor.get("thinking"), EXIT_USAGE)
-    allowlist = config.get("allowed_executors") or []
-    if allowlist:
-        hits = [a for a in allowlist if isinstance(a, dict) and a.get("provider") == executor["provider"]
-                and a.get("model") == executor["model"]]
-        if not hits:
-            raise DispatchError("执行模型 %s/%s 不在 .agent/dispatch.config.json 的 allowed_executors 中"
-                                % (executor["provider"], executor["model"]), EXIT_BLOCKED)
-        pinned = hits[0].get("thinking")
-        if pinned and pinned != executor["thinking"]:
-            raise DispatchError("该执行模型的思考级别固定为 %s，%s为 %s" % (pinned, source or "合同", executor["thinking"]),
-                                EXIT_BLOCKED)
+    problem = allowed_executor_check(config, executor["provider"], executor["model"], executor["thinking"])
+    if problem is not None and problem[0] == "missing":
+        raise DispatchError("执行模型 %s/%s 不在 .agent/dispatch.config.json 的 allowed_executors 中"
+                            % (executor["provider"], executor["model"]), EXIT_BLOCKED)
+    if problem is not None:
+        raise DispatchError("该执行模型的思考级别固定为 %s，%s为 %s" % (problem[1], source or "合同", executor["thinking"]),
+                            EXIT_BLOCKED)
     return executor
+
+
+def allowed_executor_check(config: Dict[str, Any], provider: Any, model: Any,
+                           thinking: Any) -> Optional[Tuple[str, Optional[str]]]:
+    """allowed_executors 的判定：列表为空或通过时 None；不在列表里 ("missing", None)；第一条匹配项固定的 thinking
+    与之不同 ("thinking", 固定的级别)。内核（resolve_executor）与配置中心（config doctor、role set 与 preset use
+    的提示）共用这一份（3.0 第二轮，闸二总复核 S3）。"""
+    allowlist = config.get("allowed_executors") or []
+    if not allowlist:
+        return None
+    hits = [a for a in allowlist if isinstance(a, dict) and a.get("provider") == provider and a.get("model") == model]
+    if not hits:
+        return "missing", None
+    pinned = hits[0].get("thinking")
+    return ("thinking", pinned) if pinned and pinned != thinking else None
 
 
 def resolve_bound_executor(contract: Dict[str, Any], record: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
@@ -3745,19 +3763,20 @@ def binding_record_problems(repo: "Repo", run_dir: Path, meta: Dict[str, Any]) -
 def attempt_executor(run_dir: Path, fallback: Any) -> Any:
     """一次 attempt 的执行模型（D5 的读回收口）：executor.json；没有时用 meta 里版本记录的副本补 provider、model、
     thinking，tools 与 context_files 取自合同；再没有，就是调用处原来的后备值。"""
+    # 读回的值进摘要、复审骨架、提交尾注：按现在的规则脱敏，旧规则下留下的副本也一样（闸二总复核 S2）
     executor = read_json_or(run_dir / "executor.json", None)
     if isinstance(executor, dict):
-        return executor
+        return redact_obj(executor)
     meta = read_json_or(run_dir / "meta.json", {})
     binding = meta.get("executor_binding") if isinstance(meta, dict) else None
     if not isinstance(binding, dict) or frozen_executor_class(run_dir) != "role":  # 类别看冻结合同（闸二第 3 片 B1）
-        return fallback
+        return redact_obj(fallback)
     raw = read_json_or(run_dir / "contract.json", {})
     contract_executor = normalize_contract(raw).get("executor") if isinstance(raw, dict) else None
     merged = {key: value for key, value in contract_executor.items() if key != "role"} \
         if isinstance(contract_executor, dict) else {}
     merged.update({key: binding.get(key) for key in ("provider", "model", "thinking")})
-    return merged
+    return redact_obj(merged)
 
 
 def frozen_executor_class(run_dir: Path) -> str:
@@ -3768,7 +3787,11 @@ def frozen_executor_class(run_dir: Path) -> str:
 
 
 def executor_source_text(run_dir: Path, meta: Dict[str, Any]) -> str:
-    """摘要的“执行模型来源”一行（D5）。"""
+    """摘要的“执行模型来源”一行（D5）；按现在的规则脱敏，旧规则下留下的副本也一样（闸二总复核 S2）。"""
+    return redact_secrets(_executor_source_text(run_dir, meta))
+
+
+def _executor_source_text(run_dir: Path, meta: Dict[str, Any]) -> str:
     kind = frozen_executor_class(run_dir)
     binding = meta.get("executor_binding")
     if kind == "role":

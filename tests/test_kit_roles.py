@@ -347,6 +347,52 @@ class Validation(RolesRepo):
         self.assertIn(kit_config.SECRET_SHOWN, run_config(["history"], self.repo)[1])
         self.assertEqual(audit.read_bytes(), older)
 
+
+    # 闸二总复核 S1：说明键只免形状检查，不免凭据检查——配置中心接受的，内核也读得了
+    def test_final_note_keys_are_checked_for_secrets_too(self):
+        config = self.base()
+        config["_note"] = "sk-" + "n" * 24
+        self.write(config)
+        code, out, err = run_config(["validate"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("疑似凭据", out + err)
+        self.assertNotIn("n" * 24, out + err)
+        before = self.config_file.read_bytes()
+        self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 1)
+        self.assertEqual(self.config_file.read_bytes(), before)
+        with self.assertRaises(pd.ConfigSecretError):
+            pd.Repo(self.repo).config()
+        config["_note"] = "普通的说明"
+        self.write(config)
+        self.assertEqual(run_config(["validate"], self.repo)[0], 0)
+        self.assertEqual(pd.Repo(self.repo).config()["_note"], "普通的说明")
+
+    # 闸二总复核 B1：JSON 里像令牌的键名，文本脱敏同样遮掉（与 secret_like_paths 一致）
+    def test_final_token_shaped_json_keys_are_redacted(self):
+        token = "sk-" + "k" * 24
+        self.assertTrue(pd.secret_like_paths({token: "ok"}))
+        for text in ('{"%s": "ok"}' % token, 'version {"%s": 1, "%s": 2}' % (token, "ghp_" + "g" * 36)):
+            with self.subTest(text=text[:12]):
+                shown = pd.redact_secrets(text)
+                self.assertNotIn("k" * 24, shown)
+                self.assertNotIn("g" * 36, shown)
+                self.assertIn("<redacted>", shown)
+
+    # 闸二总复核 S2：旧规则下留下的执行模型副本，读回时按现在的规则脱敏
+    def test_final_executor_read_back_is_redacted(self):
+        run_dir = self.work / "attempt"
+        run_dir.mkdir()
+        token = "sk-" + "e" * 24
+        (run_dir / "contract.json").write_text(json.dumps({"executor": {"role": "execution", "tools": ["read"]}}),
+                                               encoding="utf-8")
+        meta = {"executor_binding": {"role": "execution", "profile": token, "runtime": "pi", "provider": "bb",
+                                     "model": token, "thinking": "high", "record_path": "x"}}
+        (run_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        self.assertNotIn("e" * 24, json.dumps(pd.attempt_executor(run_dir, {})))
+        self.assertNotIn("e" * 24, pd.executor_source_text(run_dir, meta))
+        (run_dir / "executor.json").write_text(json.dumps({"provider": "bb", "model": token}), encoding="utf-8")
+        self.assertNotIn("e" * 24, json.dumps(pd.attempt_executor(run_dir, {})))
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())
@@ -1004,6 +1050,33 @@ class ConfigCenter(RolesRepo):
             shutil.move(str(moved), str(agent))
         self.assertEqual(code, 1, err)
         self.assertFalse((self.repo / ".agent" / "dispatch.local.json").exists())
+
+
+    # 闸二总复核 B1：CLI 输出的 JSON 键像令牌时同样遮掉
+    def test_final_cli_json_keys_are_redacted(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "oc-x"}}))
+        with mock.patch.dict(os.environ, {"CLI_STUB_VERSION": '{"sk-%s": "ok"}' % ("v" * 24)}):
+            for argv in (["runtime", "scan"], ["runtime", "probe", "oc", "--json"], ["doctor", "--json"]):
+                with self.subTest(argv=argv):
+                    code, out, err = run_config(argv, self.repo)
+                    self.assertNotIn("v" * 24, out + err)
+
+    # 闸二总复核 S3：允许列表固定的 thinking，doctor 与 role set 的提示和内核一样判断
+    def test_final_pinned_thinking_is_checked_like_the_kernel(self):
+        allowed = [{"provider": "bb", "model": "step-5-mini", "thinking": "high"}]
+        config = self.base(allowed_executors=allowed)
+        self.write(config)
+        self.assertEqual(pd.allowed_executor_check(config, "bb", "step-5-mini", "low"), ("thinking", "high"))
+        self.assertIsNone(pd.allowed_executor_check(config, "bb", "step-5-mini", "high"))
+        self.assertEqual(pd.allowed_executor_check(config, "bb", "x", "high"), ("missing", None))
+        code, out, err = run_config(["role", "set", "execution", "exec-low"], self.repo)  # exec-low：step-5-mini、low
+        self.assertEqual(code, 0, err)
+        self.assertIn("思考级别固定为 high", out)
+        code, out, err = run_config(["doctor", "--json"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        row = {item["role"]: item for item in json.loads(out)["roles"]}["execution"]
+        self.assertFalse(row["allowed"])
+        self.assertTrue(any("思考级别固定为 high" in problem for problem in row["problems"]))
 
     # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
     def test_shared_readiness_takes_the_environment_explicitly(self):

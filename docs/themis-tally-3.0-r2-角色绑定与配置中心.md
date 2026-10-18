@@ -503,6 +503,7 @@
 - 执行模型的 provider、model、thinking 取自记录，tools、context_files 取自合同。
 - 再检查一次 `allowed_executors` 与 `PI_EXEC_*` 的冲突。
 - pi 的命令按记录里的 runtime 解析（D3）。
+- 记录固定的是模型（provider、model、thinking）与 runtime，不固定命令：命令在 run 时按 D3 的顺序解析，所以改本机文件里的命令会影响尚未开始的 attempt；这不改变生效绑定，不触发 D8 的确认（闸二总复核的说明）。
 - 实现时的写法：版本记录的核对（`binding_record_problems`）放在 `verify_inputs` 里，所以 run、verdict 的 G0、branch、integrate 四个调用处都做；已有记录读出来时另查疑似凭据（D9），有就按“记录无效”处理（EXIT_DRIFT）。
 
 **`executor.json` 的形状不变**。

@@ -634,15 +634,25 @@ class ConfigTransactions(TempRepo):
     def test_snapshots_of_suspected_secrets_keep_only_the_hash(self):
         self.set("kill_grace_seconds", "20")
         config = json.loads(self.config_file.read_text(encoding="utf-8"))
-        config["_secret_env"] = "opaque_demo_value"  # 说明键也能以 _env 结尾：不在豁免的字段路径里
+        config["pricing"] = {"m/x": {"api_key": "opaque_demo_value"}}  # 手改进去的疑似凭据（键名规则）
         self.config_file.write_text(json.dumps(config), encoding="utf-8")
-        self.set("kill_grace_seconds", "21")
+        self.set("pricing", "{}")  # 改好：新内容合法，前态只存哈希
         observed = self.records("observed")[-1]["after_ref"]
         self.assertFalse(observed["stored"])
-        self.assertIn("_secret_env", observed["reason"])
+        self.assertIn("pricing", observed["reason"])
         self.assertFalse((self.agent / "config-history" / ("%s.json" % observed["sha256"])).exists())
         intent = self.records("intent")[-1]
-        self.assertFalse(intent["after_ref"]["stored"])  # 新内容也还带着它
+        self.assertFalse(intent["before_ref"]["stored"])
+        self.assertTrue(intent["after_ref"]["stored"])
+        # 说明键也能以 _env 结尾：不在豁免的字段路径里；说明键同样查凭据（闸二总复核 S1），整份不写、什么也不记
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["_secret_env"] = "opaque_demo_value"
+        self.config_file.write_text(json.dumps(config), encoding="utf-8")
+        intents, observeds = len(self.records("intent")), len(self.records("observed"))
+        code, _out, err = run_config(["set", "kill_grace_seconds", "21"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("_secret_env", err)
+        self.assertEqual((len(self.records("intent")), len(self.records("observed"))), (intents, observeds))
         self.assertEqual(kit_config.pd.secret_like_paths({"pricing": {"m": {"source": "sk-" + "a" * 24}}}),
                          ["pricing.m.source"])
 
@@ -927,9 +937,9 @@ class ConfigTransactions(TempRepo):
     def test_g2s1_b1_history_does_not_diff_against_a_missing_snapshot(self):
         self.set("kill_grace_seconds", "20")
         config = json.loads(self.config_file.read_text(encoding="utf-8"))
-        config["_secret_env"] = "opaque_demo_value"  # 之后的快照因疑似凭据只存哈希
+        config["pricing"] = {"m/x": {"api_key": "opaque_demo_value"}}  # 手改进去的：第 2 条的前态因疑似凭据只存哈希
         self.config_file.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
-        self.set("check_artifact_patterns", '["x"]')
+        self.set("pricing", "{}")
         code, out, _ = run_config(["history", "show", "2", "--json"], self.repo)
         self.assertEqual(code, 0)
         shown = json.loads(out)

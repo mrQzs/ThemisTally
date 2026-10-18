@@ -1009,15 +1009,16 @@ def _binding_warnings(config: Dict[str, Any], role: str) -> List[str]:
     binding = effective_binding(config, role)
     if binding is None or binding.get("mode") != "headless":
         return []
-    _mode, profile_id, _runtime, adapter, provider, model, _thinking = binding_tuple(config, role)
+    _mode, profile_id, _runtime, adapter, provider, model, thinking = binding_tuple(config, role)
     warnings = []
     if adapter is None or role not in ADAPTERS[adapter]["headless_roles"]:
         warnings.append("%s 绑定到 %s：这个适配器本轮没有接通 %s，按角色写的合同不会派遣" % (role, adapter or "未登记的 runtime", role))
-    allowed = config.get("allowed_executors")
-    if role in ("execution", "contract") and isinstance(allowed, list) and allowed and not any(
-            isinstance(entry, dict) and entry.get("provider") == provider and entry.get("model") == model
-            for entry in allowed):
+    problem = pd.allowed_executor_check(config, provider, model, thinking) if role in ("execution", "contract") else None
+    if problem is not None and problem[0] == "missing":  # 与内核同一个判定（闸二总复核 S3）
         warnings.append("profile %s 的 %s/%s 不在 allowed_executors 里，prepare 会拒绝" % (profile_id, provider, model))
+    elif problem is not None:
+        warnings.append("allowed_executors 把 %s/%s 的思考级别固定为 %s，profile %s 是 %s，prepare 会拒绝"
+                        % (provider, model, problem[1], profile_id, thinking))
     return warnings
 
 
@@ -1290,11 +1291,14 @@ def _doctor(args: Any) -> int:
                 if probe["help"]["missing_flags"]:
                     problems.append("pi 缺少参数：%s" % "、".join(probe["help"]["missing_flags"]))
         out["notes"] = probe.get("notes", [])
-        if row["role"] in ("execution", "contract") and allowed:
-            out["allowed"] = any(entry.get("provider") == row.get("provider") and entry.get("model") == row.get("model")
-                                 for entry in allowed)
-            if not out["allowed"]:
+        if row["role"] in ("execution", "contract") and allowed:  # 与内核同一个判定，含固定的 thinking（闸二总复核 S3）
+            problem = pd.allowed_executor_check(config, row.get("provider"), row.get("model"), row.get("thinking"))
+            out["allowed"] = problem is None
+            if problem is not None and problem[0] == "missing":
                 problems.append("%s/%s 不在 allowed_executors 里" % (row.get("provider"), row.get("model")))
+            elif problem is not None:
+                problems.append("allowed_executors 把 %s/%s 的思考级别固定为 %s，profile 是 %s" % (
+                    row.get("provider"), row.get("model"), problem[1], row.get("thinking")))
         else:
             out["allowed"] = None
         profiles = _mapping(config, "profiles")
