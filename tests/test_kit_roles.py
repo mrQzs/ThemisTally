@@ -1142,6 +1142,28 @@ class ConfigCenter(RolesRepo):
         self.assertIn("还没有版本记录", err)
         self.assertNoPrompts()
 
+    # 闸二总复核第 3 轮 S1：命令里有相对路径时，run（在 worktree 里运行）与这里的探测可能指向不同的文件：报未就绪
+    def test_final_doctor_flags_cwd_relative_commands(self):
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}}))
+        (self.work / "pi_rel.py").write_text('import os, runpy, sys\nsys.argv = [os.environ["CLI_STUB_PI"]] + sys.argv[1:]\n'
+                                             'runpy.run_path(os.environ["CLI_STUB_PI"], run_name="__main__")\n',
+                                             encoding="utf-8")
+        local = self.repo / ".agent" / "dispatch.local.json"
+        local.write_text(json.dumps({"runtimes": {"pi": {"command": [sys.executable, "pi_rel.py"]}}}), encoding="utf-8")
+        here = os.getcwd()
+        os.chdir(str(self.work))
+        self.addCleanup(os.chdir, here)
+        code, out, err = run_config(["doctor", "--json"], self.repo)
+        self.assertEqual(code, 1, out + err)
+        row = {item["role"]: item for item in json.loads(out)["roles"]}["execution"]
+        self.assertEqual(row["source"], "local")
+        self.assertTrue(row["model_listed"] and row["auth_ready"])  # 探测本身在这里成功
+        self.assertTrue(any("相对路径" in problem and "pi_rel.py" in problem for problem in row["problems"]), row["problems"])
+        local.write_text(json.dumps({"runtimes": {"pi": {"command": [sys.executable, str(self.work / "pi_rel.py")]}}}),
+                         encoding="utf-8")
+        code, out, err = run_config(["doctor"], self.repo)
+        self.assertEqual(code, 0, out + err)
+
     # M10：旧 doctor 的共用函数照旧继承环境；config doctor 传 child_env
     def test_shared_readiness_takes_the_environment_explicitly(self):
         seen = []

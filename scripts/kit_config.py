@@ -1451,7 +1451,7 @@ def build_parser() -> argparse.ArgumentParser:
     q = actions.add_parser("add", help="登记 runtime；--command 只写本机文件 .agent/dispatch.local.json")
     q.add_argument("runtime_id")
     q.add_argument("--adapter", required=True, help="pi、claude-code、codex 或 opencode")
-    q.add_argument("--command", help='JSON 字符串数组，例如 ["/usr/local/bin/pi"]')
+    q.add_argument("--command", help='JSON 字符串数组，路径写绝对路径，例如 ["/usr/local/bin/pi"]')
     q.add_argument("--force", action="store_true", help="改已登记 runtime 的 adapter")
     q.add_argument("--yes", **yes)
     q = actions.add_parser("remove", help="删除 runtime（有 profile 引用时拒绝），连同本机文件里的命令")

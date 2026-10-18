@@ -384,6 +384,7 @@
   - 读写它的代码只在 `kit_roles` 里（`check_local`、`read_local`、`local_command`）；
   - 实现时的写法：形状不对、有疑似凭据（D9）也按“不使用”处理；run 遇到不能用的本机文件时，打印 ERROR 行，接着按 PATH 找（下面解析顺序的第 3 步），不因此拒绝。
 - **执行之前**，本机文件给出的命令过一遍 `ensure_argv_safe`。
+- 命令里的路径写绝对路径：run 在 attempt 的 worktree 里运行命令，配置中心的探测在当前目录运行；`config doctor` 遇到不是绝对路径、却在当前目录下存在的部分时报未就绪（D10，闸二总复核第 3 轮）。
 
 **命令的解析顺序**（只用于按角色的合同与配置中心）：
 
@@ -743,6 +744,7 @@ prepare 不运行任何 CLI。
 
 - 版本与 `--help` 按 runtime 缓存；
 - 模型列表（`--list-models <模型>`）与 `auth check --no-refresh` 按（runtime, provider, model）分别运行。
+- 命令里有不是绝对路径、却在当前目录下存在的部分时报未就绪：run 在 attempt 的 worktree 里运行命令，这里在当前目录探测，结果代表不了 run（闸二总复核第 3 轮）。
 
 **与 doctor 共用一个函数**：
 
@@ -755,7 +757,7 @@ prepare 不运行任何 CLI。
 
 - 已有版本记录的合同，重试时用的是记录里的模型，不是当前绑定（D5）；当前绑定就绪不能代表它能跑。
 - 这时只报这一个记录：provider、model、thinking 取自记录；命令按 run 的顺序解析（D3：环境变量 → 本机文件里记录的 runtime → PATH），runtime 不必仍在配置里登记；探测用 `child_env(config)`；允许列表按当前配置判断（run 时 `resolve_bound_executor` 也按当前配置重查）；凭据按记录里的 profile 在当前配置中的 `credential_env`，profile 已删除时不列。
-- 记录读不出、无效或含疑似凭据时报错退出 1，与 `load_binding_record` 相同；还没有记录时说明第一次 prepare 才会建立；写法不对是用法错误。
+- 记录读不出、无效或含疑似凭据时，沿用 `load_binding_record` 的校验与报错：它抛的是 `EXIT_DRIFT`，配置命令统一映射为退出码 1。还没有记录时说明第一次 prepare 才会建立；写法不对是用法错误。
 
 **约束**：
 

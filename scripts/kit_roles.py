@@ -562,6 +562,12 @@ def _shown_command(command: Optional[List[str]]) -> Optional[List[str]]:
     return [pd.redact_secrets(part) for part in command] if command else None
 
 
+def cwd_relative_parts(command: List[str]) -> List[str]:
+    """命令里不是绝对路径、却在当前目录下存在的部分。run 在 attempt 的 worktree 里运行命令，配置中心的探测在当前目录
+    运行：这样的部分两边可能指向不同的文件，探测的结果代表不了 run（闸二总复核第 3 轮 S1）。"""
+    return [part for part in command if not os.path.isabs(part) and os.path.exists(part)]
+
+
 def runtime_command(repo: Any, config: Dict[str, Any], runtime_id: str,
                     adapter: Optional[str] = None) -> Tuple[Optional[List[str]], str, List[str]]:
     """runtime 的命令、来源与提示行，按 D3 的解析顺序：PI_DISPATCH_PI_CMD（只对 pi 适配器）→ 本机文件 → PATH。
@@ -1300,6 +1306,10 @@ def _headless_readiness(repo: Any, config: Dict[str, Any], env: Dict[str, str], 
         probe = probe or {"command": None, "source": "missing", "notes": []}
     else:
         out.update(command=_shown_command(probe["command"]), source=probe["source"], version=probe["version"])
+        relative = cwd_relative_parts(probe["command"])
+        if relative:
+            problems.append("命令里有相对路径（%s）：run 在 attempt 的 worktree 里运行它，这里在当前目录探测，结果代表不了 run；"
+                            "写成绝对路径" % "、".join(_shown_command(relative) or []))
         if probe["version_exit_code"] != 0:
             problems.append("%s --version 退出码 %s" % (runtime, probe["version_exit_code"]))
         if row["adapter"] == "pi" and row.get("provider") and row.get("model"):
