@@ -32,6 +32,12 @@
       "Bash(pi --version)",
       "Bash(pi --list-models *)"
     ],
+    "ask": [
+      "Bash(bash scripts/dispatch-pi.sh doctor *--probe-decisions*)",
+      "Bash(bash scripts/dispatch-pi.sh * --assess*)",
+      "Bash(bash scripts/dispatch-pi.sh * --out *)",
+      "Bash(bash scripts/dispatch-pi.sh * --out=*)"
+    ],
     "deny": [
       "Edit(/.agent/runs/**)"
     ]

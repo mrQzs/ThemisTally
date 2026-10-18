@@ -1,10 +1,11 @@
 # 派遣与执行排障
 
 <!-- 3.0 第二轮（按角色写的合同）：
+  以下 2、3 只在同一版本首次建立记录时出现；已有有效记录时沿用记录，当前绑定被删或未接通只打 NOTE。
   - “按角色写的合同需要 execution 角色的 headless 绑定”（退出 2）：config role set execution <profile>，或改成写死的合同；
   - “这个适配器本轮没有接通 execution”（退出 3）：绑定到 pi 适配器的 profile；
   - “角色绑定的配置无效”（退出 2）：config validate 看错误，修好再 prepare；
-  - “版本记录无效 / 经过链接 / 合同 vN 的字节与首次派遣时不同”（退出 4）：已派遣的版本不能改，出新版本合同；记录确认损坏时按提示处理，不要编辑 .agent/runs。 -->
+  - “版本记录无效 / 经过链接 / 合同 vN 的字节与首次派遣时不同”（退出 4，任何一次 prepare）：比的是冻结的合同 JSON；已派遣的版本不能改，出新版本合同；记录确认损坏时按提示处理，不要编辑 .agent/runs。 -->
 
 先看 `<run-dir>/summary.md`，再按需看 `preflight/`、`stderr.log`、`events-summary.json`、`scope.json`。
 进程退出码为 0 **不代表**任务成功：Pi 在 `--mode json` 下，即使最后一条 assistant 消息是 error 或 aborted，也会以 0 退出。

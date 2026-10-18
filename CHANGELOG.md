@@ -2,9 +2,9 @@
 
 ## 2.12.0：3.0 第二轮——角色绑定与配置中心（2026-10-18）
 
-设计说明 [docs/themis-tally-3.0-r2-角色绑定与配置中心.md](docs/themis-tally-3.0-r2-角色绑定与配置中心.md)（2gate：闸一四轮零 Blocking；闸二按实现的五步分片审核，每片审到零 Blocking，逐轮记录见 `.agent/design/3.0-r2-实现进度.md`）。用户决定：P1 做轻量底座（不抽 Pi 适配器）、执行模型以绑定为准、配置写入加锁、信任边界另立任务。本轮由规划端直接实现，没有派遣 Pi。
+设计说明 [docs/themis-tally-3.0-r2-角色绑定与配置中心.md](docs/themis-tally-3.0-r2-角色绑定与配置中心.md)（2gate：闸一经四轮收敛到零 Blocking；闸二按实现的五步分片审核，逐轮的结论与修正记在 `.agent/design/3.0-r2-实现进度.md`）。用户决定：P1 做轻量底座（不抽 Pi 适配器）、执行模型以绑定为准、配置写入加锁、信任边界另立任务。本轮由规划端直接实现，没有派遣 Pi。
 
-- **配置锁、写入事务、历史与审计**（D7）：所有写配置的入口都经过 `config_transaction`——配置锁（不抢占，令牌核对后才释放）、整份校验、补判中断的事务与外部改动、快照（疑似凭据只存哈希）、intent / commit 审计，再原子替换；`config history`、`history show <编号>`、`rollback <编号>`。不覆盖的原子发布 `publish_new` 供版本记录与 `kit_install` 共用。
+- **配置锁、写入事务、历史与审计**（D7）：所有写配置的入口都经过写入事务（`config_transaction`；runtime 同时改配置与本机文件时用 `config_transactions`，两个资源在同一把锁里）——配置锁（不抢占，令牌核对后才释放）、整份校验、补判中断的事务与外部改动、快照（疑似凭据只存哈希）、先写 intent 审计、再原子替换、最后写 commit（commit 写不进时配置已经生效，报审计不全，下一次写入时补判）；`config history`、`history show <编号>`、`rollback <编号>`。不覆盖的原子发布 `publish_new` 供版本记录与 `kit_install` 共用。
 - **配置 v3**（D1、D2）：`runtimes`（只写适配器）、`profiles`、`roles`（四个角色各自允许的模式）、`presets`、`active_preset`，由 `scripts/kit_roles.py` 解析与校验，用到时才导入；适配器登记表（pi、claude-code、codex、opencode），本轮只有 pi 接通执行与合同两个 headless 角色。
 - **按角色写的合同与按版本的记录**（D4、D5、D6）：executor 分三类（按角色、写死、旧合同，按 raw 合同判定）。按角色写（`role:execution`）时，prepare 在分配 attempt 之前预检，冻结合同之后在任务锁内以不覆盖的方式发布 `.agent/runs/<task>/binding-v<N>.json`（别人抢先就采用胜者，最后统一核对合同哈希、`PI_EXEC_*` 与允许列表），同一版本之后的 attempt 沿用它；run、verdict、branch、integrate 的 G0 都核对记录；执行模型来源写进摘要；executor.json 缺失时各处从记录读回。写死的合同与绑定不同时只打 NOTE。
 - **运行中切换的确认**（D8）：写入会改变 execution 或 contract 的生效绑定、而这一刻有 attempt 在运行时要 `--yes`；扫描时看不了的位置不当作“没有在运行”。

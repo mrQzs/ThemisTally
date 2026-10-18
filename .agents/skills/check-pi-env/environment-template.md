@@ -30,7 +30,7 @@
 | pi 版本 | 【pi --version；建议 ≥ 0.84，最低 0.80.4】 |
 | pi 调用方式 | 【doctor 输出的 pi_command，例如 node …/dist/bundle/cli.js】 |
 | 执行模型 | 【provider/model，必须与 pi --list-models 的精确 ID 一致】 |
-| 思考级别 | high。实际发送形式取决于协议：anthropic-messages 预算模式下为 thinking 预算 16384（可用 settings 的 `thinkingBudgets.high` 调整）；提供商不回报实际级别时，只能确认请求的级别 |
+| 思考级别 | 【合同或绑定里的级别，默认 high】。实际发送形式取决于协议：anthropic-messages 预算模式下为 thinking 预算 16384（可用 settings 的 `thinkingBudgets.high` 调整）；提供商不回报实际级别时，只能确认请求的级别 |
 | 思考预算设置 | 【settings.json 中 thinkingBudgets 的值，或 未设置（使用默认）】 |
 | 凭据就绪 | 【pi auth check 结果：ready / not_ready】 |
 | 工具集 | 【合同默认 read,grep,find,ls,edit,write,bash】 |
