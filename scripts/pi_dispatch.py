@@ -488,6 +488,10 @@ class DispatchError(Exception):
         self.code = code
 
 
+class ConfigSecretError(DispatchError):
+    """dispatch.config.json 里有疑似凭据：内核不读这份配置（3.0 第二轮 D9，闸二第 2 片第 4 轮）。消息只列位置。"""
+
+
 # ---------------------------------------------------------------------------
 # 基础工具
 # ---------------------------------------------------------------------------
@@ -1188,6 +1192,13 @@ class Repo:
             raise DispatchError("无法解析 %s：%s" % (path, exc), EXIT_USAGE)
         if not isinstance(data, dict):
             raise DispatchError("%s 顶层必须是对象" % path, EXIT_USAGE)
+        # 内核读配置只有这一个入口：有疑似凭据就整份不用，下游（metrics 的价格来源、branch 的尾注、setup 的超时等）
+        # 都拿不到这些取值（3.0 第二轮 D9；闸二第 2 片第 4 轮：逐个消费点设防挡不完）。配置中心照常读，用来列出位置、改好。
+        suspicious = secret_like_paths(data)
+        if suspicious:
+            raise ConfigSecretError("%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存；"
+                                    "改好之前调度器不读这份配置（config show 列出位置）"
+                                    % (path, "、".join(suspicious[:5])), EXIT_USAGE)
         return data
 
     def worktree_root(self, config: Dict[str, Any]) -> Path:
@@ -7293,6 +7304,10 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
     try:
         repo = Repo.discover(args.repo)
         config, agent_dir = repo.config(), repo.agent_dir
+    except ConfigSecretError as exc:  # 照实报告，不当作没有配置（D9）
+        facts["decisions"] = {"mode": "off", "reason": "config_invalid"}
+        problems.append(str(exc))
+        return
     except DispatchError:
         config, agent_dir = {}, None
     secret = secret_config_error(config, "decisions")

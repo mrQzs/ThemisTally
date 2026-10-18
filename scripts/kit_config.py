@@ -605,11 +605,11 @@ def _snapshot_ref(repo: Any, resource: str, data: Optional[bytes], *, store: boo
     if resource != "config":
         return {"kind": "local-file", "sha256": sha, "stored": False}
     target = repo.agent_dir / HISTORY_DIR / ("%s.json" % sha)
-    if target.is_file():
-        return {"kind": "config-snapshot", "sha256": sha, "stored": True}
-    reason = _secret_reason(data)
+    reason = _secret_reason(data)  # 先查再看是否已存：规则变严之前存下的同一内容，同样不算“已存”（闸二第 2 片第 4 轮 S1）
     if reason is not None:
         return {"kind": "config-snapshot", "sha256": sha, "stored": False, "reason": reason}
+    if target.is_file():
+        return {"kind": "config-snapshot", "sha256": sha, "stored": True}
     if not store:
         return {"kind": "config-snapshot", "sha256": sha, "stored": False}
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1033,7 +1033,8 @@ def history_entries(repo: Any) -> Tuple[List[Dict[str, Any]], List[int], int]:
     return entries, broken, leading_external
 
 
-def _snapshot_bytes(repo: Any, ref: Optional[Dict[str, Any]]) -> Optional[bytes]:
+def _stored_snapshot(repo: Any, ref: Optional[Dict[str, Any]]) -> Optional[bytes]:
+    """快照文件的字节（引用说已存、文件在、哈希相符）；否则 None。不做凭据检查，只给 _snapshot_bytes 与说明用。"""
     if not ref or not ref.get("stored") or not isinstance(ref.get("sha256"), str):
         return None
     path = repo.agent_dir / HISTORY_DIR / ("%s.json" % ref["sha256"])
@@ -1042,6 +1043,13 @@ def _snapshot_bytes(repo: Any, ref: Optional[Dict[str, Any]]) -> Optional[bytes]
     except OSError:
         return None
     return data if _sha(data) == ref["sha256"] else None
+
+
+def _snapshot_bytes(repo: Any, ref: Optional[Dict[str, Any]]) -> Optional[bytes]:
+    """可以显示、可以回滚的快照字节。存的时候查过凭据；这里按现在的规则再查一次，规则变严之前存下的快照
+    照样不显示、不回滚，原文件不动（闸二第 2 片第 4 轮 S1）。"""
+    data = _stored_snapshot(repo, ref)
+    return data if data is not None and _secret_reason(data) is None else None
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -1072,10 +1080,13 @@ def key_diff(before: Optional[bytes], after: Optional[bytes]) -> Optional[List[T
             if old_flat.get(key, KeyError) != new_flat.get(key, KeyError)]
 
 
-def _content_note(resource: Any, ref: Optional[Dict[str, Any]]) -> Optional[str]:
-    if ref is None or ref.get("stored"):
+def _content_note(resource: Any, ref: Optional[Dict[str, Any]], repo: Any = None) -> Optional[str]:
+    if ref is None:
         return None
-    return "本机配置只存哈希" if resource == "local" else "疑似凭据，未存内容"
+    if not ref.get("stored"):
+        return "本机配置只存哈希" if resource == "local" else "疑似凭据，未存内容"
+    data = _stored_snapshot(repo, ref) if repo is not None else None
+    return "疑似凭据，不显示" if data is not None and _secret_reason(data) is not None else None
 
 
 def cmd_history(args: argparse.Namespace) -> int:
@@ -1092,7 +1103,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                      "action": entry["action"], "target": entry["target"], "actor": entry["actor"],
                      "confirmation": entry["confirmation"], "state": entry["state"], "resolved": entry["resolved"],
                      "changed_keys": [item[0] for item in diff] if diff is not None else None,
-                     "note": _content_note(entry["resource"], entry["after_ref"]),
+                     "note": _content_note(entry["resource"], entry["after_ref"], repo),
                      "external_changes": entry["external_after"]})
     if args.json:
         print(json.dumps({"entries": rows, "broken_lines": broken, "external_before_first": leading_external},
@@ -1137,7 +1148,7 @@ def _history_show(repo: Any, entries: List[Dict[str, Any]], number: int, as_json
     diff = key_diff(before, after)
     note = None
     if diff is None:
-        note = _content_note("config", entry["after_ref"] if after is None else entry["before_ref"]) or "快照缺失"
+        note = _content_note("config", entry["after_ref"] if after is None else entry["before_ref"], repo) or "快照缺失"
     if as_json:
         print(json.dumps({"number": number, "state": entry["state"], "note": note,
                           "diff": None if diff is None else [{"key": k, "old": o, "new": n} for k, o, n in diff]},
@@ -1167,7 +1178,7 @@ def cmd_rollback(args: argparse.Namespace) -> int:
         data = _snapshot_bytes(repo, entry["after_ref"])
         if data is None:
             raise ConfigError("第 %d 条的快照没有存内容或已缺失（%s），不能回滚" % (
-                args.number, _content_note("config", entry["after_ref"]) or "快照文件缺失"))
+                args.number, _content_note("config", entry["after_ref"], repo) or "快照文件缺失"))
         target = _parse_object(repo.agent_dir / HISTORY_DIR / ("%s.json" % entry["after_ref"]["sha256"]), data)
         changed = txn.publish(target, raw_text=data.decode("utf-8"))
     print("%s：%s 回到第 %d 条之后的内容" % ("已回滚" if changed else "没有变化", config_path(repo), args.number))

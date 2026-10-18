@@ -279,6 +279,54 @@ class Validation(RolesRepo):
                 self.assertIn("替身：<redacted>", err)
                 self.assertNotIn("zyxwvutsrqponmlk", err)
 
+    # 闸二第 2 片第 4 轮 B1：内核读配置的唯一入口先过整份的疑似凭据检查，下游拿不到这些取值
+    def test_g2s2r4_kernel_refuses_a_config_with_secret_like_values(self):
+        token = "sk-" + "t" * 20
+        for key, value in (("pricing", {"p/m": {"input": 1, "output": 1, "source": token, "as_of": "2026-10-18"}}),
+                           ("commit_trailers", ["Reviewed-By: %s" % token]), ("kill_grace_seconds", token),
+                           (token, 1)):
+            with self.subTest(key=key[:8]):
+                self.write({key: value})
+                with self.assertRaises(pd.ConfigSecretError) as caught:
+                    pd.Repo(self.repo).config()
+                self.assertEqual(caught.exception.code, pd.EXIT_USAGE)
+                self.assertNotIn("t" * 20, str(caught.exception))
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = pd.main(["--repo", str(self.repo), "metrics"])
+                self.assertEqual(code, pd.EXIT_USAGE)
+                self.assertNotIn("t" * 20, out.getvalue() + err.getvalue())
+                self.assertIn("疑似凭据", err.getvalue())
+
+    # 闸二第 2 片第 4 轮 S1：规则变严之前存下的快照，按现在的规则不显示、不回滚，原文件不动
+    def test_g2s2r4_snapshots_stored_under_older_rules_are_not_shown(self):
+        token = "sk-" + "k" * 24
+        self.write(self.base())
+        profiles = self.base()["profiles"]
+        profiles[token] = {"runtime": "pi", "model": {"provider": "bb", "id": "m"}}
+        real = pd.secret_like_paths
+
+        def older(value, path=()):  # 第 3 轮之前：不认令牌形状的键名
+            return [found for found in real(value, path) if pd.SECRET_KEY_SHOWN not in found]
+
+        with mock.patch.object(pd, "secret_like_paths", older):
+            code, _out, err = run_config(["set", "profiles", json.dumps(profiles)], self.repo)
+        self.assertEqual(code, 0, err)
+        history = self.repo / ".agent" / "config-history"
+        stored = {path.name: path.read_bytes() for path in history.iterdir()}
+        self.assertTrue(any(b"k" * 24 in data for data in stored.values()))  # 旧规则下确实存了内容
+        for argv in (["history"], ["history", "--json"], ["history", "show", "1"], ["history", "show", "1", "--json"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertNotIn("k" * 24, out + err)
+                self.assertIn("疑似凭据，不显示", out)
+        code, out, err = run_config(["rollback", "1"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("疑似凭据，不显示", err)
+        self.assertNotIn("k" * 24, out + err)
+        self.assertEqual({path.name: path.read_bytes() for path in history.iterdir()}, stored)
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())

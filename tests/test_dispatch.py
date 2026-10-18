@@ -3098,6 +3098,33 @@ def test_v290_doctor_reports_the_kit_layout():
           and facts["kit"]["missing"] == [], out)
 
 
+def test_v2120_kernel_refuses_secret_like_config():
+    """3.0 第二轮 D9（闸二第 2 片第 4 轮）：内核读配置的唯一入口先过疑似凭据检查，prepare、metrics、branch 都拿不到
+    这些取值：不进报错、不进记录、不进提交说明。"""
+    token = "sk-" + "t" * 20
+    repo, _base = make_repo("v2120-secret-config")
+    write_config(repo, kill_grace_seconds=token)
+    code, out = tool(repo, "prepare", "normalize-query.v1")
+    check("prepare refuses a secret-like config before any attempt, without echoing it",
+          code == 2 and "疑似凭据（kill_grace_seconds）" in out and token not in out
+          and not (repo / ".agent/runs/normalize-query").exists(), out)
+    write_config(repo, pricing={"step/step-5-preview": {"input": 1, "output": 1, "source": token,
+                                                         "as_of": "2026-10-18"}})
+    code, out = tool(repo, "metrics")
+    check("metrics refuses it too", code == 2 and token not in out, out)
+    write_config(repo)
+    code, out = run_ok(repo)
+    assert code == 0, out
+    assert tool(repo, "check", "normalize-query/attempt-001")[0] == 0
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", review(repo, "PASS"))
+    assert code == 0, out
+    write_config(repo, commit_trailers=["Reviewed-By: %s" % token])
+    code, out = tool(repo, "branch", "normalize-query/attempt-001")
+    check("branch refuses before a commit message carries the trailer",
+          code == 2 and token not in out and not git(repo, "branch", "--list", "pi/*")
+          and not (rd(repo) / "branch-message.txt").exists(), out)
+
+
 def test_v2100_integrate_reuse_self_checks_and_interpretations():
     """2.10.0：integrate 沿用最近一次干净的 check --fresh（末端相对候选只多了规划文件时不重跑，其余情况重跑并说出
     原因）；执行说明给出每条检查的自检照抄写法；复审骨架列出执行报告的自定解读与事件流里的解读线索。"""
