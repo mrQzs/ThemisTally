@@ -143,7 +143,8 @@ def build_md(c):
              "- repository: test", "- base_sha: %s" % c["base_sha"], "- risk_level: %s" % c["risk_level"],
              "- authorized_actions: %s" % join(auth.get("executor", [])),
              "- integration_actions: %s" % (join(auth.get("integration", [])) or "none"),
-             "- executor: %s/%s · thinking %s" % (ex.get("provider"), ex.get("model"), ex.get("thinking")), "",
+             ("- executor: role:%s" % ex["role"]) if "role" in ex
+             else "- executor: %s/%s · thinking %s" % (ex.get("provider"), ex.get("model"), ex.get("thinking")), "",
              "## Goal", "normalize() 折叠空白并转小写。", "", "## Non-goals", "- 不改其他模块。", "",
              "## Repository facts", "- src/normalize.py 中的 normalize(q)。", "", "## Scope"]
     for key in ("allowed_modified_files", "allowed_new_files", "allowed_deleted_files", "forbidden_paths"):
@@ -173,7 +174,8 @@ def write_config(repo, **extra):
     (repo / ".agent/dispatch.config.json").write_text(json.dumps(config), encoding="utf-8")
 
 
-def make_repo(name, attempts=3, thinking="high", gitignore=".agent/runs/\n.env\nnode_modules/\n", **over):
+def make_repo(name, attempts=3, thinking="high", gitignore=".agent/runs/\n.env\nnode_modules/\n",
+              scripts=("pi_dispatch.py", "dispatch-pi.sh"), **over):
     repo = WORK / name
     remove_tree(repo)
     for sub in ("src", "tests", "scripts"):
@@ -193,7 +195,7 @@ def make_repo(name, attempts=3, thinking="high", gitignore=".agent/runs/\n.env\n
     (repo / "package.json").write_text('{"name":"t","dependencies":{}}\n', encoding="utf-8")
     (repo / ".gitignore").write_text(gitignore, encoding="utf-8")
     (repo / "AGENTS.md").write_text("# AGENTS\n只改合同允许的文件。\n", encoding="utf-8")
-    for name_ in ("pi_dispatch.py", "dispatch-pi.sh"):
+    for name_ in scripts:
         shutil.copy(str(KIT / "scripts" / name_), str(repo / "scripts" / name_))
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base")
@@ -3230,6 +3232,452 @@ def test_v2100_integrate_reuse_self_checks_and_interpretations():
     tool(repo2, "check", "normalize-query/attempt-001")
     code, out = tool(repo2, "integrate", "normalize-query/attempt-001", "--dry-run")
     check("an in-place check after the fresh one does not hide it", code == 0 and "检查沿用 checks/03" in out, out)
+
+
+# ---------------------------------------------------------------------------
+# 3.0 第二轮：角色绑定（docs/themis-tally-3.0-r2-角色绑定与配置中心.md D3–D6；测试计划 9.4 的 K1–K17）
+# ---------------------------------------------------------------------------
+
+ROLE_SCRIPTS = ("pi_dispatch.py", "dispatch-pi.sh", "kit_roles.py")
+ROLE_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "bash"]
+ROLE_PROFILES = {
+    "exec-step": {"runtime": "pi", "model": {"provider": "step", "id": "step-5-preview"}, "options": {"thinking": "high"}},
+    "exec-mini": {"runtime": "pi", "model": {"provider": "step", "id": "step-5-mini"}, "options": {"thinking": "high"}},
+    "oc-x": {"runtime": "oc", "model": {"provider": "oc", "id": "x-1"}},
+}
+ROLE_ENV = {"STUB_MODELS": "step step-5-preview;step step-5-mini"}
+ROLE_IGNORE = ".agent/runs/\n.agent/dispatch.local.json\n.env\nnode_modules/\n"
+RECORD_V1 = ".agent/runs/normalize-query/binding-v1.json"
+
+#: 子进程驱动（K4、K4b）：在 publish_new 之前报告并等放行文件，此时持有任务锁。
+BINDING_DRIVER = '''
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import pi_dispatch as pd
+barrier = sys.argv[2]
+original = pd.publish_new
+def held(path, data):
+    open(barrier + ".holding", "w").close()
+    deadline = time.time() + 60
+    while not os.path.exists(barrier + ".go") and time.time() < deadline:
+        time.sleep(0.05)
+    return original(path, data)
+pd.publish_new = held
+sys.exit(pd.main(sys.argv[3:]))
+'''
+
+
+def role_config(repo, profile="exec-step", role="execution", **extra):
+    """配置：两个 runtime、三个 profile；role 绑到 profile（profile 为 None 时不写 roles）。"""
+    config = {"runtimes": {"pi": {"adapter": "pi"}, "oc": {"adapter": "opencode"}},
+              "profiles": json.loads(json.dumps(ROLE_PROFILES))}
+    if profile is not None:
+        config["roles"] = {role: {"mode": "headless", "profile": profile}}
+    config.update(extra)
+    write_config(repo, **config)
+
+
+def role_contract(base, ver=1, role="execution", **over):
+    data = contract(base, ver, **over)
+    data["executor"] = {"role": role, "tools": list(ROLE_TOOLS), "context_files": "project"}
+    return data
+
+
+def write_role_plan(repo, base, ver, role="execution", **over):
+    data = role_contract(base, ver, role, **over)
+    write_plan(repo, base, ver, md=build_md(data), raw=data)
+    return data
+
+
+def make_role_repo(name, profile="exec-step", **over):
+    repo, base = make_repo(name, gitignore=ROLE_IGNORE, scripts=ROLE_SCRIPTS, **over)
+    role_config(repo, profile)
+    write_role_plan(repo, base, 1)
+    return repo, base
+
+
+def attempt_names(repo):
+    base = repo / ".agent/runs/normalize-query"
+    return sorted(p.name for p in base.iterdir() if p.is_dir() and p.name.startswith("attempt-")) if base.is_dir() else []
+
+
+def binding_of(repo, n=1):
+    meta = jload(rd(repo, n) / "meta.json")
+    return {key: value for key, value in meta.get("executor_binding", {}).items() if key != "record_path"}
+
+
+def path_without_pi():
+    """PATH 去掉能找到 pi 的目录：本机文件没被用上时 run 找不到 pi，不会去运行这台机器上真实的 pi。"""
+    return os.pathsep.join(entry for entry in os.environ.get("PATH", "").split(os.pathsep)
+                           if entry and not shutil.which("pi", path=entry))
+
+
+def test_v2120_role_contracts_derive_and_validate():
+    """K12：三类 executor 的派生与校验（进程内）。"""
+    check("K12 executor classes follow the raw contract",
+          [pd.executor_class(raw) for raw in ({"role": "execution"}, {"role": None}, {"provider": "step", "model": "m"},
+                                              {"provider": None, "model": None}, {"provider": "step", "model": None},
+                                              {"provider": None, "model": "m"}, {"thinking": "high"}, None)]
+          == ["role", "role", "written", "legacy", "legacy", "legacy", "legacy", "legacy"])
+    repo, base = make_role_repo("v2120-k12")
+    data = role_contract(base)
+    derived, problems = pd.derive_contract_json(build_md(data))
+    check("K12 derive-json turns `role:execution` into a role executor",
+          derived.get("executor") == {"role": "execution", "tools": list(pd.DEFAULT_TOOLS), "context_files": "project"}
+          and not [p for p in problems if "executor" in p], (derived.get("executor"), problems))
+    target = pd.Repo(repo)
+
+    def errors_for(md, raw):
+        write_plan(repo, base, 1, md=md, raw=raw)
+        _contract, errors, _warnings = pd.validate_plan(target, "normalize-query.v1")
+        return errors
+
+    check("K12 a consistent role contract validates", errors_for(build_md(data), data) == [],
+          errors_for(build_md(data), data))
+    other = role_contract(base, role="contract")
+    written = contract(base)
+    for name, md, raw in (("markdown names another role", build_md(other), data),
+                          ("markdown is written, json is role", build_md(written), data),
+                          ("markdown is role, json is written", build_md(data), written)):
+        errors = errors_for(md, raw)
+        check("K12 role lines must agree: %s" % name, any("executor.role 不一致" in e for e in errors), errors)
+    for field, value in (("provider", "step"), ("thinking", None), ("model", "step-5-preview"), ("provider", None)):
+        raw = role_contract(base)
+        raw["executor"][field] = value
+        errors = errors_for(build_md(data), raw)
+        check("K12 role cannot be mixed with %s=%r" % (field, value),
+              any("executor.role 不能与 %s 同时写" % field in e for e in errors), errors)
+    raw = role_contract(base)
+    raw["executor"]["role"] = "reviewer"
+    check("K12 only execution and contract roles",
+          any("executor.role 只能是" in e for e in errors_for(build_md(data), raw)))
+
+
+def test_v2120_role_bindings_prepare_and_run():
+    """K2、K3、K6、K9、K10、K11、K15（按角色）、K17。"""
+    repo, base = make_role_repo("v2120-role")
+    code, out = tool(repo, "validate", "normalize-query.v1", env=ROLE_ENV)
+    check("validate: a role contract with a usable binding has no binding WARN",
+          code == 0 and "当前绑定也用不了" not in out, out)
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    record = jload(repo / RECORD_V1) if (repo / RECORD_V1).exists() else {}
+    meta = jload(rd(repo) / "meta.json") if (rd(repo) / "meta.json").exists() else {}
+    check("K2 prepare publishes the version record from the binding and copies it into meta",
+          code == 0 and record.get("model") == "step-5-preview" and record.get("provider") == "step"
+          and record.get("thinking") == "high" and record.get("profile") == "exec-step" and record.get("runtime") == "pi"
+          and record.get("adapter") == "pi" and record.get("created_by_attempt") == "attempt-001"
+          and record.get("contract_json_sha256") == meta.get("contract_json_sha256")
+          and binding_of(repo) == record and meta["executor_binding"].get("record_path") == RECORD_V1,
+          (code, out, record, meta))
+    code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+    executor = jload(rd(repo) / "executor.json") if (rd(repo) / "executor.json").exists() else {}
+    events = jload(rd(repo) / "events-summary.json") if (rd(repo) / "events-summary.json").exists() else {}
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8") if (rd(repo) / "summary.md").exists() else ""
+    check("K2 run uses the record's model",
+          code == 0 and executor.get("provider") == "step" and executor.get("model") == "step-5-preview"
+          and executor.get("thinking") == "high"
+          and [m.get("model") for m in events.get("actual_models", [])] == ["step-5-preview"], (code, out, executor))
+    check("K15 the summary names the role binding as the source",
+          "- 执行模型来源：角色绑定 execution（profile exec-step，runtime pi，方案 无，配置 sha256 " in summary
+          and "记录 %s）" % RECORD_V1 in summary, summary[:1500])
+
+    # K3：改了绑定之后，同一版本的第二个 attempt 沿用记录并提示差异
+    role_config(repo, "exec-mini")
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    check("K3 a later attempt of the same version keeps the record and notes the changed binding",
+          code == 0 and binding_of(repo, 2) == record and "step-5-mini" in out and "沿用" in out, out)
+    check("K3 the record itself never changes", jload(repo / RECORD_V1) == record)
+    # K9：已有记录之后删掉绑定，或改成未接通：照常沿用
+    for profile, label in ((None, "deleted"), ("oc-x", "not connected")):
+        role_config(repo, profile)
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+        newest = int(attempt_names(repo)[-1].split("-")[1])
+        check("K9 an existing record is used when the binding is %s" % label,
+              code == 0 and binding_of(repo, newest) == record and "当前没有可用的 execution 绑定" in out, out)
+    # K6：新版本用新绑定
+    role_config(repo, "exec-mini")
+    write_role_plan(repo, base, 2)
+    code, out = tool(repo, "prepare", "normalize-query.v2", env=ROLE_ENV)
+    record2 = jload(repo / ".agent/runs/normalize-query/binding-v2.json") \
+        if (repo / ".agent/runs/normalize-query/binding-v2.json").exists() else {}
+    check("K6 a new version records the new binding", code == 0 and record2.get("model") == "step-5-mini", out)
+
+    # K10：环境变量与记录冲突，prepare 时与 prepare 之后都拒绝
+    for name, value in (("PI_EXEC_PROVIDER", "other"), ("PI_EXEC_MODEL", "other-model"), ("PI_EXEC_THINKING", "low")):
+        before = attempt_names(repo)
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, **{name: value}))
+        check("K10 prepare refuses %s that differs from the record, leaving no attempt" % name,
+              code == 2 and "与execution 角色绑定的版本记录" in out and attempt_names(repo) == before, out)
+    repo2, _base2 = make_role_repo("v2120-role-env")
+    assert tool(repo2, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    for name, value in (("PI_EXEC_PROVIDER", "other"), ("PI_EXEC_MODEL", "other-model"), ("PI_EXEC_THINKING", "low")):
+        code, out = tool(repo2, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok", **{name: value}))
+        check("K10 run refuses %s set after prepare" % name,
+              code == 2 and "冲突" in out and state(repo2) == "PREPARED", out)
+    # K11：prepare 之后收紧允许列表或固定 thinking：run 拒绝
+    for allowed, needle in (([{"provider": "step", "model": "step-5-mini"}], "allowed_executors"),
+                            ([{"provider": "step", "model": "step-5-preview", "thinking": "low"}], "思考级别固定为 low")):
+        role_config(repo2, "exec-step", allowed_executors=allowed)
+        code, out = tool(repo2, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+        check("K11 run refuses a record the allow list no longer accepts (%s)" % needle,
+              code == 3 and needle in out and state(repo2) == "PREPARED", out)
+
+    # K17：本机文件的命令被 run 使用；PI_DISPATCH_PI_CMD 仍然优先；本机文件被跟踪时不使用
+    repo3, _base3 = make_role_repo("v2120-local")
+    local = repo3 / ".agent/dispatch.local.json"
+    no_pi = {"PATH": path_without_pi(), "PI_DISPATCH_PI_CMD": ""}
+    local.write_text(json.dumps({"runtimes": {"pi": {"command": [PY, "-c", "import sys; sys.exit(7)"]}}}),
+                     encoding="utf-8")
+    assert tool(repo3, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    code, out = tool(repo3, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+    check("K17 PI_DISPATCH_PI_CMD still comes before the local file", code == 0, out)
+    local.write_text(json.dumps({"runtimes": {"pi": {"command": [PY, str(HERE / "stub_pi.py")]}}}), encoding="utf-8")
+    assert tool(repo3, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    code, out = tool(repo3, "run", "normalize-query/attempt-002", env=dict(ROLE_ENV, STUB_SCENARIO="ok", **no_pi))
+    check("K17 run uses the local file's command for the record's runtime", code == 0, out)
+    git(repo3, "add", "-f", ".agent/dispatch.local.json")
+    assert tool(repo3, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    code, out = tool(repo3, "run", "normalize-query/attempt-003", env=dict(ROLE_ENV, STUB_SCENARIO="ok", **no_pi))
+    check("K17 a tracked local file is not used (ERROR, then PATH)",
+          code != 0 and "被 Git 跟踪，不使用" in out and "PATH 中找不到 pi" in out and state(repo3, 3) == "PREPARED", out)
+    git(repo3, "rm", "-q", "--cached", ".agent/dispatch.local.json")
+    if IS_WINDOWS:  # 本机文件给出的批处理包装：参数含特殊字符时在预检运行它之前就拒绝（D3 的 ensure_argv_safe）
+        marker = WORK / "v2120-batch-ran"
+        fake = WORK / "v2120-fake-pi.cmd"
+        fake.write_text('@echo off\r\necho ran > "%s"\r\n' % marker, encoding="utf-8")
+        local.write_text(json.dumps({"runtimes": {"pi": {"command": [str(fake), "a&b"]}}}), encoding="utf-8")
+        code, out = tool(repo3, "run", "normalize-query/attempt-003", env=dict(ROLE_ENV, STUB_SCENARIO="ok", **no_pi))
+        check("K17 a batch wrapper from the local file is checked before the preflight runs it",
+              code == 2 and "批处理特殊字符" in out and not marker.exists() and state(repo3, 3) == "PREPARED", out)
+
+
+def test_v2120_role_binding_refusals_and_integrity():
+    """K5、K7、K8、K14、K14b、K16。"""
+    # K7：首次建立记录时没有绑定，或 contract 是 manual：退出 2，不留 attempt，不运行 CLI
+    marker = WORK / "v2120-cli-marker"
+    spy = {"PI_DISPATCH_PI_CMD": json.dumps([PY, "-c", "open(%r, 'a').write('x')" % str(marker)])}
+    repo, base = make_role_repo("v2120-refuse", profile=None)
+    code, out = tool(repo, "validate", "normalize-query.v1", env=ROLE_ENV)
+    check("validate warns when a role contract has neither a record nor a usable binding",
+          code == 0 and "当前绑定也用不了" in out, out)
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, **spy))
+    check("K7 no binding: exit 2, no attempt", code == 2 and "headless 绑定" in out and attempt_names(repo) == [], out)
+    write_role_plan(repo, base, 1, role="contract")
+    role_config(repo, None, roles={"contract": {"mode": "manual"}})
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, **spy))
+    check("K7 role:contract with a manual contract role: exit 2, no attempt",
+          code == 2 and "manual" in out and attempt_names(repo) == [], out)
+    # K8：绑定未接通：退出 3，不留 attempt
+    write_role_plan(repo, base, 1)
+    role_config(repo, "oc-x")
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, **spy))
+    check("K8 an adapter not connected for the role: exit 3, no attempt",
+          code == 3 and "没有接通" in out and attempt_names(repo) == [], out)
+    # 配置的 v3 键无效（含疑似凭据）：不解析，取值不进提示（D9）
+    role_config(repo, "exec-step")
+    config = jload(repo / ".agent/dispatch.config.json")
+    config["profiles"]["exec-step"]["model"]["id"] = "sk-" + "z" * 24
+    (repo / ".agent/dispatch.config.json").write_text(json.dumps(config), encoding="utf-8")
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, **spy))
+    check("an invalid binding config is refused without echoing its values",
+          code == 2 and "疑似凭据" in out and "z" * 24 not in out and attempt_names(repo) == [], out)
+    check("K7/K8 prepare never ran a CLI", not marker.exists())
+
+    # K5：同一版本的合同在首次派遣之后被改：哈希不符，退出 4，attempt 记 PREPARE_FAILED
+    repo, base = make_role_repo("v2120-drift")
+    assert tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    write_role_plan(repo, base, 1, budget={"max_attempts_total": 3, "max_wall_seconds_per_attempt": 900,
+                                           "max_wall_seconds_total": 1800, "cost_budget": None})
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    check("K5 a changed contract of a dispatched version: exit 4, PREPARE_FAILED",
+          code == 4 and "已派遣的版本不能改" in out and state(repo, 2) == "PREPARE_FAILED", out)
+    write_role_plan(repo, base, 1)
+
+    # K14、K14b：prepare 之后改记录、改 meta：G0 拒绝
+    record_path = repo / RECORD_V1
+    original = record_path.read_bytes()
+    for field, value in (("runtime", "oc"), ("contract_json_sha256", "0" * 64)):
+        record = json.loads(original.decode("utf-8"))
+        record[field] = value
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+        check("K14 G0 refuses a record whose %s changed after prepare" % field,
+              code != 0 and "输入不一致（G0）" in out and "版本记录" in out and state(repo) == "PREPARED", out)
+    record_path.write_bytes(original)
+    meta_path = rd(repo) / "meta.json"
+    meta_bytes = meta_path.read_bytes()
+    meta = json.loads(meta_bytes.decode("utf-8"))
+    meta.pop("executor_binding")
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+    check("K14b G0 refuses a role contract whose meta lost executor_binding",
+          code != 0 and "缺少 meta.json 的 executor_binding" in out, out)
+    meta_path.write_bytes(meta_bytes)
+
+    # K16：记录损坏或不完整：拒绝，不自动修复；路径上有链接：拒绝
+    for label, content in (("corrupt", b"{not json"), ("incomplete", json.dumps({"role": "execution"}).encode())):
+        record_path.write_bytes(content)
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+        check("K16 prepare refuses a %s record with exit 4 and leaves it as is" % label,
+              code == 4 and "版本记录无效" in out and record_path.read_bytes() == content, out)
+    record_path.write_bytes(original)
+    task_dir = repo / ".agent/runs/normalize-query"
+    moved = WORK / "v2120-moved-task"
+    shutil.move(str(task_dir), str(moved))
+    kind = _junction_or_link(task_dir, moved)
+    if kind is None:
+        shutil.move(str(moved), str(task_dir))
+        check("K16 (skipped: cannot create a directory link here)", True)
+    else:
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+        check("K16 prepare refuses a record reached through a %s" % kind,
+              code == 4 and "经过链接" in out, out)
+        _remove_dir_link(task_dir)
+        shutil.move(str(moved), str(task_dir))
+    root = WORK / "v2120-links"
+    remove_tree(root)
+    for level in (".agent", ".agent/runs", ".agent/runs/t", ".agent/runs/t/binding-v1.json"):
+        real = root / "real"
+        remove_tree(root)
+        (root / ".agent/runs/t").mkdir(parents=True)
+        (root / ".agent/runs/t/binding-v1.json").write_text(json.dumps(record), encoding="utf-8")
+        if level.endswith(".json"):
+            target = root / "elsewhere.json"
+            shutil.copy(str(root / level), str(target))
+            (root / level).unlink()
+            try:
+                os.symlink(str(target), str(root / level))
+            except OSError:  # 建不了文件链接（Windows 没有开发者模式）：这一级由目录的几级与 first_link_component 覆盖
+                check("K16 (skipped: no file symlink privilege) %s" % level, True)
+                continue
+        else:
+            shutil.move(str(root / level), str(real))
+            if _junction_or_link(root / level, real) is None:
+                continue
+        try:
+            pd.load_binding_record(pd.Repo(root), "t", 1)
+            refused = None
+        except pd.BindingRecordError as exc:
+            refused = exc
+        check("K16 load_binding_record refuses a link at %s" % level,
+              refused is not None and refused.code == pd.EXIT_DRIFT and "链接" in str(refused), refused)
+        if (root / level).exists() and not level.endswith(".json"):
+            _remove_dir_link(root / level)
+    remove_tree(root)
+
+
+def test_v2120_binding_publication_races():
+    """K4、K4b：发布的唯一性与最终采用别人发布的记录。子进程驱动让 A 停在 publish_new 之前（持任务锁）。"""
+    def start_held(repo, name, env=None):
+        barrier = WORK / ("%s-barrier" % name)
+        for suffix in (".holding", ".go"):
+            Path(str(barrier) + suffix).unlink() if Path(str(barrier) + suffix).exists() else None
+        driver = WORK / "binding_driver.py"
+        driver.write_text(BINDING_DRIVER, encoding="utf-8")
+        merged = dict(BASE_ENV, **ROLE_ENV)
+        merged.update(env or {})
+        proc = subprocess.Popen([PY, str(driver), str(repo / "scripts"), str(barrier), "prepare", "normalize-query.v1"],
+                                cwd=str(repo), env=merged, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        deadline = time.time() + 60
+        while not Path(str(barrier) + ".holding").exists() and proc.poll() is None and time.time() < deadline:
+            time.sleep(0.05)
+        return proc, barrier
+
+    def release(proc, barrier):
+        Path(str(barrier) + ".go").write_text("", encoding="utf-8")
+        out = proc.communicate(timeout=120)[0].decode("utf-8", "replace")
+        return proc.returncode, out
+
+    # K4①：A 持锁停在发布之前；B 等任务锁，之后读到完整的记录
+    repo, _base = make_role_repo("v2120-race")
+    proc_a, barrier = start_held(repo, "race")
+    proc_b = subprocess.Popen([PY, "scripts/pi_dispatch.py", "prepare", "normalize-query.v1"], cwd=str(repo),
+                              env=dict(BASE_ENV, **ROLE_ENV), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(1.5)
+    b_waiting = proc_b.poll() is None and not (repo / RECORD_V1).exists()
+    code_a, out_a = release(proc_a, barrier)
+    out_b = proc_b.communicate(timeout=120)[0].decode("utf-8", "replace")
+    check("K4 the second prepare waits for the task lock and reads the complete record",
+          b_waiting and code_a == 0 and proc_b.returncode == 0 and binding_of(repo, 1) == binding_of(repo, 2)
+          == jload(repo / RECORD_V1), (out_a, out_b))
+
+    # K4②：旧持有者恢复：锁被清除、别人已发布 Y；A 的 publish_new 返回 False，改用 Y
+    repo, _base = make_role_repo("v2120-stale")
+    proc_a, barrier = start_held(repo, "stale")
+    shutil.rmtree(str(repo / ".agent/runs/normalize-query/.task.lock"), ignore_errors=True)
+    role_config(repo, "exec-mini")
+    code_b, out_b = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    code_a, out_a = release(proc_a, barrier)
+    record = jload(repo / RECORD_V1) if (repo / RECORD_V1).exists() else {}
+    check("K4 a stale holder adopts the record someone else published; the record stays Y",
+          code_b == 0 and code_a == 0 and record.get("model") == "step-5-mini"
+          and binding_of(repo, 1) == binding_of(repo, 2) == record, (out_a, out_b, record))
+
+    # K4b：最终采用的 Y 要重新过环境变量与允许列表
+    for label, env_a, config_a, expected in (
+            ("PI_EXEC_MODEL", {"PI_EXEC_MODEL": "step-5-preview"}, {}, 2),
+            ("allowed_executors", {}, {"allowed_executors": [{"provider": "step", "model": "step-5-preview"}]}, 3)):
+        repo, _base = make_role_repo("v2120-adopt-%s" % label.lower().replace("_", "-"))
+        role_config(repo, "exec-step", **config_a)
+        proc_a, barrier = start_held(repo, "adopt-%s" % label, env_a)
+        shutil.rmtree(str(repo / ".agent/runs/normalize-query/.task.lock"), ignore_errors=True)
+        role_config(repo, "exec-mini")
+        code_b, out_b = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+        code_a, out_a = release(proc_a, barrier)
+        check("K4b the adopted record is checked again (%s): exit %d, PREPARE_FAILED" % (label, expected),
+              code_b == 0 and code_a == expected and state(repo, 1) == "PREPARE_FAILED", (out_a, out_b))
+
+
+def test_v2120_written_contracts_and_readback():
+    """K1、K13、K15（写死与旧合同）。"""
+    # K1：写死合同、绑定不同：用合同的模型，打 NOTE；拒绝的顺序不变
+    repo, _base = make_repo("v2120-written", scripts=ROLE_SCRIPTS)
+    role_config(repo, "exec-mini")
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=dict(ROLE_ENV, PI_EXEC_MODEL="other-model"))
+    check("K1 a written contract still refuses a conflicting PI_EXEC_MODEL first, without the binding NOTE",
+          code == 2 and "PI_EXEC_MODEL=other-model 与合同 executor.model=step-5-preview 冲突" in out
+          and "execution 绑定是" not in out, out)
+    role_config(repo, "exec-mini", allowed_executors=[{"provider": "step", "model": "step-5-mini"}])
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    check("K1 a written contract still refuses a model outside allowed_executors, without the binding NOTE",
+          code == 3 and "allowed_executors" in out and "execution 绑定是" not in out, out)
+    role_config(repo, "exec-mini")
+    code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+    meta = jload(rd(repo) / "meta.json") if (rd(repo) / "meta.json").exists() else {}
+    check("K1 a written contract keeps its model and notes the different binding",
+          code == 0 and "execution 绑定是 step/step-5-mini · thinking high（profile exec-mini），本次按合同" in out
+          and meta.get("executor_binding_note") == {"role": "execution", "profile": "exec-mini",
+                                                    "binding": {"provider": "step", "model": "step-5-mini",
+                                                                "thinking": "high"}}
+          and "executor_binding" not in meta and not (repo / RECORD_V1).exists(), (out, meta))
+    code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8") if (rd(repo) / "summary.md").exists() else ""
+    check("K1 run uses the contract's model; K15 the summary says written, with the different binding",
+          code == 0 and jload(rd(repo) / "executor.json")["model"] == "step-5-preview"
+          and "- 执行模型来源：合同写死；与当时的 execution 绑定不同（profile exec-mini：step/step-5-mini · thinking high）"
+          in summary, (out, summary[:1500]))
+    # K15：旧合同（provider、model 由 PI_EXEC_* 补上）
+    legacy = WORK / "v2120-legacy-run"
+    remove_tree(legacy)
+    legacy.mkdir()
+    (legacy / "contract.json").write_text(json.dumps({"executor": {"provider": None, "model": None}}), encoding="utf-8")
+    check("K15 the summary line for a legacy contract",
+          pd.executor_source_text(legacy, {}) == "合同，缺的项由环境变量 PI_EXEC_* 补上")
+
+    # K13：领取之后、写 executor.json 之前崩溃，再 collect --recover：summary 与 review-draft 用记录里的模型
+    repo, _base = make_role_repo("v2120-recover")
+    assert tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    (rd(repo) / "claim").mkdir()
+    pd.set_state(rd(repo), "RUNNING")
+    code, out = tool(repo, "collect", "normalize-query/attempt-001", "--recover", env=ROLE_ENV)
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8") if (rd(repo) / "summary.md").exists() else ""
+    check("K13 collect --recover without executor.json shows the record's model in the summary",
+          not (rd(repo) / "executor.json").exists() and "要求的执行模型：step/step-5-preview · thinking=high" in summary,
+          (code, out, summary[:1500]))
+    code, out = tool(repo, "review-draft", "normalize-query/attempt-001", env=ROLE_ENV)
+    drafts = list((repo / ".agent/reviews").rglob("*.md")) if (repo / ".agent/reviews").exists() else []
+    text = drafts[0].read_text(encoding="utf-8") if drafts else ""
+    check("K13 review-draft shows the record's model", code == 0 and "step-5-preview" in text, (code, out, text[:800]))
 
 
 RECORD_290 = ".agent/kit-install.json"

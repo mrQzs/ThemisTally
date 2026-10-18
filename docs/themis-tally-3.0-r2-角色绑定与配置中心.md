@@ -381,7 +381,8 @@
 
     这样，把本机文件强行提交进仓库，也不会让它生效（r1-B1）。
   - 文件里出现提交的配置中没登记的 runtime ID 时，打 WARN；
-  - 读写它的代码只在 `kit_roles` 里。
+  - 读写它的代码只在 `kit_roles` 里（`check_local`、`read_local`、`local_command`）；
+  - 实现时的写法：形状不对、有疑似凭据（D9）也按“不使用”处理；run 遇到不能用的本机文件时，打印 ERROR 行，接着按 PATH 找（下面解析顺序的第 3 步），不因此拒绝。
 - **执行之前**，本机文件给出的命令过一遍 `ensure_argv_safe`。
 
 **命令的解析顺序**（只用于按角色的合同与配置中心）：
@@ -434,7 +435,7 @@
 
 - prepare 的提前解析与拒绝顺序原样保留（2.1）；
 - 这些检查都通过之后，若配置了 execution 绑定，且它的 provider、model、thinking 有任何一项与合同不同，打 NOTE，并在 meta 里写 `executor_binding_note`；
-- 比较只读配置，不运行 CLI，从不阻塞。
+- 比较只读配置，不运行 CLI，从不阻塞。实现时的写法（`_written_binding_note`）：配置里没有 v3 键时不导入 kit_roles；v3 键校验不过（含疑似凭据，D9）、绑定不是 headless、或 profile 缺 provider / model 时不比较。
 
 **旧合同**：行为与 2.10 完全相同。
 
@@ -502,6 +503,7 @@
 - 执行模型的 provider、model、thinking 取自记录，tools、context_files 取自合同。
 - 再检查一次 `allowed_executors` 与 `PI_EXEC_*` 的冲突。
 - pi 的命令按记录里的 runtime 解析（D3）。
+- 实现时的写法：版本记录的核对（`binding_record_problems`）放在 `verify_inputs` 里，所以 run、verdict 的 G0、branch、integrate 四个调用处都做；已有记录读出来时另查疑似凭据（D9），有就按“记录无效”处理（EXIT_DRIFT）。
 
 **`executor.json` 的形状不变**。
 

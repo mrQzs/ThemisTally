@@ -772,8 +772,8 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
     return "flag"
 
 
-#: 配置 v3 的五个键（3.0 第二轮 D1），与 kit_roles.V3_KEYS 相同（本模块不在导入时依赖 kit_roles，D12）。
-V3_KEYS: Tuple[str, ...] = ("runtimes", "profiles", "roles", "presets", "active_preset")
+#: 配置 v3 的五个键（3.0 第二轮 D1）：与 kit_roles 共用 PD 的这一份（本模块不在导入时依赖 kit_roles，D12）。
+V3_KEYS: Tuple[str, ...] = pd.V3_CONFIG_KEYS
 
 
 def _kit_roles() -> Any:

@@ -492,6 +492,27 @@ class ConfigSecretError(DispatchError):
     """dispatch.config.json 里有疑似凭据：内核不读这份配置（3.0 第二轮 D9，闸二第 2 片第 4 轮）。消息只列位置。"""
 
 
+class BindingRecordError(DispatchError):
+    """按合同版本的执行模型记录（3.0 第二轮 D5）在冻结合同之后出的错：prepare 的包装记 PREPARE_FAILED 后原样重抛，
+    退出码不被改成 3（闸一第 2 轮 S2）。"""
+
+
+#: 合同 executor 的三类（3.0 第二轮 D4）：按 raw 合同（normalize_contract 补默认值之前）判定
+EXECUTOR_ROLES = ("execution", "contract")
+#: Markdown Identity 里按角色写的 executor 行：`role:execution` 或 `role:contract`
+ROLE_EXECUTOR_RE = re.compile(r"^role:(execution|contract)$")
+
+
+def executor_class(raw_executor: Any) -> str:
+    """role：写了 role，执行模型来自角色绑定；written：provider 与 model 都为真值（与 prepare 提前解析的条件相同）；
+    legacy：其余，照 2.10 由 PI_EXEC_* 补缺、从不读绑定。"""
+    if not isinstance(raw_executor, dict):
+        return "legacy"
+    if "role" in raw_executor:
+        return "role"
+    return "written" if raw_executor.get("provider") and raw_executor.get("model") else "legacy"
+
+
 # ---------------------------------------------------------------------------
 # 基础工具
 # ---------------------------------------------------------------------------
@@ -1183,11 +1204,19 @@ class Repo:
         return self.plans_dir / (key + ".md"), self.plans_dir / (key + ".json")
 
     def config(self) -> Dict[str, Any]:
+        return self.config_with_bytes()[0]
+
+    def config_with_bytes(self) -> Tuple[Dict[str, Any], Optional[bytes]]:
+        """配置与读到的原始字节（文件不存在时为 {} 与 None）。
+
+        按角色写的合同在 prepare 里只读这一次，绑定的解析与记录里的哈希都出自同一份字节（3.0 第二轮 D5）。
+        """
         path = self.agent_dir / "dispatch.config.json"
         if not path.exists():
-            return {}
+            return {}, None
+        raw = path.read_bytes()
         try:
-            data = read_json(path)
+            data = json.loads(raw.decode("utf-8"))
         except ValueError as exc:
             raise DispatchError("无法解析 %s：%s" % (path, exc), EXIT_USAGE)
         if not isinstance(data, dict):
@@ -1199,7 +1228,7 @@ class Repo:
             raise ConfigSecretError("%s 里有疑似凭据（%s）：配置里只写环境变量名，凭据的值用 config secret set 存；"
                                     "改好之前调度器不读这份配置（config show 列出位置）"
                                     % (path, "、".join(suspicious[:5])), EXIT_USAGE)
-        return data
+        return data, raw
 
     def worktree_root(self, config: Dict[str, Any]) -> Path:
         configured = config.get("worktree_root") or os.environ.get("PI_DISPATCH_WORKTREE_ROOT")
@@ -1692,8 +1721,9 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
     if not task_match:
         problems.append("第一行必须是 `# TASK: <task-id>`")
     executor = identity.get("executor", "")
-    exec_match = re.match(r"^([^/\s]+)/(\S+)\s*·\s*thinking\s+(\S+)", executor)
-    if not exec_match:
+    role_match = ROLE_EXECUTOR_RE.match(executor.strip())  # 按角色写（3.0 第二轮 D4）：执行模型来自角色绑定
+    exec_match = None if role_match else re.match(r"^([^/\s]+)/(\S+)\s*·\s*thinking\s+(\S+)", executor)
+    if not exec_match and not role_match:
         problems.append("Identity 的 executor 应写成 `provider/model · thinking <级别>`")
     goal = (_md_section(md, "Goal") or "").strip().splitlines()
     derived_title = title or next((g.strip("-* ").strip() for g in goal if g.strip()), "")
@@ -1748,7 +1778,8 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
             "executor": _md_action_list(identity.get("authorized_actions")),
             "integration": _md_action_list(identity.get("integration_actions")),
         },
-        "executor": {
+        "executor": {"role": role_match.group(1), "tools": list(DEFAULT_TOOLS), "context_files": "project"}
+        if role_match else {
             "provider": exec_match.group(1) if exec_match else None,
             "model": exec_match.group(2) if exec_match else None,
             "thinking": exec_match.group(3) if exec_match else DEFAULT_THINKING,
@@ -1854,6 +1885,17 @@ def _validate_contract(md_text: str, raw: Any, plan_key: str,
         integration = None
 
     executor = contract["executor"]
+    # 按角色写（3.0 第二轮 D4）：只看 raw 合同——normalize 会补 thinking=high，不能拿它判断“混用”
+    raw_executor = raw.get("executor") if isinstance(raw.get("executor"), dict) else {}
+    role_bound = executor_class(raw_executor) == "role"
+    if role_bound:
+        if not isinstance(raw_executor.get("role"), str) or raw_executor["role"] not in EXECUTOR_ROLES:
+            errors.append("executor.role 只能是 %s 之一" % "、".join(EXECUTOR_ROLES))
+        mixed = [field for field in ("provider", "model", "thinking") if field in raw_executor]
+        if mixed:
+            errors.append("executor.role 不能与 %s 同时写：按角色写时执行模型来自角色绑定" % "、".join(mixed))
+        if raw.get("contract_family") == "planner-v2":
+            errors.append("planner-v2 合同不支持按角色写 executor")
     for field in ("provider", "model"):
         value = executor.get(field)
         if value is not None and (not isinstance(value, str) or not MODEL_TOKEN_RE.match(value)):
@@ -1980,10 +2022,16 @@ def _validate_contract(md_text: str, raw: Any, plan_key: str,
                           % (field, ", ".join(sorted(declared)) or "none", ", ".join(sorted(expected_list)) or "none"))
     provider, model = executor.get("provider"), executor.get("model")
     declared_executor = identity.get("executor", "")
-    if provider and model and "%s/%s" % (provider, model) not in declared_executor:
-        errors.append("Markdown Identity 的 executor 应写明 %s/%s" % (provider, model))
-    if isinstance(thinking, str) and not re.search(r"thinking\s+%s\b" % re.escape(thinking), declared_executor):
-        errors.append("Markdown Identity 的 executor 应写明 thinking %s" % thinking)
+    declared_role = ROLE_EXECUTOR_RE.match(declared_executor.strip())
+    if role_bound or declared_role:  # 两边都要写，而且是同一个角色
+        if not (role_bound and declared_role and declared_role.group(1) == raw_executor.get("role")):
+            errors.append("Markdown Identity 的 executor 与 JSON 的 executor.role 不一致：按角色写时两边都写，"
+                          "Markdown 为 `- executor: role:<角色>`，JSON 为 {\"role\": \"<角色>\"}")
+    else:
+        if provider and model and "%s/%s" % (provider, model) not in declared_executor:
+            errors.append("Markdown Identity 的 executor 应写明 %s/%s" % (provider, model))
+        if isinstance(thinking, str) and not re.search(r"thinking\s+%s\b" % re.escape(thinking), declared_executor):
+            errors.append("Markdown Identity 的 executor 应写明 thinking %s" % thinking)
     for pattern in all_allowed + forbidden_list:
         if pattern not in md_text:
             errors.append("Markdown 未列出 JSON 中的路径：%s" % pattern)
@@ -2139,9 +2187,38 @@ def validate_plan(repo: Repo, plan_key: str) -> Tuple[Optional[Dict[str, Any]], 
             if head != base:
                 warnings.append(base_behind_head_message(repo, base, head))
             warnings.extend(missing_fact_path_warnings(repo, md_text, raw, base))
+    warnings.extend(role_binding_warnings(repo, raw))
     if git(["check-ignore", "-q", ".agent/runs/probe"], repo.root, check=False).returncode != 0:
         warnings.append(".agent/runs/ 尚未被 .gitignore 忽略；prepare 会拒绝运行")
     return contract, errors, warnings
+
+
+def role_binding_warnings(repo: Repo, raw: Any) -> List[str]:
+    """validate 的 WARN（D4）：按角色写的合同，这个版本还没有记录、当前绑定又用不了时提醒（prepare 会拒绝）。
+    只读配置与记录，不运行 CLI；合同本身的错误交给校验报告。"""
+    executor = raw.get("executor") if isinstance(raw, dict) else None
+    if executor_class(executor) != "role" or executor.get("role") not in EXECUTOR_ROLES:
+        return []
+    task_id, version = raw.get("task_id"), raw.get("plan_version")
+    if not (isinstance(task_id, str) and TASK_ID_RE.match(task_id)) or isinstance(version, bool) \
+            or not isinstance(version, int):
+        return []
+    try:
+        if load_binding_record(repo, task_id, version) is not None:
+            return []
+    except BindingRecordError as exc:
+        return [str(exc)]
+    roles = _kit_roles_module()
+    if roles is None:
+        return ["合同按角色写 executor，但 scripts/kit_roles.py 不在本工具旁边：prepare 会拒绝"]
+    try:
+        config = repo.config()
+    except DispatchError as exc:
+        return ["读不出配置（%s）：prepare 会拒绝" % exc]
+    _value, error = roles.resolve_role_executor(config, executor["role"])
+    if error is not None:
+        return ["合同按角色写 executor（%s），这个版本还没有记录、当前绑定也用不了：%s" % (executor["role"], error["message"])]
+    return []
 
 
 def verify_planner_publication(repo: Repo, plan_key: str, md_bytes: bytes, json_bytes: bytes) -> List[str]:
@@ -2332,8 +2409,11 @@ def base_behind_head_message(repo: "Repo", base: str, head: str) -> str:
 BATCH_UNSAFE_CHARS = set('&|<>^%!"\r\n')
 
 
-def resolve_pi_command() -> List[str]:
-    """定位 pi。Windows 上优先绕过 npm 的 .cmd 包装，直接用 node 运行入口脚本。"""
+def resolve_pi_command(repo: Optional["Repo"] = None, runtime: Optional[str] = None,
+                       config: Optional[Dict[str, Any]] = None) -> List[str]:
+    """定位 pi。顺序（3.0 第二轮 D3）：PI_DISPATCH_PI_CMD；给了 runtime 时（按角色写的合同），本机文件
+    .agent/dispatch.local.json 里它的 command（kit_roles 读取并核对，不可用时打 ERROR、不使用）；PATH 上的 pi，
+    Windows 上优先绕过 npm 的 .cmd 包装，直接用 node 运行入口脚本。写死合同与旧合同不传 runtime，不读本机文件。"""
     override = os.environ.get("PI_DISPATCH_PI_CMD")
     if override:
         try:
@@ -2343,6 +2423,14 @@ def resolve_pi_command() -> List[str]:
         if not (isinstance(value, list) and value and all(isinstance(x, str) and x for x in value)):
             raise DispatchError("PI_DISPATCH_PI_CMD 必须是 JSON 字符串数组或单个可执行文件路径", EXIT_USAGE)
         return value
+    if repo is not None and runtime is not None:
+        roles = _kit_roles_module()
+        if roles is not None:
+            command, lines = roles.local_command(repo, config if config is not None else repo.config(), runtime)
+            for line in lines:
+                print(line, file=sys.stderr)
+            if command is not None:
+                return command
     exe = shutil.which("pi")
     if not exe:
         raise DispatchError("PATH 中找不到 pi；请安装 @earendil-works/pi-coding-agent 或设置 PI_DISPATCH_PI_CMD")
@@ -3379,12 +3467,14 @@ def load_attempt(repo: Repo, run_dir: Path) -> Tuple[Dict[str, Any], Dict[str, A
     return meta, contract
 
 
-def verify_inputs(run_dir: Path, meta: Dict[str, Any]) -> List[str]:
+def verify_inputs(run_dir: Path, meta: Dict[str, Any], repo: "Repo") -> List[str]:
+    """G0 的输入核对：冻结合同的两份字节与 prepare 时的哈希一致；按角色写的合同另外核对版本记录（3.0 第二轮 D5）。"""
     problems = []
     for name, key in (("plan.md", "plan_md_sha256"), ("contract.json", "contract_json_sha256")):
         path = run_dir / name
         if not path.exists() or sha256_file(path) != meta.get(key):
             problems.append("%s 的哈希与 prepare 时记录的不一致" % name)
+    problems.extend(binding_record_problems(repo, run_dir, meta))
     return problems
 
 
@@ -3410,7 +3500,11 @@ def attempt_origin_notes(repo: Repo, meta: Dict[str, Any]) -> List[str]:
             % ("另一台机器上" if other_machine else "另一处仓库", recorded_platform, recorded_repo, here, repo.root)]
 
 
-def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any], source: Optional[str] = None) -> Dict[str, Any]:
+    """执行模型：合同（_raw_executor 是显式写出的值）为准，PI_EXEC_* 只补缺、冲突报错，再过 allowed_executors。
+
+    source 给定时（按角色写的合同，3.0 第二轮 D5），显式值来自版本记录，错误里的“合同”换成它；不给时文字不变。
+    """
     executor = dict(contract["executor"])
     for field, env_name in (("provider", "PI_EXEC_PROVIDER"), ("model", "PI_EXEC_MODEL"),
                             ("thinking", "PI_EXEC_THINKING")):
@@ -3419,6 +3513,9 @@ def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             continue
         explicit = contract.get("_raw_executor", {}).get(field)
         if explicit and explicit != env_value:
+            if source is not None:
+                raise DispatchError("%s=%s 与%s的 %s=%s 冲突；以它为准，请移除环境变量"
+                                    % (env_name, env_value, source, field, explicit), EXIT_USAGE)
             raise DispatchError("%s=%s 与合同 executor.%s=%s 冲突；以审阅过的合同为准，请移除环境变量"
                                 % (env_name, env_value, field, explicit), EXIT_USAGE)
         if not explicit:
@@ -3439,14 +3536,230 @@ def resolve_executor(contract: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                                 % (executor["provider"], executor["model"]), EXIT_BLOCKED)
         pinned = hits[0].get("thinking")
         if pinned and pinned != executor["thinking"]:
-            raise DispatchError("该执行模型的思考级别固定为 %s，合同为 %s" % (pinned, executor["thinking"]),
+            raise DispatchError("该执行模型的思考级别固定为 %s，%s为 %s" % (pinned, source or "合同", executor["thinking"]),
                                 EXIT_BLOCKED)
     return executor
+
+
+def resolve_bound_executor(contract: Dict[str, Any], record: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    """按角色写的合同（3.0 第二轮 D5）：provider、model、thinking 取自版本记录，tools、context_files 取自合同；
+    再过与写死合同相同的环境变量冲突与允许列表检查（resolve_executor 是唯一的实现）。"""
+    fields = {key: record.get(key) for key in ("provider", "model", "thinking")}
+    executor = {key: value for key, value in contract["executor"].items() if key != "role"}
+    executor.update(fields)
+    return resolve_executor(dict(contract, executor=executor, _raw_executor=fields), config,
+                            source="%s 角色绑定的版本记录" % record.get("role"))
 
 
 def load_raw_executor(run_dir: Path) -> Dict[str, Any]:
     raw = read_json_or(run_dir / "contract.json", {})
     return raw.get("executor", {}) if isinstance(raw, dict) else {}
+
+
+# ---------------------------------------------------------------------------
+# 按合同版本的执行模型记录（3.0 第二轮 D5）
+# ---------------------------------------------------------------------------
+
+#: 配置 v3 的五个键（3.0 第二轮 D1）：kit_config 与 kit_roles 都用这一份
+V3_CONFIG_KEYS = ("runtimes", "profiles", "roles", "presets", "active_preset")
+#: 版本记录的必填字段与类型；active_preset、config_sha256 可以是 null
+BINDING_RECORD_FIELDS = (("role", str), ("profile", str), ("runtime", str), ("adapter", str), ("provider", str),
+                         ("model", str), ("thinking", str), ("contract_json_sha256", str), ("created_at", str),
+                         ("created_by_attempt", str))
+
+
+def binding_record_rel(task_id: str, version: int) -> str:
+    return ".agent/runs/%s/binding-v%d.json" % (task_id, version)
+
+
+def _kit_roles_module():
+    """scripts/kit_roles.py（惰性导入，D12）；不在本工具旁边时 None。没有按角色写的合同、配置里也没有 v3 键时不导入。"""
+    try:
+        import kit_roles  # noqa: PLC0415
+    except ModuleNotFoundError:
+        return None
+    return kit_roles
+
+
+def load_binding_record(repo: "Repo", task_id: str, version: int) -> Optional[Dict[str, Any]]:
+    """读一个合同版本的执行模型记录：不存在返回 None；经过链接、读不出、字段不全都抛 BindingRecordError（EXIT_DRIFT），
+    不自动修复。从仓库根查起，.agent 与 .agent/runs 两级也查（first_link_component 不查 root 本身）。"""
+    rel = binding_record_rel(task_id, version)
+    link = first_link_component(repo.root, rel)
+    if link is not None:
+        raise BindingRecordError("版本记录经过链接或 junction，不读取：%s" % link, EXIT_DRIFT)
+    path = repo.root / rel
+    if not os.path.lexists(str(path)):
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BindingRecordError("版本记录无效（%s）：%s；确认后删除它，或出新版本合同" % (rel, type(exc).__name__), EXIT_DRIFT)
+    if not isinstance(data, dict) or any(not isinstance(data.get(key), kind) for key, kind in BINDING_RECORD_FIELDS) \
+            or not all(data.get(key) is None or isinstance(data.get(key), str) for key in ("active_preset", "config_sha256")):
+        raise BindingRecordError("版本记录无效（%s）：字段不全或类型不对；确认后删除它，或出新版本合同" % rel, EXIT_DRIFT)
+    secret = secret_like_paths(data)
+    if secret:  # 记录的取值会进提示、摘要与 argv（D9）
+        raise BindingRecordError("版本记录无效（%s）：有疑似凭据（%s）；确认后删除它，或出新版本合同"
+                                 % (rel, "、".join(secret[:5])), EXIT_DRIFT)
+    return data
+
+
+def _role_binding_candidate(repo: "Repo", role: str, config: Dict[str, Any], task_id: str,
+                            version: int) -> Tuple[Dict[str, Any], bool]:
+    """按角色写的合同在 prepare 预检时的执行模型：（候选, 是否已有记录）。已有有效记录就以它为准，当前绑定被删了或
+    未接通都不挡（闸一第 2 轮 S1）；没有记录时当前绑定必须有效（D5 第 2 步）。"""
+    existing = load_binding_record(repo, task_id, version)
+    if existing is not None:
+        return existing, True
+    roles = _kit_roles_module()
+    if roles is None:
+        raise DispatchError("合同按角色写 executor，但 scripts/kit_roles.py 不在本工具旁边", EXIT_USAGE)
+    value, error = roles.resolve_role_executor(config, role)
+    if error is not None:
+        raise DispatchError(error["message"], error["code"])
+    return value, False
+
+
+def _binding_drift_note(config: Dict[str, Any], role: str, record: Dict[str, Any]) -> Optional[str]:
+    """已有版本记录、而当前绑定与它不同时的提示；只读配置，不运行任何 CLI。"""
+    roles = _kit_roles_module()
+    if roles is None:
+        return None
+    value, _error = roles.resolve_role_executor(config, role)
+    keep = "%s/%s · thinking %s" % (record["provider"], record["model"], record["thinking"])
+    if value is None:
+        return "当前没有可用的 %s 绑定；本版本沿用版本记录（%s）" % (role, keep)
+    if any(value[key] != record[key] for key in ("provider", "model", "thinking")):
+        return "%s 绑定已改为 %s/%s · thinking %s（profile %s）；本版本沿用 %s；要用新绑定，出新版本合同" % (
+            role, value["provider"], value["model"], value["thinking"], value["profile"], keep)
+    return None
+
+
+def _written_binding_note(config: Dict[str, Any], resolved: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """写死模型的合同（D4）：配置了 execution 的 headless 绑定、而它的 provider、model、thinking 有任何一项与合同解析出的
+    不同时，打 NOTE 并返回 meta 的 executor_binding_note；否则 None。
+
+    只读配置，不运行 CLI，从不阻塞。配置里没有 v3 键时不导入 kit_roles（D12）；v3 键校验不过（含疑似凭据，D9）时不比较。
+    """
+    if not any(key in config for key in V3_CONFIG_KEYS):
+        return None
+    roles = _kit_roles_module()
+    if roles is None or roles.config_errors(config):
+        return None
+    binding = roles.binding_tuple(config, "execution")
+    if binding is None:
+        return None
+    mode, profile_id, _runtime, _adapter, provider, model, thinking = binding
+    if mode != "headless" or not provider or not model:
+        return None
+    if (provider, model, thinking) == (resolved.get("provider"), resolved.get("model"), resolved.get("thinking")):
+        return None
+    print("NOTE  合同写死执行模型 %s/%s · thinking %s；execution 绑定是 %s/%s · thinking %s（profile %s），本次按合同"
+          % (resolved.get("provider"), resolved.get("model"), resolved.get("thinking"), provider, model, thinking,
+             profile_id))
+    return {"role": "execution", "profile": profile_id,
+            "binding": {"provider": provider, "model": model, "thinking": thinking}}
+
+
+def _publish_binding_record(repo: "Repo", role: str, frozen_json: bytes, frozen_contract: Dict[str, Any],
+                            config: Dict[str, Any], config_bytes: Optional[bytes], task_id: str, version: int,
+                            attempt_no: int) -> Dict[str, Any]:
+    """冻结合同之后发布或读取版本记录（D5 第 4 步）：已有就校验后采用；没有就用冻结的合同与同一份配置字节构造，
+    以不覆盖的方式发布，发布失败（别人抢先）就重新读取胜者。最后统一核对合同哈希、环境变量与允许列表。"""
+    rel = binding_record_rel(task_id, version)
+    contract_sha = hashlib.sha256(frozen_json).hexdigest()
+    with TaskLock(repo, task_id):  # 只为减少争用；唯一性由 publish_new 的不覆盖保证
+        record = load_binding_record(repo, task_id, version)
+        if record is None:
+            roles = _kit_roles_module()
+            if roles is None:
+                raise BindingRecordError("合同按角色写 executor，但 scripts/kit_roles.py 不在本工具旁边", EXIT_USAGE)
+            value, error = roles.resolve_role_executor(config, role)
+            if error is not None:
+                raise BindingRecordError(error["message"], error["code"])
+            candidate = dict(value, contract_json_sha256=contract_sha, created_at=utc_now(),
+                             created_by_attempt="attempt-%03d" % attempt_no,
+                             config_sha256=hashlib.sha256(config_bytes).hexdigest() if config_bytes is not None else None)
+            data = (json.dumps(candidate, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            try:
+                published = publish_new(repo.root / rel, data)
+            except OSError as exc:
+                raise BindingRecordError("版本记录写不进去（%s）：%s；.agent/runs 所在的文件系统要支持不覆盖的原子发布"
+                                         % (rel, exc), EXIT_BLOCKED)
+            record = candidate if published else load_binding_record(repo, task_id, version)
+            if record is None:
+                raise BindingRecordError("版本记录发布失败、又读不到（%s）" % rel, EXIT_DRIFT)
+    if record.get("contract_json_sha256") != contract_sha:
+        raise BindingRecordError("合同 v%d 的字节与首次派遣时不同（版本记录 %s）：已派遣的版本不能改，出新版本合同"
+                                 % (version, rel), EXIT_DRIFT)
+    try:
+        resolve_bound_executor(frozen_contract, record, config)  # 对最终选定的记录重做两项检查（闸一第 3 轮 S1）
+    except BindingRecordError:
+        raise
+    except DispatchError as exc:
+        raise BindingRecordError(str(exc), exc.code)
+    return record
+
+
+def binding_record_problems(repo: "Repo", run_dir: Path, meta: Dict[str, Any]) -> List[str]:
+    """run 之前的 G0（D5）：按角色写的合同（看冻结的 contract.json，不看 meta 有没有字段）必须带版本记录的副本，
+    且记录在推得出的路径上、没有链接、与副本逐项相同、合同哈希一致。"""
+    raw = read_json_or(run_dir / "contract.json", {})
+    if executor_class(raw.get("executor") if isinstance(raw, dict) else None) != "role":
+        return []
+    binding = meta.get("executor_binding")
+    if not isinstance(binding, dict):
+        return ["按角色写的合同缺少 meta.json 的 executor_binding"]
+    rel = binding_record_rel(str(meta.get("task_id")), int(meta.get("plan_version") or 0))
+    try:
+        record = load_binding_record(repo, str(meta.get("task_id")), int(meta.get("plan_version") or 0))
+    except BindingRecordError as exc:
+        return [str(exc)]
+    if record is None:
+        return ["版本记录不存在：%s" % rel]
+    if {key: value for key, value in binding.items() if key != "record_path"} != record:
+        return ["版本记录与 meta.json 里的副本不一致：%s" % rel]
+    if record.get("contract_json_sha256") != meta.get("contract_json_sha256"):
+        return ["版本记录对应的合同哈希与这次 attempt 不同：%s" % rel]
+    return []
+
+
+def attempt_executor(run_dir: Path, fallback: Any) -> Any:
+    """一次 attempt 的执行模型（D5 的读回收口）：executor.json；没有时用 meta 里版本记录的副本补 provider、model、
+    thinking，tools 与 context_files 取自合同；再没有，就是调用处原来的后备值。"""
+    executor = read_json_or(run_dir / "executor.json", None)
+    if isinstance(executor, dict):
+        return executor
+    meta = read_json_or(run_dir / "meta.json", {})
+    binding = meta.get("executor_binding") if isinstance(meta, dict) else None
+    if not isinstance(binding, dict):
+        return fallback
+    raw = read_json_or(run_dir / "contract.json", {})
+    contract_executor = normalize_contract(raw).get("executor") if isinstance(raw, dict) else None
+    merged = {key: value for key, value in contract_executor.items() if key != "role"} \
+        if isinstance(contract_executor, dict) else {}
+    merged.update({key: binding.get(key) for key in ("provider", "model", "thinking")})
+    return merged
+
+
+def executor_source_text(run_dir: Path, meta: Dict[str, Any]) -> str:
+    """摘要的“执行模型来源”一行（D5）。"""
+    binding = meta.get("executor_binding")
+    if isinstance(binding, dict):
+        return "角色绑定 %s（profile %s，runtime %s，方案 %s，配置 sha256 %s，记录 %s）" % (
+            binding.get("role"), binding.get("profile"), binding.get("runtime"), binding.get("active_preset") or "无",
+            str(binding.get("config_sha256") or "无")[:12], binding.get("record_path"))
+    raw = read_json_or(run_dir / "contract.json", {})
+    kind = executor_class(raw.get("executor") if isinstance(raw, dict) else None)
+    if kind == "written":
+        note = meta.get("executor_binding_note")
+        if isinstance(note, dict) and isinstance(note.get("binding"), dict):
+            other = note["binding"]
+            return "合同写死；与当时的 %s 绑定不同（profile %s：%s/%s · thinking %s）" % (
+                note.get("role"), note.get("profile"), other.get("provider"), other.get("model"), other.get("thinking"))
+        return "合同写死"
+    return "合同，缺的项由环境变量 PI_EXEC_* 补上"
 
 
 # ---------------------------------------------------------------------------
@@ -3628,7 +3941,7 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
     candidate = read_json_or(run_dir / "candidate.json", {})
     scope = read_json_or(run_dir / "scope.json", {})
     extra = read_json_or(run_dir / "observations.json", {})
-    executor = read_json_or(run_dir / "executor.json", {})
+    executor = attempt_executor(run_dir, {})
     usage = events.get("usage", {})
     cost = events.get("cost", {})
     yes_no = lambda value: "是" if value else "否"  # noqa: E731
@@ -3643,6 +3956,7 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         "- 要求的执行模型：%s/%s · thinking=%s · 工具=%s" % (
             executor.get("provider"), executor.get("model"), executor.get("thinking"),
             ",".join(executor.get("tools", []))),
+        "- 执行模型来源：%s" % executor_source_text(run_dir, meta),
         "- 实际模型：%s（一致：%s）· 提供商回报的思考级别：%s" % (
             ", ".join("%s/%s" % (m.get("provider"), m.get("model")) for m in events.get("actual_models", [])) or "无",
             yes_no(events.get("model_match")),
@@ -4398,14 +4712,23 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         raise DispatchError("合同校验失败，未创建 attempt。", EXIT_USAGE)
     if git(["check-ignore", "-q", ".agent/runs/probe"], repo.root, check=False).returncode != 0:
         raise DispatchError("请先把 .agent/runs/ 加入 .gitignore：运行证据含源码与日志，不应进入提交。", EXIT_BLOCKED)
-    config = repo.config()
+    # 只读一次配置字节：按角色写的合同用同一份字节解析绑定、记哈希（3.0 第二轮 D5 第 1 步）
+    config, config_bytes = repo.config_with_bytes()
     # 配置写错（2.6.0）或问题清单与内容锁不符（2.8.0）在这里就报，不等到收集证据时悄悄 off
     decisions_session(config, repo.agent_dir, None, strict=True)
     md_path, json_path = repo.plan_paths(args.plan_key)
     raw_executor = read_json(json_path).get("executor", {})
-    if raw_executor.get("provider") and raw_executor.get("model"):
-        resolve_executor(dict(contract, _raw_executor=raw_executor), config)
     task_id, version, base = contract["task_id"], contract["plan_version"], contract["base_sha"]
+    pre_class = executor_class(raw_executor)
+    binding_note: Optional[Dict[str, Any]] = None
+    if pre_class == "written":  # 写死模型的合同：提前解析与拒绝的顺序原样保留，之后才与绑定比较（D4）
+        binding_note = _written_binding_note(config, resolve_executor(dict(contract, _raw_executor=raw_executor), config))
+    elif pre_class == "role":  # 按角色：分配 attempt 之前预检，失败不留 attempt（D5 第 2 步）
+        candidate, existed = _role_binding_candidate(repo, raw_executor["role"], config, task_id, version)
+        resolve_bound_executor(contract, candidate, config)
+        drift = _binding_drift_note(config, raw_executor["role"], candidate) if existed else None
+        if drift:
+            print("NOTE  %s" % drift)
     budget = contract["budget"]
     usage = budget_usage(repo, task_id)
     if usage["attempts_started"] >= budget["max_attempts_total"]:
@@ -4443,6 +4766,16 @@ def cmd_prepare(args: argparse.Namespace) -> int:
                 raise DispatchError("固定合同字节未通过 planner-v2 发布门禁：%s" % "；".join(publication_errors), EXIT_BLOCKED)
         (run_dir / "plan.md").write_bytes(frozen_md)
         (run_dir / "contract.json").write_bytes(frozen_json)
+        frozen_executor = frozen_raw.get("executor") if isinstance(frozen_raw, dict) else None
+        frozen_class = executor_class(frozen_executor)
+        if frozen_class != pre_class and "role" in (frozen_class, pre_class):
+            raise BindingRecordError("合同在校验之后被改过：executor 从%s写法变成了%s写法" % (
+                {"role": "按角色", "written": "写死", "legacy": "旧"}[pre_class],
+                {"role": "按角色", "written": "写死", "legacy": "旧"}[frozen_class]), EXIT_DRIFT)
+        binding_record = None
+        if frozen_class == "role":  # 用冻结的字节与第 1 步读到的配置发布或读取版本记录（D5 第 4 步）
+            binding_record = _publish_binding_record(repo, frozen_executor["role"], frozen_json, frozen_contract,
+                                                     config, config_bytes, task_id, version, number)
         # 唯一的空目录：不复用、不删除来历不明的旧目录（git 允许在空目录上建立 worktree）。
         worktree = Path(tempfile.mkdtemp(prefix="%s-%s-a%03d-" % (repo.root.name[:16], task_id[:24], number),
                                          dir=str(worktree_root))).resolve()
@@ -4458,6 +4791,10 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             # 行尾归一化配置：之后所有快照与补丁重建都沿用它，不受运行期间全局配置变化影响
             "git_autocrlf": effective_autocrlf(repo.root),
         }
+        if binding_record is not None:  # 只在按角色写的合同上加字段，其余合同的 meta 形状不变
+            meta["executor_binding"] = dict(binding_record, record_path=binding_record_rel(task_id, version))
+        if binding_note is not None:
+            meta["executor_binding_note"] = binding_note
         write_json(run_dir / "meta.json", meta, exclusive=True)
         set_state(run_dir, "PREPARING")
         git(["worktree", "add", "--detach", str(worktree), base], repo.root)
@@ -4468,6 +4805,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         dirty = "" if failed else git(["status", "--porcelain=v1"], worktree).stdout.decode("utf-8", "replace").strip()
     except BaseException as exc:
         set_state(run_dir, "PREPARE_FAILED", reason="%s: %s" % (type(exc).__name__, exc))
+        if isinstance(exc, BindingRecordError):  # 版本记录的错误保留自己的退出码（闸一第 2 轮 S2）
+            raise BindingRecordError("prepare 失败（%s 已标记 PREPARE_FAILED）：%s" % (attempt_id, exc), exc.code)
         if isinstance(exc, (DispatchError, OSError)):
             raise DispatchError("prepare 失败（%s 已标记 PREPARE_FAILED）：%s" % (attempt_id, exc))
         raise
@@ -4504,7 +4843,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if state != "PREPARED" or (run_dir / "claim").exists():
         raise DispatchError("attempt 状态为 %s%s，只能运行未领取的 PREPARED attempt；返工请重新 prepare。"
                             % (state, "（已领取）" if (run_dir / "claim").exists() else ""))
-    problems = verify_inputs(run_dir, meta)
+    problems = verify_inputs(run_dir, meta, repo)
     attempt_contract = read_json_or(run_dir / "contract.json", {})
     if isinstance(attempt_contract, dict) and attempt_contract.get("contract_family") == "planner-v2":
         try:
@@ -4525,13 +4864,18 @@ def cmd_run(args: argparse.Namespace) -> int:
         log_event(run_dir, "run_refused", problems=problems)
         raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
     config = repo.config()
-    executor = resolve_executor(dict(contract, _raw_executor=load_raw_executor(run_dir)), config)
+    binding = meta.get("executor_binding") if isinstance(meta.get("executor_binding"), dict) else None
+    if binding is not None:  # 按角色写的合同（D5）：模型取自版本记录；verify_inputs 已核对它与记录逐项相同
+        executor = resolve_bound_executor(contract, binding, config)
+    else:
+        executor = resolve_executor(dict(contract, _raw_executor=load_raw_executor(run_dir)), config)
     budget = contract["budget"]
     usage = budget_usage(repo, meta["task_id"], exclude=run_dir)
     if usage["attempts_started"] >= budget["max_attempts_total"]:
         raise DispatchError("BUDGET_EXCEEDED：已达到 max_attempts_total=%d。" % budget["max_attempts_total"])
     env, removed = child_env(config)
-    pi_cmd = resolve_pi_command()
+    pi_cmd = resolve_pi_command(repo, binding.get("runtime") if binding is not None else None, config)
+    ensure_argv_safe(pi_cmd)  # 本机文件给出的命令在预检运行它之前就要过这一关（3.0 第二轮 D3）
     preflight = pi_preflight(pi_cmd, work_dir, executor, run_dir / "preflight", env)
     context = context_evidence(work_dir, executor["context_files"])
     write_json(run_dir / "preflight" / "context-files.json", context)
@@ -4711,7 +5055,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
                         spawn_error=None if started else "领取后调度器退出，未启动 Pi",
                         expects_agent_settled=started.get("expects_agent_settled", _expects_settled(version_text)))
         write_json(run_dir / "run.json", run_info, exclusive=True)
-    executor = read_json_or(run_dir / "executor.json", contract["executor"])
+    executor = attempt_executor(run_dir, contract["executor"])
     for name in ("candidate.json", "changes.json", "scope.json", "candidate.patch"):
         path = run_dir / name
         if path.exists():
@@ -5927,7 +6271,7 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
     for problem in planner_attempt_publication_errors(repo, run_dir, contract):
         fail("G0", problem)
 
-    for problem in verify_inputs(run_dir, meta):
+    for problem in verify_inputs(run_dir, meta, repo):
         fail("G0", problem)
     if resolve_commit(repo.root, meta["base_sha"]) != meta["base_sha"]:
         fail("G0", "基线提交不可用")
@@ -6156,7 +6500,7 @@ def _candidate_commit(repo: Repo, run_dir: Path, meta: Dict[str, Any], verdict: 
         raise DispatchError("分支已存在：%s%s" % (name, "" if same else "（指向的不是这个候选）"))
     raw_contract = read_json_or(run_dir / "contract.json", {})
     title = raw_contract.get("title") if isinstance(raw_contract, dict) else None
-    executor = read_json_or(run_dir / "executor.json", {})
+    executor = attempt_executor(run_dir, {})
     subject = branch_subject(meta["task_id"], title, meta["plan_version"], meta["attempt_no"])
     lines = [subject, "",
              "Pi-Dispatch-Attempt: %s" % meta["attempt_id"],
@@ -6187,7 +6531,7 @@ def cmd_branch(args: argparse.Namespace) -> int:
     publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
     if publication_errors:
         raise DispatchError("planner-v2 发布门禁拒绝创建分支：%s" % "；".join(publication_errors), EXIT_BLOCKED)
-    problems = verify_inputs(run_dir, meta)
+    problems = verify_inputs(run_dir, meta, repo)
     if problems:
         raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
     require_authorized_action(contract, "local_branch", integration=True)
@@ -6336,7 +6680,7 @@ def cmd_review_draft(args: argparse.Namespace) -> int:
     if out_path.exists() and not args.force:
         raise DispatchError("%s 已存在：确认要覆盖（例如重新生成骨架）时加 --force" % display_path(out_path, repo.root),
                             EXIT_USAGE)
-    executor = read_json_or(run_dir / "executor.json", {})
+    executor = attempt_executor(run_dir, {})
     events = read_json_or(run_dir / "events-summary.json", {})
     run = read_json_or(run_dir / "run.json", {})
     candidate = read_json_or(run_dir / "candidate.json", {})
@@ -6579,7 +6923,7 @@ def cmd_integrate(args: argparse.Namespace) -> int:
     publication_errors = planner_attempt_publication_errors(repo, run_dir, contract)
     if publication_errors:
         raise DispatchError("planner-v2 发布门禁拒绝集成：%s" % "；".join(publication_errors), EXIT_BLOCKED)
-    problems = verify_inputs(run_dir, meta)
+    problems = verify_inputs(run_dir, meta, repo)
     if problems:
         raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
     require_authorized_action(contract, "local_branch", integration=True)
@@ -7007,7 +7351,7 @@ def _final_outcome(attempts: Sequence[Path]) -> Tuple[str, Optional[str]]:
 
 def _priced_attempt(run_dir: Path, pricing: Dict[str, Dict[str, Any]]) -> Tuple[Optional[str], Optional[float]]:
     """（币种, 按配置价格估算的费用）；这一轮的执行模型没有价格或 token 不全时费用为 None。"""
-    executor = read_json_or(run_dir / "executor.json", {})
+    executor = attempt_executor(run_dir, {})
     price = pricing.get("%s/%s" % (executor.get("provider"), executor.get("model")))
     if not price:
         return None, None

@@ -24,7 +24,7 @@ if str(HERE) not in sys.path:
 
 import pi_dispatch as pd  # noqa: E402
 
-V3_KEYS = ("runtimes", "profiles", "roles", "presets", "active_preset")
+V3_KEYS = pd.V3_CONFIG_KEYS
 ROLES = ("planning_review", "contract", "execution", "scheduler_agent")
 #: 每个角色允许的模式（上位设计 6.3）
 ROLE_MODES = {
@@ -254,6 +254,18 @@ def check_key(config: Dict[str, Any], key: str) -> List[str]:
     return CHECKS[key](config)
 
 
+def config_errors(config: Dict[str, Any]) -> List[str]:
+    """配置里出现的 v3 键逐个校验（check_key，先过共用的凭据检查）的错误；都合法或都没写时为空。
+
+    调度器解析绑定、比较写死合同之前先过这里（D9）：取值不合法或含疑似凭据时不进版本记录与提示。
+    """
+    errors: List[str] = []
+    for key in V3_KEYS:
+        if key in config:
+            errors.extend(check_key(config, key))
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # 生效绑定（D5、D8）
 # ---------------------------------------------------------------------------
@@ -296,6 +308,10 @@ def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[D
     try:
         if role not in ("execution", "contract"):
             return None, {"message": "executor.role 只能是 execution 或 contract：%s" % _shown(role), "code": pd.EXIT_USAGE}
+        errors = config_errors(config)
+        if errors:  # 先整份校验 v3 键（D9）：错误只含位置与像 ID 的值
+            return None, {"message": "角色绑定的配置无效：%s；先修好配置（config validate）" % "；".join(errors[:3]),
+                          "code": pd.EXIT_USAGE}
         binding = effective_binding(config, role)
         if binding is None or binding.get("mode") != "headless":
             if role == "contract" and binding is not None and binding.get("mode") == "manual":
@@ -407,3 +423,75 @@ def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],
     if all(binding_tuple(old_config, role) == binding_tuple(new_config, role) for role in ("execution", "contract")):
         return [], []
     return in_flight_attempts(repo)
+
+
+# ---------------------------------------------------------------------------
+# 本机文件（D3）
+# ---------------------------------------------------------------------------
+
+LOCAL_NAME = "dispatch.local.json"
+LOCAL_REL = ".agent/" + LOCAL_NAME
+LOCAL_SHAPE = '只接受 {"runtimes": {"<id>": {"command": ["<程序>", "<参数>", …]}}}'
+
+
+def check_local(repo: Any) -> List[str]:
+    """本机文件能不能用（D3）：从仓库根到它的每一级都不是链接、不被 Git 跟踪、已被忽略。返回问题，空表示可用。
+
+    把本机文件强行提交进仓库也不会让它生效（闸一第 1 轮 B1）。经过链接时不再对它运行 git。
+    """
+    try:
+        link = pd.first_link_component(repo.root, LOCAL_REL)
+        if link is not None:
+            return ["%s 经过链接或 junction（%s），不使用" % (LOCAL_REL, link)]
+        problems: List[str] = []
+        if pd.git(["ls-files", "--error-unmatch", "--", LOCAL_REL], repo.root, check=False).returncode == 0:
+            problems.append("%s 被 Git 跟踪，不使用：本机文件不进提交（git rm --cached %s）" % (LOCAL_REL, LOCAL_REL))
+        if pd.git(["check-ignore", "-q", "--", LOCAL_REL], repo.root, check=False).returncode != 0:
+            problems.append("%s 没有被 .gitignore 忽略，不使用：运行 kit_install update 补上 kit 的忽略规则" % LOCAL_REL)
+        return problems
+    except (pd.DispatchError, OSError, ValueError) as exc:  # 这份模块的 DispatchError 穿不过边界（D12）
+        return ["%s 无法核对（%s），不使用" % (LOCAL_REL, exc)]
+
+
+def read_local(repo: Any, config: Dict[str, Any]) -> Tuple[Optional[Dict[str, List[str]]], List[str], List[str]]:
+    """读本机文件：（{runtime ID: 命令}, 错误, 警告）。不存在时（{}, [], []）；有错误时命令表为 None，整份不使用（D3）。
+
+    疑似凭据同样是错误，只报位置（D9）；提交的配置里没有登记的 runtime ID 是警告。只读，不运行任何命令。
+    """
+    path = repo.agent_dir / LOCAL_NAME
+    if not os.path.lexists(str(path)):
+        return {}, [], []
+    errors = check_local(repo)
+    if errors:
+        return None, errors, []
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:
+        return None, ["%s 读不出来（%s），不使用" % (LOCAL_REL, type(exc).__name__)], []
+    secret = pd.secret_like_paths(data)
+    if secret:
+        return None, ["%s 里有疑似凭据（%s），不使用" % (LOCAL_REL, "、".join(secret[:5]))], []
+    if not isinstance(data, dict) or _extra_keys(data, ("runtimes",)) or not isinstance(data.get("runtimes", {}), dict):
+        return None, ["%s %s，不使用" % (LOCAL_REL, LOCAL_SHAPE)], []
+    commands: Dict[str, List[str]] = {}
+    for runtime_id, spec in _entries(data.get("runtimes", {})):
+        command = spec.get("command") if isinstance(spec, dict) else None
+        if not _id_ok(runtime_id) or not isinstance(spec, dict) or _extra_keys(spec, ("command",)) \
+                or not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            errors.append("%s 的 runtimes.%s 不合法（%s）" % (LOCAL_REL, _shown(runtime_id), LOCAL_SHAPE))
+            continue
+        commands[runtime_id] = list(command)
+    if errors:
+        return None, errors, []
+    registered = config.get("runtimes") if isinstance(config.get("runtimes"), dict) else {}
+    warnings = ["%s 的 runtime %s 没有在配置的 runtimes 里登记" % (LOCAL_REL, _shown(runtime_id))
+                for runtime_id in commands if runtime_id not in registered]
+    return commands, [], warnings
+
+
+def local_command(repo: Any, config: Dict[str, Any], runtime: str) -> Tuple[Optional[List[str]], List[str]]:
+    """runtime 在本机文件里的命令与要打印的提示行（“ERROR …”“WARN …”）。没有这一项、或本机文件不可用时命令为 None，
+    调用方接着按 PATH 找（D3 的解析顺序）。"""
+    commands, errors, warnings = read_local(repo, config)
+    lines = ["ERROR %s" % message for message in errors] + ["WARN  %s" % message for message in warnings]
+    return (commands or {}).get(runtime), lines

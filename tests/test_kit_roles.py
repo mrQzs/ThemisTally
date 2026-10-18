@@ -470,6 +470,87 @@ class PluginEntries(RolesRepo):
         self.assertFalse((self.repo / ".agent" / "audit").exists())
 
 
+class LocalFile(RolesRepo):
+    """C6：本机文件 .agent/dispatch.local.json 只接受 runtimes.<id>.command；未登记的 ID 打警告；被跟踪、没被忽略、
+    经过链接或有疑似凭据时整份不使用（D3、D9）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.write(self.base())
+        self.local = self.repo / ".agent" / "dispatch.local.json"
+        self.target = pd.Repo(self.repo)
+
+    def put(self, data):
+        self.local.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_only_runtime_commands_are_accepted(self):
+        config = self.base()
+        self.assertEqual(kit_roles.read_local(self.target, config), ({}, [], []))
+        self.put({"runtimes": {"pi": {"command": ["C:/tools/pi.cmd", "--flag"]}, "_note": "说明"}})
+        self.assertEqual(kit_roles.read_local(self.target, config), ({"pi": ["C:/tools/pi.cmd", "--flag"]}, [], []))
+        self.assertEqual(kit_roles.local_command(self.target, config, "pi"), (["C:/tools/pi.cmd", "--flag"], []))
+        self.assertIsNone(kit_roles.local_command(self.target, config, "oc")[0])
+        for bad in ({"runtimes": {"pi": {"command": "pi"}}}, {"runtimes": {"pi": {"command": []}}},
+                    {"runtimes": {"pi": {"command": ["pi", ""]}}}, {"runtimes": {"pi": {"command": ["pi"], "env": {}}}},
+                    {"runtimes": {"pi": {"adapter": "pi"}}}, {"profiles": {}}, [], {"runtimes": []},
+                    {"runtimes": {"Bad_ID": {"command": ["pi"]}}}):
+            with self.subTest(bad=bad):
+                self.put(bad)
+                commands, errors, _warnings = kit_roles.read_local(self.target, config)
+                self.assertIsNone(commands)
+                self.assertTrue(errors)
+                command, lines = kit_roles.local_command(self.target, config, "pi")
+                self.assertIsNone(command)
+                self.assertTrue(lines and all(line.startswith("ERROR") for line in lines))
+
+    def test_unregistered_runtime_ids_warn(self):
+        self.put({"runtimes": {"pi": {"command": ["pi"]}, "ghost": {"command": ["ghost"]}}})
+        commands, errors, warnings = kit_roles.read_local(self.target, self.base())
+        self.assertEqual((errors, sorted(commands)), ([], ["ghost", "pi"]))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("'ghost'", warnings[0])
+        command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        self.assertEqual(command, ["pi"])
+        self.assertTrue(lines and lines[0].startswith("WARN"))
+
+    def test_tracked_unignored_secret_or_linked_files_are_not_used(self):
+        self.put({"runtimes": {"pi": {"command": ["pi"]}}})
+        subprocess.run(["git", "add", "-f", ".agent/dispatch.local.json"], cwd=str(self.repo), check=True)
+        command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        self.assertIsNone(command)
+        self.assertTrue(any(line.startswith("ERROR") and "被 Git 跟踪" in line for line in lines), lines)
+        subprocess.run(["git", "rm", "-q", "--cached", ".agent/dispatch.local.json"], cwd=str(self.repo), check=True)
+        (self.repo / ".gitignore").write_text(".agent/runs/\n", encoding="utf-8")
+        command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        self.assertIsNone(command)
+        self.assertTrue(any("没有被 .gitignore 忽略" in line for line in lines), lines)
+        (self.repo / ".gitignore").write_text(IGNORE_RULES, encoding="utf-8")
+        self.put({"runtimes": {"pi": {"command": ["pi", "--key", "sk-" + "p" * 24]}}})
+        command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        self.assertIsNone(command)
+        self.assertTrue(any("疑似凭据" in line for line in lines), lines)
+        self.assertFalse(any("p" * 24 in line for line in lines))
+        self.put({"runtimes": {"pi": {"command": ["pi"]}}})
+        agent, moved = self.repo / ".agent", self.work / "agent-elsewhere"
+        shutil.move(str(agent), str(moved))
+        try:
+            if os.name == "nt":
+                import _winapi
+                _winapi.CreateJunction(str(moved), str(agent))
+            else:
+                os.symlink(str(moved), str(agent), target_is_directory=True)
+        except (OSError, ImportError, AttributeError):
+            shutil.move(str(moved), str(agent))
+            self.skipTest("建不了目录链接")
+        try:
+            command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        finally:
+            os.rmdir(str(agent)) if os.name == "nt" else os.unlink(str(agent))
+            shutil.move(str(moved), str(agent))
+        self.assertIsNone(command)
+        self.assertTrue(any("经过链接" in line for line in lines), lines)
+
+
 class OldLayout(unittest.TestCase):
     """C9：只拷了旧文件、没有 kit_roles.py 的布局里，没有 v3 键的配置命令与插件写入照常可用（D12）。"""
 
