@@ -2,10 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(bash scripts/dispatch-pi.sh validate *)",
-      "Bash(bash scripts/dispatch-pi.sh status *)",
-      "Bash(bash scripts/dispatch-pi.sh doctor *)",
-      "Bash(bash scripts/dispatch-pi.sh metrics *)",
-      "Bash(bash scripts/dispatch-pi.sh wait *)",
+      "Bash(bash scripts/dispatch-pi.sh status)",
+      "Bash(bash scripts/dispatch-pi.sh status --json)",
+      "Bash(bash scripts/dispatch-pi.sh doctor)",
+      "Bash(bash scripts/dispatch-pi.sh metrics)",
       "Bash(bash scripts/dispatch-pi.sh logs *)",
       "Bash(bash scripts/dispatch-pi.sh plugins list)",
       "Bash(bash scripts/dispatch-pi.sh plugins list *)",

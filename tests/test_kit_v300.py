@@ -244,13 +244,35 @@ class PermissionExample(unittest.TestCase):
         for sub, option, rest in self.SIDE_EFFECTS:
             command = "bash scripts/dispatch-pi.sh %s %s" % (sub, " ".join([option] + rest))
             with self.subTest(command=command):
-                self.assertTrue(any(self.matches(rule, command) for rule in rules["allow"]), "示例本来就放行它")
+                self.assertFalse(any(self.matches(rule, command) for rule in rules["allow"]), "不在放行之列")
                 self.assertTrue(any(self.matches(rule, command) for rule in rules["ask"]), "要询问")
                 pd.build_parser().parse_args([sub, option] + rest)  # 完整拼写照常解析
             for cut in range(3, len(option)):
                 with self.subTest(abbreviation=option[:cut], sub=sub):
                     with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                         pd.build_parser().parse_args([sub, option[:cut]] + rest)
+
+    def test_commands_with_side_effect_options_are_only_allowed_in_fixed_forms(self):
+        """闸二第 5 片第 3 轮：规则按命令文本匹配，`'--out'`、`--probe-"decisions"` 这类 Shell 等价写法补不完，
+        所以带副作用选项的命令只放行不带参数的固定写法（不含通配符）。"""
+        rules = json.loads((ROOT / ".claude" / "settings.example.json").read_text(encoding="utf-8"))["permissions"]
+        families = sorted({sub for sub, _option, _rest in self.SIDE_EFFECTS} | {"wait"})
+        for rule in rules["allow"]:
+            for sub in families:
+                prefix = "Bash(bash scripts/dispatch-pi.sh %s" % sub
+                if rule == prefix + ")" or rule.startswith(prefix + " "):
+                    self.assertNotIn("*", rule, rule)
+        for command in ("bash scripts/dispatch-pi.sh metrics '--out' x.md",
+                        "bash scripts/dispatch-pi.sh status '--assess' t",
+                        'bash scripts/dispatch-pi.sh doctor --probe-"decisions"',
+                        "bash scripts/dispatch-pi.sh wait --assess t/attempt-001",
+                        "bash scripts/dispatch-pi.sh status t --assess"):
+            with self.subTest(command=command):
+                self.assertFalse(any(self.matches(rule, command) for rule in rules["allow"]))
+        for command in ("bash scripts/dispatch-pi.sh doctor", "bash scripts/dispatch-pi.sh status --json",
+                        "bash scripts/dispatch-pi.sh validate x.v1", "bash scripts/dispatch-pi.sh config doctor --json"):
+            with self.subTest(command=command):  # 只读的写法照常放行
+                self.assertTrue(any(self.matches(rule, command) for rule in rules["allow"]))
 
     def test_sub_tools_reject_abbreviations_too(self):
         import kit_config  # noqa: PLC0415
