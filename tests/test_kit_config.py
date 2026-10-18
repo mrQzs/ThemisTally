@@ -470,6 +470,75 @@ class PluginsKey(TempRepo):
             self.assertEqual(kit_config.battery_link_problem(), "plugins/decisions")
 
 
+class BatteryLinksAtRuntime(TempRepo):
+    """第一轮的残余（用户 2026-10-18 确认另立任务）：调度器运行时加载问题清单、doctor 与 config show 的展示，
+    读之前也查链接。经过链接时运行时按 battery_drift 处理（prepare 拒绝，其余命令记一条无意见），展示记 link。"""
+
+    def setUp(self):
+        super().setUp()
+        self.kit = self.work / "kit"
+        shutil.copytree(str(ROOT / "plugins"), str(self.kit / "plugins"))
+        self.plugin_dir = self.kit / "plugins" / "decisions"
+        questions = self.plugin_dir / "questions"
+        real = self.work / "real_questions"
+        shutil.copytree(str(questions), str(real))
+        shutil.rmtree(str(questions))
+        if os.name == "nt":
+            if subprocess.run(["cmd", "/c", "mklink", "/J", str(questions), str(real)],
+                              capture_output=True).returncode != 0:
+                self.skipTest("mklink /J 不可用")
+        else:
+            os.symlink(str(real), str(questions), target_is_directory=True)
+        pd = kit_config.pd
+        for patcher in (mock.patch.object(pd, "KIT_ROOT", self.kit),
+                        mock.patch.object(pd, "DECISIONS_PLUGIN_DIR", self.plugin_dir),
+                        mock.patch.object(decisions, "verify_battery_lock", side_effect=AssertionError("不该读题库")),
+                        mock.patch.object(decisions, "load_locked_batteries", side_effect=AssertionError("不该读题库")),
+                        mock.patch.object(decisions, "load_batteries", side_effect=AssertionError("不该读题库"))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.settings_config = {"decisions": {"mode": "shadow"}}
+
+    def test_kit_config_and_the_dispatcher_share_one_check(self):
+        self.assertEqual(kit_config.pd.battery_link_problem(), "plugins/decisions/questions")
+        self.assertEqual(kit_config.battery_link_problem(), "plugins/decisions/questions")
+
+    def test_prepare_refuses_a_linked_battery(self):
+        pd = kit_config.pd
+        with self.assertRaises(pd.DispatchError) as caught:
+            pd.decisions_session(self.settings_config, self.repo / ".agent", None, strict=True)
+        self.assertEqual(caught.exception.code, pd.EXIT_USAGE)
+        self.assertIn("经过链接", str(caught.exception))
+
+    def test_other_commands_record_no_opinion(self):
+        pd = kit_config.pd
+        record = self.work / "decisions.jsonl"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertIsNone(pd.decisions_session(self.settings_config, self.repo / ".agent", record))
+        self.assertIn("battery_drift", out.getvalue())
+        rows = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(row["status"], row["reason"]) for row in rows], [("no_opinion", "battery_drift")])
+        self.assertIn("经过链接", rows[0]["detail"])
+
+    def test_doctor_facts_mark_the_link_without_reading(self):
+        pd = kit_config.pd
+        settings = decisions.settings_from_config(self.settings_config, self.repo / ".agent", self.plugin_dir)
+        described = pd.describe_decisions(decisions, settings)
+        self.assertEqual(described["battery_lock"], "link")
+        self.assertEqual(described["batteries"], [])
+        self.assertEqual(described["plugin_dir"], str(self.plugin_dir))
+        self.assertTrue(any("经过链接" in item for item in described["battery_problems"]), described)
+
+    def test_config_show_reports_the_link(self):
+        (self.repo / ".agent" / "dispatch.config.json").write_text(json.dumps(self.settings_config), encoding="utf-8")
+        code, out, err = run_config(["show", "--json"], self.repo)
+        self.assertEqual(code, 1, err)  # 整份校验同样报“无效：链接”
+        facts = json.loads(out)
+        self.assertEqual(facts["decisions"]["battery_lock"], "link")
+        self.assertTrue(any("无效：链接" in error for error in facts["errors"]), facts["errors"])
+
+
 class LinkHelpers(unittest.TestCase):
     """3.0 第一轮 D11：pi_dispatch.is_link_or_junction 与 first_link_component（kit_logs、kit_plugins 共用）。"""
 

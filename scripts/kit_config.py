@@ -167,43 +167,12 @@ def _check_decisions(config: Dict[str, Any], repo: Any) -> None:
 
 
 def battery_link_problem() -> Optional[str]:
-    """决策插件 questions/ 及其中每个 *.json 读之前的链接检查：第一个链接或 junction 的那一级，没有则 None。
+    """决策插件问题清单读之前的链接检查：第一个链接或 junction 的那一级，没有则 None。
 
-    3.0 第一轮（闸二 B1）：verify_battery_lock 直接读文件、不查链接；配置校验、写入门禁与修复提示的模拟
-    都先过这一关，题库经过链接时就不读。从 KIT_ROOT 往下逐级查（pd.first_link_component）。
+    配置校验、写入门禁与修复提示的模拟都先过这一关（3.0 第一轮闸二 B1）。实现挪到了 pd.battery_link_problem：
+    调度器运行时加载题库、doctor 与 config show 的展示也要先查，只保留一份实现。
     """
-    plugin_dir = Path(pd.DECISIONS_PLUGIN_DIR)
-    try:  # 按字面求相对路径，不 resolve：resolve 会顺着链接走出去，漏掉链接那一级
-        base: Optional[str] = plugin_dir.relative_to(Path(pd.KIT_ROOT)).as_posix()
-    except ValueError:
-        base = None
-
-    def first_link(rel: str) -> Optional[str]:
-        if base is None:  # 插件目录不在 KIT_ROOT 之下：查插件目录本身与这一项
-            for path in (plugin_dir, plugin_dir / rel):
-                if pd.is_link_or_junction(path):
-                    return str(path)
-            return None
-        try:
-            return pd.first_link_component(Path(pd.KIT_ROOT), "%s/%s" % (base, rel))
-        except ValueError:
-            return "%s/%s" % (base, rel)
-
-    # 与 verify_battery_lock 的读取顺序相同（闸二第 2 轮 B1）：先读 manifest.json 与 lock.json，再列 questions/、
-    # 读其中每个 *.json。每一项连同它的各级上级目录都在读或列之前查过，查过的上级目录不会先被跟随着列举。
-    for rel in ("manifest.json", "lock.json", "questions"):
-        link = first_link(rel)
-        if link is not None:
-            return link
-    try:
-        names = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
-    except OSError:
-        return None  # 列不出来交给 verify_battery_lock 报 battery_drift
-    for name in names:
-        link = first_link("questions/%s" % name)
-        if link is not None:
-            return link
-    return None
+    return pd.battery_link_problem()
 
 
 PLUGINS_SUBKEYS = ("enabled", "allowed_permissions")
@@ -445,7 +414,7 @@ def cmd_show(args: argparse.Namespace) -> int:
                              "errors": errors, "keys": rows}
     try:
         settings = _decisions.settings_from_config(config, repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
-        described = _decisions.describe(settings, pd.DECISIONS_PLUGIN_DIR)
+        described = pd.describe_decisions(_decisions, settings)  # 问题清单经过链接时不读（battery_lock 记 link）
         facts["decisions"] = {"mode": described["mode"], "configured_mode": described["configured_mode"],
                               "reason": described["reason"], "marker_present": described["marker_present"],
                               "model": described["model"], "base_url": described["base_url"],

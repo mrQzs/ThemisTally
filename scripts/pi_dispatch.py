@@ -3708,6 +3708,58 @@ def _decisions_module():
     return module
 
 
+def battery_link_problem() -> Optional[str]:
+    """决策插件的问题清单读之前的链接检查：第一个链接或 junction 的那一级，没有则 None。
+
+    3.0 第一轮（闸二 B1）在 kit_config 写成，用于配置校验、写入门禁与修复提示；运行时加载与 doctor、config show
+    的展示也要先查（第一轮的残余，用户 2026-10-18 确认另立任务），所以挪到这里作为唯一实现。
+    从 KIT_ROOT 往下逐级查（first_link_component），按字面求相对路径，不 resolve：resolve 会顺着链接走出去，漏掉链接那一级。
+    """
+    plugin_dir = Path(DECISIONS_PLUGIN_DIR)
+    try:
+        base: Optional[str] = plugin_dir.relative_to(Path(KIT_ROOT)).as_posix()
+    except ValueError:
+        base = None
+
+    def first_link(rel: str) -> Optional[str]:
+        if base is None:  # 插件目录不在 KIT_ROOT 之下：查插件目录本身与这一项
+            for path in (plugin_dir, plugin_dir / rel):
+                if is_link_or_junction(path):
+                    return str(path)
+            return None
+        try:
+            return first_link_component(Path(KIT_ROOT), "%s/%s" % (base, rel))
+        except ValueError:
+            return "%s/%s" % (base, rel)
+
+    # 与 verify_battery_lock 的读取顺序相同（闸二第 2 轮 B1）：先读 manifest.json 与 lock.json，再列 questions/、
+    # 读其中每个 *.json。每一项连同它的各级上级目录都在读或列之前查过，查过的上级目录不会先被跟随着列举。
+    for rel in ("manifest.json", "lock.json", "questions"):
+        link = first_link(rel)
+        if link is not None:
+            return link
+    try:
+        names = sorted(path.name for path in (plugin_dir / "questions").glob("*.json"))
+    except OSError:
+        return None  # 列不出来交给 verify_battery_lock 报 battery_drift
+    for name in names:
+        link = first_link("questions/%s" % name)
+        if link is not None:
+            return link
+    return None
+
+
+def describe_decisions(module: Any, settings: Any) -> Dict[str, Any]:
+    """doctor 与 config show 的决策事实（module.describe）；问题清单经过链接时不读它，battery_lock 记 link。"""
+    link = battery_link_problem()
+    if link is None:
+        return module.describe(settings, DECISIONS_PLUGIN_DIR)
+    described = module.describe(settings, None)
+    described.update(plugin_dir=str(DECISIONS_PLUGIN_DIR), battery_lock="link",
+                     battery_problems=["问题清单经过链接，不读取：%s" % link])
+    return described
+
+
 def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_path: Optional[Path],
                       point: Optional[str] = None, *, strict: bool = False):
     """按 dispatch.config.json 的 decisions 建一个会话；模式 off、模块或插件缺失、决策点未启用时返回 None。
@@ -3724,6 +3776,13 @@ def decisions_session(config: Dict[str, Any], agent_dir: Optional[Path], record_
     except module.DecisionError as exc:
         raise DispatchError("dispatch.config.json 的 decisions 无效：%s" % exc.detail, EXIT_USAGE)
     if not settings.active or (point is not None and point not in settings.points):
+        return None
+    link = battery_link_problem()
+    if link is not None:  # 经过链接就不读，按“与内容锁不符”处理
+        detail = "问题清单经过链接，不读取：%s" % link
+        if strict:
+            raise DispatchError("决策插件的问题清单无效：%s" % detail, EXIT_USAGE)
+        _record_battery_drift(settings, record_path, point, detail)
         return None
     try:
         batteries = module.load_locked_batteries(DECISIONS_PLUGIN_DIR)
@@ -7120,7 +7179,7 @@ def _doctor_decisions(args: argparse.Namespace, facts: Dict[str, Any], problems:
         facts["decisions"] = {"mode": "off", "reason": "config_invalid"}
         problems.append("dispatch.config.json 的 decisions 无效：%s" % exc.detail)
         return
-    described = module.describe(settings, DECISIONS_PLUGIN_DIR)
+    described = describe_decisions(module, settings)
     # 键名避开 redact_obj 会遮蔽的“api_key”写法：这里记的是环境变量的名字与有无，不是值。
     facts["decisions"] = {
         "mode": described["mode"], "configured_mode": described["configured_mode"], "reason": described["reason"],
