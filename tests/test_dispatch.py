@@ -3249,22 +3249,61 @@ ROLE_ENV = {"STUB_MODELS": "step step-5-preview;step step-5-mini"}
 ROLE_IGNORE = ".agent/runs/\n.agent/dispatch.local.json\n.env\nnode_modules/\n"
 RECORD_V1 = ".agent/runs/normalize-query/binding-v1.json"
 
-#: 子进程驱动（K4、K4b）：在 publish_new 之前报告并等放行文件，此时持有任务锁。
+#: 子进程驱动：在指定的位置报告并等放行文件。rename：版本记录的临时文件写完、换上正式文件之前（K4、K4b，此时持有
+#: 任务锁）；freeze：预检之后、冻结合同之前（K5 的写法漂移）。
 BINDING_DRIVER = '''
 import os, sys, time
 sys.path.insert(0, sys.argv[1])
 import pi_dispatch as pd
-barrier = sys.argv[2]
-original = pd.publish_new
-def held(path, data):
+barrier, mode = sys.argv[2], sys.argv[3]
+
+def hold():
     open(barrier + ".holding", "w").close()
     deadline = time.time() + 60
     while not os.path.exists(barrier + ".go") and time.time() < deadline:
         time.sleep(0.05)
-    return original(path, data)
-pd.publish_new = held
-sys.exit(pd.main(sys.argv[3:]))
+
+if mode == "rename":
+    for name in ("rename", "link"):
+        real = getattr(os, name, None)
+        if real is None:
+            continue
+        def held(src, dst, *args, _real=real, **kwargs):
+            if os.path.basename(str(dst)).startswith("binding-v") and str(src).endswith(".tmp"):
+                hold()
+            return _real(src, dst, *args, **kwargs)
+        setattr(os, name, held)
+elif mode == "freeze":
+    original = pd.allocate_attempt
+    def held(repo, task_id):
+        result = original(repo, task_id)
+        hold()
+        return result
+    pd.allocate_attempt = held
+sys.exit(pd.main(sys.argv[4:]))
 '''
+
+
+def start_held(repo, name, mode="rename", env=None):
+    barrier = WORK / ("%s-barrier" % name)
+    for suffix in (".holding", ".go"):
+        Path(str(barrier) + suffix).unlink() if Path(str(barrier) + suffix).exists() else None
+    driver = WORK / "binding_driver.py"
+    driver.write_text(BINDING_DRIVER, encoding="utf-8")
+    merged = dict(BASE_ENV, **ROLE_ENV)
+    merged.update(env or {})
+    proc = subprocess.Popen([PY, str(driver), str(repo / "scripts"), str(barrier), mode, "prepare", "normalize-query.v1"],
+                            cwd=str(repo), env=merged, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    deadline = time.time() + 60
+    while not Path(str(barrier) + ".holding").exists() and proc.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    return proc, barrier
+
+
+def release(proc, barrier):
+    Path(str(barrier) + ".go").write_text("", encoding="utf-8")
+    out = proc.communicate(timeout=120)[0].decode("utf-8", "replace")
+    return proc.returncode, out
 
 
 def role_config(repo, profile="exec-step", role="execution", **extra):
@@ -3567,34 +3606,15 @@ def test_v2120_role_binding_refusals_and_integrity():
 
 
 def test_v2120_binding_publication_races():
-    """K4、K4b：发布的唯一性与最终采用别人发布的记录。子进程驱动让 A 停在 publish_new 之前（持任务锁）。"""
-    def start_held(repo, name, env=None):
-        barrier = WORK / ("%s-barrier" % name)
-        for suffix in (".holding", ".go"):
-            Path(str(barrier) + suffix).unlink() if Path(str(barrier) + suffix).exists() else None
-        driver = WORK / "binding_driver.py"
-        driver.write_text(BINDING_DRIVER, encoding="utf-8")
-        merged = dict(BASE_ENV, **ROLE_ENV)
-        merged.update(env or {})
-        proc = subprocess.Popen([PY, str(driver), str(repo / "scripts"), str(barrier), "prepare", "normalize-query.v1"],
-                                cwd=str(repo), env=merged, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        deadline = time.time() + 60
-        while not Path(str(barrier) + ".holding").exists() and proc.poll() is None and time.time() < deadline:
-            time.sleep(0.05)
-        return proc, barrier
-
-    def release(proc, barrier):
-        Path(str(barrier) + ".go").write_text("", encoding="utf-8")
-        out = proc.communicate(timeout=120)[0].decode("utf-8", "replace")
-        return proc.returncode, out
-
-    # K4①：A 持锁停在发布之前；B 等任务锁，之后读到完整的记录
+    """K4、K4b：发布的唯一性与最终采用别人发布的记录。子进程驱动让 A 停在临时文件写完、换上正式文件之前（持任务锁）。"""
+    # K4①：A 持锁停在临时文件写完、发布之前；B 等任务锁，之后读到完整的记录
     repo, _base = make_role_repo("v2120-race")
     proc_a, barrier = start_held(repo, "race")
+    temps = list((repo / ".agent/runs/normalize-query").glob("binding-v1.json.*.tmp"))
     proc_b = subprocess.Popen([PY, "scripts/pi_dispatch.py", "prepare", "normalize-query.v1"], cwd=str(repo),
                               env=dict(BASE_ENV, **ROLE_ENV), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(1.5)
-    b_waiting = proc_b.poll() is None and not (repo / RECORD_V1).exists()
+    b_waiting = proc_b.poll() is None and not (repo / RECORD_V1).exists() and len(temps) == 1
     code_a, out_a = release(proc_a, barrier)
     out_b = proc_b.communicate(timeout=120)[0].decode("utf-8", "replace")
     check("K4 the second prepare waits for the task lock and reads the complete record",
@@ -3619,13 +3639,116 @@ def test_v2120_binding_publication_races():
             ("allowed_executors", {}, {"allowed_executors": [{"provider": "step", "model": "step-5-preview"}]}, 3)):
         repo, _base = make_role_repo("v2120-adopt-%s" % label.lower().replace("_", "-"))
         role_config(repo, "exec-step", **config_a)
-        proc_a, barrier = start_held(repo, "adopt-%s" % label, env_a)
+        proc_a, barrier = start_held(repo, "adopt-%s" % label, env=env_a)
         shutil.rmtree(str(repo / ".agent/runs/normalize-query/.task.lock"), ignore_errors=True)
         role_config(repo, "exec-mini")
         code_b, out_b = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
         code_a, out_a = release(proc_a, barrier)
         check("K4b the adopted record is checked again (%s): exit %d, PREPARE_FAILED" % (label, expected),
               code_b == 0 and code_a == expected and state(repo, 1) == "PREPARE_FAILED", (out_a, out_b))
+
+
+def test_v2120_frozen_class_decides_and_g0_inputs():
+    """闸二第 3 片第 1 轮：B1（只改 meta 不能换掉写死合同的模型）、S1（记录缺字段）、S2（meta 坏类型、坏路径）、
+    K5（同一次 prepare 里预检之后换了写法）、K12③（旧合同不提前解析）。"""
+    # B1：写死合同的 meta 被加上 executor_binding：G0 拒绝，读回与摘要也不认它
+    repo, _base = make_repo("v2120-inject", scripts=ROLE_SCRIPTS)
+    role_config(repo, "exec-step", allowed_executors=[{"provider": "step", "model": "step-5-preview"},
+                                                      {"provider": "step", "model": "step-5-mini"}])
+    assert tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    meta_path = rd(repo) / "meta.json"
+    meta = jload(meta_path)
+    meta["executor_binding"] = {"role": "execution", "provider": "step", "model": "step-5-mini", "thinking": "high"}
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+    check("B1 G0 refuses an executor_binding injected into a written contract's meta",
+          code != 0 and "不是按角色写的合同，meta.json 却有 executor_binding" in out and state(repo) == "PREPARED", out)
+    check("B1 read-back and the summary follow the frozen contract, not the injected binding",
+          pd.attempt_executor(rd(repo), {"model": "fallback"}) == {"model": "fallback"}
+          and pd.executor_source_text(rd(repo), meta).startswith("合同写死"))
+
+    # S2：meta 的 plan_version 类型坏了、task_id 带 ..：G0 拒绝，不冒堆栈
+    repo, _base = make_role_repo("v2120-badmeta")
+    assert tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0
+    meta_path = rd(repo) / "meta.json"
+    original_meta = meta_path.read_bytes()
+    for field, value in (("plan_version", "bad"), ("task_id", "../escape")):
+        meta = json.loads(original_meta.decode("utf-8"))
+        meta[field] = value
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        code, out = tool(repo, "run", "normalize-query/attempt-001", env=dict(ROLE_ENV, STUB_SCENARIO="ok"))
+        check("S2 G0 refuses a meta whose %s is broken, without a traceback" % field,
+              code != 0 and "Traceback" not in out and ("输入不一致（G0）" in out or "meta" in out), out)
+    meta_path.write_bytes(original_meta)
+
+    # S1：记录缺了可以为 null 的两个字段：拒绝（退出 4）；显式 null 照常
+    record_path = repo / RECORD_V1
+    original = record_path.read_bytes()
+    check("S1 a record keeps active_preset as an explicit null", "active_preset" in json.loads(original.decode("utf-8"))
+          and json.loads(original.decode("utf-8"))["active_preset"] is None)
+    for field in ("active_preset", "config_sha256"):
+        record = json.loads(original.decode("utf-8"))
+        record.pop(field)
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        code, out = tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)
+        check("S1 a record without %s is refused with exit 4" % field, code == 4 and "版本记录无效" in out, out)
+    record_path.write_bytes(original)
+    check("S1 the restored record is accepted again", tool(repo, "prepare", "normalize-query.v1", env=ROLE_ENV)[0] == 0)
+
+    # K5：同一次 prepare 里，预检之后、冻结之前把写法换了：退出 4，attempt 记 PREPARE_FAILED
+    for label, start_role in (("role to written", True), ("written to role", False)):
+        repo, base = make_role_repo("v2120-drift-%s" % ("rw" if start_role else "wr"))
+        if not start_role:
+            write_plan(repo, base, 1)
+        proc, barrier = start_held(repo, "drift-%s" % ("rw" if start_role else "wr"), mode="freeze")
+        if start_role:
+            write_plan(repo, base, 1)
+        else:
+            write_role_plan(repo, base, 1)
+        code, out = release(proc, barrier)
+        check("K5 the executor form changed between the precheck and the freeze (%s): exit 4, PREPARE_FAILED" % label,
+              code == 4 and "合同在校验之后被改过" in out and state(repo, 1) == "PREPARE_FAILED", out)
+
+    # K12③：provider、model 都是 null，或只有一项是 null 的旧合同，prepare 不提前解析（允许列表挡不住它）
+    for provider, model in ((None, None), ("step", None), (None, "step-5-preview")):
+        repo, base = make_repo("v2120-legacy-%s-%s" % (provider or "n", model or "n"))
+        write_config(repo, allowed_executors=[{"provider": "other", "model": "other"}])
+        data = contract(base)
+        data["executor"]["provider"], data["executor"]["model"] = provider, model
+        write_plan(repo, base, 1, md=build_md(data), raw=data)
+        code, out = tool(repo, "prepare", "normalize-query.v1")
+        check("K12 a legacy contract (%s, %s) is not resolved at prepare" % (provider, model),
+              code == 0 and "allowed_executors" not in out, out)
+    repo, _base = make_repo("v2120-written-early")
+    write_config(repo, allowed_executors=[{"provider": "other", "model": "other"}])
+    code, out = tool(repo, "prepare", "normalize-query.v1")
+    check("K12 a written contract is still resolved at prepare", code == 3 and "allowed_executors" in out, out)
+
+    # S3：记录看不了（lstat 拒绝访问）不当作没有记录
+    root = WORK / "v2120-record-unreadable"
+    remove_tree(root)
+    (root / ".agent/runs/t").mkdir(parents=True)
+    target = root / ".agent/runs/t/binding-v1.json"
+    target.write_text(original.decode("utf-8"), encoding="utf-8")
+    real_lstat = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        if os.path.normcase(os.fspath(path)) == os.path.normcase(str(target)):
+            raise PermissionError(13, "拒绝访问（替身）", os.fspath(path))
+        return real_lstat(path, *args, **kwargs)
+
+    os.lstat = lstat
+    try:
+        try:
+            pd.load_binding_record(pd.Repo(root), "t", 1)
+            refused = None
+        except pd.BindingRecordError as exc:
+            refused = exc
+    finally:
+        os.lstat = real_lstat
+    check("S3 a record that cannot be examined is refused with exit 4, not treated as missing",
+          refused is not None and refused.code == pd.EXIT_DRIFT and "看不了" in str(refused), refused)
+    remove_tree(root)
 
 
 def test_v2120_written_contracts_and_readback():

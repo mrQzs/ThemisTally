@@ -550,6 +550,22 @@ class LocalFile(RolesRepo):
         self.assertIsNone(command)
         self.assertTrue(any("经过链接" in line for line in lines), lines)
 
+    def test_a_local_file_that_cannot_be_examined_is_not_treated_as_missing(self):
+        """闸二第 3 片 S3：lstat 拒绝访问时报 ERROR、不用它，不当作“没有本机文件”。"""
+        self.put({"runtimes": {"pi": {"command": ["pi"]}}})
+        blocked = os.path.normcase(str(self.local))
+        real = os.lstat
+
+        def lstat(path, *args, **kwargs):
+            if os.path.normcase(os.fspath(path)) == blocked:
+                raise PermissionError(13, "拒绝访问（替身）", os.fspath(path))
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(os, "lstat", lstat):
+            command, lines = kit_roles.local_command(self.target, self.base(), "pi")
+        self.assertIsNone(command)
+        self.assertTrue(any(line.startswith("ERROR") and "看不了" in line for line in lines), lines)
+
 
 class OldLayout(unittest.TestCase):
     """C9：只拷了旧文件、没有 kit_roles.py 的布局里，没有 v3 键的配置命令与插件写入照常可用（D12）。"""

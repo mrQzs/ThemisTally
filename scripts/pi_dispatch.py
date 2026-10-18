@@ -3589,14 +3589,20 @@ def load_binding_record(repo: "Repo", task_id: str, version: int) -> Optional[Di
     if link is not None:
         raise BindingRecordError("版本记录经过链接或 junction，不读取：%s" % link, EXIT_DRIFT)
     path = repo.root / rel
-    if not os.path.lexists(str(path)):
+    try:
+        os.lstat(str(path))
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except OSError as exc:  # 看不了不当作“还没有记录”（闸二第 3 片 S3）
+        raise BindingRecordError("版本记录看不了（%s：%s）；不能当作没有记录" % (rel, exc.strerror or type(exc).__name__),
+                                 EXIT_DRIFT)
     try:
         data = json.loads(path.read_bytes().decode("utf-8"))
     except (OSError, ValueError) as exc:
         raise BindingRecordError("版本记录无效（%s）：%s；确认后删除它，或出新版本合同" % (rel, type(exc).__name__), EXIT_DRIFT)
     if not isinstance(data, dict) or any(not isinstance(data.get(key), kind) for key, kind in BINDING_RECORD_FIELDS) \
-            or not all(data.get(key) is None or isinstance(data.get(key), str) for key in ("active_preset", "config_sha256")):
+            or not all(key in data and (data[key] is None or isinstance(data[key], str))  # 可以是 null，但不能缺（闸二第 3 片 S1）
+                       for key in ("active_preset", "config_sha256")):
         raise BindingRecordError("版本记录无效（%s）：字段不全或类型不对；确认后删除它，或出新版本合同" % rel, EXIT_DRIFT)
     secret = secret_like_paths(data)
     if secret:  # 记录的取值会进提示、摘要与 argv（D9）
@@ -3706,14 +3712,19 @@ def binding_record_problems(repo: "Repo", run_dir: Path, meta: Dict[str, Any]) -
     """run 之前的 G0（D5）：按角色写的合同（看冻结的 contract.json，不看 meta 有没有字段）必须带版本记录的副本，
     且记录在推得出的路径上、没有链接、与副本逐项相同、合同哈希一致。"""
     raw = read_json_or(run_dir / "contract.json", {})
-    if executor_class(raw.get("executor") if isinstance(raw, dict) else None) != "role":
-        return []
+    raw = raw if isinstance(raw, dict) else {}
+    if executor_class(raw.get("executor")) != "role":  # 写死与旧合同不读绑定：meta 里出现绑定字段就是被改过（闸二第 3 片 B1）
+        return ["不是按角色写的合同，meta.json 却有 executor_binding"] if "executor_binding" in meta else []
     binding = meta.get("executor_binding")
     if not isinstance(binding, dict):
         return ["按角色写的合同缺少 meta.json 的 executor_binding"]
-    rel = binding_record_rel(str(meta.get("task_id")), int(meta.get("plan_version") or 0))
+    task_id, version = meta.get("task_id"), meta.get("plan_version")
+    if not (isinstance(task_id, str) and TASK_ID_RE.match(task_id)) or isinstance(version, bool) \
+            or not isinstance(version, int) or task_id != raw.get("task_id") or version != raw.get("plan_version"):
+        return ["meta.json 的 task_id、plan_version 与冻结的合同不一致，推不出版本记录的路径"]  # 闸二第 3 片 S2
+    rel = binding_record_rel(task_id, version)
     try:
-        record = load_binding_record(repo, str(meta.get("task_id")), int(meta.get("plan_version") or 0))
+        record = load_binding_record(repo, task_id, version)
     except BindingRecordError as exc:
         return [str(exc)]
     if record is None:
@@ -3733,7 +3744,7 @@ def attempt_executor(run_dir: Path, fallback: Any) -> Any:
         return executor
     meta = read_json_or(run_dir / "meta.json", {})
     binding = meta.get("executor_binding") if isinstance(meta, dict) else None
-    if not isinstance(binding, dict):
+    if not isinstance(binding, dict) or frozen_executor_class(run_dir) != "role":  # 类别看冻结合同（闸二第 3 片 B1）
         return fallback
     raw = read_json_or(run_dir / "contract.json", {})
     contract_executor = normalize_contract(raw).get("executor") if isinstance(raw, dict) else None
@@ -3743,15 +3754,23 @@ def attempt_executor(run_dir: Path, fallback: Any) -> Any:
     return merged
 
 
+def frozen_executor_class(run_dir: Path) -> str:
+    """attempt 冻结合同（contract.json）的 executor 类别。run、G0、读回与摘要都按它判断，不看 meta 里有没有绑定字段
+    （闸二第 3 片 B1）。"""
+    raw = read_json_or(run_dir / "contract.json", {})
+    return executor_class(raw.get("executor") if isinstance(raw, dict) else None)
+
+
 def executor_source_text(run_dir: Path, meta: Dict[str, Any]) -> str:
     """摘要的“执行模型来源”一行（D5）。"""
+    kind = frozen_executor_class(run_dir)
     binding = meta.get("executor_binding")
-    if isinstance(binding, dict):
+    if kind == "role":
+        if not isinstance(binding, dict):
+            return "按角色写，但 meta.json 缺少 executor_binding"
         return "角色绑定 %s（profile %s，runtime %s，方案 %s，配置 sha256 %s，记录 %s）" % (
             binding.get("role"), binding.get("profile"), binding.get("runtime"), binding.get("active_preset") or "无",
             str(binding.get("config_sha256") or "无")[:12], binding.get("record_path"))
-    raw = read_json_or(run_dir / "contract.json", {})
-    kind = executor_class(raw.get("executor") if isinstance(raw, dict) else None)
     if kind == "written":
         note = meta.get("executor_binding_note")
         if isinstance(note, dict) and isinstance(note.get("binding"), dict):
@@ -4864,8 +4883,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         log_event(run_dir, "run_refused", problems=problems)
         raise DispatchError("输入不一致（G0）：%s" % "；".join(problems))
     config = repo.config()
-    binding = meta.get("executor_binding") if isinstance(meta.get("executor_binding"), dict) else None
-    if binding is not None:  # 按角色写的合同（D5）：模型取自版本记录；verify_inputs 已核对它与记录逐项相同
+    # 按冻结合同的类别决定（闸二第 3 片 B1）：按角色写时模型取自版本记录，verify_inputs 已核对它与记录逐项相同；
+    # 其余合同即使 meta 里有绑定字段也不用（G0 已经拒绝了这种情形）
+    binding = meta.get("executor_binding") if frozen_executor_class(run_dir) == "role" else None
+    binding = binding if isinstance(binding, dict) else None
+    if binding is not None:
         executor = resolve_bound_executor(contract, binding, config)
     else:
         executor = resolve_executor(dict(contract, _raw_executor=load_raw_executor(run_dir)), config)

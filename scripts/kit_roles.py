@@ -459,8 +459,11 @@ def read_local(repo: Any, config: Dict[str, Any]) -> Tuple[Optional[Dict[str, Li
     疑似凭据同样是错误，只报位置（D9）；提交的配置里没有登记的 runtime ID 是警告。只读，不运行任何命令。
     """
     path = repo.agent_dir / LOCAL_NAME
-    if not os.path.lexists(str(path)):
-        return {}, [], []
+    try:
+        if _lstat(path) is None:
+            return {}, [], []
+    except OSError as exc:  # 看不了不当作“没有本机文件”（闸二第 3 片 S3）
+        return None, ["%s 看不了（%s），不使用" % (LOCAL_REL, exc.strerror or type(exc).__name__)], []
     errors = check_local(repo)
     if errors:
         return None, errors, []
