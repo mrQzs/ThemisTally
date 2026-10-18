@@ -16,7 +16,9 @@
   ADD       目标里没有这个文件；install / update 写入 kit 的字节（check 只报告）
   SAME      目标里的字节与 kit 相同
   UPDATE    目标是上次安装时的原样而 kit 已经更新，install / update 写入新字节；--force 覆盖的行也记为 UPDATE
-  KEEP      目标与安装记录不同，是本地改过的，不写（--force 才覆盖并备份）
+  KEEP      目标与安装记录不同，是本地改过的，不写（--force 才覆盖并备份）。例外：示例配置
+            .agent/dispatch.config.json 在检查之后、写入之前被别人建好时也记 KEEP（“写入时已存在，未覆盖”），
+            这是成功，不计入下面退出码 1 的 KEEP
   CONFLICT  目标已有内容不同的同名文件，安装记录里没有它，不写（--force 才覆盖并备份）
   APPEND    目标的 .gitignore / .gitattributes 缺少 kit 的规则，本次只在末尾追加，原内容一个字节不改
   MANUAL    AGENTS.md 已存在，永不改写；列出目标里缺少的 kit 章节，由人手工合并

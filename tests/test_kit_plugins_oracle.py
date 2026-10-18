@@ -2012,10 +2012,20 @@ def test_r2_t7_plugin_writes_go_through_the_transaction(tmp_path):
         intents = [r for r in _audit(env.repo) if r["phase"] == "intent"]
         assert [(r["action"], r["target"]) for r in intents] == [("plugin.enable", "code-change"),
                                                                  ("plugin.disable", "code-change")]
+        # 先留下一条没有终结记录的 intent，再造一次外部改动：dry-run 与无变化都不能提前补判或记录外部改动
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            assert run(["enable", "python-checks"], env.repo)[0] == 1
+        path = env.repo / ".agent" / "dispatch.config.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        config["kill_grace_seconds"] = 20
+        path.write_bytes((json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
         audit = (env.repo / ".agent" / "audit" / "management.jsonl").read_bytes()
+        history_dir = env.repo / ".agent" / "config-history"
+        history = {p.name: p.read_bytes() for p in history_dir.iterdir()}
         assert run(["enable", "docs-change"], env.repo)[0] == 0  # 已经启用：没有变化
         assert run(["enable", "code-change", "--dry-run"], env.repo)[0] == 0
         assert (env.repo / ".agent" / "audit" / "management.jsonl").read_bytes() == audit
+        assert {p.name: p.read_bytes() for p in history_dir.iterdir()} == history
 
 
 def test_r2_t7_audit_incomplete_is_passed_through(tmp_path):

@@ -554,16 +554,18 @@ def publish_new(path: Path, data: bytes) -> bool:
     """
     tmp = path.parent / ("%s.%s.tmp" % (path.name, os.urandom(8).hex()))
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    with os.fdopen(os.open(str(tmp), flags, 0o666), "wb") as handle:
-        handle.write(data)
-    try:
-        if IS_WINDOWS:
-            os.rename(str(tmp), str(path))
-        else:
-            os.link(str(tmp), str(path))
+    descriptor = os.open(str(tmp), flags, 0o666)
+    try:  # 临时文件建好之后的整个过程（写入、关闭、发布）都在清理范围里，包括 KeyboardInterrupt
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+        try:
+            if IS_WINDOWS:
+                os.rename(str(tmp), str(path))
+            else:
+                os.link(str(tmp), str(path))
+        except FileExistsError:  # 只有发布这一步的“已存在”才算别人抢先发布
+            return False
         return True
-    except FileExistsError:
-        return False
     finally:
         if os.path.lexists(str(tmp)):
             os.unlink(str(tmp))

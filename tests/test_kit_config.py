@@ -794,11 +794,11 @@ class ConfigTransactions(TempRepo):
         # 按字节写 LF：write_text 在 Windows 上会写成 CRLF，那样“没有变化”的写入其实会把 CRLF 改成 LF
         self.config_file.write_bytes((json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
         audit = self.audit_bytes()
-        history = sorted(p.name for p in (self.agent / "config-history").iterdir())
+        history = {p.name: p.read_bytes() for p in (self.agent / "config-history").iterdir()}
         self.assertEqual(self.set("kill_grace_seconds", '"abc"')[0], 1)  # 校验失败
         self.assertEqual(self.set("kill_grace_seconds", "20")[0], 0)  # 没有变化
         self.assertEqual(self.audit_bytes(), audit)  # 补判与外部改动都没有提前写
-        self.assertEqual(sorted(p.name for p in (self.agent / "config-history").iterdir()), history)
+        self.assertEqual({p.name: p.read_bytes() for p in (self.agent / "config-history").iterdir()}, history)
 
     def test_observed_is_not_repeated_when_the_intent_fails_after_it(self):
         self.set("kill_grace_seconds", "20")
@@ -922,6 +922,90 @@ class ConfigTransactions(TempRepo):
         code, out, _ = run_config(["history", "show", str(len(self.records("intent"))), "--json"], self.repo)
         self.assertEqual(json.loads(out)["note"], "本机配置只存哈希")
         self.assertEqual(run_config(["rollback", "2"], self.repo)[0], 2)  # 第 2 条是本机文件的写入
+
+    # 闸二第 1 片的修正 ---------------------------------------------------
+    def test_g2s1_b1_history_does_not_diff_against_a_missing_snapshot(self):
+        self.set("kill_grace_seconds", "20")
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["_secret_env"] = "opaque_demo_value"  # 之后的快照因疑似凭据只存哈希
+        self.config_file.write_bytes((json.dumps(config, indent=2) + "\n").encode("utf-8"))
+        self.set("check_artifact_patterns", '["x"]')
+        code, out, _ = run_config(["history", "show", "2", "--json"], self.repo)
+        self.assertEqual(code, 0)
+        shown = json.loads(out)
+        self.assertIsNone(shown["diff"])  # 不能当成空配置，报出“kill_grace_seconds: 20 → 未设置”
+        self.assertEqual(shown["note"], "疑似凭据，未存内容")
+        code, out, _ = run_config(["history", "--json"], self.repo)
+        self.assertIsNone(json.loads(out)["entries"][1]["changed_keys"])
+
+    def test_g2s1_s1_publish_new_cleans_up_a_failed_write(self):
+        pd = kit_config.pd
+        real_fdopen = os.fdopen
+
+        class Failing:
+            def __init__(self, fd, mode):
+                self.inner = real_fdopen(fd, mode)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.inner.close()
+                return False
+
+            def write(self, data):
+                raise OSError(28, "No space left on device")
+
+        with mock.patch("os.fdopen", Failing):
+            with self.assertRaises(OSError):
+                pd.publish_new(self.work / "record.json", b"x")
+        self.assertEqual([p.name for p in self.work.iterdir() if p.name.endswith(".tmp")], [])
+        self.assertFalse((self.work / "record.json").exists())
+
+    def test_g2s1_s2_an_interrupted_lock_setup_leaves_no_lock(self):
+        for error in (KeyboardInterrupt(), OSError(5, "denied")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(kit_config.socket, "gethostname", side_effect=error):
+                    code, _, _ = self.set("kill_grace_seconds", "20")
+                self.assertEqual(code, 130 if isinstance(error, KeyboardInterrupt) else 1)
+                self.assertNoLock()
+        self.assertEqual(self.set("kill_grace_seconds", "20")[0], 0)  # 之后照常能写
+
+    def test_g2s1_s3_an_invalid_config_is_refused_even_without_a_change(self):
+        self.write_standard({"kill_grace_seconds": "bad"})
+        code, _, err = self.set("kill_grace_seconds", '"bad"')
+        self.assertEqual(code, 1)
+        self.assertIn("没有写入", err)
+        self.assertEqual(self.audit_bytes(), b"")
+
+    def test_g2s1_s4_a_structurally_broken_record_is_skipped(self):
+        self.set("kill_grace_seconds", "20")
+        audit = self.agent / "audit" / "management.jsonl"
+        with open(audit, "ab") as handle:
+            handle.write(b'{"record_type": "management-audit", "resource": "config", "phase": "commit", '
+                         b'"txn": [], "result": "published"}\n')
+            handle.write(b'{"record_type": "management-audit", "resource": "config", "phase": "intent", '
+                         b'"txn": "t", "action": "config.set", "after_ref": {"sha256": 5}}\n')
+        code, _, err = self.set("kill_grace_seconds", "21")
+        self.assertEqual(code, 0, err)
+        records, broken = kit_config.read_audit(kit_config.pd.Repo.discover(str(self.repo)))
+        self.assertEqual(len(broken), 2)
+
+    def test_g2s1_s5_the_confirmation_hook_sees_the_state_before_the_change(self):
+        self.set("kill_grace_seconds", "20")
+        seen = []
+
+        def hook(repo, old, new, confirm):
+            seen.append((old.get("kill_grace_seconds"), new.get("kill_grace_seconds")))
+            return "none"
+
+        with mock.patch.object(kit_config, "_binding_switch_confirmation", hook):
+            self.set("kill_grace_seconds", "21")
+            run_config(["unset", "kill_grace_seconds"], self.repo)
+        self.assertEqual(seen, [(20, 21), (21, None)])
+
+    def write_standard(self, config):
+        self.config_file.write_bytes((json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
     # T12 -----------------------------------------------------------------
     def test_publish_new_never_overwrites(self):

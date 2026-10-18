@@ -424,12 +424,15 @@ class ConfigLock:
                 if time.monotonic() >= deadline:
                     raise ConfigError(self._busy_message())
                 time.sleep(0.1)
-        owner = {"pid": os.getpid(), "host": socket.gethostname(), "token": self.token, "created_at": pd.utc_now()}
-        try:
+        try:  # 目录已建、初始化还没完成：任何异常（含 KeyboardInterrupt）都要把锁删掉，否则它永远不会被自动清除
+            owner = {"pid": os.getpid(), "host": socket.gethostname(), "token": self.token,
+                     "created_at": pd.utc_now()}
             (self.path / "owner.json").write_text(json.dumps(owner) + "\n", encoding="utf-8")
-        except OSError as exc:
+        except BaseException as exc:
             shutil.rmtree(str(self.path), ignore_errors=True)
-            raise ConfigError("写不进配置锁 %s：%s" % (self.path, exc))
+            if isinstance(exc, OSError):
+                raise ConfigError("写不进配置锁 %s：%s" % (self.path, exc))
+            raise
         return self
 
     def __exit__(self, *_exc: Any) -> None:
@@ -498,12 +501,35 @@ def read_audit(repo: Any) -> Tuple[List[Dict[str, Any]], List[int]]:
         except (UnicodeDecodeError, ValueError, RecursionError):
             broken.append(number)
             continue
-        if not isinstance(record, dict) or record.get("record_type") != "management-audit":
+        if not _valid_record(record):  # JSON 合法、结构不对的也算损坏：后面的代码依赖这些字段的类型
             broken.append(number)
             continue
         record["_line"] = number
         records.append(record)
     return records, broken
+
+
+AUDIT_PHASES = ("intent", "commit", "resolve", "observed")
+
+
+def _valid_ref(ref: Any) -> bool:
+    return ref is None or (isinstance(ref, dict) and isinstance(ref.get("sha256"), str))
+
+
+def _valid_record(record: Any) -> bool:
+    """审计记录的结构：阶段与资源是已知值，事务记录有字符串的 txn，终结记录有字符串的 result，引用是 None 或带哈希的对象。"""
+    if not isinstance(record, dict) or record.get("record_type") != "management-audit":
+        return False
+    phase = record.get("phase")
+    if phase not in AUDIT_PHASES or record.get("resource") not in RESOURCES:
+        return False
+    if phase != "observed" and not isinstance(record.get("txn"), str):
+        return False
+    if phase in ("commit", "resolve") and not isinstance(record.get("result"), str):
+        return False
+    if phase == "intent" and not isinstance(record.get("action"), str):
+        return False
+    return all(_valid_ref(record.get(key)) for key in ("before_ref", "after_ref"))
 
 
 def _append_audit(repo: Any, record: Dict[str, Any]) -> None:
@@ -600,6 +626,8 @@ class ConfigTransaction:
             self.before: Optional[bytes] = self.path.read_bytes() if self.path.exists() else None
         except OSError as exc:
             raise ConfigError("读不出 %s：%s" % (self.path, exc))
+        # 调用方改的是 config；original 由同一份字节另外解析，保持写入前的样子，供 D8 比较前后的生效绑定
+        self.original: Dict[str, Any] = {} if self.before is None else _parse_object(self.path, self.before)
         self.config: Dict[str, Any] = {} if self.before is None else _parse_object(self.path, self.before)
         self.published = False
 
@@ -617,13 +645,13 @@ class ConfigTransaction:
         """
         data = (raw_text if raw_text is not None
                 else json.dumps(new_config, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-        if self.before is not None and data == self.before:
-            return False
-        if self.resource == "config":
+        if self.resource == "config":  # 先整份校验，再看有没有变化：无效的配置不会因为“没有变化”而被放过
             errors = validate_config(new_config, self.repo)
             if errors:
                 raise ConfigError("没有写入：" + "；".join(errors))
-        confirmation = _binding_switch_confirmation(self.repo, self.config, new_config, self.confirm) \
+        if self.before is not None and data == self.before:
+            return False
+        confirmation = _binding_switch_confirmation(self.repo, self.original, new_config, self.confirm) \
             if self.resource == "config" else "none"
         records, _broken = read_audit(self.repo)
         intents, _terminal, pending, last_known = _ledger(records, self.resource)
@@ -973,11 +1001,17 @@ def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
 
 
 def key_diff(before: Optional[bytes], after: Optional[bytes]) -> Optional[List[Tuple[str, Any, Any]]]:
-    """逐键差异（键路径、旧值、新值）；任一份内容不可用时 None。缺省的一侧记 None。"""
+    """逐键差异（键路径、旧值、新值）；缺省的键记 None。
+
+    任一份内容不可用（快照没存、缺失或哈希不符）时返回 None，不当作空配置比较（闸二第 1 片 B1）。资源原本不存在时，
+    调用方传 b"{}"。
+    """
+    if before is None or after is None:
+        return None
     try:
-        old = json.loads(before.decode("utf-8")) if before is not None else {}
-        new = json.loads(after.decode("utf-8")) if after is not None else {}
-    except (AttributeError, UnicodeDecodeError, ValueError, RecursionError):
+        old = json.loads(before.decode("utf-8"))
+        new = json.loads(after.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     old_flat, new_flat = _flatten(old), _flatten(new)
     return [(key, old_flat.get(key), new_flat.get(key)) for key in sorted(set(old_flat) | set(new_flat))
