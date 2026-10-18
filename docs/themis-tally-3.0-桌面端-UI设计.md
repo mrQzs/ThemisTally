@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 4 稿（2026-10-19）**，随架构文档第 6 稿同步闸一第 2–4 轮的处置。
+状态：**第 5 稿（2026-10-19）**，随架构文档第 7 稿同步闸一第 2–5 轮的处置。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -1175,7 +1175,7 @@ stateDiagram-v2
 ### 9.4 `readFile`（示意：新增的 `logs cat --json`）
 
 ```json
-{"path": "executor-report.md", "mode": "whole-file", "next_cursor": null, "done": true,
+{"path": "executor-report.md", "mode": "text", "next_cursor": null, "done": true,
  "text": "## 执行报告\n\n已按合同实现 logs cat。\n\n<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字\n\n- self_checks: V01–V08 通过\n"}
 ```
 
