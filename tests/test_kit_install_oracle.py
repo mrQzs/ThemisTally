@@ -399,11 +399,15 @@ class KitInstallOracle(unittest.TestCase):
         (target / ".gitattributes").write_bytes(b"*.sh text eol=lf\n.agent/** text eol=lf\n")
         code, rows, summary, err = self.run_kit(kit, "install", target)
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.status_of(rows, ".gitignore"), ("APPEND", "补上 .agent/runs/"))
+        # 3.0 第二轮起 kit 的忽略规则还有配置中心的本机状态（本机覆盖、写入历史与审计、配置锁）
+        rules = (".agent/runs/", ".agent/dispatch.local.json", ".agent/config-history/", ".agent/audit/",
+                 ".agent/.config.lock/")
+        self.assertEqual(self.status_of(rows, ".gitignore"), ("APPEND", "补上 " + "、".join(rules)))
         self.assertEqual(self.status_of(rows, ".gitattributes")[0], "SAME")
         data = (target / ".gitignore").read_bytes()
         self.assertTrue(data.startswith(original), data)
-        self.assertEqual(data, original + "\n\n# Code-Kit（kit_install.py 追加）\n.agent/runs/\n".encode("utf-8"))
+        self.assertEqual(data, original + ("\n\n# Code-Kit（kit_install.py 追加）\n"
+                                           + "".join(rule + "\n" for rule in rules)).encode("utf-8"))
         self.assertEqual((target / ".gitattributes").read_bytes(), b"*.sh text eol=lf\n.agent/** text eol=lf\n")
         code, rows, summary, err = self.run_kit(kit, "check", target)
         self.assertEqual(self.status_of(rows, ".gitignore")[0], "SAME")

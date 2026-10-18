@@ -649,6 +649,8 @@ prepare 不运行任何 CLI。
 
 写完之后，文件与快照逐字节相同。
 
+已发布事务的 after 快照，都是 `json.dumps(…, ensure_ascii=False, indent=2)` 的输出（LF、末尾有换行、非 ASCII 原样），或者 rollback 原样写回的这种字节。所以 T1 的逐字节比较覆盖的是 Unicode 与这种格式；CRLF、没有末尾换行这类字节，只会出现在外部改动的 observed 快照里，而那种快照不能作为 rollback 的目标。这一点是实现时核对出的事实。
+
 **actor**：
 
 - 取环境变量 `CODEKIT_ACTOR`，值为 `user` 或 `agent:<角色>`；没设时记 `undeclared`；值不合法时打 WARN，也记 `undeclared`。
@@ -805,7 +807,9 @@ prepare 不运行任何 CLI。
 **`config` 的转发不变**（PD:7157-7163）：
 
 - 新子命令由 `kit_config.build_parser` 登记，转交 `kit_roles`；
-- `--yes` 是 `kit_config` 的全局选项。
+- `--yes` 是每个写入类子命令自己的选项，例如 `config set … --yes`、`config rollback 3 --yes`。
+  - 实现时由“全局选项”改为子命令选项。
+  - 原因是 argparse 的全局选项必须写在子命令之前，`config --yes set …` 不顺手；子命令解析器的缺省值还会覆盖全局选项的值。
 
 ## 4. 接口
 
@@ -831,7 +835,7 @@ prepare 不运行任何 CLI。
 | `config doctor [--json]` | 读；运行 CLI 的只读命令 | D10 |
 
 - **退出码**：0 成功；1 是校验失败、未就绪、需要确认，或审计记录不全；2 是用法错误。配置锁被占用、等不到时报 ERROR，退出 1。
-- **全局选项**：`--yes`。
+- **确认选项**：写入类子命令都接受 `--yes`（D12）。
 - **环境变量**：`CODEKIT_ACTOR`。
 - `config set` / `unset` 照常可以改这五个键，同样经过锁、事务与确认。
 

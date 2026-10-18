@@ -24,13 +24,19 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
+import hashlib
 import html
 import json
 import os
+import re
 import secrets as _secrets
+import shutil
+import socket
 import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -263,8 +269,17 @@ def load_config(repo: Any) -> Dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # RecursionError：嵌套过深的 JSON
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ConfigError("无法解析 %s：%s" % (path, exc))
+    return _parse_object(path, raw)
+
+
+def _parse_object(path: Path, raw: bytes) -> Dict[str, Any]:
+    """配置文件的字节 → 顶层对象；解析不了或顶层不是对象都是 ConfigError。"""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # RecursionError：嵌套过深的 JSON
         raise ConfigError("无法解析 %s：%s" % (path, type(exc).__name__ if isinstance(exc, RecursionError) else exc))
     if not isinstance(data, dict):
         raise ConfigError("%s 顶层必须是对象" % path)
@@ -363,14 +378,348 @@ def plugins_fix_hint(config: Dict[str, Any], repo: Any) -> Optional[str]:
     return None
 
 
-def write_config(repo: Any, config: Dict[str, Any]) -> Path:
-    path = config_path(repo)
+# ---------------------------------------------------------------------------
+# 配置锁、写入事务、历史与审计（3.0 第二轮设计 D7）
+# ---------------------------------------------------------------------------
+
+LOCK_NAME = ".config.lock"
+#: 等配置锁的秒数。测试把它改小：锁从不自动清除，泄漏的锁会让之后的每次写入都等满这么久。
+LOCK_WAIT_SECONDS = 30.0
+HISTORY_DIR = "config-history"
+AUDIT_DIR = "audit"
+AUDIT_NAME = "management.jsonl"
+LOCAL_NAME = "dispatch.local.json"
+ACTOR_ENV = "CODEKIT_ACTOR"
+ACTOR_RE = re.compile(r"^(?:user|agent:[a-z][a-z_]{0,31})$")
+#: 审计记录的 resource → .agent/ 下的文件。补判、外部改动都只在同一资源内比较；只有 config 存快照。
+RESOURCES = {"config": CONFIG_NAME, "local": LOCAL_NAME}
+APPROVAL_NOTE = "P3 之前没有批准记录"
+
+
+class AuditIncomplete(ConfigError):
+    """配置已经替换，但 commit 记录没有写进审计：退出 1；下一次写入同一资源时补判（D7 第 8 步）。"""
+
+
+class ConfigLock:
+    """配置锁 .agent/.config.lock/：mkdir 成功就持有，owner.json 记 pid、主机、令牌与创建时间。
+
+    从不自动抢占（闸一第 3 轮 B1）：被占用时等 LOCK_WAIT_SECONDS 秒，之后报错并写明持有者是否还在运行，
+    由人确认后删除。释放时令牌一致才删除目录。不复用 pi_dispatch.TaskLock：它按年龄清锁、退出时不核对所有权，
+    会让被挂起的旧持有者恢复后接着写。替换用的临时文件也放在锁目录里，锁释放时一并删掉。
+    """
+
+    def __init__(self, repo: Any, wait_seconds: Optional[float] = None) -> None:
+        self.path = repo.agent_dir / LOCK_NAME
+        self.wait_seconds = LOCK_WAIT_SECONDS if wait_seconds is None else wait_seconds
+        self.token = _secrets.token_hex(16)
+
+    def __enter__(self) -> "ConfigLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.wait_seconds
+        while True:
+            try:
+                self.path.mkdir()
+                break
+            except FileExistsError:
+                if time.monotonic() >= deadline:
+                    raise ConfigError(self._busy_message())
+                time.sleep(0.1)
+        owner = {"pid": os.getpid(), "host": socket.gethostname(), "token": self.token, "created_at": pd.utc_now()}
+        try:
+            (self.path / "owner.json").write_text(json.dumps(owner) + "\n", encoding="utf-8")
+        except OSError as exc:
+            shutil.rmtree(str(self.path), ignore_errors=True)
+            raise ConfigError("写不进配置锁 %s：%s" % (self.path, exc))
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        owner = _read_owner(self.path)
+        if owner is not None and owner.get("token") == self.token:  # 令牌不同：锁已被人删掉又被别人重建，不动它
+            shutil.rmtree(str(self.path), ignore_errors=True)
+
+    def _busy_message(self) -> str:
+        owner = _read_owner(self.path)
+        if owner is None:
+            who = "持有者信息读不出来"
+        else:
+            pid = owner.get("pid") if isinstance(owner.get("pid"), int) else None
+            host = owner.get("host")
+            if host == socket.gethostname():
+                state = {True: "仍在运行", False: "已退出", None: "无法判断是否在运行"}[pd.pid_alive(pid)]
+            else:
+                state = "在另一台主机上，无法判断是否在运行"
+            who = "进程 %s（主机 %s，%s，%s 起持有）" % (pid, host, state, owner.get("created_at"))
+        return ("配置锁被占用：%s，%s。确认没有别的写配置的命令在运行之后，删除这个目录再重试（锁从不自动清除）"
+                % (self.path, who))
+
+
+def _read_owner(lock_dir: Path) -> Optional[Dict[str, Any]]:
+    try:
+        owner = json.loads((lock_dir / "owner.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return owner if isinstance(owner, dict) else None
+
+
+def _sha(data: Optional[bytes]) -> Optional[str]:
+    return hashlib.sha256(data).hexdigest() if data is not None else None
+
+
+def _actor() -> str:
+    """CODEKIT_ACTOR 的自声明（user 或 agent:<角色>），没设记 undeclared。这不是认证（上位设计 8.6）。"""
+    value = os.environ.get(ACTOR_ENV)
+    if not value:
+        return "undeclared"
+    if ACTOR_RE.match(value):
+        return value
+    print("WARN  %s=%r 不是 user 或 agent:<角色>，审计记为 undeclared" % (ACTOR_ENV, value), file=sys.stderr)
+    return "undeclared"
+
+
+def audit_path(repo: Any) -> Path:
+    return repo.agent_dir / AUDIT_DIR / AUDIT_NAME
+
+
+def read_audit(repo: Any) -> Tuple[List[Dict[str, Any]], List[int]]:
+    """审计记录（文件顺序，每条带 _line）与损坏行的行号。末尾的半行、解析不了的行都记为损坏，不中断。"""
+    try:
+        data = audit_path(repo).read_bytes()
+    except FileNotFoundError:
+        return [], []
+    except OSError as exc:
+        raise ConfigError("读不出审计 %s：%s" % (audit_path(repo), exc))
+    records: List[Dict[str, Any]] = []
+    broken: List[int] = []
+    for number, raw in enumerate(data.split(b"\n"), 1):
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            broken.append(number)
+            continue
+        if not isinstance(record, dict) or record.get("record_type") != "management-audit":
+            broken.append(number)
+            continue
+        record["_line"] = number
+        records.append(record)
+    return records, broken
+
+
+def _append_audit(repo: Any, record: Dict[str, Any]) -> None:
+    """只在配置锁内调用：同一时间只有一个追加者。文件不以换行结尾时先补一个，中断留下的半行单独成行。"""
+    path = audit_path(repo)
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(config, ensure_ascii=False, indent=2) + "\n"
-    temp = path.with_name(path.name + ".tmp")
-    temp.write_text(text, encoding="utf-8", newline="\n")
-    os.replace(str(temp), str(path))
-    return path
+    prefix = b""
+    if path.exists():
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell():
+                handle.seek(-1, os.SEEK_END)
+                prefix = b"" if handle.read(1) == b"\n" else b"\n"
+    line = prefix + (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    with open(path, "ab") as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _secret_reason(data: bytes) -> Optional[str]:
+    """快照存内容之前的凭据检查（D7）：疑似凭据时返回原因（只含键路径，不含值），否则 None。"""
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        text = data.decode("utf-8", "replace")
+        return "不是合法的 JSON，文本里有疑似凭据" if pd.redact_secrets(text) != text else None
+    paths = pd.secret_like_paths(parsed)
+    return ("疑似凭据：%s" % "、".join(paths[:5])) if paths else None
+
+
+def _snapshot_ref(repo: Any, resource: str, data: Optional[bytes], *, store: bool) -> Optional[Dict[str, Any]]:
+    """一份内容在审计里的引用；store 为真且是 config、没有疑似凭据时，按内容寻址存进 config-history/。"""
+    if data is None:
+        return None
+    sha = _sha(data)
+    if resource != "config":
+        return {"kind": "local-file", "sha256": sha, "stored": False}
+    target = repo.agent_dir / HISTORY_DIR / ("%s.json" % sha)
+    if target.is_file():
+        return {"kind": "config-snapshot", "sha256": sha, "stored": True}
+    reason = _secret_reason(data)
+    if reason is not None:
+        return {"kind": "config-snapshot", "sha256": sha, "stored": False, "reason": reason}
+    if not store:
+        return {"kind": "config-snapshot", "sha256": sha, "stored": False}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    pd.publish_new(target, data)  # 已存在（同一内容）返回 False，无妨
+    return {"kind": "config-snapshot", "sha256": sha, "stored": True}
+
+
+def _ledger(records: List[Dict[str, Any]], resource: str) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str],
+                                                                    List[str], Optional[str]]:
+    """一个资源的账：intent（txn → 记录）、终结结果（txn → result）、未终结的 txn（日志顺序），
+    以及按日志顺序最后一条“已知内容”的哈希——已发布事务的 after 或 observed 的 after（D7 第 3、4 步）。"""
+    intents: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    terminal: Dict[str, str] = {}
+    last_known: Optional[str] = None
+    for record in records:
+        if record.get("resource") != resource:
+            continue
+        phase, txn = record.get("phase"), record.get("txn")
+        if phase == "intent" and isinstance(txn, str) and txn not in intents:
+            intents[txn] = record
+            order.append(txn)
+        elif phase in ("commit", "resolve") and txn in intents and txn not in terminal:
+            terminal[txn] = str(record.get("result"))
+            if record.get("result") == "published":
+                last_known = (intents[txn].get("after_ref") or {}).get("sha256")
+        elif phase == "observed":
+            last_known = (record.get("after_ref") or {}).get("sha256")
+    return intents, terminal, [txn for txn in order if txn not in terminal], last_known
+
+
+def _warn_unignored(repo: Any) -> None:
+    """历史与审计目录没被忽略（旧安装没补规则）时提示：它们会作为未跟踪文件出现，运行期间写配置会进复审关注。"""
+    for name in (HISTORY_DIR, AUDIT_DIR):
+        probe = ".agent/%s/probe" % name
+        if pd.git(["check-ignore", "-q", probe], repo.root, check=False).returncode != 0:
+            print("WARN  .agent/%s/ 没有被 .gitignore 忽略：运行 kit_install update 补上 kit 的忽略规则" % name,
+                  file=sys.stderr)
+
+
+class ConfigTransaction:
+    """一次写入：在配置锁内读入资源，调用方修改后 publish；不 publish 就什么也不写（D7）。"""
+
+    def __init__(self, repo: Any, lock: ConfigLock, resource: str, action: str, target: Optional[str],
+                 confirm: bool) -> None:
+        self.repo, self.lock, self.resource = repo, lock, resource
+        self.action, self.target, self.confirm = action, target, confirm
+        self.path = repo.agent_dir / RESOURCES[resource]
+        try:
+            self.before: Optional[bytes] = self.path.read_bytes() if self.path.exists() else None
+        except OSError as exc:
+            raise ConfigError("读不出 %s：%s" % (self.path, exc))
+        self.config: Dict[str, Any] = {} if self.before is None else _parse_object(self.path, self.before)
+        self.published = False
+
+    def _record(self, phase: str, **fields: Any) -> Dict[str, Any]:
+        record = {"record_type": "management-audit", "schema_version": 1, "phase": phase,
+                  "resource": self.resource, "audit_id": "aud-%s" % _secrets.token_hex(16), "at": pd.utc_now()}
+        record.update(fields)
+        return record
+
+    def publish(self, new_config: Dict[str, Any], raw_text: Optional[str] = None) -> bool:
+        """校验并写入；新字节与当前相同时什么也不写、返回 False。raw_text 给定时原样写这份字节（rollback 用）。
+
+        顺序（D7）：校验 → 确认（D8）→ 补判本资源中断的事务 → 外部改动 → 快照 → intent → 替换 → commit。
+        校验不过、需要确认而没有确认、没有变化时一条记录也不写。
+        """
+        data = (raw_text if raw_text is not None
+                else json.dumps(new_config, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        if self.before is not None and data == self.before:
+            return False
+        if self.resource == "config":
+            errors = validate_config(new_config, self.repo)
+            if errors:
+                raise ConfigError("没有写入：" + "；".join(errors))
+        confirmation = _binding_switch_confirmation(self.repo, self.config, new_config, self.confirm) \
+            if self.resource == "config" else "none"
+        records, _broken = read_audit(self.repo)
+        intents, _terminal, pending, last_known = _ledger(records, self.resource)
+        current = _sha(self.before)
+        for txn in pending:  # 持锁者总会先写完自己的事务再放锁、锁又不自动清除，所以未终结的都是中断者留下的
+            intent = intents[txn]
+            after = (intent.get("after_ref") or {}).get("sha256")
+            before = (intent.get("before_ref") or {}).get("sha256")
+            result = "published" if current == after else ("aborted" if current == before else "unknown")
+            self._append(self._record("resolve", txn=txn, result=result))
+            if result == "published":
+                last_known = after
+        if current != last_known:
+            self._append(self._record("observed", action="external",
+                                      after_ref=self._snapshot(self.before, store=True)))
+        after_ref = self._snapshot(data, store=True)
+        before_ref = self._snapshot(self.before, store=False)
+        txn = _secrets.token_hex(16)
+        intent = self._record("intent", txn=txn, action=self.action, target=self.target, actor=_actor(),
+                              confirmation=confirmation, before_ref=before_ref, after_ref=after_ref,
+                              invalidated_approvals=[], note=APPROVAL_NOTE)
+        try:
+            _append_audit(self.repo, intent)
+        except OSError as exc:
+            raise ConfigError("没有写入：审计写不进去（%s）" % exc)
+        temp = self.lock.path / ("%s.%s.tmp" % (self.path.name, _secrets.token_hex(8)))
+        try:
+            temp.write_bytes(data)
+            os.replace(str(temp), str(self.path))
+        except OSError as exc:
+            raise ConfigError("写入失败：%s" % exc)
+        try:
+            _append_audit(self.repo, self._record("commit", txn=txn, result="published"))
+        except OSError as exc:
+            raise AuditIncomplete("已写入 %s，但审计记录不全（%s）：下一次写入时补判" % (self.path, exc))
+        self.published = True
+        _warn_unignored(self.repo)
+        return True
+
+    def _append(self, record: Dict[str, Any]) -> None:
+        try:
+            _append_audit(self.repo, record)
+        except OSError as exc:
+            raise ConfigError("没有写入：审计写不进去（%s）" % exc)
+
+    def _snapshot(self, data: Optional[bytes], *, store: bool) -> Optional[Dict[str, Any]]:
+        try:
+            return _snapshot_ref(self.repo, self.resource, data, store=store)
+        except OSError as exc:
+            raise ConfigError("没有写入：快照存不下（%s）" % exc)
+
+
+@contextlib.contextmanager
+def config_transaction(repo: Any, action: str, target: Optional[str] = None, *, resource: str = "config",
+                       confirm: bool = False):
+    """持配置锁读入资源（config 或 local），交给调用方修改并 publish。所有写配置的入口都经过这里（D7）。"""
+    with ConfigLock(repo) as lock:
+        yield ConfigTransaction(repo, lock, resource, action, target, confirm)
+
+
+def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any],
+                                 confirm: bool) -> str:
+    """运行中切换的确认（D8）：返回审计的 confirmation（flag / none）。
+
+    写入前后两份配置都没有 v3 键时，生效绑定两边都是“由合同决定”，不用比较；有 v3 键的比较在 kit_roles 里。
+    """
+    if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
+        return "none"
+    roles = _kit_roles()
+    in_flight = roles.binding_switch_in_flight(repo, old_config, new_config)
+    if not in_flight:
+        return "none"
+    if not confirm:
+        raise ConfigError("有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：%s。"
+                          "运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes" % "、".join(in_flight))
+    return "flag"
+
+
+#: 配置 v3 的五个键（3.0 第二轮 D1）；第 2 步登记进 KEYS。
+V3_KEYS: Tuple[str, ...] = ()
+
+
+def _kit_roles() -> Any:
+    """惰性导入 scripts/kit_roles.py：只有配置里有 v3 键时才需要它（D12）。"""
+    try:
+        import kit_roles  # noqa: PLC0415
+    except ModuleNotFoundError:
+        raise ConfigError("配置里有角色绑定的键，但 scripts/kit_roles.py 不在本工具旁边", EXIT_USAGE)
+    return kit_roles
+
+
+def write_config(repo: Any, config: Dict[str, Any]) -> Path:
+    """经写入事务整份校验后写入（3.0 第二轮起没有绕过历史与审计的写法）；返回配置路径。"""
+    with config_transaction(repo, "config.write") as txn:
+        txn.publish(config)
+    return config_path(repo)
 
 
 def parse_value(text: str) -> Any:
@@ -457,52 +806,61 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_OK if not errors else EXIT_FAIL
 
 
-def write_checked(repo: Any, config: Dict[str, Any]) -> None:
-    """整份校验后原子写入；有错一个字节都不写（3.0 第一轮起公开，kit_plugins 用它写 plugins 段）。"""
-    errors = validate_config(config, repo)
-    if errors:
-        raise ConfigError("没有写入：" + "；".join(errors))
-    write_config(repo, config)
+def write_checked(repo: Any, config: Dict[str, Any], *, action: str = "config.write", target: Optional[str] = None,
+                  confirm: bool = False) -> bool:
+    """整份校验后经写入事务写入，有错一个字节都不写；返回是否有变化（3.0 第一轮起公开）。
+
+    调用方在锁外读出、改好再交进来，与锁内的读改写之间仍可能丢更新；本仓库的入口都改用 config_transaction。
+    """
+    with config_transaction(repo, action, target, confirm=confirm) as txn:
+        return txn.publish(config)
 
 
 _write_checked = write_checked  # 旧名保留
 
 
+def _confirm_flag(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "yes", False))
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     parts = split_path(args.key)
-    config = load_config(repo)
     value = parse_value(args.value)
-    if len(parts) == 1:
-        config[parts[0]] = value
-    else:
-        section = config.get(parts[0])
-        if section is None:
-            section = config[parts[0]] = {}
-        if not isinstance(section, dict):
-            raise ConfigError("%s 不是对象，不能设置 %s" % (parts[0], args.key))
-        section[parts[1]] = value
-    _write_checked(repo, config)
-    print("已写入 %s：%s = %s" % (config_path(repo), args.key, json.dumps(value, ensure_ascii=False)))
+    with config_transaction(repo, "config.set", args.key, confirm=_confirm_flag(args)) as txn:
+        config = txn.config
+        if len(parts) == 1:
+            config[parts[0]] = value
+        else:
+            section = config.get(parts[0])
+            if section is None:
+                section = config[parts[0]] = {}
+            if not isinstance(section, dict):
+                raise ConfigError("%s 不是对象，不能设置 %s" % (parts[0], args.key))
+            section[parts[1]] = value
+        changed = txn.publish(config)
+    print("%s %s：%s = %s" % ("已写入" if changed else "没有变化", config_path(repo), args.key,
+                             json.dumps(value, ensure_ascii=False)))
     return EXIT_OK
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     parts = split_path(args.key)
-    config = load_config(repo)
-    if len(parts) == 1:
-        if parts[0] not in config:
-            raise ConfigError("%s 本来就没有设置" % args.key)
-        del config[parts[0]]
-    else:
-        section = config.get(parts[0])
-        if not isinstance(section, dict) or parts[1] not in section:
-            raise ConfigError("%s 本来就没有设置" % args.key)
-        del section[parts[1]]
-        if not section:
+    with config_transaction(repo, "config.unset", args.key, confirm=_confirm_flag(args)) as txn:
+        config = txn.config
+        if len(parts) == 1:
+            if parts[0] not in config:
+                raise ConfigError("%s 本来就没有设置" % args.key)
             del config[parts[0]]
-    _write_checked(repo, config)
+        else:
+            section = config.get(parts[0])
+            if not isinstance(section, dict) or parts[1] not in section:
+                raise ConfigError("%s 本来就没有设置" % args.key)
+            del section[parts[1]]
+            if not section:
+                del config[parts[0]]
+        txn.publish(config)
     print("已删除 %s（%s）" % (args.key, config_path(repo)))
     return EXIT_OK
 
@@ -510,16 +868,17 @@ def cmd_unset(args: argparse.Namespace) -> int:
 def cmd_init(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     target = config_path(repo)
-    if target.exists():
-        raise ConfigError("已存在：%s（用 set 修改，或先删除它）" % target)
     example = pd.KIT_ROOT / ".agent" / EXAMPLE_NAME
-    if not example.is_file():
-        raise ConfigError("kit 里没有 %s" % example)
-    config = json.loads(example.read_text(encoding="utf-8"))
-    errors = validate_config(config, repo)
-    if errors:
-        raise ConfigError("示例配置在本仓库上无效：" + "；".join(errors))
-    write_config(repo, config)
+    with config_transaction(repo, "config.init") as txn:
+        if txn.before is not None:
+            raise ConfigError("已存在：%s（用 set 修改，或先删除它）" % target)
+        if not example.is_file():
+            raise ConfigError("kit 里没有 %s" % example)
+        config = json.loads(example.read_text(encoding="utf-8"))
+        errors = validate_config(config, repo)
+        if errors:
+            raise ConfigError("示例配置在本仓库上无效：" + "；".join(errors))
+        txn.publish(config)
     print("已生成 %s（来自 kit 的 %s）；用 show 查看、set 修改" % (target, EXAMPLE_NAME))
     return EXIT_OK
 
@@ -539,16 +898,191 @@ def cmd_decisions(args: argparse.Namespace) -> int:
             else:
                 print("%s 本来就不存在" % marker)
         return EXIT_OK
-    config = load_config(repo)
-    section = config.get("decisions")
-    if section is None:
-        section = config["decisions"] = {}
-    if not isinstance(section, dict):
-        raise ConfigError("decisions 不是对象")
-    section["mode"] = args.what
-    _write_checked(repo, config)
+    with config_transaction(repo, "config.decisions", "decisions.mode") as txn:
+        config = txn.config
+        section = config.get("decisions")
+        if section is None:
+            section = config["decisions"] = {}
+        if not isinstance(section, dict):
+            raise ConfigError("decisions 不是对象")
+        section["mode"] = args.what
+        txn.publish(config)
     settings = _decisions.settings_from_config(config, repo.agent_dir, pd.DECISIONS_PLUGIN_DIR)
     print("已写入 decisions.mode = %s；实际生效 %s（%s）" % (args.what, settings.mode, settings.reason))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# 历史与回滚（D7）
+# ---------------------------------------------------------------------------
+
+STATE_WORDS = {"published": "已发布", "aborted": "未发布", "unknown": "未知", None: "进行中或已中断"}
+
+
+def history_entries(repo: Any) -> Tuple[List[Dict[str, Any]], List[int], int]:
+    """按 intent 在日志中的顺序编号（两种资源共用一套编号），每条带终结状态；返回（条目, 损坏行, 第 1 条之前的
+    外部改动次数）。observed 记录记在它前面那一条上：那条之后、下一次写入之前，有人在配置中心之外改过。
+
+    只读：不持锁、不补判，没有终结记录的标“进行中或已中断”。
+    """
+    records, broken = read_audit(repo)
+    entries: List[Dict[str, Any]] = []
+    by_txn: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    leading_external = 0
+    for record in records:
+        phase, resource = record.get("phase"), record.get("resource")
+        if phase == "intent" and isinstance(record.get("txn"), str):
+            entry = {"number": len(entries) + 1, "resource": resource, "txn": record["txn"], "at": record.get("at"),
+                     "action": record.get("action"), "target": record.get("target"), "actor": record.get("actor"),
+                     "confirmation": record.get("confirmation"), "before_ref": record.get("before_ref"),
+                     "after_ref": record.get("after_ref"), "state": None, "resolved": False, "external_after": 0}
+            entries.append(entry)
+            by_txn[(str(resource), record["txn"])] = entry
+        elif phase in ("commit", "resolve"):
+            entry = by_txn.get((str(resource), str(record.get("txn"))))
+            if entry is not None and entry["state"] is None:
+                entry["state"] = record.get("result")
+                entry["resolved"] = phase == "resolve"
+        elif phase == "observed":
+            if entries:
+                entries[-1]["external_after"] += 1
+            else:
+                leading_external += 1
+    return entries, broken, leading_external
+
+
+def _snapshot_bytes(repo: Any, ref: Optional[Dict[str, Any]]) -> Optional[bytes]:
+    if not ref or not ref.get("stored") or not isinstance(ref.get("sha256"), str):
+        return None
+    path = repo.agent_dir / HISTORY_DIR / ("%s.json" % ref["sha256"])
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return data if _sha(data) == ref["sha256"] else None
+
+
+def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
+    """{键路径: 值}；非空对象逐级展开，空对象与其他值是叶子。顶层是空对象时没有任何键。"""
+    if isinstance(value, dict) and (value or not prefix):
+        flat: Dict[str, Any] = {}
+        for key, item in value.items():
+            flat.update(_flatten(item, "%s.%s" % (prefix, key) if prefix else str(key)))
+        return flat
+    return {prefix or "（顶层）": value}
+
+
+def key_diff(before: Optional[bytes], after: Optional[bytes]) -> Optional[List[Tuple[str, Any, Any]]]:
+    """逐键差异（键路径、旧值、新值）；任一份内容不可用时 None。缺省的一侧记 None。"""
+    try:
+        old = json.loads(before.decode("utf-8")) if before is not None else {}
+        new = json.loads(after.decode("utf-8")) if after is not None else {}
+    except (AttributeError, UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    old_flat, new_flat = _flatten(old), _flatten(new)
+    return [(key, old_flat.get(key), new_flat.get(key)) for key in sorted(set(old_flat) | set(new_flat))
+            if old_flat.get(key, KeyError) != new_flat.get(key, KeyError)]
+
+
+def _content_note(resource: Any, ref: Optional[Dict[str, Any]]) -> Optional[str]:
+    if ref is None or ref.get("stored"):
+        return None
+    return "本机配置只存哈希" if resource == "local" else "疑似凭据，未存内容"
+
+
+def cmd_history(args: argparse.Namespace) -> int:
+    repo = _repo(args.repo)
+    entries, broken, leading_external = history_entries(repo)
+    if getattr(args, "number", None) is not None:
+        return _history_show(repo, entries, args.number, args.json)
+    rows = []
+    for entry in entries:
+        before = _snapshot_bytes(repo, entry["before_ref"]) if entry["before_ref"] else b"{}"
+        after = _snapshot_bytes(repo, entry["after_ref"])
+        diff = key_diff(before, after) if entry["resource"] == "config" else None
+        rows.append({"number": entry["number"], "resource": entry["resource"], "at": entry["at"],
+                     "action": entry["action"], "target": entry["target"], "actor": entry["actor"],
+                     "confirmation": entry["confirmation"], "state": entry["state"], "resolved": entry["resolved"],
+                     "changed_keys": [item[0] for item in diff] if diff is not None else None,
+                     "note": _content_note(entry["resource"], entry["after_ref"]),
+                     "external_changes": entry["external_after"]})
+    if args.json:
+        print(json.dumps({"entries": rows, "broken_lines": broken, "external_before_first": leading_external},
+                         ensure_ascii=False, indent=2))
+        return EXIT_OK
+    if not rows:
+        print("还没有写入记录：%s" % audit_path(repo))
+    if leading_external:
+        print("第 1 条之前：配置中心之外已有的内容（记为基线，observed %d 次）" % leading_external)
+    for row in rows:
+        state = STATE_WORDS.get(row["state"], str(row["state"])) + ("（补判）" if row["resolved"] else "")
+        keys = "、".join(row["changed_keys"]) if row["changed_keys"] else (row["note"] or "—")
+        print("%4d  %s  %-6s %-18s %-24s %s · %s · 确认 %s  [%s]" % (
+            row["number"], row["at"], row["resource"], row["action"], row["target"] or "—", state, row["actor"],
+            row["confirmation"], keys))
+        if row["external_changes"]:
+            print("      之后发现 %d 次在配置中心之外的改动（observed）" % row["external_changes"])
+    if broken:
+        print("损坏的记录：第 %s 行" % "、".join(str(number) for number in broken))
+    return EXIT_OK
+
+
+def _entry(entries: List[Dict[str, Any]], number: int) -> Dict[str, Any]:
+    for entry in entries:
+        if entry["number"] == number:
+            return entry
+    raise ConfigError("没有第 %d 条写入记录（用 config history 查看编号）" % number, EXIT_USAGE)
+
+
+def _history_show(repo: Any, entries: List[Dict[str, Any]], number: int, as_json: bool) -> int:
+    entry = _entry(entries, number)
+    if entry["resource"] != "config":
+        facts = {"number": number, "resource": entry["resource"], "state": entry["state"],
+                 "before_sha256": (entry["before_ref"] or {}).get("sha256"),
+                 "after_sha256": (entry["after_ref"] or {}).get("sha256"), "note": "本机配置只存哈希"}
+        print(json.dumps(facts, ensure_ascii=False, indent=2) if as_json else
+              "第 %d 条（%s）：%s → %s；本机配置只存哈希，没有逐键差异" % (
+                  number, entry["resource"], facts["before_sha256"], facts["after_sha256"]))
+        return EXIT_OK
+    before = _snapshot_bytes(repo, entry["before_ref"]) if entry["before_ref"] else b"{}"
+    after = _snapshot_bytes(repo, entry["after_ref"])
+    diff = key_diff(before, after)
+    note = None
+    if diff is None:
+        note = _content_note("config", entry["after_ref"] if after is None else entry["before_ref"]) or "快照缺失"
+    if as_json:
+        print(json.dumps({"number": number, "state": entry["state"], "note": note,
+                          "diff": None if diff is None else [{"key": k, "old": o, "new": n} for k, o, n in diff]},
+                         ensure_ascii=False, indent=2))
+        return EXIT_OK
+    if diff is None:
+        print("第 %d 条：%s，没有逐键差异" % (number, note))
+        return EXIT_OK
+    print("第 %d 条：%s %s（%s）" % (number, entry["action"], entry["target"] or "", STATE_WORDS.get(entry["state"])))
+    for key, old, new in diff:
+        print("  %s: %s → %s" % (key, "未设置" if old is None else json.dumps(old, ensure_ascii=False),
+                                  "未设置" if new is None else json.dumps(new, ensure_ascii=False)))
+    return EXIT_OK
+
+
+def cmd_rollback(args: argparse.Namespace) -> int:
+    """回到某条已发布写入之后的配置：原样写回那份快照的字节，本身也是一个新的事务（action config.rollback）。"""
+    repo = _repo(args.repo)
+    with config_transaction(repo, "config.rollback", str(args.number), confirm=_confirm_flag(args)) as txn:
+        entries, _broken, _leading = history_entries(repo)
+        entry = _entry(entries, args.number)
+        if entry["resource"] != "config":
+            raise ConfigError("第 %d 条是本机文件的写入：rollback 只接受配置文件的记录" % args.number, EXIT_USAGE)
+        if entry["state"] != "published":
+            raise ConfigError("第 %d 条没有发布（%s），不能回滚到它" % (
+                args.number, STATE_WORDS.get(entry["state"], entry["state"])), EXIT_USAGE)
+        data = _snapshot_bytes(repo, entry["after_ref"])
+        if data is None:
+            raise ConfigError("第 %d 条的快照没有存内容或已缺失（%s），不能回滚" % (
+                args.number, _content_note("config", entry["after_ref"]) or "快照文件缺失"))
+        target = _parse_object(repo.agent_dir / HISTORY_DIR / ("%s.json" % entry["after_ref"]["sha256"]), data)
+        changed = txn.publish(target, raw_text=data.decode("utf-8"))
+    print("%s：%s 回到第 %d 条之后的内容" % ("已回滚" if changed else "没有变化", config_path(repo), args.number))
     return EXIT_OK
 
 
@@ -740,11 +1274,24 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("set", help="设置一个键（先 JSON 解析，解析不了按字符串）")
     p.add_argument("key", help="键路径，最多两层，例如 decisions.mode")
     p.add_argument("value")
+    p.add_argument("--yes", action="store_true", help="有 attempt 在运行时，确认要改变执行端或合同端的生效绑定")
     p.set_defaults(func=cmd_set)
 
     p = sub.add_parser("unset", help="删除一个键")
     p.add_argument("key")
+    p.add_argument("--yes", action="store_true", help="有 attempt 在运行时，确认要改变执行端或合同端的生效绑定")
     p.set_defaults(func=cmd_unset)
+
+    p = sub.add_parser("history", help="写入历史：编号、动作、执行者、变化的键；history show <编号> 看逐键差异")
+    p.add_argument("show", nargs="?", choices=("show",))
+    p.add_argument("number", nargs="?", type=int)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_history)
+
+    p = sub.add_parser("rollback", help="回到第 N 条已发布写入之后的配置（原样写回快照的字节，本身也记一条历史）")
+    p.add_argument("number", type=int)
+    p.add_argument("--yes", action="store_true", help="有 attempt 在运行时，确认要改变执行端或合同端的生效绑定")
+    p.set_defaults(func=cmd_rollback)
 
     p = sub.add_parser("init", help="从 kit 的示例生成配置文件（已存在则拒绝）")
     p.set_defaults(func=cmd_init)
@@ -780,6 +1327,8 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
         return EXIT_USAGE
     if args.command == "decisions" and (args.what == "marker") != (args.state is not None):
         parser.error("decisions marker 需要 on 或 off；其它模式不带第二个参数")
+    if args.command == "history" and (args.show is None) != (args.number is None):
+        parser.error("history show 需要编号；只看列表时不带参数")
     try:
         return int(args.func(args))
     except ConfigError as exc:

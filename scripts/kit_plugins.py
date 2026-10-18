@@ -624,14 +624,14 @@ def _change_lines(old_config: Dict[str, Any], new_config: Dict[str, Any]) -> Lis
     return lines
 
 
-def _finish_mutation(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any], dry_run: bool,
+def _finish_mutation(repo: Any, txn: Any, old_config: Dict[str, Any], new_config: Dict[str, Any], dry_run: bool,
                      messages: List[str], impact: List[str], grant_problems: List[str]) -> int:
     change_lines = _change_lines(old_config, new_config)
     changed = bool(change_lines)
     _battery_gate(repo, new_config)  # 无变化与写入共用：先题库门禁
     if not dry_run and changed:
         try:
-            kit_config.write_checked(repo, new_config)  # 整份校验 + 原子写
+            txn.publish(new_config)  # 锁内整份校验、记历史与审计、原子替换（3.0 第二轮 D7）；“审计不全”原样透传
         except OSError as exc:
             raise kit_config.ConfigError("写入失败：%s" % exc)
     else:
@@ -662,7 +662,12 @@ def cmd_enable(args: argparse.Namespace) -> int:
     repo = _discover(args.repo)
     plugin_id = _validate_id(args.plugin_id)
     _require_exists(plugin_id)
-    config = kit_config.load_config(repo)
+    with kit_config.config_transaction(repo, "plugin.enable", plugin_id) as txn:  # 读改写都在配置锁内
+        return _enable(repo, txn, plugin_id, args)
+
+
+def _enable(repo: Any, txn: Any, plugin_id: str, args: argparse.Namespace) -> int:
+    config = txn.config
     _require_plugins_section(config, repo)
     view = _plugins_view(config)
     report = _check_plugin_safe(plugin_id, _allowed_list(view))
@@ -691,14 +696,19 @@ def cmd_enable(args: argparse.Namespace) -> int:
             raise pd.DispatchError("没有缺失的权限，不需要 --allow-permission", EXIT_USAGE)
     elif supplied:
         raise pd.DispatchError("当前不限制权限，不需要 --allow-permission", EXIT_USAGE)
-    return _finish_mutation(repo, config, new_config, args.dry_run, messages, impact, grant_problems)
+    return _finish_mutation(repo, txn, config, new_config, args.dry_run, messages, impact, grant_problems)
 
 
 def cmd_disable(args: argparse.Namespace) -> int:
     repo = _discover(args.repo)
     plugin_id = _validate_id(args.plugin_id)
     _require_exists(plugin_id)
-    config = kit_config.load_config(repo)
+    with kit_config.config_transaction(repo, "plugin.disable", plugin_id) as txn:  # 读改写都在配置锁内
+        return _disable(repo, txn, plugin_id, args)
+
+
+def _disable(repo: Any, txn: Any, plugin_id: str, args: argparse.Namespace) -> int:
+    config = txn.config
     _require_plugins_section(config, repo)
     view = _plugins_view(config)
     new_config = copy.deepcopy(config)
@@ -715,7 +725,7 @@ def cmd_disable(args: argparse.Namespace) -> int:
     if plugin_id == decisions.PLUGIN_ID and _is_enabled(view, decisions.PLUGIN_ID) \
             and not _is_enabled(_plugins_view(new_config), decisions.PLUGIN_ID):
         messages.append("决策插件会因此变为 off")
-    return _finish_mutation(repo, config, new_config, args.dry_run, messages, [], [])
+    return _finish_mutation(repo, txn, config, new_config, args.dry_run, messages, [], [])
 
 
 def _reject_reason(report: Dict[str, Any]) -> str:

@@ -10,10 +10,12 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -537,6 +539,441 @@ class BatteryLinksAtRuntime(TempRepo):
         facts = json.loads(out)
         self.assertEqual(facts["decisions"]["battery_lock"], "link")
         self.assertTrue(any("无效：链接" in error for error in facts["errors"]), facts["errors"])
+
+
+# ---------------------------------------------------------------------------
+# 3.0 第二轮 D7：配置锁、写入事务、历史与审计（设计第 9.2 节 T1–T12）
+# ---------------------------------------------------------------------------
+
+#: 子进程驱动：在 publish 里先报告“已持锁”，再等放行文件，用来造出“持锁写入到一半”的交错（不给产品代码加钩子）。
+DRIVER = '''
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import kit_config
+kit_config.LOCK_WAIT_SECONDS = 20.0
+barrier = sys.argv[2]
+if barrier != "-":
+    original = kit_config.ConfigTransaction.publish
+    def publish(self, *args, **kwargs):
+        open(barrier + ".holding", "w").close()
+        deadline = time.time() + 30
+        while not os.path.exists(barrier + ".go") and time.time() < deadline:
+            time.sleep(0.05)
+        return original(self, *args, **kwargs)
+    kit_config.ConfigTransaction.publish = publish
+sys.exit(kit_config.main(sys.argv[3:]))
+'''
+
+IGNORE_RULES = ".agent/runs/\n.agent/dispatch.local.json\n.agent/config-history/\n.agent/audit/\n.agent/.config.lock/\n"
+
+
+class ConfigTransactions(TempRepo):
+    """写入事务：每次写入都有快照、intent、commit；补判、外部改动按资源各算各的；失败的尝试一条记录也不写。"""
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / ".gitignore").write_text(IGNORE_RULES, encoding="utf-8")
+        patcher = mock.patch.object(kit_config, "LOCK_WAIT_SECONDS", 0.5)  # 泄漏的锁要在毫秒级暴露，不是等 30 秒
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.agent = self.repo / ".agent"
+        self.config_file = self.agent / "dispatch.config.json"
+
+    def records(self, phase=None):
+        records, _broken = kit_config.read_audit(kit_config.pd.Repo.discover(str(self.repo)))
+        return [r for r in records if phase is None or r["phase"] == phase]
+
+    def audit_bytes(self):
+        path = self.agent / "audit" / "management.jsonl"
+        return path.read_bytes() if path.exists() else b""
+
+    def set(self, key, value, *extra):
+        return run_config(["set", key, value] + list(extra), self.repo)
+
+    def assertNoLock(self):
+        self.assertFalse((self.agent / ".config.lock").exists(), "配置锁没有释放")
+
+    # T1 ------------------------------------------------------------------
+    def test_each_write_records_snapshot_intent_commit_and_rollback_is_byte_identical(self):
+        self.assertEqual(self.set("kill_grace_seconds", "20")[0], 0)
+        self.assertEqual(self.set("check_artifact_patterns", '["日志/**"]')[0], 0)  # 非 ASCII 原样写进字节
+        intents, commits = self.records("intent"), self.records("commit")
+        self.assertEqual([r["action"] for r in intents], ["config.set", "config.set"])
+        self.assertEqual([r["result"] for r in commits], ["published", "published"])
+        self.assertEqual([r["txn"] for r in commits], [r["txn"] for r in intents])
+        first_after = intents[0]["after_ref"]
+        snapshot = self.agent / "config-history" / ("%s.json" % first_after["sha256"])
+        self.assertTrue(first_after["stored"] and snapshot.is_file())
+        self.assertIsNone(intents[0]["before_ref"])  # 文件原来不存在：前态为空
+        self.assertEqual(intents[1]["before_ref"]["sha256"], first_after["sha256"])
+        second = self.config_file.read_bytes()
+        self.assertIn("日志/**".encode("utf-8"), second)
+        code, out, err = run_config(["rollback", "1"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.config_file.read_bytes(), snapshot.read_bytes())  # 逐字节回到第 1 条之后
+        self.assertEqual(self.records("intent")[-1]["action"], "config.rollback")
+        self.assertEqual(run_config(["rollback", "2"], self.repo)[0], 0)
+        self.assertEqual(self.config_file.read_bytes(), second)
+        self.assertNoLock()
+
+    # T2 ------------------------------------------------------------------
+    def test_external_changes_are_observed_once_including_a_checkout_to_old_content(self):
+        self.set("kill_grace_seconds", "20")
+        a = self.config_file.read_bytes()
+        self.set("kill_grace_seconds", "21")
+        b = self.config_file.read_bytes()
+        self.config_file.write_bytes(a)  # 像 git checkout 回到历史上出现过的内容
+        self.set("check_artifact_patterns", '["x"]')
+        observed = self.records("observed")
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0]["after_ref"]["sha256"], kit_config._sha(a))
+        self.assertNotEqual(kit_config._sha(a), kit_config._sha(b))
+        self.set("kill_grace_seconds", "22")
+        self.assertEqual(len(self.records("observed")), 1)  # 没有新的外部改动
+
+    def test_snapshots_of_suspected_secrets_keep_only_the_hash(self):
+        self.set("kill_grace_seconds", "20")
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["_secret_env"] = "opaque_demo_value"  # 说明键也能以 _env 结尾：不在豁免的字段路径里
+        self.config_file.write_text(json.dumps(config), encoding="utf-8")
+        self.set("kill_grace_seconds", "21")
+        observed = self.records("observed")[-1]["after_ref"]
+        self.assertFalse(observed["stored"])
+        self.assertIn("_secret_env", observed["reason"])
+        self.assertFalse((self.agent / "config-history" / ("%s.json" % observed["sha256"])).exists())
+        intent = self.records("intent")[-1]
+        self.assertFalse(intent["after_ref"]["stored"])  # 新内容也还带着它
+        self.assertEqual(kit_config.pd.secret_like_paths({"pricing": {"m": {"source": "sk-" + "a" * 24}}}),
+                         ["pricing.m.source"])
+
+    def test_variable_name_fields_are_stored_normally(self):
+        self.set("env_remove", '["TYPESAFE_API_KEY"]')
+        self.set("decisions", '{"mode": "off", "api_key_env": "TYPESAFE_API_KEY"}')
+        for intent in self.records("intent"):
+            self.assertTrue(intent["after_ref"]["stored"], intent)
+        self.assertEqual(kit_config.pd.secret_like_paths(
+            {"decisions": {"api_key_env": "TYPESAFE_API_KEY"}, "env_remove": ["A_KEY"], "env_keep": ["B_TOKEN"],
+             "profiles": {"p": {"credential_env": ["STEP_API_KEY"]}}}), [])
+        self.assertEqual(kit_config.pd.secret_like_paths({"decisions": {"api_key_env": "not a name"}}),
+                         ["decisions.api_key_env"])
+
+    # T3 ------------------------------------------------------------------
+    def test_intent_that_cannot_be_written_means_no_replacement(self):
+        self.set("kill_grace_seconds", "20")
+        before = self.config_file.read_bytes()
+        real = kit_config._append_audit
+
+        def failing(repo, record):
+            if record["phase"] == "intent":
+                raise OSError("disk full")
+            real(repo, record)
+
+        with mock.patch.object(kit_config, "_append_audit", failing):
+            code, _, err = self.set("kill_grace_seconds", "21")
+        self.assertEqual(code, 1)
+        self.assertIn("审计写不进去", err)
+        self.assertEqual(self.config_file.read_bytes(), before)
+        self.assertNoLock()
+
+    # T4 ------------------------------------------------------------------
+    def test_interrupted_transactions_are_resolved_once(self):
+        self.set("kill_grace_seconds", "20")
+        real = kit_config._append_audit
+
+        def no_commit(repo, record):
+            if record["phase"] == "commit":
+                raise OSError("disk full")
+            real(repo, record)
+
+        # ① 替换之后、commit 之前中断：下一次写入补判为 published
+        with mock.patch.object(kit_config, "_append_audit", no_commit):
+            code, _, err = self.set("kill_grace_seconds", "21")
+        self.assertEqual(code, 1)
+        self.assertIn("审计记录不全", err)
+        self.assertIn('"kill_grace_seconds": 21', self.config_file.read_text(encoding="utf-8"))
+        self.set("kill_grace_seconds", "22")
+        resolves = self.records("resolve")
+        self.assertEqual([r["result"] for r in resolves], ["published"])
+        self.assertEqual(self.records("observed"), [])  # 补判为已发布之后，当前内容就是已知的
+        # ② 替换之前中断：补判为 aborted
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            self.assertEqual(self.set("kill_grace_seconds", "23")[0], 1)
+        self.set("check_artifact_patterns", '["y"]')
+        self.assertEqual([r["result"] for r in self.records("resolve")], ["published", "aborted"])
+        # ③ 中断之后又被改成既非 before 也非 after 的字节：补判为 unknown，并记一条外部改动
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            self.assertEqual(self.set("kill_grace_seconds", "24")[0], 1)
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["kill_grace_seconds"] = 99
+        self.config_file.write_text(json.dumps(config), encoding="utf-8")
+        self.set("check_artifact_patterns", '["z"]')
+        self.assertEqual([r["result"] for r in self.records("resolve")], ["published", "aborted", "unknown"])
+        self.assertEqual(len(self.records("observed")), 1)
+        # 判定不再改：之后的写入不再给旧事务写 resolve
+        self.set("kill_grace_seconds", "25")
+        self.assertEqual(len(self.records("resolve")), 3)
+
+    def test_declared_residual_an_external_revert_to_the_before_bytes_reads_as_aborted(self):
+        self.set("kill_grace_seconds", "20")
+        before = self.config_file.read_bytes()
+        real = kit_config._append_audit
+
+        def no_commit(repo, record):
+            if record["phase"] == "commit":
+                raise OSError("disk full")
+            real(repo, record)
+
+        with mock.patch.object(kit_config, "_append_audit", no_commit):
+            self.set("kill_grace_seconds", "21")  # 已替换、commit 缺失
+        self.config_file.write_bytes(before)  # 锁外改动恰好改回 before：补判只能判为未发布（D7 写明的残余）
+        self.set("check_artifact_patterns", '["x"]')
+        self.assertEqual([r["result"] for r in self.records("resolve")], ["aborted"])
+
+    # T5 ------------------------------------------------------------------
+    def test_read_modify_write_waits_for_the_lock_and_keeps_both_changes(self):
+        driver = self.work / "driver.py"
+        driver.write_text(DRIVER, encoding="utf-8")
+        barrier = self.work / "barrier"
+        child = subprocess.Popen([sys.executable, str(driver), str(ROOT / "scripts"), str(barrier),
+                                  "--repo", str(self.repo), "set", "kill_grace_seconds", "21"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.time() + 30
+            while not (self.work / "barrier.holding").exists() and time.time() < deadline:
+                time.sleep(0.05)
+            self.assertTrue((self.work / "barrier.holding").exists(), "子进程没有拿到锁")
+            threading.Timer(1.0, lambda: (self.work / "barrier.go").write_text("go", encoding="utf-8")).start()
+            with mock.patch.object(kit_config, "LOCK_WAIT_SECONDS", 20.0):
+                code, _, err = self.set("check_artifact_patterns", '["x"]')
+            self.assertEqual(code, 0, err)
+        finally:
+            out, err = child.communicate(timeout=60)
+        self.assertEqual(child.returncode, 0, err.decode("utf-8", "replace"))
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertEqual((config.get("kill_grace_seconds"), config.get("check_artifact_patterns")), (21, ["x"]))
+        self.assertNoLock()
+
+    # T6 ------------------------------------------------------------------
+    def test_parallel_writers_keep_every_audit_line_whole(self):
+        driver = self.work / "driver.py"
+        driver.write_text(DRIVER, encoding="utf-8")
+        children = [subprocess.Popen([sys.executable, str(driver), str(ROOT / "scripts"), "-", "--repo", str(self.repo),
+                                      "set", key, value], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    for key, value in (("kill_grace_seconds", "30"), ("check_artifact_patterns", '["p"]'),
+                                       ("commit_trailers", '["Key: v"]'))]
+        for child in children:
+            _out, err = child.communicate(timeout=120)
+            self.assertEqual(child.returncode, 0, err.decode("utf-8", "replace"))
+        records, broken = kit_config.read_audit(kit_config.pd.Repo.discover(str(self.repo)))
+        self.assertEqual(broken, [])
+        self.assertEqual(sorted(r["phase"] for r in records), ["commit"] * 3 + ["intent"] * 3)
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertEqual((config["kill_grace_seconds"], config["check_artifact_patterns"], config["commit_trailers"]),
+                         (30, ["p"], ["Key: v"]))
+
+    def test_a_half_line_left_by_a_crash_stays_isolated(self):
+        self.set("kill_grace_seconds", "20")
+        audit = self.agent / "audit" / "management.jsonl"
+        with open(audit, "ab") as handle:
+            handle.write(b'{"record_type": "management-audit", "phase": "inte')
+        self.set("kill_grace_seconds", "21")
+        records, broken = kit_config.read_audit(kit_config.pd.Repo.discover(str(self.repo)))
+        self.assertEqual(len(broken), 1)
+        self.assertEqual([r["phase"] for r in records], ["intent", "commit", "intent", "commit"])
+        code, out, _ = run_config(["history"], self.repo)
+        self.assertEqual(code, 0)
+        self.assertIn("损坏的记录：第 %d 行" % broken[0], out)
+
+    # T7 ------------------------------------------------------------------
+    def test_failed_dry_and_unchanged_attempts_write_nothing(self):
+        self.set("kill_grace_seconds", "20")
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            self.set("kill_grace_seconds", "21")  # 留下一条没有终结记录的 intent
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["check_artifact_patterns"] = ["external"]
+        # 按字节写 LF：write_text 在 Windows 上会写成 CRLF，那样“没有变化”的写入其实会把 CRLF 改成 LF
+        self.config_file.write_bytes((json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        audit = self.audit_bytes()
+        history = sorted(p.name for p in (self.agent / "config-history").iterdir())
+        self.assertEqual(self.set("kill_grace_seconds", '"abc"')[0], 1)  # 校验失败
+        self.assertEqual(self.set("kill_grace_seconds", "20")[0], 0)  # 没有变化
+        self.assertEqual(self.audit_bytes(), audit)  # 补判与外部改动都没有提前写
+        self.assertEqual(sorted(p.name for p in (self.agent / "config-history").iterdir()), history)
+
+    def test_observed_is_not_repeated_when_the_intent_fails_after_it(self):
+        self.set("kill_grace_seconds", "20")
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["check_artifact_patterns"] = ["external"]
+        self.config_file.write_text(json.dumps(config), encoding="utf-8")
+        real = kit_config._append_audit
+
+        def no_intent(repo, record):
+            if record["phase"] == "intent":
+                raise OSError("disk full")
+            real(repo, record)
+
+        with mock.patch.object(kit_config, "_append_audit", no_intent):
+            self.assertEqual(self.set("kill_grace_seconds", "21")[0], 1)
+        self.set("kill_grace_seconds", "21")
+        self.assertEqual(len(self.records("observed")), 1)
+
+    def test_init_and_decisions_record_their_actions(self):
+        self.assertEqual(run_config(["init"], self.repo)[0], 0)
+        self.assertEqual(run_config(["decisions", "shadow"], self.repo)[0], 0)
+        intents = self.records("intent")
+        self.assertEqual([(r["action"], r["target"]) for r in intents],
+                         [("config.init", None), ("config.decisions", "decisions.mode")])
+        self.assertIsNone(intents[0]["before_ref"])
+
+    # T8 ------------------------------------------------------------------
+    def test_a_held_lock_is_never_taken_over(self):
+        lock = self.agent / ".config.lock"
+        for pid, word in ((os.getpid(), "仍在运行"), (self._dead_pid(), "已退出")):
+            lock.mkdir()
+            (lock / "owner.json").write_text(json.dumps({"pid": pid, "host": socket.gethostname(), "token": "t",
+                                                         "created_at": "2000-01-01T00:00:00Z"}), encoding="utf-8")
+            old = time.time() - 86400
+            os.utime(str(lock), (old, old))  # 很旧的锁也不自动清除
+            code, _, err = self.set("kill_grace_seconds", "20")
+            self.assertEqual(code, 1)
+            self.assertIn("配置锁被占用", err)
+            self.assertIn(str(pid), err)
+            self.assertIn(word, err)
+            self.assertTrue(lock.is_dir())
+            shutil.rmtree(str(lock))
+        self.assertFalse(self.config_file.exists())
+
+    def _dead_pid(self):
+        done = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], stdout=subprocess.PIPE)
+        return int(done.stdout.decode().strip())
+
+    def test_release_leaves_a_lock_whose_token_is_not_ours(self):
+        repo = kit_config.pd.Repo.discover(str(self.repo))
+        with kit_config.ConfigLock(repo) as lock:
+            (lock.path / "owner.json").write_text(json.dumps({"token": "someone-else"}), encoding="utf-8")
+        self.assertTrue((self.agent / ".config.lock").is_dir())
+
+    def test_actor_audit_ids_and_the_unignored_warning(self):
+        with mock.patch.dict(os.environ, {"CODEKIT_ACTOR": "agent:planning_review"}):
+            self.set("kill_grace_seconds", "20")
+        with mock.patch.dict(os.environ, {"CODEKIT_ACTOR": "root"}):
+            code, _, err = self.set("kill_grace_seconds", "21")
+        self.assertIn("不是 user 或 agent:<角色>", err)
+        os.environ.pop("CODEKIT_ACTOR", None)
+        self.set("kill_grace_seconds", "22")
+        self.assertEqual([r["actor"] for r in self.records("intent")], ["agent:planning_review", "undeclared", "undeclared"])
+        ids = [r["audit_id"] for r in self.records()]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn("没有被 .gitignore 忽略", err)
+        (self.repo / ".gitignore").write_text(".agent/runs/\n", encoding="utf-8")
+        code, _, err = self.set("kill_grace_seconds", "23")
+        self.assertIn(".agent/config-history/ 没有被 .gitignore 忽略", err)
+
+    # T9 ------------------------------------------------------------------
+    def test_history_lists_changes_states_and_shows_a_key_diff(self):
+        self.set("kill_grace_seconds", "20")
+        self.set("decisions", '{"mode": "off"}')
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            self.set("kill_grace_seconds", "21")
+        code, out, _ = run_config(["history", "--json"], self.repo)
+        self.assertEqual(code, 0)
+        rows = json.loads(out)["entries"]
+        self.assertEqual([row["number"] for row in rows], [1, 2, 3])
+        self.assertEqual(rows[0]["changed_keys"], ["kill_grace_seconds"])
+        self.assertEqual(rows[1]["changed_keys"], ["decisions.mode"])
+        self.assertEqual([row["state"] for row in rows], ["published", "published", None])  # 只读：不补判
+        code, out, _ = run_config(["history"], self.repo)
+        self.assertIn("进行中或已中断", out)
+        code, out, _ = run_config(["history", "show", "2", "--json"], self.repo)
+        self.assertEqual(json.loads(out)["diff"], [{"key": "decisions.mode", "old": None, "new": "off"}])
+        self.assertEqual(run_config(["history", "show"], self.repo)[0], 2)
+        self.assertEqual(run_config(["rollback", "3"], self.repo)[0], 2)  # 没有发布的不能回滚
+
+    # T10 -----------------------------------------------------------------
+    def test_the_two_resources_are_tracked_separately(self):
+        repo = kit_config.pd.Repo.discover(str(self.repo))
+
+        def write_local(command):
+            with kit_config.config_transaction(repo, "runtime.local_command", "pi", resource="local") as txn:
+                txn.publish({"runtimes": {"pi": {"command": command}}})
+
+        self.set("kill_grace_seconds", "20")
+        write_local(["pi"])
+        self.set("kill_grace_seconds", "21")
+        self.assertEqual(self.records("observed"), [])  # 配置 → 本机文件 → 配置：不误报
+        real = kit_config._append_audit
+
+        def no_commit(repo_, record):
+            if record["phase"] == "commit":
+                raise OSError("disk full")
+            real(repo_, record)
+
+        with mock.patch.object(kit_config, "_append_audit", no_commit):
+            with self.assertRaises(kit_config.AuditIncomplete):
+                write_local(["pi", "--x"])
+        self.set("kill_grace_seconds", "22")
+        self.assertEqual(self.records("resolve"), [])  # 只写配置时不补判本机文件
+        write_local(["pi", "--y"])
+        resolves = self.records("resolve")
+        self.assertEqual([(r["resource"], r["result"]) for r in resolves], [("local", "published")])
+        local_intent = self.records("intent")[-1]
+        self.assertEqual(local_intent["after_ref"]["kind"], "local-file")
+        self.assertFalse(local_intent["after_ref"]["stored"])
+        code, out, _ = run_config(["history", "show", str(len(self.records("intent"))), "--json"], self.repo)
+        self.assertEqual(json.loads(out)["note"], "本机配置只存哈希")
+        self.assertEqual(run_config(["rollback", "2"], self.repo)[0], 2)  # 第 2 条是本机文件的写入
+
+    # T12 -----------------------------------------------------------------
+    def test_publish_new_never_overwrites(self):
+        pd = kit_config.pd
+        target = self.work / "record.json"
+        self.assertTrue(pd.publish_new(target, b"one"))
+        self.assertFalse(pd.publish_new(target, b"two"))
+        self.assertEqual(target.read_bytes(), b"one")
+        os.chmod(str(target), 0o444)  # 只读的已存在目标同样是“已存在”
+        self.addCleanup(os.chmod, str(target), 0o666)
+        self.assertFalse(pd.publish_new(target, b"three"))
+        self.assertEqual(target.read_bytes(), b"one")
+        with mock.patch("os.open", side_effect=PermissionError(13, "denied")):
+            with self.assertRaises(PermissionError):
+                pd.publish_new(self.work / "other.json", b"x")
+        with mock.patch.object(pd, "IS_WINDOWS", False), \
+                mock.patch("os.link", side_effect=OSError(1, "hard links not supported")):
+            with self.assertRaises(OSError) as caught:
+                pd.publish_new(self.work / "posix.json", b"x")
+        self.assertNotIsInstance(caught.exception, FileExistsError)
+        self.assertFalse((self.work / "posix.json").exists())
+        with mock.patch.object(pd, "IS_WINDOWS", True), \
+                mock.patch("os.rename", side_effect=OSError(18, "cross-device link")):
+            with self.assertRaises(OSError):
+                pd.publish_new(self.work / "xdev.json", b"x")
+        self.assertEqual(sorted(p.name for p in self.work.iterdir() if p.name.endswith(".tmp")), [])
+
+
+class KitInstallKeepsAConfigCreatedMeanwhile(unittest.TestCase):
+    """T11：kit_install 检查“配置不存在”之后、写入之前，配置被配置中心建好了：不覆盖它。"""
+
+    def test_install_does_not_overwrite(self):
+        import kit_install  # noqa: PLC0415
+        work = Path(tempfile.mkdtemp(prefix="kit-config-install-")).resolve()
+        self.addCleanup(shutil.rmtree, str(work), True)
+        target = work / "target"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+        meanwhile = b'{"kill_grace_seconds": 7}\n'
+        real = kit_install.pd.publish_new
+
+        def racing(path, data):
+            if path.name == "dispatch.config.json":
+                path.write_bytes(meanwhile)  # 配置中心在两步之间建好了配置
+            return real(path, data)
+
+        out = io.StringIO()
+        with mock.patch.object(kit_install.pd, "publish_new", racing), contextlib.redirect_stdout(out):
+            code = kit_install.main(["install", str(target)])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual((target / ".agent" / "dispatch.config.json").read_bytes(), meanwhile)
+        self.assertIn("KEEP .agent/dispatch.config.json  写入时已存在，未覆盖", out.getvalue())
 
 
 class LinkHelpers(unittest.TestCase):

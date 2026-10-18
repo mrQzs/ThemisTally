@@ -545,6 +545,30 @@ def write_text(path: Path, text: str, exclusive: bool = True) -> None:
         handle.write(text)
 
 
+def publish_new(path: Path, data: bytes) -> bool:
+    """原子发布、从不覆盖（3.0 第二轮 D5）：先在同一目录写完独立的临时文件，再以“目标存在就失败”的方式换上去。
+
+    Windows 用 os.rename（目标存在时抛 FileExistsError，不替换），POSIX 用 os.link（同样不覆盖）再删临时文件。
+    目标已经存在（哪怕是只读文件）返回 False，目标字节不变；其余错误（目录不可写、不支持硬链接、跨卷）原样抛出，
+    不退回会覆盖的写法——调用方不能把它们当成“别人已抢先发布”。正式文件因此只会从“不存在”变成“完整”。
+    """
+    tmp = path.parent / ("%s.%s.tmp" % (path.name, os.urandom(8).hex()))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(str(tmp), flags, 0o666), "wb") as handle:
+        handle.write(data)
+    try:
+        if IS_WINDOWS:
+            os.rename(str(tmp), str(path))
+        else:
+            os.link(str(tmp), str(path))
+        return True
+    except FileExistsError:
+        return False
+    finally:
+        if os.path.lexists(str(tmp)):
+            os.unlink(str(tmp))
+
+
 def strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
 
@@ -2542,6 +2566,43 @@ def redact_obj(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: redact_obj(item) for key, item in value.items()}
     return value
+
+
+#: 存放环境变量名、不放凭据值的字段路径（3.0 第二轮 D7）："*" 匹配任意一级。只认 schema 规定的这几处，
+#: 不按 `_env` 一类的后缀推断：说明键 `_secret_env` 也能以 `_env` 结尾（闸一第 2 轮 S4）。
+SECRET_NAME_FIELDS = (("decisions", "api_key_env"), ("profiles", "*", "credential_env"), ("env_remove",),
+                      ("env_keep",))
+
+
+def _secret_name_field(path: Tuple[str, ...], value: Any) -> bool:
+    """path 是 SECRET_NAME_FIELDS 之一，且值确实是环境变量名或其列表。"""
+    if not any(len(rule) == len(path) and all(r in ("*", p) for r, p in zip(rule, path)) for rule in SECRET_NAME_FIELDS):
+        return False
+    names = value if isinstance(value, list) else [value]
+    return all(isinstance(name, str) and ENV_NAME_RE.match(name) for name in names)
+
+
+def secret_like_paths(value: Any, path: Tuple[str, ...] = ()) -> List[str]:
+    """JSON 结构里疑似凭据的位置（键路径用点连接）；配置快照与角色绑定的校验共用（3.0 第二轮 D1、D7）。
+
+    键名像凭据（_SECRET_KEY_RE）且值不为空，或者字符串值有凭据、令牌的形状（release-check 的 api key 规则与
+    _SECRET_TOKEN_RE），都算。SECRET_NAME_FIELDS 列出的位置只免掉键名这一条，值的形状照样检查。
+    """
+    found: List[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            sub = path + (str(key),)
+            if (_SECRET_KEY_RE.match(str(key)) and item not in (None, "", [], {})
+                    and not _secret_name_field(sub, item)):
+                found.append(".".join(sub))
+                continue
+            found.extend(secret_like_paths(item, sub))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(secret_like_paths(item, path + (str(index),)))
+    elif isinstance(value, str) and (RELEASE_PATTERNS["api key"].search(value) or _SECRET_TOKEN_RE.search(value)):
+        found.append(".".join(path) or "（顶层）")
+    return found
 
 
 def pi_preflight(pi_cmd: List[str], cwd: Path, executor: Dict[str, Any], out_dir: Path,

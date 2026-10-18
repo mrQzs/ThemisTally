@@ -25,6 +25,9 @@ LINE_RE = re.compile(r"^(ADD|SAME|UPDATE|KEEP|CONFLICT|APPEND|MANUAL|REMOVED) (\
 SUMMARY_KEYS = {"command", "target", "kit_root", "kit_version", "kit_commit", "counts", "unresolved", "backup",
                 "record"}
 RECORD = ".agent/kit-install.json"
+#: kit 的 gitignore.append.txt：运行证据，加上 3.0 第二轮配置中心的本机状态（本机覆盖、写入历史与审计、配置锁）
+IGNORE_RULES = (".agent/runs/", ".agent/dispatch.local.json", ".agent/config-history/", ".agent/audit/",
+                ".agent/.config.lock/")
 PROBE = "scripts/pi_dispatch.py"
 
 
@@ -100,7 +103,7 @@ class KitInstallTest(unittest.TestCase):
         self.assertTrue(data.startswith(original), data)
         self.assertEqual(data, original + b"\n\n" + "# Code-Kit（kit_install.py 追加）\n.agent/** text eol=lf\n".encode())
         self.assertEqual((target / ".gitignore").read_bytes(),
-                         "# Code-Kit（kit_install.py 追加）\n.agent/runs/\n".encode())
+                         ("# Code-Kit（kit_install.py 追加）\n" + "".join(rule + "\n" for rule in IGNORE_RULES)).encode())
 
     # ------------------------------------------------------------------ update 补回被删掉的文件
 

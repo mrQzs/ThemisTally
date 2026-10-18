@@ -1991,3 +1991,46 @@ def test_gate2r2_s1_fix_hint_escapes_curly_quotes(tmp_path):
         assert json.loads(quoted)["_note"] == note
         code, _, herr = run_hint(hint, env.repo)
         assert code == 0, herr
+
+
+# ---------------------------------------------------------------------------
+# 3.0 第二轮 D7（设计 9.2 的 T7）：插件的写入也经写入事务；“审计记录不全”原样透传，dry-run 与无变化不写记录
+# ---------------------------------------------------------------------------
+
+def _audit(repo):
+    records, _broken = kit_config.read_audit(pd.Repo.discover(str(repo)))
+    return records
+
+
+def test_r2_t7_plugin_writes_go_through_the_transaction(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["docs-change"]}})
+        code, out, err = run(["enable", "code-change"], env.repo)
+        assert code == 0, (out, err)
+        code, out, err = run(["disable", "code-change"], env.repo)
+        assert code == 0, (out, err)
+        intents = [r for r in _audit(env.repo) if r["phase"] == "intent"]
+        assert [(r["action"], r["target"]) for r in intents] == [("plugin.enable", "code-change"),
+                                                                 ("plugin.disable", "code-change")]
+        audit = (env.repo / ".agent" / "audit" / "management.jsonl").read_bytes()
+        assert run(["enable", "docs-change"], env.repo)[0] == 0  # 已经启用：没有变化
+        assert run(["enable", "code-change", "--dry-run"], env.repo)[0] == 0
+        assert (env.repo / ".agent" / "audit" / "management.jsonl").read_bytes() == audit
+
+
+def test_r2_t7_audit_incomplete_is_passed_through(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["docs-change"]}})
+        real = kit_config._append_audit
+
+        def no_commit(repo, record):
+            if record["phase"] == "commit":
+                raise OSError("disk full")
+            real(repo, record)
+
+        with mock.patch.object(kit_config, "_append_audit", no_commit):
+            code, out, err = run(["enable", "code-change"], env.repo)
+        assert code == 1, (out, err)
+        assert "审计记录不全" in err and "写入失败" not in err, err
+        config = json.loads((env.repo / ".agent" / "dispatch.config.json").read_text(encoding="utf-8"))
+        assert config["plugins"]["enabled"] == ["code-change", "docs-change"]  # 已经写入

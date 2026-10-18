@@ -414,6 +414,12 @@ def _run(command: str, target_arg: str, force: bool) -> int:
 
     if writable:
         for rel, data in writes:
+            if rel == CONFIG_NAME:
+                # 不覆盖（3.0 第二轮 D7）：检查“不存在”之后、写入之前，配置若已被配置中心建好，就保留它
+                (target / rel).parent.mkdir(parents=True, exist_ok=True)
+                if not pd.publish_new(target / rel, data):
+                    rows[rows.index(("ADD", CONFIG_NAME, None))] = ("KEEP", CONFIG_NAME, "写入时已存在，未覆盖")
+                continue
             _write_bytes(target / rel, data)
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         installed_at = record.get("installed_at") if record else None

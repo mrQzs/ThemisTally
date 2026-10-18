@@ -1,3 +1,8 @@
 
 # PI-Kit（Claude Code / Codex × Pi）：运行证据（含源码片段、命令输出与日志），不提交
 .agent/runs/
+# 配置中心的本机状态（3.0 第二轮）：本机覆盖、写入历史与审计、配置锁，不提交
+.agent/dispatch.local.json
+.agent/config-history/
+.agent/audit/
+.agent/.config.lock/

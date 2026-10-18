@@ -3,3 +3,8 @@ __pycache__/
 # 01-T1 基线取证的原始证据（含机器路径），不提交
 .agent/baseline/
 .agent/runs/
+# 配置中心的本机状态（3.0 第二轮）：本机覆盖、写入历史与审计、配置锁，不提交
+.agent/dispatch.local.json
+.agent/config-history/
+.agent/audit/
+.agent/.config.lock/
