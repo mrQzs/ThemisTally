@@ -25,6 +25,7 @@ TARGET 的四种写法：`task.vN`（按 meta.json 的 plan_version 选）、`ta
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -55,8 +56,11 @@ TRANSCRIPT_SUFFIX = ".jsonl"
 SAFE_PAGE_CHARS = 256 * 1024
 SAFE_MAX_TEXT_BYTES = 64 * 1024 * 1024
 SAFE_MAX_LINE_BYTES = 4 * 1024 * 1024
-#: 分页时一条隐藏的行按多少个字符计：免得一页里塞进无数个占位
+#: 分页的成本：一条隐藏的行按多少个字符计；每条显示的行另加多少个字符的开销（免得一页塞进无数个空行或占位）
 HIDDEN_LINE_COST = 32
+LINE_OVERHEAD = 16
+#: JSONL 游标核对的窗口：游标之前这么多字节的哈希（只增长时不变；原地改写会变）
+CURSOR_WINDOW = 4096
 
 
 class LogsError(Exception):
@@ -562,7 +566,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 #   SAFE_MAX_LINE_BYTES 的行只给占位，不按没有上下文的文本显示（r3-B1、r4-B1）。
 # - .json 整份能解析时按键名脱敏、带缩进写出（保持多行）；其余文本整份 redact_secrets（它遇到确定不了结束的值，
 #   会遮掉其余部分）。整份超过 SAFE_MAX_TEXT_BYTES 的不显示。
-# - 游标绑定文件的身份：普通文本要求大小、修改时间、文件号都不变；JSONL 要求文件号不变、文件只增长（r3-S3）。
+# - 游标绑定文件的身份：普通文本要求大小、修改时间、文件号都不变；JSONL 要求文件号不变、文件只增长，并核对
+#   偏移是原始行首、偏移之前的一段与读到一半的那一行都没变（r3-S3；闸二 D1-A 第 1 轮 B2、B3）。
 # - 单行超过一页时按片给出，片与片首尾相接（r3-S4、r4-S1）。
 # 这里是纯函数、不缓存：logs cat 是一次性的进程；缓存放在桌面端的本机服务里。
 # ---------------------------------------------------------------------------
@@ -596,17 +601,14 @@ def _dump(value: Any, indent: Optional[int] = None) -> str:
 
 
 def redacted_text(path: Path, mode: str) -> str:
-    """整份读出并脱敏（json 与 text 模式）。超过上限、读不出来都抛 LogsError（退出码 2）。"""
-    try:
-        size = os.lstat(str(path)).st_size
-    except (OSError, ValueError) as exc:
-        raise LogsError("读不出来：%s" % exc, EXIT_USAGE)
-    if size > SAFE_MAX_TEXT_BYTES:
-        raise LogsError("文件太大（%d 字节，超过上限 %d 字节），不在这里显示；请直接查看文件" % (size, SAFE_MAX_TEXT_BYTES),
-                        EXIT_USAGE)
-    raw = _read_head(path, -1)
+    """整份读出并脱敏（json 与 text 模式）。超过上限、读不出来都抛 LogsError（退出码 2）。
+
+    最多读上限加 1 字节：先查大小再读，中间文件变大就能绕过上限（闸二 D1-A 第 1 轮 S1）。"""
+    raw = _read_head(path, SAFE_MAX_TEXT_BYTES + 1)
     if raw is None:
         raise LogsError("读不出来：%s" % path.name, EXIT_USAGE)
+    if len(raw) > SAFE_MAX_TEXT_BYTES:
+        raise LogsError("文件太大（超过上限 %d 字节），不在这里显示；请直接查看文件" % SAFE_MAX_TEXT_BYTES, EXIT_USAGE)
     text = raw.decode("utf-8", "replace")
     if mode == "json":
         try:
@@ -658,22 +660,54 @@ def _jsonl_entry(raw: Optional[bytes]) -> Dict[str, Any]:
         return {"hidden": "not_json"}
 
 
-def _cursor(kind: str, *numbers: int) -> str:
-    return ":".join([kind] + ["%d" % number for number in numbers])
+def _cursor(kind: str, *fields: Any) -> str:
+    return ":".join([kind] + [("%d" % field) if isinstance(field, int) else field for field in fields])
 
 
-def _parse_cursor(cursor: str, kind: str, count: int) -> List[int]:
+def _cursor_fields(cursor: str, kind: str, count: int) -> List[str]:
     parts = cursor.split(":")
-    if len(parts) != count + 1 or parts[0] != kind or not all(part.isdigit() for part in parts[1:]):
+    if len(parts) != count + 1 or parts[0] != kind or not all(re.fullmatch(r"[0-9a-f]{1,64}", part)
+                                                                 for part in parts[1:]):
         raise LogsError("游标格式不对（游标只能原样带回）", EXIT_USAGE)
-    return [int(part) for part in parts[1:]]
+    return parts[1:]
+
+
+def _decimal(field: str) -> int:
+    if not field.isdigit():
+        raise LogsError("游标格式不对（游标只能原样带回）", EXIT_USAGE)
+    return int(field)
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def _window(path: Path, position: int) -> bytes:
+    """游标之前的一段原始字节（最多 CURSOR_WINDOW）。"""
+    start = max(0, position - CURSOR_WINDOW)
+    with open(str(path), "rb") as handle:
+        handle.seek(start)
+        return handle.read(position - start)
+
+
+def _lines_before(path: Path, position: int) -> int:
+    """偏移之前有多少个换行：行号由文件本身数出来，不信游标里的值。"""
+    count, remaining = 0, position
+    with open(str(path), "rb") as handle:
+        while remaining > 0:
+            chunk = handle.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            count += chunk.count(b"\n")
+            remaining -= len(chunk)
+    return count
 
 
 def _text_page(path: Path, rel: str, mode: str, cursor: Optional[str], limit: int) -> Dict[str, Any]:
     size, mtime, ino = file_identity(path)
     offset = 0
     if cursor is not None:
-        offset, c_size, c_mtime, c_ino = _parse_cursor(cursor, "t", 4)
+        offset, c_size, c_mtime, c_ino = [_decimal(field) for field in _cursor_fields(cursor, "t", 4)]
         if (c_size, c_mtime, c_ino) != (size, mtime, ino):
             raise StaleCursor()
     text = redacted_text(path, mode)
@@ -690,45 +724,74 @@ def _text_page(path: Path, rel: str, mode: str, cursor: Optional[str], limit: in
     line_start = text.rfind("\n", 0, offset) + 1
     line_end = text.find("\n", line_start)
     line_end = len(text) if line_end < 0 else line_end
-    if offset > line_start or (not piece.endswith("\n") and after < len(text)):
+    # 从一行的内容中间开始（停在行尾的换行上不算，闸二 D1-A 第 1 轮 N1），或在一行的中间结束
+    if line_start < offset < line_end or (not piece.endswith("\n") and after < len(text)):
         # 这一页的第一行是长行的一片：标明第几片、共几片（片从行首起每 limit 个字符一片）
         page["part"] = (offset - line_start) // limit + 1
         page["parts"] = max(page["part"], -(-(line_end - line_start) // limit))
     return page
 
 
+def _jsonl_resume(path: Path, cursor: str, size: int, mtime: int, ino: int, final: bool) -> Tuple[int, int]:
+    """核对 JSONL 游标，返回（原始偏移, 行内字符位置）。不成立就抛 StaleCursor（闸二 D1-A 第 1 轮 B2、B3）：
+    - 文件号要相同，文件只能变长；长度不变而修改时间变了，就是原地改写；
+    - 偏移必须是原始行首（前一个字节是换行）：否则后半截可能成了合法的 JSON，把本该隐藏的行漏出来；
+      文件没变时停在末尾的游标除外（最后一行没有换行，读完之后什么也不会再给）；
+    - 偏移之前的一段（CURSOR_WINDOW）要与发出游标时相同；读到一行中间时，这一行也要与当时相同。
+    更早的位置被改写、同时文件又变长，查不出来（证据目录按规定只读；同账户进程不在防护范围，设计 D4）。"""
+    fields = _cursor_fields(cursor, "j", 7)
+    position, char, c_ino, c_size, c_mtime = [_decimal(field) for field in fields[:5]]
+    window_digest, line_digest = fields[5], fields[6]
+    if c_ino != ino or size < c_size or position > size or (size == c_size and mtime != c_mtime):
+        raise StaleCursor()
+    window = _window(path, position)
+    unchanged_end = position == size == c_size
+    if (position > 0 and not window.endswith(b"\n") and not unchanged_end) or _digest(window) != window_digest:
+        raise StaleCursor()
+    if char:
+        record = next(iter(_jsonl_records(path, position, final)), None)
+        if record is None or record[2] is None or _digest(record[2]) != line_digest:
+            raise StaleCursor()
+    return position, char
+
+
+def _jsonl_cursor(path: Path, position: int, char: int, line: Optional[bytes], size: int, mtime: int,
+                  ino: int) -> str:
+    return _cursor("j", position, char, ino, size, mtime, _digest(_window(path, position)),
+                   _digest(line) if char and line is not None else "0")
+
+
 def _jsonl_page(path: Path, rel: str, cursor: Optional[str], limit: int, final: bool) -> Dict[str, Any]:
-    size, _mtime, ino = file_identity(path)
-    position, number, char = 0, 1, 0
-    if cursor is not None:
-        position, number, char, c_ino, c_size = _parse_cursor(cursor, "j", 5)
-        if c_ino != ino or size < c_size or position > size:
-            raise StaleCursor()  # 被替换或截短；只增长时旧游标照样有效
+    size, mtime, ino = file_identity(path)
+    position, char = (0, 0) if cursor is None else _jsonl_resume(path, cursor, size, mtime, ino, final)
+    number = _lines_before(path, position) + 1
     lines: List[Dict[str, Any]] = []
     used = 0
-    after, after_number, after_char = position, number, char
+    after, after_char, after_line = position, char, None
     for start, end, raw in _jsonl_records(path, position, final):
         entry = _jsonl_entry(raw)
         body = entry.get("text")
         if body is not None and (char or len(body) > limit):
             if lines:
                 break  # 先交出已有的行；下一页从这条长行开始
+            if char > len(body):
+                raise StaleCursor()
             lines.append({"n": number, "text": body[char:char + limit], "part": char // limit + 1,
                           "parts": -(-len(body) // limit)})
             if char + limit < len(body):
-                after, after_number, after_char = start, number, char + limit
+                after, after_char, after_line = start, char + limit, raw
             else:
-                after, after_number, after_char = end, number + 1, 0
+                after, after_char = end, 0
             break
-        cost = len(body) if body is not None else HIDDEN_LINE_COST
+        cost = len(body) + LINE_OVERHEAD if body is not None else HIDDEN_LINE_COST
         if lines and used + cost > limit:
             break
         lines.append(dict({"n": number}, **entry))
         used += cost
         number += 1
-        after, after_number, after_char = end, number, 0
+        after, after_char = end, 0
     return {"path": rel, "mode": "jsonl", "lines": lines,
-            "next_cursor": _cursor("j", after, after_number, after_char, ino, size),
+            "next_cursor": _jsonl_cursor(path, after, after_char, after_line, size, mtime, ino),
             "done": after >= size and after_char == 0}
 
 
@@ -746,18 +809,16 @@ def safe_page(path: Path, rel: str, cursor: Optional[str] = None, limit: int = S
         raise LogsError("读不出来：%s" % exc, EXIT_USAGE)
 
 
-def safe_lines(path: Path, rel: str, prefilter: Any = None):
+def safe_lines(path: Path, rel: str):
     """搜索用：脱敏之后的 (行号, 文本)，隐藏的行不给。text、json 模式整份超过上限时抛 LogsError。
 
-    prefilter 给出时，JSONL 先用它在原文上筛出候选行，再脱敏：没命中的行不解析、不脱敏，省掉大部分开销；
-    结果仍以脱敏之后的文本为准（logs search 再对它匹配一次）。"""
+    每一行都先脱敏：不能用原文预筛——带分支的正则（`猜的值|<redacted>`）会让返回与否取决于原文，成了猜值的
+    通道（闸二 D1-A 第 1 轮 B1）。"""
     if safe_mode(rel) == "jsonl":
         number = 0
         for _start, _end, raw in _jsonl_records(path, 0, True):
             number += 1
             if raw is None:
-                continue
-            if prefilter is not None and not prefilter(raw.decode("utf-8", "replace")):
                 continue
             entry = _jsonl_entry(raw)
             if "text" in entry:
@@ -838,7 +899,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                     continue
                 try:
                     # 在脱敏之后的文本里搜（3.0 桌面端 r3-B1）：摘录只来自脱敏之后的文本，隐藏的行不参加
-                    for number, text in safe_lines(attempt_dir / rel, rel, prefilter=pattern.search):
+                    for number, text in safe_lines(attempt_dir / rel, rel):
                         if not pattern.search(text):
                             continue
                         if len(matches) >= args.max:

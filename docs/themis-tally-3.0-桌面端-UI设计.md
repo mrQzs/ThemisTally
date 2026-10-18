@@ -682,7 +682,8 @@
 
 - **检索**：
   - 输入：搜索框（说明“Python 正则表达式”）、任务筛选、最多条数（缺省 50）；
-  - 结果按 attempt 分组：`路径:行号` 加命中的那一行；摘录取自脱敏之后的文本，被遮蔽的值搜不到是正常的，`events.jsonl` 这类文件里也搜不到 `<redacted>` 占位本身；命中部分用 `--tt-highlight` 底色，全部按文本显示；
+  - 搜索是后台作业，全量搜索可能要半分钟左右：提交后显示进度与 [取消]，建议先选任务缩小范围；
+  - 结果按 attempt 分组：`路径:行号` 加命中的那一行；摘录取自脱敏之后的文本，被遮蔽的值搜不到是正常的，`<redacted>` 占位本身能搜到；命中部分用 `--tt-highlight` 底色，全部按文本显示；
   - 点击结果，在文本查看器里打开该文件并跳到那一行。
 - **用量**：
   - 两张汇总卡：
@@ -1087,7 +1088,7 @@ stateDiagram-v2
 | `listAttempts(task?)` | `GET /api/v1/attempts` |
 | `getAttempt(task, attempt)` | `GET /api/v1/attempts/<task>/<attempt>` |
 | `readFile(task, attempt, path, cursor?)` | `GET /api/v1/attempts/<task>/<attempt>/file`。按 `mode` 返回两种形状：`text` 模式是 `{mode, text, part?, parts?, next_cursor, done}`；`jsonl` 模式是 `{mode, lines, next_cursor, done}`，`lines` 的每项是一行 `{n, text}`、一行的分片 `{n, text, part, parts}` 或占位 `{n, hidden}`。游标原样带回 |
-| `search(q, task?)` | `GET /api/v1/search` |
+| `search(q, task?)` | `POST /api/v1/jobs`（`kind: "search"`），之后按 8.4 查询作业；结果是 `logs search --json` 的 `{matches, truncated, skipped_links, skipped_large}` |
 | `getUsage()` | `GET /api/v1/usage` |
 | `getConfig()`、`validateConfig()` | `GET /api/v1/config`、`/config/validate` |
 | `getHistory()`、`getHistoryEntry(n)` | `GET /api/v1/config/history`、`/config/history/<n>` |

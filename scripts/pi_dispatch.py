@@ -2576,8 +2576,11 @@ _SECRET_TOKEN_RE = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"
 _SECRET_PEM_RE = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)")
 #: 疑似凭据的键（key=value、"key": value，键名可以带任意层转义的引号）：后面的值一直遮到行尾，并连同后面
 #: 缩进的续行一起遮蔽。值在本行确定不了结束时（见 _value_ends_on_line），遮蔽这条输出的其余部分。
+#: 键名只从词首试起（前一个字符不在 [\w.-] 里）：能从词中间开始的匹配，从词首开始一定也能，所以结果不变；
+#: 一长串 [\w.-]（十六进制、base64url）却不再在每个位置都回溯一遍，耗时从平方级降到线性（3.0 桌面端 D1-A 自查：
+#: 安全读取要整份脱敏证据）。仍是平方级的：一长串里反复出现关键字、后面又没有 = 或 :（例如 tokentoken…）。
 _SECRET_KV_RE = re.compile(
-    r"""((?:\\*["'])?%s(?:\\*["'])?[ \t]*[:=][ \t]*)([^\n]*)(?:\n[ \t]+[^\n]*)*""" % _SECRET_KEY, re.I)
+    r"""((?:\\*["'])?(?<![\w.-])%s(?:\\*["'])?[ \t]*[:=][ \t]*)([^\n]*)(?:\n[ \t]+[^\n]*)*""" % _SECRET_KEY, re.I)
 
 
 def _value_ends_on_line(value: str) -> bool:

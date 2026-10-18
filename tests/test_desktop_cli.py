@@ -7,7 +7,8 @@
 - `status --json` 给运行中的 attempt 补 `live`，不改 `events_ok`（D7；U9 的命令行一半）；
 - `config validate --json`。
 
-夹具都在 pytest 的 tmp_path 里现场生成；凭据一律是虚构的测试值。命令在进程内调用。
+夹具都在 pytest 的 tmp_path 里现场生成；凭据一律是虚构的测试值。命令在进程内调用；只有测耗时的那一条在子进程里跑，
+超时就失败。
 """
 from __future__ import annotations
 
@@ -287,6 +288,144 @@ def test_search_never_returns_masked_values(tmp_path):
     assert data["matches"] == [{"task": "task-a", "attempt": "attempt-001", "path": "summary.md", "line": 1,
                                 "text": "alpha one"}]
     assert (data["truncated"], data["skipped_links"], data["skipped_large"]) == (False, 0, 0)
+
+
+# 闸二 D1-A 第 1 轮 B1：返回与否只取决于脱敏之后的文本；在原文上预筛会变成猜值的通道
+def test_search_result_does_not_depend_on_masked_values(tmp_path):
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    (directory / "events.jsonl").write_text(json.dumps({"api_key": FAKE}) + "\n", encoding="utf-8")
+    results = []
+    for guess in (FAKE, "wrongvalue"):
+        for argv in (["search", "%s|<redacted>" % guess, "--json"], ["search", "%s|<redacted>" % guess]):
+            code, out, err = run(kit_logs.main, argv, repo)
+            assert code == 0, err
+            assert FAKE not in out
+            results.append(json.loads(out)["matches"] if "--json" in argv else out)
+    assert results[0] == results[2] and results[1] == results[3] and results[0], results
+
+
+# ---------------------------------------------------------------------------
+# 闸二 D1-A 第 1 轮：游标与读取的边界（B2、B3、S1、N1）
+# ---------------------------------------------------------------------------
+
+def test_cat_rejects_cursors_that_do_not_start_a_line(tmp_path):
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    events = directory / "events.jsonl"
+    events.write_bytes(('api_key={"value":"%s"}\n' % FAKE).encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl")
+    page = json.loads(out)
+    assert page["lines"] == [{"n": 1, "hidden": "not_json"}]
+    fields = page["next_cursor"].split(":")
+    forged = ":".join(fields[:1] + ["8"] + fields[2:])  # 偏移改到行中间：从这里起的后半截是合法的 JSON
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--cursor", forged)
+    assert code == 2 and FAKE not in out + err, (code, out, err)
+    # 没有换行的尾行按写完读过之后，文件又在同一行接着写：旧游标落在了行中间，同样拒绝
+    events.write_bytes(b'{"x": 1}\napi_key=')
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl")
+    page = json.loads(out)
+    # 文件没变时，停在没有换行的末尾的游标仍然有效：什么也不再给
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--cursor", page["next_cursor"])
+    assert code == 0 and json.loads(out)["lines"] == [] and json.loads(out)["done"], (code, out, err)
+    with open(str(events), "ab") as handle:
+        handle.write(('{"value":"%s"}\n' % FAKE).encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--cursor", page["next_cursor"])
+    assert code == 2 and FAKE not in out + err, (code, out, err)
+
+
+def test_cat_jsonl_rewrites_invalidate_the_cursor(tmp_path):
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    events = directory / "events.jsonl"
+    events.write_bytes(('{"output": "%s"}\n' % ("a" * 500)).encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "100")
+    first = json.loads(out)
+    assert not first["done"] and first["lines"][0]["part"] == 1
+    info = os.stat(str(events))
+    events.write_bytes(('{"output": "%s"}\n' % ("b" * 500)).encode("utf-8"))  # 原地改写，长度不变
+    os.utime(str(events), ns=(info.st_atime_ns, info.st_mtime_ns + 10 ** 9))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "100", "--cursor", first["next_cursor"])
+    assert code == 2 and "文件已变化" in err, (code, out, err)
+    # 改写这一行之后又在末尾追加：文件变长了，但这一行已经变了，旧游标同样失效
+    events.write_bytes(('{"output": "%s"}\n' % ("a" * 500)).encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "100")
+    first = json.loads(out)
+    events.write_bytes(('{"output": "%s"}\n{"more": 1}\n' % ("c" * 500)).encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "100", "--cursor", first["next_cursor"])
+    assert code == 2 and "文件已变化" in err, (code, out, err)
+    # 改写已经读过、又在核对窗口之外的那一段（长度不变）：只有修改时间能发现
+    lines = ['{"line": "%s"}' % ("x" * 90)] * 80
+    events.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "6000")
+    first = json.loads(out)
+    assert not first["done"] and int(first["next_cursor"].split(":")[1]) > kit_logs.CURSOR_WINDOW + 200
+    info = os.stat(str(events))
+    lines[0] = '{"line": "%s"}' % ("y" * 90)
+    events.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    os.utime(str(events), ns=(info.st_atime_ns, info.st_mtime_ns + 10 ** 9))
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "6000", "--cursor", first["next_cursor"])
+    assert code == 2 and "文件已变化" in err, (code, out, err)
+
+
+def test_cat_reads_are_bounded(tmp_path):
+    import tracemalloc
+    import types
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    (directory / "log.txt").write_bytes((b"x" * 1023 + b"\n") * 8192)  # 8 MiB，短行：脱敏本身很快
+    real_lstat = os.lstat
+
+    def stale_lstat(path, *args, **kwargs):  # 检查大小时文件还小，读的时候已经变大
+        info = real_lstat(path, *args, **kwargs)
+        if str(path).endswith("log.txt"):
+            return types.SimpleNamespace(st_mode=info.st_mode, st_size=10, st_mtime_ns=info.st_mtime_ns,
+                                         st_ino=info.st_ino)
+        return info
+
+    with mock.patch.object(kit_logs, "SAFE_MAX_TEXT_BYTES", 1024 * 1024), \
+            mock.patch.object(kit_logs.os, "lstat", stale_lstat):
+        tracemalloc.start()
+        try:
+            code, out, err = cat(repo, "task-a/attempt-001", "log.txt")
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+    assert code == 2 and out == "" and "超过" in err, (code, out[:100], err)
+    assert peak < 4 * 1024 * 1024, peak  # 只读了上限加 1 字节，没有把整份读进内存
+    # 空行也计分页成本：一页不能塞进无数个空行
+    (directory / "events.jsonl").write_bytes(b"\n" * 1000)
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--limit", "100")
+    page = json.loads(out)
+    assert 1 <= len(page["lines"]) <= 100 // 16 + 1 and not page["done"], len(page["lines"])
+
+
+# 一长串 [\w.-]（十六进制、base64url）原来让键值规则在每个位置都回溯一遍：20 万个字符要几十分钟。
+# 在子进程里跑、超时就失败，免得回归时把整个测试挂住。
+def test_cat_redaction_time_is_linear_in_long_runs(tmp_path):
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    dump = "deadbeef" * 25000
+    record = {"output": "Ab9-_" * 40000}
+    (directory / "dump.txt").write_bytes((dump + "\n").encode("utf-8"))
+    (directory / "events.jsonl").write_bytes((json.dumps(record) + "\n").encode("utf-8"))
+    for rel, expected in (("dump.txt", dump + "\n"), ("events.jsonl", json.dumps(record))):
+        result = subprocess.run([sys.executable, str(ROOT / "scripts" / "kit_logs.py"), "--repo", str(repo), "cat",
+                                 "task-a/attempt-001", rel, "--json"], capture_output=True, timeout=60)
+        assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+        page = json.loads(result.stdout.decode("utf-8"))
+        assert (page["text"] if rel == "dump.txt" else page["lines"][0]["text"]) == expected  # 没有误遮
+
+
+def test_cat_text_parts_are_stable_for_one_line(tmp_path):
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    (directory / "log.txt").write_bytes(("short\n" + "a" * 1000 + "\nend\n").encode("utf-8"))
+    pages = all_pages(repo, "task-a/attempt-001", "log.txt", 100)
+    fragments = [page for page in pages if "part" in page]
+    assert [page["part"] for page in fragments] == list(range(1, 11))
+    assert {page["parts"] for page in fragments} == {10}
+    assert pages[-1]["text"].startswith("\n") and "part" not in pages[-1]
 
 
 # ---------------------------------------------------------------------------
