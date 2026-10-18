@@ -327,6 +327,26 @@ class Validation(RolesRepo):
         self.assertNotIn("k" * 24, out + err)
         self.assertEqual({path.name: path.read_bytes() for path in history.iterdir()}, stored)
 
+    # 闸二第 2 片第 5 轮 S1 的补充：规则变严之前记下的审计 target（例如 set profiles.<令牌形状>）显示时同样不出现
+    def test_g2s2r5_audit_targets_recorded_under_older_rules_are_not_shown(self):
+        token = "sk-" + "k" * 24
+        self.write(self.base())
+        code, _out, err = run_config(["set", "profiles.exec-new", json.dumps(
+            {"runtime": "pi", "model": {"provider": "bb", "id": "m"}})], self.repo)
+        self.assertEqual(code, 0, err)
+        audit = kit_config.audit_path(pd.Repo.discover(str(self.repo)))
+        original = audit.read_bytes()
+        self.assertIn(b'"profiles.exec-new"', original)
+        older = original.replace(b'"profiles.exec-new"', ('"profiles.%s"' % token).encode("ascii"))
+        audit.write_bytes(older)  # 第 3 轮之前的写法：target 原样记下
+        for argv in (["history"], ["history", "--json"], ["history", "show", "1"], ["history", "show", "1", "--json"]):
+            with self.subTest(argv=argv):
+                code, out, err = run_config(argv, self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertNotIn("k" * 24, out + err)
+        self.assertIn(kit_config.SECRET_SHOWN, run_config(["history"], self.repo)[1])
+        self.assertEqual(audit.read_bytes(), older)
+
     # 闸二第 2 片 S2：引用与枚举字段是 null、数组、对象时，拒绝而不冒堆栈
     def test_g2s2_s2_wrong_types_are_refused_cleanly(self):
         self.write(self.base())

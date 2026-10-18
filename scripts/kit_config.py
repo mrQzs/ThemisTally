@@ -1001,6 +1001,12 @@ def cmd_decisions(args: argparse.Namespace) -> int:
 STATE_WORDS = {"published": "已发布", "aborted": "未发布", "unknown": "未知", None: "进行中或已中断"}
 
 
+def _shown_target(target: Any) -> Any:
+    """审计 intent 的 target 显示之前按现在的规则再查一次：规则变严之前记下的令牌形状不显示，原日志不动
+    （闸二第 2 片第 5 轮 S1 的补充；写入时的遮蔽见 ConfigTransaction.publish）。"""
+    return SECRET_SHOWN if isinstance(target, str) and pd.secret_like_paths(target) else target
+
+
 def history_entries(repo: Any) -> Tuple[List[Dict[str, Any]], List[int], int]:
     """按 intent 在日志中的顺序编号（两种资源共用一套编号），每条带终结状态；返回（条目, 损坏行, 第 1 条之前的
     外部改动次数）。observed 记录记在它前面那一条上：那条之后、下一次写入之前，有人在配置中心之外改过。
@@ -1015,7 +1021,8 @@ def history_entries(repo: Any) -> Tuple[List[Dict[str, Any]], List[int], int]:
         phase, resource = record.get("phase"), record.get("resource")
         if phase == "intent" and isinstance(record.get("txn"), str):
             entry = {"number": len(entries) + 1, "resource": resource, "txn": record["txn"], "at": record.get("at"),
-                     "action": record.get("action"), "target": record.get("target"), "actor": record.get("actor"),
+                     "action": record.get("action"), "target": _shown_target(record.get("target")),
+                     "actor": record.get("actor"),
                      "confirmation": record.get("confirmation"), "before_ref": record.get("before_ref"),
                      "after_ref": record.get("after_ref"), "state": None, "resolved": False, "external_after": 0}
             entries.append(entry)
