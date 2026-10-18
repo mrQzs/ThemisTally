@@ -94,7 +94,7 @@ REQUIRED_MD_SECTIONS = ("Identity", "Goal", "Non-goals", "Repository facts", "Sc
 #: 只列实际加载的（配置、日志与插件管理，决策与凭据、planner-v2 发布门禁及其依赖、决策插件），不列整个
 #: scripts/codekit/：v2 参考实现的其余模块是否还交给执行器做，另行决定。tests/test_kit_v280.py 用 import 扫描核对这份清单。
 KIT_LOADED_FILES = (
-    "scripts/kit_config.py", "scripts/kit_logs.py", "scripts/kit_plugins.py",
+    "scripts/kit_config.py", "scripts/kit_logs.py", "scripts/kit_plugins.py", "scripts/kit_roles.py",
     "scripts/codekit/__init__.py", "scripts/codekit/decisions.py",
     "scripts/codekit/secrets.py", "scripts/codekit/plugins.py", "scripts/codekit/planner.py",
     "scripts/codekit/planner_protocol.py", "scripts/codekit/protocols.py", "plugins/decisions/**",
@@ -3198,6 +3198,13 @@ def get_state(run_dir: Path) -> str:
     return str(read_json_or(run_dir / "state.json", {}).get("state", "UNKNOWN"))
 
 
+def attempt_in_flight(run_dir: Path) -> bool:
+    """attempt 还在运行：状态为 RUNNING、COLLECTING，或者已领取的 PREPARED。collect --recover 与配置中心的
+    运行中切换确认（3.0 第二轮 D8）共用这一个判定；已经结束的 attempt 留着 claim/ 也不算。"""
+    state = get_state(run_dir)
+    return state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and (run_dir / "claim").is_dir())
+
+
 def task_attempts(repo: Repo, task_id: str) -> List[Path]:
     base = repo.runs_dir / task_id
     if not base.is_dir():
@@ -4622,8 +4629,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     if publication_errors:
         raise DispatchError("planner-v2 发布门禁拒绝恢复收集：%s" % "；".join(publication_errors), EXIT_BLOCKED)
     state = get_state(run_dir)
-    claimed = (run_dir / "claim").is_dir()
-    recoverable = state in ("RUNNING", "COLLECTING") or (state == "PREPARED" and claimed)
+    recoverable = attempt_in_flight(run_dir)
     if not recoverable or not args.recover:
         raise DispatchError("collect 只用于调度器异常退出后的恢复：需要状态 RUNNING/COLLECTING（或已领取的 PREPARED）"
                             "且指定 --recover（当前 %s）。" % state, EXIT_USAGE)

@@ -227,7 +227,18 @@ def plugins_section_error(config: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-#: 键 → (说明, 缺省值的文字, 校验函数)。顺序就是 show 的顺序。
+def _check_v3(key: str) -> Callable[[Dict[str, Any], Any], None]:
+    """角色绑定的五个键（3.0 第二轮 D1）：键缺省时立即返回、不导入 kit_roles（D12）；存在时交给 kit_roles 校验。"""
+    def check(config: Dict[str, Any], _repo: Any) -> None:
+        if key not in config:
+            return
+        errors = _kit_roles().check_key(config, key)
+        if errors:
+            raise ConfigError("；".join(errors))
+    return check
+
+
+#: 键 → (说明, 缺省值的文字, 校验函数)。顺序就是 show 的顺序；3.0 第二轮的五个键追加在末尾（测试钉住了前面的顺序）。
 KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
     "allowed_executors": ("允许的执行模型 [{provider, model, thinking}]；为空不限制", "[]（不限制）", _check_allowed_executors),
     "worktree_root": ("worktree 的父目录（必须在仓库之外）；null 用系统临时目录下的 pi-worktrees/", "null", _check_worktree_root),
@@ -246,6 +257,13 @@ KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
                   "mode off", _check_decisions),
     "plugins": ("插件的启用与权限（3.0）：enabled 插件 ID 列表，allowed_permissions 权限名列表；不写的子键表示不限制",
                 "不限制", _check_plugins),
+    "runtimes": ("登记的 CLI（3.0 第二轮）：{ID: {adapter}}；命令路径只放未提交的 .agent/dispatch.local.json",
+                 "无", _check_v3("runtimes")),
+    "profiles": ("profile：{ID: {runtime, model: {provider, id}, options, credential_env}}", "无", _check_v3("profiles")),
+    "roles": ("四个角色的绑定：planning_review、contract、execution、scheduler_agent → {mode, profile 或 host}",
+              "execution 由合同决定；contract 为 manual；scheduler_agent 为 disabled", _check_v3("roles")),
+    "presets": ("方案：{名: {description, roles}}，切换时只覆盖它列出的角色", "无", _check_v3("presets")),
+    "active_preset": ("当前方案名", "无", _check_v3("active_preset")),
 }
 
 
@@ -730,8 +748,8 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
     return "flag"
 
 
-#: 配置 v3 的五个键（3.0 第二轮 D1）；第 2 步登记进 KEYS。
-V3_KEYS: Tuple[str, ...] = ()
+#: 配置 v3 的五个键（3.0 第二轮 D1），与 kit_roles.V3_KEYS 相同（本模块不在导入时依赖 kit_roles，D12）。
+V3_KEYS: Tuple[str, ...] = ("runtimes", "profiles", "roles", "presets", "active_preset")
 
 
 def _kit_roles() -> Any:
