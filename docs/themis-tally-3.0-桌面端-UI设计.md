@@ -533,7 +533,7 @@
 | 返工 | 需要出新版本合同返工。 | `/plan-task <task>` |
 | 升级、阻塞 | 需要你做决定，见摘要里的阻塞点。 | — |
 
-数据来源：`/api/v1/attempts`、`/api/v1/attempts/<task>/<attempt>`、`/api/v1/attempts/<task>/<attempt>/file`。
+数据来源：`/api/v1/attempts`、`/api/v1/attempts/<task>/<attempt>`、`/api/v1/attempts/<task>/<attempt>/file`。详情页头部的版本、用时、token、检查结果取自 `/api/v1/status` 里这一行；摘要与证据清单取自 `getAttempt`。
 
 ### 6.4 角色与模型
 
@@ -654,6 +654,7 @@
  ⓘ 录入只在单独的一次性页面里进行，值直接存进系统凭据库；这个界面拿不到值。
 ```
 
+- 名单由服务合成：决策模型用的变量名，加上各个 profile 的 `credential_env`（`GET /api/v1/secrets`）。
 - “来源”标签：环境变量、系统凭据库、0600 文件、没有（danger）。
 - [录入…] 打开一个单独的小窗口，标题为“录入凭据 STEP_API_KEY”。窗口里是内核自己的一次性页面，不是本界面的组件；窗口关闭后自动重新检查。
 
@@ -968,7 +969,7 @@ stateDiagram-v2
     可确认 --> [*]: 取消
     执行中 --> 重新读取: ok = true
     执行中 --> 失败: ok = false
-    执行中 --> 预览中: 409 配置已变
+    执行中 --> 预览中: 409 状态已变
     重新读取 --> [*]: 关闭对话框，显示轻提示
     失败 --> 预览中: 重新预览
     失败 --> [*]: 关闭
@@ -979,6 +980,7 @@ stateDiagram-v2
   - 运行中的 attempt；
   - 是否需要确认（`needs_yes`）；
   - 将运行的命令；
+  - `state` 令牌（界面不用解读，原样随确认号带回）；
   - 确认号（60 秒有效）。
 - **执行**：调用对应的写路由，带上确认号。只有预览说需要时，才带“确认切换”的含义，也就是 `--yes`，由服务处理，界面不直接拼参数。
 - **结果**：只看返回的 `ok` 与 `exit_code`，然后重新读取受影响的数据。界面上的“已切换”之类的话，只在重新读取之后出现。
@@ -1051,7 +1053,7 @@ stateDiagram-v2
 | `getRoles()`、`getProfiles()`、`getPresets()`、`diffPresets(a, b)`、`getRuntimes()` | 同名路由 |
 | `startJob(kind, args)`、`getJob(id)`、`cancelJob(id)` | `/api/v1/jobs` |
 | `getPlugins()`、`getPlugin(id)` | `/api/v1/plugins` |
-| `checkSecret(name)`、`openSecretPage(name)` | `/api/v1/secrets/<name>`、`/secrets/<name>/set` |
+| `listSecrets()`、`checkSecret(name)`、`openSecretPage(name)` | `/api/v1/secrets`、`/api/v1/secrets/<name>`、`/secrets/<name>/set` |
 | `preview(action, args)` | `POST /api/v1/preview` |
 | `setRole`、`usePreset`、`savePreset`、`removePreset`、`saveProfile`、`removeProfile`、`addRuntime`、`removeRuntime`、`setPluginEnabled`、`rollback` | 对应的写路由 |
 
@@ -1158,7 +1160,7 @@ stateDiagram-v2
    "b": {"mode": "headless", "profile": "step-low"}, "same": false}]}
 ```
 
-（`diffPresets` 的行字段为示意。）
+（`diffPresets` 的行字段与 `config preset diff --json` 相同：`role`、`a`、`b`、`same`。）
 
 ### 9.7 `getRuntimes`（`config runtime list --json`）
 
@@ -1233,10 +1235,12 @@ stateDiagram-v2
  "planner": null}
 ```
 
-### 9.12 `checkSecret`（示意）
+### 9.12 `listSecrets`（示意）
 
 ```json
-{"name": "STEP_API_KEY", "source": "credential_store"}
+{"secrets": [
+  {"name": "STEP_API_KEY", "used_by": ["profile step-high", "profile step-low"], "source": "credential_store"},
+  {"name": "TYPESAFE_API_KEY", "used_by": ["决策模型"], "source": "none"}]}
 ```
 
 ### 9.13 `preview` 与执行失败（示意）
@@ -1246,7 +1250,7 @@ stateDiagram-v2
  "changes": [{"role": "execution", "before": "step-high（bb/step-5-preview · high）",
               "after": "step-low（bb/step-5-mini · low）"}],
  "running_attempts": ["ui-readonly-api/attempt-001"], "needs_yes": true,
- "config_sha256": "9f2c1e…", "confirm_id": "c-8xk2q", "expires_in": 60}
+ "state": "cfg:9f2c1e…", "confirm_id": "c-8xk2q", "expires_in": 60}
 ```
 
 ```json

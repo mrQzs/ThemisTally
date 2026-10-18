@@ -1,6 +1,6 @@
 # Themis Tally 3.0 桌面端设计：本机服务、设计系统与可替换外壳
 
-状态：**拟议，第 2 稿（2026-10-18），尚未送闸一**。第 11 节的四项用户已拍板（见 1.1），按 2gate 送 Codex 审核（上位设计 15.1：3.0 的实现走 2gate）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
+状态：**拟议，第 3 稿（2026-10-18）；闸一第 1 轮未完成**。Codex 审到一半因额度用尽停止（恢复时间 2026-10-25 17:00），只给出一条意见；本稿处置了它与自查的三条，见 §0。第 11 节的四项用户已拍板（见 1.1）。界面设计另见 `docs/themis-tally-3.0-桌面端-UI设计.md`。
 
 - 分支：`themis-3.0`（本地，不推送），起点 `9461d31`（2.12.0，与本地 master 相同）。
 - 上位设计：`docs/themis-tally-3.0-四端分层解耦架构.md`。本文细化它的 8.4（管理台）与 12 节的 M4，并按用户决定改写 1.3 的一条非目标与 15.2 第 9 项（见 1.1）。
@@ -18,7 +18,16 @@
 
 ## 0. 审核变更对照表
 
-尚未送审。
+### 0.1 第 1 轮（未完成）
+
+Codex 在 2026-10-18 审第 2 稿（`4b06efa`），约 3 分钟后因额度用尽停止，只留下 r1-1。其余三条是规划端顺着它没审完的方向自查发现的。
+
+| 编号 | 结论 | 本稿处置 |
+|---|---|---|
+| r1-1 | 服务核对配置哈希之后才启动 CLI，外部 CLI 仍可在这两步之间改配置；现有事务也不接收预览时的哈希 | D6：写命令新增 `--expect-state <令牌>`，在配置锁里比对；不一致就退出 4、什么也不写，服务转成 409。服务自己不再核对哈希 |
+| 自查-1 | `--dry-run` 若复用写入事务，会写补判与外部改动的审计记录、建锁目录（KC:683–699 的顺序），做不到零写入 | D6、D13：`--dry-run` 不进事务、不拿锁：读配置 → 在内存里修改 → 整份校验 → `binding_switch_in_flight`（KR:420–426）；输出 `state` 令牌 |
+| 自查-2 | `config secret check` 没有 `--json`（KC:1531–1537）；凭据页要的“变量名用在哪里”没有现成命令 | D13 补 `secret check --json`；凭据路由由服务合成：从 `config show --json`（决策模型的变量名）与 `config profile show --json`（各 profile 的 `credential_env`）取名单，再逐个 `secret check` |
+| 自查-3 | attempt 详情要的版本、token、检查结果不在 `logs show --json` 里 | D11：详情页合并 `status --json` 里这一行与 `logs show --json` |
 
 ## 1. 范围
 
@@ -297,20 +306,21 @@ flowchart LR
 **改配置的流程**：
 
 1. **预览**：服务运行这条命令的预览，不写任何文件：
-   - 插件用现有的 `--dry-run`；
-   - 改绑定的写命令新增 `--dry-run --json`（D13），报告：
-     - 这次写入改变哪些角色的生效绑定；
+   - 插件用现有的 `--dry-run`（D13 补 `--json` 与 `state`）；
+   - 改配置的写命令新增 `--dry-run --json`（D13）。它不进写入事务、不拿锁（事务里的补判与外部改动检查都会写审计，KC:683–699），只做：读配置 → 在内存里修改 → 整份校验 → `binding_switch_in_flight`（KR:420–426）。报告：
+     - 这次写入的变化，以及改变了哪些角色的生效绑定；
      - 当前在运行的 attempt；
-     - 是否需要 `--yes`。
-
-   预览同时记下当前配置的哈希。
+     - 是否需要 `--yes`；
+     - `state` 令牌：这条命令要写的每个资源（配置；会改本机文件时还有本机文件）当前字节的哈希组合。
 2. **确认**：确认框显示：
    - 将要运行的 CLI 命令；
    - 预览结果；
    - 需要 `--yes` 时的原因。
 
-   用户确认后，服务签发一个一次性确认号：60 秒内有效，绑定这条 argv 与那份配置哈希。
-3. **执行**：写请求必须带确认号。服务核对确认号，并检查配置哈希没变，否则返回 409 并要求重新预览；核对通过后才运行命令。只有预览说需要时才带 `--yes`。
+   用户确认后，服务签发一个一次性确认号：60 秒内有效，绑定这条 argv 与预览给出的 `state`。
+3. **执行**：写请求必须带确认号；服务核对确认号之后运行命令，带上 `--expect-state <令牌>`，只有预览说需要时才带 `--yes`。
+   - 令牌在内核的配置锁里比对（D13）：与锁内读到的字节不一致，就退出 4、什么也不写；服务把退出 4 转成 409，界面要求重新预览（r1-1）。
+   - 这样“核对”与“写入”在同一把锁下，外部 CLI 插不进中间。
    - 预览只是提示：有没有在运行的 attempt，仍由内核在写入的那一刻判断（第二轮 D8）。
    - 预览之后才开始的 attempt，会让不带 `--yes` 的写入被内核拒绝。界面照实显示内核的提示，回到第 1 步。
 4. **结果**：只看子进程的退出码与随后重新读到的状态。
@@ -433,10 +443,10 @@ flowchart LR
 | 页面 | 内容 | 对应命令 | 现在可做 |
 |---|---|---|---|
 | 总览 | 运行中的 attempt（已用时间、工具调用次数、“长时间没有工具调用”的提示）；待验收（NEEDS_REVIEW）；已通过待集成；最近的配置变更 | `status --json`；`config history --json` | 是 |
-| 任务与 attempt | 任务列表；attempt 的状态、摘要、范围、检查、变异、结论；候选补丁（统一 / 分屏）；执行报告（纯文本）；事件跟随 | `logs list/show --json`；新增的 `logs cat`（D13） | 是 |
+| 任务与 attempt | 任务列表；attempt 的状态、摘要、范围、检查、变异、结论；候选补丁（统一 / 分屏）；执行报告（纯文本）；事件跟随。详情页的版本、用时、token、检查结果取自 `status --json` 里这一行，摘要与证据清单取自 `logs show --json`（自查-3） | `status --json`；`logs list/show --json`；新增的 `logs cat`（D13） | 是 |
 | 角色与模型 | 四个角色的绑定与模式；方案一键切换（先看 `preset diff` 与预览）；profile 的增改删 | `config role/profile/preset … --json` 与对应的写命令 | 是 |
 | CLI 运行时 | 已登记的 runtime、命令来源、版本；扫描、探测、模型列表；就绪总览（含 `--record`） | `config runtime …`、`config models`、`config doctor` | 是（作业） |
-| 凭据 | 每个环境变量名在哪一层找到；录入时打开 2.7 的一次性页面 | `config secret check`；`config secret set` | 是 |
+| 凭据 | 每个环境变量名在哪一层找到；录入时打开 2.7 的一次性页面。名单由服务从 `config show --json` 与 `config profile show --json` 合出（自查-2） | `config show`、`config profile show`、`config secret check`（补 `--json`）；`config secret set` | 是 |
 | 日志与用量 | 检索；执行端与规划端的 token 用量 | `logs search`（补 `--json`）、`logs usage --json` | 是 |
 | 插件 | 列表、核对、启停（先用 `--dry-run` 预览权限差异） | `plugins …` | 是 |
 | 历史与审计 | 配置写入的历史、快照差异、回滚 | `config history …`、`config rollback` | 是 |
@@ -461,9 +471,12 @@ flowchart LR
   - 加进 `KIT_LOADED_FILES`（PD:96–101）。
 - **KC**：
   - `ACTOR_RE` 加 `user-ui`（KC:431）；
-  - `config validate` 补 `--json`；
-  - 改绑定的写命令（`role set`、`preset use`、`profile edit/remove`、`runtime add/remove`、`rollback`）加 `--dry-run --json`：只计算 2.4 里内核的判断，不写文件、不记审计；
+  - `config validate`、`config secret check` 补 `--json`；
+  - 经 `config_transaction` / `config_transactions` 的写命令（界面用到的：`role set`、`preset use/save/remove`、`profile add/edit/remove`、`runtime add/remove`、`rollback`）加两个选项：
+    - `--dry-run --json`：不进事务、不拿锁，只读配置、在内存里修改、整份校验、算运行中切换的判断（D6），输出变化、在运行的 attempt、是否需要 `--yes` 与 `state` 令牌；不写文件、不记审计；
+    - `--expect-state <令牌>`：在锁内、校验之前比对这条命令要写的每个资源的当前字节，不一致就退出 4、一个字节都不写（r1-1）；
   - 2.7 的一次性凭据页可以改用 `tokens.css` 的配色（可选）。
+- **KP**：`plugins enable|disable` 的 `--dry-run` 补 `--json` 与 `state`，并接受 `--expect-state`（它们写的是配置的 `plugins` 段）。
 - **PD**：`status --json` 给运行中的 attempt 补 `live` 对象（D7），文本输出不变。
 - **KL**：
   - `logs search` 补 `--json`；
@@ -514,8 +527,9 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | POST `/api/v1/jobs`，`kind` 为 `doctor`、`doctor-record`、`runtime-scan`、`runtime-probe`、`models` | `config doctor [--record]`、`runtime scan`、`runtime probe <id>`、`models <runtime>`（都带 `--json`） | 读（作业） |
 | GET `/api/v1/jobs/<id>`；POST `/api/v1/jobs/<id>/cancel` | — | 读 |
 | GET `/api/v1/plugins`、`/plugins/<id>` | `plugins list`、`plugins show <id>`（`--json`） | 读 |
-| GET `/api/v1/secrets/<name>` | `config secret check <name>` | 读 |
-| POST `/api/v1/preview` `{"action", "args"}` | 对应写命令的 `--dry-run --json`；返回预览、配置哈希与一次性确认号（D6） | 读 |
+| GET `/api/v1/secrets` | 合成：`config show --json` 与 `config profile show --json` 取名单，再逐个 `config secret check <name> --json`（自查-2） | 读 |
+| GET `/api/v1/secrets/<name>` | `config secret check <name> --json`（补） | 读 |
+| POST `/api/v1/preview` `{"action", "args"}` | 对应写命令的 `--dry-run --json`；返回预览、`state` 令牌与一次性确认号（D6） | 读 |
 | POST `/api/v1/roles/<role>` | `config role set <role> <profile 或模式> [--yes]` | 改配置 |
 | POST `/api/v1/presets/<name>/use`、`/save`、`/remove` | `config preset use|save|remove <name> [--yes]` | 改配置 |
 | POST `/api/v1/profiles/<id>`（add / edit / remove） | `config profile add|edit|remove …` | 改配置 |
@@ -540,7 +554,7 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
   - 路由或参数错误：400；
   - 未认证：401；
   - Host 或 Origin 不对：403；
-  - 确认号缺失、过期，或配置已变：409；
+  - 确认号缺失或过期，或内核报告状态已变（`--expect-state` 不一致，退出 4）：409；
   - 命令本身失败仍返回 200，看 `ok` 与 `exit_code`。
 
 ## 6. 执行方式
@@ -578,7 +592,8 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | `scripts/kit_ui.py`（新） | D2–D7、D13 |
 | PD 的解析器与 `KIT_LOADED_FILES`（PD:96–101） | 登记 `ui`，惰性转交；状态列表抽成共用函数；`status --json` 补 `live` |
 | KC:431 `ACTOR_RE` | 加 `user-ui` |
-| KC 的解析器与改绑定的写命令 | `config validate --json`；`--dry-run --json` |
+| KC 的解析器与写命令 | `config validate --json`、`config secret check --json`；写命令的 `--dry-run --json` 与 `--expect-state` |
+| KP | `plugins enable|disable` 的 `--dry-run --json` 与 `--expect-state` |
 | KL | `logs search --json`；新增 `logs cat`；按段读取抽成共用函数 |
 | `.claude/settings.example.json` | `ui` 的 deny |
 | `AGENTS.md` | 代理不启动、不驱动管理台；Codex 沙箱一节 |
@@ -618,7 +633,8 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | U3 | POST 不带 `X-Themis-UI`、`Origin` 不同、`Content-Type` 不是 JSON | 403 / 415，命令没有运行（子进程替身的记录为空） |
 | U4 | 新加一条路由，却没有对应的 CLI 命令 | 用内核真正的解析器解析每条 argv 模板，解析不了就失败；写路由的集合与 CLI 写命令的集合比对 |
 | U5 | 配置里有令牌形状的值与键名（第二轮 D9 的夹具） | 所有响应的 `data`、`messages`、`command` 都不含它们 |
-| U6 | 确认号缺失、过期、用第二次、换了参数、配置哈希变了 | 409，命令没有运行 |
+| U6 | 确认号缺失、过期、用第二次、换了参数 | 409，命令没有运行 |
+| U6b | 预览之后、执行之前，另一个进程用 CLI 改了配置（r1-1） | 内核在锁内比对 `--expect-state` 不一致，退出 4，配置与审计都没有变化；服务返回 409 |
 | U7 | 经界面执行 `config role set` | 审计的 `actor` 为 `user-ui`；只有预览说需要时才带 `--yes` |
 | U8 | 预览之后有 attempt 开始，再执行不带 `--yes` 的切换 | 内核拒绝，配置不变；界面拿到内核的提示 |
 | U9 | `/api/v1/status` 对比 `status --json`；`file` 路由对比 `logs cat --json` | 同一夹具上字段完全一致 |
@@ -627,7 +643,7 @@ ui --desktop --assets <目录> [--idle-timeout <秒>]
 | U12 | 任意响应 | 带 CSP、`nosniff`、`no-referrer`；API 响应带 `no-store` |
 | U13 | 空闲超时；`--desktop` 的父进程退出 | 服务退出，锁目录被清除 |
 | U14 | `logs cat` 读证据目录之外的文件、路径经过链接、超过上限 | 拒绝；超过上限时截断并给出下一段的偏移 |
-| U15 | `--dry-run --json` | 不写任何文件、不记审计；报告的“是否需要 `--yes`”与真正写入时内核的判断一致（固定夹具） |
+| U15 | `--dry-run --json`，包括有中断事务待补判、有外部改动待记录的仓库 | 不写任何文件（含锁目录）、不记审计；报告的“是否需要 `--yes`”与真正写入时内核的判断一致（固定夹具） |
 
 ### 10.2 前端（Vitest）
 
