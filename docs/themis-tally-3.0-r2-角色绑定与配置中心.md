@@ -1,9 +1,10 @@
 # Themis Tally 3.0 第二轮设计：角色绑定（轻量底座）与配置中心
 
-状态：第 3 稿，送 2gate 闸一第 3 轮（2026-10-18）。前两轮的结论：
+状态：第 4 稿，送 2gate 闸一第 4 轮（2026-10-18）。前三轮的结论：
 
 - 第 1 轮：7 个 Blocking、7 个 Should-fix、2 个 Nit；
-- 第 2 轮：6 个 Blocking、7 个 Should-fix、2 个 Nit。
+- 第 2 轮：6 个 Blocking、7 个 Should-fix、2 个 Nit；
+- 第 3 轮：2 个 Blocking、6 个 Should-fix、2 个 Nit。
 
 处置见 §0。第 2 轮之后用户做了两项决定，见 1.1：配置写入改为加锁；信任边界另立任务。
 
@@ -22,12 +23,27 @@
 
 ## 0. 审核变更对照表
 
-### 0.1 第 2 轮
+### 0.1 第 3 轮
+
+| 编号 | 第 3 轮结论 | 本稿处置 |
+|---|---|---|
+| r3-B1 | 300 秒清锁会让被挂起的旧持有者恢复后继续发布：版本记录被 `os.replace` 覆盖，同一版本出现两个模型；已经补判为未发布的事务又被发布；旧持有者退出时还会删掉新持有者的锁 | **版本记录**（D5）改为不覆盖的原子发布 `publish_new`：Windows 用 `os.rename`（目标存在时失败），POSIX 用 `os.link` 后删除临时文件。旧持有者恢复后发布会失败，转而读取并采用已有记录，所以唯一性不再依赖任何锁；任务锁只用来减少争用，行为不变。<br>**配置锁**（D7）不再复用 `TaskLock`，改为 `ConfigLock`：<br>① 从不自动抢占，等 30 秒后报错，写明持锁进程的 pid、主机与是否仍在运行（`pid_alive`，PD:905），由人确认后删除；<br>② 释放前核对令牌，只删自己的锁。<br>残余：手工删除仍被挂起的进程的锁，这一条写进 D7 |
+| r3-B2 | 配置文件与本机文件共用审计，补判与外部改动的比较却不区分资源 | D7：每条记录带 `resource`（`config` 或 `local`）。补判、“最后发布的 after”、外部改动都按资源分别计算；只有 `config` 存快照。T10 覆盖两个文件交替写入，以及本机文件中断后补判 |
+| r3-S1 | 采用别人抢先发布的记录之后，没有对最终模型重做允许列表与 `PI_EXEC_*` 检查 | D5 第 4 步：选定最终记录之后重做这两项检查。失败时抛 `BindingRecordError`，带相应的退出码（允许列表 3，环境变量 2），attempt 记 PREPARE_FAILED。K4b 覆盖 |
+| r3-S2 | 运行中切换的确认只在写入时判定，承诺比实际强 | D8 写明语义：<br>① 确认在配置锁内、写入的那一刻判定；<br>② 判定之后才领取的 attempt 视为发生在切换之后，用自己版本记录里的模型，或者写入之后的绑定，所以不存在“运行中被切换”。<br>M7b 覆盖这个时间差的可观察结果 |
+| r3-S3 | 两处缺口：<br>① `first_link_component` 不查 root 本身，`.agent/runs` 是 junction 时查不出；<br>② G0 由 meta 里有没有字段来决定是否核验 | ① D5：从仓库根查起，`first_link_component(repo.root, ".agent/runs/<task>/binding-v<N>.json")`，覆盖 `.agent` 与 `runs` 两级。<br>② G0 是否必须核验，由冻结合同的 raw 分类决定：按角色写的合同缺少 `executor_binding` 时，本身就是 G0 失败。<br>K14b、K16 覆盖 |
+| r3-S4 | `kit_install` 检查“配置不存在”与真正写入之间有时间差，会覆盖配置中心刚写的配置 | D7：`kit_install` 写示例配置也改用 `publish_new`。写入时目标已经存在就不覆盖，那一行显示“已存在，未覆盖”。T11 覆盖 |
+| r3-S5 | D3 的“本机文件不能指定命令”与“未提交的本机文件可以给出命令”自相矛盾 | D3、§0.2、1.1 改为：提交进仓库的内容不能指定命令，包括提交的配置，以及被 Git 跟踪、未被忽略或经过链接的本机文件；未提交并被忽略的本机文件是这台机器的设置，可以指定命令。这是对用户决定措辞的澄清，不是改变它 |
+| r3-S6 | 事务步骤与“校验失败不写记录”互相矛盾；重复失败还会重复记外部改动 | D7 重排顺序：读取 → 修改 → 校验；没有变化就结束 → 补判 → 外部改动 → 快照 → intent → 替换 → commit。校验失败、dry-run、没有变化时一条记录也不写。外部改动只在随后真正写入时记一次。T7 改为断言“审计文件字节不变” |
+| r3-N1 | “只影响下一次 attempt”不准确 | 改为“只影响尚未建立版本记录的合同版本” |
+| r3-N2 | T4、K12、M3 的表述还需收紧 | 9 节相应修改 |
+
+### 0.2 第 2 轮
 
 | 编号 | 第 2 轮结论 | 本稿处置 |
 |---|---|---|
-| r2-B1 | D3 只核对了 PATH 目录，没有核对最终的程序与 npm 包装指向的 JS；UNC 别名未处理；新命令的调用链上仍有裸名 git，与“新命令不执行仓库里的程序”的保证冲突 | **用户 2026-10-18 决定：信任边界另立任务**。本稿删去 `trusted_which`，第 2 稿 10 节第 7、8 项随之撤销。D3 的保证收窄为“提交的配置与本机文件都不能指定命令”。新命令查找 CLI 的方式与现有 doctor 相同（`shutil.which` / `resolve_pi_command`），在 Windows 上会先查当前目录，涉及 pi、node、git 与各个 CLI。这是既有残余，写进 §6，由那个单独的任务修 |
-| r2-B2 | O_EXCL 只保证文件名独占，记录不是原子发布：胜者写到一半时，后来者会读到空文件或半份 JSON，崩溃还会留下一份永久的空记录 | D5：版本记录在任务锁（`TaskLock`，PD:3163-3192）里先写独立的临时文件，再原子替换。同一 task 的其他 prepare 要等锁，所以看不到写了一半的记录。记录不完整、损坏或经过链接时，拒绝并说明，不自动修复 |
+| r2-B1 | D3 只核对了 PATH 目录，没有核对最终的程序与 npm 包装指向的 JS；UNC 别名未处理；新命令的调用链上仍有裸名 git，与“新命令不执行仓库里的程序”的保证冲突 | **用户 2026-10-18 决定：信任边界另立任务**。本稿删去 `trusted_which`，第 2 稿 10 节第 7、8 项随之撤销。D3 的保证收窄为“提交进仓库的内容不能指定命令”，措辞经第 3 轮 S5 澄清。新命令查找 CLI 的方式与现有 doctor 相同（`shutil.which` / `resolve_pi_command`），在 Windows 上会先查当前目录，涉及 pi、node、git 与各个 CLI。这是既有残余，写进 §6，由那个单独的任务修 |
+| r2-B2 | O_EXCL 只保证文件名独占，记录不是原子发布：胜者写到一半时，后来者会读到空文件或半份 JSON，崩溃还会留下一份永久的空记录 | D5：版本记录先写独立的临时文件，再发布，所以看不到写了一半的记录。第 3 轮又改为不覆盖的发布，见 r3-B1。记录不完整、损坏或经过链接时，拒绝并说明，不自动修复 |
 | r2-B3 | 冲突检测没有覆盖最初的读、改、写（KC:505-516），会丢更新；“当前文件等于后一条 published 的 after”也不成立 | **用户决定加锁**。D7：所有写配置的入口在配置锁内完成“读、改、写、记历史与审计”，不再需要 CAS。提交顺序就是持锁的顺序 |
 | r2-B4 | Windows 的 O_APPEND 不是原子追加（CPython issue 42606），并发追加会覆盖 | D7：审计只在配置锁内追加，同一时间只有一个写入者。读取时容忍末尾的半行与损坏的行：列出它们的行号，不中断。追加前，若文件不以换行结尾，先补一个换行 |
 | r2-B5 | 三个问题：<br>① 按当前哈希补判会误判；<br>② 已补判为发布的记录会在之后被改判；<br>③ 用“历史上见过这份内容”判断 external，会漏记 git checkout 回旧内容 | D7：<br>① 补判只由下一个持锁的写入者做一次，结果写成 `resolve` 记录，之后不再改判。判断规则：当前等于 after 是已发布，等于 before 是未发布，都不等是未知。没有锁外改动时，这个判断是确定的；锁外改动恰好凑成 before 或 after 的残余，写明在 D7。<br>② external 改为与“按日志顺序，最后一个已发布事务的 after”比较。有锁之后，日志顺序就是实际顺序 |
@@ -43,7 +59,7 @@
 | r2-N2 | 送审的基线标识与实际 HEAD 不一致 | 开头写明：源码行号在 `b525cb8` 上核对；本稿提交之前，代码与它相同 |
 | r2 第 10 节意见 | 加锁与否影响正确性，不能只作为偏好；PATH 的收紧改变 2.10 的可观察行为，要在实现前定案 | 两项都已由用户决定（1.1），从第 10 节移除 |
 
-### 0.2 第 1 轮（第 2 稿的处置；被第 2 轮推翻或修改的，以 0.1 为准）
+### 0.3 第 1 轮（第 2 稿的处置；被后两轮推翻或修改的，以 0.1、0.2 为准）
 
 | 编号 | 第 1 轮结论 | 处置 |
 |---|---|---|
@@ -82,9 +98,11 @@
 
 **闸一第 2 轮之后**：
 
-- **配置写入加锁**：做法沿用调度器的任务锁。这一条改变了第一轮第 10 节第 3 项“本轮不加锁”的决定。
+- **配置写入加锁**：这一条改变了第一轮第 10 节第 3 项“本轮不加锁”的决定。
+  - 原定做法是沿用调度器的任务锁；
+  - 闸一第 3 轮之后改为单独的配置锁：从不自动抢占，见 D7。
 - **“不执行仓库里的程序”这条信任边界另立任务，不放在第二轮**：
-  - 第二轮只保证：提交的配置与本机文件都不能指定命令；
+  - 第二轮只保证：提交进仓库的内容不能指定命令。具体是：提交的配置里不写命令；本机文件被 Git 跟踪、未被忽略或经过链接时不生效。未提交并被忽略的本机文件是这台机器的设置，可以指定命令（第 3 轮 S5 的澄清）；
   - 新命令查找 CLI 的方式与现有 doctor 相同；
   - Windows 上会先查当前目录，pi、node、git 与各个 CLI 都受影响。这是既有残余，在第二轮之后单独修、单独审。
 
@@ -337,7 +355,7 @@
 
 ### D3 命令路径（本轮的保证与既有残余）
 
-**本轮保证**：提交的配置与本机文件，都不能指定会被运行的命令。具体有三条：
+**本轮保证**：提交进仓库的内容，不能指定会被运行的命令。未提交并被忽略的本机文件是这台机器的设置，可以指定命令（第 3 轮 S5 的澄清）。具体有三条：
 
 - **提交的配置不写命令**：`runtimes.<id>` 只写 adapter。原因有两个：
   - 配置随仓库分发；
@@ -417,7 +435,7 @@
 
 **planner-v2 合同**：规则不变，本轮不支持按角色写。
 
-### D5 按合同版本的记录（任务锁内原子发布）
+### D5 按合同版本的记录（不覆盖的原子发布）
 
 **记录文件**：`.agent/runs/<task-id>/binding-v<N>.json`，每个按角色写的合同版本一份。字段：
 
@@ -425,16 +443,21 @@
 - 模型：`provider`、`model`、`thinking`；
 - 来历：`config_sha256`（解析时配置文件字节的哈希）、`contract_json_sha256`（冻结合同的哈希）、`created_at`、`created_by_attempt`。
 
-**发布**：都在 `TaskLock(repo, task_id)` 里完成（PD:3163-3192，与 run 的领取共用）。
+**发布**：由 PD 新增的 `publish_new(path, data)` 完成，原子发布，且从不覆盖已有文件。
 
-- 记录不存在：
-  - 先在同一目录写独立的临时文件 `binding-v<N>.json.<随机>.tmp`；
-  - 再用 `os.replace` 换成正式文件。
-
-  同一 task 的其他 prepare 在锁外等候，看不到写了一半的记录。崩溃时可能留下临时文件（会被忽略），正式文件要么不存在，要么是完整的。
-- 记录已存在：读出来，检查三项，任一不满足就拒绝，不自动修复：
+- **步骤**：
+  1. 在同一目录以 O_EXCL 新建独立的临时文件 `binding-v<N>.json.<随机>.tmp`，写入全部字节；
+  2. 以“目标存在就失败”的方式换成正式文件：Windows 用 `os.rename`；POSIX 用 `os.link`，成功后删除临时文件；
+  3. 目标已存在时返回 False，并删除临时文件。
+  4. 文件系统不支持这种发布（例如 POSIX 上不能建硬链接）时报错，不退回会覆盖的写法：抛 `BindingRecordError`（EXIT_BLOCKED），提示“`.agent/runs` 所在的文件系统不支持不覆盖的原子发布”。
+- **为什么这样就够了**：
+  - 正式文件只能从“不存在”变成“完整”，永远不会被替换；
+  - 任何持有者，包括锁被清除后恢复的旧持有者，发布失败后都读取并采用已有记录，所以同一版本只有一个模型（r3-B1）。
+- **任务锁**：发布仍在 `TaskLock(repo, task_id)` 里进行，与 run 的领取共用（PD:3163-3192），只用来减少争用。唯一性不依赖它，它的行为不变。
+- **崩溃**：可能留下临时文件，读取时忽略它。
+- **记录已存在时**：读出来，检查三项，任一不满足就拒绝，不自动修复：
   - 必须是 JSON 对象，字段齐全，类型都对；
-  - 路径上没有链接（`first_link_component`，从 runs 根往下查）；
+  - 从仓库根查起，路径上没有链接：`first_link_component(repo.root, ".agent/runs/<task>/binding-v<N>.json")`，覆盖 `.agent`、`runs`、task 目录与记录本身。`first_link_component` 不查 root 本身，所以不能从 runs 根查起（r3-S3）；
   - 损坏或不符时，抛 `BindingRecordError`（EXIT_DRIFT），提示“版本记录无效：…；确认后删除它，或出新版本合同”。
 
 **prepare 的顺序**（只针对按角色的合同）：
@@ -445,20 +468,23 @@
    - **没有记录**：当前绑定必须有效，即存在、模式是 headless、适配器已接通。
    - 两种情况下，记录或当前绑定解析出的模型都要过 `allowed_executors`，并检查与 `PI_EXEC_*` 是否冲突，这与写死合同的提前检查相同。
 3. 分配 attempt，冻结合同字节（现有流程，PD:4232-4252）。
-4. 持任务锁，发布或读取记录。
-   - 用冻结后的 raw 合同与第 1 步的配置字节解析；第 2 步之后若有别的 prepare 已经发布了记录，就用那份。
-   - 冻结合同的哈希与记录不符，抛 `BindingRecordError`。
-   - `BindingRecordError` 是 `DispatchError` 的子类，带自己的退出码。prepare 的包装（PD:4276-4279）遇到它时，先记 PREPARE_FAILED，再原样重新抛出，退出码保持 4；其他异常的包装不变（r2-S2）。
-5. 在 `meta.json` 的 `executor_binding` 写入记录的完整副本。
+4. 发布或读取记录。
+   - 用冻结后的 raw 合同与第 1 步的配置字节解析，然后 `publish_new`。发布失败时，说明别的 prepare 已经抢先发布，读取并采用那一份。
+   - 冻结合同的哈希与最终记录不符，抛 `BindingRecordError`。
+   - **对最终选定的记录**，重做第 2 步的两项检查（r3-S1）：`allowed_executors`，以及与 `PI_EXEC_*` 是否冲突。失败时抛 `BindingRecordError`：允许列表的问题退出 3，环境变量冲突退出 2。
+   - `BindingRecordError` 是 `DispatchError` 的子类，带自己的退出码。prepare 的包装（PD:4276-4279）遇到它时，先记 PREPARE_FAILED，再原样重新抛出，退出码不变；其他异常的包装不变（r2-S2）。
+5. 在 `meta.json` 的 `executor_binding` 写入最终记录的完整副本。
 
 记录不随 PREPARE_FAILED 的 attempt 清理：它记下的是这个合同版本的决定，与哪个 attempt 成败无关。
 
 **run**：
 
-- `verify_inputs`（PD:3251-）对有 `executor_binding` 的 attempt 做三项核对，任一不符就以 G0 拒绝：
-  1. 记录的路径由 meta 的 task_id 与 plan_version 推出，不读 meta 里写的路径；
-  2. 路径上没有链接；
-  3. 记录的全部字段与 meta 中的副本逐项相同，且 `contract_json_sha256` 与 meta 的 `contract_json_sha256` 一致。
+- **是否核验，由冻结合同决定，不看 meta 里有没有字段**：`verify_inputs`（PD:3251-）读 attempt 的 `contract.json`（这份字节已由现有的哈希核对锁定），按 D4 的 raw 分类判断。
+  - 按角色写的合同缺少 `executor_binding`，本身就是 G0 失败（r3-S3）。
+  - 有 `executor_binding` 时，做三项核对，任一不符就以 G0 拒绝：
+    1. 记录的路径由 meta 的 task_id 与 plan_version 推出，不读 meta 里写的路径；
+    2. 从仓库根查起，路径上没有链接；
+    3. 记录的全部字段与 meta 中的副本逐项相同，且 `contract_json_sha256` 与 meta 的 `contract_json_sha256` 一致。
 - 执行模型的 provider、model、thinking 取自记录，tools、context_files 取自合同。
 - 再检查一次 `allowed_executors` 与 `PI_EXEC_*` 的冲突。
 - pi 的命令按记录里的 runtime 解析（D3）。
@@ -491,14 +517,18 @@ prepare 不运行任何 CLI。
 
 ### D7 配置锁、写入事务、历史与审计
 
-**配置锁**：
+**配置锁**（`ConfigLock`，在 kit_config 里）：
 
-- 位置：`.agent/.config.lock/`，是一个目录锁。
-- 做法：把 `TaskLock` 的目录锁实现抽成通用的 `DirLock(path, wait_seconds, stale_seconds, busy_message)`，`TaskLock` 改用它，行为不变；配置锁也用它。
-  - 等 30 秒；
-  - 超过 300 秒视为持有者已崩溃，清除；
-  - 被占用时提示“配置锁被占用：…（另一个写配置的命令正在运行；确认无人使用后可删除该目录）”。
-- 所有写配置的入口都在锁内完成“读当前配置 → 在内存里改 → 校验 → 记历史与审计 → 替换”。kit_config 提供上下文管理器 `config_transaction(repo, action, target)`：
+- **位置**：`.agent/.config.lock/`，是一个目录锁，`mkdir` 成功就算拿到。里面的 `owner.json` 记录持有者：pid、主机名、128 位随机令牌、创建时间。
+- **从不自动抢占**（r3-B1）：
+  - 锁被占用时最多等 30 秒，之后报错，退出 1；
+  - 报错写明持有者的 pid、主机、持有时长，以及 `pid_alive`（PD:905）的判断：仍在运行、已退出，或无法判断；
+  - 提示“确认没有别的写配置的命令在运行后，删除该目录再重试”。
+  - 持有者已经退出时也不自动清除：自动清锁总有“两个等待者同时清、清掉了刚建好的新锁”这类交错，而写配置崩溃本来就罕见。
+- **释放**：先读 `owner.json`，令牌与自己的一致才删除目录。锁若已被人工删除，又被别人重建，就不动它。
+- **为什么不复用 `TaskLock`**：`TaskLock` 超过 300 秒就按年龄清除，退出时也不核对所有权（PD:3184、3192）。对配置写入来说，这会让被挂起的旧持有者恢复后继续写。`TaskLock` 本身不改，它保护的版本记录已经不靠锁保证唯一（D5）。
+- **残余**：人工删除了一个其实只是被挂起的进程的锁，那个进程恢复后仍会写入。删除之前要按报错里的 pid 确认它已经退出。
+- **读改写都在锁内**：所有写配置的入口都在锁内完成“读当前配置 → 在内存里改 → 校验 → 记历史与审计 → 替换”。kit_config 提供上下文管理器 `config_transaction(repo, action, target)`：
   - 持锁读入配置，交给调用方修改；
   - 退出时提交。
 - 下列入口全部改用它：
@@ -506,12 +536,11 @@ prepare 不运行任何 CLI。
   - `kit_plugins` 的 enable / disable；
   - kit_roles 的各条写命令；
   - `config rollback`。
-- dry-run 与没有变化的写入不产生事务，但同样在锁内读取，结论才与真正写入时一致。
-- **例外**：配置不存在时，`kit_install` 会写入示例配置（`kit_install.py:395-398`）。这是安装动作，不经过锁与事务。之后第一次经配置中心写入时，按下面的第 3 步记一条基线。
-- **锁的残余**：
-  - 持锁超过 300 秒的写入者（例如进程被挂起）会被当作已崩溃，它的锁会被别人清除，与 `TaskLock` 的既有行为相同。
-  - 写配置是毫秒级的操作。
-  - 发生这种情况时，两个写入者可能先后替换文件；审计照样有两条完整的记录。
+- dry-run 与没有变化的写入同样在锁内读取，这样得出的结论与真正写入时一致；但它们一条记录也不写（见下面的步骤）。
+- **例外**：配置不存在时，`kit_install` 会写入示例配置（`kit_install.py:395-398`）。
+  - 这是安装动作，不经过锁与事务。
+  - 写入改用 `publish_new`，不覆盖（r3-S4）。检查之后、写入之前，配置若被配置中心建好了，安装就不覆盖它，那一行显示“已存在，未覆盖”。
+  - 之后第一次经配置中心写入时，按下面的第 4 步记一条基线。
 
 **快照**：
 
@@ -538,10 +567,16 @@ prepare 不运行任何 CLI。
   | `commit` | 事务完成 |
   | `resolve` | 补判中断的事务 |
 
-**一次写入 = 一个事务**（`txn` 是 128 位随机数），全部步骤在配置锁内：
+- **每条记录都带 `resource`**（r3-B2）：取值 `config`（`.agent/dispatch.config.json`）或 `local`（`.agent/dispatch.local.json`）。
+  - 补判、“最后发布的 after”与外部改动的比较，都只在同一资源的记录之间进行；
+  - 只有 `config` 存快照，`local` 只记哈希。
 
-1. 读当前字节 P。文件不存在时，P 为空。
-2. **补判**：若有 intent 没有终结记录，它一定属于一个已经中断的写入者，因为持锁者总会先写完自己的事务再放锁。判断规则：
+**一次写入 = 一个事务**（`txn` 是 128 位随机数）。全部步骤在配置锁内，写的是资源 R：
+
+1. 读 R 的当前字节 P。文件不存在时，P 为空。
+2. 调用方修改，然后整份校验。
+   - 校验不过、dry-run，或新字节与 P 相同：**到此结束，一条记录也不写**（r3-S6）。
+3. **补判 R 上中断的事务**：若 R 有 intent 没有终结记录，它一定属于一个已经中断的写入者。持锁者总会先写完自己的事务再放锁；锁又从不自动抢占，所以中断者不会再回来写。判断规则：
    - 当前哈希等于它的 after，判为已发布（`published`）；
    - 等于它的 before，判为未发布（`aborted`）；
    - 两者都不等，判为未知（`unknown`）。
@@ -549,17 +584,17 @@ prepare 不运行任何 CLI。
    结果写成一条 `resolve` 记录，之后不再改判。
 
    **前提与残余**：
-   - 写配置的进程都持锁，所以在没有锁外改动时，能改动文件的只有那个中断者，这时判断是确定的。
-   - 锁外改动（编辑器、git checkout）若恰好把文件改成了 before 或 after 的字节，补判会与事实不符。这类改动本来就只能当作外部改动来记。
-   - 这个残余写在这里，T4 覆盖它的可观察结果。
-3. **外部改动**：取“按日志顺序，最后一个已发布事务（含补判为已发布的）的 after”。P 的哈希与它不同，或历史为空而 P 不为空时：
+   - 写配置的进程都持锁，所以在没有锁外改动时，能改动 R 的只有那个中断者，这时判断是确定的。
+   - 锁外改动（编辑器、git checkout）若恰好把 R 改成了 before 或 after 的字节，补判会与事实不符。这类改动本来就只能当作外部改动来记。
+   - 人工删除仍被挂起的进程的锁，那个进程恢复后写的记录也会与补判冲突，见上面“配置锁”的残余。
+   - T4 覆盖这些可观察的结果。
+4. **R 的外部改动**：取“按日志顺序，R 上最后一个已发布事务（含补判为已发布的）的 after”。P 的哈希与它不同，或 R 的历史为空而 P 不为空时：
    - 追加一条 `observed` 记录，action 为 `external`；
-   - 存 P 的快照。
+   - R 是 `config` 时，存 P 的快照。
 
-   锁保证了日志顺序就是实际顺序，所以 git checkout 回旧内容也会被记下。
-4. 调用方修改，然后整份校验；校验不过，不写任何记录。
-5. 存新字节 N 的快照。
-6. 追加 `intent` 记录：txn、action、target、actor、confirmation，以及前后两份内容的哈希。写不进时，不替换，退出 1，提示“没有写入：审计写不进去”。
+   有锁之后，日志顺序就是实际顺序，所以 git checkout 回旧内容也会被记下。这条记录只在随后真正写入时追加一次，校验失败或没有变化的尝试不会重复记它。
+5. R 是 `config` 时，存新字节 N 的快照。
+6. 追加 `intent` 记录：resource、txn、action、target、actor、confirmation，以及前后两份内容的哈希。写不进时，不替换，退出 1，提示“没有写入：审计写不进去”。
 7. 在同一目录用 `mkstemp` 建独立的临时文件，写入 N，再 `os.replace`。
 8. 追加 `commit` 记录，result 为 `published`。写不进时，退出 1，提示“已写入，但审计记录不全；下一次写入会补判”。
 9. 放锁。
@@ -573,8 +608,8 @@ prepare 不运行任何 CLI。
 
 **history**：
 
-- `config history` 按 intent 在日志中的顺序编号。编号稳定，因为日志只追加。每条给出：
-  - 时间、动作、目标、执行者、确认方式；
+- `config history` 按 intent 在日志中的顺序编号，两种资源共用一套编号。编号稳定，因为日志只追加。每条给出：
+  - 资源（`config` 或 `local`）、时间、动作、目标、执行者、确认方式；
   - 终结状态：已发布 / 未发布 / 未知 / 进行中或已中断；
   - 变化的键：比较前后两份快照，列出顶层键与子键；快照没存内容时，写“内容未存（疑似凭据）”。
 - `config history show <编号>`：逐键差异，含键路径、旧值、新值。
@@ -582,7 +617,7 @@ prepare 不运行任何 CLI。
 
 **rollback `<编号>`**：
 
-1. 只接受已发布事务的 after 快照；没存内容的拒绝。
+1. 只接受 `config` 资源上已发布事务的 after 快照；没存内容的拒绝。
 2. 解析成对象，整份校验。
 3. 在新的事务里原样写回这份字节，action 为 `config.rollback`。
 
@@ -596,7 +631,7 @@ prepare 不运行任何 CLI。
 **错误的透传**：
 
 - `kit_plugins` 遇到“已写入但审计记录不全”时原样透传，不包成“写入失败”（`kit_plugins.py:634-635`）。
-- 本机文件的写入走同样的锁与事务，但不存快照，因为里面是本机路径。审计只记前后两份的哈希。
+- 本机文件的写入走同样的锁与事务（resource 为 `local`），但不存快照，因为里面是本机路径。审计只记前后两份的哈希。
 
 **不提交**：
 
@@ -614,7 +649,10 @@ prepare 不运行任何 CLI。
   - 同名方案已存在时，要加 `--force`。
 - `preset use <名>`：
   - 只覆盖方案里列出的角色，并写入 `active_preset`；
-  - 写入之前列出影响：运行中与已准备的 attempt 不受影响；还没派遣过、按角色写的合同版本会用新绑定；已派遣的版本沿用各自的记录。
+  - 写入之前列出影响：
+    - 运行中与已准备的 attempt 不受影响；
+    - 还没有版本记录的、按角色写的合同版本，会用新绑定；
+    - 已有记录的版本，沿用各自的记录。
 - 单独改了某个角色之后：`role set` 不清除 `active_preset`；`preset show <当前方案>` 与 `role show` 会标出不一致的角色。
 - `preset diff A B`：逐个角色比较。
 - `preset list`、`preset show`。
@@ -625,10 +663,14 @@ prepare 不运行任何 CLI。
 - **何时触发**：一次写入改变了 execution 或 contract 的生效绑定，并且有 attempt 正在运行。
   - 生效绑定按每个角色的元组比较：mode、profile、runtime、adapter、provider、model、thinking，任何一项变化都算（r2-B6）；
   - 写入前后两份配置中，任一份有 v3 键，就计算生效绑定；两份都没有时，两边都是“由合同决定”，无需计算；
-  - “正在运行”沿用 `collect --recover` 的判定（PD:4504）：状态为 RUNNING、COLLECTING，或者已领取的 PREPARED。已经结束的 attempt 留着 `claim/` 也不算（r2-S5）。判定在配置锁内进行。
+  - “正在运行”沿用 `collect --recover` 的判定（PD:4504）：状态为 RUNNING、COLLECTING，或者已领取的 PREPARED。已经结束的 attempt 留着 `claim/` 也不算（r2-S5）。
+- **判定的时刻**（r3-S2）：
+  - 判定在配置锁内、替换文件之前做，写入的那一刻就是切换发生的时刻；
+  - run 的领取用的是另一把锁（任务锁，PD:4368），所以判定之后才领取的 attempt，视为发生在切换之后。它用的是自己版本记录里的模型，或者写入之后的绑定，不存在“运行中被切换”；
+  - 所以确认的语义是：写入的那一刻有在运行的 attempt，才要求确认。这与上位设计 8.1 的“有 attempt 在运行时切换执行端，需要确认”一致。
 - **要求**：带 `--yes`。没带就拒绝，退出 1，并列出这些 attempt；带了，审计记 `confirmation: flag`。其余写入记 `none`。
 - **适用范围**：所有写入口都适用，因为判断依据是生效绑定有没有变化，与用的是哪条命令无关。
-- **影响范围**：只影响下一次 attempt，因为版本记录（D5）已经固定了运行中的 attempt。
+- **影响范围**：只影响尚未建立版本记录的合同版本（r3-N1）。已经建立记录的版本，之后的 attempt 也沿用记录（D5）。
 
 **批准失效**：P3 之前没有批准记录。`invalidated_approvals` 固定为空列表，note 注明这一点。
 
@@ -715,8 +757,8 @@ prepare 不运行任何 CLI。
 | 位置 | 内容 |
 |---|---|
 | `scripts/kit_roles.py`（新） | v3 的解析与校验（D1）、适配器表（D2）、本机文件（D3）、各条命令、给内核的 `resolve_role_executor` 与记录的校验 |
-| `kit_config` | `config_transaction`、快照与审计（D7）；运行中切换的确认（D8）。这里经惰性导入 kit_roles 计算生效绑定，写入前后两份配置都没有 v3 键时不导入 |
-| PD | `DirLock`（由 `TaskLock` 抽出）、`attempt_executor`、版本记录的发布与读取、prepare 与 run 的接线、`BindingRecordError` |
+| `kit_config` | `ConfigLock`、`config_transaction`、快照与审计（D7）；运行中切换的确认（D8）。这里经惰性导入 kit_roles 计算生效绑定，写入前后两份配置都没有 v3 键时不导入 |
+| PD | `publish_new`（版本记录与 `kit_install` 共用）、`attempt_executor`、版本记录的发布与读取、prepare 与 run 的接线、`BindingRecordError`；`TaskLock` 不改 |
 
 **发放与保护**：`KIT_LOADED_FILES` 加入 `kit_roles.py`。
 
@@ -791,7 +833,7 @@ prepare 不运行任何 CLI。
 ### 4.4 审计记录（每行一条）
 
 ```json
-{"record_type": "management-audit", "schema_version": 1, "phase": "intent", "txn": "<32 位十六进制>",
+{"record_type": "management-audit", "schema_version": 1, "phase": "intent", "resource": "config", "txn": "<32 位十六进制>",
  "audit_id": "aud-<32 位十六进制>", "at": "2026-10-18T09:00:00Z", "actor": "agent:planning_review",
  "action": "preset.use", "target": "economy",
  "before_ref": {"kind": "config-snapshot", "sha256": "…", "stored": true},
@@ -799,9 +841,11 @@ prepare 不运行任何 CLI。
  "invalidated_approvals": [], "confirmation": "flag", "note": "P3 之前没有批准记录"}
 ```
 
-- **`commit`**：只有 `phase`、`txn`、`audit_id`、`at`、`result`，其中 result 为 `published`。
-- **`resolve`**：`phase`、`txn`（被补判的那个事务）、`audit_id`、`at`、`result`（`published` / `aborted` / `unknown`）。
-- **`observed`**：`phase`、`audit_id`、`at`、`action: "external"`、`after_ref`。
+- **每条记录都带 `resource`**：取值是 `config` 或 `local`，补判与比较都只在同一资源内进行（D7）。
+- **`commit`**：只有 `phase`、`resource`、`txn`、`audit_id`、`at`、`result`，其中 result 为 `published`。
+- **`resolve`**：`phase`、`resource`、`txn`（被补判的那个事务）、`audit_id`、`at`、`result`（`published` / `aborted` / `unknown`）。
+- **`observed`**：`phase`、`resource`、`audit_id`、`at`、`action: "external"`、`after_ref`。
+- **`local` 资源**：`before_ref` 与 `after_ref` 的 kind 是 `local-file`，`stored` 永远为 false。
 - **action 的取值**：
 
 | 范围 | action |
@@ -819,7 +863,7 @@ prepare 不运行任何 CLI。
 - **两项前置已单独提交**（§0.2 的“前置”）。
 - **另一个小任务待提交**：第一轮的残余“运行时加载题库与 doctor、config show 的展示读之前也查链接”。实现与测试已经做完，放在单独的 worktree 里，闸一通过后、本轮动手之前单独提交。
 - **实现顺序**：
-  1. `DirLock` 与 `config_transaction`、快照与审计；
+  1. `ConfigLock`、`publish_new` 与 `config_transaction`、快照与审计；
   2. kit_roles 的解析与校验；
   3. 命令；
   4. 内核：D3、D4、D5；
@@ -854,14 +898,15 @@ prepare 不运行任何 CLI。
 |---|---|
 | `scripts/kit_roles.py`（新） | D1–D3，以及 D8 与 D10 的命令部分 |
 | KC:256-274 | 五个键追加在 KEYS 末尾；检查函数在键缺省时立即返回 |
-| KC:397-404、491-497 | `config_transaction`：锁、补判、外部改动、快照、审计、独立临时文件 |
+| KC:397-404、491-497 | `ConfigLock` 与 `config_transaction`：锁、按资源的补判与外部改动、快照、审计、独立临时文件 |
+| `kit_install.py:395-398、414-416` | 示例配置改用 `publish_new` 写入，不覆盖已存在的配置 |
 | KC:502-583 | set / unset / init / decisions 改用 `config_transaction` |
 | KC:757-796 | 新子命令与全局 `--yes` |
 | `kit_plugins.py:600-640` | enable / disable 改用 `config_transaction`；错误透传 |
 | PD:96-101 | `KIT_LOADED_FILES` 加入 `kit_roles.py` |
 | PD:1641-1714、1814-1828、1939-1944 | 三类合同的派生、校验与一致性检查 |
 | PD:2293-2320 | `resolve_pi_command` 可传 runtime，按 D3 的顺序解析 |
-| PD:3163-3192 | 抽出 `DirLock`，行为不变 |
+| PD（新函数） | `publish_new`：不覆盖的原子发布（Windows `os.rename`，POSIX `os.link`） |
 | PD:3251- | `verify_inputs` 核对版本记录 |
 | PD:3282-3313 | 按角色时用记录，与 `PI_EXEC_*` 比较 |
 | PD:4194-4290 | prepare：预检、在任务锁内发布记录、写 meta、写死合同之后的 NOTE；对 `BindingRecordError` 原样重新抛出 |
@@ -922,12 +967,14 @@ prepare 不运行任何 CLI。
 | T1 | 每次写入依次产生快照、intent、commit；rollback 之后与快照逐字节相同，包括 CRLF、没有末尾换行、Unicode 与空白排版 | 回滚复现不了原快照 |
 | T2 | 外部改动：手改之后记 `observed`；git checkout 回历史上出现过的内容，同样记 `observed`；前态含 `"api_key": "opaque"` 或 `"_secret_env": "x"` 时只存哈希；含 `decisions.api_key_env`、`credential_env`、`env_remove` 的正常配置照常存 | 漏记外部改动（r2-B5）；豁免过宽（r2-S4） |
 | T3 | intent 写不进时，不替换，退出 1 | 没有记录的替换 |
-| T4 | 补判的三种结果：<br>① 替换之后、写 commit 之前中断：下一次写入记 `resolve: published`；<br>② 替换之前中断：记 `aborted`；<br>③ 中断之后又被外部改过：记 `unknown`；<br>补判之后再写入，旧的判定不变 | 补判反复改判（r2-B5） |
+| T4 | 补判的结果：<br>① 替换之后、写 commit 之前中断：下一次写入记 `resolve: published`；<br>② 替换之前中断：记 `aborted`；<br>③ 中断之后，文件又被外部改成既非 before 也非 after 的字节：记 `unknown`；<br>④ 已声明的残余：外部改动恰好恢复成 before 或 after 时，补判结果与 D7 写明的一致；<br>补判之后再写入，旧的判定不变 | 补判反复改判（r2-B5） |
 | T5 | 读改写：A 持锁期间，B 等待；B 读到的是 A 写入之后的配置。用两个进程测，替身让 A 停在第 6 步 | 丢更新（r2-B3） |
 | T6 | 两个进程交替追加审计，都持锁，记录都完整；末尾有半行时补换行，读取时报“损坏的记录”的行号 | 追加互相覆盖（r2-B4） |
-| T7 | init 的前态为空；decisions、`plugins enable` / `disable` 的动作；dry-run 与没有变化的写入不产生事务；插件“审计记录不全”的错误原样透传 | 有写入绕过历史 |
-| T8 | 锁被占用时等待并报错；超过 300 秒的旧锁被清除；`CODEKIT_ACTOR` 的取值；audit_id 不重复；历史目录没被忽略时打 WARN | |
-| T9 | history 列出变化的键、终结状态与稳定的编号；history show 给出逐键差异；只读的 history 看到进行中的事务时，标“进行中或已中断” | 历史没有差异；编号漂移 |
+| T7 | init 的前态为空；decisions、`plugins enable` / `disable` 的动作；插件“审计记录不全”的错误原样透传；校验失败、dry-run 与没有变化的写入之后，审计文件与历史目录的字节都不变，即使之前有外部改动，也没有中断的事务 | 有写入绕过历史；失败的尝试写了记录（r3-S6） |
+| T8 | 配置锁：<br>① 被占用时等 30 秒，然后报错，写明 pid、主机，以及“仍在运行 / 已退出 / 无法判断”；<br>② 持有者已退出、锁目录很旧，也不自动清除；<br>③ 释放时令牌不符就不删目录。<br>另外：`CODEKIT_ACTOR` 的取值；audit_id 不重复；历史目录没被忽略时打 WARN | 抢占仍在运行的持有者；删掉别人的锁（r3-B1） |
+| T9 | history 列出资源、变化的键、终结状态与稳定的编号；history show 给出逐键差异；只读的 history 看到进行中的事务时，标“进行中或已中断” | 历史没有差异；编号漂移 |
+| T10 | 两种资源交替：配置 → 本机文件 → 配置，第三次写入不误报外部改动；本机文件替换之后、写 commit 之前中断，补判按本机文件的哈希进行，不拿配置的字节来判 | 资源混淆（r3-B2） |
+| T11 | `kit_install`：检查“配置不存在”之后、写入之前，配置被建好了，安装不覆盖它，那一行显示“已存在，未覆盖”。用替身让安装停在两步之间 | 安装覆盖配置（r3-S4） |
 
 ### 9.3 配置中心命令（`tests/test_kit_roles.py`；CLI 用 PATH 上的替身，pi 用 `tests/stub_pi.py`）
 
@@ -935,11 +982,12 @@ prepare 不运行任何 CLI。
 |---|---|---|
 | M1 | scan 只运行 `--version`；`--add` 登记 | 探测运行了别的命令 |
 | M2 | runtime add / remove：`--command` 只写本机文件；本机文件已被跟踪、没被忽略或经过链接时，读和写都拒绝；有引用时拒绝 remove；命令的优先级 | 命令进了提交的配置；提交的本机文件生效（r1-B1） |
-| M3 | probe 运行 `--version` 与 `--help`；models 列出表格与允许列表的标记；非 pi 的适配器退出 1 | |
+| M3 | probe：pi 运行 `--version` 与 `--help`，非 pi 的适配器只运行 `--version`；models：pi 列出表格与允许列表的标记，非 pi 的适配器退出 1 | 探测规则与 D3 不一致（r3-N2） |
 | M4 | profile add 写对字段；edit 只改指定的项；非法的 edit 不写；有引用时拒绝 remove | |
 | M5 | role set 的各种模式；未接通时打 WARN；`config unset roles.execution` 回到“由合同决定” | |
 | M6 | preset save / use / diff / remove | 方案覆盖了未列出的角色 |
 | M7 | 运行中的确认：<br>① RUNNING、COLLECTING、已领取的 PREPARED 时，role set、preset use、profile edit、改 adapter 的 runtime add、rollback（包括回滚到没有 v3 键的配置）、通用 set 都要 `--yes`；<br>② 已经结束、但留着 `claim/` 的 attempt 不触发；<br>③ 不改变生效绑定的写入不触发 | 免确认的切换（r1-B7、r2-B6、S5） |
+| M7b | 判定的时刻：写入判定时没有在运行的 attempt，随后才领取的 attempt 用的是它自己的版本记录或写入之后的绑定；这次写入不要求确认，审计记 `confirmation: none` | 确认语义与 D8 不一致（r3-S2） |
 | M8 | doctor：替身 pi 就绪、模型不在列表、auth 失败、未接通的适配器；共用 runtime 的两个 profile 分别判断；`credential_env` 被默认列表或 `env_remove` 移除、被 `env_keep` 保留、值为空；退出码 | 就绪误判（r1-S2、S3，r2-S6） |
 | M9 | 不调用模型：替身记录 argv，成功与失败的分支里都没有提示类调用；profile add 不运行 CLI | |
 | M10 | 旧 doctor 的输出、退出码与“继承环境”的语义不变 | |
@@ -951,7 +999,8 @@ prepare 不运行任何 CLI。
 | K1 | 写死合同、绑定不同：用合同的模型，打 NOTE；允许列表与环境变量冲突时的拒绝顺序不变 | 写死的合同被改（r1-B3） |
 | K2 | 按角色加绑定：prepare 发布记录，run 的 argv 用记录里的模型 | |
 | K3 | 同一版本的第二个 attempt，在改了绑定之后：沿用记录，打 NOTE | |
-| K4 | 两个进程同时首次 prepare 同一版本，替身让第一个停在临时文件写完、替换之前：第二个在任务锁外等待，之后读到完整的记录，两个 attempt 的 meta 相同 | 读到半份记录（r2-B2） |
+| K4 | 发布的唯一性：<br>① 两个进程同时首次 prepare 同一版本，替身让第一个停在临时文件写完、发布之前：第二个等任务锁，之后读到完整的记录，两个 attempt 的 meta 相同；<br>② 旧持有者恢复：任务锁被清除，别人已发布了记录 Y，A 再发布自己的 X 时 `publish_new` 返回 False，A 改用 Y；记录始终是 Y | 读到半份记录（r2-B2）；记录被覆盖（r3-B1） |
+| K4b | A 按 X 预检时设了 `PI_EXEC_MODEL=X`，最终采用的却是别人抢先发布的 Y：prepare 拒绝（退出 2），attempt 记 PREPARE_FAILED；允许列表不含 Y 时退出 3 | 对错误的对象做了检查（r3-S1） |
 | K5 | 预检之后、冻结之前改了合同：哈希不符，退出 4（不是 3），attempt 记 PREPARE_FAILED | 退出码被包装改掉（r2-S2） |
 | K6 | 新版本用新绑定 | |
 | K7 | 首次建立记录时没有绑定，或 contract 是 manual：退出 2，不留 attempt，不运行 CLI | |
@@ -959,11 +1008,12 @@ prepare 不运行任何 CLI。
 | K9 | 已有记录之后删掉绑定，或改成未接通：prepare 照常沿用记录，打差异 NOTE | 已有记录被当前配置挡住（r2-S1） |
 | K10 | `PI_EXEC_PROVIDER`、`PI_EXEC_MODEL`、`PI_EXEC_THINKING` 各自与记录冲突：拒绝，包括在 prepare 之后才设的情形 | |
 | K11 | prepare 之后收紧 `allowed_executors`，或改了固定的 thinking：run 拒绝 | |
-| K12 | 三类的派生与校验：<br>① `role:` 行与 JSON 的一致性；<br>② `role` 与 provider 或 thinking 同时出现（包括值为 null）时报错；<br>③ provider 与 model 都是 null 的合同按旧合同处理，不提前解析；<br>④ LB-CONTRACT-003 那种旧合同，派生结果与警告不变 | 三类混淆（r1-S1、r2-S7） |
+| K12 | 三类的派生与校验：<br>① `role:` 行与 JSON 的一致性；<br>② `role` 与 provider 或 thinking 同时出现（包括值为 null）时报错；<br>③ provider 与 model 都是 null，或只有其中一项为 null、另一项有值的合同，都按旧合同处理，不提前解析；<br>④ LB-CONTRACT-003 那种旧合同，派生结果与警告不变；<br>⑤ `role` 与 `model` 同时出现时报错 | 三类混淆（r1-S1、r2-S7、r3-N2） |
 | K13 | 领取之后、写 `executor.json` 之前崩溃，再 `collect --recover`：summary 与 review-draft 显示的是记录里的模型 | 读回点没收口 |
 | K14 | prepare 之后只改记录的 runtime，或改了它的合同哈希：G0 拒绝 | G0 核对不全（r2-S3） |
+| K14b | 按角色写的合同，prepare 之后删掉 meta 里的 `executor_binding`：G0 拒绝。核验与否由冻结合同决定，不看 meta 的字段 | G0 被字段的缺失整体跳过（r3-S3） |
 | K15 | 摘要中“执行模型来源”的三种写法 | |
-| K16 | 版本记录或它的上级目录是链接；记录不完整或损坏：拒绝，不自动修复 | 跟随链接；半份记录被采信 |
+| K16 | 链接与损坏：<br>① 版本记录、它所在的 task 目录、`.agent/runs`、`.agent` 任一级是链接或 junction 时，拒绝；<br>② 记录不完整或损坏时拒绝，不自动修复 | 跟随链接，包括 `first_link_component` 不查 root 本身的那一级（r3-S3）；半份记录被采信 |
 | K17 | 本机文件的命令被 run 使用；`PI_DISPATCH_PI_CMD` 仍然优先 | |
 
 ### 9.5 接线
