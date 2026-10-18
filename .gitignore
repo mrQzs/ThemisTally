@@ -8,3 +8,5 @@ __pycache__/
 .agent/config-history/
 .agent/audit/
 .agent/.config.lock/
+# 七端信箱（3.0 第三轮）：信件、回合记录、会话与账本都是本机运行状态，不提交
+.agent/mailbox/
