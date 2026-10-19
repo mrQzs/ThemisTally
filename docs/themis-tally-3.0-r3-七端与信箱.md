@@ -55,7 +55,7 @@ planner-  contract-  gate-    audit-     exec-     jev-judge
 | 名字 | 角色 | 载体 | 模型 | 思考 | 工具 | 工作目录 |
 |---|---|---|---|---|---|---|
 | `womovie-c8` | 调度代理端兼协调人 | claude | `claude-haiku-5-5` | high（§0 第 10 项；原为 max） | Read、Grep、Glob | 任务基线 worktree（只读） |
-| `planner-opus` | 规划端 | claude | `claude-opus-5-5` | max | Read、Grep、Glob | 任务基线 worktree（只读） |
+| `planner-opus` | 规划端 | claude | `claude-opus-5-5` | max | Read、Grep、Glob、Bash（只允许 `npm view`，第 7 轮） | 任务基线 worktree（只读） |
 | `contract-glm` | 合同端 | pi | `cc-switch-zhipu-glm/glm-5.3` | 要求 max | read、grep、find、ls | 任务基线 worktree（只读） |
 | `gate-sonnet` | 门禁端 | claude | `claude-sonnet-5-5` | high | Read、Grep、Glob、Edit、Write、Bash（只允许跑 pytest） | 战前：门禁草稿 worktree；战后：候选 worktree |
 | `audit-sonnet` | 审核端 | claude | `claude-sonnet-5-5` | max | Read、Grep、Glob | 一审：门禁草稿 worktree；终审：候选 worktree（只读） |
@@ -153,7 +153,7 @@ type: <见下>
 | 协调人发的信 | 前置条件（内核核对） |
 |---|---|
 | `开工` → planner-opus（`-1-plan`） | 站主的 `任务` 已登记 |
-| `开工` → contract-glm（`-2-contract`） | 规划端的 `交付` 已被接受 |
+| `开工` → contract-glm（`-2-contract`） | 规划端的 `交付` 已被接受；规划的 `external_facts` 里没核实的仓库外事实，站主已用 `send --type 回复 --facts-checked` 核实（第 7 轮） |
 | `开工` → gate-sonnet（`-3-gate-pre`） | 合同已写入 `.agent/plans/`，`validate` 通过 |
 | `开工` → jev-judge（`-3j-jev`） | 合同端的 `交付` 已被接受。通常不用发：合同交付通过时内核自动跑 JEV（§0 第 10 项），判断和交付信一起送到协调人；6j 同理，在战后门禁通过时自动跑 |
 | `开工` → audit-sonnet（`-4-audit-pre`） | 基准测试已做基线提交并锁定：`baseline` 显示测试在基线上失败；合同的 `base_sha` 是基线提交；测试路径在 `forbidden_paths` 里；JEV 启用时已有本阶段的 JEV 记录（无意见也算） |
@@ -377,6 +377,23 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
   - 挑入冲突就 `--abort`，如实报告，不 integrate。
 - **仍要遵守**：执行端的 `run` 进行期间不改主工作区、不移动 HEAD（调度器比对主工作区指纹）。
 - 测试 64 条；本轮新代码的变异 4 个全部抓住。
+
+### 第 7 轮：仓库外的事实要有人核实（2026-10-19，T002 第一次执行之后）
+- **问题**：交接文档写“npm 包 `@fontpkg/sarasa-mono-sc` 0.36.0；完整 woff2 约 8.6 MB + 8.8 MB”。实际这个包只有 10 个 TTF，README 自称“非字体下载页”，repository 是占位地址；上游官方发布也只有 TTF/TTC。8.6 MB 是有人把 TTF 转成 woff2 之后的体积（站主用 wawoff2 实测 8,625,628 字节）。
+- **为什么没早发现**：
+  - 规划端把它当事实，写进“待合同端核实的假设”；
+  - 合同端、门禁端、审核端都只能读仓库，没有一环能核实仓库外的事；
+  - 合同 15 分钟、门禁 12 分钟、一审 27 分钟都过了，执行端跑了 28 分钟才在预检里撞上，而 `npm view` 两秒钟就能查清；
+  - 站主（规划端会话代理）答规划的问题时也没核实就同意了“完整打包更纱”。
+- **改法**：
+  - 规划端多一条只读的 `npm view`（`--allowedTools "Bash(npm view:*)"`，没有写工具，别的 Bash 在没人答提示时一律被拒）；
+    实测（claude 2.1.303，2026-10-19）：`npm view react@18.3.1 license` 放行；`echo hi > probe.txt` 与 `npm view … && touch probe2.txt` 都被拒，没有生成文件；
+  - 规划端的输出必须带 `external_facts`：计划依赖的仓库外事实，每条写出处与核实的命令和结果，没核实的写“未核实”，没有就写 `[]`；缺了或格式不对，交付不被接受；
+  - 没核实的（“未核实”“无法核实”“没有核实”等说法都算），内核直接写信请站主核实，`_guard_start` 在站主 `send --type 回复 --facts-checked` 之前不放合同端开工（§5）；
+  - 合同端与一审的回合输入里附上这张表与站主的核实；模板要求合同只把核实过的当事实写，一审发现合同依赖、表里却没有的仓库外事实就退回规划端；
+  - 交接文档、设计稿里关于第三方产物的说法是设计意图，不是核实过的事实（写进规划端模板）。
+- **T002 本身**：站主核实后决定把随包字体移出第 1 片（合同 v2），字体单独成片，等用户定来源、转换方式与安装包体积。
+- 测试 74 条；本轮新代码的变异 22 个全部抓住。
 
 ## 11. 已知缺口与下一步
 

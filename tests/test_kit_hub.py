@@ -838,10 +838,10 @@ def test_start_without_brief_is_rejected(engine_env):
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "idle"
 
 
-def planner_delivery() -> dict:
+def planner_delivery(facts: list = None) -> dict:
     return {"letter": {"type": "交付", "in_reply_to": "m", "摘要": "拆成 3 步", "提交": "无", "验证": "读了文档",
                        "偏离": "无", "需协调人决定": "无", "证据": "report.md"},
-            "report": "# 概要步骤\n1. …", "state": "2026-10-19T00:00Z 交付"}
+            "report": "# 概要步骤\n1. …", "state": "2026-10-19T00:00Z 交付", "external_facts": facts or []}
 
 
 def test_worker_delivery_is_verified_then_forwarded(engine_env):
@@ -857,6 +857,122 @@ def test_worker_delivery_is_verified_then_forwarded(engine_env):
     assert (hub.task_dir("T001-1-plan") / "report.md").read_text(encoding="utf-8").startswith("# 概要步骤")
     letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR)]
     assert len(letters) == 1 and "from: planner-opus" in letters[0] and "内核核验: 通过" in letters[0]
+
+
+FONT_FACT = {"fact": "@fontpkg/sarasa-mono-sc@0.36.0 里有完整的 Regular、SemiBold woff2", "source": "handoff.md",
+             "verified": "未核实"}
+REACT_FACT = {"fact": "react@18.3.1 的许可是 MIT", "source": "npm", "verified": "npm view react@18.3.1 license → MIT"}
+
+
+@pytest.mark.parametrize("facts, problem", [
+    (None, "输出里没有 external_facts"),
+    ("无", "输出里没有 external_facts"),
+    ([REACT_FACT, {"fact": "x", "verified": ""}], "第 2 条缺 fact 或 verified"),
+    ([{"source": "y", "verified": "未核实"}], "第 1 条缺 fact 或 verified"),
+    (["react 是 MIT"], "第 1 条缺 fact 或 verified"),
+])
+def test_plan_delivery_must_list_its_external_facts(engine_env, facts, problem):
+    # T002：字体包没有交接文档说的 woff2，合同、门禁、一审都没法核实，执行端跑了 28 分钟才撞上（第 7 轮）
+    hub = engine_env
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"]["status"] = "assigned"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "开工"}, fields())
+    output = planner_delivery()
+    if facts is None:
+        del output["external_facts"]
+    else:
+        output["external_facts"] = facts
+    kh.Engine(hub, FakeRunner([(output, [])])).step()
+    stage = hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]
+    assert stage["status"] == "failed" and problem in stage["note"]
+    assert hub.unread(kh.OWNER) == []
+
+
+def test_plan_with_only_verified_facts_goes_straight_to_the_contract(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (planner_delivery([REACT_FACT]), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered"
+    assert ts["external_facts"]["items"] == [REACT_FACT] and ts["external_facts"]["pending"] == []
+    assert hub.unread(kh.OWNER) == []
+    assert kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract")) is None
+    assert "待站主核实" not in kh.stage_status_table(hub, ts)
+
+
+def test_unverified_external_facts_wait_for_the_owner(tmp_path, monkeypatch):
+    import io
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    ts["stages"]["1-plan"]["status"] = "assigned"
+    hub.save_state({"tasks": {"T001": ts}})
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "开工"}, fields())
+    monkeypatch.setattr(kh, "ensure_worktree", lambda hub, ts, kind, commit: tmp_path)
+    monkeypatch.setattr(kh, "role_prompt", lambda agent: "角色")
+    facts = [REACT_FACT, FONT_FACT, dict(FONT_FACT, fact="OFL 原文随包", verified="无法核实（要联网）")]
+    kh.Engine(hub, FakeRunner([(planner_delivery(facts), [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered"  # 规划照常交付，只是合同端要等
+    assert [p["fact"] for p in ts["external_facts"]["pending"]] == [FONT_FACT["fact"], "OFL 原文随包"]
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "from: 内核" in letters[0] and "type: 提问" in letters[0]
+    assert FONT_FACT["fact"] in letters[0] and "OFL 原文随包" in letters[0] and "react" not in letters[0]
+    assert "--facts-checked" in letters[0]
+    assert "send --facts-checked" in kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract"))
+    assert "2 条待站主核实" in kh.stage_status_table(hub, ts)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stdin", io.StringIO("字体包只有 TTF；OFL 原文从上游仓库取"))
+    assert kh.main(["--repo", str(repo), "send", "T001", "--type", "停止", "--facts-checked"]) == kh.EXIT_USAGE
+    monkeypatch.setattr(sys, "stdin", io.StringIO("字体包只有 TTF；OFL 原文从上游仓库取"))
+    assert kh.main(["--repo", str(repo), "send", "T001", "--type", "回复", "--facts-checked"]) == kh.EXIT_OK
+    ts = hub.load_state()["tasks"]["T001"]
+    record = ts["external_facts"]
+    assert record["pending"] == [] and len(record["checked"]) == 2 and record["checked_msg"]
+    assert kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract")) is None
+    letter = hub.unread(kh.COORDINATOR)[-1].read_text(encoding="utf-8")
+    assert "站主已核实" in letter and "字体包只有 TTF" in letter
+    monkeypatch.setattr(sys, "stdin", io.StringIO("再来一次"))
+    assert kh.main(["--repo", str(repo), "send", "T001", "--type", "回复", "--facts-checked"]) == kh.EXIT_USAGE
+    # 合同端与一审看得到这张表与站主的核实；规划端的输出格式要求交出它
+    for agent, task_id in (("contract-glm", "T001-2-contract"), ("audit-sonnet", "T001-4-audit-pre")):
+        prompt = kh.turn_prompt(hub, ts, agent, task_id, [], tmp_path)
+        assert "## 规划依赖的仓库外事实" in prompt and FONT_FACT["fact"] in prompt
+        assert "站主已在 %s 的回复里核实" % record["checked_msg"] in prompt
+    for agent, task_id in (("gate-sonnet", "T001-3-gate-pre"), ("audit-sonnet", "T001-7-audit-post")):
+        assert "## 规划依赖的仓库外事实" not in kh.turn_prompt(hub, ts, agent, task_id, [], tmp_path)
+    assert '"external_facts"' in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], tmp_path)
+
+
+def test_plan_redelivery_replaces_the_external_facts(engine_env):
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    ts["external_facts"] = {"items": [FONT_FACT], "pending": [{"fact": FONT_FACT["fact"], "source": ""}]}
+    ts["stages"]["1-plan"]["status"] = "failed"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+    verified = dict(FONT_FACT, verified="npm view … files → 只有 10 个 ttf")
+    kh.Engine(hub, FakeRunner([(planner_delivery([verified]), [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["external_facts"]["items"] == [verified] and ts["external_facts"]["pending"] == []
+    assert kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract")) is None
+
+
+def test_legacy_task_without_external_facts_is_not_blocked():
+    ts = make_ts()
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    assert "external_facts" not in ts
+    assert kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract")) is None
+    assert kh.external_facts_section(ts) == []
 
 
 def test_worker_turn_with_violation_is_not_delivered(engine_env):
@@ -1178,6 +1294,24 @@ def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_pat
     assert gate[gate.index("--disallowedTools") + 1:gate.index("--permission-prompts")] == [
         "Edit(%s)" % rule, "Write(%s)" % rule]
     assert "--permission-mode" not in audit and "--disallowedTools" not in audit
+
+
+def test_planner_may_only_run_npm_view(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")
+    cmd = seen[0]
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Bash"
+    assert cmd[cmd.index("--allowedTools") + 1:cmd.index("--add-dir")] == ["Bash(npm view:*)"]
+    assert "--permission-mode" not in cmd and "--disallowedTools" not in cmd  # 没有写工具，别的 Bash 一律被拒
+    role = kh.role_prompt("planner-opus")
+    assert "npm view" in role and "external_facts" in role
 
 
 def test_claude_path_rule_uses_the_absolute_form():

@@ -99,8 +99,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "claude",
                   "model": "claude-haiku-5-5", "effort": "high", "tools": ["Read", "Grep", "Glob"],
                   "timeout": 1200, "workspace": "base"},
+    # 规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、门禁、一审都没法核实，
+    # 执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
-                     "effort": "max", "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "base"},
+                     "effort": "max", "tools": ["Read", "Grep", "Glob", "Bash"], "allowed_rules": ["Bash(npm view:*)"],
+                     "timeout": 2400, "workspace": "base"},
     "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
                      "model": "glm-5.3", "thinking": "max", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "base"},
@@ -486,7 +489,12 @@ def _guard_start(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     if suffix == "1-plan":
         return None
     if suffix == "2-contract":
-        return None if stages["1-plan"]["status"] == "delivered" else "规划端还没交付（1-plan）"
+        if stages["1-plan"]["status"] != "delivered":
+            return "规划端还没交付（1-plan）"
+        pending = (ts.get("external_facts") or {}).get("pending")
+        if pending:
+            return "规划依赖 %d 条未核实的仓库外事实，等站主核实（kit_hub.py send --facts-checked）" % len(pending)
+        return None
     if suffix == "3-gate-pre":
         return None if ts["contract"].get("validated") else "合同还没写进 .agent/plans/ 并通过 validate"
     if suffix == "3j-jev":
@@ -1038,6 +1046,28 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     return problems
 
 
+#: “没核实”的各种说法：宁可多转给站主，也不放过一条（第 7 轮）
+UNVERIFIED_RE = re.compile(r"(?:未|未能|无法|不能|没|没有)核实")
+
+
+def external_fact_problems(output: Dict[str, Any]) -> List[str]:
+    """规划端要交出 external_facts：计划依赖的仓库外事实（第三方包的文件、版本、许可、体积，上游发布、
+    外部服务），每条写出处与核实的命令和结果。合同端、门禁端、审核端都不能联网，没核实的只能由站主核实。"""
+    facts = output.get("external_facts")
+    if not isinstance(facts, list):
+        return ["输出里没有 external_facts（计划依赖的仓库外事实列表，没有就写 []）"]
+    bad = [str(i + 1) for i, item in enumerate(facts) if not isinstance(item, dict)
+           or not str(item.get("fact") or "").strip() or not str(item.get("verified") or "").strip()]
+    if bad:
+        return ["external_facts 第 %s 条缺 fact 或 verified（没核实就写“未核实”）" % "、".join(bad)]
+    return []
+
+
+def unverified_facts(facts: Sequence[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return [{"fact": str(item["fact"]).strip(), "source": str(item.get("source") or "").strip()}
+            for item in facts if UNVERIFIED_RE.search(str(item["verified"]))]
+
+
 def dod_coverage_problems(hub: Hub, ts: Dict[str, Any], report: str) -> List[str]:
     """一审报告要有“DoD → 测试 → 断言”映射：合同里每个 DoD 的 id 都要在报告里出现（docs/实际问题/审核端.md）。"""
     try:
@@ -1478,6 +1508,8 @@ OUTPUT_SPECS = {
               '"report": "<report.md 全文>", "state": "<state.md 全文>"}',
 }
 ROLE_EXTRA_OUTPUT = {
+    "planner": '另加 "external_facts": [{"fact": "<计划依赖的仓库外事实>", "source": "<出处>", '
+               '"verified": "<核实的命令与结果；没核实就写“未核实”>"}]，没有仓库外事实就写 []',
     "contract": '另加 "contract_md": "<合同 Markdown 全文>"',
     "gate": '战后模式另加 "mutation_spec": {"commands": [{"id": "W1", "argv": ["python", "-m", "pytest", "<文件>", "-q"]}], '
             '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}；'
@@ -1512,9 +1544,27 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
         "- 战后门禁：%s" % (("通过" if ts["gate_post"].get("ok") else "未通过") if ts["gate_post"].get("ran") else "未开始"),
         "- JEV：%s" % ("启用" if ts.get("jev_enabled") else "未启用"),
     ]
+    if (ts.get("external_facts") or {}).get("pending"):
+        facts.append("- 仓库外事实：%d 条待站主核实，核实之前不能开工合同端" % len(ts["external_facts"]["pending"]))
     moves = allowed_moves(ts)
     return "\n".join(rows + [""] + facts + ["", "**内核此刻允许的下一步**（只是提示，投递时照样逐封校验）：",
                                            "\n".join("- " + m for m in moves) or "- （没有：等待工人或站主）"])
+
+
+def external_facts_section(ts: Dict[str, Any]) -> List[str]:
+    record = ts.get("external_facts")
+    if not record:
+        return []
+    lines = ["", "## 规划依赖的仓库外事实（内核记录）", ""]
+    for item in record.get("items") or []:
+        lines.append("- %s（出处：%s）—— %s" % (item.get("fact"), item.get("source") or "未写", item.get("verified")))
+    if not record.get("items"):
+        lines.append("- 规划端声明没有仓库外事实")
+    if record.get("checked_at"):
+        lines.append("- 其中没核实的 %d 条，站主已在 %s 的回复里核实：以那封回复为准" % (
+            len(record.get("checked") or []), record.get("checked_msg")))
+    lines.append("- 合同只能把核实过的当事实写；合同依赖、却不在这张表里的仓库外事实，一审退回规划端。")
+    return lines
 
 
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
@@ -1558,6 +1608,8 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
                 parts += ["", "## 门禁端声明的等价变异（逐条复核：改了真的测不出来吗）", ""] + [
                     "- " + item for item in ts["gate_post"]["equivalent"]]
+        if role == "contract" or task_id.endswith("-4-audit-pre"):
+            parts += external_facts_section(ts)
         if role == "contract":
             parts += ["", "## 合同要求（内核会逐项核对）", "",
                       "- 第一行：`# TASK: %s`；Identity 的 plan_version 写 %d；base_sha 先写 %s（门禁提交后内核会改）。" % (
@@ -1814,7 +1866,7 @@ class Engine:
                 stage.update(status="delivered", note="", delivered_at=utc_now())
                 fields["内核核验"] = "通过"
                 invalidate_after(ts, suffix)
-                self.after_delivery(ts, suffix, fields)
+                self.after_delivery(ts, suffix, fields, output)
         self.hub.save_state(state)
         self.hub.deliver(meta, fields)
         if stage["status"] == "delivered":
@@ -1856,7 +1908,8 @@ class Engine:
     def verify_delivery(self, ts: Dict[str, Any], agent: str, suffix: str, output: Dict[str, Any],
                         fields: Dict[str, str]) -> List[str]:
         if suffix == "1-plan":
-            return [] if str(output.get("report") or "").strip() else ["规划端的 report 为空"]
+            return ([] if str(output.get("report") or "").strip() else ["规划端的 report 为空"]) + \
+                external_fact_problems(output)
         if suffix == "2-contract":
             return accept_contract(self.hub, ts, output)
         if suffix == "3-gate-pre":
@@ -1871,7 +1924,24 @@ class Engine:
                 return dod_coverage_problems(self.hub, ts, str(output.get("report") or ""))
         return []
 
-    def after_delivery(self, ts: Dict[str, Any], suffix: str, fields: Dict[str, str]) -> None:
+    def after_delivery(self, ts: Dict[str, Any], suffix: str, fields: Dict[str, str],
+                       output: Optional[Dict[str, Any]] = None) -> None:
+        if suffix == "1-plan":
+            items = [{key: str(item.get(key) or "").strip() for key in ("fact", "source", "verified")}
+                     for item in (output or {}).get("external_facts") or []]
+            pending = unverified_facts(items)
+            ts["external_facts"] = {"items": items, "pending": pending, "at": utc_now()}
+            if pending:
+                # 只有站主能联网核实；核实之前 _guard_start 不放合同端开工
+                self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": ts["task"], "in-reply-to": "none",
+                                  "type": "提问"},
+                                 {"摘要": "规划依赖 %d 条没核实的仓库外事实，核实之前内核不放合同端开工" % len(pending),
+                                  "提交": "无", "验证": "内核读规划端的 external_facts",
+                                  "偏离": "\n".join("- %s（出处：%s）" % (p["fact"], p["source"] or "未写")
+                                                  for p in pending)[:1500],
+                                  "需协调人决定": "请站主逐条核实，用 kit_hub.py send %s --type 回复 --facts-checked "
+                                                  "写明每条的结果" % ts["task"],
+                                  "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % ts["task"]})
         if suffix in ("4-audit-pre", "7-audit-post"):
             # 不随 invalidate_after 清掉：返工之后的下一轮审核要拿上一轮的阻塞项来复核（复审封板）
             ts.setdefault("audit_history", []).append({
@@ -2015,6 +2085,10 @@ def cmd_send(args: argparse.Namespace) -> int:
         if args.type != "回复" or args.rework not in STAGE_ORDER or args.rework in ("3j-jev", "6j-jev"):
             raise HubError("--rework 只能随“回复”发，写阶段后缀（例如 2-contract；JEV 不用返工）", EXIT_USAGE)
         fields["需协调人决定"] = "站主要求 %s-%s 返工：给它发“返工”，brief 写清站主要改的地方" % (args.task, args.rework)
+    if args.facts_checked:
+        if args.type != "回复":
+            raise HubError("--facts-checked 只能随“回复”发", EXIT_USAGE)
+        fields["需协调人决定"] = "站主已核实规划依赖的仓库外事实（结果见摘要）：开工合同端时把核实结果写进 brief"
     errors = letter_errors(meta, fields, len(fields["摘要"].splitlines()) + 5)
     if errors:
         raise HubError("；".join(errors), EXIT_USAGE)
@@ -2023,6 +2097,8 @@ def cmd_send(args: argparse.Namespace) -> int:
         ts = state["tasks"].get(args.task)
         if args.rework and ts is None:
             raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+        if args.facts_checked and not ((ts or {}).get("external_facts") or {}).get("pending"):
+            raise HubError("%s 没有待核实的仓库外事实" % args.task, EXIT_USAGE)
         msg = hub.deliver(meta, fields)
         if ts is not None and args.type == "停止":
             ts["status"] = "stopped"
@@ -2032,6 +2108,10 @@ def cmd_send(args: argparse.Namespace) -> int:
             # 一审之前站主也能要合同改版（T001：此前只有审核退回或核验失败才放行返工）
             ts["owner_rework"] = {"suffix": args.rework, "msg": msg, "requested_at": utc_now()}
             hub.append_event("owner_rework.requested", task=args.task, suffix=args.rework, msg=msg)
+        if args.facts_checked:
+            record = ts["external_facts"]
+            record.update(checked=record.pop("pending"), pending=[], checked_at=utc_now(), checked_msg=msg)
+            hub.append_event("external_facts.checked", task=args.task, count=len(record["checked"]), msg=msg)
         hub.save_state(state)
     print("已投递 %s" % msg)
     return EXIT_OK
@@ -2125,6 +2205,8 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--file", default="-")
     send.add_argument("--reply-to")
     send.add_argument("--rework", help="随“回复”指定某一阶段返工（阶段后缀，例如 2-contract）")
+    send.add_argument("--facts-checked", action="store_true",
+                      help="随“回复”声明站主已核实规划依赖的仓库外事实（摘要里写每条的结果），放行合同端开工")
     send.set_defaults(func=cmd_send)
     recheck = sub.add_parser("exec-recheck", help="对最近一次 attempt 重新核验（不重跑执行端）")
     recheck.add_argument("task")
