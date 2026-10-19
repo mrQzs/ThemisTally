@@ -1951,6 +1951,75 @@ def test_add_modified_files_handles_both_list_forms():
     assert kh.add_modified_files("## Scope\n- allowed_new_files: a\n", ["a"])[1]
 
 
+def failed_checks(run_dir: Path, ids=("V01",), log_lines=60) -> None:
+    """一次没过的 check --fresh：checks/01 是 run 自己跑的，checks/02 是内核的复核。"""
+    for number, status in (("01", "passed"), ("02", "failed")):
+        folder = run_dir / "checks" / number
+        folder.mkdir(parents=True)
+        results = [{"id": "V09", "status": "passed", "log": "%s/V09.log" % number}]
+        for cid in ids:
+            results.append({"id": cid, "status": status, "reason": "退出码 1 ≠ 期望 0", "log": "%s/%s.log" % (number, cid)})
+            body = ["第 %d 行 %s %s" % (i, number, cid) for i in range(log_lines)] + ["FAILED tests/x.py::test_%s" % cid]
+            (folder / ("%s.log" % cid)).write_text("\n".join(body) + "\n", encoding="utf-8")
+        (folder / "checks.json").write_text(json.dumps({"results": results}), encoding="utf-8")
+
+
+def test_retry_after_failed_checks_tells_the_executor_why(tmp_path, monkeypatch):
+    # 检查没过之后重派同一份合同：执行端只读合同，协调人的信到不了它，等于盲目重来（第 19 轮）
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    v1 = (plans / "t001-doc.v1.md").read_text(encoding="utf-8")
+    failed_checks(previous)
+    (previous / "scope.json").write_text(json.dumps({"violations": [
+        {"path": "src/外面.ts", "kind": "out_of_scope", "detail": "状态 M 不在允许集合"}]}), encoding="utf-8")
+    (previous / "executor-report.json").write_text(json.dumps({"executor_status": "DONE"}), encoding="utf-8")
+    failed = {"run_dir": str(previous), "check_ok": False, "check_exit": 1, "scope_violations": 1,
+              "status": "NEEDS_REVIEW"}
+    ts["exec"], ts["audit_post"] = dict(failed), {}
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub, ts: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- plan_version: 2" in v2 and "## Retry（重派第 1 次，内核追加）" in v2
+    assert "上一轮 attempt-001 没过内核核验：check --fresh 退出码 1，范围违规 1 条" in v2 and "执行端自述 DONE" in v2
+    assert "- V01：退出码 1 ≠ 期望 0" in v2 and "    FAILED tests/x.py::test_V01" in v2
+    assert "第 59 行 02 V01" in v2 and "第 20 行 02 V01" not in v2 and " 01 V01" not in v2  # 最近一次 check 的末尾
+    assert "V09" not in v2 and "- `src/外面.ts`：out_of_scope（状态 M 不在允许集合）" in v2
+    assert (plans / "t001-doc.v1.md").read_text(encoding="utf-8") == v1 and ts["retry_notes"] == ["attempt-001"]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["previous"] for e in events if e["event"] == "exec.retry_noted"] == ["attempt-001"]
+    # 同一个 attempt 只写一次；检查通过了、或者状态里没有结论的，都不写
+    for state in (dict(failed), dict(failed, check_ok=True), {"run_dir": str(previous)}):
+        ts["exec"] = state
+        calls.clear()
+        kh.run_exec(hub, ts)
+        assert calls == ["prepare t001-doc.v2"]
+    # 下一个没过的 attempt，合同还没派遣：就地追加，不出新版本；没过的检查多于 3 条时只附前 3 条
+    second = previous.parent / "attempt-002"
+    failed_checks(second, ids=("V01", "V02", "V03", "V04"), log_lines=5)
+    ts["exec"] = dict(failed, run_dir=str(second), scope_violations=0)
+    calls.clear()
+    kh.run_exec(hub, ts)
+    assert calls == ["derive-json", "validate", "prepare t001-doc.v2"] and not (plans / "t001-doc.v3.md").exists()
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "## Retry（重派第 2 次，内核追加）" in v2 and "- V03：" in v2 and "- V04：" not in v2
+    assert "另有 1 条检查没过" in v2 and ts["retry_notes"] == ["attempt-001", "attempt-002"]
+    # 新版本建不出来：如实报告，不派遣
+    third = previous.parent / "attempt-003"
+    failed_checks(third)
+    ts["exec"], ts["contract"]["dispatched"] = dict(failed, run_dir=str(third)), True
+    (plans / "t001-doc.v3.md").write_text("占住\n", encoding="utf-8")
+    calls.clear()
+    fields = kh.run_exec(hub, ts)
+    assert calls == [] and "重派合同没有建成" in fields["验证"] and "已存在" in fields["验证"]
+
+
 def test_exec_rework_stops_at_the_budget(tmp_path, monkeypatch):
     repo, hub, ts, plans, previous = rework_setup(tmp_path, attempts=1)
     calls = []
