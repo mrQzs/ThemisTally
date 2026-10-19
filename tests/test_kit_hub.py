@@ -1143,6 +1143,57 @@ def test_output_block_is_the_last_json_fence():
         kh.extract_json_block("```json\n{坏的}\n```")
 
 
+def test_output_block_tolerates_only_trailing_closers():
+    # T004 的协调人 8 次输出都在结尾多写了 `]}`，每次白跑一个回合（第 18 轮）
+    warnings: list = []
+    text = "```json\n{\"letters\": [{\"to\": \"x\"}], \"state\": \"s\"}]}\n```"
+    assert kh.extract_json_block(text, warnings) == {"letters": [{"to": "x"}], "state": "s"}
+    assert len(warnings) == 1 and "]}" in warnings[0]
+    clean: list = []
+    assert kh.extract_json_block("```json\n{\"a\": 1}\n```", clean) == {"a": 1} and clean == []
+    for extra in ("]} 还有话", "{\"b\": 2}", "x"):  # 多了别的内容照旧拒收
+        with pytest.raises(kh.HubError):
+            kh.extract_json_block("```json\n{\"a\": 1}%s\n```" % extra, [])
+    with pytest.raises(kh.HubError):
+        kh.extract_json_block("```json\n[1]]\n```", [])  # 顶层不是对象
+
+
+def test_turn_records_the_ignored_trailing_closers(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    final = "交付。\n```json\n{\"letter\": {\"type\": \"交付\"}, \"state\": \"s\"}]}\n```"
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        events = [INIT, {"type": "result", "result": final}]  # 审核端：只读三件工具，sonnet
+        out.write(("\n".join(json.dumps(e) for e in events) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("audit-sonnet", "T001-7-audit-post", tmp_path, "角色", "输入")
+    assert turn["violations"] == [] and turn["output"] == {"letter": {"type": "交付"}, "state": "s"}
+    assert turn["output_error"] is None
+    record = json.loads(Path(turn["turn_dir"], "result.json").read_text(encoding="utf-8"))
+    assert any("末尾多了 ]}" in w for w in record["warnings"])
+
+
+def test_pi_refused_calls_outside_the_allowlist_only_warn():
+    # T004 的合同端：pi 回 “Tool bash not found”，模型改用 ls，内核却把回合作废
+    spec = {"tools": ["read", "ls"], "provider": "p", "model": "m"}
+    start = {"type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": {"command": "ls -la"}}
+
+    def end(is_error: bool, text: str) -> dict:
+        return {"type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash", "isError": is_error,
+                "result": {"content": [{"type": "text", "text": text}]}}
+
+    refused = kh.audit_pi_stream(stream(start, end(True, "Tool bash not found")), spec)
+    assert refused["violations"] == [] and len(refused["warnings"]) == 1 and "bash" in refused["warnings"][0]
+    for is_error, text in ((False, "total 0"), (False, "Tool bash not found"), (True, "Permission denied"),
+                           (True, "Tool read not found")):
+        audit = kh.audit_pi_stream(stream(start, end(is_error, text)), spec)
+        assert any("bash" in v for v in audit["violations"]) and audit["warnings"] == []
+    other_id = dict(end(True, "Tool bash not found"), toolCallId="c2")  # 别的调用的拒绝不算
+    assert any("bash" in v for v in kh.audit_pi_stream(stream(start, other_id), spec)["violations"])
+
+
 # ---------------------------------------------------------------------------
 # 合同的内核要求（设计 §7）
 # ---------------------------------------------------------------------------
@@ -1779,6 +1830,7 @@ def test_exec_rework_continues_from_the_reviewed_candidate(tmp_path, monkeypatch
 
     monkeypatch.setattr(kh, "run_pd", fake_pd)
     monkeypatch.setattr(kh, "contract_requirements", lambda hub, ts: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub, ts: [])  # 返工基线里新增的文件另有测试
     fields = kh.run_exec(hub, ts)
     assert calls == ["verdict", "branch", "derive-json", "validate", "prepare t001-doc.v2"]
     v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
@@ -1826,6 +1878,77 @@ def test_exec_rework_reports_when_the_rework_base_cannot_be_built(tmp_path, monk
     fields = kh.run_exec(hub, ts)
     assert calls == ["verdict", "branch"] and "branch --rework 没有建出返工提交" in fields["验证"]
     assert not (plans / "t001-doc.v2.md").exists() and "rework_chain" not in ts
+
+
+def test_rework_contract_lets_the_executor_modify_files_added_earlier(tmp_path, monkeypatch):
+    # T004：返工基线里已经有 attempt-001 新增的 Tooltip.tsx，attempt-002 改它修阻塞项，状态是 M，
+    # 合同却只“允许新增”：范围门禁判越界，用掉一次 attempt（第 18 轮）
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["oracle"]["sha"] = head
+    (repo / "src").mkdir()
+    for name in ("新.ts", "keep.ts"):
+        (repo / "src" / name).write_text("x\n", encoding="utf-8")
+    (repo / "README.md").write_text("改\n", encoding="utf-8")
+    kh.git(["add", "-A"], repo)
+    kh.git(["commit", "-q", "-m", "rework"], repo)
+    rework = kh.git(["rev-parse", "HEAD"], repo).strip()
+    ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v1"}]
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    v1 = ("# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: %s\n\n## Scope\n"
+          "- allowed_modified_files:\n  - README.md\n  - src/keep.ts\n- allowed_new_files:\n  - src/*.ts\n"
+          "- forbidden_paths: 无\n\n## Rework（返工第 1 轮，内核追加）\n\n- B1\n" % rework)
+    (plans / "t001-doc.v1.md").write_text(v1, encoding="utf-8")
+    (plans / "t001-doc.v1.json").write_text(json.dumps({"budget": {
+        "max_attempts_total": 3, "max_wall_seconds_per_attempt": 3600, "max_wall_seconds_total": 10800}}),
+        encoding="utf-8")
+    ts["contract"]["dispatched"] = True
+    ts["exec"], ts["audit_post"] = {"run_dir": None}, {}  # 检查没过之后的返工：没有终审结论，照合同重派
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub, ts: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    scope = kh.pd._md_scope_lists(v2)
+    assert scope["allowed_modified_files"] == ["README.md", "src/keep.ts", "src/新.ts"]
+    assert scope["allowed_new_files"] == ["src/*.ts"] and "- plan_version: 2" in v2 and "## Rework" in v2
+    assert (plans / "t001-doc.v1.md").read_text(encoding="utf-8") == v1  # 派遣过的版本不改
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["files"] for e in events if e["event"] == "contract.scope_widened"] == [["src/新.ts"]]
+    calls.clear()
+    kh.run_exec(hub, ts)  # 范围已经齐了：不再出新版本
+    assert calls == ["prepare t001-doc.v2"]
+    # 还没派遣的版本就地补上，不出新版本
+    (plans / "t001-doc.v2.md").write_text(v2.replace("  - src/新.ts\n", ""), encoding="utf-8")
+    calls.clear()
+    assert kh.ensure_rework_scope(hub, ts) == [] and calls == ["derive-json", "validate"]
+    assert "  - src/新.ts\n" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert not (plans / "t001-doc.v3.md").exists()
+    # 读不出返工基线：如实报告，不派遣
+    ts["rework_chain"][-1]["commit"] = "f" * 40
+    calls.clear()
+    fields = kh.run_exec(hub, ts)
+    assert calls == [] and "读不出返工基线" in fields["验证"] and ts["exec"]["run_dir"] is None
+
+
+def test_add_modified_files_handles_both_list_forms():
+    text, problems = kh.add_modified_files(
+        "## Scope\n- allowed_modified_files: 无\n- allowed_new_files: a.ts\n\n## DoD\n- x\n", ["a.ts"])
+    assert problems == [] and kh.pd._md_scope_lists(text)["allowed_modified_files"] == ["a.ts"]
+    assert kh.pd._md_scope_lists(text)["allowed_new_files"] == ["a.ts"] and text.endswith("## DoD\n- x\n")
+    text, _ = kh.add_modified_files("## Scope\n- allowed_modified_files: `b.ts`, c.ts\n", ["a.ts", "c.ts"])
+    assert kh.pd._md_scope_lists(text)["allowed_modified_files"] == ["b.ts", "c.ts", "a.ts"]
+    assert kh.add_modified_files("## Goal\n- allowed_modified_files: a\n", ["b"])[1]  # 没有 Scope 一节
+    assert kh.add_modified_files("## Scope\n- allowed_new_files: a\n", ["a"])[1]
 
 
 def test_exec_rework_stops_at_the_budget(tmp_path, monkeypatch):

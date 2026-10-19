@@ -795,14 +795,24 @@ def render_template(name: str, values: Dict[str, str], role: Optional[str] = Non
     return text
 
 
-def extract_json_block(text: str) -> Dict[str, Any]:
+def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     blocks = JSON_BLOCK_RE.findall(text or "")
     if not blocks:
         raise HubError("最后一条消息里没有 ```json 代码块")
+    block = blocks[-1].strip()
     try:
-        data = json.loads(blocks[-1])
+        data = json.loads(block)
     except ValueError as exc:
-        raise HubError("JSON 代码块解析失败：%s" % exc)
+        # 协调人在长输出末尾多写一对 `]}`：T004 的协调人 8 次重试全是这一种，每次白跑一个回合（第 18 轮）。
+        # 对象本身完整、后面只多了右括号时照收并记警告；多了别的内容照旧拒收。
+        try:
+            data, end = json.JSONDecoder().raw_decode(block)
+        except ValueError:
+            raise HubError("JSON 代码块解析失败：%s" % exc)
+        if block[end:].strip(" \t\r\n]}"):
+            raise HubError("JSON 代码块解析失败：%s" % exc)
+        if warnings is not None:
+            warnings.append("JSON 代码块末尾多了 %s，已忽略" % block[end:].strip())
     if not isinstance(data, dict):
         raise HubError("JSON 代码块顶层必须是对象")
     return data
@@ -934,6 +944,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
     api_error: Optional[str] = None
     usage: Dict[str, Any] = {}
     terminal = False
+    outside: Dict[str, str] = {}  # 白名单之外的调用：toolCallId → 工具名
+    refused: set = set()
     for line in lines:
         line = line.strip()
         if not line.startswith("{"):
@@ -947,7 +959,13 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
             name = str(event.get("toolName"))
             tool_calls[name] = tool_calls.get(name, 0) + 1
             if name not in allowed:
-                violations.append("调用了白名单之外的工具：%s" % name)
+                outside[str(event.get("toolCallId"))] = name
+        elif kind == "tool_execution_end":
+            call_id = str(event.get("toolCallId"))
+            text = "".join(b.get("text", "") for b in (event.get("result") or {}).get("content") or []
+                           if isinstance(b, dict))
+            if call_id in outside and event.get("isError") and text.strip() == "Tool %s not found" % outside[call_id]:
+                refused.add(call_id)
         elif kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
             message = event["message"]
             models.add("%s/%s" % (message.get("provider"), message.get("model")))
@@ -968,7 +986,11 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
     expected = "%s/%s" % (spec["provider"], spec["model"])
     if models - {expected}:
         violations.append("实际模型 %s 与要求 %s 不一致" % (sorted(models), expected))
-    return {"violations": violations, "tool_calls": tool_calls, "final_text": final_text,
+    # 与 claude 一样：pi 当场拒绝（“Tool bash not found”）的调用没有任何效果，只记警告
+    # （T004 的合同端试了一次 bash，被拒后改用 ls，内核却把整个回合作废）；看不到拒绝结果的照旧作废。
+    warnings = ["试图调用白名单之外的工具 %s，被 pi 拒绝" % name for cid, name in outside.items() if cid in refused]
+    violations += ["调用了白名单之外的工具：%s" % name for cid, name in outside.items() if cid not in refused]
+    return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error}
 
@@ -1049,7 +1071,7 @@ class TurnRunner:
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:
             try:
-                output = extract_json_block(audit["final_text"])
+                output = extract_json_block(audit["final_text"], audit.setdefault("warnings", []))
             except HubError as exc:
                 output_error = str(exc)
         turn_cost, session_cost = turn_cost_usd(spec["adapter"], session, audit.get("cost_usd"))
@@ -1714,6 +1736,12 @@ def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
             ts["exec"] = {"run_dir": None, "check_ok": False, "error": problem}
             return {"摘要": "返工版本没有建成，执行端没有开始", "提交": "无", "验证": problem, "偏离": "无",
                     "需协调人决定": "给站主发提问", "证据": str(previous)}
+    problems = ensure_rework_scope(hub, ts)
+    if problems:
+        problem = "返工合同的范围没有补成：" + "；".join(problems)
+        ts["exec"] = {"run_dir": None, "check_ok": False, "error": problem}
+        return {"摘要": "返工合同的范围没有补成，执行端没有开始", "提交": "无", "验证": problem, "偏离": "无",
+                "需协调人决定": "给站主发提问", "证据": ts["contract"]["md"]}
     key = ts["contract"]["key"]
     code, out = run_pd(hub, ["prepare", key], timeout=1800)
     match = re.search(r"(\.agent[\\/]runs[\\/][a-z0-9-]+[\\/]attempt-\d{3})", out)
@@ -1786,12 +1814,77 @@ def start_rework(hub: Hub, ts: Dict[str, Any], previous: Path) -> Optional[str]:
     return None
 
 
+SCOPE_MODIFIED_RE = re.compile(r"^[-*]\s*allowed_modified_files\s*:\s*(.*?)\s*$")
+
+
+def add_modified_files(text: str, paths: Sequence[str]) -> Tuple[str, List[str]]:
+    """把路径追加到合同 Scope 的 allowed_modified_files（同行写法改成缩进列表）；返回（新文本，问题）。"""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if re.match(r"^##\s+Scope\s*$", line.strip())), None)
+    if start is None:
+        return text, ["合同里找不到 ## Scope 一节"]
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    row = next((i for i in range(start + 1, end) if SCOPE_MODIFIED_RE.match(lines[i])), None)
+    if row is None:
+        return text, ["合同 Scope 里找不到 allowed_modified_files"]
+    rest = SCOPE_MODIFIED_RE.match(lines[row]).group(1)
+    items: List[str] = []
+    stop = row + 1
+    if rest and not rest.startswith("无") and rest.lower() not in ("none", "[]"):
+        items = [v.strip("` ") for v in re.split(r"[,，、]\s*", rest) if v.strip("` ")]
+    else:
+        while stop < end and re.match(r"^\s+[-*]\s*(.+?)\s*$", lines[stop]):
+            items.append(re.match(r"^\s+[-*]\s*(.+?)\s*$", lines[stop]).group(1).strip("` "))
+            stop += 1
+    block = ["- allowed_modified_files:"] + ["  - %s" % item for item in items + [p for p in paths if p not in items]]
+    return "\n".join(lines[:row] + block + lines[stop:]), []
+
+
+def rework_added_files(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """返工基线（最近一个返工提交）里由前几轮 attempt 新增的文件，相对基准测试提交；没有返工时为空。"""
+    chain = ts.get("rework_chain") or []
+    if not chain:
+        return []
+    out = git(["diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", ts["oracle"]["sha"],
+               chain[-1]["commit"]], hub.repo)
+    return [path for path in out.split("\0") if path]
+
+
+def ensure_rework_scope(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """返工基线里已经有前几轮新增的文件：新 attempt 再改它们是“修改”（M），合同却只“允许新增”（A）。
+    T004 的 attempt-002 改 Tooltip.tsx 修终审的阻塞项，范围门禁判越界，最后一次之前的 attempt 白用（第 18 轮）。
+    把这些文件加进 allowed_modified_files；合同已经派遣过就先出下一版。返回问题（空表示合同可以派遣）。"""
+    try:
+        added = rework_added_files(hub, ts)
+    except HubError as exc:
+        return ["读不出返工基线里新增了哪些文件：%s" % exc]
+    if not added:
+        return []
+    md, _js = contract_paths(hub, ts)
+    allowed = pd.compile_patterns(pd._md_scope_lists(read_text(md)).get("allowed_modified_files") or [])
+    missing = [path for path in added if not pd.matches(allowed, path)]
+    if not missing:
+        return []
+    if ts["contract"].get("dispatched"):
+        problems = bump_contract_version(hub, ts)
+        if problems:
+            return problems
+        md, _js = contract_paths(hub, ts)
+    text, problems = add_modified_files(read_text(md), missing)
+    if problems:
+        return problems
+    md.write_text(text, encoding="utf-8", newline="\n")
+    hub.append_event("contract.scope_widened", task=ts["task"], key=ts["contract"]["key"], files=missing)
+    return revalidate_contract(hub, ts)
+
+
 def rework_section(previous: Path, sha: str, blockers: str, number: int) -> str:
     return "\n".join([
         "## Rework（返工第 %d 轮，内核追加）" % number, "",
         "- 基线 `%s` 是 %s 的候选（调度器 `branch --rework` 建的返工提交）：上一轮的改动已经在工作目录里。"
         "在它上面改，不要从头重写，也不要回退上一轮已经做对的地方。" % (sha, previous.name),
-        "- 逐条改完下面终审列的阻塞项。Scope、Behavior contract 与 DoD 不变，阻塞项以外的地方不动。",
+        "- 逐条改完下面终审列的阻塞项。Scope、Behavior contract 与 DoD 不变，阻塞项以外的地方不动。"
+        "唯一的例外：前几轮新增、已经在基线里的文件，在这个基线上再改就是修改，内核把它们加进了 allowed_modified_files。",
         "- Validation commands 里标“基线应失败”的检查，在这个基线上可能已经通过；改完之后它仍要通过。", "",
         "### 终审列的阻塞项（原文）", "", (blockers or "").strip() or "（终审没有写阻塞项）", ""])
 
