@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "task_id": "t003-desktop-fonts",
+  "plan_version": 1,
+  "title": "交付 T003 第 2 片（桌面端前端随包字体）：在 `desktop/web/` 用 `src/styles/fonts.css` 的两条 `@font-face` 接入随包字体等距更纱黑体 SC 0.36.0，让 `dist` 里恰有与",
+  "repository": "ThemisTally",
+  "base_sha": "69970b0151cf656f01b2bddaf745f79dc04cd2c3",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "desktop/web/README.md"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/styles/fonts.css",
+      "desktop/web/public/licenses/OFL.txt",
+      "desktop/web/tests/font-*.test.ts",
+      "desktop/web/tests/font-*.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/fonts/**",
+      "desktop/web/src/styles/tokens.css",
+      "desktop/web/src/styles/base.css",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/icons/**",
+      "desktop/web/public/licenses/lucide-1.59.0-LICENSE.txt",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      ".gitignore",
+      ".gitattributes",
+      "tests/conftest.py",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t003_*.py",
+      "docs/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t003_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t002_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`fonts.css` 恰有两条 `@font-face`，族名、字重区间、`font-display`、`src` 照 Behavior contract 第 1 条；`main.tsx` 引入它；字体只经 `fonts.css` 引用",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "令牌首项真有对应的随包字体，字重按设计映射"
+    },
+    {
+      "id": "D02",
+      "text": "`dist` 恰有两个 woff2，与 `fonts/` 逐字节相同；没有别的字体文件；dist CSS 的 `@font-face` 用相对地址指向这两个文件；不内联成 `data:`，不用外部地址",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "D14 与 CSP 的 `font-src 'self'`，字体只从应用包同源加载"
+    },
+    {
+      "id": "D03",
+      "text": "许可副本与 `fonts/OFL.txt` 内容相同（行尾归一），并随产物进入 `dist/licenses/`；notices 记了 Sarasa Gothic 的名称、版本、许可、来源与许可原文路径，Lucide 条目仍在",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "履行 OFL 的随包义务"
+    },
+    {
+      "id": "D04",
+      "text": "陈列页有样张：400、500、600 三组，各有纯汉字行与纯 ASCII 行；按“汉字 2 列、ASCII 1 列”，每组各行列数相同；行首尾有对齐标记；字重取令牌",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "人能直接看出中英文对齐与两种字重"
+    },
+    {
+      "id": "D05",
+      "text": "T002 门禁基准全部通过",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "不破坏第 1 片（令牌、契约检查、组件、无字体包）"
+    },
+    {
+      "id": "D06",
+      "text": "只改允许的文件；`fonts/`、`tokens.css`、`package.json` 与锁文件不变；不新增依赖",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "字体只读、令牌不变、依赖不变"
+    },
+    {
+      "id": "D07",
+      "text": "不删除、跳过或弱化任何测试；新增测试不用 skip/only/todo",
+      "evidence": [
+        "review"
+      ],
+      "intent": "机械部分由 V02 里 T002 的 `test_d03_new_tests_not_skipped` 查，保证测试不被削弱"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 10800,
+    "cost_budget": null
+  }
+}
