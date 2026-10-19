@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "task_id": "t002-desktop-web",
+  "plan_version": 3,
+  "title": "交付 T002 第 1 片：`desktop/web/` 工程骨架、设计令牌、W4 契约检查与 5 个原子组件。目标是让 `desktop/web/` 能 `npm ci`、`npm run build`、`npm test`、`npm r",
+  "repository": "ThemisTally",
+  "base_sha": "a7193dc7b2b38bc1ec5c9dc8c823224cdd2edfe2",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      ".gitignore"
+    ],
+    "allowed_new_files": [
+      "desktop/web/**"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "docs/**",
+      "scripts/**",
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".pi/**",
+      "tests/test_gate_t002_*.py"
+    ],
+    "dependency_changes": "allowed"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t002_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "desktop/web 能 npm ci、build、test、check:contract 四步全部通过，令牌与画布逐项相等，5 个原子组件与陈列页就位",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "门禁黑盒从干净副本跑通四步并核对产物、令牌、契约与组件行为，确保这一片真能用"
+    },
+    {
+      "id": "D02",
+      "text": "所有改动都在允许集合内，只新增 desktop/web/** 并只追加根 .gitignore，未触碰 docs、scripts 与门禁测试",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "没有删除、跳过或弱化任何既有测试",
+      "evidence": [
+        "review"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "契约检查脚本在合成样本上对十六进制、rgba()、命名颜色、未定义 var、TSX 颜色写法都判违规并退出非 0，对合法写法放行",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "保证 W4 是真检查而不是空跑"
+    },
+    {
+      "id": "D05",
+      "text": "`dist`、`desktop/web/src`、`desktop/web/public` 里没有任何字体文件（woff2、woff、ttf、otf），也没有 `@font-face`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "确认随包字体确实移出本片，第 1 片产物与源码里不残留任何字体文件或 @font-face"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 10800,
+    "cost_budget": null
+  }
+}
