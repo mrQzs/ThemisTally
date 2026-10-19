@@ -1099,7 +1099,42 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     ts["contract"] = {"version": version, "key": key, "md": str(path.relative_to(hub.repo).as_posix()),
                       "json": str(path.with_suffix(".json").relative_to(hub.repo).as_posix())}
     hub.append_event("contract.written", task=ts["task"], key=key)
-    return revalidate_contract(hub, ts)
+    problems = revalidate_contract(hub, ts)
+    if not problems:
+        # 只查合同端交的新版本：热修补复制出来的版本照搬旧预算，门禁端改不了它
+        problems = budget_problems(hub, ts)
+        ts["contract"]["validated"] = not problems
+    return problems
+
+
+#: 合同的总预算给这一版至少留几次 attempt：一次失败之后还能返工给执行端
+MIN_ATTEMPTS_LEFT = 2
+
+
+def budget_usage(hub: Hub, ts: Dict[str, Any]) -> Dict[str, Any]:
+    """调度器按 task_id 累计各合同版本已领取的 attempt 与墙钟（pi_dispatch.budget_usage），预算核算以它为准。"""
+    return pd.budget_usage(pd.Repo(hub.repo), ts["contract_task"])
+
+
+def budget_problems(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """T002：v2 照抄 v1 的 2 次，可 v1 已经用掉 1 次，v2 只剩 1 次、失败了就没有返工余量（第 8 轮）。"""
+    try:
+        budget = json.loads(read_text(contract_paths(hub, ts)[1])).get("budget") or {}
+    except ValueError:
+        return ["合同 JSON 读不出来"]
+    used = budget_usage(hub, ts)
+    per_attempt = float(budget.get("max_wall_seconds_per_attempt") or 0)
+    attempts_left = int(budget.get("max_attempts_total") or 0) - used["attempts_started"]
+    wall_left = float(budget.get("max_wall_seconds_total") or 0) - used["wall_seconds_used"]
+    problems: List[str] = []
+    if attempts_left < MIN_ATTEMPTS_LEFT:
+        problems.append("max_attempts_total=%s，本任务各版本已用掉 %d 次，这一版只剩 %d 次：至少留 %d 次" % (
+            budget.get("max_attempts_total"), used["attempts_started"], attempts_left, MIN_ATTEMPTS_LEFT))
+    if wall_left < MIN_ATTEMPTS_LEFT * per_attempt:
+        problems.append("max_wall_seconds_total=%s，已用掉 %d 秒，只剩 %d 秒：至少留 %d 次单次时限（%d 秒）" % (
+            budget.get("max_wall_seconds_total"), used["wall_seconds_used"], wall_left, MIN_ATTEMPTS_LEFT,
+            MIN_ATTEMPTS_LEFT * per_attempt))
+    return problems
 
 
 def bump_contract_version(hub: Hub, ts: Dict[str, Any]) -> List[str]:
@@ -1551,6 +1586,24 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
                                            "\n".join("- " + m for m in moves) or "- （没有：等待工人或站主）"])
 
 
+#: 门禁测试里的过渡断言：只在当时那一片成立、后续工作会推翻（例如 T002 第 1 片断言“还没有字体文件”）
+TRANSITIONAL_RE = re.compile(r"^[ \t]*def (test_transitional_\w+)\([^)]*\)[^:\n]*:[ \t]*"
+                             r"(?:\n[ \t]*[rRuU]?(?:\"\"\"|''')([^\n]*))?", re.M)
+
+
+def transitional_section(workspace: Path) -> List[str]:
+    """规划端要看到仓库里现有的过渡断言，写明本任务会推翻哪几条：站主在开工合同端之前退役它们（第 8 轮）。"""
+    found = []
+    for path in sorted((Path(workspace) / "tests").glob("test_gate_*.py")):
+        for match in TRANSITIONAL_RE.finditer(read_text(path)):
+            note = (match.group(2) or "").strip().strip("\"'").strip() or "（没有说明）"
+            found.append("- `%s::%s`：%s" % (path.relative_to(workspace).as_posix(), match.group(1), note))
+    if not found:
+        return []
+    return ["", "## 仓库里现有的过渡断言（门禁测试里只在当时那一片成立的断言）", ""] + found + [
+        "- 本任务会推翻其中哪几条，写进 report，并在信的“需协调人决定”里列出：站主在开工合同端之前退役它们。"]
+
+
 def external_facts_section(ts: Dict[str, Any]) -> List[str]:
     record = ts.get("external_facts")
     if not record:
@@ -1611,6 +1664,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
         if role == "contract" or task_id.endswith("-4-audit-pre"):
             parts += external_facts_section(ts)
         if role == "contract":
+            used = budget_usage(hub, ts)
             parts += ["", "## 合同要求（内核会逐项核对）", "",
                       "- 第一行：`# TASK: %s`；Identity 的 plan_version 写 %d；base_sha 先写 %s（门禁提交后内核会改）。" % (
                           ts["contract_task"], int(ts["contract"].get("version", 0)) + 1, ts["base_head"]),
@@ -1619,7 +1673,13 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                       "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换）："
                       "`- VG1（必要，基线应失败）：`python -m pytest %s -q` · cwd：仓库根 · 超时：600s · 期望退出码：0 · "
                       "输出须匹配：`\\d+ passed``。门禁测试由门禁端稍后写好、内核做成基线提交，你只写这一行。" % gate_file(ts, "baseline"),
+                      "- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 `%s` 各版本的累计上限（调度器跨版本累计）："
+                      "已用掉 %d 次、%d 秒。总数要把它们算进去，给这一版至少留 %d 次 attempt 与 %d 倍单次时限。" % (
+                          ts["contract_task"], used["attempts_started"], used["wall_seconds_used"],
+                          MIN_ATTEMPTS_LEFT, MIN_ATTEMPTS_LEFT),
                       "- 格式照 .agents/skills/plan-task/contract-template.md 与 contract-guide.md（在工作目录里，先读）。"]
+        if role == "planner":
+            parts += transitional_section(workspace)
         if role == "gate":
             stage = stage_of(task_id)[1]
             target = gate_file(ts, "baseline" if stage == "3-gate-pre" else "whitebox")

@@ -420,6 +420,96 @@ def test_contract_with_pending_marks_is_rejected(tmp_path, monkeypatch):
     assert kh.contract_requirements(hub, ts) == []
 
 
+def write_budget(hub, ts, attempts, total, per=3600):
+    plans = hub.repo / ".agent" / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    ts["contract"].update(key="t001-doc.v2", version=2)
+    (plans / "t001-doc.v2.json").write_text(json.dumps({"budget": {
+        "max_attempts_total": attempts, "max_wall_seconds_per_attempt": per, "max_wall_seconds_total": total}}),
+        encoding="utf-8")
+
+
+def claim_attempt(hub, n, wall=None, reserved=None):
+    attempt = hub.repo / ".agent" / "runs" / "t001-doc" / ("attempt-%03d" % n)
+    (attempt / "claim").mkdir(parents=True)
+    if wall is not None:
+        (attempt / "run.json").write_text(json.dumps({"wall_seconds": wall}), encoding="utf-8")
+    if reserved is not None:
+        (attempt / "claim" / "reservation.json").write_text(json.dumps({"timeout_seconds": reserved}),
+                                                            encoding="utf-8")
+
+
+def test_contract_budget_counts_attempts_of_earlier_versions(tmp_path):
+    # T002：v2 照抄 v1 的 2 次，调度器跨版本累计，v1 已经用掉 1 次，v2 只剩 1 次（第 8 轮）
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    write_budget(hub, ts, 2, 7200)
+    assert kh.budget_problems(hub, ts) == []  # 还没有派遣过
+    claim_attempt(hub, 1, wall=1671.4)
+    problems = kh.budget_problems(hub, ts)
+    assert len(problems) == 2
+    assert "已用掉 1 次，这一版只剩 1 次" in problems[0] and "只剩 5528 秒" in problems[1]
+    write_budget(hub, ts, 3, 10800)
+    assert kh.budget_problems(hub, ts) == []
+    write_budget(hub, ts, 3, 8000)  # 次数够、墙钟不够两次单次时限
+    assert [p for p in kh.budget_problems(hub, ts)] == [
+        "max_wall_seconds_total=8000，已用掉 1671 秒，只剩 6328 秒：至少留 2 次单次时限（7200 秒）"]
+    claim_attempt(hub, 2, reserved=3600)  # 还在跑的 attempt 按预留的时限计
+    write_budget(hub, ts, 4, 14400)
+    assert kh.budget_problems(hub, ts) == []
+    write_budget(hub, ts, 3, 14400)
+    assert "已用掉 2 次，这一版只剩 1 次" in kh.budget_problems(hub, ts)[0]
+
+
+def test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    claim_attempt(hub, 1, wall=1671)
+    budget = {"attempts": 2}
+
+    def revalidate(hub, ts):
+        write_budget(hub, ts, budget["attempts"], 10800)
+        ts["contract"]["validated"] = True
+        return []
+
+    monkeypatch.setattr(kh, "revalidate_contract", revalidate)
+    problems = kh.accept_contract(hub, ts, {"contract_md": "# TASK: t001-doc\n正文"})
+    assert len(problems) == 1 and "这一版只剩 1 次" in problems[0]
+    assert ts["contract"]["validated"] is False  # 门禁端开不了工
+    assert kh.guard(dict(ts, stages=dict(ts["stages"])), meta("开工", "gate-sonnet", "T001-3-gate-pre")) is not None
+    budget["attempts"] = 3
+    assert kh.accept_contract(hub, ts, {"contract_md": "# TASK: t001-doc\n正文"}) == []
+    assert ts["contract"]["validated"] is True and ts["contract"]["key"] == "t001-doc.v2"
+    # 合同端的回合输入写明已用掉的预算
+    prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
+    assert "`t001-doc` 各版本的累计上限" in prompt and "已用掉 1 次、1671 秒" in prompt
+
+
+def test_planner_sees_the_transitional_gate_assertions(tmp_path):
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    workspace = tmp_path / "ws"
+    (workspace / "tests").mkdir(parents=True)
+    (workspace / "tests" / "test_gate_t002_baseline.py").write_text(
+        "def test_g1_keeps():\n    assert True\n\n\n"
+        "def test_transitional_no_fonts(pipeline):\n"
+        "    \"\"\"T003 随包字体会推翻：第 1 片不带字体文件。\"\"\"\n    assert True\n\n\n"
+        "class TestNotices:\n    def test_transitional_notices_only_lucide(self) -> None:\n        assert True\n",
+        encoding="utf-8")
+    (workspace / "tests" / "test_other.py").write_text("def test_transitional_ignored():\n    pass\n",
+                                                     encoding="utf-8")
+    section = kh.transitional_section(workspace)
+    assert section[1].startswith("## 仓库里现有的过渡断言")
+    assert "- `tests/test_gate_t002_baseline.py::test_transitional_no_fonts`：T003 随包字体会推翻：第 1 片不带字体文件。" \
+        in section
+    assert "- `tests/test_gate_t002_baseline.py::test_transitional_notices_only_lucide`：（没有说明）" in section
+    assert not any("test_g1_keeps" in line or "ignored" in line for line in section)
+    assert "## 仓库里现有的过渡断言" in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], workspace)
+    assert "## 仓库里现有的过渡断言" not in kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], workspace)
+    assert kh.transitional_section(tmp_path / "empty") == []
+    assert "test_transitional_" in kh.role_prompt("gate-sonnet")
+
+
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
     _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
     problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")
