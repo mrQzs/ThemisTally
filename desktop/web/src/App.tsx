@@ -50,6 +50,37 @@ export default function App() {
         </div>
       </header>
 
+      <section className="showcase__section" data-font-specimen>
+        <h2 className="showcase__h2">字体 · 等距更纱黑体 SC</h2>
+        <div className="showcase__specimen-group">
+          <span className="showcase__label">Regular 400</span>
+          <div className="showcase__specimen" data-font-weight="400">
+            <span className="showcase__specimen-row" data-specimen-row>|一个汉字正好两个英文字符宽|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|ABCDEFGHIJKLMNOPQRSTUVWXYZ|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|12345678901234567890123456|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|日志 attempt-001 已通过 OK|</span>
+          </div>
+        </div>
+        <div className="showcase__specimen-group">
+          <span className="showcase__label">500 按 Regular</span>
+          <div className="showcase__specimen" data-font-weight="500">
+            <span className="showcase__specimen-row" data-specimen-row>|一个汉字正好两个英文字符宽|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|ABCDEFGHIJKLMNOPQRSTUVWXYZ|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|12345678901234567890123456|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|日志 attempt-001 已通过 OK|</span>
+          </div>
+        </div>
+        <div className="showcase__specimen-group">
+          <span className="showcase__label">SemiBold 600</span>
+          <div className="showcase__specimen" data-font-weight="600">
+            <span className="showcase__specimen-row" data-specimen-row>|一个汉字正好两个英文字符宽|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|ABCDEFGHIJKLMNOPQRSTUVWXYZ|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|12345678901234567890123456|</span>
+            <span className="showcase__specimen-row" data-specimen-row>|日志 attempt-001 已通过 OK|</span>
+          </div>
+        </div>
+      </section>
+
       <section className="showcase__section">
         <h2 className="showcase__h2">Button 按钮</h2>
         <div className="showcase__row">

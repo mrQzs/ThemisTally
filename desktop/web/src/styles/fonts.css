@@ -1,0 +1,17 @@
+/* 随包字体：等距更纱黑体 SC 0.36.0（Sarasa Mono SC，SIL OFL 1.1），来源与哈希见 desktop/web/fonts/SOURCE.md。
+   族名与令牌 --tt-font-sans、--tt-font-mono 的首项一致。更纱没有 Medium：300–500 用 Regular，600–800 用 SemiBold。 */
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("../../fonts/sarasa-mono-sc-regular.woff2") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("../../fonts/sarasa-mono-sc-semibold.woff2") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}

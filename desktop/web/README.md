@@ -19,11 +19,12 @@
 desktop/web/
   index.html            # 只一个外部 module script，无内联脚本/样式，不写 data-theme
   src/
-    main.tsx            # 挂载 App，引入 tokens.css / base.css
+    main.tsx            # 挂载 App，引入 fonts.css / tokens.css / base.css
     App.tsx / App.css   # 组件陈列页
     styles/
       tokens.css        # 只有 --tt-* 自定义属性与 color-scheme（画布逐项相等）
       base.css          # 基础样式，只用令牌与允许的全局值
+      fonts.css         # 随包字体的两条 @font-face（等距更纱黑体 SC）
     components/         # Button / Tag / StatusTag / Card / Banner，各带一份 CSS
     domain/
       attemptStates.ts  # 17 个已知状态 + 未知兜底
@@ -32,7 +33,8 @@ desktop/web/
     token-contract.mjs  # W4 契约检查（Node，零依赖）
   tests/                # Vitest 测试
   public/
-    licenses/           # Lucide ISC 许可原文
+    licenses/           # Lucide ISC 与 Sarasa Gothic OFL 许可原文
+  fonts/                # 随包字体，只读，来源与哈希见 fonts/SOURCE.md
   THIRD_PARTY_NOTICES.md
 ```
 

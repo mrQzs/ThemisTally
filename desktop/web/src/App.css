@@ -36,3 +36,35 @@
   align-items: start;
 }
 .showcase__muted { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+/* 陈列页字体样张：随包字体等距更纱黑体 SC 的中英文对齐与两种字重展示。 */
+.showcase__specimen-group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-3);
+}
+.showcase__specimen {
+  border: 1px solid var(--tt-border);
+  background: var(--tt-surface-1);
+  padding: var(--tt-space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tt-space-1);
+}
+/* 字重取令牌；font 简写会重置 font-variant-ligatures，故放在 font 之后；每行去两端 | 后 26 列，右端标记落在同一条竖线。 */
+[data-font-weight="400"] .showcase__specimen-row {
+  font: var(--tt-text-md);
+  white-space: pre;
+  font-variant-ligatures: none;
+}
+[data-font-weight="500"] .showcase__specimen-row {
+  font: var(--tt-text-md-medium);
+  white-space: pre;
+  font-variant-ligatures: none;
+}
+[data-font-weight="600"] .showcase__specimen-row {
+  font: var(--tt-title-sm);
+  white-space: pre;
+  font-variant-ligatures: none;
+}
