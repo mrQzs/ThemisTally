@@ -557,6 +557,8 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
     records = {}
 
     def fake_pd(hub, args, timeout=600):
+        if "--check-anchors" in args:
+            return 0, "锚点核对：2 条，0 条不符"
         out_dir = Path(args[args.index("--out") + 1])
         out_dir.mkdir(parents=True)
         (out_dir / "mutations.json").write_text(json.dumps(records["next"]), encoding="utf-8")
@@ -583,9 +585,60 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
     assert record.startswith(".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-") and (repo / record).is_file()
     log = repo / ts["gate_post"]["whitebox_log"]
     assert log.is_file() and ts["gate_post"]["whitebox_exit"] == 0 and "passed" in ts["gate_post"]["whitebox_tail"]
+    # 白盒测试文件也存进信箱：结项清掉 worktree 之后，终审与站主还能复核跑的是哪一份（第 12 轮）
+    copy = repo / ts["gate_post"]["whitebox_file"]
+    assert copy.parent == log.parent and copy.read_text(encoding="utf-8") == target.read_text(encoding="utf-8")
+    prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
+    assert str(copy) in prompt
     target.write_text("def test_bad():\n    assert False\n", encoding="utf-8")
     assert any("白盒测试" in p for p in kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}))
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_gate_post_checks_the_anchors_before_mutating(tmp_path, monkeypatch):
+    # T003 的 M29：old 把全角括号写成了半角，内核只回一句“M29 没生效”，门禁端手里没有原文，30 条全部重写（第 12 轮）
+    real = kh.run_pd
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append([arg for arg in args if arg.startswith("--")])
+        if "--check-anchors" in args:
+            return real(hub, args, timeout)  # 真的调度器：锚点核对不跑命令，只读文件
+        out_dir = Path(args[args.index("--out") + 1])
+        out_dir.mkdir(parents=True)
+        (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")
+        return 0, "变异 1 条"
+
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=fake_pd)
+    ts["exec"] = {"run_dir": str(tmp_path / "attempt-001")}
+    workspace = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    (workspace / "README.md").write_text("目录约定\nfonts.css  # 随包字体（等距更纱黑体 SC）\n", encoding="utf-8")
+    ts["workspaces"]["post-attempt-001"]["baseline_status"] = kh.workspace_status(workspace)  # 候选补丁改的
+    target = workspace / "tests" / "test_gate_t001_whitebox.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    wrong = {"name": "删掉 fonts.css 那一行", "file": "README.md", "old": "# 随包字体(等距更纱黑体 SC)", "new": ""}
+    command = ["python", "-m", "pytest", "tests/test_gate_t001_whitebox.py", "-q"]
+    problems = kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": {"command": command, "mutations": [wrong]}})
+    assert len(problems) == 1 and "锚点核对" in problems[0] and "变异没有跑" in problems[0], problems
+    assert "M01" in problems[0] and "最相近 L2" in problems[0] and "（等距更纱黑体 SC）" in problems[0]
+    assert calls == [["--tree", "--spec", "--check-anchors"]] and ts["gate_post"]["ok"] is False
+    # 返工时门禁端读得到上一版清单的存档，在它上面改
+    spec_path = ts["gate_post"]["mutate_spec"]
+    assert Path(spec_path).is_file() and Path(spec_path).relative_to(repo).as_posix() in problems[0]
+    assert spec_path in kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], workspace)
+    calls.clear()
+    right = dict(wrong, old="# 随包字体（等距更纱黑体 SC）")
+    assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": {"command": command, "mutations": [right]}}) == []
+    assert calls == [["--tree", "--spec", "--check-anchors"], ["--tree", "--spec", "--out"]] and ts["gate_post"]["ok"]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_contract_title_is_the_registered_task_title(tmp_path, monkeypatch):
+    # T003 的提交主题取自 Goal 第一行、截到 120 字，断在“让 `dist` 里恰有与”（第 12 轮）
+    _repo, _head, hub, ts, _plans, calls = gate_setup(tmp_path, monkeypatch)
+    kh.revalidate_contract(hub, ts)
+    assert calls[0] == ["derive-json", "t001-doc.v1", "--force", "--title", "改文档"]
 
 
 PYTEST_LOG = """\
@@ -624,6 +677,8 @@ def test_gate_post_may_leave_the_candidate_red_with_evidence(tmp_path, monkeypat
 
     def fake_pd(hub, args, timeout=600):
         calls.append(args[0])
+        if "--check-anchors" in args:
+            return 0, "锚点核对：1 条，0 条不符"
         out_dir = Path(args[args.index("--out") + 1])
         out_dir.mkdir(parents=True)
         (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")
@@ -666,7 +721,7 @@ def test_gate_post_may_leave_the_candidate_red_with_evidence(tmp_path, monkeypat
     broken = probe + "\n\n@pytest.fixture\ndef env():\n    raise RuntimeError('x')\n\n\ndef test_env(env):\n    pass\n"
     assert any("没有全部通过" in p for p in deliver(broken, candidate_defects=[defect]))  # 出错不是缺陷
     problems = deliver("", candidate_defects=[defect])
-    assert any("可白盒测试在候选上全部通过" in p for p in problems) and calls == ["mutate"]
+    assert any("可白盒测试在候选上全部通过" in p for p in problems) and calls == ["mutate", "mutate"]  # 锚点、变异
     assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}) == [] and ts["gate_post"]["ok"]
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
 
@@ -812,7 +867,14 @@ def test_execution_jev_gets_the_objective_fingerprint(tmp_path, monkeypatch):
     ts = locked(make_ts())
     ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
     ts["gate_post"] = {"whitebox_exit": 0, "mutation_counts": {"caught": 2}}
+    plans = tmp_path / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n\n## Goal\n补完桌面端文档的第 3 节，\n不改代码。\n\n"
+                                         "## Scope\n- docs/a.md\n", encoding="utf-8")
+    (plans / "t001-doc.v1.json").write_text(json.dumps({"title": "改桌面端文档"}), encoding="utf-8")
     fields = kh.run_jev(hub, ts, "6j-jev")
+    # 判“超出范围”看完整的目标：合同标题现在是站主登记的短名（第 12 轮）
+    assert seen["state"]["contract_goal"] == "补完桌面端文档的第 3 节，\n不改代码。"
     observed = seen["state"]["observations"]
     assert observed["changed_files"] == ["docs/a.md"] and observed["review_hints"]["assertion_lines_removed"] == 3
     assert observed["mutation_counts"] == {"caught": 2}
@@ -1619,8 +1681,12 @@ def test_owner_takeover_closes_the_task(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "stdout", io.StringIO())
     hub = kh.Hub(repo)
     hub.ensure()
+    roots = tmp_path / "worktrees"
+    roots.mkdir()
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
     state = hub.load_state()
     state["tasks"]["T001"] = kh.new_task_state("T001", "doc", "改文档", head, True)
+    gate = kh.ensure_worktree(hub, state["tasks"]["T001"], "gate", head)
     hub.save_state(state)
     note = tmp_path / "close.md"
     parser = kh.build_parser()
@@ -1645,6 +1711,7 @@ def test_owner_takeover_closes_the_task(tmp_path, monkeypatch):
     assert close("HEAD") == kh.EXIT_OK
     ts = hub.load_state()["tasks"]["T001"]
     assert ts["status"] == "done" and ts["closed_by_owner"]["ref"] == head
+    assert not gate.exists() and ts["workspaces"]["gate"]["removed_at"]  # 结项清掉阶段 worktree（第 12 轮）
     assert "V01 75 passed" in (repo / ts["closed_by_owner"]["note"]).read_text(encoding="utf-8")
     assert "站主接手结项：%s" % head[:12] in kh.stage_status_table(hub, ts)
     assert "已结项" in kh.guard(ts, meta("开工", "exec-step", "T001-5-exec"))
@@ -1652,6 +1719,87 @@ def test_owner_takeover_closes_the_task(tmp_path, monkeypatch):
         close("HEAD")  # 不能结项两次
     events = [json.loads(line)["event"] for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
     assert "task.closed_by_owner" in events
+
+
+def test_finished_tasks_remove_their_stage_worktrees(tmp_path, monkeypatch):
+    # T001–T003 结项之后留下 10 个阶段 worktree，T001、T002 的 attempt-001 一直停在 NEEDS_REVIEW；
+    # 证据已经存进信箱，结项时收尾（第 12 轮）
+    import io
+    repo, head = git_repo(tmp_path)
+    roots = tmp_path / "worktrees"
+    roots.mkdir()
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(kh, "finalize", lambda hub, ts: (True, "integrate ok"))
+    pd_calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        pd_calls.append(list(args))
+        if args[0] == "mark":
+            (Path(args[1]) / "state.json").write_text(json.dumps({"state": args[2]}), encoding="utf-8")
+        elif args[0] == "cleanup":
+            Path(json.loads((Path(args[1]) / "meta.json").read_text(encoding="utf-8"))["worktree"]).rmdir()
+        return 0, "ok"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    runs = repo / ".agent" / "runs" / "t001-doc"
+    attempts = {}
+    for name, attempt_state in (("attempt-001", "NEEDS_REVIEW"), ("attempt-002", "INTEGRATED"),
+                                ("attempt-003", "RUNNING")):
+        run_dir = attempts[name] = runs / name
+        run_dir.mkdir(parents=True)
+        (run_dir / "state.json").write_text(json.dumps({"state": attempt_state}), encoding="utf-8")
+        (run_dir / "meta.json").write_text(json.dumps({"worktree": str(tmp_path / ("wt-" + name))}), encoding="utf-8")
+    (tmp_path / "wt-attempt-001").mkdir()  # attempt-002 的 worktree 已由 integrate 删掉
+    state = hub.load_state()
+    ts = state["tasks"]["T001"] = kh.new_task_state("T001", "doc", "改文档", head, True)
+    ts["exec"] = {"run_dir": str(attempts["attempt-002"])}
+    gate = kh.ensure_worktree(hub, ts, "gate", head)
+    post = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    (post / "node_modules").mkdir()
+    (post / "node_modules" / "x.js").write_text("// 战后门禁装的依赖，未跟踪\n", encoding="utf-8")
+    stray = roots / "not-a-worktree"
+    stray.mkdir()
+    ts["workspaces"]["base"] = {"path": str(stray), "commit": head}
+    kh.Engine(hub, FakeRunner([])).handle_pass(state, meta("通过", "exec-step", "T001-5-exec"))
+    assert ts["status"] == "done" and not gate.exists() and not post.exists() and stray.is_dir()
+    assert ts["workspaces"]["gate"]["removed_at"] and "removed_at" not in ts["workspaces"]["base"]
+    letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    assert "已 integrate" in letter and "结项收尾没做完" in letter and "not-a-worktree" in letter
+    assert "attempt-003 还处在 RUNNING" in letter
+    removed = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert sorted(e["kind"] for e in removed if e["event"] == "workspace.removed") == ["gate", "post-attempt-001"]
+    # 没有结论的 attempt 记成 ABANDONED 再清 worktree；已合入的、还在跑的不动
+    first = str(attempts["attempt-001"])
+    assert [c[:3] for c in pd_calls] == [["mark", first, "ABANDONED"], ["cleanup", first]]
+    assert "T001 已由 hub 结项（attempt-002 通过并合入）" in pd_calls[0][pd_calls[0].index("--reason") + 1]
+    assert kh.pd.get_state(attempts["attempt-002"]) == "INTEGRATED" and not (tmp_path / "wt-attempt-001").exists()
+    parser = kh.build_parser()
+
+    def cleanup(task):
+        args = parser.parse_args(["--repo", str(repo), "task", "cleanup", task])
+        return args.func(args)
+
+    pd_calls.clear()
+    assert cleanup("T001") == kh.EXIT_FAIL and pd_calls == []  # 删不掉的如实报告；收尾过的不再动
+    (attempts["attempt-003"] / "state.json").write_text(json.dumps({"state": "CANCELLED"}), encoding="utf-8")
+    assert cleanup("T001") == kh.EXIT_FAIL  # 还剩不是 worktree 的目录
+    stray.rmdir()  # 目录已经不在：记成清理过
+    assert cleanup("T001") == kh.EXIT_OK and hub.load_state()["tasks"]["T001"]["workspaces"]["base"]["removed_at"]
+    state = hub.load_state()
+    state["tasks"]["T002"] = kh.new_task_state("T002", "web", "前端", head, True)
+    hub.save_state(state)
+    with pytest.raises(kh.HubError):
+        cleanup("T002")  # 进行中的主任务还要用这些 worktree
+    # 调度器拒绝标记：如实报告，也不去删它的 worktree
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: pd_calls.append(list(args)) or (1, "ERROR 拒绝"))
+    (attempts["attempt-001"] / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    (tmp_path / "wt-attempt-001").mkdir()
+    pd_calls.clear()
+    assert kh.retire_attempts(hub, ts, "收尾") == ["attempt-001 没能记成 ABANDONED：ERROR 拒绝"]
+    assert [c[0] for c in pd_calls] == ["mark"]
 
 
 def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):

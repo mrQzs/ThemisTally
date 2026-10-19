@@ -669,6 +669,58 @@ def ensure_worktree(hub: Hub, ts: Dict[str, Any], kind: str, commit: str) -> Pat
     return path
 
 
+def remove_workspaces(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """结项后清掉主任务的阶段 worktree（第 12 轮：T001–T003 结项后留下 10 个）。证据此前已经存进信箱
+    （白盒测试文件、日志、变异记录）；删不掉的如实返回，不影响结项。"""
+    problems: List[str] = []
+    for kind, record in sorted(ts["workspaces"].items()):
+        path = record.get("path")
+        if not path or record.get("removed_at"):
+            continue
+        if Path(path).exists():
+            proc = subprocess.run(["git", "worktree", "remove", "--force", path], cwd=str(hub.repo),
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if proc.returncode != 0:
+                problems.append("%s：%s" % (path, proc.stderr.decode("utf-8", "replace").strip()[:200]))
+                continue
+        record["removed_at"] = utc_now()
+        hub.append_event("workspace.removed", task=ts["task"], kind=kind, path=path)
+    return problems
+
+
+#: 还在跑或已领取的 attempt：结项收尾不动它们
+ATTEMPT_IN_FLIGHT = ("PREPARING", "PREPARED", "RUNNING", "COLLECTING")
+
+
+def retire_attempts(hub: Hub, ts: Dict[str, Any], reason: str) -> List[str]:
+    """结项后收尾同一合同族的 attempt（第 12 轮）：没有结论的记成 ABANDONED，再用 cleanup 删掉 worktree。
+    hub 换下一个 attempt 时（内核检查没过、上游返工出了新版本合同），上一个停在 NEEDS_REVIEW，worktree 一直
+    留着（T001、T002 的 attempt-001）。cleanup 发现会丢内容就拒绝，原样报告。"""
+    problems: List[str] = []
+    runs = hub.repo / ".agent" / "runs" / ts["contract_task"]
+    for run_dir in sorted(runs.glob("attempt-*")) if runs.is_dir() else []:
+        state = pd.get_state(run_dir)
+        if state in ATTEMPT_IN_FLIGHT:
+            problems.append("%s 还处在 %s，没有动" % (run_dir.name, state))
+            continue
+        if state == "NEEDS_REVIEW":
+            code, out = run_pd(hub, ["mark", str(run_dir), "ABANDONED", "--reason", reason])
+            if code != 0:
+                problems.append("%s 没能记成 ABANDONED：%s" % (run_dir.name, tail(out, 3)))
+                continue
+        worktree = json.loads(read_text(run_dir / "meta.json") or "{}").get("worktree")
+        if worktree and Path(worktree).exists():
+            code, out = run_pd(hub, ["cleanup", str(run_dir)])
+            if code != 0:
+                problems.append("%s 的 worktree 没删掉：%s" % (run_dir.name, tail(out, 3)))
+    return problems
+
+
+def tidy_finished(hub: Hub, ts: Dict[str, Any], reason: str) -> List[str]:
+    """主任务结项之后的收尾：阶段 worktree 与 attempt 的 worktree，没有结论的 attempt 记成 ABANDONED。"""
+    return remove_workspaces(hub, ts) + retire_attempts(hub, ts, reason)
+
+
 def workspace_status(path: Path) -> List[Tuple[str, str]]:
     out = git(["status", "--porcelain=v1", "--untracked-files=all", "-z"], path)
     entries: List[Tuple[str, str]] = []
@@ -1011,7 +1063,11 @@ def contract_digest(hub: Hub, ts: Dict[str, Any]) -> str:
 def revalidate_contract(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """derive-json 后 validate；返回问题清单（空表示通过），并更新合同的哈希与状态。"""
     key = ts["contract"]["key"]
-    code, out = run_pd(hub, ["derive-json", key, "--force"])
+    args = ["derive-json", key, "--force"]
+    if ts.get("title"):
+        # 合同标题是分支提交的主题行：缺省取 Goal 第一行、截到 120 字，T003 的提交主题断在半句话上（第 12 轮）
+        args += ["--title", ts["title"]]
+    code, out = run_pd(hub, args)
     problems: List[str] = []
     if code != 0:
         problems.append("derive-json 失败：\n%s" % tail(out))
@@ -1268,7 +1324,12 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
         return ["没有新增 %s" % expected]
     stage_dir = hub.task_dir("%s-6-gate-post" % ts["task"])
     (stage_dir / "evidence").mkdir(parents=True, exist_ok=True)
-    whitebox_log = stage_dir / "evidence" / ("whitebox-%s.log" % utc_compact())
+    stamp = utc_compact()
+    # 白盒测试是这次 attempt 的证据，不并入仓库：存一份在信箱，结项清理 worktree 之后还能复核（第 12 轮）
+    whitebox_copy = stage_dir / "evidence" / ("whitebox-%s.py" % stamp)
+    shutil.copyfile(workspace / expected, whitebox_copy)
+    ts["gate_post"]["whitebox_file"] = whitebox_copy.relative_to(hub.repo).as_posix()
+    whitebox_log = stage_dir / "evidence" / ("whitebox-%s.log" % stamp)
     with open(whitebox_log, "xb") as log:  # Job Object 监督：超时连同子进程一起清掉；输出进文件，不整份读进内存
         result = pd.run_supervised(KERNEL_PYTEST + [expected, "-q", "-rfE"], workspace, kernel_pytest_env(), log, log,
                                    1800)
@@ -1309,6 +1370,16 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
         return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）"]
     spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    ts["gate_post"]["mutate_spec"] = str(spec_path)
+    # 先只核对锚点（不跑命令）：T003 的 M29 把全角括号写成了半角，内核只回了一句“M29 没生效”，
+    # 门禁端手里没有原文，30 条全部重写；跑完整个 mutate 才发现也白等了几分钟（第 12 轮）
+    code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--check-anchors"])
+    if code != 0:
+        listing = [line for line in out.splitlines() if line.strip() and not line.startswith("OK ")]
+        return ["变异清单没有通过锚点核对，变异没有跑：每条 old 要在候选文件里逐字出现 count 次（缺省 1 次；"
+                "CRLF 先按 LF 比对），全角、半角标点与缩进都要照抄。清单存档在 %s；mutate --check-anchors 的结果"
+                "（不符的条目下列出文件里最相近的行）：\n%s" % (spec_path.relative_to(hub.repo).as_posix(),
+                                                    "\n".join(listing[-40:]))]
     # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
     out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
     code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
@@ -1317,8 +1388,7 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
         record = json.loads(read_text(out_dir / "mutations.json") or "{}")
     except ValueError:
         record = {}
-    ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_spec=str(spec_path),
-                           mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
+    ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
                            mutation_counts=record.get("counts"),
                            equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
                                        if isinstance(m, dict) and m.get("equivalent")])
@@ -1590,9 +1660,11 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
     subject_stage = "2-contract" if suffix == "3j-jev" else "5-exec"
     subject = ts["stages"][subject_stage].get("fields") or {}
     summary = {k: subject.get(k, "") for k in ("摘要", "验证", "偏离", "需协调人决定")}
-    contract = {}
+    contract, goal = {}, ""
     try:
-        contract = json.loads(read_text(contract_paths(hub, ts)[1]))
+        md_path, json_path = contract_paths(hub, ts)
+        contract = json.loads(read_text(json_path))
+        goal = (pd._md_section(read_text(md_path), "Goal") or "").strip()[:4000]
     except (ValueError, KeyError):
         pass
     if suffix == "3j-jev":
@@ -1607,7 +1679,8 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
         scope = json.loads(read_text(run_dir / "scope.json") or "{}")
         observed = json.loads(read_text(run_dir / "observations.json") or "{}")
         # 客观指纹与执行端的自述放在一起：JEV 才能看出“自述完成而无证据”“弱化测试”（docs/实际问题/决策端.md）
-        state = {"contract_goal": contract.get("title"), "contract_scope": contract.get("scope"),
+        # 目标取合同的 Goal 一节：标题现在是站主登记的短名（第 12 轮），判“超出范围”要看完整的目标
+        state = {"contract_goal": goal or contract.get("title"), "contract_scope": contract.get("scope"),
                  "definition_of_done": contract.get("definition_of_done"),
                  "executor_report": {"text": json.dumps(summary, ensure_ascii=False),
                                      "contract_conflicts": len(report.get("contract_conflicts") or []),
@@ -1889,6 +1962,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           "- 先逐条复核这些阻塞项是否已经解决，在报告里逐条写结论。",
                           "- 新的打回理由只能来自本轮新改动的内容，或者会导致错误结果的严重问题；"
                           "上一轮没提的建议类意见不能在这一轮升级成阻塞项。"]
+            if stage == "7-audit-post" and ts["gate_post"].get("whitebox_file"):
+                parts += ["", "- 白盒测试文件（内核存档，就是跑出下面结果的那一份）：%s"
+                          % (hub.repo / ts["gate_post"]["whitebox_file"])]
             if stage == "7-audit-post" and ts["gate_post"].get("mutate_record"):
                 parts += ["", "- 内核的变异记录（逐条结果）：%s" % (hub.repo / ts["gate_post"]["mutate_record"]),
                           "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
@@ -1929,6 +2005,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           target, "战前的基准测试应当在当前基线上失败（目标功能还没实现）" if stage == "3-gate-pre"
                           else "战后的白盒测试在候选上应当全部通过；候选不满足合同写明的行为时让它红着，"
                                "红的用例逐条写进 candidate_defects。不许用 xfail、skip 标掉")]
+            if stage == "6-gate-post" and ts["gate_post"].get("mutate_spec"):
+                parts.append("- 你上一次交的变异清单，内核存了档（可读）：%s。返工时在它上面改，不必整份重写。"
+                             % ts["gate_post"]["mutate_spec"])
     parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
               "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     if role in ROLE_EXTRA_OUTPUT:
@@ -2301,12 +2380,15 @@ class Engine:
         ts = state["tasks"][main]
         ok, detail = finalize(self.hub, ts)
         ts["status"] = "done" if ok else ts["status"]
+        leftover = tidy_finished(self.hub, ts, "%s 已由 hub 结项（%s 通过并合入）：这一轮没有复审结论，"
+                                 "由后面的 attempt 取代" % (main, Path(ts["exec"]["run_dir"]).name)) if ok else []
         self.hub.save_state(state)
         self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": main, "in-reply-to": "none",
                           "type": "核验" if ok else "阻塞"},
                          {"摘要": "%s 结项%s" % (main, "：verdict PASS，已 integrate" if ok else "失败"),
                           "提交": detail.splitlines()[-1][:200] if detail else "无", "验证": "内核 verdict 与 integrate",
-                          "偏离": "无" if ok else detail[:1500], "需协调人决定": "无" if ok else "请站主处理",
+                          "偏离": (("结项收尾没做完：%s" % "；".join(leftover))[:1500] if leftover else "无")
+                          if ok else detail[:1500], "需协调人决定": "无" if ok else "请站主处理",
                           "证据": ".agent/reviews/%s/" % ts["contract_task"]})
 
 
@@ -2407,8 +2489,31 @@ def cmd_task_close(args: argparse.Namespace) -> int:
             ts["closed_by_owner"] = {"ref": sha, "note": path.relative_to(hub.repo).as_posix(), "at": utc_now()}
             hub.save_state(state)
             hub.append_event("task.closed_by_owner", task=args.task, ref=sha)
+            leftover = tidy_finished(hub, ts, "%s 已由站主接手结项（%s）：这一轮没有复审结论" % (args.task, sha[:12]))
+            hub.save_state(state)
     print("%s 已由站主接手结项（%s）" % (args.task, sha[:12]))
+    for item in leftover:
+        print("结项收尾没做完：%s" % item)
     return EXIT_OK
+
+
+def cmd_task_cleanup(args: argparse.Namespace) -> int:
+    """已结项的主任务：补做结项收尾（结项时没做完的，或第 12 轮之前结项的任务）。"""
+    hub = Hub(find_repo(args.repo))
+    with DirLock(hub.root / ".runner", wait_seconds=1.0):
+        with DirLock(hub.root / ".lock"):
+            state = hub.load_state()
+            ts = state["tasks"].get(args.task)
+            if ts is None:
+                raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+            if ts.get("status") != "done":
+                raise HubError("主任务 %s 还没结项：进行中的阶段要用这些 worktree" % args.task, EXIT_USAGE)
+            leftover = tidy_finished(hub, ts, "%s 已结项：这一轮没有复审结论，由后面的 attempt 取代" % args.task)
+            hub.save_state(state)
+    for item in leftover:
+        print("没做完：%s" % item)
+    print("%s 的结项收尾：%s" % (args.task, "已完成" if not leftover else "%d 处没做完" % len(leftover)))
+    return EXIT_OK if not leftover else EXIT_FAIL
 
 
 def cmd_send(args: argparse.Namespace) -> int:
@@ -2546,6 +2651,10 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--ref", required=True, help="接手的工作落地的提交（要在当前分支上）")
     close.add_argument("--file", required=True, help="站主怎样接手、怎样验收（Markdown）")
     close.set_defaults(func=cmd_task_close)
+    cleanup = task.add_parser("cleanup", help="已结项主任务的收尾：删掉阶段与 attempt 的 worktree，"
+                                              "没有结论的 attempt 记成 ABANDONED")
+    cleanup.add_argument("task")
+    cleanup.set_defaults(func=cmd_task_cleanup)
     send = sub.add_parser("send", help="站主给协调人发信（回复、停止）")
     send.add_argument("task")
     send.add_argument("--type", choices=("回复", "停止"), required=True)

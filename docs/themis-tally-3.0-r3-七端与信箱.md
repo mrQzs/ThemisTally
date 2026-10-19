@@ -277,7 +277,7 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 **战后（`-6-gate-post`）：**
 1. 内核的 `check --fresh` 先跑；不过就短路。
 2. 门禁端在候选 worktree 里只增不改：追加白盒测试与变异清单（`mutate --spec` 的格式）。
-3. 内核在候选上跑白盒测试（`pytest -q -rfE`，`run_supervised`：Job Object 监督，输出进 `evidence/whitebox-*.log`）。白盒测试全绿时再跑 `mutate --tree`。
+3. 内核在候选上跑白盒测试（`pytest -q -rfE`，`run_supervised`：Job Object 监督，输出进 `evidence/whitebox-*.log`，测试文件同名存一份 `.py`）。白盒测试全绿时，先跑 `mutate --check-anchors`，锚点对不上就整份退回，附上最相近的行（第 12 轮）；锚点都对上，再跑 `mutate --tree`。
 4. **变异的判定读 `mutations.json`，不看退出码**：`mutate --tree` 在变异漏网时退出码也是 0（`pi_dispatch.py` 的 `cmd_mutate`）。意外漏网、没生效（skipped）或出错（error）都不通过，至少要抓住一条。门禁端声明 `equivalent` 的漏网算预期内，终审逐条复核。
 5. **白盒测试的结果里有 xfailed、xpassed 或 skipped 就拒收**（第 9 轮）。内核读结果行，不看测试源码怎么写。
 6. **候选缺陷**（第 9 轮）：
@@ -285,6 +285,7 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
    - 内核只认 short test summary 里的 `FAILED` 行，核对红的正好是这几条，而且没有出错（`ERROR`）的用例；核对通过就记下缺陷，不跑变异。
    - 之后照常走 JEV 与终审。终审逐条裁定：成立的退回执行端，不成立的退回战后门禁；有缺陷时不能判通过。
 7. 其余失败由门禁端返工（§5 的短路）。
+8. 结项（hub 结项或 `task close`）之后，内核删掉主任务的阶段 worktree；没有结论的 attempt 记成 ABANDONED，删掉它们的 worktree（第 12 轮）。白盒测试是这次 attempt 的证据，存在信箱里，不并入仓库。
 
 **执行端改了基准测试**：调度器的范围门禁 G2 会直接拦下（`forbidden_paths`），内核的检查也会失败。用户的冲突解法 3 要求的 `git diff <基准测试提交> -- <测试路径>` 也由内核在战后先跑一遍。
 
@@ -499,6 +500,33 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
   - 一审模板：发现这两类断言，退回门禁端。
   - T002 的 D02 由站主在结项时退役；G4 留到有人改 `.gitignore` 时再退役。
 - **测试**：88 条。
+
+### 第 12 轮：结项的收尾与返工的信息量（2026-10-19，T003 结项后）
+
+T003（随包字体）一次走完：终审通过，合入 `267dadf`。站主复验：分支末端上 T003 门禁 40 条、T002 门禁回归 71 条全绿。跑下来暴露四个问题：
+
+- **提交主题断在半句话上**：
+  - 合同 JSON 的标题缺省取 Goal 第一行、截到 120 字，主题行成了“……让 `dist` 里恰有与”。
+  - 改法：内核跑 `derive-json` 时用 `--title` 传站主登记的主任务名。
+  - 执行 JEV 原来拿标题当 `contract_goal`，判“超出范围”就靠它；改成读合同的 Goal 一节。
+- **变异没生效，门禁端只能全部重写**：
+  - M29 的 old 把 README 里的全角括号写成了半角，找不到。内核只回“M29 没生效”，门禁端手里没有上一版清单，30 条全部重写。
+  - 改法：
+    - 跑变异之前，先用 `mutate --check-anchors` 核对锚点（只读文件，不跑命令）。对不上就整份退回，附上不符的条目，以及文件里最相近的行。
+    - 清单的存档路径写进门禁端的下一回合输入，返工时在上面改。
+    - 模板：old 从候选文件里逐字复制。协调人写 brief 时，把“最相近的行”照抄过去。
+- **白盒测试没留档**：
+  - 白盒测试只在战后的 worktree 里，终审读的也是那里。
+  - 改法：内核跑白盒测试时，把文件存进信箱的证据目录（`whitebox-<时间>.py`，与日志同名），终审输入里列出它的路径。
+  - 协调人模板写明：白盒测试是这次 attempt 的证据，不并入仓库。T003 的协调人为此问过站主。
+- **结项之后不收尾**：
+  - T001–T003 结项之后，留下 10 个阶段 worktree。
+  - hub 换下一个 attempt 时（内核检查没过，或上游返工出了新版本合同），上一个停在 NEEDS_REVIEW，它的 worktree 也一直留着：T001、T002 的 attempt-001。
+  - 改法：
+    - hub 结项与 `task close` 之后，删掉主任务的阶段 worktree。
+    - 同一合同族里没有结论的 attempt，用 `mark ABANDONED` 写明原因，再用调度器的 `cleanup` 删 worktree（会丢内容时 `cleanup` 拒绝）。还在跑的 attempt 不动。
+    - 没做完的写进给站主的信，不影响结项。已结项的任务用 `task cleanup T` 补做。
+- **测试与变异**：测试 91 条；本轮新代码的变异 23 个全部抓住（第一遍漏了“标记失败照样删 worktree”，补了用例）。
 
 ## 11. 已知缺口与下一步
 
