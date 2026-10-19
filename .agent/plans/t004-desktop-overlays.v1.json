@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "task_id": "t004-desktop-overlays",
+  "plan_version": 1,
+  "title": "桌面端前端浮层与焦点（第三片）",
+  "repository": "ThemisTally",
+  "base_sha": "13a69af025ec8cc06d4903bd690581f4e434a5c1",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/components/StatusTag.tsx",
+      "desktop/web/src/components/StatusTag.css",
+      "desktop/web/src/domain/attemptStates.ts",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/README.md"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/components/IconButton.tsx",
+      "desktop/web/src/components/IconButton.css",
+      "desktop/web/src/components/Tooltip.tsx",
+      "desktop/web/src/components/Tooltip.css",
+      "desktop/web/src/components/Menu.tsx",
+      "desktop/web/src/components/Menu.css",
+      "desktop/web/src/components/Dialog.tsx",
+      "desktop/web/src/components/Dialog.css",
+      "desktop/web/src/components/Drawer.tsx",
+      "desktop/web/src/components/Drawer.css",
+      "desktop/web/src/components/Toast.tsx",
+      "desktop/web/src/components/Toast.css",
+      "desktop/web/src/components/overlay/*.ts",
+      "desktop/web/src/components/overlay/*.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "tests/test_desktop_attempt_states.py"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/fonts/**",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/main.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "desktop/web/src/components/Button.*",
+      "desktop/web/src/components/Tag.*",
+      "desktop/web/src/components/Card.*",
+      "desktop/web/src/components/Banner.*",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "tests/test_attempt_states.py",
+      "tests/conftest.py",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t004_*.py",
+      ".gitignore",
+      ".gitattributes",
+      "scripts/**",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t004_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t002_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t003_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "IconButton 的 `label` 必填，渲染成 `aria-label`，图标 `aria-hidden`；工具提示悬停或聚焦 400ms 后出现（399ms 时没有），`role=tooltip`，触发元素的 `aria-describedby` 指向它；移开、失焦、Esc 都让它消失",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "只用图标的按钮对读屏与键盘都可用（UI 文档 7.2、7.23）"
+    },
+    {
+      "id": "D02",
+      "text": "菜单由按钮触发，`aria-haspopup`、`aria-expanded` 正确；打开后焦点在第一项；上下键移动并循环；Enter 选中、关闭、焦点回按钮；Esc 关闭、焦点回按钮、不选中",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "对话框 `role=dialog`、`aria-modal=true`、有可读的标题；打开后焦点在框内；末元素 Tab 回首元素，首元素 Shift+Tab 到末元素；Esc 或关闭钮关闭后焦点回到触发按钮；遮罩挂在 body 下、固定定位铺满窗口、层级 `--tt-z-dialog`；宽 560",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "W6"
+    },
+    {
+      "id": "D04",
+      "text": "抽屉 `aria-modal=false`、没有遮罩、不困焦点；宽 520、`max-width: 60%`、`bottom: var(--tt-tabbar-height)`、层级 `--tt-z-drawer`；打开时焦点进入、关闭后回到触发元素",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "轻提示 `role=status`；5000ms 后关闭（4999ms 时还在）；悬停期间不计时，移开后接着走剩余时间；关闭钮立即关闭；右下、距底 `calc(var(--tt-tabbar-height) + var(--tt-space-4))`、层级 `--tt-z-toast`",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "`tests/test_desktop_attempt_states.py` 通过；两边任一边增删一个状态它就失败",
+      "evidence": [
+        "V04",
+        "V01"
+      ],
+      "intent": "W5"
+    },
+    {
+      "id": "D07",
+      "text": "只有 `ACCEPTED_WITH_EXCEPTION` 带 warning 小圆点（`aria-hidden`，填色与描边取令牌）；`INFRA_FAILURE` 的图标是 `ServerCrashIcon`，路径与令牌板相同，`ServerIcon` 不再存在",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "陈列页页尾有 5 节演示，能手动打开对话框、抽屉、菜单，弹出轻提示；页面上只用图标的按钮都有名称",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "T002、T003 门禁全部通过（含 T003 的三条过渡断言）；`npm run check:contract` 退出 0",
+      "evidence": [
+        "V02",
+        "V03",
+        "V01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "只改允许的文件；`package.json`、锁文件、`tokens.css`、`base.css` 不变；不新增依赖",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "既有测试不改；新增测试不用 skip、only、todo",
+      "evidence": [
+        "review",
+        "V02"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
