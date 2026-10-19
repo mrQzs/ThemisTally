@@ -1232,14 +1232,38 @@ def dod_coverage_problems(hub: Hub, ts: Dict[str, Any], report: str) -> List[str
     return []
 
 
-PLAN_VERSION_RE = re.compile(r"(?m)^(-[ \t]*plan_version:[ \t]*`?)(\d+)")
+#: 合同 Identity 里由内核决定的两项：版本号与基线
+IDENTITY_FIELD_RES = {"plan_version": re.compile(r"(?m)^(-[ \t]*plan_version:[ \t]*`?)(\d+)"),
+                      "base_sha": re.compile(r"(?m)^(-[ \t]*base_sha:[ \t]*`?)([0-9a-f]{7,40})")}
+
+
+def next_contract_version(ts: Dict[str, Any]) -> Tuple[int, bool]:
+    """合同端下一份合同的版本号，以及是不是原号重写（第 17 轮）。“只增不改”只管派遣过的版本（AGENTS.md）；
+    T004 每交一次没过核验就占掉一个版本号，要求的 plan_version 跟着涨，合同端三次都追不上。
+    没派遣、也没通过核验的草稿原号重写；通过了的（例如一审退回）照旧出新版本。"""
+    current = ts["contract"]
+    if current.get("version") and not current.get("dispatched") and not current.get("validated"):
+        return int(current["version"]), True
+    return int(current.get("version", 0)) + 1, False
+
+
+def normalize_identity(text: str, values: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
+    """把 Identity 里的版本号与基线写成内核决定的值；返回（改正后的全文，改了的字段 → 合同端原来写的）。
+    T004 的合同端返工时照抄了上一版的 plan_version，base_sha 写成了当时的 HEAD（第 16、17 轮）。"""
+    changed: Dict[str, str] = {}
+    for field, pattern in IDENTITY_FIELD_RES.items():
+        match = pattern.search(text)
+        if match and match.group(2) != values[field]:
+            changed[field] = match.group(2)
+            text = pattern.sub(r"\g<1>%s" % values[field], text, count=1)
+    return text, changed
 
 
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
     text = output.get("contract_md")
     if not isinstance(text, str) or not text.strip():
         return ["输出里没有 contract_md（合同 Markdown 全文）"]
-    version = int(ts["contract"].get("version", 0)) + 1
+    version, redraft = next_contract_version(ts)
     header = "# TASK: %s" % ts["contract_task"]
     if text.lstrip().splitlines()[0].strip() != header:
         return ["合同第一行必须是“%s”" % header]
@@ -1247,13 +1271,18 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     path = hub.repo / ".agent" / "plans" / (key + ".md")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        return ["%s 已存在，合同版本只增不改" % path.name]
-    # 版本号由内核分配，和 base_sha 一样由内核写准：T004 的合同端返工时照抄了上一版的 plan_version 1，
-    # 内核存成 v2，整份因为版本号对不上被拒（第 16 轮）
-    text, fixed = PLAN_VERSION_RE.subn(r"\g<1>%d" % version, text, count=1)
-    if fixed and PLAN_VERSION_RE.search(output["contract_md"]).group(2) != str(version):
-        hub.append_event("contract.version_normalized", task=ts["task"], key=key,
-                         written=PLAN_VERSION_RE.search(output["contract_md"]).group(2))
+        if not redraft:
+            return ["%s 已存在，合同版本只增不改" % path.name]
+        evidence = hub.task_dir("%s-2-contract" % ts["task"]) / "evidence"  # 没过核验的旧稿留档
+        evidence.mkdir(parents=True, exist_ok=True)
+        stamp = utc_compact()
+        for old in (path, path.with_suffix(".json")):
+            if old.exists():
+                shutil.copyfile(old, evidence / ("%s.rejected-%s%s" % (key, stamp, old.suffix)))
+        hub.append_event("contract.redrafted", task=ts["task"], key=key)
+    text, changed = normalize_identity(text, {"plan_version": str(version), "base_sha": ts["base_head"]})
+    if changed:
+        hub.append_event("contract.identity_normalized", task=ts["task"], key=key, written=changed)
     path.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     ts["contract"] = {"version": version, "key": key, "md": str(path.relative_to(hub.repo).as_posix()),
                       "json": str(path.with_suffix(".json").relative_to(hub.repo).as_posix())}
@@ -2163,8 +2192,10 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
         if role == "contract":
             used = budget_usage(hub, ts)
             parts += ["", "## 合同要求（内核会逐项核对）", "",
-                      "- 第一行：`# TASK: %s`；Identity 的 plan_version 写 %d；base_sha 先写 %s（门禁提交后内核会改）。" % (
-                          ts["contract_task"], int(ts["contract"].get("version", 0)) + 1, ts["base_head"]),
+                      "- 第一行：`# TASK: %s`；Identity 的 plan_version 写 %d、base_sha 写 %s。这两项由内核决定，"
+                      "写错了内核会改正；门禁提交后内核再把 base_sha 改成基准测试的提交。版本号与当前 HEAD 不用你操心，"
+                      "validate 的“base_sha 不是当前 HEAD”只是提示。" % (
+                          ts["contract_task"], next_contract_version(ts)[0], ts["base_head"]),
                       "- executor 行照抄：`%s`；integration_actions 写 `local_branch, merge`。" % CONTRACT_EXECUTOR_LINE,
                       "- Scope 的 forbidden_paths 包含 `%s`（门禁测试，执行端不能碰）。" % gate_pattern(ts),
                       "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换）："

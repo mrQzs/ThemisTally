@@ -1175,18 +1175,35 @@ def test_contract_requirements(tmp_path):
     assert any("基线应失败" in p for p in kh.contract_requirements(hub, ts))
 
 
-def test_kernel_writes_the_contract_version_it_assigns(tmp_path, monkeypatch):
-    # 第 16 轮：T004 的合同端返工时照抄了上一版的 plan_version 1，内核存成 v2，整份因为版本号对不上被拒
+def test_kernel_writes_the_contract_version_and_base_it_assigns(tmp_path, monkeypatch):
+    # 第 16、17 轮：T004 的合同端返工时照抄了上一版的 plan_version，base_sha 写成当时的 HEAD；
+    # 内核每交一次没过核验就占掉一个版本号，要求的版本号跟着涨，三次都追不上
     _repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
-    md = "# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: %s\n" % head
+    ts["contract"]["validated"] = True  # v1 通过过核验（例如一审退回之后重写）：出新版本
+    md = "# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: %s\n" % ("b" * 40)
     kh.accept_contract(hub, ts, {"contract_md": md})
-    assert ts["contract"]["key"] == "t001-doc.v2"
-    assert "\n- plan_version: 2\n" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
-    kh.accept_contract(hub, ts, {"contract_md": md.replace("plan_version: 1", "plan_version: `3`")})
-    assert "\n- plan_version: `3`\n" in (plans / "t001-doc.v3.md").read_text(encoding="utf-8")  # 写对了照原样
+    first = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert ts["contract"]["key"] == "t001-doc.v2" and ts["contract"]["validated"] is False  # 假调度器没写 JSON
+    assert "\n- plan_version: 2\n" in first and "\n- base_sha: %s\n" % head in first
+    # v2 没过核验、也没派遣：原号重写，旧稿留档；写对了照原样
+    right = md.replace("plan_version: 1", "plan_version: `2`").replace("b" * 40, head)
+    kh.accept_contract(hub, ts, {"contract_md": right})
+    assert ts["contract"]["key"] == "t001-doc.v2" and not (plans / "t001-doc.v3.md").exists()
+    assert "\n- plan_version: `2`\n" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    archived = list((hub.task_dir("T001-2-contract") / "evidence").glob("t001-doc.v2.rejected-*.md"))
+    assert len(archived) == 1 and archived[0].read_text(encoding="utf-8") == first
+    # 派遣过的版本只增不改
+    ts["contract"]["dispatched"] = True
+    kh.accept_contract(hub, ts, {"contract_md": md})
+    assert ts["contract"]["key"] == "t001-doc.v3"
     events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
-    assert [(e["key"], e["written"]) for e in events if e["event"] == "contract.version_normalized"] == [
-        ("t001-doc.v2", "1")]
+    assert [(e["key"], e["written"]) for e in events if e["event"] == "contract.identity_normalized"] == [
+        ("t001-doc.v2", {"plan_version": "1", "base_sha": "b" * 40}),
+        ("t001-doc.v3", {"plan_version": "1", "base_sha": "b" * 40})]
+    assert [e["key"] for e in events if e["event"] == "contract.redrafted"] == ["t001-doc.v2"]
+    ts["contract"] = {"key": "t001-doc.v3", "version": 3}
+    prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], _repo)
+    assert "plan_version 写 3、base_sha 写 %s" % head in prompt  # 没过核验的 v3 原号重写
 
 
 def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypatch):
