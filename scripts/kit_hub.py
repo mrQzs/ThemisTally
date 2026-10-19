@@ -553,10 +553,12 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     status = ts["stages"][suffix]["status"]
     if status == "assigned":
         return "阶段 %s 正在进行，不能返工" % suffix
-    if status == "failed":
-        return None  # 内核核验没过
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
+    if suffix == "5-exec" and ts["exec"].get("attempts_left") == 0:
+        return "合同预算的 attempt 已经用完，执行端派不出去：给站主发提问（出新版本合同追加预算，或站主接手）"
+    if status == "failed":
+        return None  # 内核核验没过
     audit_pre, audit_post = ts["audit_pre"], ts["audit_post"]
 
     def returned_by(audit: Dict[str, Any]) -> bool:
@@ -1230,10 +1232,18 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     return []
 
 
+def attempt_base(ts: Dict[str, Any], run_dir: Path) -> str:
+    """attempt 实际的基线：返工版本的基线是上一轮的返工提交，不是基准测试提交（第 10 轮）。"""
+    try:
+        return json.loads(read_text(Path(run_dir) / "meta.json") or "{}").get("base_sha") or ts["oracle"]["sha"]
+    except ValueError:
+        return ts["oracle"]["sha"]
+
+
 def apply_candidate(hub: Hub, ts: Dict[str, Any]) -> Path:
-    """战后与终审用的候选 worktree：基线提交（含基准测试）加候选补丁，不提交。"""
+    """战后与终审用的候选 worktree：attempt 的基线提交（含基准测试）加候选补丁，不提交。"""
     run_dir = Path(ts["exec"]["run_dir"])
-    workspace = ensure_worktree(hub, ts, "post-%s" % run_dir.name, ts["oracle"]["sha"])
+    workspace = ensure_worktree(hub, ts, "post-%s" % run_dir.name, attempt_base(ts, run_dir))
     if not ts["workspaces"]["post-%s" % run_dir.name].get("patched"):
         patch = run_dir / "candidate.patch"
         if patch.exists() and patch.stat().st_size:
@@ -1414,7 +1424,23 @@ def mutation_problems(code: int, record: Dict[str, Any], out: str) -> List[str]:
 # ---------------------------------------------------------------------------
 
 def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
-    """执行端的一个 attempt：prepare → run（同步等待）→ check --fresh；从执行报告生成交付信的正文。"""
+    """执行端的一个 attempt：prepare → run（同步等待）→ check --fresh；从执行报告生成交付信的正文。
+    终审退回执行端的返工，先建返工版本（start_rework），执行端从上一轮的候选接着改。"""
+    left = attempts_left(hub, ts)
+    if left is not None and left <= 0:
+        # 先于任何副作用：返工版本与 REVISE 结论都不该留给一个派不出去的 attempt
+        problem = ("预算用完：%s 各版本已经领取到合同的 max_attempts_total。执行端派不出去，请站主决定："
+                   "出新版本合同追加预算，或站主接手（kit_hub.py task close）" % ts["contract_task"])
+        ts["exec"] = {"run_dir": None, "check_ok": False, "error": problem, "attempts_left": 0}
+        return {"摘要": "预算用完，执行端没有开始", "提交": "无", "验证": problem, "偏离": "无",
+                "需协调人决定": "给站主发提问", "证据": "无"}
+    previous = rework_source(ts)
+    if previous is not None:
+        problem = start_rework(hub, ts, previous)
+        if problem:
+            ts["exec"] = {"run_dir": None, "check_ok": False, "error": problem}
+            return {"摘要": "返工版本没有建成，执行端没有开始", "提交": "无", "验证": problem, "偏离": "无",
+                    "需协调人决定": "给站主发提问", "证据": str(previous)}
     key = ts["contract"]["key"]
     code, out = run_pd(hub, ["prepare", key], timeout=1800)
     match = re.search(r"(\.agent[\\/]runs[\\/][a-z0-9-]+[\\/]attempt-\d{3})", out)
@@ -1435,6 +1461,68 @@ def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
     return finish_exec(hub, ts, run_dir, run_code)
 
 
+def attempts_left(hub: Hub, ts: Dict[str, Any]) -> Optional[int]:
+    """合同预算还剩几次 attempt（调度器按 task_id 跨版本累计）；读不到合同时为 None。"""
+    try:
+        budget = json.loads(read_text(contract_paths(hub, ts)[1])).get("budget") or {}
+        return int(budget["max_attempts_total"]) - int(budget_usage(hub, ts)["attempts_started"])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def rework_source(ts: Dict[str, Any]) -> Optional[Path]:
+    """终审退回执行端时，上一轮有候选补丁的 attempt：返工从它接着改。"""
+    audit, run_dir = ts["audit_post"], ts["exec"].get("run_dir")
+    if audit.get("verdict") != "返工" or RETURN_TARGETS.get(audit.get("target", "")) != "5-exec" or not run_dir:
+        return None
+    patch = Path(run_dir) / "candidate.patch"
+    return Path(run_dir) if patch.is_file() and patch.stat().st_size else None
+
+
+def start_rework(hub: Hub, ts: Dict[str, Any], previous: Path) -> Optional[str]:
+    """返工版本（第 10 轮）：上一轮记 REVISE、建返工提交；合同复制成下一版，base_sha 指向返工提交，末尾追加
+    终审的阻塞项。调度器的每个 attempt 都从合同的 base_sha 新建 worktree，执行端只读合同与执行说明：不这样做，
+    返工信里的阻塞项到不了执行端，上一轮的改动也不在工作目录里。T002 的 attempt-003 就是从头重写，
+    终审列的阻塞项一条没改，用掉了最后一次预算。"""
+    if pd.get_state(previous) != "REVISE":
+        review = write_review(hub, ts, previous, "REVISE")
+        code, out = run_pd(hub, ["verdict", str(previous), "--verdict", "REVISE", "--class", "EXECUTION_ERROR",
+                                 "--review", str(review)])
+        if code != 0:
+            return "verdict REVISE 被调度器拒绝：\n%s" % tail(out, 15)
+    code, out = run_pd(hub, ["branch", str(previous), "--rework"])
+    match = re.search(r"commit=([0-9a-f]{40})", out)
+    if code != 0 or not match:
+        return "branch --rework 没有建出返工提交：\n%s" % tail(out, 15)
+    sha = match.group(1)
+    blockers = next((h.get("blockers") for h in reversed(ts.get("audit_history") or [])
+                     if h.get("stage") == "7-audit-post"), "")
+    number = len(ts.get("rework_chain") or []) + 1
+    problems = bump_contract_version(hub, ts)
+    if not problems:
+        md, _js = contract_paths(hub, ts)
+        md.write_text(read_text(md).rstrip("\n") + "\n\n" + rework_section(previous, sha, blockers, number),
+                      encoding="utf-8", newline="\n")
+        problems = set_contract_base(hub, ts, sha)
+    if problems:
+        return "返工合同没有建成：" + "；".join(problems)
+    ts.setdefault("rework_chain", []).append({"from": previous.name, "commit": sha, "contract": ts["contract"]["key"],
+                                              "at": utc_now()})
+    hub.append_event("exec.rework_based", task=ts["task"], previous=previous.name, commit=sha,
+                     contract=ts["contract"]["key"])
+    return None
+
+
+def rework_section(previous: Path, sha: str, blockers: str, number: int) -> str:
+    return "\n".join([
+        "## Rework（返工第 %d 轮，内核追加）" % number, "",
+        "- 基线 `%s` 是 %s 的候选（调度器 `branch --rework` 建的返工提交）：上一轮的改动已经在工作目录里。"
+        "在它上面改，不要从头重写，也不要回退上一轮已经做对的地方。" % (sha, previous.name),
+        "- 逐条改完下面终审列的阻塞项。Scope、Behavior contract 与 DoD 不变，阻塞项以外的地方不动。",
+        "- Validation commands 里标“基线应失败”的检查，在这个基线上可能已经通过；改完之后它仍要通过。", "",
+        "### 终审列的阻塞项（原文）", "", (blockers or "").strip() or "（终审没有写阻塞项）", ""])
+
+
 def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[int]) -> Dict[str, str]:
     """attempt 跑完之后的核验：check --fresh、范围门禁与 attempt 状态；从执行报告生成交付信的正文。
     exec-recheck 也走这里：内核中途停下或判定逻辑修过之后，对已有的 attempt 重新核验，不占新的尝试次数。"""
@@ -1448,7 +1536,7 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     ts["exec"] = {"run_dir": str(run_dir), "status": status, "run_exit": run_code, "check_exit": check_code,
                   "scope_violations": len(violations), "check_ok": status == "NEEDS_REVIEW" and check_code == 0
                   and not violations, "check_tail": tail(check_out, 20),
-                  "conflicts": len(report.get("contract_conflicts") or [])}
+                  "conflicts": len(report.get("contract_conflicts") or []), "attempts_left": attempts_left(hub, ts)}
     hub.append_event("exec.finished", task=ts["task"], run_dir=str(run_dir), status=status,
                      check_exit=check_code, scope_violations=len(violations))
 
@@ -1564,7 +1652,7 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
         problem = record_pass(hub, ts, run_dir)
         if problem:
             return False, problem
-    problem = land_oracle(hub, ts)
+    problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if problem:
         return False, problem
     code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
@@ -1605,8 +1693,45 @@ def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def land_rework_chain(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
+    """返工链上的提交按顺序带上当前分支（第 10 轮）：每一轮的返工提交以上一轮的基线为父提交，integrate 只挑
+    最后一轮“基线→候选”的改动，前几轮的改动要先在末端上。能 ff 就 ff，不能就挑到末端；重试时跳过已落地的。"""
+    for link in ts.get("rework_chain") or []:
+        if link.get("landed_at"):
+            continue
+        sha = link["commit"]
+        if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
+                          stdin=subprocess.DEVNULL).returncode == 0:
+            how = "already"
+        else:
+            try:
+                git(["merge", "--ff-only", sha], hub.repo)
+                how = "ff"
+            except HubError:
+                proc = subprocess.run(["git", "cherry-pick", "-x", sha], cwd=str(hub.repo), stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                if proc.returncode != 0:
+                    subprocess.run(["git", "cherry-pick", "--abort"], cwd=str(hub.repo), stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return "返工提交 %s（%s 的候选）既不能 ff，也不能干净地挑到当前分支：%s" % (
+                        sha[:12], link.get("from"), tail(proc.stdout.decode("utf-8", "replace"), 8))
+                how = "cherry-pick"
+        link.update(landed_at=utc_now(), landed_by=how)
+        hub.append_event("rework.landed", task=ts["task"], sha=sha, how=how)
+    return None
+
+
 def record_pass(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[str]:
     """把终审报告写成复审记录，记 verdict PASS；返回问题（成功时为 None）。"""
+    review_path = write_review(hub, ts, run_dir, "PASS")
+    code, out = run_pd(hub, ["verdict", str(run_dir), "--verdict", "PASS", "--review", str(review_path)])
+    if code != 0:
+        return "verdict PASS 被门禁拒绝：\n%s" % tail(out, 20)
+    return None
+
+
+def write_review(hub: Hub, ts: Dict[str, Any], run_dir: Path, verdict: str) -> Path:
+    """终审报告写成调度器的复审记录（verdict 要求的 “Verdict:” 行）。"""
     review_dir = hub.repo / ".agent" / "reviews" / ts["contract_task"]
     review_dir.mkdir(parents=True, exist_ok=True)
     review_path = review_dir / ("%s-hub.md" % run_dir.name)
@@ -1614,20 +1739,17 @@ def record_pass(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[str]:
     gate = ts["gate_post"]
     body = [
         "# 复审记录：%s %s（七端信箱 hub）" % (ts["contract_task"], run_dir.name), "",
-        "- 合同：%s（base %s）" % (ts["contract"]["key"], ts["oracle"].get("sha")),
+        "- 合同：%s（base %s）" % (ts["contract"]["key"], attempt_base(ts, run_dir)),
         "- 内核 check --fresh：退出码 %s；范围违规 %s" % (ts["exec"].get("check_exit"), ts["exec"].get("scope_violations")),
         "- 战后门禁：白盒测试退出码 %s；变异检查退出码 %s" % (gate.get("whitebox_exit"), gate.get("mutate_exit")),
         "- JEV：一审前 %s；终审前 %s" % ((ts["jev"].get("3j-jev") or {}).get("status"),
                                        (ts["jev"].get("6j-jev") or {}).get("status")),
         "- 复审者：audit-sonnet（claude-sonnet-5-5，max），终审报告如下", "", "## 终审报告", "",
-        audit_report.strip() or "（终审报告为空）", "", "Verdict: PASS", ""]
+        audit_report.strip() or "（终审报告为空）", "", "Verdict: %s" % verdict, ""]
     if review_path.exists():
         review_path = review_dir / ("%s-hub-%s.md" % (run_dir.name, utc_compact()))
     review_path.write_text("\n".join(body), encoding="utf-8", newline="\n")
-    code, out = run_pd(hub, ["verdict", str(run_dir), "--verdict", "PASS", "--review", str(review_path)])
-    if code != 0:
-        return "verdict PASS 被门禁拒绝：\n%s" % tail(out, 20)
-    return None
+    return review_path
 
 
 # ---------------------------------------------------------------------------
@@ -1686,6 +1808,13 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
     ]
     if (ts.get("external_facts") or {}).get("pending"):
         facts.append("- 仓库外事实：%d 条待站主核实，核实之前不能开工合同端" % len(ts["external_facts"]["pending"]))
+    if ts.get("rework_chain"):
+        facts.append("- 返工链：%s" % "；".join("%s 的候选 → 返工提交 %s（%s）" % (
+            link["from"], link["commit"][:10], link["contract"]) for link in ts["rework_chain"]))
+    if ts["exec"].get("attempts_left") == 0:
+        facts.append("- 合同预算的 attempt 已经用完：执行端派不出去，要站主决定")
+    if ts.get("closed_by_owner"):
+        facts.append("- 站主接手结项：%s（%s）" % (ts["closed_by_owner"]["ref"][:12], ts["closed_by_owner"]["note"]))
     moves = allowed_moves(ts)
     return "\n".join(rows + [""] + facts + ["", "**内核此刻允许的下一步**（只是提示，投递时照样逐封校验）：",
                                            "\n".join("- " + m for m in moves) or "- （没有：等待工人或站主）"])
@@ -2252,6 +2381,36 @@ def cmd_task_new(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_task_close(args: argparse.Namespace) -> int:
+    """站主接手结项（第 10 轮）：预算用完、或规划端直接补完候选之后，工作已经由站主落在当前分支上。
+    此前只有“停止”，记成 stopped，看不出工作其实完成了、落在哪个提交。"""
+    hub = Hub(find_repo(args.repo))
+    note = Path(args.file).read_text(encoding="utf-8").strip()
+    if not note:
+        raise HubError("--file 要写明站主怎样接手、怎样验收", EXIT_USAGE)
+    sha = git(["rev-parse", "--verify", "%s^{commit}" % args.ref], hub.repo, check=False).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha) or subprocess.run(
+            ["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
+            stdin=subprocess.DEVNULL).returncode != 0:
+        raise HubError("--ref %s 不是当前分支上的提交：先把接手的工作落到分支上再结项" % args.ref, EXIT_USAGE)
+    with DirLock(hub.root / ".runner", wait_seconds=1.0):  # 不和正在跑的 hub 抢状态
+        with DirLock(hub.root / ".lock"):
+            state = hub.load_state()
+            ts = state["tasks"].get(args.task)
+            if ts is None:
+                raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+            if ts.get("status") == "done":
+                raise HubError("主任务 %s 已经结项" % args.task, EXIT_USAGE)
+            path = hub.task_dir(args.task) / "closed-by-owner.md"
+            write_text_atomic(path, note + "\n")
+            ts["status"] = "done"
+            ts["closed_by_owner"] = {"ref": sha, "note": path.relative_to(hub.repo).as_posix(), "at": utc_now()}
+            hub.save_state(state)
+            hub.append_event("task.closed_by_owner", task=args.task, ref=sha)
+    print("%s 已由站主接手结项（%s）" % (args.task, sha[:12]))
+    return EXIT_OK
+
+
 def cmd_send(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     text = Path(args.file).read_text(encoding="utf-8") if args.file != "-" else sys.stdin.read()
@@ -2382,6 +2541,11 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--brief", required=True, help="站主的任务书（Markdown 文件）")
     new.add_argument("--no-jev", action="store_true", help="本任务不调 JEV")
     new.set_defaults(func=cmd_task_new)
+    close = task.add_parser("close", help="站主接手结项：工作已由站主落在当前分支上")
+    close.add_argument("task")
+    close.add_argument("--ref", required=True, help="接手的工作落地的提交（要在当前分支上）")
+    close.add_argument("--file", required=True, help="站主怎样接手、怎样验收（Markdown）")
+    close.set_defaults(func=cmd_task_close)
     send = sub.add_parser("send", help="站主给协调人发信（回复、停止）")
     send.add_argument("task")
     send.add_argument("--type", choices=("回复", "停止"), required=True)

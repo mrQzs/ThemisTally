@@ -1404,6 +1404,248 @@ def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, mon
     assert kh.git(["status", "--porcelain", "--", "tests"], repo).strip() == ""
 
 
+def rework_setup(tmp_path, attempts=3):
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n- plan_version: 1\n- base_sha: %s\n\n## Forbidden\n- 无\n"
+                                          % ("o" * 40), encoding="utf-8")
+    (plans / "t001-doc.v1.json").write_text(json.dumps({"budget": {
+        "max_attempts_total": attempts, "max_wall_seconds_per_attempt": 3600, "max_wall_seconds_total": 10800}}),
+        encoding="utf-8")
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1, "dispatched": True}
+    previous = repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    (previous / "claim").mkdir(parents=True)
+    (previous / "candidate.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (previous / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    ts["exec"] = {"run_dir": str(previous), "check_ok": True}
+    ts["audit_post"] = {"verdict": "返工", "target": "执行端"}
+    ts["audit_history"] = [{"stage": "7-audit-post", "verdict": "返工", "target": "执行端",
+                            "blockers": "B1 StatusTag 遇到 constructor 崩溃"}]
+    return repo, hub, ts, plans, previous
+
+
+def test_exec_rework_continues_from_the_reviewed_candidate(tmp_path, monkeypatch):
+    # T002：attempt-003 照同一份合同从头重写，终审的阻塞项一条没改，用掉了最后一次预算（第 10 轮）
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    rework = "a" * 40
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        if args[0] == "verdict":
+            assert args[args.index("--verdict") + 1] == "REVISE" and "--class" in args
+            review = Path(args[args.index("--review") + 1]).read_text(encoding="utf-8")
+            assert review.rstrip().endswith("Verdict: REVISE")
+            (previous / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        if args[0] == "branch":
+            assert args[1:] == [str(previous), "--rework"]
+            return 0, "已创建本地分支 pi-rework/x → %s（未推送）。\ncommit=%s branch=pi-rework/x" % (rework, rework)
+        if args[0] == "prepare":
+            return 9, "prepare 停在这里"
+        return 0, "ok"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub, ts: [])
+    fields = kh.run_exec(hub, ts)
+    assert calls == ["verdict", "branch", "derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- plan_version: 2" in v2 and "- base_sha: %s" % rework in v2
+    assert "## Rework（返工第 1 轮，内核追加）" in v2 and "attempt-001 的候选" in v2
+    assert v2.rstrip().endswith("B1 StatusTag 遇到 constructor 崩溃")
+    assert ts["contract"]["key"] == "t001-doc.v2" and ts["rework_chain"][0]["commit"] == rework
+    assert "prepare 停在这里" in fields["验证"]
+    assert "attempt-001 的候选 → 返工提交 aaaaaaaaaa（t001-doc.v2）" in kh.stage_status_table(hub, ts)
+    # 已经是 REVISE（重试）就不再记一次结论；不是终审退回执行端的返工（例如检查没过），照原合同重派
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "执行端"}
+    calls.clear()
+    (plans / "t001-doc.v2.json").write_text((plans / "t001-doc.v1.json").read_text(encoding="utf-8"),
+                                            encoding="utf-8")
+    kh.run_exec(hub, ts)
+    assert calls == ["branch", "derive-json", "validate", "prepare t001-doc.v3"] and len(ts["rework_chain"]) == 2
+    assert "## Rework（返工第 2 轮，内核追加）" in (plans / "t001-doc.v3.md").read_text(encoding="utf-8")
+    calls.clear()
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {}
+    kh.run_exec(hub, ts)
+    assert calls == ["prepare t001-doc.v3"]
+    calls.clear()
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "战后门禁"}
+    kh.run_exec(hub, ts)
+    assert calls == ["prepare t001-doc.v3"]
+    # 上一轮没有候选补丁：没有可接着改的东西，照原合同重派
+    (previous / "candidate.patch").write_text("", encoding="utf-8")
+    calls.clear()
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "执行端"}
+    kh.run_exec(hub, ts)
+    assert calls == ["prepare t001-doc.v3"]
+
+
+def test_exec_rework_reports_when_the_rework_base_cannot_be_built(tmp_path, monkeypatch):
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    answers = {"verdict": (1, "复审记录不合格")}
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(args[0]) or answers.get(args[0], (0, "ok")))
+    fields = kh.run_exec(hub, ts)
+    assert calls == ["verdict"] and "verdict REVISE 被调度器拒绝" in fields["验证"] and "复审记录不合格" in fields["验证"]
+    assert ts["exec"]["run_dir"] is None and not (plans / "t001-doc.v2.md").exists()
+    answers["verdict"] = (0, "ok")
+    calls.clear()
+    ts["exec"] = {"run_dir": str(previous)}
+    fields = kh.run_exec(hub, ts)
+    assert calls == ["verdict", "branch"] and "branch --rework 没有建出返工提交" in fields["验证"]
+    assert not (plans / "t001-doc.v2.md").exists() and "rework_chain" not in ts
+
+
+def test_exec_rework_stops_at_the_budget(tmp_path, monkeypatch):
+    repo, hub, ts, plans, previous = rework_setup(tmp_path, attempts=1)
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(args[0]) or (0, "ok"))
+    fields = kh.run_exec(hub, ts)
+    assert calls == [] and "预算用完" in fields["验证"] and ts["exec"]["attempts_left"] == 0  # 没有任何副作用
+    assert not (plans / "t001-doc.v2.md").exists() and "rework_chain" not in ts
+    ts["stages"]["5-exec"]["status"] = "failed"
+    assert "attempt 已经用完" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    assert "attempt 已经用完" in kh.stage_status_table(hub, ts)
+    ts["owner_rework"] = {"suffix": "5-exec"}  # 站主拍板照样放行（例如刚出了追加预算的新版本）
+    assert kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
+    assert kh.attempts_left(hub, ts) == 0
+    (plans / "t001-doc.v1.json").write_text("不是 JSON", encoding="utf-8")
+    assert kh.attempts_left(hub, ts) is None
+    # 每个 attempt 收尾时记下还剩几次
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    (plans / "t001-doc.v1.json").write_text(json.dumps({"budget": {"max_attempts_total": 4}}), encoding="utf-8")
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["attempts_left"] == 3
+
+
+def test_post_gate_worktree_starts_from_the_attempt_base(tmp_path, monkeypatch):
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "rework"], repo)
+    (repo / "earlier.txt").write_text("上一轮的候选\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "返工提交"], repo)
+    rework = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", branch], repo)
+    run_dir = tmp_path / "attempt-002"
+    run_dir.mkdir()
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": rework}), encoding="utf-8")
+    ts["exec"] = {"run_dir": str(run_dir)}
+    ts["oracle"]["sha"] = head
+    workspace = kh.apply_candidate(hub, ts)
+    assert kh.git(["rev-parse", "HEAD"], workspace).strip() == rework and (workspace / "earlier.txt").is_file()
+    assert kh.attempt_base(ts, tmp_path / "no-meta") == head
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_finalize_lands_the_rework_chain_before_integrating(tmp_path, monkeypatch):
+    import subprocess
+    repo, head = git_repo(tmp_path)
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "chain"], repo)
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_gate_t001_baseline.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "门禁端基准测试"], repo)
+    oracle = kh.git(["rev-parse", "HEAD"], repo).strip()
+    (repo / "earlier.txt").write_text("上一轮的候选\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "返工提交"], repo)
+    rework = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", branch], repo)
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        has_chain = subprocess.run(["git", "merge-base", "--is-ancestor", rework, "HEAD"], cwd=str(repo)).returncode == 0
+        calls.append((args[0], has_chain or (repo / "earlier.txt").is_file()))
+        if args[0] == "verdict":
+            (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")
+        return 0, "ok"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
+    ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
+    ok, _detail = kh.finalize(hub, ts)
+    # integrate 只挑最后一轮“基线→候选”的改动：前几轮的返工提交要先在末端上
+    assert ok and calls == [("verdict", False), ("integrate", True)]
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == rework and ts["rework_chain"][0]["landed_by"] == "ff"
+    calls.clear()
+    assert kh.finalize(hub, ts)[0] and calls == [("integrate", True)]
+    # 任务进行期间分支前进了：基准测试与返工提交依次挑到末端
+    kh.git(["reset", "-q", "--hard", head], repo)
+    (repo / "README.md").write_text("分叉\n", encoding="utf-8")
+    kh.git(["commit", "-q", "-am", "分叉"], repo)
+    for key in ("landed_at", "landed_by"):
+        ts["oracle"].pop(key, None)
+        ts["rework_chain"][0].pop(key, None)
+    calls.clear()
+    ok, _detail = kh.finalize(hub, ts)
+    assert ok and calls == [("integrate", True)] and ts["rework_chain"][0]["landed_by"] == "cherry-pick"
+    assert "cherry picked from commit %s" % rework in kh.git(["log", "-1", "--format=%B"], repo)
+    assert (repo / "earlier.txt").read_text(encoding="utf-8") == "上一轮的候选\n"
+    tip = kh.git(["rev-parse", "HEAD"], repo).strip()
+    assert kh.finalize(hub, ts)[0] and kh.git(["rev-parse", "HEAD"], repo).strip() == tip  # 重试：不再挑一次
+    # 末端上同名文件内容不同：挑入冲突，中止并如实报告，不 integrate
+    kh.git(["reset", "-q", "--hard", "HEAD~1"], repo)
+    (repo / "earlier.txt").write_text("别的内容\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "同名不同内容"], repo)
+    ts["rework_chain"][0].pop("landed_at")
+    calls.clear()
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "返工提交 %s" % rework[:12] in detail and calls == []
+    assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists()
+
+
+def test_owner_takeover_closes_the_task(tmp_path, monkeypatch):
+    import io
+    repo, head = git_repo(tmp_path)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    hub = kh.Hub(repo)
+    hub.ensure()
+    state = hub.load_state()
+    state["tasks"]["T001"] = kh.new_task_state("T001", "doc", "改文档", head, True)
+    hub.save_state(state)
+    note = tmp_path / "close.md"
+    parser = kh.build_parser()
+
+    def close(ref):
+        args = parser.parse_args(["--repo", str(repo), "task", "close", "T001", "--ref", ref, "--file", str(note)])
+        return args.func(args)
+
+    note.write_text("  \n", encoding="utf-8")
+    with pytest.raises(kh.HubError):
+        close("HEAD")  # 没写怎样接手
+    note.write_text("预算用完，规划端在 attempt-002 的候选上补完 B1–B6，V01 75 passed。", encoding="utf-8")
+    kh.git(["checkout", "-q", "-b", "side"], repo)
+    (repo / "side.txt").write_text("不在分支上\n", encoding="utf-8")
+    kh.git(["add", "side.txt"], repo)
+    kh.git(["commit", "-q", "-m", "side"], repo)
+    side = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-"], repo)
+    for ref in (side, "no-such-ref"):
+        with pytest.raises(kh.HubError):
+            close(ref)  # 接手的工作要已经落在当前分支上
+    assert close("HEAD") == kh.EXIT_OK
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["status"] == "done" and ts["closed_by_owner"]["ref"] == head
+    assert "V01 75 passed" in (repo / ts["closed_by_owner"]["note"]).read_text(encoding="utf-8")
+    assert "站主接手结项：%s" % head[:12] in kh.stage_status_table(hub, ts)
+    assert "已结项" in kh.guard(ts, meta("开工", "exec-step", "T001-5-exec"))
+    with pytest.raises(kh.HubError):
+        close("HEAD")  # 不能结项两次
+    events = [json.loads(line)["event"] for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert "task.closed_by_owner" in events
+
+
 def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):
     import io
     repo, _head = git_repo(tmp_path)
