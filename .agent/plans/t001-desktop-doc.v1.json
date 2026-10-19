@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "task_id": "t001-desktop-doc",
+  "plan_version": 1,
+  "title": "修改和完善两份桌面端设计文档，把规划的三件事落进文档，且只改这两份文档。",
+  "repository": "ThemisTally",
+  "base_sha": "ea1b558b4c15095856801b5abc4ace7a3b9c0209",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "docs/themis-tally-3.0-桌面端.md",
+      "docs/themis-tally-3.0-桌面端-UI设计.md"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t001_*.py",
+      "docs/themis-tally-3.0-r3-七端与信箱.md",
+      ".agent/design/3.0-桌面端-实现进度.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "范围——相对任务基线改动的文件只有两份桌面端文档（检查方法：git diff --name-only）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "防止越界改到代码、测试、配置与其它文档"
+    },
+    {
+      "id": "D02",
+      "text": "闸一记录逐字不动——架构文档 §0.1–§0.6（基线 L35–115）与 §11（基线 L862–884）与基线逐字相同（检查方法：逐字比对未动段落）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不推翻已过闸一的决定"
+    },
+    {
+      "id": "D03",
+      "text": "B1 措辞——架构文档至少两处含原句“除文件大小、合法性和超长行保护这些显式元数据门槛外，匹配和摘录只依赖脱敏结果”（一处在 D7“搜索”、一处在 §0.0），且 D7 不再含“返回与否只取决于脱敏之后的文本”（检查方法：按原句搜索）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "让 B1 的论证只主张它能保证的"
+    },
+    {
+      "id": "D04",
+      "text": "元数据门槛——D7“搜索”写明四件事并带 KL: 行号：超过 4 MiB 的 JSONL 行与解析不了的行不参加搜索、不计数；超过 64 MiB 或读不出来的文本（含 .json）计入 skipped_large；JSONL 没有整份上限、不计入；truncated 只表示匹配超过 --max（检查方法：按原句搜索加抽查 file:line）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "只写现有规则、不改门槛"
+    },
+    {
+      "id": "D05",
+      "text": "测试计划——U10、U14d、U14e 三行原有文字都还在（只追加）；U10 含 search 作业、平方级脱敏与超时断言；U14d 含“普通文本”“截短”“修改时间”与“文件已变化”或 409；U14e 写出 skipped_large 与 truncated 的具体值；§10.1 没有新增编号（检查方法：按原句搜索）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "给闸二第 2 轮 S2 写出可判定的预期值"
+    },
+    {
+      "id": "D06",
+      "text": "§0.0——新增 D1A-2-S1、D1A-2-S2、七端-1、七端-2 四行；原有七行除 B1 行“处置”列追加外逐字不变（检查方法：按原句搜索加逐字比对未动行）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "记录本轮的收窄与用户决定"
+    },
+    {
+      "id": "D07",
+      "text": "§2.9——存在、引用 r3 并带行号；不出现 r3 §5 的前置条件表、§3.2 的信件格式、§2 的名册表（检查方法：按原句搜索）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "一处写清与桌面端有关的 r3 事实，不重抄 r3"
+    },
+    {
+      "id": "D08",
+      "text": "要点二——D1 不再含“第五个角色”，写明桌面端不启动、不唤醒、不停止角色进程、只读状态与记录；A10–A13、A16、A18–A20、A22、A24–A26 与 B2、B3、B6、B11、B12 都已落实（检查方法：按原句搜索）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "凡描述角色运行与调用 CLI 之处都与 r3 一致"
+    },
+    {
+      "id": "D09",
+      "text": "要点三（架构）——D11 有“思考档位”要点，写明并列、逐字比较、不一致标出、缺失为“未知”且不当作一致、没有要求档位的为“—”，现状带 KH/KR/PD/KL 行号；D13 有“另做”一条（检查方法：按原句搜索加抽查 file:line）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "写清哪几页显示档位、数据从哪来、缺失时怎么显示"
+    },
+    {
+      "id": "D10",
+      "text": "要点三（UI）——新增 7.24；6.3、6.4、7.22 引用 7.24；6.4 的 thinking 说明写明是要求的档位并提到静默降档；第 9 节新字段标“示意”；第 12 节新增一条；状态行为第 7 稿并指向架构文档 §0.0；架构文档 §10.2 有 W7、§9 的 D1 行含 W7；UI 文档全部 text 代码块（线框）逐字不变（检查方法：按原句搜索加逐字比对线框）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "设计者照 7.24 与示意数据就能做出四种显示"
+    },
+    {
+      "id": "D11",
+      "text": "行号可核——新增的每条 file:line 在任务基线上指向所述内容（检查方法：抽查 file:line）",
+      "evidence": [
+        "review"
+      ],
+      "intent": "新引用的出处真实可查"
+    },
+    {
+      "id": "D12",
+      "text": "文风——新增内容是中文的表格与要点；没有删除与任务无关的段落（检查方法：逐字比对未动段落加人工审阅）",
+      "evidence": [
+        "review"
+      ],
+      "intent": "保持原文风格、不误删"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  }
+}
