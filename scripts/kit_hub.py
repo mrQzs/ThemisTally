@@ -76,6 +76,8 @@ DEPENDS = {
 }
 #: 交付通过后由内核接着跑的 JEV（用户 2026-10-19 同意，不为 JEV 单独唤醒协调人）。
 AUTO_JEV = {"2-contract": "3j-jev", "6-gate-post": "6j-jev"}
+#: 执行端以外的阶段，协调人最多让它返工几次；再要返工得站主指定（第 14 轮；T001–T003 同一阶段最多返工过 2 次）
+MAX_STAGE_REWORKS = 3
 #: 审核端“退回”的对象 → 阶段。
 #: “门禁端”指基准测试本身有错（走热修补）；“战后门禁”指白盒测试或变异清单不够，重做战后门禁。
 RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "战后门禁": "6-gate-post", "执行端": "5-exec",
@@ -508,6 +510,7 @@ def invalidate_after(ts: Dict[str, Any], suffix: str) -> None:
     later = dependents(suffix)
     for name in later:
         ts["stages"][name] = {"status": "idle"}
+        (ts.get("reworks") or {}).pop(name, None)  # 上游换了内容，下游的返工从头计
     if "3-gate-pre" in later:
         ts["oracle"] = {}
     if "3j-jev" in later:
@@ -588,6 +591,11 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
         return "阶段 %s 正在进行，不能返工" % suffix
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
+    done = (ts.get("reworks") or {}).get(suffix, 0)
+    if suffix != "5-exec" and done >= MAX_STAGE_REWORKS:
+        # 第 14 轮：执行端有合同预算封顶，别的阶段没有，同一处可以无限返工（docs/实际问题/协调端.md 的返工乒乓）
+        return ("阶段 %s 已经返工 %d 次，同一处反复改不好：给站主发提问。站主可以用 send --rework 再指定一次返工，"
+                "或者接手" % (suffix, done))
     if suffix == "5-exec" and ts["exec"].get("attempts_left") == 0:
         return "合同预算的 attempt 已经用完，执行端派不出去：给站主发提问（出新版本合同追加预算，或站主接手）"
     if status == "failed":
@@ -606,11 +614,11 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     if suffix == "6-gate-post":
         return None if returned_by(audit_post) else "没有终审退回战后门禁的记录，也没有内核核验失败"
     if suffix == "1-plan":
-        if audit_pre.get("fails", 0) >= 3:
+        # 一审可以退回规划端（模板与 letter_errors 都允许，仓库外事实没核实时内核还要求它退回），
+        # 第 14 轮之前这里只认“累计没过 3 次”或终审退回，一审第一次退回规划端就被拒
+        if audit_pre.get("fails", 0) >= 3 or returned_by(audit_pre) or returned_by(audit_post):
             return None
-        if audit_post.get("verdict") == "返工" and RETURN_TARGETS.get(audit_post.get("target", "")) == "1-plan":
-            return None
-        return "一审连续没过不到 3 次，也没有终审退回规划端"
+        return "一审连续没过不到 3 次，也没有一审或终审退回规划端"
     if suffix == "5-exec":
         execution, gate_post = ts["exec"], ts["gate_post"]
         if execution.get("run_dir") and not execution.get("check_ok"):
@@ -1116,6 +1124,17 @@ def revalidate_contract(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     return problems
 
 
+GATE_BASELINE_RE = re.compile(r"^tests/test_gate_t\d+_baseline\.py$")
+
+
+def regression_gates(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """任务基线上先前各片留下的门禁基准测试（第 14 轮）。执行端的检查只跑合同列的命令：T002 的合同没有
+    回归检查，T003 的回归检查是合同端自愿写的；存量功能静默退化，没有一道关拦（docs/实际问题/执行端.md）。"""
+    listing = git(["ls-tree", "-r", "--name-only", ts["base_head"], "--", "tests"], hub.repo, check=False)
+    own = gate_file(ts, "baseline")
+    return sorted(path for path in listing.splitlines() if GATE_BASELINE_RE.match(path) and path != own)
+
+
 def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、执行模型与集成授权（设计 §7）；
     合同里不能留“待确认”一类的未决标注。"""
@@ -1138,6 +1157,12 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
         problems.append("Validation commands 要有一条运行 %s 的必要检查" % baseline_file)
     elif not any(c.get("expect_on_base") == "fail" and c.get("required", True) for c in gate_checks):
         problems.append("运行 %s 的检查要标“必要”与“基线应失败”" % baseline_file)
+    guarded = [path for path in regression_gates(hub, ts) if not any(
+        path in (c.get("argv") or []) and c.get("expect_on_base") == "pass" and c.get("required", True)
+        for c in data.get("checks") or [])]
+    if guarded:
+        problems.append("Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：%s"
+                        % "、".join(guarded))
     executor = data.get("executor") or {}
     if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != EXECUTOR:
         problems.append("执行模型要写成：%s" % CONTRACT_EXECUTOR_LINE)
@@ -1267,6 +1292,41 @@ def set_contract_base(hub: Hub, ts: Dict[str, Any], sha: str) -> List[str]:
     return revalidate_contract(hub, ts)
 
 
+BASELINE_RECORD_RE = re.compile(r"^基线检查记录：(.+?)\s*$", re.M)
+
+
+def hollow_baseline_problems(hub: Hub, out: str, expected: str) -> List[str]:
+    """基准测试在基线上要“在断言上失败”（第 14 轮）。baseline 只看退出码是不是 0：超时、pytest 退出码 2–5
+    （中断、内部错误、用法错误、没有用例）、用例在 setup 出错，都算“在基线上失败”，测试其实没跑起来，
+    什么也没证明，却会被锁进禁改路径（docs/实际问题/门禁端.md）。读 baseline 写下的检查记录逐条核对。"""
+    match = BASELINE_RECORD_RE.search(out)
+    record_path = hub.repo / match.group(1) if match else None
+    if record_path is None or not record_path.is_file():
+        return ["baseline 没有留下检查记录，核对不了基准测试在基线上是怎样失败的"]
+    results = json.loads(read_text(record_path) or "{}").get("results") or []
+    gate = [r for r in results if expected in " ".join(str(arg) for arg in r.get("argv") or [])]
+    if not gate:
+        return ["baseline 的检查记录里没有跑 %s 的检查" % expected]
+    problems: List[str] = []
+    for item in gate:
+        name = item.get("id") or "?"
+        if item.get("timed_out") or item.get("interrupted") or item.get("spawn_error"):
+            problems.append("%s 在基线上超时或没有跑起来：卡住的测试也算“失败”，但什么也没证明" % name)
+            continue
+        if item.get("exit_code") != 1:
+            problems.append("%s 在基线上的 pytest 退出码是 %s：只有 1 是用例失败（2 中断、3 内部错误、4 用法错误、"
+                            "5 没有用例）" % (name, item.get("exit_code")))
+            continue
+        log = record_path.parent.parent / str(item.get("log") or "")
+        counts = pytest_outcomes(log)[0] if log.is_file() else {}
+        if counts.get("errors"):
+            problems.append("%s 在基线上有 %d 个用例出错（setup 或夹具失败），不是断言失败：夹具在基线上做不成的事，"
+                            "把原因记下来，让用例断言它" % (name, counts["errors"]))
+        elif counts and not counts.get("failed"):
+            problems.append("%s 在基线上没有失败的用例" % name)
+    return problems
+
+
 def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     """门禁端只能新增 tests/test_gate_<t>_baseline.py；内核提交、挂引用、改合同 base_sha、跑 baseline。"""
     changes = workspace_status(workspace)
@@ -1314,6 +1374,9 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     ts["oracle"]["baseline_tail"] = tail(out, 20)
     if code != 0:
         return ["baseline 不符合预期（基准测试应在基线上失败，其余检查按合同）：\n%s" % tail(out, 20)]
+    problems = hollow_baseline_problems(hub, out, expected)
+    if problems:
+        return problems
     ts["oracle"]["locked"] = True
     ts["contract"]["sha256"] = contract_digest(hub, ts)
     if ts.get("hotfix"):
@@ -1396,6 +1459,28 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
     return problems
 
 
+#: 执行端自己的测试文件：不要求变异打在上面
+TEST_FILE_RE = re.compile(r"(?:^|/)tests?/|(?:^|/)test_[^/]*\.py$|\.(?:test|spec)\.[cm]?[jt]sx?$")
+
+
+def unmutated_problems(ts: Dict[str, Any], spec: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
+    """变异要打在执行端改动的文件上（第 14 轮）。此前只判漏网、没生效与至少抓住一条：变异可以全打在
+    无关紧要的地方，核心改动一条也不碰（docs/实际问题/审核端.md）。确实没法变异的写进 unmutated，终审复核。"""
+    scope = json.loads(read_text(Path(ts["exec"]["run_dir"]) / "scope.json") or "{}")
+    changed = sorted(item["path"] for item in scope.get("files") or [] if isinstance(item, dict) and item.get("path")
+                     and item.get("status") != "D" and not TEST_FILE_RE.search(item["path"]))
+    covered = {item.get("file") for item in spec["mutations"] if isinstance(item, dict)}
+    explained = {item.get("file"): str(item.get("reason")).strip() for item in output.get("unmutated") or []
+                 if isinstance(item, dict) and str(item.get("reason") or "").strip()}
+    ts["gate_post"]["unmutated"] = ["%s：%s" % pair for pair in sorted(explained.items()) if pair[0] in changed]
+    missing = [path for path in changed if path not in covered and path not in explained]
+    if missing:
+        return ["执行端改动了这些文件，变异清单却一条也没打在上面：%s。每个改动的文件至少一条变异；确实没法变异的"
+                "（例如二进制文件），在输出的 unmutated 里写 {\"file\": ..., \"reason\": ...}，终审会复核"
+                % "、".join(missing)]
+    return []
+
+
 def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path,
                   output: Dict[str, Any]) -> List[str]:
     spec = output.get("mutation_spec")
@@ -1404,6 +1489,9 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
     spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     ts["gate_post"]["mutate_spec"] = str(spec_path)
+    problems = unmutated_problems(ts, spec, output)
+    if problems:
+        return problems
     # 先只核对锚点（不跑命令）：T003 的 M29 把全角括号写成了半角，内核只回了一句“M29 没生效”，
     # 门禁端手里没有原文，30 条全部重写；跑完整个 mutate 才发现也白等了几分钟（第 12 轮）
     code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--check-anchors"])
@@ -1878,7 +1966,8 @@ ROLE_EXTRA_OUTPUT = {
     "gate": '战后模式另加 "mutation_spec": {"commands": [{"id": "W1", "argv": ["python", "-m", "pytest", "<文件>", "-q"]}], '
             '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}；'
             '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
-            '其余每条都必须被抓住；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
+            '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
+            '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
             '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec）',
     "audit": 'letter 里另加 "结论": "通过|返工"；返工时再加 "退回": "合同端|门禁端|战后门禁|执行端|规划端"'
              '（一审只能退回规划端、合同端、门禁端）与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的>"',
@@ -1919,6 +2008,9 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
             link["from"], link["commit"][:10], link["contract"]) for link in ts["rework_chain"]))
     if ts["exec"].get("attempts_left") == 0:
         facts.append("- 合同预算的 attempt 已经用完：执行端派不出去，要站主决定")
+    if ts.get("reworks"):
+        facts.append("- 返工次数：%s（执行端以外每个阶段最多 %d 次）" % ("、".join(
+            "%s %d 次" % (suffix, count) for suffix, count in sorted(ts["reworks"].items())), MAX_STAGE_REWORKS))
     if ts.get("closed_by_owner"):
         facts.append("- 站主接手结项：%s（%s）" % (ts["closed_by_owner"]["ref"][:12], ts["closed_by_owner"]["note"]))
     moves = allowed_moves(ts)
@@ -2010,6 +2102,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
                 parts += ["", "## 门禁端声明的等价变异（逐条复核：改了真的测不出来吗）", ""] + [
                     "- " + item for item in ts["gate_post"]["equivalent"]]
+            if stage == "7-audit-post" and ts["gate_post"].get("unmutated"):
+                parts += ["", "## 门禁端说没法变异的改动文件（逐条复核：这些改动真的不用测吗）", ""] + [
+                    "- " + item for item in ts["gate_post"]["unmutated"]]
         if role == "contract" or task_id.endswith("-4-audit-pre"):
             parts += external_facts_section(ts)
         if role == "contract":
@@ -2021,8 +2116,13 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                       "- Scope 的 forbidden_paths 包含 `%s`（门禁测试，执行端不能碰）。" % gate_pattern(ts),
                       "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换）："
                       "`- VG1（必要，基线应失败）：`python -m pytest %s -q` · cwd：仓库根 · 超时：600s · 期望退出码：0 · "
-                      "输出须匹配：`\\d+ passed``。门禁测试由门禁端稍后写好、内核做成基线提交，你只写这一行。" % gate_file(ts, "baseline"),
-                      "- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 `%s` 各版本的累计上限（调度器跨版本累计）："
+                      "输出须匹配：`\\d+ passed``。门禁测试由门禁端稍后写好、内核做成基线提交，你只写这一行。" % gate_file(ts, "baseline")]
+            regression = regression_gates(hub, ts)
+            if regression:
+                parts.append("- 先前各片的门禁基准测试是回归测试，Validation commands 要有一条回归检查，照这个格式写："
+                             "`- VR1（必要，基线应通过）：`python -m pytest %s -q` · cwd：仓库根 · 超时：1800s · "
+                             "期望退出码：0 · 输出须匹配：`\\d+ passed``。" % " ".join(regression))
+            parts += ["- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 `%s` 各版本的累计上限（调度器跨版本累计）："
                       "已用掉 %d 次、%d 秒。总数要把它们算进去，给这一版至少留 %d 次 attempt 与 %d 倍单次时限。" % (
                           ts["contract_task"], used["attempts_started"], used["wall_seconds_used"],
                           MIN_ATTEMPTS_LEFT, MIN_ATTEMPTS_LEFT),
@@ -2183,6 +2283,9 @@ class Engine:
                 self.hub.append_event("hotfix.started", task=ts["task"], reason=ts["hotfix"]["reason"])
             if meta["type"] == "返工" and (ts.get("owner_rework") or {}).get("suffix") == suffix:
                 self.hub.append_event("owner_rework.used", task=ts["task"], **ts.pop("owner_rework"))
+            elif meta["type"] == "返工":  # 站主指定的不算：站主是最终拍板人
+                reworks = ts.setdefault("reworks", {})
+                reworks[suffix] = reworks.get(suffix, 0) + 1
             ts["stages"][suffix]["status"] = "assigned"
             ts["stages"][suffix]["assigned_at"] = utc_now()
             ts["stages"][suffix]["kind"] = meta["type"]

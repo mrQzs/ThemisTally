@@ -200,6 +200,11 @@ def test_guard_rework_targets():
     ts["stages"]["2-contract"]["status"] = "failed"  # 内核核验失败也允许返工
     assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
     assert "不到 3 次" in kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan"))
+    # 第 14 轮：一审第一次就退回规划端（例如仓库外事实没核实），此前被拒
+    ts["audit_pre"].update(verdict="返工", target="规划端")
+    assert kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan")) is None
+    ts["audit_pre"].update(verdict="返工", target="门禁端")
+    assert "不到 3 次" in kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan"))
     ts["audit_pre"]["fails"] = 3
     assert kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan")) is None
     ts["audit_post"].update(verdict="返工", target="执行端")
@@ -298,6 +303,25 @@ def test_dispatched_contract_is_bumped_not_edited(tmp_path):
     assert any("已存在" in p for p in kh.bump_contract_version(hub, ts))
 
 
+def pd_with_baseline(calls, exit_code=1, summary="1 failed in 0.01s", timed_out=False):
+    """假的 run_pd：记下调用；baseline 照调度器的样子写一份检查记录，门禁那条检查在基线上按给定的方式结束。"""
+    def fake(hub, args, timeout=600):
+        calls.append(list(args))
+        if args[0] != "baseline":
+            return 0, "ok"
+        runs = hub.repo / ".agent" / "runs" / "t001-doc" / "baseline"
+        runs.mkdir(parents=True, exist_ok=True)
+        out = runs / ("%02d" % (len(list(runs.iterdir())) + 1))
+        out.mkdir()
+        (out / "V01.log").write_text("tests/test_gate_t001_baseline.py F\n%s\n" % summary, encoding="utf-8")
+        record = {"results": [{"id": "V01", "argv": ["python", "-m", "pytest", "tests/test_gate_t001_baseline.py", "-q"],
+                               "log": "%s/V01.log" % out.name, "exit_code": exit_code, "timed_out": timed_out,
+                               "interrupted": False, "spawn_error": None}]}
+        (out / "checks.json").write_text(json.dumps(record), encoding="utf-8")
+        return 0, "V01  fail  failed  符合预期\n基线检查记录：%s\n" % (out / "checks.json").relative_to(hub.repo).as_posix()
+    return fake
+
+
 def git_repo(tmp_path):
     import subprocess
     repo = tmp_path / "repo"
@@ -319,7 +343,7 @@ def test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff(t
     roots.mkdir()
     monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
     calls = []
-    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(list(args)) or (0, "ok"))
+    monkeypatch.setattr(kh, "run_pd", pd_with_baseline(calls))
     hub = kh.Hub(repo)
     hub.ensure()
     ts = kh.new_task_state("T001", "doc", "改文档", head, True)
@@ -372,7 +396,7 @@ def gate_setup(tmp_path, monkeypatch, run_pd=None):
     roots.mkdir()
     monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
     calls = []
-    monkeypatch.setattr(kh, "run_pd", run_pd or (lambda hub, args, timeout=600: calls.append(list(args)) or (0, "ok")))
+    monkeypatch.setattr(kh, "run_pd", run_pd or pd_with_baseline(calls))
     hub = kh.Hub(repo)
     hub.ensure()
     ts = kh.new_task_state("T001", "doc", "改文档", head, True)
@@ -406,6 +430,36 @@ def test_gate_pre_rejects_a_baseline_that_does_not_collect(tmp_path, monkeypatch
     target.write_text("def test_x():\n    from not_written_yet import feature\n    assert feature()\n", encoding="utf-8")
     assert kh.accept_gate_pre(hub, ts, workspace) == [] and ts["oracle"]["locked"]
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_gate_pre_baseline_must_fail_on_assertions(tmp_path, monkeypatch):
+    # 第 14 轮：超时、pytest 退出码 2–5、setup 出错都算“在基线上失败”，测试其实没跑起来（docs/实际问题/门禁端.md）
+    calls = []
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=pd_with_baseline(calls, exit_code=5))
+    expected = "tests/test_gate_t001_baseline.py"
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    (workspace / "tests").mkdir()
+    (workspace / expected).write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    problems = kh.accept_gate_pre(hub, ts, workspace)
+    assert problems == ["V01 在基线上的 pytest 退出码是 5：只有 1 是用例失败（2 中断、3 内部错误、4 用法错误、5 没有用例）"]
+    assert not ts["oracle"]["locked"]  # 不锁进禁改路径
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+    def judge(**outcome):
+        _code, out = pd_with_baseline([], **outcome)(hub, ["baseline", "t001-doc.v1"])
+        return kh.hollow_baseline_problems(hub, out, expected)
+
+    assert judge() == [] and judge(summary="11 failed, 29 passed in 23.50s") == []  # T003 的基线就是这样
+    assert any("超时" in p for p in judge(timed_out=True))
+    for code in (0, 2, 3, 4):
+        assert any("退出码是 %d" % code in p for p in judge(exit_code=code))
+    assert any("2 个用例出错" in p for p in judge(summary="1 failed, 2 errors in 0.10s"))
+    assert any("没有失败的用例" in p for p in judge(summary="3 passed in 0.10s"))
+    assert judge(summary="（没有摘要行）") == []  # 读不到摘要，只看退出码
+    assert kh.hollow_baseline_problems(hub, "ok", expected) == ["baseline 没有留下检查记录，核对不了基准测试在基线上是怎样失败的"]
+    _code, out = pd_with_baseline([])(hub, ["baseline", "t001-doc.v1"])
+    assert kh.hollow_baseline_problems(hub, out, "tests/test_gate_t009_baseline.py") == [
+        "baseline 的检查记录里没有跑 tests/test_gate_t009_baseline.py 的检查"]
 
 
 def test_contract_with_pending_marks_is_rejected(tmp_path, monkeypatch):
@@ -1113,6 +1167,85 @@ def test_contract_requirements(tmp_path):
     contract["checks"][0]["expect_on_base"] = "pass"
     (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
     assert any("基线应失败" in p for p in kh.contract_requirements(hub, ts))
+
+
+def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypatch):
+    # 第 14 轮：T002 的合同没有回归检查，T003 的是合同端自愿写的；存量功能静默退化没有一道关拦
+    repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
+    (repo / "tests").mkdir()
+    for name in ("test_gate_t000_baseline.py", "test_gate_t001_baseline.py", "test_gate_t000_whitebox.py", "test_x.py"):
+        (repo / "tests" / name).write_text("def test_x():\n    pass\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "先前各片"], repo)
+    ts["base_head"] = kh.git(["rev-parse", "HEAD"], repo).strip()
+    assert kh.regression_gates(hub, ts) == ["tests/test_gate_t000_baseline.py"]  # 本任务自己的、白盒、别的测试不算
+    contract = json.loads((plans / "t001-doc.v1.json").read_text(encoding="utf-8"))
+    assert kh.contract_requirements(hub, ts) == [
+        "Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：tests/test_gate_t000_baseline.py"]
+    regression = {"id": "VR1", "argv": ["python", "-m", "pytest", "tests/test_gate_t000_baseline.py", "-q"],
+                  "expect_on_base": "pass", "required": True}
+    for check, ok in ((dict(regression, expect_on_base="fail"), False), (dict(regression, required=False), False),
+                      (regression, True)):
+        contract["checks"] = [contract["checks"][0], check]
+        (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
+        assert (kh.contract_requirements(hub, ts) == []) is ok, check
+    prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], repo)
+    assert "VR1（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q`" in prompt
+
+
+def test_mutations_must_cover_the_changed_files(tmp_path, monkeypatch):
+    # 第 14 轮：变异可以全打在无关紧要的地方，核心改动一条也不碰（docs/实际问题/审核端.md）
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(list(args)) or (0, "ok"))
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    run_dir = tmp_path / "attempt-001"
+    run_dir.mkdir()
+    files = [{"path": path, "status": status} for path, status in (
+        ("src/a.ts", "M"), ("src/b.css", "A"), ("fonts/x.woff2", "A"), ("old.txt", "D"), ("tests/test_x.py", "A"),
+        ("desktop/web/tests/x.test.tsx", "A"), ("src/c.spec.ts", "A"))]
+    (run_dir / "scope.json").write_text(json.dumps({"files": files}), encoding="utf-8")
+    ts = locked(make_ts())
+    ts["exec"] = {"run_dir": str(run_dir)}
+    ts["gate_post"] = {"ran": True}
+    spec = {"mutations": [{"name": "改坏", "file": "src/a.ts", "old": "a", "new": "b"}]}
+    assert kh.unmutated_problems(ts, spec, {}) == [
+        "执行端改动了这些文件，变异清单却一条也没打在上面：fonts/x.woff2、src/b.css。每个改动的文件至少一条变异；"
+        "确实没法变异的（例如二进制文件），在输出的 unmutated 里写 {\"file\": ..., \"reason\": ...}，终审会复核"]
+    stage_dir = hub.task_dir("T001-6-gate-post")
+    stage_dir.mkdir(parents=True)
+    problems = kh.run_mutations(hub, ts, tmp_path, stage_dir, {"mutation_spec": spec})
+    assert len(problems) == 1 and "fonts/x.woff2、src/b.css" in problems[0] and calls == []  # 没覆盖就不跑变异
+    blank = {"unmutated": [{"file": "fonts/x.woff2", "reason": " "}, {"file": "src/b.css", "reason": "只有注释"}]}
+    assert "fonts/x.woff2" in kh.unmutated_problems(ts, spec, blank)[0]  # 理由不能是空的
+    explained = {"unmutated": [{"file": "fonts/x.woff2", "reason": "二进制字体"}, {"file": "src/b.css", "reason": "只有注释"},
+                               {"file": "nope.txt", "reason": "没改过的文件不列"}]}
+    assert kh.unmutated_problems(ts, spec, explained) == []
+    assert ts["gate_post"]["unmutated"] == ["fonts/x.woff2：二进制字体", "src/b.css：只有注释"]
+    prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
+    assert "## 门禁端说没法变异的改动文件" in prompt and "- fonts/x.woff2：二进制字体" in prompt
+
+
+def test_stage_reworks_are_capped(engine_env):
+    # 第 14 轮：执行端有合同预算封顶，别的阶段没有，同一处可以无限返工（docs/实际问题/协调端.md 的返工乒乓）
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"] = locked(make_ts())
+    engine = kh.Engine(hub, FakeRunner([]))
+    letter = dict(fields(), to="contract-glm", task_id="T001-2-contract", type="返工", brief="# 改合同")
+    for count in (1, 2, 3):
+        ts["stages"]["2-contract"]["status"] = "failed"
+        assert engine.deliver_coordinator_letter(state, letter) is None and ts["reworks"] == {"2-contract": count}
+    ts["stages"]["2-contract"]["status"] = "failed"
+    assert "已经返工 3 次" in engine.deliver_coordinator_letter(state, letter)
+    ts["owner_rework"] = {"suffix": "2-contract"}  # 站主指定的照样放行，也不计数
+    assert engine.deliver_coordinator_letter(state, letter) is None and ts["reworks"] == {"2-contract": 3}
+    assert "owner_rework" not in ts and "2-contract 3 次" in kh.stage_status_table(hub, ts)
+    ts["reworks"]["5-exec"] = 9  # 执行端由合同预算封顶，不受这个上限
+    ts["audit_post"].update(verdict="返工", target="执行端")
+    assert kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
+    kh.invalidate_after(ts, "1-plan")  # 上游重新交付：下游的返工从头计
+    assert ts["reworks"] == {}
 
 
 # ---------------------------------------------------------------------------
