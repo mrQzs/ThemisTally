@@ -580,6 +580,149 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
 
 
+PYTEST_LOG = """\
+tests/test_w.py .F..sxFE                                                [100%]
+=================================== ERRORS ====================================
+_________________________ ERROR at setup of test_err __________________________
+---------------------------- Captured stdout call -----------------------------
+FAILED tests/fake.py::inside_capture - 用例自己打印的
+3 passed, 4 deselected in 0.01s
+=========================== short test summary info ===========================
+FAILED tests/test_w.py::test_probe[constructor] - AssertionError: assert 'con...
+FAILED tests/test_w.py::test_probe[a b] - AssertionError: x - y
+FAILED tests/test_w.py::TestK::test_m
+ERROR tests/test_w.py::test_err - RuntimeError: fixture
+3 failed, 2 passed, 1 skipped, 1 xfailed, 1 error, 2 warnings in 75.43s (0:01:15)
+"""
+
+
+def test_pytest_outcomes_reads_the_summary_not_the_captured_output(tmp_path):
+    log = tmp_path / "whitebox.log"
+    log.write_text(PYTEST_LOG, encoding="utf-8")
+    counts, failed, errored = kh.pytest_outcomes(log)
+    assert counts == {"failed": 3, "passed": 2, "skipped": 1, "xfailed": 1, "errors": 1, "warnings": 2}
+    assert failed == ["tests/test_w.py::test_probe[constructor]", "tests/test_w.py::test_probe[a b]",
+                      "tests/test_w.py::TestK::test_m"]
+    assert errored == ["tests/test_w.py::test_err"]
+    assert kh.defect_matches("test_probe", failed[1]) and kh.defect_matches("TestK::test_m", failed[2])
+    assert kh.defect_matches("test_probe[a b]", failed[1]) and not kh.defect_matches("test_probe[a b]", failed[0])
+    assert kh.defect_matches(failed[0], failed[0]) and not kh.defect_matches("test_m", failed[0])
+    assert not kh.defect_matches("probe", failed[0]) and not kh.defect_matches("test_w.py", failed[0])
+
+
+def test_gate_post_may_leave_the_candidate_red_with_evidence(tmp_path, monkeypatch):
+    # T002：战后门禁把 3 处合同违反标成 xfail(strict=True)，候选照样“通过”，靠终审才拦下来（第 9 轮）
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append(args[0])
+        out_dir = Path(args[args.index("--out") + 1])
+        out_dir.mkdir(parents=True)
+        (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")
+        return 0, "变异 1 条"
+
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=fake_pd)
+    ts["exec"] = {"run_dir": str(tmp_path / "attempt-001")}
+    workspace = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    ts["workspaces"]["post-attempt-001"]["baseline_status"] = []
+    target = workspace / "tests" / "test_gate_t001_whitebox.py"
+    target.parent.mkdir(parents=True)
+    spec = {"mutations": [{"name": "去掉检查", "file": "README.md", "old": "基线", "new": "x"}]}
+    defect = {"test": "test_probe", "contract": "任意状态码：原样显示，不报错", "where": "src/a.ts:83"}
+
+    def deliver(body, **output):
+        target.write_text("import pytest\n\n\ndef test_ok():\n    assert True\n\n\n" + body, encoding="utf-8")
+        return kh.accept_gate_post(hub, ts, workspace, dict(output, mutation_spec=spec))
+
+    probe = "@pytest.mark.parametrize('code', ['ok', 'constructor'])\ndef test_probe(code):\n    assert code == 'ok'\n"
+    problems = deliver("@pytest.mark.xfail(strict=True)\ndef test_known():\n    assert False\n")
+    assert any("1 个 xfailed" in p for p in problems) and not ts["gate_post"]["ok"]
+    assert ts["gate_post"]["whitebox_counts"] == {"passed": 1, "xfailed": 1}
+    assert any("1 个 skipped" in p for p in deliver("@pytest.mark.skip(reason='x')\ndef test_later():\n    pass\n"))
+    calls.clear()
+    assert deliver(probe, candidate_defects=[defect]) == []
+    assert ts["gate_post"]["defects"] == [defect] and ts["gate_post"]["ok"] is False
+    assert calls == [] and "mutate_record" not in ts["gate_post"]  # 候选是红的：变异检查不跑
+    assert ts["gate_post"]["whitebox_counts"] == {"failed": 1, "passed": 2}
+    assert "候选有 1 处缺陷" in kh.stage_status_table(hub, ts)
+    other = probe + "\n\ndef test_other():\n    assert False\n"
+    problems = deliver(other, candidate_defects=[defect])
+    assert problems == ["这些用例红了，candidate_defects 却没有列：tests/test_gate_t001_whitebox.py::test_other"
+                        "（白盒测试自己有错就改测试）"]
+    assert "defects" not in ts["gate_post"]
+    problems = deliver(probe, candidate_defects=[defect, dict(defect, test="test_ok")])
+    assert problems == ["candidate_defects 列的这些用例没有红：test_ok"]
+    problems = deliver(probe, candidate_defects=[dict(defect, contract=" ")])
+    assert any("第 1 条缺 contract" in p for p in problems) and "defects" not in ts["gate_post"]
+    assert any("候选不满足合同写明的行为时" in p for p in deliver(probe))  # 红了却没有举证
+    broken = probe + "\n\n@pytest.fixture\ndef env():\n    raise RuntimeError('x')\n\n\ndef test_env(env):\n    pass\n"
+    assert any("没有全部通过" in p for p in deliver(broken, candidate_defects=[defect]))  # 出错不是缺陷
+    problems = deliver("", candidate_defects=[defect])
+    assert any("可白盒测试在候选上全部通过" in p for p in problems) and calls == ["mutate"]
+    assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}) == [] and ts["gate_post"]["ok"]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_candidate_defects_go_to_the_final_review_which_cannot_pass_them(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    engine = kh.Engine(hub, FakeRunner([]))
+    ts = locked(make_ts())
+    ts["exec"].update(run_dir="r", check_ok=True)
+    defect = {"test": "test_probe", "contract": "任意状态码：原样显示，不报错", "where": "src/a.ts:83"}
+    ts["gate_post"] = {"ran": True, "ok": False, "defects": [defect], "whitebox_log": "w.log"}
+    assert kh.guard(ts, meta("开工", "jev-judge", "T001-6j-jev")) is None
+    ts["jev"]["6j-jev"] = {"status": "answered"}
+    assert kh.guard(ts, meta("开工", "audit-sonnet", "T001-7-audit-post")) is None
+    assert kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
+    passed = engine.verify_delivery(ts, "audit-sonnet", "7-audit-post", {"report": ""}, {"结论": "通过"})
+    assert len(passed) == 1 and "举证了 1 处候选缺陷，不能判通过" in passed[0]
+    assert engine.verify_delivery(ts, "audit-sonnet", "7-audit-post", {"report": ""},
+                                  {"结论": "返工", "退回": "执行端"}) == []
+    prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
+    assert "## 门禁端举证的候选缺陷" in prompt and "- `test_probe`：src/a.ts:83 —— 合同：任意状态码：原样显示，不报错" in prompt
+    assert "门禁端举证的候选缺陷" not in kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
+    letter = {"内核核验": "通过"}
+    engine.after_delivery(ts, "6-gate-post", letter)
+    assert letter["内核核验"].startswith("通过：门禁端举证了 1 处候选缺陷")
+    ts["gate_post"] = {"ran": True, "ok": False}
+    assert "战后门禁" in kh.guard(ts, meta("开工", "jev-judge", "T001-6j-jev"))
+    assert "战后门禁" in kh.guard(ts, meta("开工", "audit-sonnet", "T001-7-audit-post"))
+    assert "- 战后门禁：未通过" in kh.stage_status_table(hub, ts)
+    letter = {"内核核验": "通过"}
+    engine.after_delivery(ts, "6-gate-post", letter)
+    assert letter == {"内核核验": "通过"}
+    gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], tmp_path)
+    assert "candidate_defects" in gate and "不许用 xfail、skip 标掉" in gate
+    assert "xfail" in kh.role_prompt("gate-sonnet") and "候选缺陷" in kh.role_prompt("audit-sonnet")
+
+
+def test_runner_exits_between_steps_once_the_kernel_changes(tmp_path, monkeypatch):
+    # 第 9 轮：模板每回合现读、代码还是启动时那一份；落地新一轮改动之后，跑着的 hub 要在两步之间退出
+    import argparse
+    templates = tmp_path / "hub"
+    templates.mkdir()
+    (templates / "worker.md").write_text("旧模板", encoding="utf-8")
+    code = tmp_path / "kit_hub.py"
+    code.write_text("# 旧内核", encoding="utf-8")
+    first = kh.code_fingerprint(code, templates)
+    assert kh.code_fingerprint(code, templates) == first
+    (templates / "worker.md").write_text("新模板", encoding="utf-8")
+    second = kh.code_fingerprint(code, templates)
+    code.write_text("# 新内核", encoding="utf-8")
+    assert len({first, second, kh.code_fingerprint(code, templates)}) == 3
+    assert kh.code_fingerprint() == kh.code_fingerprint(Path(kh.__file__), kh.TEMPLATE_DIR)
+    repo, _head = git_repo(tmp_path)
+    seen = iter(["a", "a", "a", "b", "b"])
+    monkeypatch.setattr(kh, "code_fingerprint", lambda *args: next(seen))
+    steps = []
+    monkeypatch.setattr(kh.Engine, "step", lambda self: steps.append(1) or True)
+    assert kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0)) == kh.EXIT_OK
+    assert len(steps) == 2  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b，退出
+    events = [json.loads(line)["event"] for line in kh.Hub(repo).ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e for e in events if e.startswith("runner.")] == ["runner.started", "runner.code_changed", "runner.stopped"]
+
+
 def test_tail_file_reads_only_the_end(tmp_path):
     path = tmp_path / "big.log"
     path.write_bytes(b"".join(b"line %d\n" % i for i in range(400000)))  # 约 5 MiB

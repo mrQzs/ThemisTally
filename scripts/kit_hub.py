@@ -126,6 +126,15 @@ CONTRACT_EXECUTOR_LINE = "- executor: %s/%s · thinking %s" % EXECUTOR
 HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
+def code_fingerprint(code: Optional[Path] = None, templates: Optional[Path] = None) -> str:
+    """内核代码与提示词模板的指纹。落地新一轮改动之后，跑着的 hub 在两步之间退出（第 9 轮）：
+    模板每回合现读，代码却还是启动时那一份，新模板配旧内核，工人会交出旧内核不认的东西。"""
+    digest = hashlib.sha256((code or Path(__file__)).read_bytes())
+    for path in sorted((templates or TEMPLATE_DIR).glob("*.md")):
+        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes())
+    return digest.hexdigest()
+
+
 class HubError(Exception):
     def __init__(self, message: str, code: int = EXIT_FAIL) -> None:
         super().__init__(message)
@@ -515,10 +524,11 @@ def _guard_start(ts: Dict[str, Any], suffix: str) -> Optional[str]:
         return None
     if suffix == "6-gate-post":
         return None if ts["exec"].get("check_ok") else "执行端的检查还没全部通过（check --fresh 与范围门禁）"
+    # 战后门禁举证了候选缺陷，也照样进 JEV 与终审：终审裁定缺陷成不成立，并把阻塞项一次列全（attempt 有限）
     if suffix == "6j-jev":
-        return None if ts["gate_post"].get("ok") else "战后门禁还没全部通过"
+        return None if ts["gate_post"].get("ok") or ts["gate_post"].get("defects") else "战后门禁还没全部通过"
     if suffix == "7-audit-post":
-        if not ts["gate_post"].get("ok"):
+        if not (ts["gate_post"].get("ok") or ts["gate_post"].get("defects")):
             return "战后门禁还没全部通过"
         if ts.get("jev_enabled") and "6j-jev" not in ts["jev"]:
             return "JEV 已启用，还没有执行概述的判断（6j-jev）"
@@ -1250,36 +1260,127 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
     (stage_dir / "evidence").mkdir(parents=True, exist_ok=True)
     whitebox_log = stage_dir / "evidence" / ("whitebox-%s.log" % utc_compact())
     with open(whitebox_log, "xb") as log:  # Job Object 监督：超时连同子进程一起清掉；输出进文件，不整份读进内存
-        result = pd.run_supervised(KERNEL_PYTEST + [expected, "-q"], workspace, kernel_pytest_env(), log, log, 1800)
+        result = pd.run_supervised(KERNEL_PYTEST + [expected, "-q", "-rfE"], workspace, kernel_pytest_env(), log, log,
+                                   1800)
     whitebox_tail = tail_file(whitebox_log, 15)
     ts["gate_post"]["whitebox_exit"] = result.get("exit_code")
     ts["gate_post"]["whitebox_tail"] = whitebox_tail
     ts["gate_post"]["whitebox_log"] = whitebox_log.relative_to(hub.repo).as_posix()
+    counts, failed, errored = pytest_outcomes(whitebox_log)
+    ts["gate_post"]["whitebox_counts"] = counts
     problems: List[str] = []
-    if result.get("exit_code") != 0 or result.get("timed_out"):
-        problems.append("白盒测试在候选上没有全部通过%s：\n%s" % ("（超时）" if result.get("timed_out") else "",
-                                                             whitebox_tail))
+    soft = ["%d 个 %s" % (counts[name], name) for name in SOFT_OUTCOMES if counts.get(name)]
+    if soft:
+        problems.append("白盒测试里有 %s：不许用 xfail、skip 标掉失败。合同写明的行为候选不满足，就让测试红着、写进 "
+                        "candidate_defects；合同本身没说清的不写断言，写进“需协调人决定”" % "、".join(soft))
+    defects, defect_problems = candidate_defects(output)
+    problems.extend(defect_problems)
+    if result.get("exit_code") == 0 and not result.get("timed_out"):
+        if defects:
+            problems.append("candidate_defects 列了 %d 条，可白盒测试在候选上全部通过：每处缺陷要有一条红的测试证明"
+                            % len(defects))
+        problems.extend(run_mutations(hub, ts, workspace, stage_dir, output))
+    elif result.get("exit_code") == 1 and not result.get("timed_out") and failed and not errored and defects:
+        # 门禁端举证候选有缺陷（第 9 轮）：红的正好是它列的那几条才算数；变异检查不跑，mutate 要求测试在候选上是绿的
+        problems.extend(defect_match_problems(defects, failed))
+        if not problems:
+            ts["gate_post"]["defects"] = defects
+    else:
+        problems.append("白盒测试在候选上没有全部通过%s（候选不满足合同写明的行为时，在 candidate_defects 里逐条写明"
+                        "红的用例）：\n%s" % ("（超时）" if result.get("timed_out") else "", whitebox_tail))
+    ts["gate_post"]["ok"] = not problems and not ts["gate_post"].get("defects")
+    return problems
+
+
+def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path,
+                  output: Dict[str, Any]) -> List[str]:
     spec = output.get("mutation_spec")
     if not isinstance(spec, dict) or not spec.get("mutations"):
-        problems.append("输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）")
-    else:
-        spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
-        spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-        # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
-        out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
-        code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
-                           timeout=3600)
-        try:
-            record = json.loads(read_text(out_dir / "mutations.json") or "{}")
-        except ValueError:
-            record = {}
-        ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_spec=str(spec_path),
-                               mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
-                               mutation_counts=record.get("counts"),
-                               equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
-                                           if isinstance(m, dict) and m.get("equivalent")])
-        problems.extend(mutation_problems(code, record, out))
-    ts["gate_post"]["ok"] = not problems
+        return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）"]
+    spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
+    out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
+    code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
+                       timeout=3600)
+    try:
+        record = json.loads(read_text(out_dir / "mutations.json") or "{}")
+    except ValueError:
+        record = {}
+    ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_spec=str(spec_path),
+                           mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
+                           mutation_counts=record.get("counts"),
+                           equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
+                                       if isinstance(m, dict) and m.get("equivalent")])
+    return mutation_problems(code, record, out)
+
+
+#: 白盒测试的结果里不许出现的几种：T002 的战后门禁把 3 处合同违反标成 xfail(strict=True)，候选照样“通过”（第 9 轮）
+SOFT_OUTCOMES = ("xfailed", "xpassed", "skipped")
+PYTEST_SUMMARY_RE = re.compile(r"^=*\s*((?:\d+ [a-z]+(?:, )?)+) in [\d.]+s")
+PYTEST_REPORT_RE = re.compile(r"^(FAILED|ERROR) (.+?)(?: - .*)?$")
+
+
+def pytest_outcomes(log_path: Path) -> Tuple[Dict[str, int], List[str], List[str]]:
+    """读 pytest -q -rfE 的输出：各类结果的计数，以及失败与出错的用例。逐行读，不整份读进内存；
+    失败用例只认 short test summary info 之后的行（用例自己打印的输出里也可能有 FAILED 开头的行）。"""
+    counts: Dict[str, int] = {}
+    failed: List[str] = []
+    errored: List[str] = []
+    in_summary = False
+    with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            line = raw.rstrip("\r\n")
+            if re.match(r"^=+ short test summary info =+$", line):
+                in_summary = True
+                continue
+            match = PYTEST_SUMMARY_RE.match(line)
+            if match:
+                counts = {}
+                for item in match.group(1).split(", "):
+                    number, name = item.split(" ", 1)
+                    counts[{"error": "errors", "warning": "warnings"}.get(name, name)] = int(number)
+                continue
+            report = PYTEST_REPORT_RE.match(line) if in_summary else None
+            if report:
+                (failed if report.group(1) == "FAILED" else errored).append(report.group(2))
+    return counts, failed, errored
+
+
+def candidate_defects(output: Dict[str, Any]) -> Tuple[List[Dict[str, str]], List[str]]:
+    """门禁端举证的候选缺陷：每条写红的用例、合同原文与候选的位置。"""
+    items = output.get("candidate_defects")
+    if not items:
+        return [], []
+    if not isinstance(items, list):
+        return [], ["candidate_defects 要是列表：[{\"test\", \"contract\", \"where\"}]"]
+    defects: List[Dict[str, str]] = []
+    problems: List[str] = []
+    for index, item in enumerate(items, 1):
+        entry = {key: str(item.get(key) or "").strip() for key in ("test", "contract", "where")} \
+            if isinstance(item, dict) else {}
+        missing = [key for key in ("test", "contract", "where") if not entry.get(key)]
+        if missing:
+            problems.append("candidate_defects 第 %d 条缺 %s" % (index, "、".join(missing)))
+        else:
+            defects.append(entry)
+    return defects, problems
+
+
+def defect_matches(declared: str, nodeid: str) -> bool:
+    """用例可以写完整 node id、去掉文件的部分（Class::test_x[参数]）或函数名（覆盖它的全部参数）。"""
+    return declared == nodeid or nodeid.endswith("::" + declared) or nodeid.split("::")[-1].split("[")[0] == declared
+
+
+def defect_match_problems(defects: List[Dict[str, str]], failed: List[str]) -> List[str]:
+    problems: List[str] = []
+    undeclared = [node for node in failed if not any(defect_matches(d["test"], node) for d in defects)]
+    if undeclared:
+        problems.append("这些用例红了，candidate_defects 却没有列：%s（白盒测试自己有错就改测试）"
+                        % "、".join(undeclared[:10]))
+    unshown = [d["test"] for d in defects if not any(defect_matches(d["test"], node) for node in failed)]
+    if unshown:
+        problems.append("candidate_defects 列的这些用例没有红：%s" % "、".join(unshown[:10]))
     return problems
 
 
@@ -1549,7 +1650,8 @@ ROLE_EXTRA_OUTPUT = {
     "gate": '战后模式另加 "mutation_spec": {"commands": [{"id": "W1", "argv": ["python", "-m", "pytest", "<文件>", "-q"]}], '
             '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}；'
             '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
-            '其余每条都必须被抓住',
+            '其余每条都必须被抓住；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
+            '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec）',
     "audit": 'letter 里另加 "结论": "通过|返工"；返工时再加 "退回": "合同端|门禁端|战后门禁|执行端|规划端"'
              '（一审只能退回规划端、合同端、门禁端）与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的>"',
 }
@@ -1576,7 +1678,10 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
         "- 一审：%s；终审：%s" % (ts["audit_pre"].get("verdict") or "无", ts["audit_post"].get("verdict") or "无"),
         "- 执行：%s" % (("check 通过" if ts["exec"].get("check_ok") else "check 未通过")
                         if ts["exec"].get("run_dir") else "未开始"),
-        "- 战后门禁：%s" % (("通过" if ts["gate_post"].get("ok") else "未通过") if ts["gate_post"].get("ran") else "未开始"),
+        "- 战后门禁：%s" % (("通过" if ts["gate_post"].get("ok") else
+                             "候选有 %d 处缺陷（门禁端举证），待终审裁定" % len(ts["gate_post"]["defects"])
+                             if ts["gate_post"].get("defects") else "未通过")
+                            if ts["gate_post"].get("ran") else "未开始"),
         "- JEV：%s" % ("启用" if ts.get("jev_enabled") else "未启用"),
     ]
     if (ts.get("external_facts") or {}).get("pending"):
@@ -1658,6 +1763,12 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if stage == "7-audit-post" and ts["gate_post"].get("mutate_record"):
                 parts += ["", "- 内核的变异记录（逐条结果）：%s" % (hub.repo / ts["gate_post"]["mutate_record"]),
                           "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
+            if stage == "7-audit-post" and ts["gate_post"].get("defects"):
+                parts += ["", "## 门禁端举证的候选缺陷（逐条裁定：成立的写进阻塞项、退回执行端；"
+                          "不成立的——白盒测试误读了合同——退回战后门禁；有缺陷时不能判通过）", "",
+                          "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))] + [
+                    "- `%s`：%s —— 合同：%s" % (d["test"], d["where"], d["contract"])
+                    for d in ts["gate_post"]["defects"]]
             if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
                 parts += ["", "## 门禁端声明的等价变异（逐条复核：改了真的测不出来吗）", ""] + [
                     "- " + item for item in ts["gate_post"]["equivalent"]]
@@ -1687,7 +1798,8 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                       "- 只新增 `%s` 这一个文件，不改动任何已有文件；在工作目录里写。" % target,
                       "- 用 `python -m pytest %s -q` 自己跑一遍：%s。" % (
                           target, "战前的基准测试应当在当前基线上失败（目标功能还没实现）" if stage == "3-gate-pre"
-                          else "战后的白盒测试应当在候选上全部通过")]
+                          else "战后的白盒测试在候选上应当全部通过；候选不满足合同写明的行为时让它红着，"
+                               "红的用例逐条写进 candidate_defects。不许用 xfail、skip 标掉")]
     parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
               "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     if role in ROLE_EXTRA_OUTPUT:
@@ -1982,6 +2094,9 @@ class Engine:
                 return ["审核结论缺失"]
             if suffix == "4-audit-pre":
                 return dod_coverage_problems(self.hub, ts, str(output.get("report") or ""))
+            if fields.get("结论") == "通过" and ts["gate_post"].get("defects"):
+                return ["战后门禁举证了 %d 处候选缺陷，不能判通过：成立的退回执行端，不成立（白盒测试误读合同）的"
+                        "退回战后门禁" % len(ts["gate_post"]["defects"])]
         return []
 
     def after_delivery(self, ts: Dict[str, Any], suffix: str, fields: Dict[str, str],
@@ -2002,6 +2117,9 @@ class Engine:
                                   "需协调人决定": "请站主逐条核实，用 kit_hub.py send %s --type 回复 --facts-checked "
                                                   "写明每条的结果" % ts["task"],
                                   "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % ts["task"]})
+        if suffix == "6-gate-post" and ts["gate_post"].get("defects"):
+            fields["内核核验"] = ("通过：门禁端举证了 %d 处候选缺陷，白盒测试正好红在这几条上；变异检查没跑（候选是红的）。"
+                              "下一步照常开工终审，由终审裁定并一次列全阻塞项" % len(ts["gate_post"]["defects"]))
         if suffix in ("4-audit-pre", "7-audit-post"):
             # 不随 invalidate_after 清掉：返工之后的下一轮审核要拿上一轮的阻塞项来复核（复审封板）
             ts.setdefault("audit_history", []).append({
@@ -2221,10 +2339,15 @@ def cmd_run(args: argparse.Namespace) -> int:
     hub.ensure()
     engine = Engine(hub)
     turns = 0
+    fingerprint = code_fingerprint()
     with DirLock(hub.root / ".runner", wait_seconds=1.0):
         hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256)
         idle_since = time.monotonic()
         while turns < args.max_steps:
+            if code_fingerprint() != fingerprint:
+                hub.append_event("runner.code_changed", pid=os.getpid(), steps=turns)
+                print("内核代码或提示词模板变了：hub 在两步之间退出，请用新代码重启")
+                break
             pending = hub.load_state()
             passes = [p for p in hub.unread("exec-step")
                       if parse_letter(read_text(p))[0].get("type") == "通过"]
