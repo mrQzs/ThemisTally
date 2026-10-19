@@ -138,6 +138,105 @@ describe('token-contract 逐类违规失败', () => {
   });
 });
 
+// T002 终审 B2–B4 的回归用例。
+const PRIMITIVES = ':root {\n  --tt-bg: #ffffff;\n  --tt-a: #000000;\n  --tt-gray-1: #f5f5f5;\n  --tt-navy-500: #1f2a44;\n  --tt-gold-500: #c9a227;\n}\n';
+
+describe('token-contract 令牌名不是命名颜色（B2）', () => {
+  it('CSS 引用 gray / navy / gold 原色令牌通过', () => {
+    writeTokens(PRIMITIVES);
+    writeSrc(
+      'primitives.css',
+      '.a { color: var(--tt-gray-1); background: var(--tt-navy-500); border: 1px solid var(--tt-gold-500); }\n',
+    );
+    const r = run('.', 'tokens.css');
+    expect(r.stdout).not.toContain('写死颜色');
+    expect(r.code).toBe(0);
+  });
+
+  it('TSX style 里引用原色令牌通过', () => {
+    writeTokens(PRIMITIVES);
+    writeSrc('primitives.tsx', "export const el = <div style={{ color: 'var(--tt-gray-1)' }} />;\n");
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(0);
+  });
+
+  it('var() 回退值里的命名颜色仍判违规', () => {
+    writeTokens(PRIMITIVES);
+    writeSrc('fallback.css', '.a { color: var(--tt-a, red); }\n.b { box-shadow: 0 0 0 1px var(--tt-a), 0 1px black; }\n');
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain('fallback.css:1: 写死颜色: red');
+    expect(r.stdout).toContain('fallback.css:2: 写死颜色: black');
+  });
+});
+
+describe('token-contract 多行写法（B3）', () => {
+  it('多行 style={{…}} 里的命名颜色判违规，行号是颜色所在行', () => {
+    writeTokens();
+    writeSrc('multi.tsx', "export const el = (\n  <div\n    style={{\n      color: 'red',\n      width: 3,\n    }}\n  />\n);\n");
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout.trim()).toMatch(/multi\.tsx:4: 写死颜色: red$/);
+  });
+
+  it('CSS 声明跨行时的命名颜色判违规', () => {
+    writeTokens();
+    writeSrc('multi.css', '.a {\n  box-shadow:\n    0 0 0 1px red;\n}\n');
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout.trim()).toMatch(/multi\.css:3: 写死颜色: red$/);
+  });
+
+  it('颜色函数名与括号不在同一行时不判（文字里的“color⏎(…)”不是颜色）', () => {
+    writeTokens();
+    writeSrc('text.tsx', 'export const el = (\n  <p>\n    choose a color\n    (any)\n  </p>\n);\n');
+    const r = run('.', 'tokens.css');
+    expect(r.stdout).not.toContain('写死颜色');
+    expect(r.code).toBe(0);
+  });
+
+  it('选择器里的伪类不是声明，跨行的选择器列表也一样', () => {
+    writeTokens();
+    writeSrc(
+      'selectors.css',
+      '.btn-color:hover,\n.tag-red {\n  color: var(--tt-fg);\n}\n.fill:hover, .icon-white { color: var(--tt-fg); }\n',
+    );
+    const r = run('.', 'tokens.css');
+    expect(r.stdout).not.toContain('写死颜色');
+    expect(r.code).toBe(0);
+  });
+
+  it('嵌套规则之后的声明照样判', () => {
+    writeTokens();
+    writeSrc('nested.css', '.a {\n  .b { color: var(--tt-fg); }\n  color: red;\n}\n');
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout.trim()).toMatch(/nested\.css:3: 写死颜色: red$/);
+  });
+
+  it('单行的行号与输出顺序不变', () => {
+    writeTokens();
+    writeSrc('order.css', '.ok { color: var(--tt-fg); }\n.a { color: red; background: #fff; border-color: var(--tt-x); }\n');
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout.trim().split('\n').map((l) => l.replace(/^.*order\.css:/, ''))).toEqual([
+      '2: 写死颜色: #fff',
+      '2: 写死颜色: red',
+      '2: 未定义变量: --tt-x',
+    ]);
+  });
+});
+
+describe('token-contract 组件里重写令牌（B4）', () => {
+  it('组件 CSS 里声明已定义的 --tt-* 判违规，引用照常通过', () => {
+    writeTokens();
+    writeSrc('override.css', '.a { --tt-bg: 1px; }\n.b { color: var(--tt-bg); }\n');
+    const r = run('.', 'tokens.css');
+    expect(r.code).toBe(1);
+    expect(r.stdout.trim()).toMatch(/override\.css:1: 未定义变量: --tt-bg$/);
+  });
+});
+
 describe('token-contract 路径缺失报错', () => {
   it('源码目录不存在：非 0 退出', () => {
     writeTokens();

@@ -80,8 +80,9 @@ export interface ResolvedAttemptState extends AttemptStateInfo {
 }
 
 export function resolveAttemptState(code: string): ResolvedAttemptState {
-  const known = ATTEMPT_STATES[code];
-  if (known) {
+  // 只认自有键：constructor、toString 这类状态码会从原型链上取到函数，被当成已知状态而崩溃。
+  if (Object.hasOwn(ATTEMPT_STATES, code)) {
+    const known = ATTEMPT_STATES[code];
     return { ...known, display: known.label, known: true };
   }
   return { ...FALLBACK_STATE, display: code, known: false };

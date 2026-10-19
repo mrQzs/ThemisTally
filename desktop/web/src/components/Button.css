@@ -11,9 +11,9 @@
 .tt-btn:disabled { cursor: not-allowed; }
 
 /* 尺寸：高 28 / 32 / 36 */
-.tt-btn--sm { height: 28px; padding: 0 12px; font: var(--tt-text-sm-medium); }
-.tt-btn--md { height: 32px; padding: 0 16px; font: var(--tt-text-md-medium); }
-.tt-btn--lg { height: 36px; padding: 0 16px; font: var(--tt-text-md-medium); }
+.tt-btn--sm { height: 28px; padding: 0 var(--tt-space-3); font: var(--tt-text-sm-medium); }
+.tt-btn--md { height: 32px; padding: 0 var(--tt-space-4); font: var(--tt-text-md-medium); }
+.tt-btn--lg { height: 36px; padding: 0 var(--tt-space-4); font: var(--tt-text-md-medium); }
 
 /* primary */
 .tt-btn--primary { background: var(--tt-primary); color: var(--tt-on-primary); }

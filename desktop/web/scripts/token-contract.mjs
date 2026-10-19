@@ -36,7 +36,8 @@ const NAMED_COLORS = [
 
 const NAMED_COLOR_RE = new RegExp('\\b(?:' + NAMED_COLORS.join('|') + ')\\b', 'i');
 const HEX_RE = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/g;
-const COLOR_FUNC_RE = /\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\s*\(/gi;
+// 函数名与括号之间只认空格与制表符：整份文本扫描时 \s 会跨行，“a color⏎(any)”这类文字会被误报，片段里还带换行。
+const COLOR_FUNC_RE = /\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)[ \t]*\(/gi;
 const TT_TOKEN_RE = /--tt-[a-zA-Z0-9_-]+/g;
 const TT_DECL_RE = /--tt-[a-zA-Z0-9_-]+(?=\s*:)/g;
 
@@ -92,63 +93,94 @@ function collectDefined(tokensPath) {
   return defined;
 }
 
-function scanCssLine(line, defined, push) {
-  // 规则 2：十六进制与颜色函数（任意取值均判）。
-  HEX_RE.lastIndex = 0;
-  let h;
-  while ((h = HEX_RE.exec(line)) !== null) push('写死颜色', h[0]);
-  COLOR_FUNC_RE.lastIndex = 0;
-  let c;
-  while ((c = COLOR_FUNC_RE.exec(line)) !== null) push('写死颜色', c[0]);
-
-  // 规则 2：命名颜色，仅当作为颜色类属性的取值。
-  const declRe = /([a-zA-Z-]+)\s*:\s*([^;{}]+)/g;
-  let d;
-  while ((d = declRe.exec(line)) !== null) {
-    if (!isColorProp(d[1])) continue;
-    const nm = NAMED_COLOR_RE.exec(d[2]);
-    if (nm) push('写死颜色', nm[0]);
-  }
-
-  // 规则 1：未定义变量。
-  scanUndefined(line, defined, push);
+// 取值里的自定义属性名（--tt-gray-1 之类）换成等长空白：名字里的 gray / navy / gold 不是命名颜色；
+// var() 回退值里的命名颜色照样判（var(--tt-a, red) 仍是写死颜色）。
+function maskCustomProps(value) {
+  return value.replace(/--[A-Za-z0-9_-]+/g, (m) => ' '.repeat(m.length));
 }
 
-function scanTsxLine(line, defined, push) {
-  // 规则 2：十六进制（字符串里同样识别）与颜色函数。
+// 整份文本扫描：声明与 style={{…}} 对象都可能跨行，按偏移量换算行号。
+// push(offset, phase, rule, snippet)：phase 决定同一行里的输出顺序（十六进制、颜色函数、命名颜色、变量）。
+function scanColorLiterals(text, push) {
   HEX_RE.lastIndex = 0;
   let h;
-  while ((h = HEX_RE.exec(line)) !== null) push('写死颜色', h[0]);
+  while ((h = HEX_RE.exec(text)) !== null) push(h.index, 0, '写死颜色', h[0]);
   COLOR_FUNC_RE.lastIndex = 0;
   let c;
-  while ((c = COLOR_FUNC_RE.exec(line)) !== null) push('写死颜色', c[0]);
+  while ((c = COLOR_FUNC_RE.exec(text)) !== null) push(c.index, 1, '写死颜色', c[0]);
+}
 
+function scanCssNamedColors(text, push) {
+  // 规则 2：命名颜色，仅当作为颜色类属性的取值。声明只出现在 {、;、} 或文件开头之后：
+  // 选择器里的伪类（.btn-color:hover,⏎.tag-red {）不是声明。
+  const declRe = /(?:^|[{};])\s*([a-zA-Z-]+)\s*:\s*([^;{}]+)/g;
+  let d;
+  while ((d = declRe.exec(text)) !== null) {
+    if (!isColorProp(d[1])) continue;
+    const nm = NAMED_COLOR_RE.exec(maskCustomProps(d[2]));
+    if (nm) push(d.index + d[0].length - d[2].length + nm.index, 2, '写死颜色', nm[0]);
+  }
+}
+
+function scanTsxNamedColors(text, push) {
   // 规则 2：命名颜色，只在 style={{ ... }} 对象里、且键为颜色类属性时判定。
   const styleRe = /style=\{\{([^}]*)\}\}/g;
   let s;
-  while ((s = styleRe.exec(line)) !== null) {
+  while ((s = styleRe.exec(text)) !== null) {
+    const body = s.index + 'style={{'.length;
     const pairRe = /([A-Za-z_$][\w$]*)\s*:\s*(['"])([^'"]*)\2/g;
     let p;
     while ((p = pairRe.exec(s[1])) !== null) {
       if (!isColorProp(p[1])) continue;
-      const nm = NAMED_COLOR_RE.exec(p[3]);
-      if (nm) push('写死颜色', nm[0]);
+      const nm = NAMED_COLOR_RE.exec(maskCustomProps(p[3]));
+      if (nm) push(body + p.index + p[0].length - 1 - p[3].length + nm.index, 2, '写死颜色', nm[0]);
     }
   }
-
-  // 规则 1：未定义变量。
-  scanUndefined(line, defined, push);
 }
 
-function scanUndefined(line, defined, push) {
-  TT_TOKEN_RE.lastIndex = 0;
-  const seen = new Set();
-  let m;
-  while ((m = TT_TOKEN_RE.exec(line)) !== null) {
-    if (defined.has(m[0]) || seen.has(m[0])) continue;
-    seen.add(m[0]);
-    push('未定义变量', m[0]);
+function scanVariables(text, defined, isCss, push) {
+  // 规则 1：未定义变量；CSS 里 --tt-x: 的声明不论令牌里有没有定义都算违规（在组件里自行定义）。
+  let start = 0;
+  for (const line of text.split('\n')) {
+    TT_TOKEN_RE.lastIndex = 0;
+    const seen = new Set();
+    let m;
+    while ((m = TT_TOKEN_RE.exec(line)) !== null) {
+      const declared = isCss && /^\s*:/.test(line.slice(m.index + m[0].length));
+      if ((defined.has(m[0]) && !declared) || seen.has(m[0])) continue;
+      seen.add(m[0]);
+      push(start + m.index, 3, '未定义变量', m[0]);
+    }
+    start += line.length + 1;
   }
+}
+
+function lineStarts(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') starts.push(i + 1);
+  return starts;
+}
+
+function lineOf(starts, offset) {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+function scanFile(text, defined, isTsx) {
+  const starts = lineStarts(text);
+  const found = [];
+  const push = (offset, phase, rule, snippet) => found.push({ line: lineOf(starts, offset), phase, offset, rule, snippet });
+  scanColorLiterals(text, push);
+  if (isTsx) scanTsxNamedColors(text, push);
+  else scanCssNamedColors(text, push);
+  scanVariables(text, defined, !isTsx, push);
+  return found.sort((a, b) => a.line - b.line || a.phase - b.phase || a.offset - b.offset);
 }
 
 function main(argv) {
@@ -186,13 +218,8 @@ function main(argv) {
   for (const file of files) {
     const isTsx = extname(file) === '.tsx' || extname(file) === '.ts';
     const rel = relative(process.cwd(), file).split('\\').join('/');
-    const lines = stripBlockComments(readFileSync(file, 'utf8')).split(/\r?\n/);
-    lines.forEach((line, idx) => {
-      const lineNo = idx + 1;
-      const push = (rule, snippet) => violations.push(`${rel}:${lineNo}: ${rule}: ${snippet}`);
-      if (isTsx) scanTsxLine(line, defined, push);
-      else scanCssLine(line, defined, push);
-    });
+    const text = stripBlockComments(readFileSync(file, 'utf8'));
+    for (const v of scanFile(text, defined, isTsx)) violations.push(`${rel}:${v.line}: ${v.rule}: ${v.snippet}`);
   }
 
   if (violations.length > 0) {

@@ -2,11 +2,11 @@
 .tt-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--tt-space-1);
   border-radius: var(--tt-radius-sm);
   white-space: nowrap;
 }
-.tt-status--md { height: 22px; padding: 0 8px; font: var(--tt-text-sm-medium); }
+.tt-status--md { height: 22px; padding: 0 var(--tt-space-2); font: var(--tt-text-sm-medium); }
 .tt-status--sm { height: 20px; padding: 0 6px; font: var(--tt-text-caption-strong); }
 
 .tt-status[data-tone="neutral"] { background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); }

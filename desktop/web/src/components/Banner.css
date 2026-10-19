@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px 10px 14px;
+  padding: 10px var(--tt-space-3) 10px 14px;
   border-radius: var(--tt-radius-md);
   font: var(--tt-text-sm);
 }
