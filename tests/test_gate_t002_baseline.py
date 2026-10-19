@@ -19,7 +19,7 @@ base_sha），那时 ``desktop/web`` 还不存在，所以本文件在基线上�
 测试名里的 G1–G10 对应规划报告 §4.5 的断言编号，docstring 写明对应的合同条款与 DoD：
 
 - D01（四步通过、令牌逐项相等、5 个组件与陈列页就位）：G1–G8、G10；
-- D02（范围）：``test_d02_*`` 做能机械检查的部分（相对基线的改动只落在允许集合内），其余由内核的范围检查证明；
+- D02（范围）：由内核的范围检查证明。原来的 ``test_d02_changes_stay_inside_allowed_set`` 断言“相对基线的改动只落在允许集合内”，T002 结项时由站主退役：集成之后分支上有别的提交（内核第 7–10 轮）和用户未提交的文件，它在末端上必然失败；
 - D03（没有删除、跳过、弱化既有测试）：``test_d03_*`` 做能机械检查的部分（既有测试文件不动、新测试不跳过），
   “有没有弱化”由终审读差异判断；
 - D04（契约检查脚本真检查）：G9；
@@ -1578,33 +1578,8 @@ def test_g10_component_probe(pipeline):
 
 
 # ---------------------------------------------------------------------------
-# D02 / D03 能机械检查的部分
+# D03 能机械检查的部分
 # ---------------------------------------------------------------------------
-
-def _changed_since_base():
-    verify = git("rev-parse", "--verify", f"{BASE_SHA}^{{commit}}")
-    assert verify.returncode == 0, f"仓库里没有基线提交 {BASE_SHA[:7]}：{verify.stderr.decode('utf-8', 'replace')}"
-    diff = git("diff", "--name-status", "-z", "--no-renames", BASE_SHA, check=True)
-    parts = [p for p in diff.stdout.decode("utf-8", "replace").split("\0") if p != ""]
-    changes = list(zip(parts[0::2], parts[1::2]))
-    untracked = git("ls-files", "--others", "--exclude-standard", "-z", check=True)
-    changes += [("A", p) for p in untracked.stdout.decode("utf-8", "replace").split("\0") if p]
-    return changes
-
-
-def test_d02_changes_stay_inside_allowed_set():
-    """D02（合同 Scope）：相对基线的改动只落在 .gitignore、desktop/web/**（外加内核自己写的 .agent/** 与门禁文件）之内，
-    没有删除；docs、scripts、既有 tests、规则文件与各工具目录不动。完整的范围核对仍由内核的范围检查证明。"""
-    changes = _changed_since_base()
-    bad = []
-    for status, path in changes:
-        allowed = (path == ".gitignore" or path.startswith("desktop/web/") or path.startswith(".agent/")
-                   or re.fullmatch(r"tests/test_gate_t002_[^/]*\.py", path))
-        if status == "D" or not allowed:
-            bad.append(f"{status} {path}")
-    assert not bad, "有改动落在允许集合之外或有删除：\n" + "\n".join(bad[:30])
-    assert any(p.startswith("desktop/web/") for _s, p in changes), "相对基线没有任何 desktop/web/ 改动（基线上目标尚未实现）"
-
 
 def test_d03_new_tests_not_skipped():
     """D03（合同 Forbidden）：desktop/web 新增的测试里没有 skip、todo、only。弱化既有测试由终审读差异判断。"""
