@@ -379,8 +379,11 @@ def test_cat_reads_are_bounded(tmp_path):
     def stale_lstat(path, *args, **kwargs):  # 检查大小时文件还小，读的时候已经变大
         info = real_lstat(path, *args, **kwargs)
         if str(path).endswith("log.txt"):
+            # Python 3.12 在 Windows 上的 os.path.isjunction 是纯 Python 实现，要读 lstat 的 st_reparse_tag
             return types.SimpleNamespace(st_mode=info.st_mode, st_size=10, st_mtime_ns=info.st_mtime_ns,
-                                         st_ino=info.st_ino)
+                                         st_ino=info.st_ino,
+                                         st_reparse_tag=getattr(info, "st_reparse_tag", 0),
+                                         st_file_attributes=getattr(info, "st_file_attributes", 0))
         return info
 
     with mock.patch.object(kit_logs, "SAFE_MAX_TEXT_BYTES", 1024 * 1024), \

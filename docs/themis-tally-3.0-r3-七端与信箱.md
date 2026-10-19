@@ -14,6 +14,8 @@
 | 6 | GLM-5.3 在配置上仍要求 max；Pi 实际只给 high 时，如实记 `requested: max / effective: high` | 补充决定 |
 | 7 | advisor 与插件两个口子：启动参数封堵，加内核事后审计（白名单外的工具调用使本回合作废） | 补充决定 |
 | 8 | 不走 2gate，边跑边改 | “不走2gate”“直接这一套流程在执行的时候不断迭代完善” |
+| 9 | 自我迭代时参考 `docs/实际问题/` 的七份文档 | “在自我迭代的时候,也可参考 docs\实际问题” |
+| 10 | 协调人从 max 降到 high；JEV 由内核在上游交付通过后自动接着跑，不为它单独唤醒协调人（修订第 1、5 项：其余流转仍由协调人发信驱动） | “按你的建议来”（第 4 轮，§10） |
 
 ## 1. 与 3.0 四端设计的关系
 
@@ -52,7 +54,7 @@ planner-  contract-  gate-    audit-     exec-     jev-judge
 
 | 名字 | 角色 | 载体 | 模型 | 思考 | 工具 | 工作目录 |
 |---|---|---|---|---|---|---|
-| `womovie-c8` | 调度代理端兼协调人 | claude | `claude-haiku-5-5` | max | Read、Grep、Glob | 任务基线 worktree（只读） |
+| `womovie-c8` | 调度代理端兼协调人 | claude | `claude-haiku-5-5` | high（§0 第 10 项；原为 max） | Read、Grep、Glob | 任务基线 worktree（只读） |
 | `planner-opus` | 规划端 | claude | `claude-opus-5-5` | max | Read、Grep、Glob | 任务基线 worktree（只读） |
 | `contract-glm` | 合同端 | pi | `cc-switch-zhipu-glm/glm-5.3` | 要求 max | read、grep、find、ls | 任务基线 worktree（只读） |
 | `gate-sonnet` | 门禁端 | claude | `claude-sonnet-5-5` | high | Read、Grep、Glob、Edit、Write、Bash（只允许跑 pytest） | 战前：门禁草稿 worktree；战后：候选 worktree |
@@ -153,15 +155,18 @@ type: <见下>
 | `开工` → planner-opus（`-1-plan`） | 站主的 `任务` 已登记 |
 | `开工` → contract-glm（`-2-contract`） | 规划端的 `交付` 已被接受 |
 | `开工` → gate-sonnet（`-3-gate-pre`） | 合同已写入 `.agent/plans/`，`validate` 通过 |
-| `开工` → jev-judge（`-3j-jev`） | 合同端的 `交付` 已被接受 |
+| `开工` → jev-judge（`-3j-jev`） | 合同端的 `交付` 已被接受。通常不用发：合同交付通过时内核自动跑 JEV（§0 第 10 项），判断和交付信一起送到协调人；6j 同理，在战后门禁通过时自动跑 |
 | `开工` → audit-sonnet（`-4-audit-pre`） | 基准测试已做基线提交并锁定：`baseline` 显示测试在基线上失败；合同的 `base_sha` 是基线提交；测试路径在 `forbidden_paths` 里；JEV 启用时已有本阶段的 JEV 记录（无意见也算） |
 | `开工` → exec-step（`-5-exec`） | 一审结论为 `通过`；一审之后合同与基线提交都没变 |
 | `开工` → gate-sonnet（`-6-gate-post`） | 执行端的 attempt 已结束，内核的 `check --fresh` 全部通过 |
 | `开工` → jev-judge（`-6j-jev`） | 战后门禁的白盒测试与变异清单已由内核运行并全部通过 |
 | `开工` → audit-sonnet（`-7-audit-post`） | 同上；JEV 启用时已有本阶段的 JEV 记录 |
 | `返工` → 执行端 | 存在失败记录：`check --fresh`、白盒测试或变异检查失败，或终审 `返工` 退回执行端 |
-| `返工` → 合同端或门禁端 | 一审 `返工` 退回该端，或内核核验失败（合同 `validate` 失败；基准测试在基线上没有失败） |
+| `返工` → 合同端或门禁端 | 一审 `返工` 退回该端，或内核核验失败（合同 `validate` 失败、合同里留着“待确认”标注；基准测试收集失败或在基线上没有失败）；终审退回合同端也算 |
+| `返工` → 门禁端（`-6-gate-post`） | 白盒测试或变异检查失败，或终审 `返工` 退回“战后门禁”（白盒测试或变异清单不够） |
+| `返工` → 任一工人阶段（站主指定） | 站主 `send --type 回复 --rework <阶段>`：内核记下 `owner_rework`，只放行这一个阶段的一次返工，协调人投出之后作废（第 4 轮） |
 | `返工` → 规划端 | 一审连续 3 次没有通过，或终审退回规划端 |
+| `返工` → 门禁端（热修补，执行之后） | 执行端报了合同矛盾（`contract_conflicts` 非空），或终审退回门禁端。合同版本已派遣时，内核把它复制成下一版再改 `base_sha`；测试差异写进 `tasks/<T>-3-gate-pre/evidence/hotfix-*.diff`。依赖 3-gate-pre 的一审、执行、战后与终审一并作废：一审重做（只看差异），执行端必须重跑 |
 | `通过`（结项） | 终审结论为 `通过`；内核随后 `verdict PASS` 并按授权 `integrate`（本地分支，不推送） |
 | `等待`、`停止`、`汇报`、`提问` | 不设前置条件 |
 
@@ -184,7 +189,10 @@ claude -p --model <模型> --effort <档位>
   --setting-sources project
   --settings '{"autoMemoryEnabled": false, "advisorModel": ""}'
   --strict-mcp-config --disable-slash-commands
-  --tools <白名单> [--allowedTools <Bash 规则>] --permission-prompts none
+  --tools <白名单> [--allowedTools <Bash 规则>]
+  --add-dir <主工作区>
+  [--permission-mode acceptEdits --disallowedTools "Edit(//<主工作区>/**)" "Write(//<主工作区>/**)"]  # 有 Edit/Write 的工人
+  --permission-prompts none
   --append-system-prompt <角色提示词>
   (--session-id <uuid> | --resume <uuid>)  "<本回合输入>"
 ```
@@ -204,6 +212,9 @@ claude -p --model <模型> --effort <档位>
 | 会话文件的 `effort` 字段 | 每条 assistant 记录都带 `effort` 与 `perTurnEffort`：可以读出实际生效的档位 |
 | `--append-system-prompt-file` | 文件内容进了系统提示（角色提示词不占命令行） |
 | `--allowedTools "Bash(python -m pytest:*)"` 加 `--permission-prompts none` | pytest 能跑，`del` 被拒；`git status` 这类只读命令被内置规则放行 |
+| 默认权限模式 + `--permission-prompts none`（新环境，claude 2.1.303） | 工作目录里的 Write 也被拒（“没有人能答权限提示”）；工作目录之外的 Read 被拒。门禁端按旧的启动方式根本写不了测试 |
+| `--add-dir <主工作区>` | 主工作区可读：合同（`.agent/plans/`）、信箱、长输入文件、执行证据都只在主工作区里，worktree 里没有 |
+| `--permission-mode acceptEdits` + `--disallowedTools "Write(//c/…/主工作区/**)"` | 工作目录里的写入放行，主工作区的写入被拒（“denied by your permission settings”）。绝对路径写成 `//` 加小写盘符、正斜杠 |
 | `--tools` 等变长参数 | 后面紧跟非选项参数会被吞掉（`--disallowedTools advisor "$P"` 把提示词当成了工具名）。拼命令时让它们后面紧跟另一个选项 |
 
 ### 6.2 pi 工人
@@ -227,10 +238,13 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 
 任何一项违规，本回合的信件一律不投递，内核另发一封 `阻塞` 给协调人，附违规明细。
 
+例外（第 4 轮）：白名单之外的**客户端**调用，如果它的 `tool_result` 是 CLI 当场拒绝（`No such tool available`），这次调用没有任何效果，只记进回合的 `warnings`，不作废回合。T001 的终审为一次被拒的 Bash 白白作废了 16 分钟。服务端工具（advisor）没有这个例外。
+
 ### 6.4 输出与重试
 
 - 工人最后一条消息里**最后一个** ```json 代码块就是输出。
 - 解析或校验不过时，内核续接同一会话再给一次机会，附上错误原因。第二次仍不过，就代发 `阻塞`。
+- **模型接口报错不算工人的错，也不重试**：claude 把接口错误合成为一条 `<synthetic>` 消息（带 `error`、`api_error_status`），结果的 `terminal_reason` 是 `api_error`；pi 的最后一条 assistant 消息 `stopReason` 为 `error`。内核把它记进回合的 `api_error`，阶段标为 failed，主任务转 blocked，`阻塞` 信直接给站主（协调人也会撞上同样的错）。站主处理好环境后发 `回复` 恢复。
 - **返工时干净重启**（用户评审建议 2，`docs/优化.md`）：唤醒工人的信里有 `返工` 时，内核不续接旧会话，换一个新会话，输入只有任务书、state 与这封返工信。旧会话里失败的历史不再带着走。同一阶段里的重试仍然续接。
 
 ### 6.5 执行端与 JEV 端由内核代办
@@ -251,7 +265,7 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 
 **战前（`-3-gate-pre`）：**
 1. 门禁端在门禁草稿 worktree（任务基线的分离 HEAD）里新增测试文件。
-2. 内核核对：改动只在合同允许的测试路径里，而且只是新增。
+2. 内核核对：改动只在合同允许的测试路径里，而且只是新增；再跑 `pytest --collect-only`，收集失败（语法错误、模块级导入失败、没有用例）直接拒收。否则这种测试在基线上也会“失败”，被当成合格的基准锁进禁改路径（空心基线）。
 3. 内核在这个 worktree 里提交，更新 `refs/themis/oracle/<T>/v<N>`，不移动任何分支。
 4. 内核按 `baseline` 的做法在基线上跑这些测试：它们必须失败。
 5. 内核把合同的 `base_sha` 改成这个提交，测试路径加进 `forbidden_paths`，重新 `validate`。合同版本号不变：此时还没有派遣。
@@ -259,8 +273,9 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 **战后（`-6-gate-post`）：**
 1. 内核的 `check --fresh` 先跑；不过就短路。
 2. 门禁端在候选 worktree 里只增不改：追加白盒测试与变异清单（`mutate --spec` 的格式）。
-3. 内核在候选上跑白盒测试，并跑 `mutate`。
-4. 任何一项失败都短路：只能 `返工` 给执行端。
+3. 内核在候选上跑白盒测试（`run_supervised`：Job Object 监督，输出进 `evidence/whitebox-*.log`），并跑 `mutate --tree`。
+4. **变异的判定读 `mutations.json`，不看退出码**：`mutate --tree` 在变异漏网时退出码也是 0（`pi_dispatch.py` 的 `cmd_mutate`）。意外漏网、没生效（skipped）或出错（error）都不通过，至少要抓住一条。门禁端声明 `equivalent` 的漏网算预期内，终审逐条复核。
+5. 任何一项失败都短路：只能 `返工` 给执行端。
 
 **执行端改了基准测试**：调度器的范围门禁 G2 会直接拦下（`forbidden_paths`），内核的检查也会失败。用户的冲突解法 3 要求的 `git diff <基准测试提交> -- <测试路径>` 也由内核在战后先跑一遍。
 
@@ -299,15 +314,61 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 - 提示词模板 `scripts/hub/worker.md`、`scripts/hub/coordinator.md`；合同筛查题库 `scripts/hub/questions/contract-screen.json`（放在 hub 自己的目录，不动决策插件的锁）。
 - `tests/test_kit_hub.py` 32 条。变异检查 22 个（状态机每一行前置条件、审计的每一项、投递不覆盖、下游作废的传递闭包）全部抓住；第一次只抓住 21 个，漏掉的“下游作废只看直接依赖”补了断言。
 
+### 第 2 轮：门禁热修补（2026-10-19，T001 运行期间，未提交）
+- `hotfix_reason`、`bump_contract_version`，`accept_gate_pre` 在合同已派遣时出新版本并留下测试差异；模板补热修补的流程。
+- 回合记录里的 `hub_sha256` 改为进程载入时算一次：运行中改了源文件，记录里的仍是正在跑的那一份。
+- 测试 36 条；变异 28 个全部抓住（新增：热修补不认执行端举证、不认终审退回门禁端、不出新版本、不留测试差异、不记旧基线、门禁可以改别的文件）。
+- T001 合入之前不往 `themis-3.0` 提交：基准测试的基线提交以 T001 的基线为父，`integrate` 是 ff-only。
+
+### 第 3 轮：换到新环境（2026-10-19）
+- 旧机器上 T001 停在规划阶段：所有 claude 后台进程都收到 `403 oauth_not_allowed_for_organization`（“Your organization has disabled Claude subscription access for Claude Code”），规划端已用掉约 5 分钟、2.27 美元（按标价）。内核却报成“最后一条消息里没有 json 代码块”，还白白重试了一次。
+- 新环境核验：claude 2.1.303 登录有效，Haiku max、Sonnet high/max、Opus max 按 hub 的启动方式都能答；Pi 的 Step 现在登记为 `step/step-5-preview`（旧机器上是 `bb`），smoke 两步都过，推理题有思考内容、答案正确；GLM-5.3 要求 max 仍生效 high；JEV 的 key 在 Windows 凭据管理器里，`doctor --probe-decisions` 通过（202 毫秒，`jev-1.13.0`）。
+- 新环境的坑：仓库是经压缩包搬过来的，21 个中文文件名被按 GBK→CP437 弄乱（16 个已跟踪的文件内容与 HEAD 逐字节相同），已按原名改回；控制台代码页是 cp1252，`kit_hub.py --help` 输出中文时抛错。
+- 修补：
+  - 接口报错单独识别，不重试，直接给站主（§6.4）；
+  - claude 工人加 `--add-dir <主工作区>`；有 Edit/Write 的工人加 `acceptEdits` 与主工作区的拒写规则（§6.1）。不修的话，门禁端写不了测试，审核端也读不到合同与证据；
+  - 执行端的 provider 只在名册里写一处，合同的 executor 行与核对都从名册来；
+  - `main()` 把标准输入、输出改成 UTF-8，与其他 kit 脚本一致（站主用管道 `send` 中文回复时，cp1252 会把它读成乱码）。
+- 测试 44 条；新代码的变异 17 个全部抓住（接口报错的识别与“报错后又恢复”的复位、不重试、直接给站主、`--add-dir`、`acceptEdits`、拒写规则与它的路径写法、provider 的核对、UTF-8 的输入与输出）。
+- T001 在新机器上恢复：站主发 `回复`（`20261019T032952415555Z-owner-7e0d00`），请协调人给规划端发 `返工`；旧 worktree 的登记已 `git worktree prune`，内核按需重建。
+
+### 第 4 轮：按 `docs/实际问题/` 与 T001 的实测加固（2026-10-19，T001 运行期间在隔离 worktree 里做）
+- 用户让迭代时参考 `docs/实际问题/` 的七份文档。逐条分诊之后，只做改动小、收益明确、不破不变量的几项：
+  - 让 JEV 一票否决或指挥下游：不采纳，违反 shadow 语义；
+  - 小范围扩权免一审：不采纳，违反热修补不免一审；
+  - 对执行端遮蔽测试源码：不采纳，执行端要跑合同检查自检。
+- **缺陷**：战后门禁只看 `mutate` 的退出码，变异漏网也算通过。改为读记录判定（§7）。
+- **合同里的未决标注**：T001 的合同把 4 个待站主确认的问题写成 13 处“【待站主确认】”留在正文里。现在内核拒收这类合同，合同端要先发 `提问`；协调人模板写明：站主没回复之前，不开工依赖答案的阶段。
+- **站主指定返工**：此前一审之前站主没办法让合同改版（只有审核退回或核验失败才放行）。新增 `send --rework`（§5）。
+- **审核端**：
+  - 终审退回合同端原来是死路（前置条件只看一审的退回），已打通；新增退回目标“战后门禁”。
+  - 一审不能退回执行端或战后门禁（还没有执行）。
+  - 返工必须写“阻塞项”。结论进 `audit_history`，不随下游作废清掉；下一轮同一阶段的审核拿到上一轮的阻塞项，只复核它们和新改动（复审封板）。
+  - `report.md`、`brief.md` 覆盖前都留档成 `report.N.md`、`brief.N.md`。
+  - 一审报告要有“DoD → 测试 → 断言”映射，内核核对每个 DoD 的 id 都在。
+  - 终审先读源码再看绿灯，复核每条等价声明。
+- **JEV**：报告按题库阈值标出“留意”（≥ review）与“需关注”（≥ action，或风险分 ≥ severity_action），附上那一档的判据，不再只有四个数。执行 JEV 的输入补上客观指纹：改动的文件、`review_hints`（断言增删）、白盒测试的退出码、变异计数。仍是 shadow，门禁不读。
+- **门禁端**：战前先跑 `--collect-only`；内核跑 pytest 时不写字节码与缓存。
+- **站主同意的两项**（“按你的建议来”）：
+  - 协调人降到 high。它在 T001 里每回合 1–4.5 分钟，大头是 max 档的思考输出。
+  - JEV 由内核自动接着跑：合同交付通过就跑 3j，战后门禁通过就跑 6j。判断和交付信一起进协调人信箱，协调人一个回合处理。T001 里 04:15→04:16 那个协调人回合只是在等 JEV。
+- **缺陷（T001 的执行阶段撞上）**：内核从 attempt 的 `state.json` 读 `status` 键，调度器写的是 `state` 键（`pi_dispatch.get_state`），读出来恒为空，执行阶段永远判不过。T001 的两个 attempt 文档改动与自检都通过，却都被短路；第一次协调人当成执行报告的问题去返工，白跑了一个 attempt。第二次协调人查出了原因，报给站主。修法：改用 `pd.get_state`。
+- **站主命令 `exec-recheck <主任务>`**：对最近一次 attempt 重新核验（`check --fresh`、范围、状态），不重跑执行端、不占新的尝试次数。只在执行阶段判为失败、attempt 目录还在时可用；拿 hub 的运行锁，结果照常作为执行端的交付信送给协调人。内核中途停下、或判定逻辑修过之后，用它接着走。T001 用它救回了 attempt-002，合同的尝试次数（2）已经用完。
+- **结项（T001 第一次结项卡住）**：候选以门禁的基准测试提交为基线，这个提交不在 `themis-3.0` 上。`integrate` 于是只挑“基线→候选”的改动，在当前末端上重跑合同检查时找不到基准测试，什么都没落地。修法：结项时如果基准测试提交不在当前分支的历史里，先 `git merge --ff-only` 把它带上（它是一审审过、锁定的验收测试），再 integrate；分叉了不能 ff 就如实报告，不 integrate。结项可以重试：attempt 已经是 PASS 就不再记结论。
+- **代价**：基准测试随结项进了仓库。它们断言 T001 改过的文档里有哪些句子。以后再改这两份文档的任务，合同里要允许它同步改 `tests/test_gate_t001_*.py`。
+- **变异记录放进信箱**：`mutate --out` 原来指向系统临时目录，终审读不到（T001 终审的意见）。现在放在 `tasks/<T>-6-gate-post/evidence/mutate-*`，终审的本回合输入里列出它与白盒测试输出的路径。
+- 测试 63 条；本轮新代码的变异 46 个全部抓住。第一次漏了两个：“交付时不留档旧报告”和“`tail_file` 整份读”，都补了断言。
+- 正在跑的 T001 用的仍是第 3 轮的代码（hub 进程启动时载入）。它的战后门禁由规划端手工核对 `mutations.json`。本轮改动在 T001 合入后带回主工作区。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
 
 | # | 建议 | 处理 |
 |---|---|---|
-| 1 | 基准测试本身有错时的“门禁热修补”：执行端举证后，协调人直接唤醒门禁端修测试，免去重走合同与一审 | **待拍板**。这会放松“基准测试锁定之后执行端碰不到”的约束：门禁端可能把测试改得迁就错误的实现。推荐的做法：热修补之后只重做一审，范围只看测试的差异，执行端的候选必须重跑。 |
+| 1 | 基准测试本身有错时的“门禁热修补”：执行端举证后，协调人直接唤醒门禁端修测试，免去重走合同与一审 | **已做，按推荐（用户 2026-10-19：“按你的推荐来”）**：不免掉一审，但一审只看测试差异；合同出新版本；执行端必须重跑（§5 的热修补一行）。这样门禁端没法悄悄把测试改得迁就错误的实现：差异要过审核端 |
 | 2 | 返工时干净重启会话 | 已做（§6.4） |
-| 3 | 流水线分级（L1 极速 / L2 标准 / L3 严苛） | **待拍板**。L1 跳过合同端与一审，与“合同与基准测试先锁定、审核通过才开工”的状态机冲突。推荐先跑完 T001 量一下各阶段的耗时，再定 L1 能跳过哪些阶段。 |
+| 3 | 流水线分级（L1 极速 / L2 标准 / L3 严苛） | **按推荐暂缓（用户 2026-10-19）**：先跑完 T001，量出各阶段的耗时，再定 L1 能跳过哪些阶段 |
 | 4 | 模板按角色裁剪 | 已做（§9） |
 
 - 调度器的摘要只核对提供商回报的档位（`pi_dispatch.py:3186`），看不出 Pi 的静默降档；本轮在 hub 的回合审计里补读 `thinkingLevel`。调度器本身的修补另做。
@@ -315,3 +376,11 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 - 并发：本轮 hub 串行处理，一次只跑一个回合；并行留到后续迭代。
 - 配置中心：工人名册与模型暂不进 `dispatch.config.json`。
 - 桌面端：任务 1 只改文档，界面接入不在本轮。
+- **站主排定的第二个任务（2026-10-19）**：T001 结项之后，按 `docs/Themis Tally UI设计/` 实现界面。
+- **以后再做**：
+  - 规划报告的路径与行号由内核核对；
+  - 合同端把任务退回规划端的路由；
+  - 执行端返工次数的上限；
+  - 换异构模型（换模型要站主同意）；
+  - 单条用例的超时（要装 pytest-timeout）。
+- 插件仍会加载（`--setting-sources project` 只挡住用户级设置里的插件；新环境里 init 仍报告 3 个插件）。插件没有在白名单里的工具，内核的事后审计照样拦得住调用。

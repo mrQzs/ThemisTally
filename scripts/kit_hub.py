@@ -50,7 +50,7 @@ KERNEL_TYPES = ("核验", "阻塞")
 #: 发给工人时只登记、不唤醒（每唤醒一次就是一个付费回合）。
 INFO_TYPES = ("通过", "等待", "停止")
 FIELDS = ("摘要", "提交", "验证", "偏离", "需协调人决定", "证据")
-VERDICT_FIELDS = ("结论", "退回")
+VERDICT_FIELDS = ("结论", "退回", "阻塞项")
 KERNEL_FIELDS = ("内核核验",)
 KNOWN_FIELDS = FIELDS + VERDICT_FIELDS + KERNEL_FIELDS
 MAX_BODY_LINES = 40
@@ -74,13 +74,18 @@ DEPENDS = {
     "4-audit-pre": ("3-gate-pre", "3j-jev"), "5-exec": ("4-audit-pre",), "6-gate-post": ("5-exec",),
     "6j-jev": ("5-exec",), "7-audit-post": ("6-gate-post", "6j-jev"),
 }
+#: 交付通过后由内核接着跑的 JEV（用户 2026-10-19 同意，不为 JEV 单独唤醒协调人）。
+AUTO_JEV = {"2-contract": "3j-jev", "6-gate-post": "6j-jev"}
 #: 审核端“退回”的对象 → 阶段。
-RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "执行端": "5-exec", "规划端": "1-plan"}
+#: “门禁端”指基准测试本身有错（走热修补）；“战后门禁”指白盒测试或变异清单不够，重做战后门禁。
+RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "战后门禁": "6-gate-post", "执行端": "5-exec",
+                  "规划端": "1-plan"}
 MAIN_TASK_RE = re.compile(r"^T\d{3,6}$")
 STAGE_TASK_RE = re.compile(r"^(T\d{3,6})-(%s)$" % "|".join(re.escape(s) for s in STAGE_ORDER))
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 JSON_BLOCK_RE = re.compile(r"```json[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.S)
 FIELD_LINE_RE = re.compile(r"^(\S+?)[:：][ \t]?(.*)$")
+PENDING_MARK_RE = re.compile(r"待(?:站主|协调人)?(?:确认|拍板|决定)")
 #: 回合输入超过这个长度就写进文件，命令行只给路径（Windows 命令行上限约 32K 字符）。
 MAX_INLINE_PROMPT = 20000
 #: 只有内核调决策 API 时需要它；工人与调度器子进程一律拿不到。
@@ -88,11 +93,11 @@ DECISIONS_KEY_ENV = "TYPESAFE_API_KEY"
 #: 工人进程不继承的会话变量：让 hub 无论从哪里启动，工人的行为都一样。
 WORKER_ENV_DROP = (DECISIONS_KEY_ENV, "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 CLAUDE_SETTINGS = {"autoMemoryEnabled": False, "advisorModel": ""}
-CONTRACT_EXECUTOR_LINE = "- executor: bb/step-5-preview · thinking high"
 
 ROSTER: Dict[str, Dict[str, Any]] = {
+    # 协调人 high（原为 max；用户 2026-10-19 同意降档：T001 里每回合 1–4.5 分钟，大头是 max 档的思考输出）
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "claude",
-                  "model": "claude-haiku-5-5", "effort": "max", "tools": ["Read", "Grep", "Glob"],
+                  "model": "claude-haiku-5-5", "effort": "high", "tools": ["Read", "Grep", "Glob"],
                   "timeout": 1200, "workspace": "base"},
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "base"},
@@ -104,11 +109,18 @@ ROSTER: Dict[str, Dict[str, Any]] = {
                     "allowed_rules": ["Bash(python -m pytest:*)"], "timeout": 2400, "workspace": "stage"},
     "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "claude", "model": "claude-sonnet-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "stage"},
-    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "bb",
+    # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致（旧机器上是 bb）。
+    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "step",
                   "model": "step-5-preview", "thinking": "high"},
     "jev-judge": {"role": "jev", "label": "JEV 端", "adapter": "jev"},
 }
 WORKERS = tuple(name for name in ROSTER if name != COORDINATOR)
+EXECUTOR = tuple(ROSTER["exec-step"][key] for key in ("provider", "model", "thinking"))
+CONTRACT_EXECUTOR_LINE = "- executor: %s/%s · thinking %s" % EXECUTOR
+
+
+#: 本次进程载入的内核代码的哈希（载入时算一次）：运行中改了源文件，记录里的仍是正在跑的那一份。
+HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 class HubError(Exception):
@@ -156,6 +168,13 @@ def read_text(path: Path) -> str:
         return ""
 
 
+def keep_previous(path: Path) -> None:
+    """要覆盖的 brief.md、report.md 先改名留档：brief.1.md、brief.2.md……"""
+    if path.exists():
+        index = len(list(path.parent.glob("%s.*%s" % (path.stem, path.suffix)))) + 1
+        os.replace(str(path), str(path.with_name("%s.%d%s" % (path.stem, index, path.suffix))))
+
+
 def stage_of(task_id: str) -> Tuple[Optional[str], Optional[str]]:
     """'T001-3-gate-pre' → ('T001', '3-gate-pre')；'T001' → ('T001', None)；其他 → (None, None)。"""
     match = STAGE_TASK_RE.match(task_id or "")
@@ -173,6 +192,16 @@ def worker_env(config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     for name in list(env):
         if name.upper() in WORKER_ENV_DROP:
             env.pop(name)
+    return env
+
+
+#: 内核自己在工人的工作目录里跑 pytest：不写字节码与缓存，免得把工作区弄脏、干扰“只新增一个文件”的核对。
+KERNEL_PYTEST = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider"]
+
+
+def kernel_pytest_env() -> Dict[str, str]:
+    env = worker_env()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 
@@ -265,8 +294,14 @@ def letter_errors(meta: Dict[str, str], fields: Dict[str, str], body_lines: int)
     if sender == "audit-sonnet" and kind == "交付":
         if fields.get("结论") not in VERDICTS:
             errors.append("审核端的交付要写“结论: 通过”或“结论: 返工”")
-        elif fields.get("结论") == "返工" and fields.get("退回") not in RETURN_TARGETS:
-            errors.append("返工要写“退回: %s”之一" % " | ".join(RETURN_TARGETS))
+        elif fields.get("结论") == "返工":
+            if fields.get("退回") not in RETURN_TARGETS:
+                errors.append("返工要写“退回: %s”之一" % " | ".join(RETURN_TARGETS))
+            elif _suffix == "4-audit-pre" and RETURN_TARGETS[fields["退回"]] not in ("1-plan", "2-contract", "3-gate-pre"):
+                errors.append("一审只能退回规划端、合同端或门禁端（还没有执行）")
+            if str(fields.get("阻塞项", "")).strip() in ("", "无"):
+                # 复审封板：下一轮只复核这些阻塞项，没列的建议不能在下一轮升级成打回理由
+                errors.append("返工要写“阻塞项”：逐条列出必须改的问题（只列会导致打回的）")
     return errors
 
 
@@ -483,17 +518,40 @@ def _guard_start(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     return "未知阶段 %s" % suffix
 
 
+def hotfix_reason(ts: Dict[str, Any]) -> Optional[str]:
+    """执行之后能不能热修补基准测试：执行端举证（报了合同矛盾），或终审退回门禁端。
+
+    热修补之后的代价由内核保证：合同出新版本（旧版本已派遣，不能再改）、一审重做（审核端只看测试差异）、
+    执行端必须重跑——下游的结论都依赖 3-gate-pre，会被 invalidate_after 一并作废。"""
+    if ts["exec"].get("conflicts"):
+        return "执行端报了 %d 条合同矛盾" % ts["exec"]["conflicts"]
+    audit_post = ts["audit_post"]
+    if audit_post.get("verdict") == "返工" and RETURN_TARGETS.get(audit_post.get("target", "")) == "3-gate-pre":
+        return "终审退回门禁端"
+    return None
+
+
 def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     status = ts["stages"][suffix]["status"]
     if status == "assigned":
         return "阶段 %s 正在进行，不能返工" % suffix
     if status == "failed":
         return None  # 内核核验没过
+    if (ts.get("owner_rework") or {}).get("suffix") == suffix:
+        return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
     audit_pre, audit_post = ts["audit_pre"], ts["audit_post"]
+
+    def returned_by(audit: Dict[str, Any]) -> bool:
+        return audit.get("verdict") == "返工" and RETURN_TARGETS.get(audit.get("target", "")) == suffix
+
+    if suffix == "3-gate-pre" and hotfix_reason(ts):
+        return None  # 门禁热修补（用户 2026-10-19 按推荐拍板）
     if suffix in ("2-contract", "3-gate-pre"):
-        if audit_pre.get("verdict") == "返工" and RETURN_TARGETS.get(audit_pre.get("target", "")) == suffix:
+        if returned_by(audit_pre) or (suffix == "2-contract" and returned_by(audit_post)):
             return None
-        return "没有一审退回 %s 的记录，也没有内核核验失败" % suffix
+        return "没有一审或终审退回 %s 的记录，也没有内核核验失败，站主也没有指定返工" % suffix
+    if suffix == "6-gate-post":
+        return None if returned_by(audit_post) else "没有终审退回战后门禁的记录，也没有内核核验失败"
     if suffix == "1-plan":
         if audit_pre.get("fails", 0) >= 3:
             return None
@@ -648,14 +706,26 @@ def claude_session_effort(session_id: str) -> Optional[str]:
     return None
 
 
+def claude_path_rule(path: Path) -> str:
+    """claude 权限规则里绝对路径的写法：`//c/Code/Repo/**`（盘符小写、正斜杠；2026-10-19 在 Windows 上实测）。"""
+    text = Path(path).resolve().as_posix()
+    if len(text) > 1 and text[1] == ":":
+        text = text[0].lower() + text[2:]
+    return "//%s/**" % text.strip("/")
+
+
 def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
-    """读内核自己截下的事件流：白名单之外的 tool_use / server_tool_use、init 的工具与 MCP、模型。"""
+    """读内核自己截下的事件流：白名单之外的 tool_use / server_tool_use、init 的工具与 MCP、模型；
+    以及模型接口的报错（claude 把它合成为一条 `<synthetic>` 消息，带 error 与 api_error_status）。"""
     allowed = set(spec["tools"])
     violations: List[str] = []
     tool_calls: Dict[str, int] = {}
     init: Dict[str, Any] = {}
     result: Dict[str, Any] = {}
     models = set()
+    api_error: Optional[str] = None
+    outside: Dict[str, str] = {}  # 白名单之外的 tool_use：id → 工具名
+    refused: set = set()
     for line in lines:
         line = line.strip()
         if not line.startswith("{"):
@@ -671,14 +741,29 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
             message = event.get("message") or {}
             if message.get("model"):
                 models.add(message["model"])
+            if event.get("error") or event.get("is_api_error_message"):
+                text = "".join(b.get("text", "") for b in message.get("content") or []
+                               if isinstance(b, dict) and b.get("type") == "text")
+                api_error = "%s %s：%s" % (event.get("api_error_status") or "", event.get("api_error_code")
+                                          or event.get("error") or "", text.strip()[:300])
+            elif message.get("model") != "<synthetic>":
+                api_error = None  # 报错之后模型又正常回复了：以最后的为准
             for block in message.get("content") or []:
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") in ("tool_use", "server_tool_use"):
                     name = str(block.get("name"))
                     tool_calls[name] = tool_calls.get(name, 0) + 1
-                    if block.get("type") == "server_tool_use" or name not in allowed:
+                    if block.get("type") == "server_tool_use":  # 服务端工具（advisor）在服务端执行：一律作废
                         violations.append("调用了白名单之外的工具：%s（%s）" % (name, block.get("type")))
+                    elif name not in allowed:
+                        outside[str(block.get("id"))] = name
+        elif kind == "user":
+            content = (event.get("message") or {}).get("content")
+            for block in content if isinstance(content, list) else []:
+                if (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")
+                        and block.get("tool_use_id") in outside and "No such tool available" in str(block.get("content"))):
+                    refused.add(block["tool_use_id"])
         elif kind == "result":
             result = event
     if not init:
@@ -695,10 +780,17 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
     models.discard("<synthetic>")  # claude 自己合成的消息（例如接口报错时）没有真实模型
     if models - {spec["model"]}:
         violations.append("实际模型 %s 与要求 %s 不一致" % (sorted(models), spec["model"]))
-    return {"violations": violations, "tool_calls": tool_calls, "init_session": init.get("session_id"),
+    if api_error is None and result.get("terminal_reason") == "api_error":
+        api_error = "terminal_reason=api_error：%s" % str(result.get("result") or "")[:300]
+    # 白名单之外的客户端调用：被 CLI 当场拒绝（“No such tool available”）的没有任何效果，只记警告
+    # （T001 的终审为一次被拒的 Bash 白白作废了 16 分钟）；看不到拒绝结果的照旧作废。
+    warnings = ["试图调用白名单之外的工具 %s，被 CLI 拒绝" % name for tid, name in outside.items() if tid in refused]
+    violations += ["调用了白名单之外的工具：%s（tool_use）" % name for tid, name in outside.items() if tid not in refused]
+    return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls,
+            "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
-            "models": sorted(models), "terminal": bool(result)}
+            "models": sorted(models), "terminal": bool(result), "api_error": api_error}
 
 
 def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
@@ -706,6 +798,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
     violations: List[str] = []
     tool_calls: Dict[str, int] = {}
     final_text, levels, models, stop = "", set(), set(), None
+    api_error: Optional[str] = None
     usage: Dict[str, Any] = {}
     terminal = False
     for line in lines:
@@ -732,6 +825,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
             if text.strip():
                 final_text = text
             stop = message.get("stopReason")
+            # 只认最后一条：pi 自己重试成功时，前面那条出错的消息不算
+            api_error = str(message.get("errorMessage") or "stopReason=error")[:300] if stop == "error" else None
             for key, value in (message.get("usage") or {}).items():
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     usage[key] = usage.get(key, 0) + value
@@ -742,7 +837,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
         violations.append("实际模型 %s 与要求 %s 不一致" % (sorted(models), expected))
     return {"violations": violations, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
-            "terminal": terminal, "is_error": stop not in (None, "stop")}
+            "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error}
 
 
 class TurnRunner:
@@ -780,6 +875,14 @@ class TurnRunner:
                    "--tools", ",".join(spec["tools"])]
             if spec.get("allowed_rules"):
                 cmd += ["--allowedTools"] + list(spec["allowed_rules"])
+            # 主工作区只读：合同（.agent/plans/）、信箱、长输入文件与执行证据都在那里，worktree 里没有。
+            cmd += ["--add-dir", str(self.hub.repo)]
+            writes = sorted({"Edit", "Write"} & set(spec["tools"]))
+            if writes:
+                # 没有人能答权限提示，默认模式下连工作目录里的写入也会被拒（2026-10-19 实测）：
+                # 工作目录里的写入自动放行，主工作区的写入一律拒绝（拒绝规则优先）。
+                cmd += ["--permission-mode", "acceptEdits", "--disallowedTools"] + [
+                    "%s(%s)" % (tool, claude_path_rule(self.hub.repo)) for tool in writes]
             cmd += ["--permission-prompts", "none", "--append-system-prompt-file", str(role_path)]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
@@ -809,7 +912,9 @@ class TurnRunner:
             audit["effort_requested"] = spec["thinking"]
             audit["effort_effective"] = ",".join(audit.get("effective_levels") or []) or None
         output, output_error = None, None
-        if not audit["violations"]:
+        if audit.get("api_error"):
+            output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
+        elif not audit["violations"]:
             try:
                 output = extract_json_block(audit["final_text"])
             except HubError as exc:
@@ -828,7 +933,8 @@ class TurnRunner:
             "effort_requested": audit["effort_requested"], "effort_effective": audit["effort_effective"],
             "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": audit.get("cost_usd"),
             "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
-            "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": sha256_file(Path(__file__)),
+            "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
+            "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
@@ -858,6 +964,14 @@ def run_pd(hub: Hub, args: Sequence[str], timeout: int = 600) -> Tuple[int, str]
 
 def tail(text: str, lines: int = 30) -> str:
     return "\n".join(text.strip().splitlines()[-lines:])
+
+
+def tail_file(path: Path, lines: int = 30, limit: int = 65536) -> str:
+    """文件末尾几行：只读最后 limit 字节（输出可能很大）。"""
+    with open(path, "rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, handle.tell() - limit))
+        return tail(handle.read().decode("utf-8", "replace"), lines)
 
 
 # ---------------------------------------------------------------------------
@@ -894,13 +1008,19 @@ def revalidate_contract(hub: Hub, ts: Dict[str, Any]) -> List[str]:
 
 
 def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
-    """内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、执行模型与集成授权（设计 §7）。"""
-    _md, js = contract_paths(hub, ts)
+    """内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、执行模型与集成授权（设计 §7）；
+    合同里不能留“待确认”一类的未决标注。"""
+    md, js = contract_paths(hub, ts)
     try:
         data = json.loads(read_text(js))
     except ValueError:
         return ["合同 JSON 读不出来"]
     problems: List[str] = []
+    pending = PENDING_MARK_RE.findall(read_text(md))
+    if pending:
+        # T001（2026-10-19）：合同端把 4 个待站主确认的问题写成 13 处标注留在正文里，执行端会当成未决事项
+        problems.append("合同里还有 %d 处未决标注（%s）：拿不准的事先发“提问”，等站主或协调人答复后再交合同，"
+                        "合同里只写已经定下的做法" % (len(pending), "、".join(sorted(set(pending)))))
     if gate_pattern(ts) not in (data.get("scope") or {}).get("forbidden_paths", []):
         problems.append("Scope 的 forbidden_paths 要包含 %s" % gate_pattern(ts))
     baseline_file = gate_file(ts, "baseline")
@@ -910,12 +1030,26 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     elif not any(c.get("expect_on_base") == "fail" and c.get("required", True) for c in gate_checks):
         problems.append("运行 %s 的检查要标“必要”与“基线应失败”" % baseline_file)
     executor = data.get("executor") or {}
-    if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != ("bb", "step-5-preview", "high"):
+    if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != EXECUTOR:
         problems.append("执行模型要写成：%s" % CONTRACT_EXECUTOR_LINE)
     integration = set((data.get("authorization") or {}).get("integration") or [])
     if not {"local_branch", "merge"} <= integration:
         problems.append("integration_actions 要写 local_branch, merge")
     return problems
+
+
+def dod_coverage_problems(hub: Hub, ts: Dict[str, Any], report: str) -> List[str]:
+    """一审报告要有“DoD → 测试 → 断言”映射：合同里每个 DoD 的 id 都要在报告里出现（docs/实际问题/审核端.md）。"""
+    try:
+        dod = json.loads(read_text(contract_paths(hub, ts)[1])).get("definition_of_done") or []
+    except (ValueError, KeyError):
+        return []
+    ids = [str(item.get("id")) for item in dod if isinstance(item, dict) and item.get("id")]
+    missing = [i for i in ids if not re.search(r"(?<![A-Za-z0-9])%s(?![0-9])" % re.escape(i), report)]
+    if missing:
+        return ["一审报告的“DoD → 测试 → 断言”映射表漏了 %s（每条 DoD 都要写由哪条测试的哪个断言证明，"
+                "或者写明“只能人工审阅”）" % "、".join(missing)]
+    return []
 
 
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
@@ -938,6 +1072,25 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     return revalidate_contract(hub, ts)
 
 
+def bump_contract_version(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """已派遣过的合同不再改：复制成下一个版本（只改 plan_version），之后的 base_sha 改在新版本上。"""
+    old_md, _js = contract_paths(hub, ts)
+    version = int(ts["contract"]["version"]) + 1
+    key = "%s.v%d" % (ts["contract_task"], version)
+    new_md = old_md.with_name(key + ".md")
+    if new_md.exists():
+        return ["%s 已存在，合同版本只增不改" % new_md.name]
+    text, count = re.subn(r"(?m)^- plan_version:\s*\d+\s*$", "- plan_version: %d" % version, read_text(old_md))
+    if count != 1:
+        return ["合同 Identity 里找不到唯一的“- plan_version:”行"]
+    new_md.write_text(text, encoding="utf-8", newline="\n")
+    ts["contract"] = {"version": version, "key": key, "md": new_md.relative_to(hub.repo).as_posix(),
+                      "json": new_md.with_suffix(".json").relative_to(hub.repo).as_posix(),
+                      "bumped_from": int(version) - 1}
+    hub.append_event("contract.bumped", task=ts["task"], key=key)
+    return []
+
+
 def set_contract_base(hub: Hub, ts: Dict[str, Any], sha: str) -> List[str]:
     md, _js = contract_paths(hub, ts)
     text = read_text(md)
@@ -957,6 +1110,20 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     bad = [path for status, path in changes if status != "??" or path != expected]
     if bad:
         return ["只能新增 %s，不能改动别的文件：%s" % (expected, ", ".join(bad[:8]))]
+    # 基准测试要“收集得到、在断言上失败”：语法错误或模块级导入失败的测试在基线上也是失败，
+    # 不先挡下，就会被当成合格的基准锁进禁改路径（docs/实际问题/门禁端.md）
+    proc = subprocess.run(KERNEL_PYTEST + ["--collect-only", "-q", expected], cwd=str(workspace),
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600,
+                          env=kernel_pytest_env())
+    if proc.returncode != 0:
+        return ["%s 收集失败（pytest --collect-only 退出码 %d：语法错误、模块级导入失败或没有用例；"
+                "被测的新符号要在用例函数里再 import）：\n%s" % (expected, proc.returncode,
+                                                         tail(proc.stdout.decode("utf-8", "replace"), 15))]
+    previous = (ts.get("hotfix") or {}).get("previous_oracle")
+    if ts["contract"].get("dispatched"):
+        problems = bump_contract_version(hub, ts)
+        if problems:
+            return problems
     git(["add", "--", expected], workspace)
     git(["commit", "-q", "-m", "门禁端基准测试：%s（gate-sonnet，hub）" % ts["task"]], workspace)
     sha = git(["rev-parse", "HEAD"], workspace).strip()
@@ -965,6 +1132,14 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     ts["workspaces"]["gate"]["commit"] = sha
     ts["oracle"] = {"sha": sha, "ref": ref, "files": [expected], "locked": False}
     hub.append_event("oracle.committed", task=ts["task"], sha=sha, ref=ref)
+    if previous:  # 热修补：把测试差异留给重做的一审（审核端只看这一份差异）
+        diff = git(["diff", previous, sha, "--", expected], hub.repo)
+        evidence = hub.task_dir("%s-3-gate-pre" % ts["task"]) / "evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
+        diff_path = evidence / ("hotfix-%s.diff" % utc_compact())
+        diff_path.write_text(diff, encoding="utf-8", newline="\n")
+        ts["oracle"]["hotfix_diff"] = diff_path.relative_to(hub.repo).as_posix()
+        ts["oracle"]["hotfix_from"] = previous
     problems = set_contract_base(hub, ts, sha)
     if problems:
         return problems
@@ -975,6 +1150,8 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
         return ["baseline 不符合预期（基准测试应在基线上失败，其余检查按合同）：\n%s" % tail(out, 20)]
     ts["oracle"]["locked"] = True
     ts["contract"]["sha256"] = contract_digest(hub, ts)
+    if ts.get("hotfix"):
+        ts.setdefault("hotfixes", []).append(dict(ts.pop("hotfix"), oracle=sha, contract=ts["contract"]["key"]))
     return []
 
 
@@ -1004,32 +1181,65 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
         return ["战后只能新增 %s（只增不改）：%s" % (expected, ", ".join(bad[:8]))]
     if not (workspace / expected).exists():
         return ["没有新增 %s" % expected]
-    proc = subprocess.run([sys.executable, "-m", "pytest", expected, "-q"], cwd=str(workspace),
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, env=worker_env())
-    whitebox_out = proc.stdout.decode("utf-8", "replace")
-    ts["gate_post"]["whitebox_exit"] = proc.returncode
-    ts["gate_post"]["whitebox_tail"] = tail(whitebox_out, 15)
+    stage_dir = hub.task_dir("%s-6-gate-post" % ts["task"])
+    (stage_dir / "evidence").mkdir(parents=True, exist_ok=True)
+    whitebox_log = stage_dir / "evidence" / ("whitebox-%s.log" % utc_compact())
+    with open(whitebox_log, "xb") as log:  # Job Object 监督：超时连同子进程一起清掉；输出进文件，不整份读进内存
+        result = pd.run_supervised(KERNEL_PYTEST + [expected, "-q"], workspace, kernel_pytest_env(), log, log, 1800)
+    whitebox_tail = tail_file(whitebox_log, 15)
+    ts["gate_post"]["whitebox_exit"] = result.get("exit_code")
+    ts["gate_post"]["whitebox_tail"] = whitebox_tail
+    ts["gate_post"]["whitebox_log"] = whitebox_log.relative_to(hub.repo).as_posix()
     problems: List[str] = []
-    if proc.returncode != 0:
-        problems.append("白盒测试在候选上没有全部通过：\n%s" % tail(whitebox_out, 15))
+    if result.get("exit_code") != 0 or result.get("timed_out"):
+        problems.append("白盒测试在候选上没有全部通过%s：\n%s" % ("（超时）" if result.get("timed_out") else "",
+                                                             whitebox_tail))
     spec = output.get("mutation_spec")
     if not isinstance(spec, dict) or not spec.get("mutations"):
         problems.append("输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）")
     else:
-        stage_dir = hub.task_dir("%s-6-gate-post" % ts["task"])
-        stage_dir.mkdir(parents=True, exist_ok=True)
         spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
         spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-        out_dir = Path(tempfile.mkdtemp(prefix="hub-mutate-", dir=str(worktree_root(hub.repo))))
-        shutil.rmtree(str(out_dir))
+        # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
+        out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
         code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
                            timeout=3600)
-        ts["gate_post"]["mutate_exit"] = code
-        ts["gate_post"]["mutate_tail"] = tail(out, 25)
-        ts["gate_post"]["mutate_spec"] = str(spec_path)
-        if code != 0:
-            problems.append("变异检查没有全部抓住（或运行失败）：\n%s" % tail(out, 25))
+        try:
+            record = json.loads(read_text(out_dir / "mutations.json") or "{}")
+        except ValueError:
+            record = {}
+        ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_spec=str(spec_path),
+                               mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
+                               mutation_counts=record.get("counts"),
+                               equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
+                                           if isinstance(m, dict) and m.get("equivalent")])
+        problems.extend(mutation_problems(code, record, out))
     ts["gate_post"]["ok"] = not problems
+    return problems
+
+
+def mutation_problems(code: int, record: Dict[str, Any], out: str) -> List[str]:
+    """判定变异检查。mutate --tree 的退出码只说明它跑完了：变异漏网时也是 0（pi_dispatch.py 的 cmd_mutate），
+    所以读它写下的 mutations.json：意外漏网、没生效或出错的变异都不行，至少要抓住一条。"""
+    results = record.get("results") or []
+    if code != 0 or not results:
+        return ["变异检查没有跑完（退出码 %d）：\n%s" % (code, tail(out, 25))]
+
+    def statuses(item: Dict[str, Any]) -> Dict[str, str]:
+        runs = item.get("commands") or {}
+        return {cid: run.get("status") for cid, run in runs.items()} or {"": item.get("status")}
+
+    problems: List[str] = []
+    missed = [r.get("id") for r in results
+              if any(statuses(r).get(cid, r.get("status")) == "missed" for cid in r.get("unexpected") or [])]
+    broken = [r.get("id") for r in results if ({r.get("status")} | set(statuses(r).values())) & {"skipped", "error"}]
+    if missed:
+        problems.append("%d 条变异漏网、也没有声明等价：%s" % (len(missed), "、".join(map(str, missed))))
+    if broken:
+        problems.append("%d 条变异没有生效或运行出错（skipped / error；old 片段要在文件里逐字出现）：%s" % (
+            len(broken), "、".join(map(str, broken))))
+    if not any("caught" in statuses(r).values() for r in results):
+        problems.append("没有一条变异被抓住：变异检查什么也没证明")
     return problems
 
 
@@ -1047,6 +1257,7 @@ def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
         return {"摘要": "prepare 失败，执行端没有开始", "提交": "无", "验证": tail(out, 15), "偏离": "无",
                 "需协调人决定": "无", "证据": "无"}
     run_dir = (hub.repo / match.group(1)).resolve()
+    ts["contract"]["dispatched"] = True  # 这个版本派遣过了：之后再改（热修补）就要出新版本
     budget = 1800
     try:
         contract = json.loads(read_text(contract_paths(hub, ts)[1]))
@@ -1054,16 +1265,24 @@ def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
     except (ValueError, TypeError):
         pass
     hub.append_event("exec.started", task=ts["task"], run_dir=str(run_dir))
-    run_code, run_out = run_pd(hub, ["run", str(run_dir)], timeout=budget)
-    status = (json.loads(read_text(run_dir / "state.json") or "{}")).get("status")
+    run_code, _run_out = run_pd(hub, ["run", str(run_dir)], timeout=budget)
+    return finish_exec(hub, ts, run_dir, run_code)
+
+
+def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[int]) -> Dict[str, str]:
+    """attempt 跑完之后的核验：check --fresh、范围门禁与 attempt 状态；从执行报告生成交付信的正文。
+    exec-recheck 也走这里：内核中途停下或判定逻辑修过之后，对已有的 attempt 重新核验，不占新的尝试次数。"""
+    # 状态在 state.json 的 "state" 键（pi_dispatch.get_state）；T001 时这里读成了 "status"，恒为空，执行阶段永远判不过
+    status = pd.get_state(run_dir)
     check_code, check_out = run_pd(hub, ["check", str(run_dir), "--fresh"], timeout=3600)
     scope = json.loads(read_text(run_dir / "scope.json") or "{}")
     violations = scope.get("violations") or []
     report = json.loads(read_text(run_dir / "executor-report.json") or "{}")
-    rel = run_dir.relative_to(hub.repo.resolve()).as_posix()
+    rel = run_dir.resolve().relative_to(hub.repo.resolve()).as_posix()
     ts["exec"] = {"run_dir": str(run_dir), "status": status, "run_exit": run_code, "check_exit": check_code,
                   "scope_violations": len(violations), "check_ok": status == "NEEDS_REVIEW" and check_code == 0
-                  and not violations, "check_tail": tail(check_out, 20)}
+                  and not violations, "check_tail": tail(check_out, 20),
+                  "conflicts": len(report.get("contract_conflicts") or [])}
     hub.append_event("exec.finished", task=ts["task"], run_dir=str(run_dir), status=status,
                      check_exit=check_code, scope_violations=len(violations))
 
@@ -1091,6 +1310,26 @@ def load_contract_screen() -> Dict[str, Any]:
     return batteries["contract-screen"]
 
 
+def jev_flag(answer: Dict[str, Any], question: Dict[str, Any], thresholds: Dict[str, Any]) -> str:
+    """按题库阈值标出要审核端留意的题，附上那一档的判据：JEV 只回概率，不写理由（T001 的 3j 只有四个数）。"""
+    criteria = question.get("criteria")
+    if answer.get("type") == "noul":
+        p = float(answer.get("noul", 0.0))
+        level = ("需关注" if p >= float(thresholds.get("action", 2)) else
+                 "留意" if p >= float(thresholds.get("review", 2)) else "")
+        criterion = criteria.get("true") if isinstance(criteria, dict) else None
+    elif answer.get("type") == "score":
+        score = float(answer.get("score", 0.0))
+        level = "需关注" if score >= float(thresholds.get("severity_action", 99)) else ""
+        index = int(round(score))
+        criterion = criteria[index] if isinstance(criteria, list) and 0 <= index < len(criteria) else None
+    else:
+        return ""
+    if not level:
+        return ""
+    return " ——【%s】%s" % (level, "判据：%s" % criterion if criterion else "")
+
+
 def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
     """JEV 端：取被评对象那封信正文的四个字段，用题库调用决策 API（shadow 语义：只给审核端参考）。"""
     from codekit import decisions
@@ -1109,24 +1348,35 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
                  "contract_scope": contract.get("scope"), "definition_of_done": contract.get("definition_of_done")}
     else:
         battery = decisions.load_locked_batteries(hub.repo / "plugins" / "decisions")["report-screen"]
-        report = json.loads(read_text(Path(ts["exec"]["run_dir"]) / "executor-report.json") or "{}")
+        run_dir = Path(ts["exec"]["run_dir"])
+        report = json.loads(read_text(run_dir / "executor-report.json") or "{}")
+        scope = json.loads(read_text(run_dir / "scope.json") or "{}")
+        observed = json.loads(read_text(run_dir / "observations.json") or "{}")
+        # 客观指纹与执行端的自述放在一起：JEV 才能看出“自述完成而无证据”“弱化测试”（docs/实际问题/决策端.md）
         state = {"contract_goal": contract.get("title"), "contract_scope": contract.get("scope"),
                  "definition_of_done": contract.get("definition_of_done"),
                  "executor_report": {"text": json.dumps(summary, ensure_ascii=False),
                                      "contract_conflicts": len(report.get("contract_conflicts") or []),
                                      "unresolved_questions": len(report.get("unresolved_questions") or [])},
                  "observations": {"check_exit": ts["exec"].get("check_exit"),
-                                  "scope_violations": ts["exec"].get("scope_violations")}}
+                                  "scope_violations": ts["exec"].get("scope_violations"),
+                                  "changed_files": [f.get("path") for f in scope.get("files") or [] if isinstance(f, dict)],
+                                  "review_hints": observed.get("review_hints"),
+                                  "whitebox_exit": ts["gate_post"].get("whitebox_exit"),
+                                  "mutation_counts": ts["gate_post"].get("mutation_counts")}}
     settings = decisions.Settings()
     settings.mode, settings.configured_mode, settings.reason = "shadow", "shadow", "hub"
     settings.points = [battery["id"]]
     session = decisions.Session(settings, hub.root / "ledger" / "decisions.jsonl")
     result = session.ask(battery, state, context={"task": ts["task"], "stage": suffix})
     lines = []
+    questions = battery.get("questions") or {}
     for name, answer in sorted((result.get("answers") or {}).items()):
         text, confidence = decisions.answer_value(answer)
+        question = questions.get(name) or {}
         label = (battery.get("labels") or {}).get(name, name)
-        lines.append("%s：%s（置信 %.2f）" % (label, text, confidence))
+        lines.append("%s：%s（置信 %.2f）%s" % (label, text, confidence,
+                                            jev_flag(answer, question, battery.get("thresholds") or {})))
     ts["jev"][suffix] = {"status": result["status"], "reason": result.get("reason"), "answers": result.get("answers"),
                          "battery": battery["id"], "battery_version": battery["version"], "at": utc_now()}
     report_md = "# JEV 判断（%s）\n\n- 题库：%s %s\n- 结果：%s %s\n\n%s\n" % (
@@ -1141,8 +1391,33 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
 
 
 def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
-    """结项：把终审报告写成复审记录，verdict PASS，再 integrate（本地分支，ff-only，不推送）。"""
+    """结项：把终审报告写成复审记录，verdict PASS，再 integrate（本地分支，ff-only，不推送）。
+    可以重试：attempt 已经是 PASS 就不再记一次结论。"""
     run_dir = Path(ts["exec"]["run_dir"])
+    if pd.get_state(run_dir) != "PASS":
+        problem = record_pass(hub, ts, run_dir)
+        if problem:
+            return False, problem
+    oracle = ts["oracle"].get("sha")
+    if oracle and subprocess.run(["git", "merge-base", "--is-ancestor", oracle, "HEAD"], cwd=str(hub.repo),
+                                 stdin=subprocess.DEVNULL).returncode != 0:
+        # 候选以门禁的基准测试提交为基线：它不在当前分支上时，integrate 只挑“基线→候选”的改动，
+        # 当前末端上没有基准测试，合同检查跑不通（T001 第一次结项就卡在这里）。它是一审审过、锁定的验收测试，先带上。
+        try:
+            git(["merge", "--ff-only", oracle], hub.repo)
+        except HubError as exc:
+            return False, "基准测试提交 %s 不能 ff 到当前分支（分支已经分叉？）：%s" % (oracle[:12], exc)
+        ts["oracle"]["landed_at"] = utc_now()
+        hub.append_event("oracle.landed", task=ts["task"], sha=oracle)
+    code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
+    ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
+    if code != 0:
+        return False, "integrate 没有落地（退出码 %d）：\n%s" % (code, tail(out, 15))
+    return True, tail(out, 6)
+
+
+def record_pass(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[str]:
+    """把终审报告写成复审记录，记 verdict PASS；返回问题（成功时为 None）。"""
     review_dir = hub.repo / ".agent" / "reviews" / ts["contract_task"]
     review_dir.mkdir(parents=True, exist_ok=True)
     review_path = review_dir / ("%s-hub.md" % run_dir.name)
@@ -1162,12 +1437,8 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     review_path.write_text("\n".join(body), encoding="utf-8", newline="\n")
     code, out = run_pd(hub, ["verdict", str(run_dir), "--verdict", "PASS", "--review", str(review_path)])
     if code != 0:
-        return False, "verdict PASS 被门禁拒绝：\n%s" % tail(out, 20)
-    code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
-    ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
-    if code != 0:
-        return False, "integrate 没有落地（退出码 %d）：\n%s" % (code, tail(out, 15))
-    return True, tail(out, 6)
+        return "verdict PASS 被门禁拒绝：\n%s" % tail(out, 20)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1186,8 +1457,11 @@ OUTPUT_SPECS = {
 ROLE_EXTRA_OUTPUT = {
     "contract": '另加 "contract_md": "<合同 Markdown 全文>"',
     "gate": '战后模式另加 "mutation_spec": {"commands": [{"id": "W1", "argv": ["python", "-m", "pytest", "<文件>", "-q"]}], '
-            '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}',
-    "audit": 'letter 里另加 "结论": "通过|返工"，返工时再加 "退回": "合同端|门禁端|执行端|规划端"',
+            '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}；'
+            '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
+            '其余每条都必须被抓住',
+    "audit": 'letter 里另加 "结论": "通过|返工"；返工时再加 "退回": "合同端|门禁端|战后门禁|执行端|规划端"'
+             '（一审只能退回规划端、合同端、门禁端）与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的>"',
 }
 
 
@@ -1247,6 +1521,20 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
         state = read_text(task_dir / "state.md")
         if state:
             parts += ["", "## 你上次留下的 state.md", "", state]
+        if role == "audit":
+            stage = stage_of(task_id)[1]
+            history = [h for h in ts.get("audit_history") or [] if h.get("stage") == stage]
+            if history and history[-1].get("verdict") == "返工":
+                parts += ["", "## 上一轮你列的阻塞项（复审封板）", "", history[-1].get("blockers") or "（空）", "",
+                          "- 先逐条复核这些阻塞项是否已经解决，在报告里逐条写结论。",
+                          "- 新的打回理由只能来自本轮新改动的内容，或者会导致错误结果的严重问题；"
+                          "上一轮没提的建议类意见不能在这一轮升级成阻塞项。"]
+            if stage == "7-audit-post" and ts["gate_post"].get("mutate_record"):
+                parts += ["", "- 内核的变异记录（逐条结果）：%s" % (hub.repo / ts["gate_post"]["mutate_record"]),
+                          "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
+            if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
+                parts += ["", "## 门禁端声明的等价变异（逐条复核：改了真的测不出来吗）", ""] + [
+                    "- " + item for item in ts["gate_post"]["equivalent"]]
         if role == "contract":
             parts += ["", "## 合同要求（内核会逐项核对）", "",
                       "- 第一行：`# TASK: %s`；Identity 的 plan_version 写 %d；base_sha 先写 %s（门禁提交后内核会改）。" % (
@@ -1342,7 +1630,7 @@ class Engine:
         self.hub.save_state(state)
         prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace)
         turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt)
-        if turn["output"] is None and not turn["violations"]:
+        if turn["output"] is None and not turn["violations"] and not turn.get("api_error"):
             prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, error=turn["output_error"])
             turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt,
                                    retry_of=turn["turn_id"])
@@ -1402,6 +1690,11 @@ class Engine:
                 if not isinstance(brief, str) or not brief.strip():
                     return "开工、返工要附 brief（下一阶段任务书的 Markdown 全文）"
                 self.write_brief(meta["task-id"], brief)
+            if meta["type"] == "返工" and suffix == "3-gate-pre" and hotfix_reason(ts):
+                ts["hotfix"] = {"reason": hotfix_reason(ts), "at": utc_now(), "previous_oracle": ts["oracle"].get("sha")}
+                self.hub.append_event("hotfix.started", task=ts["task"], reason=ts["hotfix"]["reason"])
+            if meta["type"] == "返工" and (ts.get("owner_rework") or {}).get("suffix") == suffix:
+                self.hub.append_event("owner_rework.used", task=ts["task"], **ts.pop("owner_rework"))
             ts["stages"][suffix]["status"] = "assigned"
             ts["stages"][suffix]["assigned_at"] = utc_now()
             ts["stages"][suffix]["kind"] = meta["type"]
@@ -1413,9 +1706,7 @@ class Engine:
         directory = self.hub.task_dir(task_id)
         directory.mkdir(parents=True, exist_ok=True)
         current = directory / "brief.md"
-        if current.exists():
-            index = len(list(directory.glob("brief.*.md"))) + 1
-            os.replace(str(current), str(directory / ("brief.%d.md" % index)))
+        keep_previous(current)
         write_text_atomic(current, brief.rstrip() + "\n")
 
     def escalate(self, ts: Dict[str, Any], text: str) -> None:
@@ -1457,7 +1748,7 @@ class Engine:
         fresh = "返工" in kinds
         turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh)
         error = self.output_problem(agent, task_id, turn)
-        if error and not turn["violations"]:
+        if error and not turn["violations"] and not turn.get("api_error"):  # 接口报错重试也没用
             prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, error=error)
             turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"])
             error = self.output_problem(agent, task_id, turn)
@@ -1466,6 +1757,12 @@ class Engine:
         if turn["violations"] or error:
             reason = "；".join(turn["violations"]) or error
             ts["stages"][suffix].update(status="failed", note="回合作废：%s" % reason)
+            if turn.get("api_error") and not turn["violations"]:
+                # 环境问题（例如 2026-10-19 旧机器上的 403）：协调人也会遇到同样的错，直接交给站主
+                self.escalate(ts, "%s 的回合遇到模型接口报错，阶段已标为 failed：%s（回合 %s）" % (
+                    agent, turn["api_error"], turn["turn_id"]))
+                self.hub.save_state(state)
+                return
             self.hub.save_state(state)
             self.hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": task_id, "in-reply-to": "none",
                               "type": "阻塞"},
@@ -1476,6 +1773,7 @@ class Engine:
         output = turn["output"]
         directory = self.hub.task_dir(task_id)
         if isinstance(output.get("report"), str):
+            keep_previous(directory / "report.md")  # 返工前的报告留着：上一轮的意见不丢
             write_text_atomic(directory / "report.md", output["report"])
         if isinstance(output.get("state"), str):
             write_text_atomic(directory / "state.md", output["state"])
@@ -1496,6 +1794,18 @@ class Engine:
                 self.after_delivery(ts, suffix, fields)
         self.hub.save_state(state)
         self.hub.deliver(meta, fields)
+        if stage["status"] == "delivered":
+            self.auto_jev(state, ts, suffix)
+
+    def auto_jev(self, state: Dict[str, Any], ts: Dict[str, Any], suffix: str) -> None:
+        """JEV 由内核接着跑（用户 2026-10-19 同意）：上游交付通过、前置条件满足时直接调决策 API，
+        不为它单独唤醒协调人；交付信与 JEV 的信一起进协调人信箱，协调人一个回合处理。"""
+        jev = AUTO_JEV.get(suffix)
+        if not jev or not ts.get("jev_enabled") or _guard_start(ts, jev) is not None:
+            return
+        ts["stages"][jev].update(status="assigned", assigned_at=utc_now(), kind="内核自动")
+        self.hub.append_event("jev.auto", task=ts["task"], stage=jev)
+        self.finish_kernel_stage(state, ts, "jev-judge", jev, run_jev(self.hub, ts, jev), ok=True)
 
     def output_problem(self, agent: str, task_id: str, turn: Dict[str, Any]) -> Optional[str]:
         if turn["output"] is None:
@@ -1532,10 +1842,18 @@ class Engine:
             key = "post-%s" % Path(ts["exec"]["run_dir"]).name
             return accept_gate_post(self.hub, ts, Path(ts["workspaces"][key]["path"]), output)
         if suffix in ("4-audit-pre", "7-audit-post"):
-            return [] if fields.get("结论") in VERDICTS else ["审核结论缺失"]
+            if fields.get("结论") not in VERDICTS:
+                return ["审核结论缺失"]
+            if suffix == "4-audit-pre":
+                return dod_coverage_problems(self.hub, ts, str(output.get("report") or ""))
         return []
 
     def after_delivery(self, ts: Dict[str, Any], suffix: str, fields: Dict[str, str]) -> None:
+        if suffix in ("4-audit-pre", "7-audit-post"):
+            # 不随 invalidate_after 清掉：返工之后的下一轮审核要拿上一轮的阻塞项来复核（复审封板）
+            ts.setdefault("audit_history", []).append({
+                "stage": suffix, "verdict": fields.get("结论"), "target": fields.get("退回"),
+                "blockers": fields.get("阻塞项", ""), "at": utc_now()})
         if suffix == "4-audit-pre":
             ts["audit_pre"].update(verdict=fields.get("结论"), target=fields.get("退回"),
                                    contract_sha256=ts["contract"].get("sha256"), oracle_sha=ts["oracle"].get("sha"))
@@ -1559,6 +1877,23 @@ class Engine:
         self.hub.save_state(state)
         self.hub.deliver({"from": agent, "to": COORDINATOR, "task-id": "%s-%s" % (ts["task"], suffix),
                           "in-reply-to": "none", "type": "交付"}, fields)
+
+    def recheck_exec(self, main: str) -> Dict[str, Any]:
+        """站主命令 exec-recheck：对最近一次 attempt 重新核验，不重跑执行端、不占新的尝试次数。
+        只在执行阶段判为失败、attempt 目录还在时可用；结果照常作为执行端的交付信送给协调人。"""
+        state = self.hub.load_state()
+        ts = state["tasks"].get(main)
+        if ts is None:
+            raise HubError("没有登记主任务 %s" % main, EXIT_USAGE)
+        run_dir = ts["exec"].get("run_dir")
+        if ts["stages"]["5-exec"]["status"] != "failed" or not run_dir or not Path(run_dir).is_dir():
+            raise HubError("只有执行阶段判为失败、attempt 目录还在时才能重新核验（现在：%s）"
+                           % ts["stages"]["5-exec"]["status"], EXIT_USAGE)
+        fields = finish_exec(self.hub, ts, Path(run_dir), ts["exec"].get("run_exit"))
+        fields["验证"] = "（站主 exec-recheck 重新核验，没有重跑执行端）" + fields["验证"]
+        self.hub.append_event("exec.rechecked", task=main, run_dir=run_dir, check_ok=ts["exec"]["check_ok"])
+        self.finish_kernel_stage(state, ts, "exec-step", "5-exec", fields, ok=ts["exec"]["check_ok"])
+        return ts["exec"]
 
     def handle_pass(self, state: Dict[str, Any], meta: Dict[str, str]) -> None:
         """协调人对执行端发“通过”：结项（verdict PASS 与 integrate）。"""
@@ -1623,20 +1958,40 @@ def cmd_send(args: argparse.Namespace) -> int:
     fields["摘要"] = text.strip()[:2000] or "无"
     meta = {"from": OWNER, "to": COORDINATOR, "task-id": args.task, "in-reply-to": args.reply_to or "none",
             "type": args.type}
+    if args.rework:
+        if args.type != "回复" or args.rework not in STAGE_ORDER or args.rework in ("3j-jev", "6j-jev"):
+            raise HubError("--rework 只能随“回复”发，写阶段后缀（例如 2-contract；JEV 不用返工）", EXIT_USAGE)
+        fields["需协调人决定"] = "站主要求 %s-%s 返工：给它发“返工”，brief 写清站主要改的地方" % (args.task, args.rework)
     errors = letter_errors(meta, fields, len(fields["摘要"].splitlines()) + 5)
     if errors:
         raise HubError("；".join(errors), EXIT_USAGE)
     with DirLock(hub.root / ".lock"):
-        msg = hub.deliver(meta, fields)
         state = hub.load_state()
         ts = state["tasks"].get(args.task)
+        if args.rework and ts is None:
+            raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+        msg = hub.deliver(meta, fields)
         if ts is not None and args.type == "停止":
             ts["status"] = "stopped"
         elif ts is not None and ts.get("status") == "blocked":
             ts["status"], ts["coordinator_rejections"] = "active", 0
+        if args.rework:
+            # 一审之前站主也能要合同改版（T001：此前只有审核退回或核验失败才放行返工）
+            ts["owner_rework"] = {"suffix": args.rework, "msg": msg, "requested_at": utc_now()}
+            hub.append_event("owner_rework.requested", task=args.task, suffix=args.rework, msg=msg)
         hub.save_state(state)
     print("已投递 %s" % msg)
     return EXIT_OK
+
+
+def cmd_exec_recheck(args: argparse.Namespace) -> int:
+    hub = Hub(find_repo(args.repo))
+    with DirLock(hub.root / ".runner", wait_seconds=1.0):  # 不和正在跑的 hub 抢状态
+        result = Engine(hub).recheck_exec(args.task)
+    print("%s 执行阶段重新核验：%s（attempt 状态 %s，check --fresh 退出码 %s，范围违规 %s）" % (
+        args.task, "通过" if result["check_ok"] else "未通过", result.get("status"), result.get("check_exit"),
+        result.get("scope_violations")))
+    return EXIT_OK if result["check_ok"] else EXIT_FAIL
 
 
 def cmd_take(args: argparse.Namespace) -> int:
@@ -1662,7 +2017,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("## %s %s（%s）" % (ts["task"], ts["title"], ts["status"]))
         print(stage_status_table(hub, ts))
         print()
-    print("未读：" + "、".join("%s %d" % (k, v) for k, v in unread.items() if v) or "未读：无")
+    print("未读：" + ("、".join("%s %d" % (k, v) for k, v in unread.items() if v) or "无"))
     runner = hub.root / ".runner"
     print("运行中的 hub：%s" % (read_text(runner / "owner.json").strip() if runner.is_dir() else "无"))
     return EXIT_OK
@@ -1674,7 +2029,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     engine = Engine(hub)
     turns = 0
     with DirLock(hub.root / ".runner", wait_seconds=1.0):
-        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=sha256_file(Path(__file__)))
+        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256)
         idle_since = time.monotonic()
         while turns < args.max_steps:
             pending = hub.load_state()
@@ -1716,7 +2071,11 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--type", choices=("回复", "停止"), required=True)
     send.add_argument("--file", default="-")
     send.add_argument("--reply-to")
+    send.add_argument("--rework", help="随“回复”指定某一阶段返工（阶段后缀，例如 2-contract）")
     send.set_defaults(func=cmd_send)
+    recheck = sub.add_parser("exec-recheck", help="对最近一次 attempt 重新核验（不重跑执行端）")
+    recheck.add_argument("task")
+    recheck.set_defaults(func=cmd_exec_recheck)
     take = sub.add_parser("take", help="站主收信")
     take.add_argument("--peek", action="store_true", help="只看，不移到 cur")
     take.set_defaults(func=cmd_take)
@@ -1732,6 +2091,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # 控制台代码页不是 UTF-8 时（例如 cp1252）：中文输出会抛错，`send` 从管道读进来的中文会变成乱码
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))

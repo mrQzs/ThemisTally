@@ -83,7 +83,15 @@ def test_letter_body_limit_and_audit_verdict():
     assert any("超过 40 行" in e for e in kh.letter_errors(head, fields(结论="通过"), 41))
     assert any("结论" in e for e in kh.letter_errors(head, fields(), 6))
     assert any("退回" in e for e in kh.letter_errors(head, fields(结论="返工"), 7))
-    assert kh.letter_errors(head, fields(结论="返工", 退回="门禁端"), 8) == []
+    # 复审封板：返工要一次列全阻塞项
+    assert any("阻塞项" in e for e in kh.letter_errors(head, fields(结论="返工", 退回="门禁端"), 8))
+    assert any("阻塞项" in e for e in kh.letter_errors(head, fields(结论="返工", 退回="门禁端", 阻塞项="无"), 9))
+    assert kh.letter_errors(head, fields(结论="返工", 退回="门禁端", 阻塞项="1. 断言太松"), 9) == []
+    # 一审时还没有执行：不能退回执行端或战后门禁
+    for target in ("执行端", "战后门禁"):
+        assert any("一审只能退回" in e for e in kh.letter_errors(head, fields(结论="返工", 退回=target, 阻塞项="x"), 9))
+    final = dict(head, **{"task-id": "T001-7-audit-post"})
+    assert kh.letter_errors(final, fields(结论="返工", 退回="战后门禁", 阻塞项="x"), 9) == []
 
 
 def test_delivery_never_overwrites_and_take_moves_to_cur(tmp_path):
@@ -184,11 +192,11 @@ def test_guard_short_circuit_after_execution():
 
 def test_guard_rework_targets():
     ts = locked(make_ts())
-    assert "没有一审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
-    assert "没有一审退回" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre"))
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre"))
     ts["audit_pre"].update(verdict="返工", target="门禁端")
     assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
-    assert "没有一审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
     ts["stages"]["2-contract"]["status"] = "failed"  # 内核核验失败也允许返工
     assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
     assert "不到 3 次" in kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan"))
@@ -198,6 +206,378 @@ def test_guard_rework_targets():
     assert kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
     ts["stages"]["4-audit-pre"]["status"] = "assigned"
     assert "正在进行" in kh.guard(ts, meta("返工", "audit-sonnet", "T001-4-audit-pre"))
+
+
+def test_final_review_can_return_to_the_contract_and_to_the_post_gate():
+    ts = locked(make_ts())
+    ts["audit_pre"].update(verdict="通过")
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is not None
+    assert "战后门禁" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-6-gate-post"))
+    ts["audit_post"].update(verdict="返工", target="合同端")  # 原来是死路：只认一审的退回
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-6-gate-post")) is not None
+    ts["audit_post"]["target"] = "战后门禁"
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-6-gate-post")) is None
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is not None
+
+
+def test_owner_can_order_a_rework_before_the_first_review(tmp_path, monkeypatch):
+    import io
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    ts["stages"]["2-contract"]["status"] = "delivered"
+    hub.save_state({"tasks": {"T001": ts}})
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is not None
+    monkeypatch.setattr(sys, "stdin", io.StringIO("合同去掉待确认标注"))
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    for bad in (["--type", "停止", "--rework", "2-contract"], ["--type", "回复", "--rework", "3j-jev"],
+                ["--type", "回复", "--rework", "9-x"]):
+        assert kh.main(["--repo", str(repo), "send", "T001"] + bad) == kh.EXIT_USAGE
+    assert kh.main(["--repo", str(repo), "send", "T001", "--type", "回复", "--rework", "2-contract"]) == kh.EXIT_OK
+    state = hub.load_state()
+    assert state["tasks"]["T001"]["owner_rework"]["suffix"] == "2-contract"
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert "站主要求 T001-2-contract 返工" in letter
+    ts = state["tasks"]["T001"]
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is not None  # 只放行指定的那一个阶段
+    engine = kh.Engine(hub, FakeRunner([]))
+    assert engine.deliver_coordinator_letter(state, dict(start_planner(), to="contract-glm", type="返工",
+                                                         task_id="T001-2-contract")) is None
+    ts = hub.load_state()["tasks"]["T001"]
+    assert "owner_rework" not in ts and ts["stages"]["2-contract"]["status"] == "assigned"  # 用过就作废
+
+
+def test_gate_hotfix_needs_the_executors_evidence_or_a_final_review_return():
+    ts = locked(make_ts())
+    ts["audit_pre"].update(verdict="通过", contract_sha256="c1", oracle_sha="o" * 40)
+    ts["exec"].update(run_dir="r", check_ok=False, conflicts=0)
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre"))
+    ts["exec"]["conflicts"] = 2  # 执行端举证
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    ts["exec"]["conflicts"] = 0
+    ts["audit_post"].update(verdict="返工", target="执行端")
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is not None
+    ts["audit_post"]["target"] = "门禁端"  # 终审退回门禁端
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    kh.invalidate_after(ts, "3-gate-pre")  # 热修补交付后：一审、执行、终审都作废，执行端必须重跑
+    assert kh.hotfix_reason(ts) is None
+    assert "一审还没有通过" in kh.guard(ts, meta("开工", "exec-step", "T001-5-exec"))
+
+
+def test_hotfix_rework_records_the_previous_baseline(engine_env):
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["exec"].update(run_dir="r", check_ok=False, conflicts=1)
+    hub.save_state(state)
+    hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": "T001", "in-reply-to": "none", "type": "回复"},
+                fields())
+    item = dict(start_planner("# 热修补\n第 3 条断言写反了"), to="gate-sonnet", type="返工", task_id="T001-3-gate-pre")
+    kh.Engine(hub, FakeRunner([({"letters": [item]}, [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["hotfix"]["previous_oracle"] == "o" * 40 and "合同矛盾" in ts["hotfix"]["reason"]
+    assert ts["stages"]["3-gate-pre"]["status"] == "assigned"
+
+
+def test_dispatched_contract_is_bumped_not_edited(tmp_path):
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    plans = tmp_path / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: x\n",
+                                         encoding="utf-8")
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1, "dispatched": True}
+    assert kh.bump_contract_version(hub, ts) == []
+    assert ts["contract"]["key"] == "t001-doc.v2" and "dispatched" not in ts["contract"]
+    assert "- plan_version: 2" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- plan_version: 1" in (plans / "t001-doc.v1.md").read_text(encoding="utf-8")  # 已派遣的版本不动
+    ts["contract"].update(key="t001-doc.v1", version=1)
+    assert any("已存在" in p for p in kh.bump_contract_version(hub, ts))
+
+
+def git_repo(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for args in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@example.invalid"],
+                 ["config", "commit.gpgsign", "false"]):
+        subprocess.run(["git"] + args, cwd=str(repo), check=True)
+    (repo / "README.md").write_text("基线\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=str(repo), check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo), check=True,
+                          stdout=subprocess.PIPE).stdout.decode().strip()
+    return repo, head
+
+
+def test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff(tmp_path, monkeypatch):
+    repo, head = git_repo(tmp_path)
+    roots = tmp_path / "worktrees"
+    roots.mkdir()
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(list(args)) or (0, "ok"))
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    contract = {"scope": {"forbidden_paths": ["tests/test_gate_t001_*.py"]},
+                "checks": [{"argv": ["python", "-m", "pytest", "tests/test_gate_t001_baseline.py", "-q"],
+                            "expect_on_base": "fail", "required": True}],
+                "executor": {key: kh.ROSTER["exec-step"][key] for key in ("provider", "model", "thinking")},
+                "authorization": {"integration": ["local_branch", "merge"]}}
+    for version in (1, 2):  # run_pd 是假的：derive-json 不会真的写 JSON，先放好
+        (plans / ("t001-doc.v%d.json" % version)).write_text(json.dumps(contract), encoding="utf-8")
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n- plan_version: 1\n- base_sha: %s\n" % head,
+                                         encoding="utf-8")
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1}
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == []
+    first = ts["oracle"]["sha"]
+    assert ts["oracle"]["locked"] and ts["contract"]["key"] == "t001-doc.v1"
+    assert "- base_sha: %s" % first in (plans / "t001-doc.v1.md").read_text(encoding="utf-8")
+    assert ["baseline", "t001-doc.v1"] in calls
+    # 派遣过之后热修补：退回基线、改测试、重新交付 → 出 v2，v1 不动，差异留给一审
+    ts["contract"]["dispatched"] = True
+    ts["hotfix"] = {"reason": "执行端报了 1 条合同矛盾", "previous_oracle": first}
+    engine = kh.Engine(hub, FakeRunner([]))
+    assert engine.stage_workspace(ts, "gate-sonnet", "3-gate-pre") == workspace
+    target.write_text("def test_x():\n    assert 1 == 2  # 改了断言\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == []
+    assert ts["contract"]["key"] == "t001-doc.v2" and ts["oracle"]["sha"] != first
+    assert "- base_sha: %s" % first in (plans / "t001-doc.v1.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % ts["oracle"]["sha"] in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    diff = (repo / ts["oracle"]["hotfix_diff"]).read_text(encoding="utf-8")
+    assert "assert 1 == 2" in diff and "assert False" in diff
+    assert "hotfix" not in ts and ts["hotfixes"][0]["oracle"] == ts["oracle"]["sha"]
+    refs = kh.git(["for-each-ref", "--format=%(refname)", "refs/themis/oracle/"], repo).split()
+    assert refs == ["refs/themis/oracle/t001-doc/v1", "refs/themis/oracle/t001-doc/v2"]
+    # 门禁端改了别的文件：拒收
+    (workspace / "README.md").write_text("改了\n", encoding="utf-8")
+    kh.git(["reset", "-q", "--mixed", head], workspace)
+    assert any("不能改动别的文件" in p for p in kh.accept_gate_pre(hub, ts, workspace))
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def gate_setup(tmp_path, monkeypatch, run_pd=None):
+    repo, head = git_repo(tmp_path)
+    roots = tmp_path / "worktrees"
+    roots.mkdir()
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", run_pd or (lambda hub, args, timeout=600: calls.append(list(args)) or (0, "ok")))
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    contract = {"scope": {"forbidden_paths": ["tests/test_gate_t001_*.py"]},
+                "checks": [{"argv": ["python", "-m", "pytest", "tests/test_gate_t001_baseline.py", "-q"],
+                            "expect_on_base": "fail", "required": True}],
+                "executor": {key: kh.ROSTER["exec-step"][key] for key in ("provider", "model", "thinking")},
+                "authorization": {"integration": ["local_branch", "merge"]},
+                "definition_of_done": [{"id": "D01"}, {"id": "D02"}, {"id": "D11"}]}
+    (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n- plan_version: 1\n- base_sha: %s\n" % head,
+                                         encoding="utf-8")
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1}
+    return repo, head, hub, ts, plans, calls
+
+
+def test_gate_pre_rejects_a_baseline_that_does_not_collect(tmp_path, monkeypatch):
+    repo, head, hub, ts, _plans, calls = gate_setup(tmp_path, monkeypatch)
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    # 在基线上照样“失败”，但失败在收集上：断言什么也没证明（空心基线）
+    for text in ("def test_x(:\n    pass\n", "from not_written_yet import feature\n\ndef test_x():\n    assert feature()\n",
+                 "# 没有用例\n"):
+        target.write_text(text, encoding="utf-8")
+        problems = kh.accept_gate_pre(hub, ts, workspace)
+        assert len(problems) == 1 and "收集失败" in problems[0], problems
+        assert calls == [] and not ts["oracle"]  # 没提交、没锁定
+    target.write_text("def test_x():\n    from not_written_yet import feature\n    assert feature()\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == [] and ts["oracle"]["locked"]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_contract_with_pending_marks_is_rejected(tmp_path, monkeypatch):
+    _repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
+    md = plans / "t001-doc.v1.md"
+    clean = md.read_text(encoding="utf-8")
+    assert kh.contract_requirements(hub, ts) == []
+    md.write_text(clean + "- A7：加四行【与任务书不同，待站主确认】\n- A13：【Q2 待确认】\n", encoding="utf-8")
+    problems = kh.contract_requirements(hub, ts)
+    assert len(problems) == 1 and "2 处未决标注" in problems[0] and "提问" in problems[0]
+    md.write_text(clean + "- A7：加四行（站主 2026-10-19 已确认）\n", encoding="utf-8")
+    assert kh.contract_requirements(hub, ts) == []
+
+
+def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
+    _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
+    problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")
+    assert len(problems) == 1 and "D02" in problems[0] and "D11" not in problems[0]
+    assert kh.dod_coverage_problems(hub, ts, "D01 D02 D11") == []
+    assert kh.dod_coverage_problems(hub, ts, "D011 D02 D11")  # D011 不算 D01
+    engine = kh.Engine(hub, FakeRunner([]))
+    assert engine.verify_delivery(ts, "audit-sonnet", "4-audit-pre", {"report": "D01"}, {"结论": "通过"})
+    assert engine.verify_delivery(ts, "audit-sonnet", "7-audit-post", {"report": ""}, {"结论": "通过"}) == []
+
+
+def mutation_record(*statuses, unexpected=None) -> dict:
+    results = []
+    for index, status in enumerate(statuses, 1):
+        miss = status == "missed" and (unexpected is None or index in unexpected)
+        results.append({"id": "M%02d" % index, "status": status, "unexpected": ["W1"] if miss else []})
+    return {"results": results, "counts": {}}
+
+
+def test_mutation_verdict_reads_the_record_not_the_exit_code():
+    # mutate --tree 的退出码在变异漏网时也是 0：只看退出码，这一关等于没有
+    assert kh.mutation_problems(0, mutation_record("caught", "caught"), "") == []
+    missed = kh.mutation_problems(0, mutation_record("caught", "missed"), "")
+    assert len(missed) == 1 and "M02" in missed[0] and "漏网" in missed[0]
+    assert kh.mutation_problems(0, mutation_record("caught", "missed", unexpected=[]), "") == []  # 声明等价的漏网
+    for status in ("skipped", "error"):
+        assert any("没有生效" in p for p in kh.mutation_problems(0, mutation_record("caught", status), ""))
+    multi = {"results": [{"id": "M01", "status": "caught", "unexpected": [],
+                          "commands": {"W1": {"status": "caught"}, "W2": {"status": "error"}}}]}
+    assert any("没有生效" in p for p in kh.mutation_problems(0, multi, ""))
+    assert any("没有一条变异被抓住" in p for p in kh.mutation_problems(0, mutation_record("missed", unexpected=[]), ""))
+    assert any("没有跑完" in p for p in kh.mutation_problems(2, mutation_record("caught"), "baseline failed"))
+    assert any("没有跑完" in p for p in kh.mutation_problems(0, {}, ""))
+
+
+def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
+    records = {}
+
+    def fake_pd(hub, args, timeout=600):
+        out_dir = Path(args[args.index("--out") + 1])
+        out_dir.mkdir(parents=True)
+        (out_dir / "mutations.json").write_text(json.dumps(records["next"]), encoding="utf-8")
+        return 0, "变异 2 条"
+
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=fake_pd)
+    run_dir = tmp_path / "attempt-001"
+    ts["exec"] = {"run_dir": str(run_dir)}
+    workspace = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    ts["workspaces"]["post-attempt-001"]["baseline_status"] = []
+    target = workspace / "tests" / "test_gate_t001_whitebox.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_ok():\n    print('白盒输出')\n", encoding="utf-8")
+    spec = {"mutations": [{"name": "去掉检查", "file": "README.md", "old": "基线", "new": "x"},
+                          {"name": "等价改写", "file": "README.md", "old": "线", "new": "线", "equivalent": "同一个字"}]}
+    records["next"] = mutation_record("caught", "missed")
+    problems = kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec})
+    assert any("漏网" in p for p in problems) and ts["gate_post"]["ok"] is False
+    assert ts["gate_post"]["mutate_exit"] == 0  # 退出码是 0，照样不通过
+    records["next"] = mutation_record("caught", "missed", unexpected=[])
+    assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}) == [] and ts["gate_post"]["ok"]
+    assert ts["gate_post"]["equivalent"] == ["等价改写：同一个字"]
+    record = ts["gate_post"]["mutate_record"]  # 在信箱的证据目录里：终审读得到
+    assert record.startswith(".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-") and (repo / record).is_file()
+    log = repo / ts["gate_post"]["whitebox_log"]
+    assert log.is_file() and ts["gate_post"]["whitebox_exit"] == 0 and "passed" in ts["gate_post"]["whitebox_tail"]
+    target.write_text("def test_bad():\n    assert False\n", encoding="utf-8")
+    assert any("白盒测试" in p for p in kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}))
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_tail_file_reads_only_the_end(tmp_path):
+    path = tmp_path / "big.log"
+    path.write_bytes(b"".join(b"line %d\n" % i for i in range(400000)))  # 约 5 MiB
+    import tracemalloc
+    tracemalloc.start()
+    try:
+        assert kh.tail_file(path, 2, limit=4096) == "line 399998\nline 399999"
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 512 * 1024, peak  # 只读了末尾，没有整份读进内存
+
+
+def test_review_history_survives_rework_and_seals_the_next_round(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = locked(make_ts())
+    engine = kh.Engine(hub, FakeRunner([]))
+    engine.after_delivery(ts, "7-audit-post", {"结论": "返工", "退回": "执行端", "阻塞项": "1. 空的 except 吞掉了错误"})
+    ts["gate_post"] = {"ok": True, "equivalent": ["等价改写：同一个字"]}
+    kh.invalidate_after(ts, "5-exec")  # 执行端重跑：终审的记录清空，历史留着
+    assert ts["audit_post"] == {} and ts["audit_history"][-1]["blockers"] == "1. 空的 except 吞掉了错误"
+    ts["gate_post"] = {"ok": True, "equivalent": ["等价改写：同一个字"],
+                       "mutate_record": ".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-1/mutations.json"}
+    prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
+    assert "复审封板" in prompt and "空的 except 吞掉了错误" in prompt and "等价改写：同一个字" in prompt
+    assert "evidence/mutate-1/mutations.json" in prompt.replace("\\", "/")
+    first = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
+    assert "复审封板" not in first and "等价改写" not in first  # 只给同一阶段的上一轮
+    engine.after_delivery(ts, "7-audit-post", {"结论": "通过"})
+    assert "复审封板" not in kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
+
+
+def test_rewritten_reports_and_briefs_keep_their_previous_versions(tmp_path):
+    path = tmp_path / "report.md"
+    for text in ("第一轮", "第二轮", "第三轮"):
+        kh.keep_previous(path)
+        path.write_text(text, encoding="utf-8")
+    assert [p.read_text(encoding="utf-8") for p in (tmp_path / "report.1.md", tmp_path / "report.2.md", path)] == [
+        "第一轮", "第二轮", "第三轮"]
+
+
+def test_jev_report_flags_answers_by_the_battery_thresholds():
+    thresholds = {"review": 0.35, "action": 0.70, "severity_action": 2.0}
+    noul = {"type": "noul", "criteria": {"true": "某条 DoD 没有机械证据", "false": "都有"}}
+    assert kh.jev_flag({"type": "noul", "noul": 0.12}, noul, thresholds) == ""
+    review = kh.jev_flag({"type": "noul", "noul": 0.41}, noul, thresholds)
+    assert "【留意】" in review and "某条 DoD 没有机械证据" in review
+    assert "【需关注】" in kh.jev_flag({"type": "noul", "noul": 0.70}, noul, thresholds)
+    score = {"type": "score", "criteria": ["低", "中", "高", "严重"]}
+    assert kh.jev_flag({"type": "score", "score": 1.0, "levels": 4}, score, thresholds) == ""
+    assert "判据：高" in kh.jev_flag({"type": "score", "score": 2.0, "levels": 4}, score, thresholds)
+
+
+def test_execution_jev_gets_the_objective_fingerprint(tmp_path, monkeypatch):
+    from codekit import decisions
+    seen = {}
+
+    class FakeSession:
+        def __init__(self, settings, path):
+            pass
+
+        def ask(self, battery, state, context=None):
+            seen["state"] = state
+            return {"status": "ok", "answers": {"scope_creep": {"type": "noul", "noul": 0.8}}}
+
+    battery = {"id": "report-screen", "version": "1.0.0", "labels": {"scope_creep": "超出范围"},
+               "questions": {"scope_creep": {"type": "noul", "criteria": {"true": "改了范围外的文件"}}},
+               "thresholds": {"review": 0.35, "action": 0.7}}
+    monkeypatch.setattr(decisions, "Session", FakeSession)
+    monkeypatch.setattr(decisions, "load_locked_batteries", lambda path: {"report-screen": battery})
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    run_dir = tmp_path / "attempt-001"
+    run_dir.mkdir()
+    (run_dir / "scope.json").write_text(json.dumps({"files": [{"path": "docs/a.md", "status": "M"}]}), encoding="utf-8")
+    (run_dir / "observations.json").write_text(json.dumps({"review_hints": {"assertion_lines_removed": 3}}),
+                                               encoding="utf-8")
+    ts = locked(make_ts())
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
+    ts["gate_post"] = {"whitebox_exit": 0, "mutation_counts": {"caught": 2}}
+    fields = kh.run_jev(hub, ts, "6j-jev")
+    observed = seen["state"]["observations"]
+    assert observed["changed_files"] == ["docs/a.md"] and observed["review_hints"]["assertion_lines_removed"] == 3
+    assert observed["mutation_counts"] == {"caught": 2}
+    report = (hub.task_dir("T001-6j-jev") / "report.md").read_text(encoding="utf-8")
+    assert "超出范围" in report and "【需关注】" in report and "改了范围外的文件" in report
+    assert "【需关注】" in fields["摘要"]
 
 
 def test_guard_final_pass_needs_final_review():
@@ -259,6 +639,27 @@ def test_claude_audit_rejects_advisor_and_tools_outside_the_allowlist():
     assert any("Bash" in v for v in bash["violations"])
 
 
+def test_refused_calls_outside_the_allowlist_only_warn():
+    # T001 的终审：模型发了一次 Bash，CLI 当场拒绝，内核却把 16 分钟的回合整个作废
+    use = assistant({"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git log"}})
+
+    def result_of(is_error: bool, text: str) -> dict:
+        return {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1",
+                                                         "is_error": is_error, "content": text}]}}
+
+    refused = kh.audit_claude_stream(stream(INIT, use, result_of(True, "<tool_use_error>Error: No such tool "
+                                                                        "available: Bash.</tool_use_error>"),
+                                            {"type": "result", "result": "ok"}), SPEC)
+    assert refused["violations"] == [] and refused["warnings"] and "Bash" in refused["warnings"][0]
+    for is_error, text in ((False, "abc123 commit"), (True, "Permission denied")):  # 执行了，或者是别的错
+        audit = kh.audit_claude_stream(stream(INIT, use, result_of(is_error, text)), SPEC)
+        assert any("Bash" in v for v in audit["violations"]) and audit["warnings"] == []
+    assert any("Bash" in v for v in kh.audit_claude_stream(stream(INIT, use), SPEC)["violations"])  # 看不到结果
+    advisor = assistant({"type": "server_tool_use", "id": "t1", "name": "advisor"})  # 服务端工具没有豁免
+    audit = kh.audit_claude_stream(stream(INIT, advisor, result_of(True, "No such tool available: advisor")), SPEC)
+    assert any("advisor" in v for v in audit["violations"]) and audit["warnings"] == []
+
+
 def test_claude_audit_checks_init_and_model():
     bad_init = dict(INIT, tools=["Read", "Grep", "Glob", "Write"], mcp_servers=[{"name": "docs"}],
                     memory_paths={"auto": "x"})
@@ -285,6 +686,33 @@ def test_pi_audit_rejects_tools_and_records_effective_level():
     other = kh.audit_pi_stream(stream({"type": "message_end", "message": {"role": "assistant", "provider": "q",
                                                                          "model": "m", "content": []}}), spec)
     assert any("实际模型" in v for v in other["violations"])
+
+
+API_ERROR = {"type": "assistant", "error": "oauth_org_not_allowed", "is_api_error_message": True,
+             "api_error_status": 403, "api_error_code": "oauth_not_allowed_for_organization",
+             "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "Your organization has disabled"}]}}
+
+
+def test_audits_name_model_api_errors_instead_of_blaming_the_output():
+    # 2026-10-19 旧机器上的真实形状：claude 把 403 合成为一条 <synthetic> 消息，内核却报成“没有 json 代码块”
+    failed = kh.audit_claude_stream(stream(INIT, API_ERROR, {"type": "result", "result": "x",
+                                                             "terminal_reason": "api_error"}), SPEC)
+    assert failed["violations"] == []
+    assert "403" in failed["api_error"] and "oauth_not_allowed_for_organization" in failed["api_error"]
+    recovered = kh.audit_claude_stream(stream(INIT, API_ERROR, assistant({"type": "text", "text": "ok"}),
+                                              {"type": "result", "result": "ok"}), SPEC)
+    assert recovered["api_error"] is None
+    terminal = kh.audit_claude_stream(stream(INIT, {"type": "result", "result": "boom",
+                                                    "terminal_reason": "api_error"}), SPEC)
+    assert "api_error" in terminal["api_error"]
+    spec = {"tools": ["read"], "provider": "p", "model": "m"}
+
+    def pi_end(stop: str, error: str = "") -> dict:
+        return {"type": "message_end", "message": {"role": "assistant", "provider": "p", "model": "m",
+                                                   "stopReason": stop, "errorMessage": error, "content": []}}
+
+    assert kh.audit_pi_stream(stream(pi_end("error", "429 rate limited")), spec)["api_error"] == "429 rate limited"
+    assert kh.audit_pi_stream(stream(pi_end("error", "429"), pi_end("stop")), spec)["api_error"] is None
 
 
 def test_output_block_is_the_last_json_fence():
@@ -315,10 +743,14 @@ def test_contract_requirements(tmp_path):
         scope={"forbidden_paths": ["tests/test_gate_t001_*.py"]},
         checks=[{"id": "VG1", "argv": ["python", "-m", "pytest", "tests/test_gate_t001_baseline.py", "-q"],
                  "expect_on_base": "fail", "required": True}],
-        executor={"provider": "bb", "model": "step-5-preview", "thinking": "high"},
+        executor={"provider": "other", "model": "step-5-preview", "thinking": "high"},
         authorization={"integration": ["local_branch", "merge"]})
     (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
+    assert any("执行模型" in p for p in kh.contract_requirements(hub, ts))  # provider 要与名册一致
+    contract["executor"] = {key: kh.ROSTER["exec-step"][key] for key in ("provider", "model", "thinking")}
+    (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
     assert kh.contract_requirements(hub, ts) == []
+    assert kh.CONTRACT_EXECUTOR_LINE == "- executor: %s/step-5-preview · thinking high" % contract["executor"]["provider"]
     contract["checks"][0]["expect_on_base"] = "pass"
     (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
     assert any("基线应失败" in p for p in kh.contract_requirements(hub, ts))
@@ -336,9 +768,11 @@ class FakeRunner:
     def run(self, agent, session_key, workspace, role_prompt, prompt, retry_of=None, fresh=False):
         self.calls.append((agent, session_key, prompt))
         self.fresh = getattr(self, "fresh", []) + [fresh]
-        output, violations = self.outputs.pop(0)
+        output, violations, *rest = self.outputs.pop(0)
+        api_error = rest[0] if rest else None
         return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output,
-                "violations": violations, "output_error": None if output is not None else "没有代码块"}
+                "violations": violations, "api_error": api_error,
+                "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块")}
 
 
 @pytest.fixture
@@ -441,6 +875,173 @@ def test_worker_turn_with_violation_is_not_delivered(engine_env):
     assert not (hub.task_dir("T001-1-plan") / "report.md").exists()
 
 
+def test_model_api_errors_are_not_retried_and_go_to_the_owner(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []),
+                         (None, [], "403 oauth_not_allowed_for_organization：Your organization has disabled")])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 2  # 接口报错不重试
+    state = hub.load_state()["tasks"]["T001"]
+    assert state["stages"]["1-plan"]["status"] == "failed" and state["status"] == "blocked"
+    assert hub.unread(kh.COORDINATOR) == []  # 协调人也会撞上同样的错：不唤醒它
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "403" in letters[0]
+
+
+def test_coordinator_api_error_is_not_retried(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([(None, [], "403 oauth_not_allowed_for_organization")])
+    kh.Engine(hub, runner).step()
+    assert len(runner.calls) == 1
+    assert hub.load_state()["tasks"]["T001"]["status"] == "blocked"
+    assert len(hub.unread(kh.OWNER)) == 1
+
+
+def test_kernel_runs_jev_right_after_a_passing_delivery(engine_env, monkeypatch):
+    hub = engine_env
+    calls = []
+    monkeypatch.setattr(kh, "run_jev", lambda hub, ts, suffix: calls.append(suffix) or fields(摘要="JEV：无异常"))
+    engine = kh.Engine(hub, FakeRunner([]))
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    for suffix in ("1-plan", "2-contract"):
+        ts["stages"][suffix]["status"] = "delivered"
+    engine.auto_jev(state, ts, "1-plan")  # 规划之后没有 JEV
+    ts["jev_enabled"] = False
+    engine.auto_jev(state, ts, "2-contract")
+    assert calls == []
+    ts["jev_enabled"] = True
+    engine.auto_jev(state, ts, "2-contract")
+    assert calls == ["3j-jev"] and hub.load_state()["tasks"]["T001"]["stages"]["3j-jev"]["status"] == "delivered"
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR)]
+    assert len(letters) == 1 and "from: jev-judge" in letters[0] and "task-id: T001-3j-jev" in letters[0]
+    ts["gate_post"] = {"ran": True, "ok": False}  # 战后门禁没过：短路，不跑 JEV
+    engine.auto_jev(state, ts, "6-gate-post")
+    ts["gate_post"]["ok"] = True
+    engine.auto_jev(state, ts, "6-gate-post")
+    assert calls == ["3j-jev", "6j-jev"]
+
+
+def test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes(engine_env, monkeypatch):
+    hub = engine_env
+    seen = []
+    monkeypatch.setattr(kh.Engine, "auto_jev", lambda self, state, ts, suffix: seen.append(suffix))
+    owner_task(hub)
+    empty = dict(planner_delivery(), report=" ")  # 内核核验不过：规划报告为空
+    engine = kh.Engine(hub, FakeRunner([({"letters": [start_planner()]}, []), (empty, [])]))
+    engine.step()
+    engine.step()
+    assert seen == []
+    hub.take(hub.unread(kh.COORDINATOR)[0])
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+    kh.Engine(hub, FakeRunner([(planner_delivery(), [])])).step()
+    assert seen == ["1-plan"]
+
+
+def attempt_dir(hub, state: dict, violations: int = 0):
+    run_dir = hub.repo / ".agent" / "runs" / "t001-doc" / "attempt-002"
+    run_dir.mkdir(parents=True)
+    (run_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    (run_dir / "scope.json").write_text(json.dumps({"violations": ["x"] * violations, "files": []}), encoding="utf-8")
+    (run_dir / "executor-report.json").write_text(json.dumps({"executor_status": "completed", "dod": []}),
+                                                  encoding="utf-8")
+    return run_dir
+
+
+def test_exec_verdict_reads_the_attempt_state_key(engine_env, monkeypatch):
+    hub = engine_env
+    check = {"code": 0}
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (check["code"], "check 输出"))
+    ts = make_ts()
+    # 调度器把状态写在 "state" 键（pi_dispatch.get_state）；T001 时读成了 "status"，执行阶段永远判不过
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["status"] == "NEEDS_REVIEW" and ts["exec"]["check_ok"] is True
+    (run_dir / "state.json").write_text(json.dumps({"status": "NEEDS_REVIEW"}), encoding="utf-8")
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["check_ok"] is False
+    (run_dir / "state.json").write_text(json.dumps({"state": "BUDGET_EXCEEDED"}), encoding="utf-8")
+    assert kh.finish_exec(hub, ts, run_dir, 0) and ts["exec"]["check_ok"] is False
+    (run_dir / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    check["code"] = 1
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["check_ok"] is False
+
+
+def test_exec_recheck_revisits_the_last_attempt_without_rerunning(engine_env, monkeypatch):
+    hub = engine_env
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (0, "ok") if args[0] == "check" else (9, "不该跑"))
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["exec"] = {"run_dir": str(run_dir), "run_exit": 0, "check_ok": False, "status": None}
+    hub.save_state(state)
+    engine = kh.Engine(hub, FakeRunner([]))
+    with pytest.raises(kh.HubError):  # 执行阶段没判失败：不能重新核验
+        engine.recheck_exec("T001")
+    ts["stages"]["5-exec"]["status"] = "failed"
+    hub.save_state(state)
+    result = engine.recheck_exec("T001")
+    assert result["check_ok"] is True
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["5-exec"]["status"] == "delivered" and ts["exec"]["check_ok"] is True
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR)]
+    assert len(letters) == 1 and "from: exec-step" in letters[0] and "exec-recheck" in letters[0]
+    assert "内核核验: 通过" in letters[0]
+    assert kh.guard(ts, meta("开工", "gate-sonnet", "T001-6-gate-post")) is None  # 可以接着开工战后门禁
+
+
+def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, monkeypatch):
+    import subprocess
+    repo, head = git_repo(tmp_path)
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_gate_t001_baseline.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
+    kh.git(["checkout", "-q", "-b", "oracle"], repo)
+    kh.git(["add", "tests/test_gate_t001_baseline.py"], repo)
+    kh.git(["commit", "-q", "-m", "门禁端基准测试"], repo)
+    oracle = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", branch], repo)
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        on_branch = subprocess.run(["git", "merge-base", "--is-ancestor", oracle, "HEAD"], cwd=str(repo)).returncode == 0
+        calls.append((args[0], on_branch))
+        if args[0] == "verdict":
+            (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")
+        return 0, "ok"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["oracle"]["sha"] = oracle
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
+    ok, _detail = kh.finalize(hub, ts)
+    # 先记结论，再把基准测试提交 ff 到当前分支，然后 integrate：integrate 看到的末端上已经有基准测试
+    assert ok and calls == [("verdict", False), ("integrate", True)]
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == oracle and ts["oracle"]["landed_at"]
+    calls.clear()
+    assert kh.finalize(hub, ts)[0] and calls == [("integrate", True)]  # 重试：attempt 已是 PASS，不再记结论
+    kh.git(["reset", "-q", "--hard", head], repo)  # 分叉之后不能 ff：不 integrate，如实报告
+    (repo / "README.md").write_text("分叉\n", encoding="utf-8")
+    kh.git(["commit", "-q", "-am", "分叉"], repo)
+    calls.clear()
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "不能 ff" in detail and calls == []
+
+
+def test_coordinator_runs_at_high_effort():
+    # 用户 2026-10-19 同意：协调人从 max 降到 high（T001 里每回合 1–4.5 分钟，大头是思考输出）
+    assert kh.ROSTER[kh.COORDINATOR]["effort"] == "high"
+
+
 def test_invalid_output_gets_one_retry(engine_env):
     hub = engine_env
     owner_task(hub)
@@ -474,6 +1075,9 @@ def test_rework_starts_a_clean_session(engine_env):
         runner = FakeRunner([(planner_delivery(), [])])
         kh.Engine(hub, runner).step()
         assert runner.calls[0][0] == "planner-opus" and runner.fresh == [kind == "返工"]
+    # 返工交付覆盖 report.md 之前，上一轮的报告留档
+    directory = hub.task_dir("T001-1-plan")
+    assert (directory / "report.1.md").is_file() and (directory / "report.md").is_file()
 
 
 def test_role_prompt_only_renders_the_workers_own_duties():
@@ -503,6 +1107,74 @@ def test_session_ids_change_on_a_fresh_restart(tmp_path):
     ids = [cmd[cmd.index("--session-id") + 1] for cmd in seen]
     assert ids == ["T001-2-contract-g0", "T001-2-contract-g0", "T001-2-contract-g1"]
     assert all(cmd[-2].startswith("@") for cmd in seen)  # pi 的输入一律经 @文件
+
+
+def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    runner.run("gate-sonnet", "T001-3-gate-pre", tmp_path / "ws", "角色", "输入")
+    runner.run("audit-sonnet", "T001-4-audit-pre", tmp_path / "ws", "角色", "输入")
+    gate, audit = seen
+    for cmd in (gate, audit):  # 合同、信箱与执行证据只在主工作区里
+        assert cmd[cmd.index("--add-dir") + 1] == str(tmp_path)
+    # 默认模式下没人答权限提示，工作目录里的写入也会被拒：门禁端要 acceptEdits，主工作区的写入另行拒绝
+    assert gate[gate.index("--permission-mode") + 1] == "acceptEdits"
+    rule = kh.claude_path_rule(tmp_path)
+    assert gate[gate.index("--disallowedTools") + 1:gate.index("--permission-prompts")] == [
+        "Edit(%s)" % rule, "Write(%s)" % rule]
+    assert "--permission-mode" not in audit and "--disallowedTools" not in audit
+
+
+def test_claude_path_rule_uses_the_absolute_form():
+    if sys.platform == "win32":
+        assert kh.claude_path_rule(Path("C:/Code/ThemisTally")) == "//c/Code/ThemisTally/**"
+    else:
+        assert kh.claude_path_rule(Path("/srv/repo")) == "//srv/repo/**"
+
+
+def test_turn_with_api_error_says_so(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        events = [dict(INIT, tools=["Read", "Grep", "Glob"], model="claude-opus-5-5"), API_ERROR,
+                  {"type": "result", "result": "Your organization has disabled", "terminal_reason": "api_error"}]
+        out.write(("\n".join(json.dumps(e) for e in events) + "\n").encode("utf-8"))
+        return {"exit_code": 1, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入")
+    assert turn["output"] is None and "403" in turn["api_error"]
+    assert "接口报错" in turn["output_error"] and "json" not in turn["output_error"]
+    record = json.loads(Path(turn["turn_dir"], "result.json").read_text(encoding="utf-8"))
+    assert "403" in record["api_error"]
+
+
+def test_cli_output_survives_a_non_utf8_console(monkeypatch):
+    import io
+    consoles = [io.TextIOWrapper(io.BytesIO(), encoding="cp1252") for _ in range(2)]
+    monkeypatch.setattr(sys, "stdout", consoles[0])
+    monkeypatch.setattr(sys, "stderr", consoles[1])
+    with pytest.raises(SystemExit):
+        kh.main(["--help"])
+    consoles[0].flush()
+    assert "七端信箱" in consoles[0].buffer.getvalue().decode("utf-8")
+
+
+def test_owner_reply_piped_on_a_non_utf8_console_keeps_its_text(tmp_path, monkeypatch):
+    import io
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO("环境已修好，恢复".encode("utf-8")), encoding="cp1252"))
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
+    assert kh.main(["--repo", str(repo), "send", "T009", "--type", "回复"]) == kh.EXIT_OK
+    letters = [p.read_text(encoding="utf-8") for p in kh.Hub(repo).unread(kh.COORDINATOR)]
+    assert len(letters) == 1 and "摘要: 环境已修好，恢复" in letters[0]
 
 
 def test_worker_env_drops_the_decision_key_and_host_session_vars(monkeypatch):
