@@ -1,0 +1,35 @@
+/* 轻提示（写操作页 :419–423、组件板 :431）：右下固定定位、距底 calc(标签栏 + space-4)、层级 toast；
+   surface-1、1px border、圆角 lg、阴影 2、text-sm；tt-enter 入场。关闭钮 24（字面量）。 */
+.tt-toast {
+  position: fixed;
+  right: var(--tt-space-6);
+  bottom: calc(var(--tt-tabbar-height) + var(--tt-space-4));
+  z-index: var(--tt-z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-shadow-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  font: var(--tt-text-sm);
+}
+.tt-toast[data-tone="success"] .tt-toast__icon { color: var(--tt-tone-success-fg); }
+.tt-toast[data-tone="info"] .tt-toast__icon { color: var(--tt-tone-info-fg); }
+.tt-toast__icon { flex: none; }
+.tt-toast__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; /* 写操作页 :422 轻提示关闭钮 24 */
+  height: 24px; /* 写操作页 :422 轻提示关闭钮 24 */
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--tt-text-2);
+  border-radius: var(--tt-radius-md);
+  cursor: pointer;
+}
+.tt-toast__close:hover { background: var(--tt-surface-3); color: var(--tt-text-1); }
+.tt-toast__close svg { width: 16px; height: 16px; }

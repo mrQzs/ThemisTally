@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Button, Tag, StatusTag, Card, Banner } from './components';
+import { Button, Tag, StatusTag, Card, Banner, IconButton, Menu, Dialog, Drawer, Toast, type MenuItem } from './components';
 import { ATTEMPT_STATES } from './domain/attemptStates';
+import { XIcon, InfoIcon, CircleHelpIcon } from './icons';
 import './App.css';
 
 type ThemePref = 'dark' | 'light' | 'system';
 
 const STATE_CODES = Object.keys(ATTEMPT_STATES);
 const TAG_TONES = ['neutral', 'info', 'attention', 'success', 'warning', 'danger', 'escalate', 'brand'] as const;
+const MENU_ITEMS: MenuItem[] = [
+  { id: 'rerun', label: '重新运行' },
+  { id: 'revise', label: '退回返工' },
+  { id: 'abandon', label: '放弃' },
+];
 
 function applyTheme(pref: ThemePref) {
   const root = document.documentElement;
@@ -34,6 +40,10 @@ function ThemeButton({ pref, current, onSelect }: { pref: ThemePref; current: Th
 export default function App() {
   const [theme, setTheme] = useState<ThemePref>('dark');
   const [bannerOpen, setBannerOpen] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [toastOpen, setToastOpen] = useState(false);
+  const [lastMenu, setLastMenu] = useState<string | null>(null);
 
   useEffect(() => {
     applyTheme(theme);
@@ -169,6 +179,78 @@ export default function App() {
             </Button>
           )}
         </div>
+      </section>
+
+      <section className="showcase__section" data-demo="icon-button">
+        <h2 className="showcase__h2">图标按钮 · 工具提示</h2>
+        <div className="showcase__row">
+          <span className="showcase__label">28 / 32</span>
+          <IconButton label="关闭" icon={<XIcon />} size="sm" />
+          <IconButton label="信息" icon={<InfoIcon />} />
+          <IconButton label="帮助" icon={<CircleHelpIcon />} disabled />
+        </div>
+        <p className="showcase__muted">只用图标的按钮都带 aria-label 与工具提示：悬停或聚焦 400ms 后出现，移开、失焦或按 Esc 关闭。</p>
+      </section>
+
+      <section className="showcase__section" data-demo="menu">
+        <h2 className="showcase__h2">菜单</h2>
+        <div className="showcase__row">
+          <Menu
+            label="更多操作"
+            items={MENU_ITEMS}
+            onSelect={(id) => {
+              const item = MENU_ITEMS.find((i) => i.id === id);
+              setLastMenu(typeof item?.label === 'string' ? item.label : id);
+            }}
+          />
+          <span className="showcase__label">上次选择：{lastMenu ?? '（无）'}</span>
+        </div>
+        <p className="showcase__muted">方向键移动并循环、Home/End 到首尾、Enter 选中、Esc 关闭；点菜单外也关闭。</p>
+      </section>
+
+      <section className="showcase__section" data-demo="dialog">
+        <h2 className="showcase__h2">对话框</h2>
+        <div className="showcase__row">
+          <Button variant="secondary" onClick={() => setDialogOpen(true)}>打开对话框</Button>
+        </div>
+        <Dialog
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          title="确认操作"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDialogOpen(false)}>取消</Button>
+              <Button variant="primary" onClick={() => setDialogOpen(false)}>确定</Button>
+            </>
+          }
+        >
+          <p className="showcase__muted">模态对话框：焦点困在框内，Esc、关闭钮或底栏按钮都能关掉；点遮罩不关闭。</p>
+        </Dialog>
+      </section>
+
+      <section className="showcase__section" data-demo="drawer">
+        <h2 className="showcase__h2">抽屉</h2>
+        <div className="showcase__row">
+          <Button variant="secondary" onClick={() => setDrawerOpen(true)}>打开抽屉</Button>
+        </div>
+        <Drawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          title="详情"
+          footer={<Button variant="primary" onClick={() => setDrawerOpen(false)}>知道了</Button>}
+        >
+          <p className="showcase__muted">非模态抽屉：不困焦点，Tab 可以离开；点抽屉外不关闭，Esc 或关闭钮关掉。</p>
+          <p className="showcase__muted">第二行说明文字，用来演示可滚动的正文区域与底栏按钮。</p>
+        </Drawer>
+      </section>
+
+      <section className="showcase__section" data-demo="toast">
+        <h2 className="showcase__h2">轻提示</h2>
+        <div className="showcase__row">
+          <Button variant="secondary" onClick={() => setToastOpen(true)}>弹出轻提示</Button>
+          <Toast open={toastOpen} onClose={() => setToastOpen(false)}>已复制到剪贴板</Toast>
+        </div>
+        <p className="showcase__muted">右下角轻提示，5000ms 后自动关闭；悬停暂停计时，关闭钮立即关闭。</p>
       </section>
     </div>
   );

@@ -1,0 +1,25 @@
+/* 菜单（组件板 :455–460）：面板在触发按钮下方、原地绝对定位、层级 popover；surface-1 底、1px border、圆角 lg、阴影 2、
+   内边距 space-1、宽 240（字面量）；项高 32（字面量）、左右 space-2、圆角 md、text-sm，悬停与聚焦 surface-3。 */
+.tt-menu-wrap { position: relative; display: inline-flex; }
+.tt-menu {
+  position: absolute;
+  top: calc(100% + var(--tt-space-1));
+  left: 0;
+  z-index: var(--tt-z-popover);
+  width: 240px; /* 组件板 :455 菜单宽 240 */
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-shadow-2);
+  padding: var(--tt-space-1);
+}
+.tt-menu__item {
+  display: flex;
+  align-items: center;
+  height: 32px; /* 组件板 :456 菜单项高 32 */
+  padding: 0 var(--tt-space-2);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-text-sm);
+  cursor: pointer;
+}
+.tt-menu__item:hover, .tt-menu__item:focus { background: var(--tt-surface-3); }

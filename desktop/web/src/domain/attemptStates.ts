@@ -15,7 +15,7 @@ import {
   RotateCcwIcon,
   OctagonXIcon,
   CircleArrowUpIcon,
-  ServerIcon,
+  ServerCrashIcon,
   TimerOffIcon,
   BanIcon,
   GitMergeIcon,
@@ -43,6 +43,8 @@ export interface AttemptStateInfo {
   icon: StateIcon;
   /** 是否旋转（运行中的转圈图标）。 */
   spin?: boolean;
+  /** 可选角标：只在图标右上加一个小圆点（如带豁免通过的 warning 提示）。 */
+  dot?: 'warning';
 }
 
 export const ATTEMPT_STATES: Record<string, AttemptStateInfo> = {
@@ -53,11 +55,11 @@ export const ATTEMPT_STATES: Record<string, AttemptStateInfo> = {
   COLLECTING: { label: '收集证据', tone: 'info', icon: ArchiveIcon },
   NEEDS_REVIEW: { label: '待验收', tone: 'attention', icon: ScaleIcon },
   PASS: { label: '通过', tone: 'success', icon: CircleCheckIcon },
-  ACCEPTED_WITH_EXCEPTION: { label: '带豁免通过', tone: 'success', icon: BadgeCheckIcon },
+  ACCEPTED_WITH_EXCEPTION: { label: '带豁免通过', tone: 'success', icon: BadgeCheckIcon, dot: 'warning' },
   REVISE: { label: '返工', tone: 'warning', icon: RotateCcwIcon },
   BLOCKED: { label: '阻塞', tone: 'danger', icon: OctagonXIcon },
   ESCALATE: { label: '升级', tone: 'escalate', icon: CircleArrowUpIcon },
-  INFRA_FAILURE: { label: '基础设施故障', tone: 'danger', icon: ServerIcon },
+  INFRA_FAILURE: { label: '基础设施故障', tone: 'danger', icon: ServerCrashIcon },
   TIMEOUT: { label: '超时', tone: 'warning', icon: TimerOffIcon },
   CANCELLED: { label: '已取消', tone: 'neutral', icon: BanIcon },
   INTEGRATED: { label: '已集成', tone: 'brand', icon: GitMergeIcon },

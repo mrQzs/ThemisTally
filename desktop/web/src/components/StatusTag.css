@@ -9,6 +9,19 @@
 .tt-status--md { height: 22px; padding: 0 var(--tt-space-2); font: var(--tt-text-sm-medium); }
 .tt-status--sm { height: 20px; padding: 0 6px; font: var(--tt-text-caption-strong); }
 
+/* 角标：只给带豁免通过；图标包进相对定位的 tt-status__icon，圆点右上外偏（令牌板 :342）。 */
+.tt-status__icon { position: relative; display: inline-flex; }
+.tt-status__dot {
+  position: absolute;
+  top: -2px; /* 令牌板 :342 外偏 2 */
+  right: -2px; /* 令牌板 :342 外偏 2 */
+  width: 6px; /* 令牌板 :342 直径 6 */
+  height: 6px; /* 令牌板 :342 直径 6 */
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-tone-warning-fg);
+  box-shadow: 0 0 0 1.5px var(--tt-tone-success-bg); /* 令牌板 :342 描边 1.5 */
+}
+
 .tt-status[data-tone="neutral"] { background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); }
 .tt-status[data-tone="info"] { background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); }
 .tt-status[data-tone="attention"] { background: var(--tt-tone-attention-bg); color: var(--tt-tone-attention-fg); }

@@ -25,7 +25,8 @@ desktop/web/
       tokens.css        # 只有 --tt-* 自定义属性与 color-scheme（画布逐项相等）
       base.css          # 基础样式，只用令牌与允许的全局值
       fonts.css         # 随包字体的两条 @font-face（等距更纱黑体 SC）
-    components/         # Button / Tag / StatusTag / Card / Banner，各带一份 CSS
+    components/         # Button / Tag / StatusTag / Card / Banner 与 IconButton / Tooltip / Menu / Dialog / Drawer / Toast，各带一份 CSS
+      overlay/           # 浮层共用的内部模块（挂载层、可聚焦查询、焦点管理），不从 index 导出
     domain/
       attemptStates.ts  # 17 个已知状态 + 未知兜底
     icons/              # Lucide 图标（React 组件）
@@ -50,3 +51,11 @@ desktop/web/
 ## 门禁探针目录（Q4）
 
 `gate-probe/`（被根 `.gitignore` 忽略）用于门禁端投放临时探针：文件名 `probe-<唯一标识>.test.tsx`，`vite.config.ts` 的 `test.include` 已覆盖 `gate-probe/**/*.test.{ts,tsx}`；运行 `npm test -- gate-probe/<文件名>`。
+
+## 桌面端状态表与调度器一致（W5）
+
+仓库根的 `tests/test_desktop_attempt_states.py` 守住桌面端 `src/domain/attemptStates.ts` 的 `ATTEMPT_STATES` 与调度器 `scripts/pi_dispatch.py` 的 `ATTEMPT_STATES` 逐项相同（同样的状态、同样的顺序）。改了 `attemptStates.ts` 或 PD 的 `ATTEMPT_STATES` 之后，在仓库根跑：
+
+```
+python -m pytest tests/test_desktop_attempt_states.py -q
+```

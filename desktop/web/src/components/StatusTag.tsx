@@ -15,6 +15,7 @@ export function StatusTag({ state, size = 'md', className, ...rest }: StatusTagP
   if (className) classes.push(className);
   const Icon = info.icon;
   const dim = size === 'sm' ? 12 : 14;
+  const iconNode = <Icon width={dim} height={dim} className={info.spin ? 'tt-spin' : undefined} />;
   return (
     <span
       className={classes.join(' ')}
@@ -23,7 +24,14 @@ export function StatusTag({ state, size = 'md', className, ...rest }: StatusTagP
       title={state}
       {...rest}
     >
-      <Icon width={dim} height={dim} className={info.spin ? 'tt-spin' : undefined} />
+      {info.dot ? (
+        <span className="tt-status__icon">
+          {iconNode}
+          <span className="tt-status__dot" aria-hidden="true" />
+        </span>
+      ) : (
+        iconNode
+      )}
       {info.display}
     </span>
   );

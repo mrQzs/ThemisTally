@@ -1,0 +1,18 @@
+/* 图标按钮（组件板 :340–344）：透明底、--tt-text-2；悬停 --tt-surface-3 与 --tt-text-1；禁用 --tt-text-disabled；
+   圆角 md；图标 16；焦点环用 base.css 的 :focus-visible。边长 28 / 32 为字面量，各带出处注释。 */
+.tt-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--tt-text-2);
+  border-radius: var(--tt-radius-md);
+  cursor: pointer;
+}
+.tt-icon-btn--sm { width: 28px; height: 28px; } /* UI 文档 7.2 :778 边长 28 */
+.tt-icon-btn--md { width: 32px; height: 32px; } /* UI 文档 7.2 :778 边长 32 */
+.tt-icon-btn:hover:not(:disabled) { background: var(--tt-surface-3); color: var(--tt-text-1); }
+.tt-icon-btn:disabled { color: var(--tt-text-disabled); cursor: not-allowed; }
+.tt-icon-btn svg { width: 16px; height: 16px; }

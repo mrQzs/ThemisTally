@@ -1,0 +1,17 @@
+/* 工具提示：底 --tt-gray-900、字 --tt-gray-50、内边距 space-1/space-2、圆角 sm、caption、不换行、层级 tooltip。
+   位置挂到 body 下固定定位，top/left 由 JS 按包裹元素 getBoundingClientRect() 算出，transform 负责居中与上移。 */
+.tt-tooltip-wrap {
+  display: inline-flex;
+}
+.tt-tooltip {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - var(--tt-space-2)));
+  background: var(--tt-gray-900);
+  color: var(--tt-gray-50);
+  padding: var(--tt-space-1) var(--tt-space-2);
+  border-radius: var(--tt-radius-sm);
+  font: var(--tt-text-caption);
+  white-space: nowrap;
+  z-index: var(--tt-z-tooltip);
+  pointer-events: none;
+}
