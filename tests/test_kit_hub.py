@@ -608,11 +608,12 @@ def test_mutation_verdict_reads_the_record_not_the_exit_code():
 
 
 def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
-    records = {}
+    records, timeouts = {}, []
 
     def fake_pd(hub, args, timeout=600):
         if "--check-anchors" in args:
             return 0, "锚点核对：2 条，0 条不符"
+        timeouts.append(timeout)
         out_dir = Path(args[args.index("--out") + 1])
         out_dir.mkdir(parents=True)
         (out_dir / "mutations.json").write_text(json.dumps(records["next"]), encoding="utf-8")
@@ -635,6 +636,11 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
     records["next"] = mutation_record("caught", "missed", unexpected=[])
     assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}) == [] and ts["gate_post"]["ok"]
     assert ts["gate_post"]["equivalent"] == ["等价改写：同一个字"]
+    # 第 15 轮：每条变异的时限按白盒用时定（下限 60 秒），写进存档的清单；整份的时限按条数放宽
+    archived = json.loads(Path(ts["gate_post"]["mutate_spec"]).read_text(encoding="utf-8"))
+    assert archived["timeout_seconds"] == ts["gate_post"]["mutant_timeout"] == 60 and timeouts[-1] == 3600
+    assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": dict(spec, timeout_seconds=2000)}) == []
+    assert ts["gate_post"]["mutant_timeout"] == 2000 and timeouts[-1] == 3 * 2000 + 600  # 门禁端写了就照它的
     record = ts["gate_post"]["mutate_record"]  # 在信箱的证据目录里：终审读得到
     assert record.startswith(".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-") and (repo / record).is_file()
     log = repo / ts["gate_post"]["whitebox_log"]
@@ -1191,6 +1197,39 @@ def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypa
         assert (kh.contract_requirements(hub, ts) == []) is ok, check
     prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], repo)
     assert "VR1（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q`" in prompt
+
+
+def test_mutant_timeout_follows_the_whitebox_time():
+    assert kh.mutant_timeout({"mutations": []}, 12.3) == 62
+    assert kh.mutant_timeout({"mutations": []}, 3.0) == 60
+    assert kh.mutant_timeout({"mutations": [], "timeout_seconds": 900}, 12.3) is None
+    assert kh.mutant_timeout({"mutations": []}, None) is None
+
+
+def test_contract_block_or_executor_conflict_can_send_the_work_upstream(engine_env):
+    # 第 15 轮：合同端发现规划有缺陷没有路由；执行端的合同矛盾只能走门禁热修补
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"] = locked(make_ts())
+    ts["stages"]["2-contract"]["status"] = "assigned"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "contract-glm", "task-id": "T001-2-contract", "in-reply-to": "none",
+                 "type": "开工"}, fields(摘要="写合同"))
+    blocked = {"letter": {"type": "阻塞", "in_reply_to": "m", "摘要": "规划第 3 步要改的 src/x.ts 不存在", "提交": "无",
+                          "验证": "读了代码", "偏离": "无", "需协调人决定": "退回规划端", "证据": "src/"},
+               "report": "# 阻塞", "state": "s"}
+    assert kh.Engine(hub, FakeRunner([(blocked, [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["2-contract"]["last_letter"] == "阻塞" and ts["stages"]["2-contract"]["status"] == "assigned"
+    assert kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan")) is None
+    ts["stages"]["2-contract"]["last_letter"] = "提问"
+    assert "合同端也没有发" in kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan"))
+    # 执行端报了合同矛盾：门禁热修补与合同改版都放行，由协调人按矛盾指向哪一端来选
+    ts["stages"]["2-contract"]["status"] = "delivered"
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
+    ts["exec"]["conflicts"] = 1
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
 
 
 def test_mutations_must_cover_the_changed_files(tmp_path, monkeypatch):

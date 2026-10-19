@@ -610,6 +610,9 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     if suffix in ("2-contract", "3-gate-pre"):
         if returned_by(audit_pre) or (suffix == "2-contract" and returned_by(audit_post)):
             return None
+        if suffix == "2-contract" and ts["exec"].get("conflicts"):
+            # 第 15 轮：执行端的合同矛盾此前只能走门禁热修补；矛盾指向合同本身（例如允许的范围不够）时退回合同端
+            return None
         return "没有一审或终审退回 %s 的记录，也没有内核核验失败，站主也没有指定返工" % suffix
     if suffix == "6-gate-post":
         return None if returned_by(audit_post) else "没有终审退回战后门禁的记录，也没有内核核验失败"
@@ -618,7 +621,9 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
         # 第 14 轮之前这里只认“累计没过 3 次”或终审退回，一审第一次退回规划端就被拒
         if audit_pre.get("fails", 0) >= 3 or returned_by(audit_pre) or returned_by(audit_post):
             return None
-        return "一审连续没过不到 3 次，也没有一审或终审退回规划端"
+        if ts["stages"]["2-contract"].get("last_letter") == "阻塞":
+            return None  # 合同端指出规划有缺陷、合同写不下去（第 15 轮）
+        return "一审连续没过不到 3 次，也没有一审或终审退回规划端，合同端也没有发“阻塞”"
     if suffix == "5-exec":
         execution, gate_post = ts["exec"], ts["gate_post"]
         if execution.get("run_dir") and not execution.get("check_ok"):
@@ -1430,6 +1435,7 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
         result = pd.run_supervised(KERNEL_PYTEST + [expected, "-q", "-rfE"], workspace, kernel_pytest_env(), log, log,
                                    1800)
     whitebox_tail = tail_file(whitebox_log, 15)
+    ts["gate_post"]["whitebox_seconds"] = result.get("wall_seconds")
     ts["gate_post"]["whitebox_exit"] = result.get("exit_code")
     ts["gate_post"]["whitebox_tail"] = whitebox_tail
     ts["gate_post"]["whitebox_log"] = whitebox_log.relative_to(hub.repo).as_posix()
@@ -1459,6 +1465,18 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
     return problems
 
 
+#: 每条变异的时限：白盒测试在候选上用时的几倍，下限多少秒（第 15 轮）
+MUTANT_TIMEOUT_FACTOR, MUTANT_TIMEOUT_MIN = 5, 60
+
+
+def mutant_timeout(spec: Dict[str, Any], whitebox_seconds: Optional[float]) -> Optional[int]:
+    """变异常把代码改成死循环。调度器缺省每条 600 秒，T003 那样 30 条的清单，几条卡住就要一个多小时
+    （docs/实际问题/门禁端.md 的“变异体动态超时”）。门禁端自己写了时限就照它的。"""
+    if spec.get("timeout_seconds") or not whitebox_seconds:
+        return None
+    return max(MUTANT_TIMEOUT_MIN, int(float(whitebox_seconds) * MUTANT_TIMEOUT_FACTOR) + 1)
+
+
 #: 执行端自己的测试文件：不要求变异打在上面
 TEST_FILE_RE = re.compile(r"(?:^|/)tests?/|(?:^|/)test_[^/]*\.py$|\.(?:test|spec)\.[cm]?[jt]sx?$")
 
@@ -1486,6 +1504,10 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
     spec = output.get("mutation_spec")
     if not isinstance(spec, dict) or not spec.get("mutations"):
         return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）"]
+    per_mutant = mutant_timeout(spec, ts["gate_post"].get("whitebox_seconds"))
+    if per_mutant:
+        spec = dict(spec, timeout_seconds=per_mutant)
+    runs = len(spec.get("commands") or [None]) * (len(spec["mutations"]) + 1)  # 每条命令先在候选上跑一遍基线
     spec_path = stage_dir / ("mutation-spec-%s.json" % utc_compact())
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     ts["gate_post"]["mutate_spec"] = str(spec_path)
@@ -1503,13 +1525,16 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
                                                     "\n".join(listing[-40:]))]
     # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
     out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
+    # 整份的时限按条数放宽：此前固定 3600 秒，几条变异卡到各自的时限，整份就判“没有跑完”
+    budget = max(3600, runs * (spec.get("timeout_seconds") or pd.MUTATION_DEFAULT_TIMEOUT) + 600)
     code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
-                       timeout=3600)
+                       timeout=budget)
     try:
         record = json.loads(read_text(out_dir / "mutations.json") or "{}")
     except ValueError:
         record = {}
-    ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
+    ts["gate_post"].update(mutate_exit=code, mutate_tail=tail(out, 25), mutant_timeout=spec.get("timeout_seconds"),
+                           mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
                            mutation_counts=record.get("counts"),
                            equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
                                        if isinstance(m, dict) and m.get("equivalent")])
@@ -2374,6 +2399,7 @@ class Engine:
             problems = self.verify_delivery(ts, agent, suffix, output, fields)
         stage = ts["stages"][suffix]
         stage["fields"] = fields
+        stage["last_letter"] = meta["type"]  # 合同端发“阻塞”指出规划有缺陷时，协调人能退回规划端（第 15 轮）
         if meta["type"] in ("交付", "返工完成"):
             if problems:
                 stage.update(status="failed", note="；".join(problems)[:600])
