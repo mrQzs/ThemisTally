@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>领域组件 · Themis Tally</title>
+<script src="72c6bfec-a638-4669-b8a0-856bee6b03ef"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("f11faf56-7aca-45b1-897d-c01290dfeeeb") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("1df474c9-7e78-4e57-9cee-a7433917495a") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="width: 1440px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; gap: 28px; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<div style="display: flex; align-items: baseline; gap: 16px">
+<h1 style="margin: 0; font: 600 28px/36px var(--tt-font-sans)">领域组件</h1>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">写操作确认、不可信内容、证据与作业 · 第 7.11–7.23 节</span>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.11 写操作确认框 · 状态</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">预览中：变化区骨架屏，确认禁用</span>
+<div role="dialog" aria-label="预览中" style="display: flex; flex-direction: column; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-xl); box-shadow: var(--tt-shadow-2); overflow: hidden">
+<div style="padding: 14px 16px 6px; font: var(--tt-title-md)">切换到方案 economy？</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 16px 16px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-2)">将运行的命令</span>
+<code style="padding: 8px 10px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border); font: var(--tt-mono-sm)">bash scripts/dispatch-pi.sh config preset use economy</code>
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-2)">变化</span>
+<span class="tt-skel" style="width: 86%; height: 16px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+<span class="tt-skel" style="width: 64%; height: 16px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--tt-border)">
+<button type="button" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">取消</button>
+<button type="button" disabled="" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-disabled); font: var(--tt-text-md-medium)">确认切换</button>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">执行中：确认转圈，取消与关闭禁用</span>
+<div role="dialog" aria-label="执行中" aria-busy="true" style="display: flex; flex-direction: column; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-xl); box-shadow: var(--tt-shadow-2); overflow: hidden">
+<div style="padding: 14px 16px 6px; font: var(--tt-title-md)">切换到方案 economy？</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 16px 16px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-2)">变化</span>
+<span style="padding: 2px 6px; border-radius: var(--tt-radius-sm); background: var(--tt-diff-del); font: var(--tt-mono-sm)">− 执行端 step-high（bb/step-5-preview · high）</span>
+<span style="padding: 2px 6px; border-radius: var(--tt-radius-sm); background: var(--tt-diff-add); font: var(--tt-mono-sm)">+ 执行端 step-low（bb/step-5-mini · low）</span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">命令已发出，等待退出码；不能撤回。</span>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--tt-border)">
+<button type="button" disabled="" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-disabled); font: var(--tt-text-md-medium)">取消</button>
+<button type="button" disabled="" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium)"><svg class="tt-i tt-spin" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>正在切换…</button>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">失败：内核报错（纯文本）+ 原因标签</span>
+<div role="dialog" aria-label="失败" style="display: flex; flex-direction: column; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-xl); box-shadow: var(--tt-shadow-2); overflow: hidden">
+<div style="padding: 14px 16px 6px; font: var(--tt-title-md)">删除方案 economy？</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 16px 16px">
+<div role="alert" style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--tt-radius-md); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg)">
+<div style="display: flex; align-items: center; gap: 6px; font: var(--tt-title-sm)">没有完成 · 退出码 2<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); border: 1px solid currentColor; font: var(--tt-text-caption-strong)">用法错误</span></div>
+<code style="font: var(--tt-mono-sm); white-space: pre-wrap">ERROR [内核报错原文的示意]</code>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">原因标签：内核拒绝 · 用法错误 · 配置已变 · 超时</span>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--tt-border)">
+<button type="button" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">关闭</button>
+<button type="button" style="height: 32px; padding: 0 14px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">重新预览</button>
+</div>
+</div>
+</div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">可点击的完整流程见“关键流程原型”页。没有“不再询问”或“始终允许”；删除与回滚的确认按钮用危险样式。</span>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.12 文本查看器（不可信内容）</h2>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; font: var(--tt-mono-sm)">executor-report.md</span>
+<button type="button" aria-pressed="true" style="height: 28px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-2); font: var(--tt-text-sm)">行号</button>
+<button type="button" aria-pressed="false" style="height: 28px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2); font: var(--tt-text-sm)">换行</button>
+<button type="button" aria-label="复制全部文字" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0">
+<sc-for list="{{ report }}" as="l" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); font: var(--tt-mono-md); background: {{ l.bg }}"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3)">{{ l.n }}</span><span style="white-space: pre; min-height: 20px; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-2); font: var(--tt-text-caption); color: var(--tt-text-3)"><span class="tt-num">已显示 0–256 KB / 共 2.7 MB</span><button type="button" style="margin-left: auto; height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">加载后面 256 KB</button></div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">只按文本节点显示：不解释 HTML、去掉 ANSI、不自动生成链接。第 5 行在 DOM 里是文字，没有 img 元素。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.15 日志跟随</h2>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; font: var(--tt-mono-sm)">ui-readonly-api / events.jsonl</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span role="switch" aria-checked="true" aria-label="跟随" style="position: relative; width: 32px; height: 18px; border-radius: var(--tt-radius-full); background: var(--tt-primary); border: 1px solid var(--tt-primary)"><span style="position: absolute; top: 2px; left: 16px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-on-primary)"></span></span>跟随</span>
+</div>
+<div style="padding: 8px 0">
+<sc-for list="{{ events }}" as="l" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3)">{{ l.n }}</span><span style="white-space: pre; overflow: hidden; text-overflow: ellipsis; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<div role="status" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--tt-border); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm)">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="4" height="14" x="6" y="5" rx="1"></rect><rect width="4" height="14" x="14" y="5" rx="1"></rect></svg>
+<span style="flex: 1">已暂停跟随：你在往上看</span>
+<button type="button" style="height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">回到底部</button>
+</div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">离底部 40px 以内、且最后一次滚动已过 150ms，才恢复自动跟随。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.14 差异视图</h2>
+<div style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden; background: var(--tt-surface-1)">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg><span style="flex: 1; font: var(--tt-mono-sm)">src/themis/cli/logs.py</span><span style="font: var(--tt-mono-sm); color: var(--tt-tone-success-fg)">+3</span><span style="font: var(--tt-mono-sm); color: var(--tt-tone-danger-fg)">−2</span></div>
+<sc-for list="{{ diff }}" as="l" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 40px 40px 18px minmax(0, 1fr); background: {{ l.bg }}; color: {{ l.fg }}; font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3)">{{ l.o }}</span><span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3)">{{ l.n }}</span><span style="text-align: center; font-weight: 600; color: {{ l.sc }}">{{ l.sign }}</span><span style="white-space: pre; overflow: hidden">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">行首必须有 + / − 符号，不能只靠颜色；片段头 surface-2 + text-3；两侧行号；内容只按文本显示。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.13 遮蔽值 · 7.16 命令行 · 7.21 下一步</h2>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; flex-wrap: wrap; gap: 8px 18px">
+<span title="内核已遮蔽" style="display: inline-flex; align-items: center; gap: 4px; font: italic 400 13px/20px var(--tt-font-sans); color: var(--tt-text-3)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>（含疑似凭据，不显示）</span>
+<span title="内核已遮蔽" style="display: inline-flex; align-items: center; gap: 4px; font: italic 400 13px/20px var(--tt-font-sans); color: var(--tt-text-3)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>（值不显示）</span>
+<span title="内核已遮蔽" style="display: inline-flex; align-items: center; gap: 4px; font: italic 400 13px/20px var(--tt-font-sans); color: var(--tt-text-3)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>&lt;redacted&gt;</span>
+<span title="内核已遮蔽" style="display: inline-flex; align-items: center; gap: 4px; font: italic 400 13px/20px var(--tt-font-sans); color: var(--tt-text-3)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>（疑似凭据的键名）</span>
+</div>
+<div style="display: flex; align-items: center; gap: 4px; min-height: 36px; padding: 4px 4px 4px 10px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)"><code style="flex: 1; font: var(--tt-mono-md)">bash scripts/dispatch-pi.sh config rollback 42</code><button type="button" aria-label="复制命令" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 8px 8px 8px 12px; border-radius: var(--tt-radius-md); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><span>需要出新版本合同返工。这一步在规划端会话里进行：</span><span style="display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 2px 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-1)"><code style="font: var(--tt-mono-sm)">/plan-task logs-cat</code><button type="button" aria-label="复制命令" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></span></div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">“下一步”替代第一阶段不提供的派遣、验收、合并、试跑按钮。</span>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.17 作业进度卡</h2>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div role="status" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><span style="font: var(--tt-title-sm)">就绪检查</span><span class="tt-num" style="font: var(--tt-text-caption); color: var(--tt-text-3)">已用 12 秒</span><button type="button" style="margin-left: auto; height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">取消</button></div><div aria-hidden="true" style="position: relative; height: 4px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><span class="tt-indet" style="position: absolute; left: 0; top: 0; bottom: 0; width: 40%; border-radius: var(--tt-radius-full); background: var(--tt-primary)"></span></div></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>列出模型 · 找到 2 个</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>探测失败 · 显示内核报错</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm)">扫描 PATH · 已取消</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm)">超时（超过 120 秒），已停止</div>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.22 就绪卡</h2>
+<article style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden; background: var(--tt-surface-1)">
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>就绪</span><span style="font: var(--tt-title-sm)">合同端</span><span style="font: var(--tt-text-sm); color: var(--tt-text-3)">profile <code style="font: var(--tt-mono-sm); color: var(--tt-text-1)">step-high</code></span></div>
+<dl style="margin: 0; padding: 10px 14px; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)">
+<dt style="color: var(--tt-text-3)">命令</dt><dd style="margin: 0"><code style="font: var(--tt-mono-sm)">C:/tools/node/node.exe C:/tools/pi/dist/cli.js</code><span style="color: var(--tt-text-3)">（本机文件）</span></dd>
+<dt style="color: var(--tt-text-3)">凭据</dt><dd style="margin: 0; display: flex; align-items: center; gap: 6px"><code style="font: var(--tt-mono-sm)">STEP_API_KEY</code><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)">可用</span></dd>
+</dl>
+<p style="margin: 0; padding: 8px 14px 12px; border-top: 1px solid var(--tt-border); font: var(--tt-text-sm); color: var(--tt-text-3)">WARN [内核给出的说明行，用 text-3 显示]</p>
+</article>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">未就绪的完整示例见“6.5 CLI 运行时”。</span>
+</section>
+
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.23 指标卡 · 角色卡</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 2fr); gap: 16px; align-items: start">
+<div style="position: relative; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 14px 19px; overflow: hidden; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><span aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tt-tone-info-fg)"></span><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">运行中</span><span class="tt-num" style="font: var(--tt-display)">1</span></div>
+<div style="position: relative; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 14px 19px; overflow: hidden; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><span aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tt-accent)"></span><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">待验收</span><span class="tt-num" style="font: var(--tt-display)">2</span></div>
+<div style="position: relative; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 14px 19px; overflow: hidden; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><span aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tt-tone-escalate-fg)"></span><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">要你决定</span><span class="tt-num" style="font: var(--tt-display)">1</span></div>
+<div style="position: relative; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 14px 19px; overflow: hidden; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><span aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tt-tone-brand-fg)"></span><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">待集成</span><span class="tt-num" style="font: var(--tt-display)">1</span></div>
+<article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: baseline; gap: 8px"><h3 style="margin: 0; font: var(--tt-title-sm)">执行端</h3><code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">execution</code></div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium)">无头</span><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-attention-bg); color: var(--tt-tone-attention-fg); font: var(--tt-text-sm-medium)">与方案 default 不一致</span><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium)">本轮未接通</span></div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">角色卡的三种附加标签：与方案不一致（attention）、本轮未接通（warning）、默认（中性描边）。</span>
+</article>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2160}}">
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const num = (arr, hi) => arr.map((s, i) => ({ n: i + 1, s: s, bg: i + 1 === hi ? 'var(--tt-highlight)' : 'transparent' }));
+    const report = num(['## 执行报告', '', '已按合同实现 logs cat。', '', '<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字', '', '- self_checks: V01–V08 通过'], 0);
+    const events = num([
+      '{"ts": "2026-10-18T06:40:02Z", "type": "tool_call", "tool": "read", "path": "src/themis/api/routes.py"}',
+      '{"ts": "2026-10-18T06:40:03Z", "type": "tool_result", "tool": "read", "bytes": 9214}',
+      '{"ts": "2026-10-18T06:41:15Z", "type": "delta", "count": 1200}',
+      '{"ts": "2026-10-18T06:44:51Z", "type": "delta", "count": 2410}',
+      '{"ts": "2026-10-18T06:49:30Z", "type": "delta", "count": 2810}',
+      '{"ts": "2026-10-18T06:52:08Z", "type": "tool_call", "tool": "bash", "cmd": "python -m pytest -q"}'
+    ], 0).map((l) => Object.assign(l, { n: l.n + 1840 }));
+    const D = [
+      ['hunk', '', '', '@@ -112,5 +120,6 @@ def run(args):'],
+      ['ctx', '112', '120', '    if args.logs_cmd == "show":'],
+      ['ctx', '113', '121', '        return logs_show(args.task, args.attempt, as_json=args.json)'],
+      ['del', '114', '', '    print("unknown logs command", file=sys.stderr)'],
+      ['del', '115', '', '    return 2'],
+      ['add', '', '122', '    if args.logs_cmd == "cat":'],
+      ['add', '', '123', '        return logs_cat(args.task, args.attempt, args.path)'],
+      ['add', '', '124', '    return 2']
+    ];
+    const diff = D.map((d) => ({
+      o: d[1], n: d[2], s: d[3],
+      sign: d[0] === 'add' ? '+' : d[0] === 'del' ? '−' : '',
+      sc: d[0] === 'add' ? 'var(--tt-tone-success-fg)' : 'var(--tt-tone-danger-fg)',
+      bg: d[0] === 'add' ? 'var(--tt-diff-add)' : d[0] === 'del' ? 'var(--tt-diff-del)' : d[0] === 'hunk' ? 'var(--tt-surface-2)' : 'transparent',
+      fg: d[0] === 'hunk' ? 'var(--tt-text-3)' : 'var(--tt-text-1)'
+    }));
+    return { themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light', report: report, events: events, diff: diff };
+  }
+}
+</script>
+
+
+</body></html>

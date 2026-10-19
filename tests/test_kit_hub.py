@@ -1037,6 +1037,36 @@ def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, mon
     assert not ok and "不能 ff" in detail and calls == []
 
 
+def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):
+    import io
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    (repo / ".gitignore").write_text(".agent/runs/\n", encoding="utf-8")
+    kh.git(["add", ".gitignore"], repo)
+    kh.git(["commit", "-q", "-m", "ignore runs"], repo)
+    (repo / "docs" / "ui design").mkdir(parents=True)
+    (repo / "docs" / "ui design" / "a.md").write_text("设计稿\n", encoding="utf-8")
+    (repo / ".agent" / "runs").mkdir(parents=True)
+    (repo / ".agent" / "runs" / "x.json").write_text("{}", encoding="utf-8")
+    brief = tmp_path / "brief.md"
+
+    def register(task: str, text: str) -> int:
+        brief.write_text(text, encoding="utf-8")
+        return kh.main(["--repo", str(repo), "task", "new", task, "--slug", "ui", "--title", "界面", "--brief", str(brief)])
+
+    # T002：设计稿没入库，工人在任务基线的 worktree 里看不到
+    assert register("T002", "照 `docs/ui design/` 实现") == kh.EXIT_USAGE
+    assert register("T002", "照 `docs/ui design/a.md` 实现") == kh.EXIT_USAGE
+    kh.git(["add", "docs"], repo)
+    kh.git(["commit", "-q", "-m", "设计稿"], repo)
+    (repo / "docs" / "ui design" / "a.md").write_text("改了没提交\n", encoding="utf-8")
+    assert register("T002", "照 `docs/ui design/a.md` 实现") == kh.EXIT_USAGE
+    kh.git(["checkout", "--", "docs"], repo)
+    text = "照 `docs/ui design/a.md` 实现；证据看 `.agent/runs/x.json`；新文件写到 `desktop/web/`；`npm ci`"
+    assert register("T002", text) == kh.EXIT_OK  # 已提交、被忽略、还不存在的路径都不拦
+    assert "T002" in kh.Hub(repo).load_state()["tasks"]
+
+
 def test_coordinator_runs_at_high_effort():
     # 用户 2026-10-19 同意：协调人从 max 降到 high（T001 里每回合 1–4.5 分钟，大头是思考输出）
     assert kh.ROSTER[kh.COORDINATOR]["effort"] == "high"

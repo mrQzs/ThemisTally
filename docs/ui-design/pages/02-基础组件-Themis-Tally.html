@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>基础组件 · Themis Tally</title>
+<script src="50bc65ce-6c29-40d9-930e-493e254c17db"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("d95238de-1a3c-482d-a3ca-e9f29bab1bf2") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("f67c8dc4-ec17-4e14-ad66-d7be94a78615") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="width: 1440px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; gap: 28px; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<div style="display: flex; align-items: baseline; gap: 16px">
+<h1 style="margin: 0; font: 600 28px/36px var(--tt-font-sans)">基础组件</h1>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">第 7 节 · 每个组件含默认、悬停、按下、聚焦、禁用，需要时加加载与出错</span>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.1 按钮</h2>
+<div style="display: grid; grid-template-columns: 96px repeat(6, minmax(0, 1fr)); gap: 14px 16px; align-items: center">
+<span></span>
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">默认</span><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">悬停</span><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">按下</span><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">聚焦</span><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">禁用</span><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">加载</span>
+
+<span style="font: var(--tt-title-sm)">主按钮</span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">确认切换</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary-hover); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">确认切换</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary-active); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">确认切换</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)">确认切换</button></span>
+<span><button type="button" disabled="" style="height: 32px; padding: 0 16px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-disabled); font: var(--tt-text-md-medium)">确认切换</button></span>
+<span><button type="button" disabled="" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium); opacity: 0.85"><svg class="tt-i tt-spin" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>正在切换…</button></span>
+
+<span style="font: var(--tt-title-sm)">次按钮</span>
+<span><button type="button" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button></span>
+<span><button type="button" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button></span>
+<span><button type="button" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button></span>
+<span><button type="button" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button></span>
+<span><button type="button" disabled="" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-disabled); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button></span>
+<span><button type="button" disabled="" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-md-medium)"><svg class="tt-i tt-spin" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>正在刷新…</button></span>
+
+<span style="font: var(--tt-title-sm)">幽灵按钮</span>
+<span><button type="button" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)">查看证据</button></span>
+<span><button type="button" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">查看证据</button></span>
+<span><button type="button" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-1); font: var(--tt-text-sm-medium); filter: brightness(0.95)">查看证据</button></span>
+<span><button type="button" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)">查看证据</button></span>
+<span><button type="button" disabled="" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-disabled); font: var(--tt-text-sm-medium)">查看证据</button></span>
+<span><button type="button" disabled="" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2); font: var(--tt-text-sm-medium)"><svg class="tt-i tt-spin" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>正在打开…</button></span>
+
+<span style="font: var(--tt-title-sm)">危险按钮</span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-danger); color: var(--tt-on-danger); font: var(--tt-text-md-medium)">确认回滚</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-danger); color: var(--tt-on-danger); font: var(--tt-text-md-medium); filter: brightness(0.9)">确认回滚</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-danger); color: var(--tt-on-danger); font: var(--tt-text-md-medium); filter: brightness(0.8)">确认回滚</button></span>
+<span><button type="button" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-danger); color: var(--tt-on-danger); font: var(--tt-text-md-medium); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)">确认回滚</button></span>
+<span><button type="button" disabled="" style="height: 32px; padding: 0 16px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-disabled); font: var(--tt-text-md-medium)">确认回滚</button></span>
+<span><button type="button" disabled="" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-danger); color: var(--tt-on-danger); font: var(--tt-text-md-medium); opacity: 0.85"><svg class="tt-i tt-spin" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>正在回滚…</button></span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; padding-top: 6px; border-top: 1px solid var(--tt-border)">
+<span style="width: 96px; font: var(--tt-title-sm)">尺寸</span>
+<button type="button" style="height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">小 28</button>
+<button type="button" style="height: 32px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">中 32（默认）</button>
+<button type="button" style="height: 36px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">大 36</button>
+<span style="margin-left: 24px; font: var(--tt-text-caption); color: var(--tt-text-3)">圆角 md 6 · 左右内边距 12（小）/ 16 · 图标 16 · 焦点 2px 环外偏 2px</span>
+</div>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+
+<div style="display: flex; flex-direction: column; gap: 24px">
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.2 图标按钮 · 工具提示</h2>
+<div style="display: flex; align-items: center; gap: 16px">
+<button type="button" aria-label="复制" style="width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+<button type="button" aria-label="复制" style="width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-1)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+<button type="button" aria-label="复制" style="width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+<button type="button" aria-label="复制" disabled="" style="width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-disabled)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+<button type="button" aria-label="关闭" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+<div style="position: relative; margin-left: 24px; padding-top: 34px">
+<div role="tooltip" style="position: absolute; left: 50%; top: 0; transform: translateX(-50%); padding: 4px 8px; border-radius: var(--tt-radius-sm); background: var(--tt-gray-900); color: var(--tt-gray-50); font: var(--tt-text-caption); white-space: nowrap">复制（已复制会弹轻提示）</div>
+<button type="button" aria-label="复制" style="width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); color: var(--tt-text-1)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">默认 · 悬停 · 聚焦 · 禁用 · 28 · 带工具提示（延迟 400ms，Esc 关闭）。只用图标的按钮必须有 aria-label。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.3 输入框 · 下拉 · 多行 · 标签输入</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px">
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">默认 / 占位</span><input type="text" placeholder="搜索任务…" style="height: 32px; padding: 0 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md)"></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">聚焦</span><input type="text" value="step-medium" style="height: 32px; padding: 0 10px; border: 1px solid var(--tt-focus); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-mono-md); box-shadow: 0 0 0 1px var(--tt-surface-1), 0 0 0 3px var(--tt-focus)"></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">出错</span><input type="text" value="Step High" aria-invalid="true" style="height: 32px; padding: 0 10px; border: 1px solid var(--tt-danger-text); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-mono-md)"><span style="font: var(--tt-text-sm); color: var(--tt-danger-text)">只能用小写字母、数字、连字符。</span></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">禁用</span><input type="text" value="C:\Python313\python.exe" disabled="" style="height: 32px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2); color: var(--tt-text-disabled); font: var(--tt-mono-md)"></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">下拉</span><span style="position: relative; display: block"><sc-raw-select style="appearance: none; width: 100%; height: 32px; padding: 0 32px 0 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md)"><option>全部任务</option></sc-raw-select><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="position: absolute; right: 10px; top: 8px; pointer-events: none; color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg></span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">帮助文字用 text-3</span></label>
+<label style="display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">标签输入</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 32px; padding: 3px 6px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1)"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-mono-sm)">STEP_API_KEY</span><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-mono-sm)">TYPESAFE_API_KEY</span></span></label>
+<label style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">多行文本</span><textarea rows="2" style="padding: 6px 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md); resize: vertical">省钱：执行端用 step-5-mini（low）</textarea></label>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.4 分段选择 · 7.5 开关与复选框 · 7.6 页签</h2>
+<div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap">
+<div role="radiogroup" aria-label="示例" style="display: inline-flex; padding: 2px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)"><button type="button" role="radio" aria-checked="true" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: var(--tt-surface-1); box-shadow: var(--tt-shadow-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">统一</button><button type="button" role="radio" aria-checked="false" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2); font: var(--tt-text-sm-medium)">分屏</button></div>
+<div role="radiogroup" aria-label="示例" style="display: inline-flex; padding: 2px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)"><button type="button" role="radio" aria-checked="false" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2); font: var(--tt-text-sm-medium)">跟随系统</button><button type="button" role="radio" aria-checked="true" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: var(--tt-surface-1); box-shadow: var(--tt-shadow-1), 0 0 0 2px var(--tt-focus); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">亮</button><button type="button" role="radio" aria-checked="false" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2); font: var(--tt-text-sm-medium)">暗</button></div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">左右方向键切换；右例为聚焦</span>
+</div>
+<div style="display: flex; align-items: center; gap: 22px; flex-wrap: wrap">
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span role="switch" aria-checked="true" style="position: relative; width: 32px; height: 18px; border-radius: var(--tt-radius-full); background: var(--tt-primary); border: 1px solid var(--tt-primary)"><span style="position: absolute; top: 2px; left: 16px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-on-primary)"></span></span>开</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span role="switch" aria-checked="false" style="position: relative; width: 32px; height: 18px; border-radius: var(--tt-radius-full); background: var(--tt-surface-2); border: 1px solid var(--tt-border-strong)"><span style="position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-border-strong)"></span></span>关</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span role="switch" aria-checked="true" style="position: relative; width: 32px; height: 18px; border-radius: var(--tt-radius-full); background: var(--tt-primary); border: 1px solid var(--tt-primary); box-shadow: 0 0 0 2px var(--tt-surface-1), 0 0 0 4px var(--tt-focus)"><span style="position: absolute; top: 2px; left: 16px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-on-primary)"></span></span>聚焦</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm); color: var(--tt-text-disabled)"><span role="switch" aria-checked="false" aria-disabled="true" style="position: relative; width: 32px; height: 18px; border-radius: var(--tt-radius-full); background: var(--tt-surface-2); border: 1px solid var(--tt-border)"><span style="position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-text-disabled)"></span></span>禁用</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span aria-hidden="true" style="width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--tt-radius-sm); background: var(--tt-primary); color: var(--tt-on-primary)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" style="stroke-width: 3"><path d="M20 6 9 17l-5-5"></path></svg></span>已选</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm)"><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: var(--tt-radius-sm); border: 1px solid var(--tt-border-strong); background: var(--tt-surface-1)"></span>未选</span>
+</div>
+<div role="tablist" aria-label="示例页签" style="display: flex; gap: 4px; border-bottom: 1px solid var(--tt-border)">
+<span role="tab" aria-selected="true" style="height: 38px; display: inline-flex; align-items: center; padding: 0 12px; border-bottom: 2px solid var(--tt-primary); margin-bottom: -1px; color: var(--tt-text-1); font: var(--tt-text-md-medium)">摘要</span>
+<span role="tab" aria-selected="false" style="height: 38px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--tt-radius-md) var(--tt-radius-md) 0 0; background: var(--tt-surface-3); color: var(--tt-text-2); font: var(--tt-text-md-medium)">补丁（悬停）</span>
+<span role="tab" aria-selected="false" style="height: 38px; display: inline-flex; align-items: center; padding: 0 12px; color: var(--tt-text-2); font: var(--tt-text-md-medium); box-shadow: inset 0 0 0 2px var(--tt-focus); border-radius: var(--tt-radius-md) var(--tt-radius-md) 0 0">检查（聚焦）</span>
+<span role="tab" aria-selected="false" style="height: 38px; display: inline-flex; align-items: center; padding: 0 12px; color: var(--tt-text-2); font: var(--tt-text-md-medium)">执行报告</span>
+</div>
+</section>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 24px">
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.7 状态标签 · 7.8 标签</h2>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span title="NEEDS_REVIEW" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-attention-bg); color: var(--tt-tone-attention-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg>待验收</span>
+<span title="RUNNING" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i tt-spin" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>运行中</span>
+<span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过 · 小号 20</span>
+<span title="悬停显示状态码" style="display: inline-flex; align-items: center; gap: 6px; font: var(--tt-text-caption); color: var(--tt-text-3)">全部 17 个状态见“设计令牌”</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong)">默认</span>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-mono-sm)">active_preset</span>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); font: var(--tt-mono-sm)">user-ui</span>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-mono-sm)">user</span>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-mono-sm)">agent:planning_review</span>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-mono-sm)">undeclared</span>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">状态标签高 22（小号 20），图标 14 + 文字，不能只靠颜色。执行者标签：user-ui 品牌、user 中性、agent 进行中、undeclared 注意。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.9 表格 · 7.10 卡片</h2>
+<div style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 100px 110px; gap: 12px; align-items: center; height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2)"><span>attempt</span><span>状态</span><span style="text-align: right">用时</span><span style="text-align: right">token</span></div>
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 100px 110px; gap: 12px; align-items: center; height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-text-sm)"><span style="font: var(--tt-mono-sm)">attempt-003</span><span style="color: var(--tt-text-3)">默认行</span><span class="tt-num" style="text-align: right">12 分 4 秒</span><span class="tt-num" style="text-align: right">1,920,004</span></div>
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 100px 110px; gap: 12px; align-items: center; height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-3); font: var(--tt-text-sm)"><span style="font: var(--tt-mono-sm)">attempt-002</span><span style="color: var(--tt-text-3)">悬停</span><span class="tt-num" style="text-align: right">28 分 39 秒</span><span class="tt-num" style="text-align: right">4,210,385</span></div>
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 100px 110px; gap: 12px; align-items: center; height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-selected); box-shadow: inset 2px 0 0 var(--tt-primary); font: var(--tt-text-sm)"><span style="font: var(--tt-mono-sm)">attempt-001</span><span style="color: var(--tt-text-3)">选中（左侧 2px 主色）</span><span class="tt-num" style="text-align: right">18 分 22 秒</span><span class="tt-num" style="text-align: right">5,637,968</span></div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">表头 32 吸顶 · 行 36（紧凑 32）· 数字右对齐等宽 · 上下键移动、Enter 打开、Home/End 到首尾 · 宽度不够时容器内横向滚动。</span>
+<div style="padding: 16px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); background: var(--tt-surface-1)">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px"><span style="font: var(--tt-title-sm)">卡片标题</span><button type="button" style="margin-left: auto; height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-link); font: var(--tt-text-sm-medium)">卡头操作</button></div>
+<p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2)">底色 surface-1，边框 border，圆角 lg 8，内边距 16；卡片间距 16。</p>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.18 提示条 · 7.19 轻提示 · 7.20 连接状态</h2>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><span style="flex: 1">info：只有 info 可以关掉。</span><button type="button" aria-label="关闭提示" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: inherit"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span style="flex: 1">历史里有 2 行读不出来。</span></div>
+<div role="alert" style="display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m19 5 3-3"></path><path d="m2 22 3-3"></path><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"></path><path d="M7.5 13.5 10 11"></path><path d="M10.5 16.5 13 14"></path><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"></path></svg><span style="flex: 1">与本机服务的连接断开。</span><button type="button" style="height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">重新连接</button></div>
+<div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 4px">
+<div role="status" style="display: inline-flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-surface-1); border: 1px solid var(--tt-border); box-shadow: var(--tt-shadow-2); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-tone-success-fg)"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>已切换到方案 economy · 审计 #42<button type="button" aria-label="关闭提示" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div role="status" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-surface-1); border: 1px solid var(--tt-border); box-shadow: var(--tt-shadow-2); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-tone-success-fg)"><path d="M20 6 9 17l-5-5"></path></svg>已复制</div>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px">
+<span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-success-fg)"></span>已连接</span>
+<span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-warning-fg)"></span>重连中（第 2 次）</span>
+<span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-danger-text); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-danger-fg)"></span>已断开</span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">轻提示：右下角，5 秒消失，悬停暂停，只用于已确认的结果；出错在原处显示。</span>
+</div>
+</section>
+</div>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 style="margin: 0; font: var(--tt-title-md)">7.23 其他：面包屑 · 菜单 · 空状态 · 骨架屏 · 键值列表</h2>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 24px; align-items: start">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">面包屑</span>
+<nav aria-label="面包屑" style="display: flex; align-items: center; gap: 6px; font: var(--tt-text-sm); color: var(--tt-text-3)"><a href="Tasks.dc.html" style="color: var(--tt-link); text-decoration: none">任务</a><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg><a href="Tasks.dc.html" style="color: var(--tt-link); text-decoration: none">logs-cat</a><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg><span aria-current="page" style="color: var(--tt-text-2)">attempt-002</span></nav>
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3); margin-top: 8px">键值列表</span>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)"><dt style="color: var(--tt-text-3)">profile</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">step-high</dd><dt style="color: var(--tt-text-3)">模型</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">bb/step-5-preview</dd><dt style="color: var(--tt-text-3)">接通</dt><dd style="margin: 0">已接通</dd></dl>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">仓库切换菜单</span>
+<div role="menu" aria-label="仓库" style="width: 240px; padding: 4px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); box-shadow: var(--tt-shadow-2)">
+<div style="padding: 6px 8px 4px; font: var(--tt-text-caption); color: var(--tt-text-3)">最近的仓库</div>
+<div role="menuitemradio" aria-checked="true" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--tt-radius-md); background: var(--tt-surface-selected); font: var(--tt-text-sm)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-tone-success-fg)"><path d="M20 6 9 17l-5-5"></path></svg><span style="font: var(--tt-mono-sm)">demo-repo</span></div>
+<div role="menuitemradio" aria-checked="false" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 30px; border-radius: var(--tt-radius-md); background: var(--tt-surface-3); font: var(--tt-text-sm)"><span style="font: var(--tt-mono-sm)">docs-site</span><span style="margin-left: auto; font: var(--tt-text-caption); color: var(--tt-text-3)">悬停</span></div>
+<div aria-hidden="true" style="height: 1px; margin: 4px 0; background: var(--tt-border)"></div>
+<div role="menuitem" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--tt-radius-md); font: var(--tt-text-sm)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12 10v6"></path><path d="M9 13h6"></path><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>添加仓库…</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">空状态</span>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 16px; text-align: center; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<svg class="tt-i" width="32" height="32" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-3)"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>
+<span style="font: var(--tt-title-sm)">还没有方案</span>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">把当前的角色绑定存成方案，之后就能一键切换</span>
+<button type="button" style="margin-top: 4px; height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">保存当前为方案…</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">骨架屏（透明度变化，不用扫光）</span>
+<div aria-busy="true" style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<span class="tt-skel" style="width: 40%; height: 14px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+<span class="tt-skel" style="width: 100%; height: 20px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+<span class="tt-skel" style="width: 82%; height: 20px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+<span class="tt-skel" style="width: 64%; height: 20px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-3)"></span>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">超过 300ms 才显示；减少动效时静止。</span>
+</div>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2160}}">
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    return { themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light' };
+  }
+}
+</script>
+
+
+</body></html>

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>插件 · Themis Tally</title>
+<script src="5a5234fc-e53c-478d-b927-2f7155bed385"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("9b69e353-4b37-41c5-96df-92d95c8a44cf") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("2b169152-a629-4b77-a025-a514d4fb215f") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:var(--tt-link)}a:hover{color:var(--tt-text-1)}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md); overflow: hidden">
+
+<header style="height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 14px; background: var(--tt-titlebar); border-bottom: 1px solid var(--tt-border)">
+<svg width="18" height="20" sc-camel-view-box="0 0 937 1079" role="img" aria-label="Themis Tally 标识"><path fill-rule="evenodd" style="fill: var(--tt-logo-mark)" d="M75 689 81 699 131 751 282 751 337 692 337 689ZM598 689 654 751 803 751 860 692 860 688ZM697 620 698 675 761 674 760 619ZM175 620 175 676 238 675 238 620ZM716 545 716 608 740 608 743 591 742 545ZM193 545 193 608 219 608 220 546ZM935 476 874 522 874 741 700 854 511 962 511 1055 625 997 756 917 834 860 936 770ZM0 476 0 770 83 845 181 918 291 986 382 1035 424 1054 423 962 244 860 61 741 61 522ZM716 408 716 470 742 470 742 408ZM195 408 193 471 219 471 219 408ZM698 339 697 395 761 395 761 339ZM175 340 175 396 238 396 237 339ZM445 1 209 110 0 136 0 367 190 281 193 282 193 327 220 327 221 271 331 271 350 291 350 842 397 888 399 195 322 197 253 207 187 224 87 262 86 175 445 103ZM490 0 492 103 610 124 850 174 849 262 755 226 688 208 614 197 536 195 538 889 586 841 586 290 605 271 715 271 716 327 743 326 745 281 936 368 935 135 729 110Z"></path><path style="fill: var(--tt-logo-tally)" d="M698 482 698 534 760 534 760 482ZM175 483 175 535 237 535 237 482ZM443 128 443 374 441 376 423 376 423 438 441 438 443 440 443 539 441 541 423 541 423 603 443 605 443 708 441 710 423 710 423 773 443 774 443 1063 469 1078 493 1063 493 774 513 773 513 710 493 709 493 605 513 603 513 541 493 540 493 439 513 438 513 376 493 375 493 129Z"></path></svg>
+<span style="font: var(--tt-title-sm); color: var(--tt-text-1)">Themis Tally</span>
+<span aria-hidden="true" style="width: 1px; height: 18px; background: var(--tt-border); margin: 0 2px"></span>
+<button type="button" class="tt-h-ghost" aria-haspopup="menu" title="切换仓库" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>demo-repo<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex: 1"></div>
+<button type="button" class="tt-h-ghost" title="本机服务 pid 18244 · 启动于 2026-10-18 09:41:07" style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-success-fg)"></span>已连接</button>
+<button type="button" class="tt-h-ghost" aria-label="主题：{{ themeLabel }}" title="主题：{{ themeLabel }}" aria-haspopup="menu" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><sc-if value="{{ themeIconMoon }}" hint-placeholder-val="{{ true }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></sc-if><sc-if value="{{ themeIconSun }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></sc-if><sc-if value="{{ themeIconSystem }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></sc-if></button>
+<div aria-hidden="true" style="display: flex; align-self: stretch; margin-left: 4px; color: var(--tt-text-2)">
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" stroke-width="1"></path></svg></span>
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"></rect></svg></span>
+<span style="width: 48px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor" stroke-width="1"></path></svg></span>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+<nav aria-label="主导航" style="order: 2; height: 56px; flex: none; display: flex; align-items: stretch; padding: 0 8px; background: var(--tt-sidebar); color: var(--tt-sidebar-text); border-top: 1px solid var(--tt-sidebar-hover)">
+<a href="Main.dc.html" class="tt-h-nav" title="总览（Ctrl+1）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>总览</a>
+<a href="Tasks.dc.html" class="tt-h-nav" title="任务（Ctrl+2）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>任务<span aria-label="2 项上报给你" style="position: absolute; top: 5px; left: calc(50% + 5px); min-width: 18px; height: 16px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-accent); color: var(--tt-on-accent); font: 600 11px/16px var(--tt-font-sans); box-shadow: 0 0 0 2px var(--tt-sidebar)">2</span></a>
+<a href="Roles.dc.html" class="tt-h-nav" title="角色与模型（Ctrl+3）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg>角色与模型</a>
+<a href="Runtimes.dc.html" class="tt-h-nav" title="CLI 运行时（Ctrl+4）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m7 11 2-2-2-2"></path><path d="M11 13h4"></path><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect></svg>CLI 运行时</a>
+<a href="Secrets.dc.html" class="tt-h-nav" title="凭据（Ctrl+5）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>凭据</a>
+<a href="Logs.dc.html" class="tt-h-nav" title="日志与用量（Ctrl+6）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 12h-5"></path><path d="M15 8h-5"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"></path></svg>日志与用量</a>
+<a href="Plugins.dc.html" class="tt-h-nav" aria-current="page" title="插件（Ctrl+7）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; background: var(--tt-sidebar-hover); color: var(--tt-sidebar-text-active); text-decoration: none; font: var(--tt-text-caption-strong); white-space: nowrap"><span aria-hidden="true" style="position: absolute; left: 10px; right: 10px; top: 0; height: 3px; border-radius: 0 0 2px 2px; background: var(--tt-accent)"></span><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"></path></svg>插件</a>
+<a href="History.dc.html" class="tt-h-nav" title="历史与审计（Ctrl+8）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>历史与审计</a>
+<span aria-hidden="true" style="width: 1px; margin: 14px 6px; background: var(--tt-sidebar-hover)"></span>
+<a href="Settings.dc.html" class="tt-h-nav" title="设置（Ctrl+,）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>设置</a>
+<div style="flex: 1"></div>
+<div aria-live="polite" title="kit 2.12.0 · demo-repo" style="display: flex; align-items: center; gap: 14px; padding: 0 8px 0 12px; color: var(--tt-sidebar-text-muted); font: var(--tt-text-caption); white-space: nowrap">
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-sidebar-dot-info)"></span>运行中 <span class="tt-num">1</span></a>
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-accent)"></span>上报给你 <span class="tt-num">2</span></a>
+<span class="tt-hide-narrow">上次更新 30 秒前</span>
+<span class="tt-hide-narrow">kit 2.12.0</span>
+</div>
+</nav>
+
+<main class="tt-content" style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div class="tt-pad" style="flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<div style="flex: 1; min-width: 0">
+<h1 style="margin: 0; font: var(--tt-title-lg)">插件</h1>
+<p style="margin: 2px 0 0; font: var(--tt-text-sm); color: var(--tt-text-2)">启停前先预览权限变化；锁与资源哈希由内核核对</p>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button type="button" class="tt-h-secondary" title="刷新（Ctrl+R）" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button>
+<button type="button" class="tt-h-secondary" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>核对全部</button>
+</div>
+</div>
+
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow-x: auto">
+<sc-raw-table style="width: 100%; min-width: 860px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">ID</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">版本</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">启用</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">锁</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">资源</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">缺的权限</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">状态</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">操作</sc-raw-th>
+</sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr class="tt-h-row" sc-camel-on-click="{{ open.decisions }}" style="cursor: pointer; background: {{ rowBg.decisions }}">
+<sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">decisions</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">1.0.0</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); font: var(--tt-text-caption-strong)">启用</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-3)">—</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-mono-sm)">READY</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px 0 8px; border-top: 1px solid var(--tt-border); text-align: right"><button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)" title="先预览，再确认（7.11）">停用…</button></sc-raw-td>
+</sc-raw-tr>
+<sc-raw-tr class="tt-h-row" sc-camel-on-click="{{ open.code }}" style="cursor: pointer; background: {{ rowBg.code }}">
+<sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">code-change</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">1.0.0</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong)">停用</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-3)">—</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-mono-sm)">READY</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px 0 8px; border-top: 1px solid var(--tt-border); text-align: right"><button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)" title="先预览，再确认（7.11）">启用…</button></sc-raw-td>
+</sc-raw-tr>
+<sc-raw-tr class="tt-h-row" sc-camel-on-click="{{ open.docs }}" style="cursor: pointer; background: {{ rowBg.docs }}">
+<sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm); box-shadow: {{ rowBar.docs }}">docs-checks</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">1.0.0</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span title="没有配置启用名单" style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); border: 1px solid var(--tt-border-strong); color: var(--tt-text-2); font: var(--tt-text-caption-strong)">不限制</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span title="锁与内容不一致" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>漂移</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)"><svg class="tt-i" width="12" height="12" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-mono-sm)">fs.write</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-mono-sm)">DRIFT</span><span style="margin-left: 6px; font: var(--tt-text-caption); color: var(--tt-text-3)">锁与内容不一致</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px 0 8px; border-top: 1px solid var(--tt-border); text-align: right"><button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)">详情</button></sc-raw-td>
+</sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+
+<div class="tt-grid-2" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<section aria-labelledby="ni-h" style="padding: 14px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="ni-h" style="margin: 0 0 6px; font: var(--tt-title-sm)">列入但未安装</h2>
+<p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-3)">没有</p>
+</section>
+<section aria-labelledby="pb-h" style="padding: 14px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="pb-h" style="margin: 0 0 6px; font: var(--tt-title-sm)">问题</h2>
+<p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-3)">没有</p>
+</section>
+</div>
+
+</div>
+</main>
+</div>
+
+
+<sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+<aside role="dialog" aria-modal="false" aria-labelledby="dr-t" class="tt-drawer-in" style="position: absolute; top: 40px; right: 0; bottom: 56px; width: 520px; max-width: 60%; display: flex; flex-direction: column; background: var(--tt-surface-1); border-left: 1px solid var(--tt-border); border-radius: var(--tt-radius-xl) 0 0 var(--tt-radius-xl); box-shadow: var(--tt-shadow-3); z-index: 200">
+<div aria-hidden="true" title="拖动调整宽度" style="position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize"></div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 14px 12px 12px 20px; border-bottom: 1px solid var(--tt-border)">
+<svg class="tt-i" width="20" height="20" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-2)"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"></path></svg>
+<h2 id="dr-t" style="flex: 1; margin: 0; font: 600 16px/24px var(--tt-font-mono)">docs-checks</h2>
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-mono-sm)">DRIFT</span>
+<button type="button" class="tt-h-ghost" aria-label="关闭（Esc）" title="关闭（Esc）" sc-camel-on-click="{{ close }}" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+</div>
+<div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 20px">
+<div style="display: flex; gap: 8px; padding: 10px 12px; border-radius: var(--tt-radius-md); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm)">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-top: 2px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+<span>锁与内容不一致。缺的权限：<code style="font: var(--tt-mono-sm)">fs.write</code>。</span>
+</div>
+<section>
+<h3 style="margin: 0 0 8px; font: var(--tt-title-sm)">manifest</h3>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 12px; font: var(--tt-text-sm)">
+<dt style="color: var(--tt-text-3)">ID</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">docs-checks</dd>
+<dt style="color: var(--tt-text-3)">版本</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">1.0.0</dd>
+<dt style="color: var(--tt-text-3)">启用</dt><dd style="margin: 0">不限制（没有配置启用名单）</dd>
+<dt style="color: var(--tt-text-3)">权限</dt><dd style="margin: 0; display: flex; flex-wrap: wrap; gap: 4px"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-mono-sm)">fs.read</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-mono-sm)">fs.write（缺）</span></dd>
+</dl>
+</section>
+<section>
+<h3 style="margin: 0 0 8px; font: var(--tt-title-sm)">资源哈希核对</h3>
+<div style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); overflow: hidden">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 120px 64px; gap: 8px; align-items: center; height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2)"><span>路径</span><span>sha256</span><span>结果</span></div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 120px 64px; gap: 8px; align-items: center; height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">manifest.json</span><span style="color: var(--tt-text-3)">[示例哈希]</span><span style="font: var(--tt-text-sm); color: var(--tt-tone-success-fg)">一致</span></div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 120px 64px; gap: 8px; align-items: center; height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">checks/headings.py</span><span style="color: var(--tt-text-3)">[示例哈希]</span><span style="font: var(--tt-text-sm); color: var(--tt-tone-success-fg)">一致</span></div>
+</div>
+</section>
+<section>
+<h3 style="margin: 0 0 8px; font: var(--tt-title-sm)">锁</h3>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 12px; font: var(--tt-text-sm)">
+<dt style="color: var(--tt-text-3)">generation</dt><dd class="tt-num" style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">[N]</dd>
+<dt style="color: var(--tt-text-3)">lock_sha256</dt><dd style="margin: 0; display: flex; align-items: center; gap: 4px"><code style="font: var(--tt-mono-sm); word-break: break-all; color: var(--tt-text-2)">[64 位十六进制，等宽显示，可复制]</code><button type="button" class="tt-h-ghost" aria-label="复制 lock_sha256" title="复制" style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></dd>
+</dl>
+</section>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--tt-border)">
+<button type="button" class="tt-h-secondary" style="height: 32px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">重新核对</button>
+</div>
+</aside>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;drawer&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;section&quot;:&quot;抽屉&quot;},&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800}}">
+class Component extends DCLogic {
+  state = { open: null };
+
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const st = this.state || {};
+    const open = st.open === null || st.open === undefined ? (this.props.drawer ? 'docs' : '') : st.open;
+    const sel = (k) => (open === k ? 'var(--tt-surface-selected)' : 'transparent');
+    return {
+      themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light',
+      themeLabel: theme === 'light' ? '亮' : '暗', themeIconMoon: theme !== 'light', themeIconSun: theme === 'light', themeIconSystem: false,
+      drawerOpen: open === 'docs',
+      open: {
+        decisions: () => this.setState({ open: 'decisions' }),
+        code: () => this.setState({ open: 'code' }),
+        docs: () => this.setState({ open: 'docs' })
+      },
+      rowBg: { decisions: sel('decisions'), code: sel('code'), docs: sel('docs') },
+      rowBar: { docs: open === 'docs' ? 'inset 2px 0 0 var(--tt-primary)' : 'none' },
+      close: () => this.setState({ open: '' })
+    };
+  }
+}
+</script>
+
+
+</body></html>

@@ -1926,6 +1926,32 @@ def cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+BRIEF_PATH_RE = re.compile(r"`([^`\n]+)`")
+
+
+def uncommitted_references(repo: Path, brief: str) -> List[str]:
+    """任务书里用反引号写的仓库路径，工作区里有、任务基线里没有或有未提交改动的：工人在任务基线的 worktree 里
+    看不到它们（T002：设计稿没入库）。被 Git 忽略的路径（证据之类）不算，claude 工人能读主工作区。"""
+    problems: List[str] = []
+    for raw in sorted(set(BRIEF_PATH_RE.findall(brief))):
+        path = raw.strip().rstrip("/")
+        if "/" not in path or "://" in path or path.startswith(("/", "-", "~")):
+            continue
+        try:
+            if not (repo / path).exists():
+                continue
+        except (OSError, ValueError):
+            continue
+        if subprocess.run(["git", "check-ignore", "-q", "--", path], cwd=str(repo),
+                          stdin=subprocess.DEVNULL).returncode == 0:
+            continue
+        if not git(["ls-tree", "HEAD", "--", path], repo, check=False).strip():
+            problems.append("%s 没有提交" % path)
+        elif git(["status", "--porcelain", "--", path], repo, check=False).strip():
+            problems.append("%s 有未提交的改动" % path)
+    return problems
+
+
 def cmd_task_new(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     hub.ensure()
@@ -1935,6 +1961,10 @@ def cmd_task_new(args: argparse.Namespace) -> int:
         raise HubError("--slug 只能是小写字母、数字与连字符", EXIT_USAGE)
     brief = Path(args.brief).read_text(encoding="utf-8")
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    unseen = uncommitted_references(hub.repo, brief)
+    if unseen:
+        raise HubError("任务书引用的路径工人看不到（工人在任务基线 %s 的 worktree 里干活）：%s。先提交再登记"
+                       % (head[:10], "；".join(unseen)), EXIT_USAGE)
     with DirLock(hub.root / ".lock"):
         state = hub.load_state()
         if args.task in state["tasks"]:

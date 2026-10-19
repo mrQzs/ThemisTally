@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置 · Themis Tally</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./tokens.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:var(--tt-link)}a:hover{color:var(--tt-text-1)}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<header style="height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 14px; background: var(--tt-titlebar); border-bottom: 1px solid var(--tt-border)">
+<svg width="18" height="20" viewBox="0 0 937 1079" role="img" aria-label="Themis Tally 标识"><path fill-rule="evenodd" style="fill: var(--tt-logo-mark)" d="M75 689 81 699 131 751 282 751 337 692 337 689ZM598 689 654 751 803 751 860 692 860 688ZM697 620 698 675 761 674 760 619ZM175 620 175 676 238 675 238 620ZM716 545 716 608 740 608 743 591 742 545ZM193 545 193 608 219 608 220 546ZM935 476 874 522 874 741 700 854 511 962 511 1055 625 997 756 917 834 860 936 770ZM0 476 0 770 83 845 181 918 291 986 382 1035 424 1054 423 962 244 860 61 741 61 522ZM716 408 716 470 742 470 742 408ZM195 408 193 471 219 471 219 408ZM698 339 697 395 761 395 761 339ZM175 340 175 396 238 396 237 339ZM445 1 209 110 0 136 0 367 190 281 193 282 193 327 220 327 221 271 331 271 350 291 350 842 397 888 399 195 322 197 253 207 187 224 87 262 86 175 445 103ZM490 0 492 103 610 124 850 174 849 262 755 226 688 208 614 197 536 195 538 889 586 841 586 290 605 271 715 271 716 327 743 326 745 281 936 368 935 135 729 110Z"></path><path style="fill: var(--tt-logo-tally)" d="M698 482 698 534 760 534 760 482ZM175 483 175 535 237 535 237 482ZM443 128 443 374 441 376 423 376 423 438 441 438 443 440 443 539 441 541 423 541 423 603 443 605 443 708 441 710 423 710 423 773 443 774 443 1063 469 1078 493 1063 493 774 513 773 513 710 493 709 493 605 513 603 513 541 493 540 493 439 513 438 513 376 493 375 493 129Z"></path></svg>
+<span style="font: var(--tt-title-sm); color: var(--tt-text-1)">Themis Tally</span>
+<span aria-hidden="true" style="width: 1px; height: 18px; background: var(--tt-border); margin: 0 2px"></span>
+<button type="button" class="tt-h-ghost" aria-haspopup="menu" title="切换仓库" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>demo-repo<svg class="tt-i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex: 1"></div>
+<button type="button" class="tt-h-ghost" title="本机服务 pid 18244 · 启动于 2026-10-18 09:41:07" style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-success-fg)"></span>已连接</button>
+<button type="button" class="tt-h-ghost" aria-label="主题：{{ themeLabel }}" title="主题：{{ themeLabel }}" aria-haspopup="menu" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><sc-if value="{{ themeIconMoon }}" hint-placeholder-val="{{ true }}"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></sc-if><sc-if value="{{ themeIconSun }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></sc-if><sc-if value="{{ themeIconSystem }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></sc-if></button>
+<div aria-hidden="true" style="display: flex; align-self: stretch; margin-left: 4px; color: var(--tt-text-2)">
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" stroke-width="1"></path></svg></span>
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"></rect></svg></span>
+<span style="width: 48px; display: grid; place-items: center"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor" stroke-width="1"></path></svg></span>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+<nav aria-label="主导航" style="order: 2; height: 56px; flex: none; display: flex; align-items: stretch; padding: 0 8px; background: var(--tt-sidebar); color: var(--tt-sidebar-text); border-top: 1px solid var(--tt-sidebar-hover)">
+<a href="Main.dc.html" class="tt-h-nav" title="总览（Ctrl+1）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>总览</a>
+<a href="Tasks.dc.html" class="tt-h-nav" title="任务（Ctrl+2）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>任务<span aria-label="2 项上报给你" style="position: absolute; top: 5px; left: calc(50% + 5px); min-width: 18px; height: 16px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-accent); color: var(--tt-on-accent); font: 600 11px/16px var(--tt-font-sans); box-shadow: 0 0 0 2px var(--tt-sidebar)">2</span></a>
+<a href="Roles.dc.html" class="tt-h-nav" title="角色与模型（Ctrl+3）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg>角色与模型</a>
+<a href="Runtimes.dc.html" class="tt-h-nav" title="CLI 运行时（Ctrl+4）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 11 2-2-2-2"></path><path d="M11 13h4"></path><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect></svg>CLI 运行时</a>
+<a href="Secrets.dc.html" class="tt-h-nav" title="凭据（Ctrl+5）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>凭据</a>
+<a href="Logs.dc.html" class="tt-h-nav" title="日志与用量（Ctrl+6）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12h-5"></path><path d="M15 8h-5"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"></path></svg>日志与用量</a>
+<a href="Plugins.dc.html" class="tt-h-nav" title="插件（Ctrl+7）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"></path></svg>插件</a>
+<a href="History.dc.html" class="tt-h-nav" title="历史与审计（Ctrl+8）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>历史与审计</a>
+<span aria-hidden="true" style="width: 1px; margin: 14px 6px; background: var(--tt-sidebar-hover)"></span>
+<a href="Settings.dc.html" class="tt-h-nav" aria-current="page" title="设置（Ctrl+,）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; background: var(--tt-sidebar-hover); color: var(--tt-sidebar-text-active); text-decoration: none; font: var(--tt-text-caption-strong); white-space: nowrap"><span aria-hidden="true" style="position: absolute; left: 10px; right: 10px; top: 0; height: 3px; border-radius: 0 0 2px 2px; background: var(--tt-accent)"></span><svg class="tt-i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>设置</a>
+<div style="flex: 1"></div>
+<div aria-live="polite" title="kit 2.12.0 · demo-repo" style="display: flex; align-items: center; gap: 14px; padding: 0 8px 0 12px; color: var(--tt-sidebar-text-muted); font: var(--tt-text-caption); white-space: nowrap">
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-sidebar-dot-info)"></span>运行中 <span class="tt-num">1</span></a>
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-accent)"></span>上报给你 <span class="tt-num">2</span></a>
+<span class="tt-hide-narrow">上次更新 2 秒前</span>
+<span class="tt-hide-narrow">kit 2.12.0</span>
+</div>
+</nav>
+
+<main class="tt-content" style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div class="tt-pad" style="flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 16px; max-width: 920px">
+
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<div style="flex: 1; min-width: 0">
+<h1 style="margin: 0; font: var(--tt-title-lg)">设置</h1>
+<p style="margin: 2px 0 0; font: var(--tt-text-sm); color: var(--tt-text-2)">设置保存在桌面应用自己的用户数据目录里，不写进仓库的配置</p>
+</div>
+<button type="button" class="tt-h-secondary" title="刷新（Ctrl+R）" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button>
+</div>
+
+<section aria-labelledby="s-repo" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<h2 id="s-repo" style="flex: 1; margin: 0; font: var(--tt-title-md)">仓库</h2>
+<button type="button" class="tt-h-secondary" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10v6"></path><path d="M9 13h6"></path><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>添加仓库…</button>
+</div>
+<div style="overflow-x: auto; border-top: 1px solid var(--tt-border)">
+<table style="width: 100%; min-width: 640px; font: var(--tt-text-sm)">
+<thead><tr>
+<th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">名称</th>
+<th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">路径</th>
+<th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">上次打开</th>
+<th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">操作</th>
+</tr></thead>
+<tbody>
+<tr class="tt-h-row">
+<td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)"><span style="font: var(--tt-mono-sm)">demo-repo</span> <span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); font: var(--tt-text-caption-strong)">当前</span></td>
+<td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm); color: var(--tt-text-2)">C:\Projects\demo-repo</td>
+<td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-3)" title="2026-10-18 09:41:07">现在</td>
+<td style="height: 40px; padding: 0 12px 0 8px; border-top: 1px solid var(--tt-border); text-align: right"><button type="button" disabled="" title="不能移除当前打开的仓库" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-disabled); font: var(--tt-text-sm-medium)">从列表移除</button></td>
+</tr>
+<tr class="tt-h-row">
+<td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">docs-site</td>
+<td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm); color: var(--tt-text-2)">C:\Projects\docs-site</td>
+<td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-3)" title="2026-10-15 16:20:11">3 天前</td>
+<td style="height: 40px; padding: 0 12px 0 8px; border-top: 1px solid var(--tt-border); text-align: right"><button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)">从列表移除</button></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p style="margin: 0; padding: 10px 16px; border-top: 1px solid var(--tt-border); font: var(--tt-text-caption); color: var(--tt-text-3)">“从列表移除”只从应用里移除，不动仓库。</p>
+</section>
+
+<section aria-labelledby="s-env" style="display: flex; flex-direction: column; gap: 14px; padding: 12px 16px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="s-env" style="margin: 0; font: var(--tt-title-md)">运行环境</h2>
+<div class="tt-stack-narrow" style="display: flex; align-items: center; gap: 12px">
+<span style="width: 120px; flex: none; font: var(--tt-title-sm)">Python</span>
+<div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); background: var(--tt-surface-2)"><code style="flex: 1; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">C:\Python313\python.exe</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">自动检测 · 3.13.1</span></div>
+<button type="button" class="tt-h-secondary" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">更改…</button>
+</div>
+<fieldset class="tt-stack-narrow" style="margin: 0; padding: 0; border: 0; display: flex; align-items: flex-start; gap: 12px">
+<legend style="float: left; width: 120px; padding: 0; font: var(--tt-title-sm); line-height: 32px">kit 位置</legend>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+<label style="display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer"><input type="radio" name="kit" checked="" style="width: 16px; height: 16px; margin: 0; accent-color: var(--tt-primary)"><span>仓库里装好的</span><code style="font: var(--tt-mono-sm); color: var(--tt-text-2)">.agent/</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">kit 2.12.0</span></label>
+<label style="display: flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer"><input type="radio" name="kit" style="width: 16px; height: 16px; margin: 0; accent-color: var(--tt-primary)"><span>外部目录</span><button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-link); font: var(--tt-text-sm-medium)">选择目录…</button></label>
+</div>
+</fieldset>
+<div class="tt-stack-narrow" style="display: flex; align-items: flex-start; gap: 12px">
+<span style="width: 120px; flex: none; font: var(--tt-title-sm)">版本信息</span>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)">
+<dt style="color: var(--tt-text-3)">桌面端</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">[版本号]</dd>
+<dt style="color: var(--tt-text-3)">kit</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">2.12.0</dd>
+<dt style="color: var(--tt-text-3)">Python</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">3.13.1</dd>
+</dl>
+</div>
+</section>
+
+<section aria-labelledby="s-usage" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="s-usage" style="margin: 0; font: var(--tt-title-md)">规划端用量</h2>
+<div class="tt-stack-narrow" style="display: flex; align-items: center; gap: 12px">
+<label for="sess-dir" style="width: 120px; flex: none; font: var(--tt-title-sm)">会话记录目录</label>
+<input id="sess-dir" type="text" placeholder="未设置（可选）" spellcheck="false" aria-describedby="sess-help" style="flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-mono-md)">
+<button type="button" class="tt-h-secondary" style="height: 32px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">选择目录…</button>
+</div>
+<p id="sess-help" style="margin: 0 0 0 132px; font: var(--tt-text-caption); color: var(--tt-text-3)">只读用量字段，不读对话内容。设置后在“日志与用量 › 用量”里按模型列出，分主线与子代理。</p>
+</section>
+
+<section aria-labelledby="s-look" style="display: flex; flex-direction: column; gap: 14px; padding: 12px 16px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="s-look" style="margin: 0; font: var(--tt-title-md)">外观</h2>
+<div style="display: flex; align-items: center; gap: 12px">
+<span id="theme-l" style="width: 120px; flex: none; font: var(--tt-title-sm)">主题</span>
+<div role="radiogroup" aria-labelledby="theme-l" style="display: inline-flex; padding: 2px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)">
+<sc-for list="{{ themes }}" as="t" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{ t.sel }}" onClick="{{ t.pick }}" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: {{ t.bg }}; box-shadow: {{ t.shadow }}; color: {{ t.fg }}; font: var(--tt-text-sm-medium)"><sc-if value="{{ t.isSys }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></sc-if><sc-if value="{{ t.isLight }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></sc-if><sc-if value="{{ t.isDark }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></sc-if>{{ t.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<span id="dens-l" style="width: 120px; flex: none; font: var(--tt-title-sm)">密度</span>
+<div role="radiogroup" aria-labelledby="dens-l" style="display: inline-flex; padding: 2px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)">
+<sc-for list="{{ densities }}" as="t" hint-placeholder-count="2">
+<button type="button" role="radio" aria-checked="{{ t.sel }}" onClick="{{ t.pick }}" style="height: 28px; padding: 0 12px; border: 0; border-radius: var(--tt-radius-sm); background: {{ t.bg }}; box-shadow: {{ t.shadow }}; color: {{ t.fg }}; font: var(--tt-text-sm-medium)">{{ t.label }}</button>
+</sc-for>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">紧凑：表格行高 32</span>
+</div>
+</section>
+
+<section aria-labelledby="s-about" style="display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<h2 id="s-about" style="margin: 0; font: var(--tt-title-md)">关于</h2>
+<div style="display: flex; align-items: center; gap: 14px">
+<svg width="42" height="48" viewBox="0 0 937 1079" role="img" aria-label="Themis Tally 标识"><path fill-rule="evenodd" style="fill: var(--tt-logo-mark)" d="M75 689 81 699 131 751 282 751 337 692 337 689ZM598 689 654 751 803 751 860 692 860 688ZM697 620 698 675 761 674 760 619ZM175 620 175 676 238 675 238 620ZM716 545 716 608 740 608 743 591 742 545ZM193 545 193 608 219 608 220 546ZM935 476 874 522 874 741 700 854 511 962 511 1055 625 997 756 917 834 860 936 770ZM0 476 0 770 83 845 181 918 291 986 382 1035 424 1054 423 962 244 860 61 741 61 522ZM716 408 716 470 742 470 742 408ZM195 408 193 471 219 471 219 408ZM698 339 697 395 761 395 761 339ZM175 340 175 396 238 396 237 339ZM445 1 209 110 0 136 0 367 190 281 193 282 193 327 220 327 221 271 331 271 350 291 350 842 397 888 399 195 322 197 253 207 187 224 87 262 86 175 445 103ZM490 0 492 103 610 124 850 174 849 262 755 226 688 208 614 197 536 195 538 889 586 841 586 290 605 271 715 271 716 327 743 326 745 281 936 368 935 135 729 110Z"></path><path style="fill: var(--tt-logo-tally)" d="M698 482 698 534 760 534 760 482ZM175 483 175 535 237 535 237 482ZM443 128 443 374 441 376 423 376 423 438 441 438 443 440 443 539 441 541 423 541 423 603 443 605 443 708 441 710 423 710 423 773 443 774 443 1063 469 1078 493 1063 493 774 513 773 513 710 493 709 493 605 513 603 513 541 493 540 493 439 513 438 513 376 493 375 493 129Z"></path></svg>
+<div style="display: flex; flex-direction: column">
+<span style="font: var(--tt-title-md)">Themis Tally · 参验</span>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">版本 <span style="font: var(--tt-mono-sm)">[版本号]</span></span>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" class="tt-h-secondary" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>开源许可清单</button>
+<button type="button" class="tt-h-secondary" onClick="{{ openExt }}" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>项目主页</button>
+</div>
+</section>
+
+</div>
+</main>
+</div>
+
+
+<sc-if value="{{ extOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--tt-scrim); z-index: 300">
+<div role="dialog" aria-modal="true" aria-labelledby="ext-t" class="tt-enter" style="width: 400px; max-width: 100%; background: var(--tt-surface-1); border-radius: var(--tt-radius-xl); box-shadow: var(--tt-shadow-3); overflow: hidden">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 18px 20px">
+<h2 id="ext-t" style="margin: 0; font: var(--tt-title-md)">在系统浏览器中打开？</h2>
+<code style="padding: 8px 10px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border); font: var(--tt-mono-md); word-break: break-all">https://[项目主页地址]</code>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">只允许 http 与 https；由外壳交给系统浏览器打开。</span>
+</div>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--tt-border)">
+<button type="button" class="tt-h-secondary" onClick="{{ closeExt }}" style="height: 32px; padding: 0 16px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)">取消</button>
+<button type="button" class="tt-h-primary" onClick="{{ closeExt }}" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">打开</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"外观"},"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+  state = { pref: null, density: 'standard', ext: false };
+
+  renderVals() {
+    const base = this.props.theme ?? 'dark';
+    const st = this.state || {};
+    const pref = st.pref || base;
+    const effective = pref === 'system' ? base : pref;
+    const seg = (on) => ({ bg: on ? 'var(--tt-surface-1)' : 'transparent', shadow: on ? 'var(--tt-shadow-1)' : 'none', fg: on ? 'var(--tt-text-1)' : 'var(--tt-text-2)' });
+    const themes = [['system', '跟随系统'], ['light', '亮'], ['dark', '暗']].map((t) => Object.assign({
+      label: t[1], sel: t[0] === pref, isSys: t[0] === 'system', isLight: t[0] === 'light', isDark: t[0] === 'dark',
+      pick: () => this.setState({ pref: t[0] })
+    }, seg(t[0] === pref)));
+    const density = st.density || 'standard';
+    const densities = [['standard', '标准'], ['compact', '紧凑']].map((t) => Object.assign({
+      label: t[1], sel: t[0] === density, pick: () => this.setState({ density: t[0] })
+    }, seg(t[0] === density)));
+    return {
+      themeClass: effective === 'dark' ? 'tt-theme-dark' : 'tt-theme-light',
+      themeLabel: pref === 'system' ? '跟随系统' : pref === 'dark' ? '暗' : '亮',
+      themeIconMoon: pref === 'dark', themeIconSun: pref === 'light', themeIconSystem: pref === 'system',
+      themes: themes, densities: densities,
+      extOpen: !!st.ext,
+      openExt: () => this.setState({ ext: true }),
+      closeExt: () => this.setState({ ext: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

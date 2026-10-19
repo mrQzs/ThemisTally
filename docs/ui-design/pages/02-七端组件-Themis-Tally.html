@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>七端组件 · Themis Tally</title>
+<script src="edb30d08-7d41-473f-9d50-0b8c12880237"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("48a8dc5c-4fcd-4768-b257-e7d96e46dfa6") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("a8c49cc9-00cd-42f5-a2ac-cad8bcd760ff") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="width: 1440px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; gap: 36px; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<div style="display: flex; align-items: baseline; gap: 16px">
+<h1 style="margin: 0; font: 600 28px/36px var(--tt-font-sans)">七端组件</h1>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">工人、流水线、信件与上报 · 2026-10-19 新增</span>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font: var(--tt-title-md)">工人角色卡</h2><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">角色与模型页</span></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">就绪</span><article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 20px; height: 20px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); color: var(--tt-text-2); font: var(--tt-text-caption-strong)">5</span><h3 style="margin: 0; font: var(--tt-title-sm)">执行端</h3><code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">exec-step</code></div><p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2)">按生效合同在本地分支改代码并提交；不推送、不开 PR。</p><div style="display: flex; flex-wrap: wrap; gap: 6px"><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium); white-space: nowrap">无头</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>已接通</span></div><dl style="margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)"><dt style="color: var(--tt-text-3)">profile</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px; overflow-wrap: anywhere">step-high</dd><dt style="color: var(--tt-text-3)">模型</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px; overflow-wrap: anywhere">bb/step-5-preview</dd><dt style="color: var(--tt-text-3)">级别</dt><dd style="margin: 0; ; overflow-wrap: anywhere">仓库写 · 只限合同允许的文件</dd></dl><div style="display: flex; justify-content: flex-end"><button type="button" class="tt-h-secondary" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); text-decoration: none; font: var(--tt-text-sm-medium)">更改…</button></div></article></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">可选端缺凭据：本轮跳过（warning，不是 danger）</span><article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><h3 style="margin: 0; font: var(--tt-title-sm)">决策端（JEV）</h3><code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">jev-judge</code></div><p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2)">只看转交的概述与原始目标；是模型意见，不是证据。</p><div style="display: flex; flex-wrap: wrap; gap: 6px"><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium); white-space: nowrap">API</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>凭据未找到 · 本轮不调用</span></div><dl style="margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)"><dt style="color: var(--tt-text-3)">凭据变量</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px; overflow-wrap: anywhere">TYPESAFE_API_KEY</dd><dt style="color: var(--tt-text-3)">调用点</dt><dd style="margin: 0; ; overflow-wrap: anywhere">一审前 · 终审前</dd><dt style="color: var(--tt-text-3)">级别</dt><dd style="margin: 0; ; overflow-wrap: anywhere">只读 · 只看转交的概述</dd></dl><div style="display: flex; justify-content: flex-end"><button type="button" class="tt-h-secondary" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); text-decoration: none; font: var(--tt-text-sm-medium)">更改…</button></div></article></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">没接通：runtime 找不到命令</span><article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 20px; height: 20px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); color: var(--tt-text-2); font: var(--tt-text-caption-strong)">3</span><h3 style="margin: 0; font: var(--tt-title-sm)">门禁端</h3><code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">gate-sonnet</code></div><p style="margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2)">战前写黑盒基准测试；战后只增不改地追加白盒测试与突变清单。</p><div style="display: flex; flex-wrap: wrap; gap: 6px"><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium); white-space: nowrap">无头</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>本轮未接通</span></div><dl style="margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)"><dt style="color: var(--tt-text-3)">profile</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px; overflow-wrap: anywhere">oc-gate</dd><dt style="color: var(--tt-text-3)">runtime</dt><dd style="margin: 0; ; overflow-wrap: anywhere">opencode（找不到命令）</dd><dt style="color: var(--tt-text-3)">级别</dt><dd style="margin: 0; ; overflow-wrap: anywhere">仓库写 · 只限测试目录</dd></dl><div style="display: flex; justify-content: flex-end"><button type="button" class="tt-h-secondary" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); text-decoration: none; font: var(--tt-text-sm-medium)">更改…</button></div></article></div></div><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">标题旁是工人名（来自工人提示词）；卡内必有「级别」。CLI 与模型不写死，任何已登记的 runtime 都能担任。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font: var(--tt-title-md)">七步进度条</h2><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">总览「当前步骤」与 attempt 详情页头</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">进行中：当前一步蓝色转圈，被打回过的步骤下方标黄色次数</span><ol style="margin: 0; padding: 16px; list-style: none; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0 4px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">规划</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">第 7 轮第 2 步</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">合同</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">v2 生效</span><span style="font: var(--tt-text-caption); color: var(--tt-tone-warning-fg)">一审打回 1 次</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">门禁 · 战前</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">基准 14 条，已锁死</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">审核 · 一审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">通过 · JEV 未调用</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); box-shadow: 0 0 0 2px var(--tt-tone-info-fg)"><svg class="tt-i tt-spin" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="进行中"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-border-strong)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">执行</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">已用 19 分 6 秒</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span role="img" aria-label="未开始" style="width: 24px; height: 24px; flex: none; box-sizing: border-box; border-radius: var(--tt-radius-full); border: 1.5px dashed var(--tt-border-strong)"></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-border-strong)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-3)">门禁 · 战后</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">等待</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span role="img" aria-label="未开始" style="width: 24px; height: 24px; flex: none; box-sizing: border-box; border-radius: var(--tt-radius-full); border: 1.5px dashed var(--tt-border-strong)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-3)">审核 · 终审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">等待</span></li></ol></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">被打回：回到的那一步换成黄色撤回图标（这里是门禁打回执行端）</span><ol style="margin: 0; padding: 16px; list-style: none; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0 4px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">规划</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">第 6 轮第 3 步</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">合同</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">v2 生效</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">门禁 · 战前</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">基准 6 条</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">审核 · 一审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">通过</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); box-shadow: 0 0 0 2px var(--tt-tone-warning-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="被打回"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-border-strong)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">执行</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">门禁打回，修复中</span><span style="font: var(--tt-text-caption); color: var(--tt-tone-warning-fg)">打回 1 / 上限 3</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-1)">门禁 · 战后</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">第 1 次：B04 失败</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span role="img" aria-label="未开始" style="width: 24px; height: 24px; flex: none; box-sizing: border-box; border-radius: var(--tt-radius-full); border: 1.5px dashed var(--tt-border-strong)"></span></div><span style="font: var(--tt-text-sm-medium); color: var(--tt-text-3)">审核 · 终审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">等待</span></li></ol></div><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">七个位置固定：规划 · 合同 · 门禁战前 · 审核一审 · 执行 · 门禁战后 · 审核终审；不用金色。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font: var(--tt-title-md)">信件</h2><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">总览「最近的信件」与 attempt 详情「信件」页签</span></div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start"><div style="display: flex; flex-direction: column; gap: 16px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">六种信件类型（都不用金色）</span><div style="display: flex; flex-wrap: wrap; gap: 8px"><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); font: var(--tt-text-caption-strong); white-space: nowrap">交付</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-caption-strong); white-space: nowrap">返工完成</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong); white-space: nowrap">进度</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong); white-space: nowrap">交接</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap">提问</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-text-caption-strong); white-space: nowrap">阻塞</span></div></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">信件行（总览「最近的信件」）：只显示「摘要」字段</span><div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden"><div class="tt-h-row" style="display: grid; grid-template-columns: 84px 112px 76px 148px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; font: var(--tt-text-sm)"><span class="tt-num" style="color: var(--tt-text-3)">6 分钟前</span><code style="font: var(--tt-mono-sm)">contract-glm</code><span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap">提问</span></span><code style="font: var(--tt-mono-sm); color: var(--tt-text-2)">plugin-verify-json</code><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">核对插件锁要读仓库外的全局锁文件，超出只读范围</span></div></div></div></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">信件原文（attempt 详情「信件」页签）：YAML 头 + 六个字段，按纯文本显示</span><div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden"><div style="display: flex; align-items: center; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--tt-border); font: var(--tt-mono-sm)">m-0411 <span style="margin-left: 6px; font: var(--tt-text-caption); color: var(--tt-text-3)">· 原文 · 纯文本显示</span></div><div style="padding: 8px 0"><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">1</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">---</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">2</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">from: exec-step</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">3</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">to: womovie-c8</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">4</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">task-id: logs-cat</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">5</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">in-reply-to: m-0409</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">6</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">type: 返工完成</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">7</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">---</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">8</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">摘要: 修好 B04：末段 next_offset 返回 null。</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">9</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">提交: themis/logs-cat-v2@1a2b3c4d</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">10</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">验证: pytest bench/ -q：6 passed；没有碰 bench/ 与禁改路径。</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">11</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">偏离: 无</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">12</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">需协调人决定: 无</span></div><div style="display: grid; grid-template-columns: 40px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 10px; text-align: right; color: var(--tt-text-3)">13</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">证据: .agent/mailbox/tasks/logs-cat/evidence/pytest-1408.txt</span></div></div></div></div></div><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">信件正文是工人的自述，不是证据；证据看「证据」字段指向的文件。合同端交付信的四个标准字段（摘要、验证、偏离、需协调人决定）就是《合同概述》。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font: var(--tt-title-md)">上报给你</h2><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">金色只用于上报区、上报计数（Tab 胶囊、状态段圆点、总览 KPI 卡）、当前页指示条与暗色焦点环</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">两种来源，样式相同，靠第三列区分来源</span><div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-left: 3px solid var(--tt-accent); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px"><span style="font: var(--tt-title-sm)">上报给你</span><span style="min-width: 20px; height: 18px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-accent); color: var(--tt-on-accent); font: var(--tt-text-caption-strong)">2</span></div><div style="display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 0 16px; border-top: 1px solid var(--tt-border)"><span><span title="ESCALATE" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-escalate-bg); color: var(--tt-tone-escalate-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m16 12-4-4-4 4"></path><path d="M12 16V8"></path></svg>升级</span></span><span style="font: var(--tt-mono-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">secret-check-json · 合同阶段</span><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: nowrap">规划端重拆后仍卡住 · 合同连续打回 4 次</span></div><div style="margin: 0 16px 12px; padding: 10px 12px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border); font: var(--tt-text-sm)"><span style="display: block; margin-bottom: 4px; font: var(--tt-text-caption-strong); color: var(--tt-text-2)">上报原因 · 规划端的评估，是模型意见</span><span>验收断言离不开真实凭据；需要你决定是否允许测试替身。</span></div><div style="display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 0 16px; border-top: 1px solid var(--tt-border)"><span><span title="ESCALATE" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-escalate-bg); color: var(--tt-tone-escalate-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m16 12-4-4-4 4"></path><path d="M12 16V8"></path></svg>升级</span></span><span style="font: var(--tt-mono-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">plugin-verify-json · 合同阶段</span><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: nowrap">协调人转交 · contract-glm 提问信</span></div><div style="margin: 0 16px 12px; padding: 10px 12px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border); font: var(--tt-text-sm)"><span style="display: block; margin-bottom: 4px; font: var(--tt-text-caption-strong); color: var(--tt-text-2)">需协调人决定 · 工人的原话，协调人无权决定所以转交</span><span>要读仓库外的全局锁文件，超出只读范围；需要你决定是否放宽。</span></div></div></div><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">只有这两种进金色区：规划端重拆后仍卡住；协调人遇到超出它权限的「需协调人决定」（放宽路径范围、改合同目标）。审核中、打回中、提问信本身都不用金色。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font: var(--tt-title-md)">小标签</h2></div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px"><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">工人状态</span><div style="display: flex; flex-wrap: wrap; gap: 6px"><span title="等信；收到信才被唤醒" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong); white-space: nowrap">休眠</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>本回合运行中</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>在线</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>不调用</span></div></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">级别</span><div style="display: flex; flex-wrap: wrap; gap: 6px"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); border: 1px solid var(--tt-border-strong); color: var(--tt-text-2); font: var(--tt-text-sm-medium); white-space: nowrap">只读</span><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); border: 1px solid var(--tt-border-strong); color: var(--tt-text-2); font: var(--tt-text-sm-medium); white-space: nowrap">只读 · 写 .agent/plans/</span><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); border: 1px solid var(--tt-border-strong); color: var(--tt-text-2); font: var(--tt-text-sm-medium); white-space: nowrap">仓库写 · 只限测试目录</span></div></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">attempt 的打回计数（门禁 · 终审）</span><div style="display: flex; flex-direction: column; gap: 4px; font: var(--tt-text-sm)"><span class="tt-num">1 · 0</span><span class="tt-num" style="color: var(--tt-tone-warning-fg)">4 · 0 <span style="font: var(--tt-text-caption)">（超过 3 次变黄）</span></span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">合同阶段的打回记在任务上，那时还没有 attempt</span></div></div><div style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span style="font: var(--tt-text-caption-strong); color: var(--tt-text-3)">阶段 + 工人</span><div style="display: flex; flex-direction: column; gap: 4px; font: var(--tt-text-sm)"><span>执行 <code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">exec-step</code></span><span>一审 <code style="font: var(--tt-mono-sm); color: var(--tt-text-3)">audit-sonnet</code></span></div></div></div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1900}}">
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    return { themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light' };
+  }
+}
+</script>
+
+
+</body></html>

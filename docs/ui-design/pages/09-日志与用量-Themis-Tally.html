@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>日志与用量 · Themis Tally</title>
+<script src="ed234a12-18e1-43d9-90b7-feab0e4bc633"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("04d24292-5e3c-47b1-a81e-180c797b987a") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("33496fbd-4d69-40f5-b730-33ea051b4078") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:var(--tt-link)}a:hover{color:var(--tt-text-1)}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="min-height: 100vh; display: flex; flex-direction: column; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<header style="height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 14px; background: var(--tt-titlebar); border-bottom: 1px solid var(--tt-border)">
+<svg width="18" height="20" sc-camel-view-box="0 0 937 1079" role="img" aria-label="Themis Tally 标识"><path fill-rule="evenodd" style="fill: var(--tt-logo-mark)" d="M75 689 81 699 131 751 282 751 337 692 337 689ZM598 689 654 751 803 751 860 692 860 688ZM697 620 698 675 761 674 760 619ZM175 620 175 676 238 675 238 620ZM716 545 716 608 740 608 743 591 742 545ZM193 545 193 608 219 608 220 546ZM935 476 874 522 874 741 700 854 511 962 511 1055 625 997 756 917 834 860 936 770ZM0 476 0 770 83 845 181 918 291 986 382 1035 424 1054 423 962 244 860 61 741 61 522ZM716 408 716 470 742 470 742 408ZM195 408 193 471 219 471 219 408ZM698 339 697 395 761 395 761 339ZM175 340 175 396 238 396 237 339ZM445 1 209 110 0 136 0 367 190 281 193 282 193 327 220 327 221 271 331 271 350 291 350 842 397 888 399 195 322 197 253 207 187 224 87 262 86 175 445 103ZM490 0 492 103 610 124 850 174 849 262 755 226 688 208 614 197 536 195 538 889 586 841 586 290 605 271 715 271 716 327 743 326 745 281 936 368 935 135 729 110Z"></path><path style="fill: var(--tt-logo-tally)" d="M698 482 698 534 760 534 760 482ZM175 483 175 535 237 535 237 482ZM443 128 443 374 441 376 423 376 423 438 441 438 443 440 443 539 441 541 423 541 423 603 443 605 443 708 441 710 423 710 423 773 443 774 443 1063 469 1078 493 1063 493 774 513 773 513 710 493 709 493 605 513 603 513 541 493 540 493 439 513 438 513 376 493 375 493 129Z"></path></svg>
+<span style="font: var(--tt-title-sm); color: var(--tt-text-1)">Themis Tally</span>
+<span aria-hidden="true" style="width: 1px; height: 18px; background: var(--tt-border); margin: 0 2px"></span>
+<button type="button" class="tt-h-ghost" aria-haspopup="menu" title="切换仓库" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>demo-repo<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex: 1"></div>
+<button type="button" class="tt-h-ghost" title="本机服务 pid 18244 · 启动于 2026-10-18 09:41:07" style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-success-fg)"></span>已连接</button>
+<button type="button" class="tt-h-ghost" aria-label="主题：{{ themeLabel }}" title="主题：{{ themeLabel }}" aria-haspopup="menu" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><sc-if value="{{ themeIconMoon }}" hint-placeholder-val="{{ true }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></sc-if><sc-if value="{{ themeIconSun }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></sc-if><sc-if value="{{ themeIconSystem }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></sc-if></button>
+<div aria-hidden="true" style="display: flex; align-self: stretch; margin-left: 4px; color: var(--tt-text-2)">
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" stroke-width="1"></path></svg></span>
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"></rect></svg></span>
+<span style="width: 48px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor" stroke-width="1"></path></svg></span>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+<nav aria-label="主导航" style="order: 2; height: 56px; flex: none; display: flex; align-items: stretch; padding: 0 8px; background: var(--tt-sidebar); color: var(--tt-sidebar-text); border-top: 1px solid var(--tt-sidebar-hover)">
+<a href="Main.dc.html" class="tt-h-nav" title="总览（Ctrl+1）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>总览</a>
+<a href="Tasks.dc.html" class="tt-h-nav" title="任务（Ctrl+2）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>任务<span aria-label="2 项上报给你" style="position: absolute; top: 5px; left: calc(50% + 5px); min-width: 18px; height: 16px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-accent); color: var(--tt-on-accent); font: 600 11px/16px var(--tt-font-sans); box-shadow: 0 0 0 2px var(--tt-sidebar)">2</span></a>
+<a href="Roles.dc.html" class="tt-h-nav" title="角色与模型（Ctrl+3）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg>角色与模型</a>
+<a href="Runtimes.dc.html" class="tt-h-nav" title="CLI 运行时（Ctrl+4）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m7 11 2-2-2-2"></path><path d="M11 13h4"></path><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect></svg>CLI 运行时</a>
+<a href="Secrets.dc.html" class="tt-h-nav" title="凭据（Ctrl+5）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>凭据</a>
+<a href="Logs.dc.html" class="tt-h-nav" aria-current="page" title="日志与用量（Ctrl+6）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; background: var(--tt-sidebar-hover); color: var(--tt-sidebar-text-active); text-decoration: none; font: var(--tt-text-caption-strong); white-space: nowrap"><span aria-hidden="true" style="position: absolute; left: 10px; right: 10px; top: 0; height: 3px; border-radius: 0 0 2px 2px; background: var(--tt-accent)"></span><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 12h-5"></path><path d="M15 8h-5"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"></path></svg>日志与用量</a>
+<a href="Plugins.dc.html" class="tt-h-nav" title="插件（Ctrl+7）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"></path></svg>插件</a>
+<a href="History.dc.html" class="tt-h-nav" title="历史与审计（Ctrl+8）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>历史与审计</a>
+<span aria-hidden="true" style="width: 1px; margin: 14px 6px; background: var(--tt-sidebar-hover)"></span>
+<a href="Settings.dc.html" class="tt-h-nav" title="设置（Ctrl+,）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>设置</a>
+<div style="flex: 1"></div>
+<div aria-live="polite" title="kit 2.12.0 · demo-repo" style="display: flex; align-items: center; gap: 14px; padding: 0 8px 0 12px; color: var(--tt-sidebar-text-muted); font: var(--tt-text-caption); white-space: nowrap">
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-sidebar-dot-info)"></span>运行中 <span class="tt-num">1</span></a>
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-accent)"></span>上报给你 <span class="tt-num">2</span></a>
+<span class="tt-hide-narrow">上次更新 20 秒前</span>
+<span class="tt-hide-narrow">kit 2.12.0</span>
+</div>
+</nav>
+
+<main class="tt-content" style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div class="tt-pad" style="flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<div style="flex: 1; min-width: 0">
+<h1 style="margin: 0; font: var(--tt-title-lg)">日志与用量</h1>
+<p style="margin: 2px 0 0; font: var(--tt-text-sm); color: var(--tt-text-2)">在全部证据里检索；按 attempt 与模型统计 token</p>
+</div>
+<button type="button" class="tt-h-secondary" title="刷新（Ctrl+R）" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button>
+</div>
+
+<div role="tablist" aria-label="日志与用量" style="display: flex; gap: 4px; border-bottom: 1px solid var(--tt-border)">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="2">
+<button type="button" role="tab" aria-selected="{{ t.sel }}" sc-camel-tab-index="{{ t.ti }}" sc-camel-on-click="{{ t.pick }}" class="tt-h-ghost" style="height: 38px; padding: 0 12px; border: 0; border-bottom: 2px solid {{ t.bar }}; border-radius: var(--tt-radius-md) var(--tt-radius-md) 0 0; background: transparent; color: {{ t.fg }}; font: var(--tt-text-md-medium); margin-bottom: -1px">{{ t.label }}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ isSearch }}" hint-placeholder-val="{{ true }}">
+<div role="tabpanel" aria-label="检索" style="display: flex; flex-direction: column; gap: 16px">
+<form sc-camel-on-submit="{{ noop }}" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; padding: 14px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<label style="flex: 1 1 320px; display: flex; flex-direction: column; gap: 4px">
+<span style="font: var(--tt-title-sm)">检索</span>
+<span style="position: relative; display: block">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="position: absolute; left: 10px; top: 8px; color: var(--tt-text-3)"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+<input type="search" value="logs[_ ]cat" spellcheck="false" aria-describedby="q-help" style="width: 100%; height: 32px; padding: 0 10px 0 32px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-mono-md)">
+</span>
+<span id="q-help" style="font: var(--tt-text-caption); color: var(--tt-text-3)">Python 正则表达式</span>
+</label>
+<label style="display: flex; flex-direction: column; gap: 4px">
+<span style="font: var(--tt-title-sm)">任务</span>
+<span style="position: relative; display: block">
+<sc-raw-select style="appearance: none; width: 200px; height: 32px; padding: 0 30px 0 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md)"><option>全部任务</option><option>logs-cat</option><option>ui-readonly-api</option></sc-raw-select>
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="position: absolute; right: 10px; top: 8px; pointer-events: none; color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg>
+</span>
+<span style="font: var(--tt-text-caption); color: transparent">.</span>
+</label>
+<label style="display: flex; flex-direction: column; gap: 4px">
+<span style="font: var(--tt-title-sm)">最多条数</span>
+<input type="number" value="50" min="1" class="tt-num" style="width: 96px; height: 32px; padding: 0 10px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md)">
+<span style="font: var(--tt-text-caption); color: transparent">.</span>
+</label>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<button type="button" class="tt-h-primary" style="height: 32px; padding: 0 16px; border: 0; border-radius: var(--tt-radius-md); background: var(--tt-primary); color: var(--tt-on-primary); font: var(--tt-text-md-medium)">检索</button>
+<span style="font: var(--tt-text-caption); color: transparent">.</span>
+</div>
+</form>
+
+<div class="tt-grid-2" style="display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start">
+<section aria-label="检索结果" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--tt-border)">
+<span style="font: var(--tt-title-sm)">结果</span>
+<span class="tt-num" style="font: var(--tt-text-caption); color: var(--tt-text-3)">6 条 · 上限 50 · 用时 0.4 秒</span>
+</div>
+<sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+<div>
+<div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px; background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border); font: var(--tt-text-sm)">
+<code style="font: 600 12px/18px var(--tt-font-mono)">{{ g.name }}</code>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ g.count }}</span>
+</div>
+<sc-for list="{{ g.items }}" as="r" hint-placeholder-count="3">
+<button type="button" class="tt-h-row" sc-camel-on-click="{{ r.pick }}" aria-current="{{ r.sel }}" style="width: 100%; display: flex; flex-direction: column; gap: 2px; padding: 8px 16px; border: 0; border-bottom: 1px solid var(--tt-border); background: {{ r.bg }}; box-shadow: {{ r.bar }}; text-align: left; color: var(--tt-text-1)">
+<span style="font: var(--tt-mono-sm); color: var(--tt-link)">{{ r.loc }}</span>
+<span style="font: var(--tt-mono-md); white-space: pre; overflow: hidden; text-overflow: ellipsis; max-width: 100%">{{ r.pre }}<mark style="background: var(--tt-highlight); color: var(--tt-text-1); border-radius: 2px; padding: 0 1px">{{ r.hit }}</mark>{{ r.post }}</span>
+</button>
+</sc-for>
+</div>
+</sc-for>
+</section>
+
+<section aria-label="文本查看器" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ view.path }}</span>
+<button type="button" class="tt-h-ghost" aria-label="在资源管理器中显示" title="在资源管理器中显示" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg></button>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ view.lines }}" as="l" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); background: {{ l.bg }}; font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre; padding-right: 12px; min-height: 20px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<div style="padding: 8px 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-2); font: var(--tt-text-caption); color: var(--tt-text-3)">{{ view.foot }}</div>
+</section>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isUsage }}" hint-placeholder-val="{{ false }}">
+<div role="tabpanel" aria-label="用量" style="display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-sm)">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+合计是下界：没有回报的记为未知，不计为 0。
+</div>
+
+<section aria-labelledby="sum-h" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 id="sum-h" style="margin: 0; font: var(--tt-title-sm)">全部工人</h2><div style="display: flex; align-items: baseline; gap: 8px"><span class="tt-num" style="font: var(--tt-display)">31,724,631</span><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">token（下界）</span></div></div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px"><span title="已回报" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap">known <span class="tt-num">85</span></span><span title="部分回报" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium); white-space: nowrap">partial <span class="tt-num">0</span></span><span title="未回报" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium); white-space: nowrap">unknown <span class="tt-num">1</span></span></div>
+<span style="flex: 1; min-width: 240px; font: var(--tt-text-caption); color: var(--tt-text-3)">统计范围：第 1–7 轮。claude-code 的四个工人按会话记录统计（设置 › 会话记录目录）；pi 的两个工人按 attempt 回报；决策端按 API 调用计。</span>
+</section>
+
+<section aria-labelledby="uw-h" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<h2 id="uw-h" style="margin: 0; font: var(--tt-title-sm)">按工人</h2><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">占比按全部工人的合计算</span>
+</div>
+<div style="overflow-x: auto; border-top: 1px solid var(--tt-border)">
+<sc-raw-table style="width: 100%; min-width: 860px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr><sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">端</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">工人</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">模型</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">回报情况</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">占比</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right; white-space: nowrap">合计</sc-raw-th></sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">规划端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">planner-opus</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-opus-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 3</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 4.0%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">4.0%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">1,284,550</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">合同端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">contract-glm</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">zhipu/glm-5.3</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 9</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 9.3%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">9.3%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">2,940,112</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">门禁端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">gate-sonnet</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-sonnet-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 6</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 9.8%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">9.8%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">3,105,876</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">审核端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">audit-sonnet</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-sonnet-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 8</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 5.9%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">5.9%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">1,876,430</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">执行端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">exec-step</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">bb/step-5-preview</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 18 · unknown 1</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 69.4%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">69.4%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">22,031,448</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">协调人</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">womovie-c8</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-haiku-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 41</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 1.5%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">1.5%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">486,215</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border)">决策端</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">jev-judge</code></sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">API</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">调用 0 次</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-3)">凭据未找到，一直跳过</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">—</sc-raw-td></sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+</section>
+
+<section aria-labelledby="ua-h" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<h2 id="ua-h" style="margin: 0; font: var(--tt-title-sm)">按 attempt · 执行端</h2>
+<span class="tt-num" style="font: var(--tt-text-caption); color: var(--tt-text-3)">最近 2 / 19 条</span>
+<button type="button" class="tt-h-ghost" style="margin-left: auto; height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-link); font: var(--tt-text-sm-medium)">显示全部</button>
+</div>
+<div style="overflow-x: auto; border-top: 1px solid var(--tt-border)">
+<sc-raw-table style="width: 100%; min-width: 900px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">任务</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">attempt</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">模型</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">状态</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">input</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">output</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">cacheRead</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">cacheWrite</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">合计</sc-raw-th>
+</sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr class="tt-h-row">
+<sc-raw-td style="height: 36px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">logs-cat</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">attempt-002</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">bb/step-5-preview</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span title="已回报" style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong)">known</span></sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">3,990,214</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">220,171</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">0</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">0</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">4,210,385</sc-raw-td>
+</sc-raw-tr>
+<sc-raw-tr class="tt-h-row">
+<sc-raw-td style="height: 36px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">ui-readonly-api</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">attempt-001</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">bb/step-5-preview</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span title="未回报" style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong)">unknown</span></sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">未知</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">未知</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">未知</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">未知</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-3)">未知</sc-raw-td>
+</sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+</section>
+
+<section aria-labelledby="um-h" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<h2 id="um-h" style="margin: 0; font: var(--tt-title-sm)">按模型</h2>
+</div>
+<div style="overflow-x: auto; border-top: 1px solid var(--tt-border)">
+<sc-raw-table style="width: 100%; min-width: 900px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">模型</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">回报情况</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; width: 32%">占比</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">input</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">output</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">合计</sc-raw-th>
+</sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">bb/step-5-preview</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 18 · partial 0 · unknown 1</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 69.4%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">69.4%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">21,002,117</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">1,029,331</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">22,031,448</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-sonnet-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 14</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 15.7%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">15.7%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">4,655,010</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">327,296</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">4,982,306</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">zhipu/glm-5.3</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 9</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 9.3%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">9.3%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">2,701,540</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">238,572</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">2,940,112</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-opus-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 3</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 4.0%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">4.0%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">1,198,300</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">86,250</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">1,284,550</sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">claude-haiku-5-5</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2); white-space: nowrap">known 41</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><div style="display: flex; align-items: center; gap: 8px"><div aria-hidden="true" style="flex: 1; min-width: 60px; height: 8px; border-radius: var(--tt-radius-full); background: var(--tt-surface-3); overflow: hidden"><div style="width: 1.5%; height: 100%; background: var(--tt-navy-500)"></div></div><span class="tt-num" style="width: 44px; text-align: right; font: var(--tt-text-caption); color: var(--tt-text-2)">1.5%</span></div></sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">452,880</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right">33,335</sc-raw-td><sc-raw-td class="tt-num" style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border); text-align: right; font-weight: 600">486,215</sc-raw-td></sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+</section>
+
+</div>
+</sc-if>
+
+</div>
+</main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;tab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;search&quot;,&quot;usage&quot;],&quot;default&quot;:&quot;search&quot;,&quot;section&quot;:&quot;页签&quot;},&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { tab: null, sel: 0 };
+
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const st = this.state || {};
+    const tab = st.tab || this.props.tab || 'search';
+    const tabs = [['search', '检索'], ['usage', '用量']].map((t) => ({
+      label: t[1], sel: t[0] === tab, ti: t[0] === tab ? 0 : -1,
+      fg: t[0] === tab ? 'var(--tt-text-1)' : 'var(--tt-text-2)',
+      bar: t[0] === tab ? 'var(--tt-primary)' : 'transparent',
+      pick: () => this.setState({ tab: t[0] })
+    }));
+    const R = [
+      { g: 0, loc: 'exec-summary.md:3', pre: '改动范围：src/themis/cli/logs.py（+13 −2），新增 src/themis/logs/cat.py 与 tests/test_', hit: 'logs_cat', post: '.py。', path: 'logs-cat/attempt-002/exec-summary.md', line: 3,
+        ctx: ['## 执行结果概述', '', '改动范围：src/themis/cli/logs.py（+13 −2），新增 src/themis/logs/cat.py 与 tests/test_logs_cat.py。', '完成度：基准测试 B01–B06 本地全部跑通。', '', '<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字'], foot: '已显示 0–3.8 KB / 共 3.8 KB' },
+      { g: 0, loc: 'bench/test_logs_cat_b.py:4', pre: '    out = run("', hit: 'logs cat', post: ' logs-cat attempt-002 summary.md --json")', path: 'logs-cat/attempt-002/bench/test_logs_cat_b.py', line: 4,
+        ctx: ['# 门禁端战前生成 · 一审通过后锁死', 'def test_b01_read_whole(run, evidence):', '    """A1：整段读取与原文件一致"""', '    out = run("logs cat logs-cat attempt-002 summary.md --json")', '    assert out["length"] == evidence.size("summary.md")'], foot: '已显示 0–1.6 KB / 共 1.6 KB' },
+      { g: 0, loc: 'events.jsonl:5', pre: '{"ts": "2026-10-17T05:56:37Z", "type": "tool_call", "tool": "bash", "cmd": "python -m pytest bench/ tests/test_', hit: 'logs_cat', post: '.py -q"}', path: 'logs-cat/attempt-002/events.jsonl', line: 5,
+        ctx: ['{"ts": "2026-10-17T05:38:42Z", "type": "tool_call", "tool": "edit", "path": "src/themis/cli/logs.py"}', '{"ts": "2026-10-17T05:44:10Z", "type": "tool_call", "tool": "write", "path": "src/themis/logs/cat.py"}', '{"ts": "2026-10-17T05:56:37Z", "type": "tool_call", "tool": "bash", "cmd": "python -m pytest bench/ tests/test_logs_cat.py -q"}', '{"ts": "2026-10-17T05:58:10Z", "type": "session_end", "exit_code": 0}'], start: 3, foot: '已显示 0–256 KB / 共 2.7 MB' },
+      { g: 0, loc: 'candidate.patch:62', pre: '+        return ', hit: 'logs_cat', post: '(args.task, args.attempt, args.path,', path: 'logs-cat/attempt-002/candidate.patch', line: 62,
+        ctx: ['@@ -112,5 +120,8 @@ def run(args):', '     if args.logs_cmd == "show":', '         return logs_show(args.task, args.attempt, as_json=args.json)', '-    print("unknown logs command", file=sys.stderr)', '-    return 2', '+    if args.logs_cmd == "cat":', '+        return logs_cat(args.task, args.attempt, args.path,'], start: 56, foot: '已显示 0–17.9 KB / 共 17.9 KB' },
+      { g: 0, loc: 'candidate.patch:21', pre: '+def ', hit: 'logs_cat', post: '(task, attempt, path, offset=0, limit=262144, as_json=False):', path: 'logs-cat/attempt-002/candidate.patch', line: 21,
+        ctx: ['+from themis.logs.paths import evidence_path', '+', '+', '+def logs_cat(task, attempt, path, offset=0, limit=262144, as_json=False):', '+    """按段读取一个证据文件，只返回文本。"""'], start: 18, foot: '已显示 0–17.9 KB / 共 17.9 KB' },
+      { g: 1, loc: 'summary.md:9', pre: '- 这次没有改动 ', hit: 'logs cat', post: ' 的代码', path: 'logs-cat/attempt-001/summary.md', line: 9,
+        ctx: ['# logs-cat.v2 / attempt-001', '', '- 状态：INFRA_FAILURE（基础设施故障）', '- 执行端会话启动 3 分 10 秒后 worktree 磁盘写满，被内核终止', '', '## 说明', '', '- 内核重新准备了 attempt-002，合同 v2 不变', '- 这次没有改动 logs cat 的代码'], foot: '已显示 0–520 B / 共 520 B' }
+    ];
+    const sel = st.sel || 0;
+    const mk = (r, i) => ({
+      loc: r.loc, pre: r.pre, hit: r.hit, post: r.post, sel: i === sel,
+      bg: i === sel ? 'var(--tt-surface-selected)' : 'transparent',
+      bar: i === sel ? 'inset 2px 0 0 var(--tt-primary)' : 'none',
+      pick: () => this.setState({ sel: i })
+    });
+    const items = R.map(mk);
+    const groups = [
+      { name: 'logs-cat · attempt-002', count: '5 处', items: items.slice(0, 5) },
+      { name: 'logs-cat · attempt-001', count: '1 处', items: items.slice(5) }
+    ];
+    const cur = R[sel] || R[0];
+    const start = cur.start || 1;
+    const view = {
+      path: cur.path + ' · 第 ' + cur.line + ' 行',
+      foot: cur.foot + ' · 按文本显示',
+      lines: cur.ctx.map((s, k) => ({ n: start + k, s: s, bg: start + k === cur.line ? 'var(--tt-highlight)' : 'transparent' }))
+    };
+    return {
+      themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light',
+      themeLabel: theme === 'light' ? '亮' : '暗', themeIconMoon: theme !== 'light', themeIconSun: theme === 'light', themeIconSystem: false,
+      tabs: tabs, isSearch: tab === 'search', isUsage: tab === 'usage',
+      groups: groups, view: view,
+      noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+
+
+</body></html>

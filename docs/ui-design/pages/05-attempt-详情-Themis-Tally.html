@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>attempt 详情 · Themis Tally</title>
+<script src="02417280-d809-4083-9554-d4fcc021ad7d"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("fd041182-48ab-4c4b-ac2c-6152afee54d1") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("47870502-e4ce-4ed2-9a95-c02f25c88a53") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:var(--tt-link)}a:hover{color:var(--tt-text-1)}
+</style>
+</helmet>
+<div class="tt-app {{themeClass}}" style="min-height: 100vh; display: flex; flex-direction: column; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<header style="height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 14px; background: var(--tt-titlebar); border-bottom: 1px solid var(--tt-border)">
+<svg width="18" height="20" sc-camel-view-box="0 0 937 1079" role="img" aria-label="Themis Tally 标识"><path fill-rule="evenodd" style="fill: var(--tt-logo-mark)" d="M75 689 81 699 131 751 282 751 337 692 337 689ZM598 689 654 751 803 751 860 692 860 688ZM697 620 698 675 761 674 760 619ZM175 620 175 676 238 675 238 620ZM716 545 716 608 740 608 743 591 742 545ZM193 545 193 608 219 608 220 546ZM935 476 874 522 874 741 700 854 511 962 511 1055 625 997 756 917 834 860 936 770ZM0 476 0 770 83 845 181 918 291 986 382 1035 424 1054 423 962 244 860 61 741 61 522ZM716 408 716 470 742 470 742 408ZM195 408 193 471 219 471 219 408ZM698 339 697 395 761 395 761 339ZM175 340 175 396 238 396 237 339ZM445 1 209 110 0 136 0 367 190 281 193 282 193 327 220 327 221 271 331 271 350 291 350 842 397 888 399 195 322 197 253 207 187 224 87 262 86 175 445 103ZM490 0 492 103 610 124 850 174 849 262 755 226 688 208 614 197 536 195 538 889 586 841 586 290 605 271 715 271 716 327 743 326 745 281 936 368 935 135 729 110Z"></path><path style="fill: var(--tt-logo-tally)" d="M698 482 698 534 760 534 760 482ZM175 483 175 535 237 535 237 482ZM443 128 443 374 441 376 423 376 423 438 441 438 443 440 443 539 441 541 423 541 423 603 443 605 443 708 441 710 423 710 423 773 443 774 443 1063 469 1078 493 1063 493 774 513 773 513 710 493 709 493 605 513 603 513 541 493 540 493 439 513 438 513 376 493 375 493 129Z"></path></svg>
+<span style="font: var(--tt-title-sm); color: var(--tt-text-1)">Themis Tally</span>
+<span aria-hidden="true" style="width: 1px; height: 18px; background: var(--tt-border); margin: 0 2px"></span>
+<button type="button" class="tt-h-ghost" aria-haspopup="menu" title="切换仓库" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>demo-repo<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="color: var(--tt-text-3)"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex: 1"></div>
+<button type="button" class="tt-h-ghost" title="本机服务 pid 18244 · 启动于 2026-10-18 09:41:07" style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--tt-border); border-radius: var(--tt-radius-full); background: var(--tt-surface-1); color: var(--tt-text-2); font: var(--tt-text-caption)"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-tone-success-fg)"></span>已连接</button>
+<button type="button" class="tt-h-ghost" aria-label="主题：{{ themeLabel }}" title="主题：{{ themeLabel }}" aria-haspopup="menu" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><sc-if value="{{ themeIconMoon }}" hint-placeholder-val="{{ true }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></sc-if><sc-if value="{{ themeIconSun }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></sc-if><sc-if value="{{ themeIconSystem }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></sc-if></button>
+<div aria-hidden="true" style="display: flex; align-self: stretch; margin-left: 4px; color: var(--tt-text-2)">
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" stroke-width="1"></path></svg></span>
+<span style="width: 46px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"></rect></svg></span>
+<span style="width: 48px; display: grid; place-items: center"><svg width="10" height="10" sc-camel-view-box="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor" stroke-width="1"></path></svg></span>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+<nav aria-label="主导航" style="order: 2; height: 56px; flex: none; display: flex; align-items: stretch; padding: 0 8px; background: var(--tt-sidebar); color: var(--tt-sidebar-text); border-top: 1px solid var(--tt-sidebar-hover)">
+<a href="Main.dc.html" class="tt-h-nav" title="总览（Ctrl+1）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>总览</a>
+<a href="Tasks.dc.html" class="tt-h-nav" aria-current="page" title="任务（Ctrl+2）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; background: var(--tt-sidebar-hover); color: var(--tt-sidebar-text-active); text-decoration: none; font: var(--tt-text-caption-strong); white-space: nowrap"><span aria-hidden="true" style="position: absolute; left: 10px; right: 10px; top: 0; height: 3px; border-radius: 0 0 2px 2px; background: var(--tt-accent)"></span><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>任务<span aria-label="2 项上报给你" style="position: absolute; top: 5px; left: calc(50% + 5px); min-width: 18px; height: 16px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-accent); color: var(--tt-on-accent); font: 600 11px/16px var(--tt-font-sans); box-shadow: 0 0 0 2px var(--tt-sidebar)">2</span></a>
+<a href="Roles.dc.html" class="tt-h-nav" title="角色与模型（Ctrl+3）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg>角色与模型</a>
+<a href="Runtimes.dc.html" class="tt-h-nav" title="CLI 运行时（Ctrl+4）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m7 11 2-2-2-2"></path><path d="M11 13h4"></path><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect></svg>CLI 运行时</a>
+<a href="Secrets.dc.html" class="tt-h-nav" title="凭据（Ctrl+5）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>凭据</a>
+<a href="Logs.dc.html" class="tt-h-nav" title="日志与用量（Ctrl+6）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 12h-5"></path><path d="M15 8h-5"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"></path></svg>日志与用量</a>
+<a href="Plugins.dc.html" class="tt-h-nav" title="插件（Ctrl+7）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"></path></svg>插件</a>
+<a href="History.dc.html" class="tt-h-nav" title="历史与审计（Ctrl+8）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>历史与审计</a>
+<span aria-hidden="true" style="width: 1px; margin: 14px 6px; background: var(--tt-sidebar-hover)"></span>
+<a href="Settings.dc.html" class="tt-h-nav" title="设置（Ctrl+,）" style="position: relative; min-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 10px; color: var(--tt-sidebar-text); text-decoration: none; font: var(--tt-text-caption); white-space: nowrap"><svg class="tt-i" width="18" height="18" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>设置</a>
+<div style="flex: 1"></div>
+<div aria-live="polite" title="kit 2.12.0 · demo-repo" style="display: flex; align-items: center; gap: 14px; padding: 0 8px 0 12px; color: var(--tt-sidebar-text-muted); font: var(--tt-text-caption); white-space: nowrap">
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-sidebar-dot-info)"></span>运行中 <span class="tt-num">1</span></a>
+<a href="Tasks.dc.html" class="tt-h-underline" style="display: inline-flex; align-items: center; gap: 6px; color: var(--tt-sidebar-text); text-decoration: none"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: var(--tt-accent)"></span>上报给你 <span class="tt-num">2</span></a>
+<span class="tt-hide-narrow">上次更新 3 秒前</span>
+<span class="tt-hide-narrow">kit 2.12.0</span>
+</div>
+</nav>
+
+<main class="tt-content" style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div class="tt-pad" style="flex: 1; padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 14px">
+
+<nav aria-label="面包屑" style="display: flex; align-items: center; gap: 6px; font: var(--tt-text-sm); color: var(--tt-text-3)">
+<a href="Tasks.dc.html" class="tt-h-underline" style="color: var(--tt-link); text-decoration: none">任务</a>
+<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+<a href="Tasks.dc.html" class="tt-h-underline" style="color: var(--tt-link); text-decoration: none">logs-cat</a>
+<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+<span aria-current="page" style="color: var(--tt-text-2)">attempt-002</span>
+</nav>
+
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px">
+<h1 style="margin: 0; font: var(--tt-title-lg)">logs-cat · attempt-002</h1>
+<span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>终审通过</span>
+</div>
+<dl style="margin: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font: var(--tt-text-sm); color: var(--tt-text-2)">
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">迭代</dt><dd class="tt-num" style="margin: 0">第 6 轮第 3 步</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">合同</dt><dd class="tt-num" style="margin: 0">v2</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">结项时间</dt><dd class="tt-num" style="margin: 0">2026-10-17 14:21</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">用时</dt><dd class="tt-num" style="margin: 0">28 分 39 秒</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">token</dt><dd class="tt-num" style="margin: 0">4,210,385</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">费用</dt><dd style="margin: 0">未知（只报 token）</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">门禁</dt><dd class="tt-num" style="margin: 0">第 2 次全绿</dd></div>
+<div style="display: flex; gap: 4px"><dt style="color: var(--tt-text-3)">越界</dt><dd class="tt-num" style="margin: 0">0</dd></div>
+<div style="display: flex; gap: 4px" title="内核每回合审计会话记录；越权调用会让那一回合的交付作废"><dt style="color: var(--tt-text-3)">越权调用</dt><dd class="tt-num" style="margin: 0">0</dd></div>
+<div style="display: flex; gap: 4px" title="只提交到本地分支，不推送、不开 PR"><dt style="color: var(--tt-text-3)">提交</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">themis/logs-cat-v2@1a2b3c4d</dd></div>
+</dl>
+</div>
+<button type="button" class="tt-h-secondary" title="刷新（Ctrl+R）" style="height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-md-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>刷新</button>
+</div>
+
+<section aria-label="流水线进度" style="padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<ol style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0 4px"><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">规划</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">第 6 轮第 3 步</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">合同</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">v2 生效</span><span style="font: var(--tt-text-caption); color: var(--tt-tone-warning-fg)">一审打回 1 次</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">门禁 · 战前</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">基准测试 6 条，已锁死</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">审核 · 一审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">通过 · JEV 未调用</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">执行</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">28 分 39 秒</span><span style="font: var(--tt-text-caption); color: var(--tt-tone-warning-fg)">门禁打回 1 次</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span><span aria-hidden="true" style="flex: 1; height: 2px; margin: 0 6px; border-radius: 1px; background: var(--tt-tone-success-fg)"></span></div><span style="font: var(--tt-text-sm-medium)">门禁 · 战后</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">第 2 次全绿 · 突变杀死 17/18</span></li><li style="min-width: 0; display: flex; flex-direction: column; gap: 6px"><div style="display: flex; align-items: center"><span style="width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; border-radius: var(--tt-radius-full); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" role="img" aria-label="已完成"><path d="M20 6 9 17l-5-5"></path></svg></span></div><span style="font: var(--tt-text-sm-medium)">审核 · 终审</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">通过 · JEV 未调用</span></li></ol>
+</section>
+
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 10px 10px 14px; border-radius: var(--tt-radius-lg); background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); font: var(--tt-text-sm)">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+<strong style="font: var(--tt-title-sm)">下一步</strong>
+<span>终审已通过，结项报告已反馈规划端，由它评估第 6 轮进度。这里不需要你操作。</span>
+</div>
+
+<div role="tablist" aria-label="证据" sc-camel-on-key-down="{{ onTabKey }}" style="display: flex; gap: 4px; border-bottom: 1px solid var(--tt-border); overflow-x: auto">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="10">
+<button type="button" role="tab" aria-selected="{{ t.sel }}" sc-camel-tab-index="{{ t.ti }}" sc-camel-on-click="{{ t.pick }}" class="tt-h-ghost" style="height: 38px; padding: 0 12px; border: 0; border-bottom: 2px solid {{ t.bar }}; border-radius: var(--tt-radius-md) var(--tt-radius-md) 0 0; background: transparent; color: {{ t.fg }}; font: var(--tt-text-md-medium); white-space: nowrap; margin-bottom: -1px">{{ t.label }}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{ isSummary }}" hint-placeholder-val="{{ true }}">
+<section role="tabpanel" aria-label="摘要" style="padding: 20px 24px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); max-width: 880px">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font: var(--tt-text-caption); color: var(--tt-text-3)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg><span style="font: var(--tt-mono-sm)">summary.md</span> · 512 B · 安全 Markdown：原始 HTML 当文字显示</div>
+<h2 style="margin: 0 0 10px; font: var(--tt-title-lg)">logs-cat.v2 / attempt-002</h2>
+<ul style="margin: 0 0 18px; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font: var(--tt-text-md)">
+<li>基线：<code style="font: var(--tt-mono-sm); padding: 1px 5px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-2); border: 1px solid var(--tt-border)">9461d31</code></li>
+<li>模型：<code style="font: var(--tt-mono-sm); padding: 1px 5px; border-radius: var(--tt-radius-sm); background: var(--tt-surface-2); border: 1px solid var(--tt-border)">bb/step-5-preview</code> · thinking high</li>
+<li>用时：28 分 39 秒；token 4,210,385；费用未知</li>
+<li>门禁：第 2 次全绿（基准 6/6 · 追加白盒 3/3 · 编译 · Linter）</li>
+<li>越界：0</li>
+</ul>
+<h3 style="margin: 0 0 8px; font: var(--tt-title-md)">终审结论</h3>
+<ul style="margin: 0; padding-left: 22px; font: var(--tt-text-md)">
+<li>通过；执行概述与代码一致，没有越出合同范围。</li>
+</ul>
+</section>
+</sc-if>
+
+<sc-if value="{{ isPatch }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="补丁" style="display: flex; flex-direction: column; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="display: inline-flex; align-items: center; gap: 6px; font: var(--tt-text-sm); color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M9 10h6"></path><path d="M12 13V7"></path><path d="M9 17h6"></path></svg><span style="font: var(--tt-mono-sm)">candidate.patch</span> · 4 个文件 · <span class="tt-num" style="color: var(--tt-tone-success-fg)">+160</span> <span class="tt-num" style="color: var(--tt-tone-danger-fg)">−2</span></span>
+<div style="flex: 1"></div>
+<div role="radiogroup" aria-label="差异显示方式" style="display: inline-flex; padding: 2px; border-radius: var(--tt-radius-md); background: var(--tt-surface-2); border: 1px solid var(--tt-border)">
+<button type="button" role="radio" aria-checked="{{ isUnified }}" sc-camel-on-click="{{ setUnified }}" style="height: 26px; display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-sm); background: {{ uniBg }}; box-shadow: {{ uniShadow }}; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 12h18"></path></svg>统一</button>
+<button type="button" role="radio" aria-checked="{{ isSplit }}" sc-camel-on-click="{{ setSplit }}" style="height: 26px; display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-sm); background: {{ splitBg }}; box-shadow: {{ splitShadow }}; color: var(--tt-text-1); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M12 3v18"></path></svg>分屏</button>
+</div>
+<label style="display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm); color: var(--tt-text-2); cursor: pointer">
+<button type="button" role="switch" aria-checked="{{ wrap }}" aria-label="自动换行" sc-camel-on-click="{{ toggleWrap }}" style="position: relative; width: 32px; height: 18px; padding: 0; border-radius: var(--tt-radius-full); border: 1px solid {{ wrapBd }}; background: {{ wrapBg }}"><span style="position: absolute; top: 2px; left: {{ wrapKnob }}; width: 12px; height: 12px; border-radius: 50%; background: {{ wrapKnobBg }}; transition: left var(--tt-duration-base) var(--tt-ease-standard)"></span></button>自动换行</label>
+</div>
+<div class="tt-stack-narrow" style="display: flex; min-height: 0">
+<ul aria-label="文件" style="list-style: none; margin: 0; padding: 6px; width: 260px; flex: none; border-right: 1px solid var(--tt-border); display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{ files }}" as="f" hint-placeholder-count="4">
+<li><button type="button" class="tt-h-row" sc-camel-on-click="{{ f.pick }}" aria-current="{{ f.sel }}" style="width: 100%; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 0; border-radius: var(--tt-radius-md); background: {{ f.bg }}; text-align: left; color: var(--tt-text-1)"><span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left" title="{{ f.p }}">{{ f.p }}</span><sc-if value="{{ f.text }}" hint-placeholder-val="{{ true }}"><span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-success-fg)">{{ f.add }}</span><span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-danger-fg)">{{ f.del }}</span></sc-if><sc-if value="{{ f.bin }}" hint-placeholder-val="{{ false }}"><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">二进制</span></sc-if></button></li>
+</sc-for>
+</ul>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px">
+
+<div style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border)">
+<button type="button" class="tt-h-ghost" aria-label="折叠 src/themis/cli/logs.py" aria-expanded="true" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">src/themis/cli/logs.py</span>
+<span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-success-fg)">+13</span><span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-danger-fg)">−2</span>
+</div>
+<div style="overflow-x: auto">
+<sc-if value="{{ isUnified }}" hint-placeholder-val="{{ true }}">
+<div style="min-width: 560px">
+<sc-for list="{{ uni }}" as="l" hint-placeholder-count="20">
+<div style="display: grid; grid-template-columns: 44px 44px 18px minmax(0, 1fr); background: {{ l.bg }}; font: var(--tt-mono-md); color: {{ l.fg }}">
+<span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.o }}</span>
+<span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3); user-select: none; border-right: 1px solid var(--tt-border)">{{ l.n }}</span>
+<span style="text-align: center; color: {{ l.signColor }}; font-weight: 600">{{ l.sign }}</span>
+<span style="white-space: {{ ws }}; word-break: break-all; padding-right: 12px">{{ l.s }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ isSplit }}" hint-placeholder-val="{{ false }}">
+<div style="min-width: 760px">
+<sc-for list="{{ split }}" as="r" hint-placeholder-count="20">
+<sc-if value="{{ r.hunk }}" hint-placeholder-val="{{ false }}"><div style="padding-left: 12px; background: var(--tt-surface-2); color: var(--tt-text-3); font: var(--tt-mono-md); white-space: pre">{{ r.s }}</div></sc-if>
+<sc-if value="{{ r.line }}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: 44px 18px minmax(0, 1fr) 44px 18px minmax(0, 1fr); font: var(--tt-mono-md)">
+<span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3); background: {{ r.lbg }}">{{ r.lo }}</span>
+<span style="text-align: center; color: var(--tt-tone-danger-fg); font-weight: 600; background: {{ r.lbg }}">{{ r.lsign }}</span>
+<span style="white-space: {{ ws }}; word-break: break-all; padding-right: 8px; background: {{ r.lbg }}; border-right: 1px solid var(--tt-border)">{{ r.ls }}</span>
+<span class="tt-num" aria-hidden="true" style="padding-right: 8px; text-align: right; color: var(--tt-text-3); background: {{ r.rbg }}">{{ r.ro }}</span>
+<span style="text-align: center; color: var(--tt-tone-success-fg); font-weight: 600; background: {{ r.rbg }}">{{ r.rsign }}</span>
+<span style="white-space: {{ ws }}; word-break: break-all; padding-right: 8px; background: {{ r.rbg }}">{{ r.rs }}</span>
+</div>
+</sc-if>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; background: var(--tt-surface-2); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md)">
+<button type="button" class="tt-h-ghost" aria-label="展开 src/themis/logs/cat.py" aria-expanded="false" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">src/themis/logs/cat.py</span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">新文件 · 已折叠</span>
+<span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-success-fg)">+86</span><span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-danger-fg)">−0</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; background: var(--tt-surface-2); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md)">
+<button type="button" class="tt-h-ghost" aria-label="展开 tests/test_logs_cat.py" aria-expanded="false" style="width: 24px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-sm); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">tests/test_logs_cat.py</span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">新文件 · 已折叠</span>
+<span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-success-fg)">+61</span><span class="tt-num" style="font: var(--tt-mono-sm); color: var(--tt-tone-danger-fg)">−0</span>
+</div>
+<div style="border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 40px; background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">docs/img/logs-cat.png</span>
+</div>
+<div style="padding: 12px 16px; font: var(--tt-text-sm); color: var(--tt-text-3)">二进制文件，不显示内容</div>
+</div>
+
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isContract }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="合同" class="tt-grid-2" style="display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="flex: none; margin-top: 2px"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span>合同 v2 · 一审通过后与基准测试一起锁死，执行端只读。</span></div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm)">.agent/plans/logs-cat.v2.md <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· contract-glm · 纯文本显示</span></span>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ contract }}" as="l" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M12 7v2"></path><path d="M12 13h.01"></path></svg><span>以下是合同端的自述，不是合同正文：取自它交付信的四个标准字段，先过筛查与 JEV，再由审核端一审核对它与正文是否一致。</span></div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm)">合同概述 <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· 交付信 m-0405 的四个标准字段</span></span>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ csum }}" as="l" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: center; gap: 8px"><span style="font: var(--tt-title-sm)">合同级 JEV 判断</span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>未调用</span></div>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">凭据 <code style="font: var(--tt-mono-sm)">TYPESAFE_API_KEY</code> 未找到，调度端把合同、基准测试与概述直接移交审核端。JEV 的判断是模型意见，不是证据。</span>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isBench }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="基准测试" style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-sm-medium)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="flex: none; margin-top: 2px"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span>门禁端战前按合同生成的黑盒基准测试；一审通过后锁死，执行端只读，门禁端战后也不能修改，只能追加。</span></div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow-x: auto">
+<sc-raw-table style="width: 100%; min-width: 640px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr><sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">ID</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">用例（黑盒）</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">对应合同条款</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">第 2 次门禁</sc-raw-th></sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B01</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">读取 summary.md 整个文件，内容与原文件一致</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">A1</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B02</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">--offset 256 --limit 128 只返回这 128 字节</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">A2</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B03</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">--json 时返回 path、offset、length、total_bytes、next_offset</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">接口契约</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B04</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">读到最后一段时 next_offset 为 null</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">A3</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span><span style="margin-left: 8px; font: var(--tt-text-caption); color: var(--tt-tone-warning-fg)">第 1 次失败</span></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B05</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">路径越出 .agent/ 时退出码 2，不读文件</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">A4</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="tt-h-row"><sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">B06</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)">不存在的 attempt 退出码 1</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">接口契约</sc-raw-td><sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td></sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+<p style="margin: 0; padding: 10px 16px; border-top: 1px solid var(--tt-border); font: var(--tt-text-caption); color: var(--tt-text-3)">bench/ · 6 个用例 · gate-sonnet 战前基线提交 gate/logs-cat@7c1e09ab · 一审通过时锁死，列入禁改路径</p>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isChecks }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="门禁报告" style="display: flex; flex-direction: column; gap: 12px">
+<div class="tt-grid-2" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><span style="font: var(--tt-title-sm)">第 1 次 · 14:02</span><span title="FAIL" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>失败</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">B04 失败。带报错日志直接打回执行端，不调 JEV，不进审核端。</span></div>
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)"><div style="display: flex; align-items: center; gap: 8px"><span style="font: var(--tt-title-sm)">第 2 次 · 14:16</span><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>全绿</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2)">基准 <span class="tt-num">6/6</span> · 追加白盒 <span class="tt-num">3/3</span> · 编译通过 · Linter <span class="tt-num">0</span> 条 · 行覆盖 <span class="tt-num">87%</span> · 突变 <span class="tt-num">18</span> 个杀死 <span class="tt-num">17</span>（存活的 M07 判为等价突变）</span></div>
+</div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow-x: auto">
+<sc-raw-table style="width: 100%; min-width: 640px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr><sc-raw-th scope="col" style="height: 32px; padding: 0 12px 0 16px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">类别</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">ID</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">说明</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">结果</sc-raw-th><sc-raw-th scope="col" style="height: 32px; padding: 0 16px 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left; white-space: nowrap">日志</sc-raw-th></sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-for list="{{ checks }}" as="c" hint-placeholder-count="12">
+<sc-raw-tr class="tt-h-row" style="background: {{ c.bg }}">
+<sc-raw-td style="height: 40px; padding: 0 12px 0 16px; border-top: 1px solid var(--tt-border); box-shadow: {{ c.bar }}"><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); font: var(--tt-text-caption-strong); white-space: nowrap">{{ c.kind }}</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">{{ c.id }}</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border); color: var(--tt-text-2)">{{ c.desc }}</sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 12px; border-top: 1px solid var(--tt-border)"><span title="PASS" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-sm-medium); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></sc-raw-td>
+<sc-raw-td style="height: 40px; padding: 0 16px 0 12px; border-top: 1px solid var(--tt-border)"><button type="button" class="tt-h-ghost" sc-camel-on-click="{{ c.pick }}" style="height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-link); font: var(--tt-mono-sm); white-space: nowrap">gate/02/{{ c.id }}.log</button></sc-raw-td>
+</sc-raw-tr>
+</sc-for>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; font: var(--tt-mono-sm)">gate/02/{{ checkId }}.log <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· 纯文本显示</span></span>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto; background: var(--tt-surface-1)">
+<sc-for list="{{ checkLog }}" as="l" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="审核" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: flex; align-items: baseline; gap: 8px; padding: 12px 16px">
+<h2 style="margin: 0; font: var(--tt-title-sm)">打回与审核记录</h2>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">按时间先后 · 取自 .agent/reviews/ · 意见原文按纯文本显示，是模型意见</span>
+</div>
+<ol style="margin: 0; padding: 0; list-style: none">
+<li style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-top: 1px solid var(--tt-border)"><span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>打回</span></span><div style="min-width: 0; display: flex; flex-direction: column; gap: 4px"><div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px"><span style="font: var(--tt-title-sm)">一审 · 打回合同端</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">审核端 sonnet-review · 13:12</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: pre-wrap">概述说「不改 logs show」，正文第 4 条却改了 show 的输出格式；概述与正文不符。</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">合同级 JEV：未调用</span></div></li>
+<li style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-top: 1px solid var(--tt-border)"><span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></span><div style="min-width: 0; display: flex; flex-direction: column; gap: 4px"><div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px"><span style="font: var(--tt-title-sm)">一审 · 合同 v2 与基准测试通过</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">审核端 sonnet-review · 13:31</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: pre-wrap">合同 v2 删掉了对 show 的改动；基准测试 B01–B06 覆盖全部验收条款。合同与基准测试锁死。</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">合同级 JEV：未调用</span></div></li>
+<li style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-top: 1px solid var(--tt-border)"><span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>打回</span></span><div style="min-width: 0; display: flex; flex-direction: column; gap: 4px"><div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px"><span style="font: var(--tt-title-sm)">门禁 · 战后第 1 次 · 打回执行端</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">门禁端 sonnet-review · 14:02</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: pre-wrap">B04 失败：最后一段的 next_offset 返回了 512。带报错日志直接打回，不调 JEV，不进审核端。</span></div></li>
+<li style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-top: 1px solid var(--tt-border)"><span><span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); font: var(--tt-text-caption-strong); white-space: nowrap"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>通过</span></span><div style="min-width: 0; display: flex; flex-direction: column; gap: 4px"><div style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px"><span style="font: var(--tt-title-sm)">终审 · 结项</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">审核端 sonnet-review · 14:21</span></div><span style="font: var(--tt-text-sm); color: var(--tt-text-2); white-space: pre-wrap">代码没有越出合同范围；执行概述里的妥协与风险，已由门禁端追加的白盒测试 W01、W03 验证；门禁第 2 次全绿。</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">执行级 JEV：未调用</span></div></li>
+</ol>
+<p style="margin: 0; padding: 10px 16px 14px; border-top: 1px solid var(--tt-border); font: var(--tt-text-caption); color: var(--tt-text-3)">同一处连续打回超过 3 次才上报规划端重拆；这一步合同被一审打回 1 次、执行被门禁打回 1 次，没有触发。</p>
+</section>
+</sc-if>
+
+<sc-if value="{{ isReport }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="执行结果概述" style="display: flex; flex-direction: column; gap: 12px">
+<div style="position: sticky; top: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--tt-radius-md); background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); font: var(--tt-text-sm-medium)">
+<svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M12 7v2"></path><path d="M12 13h.01"></path></svg>
+以下是执行端的自述，不是证据。审核端终审时对照代码与门禁报告核对。
+</div>
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm)">exec-summary.md <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· 纯文本显示</span></span>
+<button type="button" class="tt-h-ghost" aria-label="显示行号" aria-pressed="{{ ln }}" title="行号" sc-camel-on-click="{{ toggleLn }}" style="height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: {{ lnBg }}; color: var(--tt-text-2); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M10 6h11"></path><path d="M10 12h11"></path><path d="M10 18h11"></path><path d="M4 6h1v4"></path><path d="M4 10h2"></path><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path></svg>行号</button>
+<button type="button" class="tt-h-ghost" aria-label="自动换行" aria-pressed="{{ wrap }}" title="自动换行" sc-camel-on-click="{{ toggleWrap }}" style="height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--tt-radius-md); background: {{ wrapBtnBg }}; color: var(--tt-text-2); font: var(--tt-text-sm)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><line x1="3" x2="21" y1="6" y2="6"></line><path d="M3 12h15a3 3 0 1 1 0 6h-4"></path><polyline points="16 16 14 18 16 20"></polyline><line x1="3" x2="10" y1="18" y2="18"></line></svg>换行</button>
+<button type="button" class="tt-h-ghost" aria-label="查找（Ctrl+F）" title="查找（Ctrl+F）" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></button>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ report }}" as="l" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: {{ lnCols }}; font: var(--tt-mono-md)"><sc-if value="{{ ln }}" hint-placeholder-val="{{ true }}"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span></sc-if><span style="white-space: {{ ws }}; padding: 0 12px 0 {{ lnPad }}; min-height: 20px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-2); font: var(--tt-text-caption); color: var(--tt-text-3)">
+<span class="tt-num">已显示 0–214 B / 共 3.8 KB</span>
+<button type="button" class="tt-h-secondary" style="margin-left: auto; height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">加载后面 256 KB</button>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isMail }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="信件" class="tt-stack-narrow" style="display: flex; align-items: flex-start; gap: 16px">
+<div style="width: 360px; flex: none; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: baseline; gap: 8px; padding: 12px 16px"><h2 style="margin: 0; font: var(--tt-title-sm)">信件</h2><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">工人 → womovie-c8 · <span class="tt-num">10</span> 封</span></div>
+<ul aria-label="信件" style="margin: 0; padding: 0; list-style: none">
+<sc-for list="{{ mails }}" as="m" hint-placeholder-count="10">
+<li><button type="button" class="tt-h-row" sc-camel-on-click="{{ m.pick }}" aria-current="{{ m.sel }}" style="width: 100%; display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 12px 8px 14px; border: 0; border-top: 1px solid var(--tt-border); background: {{ m.bg }}; box-shadow: {{ m.bar }}; color: var(--tt-text-1); text-align: left; font: var(--tt-text-sm)"><span style="display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 6px; border-radius: var(--tt-radius-sm); background: {{ m.tbg }}; color: {{ m.tfg }}; font: var(--tt-text-caption-strong); white-space: nowrap">{{ m.type }}</span><span style="min-width: 0; display: flex; flex-direction: column"><span style="font: var(--tt-mono-sm)">{{ m.from }}</span><span style="font: var(--tt-text-caption); color: var(--tt-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ m.sum }}</span></span><span class="tt-num" style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ m.time }}</span></button></li>
+</sc-for>
+</ul>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<div style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="flex: 1; min-width: 0; font: var(--tt-mono-sm)">{{ mailId }} <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· 原文 · 纯文本显示</span></span>
+<button type="button" class="tt-h-ghost" aria-label="复制全部文字" title="复制" style="width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ mailLines }}" as="l" hint-placeholder-count="13">
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre-wrap; word-break: break-all; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+</div>
+<p style="margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3)">信件由内核 mail-send 校验格式与状态机前置条件；正文是工人的自述，不是证据，证据见各信的「证据」字段。</p>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isEvents }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="事件" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow: hidden">
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; border-bottom: 1px solid var(--tt-border)">
+<span style="font: var(--tt-mono-sm)">events.jsonl <span style="font: var(--tt-text-caption); color: var(--tt-text-3)">· 2.7 MB</span></span>
+<label style="position: relative; flex: 1; min-width: 200px; max-width: 360px">
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">过滤事件</span>
+<svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="position: absolute; left: 10px; top: 9px; color: var(--tt-text-3)"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+<input type="text" placeholder="按文字包含过滤…" value="{{ ef }}" sc-camel-on-change="{{ onEf }}" style="width: 100%; height: 32px; padding: 0 10px 0 30px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm)">
+</label>
+<span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font: var(--tt-text-sm); color: var(--tt-text-disabled)" title="attempt 已结束，没有新事件">
+<button type="button" role="switch" aria-checked="false" aria-label="跟随" disabled="" style="position: relative; width: 32px; height: 18px; padding: 0; border-radius: var(--tt-radius-full); border: 1px solid var(--tt-border); background: var(--tt-surface-2)"><span style="position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--tt-text-disabled)"></span></button>跟随</span>
+</div>
+<div style="padding: 8px 0; overflow-x: auto">
+<sc-for list="{{ events }}" as="l" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 56px minmax(0, 1fr); font: var(--tt-mono-md)"><span class="tt-num" aria-hidden="true" style="padding-right: 12px; text-align: right; color: var(--tt-text-3); user-select: none">{{ l.n }}</span><span style="white-space: pre; padding-right: 12px">{{ l.s }}</span></div>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--tt-border); background: var(--tt-surface-2); font: var(--tt-text-caption); color: var(--tt-text-3)">
+<span class="tt-num">已显示 0–256 KB / 共 2.7 MB · attempt 已结束，跟随不可用</span>
+<button type="button" class="tt-h-secondary" style="margin-left: auto; height: 28px; padding: 0 12px; border: 1px solid var(--tt-border-strong); border-radius: var(--tt-radius-md); background: var(--tt-surface-1); color: var(--tt-text-1); font: var(--tt-text-sm-medium)">加载后面 256 KB</button>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ isFiles }}" hint-placeholder-val="{{ false }}">
+<section role="tabpanel" aria-label="全部文件" style="background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg); overflow-x: auto">
+<sc-raw-table style="width: 100%; min-width: 560px; font: var(--tt-text-sm)">
+<sc-raw-thead><sc-raw-tr>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: left">路径</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">大小</sc-raw-th>
+<sc-raw-th scope="col" style="height: 32px; padding: 0 12px; background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); text-align: right">操作</sc-raw-th>
+</sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-for list="{{ evidence }}" as="e" hint-placeholder-count="9">
+<sc-raw-tr class="tt-h-row">
+<sc-raw-td style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); font: var(--tt-mono-sm)">{{ e.p }}</sc-raw-td>
+<sc-raw-td class="tt-num" style="height: 36px; padding: 0 12px; border-top: 1px solid var(--tt-border); text-align: right; color: var(--tt-text-2)">{{ e.size }}</sc-raw-td>
+<sc-raw-td style="height: 36px; padding: 0 8px; border-top: 1px solid var(--tt-border); text-align: right; white-space: nowrap">
+<button type="button" class="tt-h-ghost" style="height: 28px; padding: 0 10px; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); font: var(--tt-text-sm-medium)">按段打开</button>
+<button type="button" class="tt-h-ghost" aria-label="在资源管理器中显示 {{ e.p }}" title="在资源管理器中显示" style="width: 28px; height: 28px; display: inline-grid; place-items: center; vertical-align: middle; border: 0; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-2)"><svg class="tt-i" width="16" height="16" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg></button>
+</sc-raw-td>
+</sc-raw-tr>
+</sc-for>
+</sc-raw-tbody>
+</sc-raw-table>
+<p style="margin: 0; padding: 10px 12px; border-top: 1px solid var(--tt-border); font: var(--tt-text-caption); color: var(--tt-text-3)">任务目录、正式归档（plans / reviews）与调度器写入的运行证据（runs）· 来自 <code style="font: var(--tt-mono-sm)">logs show</code> · 跳过的链接 0 个</p>
+</section>
+</sc-if>
+
+</div>
+</main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;section&quot;:&quot;外观&quot;},&quot;tab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;summary&quot;,&quot;contract&quot;,&quot;bench&quot;,&quot;patch&quot;,&quot;report&quot;,&quot;checks&quot;,&quot;review&quot;,&quot;mail&quot;,&quot;events&quot;,&quot;files&quot;],&quot;default&quot;:&quot;summary&quot;,&quot;section&quot;:&quot;页签&quot;},&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:1160}}">
+class Component extends DCLogic {
+  state = { tab: null, mode: 'unified', wrap: false, ln: true, file: 0, check: 'B01', ef: '', mail: 7 };
+
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const st = this.state || {};
+    const KEYS = ['summary', 'contract', 'bench', 'patch', 'report', 'checks', 'review', 'mail', 'events', 'files'];
+    const LABELS = ['摘要', '合同', '基准测试', '补丁', '执行结果概述', '门禁报告', '审核', '信件', '事件', '全部文件'];
+    const tab = st.tab || this.props.tab || 'summary';
+    const tabs = KEYS.map((k, i) => ({
+      label: LABELS[i], sel: k === tab, ti: k === tab ? 0 : -1,
+      fg: k === tab ? 'var(--tt-text-1)' : 'var(--tt-text-2)',
+      bar: k === tab ? 'var(--tt-primary)' : 'transparent',
+      pick: () => this.setState({ tab: k })
+    }));
+    const onTabKey = (e) => {
+      const i = KEYS.indexOf(tab);
+      if (e.key === 'ArrowRight') this.setState({ tab: KEYS[(i + 1) % KEYS.length] });
+      if (e.key === 'ArrowLeft') this.setState({ tab: KEYS[(i + KEYS.length - 1) % KEYS.length] });
+      if (e.key === 'Home') this.setState({ tab: KEYS[0] });
+      if (e.key === 'End') this.setState({ tab: KEYS[KEYS.length - 1] });
+    };
+
+    const H = (s) => ({ t: 'hunk', o: '', n: '', s: s });
+    const C = (o, n, s) => ({ t: 'ctx', o: o, n: n, s: s });
+    const A = (n, s) => ({ t: 'add', o: '', n: n, s: s });
+    const D = (o, s) => ({ t: 'del', o: o, n: '', s: s });
+    const L = [
+      H('@@ -38,6 +38,14 @@ def build_parser(sub):'),
+      C(38, 38, '    show = logs_sub.add_parser("show", help="列出证据")'),
+      C(39, 39, '    show.add_argument("task")'),
+      C(40, 40, '    show.add_argument("attempt")'),
+      C(41, 41, '    show.add_argument("--json", action="store_true")'),
+      C(42, 42, ''),
+      A(43, '    cat = logs_sub.add_parser("cat", help="按段读取一个证据文件")'),
+      A(44, '    cat.add_argument("task")'),
+      A(45, '    cat.add_argument("attempt")'),
+      A(46, '    cat.add_argument("path")'),
+      A(47, '    cat.add_argument("--offset", type=int, default=0)'),
+      A(48, '    cat.add_argument("--limit", type=int, default=262144)'),
+      A(49, '    cat.add_argument("--json", action="store_true")'),
+      A(50, ''),
+      C(43, 51, '    return logs_sub'),
+      H('@@ -112,5 +120,8 @@ def run(args):'),
+      C(112, 120, '    if args.logs_cmd == "show":'),
+      C(113, 121, '        return logs_show(args.task, args.attempt, as_json=args.json)'),
+      D(114, '    print("unknown logs command", file=sys.stderr)'),
+      D(115, '    return 2'),
+      A(122, '    if args.logs_cmd == "cat":'),
+      A(123, '        return logs_cat(args.task, args.attempt, args.path,'),
+      A(124, '                        offset=args.offset, limit=args.limit, as_json=args.json)'),
+      A(125, '    print(f"未知的 logs 子命令：{args.logs_cmd}", file=sys.stderr)'),
+      A(126, '    return 2'),
+      C(116, 127, '')
+    ];
+    const uni = L.map((l) => ({
+      o: l.o, n: l.n, s: l.s,
+      sign: l.t === 'add' ? '+' : l.t === 'del' ? '−' : '',
+      bg: l.t === 'add' ? 'var(--tt-diff-add)' : l.t === 'del' ? 'var(--tt-diff-del)' : l.t === 'hunk' ? 'var(--tt-surface-2)' : 'transparent',
+      fg: l.t === 'hunk' ? 'var(--tt-text-3)' : 'var(--tt-text-1)',
+      signColor: l.t === 'add' ? 'var(--tt-tone-success-fg)' : 'var(--tt-tone-danger-fg)'
+    }));
+    const split = [];
+    let i = 0;
+    while (i < L.length) {
+      const l = L[i];
+      if (l.t === 'hunk') { split.push({ hunk: true, line: false, s: l.s }); i++; continue; }
+      if (l.t === 'ctx') { split.push({ hunk: false, line: true, lo: l.o, ls: l.s, lsign: '', lbg: 'transparent', ro: l.n, rs: l.s, rsign: '', rbg: 'transparent' }); i++; continue; }
+      const dels = [];
+      const adds = [];
+      while (i < L.length && L[i].t === 'del') dels.push(L[i++]);
+      while (i < L.length && L[i].t === 'add') adds.push(L[i++]);
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+        const d = dels[k];
+        const a = adds[k];
+        split.push({ hunk: false, line: true,
+          lo: d ? d.o : '', ls: d ? d.s : '', lsign: d ? '−' : '', lbg: d ? 'var(--tt-diff-del)' : 'var(--tt-surface-2)',
+          ro: a ? a.n : '', rs: a ? a.s : '', rsign: a ? '+' : '', rbg: a ? 'var(--tt-diff-add)' : 'var(--tt-surface-2)' });
+      }
+    }
+    const F = [
+      { p: 'src/themis/cli/logs.py', add: '+13', del: '−2', bin: false },
+      { p: 'src/themis/logs/cat.py', add: '+86', del: '−0', bin: false },
+      { p: 'tests/test_logs_cat.py', add: '+61', del: '−0', bin: false },
+      { p: 'docs/img/logs-cat.png', add: '', del: '', bin: true }
+    ];
+    const fileSel = st.file == null ? 0 : st.file;
+    const files = F.map((f, k) => Object.assign({}, f, {
+      text: !f.bin, sel: k === fileSel,
+      bg: k === fileSel ? 'var(--tt-surface-selected)' : 'transparent',
+      pick: () => this.setState({ file: k })
+    }));
+    const checkId = st.check || 'B01';
+    const GATE = [
+      ['基准', 'B01', '读取整个文件'], ['基准', 'B02', '按 offset / limit 分段'], ['基准', 'B03', '--json 字段齐全'],
+      ['基准', 'B04', '末段 next_offset 为 null'], ['基准', 'B05', '越出 .agent/ 时退出码 2'], ['基准', 'B06', '不存在的 attempt'],
+      ['追加白盒', 'W01', '多字节字符不被切开'], ['追加白盒', 'W02', '--limit 0 返回空段'], ['追加白盒', 'W03', '符号链接指向 .agent/ 之外时拒绝'],
+      ['编译', 'build', 'python -m compileall src'], ['Linter', 'lint', 'ruff check src tests'],
+      ['突变', 'mutate', '门禁端写清单，内核 mutate 执行：18 个，杀死 17']
+    ];
+    const checks = GATE.map((g) => ({
+      kind: g[0], id: g[1], desc: g[2],
+      bg: g[1] === checkId ? 'var(--tt-surface-selected)' : 'transparent',
+      bar: g[1] === checkId ? 'inset 2px 0 0 var(--tt-primary)' : 'none',
+      pick: () => this.setState({ check: g[1] })
+    }));
+    const num = (arr) => arr.map((s, k) => ({ n: k + 1, s: s }));
+    const LOGS = {
+      build: ['$ python -m compileall -q src', '（没有输出）', '退出码 0', 'build 通过（门禁第 2 次）'],
+      lint: ['$ ruff check src tests', 'All checks passed!', '退出码 0', 'lint 通过（门禁第 2 次）'],
+      mutate: ['$ themis mutate --list gate/02/mutants.txt', '18 个突变：杀死 17，存活 1', 'M07  cat.py:41  >= 改成 >  存活（门禁端判为等价突变，见 report.md）', '退出码 0']
+    };
+    const checkLog = num(LOGS[checkId] || [
+      '$ python -m pytest bench/ tests/gate/ -q -k ' + checkId,
+      '1 passed in 0.41s',
+      '退出码 0',
+      checkId + ' 通过（门禁第 2 次）'
+    ]);
+    const contract = num([
+      '# 任务合同 · logs-cat · v2',
+      '允许修改：src/themis/cli/logs.py；新增 src/themis/logs/cat.py、tests/test_logs_cat.py',
+      '禁改路径：bench/（基准测试）、src/themis/logs/show.py、.agent/',
+      '接口契约：logs cat <task> <attempt> <path> [--offset N] [--limit N] [--json]',
+      '          --json 返回 path、offset、length、total_bytes、next_offset',
+      '验收断言：A1 整段读取与原文件一致；A2 只返回 [offset, offset+limit)；',
+      '          A3 末段 next_offset 为 null；A4 路径越出 .agent/ 时退出码 2，不读文件',
+      '基准测试：由门禁端按本合同生成，基线提交后列入禁改路径'
+    ]);
+    const csum = num([
+      '摘要: 合同 v2：新增 logs cat，按字节分段读取证据文件；删去 v1 对 logs show 的改动。',
+      '验证: 四要素齐全（允许修改、禁改路径、接口契约、验收断言 A1–A4）。',
+      '偏离: 无',
+      '需协调人决定: 分段按字节还是按行；合同选了按字节，界面可以「加载后面 256 KB」。'
+    ]);
+    const TONES = { '交付': ['var(--tt-tone-brand-bg)', 'var(--tt-tone-brand-fg)'], '返工完成': ['var(--tt-tone-info-bg)', 'var(--tt-tone-info-fg)'], '进度': ['var(--tt-tone-neutral-bg)', 'var(--tt-tone-neutral-fg)'], '提问': ['var(--tt-tone-warning-bg)', 'var(--tt-tone-warning-fg)'], '阻塞': ['var(--tt-tone-danger-bg)', 'var(--tt-tone-danger-fg)'], '交接': ['var(--tt-tone-neutral-bg)', 'var(--tt-tone-neutral-fg)'] };
+    const M = [
+      ['m-0401', 'contract-glm', '交付', '13:05', 'm-0400', '合同 v1：新增 logs cat，并调整 logs show 的输出。', '无', '四要素齐全（允许修改、禁改路径、接口契约、验收断言）。', '无', 'show 的输出要不要一起改。', '.agent/plans/logs-cat.v1.md'],
+      ['m-0402', 'gate-sonnet', '交付', '13:09', 'm-0401', '战前基准测试 B01–B06，已基线提交。', 'gate/logs-cat@7c1e09ab', 'pytest bench/ 在基线上 6 个全部失败（预期，功能还没写）。', '无', '无', '.agent/mailbox/tasks/logs-cat/report.md'],
+      ['m-0403', 'audit-sonnet', '交付', '13:12', 'm-0402', '一审：退回合同端。概述说不改 logs show，正文第 4 条却改了它的输出。', '无', '核对合同正文、合同概述、基准测试；JEV 未调用（凭据未找到）。', '无', '无', '.agent/reviews/logs-cat.v1-first.md'],
+      ['m-0405', 'contract-glm', '返工完成', '13:25', 'm-0403', '合同 v2：新增 logs cat，按字节分段读取证据文件；删去 v1 对 logs show 的改动。', '无', '四要素齐全（允许修改、禁改路径、接口契约、验收断言 A1–A4）。', '无', '分段按字节还是按行；合同选了按字节。', '.agent/plans/logs-cat.v2.md'],
+      ['m-0406', 'audit-sonnet', '交付', '13:31', 'm-0405', '一审通过：合同 v2 与基准测试 B01–B06 锁死。', '无', '概述与正文一致；基准测试覆盖 A1–A4；JEV 未调用。', '无', '无', '.agent/reviews/logs-cat.v2-first.md'],
+      ['m-0408', 'exec-step', '交付', '13:58', 'm-0406', '实现 logs cat；按字节分段，遇到多字节字符退回到字符边界。', 'themis/logs-cat-v2@5d2a8f10', 'pytest bench/ -q：6 passed；没有碰 bench/ 与禁改路径。', '无', '无', '.agent/mailbox/tasks/logs-cat/evidence/pytest-1356.txt'],
+      ['m-0409', 'gate-sonnet', '交付', '14:02', 'm-0408', '门禁第 1 次：B04 失败，末段 next_offset 返回 512。', '无', '基准 5/6；追加白盒 W01–W03 已提交待跑。', '无', '无', '.agent/runs/logs-cat/attempt-002/gate/01/report.json'],
+      ['m-0411', 'exec-step', '返工完成', '14:08', 'm-0409', '修好 B04：末段 next_offset 返回 null。', 'themis/logs-cat-v2@1a2b3c4d', 'pytest bench/ -q：6 passed；没有碰 bench/ 与禁改路径。', '无', '无', '.agent/mailbox/tasks/logs-cat/evidence/pytest-1408.txt'],
+      ['m-0412', 'gate-sonnet', '交付', '14:16', 'm-0411', '门禁第 2 次全绿；追加白盒 W01–W03 通过；突变 18 个杀死 17。', '无', '基准 6/6、白盒 3/3、编译、Linter 0 条、行覆盖 87%；突变 M07 存活，判为等价。', '无', 'M07 是否接受为等价突变。', '.agent/runs/logs-cat/attempt-002/gate/02/report.json'],
+      ['m-0413', 'audit-sonnet', '交付', '14:21', 'm-0412', '终审通过：代码没有越出合同范围，概述与改动一致。', '无', '核对本地分支 diff、执行概述、门禁与突变证据；接受 M07 为等价突变；JEV 未调用。', '无', '无', '.agent/reviews/logs-cat.v2-final.md']
+    ];
+    const mailSel = st.mail == null ? 7 : st.mail;
+    const mails = M.map((m, k) => ({
+      from: m[1], type: m[2], time: m[3], sum: m[5],
+      tbg: TONES[m[2]][0], tfg: TONES[m[2]][1], sel: k === mailSel,
+      bg: k === mailSel ? 'var(--tt-surface-selected)' : 'transparent',
+      bar: k === mailSel ? 'inset 2px 0 0 var(--tt-primary)' : 'none',
+      pick: () => this.setState({ mail: k })
+    }));
+    const cm = M[mailSel] || M[0];
+    const mailLines = num(['---', 'from: ' + cm[1], 'to: womovie-c8', 'task-id: logs-cat', 'in-reply-to: ' + cm[4], 'type: ' + cm[2], '---',
+      '摘要: ' + cm[5], '提交: ' + cm[6], '验证: ' + cm[7], '偏离: ' + cm[8], '需协调人决定: ' + cm[9], '证据: ' + cm[10]]);
+    const report = num([
+      '## 执行结果概述',
+      '',
+      '改动范围：src/themis/cli/logs.py（+13 −2），新增 src/themis/logs/cat.py 与 tests/test_logs_cat.py。',
+      '完成度：基准测试 B01–B06 本地全部跑通。',
+      '实现妥协：按字节分段；遇到多字节字符时退回到字符边界，所以一段可能比 --limit 少几个字节。',
+      '风险反馈：符号链接指向 .agent/ 之外的情况只做了 realpath 检查，没有专门的测试。',
+      '',
+      '<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字'
+    ]);
+    const ef = (st.ef || '').trim();
+    const EV = [
+      '{"ts": "2026-10-17T05:33:00Z", "type": "session_start", "model": "bb/step-5-preview", "thinking": "high", "reason": "合同 v2 生效"}',
+      '{"ts": "2026-10-17T05:33:04Z", "type": "tool_call", "tool": "read", "path": "src/themis/cli/logs.py"}',
+      '{"ts": "2026-10-17T05:38:42Z", "type": "tool_call", "tool": "edit", "path": "src/themis/cli/logs.py"}',
+      '{"ts": "2026-10-17T05:44:10Z", "type": "tool_call", "tool": "write", "path": "src/themis/logs/cat.py"}',
+      '{"ts": "2026-10-17T05:56:37Z", "type": "tool_call", "tool": "bash", "cmd": "python -m pytest bench/ tests/test_logs_cat.py -q"}',
+      '{"ts": "2026-10-17T05:58:10Z", "type": "session_end", "exit_code": 0}',
+      '{"ts": "2026-10-17T06:05:00Z", "type": "session_start", "model": "bb/step-5-preview", "thinking": "high", "reason": "门禁第 1 次：B04 失败"}',
+      '{"ts": "2026-10-17T06:06:12Z", "type": "tool_call", "tool": "edit", "path": "src/themis/logs/cat.py"}',
+      '{"ts": "2026-10-17T06:07:48Z", "type": "tool_call", "tool": "bash", "cmd": "python -m pytest bench/ -q"}',
+      '{"ts": "2026-10-17T06:08:29Z", "type": "session_end", "exit_code": 0}'
+    ];
+    const events = num(EV).filter((l) => !ef || l.s.indexOf(ef) >= 0);
+    const evidence = [
+      { p: '.agent/mailbox/tasks/logs-cat/brief.md', size: '1.4 KB' },
+      { p: '.agent/mailbox/tasks/logs-cat/state.md', size: '2.2 KB' },
+      { p: '.agent/mailbox/tasks/logs-cat/report.md', size: '3.1 KB' },
+      { p: '.agent/plans/logs-cat.v2.md', size: '1.1 KB' },
+      { p: '.agent/reviews/logs-cat.v2-final.md', size: '640 B' },
+      { p: '.agent/runs/logs-cat/attempt-002/candidate.patch', size: '17.9 KB' },
+      { p: '.agent/runs/logs-cat/attempt-002/gate/02/report.json', size: '2.4 KB' },
+      { p: '.agent/runs/logs-cat/attempt-002/mutate/report.json', size: '3.0 KB' },
+      { p: '.agent/runs/logs-cat/attempt-002/events.jsonl', size: '2.7 MB' }
+    ];
+    const mode = st.mode || 'unified';
+    const wrap = !!st.wrap;
+    const ln = st.ln !== false;
+    return {
+      themeClass: theme === 'dark' ? 'tt-theme-dark' : 'tt-theme-light',
+      themeLabel: theme === 'light' ? '亮' : '暗', themeIconMoon: theme !== 'light', themeIconSun: theme === 'light', themeIconSystem: false,
+      tabs: tabs, onTabKey: onTabKey,
+      isSummary: tab === 'summary', isPatch: tab === 'patch', isChecks: tab === 'checks',
+      isContract: tab === 'contract', isBench: tab === 'bench', isReview: tab === 'review', isMail: tab === 'mail',
+      mails: mails, mailLines: mailLines, mailId: cm[0],
+      contract: contract, csum: csum,
+      isReport: tab === 'report', isEvents: tab === 'events', isFiles: tab === 'files',
+      uni: uni, split: split, files: files,
+      isUnified: mode === 'unified', isSplit: mode === 'split',
+      uniBg: mode === 'unified' ? 'var(--tt-surface-1)' : 'transparent',
+      splitBg: mode === 'split' ? 'var(--tt-surface-1)' : 'transparent',
+      uniShadow: mode === 'unified' ? 'var(--tt-shadow-1)' : 'none',
+      splitShadow: mode === 'split' ? 'var(--tt-shadow-1)' : 'none',
+      setUnified: () => this.setState({ mode: 'unified' }),
+      setSplit: () => this.setState({ mode: 'split' }),
+      wrap: wrap, ws: wrap ? 'pre-wrap' : 'pre',
+      wrapBg: wrap ? 'var(--tt-primary)' : 'var(--tt-surface-2)',
+      wrapBd: wrap ? 'var(--tt-primary)' : 'var(--tt-border-strong)',
+      wrapKnob: wrap ? '16px' : '2px',
+      wrapKnobBg: wrap ? 'var(--tt-on-primary)' : 'var(--tt-border-strong)',
+      wrapBtnBg: wrap ? 'var(--tt-surface-3)' : 'transparent',
+      toggleWrap: () => this.setState({ wrap: !wrap }),
+      ln: ln, lnBg: ln ? 'var(--tt-surface-3)' : 'transparent',
+      lnCols: ln ? '48px minmax(0, 1fr)' : 'minmax(0, 1fr)', lnPad: ln ? '0' : '12px',
+      toggleLn: () => this.setState({ ln: !ln }),
+      checks: checks, checkId: checkId, checkLog: checkLog,
+      report: report, events: events, evidence: evidence,
+      ef: st.ef || '', onEf: (e) => this.setState({ ef: e.target.value })
+    };
+  }
+}
+</script>
+
+
+</body></html>

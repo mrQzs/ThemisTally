@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>设计令牌 · Themis Tally</title>
+<script src="9b150830-3ef6-47a4-bc8c-b0b0e56c8c4b"></script>
+<style>/* Themis Tally 设计令牌（tokens.css）
+   依据《Themis Tally 桌面端界面设计》第 3 节；2026-10-19 修订：
+   - 缺省主题为暗色（亮色写 data-theme="light" 或 .tt-theme-light；跟随系统写 data-theme="system"）；
+   - 中英文统一用等宽字体「等距更纱黑体 SC / Sarasa Mono SC」（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽。
+   画布里用的是只含本稿用字的子集；应用里随包打包完整字体文件。 */
+
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("533cd666-88a5-4acb-9911-2d97f7d9cb26") format("woff2");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TT Sarasa Mono SC";
+  src: url("56c600d7-5d6e-4cf9-85b0-803492991aca") format("woff2");
+  font-weight: 600 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 3.1 原色 · 海军蓝 */
+  --tt-navy-50: #F0F4FA; --tt-navy-100: #DDE6F2; --tt-navy-200: #BACCE4; --tt-navy-300: #8FA9CF;
+  --tt-navy-400: #5C80B4; --tt-navy-500: #355E97; --tt-navy-600: #1E4679; --tt-navy-700: #0F3563;
+  --tt-navy-800: #012852; --tt-navy-900: #011D3D; --tt-navy-950: #00112A;
+  /* 符契金 */
+  --tt-gold-50: #FCF7EC; --tt-gold-100: #F8EBD0; --tt-gold-200: #F0D6A0; --tt-gold-300: #E7BF6E;
+  --tt-gold-400: #DDAA48; --tt-gold-500: #D49C32; --tt-gold-600: #B5801F; --tt-gold-700: #8E6418;
+  --tt-gold-800: #694A13; --tt-gold-900: #46320E;
+  /* 冷灰 */
+  --tt-gray-0: #FFFFFF; --tt-gray-25: #F9FAFC; --tt-gray-50: #F3F5F9; --tt-gray-100: #E8ECF2;
+  --tt-gray-200: #D5DBE5; --tt-gray-300: #B7C0CE; --tt-gray-400: #8F9AAD; --tt-gray-500: #6A7589;
+  --tt-gray-600: #4F596C; --tt-gray-700: #3A4354; --tt-gray-800: #262E3C; --tt-gray-850: #1C2330;
+  --tt-gray-900: #141A25; --tt-gray-950: #0C111A;
+
+  /* 3.6 字体：中英文统一等宽 */
+  --tt-font-sans: "TT Sarasa Mono SC", "Sarasa Mono SC", "等距更纱黑体 SC", "Sarasa Term SC", "Maple Mono NF CN", "Cascadia Mono", "Noto Sans Mono CJK SC", monospace;
+  --tt-font-mono: var(--tt-font-sans);
+  --tt-text-caption: 400 12px/16px var(--tt-font-sans);
+  --tt-text-caption-strong: 600 12px/16px var(--tt-font-sans);
+  --tt-text-sm: 400 13px/20px var(--tt-font-sans);
+  --tt-text-sm-medium: 500 13px/20px var(--tt-font-sans);
+  --tt-text-md: 400 14px/22px var(--tt-font-sans);
+  --tt-text-md-medium: 500 14px/22px var(--tt-font-sans);
+  --tt-text-lg: 400 16px/24px var(--tt-font-sans);
+  --tt-title-sm: 600 14px/22px var(--tt-font-sans);
+  --tt-title-md: 600 16px/24px var(--tt-font-sans);
+  --tt-title-lg: 600 20px/28px var(--tt-font-sans);
+  --tt-display: 600 28px/36px var(--tt-font-sans);
+  --tt-mono-sm: 400 12px/18px var(--tt-font-mono);
+  --tt-mono-md: 400 13px/20px var(--tt-font-mono);
+
+  /* 3.7 间距 */
+  --tt-space-0_5: 2px; --tt-space-1: 4px; --tt-space-2: 8px; --tt-space-3: 12px; --tt-space-4: 16px;
+  --tt-space-5: 20px; --tt-space-6: 24px; --tt-space-8: 32px; --tt-space-10: 40px; --tt-space-12: 48px; --tt-space-16: 64px;
+  /* 圆角 */
+  --tt-radius-sm: 4px; --tt-radius-md: 6px; --tt-radius-lg: 8px; --tt-radius-xl: 12px; --tt-radius-full: 999px;
+  /* 时长与缓动 */
+  --tt-duration-fast: 100ms; --tt-duration-base: 160ms; --tt-duration-slow: 220ms;
+  --tt-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* 层级 */
+  --tt-z-sticky: 10; --tt-z-popover: 100; --tt-z-drawer: 200; --tt-z-dialog: 300; --tt-z-toast: 400; --tt-z-tooltip: 500;
+  /* 框架：底部标签栏 */
+  --tt-tabbar-height: 56px;
+}
+
+/* 3.2 / 3.3 语义色 · 暗色（缺省） */
+:root, .tt-theme-dark {
+  color-scheme: dark;
+  --tt-bg: #0C111A;
+  --tt-surface-1: #141A25;
+  --tt-surface-2: #1C2330;
+  --tt-surface-3: #262E3C;
+  --tt-surface-selected: #0F2A4D;
+  --tt-titlebar: #141A25;
+  --tt-sidebar: #00112A;
+  --tt-sidebar-hover: #0F2A4D;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #E8ECF2;
+  --tt-text-2: #B7C0CE;
+  --tt-text-3: #8F9AAD;
+  --tt-text-disabled: #5A6478;
+  --tt-border: #262E3C;
+  --tt-border-strong: #677186;
+  --tt-primary: #8FA9CF;
+  --tt-primary-hover: #BACCE4;
+  --tt-primary-active: #DDE6F2;
+  --tt-on-primary: #00112A;
+  --tt-link: #8FA9CF;
+  --tt-accent: #DDAA48;
+  --tt-accent-text: #E7BF6E;
+  --tt-on-accent: #00112A;
+  --tt-focus: #DDAA48;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #FCA5A5;
+  --tt-diff-add: #12301F;
+  --tt-diff-del: #3A1414;
+  --tt-highlight: #3A2C10;
+  --tt-scrim: rgba(0, 0, 0, 0.60);
+  --tt-shadow-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --tt-shadow-2: 0 4px 12px rgba(0, 0, 0, .50);
+  --tt-shadow-3: 0 16px 40px rgba(0, 0, 0, .60);
+  --tt-logo-mark: #DDE6F2;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #262E3C;   --tt-tone-neutral-fg: #D5DBE5;
+  --tt-tone-info-bg: #0F2E38;      --tt-tone-info-fg: #67E8F9;
+  --tt-tone-attention-bg: #3A2C10; --tt-tone-attention-fg: #F0D6A0;
+  --tt-tone-success-bg: #12301F;   --tt-tone-success-fg: #86EFAC;
+  --tt-tone-warning-bg: #3B1D0C;   --tt-tone-warning-fg: #FDBA74;
+  --tt-tone-danger-bg: #3A1414;    --tt-tone-danger-fg: #FCA5A5;
+  --tt-tone-escalate-bg: #2A1B4A;  --tt-tone-escalate-fg: #C4B5FD;
+  --tt-tone-brand-bg: #0F2A4D;     --tt-tone-brand-fg: #BACCE4;
+}
+
+/* 亮色 */
+:root[data-theme="light"], .tt-theme-light {
+  color-scheme: light;
+  --tt-bg: #F3F5F9;
+  --tt-surface-1: #FFFFFF;
+  --tt-surface-2: #F9FAFC;
+  --tt-surface-3: #E8ECF2;
+  --tt-surface-selected: #F0F4FA;
+  --tt-titlebar: #FFFFFF;
+  --tt-sidebar: #012852;
+  --tt-sidebar-hover: #0F3563;
+  --tt-sidebar-text: #DDE6F2;
+  --tt-sidebar-text-muted: #8FA9CF;
+  --tt-sidebar-text-active: #FFFFFF;
+  --tt-sidebar-dot-info: #67E8F9;
+  --tt-text-1: #141A25;
+  --tt-text-2: #4F596C;
+  --tt-text-3: #636E82;
+  --tt-text-disabled: #8F9AAD;
+  --tt-border: #D5DBE5;
+  --tt-border-strong: #808B9E;
+  --tt-primary: #012852;
+  --tt-primary-hover: #0F3563;
+  --tt-primary-active: #011D3D;
+  --tt-on-primary: #FFFFFF;
+  --tt-link: #1E4679;
+  --tt-accent: #D49C32;
+  --tt-accent-text: #8E6418;
+  --tt-on-accent: #00112A;
+  --tt-focus: #355E97;
+  --tt-danger: #B91C1C;
+  --tt-on-danger: #FFFFFF;
+  --tt-danger-text: #991B1B;
+  --tt-diff-add: #E3F4E8;
+  --tt-diff-del: #FCE4E4;
+  --tt-highlight: #F8EBD0;
+  --tt-scrim: rgba(12, 17, 26, 0.45);
+  --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06);
+  --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06);
+  --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+  --tt-logo-mark: #012852;
+  --tt-logo-tally: #D49C32;
+  --tt-tone-neutral-bg: #E8ECF2;   --tt-tone-neutral-fg: #3A4354;
+  --tt-tone-info-bg: #DDF1F5;      --tt-tone-info-fg: #0B5566;
+  --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F;
+  --tt-tone-success-bg: #E3F4E8;   --tt-tone-success-fg: #136A34;
+  --tt-tone-warning-bg: #FDEBDD;   --tt-tone-warning-fg: #9A3412;
+  --tt-tone-danger-bg: #FCE4E4;    --tt-tone-danger-fg: #991B1B;
+  --tt-tone-escalate-bg: #EFE7FD;  --tt-tone-escalate-fg: #5B21B6;
+  --tt-tone-brand-bg: #DDE6F2;     --tt-tone-brand-fg: #012852;
+}
+
+/* 跟随系统：写 data-theme="system" 时，系统为亮色就用亮色 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --tt-bg: #F3F5F9; --tt-surface-1: #FFFFFF; --tt-surface-2: #F9FAFC; --tt-surface-3: #E8ECF2;
+    --tt-surface-selected: #F0F4FA; --tt-titlebar: #FFFFFF; --tt-sidebar: #012852; --tt-sidebar-hover: #0F3563;
+    --tt-text-1: #141A25; --tt-text-2: #4F596C; --tt-text-3: #636E82; --tt-text-disabled: #8F9AAD;
+    --tt-border: #D5DBE5; --tt-border-strong: #808B9E;
+    --tt-primary: #012852; --tt-primary-hover: #0F3563; --tt-primary-active: #011D3D; --tt-on-primary: #FFFFFF;
+    --tt-link: #1E4679; --tt-accent: #D49C32; --tt-accent-text: #8E6418; --tt-focus: #355E97;
+    --tt-danger-text: #991B1B; --tt-diff-add: #E3F4E8; --tt-diff-del: #FCE4E4; --tt-highlight: #F8EBD0;
+    --tt-scrim: rgba(12, 17, 26, 0.45);
+    --tt-shadow-1: 0 1px 2px rgba(1, 40, 82, .06); --tt-shadow-2: 0 4px 12px rgba(1, 40, 82, .10), 0 1px 3px rgba(1, 40, 82, .06); --tt-shadow-3: 0 16px 40px rgba(1, 40, 82, .18);
+    --tt-logo-mark: #012852;
+    --tt-tone-neutral-bg: #E8ECF2; --tt-tone-neutral-fg: #3A4354; --tt-tone-info-bg: #DDF1F5; --tt-tone-info-fg: #0B5566;
+    --tt-tone-attention-bg: #F8EBD0; --tt-tone-attention-fg: #5E420F; --tt-tone-success-bg: #E3F4E8; --tt-tone-success-fg: #136A34;
+    --tt-tone-warning-bg: #FDEBDD; --tt-tone-warning-fg: #9A3412; --tt-tone-danger-bg: #FCE4E4; --tt-tone-danger-fg: #991B1B;
+    --tt-tone-escalate-bg: #EFE7FD; --tt-tone-escalate-fg: #5B21B6; --tt-tone-brand-bg: #DDE6F2; --tt-tone-brand-fg: #012852;
+  }
+}
+
+/* 减少动态效果 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tt-duration-fast: 0ms; --tt-duration-base: 0ms; --tt-duration-slow: 0ms; }
+}
+
+/* ---------- 基础 ---------- */
+.tt-app {
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+  background: var(--tt-bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-ligatures: none;
+}
+.tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
+.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
+.tt-app button { cursor: pointer; }
+.tt-app button:disabled { cursor: not-allowed; }
+.tt-app a { color: var(--tt-link); }
+.tt-app table { border-collapse: collapse; border-spacing: 0; }
+.tt-app input::placeholder { color: var(--tt-text-3); }
+.tt-num { font-variant-numeric: tabular-nums; }
+.tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 焦点：2px 焦点环，外偏 2px（:focus-visible） */
+.tt-app :focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-app input:focus-visible, .tt-app select:focus-visible, .tt-app textarea:focus-visible { border-color: var(--tt-focus) !important; outline-offset: 1px; }
+
+/* 悬停与按下（内联样式之上，需 !important） */
+.tt-h-primary:hover:not(:disabled) { background: var(--tt-primary-hover) !important; }
+.tt-h-primary:active:not(:disabled) { background: var(--tt-primary-active) !important; }
+.tt-h-secondary:hover:not(:disabled) { background: var(--tt-surface-2) !important; }
+.tt-h-secondary:active:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-ghost:hover:not(:disabled) { background: var(--tt-surface-3) !important; }
+.tt-h-danger:hover:not(:disabled) { filter: brightness(0.9); }
+.tt-h-nav:hover { background: var(--tt-sidebar-hover) !important; }
+.tt-h-row:hover { background: var(--tt-surface-3) !important; }
+.tt-h-underline:hover { text-decoration: underline !important; }
+
+/* 动效：只用于状态变化与展开收起 */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-spin { animation: tt-spin 1s linear infinite; transform-origin: 50% 50%; }
+@keyframes tt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.tt-skel { animation: tt-pulse 1.6s var(--tt-ease-standard) infinite; }
+@keyframes tt-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.tt-indet { animation: tt-indeterminate 1.4s var(--tt-ease-standard) infinite; }
+@keyframes tt-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tt-enter { animation: tt-enter var(--tt-duration-slow) var(--tt-ease-standard); }
+@keyframes tt-drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-drawer-in { animation: tt-drawer-in var(--tt-duration-slow) var(--tt-ease-standard); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-spin, .tt-skel, .tt-indet, .tt-enter, .tt-drawer-in { animation: none; }
+}
+
+/* 窄内容区（内容宽度 < 760）：容器查询，不用视口宽度 */
+.tt-content { container-type: inline-size; container-name: tt-content; }
+@container tt-content (max-width: 807px) {
+  .tt-pad { padding: 16px !important; }
+  .tt-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .tt-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
+  .tt-stack-narrow { flex-direction: column !important; align-items: stretch !important; }
+  .tt-w-narrow-full { width: auto !important; flex: none !important; }
+}
+/* 底部标签栏在窄窗口（< 1180）时只保留计数，隐藏“上次更新”与 kit 版本 */
+@media (max-width: 1179px) {
+  .tt-hide-narrow { display: none !important; }
+}
+
+/* Windows 高对比度 */
+@media (forced-colors: active) {
+  .tt-app :focus-visible { outline-color: Highlight; }
+  .tt-fc { border: 1px solid CanvasText !important; }
+}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="tt-app tt-theme-light" style="width: 1280px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; gap: 36px; background: var(--tt-bg); color: var(--tt-text-1); font: var(--tt-text-md)">
+
+<div style="display: flex; align-items: baseline; gap: 16px">
+<h1 style="margin: 0; font: 600 28px/36px var(--tt-font-sans)">设计令牌</h1>
+<span style="font: var(--tt-text-sm); color: var(--tt-text-2)">全部通过 tokens.css 的 CSS 变量取用，前缀 <code style="font: var(--tt-mono-sm)">--tt-</code> · 依据第 3 节</span>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.1 原色</h2>
+<sc-for list="{{ ramps }}" as="r" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font: var(--tt-title-sm)">{{ r.name }}</span>
+<div style="display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px">
+<sc-for list="{{ r.steps }}" as="s" hint-placeholder-count="11">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="height: 56px; border-radius: var(--tt-radius-md); background: {{ s.hex }}; border: 1px solid {{ s.bd }}; box-shadow: {{ s.ring }}"></div>
+<span style="font: var(--tt-text-caption-strong)">{{ s.k }}</span>
+<span style="font: var(--tt-mono-sm); color: var(--tt-text-3)">{{ s.hex }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">金色描边的色块是品牌色：海军蓝 800、符契金 500。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.2 语义色</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px">
+<sc-for list="{{ semantic }}" as="t" hint-placeholder-count="30">
+<div style="display: grid; grid-template-columns: 196px 92px 92px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 36px; border-bottom: 1px solid var(--tt-border)">
+<code style="font: var(--tt-mono-sm)">{{ t.n }}</code>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 20px; flex: none; border-radius: var(--tt-radius-sm); background: {{ t.l }}; border: 1px solid var(--tt-border)"></span><span style="font: var(--tt-mono-sm); color: var(--tt-text-2)">{{ t.ls }}</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 20px; flex: none; border-radius: var(--tt-radius-sm); background: {{ t.d }}; border: 1px solid var(--tt-border)"></span><span style="font: var(--tt-mono-sm); color: var(--tt-text-2)">{{ t.ds }}</span></span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ t.u }}</span>
+</div>
+</sc-for>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">每行依次为：令牌、亮色、暗色、用途。金色只用于“需要你判断”、计数、当前页指示条与暗色焦点环。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.3 状态色调</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{ tones }}" as="t" hint-placeholder-count="8">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<span style="font: var(--tt-title-sm)">{{ t.k }} <span style="font: var(--tt-text-sm); color: var(--tt-text-2)">{{ t.zh }}</span></span>
+<div style="display: flex; gap: 8px">
+<span style="flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 28px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-{{ t.k }}-bg); color: var(--tt-tone-{{ t.k }}-fg); font: var(--tt-text-sm-medium)">亮色</span>
+<span class="tt-theme-dark" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 28px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-{{ t.k }}-bg); color: var(--tt-tone-{{ t.k }}-fg); font: var(--tt-text-sm-medium); outline: 4px solid var(--tt-surface-1)">暗色</span>
+</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.4 attempt 的 17 个状态 + 兜底</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px">
+<sc-for list="{{ states }}" as="s" hint-placeholder-count="18">
+<div style="display: grid; grid-template-columns: 210px 132px 132px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 44px; border-bottom: 1px solid var(--tt-border)">
+<code style="font: var(--tt-mono-sm)">{{ s.code }}</code>
+<span><span title="{{ s.code }}" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-{{ s.tone }}-bg); color: var(--tt-tone-{{ s.tone }}-fg); font: var(--tt-text-sm-medium); white-space: nowrap; position: relative"><sc-if value="{{ s.ic.hourglass }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M5 22h14"></path><path d="M5 2h14"></path><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path></svg></sc-if><sc-if value="{{ s.ic.dashed }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"></path><path d="M13.9 21.818a10 10 0 0 1-3.8 0"></path><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"></path><path d="M2.182 13.9a10 10 0 0 1 0-3.8"></path><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"></path><path d="M21.818 10.1a10 10 0 0 1 0 3.8"></path><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"></path><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"></path></svg></sc-if><sc-if value="{{ s.ic.cx }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg></sc-if><sc-if value="{{ s.ic.loader }}" hint-placeholder-val="{{ false }}"><svg class="tt-i tt-spin" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></sc-if><sc-if value="{{ s.ic.archive }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path></svg></sc-if><sc-if value="{{ s.ic.scale }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg></sc-if><sc-if value="{{ s.ic.check }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></sc-if><sc-if value="{{ s.ic.badge }}" hint-placeholder-val="{{ false }}"><span style="position: relative; display: inline-flex"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"></path><path d="m9 12 2 2 4-4"></path></svg><span aria-hidden="true" style="position: absolute; right: -2px; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--tt-tone-warning-fg); box-shadow: 0 0 0 1.5px var(--tt-tone-success-bg)"></span></span></sc-if><sc-if value="{{ s.ic.rotate }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></sc-if><sc-if value="{{ s.ic.octagon }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m15 9-6 6"></path><path d="M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z"></path><path d="m9 9 6 6"></path></svg></sc-if><sc-if value="{{ s.ic.up }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m16 12-4-4-4 4"></path><path d="M12 16V8"></path></svg></sc-if><sc-if value="{{ s.ic.server }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 10H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"></path><path d="M6 14H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-2"></path><path d="M6 6h.01"></path><path d="M6 18h.01"></path><path d="m13 6-4 6h6l-4 6"></path></svg></sc-if><sc-if value="{{ s.ic.timer }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M10 2h4"></path><path d="M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7"></path><path d="M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2"></path><path d="m2 2 20 20"></path><path d="M12 12v-2"></path></svg></sc-if><sc-if value="{{ s.ic.ban }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></sc-if><sc-if value="{{ s.ic.merge }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg></sc-if><sc-if value="{{ s.ic.archivex }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="m9.5 17 5-5"></path><path d="m9.5 12 5 5"></path></svg></sc-if><sc-if value="{{ s.ic.layers }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path></svg></sc-if><sc-if value="{{ s.ic.help }}" hint-placeholder-val="{{ false }}"><svg class="tt-i" width="14" height="14" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg></sc-if>{{ s.zh }}</span></span>
+<span class="tt-theme-dark" style="display: inline-flex; align-items: center; height: 32px; padding: 0 6px; border-radius: var(--tt-radius-md); background: var(--tt-surface-1)"><span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--tt-radius-sm); background: var(--tt-tone-{{ s.tone }}-bg); color: var(--tt-tone-{{ s.tone }}-fg); font: var(--tt-text-sm-medium); white-space: nowrap">{{ s.zh }}</span></span>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ s.tone }} · {{ s.group }}</span>
+</div>
+</sc-for>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">状态码原样保留，界面显示中文标签，悬停显示状态码。状态同时用图标、文字、颜色表达；暗色列只演示色调。</span>
+</section>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px">
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.6 字体与字号</h2>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<span style="font: var(--tt-title-md)">等距更纱黑体 SC · Sarasa Mono SC</span>
+<span style="font: var(--tt-mono-md); white-space: pre">中英文统一等宽：一个汉字＝两个字符
+attempt-002 待验收  检查 8/8 fresh
+ui-readonly-api 运行中  已用 19 分 6 秒</span>
+</div>
+<div style="display: flex; flex-direction: column; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-display</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">28/36 · 600</span><span class="tt-num" style="font: var(--tt-display)">22,031,448</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 44px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-title-lg</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">20/28 · 600</span><span style="font: var(--tt-title-lg)">页面标题 · 角色与模型</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-title-md</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">16/24 · 600</span><span style="font: var(--tt-title-md)">区块标题 · 需要你判断</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-title-sm</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">14/22 · 600</span><span style="font: var(--tt-title-sm)">卡片标题、表头</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-text-lg</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">16/24 · 400</span><span style="font: var(--tt-text-lg)">强调正文</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-text-md</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">14/22 · 400</span><span style="font: var(--tt-text-md)">正文（默认）：这个 attempt 等你验收。</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-text-sm</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">13/20 · 400</span><span style="font: var(--tt-text-sm)">表格、次要文字</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-text-caption</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">12/16 · 400</span><span style="font: var(--tt-text-caption)">时间、计数、辅助说明 · 3 分钟前</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--tt-border)"><code style="font: var(--tt-mono-sm)">--tt-mono-md</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">13/20 · 等宽</span><span style="font: var(--tt-mono-md)">bash scripts/dispatch-pi.sh config preset use economy</span></div>
+<div style="display: grid; grid-template-columns: 150px 90px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 40px; padding: 0 16px"><code style="font: var(--tt-mono-sm)">--tt-mono-sm</code><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">12/18 · 等宽</span><span style="font: var(--tt-mono-sm)">attempt-002 · 9461d31 · STEP_API_KEY</span></div>
+</div>
+<span style="font: var(--tt-text-caption); color: var(--tt-text-3)">中英文统一用等距更纱黑体 SC（SIL OFL 1.1），1 个汉字 = 2 个英文字符宽，表格与日志天然对齐；应用随包打包字体文件，不走网络。</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font: var(--tt-title-lg)">3.7 间距 · 圆角 · 阴影 · 动效</h2>
+<div style="display: flex; flex-direction: column; gap: 14px; padding: 16px; background: var(--tt-surface-1); border: 1px solid var(--tt-border); border-radius: var(--tt-radius-lg)">
+<span style="font: var(--tt-title-sm)">间距</span>
+<div style="display: flex; align-items: flex-end; gap: 10px">
+<sc-for list="{{ spaces }}" as="s" hint-placeholder-count="11">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="width: 14px; height: {{ s.px }}; border-radius: 2px; background: var(--tt-navy-400)"></span><span class="tt-num" style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ s.v }}</span></div>
+</sc-for>
+</div>
+<span style="font: var(--tt-title-sm)">圆角</span>
+<div style="display: flex; gap: 12px">
+<sc-for list="{{ radii }}" as="r" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="width: 48px; height: 40px; border: 1.5px solid var(--tt-navy-500); border-radius: {{ r.px }}; background: var(--tt-navy-50)"></span><span style="font: var(--tt-text-caption); color: var(--tt-text-3)">{{ r.k }} {{ r.v }}</span></div>
+</sc-for>
+</div>
+<span style="font: var(--tt-title-sm)">阴影</span>
+<div style="display: flex; gap: 16px; padding: 8px 4px 12px">
+<div style="flex: 1; height: 56px; display: grid; place-items: center; border-radius: var(--tt-radius-lg); background: var(--tt-surface-1); box-shadow: var(--tt-shadow-1); font: var(--tt-text-caption); color: var(--tt-text-3)">shadow-1</div>
+<div style="flex: 1; height: 56px; display: grid; place-items: center; border-radius: var(--tt-radius-lg); background: var(--tt-surface-1); box-shadow: var(--tt-shadow-2); font: var(--tt-text-caption); color: var(--tt-text-3)">shadow-2</div>
+<div style="flex: 1; height: 56px; display: grid; place-items: center; border-radius: var(--tt-radius-lg); background: var(--tt-surface-1); box-shadow: var(--tt-shadow-3); font: var(--tt-text-caption); color: var(--tt-text-3)">shadow-3</div>
+</div>
+<span style="font: var(--tt-title-sm)">动效与层级</span>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; font: var(--tt-text-sm)">
+<dt style="color: var(--tt-text-3)">时长</dt><dd style="margin: 0">fast 100ms · base 160ms · slow 220ms；减少动效时为 0</dd>
+<dt style="color: var(--tt-text-3)">缓动</dt><dd style="margin: 0; font: var(--tt-mono-sm); line-height: 20px">standard (0.2,0,0,1) · exit (0.4,0,1,1)</dd>
+<dt style="color: var(--tt-text-3)">层级</dt><dd style="margin: 0">吸顶 10 · 浮层 100 · 抽屉 200 · 对话框 300 · 轻提示 400 · 工具提示 500</dd>
+<dt style="color: var(--tt-text-3)">框架</dt><dd style="margin: 0">标题栏 40 · 侧栏 220（收起 56）· 状态栏 26 · 页面内边距 24（窄时 16）</dd>
+<dt style="color: var(--tt-text-3)">控件高</dt><dd style="margin: 0">28 · 32（默认）· 36；表头 32 · 行 36（紧凑 32）</dd>
+</dl>
+</div>
+</section>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:2300}}">
+class Component extends DCLogic {
+  renderVals() {
+    const ramp = (name, pairs, brand) => ({
+      name: name,
+      steps: pairs.map((p) => ({
+        k: p[0], hex: p[1],
+        bd: 'rgba(1, 40, 82, 0.08)',
+        ring: p[0] === brand ? '0 0 0 2px var(--tt-bg), 0 0 0 4px var(--tt-gold-500)' : 'none'
+      }))
+    });
+    const ramps = [
+      ramp('海军蓝 navy', [['50', '#F0F4FA'], ['100', '#DDE6F2'], ['200', '#BACCE4'], ['300', '#8FA9CF'], ['400', '#5C80B4'], ['500', '#355E97'], ['600', '#1E4679'], ['700', '#0F3563'], ['800', '#012852'], ['900', '#011D3D'], ['950', '#00112A']], '800'),
+      ramp('符契金 gold', [['50', '#FCF7EC'], ['100', '#F8EBD0'], ['200', '#F0D6A0'], ['300', '#E7BF6E'], ['400', '#DDAA48'], ['500', '#D49C32'], ['600', '#B5801F'], ['700', '#8E6418'], ['800', '#694A13'], ['900', '#46320E']], '500'),
+      ramp('冷灰 gray', [['0', '#FFFFFF'], ['25', '#F9FAFC'], ['50', '#F3F5F9'], ['100', '#E8ECF2'], ['200', '#D5DBE5'], ['300', '#B7C0CE'], ['400', '#8F9AAD'], ['500', '#6A7589'], ['600', '#4F596C'], ['700', '#3A4354'], ['800', '#262E3C'], ['850', '#1C2330'], ['900', '#141A25'], ['950', '#0C111A']], '')
+    ];
+    const S = [
+      ['--tt-bg', '#F3F5F9', '#0C111A', '内容区背后的底色'], ['--tt-surface-1', '#FFFFFF', '#141A25', '卡片、面板、表格、对话框'],
+      ['--tt-surface-2', '#F9FAFC', '#1C2330', '表头、分组底'], ['--tt-surface-3', '#E8ECF2', '#262E3C', '悬停、按下'],
+      ['--tt-surface-selected', '#F0F4FA', '#0F2A4D', '选中的行与项'], ['--tt-titlebar', '#FFFFFF', '#141A25', '标题栏'],
+      ['--tt-sidebar', '#012852', '#00112A', '侧栏'], ['--tt-sidebar-hover', '#0F3563', '#0F2A4D', '侧栏悬停与选中'],
+      ['--tt-sidebar-text', '#DDE6F2', '#DDE6F2', '侧栏文字'], ['--tt-sidebar-text-muted', '#8FA9CF', '#8FA9CF', '侧栏分组标题'],
+      ['--tt-text-1', '#141A25', '#E8ECF2', '主文字'], ['--tt-text-2', '#4F596C', '#B7C0CE', '次要文字'],
+      ['--tt-text-3', '#636E82', '#8F9AAD', '说明、占位、时间'], ['--tt-text-disabled', '#8F9AAD', '#5A6478', '禁用'],
+      ['--tt-border', '#D5DBE5', '#262E3C', '分割线、卡片边'], ['--tt-border-strong', '#808B9E', '#677186', '控件边框（≥ 3:1）'],
+      ['--tt-primary', '#012852', '#8FA9CF', '主按钮底'], ['--tt-primary-hover', '#0F3563', '#BACCE4', '主按钮悬停'],
+      ['--tt-primary-active', '#011D3D', '#DDE6F2', '主按钮按下'], ['--tt-on-primary', '#FFFFFF', '#00112A', '主按钮文字'],
+      ['--tt-link', '#1E4679', '#8FA9CF', '链接'], ['--tt-accent', '#D49C32', '#DDAA48', '金色指示（非文字）'],
+      ['--tt-accent-text', '#8E6418', '#E7BF6E', '金色文字'], ['--tt-on-accent', '#00112A', '#00112A', '金底上的文字'],
+      ['--tt-focus', '#355E97', '#DDAA48', '焦点环'], ['--tt-danger', '#B91C1C', '#B91C1C', '危险按钮底'],
+      ['--tt-danger-text', '#991B1B', '#FCA5A5', '危险文字'], ['--tt-diff-add', '#E3F4E8', '#12301F', '补丁新增行'],
+      ['--tt-diff-del', '#FCE4E4', '#3A1414', '补丁删除行'], ['--tt-highlight', '#F8EBD0', '#3A2C10', '检索命中高亮'],
+      ['--tt-scrim', 'rgba(12, 17, 26, 0.45)', 'rgba(0, 0, 0, 0.60)', '对话框遮罩']
+    ];
+    const semantic = S.map((r) => ({ n: r[0], l: r[1], d: r[2], ls: r[1].indexOf('rgba') === 0 ? '45%' : r[1], ds: r[2].indexOf('rgba') === 0 ? '60%' : r[2], u: r[3] }));
+    const tones = [['neutral', '中性'], ['info', '进行中'], ['attention', '需要你判断'], ['success', '通过'], ['warning', '注意'], ['danger', '失败'], ['escalate', '要你决定'], ['brand', '已落地']].map((t) => ({ k: t[0], zh: t[1] }));
+    const ST = [
+      ['PREPARING', '准备中', 'info', 'hourglass', '运行中'], ['PREPARED', '待运行', 'neutral', 'dashed', '—'],
+      ['PREPARE_FAILED', '准备失败', 'danger', 'cx', '已结束'], ['RUNNING', '运行中', 'info', 'loader', '运行中'],
+      ['COLLECTING', '收集证据', 'info', 'archive', '运行中'], ['NEEDS_REVIEW', '待验收', 'attention', 'scale', '待验收'],
+      ['PASS', '通过', 'success', 'check', '待集成'], ['ACCEPTED_WITH_EXCEPTION', '带豁免通过', 'success', 'badge', '待集成'],
+      ['REVISE', '返工', 'warning', 'rotate', '已结束'], ['BLOCKED', '阻塞', 'danger', 'octagon', '要你决定'],
+      ['ESCALATE', '升级', 'escalate', 'up', '要你决定'], ['INFRA_FAILURE', '基础设施故障', 'danger', 'server', '待验收'],
+      ['TIMEOUT', '超时', 'warning', 'timer', '待验收'], ['CANCELLED', '已取消', 'neutral', 'ban', '待验收'],
+      ['INTEGRATED', '已集成', 'brand', 'merge', '已结束'], ['ABANDONED', '已放弃', 'neutral', 'archivex', '已结束'],
+      ['SUPERSEDED', '已被取代', 'neutral', 'layers', '已结束'], ['FUTURE_STATE', 'FUTURE_STATE', 'neutral', 'help', '兜底：原样显示']
+    ];
+    const states = ST.map((s) => ({ code: s[0], zh: s[1], tone: s[2], ic: { [s[3]]: true }, group: s[4] }));
+    const spaces = [['0_5', 2], ['1', 4], ['2', 8], ['3', 12], ['4', 16], ['5', 20], ['6', 24], ['8', 32], ['10', 40], ['12', 48], ['16', 64]].map((s) => ({ v: s[1], px: s[1] + 'px' }));
+    const radii = [['sm', 4], ['md', 6], ['lg', 8], ['xl', 12], ['full', 999]].map((r) => ({ k: r[0], v: r[1] === 999 ? '999' : r[1], px: r[1] === 999 ? '999px' : r[1] + 'px' }));
+    return { ramps: ramps, semantic: semantic, tones: tones, states: states, spaces: spaces, radii: radii };
+  }
+}
+</script>
+
+
+</body></html>
