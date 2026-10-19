@@ -1,6 +1,6 @@
 # Themis Tally 桌面端界面设计（UI 设计文档）
 
-状态：**第 6 稿（2026-10-19），随架构文档闸一通过**（第 6 轮零 Blocking），可以交给 Claude Design 实现。
+状态：**第 7 稿（2026-10-19）**：在第 6 稿上补实现阶段的修订（思考档位 7.24、搜索结果 6.7、角色进程只由内核唤醒 0.2 第 7 条），见架构文档 §0.0；随架构文档闸一通过（第 6 轮零 Blocking），可以交给 Claude Design 实现。
 
 - **用途**：交给 Claude Design 实现客户端界面。
 - **依据**：架构设计 `docs/themis-tally-3.0-桌面端.md`（下称“架构文档”）。本文只管界面长什么样、怎么交互；后端、安全边界与接口以架构文档为准。
@@ -43,7 +43,7 @@
 4. **不做乐观更新，不自报成功**：写操作的结果只来自服务返回的退出码，以及随后重新读到的数据（8.3）。
 5. **先预览，再确认**：每个写操作都要预览与确认，确认框里显示将要运行的 CLI 命令（7.11）。
 6. **不显示凭据的值**：后端给出的占位文字（例如“（含疑似凭据，不显示）”“<redacted>”）原样显示，用 7.13 的样式。
-7. **不放花钱或改代码的按钮**：第一阶段没有“派遣、验收、合并、试跑”这类按钮。需要时只显示“请在规划端会话里进行”的提示，并附上可复制的命令（6.3）。
+7. **不放花钱或改代码的按钮**：第一阶段没有“派遣、验收、合并、试跑”这类按钮。需要时只显示“请在规划端会话里进行”的提示，并附上可复制的命令（6.3）。也不放启动、唤醒、停止 claude、pi 角色进程或给工人发信的按钮，这些只由内核做（架构文档 D1、§2.9）。
 8. **视觉是 Themis Tally 自己的**：
    - 品牌色是海军蓝 `#012852` 与符契金 `#D49C32`；
    - 不使用任何其他产品（包括 Claude / Anthropic）的标识、配色、专有字体、插画与文案。
@@ -54,7 +54,7 @@
 
 ## 1. 产品与用户
 
-- **用户**：仓库的主人，也就是规划这个仓库工作的人。代理（Claude Code、Codex、Pi）不用这个界面，它们用 CLI。
+- **用户**：仓库的主人，也就是规划这个仓库工作的人。代理（Claude Code、Codex、Pi）不用这个界面，它们用 CLI。七端的工人由内核以后台进程按信唤醒（架构文档 §2.9），同样不用这个界面。
 - **主要任务**（按频率）：
   1. 一眼看到正在跑什么、哪里需要我判断；
   2. 打开一个 attempt 看证据：摘要、补丁、检查、执行报告、事件；
@@ -509,7 +509,7 @@
   - 每行显示任务 ID 与最新 attempt 的状态，按最近更新排序；
   - 顶部有搜索框与状态分组筛选（多选的胶囊，分组见 3.4）。
 - **右栏**：所选任务的 attempt 表格。
-  - 列：attempt、版本、状态、用时、检查（`8/8` 加模式）、结论、失败分类、越界数（大于 0 时用 danger 色）、token、费用；
+  - 列：attempt、版本、状态、用时、检查（`8/8` 加模式）、结论、失败分类、越界数（大于 0 时用 danger 色）、token、费用、思考档位（要求 / 生效，7.24）；
   - 费用为空时显示“未知”，不显示 0；
   - 点击一行进入详情。
 
@@ -547,11 +547,11 @@
 | 返工 | 需要出新版本合同返工。 | `/plan-task <task>` |
 | 升级、阻塞 | 需要你做决定，见摘要里的阻塞点。 | — |
 
-数据来源：`/api/v1/attempts`、`/api/v1/attempts/<task>/<attempt>`、`/api/v1/attempts/<task>/<attempt>/file`。详情页头部的版本、用时、token、检查结果取自 `/api/v1/status` 里这一行；摘要与证据清单取自 `getAttempt`。
+数据来源：`/api/v1/attempts`、`/api/v1/attempts/<task>/<attempt>`、`/api/v1/attempts/<task>/<attempt>/file`。详情页头部的版本、用时、token、检查结果与思考档位（7.24）取自 `/api/v1/status` 里这一行；摘要与证据清单取自 `getAttempt`。
 
 ### 6.4 角色与模型
 
-这是“像 CC Switch 那样”切换模型的地方。
+这是“像 CC Switch 那样”切换模型的地方。这一页显示配置中心的四个角色绑定；七端的工人名册在 hub 自己的配置里，不在这一页（架构文档 D11）。
 
 ```text
  角色与模型                                          [保存当前为方案…] [新建 profile]
@@ -588,7 +588,7 @@
 - **四张角色卡**（2 × 2）：
   - 卡头：中文角色名加角色码（等宽、`--tt-text-3`）；
   - 模式标签：交互式宿主、无头、手工、关闭；
-  - 无头时显示 profile、runtime（适配器）、provider/model、thinking、接通状态；
+  - 无头时显示 profile、runtime（适配器）、provider/model、思考档位（要求 / 生效，7.24）、接通状态；
   - 没有显式写出的角色显示 neutral 标签“默认”；
   - `differs_from_preset` 为真时，显示 attention 标签“与方案 default 不一致”；
   - 没接通时，显示 warning 标签“本轮未接通”。
@@ -604,7 +604,7 @@
   - 选无头时再选 profile；
   - 底部实时显示预览（`--dry-run` 的结果）；
   - 本轮只有 pi 能担任执行端与合同端的无头角色；选了不能接通的组合时，预览里显示内核给出的警告。
-- **profile 表格**：列为 ID、runtime、模型、thinking、凭据变量（只显示变量名，等宽标签）、被引用。
+- **profile 表格**：列为 ID、runtime、模型、thinking（要求的档位）、凭据变量（只显示变量名，等宽标签）、被引用。
   - 行操作有 [编辑] 与 [删除]；被引用时 [删除] 禁用，工具提示说明“被执行端引用，先改绑定”。
 - **新建 / 编辑 profile 对话框**：
 
@@ -613,7 +613,7 @@
   | ID | 文本框 | 小写字母、数字、连字符 |
   | runtime | 下拉 | 已登记的 runtime |
   | 模型 | 下拉 | 由“列出模型”作业填充（pi）；也可手填，手填时提示“手填的模型没有核实” |
-  | thinking | 分段选择 | off、minimal、low、medium、high、xhigh、max；缺省 high |
+  | thinking | 分段选择 | off、minimal、low、medium、high、xhigh、max；缺省 high。这是要求的档位；Pi 对没有映射 xhigh / max 的模型会静默降档，生效档位看角色卡与运行记录（7.24） |
   | 凭据变量 | 标签输入 | 只写变量名，校验 `^[A-Za-z_][A-Za-z0-9_]*$`；说明“值在‘凭据’页录入” |
 
 - **方案表格**：名称、说明、包含的角色、是否当前。
@@ -684,11 +684,12 @@
   - 输入：搜索框（说明“Python 正则表达式”）、任务筛选、最多条数（缺省 50）；
   - 搜索是后台作业，全量搜索可能要半分钟左右：提交后显示进度与 [取消]，建议先选任务缩小范围；
   - 结果按 attempt 分组：`路径:行号` 加命中的那一行；摘录取自脱敏之后的文本，被遮蔽的值搜不到是正常的，`<redacted>` 占位本身能搜到；命中部分用 `--tt-highlight` 底色，全部按文本显示；
+  - 结果的说明：`truncated` 为真时写“只显示前 N 条匹配”；`skipped_large` 大于 0 时写“有 N 个文件太大或读不出来，没有搜；请用 CLI 查看”；不合法的、超过 4 MiB 的 JSONL 行不参加搜索。这些是架构文档 D7 的元数据门槛，只反映原文的大小与能否解析；
   - 点击结果，在文本查看器里打开该文件并跳到那一行。
 - **用量**：
   - 两张汇总卡：
     - **执行端（Pi）**：总 token 加分项（input、output、cacheRead、cacheWrite），以及 known、partial、unknown 的计数；
-    - **规划端**：没设置会话记录目录时显示空状态“在设置里指定会话记录目录后统计”，按钮 [去设置]；设置后按模型列出，分主线与子代理。目录在设置外壳页里用系统对话框选择，保存后外壳重启本机服务，新目录才生效。
+    - **规划端**：没设置会话记录目录时显示空状态“在设置里指定会话记录目录后统计”，按钮 [去设置]；设置后按模型列出，分主线与子代理。目录在设置外壳页里用系统对话框选择，保存后外壳重启本机服务，新目录才生效。七端工人的用量记在回合记录里，不混进规划端的会话目录，这一页现在不统计（架构文档 D11）。
   - 表格按 attempt 列出：任务、attempt、模型、状态标签（known 为 success、partial 为 warning、unknown 为 neutral）与各项 token；
   - 第二张表格按模型列出；
   - 横向条形图只用 CSS 画，不引入图表库；
@@ -747,7 +748,7 @@
 
 ### 6.11 第一阶段不做的页面
 
-需求与合同、四端拓扑、反馈流、推进：要等内核的后续阶段（架构文档 D11）。第一阶段**不出现在导航里**，也不放“即将推出”的占位。
+需求与合同、七端与信箱、反馈流、推进：要等内核的后续阶段（架构文档 D11）。接入之后七端与信箱只读信箱、回合记录与账本，不启动角色（架构文档 D1、D11）。第一阶段**不出现在导航里**，也不放“即将推出”的占位。
 
 ### 6.12 服务状态与恢复（外壳页）
 
@@ -950,7 +951,7 @@
 ### 7.22 就绪卡
 
 - **卡头**：✓ 就绪（success）或 ✗ 未就绪（danger）、角色名、profile。
-- **键值行**：命令（含来源）、版本、模型在列表中、登录、思考级别、允许列表、凭据（每个变量名后面标“可用 / 不可用”）、接通状态。
+- **键值行**：命令（含来源）、版本、模型在列表中、登录、思考级别（本机 pi 接受这个档位，不是生效档位，7.24）、允许列表、凭据（每个变量名后面标“可用 / 不可用”）、接通状态。
 - **问题**：列表，用 danger 文字。
 - **说明行**：内核给出的 WARN 行，用 `--tt-text-3`。
 
@@ -968,6 +969,19 @@
 | 空状态 | 图标 32（`--tt-text-3`）、标题、说明、可选的操作 |
 | 骨架屏 | 灰块，用不透明度变化，不用扫光；减少动效时静止 |
 | 键值列表 | 标签 `--tt-text-3`（最小宽 96），值 `--tt-text-1`；ID 用等宽 |
+
+### 7.24 思考档位（要求 / 生效）
+
+- 两个值并列，例如“要求 max · 生效 high”；档位名用等宽。规则以架构文档 D11 的“思考档位”为准。
+
+| 情形 | 显示 |
+|---|---|
+| 生效与要求相同 | 两个值，不加标记 |
+| 不同（含多个生效档位、其中有与要求不同的） | 两个值，加 warning 标签“与要求不同”；工具提示“内核记下的生效档位与要求不同” |
+| 生效未知 | “生效 未知”，neutral；不显示成要求的档位，也不算一致 |
+| 没有要求档位 | “—” |
+
+- 标签有文字，不只靠颜色；这里不用金色（第 2 节第 2 条）。
 
 ## 8. 交互与行为
 
@@ -1128,11 +1142,13 @@ stateDiagram-v2
    "events_ok": "live:37t 1146s 长时间没有工具调用（6420 个增量）",
    "violations": null, "checks": "-", "check_mode": null, "verdict": null, "failure_class": null,
    "human_minutes": null, "tokens": null, "cost": null, "cost_status": "unknown",
+   "effort_requested": "high", "effort_effective": null,
    "live": {"tool_calls": 37, "elapsed_seconds": 1146, "deltas_since_last_tool": 6420, "long_idle": true}},
   {"attempt": "logs-cat/attempt-002", "task_id": "logs-cat", "plan_version": 2, "attempt_no": 2,
    "state": "NEEDS_REVIEW", "started": true, "exit_code": 0, "wall_seconds": 1719.4, "events_ok": true,
    "violations": 0, "checks": "8/8", "check_mode": "fresh", "verdict": null, "failure_class": null,
-   "human_minutes": 0.0, "tokens": 4210385, "cost": null, "cost_status": "unknown"},
+   "human_minutes": 0.0, "tokens": 4210385, "cost": null, "cost_status": "unknown",
+   "effort_requested": "max", "effort_effective": "high"},
   {"attempt": "logs-cat/attempt-001", "task_id": "logs-cat", "plan_version": 1, "attempt_no": 1,
    "state": "REVISE", "started": true, "exit_code": 0, "wall_seconds": 1102.4, "events_ok": true,
    "violations": 0, "checks": "6/8", "check_mode": "fresh", "verdict": "REVISE", "failure_class": "EXECUTION_ERROR",
@@ -1159,7 +1175,8 @@ stateDiagram-v2
 
 字段说明：
 - 运行中的行，`events_ok` 照现状放的是实时进度字符串；新增的 `live` 是同一份数据的结构化版本，界面只用 `live`；
-- 没有检查结果时，`checks` 是 `"-"`。
+- 没有检查结果时，`checks` 是 `"-"`；
+- `effort_requested` 与 `effort_effective` 是示意字段：内核补上之前没有（架构文档 D13），界面按 7.24 显示“未知”。
 
 ### 9.3 `getAttempt`（`logs show --json`）
 
@@ -1202,10 +1219,12 @@ stateDiagram-v2
   {"role": "contract", "explicit": false, "binding": {"mode": "manual"}, "differs_from_preset": false},
   {"role": "execution", "explicit": true, "binding": {"mode": "headless", "profile": "step-high"},
    "differs_from_preset": false, "profile": "step-high", "runtime": "pi", "adapter": "pi", "provider": "bb",
-   "model": "step-5-preview", "thinking": "high", "connected": true},
+   "model": "step-5-preview", "thinking": "high", "connected": true, "effort_effective": null},
   {"role": "scheduler_agent", "explicit": false, "binding": {"mode": "disabled"}, "differs_from_preset": false}
 ]}
 ```
+
+示意，见 9.2。
 
 ### 9.6 `getProfiles`、`getPresets`、`diffPresets`
 
@@ -1359,12 +1378,12 @@ stateDiagram-v2
 | gate | 门禁 | G0–G6 的机械检查 |
 | check / mutation / verdict | 检查 / 变异 / 结论 | — |
 | integrate | 集成 | 把通过的候选合进分支 |
-| role | 角色 | 规划审核端、合同端、执行端、调度代理 |
+| role | 角色 | 配置中心的四个角色：规划审核端、合同端、执行端、调度代理；七端见架构文档 §2.9 |
 | headless / interactive_host / manual / disabled | 无头 / 交互式宿主 / 手工 / 关闭 | 角色的运行模式 |
 | profile | profile | 一个 CLI、一个模型与选项的组合 |
 | runtime | runtime | 一个 CLI 的一份安装 |
 | preset | 方案 | 一组角色绑定，可以一键切换 |
-| readiness | 就绪 | 命令、模型、登录、思考级别、凭据都可用 |
+| readiness | 就绪 | 命令、模型、登录、思考级别（本机 pi 接受）、凭据都可用 |
 | credential | 凭据 | 只显示在哪一层找到，不显示值 |
 | drift | 漂移 | 内容与锁记录的不一致 |
 
@@ -1432,6 +1451,7 @@ stateDiagram-v2
 12. 外壳页（首次启动、设置、服务状态）不依赖本机服务也能打开，只用 `window.themisShell`（5.7）。
 13. 写操作无论成败都重新读取；“完成但有警告”“已部分写入”两种状态都有设计（7.11）。
 14. “下一步”复制的是精确的 attempt 目录（6.3）。
-15. 隐藏的行（不合法的 JSON、超长）有占位样式；搜索摘录只来自脱敏之后的文本（7.12、6.7）。
+15. 隐藏的行（不合法的 JSON、超长）有占位样式；搜索摘录只来自脱敏之后的文本（7.12、6.7）；搜索结果显示截断与跳过的大文件（6.7）。
 16. “结果未知”状态有设计；连接中断时不凭一次读取下结论，查到的操作记录里的 WARN 与 ERROR 照常显示（7.11、8.3）。
 17. 一行的分片能接起来显示，行号旁有“第 k/n 片”（7.12）。
+18. 思考档位并列显示要求与生效；不同的标出来；生效未知显示“未知”，不显示成一致（7.24）。
