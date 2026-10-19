@@ -808,6 +808,21 @@ def extract_json_block(text: str) -> Dict[str, Any]:
     return data
 
 
+def turn_cost_usd(adapter: str, session: Dict[str, Any], reported: Any) -> Tuple[Optional[float], Optional[float]]:
+    """（这一回合的花费，会话累计的花费）。claude -p --resume 的 total_cost_usd 是整个会话的累计值：
+    T001 协调人 20 个回合从 0.04 涨到 2.17，按回合加总多算了十倍（第 16 轮）。减去会话上一回合记下的累计值；
+    累计值变小（CLI 改成按次回报，或会话重开）时，就当它是这一回合的。pi 的回报没有核实过是累计值，原样记。"""
+    if reported is None:
+        return None, None
+    total = float(reported)
+    if adapter != "claude":
+        return total, None
+    previous = session.get("cost_usd_total")
+    if previous is None or total < float(previous):
+        return total, total
+    return round(total - float(previous), 6), total
+
+
 def claude_session_effort(session_id: str) -> Optional[str]:
     """claude 的会话文件里每条 assistant 记录带 effort：读出实际生效的档位（设计 §6.1）。"""
     base = Path.home() / ".claude" / "projects"
@@ -1037,8 +1052,11 @@ class TurnRunner:
                 output = extract_json_block(audit["final_text"])
             except HubError as exc:
                 output_error = str(exc)
+        turn_cost, session_cost = turn_cost_usd(spec["adapter"], session, audit.get("cost_usd"))
         session["turns"] = int(session.get("turns", 0)) + 1
         session["last_turn"] = turn_id
+        if session_cost is not None:
+            session["cost_usd_total"] = session_cost
         record["sessions"][session_key] = session
         record["last_turn_at"] = utc_now()
         self.hub.save_agent_record(agent, record)
@@ -1049,8 +1067,8 @@ class TurnRunner:
             "wall_seconds": result.get("wall_seconds"), "workspace": str(workspace),
             "model_requested": spec.get("model"), "models": audit.get("models"),
             "effort_requested": audit["effort_requested"], "effort_effective": audit["effort_effective"],
-            "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": audit.get("cost_usd"),
-            "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
+            "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": turn_cost,
+            "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
             "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
         }
@@ -1058,7 +1076,8 @@ class TurnRunner:
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
                               exit_code=summary["exit_code"], timed_out=summary["timed_out"],
                               violations=len(audit["violations"]), output_ok=output is not None,
-                              effort_requested=summary["effort_requested"], effort_effective=summary["effort_effective"])
+                              effort_requested=summary["effort_requested"], effort_effective=summary["effort_effective"],
+                              cost_usd=turn_cost, wall_seconds=summary["wall_seconds"])
         summary["output"] = output
         summary["turn_dir"] = str(turn_dir)
         return summary
@@ -1213,6 +1232,9 @@ def dod_coverage_problems(hub: Hub, ts: Dict[str, Any], report: str) -> List[str
     return []
 
 
+PLAN_VERSION_RE = re.compile(r"(?m)^(-[ \t]*plan_version:[ \t]*`?)(\d+)")
+
+
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
     text = output.get("contract_md")
     if not isinstance(text, str) or not text.strip():
@@ -1226,6 +1248,12 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return ["%s 已存在，合同版本只增不改" % path.name]
+    # 版本号由内核分配，和 base_sha 一样由内核写准：T004 的合同端返工时照抄了上一版的 plan_version 1，
+    # 内核存成 v2，整份因为版本号对不上被拒（第 16 轮）
+    text, fixed = PLAN_VERSION_RE.subn(r"\g<1>%d" % version, text, count=1)
+    if fixed and PLAN_VERSION_RE.search(output["contract_md"]).group(2) != str(version):
+        hub.append_event("contract.version_normalized", task=ts["task"], key=key,
+                         written=PLAN_VERSION_RE.search(output["contract_md"]).group(2))
     path.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     ts["contract"] = {"version": version, "key": key, "md": str(path.relative_to(hub.repo).as_posix()),
                       "json": str(path.with_suffix(".json").relative_to(hub.repo).as_posix())}
@@ -2760,6 +2788,81 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
+    """每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮）。第 16 轮之前的记录里，claude 工人的
+    cost_usd 是会话累计值，按会话依次相减换算回这一回合的。"""
+    records = []
+    for path in sorted((hub.root / "turns").glob("*/*/result.json")):
+        try:
+            records.append(json.loads(path.read_text(encoding="utf-8")))
+        except ValueError:
+            continue
+    records.sort(key=lambda r: str(r.get("turn_id") or ""))  # turn_id 以 UTC 时间开头
+    last_total: Dict[str, float] = {}
+    rows = []
+    for record in records:
+        cost = record.get("cost_usd")
+        legacy = "session_cost_usd" not in record and (ROSTER.get(record.get("agent")) or {}).get("adapter") == "claude"
+        if legacy and cost is not None:
+            total, previous = float(cost), last_total.get(str(record.get("session_id")))
+            cost = total if previous is None or total < previous else round(total - previous, 6)
+            last_total[str(record.get("session_id"))] = total
+        rows.append({"task": stage_of(str(record.get("session_key") or ""))[0] or "?", "agent": record.get("agent"),
+                     "seconds": float(record.get("wall_seconds") or 0), "cost_usd": cost})
+    return rows
+
+
+def exec_metrics(hub: Hub) -> Dict[str, Dict[str, float]]:
+    """执行端（调度器 run）每个主任务的 attempt 数与墙钟，读台账里的 exec.started / exec.finished。"""
+    started: Dict[str, Any] = {}
+    totals: Dict[str, Dict[str, float]] = {}
+    ledger = hub.ledger()
+    for line in read_text(ledger).splitlines() if ledger.exists() else []:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("event") == "exec.started":
+            started[event.get("run_dir")] = (event.get("task"), event.get("at"))
+        elif event.get("event") == "exec.finished" and event.get("run_dir") in started:
+            task, at = started.pop(event["run_dir"])
+            seconds = (_dt.datetime.strptime(event["at"][:19], "%Y-%m-%dT%H:%M:%S")
+                       - _dt.datetime.strptime(at[:19], "%Y-%m-%dT%H:%M:%S")).total_seconds()
+            entry = totals.setdefault(task, {"attempts": 0, "seconds": 0.0})
+            entry["attempts"] += 1
+            entry["seconds"] += seconds
+    return totals
+
+
+def cmd_metrics(args: argparse.Namespace) -> int:
+    """各主任务、各端的回合数、用时与花费（第 16 轮）：此前要从台账与回合记录里手工拼，
+    协调人的花费还被会话累计值放大了十倍。"""
+    hub = Hub(find_repo(args.repo))
+    rows = turn_metrics(hub)
+    executions = exec_metrics(hub)
+    if args.json:
+        print(json.dumps({"turns": rows, "exec": executions}, ensure_ascii=False, indent=2))
+        return EXIT_OK
+    tasks = sorted({row["task"] for row in rows} | set(executions))
+    for task in tasks:
+        print("## %s" % task)
+        print("| 工人 | 回合 | 分钟 | 美元 |")
+        print("|---|---|---|---|")
+        for agent in sorted({row["agent"] for row in rows if row["task"] == task}):
+            mine = [row for row in rows if row["task"] == task and row["agent"] == agent]
+            costs = [row["cost_usd"] for row in mine if row["cost_usd"] is not None]
+            print("| %s | %d | %.1f | %s |" % (agent, len(mine), sum(row["seconds"] for row in mine) / 60,
+                                              "%.2f" % sum(costs) if costs else "未回报"))
+        if task in executions:
+            print("| 执行端（调度器 run） | %d 个 attempt | %.1f | 见 pi_dispatch metrics |" % (
+                executions[task]["attempts"], executions[task]["seconds"] / 60))
+        print()
+    known = [row["cost_usd"] for row in rows if row["cost_usd"] is not None]
+    print("工人回合合计：%d 个，%.1f 分钟，%.2f 美元（回报了花费的部分）" % (
+        len(rows), sum(row["seconds"] for row in rows) / 60, sum(known)))
+    return EXIT_OK
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     hub.ensure()
@@ -2843,6 +2946,9 @@ def build_parser() -> argparse.ArgumentParser:
     take = sub.add_parser("take", help="站主收信")
     take.add_argument("--peek", action="store_true", help="只看，不移到 cur")
     take.set_defaults(func=cmd_take)
+    metrics = sub.add_parser("metrics", help="各主任务、各端的回合数、用时与花费")
+    metrics.add_argument("--json", action="store_true")
+    metrics.set_defaults(func=cmd_metrics)
     status = sub.add_parser("status", help="主任务与信箱概况")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status)

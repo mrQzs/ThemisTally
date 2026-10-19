@@ -1175,6 +1175,20 @@ def test_contract_requirements(tmp_path):
     assert any("基线应失败" in p for p in kh.contract_requirements(hub, ts))
 
 
+def test_kernel_writes_the_contract_version_it_assigns(tmp_path, monkeypatch):
+    # 第 16 轮：T004 的合同端返工时照抄了上一版的 plan_version 1，内核存成 v2，整份因为版本号对不上被拒
+    _repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
+    md = "# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: %s\n" % head
+    kh.accept_contract(hub, ts, {"contract_md": md})
+    assert ts["contract"]["key"] == "t001-doc.v2"
+    assert "\n- plan_version: 2\n" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    kh.accept_contract(hub, ts, {"contract_md": md.replace("plan_version: 1", "plan_version: `3`")})
+    assert "\n- plan_version: `3`\n" in (plans / "t001-doc.v3.md").read_text(encoding="utf-8")  # 写对了照原样
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [(e["key"], e["written"]) for e in events if e["event"] == "contract.version_normalized"] == [
+        ("t001-doc.v2", "1")]
+
+
 def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypatch):
     # 第 14 轮：T002 的合同没有回归检查，T003 的是合同端自愿写的；存量功能静默退化没有一道关拦
     repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
@@ -2130,6 +2144,78 @@ def test_session_ids_change_on_a_fresh_restart(tmp_path):
     ids = [cmd[cmd.index("--session-id") + 1] for cmd in seen]
     assert ids == ["T001-2-contract-g0", "T001-2-contract-g0", "T001-2-contract-g1"]
     assert all(cmd[-2].startswith("@") for cmd in seen)  # pi 的输入一律经 @文件
+
+
+def test_turn_cost_is_this_turn_not_the_session_total(tmp_path):
+    # 第 16 轮：claude -p --resume 回报会话累计的花费，T001 协调人 20 个回合从 0.04 涨到 2.17，按回合加总多算十倍
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    totals = iter([0.10, 0.25, 0.27, 0.05])
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        init = dict(INIT, tools=kh.ROSTER["womovie-c8"]["tools"], model=kh.ROSTER["womovie-c8"]["model"])
+        result = {"type": "result", "result": "```json\n{\"letters\": []}\n```", "total_cost_usd": next(totals)}
+        out.write(("\n".join(stream(init, result)) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 2.5}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    turns = [runner.run("womovie-c8", "T001", tmp_path, "角色", "输入", fresh=fresh) for fresh in (False, False, False, True)]
+    assert [t["cost_usd"] for t in turns] == [0.10, 0.15, 0.02, 0.05]  # 会话重开之后从头计
+    assert [t["session_cost_usd"] for t in turns] == [0.10, 0.25, 0.27, 0.05]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    finished = [e for e in events if e["event"] == "turn.finished"]
+    assert [e["cost_usd"] for e in finished] == [0.10, 0.15, 0.02, 0.05] and finished[0]["wall_seconds"] == 2.5
+    assert kh.turn_cost_usd("claude", {"cost_usd_total": 0.3}, 0.1) == (0.1, 0.1)  # 累计值变小：当它是这一回合的
+    assert kh.turn_cost_usd("pi", {"cost_usd_total": 0.3}, 0.4) == (0.4, None)  # pi 的回报原样记
+    assert kh.turn_cost_usd("claude", {}, None) == (None, None)
+
+
+def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_path, monkeypatch):
+    import io
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+
+    def record(agent, turn_id, session_key, session_id, cost, seconds, **extra):
+        turn = hub.root / "turns" / agent / turn_id
+        turn.mkdir(parents=True)
+        data = dict({"turn_id": turn_id, "agent": agent, "session_key": session_key, "session_id": session_id,
+                     "cost_usd": cost, "wall_seconds": seconds}, **extra)
+        (turn / "result.json").write_text(json.dumps(data), encoding="utf-8")
+
+    # 第 16 轮之前：claude 工人的 cost_usd 是会话累计值（倒序写入，按 turn_id 排）
+    record("womovie-c8", "20261019T010300Z-c", "T001", "s1", 0.27, 60)
+    record("womovie-c8", "20261019T010100Z-a", "T001", "s1", 0.10, 60)
+    record("womovie-c8", "20261019T010200Z-b", "T001", "s1", 0.25, 60)
+    record("audit-sonnet", "20261019T020000Z-d", "T001-4-audit-pre", "s2", 4.0, 600)
+    record("contract-glm", "20261019T020500Z-e", "T001-2-contract", "T001-2-contract-g0", None, 300)
+    # 第 16 轮之后：cost_usd 已经是这一回合的
+    record("womovie-c8", "20261019T030000Z-f", "T002", "s3", 0.02, 30, session_cost_usd=0.02)
+    record("womovie-c8", "20261019T030100Z-g", "T002", "s3", 0.05, 30, session_cost_usd=0.07)  # 新记录不再换算
+    rows = kh.turn_metrics(hub)
+    assert [(r["agent"], r["cost_usd"]) for r in rows] == [
+        ("womovie-c8", 0.10), ("womovie-c8", 0.15), ("womovie-c8", 0.02), ("audit-sonnet", 4.0),
+        ("contract-glm", None), ("womovie-c8", 0.02), ("womovie-c8", 0.05)]
+    assert [r["task"] for r in rows] == ["T001"] * 5 + ["T002"] * 2
+    for event, at in (("exec.started", "2026-10-19T04:00:00Z"), ("exec.finished", "2026-10-19T04:30:00Z")):
+        hub.append_event(event, task="T001", run_dir="r1", at_override=at)
+    lines = hub.ledger().read_text(encoding="utf-8").splitlines()
+    fixed = []
+    for line in lines:  # append_event 自己写 at：改成固定时刻
+        event = json.loads(line)
+        event["at"] = event.pop("at_override")
+        fixed.append(json.dumps(event))
+    hub.ledger().write_text("\n".join(fixed) + "\n", encoding="utf-8")
+    assert kh.exec_metrics(hub) == {"T001": {"attempts": 1, "seconds": 1800.0}}
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    parser = kh.build_parser()
+    args = parser.parse_args(["--repo", str(repo), "metrics"])
+    assert args.func(args) == kh.EXIT_OK
+    text = out.getvalue()
+    assert "| womovie-c8 | 3 | 3.0 | 0.27 |" in text and "| contract-glm | 1 | 5.0 | 未回报 |" in text
+    assert "| 执行端（调度器 run） | 1 个 attempt | 30.0 |" in text
+    assert "工人回合合计：7 个" in text and "4.34 美元" in text
 
 
 def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_path):
