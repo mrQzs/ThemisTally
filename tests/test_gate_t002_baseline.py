@@ -23,8 +23,10 @@ base_sha），那时 ``desktop/web`` 还不存在，所以本文件在基线上�
 - D03（没有删除、跳过、弱化既有测试）：``test_d03_*`` 做能机械检查的部分（既有测试文件不动、新测试不跳过），
   “有没有弱化”由终审读差异判断；
 - D04（契约检查脚本真检查）：G9；
-- D05（``dist``、``src``、``public`` 里没有字体文件，也没有 ``@font-face``；另外依赖里没有字体包、没有 ``fonts.css``，
-  ``public/licenses`` 与 ``THIRD_PARTY_NOTICES.md`` 只记 Lucide）：``test_d05_*``、G1、G2、G7。
+- D05（依赖里没有字体包）：G1、G2。原来还断言“``dist``、``src``、``public`` 里没有字体文件与 ``@font-face``、
+  没有 ``fonts.css``，``public/licenses`` 与 ``THIRD_PARTY_NOTICES.md`` 只记 Lucide”，这几条只在第 1 片成立，
+  站主在登记 T003（随包字体）之前退役了：``test_d05_src_and_public_have_no_fonts``、``test_d05_dist_has_no_fonts``、
+  ``test_g7_third_party_notices_only_lucide``，以及 ``test_g7_lucide_license_in_public_and_dist`` 里“没有 OFL”那一句。
 
 门禁做不到、留给人的项：陈列页与画布的视觉还原（尺寸、间距、悬停/按下/聚焦/禁用/加载各状态）、1024 宽无整页
 横向滚动、许可与来源记录的准确性与完整性、按钮高 28/32/36 与 Tag/Card 的具体像素（jsdom 不算样式）。
@@ -872,72 +874,20 @@ def test_g6_dist_css_carries_tokens(pipeline):
 
 
 # ---------------------------------------------------------------------------
-# G7 许可（Lucide）与 D05：第 1 片没有任何字体（合同 v2 兼容性、Steps 4、D05）
+# G7 许可（Lucide）
 # ---------------------------------------------------------------------------
 
-FONT_SUFFIXES = (".woff2", ".woff", ".ttf", ".otf", ".eot")
-TEXT_SUFFIXES = (".css", ".html", ".js", ".mjs", ".ts", ".tsx", ".svg", ".json", ".map")
 ISC_SNIPPET = "Permission to use, copy, modify, and/or distribute this software"
 
 
-def _strip_code_comments(text):
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"(?m)(?<![:\"'])//.*$", "", text)
-
-
-def _font_findings(root):
-    """root 下的字体文件，以及去掉注释后仍含 @font-face 的文本文件。"""
-    found = []
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        rel = path.relative_to(WEB).as_posix()
-        if path.suffix.lower() in FONT_SUFFIXES:
-            found.append(f"字体文件 {rel}")
-        elif path.suffix.lower() in TEXT_SUFFIXES and path.stat().st_size < 20_000_000:
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "@font-face" in _strip_code_comments(text).lower():
-                found.append(f"@font-face 出现在 {rel}")
-    return found
-
-
-def test_d05_src_and_public_have_no_fonts():
-    """D05：desktop/web/src 与 desktop/web/public 里没有 woff2/woff/ttf/otf（及 eot）字体文件，也没有 @font-face；没有 fonts.css。"""
-    src = need_dir(f"{WEB_REL}/src")
-    public = need_dir(f"{WEB_REL}/public")
-    findings = _font_findings(src) + _font_findings(public)
-    assert not findings, "v2 把随包字体移出第 1 片，src/public 里不应有字体：\n" + "\n".join(findings[:20])
-    fonts_css = sorted(p.relative_to(WEB).as_posix() for p in WEB.rglob("fonts.css") if "node_modules" not in p.parts)
-    assert not fonts_css, f"不应建 fonts.css：{fonts_css}"
-
-
-def test_d05_dist_has_no_fonts(pipeline):
-    """D05：build 之后 desktop/web/dist 里没有任何字体文件，也没有 @font-face。"""
-    dist = need_build(pipeline)
-    findings = _font_findings(dist)
-    assert not findings, "v2：dist 里不应有字体：\n" + "\n".join(findings[:20])
-
-
 def test_g7_lucide_license_in_public_and_dist(pipeline):
-    """合同 v2 兼容性与 Steps 8：public/licenses 与随产物发布的 dist/licenses 里有 Lucide 的 ISC 许可原文，且没有字体许可（OFL）。"""
+    """合同 v2 兼容性与 Steps 8：public/licenses 与随产物发布的 dist/licenses 里有 Lucide 的 ISC 许可原文。"""
     lic_dir = need_dir(f"{WEB_REL}/public/licenses")
     dist = need_build(pipeline)
     for label, directory in (("public/licenses", lic_dir), ("dist/licenses", dist / "licenses")):
         assert directory.is_dir(), f"{label} 不存在（public/licenses 应随产物发布）"
         texts = [_read(p) for p in directory.rglob("*") if p.is_file() and p.stat().st_size < 500_000]
         assert any(ISC_SNIPPET in t for t in texts), f"{label} 没有 Lucide 的 ISC 许可原文"
-        assert not any(re.search(r"SIL OPEN FONT LICENSE|Open Font License", t, re.I) for t in texts), \
-            f"{label} 里不应有字体许可（OFL），字体移出了第 1 片"
-
-
-def test_g7_third_party_notices_only_lucide():
-    """合同 v2 兼容性：THIRD_PARTY_NOTICES.md 记 Lucide 的名称、版本、ISC 许可、来源；不记任何字体。"""
-    notices = _read(need_file(f"{WEB_REL}/THIRD_PARTY_NOTICES.md"))
-    assert "Lucide" in notices and re.search(r"\bISC\b", notices), "THIRD_PARTY_NOTICES.md 没有记 Lucide 与 ISC 许可"
-    assert re.search(r"(?is)lucide.{0,400}?\d+\.\d+\.\d+", notices), "THIRD_PARTY_NOTICES.md 没有记 Lucide 的版本"
-    assert re.search(r"https?://", notices), "THIRD_PARTY_NOTICES.md 没有记来源地址"
-    leftovers = [w for w in ("Sarasa", "更纱", "Open Font License", "@fontpkg") if w.lower() in notices.lower()]
-    if re.search(r"\bOFL\b", notices):
-        leftovers.append("OFL")
-    assert not leftovers, f"THIRD_PARTY_NOTICES.md 不应再记字体，仍出现：{leftovers}"
 
 
 # ---------------------------------------------------------------------------
