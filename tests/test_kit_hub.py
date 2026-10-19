@@ -762,28 +762,84 @@ def test_candidate_defects_go_to_the_final_review_which_cannot_pass_them(tmp_pat
 
 def test_runner_exits_between_steps_once_the_kernel_changes(tmp_path, monkeypatch):
     # 第 9 轮：模板每回合现读、代码还是启动时那一份；落地新一轮改动之后，跑着的 hub 要在两步之间退出
-    import argparse
     templates = tmp_path / "hub"
     templates.mkdir()
     (templates / "worker.md").write_text("旧模板", encoding="utf-8")
     code = tmp_path / "kit_hub.py"
     code.write_text("# 旧内核", encoding="utf-8")
-    first = kh.code_fingerprint(code, templates)
-    assert kh.code_fingerprint(code, templates) == first
-    (templates / "worker.md").write_text("新模板", encoding="utf-8")
-    second = kh.code_fingerprint(code, templates)
-    code.write_text("# 新内核", encoding="utf-8")
-    assert len({first, second, kh.code_fingerprint(code, templates)}) == 3
-    assert kh.code_fingerprint() == kh.code_fingerprint(Path(kh.__file__), kh.TEMPLATE_DIR)
+    dispatcher = tmp_path / "pi_dispatch.py"
+    dispatcher.write_text("# 旧调度器", encoding="utf-8")
+    files = [code, dispatcher, templates / "worker.md"]
+    first = kh.code_fingerprint(files)
+    assert kh.code_fingerprint(files) == first
+    seen = {first}
+    for path, text in ((templates / "worker.md", "新模板"), (code, "# 新内核"), (dispatcher, "# 新调度器")):
+        path.write_text(text, encoding="utf-8")
+        seen.add(kh.code_fingerprint(files))
+    assert len(seen) == 4  # 第 13 轮：调度器也算（内核在进程里直接调它的函数）
+    here = Path(kh.__file__).parent
+    assert kh.kernel_files()[:2] == [Path(kh.__file__), here / "pi_dispatch.py"]
+    assert here / "hub" / "worker.md" in kh.kernel_files() and kh.code_fingerprint() == kh.code_fingerprint(kh.kernel_files())
     repo, _head = git_repo(tmp_path)
+    events, steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[True], no_restart=False, settle=0.0)
+    assert len(steps) == 2 and spawned == []  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b；还没提交，退出
+    assert [e["event"] for e in events if e["event"].startswith("runner.")] == [
+        "runner.started", "runner.code_changed", "runner.stopped"]
+    assert next(e for e in events if e["event"] == "runner.code_changed")["restart"] is False
+
+
+def run_with_kernel_change(repo, monkeypatch, dirty, no_restart, settle):
+    """跑 cmd_run：指纹在第 3 步之前变掉；kernel_dirty 依次返回 dirty 里的值（用完之后一直是最后一个）。"""
+    import argparse
     seen = iter(["a", "a", "a", "b", "b"])
     monkeypatch.setattr(kh, "code_fingerprint", lambda *args: next(seen))
-    steps = []
+    answers = list(dirty)
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *args: answers.pop(0) if len(answers) > 1 else answers[0])
+    steps, spawned = [], []
     monkeypatch.setattr(kh.Engine, "step", lambda self: steps.append(1) or True)
-    assert kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0)) == kh.EXIT_OK
-    assert len(steps) == 2  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b，退出
-    events = [json.loads(line)["event"] for line in kh.Hub(repo).ledger().read_text(encoding="utf-8").splitlines()]
-    assert [e for e in events if e.startswith("runner.")] == ["runner.started", "runner.code_changed", "runner.stopped"]
+
+    def spawn(argv):
+        # 运行锁已经交出：子进程拿得到
+        with kh.DirLock(kh.Hub(repo).root / ".runner", wait_seconds=0.1):
+            spawned.append(list(argv))
+        return 7
+
+    monkeypatch.setattr(kh, "spawn_runner", spawn)
+    code = kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=settle,
+                                         no_restart=no_restart))
+    assert code == (7 if spawned else kh.EXIT_OK)
+    events = [json.loads(line) for line in kh.Hub(repo).ledger().read_text(encoding="utf-8").splitlines()]
+    return events, steps, spawned
+
+
+def test_runner_restarts_on_committed_kernel_changes(tmp_path, monkeypatch):
+    # 第 13 轮：持续自我迭代时内核频繁落地，每次都要站主手动重启，任务就停在那里等
+    repo, _head = git_repo(tmp_path)
+    events, steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[True, True, False], no_restart=False,
+                                                    settle=60.0)
+    assert len(steps) == 2 and len(spawned) == 1  # 等到改动提交，再用新代码接着跑
+    argv = spawned[0]
+    assert argv[1] == str(Path(kh.__file__)) and argv[2:5] == ["--repo", str(repo), "run"]
+    assert argv[argv.index("--max-steps") + 1] == "8" and argv[argv.index("--settle") + 1] == "60.0"
+    changed = next(e for e in events if e["event"] == "runner.code_changed")
+    assert changed["restart"] is True and changed["steps"] == 2
+    _events, _steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[False], no_restart=True, settle=60.0)
+    assert spawned == []  # --no-restart：照第 9 轮退出
+
+
+def test_kernel_dirty_reads_git_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))  # basetemp 可能就在本仓库里
+    repo, _head = git_repo(tmp_path)
+    readme = repo / "README.md"
+    assert kh.kernel_dirty([readme]) is False
+    readme.write_text("改了\n", encoding="utf-8")
+    assert kh.kernel_dirty([readme]) is True
+    kh.git(["commit", "-q", "-am", "提交"], repo)
+    assert kh.kernel_dirty([readme]) is False
+    outside = tmp_path / "plain"
+    outside.mkdir()
+    (outside / "kit_hub.py").write_text("# 不在仓库里\n", encoding="utf-8")
+    assert kh.kernel_dirty([outside / "kit_hub.py"]) is True  # 说不清是哪一份代码，不自动重启
 
 
 def test_tail_file_reads_only_the_end(tmp_path):

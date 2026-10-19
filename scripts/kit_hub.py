@@ -126,13 +126,46 @@ CONTRACT_EXECUTOR_LINE = "- executor: %s/%s · thinking %s" % EXECUTOR
 HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
-def code_fingerprint(code: Optional[Path] = None, templates: Optional[Path] = None) -> str:
-    """内核代码与提示词模板的指纹。落地新一轮改动之后，跑着的 hub 在两步之间退出（第 9 轮）：
+def kernel_files() -> List[Path]:
+    """内核文件：代码、调度器（内核在进程里直接调它的函数，第 13 轮补上）与提示词模板。"""
+    return [Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md"))
+
+
+def code_fingerprint(files: Optional[Sequence[Path]] = None) -> str:
+    """内核文件的指纹。落地新一轮改动之后，跑着的 hub 在两步之间换新代码（第 9 轮退出，第 13 轮自动重启）：
     模板每回合现读，代码却还是启动时那一份，新模板配旧内核，工人会交出旧内核不认的东西。"""
-    digest = hashlib.sha256((code or Path(__file__)).read_bytes())
-    for path in sorted((templates or TEMPLATE_DIR).glob("*.md")):
-        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes())
+    digest = hashlib.sha256()
+    for path in files if files is not None else kernel_files():
+        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
+
+
+def kernel_dirty(files: Optional[Sequence[Path]] = None) -> bool:
+    """内核文件有没有未提交的改动。不在 Git 仓库里、git 出错都按“有”算：说不清是哪一份代码，就不自动重启。"""
+    paths = list(files if files is not None else kernel_files())
+    try:
+        proc = subprocess.run(["git", "status", "--porcelain", "--"] + [str(p) for p in paths],
+                              cwd=str(paths[0].parent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
+    except OSError:
+        return True
+    return proc.returncode != 0 or bool(proc.stdout.strip())
+
+
+def kernel_settled(wait: float, poll: float) -> bool:
+    """等内核文件落定（没有未提交的改动），最多等 wait 秒。落地是一次提交，文件先变、提交随后；
+    规划端在主工作区里边改边试时，文件一直是脏的，等不到就退出（第 13 轮）。"""
+    deadline = time.monotonic() + wait
+    while kernel_dirty():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(max(poll, 0.1))
+    return True
+
+
+def spawn_runner(argv: Sequence[str]) -> int:
+    """用新代码起一个 hub：子进程继承输出，父进程等它结束（后台任务的通知仍在整个调度结束时才来）。"""
+    return subprocess.run(list(argv), stdin=subprocess.DEVNULL).returncode
 
 
 class HubError(Exception):
@@ -2603,14 +2636,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     hub.ensure()
     engine = Engine(hub)
     turns = 0
+    restart = False
     fingerprint = code_fingerprint()
     with DirLock(hub.root / ".runner", wait_seconds=1.0):
         hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256)
         idle_since = time.monotonic()
         while turns < args.max_steps:
             if code_fingerprint() != fingerprint:
-                hub.append_event("runner.code_changed", pid=os.getpid(), steps=turns)
-                print("内核代码或提示词模板变了：hub 在两步之间退出，请用新代码重启")
+                # 第 13 轮：持续自我迭代时内核频繁落地，每次都要站主手动重启，任务就停在那里等。
+                # 落定（已提交）的新代码自动接着跑；还在改的不拿来跑，照第 9 轮退出
+                restart = not args.no_restart and kernel_settled(args.settle, args.poll)
+                hub.append_event("runner.code_changed", pid=os.getpid(), steps=turns, restart=restart)
+                print("内核代码或提示词模板变了：%s" % (
+                    "已提交，hub 在两步之间用新代码重启" if restart else
+                    "hub 在两步之间退出（%s），请用新代码重启" % (
+                        "--no-restart" if args.no_restart else "还有未提交的改动")), flush=True)
                 break
             pending = hub.load_state()
             passes = [p for p in hub.unread("exec-step")
@@ -2629,6 +2669,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                 break
             time.sleep(args.poll)
         hub.append_event("runner.stopped", pid=os.getpid(), steps=turns)
+    if restart:  # 运行锁已经交出：子进程要拿到它
+        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
+                             "--max-steps", str(args.max_steps - turns), "--idle-exit", str(args.idle_exit),
+                             "--poll", str(args.poll), "--settle", str(args.settle)])
     print("hub 退出：处理了 %d 件事；站主未读 %d 封" % (turns, len(hub.unread(OWNER))))
     return EXIT_OK
 
@@ -2677,6 +2721,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-steps", type=int, default=60)
     run.add_argument("--idle-exit", type=float, default=30.0)
     run.add_argument("--poll", type=float, default=2.0)
+    run.add_argument("--settle", type=float, default=120.0,
+                     help="内核代码变了之后，最多等多少秒让改动提交；提交了就用新代码重启")
+    run.add_argument("--no-restart", action="store_true", help="内核代码变了就退出，不自动重启（第 9 轮的做法）")
     run.set_defaults(func=cmd_run)
     return parser
 
