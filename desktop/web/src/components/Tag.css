@@ -1,0 +1,20 @@
+/* 标签：高 20、内边距 0 6、圆角 sm；mono 用 --tt-mono-sm，否则 --tt-text-caption-strong。 */
+.tt-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--tt-radius-sm);
+  font: var(--tt-text-caption-strong);
+  white-space: nowrap;
+}
+.tt-tag--mono { font: var(--tt-mono-sm); }
+
+.tt-tag--neutral { background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); }
+.tt-tag--info { background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); }
+.tt-tag--attention { background: var(--tt-tone-attention-bg); color: var(--tt-tone-attention-fg); }
+.tt-tag--success { background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); }
+.tt-tag--warning { background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); }
+.tt-tag--danger { background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); }
+.tt-tag--escalate { background: var(--tt-tone-escalate-bg); color: var(--tt-tone-escalate-fg); }
+.tt-tag--brand { background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); }

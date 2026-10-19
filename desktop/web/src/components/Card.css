@@ -1,0 +1,20 @@
+/* 卡片：surface-1 底、border 边、圆角 lg 8、内边距 16；头部为标题与右侧操作。 */
+.tt-card {
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  padding: var(--tt-space-4);
+}
+.tt-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}
+.tt-card__head:not(:last-child) { margin-bottom: var(--tt-space-2); }
+.tt-card__title { font: var(--tt-title-sm); }
+.tt-card__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+}

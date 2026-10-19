@@ -10,3 +10,8 @@ __pycache__/
 .agent/.config.lock/
 # 七端信箱（3.0 第三轮）：信件、回合记录、会话与账本都是本机运行状态，不提交
 .agent/mailbox/
+
+# desktop/web 前端工程（T002 第 1 片）：依赖、构建产物与门禁探针不提交
+desktop/**/node_modules/
+desktop/**/dist/
+desktop/web/gate-probe/

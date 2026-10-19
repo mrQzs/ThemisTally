@@ -1,0 +1,19 @@
+/* 状态标签：高 22（小号 20），图标 14/12 + 文字，title 为状态码，data-tone 取色调。 */
+.tt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--tt-radius-sm);
+  white-space: nowrap;
+}
+.tt-status--md { height: 22px; padding: 0 8px; font: var(--tt-text-sm-medium); }
+.tt-status--sm { height: 20px; padding: 0 6px; font: var(--tt-text-caption-strong); }
+
+.tt-status[data-tone="neutral"] { background: var(--tt-tone-neutral-bg); color: var(--tt-tone-neutral-fg); }
+.tt-status[data-tone="info"] { background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); }
+.tt-status[data-tone="attention"] { background: var(--tt-tone-attention-bg); color: var(--tt-tone-attention-fg); }
+.tt-status[data-tone="success"] { background: var(--tt-tone-success-bg); color: var(--tt-tone-success-fg); }
+.tt-status[data-tone="warning"] { background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); }
+.tt-status[data-tone="danger"] { background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); }
+.tt-status[data-tone="escalate"] { background: var(--tt-tone-escalate-bg); color: var(--tt-tone-escalate-fg); }
+.tt-status[data-tone="brand"] { background: var(--tt-tone-brand-bg); color: var(--tt-tone-brand-fg); }

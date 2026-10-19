@@ -1,0 +1,29 @@
+{
+  "name": "themistally-desktop-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Themis Tally 桌面端 Web 渲染层（T002 第 1 片：工程骨架、设计令牌、W4 契约检查与 5 个原子组件）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:contract": "node scripts/token-contract.mjs"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/react": "16.1.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
+    "jsdom": "25.0.1",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

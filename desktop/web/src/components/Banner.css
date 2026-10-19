@@ -1,0 +1,27 @@
+/* 提示条：info 用 info 图标并可关闭；warning / danger 用 triangle-alert，不渲染关闭按钮；danger 根元素 role=alert。 */
+.tt-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-text-sm);
+}
+.tt-banner__icon { flex: none; }
+.tt-banner__text { flex: 1; }
+.tt-banner__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--tt-radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tt-banner--info { background: var(--tt-tone-info-bg); color: var(--tt-tone-info-fg); }
+.tt-banner--warning { background: var(--tt-tone-warning-bg); color: var(--tt-tone-warning-fg); }
+.tt-banner--danger { background: var(--tt-tone-danger-bg); color: var(--tt-tone-danger-fg); }
