@@ -510,6 +510,13 @@ def test_planner_sees_the_transitional_gate_assertions(tmp_path):
     assert "test_transitional_" in kh.role_prompt("gate-sonnet")
 
 
+def test_gate_rules_keep_the_regression_tests_valid_after_integration():
+    # T002 的 D02 断言“相对基线的改动只落在允许集合内”，落到分支末端上必然失败（第 11 轮）
+    assert "不写相对基线的改动范围断言" in kh.role_prompt("gate-sonnet")
+    assert "集成之后必然失败，退回门禁端" in kh.role_prompt("audit-sonnet")
+    assert "不写相对基线的改动范围断言" not in kh.role_prompt("planner-opus")
+
+
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
     _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
     problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")
