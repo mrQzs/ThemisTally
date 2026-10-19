@@ -515,6 +515,7 @@ def test_gate_rules_keep_the_regression_tests_valid_after_integration():
     assert "不写相对基线的改动范围断言" in kh.role_prompt("gate-sonnet")
     assert "集成之后必然失败，退回门禁端" in kh.role_prompt("audit-sonnet")
     assert "不写相对基线的改动范围断言" not in kh.role_prompt("planner-opus")
+    assert "名为 `pipeline` 的会话级夹具" in kh.role_prompt("gate-sonnet")  # tests/conftest.py 认这个名字
 
 
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
