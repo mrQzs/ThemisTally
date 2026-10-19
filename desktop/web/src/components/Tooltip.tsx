@@ -53,7 +53,7 @@ export function Tooltip({ content, children }: TooltipProps) {
   };
   const onMouseLeave = () => {
     hoveringRef.current = false;
-    if (!focusedRef.current) hide();
+    hide();
   };
   const onFocus = () => {
     focusedRef.current = true;
@@ -62,7 +62,7 @@ export function Tooltip({ content, children }: TooltipProps) {
   };
   const onBlur = () => {
     focusedRef.current = false;
-    if (!hoveringRef.current) hide();
+    hide();
   };
 
   // Esc：可见或计时中则消失并抑制（直到重新悬停/聚焦）。聚焦时走 React 合成事件（子元素 keydown 冒泡到包裹元素），可见时消费掉；

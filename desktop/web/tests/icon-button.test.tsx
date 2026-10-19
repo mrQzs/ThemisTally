@@ -53,6 +53,38 @@ describe('IconButton', () => {
     expect(tooltipEl()).toBeNull();
   });
 
+  it('聚焦后悬停出现，移开后立即消失（悬停与聚焦并存）', () => {
+    const { button } = mount();
+    fireEvent.focus(button);
+    fireEvent.mouseEnter(button);
+    advance(400);
+    expect(tooltipEl()).not.toBeNull();
+    fireEvent.mouseLeave(button);
+    expect(tooltipEl()).toBeNull();
+    expect(button.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('悬停出现后再失焦，立即消失（悬停与聚焦并存）', () => {
+    const { button } = mount();
+    fireEvent.mouseEnter(button);
+    advance(400);
+    expect(tooltipEl()).not.toBeNull();
+    fireEvent.focus(button);
+    fireEvent.blur(button);
+    expect(tooltipEl()).toBeNull();
+  });
+
+  it('悬停与聚焦并存且计时中移开，取消计时不再出现', () => {
+    const { button } = mount();
+    fireEvent.focus(button);
+    fireEvent.mouseEnter(button);
+    advance(200);
+    expect(tooltipEl()).toBeNull();
+    fireEvent.mouseLeave(button);
+    advance(500);
+    expect(tooltipEl()).toBeNull();
+  });
+
   it('可见时按 Esc 消失且不再出现，重新悬停才再出现', () => {
     const { button } = mount();
     fireEvent.mouseEnter(button);
