@@ -86,6 +86,10 @@ GATES = ("G0", "G1", "G2", "G3", "G4", "G5", "G6")
 REVIEWABLE_STATES = ("NEEDS_REVIEW", "TIMEOUT", "CANCELLED", "INFRA_FAILURE") + VERDICTS
 TERMINAL_STATES = VERDICTS + ("INTEGRATED", "ABANDONED", "SUPERSEDED", "TIMEOUT", "CANCELLED",
                               "INFRA_FAILURE", "PREPARE_FAILED", "NEEDS_REVIEW")
+#: attempt 的全部状态（state.json 的 state 字段），顺序同桌面端 UI 文档 §3.4 的状态表。桌面端的状态标签按它画
+#: （T002 的站主 Q3）：新增状态要同时改这里与桌面端的映射表。
+ATTEMPT_STATES = ("PREPARING", "PREPARED", "PREPARE_FAILED", "RUNNING", "COLLECTING", "NEEDS_REVIEW") + VERDICTS + (
+    "INFRA_FAILURE", "TIMEOUT", "CANCELLED", "INTEGRATED", "ABANDONED", "SUPERSEDED")
 REQUIRED_MD_SECTIONS = ("Identity", "Goal", "Non-goals", "Repository facts", "Scope", "Behavior contract",
                         "Steps", "Validation commands", "Definition of done", "Stop conditions", "Budget",
                         "Report back", "Forbidden")
