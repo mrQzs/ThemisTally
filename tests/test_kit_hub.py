@@ -1021,7 +1021,7 @@ def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, mon
     hub.ensure()
     run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
     ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
-    ts["oracle"]["sha"] = oracle
+    ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
     ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
     ok, _detail = kh.finalize(hub, ts)
     # 先记结论，再把基准测试提交 ff 到当前分支，然后 integrate：integrate 看到的末端上已经有基准测试
@@ -1029,12 +1029,30 @@ def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, mon
     assert kh.git(["rev-parse", "HEAD"], repo).strip() == oracle and ts["oracle"]["landed_at"]
     calls.clear()
     assert kh.finalize(hub, ts)[0] and calls == [("integrate", True)]  # 重试：attempt 已是 PASS，不再记结论
-    kh.git(["reset", "-q", "--hard", head], repo)  # 分叉之后不能 ff：不 integrate，如实报告
+    # 任务进行期间分支前进了（分叉）：不能 ff，就把基准测试提交挑到末端，再 integrate
+    kh.git(["reset", "-q", "--hard", head], repo)
     (repo / "README.md").write_text("分叉\n", encoding="utf-8")
     kh.git(["commit", "-q", "-am", "分叉"], repo)
+    (repo / "notes.txt").write_text("主工作区里无关的未提交文件\n", encoding="utf-8")
+    calls.clear()
+    ok, _detail = kh.finalize(hub, ts)
+    assert ok and [c[0] for c in calls] == ["integrate"] and ts["oracle"]["landed_by"] == "cherry-pick"
+    tip = kh.git(["rev-parse", "HEAD"], repo).strip()
+    assert (repo / "tests" / "test_gate_t001_baseline.py").read_text(encoding="utf-8") == "def test_x():\n    pass\n"
+    assert "cherry picked from commit %s" % oracle in kh.git(["log", "-1", "--format=%B"], repo)
+    calls.clear()
+    assert kh.finalize(hub, ts)[0] and kh.git(["rev-parse", "HEAD"], repo).strip() == tip  # 重试：不再挑一次
+    # 末端上已有内容不同的同名文件：挑入冲突，中止并如实报告，不留半截状态，也不 integrate
+    kh.git(["reset", "-q", "--hard", "HEAD~1"], repo)
+    (repo / "tests").mkdir(exist_ok=True)
+    (repo / "tests" / "test_gate_t001_baseline.py").write_text("def test_y():\n    pass\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "同名不同内容"], repo)
     calls.clear()
     ok, detail = kh.finalize(hub, ts)
-    assert not ok and "不能 ff" in detail and calls == []
+    assert not ok and "不能干净地挑" in detail and calls == []
+    assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists()
+    assert kh.git(["status", "--porcelain", "--", "tests"], repo).strip() == ""
 
 
 def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):

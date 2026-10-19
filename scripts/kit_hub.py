@@ -1398,22 +1398,45 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
         problem = record_pass(hub, ts, run_dir)
         if problem:
             return False, problem
-    oracle = ts["oracle"].get("sha")
-    if oracle and subprocess.run(["git", "merge-base", "--is-ancestor", oracle, "HEAD"], cwd=str(hub.repo),
-                                 stdin=subprocess.DEVNULL).returncode != 0:
-        # 候选以门禁的基准测试提交为基线：它不在当前分支上时，integrate 只挑“基线→候选”的改动，
-        # 当前末端上没有基准测试，合同检查跑不通（T001 第一次结项就卡在这里）。它是一审审过、锁定的验收测试，先带上。
-        try:
-            git(["merge", "--ff-only", oracle], hub.repo)
-        except HubError as exc:
-            return False, "基准测试提交 %s 不能 ff 到当前分支（分支已经分叉？）：%s" % (oracle[:12], exc)
-        ts["oracle"]["landed_at"] = utc_now()
-        hub.append_event("oracle.landed", task=ts["task"], sha=oracle)
+    problem = land_oracle(hub, ts)
+    if problem:
+        return False, problem
     code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
     ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
     if code != 0:
         return False, "integrate 没有落地（退出码 %d）：\n%s" % (code, tail(out, 15))
     return True, tail(out, 6)
+
+
+def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
+    """把门禁的基准测试带上当前分支；返回问题（成功或不需要时为 None）。
+
+    候选以基准测试提交为基线：它不在当前分支上时，integrate 只挑“基线→候选”的改动，当前末端上没有基准测试，
+    合同检查跑不通（T001 第一次结项就卡在这里）。它是一审审过、锁定的验收测试，先带上：能 ff 就 ff；
+    任务进行期间分支前进了，就把它挑到末端（它只新增门禁测试文件），这样任务期间也能往分支上提交。"""
+    oracle = ts["oracle"].get("sha")
+    if not oracle or subprocess.run(["git", "merge-base", "--is-ancestor", oracle, "HEAD"], cwd=str(hub.repo),
+                                    stdin=subprocess.DEVNULL).returncode == 0:
+        return None
+    files = ts["oracle"].get("files") or []
+    if files and all(git(["rev-parse", "HEAD:%s" % f], hub.repo, check=False).strip()
+                     == git(["rev-parse", "%s:%s" % (oracle, f)], hub.repo, check=False).strip() for f in files):
+        return None  # 末端上已经有同样内容的基准测试（重试时挑入过了）
+    try:
+        git(["merge", "--ff-only", oracle], hub.repo)
+        how = "ff"
+    except HubError:
+        proc = subprocess.run(["git", "cherry-pick", "-x", oracle], cwd=str(hub.repo), stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proc.returncode != 0:
+            subprocess.run(["git", "cherry-pick", "--abort"], cwd=str(hub.repo), stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return "基准测试提交 %s 既不能 ff，也不能干净地挑到当前分支：%s" % (
+                oracle[:12], tail(proc.stdout.decode("utf-8", "replace"), 8))
+        how = "cherry-pick"
+    ts["oracle"].update(landed_at=utc_now(), landed_by=how)
+    hub.append_event("oracle.landed", task=ts["task"], sha=oracle, how=how)
+    return None
 
 
 def record_pass(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[str]:
