@@ -13,22 +13,25 @@
 - 流水线断言（P 系列）：会话级夹具 ``pipeline`` 在 ``desktop/web`` 下按顺序跑 ``npm ci``、``npm run build``、
   ``npm test``、``npm run check:contract``，再把探针逐份写成 ``gate-probe/probe-<唯一标识>-<编号>.test.tsx``，
   各用 ``npm test -- gate-probe/<文件名>`` 跑，``finally`` 里删除；前后各取一次 ``git status``。
-  组件探针（P2–P7）与陈列页探针（P8）分开写、分开跑。全量 pytest 默认跳过用到它的用例（``tests/conftest.py``），
-  点名运行本文件时才跑。
+  现在只有组件探针（P2–P7）；原来分开写、分开跑的陈列页探针（P8）随 P8 一起退役了（见下面的“过渡断言”）。
+  全量 pytest 默认跳过用到它的用例（``tests/conftest.py``），点名运行本文件时才跑。
 - 门禁自检（``test_gate_selfcheck_*``，不依赖候选）：把各检查函数喂给正确样本和若干改坏的样本，证明门禁自己
   放得过正确实现、拦得住常见错误。
 
 DoD 对应：
 
 - D01：S1、S6、P2；D02：S1、S6、P3；D03：S1、S3、S6、P4；D04：S1、S4、P5；D05：S1、S5、P6；
-- D06：S7（V03 与战后变异另证）；D07：S2、S6、P7；D08：P8（过渡）；
+- D06：S7（V03 与战后变异另证）；D07：S2、S6、P7；D08：原来是 P8（过渡），已退役，本文件不再覆盖（见下一段）；
 - D09：P1（V02 另证 T001–T003 门禁）；D10：P9 守卫 package.json、锁文件、令牌、base.css 不变
   （改动范围由调度器的范围门禁证明，这里不写相对基线的改动范围断言）；
 - D11：新增测试不用 skip、only、todo 由 V02 里 T002 的 ``test_d03_new_tests_not_skipped`` 机械检查，
   其余（既有测试不改）由终审读差异。
 
-过渡断言（``test_transitional_`` 开头）：只有 P8。陈列页在根路由上，T002 规划里的第 3 片“应用框架与夹具数据层”
-把陈列页移出根路由时推翻。其余（组件行为、CSS 几何与层级、两处补丁、W5）都是长期断言。
+过渡断言（``test_transitional_`` 开头）：原来只有 P8（``test_transitional_d08_showcase_overlay_demos``，探针渲染根 ``App``
+核对陈列页页尾的 5 节浮层演示），只在陈列页是根 ``App`` 时成立，站主在登记 T006（应用框架与夹具数据层）之前退役了，
+连同它的探针 ``PROBE_P8`` 与 ``PROBE_SPECS`` 里的 ``p8``。T006 把根 ``App`` 改成应用框架、把陈列页移出根路由，
+这条在根 ``App`` 上不再成立；5 节演示在新位置上的覆盖由 T006 自己的门禁重新负责。
+其余（组件行为、CSS 几何与层级、两处补丁、W5）都是长期断言，照旧保留。
 
 写法约定：CSS 比较先归一空白（``calc(…)`` 里的也一样）；jsdom 不排版，宽、位置、层级读 CSS 文件的文本，探针只看结构、
 焦点、计时与属性；悬停与聚焦的探针从 ``@testing-library/react`` 导入 ``fireEvent``（它给 React 打了补丁）；
@@ -1473,126 +1476,6 @@ describe('状态补丁', () => {
 });
 """
 
-PROBE_P8 = PRELUDE + r"""
-let App: any;
-
-beforeAll(async () => {
-  const mod: any = await import('../src/App');
-  App = mod.default ?? mod.App;
-});
-
-const DEMOS = ['icon-button', 'menu', 'dialog', 'drawer', 'toast'];
-
-function textOf(el: Element | null): string {
-  return ((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
-}
-function demo(name: string): HTMLElement {
-  const nodes = document.querySelectorAll('[data-demo="' + name + '"]');
-  expect(nodes.length, '应恰有一个 data-demo="' + name + '" 的节').toBe(1);
-  return nodes[0] as HTMLElement;
-}
-function buttonByText(root: Element, text: string): HTMLButtonElement {
-  const hit = Array.from(root.querySelectorAll('button')).find((b) => textOf(b) === text);
-  expect(hit, '找不到文字为「' + text + '」的按钮').toBeTruthy();
-  return hit as HTMLButtonElement;
-}
-function press(btn: HTMLElement) {
-  focusOn(btn);
-  fireEvent.click(btn);
-}
-
-describe('陈列页的 5 节浮层演示', () => {
-  it('5 个 data-demo 节都在，顺序是图标按钮、菜单、对话框、抽屉、轻提示，都在字体样张和 Banner 一节之后', () => {
-    render(<App />);
-    const secs = DEMOS.map(demo);
-    for (let i = 1; i < secs.length; i += 1) {
-      expect(secs[i - 1].compareDocumentPosition(secs[i]) & Node.DOCUMENT_POSITION_FOLLOWING, DEMOS[i] + ' 应在 ' + DEMOS[i - 1] + ' 之后').toBeTruthy();
-    }
-    const specimen = document.querySelector('[data-font-specimen]') as Element;
-    expect(specimen).not.toBeNull();
-    const bannerH2 = Array.from(document.querySelectorAll('.showcase__h2')).find((h) => /Banner/.test(textOf(h)));
-    expect(bannerH2, '找不到 Banner 一节的标题').toBeTruthy();
-    for (const sec of secs) {
-      expect(specimen.compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING, '演示应在样张之后').toBeTruthy();
-      expect((bannerH2 as Element).compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING, '演示应在提示条一节之后（页尾）').toBeTruthy();
-    }
-  });
-
-  it('图标按钮演示：至少三个只有图标的按钮，其中有禁用的；页面上没有文字的按钮都有非空 aria-label', () => {
-    render(<App />);
-    const sec = demo('icon-button');
-    const iconOnly = Array.from(sec.querySelectorAll('button')).filter((b) => textOf(b) === '');
-    expect(iconOnly.length, '图标按钮演示里应有 28、32 各一个和一个禁用的').toBeGreaterThanOrEqual(3);
-    expect(iconOnly.some((b) => (b as HTMLButtonElement).disabled), '应有一个禁用的').toBe(true);
-    const bad = Array.from(document.querySelectorAll('button'))
-      .filter((b) => textOf(b) === '')
-      .filter((b) => !(b.getAttribute('aria-label') || '').trim());
-    expect(bad.length, '没有文字又没有 aria-label 的按钮').toBe(0);
-  });
-
-  it('菜单演示：「更多操作」打开菜单，Enter 选中第一项后，「上次选择：…」随之变化', () => {
-    render(<App />);
-    const sec = demo('menu');
-    const lastChoice = () => textOf(sec).split('上次选择：')[1];
-    const before = lastChoice();
-    expect(before, '菜单演示旁应显示「上次选择：…」').not.toBeUndefined();
-    press(buttonByText(sec, '更多操作'));
-    const menu = document.querySelector('[role="menu"]');
-    expect(menu, '点「更多操作」后应出现菜单').not.toBeNull();
-    const first = (menu as Element).querySelector('[role="menuitem"]') as HTMLElement;
-    expect(first).not.toBeNull();
-    expect(document.activeElement).toBe(first);
-    key('Enter');
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    const after = lastChoice();
-    expect(after, '选中后「上次选择：」后面应有内容').not.toBe('');
-    expect(after, '选中后「上次选择：」应变化').not.toBe(before);
-  });
-
-  it('对话框演示：「打开对话框」出现模态对话框，底栏有「取消」「确定」，取消后焦点回触发按钮', () => {
-    render(<App />);
-    const sec = demo('dialog');
-    const trigger = buttonByText(sec, '打开对话框');
-    press(trigger);
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    expect(dialog, '点「打开对话框」后应出现 role=dialog').not.toBeNull();
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
-    buttonByText(dialog, '确定');
-    fireEvent.click(buttonByText(dialog, '取消'));
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('抽屉演示：「打开抽屉」出现非模态抽屉，有底栏按钮，Esc 关闭并回到触发按钮', () => {
-    render(<App />);
-    const sec = demo('drawer');
-    const trigger = buttonByText(sec, '打开抽屉');
-    press(trigger);
-    const drawer = document.querySelector('[role="dialog"]') as HTMLElement;
-    expect(drawer, '点「打开抽屉」后应出现 role=dialog').not.toBeNull();
-    expect(drawer.getAttribute('aria-modal')).toBe('false');
-    expect(drawer.querySelectorAll('button').length, '抽屉应有关闭钮和底栏按钮').toBeGreaterThanOrEqual(2);
-    key('Escape');
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('轻提示演示：「弹出轻提示」后 role=status 里出现文字和关闭钮，点关闭钮后清空', () => {
-    render(<App />);
-    const sec = demo('toast');
-    const status = document.querySelector('[role="status"]') as HTMLElement;
-    expect(status, '页面上应有常驻的 role=status 区域').not.toBeNull();
-    expect(textOf(status)).toBe('');
-    press(buttonByText(sec, '弹出轻提示'));
-    expect(textOf(status), '弹出后应有文字').not.toBe('');
-    const close = status.querySelector('button[aria-label="关闭提示"]') as HTMLElement;
-    expect(close).not.toBeNull();
-    fireEvent.click(close);
-    expect(textOf(status), '点关闭钮后应清空').toBe('');
-  });
-});
-"""
-
 # (键, 探针源码, 需要先存在的仓库文件, 对应的用例名)
 PROBE_SPECS = {
     "p2": (PROBE_P2, [f"{COMP_REL}/IconButton.tsx", f"{COMP_REL}/Tooltip.tsx"]),
@@ -1601,7 +1484,6 @@ PROBE_SPECS = {
     "p5": (PROBE_P5, [f"{COMP_REL}/Drawer.tsx"]),
     "p6": (PROBE_P6, [f"{COMP_REL}/Toast.tsx"]),
     "p7": (PROBE_P7, [f"{COMP_REL}/StatusTag.tsx", f"{SRC_REL}/domain/attemptStates.ts"]),
-    "p8": (PROBE_P8, [f"{SRC_REL}/App.tsx"]),
 }
 
 
@@ -1882,15 +1764,6 @@ def test_d07_probe_status_patches(pipeline):
     assert_probe_ok(pipeline, "p7")
 
 
-def test_transitional_d08_showcase_overlay_demos(pipeline):
-    """应用框架那一片（T002 规划里的第 3 片「应用框架与夹具数据层」）把陈列页移出根路由时推翻。
-
-    P8 / D08：探针渲染 App：5 个 data-demo 节（icon-button、menu、dialog、drawer、toast）都在、顺序对、都在字体样张和 Banner 一节之后；
-    点各自的触发按钮（更多操作、打开对话框、打开抽屉、弹出轻提示），菜单、对话框、抽屉、轻提示分别出现；
-    页面上没有文字的按钮都有非空 aria-label。"""
-    assert_probe_ok(pipeline, "p8")
-
-
 def test_d10_worktree_unchanged_by_pipeline(pipeline):
     """P9 / D10（守卫，门禁端多加的一条）：流水线与探针前后 git status 相同；package.json、锁文件、index.html、vite.config.ts、
     tsconfig.json、tokens.css、base.css、main.tsx 的摘要不变；gate-probe/ 没有留下。"""
@@ -2097,10 +1970,10 @@ def test_gate_selfcheck_w5_mutations_apply():
 
 
 def test_gate_selfcheck_probe_templates():
-    """门禁自检：7 份探针的用例数、文件名约定与 vitest 的 include 一致；探针不用 skip、only、todo，悬停与聚焦的 fireEvent 来自
-    @testing-library/react（不从 @testing-library/dom 导入）；P7 的占位符都能替换掉。"""
+    """门禁自检：6 份探针（P2–P7；P8 已退役）的用例数、文件名约定与 vitest 的 include 一致；探针不用 skip、only、todo，
+    悬停与聚焦的 fireEvent 来自 @testing-library/react（不从 @testing-library/dom 导入）；P7 的占位符都能替换掉。"""
     counts = {key: probe_count(spec[0]) for key, spec in PROBE_SPECS.items()}
-    assert counts == {"p2": 10, "p3": 6, "p4": 10, "p5": 8, "p6": 8, "p7": 4, "p8": 6}, counts
+    assert counts == {"p2": 10, "p3": 6, "p4": 10, "p5": 8, "p6": 8, "p7": 4}, counts
     vite_cfg = _read(need_file(f"{WEB_REL}/vite.config.ts"))
     assert "gate-probe/**/*.test.{ts,tsx}" in vite_cfg
     for key, (source, _requires) in PROBE_SPECS.items():

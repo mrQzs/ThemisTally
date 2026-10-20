@@ -8,11 +8,11 @@
 结构（编号对应规划报告 §6.2 的 S1–S8、P1–P8，门禁端定稿时多加了 S9 和若干自检）：
 
 - 静态断言（S 系列，不用流水线，全量 pytest 也跑）：读 ``fonts.css``、``main.tsx``、``src``、``SOURCE.md``、许可副本、
-  notices、``App.css``。
+  notices（原来还读 ``App.css``，随 S8、S9 退役）。
 - 流水线断言（P 系列）：会话级夹具 ``pipeline`` 在 ``desktop/web`` 下按顺序跑 ``npm ci``、``npm run build``、
-  ``npm test``、``npm run check:contract``，再写一份临时探针 ``gate-probe/probe-<唯一标识>.test.tsx`` 用
-  ``npm test -- gate-probe/<文件名>`` 跑，``finally`` 里删除；前后各取一次 ``git status``。全量 pytest 默认跳过用到它的
-  用例（``tests/conftest.py``），点名运行本文件时才跑。
+  ``npm test``、``npm run check:contract``；前后各取一次 ``git status``，并查 ``gate-probe/`` 没有留下。
+  原来还写一份样张探针 ``gate-probe/probe-<唯一标识>.test.tsx`` 跑 P8，随 P8 一起退役了（见下面的“过渡断言”）。
+  全量 pytest 默认跳过用到它的用例（``tests/conftest.py``），点名运行本文件时才跑。
 - 门禁自检（``test_gate_selfcheck_*``，不依赖候选）：把各检查函数喂给合同写明的正确样本和若干改坏的样本，
   证明门禁自己放得过正确实现、拦得住常见错误。
 
@@ -21,17 +21,20 @@ DoD 对应：
 - D01：S1、S2、S3（P4 在产物侧再查一遍）；
 - D02：P2、P3、P4、P5（S3 查源码里没有第二处字体文件）；
 - D03：S5、S6、S7、P6；
-- D04：S8、S9、P8（P1 保证 ``npm test`` 与契约检查在样张进来之后仍通过）；
+- D04：P1 保证 ``npm test`` 与契约检查在样张进来之后仍通过；原来的 S8、S9、P8 已退役（见下一段）；
 - D06：S4、P7（范围由调度器的范围门禁证明，这里不写相对基线的改动范围断言）；
 - D05、D07 由 V02 里 T002 的断言负责，不在本文件重复。
 
-过渡断言（``test_transitional_`` 开头）：S8、S9、P8。样张在陈列页（根路由）上，T002 规划里的第 3 片“应用框架与夹具数据层”
-把陈列页移出根路由时推翻。
+过渡断言（``test_transitional_`` 开头）：原来是 S8、S9、P8，只在陈列页是根 ``App`` 时成立，站主在登记 T006
+（应用框架与夹具数据层）之前退役了：``test_transitional_d04_specimen_font_weights``（S8，``App.css`` 里按
+``data-font-weight`` 选中的样张字重规则）、``test_transitional_d04_specimen_css_row_style``（S9，``App.css`` 里样张行的样式）、
+``test_transitional_d04_showcase_font_specimen``（P8，探针渲染根 ``App`` 核对样张的结构与列数），连同只供它们用的检查函数、
+样张探针与对应的自检。T006 把根 ``App`` 改成应用框架、把陈列页移出根路由，这几条在根 ``App`` 上不再成立；
+样张在新位置上的覆盖由 T006 自己的门禁重新负责。
 
 写法约定（规划报告 §6.3）：共享文件（notices、``public/licenses``）只断言“包含”；许可比较先把 CRLF 归一成 LF
 （本机检出 4,820 字节，Git 里 4,708），woff2 与 dist 里的许可副本严格逐字节比较；产物文件名带哈希，按扩展名和内容找；
-dist 的断言从 dist 自己读；只查字体相关的网络地址（React 产物里本来就有 ``https://reactjs.org/…``）；
-jsdom 不加载字体、不排版，探针只核对结构与列数（U+4E00–U+9FFF 算 2 列，U+0020–U+007E 算 1 列，其他字符判失败）。
+dist 的断言从 dist 自己读；只查字体相关的网络地址（React 产物里本来就有 ``https://reactjs.org/…``）。
 
 门禁做不到、留给人的项（合同 H1–H6）：
 H1 样张各行右端 ``|`` 是否落在同一条竖线上（Regular、SemiBold 各一组，暗色亮色各一次）；
@@ -51,7 +54,6 @@ import shutil
 import signal
 import subprocess
 import time
-import uuid
 from pathlib import Path
 from urllib.parse import unquote as url_unquote
 
@@ -69,9 +71,6 @@ FONT_SEMIBOLD = "sarasa-mono-sc-semibold.woff2"
 FACE_WEIGHTS = {"300 500": FONT_REGULAR, "600 800": FONT_SEMIBOLD}
 OFL_COPY_REL = f"{WEB_REL}/public/licenses/OFL.txt"
 LUCIDE_LICENSE_LINK = "public/licenses/lucide-1.59.0-LICENSE.txt"
-SPECIMEN_TITLE = "字体 · 等距更纱黑体 SC"
-# 样张里 data-font-weight 的取值 → 应使用的字体令牌
-SPECIMEN_TOKENS = {"400": "--tt-text-md", "500": "--tt-text-md-medium", "600": "--tt-title-sm"}
 
 FONT_SUFFIXES = {".woff2", ".woff", ".ttf", ".otf", ".eot", ".ttc", ".otc"}
 FONT_SIGNATURES = (b"wOFF", b"wOF2", b"OTTO", b"\x00\x01\x00\x00", b"true", b"ttcf")
@@ -83,7 +82,6 @@ STEP_CAPS = {
     "npm run build": 600,
     "npm test": 600,
     "npm run check:contract": 120,
-    "probe": 420,
 }
 
 
@@ -176,7 +174,6 @@ def strip_comments(css):
 
 
 FONT_FACE = re.compile(r"@font-face\s*\{([^{}]*)\}", re.I)
-RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
 
 def split_decls(body):
@@ -348,54 +345,6 @@ def notice_link_problems(text, base_dir):
     return problems
 
 
-WEIGHT_ATTR = re.compile(r"""\[\s*data-font-weight\s*=\s*["']?(\d+)["']?\s*\]""")
-
-
-def weight_rule_problems(app_css, tokens_css):
-    """App.css：按 [data-font-weight="…"] 选中的规则用 font: var(令牌)，令牌的字重与组一致。"""
-    problems = []
-    tokens = token_values(tokens_css)
-    rules = RULE.findall(strip_comments(app_css))
-    for weight, token in SPECIMEN_TOKENS.items():
-        fonts = []
-        for selector, body in rules:
-            if not any(WEIGHT_ATTR.findall(part) == [weight] for part in selector.split(",")):
-                continue
-            for name, value in split_decls(body):
-                if name == "font":
-                    fonts.append(re.sub(r"\s+", "", value))
-                elif name in ("font-weight", "font-family"):
-                    problems.append(f'[data-font-weight="{weight}"] 的规则里不应单独写 {name}（字重和字体都取自令牌）')
-        if not fonts:
-            problems.append(f'App.css 里没有按 [data-font-weight="{weight}"] 选中、并用 font: var({token}) 的规则')
-        for value in fonts:
-            if value != f"var({token})":
-                problems.append(f'[data-font-weight="{weight}"] 的 font 应为 var({token})，实际 {value}')
-        resolved = tokens.get(token, "")
-        m = re.match(r"(\d+)\s", resolved)
-        if not m or m.group(1) != weight:
-            problems.append(f"tokens.css 里 {token} 的字重应为 {weight}，实际 {resolved!r}")
-    return problems
-
-
-def row_style_problems(app_css):
-    """App.css：样张行的样式（white-space: pre、font-variant-ligatures: none、不设 letter-spacing、外框与底色取令牌）。"""
-    css = strip_comments(app_css)
-    decls = [d for _sel, body in RULE.findall(css) for d in split_decls(body)]
-    problems = []
-    if not any(n == "white-space" and norm_ws(v) == "pre" for n, v in decls):
-        problems.append("没有 white-space: pre 的声明")
-    if not any(n == "font-variant-ligatures" and norm_ws(v) == "none" for n, v in decls):
-        problems.append("没有 font-variant-ligatures: none 的声明（font 简写会把它重置为 normal）")
-    if any(n == "letter-spacing" for n, _v in decls):
-        problems.append("App.css 里不应设 letter-spacing")
-    if not any(n == "border" and norm_ws(v) == "1px solid var(--tt-border)" for n, v in decls):
-        problems.append("没有 border: 1px solid var(--tt-border) 的声明")
-    if not any(n in ("background", "background-color") and norm_ws(v) == "var(--tt-surface-1)" for n, v in decls):
-        problems.append("没有底色 var(--tt-surface-1) 的声明")
-    return problems
-
-
 # ---------------------------------------------------------------------------
 # 产物侧的检查函数（输入 dist 目录；返回问题列表）
 # ---------------------------------------------------------------------------
@@ -528,7 +477,7 @@ def dist_license_problems(dist, public_copy):
 
 
 # ---------------------------------------------------------------------------
-# 会话级夹具：四步 npm + 样张探针
+# 会话级夹具：四步 npm
 # ---------------------------------------------------------------------------
 
 class Step:
@@ -555,7 +504,6 @@ class Pipeline:
         self.digests_before = {}
         self.digests_after = {}
         self.stopped_reason = ""
-        self.probe_file = None
         self.gate_probe_left = None
 
 
@@ -588,163 +536,6 @@ def run_capture(argv, cwd, timeout, env):
         except Exception:
             out = b""
         return None, True, out.decode("utf-8", "replace"), time.monotonic() - start
-
-
-# 样张探针：只核对结构与列数。jsdom 不加载字体也不排版，像素对齐留给人（H1）。
-PROBE_SOURCE = r"""
-import * as React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
-
-afterEach(() => {
-  cleanup();
-});
-
-const TITLE = '字体 · 等距更纱黑体 SC';
-const CJK = /[一-鿿]/;
-
-function isCjk(cp: number): boolean {
-  return cp >= 0x4e00 && cp <= 0x9fff;
-}
-function badChars(text: string): string[] {
-  const bad: string[] = [];
-  for (const ch of Array.from(text)) {
-    const cp = ch.codePointAt(0) as number;
-    if (!(isCjk(cp) || (cp >= 0x20 && cp <= 0x7e))) {
-      bad.push('U+' + cp.toString(16).toUpperCase().padStart(4, '0'));
-    }
-  }
-  return bad;
-}
-function columns(text: string): number {
-  let n = 0;
-  for (const ch of Array.from(text)) {
-    n += isCjk(ch.codePointAt(0) as number) ? 2 : 1;
-  }
-  return n;
-}
-function textOf(el: Element): string {
-  return (el.textContent || '').replace(/\s+/g, ' ').trim();
-}
-
-async function mountApp() {
-  const mod: any = await import('../src/App');
-  const AppComponent = mod.default ?? mod.App;
-  expect(AppComponent).toBeTruthy();
-  return render(<AppComponent />);
-}
-async function specimen(): Promise<HTMLElement> {
-  await mountApp();
-  const roots = document.querySelectorAll('[data-font-specimen]');
-  expect(roots.length, '陈列页应恰有一个带 data-font-specimen 的样张节').toBe(1);
-  return roots[0] as HTMLElement;
-}
-function groupsOf(root: HTMLElement): Array<[string, HTMLElement]> {
-  return Array.from(root.querySelectorAll('[data-font-weight]')).map(
-    (el) => [el.getAttribute('data-font-weight') || '', el as HTMLElement] as [string, HTMLElement],
-  );
-}
-function rowsOf(group: HTMLElement): string[] {
-  return Array.from(group.querySelectorAll('[data-specimen-row]')).map((el) => el.textContent || '');
-}
-function innerOf(row: string): string {
-  return row.replace(/^\|/, '').replace(/\|$/, '');
-}
-
-describe('字体样张（陈列页）', () => {
-  it('样张节恰有一个，标题是「字体 · 等距更纱黑体 SC」', async () => {
-    const root = await specimen();
-    const h2 = root.querySelector('.showcase__h2');
-    expect(h2, '样张节里应有 showcase__h2 标题').not.toBeNull();
-    expect(textOf(h2 as Element)).toBe(TITLE);
-  });
-
-  it('400、500、600 三个字重组各一个，组旁有 showcase__label 说明', async () => {
-    const root = await specimen();
-    const weights = groupsOf(root).map(([w]) => w).sort();
-    expect(weights).toEqual(['400', '500', '600']);
-    const labels = Array.from(root.querySelectorAll('.showcase__label')).map(textOf);
-    for (const label of ['Regular 400', '500 按 Regular', 'SemiBold 600']) {
-      expect(labels, 'showcase__label 里缺「' + label + '」').toContain(label);
-    }
-  });
-
-  it('每组至少两行，有纯汉字行和纯 ASCII 行，行都在组里', async () => {
-    const root = await specimen();
-    let inGroups = 0;
-    for (const [weight, group] of groupsOf(root)) {
-      const rows = rowsOf(group);
-      inGroups += rows.length;
-      expect(rows.length, weight + ' 组应至少两行').toBeGreaterThanOrEqual(2);
-      const inner = rows.map(innerOf);
-      const hanzi = inner.filter(
-        (t) => (t.match(/[一-鿿]/g) || []).length >= 6 && !/[A-Za-z0-9]/.test(t),
-      );
-      const ascii = inner.filter((t) => !CJK.test(t) && /[A-Za-z0-9]/.test(t));
-      expect(hanzi.length, weight + ' 组应有纯汉字行（至少 6 个汉字、没有 ASCII 字母数字）').toBeGreaterThanOrEqual(1);
-      expect(ascii.length, weight + ' 组应有纯 ASCII 行（没有汉字）').toBeGreaterThanOrEqual(1);
-    }
-    expect(root.querySelectorAll('[data-specimen-row]').length, '带 data-specimen-row 的行都应在字重组里').toBe(inGroups);
-  });
-
-  it('每行首尾各有一个 | 对齐标记，每组各行列数相同（汉字 2 列，ASCII 1 列）', async () => {
-    const root = await specimen();
-    const groups = groupsOf(root);
-    expect(groups.length).toBeGreaterThan(0);
-    for (const [weight, group] of groups) {
-      const rows = rowsOf(group);
-      expect(rows.length, weight + ' 组没有行').toBeGreaterThan(0);
-      for (const row of rows) {
-        expect(row.length, weight + ' 组有行太短：' + JSON.stringify(row)).toBeGreaterThanOrEqual(3);
-        expect(row.startsWith('|') && row.endsWith('|'), weight + ' 组的行首尾应各有一个 |：' + JSON.stringify(row)).toBe(true);
-        expect(innerOf(row).includes('|'), weight + ' 组的行中间不应再有 |：' + JSON.stringify(row)).toBe(false);
-      }
-      const widths = rows.map(columns);
-      expect(
-        new Set(widths).size,
-        weight + ' 组各行列数应相同，实际 ' + JSON.stringify(widths) + '：' + JSON.stringify(rows),
-      ).toBe(1);
-    }
-  });
-
-  it('样张文字只用 CJK 统一表意文字与可打印 ASCII，避开 #、->、=>', async () => {
-    const root = await specimen();
-    const problems: string[] = [];
-    for (const [weight, group] of groupsOf(root)) {
-      for (const row of rowsOf(group)) {
-        const bad = badChars(row);
-        if (bad.length > 0) {
-          problems.push(weight + ' ' + JSON.stringify(row) + ' 含不允许的字符 ' + bad.join(','));
-        }
-        for (const banned of ['#', '->', '=>']) {
-          if (row.includes(banned)) {
-            problems.push(weight + ' ' + JSON.stringify(row) + ' 含 ' + banned);
-          }
-        }
-      }
-    }
-    expect(problems).toEqual([]);
-  });
-
-  it('样张里没有按钮或别的可交互元素', async () => {
-    const root = await specimen();
-    const hits = root.querySelectorAll('button, a, input, select, textarea, [tabindex], [role="button"]');
-    expect(hits.length, '样张里不该有可交互元素').toBe(0);
-  });
-
-  it('样张在页头之后、Button 一节之前', async () => {
-    const root = await specimen();
-    const head = document.querySelector('.showcase__head');
-    expect(head, '找不到页头 .showcase__head').not.toBeNull();
-    expect(head!.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING, '样张应在页头之后').toBeTruthy();
-    const buttonH2 = Array.from(document.querySelectorAll('.showcase__h2')).find((h) => /Button/.test(textOf(h)));
-    expect(buttonH2, '找不到 Button 一节的标题').toBeTruthy();
-    expect(root.compareDocumentPosition(buttonH2 as Element) & Node.DOCUMENT_POSITION_FOLLOWING, '样张应在 Button 一节之前').toBeTruthy();
-  });
-});
-"""
-
-PROBE_TEST_COUNT = len(re.findall(r"^\s*it\(", PROBE_SOURCE, re.M))
 
 
 def _make_env():
@@ -793,32 +584,17 @@ def pipeline():
         pipe.steps[name] = step
         return step
 
+    # 样张探针随 P8 退役，本夹具不再写 gate-probe/；仍查它在流水线之后不存在（P7）。
     probe_dir = WEB / "gate-probe"
-    probe_path = None
     try:
         ci = run_step("npm ci", [npm, "ci"])
         if ci is not None and ci.code == 0:
             run_step("npm run build", [npm, "run", "build"])
             run_step("npm test", [npm, "test"])
             run_step("npm run check:contract", [npm, "run", "check:contract"])
-            probe_name = f"probe-{uuid.uuid4().hex[:12]}.test.tsx"
-            probe_path = probe_dir / probe_name
-            probe_dir.mkdir(exist_ok=True)
-            probe_path.write_text(PROBE_SOURCE, encoding="utf-8", newline="\n")
-            pipe.probe_file = probe_name
-            run_step("probe", [npm, "test", "--", f"gate-probe/{probe_name}"])
         elif ci is not None:
             pipe.stopped_reason = "npm ci 失败，后续步骤未运行"
     finally:
-        if probe_path is not None:
-            try:
-                probe_path.unlink()
-            except FileNotFoundError:
-                pass
-        try:
-            probe_dir.rmdir()
-        except OSError:
-            pass
         pipe.gate_probe_left = probe_dir.exists()
         pipe.status_after = git_status_set()
         pipe.digests_after = {name: file_digest(WEB / name) for name in WATCHED}
@@ -942,27 +718,6 @@ def test_d03_notices_license_links_resolve():
     fail_if(notice_link_problems(_read(path), path.parent), "THIRD_PARTY_NOTICES.md 的许可链接")
 
 
-def test_transitional_d04_specimen_font_weights():
-    """应用框架那一片（T002 规划里的第 3 片"应用框架与夹具数据层"）把陈列页移出根路由时推翻。
-
-    S8 / D04：App.css 里按 [data-font-weight="400"]、"500"、"600" 选中的规则用 font: var(--tt-text-md)、
-    var(--tt-text-md-medium)、var(--tt-title-sm)，三个令牌在 tokens.css 里的字重分别是 400、500、600；
-    规则里不单独写 font-weight 或 font-family。"""
-    app_css = _read(need_file(f"{WEB_REL}/src/App.css"))
-    tokens = _read(need_file(f"{WEB_REL}/src/styles/tokens.css"))
-    fail_if(weight_rule_problems(app_css, tokens), "App.css 的样张字重规则")
-
-
-def test_transitional_d04_specimen_css_row_style():
-    """应用框架那一片（T002 规划里的第 3 片"应用框架与夹具数据层"）把陈列页移出根路由时推翻。
-
-    S9 / D04：App.css 有样张行的样式：white-space: pre、font-variant-ligatures: none、不设 letter-spacing，
-    外框 border: 1px solid var(--tt-border)，底色 var(--tt-surface-1)（合同第 5 条）。
-    选择器怎么写合同没定，这里只查整个 App.css 里有这些声明；对齐本身由 H1 人工看。"""
-    app_css = _read(need_file(f"{WEB_REL}/src/App.css"))
-    fail_if(row_style_problems(app_css), "App.css 的样张行样式")
-
-
 # ---------------------------------------------------------------------------
 # P 系列：流水线断言（D01、D02、D03、D04、D06）
 # ---------------------------------------------------------------------------
@@ -1009,8 +764,8 @@ def test_d03_dist_licenses_has_ofl(pipeline):
 
 
 def test_d06_worktree_unchanged_by_pipeline(pipeline):
-    """P7 / D06（守卫）：流水线与探针前后 git status 相同；package.json、锁文件、tokens.css、fonts/ 下的字体与
-    OFL.txt、SOURCE.md 的摘要不变；gate-probe/ 没有留下。"""
+    """P7 / D06（守卫）：流水线前后 git status 相同；package.json、锁文件、tokens.css、fonts/ 下的字体与
+    OFL.txt、SOURCE.md 的摘要不变；gate-probe/ 没有留下（样张探针随 P8 退役后本文件不再写它，这一句照旧守着）。"""
     assert pipeline.ran, pipeline.reason
     assert pipeline.status_before is not None and pipeline.status_after is not None
     appeared = sorted(pipeline.status_after - pipeline.status_before)
@@ -1018,23 +773,7 @@ def test_d06_worktree_unchanged_by_pipeline(pipeline):
     assert not appeared and not gone, f"git status 前后不同：新增 {appeared[:20]}，消失 {gone[:20]}"
     changed = sorted(n for n in WATCHED if pipeline.digests_before.get(n) != pipeline.digests_after.get(n))
     assert not changed, f"流水线改动了不该动的文件：{changed}"
-    assert not pipeline.gate_probe_left, "desktop/web/gate-probe/ 在探针结束后没有清掉"
-
-
-def test_transitional_d04_showcase_font_specimen(pipeline):
-    """应用框架那一片（T002 规划里的第 3 片"应用框架与夹具数据层"）把陈列页移出根路由时推翻。
-
-    P8 / D04：探针渲染 App：恰一个 [data-font-specimen] 节，标题与 showcase__label 正确；400、500、600 三个
-    [data-font-weight] 组各一个；每组至少两行（[data-specimen-row]），有纯汉字行和纯 ASCII 行；每行首尾各一个 |；
-    按“汉字 2 列、ASCII 1 列”每组各行列数相同；只用 CJK 统一表意文字与可打印 ASCII；样张里没有可交互元素；
-    样张在页头之后、Button 一节之前。像素对齐 jsdom 看不了，留给人（H1）。"""
-    assert pipeline.ran, pipeline.reason
-    step = assert_step_ok(pipeline, "probe")
-    assert pipeline.probe_file and pipeline.probe_file in step.out.replace("\\", "/"), \
-        f"探针输出里没有探针文件名，可能没被 Vitest 选中：\n{step.tail}"
-    m = re.search(r"Tests\s+(?:.*\|\s*)?(\d+) passed", step.out)
-    assert m and int(m.group(1)) == PROBE_TEST_COUNT, f"探针应有 {PROBE_TEST_COUNT} 条通过：\n{step.tail}"
-    assert not re.search(r"Tests\s+.*\b(failed|skipped|todo)\b", step.out), f"探针有失败或跳过：\n{step.tail}"
+    assert not pipeline.gate_probe_left, "流水线结束后 desktop/web/gate-probe/ 仍在"
 
 
 # ---------------------------------------------------------------------------
@@ -1087,53 +826,13 @@ def test_gate_selfcheck_fonts_css():
 
 
 def test_gate_selfcheck_tokens_family():
-    """门禁自检：从真实 tokens.css 解析出的字体栈首项是 TT Sarasa Mono SC，字体令牌的字重符合 S8 的预期。"""
+    """门禁自检：从真实 tokens.css 解析出的字体栈首项是 TT Sarasa Mono SC；令牌解析读得出 --tt-text-md、
+    --tt-text-md-medium、--tt-title-sm 的字重 400、500、600（原来也是 S8 的前提，S8 退役后作为解析器自检保留）。"""
     tokens = _read(need_file(f"{WEB_REL}/src/styles/tokens.css"))
     assert tokens_font_family(tokens) == FAMILY
     values = token_values(tokens)
     for token, weight in (("--tt-text-md", "400"), ("--tt-text-md-medium", "500"), ("--tt-title-sm", "600")):
         assert values[token].startswith(weight + " "), (token, values[token])
-
-
-GOOD_APP_CSS = """
-.showcase__label { font: var(--tt-text-caption-strong); }
-/* 样张 */
-[data-font-specimen] { border: 1px solid var(--tt-border); background: var(--tt-surface-1); }
-[data-specimen-row] { white-space: pre; font-variant-ligatures: none; }
-[data-font-weight="400"] [data-specimen-row] { font: var(--tt-text-md); font-variant-ligatures: none; }
-[data-font-weight='500'] { font: var(--tt-text-md-medium); }
-[data-font-weight=600] { font: var(--tt-title-sm); }
-@media (max-width: 800px) {
-  [data-font-specimen] { margin: 0; }
-}
-"""
-
-
-def test_gate_selfcheck_app_css():
-    """门禁自检：合同写明的样张样式通过 S8、S9 的检查，改坏的被抓住。"""
-    tokens = _read(need_file(f"{WEB_REL}/src/styles/tokens.css"))
-    assert weight_rule_problems(GOOD_APP_CSS, tokens) == []
-    assert row_style_problems(GOOD_APP_CSS) == []
-    broken_weight = {
-        "600 组用了 md 令牌": GOOD_APP_CSS.replace("var(--tt-title-sm)", "var(--tt-text-md)"),
-        "500 组用了 600 的令牌": GOOD_APP_CSS.replace("var(--tt-text-md-medium)", "var(--tt-title-sm)"),
-        "400 组没有规则": GOOD_APP_CSS.replace('[data-font-weight="400"]', '[data-font-weighted="400"]'),
-        "规则里单独写了 font-weight": GOOD_APP_CSS.replace("font: var(--tt-title-sm);", "font: var(--tt-title-sm); font-weight: 700;"),
-        "没有 500 组": GOOD_APP_CSS.replace("[data-font-weight='500']", ".x"),
-        "用了字面量": GOOD_APP_CSS.replace("font: var(--tt-title-sm);", "font: 600 14px/22px monospace;"),
-    }
-    for name, css in broken_weight.items():
-        assert weight_rule_problems(css, tokens), f"没抓住：{name}"
-    broken_style = {
-        "没有 white-space": GOOD_APP_CSS.replace("white-space: pre;", ""),
-        "pre-wrap": GOOD_APP_CSS.replace("white-space: pre;", "white-space: pre-wrap;"),
-        "没有关连字": GOOD_APP_CSS.replace("font-variant-ligatures: none;", ""),
-        "设了字距": GOOD_APP_CSS.replace("white-space: pre;", "white-space: pre; letter-spacing: 0.02em;"),
-        "没有外框": GOOD_APP_CSS.replace("border: 1px solid var(--tt-border);", ""),
-        "没有底色": GOOD_APP_CSS.replace("background: var(--tt-surface-1);", ""),
-    }
-    for name, css in broken_style.items():
-        assert row_style_problems(css), f"没抓住：{name}"
 
 
 def good_notices(ofl_text):
@@ -1308,11 +1007,3 @@ def test_gate_selfcheck_dist_checks_catch_mutations(tmp_path, mutation):
     dist, public_copy = make_fake_dist(tmp_path)
     mutation(dist, public_copy)
     assert all_dist_problems(dist, public_copy), f"没抓住：{mutation.__name__}"
-
-
-def test_gate_selfcheck_probe_template():
-    """门禁自检：探针模板的用例数、文件名约定与 vitest 的 include 一致（gate-probe 目录）。"""
-    assert PROBE_TEST_COUNT == 7
-    vite_cfg = _read(need_file(f"{WEB_REL}/vite.config.ts"))
-    assert "gate-probe/**/*.test.{ts,tsx}" in vite_cfg
-    assert "·" in SPECIMEN_TITLE and "·" in PROBE_SOURCE.replace("\\u00b7", "·")

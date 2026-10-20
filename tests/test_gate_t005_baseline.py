@@ -14,8 +14,8 @@
 - 流水线断言（P 系列）：会话级夹具 ``pipeline`` 在 ``desktop/web`` 下按顺序跑 ``npm ci``、``npm run build``、
   ``npm test``、``npm run check:contract``，再把探针逐份写成 ``gate-probe/probe-<唯一标识>-<编号>.test.tsx``，
   各用 ``npm test -- gate-probe/<文件名>`` 跑，``finally`` 里删除；前后各取一次 ``git status``。
-  组件探针（P2–P11）与陈列页探针（P12）分开写、分开跑。全量 pytest 默认跳过用到它的用例（``tests/conftest.py``），
-  点名运行本文件时才跑。
+  现在只有组件探针（P2–P11）；原来分开写、分开跑的陈列页探针（P12）随 P12 一起退役了（见下面的“过渡断言”）。
+  全量 pytest 默认跳过用到它的用例（``tests/conftest.py``），点名运行本文件时才跑。
 - 门禁自检（``test_gate_selfcheck_*``，不依赖候选）：把各检查函数喂给正确样本和若干改坏的样本，证明门禁自己
   放得过正确实现、拦得住常见错误；特异性计算器按规划 §2.2 的样本自检。
 
@@ -24,12 +24,16 @@ DoD 对应：
 - D01：S1、S5、P4；D02：S1、S5、P5；D03：S1、S5、P6；D04：S1、S4、S5、P7；D05：S1、S5、P8；
 - D06：S1、S4、S5、P9；D07：S1、S5、P10；D08：S1、S5、P11；
 - D09：S2、S3、P1（dist 里的 ``:where(``）、P2、P3、执行端的两份新测试在位（V02 另证 T001–T004 门禁）；
-- D10：P12（过渡）；D11：P1、P13（V02、V03 另证）；
+- D10：原来是 P12（过渡），已退役，本文件不再覆盖（见下一段）；D11：P1、P13（V02、V03 另证）；
 - D12：新增测试不用 skip、only、todo 由 V02 里 T002 的 ``test_d03_new_tests_not_skipped`` 机械检查，本文件的
   ``test_d12_*`` 补上新组件源码的守卫；改动范围由调度器的范围门禁证明（这里不写相对基线的范围断言）。
 
-过渡断言（``test_transitional_`` 开头）：只有 P12。陈列页在根路由上，应用框架那一片把陈列页移出根路由时推翻。
-其余（组件行为、CSS 取值、基础重置、T004 修补）都是长期断言。
+过渡断言（``test_transitional_`` 开头）：原来只有 P12（``test_transitional_d10_showcase_form_demos``，探针渲染根 ``App``
+核对陈列页追加的 11 节表单与数据演示，另查 ``src/showcase/*.css`` 里表格演示容器的限高），只在陈列页是根 ``App`` 时成立，
+站主在登记 T006（应用框架与夹具数据层）之前退役了，连同它的探针 ``PROBE_P12``、``PROBE_SPECS`` 与 ``PROBE_ORDER`` 里的
+``p12``、只供它用的 ``NEW_DEMOS`` 与 ``showcase_table_limit_problems``。T006 把根 ``App`` 改成应用框架、把陈列页移出根路由，
+这条在根 ``App`` 上不再成立；11 节演示（含表格演示的限高）在新位置上的覆盖由 T006 自己的门禁重新负责。
+其余（组件行为、CSS 取值、基础重置、T004 修补）都是长期断言，照旧保留。
 
 写法约定：CSS 比较先归一空白（``calc(…)`` 里的也一样）；jsdom 不排版、不算层叠，宽、高、位置、层级、色调读 CSS
 文件的文本，探针只看结构、焦点、计时与属性；合同没有定类名的组件，CSS 断言用“有一条规则声明了某值”的写法，
@@ -67,10 +71,6 @@ NEW_COMPONENTS = ("SegmentedControl", "Switch", "Checkbox", "Tabs", "TextField",
                   "KeyValueList", "EmptyState", "Skeleton", "ConnectionPill", "Breadcrumb")
 OLD_COMPONENTS = ("Button", "Tag", "StatusTag", "Card", "Banner",
                   "IconButton", "Tooltip", "Menu", "Dialog", "Drawer", "Toast")
-
-# 合同第 13 条：data-demo 的取值与顺序（在 toast 一节之后）。
-NEW_DEMOS = ("text-field", "form-dialog", "segmented", "switch-checkbox", "tabs", "table",
-             "key-value", "empty-state", "skeleton", "connection", "breadcrumb")
 
 # 夹具总预算留出余量给其余快测试（合同检查项 V01 的 timeout 是 600s）。
 PIPELINE_BUDGET = 480
@@ -2286,262 +2286,6 @@ describe('连接胶囊', () => {
 });
 """
 
-# P12：陈列页的 11 节演示（D10，过渡）
-PROBE_P12 = PRELUDE + r"""
-let App: any;
-
-beforeAll(async () => {
-  const mod: any = await import('../src/App');
-  App = mod.default ?? mod.App;
-});
-
-const NEW_DEMOS = __NEW_DEMOS__;
-
-function demo(name: string): HTMLElement {
-  const nodes = document.querySelectorAll('[data-demo="' + name + '"]');
-  expect(nodes.length, '应恰有一个 data-demo="' + name + '" 的节').toBe(1);
-  return nodes[0] as HTMLElement;
-}
-function buttonByText(root: Element, text: string): HTMLButtonElement {
-  const hit = Array.from(root.querySelectorAll('button')).find((b) => textOf(b) === text);
-  expect(hit, '找不到文字为「' + text + '」的按钮').toBeTruthy();
-  return hit as HTMLButtonElement;
-}
-function press(btn: HTMLElement) {
-  focusOn(btn);
-  fireEvent.click(btn);
-}
-function checkedIndex(radios: HTMLElement[]) {
-  return radios.findIndex((r) => r.getAttribute('aria-checked') === 'true');
-}
-
-describe('陈列页的 11 节表单与数据演示', () => {
-  it('11 个 data-demo 节都在、各恰一个，顺序对，都在轻提示一节之后；每节是 showcase__section 并带标题（标题不写 Button）', () => {
-    render(<App />);
-    const toast = demo('toast');
-    const secs = NEW_DEMOS.map(demo);
-    for (let i = 0; i < secs.length; i += 1) {
-      const before = i === 0 ? toast : secs[i - 1];
-      expect(before.compareDocumentPosition(secs[i]) & Node.DOCUMENT_POSITION_FOLLOWING, NEW_DEMOS[i] + ' 应在上一节之后').toBeTruthy();
-      expect(secs[i].classList.contains('showcase__section'), NEW_DEMOS[i] + ' 应复用 showcase__section').toBe(true);
-      const h2 = secs[i].querySelector('h2.showcase__h2');
-      expect(h2, NEW_DEMOS[i] + ' 应有 showcase__h2 标题').not.toBeNull();
-      expect(textOf(h2)).not.toBe('');
-      expect(textOf(h2), '节标题里不写 Button').not.toMatch(/Button/);
-    }
-  });
-
-  it('没有文字的按钮都有非空 aria-label；整页只有轻提示那一个 role=status 且开始是空的；新演示里没有主题字样的按钮', () => {
-    render(<App />);
-    const bad = Array.from(document.querySelectorAll('button'))
-      .filter((b) => textOf(b) === '')
-      .filter((b) => !(b.getAttribute('aria-label') || '').trim());
-    expect(bad.length, '没有文字又没有 aria-label 的按钮').toBe(0);
-    const statuses = document.querySelectorAll('[role="status"]');
-    expect(statuses.length, '新组件不渲染 role=status，整页只有轻提示的那一个').toBe(1);
-    expect(textOf(statuses[0])).toBe('');
-    for (const name of NEW_DEMOS) {
-      const sec = demo(name);
-      expect(textOf(sec)).not.toContain('跟随系统');
-      const themed = Array.from(sec.querySelectorAll('button')).filter((b) => ['亮', '暗', '跟随系统'].includes(textOf(b)));
-      expect(themed.length, name + ' 里不该有主题字样的按钮').toBe(0);
-    }
-  });
-
-  it('输入框一节：默认、带帮助、出错、禁用的输入框和一个下拉，都有 label', () => {
-    render(<App />);
-    const sec = demo('text-field');
-    const inputs = Array.from(sec.querySelectorAll('input')) as HTMLInputElement[];
-    const selects = Array.from(sec.querySelectorAll('select')) as HTMLSelectElement[];
-    expect(inputs.length, '至少 4 个输入框').toBeGreaterThanOrEqual(4);
-    expect(selects.length, '至少一个下拉').toBeGreaterThanOrEqual(1);
-    expect(inputs.some((i) => i.disabled), '应有禁用的输入框').toBe(true);
-    expect(inputs.some((i) => i.getAttribute('aria-invalid') === 'true'), '应有出错的输入框').toBe(true);
-    expect(
-      inputs.some((i) => i.getAttribute('aria-invalid') !== 'true' && (i.getAttribute('aria-describedby') || '').trim() !== ''),
-      '应有带帮助文字的输入框',
-    ).toBe(true);
-    for (const el of [...inputs, ...selects]) {
-      expect(el.labels && el.labels.length, '每个控件都有 label').toBeGreaterThan(0);
-    }
-  });
-
-  it('表单对话框一节：「打开表单对话框」出现模态对话框，框里有输入框与下拉、底栏「取消」「确定」；输入框上 mousedown 不被阻止、能聚焦；遮罩上仍被阻止', () => {
-    render(<App />);
-    const sec = demo('form-dialog');
-    const trigger = buttonByText(sec, '打开表单对话框');
-    press(trigger);
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    expect(dialog, '点按钮后应出现 role=dialog').not.toBeNull();
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
-    const input = dialog.querySelector('input') as HTMLInputElement;
-    const select = dialog.querySelector('select') as HTMLSelectElement;
-    expect(input, '框里应有输入框').not.toBeNull();
-    expect(select, '框里应有下拉').not.toBeNull();
-    expect(input.labels && input.labels.length).toBeGreaterThan(0);
-    expect(select.labels && select.labels.length).toBeGreaterThan(0);
-    buttonByText(dialog, '取消');
-    buttonByText(dialog, '确定');
-    expect(dialog.querySelector('[aria-haspopup], [aria-expanded], [role="menu"]'), '框里不放菜单和连接胶囊').toBeNull();
-    expect(fireEvent.mouseDown(input), '框内输入框上的 mousedown 不该被阻止').toBe(true);
-    focusOn(input);
-    expect(document.activeElement).toBe(input);
-    const scrim = document.querySelector('.tt-dialog-scrim') as HTMLElement;
-    expect(fireEvent.mouseDown(scrim), '遮罩本身的 mousedown 仍被阻止').toBe(false);
-  });
-
-  it('分段一节：有 radiogroup，右方向键选中下一段', () => {
-    render(<App />);
-    const sec = demo('segmented');
-    const group = sec.querySelector('[role="radiogroup"]') as HTMLElement;
-    expect(group, '应有分段选择').not.toBeNull();
-    const radios = Array.from(group.querySelectorAll<HTMLElement>('[role="radio"]'));
-    expect(radios.length).toBeGreaterThanOrEqual(2);
-    const at = checkedIndex(radios);
-    expect(at).toBeGreaterThanOrEqual(0);
-    focusOn(radios[at]);
-    key('ArrowRight');
-    expect(checkedIndex(radios)).toBe((at + 1) % radios.length);
-  });
-
-  it('开关与复选框一节：各至少一个，点击切换 aria-checked，空格也切换', () => {
-    render(<App />);
-    const sec = demo('switch-checkbox');
-    for (const role of ['switch', 'checkbox']) {
-      const el = Array.from(sec.querySelectorAll<HTMLElement>('[role="' + role + '"]')).find(
-        (e) => e.getAttribute('aria-disabled') !== 'true',
-      ) as HTMLElement;
-      expect(el, '应有可用的 ' + role).toBeTruthy();
-      const before = el.getAttribute('aria-checked');
-      fireEvent.click(el);
-      const afterClick = el.getAttribute('aria-checked');
-      expect(afterClick, role + ' 点击后应切换').not.toBe(before);
-      focusOn(el);
-      key(' ');
-      expect(el.getAttribute('aria-checked'), role + ' 空格后应再切换').toBe(before);
-    }
-  });
-
-  it('页签一节：有 tablist，右方向键切到下一个页签，面板关联当前页签', () => {
-    render(<App />);
-    const sec = demo('tabs');
-    const list = sec.querySelector('[role="tablist"]') as HTMLElement;
-    expect(list, '应有 tablist').not.toBeNull();
-    const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'));
-    expect(tabs.length).toBeGreaterThanOrEqual(2);
-    const at = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
-    expect(at).toBeGreaterThanOrEqual(0);
-    focusOn(tabs[at]);
-    key('ArrowRight');
-    const next = (at + 1) % tabs.length;
-    expect(tabs[next].getAttribute('aria-selected')).toBe('true');
-    const panel = sec.querySelector('[role="tabpanel"]') as HTMLElement;
-    expect(panel).not.toBeNull();
-    expect(panel.getAttribute('aria-labelledby')).toBe(tabs[next].id);
-  });
-
-  it('表格一节：分段选择切 40、44、52 三档；有「用时」「token」数字列；单元格里没有可聚焦元素；恰一行 tabIndex=0', () => {
-    render(<App />);
-    const sec = demo('table');
-    const group = sec.querySelector('[role="radiogroup"]') as HTMLElement;
-    expect(group, '应有切行高的分段选择').not.toBeNull();
-    const radios = Array.from(group.querySelectorAll<HTMLElement>('[role="radio"]'));
-    expect(radios.length).toBe(3);
-    ['40', '44', '52'].forEach((n, i) => expect(textOf(radios[i])).toContain(n));
-    ['40', '44', '52'].forEach((n, i) => {
-      fireEvent.click(radios[i]);
-      const table = sec.querySelector('table') as HTMLElement;
-      expect(table.getAttribute('data-row-height'), '选 ' + n + ' 后表格行高').toBe(n);
-    });
-    const table = sec.querySelector('table') as HTMLElement;
-    const heads = Array.from(table.querySelectorAll('th')).map((th) => textOf(th));
-    expect(heads.some((h) => h.includes('用时')), '应有「用时」列').toBe(true);
-    expect(heads.some((h) => /token/i.test(h)), '应有 token 列').toBe(true);
-    expect(table.querySelectorAll('td.tt-num').length, '数字列单元格带 tt-num').toBeGreaterThan(0);
-    expect(table.querySelectorAll('tbody tr').length).toBeGreaterThanOrEqual(2);
-    expect(table.querySelectorAll('td a, td button, td input, td select, td textarea, td [tabindex]').length).toBe(0);
-    expect(table.querySelectorAll('tr[tabindex="0"]').length).toBe(1);
-  });
-
-  it('表格一节：Enter 或点击行之后旁边的「上次打开：…」随之变化', () => {
-    render(<App />);
-    const sec = demo('table');
-    const last = () => textOf(sec).split('上次打开：')[1];
-    const rows = () => Array.from(sec.querySelectorAll<HTMLElement>('tbody tr'));
-    const current = rows().find((r) => r.getAttribute('tabindex') === '0') as HTMLElement;
-    focusOn(current);
-    key('Enter');
-    const afterEnter = last();
-    expect(afterEnter, 'Enter 后应显示「上次打开：…」').not.toBeUndefined();
-    expect((afterEnter as string).trim().length, '「上次打开：」后面应有内容').toBeGreaterThan(0);
-    fireEvent.click(rows()[rows().length - 1]);
-    const afterClick = last();
-    expect(afterClick, '点击另一行后「上次打开：」应再变化').not.toBe(afterEnter);
-  });
-
-  it('键值列表、空状态、面包屑三节：dl 里有 dt、dd；空状态有标题与 aria-hidden 图标；面包屑 nav 的末项 aria-current=page', () => {
-    render(<App />);
-    const kv = demo('key-value');
-    expect(kv.querySelectorAll('dl dt').length).toBeGreaterThanOrEqual(2);
-    expect(kv.querySelectorAll('dl dd').length).toBeGreaterThanOrEqual(2);
-    const empty = demo('empty-state');
-    expect(empty.querySelector('svg[aria-hidden="true"]'), '空状态应有图标').not.toBeNull();
-    expect(textOf(empty).length).toBeGreaterThan(0);
-    const bc = demo('breadcrumb');
-    const nav = bc.querySelector('nav') as HTMLElement;
-    expect(nav, '应有面包屑 nav').not.toBeNull();
-    expect(nav.getAttribute('aria-label')).toBe('面包屑');
-    const current = nav.querySelector('[aria-current="page"]') as HTMLElement;
-    expect(current, '末项应带 aria-current=page').not.toBeNull();
-    expect(current.tagName).toBe('SPAN');
-  });
-
-  it('骨架屏一节：「加载 2 秒」点后 299ms 没有骨架、300ms 出现、2 秒后消失；「加载 0.2 秒」全程不出现骨架', () => {
-    render(<App />);
-    const sec = demo('skeleton');
-    const two = buttonByText(sec, '加载 2 秒');
-    const fast = buttonByText(sec, '加载 0.2 秒');
-    expect(sec.querySelector('.tt-skel'), '开始时没有骨架').toBeNull();
-    press(two);
-    advance(299);
-    expect(sec.querySelector('.tt-skel'), '299ms 时还没有骨架').toBeNull();
-    advance(1);
-    expect(sec.querySelectorAll('.tt-skel').length, '300ms 时出现骨架').toBeGreaterThan(0);
-    advance(1200);
-    expect(sec.querySelector('.tt-skel'), '1500ms 时还在加载').not.toBeNull();
-    advance(700);
-    expect(sec.querySelector('.tt-skel'), '2 秒之后加载完成，骨架消失').toBeNull();
-    press(fast);
-    for (let i = 0; i < 20; i += 1) {
-      advance(50);
-      expect(sec.querySelector('.tt-skel'), '短加载不闪骨架').toBeNull();
-    }
-  });
-
-  it('连接胶囊一节：三态并排，各自能点开浮层，浮层里有 pid 与启动于', () => {
-    render(<App />);
-    const sec = demo('connection');
-    const states = Array.from(sec.querySelectorAll('[data-state]')).map((el) => el.getAttribute('data-state'));
-    for (const s of ['connected', 'reconnecting', 'disconnected']) {
-      expect(states, '应有 ' + s + ' 态').toContain(s);
-    }
-    const pills = Array.from(sec.querySelectorAll<HTMLElement>('button[aria-expanded]'));
-    expect(pills.length).toBe(3);
-    for (const pill of pills) {
-      expect(pill.getAttribute('aria-expanded')).toBe('false');
-      fireEvent.click(pill);
-      expect(pill.getAttribute('aria-expanded')).toBe('true');
-      const pop = document.getElementById(pill.getAttribute('aria-controls') || '');
-      expect(pop, '点开后应有浮层').not.toBeNull();
-      expect(textOf(pop)).toContain('pid');
-      expect(textOf(pop)).toContain('启动于');
-      fireEvent.click(pill);
-      expect(pill.getAttribute('aria-expanded')).toBe('false');
-    }
-  });
-});
-"""
-
 # (键, 探针源码, 需要先存在的仓库文件)
 PROBE_SPECS = {
     "p2": (PROBE_P2, [f"{COMP_REL}/Dialog.tsx"]),
@@ -2554,10 +2298,9 @@ PROBE_SPECS = {
     "p9": (PROBE_P9, [f"{COMP_REL}/KeyValueList.tsx", f"{COMP_REL}/EmptyState.tsx", f"{COMP_REL}/Breadcrumb.tsx"]),
     "p10": (PROBE_P10, [f"{COMP_REL}/Skeleton.tsx"]),
     "p11": (PROBE_P11, [f"{COMP_REL}/ConnectionPill.tsx"]),
-    "p12": (PROBE_P12, [f"{SRC_REL}/App.tsx"]),
 }
-# 组件探针（P2–P11）与陈列页探针（P12）分开跑：组件探针先跑
-PROBE_ORDER = ("p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12")
+# 组件探针按编号顺序逐份跑（陈列页探针 P12 已退役）
+PROBE_ORDER = ("p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11")
 
 
 def probe_count(source):
@@ -2568,8 +2311,6 @@ def build_probe_source(key):
     source = PROBE_SPECS[key][0]
     if key == "p9":
         source = source.replace("__LIST_DS__", json.dumps(canvas_line_icon_ds(466), ensure_ascii=False))
-    if key == "p12":
-        source = source.replace("__NEW_DEMOS__", json.dumps(list(NEW_DEMOS)))
     return source
 
 
@@ -3038,35 +2779,6 @@ def test_d08_probe_connection_pill(pipeline):
     assert_probe_ok(pipeline, "p11")
 
 
-def showcase_table_limit_problems():
-    """表格演示：容器限高（合同第 13 条；人工看吸顶与横向滚动）。新演示的样式写在 src/showcase/*.css 里，其中要有限高的声明。"""
-    folder = SRC / "showcase"
-    if not folder.is_dir():
-        return [f"{SRC_REL}/showcase/ 不存在（新演示放在这里）"]
-    css_files = sorted(folder.glob("*.css"))
-    if not css_files:
-        return [f"{SRC_REL}/showcase/ 下没有 *.css（新演示的样式写在这里，不碰 App.css）"]
-    for path in css_files:
-        for _selector, decls in parse_rules(_read(path)):
-            for name, value in decls:
-                if name in ("max-height", "height") and cv(value) not in ("auto", "100%", "inherit", "0"):
-                    return []
-    return ["src/showcase/*.css 里没有限高声明（max-height 或 height）：表格演示的容器要限高，才能看吸顶与横向滚动"]
-
-
-def test_transitional_d10_showcase_form_demos(pipeline):
-    """应用框架那一片（T002 规划里的第 3 片「应用框架与夹具数据层」）把陈列页移出根路由时推翻。
-
-    P12 / D10：探针渲染 App：11 个 data-demo 节（text-field、form-dialog、segmented、switch-checkbox、tabs、table、key-value、
-    empty-state、skeleton、connection、breadcrumb）各恰一个、顺序对、都在轻提示一节之后，复用 showcase__section 与 showcase__h2；
-    表单对话框里的输入框与下拉有 label，输入框上 mousedown 不被阻止、能聚焦，遮罩上仍被阻止；表格能切 40、44、52 三档，
-    有用时与 token 数字列，Enter 或点击后「上次打开：…」变化；骨架屏的「加载 2 秒」「加载 0.2 秒」（299/300ms 与短加载不闪）；
-    胶囊三态各能点开浮层；页面上没有文字的按钮都有 aria-label，整页只有轻提示那一个 role=status。
-    另查 src/showcase/*.css 里有表格演示容器的限高声明。"""
-    fail_if(showcase_table_limit_problems(), "表格演示的限高")
-    assert_probe_ok(pipeline, "p12")
-
-
 def test_d12_worktree_unchanged_by_pipeline(pipeline):
     """P13 / D12（守卫）：流水线与探针前后 git status 相同；package.json、锁文件、index.html、vite.config.ts、tsconfig.json、
     tokens.css、fonts.css、base.css、main.tsx、App.css 的摘要不变；gate-probe/ 没有留下。"""
@@ -3422,11 +3134,11 @@ def test_gate_selfcheck_sixteen_px_checker():
 
 
 def test_gate_selfcheck_probe_templates():
-    """门禁自检：11 份探针的用例数、文件名约定与 vitest 的 include 一致；探针不用 skip、only、todo，fireEvent 来自
-    @testing-library/react（不从 @testing-library/dom 导入）；占位符都能替换掉；括号成对；探针动态导入的模块都在各自的
-    “需要先存在的文件”清单里；p2、p3、p12 导入的模块基线上就在。"""
+    """门禁自检：10 份探针（P2–P11；P12 已退役）的用例数、文件名约定与 vitest 的 include 一致；探针不用 skip、only、todo，
+    fireEvent 来自 @testing-library/react（不从 @testing-library/dom 导入）；占位符都能替换掉；括号成对；探针动态导入的模块
+    都在各自的“需要先存在的文件”清单里；p2、p3 导入的模块基线上就在。"""
     counts = {key: probe_count(spec[0]) for key, spec in PROBE_SPECS.items()}
-    assert counts == {"p2": 3, "p3": 4, "p4": 6, "p5": 13, "p6": 6, "p7": 12, "p8": 11, "p9": 7, "p10": 4, "p11": 7, "p12": 12}, counts
+    assert counts == {"p2": 3, "p3": 4, "p4": 6, "p5": 13, "p6": 6, "p7": 12, "p8": 11, "p9": 7, "p10": 4, "p11": 7}, counts
     assert set(PROBE_ORDER) == set(PROBE_SPECS) and len(PROBE_ORDER) == len(PROBE_SPECS)
     vite_cfg = _read(need_file(f"{WEB_REL}/vite.config.ts"))
     assert "gate-probe/**/*.test.{ts,tsx}" in vite_cfg
@@ -3442,12 +3154,8 @@ def test_gate_selfcheck_probe_templates():
         assert built.count("[") == built.count("]"), (key, built.count("["), built.count("]"))
         for mod in re.findall(r"import\('\.\./src/([^']+)'\)", source):
             assert any(req.endswith(f"/{mod}.tsx") for req in requires), (key, mod, requires)
-    for key in ("p2", "p3", "p12"):
+    for key in ("p2", "p3"):
         for rel in PROBE_SPECS[key][1]:
             assert (REPO_ROOT / rel).is_file(), rel
     p9 = build_probe_source("p9")
     assert "m3 17 2 2 4-4" in p9 and "M13 18h8" in p9
-    p12 = build_probe_source("p12")
-    assert "form-dialog" in p12 and "connection" in p12
-    assert list(NEW_DEMOS) == ["text-field", "form-dialog", "segmented", "switch-checkbox", "tabs", "table",
-                               "key-value", "empty-state", "skeleton", "connection", "breadcrumb"]
