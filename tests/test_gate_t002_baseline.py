@@ -32,8 +32,12 @@ base_sha），那时 ``desktop/web`` 还不存在，所以本文件在基线上�
 横向滚动、许可与来源记录的准确性与完整性、按钮高 28/32/36 与 Tag/Card 的具体像素（jsdom 不算样式）。
 
 组件探针的取舍（站主 Q4）：合同没有规定“加载文字”的属性名，探针不传加载文字，只验证 ``loading`` 的
-disabled、aria-busy 与转圈图标；陈列页的三个主题按钮没有规定文案，探针按文字里的“暗/亮/系统”（或
-dark/light/system）找按钮。
+disabled、aria-busy 与转圈图标。
+
+探针里原来还有“App 陈列页”两条用例（渲染根 App：列全变体、三个按钮切换 data-theme），只在陈列页是根 App
+时成立。站主在 T006（应用框架与夹具数据层）合同开工之前退役了它们：T006 把根 App 改成应用框架、陈列页移到
+``#/showcase``、主题改由标题栏的主题菜单切换，这两条的覆盖由 T006 的门禁接手。它们写在内核第 8 轮的
+``test_transitional_`` 命名规则之前，8214a1f 按名字找过渡断言时漏了。
 
 基线上本文件应当失败，原因是 ``desktop/web`` 的内容缺失；不是导入、路径或语法错误。
 """
@@ -456,51 +460,6 @@ describe('Banner', () => {
     expect(iconW).not.toBe('');
     expect(iconW).toBe(iconD);
     expect(iconI).not.toBe(iconW);
-  });
-});
-
-describe('App 陈列页', () => {
-  async function mountApp() {
-    const mod: any = await import('../src/App');
-    const AppComponent = mod.default ?? mod.App;
-    expect(AppComponent).toBeTruthy();
-    return render(<AppComponent />);
-  }
-
-  function themeButton(pattern: RegExp): HTMLElement {
-    const hit = Array.from(document.querySelectorAll('button')).find((b) => pattern.test(textOf(b)));
-    expect(hit, `找不到文字匹配 ${pattern} 的按钮`).toBeTruthy();
-    return hit as HTMLElement;
-  }
-
-  it('列出 17 个状态、8 种色调、4 种按钮变体与 3 种尺寸、加载态与三种提示条', async () => {
-    await mountApp();
-    for (const [code] of STATES) {
-      expect(document.querySelector('[title="' + code + '"]'), '状态 ' + code).not.toBeNull();
-    }
-    for (const tone of TONES) {
-      expect(document.querySelector('[data-tone="' + tone + '"]'), '色调 ' + tone).not.toBeNull();
-    }
-    for (const v of VARIANTS) {
-      expect(document.querySelector('button[data-variant="' + v + '"]'), '按钮变体 ' + v).not.toBeNull();
-    }
-    for (const s of SIZES) {
-      expect(document.querySelector('button[data-size="' + s + '"]'), '按钮尺寸 ' + s).not.toBeNull();
-    }
-    expect(document.querySelector('button[aria-busy="true"]'), '加载态按钮').not.toBeNull();
-    expect(document.querySelector('[role="alert"]'), 'danger 提示条').not.toBeNull();
-    expect(document.querySelector('[aria-label="关闭提示"]'), 'info 提示条的关闭按钮').not.toBeNull();
-  });
-
-  it('三个按钮切换根元素的 data-theme：亮 → light，跟随系统 → system，暗 → 去掉', async () => {
-    await mountApp();
-    const root = document.documentElement;
-    fireEvent.click(themeButton(/亮|浅|light/i));
-    expect(root.getAttribute('data-theme')).toBe('light');
-    fireEvent.click(themeButton(/系统|system|auto/i));
-    expect(root.getAttribute('data-theme')).toBe('system');
-    fireEvent.click(themeButton(/暗|深|dark/i));
-    expect(root.hasAttribute('data-theme')).toBe(false);
   });
 });
 """
@@ -1517,7 +1476,7 @@ def test_g9_runs_from_any_cwd_with_absolute_paths(tmp_path):
 def test_g10_component_probe(pipeline):
     """G10：门禁运行时写入 desktop/web/gate-probe/probe-<唯一标识>.test.tsx，用 npm test -- gate-probe/<文件名> 运行。
     断言 5 个组件的导出、17 个状态各自的中文与 title 与色调、未知状态兜底、加载按钮 disabled 与 aria-busy、
-    三种提示条的关闭按钮有无与 danger 的 role=alert，以及 App 陈列页列全变体、三个按钮切换 data-theme。"""
+    三种提示条的关闭按钮有无与 danger 的 role=alert。原来的“App 陈列页”两条已在 T006 之前退役（见模块说明）。"""
     assert pipeline.ran, pipeline.reason
     step = assert_step_ok(pipeline, "probe")
     assert pipeline.probe_file and pipeline.probe_file in step.out.replace("\\", "/"), \
