@@ -15,4 +15,4 @@
 .tt-icon-btn--md { width: 32px; height: 32px; } /* UI 文档 7.2 :778 边长 32 */
 .tt-icon-btn:hover:not(:disabled) { background: var(--tt-surface-3); color: var(--tt-text-1); }
 .tt-icon-btn:disabled { color: var(--tt-text-disabled); cursor: not-allowed; }
-.tt-icon-btn svg { width: 16px; height: 16px; }
+.tt-icon-btn svg { width: 16px; height: 16px; } /* 组件板 :340，图标 16 */

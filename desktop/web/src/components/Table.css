@@ -1,0 +1,39 @@
+/* 表格（组件板 :411–418、任务页 :367–391、UI 文档 7.9、handoff :142）：容器 overflow auto + surface-1 + 圆角 lg；
+   表头高 32 吸顶（sticky、top 0、z-sticky）、surface-2、title-sm；单元格不换行；行高 40/44/52；
+   悬停 surface-3；选中行 surface-selected + 左 2px 主色 inset 阴影；数字列右对齐 tt-num、mono 列 mono-sm。 */
+.tt-table-wrap {
+  overflow: auto;
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.tt-table { width: 100%; border-collapse: collapse; }
+.tt-table th {
+  position: sticky;
+  top: 0;
+  z-index: var(--tt-z-sticky);
+  height: 32px; /* 组件板 :411 表头高 32 */
+  padding: 0 var(--tt-space-3);
+  background: var(--tt-surface-2);
+  font: var(--tt-title-sm);
+  color: var(--tt-text-2);
+  text-align: left;
+  white-space: nowrap;
+}
+.tt-table td {
+  padding: 0 var(--tt-space-3);
+  border-top: 1px solid var(--tt-border);
+  font: var(--tt-text-sm);
+  color: var(--tt-text-1);
+  white-space: nowrap;
+}
+.tt-table[data-row-height="40"] td { height: 40px; } /* 任务页 :367 行高 40 */
+.tt-table[data-row-height="44"] td { height: 44px; } /* 行高 44 */
+.tt-table[data-row-height="52"] td { height: 52px; } /* 行高 52 */
+.tt-table tbody tr:hover { background: var(--tt-surface-3); }
+.tt-table tbody tr[data-selected] {
+  background: var(--tt-surface-selected);
+  box-shadow: inset 2px 0 0 var(--tt-primary); /* 组件板 :415 选中行左 2px 主色 */
+}
+.tt-table td.tt-num { text-align: right; }
+.tt-table td.tt-table__mono { font: var(--tt-mono-sm); }

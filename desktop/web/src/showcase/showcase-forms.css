@@ -1,0 +1,4 @@
+/* 第 4 片演示的补充样式：输入框定宽；表格容器限高限宽（人工看表头吸顶与横向滚动，合同 H4）。
+   不复用 App.css 之外的约定，颜色一律取令牌；其余布局复用 App.css 的 showcase__row / showcase__stack 等。 */
+.showcase-field { width: 240px; max-width: 100%; }
+.showcase-table { max-height: 240px; max-width: 560px; }

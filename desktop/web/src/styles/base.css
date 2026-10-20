@@ -9,12 +9,14 @@
   font-variant-ligatures: none;
 }
 .tt-app *, .tt-app *::before, .tt-app *::after { box-sizing: border-box; }
-.tt-app button, .tt-app input, .tt-app select, .tt-app textarea { font: inherit; color: inherit; margin: 0; }
-.tt-app button { cursor: pointer; }
-.tt-app button:disabled { cursor: not-allowed; }
-.tt-app a { color: var(--tt-link); }
-.tt-app table { border-collapse: collapse; border-spacing: 0; }
-.tt-app input::placeholder { color: var(--tt-text-3); }
+/* 元素重置包进 :where()，特异性降到 0（T005 7.4）：同特异性下不会盖过组件的单类规则；
+   构建产物（esbuild/vite）原样保留 :where(。 */
+:where(.tt-app) :where(button, input, select, textarea) { font: inherit; color: inherit; margin: 0; }
+:where(.tt-app) :where(button) { cursor: pointer; }
+:where(.tt-app) :where(button:disabled) { cursor: not-allowed; }
+:where(.tt-app) :where(a) { color: var(--tt-link); }
+:where(.tt-app) :where(table) { border-collapse: collapse; border-spacing: 0; }
+:where(.tt-app) :where(input)::placeholder { color: var(--tt-text-3); }
 .tt-num { font-variant-numeric: tabular-nums; }
 .tt-i { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 

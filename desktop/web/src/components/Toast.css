@@ -32,4 +32,3 @@
   cursor: pointer;
 }
 .tt-toast__close:hover { background: var(--tt-surface-3); color: var(--tt-text-1); }
-.tt-toast__close svg { width: 16px; height: 16px; }

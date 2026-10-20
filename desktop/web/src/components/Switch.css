@@ -1,0 +1,43 @@
+/* 开关（组件板 :374–377、UI 文档 7.5、handoff :146）：轨道 32×18、圆角 full；
+   关 surface-2 + 强边框、圆点强边框色；开 primary 底与边框、圆点 on-primary；圆点 12、上 2、左 2/16。
+   禁用 surface-2、边框 border、圆点与文字 disabled。焦点环用 base.css 的 :focus-visible。 */
+.tt-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  cursor: pointer;
+}
+.tt-switch__track {
+  position: relative;
+  width: 32px; /* 组件板 :374 轨道 32×18 */
+  height: 18px; /* 组件板 :374 轨道高 18 */
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-full);
+  flex: none;
+}
+.tt-switch__knob {
+  position: absolute;
+  width: 12px; /* 组件板 :375 圆点 12 */
+  height: 12px; /* 组件板 :375 圆点 12 */
+  top: 2px; /* 组件板 :375 圆点上 2 */
+  left: 2px; /* 组件板 :375 关时圆点左 2 */
+  background: var(--tt-border-strong);
+  border-radius: var(--tt-radius-full);
+}
+.tt-switch[aria-checked="true"] .tt-switch__track {
+  background: var(--tt-primary);
+  border-color: var(--tt-primary);
+}
+.tt-switch[aria-checked="true"] .tt-switch__knob {
+  left: 16px; /* 组件板 :375 开时左 16 */
+  background: var(--tt-on-primary);
+}
+.tt-switch__label { font: var(--tt-text-sm); }
+.tt-switch[aria-disabled="true"] { cursor: not-allowed; }
+.tt-switch[aria-disabled="true"] .tt-switch__track {
+  background: var(--tt-surface-2);
+  border-color: var(--tt-border);
+}
+.tt-switch[aria-disabled="true"] .tt-switch__knob { background: var(--tt-text-disabled); }
+.tt-switch[aria-disabled="true"] .tt-switch__label { color: var(--tt-text-disabled); }

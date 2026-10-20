@@ -1,0 +1,15 @@
+/* 下拉（组件板 :360）：原生 select 去外观、右侧留出箭头位；箭头 ChevronDownIcon 16 绝对定位右中、aria-hidden、不挡点击。 */
+.tt-field__select { position: relative; display: block; }
+.tt-field__input.tt-field__input--select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: var(--tt-space-8);
+}
+.tt-field__arrow {
+  position: absolute;
+  right: var(--tt-space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--tt-text-3);
+}

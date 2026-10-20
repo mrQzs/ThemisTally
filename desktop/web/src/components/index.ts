@@ -1,5 +1,8 @@
-// 统一导出组件：第 1 片的 5 个原子组件（Button / Tag / StatusTag / Card / Banner）与第 3 片的 6 个浮层组件
-// （图标按钮、工具提示、菜单、对话框、抽屉、轻提示）。浮层共用的内部模块（挂载层、可聚焦查询、焦点管理）不从本文件导出。
+// 统一导出组件，共四片：
+//   第 1 片 5 个原子组件（Button / Tag / StatusTag / Card / Banner）；
+//   第 3 片 6 个浮层组件（图标按钮、工具提示、菜单、对话框、抽屉、轻提示）；
+//   第 4 片 12 个表单与数据原子（分段选择、开关、复选框、页签、输入框、下拉、表格、键值列表、空状态、骨架屏、连接胶囊、面包屑）。
+// 浮层共用的内部模块（挂载层、可聚焦查询、焦点管理）与 field/ 的接线工具不从本文件导出。
 export { Button } from './Button';
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 export { Tag } from './Tag';
@@ -22,3 +25,27 @@ export { Drawer } from './Drawer';
 export type { DrawerProps } from './Drawer';
 export { Toast } from './Toast';
 export type { ToastProps, ToastTone } from './Toast';
+export { SegmentedControl } from './SegmentedControl';
+export type { SegmentedControlProps, SegmentedOption } from './SegmentedControl';
+export { Switch } from './Switch';
+export type { SwitchProps } from './Switch';
+export { Checkbox } from './Checkbox';
+export type { CheckboxProps } from './Checkbox';
+export { Tabs } from './Tabs';
+export type { TabsProps, TabItem } from './Tabs';
+export { TextField } from './TextField';
+export type { TextFieldProps } from './TextField';
+export { Select } from './Select';
+export type { SelectProps, SelectOption } from './Select';
+export { Table } from './Table';
+export type { TableProps, TableColumn } from './Table';
+export { KeyValueList } from './KeyValueList';
+export type { KeyValueListProps, KeyValueItem } from './KeyValueList';
+export { EmptyState } from './EmptyState';
+export type { EmptyStateProps } from './EmptyState';
+export { Skeleton } from './Skeleton';
+export type { SkeletonProps } from './Skeleton';
+export { ConnectionPill } from './ConnectionPill';
+export type { ConnectionPillProps, ConnectionState } from './ConnectionPill';
+export { Breadcrumb } from './Breadcrumb';
+export type { BreadcrumbProps, BreadcrumbItem } from './Breadcrumb';

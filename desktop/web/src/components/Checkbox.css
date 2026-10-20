@@ -1,0 +1,31 @@
+/* 复选框（组件板 :378–379、handoff :146）：框 16、圆角 sm；未选 1px 强边框、surface-1 底；
+   已选 primary 底、勾 CheckIcon 12（描边 3、on-primary）；文字 sm、与框间距 2。焦点环用 base.css 的 :focus-visible。 */
+.tt-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  cursor: pointer;
+}
+.tt-check__box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; /* 组件板 :378 框 16 */
+  height: 16px; /* 组件板 :378 框 16 */
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-sm);
+  flex: none;
+}
+.tt-check[aria-checked="true"] .tt-check__box {
+  background: var(--tt-primary);
+  border-color: var(--tt-primary);
+}
+.tt-check__mark { color: var(--tt-on-primary); }
+.tt-check__label { font: var(--tt-text-sm); }
+.tt-check[aria-disabled="true"] { cursor: not-allowed; }
+.tt-check[aria-disabled="true"] .tt-check__box {
+  background: var(--tt-surface-2);
+  border-color: var(--tt-border);
+}
+.tt-check[aria-disabled="true"] .tt-check__label { color: var(--tt-text-disabled); }

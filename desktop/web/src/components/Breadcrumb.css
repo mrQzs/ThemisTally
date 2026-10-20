@@ -1,0 +1,22 @@
+/* 面包屑（组件板 :449）：text-sm、text-3、间距 1；链接色 link、不加下划线（按钮也照链接样式）；当前项 text-2。 */
+.tt-crumb { font: var(--tt-text-sm); color: var(--tt-text-3); }
+.tt-crumb__list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tt-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tt-crumb__link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--tt-link);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tt-crumb__current { color: var(--tt-text-2); }
+.tt-crumb__sep { display: inline-flex; align-items: center; color: var(--tt-text-3); }

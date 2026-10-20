@@ -1,0 +1,51 @@
+/* 连接胶囊（组件板 :435–437、断线页 :289–298、:448–450、UI 文档 7.20、handoff :148）：
+   胶囊高 24、圆角 full、surface-1、text-caption、text-2；圆点 8（已连接 success-fg、重连中 warning-fg、已断开 danger-fg）；
+   悬停 surface-3。浮层绝对定位、右对齐、在胶囊下方、宽 240、阴影 2、层级 popover；小键值表标签列 64、pid mono-sm。 */
+.tt-pill-wrap { position: relative; display: inline-block; }
+.tt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  height: 24px; /* 组件板 :435 胶囊高 24 */
+  padding: 0 var(--tt-space-2);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-surface-1);
+  font: var(--tt-text-caption);
+  color: var(--tt-text-2);
+  cursor: pointer;
+}
+.tt-pill:hover { background: var(--tt-surface-3); }
+.tt-pill__dot {
+  width: 8px; /* 组件板 :436 圆点 8 */
+  height: 8px; /* 组件板 :436 圆点 8 */
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-tone-success-fg);
+  flex: none;
+}
+.tt-pill[data-state="reconnecting"] { color: var(--tt-tone-warning-fg); }
+.tt-pill[data-state="reconnecting"] .tt-pill__dot { background: var(--tt-tone-warning-fg); }
+.tt-pill[data-state="disconnected"] { color: var(--tt-danger-text); }
+.tt-pill[data-state="disconnected"] .tt-pill__dot { background: var(--tt-tone-danger-fg); }
+.tt-pill-pop {
+  position: absolute;
+  top: calc(100% + var(--tt-space-1));
+  right: 0;
+  width: 240px; /* 断线页 :292 浮层宽 240 */
+  padding: var(--tt-space-2) var(--tt-space-3);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-shadow-2);
+  z-index: var(--tt-z-popover);
+  font: var(--tt-text-sm);
+}
+.tt-pill-pop__list {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr); /* 断线页 :295 标签列 64 */
+  gap: var(--tt-space-1) var(--tt-space-3);
+  margin: 0;
+}
+.tt-pill-pop__list dt { color: var(--tt-text-3); }
+.tt-pill-pop__list dd { margin: 0; color: var(--tt-text-1); }
+.tt-pill-pop__pid { font: var(--tt-mono-sm); }

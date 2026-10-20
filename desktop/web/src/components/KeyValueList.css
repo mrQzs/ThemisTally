@@ -1,0 +1,12 @@
+/* 键值列表（组件板 :451、UI 文档 7.23）：两列网格 minmax(96px, max-content)/minmax(0, 1fr)；行距 1、列距 3；
+   text-sm；标签 text-3、值 text-1；等宽值 mono-sm、行高 20。 */
+.tt-kv {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); /* 组件板 :451 标签列 96 */
+  gap: var(--tt-space-1) var(--tt-space-3);
+  margin: 0;
+  font: var(--tt-text-sm);
+}
+.tt-kv__key { color: var(--tt-text-3); }
+.tt-kv__val { margin: 0; color: var(--tt-text-1); }
+.tt-kv__val--mono { font: var(--tt-mono-sm); line-height: 20px; } /* 等宽值行高 20 */

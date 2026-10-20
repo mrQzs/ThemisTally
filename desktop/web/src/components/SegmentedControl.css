@@ -1,0 +1,24 @@
+/* 分段选择（组件板 :369、UI 文档 7.4、handoff :146）：轨道 surface-2、1px border、圆角 md、内边距 0_5；
+   段高 28、圆角 sm、sm-medium、text-2、透明底；选中段 surface-1、阴影 1、text-1。 */
+.tt-seg {
+  display: inline-flex;
+  padding: var(--tt-space-0_5);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+}
+.tt-seg__item {
+  height: 28px; /* 组件板 :369 段高 28 */
+  padding: 0 var(--tt-space-3);
+  border: none;
+  background: transparent;
+  border-radius: var(--tt-radius-sm);
+  font: var(--tt-text-sm-medium);
+  color: var(--tt-text-2);
+  cursor: pointer;
+}
+.tt-seg__item[aria-checked="true"] {
+  background: var(--tt-surface-1);
+  box-shadow: var(--tt-shadow-1);
+  color: var(--tt-text-1);
+}

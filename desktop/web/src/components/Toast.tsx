@@ -3,6 +3,7 @@
 // 关闭钮立即调 onClose；卸载与重新打开都清计时器。挂到 body 下的挂载层，右下固定定位，tt-enter 入场。
 import { useEffect, useRef, type ReactNode } from 'react';
 import { CircleCheckIcon, InfoIcon, XIcon } from '../icons';
+import { Tooltip } from './Tooltip';
 import { MountLayer } from './overlay/MountLayer';
 import './Toast.css';
 
@@ -77,17 +78,19 @@ export function Toast({ open, onClose, children, tone = 'success' }: ToastProps)
           <div className="tt-toast tt-enter tt-fc" data-tone={tone} onMouseEnter={pause} onMouseLeave={resume}>
             <Icon className="tt-toast__icon" width={16} height={16} />
             <span className="tt-toast__text">{children}</span>
-            <button
-              type="button"
-              className="tt-toast__close"
-              aria-label="关闭提示"
-              onClick={() => {
-                clear();
-                onClose();
-              }}
-            >
-              <XIcon width={16} height={16} />
-            </button>
+            <Tooltip content="关闭提示">
+              <button
+                type="button"
+                className="tt-toast__close"
+                aria-label="关闭提示"
+                onClick={() => {
+                  clear();
+                  onClose();
+                }}
+              >
+                <XIcon width={16} height={16} />
+              </button>
+            </Tooltip>
           </div>
         )}
       </div>

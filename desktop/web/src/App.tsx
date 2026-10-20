@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Tag, StatusTag, Card, Banner, IconButton, Menu, Dialog, Drawer, Toast, type MenuItem } from './components';
 import { ATTEMPT_STATES } from './domain/attemptStates';
 import { XIcon, InfoIcon, CircleHelpIcon } from './icons';
+import FormsShowcase from './showcase/FormsShowcase';
 import './App.css';
 
 type ThemePref = 'dark' | 'light' | 'system';
@@ -252,6 +253,8 @@ export default function App() {
         </div>
         <p className="showcase__muted">右下角轻提示，5000ms 后自动关闭；悬停暂停计时，关闭钮立即关闭。</p>
       </section>
+
+      <FormsShowcase />
     </div>
   );
 }

@@ -1,0 +1,14 @@
+/* 骨架屏（组件板 :474–480、handoff :154）：容器纵向间距 2、内边距 4、1px border、圆角 lg；
+   条 tt-skel、aria-hidden、surface-3、圆角 sm；条高与宽写在 tsx 的内联样式里。动效与减少动效用 base.css 现成的 tt-pulse。 */
+.tt-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-4);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.tt-skeleton .tt-skel {
+  background: var(--tt-surface-3);
+  border-radius: var(--tt-radius-sm);
+}

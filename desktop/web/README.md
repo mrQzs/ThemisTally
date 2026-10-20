@@ -1,6 +1,6 @@
 # Themis Tally · desktop/web
 
-桌面端 Web 渲染层（React 18 + TypeScript strict + Vite + Vitest）。本片（T002 第 1 片）交付工程骨架、设计令牌、W4 契约检查与 5 个原子组件，以及一个组件陈列页。
+桌面端 Web 渲染层（React 18 + TypeScript strict + Vite + Vitest）。先后交付四片：工程骨架、设计令牌、W4 契约检查与原子组件；浮层与焦点；表单与数据原子。外加一个组件陈列页。
 
 ## 命令
 
@@ -25,8 +25,14 @@ desktop/web/
       tokens.css        # 只有 --tt-* 自定义属性与 color-scheme（画布逐项相等）
       base.css          # 基础样式，只用令牌与允许的全局值
       fonts.css         # 随包字体的两条 @font-face（等距更纱黑体 SC）
-    components/         # Button / Tag / StatusTag / Card / Banner 与 IconButton / Tooltip / Menu / Dialog / Drawer / Toast，各带一份 CSS
+    components/         # 四片组件，各带一份 CSS：
+                        #   第 1 片 Button / Tag / StatusTag / Card / Banner；
+                        #   第 3 片 IconButton / Tooltip / Menu / Dialog / Drawer / Toast；
+                        #   第 4 片 SegmentedControl / Switch / Checkbox / Tabs / TextField / Select / Table /
+                        #            KeyValueList / EmptyState / Skeleton / ConnectionPill / Breadcrumb
+      field/             # 输入框 / 下拉 / 开关 / 复选框共用的接线工具（useFieldA11y、useToggle），不从 index 导出
       overlay/           # 浮层共用的内部模块（挂载层、可聚焦查询、焦点管理），不从 index 导出
+    showcase/           # 第 4 片表单与数据原子的陈列页演示（FormsShowcase.tsx），样式在 showcase-forms.css
     domain/
       attemptStates.ts  # 17 个已知状态 + 未知兜底
     icons/              # Lucide 图标（React 组件）
@@ -42,6 +48,7 @@ desktop/web/
 ## 令牌规则
 
 - 所有颜色、字体、圆角、时长一律取 `--tt-*` 令牌，不写死十六进制、颜色函数或命名颜色。
+- 基础重置（`base.css` 里的元素重置）一律包进 `:where()`，特异性降到 0，避免盖过组件的单类规则；`tests/base-reset.test.ts` 与门禁都会核查这条约定。
 - 主题缺省为**暗色**；亮色 `data-theme="light"`，跟随系统 `data-theme="system"`（由 App 切到 `<html>`）。
 - `npm run check:contract` 扫描 `src/**/*.{css,ts,tsx}`（排除 `tokens.css` 与 `*.test.*`）：
   - 规则 1（未定义变量）：出现的每个 `--tt-…` 都必须在 `tokens.css` 定义。

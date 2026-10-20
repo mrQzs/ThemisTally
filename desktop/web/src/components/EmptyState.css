@@ -1,0 +1,17 @@
+/* 空状态（组件板 :465–470、UI 文档 7.23）：纵向居中、文字居中、间距 1；内边距 6 与 4；1px border、圆角 lg；
+   图标 32、text-3、aria-hidden；标题 title-sm；说明 text-sm + text-2；操作区上边距 1。 */
+.tt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tt-space-1);
+  padding: var(--tt-space-6) var(--tt-space-4);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  text-align: center;
+}
+.tt-empty__icon { color: var(--tt-text-3); }
+.tt-empty__icon svg { width: 32px; height: 32px; } /* 组件板 :466 图标 32 */
+.tt-empty__title { margin: 0; font: var(--tt-title-sm); color: var(--tt-text-1); }
+.tt-empty__desc { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-empty__action { margin-top: var(--tt-space-1); }

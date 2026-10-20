@@ -1,0 +1,29 @@
+/* 页签（组件板 :381–385、UI 文档 7.6、handoff :146）：列表下边框 1px border、页签间距 1；
+   页签高 38、左右 3、md-medium、text-2；当前 text-1、2px 主色下边、margin-bottom -1px 压在列表边上；
+   悬停 surface-3、上两角圆角 md。 */
+.tt-tabs { display: flex; flex-direction: column; }
+.tt-tabs__list {
+  display: flex;
+  gap: var(--tt-space-1);
+  border-bottom: 1px solid var(--tt-border);
+}
+.tt-tabs__tab {
+  height: 38px; /* 组件板 :381 页签高 38 */
+  padding: 0 var(--tt-space-3);
+  border: none;
+  background: transparent;
+  font: var(--tt-text-md-medium);
+  color: var(--tt-text-2);
+  cursor: pointer;
+}
+.tt-tabs__tab:hover {
+  background: var(--tt-surface-3);
+  border-top-left-radius: var(--tt-radius-md);
+  border-top-right-radius: var(--tt-radius-md);
+}
+.tt-tabs__tab[aria-selected="true"] {
+  color: var(--tt-text-1);
+  border-bottom: 2px solid var(--tt-primary); /* 组件板 :383 当前页签 2px 主色下边 */
+  margin-bottom: -1px;
+}
+.tt-tabs__panel { padding-top: var(--tt-space-3); }

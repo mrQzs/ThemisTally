@@ -1,0 +1,32 @@
+/* 输入框（组件板 :356–360、UI 文档 7.3）：高 32、1px 强边框、圆角 md、surface-1 底；
+   出错边框与文字走危险色，帮助文字 caption，标签 caption-strong；禁用 surface-2。
+   下拉（Select）复用 .tt-field__input 基类，只在 Select.css 里加 appearance 与右侧箭头留位。 */
+.tt-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-1);
+  min-width: 0;
+}
+.tt-field__label {
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-3);
+}
+.tt-field__input {
+  width: 100%;
+  height: 32px; /* 组件板 :356 控件高 32 */
+  padding: 0 var(--tt-space-2);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-1);
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+}
+.tt-field__input--mono { font: var(--tt-mono-md); }
+.tt-field__input[aria-invalid="true"] { border-color: var(--tt-danger-text); }
+.tt-field__input:disabled {
+  background: var(--tt-surface-2);
+  color: var(--tt-text-disabled);
+  border-color: var(--tt-border);
+}
+.tt-field__error { margin: 0; font: var(--tt-text-sm); color: var(--tt-danger-text); }
+.tt-field__help { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
