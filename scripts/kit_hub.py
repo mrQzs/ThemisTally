@@ -1965,6 +1965,29 @@ def dispatch_attempt(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
     return finish_exec(hub, ts, run_dir, run_code)
 
 
+#: 已有结论的 attempt：不是被打断的那一个
+ATTEMPT_CONCLUDED = ("PASS", "ACCEPTED_WITH_EXCEPTION", "REVISE", "BLOCKED", "ESCALATE", "ABANDONED", "SUPERSEDED",
+                     "INTEGRATED")
+
+
+def interrupted_attempt(hub: Hub, ts: Dict[str, Any]) -> Path:
+    """执行阶段被打断时，找本合同族最近一个已经跑完、还没有结论的 attempt（第 27 轮）。还在跑或收集中的不算：
+    调度器自己已经退出的，要先 collect --recover。"""
+    runs = hub.repo / ".agent" / "runs" / ts["contract_task"]
+    attempts = sorted(runs.glob("attempt-[0-9][0-9][0-9]")) if runs.is_dir() else []
+    if not attempts:
+        raise HubError("执行阶段停在 assigned，但 %s 下没有 attempt：执行端没开始就被打断了，让协调人重发开工"
+                       % runs.relative_to(hub.repo).as_posix(), EXIT_BLOCKED)
+    latest = attempts[-1]
+    state = pd.get_state(latest)
+    if state in ATTEMPT_IN_FLIGHT:
+        raise HubError("%s 还是 %s：调度器若已退出，先跑 pi_dispatch.py collect --recover %s，再重新核验"
+                       % (latest.name, state, latest), EXIT_BLOCKED)
+    if state in ATTEMPT_CONCLUDED:
+        raise HubError("%s 已经有结论（%s），不是被打断的 attempt" % (latest.name, state), EXIT_BLOCKED)
+    return latest
+
+
 def attempts_left(hub: Hub, ts: Dict[str, Any]) -> Optional[int]:
     """合同预算还剩几次 attempt（调度器按 task_id 跨版本累计）；读不到合同时为 None。"""
     try:
@@ -3083,10 +3106,19 @@ class Engine:
         if ts is None:
             raise HubError("没有登记主任务 %s" % main, EXIT_USAGE)
         run_dir = ts["exec"].get("run_dir")
-        if ts["stages"]["5-exec"]["status"] != "failed" or not run_dir or not Path(run_dir).is_dir():
-            raise HubError("只有执行阶段判为失败、attempt 目录还在时才能重新核验（现在：%s）"
-                           % ts["stages"]["5-exec"]["status"], EXIT_USAGE)
-        fields = finish_exec(self.hub, ts, Path(run_dir), ts["exec"].get("run_exit"))
+        run_exit = ts["exec"].get("run_exit")
+        if ts["stages"]["5-exec"]["status"] == "assigned" and not run_dir:
+            # 第 27 轮：hub 在执行端跑完、内核核验做到一半时被杀（系统内存紧张，后台进程被收掉）：
+            # attempt 已经跑完，开工信早已读掉，阶段停在 assigned，没人再办。接着做核验，不重跑执行端
+            found = interrupted_attempt(self.hub, ts)
+            run_dir = str(found)
+            run_exit = json.loads(read_text(found / "state.json") or "{}").get("exit_code")
+            ts["contract"]["dispatched"] = True
+            self.hub.append_event("exec.resumed", task=main, run_dir=run_dir)
+        elif ts["stages"]["5-exec"]["status"] != "failed" or not run_dir or not Path(run_dir).is_dir():
+            raise HubError("只有执行阶段判为失败、attempt 目录还在时，或者执行被打断、停在 assigned 时，才能重新核验"
+                           "（现在：%s）" % ts["stages"]["5-exec"]["status"], EXIT_USAGE)
+        fields = finish_exec(self.hub, ts, Path(run_dir), run_exit)
         fields["验证"] = "（站主 exec-recheck 重新核验，没有重跑执行端）" + fields["验证"]
         self.hub.append_event("exec.rechecked", task=main, run_dir=run_dir, check_ok=ts["exec"]["check_ok"])
         self.finish_kernel_stage(state, ts, "exec-step", "5-exec", fields, ok=ts["exec"]["check_ok"])

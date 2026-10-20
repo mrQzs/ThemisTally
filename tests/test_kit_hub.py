@@ -3290,3 +3290,36 @@ def test_template_read_waits_out_a_file_being_replaced(monkeypatch):
     with pytest.raises(kh.HubError, match="找不到提示词模板"):
         kh.render_template("coordinator.md", {})
     assert len(reads) == kh.TEMPLATE_READ_TRIES + 1
+
+
+def test_exec_recheck_resumes_an_execution_the_hub_was_killed_in(engine_env, monkeypatch):
+    # 第 27 轮：系统内存紧张，hub 在 T007 的执行端跑完、check 做到一半时被收掉；开工信早已读掉，阶段停在 assigned
+    hub = engine_env
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: calls.append(args[0]) or (0, "ok"))
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["stages"]["5-exec"].update(status="assigned", kind="开工")
+    hub.save_state(state)
+    engine = kh.Engine(hub, FakeRunner([]))
+    with pytest.raises(kh.HubError, match="没有 attempt"):
+        engine.recheck_exec("T001")
+    run_dir = attempt_dir(hub, {"state": "RUNNING"})
+    with pytest.raises(kh.HubError, match="collect --recover"):
+        engine.recheck_exec("T001")
+    (run_dir / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    with pytest.raises(kh.HubError, match="已经有结论"):
+        engine.recheck_exec("T001")
+    (run_dir / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW", "exit_code": 0}), encoding="utf-8")
+    earlier = run_dir.parent / "attempt-001"  # 上一轮已经判过的 attempt：取最近的那个
+    earlier.mkdir()
+    (earlier / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    result = engine.recheck_exec("T001")
+    assert result["check_ok"] is True and result["run_dir"] == str(run_dir) and result["run_exit"] == 0
+    assert calls == ["check"]  # 只重做核验，不重跑执行端
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["5-exec"]["status"] == "delivered" and ts["contract"]["dispatched"] is True
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR)]
+    assert len(letters) == 1 and "from: exec-step" in letters[0]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["run_dir"] for e in events if e["event"] == "exec.resumed"] == [str(run_dir)]
