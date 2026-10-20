@@ -1,0 +1,10 @@
+/* 思考档位（UI 文档 7.24）：行内可换行的一行，「要求」「生效」是标签文字，档位名等宽。 */
+.tt-effort {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tt-space-1);
+  font: var(--tt-text-sm);
+}
+.tt-effort__label { color: var(--tt-text-3); }
+.tt-effort__level { font: var(--tt-mono-sm); }

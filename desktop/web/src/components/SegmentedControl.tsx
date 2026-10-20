@@ -18,6 +18,7 @@ export interface SegmentedControlProps {
 export function SegmentedControl({ options, value, onChange, ...rest }: SegmentedControlProps) {
   const groupRef = useRef<HTMLDivElement>(null);
   const found = options.findIndex((o) => o.value === value);
+  // value 不在选项里时第一项可 Tab 到（T005 终审 S5）；aria-checked 仍只看 value。
   const active = found >= 0 ? found : 0;
 
   const focusIndex = (i: number) => {
@@ -43,7 +44,7 @@ export function SegmentedControl({ options, value, onChange, ...rest }: Segmente
 
   return (
     <div ref={groupRef} className="tt-seg" role="radiogroup" onKeyDown={onKeyDown} {...rest}>
-      {options.map((opt) => {
+      {options.map((opt, i) => {
         const checked = opt.value === value;
         return (
           <button
@@ -51,7 +52,7 @@ export function SegmentedControl({ options, value, onChange, ...rest }: Segmente
             type="button"
             role="radio"
             aria-checked={checked}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={i === active ? 0 : -1}
             className="tt-seg__item"
             onClick={() => onChange(opt.value)}
           >

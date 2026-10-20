@@ -1,0 +1,13 @@
+/* 「下一步」提示（UI 文档 7.21、Attempt 画面 :484）：info 色调卡片，说明文字加可选的小号命令行。 */
+.tt-next {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-2) var(--tt-space-2) var(--tt-space-3);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-tone-info-bg);
+  color: var(--tt-tone-info-fg);
+  font: var(--tt-text-sm);
+}
+.tt-next strong { font: var(--tt-title-sm); }

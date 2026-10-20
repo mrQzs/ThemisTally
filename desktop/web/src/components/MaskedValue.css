@@ -1,0 +1,9 @@
+/* 遮蔽值（UI 文档 7.13）：--tt-text-3 斜体，前面 lock 图标 14（图标由组件传尺寸）。 */
+.tt-masked {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  font: var(--tt-text-sm);
+  font-style: italic;
+  color: var(--tt-text-3);
+}

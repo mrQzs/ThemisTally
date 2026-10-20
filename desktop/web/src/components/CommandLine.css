@@ -1,0 +1,31 @@
+/* 命令行（UI 文档 7.16、领域板 :409–410）：surface-2 底、圆角 md、等宽 mono-md，右侧复制钮。
+   sm 是行内小号：高 28、间距 0_5、复制钮缩成 24、圆角 sm、图标 14。 */
+.tt-cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  min-height: 36px; /* 领域板 :410 整块高 36 */
+  padding: var(--tt-space-1) var(--tt-space-1) var(--tt-space-1) var(--tt-space-2);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+}
+.tt-cmd code {
+  font: var(--tt-mono-md);
+  color: var(--tt-text-1);
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.tt-cmd--sm {
+  display: inline-flex;
+  height: 28px; /* 领域板 :410 行内小号高 28 */
+  min-height: 0;
+  gap: var(--tt-space-0_5);
+  padding: 0 var(--tt-space-0_5) 0 var(--tt-space-2);
+}
+.tt-cmd--sm code { font: var(--tt-mono-sm); }
+/* 复制钮缩成 24、圆角 sm：两个类特异性 (0,2,0) 压过 IconButton 的单类规则。 */
+.tt-cmd--sm .tt-icon-btn { width: 24px; height: 24px; /* 领域板 :410 */ border-radius: var(--tt-radius-sm); }
+.tt-cmd--sm .tt-icon-btn svg { width: 14px; height: 14px; /* 领域板 :410 图标 14 */ }

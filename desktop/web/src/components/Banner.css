@@ -1,4 +1,5 @@
-/* 提示条：info 用 info 图标并可关闭；warning / danger 用 triangle-alert，不渲染关闭按钮；danger 根元素 role=alert。 */
+/* 提示条：info 用 info 图标并可关闭；warning / danger 用 triangle-alert，不渲染关闭按钮；danger 根元素 role=alert。
+   可选的操作钮放在 .tt-banner__action 里（flex: none，不抢文字的空间）。 */
 .tt-banner {
   display: flex;
   align-items: center;
@@ -9,6 +10,7 @@
 }
 .tt-banner__icon { flex: none; }
 .tt-banner__text { flex: 1; }
+.tt-banner__action { flex: none; display: inline-flex; align-items: center; gap: var(--tt-space-1); }
 .tt-banner__close {
   flex: none;
   width: 24px;

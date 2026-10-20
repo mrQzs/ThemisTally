@@ -1,11 +1,14 @@
 /* 表格（组件板 :411–418、任务页 :367–391、UI 文档 7.9、handoff :142）：容器 overflow auto + surface-1 + 圆角 lg；
    表头高 32 吸顶（sticky、top 0、z-sticky）、surface-2、title-sm；单元格不换行；行高 40/44/52；
-   悬停 surface-3；选中行 surface-selected + 左 2px 主色 inset 阴影；数字列右对齐 tt-num、mono 列 mono-sm。 */
+   悬停 surface-3；选中行 surface-selected + 左 2px 主色 inset 阴影；数字列右对齐 tt-num、mono 列 mono-sm。
+   焦点环（T005 终审 S3）：行 focus-visible 时去掉整行 outline，改由单元格画 2px --tt-focus inset 阴影
+   （每格上下两条，首格加左边、末格加右边，只有一格时画四边）；容器留出吸顶表头的高度，键盘移到行时不被遮。 */
 .tt-table-wrap {
   overflow: auto;
   background: var(--tt-surface-1);
   border: 1px solid var(--tt-border);
   border-radius: var(--tt-radius-lg);
+  scroll-padding-top: 32px; /* 表头高 32（组件板 :411）：键盘移到行时给吸顶表头留位置 */
 }
 .tt-table { width: 100%; border-collapse: collapse; }
 .tt-table th {
@@ -36,4 +39,26 @@
   box-shadow: inset 2px 0 0 var(--tt-primary); /* 组件板 :415 选中行左 2px 主色 */
 }
 .tt-table td.tt-num { text-align: right; }
+/* 数字列的表头也右对齐：特异性 (0,2,1) 高于 .tt-table th 的 (0,1,1)。 */
+.tt-table th.tt-num { text-align: right; }
+/* 焦点环：整行不画 outline，由单元格画上下两条 2px --tt-focus inset 阴影（T005 终审 S3）。 */
+.tt-table tbody tr:focus-visible { outline: none; }
+.tt-table tbody tr:focus-visible td {
+  box-shadow: inset 0 2px 0 var(--tt-focus), inset 0 -2px 0 var(--tt-focus); /* 焦点环 2px */
+}
+.tt-table tbody tr:focus-visible td:first-child {
+  box-shadow: inset 0 2px 0 var(--tt-focus), inset 0 -2px 0 var(--tt-focus), inset 2px 0 0 var(--tt-focus); /* 焦点环 2px 加左边 */
+}
+.tt-table tbody tr:focus-visible td:last-child {
+  box-shadow: inset 0 2px 0 var(--tt-focus), inset 0 -2px 0 var(--tt-focus), inset -2px 0 0 var(--tt-focus); /* 焦点环 2px 加右边 */
+}
+.tt-table tbody tr:focus-visible td:only-child {
+  box-shadow: inset 0 0 0 2px var(--tt-focus); /* 焦点环 2px 四边 */
+}
+@media (forced-colors: active) {
+  .tt-table tbody tr:focus-visible {
+    outline: 2px solid Highlight; /* 强制颜色模式的兜底 */
+    outline-offset: -2px; /* 向内 2px */
+  }
+}
 .tt-table td.tt-table__mono { font: var(--tt-mono-sm); }

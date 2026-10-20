@@ -1,0 +1,93 @@
+/* 文本查看器（领域板 :351–363、Attempt 画面 :320–337、UI 文档 7.12）：
+   根 surface-1 + 1px border + radius-lg + overflow hidden；头高 40、下边框；标题 mono-sm 单行省略；
+   切换钮高 28、透明底；主体上下 space-2、换行关时 overflow-x auto（只在查看器里横向滚动）；
+   行 mono-md，行号列 44 右对齐 text-3，文字最小高 20；分片提示 caption/text-3，行号与分片提示都不被选中；
+   底栏 surface-2、上边框、caption/text-3，按钮靠右；提示条外边距 space-2 与 space-3。 */
+.tt-viewer {
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden;
+}
+.tt-viewer__head {
+  display: flex;
+  align-items: center;
+  height: 40px; /* 领域板 :352 头高 40 */
+  padding: 0 var(--tt-space-2) 0 var(--tt-space-3);
+  border-bottom: 1px solid var(--tt-border);
+  gap: var(--tt-space-1);
+}
+.tt-viewer__title {
+  flex: 1;
+  min-width: 0;
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-viewer__tools { display: flex; align-items: center; gap: var(--tt-space-1); flex: none; }
+.tt-viewer__toggle {
+  height: 28px; /* 领域板 :353 切换钮高 28 */
+  padding: 0 var(--tt-space-2);
+  border: 0;
+  border-radius: var(--tt-radius-md);
+  background: transparent;
+  color: var(--tt-text-2);
+  font: var(--tt-text-sm);
+  cursor: pointer;
+}
+.tt-viewer__toggle[aria-pressed="true"] { background: var(--tt-surface-3); }
+.tt-viewer__body {
+  padding: var(--tt-space-2) 0;
+  overflow-x: auto;
+}
+.tt-viewer__row { display: flex; align-items: flex-start; font: var(--tt-mono-md); }
+.tt-viewer__num {
+  flex: none;
+  width: 44px; /* 领域板 :355 行号列宽 44 */
+  text-align: right;
+  padding-right: var(--tt-space-3);
+  color: var(--tt-text-3);
+  user-select: none;
+}
+.tt-viewer__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--tt-space-1);
+}
+.tt-viewer__text {
+  min-height: 20px; /* 领域板 :356 文字最小高 20 */
+  padding-right: var(--tt-space-3);
+  white-space: pre;
+}
+.tt-viewer--wrap .tt-viewer__text { white-space: pre-wrap; word-break: break-all; }
+.tt-viewer__part {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+  user-select: none;
+}
+.tt-viewer__hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  color: var(--tt-text-3);
+  font-style: italic;
+}
+.tt-viewer__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  background: var(--tt-surface-2);
+  border-top: 1px solid var(--tt-border);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+.tt-viewer__foot .tt-btn { margin-left: auto; }
+.tt-viewer .tt-banner { margin: var(--tt-space-2) var(--tt-space-3); }

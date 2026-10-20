@@ -1,5 +1,6 @@
-// 页签（组件板 :381–385、UI 文档 7.6）：role=tablist，页签 button role=tab aria-selected；roving tabindex（只当前页签可 Tab 到）。
-// 左右方向键循环切换并移焦点、Home/End 到首尾，选中跟着焦点走（自动激活）；点击选中。当前页签 aria-controls 指向面板，
+// 页签（组件板 :381–385、UI 文档 7.6）：role=tablist，页签 button role=tab aria-selected；roving tabindex（只当前页签可 Tab 到，
+// value 不在页签里时第一个页签可 Tab 到，T005 终审 S5）。左右方向键循环切换并移焦点、Home/End 到首尾，
+// 选中跟着焦点走（自动激活）；点击选中。每个页签 aria-controls 都指向同一个面板，
 // 面板 role=tabpanel、aria-labelledby 指向当前页签。受控：value + onChange(id)。
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import './Tabs.css';
@@ -52,7 +53,7 @@ export function Tabs({ items, value, onChange, children, ...rest }: TabsProps) {
   return (
     <div className="tt-tabs">
       <div ref={listRef} className="tt-tabs__list" role="tablist" onKeyDown={onKeyDown} {...rest}>
-        {items.map((it) => {
+        {items.map((it, i) => {
           const selected = it.id === value;
           return (
             <button
@@ -62,7 +63,7 @@ export function Tabs({ items, value, onChange, children, ...rest }: TabsProps) {
               id={`${baseId}-tab-${it.id}`}
               aria-selected={selected}
               aria-controls={panelId}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={i === activeIndex ? 0 : -1}
               className="tt-tabs__tab"
               onClick={() => onChange(it.id)}
             >

@@ -1,0 +1,11 @@
+/* 第 5 片演示的补充样式：摘要与查看器同宽（handoff :165 摘要最大宽 880），复制出来的文字保留换行。
+   其余布局复用 App.css 的 showcase__row / showcase__stack 等，颜色一律取令牌。 */
+.showcase-evidence__md { max-width: 880px; } /* handoff :165 attempt 详情摘要最大宽 880 */
+.showcase-evidence__viewer { max-width: 880px; width: 100%; } /* 演示自定：与摘要同宽 */
+.showcase-evidence__copy {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

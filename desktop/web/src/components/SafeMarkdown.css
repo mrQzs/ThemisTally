@@ -1,0 +1,57 @@
+/* 安全 Markdown（Attempt 画面 :105–118、UI 文档 7.12）：根 text-md/text-1，块间距 space-2；
+   标题三档字体、外边距 0；列表左内边距 space-5、项间距 space-1；行内代码 mono-sm、代码块 mono-md；
+   表格 text-sm、格内边距 space-1 与 space-3、表头 surface-2；对齐用类；链接钮 link 色、网址 mono-sm。 */
+.tt-md {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+}
+.tt-md h2, .tt-md h3, .tt-md h4, .tt-md h5, .tt-md h6 { margin: 0; }
+.tt-md h2 { font: var(--tt-title-lg); }
+.tt-md h3 { font: var(--tt-title-md); }
+.tt-md h4, .tt-md h5, .tt-md h6 { font: var(--tt-title-sm); }
+.tt-md p { margin: 0; white-space: pre-wrap; }
+.tt-md ul, .tt-md ol {
+  margin: 0;
+  padding-left: var(--tt-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-1);
+}
+.tt-md li p { margin: 0; }
+.tt-md code {
+  font: var(--tt-mono-sm);
+  padding: 1px var(--tt-space-1);
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+}
+.tt-md pre {
+  margin: 0;
+  font: var(--tt-mono-md);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  padding: var(--tt-space-2);
+  overflow-x: auto;
+  white-space: pre;
+}
+.tt-md__scroll { overflow-x: auto; }
+.tt-md table { font: var(--tt-text-sm); border-collapse: collapse; }
+.tt-md th, .tt-md td { padding: var(--tt-space-1) var(--tt-space-3); border: 1px solid var(--tt-border); }
+.tt-md th { background: var(--tt-surface-2); font: var(--tt-title-sm); color: var(--tt-text-2); }
+.tt-md__al-left { text-align: left; }
+.tt-md__al-right { text-align: right; }
+.tt-md__al-center { text-align: center; }
+.tt-md__link {
+  color: var(--tt-link);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.tt-md__link:hover { text-decoration: underline; }
+.tt-md__url { font: var(--tt-mono-sm); color: var(--tt-text-3); margin-left: var(--tt-space-1); }

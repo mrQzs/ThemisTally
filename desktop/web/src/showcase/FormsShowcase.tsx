@@ -261,7 +261,7 @@ function ConnectionSection() {
   return (
     <section className="showcase__section" data-demo="connection">
       <h2 className="showcase__h2">连接胶囊</h2>
-      <div className="showcase__row">
+      <div className="showcase__row showcase-pill-row">
         <ConnectionPill state="connected" pid={4242} startedAt="2026-10-20 10:00" stream="事件流正常" />
         <ConnectionPill state="reconnecting" attempt={2} pid={4242} startedAt="2026-10-20 10:00" stream="正在重连" />
         <ConnectionPill state="disconnected" pid={4242} startedAt="2026-10-20 10:00" stream="已断开" />
