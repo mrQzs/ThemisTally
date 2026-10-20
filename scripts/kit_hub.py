@@ -768,6 +768,9 @@ def guard(ts: Optional[Dict[str, Any]], meta: Dict[str, str]) -> Optional[str]:
         return "发给工人的信要写阶段任务（例如 %s-1-plan）" % ts["task"]
     if STAGE_WORKER[suffix] != receiver:
         return "阶段 %s 归 %s，不归 %s" % (suffix, STAGE_WORKER[suffix], receiver)
+    if kind in ("开工", "返工") and suffix != "1-plan" and ts.get("after") and not ts.get("after_released"):
+        return ("登记时写了依赖 %s：规划可以先做，合同端及以后的阶段要等它们都结项。内核到时把基线挪到新末端，"
+                "写信通知你，再开工合同端" % "、".join(ts["after"]))
     if kind == "开工":
         return _guard_start(ts, suffix)
     if kind == "返工":
@@ -779,6 +782,35 @@ def guard(ts: Optional[Dict[str, Any]], meta: Dict[str, str]) -> Optional[str]:
     if kind in ("等待", "停止"):
         return None
     return "协调人不能发 %s" % kind
+
+
+def release_dependents(hub: Hub, state: Dict[str, Any], done: str) -> List[str]:
+    """一个主任务结项之后，放行登记时依赖它的主任务（第 21 轮）：依赖都结项了，就把它的基线挪到当前末端，
+    阶段 worktree 换新（旧的留到结项一并清掉），写信叫协调人开工合同端。依赖前一片的切片可以先规划：
+    T005 的规划占了 49 分钟，链式依赖的每一片都能省下这一段。返回放行了哪些主任务。"""
+    released: List[str] = []
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    for ts in state["tasks"].values():
+        after = ts.get("after") or []
+        if ts.get("status") != "active" or done not in after or ts.get("after_released"):
+            continue
+        if any((state["tasks"].get(item) or {}).get("status") != "done" for item in after):
+            continue
+        previous = ts["base_head"]
+        ts["base_head"] = head
+        for kind in [kind for kind in ts["workspaces"] if kind in ("base", "gate")]:
+            ts["workspaces"]["%s@%s" % (kind, previous[:10])] = ts["workspaces"].pop(kind)
+        ts["after_released"] = {"at": utc_now(), "head": head, "previous": previous, "after": after}
+        hub.append_event("dependency.released", task=ts["task"], head=head, previous=previous, after=after)
+        hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": ts["task"], "in-reply-to": "none", "type": "核验"},
+                    {"摘要": "依赖 %s 都已结项：基线从 %s 挪到 %s，可以开工合同端" % (
+                        "、".join(after), previous[:10], head[:10]),
+                     "提交": head, "验证": "内核读主任务状态（%s 都已结项）" % "、".join(after), "偏离": "无",
+                     "需协调人决定": "开工 contract-glm。brief 里提醒合同端：规划报告是在旧基线上写的，依赖落地后的文件"
+                                   "与接口以新基线为准，规划引用的路径与接口逐条在新基线上核对，对不上的写进合同的事实一节",
+                     "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % ts["task"]})
+        released.append(ts["task"])
+    return released
 
 
 def allowed_moves(ts: Dict[str, Any]) -> List[str]:
@@ -2489,6 +2521,11 @@ def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
     ]
     if (ts.get("external_facts") or {}).get("pending"):
         facts.append("- 仓库外事实：%d 条待站主核实，核实之前不能开工合同端" % len(ts["external_facts"]["pending"]))
+    if ts.get("after") and not ts.get("after_released"):
+        facts.append("- 依赖：等 %s 结项。规划可以先做，合同端要等内核把基线挪到新末端、写信通知" % "、".join(ts["after"]))
+    elif ts.get("after_released"):
+        facts.append("- 依赖 %s 已结项：基线已从 %s 挪到 %s" % ("、".join(ts["after"]),
+                                                     ts["after_released"]["previous"][:10], ts["base_head"][:10]))
     if ts.get("rework_chain"):
         facts.append("- 返工链：%s" % "；".join("%s 的候选 → 返工提交 %s（%s）" % (
             link["from"], link["commit"][:10], link["contract"]) for link in ts["rework_chain"]))
@@ -3008,6 +3045,8 @@ class Engine:
         ts = state["tasks"][main]
         ok, detail = finalize(self.hub, ts)
         ts["status"] = "done" if ok else ts["status"]
+        if ok:
+            release_dependents(self.hub, state, main)
         leftover = tidy_finished(self.hub, ts, "%s 已由 hub 结项（%s 通过并合入）：这一轮没有复审结论，"
                                  "由后面的 attempt 取代" % (main, Path(ts["exec"]["run_dir"]).name)) if ok else []
         self.hub.save_state(state)
@@ -3094,15 +3133,25 @@ def cmd_task_new(args: argparse.Namespace) -> int:
         state = hub.load_state()
         if args.task in state["tasks"]:
             raise HubError("主任务 %s 已存在" % args.task, EXIT_USAGE)
+        after = [item.strip() for item in (getattr(args, "after", None) or "").split(",") if item.strip()]
+        unknown = [item for item in after if item not in state["tasks"]]
+        if unknown:
+            raise HubError("--after 里的主任务没有登记过：%s" % "、".join(unknown), EXIT_USAGE)
         state["tasks"][args.task] = new_task_state(args.task, args.slug, args.title, head, not args.no_jev)
+        waiting = [item for item in after if state["tasks"][item].get("status") != "done"]
+        if waiting:
+            state["tasks"][args.task]["after"] = waiting
         write_text_atomic(hub.task_dir(args.task) / "brief.md", brief.rstrip() + "\n")
         hub.save_state(state)
-        hub.append_event("task.created", task=args.task, slug=args.slug, base_head=head)
+        hub.append_event("task.created", task=args.task, slug=args.slug, base_head=head,
+                         after=state["tasks"][args.task].get("after"))
         msg = hub.deliver({"from": OWNER, "to": COORDINATOR, "task-id": args.task, "in-reply-to": "none",
                            "type": "任务"},
                           {"摘要": args.title, "提交": "无", "验证": "无", "偏离": "无", "需协调人决定": "无",
                            "证据": ".agent/mailbox/tasks/%s/brief.md" % args.task})
-    print("已登记 %s（基线 %s），任务信 %s 已投给 %s" % (args.task, head[:10], msg, COORDINATOR))
+    waiting = state["tasks"][args.task].get("after")
+    print("已登记 %s（基线 %s%s），任务信 %s 已投给 %s" % (
+        args.task, head[:10], "；合同端等 %s 结项" % "、".join(waiting) if waiting else "", msg, COORDINATOR))
     return EXIT_OK
 
 
@@ -3118,7 +3167,7 @@ def cmd_task_close(args: argparse.Namespace) -> int:
             ["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
             stdin=subprocess.DEVNULL).returncode != 0:
         raise HubError("--ref %s 不是当前分支上的提交：先把接手的工作落到分支上再结项" % args.ref, EXIT_USAGE)
-    with DirLock(hub.root / ".runner", wait_seconds=1.0):  # 不和正在跑的 hub 抢状态
+    with task_quiet(hub, args.task):  # 不和正在跑的 hub 抢状态
         with DirLock(hub.root / ".lock"):
             state = hub.load_state()
             ts = state["tasks"].get(args.task)
@@ -3133,6 +3182,7 @@ def cmd_task_close(args: argparse.Namespace) -> int:
             hub.save_state(state)
             hub.append_event("task.closed_by_owner", task=args.task, ref=sha)
             leftover = tidy_finished(hub, ts, "%s 已由站主接手结项（%s）：这一轮没有复审结论" % (args.task, sha[:12]))
+            release_dependents(hub, state, args.task)  # 站主接手结项也算结项：依赖它的主任务照样放行
             hub.save_state(state)
     print("%s 已由站主接手结项（%s）" % (args.task, sha[:12]))
     for item in leftover:
@@ -3143,7 +3193,7 @@ def cmd_task_close(args: argparse.Namespace) -> int:
 def cmd_task_cleanup(args: argparse.Namespace) -> int:
     """已结项的主任务：补做结项收尾（结项时没做完的，或第 12 轮之前结项的任务）。"""
     hub = Hub(find_repo(args.repo))
-    with DirLock(hub.root / ".runner", wait_seconds=1.0):
+    with task_quiet(hub, args.task):
         with DirLock(hub.root / ".lock"):
             state = hub.load_state()
             ts = state["tasks"].get(args.task)
@@ -3204,7 +3254,7 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 def cmd_exec_recheck(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
-    with DirLock(hub.root / ".runner", wait_seconds=1.0):  # 不和正在跑的 hub 抢状态
+    with task_quiet(hub, args.task):  # 不和正在跑的 hub 抢状态
         result = Engine(hub).recheck_exec(args.task)
     print("%s 执行阶段重新核验：%s（attempt 状态 %s，check --fresh 退出码 %s，范围违规 %s）" % (
         args.task, "通过" if result["check_ok"] else "未通过", result.get("status"), result.get("check_exit"),
@@ -3332,6 +3382,24 @@ LAND_WAIT_SECONDS = 3600.0
 
 def runner_lock(hub: Hub, task: Optional[str]) -> Path:
     return hub.root / ".runner" if task is None else hub.root / ".runners" / task
+
+
+@contextlib.contextmanager
+def task_quiet(hub: Hub, task: str):
+    """站主的命令要改某个主任务的状态（task close、cleanup、exec-recheck）：这个主任务此刻不能有 runner 在办信。
+    拿它的 runner 锁，supervisor 就不会给它起 runner；串行的 hub 办所有主任务的信，还要拿总锁。并行时总锁一直在
+    supervisor 手里，它自己不办信，不用等（第 21 轮：此前一律拿总锁，并行时这三个命令都拿不到锁）。"""
+    with DirLock(runner_lock(hub, task), wait_seconds=1.0):
+        if supervisor_alive(hub):
+            yield
+        else:
+            with DirLock(runner_lock(hub, None), wait_seconds=1.0):
+                yield
+
+
+def supervisor_alive(hub: Hub) -> bool:
+    path = runner_lock(hub, None)
+    return lock_alive(path) and read_text(path / "mode").strip() == "supervisor"
 
 
 def lock_alive(path: Path) -> bool:
@@ -3473,6 +3541,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
     restart = False
     fingerprint = code_fingerprint()
     with DirLock(runner_lock(hub, None), wait_seconds=1.0):
+        write_text_atomic(runner_lock(hub, None) / "mode", "supervisor\n")  # 站主的命令据此只等主任务的锁
         hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, parallel=parallel)
         print("hub 并行调度：最多 %d 个主任务同时跑" % parallel, flush=True)
         idle_since = time.monotonic()
@@ -3531,6 +3600,7 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--title", required=True)
     new.add_argument("--brief", required=True, help="站主的任务书（Markdown 文件）")
     new.add_argument("--no-jev", action="store_true", help="本任务不调 JEV")
+    new.add_argument("--after", help="依赖的主任务（逗号分隔）：规划马上开工，合同端等它们都结项、内核把基线挪到新末端再开")
     new.set_defaults(func=cmd_task_new)
     close = task.add_parser("close", help="站主接手结项：工作已由站主落在当前分支上")
     close.add_argument("task")

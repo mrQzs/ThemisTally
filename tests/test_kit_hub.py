@@ -2959,3 +2959,114 @@ def test_supervisor_stays_while_a_runner_works_without_unread_letters(tmp_path, 
     monkeypatch.setattr(kh, "tasks_with_work", pending)
     assert supervise_once(repo, 2) == kh.EXIT_OK
     assert len(calls) >= 3 and spawned == []
+
+
+# ---------------------------------------------------------------------------
+# 第 21 轮：依赖前一片的切片先规划；站主命令在并行时拿得到锁
+# ---------------------------------------------------------------------------
+
+def test_dependent_task_plans_first_and_waits_for_its_dependencies(tmp_path):
+    ts = make_ts()
+    ts["after"] = ["T006", "T007"]
+    assert kh.guard(ts, meta("开工", "planner-opus", "T001-1-plan")) is None  # 规划不受依赖限制
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    reason = kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract"))
+    assert reason and "T006、T007" in reason and "合同端" in reason
+    assert not any("contract-glm" in move for move in kh.allowed_moves(ts))
+    ts["after_released"] = {"head": "b" * 40, "previous": BASE, "after": ["T006", "T007"]}
+    assert kh.guard(ts, meta("开工", "contract-glm", "T001-2-contract")) is None
+
+
+def test_release_moves_the_base_once_every_dependency_is_done(tmp_path):
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    tasks = {t: kh.new_task_state(t, t.lower(), t, BASE, True) for t in ("T006", "T007", "T008", "T009")}
+    tasks["T008"]["after"] = ["T006", "T007"]
+    tasks["T008"]["workspaces"] = {"base": {"path": "old-base"}, "gate": {"path": "old-gate"}, "post-a": {"path": "p"}}
+    tasks["T009"]["after"] = ["T006"]
+    tasks["T009"]["status"] = "stopped"
+    state = {"tasks": tasks}
+    tasks["T006"]["status"] = "done"
+    assert kh.release_dependents(hub, state, "T006") == []  # T007 还没结项；T009 已停止
+    assert "after_released" not in tasks["T008"] and tasks["T008"]["base_head"] == BASE
+    tasks["T007"]["status"] = "done"
+    assert kh.release_dependents(hub, state, "T007") == ["T008"]
+    t008 = tasks["T008"]
+    assert t008["base_head"] == head and t008["after_released"]["previous"] == BASE
+    # 旧基线的阶段 worktree 改名留着，结项时一并清掉；新基线上重新建
+    assert set(t008["workspaces"]) == {"base@%s" % BASE[:10], "gate@%s" % BASE[:10], "post-a"}
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert "type: 核验" in letter and "task-id: T008" in letter and "开工 contract-glm" in letter
+    assert kh.release_dependents(hub, state, "T007") == []  # 只放行一次
+    assert "依赖 T006、T007 已结项" in kh.stage_status_table(hub, t008)
+
+
+def test_task_new_records_only_unfinished_dependencies(tmp_path, capsys):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    state = hub.load_state()
+    state["tasks"]["T006"] = kh.new_task_state("T006", "a", "a", BASE, True)
+    state["tasks"]["T005"] = kh.new_task_state("T005", "b", "b", BASE, True)
+    state["tasks"]["T005"]["status"] = "done"
+    hub.save_state(state)
+    brief = tmp_path / "brief.md"
+    brief.write_text("# 任务书\n", encoding="utf-8")
+    base = ["--repo", str(repo), "task", "new", "--slug", "pages", "--title", "页面", "--brief", str(brief)]
+    assert kh.main(base[:4] + ["T008"] + base[4:] + ["--after", "T005,T099"]) == kh.EXIT_USAGE
+    assert kh.main(base[:4] + ["T008"] + base[4:] + ["--after", "T005, T006"]) == kh.EXIT_OK
+    assert "合同端等 T006 结项" in capsys.readouterr().out
+    ts = hub.load_state()["tasks"]["T008"]
+    assert ts["after"] == ["T006"]  # 已结项的 T005 不用等
+    assert "依赖：等 T006 结项" in kh.stage_status_table(hub, ts)
+    assert kh.main(base[:4] + ["T009"] + base[4:] + ["--after", "T005"]) == kh.EXIT_OK
+    assert "after" not in hub.load_state()["tasks"]["T009"]
+
+
+def test_passing_and_owner_close_release_the_dependents(tmp_path, monkeypatch):
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    state = hub.load_state()
+    for task in ("T006", "T008"):
+        state["tasks"][task] = kh.new_task_state(task, task.lower(), task, BASE, True)
+    state["tasks"]["T008"]["after"] = ["T006"]
+    state["tasks"]["T006"]["exec"] = {"run_dir": str(repo / "attempt-001")}
+    hub.save_state(state)
+    monkeypatch.setattr(kh, "finalize", lambda hub_, ts: (True, "integrate ok"))
+    monkeypatch.setattr(kh, "tidy_finished", lambda hub_, ts, reason: [])
+    engine = kh.Engine(hub, FakeRunner([]))
+    engine.handle_pass(hub.load_state(), {"task-id": "T006-5-exec"})
+    assert hub.load_state()["tasks"]["T008"]["after_released"]["head"] == head
+    # 站主接手结项也放行
+    state = hub.load_state()
+    state["tasks"]["T010"] = kh.new_task_state("T010", "x", "x", BASE, True)
+    state["tasks"]["T011"] = kh.new_task_state("T011", "y", "y", BASE, True)
+    state["tasks"]["T011"]["after"] = ["T010"]
+    hub.save_state(state)
+    note = tmp_path / "close.md"
+    note.write_text("站主接手\n", encoding="utf-8")
+    assert kh.main(["--repo", str(repo), "task", "close", "T010", "--ref", head, "--file", str(note)]) == kh.EXIT_OK
+    assert hub.load_state()["tasks"]["T011"]["after_released"]["head"] == head
+
+
+def test_owner_commands_only_need_the_task_lock_under_a_supervisor(tmp_path):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    with kh.task_quiet(hub, "T006"):  # 没有 hub 在跑：两把锁都拿
+        assert kh.lock_alive(kh.runner_lock(hub, "T006")) and kh.lock_alive(kh.runner_lock(hub, None))
+    assert not kh.lock_alive(kh.runner_lock(hub, None))
+    with kh.DirLock(kh.runner_lock(hub, None), wait_seconds=1.0):
+        with pytest.raises(kh.HubError):  # 串行的 hub 在跑：等不到总锁
+            with kh.task_quiet(hub, "T006"):
+                pass
+        kh.write_text_atomic(kh.runner_lock(hub, None) / "mode", "supervisor\n")
+        assert kh.supervisor_alive(hub)
+        with kh.task_quiet(hub, "T006"):  # 并行：supervisor 不办信，只要主任务的锁
+            assert kh.lock_alive(kh.runner_lock(hub, "T006"))
+        with kh.DirLock(kh.runner_lock(hub, "T007"), wait_seconds=1.0):
+            with pytest.raises(kh.HubError):  # T007 的 runner 正在办信
+                with kh.task_quiet(hub, "T007"):
+                    pass
