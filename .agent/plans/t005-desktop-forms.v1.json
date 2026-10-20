@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "task_id": "t005-desktop-forms",
+  "plan_version": 1,
+  "title": "桌面端前端表单与数据原子（第四片）",
+  "repository": "ThemisTally",
+  "base_sha": "5640a2ce1db79333347c0c66f9b692f60d718cb5",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/components/Dialog.tsx",
+      "desktop/web/src/components/Toast.tsx",
+      "desktop/web/src/components/Toast.css",
+      "desktop/web/src/components/IconButton.css",
+      "desktop/web/src/styles/base.css",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/App.tsx",
+      "desktop/web/README.md",
+      "desktop/web/src/components/SegmentedControl.tsx",
+      "desktop/web/src/components/SegmentedControl.css",
+      "desktop/web/src/components/Switch.tsx",
+      "desktop/web/src/components/Switch.css",
+      "desktop/web/src/components/Checkbox.tsx",
+      "desktop/web/src/components/Checkbox.css",
+      "desktop/web/src/components/Tabs.tsx",
+      "desktop/web/src/components/Tabs.css",
+      "desktop/web/src/components/TextField.tsx",
+      "desktop/web/src/components/TextField.css",
+      "desktop/web/src/components/Select.tsx",
+      "desktop/web/src/components/Select.css",
+      "desktop/web/src/components/Table.tsx",
+      "desktop/web/src/components/Table.css",
+      "desktop/web/src/components/KeyValueList.tsx",
+      "desktop/web/src/components/KeyValueList.css",
+      "desktop/web/src/components/EmptyState.tsx",
+      "desktop/web/src/components/EmptyState.css",
+      "desktop/web/src/components/Skeleton.tsx",
+      "desktop/web/src/components/Skeleton.css",
+      "desktop/web/src/components/ConnectionPill.tsx",
+      "desktop/web/src/components/ConnectionPill.css",
+      "desktop/web/src/components/Breadcrumb.tsx",
+      "desktop/web/src/components/Breadcrumb.css",
+      "desktop/web/src/components/field/*.tsx",
+      "desktop/web/src/showcase/*.tsx",
+      "desktop/web/src/showcase/*.css",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/tests/component-css.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/components/SegmentedControl.tsx",
+      "desktop/web/src/components/SegmentedControl.css",
+      "desktop/web/src/components/Switch.tsx",
+      "desktop/web/src/components/Switch.css",
+      "desktop/web/src/components/Checkbox.tsx",
+      "desktop/web/src/components/Checkbox.css",
+      "desktop/web/src/components/Tabs.tsx",
+      "desktop/web/src/components/Tabs.css",
+      "desktop/web/src/components/TextField.tsx",
+      "desktop/web/src/components/TextField.css",
+      "desktop/web/src/components/Select.tsx",
+      "desktop/web/src/components/Select.css",
+      "desktop/web/src/components/Table.tsx",
+      "desktop/web/src/components/Table.css",
+      "desktop/web/src/components/KeyValueList.tsx",
+      "desktop/web/src/components/KeyValueList.css",
+      "desktop/web/src/components/EmptyState.tsx",
+      "desktop/web/src/components/EmptyState.css",
+      "desktop/web/src/components/Skeleton.tsx",
+      "desktop/web/src/components/Skeleton.css",
+      "desktop/web/src/components/ConnectionPill.tsx",
+      "desktop/web/src/components/ConnectionPill.css",
+      "desktop/web/src/components/Breadcrumb.tsx",
+      "desktop/web/src/components/Breadcrumb.css",
+      "desktop/web/src/components/field/*.tsx",
+      "desktop/web/src/showcase/*.tsx",
+      "desktop/web/src/showcase/*.css",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/tests/component-css.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/styles/tokens.css",
+      "desktop/web/src/styles/fonts.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "desktop/web/src/components/Button.*",
+      "desktop/web/src/components/Tag.*",
+      "desktop/web/src/components/Card.*",
+      "desktop/web/src/components/Banner.*",
+      "desktop/web/src/components/StatusTag.*",
+      "desktop/web/src/components/Tooltip.*",
+      "desktop/web/src/components/Menu.*",
+      "desktop/web/src/components/Drawer.*",
+      "desktop/web/src/components/Dialog.css",
+      "desktop/web/src/components/IconButton.tsx",
+      "desktop/web/src/components/overlay/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t005_*.py",
+      "tests/conftest.py",
+      "tests/test_attempt_states.py",
+      "tests/test_desktop_attempt_states.py",
+      ".gitignore",
+      ".gitattributes",
+      "scripts/**",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t005_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 7200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "分段选择 role=radiogroup，段 role=radio、aria-checked；只有选中段 tabIndex=0；ArrowRight、ArrowLeft 选中下一段、上一段并移焦点，到头循环，onChange 收到新值；样式见 Behavior contract 第 3 条",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "分段对键盘与读屏可用（UI 文档 7.4）"
+    },
+    {
+      "id": "D02",
+      "text": "开关 role=switch、复选框 role=checkbox，aria-checked 随状态变；名称来自可见文字；可用时可聚焦；空格切换一次（keydown 被 preventDefault，repeat 不切换），点击切换；禁用时 aria-disabled=true、不可聚焦、不切换；样式见第 4、5 条",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "表单控件可访问、不重复切换"
+    },
+    {
+      "id": "D03",
+      "text": "页签 role=tablist、role=tab、aria-selected；只有当前页签 tabIndex=0；左右循环切换，Home、End 到首尾，焦点随之移动；面板 role=tabpanel、aria-labelledby 指向当前页签；高 38，当前页签 2px --tt-primary 下划线",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "输入框与下拉高 32；标签关联；有出错时 aria-invalid=true、边框 --tt-danger-text；aria-describedby 依次含出错与帮助文字的 id；帮助文字 --tt-text-3；下拉是原生 select，同样的关联；禁用态",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "表格表头高 32 且吸顶（sticky、--tt-z-sticky）；rowHeight 40/44/52 对应行高；数字列右对齐、等宽数字；恰一行 tabIndex=0；上下移动不循环，Home、End 到首尾，Enter 调一次 onRowOpen(key)；容器 overflow: auto、单元格不换行",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "键值列表、空状态、面包屑的结构与取值见第 8、9、12 条；空状态没有 action 时不渲染操作区；面包屑末项 aria-current=page，不是链接也不是按钮",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "骨架屏挂载后 299ms 没有、300ms 出现；300ms 前卸载不出现；条带用 tt-skel；Skeleton.css 不写动画、过渡、渐变；base.css 的减少动效规则含 .tt-skel",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "连接胶囊三态的文字与 data-state；圆点与文字的色调；点击开合浮层（aria-expanded、aria-controls），浮层里有 pid 与启动于；Esc 关闭、焦点在胶囊、不往外传；点外面关闭",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "T004 修补——遮罩只在点到自身时 preventDefault，两条测试；轻提示关闭钮悬停或聚焦 400ms 出现「关闭提示」的工具提示；IconButton.css 的 16px 有出处注释，Toast.css 没有 svg 尺寸规则；base.css 的元素重置特异性低于一个类，静态测试通过；Button.css 不变，其单类规则胜出",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "陈列页在轻提示一节之后有 11 节演示，每个 data-demo 恰一个；表格能切三档行高；骨架屏能手动触发；胶囊三态；表单对话框里的输入框上 mousedown 不被阻止、能聚焦",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "回归——T001–T004 门禁全绿，含 T003、T004 的 4 条过渡断言；W5 通过；npm ci、npm run build、npm test、npm run check:contract 都退出 0",
+      "evidence": [
+        "V02",
+        "V03",
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "范围与测试纪律——只改允许的文件；不改依赖；既有测试不改；新增测试不用 skip、only、todo",
+      "evidence": [
+        "scope",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
