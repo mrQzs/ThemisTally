@@ -3554,7 +3554,8 @@ def land(hub: Hub, engine: Engine, letter: Path, meta: Dict[str, str]) -> List[s
 
 
 def tasks_with_work(hub: Hub) -> List[str]:
-    """有未读信（站主的信箱不算）的进行中主任务，按最早那封信的先后排。"""
+    """有未读信（站主的信箱不算）的进行中主任务。别的主任务在等它结项的排前面（第 23 轮：T006 被依赖它的 T009
+    的规划占了名额，关键路径上的反倒在排队），其余按最早那封信的先后。"""
     state = hub.load_state()
     first: Dict[str, str] = {}
     for agent in ROSTER:
@@ -3562,7 +3563,9 @@ def tasks_with_work(hub: Hub) -> List[str]:
             main = letter_main(path)
             if main and (state["tasks"].get(main) or {}).get("status") == "active":
                 first[main] = min(first.get(main, path.name), path.name)
-    return sorted(first, key=lambda main: first[main])
+    awaited = {item for ts in state["tasks"].values() if ts.get("status") == "active" and not ts.get("after_released")
+               for item in ts.get("after") or []}
+    return sorted(first, key=lambda main: (main not in awaited, first[main]))
 
 
 def spawn_task_runner(hub: Hub, task: str, args: argparse.Namespace) -> "subprocess.Popen[bytes]":
@@ -3590,6 +3593,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
         print("hub 并行调度：最多 %d 个主任务同时跑" % parallel, flush=True)
         idle_since = time.monotonic()
         while True:
+            parallel = configured_parallel(hub, args)  # 第 23 轮：站主改 runner.json 马上生效（--parallel 优先）
             if code_fingerprint() != fingerprint:
                 restart = not args.no_restart and kernel_settled(args.settle, args.poll)
                 hub.append_event("runner.code_changed", pid=os.getpid(), steps=started, restart=restart)
@@ -3624,8 +3628,9 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
             time.sleep(args.poll)
         hub.append_event("runner.stopped", pid=os.getpid(), steps=started)
     if restart:
-        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
-                             "--parallel", str(parallel), "--max-steps", str(args.max_steps),
+        flag = [] if getattr(args, "parallel", None) is None else ["--parallel", str(parallel)]
+        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run"] + flag + [
+                             "--max-steps", str(args.max_steps),
                              "--idle-exit", str(args.idle_exit), "--poll", str(args.poll),
                              "--settle", str(args.settle)])
     print("hub 退出：起过 %d 个主任务 runner；站主未读 %d 封" % (started, len(hub.unread(OWNER))), flush=True)

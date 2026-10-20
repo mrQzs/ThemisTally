@@ -3105,3 +3105,70 @@ def test_owner_rebases_a_task_before_its_contract_starts(tmp_path):
     hub.save_state(state)
     assert kh.main(cmd + ["--reason", "结项了"]) == kh.EXIT_USAGE
     assert kh.main(["--repo", str(repo), "task", "rebase", "T404", "--reason", "x"]) == kh.EXIT_USAGE
+
+
+def test_tasks_others_wait_for_get_runners_first(tmp_path):
+    # 第 23 轮：T009 依赖 T006；T006 的信晚到，名额满时它也该先拿到
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    tasks = {t: kh.new_task_state(t, t.lower(), t, BASE, True) for t in ("T006", "T008", "T009")}
+    tasks["T009"]["after"] = ["T006"]
+    tasks["T008"]["after"] = ["T007"]
+    hub.save_state({"tasks": tasks})
+    for task in ("T009", "T008", "T006"):
+        hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": task, "in-reply-to": "none", "type": "回复"},
+                    fields())
+    assert kh.tasks_with_work(hub) == ["T006", "T009", "T008"]
+    state = hub.load_state()
+    state["tasks"]["T009"]["after_released"] = {"head": "b" * 40}  # 放行之后不再算“被等着”
+    hub.save_state(state)
+    assert kh.tasks_with_work(hub) == ["T009", "T008", "T006"]
+
+
+def test_supervisor_picks_up_runner_json_changes_while_running(tmp_path, monkeypatch):
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T001", "T002", "T003"))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    (hub.root / "runner.json").write_text('{"parallel": 2}', encoding="utf-8")
+    polls = {"n": 0}
+    real_spawn = kh.spawn_task_runner
+    exits_before_third = []
+
+    class Slow:
+        pid = 1
+
+        def __init__(self, inner):
+            self.inner = inner
+
+        def poll(self):
+            polls["n"] += 1
+            if len(spawned) < 3 and polls["n"] < 40:
+                (hub.root / "runner.json").write_text('{"parallel": 3}', encoding="utf-8")  # 站主调大
+                return None
+            return self.inner.poll()
+
+    def spawn(hub_, task, args):
+        if task == "T003":
+            exits_before_third.append(polls["n"] >= 40)
+        return Slow(real_spawn(hub_, task, args))
+
+    monkeypatch.setattr(kh, "spawn_task_runner", spawn)
+    import argparse
+    assert kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
+                                         no_restart=False, parallel=None, task=None)) == kh.EXIT_OK
+    assert spawned == ["T001", "T002", "T003"] and exits_before_third == [False]  # 前两个都没退出时，第三个就起了
+
+
+def test_supervisor_restart_keeps_where_parallel_came_from(tmp_path, monkeypatch):
+    import argparse
+    repo, hub, _spawned = supervisor_env(tmp_path, monkeypatch, ())
+    (hub.root / "runner.json").write_text('{"parallel": 2}', encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(kh, "kernel_settled", lambda *a: True)
+    monkeypatch.setattr(kh, "spawn_runner", lambda argv: seen.append(argv) or 0)
+    for flag in (None, 3):
+        prints = iter(["a", "b"])
+        monkeypatch.setattr(kh, "code_fingerprint", lambda *a: next(prints))
+        kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
+                                      no_restart=False, parallel=flag, task=None))
+    assert "--parallel" not in seen[0]  # 从 runner.json 来的：重启后接着读 runner.json
+    assert seen[1][seen[1].index("--parallel") + 1] == "3"
