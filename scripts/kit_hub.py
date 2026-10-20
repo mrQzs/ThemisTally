@@ -784,6 +784,16 @@ def guard(ts: Optional[Dict[str, Any]], meta: Dict[str, str]) -> Optional[str]:
     return "协调人不能发 %s" % kind
 
 
+def move_base(ts: Dict[str, Any], head: str) -> str:
+    """把主任务的基线挪到 head（合同端开工之前）：旧基线上的阶段 worktree 改名留着，结项时一并清掉，
+    新基线上用到时再建。返回原来的基线。"""
+    previous = ts["base_head"]
+    ts["base_head"] = head
+    for kind in [kind for kind in ts["workspaces"] if kind in ("base", "gate")]:
+        ts["workspaces"]["%s@%s" % (kind, previous[:10])] = ts["workspaces"].pop(kind)
+    return previous
+
+
 def release_dependents(hub: Hub, state: Dict[str, Any], done: str) -> List[str]:
     """一个主任务结项之后，放行登记时依赖它的主任务（第 21 轮）：依赖都结项了，就把它的基线挪到当前末端，
     阶段 worktree 换新（旧的留到结项一并清掉），写信叫协调人开工合同端。依赖前一片的切片可以先规划：
@@ -796,10 +806,7 @@ def release_dependents(hub: Hub, state: Dict[str, Any], done: str) -> List[str]:
             continue
         if any((state["tasks"].get(item) or {}).get("status") != "done" for item in after):
             continue
-        previous = ts["base_head"]
-        ts["base_head"] = head
-        for kind in [kind for kind in ts["workspaces"] if kind in ("base", "gate")]:
-            ts["workspaces"]["%s@%s" % (kind, previous[:10])] = ts["workspaces"].pop(kind)
+        previous = move_base(ts, head)
         ts["after_released"] = {"at": utc_now(), "head": head, "previous": previous, "after": after}
         hub.append_event("dependency.released", task=ts["task"], head=head, previous=previous, after=after)
         hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": ts["task"], "in-reply-to": "none", "type": "核验"},
@@ -3190,6 +3197,43 @@ def cmd_task_close(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_task_rebase(args: argparse.Namespace) -> int:
+    """站主在合同端开工之前把主任务的基线挪到当前末端（第 22 轮）。登记之后站主又提交了准备改动，例如退役会被
+    本任务推翻的旧门禁断言（T006 的规划端发现 T002 门禁里还有两条渲染根 App 的用例），合同、门禁、执行都要在
+    新基线上。合同端开工之后不能挪：合同的 base_sha 与基准测试都钉在旧基线上。"""
+    hub = Hub(find_repo(args.repo))
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise HubError("--reason 要写明为什么挪基线（协调人会把它写进合同端的 brief）", EXIT_USAGE)
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    with task_quiet(hub, args.task):
+        with DirLock(hub.root / ".lock"):
+            state = hub.load_state()
+            ts = state["tasks"].get(args.task)
+            if ts is None:
+                raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+            if ts.get("status") != "active":
+                raise HubError("主任务 %s 不在进行中" % args.task, EXIT_USAGE)
+            if ts["contract"] or ts["stages"]["2-contract"]["status"] != "idle":
+                raise HubError("%s 的合同端已经开工：合同的 base_sha 与基准测试都钉在旧基线上，不能再挪。"
+                               "要换基线就让合同端出新版本" % args.task, EXIT_BLOCKED)
+            if ts["base_head"] == head:
+                print("%s 的基线已经是当前末端 %s" % (args.task, head[:10]))
+                return EXIT_OK
+            previous = move_base(ts, head)
+            ts.setdefault("rebases", []).append({"at": utc_now(), "head": head, "previous": previous, "reason": reason})
+            hub.save_state(state)
+            hub.append_event("task.rebased", task=args.task, head=head, previous=previous)
+            hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": args.task, "in-reply-to": "none", "type": "核验"},
+                        {"摘要": "站主把 %s 的基线从 %s 挪到当前末端 %s" % (args.task, previous[:10], head[:10]),
+                         "提交": head, "验证": "站主的 task rebase", "偏离": reason,
+                         "需协调人决定": "合同端在新基线上写合同；brief 里写明挪基线的原因，并提醒合同端在新基线上核对规划引用的"
+                                       "路径与接口",
+                         "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % args.task})
+    print("%s 的基线：%s → %s" % (args.task, previous[:10], head[:10]))
+    return EXIT_OK
+
+
 def cmd_task_cleanup(args: argparse.Namespace) -> int:
     """已结项的主任务：补做结项收尾（结项时没做完的，或第 12 轮之前结项的任务）。"""
     hub = Hub(find_repo(args.repo))
@@ -3607,6 +3651,10 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--ref", required=True, help="接手的工作落地的提交（要在当前分支上）")
     close.add_argument("--file", required=True, help="站主怎样接手、怎样验收（Markdown）")
     close.set_defaults(func=cmd_task_close)
+    rebase = task.add_parser("rebase", help="合同端开工之前，把主任务的基线挪到当前末端（站主登记后又提交了准备改动）")
+    rebase.add_argument("task")
+    rebase.add_argument("--reason", required=True, help="为什么挪（会写进给协调人的信）")
+    rebase.set_defaults(func=cmd_task_rebase)
     cleanup = task.add_parser("cleanup", help="已结项主任务的收尾：删掉阶段与 attempt 的 worktree，"
                                               "没有结论的 attempt 记成 ABANDONED")
     cleanup.add_argument("task")

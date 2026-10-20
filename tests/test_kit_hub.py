@@ -3070,3 +3070,38 @@ def test_owner_commands_only_need_the_task_lock_under_a_supervisor(tmp_path):
             with pytest.raises(kh.HubError):  # T007 的 runner 正在办信
                 with kh.task_quiet(hub, "T007"):
                     pass
+
+
+def test_owner_rebases_a_task_before_its_contract_starts(tmp_path):
+    # 第 22 轮：T006 规划时发现 T002 门禁里还有两条渲染根 App 的用例，站主退役之后要把 T006 的基线挪过去
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    state = hub.load_state()
+    state["tasks"]["T006"] = kh.new_task_state("T006", "shell", "应用框架", BASE, True)
+    state["tasks"]["T006"]["workspaces"] = {"base": {"path": "old"}, "post-a": {"path": "p"}}
+    hub.save_state(state)
+    cmd = ["--repo", str(repo), "task", "rebase", "T006"]
+    assert kh.main(cmd + ["--reason", " "]) == kh.EXIT_USAGE  # 要写原因
+    assert kh.main(cmd + ["--reason", "退役了 T002 门禁的两条根 App 用例"]) == kh.EXIT_OK
+    ts = hub.load_state()["tasks"]["T006"]
+    assert ts["base_head"] == head and ts["rebases"][0]["previous"] == BASE
+    assert set(ts["workspaces"]) == {"base@%s" % BASE[:10], "post-a"}
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert "type: 核验" in letter and "退役了 T002 门禁的两条根 App 用例" in letter
+    assert kh.main(cmd + ["--reason", "再来一次"]) == kh.EXIT_OK and len(hub.unread(kh.COORDINATOR)) == 1  # 已是末端
+    state = hub.load_state()
+    state["tasks"]["T006"]["base_head"] = BASE
+    state["tasks"]["T006"]["stages"]["2-contract"]["status"] = "assigned"  # 合同端开工了：不能再挪
+    hub.save_state(state)
+    assert kh.main(cmd + ["--reason", "晚了"]) == kh.EXIT_BLOCKED
+    state = hub.load_state()
+    state["tasks"]["T006"]["stages"]["2-contract"]["status"] = "idle"
+    state["tasks"]["T006"]["contract"] = {"key": "t006-shell.v1"}
+    hub.save_state(state)
+    assert kh.main(cmd + ["--reason", "晚了"]) == kh.EXIT_BLOCKED
+    state = hub.load_state()
+    state["tasks"]["T006"].update(contract={}, status="done")
+    hub.save_state(state)
+    assert kh.main(cmd + ["--reason", "结项了"]) == kh.EXIT_USAGE
+    assert kh.main(["--repo", str(repo), "task", "rebase", "T404", "--reason", "x"]) == kh.EXIT_USAGE
