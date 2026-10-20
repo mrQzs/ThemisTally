@@ -153,6 +153,29 @@ function nextCloseBrackets(src: string): Int32Array {
   return out;
 }
 
+/** 每个位置后面（含自己）最近的空白字符：链接判定用（网址里不能有空白）。 */
+function nextSpaces(src: string): Int32Array {
+  const out = new Int32Array(src.length + 1);
+  out[src.length] = src.length;
+  for (let k = src.length - 1; k >= 0; k -= 1) out[k] = isSpaceChar(src[k]) ? k : out[k + 1];
+  return out;
+}
+
+/** 一次栈扫描：每个 ( 配对的 ) 的下标，没配对的是 -1。链接判定用，整体线性；
+ *  朴素的「从 ( 往后数括号」在每个 [ 处重扫会变成平方时间。 */
+function matchedCloseParens(src: string): Int32Array {
+  const out = new Int32Array(src.length).fill(-1);
+  const open: number[] = [];
+  for (let k = 0; k < src.length; k += 1) {
+    if (src[k] === '(') open.push(k);
+    else if (src[k] === ')') {
+      const from = open.pop();
+      if (from !== undefined) out[from] = k;
+    }
+  }
+  return out;
+}
+
 function isSpaceChar(ch: string): boolean {
   return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v';
 }
@@ -161,6 +184,9 @@ function isSpaceChar(ch: string): boolean {
 export function parseInlines(src: string): MdInline[] {
   const out: MdInline[] = [];
   const closeAt = src.indexOf('[') >= 0 ? nextCloseBrackets(src) : null;
+  // 网址终点的计算整体线性：只有出现 ]( 时才预算这两张表。
+  const parenAt = src.indexOf('](') >= 0 ? matchedCloseParens(src) : null;
+  const spaceAt = parenAt ? nextSpaces(src) : null;
   let pending = '';
   const flush = () => {
     if (pending !== '') { out.push({ type: 'text', value: pending }); pending = ''; }
@@ -239,17 +265,17 @@ export function parseInlines(src: string): MdInline[] {
       const close = closeAt ? closeAt[i + 1] : -1;
       let linked = false;
       if (close >= 0 && prev !== '!' && src[close + 1] === '(') {
-        // 网址到下一个括号或空白为止；只有正好以 ) 收尾才算链接写法。
-        let k = close + 2;
-        while (k < n && !isSpaceChar(src[k]) && src[k] !== '(' && src[k] !== ')') k += 1;
+        // 链接成立当且仅当 ]( 的那个 ( 有配对的 )，且 ) 在最近的空白之前（网址里没有空白）。
+        const open = close + 1;
+        const shut = parenAt ? parenAt[open] : -1;
         const text = src.slice(i + 1, close);
-        if (k < n && src[k] === ')' && text !== '') {
+        if (shut > open && shut < (spaceAt ? spaceAt[open] : src.length) && text !== '') {
           flush();
           const inner = parseInlines(text);
-          const url = src.slice(close + 2, k);
+          const url = src.slice(open + 1, shut);
           if (URL_RE.test(url)) out.push({ type: 'link', children: inner, url });
           else out.push(...inner);
-          i = k + 1;
+          i = shut + 1;
           linked = true;
         }
       }
@@ -372,8 +398,23 @@ function parseList(lines: string[], start: number): { blocks: MdList[]; next: nu
     }
     const top = stack[stack.length - 1];
     if (!top) break;
-    if (fenceInfo(line) || atxLevel(line)) break;
     const ind = indentOf(line);
+    // 缩进不小于某一层项文字起始列的围栏、标题行并入那一层的项文字：列表项里除段落与子列表以外的块
+    // 原样当文字，列表不被拦腰截断；缩进更小（回到外层项文字列之外）才结束列表。
+    if (fenceInfo(line) || atxLevel(line)) {
+      let target = -1;
+      for (let k = stack.length - 1; k >= 0; k -= 1) {
+        if (stack[k].item && ind >= stack[k].contentCol) { target = k; break; }
+      }
+      if (target < 0) break;
+      for (let k = stack.length - 1; k > target; k -= 1) closePara(stack[k]);
+      stack.length = target + 1;
+      const level = stack[target];
+      if (level.para === null) level.para = [];
+      level.para.push(line.slice(level.contentCol));
+      i += 1;
+      continue;
+    }
     if (top.item && ind >= top.contentCol) {
       if (top.para === null) top.para = [];
       top.para.push(line.slice(top.contentCol));

@@ -67,6 +67,8 @@
   white-space: pre;
 }
 .tt-viewer--wrap .tt-viewer__text { white-space: pre-wrap; word-break: break-all; }
+/* 行号关掉时文字自己留出左边的内边距（合同第 8 条：行号关时左内边距 --tt-space-3）。 */
+.tt-viewer--no-num .tt-viewer__text { padding-left: var(--tt-space-3); }
 .tt-viewer__part {
   font: var(--tt-text-caption);
   color: var(--tt-text-3);

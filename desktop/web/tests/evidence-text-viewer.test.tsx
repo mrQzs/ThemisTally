@@ -183,6 +183,16 @@ describe('页转行', () => {
     expect(all[2].text).toBe('{"b":2,3}');
     expect(all[1].hidden).toBe('not_json');
   });
+
+  it('jsonl 模式：同一个 n 的分片先按到达顺序拼好原文，再对整行去一次 ANSI（返工 B4）', () => {
+    const P1 = jp([{ n: 1, text: 'a' + ESC + '[3', part: 1, parts: 2 }]);
+    const P2 = jp([{ n: 1, text: '1m红' + ESC + '[0m后', part: 2, parts: 2 }]);
+    expect(pagesToLines([P1, P2]).map((l) => l.text)).toEqual(['a红后']);
+    const { root, onCopy } = mountViewer({ pages: [P1, P2], hasMore: false });
+    expect((root.textContent || '').includes(ESC)).toBe(false);
+    expect((root.textContent || '').includes('[3')).toBe(false);
+    expect(copiedText(root, onCopy)).toBe('a红后');
+  });
 });
 
 describe('W1：不可信内容只按文本显示', () => {
@@ -458,6 +468,26 @@ describe('文件已变化与属性缺省', () => {
     expect(onLoadMore).not.toHaveBeenCalled();
   });
 
+  it('藏提示条只管显示：changed 仍为真时两处 [继续加载] 仍禁用，changed 变假才恢复（返工 B3）', () => {
+    const { root, onLoadMore, update } = mountViewer({ pages: [tp('AAAA', 1, 2)], hasMore: true, changed: true });
+    const close = (root.querySelector('.tt-banner') as HTMLElement)
+      .querySelector('button[aria-label="关闭提示"]') as HTMLButtonElement;
+    fireEvent.click(close);
+    expect(root.querySelector('.tt-banner')).toBeNull();
+    const lb = loadButtons(root);
+    expect(lb.inRows.length).toBe(1);
+    expect(lb.inFooter.length).toBe(1);
+    for (const b of lb.all) {
+      expect(b.disabled, 'changed 仍为真，禁用不随提示条藏起来而解除').toBe(true);
+      fireEvent.click(b);
+    }
+    expect(onLoadMore).not.toHaveBeenCalled();
+    update({ changed: false });
+    for (const b of loadButtons(root).all) expect(b.disabled, 'changed 变假后才恢复可点').toBe(false);
+    fireEvent.click(loadButtons(root).inFooter[0]);
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
   it('defaultLineNumbers=false 行号关、defaultWrap=true 换行开；title 与 className 生效', () => {
     const a = mountViewer({ pages: [tp('a\nb\n')], defaultLineNumbers: false, defaultWrap: true });
     expect(buttonByText(a.root, '行号').getAttribute('aria-pressed')).toBe('false');
@@ -491,6 +521,16 @@ describe('TextViewer.css 的取值（读 CSS 文本）', () => {
     expect(css).toMatch(/\.tt-viewer \.tt-banner\s*\{[^}]*margin:\s*var\(--tt-space-2\) var\(--tt-space-3\)/);
     expect(css).toMatch(/\.tt-viewer__part[^{]*\{[^}]*font:\s*var\(--tt-text-caption\)[^}]*user-select:\s*none/);
     expect(css).toMatch(/\.tt-viewer__hidden[^{]*\{[^}]*font-style:\s*italic/);
+  });
+
+  it('行号关掉时文字有左内边距：根上有 tt-viewer--no-num 钩子，CSS 给 .tt-viewer__text 取 --tt-space-3（返工 B1）', () => {
+    const a = mountViewer({ pages: [tp('a\n')], defaultLineNumbers: false });
+    expect(a.root.classList.contains('tt-viewer--no-num')).toBe(true);
+    expect(css).toMatch(/\.tt-viewer--no-num \.tt-viewer__text\s*\{[^}]*padding-left:\s*var\(--tt-space-3\)/);
+    const b = mountViewer({ pages: [tp('a\n')] });
+    expect(b.root.classList.contains('tt-viewer--no-num')).toBe(false);
+    b.unmount();
+    a.unmount();
   });
 
   it('带 px 的每一行都有同一行注释', () => {

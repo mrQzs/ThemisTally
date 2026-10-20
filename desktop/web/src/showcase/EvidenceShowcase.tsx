@@ -194,7 +194,7 @@ function SafeMarkdownSection() {
       <div className="showcase__row">
         <span className="showcase__label">{opened !== '' ? `上次请求打开：${opened}` : '点链接只在这里记下网址，不弹框'}</span>
       </div>
-      <p className="showcase__muted">原始 HTML 当文字；javascript: 之类的链接只留文字；http(s) 渲染成按钮加网址，点击交给调用方。</p>
+      <p className="showcase__muted">原始 HTML 当文字；不安全协议的链接只留文字；http(s) 渲染成按钮加网址，点击交给调用方。</p>
     </section>
   );
 }

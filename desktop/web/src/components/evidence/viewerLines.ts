@@ -82,7 +82,7 @@ function jsonlPagesToLines(pages: readonly ViewerJsonlPage[]): ViewerLine[] {
         line.hidden = entry.hidden;
         continue;
       }
-      line.text += stripAnsi(entry.text);
+      line.text += entry.text;
       // 记最后一片的 part/parts。
       if (entry.part != null) {
         line.part = entry.part;
@@ -90,6 +90,9 @@ function jsonlPagesToLines(pages: readonly ViewerJsonlPage[]): ViewerLine[] {
       }
     }
   }
+  // 同一个 n 的分片先按到达顺序拼好原文，再对整行去一次 ANSI：
+  // 转义序列被分片边界切开时（如「a」+ESC+「[3」与「1m」）也只有拼好才去得净。
+  for (const line of out) line.text = stripAnsi(line.text);
   return out;
 }
 

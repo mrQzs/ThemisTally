@@ -21,7 +21,8 @@
   gap: var(--tt-space-1);
 }
 .tt-md li p { margin: 0; }
-.tt-md code {
+/* 行内代码的规则只盖到非 pre 里的 code，别把代码块里的字体、边框、底色、内边距与圆角盖掉。 */
+.tt-md :not(pre) > code {
   font: var(--tt-mono-sm);
   padding: 1px var(--tt-space-1);
   border-radius: var(--tt-radius-sm);

@@ -140,6 +140,9 @@ describe('EvidenceShowcase 演示', () => {
     for (const el of Array.from(sec.querySelectorAll('button, span'))) {
       expect(textOf(el)).not.toMatch(/^javascript:/i);
     }
+    // 返工 B8：被拒的不安全协议链接只留链接文字，整节文字里不出现该协议的字面（说明文字也不写）。
+    expect(textOf(sec)).not.toContain('javascript:');
+    expect(textOf(sec)).toContain('这一条被拒');
     const url = textOf(links[0].nextElementSibling);
     await press(links[0] as HTMLElement);
     await settle(() => /上次请求打开：\s*https?:\/\/\S+/.test(textOf(sec)), '上次请求打开');

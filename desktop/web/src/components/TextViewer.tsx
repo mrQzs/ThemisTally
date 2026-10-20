@@ -64,12 +64,14 @@ export function TextViewer({
     if (changed) setDismissed(false);
   }
   const lines = pagesToLines(pages);
+  // 提示条藏起来只是不显示，[继续加载] 的禁用单独看 changed（文件已变化时不许再翻页）。
   const showBanner = changed && !dismissed;
   const copyText = () => onCopy(lines.filter((l) => l.hidden == null).map((l) => l.text).join('\n'));
-  const loadBusy = showBanner || loadingMore;
   const lastIndex = lines.length - 1;
 
-  const rootClass = ['tt-viewer', wrap ? 'tt-viewer--wrap' : '', className ?? ''].filter(Boolean).join(' ');
+  const rootClass = ['tt-viewer', lineNumbers ? '' : 'tt-viewer--no-num', wrap ? 'tt-viewer--wrap' : '', className ?? '']
+    .filter(Boolean)
+    .join(' ');
   return (
     <div className={rootClass}>
       <div className="tt-viewer__head">
@@ -131,7 +133,7 @@ export function TextViewer({
                   <span className="tt-viewer__text">{line.text}</span>
                 )}
                 {tail && (
-                  <Button variant="secondary" size="sm" disabled={loadBusy} onClick={onLoadMore}>
+                  <Button variant="secondary" size="sm" disabled={changed || loadingMore} onClick={onLoadMore}>
                     继续加载
                   </Button>
                 )}
@@ -149,7 +151,7 @@ export function TextViewer({
               继续加载
             </Button>
           ) : (
-            <Button variant="secondary" size="sm" disabled={showBanner} onClick={onLoadMore}>
+            <Button variant="secondary" size="sm" disabled={changed} onClick={onLoadMore}>
               继续加载
             </Button>
           ))}

@@ -1,4 +1,6 @@
 import { cleanup, render, fireEvent } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseInlines, parseMarkdown } from '../src/components/evidence/markdown';
 import { SafeMarkdown } from '../src/components/SafeMarkdown';
@@ -339,6 +341,80 @@ describe('元素与属性的允许集合', () => {
     expect(md('x', { className: 'gate-md' }).root.classList.contains('gate-md')).toBe(true);
     expect(md('').root).not.toBeNull();
   });
+});
+
+describe('返工修复的回归（B2、B5、B6、B7）', () => {
+  const readCss = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
+  const ruleBodies = (css: string, selectorRe: RegExp) => {
+    const out: string[] = [];
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = m[1].trim().replace(/\s+/g, ' ');
+      if (selectorRe.test(selector)) out.push(m[2]);
+    }
+    return out;
+  };
+
+  it('行内代码的规则只盖到非 pre 里的 code，代码块里的字体、边框、底色、内边距、圆角不被盖掉（返工 B2）', () => {
+    const css = readCss('src/components/SafeMarkdown.css').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+    const inline = ruleBodies(css, /^\.tt-md\s*:not\(pre\)\s*>\s*code$/);
+    expect(inline.length, '行内代码规则应限定到非 pre 内的 code').toBe(1);
+    expect(inline[0]).toMatch(/font:\s*var\(--tt-mono-sm\)/);
+    expect(inline[0]).toMatch(/background:\s*var\(--tt-surface-2\)/);
+    expect(inline[0]).toMatch(/border-radius:\s*var\(--tt-radius-sm\)/);
+    expect(ruleBodies(css, /^\.tt-md code$/).length, '不该有不限定的 .tt-md code 规则').toBe(0);
+    const pre = ruleBodies(css, /^\.tt-md pre$/);
+    expect(pre.length).toBe(1);
+    expect(pre[0]).toMatch(/font:\s*var\(--tt-mono-md\)/);
+    expect(pre[0]).toMatch(/white-space:\s*pre/);
+    const { root } = md('```\ncode\n```');
+    expect(root.querySelectorAll('pre > code').length).toBe(1);
+  });
+
+  it('列表项里缩进到项文字列的围栏与标题并入项的文字，列表不被拦腰截断（返工 B5）', () => {
+    const fenced = md('- a\n  ```\n  x\n  ```\n- b');
+    expect(fenced.root.querySelectorAll('pre').length, '围栏并入项文字，不再另起代码块').toBe(0);
+    expect(topLists(fenced.root).length, '只有一个列表').toBe(1);
+    expect(Array.from(fenced.root.querySelectorAll('li')).length).toBe(2);
+    expect(textOf(fenced.root)).toContain('x');
+    const headed = md('- a\n  # x\n- b');
+    expect(headed.root.querySelectorAll('h1,h2,h3,h4,h5,h6').length, '标题并入项文字，不再另起标题').toBe(0);
+    expect(topLists(headed.root).length).toBe(1);
+    expect(Array.from(headed.root.querySelectorAll('li')).length).toBe(2);
+    expect(textOf(headed.root)).toContain('# x');
+    const afterSub = md('- a\n  - b\n  ```\n  x\n  ```\n- c');
+    expect(afterSub.root.querySelectorAll('pre').length).toBe(0);
+    expect(topLists(afterSub.root).length).toBe(1);
+    expect(Array.from(afterSub.root.querySelectorAll('li')).length).toBe(3);
+    const out = md('- a\n```\nx\n```');
+    expect(out.root.querySelectorAll('pre').length, '缩进更小才结束列表').toBe(1);
+    expect(out.root.querySelectorAll('li').length).toBe(1);
+  });
+
+  it('网址认括号配对：带括号的合法网址成链接，带括号的被拒网址只留链接文字（返工 B7）', () => {
+    const ok = md('[w](https://h/a_(b))');
+    const btn = ok.root.querySelector('button') as HTMLElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe('w');
+    expect((btn.nextElementSibling as HTMLElement).textContent).toBe('https://h/a_(b)');
+    fireEvent.click(btn);
+    expect(ok.onOpenLink).toHaveBeenCalledWith('https://h/a_(b)');
+    for (const url of ['javascript:alert(1)', 'data:text/html,f(1)', 'vbscript:msgbox(1)']) {
+      const { root, onOpenLink } = md('[这一条被拒](' + url + ')');
+      expect(root.querySelectorAll('button, a').length, url).toBe(0);
+      expect(root.textContent, url + ' 应只剩链接文字').toBe('这一条被拒');
+      expect(onOpenLink).not.toHaveBeenCalled();
+    }
+  });
+
+  it('N 个 [ 共用一个 ]( 加长网址也是线性（返工 B6）', () => {
+    const n = 131072;
+    const src = '['.repeat(n) + '](' + 'y'.repeat(2 * n - 2);
+    const t0 = Date.now();
+    const out = parseMarkdown(src);
+    const used = Date.now() - t0;
+    expect(used, '256 KiB 的 ' + n + ' 个 [ 加 ]( 加长网址用时 ' + used + 'ms').toBeLessThan(2000);
+    expect(out.length).toBeGreaterThan(0);
+  }, 30000);
 });
 
 describe('parseMarkdown 的性能与 parseInlines 的细节', () => {
