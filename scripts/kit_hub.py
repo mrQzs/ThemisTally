@@ -139,7 +139,13 @@ def code_fingerprint(files: Optional[Sequence[Path]] = None) -> str:
     模板每回合现读，代码却还是启动时那一份，新模板配旧内核，工人会交出旧内核不认的东西。"""
     digest = hashlib.sha256()
     for path in files if files is not None else kernel_files():
-        digest.update(path.name.encode("utf-8") + b"\0" + path.read_bytes() + b"\0")
+        try:
+            data = path.read_bytes()
+        except OSError:
+            # 第 24 轮：git merge 换文件的那一瞬间文件不在（Windows 上先删后写），supervisor 读指纹时整个崩了。
+            # 读不到就当变了：接下来照常等改动落定再重启
+            data = b"\0unreadable"
+        digest.update(path.name.encode("utf-8") + b"\0" + data + b"\0")
     return digest.hexdigest()
 
 
@@ -3579,11 +3585,53 @@ def spawn_task_runner(hub: Hub, task: str, args: argparse.Namespace) -> "subproc
             cwd=str(hub.repo), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
 
 
+#: 主任务 runner 接连异常退出几次就不再起，写信请站主看
+RUNNER_CRASH_LIMIT = 3
+
+
+def supervise_tick(hub: Hub, args: argparse.Namespace, parallel: int, children: Dict[str, Any],
+                   failures: Dict[str, int]) -> Tuple[List[str], int, int]:
+    """supervisor 的一轮：收拾退出的子进程，按名额起新的。返回（有信的主任务，在跑的 runner 数，这轮起了几个）。"""
+    for task, proc in list(children.items()):
+        code = proc.poll()
+        if code is None:
+            continue
+        children.pop(task)
+        hub.append_event("runner.child_exited", task=task, code=code)
+        print("%s 的 runner 退出（%d）" % (task, code), flush=True)
+        failures[task] = 0 if code in (EXIT_OK, EXIT_RESTART) else failures.get(task, 0) + 1
+        if failures[task] == RUNNER_CRASH_LIMIT:
+            # 第 24 轮：接连崩的 runner 一直重起，只会把同一个错误刷满日志
+            hub.deliver({"from": KERNEL, "to": OWNER, "task-id": task, "in-reply-to": "none", "type": "阻塞"},
+                        {"摘要": "%s 的 runner 接连 %d 次异常退出，supervisor 不再起它" % (task, RUNNER_CRASH_LIMIT),
+                         "提交": "无", "验证": "最后一次退出码 %d" % code, "偏离": "无",
+                         "需协调人决定": "请站主看日志、修好之后重启 hub（kit_hub.py run）",
+                         "证据": ".agent/mailbox/runners/%s.log" % task})
+    pending = tasks_with_work(hub)
+    # 上一代 supervisor 起的、还在跑的主任务 runner（重启之后接着算数，不重复起）
+    adopted = [p.name for p in sorted((hub.root / ".runners").glob("*"))
+               if p.name not in children and lock_alive(p)] if (hub.root / ".runners").is_dir() else []
+    live = len(children) + len(adopted)
+    spawned = 0
+    for task in pending:
+        if task in children or task in adopted or failures.get(task, 0) >= RUNNER_CRASH_LIMIT:
+            continue
+        if live >= parallel or kernel_dirty():
+            break  # 满了；或内核有未提交的改动，说不清子进程会跑哪一份代码，等落定
+        children[task] = spawn_task_runner(hub, task, args)
+        live += 1
+        spawned += 1
+        hub.append_event("runner.child_started", task=task, pid=children[task].pid)
+        print("起 %s 的 runner（pid %d）" % (task, children[task].pid), flush=True)
+    return [task for task in pending if failures.get(task, 0) < RUNNER_CRASH_LIMIT], live, spawned
+
+
 def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
     """并行调度（第 20 轮）：每个有信的主任务起一个 `run --task` 子进程，同时最多 parallel 个。
     一个主任务内部仍是串行的流水线；不同主任务的规划、门禁、执行、审核同时进行。子进程各自在两步之间
     发现内核变了就退出，这里用新代码再起；自己也照第 13 轮的办法重启，跑着的子进程不受影响（锁还在它们手里）。"""
     children: Dict[str, "subprocess.Popen[bytes]"] = {}
+    failures: Dict[str, int] = {}
     started = 0
     restart = False
     fingerprint = code_fingerprint()
@@ -3600,27 +3648,14 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
                 print("内核代码或提示词模板变了：%s" % ("已提交，supervisor 用新代码重启" if restart else
                                                  "supervisor 退出，请用新代码重启"), flush=True)
                 break
-            for task, proc in list(children.items()):
-                code = proc.poll()
-                if code is not None:
-                    children.pop(task)
-                    hub.append_event("runner.child_exited", task=task, code=code)
-                    print("%s 的 runner 退出（%d）" % (task, code), flush=True)
-            pending = tasks_with_work(hub)
-            # 上一代 supervisor 起的、还在跑的主任务 runner（重启之后接着算数，不重复起）
-            adopted = [p.name for p in sorted((hub.root / ".runners").glob("*"))
-                       if p.name not in children and lock_alive(p)] if (hub.root / ".runners").is_dir() else []
-            live = len(children) + len(adopted)
-            for task in pending:
-                if task in children or task in adopted:
-                    continue
-                if live >= parallel or kernel_dirty():
-                    break  # 满了；或内核有未提交的改动，说不清子进程会跑哪一份代码，等落定
-                children[task] = spawn_task_runner(hub, task, args)
-                live += 1
-                started += 1
-                hub.append_event("runner.child_started", task=task, pid=children[task].pid)
-                print("起 %s 的 runner（pid %d）" % (task, children[task].pid), flush=True)
+            try:
+                pending, live, spawned = supervise_tick(hub, args, parallel, children, failures)
+            except Exception as exc:  # noqa: BLE001  第 24 轮：一次意外不能让所有主任务都停下
+                hub.append_event("supervisor.error", error="%s: %s" % (type(exc).__name__, exc))
+                print("supervisor 这一轮出错，稍后再试：%s: %s" % (type(exc).__name__, exc), flush=True)
+                pending, live, spawned = [], 1, 0
+                time.sleep(max(args.poll, 5.0))
+            started += spawned
             if pending or live:
                 idle_since = time.monotonic()
             elif time.monotonic() - idle_since >= args.idle_exit:

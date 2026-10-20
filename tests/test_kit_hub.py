@@ -3172,3 +3172,66 @@ def test_supervisor_restart_keeps_where_parallel_came_from(tmp_path, monkeypatch
                                       no_restart=False, parallel=flag, task=None))
     assert "--parallel" not in seen[0]  # 从 runner.json 来的：重启后接着读 runner.json
     assert seen[1][seen[1].index("--parallel") + 1] == "3"
+
+
+# ---------------------------------------------------------------------------
+# 第 24 轮：supervisor 不因一次意外整个停下
+# ---------------------------------------------------------------------------
+
+def test_fingerprint_survives_a_file_being_swapped(tmp_path):
+    # git merge 换文件的那一瞬间文件不在：指纹照样算得出，只是与原来不同
+    code = tmp_path / "kit_hub.py"
+    code.write_text("# 内核\n", encoding="utf-8")
+    before = kh.code_fingerprint([code])
+    code.unlink()
+    missing = kh.code_fingerprint([code])
+    assert missing != before
+    code.write_text("# 内核\n", encoding="utf-8")
+    assert kh.code_fingerprint([code]) == before
+
+
+def test_supervisor_keeps_going_after_a_bad_tick(tmp_path, monkeypatch):
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T001",))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    real, calls = kh.tasks_with_work, []
+
+    def flaky(hub_):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("state.json 正被替换")
+        return real(hub_)
+
+    monkeypatch.setattr(kh, "tasks_with_work", flaky)
+    monkeypatch.setattr(kh.time, "sleep", lambda seconds: None)
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert spawned == ["T001"]  # 出错的那一轮之后照常起了 runner
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["error"] for e in events if e["event"] == "supervisor.error"] == ["OSError: state.json 正被替换"]
+
+
+def test_supervisor_stops_restarting_a_crashing_runner(tmp_path, monkeypatch):
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T001", "T002"))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    codes = {"T001": [1, 1, 1, 1], "T002": [kh.EXIT_RESTART] * kh.RUNNER_CRASH_LIMIT + [0]}
+
+    class Child:
+        pid = 7
+
+        def __init__(self, task):
+            self.task = task
+
+        def poll(self):
+            code = codes[self.task].pop(0)
+            if code == 0:
+                for path in hub.unread(kh.COORDINATOR):
+                    if kh.letter_main(path) == self.task:
+                        hub.take(path)
+            return code
+
+    monkeypatch.setattr(kh, "spawn_task_runner", lambda hub_, task, args: spawned.append(task) or Child(task))
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert spawned.count("T001") == kh.RUNNER_CRASH_LIMIT  # 崩够次数就不再起，信留着等站主
+    assert spawned.count("T002") == kh.RUNNER_CRASH_LIMIT + 1  # 为内核换代退出（75）不算崩，多少次都照起
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "T001 的 runner 接连 3 次异常退出" in letters[0]
+    assert [kh.letter_main(p) for p in hub.unread(kh.COORDINATOR)] == ["T001"]
