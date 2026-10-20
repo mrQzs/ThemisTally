@@ -1,0 +1,357 @@
+{
+  "schema_version": 1,
+  "task_id": "t007-desktop-evidence",
+  "plan_version": 1,
+  "title": "桌面端前端证据组件（第五片，与 T006 并行）",
+  "repository": "ThemisTally",
+  "base_sha": "d9a1b7f53609f721774e7849a868e2d2616426d7",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/components/Table.tsx",
+      "desktop/web/src/components/Table.css",
+      "desktop/web/src/components/SegmentedControl.tsx",
+      "desktop/web/src/components/Tabs.tsx",
+      "desktop/web/src/components/Banner.tsx",
+      "desktop/web/src/components/Banner.css",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/showcase/FormsShowcase.tsx",
+      "desktop/web/src/showcase/showcase-forms.css",
+      "desktop/web/src/components/TextViewer.tsx",
+      "desktop/web/src/components/TextViewer.css",
+      "desktop/web/src/components/SafeMarkdown.tsx",
+      "desktop/web/src/components/SafeMarkdown.css",
+      "desktop/web/src/components/EffortPair.tsx",
+      "desktop/web/src/components/EffortPair.css",
+      "desktop/web/src/components/MaskedValue.tsx",
+      "desktop/web/src/components/MaskedValue.css",
+      "desktop/web/src/components/CommandLine.tsx",
+      "desktop/web/src/components/CommandLine.css",
+      "desktop/web/src/components/NextStep.tsx",
+      "desktop/web/src/components/NextStep.css",
+      "desktop/web/src/components/evidence/ansi.ts",
+      "desktop/web/src/components/evidence/viewerLines.ts",
+      "desktop/web/src/components/evidence/markdown.ts",
+      "desktop/web/src/showcase/EvidenceShowcase.tsx",
+      "desktop/web/src/showcase/showcase-evidence.css",
+      "desktop/web/tests/evidence-text-viewer.test.tsx",
+      "desktop/web/tests/evidence-markdown.test.tsx",
+      "desktop/web/tests/evidence-effort.test.tsx",
+      "desktop/web/tests/evidence-atoms.test.tsx",
+      "desktop/web/tests/evidence-showcase.test.tsx",
+      "desktop/web/tests/evidence-static.test.ts",
+      "desktop/web/tests/forms-patches.test.tsx",
+      "desktop/web/tests/forms-patches-css.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/components/TextViewer.tsx",
+      "desktop/web/src/components/TextViewer.css",
+      "desktop/web/src/components/SafeMarkdown.tsx",
+      "desktop/web/src/components/SafeMarkdown.css",
+      "desktop/web/src/components/EffortPair.tsx",
+      "desktop/web/src/components/EffortPair.css",
+      "desktop/web/src/components/MaskedValue.tsx",
+      "desktop/web/src/components/MaskedValue.css",
+      "desktop/web/src/components/CommandLine.tsx",
+      "desktop/web/src/components/CommandLine.css",
+      "desktop/web/src/components/NextStep.tsx",
+      "desktop/web/src/components/NextStep.css",
+      "desktop/web/src/components/evidence/ansi.ts",
+      "desktop/web/src/components/evidence/viewerLines.ts",
+      "desktop/web/src/components/evidence/markdown.ts",
+      "desktop/web/src/showcase/EvidenceShowcase.tsx",
+      "desktop/web/src/showcase/showcase-evidence.css",
+      "desktop/web/tests/evidence-text-viewer.test.tsx",
+      "desktop/web/tests/evidence-markdown.test.tsx",
+      "desktop/web/tests/evidence-effort.test.tsx",
+      "desktop/web/tests/evidence-atoms.test.tsx",
+      "desktop/web/tests/evidence-showcase.test.tsx",
+      "desktop/web/tests/evidence-static.test.ts",
+      "desktop/web/tests/forms-patches.test.tsx",
+      "desktop/web/tests/forms-patches-css.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/README.md",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "desktop/web/src/components/Button.*",
+      "desktop/web/src/components/Tag.*",
+      "desktop/web/src/components/StatusTag.*",
+      "desktop/web/src/components/Card.*",
+      "desktop/web/src/components/Tooltip.*",
+      "desktop/web/src/components/Menu.*",
+      "desktop/web/src/components/Dialog.*",
+      "desktop/web/src/components/Drawer.*",
+      "desktop/web/src/components/Toast.*",
+      "desktop/web/src/components/IconButton.*",
+      "desktop/web/src/components/Switch.*",
+      "desktop/web/src/components/Checkbox.*",
+      "desktop/web/src/components/TextField.*",
+      "desktop/web/src/components/Select.*",
+      "desktop/web/src/components/KeyValueList.*",
+      "desktop/web/src/components/EmptyState.*",
+      "desktop/web/src/components/Skeleton.*",
+      "desktop/web/src/components/ConnectionPill.*",
+      "desktop/web/src/components/Breadcrumb.*",
+      "desktop/web/src/components/SegmentedControl.css",
+      "desktop/web/src/components/Tabs.css",
+      "desktop/web/src/components/overlay/**",
+      "desktop/web/src/components/field/**",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/component-css.test.ts",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t007_*.py",
+      "tests/conftest.py",
+      "tests/test_attempt_states.py",
+      "tests/test_desktop_attempt_states.py",
+      ".gitignore",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t007_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 9000,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "output_must_not_match": [
+        "failed|error"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "文本查看器只按文本显示（W1）——输入含 <img src=x onerror=alert(1)>、<script>alert(1)</script>、带 ESC[31m 与 ESC[0m 的红色文字、一个网址；DOM 里没有 img、script、a 元素，行里没有带 style 属性的元素；文字原样出现；ESC 字符与 [31m 都不出现；行号与换行两个开关的 aria-pressed 与样式都对；复制回调收到的字符串逐字等于约定值",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "W1 的内容不可信，只当文本显示"
+    },
+    {
+      "id": "D02",
+      "text": "分页与分片——已显示 N 页；已到末尾；[继续加载] 调 onLoadMore；text 与 jsonl 两种模式的分片拼接与第 k/n 片；行尾 [继续加载] 只在最后一行没加载完且还有下一页时出现；以换行开头的页不多出空行；隐藏行三种说明、不能展开；changed 时有提示条与 [从头读取]、关闭后能再出现、[继续加载] 禁用",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "安全 Markdown（W2）——八种元素结构；原始 HTML 原样当文字；javascript: 等被拒只剩链接文字、没有按钮与网址；http(s) 渲染成按钮加网址、点击调一次 onOpenLink(原网址)；元素与属性都在允许集合里；蛇形名不变斜体；256 KiB 病态输入 2 秒内完成",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不可信 Markdown 不执行、不卡死"
+    },
+    {
+      "id": "D04",
+      "text": "思考档位（W7）——§2.6 六种情形的文字与 data-state；不同时有 warning 标签与 title；未知时不显示成要求的档位；没有要求时只有「—」",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "遮蔽值——结构、title、lock 图标 14、斜体 text-3；isMaskedPlaceholder",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "命令行与下一步——dispatchCommand；复制钮名称与回调；sm 与 md 两种尺寸；下一步的结构与可选命令",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "图标与提示条——三个图标路径；Banner 不传 action 时结构不变、传了时操作钮在文字与关闭钮之间",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "S1–S3——rows 变少、晚到、排序之后恰一行 tabIndex=0 且是约定那一行；数字列 th 带 tt-num、右对齐；Table.css 有 scroll-padding-top、焦点环与强制颜色兜底",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "S5 与三处缺口——value 无效时恰一个 tabIndex=0 是第一项；每个页签的 aria-controls 都指向面板；空格 repeat 被 preventDefault 不切换；关闭态胶囊的 Esc 往外传不被 preventDefault",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "S4、S6——showcase-forms.css 的取值与注释；胶囊行靠右",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "演示——七节都在、data-demo 不与已有重复；W1 样例在 DOM 里只是文字；没有 role=status、对话框、菜单；没有文字的按钮都有 aria-label",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "静态检查——§5.0 禁用词；新组件源码无 href、src=、target=；新 CSS 只用令牌、px 字面量带同一行注释；W4 通过",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D13",
+      "text": "回归——T001–T005 门禁全绿（含现有 5 条过渡断言）；W5 通过；npm 四步都退出 0",
+      "evidence": [
+        "V02",
+        "V03",
+        "V01"
+      ]
+    },
+    {
+      "id": "D14",
+      "text": "范围——只改允许的文件；不改依赖；既有测试不改；新测试不用 skip、only、todo",
+      "evidence": [
+        "scope",
+        "V02"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
