@@ -1,0 +1,5 @@
+{"profiles": [
+  {"id": "step-high", "runtime": "pi", "adapter": "pi", "provider": "bb", "model": "step-5-preview",
+   "options": {"thinking": "high"}, "credential_env": ["STEP_API_KEY"]},
+  {"id": "step-low", "runtime": "pi", "adapter": "pi", "provider": "bb", "model": "step-5-mini",
+   "options": {"thinking": "low"}, "credential_env": ["STEP_API_KEY"]}]}

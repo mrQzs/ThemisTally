@@ -1,0 +1,11 @@
+{"entries": [
+  {"number": 42, "resource": "config", "at": "2026-10-18T02:02:11Z", "action": "preset.use", "target": "default",
+   "actor": "user-ui", "confirmation": "none", "state": "published", "resolved": false,
+   "changed_keys": ["active_preset", "roles"], "note": null, "external_changes": 0},
+  {"number": 41, "resource": "local", "at": "2026-10-18T01:47:03Z", "action": "runtime.add", "target": "pi",
+   "actor": "user", "confirmation": "none", "state": "published", "resolved": false, "changed_keys": null,
+   "note": "本机文件不存快照", "external_changes": 0},
+  {"number": 40, "resource": "config", "at": "2026-10-17T13:20:45Z", "action": "config.set", "target": "pricing",
+   "actor": "agent:planning_review", "confirmation": "none", "state": "published", "resolved": false,
+   "changed_keys": ["pricing"], "note": "（含疑似凭据，不显示）", "external_changes": 1}],
+ "broken_lines": [], "external_before_first": 0}

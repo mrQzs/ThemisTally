@@ -1,0 +1,2 @@
+{"path": "executor-report.md", "mode": "text", "next_cursor": null, "done": true,
+ "text": "## 执行报告\n\n已按合同实现 logs cat。\n\n<img src=x onerror=alert(1)> ← 这一行必须原样显示为文字\n\n- self_checks: V01–V08 通过\n"}

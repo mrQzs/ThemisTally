@@ -1,0 +1,4 @@
+{"active_preset": "default", "presets": [
+  {"name": "default", "description": "日常：执行端用 step-5-preview（high）",
+   "roles": ["contract", "execution", "planning_review", "scheduler_agent"], "active": true},
+  {"name": "economy", "description": "省钱：执行端用 step-5-mini（low）", "roles": ["execution"], "active": false}]}

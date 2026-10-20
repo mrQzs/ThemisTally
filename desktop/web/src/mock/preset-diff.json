@@ -1,0 +1,3 @@
+{"a": "default", "b": "economy", "roles": [
+  {"role": "execution", "a": {"mode": "headless", "profile": "step-high"},
+   "b": {"mode": "headless", "profile": "step-low"}, "same": false}]}

@@ -1,0 +1,28 @@
+/* 标题栏（合同第 2 条）：高 40（Main 画布 :19）、右内边距 140（UI 文档 5.2 :352，留给原生窗口控件）。
+   标识 18×20（Main 画布 :19），填色用 --tt-logo-mark 与 --tt-logo-tally；产品名 title-sm/text-1；
+   竖线 1×18（Main 画布 :20）、左右外边距 space-0_5；仓库名 mono-sm，chevron 用 text-3。 */
+.tt-titlebar {
+  height: 40px; /* Main 画布 :19 标题栏高 40 */
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding-left: var(--tt-space-3);
+  padding-right: 140px; /* UI 文档 5.2 :352 右内边距 140，留给原生窗口控件 */
+  background: var(--tt-titlebar);
+  border-bottom: 1px solid var(--tt-border);
+}
+.tt-logo { flex: none; }
+.tt-logo__mark { fill: var(--tt-logo-mark); }
+.tt-logo__tally { fill: var(--tt-logo-tally); }
+.tt-titlebar__product { font: var(--tt-title-sm); color: var(--tt-text-1); white-space: nowrap; }
+.tt-titlebar__divider {
+  width: 1px;
+  height: 18px; /* Main 画布 :20 产品名后竖线高 18 */
+  background: var(--tt-border);
+  margin: 0 var(--tt-space-0_5);
+  flex: none;
+}
+.tt-titlebar__repo { font: var(--tt-mono-sm); }
+.tt-titlebar__chev { color: var(--tt-text-3); }
+.tt-titlebar__spacer { flex: 1; }

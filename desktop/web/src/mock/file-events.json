@@ -1,0 +1,8 @@
+{"path": "events.jsonl", "mode": "jsonl", "done": false, "next_cursor": "c1-0001a2f3",
+ "lines": [
+   {"n": 1, "text": "{\"type\":\"agent_start\"}"},
+   {"n": 2, "text": "{\"type\":\"tool_execution_end\",\"toolName\":\"bash\",\"isError\":false}"},
+   {"n": 3, "hidden": "not_json"},
+   {"n": 4, "hidden": "too_long"},
+   {"n": 5, "text": "{\"type\":\"message_update\",\"api_key\":\"<redacted>\"}"},
+   {"n": 6, "text": "{\"type\":\"tool_result\",\"output\":\"aaaa", "part": 1, "parts": 2}]}

@@ -1,8 +1,10 @@
 // 陈列页字体样张：三组字重、每组四行、每行去两端 | 后 26 列（汉字 2 列 + ASCII 1 列），守住样张结构（T003）。
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from '../src/App';
 
+// Q2：陈列页移到 #/showcase，渲染根 App 前先把地址设过去（用例与断言不变）。
+beforeEach(() => { location.hash = '#/showcase'; });
 afterEach(cleanup);
 
 // 与 App.tsx 里约定的四行样张一致（不含两端 |）。

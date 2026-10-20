@@ -1,0 +1,11 @@
+{"executor": {
+   "attempts": [
+     {"task": "logs-cat", "attempt": "attempt-002", "requested_model": "bb/step-5-preview", "status": "known",
+      "usage": {"input": 3990214, "output": 220171, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 4210385}},
+     {"task": "ui-readonly-api", "attempt": "attempt-001", "requested_model": "bb/step-5-preview",
+      "status": "unknown", "usage": null}],
+   "counts": {"known": 5, "partial": 0, "unknown": 1}, "skipped_links": 0,
+   "totals": {"input": 21002117, "output": 1029331, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 22031448},
+   "by_model": [{"requested_model": "bb/step-5-preview", "known": 5, "partial": 0, "unknown": 1,
+     "usage": {"input": 21002117, "output": 1029331, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 22031448}}]},
+ "planner": null}

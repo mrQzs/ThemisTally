@@ -1,0 +1,5 @@
+{"runtimes": [
+  {"id": "pi", "adapter": "pi", "source": "local",
+   "command": ["C:/tools/node/node.exe", "C:/tools/pi/dist/cli.js"], "notes": []},
+  {"id": "claude-code", "adapter": "claude-code", "source": "path", "command": ["C:/tools/npm/claude.cmd"], "notes": []},
+  {"id": "opencode", "adapter": "opencode", "source": "missing", "command": null, "notes": []}]}

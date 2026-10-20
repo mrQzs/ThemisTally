@@ -1,0 +1,8 @@
+{"plugins_root_link": false, "plugins": [
+  {"id": "decisions", "version": "1.0.0", "enabled": "启用", "lock": "一致", "resource": "一致", "missing": [],
+   "status": "READY", "reason": ""},
+  {"id": "code-change", "version": "1.0.0", "enabled": "停用", "lock": "一致", "resource": "一致", "missing": [],
+   "status": "READY", "reason": ""},
+  {"id": "docs-checks", "version": "1.0.0", "enabled": "不限制", "lock": "漂移", "resource": "一致",
+   "missing": ["fs.write"], "status": "DRIFT", "reason": "锁与内容不一致"}],
+ "not_installed": [], "problems": []}

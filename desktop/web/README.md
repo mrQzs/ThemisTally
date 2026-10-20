@@ -20,7 +20,7 @@ desktop/web/
   index.html            # 只一个外部 module script，无内联脚本/样式，不写 data-theme
   src/
     main.tsx            # 挂载 App，引入 fonts.css / tokens.css / base.css
-    App.tsx / App.css   # 组件陈列页
+    App.tsx / App.css   # 应用框架：标题栏 + 内容区（按路由重挂载）+ 底部 Tab 栏；组件陈列页移到 #/showcase
     styles/
       tokens.css        # 只有 --tt-* 自定义属性与 color-scheme（画布逐项相等）
       base.css          # 基础样式，只用令牌与允许的全局值
@@ -32,10 +32,17 @@ desktop/web/
                         #            KeyValueList / EmptyState / Skeleton / ConnectionPill / Breadcrumb
       field/             # 输入框 / 下拉 / 开关 / 复选框共用的接线工具（useFieldA11y、useToggle），不从 index 导出
       overlay/           # 浮层共用的内部模块（挂载层、可聚焦查询、焦点管理），不从 index 导出
-    showcase/           # 第 4 片表单与数据原子的陈列页演示（FormsShowcase.tsx），样式在 showcase-forms.css
+    showcase/           # 组件陈列页：ShowcasePage.tsx 用 import.meta.glob 急切收集同目录的 *Showcase.tsx，
+                        #   按文件名 ASCII 编码顺序排序（JS 默认 sort，大写在前），每节包 div[data-showcase=文件名去掉 .tsx]；
+                        #   加一节演示就新增一个 *Showcase.tsx（BaseShowcase 基础组件、FormsShowcase 表单与数据原子、
+                        #   ShellShowcase 应用框架；EvidenceShowcase 留给后续片）
+    shell/              # 应用框架：router/routes/shortcuts/theme、TitleBar/Logo/ShellMenu/TabBar/PageFrame/DisabledAction 等，各带 CSS
+    pages/              # 9 个页面占位（*Page.tsx），各用 PageFrame
+    mock/               # 夹具数据层：14 份 *.json（UI 文档第 9 节逐值相等）+ scenario.ts（?mock= 开关）/ empty.ts / shell.ts
+    api.ts              # 只读数据层：13 个读函数，返回 Promise<信封>，数据来自 mock/，运行时不发网络请求
     domain/
       attemptStates.ts  # 17 个已知状态 + 未知兜底
-    icons/              # Lucide 图标（React 组件）
+    icons/              # Lucide 图标（React 组件）：index.tsx 状态图标，icons/frame.tsx 框架图标（标题栏 / Tab 栏 / 刷新）
   scripts/
     token-contract.mjs  # W4 契约检查（Node，零依赖）
   tests/                # Vitest 测试
@@ -49,11 +56,17 @@ desktop/web/
 
 - 所有颜色、字体、圆角、时长一律取 `--tt-*` 令牌，不写死十六进制、颜色函数或命名颜色。
 - 基础重置（`base.css` 里的元素重置）一律包进 `:where()`，特异性降到 0，避免盖过组件的单类规则；`tests/base-reset.test.ts` 与门禁都会核查这条约定。
-- 主题缺省为**暗色**；亮色 `data-theme="light"`，跟随系统 `data-theme="system"`（由 App 切到 `<html>`）。
+- 主题缺省为**暗色**；亮色 `data-theme="light"`，跟随系统 `data-theme="system"`；由标题栏的主题菜单切换（`src/shell/theme.ts` 的 `applyTheme` 是唯一写 `data-theme` 的地方，偏好只存内存）。
 - `npm run check:contract` 扫描 `src/**/*.{css,ts,tsx}`（排除 `tokens.css` 与 `*.test.*`）：
   - 规则 1（未定义变量）：出现的每个 `--tt-…` 都必须在 `tokens.css` 定义。
   - 规则 2（写死颜色）：十六进制、颜色函数、作为颜色属性取值的命名颜色一律判违规。
   - 有违规退出 1，无违规退出 0；`--src`/`--tokens` 路径不存在以非 0 退出并给出可读错误。
+
+## 应用框架、路由与数据层
+
+- 自写 hash 路由（不装 react-router，G2 也禁止它）：`#/overview` 总览、`#/tasks` 任务、`#/roles` 角色与模型、`#/runtimes` CLI 运行时、`#/secrets` 凭据、`#/logs` 日志与用量、`#/plugins` 插件、`#/history` 历史与审计、`#/settings` 设置；`#/showcase` 组件陈列（不是 Tab，没有当前项）。空、`#`、`#/` 与未知路径都显示总览，不改写地址。快捷键 Ctrl+1…8 依次切前 8 个 Tab，Ctrl+, 切设置；Tab 链接与快捷键导航都保留当前 `?mock=`。
+- `?mock=` 夹具开关（`src/mock/scenario.ts`，每次调用时读地址）五个取值：`data`（缺省）、`loading`、`empty`、`error`、`offline`，用来演示页面框架的五态与断线；`empty` 只对 status / runtimes / secrets / plugins / history 五个列表资源生效，`getMeta` 不受影响。接本机服务那一片会把它换成真实请求。
+- 数据层 `src/api.ts` 的 13 个读函数返回 `Promise<信封>`，数据取自 `src/mock/*.json`；运行时不发任何网络请求。`tests/shell-no-network.test.ts` 递归扫 `src` 全部文件，按整词查 fetch / XMLHttpRequest / EventSource / WebSocket，即不连服务的静态检查。
 
 ## 门禁探针目录（Q4）
 

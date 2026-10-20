@@ -1,0 +1,75 @@
+/* 陈列页规则（Steps 10）：从 App.css 搬来，由 ShowcasePage 引入；showcase__* 类名不改。
+   去掉原 .showcase 的 min-height:100vh（陈列页不再是根路由，不再需要撑满视口）；
+   搬过来的 px 字面量补「演示自定」注释。 */
+.showcase {
+  padding: var(--tt-space-8) var(--tt-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-8);
+}
+/* 每个 *Showcase.tsx 模块的包裹层：display:contents 不改变节间距（合同第 11 条）。 */
+[data-showcase] { display: contents; }
+.showcase__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-4);
+  flex-wrap: wrap;
+}
+.showcase__title { margin: 0; font: var(--tt-title-lg); }
+.showcase__lede { margin: var(--tt-space-2) 0 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.showcase__theme { display: inline-flex; gap: var(--tt-space-2); }
+.showcase__section { display: flex; flex-direction: column; gap: var(--tt-space-3); }
+.showcase__h2 { margin: 0; font: var(--tt-title-md); }
+.showcase__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+  flex-wrap: wrap;
+}
+.showcase__label {
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-3);
+  min-width: 88px; /* 演示自定 */
+}
+.showcase__wrap { display: flex; flex-wrap: wrap; gap: var(--tt-space-2); }
+.showcase__stack { display: flex; flex-direction: column; gap: var(--tt-space-3); align-items: flex-start; }
+.showcase__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tt-space-4);
+  align-items: start;
+}
+.showcase__muted { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+/* 陈列页字体样张：随包字体等距更纱黑体 SC 的中英文对齐与两种字重展示。 */
+.showcase__specimen-group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-3);
+}
+.showcase__specimen {
+  border: 1px solid var(--tt-border);
+  background: var(--tt-surface-1);
+  padding: var(--tt-space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tt-space-1);
+}
+/* 字重取令牌；font 简写会重置 font-variant-ligatures，故放在 font 之后；每行去两端 | 后 26 列，右端标记落在同一条竖线。 */
+[data-font-weight="400"] .showcase__specimen-row {
+  font: var(--tt-text-md);
+  white-space: pre;
+  font-variant-ligatures: none;
+}
+[data-font-weight="500"] .showcase__specimen-row {
+  font: var(--tt-text-md-medium);
+  white-space: pre;
+  font-variant-ligatures: none;
+}
+[data-font-weight="600"] .showcase__specimen-row {
+  font: var(--tt-title-sm);
+  white-space: pre;
+  font-variant-ligatures: none;
+}

@@ -1,0 +1,86 @@
+/* Tab 栏（合同第 4 条，照 Main 画布 :40–58）：高 tabbar-height、sidebar 底、上边框 sidebar-hover、左右 space-2。
+   Tab 最小宽 72、图标 18 在上文字在下、间距 3、左右内边距 10（Main 画布 :40）；字 caption、sidebar-text，
+   悬停 sidebar-hover；当前项 aria-current=page、sidebar-hover 底、sidebar-text-active 与 caption-strong，
+   顶部 3px accent 指示条（左右各缩进 10、下方两角圆角 --tt-radius-sm，画布原值 2，见站主 Q3）。
+   计数胶囊：top 5、left calc(50% + 5px)、高 16、最小宽 18、左右 space-1、radius-full、accent 底、on-accent 字、
+   字体 caption-strong（画布原值 600 11/16，见站主 Q3）、外圈 0 0 0 2px var(--tt-sidebar)（Main 画布 :44）。
+   分隔线 1px、margin 14px 6px（Main 画布 :53）；状态段 gap 14（Main 画布 :54）、caption、sidebar-text-muted，
+   两个计数链接 sidebar-text、悬停下划线；圆点 8px。 */
+.tt-tabbar {
+  order: 2;
+  height: var(--tt-tabbar-height);
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--tt-space-2);
+  background: var(--tt-sidebar);
+  color: var(--tt-sidebar-text);
+  border-top: 1px solid var(--tt-sidebar-hover);
+}
+.tt-tabbar__tab {
+  position: relative;
+  min-width: 72px; /* Main 画布 :40 Tab 最小宽 72 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px; /* Main 画布 :40 图标与文字间距 3 */
+  padding: 0 10px; /* Main 画布 :40 Tab 左右内边距 10 */
+  color: var(--tt-sidebar-text);
+  text-decoration: none;
+  font: var(--tt-text-caption);
+  white-space: nowrap;
+}
+.tt-tabbar__tab:hover { background: var(--tt-sidebar-hover); }
+.tt-tabbar__tab.is-current {
+  background: var(--tt-sidebar-hover);
+  color: var(--tt-sidebar-text-active);
+  font: var(--tt-text-caption-strong);
+}
+.tt-tabbar__indicator {
+  position: absolute;
+  left: 10px; /* Main 画布 :40 指示条左右各缩进 10 */
+  right: 10px; /* Main 画布 :40 */
+  top: 0;
+  height: 3px; /* Main 画布 :40 指示条高 3 */
+  border-radius: 0 0 var(--tt-radius-sm) var(--tt-radius-sm); /* 画布原值 2（站主 Q3：用 --tt-radius-sm） */
+  background: var(--tt-accent);
+}
+.tt-tabbar__count {
+  position: absolute;
+  top: 5px; /* Main 画布 :44 计数胶囊距顶 5 */
+  left: calc(50% + 5px); /* Main 画布 :44 水平位置 50% + 5 */
+  min-width: 18px; /* Main 画布 :44 最小宽 18 */
+  height: 16px; /* Main 画布 :44 高 16 */
+  padding: 0 var(--tt-space-1);
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-accent);
+  color: var(--tt-on-accent);
+  font: var(--tt-text-caption-strong); /* 画布原值 600 11/16（站主 Q3：用 --tt-text-caption-strong） */
+  box-shadow: 0 0 0 2px var(--tt-sidebar); /* Main 画布 :44 外圈 2px sidebar */
+}
+.tt-tabbar__divider {
+  width: 1px;
+  margin: 14px 6px; /* Main 画布 :53 分隔线边距 */
+  background: var(--tt-sidebar-hover);
+  flex: none;
+}
+.tt-tabbar__spacer { flex: 1; }
+.tt-tabbar__status {
+  display: flex;
+  align-items: center;
+  gap: 14px; /* Main 画布 :54 状态段间距 14 */
+  padding: 0 var(--tt-space-2) 0 var(--tt-space-3);
+  color: var(--tt-sidebar-text-muted);
+  font: var(--tt-text-caption);
+  white-space: nowrap;
+}
+.tt-tabbar__stat { display: inline-flex; align-items: center; gap: var(--tt-space-2); }
+.tt-tabbar__stat--link { color: var(--tt-sidebar-text); text-decoration: none; }
+.tt-tabbar__stat--link:hover { text-decoration: underline; }
+.tt-tabbar__dot { width: 8px; height: 8px; border-radius: var(--tt-radius-full); flex: none; } /* Main 画布 :54 圆点 8 */
+.tt-tabbar__dot--info { background: var(--tt-sidebar-dot-info); }
+.tt-tabbar__dot--accent { background: var(--tt-accent); }
+.tt-tabbar__status-text { white-space: nowrap; }

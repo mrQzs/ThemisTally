@@ -1,0 +1,2 @@
+/* 禁用的写操作入口：让悬停落到 Tooltip 的包裹 span 上（合同第 10 条）。 */
+.tt-disabled-action { pointer-events: none; }

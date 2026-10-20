@@ -1,0 +1,14 @@
+/* ShellShowcase：五态链接做成可点的胶囊（演示自定），复用 secondary 的观感。 */
+.showcase-shell__link {
+  display: inline-flex;
+  align-items: center;
+  height: 28px; /* 演示自定 */
+  padding: 0 var(--tt-space-3);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-1);
+  color: var(--tt-text-1);
+  text-decoration: none;
+  font: var(--tt-text-sm-medium);
+}
+.showcase-shell__link:hover { background: var(--tt-surface-2); }

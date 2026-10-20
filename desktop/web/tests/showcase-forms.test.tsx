@@ -2,7 +2,7 @@ import { cleanup, render, act, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 
-beforeEach(() => { vi.useFakeTimers(); });
+beforeEach(() => { location.hash = '#/showcase'; vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const DEMOS = ['text-field', 'form-dialog', 'segmented', 'switch-checkbox', 'tabs', 'table',

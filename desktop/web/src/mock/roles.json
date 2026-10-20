@@ -1,0 +1,9 @@
+{"active_preset": "default", "roles": [
+  {"role": "planning_review", "explicit": true, "binding": {"mode": "interactive_host", "host": "claude-code"},
+   "differs_from_preset": false},
+  {"role": "contract", "explicit": false, "binding": {"mode": "manual"}, "differs_from_preset": false},
+  {"role": "execution", "explicit": true, "binding": {"mode": "headless", "profile": "step-high"},
+   "differs_from_preset": false, "profile": "step-high", "runtime": "pi", "adapter": "pi", "provider": "bb",
+   "model": "step-5-preview", "thinking": "high", "connected": true, "effort_effective": null},
+  {"role": "scheduler_agent", "explicit": false, "binding": {"mode": "disabled"}, "differs_from_preset": false}
+]}

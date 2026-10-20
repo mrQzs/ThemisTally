@@ -1,0 +1,40 @@
+/* 页面框架（合同第 8 条，照 Main 画布 :63–84 与 UI 文档 5.5）：tt-pad 容器（内边距 24、纵向 gap 16，
+   窄内容区由 base.css 的容器查询降到 16）。页头第一行 h1（title-lg）加右侧操作，第二行说明（text-sm、text-2）；
+   刷新钮 secondary。断线条 danger Banner 加禁用的[重新连接]。出错块 CircleX 20 + 「没能读到数据」（danger-text），
+   命令与退出码一行、内核报错进 pre 按纯文本显示，[重试] primary。 */
+.tt-page {
+  flex: 1;
+  padding: var(--tt-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+.tt-page__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-4);
+}
+.tt-page__heading { flex: 1; min-width: 0; }
+.tt-page__title-row { display: flex; align-items: center; gap: var(--tt-space-2); flex-wrap: wrap; }
+.tt-page__title { margin: 0; font: var(--tt-title-lg); }
+.tt-page__desc { margin: var(--tt-space-0_5) 0 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-page__read { margin: 0; font: var(--tt-text-md); color: var(--tt-text-1); }
+.tt-page__actions { display: flex; gap: var(--tt-space-2); flex-wrap: wrap; }
+.tt-page__error { display: flex; flex-direction: column; gap: var(--tt-space-3); align-items: flex-start; }
+.tt-page__error-head { display: flex; align-items: center; gap: var(--tt-space-2); }
+.tt-page__error-icon { color: var(--tt-danger-text); flex: none; }
+.tt-page__error-title { font: var(--tt-title-sm); color: var(--tt-danger-text); }
+.tt-page__error-cmd { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-page__error-msg {
+  margin: 0;
+  padding: var(--tt-space-3);
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-1);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 100%;
+  overflow-x: auto;
+}
