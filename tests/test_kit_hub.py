@@ -3235,3 +3235,16 @@ def test_supervisor_stops_restarting_a_crashing_runner(tmp_path, monkeypatch):
     letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
     assert len(letters) == 1 and "T001 的 runner 接连 3 次异常退出" in letters[0]
     assert [kh.letter_main(p) for p in hub.unread(kh.COORDINATOR)] == ["T001"]
+
+
+def test_output_block_takes_the_first_copy_when_keys_are_repeated():
+    # 第 25 轮：T008 的协调人两次都在对象结束之后又写了一遍 `], "state": "…"}`
+    warnings: list = []
+    text = ('```json\n{"letters": [{"to": "站主", "摘要": "x"}], "state": "# 断点 一"}], '
+            '"state": "# 断点 二"}\n```')
+    assert kh.extract_json_block(text, warnings) == {"letters": [{"to": "站主", "摘要": "x"}], "state": "# 断点 一"}
+    assert warnings == ["JSON 代码块末尾又写了一遍 state，已忽略，取第一份"]
+    for extra in (', "letters": []}', ', "verdict": "通过"}', '], {"to": "x"}]}'):
+        # 多出来的有对象里没有的键，或者又写了一遍 letters（可能是改过的信）：照旧拒收，并说清楚错在哪
+        with pytest.raises(kh.HubError, match="只能有一个 JSON 对象"):
+            kh.extract_json_block('```json\n{"letters": [], "state": "s"}%s\n```' % extra, [])

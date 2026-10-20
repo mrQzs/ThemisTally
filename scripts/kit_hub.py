@@ -986,10 +986,18 @@ def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[
             data, end = json.JSONDecoder().raw_decode(block)
         except ValueError:
             raise HubError("JSON 代码块解析失败：%s" % exc)
-        if block[end:].strip(" \t\r\n]}"):
-            raise HubError("JSON 代码块解析失败：%s" % exc)
-        if warnings is not None:
-            warnings.append("JSON 代码块末尾多了 %s，已忽略" % block[end:].strip())
+        rest = block[end:]
+        if rest.strip(" \t\r\n]}"):
+            # 第 25 轮：T008 的协调人两次都在对象结束之后又写了一遍 `], "state": "…"}`（重复已有的键）。
+            # 多出来的只是重复对象里已有的顶层键时，取第一份并记警告；有对象里没有的键（可能是真内容）照旧拒收
+            keys = set(re.findall(r'"([A-Za-z_]+)"\s*:', rest))
+            if not isinstance(data, dict) or not keys or not keys <= set(data) or "letters" in keys:
+                raise HubError("JSON 代码块解析失败：%s。代码块里只能有一个 JSON 对象：第一个对象在第 %d 个字符处"
+                               "已经结束，后面又写了内容。letters 与 state 各写一次，写完就收尾" % (exc, end))
+            if warnings is not None:
+                warnings.append("JSON 代码块末尾又写了一遍 %s，已忽略，取第一份" % "、".join(sorted(keys)))
+        elif warnings is not None:
+            warnings.append("JSON 代码块末尾多了 %s，已忽略" % rest.strip())
     if not isinstance(data, dict):
         raise HubError("JSON 代码块顶层必须是对象")
     return data
