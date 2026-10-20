@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as _dt
 import hashlib
 import json
@@ -215,6 +216,69 @@ def read_text(path: Path) -> str:
         return ""
 
 
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def canonical_state(state: Dict[str, Any]) -> str:
+    return json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+class HubState(dict):
+    """load_state 读出来的状态：记着读出来时每个主任务各顶层键的样子，save_state 据此只写改过的键（第 20 轮）。"""
+
+    def __init__(self, data: Dict[str, Any]) -> None:
+        super().__init__(data)
+        self.seen = self.snapshot(self["tasks"])
+
+    @staticmethod
+    def snapshot(tasks: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+        return {task: {key: canonical_json(value) for key, value in ts.items()}
+                for task, ts in tasks.items() if isinstance(ts, dict)}
+
+
+#: 等文件锁的上限：拿锁的都是几毫秒的读写，等这么久说明有进程卡死
+FILE_LOCK_SECONDS = 60.0
+
+
+@contextlib.contextmanager
+def file_lock(path: Path, wait_seconds: float = FILE_LOCK_SECONDS):
+    """跨进程的互斥（第 20 轮）：锁文件的第一个字节。持有者进程退出时操作系统自动放锁，不会留下死锁。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + wait_seconds
+    with open(path, "a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise HubError("等文件锁超时：%s" % path, EXIT_BLOCKED)
+                    time.sleep(0.01)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise HubError("等文件锁超时：%s" % path, EXIT_BLOCKED)
+                    time.sleep(0.01)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def keep_previous(path: Path) -> None:
     """要覆盖的 brief.md、report.md 先改名留档：brief.1.md、brief.2.md……"""
     if path.exists():
@@ -230,6 +294,11 @@ def stage_of(task_id: str) -> Tuple[Optional[str], Optional[str]]:
     if MAIN_TASK_RE.match(task_id or ""):
         return task_id, None
     return None, None
+
+
+def letter_main(path: Path) -> Optional[str]:
+    """信属于哪个主任务（读信头的 task-id）。"""
+    return stage_of(parse_letter(read_text(path))[0].get("task-id", ""))[0]
 
 
 def worker_env(config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
@@ -389,21 +458,58 @@ class Hub:
         record.update(at=utc_now(), event=event)
         path = self.ledger()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8", newline="\n") as handle:
+        # 第 20 轮：几个主任务的 runner 各是一个进程，同时往账本追加；Windows 的追加不是原子的
+        with file_lock(path.with_name(".events.lock")), open(path, "a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
 
-    def load_state(self) -> Dict[str, Any]:
+    def _read_state(self) -> Dict[str, Any]:
         text = read_text(self.state_path())
-        if not text.strip():
-            return {"tasks": {}}
-        data = json.loads(text)
+        data = json.loads(text) if text.strip() else {}
         data.setdefault("tasks", {})
         return data
 
+    def load_state(self) -> "HubState":
+        return HubState(self._read_state())
+
     def save_state(self, state: Dict[str, Any]) -> None:
-        write_text_atomic(self.state_path(), json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        """第 20 轮：按主任务、再按主任务的顶层键做三方合并，只写这一份 state 读出来之后改过的键。
+        并行时每个主任务一个 runner 进程，站主的命令（send、task new）也随时会写：整份覆盖会把别人刚写的冲掉
+        （T005 之前站主 send 与 runner 抢写也有这个窗口）。两边改了同一个键时以本次为准，记一条 state.conflict。
+        不是 load_state 读出来的 dict（测试里手搭的）照旧整份写。"""
+        with file_lock(self.state_path().with_name(".state.lock")):
+            if not isinstance(state, HubState):
+                write_text_atomic(self.state_path(), canonical_state(state))
+                return
+            disk = self._read_state()
+            written: List[Tuple[str, str, Optional[str]]] = []
+            for task, ts in state["tasks"].items():
+                seen = state.seen.get(task)
+                theirs = disk["tasks"].get(task)
+                if seen is None or not isinstance(theirs, dict):
+                    disk["tasks"][task] = ts  # 新登记的主任务，或者盘上没有
+                    written += [(task, key, canonical_json(value)) for key, value in ts.items()]
+                    continue
+                for key in set(ts) | set(seen):
+                    mine = canonical_json(ts[key]) if key in ts else None
+                    if mine == seen.get(key):
+                        continue  # 这个键我没动：留盘上的（可能是别的进程刚写的）
+                    on_disk = canonical_json(theirs[key]) if key in theirs else None
+                    if on_disk != seen.get(key) and on_disk != mine:
+                        self.append_event("state.conflict", task=task, key=key)
+                    if key in ts:
+                        theirs[key] = ts[key]
+                    else:
+                        theirs.pop(key, None)
+                    written.append((task, key, mine))
+            write_text_atomic(self.state_path(), canonical_state(disk))
+            # 只记下这次写出去的键：没动的键仍以读出来时为准，下次保存才不会拿过时的值盖掉别人后写的
+            for task, key, mine in written:
+                if mine is None:
+                    state.seen.setdefault(task, {}).pop(key, None)
+                else:
+                    state.seen.setdefault(task, {})[key] = mine
 
     def agent_record(self, agent: str) -> Dict[str, Any]:
         text = read_text(self.agent_path(agent))
@@ -411,6 +517,14 @@ class Hub:
 
     def save_agent_record(self, agent: str, record: Dict[str, Any]) -> None:
         write_text_atomic(self.agent_path(agent), json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+    def save_agent_session(self, agent: str, session_key: str, session: Dict[str, Any]) -> None:
+        """回合结束只写本回合的会话：同一个工人可能同时在两个主任务里跑，回合开始时读的整份记录早已过时。"""
+        with file_lock(self.agent_path(agent).with_name(".agents.lock")):
+            record = self.agent_record(agent)
+            record.setdefault("sessions", {})[session_key] = session
+            record["last_turn_at"] = utc_now()
+            self.save_agent_record(agent, record)
 
     # -- 投递与收信 ------------------------------------------------------------
     def deliver(self, meta: Dict[str, str], fields: Dict[str, str]) -> str:
@@ -709,10 +823,28 @@ def ensure_worktree(hub: Hub, ts: Dict[str, Any], kind: str, commit: str) -> Pat
         return path
     prefix = "%s-hub-%s-%s-" % (hub.repo.name[:16], ts["task"].lower(), kind)
     path = Path(tempfile.mkdtemp(prefix=prefix, dir=str(worktree_root(hub.repo))))
-    git(["worktree", "add", "--detach", str(path), commit], hub.repo)
+    add_worktree(hub, path, commit)
     ts["workspaces"][kind] = {"path": str(path), "commit": commit, "created_at": utc_now()}
     hub.append_event("workspace.created", task=ts["task"], kind=kind, path=str(path), commit=commit)
     return path
+
+
+#: worktree add 撞上并发的 Git 元数据锁时重试几次
+WORKTREE_ADD_TRIES = 3
+
+
+def add_worktree(hub: Hub, path: Path, commit: str) -> None:
+    """git worktree add，几个主任务的 runner 之间串行（第 20 轮）：它们同时往 .git/worktrees 写，偶尔撞上 Git 自己的锁；
+    协调人回合先收信、后建 worktree，这里一失败，信就丢了。调度器自己的 worktree 不经这把锁，撞上了就重试。"""
+    for attempt in range(1, WORKTREE_ADD_TRIES + 1):
+        try:
+            with file_lock(hub.root / "ledger" / ".git-worktrees.lock"):
+                git(["worktree", "add", "--detach", str(path), commit], hub.repo)
+            return
+        except HubError:
+            if attempt == WORKTREE_ADD_TRIES:
+                raise
+            time.sleep(attempt)
 
 
 def remove_workspaces(hub: Hub, ts: Dict[str, Any]) -> List[str]:
@@ -1079,9 +1211,7 @@ class TurnRunner:
         session["last_turn"] = turn_id
         if session_cost is not None:
             session["cost_usd_total"] = session_cost
-        record["sessions"][session_key] = session
-        record["last_turn_at"] = utc_now()
-        self.hub.save_agent_record(agent, record)
+        self.hub.save_agent_session(agent, session_key, session)
         summary = {
             "turn_id": turn_id, "agent": agent, "session_key": session_key, "session_id": session["id"],
             "first_turn": first, "retry_of": retry_of, "started_at": started, "finished_at": utc_now(),
@@ -1750,6 +1880,11 @@ def run_exec(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
         ts["exec"] = {"run_dir": None, "check_ok": False, "error": problem}
         return {"摘要": "返工合同的范围没有补成，执行端没有开始", "提交": "无", "验证": problem, "偏离": "无",
                 "需协调人决定": "给站主发提问", "证据": ts["contract"]["md"]}
+    with exec_window(hub, ts):
+        return dispatch_attempt(hub, ts)
+
+
+def dispatch_attempt(hub: Hub, ts: Dict[str, Any]) -> Dict[str, str]:
     key = ts["contract"]["key"]
     code, out = run_pd(hub, ["prepare", key], timeout=1800)
     match = re.search(r"(\.agent[\\/]runs[\\/][a-z0-9-]+[\\/]attempt-\d{3})", out)
@@ -2077,6 +2212,53 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
             "证据": ".agent/mailbox/tasks/%s-%s/report.md" % (ts["task"], suffix)}
 
 
+def exec_marks(hub: Hub) -> Path:
+    return hub.root / "ledger" / "exec-active"
+
+
+@contextlib.contextmanager
+def exec_window(hub: Hub, ts: Dict[str, Any]):
+    """执行端从 prepare 到 check 跑完都挂一份标记（第 20 轮）。落地会改主工作区与当前分支，调度器把运行期间
+    主工作区的变化列进复审的注意事项；所以落地要等别的主任务的标记都撤掉。挂标记之前先过落地锁：
+    有主任务正在落地，等它落完再开始。"""
+    marks = exec_marks(hub)
+    marks.mkdir(parents=True, exist_ok=True)
+    path = marks / ("%s.json" % ts["task"])
+    with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
+        write_text_atomic(path, json.dumps({"pid": os.getpid(), "task": ts["task"], "at": utc_now()}) + "\n")
+    try:
+        yield
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def landing_blockers(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），以及调度器记着在跑的别的 attempt
+    （站主手动派的也算；integrate 自己也会因为它们拒绝落地）。"""
+    found: List[str] = []
+    marks = exec_marks(hub)
+    for path in sorted(marks.glob("*.json")) if marks.is_dir() else []:
+        try:
+            mark = json.loads(read_text(path) or "{}")
+        except ValueError:
+            mark = {}
+        if mark.get("task") == ts["task"]:
+            continue
+        if mark.get("pid") and pd.pid_alive(int(mark["pid"])) is False:
+            continue  # 进程已经不在：标记作废
+        found.append("%s 的执行端" % (mark.get("task") or path.stem))
+    try:
+        running = pd._running_attempts(pd.Repo(hub.repo))
+    except (pd.DispatchError, OSError):
+        running = []
+    own = ts["contract_task"] + "/"
+    found += ["attempt %s" % item for item in running if not item.replace("\\", "/").startswith(own)]
+    return found
+
+
 def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     """结项：把终审报告写成复审记录，verdict PASS，再 integrate（本地分支，ff-only，不推送）。
     可以重试：attempt 已经是 PASS 就不再记一次结论。"""
@@ -2085,6 +2267,7 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
         problem = record_pass(hub, ts, run_dir)
         if problem:
             return False, problem
+    head_before = git(["rev-parse", "HEAD"], hub.repo).strip()
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if problem:
         return False, problem
@@ -2092,7 +2275,71 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
     if code != 0:
         return False, "integrate 没有落地（退出码 %d）：\n%s" % (code, tail(out, 15))
-    return True, tail(out, 6)
+    detail = tail(out, 6)
+    sha, problem = commit_records(hub, ts)
+    detail += "\n" + (problem or ("合同与复审记录已提交 %s" % sha[:12] if sha else "合同与复审记录没有新改动"))
+    if head_before != ts["base_head"]:
+        # 任务期间分支前进了（并行的主任务先落地了）：integrate 只跑了本合同的检查，别的主任务的门禁没跑。
+        # 回归在放开落地锁之后跑（Engine.after_land），不挡别的主任务开始执行
+        ts["regression"] = {"pending": True, "head_before": head_before}
+        detail += "\n任务期间分支前进了（%s → %s）：放开落地锁之后在新末端上跑全部门禁回归" % (
+            ts["base_head"][:12], head_before[:12])
+    return True, detail
+
+
+def commit_records(hub: Hub, ts: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """结项时把本主任务的合同（各版本）与复审记录提交到当前分支（第 20 轮）：并行时站主手动提交会撞上别的主任务
+    正在跑的执行端（调度器把主工作区 HEAD 的变化列进复审的注意事项），放在持落地锁的结项里做。
+    只提交这两处路径（git commit --only），站主暂存区里别的东西不会被带上。返回（提交, 问题）。"""
+    plans = hub.repo / ".agent" / "plans"
+    paths = sorted(p.relative_to(hub.repo).as_posix() for p in plans.glob("%s.v*" % ts["contract_task"])
+                   if p.suffix in (".md", ".json"))
+    reviews = hub.repo / ".agent" / "reviews" / ts["contract_task"]
+    if reviews.is_dir():
+        paths.append(reviews.relative_to(hub.repo).as_posix())
+    if not paths:
+        return None, None
+    if not git(["status", "--porcelain", "--"] + paths, hub.repo).strip():
+        return None, None
+    try:
+        git(["add", "--"] + paths, hub.repo)
+        git(["commit", "-q", "--only", "-m", "agent: %s（%s）的合同与 hub 的复审记录" % (ts["task"], ts["title"]),
+             "--"] + paths, hub.repo)
+    except HubError as exc:
+        return None, "合同与复审记录没有提交成（站主手动提交）：%s" % exc
+    sha = git(["rev-parse", "HEAD"], hub.repo).strip()
+    hub.append_event("records.committed", task=ts["task"], sha=sha, paths=paths)
+    return sha, None
+
+
+#: 合入后门禁回归的时限：每份门禁各跑一遍 npm ci、build 与探针
+SWEEP_SECONDS = 2400
+
+
+def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
+    """在合入后的末端上跑全部门禁基准（第 20 轮）。并行的两个主任务各自只验过自己合同的检查，合在一起可能
+    互相打破：T007 的门禁不在 T006 的合同里，反之亦然。在临时 worktree 里跑，不碰主工作区。"""
+    tests = sorted(p.relative_to(hub.repo).as_posix() for p in (hub.repo / "tests").glob("test_gate_*_baseline.py"))
+    if not tests:
+        return True, "合入后没有门禁基准可跑"
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    path = Path(tempfile.mkdtemp(prefix="%s-hub-sweep-" % hub.repo.name[:16], dir=str(worktree_root(hub.repo))))
+    path.rmdir()
+    add_worktree(hub, path, head)
+    try:
+        proc = subprocess.run(KERNEL_PYTEST + ["-q", "-rfE"] + tests, cwd=str(path), stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=SWEEP_SECONDS,
+                              env=kernel_pytest_env())
+        code, out = proc.returncode, proc.stdout.decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        code, out = -1, "超过 %d 秒没有跑完" % SWEEP_SECONDS
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=str(hub.repo),
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ts["regression"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
+    hub.append_event("regression.swept", task=ts["task"], head=head, exit=code)
+    summary = "合入后的门禁回归（%d 份，末端 %s）：%s" % (len(tests), head[:12], tail(out, 1).strip() or "没有输出")
+    return code == 0, summary if code == 0 else summary + "\n" + tail(out, 15)
 
 
 def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
@@ -2405,15 +2652,18 @@ def letter_from_output(agent: str, task_id: str, data: Dict[str, Any]) -> Tuple[
 # ---------------------------------------------------------------------------
 
 class Engine:
-    def __init__(self, hub: Hub, runner: Optional[TurnRunner] = None) -> None:
+    def __init__(self, hub: Hub, runner: Optional[TurnRunner] = None, only_task: Optional[str] = None) -> None:
         self.hub = hub
         self.runner = runner or TurnRunner(hub)
+        self.only_task = only_task  # 第 20 轮：每个主任务一个 runner 进程，只办这个主任务的信
 
     # -- 选下一件事 -------------------------------------------------------------
     def next_job(self) -> Optional[Tuple[str, List[Path]]]:
         best: Optional[Tuple[str, str, List[Path]]] = None
         for agent in ROSTER:
             letters = self.hub.unread(agent)
+            if self.only_task is not None:
+                letters = [p for p in letters if letter_main(p) == self.only_task]
             if letters and (best is None or letters[0].name < best[1]):
                 best = (agent, letters[0].name, letters)
         if best is None:
@@ -2769,6 +3019,21 @@ class Engine:
                           if ok else detail[:1500], "需协调人决定": "无" if ok else "请站主处理",
                           "证据": ".agent/reviews/%s/" % ts["contract_task"]})
 
+    def after_land(self, main: str) -> None:
+        """结项时记下要跑的合入后门禁回归：在落地锁外跑，结果写信告诉站主（第 20 轮）。"""
+        state = self.hub.load_state()
+        ts = state["tasks"].get(main)
+        if not ts or not (ts.get("regression") or {}).get("pending"):
+            return
+        ok, summary = regression_sweep(self.hub, ts)
+        self.hub.save_state(state)
+        self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": main, "in-reply-to": "none",
+                          "type": "核验" if ok else "阻塞"},
+                         {"摘要": "%s 合入后的门禁回归%s" % (main, "通过" if ok else "没过"), "提交": "无",
+                          "验证": summary[:1500], "偏离": "无",
+                          "需协调人决定": "无" if ok else "请站主处理：合入的几个主任务互相打破了门禁",
+                          "证据": ".agent/mailbox/ledger/state.json（%s 的 regression）" % main})
+
 
 # ---------------------------------------------------------------------------
 # 命令行
@@ -2973,6 +3238,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("未读：" + ("、".join("%s %d" % (k, v) for k, v in unread.items() if v) or "无"))
     runner = hub.root / ".runner"
     print("运行中的 hub：%s" % (read_text(runner / "owner.json").strip() if runner.is_dir() else "无"))
+    runners = sorted(p.name for p in (hub.root / ".runners").glob("*") if lock_alive(p)) \
+        if (hub.root / ".runners").is_dir() else []
+    executing = landing_blockers(hub, {"task": None, "contract_task": "\0"})
+    print("并行：最多 %d 个主任务；在跑的主任务 runner：%s；在跑的执行端：%s" % (
+        configured_parallel(hub, argparse.Namespace(parallel=None)), "、".join(runners) or "无",
+        "、".join(executing) or "无"))
     return EXIT_OK
 
 
@@ -3051,34 +3322,89 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+#: 主任务 runner 因内核代码变了而退出：由 supervisor 用新代码再起（第 20 轮）
+EXIT_RESTART = 75
+#: 主任务 runner 没事可做多久就退出；supervisor 看到新信再起，等站主回信时不占进程
+TASK_RUNNER_IDLE_SECONDS = 60.0
+#: 等落地锁的上限：一次落地（verdict、integrate 的检查、回归扫描）要几分钟到半小时
+LAND_WAIT_SECONDS = 3600.0
+
+
+def runner_lock(hub: Hub, task: Optional[str]) -> Path:
+    return hub.root / ".runner" if task is None else hub.root / ".runners" / task
+
+
+def lock_alive(path: Path) -> bool:
+    """DirLock 有没有活着的持有者。"""
+    if not path.is_dir():
+        return False
+    try:
+        owner = json.loads(read_text(path / "owner.json") or "{}")
+    except ValueError:
+        return True  # 刚建、owner.json 还没写完
+    return not (owner.get("pid") and pd.pid_alive(int(owner["pid"])) is False)
+
+
+def configured_parallel(hub: Hub, args: argparse.Namespace) -> int:
+    """并行的主任务数：命令行的 --parallel 优先，否则读信箱里的 runner.json（自动重启的 hub 不带新参数，
+    所以从旧的串行 hub 换到并行，只能靠这个文件），都没有就是 1（第 13 轮以来的串行）。"""
+    value = getattr(args, "parallel", None)
+    if value is None:
+        try:
+            value = json.loads(read_text(hub.root / "runner.json") or "{}").get("parallel")
+        except ValueError:
+            value = None
+    try:
+        return max(1, int(value or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     hub.ensure()
-    engine = Engine(hub)
+    task = getattr(args, "task", None)
+    if task is None and configured_parallel(hub, args) > 1:
+        return supervise(hub, args, configured_parallel(hub, args))
+    if task is None:
+        busy = sorted(p.name for p in (hub.root / ".runners").glob("*") if lock_alive(p)) \
+            if (hub.root / ".runners").is_dir() else []
+        if busy:
+            raise HubError("这些主任务各有 runner 在跑（并行模式）：%s。串行的 hub 不能同时跑" % "、".join(busy),
+                           EXIT_BLOCKED)
+    engine = Engine(hub, only_task=task)
     turns = 0
     restart = False
+    deferred: Optional[str] = None
     fingerprint = code_fingerprint()
-    with DirLock(hub.root / ".runner", wait_seconds=1.0):
-        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256)
+    with DirLock(runner_lock(hub, task), wait_seconds=1.0):
+        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, task=task)
         idle_since = time.monotonic()
         while turns < args.max_steps:
             if code_fingerprint() != fingerprint:
                 # 第 13 轮：持续自我迭代时内核频繁落地，每次都要站主手动重启，任务就停在那里等。
                 # 落定（已提交）的新代码自动接着跑；还在改的不拿来跑，照第 9 轮退出
                 restart = not args.no_restart and kernel_settled(args.settle, args.poll)
-                hub.append_event("runner.code_changed", pid=os.getpid(), steps=turns, restart=restart)
+                hub.append_event("runner.code_changed", pid=os.getpid(), steps=turns, restart=restart, task=task)
                 print("内核代码或提示词模板变了：%s" % (
                     "已提交，hub 在两步之间用新代码重启" if restart else
                     "hub 在两步之间退出（%s），请用新代码重启" % (
                         "--no-restart" if args.no_restart else "还有未提交的改动")), flush=True)
                 break
-            pending = hub.load_state()
-            passes = [p for p in hub.unread("exec-step")
-                      if parse_letter(read_text(p))[0].get("type") == "通过"]
+            passes = [p for p in hub.unread("exec-step") if parse_letter(read_text(p))[0].get("type") == "通过"
+                      and (task is None or letter_main(p) == task)]
             if passes:  # 结项信由内核办，不唤醒任何进程
                 meta = parse_letter(read_text(passes[0]))[0]
-                hub.take(passes[0])
-                engine.handle_pass(pending, meta)
+                blockers = land(hub, engine, passes[0], meta)
+                if blockers:  # 别的主任务的执行端还在跑：落地会改主工作区，等它跑完（第 20 轮）
+                    if deferred != meta["msg-id"]:
+                        deferred = meta["msg-id"]
+                        hub.append_event("finalize.deferred", task=stage_of(meta["task-id"])[0], blockers=blockers)
+                        print("结项等别的执行端跑完再落地：%s" % "、".join(blockers), flush=True)
+                    idle_since = time.monotonic()
+                    time.sleep(args.poll)
+                    continue
+                deferred = None
                 turns += 1
                 continue
             if engine.step():
@@ -3088,12 +3414,108 @@ def cmd_run(args: argparse.Namespace) -> int:
             if time.monotonic() - idle_since >= args.idle_exit:
                 break
             time.sleep(args.poll)
-        hub.append_event("runner.stopped", pid=os.getpid(), steps=turns)
+        hub.append_event("runner.stopped", pid=os.getpid(), steps=turns, task=task)
+    if restart and task is not None:
+        return EXIT_RESTART  # 主任务 runner 不自己重启：supervisor 看到它退出、还有信，就用新代码再起
     if restart:  # 运行锁已经交出：子进程要拿到它
         return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
                              "--max-steps", str(args.max_steps - turns), "--idle-exit", str(args.idle_exit),
                              "--poll", str(args.poll), "--settle", str(args.settle)])
-    print("hub 退出：处理了 %d 件事；站主未读 %d 封" % (turns, len(hub.unread(OWNER))))
+    print("hub 退出：处理了 %d 件事；站主未读 %d 封" % (turns, len(hub.unread(OWNER))), flush=True)
+    return EXIT_OK
+
+
+def land(hub: Hub, engine: Engine, letter: Path, meta: Dict[str, str]) -> List[str]:
+    """持落地锁结项；别的主任务的执行端还在跑时不动，返回挡着的是谁（信留在 new 里，下一轮再试）。"""
+    with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
+        state = hub.load_state()
+        main = stage_of(meta["task-id"])[0]
+        ts = state["tasks"].get(main) if main else None
+        blockers = landing_blockers(hub, ts) if ts else []
+        if blockers:
+            return blockers
+        hub.take(letter)
+        engine.handle_pass(state, meta)
+    if main:
+        engine.after_land(main)
+    return []
+
+
+def tasks_with_work(hub: Hub) -> List[str]:
+    """有未读信（站主的信箱不算）的进行中主任务，按最早那封信的先后排。"""
+    state = hub.load_state()
+    first: Dict[str, str] = {}
+    for agent in ROSTER:
+        for path in hub.unread(agent):
+            main = letter_main(path)
+            if main and (state["tasks"].get(main) or {}).get("status") == "active":
+                first[main] = min(first.get(main, path.name), path.name)
+    return sorted(first, key=lambda main: first[main])
+
+
+def spawn_task_runner(hub: Hub, task: str, args: argparse.Namespace) -> "subprocess.Popen[bytes]":
+    logs = hub.root / "runners"
+    logs.mkdir(parents=True, exist_ok=True)
+    with open(logs / ("%s.log" % task), "ab") as log:
+        return subprocess.Popen(
+            [sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run", "--task", task,
+             "--max-steps", str(args.max_steps), "--idle-exit", str(TASK_RUNNER_IDLE_SECONDS),
+             "--poll", str(args.poll), "--settle", str(args.settle)],
+            cwd=str(hub.repo), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+
+
+def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
+    """并行调度（第 20 轮）：每个有信的主任务起一个 `run --task` 子进程，同时最多 parallel 个。
+    一个主任务内部仍是串行的流水线；不同主任务的规划、门禁、执行、审核同时进行。子进程各自在两步之间
+    发现内核变了就退出，这里用新代码再起；自己也照第 13 轮的办法重启，跑着的子进程不受影响（锁还在它们手里）。"""
+    children: Dict[str, "subprocess.Popen[bytes]"] = {}
+    started = 0
+    restart = False
+    fingerprint = code_fingerprint()
+    with DirLock(runner_lock(hub, None), wait_seconds=1.0):
+        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, parallel=parallel)
+        print("hub 并行调度：最多 %d 个主任务同时跑" % parallel, flush=True)
+        idle_since = time.monotonic()
+        while True:
+            if code_fingerprint() != fingerprint:
+                restart = not args.no_restart and kernel_settled(args.settle, args.poll)
+                hub.append_event("runner.code_changed", pid=os.getpid(), steps=started, restart=restart)
+                print("内核代码或提示词模板变了：%s" % ("已提交，supervisor 用新代码重启" if restart else
+                                                 "supervisor 退出，请用新代码重启"), flush=True)
+                break
+            for task, proc in list(children.items()):
+                code = proc.poll()
+                if code is not None:
+                    children.pop(task)
+                    hub.append_event("runner.child_exited", task=task, code=code)
+                    print("%s 的 runner 退出（%d）" % (task, code), flush=True)
+            pending = tasks_with_work(hub)
+            # 上一代 supervisor 起的、还在跑的主任务 runner（重启之后接着算数，不重复起）
+            adopted = [p.name for p in sorted((hub.root / ".runners").glob("*"))
+                       if p.name not in children and lock_alive(p)] if (hub.root / ".runners").is_dir() else []
+            live = len(children) + len(adopted)
+            for task in pending:
+                if task in children or task in adopted:
+                    continue
+                if live >= parallel or kernel_dirty():
+                    break  # 满了；或内核有未提交的改动，说不清子进程会跑哪一份代码，等落定
+                children[task] = spawn_task_runner(hub, task, args)
+                live += 1
+                started += 1
+                hub.append_event("runner.child_started", task=task, pid=children[task].pid)
+                print("起 %s 的 runner（pid %d）" % (task, children[task].pid), flush=True)
+            if pending or live:
+                idle_since = time.monotonic()
+            elif time.monotonic() - idle_since >= args.idle_exit:
+                break
+            time.sleep(args.poll)
+        hub.append_event("runner.stopped", pid=os.getpid(), steps=started)
+    if restart:
+        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
+                             "--parallel", str(parallel), "--max-steps", str(args.max_steps),
+                             "--idle-exit", str(args.idle_exit), "--poll", str(args.poll),
+                             "--settle", str(args.settle)])
+    print("hub 退出：起过 %d 个主任务 runner；站主未读 %d 封" % (started, len(hub.unread(OWNER))), flush=True)
     return EXIT_OK
 
 
@@ -3147,8 +3569,42 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--settle", type=float, default=120.0,
                      help="内核代码变了之后，最多等多少秒让改动提交；提交了就用新代码重启")
     run.add_argument("--no-restart", action="store_true", help="内核代码变了就退出，不自动重启（第 9 轮的做法）")
+    run.add_argument("--parallel", type=int,
+                     help="最多几个主任务同时跑（每个主任务一个 runner 进程）；缺省读信箱的 runner.json，再缺省为 1（串行）")
+    run.add_argument("--task", help="只办这个主任务的信（并行模式下由 supervisor 起，一般不手动用）")
     run.set_defaults(func=cmd_run)
+    exclusive = sub.add_parser("exclusive", help="等所有执行端跑完、拿着落地锁跑一条命令（站主在并行期间提交、合入内核用）")
+    exclusive.add_argument("--wait", type=float, default=7200.0, help="最多等多少秒")
+    exclusive.add_argument("command", nargs=argparse.REMAINDER, help="-- 之后是要跑的命令")
+    exclusive.set_defaults(func=cmd_exclusive)
     return parser
+
+
+def cmd_exclusive(args: argparse.Namespace) -> int:
+    """站主在主工作区提交、合入新一轮内核都会动 HEAD：并行时随时有执行端在跑，调度器会把这次变化列进它的复审注意事项。
+    拿着落地锁（新的执行端开不了头），等在跑的都结束，再跑命令（第 20 轮）。"""
+    hub = Hub(find_repo(args.repo))
+    hub.ensure()
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise HubError("要跑的命令写在 -- 之后，例如 kit_hub.py exclusive -- git merge --ff-only <提交>", EXIT_USAGE)
+    deadline = time.monotonic() + args.wait
+    with DirLock(hub.root / ".land", wait_seconds=args.wait):
+        announced = False
+        while True:
+            blockers = landing_blockers(hub, {"task": None, "contract_task": "\0"})
+            if not blockers:
+                break
+            if time.monotonic() >= deadline:
+                raise HubError("等了 %d 秒，执行端还没跑完：%s" % (args.wait, "、".join(blockers)), EXIT_BLOCKED)
+            if not announced:
+                print("等这些跑完：%s（新的执行端在此期间不会开始）" % "、".join(blockers), flush=True)
+                announced = True
+            time.sleep(5)
+        hub.append_event("exclusive.run", command=command[:6])
+        return subprocess.run(command, cwd=str(hub.repo), stdin=subprocess.DEVNULL).returncode
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

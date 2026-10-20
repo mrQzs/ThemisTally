@@ -1755,7 +1755,10 @@ def test_finalize_lands_the_oracle_commit_first_and_can_be_retried(tmp_path, mon
     ok, _detail = kh.finalize(hub, ts)
     # 先记结论，再把基准测试提交 ff 到当前分支，然后 integrate：integrate 看到的末端上已经有基准测试
     assert ok and calls == [("verdict", False), ("integrate", True)]
-    assert kh.git(["rev-parse", "HEAD"], repo).strip() == oracle and ts["oracle"]["landed_at"]
+    # 第 20 轮：落地之后顺手提交本主任务的复审记录，只提交这几个路径
+    assert kh.git(["rev-parse", "HEAD~1"], repo).strip() == oracle and ts["oracle"]["landed_at"]
+    assert kh.git(["show", "--name-only", "--format=", "HEAD"], repo).split() == [
+        ".agent/reviews/t001-doc/%s-hub.md" % run_dir.name]
     calls.clear()
     assert kh.finalize(hub, ts)[0] and calls == [("integrate", True)]  # 重试：attempt 已是 PASS，不再记结论
     # 任务进行期间分支前进了（分叉）：不能 ff，就把基准测试提交挑到末端，再 integrate
@@ -2097,7 +2100,8 @@ def test_finalize_lands_the_rework_chain_before_integrating(tmp_path, monkeypatc
     ok, _detail = kh.finalize(hub, ts)
     # integrate 只挑最后一轮“基线→候选”的改动：前几轮的返工提交要先在末端上
     assert ok and calls == [("verdict", False), ("integrate", True)]
-    assert kh.git(["rev-parse", "HEAD"], repo).strip() == rework and ts["rework_chain"][0]["landed_by"] == "ff"
+    assert kh.git(["rev-parse", "HEAD~1"], repo).strip() == rework and ts["rework_chain"][0]["landed_by"] == "ff"
+    assert "regression" not in ts  # 分支在任务期间没动：integrate 的检查就够了，不跑合入后回归
     calls.clear()
     assert kh.finalize(hub, ts)[0] and calls == [("integrate", True)]
     # 任务进行期间分支前进了：基准测试与返工提交依次挑到末端
@@ -2519,3 +2523,439 @@ def test_worker_env_drops_the_decision_key_and_host_session_vars(monkeypatch):
     env = kh.worker_env()
     assert kh.DECISIONS_KEY_ENV not in env and "CLAUDECODE" not in env
     assert kh.DECISIONS_KEY_ENV not in kh.kernel_env()
+
+
+# ---------------------------------------------------------------------------
+# 第 20 轮：几个主任务并行（每个主任务一个 runner 进程）
+# ---------------------------------------------------------------------------
+
+def two_task_hub(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": make_ts(), "T002": kh.new_task_state("T002", "x", "另一片", BASE, True)}})
+    return hub
+
+
+def test_state_saves_merge_by_task_and_key(tmp_path):
+    hub = two_task_hub(tmp_path)
+    mine, theirs = hub.load_state(), hub.load_state()
+    mine["tasks"]["T001"]["notes"] = ["T001 的 runner 写的"]
+    theirs["tasks"]["T002"]["notes"] = ["T002 的 runner 写的"]
+    theirs["tasks"]["T001"]["owner_rework"] = {"suffix": "2-contract"}  # 站主的 send 改了 T001 的另一个键
+    hub.save_state(theirs)
+    hub.save_state(mine)  # 整份覆盖会把上面两处冲掉
+    disk = hub.load_state()["tasks"]
+    assert disk["T001"]["notes"] == ["T001 的 runner 写的"] and disk["T002"]["notes"] == ["T002 的 runner 写的"]
+    assert disk["T001"]["owner_rework"] == {"suffix": "2-contract"}
+    # 再存一次：没动的键仍以读出来时为准，不拿过时的值盖掉别人后写的
+    mine["tasks"]["T001"]["status"] = "done"
+    hub.save_state(mine)
+    disk = hub.load_state()["tasks"]
+    assert disk["T001"]["owner_rework"] == {"suffix": "2-contract"} and disk["T002"]["notes"] == ["T002 的 runner 写的"]
+    assert disk["T001"]["status"] == "done"
+    # 两边改了同一个键：以后存的为准，记一条冲突；删掉的键照删
+    first, second = hub.load_state(), hub.load_state()
+    first["tasks"]["T001"]["notes"] = ["先"]
+    second["tasks"]["T001"]["notes"] = ["后"]
+    del second["tasks"]["T001"]["owner_rework"]
+    hub.save_state(first)
+    hub.save_state(second)
+    disk = hub.load_state()["tasks"]["T001"]
+    assert disk["notes"] == ["后"] and "owner_rework" not in disk
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["key"] for e in events if e["event"] == "state.conflict"] == ["notes"]
+    # 新登记的主任务整个写进去；手搭的 dict 照旧整份写
+    later = hub.load_state()
+    later["tasks"]["T003"] = kh.new_task_state("T003", "y", "第三片", BASE, False)
+    hub.save_state(later)
+    assert set(hub.load_state()["tasks"]) == {"T001", "T002", "T003"}
+    hub.save_state({"tasks": {"T009": make_ts()}})
+    assert set(hub.load_state()["tasks"]) == {"T009"}
+
+
+def test_turn_end_keeps_the_sessions_other_tasks_wrote(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    hub.save_agent_record("gate-sonnet", {"name": "gate-sonnet", "sessions": {"T001": {"id": "a", "turns": 3}}})
+    hub.save_agent_session("gate-sonnet", "T002", {"id": "b", "turns": 1})
+    hub.save_agent_session("gate-sonnet", "T001", {"id": "a", "turns": 4})
+    record = hub.agent_record("gate-sonnet")
+    assert record["sessions"] == {"T001": {"id": "a", "turns": 4}, "T002": {"id": "b", "turns": 1}}
+    assert record["last_turn_at"]
+
+
+def test_file_lock_keeps_other_holders_out(tmp_path):
+    import threading
+    path = tmp_path / ".x.lock"
+    entered, release, outcome = threading.Event(), threading.Event(), {}
+
+    def holder():
+        with kh.file_lock(path):
+            entered.set()
+            release.wait(10)
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    assert entered.wait(10)
+    try:
+        with kh.file_lock(path, wait_seconds=0.2):
+            outcome["got"] = True
+    except kh.HubError as exc:
+        outcome["error"] = str(exc)
+    release.set()
+    thread.join(10)
+    assert "等文件锁超时" in outcome.get("error", "")
+    with kh.file_lock(path, wait_seconds=1.0):  # 持有者放开之后拿得到
+        pass
+
+
+def test_task_runner_only_takes_its_own_task_letters(tmp_path):
+    hub = two_task_hub(tmp_path)
+    for task in ("T001-1-plan", "T002-1-plan"):
+        hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": task, "in-reply-to": "none",
+                     "type": "开工"}, fields())
+    agent, paths = kh.Engine(hub, FakeRunner([]), only_task="T002").next_job()
+    assert agent == "planner-opus" and [kh.letter_main(p) for p in paths] == ["T002"]
+    assert kh.Engine(hub, FakeRunner([])).next_job()[1][0].name < paths[0].name  # 串行：最早那封
+    assert kh.Engine(hub, FakeRunner([]), only_task="T003").next_job() is None
+    assert kh.tasks_with_work(hub) == ["T001", "T002"]
+    state = hub.load_state()
+    state["tasks"]["T001"]["status"] = "done"
+    hub.save_state(state)
+    assert kh.tasks_with_work(hub) == ["T002"]  # 结项的主任务不再起 runner
+
+
+def test_landing_waits_for_other_tasks_executors(tmp_path, monkeypatch):
+    import os
+    hub = two_task_hub(tmp_path)
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: ["t001-doc/attempt-002", "t009-x/attempt-001"])
+    t001 = hub.load_state()["tasks"]["T001"]
+    marks = kh.exec_marks(hub)
+    marks.mkdir(parents=True)
+    (marks / "T002.json").write_text(json.dumps({"pid": os.getpid(), "task": "T002"}), encoding="utf-8")
+    (marks / "T001.json").write_text(json.dumps({"pid": os.getpid(), "task": "T001"}), encoding="utf-8")
+    (marks / "T003.json").write_text(json.dumps({"pid": 2 ** 22 + 7, "task": "T003"}), encoding="utf-8")
+    monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: pid == os.getpid())
+    # 自己的标记、自己合同的 attempt、进程已不在的标记都不算
+    assert kh.landing_blockers(hub, t001) == ["T002 的执行端", "attempt t009-x/attempt-001"]
+    hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                 "type": "通过"}, fields())
+    letter = hub.unread("exec-step")[0]
+    passes = []
+
+    class Engine:
+        def handle_pass(self, state, meta):
+            passes.append(meta["task-id"])
+
+        def after_land(self, main):
+            passes.append("after:" + main)
+
+    blockers = kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0])
+    assert blockers and passes == [] and hub.unread("exec-step") == [letter]  # 信留在 new 里，下一轮再试
+    (marks / "T002.json").unlink()
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: [])
+    assert kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0]) == []
+    assert passes == ["T001-5-exec", "after:T001"] and hub.unread("exec-step") == []
+
+
+def test_exec_window_marks_the_run_and_waits_for_a_landing(tmp_path, monkeypatch):
+    hub = two_task_hub(tmp_path)
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: [])
+    ts = hub.load_state()["tasks"]["T002"]
+    with kh.exec_window(hub, ts):
+        assert json.loads((kh.exec_marks(hub) / "T002.json").read_text(encoding="utf-8"))["task"] == "T002"
+        assert kh.landing_blockers(hub, hub.load_state()["tasks"]["T001"]) == ["T002 的执行端"]
+    assert not (kh.exec_marks(hub) / "T002.json").exists()
+    monkeypatch.setattr(kh, "LAND_WAIT_SECONDS", 0.2)
+    with kh.DirLock(hub.root / ".land", wait_seconds=1.0):  # 正在落地：执行端等它落完，等不到就不开始
+        with pytest.raises(kh.HubError):
+            with kh.exec_window(hub, ts):
+                pytest.fail("落地锁被占着时不该开始执行")
+    assert not (kh.exec_marks(hub) / "T002.json").exists()
+
+
+def test_supervisor_runs_one_runner_per_task_up_to_the_limit(tmp_path, monkeypatch):
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    hub.save_state({"tasks": {t: kh.new_task_state(t, "x", t, BASE, True) for t in ("T001", "T002", "T003")}})
+    for task in ("T001", "T002", "T003"):
+        hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": task, "in-reply-to": "none", "type": "任务"},
+                    fields())
+    spawned = []
+
+    class Child:
+        def __init__(self, task):
+            self.task, self.pid, self.polls = task, 4000 + len(spawned), 0
+
+        def poll(self):
+            self.polls += 1
+            if self.polls < 2:
+                return None
+            for path in hub.unread(kh.COORDINATOR):  # 子进程办完了这个主任务的信
+                if kh.letter_main(path) == self.task:
+                    hub.take(path)
+            return 0
+
+    def spawn(hub_, task, args):
+        assert args.parallel == 2
+        spawned.append(task)
+        return Child(task)
+
+    monkeypatch.setattr(kh, "spawn_task_runner", spawn)
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    code = kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
+                                         no_restart=False, parallel=2, task=None))
+    assert code == kh.EXIT_OK and spawned == ["T001", "T002", "T003"]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    starts = [e["event"] for e in events if e["event"] in ("runner.child_started", "runner.child_exited")]
+    # 同时最多 2 个：T003 要等前两个里有一个退出才起
+    live, peak = 0, 0
+    for event in starts:
+        live += 1 if event == "runner.child_started" else -1
+        peak = max(peak, live)
+    assert peak == 2 and starts[:3] == ["runner.child_started", "runner.child_started", "runner.child_exited"]
+
+
+def test_parallel_comes_from_the_flag_or_runner_json(tmp_path):
+    import argparse
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    assert kh.configured_parallel(hub, argparse.Namespace()) == 1
+    (hub.root / "runner.json").write_text('{"parallel": 3}', encoding="utf-8")
+    assert kh.configured_parallel(hub, argparse.Namespace(parallel=None)) == 3  # 自动重启的 hub 不带新参数
+    assert kh.configured_parallel(hub, argparse.Namespace(parallel=2)) == 2
+    (hub.root / "runner.json").write_text("坏的", encoding="utf-8")
+    assert kh.configured_parallel(hub, argparse.Namespace(parallel=None)) == 1
+
+
+def test_serial_runner_refuses_while_task_runners_are_alive(tmp_path):
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    with kh.DirLock(kh.runner_lock(hub, "T002"), wait_seconds=1.0):
+        with pytest.raises(kh.HubError, match="T002"):
+            kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=1, idle_exit=0.0, poll=0.0, settle=0.0,
+                                          no_restart=True, parallel=1, task=None))
+    assert not kh.lock_alive(kh.runner_lock(hub, "T002"))
+
+
+def test_task_runner_exits_for_the_supervisor_on_kernel_changes(tmp_path, monkeypatch):
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    seen = iter(["a", "b"])
+    monkeypatch.setattr(kh, "code_fingerprint", lambda *args: next(seen))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *args: False)
+    monkeypatch.setattr(kh, "spawn_runner", lambda argv: pytest.fail("主任务 runner 不自己重启"))
+    code = kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
+                                         no_restart=False, parallel=None, task="T002"))
+    assert code == kh.EXIT_RESTART
+    assert kh.runner_lock(kh.Hub(repo), "T002").name == "T002" and not kh.lock_alive(kh.runner_lock(kh.Hub(repo), "T002"))
+
+
+def test_records_commit_takes_only_the_tasks_plans_and_reviews(tmp_path):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    ts = make_ts()
+    plans, reviews = repo / ".agent" / "plans", repo / ".agent" / "reviews" / "t001-doc"
+    plans.mkdir(parents=True)
+    reviews.mkdir(parents=True)
+    for name in ("t001-doc.v1.md", "t001-doc.v1.json", "t001-doc.v2.md", "t002-x.v1.md"):
+        (plans / name).write_text(name + "\n", encoding="utf-8")
+    (reviews / "attempt-001-hub.md").write_text("Verdict: PASS\n", encoding="utf-8")
+    (repo / "README.md").write_text("站主暂存了别的东西\n", encoding="utf-8")
+    kh.git(["add", "README.md"], repo)
+    sha, problem = kh.commit_records(hub, ts)
+    assert problem is None and sha
+    assert sorted(kh.git(["show", "--name-only", "--format=", "HEAD"], repo).split()) == [
+        ".agent/plans/t001-doc.v1.json", ".agent/plans/t001-doc.v1.md", ".agent/plans/t001-doc.v2.md",
+        ".agent/reviews/t001-doc/attempt-001-hub.md"]
+    assert kh.git(["diff", "--cached", "--name-only"], repo).split() == ["README.md"]  # 站主的暂存原样留着
+    assert kh.commit_records(hub, ts) == (None, None)  # 没有新改动就不提交
+
+
+def test_regression_sweep_runs_every_gate_baseline_on_the_new_tip(tmp_path, monkeypatch):
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
+    (tmp_path / "wt").mkdir()
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_gate_t001_baseline.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    (tests / "test_gate_t002_baseline.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    (tests / "test_gate_t002_whitebox.py").write_text("def test_red():\n    assert False\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "两份门禁"], repo)
+    hub = kh.Hub(repo)
+    ts = make_ts()
+    ok, summary = kh.regression_sweep(hub, ts)
+    assert ok and "2 份" in summary and ts["regression"]["exit"] == 0  # 白盒不算门禁基准
+    (tests / "test_gate_t002_baseline.py").write_text("def test_red():\n    assert False\n", encoding="utf-8")
+    kh.git(["commit", "-q", "-am", "被并行的另一片打破"], repo)
+    ok, summary = kh.regression_sweep(hub, ts)
+    assert not ok and "test_gate_t002_baseline.py::test_red" in summary
+    assert list((tmp_path / "wt").iterdir()) == []  # 临时 worktree 收掉了
+
+
+def test_after_land_reports_the_regression_to_the_owner(tmp_path, monkeypatch):
+    hub = two_task_hub(tmp_path)
+    state = hub.load_state()
+    state["tasks"]["T001"]["regression"] = {"pending": True}
+    hub.save_state(state)
+    calls = []
+
+    def sweep(hub_, ts):
+        calls.append(ts["task"])
+        ts["regression"] = {"exit": 1}
+        return False, "合入后的门禁回归（2 份）：1 failed"
+
+    monkeypatch.setattr(kh, "regression_sweep", sweep)
+    engine = kh.Engine(hub, FakeRunner([]))
+    engine.after_land("T002")  # 没有待跑的回归
+    engine.after_land("T001")
+    engine.after_land("T001")  # 跑过了不再跑
+    assert calls == ["T001"]
+    letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    assert "type: 阻塞" in letter and "合入后的门禁回归没过" in letter
+
+
+def test_exclusive_runs_the_command_once_executors_are_done(tmp_path, monkeypatch):
+    import argparse
+    import os
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo_: [])
+    marks = kh.exec_marks(hub)
+    marks.mkdir(parents=True)
+    (marks / "T002.json").write_text(json.dumps({"pid": os.getpid(), "task": "T002"}), encoding="utf-8")
+    out = tmp_path / "ran.txt"
+    command = ["--", sys.executable, "-c", "open(r'%s', 'w').write('ok')" % out]
+    with pytest.raises(kh.HubError, match="T002 的执行端"):
+        kh.cmd_exclusive(argparse.Namespace(repo=str(repo), wait=0.0, command=command))
+    assert not out.exists()
+    (marks / "T002.json").unlink()
+    assert kh.cmd_exclusive(argparse.Namespace(repo=str(repo), wait=5.0, command=command)) == 0
+    assert out.read_text(encoding="utf-8") == "ok"
+    assert kh.main(["--repo", str(repo), "exclusive"]) == kh.EXIT_USAGE  # 没写命令
+
+
+def supervisor_env(tmp_path, monkeypatch, tasks):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    hub.save_state({"tasks": {t: kh.new_task_state(t, "x", t, BASE, True) for t in tasks}})
+    for task in tasks:
+        hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": task, "in-reply-to": "none", "type": "任务"},
+                    fields())
+    spawned = []
+
+    class Child:
+        pid = 4321
+
+        def __init__(self, task):
+            self.task = task
+
+        def poll(self):
+            for path in hub.unread(kh.COORDINATOR):  # 子进程把这个主任务的信办完了
+                if kh.letter_main(path) == self.task:
+                    hub.take(path)
+            return 0
+
+    def spawn(hub_, task, args):
+        spawned.append(task)
+        return Child(task)
+
+    monkeypatch.setattr(kh, "spawn_task_runner", spawn)
+    return repo, hub, spawned
+
+
+def supervise_once(repo, parallel):
+    import argparse
+    return kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
+                                         no_restart=False, parallel=parallel, task=None))
+
+
+def test_supervisor_counts_runners_left_by_its_previous_generation(tmp_path, monkeypatch):
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T001", "T002", "T003"))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    lock = kh.DirLock(kh.runner_lock(hub, "T001"), wait_seconds=1.0)
+    lock.__enter__()  # 上一代 supervisor 起的 T001 runner 还活着
+    real, calls = kh.tasks_with_work, []
+
+    def pending(hub_):
+        calls.append(spawned[:])
+        if len(calls) == 3:
+            lock.__exit__(None, None, None)  # 它办完退出了
+        return real(hub_)
+
+    monkeypatch.setattr(kh, "tasks_with_work", pending)
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    # 它占着一个名额：同时只起一个；它还活着时不重复起 T001，退出之后才起
+    assert calls[:3] == [[], ["T002"], ["T002", "T003"]] and spawned == ["T002", "T003", "T001"]
+
+
+def test_supervisor_waits_for_a_settled_kernel_before_starting_runners(tmp_path, monkeypatch):
+    repo, _hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T002",))
+    dirty = [True, True, False]
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: dirty.pop(0) if len(dirty) > 1 else dirty[0])
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert spawned == ["T002"] and dirty == [False]  # 内核有未提交的改动时不起，落定之后才起
+
+
+def test_status_shows_the_parallel_runners(tmp_path, capsys):
+    import argparse
+    import os
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    (hub.root / "runner.json").write_text('{"parallel": 2}', encoding="utf-8")
+    marks = kh.exec_marks(hub)
+    marks.mkdir(parents=True)
+    (marks / "T002.json").write_text(json.dumps({"pid": os.getpid(), "task": "T002"}), encoding="utf-8")
+    with kh.DirLock(kh.runner_lock(hub, "T002"), wait_seconds=1.0):
+        kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
+    out = capsys.readouterr().out
+    assert "并行：最多 2 个主任务；在跑的主任务 runner：T002；在跑的执行端：T002 的执行端" in out
+
+
+def test_worktree_add_retries_when_git_metadata_is_busy(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    calls = []
+
+    def flaky(args, cwd, check=True, timeout=120):
+        calls.append(list(args))
+        if len(calls) < 3:
+            raise kh.HubError("git worktree add 失败：could not lock")
+        return ""
+
+    monkeypatch.setattr(kh, "git", flaky)
+    monkeypatch.setattr(kh.time, "sleep", lambda seconds: None)
+    kh.add_worktree(hub, tmp_path / "wt", "abc")
+    assert len(calls) == 3 and calls[-1] == ["worktree", "add", "--detach", str(tmp_path / "wt"), "abc"]
+    calls.clear()
+    monkeypatch.setattr(kh, "WORKTREE_ADD_TRIES", 2)
+    with pytest.raises(kh.HubError):  # 次数用完照实报错
+        kh.add_worktree(hub, tmp_path / "wt", "abc")
+    assert len(calls) == 2
+
+
+def test_supervisor_stays_while_a_runner_works_without_unread_letters(tmp_path, monkeypatch):
+    # 执行端一跑一小时：它的信早已读掉，supervisor 不能因为“没有未读信”就退出，否则站主以为 hub 停了
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ())
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    lock = kh.DirLock(kh.runner_lock(hub, "T001"), wait_seconds=1.0)
+    lock.__enter__()
+    calls = []
+
+    def pending(hub_):
+        calls.append(1)
+        if len(calls) == 3:
+            lock.__exit__(None, None, None)
+        return []
+
+    monkeypatch.setattr(kh, "tasks_with_work", pending)
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert len(calls) >= 3 and spawned == []
