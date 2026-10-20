@@ -3248,3 +3248,45 @@ def test_output_block_takes_the_first_copy_when_keys_are_repeated():
         # 多出来的有对象里没有的键，或者又写了一遍 letters（可能是改过的信）：照旧拒收，并说清楚错在哪
         with pytest.raises(kh.HubError, match="只能有一个 JSON 对象"):
             kh.extract_json_block('```json\n{"letters": [], "state": "s"}%s\n```' % extra, [])
+
+
+# ---------------------------------------------------------------------------
+# 第 26 轮：回合中途出意外，信不能悄悄丢掉
+# ---------------------------------------------------------------------------
+
+class BrokenRunner:
+    def run(self, *args, **kwargs):
+        raise kh.HubError("git worktree add 失败：could not lock")
+
+
+def test_a_crashed_turn_tells_the_owner_which_letters_were_taken(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    letter = hub.unread(kh.COORDINATOR)[0].name
+    assert kh.Engine(hub, BrokenRunner()).step() is True  # 不把 runner 带崩
+    assert hub.unread(kh.COORDINATOR) == []  # 信已经读了
+    owner = hub.unread(kh.OWNER)
+    assert len(owner) == 1
+    text = owner[0].read_text(encoding="utf-8")
+    assert "type: 阻塞" in text and "task-id: T001" in text and letter in text and "could not lock" in text
+    assert "send T001 --type 回复" in text
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["letters"] for e in events if e["event"] == "step.error"] == [[letter]]
+
+
+def test_template_read_waits_out_a_file_being_replaced(monkeypatch):
+    reads = []
+    real = kh.read_text
+
+    def flaky(path):
+        reads.append(path)
+        return "" if len(reads) < 3 else real(path)
+
+    monkeypatch.setattr(kh, "read_text", flaky)
+    monkeypatch.setattr(kh.time, "sleep", lambda seconds: None)
+    assert "{{" not in kh.render_template("coordinator.md", {"仓库": "x", "名字": "y"}) and len(reads) == 3
+    reads.clear()
+    monkeypatch.setattr(kh, "read_text", lambda path: reads.append(path) or "")
+    with pytest.raises(kh.HubError, match="找不到提示词模板"):
+        kh.render_template("coordinator.md", {})
+    assert len(reads) == kh.TEMPLATE_READ_TRIES + 1

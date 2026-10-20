@@ -957,12 +957,19 @@ def workspace_status(path: Path) -> List[Tuple[str, str]]:
 # 回合：启动、审计、解析
 # ---------------------------------------------------------------------------
 
+#: 模板读到空文件时再读几次（合入内核时文件正被替换）
+TEMPLATE_READ_TRIES = 5
 ROLE_BLOCK_RE = re.compile(r"<!-- 角色:([a-z]+) -->\n(.*?)<!-- /角色 -->\n?", re.S)
 
 
 def render_template(name: str, values: Dict[str, str], role: Optional[str] = None) -> str:
     """代入占位符；给了 role 时只保留这个角色的职责段（`<!-- 角色:x -->…<!-- /角色 -->`），别的角色的规则不给它看。"""
     text = read_text(TEMPLATE_DIR / name)
+    for _attempt in range(TEMPLATE_READ_TRIES):
+        if text:
+            break
+        time.sleep(0.2)  # 第 26 轮：站主合入新一轮内核时模板正被替换，读到的是空的
+        text = read_text(TEMPLATE_DIR / name)
     if not text:
         raise HubError("找不到提示词模板：%s" % (TEMPLATE_DIR / name))
     if role is not None:
@@ -2739,11 +2746,36 @@ class Engine:
             return False
         agent, paths = job
         state = self.hub.load_state()
-        if agent == COORDINATOR:
-            self.coordinator_turn(state, paths)
-        else:
-            self.worker_job(state, agent, paths)
+        try:
+            if agent == COORDINATOR:
+                self.coordinator_turn(state, paths)
+            else:
+                self.worker_job(state, agent, paths)
+        except Exception as exc:  # noqa: BLE001
+            self.report_step_error(agent, paths, exc)
         return True
+
+    def report_step_error(self, agent: str, paths: List[Path], exc: BaseException) -> None:
+        """第 26 轮：回合先收信、后干活，中途出了意外（模板读到一半、git 出错……），信已经挪进 cur、没人再办，
+        这个主任务就悄悄停住了（没有未读信，supervisor 也不会再起它的 runner）。写一封阻塞信给站主：
+        哪几封信读了没办、错在哪，站主修好后回一封“回复”就能接着走。"""
+        import traceback
+        names = [p.name for p in paths]
+        mains = []
+        for path in paths:  # 信多半已经挪进 cur
+            copy = path if path.exists() else self.hub.inbox(agent, "cur") / path.name
+            try:
+                mains.append(letter_main(copy))
+            except HubError:
+                mains.append(None)
+        main = next((m for m in mains if m), None) or "T000"
+        detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-1500:]
+        self.hub.append_event("step.error", agent=agent, letters=names, error="%s: %s" % (type(exc).__name__, exc))
+        self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": main, "in-reply-to": "none", "type": "阻塞"},
+                         {"摘要": "%s 的回合出了意外，这几封信读了还没办：%s" % (agent, "、".join(names)[:600]),
+                          "提交": "无", "验证": "%s: %s" % (type(exc).__name__, str(exc)[:300]), "偏离": detail,
+                          "需协调人决定": "请站主看错误、处理好之后用 kit_hub.py send %s --type 回复 恢复" % main,
+                          "证据": ".agent/mailbox/ledger/events.jsonl（step.error）"})
 
     # -- 协调人 ---------------------------------------------------------------
     def coordinator_turn(self, state: Dict[str, Any], paths: List[Path]) -> None:
