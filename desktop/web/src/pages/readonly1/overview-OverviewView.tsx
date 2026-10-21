@@ -5,6 +5,8 @@ import { MetricCard } from './overview-MetricCard';
 import { AttemptList } from './overview-AttemptList';
 import { ConfigChanges } from './overview-ConfigChanges';
 import { CARD_META, firstAttemptIn, metricCounts, reviewCommand, rowsInGroups } from './overview-logic';
+// 样式表接线（终审 B1）：放在组件 import 之后，使本表晚于 common-section.css 载入（.common-section 的 border 简写会盖掉同特异性的 .ov-judge 左边框）。
+import './overview-styles.css';
 
 export interface OverviewData {
   status: StatusData;

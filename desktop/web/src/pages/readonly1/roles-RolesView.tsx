@@ -6,6 +6,8 @@ import { PresetBar } from './roles-PresetBar';
 import { ProfilesTable } from './roles-ProfilesTable';
 import { PresetsTable } from './roles-PresetsTable';
 import { normalizeRole } from './roles-logic';
+// 样式表接线（终审 B1）：放在组件 import 之后，使本表晚于 common-section.css 载入。
+import './roles-styles.css';
 
 export interface RolesViewData {
   roles: RolesData;
