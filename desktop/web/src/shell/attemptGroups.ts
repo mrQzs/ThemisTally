@@ -6,6 +6,26 @@ import type { StatusRow } from '../api';
 const RUNNING = ['PREPARING', 'RUNNING', 'COLLECTING'];
 const NEED_JUDGE = ['NEEDS_REVIEW', 'TIMEOUT', 'CANCELLED', 'INFRA_FAILURE', 'ESCALATE', 'BLOCKED'];
 
+// T3（合同第 1 条）：五个分组 ID 与状态到分组的映射，供总览指标卡与任务页分组用。
+export type AttemptGroup = 'running' | 'review' | 'decide' | 'integrate' | 'ended';
+
+export const ATTEMPT_GROUPS: readonly AttemptGroup[] = ['running', 'review', 'decide', 'integrate', 'ended'];
+
+const GROUP_OF_STATE: Record<AttemptGroup, readonly string[]> = {
+  running: ['PREPARING', 'RUNNING', 'COLLECTING'],
+  review: ['NEEDS_REVIEW', 'TIMEOUT', 'CANCELLED', 'INFRA_FAILURE'],
+  decide: ['ESCALATE', 'BLOCKED'],
+  integrate: ['PASS', 'ACCEPTED_WITH_EXCEPTION'],
+  ended: ['INTEGRATED', 'REVISE', 'ABANDONED', 'SUPERSEDED', 'PREPARE_FAILED'],
+};
+
+export function groupOfState(state: string): AttemptGroup | null {
+  for (const group of ATTEMPT_GROUPS) {
+    if (GROUP_OF_STATE[group].includes(state)) return group;
+  }
+  return null;
+}
+
 export interface StatusCounts {
   running: number;
   needJudge: number;

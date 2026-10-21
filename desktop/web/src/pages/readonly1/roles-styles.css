@@ -1,0 +1,67 @@
+/* 角色与模型样式（合同第 5、8 节）：当前方案条、角色卡、键值、表格容器覆盖、差异面板。 */
+
+.rl { display: flex; flex-direction: column; gap: var(--tt-space-4); }
+
+.rl-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-3) var(--tt-space-4);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  align-items: center;
+}
+.rl-bar__desc { font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rl-bar__empty { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.rl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-space-4); }
+.rl-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-4);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.rl-card__head { display: flex; align-items: center; gap: var(--tt-space-2); flex-wrap: wrap; }
+.rl-card__title { margin: 0; font: var(--tt-title-sm); }
+.rl-card__tags { display: inline-flex; flex-wrap: wrap; gap: var(--tt-space-1); }
+.rl-card__note { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
+.rl-card__foot { display: flex; justify-content: flex-end; }
+.rl-kv { display: grid; grid-template-columns: 64px minmax(0, 1fr); margin: 0; } /* 画布：键值两列 */
+.rl-kv dt { font: var(--tt-text-caption); color: var(--tt-text-3); padding: var(--tt-space-0_5) 0; }
+.rl-kv dd { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-1); padding: var(--tt-space-0_5) 0; }
+.rl-dim { color: var(--tt-text-3); }
+
+.rl-note { margin: 0; padding: var(--tt-space-3) var(--tt-space-4); font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.rl-table.tt-table-wrap { border: 0; border-radius: 0; border-top: 1px solid var(--tt-border); }
+.rl-profile .tt-table { min-width: 860px; } /* 画布：profile 表最小宽 */
+.rl-preset .tt-table { min-width: 760px; } /* 画布：方案表最小宽 */
+.rl-table th:last-child, .rl-table td:last-child { text-align: right; }
+
+.rl-diff {
+  padding: var(--tt-space-3);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+  margin: var(--tt-space-3) var(--tt-space-4) var(--tt-space-4);
+}
+.rl-diff__head { display: flex; flex-wrap: wrap; gap: var(--tt-space-2); align-items: baseline; }
+.rl-diff__title { font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rl-diff__cmd { font: var(--tt-mono-sm); color: var(--tt-text-1); }
+.rl-diff__status { margin: var(--tt-space-2) 0 0; font: var(--tt-text-sm); color: var(--tt-text-3); }
+.rl-diff__rows { margin-top: var(--tt-space-2); display: flex; flex-direction: column; gap: var(--tt-space-1); }
+.rl-diff__row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 24px minmax(0, 1fr); gap: var(--tt-space-2); align-items: center; } /* 画布：角色/旧/箭头/新 */
+.rl-diff__role { font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rl-diff__same { font: var(--tt-text-sm); color: var(--tt-text-3); }
+.rl-diff__val { padding: var(--tt-space-0_5) var(--tt-space-1); border-radius: var(--tt-radius-sm); font: var(--tt-mono-sm); }
+.rl-diff__del { background: var(--tt-diff-del); }
+.rl-diff__add { background: var(--tt-diff-add); }
+.rl-diff__arrow { color: var(--tt-text-3); }
+.rl-diff__rest { margin: var(--tt-space-1) 0 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
+.rl-diff__error { margin-top: var(--tt-space-2); }
+.rl-diff__errtext { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rl-diff__msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }

@@ -1,13 +1,29 @@
-// 总览页占位（合同第 9 条）：load=getStatus，说明是「仓库名 · kit 版本」（来自 getMeta），
-// 空态「还没有 attempt」。有数据时显示一行「夹具数据已读到」加函数名与条数。
+// 总览页（合同第 2、4 条）：并行读 getStatus 与 getHistory，getStatus 失败返回它的信封；
+// 说明「仓库名 · kit 版本」来自 getMetaNow() 打底、getMeta() 刷新；空态「还没有 attempt」。
 import { useEffect, useState } from 'react';
 import { PageFrame } from '../shell/PageFrame';
-import { getStatus, getMeta, getMetaNow, type StatusData } from '../api';
+import { useAppNavigate } from '../shell/router';
+import { getHistory, getMeta, getMetaNow, getStatus, type Envelope, type HistoryData, type StatusData } from '../api';
+import { OverviewView, type OverviewData } from './readonly1/overview-OverviewView';
 
-const isStatusEmpty = (d: StatusData) => d.length === 0;
+const loadOverview = (): Promise<Envelope<OverviewData>> =>
+  Promise.all([getStatus(), getHistory()]).then(([status, history]) => {
+    if (!status.ok || status.data == null) return status as unknown as Envelope<OverviewData>;
+    return {
+      ok: true,
+      exit_code: 0,
+      data: { status: status.data, history },
+      output: [],
+      messages: [],
+      command: status.command,
+      elapsed_ms: 0,
+    };
+  });
+
+const isOverviewEmpty = (d: OverviewData) => d.status.length === 0;
 
 export default function OverviewPage() {
-  // 说明来自 getMeta：调一次 getMeta()（数据层入口），并用 getMetaNow() 同步打底，首屏就有说明。
+  const navigate = useAppNavigate();
   const seed = getMetaNow();
   const [desc, setDesc] = useState(() => `${seed.repo_name} · kit ${seed.kit_version}`);
   useEffect(() => {
@@ -19,16 +35,15 @@ export default function OverviewPage() {
       alive = false;
     };
   }, []);
-
   return (
-    <PageFrame<StatusData>
+    <PageFrame<OverviewData>
       title="总览"
       description={desc}
-      load={getStatus}
-      isEmpty={isStatusEmpty}
+      load={loadOverview}
+      isEmpty={isOverviewEmpty}
       empty={{ title: '还没有 attempt', description: '在规划端用 /dispatch-pi 派遣第一个任务' }}
     >
-      {(data) => <p className="tt-page__read">夹具数据已读到：getStatus，{data.length} 条。</p>}
+      {(data) => <OverviewView status={data.status} history={data.history} navigate={navigate} />}
     </PageFrame>
   );
 }

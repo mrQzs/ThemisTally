@@ -1,0 +1,84 @@
+/* 总览样式（合同第 4、8 节）：指标卡、attempt 行、配置变更行、计数胶囊、色调条、下一步与复制结果。 */
+
+.ov { display: flex; flex-direction: column; gap: var(--tt-space-4); }
+
+.ov-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tt-space-4); }
+
+.ov-metric {
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden;
+  text-decoration: none;
+  padding: var(--tt-space-3) var(--tt-space-4) var(--tt-space-3) var(--tt-space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-3);
+}
+.ov-metric:hover { background: var(--tt-surface-2); }
+.ov-metric__bar { width: 3px; align-self: stretch; border-radius: var(--tt-radius-full); } /* 画布：色调条宽 3px */
+.ov-metric__label { font: var(--tt-text-sm); color: var(--tt-text-2); }
+.ov-metric__num { font: var(--tt-display); color: var(--tt-text-1); margin-left: auto; }
+.ov-metric[data-metric="running"] .ov-metric__bar { background: var(--tt-tone-info-fg); }
+.ov-metric[data-metric="review"] .ov-metric__bar { background: var(--tt-accent); }
+.ov-metric[data-metric="decide"] .ov-metric__bar { background: var(--tt-tone-escalate-fg); }
+.ov-metric[data-metric="integrate"] .ov-metric__bar { background: var(--tt-tone-brand-fg); }
+
+.ov-judge { border-left: 3px solid var(--tt-accent); } /* 画布：需要你判断左边框 */
+.ov-pill {
+  min-width: 20px; /* 画布：计数胶囊 */
+  height: 18px; /* 画布：计数胶囊 */
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-accent);
+  color: var(--tt-on-accent);
+  font: var(--tt-text-caption-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--tt-space-1);
+}
+
+.ov-rows { margin: 0; padding: 0; list-style: none; }
+.ov-row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) auto auto; /* 画布：状态/名称/信息/链接 */
+  gap: var(--tt-space-3);
+  min-height: 44px; /* 画布：行最小高 */
+  padding: 0 var(--tt-space-4);
+  border-top: 1px solid var(--tt-border);
+  align-items: center;
+}
+.ov-row:hover { background: var(--tt-surface-3); }
+.ov-row__main { min-width: 0; display: flex; flex-direction: column; gap: var(--tt-space-0_5); }
+.ov-row__name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-row__info { display: flex; gap: var(--tt-space-2); font: var(--tt-text-sm); color: var(--tt-text-2); white-space: nowrap; }
+.ov-row__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  height: 28px; /* 画布：行内链接高 */
+  padding: 0 var(--tt-space-2);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-text-sm-medium);
+  text-decoration: none;
+}
+.ov-foot { margin: var(--tt-space-3) var(--tt-space-4) var(--tt-space-4); }
+
+.ov-changes { margin: 0; padding: 0; list-style: none; }
+.ov-change {
+  display: grid;
+  grid-template-columns: 48px 92px 120px minmax(0, 1fr) auto; /* 画布：编号/时间/动作/对象/标签 */
+  gap: var(--tt-space-3);
+  height: 36px; /* 画布：配置变更行高 */
+  padding: 0 var(--tt-space-4);
+  align-items: center;
+  border-top: 1px solid var(--tt-border);
+}
+.ov-change__no { font: var(--tt-text-caption); color: var(--tt-text-2); }
+.ov-change__time { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.ov-change__action { font: var(--tt-mono-sm); color: var(--tt-text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-change__target { font: var(--tt-mono-sm); color: var(--tt-text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-change__tags { display: inline-flex; align-items: center; gap: var(--tt-space-2); }
+.ov-change-err { padding: var(--tt-space-3) var(--tt-space-4); }
+.ov-note { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.ov-change-msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }

@@ -1,0 +1,13 @@
+/* 只读页面共用区块样式（合同第 8 节）：区块卡、头部、h2、说明、右侧链接；复制结果一行。 */
+
+.common-section {
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.common-section__head { padding: var(--tt-space-3) var(--tt-space-4); }
+.common-section__head-row { display: flex; align-items: center; gap: var(--tt-space-2); }
+.common-section__title { margin: 0; font: var(--tt-title-sm); }
+.common-section__desc { margin: var(--tt-space-1) 0 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
+.common-section__link { margin-left: auto; font: var(--tt-text-sm); color: var(--tt-link); text-decoration: none; }
+.common-copy-note { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }

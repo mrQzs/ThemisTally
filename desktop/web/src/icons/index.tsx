@@ -273,3 +273,31 @@ export const FileDiffIcon = (props: IconProps) => (
     <path d="M9 17h6" />
   </Svg>
 );
+
+// 第 8 片（T009）新增的四个图标，路径照合同第 3 节。
+export const PlusIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5 12h14" />
+    <path d="M12 5v14" />
+  </Svg>
+);
+
+export const SearchIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Svg>
+);
+
+export const PlayIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <polygon points="6 3 20 12 6 21 6 3" />
+  </Svg>
+);
+
+export const ArrowRightIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </Svg>
+);

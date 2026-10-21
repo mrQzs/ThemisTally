@@ -68,3 +68,9 @@ export { DiffView } from './DiffView';
 export type { DiffViewProps } from './DiffView';
 export { LogFollow } from './LogFollow';
 export type { LogFollowProps } from './LogFollow';
+
+// 第 8 片（T009）：相对时间与执行者标签
+export { RelativeTime } from './RelativeTime';
+export type { RelativeTimeProps } from './RelativeTime';
+export { ActorTag } from './ActorTag';
+export type { ActorTagProps } from './ActorTag';

@@ -29,11 +29,12 @@ describe('应用框架', () => {
     expect(document.title).toBe('任务 · Themis Tally');
   });
 
-  it('总览占位显示夹具数据与条数', async () => {
+  it('总览页渲染真页面', async () => {
     location.hash = '#/overview';
     render(<App />);
     await flush();
-    expect(document.body.textContent).toContain('夹具数据已读到：getStatus，7 条');
+    expect(document.querySelector('[data-page="overview"]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-metric]').length).toBe(4);
   });
 
   it('Ctrl+2 切到任务页（地址、h1 同步变）', async () => {

@@ -42,6 +42,21 @@ export function parseHash(hash: string): Route {
   return { tabId: 'overview', pageId: 'overview', segments: [], query };
 }
 
+// 当前挂载路由的 navigate：useHashRoute 挂载时经 effect 登记，useAppNavigate 委托它同步换路由。
+let activeNavigate: ((path: string) => void) | null = null;
+
+// 由 path 与当前 query 拼出下一个 hash：path 自带 ?query 时合并（保留 mock 与其他参数，path 的覆盖同名），
+// 否则整段保留当前 query（与现状完全相同）。
+function buildHash(path: string, currentQuery: string): string {
+  const qIdx = path.indexOf('?');
+  if (qIdx < 0) return `#${path}${currentQuery ? `?${currentQuery}` : ''}`;
+  const pathname = path.slice(0, qIdx);
+  const merged = new URLSearchParams(currentQuery);
+  new URLSearchParams(path.slice(qIdx + 1)).forEach((v, k) => merged.set(k, v));
+  const qs = merged.toString();
+  return `#${pathname}${qs ? `?${qs}` : ''}`;
+}
+
 export function useHashRoute() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
 
@@ -52,11 +67,11 @@ export function useHashRoute() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  // 先同步更新路由状态，再写 location.hash；保留当前 ?mock=。
+  // 先同步更新路由状态，再写 location.hash；path 可自带 ?query，与当前 query 合并（保留 mock）。
   const navigate = useCallback(
     (path: string) => {
       setRoute((prev) => {
-        const next = `#${path}${prev.query ? `?${prev.query}` : ''}`;
+        const next = buildHash(path, prev.query);
         if (window.location.hash !== next) window.location.hash = next;
         return parseHash(next);
       });
@@ -64,7 +79,22 @@ export function useHashRoute() {
     [],
   );
 
+  // 登记为当前挂载路由的 navigate（useAppNavigate 委托它）；卸载时让位。
+  useEffect(() => {
+    activeNavigate = navigate;
+    return () => {
+      if (activeNavigate === navigate) activeNavigate = null;
+    };
+  }, [navigate]);
+
   return { route, navigate };
+}
+
+// 供页面组件（不接 props）同步换路由：返回稳定回调，委托当前挂载路由的 navigate（调用时读，effect 已登记）。
+export function useAppNavigate() {
+  return useCallback((path: string) => {
+    activeNavigate?.(path);
+  }, []);
 }
 
 export { mockOfQuery };
