@@ -1,0 +1,20 @@
+/* 服务状态与恢复卡片（src/shellpages/service-status.css）：结构照断线画布 :362–368，宽 440 居中。 */
+.tt-ss {
+  width: 440px; /* 断线画布 :363 卡片宽 440 */
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-8);
+  text-align: center;
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-xl);
+  box-shadow: var(--tt-shadow-2);
+}
+.tt-ss__icon { color: var(--tt-danger-text); }
+.tt-ss__title { margin: 0; font: var(--tt-title-lg); }
+.tt-ss__line { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-ss__code { font: var(--tt-mono-sm); }
+.tt-ss__note { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }

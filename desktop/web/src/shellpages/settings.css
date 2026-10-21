@@ -1,0 +1,85 @@
+/* 外壳设置页（src/shellpages/settings.css）：五组的排版。内容最大宽 920 只限这五组（K16）。 */
+.tt-st {
+  max-width: 920px; /* K16 内容最大宽 920 */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+.tt-st__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4) var(--tt-space-4);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.tt-st__group-head { display: flex; align-items: center; gap: var(--tt-space-2); }
+.tt-st__h2 { flex: 1; margin: 0; font: var(--tt-title-md); }
+.tt-st__group-note { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-st__row { display: flex; align-items: center; gap: var(--tt-space-3); }
+.tt-st__label { width: 120px; /* 设置画布 :362 标签列宽 120 */ flex: none; font: var(--tt-title-sm); }
+.tt-st__value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  min-height: var(--tt-space-8);
+  padding: 0 var(--tt-space-2);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-2);
+}
+.tt-st__caption { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-st__caption--bad { color: var(--tt-danger-text); }
+.tt-st__mono { font: var(--tt-mono-sm); }
+.tt-st__path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tt-text-2); }
+.tt-st__cur { margin-left: var(--tt-space-1); }
+.tt-st__opened { color: var(--tt-text-3); }
+.tt-st__act { text-align: right; }
+.tt-st__th-act { text-align: right; }
+.tt-st__scroll { overflow-x: auto; }
+.tt-st__table { width: 100%; min-width: 640px; /* 设置画布 :336 表最小宽 640 */ font: var(--tt-text-sm); }
+.tt-st__table th {
+  height: 32px; /* handoff :142 表头高 32 */
+  padding: 0 var(--tt-space-3);
+  background: var(--tt-surface-2);
+  font: var(--tt-title-sm);
+  color: var(--tt-text-2);
+  text-align: left;
+}
+.tt-st__table td {
+  height: 40px; /* handoff :142 行高 40 */
+  padding: 0 var(--tt-space-3);
+  border-top: 1px solid var(--tt-border);
+}
+.tt-st__empty { color: var(--tt-text-3); text-align: center; }
+.tt-st__dirs { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tt-space-1); }
+.tt-st__dir { display: flex; align-items: center; gap: var(--tt-space-2); }
+.tt-st__unset { color: var(--tt-text-3); }
+.tt-st__about { display: flex; align-items: center; gap: var(--tt-space-4); }
+.tt-st__about-logo { display: inline-flex; }
+.tt-st__about-logo svg { width: 42px; height: 48px; /* K17 关于的标识 42×48 */ }
+.tt-st__about-text { display: flex; flex-direction: column; }
+.tt-st__about-name { font: var(--tt-title-md); }
+.tt-st__about-ver { font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-st__about-actions { display: flex; flex-wrap: wrap; gap: var(--tt-space-2); }
+.tt-st__lic { display: flex; flex-direction: column; gap: var(--tt-space-4); }
+.tt-st__lic-item { display: flex; flex-direction: column; gap: var(--tt-space-1); }
+.tt-st__lic-head { display: flex; align-items: baseline; gap: var(--tt-space-2); }
+.tt-st__lic-name { font: var(--tt-text-md-medium); }
+.tt-st__lic-ver { font: var(--tt-mono-sm); color: var(--tt-text-2); }
+.tt-st__lic-lic { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-st__lic-copy { display: flex; flex-direction: column; font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-st__lic-path { font: var(--tt-mono-sm); color: var(--tt-text-2); }
+.tt-st__url {
+  padding: var(--tt-space-2);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-surface-2);
+  border: 1px solid var(--tt-border);
+  font: var(--tt-mono-md);
+  word-break: break-all;
+}
+.tt-st__url-cap { font: var(--tt-text-caption); color: var(--tt-text-3); }

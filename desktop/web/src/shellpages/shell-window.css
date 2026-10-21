@@ -1,0 +1,34 @@
+/* 外壳窗口外框（src/shellpages/shell-window.css）：最简标题栏 + 居中卡片的主区。 */
+.tt-shellwin {
+  height: 100vh; /* 外壳窗口占满窗口 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tt-shell-bar {
+  height: 40px; /* 5.2 :350 */
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding: 0 140px 0 var(--tt-space-3); /* 5.2 :352 右内边距留给系统窗口钮，本片不渲染拖动区与系统按钮 */
+  background: var(--tt-titlebar);
+  border-bottom: 1px solid var(--tt-border);
+}
+.tt-shell-product {
+  font: var(--tt-title-sm);
+  color: var(--tt-text-1);
+}
+.tt-shell-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  padding: var(--tt-space-8) var(--tt-space-4); /* 首启画布 :294 */
+}
+.tt-shell-card {
+  margin: auto; /* 安全居中：卡片比窗口高时仍能滚到顶部 */
+}
+/* Logo 填色类（规则在 TitleBar.css :16–17，本片再写一遍，只用令牌，不依赖 TitleBar.css 是否已加载） */
+.tt-logo__mark { fill: var(--tt-logo-mark); }
+.tt-logo__tally { fill: var(--tt-logo-tally); }

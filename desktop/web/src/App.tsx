@@ -1,6 +1,7 @@
 // 根组件：应用框架（合同第 1、6、9 条与 Steps 9）。标题栏 + 内容区（按路由 key 重挂载以滚回顶部）+ 底部 Tab 栏。
 // 主题偏好只存内存、缺省暗；快捷键 Ctrl+1…8 与 Ctrl+, 切页；document.title 随页面变；外壳级 getStatus 供 Tab 栏计数；
 // 页面框架经 ShellStatusContext 向 Tab 栏上报加载状态。陈列页（#/showcase）不是 Tab，由 ShowcasePage 渲染。
+// #/first-run、#/service-status 由根上的外壳窗口整窗渲染，不挂服务窗口；主题偏好在根上，经 ThemePrefProvider 交给设置页。
 import { useEffect, useState } from 'react';
 import { getMetaNow, getStatus } from './api';
 import { TABS } from './shell/routes';
@@ -15,17 +16,30 @@ import { currentMock } from './mock/scenario';
 import { shellConnectionState } from './mock/shell';
 import ShowcasePage from './showcase/ShowcasePage';
 import './App.css';
+import { ShellWindow, useShellWindowRoute } from './shellpages/ShellWindow';
+import { ThemePrefProvider } from './shellpages/themePref';
 
 export default function App() {
   const [theme, setTheme] = useState<ThemePref>('dark');
+  const { shellWindow, navigateShell } = useShellWindowRoute();
+  useEffect(() => { applyTheme(theme); }, [theme]);
+  return (
+    <ThemePrefProvider theme={theme} onThemeChange={setTheme}>
+      {shellWindow ? (
+        <ShellWindow route={shellWindow} navigate={navigateShell} />
+      ) : (
+        <ServiceApp theme={theme} setTheme={setTheme} />
+      )}
+    </ThemePrefProvider>
+  );
+}
+
+interface ServiceAppProps { theme: ThemePref; setTheme: (pref: ThemePref) => void; }
+function ServiceApp({ theme, setTheme }: ServiceAppProps) {
   const { route, navigate } = useHashRoute();
   const meta = getMetaNow();
   const [counts, setCounts] = useState<StatusCounts | null>(null);
   const [page, setPage] = useState<PageReport>({ phase: 'loading', at: null });
-
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
 
   // 快捷键：Ctrl+1…8 切前 8 个 Tab，Ctrl+, 切设置。
   useEffect(

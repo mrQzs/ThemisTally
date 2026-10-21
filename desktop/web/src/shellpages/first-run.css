@@ -1,0 +1,72 @@
+/* 首次启动卡片（src/shellpages/first-run.css）：结构照首启画布 :294–361。 */
+.tt-fr {
+  width: 560px; /* 首启画布 :295 卡片宽 560 */
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-5);
+  padding: var(--tt-space-8) var(--tt-space-8) var(--tt-space-6);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-xl);
+  box-shadow: var(--tt-shadow-2);
+}
+.tt-fr__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tt-space-2);
+  text-align: center;
+}
+.tt-fr__logo { display: inline-flex; }
+.tt-fr__logo svg { width: 56px; height: 64px; /* K17 首启标识 56×64，盖过 Logo 的 18×20 */ }
+.tt-fr__title { margin: 0; font: var(--tt-title-lg); }
+.tt-fr__sub { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-fr__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden;
+}
+.tt-fr__step { display: flex; flex-direction: column; gap: var(--tt-space-2); padding: var(--tt-space-3) var(--tt-space-4); }
+.tt-fr__step + .tt-fr__step { border-top: 1px solid var(--tt-border); }
+.tt-fr__step--wait { color: var(--tt-text-disabled); }
+.tt-fr__row { display: flex; align-items: center; gap: var(--tt-space-3); }
+.tt-fr__no {
+  width: 22px; /* 首启画布 :306 编号圆 22 */
+  height: 22px; /* :306 */
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tt-surface-3);
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-2);
+}
+.tt-fr__name { width: 72px; /* 首启画布 :307 步名宽 72 */ flex: none; font: var(--tt-title-sm); }
+.tt-fr__path { flex: 1; min-width: 0; font: var(--tt-mono-sm); color: var(--tt-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-fr__val { flex: 1; min-width: 0; font: var(--tt-text-sm); }
+.tt-fr__icon { flex: none; display: inline-grid; place-items: center; }
+.tt-fr__icon svg { width: 18px; height: 18px; /* 首启画布 :306 状态图标 18 */ }
+.tt-fr__icon--pass { color: var(--tt-tone-success-fg); }
+.tt-fr__icon--fail { color: var(--tt-danger-text); }
+.tt-fr__icon--starting { color: var(--tt-tone-info-fg); }
+.tt-fr__icon--wait { color: var(--tt-text-disabled); }
+.tt-fr__err {
+  margin-left: 34px; /* 首启画布 :314 错误框左缩进 34 */
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border-radius: var(--tt-radius-md);
+  background: var(--tt-tone-danger-bg);
+  color: var(--tt-tone-danger-fg);
+  font: var(--tt-text-sm);
+}
+.tt-fr__copyres { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-fr__foot { display: flex; align-items: center; gap: var(--tt-space-3); }
+.tt-fr__note { flex: 1; font: var(--tt-text-caption); color: var(--tt-text-3); }
