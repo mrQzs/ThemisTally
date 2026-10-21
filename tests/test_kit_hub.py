@@ -3237,6 +3237,19 @@ def test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks(tmp_pat
     land_on_main(repo, "toggle.txt", None, "收掉切换钮")
     ok, summary = kh.rehearse_landing(hub, ts)
     assert ok and "全部门禁基准（1 份）" in summary and "2 passed" in summary and ts["rehearsal"]["ok"] is True
+    # 第 44 轮（T012）：接着返工提交改、一行没动的 attempt，补丁是空的；活在返工链里，照样预演
+    empty = run_dir.with_name("attempt-004")
+    empty.mkdir()
+    (empty / "meta.json").write_text(json.dumps({"base_sha": ts["rework_chain"][0]["commit"]}), encoding="utf-8")
+    (empty / "candidate.patch").write_text("", encoding="utf-8")
+    ts["exec"]["run_dir"] = str(empty)
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert not ok and not summary.startswith("候选补丁") and "test_feature" in summary  # 返工链里没有功能：门禁红
+    candidate = kh.git(["log", "--all", "--format=%H", "-1", "--grep=^候选$"], repo).strip()
+    ts["rework_chain"].append({"from": "attempt-002", "commit": candidate, "contract": "t001-doc.v3"})
+    ts.pop("rehearsal")  # 同一个末端、同一个候选不再预演：换了返工链，清掉记录重来
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert ok and "attempt-004 的候选" in summary and "2 passed" in summary  # 活都在返工链里
 
 
 def test_landing_rehearsal_reports_commits_that_no_longer_apply(tmp_path, monkeypatch):

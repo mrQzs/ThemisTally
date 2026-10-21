@@ -2996,7 +2996,9 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
                 problem = "提交 %s 挑不到末端 %s 上：\n%s" % (sha[:12], head[:12],
                                                        tail(proc.stdout.decode("utf-8", "replace"), 8))
                 break
-        if problem is None:
+        # 第 44 轮：T012 的 attempt-006 接着返工提交改，一行没动、只跑检查写报告，补丁是空的；
+        # git apply 空补丁报“No valid patches in input”，预演判了失败。活都在返工链里，上面已经挑过了
+        if problem is None and read_text(run_dir / "candidate.patch").strip():
             proc = subprocess.run(["git", "apply", "--3way", "--whitespace=nowarn", str(run_dir / "candidate.patch")],
                                   cwd=str(path), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT)
