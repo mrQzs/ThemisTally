@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "task_id": "t010-desktop-readonly2",
+  "plan_version": 3,
+  "title": "桌面端前端只读页面二：凭据、日志与用量、插件、历史与审计（第九片）",
+  "repository": "ThemisTally",
+  "base_sha": "190f82fea704a58ff89d5939b35a2951198907b8",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/components/Drawer.css"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/pages/readonly2/common-icons.tsx",
+      "desktop/web/src/pages/readonly2/common-format.ts",
+      "desktop/web/src/pages/readonly2/common-InfoNote.tsx",
+      "desktop/web/src/pages/readonly2/common-styles.css",
+      "desktop/web/src/pages/readonly2/common-copy.ts",
+      "desktop/web/src/pages/readonly2/common-readers.ts",
+      "desktop/web/src/pages/readonly2/secrets-SecretsView.tsx",
+      "desktop/web/src/pages/readonly2/secrets-logic.ts",
+      "desktop/web/src/pages/readonly2/secrets-styles.css",
+      "desktop/web/src/pages/readonly2/logs-LogsView.tsx",
+      "desktop/web/src/pages/readonly2/logs-SearchPanel.tsx",
+      "desktop/web/src/pages/readonly2/logs-SearchResults.tsx",
+      "desktop/web/src/pages/readonly2/logs-UsagePanel.tsx",
+      "desktop/web/src/pages/readonly2/logs-logic.ts",
+      "desktop/web/src/pages/readonly2/logs-styles.css",
+      "desktop/web/src/pages/readonly2/plugins-PluginsView.tsx",
+      "desktop/web/src/pages/readonly2/plugins-PluginDrawer.tsx",
+      "desktop/web/src/pages/readonly2/plugins-logic.ts",
+      "desktop/web/src/pages/readonly2/plugins-styles.css",
+      "desktop/web/src/pages/readonly2/history-HistoryView.tsx",
+      "desktop/web/src/pages/readonly2/history-HistoryDrawer.tsx",
+      "desktop/web/src/pages/readonly2/history-KeyDiff.tsx",
+      "desktop/web/src/pages/readonly2/history-ActorTag.tsx",
+      "desktop/web/src/pages/readonly2/history-logic.ts",
+      "desktop/web/src/pages/readonly2/history-styles.css",
+      "desktop/web/src/mock/readonly2-search.ts",
+      "desktop/web/src/mock/readonly2-history-entries.ts",
+      "desktop/web/src/mock/readonly2-plugin-show.ts",
+      "desktop/web/tests/readonly2-logic.test.ts",
+      "desktop/web/tests/readonly2-readers.test.ts",
+      "desktop/web/tests/readonly2-secrets.test.tsx",
+      "desktop/web/tests/readonly2-logs.test.tsx",
+      "desktop/web/tests/readonly2-plugins.test.tsx",
+      "desktop/web/tests/readonly2-history.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/tests/readonly2-css.test.ts",
+      "desktop/web/tests/readonly2-static.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/icons/**",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/components/Button.*",
+      "desktop/web/src/components/Tag.*",
+      "desktop/web/src/components/StatusTag.*",
+      "desktop/web/src/components/Card.*",
+      "desktop/web/src/components/Banner.*",
+      "desktop/web/src/components/IconButton.*",
+      "desktop/web/src/components/Tooltip.*",
+      "desktop/web/src/components/Menu.*",
+      "desktop/web/src/components/Dialog.*",
+      "desktop/web/src/components/Drawer.tsx",
+      "desktop/web/src/components/Toast.*",
+      "desktop/web/src/components/SegmentedControl.*",
+      "desktop/web/src/components/Switch.*",
+      "desktop/web/src/components/Checkbox.*",
+      "desktop/web/src/components/Tabs.*",
+      "desktop/web/src/components/TextField.*",
+      "desktop/web/src/components/Select.*",
+      "desktop/web/src/components/Table.*",
+      "desktop/web/src/components/KeyValueList.*",
+      "desktop/web/src/components/EmptyState.*",
+      "desktop/web/src/components/Skeleton.*",
+      "desktop/web/src/components/ConnectionPill.*",
+      "desktop/web/src/components/Breadcrumb.*",
+      "desktop/web/src/components/TextViewer.*",
+      "desktop/web/src/components/SafeMarkdown.*",
+      "desktop/web/src/components/EffortPair.*",
+      "desktop/web/src/components/MaskedValue.*",
+      "desktop/web/src/components/CommandLine.*",
+      "desktop/web/src/components/NextStep.*",
+      "desktop/web/src/components/DiffView.*",
+      "desktop/web/src/components/LogFollow.*",
+      "desktop/web/src/components/overlay/**",
+      "desktop/web/src/components/field/**",
+      "desktop/web/src/components/evidence/**",
+      "desktop/web/src/components/diff/**",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/tasks/**",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/component-css.test.ts",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/diff-css.test.ts",
+      "desktop/web/tests/diff-parse.test.ts",
+      "desktop/web/tests/diff-showcase.test.tsx",
+      "desktop/web/tests/diff-static.test.ts",
+      "desktop/web/tests/diff-view.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/evidence-atoms.test.tsx",
+      "desktop/web/tests/evidence-effort.test.tsx",
+      "desktop/web/tests/evidence-markdown.test.tsx",
+      "desktop/web/tests/evidence-showcase.test.tsx",
+      "desktop/web/tests/evidence-static.test.ts",
+      "desktop/web/tests/evidence-text-viewer.test.tsx",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/forms-patches-css.test.ts",
+      "desktop/web/tests/forms-patches.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/log-follow.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/shell-api.test.ts",
+      "desktop/web/tests/shell-app.test.tsx",
+      "desktop/web/tests/shell-menu.test.tsx",
+      "desktop/web/tests/shell-no-network.test.ts",
+      "desktop/web/tests/shell-page-frame.test.tsx",
+      "desktop/web/tests/shell-router.test.ts",
+      "desktop/web/tests/shell-shortcuts.test.ts",
+      "desktop/web/tests/shell-showcase.test.tsx",
+      "desktop/web/tests/shell-tabbar.test.tsx",
+      "desktop/web/tests/shell-theme.test.ts",
+      "desktop/web/tests/shell-titlebar.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/text-viewer-slots.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "desktop/web/tests/page-*",
+      "desktop/web/tests/tasks-*",
+      "desktop/web/README.md",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "tests/**",
+      "tests/test_gate_t010_*.py",
+      "docs/**",
+      ".gitignore"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t010_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "凭据——四列、无「值」表头或单元格、页面不出现夹具外的值文字；来源四种取值与未知值的文字/tone/图标/data-source；用在哪里的合并规则；变量名与 id 是遮蔽占位时渲染 span.tt-masked（title 内核已遮蔽、含 LockIcon）；每行 [录入…] 禁用；info 说明与来源小节；说明原文、重新检查、没有刷新按钮、空态标题都与 T006 一致",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "凭据页从不显示值、占位用遮蔽样式"
+    },
+    {
+      "id": "D02",
+      "text": "检索——表单默认值与两条校验文字；提交时读取函数恰好调用一次、参数正确、读取中按钮转圈、只认最后一次请求；ok 为假的出错块（命令/退出码/messages 纯文本）；分组顺序与 N 处、path:line；截断提示数等于上限、skipped_large/skipped_links 提示、空结果文字；高亮段在 mark 里、编译失败与带量词分组不高亮；摘录含 <img src=x onerror=…> 与 <script> 时 DOM 无对应元素",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "检索结果如实反映截断与跳过、不可信内容只按文本显示"
+    },
+    {
+      "id": "D03",
+      "text": "用量——固定说明；执行端卡合计/四项/三个计数标签（文字原样、title 中文）；规划端空状态与 [去设置] href（有 mock 时带上）；按 attempt 表状态 Tag 文字原样/tone/title、null 显示未知；按模型表回报情况文字/占比文字/条宽；两表为空文字",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "插件表——各列取值与色调、启用三种写法加未知、锁与资源四类取值、状态与 reason；操作列三种情形、两个小节；页头 [核对全部] 禁用；isEmpty 规则",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "插件抽屉——点击行或 Enter 打开、aria-modal=false 无遮罩；打开后焦点在关闭钮；400ms 内 Esc 关闭且焦点回触发行；提示出现后第一次 Esc 只关提示、第二次关抽屉；焦点在抽屉外 Esc 不关、点抽屉外不关；开着时点另一行只换内容、换行后 Esc 焦点回后打开那行、关闭后触发行仍是当前行；读取中/出错/有数据三态、过期回应丢弃；warning 文字、manifest/资源/锁三小节、复制三结果、[重新核对] 禁用",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "非模态抽屉的焦点与 Esc 行为正确、换行后焦点回最后一行"
+    },
+    {
+      "id": "D06",
+      "text": "历史表——倒序、编号、相对时间与 title 格式、资源/动作中文 title/对象；执行者五种 tone；确认；状态四种写法加（补判）；改动的键与遮蔽 note；外部改动标签；broken_lines warning；两行注记；isEmpty 规则",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "差异抽屉——标题、dl、外部改动提示条；键级差异五种情形；KeyDiff 符号 U+2212 与加号、底色令牌、未设置与遮蔽两种写法；footer 两种说明、[回滚到这一条之后] 禁用；焦点与 Esc 同 D05",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "五态（经 ?mock=，过渡）——四页 loading 299ms 无骨架/300ms 有；data；empty 时凭据/插件/历史显示 T006 空态标题、日志与用量仍 data；error 出错块命令依次 config show/logs usage/plugins list/config history、退出码 2、报错原文；offline role=alert/可能已过期/data-stale、数据照常；整页恰一个 data-page-state",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "写入口——写入口小节列出的入口全部 disabled、悬停 400ms 出现 role=tooltip 文字「第二阶段接入」；各页可用按钮只在白名单内；夹具下个数（不含 offline 重新连接）凭据 2、插件 3（抽屉开 4）、历史 0（抽屉开 1）",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "样式与 1024 前提——见 Behavior contract 的「样式取值」小节；令牌与 px 注释；宽表都在可横向滚动容器；内联 style 只出现在占比条",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "源码规则——公共约定里的源码守卫（夹具字符串也算）；四个页面文件都含 PageFrame、load 与 isEmpty 不是内联函数；src/mock/ 仍恰 14 份 JSON、src/pages/ 顶层仍恰 9 个 *Page.tsx",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "回归与范围——T001–T008 门禁、V03、npm 四步通过；只改允许文件、不改依赖；新测试不用 skip/only/todo",
+      "evidence": [
+        "scope",
+        "V02",
+        "V03"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
