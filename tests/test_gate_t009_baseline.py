@@ -86,12 +86,12 @@ ASSUMPTIONS = (
     "指标卡色调条的颜色：读 CSS 文件，用探针导出的每张卡独有的类名与 data-* 当钩子，要求钩子所在规则引用对应令牌（info、accent、escalate、brand），不引用另外三种",
 )
 
-# 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）
+# 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）。common-copyText.ts 不再列：T013 把它并进
+# src/components/copyText.ts、删掉这一份（站主按 T013 规划 §8.1 R1 退役）
 NEW_SOURCE_FILES = (
     f"{RO_REL}/common-Section.tsx",
     f"{RO_REL}/common-section.css",
     f"{RO_REL}/common-links.ts",
-    f"{RO_REL}/common-copyText.ts",
     f"{RO_REL}/common-CopyNote.tsx",
     f"{RO_REL}/overview-OverviewView.tsx",
     f"{RO_REL}/overview-MetricCard.tsx",
@@ -113,6 +113,10 @@ NEW_SOURCE_FILES = (
     f"{COMP_REL}/RelativeTime.tsx",
     f"{COMP_REL}/ActorTag.tsx",
 )
+# copyText 在哪一份就测哪一份：T013 之前在 readonly1，之后在 src/components（T013 规划 §8.1 R2、R3）
+COPY_TEXT_REL = next((rel for rel in (f"{COMP_REL}/copyText.ts", f"{RO_REL}/common-copyText.ts")
+                      if (REPO_ROOT / rel).is_file()), f"{RO_REL}/common-copyText.ts")
+COPY_TEXT_MODULE = "../" + COPY_TEXT_REL[len(WEB_REL) + 1:-len(".ts")]
 PAGE_FILES = {
     "overview": f"{SRC_REL}/pages/OverviewPage.tsx",
     "roles": f"{SRC_REL}/pages/RolesPage.tsx",
@@ -1579,7 +1583,7 @@ describe('D12 导出与图标', () => {
 
 describe('D02 copyText', () => {
   it('copyText(text, clipboard?)：成功 copied、没有 writeText 返回 unavailable、抛错或拒绝 failed', async () => {
-    const m: any = await import('../src/pages/readonly1/common-copyText');
+    const m: any = await import('__COPY_TEXT_MODULE__');
     expect(typeof m.copyText).toBe('function');
     const writeText = vi.fn(() => Promise.resolve());
     expect(await m.copyText('abc', { writeText })).toBe('copied');
@@ -1590,7 +1594,7 @@ describe('D02 copyText', () => {
   });
 
   it('clipboard 缺省取 navigator.clipboard：没有就 unavailable，有就用它', async () => {
-    const m: any = await import('../src/pages/readonly1/common-copyText');
+    const m: any = await import('__COPY_TEXT_MODULE__');
     expect((window.navigator as any).clipboard, 'jsdom 里没有剪贴板接口').toBeUndefined();
     expect(await m.copyText('x')).toBe('unavailable');
     const writeText = vi.fn(() => Promise.resolve());
@@ -3113,7 +3117,7 @@ function shortCommand(full: string): string {
 
 PROBE_SPECS = {
     "shell": (PROBE_SHELL, [f"{SRC_REL}/shell/router.ts", f"{SRC_REL}/shell/attemptGroups.ts"]),
-    "common": (PROBE_COMMON, [f"{COMP_REL}/RelativeTime.tsx", f"{COMP_REL}/ActorTag.tsx", f"{RO_REL}/common-copyText.ts"]),
+    "common": (PROBE_COMMON, [f"{COMP_REL}/RelativeTime.tsx", f"{COMP_REL}/ActorTag.tsx", COPY_TEXT_REL]),
     "overview": (PROBE_OVERVIEW, [PAGE_FILES["overview"], f"{RO_REL}/overview-OverviewView.tsx"]),
     "roles": (PROBE_ROLES, [PAGE_FILES["roles"], f"{RO_REL}/roles-RolesView.tsx"]),
     "runtimes": (PROBE_RUNTIMES, [PAGE_FILES["runtimes"], f"{RO_REL}/runtimes-RuntimesView.tsx"]),
@@ -3139,6 +3143,7 @@ def build_probe_source(key, uid="selfcheck"):
     source = PROBE_SPECS[key][0]
     source = source.replace("__ICON_SHAPES__", json.dumps(ICON_SHAPES, ensure_ascii=False))
     source = source.replace("__DATA_FILE__", f"gate-probe/{data_file_name(uid, key)}")
+    source = source.replace("__COPY_TEXT_MODULE__", COPY_TEXT_MODULE)
     return source
 
 
@@ -4223,7 +4228,8 @@ def test_gate_selfcheck_probe_templates(tmp_path):
 
 
 def test_gate_selfcheck_constants():
-    assert len(NEW_SOURCE_FILES) == len(set(NEW_SOURCE_FILES)) == 24
+    assert len(NEW_SOURCE_FILES) == len(set(NEW_SOURCE_FILES)) == 23
+    assert COPY_TEXT_MODULE in ("../src/components/copyText", "../src/pages/readonly1/common-copyText")
     assert set(CSS_FILES.values()) <= set(NEW_SOURCE_FILES)
     assert set(PAGE_FILES) == {"overview", "roles", "runtimes"}
     assert len(EXECUTOR_TESTS) == 8

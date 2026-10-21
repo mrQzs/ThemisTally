@@ -2,7 +2,8 @@
 （合同 t010-desktop-readonly2，plan_version 1，基线 841e481）。
 
 被测对象是 ``desktop/web/``：四个页面文件（SecretsPage、LogsPage、PluginsPage、HistoryPage）从占位换成真页面，
-新增 ``src/pages/readonly2/`` 下的视图与逻辑（common-、secrets-、logs-、plugins-、history- 前缀共 25 个文件）、
+新增 ``src/pages/readonly2/`` 下的视图与逻辑（common-、secrets-、logs-、plugins-、history- 前缀共 25 个文件；T013 合并重复件后删掉 common-copy.ts 与
+history-ActorTag.tsx，下面的文件清单只列另外 23 个）、
 ``src/mock/readonly2-*.ts`` 三份夹具、九个 ``tests/readonly2-*`` 执行端测试，另改 ``src/components/Drawer.css`` 的 top 与文件头注释（站主 Q3 选 a）。
 
 基线上这些都还没有，所以本文件的“失败”断言落在目标文件不存在或内容不符上，不是导入、收集或语法错误：模块级只导入标准库，
@@ -71,13 +72,14 @@ MOCK = SRC / "mock"
 PAGES_REL = f"{SRC_REL}/pages"
 TESTS_REL = f"{WEB_REL}/tests"
 
-# 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）：readonly2 下 28 个，mock 下 3 个。
+# 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）：readonly2 下 25 个，mock 下 3 个。
+# common-copy.ts 与 history-ActorTag.tsx 不再列：T013 把它们并进 src/components、删掉这两份（站主按 T013 规划 §8.1 R4 退役）
 R2_FILES = (
-    "common-icons.tsx", "common-format.ts", "common-InfoNote.tsx", "common-styles.css", "common-copy.ts", "common-readers.ts",
+    "common-icons.tsx", "common-format.ts", "common-InfoNote.tsx", "common-styles.css", "common-readers.ts",
     "secrets-SecretsView.tsx", "secrets-logic.ts", "secrets-styles.css",
     "logs-LogsView.tsx", "logs-SearchPanel.tsx", "logs-SearchResults.tsx", "logs-UsagePanel.tsx", "logs-logic.ts", "logs-styles.css",
     "plugins-PluginsView.tsx", "plugins-PluginDrawer.tsx", "plugins-logic.ts", "plugins-styles.css",
-    "history-HistoryView.tsx", "history-HistoryDrawer.tsx", "history-KeyDiff.tsx", "history-ActorTag.tsx", "history-logic.ts",
+    "history-HistoryView.tsx", "history-HistoryDrawer.tsx", "history-KeyDiff.tsx", "history-logic.ts",
     "history-styles.css",
 )
 MOCK_FILES = ("readonly2-search.ts", "readonly2-history-entries.ts", "readonly2-plugin-show.ts")
@@ -686,7 +688,7 @@ def drawer_css_problems(raw):
 # ---------------------------------------------------------------------------
 
 def test_s1_d11_new_files_and_page_wiring():
-    """S1 / D11（合同 Scope、公共约定）：readonly2 下 25 个新源码与样式、src/mock 下 3 个夹具都在；readonly2 里没有子目录，文件名都不以 Page.tsx 结尾；
+    """S1 / D11（合同 Scope、公共约定）：readonly2 下 23 个新源码与样式（T013 并走的两个不算）、src/mock 下 3 个夹具都在；readonly2 里没有子目录，文件名都不以 Page.tsx 结尾；
     四个页面文件各含 PageFrame、默认导出、从 ./readonly2/ 引入视图，不再有占位行「夹具数据已读到」；日志页引入 common-readers（searchLogs），
     插件页引入 getPlugin，历史页引入 getHistoryEntry；视图收数据与读取函数，由页面文件以模块级引用传入。"""
     need_new_sources()
@@ -3859,9 +3861,9 @@ def test_gate_selfcheck_probe_templates():
 
 
 def test_gate_selfcheck_constants_match_contract():
-    """门禁自检：合同写明的文件清单——readonly2 下 25 个源码与样式文件加 3 个夹具；页面文件 4 个；九份执行端测试；基线的 14 份 JSON 与 9 个页面文件名。"""
-    assert len(R2_FILES) == 25 and len(set(R2_FILES)) == 25
-    assert len(MOCK_FILES) == 3 and len(NEW_SOURCE_FILES) == 28
+    """门禁自检：合同写明的文件清单——readonly2 下 23 个源码与样式文件（T013 并走两个）加 3 个夹具；页面文件 4 个；九份执行端测试；基线的 14 份 JSON 与 9 个页面文件名。"""
+    assert len(R2_FILES) == 23 and len(set(R2_FILES)) == 23
+    assert len(MOCK_FILES) == 3 and len(NEW_SOURCE_FILES) == 26
     assert len(EXECUTOR_TESTS) == 9 and len(set(EXECUTOR_TESTS)) == 9
     assert len(BASELINE_JSON) == 14 and len(BASELINE_PAGES) == 9 and len(PAGE_FILES) == 4
     assert all(n.endswith((".tsx", ".ts", ".css")) for n in R2_FILES)
