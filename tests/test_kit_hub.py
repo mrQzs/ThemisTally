@@ -1305,7 +1305,8 @@ def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypa
         (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
         assert (kh.contract_requirements(hub, ts) == []) is ok, check
     prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], repo)
-    assert "VR1（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q`" in prompt
+    assert "R01（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q`" in prompt
+    assert "VG1" not in prompt and "VR1" not in prompt  # 调度器只认一个大写字母加两位数字（第 43 轮）
 
 
 def test_mutant_timeout_follows_the_whitebox_time():
@@ -4902,3 +4903,27 @@ def test_owner_commands_pause_a_busy_task_runner(tmp_path, monkeypatch):
         with kh.task_quiet(hub, "T002"):
             raise kh.HubError("命令半路出错")
     assert not marker.exists()  # 出错也撤掉标记
+
+
+def test_scope_notes_are_stripped_and_unparsed_check_ids_are_named(tmp_path):
+    # T013 的合同端写了 `tests/test_gate_t013_*.py（执行端禁止碰…）`，调度器连说明一起当成路径，什么也禁不住；
+    # 它又照内核给的范例写了 VG1、VR1，调度器只认一个大写字母加两位数字，两条检查都丢了，返工三次没人说清为什么
+    text = ("## Scope\n- forbidden_paths:\n  - tests/test_gate_t013_*.py（执行端禁止碰）\n"
+            "  - tests/test_gate_*.py（除 t013 外）（执行端禁止碰旧门禁）\n  - src/api.ts\n"
+            "- allowed_modified_files: 无（本片只新增）\n\n## Goal\n- 合并重复件（说明不在 Scope 里，不动）\n")
+    fixed, count = kh.normalize_markup(text)
+    assert count == 2  # 单值字段的说明（`无（本片只新增）`）调度器自己会去掉，不动
+    assert fixed.splitlines()[2:7] == ["  - tests/test_gate_t013_*.py", "  - tests/test_gate_*.py", "  - src/api.ts",
+                                       "- allowed_modified_files: 无（本片只新增）", ""]
+    assert "- 合并重复件（说明不在 Scope 里，不动）" in fixed
+    md = ("## Validation commands\n- VG1（必要，基线应失败）：`python -m pytest tests/test_gate_t013_baseline.py -q` · cwd：仓库根\n"
+          "- V01（必要）：`npm test` · cwd：desktop/web\n- VR1: `python -m pytest tests/x.py -q`\n"
+          "- 说明：这一行不是检查\n\n## Definition of done\n- D01：x；证据：V01\n")
+    assert kh.unparsed_check_ids(md) == ["VG1", "VR1"]
+    repo, hub, ts, plans, _previous = rework_setup(tmp_path)
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n" + md, encoding="utf-8")
+    problems = kh.contract_requirements(hub, ts)
+    assert "Validation commands 里这几行调度器认不出、等于没写：VG1、VR1" in problems[0] and "G01、R01" in problems[0]
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n" + md.replace("VG1", "G01").replace("VR1", "R01"),
+                                          encoding="utf-8")
+    assert not any("认不出" in p for p in kh.contract_requirements(hub, ts))

@@ -1570,6 +1570,13 @@ def regression_gates(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     return sorted(path for path in listing.splitlines() if GATE_BASELINE_RE.match(path) and path != own)
 
 
+def unparsed_check_ids(md: str) -> List[str]:
+    """Validation commands 里看着像检查、调度器却认不出的行的编号。"""
+    lines = (pd._md_section(md, "Validation commands") or "").splitlines()
+    return [CHECK_LIKE_RE.match(line.strip()).group(1) for line in lines
+            if CHECK_LIKE_RE.match(line.strip()) and not pd._CHECK_LINE_RE.match(line.strip())]
+
+
 def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、执行模型与集成授权（设计 §7）；
     合同里不能留“待确认”一类的未决标注。"""
@@ -1579,6 +1586,11 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     except ValueError:
         return ["合同 JSON 读不出来"]
     problems: List[str] = []
+    unparsed = unparsed_check_ids(read_text(md))
+    if unparsed:
+        # 第 43 轮：T013 的合同端照内核给的范例写了 VG1、VR1，调度器只认一个大写字母加两位数字，两条检查都丢了
+        problems.append("Validation commands 里这几行调度器认不出、等于没写：%s。检查编号要是一个大写字母加至少两位"
+                        "数字，例如 G01、R01（DoD 的“证据”里跟着改）" % "、".join(unparsed))
     pending = PENDING_MARK_RE.findall(read_text(md))
     if pending:
         # T001（2026-10-19）：合同端把 4 个待站主确认的问题写成 13 处标注留在正文里，执行端会当成未决事项
@@ -1670,14 +1682,27 @@ def normalize_identity(text: str, values: Dict[str, str]) -> Tuple[str, Dict[str
     return text, changed
 
 
+SCOPE_SECTION_RE = re.compile(r"(?ms)^##[ \t]+Scope[ \t]*$(.*?)(?=^##[ \t]|\Z)")
+#: Scope 列表项末尾的全角括号说明：`- src/a.ts（说明）（另一句）`
+SCOPE_NOTE_RE = re.compile(r"(?m)^([ \t]*[-*][ \t]+[^\s（]+)[ \t]*(?:（[^（）\n]*）[ \t]*)+$")
+#: 看着像检查行的行：编号、可选的（必要…）、冒号、反引号里的命令
+CHECK_LIKE_RE = re.compile(r"^[-*]\s*([A-Za-z][\w-]*)\s*(?:（[^）]*）|\([^)]*\))?\s*[:：]\s*`")
 #: DoD 与检查行的编号写成粗体（`- **D01**: …`、`- **V01：**…`）；调度器只认 `- D01：…`
-BOLD_ITEM_RE = re.compile(r"(?m)^([ \t]*[-*][ \t]*)\*\*([DV]\d{2,})(?:\*\*[ \t]*([:：])|[ \t]*([:：])[ \t]*\*\*)[ \t]*")
+BOLD_ITEM_RE =re.compile(r"(?m)^([ \t]*[-*][ \t]*)\*\*([DV]\d{2,})(?:\*\*[ \t]*([:：])|[ \t]*([:：])[ \t]*\*\*)[ \t]*")
 
 
 def normalize_markup(text: str) -> Tuple[str, int]:
     """把粗体编号改成调度器认得的写法，返回（改正后的全文，改了几行）（第 40 轮）。T011 的合同端三次都写成
-    `- **D01**: …`，调度器一条 DoD 也认不出，报“definition_of_done 必须是非空数组”；协调人的返工信还要它这样写。"""
-    return BOLD_ITEM_RE.subn(r"\g<1>\g<2>：", text)
+    `- **D01**: …`，调度器一条 DoD 也认不出，报“definition_of_done 必须是非空数组”；协调人的返工信还要它这样写。
+
+    第 43 轮：Scope 列表项末尾的全角括号说明也去掉。调度器把它当成路径的一部分，T013 的
+    `tests/test_gate_t013_*.py（执行端禁止碰…）` 什么也禁不住。"""
+    text, bold = BOLD_ITEM_RE.subn(r"\g<1>\g<2>：", text)
+    section = SCOPE_SECTION_RE.search(text)
+    if not section:
+        return text, bold
+    body, notes = SCOPE_NOTE_RE.subn(r"\g<1>", section.group(1))
+    return text[:section.start(1)] + body + text[section.end(1):], bold + notes
 
 
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
@@ -3264,13 +3289,13 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           ts["contract_task"], next_contract_version(ts)[0], ts["base_head"]),
                       "- executor 行照抄：`%s`；integration_actions 写 `local_branch, merge`。" % CONTRACT_EXECUTOR_LINE,
                       "- Scope 的 forbidden_paths 包含 `%s`（门禁测试，执行端不能碰）。" % gate_pattern(ts),
-                      "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换）："
-                      "`- VG1（必要，基线应失败）：`python -m pytest %s -q` · cwd：仓库根 · 超时：600s · 期望退出码：0 · "
+                      "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换，但要是一个大写字母加两位数字，调度器只认这种编号）："
+                      "`- G01（必要，基线应失败）：`python -m pytest %s -q` · cwd：仓库根 · 超时：600s · 期望退出码：0 · "
                       "输出须匹配：`\\d+ passed``。门禁测试由门禁端稍后写好、内核做成基线提交，你只写这一行。" % gate_file(ts, "baseline")]
             regression = regression_gates(hub, ts)
             if regression:
                 parts.append("- 先前各片的门禁基准测试是回归测试，Validation commands 要有一条回归检查，照这个格式写："
-                             "`- VR1（必要，基线应通过）：`python -m pytest %s -q` · cwd：仓库根 · 超时：1800s · "
+                             "`- R01（必要，基线应通过）：`python -m pytest %s -q` · cwd：仓库根 · 超时：1800s · "
                              "期望退出码：0 · 输出须匹配：`\\d+ passed``。" % " ".join(regression))
             parts += ["- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 `%s` 各版本的累计上限（调度器跨版本累计）："
                       "已用掉 %d 次、%d 秒。总数要把它们算进去，给这一版至少留 %d 次 attempt 与 %d 倍单次时限。" % (
