@@ -3521,6 +3521,51 @@ def cmd_task_rebase(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_task_after(args: argparse.Namespace) -> int:
+    """站主在合同端开工之前给主任务补依赖（第 31 轮）：规划之后才发现本片要用另一片新加的接口。T011 的规划要
+    任务页的分组 ID，而 T009 的合同正要给 T006 的 attemptGroups.ts 加 AttemptGroup 与 groupOfState；以前只能在
+    task new 时写 --after。补上之后与登记时写的依赖一样：合同端等它们都结项，内核挪基线、写信再开工。"""
+    hub = Hub(find_repo(args.repo))
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise HubError("--reason 要写明为什么要等（协调人会把它写进合同端的 brief）", EXIT_USAGE)
+    deps = [item.strip() for item in args.on.split(",") if item.strip()]
+    with task_quiet(hub, args.task):
+        with DirLock(hub.root / ".lock"):
+            state = hub.load_state()
+            ts = state["tasks"].get(args.task)
+            if ts is None:
+                raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+            if ts.get("status") != "active":
+                raise HubError("主任务 %s 不在进行中" % args.task, EXIT_USAGE)
+            unknown = [item for item in deps if item not in state["tasks"] or item == args.task]
+            if not deps or unknown:
+                raise HubError("--on 要写别的已登记主任务：%s" % ("、".join(unknown) or "没写"), EXIT_USAGE)
+            cyclic = [item for item in deps if args.task in (state["tasks"][item].get("after") or [])]
+            if cyclic:
+                raise HubError("%s 已经在等 %s：互相等就谁也开不了合同端" % ("、".join(cyclic), args.task), EXIT_USAGE)
+            if ts["contract"] or ts["stages"]["2-contract"]["status"] != "idle":
+                raise HubError("%s 的合同端已经开工：合同钉在当前基线上。要等别的片，就让合同端出新版本，"
+                               "或者先停下这一片" % args.task, EXIT_BLOCKED)
+            waiting = [item for item in deps if state["tasks"][item].get("status") != "done"]
+            if not waiting:
+                print("%s 都已结项，不用等；要换到它们落地后的基线，用 task rebase" % "、".join(deps))
+                return EXIT_OK
+            ts["after"] = sorted(set(ts.get("after") or []) | set(waiting))
+            ts.pop("after_released", None)  # 以前的依赖放行过了：新加的这几个还没有
+            ts.setdefault("after_added", []).append({"at": utc_now(), "on": waiting, "reason": reason})
+            hub.save_state(state)
+            hub.append_event("task.after_added", task=args.task, on=waiting, after=ts["after"])
+            hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": args.task, "in-reply-to": "none", "type": "核验"},
+                        {"摘要": "站主让 %s 等 %s 结项再开工合同端" % (args.task, "、".join(waiting)),
+                         "提交": "无", "验证": "站主的 task after", "偏离": reason,
+                         "需协调人决定": "规划照常；合同端先不开工。%s 结项后内核把基线挪到新末端、写信通知你，再开工合同端，"
+                                       "brief 里写明为什么等" % "、".join(waiting),
+                         "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % args.task})
+    print("%s 的合同端等 %s 结项" % (args.task, "、".join(ts["after"])))
+    return EXIT_OK
+
+
 def cmd_task_cleanup(args: argparse.Namespace) -> int:
     """已结项的主任务：补做结项收尾（结项时没做完的，或第 12 轮之前结项的任务）。"""
     hub = Hub(find_repo(args.repo))
@@ -3976,6 +4021,11 @@ def build_parser() -> argparse.ArgumentParser:
     rebase.add_argument("task")
     rebase.add_argument("--reason", required=True, help="为什么挪（会写进给协调人的信）")
     rebase.set_defaults(func=cmd_task_rebase)
+    after = task.add_parser("after", help="合同端开工之前，让主任务等别的主任务结项（规划之后才发现的依赖）")
+    after.add_argument("task")
+    after.add_argument("--on", required=True, help="要等的主任务（逗号分隔）")
+    after.add_argument("--reason", required=True, help="为什么等（会写进给协调人的信）")
+    after.set_defaults(func=cmd_task_after)
     cleanup = task.add_parser("cleanup", help="已结项主任务的收尾：删掉阶段与 attempt 的 worktree，"
                                               "没有结论的 attempt 记成 ABANDONED")
     cleanup.add_argument("task")

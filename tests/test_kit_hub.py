@@ -3402,6 +3402,52 @@ def test_owner_rebases_a_task_before_its_contract_starts(tmp_path):
     assert kh.main(["--repo", str(repo), "task", "rebase", "T404", "--reason", "x"]) == kh.EXIT_USAGE
 
 
+def test_owner_adds_a_dependency_found_in_planning(tmp_path):
+    # 第 31 轮：T011 的规划要 T009 新加的分组 ID，可 T011 登记时没写 --after
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    state = hub.load_state()
+    for task in ("T006", "T009", "T010", "T011"):
+        state["tasks"][task] = kh.new_task_state(task, task.lower(), task, BASE, True)
+    state["tasks"]["T006"]["status"] = "done"
+    state["tasks"]["T010"]["after"] = ["T011"]
+    state["tasks"]["T011"]["after"] = ["T006"]
+    state["tasks"]["T011"]["after_released"] = {"head": BASE, "previous": BASE, "after": ["T006"]}
+    hub.save_state(state)
+    cmd = ["--repo", str(repo), "task", "after", "T011"]
+    reason = ["--reason", "要用 T009 给 attemptGroups.ts 加的 groupOfState"]
+    assert kh.main(cmd + ["--on", "T009", "--reason", " "]) == kh.EXIT_USAGE  # 要写原因
+    assert kh.main(cmd + ["--on", "T404"] + reason) == kh.EXIT_USAGE
+    assert kh.main(cmd + ["--on", "T011"] + reason) == kh.EXIT_USAGE  # 不能等自己
+    assert kh.main(cmd + ["--on", " , "] + reason) == kh.EXIT_USAGE
+    assert kh.main(cmd + ["--on", "T010"] + reason) == kh.EXIT_USAGE  # T010 在等 T011：互相等
+    assert kh.main(cmd + ["--on", "T006"] + reason) == kh.EXIT_OK  # 已结项：不用等，什么都不改
+    assert hub.unread(kh.COORDINATOR) == [] and hub.load_state()["tasks"]["T011"]["after"] == ["T006"]
+    assert kh.main(cmd + ["--on", "T009,T006"] + reason) == kh.EXIT_OK
+    ts = hub.load_state()["tasks"]["T011"]
+    assert ts["after"] == ["T006", "T009"] and "after_released" not in ts
+    assert ts["after_added"][0]["on"] == ["T009"]
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert "type: 核验" in letter and "等 T009 结项" in letter and "groupOfState" in letter
+    assert "要等它们都结项" in kh.guard(ts, meta("开工", "contract-glm", "T011-2-contract"))
+    assert kh.guard(ts, meta("开工", "planner-opus", "T011-1-plan")) is None  # 规划照常
+    # T009 结项：内核照登记时写的依赖一样放行，把基线挪到末端
+    state = hub.load_state()
+    state["tasks"]["T009"]["status"] = "done"
+    assert kh.release_dependents(hub, state, "T009") == ["T011"]
+    assert state["tasks"]["T011"]["base_head"] == head
+    # 合同端开工之后不能再补：合同钉在当前基线上
+    state["tasks"]["T011"]["stages"]["2-contract"]["status"] = "assigned"
+    hub.save_state(state)
+    assert kh.main(cmd + ["--on", "T009"] + reason) == kh.EXIT_BLOCKED
+    state = hub.load_state()
+    state["tasks"]["T011"]["status"] = "done"
+    hub.save_state(state)
+    assert kh.main(cmd + ["--on", "T009"] + reason) == kh.EXIT_USAGE
+    assert kh.main(["--repo", str(repo), "task", "after", "T404", "--on", "T009"] + reason) == kh.EXIT_USAGE
+
+
 def test_tasks_others_wait_for_get_runners_first(tmp_path):
     # 第 23 轮：T009 依赖 T006；T006 的信晚到，名额满时它也该先拿到
     hub = kh.Hub(tmp_path)
