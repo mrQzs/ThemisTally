@@ -4480,10 +4480,20 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
                   call("bash", command='cd "%s" && ls "%s/.agent/" 2>/dev/null' % (str(ws).replace("\\", "/"), main)),
                   call("bash", command="cat %s/a.md >&2 &>NUL; ls %s 2>>/dev/null" % (main, main)))
     assert quiet["violations"] == [] and len(quiet["warnings"]) == 3
+    # 第 45 轮：T011 门禁端的 grep 模式里有 \|，按引号里的 | 切开之后 `require("` 不是只读命令，整回合作废
+    quoted = audit(call("bash", command='cd "%s" && grep -n "readFileSync\\|require(" tests/a.py | head; echo ===' % main),
+                   call("bash", command="grep -n 'a > b; rm -rf x' %s/f.py" % main),
+                   call("bash", command='grep -n "say \\"hi\\" > x" %s/f.py' % main),
+                   call("bash", command="grep -n a\\|b %s/f.py" % main))
+    assert quoted["violations"] == [] and len(quoted["warnings"]) == 4
+    segments, bare = kh.split_unquoted('a "x|y" | b && c; d || e & f')
+    assert segments == ['a "x|y"', "b", "c", "d", "e", "f"] and "x" not in bare and bare.split() == list("abcdef")
     for event in (call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
                   call("bash", command="ls %s 2>/dev/nullx" % main),  # 不是空设备：照旧算写入
                   call("bash", command="cat %s/a 2>&1 > out.txt" % main),
                   call("bash", command="cd %s && rm -rf tests" % main),
+                  call("bash", command='grep -n "x|y" %s/f.py | tee out.txt' % main),  # 引号外的管道照样切
+                  call("bash", command="echo 'a' > %s/f.py" % main),  # 引号外的 > 照样算写入
                   call("write", path=str(tmp_path / "Repo" / "wtx" / "a.py")),
                   call("bash", command="cp a.py %s" % (repo / "scripts")),
                   call("bash", command="cat x > %s" % str(repo / "y").replace("\\", "/")),

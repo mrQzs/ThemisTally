@@ -1259,6 +1259,43 @@ def path_forms(path: Path) -> List[str]:
     return sorted(forms, key=len, reverse=True)
 
 
+def split_unquoted(command: str) -> Tuple[List[str], str]:
+    """按引号外的 |、||、&&、&、;、换行把命令切成段；返回（各段，去掉引号里内容的全文）。第 45 轮：T011 门禁端的
+    `grep -n "readFileSync\\|require(" …` 被按引号里的 | 切开，切出的 `require("` 不是只读命令，整回合作废。"""
+    segments: List[str] = []
+    current: List[str] = []
+    bare: List[str] = []
+    quote: Optional[str] = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = None
+            elif ch == "\\" and quote == '"' and i + 1 < len(command):
+                current.append(command[i + 1])
+                i += 1
+        elif ch in "'\"":
+            quote = ch
+            current.append(ch)
+        elif ch == "\\" and i + 1 < len(command):
+            current.append(command[i:i + 2])
+            i += 1
+        elif ch in "|&;\n":
+            segments.append("".join(current))
+            current = []
+            bare.append(" ")
+            if command[i:i + 2] in ("||", "&&"):
+                i += 1
+        else:
+            current.append(ch)
+            bare.append(ch)
+        i += 1
+    segments.append("".join(current))
+    return [s.strip() for s in segments if s.strip()], "".join(bare)
+
+
 def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Optional[Path]) -> Tuple[str, str]:
     """pi 不按路径限制写入（claude 有 --disallowedTools 与 --allowedTools）：写文件的工具只能写工作目录，
     bash 不能碰主工作区（第 36 轮，门禁端换到 pi 上）。返回（"violation" / "warning" / "", 说明）。"""
@@ -1273,10 +1310,9 @@ def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Opt
         for form in path_forms(workspace):
             command = command.replace(form, "{工作目录}")  # 占位符不能带 >：会被当成重定向（第 41 轮）
         if any(form in command for form in path_forms(repo)):
-            command = HARMLESS_REDIRECT_RE.sub(" ", command)
-            segments = [s.strip() for s in re.split(r"\|\||&&|[|;\n]", command) if s.strip()]
+            segments, bare = split_unquoted(HARMLESS_REDIRECT_RE.sub(" ", command))
             words = [s.split()[0] for s in segments]
-            read_only = ">" not in command and "sed -i" not in command and all(w in READ_ONLY_COMMANDS for w in words)
+            read_only = ">" not in bare and "sed -i" not in bare and all(w in READ_ONLY_COMMANDS for w in words)
             note = "bash 命令提到了主工作区（主工作区的文件用 read 读）：%s" % str(args.get("command"))[:200]
             return ("warning" if read_only else "violation"), note
     return "", ""
