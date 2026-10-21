@@ -3625,8 +3625,8 @@ def test_owner_commands_only_need_the_task_lock_under_a_supervisor(tmp_path):
         with kh.task_quiet(hub, "T006"):  # 并行：supervisor 不办信，只要主任务的锁
             assert kh.lock_alive(kh.runner_lock(hub, "T006"))
         with kh.DirLock(kh.runner_lock(hub, "T007"), wait_seconds=1.0):
-            with pytest.raises(kh.HubError):  # T007 的 runner 正在办信
-                with kh.task_quiet(hub, "T007"):
+            with pytest.raises(kh.HubError):  # T007 的 runner 正在办信（只等 1 秒；缺省会等它办完这一步）
+                with kh.task_quiet(hub, "T007", wait=1.0):
                     pass
 
 
@@ -4843,3 +4843,62 @@ def test_an_unchanged_attempt_on_a_rework_base_still_carries_the_work(tmp_path):
     assert kh.carry_source(hub, ts) == (run, "upstream")  # 搬过一次、链作废了：基线里仍有活
     ts["rework_chain_superseded"] = []
     assert kh.carry_source(hub, ts) is None  # 基线不是返工提交、补丁又是空的：没有活
+
+
+def test_owner_commands_pause_a_busy_task_runner(tmp_path, monkeypatch):
+    # 第 42 轮：runner 拿着锁直到闲下来退出，T012 一封接一封有信，站主的 task budget 重试半小时也插不进去
+    import argparse
+    import os
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    marker = kh.pause_marker(hub, "T002")
+    assert not kh.pause_requested(hub, "T002")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    assert kh.pause_requested(hub, "T002")
+    monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: False)  # 命令的进程已经不在：标记作废
+    assert not kh.pause_requested(hub, "T002") and not marker.exists()
+    monkeypatch.undo()
+    marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    # runner 在两步之间看到标记就让出锁，不等闲下来
+    monkeypatch.setattr(kh, "code_fingerprint", lambda *args: "a")
+    code = kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=60.0, poll=0.0, settle=0.0,
+                                         no_restart=False, parallel=None, task="T002"))
+    assert code == kh.EXIT_OK and not kh.lock_alive(kh.runner_lock(hub, "T002"))
+    assert '"event": "runner.paused"' in (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    # supervisor 也不给它起 runner
+    hub.save_state({"tasks": {"T002": make_ts()}})
+    hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": "T002", "in-reply-to": "none", "type": "回复"},
+                fields())
+    monkeypatch.setattr(kh, "tasks_with_work", lambda hub_: ["T002"])
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    spawned = []
+    monkeypatch.setattr(kh, "spawn_task_runner", lambda hub_, task, args: spawned.append(task) or type("C", (), {"pid": 7})())
+    kh.supervise_tick(hub, None, 3, {}, {})
+    assert spawned == []
+    marker.unlink()
+    kh.supervise_tick(hub, None, 3, {}, {})
+    assert spawned == ["T002"]
+    # 命令自己挂标记、办完撤掉；supervisor 在跑时缺省等 OWNER_WAIT_SECONDS
+    waits = []
+    real = kh.DirLock.__init__
+
+    def record(self, path, wait_seconds=30.0):
+        waits.append((Path(path).name, wait_seconds))
+        real(self, path, wait_seconds)
+
+    monkeypatch.setattr(kh.DirLock, "__init__", record)
+    with kh.DirLock(kh.runner_lock(hub, None), wait_seconds=1.0):
+        kh.write_text_atomic(kh.runner_lock(hub, None) / "mode", "supervisor\n")
+        with kh.task_quiet(hub, "T002"):
+            assert kh.pause_requested(hub, "T002")
+    assert not marker.exists() and ("T002", kh.OWNER_WAIT_SECONDS) in waits
+    del waits[:]
+    with kh.task_quiet(hub, "T002"):  # 没有 supervisor：串行的 hub 不看标记，照旧只等 1 秒
+        pass
+    assert waits == [("T002", 1.0), (".runner", 1.0)] and not marker.exists()
+    with pytest.raises(kh.HubError):
+        with kh.task_quiet(hub, "T002"):
+            raise kh.HubError("命令半路出错")
+    assert not marker.exists()  # 出错也撤掉标记

@@ -4380,17 +4380,50 @@ def runner_lock(hub: Hub, task: Optional[str]) -> Path:
     return hub.root / ".runner" if task is None else hub.root / ".runners" / task
 
 
+#: 站主的命令最多等主任务的 runner 办完手上这一步多久（门禁、执行端的一个回合可能接近一小时）
+OWNER_WAIT_SECONDS = 3600
+
+
+def pause_marker(hub: Hub, task: str) -> Path:
+    return hub.root / ".pause" / task
+
+
+def pause_requested(hub: Hub, task: str) -> bool:
+    """站主的命令在等这个主任务的 runner 让出锁（第 42 轮）；命令的进程已经不在时，标记作废并删掉。"""
+    marker = pause_marker(hub, task)
+    if not marker.is_file():
+        return False
+    pid = json.loads(read_text(marker) or "{}").get("pid")
+    if pid and pd.pid_alive(int(pid)) is False:
+        marker.unlink(missing_ok=True)
+        return False
+    return True
+
+
 @contextlib.contextmanager
-def task_quiet(hub: Hub, task: str):
+def task_quiet(hub: Hub, task: str, wait: Optional[float] = None):
     """站主的命令要改某个主任务的状态（task close、cleanup、exec-recheck）：这个主任务此刻不能有 runner 在办信。
     拿它的 runner 锁，supervisor 就不会给它起 runner；串行的 hub 办所有主任务的信，还要拿总锁。并行时总锁一直在
-    supervisor 手里，它自己不办信，不用等（第 21 轮：此前一律拿总锁，并行时这三个命令都拿不到锁）。"""
-    with DirLock(runner_lock(hub, task), wait_seconds=1.0):
-        if supervisor_alive(hub):
-            yield
-        else:
-            with DirLock(runner_lock(hub, None), wait_seconds=1.0):
+    supervisor 手里，它自己不办信，不用等（第 21 轮：此前一律拿总锁，并行时这三个命令都拿不到锁）。
+
+    第 42 轮：runner 拿着锁直到闲下来退出，T012 一封接一封有信，站主的 task budget 重试半小时也插不进去。
+    并行时先挂暂停标记：runner 办完手上这一步就让出锁，supervisor 不再给它起 runner，命令办完撤掉标记。"""
+    if wait is None:
+        wait = OWNER_WAIT_SECONDS if supervisor_alive(hub) else 1.0
+    marker = pause_marker(hub, task)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(marker, json.dumps({"pid": os.getpid(), "at": utc_now()}) + "\n")
+    try:
+        if lock_alive(runner_lock(hub, task)):
+            print("等 %s 的 runner 办完手上这一步（最长 %d 秒）……" % (task, wait), flush=True)
+        with DirLock(runner_lock(hub, task), wait_seconds=wait):
+            if supervisor_alive(hub):
                 yield
+            else:
+                with DirLock(runner_lock(hub, None), wait_seconds=1.0):
+                    yield
+    finally:
+        marker.unlink(missing_ok=True)
 
 
 def supervisor_alive(hub: Hub) -> bool:
@@ -4454,6 +4487,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                     "已提交，hub 在两步之间用新代码重启" if restart else
                     "hub 在两步之间退出（%s），请用新代码重启" % (
                         "--no-restart" if args.no_restart else "还有未提交的改动")), flush=True)
+                break
+            if task is not None and pause_requested(hub, task):  # 站主的命令在等锁（第 42 轮）
+                hub.append_event("runner.paused", pid=os.getpid(), steps=turns, task=task)
+                print("站主的命令在等 %s 的锁：让出" % task, flush=True)
                 break
             passes = [p for p in hub.unread("exec-step") if parse_letter(read_text(p))[0].get("type") == "通过"
                       and (task is None or letter_main(p) == task)]
@@ -4562,6 +4599,8 @@ def supervise_tick(hub: Hub, args: argparse.Namespace, parallel: int, children: 
     spawned = 0
     for task in pending:
         if task in children or task in adopted or failures.get(task, 0) >= RUNNER_CRASH_LIMIT:
+            continue
+        if pause_requested(hub, task):  # 站主的命令在等它的锁（第 42 轮）
             continue
         if live >= parallel or kernel_dirty():
             break  # 满了；或内核有未提交的改动，说不清子进程会跑哪一份代码，等落定
