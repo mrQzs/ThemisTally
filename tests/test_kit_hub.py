@@ -4580,3 +4580,214 @@ def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypat
     blocked["n"] = 0
     assert kh.read_text(tmp_path / "missing.txt") == ""
     assert kh.Hub(tmp_path / "fresh").load_state() == {"tasks": {}}  # 还没有 state.json：照旧是空的
+
+
+def cut_short(run_dir, report="missing", stop="length", files=("a.tsx", "b.tsx")):
+    """执行端的输出被截断：最后一条 stopReason=length，执行报告没写成。"""
+    (run_dir / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    (run_dir / "scope.json").write_text(json.dumps({"violations": [], "files": [{"path": f} for f in files]}),
+                                        encoding="utf-8")
+    (run_dir / "events-summary.json").write_text(json.dumps({"final_stop_reason": stop}), encoding="utf-8")
+    (run_dir / "report-status.json").write_text(json.dumps({"status": report}), encoding="utf-8")
+
+
+def test_a_cut_off_attempt_is_continued_instead_of_restarted(tmp_path, monkeypatch):
+    # T012 的 attempt-002：5170s、新增 30 个文件，V01 56 条只差 3 条，模型输出被截断没交报告，重派却从基线从头来
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    failed_checks(previous)
+    cut_short(previous)
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous), "check_ok": False, "status": "NEEDS_REVIEW"}, {}
+    assert kh.carry_source(hub, ts) == (previous, "cutoff")
+    for report, stop in (("json_ok", "length"), ("missing", "stop"), ("no_json", "toolUse")):
+        cut_short(previous, report, stop)  # 交了报告的，或者不是截断（被杀、自己停）：照旧从基线重来
+        assert kh.carry_source(hub, ts) is None
+    cut_short(previous, "no_json")  # 报告写了一半被截断：也接着改
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        if args[0] == "verdict":
+            assert args[args.index("--class") + 1] == "EXECUTION_ERROR"
+            (previous / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        if args[0] == "branch":
+            return 0, "commit=%s branch=pi-rework/x" % ("a" * 40)
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["verdict", "branch", "derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "输出被截断（stopReason=length）" in v2 and "上一轮跑满了时限" not in v2
+    assert "### 上一轮没过的地方" in v2 and "- V01：退出码 1 ≠ 期望 0" in v2
+    assert ts["rework_chain"][-1]["why"] == "cutoff"
+
+
+def test_an_abandoned_attempt_is_skipped_when_looking_for_a_candidate(tmp_path):
+    # 站主停掉从头重来的 attempt-003（记成 ABANDONED），返工要接着被截断的 attempt-002 改
+    repo, hub, ts, plans, first = rework_setup(tmp_path)
+    runs, ts["audit_post"] = first.parent, {}
+    for name in ("attempt-002", "attempt-003"):
+        (runs / name).mkdir()
+        (runs / name / "candidate.patch").write_text("diff --git a/y b/y\n", encoding="utf-8")
+    cut_short(runs / "attempt-002")
+    cut_short(runs / "attempt-003", stop="toolUse")
+    ts["exec"] = {"run_dir": str(runs / "attempt-003"), "check_ok": False}
+    assert kh.carry_source(hub, ts) is None  # 没停掉：被杀的不是截断，照旧从基线重来
+    (runs / "attempt-003" / "state.json").write_text(json.dumps({"state": "ABANDONED"}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-002", "cutoff")
+    timed_out(runs / "attempt-002")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-002", "timeout")
+    ts["exec"] = {}
+    assert kh.carry_source(hub, ts) == (runs / "attempt-002", "upstream")  # 上游重新交付：同样跳过停掉的
+    cut_short(runs / "attempt-002", stop="stop")
+    passed_checks(runs / "attempt-002")
+    ts["exec"] = {"run_dir": str(runs / "attempt-003"), "check_ok": False}
+    assert kh.carry_source(hub, ts) is None  # 检查全过、活干完了的：不在这里接着改
+    (runs / "attempt-002" / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    cut_short(first)
+    assert kh.carry_source(hub, ts) is None  # 已经有去处的之前都不再看
+
+
+def test_exec_letter_counts_the_candidate_and_names_the_failed_checks(engine_env, monkeypatch):
+    # T012 的交付信写“改动 0 个文件”（数的是执行报告），协调人照着回“仍 0 文件改动”
+    hub = engine_env
+    check = {"code": 1}
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (check["code"], "check 输出"))
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    (run_dir / "executor-report.json").unlink()
+    cut_short(run_dir, files=("a.tsx", "b.tsx", "c.css"))
+    failed_checks(run_dir)
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1}
+    contract = kh.contract_paths(hub, ts)[1]
+    contract.parent.mkdir(parents=True, exist_ok=True)
+    contract.write_text(json.dumps({"budget": {"max_attempts_total": 3}}), encoding="utf-8")
+    (run_dir / "claim").mkdir()
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert "执行端自述 没交执行报告（模型最后一条输出被截断：stopReason=length）" in letter["摘要"]
+    assert "候选改动 3 个文件" in letter["摘要"]
+    assert letter["验证"].endswith("没过的检查：V01（FAILED tests/x.py::test_V01）；合同预算还剩 2 次 attempt")
+    cut_short(run_dir, stop="toolUse", files=())
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert "执行端自述 未知（没有可读的执行报告）" in letter["摘要"] and "候选改动 0 个文件" in letter["摘要"]
+    (run_dir / "executor-report.json").write_text(json.dumps({"executor_status": "completed", "changed_files": ["x"]}),
+                                                  encoding="utf-8")
+    (run_dir / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    check["code"] = 0
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert "执行端自述 completed" in letter["摘要"] and "候选改动 1 个文件" in letter["摘要"]  # 没有清单才数报告
+    assert "没过的检查" not in letter["验证"]
+    contract.unlink()
+    assert "预算" not in kh.finish_exec(hub, ts, run_dir, 0)["验证"]  # 读不到合同：不写
+
+
+def test_an_unsent_contract_gets_the_rostered_executor_before_dispatch(tmp_path, monkeypatch):
+    # T012 的 v1 在名册换执行模型之前就通过了校验，派遣时仍写着 step 提供商，预检失败白用掉一次 attempt
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    ts["exec"], ts["audit_post"] = {}, {}
+    ts["contract"].update(dispatched=False, md=".agent/plans/t001-doc.v1.md")
+    md = plans / "t001-doc.v1.md"
+    md.write_text(md.read_text(encoding="utf-8") + "- executor: step/step-5-preview · thinking high\n", encoding="utf-8")
+    calls, answer = [], {"validate": (0, "ok")}
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        return (9, "prepare 停在这里") if args[0] == "prepare" else answer.get(args[0], (0, "ok"))
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["derive-json", "validate", "prepare t001-doc.v1"]
+    assert kh.CONTRACT_EXECUTOR_LINE in md.read_text(encoding="utf-8")
+    del calls[:]
+    kh.run_exec(hub, ts)
+    assert calls == ["prepare t001-doc.v1"]  # 已经一致：不再校验
+    md.write_text(md.read_text(encoding="utf-8").replace(kh.CONTRACT_EXECUTOR_LINE, "- executor: x/y · thinking high"),
+                  encoding="utf-8")
+    answer["validate"] = (1, "合同坏了")
+    del calls[:]
+    letter = kh.run_exec(hub, ts)
+    assert calls == ["derive-json", "validate"] and "执行端没有开始" in letter["摘要"]
+    assert "没有通过校验" in ts["exec"]["error"]
+
+
+def test_owner_raises_the_attempt_budget(tmp_path, monkeypatch):
+    # T012 的 attempt-003 是内核把被截断的候选当成从头重来用掉的，接着改的返工只剩最后一次
+    import argparse
+    import os
+    import re
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v3.md").write_text(
+        "# TASK: t001-doc\n- plan_version: 3\n- base_sha: %s\n\n## Budget\n- max_attempts_total: 3\n"
+        "- max_wall_seconds_per_attempt: 7200\n- max_wall_seconds_total: 21600\n" % ("o" * 40), encoding="utf-8")
+
+    def derive(key):
+        text = (plans / ("%s.md" % key)).read_text(encoding="utf-8")
+        budget = {k: int(v) for k, v in re.findall(r"(?m)^- (max_\w+):\s*(\d+)$", text)}
+        (plans / ("%s.json" % key)).write_text(json.dumps({"budget": budget}), encoding="utf-8")
+
+    derive("t001-doc.v3")
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["contract"] = {"key": "t001-doc.v3", "version": 3, "dispatched": True, "md": ".agent/plans/t001-doc.v3.md"}
+    ts["exec"] = {"run_dir": "r", "check_ok": False, "attempts_left": 0}
+    ts["stages"]["5-exec"]["status"] = "failed"
+    hub.save_state({"tasks": {"T001": ts}})
+    assert "预算的 attempt 已经用完" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    for number in (1, 2, 3):
+        run = repo / ".agent" / "runs" / "t001-doc" / ("attempt-00%d" % number)
+        (run / "claim").mkdir(parents=True)
+        (run / "run.json").write_text(json.dumps({"wall_seconds": 6000}), encoding="utf-8")
+    calls, answer = [], {"validate": (0, "ok")}
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0])
+        if args[0] == "derive-json":
+            derive(args[1])
+        return answer.get(args[0], (0, "ok"))
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    args = argparse.Namespace(repo=str(repo), task="T001", attempts=4, reason="两次是内核的错")
+    with pytest.raises(kh.HubError, match="至少 5"):  # 已用 3 次，返工之后还要留一次
+        kh.cmd_task_budget(args)
+    for bad in ({"reason": " "}, {"task": "T009"}, {"attempts": 21}, {"attempts": 3}):
+        with pytest.raises(kh.HubError):
+            kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), **bad)))
+    kh.exec_marks(hub).mkdir(parents=True)
+    mark = kh.exec_marks(hub) / "T001.json"
+    mark.write_text(json.dumps({"pid": os.getpid(), "task": "T001"}), encoding="utf-8")
+    with pytest.raises(kh.HubError, match="执行端正在办"):
+        kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), attempts=5)))
+    mark.unlink()
+    state = hub.load_state()
+    status, state["tasks"]["T001"]["status"] = state["tasks"]["T001"]["status"], "done"
+    hub.save_state(state)
+    with pytest.raises(kh.HubError, match="没有可追加预算"):
+        kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), attempts=5)))
+    state["tasks"]["T001"]["status"] = status
+    hub.save_state(state)
+    assert not (plans / "t001-doc.v4.md").exists() and calls == []
+    assert kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), attempts=5))) == kh.EXIT_OK
+    v4 = (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
+    assert "- plan_version: 4" in v4 and "- max_attempts_total: 5" in v4
+    assert "- max_wall_seconds_total: 32400" in v4  # 已用 18000 秒，再留两次单次时限
+    assert "- max_attempts_total: 3" in (plans / "t001-doc.v3.md").read_text(encoding="utf-8")  # 派遣过的不改
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["contract"]["key"] == "t001-doc.v4" and ts["exec"]["attempts_left"] == 2
+    assert kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None  # 协调人能重发返工了
+    assert calls == ["derive-json", "validate"]
+    assert '"event": "budget.raised"' in (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    with pytest.raises(kh.HubError, match="要大于现在的 5"):  # 只能追加
+        kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), attempts=5)))
+    answer["validate"] = (1, "合同坏了")
+    with pytest.raises(kh.HubError, match="预算没有追加成"):
+        kh.cmd_task_budget(argparse.Namespace(**dict(vars(args), attempts=6)))
+    ts = hub.load_state()["tasks"]["T001"]  # 没派遣过的 v4 就地改；问题记在状态里
+    assert ts["contract"]["key"] == "t001-doc.v4" and ts["contract"]["problems"]
+    assert "- max_attempts_total: 6" in (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
