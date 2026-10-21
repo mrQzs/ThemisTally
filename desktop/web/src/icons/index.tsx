@@ -250,3 +250,26 @@ export const EyeOffIcon = (props: IconProps) => (
     <path d="m2 2 20 20" />
   </Svg>
 );
+
+// 第 7 片（T008）新增的三个图标，路径照画布（领域板 :381、详情页 :638 与 :389）。
+export const PauseIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect width="4" height="14" x="6" y="5" rx="1" />
+    <rect width="4" height="14" x="14" y="5" rx="1" />
+  </Svg>
+);
+
+export const FilterIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </Svg>
+);
+
+export const FileDiffIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <path d="M9 10h6" />
+    <path d="M12 13V7" />
+    <path d="M9 17h6" />
+  </Svg>
+);

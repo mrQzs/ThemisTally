@@ -62,3 +62,9 @@ export { CommandLine, dispatchCommand } from './CommandLine';
 export type { CommandLineProps } from './CommandLine';
 export { NextStep } from './NextStep';
 export type { NextStepProps } from './NextStep';
+
+// 第 7 片：差异视图（7.14）与日志跟随（7.15）
+export { DiffView } from './DiffView';
+export type { DiffViewProps } from './DiffView';
+export { LogFollow } from './LogFollow';
+export type { LogFollowProps } from './LogFollow';

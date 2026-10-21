@@ -1,0 +1,54 @@
+/* 差异视图（UI 文档 7.14、详情页 :387–461）：取值见合同 §2，出处写 handoff 行号、画布简称加行号或规划端定。 */
+.tt-diff {
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden; /* 详情页 :387 */
+}
+.tt-diff__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-space-2) var(--tt-space-3); padding: var(--tt-space-2) var(--tt-space-3); border-bottom: 1px solid var(--tt-border); } /* 详情页 :388 */
+.tt-diff__summary { display: inline-flex; align-items: center; gap: var(--tt-space-2); font: var(--tt-text-sm); color: var(--tt-text-2); }
+.tt-diff__summary-title { font: var(--tt-mono-sm); }
+.tt-diff__plus { color: var(--tt-tone-success-fg); }
+.tt-diff__minus { color: var(--tt-tone-danger-fg); }
+.tt-diff__bar .tt-seg { margin-left: auto; }
+.tt-diff__main { display: flex; }
+.tt-diff__files { flex: none; width: 260px; /* handoff :149 */ margin: 0; padding: var(--tt-space-1); border-right: 1px solid var(--tt-border); display: flex; flex-direction: column; gap: var(--tt-space-0_5); list-style: none; }
+.tt-diff__file-item { width: 100%; min-height: 32px; /* 详情页 :401 */ display: flex; align-items: center; gap: var(--tt-space-2); padding: var(--tt-space-1) var(--tt-space-2); border: none; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); text-align: left; }
+.tt-diff__file-item[aria-current="true"] { background: var(--tt-surface-selected); }
+.tt-diff__file-item:hover { background: var(--tt-surface-3); }
+.tt-diff__file-path { flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.tt-diff__file-path > span { direction: ltr; unicode-bidi: isolate; }
+.tt-diff__binary-tag { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-diff__content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tt-space-3); padding: var(--tt-space-3); }
+.tt-diff__file { border: 1px solid var(--tt-border); border-radius: var(--tt-radius-md); overflow: hidden; }
+.tt-diff__file-head { display: flex; align-items: center; gap: var(--tt-space-2); height: 36px; /* 规划端定 */ padding: 0 var(--tt-space-1) 0 var(--tt-space-2); background: var(--tt-surface-2); border-bottom: 1px solid var(--tt-border); }
+.tt-diff__file[data-collapsed="true"] .tt-diff__file-head { border-bottom: none; }
+.tt-diff__file[data-binary="true"] .tt-diff__file-head { padding-left: 40px; /* 详情页 :458 */ }
+.tt-diff__file-head .tt-icon-btn { width: 24px; height: 24px; /* 详情页 :408 */ border-radius: var(--tt-radius-sm); }
+.tt-diff__file-name { flex: 1; min-width: 0; font: var(--tt-mono-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-diff__file-note { font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-diff__file-body { overflow-x: auto; }
+.tt-diff__placeholder, .tt-diff__empty { padding: var(--tt-space-3) var(--tt-space-4); font: var(--tt-text-sm); color: var(--tt-text-3); }
+.tt-diff__table { width: max-content; min-width: 100%; }
+.tt-diff__row { font: var(--tt-mono-md); }
+.tt-diff[data-mode="unified"] .tt-diff__row { display: grid; grid-template-columns: 44px 44px 18px minmax(0, 1fr); min-width: 560px; /* handoff :149 */ }
+.tt-diff[data-mode="split"] .tt-diff__row { display: grid; grid-template-columns: 44px 18px minmax(0, 1fr) 44px 18px minmax(0, 1fr); min-width: 760px; /* handoff :149 */ }
+.tt-diff__row[data-kind="hunk"] { grid-column: 1 / -1; background: var(--tt-surface-2); color: var(--tt-text-3); }
+.tt-diff__text { white-space: pre; padding-right: var(--tt-space-3); }
+.tt-diff[data-mode="split"] .tt-diff__text { padding-right: var(--tt-space-2); }
+.tt-diff[data-wrap="true"] .tt-diff__text { white-space: pre-wrap; word-break: break-all; }
+.tt-diff__row[data-kind="add"] { background: var(--tt-diff-add); }
+.tt-diff__row[data-kind="del"] { background: var(--tt-diff-del); }
+.tt-diff__row [data-kind="add"] { background: var(--tt-diff-add); }
+.tt-diff__row [data-kind="del"] { background: var(--tt-diff-del); }
+.tt-diff__row [data-kind="empty"] { background: var(--tt-surface-2); }
+.tt-diff__row [data-side="left"].tt-diff__text { border-right: 1px solid var(--tt-border); }
+.tt-diff__no { text-align: right; padding-right: var(--tt-space-2); color: var(--tt-text-3); user-select: none; }
+.tt-diff[data-mode="unified"] .tt-diff__no:nth-child(2) { border-right: 1px solid var(--tt-border); }
+.tt-diff__sign { text-align: center; font-weight: 600; user-select: none; }
+.tt-diff__row[data-kind="add"] .tt-diff__sign { color: var(--tt-tone-success-fg); }
+.tt-diff__row[data-kind="del"] .tt-diff__sign { color: var(--tt-tone-danger-fg); }
+.tt-diff__eof { color: var(--tt-text-3); margin-left: var(--tt-space-1); user-select: none; }
+.tt-diff[data-mode="split"] .tt-diff__row[data-kind="hunk"] { padding-left: var(--tt-space-3); white-space: pre; }
+.tt-diff__foot { display: flex; align-items: center; background: var(--tt-surface-2); border-top: 1px solid var(--tt-border); padding: var(--tt-space-2) var(--tt-space-3); font: var(--tt-text-caption); color: var(--tt-text-3); }
+.tt-diff__foot .tt-btn { margin-left: auto; }

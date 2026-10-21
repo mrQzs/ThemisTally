@@ -1,0 +1,3 @@
+/* 第 7 片演示的补充样式：差异视图与日志跟随容器限宽（与证据查看器同宽）。其余复用 App.css 的 showcase__* 类，颜色一律取令牌。 */
+.showcase-diff__view { max-width: 880px; width: 100%; } /* 演示自定：与摘要、查看器同宽 */
+.showcase-diff__log { max-width: 880px; width: 100%; } /* 演示自定：与差异视图同宽 */
