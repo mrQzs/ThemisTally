@@ -1007,17 +1007,22 @@ def retire_attempts(hub: Hub, ts: Dict[str, Any], reason: str) -> List[str]:
     runs = hub.repo / ".agent" / "runs" / ts["contract_task"]
     for run_dir in sorted(runs.glob("attempt-*")) if runs.is_dir() else []:
         state = pd.get_state(run_dir)
-        if state in ATTEMPT_IN_FLIGHT:
+        # 第 47 轮：T012 的 attempt-001 预检失败、从没开跑（没有 run-started.json），一直停在 PREPARED；
+        # 主任务结项之后它不会再跑，照没有结论的收尾
+        never_ran = state == "PREPARED" and not (run_dir / "run-started.json").exists()
+        if state in ATTEMPT_IN_FLIGHT and not never_ran:
             problems.append("%s 还处在 %s，没有动" % (run_dir.name, state))
             continue
-        if state == "NEEDS_REVIEW":
+        if state == "NEEDS_REVIEW" or never_ran:
             code, out = run_pd(hub, ["mark", str(run_dir), "ABANDONED", "--reason", reason])
             if code != 0:
                 problems.append("%s 没能记成 ABANDONED：%s" % (run_dir.name, tail(out, 3)))
                 continue
         worktree = json.loads(read_text(run_dir / "meta.json") or "{}").get("worktree")
         if worktree and Path(worktree).exists():
-            code, out = run_pd(hub, ["cleanup", str(run_dir)])
+            # 没开跑的没有候选记录，cleanup 怕丢改动拒绝；worktree 里确实没有改动才强制删
+            clean = never_ran and not workspace_status(Path(worktree))
+            code, out = run_pd(hub, ["cleanup", str(run_dir)] + (["--force"] if clean else []))
             if code != 0:
                 problems.append("%s 的 worktree 没删掉：%s" % (run_dir.name, tail(out, 3)))
     return problems

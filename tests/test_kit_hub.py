@@ -2568,6 +2568,22 @@ def test_finished_tasks_remove_their_stage_worktrees(tmp_path, monkeypatch):
     pd_calls.clear()
     assert kh.retire_attempts(hub, ts, "收尾") == ["attempt-001 没能记成 ABANDONED：ERROR 拒绝"]
     assert [c[0] for c in pd_calls] == ["mark"]
+    # 第 47 轮（T012）：预检失败、从没开跑的 attempt 停在 PREPARED：照样收尾；worktree 干净才强制删
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: pd_calls.append(list(args)) or (0, "ok"))
+    (attempts["attempt-001"] / "state.json").write_text(json.dumps({"state": "PREPARED"}), encoding="utf-8")
+    (tmp_path / "wt-attempt-001").rmdir()
+    kh.git(["worktree", "add", "-q", "--detach", str(tmp_path / "wt-attempt-001"), head], repo)
+    pd_calls.clear()
+    assert kh.retire_attempts(hub, ts, "收尾") == []
+    assert pd_calls == [["mark", str(attempts["attempt-001"]), "ABANDONED", "--reason", "收尾"],
+                        ["cleanup", str(attempts["attempt-001"]), "--force"]]
+    (tmp_path / "wt-attempt-001" / "改过.txt").write_text("x", encoding="utf-8")  # 有改动：不强制
+    pd_calls.clear()
+    kh.retire_attempts(hub, ts, "收尾")
+    assert pd_calls[-1] == ["cleanup", str(attempts["attempt-001"])]
+    (attempts["attempt-001"] / "run-started.json").write_text("{}", encoding="utf-8")  # 开跑了：可能还在跑，不动
+    pd_calls.clear()
+    assert kh.retire_attempts(hub, ts, "收尾") == ["attempt-001 还处在 PREPARED，没有动"] and pd_calls == []
 
 
 def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):
