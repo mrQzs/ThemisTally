@@ -1116,6 +1116,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
     result: Dict[str, Any] = {}
     models = set()
     api_error: Optional[str] = None
+    rejected_until: Optional[int] = None  # 额度限制（rate_limit_event 的 rejected）解除的时刻，epoch 秒
     outside: Dict[str, str] = {}  # 白名单之外的 tool_use：id → 工具名
     refused: set = set()
     for line in lines:
@@ -1156,6 +1157,9 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
                 if (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")
                         and block.get("tool_use_id") in outside and "No such tool available" in str(block.get("content"))):
                     refused.add(block["tool_use_id"])
+        elif kind == "rate_limit_event":
+            info = event.get("rate_limit_info") or {}
+            rejected_until = info.get("resetsAt") if info.get("status") == "rejected" else None
         elif kind == "result":
             result = event
     if not init:
@@ -1182,7 +1186,8 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
             "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
-            "models": sorted(models), "terminal": bool(result), "api_error": api_error}
+            "models": sorted(models), "terminal": bool(result), "api_error": api_error,
+            "rate_limited_until": rejected_until if api_error and isinstance(rejected_until, int) else None}
 
 
 def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
@@ -1352,6 +1357,7 @@ class TurnRunner:
                               cost_usd=turn_cost, wall_seconds=summary["wall_seconds"])
         summary["output"] = output
         summary["turn_dir"] = str(turn_dir)
+        summary["rate_limited_until"] = audit.get("rate_limited_until")
         return summary
 
 
@@ -2952,6 +2958,71 @@ def letter_from_output(agent: str, task_id: str, data: Dict[str, Any]) -> Tuple[
 # 调度循环
 # ---------------------------------------------------------------------------
 
+def hold_letters(hub: Hub, ts: Dict[str, Any], agent: str, names: List[str], until: int,
+                 suffix: Optional[str], turn_id: str) -> str:
+    """回合撞上模型接口的额度限制（第 33 轮）：读掉的信先扣着，到解除的时刻再放回信箱。T010 的门禁端撞上
+    “session limit · resets 5:20am”，阶段判 failed、主任务等站主回信，17 分钟后才接着做；夜里撞上就是几个小时。
+    限制什么时候解除，事件流里写着（rate_limit_event 的 resetsAt），不用人来判断。返回解除的时刻。"""
+    at = _dt.datetime.fromtimestamp(int(until), _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts.setdefault("held", []).append({"agent": agent, "letters": list(names), "until": at, "suffix": suffix,
+                                      "turn": turn_id})
+    if suffix:
+        ts["stages"][suffix].update(status="paused", note="额度限制：%s 之后内核把信放回信箱，接着做" % at)
+    hub.append_event("letters.held", task=ts["task"], agent=agent, letters=list(names), until=at)
+    hub.deliver({"from": KERNEL, "to": OWNER, "task-id": ts["task"], "in-reply-to": "none", "type": "核验"},
+                {"摘要": "%s 撞上模型接口的额度限制：%s 之后内核自动接着做，不用回信" % (agent, at),
+                 "提交": "无", "验证": "事件流里的 rate_limit_event（rejected，resetsAt）", "偏离": "无",
+                 "需协调人决定": "无。要提前接着做，就在解除之后用 kit_hub.py send %s --type 回复" % ts["task"],
+                 "证据": "回合 %s" % turn_id})
+    return at
+
+
+def release_held(hub: Hub) -> List[str]:
+    """到点的扣信放回信箱（cur 移回 new），停下的阶段回到 assigned；返回放回了哪些主任务的信。
+    supervisor 每一轮、runner 每一步之前都调用：几个进程同时放，挪不动的就是别人已经放回了。"""
+    state = hub.load_state()
+    now = utc_now()
+    released: List[str] = []
+    for task, ts in state["tasks"].items():
+        due = [item for item in ts.get("held") or [] if item["until"] <= now]
+        for item in due:
+            stage = ts["stages"].get(item.get("suffix") or "")
+            if stage is not None and stage["status"] != "paused":
+                # 站主提前回了信、协调人另外开工过：再放回去就做两遍
+                hub.append_event("letters.dropped", task=task, agent=item["agent"], letters=item["letters"],
+                                 stage_status=stage["status"])
+                continue
+            box = hub.inbox(item["agent"])
+            for name in item["letters"]:
+                try:
+                    os.rename(str(box.parent / "cur" / name), str(box / name))
+                except OSError:
+                    pass
+            if stage is not None:
+                stage.update(status="assigned", note="")
+            hub.append_event("letters.released", task=task, agent=item["agent"], letters=item["letters"])
+        if due:
+            ts["held"] = [item for item in ts["held"] if item not in due]
+            released.append(task)
+    if released:
+        hub.save_state(state)
+    return released
+
+
+def letters_held(hub: Hub) -> bool:
+    """还有扣着、没到点的信：supervisor 与串行的 hub 不能因为空闲退出，否则到点没人放回。"""
+    return any(ts.get("held") for ts in hub.load_state()["tasks"].values())
+
+
+def supervisor_busy(hub: Hub, pending: List[str], live: int) -> bool:
+    return bool(pending or live or letters_held(hub))
+
+
+def runner_may_idle_exit(hub: Hub, task: Optional[str]) -> bool:
+    """主任务 runner 空闲了可以退：到点由 supervisor 再起；串行的 hub 有扣着的信就不退。"""
+    return task is not None or not letters_held(hub)
+
+
 class Engine:
     def __init__(self, hub: Hub, runner: Optional[TurnRunner] = None, only_task: Optional[str] = None) -> None:
         self.hub = hub
@@ -2977,6 +3048,7 @@ class Engine:
         return agent, same
 
     def step(self) -> bool:
+        release_held(self.hub)
         job = self.next_job()
         if job is None:
             return False
@@ -3041,6 +3113,11 @@ class Engine:
                                    retry_of=turn["turn_id"])
         state = self.hub.load_state()
         ts = state["tasks"][main]
+        if turn.get("rate_limited_until") and not turn["violations"]:
+            hold_letters(self.hub, ts, COORDINATOR, [p.name for p in paths], turn["rate_limited_until"], None,
+                         turn["turn_id"])
+            self.hub.save_state(state)
+            return
         if turn["violations"] or turn["output"] is None:
             reason = "；".join(turn["violations"]) or turn["output_error"] or "没有输出"
             self.escalate(ts, "协调人回合作废：%s（回合 %s）" % (reason, turn["turn_id"]))
@@ -3177,6 +3254,11 @@ class Engine:
             error = self.output_problem(agent, task_id, turn)
         state = self.hub.load_state()
         ts = state["tasks"][main]
+        if turn.get("rate_limited_until") and not turn["violations"]:
+            hold_letters(self.hub, ts, agent, [p.name for p in taken], turn["rate_limited_until"], suffix,
+                         turn["turn_id"])
+            self.hub.save_state(state)
+            return
         if turn["violations"] or error:
             reason = "；".join(turn["violations"]) or error
             ts["stages"][suffix].update(status="failed", note="回合作废：%s" % reason)
@@ -3892,7 +3974,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 turns += 1
                 idle_since = time.monotonic()
                 continue
-            if time.monotonic() - idle_since >= args.idle_exit:
+            if time.monotonic() - idle_since >= args.idle_exit and runner_may_idle_exit(hub, task):
                 break
             time.sleep(args.poll)
         hub.append_event("runner.stopped", pid=os.getpid(), steps=turns, task=task)
@@ -3970,6 +4052,7 @@ def supervise_tick(hub: Hub, args: argparse.Namespace, parallel: int, children: 
                          "提交": "无", "验证": "最后一次退出码 %d" % code, "偏离": "无",
                          "需协调人决定": "请站主看日志、修好之后重启 hub（kit_hub.py run）",
                          "证据": ".agent/mailbox/runners/%s.log" % task})
+    release_held(hub)  # 到点的扣信放回信箱，下面就会给那个主任务起 runner（第 33 轮）
     pending = tasks_with_work(hub)
     # 上一代 supervisor 起的、还在跑的主任务 runner（重启之后接着算数，不重复起）
     adopted = [p.name for p in sorted((hub.root / ".runners").glob("*"))
@@ -4019,7 +4102,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
                 pending, live, spawned = [], 1, 0
                 time.sleep(max(args.poll, 5.0))
             started += spawned
-            if pending or live:
+            if supervisor_busy(hub, pending, live):  # 扣着的信到点要有人放回（第 33 轮）
                 idle_since = time.monotonic()
             elif time.monotonic() - idle_since >= args.idle_exit:
                 break

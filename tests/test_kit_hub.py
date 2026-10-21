@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1408,8 +1409,10 @@ class FakeRunner:
         output, violations, *rest = self.outputs.pop(0)
         api_error = rest[0] if rest else None
         timed_out = rest[1] if len(rest) > 1 else False
+        rate_limited_until = rest[2] if len(rest) > 2 else None
         return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output,
                 "violations": violations, "api_error": api_error, "timed_out": timed_out,
+                "rate_limited_until": rate_limited_until,
                 "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块")}
 
 
@@ -1643,6 +1646,148 @@ def test_model_api_errors_are_not_retried_and_go_to_the_owner(engine_env):
     assert hub.unread(kh.COORDINATOR) == []  # 协调人也会撞上同样的错：不唤醒它
     letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
     assert len(letters) == 1 and "403" in letters[0]
+
+
+LIMIT = "429 rate_limit：You've hit your session limit · resets 5:20am (America/Los_Angeles)"
+
+
+def make_held_due(hub):
+    state = hub.load_state()
+    for item in state["tasks"]["T001"]["held"]:
+        item["until"] = "2000-01-01T00:00:00Z"
+    hub.save_state(state)
+
+
+def test_a_rate_limited_worker_turn_is_held_and_resumed(engine_env):
+    # 第 33 轮：T010 的门禁端撞上 session limit，阶段判 failed，等站主回信才接着做
+    hub = engine_env
+    owner_task(hub)
+    until = int(time.time()) + 3600
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], LIMIT, False, until),
+                         (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 2  # 不重试，也不升级
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["status"] == "active" and ts["stages"]["1-plan"]["status"] == "paused"
+    held = ts["held"][0]
+    assert held["agent"] == "planner-opus" and held["suffix"] == "1-plan" and len(held["letters"]) == 1
+    assert held["until"] == time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "type: 核验" in letters[0] and "额度限制" in letters[0] and held["until"] in letters[0]
+    assert hub.unread("planner-opus") == [] and hub.unread(kh.COORDINATOR) == []
+    assert kh.letters_held(hub) and kh.supervisor_busy(hub, [], 0) and not kh.runner_may_idle_exit(hub, None)
+    assert kh.runner_may_idle_exit(hub, "T001")  # 主任务 runner 可以退：到点由 supervisor 再起
+    assert engine.step() is False and kh.release_held(hub) == []  # 没到点：信还扣着
+    make_held_due(hub)
+    assert kh.release_held(hub) == ["T001"] and len(hub.unread("planner-opus")) == 1
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"  # 协调人不能再开工一次
+    assert engine.step()  # 信放回信箱，接着做（续接原来的会话）
+    assert runner.calls[2][0] == "planner-opus" and runner.fresh[-1] is False
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered" and ts["held"] == []
+    assert not kh.letters_held(hub) and not kh.supervisor_busy(hub, [], 0) and kh.supervisor_busy(hub, ["T001"], 0)
+    assert kh.supervisor_busy(hub, [], 1) and kh.runner_may_idle_exit(hub, None)
+    events = [json.loads(line)["event"] for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert "letters.held" in events and "letters.released" in events
+
+
+def test_held_letters_are_dropped_when_the_stage_was_restarted_meanwhile(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], LIMIT, False, int(time.time()) + 60)])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    name = hub.load_state()["tasks"]["T001"]["held"][0]["letters"][0]
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"]["status"] = "assigned"  # 站主提前回信，协调人又开工了
+    hub.save_state(state)
+    make_held_due(hub)
+    assert kh.release_held(hub) == ["T001"]
+    assert hub.unread("planner-opus") == []  # 放回去就会做两遍
+    assert (hub.inbox("planner-opus").parent / "cur" / name).is_file()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["held"] == [] and ts["stages"]["1-plan"]["status"] == "assigned"
+    events = [json.loads(line)["event"] for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert "letters.dropped" in events and "letters.released" not in events
+
+
+def test_a_rate_limited_turn_that_also_broke_the_rules_is_not_held(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []),
+                         (None, ["调用了白名单之外的工具：Bash（tool_use）"], LIMIT, False, int(time.time()) + 60)])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "failed" and not ts.get("held")
+
+
+def test_supervisor_puts_due_letters_back_and_starts_their_runner(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": make_ts()}})
+    path = hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                        "type": "开工"}, fields())
+    taken = hub.take(hub.inbox("planner-opus") / ("%s.md" % path))
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"]["status"] = "paused"
+    state["tasks"]["T001"]["held"] = [{"agent": "planner-opus", "letters": [taken.name], "until": "2000-01-01T00:00:00Z",
+                                       "suffix": "1-plan", "turn": "t1"}]
+    hub.save_state(state)
+    spawned = []
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    child = type("Child", (), {"pid": 7})()
+    monkeypatch.setattr(kh, "spawn_task_runner", lambda hub_, task, args: spawned.append(task) or child)
+    pending, live, count = kh.supervise_tick(hub, None, 3, {}, {})
+    assert pending == ["T001"] and spawned == ["T001"] and count == 1
+    assert [p.name for p in hub.unread("planner-opus")] == [taken.name]
+
+
+def test_turn_runner_reports_when_the_rate_limit_lifts(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        events = [dict(INIT, tools=["Read", "Grep", "Glob"], model="claude-opus-5-5"),
+                  {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1792585200}},
+                  dict(API_ERROR, api_error_status=429, api_error_code="rate_limit"),
+                  {"type": "result", "result": "You've hit your session limit"}]
+        out.write(("\n".join(json.dumps(e) for e in events) + "\n").encode("utf-8"))
+        return {"exit_code": 1, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入")
+    assert turn["rate_limited_until"] == 1792585200 and "429" in turn["api_error"]
+
+
+def test_a_rate_limited_coordinator_turn_is_held_and_resumed(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([(None, [], LIMIT, False, int(time.time()) + 600), ({"letters": [start_planner()]}, [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert len(runner.calls) == 1 and ts["status"] == "active"  # 不再转 blocked
+    assert ts["held"][0]["agent"] == kh.COORDINATOR and ts["held"][0]["suffix"] is None
+    assert hub.unread(kh.COORDINATOR) == [] and "额度限制" in hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    make_held_due(hub)
+    assert engine.step() and runner.calls[1][0] == kh.COORDINATOR
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
+
+
+def test_audit_reads_when_a_rate_limit_lifts():
+    def limit(status):
+        return {"type": "rate_limit_event", "rate_limit_info": {"status": status, "resetsAt": 1792585200}}
+    result = {"type": "result", "result": "x"}
+    limited = kh.audit_claude_stream(stream(INIT, limit("allowed_warning"), limit("rejected"), API_ERROR, result), SPEC)
+    assert limited["rate_limited_until"] == 1792585200
+    for events in ((limit("rejected"), limit("allowed"), API_ERROR, result),  # 后来又放行了：是别的错
+                   (limit("allowed_warning"), API_ERROR, result),  # 只是警告
+                   (limit("rejected"), assistant({"type": "text", "text": "ok"}), result)):  # 没有报错
+        assert kh.audit_claude_stream(stream(INIT, *events), SPEC)["rate_limited_until"] is None
 
 
 def test_coordinator_api_error_is_not_retried(engine_env):
@@ -3306,6 +3451,43 @@ def test_supervisor_stays_while_a_runner_works_without_unread_letters(tmp_path, 
     monkeypatch.setattr(kh, "tasks_with_work", pending)
     assert supervise_once(repo, 2) == kh.EXIT_OK
     assert len(calls) >= 3 and spawned == []
+
+
+def hold_until_called(hub, monkeypatch, name, times):
+    """T001 有扣着、没到点的信；被 monkeypatch 的那个函数第 times 次调用时放掉，hub 才可能退出。"""
+    state = hub.load_state()
+    state["tasks"]["T001"] = make_ts()
+    state["tasks"]["T001"]["held"] = [{"agent": "planner-opus", "letters": [], "until": "2999-01-01T00:00:00Z",
+                                       "suffix": None, "turn": "t1"}]
+    hub.save_state(state)
+    real, calls = getattr(kh, name), []
+
+    def counted(*args):
+        calls.append(1)
+        if len(calls) == times:
+            state = hub.load_state()
+            state["tasks"]["T001"]["held"] = []
+            hub.save_state(state)
+        return real(*args)
+
+    monkeypatch.setattr(kh, name, counted)
+    return calls
+
+
+def test_supervisor_stays_while_letters_are_held(tmp_path, monkeypatch):
+    # 第 33 轮：扣着的信要到点才放回；supervisor 先退了，就没人放
+    repo, hub, spawned = supervisor_env(tmp_path, monkeypatch, ())
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    calls = hold_until_called(hub, monkeypatch, "tasks_with_work", 3)
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert len(calls) >= 3 and spawned == []
+
+
+def test_serial_hub_stays_while_letters_are_held(tmp_path, monkeypatch):
+    repo, hub, _spawned = supervisor_env(tmp_path, monkeypatch, ())
+    calls = hold_until_called(hub, monkeypatch, "release_held", 3)
+    assert supervise_once(repo, 1) == kh.EXIT_OK  # 并行数 1：串行的 hub
+    assert len(calls) >= 3
 
 
 # ---------------------------------------------------------------------------
