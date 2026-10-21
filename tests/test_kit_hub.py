@@ -296,9 +296,10 @@ def test_dispatched_contract_is_bumped_not_edited(tmp_path):
     plans.mkdir(parents=True)
     (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n\n## Identity\n- plan_version: 1\n- base_sha: x\n",
                                          encoding="utf-8")
-    ts["contract"] = {"key": "t001-doc.v1", "version": 1, "dispatched": True}
+    ts["contract"] = {"key": "t001-doc.v1", "version": 1, "dispatched": True, "written_version": 1}
     assert kh.bump_contract_version(hub, ts) == []
     assert ts["contract"]["key"] == "t001-doc.v2" and "dispatched" not in ts["contract"]
+    assert ts["contract"]["written_version"] == 1  # 升版不改内容：还是合同端写的那一版
     assert "- plan_version: 2" in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
     assert "- plan_version: 1" in (plans / "t001-doc.v1.md").read_text(encoding="utf-8")  # 已派遣的版本不动
     ts["contract"].update(key="t001-doc.v1", version=1)
@@ -536,6 +537,7 @@ def test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt(tmp_pat
     budget["attempts"] = 3
     assert kh.accept_contract(hub, ts, {"contract_md": "# TASK: t001-doc\n正文"}) == []
     assert ts["contract"]["validated"] is True and ts["contract"]["key"] == "t001-doc.v2"
+    assert ts["contract"]["written_version"] == 2  # 合同端写的这一版：之后升版的都按它做（第 35 轮）
     # 合同端的回合输入写明已用掉的预算
     prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
     assert "`t001-doc` 各版本的累计上限" in prompt and "已用掉 1 次、1671 秒" in prompt
@@ -3004,9 +3006,9 @@ def test_exec_window_marks_the_run_and_waits_for_a_landing(tmp_path, monkeypatch
         assert json.loads((kh.exec_marks(hub) / "T002.json").read_text(encoding="utf-8"))["task"] == "T002"
         assert kh.landing_blockers(hub, hub.load_state()["tasks"]["T001"]) == ["T002 的执行端"]
     assert not (kh.exec_marks(hub) / "T002.json").exists()
-    monkeypatch.setattr(kh, "LAND_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(kh, "EXEC_LAND_WAIT_SECONDS", 0.2)
     with kh.DirLock(hub.root / ".land", wait_seconds=1.0):  # 正在落地：执行端等它落完，等不到就不开始
-        with pytest.raises(kh.HubError):
+        with pytest.raises(kh.LandBusy):
             with kh.exec_window(hub, ts):
                 pytest.fail("落地锁被占着时不该开始执行")
     assert not (kh.exec_marks(hub) / "T002.json").exists()
@@ -4060,3 +4062,326 @@ def test_gate_post_workspace_is_seeded_before_the_gate_starts(engine_env, monkey
     assert calls == [hub.repo / "post"]
     assert engine.stage_workspace(ts, "audit-sonnet", "7-audit-post") == hub.repo / "post"
     assert calls == [hub.repo / "post"]  # 终审不放：白盒测试是门禁的
+
+
+# ---------------------------------------------------------------------------
+# 第 35 轮：等锁不算出错、卡住的阶段能恢复、超时与门禁热修补之后接着改候选
+# ---------------------------------------------------------------------------
+
+def exec_letter(hub, kind="开工"):
+    hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                 "type": kind}, fields())
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["5-exec"]["status"] = "assigned"
+    hub.save_state(state)
+
+
+def test_exec_waits_for_the_landing_lock_by_holding_its_letter(engine_env, monkeypatch):
+    # T009 的执行端等站主的 exclusive 等满一小时，回合出错，阶段卡在 assigned，要站主恢复
+    hub = engine_env
+    monkeypatch.setattr(kh, "EXEC_LAND_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(kh, "carry_source", lambda hub_, ts: pytest.fail("拿到锁之前不该建返工版本"))
+    exec_letter(hub)
+    engine = kh.Engine(hub, FakeRunner([]))
+    with kh.DirLock(hub.root / ".land", wait_seconds=1.0):
+        assert engine.step() is True
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["5-exec"]["status"] == "paused" and "落地锁被占" in ts["stages"]["5-exec"]["note"]
+    assert ts["held"][0]["agent"] == "exec-step" and ts["held"][0]["suffix"] == "5-exec"
+    assert hub.unread(kh.OWNER) == [] and hub.unread(kh.COORDINATOR) == [] and hub.unread("exec-step") == []
+    assert not (kh.exec_marks(hub) / "T001.json").exists()
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["reason"] for e in events if e["event"] == "letters.held"][0].startswith("落地锁被占")
+    assert "step.error" not in [e["event"] for e in events]
+    make_held_due(hub)
+    assert kh.release_held(hub) == ["T001"] and len(hub.unread("exec-step")) == 1
+
+    def fake_exec(hub_, ts):
+        ts["exec"] = {"run_dir": "attempt-001", "check_ok": True}
+        return fields(摘要="执行端完成")
+
+    monkeypatch.setattr(kh, "run_exec", fake_exec)
+    monkeypatch.setattr(kh, "rehearse_landing", lambda hub_, ts: None)
+    assert engine.step() is True
+    assert hub.load_state()["tasks"]["T001"]["stages"]["5-exec"]["status"] == "delivered"
+
+
+def test_a_crashed_worker_turn_leaves_the_stage_restartable(engine_env, monkeypatch):
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["audit_pre"].update(verdict="通过", contract_sha256="c1", oracle_sha="o" * 40)
+    ts["stages"]["4-audit-pre"]["status"] = "delivered"
+    hub.save_state(state)
+    exec_letter(hub)
+
+    def boom(hub_, ts_):
+        raise kh.HubError("prepare 里 git 出错")
+
+    monkeypatch.setattr(kh, "run_exec", boom)
+    assert kh.Engine(hub, FakeRunner([])).step() is True
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["5-exec"]["status"] == "failed" and "git 出错" in ts["stages"]["5-exec"]["note"]
+    owner = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    assert "type: 阻塞" in owner and "阶段 T001-5-exec 已标成 failed" in owner
+    assert kh.guard(ts, meta("开工", "exec-step", "T001-5-exec")) is None  # 站主回信后协调人能重发开工
+    engine = kh.Engine(hub)
+    hub.deliver({"from": "planner-opus", "to": kh.COORDINATOR, "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "提问"}, fields())
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"].update(status="assigned", last_letter="提问")
+    hub.save_state(state)
+    # 协调人的回合出事：信是工人发来的，那个阶段停着等回信，不是卡住，不标
+    assert engine.fail_stage(kh.COORDINATOR, hub.unread(kh.COORDINATOR), "x") is None
+    assert engine.fail_stage("planner-opus", hub.unread(kh.COORDINATOR), "x") is None  # 停着等回信也不算卡住
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"].pop("last_letter")  # 规划端正在办
+    hub.save_state(state)
+    assert engine.fail_stage(kh.COORDINATOR, hub.unread(kh.COORDINATOR), "x") is None  # 协调人出事不碰工人的阶段
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
+
+
+def test_owner_unsticks_a_stage_nobody_is_working_on(tmp_path):
+    import argparse
+    import os
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["stages"]["5-exec"]["status"] = "assigned"
+    hub.save_state({"tasks": {"T001": ts}})
+    args = argparse.Namespace(repo=str(repo), task="T001", stage="5-exec", reason="等落地锁超时，回合出错")
+    run = repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(json.dumps({"state": "RUNNING"}), encoding="utf-8")
+    with pytest.raises(kh.HubError, match="还在跑（attempt-001）"):
+        kh.cmd_task_unstick(args)
+    (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    kh.exec_marks(hub).mkdir(parents=True)
+    mark = kh.exec_marks(hub) / "T001.json"
+    mark.write_text(json.dumps({"pid": os.getpid(), "task": "T001"}), encoding="utf-8")
+    with pytest.raises(kh.HubError, match="还在跑（执行标记）"):
+        kh.cmd_task_unstick(args)
+    mark.unlink()
+    for bad in ({"reason": " "}, {"stage": "9-x"}, {"task": "T009"}):
+        with pytest.raises(kh.HubError):
+            kh.cmd_task_unstick(argparse.Namespace(**dict(vars(args), **bad)))
+    assert kh.cmd_task_unstick(args) == kh.EXIT_OK
+    stage = hub.load_state()["tasks"]["T001"]["stages"]["5-exec"]
+    assert stage["status"] == "failed" and "等落地锁超时" in stage["note"]
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert "type: 核验" in letter and "T001-5-exec 标成了 failed" in letter and "exec-step 重发开工" in letter
+    with pytest.raises(kh.HubError, match="没有卡在"):
+        kh.cmd_task_unstick(args)
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["5-exec"].update(status="assigned", last_letter="提问")
+    hub.save_state(state)
+    with pytest.raises(kh.HubError, match="没有卡在"):  # 工人发了提问：停着等回信，不是卡住
+        kh.cmd_task_unstick(args)
+
+
+def test_owner_ordered_gate_rework_is_a_hotfix_and_holds_the_executor_back():
+    # T010：站主查出门禁自相矛盾、要门禁返工，执行端正好交付，协调人照例重派会在要改的门禁上用掉预算
+    ts = locked(make_ts())
+    ts["audit_pre"].update(verdict="通过", contract_sha256="c1", oracle_sha="o" * 40)
+    ts["stages"]["4-audit-pre"]["status"] = "delivered"
+    ts["exec"].update(run_dir="r", check_ok=False, conflicts=0)
+    ts["stages"]["5-exec"]["status"] = "failed"
+    assert kh.hotfix_reason(ts) is None and kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
+    ts["owner_rework"] = {"suffix": "3-gate-pre"}
+    assert kh.hotfix_reason(ts) == "站主指定门禁返工"
+    for kind, to, task in (("返工", "exec-step", "T001-5-exec"), ("开工", "audit-sonnet", "T001-4-audit-pre")):
+        assert "站主指定了 3-gate-pre 返工，还没发" in kh.guard(ts, meta(kind, to, task))
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    ts["exec"] = {}
+    assert kh.hotfix_reason(ts) is None  # 还没执行过：普通的门禁返工
+
+
+def timed_out(run_dir, violations=()):
+    (run_dir / "state.json").write_text(json.dumps({"state": "TIMEOUT"}), encoding="utf-8")
+    (run_dir / "scope.json").write_text(json.dumps({"violations": list(violations)}), encoding="utf-8")
+
+
+def test_a_timed_out_attempt_is_continued_instead_of_restarted(tmp_path, monkeypatch):
+    # T010 的 attempt-001 跑满 7200s 时只差一条用例和执行报告（A37 M5、越界 0），重派却从 base_sha 从头来
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    failed_checks(previous)
+    timed_out(previous)
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous), "check_ok": False, "status": "TIMEOUT"}, {}
+    v1 = plans / "t001-doc.v1.md"
+    v1.write_text(v1.read_text(encoding="utf-8") + "\n## Retry（重派第 1 次，内核追加）\n\n- 这一轮从合同的 base_sha 重新开始\n"
+                  "\n## Notes\n- 合同自己的一节\n", encoding="utf-8")
+    rework, calls = "a" * 40, []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        if args[0] == "verdict":
+            assert args[args.index("--class") + 1] == "TIMEOUT"
+            (previous / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        if args[0] == "branch":
+            return 0, "commit=%s branch=pi-rework/x" % rework
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["verdict", "branch", "derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % rework in v2 and "上一轮跑满了时限" in v2 and "调度器 `branch --rework`" in v2
+    assert "## Retry" not in v2 and "从合同的 base_sha 重新开始" not in v2 and "- 合同自己的一节" in v2
+    assert "### 上一轮没过的地方" in v2 and "- V01：退出码 1 ≠ 期望 0" in v2 and "门禁端在上一轮之后" not in v2
+    assert ts["rework_chain"][-1]["why"] == "timeout" and "retry_notes" not in ts
+    # 越界的、或检查没过而自己收了尾的：照旧从基线重来（第 19 轮的理由不变）
+    for state, violations in (("TIMEOUT", [{"path": "x", "kind": "out_of_scope", "detail": "d"}]), ("NEEDS_REVIEW", [])):
+        timed_out(previous, violations)
+        (previous / "state.json").write_text(json.dumps({"state": state}), encoding="utf-8")
+        assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous), "check_ok": False}, audit_post={})) is None
+    shutil.rmtree(previous / "checks")
+    passed_checks(previous)  # 检查全过、执行阶段的记录还在（例如战后门禁没过）：照旧，不在这里接着改
+    assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous), "check_ok": True}, audit_post={})) is None
+    (previous / "candidate.patch").write_text("", encoding="utf-8")
+    timed_out(previous)
+    assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous)}, audit_post={})) is None  # 没有候选
+
+
+def passed_checks(run_dir):
+    folder = run_dir / "checks" / "01"
+    folder.mkdir(parents=True)
+    (folder / "checks.json").write_text(json.dumps({"results": [{"id": "V01", "status": "passed"}]}), encoding="utf-8")
+
+
+def test_carry_after_an_upstream_redelivery_finds_the_latest_usable_attempt(tmp_path):
+    repo, hub, ts, plans, first = rework_setup(tmp_path)
+    ts["exec"], ts["audit_post"] = {}, {}
+    ts["contract"].update(written_version=1)
+    runs = first.parent
+    for name, state in (("attempt-001", "TIMEOUT"), ("attempt-002", "NEEDS_REVIEW")):
+        run = runs / name
+        run.mkdir(exist_ok=True)
+        (run / "candidate.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+        (run / "meta.json").write_text(json.dumps({"plan_version": 1}), encoding="utf-8")
+        timed_out(run)
+        (run / "state.json").write_text(json.dumps({"state": state}), encoding="utf-8")
+    failed_checks(runs / "attempt-002")  # 被站主停掉、检查没过：跳过，接着往前找
+    assert kh.carry_source(hub, ts) == (runs / "attempt-001", "upstream")
+    shutil.rmtree(runs / "attempt-002" / "checks")
+    passed_checks(runs / "attempt-002")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-002", "upstream")  # 最近的优先
+    (runs / "attempt-002" / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) is None  # 已经有去处的之前都不再看
+    (runs / "attempt-002" / "state.json").write_text(json.dumps({"state": "RUNNING"}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-001", "upstream")  # 还在跑的不算
+    ts["contract"]["written_version"] = 2  # 合同端重写过：旧合同下的候选不接着改
+    assert kh.carry_source(hub, ts) is None
+
+
+def test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline(tmp_path, monkeypatch):
+    # T009：终审退回门禁端与执行端，门禁热修补把执行阶段的记录清掉，执行端开工就要从头重写一份只差三个 import 的候选
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
+    (tmp_path / "wt").mkdir()
+    gate = "tests/test_gate_t001_baseline.py"
+    head = land_on_main(repo, "src/page.css", ".a {}\n", "共享样式")
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "old"], repo)
+    land_on_main(repo, gate, "def test_v1():\n    assert False\n", "旧门禁")
+    earlier = land_on_main(repo, "src/earlier.tsx", "export const Earlier = 0;\n", "上一轮的返工提交")
+    (repo / "src" / "page.tsx").write_text("export const Page = 1;\n", encoding="utf-8")
+    (repo / "src" / "page.css").write_text(".a { color: red; }\n", encoding="utf-8")
+    kh.git(["add", "src"], repo)
+    kh.git(["commit", "-q", "-m", "候选"], repo)
+    tree = kh.git(["rev-parse", "HEAD^{tree}"], repo).strip()
+    patch = kh.git(["diff", "--binary", earlier, "HEAD"], repo)
+    kh.git(["checkout", "-q", branch], repo)
+    kh.git(["checkout", "-q", "-b", "new"], repo)
+    new_oracle = land_on_main(repo, gate, "def test_v2():\n    assert False\n", "热修补后的门禁")
+    kh.git(["checkout", "-q", branch], repo)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run = repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    run.mkdir(parents=True)
+    (run / "meta.json").write_text(json.dumps({"base_sha": earlier, "plan_version": 1}), encoding="utf-8")
+    (run / "candidate.json").write_text(json.dumps({"tree": tree}), encoding="utf-8")
+    (run / "candidate.patch").write_text(patch, encoding="utf-8", newline="\n")
+    (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    (run / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    passed_checks(run)
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v2.md").write_text("# TASK: t001-doc\n- plan_version: 2\n- base_sha: %s\n" % new_oracle,
+                                          encoding="utf-8")
+    (plans / "t001-doc.v2.json").write_text(json.dumps({"budget": {
+        "max_attempts_total": 3, "max_wall_seconds_per_attempt": 3600, "max_wall_seconds_total": 10800}}),
+        encoding="utf-8")
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["contract"] = {"key": "t001-doc.v2", "version": 2, "written_version": 1}  # 热修补升的版，还没派遣
+    ts["oracle"].update(sha=new_oracle, files=[gate])
+    ts["rework_chain"] = [{"from": "attempt-000", "commit": earlier, "contract": "t001-doc.v1"}]
+    ts["audit_history"] = [{"stage": "7-audit-post", "verdict": "返工", "target": "门禁端、执行端",
+                            "blockers": "B1 page.css 没 import", "at": "2999-01-01T00:00:00Z"}]
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        assert args[0] != "branch", "候选建在旧门禁上：不能用 branch --rework"
+        if args[0] == "verdict":
+            assert args[args.index("--class") + 1] == "EXECUTION_ERROR"
+            (run / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["verdict", "derive-json", "validate", "prepare t001-doc.v2"]  # 没派遣过：就地改，不升版
+    sha = ts["rework_chain"][-1]["commit"]
+    assert kh.git(["rev-parse", sha + "^"], repo).strip() == new_oracle
+    assert kh.git(["show", "%s:%s" % (sha, gate)], repo) == "def test_v2():\n    assert False\n"
+    assert kh.git(["show", sha + ":src/page.tsx"], repo) == "export const Page = 1;\n"
+    assert kh.git(["show", sha + ":src/page.css"], repo) == ".a { color: red; }\n"
+    assert kh.git(["show", sha + ":src/earlier.tsx"], repo) == "export const Earlier = 0;\n"  # 之前返工链的改动也在
+    assert kh.git(["rev-parse", "refs/themis/rework/t001-doc/attempt-001"], repo).strip() == sha
+    assert ts["rework_chain"] == [dict(ts["rework_chain"][0], why="upstream", rebuilt=True)]
+    assert ts["rework_chain_superseded"][0]["commit"] == earlier  # 旧链的改动已经含在新提交里，落地不再挑它
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % sha in v2 and "内核把它搬到当前基准测试上" in v2 and "门禁端在上一轮之后改过基准测试" in v2
+    assert "B1 page.css 没 import" in v2 and "上一轮跑满了时限" not in v2
+    assert list((tmp_path / "wt").iterdir()) == []
+    # 放不上去：如实报告，不派遣
+    (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    land_on_main(repo, "src/page.css", ".a { color: blue; }\n", "别的片改了同一行")
+    ts["oracle"]["sha"] = kh.git(["rev-parse", "HEAD"], repo).strip()
+    ts["rework_chain"], ts["exec"] = [], {}
+    calls.clear()
+    out = kh.run_exec(hub, ts)
+    assert calls == ["verdict"] and "放不到基准测试" in out["验证"] and "src/page.css" in out["验证"]
+
+
+def test_carried_candidate_gets_only_the_final_review_blockers_raised_after_it(tmp_path):
+    run = tmp_path / "attempt-001"
+    run.mkdir()
+    (run / "candidate.patch").write_text("diff\n", encoding="utf-8")
+    ts = {"audit_history": [
+        {"stage": "7-audit-post", "verdict": "返工", "target": "执行端", "blockers": "B0 上一个候选的", "at": "2000-01-01T00:00:00Z"},
+        {"stage": "4-audit-pre", "verdict": "返工", "target": "执行端", "blockers": "一审的", "at": "2999-01-01T00:00:00Z"},
+        {"stage": "7-audit-post", "verdict": "返工", "target": "门禁端", "blockers": "只退门禁端", "at": "2999-01-01T00:00:00Z"},
+        {"stage": "7-audit-post", "verdict": "通过", "target": "执行端", "blockers": "通过的", "at": "2999-01-01T00:00:00Z"}]}
+    assert kh.returned_blockers(ts, run) == ""
+    ts["audit_history"].insert(1, {"stage": "7-audit-post", "verdict": "返工", "target": "门禁端、执行端",
+                                   "blockers": "B1 这个候选的", "at": "2999-01-01T00:00:00Z"})
+    assert kh.returned_blockers(ts, run) == "B1 这个候选的"
+
+
+def test_facts_checked_before_the_plan_is_delivered_says_why(tmp_path):
+    import argparse
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": kh.new_task_state("T001", "doc", "改文档", head, True)}})
+    body = tmp_path / "reply.md"
+    body.write_text("Q1 选 A；F4 核实过了\n", encoding="utf-8")
+    args = argparse.Namespace(repo=str(repo), task="T001", type="回复", reply_to=None, rework=None,
+                              facts_checked=True, file=str(body))
+    with pytest.raises(kh.HubError, match="规划端还没交付，事实在交付时才登记"):
+        kh.cmd_send(args)
