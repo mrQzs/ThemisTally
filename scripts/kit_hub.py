@@ -228,6 +228,9 @@ def sha256_file(path: Path) -> Optional[str]:
 
 #: Windows 上目标文件正被别的进程打开时，os.replace 与读取会撞上 PermissionError（共享冲突），一般几十毫秒就过去
 SHARING_RETRIES, SHARING_PAUSE = 40, 0.05
+#: pi 的模型接口限流（第 38 轮）：认得出的报错、第一次扣多久、最长扣多久、连着扣几次之后交给站主
+THROTTLE_RE = re.compile(r"\b429\b|throttl|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
+THROTTLE_BACKOFF_SECONDS, THROTTLE_BACKOFF_MAX, THROTTLE_MAX_HOLDS = 300, 3600, 5
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -1419,6 +1422,17 @@ class TurnRunner:
             audit["effort_requested"] = spec["thinking"]
             audit["effort_effective"] = ",".join(audit.get("effective_levels") or []) or None
         output, output_error = None, None
+        throttled = spec["adapter"] != "claude" and bool(THROTTLE_RE.search(str(audit.get("api_error") or "")))
+        if throttled:
+            # 第 38 轮：pi 的模型接口限流（T012 的协调人：qwen 回 429 throttling），回报里没有解除时刻：
+            # 同一会话连着被限流就加倍退避，扣信到点再办（第 33 轮的扣信）；成功一回就清零。
+            # 连着限流太多次多半是额度用完了：不再扣，照旧按接口报错交给站主（换模型要站主拍板）
+            session["throttles"] = int(session.get("throttles", 0)) + 1
+            if session["throttles"] <= THROTTLE_MAX_HOLDS:
+                audit["rate_limited_until"] = int(time.time()) + min(
+                    THROTTLE_BACKOFF_SECONDS * 2 ** (session["throttles"] - 1), THROTTLE_BACKOFF_MAX)
+        else:
+            session.pop("throttles", None)
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:

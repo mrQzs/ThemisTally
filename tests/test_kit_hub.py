@@ -4508,6 +4508,38 @@ def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
     assert kh.sync_executor_line(hub, ts) is None and "step/" in md.read_text(encoding="utf-8")
 
 
+def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path):
+    # 第 38 轮：T012 的协调人（pi 上的 qwen）回 429 throttling，没有解除时刻，内核当成接口故障、主任务转 blocked
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER[kh.COORDINATOR]
+    answers = []
+
+    def message(error):
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [
+            {"type": "text", "text": "" if error else "```json\n{\"letters\": []}\n```"}], "stopReason": "error" if error else "stop"}
+        if error:
+            body["errorMessage"] = error
+        return {"type": "message_end", "message": body}
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        out.write((json.dumps(message(answers.pop(0))) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    throttle = '429 {"error":{"code":"throttling","message":"usage allocated quota exceeded. please try again later."}}'
+    waits = []
+    for error in [throttle, throttle, None, throttle] + [throttle] * 5 + [None, "500 internal error"]:
+        answers.append(error)
+        before = int(time.time())
+        turn = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+        waits.append(None if turn["rate_limited_until"] is None else turn["rate_limited_until"] - before)
+        assert (turn["output"] is None) == bool(error)
+    assert [w if w is None else round(w / 300) * 300 for w in waits] == [
+        300, 600, None, 300, 600, 1200, 2400, 3600, None, None, None]  # 成功一回清零；连着 5 次之后交给站主；别的报错不扣
+    assert kh.ROSTER["planner-opus"]["adapter"] == "claude"  # claude 有自己的 rate_limit_event（第 33 轮），不走这里
+
+
 def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):
     # 第 37 轮：T010 的协调人回合替换 state.json 时撞上 WinError 5（别的进程正读着），回合出错，临时文件留在 ledger 里
     monkeypatch.setattr(kh, "SHARING_PAUSE", 0)
