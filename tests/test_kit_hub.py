@@ -1145,15 +1145,21 @@ def test_output_block_is_the_last_json_fence():
         kh.extract_json_block("没有代码块")
     with pytest.raises(kh.HubError):
         kh.extract_json_block("```json\n{坏的}\n```")
-    # 第 48 轮：T011 的协调人两回合都写完整个对象、没写收尾的 ```，整回合作废、转给站主
+    # 第 48 轮：T011 的协调人（qwen）三种写法都把整个对象写完了，四个回合作废、主任务两次转给站主
     warnings: list = []
     assert kh.extract_json_block("说明\n```json\n{\"letters\": [], \"state\": \"s\"}\n", warnings) == {
-        "letters": [], "state": "s"}
-    assert warnings == ["JSON 代码块没有收尾的 ```，已按消息末尾收尾"]
-    assert kh.extract_json_block("```json\n{\"a\": 1}", []) == {"a": 1}
+        "letters": [], "state": "s"}  # 没写收尾的 ```
+    assert len(warnings) == 1 and "没有包在完整的 ```json 代码块里" in warnings[0]
+    assert kh.extract_json_block("这次确保 ```json 代码块收尾。\n\n```json\n{\"a\": 1}```", []) == {"a": 1}  # 收尾贴在同一行
+    assert kh.extract_json_block("{\"letters\": [{\"to\": \"x\"}]}\n\n说明：上次 ```json 没收尾。", []) == {
+        "letters": [{"to": "x"}]}  # 没有代码块，对象在前、说明在后
+    nested = "{\n\"letters\": [\n{\n\"to\": \"x\"\n}\n]\n}\n"  # 内层对象也在行首：不当成输出
+    assert kh.extract_json_block(nested, []) == {"letters": [{"to": "x"}]}
+    assert kh.extract_json_block("```json\n{\"a\": 1}\n``", []) == {"a": 1}
     assert kh.extract_json_block("照 ```json 这个格式写：\n```json\n{\"a\": 2}", []) == {"a": 2}  # 取最后一个
-    for broken in ("```json\n{\"a\": 1, \"b\":", "```json\n说明文字", "```json\n{\"a\": 1}\n``", "```json"):
-        with pytest.raises(kh.HubError):  # 对象没写完、不是对象：照旧拒收
+    for broken in ("```json\n{\"a\": 1, \"b\":", "```json\n说明文字", "```json", "[1, 2]",
+                   "示例：\n{\"letters\": []}\n真的：\n{\"letters\": [{\"to\":"):  # 最后一个对象坏了：不拿示例顶替
+        with pytest.raises(kh.HubError):
             kh.extract_json_block(broken, [])
     # 有收尾的代码块时照旧取它，后面没收尾的说明不管
     assert kh.extract_json_block("```json\n{\"a\": 1}\n```\n后面又开一个 ```json\n说明", []) == {"a": 1}

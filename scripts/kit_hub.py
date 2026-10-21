@@ -1089,18 +1089,41 @@ def merge_early_close(block: str, end: int, data: Any) -> Optional[Dict[str, Any
     return merged
 
 
+def loose_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """没有完整 ```json 代码块时，消息里最后一个顶层 JSON 对象（第 48 轮）。T011 的协调人（qwen）三种写法都把
+    整个对象写完了：没写收尾的 ```、收尾的 ``` 贴在 `}` 后面同一行、整个没有代码块（对象在前、说明在后）；
+    内核认不出，四个回合作废，主任务两次转给站主。
+
+    候选是 ```json 之后、或行首的 `{`；落在已经解析出的对象里面的不算（缩进不规范时内层对象也在行首）。
+    最后一个候选必须完整解析成对象：它坏了就不收，免得拿前面的示例当输出。"""
+    starts = sorted({m.end() for m in re.finditer(r"```json", text)} | {m.start() for m in re.finditer(r"(?m)^\{", text)})
+    found: Optional[Dict[str, Any]] = None
+    covered = -1
+    for start in starts:
+        if start < covered:
+            continue
+        offset = len(text[start:]) - len(text[start:].lstrip())
+        if not text[start + offset:].startswith("{"):
+            continue
+        try:
+            data, end = json.JSONDecoder().raw_decode(text, start + offset)
+        except ValueError:
+            found = None  # 最后一个看着像对象的坏了：不收
+            continue
+        covered = end
+        found = data if isinstance(data, dict) else None
+    return found
+
+
 def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     blocks = JSON_BLOCK_RE.findall(text or "")
     if not blocks:
-        # 第 48 轮：T011 的协调人两个回合都以 ```json 开头写完整个对象，却没写收尾的 ```，整回合作废、转给站主。
-        # 最后一个 ```json 之后再没有 ``` 时，把它到消息末尾当成代码块，下面照常解析
-        opening = (text or "").rfind("```json")
-        tail_text = (text or "")[opening + len("```json"):] if opening >= 0 else ""
-        if opening < 0 or "```" in tail_text or not tail_text.strip().startswith("{"):
+        loose = loose_json_object(text or "")
+        if loose is None:
             raise HubError("最后一条消息里没有 ```json 代码块")
-        blocks = [tail_text]
         if warnings is not None:
-            warnings.append("JSON 代码块没有收尾的 ```，已按消息末尾收尾")
+            warnings.append("JSON 没有包在完整的 ```json 代码块里（没写收尾的 ```、收尾贴在同一行，或者没有代码块），已照收")
+        return loose
     block = blocks[-1].strip()
     try:
         data = json.loads(block)
