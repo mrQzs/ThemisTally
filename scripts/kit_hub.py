@@ -83,6 +83,10 @@ MAX_STAGE_REWORKS = 3
 #: “门禁端”指基准测试本身有错（走热修补）；“战后门禁”指白盒测试或变异清单不够，重做战后门禁。
 RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "战后门禁": "6-gate-post", "执行端": "5-exec",
                   "规划端": "1-plan"}
+#: “退回”写几个对象时的分隔（第 28 轮）：T008 的一审要同时退回门禁端与合同端，字段只能写一个，合同端的返工被拒收
+RETURN_SEP_RE = re.compile(r"[、，,/\s]+")
+#: 工人这一回合没交付就停下了（问问题、被拦、交接）：阶段转为 paused，协调人可以再开工（第 28 轮）
+PAUSE_TYPES = ("提问", "阻塞", "交接", "进度")
 MAIN_TASK_RE = re.compile(r"^T\d{3,6}$")
 STAGE_TASK_RE = re.compile(r"^(T\d{3,6})-(%s)$" % "|".join(re.escape(s) for s in STAGE_ORDER))
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -96,6 +100,9 @@ DECISIONS_KEY_ENV = "TYPESAFE_API_KEY"
 #: 工人进程不继承的会话变量：让 hub 无论从哪里启动，工人的行为都一样。
 WORKER_ENV_DROP = (DECISIONS_KEY_ENV, "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 CLAUDE_SETTINGS = {"autoMemoryEnabled": False, "advisorModel": ""}
+#: claude 工人另加的环境（第 28 轮）：每条 Bash 命令之后 shell 回到工作目录。T006、T008 的门禁 cd 进主工作区之后，
+#: 留在外面的 shell 里凡是碰工作目录的命令都要审批，没人能答就一律拒绝（2026-10-20 实测，claude 2.1.305）
+CLAUDE_WORKER_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"}
 
 ROSTER: Dict[str, Dict[str, Any]] = {
     # 协调人 high（原为 max；用户 2026-10-19 同意降档：T001 里每回合 1–4.5 分钟，大头是 max 档的思考输出）
@@ -417,9 +424,11 @@ def letter_errors(meta: Dict[str, str], fields: Dict[str, str], body_lines: int)
         if fields.get("结论") not in VERDICTS:
             errors.append("审核端的交付要写“结论: 通过”或“结论: 返工”")
         elif fields.get("结论") == "返工":
-            if fields.get("退回") not in RETURN_TARGETS:
-                errors.append("返工要写“退回: %s”之一" % " | ".join(RETURN_TARGETS))
-            elif _suffix == "4-audit-pre" and RETURN_TARGETS[fields["退回"]] not in ("1-plan", "2-contract", "3-gate-pre"):
+            names = [name for name in RETURN_SEP_RE.split(fields.get("退回") or "") if name]
+            if not names or any(name not in RETURN_TARGETS for name in names):
+                errors.append("返工要写“退回: %s”之一，几个对象用“、”隔开" % " | ".join(RETURN_TARGETS))
+            elif _suffix == "4-audit-pre" and any(RETURN_TARGETS[name] not in ("1-plan", "2-contract", "3-gate-pre")
+                                                  for name in names):
                 errors.append("一审只能退回规划端、合同端或门禁端（还没有执行）")
             if str(fields.get("阻塞项", "")).strip() in ("", "无"):
                 # 复审封板：下一轮只复核这些阻塞项，没列的建议不能在下一轮升级成打回理由
@@ -647,9 +656,21 @@ def invalidate_after(ts: Dict[str, Any], suffix: str) -> None:
         ts["audit_post"] = {}
 
 
+def return_stages(value: Any) -> List[str]:
+    """审核端“退回”写的对象 → 阶段，按流水线顺序（第 28 轮：可以写几个）。认不出的名字丢掉，letter_errors 已经拦过。"""
+    names = [name for name in RETURN_SEP_RE.split(str(value or "")) if name in RETURN_TARGETS]
+    return sorted({RETURN_TARGETS[name] for name in names}, key=STAGE_ORDER.index)
+
+
+def stage_busy(stage: Dict[str, Any]) -> bool:
+    """工人正在办这个阶段。第 28 轮之前工人发“阻塞”“提问”之后阶段一直是 assigned，开工、返工都被拒（T006 的
+    战后门禁）：那样的旧状态也当作停下了。开工、返工时内核清掉 last_letter，正在办的阶段不会误判。"""
+    return stage["status"] == "assigned" and stage.get("last_letter") not in PAUSE_TYPES
+
+
 def _guard_start(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     stages = ts["stages"]
-    if stages[suffix]["status"] == "assigned":
+    if stage_busy(stages[suffix]):
         return "阶段 %s 已经开工、还没交付" % suffix
     if suffix == "1-plan":
         return None
@@ -700,14 +721,14 @@ def hotfix_reason(ts: Dict[str, Any]) -> Optional[str]:
     if ts["exec"].get("conflicts"):
         return "执行端报了 %d 条合同矛盾" % ts["exec"]["conflicts"]
     audit_post = ts["audit_post"]
-    if audit_post.get("verdict") == "返工" and RETURN_TARGETS.get(audit_post.get("target", "")) == "3-gate-pre":
+    if audit_post.get("verdict") == "返工" and "3-gate-pre" in return_stages(audit_post.get("target")):
         return "终审退回门禁端"
     return None
 
 
 def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     status = ts["stages"][suffix]["status"]
-    if status == "assigned":
+    if stage_busy(ts["stages"][suffix]):
         return "阶段 %s 正在进行，不能返工" % suffix
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
@@ -723,8 +744,15 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     audit_pre, audit_post = ts["audit_pre"], ts["audit_post"]
 
     def returned_by(audit: Dict[str, Any]) -> bool:
-        return audit.get("verdict") == "返工" and RETURN_TARGETS.get(audit.get("target", "")) == suffix
+        return audit.get("verdict") == "返工" and suffix in return_stages(audit.get("target"))
 
+    for audit in (audit_pre, audit_post):
+        upstream = [stage for stage in return_stages(audit.get("target"))
+                    if STAGE_ORDER.index(stage) < STAGE_ORDER.index(suffix)]
+        if returned_by(audit) and upstream:
+            # 上游重新交付会把下游作废（invalidate_after）：先改下游，下游的返工白做，审核结论也跟着清掉
+            return ("审核同时退回了 %s：先返工最上游的 %s。它重新交付之后 %s 回到 idle，再给它发“开工”，brief 照抄"
+                    "审核对它列的阻塞项" % ("、".join(return_stages(audit.get("target"))), upstream[0], suffix))
     if suffix == "3-gate-pre" and hotfix_reason(ts):
         return None  # 门禁热修补（用户 2026-10-19 按推荐拍板）
     if suffix in ("2-contract", "3-gate-pre"):
@@ -750,7 +778,7 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
             return None
         if gate_post.get("ran") and not gate_post.get("ok"):
             return None
-        if audit_post.get("verdict") == "返工" and RETURN_TARGETS.get(audit_post.get("target", "")) == "5-exec":
+        if returned_by(audit_post):
             return None
         return "没有执行之后的失败记录，也没有终审退回执行端"
     return "阶段 %s 没有核验失败的记录" % suffix
@@ -1248,8 +1276,11 @@ class TurnRunner:
             config = pd.Repo(self.hub.repo).config()
         except pd.DispatchError:
             config = {}
+        env = worker_env(config)
+        if spec["adapter"] == "claude":
+            env.update(CLAUDE_WORKER_ENV)
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
-            result = self.launcher(cmd, workspace, worker_env(config), out, err, int(spec.get("timeout", 1800)))
+            result = self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800)))
         lines = read_text(turn_dir / "stream.jsonl").splitlines()
         audit = audit_claude_stream(lines, spec) if spec["adapter"] == "claude" else audit_pi_stream(lines, spec)
         if spec["adapter"] == "claude":
@@ -1677,6 +1708,24 @@ def apply_candidate(hub: Hub, ts: Dict[str, Any]) -> Path:
         ts["workspaces"]["post-%s" % run_dir.name]["patched"] = True
         ts["workspaces"]["post-%s" % run_dir.name]["baseline_status"] = workspace_status(workspace)
     return workspace
+
+
+def seed_whitebox(hub: Hub, ts: Dict[str, Any], workspace: Path) -> Optional[str]:
+    """新 attempt 的战后门禁从上一轮的白盒测试接着改（第 28 轮）：返工之后候选 worktree 是新建的，白盒测试只在信箱的
+    证据里。T006 的门禁自己去 cp，主工作区的文件拷不进来（没人能批准），整个回合什么都没跑。每个 worktree 只放一次：
+    门禁删了它就是不要。返回放进来的那一份（相对仓库的路径）。"""
+    record = ts["workspaces"]["post-%s" % Path(ts["exec"]["run_dir"]).name]
+    target = workspace / gate_file(ts, "whitebox")
+    if record.get("whitebox_seeded") or target.exists():
+        return None
+    copies = sorted((hub.task_dir("%s-6-gate-post" % ts["task"]) / "evidence").glob("whitebox-*.py"))
+    if not copies:
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(copies[-1], target)
+    record["whitebox_seeded"] = copies[-1].relative_to(hub.repo).as_posix()
+    hub.append_event("whitebox.seeded", task=ts["task"], source=record["whitebox_seeded"], workspace=str(workspace))
+    return record["whitebox_seeded"]
 
 
 def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict[str, Any]) -> List[str]:
@@ -2539,7 +2588,8 @@ ROLE_EXTRA_OUTPUT = {
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
             '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec）',
     "audit": 'letter 里另加 "结论": "通过|返工"；返工时再加 "退回": "合同端|门禁端|战后门禁|执行端|规划端"'
-             '（一审只能退回规划端、合同端、门禁端）与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的>"',
+             '（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”隔开，例如 "合同端、门禁端"）'
+             '与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>"',
 }
 
 
@@ -2717,6 +2767,11 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if stage == "6-gate-post" and ts["gate_post"].get("mutate_spec"):
                 parts.append("- 你上一次交的变异清单，内核存了档（可读）：%s。返工时在它上面改，不必整份重写。"
                              % ts["gate_post"]["mutate_spec"])
+            seeded = (ts["workspaces"].get("post-%s" % Path(ts["exec"].get("run_dir") or ".").name) or {}).get(
+                "whitebox_seeded") if stage == "6-gate-post" else None
+            if seeded:
+                parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
+                             "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
     parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
               "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     if role in ROLE_EXTRA_OUTPUT:
@@ -2893,6 +2948,7 @@ class Engine:
             ts["stages"][suffix]["status"] = "assigned"
             ts["stages"][suffix]["assigned_at"] = utc_now()
             ts["stages"][suffix]["kind"] = meta["type"]
+            ts["stages"][suffix].pop("last_letter", None)  # stage_busy 靠它认旧状态里停下的阶段
         self.hub.deliver(meta, fields)
         self.hub.save_state(state)
         return None
@@ -2988,6 +3044,8 @@ class Engine:
                 fields["内核核验"] = "通过"
                 invalidate_after(ts, suffix)
                 self.after_delivery(ts, suffix, fields, output)
+        elif meta["type"] in PAUSE_TYPES:
+            stage.update(status="paused", paused_at=utc_now())
         self.hub.save_state(state)
         self.hub.deliver(meta, fields)
         if stage["status"] == "delivered":
@@ -3023,7 +3081,10 @@ class Engine:
                 return ensure_worktree(self.hub, ts, "gate", ts["oracle"]["sha"])
             return ensure_worktree(self.hub, ts, "base", ts["base_head"])
         if suffix in ("6-gate-post", "7-audit-post"):
-            return apply_candidate(self.hub, ts)
+            workspace = apply_candidate(self.hub, ts)
+            if suffix == "6-gate-post":
+                seed_whitebox(self.hub, ts, workspace)
+            return workspace
         return ensure_worktree(self.hub, ts, "base", ts["base_head"])
 
     def verify_delivery(self, ts: Dict[str, Any], agent: str, suffix: str, output: Dict[str, Any],

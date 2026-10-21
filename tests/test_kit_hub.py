@@ -1302,7 +1302,8 @@ def test_contract_block_or_executor_conflict_can_send_the_work_upstream(engine_e
                "report": "# 阻塞", "state": "s"}
     assert kh.Engine(hub, FakeRunner([(blocked, [])])).step()
     ts = hub.load_state()["tasks"]["T001"]
-    assert ts["stages"]["2-contract"]["last_letter"] == "阻塞" and ts["stages"]["2-contract"]["status"] == "assigned"
+    # 第 28 轮：工人停下之后阶段是 paused，不再一直挂着 assigned
+    assert ts["stages"]["2-contract"]["last_letter"] == "阻塞" and ts["stages"]["2-contract"]["status"] == "paused"
     assert kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan")) is None
     ts["stages"]["2-contract"]["last_letter"] = "提问"
     assert "合同端也没有发" in kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan"))
@@ -3323,3 +3324,165 @@ def test_exec_recheck_resumes_an_execution_the_hub_was_killed_in(engine_env, mon
     assert len(letters) == 1 and "from: exec-step" in letters[0]
     events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
     assert [e["run_dir"] for e in events if e["event"] == "exec.resumed"] == [str(run_dir)]
+
+
+def test_paused_worker_stage_can_be_started_again(engine_env):
+    # 第 28 轮：T006 的战后门禁发“阻塞”之后阶段一直是 assigned，开工、返工都被拒，只能站主动 state
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"] = locked(make_ts())
+    ts["stages"]["3-gate-pre"]["status"] = "assigned"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "gate-sonnet", "task-id": "T001-3-gate-pre", "in-reply-to": "none",
+                 "type": "开工"}, fields(摘要="写基准测试"))
+    asked = {"letter": {"type": "提问", "in_reply_to": "m", "摘要": "合同 D3 的空列表算不算", "提交": "无",
+                        "验证": "读了合同", "偏离": "无", "需协调人决定": "D3", "证据": "plan.md:40"},
+             "report": "# 提问", "state": "s"}
+    assert kh.Engine(hub, FakeRunner([(asked, [])])).step()
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    stage = ts["stages"]["3-gate-pre"]
+    assert stage["status"] == "paused" and stage["last_letter"] == "提问" and stage["paused_at"]
+    assert kh.guard(ts, meta("开工", "gate-sonnet", "T001-3-gate-pre")) is None
+    letter = dict(start_planner("# 答复\n空列表算"), to="gate-sonnet", task_id="T001-3-gate-pre")
+    assert kh.Engine(hub).deliver_coordinator_letter(state, letter) is None
+    stage = hub.load_state()["tasks"]["T001"]["stages"]["3-gate-pre"]
+    assert stage["status"] == "assigned" and "last_letter" not in stage and stage["kind"] == "开工"
+    assert "已经开工" in kh.guard(hub.load_state()["tasks"]["T001"], meta("开工", "gate-sonnet", "T001-3-gate-pre"))
+    # 交付、返工完成照旧：不会停在 paused
+    assert not {"交付", "返工完成"} & set(kh.PAUSE_TYPES)
+    assert set(kh.PAUSE_TYPES) == set(kh.WORKER_TYPES) - {"交付", "返工完成"}
+    # 第 28 轮之前留下的旧状态：assigned 加上工人停下的信，也当作停下了；别的 assigned 照旧算在办
+    for kind in kh.PAUSE_TYPES:
+        assert not kh.stage_busy({"status": "assigned", "last_letter": kind})
+    assert kh.stage_busy({"status": "assigned"}) and kh.stage_busy({"status": "assigned", "last_letter": "交付"})
+    assert not kh.stage_busy({"status": "paused", "last_letter": "阻塞"})
+    ts = locked(make_ts())
+    ts["stages"]["6-gate-post"] = {"status": "assigned", "last_letter": "阻塞"}
+    ts["exec"]["check_ok"] = True
+    assert kh.guard(ts, meta("开工", "gate-sonnet", "T001-6-gate-post")) is None
+    assert "正在进行" not in kh.guard(ts, meta("返工", "gate-sonnet", "T001-6-gate-post"))
+    ts["stages"]["6-gate-post"] = {"status": "assigned"}
+    assert "已经开工" in kh.guard(ts, meta("开工", "gate-sonnet", "T001-6-gate-post"))
+    assert "正在进行" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-6-gate-post"))
+    assert "paused" in (kh.TEMPLATE_DIR / "coordinator.md").read_text(encoding="utf-8")
+
+
+def test_audit_may_return_several_stages_and_the_upstream_one_goes_first():
+    # 第 28 轮：T008 的一审要同时退回门禁端与合同端，字段只能写一个，合同端的返工被内核拒收
+    head = {"from": "audit-sonnet", "to": kh.COORDINATOR, "task-id": "T001-4-audit-pre", "in-reply-to": "m",
+            "type": "交付"}
+    for value in ("合同端、门禁端", "合同端，门禁端", "合同端, 门禁端", "合同端/门禁端", "合同端 门禁端"):
+        assert kh.letter_errors(head, fields(结论="返工", 退回=value, 阻塞项="1. D09"), 9) == []
+        assert kh.return_stages(value) == ["2-contract", "3-gate-pre"]
+    assert kh.return_stages("门禁端、合同端、门禁端") == ["2-contract", "3-gate-pre"]
+    assert kh.return_stages("") == [] and kh.return_stages(None) == [] and kh.return_stages("乱写") == []
+    for value in ("合同端、乱写", "、", ""):
+        assert any("退回" in e for e in kh.letter_errors(head, fields(结论="返工", 退回=value, 阻塞项="x"), 9))
+    assert any("一审只能退回" in e for e in kh.letter_errors(head, fields(结论="返工", 退回="合同端、执行端", 阻塞项="x"), 9))
+    final = dict(head, **{"task-id": "T001-7-audit-post"})
+    assert kh.letter_errors(final, fields(结论="返工", 退回="门禁端、执行端", 阻塞项="x"), 9) == []
+    # 一审同时退回：合同端先返工；门禁端等合同端重新交付、回到 idle 之后再开工
+    ts = locked(make_ts())
+    ts["stages"]["4-audit-pre"]["status"] = "delivered"
+    ts["audit_pre"].update(verdict="返工", target="门禁端、合同端")
+    refused = kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre"))
+    assert "先返工最上游的 2-contract" in refused and "2-contract、3-gate-pre" in refused
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
+    ts["owner_rework"] = {"suffix": "3-gate-pre"}  # 站主指定的照样放行
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    del ts["owner_rework"]
+    ts["audit_pre"].update(target="门禁端")  # 只退回一个：照旧
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract"))
+    # 终审退回门禁端与执行端：热修补先走，执行端等门禁重新交付
+    ts = locked(make_ts())
+    ts["audit_post"].update(verdict="返工", target="门禁端、执行端")
+    assert kh.hotfix_reason(ts) == "终审退回门禁端"
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    assert "先返工最上游的 3-gate-pre" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    ts["audit_post"].update(target="合同端、门禁端")  # 门禁端不在第一个也认
+    assert kh.hotfix_reason(ts) == "终审退回门禁端"
+    ts["audit_post"].update(target="合同端、门禁端、执行端")  # 两处上游：点名最上游的
+    assert "先返工最上游的 2-contract" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    ts["audit_post"].update(target="执行端")
+    assert kh.hotfix_reason(ts) is None and kh.guard(ts, meta("返工", "exec-step", "T001-5-exec")) is None
+    ts["audit_post"].update(target="合同端、执行端")
+    assert kh.guard(ts, meta("返工", "contract-glm", "T001-2-contract")) is None
+    assert "先返工最上游的 2-contract" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    ts["audit_post"].update(verdict="通过")
+    assert "没有执行之后的失败记录" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    assert "“、”隔开" in kh.ROLE_EXTRA_OUTPUT["audit"]
+    assert "合同端、门禁端" in (kh.TEMPLATE_DIR / "worker.md").read_text(encoding="utf-8")
+
+
+def test_claude_workers_return_to_the_workspace_after_each_command(tmp_path):
+    # 第 28 轮：门禁 cd 进主工作区之后，碰工作目录的命令都要审批，没人能答就全被拒
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(env)
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    runner.run("gate-sonnet", "T001-3-gate-pre", tmp_path / "ws", "角色", "输入")
+    assert seen[-1]["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"] == "1"
+    runner.run("contract-glm", "T001-2-contract", tmp_path / "ws", "角色", "输入")
+    assert "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR" not in seen[-1]
+    worker = (kh.TEMPLATE_DIR / "worker.md").read_text(encoding="utf-8")
+    assert "不要 `cd` 到别处" in worker and "git -C" in worker
+
+
+def test_new_attempt_gate_post_starts_from_the_previous_whitebox(tmp_path):
+    # 第 28 轮：返工之后候选 worktree 是新建的，T006 的门禁自己 cp 上一轮的白盒测试，被拒之后整回合什么都没跑
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = locked(make_ts())
+    ts["exec"]["run_dir"] = str(tmp_path / "runs" / "attempt-002")
+    ts["workspaces"]["post-attempt-002"] = {"patched": True}
+    workspace = tmp_path / "post"
+    workspace.mkdir()
+    target = workspace / kh.gate_file(ts, "whitebox")
+    assert kh.seed_whitebox(hub, ts, workspace) is None and not target.exists()  # 第一轮：没有上一份
+    evidence = hub.task_dir("T001-6-gate-post") / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "whitebox-20261020T090000000000Z.py").write_text("old = 1\n", encoding="utf-8")
+    (evidence / "whitebox-20261020T141324849895Z.py").write_text("latest = 1\n", encoding="utf-8")
+    (evidence / "whitebox-20261020T141324849895Z.log").write_text("1 passed\n", encoding="utf-8")
+    (evidence / "whitebox-20261020T150000000000Z.log").write_text("1 passed\n", encoding="utf-8")  # 只认 .py
+    seeded = kh.seed_whitebox(hub, ts, workspace)
+    assert seeded == ".agent/mailbox/tasks/T001-6-gate-post/evidence/whitebox-20261020T141324849895Z.py"
+    assert target.read_text(encoding="utf-8") == "latest = 1\n"
+    assert ts["workspaces"]["post-attempt-002"]["whitebox_seeded"] == seeded
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["source"] for e in events if e["event"] == "whitebox.seeded"] == [seeded]
+    target.unlink()  # 门禁删了它：不再放
+    assert kh.seed_whitebox(hub, ts, workspace) is None and not target.exists()
+    ts["workspaces"]["post-attempt-002"] = {"patched": True}
+    target.write_text("mine = 1\n", encoding="utf-8")  # 工作目录里已经有：不覆盖
+    assert kh.seed_whitebox(hub, ts, workspace) is None
+    assert target.read_text(encoding="utf-8") == "mine = 1\n"
+    assert "whitebox_seeded" not in ts["workspaces"]["post-attempt-002"]
+    ts["workspaces"]["post-attempt-002"]["whitebox_seeded"] = seeded
+    prompt = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], workspace)
+    assert "内核已把上一轮的白盒测试（%s）放进工作目录" % seeded in prompt
+    del ts["workspaces"]["post-attempt-002"]["whitebox_seeded"]
+    assert "上一轮的白盒测试" not in kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], workspace)
+    ts["workspaces"]["post-attempt-002"]["whitebox_seeded"] = seeded
+    assert "上一轮的白盒测试" not in kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], workspace)
+
+
+def test_gate_post_workspace_is_seeded_before_the_gate_starts(engine_env, monkeypatch):
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    calls = []
+    monkeypatch.setattr(kh, "apply_candidate", lambda hub, ts: hub.repo / "post")
+    monkeypatch.setattr(kh, "seed_whitebox", lambda hub, ts, workspace: calls.append(workspace))
+    engine = kh.Engine(hub)
+    assert engine.stage_workspace(ts, "gate-sonnet", "6-gate-post") == hub.repo / "post"
+    assert calls == [hub.repo / "post"]
+    assert engine.stage_workspace(ts, "audit-sonnet", "7-audit-post") == hub.repo / "post"
+    assert calls == [hub.repo / "post"]  # 终审不放：白盒测试是门禁的
