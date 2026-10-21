@@ -2612,7 +2612,7 @@ def test_only_the_planner_stays_on_claude():
     assert on == {
         kh.COORDINATOR: ("pi", "token", "qwen3.7-plus"),
         "planner-opus": ("claude", None, "claude-opus-5-5"),
-        "contract-glm": ("pi", "token", "qwen3.7-plus"),
+        "contract-glm": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),  # 第 46 轮：qwen 写合同接连出错
         "gate-sonnet": ("pi", "bb", "step-5-preview"),
         "audit-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),
         "exec-step": ("dispatcher", "bb", "step-5-preview")}
@@ -4950,3 +4950,18 @@ def test_scope_notes_are_stripped_and_unparsed_check_ids_are_named(tmp_path):
     (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc\n" + md.replace("VG1", "G01").replace("VR1", "R01"),
                                           encoding="utf-8")
     assert not any("认不出" in p for p in kh.contract_requirements(hub, ts))
+
+
+def test_scope_paths_missing_the_directory_prefix_are_named(tmp_path):
+    # 第 46 轮：T013 的合同把路径都写成相对 desktop/web 的 `src/pages/readonly1/…`，执行端照它做会全部越界
+    repo, hub, ts, plans, _previous = rework_setup(tmp_path)
+    head = land_on_main(repo, "desktop/web/src/a.ts", "export const a = 1;\n", "已有的文件")
+    data = {"base_sha": head, "scope": {
+        "allowed_modified_files": ["src/a.ts", "desktop/web/src/a.ts", "src/new.ts"],
+        "allowed_new_files": ["newdir/x.ts", "desktop/web/src/b.ts"],
+        "allowed_deleted_files": [], "forbidden_paths": ["src/**", "README.md", "web/src/a.ts"]}}
+    assert kh.scope_missing_prefix(hub, data) == ["src/a.ts → desktop/web/src/a.ts", "web/src/a.ts → desktop/web/src/a.ts"]
+    assert kh.scope_missing_prefix(hub, dict(data, base_sha=None)) == []
+    (plans / "t001-doc.v1.json").write_text(json.dumps(data), encoding="utf-8")
+    problems = kh.contract_requirements(hub, ts)
+    assert any(p.startswith("Scope 的路径要从仓库根写起") and "src/a.ts → desktop/web/src/a.ts" in p for p in problems)

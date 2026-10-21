@@ -120,9 +120,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob", "Bash"], "allowed_rules": ["Bash(npm view:*)"],
                      "timeout": 2400, "workspace": "base"},
-    # 合同由审核端一审：两者用不同的模型（审核是 glm）
-    "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "token",
-                     "model": "qwen3.7-plus", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
+    # 第 46 轮：qwen3.7-plus 写合同接连出错。T011 返工五次；T013 四次都没过，最后一份 Scope 的路径全少了
+    # desktop/web/，执行端照它做会全部越界。换到 glm-5.3。合同原来由不同的模型一审（审核是 glm），现在同一个模型，
+    # 少了一层独立性，靠内核的机械检查（第 40、43、46 轮）与 JEV 补。
+    "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
+                     "model": "glm-5.3", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "base"},
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
@@ -1613,6 +1615,31 @@ def unparsed_check_ids(md: str) -> List[str]:
             if CHECK_LIKE_RE.match(line.strip()) and not pd._CHECK_LINE_RE.match(line.strip())]
 
 
+def scope_missing_prefix(hub: Hub, data: Dict[str, Any]) -> List[str]:
+    """Scope 里少了目录前缀的路径（第 46 轮），写成“原文 → 基线上的文件”。T013 的合同把路径都写成相对
+    desktop/web 的 `src/pages/readonly1/…`；validate 不查这个，执行端照它做会全部越界，禁改的也什么都禁不住。
+    只认得出“第一段在仓库根下没有、某个目录下却正好有这个文件”的：新建的文件、新建的顶层目录（T002 的
+    desktop/）都对不上已有文件，不会误报；新文件也常列在要修改的文件里，不能要求它们已经存在。"""
+    base = data.get("base_sha")
+    if not base:
+        return []
+    try:
+        files = git(["ls-tree", "-r", "--name-only", base], hub.repo).splitlines()
+    except HubError:
+        return []
+    roots = {path.split("/")[0] for path in files}
+    scope = data.get("scope") or {}
+    out = []
+    for key in ("allowed_modified_files", "allowed_new_files", "allowed_deleted_files", "forbidden_paths"):
+        for entry in [str(e) for e in scope.get(key) or []]:
+            if "/" not in entry or entry.split("/")[0] in roots or any(c in entry for c in "*?["):
+                continue
+            found = next((path for path in files if path.endswith("/" + entry)), None)
+            if found:
+                out.append("%s → %s" % (entry, found))
+    return out
+
+
 def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、执行模型与集成授权（设计 §7）；
     合同里不能留“待确认”一类的未决标注。"""
@@ -1632,6 +1659,10 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
         # T001（2026-10-19）：合同端把 4 个待站主确认的问题写成 13 处标注留在正文里，执行端会当成未决事项
         problems.append("合同里还有 %d 处未决标注（%s）：拿不准的事先发“提问”，等站主或协调人答复后再交合同，"
                         "合同里只写已经定下的做法" % (len(pending), "、".join(sorted(set(pending)))))
+    missing = scope_missing_prefix(hub, data)
+    if missing:
+        problems.append("Scope 的路径要从仓库根写起，这几条少了目录前缀（原文 → 基线上的文件）：%s%s" % (
+            "；".join(missing[:6]), "；另有 %d 条" % (len(missing) - 6) if len(missing) > 6 else ""))
     if gate_pattern(ts) not in (data.get("scope") or {}).get("forbidden_paths", []):
         problems.append("Scope 的 forbidden_paths 要包含 %s" % gate_pattern(ts))
     baseline_file = gate_file(ts, "baseline")
