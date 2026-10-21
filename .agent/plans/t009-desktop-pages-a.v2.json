@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "task_id": "t009-desktop-pages-a",
+  "plan_version": 2,
+  "title": "桌面端前端只读页面一：总览、角色与模型、CLI 运行时（第八片，依赖 T006、T007）",
+  "repository": "ThemisTally",
+  "base_sha": "c6c8cace12b513c4b9964e93dbb647a371fdf3e6",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/shell/router.ts",
+      "desktop/web/src/shell/attemptGroups.ts",
+      "desktop/web/tests/shell-app.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/pages/readonly1/common-Section.tsx",
+      "desktop/web/src/pages/readonly1/common-section.css",
+      "desktop/web/src/pages/readonly1/common-links.ts",
+      "desktop/web/src/pages/readonly1/common-copyText.ts",
+      "desktop/web/src/pages/readonly1/common-CopyNote.tsx",
+      "desktop/web/src/pages/readonly1/overview-OverviewView.tsx",
+      "desktop/web/src/pages/readonly1/overview-MetricCard.tsx",
+      "desktop/web/src/pages/readonly1/overview-AttemptList.tsx",
+      "desktop/web/src/pages/readonly1/overview-ConfigChanges.tsx",
+      "desktop/web/src/pages/readonly1/overview-logic.ts",
+      "desktop/web/src/pages/readonly1/overview-styles.css",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/pages/readonly1/roles-RoleCard.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetBar.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetsTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetDiff.tsx",
+      "desktop/web/src/pages/readonly1/roles-logic.ts",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/pages/readonly1/runtimes-RuntimesView.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-logic.ts",
+      "desktop/web/src/pages/readonly1/runtimes-styles.css",
+      "desktop/web/src/components/RelativeTime.tsx",
+      "desktop/web/src/components/ActorTag.tsx",
+      "desktop/web/tests/page-logic.test.ts",
+      "desktop/web/tests/page-common.test.tsx",
+      "desktop/web/tests/page-overview.test.tsx",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/page-runtimes.test.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/page-css.test.ts",
+      "desktop/web/tests/page-static.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/icons/frame.tsx",
+      "desktop/web/src/shell/DisabledAction.css",
+      "desktop/web/src/shell/DisabledAction.tsx",
+      "desktop/web/src/shell/Logo.tsx",
+      "desktop/web/src/shell/PageFrame.css",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/shell/ShellMenu.css",
+      "desktop/web/src/shell/ShellMenu.tsx",
+      "desktop/web/src/shell/ShellStatusContext.tsx",
+      "desktop/web/src/shell/TabBar.css",
+      "desktop/web/src/shell/TabBar.tsx",
+      "desktop/web/src/shell/TitleBar.css",
+      "desktop/web/src/shell/TitleBar.tsx",
+      "desktop/web/src/shell/relativeTime.ts",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/components/Banner.*",
+      "desktop/web/src/components/Breadcrumb.*",
+      "desktop/web/src/components/Button.*",
+      "desktop/web/src/components/Card.*",
+      "desktop/web/src/components/Checkbox.*",
+      "desktop/web/src/components/CommandLine.*",
+      "desktop/web/src/components/ConnectionPill.*",
+      "desktop/web/src/components/Dialog.*",
+      "desktop/web/src/components/DiffView.*",
+      "desktop/web/src/components/Drawer.*",
+      "desktop/web/src/components/EffortPair.*",
+      "desktop/web/src/components/EmptyState.*",
+      "desktop/web/src/components/IconButton.*",
+      "desktop/web/src/components/KeyValueList.*",
+      "desktop/web/src/components/LogFollow.*",
+      "desktop/web/src/components/MaskedValue.*",
+      "desktop/web/src/components/Menu.*",
+      "desktop/web/src/components/NextStep.*",
+      "desktop/web/src/components/SafeMarkdown.*",
+      "desktop/web/src/components/SegmentedControl.*",
+      "desktop/web/src/components/Select.*",
+      "desktop/web/src/components/Skeleton.*",
+      "desktop/web/src/components/StatusTag.*",
+      "desktop/web/src/components/Switch.*",
+      "desktop/web/src/components/Table.*",
+      "desktop/web/src/components/Tabs.*",
+      "desktop/web/src/components/Tag.*",
+      "desktop/web/src/components/TextField.*",
+      "desktop/web/src/components/TextViewer.*",
+      "desktop/web/src/components/Toast.*",
+      "desktop/web/src/components/Tooltip.*",
+      "desktop/web/src/components/overlay/**",
+      "desktop/web/src/components/field/**",
+      "desktop/web/src/components/evidence/**",
+      "desktop/web/src/components/diff/**",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/component-css.test.ts",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/diff-css.test.ts",
+      "desktop/web/tests/diff-parse.test.ts",
+      "desktop/web/tests/diff-showcase.test.tsx",
+      "desktop/web/tests/diff-static.test.ts",
+      "desktop/web/tests/diff-view.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/evidence-atoms.test.tsx",
+      "desktop/web/tests/evidence-effort.test.tsx",
+      "desktop/web/tests/evidence-markdown.test.tsx",
+      "desktop/web/tests/evidence-showcase.test.tsx",
+      "desktop/web/tests/evidence-static.test.ts",
+      "desktop/web/tests/evidence-text-viewer.test.tsx",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/forms-patches-css.test.ts",
+      "desktop/web/tests/forms-patches.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/log-follow.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/shell-api.test.ts",
+      "desktop/web/tests/shell-menu.test.tsx",
+      "desktop/web/tests/shell-no-network.test.ts",
+      "desktop/web/tests/shell-page-frame.test.tsx",
+      "desktop/web/tests/shell-router.test.ts",
+      "desktop/web/tests/shell-shortcuts.test.ts",
+      "desktop/web/tests/shell-showcase.test.tsx",
+      "desktop/web/tests/shell-tabbar.test.tsx",
+      "desktop/web/tests/shell-theme.test.ts",
+      "desktop/web/tests/shell-titlebar.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/text-viewer-slots.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "desktop/web/README.md",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "tests/test_gate_t009_*.py",
+      "tests/test_gate_*.py",
+      "tests/conftest.py",
+      "tests/test_attempt_states.py",
+      "tests/test_desktop_attempt_states.py",
+      ".gitignore",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t009_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 12600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "output_must_not_match": [
+        "failed|error"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "指标卡四张，顺序与 data-metric 正确，计数来自 groupOfState 的分组，夹具得 1/2/1/1（过渡）；色调条四色正确；整张卡是链接，点击后路由为任务页、group 为对应分组 ID、原 mock 保留，带修饰键不拦截",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "需要你判断只含待验收与要你决定两组、保持 getStatus 顺序；行名称/用时/检查/[查看证据] 地址正确；计数胶囊与 aria-label、金色左边框；下一步两种文字与命令精确到 attempt；复制三态文字；无行不渲染",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "运行中显示已用时间与工具调用次数；long_idle 真才有 warning 标签且带增量数；[跟随事件] 地址带 tab=events；待集成下一步正确；无行不渲染",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "最近的配置变更最多 5 条按编号倒序；相对时间与 title；动作中文 title；对象；外部改动标签；执行者色调；空与出错文字；查看全部历史链接",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "总览五态：组合读取；status 出错时页面级出错块显示 status 命令，history 出错只在区块里显示；空态标题说明；断线数据仍在；首次加载骨架屏",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "角色卡四张、名称与角色码正确；四种模式各自的标签、键值与说明；默认/不一致/已接通/本轮未接通出现条件；思考档位四种情形都经 EffortPair 显示；[更改…] 禁用",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "当前方案分段选项与初值；说明两种文字；[切换…] 始终禁用且有提示；无方案时文字",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "profile 表各列正确（thinking 缺省、凭据标签、被引用）；[编辑][删除] 禁用；空时文字",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "方案表各列正确；当前行说明文字；[使用][删除…] 禁用；[查看差异] 可用，展开调一次 diffPresets(active,name)，读取中/出错/有数据三态，能收起，同时只开一个，过期回应丢弃；差异行绑定文字正确、减号 U+2212",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "CLI 运行时各列正确；能担任映射；来源标签四种取值加未知值、notes 进 title；命令为空显示、截断规则、title 全文；版本「—」；操作按规则出现且都禁用；页头两个入口禁用；就绪检查区；空态",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "三页所有写入口都禁用且悬停出 role=tooltip 文字「第二阶段接入」；页面根里可用按钮只在白名单之内；夹具下写入口个数 13 与 9（过渡）",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "RelativeTime 规则与 title 格式；ActorTag 色调；index.ts 只追加两组导出；4 个新图标路径等于画布对应行、已有图标与导出不变",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D13",
+      "text": "§8 的取值、令牌与 px 注释；没有内联 style；两组禁用词、ServerIcon、role=status、四个禁用接口都不出现；不另写 3.4 分组表；W4 通过",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D14",
+      "text": "回归——T001–T008 门禁、V03、npm 四步都通过；只改允许的文件；不改依赖；新测试不用 skip/only/todo",
+      "evidence": [
+        "V02",
+        "V03",
+        "scope",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
