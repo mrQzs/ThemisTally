@@ -4506,3 +4506,45 @@ def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
     md.write_text(md.read_text(encoding="utf-8").replace("bb/", "step/"), encoding="utf-8")
     ts["contract"]["dispatched"] = True  # 派遣过的版本只增不改
     assert kh.sync_executor_line(hub, ts) is None and "step/" in md.read_text(encoding="utf-8")
+
+
+def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):
+    # 第 37 轮：T010 的协调人回合替换 state.json 时撞上 WinError 5（别的进程正读着），回合出错，临时文件留在 ledger 里
+    monkeypatch.setattr(kh, "SHARING_PAUSE", 0)
+    real_replace, fails = kh.os.replace, {"n": 2}
+
+    def flaky_replace(src, dst):
+        if fails["n"]:
+            fails["n"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(kh.os, "replace", flaky_replace)
+    target = tmp_path / "state.json"
+    kh.write_text_atomic(target, "{}")
+    assert target.read_text(encoding="utf-8") == "{}" and fails["n"] == 0
+    fails["n"] = kh.SHARING_RETRIES
+    with pytest.raises(PermissionError):
+        kh.write_text_atomic(target, '{"x": 1}')
+    assert target.read_text(encoding="utf-8") == "{}" and list(tmp_path.glob("*.tmp")) == []  # 不留临时文件
+    monkeypatch.setattr(kh.os, "replace", real_replace)
+    real_read, blocked = Path.read_text, {"n": 0}
+
+    def flaky_read(self, *args, **kwargs):
+        if self.name == "state.json" and blocked["n"]:
+            blocked["n"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read)
+    hub = kh.Hub(tmp_path / "hub")
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": make_ts()}})
+    blocked["n"] = 2
+    assert "T001" in hub.load_state()["tasks"] and blocked["n"] == 0
+    blocked["n"] = kh.SHARING_RETRIES  # 一直读不到：报错，不当成没有主任务（工人会把信收掉不办）
+    with pytest.raises(kh.HubError, match="读不出"):
+        hub.load_state()
+    blocked["n"] = 0
+    assert kh.read_text(tmp_path / "missing.txt") == ""
+    assert kh.Hub(tmp_path / "fresh").load_state() == {"tasks": {}}  # 还没有 state.json：照旧是空的

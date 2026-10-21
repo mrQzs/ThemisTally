@@ -226,20 +226,45 @@ def sha256_file(path: Path) -> Optional[str]:
         return None
 
 
+#: Windows 上目标文件正被别的进程打开时，os.replace 与读取会撞上 PermissionError（共享冲突），一般几十毫秒就过去
+SHARING_RETRIES, SHARING_PAUSE = 40, 0.05
+
+
 def write_text_atomic(path: Path, text: str) -> None:
-    """整份替换：独立的临时文件写完再 os.replace，读者只会看到旧版或新版。"""
+    """整份替换：独立的临时文件写完再 os.replace，读者只会看到旧版或新版。
+
+    第 37 轮：并行的 runner 一多，T010 的协调人回合在替换 state.json 时撞上“WinError 5 拒绝访问”（别的进程
+    正读着它），回合出错，临时文件也留在 ledger 里。共享冲突短暂重试；最后还是失败就删掉临时文件再报错。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.parent / ("%s.%s.tmp" % (path.name, os.urandom(6).hex()))
     with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
-    os.replace(str(tmp), str(path))
+    for attempt in range(SHARING_RETRIES):
+        try:
+            os.replace(str(tmp), str(path))
+            return
+        except PermissionError:
+            if attempt == SHARING_RETRIES - 1:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
+            time.sleep(SHARING_PAUSE)
 
 
 def read_text(path: Path) -> str:
-    try:
-        return Path(path).read_text(encoding="utf-8")
-    except OSError:
-        return ""
+    """读不到就是空串；共享冲突（别的进程正在替换它）短暂重试，不当成空文件（第 37 轮）。"""
+    for attempt in range(SHARING_RETRIES):
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except PermissionError:
+            if attempt == SHARING_RETRIES - 1:
+                return ""
+            time.sleep(SHARING_PAUSE)
+        except OSError:
+            return ""
+    return ""
 
 
 def canonical_json(value: Any) -> str:
@@ -493,7 +518,11 @@ class Hub:
             os.fsync(handle.fileno())
 
     def _read_state(self) -> Dict[str, Any]:
-        text = read_text(self.state_path())
+        path = self.state_path()
+        text = read_text(path)
+        if not text.strip() and path.is_file() and path.stat().st_size:
+            # 第 37 轮：读不出来却不是空文件（共享冲突一直没过去）。当成“没有主任务”，工人会把信收掉不办
+            raise HubError("读不出 %s（文件在，内容读不到）" % path, EXIT_BLOCKED)
         data = json.loads(text) if text.strip() else {}
         data.setdefault("tasks", {})
         return data
