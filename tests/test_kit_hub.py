@@ -4791,3 +4791,46 @@ def test_owner_raises_the_attempt_budget(tmp_path, monkeypatch):
     ts = hub.load_state()["tasks"]["T001"]  # 没派遣过的 v4 就地改；问题记在状态里
     assert ts["contract"]["key"] == "t001-doc.v4" and ts["contract"]["problems"]
     assert "- max_attempts_total: 6" in (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
+
+
+def test_bold_item_ids_in_the_contract_are_normalized(tmp_path, monkeypatch):
+    # T011 的合同端三次都写成 `- **D01**: …`，调度器一条 DoD 也认不出（“definition_of_done 必须是非空数组”）
+    text = ("## Definition of Done\n- **D01**: 纯函数；证据：V01\n- **D02**：数据层\n  * **D10**:缩进的\n"
+            "- **V01：** `npm test`\n- D03：已经对的\n- **说明**: 不是编号\n**D04**: 不在列表里\n- **D5**: 一位数\n")
+    fixed, count = kh.normalize_markup(text)
+    assert count == 4
+    assert fixed.splitlines()[1:] == ["- D01：纯函数；证据：V01", "- D02：数据层", "  * D10：缩进的", "- V01：`npm test`",
+                                      "- D03：已经对的", "- **说明**: 不是编号", "**D04**: 不在列表里", "- **D5**: 一位数"]
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    monkeypatch.setattr(kh, "revalidate_contract", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "budget_problems", lambda hub_, ts_: [])
+    assert kh.accept_contract(hub, ts, {"contract_md": "# TASK: t001-doc\n" + text}) == []
+    written = (tmp_path / ".agent" / "plans" / ("%s.md" % ts["contract"]["key"])).read_text(encoding="utf-8")
+    assert "- D01：纯函数；证据：V01" in written and "**D01**" not in written
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "contract.markup_normalized"' in events and '"lines": 4' in events
+    kh.accept_contract(hub, ts, {"contract_md": "# TASK: t001-doc\n- D01：对的\n"})
+    assert (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8").count("markup_normalized") == 1
+
+
+def test_an_unchanged_attempt_on_a_rework_base_still_carries_the_work(tmp_path):
+    # T012 的 attempt-004 接着 attempt-002 改，一行没动就被截断：补丁是空的，可工作目录里有 attempt-002 的活
+    repo, hub, ts, plans, first = rework_setup(tmp_path)
+    runs, ts["audit_post"] = first.parent, {}
+    (first / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    rework = "b" * 40
+    ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
+    run = runs / "attempt-002"
+    run.mkdir()
+    (run / "candidate.patch").write_text("", encoding="utf-8")
+    (run / "meta.json").write_text(json.dumps({"base_sha": rework, "plan_version": 2}), encoding="utf-8")
+    cut_short(run)
+    ts["exec"] = {"run_dir": str(run), "check_ok": False}
+    assert kh.carry_source(hub, ts) == (run, "cutoff")
+    ts["exec"] = {}
+    assert kh.carry_source(hub, ts) == (run, "upstream")  # 门禁热修补之后：搬它的候选，不停在 REVISE 的上一轮
+    ts["rework_chain_superseded"], ts["rework_chain"] = ts.pop("rework_chain"), []
+    assert kh.carry_source(hub, ts) == (run, "upstream")  # 搬过一次、链作废了：基线里仍有活
+    ts["rework_chain_superseded"] = []
+    assert kh.carry_source(hub, ts) is None  # 基线不是返工提交、补丁又是空的：没有活

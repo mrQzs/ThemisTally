@@ -28,7 +28,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -1666,6 +1666,16 @@ def normalize_identity(text: str, values: Dict[str, str]) -> Tuple[str, Dict[str
     return text, changed
 
 
+#: DoD 与检查行的编号写成粗体（`- **D01**: …`、`- **V01：**…`）；调度器只认 `- D01：…`
+BOLD_ITEM_RE = re.compile(r"(?m)^([ \t]*[-*][ \t]*)\*\*([DV]\d{2,})(?:\*\*[ \t]*([:：])|[ \t]*([:：])[ \t]*\*\*)[ \t]*")
+
+
+def normalize_markup(text: str) -> Tuple[str, int]:
+    """把粗体编号改成调度器认得的写法，返回（改正后的全文，改了几行）（第 40 轮）。T011 的合同端三次都写成
+    `- **D01**: …`，调度器一条 DoD 也认不出，报“definition_of_done 必须是非空数组”；协调人的返工信还要它这样写。"""
+    return BOLD_ITEM_RE.subn(r"\g<1>\g<2>：", text)
+
+
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
     text = output.get("contract_md")
     if not isinstance(text, str) or not text.strip():
@@ -1690,6 +1700,9 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     text, changed = normalize_identity(text, {"plan_version": str(version), "base_sha": ts["base_head"]})
     if changed:
         hub.append_event("contract.identity_normalized", task=ts["task"], key=key, written=changed)
+    text, bold = normalize_markup(text)
+    if bold:
+        hub.append_event("contract.markup_normalized", task=ts["task"], key=key, lines=bold)
     path.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     # written_version：合同端写的这一版。之后热修补、重派、返工只复制升版，内容不变（carry_source 据此判断
     # 旧 attempt 的候选是不是按同一份合同做的）
@@ -2247,14 +2260,25 @@ def cut_off(run_dir: Path) -> bool:
     return summary.get("final_stop_reason") == "length" and report.get("status") != "json_ok"
 
 
-def carryable(run_dir: Path) -> bool:
-    """这个 attempt 的候选能不能给下一轮接着改（第 35 轮）：没有结论、越界 0 条、候选非空，而且是跑满了时限
+def rework_commits(ts: Dict[str, Any]) -> Set[str]:
+    """内核建过的返工提交（含被搬到新基准测试上之后作废的）：以它为基线的 attempt，工作目录里有前几轮的活。"""
+    return {c.get("commit") for c in (ts.get("rework_chain") or []) + (ts.get("rework_chain_superseded") or [])
+            if c.get("commit")}
+
+
+def carryable(run_dir: Path, carried: Collection[str] = ()) -> bool:
+    """这个 attempt 的候选能不能给下一轮接着改（第 35 轮）：没有结论、越界 0 条、候选里有活，而且是跑满了时限
     或输出被截断（活没干完，第 39 轮），或者检查全过（之后终审或门禁热修补还要它改）。
-    检查没过、自己收了尾的不算：从基线重来（第 19 轮）。"""
+    检查没过、自己收了尾的不算：从基线重来（第 19 轮）。
+
+    候选里有活：自己的补丁非空，或者基线就是返工提交（carried，第 40 轮）。T012 的 attempt-004 接着 attempt-002
+    改，一行没动就被截断，补丁是空的；门禁热修补之后往前找，跳过它、停在已记 REVISE 的 attempt-002，从头重来。"""
     state = pd.get_state(run_dir)
     patch = run_dir / "candidate.patch"
     scope = run_dir / "scope.json"
-    if state not in ("TIMEOUT", "NEEDS_REVIEW") or not patch.is_file() or not patch.stat().st_size or not scope.is_file():
+    if state not in ("TIMEOUT", "NEEDS_REVIEW") or not patch.is_file() or not scope.is_file():
+        return False
+    if not patch.stat().st_size and json.loads(read_text(run_dir / "meta.json") or "{}").get("base_sha") not in carried:
         return False
     if json.loads(read_text(scope) or "{}").get("violations"):
         return False
@@ -2282,7 +2306,7 @@ def carry_back(hub: Hub, ts: Dict[str, Any], why: Optional[str]) -> Optional[Tup
         meta = json.loads(read_text(attempt / "meta.json") or "{}")
         if state in ATTEMPT_CONCLUDED or (written and int(meta.get("plan_version") or 0) < written):
             return None  # 更早的已经有了去处（返工、结项），或者是按旧合同做的
-        if carryable(attempt):
+        if carryable(attempt, rework_commits(ts)):
             reason = why or unfinished_why(attempt)
             return (attempt, reason) if reason else None
     return None
@@ -2304,7 +2328,7 @@ def carry_source(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[Path, str]]:
         if pd.get_state(path) == "ABANDONED":
             return carry_back(hub, ts, None)
         why = unfinished_why(path)
-        return (path, why) if why and carryable(path) else None
+        return (path, why) if why and carryable(path, rework_commits(ts)) else None
     # 执行阶段的记录被上游重新交付清掉了：找最近一个能接着改的 attempt
     return carry_back(hub, ts, "upstream")
 
