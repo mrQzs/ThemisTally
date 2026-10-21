@@ -1184,7 +1184,8 @@ def test_output_block_merges_keys_written_after_an_early_close():
     assert kh.merge_early_close("{\"a\": 1}, \"state\": 2", 8, {"a": 1}) is None  # 并不成一个对象（少了右括号）
 
 
-def test_turn_records_the_ignored_trailing_closers(tmp_path):
+def test_turn_records_the_ignored_trailing_closers(tmp_path, monkeypatch):
+    monkeypatch.setitem(kh.ROSTER, "audit-sonnet", CLAUDE_AUDIT)
     hub = kh.Hub(tmp_path)
     hub.ensure()
     final = "交付。\n```json\n{\"letter\": {\"type\": \"交付\"}, \"state\": \"s\"}]}\n```"
@@ -2600,7 +2601,22 @@ def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):
 
 def test_coordinator_runs_at_high_effort():
     # 用户 2026-10-19 同意：协调人从 max 降到 high（T001 里每回合 1–4.5 分钟，大头是思考输出）
-    assert kh.ROSTER[kh.COORDINATOR]["effort"] == "high"
+    assert kh.ROSTER[kh.COORDINATOR]["thinking"] == "high"
+
+
+def test_only_the_planner_stays_on_claude():
+    # 第 36 轮（用户 2026-10-21）：最重要的岗位 Opus 5.5 max，第二重要的 GLM-5.3，其余换到 pi 上
+    on = {name: (spec["adapter"], spec.get("provider"), spec["model"]) for name, spec in kh.ROSTER.items()
+          if spec["adapter"] in ("claude", "pi", "dispatcher")}
+    assert on == {
+        kh.COORDINATOR: ("pi", "token", "qwen3.7-plus"),
+        "planner-opus": ("claude", None, "claude-opus-5-5"),
+        "contract-glm": ("pi", "token", "qwen3.7-plus"),
+        "gate-sonnet": ("pi", "bb", "step-5-preview"),
+        "audit-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),
+        "exec-step": ("dispatcher", "bb", "step-5-preview")}
+    assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "max"
+    assert kh.CONTRACT_EXECUTOR_LINE == "- executor: bb/step-5-preview · thinking high"
 
 
 def test_invalid_output_gets_one_retry(engine_env):
@@ -2706,13 +2722,14 @@ def test_turn_cost_is_this_turn_not_the_session_total(tmp_path):
     totals = iter([0.10, 0.25, 0.27, 0.05])
 
     def launcher(cmd, cwd, env, out, err, timeout):
-        init = dict(INIT, tools=kh.ROSTER["womovie-c8"]["tools"], model=kh.ROSTER["womovie-c8"]["model"])
+        init = dict(INIT, tools=kh.ROSTER["planner-opus"]["tools"], model=kh.ROSTER["planner-opus"]["model"])
         result = {"type": "result", "result": "```json\n{\"letters\": []}\n```", "total_cost_usd": next(totals)}
         out.write(("\n".join(stream(init, result)) + "\n").encode("utf-8"))
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 2.5}
 
     runner = kh.TurnRunner(hub, launcher=launcher)
-    turns = [runner.run("womovie-c8", "T001", tmp_path, "角色", "输入", fresh=fresh) for fresh in (False, False, False, True)]
+    turns = [runner.run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入", fresh=fresh)
+             for fresh in (False, False, False, True)]
     assert [t["cost_usd"] for t in turns] == [0.10, 0.15, 0.02, 0.05]  # 会话重开之后从头计
     assert [t["session_cost_usd"] for t in turns] == [0.10, 0.25, 0.27, 0.05]
     events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
@@ -2771,7 +2788,17 @@ def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_p
     assert "工人回合合计：7 个" in text and "4.34 美元" in text
 
 
-def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_path):
+#: 第 36 轮之前门禁端、审核端在 claude 上的规格。claude 的这条路照旧保留（换回来时用），按原来的规格测
+CLAUDE_GATE = {"role": "gate", "adapter": "claude", "model": "claude-sonnet-5-5", "effort": "high",
+               "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"], "allowed_rules": ["Bash(python -m pytest:*)"],
+               "timeout": 2400, "workspace": "stage"}
+CLAUDE_AUDIT = {"role": "audit", "adapter": "claude", "model": "claude-sonnet-5-5", "effort": "max",
+                "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "stage"}
+
+
+def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_path, monkeypatch):
+    monkeypatch.setitem(kh.ROSTER, "gate-sonnet", CLAUDE_GATE)
+    monkeypatch.setitem(kh.ROSTER, "audit-sonnet", CLAUDE_AUDIT)
     hub = kh.Hub(tmp_path)
     hub.ensure()
     seen = []
@@ -3992,8 +4019,9 @@ def test_audit_may_return_several_stages_and_the_upstream_one_goes_first():
     assert "合同端、门禁端" in (kh.TEMPLATE_DIR / "worker.md").read_text(encoding="utf-8")
 
 
-def test_claude_workers_return_to_the_workspace_after_each_command(tmp_path):
+def test_claude_workers_return_to_the_workspace_after_each_command(tmp_path, monkeypatch):
     # 第 28 轮：门禁 cd 进主工作区之后，碰工作目录的命令都要审批，没人能答就全被拒
+    monkeypatch.setitem(kh.ROSTER, "gate-sonnet", CLAUDE_GATE)
     hub = kh.Hub(tmp_path)
     hub.ensure()
     seen = []
@@ -4385,3 +4413,96 @@ def test_facts_checked_before_the_plan_is_delivered_says_why(tmp_path):
                               facts_checked=True, file=str(body))
     with pytest.raises(kh.HubError, match="规划端还没交付，事实在交付时才登记"):
         kh.cmd_send(args)
+
+
+# ---------------------------------------------------------------------------
+# 第 36 轮：只有规划端留在 claude 上，门禁端到了 pi 上要另设护栏
+# ---------------------------------------------------------------------------
+
+def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append((cmd, cwd, timeout))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    for agent, key in ((kh.COORDINATOR, "T001"), ("contract-glm", "T001-2-contract"), ("gate-sonnet", "T001-3-gate-pre"),
+                       ("audit-sonnet", "T001-4-audit-pre")):
+        runner.run(agent, key, tmp_path / "ws", "角色", "输入")
+        cmd, cwd, timeout = seen[-1]
+        spec = kh.ROSTER[agent]
+        assert cmd[cmd.index("--provider") + 1] == spec["provider"] and cmd[cmd.index("--model") + 1] == spec["model"]
+        assert cmd[cmd.index("--thinking") + 1] == spec["thinking"] and cmd[cmd.index("--tools") + 1] == ",".join(spec["tools"])
+        assert cwd == tmp_path / "ws" and timeout == spec["timeout"] and "claude" not in Path(cmd[0]).name
+    assert seen[2][0][seen[2][0].index("--tools") + 1] == "read,grep,find,ls,edit,write,bash"  # 门禁端要写测试、跑测试
+    assert all("write" not in cmd[cmd.index("--tools") + 1] for cmd, _cwd, _t in (seen[0], seen[1], seen[3]))
+
+
+def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
+    repo, ws = tmp_path / "Repo", tmp_path / "Repo" / "wt"  # 测试里工作目录在仓库里：提到工作目录本身不算碰主工作区
+    ws.mkdir(parents=True)
+    spec = {"tools": ["read", "write", "edit", "bash"], "provider": "p", "model": "m"}
+
+    def call(name, **args):
+        return {"type": "tool_execution_start", "toolCallId": "c-%s" % name, "toolName": name, "args": args}
+
+    def audit(*events):
+        return kh.audit_pi_stream(stream(*events), spec, ws, repo)
+
+    fine = audit(call("write", path="tests/test_gate_t001_baseline.py"), call("edit", path=str(ws / "a.py")),
+                 call("read", path=str(repo / ".agent" / "plans" / "t001.v1.md")),
+                 call("bash", command="cd %s && python -m pytest -q tests" % str(ws).replace("\\", "/")),
+                 call("bash", command="npm test"))
+    assert fine["violations"] == [] and fine["warnings"] == []
+    looked = audit(call("bash", command="cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")),
+                   call("bash", command="grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))))
+    assert looked["violations"] == [] and len(looked["warnings"]) == 2 and "主工作区" in looked["warnings"][0]
+    for event in (call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
+                  call("write", path=str(tmp_path / "Repo" / "wtx" / "a.py")),
+                  call("bash", command="cp a.py %s" % (repo / "scripts")),
+                  call("bash", command="cat x > %s" % str(repo / "y").replace("\\", "/")),
+                  call("bash", command="sed -i s/a/b/ %s" % (repo / "z")),
+                  call("bash", command="ls && git -C %s checkout ." % str(repo).upper())):
+        assert len(audit(event)["violations"]) == 1, event
+    assert kh.audit_pi_stream(stream(call("write", path="../x")), spec)["violations"] == []  # 没给工作目录：照旧
+    # 回合里也这样审：门禁端的回合写到工作目录之外，整回合作废
+    hub = kh.Hub(repo)
+    hub.ensure()
+    gate = kh.ROSTER["gate-sonnet"]
+    done = {"type": "message_end", "message": {"role": "assistant", "provider": gate["provider"], "model": gate["model"],
+                                               "stopReason": "stop", "content": [
+                                                   {"type": "text", "text": "```json\n{\"letters\": []}\n```"}]}}
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        out.write(("\n".join(stream(call("write", path="../outside.py"), done)) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("gate-sonnet", "T001-3-gate-pre", ws, "角色", "输入")
+    assert turn["violations"] == ["write 写到了工作目录之外：../outside.py"] and turn["output"] is None
+
+
+def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
+    # 本机的 step-5-preview 从 step 回到 bb：T009、T010 的合同写着 step/step-5-preview，接着改时 validate 不过
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    plans = tmp_path / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    md = plans / "t001-doc.v3.md"
+    md.write_text("# TASK: t001-doc\n## Identity\n- executor: step/step-5-preview · thinking high\n- base_sha: x\n",
+                  encoding="utf-8")
+    ts = make_ts()
+    ts["contract"] = {"key": "t001-doc.v3", "version": 3}
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: (0, "ok"))
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    assert kh.revalidate_contract(hub, ts) == []
+    assert "- executor: bb/step-5-preview · thinking high\n- base_sha: x" in md.read_text(encoding="utf-8")
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["previous"] for e in events if e["event"] == "contract.executor_synced"] == [
+        "- executor: step/step-5-preview · thinking high"]
+    assert kh.sync_executor_line(hub, ts) is None  # 已经一致
+    md.write_text(md.read_text(encoding="utf-8").replace("bb/", "step/"), encoding="utf-8")
+    ts["contract"]["dispatched"] = True  # 派遣过的版本只增不改
+    assert kh.sync_executor_line(hub, ts) is None and "step/" in md.read_text(encoding="utf-8")

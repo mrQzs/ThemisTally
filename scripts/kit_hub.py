@@ -106,26 +106,37 @@ CLAUDE_SETTINGS = {"autoMemoryEnabled": False, "advisorModel": ""}
 #: 留在外面的 shell 里凡是碰工作目录的命令都要审批，没人能答就一律拒绝（2026-10-20 实测，claude 2.1.305）
 CLAUDE_WORKER_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"}
 
+#: 第 36 轮（用户 2026-10-21：Claude 的额度用得太快；最重要的岗位用 Opus 5.5 max，第二重要的用 GLM-5.3，
+#: 其余由规划端分配）：只有规划端留在 Claude 上。工人的名字是信箱地址（信箱目录、会话、状态与模板都按它找），
+#: 换模型不改名：gate-sonnet、audit-sonnet、contract-glm 现在跑的不是名字里的模型，以这里的 provider/model 为准。
 ROSTER: Dict[str, Dict[str, Any]] = {
-    # 协调人 high（原为 max；用户 2026-10-19 同意降档：T001 里每回合 1–4.5 分钟，大头是 max 档的思考输出）
-    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "claude",
-                  "model": "claude-haiku-5-5", "effort": "high", "tools": ["Read", "Grep", "Glob"],
+    # 协调人：回合多而轻（T001–T012 共 200 个回合），从 claude haiku 换到 pi 上的 qwen3.7-plus。
+    # 站主列的 MiniMax-M3.1-Flash 在本机 `pi --list-models` 里还没有，有了再换。
+    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "token",
+                  "model": "qwen3.7-plus", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                   "timeout": 1200, "workspace": "base"},
-    # 规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、门禁、一审都没法核实，
-    # 执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
+    # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
+    # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob", "Bash"], "allowed_rules": ["Bash(npm view:*)"],
                      "timeout": 2400, "workspace": "base"},
-    "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
-                     "model": "glm-5.3", "thinking": "max", "tools": ["read", "grep", "find", "ls"],
+    # 合同由审核端一审：两者用不同的模型（审核是 glm）
+    "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "token",
+                     "model": "qwen3.7-plus", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "base"},
-    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "claude", "model": "claude-sonnet-5-5",
-                    "effort": "high", "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
-                    "allowed_rules": ["Bash(python -m pytest:*)"], "timeout": 2400, "workspace": "stage"},
-    "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "claude", "model": "claude-sonnet-5-5",
-                     "effort": "max", "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "stage"},
-    # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致（旧机器上是 bb）。
-    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "step",
+    # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
+    # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
+    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "bb", "model": "step-5-preview",
+                    "thinking": "high", "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
+                    "timeout": 2400, "workspace": "stage"},
+    # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
+    # GLM 的模型配置没有 max 的映射，pi 静默按 high 跑（.agent/environment.md）。
+    "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
+                     "model": "glm-5.3", "thinking": "max", "tools": ["read", "grep", "find", "ls"],
+                     "timeout": 2400, "workspace": "stage"},
+    # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致
+    # （2026-10-21 起本机又回到 bb；还没派遣的合同由 sync_executor_line 改写，已派遣的不动）。
+    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "bb",
                   "model": "step-5-preview", "thinking": "high"},
     "jev-judge": {"role": "jev", "label": "JEV 端", "adapter": "jev"},
 }
@@ -1199,9 +1210,47 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
             "rate_limited_until": rejected_until if api_error and isinstance(rejected_until, int) else None}
 
 
-def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
+#: 只读的命令：bash 里提到主工作区、但整条命令都是这些（且没有重定向）时只记警告
+READ_ONLY_COMMANDS = {"cat", "head", "tail", "ls", "grep", "rg", "find", "wc", "sort", "uniq", "diff", "stat", "file",
+                      "echo", "pwd", "cut", "tr", "awk", "sed"}
+
+
+def path_forms(path: Path) -> List[str]:
+    """一个绝对路径在命令里可能的写法（小写）：C:\\a\\b、C:/a/b、/c/a/b。"""
+    text = str(path.resolve())
+    forms = {text.lower(), text.replace("\\", "/").lower()}
+    if len(text) > 2 and text[1] == ":":
+        forms.add(("/%s%s" % (text[0], text[2:].replace("\\", "/"))).lower())
+    return sorted(forms, key=len, reverse=True)
+
+
+def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Optional[Path]) -> Tuple[str, str]:
+    """pi 不按路径限制写入（claude 有 --disallowedTools 与 --allowedTools）：写文件的工具只能写工作目录，
+    bash 不能碰主工作区（第 36 轮，门禁端换到 pi 上）。返回（"violation" / "warning" / "", 说明）。"""
+    root = os.path.normcase(os.path.abspath(str(workspace)))
+    if name in ("write", "edit"):
+        raw = str(args.get("path") or "")
+        target = os.path.normcase(os.path.abspath(raw if os.path.isabs(raw) else os.path.join(str(workspace), raw)))
+        if target != root and not target.startswith(root.rstrip("\\/") + os.sep):
+            return "violation", "%s 写到了工作目录之外：%s" % (name, raw)
+    if name == "bash" and repo is not None:
+        command = str(args.get("command") or "").lower()
+        for form in path_forms(workspace):
+            command = command.replace(form, "<工作目录>")
+        if any(form in command for form in path_forms(repo)):
+            segments = [s.strip() for s in re.split(r"\|\||&&|[|;\n]", command) if s.strip()]
+            words = [s.split()[0] for s in segments]
+            read_only = ">" not in command and "sed -i" not in command and all(w in READ_ONLY_COMMANDS for w in words)
+            note = "bash 命令提到了主工作区（主工作区的文件用 read 读）：%s" % str(args.get("command"))[:200]
+            return ("warning" if read_only else "violation"), note
+    return "", ""
+
+
+def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optional[Path] = None,
+                    repo: Optional[Path] = None) -> Dict[str, Any]:
     allowed = set(spec["tools"])
     violations: List[str] = []
+    reach_warnings: List[str] = []
     tool_calls: Dict[str, int] = {}
     final_text, levels, models, stop = "", set(), set(), None
     api_error: Optional[str] = None
@@ -1223,6 +1272,12 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
             tool_calls[name] = tool_calls.get(name, 0) + 1
             if name not in allowed:
                 outside[str(event.get("toolCallId"))] = name
+            elif workspace is not None:
+                level, note = pi_reach_problem(name, event.get("args") or {}, workspace, repo)
+                if level == "violation":
+                    violations.append(note)
+                elif level:
+                    reach_warnings.append(note)
         elif kind == "tool_execution_end":
             call_id = str(event.get("toolCallId"))
             text = "".join(b.get("text", "") for b in (event.get("result") or {}).get("content") or []
@@ -1252,6 +1307,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any
     # 与 claude 一样：pi 当场拒绝（“Tool bash not found”）的调用没有任何效果，只记警告
     # （T004 的合同端试了一次 bash，被拒后改用 ls，内核却把整个回合作废）；看不到拒绝结果的照旧作废。
     warnings = ["试图调用白名单之外的工具 %s，被 pi 拒绝" % name for cid, name in outside.items() if cid in refused]
+    warnings += reach_warnings
     violations += ["调用了白名单之外的工具：%s" % name for cid, name in outside.items() if cid not in refused]
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
@@ -1325,7 +1381,8 @@ class TurnRunner:
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800)))
         lines = read_text(turn_dir / "stream.jsonl").splitlines()
-        audit = audit_claude_stream(lines, spec) if spec["adapter"] == "claude" else audit_pi_stream(lines, spec)
+        audit = (audit_claude_stream(lines, spec) if spec["adapter"] == "claude"
+                 else audit_pi_stream(lines, spec, workspace, self.hub.repo))
         if spec["adapter"] == "claude":
             audit["effort_requested"] = spec["effort"]
             audit["effort_effective"] = claude_session_effort(session["id"])
@@ -1412,9 +1469,29 @@ def contract_digest(hub: Hub, ts: Dict[str, Any]) -> str:
     return sha256_text((sha256_file(md) or "") + (sha256_file(js) or ""))
 
 
+EXECUTOR_LINE_RE = re.compile(r"(?m)^-[ \t]*executor:[^\n]*$")
+
+
+def sync_executor_line(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
+    """名册换了执行模型（第 36 轮：本机的 step-5-preview 从 step 回到 bb 提供商，用户 2026-10-21 同意换模型）：
+    还没派遣的合同版本，执行模型一行改写成名册的；返回原来写的，没改时 None。已派遣的版本只增不改。"""
+    if ts["contract"].get("dispatched"):
+        return None
+    md, _js = contract_paths(hub, ts)
+    text = read_text(md)
+    match = EXECUTOR_LINE_RE.search(text)
+    if not match or match.group(0).strip() == CONTRACT_EXECUTOR_LINE:
+        return None
+    md.write_text(text[:match.start()] + CONTRACT_EXECUTOR_LINE + text[match.end():], encoding="utf-8", newline="\n")
+    hub.append_event("contract.executor_synced", task=ts["task"], key=ts["contract"]["key"],
+                     previous=match.group(0).strip())
+    return match.group(0).strip()
+
+
 def revalidate_contract(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """derive-json 后 validate；返回问题清单（空表示通过），并更新合同的哈希与状态。"""
     key = ts["contract"]["key"]
+    sync_executor_line(hub, ts)
     args = ["derive-json", key, "--force"]
     if ts.get("title"):
         # 合同标题是分支提交的主题行：缺省取 Goal 第一行、截到 120 字，T003 的提交主题断在半句话上（第 12 轮）
@@ -4024,7 +4101,9 @@ def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
     rows = []
     for record in records:
         cost = record.get("cost_usd")
-        legacy = "session_cost_usd" not in record and (ROSTER.get(record.get("agent")) or {}).get("adapter") == "claude"
+        # 只看记录本身：第 36 轮起名册换了模型（协调人、门禁、审核换到 pi 上），旧记录仍是 claude 跑的。
+        # pi 的回合不回报花费（cost_usd 为 None），不会走到换算
+        legacy = "session_cost_usd" not in record
         if legacy and cost is not None:
             total, previous = float(cost), last_total.get(str(record.get("session_id")))
             cost = total if previous is None or total < previous else round(total - previous, 6)

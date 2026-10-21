@@ -2,9 +2,9 @@
 
 <!-- 由 check-pi-env 技能生成或更新；不记录凭据或完整环境变量。 -->
 
-- 记录时间：2026-10-19
+- 记录时间：2026-10-21
 - 记录者：Claude Code（规划端会话）
-- 结论：可以派遣（`step/step-5-preview` + high 在模型列表中、auth 就绪，doctor 无问题，smoke 两步通过）。换了机器：执行模型的 provider 从 `bb` 变成 `step`；决策模型的 key 改在 Windows 凭据管理器里；控制台代码页是 cp1252。
+- 结论：可以派遣（`bb/step-5-preview` + high 在模型列表中，smoke 两步通过）。2026-10-21 本机的 step-5-preview 又从 `step` 回到 `bb` 提供商；决策模型的 key 在 Windows 凭据管理器里；控制台代码页是 cp1252。
 
 ## 规划端
 
@@ -39,14 +39,15 @@
 |---|---|
 | pi 版本 | 1.3.0 |
 | pi 调用方式 | `node …/@earendil-works/pi-coding-agent/dist/bundle/cli.js`（npm 全局安装，`~/AppData/Roaming/npm`） |
-| 执行模型 | `step/step-5-preview`（`pi --list-models step` 命中 1 行）；`bb/…` 在本机不存在 |
+| 执行模型 | `bb/step-5-preview`（2026-10-21 `pi --list-models` 列出；`step/…` 已不存在） |
 | 思考级别 | high；Pi 记录的 `thinkingLevel` 为 high，推理题有思考内容 |
 | 思考预算设置 | 未设置（使用默认） |
-| 凭据就绪 | ready（`pi auth check --no-refresh --provider step`：authType `api_key`） |
+| 凭据就绪 | `bb/step-5-preview` 与 `token/qwen3.7-plus` 的 smoke 两步通过（2026-10-21，`.agent/runs/_env/smoke-bb.json`、`smoke-token.json`） |
 | 工具集 | read, bash, powershell, edit, write, grep, find, ls |
 | Pi 可用的思考级别 | off, minimal, low, medium, high, xhigh, max |
 | rg / fd | rg 14.1.1 已安装；fd 未安装（find 工具首次使用时会下载） |
-| 合同端（七端） | `cc-switch-zhipu-glm/glm-5.3`，auth ready。要求 max 时 Pi 静默降到 high（模型配置没有 xhigh / max 的映射） |
+| 七端的岗位（第 36 轮，用户 2026-10-21） | 规划端 Claude Code `claude-opus-5-5` max；审核端 `cc-switch-zhipu-glm/glm-5.3` max（Pi 静默降到 high：模型配置没有 xhigh / max 的映射）；门禁端 `bb/step-5-preview` high；合同端与协调人 `token/qwen3.7-plus` high；执行端 `bb/step-5-preview` high。站主列的 `minimax/MiniMax-M3.1-Flash` 不在本机 `pi --list-models` 里（多半是凭据没配），有了再给协调人 |
+| pi 模型列表（2026-10-21） | bb/step-5-preview、cc-switch-zhipu-glm/glm-5.3、cc-switch-zhipu-glm/glm-5.3-flash、cpa/claude-opus-5-5-high、token/qwen3.7-plus |
 | 注意 | 在 Git Bash 里直接跑 `pi -p` 要接 `< /dev/null`，否则它等标准输入，不会退出；调度器与 hub 都用 `stdin=DEVNULL`，不受影响 |
 
 ## 上下文与配置来源
@@ -103,3 +104,4 @@
 | 2026-10-03 | doctor 2.2.2 / Codex 0.160.0 / Claude Code 2.1.288；`step/…` 未列出；另记 `bb/step-5-preview` 列出且 auth ready | 外部环境修复后重新核验 |
 | 2026-10-17 | pi 升到 1.3.0；Claude Code 2.1.302、Codex 0.163.0；执行模型确定为 `bb/step-5-preview` + high；缺省 `python` 换成 conda `cell_gpu` 3.10.19（带遮挡的 `tests` 包）；规划端为 Claude Code + Opus 5.5 | 换解释器或 pi 再次升级后重跑 doctor；首轮派遣的结果写回“代表性代码任务” |
 | 2026-10-19 | 换到新机器（Windows Server 2025）：执行模型 `step/step-5-preview` + high；Claude Code 2.1.303；Python 3.12.10；JEV 的 key 在凭据库；七端的四种 claude 工人配置与 GLM-5.3 实测可用 | 全量测试结果写回“验证记录”；T001 跑完后补“代表性代码任务” |
+| 2026-10-21 | step-5-preview 回到 `bb` 提供商；七端只有规划端留在 Claude 上，协调人、合同端、门禁端、审核端换到 pi（第 36 轮）；qwen3.7-plus 与 bb/step-5-preview smoke 通过；MiniMax-M3.1-Flash 未列出 | MiniMax 配好后核验并换协调人；门禁端、审核端换模型后的头几片看回合作废率与终审质量 |
