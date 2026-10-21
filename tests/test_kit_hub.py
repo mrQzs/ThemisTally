@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -2936,6 +2937,160 @@ def test_regression_sweep_runs_every_gate_baseline_on_the_new_tip(tmp_path, monk
     ok, summary = kh.regression_sweep(hub, ts)
     assert not ok and "test_gate_t002_baseline.py::test_red" in summary
     assert list((tmp_path / "wt").iterdir()) == []  # 临时 worktree 收掉了
+
+
+def rehearsal_setup(tmp_path, monkeypatch):
+    """T006 的情形：门禁与候选在本任务的基线上都过，任务期间先落地的提交让门禁在末端上红。"""
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
+    (tmp_path / "wt").mkdir()
+    head = land_on_main(repo, "notes.txt", "一\n二\n三\n四\n五\n", "五行的共享文件")
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "task"], repo)
+    oracle = land_on_main(repo, "tests/test_gate_t001_baseline.py",
+                          "from pathlib import Path\n\n\ndef test_feature():\n    assert Path('feature.txt').is_file()\n"
+                          "    assert Path('earlier.txt').is_file()\n    assert '三改' in Path('notes.txt').read_text("
+                          "encoding='utf-8')\n\n\ndef test_no_toggle_anywhere():\n    assert not Path('toggle.txt').exists()\n",
+                          "门禁端基准测试")
+    rework = land_on_main(repo, "earlier.txt", "上一轮的候选\n", "返工提交")
+    (repo / "feature.txt").write_text("功能\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("一\n二\n三改\n四\n五\n", encoding="utf-8")
+    kh.git(["add", "feature.txt", "notes.txt"], repo)
+    kh.git(["commit", "-q", "-m", "候选"], repo)
+    patch = kh.git(["diff", "--binary", rework, "HEAD"], repo)
+    kh.git(["checkout", "-q", branch], repo)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run_dir = repo / ".agent" / "runs" / "t001-doc" / "attempt-002"
+    run_dir.mkdir(parents=True)
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": rework}), encoding="utf-8")
+    (run_dir / "candidate.patch").write_text(patch, encoding="utf-8", newline="\n")
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
+    ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
+    ts["exec"] = {"run_dir": str(run_dir), "check_ok": True}
+    return repo, hub, ts, run_dir
+
+
+def land_on_main(repo, name, text, message):
+    if text is None:
+        kh.git(["rm", "-q", name], repo)
+    else:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+        kh.git(["add", name], repo)
+    kh.git(["commit", "-q", "-m", message], repo)
+    return kh.git(["rev-parse", "HEAD"], repo).strip()
+
+
+def test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks(tmp_path, monkeypatch):
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    assert kh.rehearse_landing(hub, ts) is None  # 分支在任务期间没动：check --fresh 已经是在这个末端上跑的
+    head = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["merge", "-q", "--ff-only", ts["rework_chain"][0]["commit"]], repo)
+    assert kh.rehearse_landing(hub, ts) is None  # 末端就是 attempt 的基线
+    kh.git(["reset", "-q", "--hard", head], repo)
+    land_on_main(repo, "notes.txt", "一\n二\n三\n四\n五改\n", "别的片改了第五行")  # 与候选的第三行要三方合并
+    tip = land_on_main(repo, "toggle.txt", "带 aria-pressed 的切换钮\n", "并行的一片先落地")
+    ok, summary = kh.rehearse_landing(hub, ts)
+    # 第 30 轮（T006）：候选在自己的基线上过了，合到末端上门禁红：现在就报，不等结项
+    assert not ok and "test_no_toggle_anywhere" in summary and "test_feature" not in summary.split("\n")[0]
+    assert "先落地了这些提交" in summary and "并行的一片先落地" in summary
+    assert ts["rehearsal"] == {"head": tip, "run_dir": str(run_dir), "ok": False, "at": ts["rehearsal"]["at"]}
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e for e in events if e["event"] == "landing.rehearsed"][-1]["ok"] is False
+    assert kh.rehearse_landing(hub, ts) is None  # 同一个末端、同一个候选：不再预演一次
+    shutil.copytree(run_dir, run_dir.with_name("attempt-003"))
+    ts["exec"]["run_dir"] = str(run_dir.with_name("attempt-003"))
+    assert kh.rehearse_landing(hub, ts)[0] is False  # 新的 attempt：同一个末端也要预演
+    ts["exec"]["run_dir"] = str(run_dir)
+    # 主工作区不动：候选与基准测试只在临时 worktree 里
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == tip and not (repo / "feature.txt").exists()
+    assert list((tmp_path / "wt").iterdir()) == []
+    land_on_main(repo, "toggle.txt", None, "收掉切换钮")
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert ok and "全部门禁基准（1 份）" in summary and "2 passed" in summary and ts["rehearsal"]["ok"] is True
+
+
+def test_landing_rehearsal_reports_commits_that_no_longer_apply(tmp_path, monkeypatch):
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    land_on_main(repo, "feature.txt", "别的片写的同名文件\n", "同名文件")
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert not ok and summary.startswith("候选补丁（attempt-002）打不到末端") and "同名文件" in summary
+    land_on_main(repo, "tests/test_gate_t001_baseline.py", "def test_other():\n    pass\n", "同名门禁")
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert not ok and summary.startswith("提交 %s 挑不到末端" % ts["oracle"]["sha"][:12])
+    assert list((tmp_path / "wt").iterdir()) == []
+    land_on_main(repo, "unrelated.txt", "x\n", "无关")
+    for exec_state in ({"run_dir": str(run_dir), "check_ok": False}, {"run_dir": None, "check_ok": True},
+                       {"run_dir": str(tmp_path / "gone"), "check_ok": True}):
+        ts["exec"] = exec_state
+        assert kh.rehearse_landing(hub, ts) is None  # 没有过了检查的候选：没什么可预演
+
+
+def test_exec_delivery_carries_the_rehearsal_and_warns_the_owner(engine_env, monkeypatch):
+    hub = engine_env
+    outcome = {"rehearsal": (False, "末端上 test_gate_t007 红了")}
+
+    def fake_exec(hub_, ts):
+        ts["exec"] = {"run_dir": "attempt-001", "check_ok": True}
+        return fields(摘要="执行端完成")
+
+    monkeypatch.setattr(kh, "run_exec", fake_exec)
+    monkeypatch.setattr(kh, "rehearse_landing", lambda hub_, ts: outcome["rehearsal"])
+    engine = kh.Engine(hub, FakeRunner([]))
+    for expected_owner in (1, 1):
+        hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                     "type": "开工"}, fields())
+        state = hub.load_state()
+        engine.worker_job(state, "exec-step", hub.unread("exec-step"))
+        letter = hub.unread(kh.COORDINATOR)[-1].read_text(encoding="utf-8")
+        owner = hub.unread(kh.OWNER)
+        assert len(owner) == expected_owner
+        assert hub.load_state()["tasks"]["T001"]["stages"]["5-exec"]["status"] == "delivered"
+        if outcome["rehearsal"] is None:
+            assert "落地预演" not in letter
+        else:
+            # 候选自己没错：阶段照常交付，信里写明预演没过，另给站主写阻塞信
+            assert "落地预演: 没过，已写信给站主" in letter and "test_gate_t007" in letter
+            assert "type: 阻塞" in owner[0].read_text(encoding="utf-8")
+            assert "落地预演没过（执行端交付时）" in owner[0].read_text(encoding="utf-8")
+        outcome["rehearsal"] = None
+    outcome["rehearsal"] = (True, "末端加上候选，全部门禁基准（8 份）：333 passed")
+    hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                 "type": "开工"}, fields())
+    engine.worker_job(hub.load_state(), "exec-step", hub.unread("exec-step"))
+    assert "落地预演: 通过：末端加上候选" in hub.unread(kh.COORDINATOR)[-1].read_text(encoding="utf-8")
+    assert len(hub.unread(kh.OWNER)) == 1
+
+
+def test_after_land_rehearses_the_other_active_candidates(tmp_path, monkeypatch):
+    hub = two_task_hub(tmp_path)
+    state = hub.load_state()
+    state["tasks"]["T003"] = kh.new_task_state("T003", "y", "已结项的一片", BASE, True)
+    state["tasks"]["T003"]["status"] = "done"
+    state["tasks"]["T004"] = kh.new_task_state("T004", "z", "预演通过的一片", BASE, True)
+    hub.save_state(state)
+    calls = []
+
+    def rehearse(hub_, ts):
+        calls.append(ts["task"])
+        ts["rehearsal"] = {"ok": ts["task"] != "T002"}
+        return {"T002": (False, "末端上红了"), "T004": (True, "通过")}.get(ts["task"])
+
+    monkeypatch.setattr(kh, "rehearse_landing", rehearse)
+    engine = kh.Engine(hub, FakeRunner([]))
+    engine.after_land("T001")  # T001 没结项（结项失败）：末端没动，不预演
+    assert calls == [] and hub.unread(kh.OWNER) == []
+    state = hub.load_state()
+    state["tasks"]["T001"]["status"] = "done"
+    hub.save_state(state)
+    engine.after_land("T001")
+    assert calls == ["T002", "T004"]  # 已结项的 T003 与刚落地的 T001 不预演
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "task-id: T002" in letters[0] and "落地预演没过（T001 刚落地）" in letters[0]
+    disk = hub.load_state()["tasks"]
+    assert disk["T002"]["rehearsal"] == {"ok": False} and disk["T004"]["rehearsal"] == {"ok": True}
 
 
 def test_after_land_reports_the_regression_to_the_owner(tmp_path, monkeypatch):

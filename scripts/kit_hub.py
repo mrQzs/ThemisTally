@@ -2491,41 +2491,118 @@ def commit_records(hub: Hub, ts: Dict[str, Any]) -> Tuple[Optional[str], Optiona
 SWEEP_SECONDS = 2400
 
 
-def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
-    """在合入后的末端上跑全部门禁基准（第 20 轮）。并行的两个主任务各自只验过自己合同的检查，合在一起可能
-    互相打破：T007 的门禁不在 T006 的合同里，反之亦然。在临时 worktree 里跑，不碰主工作区。"""
-    tests = sorted(p.relative_to(hub.repo).as_posix() for p in (hub.repo / "tests").glob("test_gate_*_baseline.py"))
-    if not tests:
-        return True, "合入后没有门禁基准可跑"
-    head = git(["rev-parse", "HEAD"], hub.repo).strip()
-    path = Path(tempfile.mkdtemp(prefix="%s-hub-sweep-" % hub.repo.name[:16], dir=str(worktree_root(hub.repo))))
+def gate_baselines(root: Path) -> List[str]:
+    return sorted(p.relative_to(root).as_posix() for p in (root / "tests").glob("test_gate_*_baseline.py"))
+
+
+@contextlib.contextmanager
+def scratch_worktree(hub: Hub, label: str, commit: str):
+    """内核自己用的临时 worktree（合入后回归、落地预演）：用完就收掉，不碰主工作区。"""
+    path = Path(tempfile.mkdtemp(prefix="%s-hub-%s-" % (hub.repo.name[:16], label), dir=str(worktree_root(hub.repo))))
     path.rmdir()
-    add_worktree(hub, path, head)
+    add_worktree(hub, path, commit)
+    try:
+        yield path
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=str(hub.repo),
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def sweep_gates(path: Path) -> Tuple[int, str, List[str]]:
+    """在 path 里跑全部门禁基准（白盒不算）；返回（退出码, 输出, 跑了哪几份）。"""
+    tests = gate_baselines(path)
+    if not tests:
+        return 0, "没有门禁基准可跑", tests
     try:
         proc = subprocess.run(KERNEL_PYTEST + ["-q", "-rfE"] + tests, cwd=str(path), stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=SWEEP_SECONDS,
                               env=kernel_pytest_env())
-        code, out = proc.returncode, proc.stdout.decode("utf-8", "replace")
+        return proc.returncode, proc.stdout.decode("utf-8", "replace"), tests
     except subprocess.TimeoutExpired:
-        code, out = -1, "超过 %d 秒没有跑完" % SWEEP_SECONDS
-    finally:
-        subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=str(hub.repo),
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return -1, "超过 %d 秒没有跑完" % SWEEP_SECONDS, tests
+
+
+def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
+    """在合入后的末端上跑全部门禁基准（第 20 轮）。并行的两个主任务各自只验过自己合同的检查，合在一起可能
+    互相打破：T007 的门禁不在 T006 的合同里，反之亦然。在临时 worktree 里跑，不碰主工作区。"""
+    if not gate_baselines(hub.repo):
+        return True, "合入后没有门禁基准可跑"
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    with scratch_worktree(hub, "sweep", head) as path:
+        code, out, tests = sweep_gates(path)
     ts["regression"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
     hub.append_event("regression.swept", task=ts["task"], head=head, exit=code)
     summary = "合入后的门禁回归（%d 份，末端 %s）：%s" % (len(tests), head[:12], tail(out, 1).strip() or "没有输出")
     return code == 0, summary if code == 0 else summary + "\n" + tail(out, 15)
 
 
-def on_branch(hub: Hub, sha: str) -> bool:
-    """提交已经在当前分支上：是祖先（ff 过），或者分支上有它挑过来的提交（cherry-pick -x 的标记）。
-    第 29 轮：以前基准测试按文件内容判断“挑过了”，站主之后在分支上退役或收窄了其中的断言，重试结项时内容对不上，
-    就会再挑一次而冲突；返工链只看 landed_at，分支被撤回之后记录就不准了。"""
-    if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
+def on_branch(hub: Hub, sha: str, where: Optional[Path] = None) -> bool:
+    """提交已经在当前分支（或 where 这个 worktree 的 HEAD）上：是祖先（ff 过），或者分支上有它挑过来的提交
+    （cherry-pick -x 的标记）。第 29 轮：以前基准测试按文件内容判断“挑过了”，站主之后在分支上退役或收窄了其中的
+    断言，重试结项时内容对不上，就会再挑一次而冲突；返工链只看 landed_at，分支被撤回之后记录就不准了。"""
+    where = where or hub.repo
+    if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(where),
                       stdin=subprocess.DEVNULL).returncode == 0:
         return True
     return bool(git(["log", "--format=%H", "-n", "1", "--fixed-strings",
-                     "--grep=(cherry picked from commit %s)" % sha, "HEAD"], hub.repo, check=False).strip())
+                     "--grep=(cherry picked from commit %s)" % sha, "HEAD"], where, check=False).strip())
+
+
+def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]:
+    """落地预演（第 30 轮）：在临时 worktree 里照结项的做法拼出“当前末端 + 基准测试 + 返工链 + 候选”，跑全部门禁基准。
+    T006 的门禁断言陈列页上没有任何 aria-pressed，T007 先落地的 TextViewer 有两个；T006 的候选在执行端交付时就
+    已经撞上了，可要到十几个小时后结项 integrate 才发现，中间的战后门禁、终审都白做。分支在任务期间没动、或者这个
+    候选在这个末端上预演过，就不预演（返回 None）；否则返回（通过与否, 摘要），结果记在 ts["rehearsal"]。"""
+    run_dir = ts["exec"].get("run_dir")
+    if not run_dir or not ts["exec"].get("check_ok") or not Path(run_dir).is_dir():
+        return None
+    run_dir = Path(run_dir)
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    if head in (ts["base_head"], attempt_base(ts, run_dir)):
+        return None  # 末端就是候选 check --fresh 时的那个：没有新东西要合
+    seen = ts.get("rehearsal") or {}
+    if seen.get("head") == head and seen.get("run_dir") == str(run_dir):
+        return None
+    commits = [sha for sha in [ts["oracle"].get("sha")] + [link["commit"] for link in ts.get("rework_chain") or []]
+               if sha]
+    problem = None
+    with scratch_worktree(hub, "rehearse", head) as path:
+        for sha in commits:
+            if on_branch(hub, sha, path):
+                continue
+            proc = subprocess.run(["git", "cherry-pick", "-x", sha], cwd=str(path), stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if proc.returncode != 0:
+                problem = "提交 %s 挑不到末端 %s 上：\n%s" % (sha[:12], head[:12],
+                                                       tail(proc.stdout.decode("utf-8", "replace"), 8))
+                break
+        if problem is None:
+            proc = subprocess.run(["git", "apply", "--3way", "--whitespace=nowarn", str(run_dir / "candidate.patch")],
+                                  cwd=str(path), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT)
+            if proc.returncode != 0:
+                problem = "候选补丁（%s）打不到末端 %s 上：\n%s" % (run_dir.name, head[:12],
+                                                             tail(proc.stdout.decode("utf-8", "replace"), 8))
+        if problem is None:
+            code, out, tests = sweep_gates(path)
+            summary = "末端 %s 加上 %s 的候选，全部门禁基准（%d 份）：%s" % (
+                head[:12], run_dir.name, len(tests), tail(out, 1).strip() or "没有输出")
+            if code != 0:
+                problem = summary + "\n" + tail(out, 15)
+    ok = problem is None
+    ts["rehearsal"] = {"head": head, "run_dir": str(run_dir), "ok": ok, "at": utc_now()}
+    hub.append_event("landing.rehearsed", task=ts["task"], head=head, run_dir=str(run_dir), ok=ok)
+    return (True, summary) if ok else (False, problem + landed_meanwhile(hub, ts, head))
+
+
+def rehearsal_letter(hub: Hub, ts: Dict[str, Any], summary: str, why: str) -> None:
+    """落地预演没过：写信给站主。不是执行端的错（候选在自己的基线上过了），要站主协调：收窄写得太宽的门禁断言，
+    或者让后落地的一片返工。"""
+    hub.deliver({"from": KERNEL, "to": OWNER, "task-id": ts["task"], "in-reply-to": "none", "type": "阻塞"},
+                {"摘要": "%s 的候选落地预演没过（%s）：现在结项，integrate 会在末端上红" % (ts["task"], why),
+                 "提交": "无", "验证": summary[:1500], "偏离": "无",
+                 "需协调人决定": "请站主处理：收窄写得太宽的门禁断言，或者协调哪一片返工；处理完之前别结项",
+                 "证据": ".agent/mailbox/ledger/state.json（%s 的 rehearsal）" % ts["task"]})
 
 
 def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
@@ -3038,6 +3115,12 @@ class Engine:
         adapter = ROSTER[agent]["adapter"]
         if adapter == "dispatcher":
             fields = run_exec(self.hub, ts)
+            rehearsed = rehearse_landing(self.hub, ts)  # 执行窗口外：不挡别的主任务落地
+            if rehearsed is not None:
+                fields["落地预演"] = ("通过：%s" % rehearsed[1] if rehearsed[0] else
+                                  "没过，已写信给站主，站主处理之前别结项：%s" % rehearsed[1][:600])
+                if not rehearsed[0]:
+                    rehearsal_letter(self.hub, ts, rehearsed[1], "执行端交付时")
             self.finish_kernel_stage(state, ts, agent, suffix, fields, ok=ts["exec"].get("check_ok", False))
             return
         if adapter == "jev":
@@ -3257,19 +3340,32 @@ class Engine:
                           "证据": ".agent/reviews/%s/" % ts["contract_task"]})
 
     def after_land(self, main: str) -> None:
-        """结项时记下要跑的合入后门禁回归：在落地锁外跑，结果写信告诉站主（第 20 轮）。"""
+        """结项时记下要跑的合入后门禁回归：在落地锁外跑，结果写信告诉站主（第 20 轮）。
+        第 30 轮：落地之后，别的主任务手上已经过了检查的候选，在新末端上各做一次落地预演，撞上了马上写信。"""
         state = self.hub.load_state()
         ts = state["tasks"].get(main)
-        if not ts or not (ts.get("regression") or {}).get("pending"):
-            return
-        ok, summary = regression_sweep(self.hub, ts)
-        self.hub.save_state(state)
-        self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": main, "in-reply-to": "none",
-                          "type": "核验" if ok else "阻塞"},
-                         {"摘要": "%s 合入后的门禁回归%s" % (main, "通过" if ok else "没过"), "提交": "无",
-                          "验证": summary[:1500], "偏离": "无",
-                          "需协调人决定": "无" if ok else "请站主处理：合入的几个主任务互相打破了门禁",
-                          "证据": ".agent/mailbox/ledger/state.json（%s 的 regression）" % main})
+        if ts and (ts.get("regression") or {}).get("pending"):
+            ok, summary = regression_sweep(self.hub, ts)
+            self.hub.save_state(state)
+            self.hub.deliver({"from": KERNEL, "to": OWNER, "task-id": main, "in-reply-to": "none",
+                              "type": "核验" if ok else "阻塞"},
+                             {"摘要": "%s 合入后的门禁回归%s" % (main, "通过" if ok else "没过"), "提交": "无",
+                              "验证": summary[:1500], "偏离": "无",
+                              "需协调人决定": "无" if ok else "请站主处理：合入的几个主任务互相打破了门禁",
+                              "证据": ".agent/mailbox/ledger/state.json（%s 的 regression）" % main})
+        if not ts or ts.get("status") != "done":
+            return  # 没落地：末端没动，别的候选不用重新预演
+        for other in sorted(state["tasks"]):
+            state = self.hub.load_state()  # 每次现读：预演一次要几分钟，别的 runner 这期间照常写
+            other_ts = state["tasks"][other]
+            if other_ts.get("status") != "active":
+                continue  # 刚落地的这一片已经是 done
+            rehearsed = rehearse_landing(self.hub, other_ts)
+            if rehearsed is None:
+                continue
+            self.hub.save_state(state)
+            if not rehearsed[0]:
+                rehearsal_letter(self.hub, other_ts, rehearsed[1], "%s 刚落地" % main)
 
 
 # ---------------------------------------------------------------------------
