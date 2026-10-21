@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "task_id": "t012-desktop-shellpages",
+  "plan_version": 6,
+  "title": "桌面端前端外壳页：首次启动、设置、服务状态与恢复（第十一片）",
+  "repository": "ThemisTally",
+  "base_sha": "b4ff8c78aace66bde310c7c4c80f3bde3ef4983a",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/shellpages/themisShell.ts",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/shellContext.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/shell-window.css",
+      "desktop/web/src/shellpages/firstRunModel.ts",
+      "desktop/web/src/shellpages/FirstRunView.tsx",
+      "desktop/web/src/shellpages/first-run.css",
+      "desktop/web/src/shellpages/exitCodes.ts",
+      "desktop/web/src/shellpages/ServiceStatusView.tsx",
+      "desktop/web/src/shellpages/service-status.css",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/settings.css",
+      "desktop/web/src/shellpages/ExternalLinkDialog.tsx",
+      "desktop/web/src/shellpages/LicensesDialog.tsx",
+      "desktop/web/src/shellpages/licenses.ts",
+      "desktop/web/src/shellpages/themePref.tsx",
+      "desktop/web/src/shellpages/copy.ts",
+      "desktop/web/src/shellpages/format.ts",
+      "desktop/web/src/shellpages/icons.tsx",
+      "desktop/web/src/mock/shellpages-scenarios.ts",
+      "desktop/web/tests/shellpages-stub.test.ts",
+      "desktop/web/tests/shellpages-route.test.ts",
+      "desktop/web/tests/shellpages-first-run.test.tsx",
+      "desktop/web/tests/shellpages-service-status.test.tsx",
+      "desktop/web/tests/shellpages-settings.test.tsx",
+      "desktop/web/tests/shellpages-app.test.tsx",
+      "desktop/web/tests/shellpages-isolation.test.tsx",
+      "desktop/web/tests/shellpages-static.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/shellpages/themisShell.ts",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/shellContext.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/shell-window.css",
+      "desktop/web/src/shellpages/firstRunModel.ts",
+      "desktop/web/src/shellpages/FirstRunView.tsx",
+      "desktop/web/src/shellpages/first-run.css",
+      "desktop/web/src/shellpages/exitCodes.ts",
+      "desktop/web/src/shellpages/ServiceStatusView.tsx",
+      "desktop/web/src/shellpages/service-status.css",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/settings.css",
+      "desktop/web/src/shellpages/ExternalLinkDialog.tsx",
+      "desktop/web/src/shellpages/LicensesDialog.tsx",
+      "desktop/web/src/shellpages/licenses.ts",
+      "desktop/web/src/shellpages/themePref.tsx",
+      "desktop/web/src/shellpages/copy.ts",
+      "desktop/web/src/shellpages/format.ts",
+      "desktop/web/src/shellpages/icons.tsx",
+      "desktop/web/src/mock/shellpages-scenarios.ts",
+      "desktop/web/tests/shellpages-stub.test.ts",
+      "desktop/web/tests/shellpages-route.test.ts",
+      "desktop/web/tests/shellpages-first-run.test.tsx",
+      "desktop/web/tests/shellpages-service-status.test.tsx",
+      "desktop/web/tests/shellpages-settings.test.tsx",
+      "desktop/web/tests/shellpages-app.test.tsx",
+      "desktop/web/tests/shellpages-isolation.test.tsx",
+      "desktop/web/tests/shellpages-static.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/icons/**",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/pages/tasks/**",
+      "desktop/web/tests/page-*",
+      "desktop/web/tests/tasks-*",
+      "desktop/web/README.md",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t012_*.py",
+      "tests/conftest.py",
+      "docs/**",
+      ".gitignore"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t012_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "output_must_not_match": [
+        "failed|error"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "接口与夹具——ThemisShell 十个成员名（9 方法加 on）与 8.9 :1122 一致；saveSettings 的补丁类型里没有路径键；场景夹具写成 .ts、标明示意、过公共约定的扫描",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "桩——getState 深拷贝；pick 队列逐个给出、用完重复最后一个；各方法返回已兑现或已被拒的 Promise、不经计时器（假计时器下不推进时间，await 之后就有结果）；saveSettings 只认约定键与取值、别的被拒且状态不变（如 { pythonPath: 'C:/x' } 被拒、removeRepo 传路径被拒、移除当前仓库被拒）；startService 收到不在列表里的 id 被拒、对同一仓库幂等；starting 之后 1500ms 发 running 或 exited、1499ms 时还没发；只在 start、restart 之后排计时器；取消订阅之后不再收到事件；dispose 之后没有挂起计时器；openExternal 只认 http、https",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "桩可演示各状态又不在创建时留计时器、不串扰别的用例"
+    },
+    {
+      "id": "D03",
+      "text": "进入方式——parseShellWindow 与场景解析（缺省值、认不出的取值）；href 保留查询串、没有 shell 时补上；navigateShell 同步写地址（调用返回时 location.hash 已是目标地址）；App 级：以 #/first-run、#/service-status 挂载时没有 nav[aria-label=主导航]、没有 title=切换仓库 的按钮、没有 data-tab，恰一个 h1、document.title 正确、按 Ctrl+1 地址不变仍是外壳窗口；#/settings 仍是 Tab（aria-current=page）；#/nope 仍归总览；在两种窗口之间手改地址后手动派发 HashChangeEvent 断言、同一地址连派两次页面不重挂；主题提到根上之后 G6 的 D05 照常通过",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "两个外壳页整窗渲染、服务窗口不挂载"
+    },
+    {
+      "id": "D04",
+      "text": "首次启动的状态——§3.3 的依次检查规则；逐个场景的四步状态、值文字、图标 aria-label 与置灰；第 4 步的值元素带 aria-live=polite、页面里没有 role=status",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "首次启动的操作——六种错误的文字与操作；被拒的 pick 多出的那一行；退出码 1 的 [切换到那个窗口] 禁用、有 reason、点了不调任何桩函数；自动启动恰一次、exited 时不自动重启；[进入] 的禁用条件与跳转（点了直接断言地址是 #/overview、mock 与 shell 都保留、服务窗口已渲染）；复制结果的三种文字",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "首启在四步通过前进不去、错误各有正确操作"
+    },
+    {
+      "id": "D06",
+      "text": "服务状态——§3.4 全部；退出码 1、2、3 逐个查（danger 图标在、h1、data-exit-code 文字、说明、两个按钮）；[重启服务] 调一次 restartService 并进入加载态；推送 running 后直接断言地址变成 #/overview（保留查询串）；推送 exited 2 后退出码与说明都换掉；退出码的说明与首启第 4 步共用 exitCodes",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "设置的前三组——§3.6 的仓库、运行环境、规划端用量；每个控件调的函数与参数精确（[添加仓库…] pickRepo()；[从列表移除] saveSettings({ removeRepo: id })、当前仓库禁用且有提示；[更改…] pickPython()/pickKit()；[恢复自动检测] saveSettings({ resetPython: true })/{ resetKit: true }、只在 custom/external 出现；[选择目录…] pickTranscriptDir()、[移除] saveSettings({ removeTranscriptDir: id })）；只用返回值更新（saveSettings 永不兑现时密度与列表都不变）；当前仓库不能移除；会话目录只读；load 是稳定引用（改主题/密度/选目录后 getState 只在挂载时调一次、点刷新再加一次）",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "外观——主题经 App 与标题栏同步（在设置页选亮，标题栏触发钮变「主题：亮」、data-theme 为 light、saveSettings({ theme: 'light' }) 恰一次；在标题栏选跟随系统，设置页分段选择跟着变；去过 #/first-run 再回 #/settings 主题不变、data-theme 不变；localStorage/sessionStorage 为空）；密度只按返回值变；没有 Provider 时退回本地状态",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "关于与外部链接——版本；许可清单两项文字（Lucide 1.59.0 ISC、Sarasa Gothic 0.36.0 OFL 1.1，不写字体文件名）；点 [项目主页] 后出现 role=dialog、aria-modal=true、标题「在系统浏览器中打开？」、正文完整网址、此时 openExternal 0 次；点 [取消]/Esc/关闭钮后消失仍 0 次；点 [打开] 后恰 1 次、参数等于网址、对话框消失；homepage 不是 http(s) 时没有 [项目主页] 按钮、网址只作文字",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "隔离——静态：shellpages/** 与 SettingsPage.tsx 的导入里没有 api 模块（含 import type）、没有 window.themisHost/window.open/localStorage/sessionStorage；运行时：用 vi.mock('../src/api') 把每个导出换成替身，再把 fetch/XMLHttpRequest/EventSource/WebSocket 与 navigator.sendBeacon 换成记录调用的替身（写法同 G6 PROBE_NONET :2879–2912）；经 App 打开 #/first-run 与 #/service-status 全部场景、点遍按钮（[进入]、[打开设置] 除外，它们离开外壳窗口）、推进桩计时器：api 替身与网络替身都是 0 次；单独渲染 SettingsPage 点遍控件：api 替身 0 次；经 App 打开 #/settings：api 替身只被服务窗口自己的 getMetaNow、getStatus 调用、没有 getMeta；window.open 0 次",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务没起来时外壳页不读 api、不发网络请求"
+    },
+    {
+      "id": "D11",
+      "text": "源码规则——公共约定里的源码守卫（夹具字符串也算）；不写内联 style；新图标的路径等于画布对应行；文件名约束（shellpages 里不用 *Page.tsx/*Showcase.tsx 等）",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "样式取值与接线——§3 写到的关键尺寸每个 px 字面量同一行有出处（卡片宽 560 与 440、编号圆 22、步名宽 72、状态图标 18、错误框左缩进 34、标题栏高 40 与右内边距 140、设置标签列宽 120、表头 32、行高 40、表最小宽 640、内容最大宽 920、标识 56×64 与 42×48）；接线（K20）：shellpages-static 解析 import 语句来查，每份新 css 都被一个能从 App.tsx 或 pages/SettingsPage.tsx 经 import 走到的 tsx import；npm run build 之后 dist/assets 下 css 里找得到每份文件独有的选择器（从源文件解析、不写死）",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D13",
+      "text": "回归与范围——T001–T008 门禁（ce051d4 上 R1 已退役）、V03、npm 四步都通过；App.tsx 只有 §2.3 的改动、:72 一字不改；只改允许的文件；不改依赖；新测试不用 skip/only/todo",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "scope"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 6,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 22651,
+    "cost_budget": null
+  }
+}
