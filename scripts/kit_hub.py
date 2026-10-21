@@ -79,6 +79,8 @@ DEPENDS = {
 AUTO_JEV = {"2-contract": "3j-jev", "6-gate-post": "6j-jev"}
 #: 执行端以外的阶段，协调人最多让它返工几次；再要返工得站主指定（第 14 轮；T001–T003 同一阶段最多返工过 2 次）
 MAX_STAGE_REWORKS = 3
+#: 工人回合的输出不合格时最多重试几次：只重试一次，前面有超时的回合才再给一次（第 32 轮）
+WORKER_RETRIES_AFTER_TIMEOUT = 2
 #: 审核端“退回”的对象 → 阶段。
 #: “门禁端”指基准测试本身有错（走热修补）；“战后门禁”指白盒测试或变异清单不够，重做战后门禁。
 RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "战后门禁": "6-gate-post", "执行端": "5-exec",
@@ -1007,6 +1009,27 @@ def render_template(name: str, values: Dict[str, str], role: Optional[str] = Non
     return text
 
 
+#: 回合输出 JSON 的顶层键（OUTPUT_SPECS 与 ROLE_EXTRA_OUTPUT）
+OUTPUT_KEYS = {"letters", "letter", "report", "state", "external_facts", "contract_md", "mutation_spec",
+               "candidate_defects", "unmutated"}
+
+
+def merge_early_close(block: str, end: int, data: Any) -> Optional[Dict[str, Any]]:
+    """第 32 轮：T010 的规划端在 state 之后就收了对象的尾，接着又写 `, "external_facts": [...]}`。报告四万多字、
+    花了 13.5 美元的回合因此作废，返工又从头规划一遍。对象后面紧跟逗号、去掉那个右括号就能并成一个对象，
+    并且并进来的都是输出格式里的新键时，照收；重复已有的键、认不得的键（第 25 轮：可能是别的内容）、
+    并不成一个对象的，返回 None 照旧处理。"""
+    try:
+        merged = json.loads(block[:end - 1] + block[end:])  # 去掉第一个对象的右括号
+    except ValueError:
+        return None
+    if not isinstance(merged, dict) or len(merged) <= len(data) or any(merged.get(k) != v for k, v in data.items()):
+        return None
+    if not set(merged) - set(data) <= OUTPUT_KEYS:
+        return None
+    return merged
+
+
 def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     blocks = JSON_BLOCK_RE.findall(text or "")
     if not blocks:
@@ -1022,7 +1045,13 @@ def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[
         except ValueError:
             raise HubError("JSON 代码块解析失败：%s" % exc)
         rest = block[end:]
-        if rest.strip(" \t\r\n]}"):
+        merged = merge_early_close(block, end, data)
+        if merged is not None:
+            if warnings is not None:
+                warnings.append("JSON 代码块的对象提前收了尾，后面的 %s 已并回对象" % "、".join(
+                    sorted(set(merged) - set(data))))
+            data = merged
+        elif rest.strip(" \t\r\n]}"):
             # 第 25 轮：T008 的协调人两次都在对象结束之后又写了一遍 `], "state": "…"}`（重复已有的键）。
             # 多出来的只是重复对象里已有的顶层键时，取第一份并记警告；有对象里没有的键（可能是真内容）照旧拒收
             keys = set(re.findall(r'"([A-Za-z_]+)"\s*:', rest))
@@ -3134,7 +3163,15 @@ class Engine:
         fresh = "返工" in kinds
         turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh)
         error = self.output_problem(agent, task_id, turn)
-        if error and not turn["violations"] and not turn.get("api_error"):  # 接口报错重试也没用
+        timeouts = 0
+        for retry in range(WORKER_RETRIES_AFTER_TIMEOUT):
+            if not error or turn["violations"] or turn.get("api_error"):  # 接口报错重试也没用
+                break
+            if retry and not timeouts:
+                break  # 输出不合格只重试一次
+            # 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
+            # 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
+            timeouts += 1 if turn.get("timed_out") else 0
             prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, error=error)
             turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"])
             error = self.output_problem(agent, task_id, turn)

@@ -1159,6 +1159,28 @@ def test_output_block_tolerates_only_trailing_closers():
         kh.extract_json_block("```json\n[1]]\n```", [])  # 顶层不是对象
 
 
+def test_output_block_merges_keys_written_after_an_early_close():
+    # 第 32 轮：T010 的规划端在 state 之后收了尾，又写了 `, "external_facts": [...]}`，四万多字的回合作废
+    warnings: list = []
+    text = ("```json\n{\"letter\": {\"type\": \"交付\"}, \"report\": \"r\", \"state\": \"s\"}, "
+            "\"external_facts\": [{\"fact\": \"f\"}]}\n```")
+    assert kh.extract_json_block(text, warnings) == {"letter": {"type": "交付"}, "report": "r", "state": "s",
+                                                     "external_facts": [{"fact": "f"}]}
+    assert len(warnings) == 1 and "提前收了尾" in warnings[0] and "external_facts" in warnings[0]
+    # 后面改写了已有的键：不是“补上漏写的键”，不并；只是重复已有键的，照第 25 轮取第一份
+    assert kh.merge_early_close("{\"a\": 1}, \"a\": 2}", 8, {"a": 1}) is None
+    assert kh.extract_json_block("```json\n{\"a\": 1}, \"a\": 2}\n```", []) == {"a": 1}
+    for bad in ("{\"a\": 1}, 坏的}", "{\"a\": 1} , \"state\": [}", "{\"a\": 1}\"state\": 2}",
+                "{\"a\": 1}, \"verdict\": 2}"):  # 认不得的键（第 25 轮）照旧拒收
+        with pytest.raises(kh.HubError):
+            kh.extract_json_block("```json\n%s\n```" % bad, [])
+    assert kh.merge_early_close("{\"a\": 1} , \"state\": \"s\"}", 8, {"a": 1}) == {"a": 1, "state": "s"}
+    assert kh.merge_early_close("{\"a\": 1}, \"a\": 1}", 8, {"a": 1}) is None  # 没有新键：不是漏写
+    assert kh.merge_early_close("{\"a\": 1}, \"a\": 2, \"state\": \"s\"}", 8, {"a": 1}) is None  # 顺手改了已有的键
+    assert kh.merge_early_close("[1], 2]", 3, [1]) is None  # 顶层不是对象
+    assert kh.merge_early_close("{\"a\": 1}, \"state\": 2", 8, {"a": 1}) is None  # 并不成一个对象（少了右括号）
+
+
 def test_turn_records_the_ignored_trailing_closers(tmp_path):
     hub = kh.Hub(tmp_path)
     hub.ensure()
@@ -1385,8 +1407,9 @@ class FakeRunner:
         self.fresh = getattr(self, "fresh", []) + [fresh]
         output, violations, *rest = self.outputs.pop(0)
         api_error = rest[0] if rest else None
+        timed_out = rest[1] if len(rest) > 1 else False
         return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output,
-                "violations": violations, "api_error": api_error,
+                "violations": violations, "api_error": api_error, "timed_out": timed_out,
                 "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块")}
 
 
@@ -2442,6 +2465,35 @@ def test_invalid_output_gets_one_retry(engine_env):
     engine.step()
     assert len(runner.calls) == 3 and "上一次输出没有通过内核校验" in runner.calls[2][2]
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "delivered"
+
+
+def test_a_timed_out_turn_does_not_use_up_the_format_retry(engine_env):
+    # 第 32 轮：T010 的规划第一回合超时，续上的回合 JSON 写错，没机会再改
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], None, True), (None, []),
+                         (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 4 and "上一次输出没有通过内核校验" in runner.calls[3][2]
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "delivered"
+
+
+@pytest.mark.parametrize("planner_turns", [
+    [(None, []), (None, [])],  # 没有超时：输出不合格只重试一次
+    [(None, [], None, True), (None, [], None, True), (None, [], None, True)],  # 一直超时：最多重试两次
+    [(None, ["写了工作目录以外的文件"], None, True)],  # 越界的回合不重试，超时也一样
+])
+def test_worker_retries_stop_when_the_output_stays_invalid(engine_env, planner_turns):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, [])] + planner_turns + [(planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 1 + len(planner_turns)
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "failed"
 
 
 def test_info_letters_do_not_wake_workers(engine_env):
