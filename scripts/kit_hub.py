@@ -1244,7 +1244,10 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
 
 #: 只读的命令：bash 里提到主工作区、但整条命令都是这些（且没有重定向）时只记警告
 READ_ONLY_COMMANDS = {"cat", "head", "tail", "ls", "grep", "rg", "find", "wc", "sort", "uniq", "diff", "stat", "file",
-                      "echo", "pwd", "cut", "tr", "awk", "sed"}
+                      "echo", "pwd", "cut", "tr", "awk", "sed", "cd"}
+#: 不写文件的重定向：文件描述符之间（2>&1、>&2），或丢进空设备（2>/dev/null、&>nul）。第 41 轮：T012 门禁端的
+#: `ls "<主工作区>/desktop/web" 2>&1 | head` 因为 2>&1 里的 > 被当成写入，整回合作废
+HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d|&?\d*>>?\s*(?:/dev/null|nul)(?![\w./\\-])")
 
 
 def path_forms(path: Path) -> List[str]:
@@ -1268,8 +1271,9 @@ def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Opt
     if name == "bash" and repo is not None:
         command = str(args.get("command") or "").lower()
         for form in path_forms(workspace):
-            command = command.replace(form, "<工作目录>")
+            command = command.replace(form, "{工作目录}")  # 占位符不能带 >：会被当成重定向（第 41 轮）
         if any(form in command for form in path_forms(repo)):
+            command = HARMLESS_REDIRECT_RE.sub(" ", command)
             segments = [s.strip() for s in re.split(r"\|\||&&|[|;\n]", command) if s.strip()]
             words = [s.split()[0] for s in segments]
             read_only = ">" not in command and "sed -i" not in command and all(w in READ_ONLY_COMMANDS for w in words)

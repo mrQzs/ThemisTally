@@ -4460,7 +4460,16 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
     looked = audit(call("bash", command="cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")),
                    call("bash", command="grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))))
     assert looked["violations"] == [] and len(looked["warnings"]) == 2 and "主工作区" in looked["warnings"][0]
+    # 第 41 轮：T012 门禁端的 `ls "<主工作区>/desktop/web/" 2>&1 | head` 被当成写入，整回合作废
+    main = str(repo).replace("\\", "/")
+    quiet = audit(call("bash", command='ls "%s/desktop/web/" 2>&1 | head -20; echo "---"' % main),
+                  call("bash", command='cd "%s" && ls "%s/.agent/" 2>/dev/null' % (str(ws).replace("\\", "/"), main)),
+                  call("bash", command="cat %s/a.md >&2 &>NUL; ls %s 2>>/dev/null" % (main, main)))
+    assert quiet["violations"] == [] and len(quiet["warnings"]) == 3
     for event in (call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
+                  call("bash", command="ls %s 2>/dev/nullx" % main),  # 不是空设备：照旧算写入
+                  call("bash", command="cat %s/a 2>&1 > out.txt" % main),
+                  call("bash", command="cd %s && rm -rf tests" % main),
                   call("write", path=str(tmp_path / "Repo" / "wtx" / "a.py")),
                   call("bash", command="cp a.py %s" % (repo / "scripts")),
                   call("bash", command="cat x > %s" % str(repo / "y").replace("\\", "/")),
