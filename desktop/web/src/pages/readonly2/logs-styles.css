@@ -1,0 +1,221 @@
+/* 日志与用量页样式（合同 D02、D03 与「样式取值」）：检索表单卡、结果区、占比条、用量卡与两张宽表。
+   颜色、字体、圆角只用令牌；尺寸字面量同一行写出处（画布 Logs.dc.html 行号）。 */
+/* 检索表单卡：flex、可换行、间距 space-3、内边距 space-3 space-4（画布 Logs :73）。 */
+.r2-search__form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--tt-space-3);
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+/* 检索框占满剩余宽度（画布 Logs :75）。 */
+.r2-search__q {
+  flex: 1 1 320px; /* Logs :75 */
+  min-width: 0;
+}
+/* 任务下拉宽 200（画布 Logs :86）。 */
+.r2-search__task {
+  width: 200px; /* Logs :86 */
+}
+/* 最多条数宽 96（画布 Logs :93）。 */
+.r2-search__max {
+  width: 96px; /* Logs :93 */
+}
+.r2-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+
+/* 检索结果卡。 */
+.r2-results {
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden;
+}
+/* 结果头部（画布 Logs :105）。 */
+.r2-results__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-4); /* Logs :105 */
+  border-bottom: 1px solid var(--tt-border);
+}
+.r2-results__title {
+  font: var(--tt-title-sm);
+}
+.r2-results__count {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+/* 头部下的说明行。 */
+.r2-results__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-0_5);
+  padding: var(--tt-space-2) var(--tt-space-4);
+  color: var(--tt-text-2);
+  font: var(--tt-text-caption);
+}
+.r2-results__notes > p {
+  margin: 0;
+  min-width: 0;
+}
+.r2-results__hint,
+.r2-results__empty {
+  margin: 0;
+  padding: var(--tt-space-2) var(--tt-space-4);
+  color: var(--tt-text-2);
+  font: var(--tt-text-sm);
+}
+/* 组头（画布 Logs :110）：高 32、surface-2 底。 */
+.r2-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  height: 32px; /* Logs :110 */
+  padding: 0 var(--tt-space-4);
+  background: var(--tt-surface-2);
+  border-bottom: 1px solid var(--tt-border);
+  font: var(--tt-text-sm);
+}
+.r2-group__name {
+  font: var(--tt-mono-sm);
+  font-weight: 600;
+}
+.r2-group__count {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+/* 每条两行（画布 Logs :115）。 */
+.r2-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-0_5);
+  padding: var(--tt-space-2) var(--tt-space-4);
+  border-bottom: 1px solid var(--tt-border);
+  min-width: 0;
+}
+/* path:line（画布 Logs :116）。 */
+.r2-item__loc {
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-2);
+}
+/* 摘录（画布 Logs :117）：等宽、保留空白、单行省略。 */
+.r2-item__text {
+  font: var(--tt-mono-md);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* 命中段（画布 Logs :117 的 mark）。 */
+.r2-item__text mark {
+  background: var(--tt-highlight);
+  color: var(--tt-text-1);
+  border-radius: var(--tt-radius-sm);
+  padding: 0 1px;
+}
+/* 出错块：命令、退出码与报错原文（纯文本）。 */
+.r2-search__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-2) var(--tt-space-4) var(--tt-space-3);
+}
+.r2-search__error-cmd {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+.r2-search__error-msg {
+  margin: 0;
+  padding: var(--tt-space-2) var(--tt-space-3);
+  background: var(--tt-surface-2);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-1);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 用量：合计数字（画布 Logs :199）。 */
+.r2-usage__total {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2);
+}
+.r2-usage__total-num {
+  font: var(--tt-display);
+}
+.r2-usage__total-unit {
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+.r2-usage__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2) var(--tt-space-4);
+  margin: var(--tt-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+.r2-usage__key {
+  font: var(--tt-mono-sm);
+}
+.r2-usage__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2);
+  margin-top: var(--tt-space-2);
+}
+.r2-usage__skipped {
+  margin: var(--tt-space-2) 0 0;
+  font: var(--tt-text-caption);
+}
+.r2-usage__heading {
+  margin: 0 0 var(--tt-space-2);
+  font: var(--tt-title-sm);
+}
+/* 两张用量表最小宽 900（画布 Logs :182 与 :227）。 */
+.r2-usage__attempts .tt-table,
+.r2-usage__models .tt-table {
+  min-width: 900px; /* Logs :182 */
+}
+/* 占比：轨道与填充（画布 Logs :237）。 */
+.r2-share {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  min-width: 0;
+}
+.r2-share__track {
+  flex: 1;
+  min-width: 60px; /* Logs :237 */
+  height: 8px; /* Logs :237 */
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-surface-3);
+  overflow: hidden;
+}
+.r2-share__fill {
+  height: 100%;
+  background: var(--tt-navy-500);
+}
+.r2-share__pct {
+  width: 44px; /* Logs :237 */
+  text-align: right;
+  font: var(--tt-text-caption);
+  color: var(--tt-text-2);
+}
+/* 站内链接（[去设置]）。 */
+.r2-link {
+  color: var(--tt-link);
+  font: var(--tt-text-sm-medium);
+}

@@ -1,0 +1,153 @@
+/* 历史与审计页样式（合同 D06、D07 与「样式取值」）：宽表最小宽 1000、两行注记、抽屉 dl 与键级差异。
+   颜色、字体、圆角只用令牌；尺寸字面量同一行写出处（画布 History.dc.html 行号）。 */
+/* 宽表最小宽 1000（画布 History :67）：写在 .tt-table 上，横向滚动只发生在 Table 的容器里。 */
+.r2-history__table .tt-table {
+  min-width: 1000px; /* History :67 */
+}
+/* 末列（外部改动）靠左即可，表格自身左对齐；这里只保证长串不撑破。 */
+.r2-history__table .tt-table td {
+  min-width: 0;
+}
+/* 时间格（画布 History :31）。 */
+.r2-history__time {
+  color: var(--tt-text-2);
+  white-space: nowrap;
+}
+/* 确认格（画布 History :36）。 */
+.r2-history__confirm {
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-2);
+}
+/* 改动的键里不是占位的说明（画布 History :37）。 */
+.r2-history__note {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+/* 两行注记（画布 History :79）。 */
+.r2-history__note-line,
+.r2-history__baseline {
+  margin: 0;
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+
+/* 抽屉内容根。 */
+.r2-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+.r2-drawer__section {
+  display: flex;
+  flex-direction: column;
+}
+/* 抽屉 dl：两列 96px minmax(0, 1fr)，间距 space-1 space-3（画布 History :134）。 */
+.r2-dl {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr); /* History :134 */
+  gap: var(--tt-space-1) var(--tt-space-3);
+  margin: 0;
+  font: var(--tt-text-sm);
+}
+.r2-dl > dt {
+  color: var(--tt-text-3);
+}
+.r2-dl > dd {
+  margin: 0;
+  min-width: 0;
+}
+/* 底栏：说明文字在左、禁用的回滚入口在右（画布 History :171）。 */
+.r2-drawer__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-space-3);
+  width: 100%;
+  min-width: 0;
+}
+.r2-drawer__note-text {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+/* 疑似凭据的锁提示（画布 History :161）。 */
+.r2-drawer__lock-note {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  margin: var(--tt-space-2) 0 0;
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+/* 抽屉里的出错块。 */
+.r2-drawer__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+.r2-drawer__error-cmd {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+.r2-drawer__error-msg {
+  margin: 0;
+  padding: var(--tt-space-2) var(--tt-space-3);
+  background: var(--tt-surface-2);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-mono-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 键级差异：三列 150px minmax(0, 1fr) minmax(0, 1fr)（画布 History :148）。 */
+.r2-diff {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  overflow: hidden;
+  font: var(--tt-text-sm);
+}
+.r2-diff__head,
+.r2-diff__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr); /* History :148 */
+  gap: var(--tt-space-2);
+  align-items: center;
+  padding: 0 var(--tt-space-3);
+}
+.r2-diff__head {
+  height: 32px; /* History :148 */
+  background: var(--tt-surface-2);
+  font: var(--tt-title-sm);
+  color: var(--tt-text-2);
+}
+.r2-diff__row {
+  min-height: 36px; /* History :149 */
+  border-top: 1px solid var(--tt-border);
+}
+/* 键（画布 History :149）。 */
+.r2-diff__key {
+  font: var(--tt-mono-sm);
+  word-break: break-all;
+  min-width: 0;
+}
+/* 值块（画布 History :149）。 */
+.r2-diff__cell {
+  padding: 1px var(--tt-space-1); /* History :149 */
+  border-radius: var(--tt-radius-sm);
+  font: var(--tt-mono-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.r2-diff__cell--del {
+  background: var(--tt-diff-del);
+}
+.r2-diff__cell--add {
+  background: var(--tt-diff-add);
+}
+/* 「未设置」：不带符号与底色（画布 History :149 的 null）。 */
+.r2-diff__none {
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-3);
+}

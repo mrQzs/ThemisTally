@@ -1,0 +1,159 @@
+/* 插件页样式（合同 D04、D05 与「样式取值」）：宽表最小宽 860、两个小节、抽屉三节与资源表。
+   颜色、字体、圆角只用令牌；尺寸字面量同一行写出处（画布 Plugins.dc.html 行号）。 */
+/* 宽表最小宽 860（画布 Plugins :70）：写在 .tt-table 上，横向滚动只发生在 Table 的容器里。 */
+.r2-plugins__table .tt-table {
+  min-width: 860px; /* Plugins :70 */
+}
+/* 末列（操作）靠右。 */
+.r2-plugins__table .tt-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+/* 两个小节并排（画布 Plugins :64）。 */
+.r2-plugins__notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tt-space-4);
+}
+.r2-plugins__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-1);
+}
+.r2-plugins__list > li {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 启用列的「不限制」：描边样式，不套标签（画布 Plugins :80）。 */
+.r2-plugins__outline {
+  display: inline-flex;
+  align-items: center;
+  height: 20px; /* Plugins :82 标签高 20（handoff :140） */
+  padding: 0 6px; /* Plugins :82 小号标签左右内边距 6（handoff :140） */
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-sm);
+  color: var(--tt-text-2);
+  font: var(--tt-text-caption-strong);
+}
+/* 状态列右侧的 reason（画布 Plugins :88）。 */
+.r2-plugins__reason {
+  margin-left: var(--tt-space-2);
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+
+/* 抽屉内容根。 */
+.r2-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+.r2-drawer__icon {
+  flex: none;
+  color: var(--tt-text-2);
+}
+.r2-drawer__section {
+  display: flex;
+  flex-direction: column;
+}
+/* 抽屉 dl：两列 96px minmax(0, 1fr)，间距 space-1 space-3（画布 Plugins :148）。 */
+.r2-dl {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr); /* Plugins :148 */
+  gap: var(--tt-space-1) var(--tt-space-3);
+  margin: 0;
+  font: var(--tt-text-sm);
+}
+.r2-dl > dt {
+  color: var(--tt-text-3);
+}
+.r2-dl > dd {
+  margin: 0;
+  min-width: 0;
+}
+/* 抽屉里的标签组。 */
+.r2-drawer__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-1);
+}
+/* 资源哈希核对：三列 minmax(0, 1fr) 120px 64px（画布 Plugins :158）。 */
+.r2-res {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  overflow: hidden;
+  font: var(--tt-text-sm);
+}
+.r2-res__head,
+.r2-res__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 64px; /* Plugins :158 */
+  gap: var(--tt-space-2);
+  align-items: center;
+  padding: 0 var(--tt-space-3);
+}
+.r2-res__head {
+  height: 32px; /* Plugins :158 */
+  background: var(--tt-surface-2);
+  font: var(--tt-title-sm);
+  color: var(--tt-text-2);
+}
+.r2-res__row {
+  min-height: 36px; /* Plugins :159 */
+  border-top: 1px solid var(--tt-border);
+  font: var(--tt-mono-sm);
+}
+.r2-res__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.r2-res__result[data-tone="success"] {
+  color: var(--tt-tone-success-fg);
+}
+.r2-res__result[data-tone="warning"] {
+  color: var(--tt-tone-warning-fg);
+}
+.r2-res__result[data-tone="danger"] {
+  color: var(--tt-tone-danger-fg);
+}
+.r2-res__result[data-tone="neutral"] {
+  color: var(--tt-text-2);
+}
+/* lock_sha256：全文等宽、长串换行。 */
+.r2-drawer__lock {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tt-space-1);
+  min-width: 0;
+}
+.r2-break {
+  word-break: break-all;
+}
+/* 抽屉里的出错块。 */
+.r2-drawer__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+.r2-drawer__error-cmd {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+.r2-drawer__error-msg {
+  margin: 0;
+  padding: var(--tt-space-2) var(--tt-space-3);
+  background: var(--tt-surface-2);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-mono-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

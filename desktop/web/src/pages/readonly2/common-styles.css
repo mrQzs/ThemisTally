@@ -1,0 +1,68 @@
+/* 只读页面二共用样式（合同「公共件」与「样式取值」）：说明条、带图标的标签、复制结果文字、等宽小字。
+   颜色、字体、圆角只用令牌；尺寸字面量同一行写出处。 */
+/* 说明条（InfoNote）：画布 Secrets :109 与 Logs :194 的 info 条，内边距 space-3、间距 space-2。 */
+.r2-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-space-2);
+  padding: var(--tt-space-3);
+  background: var(--tt-tone-info-bg);
+  color: var(--tt-tone-info-fg);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-text-sm);
+}
+.r2-note__icon {
+  flex: none;
+  margin-top: 2px; /* 画布 Secrets :110：图标与首行文字对齐 */
+}
+.r2-note__text {
+  min-width: 0; /* 会被压缩的文字块：1024 宽下不撑破容器 */
+}
+
+/* 带图标的标签：图标与文字之间留 space-1（合同「公共约定」）。 */
+.r2-tag-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+}
+
+/* 复制结果文字：显示在复制钮旁，不设 role、不弹轻提示（合同「公共件」）。 */
+.r2-copy-result {
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+
+/* 等宽小字（id、键名、sha256 片段）；长串由调用方再决定换行或省略。 */
+.r2-mono {
+  font: var(--tt-mono-sm);
+}
+
+/* 弱化文字（未知值、说明性注记）。 */
+.r2-dim {
+  color: var(--tt-text-3);
+}
+
+/* 小节卡（合同「样式取值」）：surface-1、1px 边、圆角 lg、内边距 space-3 space-4。 */
+.r2-card {
+  padding: var(--tt-space-3) var(--tt-space-4);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+.r2-card > h2 {
+  margin: 0 0 var(--tt-space-2);
+  font: var(--tt-title-sm);
+}
+
+/* 小节标题（抽屉里的 h3）。 */
+.r2-card > h3 {
+  margin: 0 0 var(--tt-space-2);
+  font: var(--tt-title-sm);
+}
+
+/* 页面与抽屉的纵向排布。 */
+.r2-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
