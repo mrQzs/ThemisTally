@@ -1092,7 +1092,15 @@ def merge_early_close(block: str, end: int, data: Any) -> Optional[Dict[str, Any
 def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     blocks = JSON_BLOCK_RE.findall(text or "")
     if not blocks:
-        raise HubError("最后一条消息里没有 ```json 代码块")
+        # 第 48 轮：T011 的协调人两个回合都以 ```json 开头写完整个对象，却没写收尾的 ```，整回合作废、转给站主。
+        # 最后一个 ```json 之后再没有 ``` 时，把它到消息末尾当成代码块，下面照常解析
+        opening = (text or "").rfind("```json")
+        tail_text = (text or "")[opening + len("```json"):] if opening >= 0 else ""
+        if opening < 0 or "```" in tail_text or not tail_text.strip().startswith("{"):
+            raise HubError("最后一条消息里没有 ```json 代码块")
+        blocks = [tail_text]
+        if warnings is not None:
+            warnings.append("JSON 代码块没有收尾的 ```，已按消息末尾收尾")
     block = blocks[-1].strip()
     try:
         data = json.loads(block)

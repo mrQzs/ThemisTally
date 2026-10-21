@@ -1145,6 +1145,18 @@ def test_output_block_is_the_last_json_fence():
         kh.extract_json_block("没有代码块")
     with pytest.raises(kh.HubError):
         kh.extract_json_block("```json\n{坏的}\n```")
+    # 第 48 轮：T011 的协调人两回合都写完整个对象、没写收尾的 ```，整回合作废、转给站主
+    warnings: list = []
+    assert kh.extract_json_block("说明\n```json\n{\"letters\": [], \"state\": \"s\"}\n", warnings) == {
+        "letters": [], "state": "s"}
+    assert warnings == ["JSON 代码块没有收尾的 ```，已按消息末尾收尾"]
+    assert kh.extract_json_block("```json\n{\"a\": 1}", []) == {"a": 1}
+    assert kh.extract_json_block("照 ```json 这个格式写：\n```json\n{\"a\": 2}", []) == {"a": 2}  # 取最后一个
+    for broken in ("```json\n{\"a\": 1, \"b\":", "```json\n说明文字", "```json\n{\"a\": 1}\n``", "```json"):
+        with pytest.raises(kh.HubError):  # 对象没写完、不是对象：照旧拒收
+            kh.extract_json_block(broken, [])
+    # 有收尾的代码块时照旧取它，后面没收尾的说明不管
+    assert kh.extract_json_block("```json\n{\"a\": 1}\n```\n后面又开一个 ```json\n说明", []) == {"a": 1}
 
 
 def test_output_block_tolerates_only_trailing_closers():
