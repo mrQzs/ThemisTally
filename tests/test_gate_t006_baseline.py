@@ -33,6 +33,8 @@ DoD 对应（括号里是探针键与 describe 名前缀）：
 过渡断言（``test_transitional_`` 开头，docstring 第一行写明哪一片会推翻）：P9 的数据层与 ``?mock=`` 开关（接本机服务那一片）、
 P10 的 App 级五态与连接胶囊的值、``src/mock/shell.ts`` 的值（同上）、页面占位的文字与空态（各页面那一片）、P11 的陈列页内容与
 BaseShowcase、ShellShowcase、showcase.css 的搬家（陈列页演示改版那一片）、api.ts 只有 13 个函数（后面的片按需补读函数与写函数）。
+其中总览、角色与模型、CLI 运行时三页的占位文字（D10 的「夹具数据已读到」与总览条数、P10 offline 的同一行），站主在登记 T009
+（把这三页换成真页面）之后、合同端开工之前退役了；这三页的加载函数、h1 与 data-page-state 照旧验。
 其余（路由、Tab 栏、快捷键、计数规则、状态段、主题、标题栏结构、页面框架五态、禁用入口、不连服务、夹具 JSON、陈列页收集与排序）
 是长期断言。要注意：Tab 栏、路由里“保留 ?mock=”以及状态段的几个用例用 ``?mock=`` 与 api 替身来制造各种状态，夹具开关换掉时
 这些用例的“布置”要跟着改（断言的规则本身是长期的）。
@@ -2000,6 +2002,8 @@ const PAGES = [
   { id: 'history', title: '历史与审计', fn: 'getHistory' },
   { id: 'settings', title: '设置', fn: 'getMeta' },
 ];
+// T009 把这三页的占位换成真页面：登记 T009 后站主退役了它们的占位文字断言（加载函数、h1、data-page-state 照旧验）
+const REAL_PAGES = ['overview', 'roles', 'runtimes'];
 const EMPTIES = [
   { id: 'overview', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
   { id: 'tasks', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
@@ -2037,14 +2041,16 @@ describe('D10 页面占位', () => {
       expect(hoisted.spies[p.fn], p.id + ' 页应调用 ' + p.fn).toHaveBeenCalled();
       expect(pageRoot().getAttribute('data-page-state'), p.id).toBe('data');
       expect(textOf(document.querySelector('h1')), p.id).toBe(p.title);
-      expect(bodyText(), p.id + ' 页应显示「夹具数据已读到」').toContain('夹具数据已读到');
-      expect(bodyText(), p.id + ' 页应写出函数名 ' + p.fn).toContain(p.fn);
+      if (!REAL_PAGES.includes(p.id)) {
+        expect(bodyText(), p.id + ' 页应显示「夹具数据已读到」').toContain('夹具数据已读到');
+        expect(bodyText(), p.id + ' 页应写出函数名 ' + p.fn).toContain(p.fn);
+      }
       r.unmount();
     }
   });
 
-  it('列表数据写条数：状态页读到 7 行', async () => {
-    for (const id of ['overview', 'tasks']) {
+  it('列表数据写条数：任务页读到 7 行（总览的这一条随 T009 退役）', async () => {
+    for (const id of ['tasks']) {
       const r = await mountApp('#/' + id + '?mock=data');
       expect(bodyText(), id).toMatch(/7/);
       r.unmount();
@@ -2162,7 +2168,6 @@ describe('P10 App 级五态（经 ?mock= 演示）', () => {
     const root = pageRoot();
     expect(root.getAttribute('data-page-state')).toBe('data');
     expect(root.getAttribute('data-stale')).toBe('true');
-    expect(bodyText()).toContain('夹具数据已读到');
     const alerts = document.querySelectorAll('[role="alert"]');
     expect(alerts.length, '页面头下方一条 role=alert 的提示条').toBe(1);
     expect(textOf(alerts[0])).toContain('与本机服务的连接断开。下面是断开前的数据，可能已过期。');
@@ -2282,7 +2287,9 @@ describe('D12 陈列页收集与排序', () => {
     expect(textOf(root).length, '页头还有一行说明').toBeGreaterThan('组件陈列'.length);
     const themed = Array.from(root.querySelectorAll('button')).filter((b) => ['亮', '暗', '跟随系统'].includes(textOf(b)));
     expect(themed.length, '主题改由标题栏的菜单切换，陈列页不放主题按钮').toBe(0);
-    expect(root.querySelector('[aria-pressed]'), '陈列页不放按下态的主题按钮').toBeNull();
+    // 演示节里组件自带的切换钮不算（T007 TextViewer 的行号、换行两个钮带 aria-pressed）
+    const pressed = Array.from(root.querySelectorAll('[aria-pressed]')).filter((el) => !el.closest('[data-demo]'));
+    expect(pressed.length, '陈列页不放按下态的主题按钮').toBe(0);
     expect(document.querySelector('[data-page-state]')).toBeNull();
   });
 
@@ -3987,7 +3994,8 @@ def test_transitional_d10_probe_page_placeholders(pipeline):
     """各页面那一片（把页面占位换成真实页面内容）推翻。
 
     D10：9 页各自的加载函数、说明与空态；有数据时显示「夹具数据已读到」加函数名（状态页写条数）；总览说明是「仓库名 · kit 版本」；
-    凭据页刷新钮叫「重新检查」；?mock=empty 只对 5 个列表资源的页面生效。"""
+    凭据页刷新钮叫「重新检查」；?mock=empty 只对 5 个列表资源的页面生效。总览、角色与模型、CLI 运行时三页的占位文字与总览条数
+    已随 T009 退役（见文件头）。"""
     assert_probe_group(pipeline, "pages", "D10 页面占位")
 
 
@@ -4023,7 +4031,8 @@ def test_d08_probe_no_network(pipeline):
 
 def test_d12_probe_showcase_collection(pipeline):
     """P11 / D12：data-showcase 的值与顺序等于目录里 *Showcase.tsx 文件名的排序结果（门禁每次现读目录）；ShowcasePage 根是 div.showcase、
-    h1 组件陈列、无主题按钮；data-demo 的顺序与归属；整页只有一个 role=status，无文字按钮都有 aria-label。"""
+    h1 组件陈列、无主题按钮（演示节里组件自带的 aria-pressed 切换钮不算：原来查整页任何 aria-pressed，T007 的 TextViewer
+    落地后在 T006 结项时误伤，站主收窄）；data-demo 的顺序与归属；整页只有一个 role=status，无文字按钮都有 aria-label。"""
     assert_probe_group(pipeline, "showcase", "D12 陈列页收集与排序")
 
 
