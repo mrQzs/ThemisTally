@@ -2131,6 +2131,145 @@ def test_finalize_lands_the_rework_chain_before_integrating(tmp_path, monkeypatc
     assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists()
 
 
+def forked_landing_setup(tmp_path, monkeypatch):
+    """任务期间分支前进了：结项要把基准测试与返工提交挑到末端，再 integrate（integrate 的结果由 outcome 决定）。"""
+    repo, head = git_repo(tmp_path)
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "chain"], repo)
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_gate_t001_baseline.py").write_text("def test_x():\n    assert '宽'\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "门禁端基准测试"], repo)
+    oracle = kh.git(["rev-parse", "HEAD"], repo).strip()
+    (repo / "earlier.txt").write_text("上一轮的候选\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "返工提交"], repo)
+    rework = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", branch], repo)
+    (repo / "viewer.txt").write_text("并行主任务先落地的组件\n", encoding="utf-8")
+    kh.git(["add", "viewer.txt"], repo)
+    kh.git(["commit", "-q", "-m", "并行主任务先落地"], repo)
+    fork = kh.git(["rev-parse", "HEAD"], repo).strip()
+    outcome = {"integrate": 1, "during": None}
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append(args[0])
+        if args[0] == "verdict":
+            (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")
+        if args[0] == "integrate" and outcome["during"]:
+            outcome["during"]()
+        return (outcome["integrate"], "CHECK V01 failed") if args[0] == "integrate" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
+    ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0, "check_ok": True}
+    return repo, hub, ts, fork, outcome, calls
+
+
+def test_failed_integrate_takes_the_landed_commits_back_off_the_branch(tmp_path, monkeypatch):
+    repo, hub, ts, fork, outcome, calls = forked_landing_setup(tmp_path, monkeypatch)
+    (repo / "README.md").write_text("站主改了一半、没提交\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("无关的未提交文件\n", encoding="utf-8")
+    ok, detail = kh.finalize(hub, ts)
+    # 第 29 轮（T006）：integrate 没过，挑上去的基准测试与返工提交不能留在分支上
+    assert not ok and calls == ["verdict", "integrate"]
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == fork
+    assert not (repo / "earlier.txt").exists() and not (repo / "tests" / "test_gate_t001_baseline.py").exists()
+    assert "landed_at" not in ts["oracle"] and "landed_at" not in ts["rework_chain"][0]
+    assert "已把这次带上分支的基准测试与返工提交撤回" in detail and fork[:12] in detail
+    # 候选 check 通过过、分支在任务期间前进了：列出先落地的提交，站主好找冲突
+    assert "先落地了这些提交" in detail and "并行主任务先落地" in detail
+    assert (repo / "README.md").read_text(encoding="utf-8") == "站主改了一半、没提交\n"
+    assert (repo / "notes.txt").is_file()
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e for e in events if e["event"] == "landing.undone"][-1]["back_to"] == fork
+    # 修好之后重试：重新挑上去，integrate 落地
+    outcome["integrate"] = 0
+    calls.clear()
+    ok, _detail = kh.finalize(hub, ts)
+    assert ok and calls == ["integrate"] and (repo / "earlier.txt").is_file()
+    assert ts["oracle"]["landed_by"] == "cherry-pick" and ts["rework_chain"][0]["landed_by"] == "cherry-pick"
+
+
+def test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too(tmp_path, monkeypatch):
+    repo, hub, ts, fork, _outcome, calls = forked_landing_setup(tmp_path, monkeypatch)
+    (repo / "earlier.txt").write_text("末端上同名不同内容\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "同名不同内容"], repo)
+    tip = kh.git(["rev-parse", "HEAD"], repo).strip()
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "返工提交" in detail and calls == ["verdict"]
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == tip and "landed_at" not in ts["oracle"]
+    assert not (repo / "tests" / "test_gate_t001_baseline.py").exists()
+
+
+def test_failed_integrate_names_the_meanwhile_commits_only_when_the_candidate_had_passed(tmp_path, monkeypatch):
+    repo, hub, ts, fork, outcome, _calls = forked_landing_setup(tmp_path, monkeypatch)
+    ts["exec"]["check_ok"] = False
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "先落地了这些提交" not in detail and "已把这次带上分支" in detail
+    ts["exec"]["check_ok"] = True
+    ts["base_head"] = fork  # 任务期间分支没动：检查没过就是候选自己的问题，不列提交
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "先落地了这些提交" not in detail
+    assert kh.landed_meanwhile(hub, dict(ts, base_head=fork), fork) == ""
+
+
+def test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it(tmp_path, monkeypatch):
+    repo, hub, ts, fork, outcome, _calls = forked_landing_setup(tmp_path, monkeypatch)
+    base = kh.git(["rev-parse", "HEAD~1"], repo).strip()
+    # integrate 期间分支被挪到了别处：结项开始时的末端不再是祖先，不能 reset 过去
+    outcome["during"] = lambda: kh.git(["reset", "-q", "--hard", base], repo)
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "没有撤回" in detail and kh.git(["rev-parse", "HEAD"], repo).strip() == base
+    assert ts["oracle"].get("landed_at")  # 没撤回：记录照旧
+    # 记录说落地过、分支上却没有：重试时照样重新挑上去，不信 landed_at
+    outcome.update(integrate=0, during=None)
+    assert kh.finalize(hub, ts)[0] and (repo / "earlier.txt").is_file()
+    assert (repo / "tests" / "test_gate_t001_baseline.py").is_file()
+    outcome["integrate"] = 1
+    # 挑上去的文件被改了没提交：reset --keep 拒绝，不丢站主的改动
+    kh.git(["reset", "-q", "--hard", fork], repo)
+    for record in kh.landing_records(ts):
+        record.pop("landed_at", None)
+        record.pop("landed_by", None)
+
+    def edit_landed():
+        (repo / "earlier.txt").write_text("站主手上的改动\n", encoding="utf-8")
+
+    outcome["during"] = edit_landed
+    ok, detail = kh.finalize(hub, ts)
+    assert not ok and "没能撤回" in detail
+    assert (repo / "earlier.txt").read_text(encoding="utf-8") == "站主手上的改动\n"
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() != fork
+
+
+def test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again(tmp_path, monkeypatch):
+    repo, hub, ts, fork, outcome, calls = forked_landing_setup(tmp_path, monkeypatch)
+    outcome["integrate"] = 0
+    assert kh.finalize(hub, ts)[0]
+    # 落地前站主在分支上收窄了基准测试里的断言（T006：陈列页的 aria-pressed）；再结项时它已经在分支上了
+    gate = repo / "tests" / "test_gate_t001_baseline.py"
+    gate.write_text("def test_x():\n    assert '窄'\n", encoding="utf-8")
+    kh.git(["commit", "-q", "-am", "站主收窄门禁断言"], repo)
+    tip = kh.git(["rev-parse", "HEAD"], repo).strip()
+    for record in kh.landing_records(ts):
+        record.pop("landed_at", None)
+    calls.clear()
+    ok, detail = kh.finalize(hub, ts)
+    assert ok and calls == ["integrate"], detail
+    assert gate.read_text(encoding="utf-8") == "def test_x():\n    assert '窄'\n"
+    assert kh.git(["rev-parse", "HEAD"], repo).strip() == tip
+    assert kh.on_branch(hub, ts["oracle"]["sha"]) and kh.on_branch(hub, ts["rework_chain"][0]["commit"])
+    assert not kh.on_branch(hub, "0" * 40)
+
+
 def test_owner_takeover_closes_the_task(tmp_path, monkeypatch):
     import io
     repo, head = git_repo(tmp_path)

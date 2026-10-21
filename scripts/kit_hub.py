@@ -2400,13 +2400,16 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
         if problem:
             return False, problem
     head_before = git(["rev-parse", "HEAD"], hub.repo).strip()
+    records_before = [dict(record) for record in landing_records(ts)]
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
+    if not problem:
+        code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
+        ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
+        if code != 0:
+            problem = "integrate 没有落地（退出码 %d）：\n%s%s" % (code, tail(out, 15),
+                                                           landed_meanwhile(hub, ts, head_before))
     if problem:
-        return False, problem
-    code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
-    ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
-    if code != 0:
-        return False, "integrate 没有落地（退出码 %d）：\n%s" % (code, tail(out, 15))
+        return False, problem + undo_landing(hub, ts, head_before, records_before)
     detail = tail(out, 6)
     sha, problem = commit_records(hub, ts)
     detail += "\n" + (problem or ("合同与复审记录已提交 %s" % sha[:12] if sha else "合同与复审记录没有新改动"))
@@ -2417,6 +2420,46 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
         detail += "\n任务期间分支前进了（%s → %s）：放开落地锁之后在新末端上跑全部门禁回归" % (
             ts["base_head"][:12], head_before[:12])
     return True, detail
+
+
+def landing_records(ts: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """结项前要带上分支的提交的记录：门禁的基准测试，以及返工链上的每一轮。"""
+    return [ts["oracle"]] + list(ts.get("rework_chain") or [])
+
+
+def undo_landing(hub: Hub, ts: Dict[str, Any], head_before: str, records_before: List[Dict[str, Any]]) -> str:
+    """结项没落地：撤回这次带上分支的基准测试与返工提交，记录也恢复原样（第 29 轮）。
+    T006 的 integrate 没过，挑上去的两个提交却留在了分支上：分支上是终审打回过的 attempt-001 的代码，
+    后落地的 T008 又压在上面，合入后的门禁回归也跟着红。返回追加到问题后面的说明。"""
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    if head == head_before:
+        return ""
+    if subprocess.run(["git", "merge-base", "--is-ancestor", head_before, "HEAD"], cwd=str(hub.repo),
+                      stdin=subprocess.DEVNULL).returncode != 0:
+        return "\n分支已经不在结项开始时的末端 %s 之上，这次带上分支的提交没有撤回（站主处理）" % head_before[:12]
+    try:
+        git(["reset", "-q", "--keep", head_before], hub.repo)
+    except HubError as exc:
+        return "\n这次带上分支的提交没能撤回（站主处理）：%s" % exc
+    for record, before in zip(landing_records(ts), records_before):
+        record.clear()
+        record.update(before)
+    hub.append_event("landing.undone", task=ts["task"], head=head, back_to=head_before)
+    return "\n已把这次带上分支的基准测试与返工提交撤回（%s → %s）：分支上不留半截的结项" % (head[:12], head_before[:12])
+
+
+def landed_meanwhile(hub: Hub, ts: Dict[str, Any], head_before: str) -> str:
+    """integrate 的检查在候选上过了、在末端上没过：多半是任务期间先落地的提交与本候选合不到一起（第 29 轮，
+    T007 的 TextViewer 带 aria-pressed，T006 门禁查陈列页上任何 aria-pressed）。列出这些提交，站主好找。"""
+    if not ts["exec"].get("check_ok"):
+        return ""
+    log = git(["log", "--no-merges", "--format=%h %s", "-n", "11", "%s..%s" % (ts["base_head"], head_before)],
+              hub.repo, check=False).strip().splitlines()
+    if not log:
+        return ""
+    more = "\n  …" if len(log) > 10 else ""
+    return ("\n本候选在 attempt 的基线上 check 通过过；任务期间分支上先落地了这些提交，没过的检查多半是它们与本候选合不到一起"
+            "（门禁断言写得太宽，或两边真的冲突）：\n" + "\n".join("  " + line for line in log[:10]) + more)
 
 
 def commit_records(hub: Hub, ts: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
@@ -2474,6 +2517,17 @@ def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     return code == 0, summary if code == 0 else summary + "\n" + tail(out, 15)
 
 
+def on_branch(hub: Hub, sha: str) -> bool:
+    """提交已经在当前分支上：是祖先（ff 过），或者分支上有它挑过来的提交（cherry-pick -x 的标记）。
+    第 29 轮：以前基准测试按文件内容判断“挑过了”，站主之后在分支上退役或收窄了其中的断言，重试结项时内容对不上，
+    就会再挑一次而冲突；返工链只看 landed_at，分支被撤回之后记录就不准了。"""
+    if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
+                      stdin=subprocess.DEVNULL).returncode == 0:
+        return True
+    return bool(git(["log", "--format=%H", "-n", "1", "--fixed-strings",
+                     "--grep=(cherry picked from commit %s)" % sha, "HEAD"], hub.repo, check=False).strip())
+
+
 def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     """把门禁的基准测试带上当前分支；返回问题（成功或不需要时为 None）。
 
@@ -2481,8 +2535,7 @@ def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     合同检查跑不通（T001 第一次结项就卡在这里）。它是一审审过、锁定的验收测试，先带上：能 ff 就 ff；
     任务进行期间分支前进了，就把它挑到末端（它只新增门禁测试文件），这样任务期间也能往分支上提交。"""
     oracle = ts["oracle"].get("sha")
-    if not oracle or subprocess.run(["git", "merge-base", "--is-ancestor", oracle, "HEAD"], cwd=str(hub.repo),
-                                    stdin=subprocess.DEVNULL).returncode == 0:
+    if not oracle or on_branch(hub, oracle):
         return None
     files = ts["oracle"].get("files") or []
     if files and all(git(["rev-parse", "HEAD:%s" % f], hub.repo, check=False).strip()
@@ -2509,11 +2562,10 @@ def land_rework_chain(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     """返工链上的提交按顺序带上当前分支（第 10 轮）：每一轮的返工提交以上一轮的基线为父提交，integrate 只挑
     最后一轮“基线→候选”的改动，前几轮的改动要先在末端上。能 ff 就 ff，不能就挑到末端；重试时跳过已落地的。"""
     for link in ts.get("rework_chain") or []:
-        if link.get("landed_at"):
-            continue
         sha = link["commit"]
-        if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"], cwd=str(hub.repo),
-                          stdin=subprocess.DEVNULL).returncode == 0:
+        if on_branch(hub, sha):
+            if link.get("landed_at"):
+                continue
             how = "already"
         else:
             try:
