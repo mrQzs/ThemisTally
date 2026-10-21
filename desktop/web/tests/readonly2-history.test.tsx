@@ -281,6 +281,30 @@ describe('历史与审计：差异抽屉', () => {
     expect(text(d)).not.toContain('本机文件不存快照，不能回滚');
   });
 
+  it('焦点与 Esc 同 D05：提示出现后第一次 Esc 只关提示；焦点在抽屉外 Esc 不关、点抽屉外不关', async () => {
+    await mount();
+    const d = await open(5);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(dialog(), '第一次 Esc 不关抽屉').not.toBeNull();
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
+    expect(dialog()).toBeNull();
+    // 焦点在抽屉外按 Esc 不关；点抽屉外也不关。
+    const d2 = await open(5);
+    const other = rowN(6);
+    act(() => { other.focus(); });
+    fireEvent.keyDown(other, { key: 'Escape' });
+    expect(dialog(), '焦点在抽屉外按 Esc 不关').not.toBeNull();
+    const root = document.querySelector('[data-page="history"]') as HTMLElement;
+    fireEvent.click(root);
+    fireEvent.mouseDown(root);
+    await settle();
+    expect(dialog(), '点抽屉外不关').not.toBeNull();
+    expect(text(dialog()!.querySelector('h2'))).toBe('#5 · preset.use default');
+  });
+
   it('读取中与出错', async () => {
     let resolve!: (v: unknown) => void;
     const r = render(<HistoryView data={HIST} getHistoryEntry={((): Promise<unknown> => new Promise((res) => { resolve = res; })) as never} />);

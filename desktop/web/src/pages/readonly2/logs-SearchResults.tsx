@@ -60,7 +60,8 @@ export function SearchResults({ state }: { state: SearchState }) {
     <div className="r2-results">
       <div className="r2-results__head">
         <span className="r2-results__title">结果</span>
-        <span className="r2-results__count tt-num">{(data.matches ?? []).length} 条 · 上限 {max}</span>      </div>
+        <span className="r2-results__count tt-num">{(data.matches ?? []).length} 条 · 上限 {max}</span>
+      </div>
       <div className="r2-results__notes">
         {data.truncated && <p>只显示前 {max} 条匹配</p>}
         {typeof data.skipped_large === 'number' && data.skipped_large > 0 && (

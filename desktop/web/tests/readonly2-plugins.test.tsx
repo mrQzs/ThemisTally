@@ -293,6 +293,52 @@ describe('插件页：抽屉', () => {
     };
     expect(text(dd('ID'))).toBe('beta');
   });
+  it('悬停 400ms 出现 role=tooltip，文字是「第二阶段接入」', async () => {
+    await mount();
+    const wrap = cells(rows()[0])[7].querySelector('.tt-tooltip-wrap') as HTMLElement;
+    expect(wrap).not.toBeNull();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    fireEvent.mouseEnter(wrap);
+    act(() => { vi.advanceTimersByTime(399); });
+    expect(document.querySelector('[role="tooltip"]'), '400ms 内不出现').toBeNull();
+    act(() => { vi.advanceTimersByTime(1); });
+    const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+    expect(tip).not.toBeNull();
+    expect(text(tip)).toBe('第二阶段接入');
+    fireEvent.mouseLeave(wrap);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('关闭钮的提示出现后：第一次 Esc 只关提示，第二次才关抽屉', async () => {
+    await mount();
+    const rs = rows();
+    await openByEnter(rs[0]);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(document.querySelector('[role="tooltip"]'), '400ms 后关闭钮的提示应出现').not.toBeNull();
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
+    expect(document.querySelector('[role="tooltip"]'), '第一次 Esc 只关提示').toBeNull();
+    expect(dialog(), '第一次 Esc 不关抽屉').not.toBeNull();
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
+    expect(dialog(), '第二次 Esc 才关抽屉').toBeNull();
+    expect(document.activeElement).toBe(rs[0]);
+  });
+
+  it('焦点在抽屉外按 Esc 不关；点抽屉外也不关', async () => {
+    await mount();
+    const rs = rows();
+    await openByEnter(rs[0]);
+    act(() => { rs[1].focus(); });
+    fireEvent.keyDown(rs[1], { key: 'Escape' });
+    expect(dialog(), '焦点在抽屉外按 Esc 不关').not.toBeNull();
+    const root = document.querySelector('[data-page="plugins"]') as HTMLElement;
+    fireEvent.click(root);
+    fireEvent.mouseDown(root);
+    await settle();
+    expect(dialog(), '点抽屉外不关').not.toBeNull();
+    fireEvent.keyDown(closeBtn(), { key: 'Escape' });
+    expect(dialog()).toBeNull();
+  });
 });
 
 function buttonByText(root: ParentNode, label: string) {
