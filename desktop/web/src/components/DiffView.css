@@ -16,6 +16,7 @@
 .tt-diff__file-item { width: 100%; min-height: 32px; /* 详情页 :401 */ display: flex; align-items: center; gap: var(--tt-space-2); padding: var(--tt-space-1) var(--tt-space-2); border: none; border-radius: var(--tt-radius-md); background: transparent; color: var(--tt-text-1); text-align: left; }
 .tt-diff__file-item[aria-current="true"] { background: var(--tt-surface-selected); }
 .tt-diff__file-item:hover { background: var(--tt-surface-3); }
+.tt-diff__file-item .tt-num { font: var(--tt-mono-sm); }
 .tt-diff__file-path { flex: 1; min-width: 0; font: var(--tt-mono-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .tt-diff__file-path > span { direction: ltr; unicode-bidi: isolate; }
 .tt-diff__binary-tag { font: var(--tt-text-caption); color: var(--tt-text-3); }
@@ -29,7 +30,9 @@
 .tt-diff__file-note { font: var(--tt-text-caption); color: var(--tt-text-3); }
 .tt-diff__file-body { overflow-x: auto; }
 .tt-diff__placeholder, .tt-diff__empty { padding: var(--tt-space-3) var(--tt-space-4); font: var(--tt-text-sm); color: var(--tt-text-3); }
-.tt-diff__table { width: max-content; min-width: 100%; }
+/* 换行关：表宽等于最长行不换行的宽度；换行开：表格缩到容器宽，pre-wrap 与 break-all 才有折行机会（详情页 :414）。 */
+.tt-diff[data-wrap="false"] .tt-diff__table { width: max-content; min-width: 100%; }
+.tt-diff[data-wrap="true"] .tt-diff__table { width: auto; }
 .tt-diff__row { font: var(--tt-mono-md); }
 .tt-diff[data-mode="unified"] .tt-diff__row { display: grid; grid-template-columns: 44px 44px 18px minmax(0, 1fr); min-width: 560px; /* handoff :149 */ }
 .tt-diff[data-mode="split"] .tt-diff__row { display: grid; grid-template-columns: 44px 18px minmax(0, 1fr) 44px 18px minmax(0, 1fr); min-width: 760px; /* handoff :149 */ }
@@ -48,6 +51,9 @@
 .tt-diff__sign { text-align: center; font-weight: 600; user-select: none; }
 .tt-diff__row[data-kind="add"] .tt-diff__sign { color: var(--tt-tone-success-fg); }
 .tt-diff__row[data-kind="del"] .tt-diff__sign { color: var(--tt-tone-danger-fg); }
+/* 分屏的行是 data-kind="pair"，符号格自带 data-kind，按它上色（详情页 :432、:435）。 */
+.tt-diff__sign[data-kind="add"] { color: var(--tt-tone-success-fg); }
+.tt-diff__sign[data-kind="del"] { color: var(--tt-tone-danger-fg); }
 .tt-diff__eof { color: var(--tt-text-3); margin-left: var(--tt-space-1); user-select: none; }
 .tt-diff[data-mode="split"] .tt-diff__row[data-kind="hunk"] { padding-left: var(--tt-space-3); white-space: pre; }
 .tt-diff__foot { display: flex; align-items: center; background: var(--tt-surface-2); border-top: 1px solid var(--tt-border); padding: var(--tt-space-2) var(--tt-space-3); font: var(--tt-text-caption); color: var(--tt-text-3); }

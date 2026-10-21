@@ -40,14 +40,36 @@ describe('DiffView.css 关键取值', () => {
     expect(css).toMatch(/data-wrap="true"\] \.tt-diff__text\s*\{[^}]*white-space:\s*pre-wrap[^}]*word-break:\s*break-all/);
   });
 
+  it('max-content 只作用于换行关；换行开时表格宽度自动（B2 返工）', () => {
+    // 表格的 width: max-content 必须挂在 data-wrap="false" 上，不能无条件（否则换行开时表宽仍等于最长行，pre-wrap 没有折行机会）。
+    const withMaxContent = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /width:\s*max-content/.test(m[2]));
+    expect(withMaxContent.length).toBeGreaterThan(0);
+    for (const m of withMaxContent) {
+      expect(m[1].replace(/\s+/g, ' ')).toMatch(/data-wrap="false"/);
+      expect(m[2]).toMatch(/min-width:\s*100%/);
+    }
+    expect(css).toMatch(/\.tt-diff\[data-wrap="true"\] \.tt-diff__table\s*\{[^}]*width:\s*auto/);
+  });
+
   it('add、del、hunk、empty 的底色令牌；hunk 文字 text-3；符号颜色与字重', () => {
     expect(css).toMatch(/data-kind="add"\]\s*\{[^}]*background:\s*var\(--tt-diff-add\)/);
     expect(css).toMatch(/data-kind="del"\]\s*\{[^}]*background:\s*var\(--tt-diff-del\)/);
-    expect(hasRule(css, /data-kind="hunk"/, /background:\s*var\(--tt-surface-2\)/, /color:\s*var\(--tt-text-3\)/));
-    expect(hasRule(css, /data-kind="empty"/, /background:\s*var\(--tt-surface-2\)/));
-    expect(hasRule(css, /data-kind="add"\] \.tt-diff__sign/, /color:\s*var\(--tt-tone-success-fg\)/));
-    expect(hasRule(css, /data-kind="del"\] \.tt-diff__sign/, /color:\s*var\(--tt-tone-danger-fg\)/));
+    expect(hasRule(css, /data-kind="hunk"/, /background:\s*var\(--tt-surface-2\)/, /color:\s*var\(--tt-text-3\)/)).toBe(true);
+    expect(hasRule(css, /data-kind="empty"/, /background:\s*var\(--tt-surface-2\)/)).toBe(true);
+    expect(hasRule(css, /data-kind="add"\] \.tt-diff__sign/, /color:\s*var\(--tt-tone-success-fg\)/)).toBe(true);
+    expect(hasRule(css, /data-kind="del"\] \.tt-diff__sign/, /color:\s*var\(--tt-tone-danger-fg\)/)).toBe(true);
     expect(css).toMatch(/\.tt-diff__sign\s*\{[^}]*font-weight:\s*600/);
+  });
+
+  it('分屏符号格按自己的 data-kind 上色（B5 返工）', () => {
+    // 分屏的行是 data-kind="pair"，符号格自带 data-kind；统一视图的行级规则管不到它。
+    expect(css).toMatch(/\.tt-diff__sign\[data-kind="add"\]\s*\{[^}]*color:\s*var\(--tt-tone-success-fg\)/);
+    expect(css).toMatch(/\.tt-diff__sign\[data-kind="del"\]\s*\{[^}]*color:\s*var\(--tt-tone-danger-fg\)/);
+  });
+
+  it('文件列表项里的计数取 --tt-mono-sm（B3 返工）', () => {
+    // 只作用于文件列表项里的 .tt-num，不影响工具栏摘要（.tt-diff__plus / .tt-diff__minus，不带 tt-num）。
+    expect(css).toMatch(/\.tt-diff__file-item \.tt-num\s*\{[^}]*font:\s*var\(--tt-mono-sm\)/);
   });
 
   it('列表路径 rtl 与里层 isolate；左侧文字格右边框；新行号格右边框', () => {
