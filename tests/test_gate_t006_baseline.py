@@ -34,7 +34,8 @@ DoD 对应（括号里是探针键与 describe 名前缀）：
 P10 的 App 级五态与连接胶囊的值、``src/mock/shell.ts`` 的值（同上）、页面占位的文字与空态（各页面那一片）、P11 的陈列页内容与
 BaseShowcase、ShellShowcase、showcase.css 的搬家（陈列页演示改版那一片）、api.ts 只有 13 个函数（后面的片按需补读函数与写函数）。
 其中总览、角色与模型、CLI 运行时三页的占位文字（D10 的「夹具数据已读到」与总览条数、P10 offline 的同一行），站主在登记 T009
-（把这三页换成真页面）之后、合同端开工之前退役了；这三页的加载函数、h1 与 data-page-state 照旧验。
+（把这三页换成真页面）之后、合同端开工之前退役了；这三页的加载函数、h1 与 data-page-state 照旧验。任务页的占位文字与条数
+（D10「任务页读到 7 行」整条）同样在 T011（任务列表与 attempt 详情页）的合同端开工前退役；任务页的空态断言保留。
 其余（路由、Tab 栏、快捷键、计数规则、状态段、主题、标题栏结构、页面框架五态、禁用入口、不连服务、夹具 JSON、陈列页收集与排序）
 是长期断言。要注意：Tab 栏、路由里“保留 ?mock=”以及状态段的几个用例用 ``?mock=`` 与 api 替身来制造各种状态，夹具开关换掉时
 这些用例的“布置”要跟着改（断言的规则本身是长期的）。
@@ -2002,8 +2003,9 @@ const PAGES = [
   { id: 'history', title: '历史与审计', fn: 'getHistory' },
   { id: 'settings', title: '设置', fn: 'getMeta' },
 ];
-// T009 把这三页的占位换成真页面：登记 T009 后站主退役了它们的占位文字断言（加载函数、h1、data-page-state 照旧验）
-const REAL_PAGES = ['overview', 'roles', 'runtimes'];
+// T009（总览、角色与模型、CLI 运行时）与 T011（任务）把这几页的占位换成真页面：站主在它们的合同端开工前
+// 退役了占位文字断言（加载函数、h1、data-page-state 照旧验）
+const REAL_PAGES = ['overview', 'tasks', 'roles', 'runtimes'];
 const EMPTIES = [
   { id: 'overview', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
   { id: 'tasks', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
@@ -2045,14 +2047,6 @@ describe('D10 页面占位', () => {
         expect(bodyText(), p.id + ' 页应显示「夹具数据已读到」').toContain('夹具数据已读到');
         expect(bodyText(), p.id + ' 页应写出函数名 ' + p.fn).toContain(p.fn);
       }
-      r.unmount();
-    }
-  });
-
-  it('列表数据写条数：任务页读到 7 行（总览的这一条随 T009 退役）', async () => {
-    for (const id of ['tasks']) {
-      const r = await mountApp('#/' + id + '?mock=data');
-      expect(bodyText(), id).toMatch(/7/);
       r.unmount();
     }
   });
@@ -3995,7 +3989,7 @@ def test_transitional_d10_probe_page_placeholders(pipeline):
 
     D10：9 页各自的加载函数、说明与空态；有数据时显示「夹具数据已读到」加函数名（状态页写条数）；总览说明是「仓库名 · kit 版本」；
     凭据页刷新钮叫「重新检查」；?mock=empty 只对 5 个列表资源的页面生效。总览、角色与模型、CLI 运行时三页的占位文字与总览条数
-    已随 T009 退役（见文件头）。"""
+    已随 T009 退役，任务页的占位文字与条数已随 T011 退役（见文件头）。"""
     assert_probe_group(pipeline, "pages", "D10 页面占位")
 
 
@@ -4379,7 +4373,7 @@ def test_gate_selfcheck_probe_templates():
         "titlebar": {"D02 标题栏": 7, "D05 主题": 7, "S3 Logo 与图标": 2},
         "tabbar": {"D03 Tab 栏与状态段": 10},
         "frame": {"D09 页面框架": 12, "D11 禁用的写操作入口": 2},
-        "pages": {"D10 页面占位": 4, "P10 App 级五态（经 ?mock= 演示）": 6,
+        "pages": {"D10 页面占位": 3, "P10 App 级五态（经 ?mock= 演示）": 6,
                   "S7 状态分组（待验收与要你决定计入 Tab 计数，运行中单独数）": 2},
         "showcase": {"D12 陈列页收集与排序": 4, "P11 陈列页内容（基础组件与样张）": 3, "P11 陈列页内容（浮层演示）": 6,
                      "P11 陈列页内容（表单与数据演示）": 9, "P11 陈列页内容（外壳演示）": 2},
