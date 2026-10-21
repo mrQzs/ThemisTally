@@ -37,7 +37,8 @@ BaseShowcase、ShellShowcase、showcase.css 的搬家（陈列页演示改版那
 （把这三页换成真页面）之后、合同端开工之前退役了；这三页的加载函数、h1 与 data-page-state 照旧验。任务页的占位文字与条数
 （D10「任务页读到 7 行」整条）同样在 T011（任务列表与 attempt 详情页）的合同端开工前退役；任务页的空态断言保留。
 凭据、日志与用量、插件、历史与审计四页的占位文字，在 T010（只读页面二）的合同端开工前退役；这四页的空态、说明与
-「重新检查」按钮断言保留。至此只有设置页还断言占位文字。
+「重新检查」按钮断言保留。设置页的占位文字与“调用 getMeta”在 T012（外壳页）的合同端开工前退役：设置页成了外壳页，
+只用 window.themisShell（UI 文档 5.7）；它的 h1、data-page-state 与 ?mock=empty 时仍是 data 照旧验。至此 9 页都不再断言占位文字。
 其余（路由、Tab 栏、快捷键、计数规则、状态段、主题、标题栏结构、页面框架五态、禁用入口、不连服务、夹具 JSON、陈列页收集与排序）
 是长期断言。要注意：Tab 栏、路由里“保留 ?mock=”以及状态段的几个用例用 ``?mock=`` 与 api 替身来制造各种状态，夹具开关换掉时
 这些用例的“布置”要跟着改（断言的规则本身是长期的）。
@@ -2005,9 +2006,9 @@ const PAGES = [
   { id: 'history', title: '历史与审计', fn: 'getHistory' },
   { id: 'settings', title: '设置', fn: 'getMeta' },
 ];
-// T009（总览、角色与模型、CLI 运行时）、T011（任务）与 T010（凭据、日志与用量、插件、历史与审计）把这几页的
-// 占位换成真页面：站主在它们的合同端开工前退役了占位文字断言（加载函数、h1、data-page-state 照旧验）
-const REAL_PAGES = ['overview', 'tasks', 'roles', 'runtimes', 'secrets', 'logs', 'plugins', 'history'];
+// 各页面那一片（T009、T010、T011、T012）把 9 页的占位都换成了真页面：站主在它们的合同端开工前退役了全部占位文字
+// 断言。设置页随 T012 成了外壳页（UI 文档 5.7），只用 window.themisShell，不再查它调用 getMeta；h1、data-page-state 照旧验
+const SHELL_PAGES = ['settings'];
 const EMPTIES = [
   { id: 'overview', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
   { id: 'tasks', title: '还没有 attempt', desc: '在规划端用 /dispatch-pi 派遣第一个任务' },
@@ -2038,17 +2039,15 @@ function bodyText(): string {
 }
 
 describe('D10 页面占位', () => {
-  it('9 页各用自己的加载函数；有数据时显示「夹具数据已读到」加函数名；h1 是页面标题', async () => {
+  it('9 页的 h1 是页面标题、数据态是 data；服务页各用自己的加载函数', async () => {
     for (const p of PAGES) {
       Object.values(hoisted.spies).forEach((s: any) => s.mockClear());
       const r = await mountApp('#/' + p.id + '?mock=data');
-      expect(hoisted.spies[p.fn], p.id + ' 页应调用 ' + p.fn).toHaveBeenCalled();
+      if (!SHELL_PAGES.includes(p.id)) {
+        expect(hoisted.spies[p.fn], p.id + ' 页应调用 ' + p.fn).toHaveBeenCalled();
+      }
       expect(pageRoot().getAttribute('data-page-state'), p.id).toBe('data');
       expect(textOf(document.querySelector('h1')), p.id).toBe(p.title);
-      if (!REAL_PAGES.includes(p.id)) {
-        expect(bodyText(), p.id + ' 页应显示「夹具数据已读到」').toContain('夹具数据已读到');
-        expect(bodyText(), p.id + ' 页应写出函数名 ' + p.fn).toContain(p.fn);
-      }
       r.unmount();
     }
   });
@@ -3992,7 +3991,7 @@ def test_transitional_d10_probe_page_placeholders(pipeline):
     D10：9 页各自的加载函数、说明与空态；有数据时显示「夹具数据已读到」加函数名（状态页写条数）；总览说明是「仓库名 · kit 版本」；
     凭据页刷新钮叫「重新检查」；?mock=empty 只对 5 个列表资源的页面生效。总览、角色与模型、CLI 运行时三页的占位文字与总览条数
     已随 T009 退役，任务页的占位文字与条数已随 T011 退役，凭据、日志与用量、插件、历史与审计四页的占位文字已随 T010
-    退役（见文件头）。"""
+    退役，设置页的占位文字与 getMeta 已随 T012 退役（见文件头）。"""
     assert_probe_group(pipeline, "pages", "D10 页面占位")
 
 
