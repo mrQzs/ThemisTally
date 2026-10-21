@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "task_id": "t006-desktop-shell",
+  "plan_version": 2,
+  "title": "桌面端前端应用框架与夹具数据层（第六片，与 T007 并行）",
+  "repository": "ThemisTally",
+  "base_sha": "50b823d744da48e3266fd3a6459057c8d8d943e0",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "step",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/README.md",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/showcase-overlays.test.tsx",
+      "desktop/web/tests/showcase-forms.test.tsx",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/icons/frame.tsx",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/shell/*.ts",
+      "desktop/web/src/shell/*.tsx",
+      "desktop/web/src/shell/*.css",
+      "desktop/web/src/pages/*Page.tsx",
+      "desktop/web/src/showcase/ShowcasePage.tsx",
+      "desktop/web/src/showcase/showcase.css",
+      "desktop/web/src/showcase/BaseShowcase.tsx",
+      "desktop/web/src/showcase/ShellShowcase.tsx",
+      "desktop/web/src/showcase/showcase-shell.css",
+      "desktop/web/tests/shell-*.test.ts",
+      "desktop/web/tests/shell-*.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/icons/frame.tsx",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/shell/*.ts",
+      "desktop/web/src/shell/*.tsx",
+      "desktop/web/src/shell/*.css",
+      "desktop/web/src/pages/*Page.tsx",
+      "desktop/web/src/showcase/ShowcasePage.tsx",
+      "desktop/web/src/showcase/showcase.css",
+      "desktop/web/src/showcase/BaseShowcase.tsx",
+      "desktop/web/src/showcase/ShellShowcase.tsx",
+      "desktop/web/src/showcase/showcase-shell.css",
+      "desktop/web/tests/shell-*.test.ts",
+      "desktop/web/tests/shell-*.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/components/**",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/showcase/FormsShowcase.tsx",
+      "desktop/web/src/showcase/showcase-forms.css",
+      "desktop/web/src/showcase/EvidenceShowcase.tsx",
+      "desktop/web/src/showcase/showcase-evidence.css",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/component-css.test.ts",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/status-tag-patches.test.tsx",
+      "desktop/web/tests/status-tag.test.tsx",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/toast-close-tooltip.test.tsx",
+      "desktop/web/tests/toast.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "tests/test_gate_*.py",
+      "tests/test_gate_t006_*.py",
+      "tests/conftest.py",
+      "tests/test_attempt_states.py",
+      "tests/test_desktop_attempt_states.py",
+      ".gitignore",
+      ".gitattributes",
+      "scripts/**",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t006_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 9000,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "output_must_not_match": [
+        "failed|error"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "路由——空 hash 是总览；9 个 Tab 的顺序、文字、title 与分隔线正确；点击切页后地址、当前项、h1 同步变；未知路由回总览；#/tasks/x/y 归任务；#/showcase 没有当前项并渲染陈列页；document.title 随页面变",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "页面都能用地址打开，陈列页离开根路由"
+    },
+    {
+      "id": "D02",
+      "text": "标题栏——Logo、产品名、连接胶囊都在；仓库菜单当前项 aria-checked=true、禁用项 aria-disabled=true 且选不了；主题菜单在；两个菜单键盘操作正确、Esc 后焦点回触发钮；右内边距 140",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "标题栏四样东西都在且键盘可用"
+    },
+    {
+      "id": "D03",
+      "text": "Tab 栏——9 项顺序与图标、最小宽 72、当前项 aria-current=page 加 3px 金条；计数为 0 或未读时不渲染、为 3 时有 data-tab-count 且文字是 3；状态段 aria-live=polite，上次更新与 kit 版本带 tt-hide-narrow 且上次更新 aria-live=off",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "导航与状态一眼可见，计数只数要你处理的"
+    },
+    {
+      "id": "D04",
+      "text": "快捷键——Ctrl+1…8 与 Ctrl+, 切页且 keydown 被 preventDefault；带 Alt/Shift/Meta 不切；Ctrl+9 不切；模态对话框打开时不切",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "键盘能切页又不误伤别的组合键与模态框"
+    },
+    {
+      "id": "D05",
+      "text": "主题——缺省无 data-theme；经菜单选亮、跟随系统、暗，data-theme 依次 light、system、去掉；html 与 body 其余属性不变、无内联样式；触发钮名称随偏好变",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "主题只经 data-theme 切换"
+    },
+    {
+      "id": "D06",
+      "text": "数据层——13 个函数 data 与 UI 文档第 9 节 JSON 逐值相等、信封字段齐全；改返回值不影响下一次；夹具外参数返回 ok:false",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "后面的页面照真实接口编码"
+    },
+    {
+      "id": "D07",
+      "text": "夹具开关——五个取值（data/loading/empty/error/offline）效果都对；getMeta 不受开关影响；empty 只对 5 个列表资源生效",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "五态能在真实框架里看到"
+    },
+    {
+      "id": "D08",
+      "text": "不连服务——递归扫 desktop/web/src 全文件按整词找 fetch/XMLHttpRequest/EventSource/WebSocket，一个都没有；自检样本行为正确",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "运行时不发任何网络请求"
+    },
+    {
+      "id": "D09",
+      "text": "页面框架——299ms 无骨架、300ms 有；有数据、空两态正确；出错块的命令、退出码、报错原文都是纯文本、点重试再调一次；断线时保留数据、有 role=alert Banner 与「可能已过期」、data-stale=true；刷新保留数据、按钮 aria-busy；先发后回的结果被丢弃",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "五态与刷新只实现一处"
+    },
+    {
+      "id": "D10",
+      "text": "页面占位——9 页各自加载函数、说明与空态；有数据时显示「夹具数据已读到」加函数名（列表写条数）；总览说明是仓库名 · kit 版本",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "禁用入口——Tooltip 包 disabled Button、Button 带 pointer-events:none 的类；悬停包裹元素 399ms 无提示、400ms 出现 role=tooltip",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "站主 Q7 的写法后续可直接用"
+    },
+    {
+      "id": "D12",
+      "text": "陈列页——data-showcase 的值与顺序等于目录里 *Showcase.tsx 文件名的排序结果（每次现读目录）；BaseShowcase 原样搬、五节原子带 data-demo；ShellShowcase 两节；整页只有一个 role=status、无文字按钮都有 aria-label；3 份既有测试只改挂载后照常通过",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "陈列页自动收集、原有演示一个不丢"
+    },
+    {
+      "id": "D13",
+      "text": "回归——T001–T005 门禁全绿（Q1 处理之后，含现有过渡断言）；W5 通过；npm ci、build、test、check:contract 都退出 0",
+      "evidence": [
+        "V02",
+        "V03",
+        "V01"
+      ]
+    },
+    {
+      "id": "D14",
+      "text": "范围与纪律——只改允许的文件；不改依赖；既有测试只按 Q2 改挂载；新测试不用 skip、only、todo；遵守禁用词与 W4",
+      "evidence": [
+        "scope",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
