@@ -4,6 +4,9 @@
   "type": "module",
   "exports": {
     "./clock": "./src/clock.ts",
+    "./fsutil": "./src/fsutil.ts",
+    "./locks": "./src/locks.ts",
+    "./process": "./src/process.ts",
     "./publish": "./src/publish.ts",
     "./pyjson": "./src/pyjson.ts"
   }

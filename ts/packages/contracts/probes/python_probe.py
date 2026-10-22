@@ -12,11 +12,13 @@ import secrets
 import struct
 import sys
 import time
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]  # ts/packages/contracts/probes → 仓库根
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import kit_config  # noqa: E402
 import kit_hub  # noqa: E402
 import pi_dispatch  # noqa: E402
 
@@ -125,9 +127,53 @@ def op_clock_sample(request):
     return dict(ok=True, **out)
 
 
+def op_fs_read_text(request):
+    return {"ok": True, "text": kit_hub.read_text(Path(request["path"]))}
+
+
+def op_fs_write_text_atomic(request):
+    kit_hub.write_text_atomic(Path(request["path"]), request["text"])
+    return {"ok": True}
+
+
+def op_pid_alive(request):
+    return {"ok": True, "alive": pi_dispatch.pid_alive(request["pid"])}
+
+
+def make_lock(request):
+    kind, wait = request["kind"], request.get("wait", 5)
+    if kind == "dir":
+        return kit_hub.DirLock(Path(request["path"]), wait_seconds=wait)
+    if kind == "task":
+        return pi_dispatch.TaskLock(types.SimpleNamespace(runs_dir=Path(request["root"])), request["task"],
+                                    wait_seconds=wait, stale_seconds=request.get("stale", 300.0))
+    return kit_config.ConfigLock(types.SimpleNamespace(agent_dir=Path(request["root"])), wait_seconds=wait)
+
+
+def op_lock_run(request):
+    """拿锁、记下 owner.json 的字节、持有 hold_ms 毫秒再释放。tamper：释放前把令牌改掉（锁已被别人重建）。"""
+    lock = make_lock(request)
+    try:
+        lock.__enter__()
+    except (kit_hub.HubError, pi_dispatch.DispatchError, kit_config.ConfigError):
+        return {"ok": False, "error": "busy"}
+    acquired = time.time() * 1000
+    owner = (lock.path / "owner.json").read_bytes()
+    time.sleep(request.get("hold_ms", 0) / 1000)
+    if request.get("tamper"):
+        (lock.path / "owner.json").write_bytes(b'{"pid": 1, "token": "someone-else"}\n')
+    lock.__exit__(None, None, None)
+    return {"ok": True, "owner_b64": base64.b64encode(owner).decode("ascii"), "acquired_ms": acquired,
+            "released_ms": time.time() * 1000, "left": lock.path.exists()}
+
+
 OPS = {
     "publish_new": op_publish_new,
     "clock.sample": op_clock_sample,
+    "fs.read_text": op_fs_read_text,
+    "fs.write_text_atomic": op_fs_write_text_atomic,
+    "pid_alive": op_pid_alive,
+    "lock.run": op_lock_run,
     "pyjson.dumps": op_pyjson_dumps,
     "pyjson.loads": op_pyjson_loads,
     "pyjson.roundtrip": op_pyjson_roundtrip,
@@ -144,7 +190,7 @@ def run_one(request):
         return handler(request)
     except OSError as exc:
         return {"ok": False, "error": errno.errorcode.get(exc.errno or 0, "EUNKNOWN")}
-    except (json.JSONDecodeError, TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
         return {"ok": False, "error": type(exc).__name__}
 
 
