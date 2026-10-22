@@ -47,10 +47,10 @@
       "new": "encodeUtf8(`${line}\\r\\n`)"
     },
     {
-      "name": "L08 读的时候只按换行切",
+      "name": "L08 读的时候照旧用 splitlines 的行界",
       "file": "ts/packages/base/src/jsonl.ts",
-      "old": "  for (const line of pySplitlines(readText(path))) {",
-      "new": "  for (const line of readText(path).split(\"\\n\")) {"
+      "old": "  return text.split(\"\\n\");",
+      "new": "  return text.split(/\\n|\\u0085|\\u2028|\\u2029/u);"
     },
     {
       "name": "L09 读的时候什么错都吞",

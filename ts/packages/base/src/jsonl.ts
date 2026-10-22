@@ -1,10 +1,12 @@
 // JSONL 账本的追加与读取（迁移第 ① 步 jsonl）：照 kit_hub.Hub.append_event 与 kit_hub 里读账本的写法。
 //   appendEvent  记录 = data 加 at（拿锁之前取）、event；同目录的 .events.lock 文件锁（与 Python 互斥，见 native.ts）；
 //                json.dumps(记录, ensure_ascii=False, sort_keys=True) 加换行，以追加方式写，写完 fsync
-//   readJsonl    read_text 之后 str.splitlines()，每行 json.loads，读不成的跳过
+//   readJsonl    read_text 之后只按换行切（kit_hub.jsonl_lines），每行 json.loads，读不成的跳过
 //   jsonlRecords、stripEol、iterLines、linesBefore  kit_logs 读大文件的原语：按字节从偏移读，单行有上限，内存有上限
-// 注意（照现行行为保留）：ensure_ascii=False 不转义 0x85、U+2028、U+2029，而 splitlines 把它们也当行界，
-// 所以字段里有这几个字符的那一行，读的时候会被拆坏、整行跳过。要改另开内核轮次（计划第 10 节）。
+// 第 56 轮之前 kit_hub 用 str.splitlines()：ensure_ascii=False 不转义 0x85、U+2028、U+2029，含这几个字符的记录
+// 被拆坏跳过（工人事件流的审计因此能被绕过）。现在两边都只认换行。
+// 锁不能省：Node 以 FILE_APPEND_DATA 打开，追加是原子的；CPython 走 CRT，每次写之前先 seek 到末尾，两步之间不是
+// 原子的（kit_hub.append_event 的注释）。两套实现混跑时靠 .events.lock 互斥。
 // 分页、游标与脱敏显示是 logs 命令自己的事，归第 ② 步。
 import { closeSync, fsyncSync, mkdirSync, openSync, readSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,7 +14,6 @@ import { utcNow } from "./clock.ts";
 import { readText } from "./fsutil.ts";
 import { withFileLock } from "./native.ts";
 import { type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, loads } from "./pyjson.ts";
-import { pySplitlines } from "./pyre.ts";
 
 /** 一条账本记录写成的那一行（不含换行）。 */
 export function eventLine(event: string, data: PyDict, at: string): string {
@@ -188,10 +189,15 @@ export function linesBefore(path: string, position: number): number {
   }
 }
 
-/** kit_hub 读账本：read_text、splitlines、逐行 json.loads，读不成的跳过。 */
+/** kit_hub.jsonl_lines：只按换行切（readText 已把 \r\n、\r 换成 \n）。 */
+export function jsonlLines(text: string): string[] {
+  return text.split("\n");
+}
+
+/** kit_hub 读账本：read_text、jsonl_lines、逐行 json.loads，读不成的跳过。 */
 export function readJsonl(path: string): PyValue[] {
   const out: PyValue[] = [];
-  for (const line of pySplitlines(readText(path))) {
+  for (const line of jsonlLines(readText(path))) {
     try {
       out.push(loads(line));
     } catch (error) {

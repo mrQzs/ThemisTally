@@ -31,7 +31,7 @@ describe.each(IMPLS)("jsonl 契约 impl=$name", (impl) => {
     }
   });
 
-  it("J2 读账本：read_text 之后 splitlines、逐行解析，坏行跳过；U+2028 也被当成行界（现行行为，拆坏的那行跳过）", () => {
+  it("J2 读账本：read_text 之后只按换行切（第 56 轮）、逐行解析，坏行跳过；字段里的 U+2028 照样读回来，0x85 不是行界", () => {
     const repo = scratchDir(`jsonl-read-${impl.name}`);
     try {
       const path = ledgerOf(repo);
@@ -49,7 +49,7 @@ describe.each(IMPLS)("jsonl 契约 impl=$name", (impl) => {
       const events = (result["value"] as { v: { v: [Tagged, Tagged][] }[] }).v.map((item) =>
         item.v.find(([key]) => (key as { v: string }).v === "event")?.[1],
       );
-      expect(events).toEqual([S("a"), S("c"), S("d"), S("e")]);
+      expect(events).toEqual([S("a"), S("b"), S("e")]); // c、d 在同一行里：一行两个对象，解析不了
     } finally {
       removeDir(repo);
     }

@@ -228,10 +228,11 @@ def op_jsonl_append(request):
 
 
 def op_jsonl_read(request):
-    """kit_hub 读账本的写法（exec_metrics 等处内联）：read_text、splitlines、逐行 json.loads，ValueError 跳过。"""
+    """kit_hub 读账本的写法（exec_metrics 等处内联）：read_text、jsonl_lines（第 56 轮起只按换行切）、
+    逐行 json.loads，ValueError 跳过。"""
     ledger = Path(request["path"])
     out = []
-    for line in kit_hub.read_text(ledger).splitlines() if ledger.exists() else []:
+    for line in kit_hub.jsonl_lines(kit_hub.read_text(ledger)) if ledger.exists() else []:
         try:
             out.append(json.loads(line))
         except ValueError:
