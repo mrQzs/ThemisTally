@@ -5888,3 +5888,44 @@ def test_owner_sweeps_start_with_the_ts_reinstall(tmp_path, monkeypatch):
     kh.mark_owner_moved(hub, "a" * 40, kh.git(["rev-parse", "HEAD"], repo).strip(), ["git"])
     ok, _summary = kh.owner_sweep(hub)
     assert ok and order == ["install", "gates"]
+
+
+def test_only_the_segments_that_touch_the_main_worktree_must_be_read_only(tmp_path):
+    # 第 66 轮：T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据；
+    # 以前整条命令里有 git（不是只读命令）就判越界，T014 那一回合跑了 16 分钟作废
+    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t014-post-attempt-002-x"
+    repo = tmp_path / "ThemisTally"
+    w, m = str(ws).replace("\\", "/"), str(repo).replace("\\", "/")
+
+    def verdict(command):
+        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
+
+    # 实测的那一条：只是提到主工作区、碰到它的段都只读 → 警告，不作废
+    assert verdict('cd "%s" && pwd && git status && echo "---LOG---" && git log --oneline -8 && echo "---" && '
+                   'wc -l "%s/.agent/runs/t014/attempt-002/candidate.patch"' % (w, m)) == "warning"
+    assert verdict('cd "%s" && git diff --stat && cat "%s/a.md" | head -5' % (w, m)) == "warning"
+    assert verdict("git status; ls %s/.agent | sort | uniq" % m) == "warning"
+    # 碰到主工作区的段不是只读 → 照旧越界
+    for command in (
+        "cd %s && git commit -qm x" % m,  # cd 进主工作区之后的段都算碰到
+        "cd %s && cd .agent && rm -rf runs" % m,  # 相对路径的 cd 还在主工作区里
+        'cd "%s" && git status && cd "%s" && git log' % (w, m),  # 先进工作目录、再进主工作区
+        "ls %s | xargs rm" % m,  # 主工作区的内容顺着管道流下去
+        "cat %s/a | sort | tee b.txt" % m,  # 管道里隔一段照样算
+        "cd %s/.agent; python -c 'print(1)'" % m,
+        "pushd %s && rm x" % m,
+        "wc -l %s/a > %s/count.txt" % (m, w),  # 碰到的段有写入重定向
+    ):
+        assert verdict(command) == "violation", command
+    # cd 到别处就出了主工作区：之后的段不算碰到
+    assert verdict("cd %s && ls && cd %s && git status" % (m, w)) == "warning"
+    assert verdict("cd %s && ls; cd ~ && git status" % m) == "warning"
+    assert verdict("cd %s && ls; cd /tmp && rm -f x" % m) == "warning"
+    # && 不是管道：前一段碰到主工作区，不连累后一段
+    assert verdict("cat %s/a.md && git -C %s status" % (m, w)) == "warning"
+
+
+def test_split_chain_keeps_the_separators():
+    chain, bare = kh.split_chain('a "x|y" | b && c; d || e & f\ng')
+    assert chain == [("", 'a "x|y"'), ("|", "b"), ("&&", "c"), (";", "d"), ("||", "e"), ("&", "f"), ("\n", "g")]
+    assert kh.split_unquoted('a "x|y" | b && c')[0] == ['a "x|y"', "b", "c"]

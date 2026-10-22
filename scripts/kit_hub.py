@@ -1390,10 +1390,17 @@ def path_forms(path: Path) -> List[str]:
 def split_unquoted(command: str) -> Tuple[List[str], str]:
     """按引号外的 |、||、&&、&、;、换行把命令切成段；返回（各段，去掉引号里内容的全文）。第 45 轮：T011 门禁端的
     `grep -n "readFileSync\\|require(" …` 被按引号里的 | 切开，切出的 `require("` 不是只读命令，整回合作废。"""
-    segments: List[str] = []
+    chain, bare = split_chain(command)
+    return [segment for _sep, segment in chain], bare
+
+
+def split_chain(command: str) -> Tuple[List[Tuple[str, str]], str]:
+    """同 split_unquoted，各段带上它前面的分隔符（第一段是空串）：返回（[(分隔符, 段)]，去掉引号里内容的全文）。"""
+    segments: List[Tuple[str, str]] = []
     current: List[str] = []
     bare: List[str] = []
     quote: Optional[str] = None
+    sep = ""
     i = 0
     while i < len(command):
         ch = command[i]
@@ -1411,17 +1418,46 @@ def split_unquoted(command: str) -> Tuple[List[str], str]:
             current.append(command[i:i + 2])
             i += 1
         elif ch in "|&;\n":
-            segments.append("".join(current))
+            segments.append((sep, "".join(current)))
             current = []
             bare.append(" ")
+            sep = ch
             if command[i:i + 2] in ("||", "&&"):
+                sep = command[i:i + 2]
                 i += 1
         else:
             current.append(ch)
             bare.append(ch)
         i += 1
-    segments.append("".join(current))
-    return [s.strip() for s in segments if s.strip()], "".join(bare)
+    segments.append((sep, "".join(current)))
+    return [(s, seg.strip()) for s, seg in segments if seg.strip()], "".join(bare)
+
+
+#: cd 的目标是绝对路径、工作目录或家目录时离开主工作区；相对路径留在原处（第 66 轮）。
+CD_ELSEWHERE_RE = re.compile(r"^(?:/|[a-z]:|~|\{工作目录\})")
+
+
+def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
+    """一条已经小写、换掉了工作目录写法的 bash 命令，碰主工作区的那些段是不是只读（第 66 轮）。碰到的段：提到主工作区
+    路径的段；cd 进主工作区之后的段（直到 cd 到别处）；同一条管道里排在碰到的段后面的段（主工作区的内容顺着管道往下流，
+    `… | xargs rm`、`… | tee` 照样算写）。碰到的段要么第一个词不在 READ_ONLY_COMMANDS 里，要么有引号外的写入重定向或
+    sed -i，就算写。T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据，
+    以前按整条命令看，git 不是只读命令，整回合作废（T014 那一回合跑了 16 分钟）。"""
+    chain, _bare = split_chain(HARMLESS_REDIRECT_RE.sub(" ", command))
+    in_main = False
+    piped = False
+    for sep, segment in chain:
+        words = segment.split()
+        mentions = any(form in segment for form in repo_forms)
+        touching = mentions or in_main or (piped and sep == "|")
+        bare = split_chain(segment)[1]
+        if touching and (words[0] not in READ_ONLY_COMMANDS or ">" in bare or "sed -i" in bare):
+            return True
+        if words[0] in ("cd", "pushd"):
+            target = words[1].strip("'\"") if len(words) > 1 else "~"
+            in_main = True if mentions else (False if CD_ELSEWHERE_RE.match(target) else in_main)
+        piped = touching
+    return False
 
 
 def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Optional[Path]) -> Tuple[str, str]:
@@ -1437,12 +1473,10 @@ def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Opt
         command = str(args.get("command") or "").lower()
         for form in path_forms(workspace):
             command = command.replace(form, "{工作目录}")  # 占位符不能带 >：会被当成重定向（第 41 轮）
-        if any(form in command for form in path_forms(repo)):
-            segments, bare = split_unquoted(HARMLESS_REDIRECT_RE.sub(" ", command))
-            words = [s.split()[0] for s in segments]
-            read_only = ">" not in bare and "sed -i" not in bare and all(w in READ_ONLY_COMMANDS for w in words)
+        forms = path_forms(repo)
+        if any(form in command for form in forms):
             note = "bash 命令提到了主工作区（主工作区的文件用 read 读）：%s" % str(args.get("command"))[:200]
-            return ("warning" if read_only else "violation"), note
+            return ("violation" if touches_main_unsafely(command, forms) else "warning"), note
     return "", ""
 
 
