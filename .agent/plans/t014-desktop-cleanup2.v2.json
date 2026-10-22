@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "task_id": "t014-desktop-cleanup2",
+  "plan_version": 2,
+  "title": "桌面端前端收尾二：合并 T011、T012 的重复件",
+  "repository": "ThemisTally",
+  "base_sha": "b820234a4c61867520aa896cf13796444abbd245",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/pages/tasks/TaskListView.tsx",
+      "desktop/web/src/pages/tasks/AttemptDetailView.tsx",
+      "desktop/web/src/pages/tasks/tab-Report.tsx",
+      "desktop/web/src/pages/tasks/tab-Summary.tsx",
+      "desktop/web/src/pages/readonly1/common-CopyNote.tsx",
+      "desktop/web/src/pages/readonly2/secrets-SecretsView.tsx",
+      "desktop/web/src/shellpages/FirstRunView.tsx",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/first-run.css",
+      "desktop/web/tests/tasks-static.test.ts",
+      "desktop/web/tests/shellpages-static.test.ts",
+      "desktop/web/tests/readonly2-static.test.ts",
+      "desktop/web/tests/cleanup1-static.test.ts",
+      "desktop/web/tests/cleanup1-merge.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/components/CopyNote.tsx",
+      "desktop/web/src/components/CopyNote.css",
+      "desktop/web/tests/cleanup2-shared.test.tsx",
+      "desktop/web/tests/cleanup2-render.test.tsx",
+      "desktop/web/tests/cleanup2-static.test.ts"
+    ],
+    "allowed_deleted_files": [
+      "desktop/web/src/pages/tasks/tasks-copy.ts",
+      "desktop/web/src/pages/tasks/tasks-icons.tsx",
+      "desktop/web/src/pages/tasks/common-CopyNote.tsx",
+      "desktop/web/src/shellpages/copy.ts",
+      "desktop/web/src/shellpages/icons.tsx",
+      "desktop/web/src/pages/readonly2/common-icons.tsx"
+    ],
+    "forbidden_paths": [
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/pages/tasks/TasksPage.tsx",
+      "desktop/web/src/shellpages/SettingsPage.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "tests/test_gate_t014_*.py",
+      "tests/test_gate_*.py"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t014_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "单一来源——在 src/components、src/pages、src/shellpages、src/icons（不含 src/showcase）范围内，copyText 只有一处导出定义（components/copyText.ts）；三条结果文字只出现在 components/copyText.ts；CopyNote 组件定义只在 components/CopyNote.tsx；ArrowRightIcon、FileTextIcon、ExternalLinkIcon 各只有一处 export const 且在 icons/index.tsx；六个待删文件不存在，且没有文件再从它们引入。",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "消除重复、避免将来漂移"
+    },
+    {
+      "id": "D02",
+      "text": "图标合并——icons/index.tsx 末尾追加 FileTextIcon（5 条 path）与 ExternalLinkIcon（3 条 path），path 与合并前逐字相同，沿用 Svg，块内不写 fill/stroke（只用 none/currentColor），追加前内容原样是前缀；tab-Summary（14）、SettingsView（16）、secrets（14）、FirstRunView（16）四处渲染的 svg 属性与 path 列表和合并前相同。",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "合并后图标外观与属性不变"
+    },
+    {
+      "id": "D03",
+      "text": "共用 CopyNote——components/CopyNote.tsx 导出 CopyNote 与 CopyNoteProps，result 为 null 不渲染，类名 tt-copy-note，不设 role，文字取 COPY_RESULT_TEXT，注释不含三条结果文字；components/CopyNote.css 有 margin 0、font var(--tt-text-caption)、color var(--tt-text-3)；readonly1/common-CopyNote.tsx 只转出 CopyNote 与 CopyNoteProps。",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "一份 CopyNote 同时服务只读页一与任务页，任务页复制结果样式按 Q1 修正"
+    },
+    {
+      "id": "D04",
+      "text": "复制结果文字一致——五处调用方（任务列表、详情页头、执行报告页签、总览、首启页）显示的三种结果文字都等于 COPY_RESULT_TEXT 的值，测试从共用表取期望值、不另写字面量。",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "合并后各处文案不漂移"
+    },
+    {
+      "id": "D05",
+      "text": "首启页值单行省略——first-run.css 的 .tt-fr__val 用 font var(--tt-mono-md)，并有 white-space: nowrap、overflow: hidden、text-overflow: ellipsis。",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "长路径从换行改为省略（照 T012 合同 §3.3）"
+    },
+    {
+      "id": "D06",
+      "text": "遗留注释一致——shellStub.ts 头注释与实现一致（openExternal 只校验协议、不记录网址）。",
+      "evidence": [
+        "review"
+      ],
+      "intent": "注释不误导后续维护"
+    },
+    {
+      "id": "D07",
+      "text": "回归与构建——G01、R01、V01、V02、V03 全部通过（T001–T013 门禁、构建、全量测试、合同检查）。",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03"
+      ],
+      "intent": "不破坏已有功能与令牌契约"
+    },
+    {
+      "id": "D08",
+      "text": "范围与测试完整性——只改允许的文件、不改依赖；不删除、跳过或弱化既有测试，旧断言意图挪到共用件上。",
+      "evidence": [
+        "scope",
+        "review",
+        "V02"
+      ],
+      "intent": "改动可审计，回归保护不缩水"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 2400,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
