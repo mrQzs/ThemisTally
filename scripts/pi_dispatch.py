@@ -112,8 +112,16 @@ PROTECTED_PATTERNS = (
 ) + KIT_LOADED_FILES
 #: TS 实现进入生产路径之后（选择文件至少有一项是 ts，迁移计划第 5 节）执行器也不得修改的路径。只在被检查的仓库
 #: 就是内核自己所在的仓库时加上（kernel_protected_paths）：PROTECTED_PATTERNS 随 kit 装进目标仓库，目标项目自己的
-#: ts/ 目录不受影响。整个 ts/ 都算：package.json、bun.lock 与写装好戳记的 postinstall 同样决定运行结果。
-KERNEL_TS_PROTECTED = ("ts/**",)
+#: ts/ 目录不受影响。第 69 轮从整个 ts/ 收窄到内核实际用到的部分（与 themistally-15 定）：桌面端的本机服务
+#: （ts/packages/ui，站主 2026-10-22 定用 TS 写）要经 hub 派给执行器，PROTECTED_PATTERNS 优先于合同的 Scope，整个
+#: ts/ 都禁就派不出去。留在禁区里的：内核的包（config、hub 已有骨架，一并列入）；决定加载哪份代码、怎么装的工作区
+#: 文件（package.json、bun.lock、bunfig.toml、写装好戳记的 tools/，tsconfig.json 的 paths 也影响模块解析）；决定
+#: 门禁与变异检验跑什么的 vitest.config.ts 与 mutations/。新包的骨架（package.json、bun.lock 的登记）由规划端提交。
+KERNEL_TS_PROTECTED = (
+    "ts/package.json", "ts/bun.lock", "ts/bunfig.toml", "ts/tsconfig.json", "ts/vitest.config.ts", "ts/tools/**",
+    "ts/mutations/**", "ts/packages/base/**", "ts/packages/cli/**", "ts/packages/config/**",
+    "ts/packages/contracts/**", "ts/packages/dispatcher/**", "ts/packages/hub/**",
+)
 
 #: 选择文件（迁移计划第 5 节）：正在运行的本文件旁边那一份，与 --repo 指向哪个仓库无关；不随 kit 安装。
 KERNEL_IMPL_PATH = Path(__file__).resolve().parent / "kernel-impl.json"

@@ -540,11 +540,54 @@ def test_scripts_kernel_impl_is_always_protected():
 
 def test_ts_is_protected_only_in_the_kernel_repo_while_something_runs_on_ts(tmp_path):
     kernel = pd.KERNEL_TS_ROOT.parent
-    assert pd.kernel_protected_paths(kernel, READONLY_TS) == ["ts/**"]
+    assert pd.kernel_protected_paths(kernel, READONLY_TS) == list(pd.KERNEL_TS_PROTECTED)
     assert pd.kernel_protected_paths(kernel, ALL_PYTHON) == []  # 回退之后 TS 不在生产路径上
     assert pd.kernel_protected_paths(tmp_path, READONLY_TS) == []  # 目标仓库自己的 ts/ 不受影响
     if pd.IS_WINDOWS:
-        assert pd.kernel_protected_paths(Path(str(kernel).upper()), READONLY_TS) == ["ts/**"]
+        assert pd.kernel_protected_paths(Path(str(kernel).upper()), READONLY_TS) == list(pd.KERNEL_TS_PROTECTED)
+
+
+# 第 69 轮：内核的 TS 禁区从整个 ts/ 收窄到内核实际用到的部分，桌面端本机服务的新包能派给执行器
+KERNEL_TS_FILES = ("ts/package.json", "ts/bun.lock", "ts/bunfig.toml", "ts/tsconfig.json", "ts/vitest.config.ts",
+                   "ts/tools/stamp-install.mjs", "ts/mutations/readonly-c1.json", "ts/packages/base/src/secrets.ts",
+                   "ts/packages/cli/src/main.ts", "ts/packages/config/package.json",
+                   "ts/packages/contracts/test/harness.ts", "ts/packages/dispatcher/src/status.ts",
+                   "ts/packages/hub/package.json", "TS/Packages/Base/src/x.ts")
+OPEN_TS_FILES = ("ts/packages/ui/src/server.ts", "ts/packages/ui/test/server.test.ts", "ts/packages/uix/a.ts",
+                 "ts/README.md", "desktop/web/src/api.ts")
+
+
+def test_the_kernel_ts_protection_covers_the_kernel_and_leaves_new_packages_open():
+    protected = pd.compile_patterns(list(pd.PROTECTED_PATTERNS) + list(pd.KERNEL_TS_PROTECTED), ignore_case=True)
+    assert [path for path in KERNEL_TS_FILES if not pd.matches(protected, path)] == []
+    assert [path for path in OPEN_TS_FILES if pd.matches(protected, path)] == []
+    # 现有的内核包都在名单里：新加一个内核包而忘了列进来，这里就红
+    on_disk = sorted(d.name for d in (pd.KERNEL_TS_ROOT / "packages").iterdir() if (d / "package.json").is_file())
+    assert set(on_disk) - {"ui"} <= {p.split("/")[2] for p in pd.KERNEL_TS_PROTECTED if p.startswith("ts/packages/")}
+
+
+def contract_for(allowed):
+    import test_dispatch as td  # 合同的样板与 Markdown 生成在端到端测试里
+
+    data = td.contract("0" * 40, 1, scope={"allowed_modified_files": list(allowed), "allowed_new_files": [],
+                                            "allowed_deleted_files": [], "forbidden_paths": [],
+                                            "dependency_changes": "forbidden"})
+    return td.build_md(data), data
+
+
+def test_contracts_may_allow_new_ts_packages_but_not_kernel_ones():
+    extra = pd.kernel_protected_paths(pd.KERNEL_TS_ROOT.parent, READONLY_TS)
+    for allowed, ok in ((["ts/packages/ui/**"], True), (["ts/packages/ui/src/server.ts"], True),
+                        (["ts/packages/base/**"], False), (["ts/packages/dispatcher/src/status.ts"], False),
+                        (["ts/bun.lock"], False), (["ts/tsconfig.json"], False), (["ts/mutations/a.json"], False)):
+        md, data = contract_for(allowed)
+        _contract, errors, _warnings = pd.validate_contract(md, data, "normalize-query.v1", extra)
+        assert (not any("受保护路径" in e for e in errors)) is ok, (allowed, errors)
+        change = {"path": allowed[0].replace("**", "src/a.ts"), "status": "M", "old_mode": "100644",
+                  "new_mode": "100644"}
+        scope = pd.evaluate_scope([change], pd.normalize_contract(data), "0" * 40, "0" * 40, extra)
+        kinds = [v["kind"] for v in scope["violations"]]
+        assert ("protected_path" not in kinds) is ok, (allowed, scope["violations"])
 
 
 @pytest.mark.skipif(not pd.IS_WINDOWS, reason="8.3 短名与 junction 只在 Windows 上")

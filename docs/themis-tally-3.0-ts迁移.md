@@ -25,7 +25,7 @@
 - 迁移穿插在后续的切片和内核轮次里。
 - hub 照常交付，桌面端切片照常推进。
 
-**与 quizs 共用**：
+**与 quizs 共用**（站主 2026-10-22 决定 quizs 推迟到 TT 整体实现之后，下面为它预留的部分照迁移本身的需要排）：
 - TS 内核与自研的 quizs CLI 共用一个 TypeScript 工作区和几个基础包。quizs 也是 TS，将替代 pi 作为工人运行时。
 - 内核与 worker 之间的协议，以《设计文档_修订完整版.md》第 8 章和 quizs 设计文档为准。
 - 迁移过程中不另造一套与之冲突的接口：第 ⑤ 步照搬现行的“一封信一个回合、最后一条消息交 JSON 块”模型。第 8 章的 IPC 等 quizs 设计文档落地后，另开内核轮次做。
@@ -410,7 +410,8 @@ SQLite 的启动检查：
 - **自动换代**：内核文件指纹（`kit_hub.kernel_files`）管的是 hub 进程里加载的代码，换了就要在两步之间重启 hub。第 ② 步起把选择文件纳入；`ts/packages/*/src/**` 暂不纳入：TS 每条命令现起进程、现读源码，hub 进程从不加载它（2026-10-22 与 themistally-15 定）。第 ⑤ 步 hub 换成 TS 时，再按选择文件把那一套入口纳入。
 - **执行器的禁区**（第 ② 步切换起，与 themistally-15 定）：
   - `scripts/kernel-impl.json` 无条件进 `PROTECTED_PATTERNS`，与 `pi_dispatch.py` 同等对待。
-  - `ts/**` 有条件：被检查的仓库就是内核自己所在的仓库（真实路径比较，8.3 短名、junction、大小写都看穿），并且选择文件至少有一项是 `ts`。`PROTECTED_PATTERNS` 随 kit 装进目标仓库、外部布局也会指向别的仓库，目标项目自己的 `ts/` 不能受影响；回退到全 `python` 时 TS 不在生产路径上，限制随之解除。禁的是整个 `ts/`：`ts/package.json`、`bun.lock` 与装好戳记的 postinstall 脚本同样决定运行结果。
+  - 内核的 TS 部分有条件：被检查的仓库就是内核自己所在的仓库（真实路径比较，8.3 短名、junction、大小写都看穿），并且选择文件至少有一项是 `ts`。`PROTECTED_PATTERNS` 随 kit 装进目标仓库、外部布局也会指向别的仓库，目标项目自己的 `ts/` 不能受影响；回退到全 `python` 时 TS 不在生产路径上，限制随之解除。
+  - 禁的范围（`pi_dispatch.KERNEL_TS_PROTECTED`，第 69 轮从整个 `ts/` 收窄，与 themistally-15 定）：内核的包（`ts/packages/` 下的 base、cli、config、contracts、dispatcher、hub）；决定加载哪份代码、怎么装的工作区文件（`ts/package.json`、`bun.lock`、`bunfig.toml`、写装好戳记的 `ts/tools/`，`tsconfig.json` 的 paths 也影响模块解析）；决定门禁与变异检验跑什么的 `vitest.config.ts` 与 `ts/mutations/`。其余的包（桌面端本机服务的 `ts/packages/ui`）交给合同的 Scope 管：`PROTECTED_PATTERNS` 优先于 Scope，整个 `ts/` 都禁的话，这些包永远派不出去。新包的骨架（`package.json`、`bun.lock` 的工作区登记）由规划端先提交，执行器不碰锁文件。新加内核包要同时列进名单，有测试核对磁盘上的包都在名单里（`ui` 除外）。
   - 每个 attempt 冻结一次：prepare 时算出、记进 `meta.json` 的 `kernel_protected`，run 的执行说明与 collect 的范围门禁都用记下的那份。attempt 跑到一半时切换或回退，范围门禁照样与派遣时的合同对得上。
   - 不加进 `KIT_LOADED_FILES`，理由见上。
 
@@ -515,7 +516,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | 本机只有 Windows，POSIX 语义没有实机验证（`os.link` 的分支、`O_NOFOLLOW`、信号） | TS 版在 Linux/macOS 上的行为没有证据 | 契约测试本身跨平台；需要时在 WSL 或另一台机器上跑一遍再说“跨平台” |
-| 第 ② 步切换起执行器的禁区是整个 `ts/**`（themistally-15，2026-10-22） | 以后 quizs 的包（也在 `ts/packages/` 下）与它要补进 `@themis/base` 的子模块，执行器都碰不了 | 现在不做。quizs 开发或 TS 切片要派给执行器时，二选一：合同级的明确放行，或者把内核包与 quizs 包分开放、禁区只罩内核包 |
+| 第 ② 步切换起执行器的禁区是整个 `ts/**`（themistally-15，2026-10-22） | 以后 quizs 的包（也在 `ts/packages/` 下）与它要补进 `@themis/base` 的子模块，执行器都碰不了 | **已解决（第 69 轮）**：桌面端本机服务改用 TS（`ts/packages/ui`）要经 hub 派给执行器，禁区收窄到内核包与工作区文件（第 5 节）。quizs 的包以后照样交给合同的 Scope 管；它要补进 `@themis/base` 的子模块仍在禁区里，由规划端做 |
 | Python `json.dumps` 与 JS 的差别（第 1.4 节） | 摘要对不上，证据绑定与信件 sha256 失效 | `pyjson` 逐字节对照，专门的浮点、大整数、码点排序用例 |
 | 时间与编号的格式（`utc_now`、msg-id、turn id） | 两套实现写出的记录不能互认 | 第 ① 步之后补进 `base`，按契约对照 |
 | Bun 在 Windows 上的成熟度；`bun:ffi` 是实验性 | 第 ④ 步卡住 | 先做 ④a 的验证；Node 后备一直保留 |
@@ -523,7 +524,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 两套实现同时写一个信箱或证据目录 | 并发语义不一致会丢信或覆盖证据 | 发布、锁、账本都有混跑的并发用例（样板已有） |
 | Node 后备的原生操作（文件锁，以后还有 Job Object）仍要靠 Bun 跑辅助进程 | 没装 Bun 时 Node 后备拿不到文件锁 | 第 ⑥ 步之前，真正的退路是 Python 实现；第 ⑥ 步之后辅助进程是同一个单文件程序的 __native 子命令 |
 | 执行器在 TS 代码进入生产路径后改动它 | 绕过内核 | 第 5 节：第 ② 步起把 `ts/packages/**` 加进执行器禁区 |
-| quizs 的设计文档还没出 | 共用包的名字与协议边界可能要改 | 第 ⑤ 步之前不碰内核与 worker 的协议；包名改动只是重命名 |
+| quizs 的设计文档还没出 | 共用包的名字与协议边界可能要改 | 第 ⑤ 步之前不碰内核与 worker 的协议；包名改动只是重命名。站主 2026-10-22 决定 quizs 推迟到 TT 整体实现（TS 迁移做完）之后，为它预留的部分（`@themis/base` 的 jcs、sqlite、objects，第 8 章 worker 协议的内核轮次）照迁移本身的需要排 |
 | 只读命令遇到坏证据就打堆栈退出（现行 Python）：`status` 读到的 meta.json、run.json、checks.json 等不是对象（`.get` 抛 AttributeError），checks 的 results 不可迭代或项不是对象，verdicts 下有不是数字的 `*.json`（`int()` 抛 ValueError），run-started.json 的 started_at 是真值却不是字符串（TypeError），证据 JSON 嵌套太深（`read_json_or` 不接 RecursionError） | 退出码 1、堆栈进 stderr；TS 照样退出码 1，契约只比较退出码 | 以后开一轮改成干净的 ERROR 行，TS 跟着改（themistally-15，2026-10-22） |
 | `logs show` 的显式相对路径：Python 拿“当前目录拼出来、没解析过”的路径逐段对照“解析过的 runs 根” | 当前目录带 8.3 短名（例如 `ADMINI~1`）时，指向 runs 之内的相对路径也报“不在 runs 根之下”（第 ②a 步的契约实测） | TS 照样；要修另开一轮（两边一起改成先解析再比较） |
 | 路径语义的细差（TS 的 `pypath.ts`） | Windows 上 Python 3.12 的 normcase 用 LCMapStringEx 的不变区域小写，TS 用 toLowerCase；abspath 的 GetFullPathNameW 会去掉段尾的点与空格，`path.resolve` 不去 | 只在路径含特殊大小写字符、或段尾有点与空格时才可能不同；遇到再补 |

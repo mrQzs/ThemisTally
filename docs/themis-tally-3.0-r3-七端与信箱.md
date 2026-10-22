@@ -1398,6 +1398,16 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试与变异**：新增 1 条（前一份在跑时后一份排队、排队的不挂标记、落地锁只在挂标记时持有、跑完就轮到下一份）；`tests/test_kit_hub.py` 233 条全过。变异 3 个全部抓住（不排队、落地锁整段持有、排队之前就挂标记）。
 - **T014 的这次红**：是负载造成的超时，不是代码问题。同时跑的那一份站主提交之后回归在同一末端 bb2041e 上全过（18:35），之后 7ab37fa 上的那一份也全过（18:43，见 owner-sweep.json）。
 
+### 第 69 轮：内核的 TS 禁区收窄到内核包与工作区文件（2026-10-22，桌面端本机服务改用 TS）
+
+- **起因**：桌面端前端（T002–T014）做完，下一片是 D1 的后端，即本机服务。站主 2026-10-22 定它直接用 TS 写（`ts/packages/ui`），不写 Python 的 `kit_ui.py`。第 64 轮把整个 `ts/**` 列进内核禁区；`PROTECTED_PATTERNS` 优先于合同的 Scope（validate 把落在禁区里的 allowed 判错，范围门禁把改动判越界），ui 包就永远派不给执行器。这正是第 64 轮 themistally-15 记下的那条风险。
+- **改法**：`KERNEL_TS_PROTECTED` 改成内核实际用到的部分：`ts/packages/` 下的 base、cli、config、contracts、dispatcher、hub（config、hub 已有骨架，一并列入）；`ts/package.json`、`bun.lock`、`bunfig.toml`、`tsconfig.json`（paths 影响模块解析）、`ts/tools/`（写装好戳记）；`vitest.config.ts` 与 `ts/mutations/`（决定门禁与变异检验跑什么）。生效条件不变：内核自己的仓库，且选择文件有一项是 ts。新包的骨架由规划端先提交。
+- **测试与变异**：新增 2 条，`tests/test_kernel_impl.py` 72 条全过：
+  - 内核文件都在禁区、新包与仓库其余文件都不在；磁盘上的内核包都在名单里，新加内核包而忘了列进来就红；
+  - 合同成对校验：allowed 写 `ts/packages/ui/**` 时 validate 与范围门禁都通过，写 base、dispatcher、`bun.lock`、`tsconfig.json`、`ts/mutations/` 时两处都拒绝。
+  
+  变异 6 个全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
