@@ -1,7 +1,7 @@
 // 契约探针（TS 实现）：stdin 读一个 JSON 请求，stdout 写一个 JSON 结果，与 python_probe.py 收发同样的 JSON。
 // 同一份源码由 `node`（类型擦除）与 `bun` 各跑一遍。
 import { existsSync } from "node:fs";
-import { publishNew } from "../../base/src/publish.ts";
+import { publishNew } from "@themis/base/publish";
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];

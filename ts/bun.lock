@@ -15,6 +15,9 @@
     },
     "packages/contracts": {
       "name": "@themis/contracts",
+      "dependencies": {
+        "@themis/base": "workspace:*",
+      },
     },
   },
   "packages": {

@@ -1,8 +1,15 @@
 # Themis Tally 3.0：实现语言迁移到 TypeScript 的计划
 
-- **状态**：草案 v1，待站主审阅。审阅通过之前，只做了第 0 步（本计划、工作区骨架、`publish_new` 样板），没有任何生产路径用到 TS 代码。
+- **状态**：v1.1。
+  - v1 于 2026-10-22 带条件通过。站主委托 themistally-15 会话答复，第 0 步的提交 266cd33 照常合入。
+  - v1.1 补进了通过时附的条件：第 2.1、2.2、2.4、3.2、4、5、8.2、8.5 节，以及第 1.4 节的 pyjson。
 - **决定来源**：站主 2026-10-22 的指示“TT 技术栈迁移：在实现中逐步转到 Claude Code 的技术栈”。
-- **进度**：记在第 11 节，每完成一步向站主汇报。
+- **进度**：记在第 11 节，每完成一步汇报。
+- **问题与答复**：计划、quizs 接口、待决项都直接发给 themistally-15 会话，由它答复。AGENTS.md 规定只能由站主本人定的事，由它转给站主：
+  - 换模型或思考级别；
+  - 改 `dispatch.config`；
+  - 要花钱的派遣；
+  - 推送或 PR。
 
 ---
 
@@ -63,7 +70,7 @@
 |---|---|---|
 | hub 的角色说明 | `scripts/hub/worker.md`、`coordinator.md` | 原样沿用 |
 | JEV 题库 | `scripts/hub/questions/` | 原样沿用 |
-| 入口脚本 | `scripts/dispatch-pi.sh` | 保留为稳定入口，按第 5 节的选择文件转给选定的实现。AGENTS.md 与技能写的 `bash scripts/dispatch-pi.sh <子命令>` 因此不用改 |
+| 入口脚本 | `scripts/dispatch-pi.sh` | 保留为稳定入口：它只是 exec `python scripts/pi_dispatch.py`，选哪一套由 `pi_dispatch.py` 的 main 读选择文件决定（第 5 节）。AGENTS.md 与技能写的命令在第 ⑥ 步之前都不用改 |
 | 技能 | `.agents/skills/` | 技能文本写的命令不变；第 ⑥ 步撤 Python 时再统一核对 |
 
 ### 1.3 离线 v2 参考实现
@@ -98,7 +105,21 @@
 - **默认分隔符与缩进**：Python 默认 `", "` 与 `": "`；`indent` 模式下的逗号与换行规则也要照抄。
 - **转义**：`ensure_ascii=False` 时，控制字符与孤立代理项的转义方式。
 
-所以第 ① 步的这一项改名为“**Python 兼容的规范化 JSON**”（`@themis/base/pyjson`）：逐个写法建契约，按字节对照。真正的 JCS 等协议需要时（第 8 章的 v2 摘要）另开内核轮次，不混进迁移。
+所以第 ① 步的这一项改名为“**Python 兼容的规范化 JSON**”（`@themis/base/pyjson`）：逐个写法建契约，按字节对照。
+
+**“读进来、改完、写回”也要逐字节复刻**：
+- 只管序列化不够：`JSON.parse` 会把 `1.0` 读成 `1`，把超过 2^53 的整数读丢精度，之后怎么序列化都还原不了 Python 的字节。
+- 所以 TS 侧凡是读旧文件、改完写回的地方（`state.json` 的三方合并、配置文件），都用 `pyjson` 自己的解析：保留整数与浮点的区别，大整数用 BigInt。
+- 除了上面那几处差别，每种写法再各补一条用例：
+  - `-0.0`；
+  - `indent` 模式下的空容器 `{}` 与 `[]`；
+  - `indent` 模式下项分隔符变成 `","`（行尾不带空格）；
+  - 非字符串键（`{1: …}` 写成 `"1"`）；
+  - 孤立代理项（Python 到 `encode` 时才报错）。
+
+**真正的 JCS（RFC 8785）**：
+- quizs 给新请求的字节做规范化时要用。它是新代码，放在 `@themis/base/jcs`，与 `pyjson` 并列，由 quizs 的 Q0 阶段做，不进迁移的第 ① 步。
+- v2 摘要等其他协议需要时，另开内核轮次。
 
 ---
 
@@ -124,16 +145,16 @@ ts/
     cli/              # 单一入口 themis：各步移植完的子命令挂在这里，最后打成单文件程序
 ```
 
-- **包名**：`@themis/*`，`private`，不发布。
-- **与 quizs 共用的基础包**：quizs 设计文档落地后，再定是不是挪到中性的名字下（例如 `@tt/base`）。这一步只是改目录名和 import，不影响行为。
-- **quizs 的包**：放进同一个 `ts/packages/`，共用 `bun.lock` 与 tsconfig。
+- **包名**：`@themis/*`，`private`，不发布。包名不改：quizs 设计文档直接用 `@themis/base`（pyjson、secrets、locks、publish、jsonl，以后的 sqlite）和 `@themis/contracts`。
+- **quizs 的包**：`@quizs/*`，也放进 `ts/packages/`，共用 `bun.lock` 与 tsconfig。
+- **包之间按包名 import**（例如 `@themis/base/publish`），在各包的 `package.json` 里写 `"@themis/base": "workspace:*"`。`contracts/test/workspace.test.ts` 实测 Node 与 Bun 都把它解析到 `ts/packages/` 下的真实源文件、不经 node_modules（第 2.2 节）。
 
 ### 2.2 运行时与打包
 
 | 项 | 选择 | 理由与核实 |
 |---|---|---|
 | 主运行时 | Bun 1.4.2（固定） | 1.4.3 发布不到两周，取 1.4.2。内置 SQLite 3.53.2（实测），满足 3.51.3 及以上 |
-| 后备运行时 | Node 24.19.0 | 源码只用可擦除的类型语法（`erasableSyntaxOnly`），import 写 `.ts` 扩展名；Node 24 不经构建直接跑同一份 `.ts`（样板实测通过） |
+| 后备运行时 | Node 24.19.0 | 源码只用可擦除的类型语法（`erasableSyntaxOnly`），包内 import 写 `.ts` 扩展名；Node 24 不经构建直接跑同一份 `.ts`（样板实测通过）。Node 不剥离 node_modules 里 `.ts` 的类型，所以包名必须解析到 `ts/packages/` 下的真实路径，由 `workspace.test.ts` 守住 |
 | 单文件程序 | `bun build --compile` | 本机实测能打出单文件 exe，样板的探针打成 86 MB 的 exe，行为与源码一致 |
 | Node 后备的分发 | `bun build --target=node` 打成单个 `.mjs` | 第 ⑥ 步定 |
 | 类型检查 | TypeScript 6.0.3（`tsc -p ts/tsconfig.json`，`noEmit`） | 7.0 是 Go 重写的新编译器，发布才三个月，先不用 |
@@ -160,7 +181,7 @@ SQLite 的启动检查：
 - Bun 专有的 API（`bun:sqlite`、`bun:ffi`）只放在 `base` 的适配层里，各用一个 Node 的对应实现兜底。
 
 预计会加的依赖：
-- **JSON Schema 校验器**：Ajv 8。第一份 Schema 落地时再引入，届时写明理由。
+- **JSON Schema 校验器**：Ajv 8，第一份 Schema 落地时引入，条件见第 3.2 节。
 - **其余**：暂无。
 
 ### 2.4 测试
@@ -171,6 +192,10 @@ SQLite 的启动检查：
 - **运行方式**：
   - 在 `ts/` 下运行 `node node_modules/vitest/vitest.mjs run`；
   - 契约测试同时要用到 `python`、`node` 与 `bun`（`bun.exe` 要在 PATH 上）。
+- **依赖各装各的**：
+  - 每个 worktree（kdev、门禁、主工作区）各自运行 `bun install --frozen-lockfile`。
+  - 绝不把 `ts/node_modules` 用 junction 或链接共享。T012 吃过亏：主工作区的 `desktop/web/node_modules` 被门禁的 `npm ci` 经链接清空。
+  - TS 进生产路径之前，主工作区不用装。
 
 ---
 
@@ -195,6 +220,16 @@ SQLite 的启动检查：
   - Python 与 TS 的输出都经同一份 Schema 校验。
   - 比 Zod 好的地方：Schema 与语言无关，quizs 也能直接用；仓库已有 54 份同类文件。
 - **行为**：写成用例（输入、初始磁盘状态、期望的返回与磁盘结果），放在 `contracts/test/`。
+- **Schema 校验器用 Ajv 8**，条件：
+  - 精确版本，发布满两周；
+  - 先作开发依赖，只给契约测试校验两边的输出用；
+  - 以后要进生产路径（例如 TS 版 `validate` 运行时用它），另说理由：`validate` 的报错文字是契约的一部分，不能变成 Ajv 的报错；
+  - 用 `ajv/dist/2020` 的 `Ajv2020`，开 `strict: true`。默认导出是 draft-07，认不了 2020-12 的 `$schema`。
+- **`format`**：
+  - `schemas/` 的 54 份里只有一处 `"format": "date-time"`。要引用它，就加精确版本的 `ajv-formats`，否则 strict 模式编译时报 unknown format。
+  - 新写的契约 Schema 尽量用 `pattern`，不用 `format`。
+  - 第一次引入 Ajv 时，加一条“`plugin-lock-v1`、`plugin-manifest-v1` 在 strict 下能编译”的测试。
+  - 不为迁就 Ajv 去改 `schemas/`：离线 v2 的 Python 测试还在用。
 
 ### 3.3 探针
 
@@ -231,8 +266,9 @@ SQLite 的启动检查：
 | `secrets`：疑似凭据检测与脱敏 | `codekit/secrets.looks_like_secret`、`pi_dispatch.redact_secrets/redact_json/redact_obj/redact_tokens`、`codekit/decisions.redact` | 正则逐条对照；用公开的样本串，不用真凭据 |
 | `locks`：目录锁与文件锁 | `kit_hub.DirLock`（mkdir 加 `owner.json`，进程不在就接管）、`kit_hub.file_lock`、`kit_config.ConfigLock`、`pi_dispatch.TaskLock` | 两套实现混用同一把锁的并发用例；pid 存活判断 |
 | `jsonl`：账本读写 | `kit_hub.Hub.append_event`（文件锁、追加、fsync）、`kit_logs` 的读取 | 两套实现交替追加同一份账本；大文件只读末尾 |
+| `clock`：时间与编号的格式 | `kit_hub.utc_now`、`utc_compact`、`new_msg_id`（信件编号）、回合编号，`pi_dispatch` 的时间戳与 attempt 编号 | 第 ③ 步起要写带时间戳的历史与审计，所以挪进这一步；按契约比较格式（正则与解析回读），不比较取值 |
 
-- **出口条件**：五项都通过契约测试（Python 先过）、对照测试、变异检验，`tsc` strict 无错。
+- **出口条件**：六项都通过契约测试（Python 先过）、对照测试、变异检验，`tsc` strict 无错。
 - **回退**：这一步的 TS 代码不在生产路径上，无需回退。
 
 ### ② 只读命令
@@ -240,7 +276,8 @@ SQLite 的启动检查：
 - **内容**：`status --json`、`logs`（list、show、search、usage）、`metrics --json`，挂在 `themis` 入口下。
 - **出口条件**：
   - 输出的 Schema 写好；
-  - 用真实的 `.agent/runs/` 与信箱快照做对照，在 `ts/` 的夹具里存一份只读副本，凭据与路径先脱敏；
+  - 提交进 `ts/` 的夹具只用合成数据：用 Python 实现在临时仓库里现跑生成，不复制任何真实的证据或信箱（AGENTS.md：证据只读、不提交）；
+  - 真实数据的对照：测试时两套实现原地只读同一份 `.agent/runs/` 与信箱，比较输出。这类测试手动开启、不进门禁，什么也不复制；
   - 桌面端的本机 UI 服务能改调 TS 版。
 - **切换**：选择文件（第 5 节）的 `readonly` 改成 `ts`。
 - **回退**：改回 `python`，一次提交。
@@ -261,10 +298,28 @@ SQLite 的启动检查：
 - **内容**：prepare、run、check、mutate、verdict、integrate，加上合同校验、范围门禁、脱敏与证据目录的写法。
 - **出口条件**：
   - `test_dispatch.py` 等现有用例的场景全部有 TS 对应用例；
-  - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict` 与 `mutate --check-anchors` 在同一份证据上的输出，与 Python 版按契约一致；
+  - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict` 与 `mutate --check-anchors` 的输出与 Python 版按契约一致。`check`、`verdict` 会写 attempt 目录（`checks/NN`、`verdicts/`）和 Git 对象，所以 TS 版的写命令只在复制到临时目录的副本上跑，绝不碰真实的 `.agent/runs/`；
   - 至少一片真实切片在 `dispatcher` 选 `ts`、hub 仍是 Python 的组合下完整走完并落地。
-- **切换**：`dispatcher` 改成 `ts`，`kit_hub.run_pd` 与 `dispatch-pi.sh` 照选择文件调用。
+- **切换**：`dispatcher` 改成 `ts`，由 `pi_dispatch.py` 的入口按选择文件转交（第 5 节）。
 - **回退**：改回 `python`。证据目录格式由契约保证一致，已经开跑的 attempt 用 Python 的 `collect --recover`、`check` 接着处理。
+- **混合期**：dispatcher 切到 `ts` 之后，hub 仍是 Python，`kit_hub.py` 在进程内直接调用的 `pi_dispatch` 名字仍是 Python 版。这些名字到第 ⑤ 步之后才能删，期间要由契约保证它们读得懂 TS 版写的东西：
+
+  | 名字（`kit_hub.py` 里的次数） | 用途 | 由哪份契约覆盖 |
+  |---|---|---|
+  | `pd.get_state`（10） | 读 attempt 的 `state.json` | 第 ④ 步证据目录契约：Python 的 `get_state` 读 TS 版写的 `state.json` 要得到同样的状态 |
+  | `pd.pid_alive`（6） | 锁的持有进程还在不在 | 第 ① 步 `locks` |
+  | `pd.Repo`（5） | 找仓库、读配置 | 第 ③ 步配置契约 |
+  | `pd.run_supervised`（3） | 回合与门禁命令的进程监督 | 第 ④a 步的验证用例 |
+  | `pd.DispatchError`（3） | 异常类型 | 不跨语言，留在 Python |
+  | `pd._md_section`（2）、`pd._md_scope_lists`（1）、`pd._CHECK_LINE_RE`（1） | 解析合同 Markdown | 第 ④ 步合同契约（`derive-json` 的输入输出） |
+  | `pd.write_json`（1） | 写证据 JSON（`indent=2`，不排序） | 第 ① 步 `pyjson` |
+  | `pd.publish_new`（1） | 发布信件 | 第 ① 步 `publish`（已完成） |
+  | `pd.compile_patterns`（1）、`pd.matches`（1） | Scope 的路径通配 | 第 ④ 步范围门禁契约 |
+  | `pd.child_env`（1） | 子进程环境变量的过滤 | 第 ④ 步 |
+  | `pd.budget_usage`（1） | 各合同版本累计的 attempt 与墙钟 | 第 ④ 步证据目录契约（读 TS 版写的 claim 与 run 记录） |
+  | `pd._running_attempts`（1） | 正在跑的 attempt | 同上 |
+  | `pd.resolve_pi_command`（1） | 解析 pi 的命令 | 第 ③ 步角色绑定契约 |
+  | `pd.RESOURCE_FLAGS`、`pd.MUTATION_DEFAULT_TIMEOUT`（各 1） | 常量 | 第 ④ 步：两套实现的常量表逐项对照 |
 
 ### ⑤ 七端 hub 内核
 
@@ -296,12 +351,18 @@ SQLite 的启动检查：
 {"schema_version": 1, "readonly": "python", "config": "python", "dispatcher": "python", "hub": "python"}
 ```
 
-- **谁读**：
-  - `scripts/dispatch-pi.sh`（命令行入口）；
-  - `kit_hub.run_pd`（hub 调调度器）；
-  - supervisor 的启动入口（起哪一套 hub）；
-  - 本机 UI 服务（只读命令）。
+- **谁读：只有两个 Python 入口的 main 开头**：
+  - `pi_dispatch.py` 的 main 管 `readonly`、`config`、`dispatcher`。AGENTS.md 写明 `python scripts/pi_dispatch.py <子命令>` 与 `bash scripts/dispatch-pi.sh` 等价：`dispatch-pi.sh` 只是 exec 它，`kit_hub.run_pd` 也是起它的子进程，`status`、`metrics`、`logs`、`config`、`plugins` 都是它的子命令。所以只在这一处读、转交给 TS，所有入口就都认了。
+  - `kit_hub.py` 的 supervisor 入口管 `hub`。
+  - 不在 `dispatch-pi.sh`、`run_pd`、本机 UI 服务里各读一遍。第 ⑥ 步撤 Python 时，再让 `dispatch-pi.sh` 直接调程序，同时改 AGENTS.md 那句。
+- **严格解析**：
+  - 文件不存在，等于全部 `python`。
+  - 存在但读不了、多键或少键、值不是 `python`/`ts`、`schema_version` 不是 1，都报错、拒绝运行，不悄悄退回 `python`。否则“运行中的内核”与提交的选择对不上。
+- **记下是哪一套产生的**：从第 ② 步起，证据和账本都记实现与版本，复审时才分得清。
+  - attempt 的 `meta.json` 加 `impl` 与版本；
+  - hub 的 `dispatcher.called` 事件与回合事件也加。
 - **何时加**：第 ② 步第一次需要切换时才加。在那之前，这个文件不存在，也不读，等于全部是 `python`。
+- **随 kit 安装**：跟内核代码一起提交，算进指纹。
 - **怎么改**：每次切换都是一次提交，在 kdev 里改、测试、照第 9 节的流程合入，不在主工作区直接改。提交说明写明切了哪个组件、出口条件的证据。
 - **回退**：把对应的值改回 `python`，再提交一次。
 - **自动换代**：内核文件指纹（`kit_hub.py:161-201`）把选择文件、两套入口（`kit_hub.py`、`pi_dispatch.py`、`ts/packages/*/src/**`）都纳入。哪一个变了，runner 都在两步之间按选择文件重新起。指纹只认选择文件指定的那一套入口作为“运行中的内核”。
@@ -350,10 +411,14 @@ SQLite 的启动检查：
 2. 加入 Job Object；
 3. 超时结束整棵进程树。
 
-Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。按顺序验证：
+Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。候选按这个顺序验证：
 
-1. **Bun FFI**（`bun:ffi` 调 `kernel32`：`CreateProcessW` 带 `CREATE_SUSPENDED`、`CreateJobObjectW`、`AssignProcessToJobObject`、`ResumeThread`、`TerminateJobObject`）。`bun:ffi` 官方还标着实验性，Node 后备用不了。
-2. **一个很小的辅助程序**：只负责挂起创建、加入 Job、放行、超时结束整棵树，用 stdin/stdout 的 JSON 跟内核通信。Bun 与 Node 都能用。
+1. **继承父进程所在的 Job**：
+   - 一个很小的辅助程序先把自己放进带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job，再普通地 spawn 子进程。子进程从创建起就在 Job 里，用不着挂起创建。
+   - 辅助程序退出或被结束，Job 关闭，整棵树一起结束。
+   - 辅助程序用 stdin/stdout 的 JSON 跟内核通信，Bun 与 Node 都能用。
+2. **`PROC_THREAD_ATTRIBUTE_JOB_LIST`**：`CreateProcessW` 的扩展属性在创建时直接指定 Job，同样不用挂起。
+3. **Bun FFI**：`bun:ffi` 调 `kernel32`（`CreateProcessW` 带 `CREATE_SUSPENDED`、`CreateJobObjectW`、`AssignProcessToJobObject`、`ResumeThread`、`TerminateJobObject`），照搬现行做法。`bun:ffi` 官方还标着实验性，Node 后备用不了。
 
 验证用例：
 - 子进程在放行之前一条指令也不执行，用一个一启动就写文件的程序检验；
@@ -373,7 +438,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 
 ### 8.5 设计文档
 
-本计划定下之后，同步更新《设计文档_修订完整版.md》第 3.3 节“项目现行内核是 Python 标准库程序”的表述：改成“现行内核是 Python 标准库程序，按《themis-tally-3.0-ts迁移.md》逐步迁到 TypeScript（Bun 主运行时、Node 24 后备）”，并在第 3.4 节记下迁移进度的位置。
+《设计文档_修订完整版.md》第 3.3 节“项目现行内核是 Python 标准库程序”的表述与第 3.4 节，由 themistally-15 会话改：这份文档在主工作区是未入库文件（v2.1），不经 kdev 合入。本计划这边不动它。
 
 ---
 
@@ -409,10 +474,11 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 执行器在 TS 代码进入生产路径后改动它 | 绕过内核 | 第 5 节：第 ② 步起把 `ts/packages/**` 加进执行器禁区 |
 | quizs 的设计文档还没出 | 共用包的名字与协议边界可能要改 | 第 ⑤ 步之前不碰内核与 worker 的协议；包名改动只是重命名 |
 
-**待站主决定**：
-1. 选择文件的名字与位置（`scripts/kernel-impl.json`）。
-2. 契约的 Schema 校验器用 Ajv 8，第一份 Schema 落地时引入。
-3. 第 ⑥ 步对离线 v2 参考实现的处置：移目录，还是只留标签。届时再问。
+**已定**（2026-10-22，themistally-15 代站主答复）：
+1. 选择文件就是 `scripts/kernel-impl.json`，规矩见第 5 节。
+2. Schema 校验器用 Ajv 8，第一份 Schema 落地时引入，条件见第 3.2 节。
+
+**待定**：第 ⑥ 步对离线 v2 参考实现的处置（移目录，还是只留标签），届时再问。
 
 ---
 
@@ -420,8 +486,9 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 
 | 步 | 内容 | 状态 | 提交 |
 |---|---|---|---|
-| 0 | 本计划；`ts/` 工作区骨架；样板 `publish_new` | 待站主审阅（kdev 里已提交，还没合入主工作区） | 见提交说明 |
-| ① | 共享基础库：publish（已完成）、pyjson、secrets、locks、jsonl | 待开工 | |
+| 0 | 本计划；`ts/` 工作区骨架；样板 `publish_new` | 带条件通过，合入 | 266cd33 |
+| 0.1 | 计划 v1.1（补进通过时附的条件）；包之间改按包名 import，并实测 Node 与 Bun 的解析 | 完成 | 见提交说明 |
+| ① | 共享基础库：publish（已完成）、pyjson、secrets、locks、jsonl、clock | 进行中 | |
 | ② | 只读命令 | | |
 | ③ | 配置中心 | | |
 | ④a | Windows 进程监督的验证 | | |

@@ -1,5 +1,8 @@
 {
   "name": "@themis/contracts",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@themis/base": "workspace:*"
+  }
 }
