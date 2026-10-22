@@ -41,6 +41,15 @@ if str(HERE) not in sys.path:
 
 import pi_dispatch as pd  # noqa: E402
 
+# 正则的语法分析是私有模块（logs search 用，第 58 轮）：环境里的 Python 固定为 3.12.10（.agent/environment.md），
+# 升级时核对；3.10 叫 sre_parse、sre_constants（本文件头写明 3.10 可运行）。
+try:
+    import re._constants as _re_constants  # noqa: E402
+    import re._parser as _re_parser  # noqa: E402
+except ImportError:  # pragma: no cover - Python 3.10
+    import sre_constants as _re_constants  # type: ignore[no-redef]  # noqa: E402
+    import sre_parse as _re_parser  # type: ignore[no-redef]  # noqa: E402
+
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
 MAX_SUMMARY_BYTES = 65536
 MAX_LINE_CHARS = 200
@@ -872,9 +881,60 @@ def _iter_lines(path: Path):
         return
 
 
+#: logs search 的 PATTERN（第 58 轮）：只做逐行匹配，反向引用与条件分组拒绝；括号嵌套设上限。
+#: 迁移到 TS 时，“这一行有没有匹配”要与 Python 逐字一致：反向引用（组没参与匹配时 Python 判失败、JS 当空串；
+#: 迭代之间捕获的重置也不同）与条件分组 JS 复现不了；嵌套太深时 Python 的 RecursionError 取决于当时的栈深。
+SEARCH_MAX_NESTING = 100
+SEARCH_NO_REFS = "PATTERN 不支持反向引用与条件分组（logs search 只做逐行匹配）"
+SEARCH_TOO_DEEP = "PATTERN 的括号嵌套超过 %d 层" % SEARCH_MAX_NESTING
+
+
+def _paren_depth(pattern: str) -> int:
+    """PATTERN 里括号的最大嵌套层数，按字面计：反斜杠转义的下一个字符不算，字符类 [...] 里的不算（类开头的 ^ 之后
+    紧跟的 ] 是字面量）。只计数，不判断正则合不合法；(?x) 注释里的括号也算。"""
+    depth = deepest = index = 0
+    in_class = False
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+            index += 1
+            if index < len(pattern) and pattern[index] == "^":
+                index += 1
+            if index < len(pattern) and pattern[index] == "]":
+                index += 1
+            continue
+        elif char == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif char == ")":
+            depth = max(0, depth - 1)
+        index += 1
+    return deepest
+
+
+def _uses_refs(node: Any) -> bool:
+    """语法树里有没有 GROUPREF（\\1、(?P=name)）或 GROUPREF_EXISTS（(?(id)yes|no)）。"""
+    if isinstance(node, _re_parser.SubPattern):
+        return any(op in (_re_constants.GROUPREF, _re_constants.GROUPREF_EXISTS) or _uses_refs(av)
+                   for op, av in node.data)
+    if isinstance(node, (list, tuple)):
+        return any(_uses_refs(item) for item in node)
+    return False
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     repo = _repo(args.repo)
     try:
+        if _paren_depth(args.pattern) > SEARCH_MAX_NESTING:
+            raise LogsError(SEARCH_TOO_DEEP, EXIT_USAGE)
+        if _uses_refs(_re_parser.parse(args.pattern)):
+            raise LogsError(SEARCH_NO_REFS, EXIT_USAGE)
         pattern = re.compile(args.pattern)
     except (re.error, OverflowError, RecursionError) as exc:
         # 溢出与深嵌套的正则同样是编译失败（B11(c)）：用法错误，退出码 2。

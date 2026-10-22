@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import pi_dispatch as pd  # noqa: E402
+import kit_logs  # noqa: E402
 
 IN_WINDOW = "2026-10-17T10:15:00Z"
 SINCE = "2026-10-17T10:00:00Z"
@@ -290,3 +291,46 @@ def test_transcript_given_twice_counts_the_records_twice(tmp_path):
     # 同一个 id 的两条最终记录计数相同：不算冲突，只算一条消息加一条重复记录
     planner = obj["planner"]
     assert (planner["included_messages"], planner["duplicate_records"], planner["conflict_ids"]) == (1, 1, 0)
+
+
+# ---------------------------------------------------------------------------
+# 第 58 轮：logs search 拒绝反向引用与条件分组；括号嵌套设上限
+# ---------------------------------------------------------------------------
+
+def _search_repo(tmp_path):
+    repo = make_repo(tmp_path)
+    path = repo / ".agent" / "runs" / "task-a" / "attempt-001" / "summary.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("aa\nab\n((x))\n", encoding="utf-8")
+    return repo
+
+
+def test_search_refuses_backrefs_and_conditionals(tmp_path):
+    repo = _search_repo(tmp_path)
+    for pattern in (r"(a)\1", r"(?P<x>a)(?P=x)", r"(a)?(?(1)b|c)", r"(?:(a)|b)\1", r"((a)(?:x|\2))", r"(?i)(a)\1"):
+        code, out, err = run_logs(["search", pattern], repo)
+        assert (code, out) == (2, ""), (pattern, out, err)
+        assert err.strip() == "ERROR: " + kit_logs.SEARCH_NO_REFS, (pattern, err)
+    # 字符类里的 \1 是八进制、转义的反斜杠加 1 是字面：都不是反向引用
+    for pattern in (r"[\1]", r"\\1", r"(a)(b)"):
+        code, out, err = run_logs(["search", pattern], repo)
+        assert code == 0, (pattern, err)
+
+
+def test_search_nesting_limit_is_explicit(tmp_path):
+    repo = _search_repo(tmp_path)
+    ok = "(" * 100 + "a" + ")" * 100
+    code, out, err = run_logs(["search", ok], repo)
+    assert code == 0 and "task-a/attempt-001/summary.md:1: aa" in out, err
+    for deep in ("(" * 101 + "a" + ")" * 101, "(" * 5000 + ")" * 5000, "(?:" * 101 + "a" + ")" * 101):
+        code, out, err = run_logs(["search", deep], repo)
+        assert (code, err.strip()) == (2, "ERROR: " + kit_logs.SEARCH_TOO_DEEP), err[:200]
+    # 转义的括号与字符类里的括号不算层数
+    for pattern in (r"\(" * 150, "[(]" * 150, "[^](]" * 150, "[]((((]" + "x"):
+        code, out, err = run_logs(["search", pattern], repo)
+        assert code in (0,), (pattern[:20], err)
+    assert kit_logs._paren_depth(r"(a(b)\)[(]c)") == 2
+    assert kit_logs._paren_depth("[^](]((") == 2
+    # 不合法的正则照旧报 re.error 的原文（嵌套没超限时）
+    code, out, err = run_logs(["search", "("], repo)
+    assert err.strip() == "ERROR: PATTERN 不是合法的正则表达式：missing ), unterminated subpattern at position 0", err
