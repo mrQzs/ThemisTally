@@ -7,7 +7,7 @@ import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themi
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
-import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads } from "@themis/base/pyjson";
+import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
@@ -50,6 +50,11 @@ const OPS: Record<string, (request: Request) => Result> = {
   "pyjson.dumps": (request) =>
     textResult(dumps(fromTagged(request["value"] as Tagged), dumpsOptions(request["options"])), request["encode"]),
   "pyjson.loads": (request) => ({ ok: true, value: toTagged(loads(String(request["text"]))) }),
+  "pyjson.raw_decode": (request) => {
+    const text = String(request["text"]);
+    const decoded = rawDecode(text, unitIndex(text, Number(request["index"] ?? 0)));
+    return { ok: true, value: toTagged(decoded.value), end: decoded.end };
+  },
   "fs.read_text": (request) => ({ ok: true, text: readText(String(request["path"])) }),
   "fs.write_text_atomic": (request) => {
     writeTextAtomic(String(request["path"]), String(request["text"]));
@@ -108,7 +113,10 @@ function runOne(request: Request): Result {
   try {
     return handler(request);
   } catch (error) {
-    if (error instanceof PyJsonError) return { ok: false, error: error.kind };
+    if (error instanceof PyJsonError) {
+      // pyjson 的报错文字是契约的一部分（Python 会经 str(exc) 写进输出）
+      return request.op.startsWith("pyjson.") ? { ok: false, error: error.kind, message: error.message } : { ok: false, error: error.kind };
+    }
     if (error instanceof UnicodeDecodeError) return { ok: false, error: "UnicodeDecodeError" };
     return { ok: false, error: (error as NodeJS.ErrnoException).code ?? "EUNKNOWN" };
   }

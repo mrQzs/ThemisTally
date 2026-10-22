@@ -121,6 +121,8 @@ const DUMPS: readonly Case[] = [
   dumpsFails("J18 孤立代理项：encode(\"utf-8\") 时报 UnicodeEncodeError", S("a\ud800b"), BYTES, "UnicodeEncodeError", true),
   dumps("J19 紧凑分隔符", D(["b", L(I(1), F(2.5))], ["a", S("中")]), BYTES, '{"a":"中","b":[1,2.5]}'),
   dumps("J20 true、false、null", L(B(true), B(false), N), DEFAULT, "[true, false, null]"),
+  dumpsFails("J21 编码报错的位置按码点数（前面的补充平面字符算一个）", S("😀" + String.fromCharCode(0xd800)), BYTES, "UnicodeEncodeError", true),
+  dumpsFails("J22 连着几个孤立代理项报一个范围", S("a" + String.fromCharCode(0xd800, 0xd800)), BYTES, "UnicodeEncodeError", true),
 ];
 
 const LOADS: readonly Case[] = [
@@ -167,18 +169,78 @@ const ROUNDTRIP: readonly Case[] = [
   },
 ];
 
+// 报错文字也是契约：Python 会经 str(exc) 把它写进报错、证据与信件（themistally-15 审阅时数出 9 处）。
+// JSONDecodeError 的格式是 "<msg>: line <行> column <列> (char <位置>)"，位置按码点数。
+// 按用例编号查；没列的报错（只有 TypeError）只比较异常类型。
+const MESSAGES: Record<string, string> = {
+  J03: "Out of range float values are not JSON compliant: nan",
+  J05: "Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit",
+  J18: "'utf-8' codec can't encode character '\\ud800' in position 2: surrogates not allowed",
+  J21: "'utf-8' codec can't encode character '\\ud800' in position 2: surrogates not allowed",
+  J22: "'utf-8' codec can't encode characters in position 2-3: surrogates not allowed",
+  K09: "Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
+  K10: "Extra data: line 1 column 2 (char 1)",
+  K11: "Extra data: line 1 column 2 (char 1)",
+  K12: "Expecting value: line 1 column 1 (char 0)",
+  K13: "Expecting value: line 1 column 1 (char 0)",
+  K14: "Invalid control character at: line 1 column 3 (char 2)",
+  K15: "Invalid \\escape: line 1 column 2 (char 1)",
+  K16: "Invalid \\uXXXX escape: line 1 column 3 (char 2)",
+  K17: "Expecting value: line 1 column 1 (char 0)",
+  K18: "Expecting value: line 1 column 4 (char 3)",
+  K19: "Expecting property name enclosed in double quotes: line 1 column 9 (char 8)",
+  K20: "Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit",
+  K21: "Expecting value: line 1 column 1 (char 0)",
+  K22: "Extra data: line 1 column 5 (char 4)",
+  K23: "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+  K24: "Invalid \\uXXXX escape: line 1 column 3 (char 2)",
+  K25: "Invalid \\uXXXX escape: line 1 column 9 (char 8)",
+  K26: "Extra data: line 1 column 5 (char 4)",
+  K27: "Expecting ':' delimiter: line 3 column 7 (char 18)",
+  K28: "Extra data: line 2 column 2 (char 5)",
+  K29: "Unterminated string starting at: line 1 column 2 (char 1)",
+  K30: "Invalid \\uXXXX escape: line 1 column 9 (char 8)",
+  P01: "Expecting value: line 1 column 1 (char 0)",
+};
+
+const POSITIONS: readonly Case[] = [
+  loadsFails("K24 \\u 后四位正好到结尾：Python 要求后面还有字符", '"\\u0041', "JSONDecodeError"),
+  loadsFails("K25 代理对的第二个转义不是十六进制：指向第二个 u", '"\\ud800\\uZZZZ"', "JSONDecodeError"),
+  loadsFails("K26 位置按码点数：补充平面字符算一个", '"😀" x', "JSONDecodeError"),
+  loadsFails("K27 行号与列号", '{\n  "a": 1,\n  "b" 2\n}', "JSONDecodeError"),
+  loadsFails("K28 换行之后的列号也按码点数", '"😀"\n x', "JSONDecodeError"),
+  loadsFails("K29 反斜杠是最后一个字符", '["\\', "JSONDecodeError"),
+  loadsFails("K30 高代理项后面剩下的不够一个转义：不配对，第二个转义自己报错", '"\\ud800\\udc00', "JSONDecodeError"),
+];
+
+const BOM = String.fromCharCode(0xfeff);
+const RAW: readonly Case[] = [
+  { name: "P01 raw_decode 不跳过开头的空白", request: { op: "pyjson.raw_decode", text: '  {"a": 1}', index: 0 }, expect: { ok: false, error: "JSONDecodeError" } },
+  { name: "P02 raw_decode 从中间开始、后面可以跟别的", request: { op: "pyjson.raw_decode", text: 'xx{"a": 1} tail', index: 2 }, expect: { ok: true, value: D(["a", I(1)]), end: 10 } },
+  { name: "P03 raw_decode 的下标与 end 都按码点", request: { op: "pyjson.raw_decode", text: '😀😀[1, "😀"] rest', index: 2 }, expect: { ok: true, value: L(I(1), S("😀")), end: 10 } },
+  { name: "P04 raw_decode 不查 BOM", request: { op: "pyjson.raw_decode", text: BOM + "[1]", index: 1 }, expect: { ok: true, value: L(I(1)), end: 4 } },
+];
+
 describe.each(IMPLS)("pyjson 契约 impl=$name", (impl) => {
   it.each([
     ["dumps", DUMPS],
     ["loads", LOADS],
+    ["报错位置", POSITIONS],
+    ["raw_decode", RAW],
     ["读改写", ROUNDTRIP],
-  ] as const)("%s：逐条与 Python 3.12 的写法一致", (_label, cases) => {
+  ] as const)("%s：逐条与 Python 3.12 的写法与报错文字一致", (_label, cases) => {
     const results = runBatch(
       impl,
       cases.map((item) => item.request),
     );
     const got = Object.fromEntries(cases.map((item, index) => [item.name, results[index]]));
-    const want = Object.fromEntries(cases.map((item) => [item.name, item.expect]));
+    const want = Object.fromEntries(
+      cases.map((item) => {
+        if (item.expect.ok) return [item.name, item.expect];
+        const id = item.name.split(" ")[0] ?? "";
+        return [item.name, { ...item.expect, message: MESSAGES[id] ?? expect.any(String) }];
+      }),
+    );
     expect(got).toEqual(want);
   });
 });

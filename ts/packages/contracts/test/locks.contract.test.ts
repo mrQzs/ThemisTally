@@ -116,7 +116,7 @@ describe.each(IMPLS)("pid_alive 与文本读写契约 impl=$name", (impl) => {
     writeFileSync(join(dir, "a.txt"), Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x0d, 0x0a, 0x62, 0x0d, 0x63, 0xe4, 0xb8, 0xad]));
     writeFileSync(join(dir, "bad.txt"), Buffer.from([0x61, 0xff, 0x62]));
     mkdirSync(join(dir, "sub"));
-    expect(runProbe(impl, { op: "fs.read_text", path: join(dir, "a.txt") })).toEqual({ ok: true, text: "﻿a\nb\nc中" });
+    expect(runProbe(impl, { op: "fs.read_text", path: join(dir, "a.txt") })).toEqual({ ok: true, text: "\ufeffa\nb\nc中" });
     expect(runProbe(impl, { op: "fs.read_text", path: join(dir, "missing.txt") })).toEqual({ ok: true, text: "" });
     expect(runProbe(impl, { op: "fs.read_text", path: join(dir, "sub") })).toEqual({ ok: true, text: "" });
     expect(runProbe(impl, { op: "fs.read_text", path: join(dir, "bad.txt") })).toEqual({ ok: false, error: "UnicodeDecodeError" });

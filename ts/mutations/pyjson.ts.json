@@ -109,9 +109,8 @@
     {
       "name": "Y17 不拒 BOM",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "  if (text.startsWith(\"\\ufeff\")) throw decodeError(",
-      "new": "  if (false) throw decodeError(",
-      "equivalent": "去掉 BOM 检查后，BOM 不是空白，照样报 JSONDecodeError（Expecting value），只是错误信息不同；契约只比较错误种类。保留这项检查是为了与 Python 的报错文字一致"
+      "old": "  if (text.startsWith(BOM)) throw decodeError(",
+      "new": "  if (false) throw decodeError("
     },
     {
       "name": "Y18 不查 int 的位数上限",
@@ -122,7 +121,7 @@
     {
       "name": "Y19 字符串里放过控制字符",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "      if (unit < 0x20) throw decodeError(\"Invalid control character at\", index);",
+      "old": "      if (unit < 0x20) throw decodeError(text, \"Invalid control character at\", index);",
       "new": "      void unit;"
     },
     {
@@ -142,6 +141,60 @@
       "file": "ts/packages/base/src/pyjson.ts",
       "old": "  if (!allowNan) throw new PyJsonError(",
       "new": "  if (false) throw new PyJsonError("
+    },
+    {
+      "name": "Y23 报错位置按 UTF-16 码元",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    const pos = codePointIndex(text, units);",
+      "new": "    const pos = units;"
+    },
+    {
+      "name": "Y24 列号差一",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": ": pos - codePointIndex(text, lastNewline);",
+      "new": ": pos - codePointIndex(text, lastNewline) + 1;"
+    },
+    {
+      "name": "Y25 u 转义的四位正好到结尾也收",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    if (after >= text.length) throw decodeError(",
+      "new": "    if (after > text.length) throw decodeError("
+    },
+    {
+      "name": "Y26 代理对配对不看剩余长度",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "&& after + 6 < text.length && text[after]",
+      "new": "&& text[after]"
+    },
+    {
+      "name": "Y27 解析时的位数上限用写出方向的措辞",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "(integer.startsWith(\"-\") ? 1 : 0), true);",
+      "new": "(integer.startsWith(\"-\") ? 1 : 0));"
+    },
+    {
+      "name": "Y28 rawDecode 跳过开头的空白",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  const [value, endUnits] = scanValue(text, index, 0);",
+      "new": "  const [value, endUnits] = scanValue(text, skipWhitespace(text, index), 0);"
+    },
+    {
+      "name": "Y29 rawDecode 的 end 按码元",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "return { value, end: codePointIndex(text, endUnits), endUnits };",
+      "new": "return { value, end: endUnits, endUnits };"
+    },
+    {
+      "name": "Y30 编码报错的位置按码元",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    const from = codePointIndex(text, start);",
+      "new": "    const from = start;"
+    },
+    {
+      "name": "Y31 编码报错不分单个与一串",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      end - start === 1\n",
+      "new": "      true\n"
     }
   ]
 }

@@ -85,9 +85,20 @@ function generator(seed: number): { value: () => Tagged; text: () => string } {
   return { value: () => value(0), text };
 }
 
+/**
+ * 报错文字除 TypeError 外都要一致。TypeError 只来自 sort_keys 遇到不能比较的键（str 与 int 混用）：Python 报的
+ * "'<' not supported between instances of 'A' and 'B'" 里 A、B 的先后取决于 CPython 的 Timsort 先比较哪两个元素，
+ * 复刻它不值得。现行代码的键都来自 JSON（全是字符串），走不到这条报错。
+ */
+function normalized(result: ProbeResult | undefined): ProbeResult | undefined {
+  if (result?.error !== "TypeError") return result;
+  const { message: _message, ...rest } = result;
+  return rest as ProbeResult;
+}
+
 /** 把同一批请求交给每一套实现，断言结果逐个与第一套（Python）相同；返回 Python 的结果。 */
 function sameEverywhere(items: readonly ProbeRequest[], label: string): ProbeResult[] {
-  const [python, ...others] = IMPLS.map((impl) => ({ impl: impl.name, results: runBatch(impl, items) }));
+  const [python, ...others] = IMPLS.map((impl) => ({ impl: impl.name, results: runBatch(impl, items).map(normalized) as ProbeResult[] }));
   for (const other of others) {
     const mismatches = items.flatMap((item, index) =>
       JSON.stringify(other.results[index]) === JSON.stringify(python?.results[index])

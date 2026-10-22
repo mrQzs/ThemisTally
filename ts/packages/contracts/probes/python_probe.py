@@ -105,6 +105,12 @@ def op_pyjson_loads(request):
     return {"ok": True, "value": to_tagged(json.loads(request["text"]))}
 
 
+def op_pyjson_raw_decode(request):
+    """json.JSONDecoder().raw_decode：index 与返回的 end 都按码点。"""
+    value, end = json.JSONDecoder().raw_decode(request["text"], request.get("index", 0))
+    return {"ok": True, "value": to_tagged(value), "end": end}
+
+
 def op_pyjson_roundtrip(request):
     """读进来、改完、写回：loads 之后原样 dumps。"""
     text = json.dumps(json.loads(request["text"]), **dumps_kwargs(request.get("options") or {}))
@@ -177,6 +183,7 @@ OPS = {
     "pyjson.dumps": op_pyjson_dumps,
     "pyjson.loads": op_pyjson_loads,
     "pyjson.roundtrip": op_pyjson_roundtrip,
+    "pyjson.raw_decode": op_pyjson_raw_decode,
 }
 
 
@@ -191,6 +198,8 @@ def run_one(request):
     except OSError as exc:
         return {"ok": False, "error": errno.errorcode.get(exc.errno or 0, "EUNKNOWN")}
     except (json.JSONDecodeError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
+        if request["op"].startswith("pyjson."):  # pyjson 的报错文字是契约的一部分（会经 str(exc) 写进输出）
+            return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
         return {"ok": False, "error": type(exc).__name__}
 
 
