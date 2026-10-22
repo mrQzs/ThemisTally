@@ -5306,3 +5306,113 @@ def test_owner_rework_records_the_letter_text(tmp_path):
                                    facts_checked=False, file=str(body)))
     record = hub.load_state()["tasks"]["T001"]["owner_rework"]
     assert record["suffix"] == "3-gate-pre" and record["text"] == "站主答复：只改 6 处。"
+
+
+# ---------------------------------------------------------------------------
+# 第 55 轮：没交报告时思考里的门禁申报；跑满时限一处没改；执行端在跑时不返工上游
+# ---------------------------------------------------------------------------
+
+def thinking_summary(run_dir, interpretations, ambiguities):
+    (run_dir / "events-summary.json").write_text(json.dumps({
+        "interpretation_mentions": [{"line": 1, "kind": "thinking", "excerpt": text} for text in interpretations],
+        "ambiguity_mentions": [{"line": 2, "kind": "thinking", "excerpt": text} for text in ambiguities],
+    }, ensure_ascii=False), encoding="utf-8")
+
+
+def test_gate_claims_only_in_the_thinking_are_held_when_there_is_no_report(engine_env, monkeypatch):
+    # T011 的 attempt-003：思考里十几次说 TRANS 那条断言过不了，没交报告，协调人照样原样返工执行端
+    hub = engine_env
+    check = {"code": 1}
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (check["code"], "check 输出"))
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "TIMEOUT"})
+    (run_dir / "executor-report.json").unlink()
+    thinking_summary(run_dir, ["Given I can't change the gate test, and the assertion is unpassable, I'll decide."],
+                     ["The gate端's app/TRANS it 1 is internally\n   inconsistent.", "Default = first. No ambiguity.",
+                      "门禁端的探针写错了：少点一下"])
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert ts["exec"]["gate_claim"] is True
+    assert ts["exec"]["gate_claims"] == [
+        "（思考摘录，没写进报告）Given I can't change the gate test, and the assertion is unpassable, I'll decide.",
+        "（思考摘录，没写进报告）The gate端's app/TRANS it 1 is internally inconsistent.",
+        "（思考摘录，没写进报告）门禁端的探针写错了：少点一下"]
+    assert "执行器没交报告，思考里说门禁有错（共 3 处，摘录前 3 处）" in letter["偏离"]
+    assert letter["需协调人决定"].startswith("执行端说门禁测试有错")
+    assert "给 gate-sonnet 发返工" in kh._guard_rework(ts, "5-exec")
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "exec.gate_claimed"' in events and '"claims": 3' in events
+    # 交了报告：只认报告，思考里怎么想不算（T007、T008 的报告之外，思考里提到过“与计划矛盾”）
+    (run_dir / "executor-report.json").write_text(json.dumps({"executor_status": "partial", "dod": [],
+                                                              "limitations": ["没跑 V02"]}), encoding="utf-8")
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert not ts["exec"].get("gate_claim") and "思考里说门禁有错" not in letter["偏离"]
+    (run_dir / "executor-report.json").unlink()
+    check["code"] = 0  # 检查过了：不扣
+    kh.finish_exec(hub, ts, run_dir, 1)
+    assert not ts["exec"].get("gate_claim")
+    check["code"] = 1
+    thinking_summary(run_dir, ["The gate test looks fine; my code is wrong here.", "The gate test is fine. Rows are wrong."],
+                     ["I should check the gate first.", "the gate probe fails because my table is wrong"])
+    kh.finish_exec(hub, ts, run_dir, 1)
+    assert not ts["exec"].get("gate_claim")  # 没说门禁错：跨了句、或者说的是自己的代码，都不算
+    (run_dir / "events-summary.json").write_text("{坏的", encoding="utf-8")
+    assert kh.unreported_gate_claims(run_dir) == []
+
+
+def test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner(engine_env, monkeypatch):
+    hub = engine_env
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (1, "check 输出"))
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "TIMEOUT"})
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert ts["exec"]["stalled"] is True and "候选改动 0 个文件" in letter["摘要"]
+    assert "这一轮跑满时限、候选一处没改：给站主发提问" in letter["需协调人决定"]
+    refusal = kh._guard_rework(ts, "5-exec")
+    assert "跑满时限、候选一处没改" in refusal and "send --rework 5-exec" in refusal
+    assert "跑满时限" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    ts["owner_rework"] = {"suffix": "5-exec", "msg": "m", "requested_at": "2026-10-22T00:00:00Z"}
+    assert kh._guard_rework(ts, "5-exec") is None  # 站主指定：放行
+    del ts["owner_rework"]
+    (run_dir / "scope.json").write_text(json.dumps({"violations": [], "files": ["src/a.ts"]}), encoding="utf-8")
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert ts["exec"]["stalled"] is False and "跑满时限" not in letter["需协调人决定"]
+    assert kh._guard_rework(ts, "5-exec") is None  # 改了东西的超时：照旧可以接着做
+    (run_dir / "scope.json").write_text(json.dumps({"violations": [], "files": []}), encoding="utf-8")
+    (run_dir / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["stalled"] is False  # 没超时：没改东西另有原因，不扣
+    kh.invalidate_after(ts, "3-gate-pre")
+    assert "stalled" not in ts["exec"]
+
+
+def test_upstream_rework_is_refused_while_the_executor_runs(tmp_path):
+    import argparse
+    ts = locked(make_ts())
+    ts["stages"]["5-exec"] = {"status": "assigned", "assigned_at": "2026-10-22T08:08:34Z", "kind": "返工"}
+    for suffix in ("1-plan", "2-contract", "3-gate-pre", "4-audit-pre"):
+        assert "执行端正在跑 attempt" in kh._guard_rework(ts, suffix)
+    ts["owner_rework"] = {"suffix": "3-gate-pre", "msg": "m", "requested_at": "2026-10-22T00:00:00Z"}
+    assert "执行端正在跑 attempt" in kh._guard_rework(ts, "3-gate-pre")  # 站主指定的也等
+    assert "执行端正在跑" not in (kh._guard_rework(ts, "6-gate-post") or "")
+    assert "正在进行" in kh._guard_rework(ts, "5-exec")
+    ts["stages"]["5-exec"]["last_letter"] = "提问"  # 执行端停下来提问：不算在跑
+    assert kh.exec_running_blocks(ts, "3-gate-pre") is None
+    # 站主的 send --rework 当场就拒，信不投、记录不留
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    task = kh.new_task_state("T001", "doc", "改文档", head, True)
+    task["stages"]["5-exec"] = {"status": "assigned", "assigned_at": "2026-10-22T08:08:34Z"}
+    hub.save_state({"tasks": {"T001": task}})
+    body = tmp_path / "reply.md"
+    body.write_text("站主：TRANS 那条少点一下，热修补。\n", encoding="utf-8")
+    args = argparse.Namespace(repo=str(repo), task="T001", type="回复", reply_to=None, rework="3-gate-pre",
+                              facts_checked=False, file=str(body))
+    with pytest.raises(kh.HubError, match="执行端正在跑 attempt"):
+        kh.cmd_send(args)
+    assert hub.unread(kh.COORDINATOR) == [] and "owner_rework" not in hub.load_state()["tasks"]["T001"]
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["5-exec"] = {"status": "delivered"}
+    hub.save_state(state)
+    kh.cmd_send(args)
+    assert hub.load_state()["tasks"]["T001"]["owner_rework"]["suffix"] == "3-gate-pre"

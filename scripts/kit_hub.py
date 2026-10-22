@@ -783,15 +783,31 @@ def hotfix_reason(ts: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def exec_running_blocks(ts: Dict[str, Any], suffix: str) -> Optional[str]:
+    """执行端正在跑 attempt 时，上游阶段不能返工（第 55 轮）：上游重新交付会经 invalidate_after 清掉执行阶段，
+    跑完的 attempt 却还会按旧合同交付。T011 的 attempt-004 在跑时站主要热修补门禁，内核此前照收。"""
+    if suffix in STAGE_ORDER and STAGE_ORDER.index(suffix) < STAGE_ORDER.index("5-exec") \
+            and stage_busy(ts["stages"]["5-exec"]):
+        return "执行端正在跑 attempt：现在返工上游的 %s，会作废正在跑的执行。等执行端交付之后再返工" % suffix
+    return None
+
+
 def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     status = ts["stages"][suffix]["status"]
     if stage_busy(ts["stages"][suffix]):
         return "阶段 %s 正在进行，不能返工" % suffix
+    running = exec_running_blocks(ts, suffix)
+    if running:
+        return running  # 站主指定的也一样
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
     if suffix == "5-exec" and ts["exec"].get("gate_claim"):
         return ("执行端说门禁测试有错，协调人核实不了：给 gate-sonnet 发返工（热修补，内核会把执行端的原话交给它"
                 "逐条核实），或者给站主发提问；门禁重新交付或站主答复之前不能返工执行端")
+    if suffix == "5-exec" and ts["exec"].get("stalled"):
+        # 第 55 轮：T011 的 attempt-003 跑满两小时一个文件没改，协调人原样再派，attempt-004 照样从头调查
+        return ("上一轮 attempt 跑满时限、候选一处没改：原样再派多半还是这样。给站主发提问（拆小合同、换执行模型，"
+                "或站主接手、查明卡在哪里）；站主用 send --rework 5-exec 指定之后才放行")
     done = (ts.get("reworks") or {}).get(suffix, 0)
     if suffix != "5-exec" and done >= MAX_STAGE_REWORKS:
         # 第 14 轮：执行端有合同预算封顶，别的阶段没有，同一处可以无限返工（docs/实际问题/协调端.md 的返工乒乓）
@@ -2810,6 +2826,31 @@ def gate_claims(report: Dict[str, Any]) -> List[str]:
     return claims
 
 
+#: 执行器思考里“门禁写错了”的说法（第 55 轮）：模型多用英文思考，GATE_CLAIM_RE 只认中文与 gate bug、gate defect。
+#: 主语是 gate，同一句里（不跨 . ; ! ?），中间没有转到自己身上（my、our、the app、implementation）
+THINKING_GATE_RE = re.compile(r"gate(?:(?![.;!?]|\b(?:my|our|the app|implementation)\b).){0,60}?"
+                              r"(?:buggy|\bbug\b|wrong|unpassable|impossible|can'?t pass|cannot pass|contradict"
+                              r"|inconsistent)", re.I)
+
+
+def unreported_gate_claims(run_dir: Path) -> List[str]:
+    """执行器没交报告时（超时、输出被截断），它在思考里说门禁有错的摘录：调度器的 events-summary.json 里
+    interpretation_mentions、ambiguity_mentions 两张摘录表。T011 的 attempt-003 跑满两小时，思考里十几次说 TRANS
+    那条断言“自相矛盾、过不了”，报告没写成，内核只看报告，协调人照样返工执行端。拿历史数据核对过：没交报告而
+    思考里这么说的四次（T011 的 attempt-002、003，T012 的 attempt-002、004），说的门禁缺陷后来都查实了。"""
+    try:
+        summary = json.loads(read_text(run_dir / "events-summary.json") or "{}")
+    except ValueError:
+        return []
+    claims: List[str] = []
+    for name in ("interpretation_mentions", "ambiguity_mentions"):
+        for item in summary.get(name) or []:
+            text = " ".join(str(item.get("excerpt") or "").split()) if isinstance(item, dict) else ""
+            if text and (THINKING_GATE_RE.search(text) or GATE_CLAIM_RE.search(text)):
+                claims.append("（思考摘录，没写进报告）" + text)
+    return claims
+
+
 def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[int]) -> Dict[str, str]:
     """attempt 跑完之后的核验：check --fresh、范围门禁与 attempt 状态；从执行报告生成交付信的正文。
     exec-recheck 也走这里：内核中途停下或判定逻辑修过之后，对已有的 attempt 重新核验，不占新的尝试次数。"""
@@ -2827,6 +2868,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     hub.append_event("exec.finished", task=ts["task"], run_dir=str(run_dir), status=status,
                      check_exit=check_code, scope_violations=len(violations))
     claims = gate_claims(report) if check_code != 0 else []
+    unreported = unreported_gate_claims(run_dir) if check_code != 0 and not report else []
+    claims = claims or unreported
     if claims:
         ts["exec"]["gate_claim"] = True  # 门禁热修补或站主答复之前不能返工执行端（_guard_rework）
         ts["exec"]["gate_claims"] = [claim[:600] for claim in claims[:8]]  # 热修补时交给门禁端
@@ -2849,14 +2892,23 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     # 改动按候选数，不按执行报告：T012 的 attempt-002 没交报告，信里写“改动 0 个文件”，候选其实有 32 个，
     # 协调人照信回“仍 0 文件改动”，内核从头重派（第 39 轮）
     changed = len(scope["files"]) if isinstance(scope.get("files"), list) else len(report.get("changed_files") or [])
+    # 第 55 轮：跑满时限而候选一处没改（返工版本的基线已含上一轮的候选，0 就是这一轮什么也没做）
+    ts["exec"]["stalled"] = status == "TIMEOUT" and changed == 0
     said = report.get("executor_status") or ("没交执行报告（模型最后一条输出被截断：stopReason=length）"
                                              if cut_off(run_dir) else "未知（没有可读的执行报告）")
+    deviation = "解读：%s；局限：%s" % (listing("interpretations"), listing("limitations"))
+    if unreported:
+        deviation += "；执行器没交报告，思考里说门禁有错（共 %d 处，摘录前 3 处）：%s" % (
+            len(unreported), "；".join(claim[:240] for claim in unreported[:3]))
+    stalled = ("这一轮跑满时限、候选一处没改：给站主发提问（拆小合同、换执行模型或站主接手），站主指定之前内核不放行"
+               "执行端返工。" if ts["exec"]["stalled"] else "")
     return {"摘要": ("执行端自述 %s；DoD：%s；候选改动 %d 个文件" % (said, done, changed))[:400],
             "提交": "无（候选补丁 %s/candidate.patch）" % rel,
             "验证": verdict_line,
-            "偏离": "解读：%s；局限：%s" % (listing("interpretations"), listing("limitations")),
+            "偏离": deviation,
             "需协调人决定": ("执行端说门禁测试有错（原话见下面与“偏离”）：给 gate-sonnet 发返工（热修补），"
                          "或给站主发提问；门禁重新交付或站主答复之前，内核不放行执行端返工。" if claims else "") +
+                        stalled +
                         "合同矛盾：%s；未决问题：%s" % (listing("contract_conflicts"), listing("unresolved_questions")),
             "证据": "%s/summary.md、%s/executor-report.md、%s/checks/" % (rel, rel, rel)}
 
@@ -4486,6 +4538,9 @@ def cmd_send(args: argparse.Namespace) -> int:
                                 and answers_question(hub, args.reply_to))
         if args.rework and ts is None:
             raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+        running = exec_running_blocks(ts, args.rework) if args.rework else None
+        if running:
+            raise HubError(running, EXIT_BLOCKED)  # 第 55 轮：当场告诉站主，不等协调人转信时才被拒
         if args.facts_checked and not ((ts or {}).get("external_facts") or {}).get("pending"):
             # 第 35 轮：T012 的规划端先发“提问”，站主答复时顺手核实了事实，带上标志被拒，却不知道为什么
             early = ts is not None and ts["stages"]["1-plan"]["status"] != "delivered"
