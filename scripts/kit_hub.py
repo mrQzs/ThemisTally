@@ -1685,12 +1685,13 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     except ValueError:
         return ["合同 JSON 读不出来"]
     problems: List[str] = []
-    unparsed = unparsed_check_ids(read_text(md))
+    written = strip_decisions(read_text(md))  # 内核附的站主原文不算合同端写的
+    unparsed = unparsed_check_ids(written)
     if unparsed:
         # 第 43 轮：T013 的合同端照内核给的范例写了 VG1、VR1，调度器只认一个大写字母加两位数字，两条检查都丢了
         problems.append("Validation commands 里这几行调度器认不出、等于没写：%s。检查编号要是一个大写字母加至少两位"
                         "数字，例如 G01、R01（DoD 的“证据”里跟着改）" % "、".join(unparsed))
-    pending = PENDING_MARK_RE.findall(read_text(md))
+    pending = PENDING_MARK_RE.findall(written)
     if pending:
         # T001（2026-10-19）：合同端把 4 个待站主确认的问题写成 13 处标注留在正文里，执行端会当成未决事项
         problems.append("合同里还有 %d 处未决标注（%s）：拿不准的事先发“提问”，等站主或协调人答复后再交合同，"
@@ -1808,6 +1809,41 @@ def normalize_markup(text: str) -> Tuple[str, int]:
     return text[:section.start(1)] + body + text[section.end(1):], bold + notes
 
 
+#: 合同末尾由内核附上的站主决定原文（第 50 轮）
+DECISIONS_HEADING = "## 站主决定（内核附原文）"
+DECISIONS_SECTION_RE = re.compile(r"(?ms)^%s[ \t]*$.*?(?=^##[ \t]|\Z)" % re.escape(DECISIONS_HEADING))
+
+
+def strip_decisions(text: str) -> str:
+    """去掉内核附的站主决定一节：合同端照抄上一版时会带上它，内核的未决标注等检查也只看合同端写的正文。"""
+    return DECISIONS_SECTION_RE.sub("", text)
+
+
+def decisions_section(decisions: Sequence[Dict[str, Any]]) -> str:
+    """站主决定的原文附录（第 50 轮）。T013 的站主答复 Q1 定了待验收卡用 ScaleIcon，规划与合同只写“图标按 Q1”，
+    执行端看不到答复，自选了 CircleCheckIcon，终审才退回。原文逐行引用（`> `），调度器与内核的检查都不会把
+    其中的列表项、标题当成合同条目。"""
+    lines = [DECISIONS_HEADING, "",
+             "规划阶段站主对提问的答复原文，由内核附上，供执行端、门禁端、审核端对照。合同正文没写明的细节以这里为准；"
+             "与合同正文冲突时写进执行报告的 contract_conflicts，不要自选一种。", ""]
+    for item in decisions:
+        lines += ["站主来信 %s：" % item["msg"], ""]
+        lines += [("> " + line).rstrip() for line in str(item["text"]).splitlines()] + [""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def answers_question(hub: Hub, msg_id: Optional[str]) -> bool:
+    """msg_id 是不是发给站主的“提问”。"""
+    for box in ("new", "cur"):
+        path = hub.inbox(OWNER, box) / ("%s.md" % msg_id)
+        if msg_id and path.is_file():
+            try:
+                return parse_letter(read_text(path))[0].get("type") == "提问"
+            except HubError:
+                return False
+    return False
+
+
 def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> List[str]:
     text = output.get("contract_md")
     if not isinstance(text, str) or not text.strip():
@@ -1835,6 +1871,9 @@ def accept_contract(hub: Hub, ts: Dict[str, Any], output: Dict[str, Any]) -> Lis
     text, bold = normalize_markup(text)
     if bold:
         hub.append_event("contract.markup_normalized", task=ts["task"], key=key, lines=bold)
+    text = strip_decisions(text).rstrip() + "\n"
+    if ts.get("decisions"):
+        text += "\n" + decisions_section(ts["decisions"])
     path.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     # written_version：合同端写的这一版。之后热修补、重派、返工只复制升版，内容不变（carry_source 据此判断
     # 旧 attempt 的候选是不是按同一份合同做的）
@@ -3385,6 +3424,12 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                     "- " + item for item in ts["gate_post"]["unmutated"]]
         if role == "contract" or task_id.endswith("-4-audit-pre"):
             parts += external_facts_section(ts)
+        if role == "contract" and ts.get("decisions"):
+            parts += ["", "## 站主的决定（规划阶段对提问的答复原文）", "",
+                      "- 执行端只看合同、看不到这些信：合同正文要把决定写成具体做法（图标名、令牌、文案这类细节照原文写进 "
+                      "Steps 与 DoD），不要只写“按 Q1”。内核会另把原文附在合同末尾，附录不用你抄。"]
+            for item in ts["decisions"]:
+                parts += ["", "站主来信 %s：" % item["msg"], "", str(item["text"])]
         if role == "contract":
             used = budget_usage(hub, ts)
             parts += ["", "## 合同要求（内核会逐项核对）", "",
@@ -4337,12 +4382,21 @@ def cmd_send(args: argparse.Namespace) -> int:
         if args.type != "回复":
             raise HubError("--facts-checked 只能随“回复”发", EXIT_USAGE)
         fields["需协调人决定"] = "站主已核实规划依赖的仓库外事实（结果见摘要）：开工合同端时把核实结果写进 brief"
+    decision, no_decision = getattr(args, "decision", False), getattr(args, "no_decision", False)
+    if (decision or no_decision) and args.type != "回复":
+        raise HubError("--decision、--no-decision 只能随“回复”发", EXIT_USAGE)
     errors = letter_errors(meta, fields, len(fields["摘要"].splitlines()) + 5)
     if errors:
         raise HubError("；".join(errors), EXIT_USAGE)
     with DirLock(hub.root / ".lock"):
         state = hub.load_state()
         ts = state["tasks"].get(args.task)
+        if decision and ts is None:
+            raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+        # 第 50 轮：合同写出来之前，站主对“提问”的答复就是规划的决定，默认记下、附进之后的合同
+        decision = decision or (not no_decision and ts is not None and args.type == "回复" and not args.rework
+                                and not (ts.get("contract") or {}).get("version")
+                                and answers_question(hub, args.reply_to))
         if args.rework and ts is None:
             raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
         if args.facts_checked and not ((ts or {}).get("external_facts") or {}).get("pending"):
@@ -4364,8 +4418,13 @@ def cmd_send(args: argparse.Namespace) -> int:
             record = ts["external_facts"]
             record.update(checked=record.pop("pending"), pending=[], checked_at=utc_now(), checked_msg=msg)
             hub.append_event("external_facts.checked", task=args.task, count=len(record["checked"]), msg=msg)
+        if decision:
+            ts.setdefault("decisions", []).append({"msg": msg, "text": fields["摘要"], "at": utc_now()})
+            hub.append_event("owner.decision_recorded", task=args.task, msg=msg)
         hub.save_state(state)
     print("已投递 %s" % msg)
+    if decision:
+        print("已记为站主决定：之后合同端交的合同末尾会附上这封信的原文（不想附就带 --no-decision）")
     return EXIT_OK
 
 
@@ -4838,6 +4897,10 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--rework", help="随“回复”指定某一阶段返工（阶段后缀，例如 2-contract）")
     send.add_argument("--facts-checked", action="store_true",
                       help="随“回复”声明站主已核实规划依赖的仓库外事实（摘要里写每条的结果），放行合同端开工")
+    marking = send.add_mutually_exclusive_group()
+    marking.add_argument("--decision", action="store_true",
+                         help="把这封回复记为站主决定：之后合同端交的合同末尾附上原文。合同写出来之前答复“提问”时默认就记")
+    marking.add_argument("--no-decision", action="store_true", help="不记为站主决定（例如只是让工人恢复的答复）")
     send.set_defaults(func=cmd_send)
     recheck = sub.add_parser("exec-recheck", help="对最近一次 attempt 重新核验（不重跑执行端）")
     recheck.add_argument("task")

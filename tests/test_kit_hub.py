@@ -4999,3 +4999,87 @@ def test_scope_paths_missing_the_directory_prefix_are_named(tmp_path):
     (plans / "t001-doc.v1.json").write_text(json.dumps(data), encoding="utf-8")
     problems = kh.contract_requirements(hub, ts)
     assert any(p.startswith("Scope 的路径要从仓库根写起") and "src/a.ts → desktop/web/src/a.ts" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# 第 50 轮：站主对规划提问的答复附进合同
+# ---------------------------------------------------------------------------
+
+def test_answers_to_questions_before_the_contract_are_recorded_as_decisions(tmp_path, capsys):
+    # T013：站主答复 Q1 定了 ScaleIcon，合同只写“图标按 Q1”，执行端看不到答复，自选了 CircleCheckIcon
+    import argparse
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": kh.new_task_state("T001", "doc", "改文档", head, True)}})
+    asked = hub.deliver(dict(meta("提问", kh.OWNER, "T001"), to=kh.OWNER), fields(摘要="Q1 用哪个图标？"))
+    blocked = hub.deliver(dict(meta("汇报", kh.OWNER, "T001"), to=kh.OWNER), fields())
+    body = tmp_path / "reply.md"
+    body.write_text("Q1 选 (a)：\n- 待验收：ScaleIcon，--tt-accent-text\n", encoding="utf-8")
+
+    def send(**extra):
+        args = dict(repo=str(repo), task="T001", type="回复", reply_to=asked, rework=None, facts_checked=False,
+                    file=str(body), decision=False, no_decision=False)
+        args.update(extra)
+        kh.cmd_send(argparse.Namespace(**args))
+        return [d["msg"] for d in hub.load_state()["tasks"]["T001"].get("decisions") or []]
+
+    first = send()
+    assert len(first) == 1 and "已记为站主决定" in capsys.readouterr().out
+    assert hub.load_state()["tasks"]["T001"]["decisions"][0]["text"].endswith("ScaleIcon，--tt-accent-text")
+    assert send(no_decision=True) == first  # 只是让工人恢复的答复
+    assert send(reply_to=blocked) == first  # 答的不是提问
+    assert send(reply_to=None) == first
+    assert len(send(rework="2-contract")) == 1  # 返工的指示交给那个阶段
+    assert len(send(reply_to=blocked, decision=True)) == 2  # 站主明说的照记
+    state = hub.load_state()
+    state["tasks"]["T001"]["contract"]["version"] = 1
+    hub.save_state(state)
+    assert len(send()) == 2  # 合同写出来之后的答复多半是流程上的：要记就带 --decision
+    with pytest.raises(kh.HubError, match="只能随“回复”发"):
+        send(type="停止", decision=True)
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    assert events.count('"event": "owner.decision_recorded"') == 2
+
+
+def test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    ts["decisions"] = [{"msg": "20261021T211322852348Z-owner-0031d0", "at": "2026-10-21T21:13:22Z",
+                        "text": "Q1 选 (a)：\n- 待验收：ScaleIcon\n\n## 不是标题\n- D99：不是 DoD，待确认的也不算"}]
+    monkeypatch.setattr(kh, "revalidate_contract", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "budget_problems", lambda hub_, ts_: [])
+    body = "# TASK: t001-doc\n\n## Definition of done\n- D01：卡片图标\n\n## Forbidden\n- 不改依赖\n"
+    assert kh.accept_contract(hub, ts, {"contract_md": body}) == []
+    path = tmp_path / ".agent" / "plans" / ("%s.md" % ts["contract"]["key"])
+    written = path.read_text(encoding="utf-8")
+    assert written.startswith(body.rstrip() + "\n\n" + kh.DECISIONS_HEADING + "\n")
+    assert "站主来信 20261021T211322852348Z-owner-0031d0：\n\n> Q1 选 (a)：\n> - 待验收：ScaleIcon\n>\n> ## 不是标题\n" in written
+    assert kh.strip_decisions(written).rstrip() == body.rstrip()
+    # 调度器按二级标题切节：附录不混进 Forbidden，也不多出 DoD
+    assert pd_section(written, "Forbidden").strip() == "- 不改依赖"
+    assert pd_section(written, "Definition of done").strip() == "- D01：卡片图标"
+    # 合同端照抄上一版（连附录）时不会附两份
+    assert kh.accept_contract(hub, ts, {"contract_md": written}) == []
+    again = (tmp_path / ".agent" / "plans" / ("%s.md" % ts["contract"]["key"])).read_text(encoding="utf-8")
+    assert again.count(kh.DECISIONS_HEADING) == 1 and again.count("> - 待验收：ScaleIcon") == 1
+    # 附录里的“待确认”不是合同端留的未决标注
+    kh.contract_paths(hub, ts)[1].write_text("{}", encoding="utf-8")
+    problems = kh.contract_requirements(hub, ts)
+    assert problems and not any("未决标注" in p for p in problems)
+    current = kh.contract_paths(hub, ts)[0]
+    current.write_text(again.replace("- D01：卡片图标", "- D01：卡片图标（待确认）"), encoding="utf-8")
+    assert any("未决标注" in p for p in kh.contract_requirements(hub, ts))
+    current.write_text(again, encoding="utf-8")
+    prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
+    assert "## 站主的决定（规划阶段对提问的答复原文）" in prompt and "- 待验收：ScaleIcon" in prompt
+    assert "站主的决定" not in kh.turn_prompt(hub, make_ts(), "contract-glm", "T001-2-contract", [], tmp_path)
+    assert "站主的决定" not in kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path)
+    del ts["decisions"]
+    assert kh.accept_contract(hub, ts, {"contract_md": written}) == []  # 没有决定：附录也不留
+    assert kh.DECISIONS_HEADING not in (tmp_path / ".agent" / "plans" / ("%s.md" % ts["contract"]["key"])).read_text(
+        encoding="utf-8")
+
+
+def pd_section(md: str, name: str) -> str:
+    return kh.pd._md_section(md, name) or ""
