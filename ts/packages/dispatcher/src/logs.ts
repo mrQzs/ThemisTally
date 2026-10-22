@@ -37,9 +37,9 @@ export class LinkTally {
   }
 }
 
-type Entry = [name: string, entryPath: string];
+export type Entry = [name: string, entryPath: string];
 
-function exists(value: string): boolean {
+export function exists(value: string): boolean {
   try {
     return existsSync(value);
   } catch {
@@ -57,10 +57,10 @@ function lstatKind(value: string): "dir" | "file" | "other" | null {
 }
 
 const isDir = (value: string): boolean => lstatKind(value) === "dir";
-const isRegular = (value: string): boolean => lstatKind(value) === "file";
+export const isRegular = (value: string): boolean => lstatKind(value) === "file";
 
 /** kit_logs._scan：直接子项，按名字（码点）排序；列不出来为 null。 */
-function scan(directory: string): Entry[] | null {
+export function scan(directory: string): Entry[] | null {
   let names: string[];
   try {
     names = readdirSync(directory);
@@ -112,7 +112,7 @@ const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const REPLACE_UTF8 = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
 
 /** kit_logs._read_json：缺失、不可读、不是 UTF-8、不是 JSON、嵌套太深都为 null（undefined 表示 None）。 */
-function readJson(file: string): PyValue | undefined {
+export function readJson(file: string): PyValue | undefined {
   const raw = readHead(file, -1);
   if (raw === null) return undefined;
   try {

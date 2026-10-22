@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://themis-tally.invalid/schemas/logs-usage-v1.schema.json",
+  "title": "logs usage --json：执行端各 attempt 的用量与按模型的合计，规划端会话记录的用量下界（没给 --transcript 时为 null）",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "executor",
+    "planner"
+  ],
+  "properties": {
+    "executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "totals",
+        "counts",
+        "by_model",
+        "skipped_links"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "task",
+              "attempt",
+              "requested_model",
+              "status",
+              "usage"
+            ],
+            "properties": {
+              "task": {
+                "type": "string"
+              },
+              "attempt": {
+                "type": "string",
+                "pattern": "^attempt-[0-9]+$"
+              },
+              "requested_model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "enum": [
+                  "known",
+                  "partial",
+                  "unknown"
+                ]
+              },
+              "usage": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "input",
+                      "output",
+                      "cacheRead",
+                      "cacheWrite",
+                      "totalTokens"
+                    ],
+                    "properties": {
+                      "input": {
+                        "type": "integer"
+                      },
+                      "output": {
+                        "type": "integer"
+                      },
+                      "cacheRead": {
+                        "type": "integer"
+                      },
+                      "cacheWrite": {
+                        "type": "integer"
+                      },
+                      "totalTokens": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input",
+            "output",
+            "cacheRead",
+            "cacheWrite",
+            "totalTokens"
+          ],
+          "properties": {
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "cacheRead": {
+              "type": "integer"
+            },
+            "cacheWrite": {
+              "type": "integer"
+            },
+            "totalTokens": {
+              "type": "integer"
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "known",
+            "partial",
+            "unknown"
+          ],
+          "properties": {
+            "known": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "partial": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "by_model": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requested_model",
+              "known",
+              "partial",
+              "unknown",
+              "usage"
+            ],
+            "properties": {
+              "requested_model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "known": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "partial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknown": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "usage": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "input",
+                  "output",
+                  "cacheRead",
+                  "cacheWrite",
+                  "totalTokens"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "integer"
+                  },
+                  "output": {
+                    "type": "integer"
+                  },
+                  "cacheRead": {
+                    "type": "integer"
+                  },
+                  "cacheWrite": {
+                    "type": "integer"
+                  },
+                  "totalTokens": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "skipped_links": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "planner": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lower_bound",
+            "partial",
+            "included_messages",
+            "by_model",
+            "skipped_lines",
+            "skipped_links",
+            "unreadable_files",
+            "duplicate_records",
+            "conflict_ids",
+            "conflict_records",
+            "incomplete_ids",
+            "intermediate_records",
+            "unusable_timestamps",
+            "ids_without_time",
+            "outside_window_ids",
+            "non_integer_fields"
+          ],
+          "properties": {
+            "lower_bound": {
+              "const": true
+            },
+            "partial": {
+              "type": "boolean"
+            },
+            "included_messages": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "by_model": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "model",
+                  "sidechain",
+                  "messages",
+                  "input_tokens",
+                  "cache_creation_input_tokens",
+                  "cache_read_input_tokens",
+                  "output_tokens"
+                ],
+                "properties": {
+                  "model": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sidechain": {
+                    "type": "boolean"
+                  },
+                  "messages": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "input_tokens": {
+                    "type": "integer"
+                  },
+                  "cache_creation_input_tokens": {
+                    "type": "integer"
+                  },
+                  "cache_read_input_tokens": {
+                    "type": "integer"
+                  },
+                  "output_tokens": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "skipped_lines": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "bad_json",
+                "not_object",
+                "not_candidate"
+              ],
+              "properties": {
+                "bad_json": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "not_object": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "not_candidate": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "skipped_links": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unreadable_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicate_records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "conflict_ids": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "conflict_records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "incomplete_ids": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "intermediate_records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unusable_timestamps": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ids_without_time": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outside_window_ids": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "non_integer_fields": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

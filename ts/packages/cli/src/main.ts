@@ -12,6 +12,7 @@ import { redactTokens } from "@themis/base/secrets";
 import { LogsError, type ListArgs, type ShowArgs, cmdList, cmdShow } from "@themis/dispatcher/logs";
 import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
 import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
+import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 
@@ -84,6 +85,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runLogs(out, () => cmdCat(args as unknown as CatArgs, out));
     case "logs search":
       return runLogs(out, () => cmdSearch(args as unknown as SearchArgs, out));
+    case "logs usage":
+      return runLogs(out, () => cmdUsage(args as unknown as UsageArgs, out));
     default:
       out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
       return 2;

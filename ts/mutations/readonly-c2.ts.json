@@ -1,0 +1,112 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "-t",
+    "U0|U1",
+    "packages/contracts/test/readonly.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "V01 不看 truncated",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": " || data.get(\"truncated\") === true",
+      "new": ""
+    },
+    {
+      "name": "V02 布尔值当整数",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "const isInt = (value: PyValue | undefined): value is bigint => typeof value === \"bigint\";",
+      "new": "const isInt = (value: PyValue | undefined): value is bigint => typeof value === \"bigint\" || typeof value === \"boolean\";"
+    },
+    {
+      "name": "V03 无模型排在后面",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "Number(a.model !== null) - Number(b.model !== null)",
+      "new": "Number(a.model === null) - Number(b.model === null)"
+    },
+    {
+      "name": "V04 重复的最终记录不计",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    n.duplicate += BigInt(finals.length - 1);",
+      "new": "    n.duplicate += 0n;"
+    },
+    {
+      "name": "V05 模型不同不算冲突",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "      if (record.model !== other.model || record.sidechain !== other.sidechain) return true;",
+      "new": "      if (record.sidechain !== other.sidechain) return true;"
+    },
+    {
+      "name": "V06 缺失与 null 不分",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "(value === undefined ? \"\\0missing\" : dumps(value, { sortKeys: true, ensureAscii: false }))",
+      "new": "dumps(value ?? null, { sortKeys: true, ensureAscii: false })"
+    },
+    {
+      "name": "V07 --until 含端点",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "(until !== null && moment >= until)",
+      "new": "(until !== null && moment > until)"
+    },
+    {
+      "name": "V08 --since 不含端点",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "(since !== null && moment < since)",
+      "new": "(since !== null && moment <= since)"
+    },
+    {
+      "name": "V09 只认空格是空白",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "  return line.every((byte) => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d));",
+      "new": "  return line.every((byte) => byte === 0x20);"
+    },
+    {
+      "name": "V10 会话记录后缀不分大小写",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    if (!name.endsWith(TRANSCRIPT_SUFFIX)) continue;",
+      "new": "    if (!name.toLowerCase().endsWith(TRANSCRIPT_SUFFIX)) continue;"
+    },
+    {
+      "name": "V11 --since 等于 --until 也报错",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "since !== null && until !== null && since > until",
+      "new": "since !== null && until !== null && since >= until"
+    },
+    {
+      "name": "V12 代表时间取第一条",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    const moment = times.reduce((a, b) => (b < a ? b : a));",
+      "new": "    const moment = times[0] as bigint;"
+    },
+    {
+      "name": "V13 中间记录不计",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    n.intermediate += BigInt(records.length - finals.length);",
+      "new": "    n.intermediate += 0n;"
+    },
+    {
+      "name": "V14 子代理不算 isSidechain",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    sidechain: obj.get(\"isSidechain\") === true,",
+      "new": "    sidechain: false,"
+    },
+    {
+      "name": "V15 空 id 也收",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "  if (typeof identifier !== \"string\" || identifier === \"\") return [\"not_candidate\", null];",
+      "new": "  if (typeof identifier !== \"string\") return [\"not_candidate\", null];"
+    },
+    {
+      "name": "V16 不查 --transcript 存不存在",
+      "file": "ts/packages/dispatcher/src/logs-usage.ts",
+      "old": "    if (!exists(text)) throw",
+      "new": "    if (false) throw"
+    }
+  ]
+}

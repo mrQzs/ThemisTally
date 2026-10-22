@@ -11,6 +11,7 @@ import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { pyIntParse } from "@themis/base/pyre";
+import { parseIsoUtc } from "@themis/base/pydatetime";
 import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
 import {
   type AllowList,
@@ -135,6 +136,10 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
         return { ok: false, error: "UNKNOWN_FN" };
     }
   },
+  "pydatetime.parse_iso": (request) => ({
+    ok: true,
+    values: (request["texts"] as string[]).map((text) => parseIsoUtc(text)?.toString() ?? null),
+  }),
   "pyregex.search": (request) => {
     let pattern;
     try {

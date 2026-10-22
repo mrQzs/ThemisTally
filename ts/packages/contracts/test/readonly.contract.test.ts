@@ -71,7 +71,7 @@ function compare(item: Case): void {
     expect(schemaErrors("pyargs-v1", forSchema), "启动器参数过 Schema").toEqual([]);
     if (pyargs["json"] === true && python.status === 0) {
       const schema = { status: "status-v1", "logs list": "logs-list-v1", "logs show": "logs-show-v1", "logs cat": "logs-cat-v1",
-        "logs search": "logs-search-v1" }[
+        "logs search": "logs-search-v1", "logs usage": "logs-usage-v1" }[
         (pyargs["command"] as string[]).join(" ") as "status"];
       expect(schemaErrors(schema, JSON.parse(text(python))), `${schema} 过 Schema`).toEqual([]);
     }
@@ -131,6 +131,84 @@ function searchable(repo: string): void {
     `${"x".repeat(4 * 1024 * 1024 + 1)}`, '{"type": "tool", "text": "needle two"}',
   ].join("\n"));
   put(runs(repo, "beta/attempt-001"), "executor-report.json", { status: "completed", note: `needle ${C(0x4e2d, 0x6587)}`, token: "sk-ABCDEFGHIJKLMNOPQRSTUV" });
+}
+
+interface UsageOptions {
+  readonly task?: string;
+  readonly transcripts?: readonly string[]; // 相对临时仓库的路径
+  readonly since?: string;
+  readonly until?: string;
+  readonly json?: boolean;
+}
+
+const usage = (options: UsageOptions = {}): Pick<Case, "argv" | "pyargs"> => {
+  const json = options.json ?? false;
+  const files = (repo: string): string[] => (options.transcripts ?? []).map((rel) => join(repo, rel));
+  return {
+    argv: (repo) => ["logs", "usage", ...(options.task === undefined ? [] : ["--task", options.task]),
+      ...files(repo).flatMap((file) => ["--transcript", file]), ...(options.since === undefined ? [] : ["--since", options.since]),
+      ...(options.until === undefined ? [] : ["--until", options.until]), ...(json ? ["--json"] : [])],
+    pyargs: (repo) => ({ command: ["logs", "usage"], task: options.task ?? null, transcript: options.transcripts ? files(repo) : null,
+      since: options.since ?? null, until: options.until ?? null, json }),
+  };
+};
+
+/** 执行端的各种 events-summary.json：known、partial（三种）、unknown（五种）、没有模型、模型名的排序。 */
+function usageAttempts(repo: string): void {
+  const summary = (model: [string, string] | null, use: unknown, extra: Record<string, unknown> = {}): unknown => ({
+    ...(model === null ? {} : { requested_model: { provider: model[0], model: model[1] } }), usage: use, complete: true,
+    truncated: false, parse_error_lines: [], ...extra,
+  });
+  const full = { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, totalTokens: 100 };
+  put(runs(repo, "alpha/attempt-001"), "events-summary.json", summary(["step", "step-5"], full));
+  put(runs(repo, "alpha/attempt-002"), "events-summary.json", summary(["step", "step-5"], full, { truncated: true }));
+  put(runs(repo, "alpha/attempt-003"), "events-summary.json", summary(["bb", "a-model"], full, { complete: false }));
+  put(runs(repo, "alpha/attempt-004"), "events-summary.json", summary(["bb", "a-model"], full, { parse_error_lines: [3] }));
+  put(runs(repo, "alpha/attempt-005"), "events-summary.json", summary(["step", "step-5"], { ...full, input: 1.5 }));
+  put(runs(repo, "alpha/attempt-006"), "events-summary.json", summary(null, { ...full, output: true }));
+  put(runs(repo, "alpha/attempt-007"), "events-summary.json", "{not json");
+  mkdirSync(runs(repo, "alpha/attempt-008"), { recursive: true });
+  put(runs(repo, "beta/attempt-001"), "events-summary.json",
+    `{"requested_model": {"provider": "z", "model": "big"}, "usage": {"input": 123456789012345678901234567890, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": -5}, "complete": true, "truncated": false, "parse_error_lines": []}`);
+  put(runs(repo, "beta/attempt-002"), "events-summary.json", summary(null, full));
+  put(runs(repo, "beta/attempt-003"), "events-summary.json", summary(["step", "step-5"], { input: 1 }));
+}
+
+/** 规划端的会话记录：最终与中间记录、重复、两种冲突、未完成、坏行与非候选、时间的各种写法、非整数的计数、子代理。 */
+function transcriptLines(): string {
+  const line = (id: unknown, options: { stop?: unknown; model?: unknown; usage?: unknown; time?: unknown; side?: unknown } = {}): string =>
+    JSON.stringify({
+      type: "assistant",
+      ...(options.time === undefined ? { timestamp: "2026-10-22T10:00:00Z" } : options.time === null ? {} : { timestamp: options.time }),
+      ...(options.side === undefined ? {} : { isSidechain: options.side }),
+      message: {
+        id, ...(options.model === undefined ? { model: "claude-b" } : options.model === null ? {} : { model: options.model }),
+        stop_reason: options.stop === undefined ? "end_turn" : options.stop,
+        usage: options.usage ?? { input_tokens: 1, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 4 },
+      },
+    });
+  return [
+    line("m1"), line("m1", { stop: null }), line("m1"), // 最终两条一样（重复）加一条中间记录
+    line("m2", { usage: { input_tokens: 1, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 5 } }), line("m2"), // 计数冲突
+    line("m3", { model: "claude-a" }), line("m3", { stop: null }), // 模型不同：冲突
+    line("m4", { stop: "" }), // 只有中间记录：未完成
+    line("m5", { model: null, side: true, time: "2026-10-22T18:00:00+08:00" }),
+    line("m6", { model: "", usage: { input_tokens: 1.0, cache_creation_input_tokens: null, cache_read_input_tokens: true } }),
+    line("m7", { time: "2026-10-22T10:00:00" }), line("m7", { time: 12 }), // 不带时区、不是字符串：无可用时间
+    line("m8", { time: "2026-10-21T23:59:59.999999Z" }), line("m9", { time: "2026-10-23T00:00:00Z" }),
+    line("m10", { time: "2026-10-22T10:00:00:5Z", side: true, model: "claude-b" }), line("m11", { time: `0001-01-01T00:30:00+01:00` }),
+    // 计数缺失与 null 不同、1 与 1.0 不同：冲突
+    line("m12", { usage: { input_tokens: 1, cache_creation_input_tokens: 2, cache_read_input_tokens: null, output_tokens: 4 } }),
+    line("m12", { usage: { input_tokens: 1, cache_creation_input_tokens: 2, output_tokens: 4 } }),
+    `{"timestamp": "2026-10-22T10:00:00Z", "message": {"id": "m13", "model": "claude-b", "stop_reason": "x", "usage": {"input_tokens": 1.0}}}`,
+    `{"timestamp": "2026-10-22T10:00:00Z", "message": {"id": "m13", "model": "claude-b", "stop_reason": "x", "usage": {"input_tokens": 1}}}`,
+    line("m14", { time: "2026-10-22T08:00:00+08:00" }), // 恰好在 --since 上
+    line("m15", { time: "2026-10-23T00:00:00Z" }), line("m15", { time: "2026-10-22T05:00:00Z", stop: null }), // 代表时间取最早的
+    `{"message": {"id": "big", "stop_reason": "x", "model": "claude-b", "usage": {"input_tokens": 123456789012345678901234567890, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}, "timestamp": "2026-10-22T11:00:00Z"}`,
+    "not json", "[1, 2]", '{"message": "x"}', '{"message": {"id": ""}}', '{"message": {"id": "", "usage": {}}}',
+    '{"message": {"id": "u", "usage": 1}}', "", "  \t ",
+    `${C(0xfeff)}{"message": {"id": "bom"}}`, "{\"a\": 1}\r",
+  ].join("\n");
 }
 
 const show = (target: string, json: boolean): Pick<Case, "argv" | "pyargs"> => ({
@@ -773,6 +851,90 @@ const CASES: Case[] = [
     name: "X17 --task 不合法",
     setup: searchable,
     ...search("needle", { task: "../x" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--task 必须是合法的任务 ID"),
+  },
+  // --- logs usage（②c）---
+  {
+    name: "U01 执行端（文本）：known、partial、unknown 的各种情形，超出 JS 数字的计数，按模型（无模型在前）",
+    setup: usageAttempts,
+    ...usage(),
+    check: (py) => {
+      expect(text(py)).toContain("执行端：attempt 11 个 · known 3 · partial 3 · unknown 5");
+      expect(text(py)).toContain("123456789012345678901234567890");
+      expect(text(py)).toContain("规划端：未给 --transcript");
+    },
+  },
+  {
+    name: "U02 执行端（JSON）与 --task",
+    setup: usageAttempts,
+    ...usage({ json: true, task: "beta" }),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ executor: { counts: { known: 2, partial: 0, unknown: 1 } }, planner: null }),
+  },
+  {
+    name: "U03 规划端（文本）：重复、冲突、未完成、坏行、非候选、无可用时间、非整数、子代理、BOM 与 CRLF",
+    setup: (repo) => put(repo, "transcripts/a.jsonl", transcriptLines()),
+    ...usage({ transcripts: ["transcripts/a.jsonl"] }),
+    check: (py) => {
+      expect(text(py)).toContain("，部分（有冲突、未完成或读不出的文件）");
+      expect(text(py)).toContain("冲突 4 组");
+    },
+  },
+  {
+    name: "U04 规划端（JSON）：时间窗（含 fromisoformat 的怪癖写法）与按模型的排序",
+    setup: (repo) => put(repo, "transcripts/a.jsonl", transcriptLines()),
+    ...usage({ transcripts: ["transcripts/a.jsonl"], since: "2026-10-22T00:00:00+00:00", until: "2026-10-22T10:00:00:5Z", json: true }),
+    check: (py) => {
+      const planner = JSON.parse(text(py)).planner as { outside_window_ids: number; by_model: { model: string | null }[] };
+      expect(planner.outside_window_ids).toBeGreaterThan(0);
+      expect(planner.by_model[0]?.model).toBe(null);
+    },
+  },
+  {
+    name: "U05 规划端：目录只读直接一层的 .jsonl（后缀按大小写区分），文件与目录混给，同一个文件给两次",
+    setup: (repo) => {
+      put(repo, "t/one.jsonl", transcriptLines());
+      put(repo, "t/two.JSONL", transcriptLines());
+      put(repo, "t/notes.txt", "x");
+      put(repo, "t/sub/three.jsonl", transcriptLines());
+      put(repo, "single.log", transcriptLines());
+    },
+    ...usage({ transcripts: ["t", "single.log", "single.log"], json: true }),
+    check: (py) => expect(JSON.parse(text(py)).planner).toMatchObject({ unreadable_files: 0 }),
+  },
+  {
+    name: "U06 --since 不带时区",
+    setup: () => {},
+    ...usage({ since: "2026-10-22T10:00:00" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--since 需要带时区的 ISO 8601 时间"),
+  },
+  {
+    name: "U07 --until 解析不了（报错里是 repr）",
+    setup: () => {},
+    ...usage({ until: `x'${C(0x4e2d)}"` }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--until 需要带时区"),
+  },
+  {
+    name: "U08 --since 晚于 --until",
+    setup: () => {},
+    ...usage({ since: "2026-10-22T10:00:00+00:00", until: "2026-10-22T09:00:00Z" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--since 晚于 --until"),
+  },
+  {
+    name: "U08b --since 等于 --until：照常统计（窗口是空的）",
+    setup: (repo) => put(repo, "transcripts/a.jsonl", transcriptLines()),
+    ...usage({ transcripts: ["transcripts/a.jsonl"], since: "2026-10-22T10:00:00Z", until: "2026-10-22T18:00:00+08:00", json: true }),
+    check: (py) => expect(JSON.parse(text(py)).planner).toMatchObject({ included_messages: 0 }),
+  },
+  {
+    name: "U09 --transcript 路径不存在（在读执行端之前就报）",
+    setup: usageAttempts,
+    ...usage({ transcripts: ["missing.jsonl"] }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--transcript 路径不存在："),
+  },
+  {
+    name: "U10 --task 不合法（在时间检查之前）",
+    setup: () => {},
+    ...usage({ task: "../x", since: "bad" }),
     check: (py) => expect(py.stderr.toString("utf8")).toContain("--task 必须是合法的任务 ID"),
   },
   {

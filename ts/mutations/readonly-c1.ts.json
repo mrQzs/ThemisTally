@@ -1,0 +1,104 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "packages/contracts/test/pydatetime.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "D01 代理字符的分隔符不换成 T",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "    if (isSurrogate(cp)) {\n      chars[position] = \"T\";",
+      "new": "    if (false) {\n      chars[position] = \"T\";"
+    },
+    {
+      "name": "D02 别处的代理字符也收",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  if (chars.some((char) => isSurrogate(char.codePointAt(0) as number))) return null;",
+      "new": "  if (false) return null;"
+    },
+    {
+      "name": "D03 YYYY-Www-## 当成第 10 位分隔",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "        if (len > 10 && isDigit(str.at(10))) return 8;",
+      "new": "        if (false) return 8;"
+    },
+    {
+      "name": "D04 秒后面的冒号不当小数",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "    if (hasSeparator && c === 0x3a) continue;",
+      "new": "    if (hasSeparator && c === 0x3a && index < 2) continue;"
+    },
+    {
+      "name": "D05 多出的小数位不跳过",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  while (isDigit(str.at(p))) p += 1;",
+      "new": ""
+    },
+    {
+      "name": "D06 Z 后面的 NUL 不当结尾",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "    if (str.at(tz + 1) !== 0) return failed(-5);",
+      "new": "    if (tz + 1 < str.length) return failed(-5);"
+    },
+    {
+      "name": "D07 零秒偏移保留微秒",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "      offset = 0n; // 秒数为零就是 UTC",
+      "new": "      offset = BigInt(time.tzMicrosecond); // 秒数为零就是 UTC"
+    },
+    {
+      "name": "D08 偏移恰为 24 小时也收",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "      if (offset <= -US_PER_DAY || offset >= US_PER_DAY) return null;",
+      "new": "      if (offset < -US_PER_DAY || offset > US_PER_DAY) return null;"
+    },
+    {
+      "name": "D09 换算溢出不报",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  return utc < 0n || utc > MAX_INSTANT ? null : utc;",
+      "new": "  return utc;"
+    },
+    {
+      "name": "D10 没有第 53 周的年份也收",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "    if (outOfRange) return null;",
+      "new": ""
+    },
+    {
+      "name": "D11 闰年只看能否被 4 整除",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "const isLeap = (year: number): boolean => year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);",
+      "new": "const isLeap = (year: number): boolean => year % 4 === 0;"
+    },
+    {
+      "name": "D12 四年周期末不退一年",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  if (n1 === 4 || n100 === 4) return [year - 1, 12, 31];",
+      "new": "  if (n1 === 4 || n100 === 4) return [year, 12, 31];"
+    },
+    {
+      "name": "D13 小数不足六位不补零",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  if (toParse > 0 && toParse < 6) microsecond *= 10 ** (6 - toParse);",
+      "new": ""
+    },
+    {
+      "name": "D14 时区的冒号写法与基本写法混用也收",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "      return [-4, 0, 0, 0, 0];",
+      "new": "      p -= 1;"
+    },
+    {
+      "name": "D15 小时不查上限",
+      "file": "ts/packages/base/src/pydatetime.ts",
+      "old": "  if (time.hour > 23 || time.minute > 59",
+      "new": "  if (time.minute > 59"
+    }
+  ]
+}

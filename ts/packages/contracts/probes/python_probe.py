@@ -5,6 +5,7 @@ TS 实现的探针（ts_probe.ts）收发同样的 JSON，契约测试与对照�
 stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252），stdout 只写 ASCII。
 """
 import base64
+import datetime
 import errno
 import json
 import os
@@ -266,6 +267,16 @@ def op_pyregex_search(request):
     return {"ok": True, "outcome": "match", "hits": [pattern.search(text) is not None for text in request["texts"]]}
 
 
+def op_pydatetime_parse_iso(request):
+    """kit_logs._parse_iso（第 ②c 步）：每段文本换成 UTC 之后距 0001-01-01 的微秒数，不可用为 None。"""
+    epoch = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+    out = []
+    for text in request["texts"]:
+        moment = kit_logs._parse_iso(text)
+        out.append(None if moment is None else str((moment - epoch) // datetime.timedelta(microseconds=1)))
+    return {"ok": True, "values": out}
+
+
 def op_jsonl_records(request):
     """kit_logs._jsonl_records；limit 给了就临时换掉 SAFE_MAX_LINE_BYTES（函数每次调用时才读这个全局量）。"""
     saved = kit_logs.SAFE_MAX_LINE_BYTES
@@ -310,6 +321,7 @@ OPS = {
     "jsonl.records": op_jsonl_records,
     "pyfmt.call": op_pyfmt_call,
     "pyregex.search": op_pyregex_search,
+    "pydatetime.parse_iso": op_pydatetime_parse_iso,
     "jsonl.iter_lines": op_jsonl_iter_lines,
     "jsonl.lines_before": op_jsonl_lines_before,
     "clock.sample": op_clock_sample,
