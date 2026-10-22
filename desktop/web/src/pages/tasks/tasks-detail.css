@@ -1,0 +1,29 @@
+/* attempt 详情页样式（合同第 3、8 节，照详情页画布）：面包屑条、页头、元信息 dl、页签列表。
+   面包屑条在窄内容区下由容器查询把内边距降到 space-4（base.css 的 tt-content）。 */
+
+.tasks-detail { display: flex; flex-direction: column; gap: var(--tt-space-4); }
+
+.tasks-detail__crumb { padding: var(--tt-space-5) var(--tt-space-6) 0; }
+
+@container tt-content (max-width: 807px) { /* 窄内容区断点，base.css :55 同值 */
+  .tasks-detail__crumb { padding: var(--tt-space-4); }
+}
+
+.tasks-detail__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-space-2); }
+
+.tasks-detail__head-note { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-detail__meta { display: flex; flex-wrap: wrap; gap: var(--tt-space-0_5) var(--tt-space-3); margin: 0; }
+
+.tasks-detail__meta-item { display: flex; align-items: baseline; gap: var(--tt-space-1); min-width: 0; }
+
+.tasks-detail__meta dt { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-detail__meta dd { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-1); }
+
+.tasks-detail__next { display: flex; flex-direction: column; gap: var(--tt-space-2); align-items: flex-start; }
+
+.tasks-detail__tabs { display: flex; flex-direction: column; min-width: 0; }
+
+/* 页签列表窄时可以横向滚动（合同 §8） */
+.tasks-detail__tabs .tt-tabs__list { overflow-x: auto; }

@@ -1,0 +1,48 @@
+/* 六个页签的样式（合同第 4、8 节，照详情页画布）：摘要卡、文件行、汇总行、检查表与文件表、页签内的读取态。 */
+
+.tasks-tab { display: flex; flex-direction: column; gap: var(--tt-space-3); min-width: 0; }
+
+.tasks-tab__summary {
+  max-width: 880px; /* 详情页画布 :105 摘要最大宽 */
+  padding: var(--tt-space-5) var(--tt-space-6);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+}
+
+.tasks-tab__file-row { display: flex; align-items: center; gap: var(--tt-space-2); flex-wrap: wrap; }
+
+.tasks-tab__file-name { font: var(--tt-mono-sm); color: var(--tt-text-2); }
+
+.tasks-tab__file-size { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-tab__file-note { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-tab__sum { margin: 0; font: var(--tt-text-md); color: var(--tt-text-1); }
+
+.tasks-tab__empty { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.tasks-tab__note { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+/* 检查表与文件表最小宽 560（详情页画布 :320、:520），宽时在 .tt-table-wrap 里横向滚动 */
+.tasks-tab__table .tt-table-wrap { min-width: 560px; } /* 详情页画布 :520 检查表与文件表最小宽 */
+
+.tasks-tab__read { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.tasks-tab__read--bad { display: flex; flex-direction: column; gap: var(--tt-space-2); align-items: flex-start; }
+
+.tasks-tab__read-bad { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.tasks-tab__read-msg {
+  margin: 0;
+  padding: var(--tt-space-3);
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-1);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-md);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 100%;
+  overflow-x: auto;
+}

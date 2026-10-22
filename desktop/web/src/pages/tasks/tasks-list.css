@@ -1,0 +1,129 @@
+/* 任务列表样式（合同第 2、8 节，照任务页画布）：两栏、左栏（搜索、分组胶囊、任务列表）、
+   右栏（attempt 表、下一步）。两栏间距 space-4、align-items flex-start，窄内容区时上下堆叠（base.css 的 tt-stack-narrow）。 */
+
+.tasks-list { display: flex; flex-direction: column; }
+
+/* 选中任务时的面包屑条（与详情页同值）：第一项回不过滤的任务列表，第二项是当前任务。 */
+.tasks-list__crumb { padding: var(--tt-space-5) var(--tt-space-6) 0; }
+
+@container tt-content (max-width: 807px) { /* 窄内容区断点，base.css :55 同值 */
+  .tasks-list__crumb { padding: var(--tt-space-4); }
+}
+
+.tasks-list__cols { display: flex; gap: var(--tt-space-4); align-items: flex-start; }
+
+.tasks-list__left {
+  width: 320px; /* 任务页画布 :332 左栏宽 */
+  flex: none;
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  overflow: hidden;
+}
+
+.tasks-list__right { flex: 1; min-width: 0; }
+
+.tasks-list__head { display: flex; flex-direction: column; gap: var(--tt-space-2); padding: var(--tt-space-3); }
+
+.tasks-list__search { position: relative; display: flex; align-items: center; }
+
+.tasks-list__search-icon { position: absolute; left: var(--tt-space-2); color: var(--tt-text-3); }
+
+/* 视觉隐藏的标签：只给读屏与自动化用，不占版面 */
+.tasks-list__search-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tasks-list__search-input {
+  height: 32px; /* 任务页画布 :333 搜索框高 */
+  width: 100%;
+  padding-left: var(--tt-space-8);
+  padding-right: var(--tt-space-2);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-md);
+  font: var(--tt-text-md);
+  color: var(--tt-text-1);
+}
+
+.tasks-list__chips { display: flex; flex-wrap: wrap; gap: var(--tt-space-1); }
+
+.tasks-list__chip {
+  height: 28px; /* 任务页画布 :334 胶囊高 */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  padding-left: var(--tt-space-2);
+  padding-right: var(--tt-space-2);
+  background: var(--tt-surface-1);
+  border: 1px solid var(--tt-border-strong);
+  border-radius: var(--tt-radius-full);
+  font: var(--tt-text-sm-medium);
+  color: var(--tt-text-2);
+  cursor: pointer;
+}
+
+.tasks-list__chip[aria-pressed="true"] {
+  background: var(--tt-surface-selected);
+  border: 1px solid var(--tt-primary);
+  color: var(--tt-text-1);
+}
+
+.tasks-list__chip-num { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-list__items { margin: 0; padding: 0; list-style: none; }
+
+.tasks-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-space-2);
+  min-height: 52px; /* 任务页画布 :336 任务项最小高 */
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border-bottom: 1px solid var(--tt-border);
+  cursor: pointer;
+}
+
+.tasks-list__item:hover { background: var(--tt-surface-3); }
+
+.tasks-list__item[aria-selected="true"] {
+  background: var(--tt-surface-selected);
+  box-shadow: inset 2px 0 0 var(--tt-primary); /* 任务页画布 :336 选中竖条 2px 主色 */
+}
+
+.tasks-list__item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tt-space-0_5); }
+
+.tasks-list__item-id {
+  font: var(--tt-mono-md);
+  color: var(--tt-text-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tasks-list__item-seg { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-list__none { margin: 0; padding: var(--tt-space-3); font: var(--tt-text-sm); color: var(--tt-text-2); }
+
+.tasks-list__right-head { display: flex; align-items: baseline; gap: var(--tt-space-2); padding: var(--tt-space-3) var(--tt-space-4); }
+
+.tasks-list__right-title { margin: 0; font: var(--tt-title-md); color: var(--tt-text-1); }
+
+.tasks-list__right-count { font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+/* attempt 表压过 .tt-table-wrap 的外框与圆角，只留上边框 */
+.tasks-list__table .tt-table-wrap { border: 0; border-radius: 0; border-top: 1px solid var(--tt-border); }
+
+.tasks-list__table-wrap { min-width: 1040px; } /* 任务页画布 :367 attempt 表最小宽 */
+
+.tasks-list__next { margin: var(--tt-space-4); }
+
+.tasks-list__foot { margin: var(--tt-space-1) var(--tt-space-4) var(--tt-space-4); font: var(--tt-text-caption); color: var(--tt-text-3); }
+
+.tasks-list__danger { color: var(--tt-danger-text); }
+
+.tasks-list__muted { color: var(--tt-text-3); }
