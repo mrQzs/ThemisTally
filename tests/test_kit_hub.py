@@ -5083,3 +5083,76 @@ def test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer
 
 def pd_section(md: str, name: str) -> str:
     return kh.pd._md_section(md, name) or ""
+
+
+# ---------------------------------------------------------------------------
+# 第 51 轮：执行端说门禁有错时先问站主；站主的信不再悄悄截断
+# ---------------------------------------------------------------------------
+
+T011_LIMITATIONS = [
+    "V01 12 项失败经逐一定位均为门禁端缺陷（对任何实现都失败）：fireEvent.hashChange 在 @testing-library/dom 10.4.0 不存在",
+    "D05/D09 与 TRANS 跟随为探针状态泄漏/计时器残留，隔离复现本实现正确",
+    "V02 仅单独验证了最可能回归的 test_gate_t006（49 passed），未整跑 T001–T010",
+]
+
+
+def test_gate_claims_in_the_executor_report_are_found():
+    assert kh.gate_claims({"limitations": T011_LIMITATIONS}) == T011_LIMITATIONS[:2]
+    assert kh.gate_claims({"unresolved_questions": [{"text": "需门禁端确认是否为探针/vi.mock 状态泄漏"}],
+                           "contract_conflicts": ["D06 与门禁的正则写法冲突，门禁测试有错"]}) == [
+        "需门禁端确认是否为探针/vi.mock 状态泄漏", "D06 与门禁的正则写法冲突，门禁测试有错"]
+    assert kh.gate_claims({"limitations": ["V01 门禁检查全过", "没跑 V02"], "interpretations": ["门禁端缺陷"]}) == []
+
+
+def test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner(engine_env, monkeypatch):
+    hub = engine_env
+    check = {"code": 1}
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (check["code"], "check 输出"))
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    (run_dir / "executor-report.json").write_text(json.dumps(
+        {"executor_status": "partial", "dod": [], "limitations": T011_LIMITATIONS}, ensure_ascii=False), encoding="utf-8")
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert ts["exec"]["gate_claim"] is True
+    assert letter["需协调人决定"].startswith("执行端说门禁测试有错") and "合同矛盾：无" in letter["需协调人决定"]
+    assert "先给站主发提问" in kh._guard_rework(ts, "5-exec")
+    assert kh._guard_rework(ts, "3-gate-pre") != kh._guard_rework(ts, "5-exec")
+    ts["owner_rework"] = {"suffix": "5-exec", "msg": "m", "requested_at": "2026-10-22T00:00:00Z"}
+    assert kh._guard_rework(ts, "5-exec") is None  # 站主明说返工执行端
+    del ts["owner_rework"]
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "exec.gate_claimed"' in events and '"claims": 2' in events
+    check["code"] = 0  # 检查过了：执行端说什么都不扣
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert not ts["exec"].get("gate_claim") and letter["需协调人决定"].startswith("合同矛盾")
+    check["code"] = 1
+    (run_dir / "executor-report.json").write_text(json.dumps(
+        {"executor_status": "partial", "dod": [], "limitations": T011_LIMITATIONS[2:]}, ensure_ascii=False),
+        encoding="utf-8")
+    kh.finish_exec(hub, ts, run_dir, 0)
+    assert not ts["exec"].get("gate_claim")
+
+
+def test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused(tmp_path):
+    import argparse
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    ts["exec"]["gate_claim"] = True
+    hub.save_state({"tasks": {"T001": ts}})
+    body = tmp_path / "reply.md"
+    body.write_text("站" * (kh.MAX_OWNER_CHARS + 1), encoding="utf-8")
+    args = argparse.Namespace(repo=str(repo), task="T001", type="回复", reply_to=None, rework=None,
+                              facts_checked=False, file=str(body))
+    with pytest.raises(kh.HubError, match="超过 2000 字"):
+        kh.cmd_send(args)
+    assert hub.load_state()["tasks"]["T001"]["exec"]["gate_claim"] is True
+    text = "站主查明：" + "门" * (kh.MAX_OWNER_CHARS - 6) + "尾"
+    body.write_text(text + "\n", encoding="utf-8")
+    kh.cmd_send(args)
+    assert hub.load_state()["tasks"]["T001"]["exec"]["gate_claim"] is False
+    letter = hub.unread(kh.COORDINATOR)[0].read_text(encoding="utf-8")
+    assert kh.parse_letter(letter)[1]["摘要"] == text  # 一个字也不少
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "exec.gate_claim_answered"' in events

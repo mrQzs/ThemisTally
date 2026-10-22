@@ -55,6 +55,8 @@ VERDICT_FIELDS = ("结论", "退回", "阻塞项")
 KERNEL_FIELDS = ("内核核验",)
 KNOWN_FIELDS = FIELDS + VERDICT_FIELDS + KERNEL_FIELDS
 MAX_BODY_LINES = 40
+#: 站主一封信的字数上限（send 的正文）
+MAX_OWNER_CHARS = 2000
 VERDICTS = ("通过", "返工")
 STAGES = (
     ("1-plan", "planner-opus"),
@@ -784,6 +786,9 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
         return "阶段 %s 正在进行，不能返工" % suffix
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
+    if suffix == "5-exec" and ts["exec"].get("gate_claim"):
+        return ("执行端说门禁测试有错，协调人核实不了：先给站主发提问（附执行端的原话与没过的用例），"
+                "等站主答复再定是门禁热修补还是返工执行端")
     done = (ts.get("reworks") or {}).get(suffix, 0)
     if suffix != "5-exec" and done >= MAX_STAGE_REWORKS:
         # 第 14 轮：执行端有合同预算封顶，别的阶段没有，同一处可以无限返工（docs/实际问题/协调端.md 的返工乒乓）
@@ -2769,6 +2774,23 @@ def rework_section(previous: Path, sha: str, blockers: str, number: int, why: st
     return "\n".join(lines + [title, "", (blockers or "").strip() or empty, ""])
 
 
+#: 执行报告里“门禁测试有错”的说法（第 51 轮）
+GATE_CLAIM_RE = re.compile(r"门禁[端测试探针用例的]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)|探针.{0,12}(?:泄漏|缺陷|有错)"
+                           r"|(?:任何|所有)实现都|gate (?:test )?(?:defect|bug)", re.I)
+
+
+def gate_claims(report: Dict[str, Any]) -> List[str]:
+    """执行报告的局限、未决问题、合同矛盾里说门禁测试有错的那几条。T011 的执行端在局限里写“V01 12 项失败
+    经逐一定位均为门禁端缺陷”，协调人核实不了，直接返工执行端，又跑了两小时；站主一查，至少 8 条是真的。"""
+    claims: List[str] = []
+    for name in ("limitations", "unresolved_questions", "contract_conflicts"):
+        for item in report.get(name) or []:
+            text = str(item.get("text") if isinstance(item, dict) and item.get("text") else item)
+            if GATE_CLAIM_RE.search(text):
+                claims.append(text)
+    return claims
+
+
 def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[int]) -> Dict[str, str]:
     """attempt 跑完之后的核验：check --fresh、范围门禁与 attempt 状态；从执行报告生成交付信的正文。
     exec-recheck 也走这里：内核中途停下或判定逻辑修过之后，对已有的 attempt 重新核验，不占新的尝试次数。"""
@@ -2785,6 +2807,10 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
                   "conflicts": len(report.get("contract_conflicts") or []), "attempts_left": attempts_left(hub, ts)}
     hub.append_event("exec.finished", task=ts["task"], run_dir=str(run_dir), status=status,
                      check_exit=check_code, scope_violations=len(violations))
+    claims = gate_claims(report) if check_code != 0 else []
+    if claims:
+        ts["exec"]["gate_claim"] = True  # 站主答复之前不能返工执行端（_guard_rework）
+        hub.append_event("exec.gate_claimed", task=ts["task"], run_dir=str(run_dir), claims=len(claims))
 
     def listing(name: str) -> str:
         values = report.get(name) or []
@@ -2809,7 +2835,9 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
             "提交": "无（候选补丁 %s/candidate.patch）" % rel,
             "验证": verdict_line,
             "偏离": "解读：%s；局限：%s" % (listing("interpretations"), listing("limitations")),
-            "需协调人决定": "合同矛盾：%s；未决问题：%s" % (listing("contract_conflicts"), listing("unresolved_questions")),
+            "需协调人决定": ("执行端说门禁测试有错（原话见下面与“偏离”）：先给站主发提问，附执行端的原话与没过的用例；"
+                         "站主答复之前内核不放行执行端返工。" if claims else "") +
+                        "合同矛盾：%s；未决问题：%s" % (listing("contract_conflicts"), listing("unresolved_questions")),
             "证据": "%s/summary.md、%s/executor-report.md、%s/checks/" % (rel, rel, rel)}
 
 
@@ -4371,7 +4399,11 @@ def cmd_send(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     text = Path(args.file).read_text(encoding="utf-8") if args.file != "-" else sys.stdin.read()
     fields = {key: "无" for key in FIELDS}
-    fields["摘要"] = text.strip()[:2000] or "无"
+    if len(text.strip()) > MAX_OWNER_CHARS:
+        # 第 51 轮：以前悄悄截到 2000 字，T011 的门禁热修补信写了 2430 字，后面几条缺陷会整段丢掉
+        raise HubError("信有 %d 字，超过 %d 字：压缩一下，或把细节写进仓库里的文件、在信里给路径"
+                       % (len(text.strip()), MAX_OWNER_CHARS), EXIT_USAGE)
+    fields["摘要"] = text.strip() or "无"
     meta = {"from": OWNER, "to": COORDINATOR, "task-id": args.task, "in-reply-to": args.reply_to or "none",
             "type": args.type}
     if args.rework:
@@ -4421,6 +4453,9 @@ def cmd_send(args: argparse.Namespace) -> int:
         if decision:
             ts.setdefault("decisions", []).append({"msg": msg, "text": fields["摘要"], "at": utc_now()})
             hub.append_event("owner.decision_recorded", task=args.task, msg=msg)
+        if ts is not None and args.type == "回复" and (ts.get("exec") or {}).get("gate_claim"):
+            ts["exec"]["gate_claim"] = False  # 站主看过了：热修补还是返工执行端，按站主的答复办
+            hub.append_event("exec.gate_claim_answered", task=args.task, msg=msg)
         hub.save_state(state)
     print("已投递 %s" % msg)
     if decision:
