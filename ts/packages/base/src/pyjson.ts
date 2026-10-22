@@ -271,9 +271,12 @@ const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', "\\": "\\", "/": "/",
 
 const BOM = String.fromCharCode(0xfeff);
 
-/** text 的前 units 个 UTF-16 码元里有几个码点（Python 的 str 下标按码点）。 */
+/**
+ * text 的前 units 个 UTF-16 码元里有几个码点（Python 的 str 下标按码点）。
+ * 超出末尾的部分照原样外推：rawDecode("abc", 10) 与 Python 一样报 char 10。
+ */
 export function codePointIndex(text: string, units: number): number {
-  let count = 0;
+  let count = Math.max(0, units - text.length);
   for (let index = 0; index < units && index < text.length; index += 1) {
     const unit = text.charCodeAt(index);
     // 代理对算一个码点：高代理项后面紧跟低代理项时，低的那个不再计数
@@ -286,15 +289,16 @@ export function codePointIndex(text: string, units: number): number {
   return count;
 }
 
-/** 第 codePoints 个码点在 text 里的 UTF-16 下标（codePointIndex 的反函数）。 */
+/** 第 codePoints 个码点在 text 里的 UTF-16 下标（codePointIndex 的反函数；超出末尾的照原样外推）。 */
 export function unitIndex(text: string, codePoints: number): number {
   let index = 0;
-  for (let count = 0; count < codePoints && index < text.length; count += 1) {
+  let count = 0;
+  for (; count < codePoints && index < text.length; count += 1) {
     const unit = text.charCodeAt(index);
     const next = text.charCodeAt(index + 1);
     index += unit >= 0xd800 && unit <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
   }
-  return index;
+  return index + (codePoints - count);
 }
 
 /**

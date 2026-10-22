@@ -1,6 +1,8 @@
 // 目录锁、pid_alive 与文本读写的契约：照现行三份锁（kit_hub.DirLock、pi_dispatch.TaskLock、kit_config.ConfigLock）、
 // pi_dispatch.pid_alive、kit_hub.read_text / write_text_atomic 的行为。每套实现逐条通过，Python 实现先过。
 // 对照部分：两套实现抢同一把锁，必须互斥；同一把锁写出的 owner.json 格式相同。
+// 报错文字只比较类型（迁移计划 §3.4 的第二类）：三把锁等满之后的报错只进 stderr 与命令的退出信息，
+// 不进证据。Python 的 DirLock 写 owner 字典的 repr（单引号），TS 用 JSON，契约这里只比较“busy”。
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";

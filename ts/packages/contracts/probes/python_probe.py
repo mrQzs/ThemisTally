@@ -173,8 +173,24 @@ def op_lock_run(request):
             "released_ms": time.time() * 1000, "left": lock.path.exists()}
 
 
+def op_filelock_run(request):
+    """kit_hub.file_lock：拿锁后（signal 时）往 stderr 报 ready，持有 hold_ms 毫秒再放。"""
+    try:
+        with kit_hub.file_lock(Path(request["path"]), wait_seconds=request.get("wait", 60)):
+            acquired = time.time() * 1000
+            if request.get("signal"):
+                sys.stderr.write("ready\n")
+                sys.stderr.flush()
+            time.sleep(request.get("hold_ms", 0) / 1000)
+            released = time.time() * 1000
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "timeout", "message": str(exc)}
+    return {"ok": True, "acquired_ms": acquired, "released_ms": released}
+
+
 OPS = {
     "publish_new": op_publish_new,
+    "filelock.run": op_filelock_run,
     "clock.sample": op_clock_sample,
     "fs.read_text": op_fs_read_text,
     "fs.write_text_atomic": op_fs_write_text_atomic,

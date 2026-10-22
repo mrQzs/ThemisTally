@@ -1,0 +1,61 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/filelock.contract.test.ts",
+    "packages/base/test/native.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "N01 共享锁代替排他锁",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "call.LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0,",
+      "new": "call.LockFileEx(handle, LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0,"
+    },
+    {
+      "name": "N02 锁第 1 个字节（与 Python 的区间不重叠）",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    const overlapped = new Uint8Array(32);",
+      "new": "    const overlapped = new Uint8Array(32); overlapped[16] = 1;"
+    },
+    {
+      "name": "N03 超时文字不同",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    super(`等文件锁超时：${path}`);",
+      "new": "    super(`文件锁超时：${path}`);"
+    },
+    {
+      "name": "N04 拿不到就不再重试",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    if (performance.now() >= deadline) {\n      lock.unlock();",
+      "new": "    if (true) {\n      lock.unlock();"
+    },
+    {
+      "name": "N05 不认辅助进程已死",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      if (!alive) throw new FileLockLost(`持有文件锁的辅助进程退出了，锁已丢：${path}`);",
+      "new": "      void alive;"
+    },
+    {
+      "name": "N06 共享方式少了 WRITE",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      FILE_SHARE_READ | FILE_SHARE_WRITE,\n",
+      "new": "      FILE_SHARE_READ,\n"
+    },
+    {
+      "name": "N07 申请 DELETE 访问",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      GENERIC_READ | GENERIC_WRITE,\n",
+      "new": "      GENERIC_READ | GENERIC_WRITE | 0x10000,\n"
+    },
+    {
+      "name": "N08 辅助进程在 stdin 关闭后不退出",
+      "file": "ts/packages/base/src/native-helper.ts",
+      "old": "lines.on(\"close\", () => process.exit(0));",
+      "new": "lines.on(\"close\", () => undefined);"
+    }
+  ]
+}

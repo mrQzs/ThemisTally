@@ -6,6 +6,7 @@
     "./clock": "./src/clock.ts",
     "./fsutil": "./src/fsutil.ts",
     "./locks": "./src/locks.ts",
+    "./native": "./src/native.ts",
     "./process": "./src/process.ts",
     "./publish": "./src/publish.ts",
     "./pyjson": "./src/pyjson.ts"

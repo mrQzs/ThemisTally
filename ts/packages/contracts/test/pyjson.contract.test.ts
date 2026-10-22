@@ -201,6 +201,8 @@ const MESSAGES: Record<string, string> = {
   K29: "Unterminated string starting at: line 1 column 2 (char 1)",
   K30: "Invalid \\uXXXX escape: line 1 column 9 (char 8)",
   P01: "Expecting value: line 1 column 1 (char 0)",
+  P05: "Expecting value: line 1 column 11 (char 10)",
+  P06: "Expecting value: line 2 column 6 (char 7)",
 };
 
 const POSITIONS: readonly Case[] = [
@@ -219,6 +221,8 @@ const RAW: readonly Case[] = [
   { name: "P02 raw_decode 从中间开始、后面可以跟别的", request: { op: "pyjson.raw_decode", text: 'xx{"a": 1} tail', index: 2 }, expect: { ok: true, value: D(["a", I(1)]), end: 10 } },
   { name: "P03 raw_decode 的下标与 end 都按码点", request: { op: "pyjson.raw_decode", text: '😀😀[1, "😀"] rest', index: 2 }, expect: { ok: true, value: L(I(1), S("😀")), end: 10 } },
   { name: "P04 raw_decode 不查 BOM", request: { op: "pyjson.raw_decode", text: BOM + "[1]", index: 1 }, expect: { ok: true, value: L(I(1)), end: 4 } },
+  { name: "P05 raw_decode 的起始下标超出末尾：照原下标报错", request: { op: "pyjson.raw_decode", text: "abc", index: 10 }, expect: { ok: false, error: "JSONDecodeError" } },
+  { name: "P06 起始下标超出末尾，前面有补充平面字符与换行", request: { op: "pyjson.raw_decode", text: "😀\nx", index: 7 }, expect: { ok: false, error: "JSONDecodeError" } },
 ];
 
 describe.each(IMPLS)("pyjson 契约 impl=$name", (impl) => {

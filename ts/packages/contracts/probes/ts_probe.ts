@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
 import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
+import { FileLockTimeout, acquireFileLock } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
@@ -42,7 +43,24 @@ function textResult(text: string, encode: unknown): Result {
   return encode ? { ok: true, b64: Buffer.from(encodeUtf8(text)).toString("base64") } : { ok: true, text };
 }
 
-const OPS: Record<string, (request: Request) => Result> = {
+const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
+  "filelock.run": async (request) => {
+    const path = String(request["path"]);
+    let lock;
+    try {
+      lock = await acquireFileLock(path, Number(request["wait"] ?? 60));
+    } catch (error) {
+      if (error instanceof FileLockTimeout) return { ok: false, error: "timeout", message: error.message };
+      throw error;
+    }
+    const acquired = Date.now();
+    if (request["signal"]) process.stderr.write("ready\n");
+    await new Promise((done) => setTimeout(done, Number(request["hold_ms"] ?? 0)));
+    lock.assertHeld();
+    const released = Date.now();
+    await lock.release();
+    return { ok: true, acquired_ms: acquired, released_ms: released };
+  },
   publish_new: (request) => ({
     ok: true,
     published: publishNew(String(request["path"]), Buffer.from(String(request["data_b64"]), "base64")),
@@ -106,12 +124,12 @@ const OPS: Record<string, (request: Request) => Result> = {
     textResult(dumps(loads(String(request["text"])), dumpsOptions(request["options"])), request["encode"]),
 };
 
-function runOne(request: Request): Result {
+async function runOne(request: Request): Promise<Result> {
   if (request.barrier) waitFor(request.barrier);
   const handler = OPS[request.op];
   if (handler === undefined) return { ok: false, error: "UNKNOWN_OP" };
   try {
-    return handler(request);
+    return await handler(request);
   } catch (error) {
     if (error instanceof PyJsonError) {
       // pyjson 的报错文字是契约的一部分（Python 会经 str(exc) 写进输出）
@@ -123,6 +141,12 @@ function runOne(request: Request): Result {
 }
 
 const request = JSON.parse(await readStdin()) as Request;
-const result =
-  request.op === "batch" ? { ok: true, results: (request["items"] as Request[]).map(runOne) } : runOne(request);
+let result: Result;
+if (request.op === "batch") {
+  const results: Result[] = [];
+  for (const item of request["items"] as Request[]) results.push(await runOne(item));
+  result = { ok: true, results };
+} else {
+  result = await runOne(request);
+}
 process.stdout.write(JSON.stringify(result));
