@@ -1,5 +1,5 @@
 // 只读页面二共用的文字格式化（合同「公共约定」）：数字千分位手写，不用 Intl、toLocaleString；
-// 时间是「YYYY-MM-DD HH:mm:ss（UTC HH:mm:ss）」；站内地址保留当前 ?mock=。
+// 站内地址保留当前 ?mock=。时间是共用件 components/RelativeTime 的 formatLocalUtc（T013 合并）。
 import { parseHash, mockOfQuery } from '../../shell/router';
 import { relativeTime } from '../../shell/relativeTime';
 
@@ -14,19 +14,6 @@ export function formatThousands(value: unknown): string {
     out += digits[i];
   }
   return negative ? `-${out}` : out;
-}
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/**
- * 「YYYY-MM-DD HH:mm:ss（UTC HH:mm:ss）」：本地时间加 UTC；解析不了返回 null。
- */
-export function formatLocalUtc(iso: string): string | null {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const utc = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
-  return `${local}（UTC ${utc}）`;
 }
 
 /** 相对时间（秒/分/时/天前）；解析不了返回 null。 */

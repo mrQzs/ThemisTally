@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 const FILES = [
   'pages/readonly1/common-Section.tsx',
   'pages/readonly1/common-links.ts',
-  'pages/readonly1/common-copyText.ts',
   'pages/readonly1/common-CopyNote.tsx',
   'pages/readonly1/overview-OverviewView.tsx',
   'pages/readonly1/overview-MetricCard.tsx',
@@ -25,6 +24,8 @@ const FILES = [
   'pages/readonly1/runtimes-logic.ts',
   'components/RelativeTime.tsx',
   'components/ActorTag.tsx',
+  'components/copyText.ts',
+  'components/actionTitle.ts',
 ];
 const STATE_CODES = ['PREPARING', 'RUNNING', 'COLLECTING', 'NEEDS_REVIEW', 'TIMEOUT', 'CANCELLED', 'INFRA_FAILURE', 'ESCALATE', 'BLOCKED', 'PASS', 'ACCEPTED_WITH_EXCEPTION', 'INTEGRATED', 'REVISE', 'ABANDONED', 'SUPERSEDED', 'PREPARE_FAILED'];
 const FORBIDDEN = ['fetch', 'XMLHttpRequest', 'EventSource', 'WebSocket', 'dangerouslySetInnerHTML', 'innerHTML', 'outerHTML', 'insertAdjacentHTML', 'eval(', 'new Function', 'document.write', 'srcdoc', 'DOMParser', 'ServerIcon'];

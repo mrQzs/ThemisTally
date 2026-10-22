@@ -134,15 +134,20 @@ describe('PresetsTable 与差异面板', () => {
     expect(btn(trs[0].children[4], '使用')).toBeUndefined();
     const diff = btn(trs[1].children[4], '查看差异');
     expect(diff?.disabled).toBe(false);
+    expect(diff!.getAttribute('aria-controls')).toBeNull();
     fireEvent.click(diff!);
     await flush();
     expect(calls).toEqual([['default', 'economy']]);
-    const panel = document.getElementById(diff!.getAttribute('aria-controls') as string) as any;
+    const controls = diff!.getAttribute('aria-controls') as string;
+    expect(controls, '展开后 aria-controls 应指向存在的面板').toBeTruthy();
+    expect(controls).not.toMatch(/\s/);
+    const panel = document.getElementById(controls) as any;
     expect(text(panel)).toContain('default 与 economy 的差异');
     expect(panel.textContent.replace(/\s+/g, '')).toContain('其余3个角色相同');
     fireEvent.click(diff!);
     await flush();
-    expect(document.getElementById(diff!.getAttribute('aria-controls') as string)).toBeNull();
+    expect(diff!.getAttribute('aria-controls')).toBeNull();
+    expect(document.getElementById(controls)).toBeNull();
   });
 
   it('出错显示命令与退出码加 messages', async () => {

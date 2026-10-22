@@ -22,19 +22,26 @@ function relativeText(fromMs: number, nowMs: number): string {
   return `${Math.floor(hour / 24)} 天前`;
 }
 
-export function RelativeTime({ iso, now, className }: RelativeTimeProps) {
+/** 「YYYY-MM-DD HH:mm:ss（UTC HH:mm:ss）」：本地时间加 UTC；解析不了返回 null。 */
+export function formatLocalUtc(iso: string): string | null {
   const t = Date.parse(iso);
-  if (Number.isNaN(t)) {
-    return <span className={className}>{iso}</span>;
-  }
+  if (Number.isNaN(t)) return null;
   const d = new Date(t);
-  const title =
+  return (
     `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
     `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` +
-    `（UTC ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}）`;
+    `（UTC ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}）`
+  );
+}
+
+export function RelativeTime({ iso, now, className }: RelativeTimeProps) {
+  const title = formatLocalUtc(iso);
+  if (title === null) {
+    return <span className={className}>{iso}</span>;
+  }
   return (
     <time className={className} dateTime={iso} title={title}>
-      {relativeText(t, now ?? Date.now())}
+      {relativeText(Date.parse(iso), now ?? Date.now())}
     </time>
   );
 }

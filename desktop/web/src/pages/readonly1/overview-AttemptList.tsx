@@ -7,7 +7,7 @@ import { ChevronRightIcon, TriangleAlertIcon } from '../../icons';
 import { NextStep, StatusTag, Tag } from '../../components';
 import { Section } from './common-Section';
 import { CopyNote } from './common-CopyNote';
-import { copyText, type CopyResult } from './common-copyText';
+import { copyText, type CopyResult } from '../../components';
 import { evidencePath, eventsPath, navHandler } from './common-links';
 import { checksInfo, idleDeltas, liveElapsed, longIdle, rowName, toolCalls } from './overview-logic';
 

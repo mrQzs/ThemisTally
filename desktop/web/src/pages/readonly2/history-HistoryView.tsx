@@ -1,19 +1,17 @@
 // 历史与审计页视图（合同 D06）：十列宽表，行按编号倒序；点行或 Enter 打开差异抽屉，只换内容不关抽屉。
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Banner, Drawer, MaskedValue, Table, Tag, isMaskedPlaceholder, type TableColumn } from '../../components';
+import { ActorTag, Banner, Drawer, MaskedValue, RelativeTime, Table, Tag, isMaskedPlaceholder, type TableColumn } from '../../components';
+import { actionTitle } from '../../components/actionTitle';
 import { RotateCcwIcon, TriangleAlertIcon } from '../../icons';
 import { DisabledAction } from '../../shell/DisabledAction';
 import type { HistoryData } from '../../api';
-import { ActorTag } from './history-ActorTag';
 import { HistoryDrawer, type HistoryReader } from './history-HistoryDrawer';
 import {
-  actionTitle,
   drawerTitle,
   resourceLabel,
   rollbackNote,
   sortedEntries,
   stateText,
-  timeCell,
   type HistoryEntry,
 } from './history-logic';
 import './history-styles.css';
@@ -75,7 +73,6 @@ export function HistoryView({ data, getHistoryEntry }: { data: HistoryData; getH
   const openEntry = rowsData.find((e) => e.number === openNumber) ?? null;
   const broken = data.broken_lines ?? [];
   const before = typeof data.external_before_first === 'number' ? data.external_before_first : 0;
-  const now = Date.now();
 
   const onRowOpen = (key: string) => {
     const n = Number(key);
@@ -94,17 +91,12 @@ export function HistoryView({ data, getHistoryEntry }: { data: HistoryData; getH
   }, [openNumber, selectedKey]);
 
   const views: HistoryRowView[] = rowsData.map((e) => {
-    const time = timeCell(e.at, now);
     const title = actionTitle(e.action);
     const external = typeof e.external_changes === 'number' ? e.external_changes : 0;
     return {
       key: String(e.number),
       number: <span className="r2-mono">{`#${e.number}`}</span>,
-      at: (
-        <span className="r2-history__time" title={time.title ?? undefined}>
-          {time.text}
-        </span>
-      ),
+      at: <RelativeTime iso={e.at} className="r2-history__time" />,
       resource: <span>{resourceLabel(e.resource)}</span>,
       action: (
         <span className="r2-mono" title={title ?? undefined}>

@@ -1,6 +1,6 @@
 // 方案表（合同第 5 节）：列 名称/说明/包含的角色/当前/操作；当前行写「当前方案不能删」，其余行 [使用][删除…] 禁用、
 // [查看差异] 可用；差异面板同时只开一个，只认最后一次请求（过期回应丢弃）。
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import type { Envelope, PresetDiffData, PresetsData } from '../../api';
 import { Button, Table, type TableColumn } from '../../components';
 import { CheckIcon } from '../../icons';
@@ -38,6 +38,10 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
   const [openName, setOpenName] = useState<string | null>(null);
   const [diff, setDiff] = useState<PresetDiffState | null>(null);
   const reqRef = useRef(0);
+  // 面板 id 用 useId 加行序号：各行互不相同，也不拿方案名拼（收起的按钮不给 aria-controls）。
+  const diffId = useId();
+  const openIndex = openName === null ? -1 : presets.findIndex((p) => p.name === openName);
+  const panelId = `${diffId}-${openIndex}`;
 
   const toggle = (name: string) => {
     const my = (reqRef.current += 1);
@@ -61,7 +65,7 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
     });
   };
 
-  const rows: PresetRow[] = presets.map((p) => {
+  const rows: PresetRow[] = presets.map((p, i) => {
     const isCurrent = p.name === active;
     return {
       rowId: p.name,
@@ -86,7 +90,7 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
             variant="ghost"
             size="sm"
             aria-expanded={openName === p.name}
-            aria-controls={`rl-diff-${p.name}`}
+            aria-controls={openName === p.name ? `${diffId}-${i}` : undefined}
             onClick={() => toggle(p.name)}
           >
             查看差异
@@ -107,7 +111,7 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
         rowKey={(r) => r.rowId}
       />
       {openName !== null && (
-        <PresetDiff id={`rl-diff-${openName}`} active={active} name={openName} state={diff} totalRoles={totalRoles} />
+        <PresetDiff id={panelId} active={active} name={openName} state={diff} totalRoles={totalRoles} />
       )}
     </Section>
   );

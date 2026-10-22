@@ -4,7 +4,7 @@ import { Banner, IconButton, Tag, type TagTone } from '../../components';
 import { CopyIcon } from '../../icons';
 import type { Envelope } from '../../api';
 import type { PluginShowData } from '../../mock/readonly2-plugin-show';
-import { copyText, COPY_RESULT_TEXT, type CopyResult } from './common-copy';
+import { copyText, COPY_RESULT_TEXT, type CopyResult } from '../../components';
 import { drawerWarning, joinList, lockView, type PluginRow } from './plugins-logic';
 import './plugins-styles.css';
 

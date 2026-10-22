@@ -1,12 +1,15 @@
-// 只读页面二的纯函数自测：千分位、本地与 UTC 时间、保留 mock 的地址、复制三结果之外的字面规则，
+// 只读页面二的纯函数自测：千分位、保留 mock 的地址、复制三结果之外的字面规则，
 // 以及凭据、日志、插件、历史四页的取值映射（合同 Steps 2–9 的纯函数部分）。
+// 动作说明、执行者色调、本地与 UTC 时间是共用件（components/actionTitle、components/ActorTag、components/RelativeTime），从这里引入。
 import { describe, expect, it } from 'vitest';
 import {
-  formatLocalUtc,
   formatThousands,
   hrefWithMock,
+  relativeFrom,
 } from '../src/pages/readonly2/common-format';
-import { SOURCE_LEGEND, sourceTag, usedBySegments } from '../src/pages/readonly2/secrets-logic';
+import { formatLocalUtc } from '../src/components/RelativeTime';
+import { actionTitle } from '../src/components/actionTitle';
+import { actorTone } from '../src/components/ActorTag';
 import {
   canHighlight,
   excerptSegments,
@@ -25,17 +28,15 @@ import {
   statusTone,
 } from '../src/pages/readonly2/plugins-logic';
 import {
-  actionTitle,
-  actorTone,
   diffKind,
   drawerTitle,
   resourceLabel,
   rollbackNote,
   sortedEntries,
   stateText,
-  timeCell,
   type HistoryEntry,
 } from '../src/pages/readonly2/history-logic';
+import { SOURCE_LEGEND, sourceTag, usedBySegments } from '../src/pages/readonly2/secrets-logic';
 
 const entry = (o: Partial<HistoryEntry>): HistoryEntry => ({
   number: 1,
@@ -258,13 +259,15 @@ describe('历史：文字与色调', () => {
     expect(actorTone('something')).toBe('neutral');
   });
 
-  it('倒序、时间格、标题与底栏说明', () => {
+  it('倒序、本地与 UTC 的 title、抽屉标题与底栏说明', () => {
     expect(sortedEntries([entry({ number: 1 }), entry({ number: 8 }), entry({ number: 3 })]).map((e) => e.number))
       .toEqual([8, 3, 1]);
+    // 时间格的文字与 title：合并前由 timeCell 算，现在由共用件 RelativeTime 渲染（见 cleanup1-merge 的渲染用例）。
     const now = new Date('2026-10-18T03:00:00Z').getTime();
-    expect(timeCell('2026-10-18T02:02:11Z', now).text).toBe('57 分钟前');
-    expect(timeCell('2026-10-18T02:02:11Z', now).title).toBe(formatLocalUtc('2026-10-18T02:02:11Z'));
-    expect(timeCell('not-a-time', now)).toEqual({ text: 'not-a-time', title: null });
+    expect(relativeFrom('2026-10-18T02:02:11Z', now)).toBe('57 分钟前');
+    expect(formatLocalUtc('2026-10-18T02:02:11Z')).toMatch(/（UTC 02:02:11）$/);
+    expect(relativeFrom('not-a-time', now)).toBeNull();
+    expect(formatLocalUtc('not-a-time')).toBeNull();
     expect(drawerTitle(entry({ number: 42, action: 'preset.use', target: 'default' }))).toBe('#42 · preset.use default');
     expect(drawerTitle(entry({ number: 3, action: 'custom.act', target: '' }))).toBe('#3 · custom.act');
     expect(rollbackNote(entry({ number: 8 }), 8)).toBe('这是最新的一条，回滚后没有变化');

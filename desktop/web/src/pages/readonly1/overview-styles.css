@@ -5,6 +5,7 @@
 .ov-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tt-space-4); }
 
 .ov-metric {
+  position: relative;
   background: var(--tt-surface-1);
   border: 1px solid var(--tt-border);
   border-radius: var(--tt-radius-lg);
@@ -12,17 +13,22 @@
   text-decoration: none;
   padding: var(--tt-space-3) var(--tt-space-4) var(--tt-space-3) var(--tt-space-5);
   display: flex;
-  align-items: center;
-  gap: var(--tt-space-3);
+  flex-direction: column;
+  gap: var(--tt-space-0_5);
 }
 .ov-metric:hover { background: var(--tt-surface-2); }
-.ov-metric__bar { width: 3px; align-self: stretch; border-radius: var(--tt-radius-full); } /* 画布：色调条宽 3px */
-.ov-metric__label { font: var(--tt-text-sm); color: var(--tt-text-2); }
-.ov-metric__num { font: var(--tt-display); color: var(--tt-text-1); margin-left: auto; }
+.ov-metric__bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: var(--tt-radius-full); } /* 画布：色调条 3px 贴左缘 */
+.ov-metric__label { display: flex; align-items: center; gap: var(--tt-space-1); font: var(--tt-text-sm); color: var(--tt-text-2); }
+.ov-metric__num { font: var(--tt-display); color: var(--tt-text-1); }
 .ov-metric[data-metric="running"] .ov-metric__bar { background: var(--tt-tone-info-fg); }
 .ov-metric[data-metric="review"] .ov-metric__bar { background: var(--tt-accent); }
 .ov-metric[data-metric="decide"] .ov-metric__bar { background: var(--tt-tone-escalate-fg); }
 .ov-metric[data-metric="integrate"] .ov-metric__bar { background: var(--tt-tone-brand-fg); }
+/* 指标卡标签行的图标颜色：各取本卡的色调令牌（领域板 7.23） */
+.ov-metric[data-metric="running"] .ov-metric__icon { color: var(--tt-tone-info-fg); }
+.ov-metric[data-metric="review"] .ov-metric__icon { color: var(--tt-accent-text); }
+.ov-metric[data-metric="decide"] .ov-metric__icon { color: var(--tt-tone-escalate-fg); }
+.ov-metric[data-metric="integrate"] .ov-metric__icon { color: var(--tt-tone-brand-fg); }
 
 .ov-judge { border-left: 3px solid var(--tt-accent); } /* 画布：需要你判断左边框 */
 .ov-pill {
@@ -50,7 +56,7 @@
 }
 .ov-row:hover { background: var(--tt-surface-3); }
 .ov-row__main { min-width: 0; display: flex; flex-direction: column; gap: var(--tt-space-0_5); }
-.ov-row__name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-row__name { font: var(--tt-mono-md); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ov-row__info { display: flex; gap: var(--tt-space-2); font: var(--tt-text-sm); color: var(--tt-text-2); white-space: nowrap; }
 .ov-row__link {
   display: inline-flex;

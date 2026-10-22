@@ -6,7 +6,7 @@
 .rt-table .tt-table { min-width: 900px; } /* 画布：运行时表最小宽 */
 .rt-table th:last-child, .rt-table td:last-child { text-align: right; }
 .rt-dim { color: var(--tt-text-3); }
-.rt-cmd { max-width: 280px; overflow: hidden; white-space: nowrap; font: var(--tt-mono-sm); } /* 画布：命令单元格 */
+.rt-cmd { display: block; max-width: 280px; overflow: hidden; white-space: nowrap; font: var(--tt-mono-sm); } /* 画布：命令单元格 */
 .rt-ready-area { padding: var(--tt-space-3) var(--tt-space-4); display: flex; flex-direction: column; gap: var(--tt-space-3); align-items: flex-start; }
 .rt-ready {
   padding: var(--tt-space-5);

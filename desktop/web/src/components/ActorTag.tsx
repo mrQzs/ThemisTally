@@ -8,7 +8,8 @@ export interface ActorTagProps {
   className?: string;
 }
 
-function toneOf(actor: string): TagTone {
+/** 执行者色调：user-ui brand、user neutral、agent: 开头 info、undeclared warning、其他 neutral。 */
+export function actorTone(actor: string): TagTone {
   if (actor === 'user-ui') return 'brand';
   if (actor === 'undeclared') return 'warning';
   if (actor.startsWith('agent:')) return 'info';
@@ -17,7 +18,7 @@ function toneOf(actor: string): TagTone {
 
 export function ActorTag({ actor, className }: ActorTagProps) {
   return (
-    <Tag tone={toneOf(actor)} mono className={className}>
+    <Tag tone={actorTone(actor)} mono className={className}>
       {actor}
     </Tag>
   );

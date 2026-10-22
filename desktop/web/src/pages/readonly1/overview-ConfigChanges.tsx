@@ -5,9 +5,10 @@ import { TriangleAlertIcon } from '../../icons';
 import { Tag } from '../../components';
 import { RelativeTime } from '../../components/RelativeTime';
 import { ActorTag } from '../../components/ActorTag';
+import { actionTitle } from '../../components/actionTitle';
 import { Section } from './common-Section';
 import { HISTORY_PATH, navHandler } from './common-links';
-import { actionLabel, topChanges } from './overview-logic';
+import { topChanges } from './overview-logic';
 
 export interface ConfigChangesProps {
   history: Envelope<HistoryData>;
@@ -33,7 +34,7 @@ export function ConfigChanges({ history, navigate }: ConfigChangesProps) {
               <li className="ov-change" key={e.number}>
                 <span className="ov-change__no tt-num">#{e.number}</span>{' '}
                 <RelativeTime iso={e.at} className="ov-change__time" />{' '}
-                <span className="ov-change__action" title={actionLabel(e.action) ?? undefined}>
+                <span className="ov-change__action" title={actionTitle(e.action) ?? undefined}>
                   {e.action}
                 </span>{' '}
                 <span className="ov-change__target">{e.target}</span>{' '}

@@ -1,9 +1,9 @@
 // 纯函数测试（合同第 9 节）：分组计数、时长、行文字、下一步命令、配置变更排序截取、动作说明、
 // 角色/模式名、被引用、方案角色名、绑定文字、来源标签、能担任、命令截断、地址拼接、copyText 三态。
+// 动作说明与 copyText 是共用件（components/actionTitle、components/copyText），从这里引入。
 import { describe, expect, it } from 'vitest';
 import type { StatusRow } from '../src/api';
 import {
-  actionLabel,
   checksInfo,
   firstAttemptIn,
   formatDuration,
@@ -37,7 +37,8 @@ import {
   sourceTone,
 } from '../src/pages/readonly1/runtimes-logic';
 import { attemptSeg, evidencePath, eventsPath, groupPath } from '../src/pages/readonly1/common-links';
-import { copyText } from '../src/pages/readonly1/common-copyText';
+import { actionTitle } from '../src/components/actionTitle';
+import { copyText } from '../src/components/copyText';
 
 function row(over: Record<string, unknown>): StatusRow {
   return Object.assign({ attempt: 't/attempt-001', task_id: 't', state: 'RUNNING' }, over) as StatusRow;
@@ -123,14 +124,14 @@ describe('配置变更', () => {
     expect(topChanges(history).map((e) => e.number)).toEqual([12, 11, 9, 7, 5]);
   });
 
-  it('actionLabel：精确说明与动词+名词，未知返回 null', () => {
-    expect(actionLabel('config.set')).toBe('设置配置键');
-    expect(actionLabel('preset.use')).toBe('切换方案');
-    expect(actionLabel('runtime.add')).toBe('登记 runtime');
-    expect(actionLabel('config.rollback')).toBe('回滚配置');
-    expect(actionLabel('config.unset')).toContain('删除');
-    expect(actionLabel('config.unset')).toContain('配置键');
-    expect(actionLabel('zzz.unknown')).toBeNull();
+  it('actionTitle：精确说明与动词+名词，未知返回 null', () => {
+    expect(actionTitle('config.set')).toBe('设置配置键');
+    expect(actionTitle('preset.use')).toBe('切换方案');
+    expect(actionTitle('runtime.add')).toBe('登记 runtime');
+    expect(actionTitle('config.rollback')).toBe('回滚配置');
+    expect(actionTitle('config.unset')).toContain('删除');
+    expect(actionTitle('config.unset')).toContain('配置键');
+    expect(actionTitle('zzz.unknown')).toBeNull();
   });
 });
 

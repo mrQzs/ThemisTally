@@ -74,3 +74,10 @@ export { RelativeTime } from './RelativeTime';
 export type { RelativeTimeProps } from './RelativeTime';
 export { ActorTag } from './ActorTag';
 export type { ActorTagProps } from './ActorTag';
+
+// 第 9 片（T013）：复制到剪贴板、动作的中文说明，以及两片各自追加的纯函数
+export { copyText, COPY_RESULT_TEXT } from './copyText';
+export type { CopyResult } from './copyText';
+export { ACTION_TITLES, actionTitle } from './actionTitle';
+export { actorTone } from './ActorTag';
+export { formatLocalUtc } from './RelativeTime';

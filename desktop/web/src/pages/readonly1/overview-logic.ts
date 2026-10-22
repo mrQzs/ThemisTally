@@ -1,4 +1,5 @@
-// 总览纯函数（合同第 4 节）：指标卡分组计数、attempt 行文字、时长格式化、下一步命令、配置变更排序截取与动作说明。
+// 总览纯函数（合同第 4 节）：指标卡分组计数、attempt 行文字、时长格式化、下一步命令、配置变更排序截取。
+// 动作的中文说明用共用件 components/actionTitle（T013 合并，本文件不再另存一份表）。
 // 分组只来自 attemptGroups（groupOfState），这里不另写 3.4 分组状态码。
 import type { StatusRow, HistoryData } from '../../api';
 import type { AttemptGroup } from '../../shell/attemptGroups';
@@ -127,25 +128,4 @@ export type HistoryEntry = HistoryData['entries'][number];
 /** 配置变更：按 number 倒序取前 5。 */
 export function topChanges(history: HistoryData): HistoryEntry[] {
   return history.entries.slice().sort((a, b) => b.number - a.number).slice(0, 5);
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  'config.set': '设置配置键',
-  'config.unset': '删除配置键',
-  'config.rollback': '回滚配置',
-  'preset.use': '切换方案',
-  'preset.save': '保存方案',
-  'preset.remove': '删除方案',
-  'role.set': '修改角色绑定',
-  'profile.add': '新建 profile',
-  'profile.edit': '修改 profile',
-  'profile.remove': '删除 profile',
-  'runtime.add': '登记 runtime',
-  'runtime.remove': '删除 runtime',
-  external: '检测到界面与命令之外的改动',
-};
-
-/** 动作的中文说明（title）；没有对应说明返回 null。 */
-export function actionLabel(action: string): string | null {
-  return ACTION_LABELS[action] ?? null;
 }

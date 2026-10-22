@@ -1,4 +1,5 @@
 // 只读页面二的源码规则自测（合同 D11）：文件在位、页面接线、源码守卫、夹具只能是 .ts、内联 style 只在占比条。
+// common-copy.ts 与 history-ActorTag.tsx 已由 T013 并进 src/components，不在本清单里。
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,11 +10,11 @@ const MOCK = 'src/mock';
 const PAGES = 'src/pages';
 
 const R2_FILES = [
-  'common-icons.tsx', 'common-format.ts', 'common-InfoNote.tsx', 'common-styles.css', 'common-copy.ts', 'common-readers.ts',
+  'common-icons.tsx', 'common-format.ts', 'common-InfoNote.tsx', 'common-styles.css', 'common-readers.ts',
   'secrets-SecretsView.tsx', 'secrets-logic.ts', 'secrets-styles.css',
   'logs-LogsView.tsx', 'logs-SearchPanel.tsx', 'logs-SearchResults.tsx', 'logs-UsagePanel.tsx', 'logs-logic.ts', 'logs-styles.css',
   'plugins-PluginsView.tsx', 'plugins-PluginDrawer.tsx', 'plugins-logic.ts', 'plugins-styles.css',
-  'history-HistoryView.tsx', 'history-HistoryDrawer.tsx', 'history-KeyDiff.tsx', 'history-ActorTag.tsx', 'history-logic.ts',
+  'history-HistoryView.tsx', 'history-HistoryDrawer.tsx', 'history-KeyDiff.tsx', 'history-logic.ts',
   'history-styles.css',
 ];
 const MOCK_FILES = ['readonly2-search.ts', 'readonly2-history-entries.ts', 'readonly2-plugin-show.ts'];
@@ -35,7 +36,7 @@ const scanned = () => [
 ];
 
 describe('D11 文件在位与页面接线', () => {
-  it('readonly2 下 25 个源码与样式、mock 下 3 份夹具都在；没有子目录、没有 Page.tsx 文件名', () => {
+  it('readonly2 下 23 个源码与样式、mock 下 3 份夹具都在；没有子目录、没有 Page.tsx 文件名', () => {
     for (const f of [...R2_FILES, ...MOCK_FILES]) expect(existsSync(join(process.cwd(), R2, f)) || existsSync(join(process.cwd(), MOCK, f)), f).toBe(true);
     const entries = readdirSync(join(process.cwd(), R2), { withFileTypes: true });
     expect(entries.filter((e) => e.isDirectory())).toEqual([]);

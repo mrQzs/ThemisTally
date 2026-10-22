@@ -1,6 +1,6 @@
-// 历史与审计页的纯函数（合同 D06、D07）：倒序、资源与状态文字、动作的中文说明、执行者色调、键级差异的情形判断。
-import { isMaskedPlaceholder, type TagTone } from '../../components';
-import { formatLocalUtc, relativeFrom } from './common-format';
+// 历史与审计页的纯函数（合同 D06、D07）：倒序、资源与状态文字、键级差异的情形判断。
+// 动作的中文说明、执行者色调、时间格分别用共用件 components/actionTitle、components/ActorTag、components/RelativeTime（T013 合并）。
+import { isMaskedPlaceholder } from '../../components';
 
 export interface HistoryKeyDiff {
   key: string;
@@ -37,27 +37,6 @@ export interface HistoryDataLike {
   external_before_first?: number;
 }
 
-/** 动作的中文说明（UI 文档 10.4）；表外动作不带 title。 */
-const ACTION_TITLES: Record<string, string> = {
-  'config.set': '设置配置键',
-  'config.unset': '删除配置键',
-  'config.rollback': '回滚配置',
-  'preset.use': '切换方案',
-  'preset.save': '保存方案',
-  'preset.remove': '删除方案',
-  'role.set': '修改角色绑定',
-  'profile.add': '新建 profile',
-  'profile.edit': '修改 profile',
-  'profile.remove': '删除 profile',
-  'runtime.add': '登记 runtime',
-  'runtime.remove': '删除 runtime',
-  external: '检测到界面与命令之外的改动',
-};
-
-export function actionTitle(action: string): string | null {
-  return Object.prototype.hasOwnProperty.call(ACTION_TITLES, action) ? ACTION_TITLES[action] : null;
-}
-
 /** 资源：config 配置、local 本机文件、其他原样。 */
 export function resourceLabel(resource: string): string {
   if (resource === 'config') return '配置';
@@ -75,25 +54,9 @@ export function stateText(entry: { state: string | null; resolved?: boolean }): 
   return entry.resolved ? `${text}（补判）` : text;
 }
 
-/** 执行者色调：user-ui brand、user neutral、agent: 开头 info、undeclared warning、其他 neutral。 */
-export function actorTone(actor: string): TagTone {
-  if (actor === 'user-ui') return 'brand';
-  if (actor === 'user') return 'neutral';
-  if (actor.indexOf('agent:') === 0) return 'info';
-  if (actor === 'undeclared') return 'warning';
-  return 'neutral';
-}
-
 /** 行按编号倒序。 */
 export function sortedEntries(entries: readonly HistoryEntry[]): HistoryEntry[] {
   return [...entries].sort((a, b) => b.number - a.number);
-}
-
-/** 时间格：相对时间；title 是本地加 UTC 的写法，解析不了原样显示、不带 title。 */
-export function timeCell(iso: string, now: number): { text: string; title: string | null } {
-  const rel = relativeFrom(iso, now);
-  if (rel === null) return { text: iso, title: null };
-  return { text: rel, title: formatLocalUtc(iso) };
 }
 
 export type DiffKind =

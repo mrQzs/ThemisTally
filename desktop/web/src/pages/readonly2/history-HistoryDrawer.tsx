@@ -2,12 +2,12 @@
 // 打开或换行时调读取函数，只认最后一次请求，卸载后不写状态。
 import { useEffect, useState } from 'react';
 import { Banner } from '../../components';
+import { actionTitle } from '../../components/actionTitle';
+import { formatLocalUtc } from '../../components/RelativeTime';
 import { LockIcon } from '../../icons';
 import type { Envelope } from '../../api';
-import { formatLocalUtc } from './common-format';
 import { KeyDiff, MaskedKeyDiff } from './history-KeyDiff';
 import {
-  actionTitle,
   diffKind,
   stateText,
   type HistoryDetail,
