@@ -1,7 +1,7 @@
 // 契约测试与对照测试共用的探针驱动：同一个 JSON 请求交给每一套实现，比较 JSON 结果与磁盘上的结果。
 // 实现不在本机（例如没装 Bun）时直接失败，不跳过：迁移期间三种运行方式都要能跑。
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,9 +105,36 @@ function cliRun(command: string, args: readonly string[], cwd: string): CliRun {
   return { status: done.status ?? -1, stdout: done.stdout, stderr: done.stderr };
 }
 
-/** python scripts/pi_dispatch.py <argv>（本仓库的 Python 实现）。 */
+// 选择文件（迁移计划第 5 节）：提交的那份让 status、logs 转交给 TS，作对照基准的 Python 一边要钉成 python。
+// 钉成 python 指向一个不存在的文件（等于全部 python）；走启动器指向一份 readonly 为 ts 的临时文件。
+const SELECTOR_DIR = mkdtempSync(join(tmpdir(), "themis-selector-"));
+const PYTHON_SELECTOR = join(SELECTOR_DIR, "absent.json");
+const TS_SELECTOR = join(SELECTOR_DIR, "readonly-ts.json");
+writeFileSync(TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "python", dispatcher: "python", hub: "python" }));
+process.on("exit", () => rmSync(SELECTOR_DIR, { recursive: true, force: true }));
+
+/** 独立的 Python 进程里改 pi_dispatch 的 KERNEL_IMPL_PATH 再调 pd.main(argv)。JSON 的字符串与数组照样是 Python
+ * 的字面量（孤立代理项写成 \udXXX，Python 读回来仍是孤立代理项，与命令行上的 argv 一样）。 */
+function pdMain(selector: string, argv: readonly string[], cwd: string): CliRun {
+  const program = [
+    "import sys",
+    `sys.path.insert(0, ${JSON.stringify(join(REPO_ROOT, "scripts"))})`,
+    "import pi_dispatch as pd",
+    `pd.KERNEL_IMPL_PATH = pd.Path(${JSON.stringify(selector)})`,
+    `sys.exit(pd.main(${JSON.stringify(argv)}))`,
+  ].join("\n");
+  return cliRun(process.env["THEMIS_PYTHON"] ?? "python", ["-c", program], cwd);
+}
+
+/** pi_dispatch 的 <argv>，钉成 Python 实现回答（对照的基准）。 */
 export function runPythonCli(argv: readonly string[], cwd: string): CliRun {
-  return cliRun(process.env["THEMIS_PYTHON"] ?? "python", [join(REPO_ROOT, "scripts", "pi_dispatch.py"), ...argv], cwd);
+  return pdMain(PYTHON_SELECTOR, argv, cwd);
+}
+
+/** pi_dispatch 的 <argv>，选择文件的 readonly 是 ts：经真的启动器转交给 TS（参数由启动器从 argparse 的结果生成，
+ * 句柄继承、Job、退出码与输出次序都是真的）。 */
+export function runLauncherCli(argv: readonly string[], cwd: string): CliRun {
+  return pdMain(TS_SELECTOR, argv, cwd);
 }
 
 /** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */

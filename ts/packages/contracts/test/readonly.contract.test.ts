@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type CliRun, removeDir, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
+import { type CliRun, removeDir, runLauncherCli, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
 import { schemaErrors } from "./schemas.ts";
 
 const C = (...cps: number[]): string => String.fromCodePoint(...cps);
@@ -85,6 +85,18 @@ function compare(item: Case): void {
         expect(b, `${runtime} stdout`).toBe(a);
       } else {
         expect(other.stdout.equals(python.stdout), `${runtime} stdout 逐字节\n--- python\n${text(python)}\n--- ${runtime}\n${text(other)}`).toBe(true);
+      }
+    }
+    // 端到端（迁移计划第 ② 步）：同一条命令行经真的启动器转交给 TS，参数由启动器从 argparse 的结果生成
+    const launched = runLauncherCli(["--repo", at, ...argv], at);
+    expect(launched.status, "启动器退出码").toBe(python.status);
+    if (!item.crash) {
+      expect(launched.stderr.toString("utf8"), "启动器 stderr").toBe(python.stderr.toString("utf8"));
+      if (item.elapsed) {
+        const [a, b] = withoutElapsed(python, launched);
+        expect(b, "启动器 stdout").toBe(a);
+      } else {
+        expect(launched.stdout.equals(python.stdout), `启动器 stdout 逐字节\n--- python\n${text(python)}\n--- 启动器\n${text(launched)}`).toBe(true);
       }
     }
   } finally {
@@ -955,7 +967,11 @@ function comparePages(setup: (repo: string) => void, target: string, file: strin
     let cursor: string | null = null;
     for (let page = 1; page <= pages; page += 1) {
       between?.(repo, page);
-      const python = runPythonCli(["--repo", repo, "logs", "cat", target, file, ...(cursor ? ["--cursor", cursor] : []), "--limit", String(limit), "--json"], repo);
+      const argv = ["--repo", repo, "logs", "cat", target, file, ...(cursor ? ["--cursor", cursor] : []), "--limit", String(limit), "--json"];
+      const python = runPythonCli(argv, repo);
+      const launched = runLauncherCli(argv, repo);
+      expect([launched.status, launched.stderr.toString("utf8")], `启动器 第 ${page} 页`).toEqual([python.status, python.stderr.toString("utf8")]);
+      expect(launched.stdout.equals(python.stdout), `启动器 第 ${page} 页 stdout`).toBe(true);
       for (const runtime of RUNTIMES) {
         const other = runTsCli(runtime, { command: ["logs", "cat"], repo, target, path: file, cursor, limit, json: true }, repo);
         expect([other.status, other.stderr.toString("utf8")], `${runtime} 第 ${page} 页`).toEqual([python.status, python.stderr.toString("utf8")]);

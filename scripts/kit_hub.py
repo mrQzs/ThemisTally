@@ -156,8 +156,10 @@ HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def kernel_files() -> List[Path]:
-    """内核文件：代码、调度器（内核在进程里直接调它的函数，第 13 轮补上）与提示词模板。"""
-    return [Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md"))
+    """内核文件：代码、调度器（内核在进程里直接调它的函数，第 13 轮补上）、提示词模板与选择文件（第 64 轮，迁移
+    计划第 5 节）。TS 的源码不算：每条转交给 TS 的命令现起进程、现读源码，hub 进程从不加载它；第 ⑤ 步 hub 换成 TS
+    时再纳入。"""
+    return [Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md")) + [HERE / "kernel-impl.json"]
 
 
 def code_fingerprint(files: Optional[Sequence[Path]] = None) -> str:
@@ -1637,7 +1639,12 @@ def run_pd(hub: Hub, args: Sequence[str], timeout: int = 600) -> Tuple[int, str]
     except subprocess.TimeoutExpired:
         return 124, "超时（%d 秒）：%s" % (timeout, " ".join(args))
     text = proc.stdout.decode("utf-8", "replace")
-    hub.append_event("dispatcher.called", args=list(args), exit_code=proc.returncode)
+    try:  # 第 64 轮：记下是哪一套实现回答的（迁移计划第 5 节）；选择文件坏了时调度器自己就拒绝运行
+        impl = pd.argv_impl(args)
+    except pd.DispatchError:
+        impl = "invalid"
+    hub.append_event("dispatcher.called", args=list(args), exit_code=proc.returncode, impl=impl,
+                     tool_version=pd.TOOL_VERSION)
     return proc.returncode, text
 
 
@@ -3420,8 +3427,56 @@ def owner_sweep(hub: Hub) -> Optional[Tuple[bool, str]]:
         return owner_sweep_run(hub, marker)
 
 
+#: 主工作区 ts/ 重装依赖的时限（第 64 轮）。
+TS_INSTALL_TIMEOUT = 900
+
+
+def ts_install_if_stale(hub: Hub, runner: Optional[Any] = None) -> Optional[Tuple[bool, str]]:
+    """主工作区 ts/ 的依赖跟上末端（第 64 轮，迁移计划第 ② 步）：选择文件至少有一项是 ts，而依赖清单的合并哈希与
+    装好戳记对不上（站主合入的提交改了 bun.lock、加了包），就在落地锁里跑一次 bun install --frozen-lockfile，
+    postinstall 写新的戳记；失败写阻塞信。不然转交给 TS 的命令会报“TS 依赖与 bun.lock 不一致”，等人来装。
+    不需要装时返回 None，否则返回（装好与否, 摘要）。runner 只给测试用：签名同 pd.run_supervised。"""
+    root = hub.repo / "ts"
+    if not (root / "package.json").is_file() or "ts" not in pd.read_kernel_impl().values():
+        return None
+    stamp_path = root / pd.TS_STAMP
+
+    def stamped() -> bool:
+        try:
+            stamp = json.loads(read_text(stamp_path) or "{}")
+        except ValueError:
+            return False
+        return isinstance(stamp, dict) and stamp.get("deps_sha256") == pd.ts_deps_digest(root)
+
+    if stamped():
+        return None
+    bun = pd.find_bun(kernel_env())
+    if bun is None:
+        ok, summary = False, "找不到 Bun：PATH 上既没有 bun.exe，也没有 npm 的 bun.cmd 垫片"
+    else:
+        with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS), tempfile.TemporaryFile() as out:
+            result = (runner or pd.run_supervised)([str(bun), "install", "--frozen-lockfile"], root, kernel_env(),
+                                                   out, out, TS_INSTALL_TIMEOUT)
+            out.seek(0)
+            text = out.read().decode("utf-8", "replace")
+        ok = result.get("exit_code") == 0 and not result.get("timed_out") and stamped()
+        summary = "主工作区 ts/ 重装依赖（bun install --frozen-lockfile）：%s\n%s" % (
+            "装好了" if ok else "没装好（退出码 %s%s）" % (result.get("exit_code"), "，超时" if result.get("timed_out") else ""),
+            tail(text, 10))
+    hub.append_event("ts.installed", ok=ok)
+    if not ok:
+        hub.deliver({"from": KERNEL, "to": OWNER, "task-id": "none", "in-reply-to": "none", "type": "阻塞"},
+                    {"摘要": "主工作区 ts/ 的依赖跟不上末端：转交给 TS 的命令（status、logs）会报依赖不一致",
+                     "提交": "无", "验证": summary[:1500], "偏离": "无",
+                     "需协调人决定": "请站主在 ts/ 下运行 bun install --frozen-lockfile，看报错处理",
+                     "证据": str(stamp_path)})
+    return ok, summary
+
+
 def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
-    """owner_sweep 的本体：在当前末端上跑全部门禁基准，再给过了检查的候选各做一次落地预演。"""
+    """owner_sweep 的本体：先让主工作区 ts/ 的依赖跟上末端（第 64 轮），再在当前末端上跑全部门禁基准，再给过了
+    检查的候选各做一次落地预演。"""
+    ts_install_if_stale(hub)
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
     with scratch_worktree(hub, "owner-sweep", head) as path:
         code, out, tests = sweep_gates(path)

@@ -1358,6 +1358,18 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **没改的**：协调人、合同端、审核端停用，等站主让 themistally-15 测评之后的分配，到了再走一轮。名册里先不动它们：没有可换的模型，写一个不存在的反而让回合以“模型不存在”作废。在那之前不给这三个岗位起新回合：T014 那封问站主的信先收下不回（一回信就唤醒协调人），也不开新任务。13:33–16:32 之间协调人在 `token/qwen3.7-plus` 上跑了 13 个回合，合同端（13:34）、审核端（15:09）最后一个回合都在提供方删除之前。
 - **测试**：名册的测试改成新的 provider；`tests/test_kit_hub.py` 全过（见提交说明）。
 
+### 第 64 轮：只读命令切到 TS（2026-10-22，TS 迁移第 ② 步的切换）
+
+- **起因**：第 ② 步三片（②a、②b1、②b2、②c）都达到出口条件，照迁移计划第 ② 步与第 5 节一次提交切换：选择文件 `scripts/kernel-impl.json` 的 `readonly` 改成 `ts`。证据、账本的格式与执行器的禁区一起变，所以照内核轮次走。方案与 themistally-15 逐条定过（迁移计划第 ② 步“转交给 TS 的启动器”）。
+- **调度器（`pi_dispatch.py`）**：
+  - main 开头严格读选择文件（读运行中的 `pi_dispatch.py` 旁边那份，与 `--repo` 无关；不存在等于全 python，格式错就拒绝运行，`-h` 也一样）。
+  - 转交名单写死（`TS_READONLY_COMMANDS`：status 不带 `--assess`，logs 的 list、show、cat、search、usage）。检查次序：名单、Python 的 `Repo.discover`（出错由 Python 原文回答）、TS 入口、装好戳记（依赖清单的合并哈希）、Bun 是不是装依赖时那一个，最后转交。
+  - 启动器：`bun.exe` 只按 PATH 找（含 npm 垫片的布局，不认相对路径）；参数经 `--pyargs-b64`；stdin、stdout、stderr 直接继承；挂起创建、进带 KILL_ON_JOB_CLOSE 的 Job 再恢复；退出码原样（NTSTATUS 大值按有符号交回）。固定带 `--no-env-file` 与 `--config=ts/bunfig.toml`（实测 Bun 会从当前目录读 `.env` 与 bunfig 的 preload），子进程环境去掉 BUN_OPTIONS、NODE_OPTIONS、NODE_PATH、BUN_INSPECT*（实测 BUN_OPTIONS 的 preload 与 NODE_PATH 都能往 TS 进程里塞代码）。
+  - `meta.json` 加 `impl: "python"` 与 `kernel_protected`：内核的 TS 禁区（`ts/**`，只在受检仓库就是内核所在的仓库、且选择文件有一项是 ts 时加）在 prepare 时冻结，run 的执行说明与 collect 的范围门禁用记下的那份。`scripts/kernel-impl.json` 无条件进 `PROTECTED_PATTERNS`，不进 `KIT_LOADED_FILES`（不随 kit 安装）。
+- **内核（`kit_hub.py`）**：`kernel_files` 加选择文件；`dispatcher.called` 记 `impl` 与 `tool_version`；第 61 轮的站主提交之后回归先跑 `ts_install_if_stale`：主工作区 ts/ 的合并哈希与戳记对不上，就在落地锁里 `bun install --frozen-lockfile`（postinstall 写新戳记），失败写阻塞信。
+- **TS 工作区**：`ts/package.json` 的 postinstall 跑 `ts/tools/stamp-install.mjs` 写装好戳记（合并哈希、Bun 版本与路径）；`ts/bunfig.toml` 是一份只有注释的空配置。
+- **测试**：见提交说明。`tests/conftest.py` 把进程内的选择文件钉成全 python：进程内调 `pd.main` 的用例测的是 Python 实现，TS 的对等由契约测试的端到端（第三种运行方式：独立 Python 进程经真的启动器）覆盖。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

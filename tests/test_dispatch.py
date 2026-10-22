@@ -1853,6 +1853,9 @@ def test_v22_netperf_feedback():
     run_ok(repo)
     meta = jload(rd(repo) / "meta.json")
     check("prepare records the effective core.autocrlf", meta.get("git_autocrlf") == "true", meta.get("git_autocrlf"))
+    # 迁移计划第 5 节：证据记下是哪一套实现写的；内核的 TS 禁区每个 attempt 冻结一次（临时仓库不是内核所在的仓库）
+    check("prepare records impl and the frozen kernel protected set",
+          meta.get("impl") == "python" and meta.get("kernel_protected") == [], meta)
     code, out = tool(repo, "check", "normalize-query/attempt-001")
     check("check passes with autocrlf=true worktree", code == 0, out)
     git(repo, "config", "core.autocrlf", "false")

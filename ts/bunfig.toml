@@ -1,0 +1,3 @@
+# 故意留空（迁移计划第 ② 步）：pi_dispatch.py 的启动器起 TS 时带 --config=<本文件> 与 --no-env-file。
+# Bun 默认从当前目录读 bunfig.toml（其中的 preload 会先执行任意脚本）与 .env（变量直接进 process.env），
+# 而 TS 子进程的当前目录是用户的当前目录。指定这份空配置，当前目录里的那两样就都不生效。

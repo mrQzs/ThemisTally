@@ -844,6 +844,7 @@ def test_runner_exits_between_steps_once_the_kernel_changes(tmp_path, monkeypatc
     here = Path(kh.__file__).parent
     assert kh.kernel_files()[:2] == [Path(kh.__file__), here / "pi_dispatch.py"]
     assert here / "hub" / "worker.md" in kh.kernel_files() and kh.code_fingerprint() == kh.code_fingerprint(kh.kernel_files())
+    assert kh.kernel_files()[-1] == here / "kernel-impl.json"  # 第 64 轮：切换选择文件也是换代
     repo, _head = git_repo(tmp_path)
     events, steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[True], no_restart=False, settle=0.0)
     assert len(steps) == 2 and spawned == []  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b；还没提交，退出
@@ -5781,3 +5782,109 @@ def test_inline_closing_fence_then_second_block_takes_the_last_complete_object()
     warnings = []
     assert kh.extract_json_block("```json\n" + broken + "```重来。\n\n```json\n" + second + "```", warnings) == json.loads(second)
     assert len(warnings) == 1
+
+
+def test_the_ledger_records_which_implementation_answered(tmp_path):
+    # 第 64 轮（迁移计划第 5 节）：dispatcher.called 记下 impl 与版本
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    code, out = kh.run_pd(hub, ["--version"])
+    assert code == 0 and kh.pd.TOOL_VERSION in out
+    event = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()][-1]
+    assert event["event"] == "dispatcher.called" and event["impl"] == "python"
+    assert event["tool_version"] == kh.pd.TOOL_VERSION
+
+
+def ts_workspace(repo):
+    root = repo / "ts"
+    (root / "packages" / "base").mkdir(parents=True)
+    (root / "package.json").write_text('{"name": "themis-ts"}\n', encoding="utf-8")
+    (root / "packages" / "base" / "package.json").write_text('{"name": "@themis/base"}\n', encoding="utf-8")
+    (root / "bun.lock").write_text("{}\n", encoding="utf-8")
+    return root
+
+
+def write_stamp(root, digest):
+    (root / "node_modules").mkdir(exist_ok=True)
+    (root / kh.pd.TS_STAMP).write_text(json.dumps({"deps_sha256": digest}), encoding="utf-8")
+
+
+ON_TS = {"readonly": "ts", "config": "python", "dispatcher": "python", "hub": "python"}
+FAKE_BUN = Path("C:/bun/bun.exe")
+
+
+def test_owner_sweeps_reinstall_stale_ts_dependencies_under_the_land_lock(tmp_path, monkeypatch):
+    # 第 64 轮（迁移计划第 ② 步）：站主合入的提交改了 bun.lock 或加了包，主工作区 ts/ 的工作区链接就旧了，
+    # 转交给 TS 的命令会报依赖不一致；站主提交之后的后台回归在落地锁里重装一次
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    root = ts_workspace(repo)
+    monkeypatch.setattr(kh.pd, "read_kernel_impl", lambda path=None: dict(ON_TS))
+    monkeypatch.setattr(kh.pd, "find_bun", lambda env=None: FAKE_BUN)
+    calls = []
+
+    def installer(cmd, cwd, env, stdout, stderr, timeout):
+        calls.append((cmd, cwd, (hub.root / ".land").is_dir()))
+        write_stamp(root, kh.pd.ts_deps_digest(root))  # postinstall 写新的戳记
+        stdout.write(b"Checked 60 installs\n")
+        return {"exit_code": 0, "timed_out": False}
+
+    write_stamp(root, kh.pd.ts_deps_digest(root))
+    assert kh.ts_install_if_stale(hub, installer) is None and calls == []  # 戳记对得上：不装
+    (root / "bun.lock").write_text('{"changed": 1}\n', encoding="utf-8")
+    ok, summary = kh.ts_install_if_stale(hub, installer)
+    assert ok and "装好了" in summary and "Checked 60 installs" in summary
+    assert calls == [([str(FAKE_BUN), "install", "--frozen-lockfile"], root, True)]  # 落地锁里装
+    assert not (hub.root / ".land").exists() and hub.unread(kh.OWNER) == []
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert events[-1]["event"] == "ts.installed" and events[-1]["ok"] is True
+
+
+def test_a_failed_ts_reinstall_writes_to_the_owner(tmp_path, monkeypatch):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts_workspace(repo)
+    monkeypatch.setattr(kh.pd, "read_kernel_impl", lambda path=None: dict(ON_TS))
+    monkeypatch.setattr(kh.pd, "find_bun", lambda env=None: FAKE_BUN)
+
+    def broken(cmd, cwd, env, stdout, stderr, timeout):
+        stdout.write(b"error: lockfile had changes, but lockfile is frozen\n")
+        return {"exit_code": 1, "timed_out": False}
+
+    ok, summary = kh.ts_install_if_stale(hub, broken)
+    assert not ok and "lockfile is frozen" in summary
+    letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    assert "type: 阻塞" in letter and "bun install --frozen-lockfile" in letter
+    # 装完戳记仍对不上（postinstall 没跑）也算没装好；找不到 Bun 也写信，不悄悄跳过
+    ok, _summary = kh.ts_install_if_stale(hub, lambda *a: {"exit_code": 0, "timed_out": False})
+    assert not ok
+    monkeypatch.setattr(kh.pd, "find_bun", lambda env=None: None)
+    ok, summary = kh.ts_install_if_stale(hub, broken)
+    assert not ok and "找不到 Bun" in summary and len(hub.unread(kh.OWNER)) == 3
+
+
+def test_no_ts_reinstall_while_everything_runs_on_python(tmp_path, monkeypatch):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts_workspace(repo)
+    monkeypatch.setattr(kh.pd, "read_kernel_impl", lambda path=None: dict(ON_TS, readonly="python"))
+    assert kh.ts_install_if_stale(hub, lambda *a: pytest.fail("不该装")) is None
+    monkeypatch.setattr(kh.pd, "read_kernel_impl", lambda path=None: dict(ON_TS))
+    elsewhere = kh.Hub(tmp_path / "elsewhere")  # 没有 ts/ 的仓库
+    assert kh.ts_install_if_stale(elsewhere, lambda *a: pytest.fail("不该装")) is None
+
+
+def test_owner_sweeps_start_with_the_ts_reinstall(tmp_path, monkeypatch):
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    order = []
+    monkeypatch.setattr(kh, "ts_install_if_stale", lambda hub_: order.append("install"))
+    monkeypatch.setattr(kh, "sweep_gates", lambda path: order.append("gates") or (0, "1 passed", []))
+    kh.mark_owner_moved(hub, "a" * 40, kh.git(["rev-parse", "HEAD"], repo).strip(), ["git"])
+    ok, _summary = kh.owner_sweep(hub)
+    assert ok and order == ["install", "gates"]

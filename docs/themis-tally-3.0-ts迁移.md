@@ -293,7 +293,7 @@ SQLite 的启动检查：
     - 移植 CPython 3.12 的 `Lib/re/_parser.py`（报错照原样）与 `_compiler.py` 里字符集与大小写的部分（`_ignorecase_fixes`、iscased、tolower、toupper）；大小写映射表用 Python 的 `_sre.unicode_tolower`、`unicode_toupper`、`unicode_iscased` 生成（Unicode 15.0），不用 JS 的 toLowerCase；
     - ~~语法树编译成带 u 标志的 JS 正则~~（实做时改了，见第 11 节 ②b2）：JavaScriptCore（Bun）在前瞻里遇到 `^` 会回溯进去，`(?=(…))\k<名字>` 模拟不了原子组；占有量词“每轮取第一个匹配、空轮即停”的语义 JS 也没有。改成照 `_compiler._compile` 编出 sre 的字节码，再把 `Modules/_sre/sre_lib.h` 的 SRE(match)、SRE(search) 移植成 TS 的回溯机（显式上下文栈，不递归）；后顾按 getwidth 判定，不定宽照 Python 报错；
     - `\N{name}` 支持：用 unicodedata 生成 15.0 的名字表（含别名），查找规则照 unicodedata.lookup，表的体积写进提交说明；
-    - 反向引用（`\1`、`(?P=name)`）与条件分组（`(?(id)yes|no)`）JS 复现不了“有没有匹配”，两套实现都改成拒绝：另开一个内核轮次，Python 先改——cmd_search 编译之前用 `re._parser.parse` 走一遍语法树，遇到 GROUPREF、GROUPREF_EXISTS 报一句固定的错，退出码与非法正则相同（`re._parser` 是私有模块，环境里的 Python 固定为 3.12.10，在代码里注明）；同一轮把括号嵌套深度定成显式上限（超过就报固定的错），让 Python 碰不到取决于栈深的 RecursionError；MAXREPEAT、MAXGROUPS 引起的 OverflowError 是确定的，照原样移植。这算行为变更，第 10 节与桌面端文档的搜索框说明都要记；
+    - 反向引用（`\1`、`(?P=name)`）与条件分组（`(?(id)yes|no)`）当时以为 JS 复现不了“有没有匹配”（改成移植 sre 匹配器之后其实能支持，只是不值得，见第 10 节），两套实现都改成拒绝：另开一个内核轮次，Python 先改——cmd_search 编译之前用 `re._parser.parse` 走一遍语法树，遇到 GROUPREF、GROUPREF_EXISTS 报一句固定的错，退出码与非法正则相同（`re._parser` 是私有模块，环境里的 Python 固定为 3.12.10，在代码里注明）；同一轮把括号嵌套深度定成显式上限（超过就报固定的错），让 Python 碰不到取决于栈深的 RecursionError；MAXREPEAT、MAXGROUPS 引起的 OverflowError 是确定的，照原样移植。这算行为变更，第 10 节与桌面端文档的搜索框说明都要记；
     - 对照：随机正则（合法与不合法、各种标志），种子语料取 CPython 的 `Lib/test/test_re.py` 加第 ① 步那批边界字符，比较编译结果与报错文字，以及每行 search 的真假；
   - ②c：`logs usage`（执行端与规划端的用量统计，含读 Claude Code 的会话记录）。
 - **出口条件**：
@@ -305,11 +305,21 @@ SQLite 的启动检查：
   - 参数解析留在 Python：argparse 的帮助与用法错误都带程序名，`-h` 与用法错误由 Python 回答。解析成功之后，把应用默认值之后的完整参数加子命令路径（JSON，格式见 `ts/packages/contracts/schemas/pyargs-v1.schema.json`）经 argv 交给 TS：`--pyargs-b64 <base64>`，不走 stdin（第 ③ 步的 `config secret set --tty` 要求 stdin 本身是终端）。`status --assess` 要调决策模型，留在 Python。第 ⑥ 步撤 Python 时再处理参数解析。
   - stdin、stdout、stderr 让 TS 子进程直接继承句柄，不经管道中转：字节透传自然成立，isatty 与 Python 一致。启动器在转交之前一个字节也不写，等 TS 退出，把退出码原样交出。
   - TS 照 Python 的输出写字节：stdout、stderr 是 UTF-8、`errors=replace`（孤立代理项写成 `?`）；Windows 上文本模式把每个 `\n` 都写成 `\r\n`（原本的 `\r\n` 成了 `\r\r\n`，照样逐个替换）。
-  - 找 Bun 要确定：npm 只在 PATH 上放 `bun.cmd`，Python 不经 shell 起子进程认不出它，hub 的 kernel_env 还会过滤环境变量。用 `bun.exe` 的绝对路径：在 `.agent/dispatch.local.json` 里登记（`config runtime add` 那一套，本机文件、不提交），或按 `bun.exe` 查找。找不到就报错退出，不悄悄退回 Python，与选择文件的严格解析同理。
+  - 找 Bun 要确定：npm 只在 PATH 上放 `bun.cmd`，Python 不经 shell 起子进程认不出它。用 `bun.exe` 的绝对路径，只按 PATH 找（2026-10-22 定，不在 `.agent/dispatch.local.json` 登记，那要走 `config runtime` 与站主同意）：先找 PATH 上的 `bun.exe`（Bun 官方安装器放的就是它）；没有时，PATH 上有 npm 的 `bun.cmd` 垫片，就取它旁边的 `node_modules/bun/bin/bun.exe`（npm 全局安装的布局）。POSIX 找 `bun`。找不到就报错退出，不悄悄退回 Python，与选择文件的严格解析同理。hub 的 `kernel_env` 只去掉决策 API 的 key，PATH 照旧，过滤后的环境里照样找得到（有测试）。
   - 原样转交：stdin、stdout、stderr 按字节透传，不重新编码；退出码原样返回。
-  - 连带结束：TS 子进程放进带 KILL_ON_JOB_CLOSE 的 Job，复用 `run_supervised` 那一套。`run_pd` 超时只杀直接子进程（Python 启动器），不放进 Job，Bun 孙进程会成孤儿接着跑。
-  - 环境一致：TS 子进程拿到的环境变量，与这条命令走 Python 时完全相同，不多不少。
-- **切换**：三片都达到出口条件之后，一次提交把选择文件（第 5 节）的 `readonly` 改成 `ts`，照内核轮次走。同在这一次的：选择文件、`meta.json` 的 `impl`、指纹与执行器禁区的改动；启动器四条各一条测试（找不到 Bun 报错、字节透传与退出码、杀掉启动器后 TS 子进程随之消失、环境变量一致）；选择文件的严格解析测试（不存在等于全部 `python`，格式错就拒绝运行）。
+  - 连带结束：TS 子进程挂起创建、放进带 KILL_ON_JOB_CLOSE 的 Job 之后才恢复，与 `run_supervised` 同一套（`_WinJob`）。`run_pd` 超时只杀直接子进程（Python 启动器），启动器的 Job 句柄随之关闭，Bun 孙进程跟着结束，不会成孤儿。TS 子进程另起进程组，Ctrl+C 只到启动器：启动器终止 Job，照 Python 写“已取消。”、退出码 130。POSIX 一侧父进程死、子进程跟着死的手段不同（Linux 有 PR_SET_PDEATHSIG 与进程组，macOS 没有对应机制），**未实机验证**。
+  - 环境一致：TS 子进程拿到的是这条命令走 Python 时看到的 `os.environ`，只去掉运行时注入变量（`pi_dispatch.TS_RUNTIME_ENV_DROP`：BUN_OPTIONS、NODE_OPTIONS、NODE_PATH、BUN_INSPECT*）。“环境一致”指命令逻辑看到的变量一致，不包括这些（themistally-15，2026-10-22）：它们不影响 Python 的行为，却能往 TS 进程里塞代码。实测 Bun 1.4.2：BUN_OPTIONS 里的 `--preload` 照样生效，NODE_PATH 让裸模块名多一处解析来源；NODE_OPTIONS 现在 Bun 不理会（Node 后备会）。每个变量各有一条测试。Windows 上经 `os.environ` 转一道，变量名成了大写，变量名本来就不分大小写，不影响取值。
+  - **不读当前目录的配置**（实测 Bun 1.4.2，2026-10-22）：Bun 默认从当前目录加载 `.env`（变量直接进 `process.env`）与 `bunfig.toml`（其中的 `preload` 会先执行任意脚本）。TS 子进程的当前目录必须是用户的当前目录（相对路径的参数照它解析），所以启动器固定带 `--no-env-file` 与 `--config=<ts/bunfig.toml>`（仓库里一份只有注释的空配置）。两样各一条测试：当前目录放 `.env` 与带 preload 的 `bunfig.toml`，输出不受影响（对照组不带防护时注入确实生效）。用户级的全局配置（HOME、USERPROFILE、XDG_CONFIG_HOME 下的 `.bunfig.toml`）也有一条测试：实测带不带 `--config` 它都没被执行，测试钉住这一点，Bun 升级后变了就会红。
+  - **转交名单写死在代码里**（themistally-15，2026-10-22）：`status`（文本与 `--json`，不含 `--assess`）、`logs list`、`logs show`、`logs cat`、`logs search`、`logs usage`。其余子命令一律由 Python 回答，选择文件写 `ts` 也一样。名单与每条命令交给 TS 的参数键写在一处（`pi_dispatch.TS_READONLY_COMMANDS`），测试核对参数键与 argparse 的 Namespace 一致：argparse 多了一个选项而名单没跟上，测试就红，不会悄悄丢掉一个参数。hub 账本的 `dispatcher.called` 用同一份名单判定 `impl`。
+  - **检查顺序**：选择文件在 main 开头读（格式错就拒绝运行，`-h` 也一样）；argparse 解析成功之后，(a) 看命令在不在转交名单里（纯判断，不在就照旧由 Python 回答，名单外的命令不多跑一次 git）；(b) 跑 Python 自己的 `Repo.discover`，出错就由 Python 照原文回答（`pi_dispatch.py:1204` 拒绝在 linked worktree 里运行，“不在 Git 仓库里”之类的报错都不碰 TS）；(c) 再查 TS 入口在不在、装好戳记对不对、Bun 是不是装依赖时那一个；(d) 最后转交。所以 TS 的依赖只需要装在主工作区。（themistally-15 提的次序是 discover 在名单之前；两种次序对外的结果相同，名单在前只是省掉名单外命令的一次 git。）
+  - **选择文件读的是正在运行的 `pi_dispatch.py` 旁边那一份**（内核自己的 `scripts/kernel-impl.json`），与 `--repo` 指向哪个仓库无关。TS 入口同理：`pi_dispatch.py` 上一级目录的 `ts/packages/cli/src/main.ts`。选择文件指向 `ts` 却找不到入口（例如有人把选择文件拷进了没有 `ts/` 的仓库），报“选择文件指向 ts，但找不到 TS 入口”，不退回 Python。
+  - **装好戳记**（themistally-15，2026-10-22）：`ts/package.json` 根包的 postinstall（`ts/tools/stamp-install.mjs`）在每次 `bun install` 之后写 `ts/node_modules/.themis-installed`：依赖清单的合并哈希、Bun 版本，以及安装时用的 Bun 可执行文件的绝对路径（`process.execPath`）。启动器按 PATH 找到 bun.exe 之后与戳记比对，不同就报“当前找到的 bun.exe 与安装依赖时用的不是同一个：<路径>”，PATH 顺序一变（另装了一个 Bun）不会悄悄换了运行时（themistally-15）。实测 Bun 1.4.2 每次 `bun install` 都跑根包的 postinstall，`--frozen-lockfile` 也一样。合并哈希覆盖 `ts/bun.lock`、`ts/package.json` 与 `ts/packages/*/package.json`，Python 与 JS 各算一份（有对照测试）。启动器每次转交之前现算一遍：戳记不存在报“TS 实现没装好：在 ts/ 下运行 bun install --frozen-lockfile”，哈希对不上报“TS 依赖与 bun.lock 不一致：在 ts/ 下运行 bun install --frozen-lockfile”，都不退回 Python。以后合入的提交改了 `bun.lock`、加了包，主工作区的工作区链接就旧了，这一步把莫名其妙的 import 错误换成一句能照做的话。
+  - **主工作区自动跟上**：第 61 轮“站主动过 HEAD 之后的后台回归”多一步：主工作区的合并哈希与戳记对不上，就在落地锁里跑一次 `bun install --frozen-lockfile`，失败写阻塞信。在那之前，戳记检查兜底。
+- **切换**：三片都达到出口条件之后，一次提交把选择文件（第 5 节）的 `readonly` 改成 `ts`，照内核轮次走。同在这一次的：选择文件、`meta.json` 的 `impl`、账本事件的 `impl` 与版本、指纹与执行器禁区的改动、戳记与第 61 轮回归的重装；测试：
+  - 启动器四条各一条（找不到 Bun 报错、字节透传与退出码、杀掉启动器后 TS 子进程随之消失、环境变量一致），用假入口（Python 脚本）测，不依赖 TS 装没装；
+  - 选择文件的严格解析（不存在等于全部 `python`，格式错就拒绝运行）；转交名单与参数键；`kernel_env` 过滤后的环境找得到 Bun；回退（选择文件改回 `python`，输出与没有选择文件时逐字节相同）；找不到 TS 入口、戳记缺失、戳记过期各一条；合并哈希的 Python 与 JS 对照；
+  - 端到端：vitest 的 readonly 契约测试加第三种运行方式：引导脚本作为独立的 Python 子进程启动，在里面把 `pd.KERNEL_IMPL_PATH` 指向临时的 `readonly: ts` 选择文件再调 `pd.main(argv)`，每个用例与纯 Python 的输出逐字节比较。句柄继承、Job、退出码、输出次序与“pyargs 由启动器生成”这一环都由它真实覆盖。生产代码里不加“用环境变量改选择文件路径”之类的测试开关（themistally-15）。
+  - 改的是内核文件 `pi_dispatch.py`、新增 `scripts/` 下的文件：照第 9 节，合入前跑全部门禁基准；合入后第 61 轮的后台回归再跑一遍。
 - **回退**：改回 `python`，一次提交。
 
 ### ③ 配置中心
@@ -393,11 +403,16 @@ SQLite 的启动检查：
   - hub 的 `dispatcher.called` 事件与回合事件也加。
   - 这是证据与账本格式的改动：第 ② 步做的时候照内核轮次走，在 r3 §10 记一轮。Python 版同时写 `impl: "python"`，不能只有 TS 版写。
 - **何时加**：第 ② 步第一次需要切换时才加。在那之前，这个文件不存在，也不读，等于全部是 `python`。
-- **随 kit 安装**：跟内核代码一起提交，算进指纹。
+- **读哪一份**：正在运行的 `pi_dispatch.py`（或 `kit_hub.py`）旁边那一份，即内核自己的 `scripts/kernel-impl.json`，与 `--repo` 指向哪个仓库无关。
+- **随 kit 安装**：第 ⑤ 步之前不随 kit 安装，TS 也不装（第 6 节）。目标仓库里没有这个文件，就全是 `python`。所以它不进 `KIT_LOADED_FILES`（`kit_install.py:199` 装的正是这份清单）。
 - **怎么改**：每次切换都是一次提交，在 kdev 里改、测试、照第 9 节的流程合入，不在主工作区直接改。提交说明写明切了哪个组件、出口条件的证据。
 - **回退**：把对应的值改回 `python`，再提交一次。
-- **自动换代**：内核文件指纹（`kit_hub.py:161-201`）把选择文件、两套入口（`kit_hub.py`、`pi_dispatch.py`、`ts/packages/*/src/**`）都纳入。哪一个变了，runner 都在两步之间按选择文件重新起。指纹只认选择文件指定的那一套入口作为“运行中的内核”。
-- **执行器的禁区**：TS 代码一旦进入生产路径（第 ② 步起），`pi_dispatch.py` 的 `KIT_LOADED_FILES` 与 `PROTECTED_PATTERNS` 就要加上 `ts/packages/**` 与 `scripts/kernel-impl.json`。在那之前，执行器碰 `ts/` 只算普通改动，照合同的 Scope 管。
+- **自动换代**：内核文件指纹（`kit_hub.kernel_files`）管的是 hub 进程里加载的代码，换了就要在两步之间重启 hub。第 ② 步起把选择文件纳入；`ts/packages/*/src/**` 暂不纳入：TS 每条命令现起进程、现读源码，hub 进程从不加载它（2026-10-22 与 themistally-15 定）。第 ⑤ 步 hub 换成 TS 时，再按选择文件把那一套入口纳入。
+- **执行器的禁区**（第 ② 步切换起，与 themistally-15 定）：
+  - `scripts/kernel-impl.json` 无条件进 `PROTECTED_PATTERNS`，与 `pi_dispatch.py` 同等对待。
+  - `ts/**` 有条件：被检查的仓库就是内核自己所在的仓库（真实路径比较，8.3 短名、junction、大小写都看穿），并且选择文件至少有一项是 `ts`。`PROTECTED_PATTERNS` 随 kit 装进目标仓库、外部布局也会指向别的仓库，目标项目自己的 `ts/` 不能受影响；回退到全 `python` 时 TS 不在生产路径上，限制随之解除。禁的是整个 `ts/`：`ts/package.json`、`bun.lock` 与装好戳记的 postinstall 脚本同样决定运行结果。
+  - 每个 attempt 冻结一次：prepare 时算出、记进 `meta.json` 的 `kernel_protected`，run 的执行说明与 collect 的范围门禁都用记下的那份。attempt 跑到一半时切换或回退，范围门禁照样与派遣时的合同对得上。
+  - 不加进 `KIT_LOADED_FILES`，理由见上。
 
 ---
 
@@ -405,7 +420,7 @@ SQLite 的启动检查：
 
 | 阶段 | 装进目标仓库的东西 | 说明 |
 |---|---|---|
-| 现在到第 ⑤ 步 | 照旧：Python 文件与数据文件（`KIT_LOADED_FILES`、`scripts/hub/`、`plugins/decisions/` 等） | TS 部分只在本仓库开发，不随 kit 安装 |
+| 现在到第 ⑤ 步 | 照旧：Python 文件与数据文件（`KIT_LOADED_FILES`、`scripts/hub/`、`plugins/decisions/` 等） | TS 部分只在本仓库开发，不随 kit 安装；`scripts/kernel-impl.json` 也不装，目标仓库里没有它就全是 `python`。有人把 `readonly: ts` 的选择文件拷进没有 `ts/` 的仓库，启动器报“选择文件指向 ts，但找不到 TS 入口”（第 ② 步） |
 | 第 ⑤ 步完成后 | Python 文件照旧，另加单文件程序 `themis`（Windows 为 `themis.exe`）与 `kernel-impl.json` | `.agent/kit-install.json` 记下程序的版本与 sha256，`update` 时核对；目标仓库也能退回 Python |
 | 第 ⑥ 步 | 只装单文件程序与数据文件；`dispatch-pi.sh` 改成调用程序的薄封装 | Node 后备：另附 `themis.mjs`（`bun build --target=node`），用 `node themis.mjs` 运行 |
 
@@ -500,6 +515,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | 本机只有 Windows，POSIX 语义没有实机验证（`os.link` 的分支、`O_NOFOLLOW`、信号） | TS 版在 Linux/macOS 上的行为没有证据 | 契约测试本身跨平台；需要时在 WSL 或另一台机器上跑一遍再说“跨平台” |
+| 第 ② 步切换起执行器的禁区是整个 `ts/**`（themistally-15，2026-10-22） | 以后 quizs 的包（也在 `ts/packages/` 下）与它要补进 `@themis/base` 的子模块，执行器都碰不了 | 现在不做。quizs 开发或 TS 切片要派给执行器时，二选一：合同级的明确放行，或者把内核包与 quizs 包分开放、禁区只罩内核包 |
 | Python `json.dumps` 与 JS 的差别（第 1.4 节） | 摘要对不上，证据绑定与信件 sha256 失效 | `pyjson` 逐字节对照，专门的浮点、大整数、码点排序用例 |
 | 时间与编号的格式（`utc_now`、msg-id、turn id） | 两套实现写出的记录不能互认 | 第 ① 步之后补进 `base`，按契约对照 |
 | Bun 在 Windows 上的成熟度；`bun:ffi` 是实验性 | 第 ④ 步卡住 | 先做 ④a 的验证；Node 后备一直保留 |
@@ -512,7 +528,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | `logs show` 的显式相对路径：Python 拿“当前目录拼出来、没解析过”的路径逐段对照“解析过的 runs 根” | 当前目录带 8.3 短名（例如 `ADMINI~1`）时，指向 runs 之内的相对路径也报“不在 runs 根之下”（第 ②a 步的契约实测） | TS 照样；要修另开一轮（两边一起改成先解析再比较） |
 | 路径语义的细差（TS 的 `pypath.ts`） | Windows 上 Python 3.12 的 normcase 用 LCMapStringEx 的不变区域小写，TS 用 toLowerCase；abspath 的 GetFullPathNameW 会去掉段尾的点与空格，`path.resolve` 不去 | 只在路径含特殊大小写字符、或段尾有点与空格时才可能不同；遇到再补 |
 | Node 后备认不出一部分重解析点 | Python 把 Windows 上一切带 REPARSE_POINT 属性的条目都当链接；Bun 经 GetFileAttributesW 一致，Node 后备只用 lstat，认不出云文件占位、AppExecLink 这类 | 第 ⑥ 步之前 Python 一直是退路；需要时让 Node 后备经 `__native` 辅助进程批量查属性 |
-| `logs search` 拒绝反向引用与条件分组、括号嵌套超过 100 层（行为变更，r3 §10 第 58 轮，Python 先改） | 以前能搜的这两类写法现在报错（退出码 2） | 搜索框只做逐行过滤，两类构造在这里没有实际用途；桌面端文档的搜索说明已记 |
+| `logs search` 拒绝反向引用与条件分组、括号嵌套超过 100 层（行为变更，r3 §10 第 58 轮，Python 先改） | 以前能搜的这两类写法现在报错（退出码 2） | 搜索框只做逐行过滤，两类构造在这里没有实际用途；桌面端文档的搜索说明已记。原因说准（themistally-15，2026-10-22）：第 58 轮当时以为 JS 正则做不到；②b2 改成移植 sre 匹配器之后，引擎其实已经能支持这两类，只是不值得（多两类操作码与它们的对照）。保留拒绝；需要时可以撤销第 58 轮，补上 GROUPREF、GROUPREF_EXISTS 两类操作码与对照 |
 | `logs search` 的 PATTERN 是用户可控的正则 | 灾难性回溯：TS 的 sre 移植与现在的 Python 一样中断不了，而且更慢（解释执行：常见写法慢约 3 倍以内，`.*` 在 200 KB 长行上反复回溯约 3 倍；构造出的指数级写法约 20 倍，这一项是在后两轮优化之前测的） | 启动器的 Job 加超时、超时结束整棵进程树；将来的本机服务调 logs search 一定要设超时（themistally-15，2026-10-22） |
 | `logs search` 的匹配语义要与 sre 一致 | JS 正则（尤其 JavaScriptCore）与 sre 的回溯次序、空匹配处理、原子组都不同；sre 自己还有怪癖：信息块的字符集前缀按整个模式的标志编译，`(?a:[^\w])` 开头的模式不把 µ 当起点 | 不用 JS 正则，移植 sre 的字节码与匹配器，怪癖照搬；对照测试在 Bun、Node 两种运行时各跑一遍 |
 | 游标绑定的文件号 | CPython 3.12 在 Windows 上的 st_ino 取自文件 ID，ReFS 上可能是 128 位；Node 的 ino 是 libuv 给的 64 位 | 本机 NTFS 实测三套取值相同（②b1）；ReFS 上未验证，遇到再处理 |
@@ -548,6 +564,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | ②b1 | `logs cat`：`@themis/dispatcher/logs-cat`（safe_page 的文本页与 JSONL 页、游标的编码与核对、整份与逐行脱敏、超长行与隐藏行；偏移与切片按码点，64 MiB 的文本不拆数组，用补充平面字符的位置二分换算）。游标绑定的文件身份 (size, mtime_ns, ino)：本机 NTFS 上 Python、Node、Bun 实测取值相同。入口改用 pyjson 解析参数（`--limit` 这类 Python int 超出 JS 数字精度时，报错里原样写出）。对照：合成夹具的用例 17 个，加同一仓库里逐页翻的 3 个（文本长行按片、JSONL 长行按行内字符续读、文件变长后续读与改写后作废，含变长同时改写）；真实证据手动对照：3 个 attempt × 9 种文件与页大小顺着游标翻页，加 7 种报错，共 78 次调用，Node 与 Bun 都与 Python 逐字节一致。变异 21 个全部抓住（K11“JSONL 游标不核对之前的一段”起初漏掉：原用例改写时大小不变，修改时间那条先报了作废；补了“文件变长、之前的字节也被改了”才抓住）；“rfind 的边界保护”是等价变异（首页以换行开头时切片必以换行结尾，构造不出），没列 | 完成 | 见提交说明 |
 | ②b2 | `logs search`。`@themis/base/pyregex`：parser（`Lib/re/_parser.py` 逐段移植，报错文字与位置照原样，`\N{…}` 用生成的 Unicode 15.0 名字表，含别名、谚文音节与 CJK 统一表意文字的规则）、compile（`_compiler._compile` 编出 sre 的字节码；单字符的匹配器按 sre 运行时的判定算成码点集合，大小写用 `_sre` 的简单映射与 `_casefix`；信息块的字面量前缀与字符集前缀照 `_compile_info`，字符集前缀按整个模式的标志编译的怪癖照搬）、engine（`sre_lib.h` 的 SRE(match)、SRE(search) 移植，显式上下文栈，长行上的重复不撑爆调用栈）、search（第 58 轮的三道检查，次序写死）。Python 侧把三道检查与编译抽成 `kit_logs._compile_search`（行为不变，109 条测试照过）。`@themis/dispatcher/logs-search`：safe_lines 与 cmd_search。第一版编成 JS 正则，Node 下对照全过，到 Bun 下才撞上 JavaScriptCore 的前瞻缺陷与原子组的语义差别，改成移植匹配器（r3 §10 与 AGENT_LEARNINGS 有记录）。对照：CPython `test_re.py` 的 1265 个字面量语法分析逐字一致；搜索语料 1.85 万项、随机模式 8 组 47 万项，Python 与 TS 结果一致（Bun 全跑，Node 跑了语料与其中 4 组）；仓库里的对照测试（手挑的 79 个写法 × 40 段文本，两种随机生成各 3 个种子 × 400 个模式，Python、Node、Bun 三方比较）。契约：logs search 的用例 20 个（文本与 JSON、截断、跳过计数、报错原文、崩溃、`--max`、`--task`、sre 的前缀怪癖），stdout 逐字节一致，`--json` 过 logs-search-v1。性能：2000 万字节、4.9 万行的合成日志上，10 种常见写法里慢的约 3 倍（`(?:read|edit) src/\w+\.ts` 223 对 73 毫秒），快的比 Python 还快（`\bfail(?:ed|ure)\b` 58 对 156 毫秒）。变异：正则 32 个，抓住 30 个，2 个声明等价（没有大小写的字面量与字符集要不要小写化：逐个码点核对过 `\w`、`\d`、`\s` 与 sre 的小写映射）；logs search 8 个全部抓住 | 完成 | 见提交说明 |
 | ②c | `logs usage`。`@themis/base/pydatetime`：`datetime.fromisoformat` 的 C 实现（CPython 3.12.10 `_datetimemodule.c`，Python 实际用的就是它，不是 `_pydatetime.py`）逐段移植，在 UTF-8 字节上按 C 字符串解析，怪癖照搬并逐条在 Python 上实测过：秒后面的冒号当小数（`10:00:00:5` 是 0.5 秒）、小数点后一位都没有也收、`Z` 后面跟 NUL 当结尾、分隔符可以是任意字符（多字节按首字节跳过）、时区偏移的秒为零时连带的微秒丢掉、偏移的分钟不查上限（`+00:99`）；加 kit_logs._parse_iso 的换算（结尾 Z、必须带时区、换成 UTC、溢出为不可用）。`@themis/dispatcher/logs-usage`：执行端（events-summary.json 的 known、partial、unknown，按模型合计，计数一律 bigint）与规划端（会话记录逐行读、按消息 id 归组、重复与两种冲突、未完成、时间窗、坏行与非候选的计数、按模型与是否子代理合计）。对照：pydatetime 手挑 62 个写法加 4 个种子各 3000 个随机串，Python、Node、Bun 一致；logs usage 的契约用例 11 个，stdout 逐字节一致，`--json` 过 logs-usage-v1；真实数据：主仓库的 runs 加本机 119 MB 的会话记录，6 组参数在 Node、Bun 下共 12 次调用逐字节一致。变异：pydatetime 15 个、logs usage 16 个全部抓住（起初各漏一个：分隔符以外的代理字符、带 usage 的空 id，补了用例） | 完成 | 见提交说明 |
+| ②-切换 | 选择文件 `scripts/kernel-impl.json` 的 `readonly` 改成 `ts`（r3 §10 第 64 轮）。启动器照第 ② 步“转交给 TS 的启动器”：转交名单写死、检查次序（名单、discover、TS 入口、装好戳记、Bun 路径）、`--pyargs-b64`、句柄直接继承、带 KILL_ON_JOB_CLOSE 的 Job、退出码原样；Bun 固定带 `--no-env-file` 与 `--config=ts/bunfig.toml`，子进程环境去掉运行时注入变量。装好戳记由 `ts/package.json` 的 postinstall 写，第 61 轮的后台回归在戳记过期时于落地锁里重装。`meta.json` 记 `impl` 与冻结的 `kernel_protected`，账本的 `dispatcher.called` 记 `impl` 与 `tool_version`。测试：`tests/test_kernel_impl.py` 70 条（选择文件的严格解析、名单与参数键、检查次序、启动器四条、六种注入各一条并带对照组、回退逐字节、禁区与同目录判断）；hub 新增 5 条；readonly 契约用例全部加上经真的启动器的端到端（87 条全过）；全量 pytest 在藏起装好戳记时照过（2578 passed，test_dispatch.py 另 50 passed），说明没有测试依赖 TS 装没装。变异 36 个全部抓住（第一轮漏 2 个：规格的 `-k` 漏选一条、回退测试两边走同一份坏代码，补断言后抓住） | 完成 | 见提交说明 |
 | ③ | 配置中心 | | |
 | ④a | Windows 进程监督的验证 | | |
 | ④ | 证据与门禁 | | |

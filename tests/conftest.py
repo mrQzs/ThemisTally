@@ -11,11 +11,24 @@
 """
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
 SLOW_FIXTURE = "pipeline"
+
+
+@pytest.fixture(autouse=True)
+def python_kernel_impl(request, monkeypatch, tmp_path_factory):
+    """进程内调 ``pd.main`` 的用例测的是 Python 实现：选择文件（scripts/kernel-impl.json）钉成“不存在”，等于全部
+    python，不随提交的选择文件把 status、logs 转交给 TS。TS 子进程的输出不经 redirect_stdout，没装依赖的临时
+    worktree（门禁回归、落地预演）里也起不来。TS 与 Python 的对等由 ts/ 的契约测试与 tests/test_kernel_impl.py 的
+    端到端覆盖；test_kernel_impl.py 自己管选择文件，不钉。子进程里跑的 ``scripts/pi_dispatch.py`` 读真的选择文件。"""
+    module = sys.modules.get("pi_dispatch")
+    if module is None or request.path.name == "test_kernel_impl.py":
+        return
+    monkeypatch.setattr(module, "KERNEL_IMPL_PATH", tmp_path_factory.getbasetemp() / "no-kernel-impl.json")
 
 
 def named_files(config: pytest.Config) -> set:

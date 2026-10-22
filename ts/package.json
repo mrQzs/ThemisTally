@@ -10,6 +10,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "bun tools/stamp-install.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

@@ -35,6 +35,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as _dt
 import hashlib
 import json
@@ -107,8 +108,40 @@ KIT_LOADED_FILES = (
 PROTECTED_PATTERNS = (
     ".agent/**", ".claude/**", ".codex/**", ".pi/**", ".agents/**", ".gitmodules",
     "**/AGENTS.md", "**/AGENTS.override.md", "**/CLAUDE.md", "**/CLAUDE.local.md",
-    "scripts/pi_dispatch.py", "scripts/dispatch-pi.sh",
+    "scripts/pi_dispatch.py", "scripts/dispatch-pi.sh", "scripts/kernel-impl.json",
 ) + KIT_LOADED_FILES
+#: TS 实现进入生产路径之后（选择文件至少有一项是 ts，迁移计划第 5 节）执行器也不得修改的路径。只在被检查的仓库
+#: 就是内核自己所在的仓库时加上（kernel_protected_paths）：PROTECTED_PATTERNS 随 kit 装进目标仓库，目标项目自己的
+#: ts/ 目录不受影响。整个 ts/ 都算：package.json、bun.lock 与写装好戳记的 postinstall 同样决定运行结果。
+KERNEL_TS_PROTECTED = ("ts/**",)
+
+#: 选择文件（迁移计划第 5 节）：正在运行的本文件旁边那一份，与 --repo 指向哪个仓库无关；不随 kit 安装。
+KERNEL_IMPL_PATH = Path(__file__).resolve().parent / "kernel-impl.json"
+KERNEL_IMPL_COMPONENTS = ("readonly", "config", "dispatcher", "hub")
+KERNEL_IMPLS = ("python", "ts")
+#: TS 实现：本文件上一级目录的 ts/（迁移计划第 2.1 节的工作区）。
+KERNEL_TS_ROOT = Path(__file__).resolve().parent.parent / "ts"
+TS_ENTRY = "packages/cli/src/main.ts"
+TS_STAMP = "node_modules/.themis-installed"
+TS_BUNFIG = "bunfig.toml"
+TS_INSTALL_HINT = "在 ts/ 下运行 bun install --frozen-lockfile"
+#: 转交给 TS 时从子进程环境去掉的运行时注入变量（不区分大小写）：它们不影响 Python 的行为，却能往 TS 进程里塞代码。
+#: 实测 Bun 1.4.2（2026-10-22）：BUN_OPTIONS 是默认参数（--preload 照样生效），NODE_PATH 让裸模块名多一处解析来源；
+#: NODE_OPTIONS 现在 Bun 不理会，Node 后备会；BUN_INSPECT* 打开调试器。“环境一致”指命令逻辑看到的变量一致，不含这些。
+TS_RUNTIME_ENV_DROP = ("BUN_OPTIONS", "NODE_OPTIONS", "NODE_PATH", "BUN_INSPECT", "BUN_INSPECT_CONNECT_TO",
+                       "BUN_INSPECT_NOTIFY")
+#: readonly 选 ts 时转交给 TS 的命令（迁移计划第 ② 步），值是交给 TS 的参数键（契约见
+#: ts/packages/contracts/schemas/pyargs-v1.schema.json）。名单写死：其余子命令一律由 Python 回答。Namespace 里
+#: 不交的键只有 command、func 与 status 的 assess（带 --assess 的调用不转交）；tests/test_kernel_impl.py 核对其余的键
+#: 与 argparse 的 Namespace 一致，argparse 多了选项而这里没跟上，测试就红。
+TS_READONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
+    ("status",): ("repo", "task_id", "json"),
+    ("logs", "list"): ("repo", "task", "state", "json"),
+    ("logs", "show"): ("repo", "target", "json"),
+    ("logs", "cat"): ("repo", "target", "path", "cursor", "limit", "json"),
+    ("logs", "search"): ("repo", "pattern", "task", "max", "json"),
+    ("logs", "usage"): ("repo", "task", "transcript", "since", "until", "json"),
+}
 DEPENDENCY_PATTERNS = (
     "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json", "**/pnpm-lock.yaml",
     "**/pnpm-workspace.yaml", "**/yarn.lock", "**/bun.lock", "**/bun.lockb", "**/.npmrc",
@@ -1251,6 +1284,32 @@ def extra_protected_paths(config: Dict[str, Any]) -> List[str]:
     return list(values)
 
 
+def same_dir(a: Path, b: Path) -> bool:
+    """两个路径是不是同一个目录：先解析真实路径（8.3 短名、junction、符号链接），再按平台的大小写规则比较。"""
+    return norm_case(os.path.realpath(str(a))) == norm_case(os.path.realpath(str(b)))
+
+
+def kernel_protected_paths(root: Path, impl: Optional[Dict[str, str]] = None) -> List[str]:
+    """TS 进入生产路径之后加给执行器的禁区（KERNEL_TS_PROTECTED）：被检查的仓库就是内核自己所在的仓库，并且
+    选择文件至少有一项是 ts。kit 装进去的目标仓库、外部布局指向的仓库一概不加，它们自己的 ts/ 照合同的 Scope 管。"""
+    if not same_dir(root, KERNEL_TS_ROOT.parent):
+        return []
+    chosen = read_kernel_impl() if impl is None else impl
+    return list(KERNEL_TS_PROTECTED) if "ts" in chosen.values() else []
+
+
+def repo_protected_paths(repo: "Repo") -> List[str]:
+    """还没有 attempt 时（validate、derive-json）内置之外对执行器只读的路径：仓库配置的 extra_protected_paths，
+    加上现算的内核 TS 禁区。"""
+    return extra_protected_paths(repo.config()) + kernel_protected_paths(repo.root)
+
+
+def attempt_protected_paths(config: Dict[str, Any], meta: Dict[str, Any]) -> List[str]:
+    """一个 attempt 的只读路径：仓库配置的 extra_protected_paths，加上 prepare 时冻结进 meta.json 的内核 TS 禁区
+    （更早的 attempt 没有这一项，当时 TS 不在生产路径上）。"""
+    return extra_protected_paths(config) + list(meta.get("kernel_protected") or [])
+
+
 #: 价格表每个模型可写的单价字段（2.8.0）：每 per_tokens 个 token 的价格。
 PRICE_FIELDS = ("input", "output", "cache_read", "cache_write")
 #: events-summary.json 的 usage 字段 → 价格表的单价字段。
@@ -2139,7 +2198,7 @@ def _load_fixed_contract_pair(repo: Repo, plan_key: str, md_bytes: bytes,
     if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
         raw = _planner_strict_json_loads(json_bytes)
     contract, errors, contract_warnings = validate_contract(
-        md_text, raw, plan_key, extra_protected_paths(repo.config()))
+        md_text, raw, plan_key, repo_protected_paths(repo))
     if warnings_out is not None:
         warnings_out.extend(contract_warnings)
     if isinstance(raw, dict) and raw.get("contract_family") == "planner-v2":
@@ -4877,8 +4936,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
                     raise DispatchError("planner-v2 严格 JSON 解码器不可用：%s" % exc, EXIT_BLOCKED)
         except (ValueError, UnicodeDecodeError) as exc:
             raise DispatchError("固定合同字节无法解析：%s" % exc, EXIT_USAGE)
+        # 内核的 TS 禁区每个 attempt 冻结一次：这里算出、记进 meta.json，run 的执行说明与 collect 的范围门禁都用记下的那份。
+        # attempt 跑到一半时切换或回退选择文件，范围门禁照样与派遣时的合同对得上
+        kernel_protected = kernel_protected_paths(repo.root)
         frozen_contract, frozen_errors, _frozen_warnings = validate_contract(
-            frozen_md.decode("utf-8"), frozen_raw, args.plan_key, extra_protected_paths(repo.config()))
+            frozen_md.decode("utf-8"), frozen_raw, args.plan_key, extra_protected_paths(repo.config()) + kernel_protected)
         if frozen_errors or frozen_contract is None:
             raise DispatchError("验证后的合同字节在冻结时发生变化：%s" % "；".join(frozen_errors), EXIT_DRIFT)
         if isinstance(frozen_raw, dict) and frozen_raw.get("contract_family") == "planner-v2":
@@ -4903,7 +4965,9 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         source_status = git(["status", "--porcelain=v1", "-z"], repo.root).stdout
         (run_dir / "source-status.z").write_bytes(source_status)
         meta = {
-            "tool_version": TOOL_VERSION, "task_id": task_id, "plan_version": version, "plan_key": args.plan_key,
+            # impl：写这份证据的是哪一套实现（迁移计划第 5 节）；TS 版的 prepare 写 "ts"
+            "tool_version": TOOL_VERSION, "impl": "python", "task_id": task_id, "plan_version": version,
+            "plan_key": args.plan_key, "kernel_protected": kernel_protected,
             "attempt_no": number, "attempt_id": attempt_id, "repository": str(repo.root), "base_sha": base,
             "worktree": str(worktree), "plan_md_sha256": sha256_file(run_dir / "plan.md"),
             "contract_json_sha256": sha256_file(run_dir / "contract.json"), "risk_level": contract["risk_level"],
@@ -5048,7 +5112,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         write_json(run_dir / "executor.json", executor, exclusive=True)
         write_text(run_dir / "instruction.md", render_instruction(meta, contract, executor, timeout,
-                                                                  extra_protected_paths(config),
+                                                                  attempt_protected_paths(config, meta),
                                                                   read_json_or(run_dir / "setup.json", [])))
         shutil.copyfile(str(run_dir / "instruction.md"), str(attach_dir / "instruction.md"))
         run_info["attachments"] = [{"name": name, "path": str(attach_dir / name),
@@ -5105,7 +5169,7 @@ def collect(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Dict[str,
         head_after = git_text(["rev-parse", "HEAD"], work_dir)
         changes = diff_raw(work_dir, base, candidate["tree"])
         write_json(run_dir / "changes.json", changes, exclusive=True)
-        scope = evaluate_scope(changes, contract, head_after, base, extra_protected_paths(repo.config()))
+        scope = evaluate_scope(changes, contract, head_after, base, attempt_protected_paths(repo.config(), meta))
         scope["head_after"] = head_after
         write_json(run_dir / "scope.json", scope, exclusive=True)
     except (DispatchError, OSError) as exc:
@@ -8379,6 +8443,228 @@ def no_abbrev(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+# ---------------------------------------------------------------------------
+# 两套实现并存：选择文件与转交给 TS 的启动器（迁移计划第 ② 步、第 5 节）
+# ---------------------------------------------------------------------------
+
+def read_kernel_impl(path: Optional[Path] = None) -> Dict[str, str]:
+    """读选择文件。不存在等于全部 python；存在就严格解析：读不了、不是 JSON、键重复、多键少键、取值不是
+    python 或 ts、schema_version 不是整数 1，都报错拒绝运行，不悄悄退回 python（否则运行中的内核与提交的选择对不上）。"""
+    path = KERNEL_IMPL_PATH if path is None else path
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return {name: "python" for name in KERNEL_IMPL_COMPONENTS}
+    except OSError as exc:
+        raise DispatchError("选择文件读不了：%s（%s）；拒绝运行" % (path, exc), EXIT_USAGE)
+
+    def unique(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        data: Dict[str, Any] = {}
+        for key, value in pairs:
+            if key in data:
+                raise ValueError("键 %r 重复" % key)
+            data[key] = value
+        return data
+
+    try:
+        data = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise DispatchError("选择文件不是合法的 JSON：%s（%s）；拒绝运行" % (path, exc), EXIT_USAGE)
+    expected = ("schema_version",) + KERNEL_IMPL_COMPONENTS
+    problem: Optional[str] = None
+    if not isinstance(data, dict):
+        problem = "顶层不是对象"
+    elif set(data) != set(expected):
+        problem = "键应当正好是 %s，实际是 %s" % (", ".join(expected), ", ".join(sorted(data)))
+    elif type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        problem = "schema_version 应当是 1，实际是 %r" % (data["schema_version"],)
+    else:
+        bad = ["%s=%r" % (name, data[name]) for name in KERNEL_IMPL_COMPONENTS if data[name] not in KERNEL_IMPLS]
+        if bad:
+            problem = "取值只能是 python 或 ts：%s" % "，".join(bad)
+    if problem is not None:
+        raise DispatchError("选择文件无效：%s：%s；拒绝运行（不退回 python）" % (path, problem), EXIT_USAGE)
+    return {name: data[name] for name in KERNEL_IMPL_COMPONENTS}
+
+
+def ts_deps_digest(ts_root: Path) -> str:
+    """TS 依赖清单的合并哈希，装好戳记里记的就是它（算法与 ts/tools/stamp-install.mjs 相同）：bun.lock、
+    package.json 与 packages/*/package.json，按相对路径排序，逐个写“路径\\0文件的 sha256\\n”（文件不在写“-”），
+    再取整体的 sha256。"""
+    names = ["bun.lock", "package.json"]
+    packages = ts_root / "packages"
+    if packages.is_dir():
+        names.extend("packages/%s/package.json" % entry.name for entry in packages.iterdir()
+                     if (entry / "package.json").is_file())
+    digest = hashlib.sha256()
+    for name in sorted(names):
+        path = ts_root / name
+        part = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "-"
+        digest.update(("%s\0%s\n" % (name, part)).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def find_bun(env: Optional[Dict[str, str]] = None) -> Optional[Path]:
+    """按 PATH 找 Bun 的可执行文件。不经 shell 起子进程认不出 npm 的 bun.cmd：Windows 先找 PATH 上的 bun.exe，
+    没有时，PATH 上第一个 bun.cmd 是 npm 的垫片，就取它旁边的 node_modules/bun/bin/bun.exe（npm 全局安装的布局）；
+    POSIX 找 bun。只看 PATH 里的绝对路径：空项与相对路径按当前目录解析，当前目录里放一个 bun 就能顶替。"""
+    source = os.environ if env is None else env
+    if IS_WINDOWS:
+        value = next((item for name, item in source.items() if name.upper() == "PATH"), "")
+    else:
+        value = source.get("PATH", "")
+    dirs = [Path(item) for item in value.split(os.pathsep) if item and os.path.isabs(item)]
+    if not IS_WINDOWS:
+        return next((d / "bun" for d in dirs if (d / "bun").is_file() and os.access(str(d / "bun"), os.X_OK)), None)
+    found = next((d / "bun.exe" for d in dirs if (d / "bun.exe").is_file()), None)
+    if found is not None:
+        return found
+    shim = next((d for d in dirs if (d / "bun.cmd").is_file()), None)
+    if shim is None:
+        return None
+    candidate = shim / "node_modules" / "bun" / "bin" / "bun.exe"
+    return candidate if candidate.is_file() else None
+
+
+def ts_launch_command(pyargs: Dict[str, Any], ts_root: Optional[Path] = None,
+                      env: Optional[Dict[str, str]] = None) -> List[str]:
+    """转交之前的检查与 TS 子进程的命令行。TS 入口在不在；装好戳记在不在、依赖清单的合并哈希对不对；按 PATH 找到的
+    Bun 是不是装依赖时那一个（PATH 顺序一变不会悄悄换了运行时）。任何一项不满足都报错，不退回 Python。
+
+    参数经 argv 交（--pyargs-b64 <base64>），不走 stdin。Bun 固定带 --no-env-file 与 --config=<ts/bunfig.toml>：
+    当前目录是用户的（相对路径的参数照它解析），Bun 默认会从那里读 .env 与 bunfig.toml（preload 会先执行任意脚本）。"""
+    root = KERNEL_TS_ROOT if ts_root is None else ts_root
+    entry = root / TS_ENTRY
+    if not entry.is_file():
+        raise DispatchError("选择文件指向 ts，但找不到 TS 入口：%s" % entry, EXIT_USAGE)
+    try:
+        stamp = json.loads((root / TS_STAMP).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        stamp = None
+    if not isinstance(stamp, dict):
+        raise DispatchError("TS 实现没装好：%s" % TS_INSTALL_HINT, EXIT_USAGE)
+    if stamp.get("deps_sha256") != ts_deps_digest(root):
+        raise DispatchError("TS 依赖与 bun.lock 不一致：%s" % TS_INSTALL_HINT, EXIT_USAGE)
+    bun = find_bun(env)
+    if bun is None:
+        raise DispatchError("找不到 Bun：PATH 上既没有 bun.exe，也没有 npm 的 bun.cmd 垫片；选择文件指向 ts，不退回 Python",
+                            EXIT_USAGE)
+    installed = stamp.get("bun_path")
+    if not isinstance(installed, str) or norm_case(str(bun.resolve())) != norm_case(str(Path(installed).resolve())):
+        raise DispatchError("当前找到的 bun.exe 与安装依赖时用的不是同一个：%s（装依赖时是 %s）；%s"
+                            % (bun, installed, TS_INSTALL_HINT), EXIT_USAGE)
+    encoded = base64.b64encode(json.dumps(pyargs).encode("ascii")).decode("ascii")
+    return [str(bun), "--no-env-file", "--config=%s" % (root / TS_BUNFIG), str(entry), "--pyargs-b64", encoded]
+
+
+def readonly_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
+    """readonly 选 ts 时，这条命令要不要交给 TS：要就返回交给 TS 的参数（pyargs-v1），不要就返回 None，由 Python
+    照旧回答。(a) 名单 TS_READONLY_COMMANDS（status 带 --assess 不转交），名单外的命令不多跑一次 git；(b) Python
+    自己的 Repo.discover，出错由 Python 照原文回答（worktree、不在 Git 仓库里之类的报错都不碰 TS）。logs 的参数照
+    kit_logs.main 的写法解析：-h 与用法错误由 argparse 当场回答，与走 Python 相同。"""
+    if args.func is cmd_status:
+        if args.assess:
+            return None
+        command: Tuple[str, ...] = ("status",)
+        parsed = args
+    elif args.func is cmd_logs:
+        try:
+            import kit_logs
+        except ModuleNotFoundError:
+            return None
+        parsed = kit_logs.build_parser().parse_args(list(args.args))
+        if args.repo is not None and not parsed.repo:
+            parsed.repo = args.repo
+        if not getattr(parsed, "func", None):
+            return None
+        command = ("logs", parsed.command)
+    else:
+        return None
+    keys = TS_READONLY_COMMANDS.get(command)
+    if keys is None:
+        return None
+    try:
+        Repo.discover(parsed.repo)
+    except DispatchError:
+        return None
+    pyargs: Dict[str, Any] = {"command": list(command)}
+    pyargs.update((key, getattr(parsed, key)) for key in keys)
+    return pyargs
+
+
+def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str:
+    """这条调度器命令由哪一套实现回答，hub 账本的 dispatcher.called 记它。与 readonly_handoff 同一份名单：选择文件的
+    readonly 是 ts、命令在 TS_READONLY_COMMANDS 里（status 不带 --assess）才是 ts。只认 hub 的写法（可选的全局
+    --repo，之后是完整拼写的子命令），带 -h 的按 python 算；hub 总在主工作区运行，碰不到 discover 出错转回 Python。"""
+    chosen = read_kernel_impl() if impl is None else impl
+    if chosen["readonly"] != "ts":
+        return "python"
+    words = list(argv)
+    while words and (words[0] == "--repo" or words[0].startswith("--repo=")):
+        words = words[2:] if words[0] == "--repo" else words[1:]
+    if "-h" in words or "--help" in words:
+        return "python"
+    if words[:1] == ["status"]:
+        return "python" if "--assess" in words else "ts"
+    return "ts" if len(words) >= 2 and words[0] == "logs" and ("logs", words[1]) in TS_READONLY_COMMANDS else "python"
+
+
+def handoff_env(source: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """TS 子进程的环境：与这条命令走 Python 时看到的 os.environ 相同，只去掉 TS_RUNTIME_ENV_DROP。"""
+    drop = {name.upper() for name in TS_RUNTIME_ENV_DROP}
+    return {name: value for name, value in (os.environ if source is None else source).items()
+            if name.upper() not in drop}
+
+
+def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int:
+    """起 TS 子进程并等它结束。stdin、stdout、stderr 直接继承句柄（不经管道：字节原样，isatty 与 Python 一致）；
+    环境是 handoff_env()（缺省）；当前目录不变；退出码原样交回。启动器自己一个字节也不写。
+
+    Windows：挂起创建、加入带 KILL_ON_JOB_CLOSE 的 Job 之后才恢复（与 run_supervised 同一套）。启动器被杀
+    （run_pd 超时）时 Job 句柄随之关闭，子进程跟着结束，不成孤儿。子进程另起进程组，Ctrl+C 只到启动器：终止 Job，
+    再由 main 写“已取消。”。POSIX：父进程死、子进程跟着死只在 Linux 上用 PR_SET_PDEATHSIG 尽力而为，未实机验证
+    （macOS 没有对应机制）。
+    """
+    kwargs: Dict[str, Any] = {"env": handoff_env() if env is None else env}
+    job: Optional[_WinJob] = None
+    if IS_WINDOWS:
+        try:
+            job = _WinJob()
+        except Exception as exc:  # noqa: BLE001
+            raise DispatchError("无法创建 Windows Job Object，拒绝在没有进程树监督的情况下转交给 TS：%s" % exc, EXIT_FAIL)
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x00000004
+    elif sys.platform.startswith("linux"):
+        kwargs["preexec_fn"] = _linux_parent_death_signal
+    proc: Optional["subprocess.Popen[bytes]"] = None
+    try:
+        try:
+            proc = subprocess.Popen(list(cmd), **kwargs)
+        except OSError as exc:
+            raise DispatchError("TS 子进程没能启动：%s: %s" % (type(exc).__name__, exc), EXIT_FAIL)
+        if job is not None and not job.attach_and_resume(proc):
+            raise DispatchError("TS 子进程未能加入 Job Object，已在启动前终止", EXIT_FAIL)
+        code = proc.wait()
+    except BaseException:
+        if proc is not None and proc.poll() is None:
+            if job is not None:
+                job.terminate()
+            else:
+                proc.kill()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                pass
+        raise
+    finally:
+        if job is not None:
+            job.close()
+    if code < 0:  # POSIX：被信号结束，照 shell 的写法交回 128 + 信号
+        return 128 - code
+    if IS_WINDOWS and code > 0x7FFFFFFF:  # NTSTATUS 之类的大值：按有符号 32 位交给 sys.exit，进程退出码原样
+        return code - 0x100000000
+    return code
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -8386,6 +8672,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         except (AttributeError, ValueError):
             pass
     raw = list(sys.argv[1:] if argv is None else argv)
+    try:
+        impl = read_kernel_impl()  # 格式错就拒绝运行，-h 也一样（迁移计划第 5 节）
+    except DispatchError as exc:
+        print("ERROR: %s" % redact_tokens(str(exc)), file=sys.stderr)
+        return exc.code
     args = forwarded_command(raw)
     if args is None:
         parser = build_parser()
@@ -8394,6 +8685,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             parser.print_help()
             return EXIT_USAGE
     try:
+        if impl["readonly"] == "ts":
+            pyargs = readonly_handoff(args)
+            if pyargs is not None:
+                return run_handoff(ts_launch_command(pyargs))
         return int(args.func(args))
     except DispatchError as exc:
         print("ERROR: %s" % redact_tokens(str(exc)), file=sys.stderr)  # 报错里不带令牌形状的取值（D9）
