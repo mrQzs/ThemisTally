@@ -5199,6 +5199,10 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     assert "- V01 12 项失败经逐一定位均为门禁端缺陷：fireEvent.hashChange 不存在" in prompt
     assert "attempt-001/candidate.patch" in prompt and "attempt-001/checks/" in prompt
     assert "fireEvent 没有 hashChange" in prompt  # 撞过的坑
+    # 第 57 轮：T011 的 attempt-004 之后查实的三处
+    assert "rowOf 只收一个参数" in prompt and "先断言夹具本身取到了想要的值" in prompt
+    assert "command 按空格连接" in prompt
+    assert "只断言合同写明的内容" in prompt and "少点了一下" in prompt
     post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
     assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
     del ts["hotfix"]
