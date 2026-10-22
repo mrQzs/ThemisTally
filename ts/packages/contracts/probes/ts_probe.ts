@@ -8,6 +8,23 @@ import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks
 import { FileLockTimeout, acquireFileLock } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
+import {
+  type AllowList,
+  allowEnum,
+  allowEnvName,
+  allowId,
+  decisionsRedact,
+  isSensitive,
+  looksLikeSecret,
+  normalize,
+  redactJson,
+  redactObj,
+  redactSecrets,
+  redactState,
+  redactTokens,
+  secretLikePaths,
+  tokenShaped,
+} from "@themis/base/secrets";
 import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
@@ -43,7 +60,51 @@ function textResult(text: string, encode: unknown): Result {
   return encode ? { ok: true, b64: Buffer.from(encodeUtf8(text)).toString("base64") } : { ok: true, text };
 }
 
+function allowList(raw: unknown): AllowList | undefined {
+  const items = (raw ?? []) as { path: string[]; check: { kind: string; choices?: Tagged[] } }[];
+  if (items.length === 0) return undefined;
+  return items.map((item) => {
+    const kind = item.check.kind;
+    const check = kind === "env_name" ? allowEnvName : kind === "id" ? allowId : allowEnum(...(item.check.choices ?? []).map(fromTagged));
+    return [item.path, check] as const;
+  });
+}
+
+function secretsCall(request: Request): Result {
+  const text = String(request["text"] ?? "");
+  const value = "value" in request ? fromTagged(request["value"] as Tagged) : null;
+  switch (request["fn"]) {
+    case "redact_secrets":
+      return { ok: true, text: redactSecrets(text) };
+    case "redact_tokens":
+      return { ok: true, text: redactTokens(text) };
+    case "redact_obj":
+      return { ok: true, value: toTagged(redactObj(value)) };
+    case "redact_json":
+      return { ok: true, value: toTagged(redactJson(value, allowList(request["allow"]))) };
+    case "secret_like_paths":
+      return { ok: true, paths: secretLikePaths(value) };
+    case "token_shaped":
+      return { ok: true, result: tokenShaped(text) };
+    case "looks_like_secret":
+      return { ok: true, result: looksLikeSecret(value) };
+    case "normalize":
+      return { ok: true, text: normalize(text) };
+    case "is_sensitive":
+      return { ok: true, result: isSensitive(text) };
+    case "decisions_redact":
+      return { ok: true, text: decisionsRedact(text, Number(request["limit"] ?? 4000)) };
+    case "redact_state": {
+      const [result, changed] = redactState(value, Number(request["limit"] ?? 6000));
+      return { ok: true, value: toTagged(result), changed };
+    }
+    default:
+      return { ok: false, error: "UNKNOWN_FN" };
+  }
+}
+
 const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
+  "secrets.call": secretsCall,
   "filelock.run": async (request) => {
     const path = String(request["path"]);
     let lock;

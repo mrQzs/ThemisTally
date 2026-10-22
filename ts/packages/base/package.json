@@ -9,6 +9,9 @@
     "./native": "./src/native.ts",
     "./process": "./src/process.ts",
     "./publish": "./src/publish.ts",
+    "./pyre": "./src/pyre.ts",
+    "./pyunicode": "./src/pyunicode.ts",
+    "./secrets": "./src/secrets.ts",
     "./pyjson": "./src/pyjson.ts"
   }
 }

@@ -21,6 +21,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import kit_config  # noqa: E402
 import kit_hub  # noqa: E402
 import pi_dispatch  # noqa: E402
+from codekit import decisions as codekit_decisions  # noqa: E402
+from codekit import secrets as codekit_secrets  # noqa: E402
 
 
 def wait_for(barrier: str) -> None:
@@ -173,6 +175,45 @@ def op_lock_run(request):
             "released_ms": time.time() * 1000, "left": lock.path.exists()}
 
 
+def allow_check(spec):
+    if spec["kind"] == "env_name":
+        return pi_dispatch.allow_env_name
+    if spec["kind"] == "id":
+        return pi_dispatch.allow_id
+    return pi_dispatch.allow_enum(*[from_tagged(choice) for choice in spec["choices"]])
+
+
+def op_secrets_call(request):
+    """疑似凭据的检测与脱敏：fn 选函数，text 或 value（带标签编码）作参数。"""
+    fn, text = request["fn"], request.get("text")
+    value = from_tagged(request["value"]) if "value" in request else None
+    if fn == "redact_secrets":
+        return {"ok": True, "text": pi_dispatch.redact_secrets(text)}
+    if fn == "redact_tokens":
+        return {"ok": True, "text": pi_dispatch.redact_tokens(text)}
+    if fn == "redact_obj":
+        return {"ok": True, "value": to_tagged(pi_dispatch.redact_obj(value))}
+    if fn == "redact_json":
+        allow = {tuple(item["path"]): allow_check(item["check"]) for item in request.get("allow") or []}
+        return {"ok": True, "value": to_tagged(pi_dispatch.redact_json(value, allow or None))}
+    if fn == "secret_like_paths":
+        return {"ok": True, "paths": pi_dispatch.secret_like_paths(value)}
+    if fn == "token_shaped":
+        return {"ok": True, "result": pi_dispatch._token_shaped(text)}
+    if fn == "looks_like_secret":
+        return {"ok": True, "result": codekit_secrets.looks_like_secret(value)}
+    if fn == "normalize":
+        return {"ok": True, "text": codekit_decisions.normalize(text)}
+    if fn == "is_sensitive":
+        return {"ok": True, "result": codekit_decisions.is_sensitive(text)}
+    if fn == "decisions_redact":
+        return {"ok": True, "text": codekit_decisions.redact(text, request.get("limit", 4000))}
+    if fn == "redact_state":
+        result, changed = codekit_decisions.redact_state(value, request.get("limit", 6000))
+        return {"ok": True, "value": to_tagged(result), "changed": changed}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_filelock_run(request):
     """kit_hub.file_lock：拿锁后（signal 时）往 stderr 报 ready，持有 hold_ms 毫秒再放。"""
     try:
@@ -191,6 +232,7 @@ def op_filelock_run(request):
 OPS = {
     "publish_new": op_publish_new,
     "filelock.run": op_filelock_run,
+    "secrets.call": op_secrets_call,
     "clock.sample": op_clock_sample,
     "fs.read_text": op_fs_read_text,
     "fs.write_text_atomic": op_fs_write_text_atomic,
