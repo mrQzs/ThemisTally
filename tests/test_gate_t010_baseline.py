@@ -3,7 +3,7 @@
 
 被测对象是 ``desktop/web/``：四个页面文件（SecretsPage、LogsPage、PluginsPage、HistoryPage）从占位换成真页面，
 新增 ``src/pages/readonly2/`` 下的视图与逻辑（common-、secrets-、logs-、plugins-、history- 前缀共 25 个文件；T013 合并重复件后删掉 common-copy.ts 与
-history-ActorTag.tsx，下面的文件清单只列另外 23 个）、
+history-ActorTag.tsx，T014 再并走 common-icons.tsx，下面的文件清单只列另外 22 个）、
 ``src/mock/readonly2-*.ts`` 三份夹具、九个 ``tests/readonly2-*`` 执行端测试，另改 ``src/components/Drawer.css`` 的 top 与文件头注释（站主 Q3 选 a）。
 
 基线上这些都还没有，所以本文件的“失败”断言落在目标文件不存在或内容不符上，不是导入、收集或语法错误：模块级只导入标准库，
@@ -74,8 +74,9 @@ TESTS_REL = f"{WEB_REL}/tests"
 
 # 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）：readonly2 下 25 个，mock 下 3 个。
 # common-copy.ts 与 history-ActorTag.tsx 不再列：T013 把它们并进 src/components、删掉这两份（站主按 T013 规划 §8.1 R4 退役）
+# common-icons.tsx 不再列：T014 把 ExternalLinkIcon 并进 src/icons/index.tsx、删掉这一份（站主按 T014 规划 Q3 选 A 退役）
 R2_FILES = (
-    "common-icons.tsx", "common-format.ts", "common-InfoNote.tsx", "common-styles.css", "common-readers.ts",
+    "common-format.ts", "common-InfoNote.tsx", "common-styles.css", "common-readers.ts",
     "secrets-SecretsView.tsx", "secrets-logic.ts", "secrets-styles.css",
     "logs-LogsView.tsx", "logs-SearchPanel.tsx", "logs-SearchResults.tsx", "logs-UsagePanel.tsx", "logs-logic.ts", "logs-styles.css",
     "plugins-PluginsView.tsx", "plugins-PluginDrawer.tsx", "plugins-logic.ts", "plugins-styles.css",
@@ -837,12 +838,19 @@ def test_s9_q3_drawer_css_top_is_40():
 
 
 def test_s10_d11_common_icons_use_only_none_and_current_color():
-    """S10 / D11（合同 common-icons）：common-icons.tsx 导出 ExternalLinkIcon；里面的 fill、stroke 只用 none 与 currentColor。"""
-    text = _read(need_file(f"{R2_REL}/common-icons.tsx"))
-    assert re.search(r"export\s+(?:const|function)\s+ExternalLinkIcon\b", text), "common-icons.tsx 没有 export ExternalLinkIcon"
+    """S10 / D11（合同 common-icons）：common-icons.tsx 导出 ExternalLinkIcon；里面的 fill、stroke 只用 none 与 currentColor。
+    T014 把它并进 src/icons/index.tsx、删掉 common-icons.tsx（站主按 T014 规划 Q3 退役）：共用件里有就查那一块（到下一个 export 为止）。"""
+    shared = strip_ts_comments(_read(need_file(f"{SRC_REL}/icons/index.tsx")))
+    found = re.search(r"export\s+(?:const|function)\s+ExternalLinkIcon\b", shared)
+    if found:
+        rest = re.search(r"\nexport\s+(?:const|function|type|interface)\b", shared[found.end():])
+        label, text = "icons/index.tsx 的 ExternalLinkIcon", shared[found.start(): found.end() + (rest.start() if rest else len(shared))]
+    else:
+        label, text = "common-icons.tsx", _read(need_file(f"{R2_REL}/common-icons.tsx"))
+        assert re.search(r"export\s+(?:const|function)\s+ExternalLinkIcon\b", text), "common-icons.tsx 没有 export ExternalLinkIcon"
     bad = [m.group(0) for m in re.finditer(r"""\b(?:fill|stroke)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*["']([^"']*)["']\s*\})""", text)
            if (m.group(1) or m.group(2) or m.group(3)) not in ("none", "currentColor")]
-    assert not bad, f"common-icons.tsx 的 fill、stroke 只用 none 与 currentColor：{bad}"
+    assert not bad, f"{label} 的 fill、stroke 只用 none 与 currentColor：{bad}"
 
 
 def test_d12_executor_tests_in_place():
@@ -3861,9 +3869,9 @@ def test_gate_selfcheck_probe_templates():
 
 
 def test_gate_selfcheck_constants_match_contract():
-    """门禁自检：合同写明的文件清单——readonly2 下 23 个源码与样式文件（T013 并走两个）加 3 个夹具；页面文件 4 个；九份执行端测试；基线的 14 份 JSON 与 9 个页面文件名。"""
-    assert len(R2_FILES) == 23 and len(set(R2_FILES)) == 23
-    assert len(MOCK_FILES) == 3 and len(NEW_SOURCE_FILES) == 26
+    """门禁自检：合同写明的文件清单——readonly2 下 22 个源码与样式文件（T013 并走两个、T014 并走一个）加 3 个夹具；页面文件 4 个；九份执行端测试；基线的 14 份 JSON 与 9 个页面文件名。"""
+    assert len(R2_FILES) == 22 and len(set(R2_FILES)) == 22
+    assert len(MOCK_FILES) == 3 and len(NEW_SOURCE_FILES) == 25
     assert len(EXECUTOR_TESTS) == 9 and len(set(EXECUTOR_TESTS)) == 9
     assert len(BASELINE_JSON) == 14 and len(BASELINE_PAGES) == 9 and len(PAGE_FILES) == 4
     assert all(n.endswith((".tsx", ".ts", ".css")) for n in R2_FILES)

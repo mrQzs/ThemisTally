@@ -71,11 +71,13 @@ CANVAS_DIR = REPO_ROOT / "docs" / "ui-design" / "pages"
 FIRST_RUN_CANVAS = CANVAS_DIR / "03-首次启动-Themis-Tally.html"
 SETTINGS_CANVAS = CANVAS_DIR / "12-设置-Themis-Tally.html"
 
+# copy.ts 与 icons.tsx 不再列：T014（收尾二）把它们并进 src/components 与 src/icons/index.tsx、删掉这两份
+# （站主按 T014 规划 Q3 选 A 退役）。图标与 copyText 的检查改查共用件（见 shell_icons_text、stub 探针）
 SHELLPAGES_FILES = (
     "themisShell.ts", "shellStub.ts", "shellContext.tsx", "shellWindowRoute.ts", "ShellWindow.tsx", "shell-window.css",
     "firstRunModel.ts", "FirstRunView.tsx", "first-run.css", "exitCodes.ts", "ServiceStatusView.tsx", "service-status.css",
     "SettingsView.tsx", "settings.css", "ExternalLinkDialog.tsx", "LicensesDialog.tsx", "licenses.ts", "themePref.tsx",
-    "copy.ts", "format.ts", "icons.tsx",
+    "format.ts",
 )
 SCENARIOS_REL = f"{SRC_REL}/mock/shellpages-scenarios.ts"
 NEW_SOURCE_FILES = tuple(f"{SP_REL}/{name}" for name in SHELLPAGES_FILES) + (SCENARIOS_REL,)
@@ -1071,11 +1073,14 @@ def test_d11_file_names_and_page_inventory():
 
 def test_d11_new_icons_match_canvas():
     """D11：icons.tsx 的 ArrowRightIcon（首启画布 :358）、FileTextIcon（设置画布 :427）、ExternalLinkIcon（设置画布 :428）的 path d 逐个等于画布对应行
-    （从画布解析，不写死）；包装照 icons/index.tsx（tt-i、currentColor、aria-hidden）。"""
-    text = _read(need_file(f"{SP_REL}/icons.tsx"))
+    （从画布解析，不写死）；包装照 icons/index.tsx（tt-i、currentColor、aria-hidden）。
+    T014 把三个图标并进 src/icons/index.tsx、删掉 shellpages/icons.tsx（站主按 T014 规划 Q3 退役）：本片的文件还在就查它，删掉之后查共用件。"""
+    own = REPO_ROOT / SP_REL / "icons.tsx"
+    rel = f"{SP_REL}/icons.tsx" if own.is_file() else f"{SRC_REL}/icons/index.tsx"
+    text = _read(need_file(rel))
     wants = canvas_icon_paths()
     assert all(wants.values()), f"画布上没解析出图标：{wants}"
-    fail_if(icon_problems(text, wants), "src/shellpages/icons.tsx")
+    fail_if(icon_problems(text, wants), rel)
 
 
 CSS_DIMS = {
@@ -1763,14 +1768,14 @@ describe('D01 模块导出的名字', () => {
     const pref: any = await import('../src/shellpages/themePref');
     expect(typeof pref.ThemePrefProvider, 'ThemePrefProvider').toBe('function');
     expect(typeof pref.useThemePref, 'useThemePref').toBe('function');
-    const copy: any = await import('../src/shellpages/copy');
+    const copy: any = await import('../src/components/copyText');
     expect(typeof copy.copyText, 'copyText').toBe('function');
   });
 });
 
 describe('D05 copyText 返回 copied、failed、unavailable', () => {
   it('显式传入 clipboard：writeText 成功、抛错、返回被拒的 Promise、没有 writeText', async () => {
-    const copy: any = await import('../src/shellpages/copy');
+    const copy: any = await import('../src/components/copyText');
     const calls: string[] = [];
     expect(await copy.copyText('abc', { writeText: async (t: string) => { calls.push(t); } })).toBe('copied');
     expect(calls).toEqual(['abc']);
@@ -1781,7 +1786,7 @@ describe('D05 copyText 返回 copied、failed、unavailable', () => {
   });
 
   it('不传 clipboard 时点击当下才读 navigator.clipboard：没有时 unavailable，有时用它', async () => {
-    const copy: any = await import('../src/shellpages/copy');
+    const copy: any = await import('../src/components/copyText');
     delete (navigator as any).clipboard;
     expect(await copy.copyText('abc')).toBe('unavailable');
     const calls: string[] = [];
@@ -4248,5 +4253,5 @@ def test_gate_selfcheck_route_and_settings_source_checkers():
 def test_gate_selfcheck_constants():
     """门禁自检：常量本身——基线 App.tsx 里保留的行含 :72 的 TitleBar 一行（缩进 8 格）；文件清单、场景名、接口成员与补丁键的个数。"""
     assert ("        " + TITLEBAR_LINE) in BASELINE_APP_KEEP
-    assert len(NEW_SOURCE_FILES) == 22 and len(NEW_CSS) == 4 and len(EXECUTOR_TESTS) == 8
+    assert len(NEW_SOURCE_FILES) == 20 and len(NEW_CSS) == 4 and len(EXECUTOR_TESTS) == 8  # T014 并走 copy.ts、icons.tsx
     assert len(SCENARIOS) == 11 and len(INTERFACE_MEMBERS) == 10 and len(PATCH_KEYS) == 6

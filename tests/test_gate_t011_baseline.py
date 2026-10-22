@@ -79,11 +79,14 @@ ASSUMPTIONS = (
 )
 
 # 合同 Scope 的新增源码（allowed_new_files 里的非测试文件）：src/pages/tasks/ 下 20 个，src/mock/ 下 3 个。
+# T014（收尾二）把 tasks-copy.ts、tasks-icons.tsx、common-CopyNote.tsx 并进 src/components 与 src/icons/index.tsx、删掉这三份
+# （站主按 T014 规划 Q1、Q3 选 A 退役）：下面的清单只列另外 17 个；这三份在 T014 合入之前还在，合入之后没有，两样都算对。
+TASKS_MERGED = ("tasks-copy.ts", "tasks-icons.tsx", "common-CopyNote.tsx")
 TASKS_FILES = (
-    "tasks-groups.ts", "tasks-format.ts", "tasks-route.ts", "tasks-model.ts", "tasks-data.ts", "tasks-copy.ts",
-    "tasks-icons.tsx", "TaskListView.tsx", "tasks-list.css", "AttemptDetailView.tsx", "tasks-detail.css",
+    "tasks-groups.ts", "tasks-format.ts", "tasks-route.ts", "tasks-model.ts", "tasks-data.ts",
+    "TaskListView.tsx", "tasks-list.css", "AttemptDetailView.tsx", "tasks-detail.css",
     "tab-Summary.tsx", "tab-Patch.tsx", "tab-Checks.tsx", "tab-Report.tsx", "tab-Events.tsx", "tab-Files.tsx",
-    "tasks-tabs.css", "common-FileReader.tsx", "common-CopyNote.tsx",
+    "tasks-tabs.css", "common-FileReader.tsx",
 )
 MOCK_FILES = ("tasks-files.ts", "tasks-attempts.ts", "tasks-live.ts")
 NEW_SOURCE_FILES = tuple(f"{TASKS_REL}/{n}" for n in TASKS_FILES) + tuple(f"{MOCK_REL}/{n}" for n in MOCK_FILES)
@@ -772,7 +775,7 @@ def icon_shape_problems(block, name, want_paths, want_circles, label):
 
 
 def icons_problems():
-    """FileTextIcon 写在本片 tasks-icons.tsx，路径等于详情页画布对应行；SearchIcon 用 T009 的导出（K17 的主路径），本片不重写。"""
+    """FileTextIcon 写在本片 tasks-icons.tsx（T014 之后在 src/icons/index.tsx），路径等于详情页画布对应行；SearchIcon 用 T009 的导出（K17 的主路径），本片不重写。"""
     problems = []
     task_canvas = "docs/ui-design/pages/05-任务-Themis-Tally.html"
     detail_canvas = "docs/ui-design/pages/05-attempt-详情-Themis-Tally.html"
@@ -783,16 +786,20 @@ def icons_problems():
     if not file_paths:
         problems.append(f"详情页画布里没有解析到文件图标的 path：{file_paths}")
 
-    icons_text = _read(need_file(f"{TASKS_REL}/tasks-icons.tsx"))
-    if re.search(r"export\s+(?:const|function)\s+SearchIcon\b", icons_text):
-        problems.append("tasks-icons.tsx 不应自己写 SearchIcon：src/icons/index.tsx 已有该导出（K17 主路径），本片直接导入")
+    shared = strip_ts_comments(_read(need_file(f"{SRC_REL}/icons/index.tsx")))
+    # T014 把 FileTextIcon 并进 src/icons/index.tsx、删掉 tasks-icons.tsx（站主按 T014 规划 Q3 退役）：共用件里有就查那一份
+    if icon_block(shared, "FileTextIcon") is not None:
+        icons_label, icons_text = "icons/index.tsx", shared
+    else:
+        icons_label, icons_text = "tasks-icons.tsx", _read(need_file(f"{TASKS_REL}/tasks-icons.tsx"))
+        if re.search(r"export\s+(?:const|function)\s+SearchIcon\b", icons_text):
+            problems.append("tasks-icons.tsx 不应自己写 SearchIcon：src/icons/index.tsx 已有该导出（K17 主路径），本片直接导入")
     block = icon_block(icons_text, "FileTextIcon")
     if block is None:
-        problems.append("tasks-icons.tsx 没有 export const FileTextIcon")
+        problems.append(f"{icons_label} 没有 export const FileTextIcon")
     else:
-        problems += icon_shape_problems(block, "FileTextIcon", file_paths, file_circles, "tasks-icons.tsx")
+        problems += icon_shape_problems(block, "FileTextIcon", file_paths, file_circles, icons_label)
 
-    shared = strip_ts_comments(_read(need_file(f"{SRC_REL}/icons/index.tsx")))
     sblock = icon_block(shared, "SearchIcon")
     if sblock is None:
         problems.append("src/icons/index.tsx 没有 export const SearchIcon（T009 的导出）")
@@ -2943,8 +2950,8 @@ def test_s1_files_in_place():
     need_new_sources()
     stray_dirs = [p.name for p in TASKS.iterdir() if p.is_dir()]
     assert not stray_dirs, f"src/pages/tasks/ 下不分子目录：{stray_dirs}"
-    got = sorted(p.name for p in TASKS.iterdir() if p.is_file())
-    assert got == sorted(TASKS_FILES), f"src/pages/tasks/ 应恰是合同清单里的 20 个文件，多出 {sorted(set(got) - set(TASKS_FILES))}，缺少 {sorted(set(TASKS_FILES) - set(got))}"
+    got = sorted(p.name for p in TASKS.iterdir() if p.is_file() and p.name not in TASKS_MERGED)  # T014 并走的三份在不在都行
+    assert got == sorted(TASKS_FILES), f"src/pages/tasks/ 应恰是合同清单里的 17 个文件（T014 并走的三份不算），多出 {sorted(set(got) - set(TASKS_FILES))}，缺少 {sorted(set(TASKS_FILES) - set(got))}"
     page_like = [n for n in got if n.endswith("Page.tsx")]
     assert not page_like, f"tasks/ 里的文件名不以 Page.tsx 结尾：{page_like}"
 
@@ -3004,7 +3011,7 @@ def test_s4_groups_match_ui_doc():
 
 
 def test_s5_new_icons_match_canvas():
-    """S5 / D13（合同 §5.5 S6、K17）：FileTextIcon 写在本片 tasks-icons.tsx，路径等于详情页画布对应行；SearchIcon 用 src/icons/index.tsx
+    """S5 / D13（合同 §5.5 S6、K17）：FileTextIcon 写在本片 tasks-icons.tsx（T014 之后在 src/icons/index.tsx），路径等于详情页画布对应行；SearchIcon 用 src/icons/index.tsx
     的导出（路径等于任务页画布对应行），本片不重写、TaskListView 从 icons 导入。"""
     fail_if(icons_problems(), "新图标")
 
@@ -3453,9 +3460,10 @@ def test_gate_selfcheck_probe_templates(tmp_path):
 
 def test_gate_selfcheck_constants():
     """自检：常量与合同 Scope 对得上（文件数、CSS、执行端测试、预算）。"""
-    assert len(TASKS_FILES) == len(set(TASKS_FILES)) == 20
+    assert len(TASKS_FILES) == len(set(TASKS_FILES)) == 17  # T014 并走三份
+    assert len(TASKS_MERGED) == 3 and not set(TASKS_MERGED) & set(TASKS_FILES)
     assert len(MOCK_FILES) == 3
-    assert len(NEW_SOURCE_FILES) == 23
+    assert len(NEW_SOURCE_FILES) == 20
     assert set(CSS_FILES.values()) <= set(NEW_SOURCE_FILES)
     assert len(EXECUTOR_TESTS) == 8
     assert [g for g, _ in GROUP_LABELS] == ["running", "review", "decide", "integrate", "ended"]
