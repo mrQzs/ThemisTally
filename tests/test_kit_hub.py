@@ -3473,6 +3473,113 @@ def test_exclusive_runs_the_command_once_executors_are_done(tmp_path, monkeypatc
     assert kh.main(["--repo", str(repo), "exclusive"]) == kh.EXIT_USAGE  # 没写命令
 
 
+def test_exclusive_marks_an_owner_sweep_only_when_head_moves(tmp_path, monkeypatch):
+    # 第 61 轮：站主经 exclusive 的提交、合入，记下要在新末端上跑的门禁回归
+    import argparse
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo_: [])
+
+    def run(*command):
+        return kh.cmd_exclusive(argparse.Namespace(repo=str(repo), wait=5.0, command=["--"] + list(command)))
+
+    assert run("git", "status", "--short") == 0 and kh.read_owner_sweep(hub) == {}  # HEAD 没动
+    assert run("git", "commit", "-q", "--allow-empty", "-m", "站主的一轮") == 0
+    first = kh.git(["rev-parse", "HEAD"], repo).strip()
+    marker = kh.read_owner_sweep(hub)
+    assert marker["pending"] is True and marker["head"] == first and marker["since"] == head
+    assert run("git", "commit", "-q", "--allow-empty", "-m", "又一轮") == 0
+    marker = kh.read_owner_sweep(hub)
+    # 连着动了两次：跑最新的末端，since 留着第一次之前的
+    assert marker["head"] == kh.git(["rev-parse", "HEAD"], repo).strip() and marker["since"] == head
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["after"] for e in events if e["event"] == "owner.moved"] == [first, marker["head"]]
+
+
+def test_owner_commits_get_a_gate_sweep_and_rehearsals(tmp_path, monkeypatch):
+    # 第 61 轮：TS 迁移第 0 步给 .gitignore 追加了两行，T002 的门禁断言在末端上红了 11 个小时：站主经 exclusive
+    # 的提交不触发合入后回归（那只在主任务落地之后跑），直到 T011 的落地预演才发现
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    state = hub.load_state()
+    state["tasks"]["T001"] = ts
+    hub.save_state(state)
+    assert kh.owner_sweep(hub) is None  # 没有待跑的
+    before = kh.git(["rev-parse", "HEAD"], repo).strip()
+    tip = land_on_main(repo, "unrelated.txt", "x\n", "站主合入的一轮")
+    kh.mark_owner_moved(hub, before, tip, ["git", "merge", "--ff-only", tip])
+    swept = []
+
+    def red(path):
+        swept.append(kh.git(["rev-parse", "HEAD"], path).strip())
+        return 1, "FAILED tests/test_gate_t002_baseline.py::test_g4\n1 failed, 3 passed", ["tests/test_gate_t001_baseline.py"]
+
+    monkeypatch.setattr(kh, "sweep_gates", red)
+    ok, summary = kh.owner_sweep(hub)
+    assert not ok and "1 failed, 3 passed" in summary and swept[0] == tip
+    letters = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
+    sweep_letter = next(text for text in letters if "门禁回归在末端 %s 上没过" % tip[:12] in text)
+    assert "type: 阻塞" in sweep_letter and "站主合入的一轮" in sweep_letter and "test_g4" in sweep_letter
+    # 手上有过了检查的候选的主任务：在新末端上预演一次，同样红了就写信
+    assert any("T001 的候选落地预演没过（站主的提交之后）" in text for text in letters)
+    assert hub.load_state()["tasks"]["T001"]["rehearsal"]["head"] == tip
+    marker = kh.read_owner_sweep(hub)
+    assert marker["pending"] is False and marker["last"]["exit"] == 1 and marker["last"]["head"] == tip
+    assert kh.owner_sweep(hub) is None  # 跑过了
+    # 绿的：不写信；跑的期间站主又动了 HEAD：留着待跑
+    count = len(hub.unread(kh.OWNER))
+    newer = land_on_main(repo, "more.txt", "y\n", "又一轮")
+    kh.mark_owner_moved(hub, tip, newer, ["git"])
+
+    def green_then_move(path):
+        kh.mark_owner_moved(hub, newer, "f" * 40, ["git"])
+        return 0, "3 passed", ["tests/test_gate_t001_baseline.py"]
+
+    monkeypatch.setattr(kh, "sweep_gates", green_then_move)
+    monkeypatch.setattr(kh, "rehearse_landing", lambda hub_, ts_: None)
+    ok, _summary = kh.owner_sweep(hub)
+    assert ok and len(hub.unread(kh.OWNER)) == count
+    assert kh.read_owner_sweep(hub)["pending"] is True and kh.read_owner_sweep(hub)["since"] == tip
+
+
+def test_supervisor_starts_one_owner_sweep_at_a_time(tmp_path, monkeypatch):
+    import os
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    started = []
+
+    class FakeProc:
+        def __init__(self, argv, **_kwargs):
+            self.pid, self.returncode = 4242, None
+            started.append(argv)
+
+        def poll(self):
+            return self.returncode
+
+    popen = kh.subprocess.Popen
+    monkeypatch.setattr(kh.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(kh, "kernel_dirty", lambda: False)
+    holder = {"proc": None}
+    assert not kh.owner_sweep_tick(hub, holder)  # 没有待跑的
+    kh.mark_owner_moved(hub, "a" * 40, "b" * 40, ["git"])
+    monkeypatch.setattr(kh, "kernel_dirty", lambda: True)
+    assert not kh.owner_sweep_tick(hub, holder)  # 内核有未提交的改动：等落定
+    monkeypatch.setattr(kh, "kernel_dirty", lambda: False)
+    assert kh.owner_sweep_tick(hub, holder) and started[-1][-1] == "owner-sweep"
+    assert not kh.owner_sweep_tick(hub, holder) and len(started) == 1  # 还在跑：不再起
+    holder["proc"].returncode = 0
+    assert kh.owner_sweep_tick(hub, holder) and len(started) == 2  # 跑完了还是待跑（期间又动了 HEAD）：再起
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["event"] for e in events if e["event"].startswith("owner_sweep.")] == [
+        "owner_sweep.started", "owner_sweep.exited", "owner_sweep.started"]
+    (hub.root / ".owner-sweep").mkdir()
+    (hub.root / ".owner-sweep" / "owner.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    holder["proc"].returncode = 0
+    monkeypatch.setattr(kh.subprocess, "Popen", popen)  # 查锁的持有者还活着要用真的子进程
+    assert not kh.owner_sweep_tick(hub, holder) and len(started) == 2  # 命令行手动起的那一个还在跑
+
+
 def supervisor_env(tmp_path, monkeypatch, tasks):
     repo, _head = git_repo(tmp_path)
     hub = kh.Hub(repo)
@@ -3534,6 +3641,16 @@ def test_supervisor_waits_for_a_settled_kernel_before_starting_runners(tmp_path,
     monkeypatch.setattr(kh, "kernel_dirty", lambda *a: dirty.pop(0) if len(dirty) > 1 else dirty[0])
     assert supervise_once(repo, 2) == kh.EXIT_OK
     assert spawned == ["T002"] and dirty == [False]  # 内核有未提交的改动时不起，落定之后才起
+
+
+def test_supervisor_ticks_the_owner_sweep_every_round(tmp_path, monkeypatch):
+    # 第 61 轮：站主的提交之后的门禁回归由 supervisor 每一轮看一次，同一个 holder（同时只起一个）
+    repo, _hub, spawned = supervisor_env(tmp_path, monkeypatch, ("T002",))
+    monkeypatch.setattr(kh, "kernel_dirty", lambda *a: False)
+    ticks = []
+    monkeypatch.setattr(kh, "owner_sweep_tick", lambda hub_, holder: ticks.append(holder) or False)
+    assert supervise_once(repo, 2) == kh.EXIT_OK
+    assert spawned == ["T002"] and len(ticks) >= 2 and all(holder is ticks[0] for holder in ticks)
 
 
 def test_status_shows_the_parallel_runners(tmp_path, capsys):

@@ -3359,6 +3359,76 @@ def rehearsal_letter(hub: Hub, ts: Dict[str, Any], summary: str, why: str) -> No
                  "证据": ".agent/mailbox/ledger/state.json（%s 的 rehearsal）" % ts["task"]})
 
 
+def owner_sweep_path(hub: Hub) -> Path:
+    return hub.root / "ledger" / "owner-sweep.json"
+
+
+def read_owner_sweep(hub: Hub) -> Dict[str, Any]:
+    try:
+        data = json.loads(read_text(owner_sweep_path(hub)) or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def mark_owner_moved(hub: Hub, before: str, after: str, command: Sequence[str]) -> None:
+    """站主经 exclusive 动了 HEAD（第 61 轮）：记下要在新末端上跑的门禁回归与落地预演，由 supervisor 起子进程
+    在后台跑（owner_sweep）。连着动了几次只跑最新的末端，since 留着第一次之前的末端，信里列出这期间的提交。"""
+    path = owner_sweep_path(hub)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path.with_name(".owner-sweep.lock")):
+        data = read_owner_sweep(hub)
+        since = data.get("since") if data.get("pending") else before
+        data.update(pending=True, head=after, since=since, command=list(command)[:6], at=utc_now())
+        write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    hub.append_event("owner.moved", before=before, after=after)
+
+
+def owner_sweep(hub: Hub) -> Optional[Tuple[bool, str]]:
+    """站主的提交之后的门禁回归与落地预演（第 61 轮）。合入后回归（第 20 轮）只在主任务落地之后跑，站主在 exclusive
+    里提交、合入的内核轮次、TS 迁移、门禁收窄都不跑：TS 迁移第 0 步给 .gitignore 追加了两行，T002 的门禁断言从那时
+    起在末端上就是红的，11 个小时后才由 T011 的落地预演发现。这里在临时 worktree 里跑全部门禁基准，再给手上有过了
+    检查的候选的主任务各做一次落地预演；红了写信给站主。没有待跑的返回 None，否则返回（门禁回归通过与否, 摘要）。"""
+    marker = read_owner_sweep(hub)
+    if not marker.get("pending"):
+        return None
+    head = git(["rev-parse", "HEAD"], hub.repo).strip()
+    with scratch_worktree(hub, "owner-sweep", head) as path:
+        code, out, tests = sweep_gates(path)
+    record = owner_sweep_path(hub)
+    with file_lock(record.with_name(".owner-sweep.lock")):
+        data = read_owner_sweep(hub)
+        data["last"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
+        if data.get("head") == head:  # 跑的期间站主又动了 HEAD：留着待跑，下一轮跑新的末端
+            data["pending"] = False
+        write_text_atomic(record, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    hub.append_event("owner.swept", head=head, exit=code)
+    summary = "站主的提交之后，末端 %s 上的全部门禁基准（%d 份）：%s" % (head[:12], len(tests),
+                                                          tail(out, 1).strip() or "没有输出")
+    if code != 0:
+        since = marker.get("since") or ""
+        commits = git(["log", "--oneline", "-n", "10", "%s..%s" % (since, head)], hub.repo, check=False).strip() \
+            if since else ""
+        hub.deliver({"from": KERNEL, "to": OWNER, "task-id": "none", "in-reply-to": "none", "type": "阻塞"},
+                    {"摘要": "站主的提交之后，门禁回归在末端 %s 上没过：主任务落地之前就会在这里红" % head[:12],
+                     "提交": "无", "验证": (summary + "\n" + tail(out, 15))[:1500],
+                     "偏离": ("这期间站主合入的提交：\n" + commits)[:600] if commits else "无",
+                     "需协调人决定": "请站主处理：收窄写得太宽的门禁断言，或者改回刚才的提交",
+                     "证据": ".agent/mailbox/ledger/owner-sweep.json"})
+    for task in sorted(hub.load_state()["tasks"]):
+        state = hub.load_state()  # 每次现读：预演一次要几分钟，runner 这期间照常写
+        ts = state["tasks"][task]
+        if ts.get("status") != "active":
+            continue
+        rehearsed = rehearse_landing(hub, ts)
+        if rehearsed is None:
+            continue
+        hub.save_state(state)
+        if not rehearsed[0]:
+            rehearsal_letter(hub, ts, rehearsed[1], "站主的提交之后")
+    return code == 0, summary
+
+
 def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     """把门禁的基准测试带上当前分支；返回问题（成功或不需要时为 None）。
 
@@ -5000,6 +5070,42 @@ def spawn_task_runner(hub: Hub, task: str, args: argparse.Namespace) -> "subproc
 RUNNER_CRASH_LIMIT = 3
 
 
+def owner_sweep_tick(hub: Hub, holder: Dict[str, Any]) -> bool:
+    """supervisor 的一轮里顺带：站主经 exclusive 动过 HEAD、还没跑门禁回归时，起一个 owner-sweep 子进程（第 61 轮）。
+    同时只跑一个；内核有未提交的改动时等落定（说不清子进程跑哪一份代码）。返回这轮有没有起。"""
+    proc = holder.get("proc")
+    if proc is not None and proc.poll() is None:
+        return False
+    if proc is not None:
+        hub.append_event("owner_sweep.exited", code=proc.returncode)
+        holder["proc"] = None
+    if not read_owner_sweep(hub).get("pending") or lock_alive(hub.root / ".owner-sweep") or kernel_dirty():
+        return False
+    logs = hub.root / "runners"
+    logs.mkdir(parents=True, exist_ok=True)
+    with open(logs / "owner-sweep.log", "ab") as log:
+        holder["proc"] = subprocess.Popen([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "owner-sweep"],
+                                          cwd=str(hub.repo), stdin=subprocess.DEVNULL, stdout=log,
+                                          stderr=subprocess.STDOUT)
+    hub.append_event("owner_sweep.started", pid=holder["proc"].pid)
+    return True
+
+
+def cmd_owner_sweep(args: argparse.Namespace) -> int:
+    hub = Hub(find_repo(args.repo))
+    hub.ensure()
+    try:
+        with DirLock(hub.root / ".owner-sweep", wait_seconds=1.0):
+            result = owner_sweep(hub)
+    except HubError as exc:
+        if exc.code == EXIT_BLOCKED:
+            print("已经有一个在跑：%s" % exc, flush=True)
+            return EXIT_OK
+        raise
+    print("没有待跑的" if result is None else result[1], flush=True)
+    return EXIT_OK
+
+
 def supervise_tick(hub: Hub, args: argparse.Namespace, parallel: int, children: Dict[str, Any],
                    failures: Dict[str, int]) -> Tuple[List[str], int, int]:
     """supervisor 的一轮：收拾退出的子进程，按名额起新的。返回（有信的主任务，在跑的 runner 数，这轮起了几个）。"""
@@ -5046,6 +5152,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
     发现内核变了就退出，这里用新代码再起；自己也照第 13 轮的办法重启，跑着的子进程不受影响（锁还在它们手里）。"""
     children: Dict[str, "subprocess.Popen[bytes]"] = {}
     failures: Dict[str, int] = {}
+    sweeper: Dict[str, Any] = {"proc": None}
     started = 0
     restart = False
     fingerprint = code_fingerprint()
@@ -5064,6 +5171,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
                 break
             try:
                 pending, live, spawned = supervise_tick(hub, args, parallel, children, failures)
+                owner_sweep_tick(hub, sweeper)
             except Exception as exc:  # noqa: BLE001  第 24 轮：一次意外不能让所有主任务都停下
                 hub.append_event("supervisor.error", error="%s: %s" % (type(exc).__name__, exc))
                 print("supervisor 这一轮出错，稍后再试：%s: %s" % (type(exc).__name__, exc), flush=True)
@@ -5168,6 +5276,8 @@ def build_parser() -> argparse.ArgumentParser:
     exclusive.add_argument("--wait", type=float, default=7200.0, help="最多等多少秒")
     exclusive.add_argument("command", nargs=argparse.REMAINDER, help="-- 之后是要跑的命令")
     exclusive.set_defaults(func=cmd_exclusive)
+    sub.add_parser("owner-sweep", help="站主经 exclusive 动过 HEAD 之后的门禁回归与落地预演（supervisor 起的子进程）"
+                   ).set_defaults(func=cmd_owner_sweep)
     return parser
 
 
@@ -5195,7 +5305,12 @@ def cmd_exclusive(args: argparse.Namespace) -> int:
                 announced = True
             time.sleep(5)
         hub.append_event("exclusive.run", command=command[:6])
-        return subprocess.run(command, cwd=str(hub.repo), stdin=subprocess.DEVNULL).returncode
+        before = git(["rev-parse", "HEAD"], hub.repo, check=False).strip()
+        code = subprocess.run(command, cwd=str(hub.repo), stdin=subprocess.DEVNULL).returncode
+        after = git(["rev-parse", "HEAD"], hub.repo, check=False).strip()
+    if before and after and after != before:
+        mark_owner_moved(hub, before, after, command)  # 第 61 轮：supervisor 在后台跑门禁回归与落地预演
+    return code
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
