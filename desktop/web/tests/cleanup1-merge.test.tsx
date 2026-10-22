@@ -111,11 +111,11 @@ describe('总览：配置变更与复制', () => {
         fireEvent.click(copyBtn);
         await flush();
       });
-      expect(text(container.querySelector('.common-copy-note'))).toBe(want);
+      expect(text(container.querySelector('.tt-copy-note'))).toBe(want);
       expect(await copyText('a', clip as { writeText?: (t: string) => Promise<void> })).toBe(
         want === COPY_RESULT_TEXT.copied ? 'copied' : want === COPY_RESULT_TEXT.unavailable ? 'unavailable' : 'failed',
       );
-      results.push(text(container.querySelector('.common-copy-note')));
+      results.push(text(container.querySelector('.tt-copy-note')));
       unmount();
     }
     expect(results).toEqual([COPY_RESULT_TEXT.copied, COPY_RESULT_TEXT.unavailable, COPY_RESULT_TEXT.failed]);

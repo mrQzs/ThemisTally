@@ -49,7 +49,7 @@
 }
 .tt-fr__name { width: 72px; /* 首启画布 :307 步名宽 72 */ flex: none; font: var(--tt-title-sm); }
 .tt-fr__path { flex: 1; min-width: 0; font: var(--tt-mono-sm); color: var(--tt-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-fr__val { flex: 1; min-width: 0; font: var(--tt-text-sm); }
+.tt-fr__val { flex: 1; min-width: 0; font: var(--tt-mono-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tt-fr__icon { flex: none; display: inline-grid; place-items: center; }
 .tt-fr__icon svg { width: 18px; height: 18px; /* 首启画布 :306 状态图标 18 */ }
 .tt-fr__icon--pass { color: var(--tt-tone-success-fg); }

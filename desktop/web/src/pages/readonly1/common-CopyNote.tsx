@@ -1,11 +1,4 @@
-// 复制结果一行（合同第 6 节）：显示 copyText 的三态文字，不设 role、不弹轻提示。
-import { COPY_RESULT_TEXT, type CopyResult } from '../../components';
-
-export interface CopyNoteProps {
-  result: CopyResult | null;
-}
-
-export function CopyNote({ result }: CopyNoteProps) {
-  if (!result) return null;
-  return <p className="common-copy-note">{COPY_RESULT_TEXT[result]}</p>;
-}
+// 复制结果一行（转出件，T014）：共用 CopyNote 已搬到 src/components/CopyNote.tsx，这里只转出，
+// 让 overview-AttemptList 的引入路径与导出名不变（Overview 那一片后续再改直连）。
+export { CopyNote } from '../../components/CopyNote';
+export type { CopyNoteProps } from '../../components/CopyNote';

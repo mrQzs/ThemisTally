@@ -1,10 +1,10 @@
 // 执行报告页签（合同第 4 节）：warning 提示条加文本查看器；内容是执行器的自述，不是证据。
 import { useCallback, useState } from 'react';
 import { Banner, TextViewer } from '../../components';
-import { CopyNote } from './common-CopyNote';
+import { CopyNote } from '../../components/CopyNote';
 import { FileReadNote, useFilePages } from './common-FileReader';
 import { readAttemptFile } from './tasks-data';
-import { copyText, type CopyResult } from './tasks-copy';
+import { copyText, type CopyResult } from '../../components';
 import './tasks-tabs.css';
 
 export interface TabReportProps {

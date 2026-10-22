@@ -1,7 +1,7 @@
 // 内存桩（src/shellpages/shellStub.ts）：按场景给出 ThemisShell 的全部行为，状态只在内存。
 // getState 与各返回值深拷贝；各方法返回已兑现或已被拒的 Promise，不经计时器（api.ts :90–96 同法）；
 // pick 按场景队列逐个给出、用完重复最后一个；start/restart 在调用里同步发 starting、1500ms 后按场景发 running 或 exited；
-// 只在 start、restart 之后才排计时器；dispose 清掉计时器与监听；openExternal 只记下网址，不打开任何东西。
+// 只在 start、restart 之后才排计时器；dispose 清掉计时器与监听；openExternal 只校验协议（http 与 https），不打开任何东西。
 import type { PickOutcome, ServiceState, SettingsPatch, ShellState, ThemisShell } from './themisShell';
 import { SHELLPAGE_SCENARIOS, RUNNING_PID, RUNNING_STARTED_AT } from '../mock/shellpages-scenarios';
 

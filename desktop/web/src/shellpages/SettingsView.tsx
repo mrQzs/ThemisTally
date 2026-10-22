@@ -13,7 +13,7 @@ import { useThemePref } from './themePref';
 import { openedTitle, relTime } from './format';
 import { LicensesDialog } from './LicensesDialog';
 import { ExternalLinkDialog } from './ExternalLinkDialog';
-import { FileTextIcon, ExternalLinkIcon } from './icons';
+import { FileTextIcon, ExternalLinkIcon } from '../icons';
 import './settings.css';
 
 export interface SettingsViewProps {

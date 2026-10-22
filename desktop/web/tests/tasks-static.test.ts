@@ -9,10 +9,10 @@ const web = process.cwd();
 const readWeb = (rel: string) => readFileSync(resolve(web, rel), 'utf8');
 const TASKS = 'src/pages/tasks';
 const TASKS_FILES = [
-  'tasks-groups.ts', 'tasks-format.ts', 'tasks-route.ts', 'tasks-model.ts', 'tasks-data.ts', 'tasks-copy.ts',
-  'tasks-icons.tsx', 'TaskListView.tsx', 'tasks-list.css', 'AttemptDetailView.tsx', 'tasks-detail.css',
+  'tasks-groups.ts', 'tasks-format.ts', 'tasks-route.ts', 'tasks-model.ts', 'tasks-data.ts',
+  'TaskListView.tsx', 'tasks-list.css', 'AttemptDetailView.tsx', 'tasks-detail.css',
   'tab-Summary.tsx', 'tab-Patch.tsx', 'tab-Checks.tsx', 'tab-Report.tsx', 'tab-Events.tsx', 'tab-Files.tsx',
-  'tasks-tabs.css', 'common-FileReader.tsx', 'common-CopyNote.tsx',
+  'tasks-tabs.css', 'common-FileReader.tsx',
 ];
 const MOCK_FILES = ['tasks-files.ts', 'tasks-attempts.ts', 'tasks-live.ts'];
 const CODE_FILES = [...TASKS_FILES.filter((n) => n.endsWith('.ts') || n.endsWith('.tsx')).map((n) => `${TASKS}/${n}`),
@@ -28,7 +28,7 @@ const wordHit = (text: string, word: string) =>
     : new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`).test(text);
 
 describe('文件在位', () => {
-  it('tasks/ 下恰是 20 个文件、mock 下 3 份夹具、TasksPage 用 PageFrame', () => {
+  it('tasks/ 下恰是 17 个文件、mock 下 3 份夹具、TasksPage 用 PageFrame', () => {
     for (const name of TASKS_FILES) expect(readWeb(`${TASKS}/${name}`), name).toBeTruthy();
     for (const name of MOCK_FILES) expect(readWeb(`src/mock/${name}`), name).toBeTruthy();
     const page = readWeb('src/pages/TasksPage.tsx');
@@ -94,11 +94,11 @@ describe('禁用词与源码规则', () => {
     }
   });
 
-  it('本片新图标只用 Svg 包装与现成图标；SearchIcon 不重写', () => {
-    const icons = readWeb(`${TASKS}/tasks-icons.tsx`);
-    expect(icons).not.toMatch(/export\s+(?:const|function)\s+SearchIcon\b/);
+  it('FileTextIcon 在共用图标里，path 与详情页画布 summary.md 那一行一致；SearchIcon 不重写', () => {
+    const icons = readWeb('src/icons/index.tsx');
     expect(icons).toContain('export const FileTextIcon');
     expect(icons).toContain('<Svg');
+    expect(icons).toMatch(/export\s+const\s+FileTextIcon[\s\S]*?<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/);
     const canvas = read('docs/ui-design/pages/05-attempt-详情-Themis-Tally.html');
     const at = canvas.indexOf('>summary.md</span>');
     const svg = canvas.slice(canvas.lastIndexOf('<svg', at), at);
@@ -106,7 +106,9 @@ describe('禁用词与源码规则', () => {
       const value = /d="([^"]+)"/.exec(d)![1];
       expect(icons, `FileTextIcon 应含路径 ${value}`).toContain(`d="${value}"`);
     }
-    expect(readWeb(`${TASKS}/TaskListView.tsx`)).toMatch(/import\s*\{[^}]*\bSearchIcon\b[^}]*\}\s*from\s*['"][^'"]*icons['"]/);
+    // T014 并掉了 tasks-icons.tsx：SearchIcon 只用 src/icons/index.tsx 的那一份，不重写。
+    expect(icons.match(/export\s+const\s+SearchIcon\b/g) ?? []).toHaveLength(1);
+    expect(readWeb(`${TASKS}/tab-Summary.tsx`)).toMatch(/import\s*\{[^}]*\bFileTextIcon\b[^}]*\}\s*from\s*['"][^'"]*icons['"]/);
   });
 
   it('tasks-groups 只加标签，分组与映射从 attemptGroups 导入', () => {

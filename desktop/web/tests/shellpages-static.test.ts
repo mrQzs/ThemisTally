@@ -78,8 +78,8 @@ describe('D11 源码守卫', () => {
 });
 
 describe('D11 图标路径', () => {
-  it('icons.tsx 导出三个新图标，包装含 tt-i、currentColor、aria-hidden', () => {
-    const text = read('src/shellpages/icons.tsx');
+  it('icons/index.tsx 导出三个共用图标，包装含 tt-i、currentColor、aria-hidden', () => {
+    const text = read('src/icons/index.tsx');
     for (const name of ['ArrowRightIcon', 'FileTextIcon', 'ExternalLinkIcon']) {
       expect(text, name).toContain(`export const ${name}`);
     }

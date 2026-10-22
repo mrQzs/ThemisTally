@@ -4,7 +4,7 @@ import { useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } 
 import { Breadcrumb, Table, StatusTag, NextStep, EffortPair, type TableColumn } from '../../components';
 import { SearchIcon, CheckIcon } from '../../icons';
 import type { StatusRow } from '../../api';
-import { CopyNote } from './common-CopyNote';
+import { CopyNote } from '../../components/CopyNote';
 import { GROUP_LABELS, ATTEMPT_GROUPS, type AttemptGroup } from './tasks-groups';
 import {
   attemptsOf,
@@ -22,7 +22,7 @@ import {
 } from './tasks-model';
 import { formatThousands } from './tasks-format';
 import { crumbHandler, hrefWithMock } from './tasks-route';
-import { copyText, type CopyResult } from './tasks-copy';
+import { copyText, type CopyResult } from '../../components';
 import './tasks-list.css';
 
 /** attempt 表的一行：列值是已经算好的文字或节点。 */

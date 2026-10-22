@@ -2,7 +2,7 @@
 // 只收数据与回调，不调 api.ts；取数在 TasksPage 里经 loadAttemptDetail 并行完成。
 import { Breadcrumb, EffortPair, NextStep, StatusTag, Tabs, type TabItem } from '../../components';
 import type { AttemptData, Envelope, StatusRow } from '../../api';
-import { CopyNote } from './common-CopyNote';
+import { CopyNote } from '../../components/CopyNote';
 import type { ReadFailure } from './common-FileReader';
 import { TabSummary } from './tab-Summary';
 import { TabPatch } from './tab-Patch';
@@ -13,7 +13,7 @@ import { TabFiles } from './tab-Files';
 import { checksSummary, nextStepOf, taskRow } from './tasks-model';
 import { formatDuration, formatLocalTime, formatThousands } from './tasks-format';
 import { crumbHandler, hrefWithMock, TASK_TABS, type TaskTabId } from './tasks-route';
-import { copyText, type CopyResult } from './tasks-copy';
+import { copyText, type CopyResult } from '../../components';
 import { useState } from 'react';
 import './tasks-detail.css';
 

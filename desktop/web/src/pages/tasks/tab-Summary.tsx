@@ -5,7 +5,7 @@ import type { AttemptData, Envelope } from '../../api';
 import { FileReadNote, toViewerPage, useFilePages } from './common-FileReader';
 import { readAttemptFile } from './tasks-data';
 import { formatBytes, kilobytesOf } from './tasks-format';
-import { FileTextIcon } from './tasks-icons';
+import { FileTextIcon } from '../../icons';
 import './tasks-tabs.css';
 
 export interface TabSummaryProps {

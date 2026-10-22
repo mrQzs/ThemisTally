@@ -10,7 +10,7 @@ const MOCK = 'src/mock';
 const PAGES = 'src/pages';
 
 const R2_FILES = [
-  'common-icons.tsx', 'common-format.ts', 'common-InfoNote.tsx', 'common-styles.css', 'common-readers.ts',
+  'common-format.ts', 'common-InfoNote.tsx', 'common-styles.css', 'common-readers.ts',
   'secrets-SecretsView.tsx', 'secrets-logic.ts', 'secrets-styles.css',
   'logs-LogsView.tsx', 'logs-SearchPanel.tsx', 'logs-SearchResults.tsx', 'logs-UsagePanel.tsx', 'logs-logic.ts', 'logs-styles.css',
   'plugins-PluginsView.tsx', 'plugins-PluginDrawer.tsx', 'plugins-logic.ts', 'plugins-styles.css',
@@ -36,7 +36,7 @@ const scanned = () => [
 ];
 
 describe('D11 文件在位与页面接线', () => {
-  it('readonly2 下 23 个源码与样式、mock 下 3 份夹具都在；没有子目录、没有 Page.tsx 文件名', () => {
+  it('readonly2 下 22 个源码与样式、mock 下 3 份夹具都在；没有子目录、没有 Page.tsx 文件名', () => {
     for (const f of [...R2_FILES, ...MOCK_FILES]) expect(existsSync(join(process.cwd(), R2, f)) || existsSync(join(process.cwd(), MOCK, f)), f).toBe(true);
     const entries = readdirSync(join(process.cwd(), R2), { withFileTypes: true });
     expect(entries.filter((e) => e.isDirectory())).toEqual([]);
@@ -133,10 +133,10 @@ describe('D11 源码守卫', () => {
     }
   });
 
-  it('夹具标「示意」；common-icons 的 fill 与 stroke 只用 none 与 currentColor', () => {
+  it('夹具标「示意」；共用 ExternalLinkIcon 的 fill 与 stroke 只用 none 与 currentColor', () => {
     for (const f of MOCK_FILES) expect(read(`${MOCK}/${f}`)).toContain('示意');
-    const icons = read(`${R2}/common-icons.tsx`);
-    expect(icons).toMatch(/export\s+(?:const|function)\s+ExternalLinkIcon\b/);
+    const icons = read('src/icons/index.tsx');
+    expect(icons).toMatch(/export\s+const\s+ExternalLinkIcon\b/);
     const bad = Array.from(icons.matchAll(/\b(?:fill|stroke)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*["']([^"']*)["']\s*\})/g))
       .map((m) => m[1] || m[2] || m[3])
       .filter((v) => v !== 'none' && v !== 'currentColor');

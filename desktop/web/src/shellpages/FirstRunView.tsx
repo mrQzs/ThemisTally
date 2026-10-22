@@ -3,15 +3,14 @@
 // 退出码 1 的「切换到那个窗口」是禁用按钮（站主 Q2-A）；[进入] 四步全过才可用。document.title「首次启动 · Themis Tally」。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, CommandLine } from '../components';
-import { CircleCheckIcon, CircleDashedIcon, CircleXIcon, LoaderCircleIcon } from '../icons';
+import { ArrowRightIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, LoaderCircleIcon } from '../icons';
 import { Logo } from '../shell/Logo';
 import { DisabledAction } from '../shell/DisabledAction';
 import type { PickOutcome, ShellState } from './themisShell';
 import type { ThemisShell } from './themisShell';
 import { firstRunModel, type Picks, type StepError, type StepModel, type StepStatus } from './firstRunModel';
 import { firstRunHeadline } from './exitCodes';
-import { copyText, COPY_RESULT_TEXT, type CopyResult } from './copy';
-import { ArrowRightIcon } from './icons';
+import { copyText, COPY_RESULT_TEXT, type CopyResult } from '../components';
 import './first-run.css';
 
 const STEP_NAMES = ['选择仓库', 'Python', 'kit', '本机服务'];

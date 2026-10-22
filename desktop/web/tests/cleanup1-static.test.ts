@@ -29,9 +29,9 @@ const ACTION_TITLES: Record<string, string> = {
   'runtime.remove': '删除 runtime',
   external: '检测到界面与命令之外的改动',
 };
-// 本片新建与改过的源码：守卫逐份扫。
+// 本片新建与改过的源码：守卫逐份扫（T014 之后加上共用 CopyNote）。
 const TOUCHED = [
-  COPY_TEXT, ACTION_TITLE, ACTOR_TAG, RELATIVE_TIME, INDEX,
+  COPY_TEXT, ACTION_TITLE, ACTOR_TAG, RELATIVE_TIME, INDEX, `${COMP}/CopyNote.tsx`,
   `${RO1}/common-CopyNote.tsx`, `${RO1}/overview-MetricCard.tsx`, `${RO1}/overview-AttemptList.tsx`,
   `${RO1}/overview-ConfigChanges.tsx`, `${RO1}/overview-logic.ts`, `${RO1}/roles-PresetsTable.tsx`,
   `${RO2}/history-HistoryView.tsx`, `${RO2}/history-HistoryDrawer.tsx`, `${RO2}/history-logic.ts`,
@@ -99,7 +99,7 @@ describe('四样重复件各只留一份', () => {
   it('用到这几样时只从 components 引入', () => {
     const wants: [string, string[]][] = [
       ['copyText', [`${RO1}/overview-AttemptList.tsx`, `${RO2}/plugins-PluginDrawer.tsx`]],
-      ['COPY_RESULT_TEXT', [`${RO1}/common-CopyNote.tsx`, `${RO2}/plugins-PluginDrawer.tsx`]],
+      ['COPY_RESULT_TEXT', [`${COMP}/CopyNote.tsx`, `${RO2}/plugins-PluginDrawer.tsx`]],
       ['actionTitle', [`${RO1}/overview-ConfigChanges.tsx`, `${RO2}/history-HistoryView.tsx`, `${RO2}/history-HistoryDrawer.tsx`]],
       ['ActorTag', [`${RO1}/overview-ConfigChanges.tsx`, `${RO2}/history-HistoryView.tsx`]],
       ['RelativeTime', [`${RO1}/overview-ConfigChanges.tsx`, `${RO2}/history-HistoryView.tsx`]],
@@ -149,7 +149,7 @@ describe('本片源码的守卫', () => {
   });
 
   it('新增的共用件与指标卡源码不写死颜色', () => {
-    for (const rel of [COPY_TEXT, ACTION_TITLE, ACTOR_TAG, RELATIVE_TIME, `${RO1}/overview-MetricCard.tsx`, `${RO1}/roles-PresetsTable.tsx`]) {
+    for (const rel of [COPY_TEXT, ACTION_TITLE, ACTOR_TAG, RELATIVE_TIME, `${COMP}/CopyNote.tsx`, `${RO1}/overview-MetricCard.tsx`, `${RO1}/roles-PresetsTable.tsx`]) {
       const raw = read(rel);
       expect(/#(?:[0-9a-fA-F]{3,8})(?![0-9a-fA-F])/.test(raw), `${rel} 写死了颜色`).toBe(false);
       expect(/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)[ \t]*\(/i.test(raw), `${rel} 用了颜色函数`).toBe(false);

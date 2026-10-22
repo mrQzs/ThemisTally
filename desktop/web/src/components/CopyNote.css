@@ -1,0 +1,2 @@
+/* 复制结果一行（共用件，T014）：三级文字色、说明字号；margin 归零，紧贴上一行。 */
+.tt-copy-note { margin: 0; font: var(--tt-text-caption); color: var(--tt-text-3); }

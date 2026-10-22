@@ -7,7 +7,7 @@ import { SecretsIcon } from '../../icons/frame';
 import { DisabledAction } from '../../shell/DisabledAction';
 import type { SecretsData } from '../../api';
 import { InfoNote } from './common-InfoNote';
-import { ExternalLinkIcon } from './common-icons';
+import { ExternalLinkIcon } from '../../icons';
 import { SOURCE_LEGEND, sourceTag, usedBySegments, type UsedByItem } from './secrets-logic';
 import './secrets-styles.css';
 

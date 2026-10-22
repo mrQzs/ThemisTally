@@ -301,3 +301,27 @@ export const ArrowRightIcon = (props: IconProps) => (
     <path d="m12 5 7 7-7 7" />
   </Svg>
 );
+
+// 第 10 片（T014）并入的重复件：T011 的 FileTextIcon 与 T012/readonly2 的 FileTextIcon、ExternalLinkIcon 各只留这一份。
+// 出处：Lucide file-text（早期版本，与画布一致）与 external-link，ISC 许可；画布依据：详情页画布「summary.md」那一行、
+// 设置画布 :427（FileTextIcon）与 :428（ExternalLinkIcon）。包装沿用本文件顶部的 Svg（tt-i、stroke currentColor、
+// aria-hidden）；块内不写 fill 与 stroke，宽度高度由调用方传（14 或 16）。
+
+export const FileTextIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    <path d="M10 9H8" />
+    <path d="M16 13H8" />
+    <path d="M16 17H8" />
+  </Svg>
+);
+
+export const ExternalLinkIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M15 3h6v6" />
+    <path d="M10 14 21 3" />
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Svg>
+);
+
