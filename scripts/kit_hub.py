@@ -1127,7 +1127,42 @@ def loose_json_object(text: str) -> Optional[Dict[str, Any]]:
     return found
 
 
+def last_fenced_object(text: str) -> Optional[Dict[str, Any]]:
+    """```json 之后完整解析出的、紧跟着 ```（或文本结尾）的最后一个对象（第 59 轮）。T011 的协调人在重试回合里
+    把第一个代码块的收尾 ``` 写在 `}` 后面同一行，接着写说明“让我重新组织输出”，再写第二个代码块：JSON_BLOCK_RE
+    要求收尾前有换行，于是从第一个 ```json 一直匹配到第二个的开头，报“后面又写了内容”，回合作废、主任务转站主。"""
+    found: Optional[Dict[str, Any]] = None
+    for match in re.finditer(r"```json", text):
+        start = match.end()
+        start += len(text[start:]) - len(text[start:].lstrip())
+        if not text[start:].startswith("{"):
+            continue
+        try:
+            data, end = json.JSONDecoder().raw_decode(text, start)
+        except ValueError:
+            continue
+        after = text[end:].lstrip()
+        if isinstance(data, dict) and (not after or after.startswith("```")):
+            found = data
+    return found
+
+
 def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
+    try:
+        return _extract_json_block(text, warnings)
+    except HubError as exc:
+        if not str(exc).startswith("JSON 代码块解析失败"):
+            raise
+        fenced = last_fenced_object(text or "")
+        if fenced is None:
+            raise
+        if warnings is not None:
+            warnings.append("JSON 代码块没有按规矩收尾（收尾的 ``` 写在同一行，后面又写了说明或第二个代码块），"
+                            "取最后一个完整的 ```json 对象")
+        return fenced
+
+
+def _extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     blocks = JSON_BLOCK_RE.findall(text or "")
     if not blocks:
         loose = loose_json_object(text or "")

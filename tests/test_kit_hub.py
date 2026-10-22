@@ -5477,3 +5477,25 @@ def test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided(tmp_path, monke
     turn = kh.TurnRunner(hub, launcher=launcher).run("audit-sonnet", "T001-7-audit-post", tmp_path, "角色", "输入")
     assert turn["tool_calls"] == {"Bash": 1} and any("Bash" in v for v in turn["violations"])
     assert turn["output"] is None  # 有越界：不取输出，回合作废
+
+
+# ---------------------------------------------------------------------------
+# 第 59 轮：收尾的 ``` 写在同一行、后面又写了第二个代码块
+# ---------------------------------------------------------------------------
+
+def test_inline_closing_fence_then_second_block_takes_the_last_complete_object():
+    # T011 的协调人：第一个代码块的收尾贴在 } 后面，说明“让我重新组织输出”，再写第二个代码块；state 里还提到了 ```json
+    first = '{"letters": [{"to": "a"}], "state": "上一回合没有 ```json 代码块"}'
+    second = '{"letters": [{"to": "b"}], "state": "新"}'
+    text = "说明\n```json\n" + first + "```门禁端已交付。让我重新组织输出。\n\n```json\n" + second + "```"
+    warnings = []
+    assert kh.extract_json_block(text, warnings) == json.loads(second)
+    assert len(warnings) == 1 and "取最后一个完整的" in warnings[0]
+    # 后面跟的不是 ```、而是真内容：照旧拒收
+    with pytest.raises(kh.HubError, match="后面又写了内容"):
+        kh.extract_json_block("```json\n" + second + "\n另外：还有一件事\n```", [])
+    # 规矩的单个代码块：照旧，不记警告
+    warnings = []
+    assert kh.extract_json_block("```json\n" + second + "\n```", warnings) == json.loads(second) and warnings == []
+    assert kh.last_fenced_object("```json\n" + first + "```") == json.loads(first)
+    assert kh.last_fenced_object("```json\n" + first + " 尾巴") is None
