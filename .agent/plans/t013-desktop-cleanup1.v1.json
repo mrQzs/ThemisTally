@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "task_id": "t013-desktop-cleanup1",
+  "plan_version": 1,
+  "title": "桌面端前端收尾一：合并 T009、T010 的重复件，补只读页的视觉遗留",
+  "repository": "ThemisTally",
+  "base_sha": "009efa081bcdb3b7fddc9c3401d72fe3a5dea38c",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/components/ActorTag.tsx",
+      "desktop/web/src/components/RelativeTime.tsx",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/pages/readonly1/overview-MetricCard.tsx",
+      "desktop/web/src/pages/readonly1/overview-styles.css",
+      "desktop/web/src/pages/readonly1/overview-logic.ts",
+      "desktop/web/src/pages/readonly1/overview-ConfigChanges.tsx",
+      "desktop/web/src/pages/readonly1/overview-AttemptList.tsx",
+      "desktop/web/src/pages/readonly1/common-CopyNote.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetsTable.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-styles.css",
+      "desktop/web/src/pages/readonly2/history-HistoryView.tsx",
+      "desktop/web/src/pages/readonly2/history-HistoryDrawer.tsx",
+      "desktop/web/src/pages/readonly2/history-logic.ts",
+      "desktop/web/src/pages/readonly2/common-format.ts",
+      "desktop/web/src/pages/readonly2/plugins-PluginDrawer.tsx",
+      "desktop/web/tests/page-logic.test.ts",
+      "desktop/web/tests/page-static.test.ts",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/readonly2-logic.test.ts",
+      "desktop/web/tests/readonly2-static.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/components/copyText.ts",
+      "desktop/web/src/components/actionTitle.ts",
+      "desktop/web/tests/cleanup1-shared.test.ts",
+      "desktop/web/tests/cleanup1-merge.test.tsx",
+      "desktop/web/tests/cleanup1-visual.test.tsx",
+      "desktop/web/tests/cleanup1-css.test.ts",
+      "desktop/web/tests/cleanup1-static.test.ts"
+    ],
+    "allowed_deleted_files": [
+      "desktop/web/src/pages/readonly1/common-copyText.ts",
+      "desktop/web/src/pages/readonly2/common-copy.ts",
+      "desktop/web/src/pages/readonly2/history-ActorTag.tsx"
+    ],
+    "forbidden_paths": [
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/pages/tasks/**",
+      "desktop/web/src/mock/tasks-*",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/mock/shellpages-*",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/tests/shell-app.test.tsx",
+      "tests/test_gate_t013_*.py",
+      "tests/test_gate_*.py"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t013_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "共用件——components/copyText.ts、actionTitle.ts 存在并导出正确；copyText 三种结果与缺省取 navigator.clipboard；COPY_RESULT_TEXT 三条文字；actionTitle 13 条逐字，表外与 Object.prototype 名字均为 null；actorTone 五类色调；formatLocalUtc 格式正确，解析不了为 null；RelativeTime 的 title 等于 formatLocalUtc；ActorTag、ActorTagProps、RelativeTime、RelativeTimeProps 名字与属性不变；index.ts 只在末尾追加",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "仓库里四样重复件各只留一份，后续片可以直接引用"
+    },
+    {
+      "id": "D02",
+      "text": "没有第二份——在 src/components/**、src/pages/readonly1/**、src/pages/readonly2/** 范围内，copyText 只有一处函数定义（在 components/copyText.ts）；「这个环境没有剪贴板接口」「已复制」「复制失败」只出现在 components/copyText.ts；13 条动作说明只出现在 components/actionTitle.ts；「（UTC 」拼写只出现在 components/RelativeTime.tsx；ActorTag 组件只有一个定义；带引号的 undeclared 只出现在 components/ActorTag.tsx；readonly1/common-copyText.ts、readonly2/common-copy.ts、readonly2/history-ActorTag.tsx 不存在；readonly1、readonly2 用到这几样时只从 components 引入",
+      "evidence": [
+        "V02",
+        "review"
+      ],
+      "intent": "消除重复，避免将来漂移"
+    },
+    {
+      "id": "D03",
+      "text": "T009 侧渲染不变——总览配置变更的动作 title（13 条）、执行者五色、相对时间文字与 title、复制三结果文字，与合并前相同",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "合并后总览页的视觉与交互与合并前一致"
+    },
+    {
+      "id": "D04",
+      "text": "T010 侧渲染不变——历史表的执行者五色、动作 title、时间文字与 title、抽屉 dl 的时间、插件抽屉的复制三结果，与合并前相同；时间格元素解析得了是 time，dateTime 为原文",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "合并后历史页与插件页的视觉与交互与合并前一致"
+    },
+    {
+      "id": "D05",
+      "text": "指标卡——每张卡的 a 里依次是色调条（aria-hidden）、标签行、数字（tt-num）；标签行在数字之前，含 16px 图标（aria-hidden）与标签文字；卡上仍只有计数这一个数字；卡片规则有 position relative、display flex、flex-direction column、gap --tt-space-0_5；色调条规则有 position absolute，left、top、bottom 为 0，width 3px；四张卡的图标颜色规则各自只引用本卡的色调令牌（待验收用 --tt-accent-text）；没有内联 style",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "照设计稿领域板 7.23 与 Main :97–100"
+    },
+    {
+      "id": "D06",
+      "text": ".rt-cmd——同一条规则有 display block、max-width 280px、overflow hidden、white-space nowrap、--tt-mono-sm",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "照设计稿 Runtimes :109"
+    },
+    {
+      "id": "D07",
+      "text": "aria-controls——展开的 [查看差异] 的 aria-controls 指向文档里存在的面板，值不含空白；收起的按钮没有 aria-controls；各行面板 id 互不相同；方案名带空格时同样成立；roles-PresetsTable.tsx 用 useId，没有用方案名拼 id 的写法",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "读屏不报找不到的面板"
+    },
+    {
+      "id": "D08",
+      "text": ".ov-row__name——规则有 font var(--tt-mono-md)，仍单行省略",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "照设计稿 Main :111"
+    },
+    {
+      "id": "D09",
+      "text": "样式表接线——readonly1、readonly2 下每份 CSS 都能从 src/main.tsx 顺 import 到达，构建成功",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "CSS 在真实构建里被打包"
+    },
+    {
+      "id": "D10",
+      "text": "回归与范围——T001–T010 门禁（按 §8 退役之后）通过；V01 构建、V02 全量测试、V03 合同检查通过；只改允许的文件；不改依赖；新测试不用 skip、only、todo",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "scope"
+      ],
+      "intent": "不破坏已有功能"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
