@@ -3285,6 +3285,21 @@ def empty_commit(hub: Hub, sha: str) -> bool:
     return len(trees) == 2 and trees[0] == trees[1]
 
 
+def landing_chain(hub: Hub, ts: Dict[str, Any], run_dir: Optional[Path]) -> List[Dict[str, Any]]:
+    """返工链上要先带上分支的那几轮：attempt 的基线里有的（基线就是它，或是它的后代）。第 60 轮补：门禁热修补
+    之后执行端从新的基准测试从头开工（T011 的 attempt-005，候选补丁新增了全部 31 个文件），返工链还记着热修补
+    之前的两轮；照旧挑上去，候选补丁新增的文件就撞上链上的同名文件，预演与结项都过不去。判断不了（提交不存在等）
+    的照旧算进去，由挑的那一步报错。"""
+    chain = ts.get("rework_chain") or []
+    if run_dir is None:
+        return list(chain)
+    base = attempt_base(ts, run_dir)
+    return [link for link in chain
+            if subprocess.run(["git", "merge-base", "--is-ancestor", link["commit"], base], cwd=str(hub.repo),
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode != 1]
+
+
 def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]:
     """落地预演（第 30 轮）：在临时 worktree 里照结项的做法拼出“当前末端 + 基准测试 + 返工链 + 候选”，跑全部门禁基准。
     T006 的门禁断言陈列页上没有任何 aria-pressed，T007 先落地的 TextViewer 有两个；T006 的候选在执行端交付时就
@@ -3300,7 +3315,7 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
     seen = ts.get("rehearsal") or {}
     if seen.get("head") == head and seen.get("run_dir") == str(run_dir):
         return None
-    commits = [sha for sha in [ts["oracle"].get("sha")] + [link["commit"] for link in ts.get("rework_chain") or []]
+    commits = [sha for sha in [ts["oracle"].get("sha")] + [link["commit"] for link in landing_chain(hub, ts, run_dir)]
                if sha]
     problem = None
     with scratch_worktree(hub, "rehearse", head) as path:
@@ -3376,8 +3391,10 @@ def land_oracle(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
 
 def land_rework_chain(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     """返工链上的提交按顺序带上当前分支（第 10 轮）：每一轮的返工提交以上一轮的基线为父提交，integrate 只挑
-    最后一轮“基线→候选”的改动，前几轮的改动要先在末端上。能 ff 就 ff，不能就挑到末端；重试时跳过已落地的。"""
-    for link in ts.get("rework_chain") or []:
+    最后一轮“基线→候选”的改动，前几轮的改动要先在末端上。能 ff 就 ff，不能就挑到末端；重试时跳过已落地的。
+    只带 attempt 的基线里有的那几轮（landing_chain，第 60 轮补）。"""
+    run_dir = ts["exec"].get("run_dir")
+    for link in landing_chain(hub, ts, Path(run_dir) if run_dir else None):
         sha = link["commit"]
         if on_branch(hub, sha):
             if link.get("landed_at"):

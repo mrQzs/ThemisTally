@@ -2285,6 +2285,7 @@ def test_finalize_lands_the_rework_chain_before_integrating(tmp_path, monkeypatc
     hub = kh.Hub(repo)
     hub.ensure()
     run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": rework}), encoding="utf-8")  # 返工版本的 attempt
     ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
     ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
     ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
@@ -2356,6 +2357,7 @@ def forked_landing_setup(tmp_path, monkeypatch):
     hub = kh.Hub(repo)
     hub.ensure()
     run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": rework}), encoding="utf-8")  # 返工版本的 attempt
     ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
     ts["oracle"].update(sha=oracle, files=["tests/test_gate_t001_baseline.py"])
     ts["rework_chain"] = [{"from": "attempt-001", "commit": rework, "contract": "t001-doc.v2"}]
@@ -3281,6 +3283,7 @@ def test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks(tmp_pat
     assert not ok and not summary.startswith("候选补丁") and "test_feature" in summary  # 返工链里没有功能：门禁红
     candidate = kh.git(["log", "--all", "--format=%H", "-1", "--grep=^候选$"], repo).strip()
     ts["rework_chain"].append({"from": "attempt-002", "commit": candidate, "contract": "t001-doc.v3"})
+    (empty / "meta.json").write_text(json.dumps({"base_sha": candidate}), encoding="utf-8")  # 接着这个返工提交改
     ts.pop("rehearsal")  # 同一个末端、同一个候选不再预演：换了返工链，清掉记录重来
     ok, summary = kh.rehearse_landing(hub, ts)
     assert ok and "attempt-004 的候选" in summary and "2 passed" in summary  # 活都在返工链里
@@ -3313,6 +3316,37 @@ def test_landing_skips_an_empty_rework_commit(tmp_path, monkeypatch):
     assert (repo / "earlier.txt").is_file() and not kh.on_branch(hub, empty)
     tip = kh.git(["rev-parse", "HEAD"], repo).strip()
     assert kh.land_rework_chain(hub, ts) is None and kh.git(["rev-parse", "HEAD"], repo).strip() == tip  # 重试
+
+
+def test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain(tmp_path, monkeypatch):
+    # 第 60 轮补：T011 门禁热修补之后，执行端从新的基准测试从头开工，候选补丁新增了全部文件；返工链还记着热修补
+    # 之前的那几轮，照旧挑上去，候选补丁新增的文件就撞上链上的同名文件，预演判失败，结项也过不去
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    gate = kh.git(["show", "%s:tests/test_gate_t001_baseline.py" % ts["oracle"]["sha"]], repo)
+    kh.git(["checkout", "-q", "--detach", ts["oracle"]["sha"] + "^"], repo)
+    (repo / "tests").mkdir(exist_ok=True)
+    (repo / "tests" / "test_gate_t001_baseline.py").write_text(gate + "\n# 热修补\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "门禁热修补"], repo)
+    oracle = kh.git(["rev-parse", "HEAD"], repo).strip()
+    (repo / "earlier.txt").write_text("上一轮的候选，执行端自己搬过来改\n", encoding="utf-8")
+    (repo / "feature.txt").write_text("功能\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("一\n二\n三改\n四\n五\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt", "feature.txt", "notes.txt"], repo)
+    kh.git(["commit", "-q", "-m", "从头开工的候选"], repo)
+    patch = kh.git(["diff", "--binary", oracle, "HEAD"], repo)
+    kh.git(["checkout", "-q", branch], repo)
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": oracle}), encoding="utf-8")
+    (run_dir / "candidate.patch").write_text(patch, encoding="utf-8", newline="\n")
+    ts["oracle"].update(sha=oracle)
+    land_on_main(repo, "unrelated.txt", "x\n", "并行的一片先落地")
+    assert kh.landing_chain(hub, ts, run_dir) == []
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert ok and "2 passed" in summary
+    assert kh.land_oracle(hub, ts) is None and kh.land_rework_chain(hub, ts) is None
+    assert "landed_at" not in ts["rework_chain"][0] and not kh.on_branch(hub, ts["rework_chain"][0]["commit"])
+    assert not (repo / "earlier.txt").exists()  # 链上的那一轮没带上分支：候选补丁自己带着这个文件
 
 
 def test_landing_rehearsal_reports_commits_that_no_longer_apply(tmp_path, monkeypatch):
