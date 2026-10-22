@@ -15,3 +15,7 @@ __pycache__/
 desktop/**/node_modules/
 desktop/**/dist/
 desktop/web/gate-probe/
+
+# TS 工作区（TS 迁移第一步）：依赖与构建产物不提交，锁文件 ts/bun.lock 提交
+ts/**/node_modules/
+ts/**/dist/

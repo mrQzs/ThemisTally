@@ -28,3 +28,6 @@ plugins/decisions/** -text
 # 在系统级 core.autocrlf=true 下会把它们转成 CRLF，干净副本上的全量 pytest 因此失败 6 项。
 plugins/*/README.md -text
 tests/fixtures/11/*.txt -text
+
+# TS 工作区一律 LF：同一份源码给 Bun、Node 与 tsc 读，契约用例按字节比对
+ts/** text eol=lf

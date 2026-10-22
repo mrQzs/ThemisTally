@@ -1,0 +1,17 @@
+{
+  "command": ["node", "node_modules/vitest/vitest.mjs", "run", "packages/contracts/test"],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {"name": "P01 Windows 上用 os.replace 发布（会覆盖已有目标）", "file": "scripts/pi_dispatch.py",
+     "old": "                os.rename(str(tmp), str(path))", "new": "                os.replace(str(tmp), str(path))"},
+    {"name": "P02 目标已存在也算发布成功", "file": "scripts/pi_dispatch.py",
+     "old": "        except FileExistsError:  # 只有发布这一步的“已存在”才算别人抢先发布\n            return False",
+     "new": "        except FileExistsError:  # 只有发布这一步的“已存在”才算别人抢先发布\n            return True"},
+    {"name": "P03 不删临时文件", "file": "scripts/pi_dispatch.py",
+     "old": "        if os.path.lexists(str(tmp)):\n            os.unlink(str(tmp))", "new": "        pass"},
+    {"name": "P04 临时文件不用 O_EXCL", "file": "scripts/pi_dispatch.py",
+     "old": "flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL |", "new": "flags = os.O_WRONLY | os.O_CREAT |",
+     "equivalent": "临时文件名带 8 个随机字节，契约测试从外部撞不上同名文件；这条由 TS 白盒测试的 M05 对应用例覆盖，Python 一侧没有白盒用例"}
+  ]
+}

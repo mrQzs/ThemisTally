@@ -1,0 +1,8 @@
+{
+  "name": "@themis/base",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./publish": "./src/publish.ts"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "command": ["node", "node_modules/vitest/vitest.mjs", "run"],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {"name": "M01 用 rename 发布（Windows 上会覆盖已有目标）", "file": "ts/packages/base/src/publish.ts",
+     "old": "import { closeSync, constants, linkSync, openSync, rmSync, writeSync } from \"node:fs\";",
+     "new": "import { closeSync, constants, renameSync as linkSync, openSync, rmSync, writeSync } from \"node:fs\";"},
+    {"name": "M02 目标已存在也算发布成功", "file": "ts/packages/base/src/publish.ts",
+     "old": "if (isErrno(error, \"EEXIST\")) return false;", "new": "if (isErrno(error, \"EEXIST\")) return true;"},
+    {"name": "M03 不删临时文件", "file": "ts/packages/base/src/publish.ts",
+     "old": "    rmSync(tmp, { force: true });", "new": "    void tmp;"},
+    {"name": "M04 发布那一步的其他错误当成已存在", "file": "ts/packages/base/src/publish.ts",
+     "old": "      throw error;\n    }\n    return true;", "new": "      return false;\n    }\n    return true;"},
+    {"name": "M05 临时文件不用 O_EXCL（撞名时覆盖别人的文件）", "file": "ts/packages/base/src/publish.ts",
+     "old": "constants.O_CREAT | constants.O_EXCL |", "new": "constants.O_CREAT | constants.O_TRUNC |"},
+    {"name": "M06 临时文件不在目标目录", "file": "ts/packages/base/src/publish.ts",
+     "old": "return join(dirname(path), ", "new": "return join(process.cwd(), "},
+    {"name": "M07 少写最后一个字节", "file": "ts/packages/base/src/publish.ts",
+     "old": "while (offset < data.length) offset += writeSync(fd, data, offset, data.length - offset);",
+     "new": "if (data.length > 1) offset += writeSync(fd, data, 0, data.length - 1);"},
+    {"name": "M08 临时文件名只用 4 个随机字节", "file": "ts/packages/base/src/publish.ts",
+     "old": "tmpPathFor(path, randomBytes(8))", "new": "tmpPathFor(path, randomBytes(4))"},
+    {"name": "M09 错误码写错", "file": "ts/packages/base/src/publish.ts",
+     "old": "isErrno(error, \"EEXIST\")", "new": "isErrno(error, \"EEXISTS\")"},
+    {"name": "M10 临时文件名不带随机部分", "file": "ts/packages/base/src/publish.ts",
+     "old": "${Buffer.from(nonce).toString(\"hex\")}.tmp", "new": "tmp"},
+    {"name": "M11 写完不关描述符", "file": "ts/packages/base/src/publish.ts",
+     "old": "      closeSync(fd);\n", "new": "      void fd;\n"}
+  ]
+}

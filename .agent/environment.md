@@ -81,7 +81,10 @@
 |---|---|---|
 | Python | 3.12.10 | PATH |
 | pytest | 9.1.1 | 同上 |
-| Node | 24.19.0 | pi 的运行时 |
+| Node | 24.19.0 | pi 的运行时；TS 工作区的后备运行时（直接跑 `.ts`，类型擦除）与 Vitest 的运行时；自带 `node:sqlite` 为 SQLite 3.53.3 |
+| Bun | 1.4.2（固定） | TS 迁移的主运行时与包管理器（站主 2026-10-22 授权安装）。`npm install -g bun@1.4.2` 装在 `~/AppData/Roaming/npm`；`bun.exe` 在 `~/AppData/Roaming/npm/node_modules/bun/bin`，已加进用户 PATH（子进程不经 shell 启动时认不出 `bun.cmd`）。内置 SQLite 3.53.2（`select sqlite_version()` 实测），满足 3.51.3 及以上 |
+| TypeScript | 6.0.3 | `ts/` 工作区的类型检查（`tsc --noEmit`，strict、ESM、`erasableSyntaxOnly`）；锁在 `ts/bun.lock` |
+| Vitest | 2.1.8 | `ts/` 工作区的唯一测试框架，与 `desktop/web` 同版本 |
 
 ## 验证记录
 
@@ -106,3 +109,4 @@
 | 2026-10-19 | 换到新机器（Windows Server 2025）：执行模型 `step/step-5-preview` + high；Claude Code 2.1.303；Python 3.12.10；JEV 的 key 在凭据库；七端的四种 claude 工人配置与 GLM-5.3 实测可用 | 全量测试结果写回“验证记录”；T001 跑完后补“代表性代码任务” |
 | 2026-10-21 | step-5-preview 回到 `bb` 提供商；七端只有规划端留在 Claude 上，协调人、合同端、门禁端、审核端换到 pi（第 36 轮）；qwen3.7-plus 与 bb/step-5-preview smoke 通过；MiniMax-M3.1-Flash 未列出 | MiniMax 配好后核验并换协调人；门禁端、审核端换模型后的头几片看回合作废率与终审质量 |
 | 2026-10-21 | 合同端从 `token/qwen3.7-plus` 换到 `cc-switch-zhipu-glm/glm-5.3` high（第 46 轮）：qwen 写合同接连出错，T011 返工五次，T013 四次没过、Scope 路径全少了 `desktop/web/` | 合同端与审核端同为 glm-5.3，少了一层独立性：看一审能不能照样查出合同的问题 |
+| 2026-10-22 | TS 迁移第一步：装 Bun 1.4.2（内置 SQLite 3.53.2），新建 `ts/` 工作区（TypeScript 6.0.3、Vitest 2.1.8、@types/node 24.19.0，`bun.lock`）；`bun build --compile` 在本机能打出单文件程序（实测 86 MB） | 升级 Bun 前重跑 `select sqlite_version()` 与契约测试；执行模型与思考级别不因迁移改变 |
