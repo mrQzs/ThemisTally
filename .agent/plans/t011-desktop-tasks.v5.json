@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "task_id": "t011-desktop-tasks",
+  "plan_version": 5,
+  "title": "桌面端前端任务列表与 attempt 详情页（第十片）",
+  "repository": "ThemisTally",
+  "base_sha": "f7148fd9c5bf30bb606a7f1de410028f0f8dcade",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "bb",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/mock/tasks-attempts.ts",
+      "desktop/web/src/mock/tasks-files.ts",
+      "desktop/web/src/mock/tasks-live.ts",
+      "desktop/web/src/pages/tasks/AttemptDetailView.tsx",
+      "desktop/web/src/pages/tasks/TaskListView.tsx",
+      "desktop/web/src/pages/tasks/common-CopyNote.tsx",
+      "desktop/web/src/pages/tasks/common-FileReader.tsx",
+      "desktop/web/src/pages/tasks/tab-Checks.tsx",
+      "desktop/web/src/pages/tasks/tab-Events.tsx",
+      "desktop/web/src/pages/tasks/tab-Files.tsx",
+      "desktop/web/src/pages/tasks/tab-Patch.tsx",
+      "desktop/web/src/pages/tasks/tab-Report.tsx",
+      "desktop/web/src/pages/tasks/tab-Summary.tsx",
+      "desktop/web/src/pages/tasks/tasks-copy.ts",
+      "desktop/web/src/pages/tasks/tasks-data.ts",
+      "desktop/web/src/pages/tasks/tasks-detail.css",
+      "desktop/web/src/pages/tasks/tasks-format.ts",
+      "desktop/web/src/pages/tasks/tasks-groups.ts",
+      "desktop/web/src/pages/tasks/tasks-icons.tsx",
+      "desktop/web/src/pages/tasks/tasks-list.css",
+      "desktop/web/src/pages/tasks/tasks-model.ts",
+      "desktop/web/src/pages/tasks/tasks-route.ts",
+      "desktop/web/src/pages/tasks/tasks-tabs.css",
+      "desktop/web/tests/tasks-app.test.tsx",
+      "desktop/web/tests/tasks-css.test.ts",
+      "desktop/web/tests/tasks-data.test.ts",
+      "desktop/web/tests/tasks-detail.test.tsx",
+      "desktop/web/tests/tasks-list.test.tsx",
+      "desktop/web/tests/tasks-logic.test.ts",
+      "desktop/web/tests/tasks-static.test.ts",
+      "desktop/web/tests/tasks-tabs.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/pages/tasks/tasks-groups.ts",
+      "desktop/web/src/pages/tasks/tasks-format.ts",
+      "desktop/web/src/pages/tasks/tasks-route.ts",
+      "desktop/web/src/pages/tasks/tasks-model.ts",
+      "desktop/web/src/pages/tasks/tasks-data.ts",
+      "desktop/web/src/pages/tasks/tasks-copy.ts",
+      "desktop/web/src/pages/tasks/tasks-icons.tsx",
+      "desktop/web/src/pages/tasks/TaskListView.tsx",
+      "desktop/web/src/pages/tasks/tasks-list.css",
+      "desktop/web/src/pages/tasks/AttemptDetailView.tsx",
+      "desktop/web/src/pages/tasks/tasks-detail.css",
+      "desktop/web/src/pages/tasks/tab-Summary.tsx",
+      "desktop/web/src/pages/tasks/tab-Patch.tsx",
+      "desktop/web/src/pages/tasks/tab-Checks.tsx",
+      "desktop/web/src/pages/tasks/tab-Report.tsx",
+      "desktop/web/src/pages/tasks/tab-Events.tsx",
+      "desktop/web/src/pages/tasks/tab-Files.tsx",
+      "desktop/web/src/pages/tasks/tasks-tabs.css",
+      "desktop/web/src/pages/tasks/common-FileReader.tsx",
+      "desktop/web/src/pages/tasks/common-CopyNote.tsx",
+      "desktop/web/src/mock/tasks-files.ts",
+      "desktop/web/src/mock/tasks-attempts.ts",
+      "desktop/web/src/mock/tasks-live.ts",
+      "desktop/web/tests/tasks-logic.test.ts",
+      "desktop/web/tests/tasks-data.test.ts",
+      "desktop/web/tests/tasks-list.test.tsx",
+      "desktop/web/tests/tasks-detail.test.tsx",
+      "desktop/web/tests/tasks-tabs.test.tsx",
+      "desktop/web/tests/tasks-app.test.tsx",
+      "desktop/web/tests/tasks-css.test.ts",
+      "desktop/web/tests/tasks-static.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/vite-env.d.ts",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/styles/**",
+      "desktop/web/src/domain/**",
+      "desktop/web/src/showcase/**",
+      "desktop/web/src/icons/index.tsx",
+      "desktop/web/src/icons/frame.tsx",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/tests/base-reset.test.ts",
+      "desktop/web/tests/component-css.test.ts",
+      "desktop/web/tests/connection-pill.test.tsx",
+      "desktop/web/tests/data-atoms.test.tsx",
+      "desktop/web/tests/dialog-scrim.test.tsx",
+      "desktop/web/tests/dialog.test.tsx",
+      "desktop/web/tests/diff-css.test.ts",
+      "desktop/web/tests/diff-parse.test.ts",
+      "desktop/web/tests/diff-showcase.test.tsx",
+      "desktop/web/tests/diff-static.test.ts",
+      "desktop/web/tests/diff-view.test.tsx",
+      "desktop/web/tests/drawer.test.tsx",
+      "desktop/web/tests/evidence-atoms.test.tsx",
+      "desktop/web/tests/evidence-effort.test.tsx",
+      "desktop/web/tests/evidence-markdown.test.tsx",
+      "desktop/web/tests/evidence-showcase.test.tsx",
+      "desktop/web/tests/evidence-static.test.ts",
+      "desktop/web/tests/evidence-text-viewer.test.tsx",
+      "desktop/web/tests/font-specimen.test.tsx",
+      "desktop/web/tests/forms-patches-css.test.ts",
+      "desktop/web/tests/forms-patches.test.tsx",
+      "desktop/web/tests/icon-button.test.tsx",
+      "desktop/web/tests/log-follow.test.tsx",
+      "desktop/web/tests/menu.test.tsx",
+      "desktop/web/tests/page-*.test.*",
+      "desktop/web/tests/segmented-control.test.tsx",
+      "desktop/web/tests/shell-*.test.*",
+      "desktop/web/tests/showcase-*.test.tsx",
+      "desktop/web/tests/skeleton.test.tsx",
+      "desktop/web/tests/status-tag*.test.*",
+      "desktop/web/tests/switch-checkbox.test.tsx",
+      "desktop/web/tests/table.test.tsx",
+      "desktop/web/tests/tabs.test.tsx",
+      "desktop/web/tests/text-field-select.test.tsx",
+      "desktop/web/tests/text-viewer-*.test.tsx",
+      "desktop/web/tests/toast*.test.tsx",
+      "desktop/web/tests/token-contract.test.ts",
+      "desktop/web/README.md",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/index.html",
+      "desktop/web/vite.config.ts",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "desktop/web/public/**",
+      "desktop/web/fonts/**",
+      "desktop/web/THIRD_PARTY_NOTICES.md",
+      "tests/test_gate_t011_*.py",
+      "tests/test_gate_*.py",
+      "tests/conftest.py",
+      "tests/test_attempt_states.py",
+      "tests/test_desktop_attempt_states.py",
+      ".gitignore",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t011_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_desktop_attempt_states.py",
+        "tests/test_attempt_states.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "纯函数——分组表与 UI 文档 3.4 :171-177 一致（包括未知状态的处理）；group/tab/路径段的解析；href 的构造（编码、只带 mock）；replace 只改受管的参数、保留其余、值为缺省时删参数；时长、千分位、字节、费用、本地时间的格式；下一步的四种规则",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "数据层——五个开关下 readAttempt、readAttemptFile 的结果；只在 api.ts 报缺时才取本片夹具；error 开关不被夹具盖住；loading 时一直挂起；command 沿用 api.ts 的；每次都深拷贝；夹具文字过规划报告 §1.3 的扫描",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "列表视图——搜索；五个胶囊的 aria-pressed、计数与筛选（按最新 attempt）；任务行、选中与方向键；没有匹配时的显示；attempt 表 11 列的取值；点行与 Enter 触发打开；下一步与复制结果",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "任务页 App 级（过渡）——五态；夹具值；T009 的四个地址；选中任务与切换胶囊用 replace、不重挂载；点行之后地址与页面都是详情",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "详情页头——面包屑三项与 href；h1 规则（Q5）；状态标签与思考档位；元信息各项与「—」；下一步的四种文字与不显示的情形；复制结果",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "详情五态——读取中、有数据、找不到、出错、断线；?mock=empty 时的读法；status 有行而 logs show 失败时的行内出错；#/tasks/x/y 的 h1 是「任务」、地址不变",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "页签与地址——挂载时读 ?tab=（六个取值、缺省、认不出的值）；点页签与按方向键之后 tab 变了，mock 与其他参数不变，路径不变；页签与 h1 还是原来的节点（没有重挂载）；焦点在页签上；手改地址并派发 hashchange 之后，页签跟着变",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "摘要与执行报告——W2 与文件行；截断提示与 [查看全文]；没有摘要时的文字；外部链接提示；执行报告的提示条与 W1",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "补丁与检查——DiffView 收到拼好的补丁与 title，没读完时能继续加载；检查的汇总、日志表与 W1 打开；页签内的读取中与出错",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "事件——LogFollow 的页与游标、过滤；已结束时跟随禁用，原因文字正确；运行中时模拟追加（假计时器推进 1000ms 多出一行，到 30 行停）；卸载或切走页签之后没有挂起的计时器",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "全部文件——三列与大小的格式；跳过链接数；整行打开 W1 与分页；「在资源管理器中显示」禁用",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "不可信内容与写入口——页面上没有 script、img 元素，页签面板里没有 a 元素；文字原样出现；查看器、差异视图、跟随里没有 ESC 字符与 [31m；地址里的 task 经过编码；页面上没有派遣、验收、合并、试跑等字样的按钮；每个「在资源管理器中显示」都 disabled",
+      "evidence": [
+        "V01",
+        "V02"
+      ]
+    },
+    {
+      "id": "D13",
+      "text": "样式与源码规则——规划报告 §2.10 的 CSS 取值；令牌与 px 注释；没有内联 style；§1.3 的扫描；不渲染 role 等于 status",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D14",
+      "text": "回归与范围——V01、V02、V03、npm 四步都通过；只改允许的文件；不改依赖；新测试不用 skip、only、todo",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "scope"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 5,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 27758,
+    "cost_budget": null
+  }
+}
