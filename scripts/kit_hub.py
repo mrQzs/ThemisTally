@@ -3156,20 +3156,25 @@ def sweep_window(hub: Hub, name: str, label: str):
     落地等它跑完，它也先过落地锁、等正在落地的落完再开始。T011 第一次结项时 integrate 在末端上重跑之前各片的
     门禁基准，同一段时间里第 61 轮的门禁回归（加上站主的变异检验）在跑，T006 的探针接连撞上 Vitest 的 5 秒超时，
     结项撤回。站主的 exclusive 不等这类标记（landing_blockers 的 sweeps=False）：后台回归在临时 worktree 里跑
-    固定的末端，合入新提交不影响它，下一轮再跑新的末端。"""
+    固定的末端，合入新提交不影响它，下一轮再跑新的末端。
+
+    第 68 轮：后台回归之间也排队。整段持有 .sweep 锁（持有者进程不在了就接管），再照旧短暂过落地锁挂标记。T014 落地时
+    站主提交之后的回归（第 66 轮合入触发，等落地锁等到 T014 落完）与 T014 的合入后回归同在 18:19–18:35 跑全部门禁基准，
+    两份前端流水线叠在一起，T009 的 d14 有 13 条 Vitest 超时，回归判红；单独重跑 811 条全过。"""
     marks = exec_marks(hub)
     marks.mkdir(parents=True, exist_ok=True)
     path = marks / ("%s.json" % name)
-    with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
-        write_text_atomic(path, json.dumps({"pid": os.getpid(), "task": name, "label": label, "sweep": True,
-                                            "at": utc_now()}) + "\n")
-    try:
-        yield
-    finally:
+    with DirLock(hub.root / ".sweep", wait_seconds=SWEEP_WAIT_SECONDS):
+        with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
+            write_text_atomic(path, json.dumps({"pid": os.getpid(), "task": name, "label": label, "sweep": True,
+                                                "at": utc_now()}) + "\n")
         try:
-            path.unlink()
-        except OSError:
-            pass
+            yield
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True) -> List[str]:
@@ -3294,6 +3299,8 @@ def commit_records(hub: Hub, ts: Dict[str, Any]) -> Tuple[Optional[str], Optiona
 
 #: 合入后门禁回归的时限：每份门禁各跑一遍 npm ci、build 与探针
 SWEEP_SECONDS = 2400
+#: 后台回归排队等前一份跑完的上限（第 68 轮）：一份最长 SWEEP_SECONDS，再留出它附带的落地预演。
+SWEEP_WAIT_SECONDS = 2 * SWEEP_SECONDS
 
 
 def gate_baselines(root: Path) -> List[str]:

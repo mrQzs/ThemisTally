@@ -5933,3 +5933,23 @@ def test_split_chain_keeps_the_separators():
     chain, bare = kh.split_chain('a "x|y" | b && c; d || e & f\ng')
     assert chain == [("", 'a "x|y"'), ("|", "b"), ("&&", "c"), (";", "d"), ("||", "e"), ("&", "f"), ("\n", "g")]
     assert kh.split_unquoted('a "x|y" | b && c')[0] == ['a "x|y"', "b", "c"]
+
+
+def test_background_sweeps_queue_behind_each_other(tmp_path, monkeypatch):
+    # 第 68 轮：T014 落地时站主提交之后的回归与合入后回归同时跑全部门禁基准，两份前端流水线叠在一起，
+    # T009 的 d14 有 13 条 Vitest 超时；后台回归之间也要排队
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh, "SWEEP_WAIT_SECONDS", 0.6)
+    with kh.sweep_window(hub, "owner-sweep", "站主提交之后的门禁回归"):
+        assert (hub.root / ".sweep").is_dir() and not (hub.root / ".land").exists()  # 落地锁只在挂标记时短暂持有
+        with pytest.raises(kh.HubError, match="锁被占用"):
+            with kh.sweep_window(hub, "T001-after-land", "T001 合入后的门禁回归与落地预演"):
+                pytest.fail("前一份还在跑，后一份不该开始")
+        # 排队的那一份没挂标记：挡着落地的只有正在跑的这一份
+        marks = sorted(p.name for p in kh.exec_marks(hub).glob("*.json"))
+        assert marks == ["owner-sweep.json"]
+    assert not (hub.root / ".sweep").exists() and list(kh.exec_marks(hub).glob("*.json")) == []
+    with kh.sweep_window(hub, "T001-after-land", "T001 合入后的门禁回归与落地预演"):
+        pass  # 前一份跑完就轮到它
