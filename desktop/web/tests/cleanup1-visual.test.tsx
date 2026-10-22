@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, act } from '@testing-library/react';
 import { MetricCard } from '../src/pages/readonly1/overview-MetricCard';
 import { OverviewView } from '../src/pages/readonly1/overview-OverviewView';
 import { PresetsTable } from '../src/pages/readonly1/roles-PresetsTable';
+import { ScaleIcon } from '../src/icons';
 import type { StatusRow } from '../src/api';
 
 afterEach(cleanup);
@@ -46,6 +47,17 @@ describe('指标卡：纵向、色调条贴左缘、标签行带 16px 图标', (
       expect(qa(card, '.tt-num').length).toBe(1);
       unmount();
     }
+  });
+
+  it('待验收卡的图标是 ScaleIcon（Q1：待验收 ScaleIcon、--tt-accent-text），换成别的图标会红', () => {
+    const { container, unmount } = render(<MetricCard group={'review'} label="待验收" count={3} navigate={noNav} />);
+    const ref = render(<ScaleIcon width={16} height={16} className="ov-metric__icon" aria-hidden="true" />);
+    const drawn = container.querySelector('.ov-metric__label svg') as SVGElement;
+    const want = ref.container.querySelector('svg') as SVGElement;
+    expect(drawn.innerHTML).toBe(want.innerHTML);
+    expect(drawn.getAttribute('class')).toBe('tt-i ov-metric__icon');
+    unmount();
+    ref.unmount();
   });
 
   it('整页里四张卡都只有计数一个数字，标签行在数字之前', () => {

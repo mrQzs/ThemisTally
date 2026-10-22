@@ -1,6 +1,6 @@
 // 总览指标卡（合同第 4 节）：整张是一个 a 链接，data-metric 为分组 ID，计数按分组统计；色调条 3px 贴左缘。
 // 标签行是图标加标签文字（16px 图标，颜色各取本卡的色调令牌）；数字是整张卡唯一的 tt-num。
-import { CircleArrowUpIcon, CircleCheckIcon, GitMergeIcon, LoaderCircleIcon } from '../../icons';
+import { CircleArrowUpIcon, GitMergeIcon, LoaderCircleIcon, ScaleIcon } from '../../icons';
 import { groupPath, navHandler } from './common-links';
 import type { CardGroup } from './overview-logic';
 
@@ -14,7 +14,7 @@ export interface MetricCardProps {
 
 const CARD_ICON = {
   running: LoaderCircleIcon,
-  review: CircleCheckIcon,
+  review: ScaleIcon,
   decide: CircleArrowUpIcon,
   integrate: GitMergeIcon,
 } as const;
