@@ -112,12 +112,13 @@ CLAUDE_WORKER_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"}
 #: 其余由规划端分配）：只有规划端留在 Claude 上。工人的名字是信箱地址（信箱目录、会话、状态与模板都按它找），
 #: 换模型不改名：gate-sonnet、audit-sonnet、contract-glm 现在跑的不是名字里的模型，以这里的 provider/model 为准。
 #: 第 65 轮（站主 2026-10-22）：第二重要的审核端换到 MiniMax-M3.1-Flash max，合同端 MiniMax-M3，协调人 M3.1-Flash，
-#: 门禁端、执行端仍是 step-5-preview。依据与要盯的风险见 .agent/environment.md。
+#: 门禁端、执行端仍是 step-5-preview。第 67 轮（站主同日）：审核端换到阿里 Token Plan 的 qwen3.8-max high，合同端
+#: 换到 MiniMax-M3.1-Flash high。依据与要盯的风险见 .agent/environment.md。
 ROSTER: Dict[str, Dict[str, Any]] = {
     # 协调人：回合多而轻（T001–T012 共 200 个回合），从 claude haiku 换到 pi 上的 qwen3.7-plus（第 36 轮）。
     # 第 65 轮（站主 2026-10-22，themistally-15 出题实测之后分配）：qwen3.7-plus 是百炼编程套餐，条款禁止自动化
-    # 调用，换到 MiniMax-M3.1-Flash。阿里的 Token Plan、Coding Plan（token/、cc-switch-qianwenai-token-plan/）与
-    # 本机的 CLIProxyAPI（cpa/）都不给 hub 用。
+    # 调用，换到 MiniMax-M3.1-Flash。百炼编程套餐（token/）与本机的 CLIProxyAPI（cpa/）都不给 hub 用；阿里 Token Plan
+    # （cc-switch-qianwenai-token-plan/）只给审核端用，见审核端的注释。
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "minimax",
                   "model": "MiniMax-M3.1-Flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                   "timeout": 1200, "workspace": "base"},
@@ -129,10 +130,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 46 轮：qwen3.7-plus 写合同接连出错。T011 返工五次；T013 四次都没过，最后一份 Scope 的路径全少了
     # desktop/web/，执行端照它做会全部越界。换到 glm-5.3。合同原来由不同的模型一审（审核是 glm），现在同一个模型，
     # 少了一层独立性，靠内核的机械检查（第 40、43、46 轮）与 JEV 补。
-    # 第 65 轮：cc-switch-zhipu-glm 是第三方中转、明文 HTTP，已从 pi 删除；换到 MiniMax-M3（pi 把它的 max 压成 high）。
-    # 与审核端同一家、不同模型，JEV 的 contract-screen 再补一层。
+    # 第 65 轮：cc-switch-zhipu-glm 是第三方中转、明文 HTTP，已从 pi 删除；换到 MiniMax-M3（pi 把它的 max 压成 high），
+    # 为的是与审核端的 M3.1-Flash 错开。第 67 轮审核端换到 qwen3.8-max，这个理由没了，换到 MiniMax 里更强的
+    # M3.1-Flash（AA 智能指数 42.7，M3 是 29.2）。合同端、审核端、执行端现在三家各不相同。
     "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "minimax",
-                     "model": "MiniMax-M3", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
+                     "model": "MiniMax-M3.1-Flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "base"},
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
@@ -141,10 +143,14 @@ ROSTER: Dict[str, Dict[str, Any]] = {
                     "model": "step-5-preview", "thinking": "high",
                     "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage"},
     # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
-    # 第 65 轮：从 cc-switch-zhipu-glm/glm-5.3 换到 MiniMax-M3.1-Flash。实测 pi 回报 thinkingLevel=max，不再像
-    # GLM 那样静默降到 high。与执行端、门禁端（StepFun）不是同一家。
-    "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "minimax",
-                     "model": "MiniMax-M3.1-Flash", "thinking": "max", "tools": ["read", "grep", "find", "ls"],
+    # 第 65 轮：从 cc-switch-zhipu-glm/glm-5.3 换到 MiniMax-M3.1-Flash max。
+    # 第 67 轮：换到阿里 Token Plan 的 qwen3.8-max（7 道判分题 7/7，AA 智能指数 45.4）。Token Plan 的条款禁止自动化与
+    # 非交互调用，可能封订阅或 key、不退款，个人版的输入输出会拿去训练：站主知情之后明确接受，在本会话里亲口确认
+    # （2026-10-22，“确认换”）。这不是违规遗留，不要当成违规改回去。qwen 只担审核端这一个岗位：站主的标准档同时
+    # 3–4 个 Agent、每月 45,000 Credits，站主自己也在用。pi 把它的 xhigh、max 压成 high，所以写 high。审核端回合
+    # 出现额度类报错（429 等）或超时作废变多，就退回 minimax/MiniMax-M3.1-Flash max。
+    "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "cc-switch-qianwenai-token-plan",
+                     "model": "qwen3.8-max", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "stage"},
     # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致
     # （2026-10-21 起本机又回到 bb，2026-10-22 第 63 轮 bb 改名为 cc-switch-step-fun；还没派遣的合同由

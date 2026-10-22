@@ -2649,11 +2649,15 @@ def test_only_the_planner_stays_on_claude():
     assert on == {
         kh.COORDINATOR: ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 65 轮
         "planner-opus": ("claude", None, "claude-opus-5-5"),
-        "contract-glm": ("pi", "minimax", "MiniMax-M3"),  # 第 65 轮（第 46 轮起是 glm-5.3）
+        "contract-glm": ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 67 轮（第 65 轮 M3，第 46 轮起 glm-5.3）
         "gate-sonnet": ("pi", "cc-switch-step-fun", "step-5-preview"),  # 第 63 轮：bb 改名
-        "audit-sonnet": ("pi", "minimax", "MiniMax-M3.1-Flash"),
+        "audit-sonnet": ("pi", "cc-switch-qianwenai-token-plan", "qwen3.8-max"),  # 第 67 轮：站主明确接受条款风险
         "exec-step": ("dispatcher", "cc-switch-step-fun", "step-5-preview")}
-    assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "max"
+    # qwen3.8-max 的 xhigh、max 被 pi 压成 high：写 high，不留静默降级
+    assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "high"
+    # Token Plan 只给审核端：并发与月额度要给站主自己留余量
+    assert [name for name, spec in kh.ROSTER.items() if spec.get("provider") == "cc-switch-qianwenai-token-plan"] == [
+        "audit-sonnet"]
     assert kh.CONTRACT_EXECUTOR_LINE == "- executor: cc-switch-step-fun/step-5-preview · thinking high"
 
 
