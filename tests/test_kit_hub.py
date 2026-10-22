@@ -5205,3 +5205,55 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     plain = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], hub.repo)
     assert "## 门禁测试撞过的坑" in plain and "热修补：执行端说" not in plain
     assert "撞过的坑" not in kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], hub.repo)
+
+
+# ---------------------------------------------------------------------------
+# 第 53 轮：工人知道自己的时限；超时作废之后接着做
+# ---------------------------------------------------------------------------
+
+def test_worker_prompts_state_the_turn_time_limit(tmp_path):
+    hub = kh.Hub(tmp_path)
+    ts = make_ts()
+    gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path)
+    assert "- 本回合时限：40 分钟。到点整个回合作废" in gate
+    assert "- 本回合时限：20 分钟。" in kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
+    assert "上一回合超时作废" not in gate
+
+
+def test_a_timed_out_voided_turn_is_resumed_not_restarted(engine_env):
+    # T011 的门禁端热修补：40 分钟调查、16 条违规、只改了一处就超时，整回合作废；下一回合不知道改动还在
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []),
+                         (None, ["bash 命令提到了主工作区（主工作区的文件用 read 读）：cd C:/Code/x"], None, True)])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "failed" and ts["stages"]["1-plan"]["timed_out"] is True
+    prompt = kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], hub.repo)
+    assert "## 上一回合超时作废" in prompt and "这一回合先把确定的部分交出来" in prompt
+    ts["stages"]["3-gate-pre"]["timed_out"] = True
+    gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], hub.repo)
+    assert "工作目录里它留下的改动还在：先 `git status`、`git diff` 看清楚" in gate
+    # 返工之后这一回合交出了信：提醒撤掉
+    hub.take(hub.unread(kh.COORDINATOR)[0])
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+    kh.Engine(hub, FakeRunner([(planner_delivery(), [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered" and "timed_out" not in ts["stages"]["1-plan"]
+    assert "上一回合超时作废" not in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], hub.repo)
+
+
+def test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []),
+                         (planner_delivery(), ["调用了白名单之外的工具：advisor（server_tool_use）"])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["timed_out"] is False
+    assert "上一回合超时作废" not in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], hub.repo)

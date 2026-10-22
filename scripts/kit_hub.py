@@ -3430,6 +3430,16 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
              "- 仓库主工作区（只读参考）：%s" % hub.repo,
              "- 你的 state.md：%s" % (task_dir / "state.md"),
              "- 你的 report.md：%s（内核按你的输出写）" % (task_dir / "report.md")]
+    if spec.get("timeout"):
+        # 第 53 轮：T011 的门禁端把 40 分钟都花在调查上，只改了一处就超时，整回合作废、一封信也没交出
+        parts.append("- 本回合时限：%d 分钟。到点整个回合作废、什么也交不出：先把能确定的做完并交付，没做完的写进"
+                     "交付信，不要把时间耗在调查上" % (int(spec["timeout"]) // 60))
+    suffix = stage_of(task_id)[1]
+    if suffix in ts.get("stages", {}) and ts["stages"][suffix].get("timed_out"):
+        parts += ["", "## 上一回合超时作废", "",
+                  "- 上一回合跑满时限，什么也没交出。" + (
+                      "工作目录里它留下的改动还在：先 `git status`、`git diff` 看清楚，在上面接着做，不要从头调查。"
+                      if spec.get("workspace") == "stage" else "这一回合先把确定的部分交出来，不要从头调查。")]
     if error:
         parts += ["", "## 上一次输出没有通过内核校验，请改正后重新交出", "", error]
     parts += ["", "## 新信", ""] + (letters or ["（没有新信）"])
@@ -3884,7 +3894,9 @@ class Engine:
             return
         if turn["violations"] or error:
             reason = "；".join(turn["violations"]) or error
-            ts["stages"][suffix].update(status="failed", note="回合作废：%s" % reason)
+            # timed_out：下一回合的输入提醒它工作目录里的改动还在，接着做（第 53 轮）
+            ts["stages"][suffix].update(status="failed", note="回合作废：%s" % reason,
+                                        timed_out=bool(turn.get("timed_out")))
             if turn.get("api_error") and not turn["violations"]:
                 # 环境问题（例如 2026-10-19 旧机器上的 403）：协调人也会遇到同样的错，直接交给站主
                 self.escalate(ts, "%s 的回合遇到模型接口报错，阶段已标为 failed：%s（回合 %s）" % (
@@ -3911,6 +3923,7 @@ class Engine:
             problems = self.verify_delivery(ts, agent, suffix, output, fields)
         stage = ts["stages"][suffix]
         stage["fields"] = fields
+        stage.pop("timed_out", None)  # 这一回合交出了信：上一回合超时的提醒用过了
         stage["last_letter"] = meta["type"]  # 合同端发“阻塞”指出规划有缺陷时，协调人能退回规划端（第 15 轮）
         if meta["type"] in ("交付", "返工完成"):
             if problems:
