@@ -783,22 +783,10 @@ def hotfix_reason(ts: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def exec_running_blocks(ts: Dict[str, Any], suffix: str) -> Optional[str]:
-    """执行端正在跑 attempt 时，上游阶段不能返工（第 55 轮）：上游重新交付会经 invalidate_after 清掉执行阶段，
-    跑完的 attempt 却还会按旧合同交付。T011 的 attempt-004 在跑时站主要热修补门禁，内核此前照收。"""
-    if suffix in STAGE_ORDER and STAGE_ORDER.index(suffix) < STAGE_ORDER.index("5-exec") \
-            and stage_busy(ts["stages"]["5-exec"]):
-        return "执行端正在跑 attempt：现在返工上游的 %s，会作废正在跑的执行。等执行端交付之后再返工" % suffix
-    return None
-
-
 def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     status = ts["stages"][suffix]["status"]
     if stage_busy(ts["stages"][suffix]):
         return "阶段 %s 正在进行，不能返工" % suffix
-    running = exec_running_blocks(ts, suffix)
-    if running:
-        return running  # 站主指定的也一样
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
     if suffix == "5-exec" and ts["exec"].get("gate_claim"):
@@ -4558,9 +4546,6 @@ def cmd_send(args: argparse.Namespace) -> int:
                                 and answers_question(hub, args.reply_to))
         if args.rework and ts is None:
             raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
-        running = exec_running_blocks(ts, args.rework) if args.rework else None
-        if running:
-            raise HubError(running, EXIT_BLOCKED)  # 第 55 轮：当场告诉站主，不等协调人转信时才被拒
         if args.facts_checked and not ((ts or {}).get("external_facts") or {}).get("pending"):
             # 第 35 轮：T012 的规划端先发“提问”，站主答复时顺手核实了事实，带上标志被拒，却不知道为什么
             early = ts is not None and ts["stages"]["1-plan"]["status"] != "delivered"

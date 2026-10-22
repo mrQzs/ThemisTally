@@ -5309,7 +5309,7 @@ def test_owner_rework_records_the_letter_text(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 第 55 轮：没交报告时思考里的门禁申报；跑满时限一处没改；执行端在跑时不返工上游
+# 第 55 轮：没交报告时思考里的门禁申报；跑满时限一处没改
 # ---------------------------------------------------------------------------
 
 def thinking_summary(run_dir, interpretations, ambiguities):
@@ -5383,39 +5383,6 @@ def test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner(engine_env
     assert ts["exec"]["stalled"] is False  # 没超时：没改东西另有原因，不扣
     kh.invalidate_after(ts, "3-gate-pre")
     assert "stalled" not in ts["exec"]
-
-
-def test_upstream_rework_is_refused_while_the_executor_runs(tmp_path):
-    import argparse
-    ts = locked(make_ts())
-    ts["stages"]["5-exec"] = {"status": "assigned", "assigned_at": "2026-10-22T08:08:34Z", "kind": "返工"}
-    for suffix in ("1-plan", "2-contract", "3-gate-pre", "4-audit-pre"):
-        assert "执行端正在跑 attempt" in kh._guard_rework(ts, suffix)
-    ts["owner_rework"] = {"suffix": "3-gate-pre", "msg": "m", "requested_at": "2026-10-22T00:00:00Z"}
-    assert "执行端正在跑 attempt" in kh._guard_rework(ts, "3-gate-pre")  # 站主指定的也等
-    assert "执行端正在跑" not in (kh._guard_rework(ts, "6-gate-post") or "")
-    assert "正在进行" in kh._guard_rework(ts, "5-exec")
-    ts["stages"]["5-exec"]["last_letter"] = "提问"  # 执行端停下来提问：不算在跑
-    assert kh.exec_running_blocks(ts, "3-gate-pre") is None
-    # 站主的 send --rework 当场就拒，信不投、记录不留
-    repo, head = git_repo(tmp_path)
-    hub = kh.Hub(repo)
-    hub.ensure()
-    task = kh.new_task_state("T001", "doc", "改文档", head, True)
-    task["stages"]["5-exec"] = {"status": "assigned", "assigned_at": "2026-10-22T08:08:34Z"}
-    hub.save_state({"tasks": {"T001": task}})
-    body = tmp_path / "reply.md"
-    body.write_text("站主：TRANS 那条少点一下，热修补。\n", encoding="utf-8")
-    args = argparse.Namespace(repo=str(repo), task="T001", type="回复", reply_to=None, rework="3-gate-pre",
-                              facts_checked=False, file=str(body))
-    with pytest.raises(kh.HubError, match="执行端正在跑 attempt"):
-        kh.cmd_send(args)
-    assert hub.unread(kh.COORDINATOR) == [] and "owner_rework" not in hub.load_state()["tasks"]["T001"]
-    state = hub.load_state()
-    state["tasks"]["T001"]["stages"]["5-exec"] = {"status": "delivered"}
-    hub.save_state(state)
-    kh.cmd_send(args)
-    assert hub.load_state()["tasks"]["T001"]["owner_rework"]["suffix"] == "3-gate-pre"
 
 
 # ---------------------------------------------------------------------------
