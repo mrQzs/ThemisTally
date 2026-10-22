@@ -730,7 +730,10 @@ def test_g4_gitignore_append_only_and_effective():
     added = [ln.strip() for ln in cand_lines[len(base_lines):] if ln.strip() and not ln.strip().startswith("#")]
     for line in NEW_IGNORE_LINES:
         assert line in added, f".gitignore 末尾缺追加行：{line}"
-    assert sorted(added) == sorted(NEW_IGNORE_LINES), f"追加的非注释行应恰为那三行，实际：{added}"
+    # 站主收窄（2026-10-22）：原来要求追加的非注释行“恰为那三行”，T002 之后 TS 迁移第 0 步给 ts/ 追加了两行，
+    # 这条门禁在分支末端上就红了。T002 的本意是 desktop/ 下只追加这三行：只核 desktop/ 开头的
+    desktop = [ln for ln in added if ln.startswith("desktop/")]
+    assert sorted(desktop) == sorted(NEW_IGNORE_LINES), f"desktop/ 下追加的非注释行应恰为那三行，实际：{desktop}"
 
     def ignored(rel):
         return git("check-ignore", "-q", "--no-index", "--", rel).returncode == 0

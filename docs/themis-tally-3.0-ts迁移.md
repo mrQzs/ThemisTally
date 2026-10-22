@@ -482,7 +482,8 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 1. 在 kdev worktree 开发。
 2. Python 与 TS 全量测试：
    - Python：受影响模块的 pytest，加 `test_kit_hub.py`；
-   - TS：`ts/` 下 `vitest run` 与 `tsc`。
+   - TS：`ts/` 下 `vitest run` 与 `tsc`；
+   - 改到共享文件（`.gitignore`、根目录的配置、`tests/` 下的公共夹具）时，再跑全部门禁基准（`tests/test_gate_*_baseline.py`）。第 0 步给 `.gitignore` 追加了 `ts/` 的两行，T002 的门禁断言“追加的恰为三行”从那时起在分支末端上就是红的；没有主任务落地，合入后回归没跑，直到 T011 的落地预演才发现（2026-10-22，站主已收窄该断言）。
 3. 变异检验：TS 侧全部抓住；Python 侧外部观察不到的写明 `equivalent`。
 4. 写迭代记录：本文第 11 节加一行；涉及内核行为的，在 `docs/themis-tally-3.0-r3-七端与信箱.md` §10 另记一轮。
 5. 提交，提交说明写新增依赖的理由。
