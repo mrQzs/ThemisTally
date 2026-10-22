@@ -1,8 +1,9 @@
 # Themis Tally 3.0：实现语言迁移到 TypeScript 的计划
 
-- **状态**：v1.1。
+- **状态**：v1.2（待 themistally-15 答复）。
   - v1 于 2026-10-22 带条件通过。站主委托 themistally-15 会话答复，第 0 步的提交 266cd33 照常合入。
   - v1.1 补进了通过时附的条件：第 2.1、2.2、2.4、3.2、4、5、8.2、8.5 节，以及第 1.4 节的 pyjson。
+  - v1.2 按开工前的调查改第 ② 步：调度器的 `metrics` 没有 `--json`、只出 Markdown；带 `--json` 的 `status`、`metrics` 另有一份在 hub 里；`logs cat` 漏写了；仓库里没有 `themis` 入口，桌面端的本机服务也还没建。第 ② 步的范围、出口条件与拆分照实改（第 4 节）。
 - **决定来源**：站主 2026-10-22 的指示“TT 技术栈迁移：在实现中逐步转到 Claude Code 的技术栈”。
 - **进度**：记在第 11 节，每完成一步汇报。
 - **问题与答复**：计划、quizs 接口、待决项都直接发给 themistally-15 会话，由它答复。AGENTS.md 规定只能由站主本人定的事，由它转给站主：
@@ -278,13 +279,23 @@ SQLite 的启动检查：
 
 ### ② 只读命令
 
-- **内容**：`status --json`、`logs`（list、show、search、usage）、`metrics --json`，挂在 `themis` 入口下。
+- **内容**：调度器入口的只读命令，桌面端读证据用的正是这几条（`desktop/web/src/api.ts` 的信封 command）：
+  - `status --json`（`pi_dispatch.cmd_status`）：attempt 行，RUNNING 行加 `live`。`--assess` 与 `--json` 同用时照旧在 JSON 之后接文本行。
+  - `logs` 的五个子命令（`kit_logs.py`，经 `pi_dispatch` 的 `forwarded_command` 转交）：`list`、`show`、`search`、`cat`、`usage`。`cat` 是 v1.1 漏写的：分页、游标与脱敏显示都在它身上，第 ① 步的 jsonl 读取原语就是为它准备的。
+- **不做的**（v1.2 挪走）：
+  - 调度器的 `metrics` 没有 `--json`，只出 Markdown，读的是决策记录与价格表：归第 ④ 步。
+  - hub 的 `status --json`、`metrics --json` 是内核的命令：归第 ⑤ 步。
+  - 不另建 `themis` 入口：照第 5 节，只认 `pi_dispatch.py` 这一个入口，按选择文件转交给 TS；程序名到第 ⑥ 步撤 Python 时再定。
+- **拆成三片**，每片一次提交，各自走契约（Python 先过）、对照、变异：
+  - ②a：`status --json`、`logs list`、`logs show`（枚举 attempt、读 state 与摘要、链接与跳过计数）；
+  - ②b：`logs search`、`logs cat`（逐行脱敏、分页与游标、超长行与隐藏行）；
+  - ②c：`logs usage`（执行端与规划端的用量统计，含读 Claude Code 的会话记录）。
 - **出口条件**：
-  - 输出的 Schema 写好；
+  - 每条命令的 `--json` 输出写好 JSON Schema（放 `schemas/`），两套实现的输出都过 Schema；
   - 提交进 `ts/` 的夹具只用合成数据：用 Python 实现在临时仓库里现跑生成，不复制任何真实的证据或信箱（AGENTS.md：证据只读、不提交）；
-  - 真实数据的对照：测试时两套实现原地只读同一份 `.agent/runs/` 与信箱，比较输出。这类测试手动开启、不进门禁，什么也不复制；
-  - 桌面端的本机 UI 服务能改调 TS 版。
-- **切换**：选择文件（第 5 节）的 `readonly` 改成 `ts`。
+  - 真实数据的对照：测试时两套实现原地只读同一份 `.agent/runs/` 与信箱，比较输出。这类测试手动开启、不进门禁，什么也不复制。现取的值（`live.elapsed_seconds`）按契约比较格式与范围，不比较取值；
+  - 选择文件的 `readonly` 为 `ts` 时，`python scripts/pi_dispatch.py status --json` 与 `logs …` 由 TS 作答，输出与 Python 逐字一致，退出码与 stderr 的报错一致。桌面端的本机服务（桌面端设计 D3）还没建：建成后它调 `pi_dispatch.py`，自然就认选择文件，不另做适配。
+- **切换**：三片都达到出口条件之后，一次提交把选择文件（第 5 节）的 `readonly` 改成 `ts`；选择文件、`meta.json` 的 `impl`、指纹与执行器禁区的改动同在这一次，照内核轮次走。
 - **回退**：改回 `python`，一次提交。
 
 ### ③ 配置中心
@@ -300,7 +311,7 @@ SQLite 的启动检查：
 ### ④ 证据与门禁
 
 - **先决条件（④a）**：Windows 进程监督的三项行为先在 TS 下验证（第 8.2 节），通过才开工。
-- **内容**：prepare、run、check、mutate、verdict、integrate，加上合同校验、范围门禁、脱敏与证据目录的写法。
+- **内容**：prepare、run、check、mutate、verdict、integrate，加上合同校验、范围门禁、脱敏与证据目录的写法；`metrics`（只出 Markdown，读决策记录与价格表，v1.2 从第 ② 步挪来）。
 - **出口条件**：
   - `test_dispatch.py` 等现有用例的场景全部有 TS 对应用例；
   - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict` 与 `mutate --check-anchors` 的输出与 Python 版按契约一致。`check`、`verdict` 会写 attempt 目录（`checks/NN`、`verdicts/`）和 Git 对象，所以 TS 版的写命令只在复制到临时目录的副本上跑，绝不碰真实的 `.agent/runs/`；
@@ -328,7 +339,7 @@ SQLite 的启动检查：
 
 ### ⑤ 七端 hub 内核
 
-- **内容**：`kit_hub.py` 全部。现有的 209 个 pytest 场景逐个移成 TS 用例。工人运行时照旧是 `claude -p` 与 `pi --mode json`；quizs 替代 pi 另开轮次做。
+- **内容**：`kit_hub.py` 全部，含 hub 自己的 `status --json`、`metrics --json`（v1.2 从第 ② 步挪来）。现有的 pytest 场景（第 56 轮时 216 个）逐个移成 TS 用例。工人运行时照旧是 `claude -p` 与 `pi --mode json`；quizs 替代 pi 另开轮次做。
 - **出口条件**：
   - 场景用例全过；
   - 影子运行：TS hub 以只读方式读同一个信箱，对每封待办信算出守卫结论与“允许的下一步”，与 Python hub 一致，连续一片切片不出差异；
@@ -506,7 +517,11 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | ①-pyjson 补：报错文字 | themistally-15 审阅指出报错文字会经 str(exc) 写进输出（9 处）。JSONDecodeError 改成 Python 的 "<msg>: line <行> column <列> (char <位置>)"，位置按码点，错误对象带 msg、pos、lineno、colno；u 转义的边界条件照搬 CPython 的 _json.c；int 位数上限分读写两种措辞；编码报错写出位置与代理项；新增 rawDecode（不跳空白、不查 BOM，end 按码点与码元各给一个）。契约加“报错位置”“raw_decode”两张表，报错文字逐字比较；themistally-15 的 234 条独立用例（35 条非法输入）Node、Bun 全部逐字一致；变异 31 个全部抓住（BOM 那个不再算等价）。TypeError（sort_keys 遇到混用的键）只比类型，文字里类型名的先后取决于 CPython 的排序，现行代码走不到 | 完成 | 见提交说明 |
 | ①-clock | 时间与编号的格式：utc_now、utc_compact（微秒）、信件编号、回合编号、attempt 目录名、审计编号。契约 5 条（格式、取值落在采样前后、一个进程里不重复、次序不倒退），Python 先过；对照：三种运行方式轮流发信，时间前缀按生成次序不倒退（同一微秒内靠随机后缀分先后，哪一套都不保证次序）；变异 11 个全部抓住。单元测试把 TZ 设成 Asia/Shanghai，在 UTC 的机器上也查得出误用本地时间。kit_logs 解析 ISO 时间（fromisoformat）放到第 ② 步 | 完成 | 见提交说明 |
 | ①-pyjson | json.dumps/loads 的 Python 兼容实现：契约三张表（dumps 20 条、loads 23 条、读改写 3 条），Python 先过；对照 4 个种子，每个 600 次 dumps、900 次 loads（含随机变形的非法输入）、300 次读改写，三种运行方式逐字节一致；变异 22 个，抓住 21 个，1 个声明等价（Y17：去掉 BOM 检查只改报错文字） | 完成 | 见提交说明 |
-| ② | 只读命令 | | |
+| 0.2 | 计划 v1.2：按开工前的调查改第 ② 步的范围、出口条件与拆分（metrics 挪到 ④、⑤，补 logs cat，不另建 themis 入口） | 待答复 | |
+| ② | 只读命令：调度器的 `status --json` 与 `logs` 五个子命令，三片做完一次切换 | | |
+| ②a | `status --json`、`logs list`、`logs show` | | |
+| ②b | `logs search`、`logs cat` | | |
+| ②c | `logs usage` | | |
 | ③ | 配置中心 | | |
 | ④a | Windows 进程监督的验证 | | |
 | ④ | 证据与门禁 | | |
