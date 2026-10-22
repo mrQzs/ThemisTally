@@ -240,6 +240,21 @@ def op_jsonl_read(request):
     return {"ok": True, "value": to_tagged(out)}
 
 
+def op_pyfmt_call(request):
+    """Python 内置函数在 JSON 值上的语义（第 ② 步的 pyfmt、pyre.pyIntParse）。"""
+    fn = request["fn"]
+    if fn == "repr":
+        return {"ok": True, "text": repr(request["text"])}
+    if fn == "str":
+        return {"ok": True, "text": str(from_tagged(request["value"]))}
+    if fn == "int":
+        try:
+            return {"ok": True, "text": str(int(request["text"]))}
+        except ValueError:
+            return {"ok": False, "error": "ValueError"}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_jsonl_records(request):
     """kit_logs._jsonl_records；limit 给了就临时换掉 SAFE_MAX_LINE_BYTES（函数每次调用时才读这个全局量）。"""
     saved = kit_logs.SAFE_MAX_LINE_BYTES
@@ -282,6 +297,7 @@ OPS = {
     "jsonl.append": op_jsonl_append,
     "jsonl.read": op_jsonl_read,
     "jsonl.records": op_jsonl_records,
+    "pyfmt.call": op_pyfmt_call,
     "jsonl.iter_lines": op_jsonl_iter_lines,
     "jsonl.lines_before": op_jsonl_lines_before,
     "clock.sample": op_clock_sample,

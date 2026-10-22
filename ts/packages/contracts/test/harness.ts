@@ -88,6 +88,34 @@ export function startProbe(impl: Impl, request: ProbeRequest): RacingProbe {
   return { impl, ready, result, stop: () => void child.kill() };
 }
 
+// --- 命令行对照（第 ② 步）：Python 走真实的 argv，TS 走启动器交来的规整参数（--pyargs-b64） ---------------
+
+const REPO_ROOT = resolve(PROBES, "..", "..", "..", "..");
+const CLI_MAIN = resolve(PROBES, "..", "..", "cli", "src", "main.ts");
+
+export interface CliRun {
+  readonly status: number;
+  readonly stdout: Buffer;
+  readonly stderr: Buffer;
+}
+
+function cliRun(command: string, args: readonly string[], cwd: string): CliRun {
+  const done = spawnSync(command, args, { cwd, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  if (done.error) throw new Error(`${command} 没能启动：${done.error.message}`);
+  return { status: done.status ?? -1, stdout: done.stdout, stderr: done.stderr };
+}
+
+/** python scripts/pi_dispatch.py <argv>（本仓库的 Python 实现）。 */
+export function runPythonCli(argv: readonly string[], cwd: string): CliRun {
+  return cliRun(process.env["THEMIS_PYTHON"] ?? "python", [join(REPO_ROOT, "scripts", "pi_dispatch.py"), ...argv], cwd);
+}
+
+/** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */
+export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown>, cwd: string): CliRun {
+  const encoded = Buffer.from(JSON.stringify(pyargs), "utf8").toString("base64");
+  return cliRun(runtime, [CLI_MAIN, "--pyargs-b64", encoded], cwd);
+}
+
 export function b64(data: Uint8Array): string {
   return Buffer.from(data).toString("base64");
 }

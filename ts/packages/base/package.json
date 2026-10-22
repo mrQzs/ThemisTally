@@ -13,6 +13,8 @@
     "./pyre": "./src/pyre.ts",
     "./pyunicode": "./src/pyunicode.ts",
     "./secrets": "./src/secrets.ts",
-    "./pyjson": "./src/pyjson.ts"
+    "./pyjson": "./src/pyjson.ts",
+    "./pyfmt": "./src/pyfmt.ts",
+    "./pypath": "./src/pypath.ts"
   }
 }

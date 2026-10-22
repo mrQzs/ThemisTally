@@ -1,0 +1,237 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "packages/contracts/test/readonly.contract.test.ts",
+    "packages/contracts/test/pyfmt.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "F01 repr 一律用单引号",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "  const quote = text.includes(\"'\") && !text.includes('\"') ? '\"' : \"'\";",
+      "new": "  const quote = \"'\";"
+    },
+    {
+      "name": "F02 repr 不查可打印",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    else if (pyIsPrintable(char)) out += char;",
+      "new": "    else if (cp > 0) out += char;"
+    },
+    {
+      "name": "F03 容器里的字符串不用 repr",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "  if (typeof value === \"string\") return pyRepr(value);",
+      "new": "  if (typeof value === \"string\") return value;"
+    },
+    {
+      "name": "F04 int 0 也算真",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "  if (typeof value === \"bigint\") return value !== 0n;",
+      "new": "  if (typeof value === \"bigint\") return true;"
+    },
+    {
+      "name": "F05 Windows 上不换 CRLF",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "platform === \"win32\" ? replaced.replace(/\\n/gu, \"\\r\\n\") : replaced",
+      "new": "replaced"
+    },
+    {
+      "name": "F06 孤立代理项不换成 ?",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "  const replaced = text.replace(LONE_SURROGATE, \"?\");",
+      "new": "  const replaced = text;"
+    },
+    {
+      "name": "F07 int() 把 0x1c 也当空白",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "  return cp < 0x80 ? cp === 0x20 || (cp >= 0x09 && cp <= 0x0d) : isSpace(char);",
+      "new": "  return isSpace(char);"
+    },
+    {
+      "name": "F08 int() 容许连续下划线",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "      if (previousUnderscore) return null;\n      previousUnderscore = true;",
+      "new": "      previousUnderscore = true;"
+    },
+    {
+      "name": "F09 字符串按 UTF-16 码元比较",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "    const diff = codePoint(left[index] as string) - codePoint(right[index] as string);",
+      "new": "    const diff = (left[index] as string).charCodeAt(0) - (right[index] as string).charCodeAt(0);"
+    },
+    {
+      "name": "F10 is_within 不认分隔符边界",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  return a === b || a.startsWith(b.replace(/[\\\\/]+$/u, \"\") + SEP);",
+      "new": "  return a === b || a.startsWith(b.replace(/[\\\\/]+$/u, \"\"));"
+    },
+    {
+      "name": "F11 display_path 一律写原路径",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  if (root !== undefined && isWithin(value, root)) return relpath(value, root).replace(/\\\\/gu, \"/\");",
+      "new": "  if (root === null) return value;"
+    },
+    {
+      "name": "F12 resolve 不求真实路径",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "      const real = realpathSync.native(head);",
+      "new": "      const real = head;"
+    },
+    {
+      "name": "F13 链接只看属性、不看 lstat",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "    if (lstatSync(value).isSymbolicLink()) return true;",
+      "new": "    lstatSync(value);"
+    },
+    {
+      "name": "F14 不查主工作区",
+      "file": "ts/packages/dispatcher/src/repo.ts",
+      "old": "    if (normCase(pyResolve(path.resolve(base, gitDir))) !== normCase(pyResolve(path.resolve(base, common)))) {",
+      "new": "    if (gitDir === common.repeat(2)) {"
+    },
+    {
+      "name": "F15 读 JSON 时吞掉 BOM",
+      "file": "ts/packages/dispatcher/src/repo.ts",
+      "old": "const STRICT_UTF8 = new TextDecoder(\"utf-8\", { fatal: true, ignoreBOM: true });",
+      "new": "const STRICT_UTF8 = new TextDecoder(\"utf-8\", { fatal: true, ignoreBOM: false });"
+    },
+    {
+      "name": "F16 嵌套太深也当读不出",
+      "file": "ts/packages/dispatcher/src/repo.ts",
+      "old": "    if (error instanceof PyJsonError && error.kind !== \"RecursionError\") return fallback;",
+      "new": "    if (error instanceof PyJsonError) return fallback;"
+    },
+    {
+      "name": "F17 编号并列取后一个",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "    if (best === null || number > bestNumber) {",
+      "new": "    if (best === null || number >= bestNumber) {"
+    },
+    {
+      "name": "F18 结论取编号最小的",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  return files.length > 0 ? readJsonOr(files[files.length - 1] as string, new Map()) : new Map();",
+      "new": "  return files.length > 0 ? readJsonOr(files[0] as string, new Map()) : new Map();"
+    },
+    {
+      "name": "F19 增量从文件开头数",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  const deltas = countBytes(data, Buffer.from('\"type\":\"message_update\"'), lastTool >= 0 ? lastTool : 0);",
+      "new": "  const deltas = countBytes(data, Buffer.from('\"type\":\"message_update\"'), 0);"
+    },
+    {
+      "name": "F20 起跑时间区分大小写",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  \"iu\",\n);",
+      "new": "  \"u\",\n);"
+    },
+    {
+      "name": "F21 第 60 秒也算合法",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  if ((year as number) < 1 || (second as number) > 59) return null;",
+      "new": "  if ((year as number) < 1) return null;"
+    },
+    {
+      "name": "F22 2 月 30 日也算合法",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  if (date.getUTCMonth() !== (month as number) - 1) return null; // 2 月 30 日之类：datetime 报 ValueError\n",
+      "new": ""
+    },
+    {
+      "name": "F23 plan_version 的 1.0 不等于 1",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  if (typeof value === \"number\") return value === Number(wanted);",
+      "new": "  if (typeof value === \"number\") return false;"
+    },
+    {
+      "name": "F24 plan_version 的 True 不等于 1",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  if (typeof value === \"boolean\") return BigInt(value ? 1 : 0) === wanted;",
+      "new": "  if (typeof value === \"boolean\") return false;"
+    },
+    {
+      "name": "F25 文本表格去掉行尾空格",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  for (const line of table) out.print(line.map((cell, column) => ljust(cell, widths[column] as number)).join(\"  \"));",
+      "new": "  for (const line of table) out.print(line.map((cell, column) => ljust(cell, widths[column] as number)).join(\"  \").trimEnd());"
+    },
+    {
+      "name": "F26 status 的 attempt 不按编号排",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "  return sortedBy(found, (entry) => intOf(ATTEMPT_DIR_RE.exec(path.basename(entry))?.groups?.[\"n\"] ?? \"\"));",
+      "new": "  return found;"
+    },
+    {
+      "name": "F27 logs 的 task.vN 认 True",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "    if (typeof value !== \"bigint\" || value !== version) continue; // bool、float 都不算",
+      "new": "    if (value !== version && value !== true) continue;"
+    },
+    {
+      "name": "F28 证据里的链接不计数",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "      if (isLinkOrJunction(entry)) {\n        links.hit();\n        continue;\n      }\n      let info;",
+      "new": "      if (isLinkOrJunction(entry)) {\n        continue;\n      }\n      let info;"
+    },
+    {
+      "name": "F29 list 不按状态过滤",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "      if (args.state !== null && state !== args.state) continue; // 先过滤再列举：过滤掉的不扫证据、链接不计数\n",
+      "new": ""
+    },
+    {
+      "name": "F30 摘要上限少一个字节",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "const MAX_SUMMARY_BYTES = 65536;",
+      "new": "const MAX_SUMMARY_BYTES = 65535;"
+    },
+    {
+      "name": "F31 摘要按 latin1 解码",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "text: REPLACE_UTF8.decode(raw) };",
+      "new": "text: raw.toString(\"latin1\") };"
+    },
+    {
+      "name": "F32 显式路径的 .. 不出栈",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "      stack.pop();\n      continue;",
+      "new": "      continue;"
+    },
+    {
+      "name": "F33 显式路径的前缀区分大小写",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "    return actual === expected || (WIN && actual.toLowerCase() === expected.toLowerCase());",
+      "new": "    return actual === expected;"
+    },
+    {
+      "name": "F34 --task 的报错用 JSON 写法",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "--task 必须是合法的任务 ID：${pyRepr(task)}",
+      "new": "--task 必须是合法的任务 ID：${JSON.stringify(task)}"
+    },
+    {
+      "name": "F35 runs 根下的链接不计数",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "    if (isLinkOrJunction(entry)) {\n      links.hit();\n      return false;",
+      "new": "    if (isLinkOrJunction(entry)) {\n      return false;"
+    },
+    {
+      "name": "F36 logs 的 attempt 不按编号排",
+      "file": "ts/packages/dispatcher/src/logs.ts",
+      "old": "    .sort((a, b) => (a.item[1] < b.item[1] ? -1 : a.item[1] > b.item[1] ? 1 : a.index - b.index))",
+      "new": "    .sort((a, b) => a.index - b.index)"
+    },
+    {
+      "name": "F37 调度器的报错不遮令牌",
+      "file": "ts/packages/cli/src/main.ts",
+      "old": "      out.printErr(`ERROR: ${redactTokens(error.message)}`);",
+      "new": "      out.printErr(`ERROR: ${error.message}`);"
+    }
+  ]
+}

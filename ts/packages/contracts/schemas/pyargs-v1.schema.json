@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://themis-tally.invalid/schemas/pyargs-v1.schema.json",
+  "title": "Python 启动器交给 TS 入口的参数（argparse 应用默认值之后的完整参数，加子命令路径）",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "task_id",
+        "json"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "status"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "task",
+        "state",
+        "json"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "logs",
+            "list"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "target",
+        "json"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "logs",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}

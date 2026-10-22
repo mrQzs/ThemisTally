@@ -143,6 +143,64 @@ export function pySplitlines(text: string): string[] {
   return lines;
 }
 
+/** 十进制数字的值（Unicode 的 Nd 按 0–9 连续成段）；不是数字为 -1。 */
+function digitValue(cp: number): number {
+  for (let index = 0; index < DIGIT.length; index += 2) {
+    const start = DIGIT[index] as number;
+    if (cp >= start && cp <= (DIGIT[index + 1] as number)) return (cp - start) % 10;
+  }
+  return -1;
+}
+
+/**
+ * int() 去掉的两端空白：CPython 先把非 ASCII 的空白（str.isspace）换成空格、ASCII 字符原样不动，再只去 ASCII
+ * 空白（空格与 0x09–0x0D）。所以 0x1C–0x1F 虽然 isspace 为真，int() 却不认。
+ */
+function intSpace(char: string): boolean {
+  const cp = codePoint(char);
+  return cp < 0x80 ? cp === 0x20 || (cp >= 0x09 && cp <= 0x0d) : isSpace(char);
+}
+
+/** int(text)（十进制）：两端空白去掉，可带正负号，数字之间可以隔单个下划线，认 Unicode 十进制数字；不合法为 null。 */
+export function pyIntParse(text: string): bigint | null {
+  let chars = codePoints(text);
+  while (chars.length > 0 && intSpace(chars[0] as string)) chars = chars.slice(1);
+  while (chars.length > 0 && intSpace(chars[chars.length - 1] as string)) chars = chars.slice(0, -1);
+  let negative = false;
+  if (chars[0] === "+" || chars[0] === "-") {
+    negative = chars[0] === "-";
+    chars = chars.slice(1);
+  }
+  if (chars.length === 0) return null;
+  let digits = "";
+  let previousUnderscore = true; // 开头不能是下划线
+  for (const char of chars) {
+    if (char === "_") {
+      if (previousUnderscore) return null;
+      previousUnderscore = true;
+      continue;
+    }
+    const value = digitValue(codePoint(char));
+    if (value < 0) return null;
+    digits += String(value);
+    previousUnderscore = false;
+  }
+  if (previousUnderscore) return null; // 结尾不能是下划线
+  const value = BigInt(digits);
+  return negative ? -value : value;
+}
+
+/** Python 的 str 比较：按码点（JS 的默认排序按 UTF-16 码元，补充平面字符会排错）。 */
+export function cmpCodePoints(a: string, b: string): number {
+  const left = codePoints(a);
+  const right = codePoints(b);
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    const diff = codePoint(left[index] as string) - codePoint(right[index] as string);
+    if (diff !== 0) return diff;
+  }
+  return left.length - right.length;
+}
+
 /** str.isprintable()：空串为 true。 */
 export function pyIsPrintable(text: string): boolean {
   return codePoints(text).every(isPrintableChar);

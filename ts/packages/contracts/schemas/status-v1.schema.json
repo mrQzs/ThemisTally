@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://themis-tally.invalid/schemas/status-v1.schema.json",
+  "title": "pi_dispatch status --json：attempt 行（RUNNING 的行另有 live）",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "attempt",
+      "task_id",
+      "plan_version",
+      "attempt_no",
+      "state",
+      "started",
+      "exit_code",
+      "wall_seconds",
+      "events_ok",
+      "violations",
+      "checks",
+      "check_mode",
+      "verdict",
+      "failure_class",
+      "human_minutes",
+      "tokens",
+      "cost",
+      "cost_status"
+    ],
+    "properties": {
+      "attempt": {
+        "type": "string"
+      },
+      "task_id": {},
+      "plan_version": {},
+      "attempt_no": {},
+      "state": {
+        "type": "string"
+      },
+      "started": {
+        "type": "boolean"
+      },
+      "exit_code": {},
+      "wall_seconds": {},
+      "events_ok": {},
+      "violations": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 0
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "checks": {
+        "type": "string",
+        "pattern": "^(-|[0-9]+/[0-9]+)$"
+      },
+      "check_mode": {},
+      "verdict": {},
+      "failure_class": {},
+      "human_minutes": {},
+      "tokens": {},
+      "cost": {},
+      "cost_status": {},
+      "live": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_calls",
+          "elapsed_seconds",
+          "deltas_since_last_tool",
+          "long_idle"
+        ],
+        "properties": {
+          "tool_calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elapsed_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deltas_since_last_tool": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "long_idle": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

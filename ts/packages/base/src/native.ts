@@ -13,6 +13,9 @@
 //       锁第 0 个字节、长度 1，与 Python 的 msvcrt.locking(fd, LK_NBLCK, 1)（_locking 即 LockFile）锁同一个区间，互斥。
 //     UnlockFileEx(hFile, dwReserved = 0, 1, 0, lpOverlapped) -> BOOL
 //     CloseHandle(hObject) -> BOOL
+//     GetFileAttributesW(lpFileName: UTF-16LE 以 0 结尾) -> DWORD，INVALID_FILE_ATTRIBUTES 为 0xFFFFFFFF
+//       不跟随重解析点，与 Python os.lstat 的 st_file_attributes 同一个值。pi_dispatch.is_link_or_junction 把带
+//       FILE_ATTRIBUTE_REPARSE_POINT（0x400）的条目一律当链接；Node 的 lstat 只认符号链接与 junction（第 ② 步）。
 //   POSIX（libc；未实机验证，见迁移计划第 8.2 节）
 //     flock(fd: int, operation = LOCK_EX | LOCK_NB 或 LOCK_UN) -> int，0 为成功
 //
@@ -253,3 +256,35 @@ export async function withFileLock<T>(
 
 /** 辅助进程一侧：只在 Bun 下运行，进程内拿锁（native-helper.ts 调用）。 */
 export const helperAcquire = acquireInProcess;
+
+// ---------------------------------------------------------------------------
+// 文件属性（Windows，Bun FFI）
+// ---------------------------------------------------------------------------
+
+export const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
+const INVALID_FILE_ATTRIBUTES = 0xffffffff;
+
+/** undefined：还没初始化；null：没有绑定（Node 后备、非 Windows）。 */
+let getFileAttributes: ((path: string) => number) | null | undefined;
+
+/** 程序开头调一次：Bun 在 Windows 上绑定 GetFileAttributesW，之后 fileAttributes 同步可用。 */
+export async function initFileAttributes(): Promise<void> {
+  if (getFileAttributes !== undefined) return;
+  if (!isBun || process.platform !== "win32") {
+    getFileAttributes = null;
+    return;
+  }
+  const ffi = await import("bun:ffi");
+  const kernel32 = ffi.dlopen("kernel32.dll", {
+    GetFileAttributesW: { args: [ffi.FFIType.ptr], returns: ffi.FFIType.u32 },
+  });
+  const call = kernel32.symbols as unknown as { GetFileAttributesW(name: number): number };
+  getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(Buffer.from(`${path}\0`, "utf16le")));
+}
+
+/** GetFileAttributesW 的值；没有绑定、或取不到（路径不存在等）时为 null，调用方退回 lstat。 */
+export function fileAttributes(path: string): number | null {
+  if (!getFileAttributes) return null;
+  const value = getFileAttributes(path) >>> 0;
+  return value === INVALID_FILE_ATTRIBUTES ? null : value;
+}

@@ -9,6 +9,8 @@ import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks
 import { FileLockTimeout, acquireFileLock } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
+import { pyRepr, pyStrValue } from "@themis/base/pyfmt";
+import { pyIntParse } from "@themis/base/pyre";
 import {
   type AllowList,
   allowEnum,
@@ -118,6 +120,20 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     return { ok: true, done_ms: Date.now() };
   },
   "jsonl.read": (request) => ({ ok: true, value: toTagged(readJsonl(String(request["path"]))) }),
+  "pyfmt.call": (request) => {
+    switch (request["fn"]) {
+      case "repr":
+        return { ok: true, text: pyRepr(String(request["text"])) };
+      case "str":
+        return { ok: true, text: pyStrValue(fromTagged(request["value"] as Tagged)) };
+      case "int": {
+        const value = pyIntParse(String(request["text"]));
+        return value === null ? { ok: false, error: "ValueError" } : { ok: true, text: value.toString() };
+      }
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  },
   "jsonl.records": (request) => ({
     ok: true,
     records: [

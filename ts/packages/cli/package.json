@@ -1,0 +1,9 @@
+{
+  "name": "@themis/cli",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@themis/base": "workspace:*",
+    "@themis/dispatcher": "workspace:*"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@themis/dispatcher",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./logs": "./src/logs.ts",
+    "./repo": "./src/repo.ts",
+    "./status": "./src/status.ts"
+  },
+  "dependencies": {
+    "@themis/base": "workspace:*"
+  }
+}
