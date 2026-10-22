@@ -2649,6 +2649,11 @@ def start_rework(hub: Hub, ts: Dict[str, Any], previous: Path, why: str = "audit
         if code != 0 or not match:
             return "branch --rework 没有建出返工提交：\n%s" % tail(out, 15)
         sha = match.group(1)
+    # 第 60 轮：上一轮接着返工提交改、一行没动（T011 的 attempt-003 跑满时限，补丁是空的），branch --rework 建出的
+    # 提交与基线同树。接着从原来的基线改，返工链上不记这个空提交：落地时挑它，git 会停在“now empty”
+    reused = not rebuilt and empty_commit(hub, sha)
+    if reused:
+        sha = base
     if why == "audit":
         blockers = next((h.get("blockers") for h in reversed(ts.get("audit_history") or [])
                          if h.get("stage") == "7-audit-post"), "")
@@ -2672,10 +2677,12 @@ def start_rework(hub: Hub, ts: Dict[str, Any], previous: Path, why: str = "audit
         return "返工合同没有建成：" + "；".join(problems)
     if rebuilt and ts.get("rework_chain"):
         ts.setdefault("rework_chain_superseded", []).extend(ts.pop("rework_chain"))
-    ts.setdefault("rework_chain", []).append({"from": previous.name, "commit": sha, "contract": ts["contract"]["key"],
-                                              "at": utc_now(), "why": why, "rebuilt": rebuilt})
+    if not reused:
+        ts.setdefault("rework_chain", []).append({"from": previous.name, "commit": sha,
+                                                  "contract": ts["contract"]["key"], "at": utc_now(), "why": why,
+                                                  "rebuilt": rebuilt})
     hub.append_event("exec.rework_based", task=ts["task"], previous=previous.name, commit=sha,
-                     contract=ts["contract"]["key"], why=why, rebuilt=rebuilt)
+                     contract=ts["contract"]["key"], why=why, rebuilt=rebuilt, reused=reused)
     return None
 
 
@@ -3268,6 +3275,16 @@ def on_branch(hub: Hub, sha: str, where: Optional[Path] = None) -> bool:
                      "--grep=(cherry picked from commit %s)" % sha, "HEAD"], where, check=False).strip())
 
 
+def empty_commit(hub: Hub, sha: str) -> bool:
+    """提交与它唯一的父提交同树：什么也没改（第 60 轮）。git 挑这种提交会停在“The previous cherry-pick is now
+    empty”，cherry-pick 退出码非零；T011 的返工链上记着这样一个，落地预演判了失败，结项也会卡在同一处。"""
+    parents = git(["rev-list", "--parents", "-n", "1", sha], hub.repo, check=False).split()
+    if len(parents) != 2:
+        return False
+    trees = git(["rev-parse", "%s^{tree}" % parents[0], "%s^{tree}" % parents[1]], hub.repo, check=False).split()
+    return len(trees) == 2 and trees[0] == trees[1]
+
+
 def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]:
     """落地预演（第 30 轮）：在临时 worktree 里照结项的做法拼出“当前末端 + 基准测试 + 返工链 + 候选”，跑全部门禁基准。
     T006 的门禁断言陈列页上没有任何 aria-pressed，T007 先落地的 TextViewer 有两个；T006 的候选在执行端交付时就
@@ -3288,7 +3305,7 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
     problem = None
     with scratch_worktree(hub, "rehearse", head) as path:
         for sha in commits:
-            if on_branch(hub, sha, path):
+            if on_branch(hub, sha, path) or empty_commit(hub, sha):
                 continue
             proc = subprocess.run(["git", "cherry-pick", "-x", sha], cwd=str(path), stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -3366,6 +3383,10 @@ def land_rework_chain(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
             if link.get("landed_at"):
                 continue
             how = "already"
+        elif empty_commit(hub, sha):
+            if link.get("landed_at"):
+                continue
+            how = "empty"  # 什么也没改，没东西可挑（第 60 轮）
         else:
             try:
                 git(["merge", "--ff-only", sha], hub.repo)

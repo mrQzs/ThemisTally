@@ -3286,6 +3286,35 @@ def test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks(tmp_pat
     assert ok and "attempt-004 的候选" in summary and "2 passed" in summary  # 活都在返工链里
 
 
+def empty_rework_commit(repo, parent):
+    """接着 parent 改、一行没动的返工提交（branch --rework 给空补丁建出来的，与父提交同树）。"""
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "--detach", parent], repo)
+    kh.git(["commit", "-q", "--allow-empty", "-m", "返工提交（上一轮一行没改）"], repo)
+    empty = kh.git(["rev-parse", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", branch], repo)
+    return empty
+
+
+def test_landing_skips_an_empty_rework_commit(tmp_path, monkeypatch):
+    # 第 60 轮：T011 的返工链上有个空提交（attempt-003 跑满时限、一行没改），预演挑它时 git 停在“now empty”，
+    # 判了失败；结项照同样的办法挑，也会卡住
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    rework = ts["rework_chain"][0]["commit"]
+    empty = empty_rework_commit(repo, rework)
+    assert kh.empty_commit(hub, empty) and not kh.empty_commit(hub, rework) and not kh.empty_commit(hub, "f" * 40)
+    ts["rework_chain"].append({"from": "attempt-002", "commit": empty, "contract": "t001-doc.v3"})
+    (run_dir / "meta.json").write_text(json.dumps({"base_sha": empty}), encoding="utf-8")
+    land_on_main(repo, "unrelated.txt", "x\n", "并行的一片先落地")
+    ok, summary = kh.rehearse_landing(hub, ts)
+    assert ok and "2 passed" in summary
+    assert kh.land_oracle(hub, ts) is None and kh.land_rework_chain(hub, ts) is None
+    assert [link["landed_by"] for link in ts["rework_chain"]] == ["cherry-pick", "empty"]
+    assert (repo / "earlier.txt").is_file() and not kh.on_branch(hub, empty)
+    tip = kh.git(["rev-parse", "HEAD"], repo).strip()
+    assert kh.land_rework_chain(hub, ts) is None and kh.git(["rev-parse", "HEAD"], repo).strip() == tip  # 重试
+
+
 def test_landing_rehearsal_reports_commits_that_no_longer_apply(tmp_path, monkeypatch):
     repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
     land_on_main(repo, "feature.txt", "别的片写的同名文件\n", "同名文件")
@@ -4319,6 +4348,41 @@ def test_a_timed_out_attempt_is_continued_instead_of_restarted(tmp_path, monkeyp
     (previous / "candidate.patch").write_text("", encoding="utf-8")
     timed_out(previous)
     assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous)}, audit_post={})) is None  # 没有候选
+
+
+def test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base(tmp_path, monkeypatch):
+    # 第 60 轮：T011 的 attempt-003 接着返工提交改，跑满时限一行没动；branch --rework 建出与基线同树的空提交，
+    # 记进了返工链，落地预演挑它时失败。接着从原来的基线改，返工链上不记它
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    (repo / "earlier.txt").write_text("上一轮的候选\n", encoding="utf-8")
+    kh.git(["add", "earlier.txt"], repo)
+    kh.git(["commit", "-q", "-m", "返工提交"], repo)
+    base = kh.git(["rev-parse", "HEAD"], repo).strip()
+    empty = empty_rework_commit(repo, base)
+    ts["rework_chain"] = [{"from": "attempt-000", "commit": base, "contract": "t001-doc.v1"}]
+    (previous / "meta.json").write_text(json.dumps({"base_sha": base}), encoding="utf-8")
+    (previous / "candidate.patch").write_text("", encoding="utf-8")
+    failed_checks(previous)
+    timed_out(previous)
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous), "check_ok": False, "status": "TIMEOUT"}, {}
+
+    def fake_pd(hub_, args, timeout=600):
+        if args[0] == "verdict":
+            (previous / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        if args[0] == "branch":
+            return 0, "commit=%s branch=pi-rework/x" % empty
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % base in v2 and empty not in v2
+    assert [link["commit"] for link in ts["rework_chain"]] == [base]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    based = [e for e in events if e["event"] == "exec.rework_based"][-1]
+    assert based["commit"] == base and based["reused"] is True
 
 
 def passed_checks(run_dir):
