@@ -3094,9 +3094,31 @@ def exec_window(hub: Hub, ts: Dict[str, Any]):
             pass
 
 
-def landing_blockers(hub: Hub, ts: Dict[str, Any]) -> List[str]:
-    """挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），以及调度器记着在跑的别的 attempt
-    （站主手动派的也算；integrate 自己也会因为它们拒绝落地）。"""
+@contextlib.contextmanager
+def sweep_window(hub: Hub, name: str, label: str):
+    """跑全部门禁基准的后台活（站主提交之后的回归、合入后回归，连同它们附带的落地预演）也挂一份标记（第 62 轮）：
+    落地等它跑完，它也先过落地锁、等正在落地的落完再开始。T011 第一次结项时 integrate 在末端上重跑之前各片的
+    门禁基准，同一段时间里第 61 轮的门禁回归（加上站主的变异检验）在跑，T006 的探针接连撞上 Vitest 的 5 秒超时，
+    结项撤回。站主的 exclusive 不等这类标记（landing_blockers 的 sweeps=False）：后台回归在临时 worktree 里跑
+    固定的末端，合入新提交不影响它，下一轮再跑新的末端。"""
+    marks = exec_marks(hub)
+    marks.mkdir(parents=True, exist_ok=True)
+    path = marks / ("%s.json" % name)
+    with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
+        write_text_atomic(path, json.dumps({"pid": os.getpid(), "task": name, "label": label, "sweep": True,
+                                            "at": utc_now()}) + "\n")
+    try:
+        yield
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True) -> List[str]:
+    """挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），后台在跑的门禁回归（第 62 轮；sweeps=False
+    时不算），以及调度器记着在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。"""
     found: List[str] = []
     marks = exec_marks(hub)
     for path in sorted(marks.glob("*.json")) if marks.is_dir() else []:
@@ -3104,11 +3126,11 @@ def landing_blockers(hub: Hub, ts: Dict[str, Any]) -> List[str]:
             mark = json.loads(read_text(path) or "{}")
         except ValueError:
             mark = {}
-        if mark.get("task") == ts["task"]:
+        if mark.get("task") == ts["task"] or (mark.get("sweep") and not sweeps):
             continue
         if mark.get("pid") and pd.pid_alive(int(mark["pid"])) is False:
             continue  # 进程已经不在：标记作废
-        found.append("%s 的执行端" % (mark.get("task") or path.stem))
+        found.append(mark.get("label") or "%s 的执行端" % (mark.get("task") or path.stem))
     try:
         running = pd._running_attempts(pd.Repo(hub.repo))
     except (pd.DispatchError, OSError):
@@ -3392,6 +3414,12 @@ def owner_sweep(hub: Hub) -> Optional[Tuple[bool, str]]:
     marker = read_owner_sweep(hub)
     if not marker.get("pending"):
         return None
+    with sweep_window(hub, "owner-sweep", "站主提交之后的门禁回归"):  # 第 62 轮：与结项互斥
+        return owner_sweep_run(hub, marker)
+
+
+def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
+    """owner_sweep 的本体：在当前末端上跑全部门禁基准，再给过了检查的候选各做一次落地预演。"""
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
     with scratch_worktree(hub, "owner-sweep", head) as path:
         code, out, tests = sweep_gates(path)
@@ -4324,7 +4352,12 @@ class Engine:
 
     def after_land(self, main: str) -> None:
         """结项时记下要跑的合入后门禁回归：在落地锁外跑，结果写信告诉站主（第 20 轮）。
-        第 30 轮：落地之后，别的主任务手上已经过了检查的候选，在新末端上各做一次落地预演，撞上了马上写信。"""
+        第 30 轮：落地之后，别的主任务手上已经过了检查的候选，在新末端上各做一次落地预演，撞上了马上写信。
+        第 62 轮：两样都跑全部门禁基准，挂着后台回归的标记跑，别的主任务的结项等它跑完。"""
+        with sweep_window(self.hub, "%s-after-land" % main, "%s 合入后的门禁回归与落地预演" % main):
+            self.after_land_run(main)
+
+    def after_land_run(self, main: str) -> None:
         state = self.hub.load_state()
         ts = state["tasks"].get(main)
         if ts and (ts.get("regression") or {}).get("pending"):
@@ -5295,7 +5328,8 @@ def cmd_exclusive(args: argparse.Namespace) -> int:
     with DirLock(hub.root / ".land", wait_seconds=args.wait):
         announced = False
         while True:
-            blockers = landing_blockers(hub, {"task": None, "contract_task": "\0"})
+            # 第 62 轮：后台的门禁回归不挡站主的命令（它跑的是固定的末端，下一轮再跑新的）
+            blockers = landing_blockers(hub, {"task": None, "contract_task": "\0"}, sweeps=False)
             if not blockers:
                 break
             if time.monotonic() >= deadline:

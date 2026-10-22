@@ -3542,6 +3542,65 @@ def test_owner_commits_get_a_gate_sweep_and_rehearsals(tmp_path, monkeypatch):
     assert kh.read_owner_sweep(hub)["pending"] is True and kh.read_owner_sweep(hub)["since"] == tip
 
 
+def test_landing_waits_for_a_background_gate_sweep(tmp_path, monkeypatch):
+    # 第 62 轮：T011 第一次结项时 integrate 与第 61 轮的门禁回归（加站主的变异检验）同时跑，T006 的探针接连撞上
+    # Vitest 的 5 秒超时，结项撤回。后台回归挂标记跑，落地等它；它也等正在落地的落完再开始
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo_: [])
+    other = {"task": "T002", "contract_task": "t002-x"}
+    assert kh.landing_blockers(hub, other) == []
+    with kh.sweep_window(hub, "owner-sweep", "站主提交之后的门禁回归"):
+        assert kh.landing_blockers(hub, other) == ["站主提交之后的门禁回归"]
+        assert kh.landing_blockers(hub, other, sweeps=False) == []
+        command = ["--", sys.executable, "-c", "pass"]
+        assert kh.cmd_exclusive(argparse.Namespace(repo=str(repo), wait=0.0, command=command)) == 0  # 站主的命令不等它
+    assert kh.landing_blockers(hub, other) == []  # 跑完撤掉标记
+    lock = kh.DirLock(hub.root / ".land", wait_seconds=1.0)
+    lock.__enter__()  # 有主任务正在落地
+    monkeypatch.setattr(kh, "LAND_WAIT_SECONDS", 0.5)
+    with pytest.raises(kh.HubError, match="锁被占用"):
+        with kh.sweep_window(hub, "owner-sweep", "站主提交之后的门禁回归"):
+            raise AssertionError("落地锁被占着，不该开始")
+    lock.__exit__(None, None, None)
+    assert kh.landing_blockers(hub, other) == []
+
+
+def test_background_sweeps_hold_off_other_landings_while_they_run(tmp_path, monkeypatch):
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo_: [])
+    other = {"task": "T002", "contract_task": "t002-x"}
+    state = hub.load_state()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+    ts.update(status="done", regression={"pending": True})
+    state["tasks"]["T001"] = ts
+    hub.save_state(state)
+    seen = []
+
+    def regression(hub_, ts_):
+        seen.append(kh.landing_blockers(hub_, other))
+        return True, "合入后的门禁回归：通过"
+
+    monkeypatch.setattr(kh, "regression_sweep", regression)
+    kh.Engine(hub).after_land("T001")  # 合入后回归
+    assert seen == [["T001 合入后的门禁回归与落地预演"]] and kh.landing_blockers(hub, other) == []
+    kh.mark_owner_moved(hub, head, head, ["git"])
+
+    def gates(path):
+        seen.append(kh.landing_blockers(hub, other))
+        return 0, "1 passed", []
+
+    monkeypatch.setattr(kh, "sweep_gates", gates)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
+    (tmp_path / "wt").mkdir()
+    assert kh.owner_sweep(hub)[0]  # 站主提交之后的回归
+    assert seen[-1] == ["站主提交之后的门禁回归"] and kh.landing_blockers(hub, other) == []
+
+
 def test_supervisor_starts_one_owner_sweep_at_a_time(tmp_path, monkeypatch):
     import os
     repo, _head = git_repo(tmp_path)
