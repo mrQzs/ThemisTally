@@ -5416,3 +5416,93 @@ def test_upstream_rework_is_refused_while_the_executor_runs(tmp_path):
     hub.save_state(state)
     kh.cmd_send(args)
     assert hub.load_state()["tasks"]["T001"]["owner_rework"]["suffix"] == "3-gate-pre"
+
+
+# ---------------------------------------------------------------------------
+# 第 56 轮：JSONL 只按换行切；审计读不出来的行算越界
+# ---------------------------------------------------------------------------
+
+LS, PS, NEL = chr(0x2028), chr(0x2029), chr(0x85)
+
+
+def js_stream(path, *events):
+    """照 JS 的 JSON.stringify 写事件流：非 ASCII 原样写出（U+2028、U+2029、0x85 不转义）。"""
+    path.write_text("".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events), encoding="utf-8")
+
+
+def test_u2028_in_a_tool_call_cannot_hide_it_from_the_audit(tmp_path):
+    # themistally-15 实测：白名单只有 read，bash 命令末尾夹一个 U+2028，审计就看不到这次调用
+    spec = {"tools": ["read"], "provider": "p", "model": "m"}
+    path = tmp_path / "stream.jsonl"
+    js_stream(path,
+              {"type": "tool_execution_start", "toolName": "bash", "toolCallId": "c1",
+               "args": {"command": "git push origin main" + LS}},
+              {"type": "message_end", "message": {"role": "assistant", "provider": "p", "model": "m",
+                                                  "thinkingLevel": "high", "stopReason": "stop",
+                                                  "usage": {"input": 7, "output": 3},
+                                                  "content": [{"type": "text", "text": "完成" + PS + "了" + NEL}]}},
+              {"type": "agent_settled"})
+    lines = kh.jsonl_lines(kh.read_text(path))
+    audit = kh.audit_pi_stream(lines, spec)
+    assert audit["tool_calls"] == {"bash": 1} and any("bash" in v for v in audit["violations"])
+    assert audit["final_text"] == "完成" + PS + "了" + NEL and audit["usage"]["input"] == 7 and audit["terminal"]
+    # 旧读法（splitlines）拆出来的半截行也不再静默跳过：照样算越界
+    split = kh.audit_pi_stream(kh.read_text(path).splitlines(), spec)
+    assert any("行读不出来" in v for v in split["violations"])
+    claude = tmp_path / "claude.jsonl"
+    js_stream(claude, INIT, assistant({"type": "tool_use", "id": "u1", "name": "Bash",
+                                       "input": {"command": "rm -rf ." + NEL + PS}}))
+    audit = kh.audit_claude_stream(kh.jsonl_lines(kh.read_text(claude)), SPEC)
+    assert audit["tool_calls"] == {"Bash": 1} and any("Bash" in v for v in audit["violations"])
+    assert not any("行读不出来" in v for v in audit["violations"])
+
+
+def test_unreadable_stream_lines_are_violations():
+    deep = "[" * 100000 + "]" * 100000  # RecursionError：此前没接住，runner 会崩
+    extra = ["{坏的", "not json", "[1, 2]", "   ", "", deep]
+    claude = kh.audit_claude_stream(stream(INIT, assistant({"type": "text", "text": "ok"})) + extra, SPEC)
+    assert kh.UNREADABLE_STREAM % 4 in claude["violations"]
+    pi = kh.audit_pi_stream(stream({"type": "agent_settled"}) + extra, {"tools": ["read"], "provider": "p", "model": "m"})
+    assert kh.UNREADABLE_STREAM % 4 in pi["violations"]
+    clean = kh.audit_pi_stream(stream({"type": "agent_settled"}) + ["", "  "], {"tools": ["read"], "provider": "p",
+                                                                             "model": "m"})
+    assert clean["violations"] == []  # 空行不算
+    assert kh.stream_events(['{"a": 1}', "7", "null", ' {"b": 2} ']) == ([{"a": 1}, {"b": 2}], 2)
+
+
+def test_ledger_session_and_decision_records_with_u2028_are_read_back(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    run_dir = "C:/repo/.agent/runs/t001-doc/attempt-001" + LS
+    hub.append_event("exec.started", task="T001", run_dir=run_dir)
+    hub.append_event("exec.finished", task="T001", run_dir=run_dir, status="TIMEOUT", note="甲" + NEL + "乙")
+    assert kh.exec_metrics(hub)["T001"]["attempts"] == 1
+    home = tmp_path / "home"
+    session = home / ".claude" / "projects" / "c--repo" / "sid-1.jsonl"
+    session.parent.mkdir(parents=True)
+    session.write_text("7\n" + json.dumps({"type": "assistant", "effort": "max", "text": "a" + LS + "b"},
+                                          ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(kh.Path, "home", classmethod(lambda cls: home))
+    assert kh.claude_session_effort("sid-1") == "max"
+    from codekit import decisions
+    record = tmp_path / "decisions.jsonl"
+    record.write_text(json.dumps({"point": "report-screen", "reason": "x" + PS + "y"}, ensure_ascii=False) + "\n",
+                      encoding="utf-8")
+    assert decisions.read_records(record) == [{"point": "report-screen", "reason": "x" + PS + "y"}]
+
+
+def test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided(tmp_path, monkeypatch):
+    monkeypatch.setitem(kh.ROSTER, "audit-sonnet", CLAUDE_AUDIT)
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    final = "交付。\n```json\n{\"letter\": {\"type\": \"交付\"}, \"state\": \"s\"}\n```"
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        events = [INIT, assistant({"type": "tool_use", "id": "u1", "name": "Bash", "input": {"command": "git push" + LS}}),
+                  {"type": "result", "result": final}]
+        out.write("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("audit-sonnet", "T001-7-audit-post", tmp_path, "角色", "输入")
+    assert turn["tool_calls"] == {"Bash": 1} and any("Bash" in v for v in turn["violations"])
+    assert turn["output"] is None  # 有越界：不取输出，回合作废

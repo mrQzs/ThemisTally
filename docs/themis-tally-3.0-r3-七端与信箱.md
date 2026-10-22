@@ -1271,6 +1271,21 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - **执行端在跑时不返工上游**：5-exec 正在进行时，1-plan 到 4-audit-pre 的返工一律拒绝，站主指定的也一样。`send --rework` 当场报错，信不投、记录不留。
 - **测试与变异**：新增测试 3 条。变异 13 个，全部抓住。
 
+### 第 56 轮：JSONL 只按换行切；审计读不出来的行算越界（2026-10-22，themistally-15 报告）
+
+- **实测**（themistally-15，迁移 jsonl 时发现）：
+  - 工人的事件流由 claude、pi 用 JS 的 JSON.stringify 写出，U+2028、U+2029、0x85 原样写进字符串，不转义（Node、Bun 都实测过）。
+  - 内核用 `read_text(...).splitlines()` 读 stream.jsonl。str.splitlines 把这几个字符也当行界，一条事件被拆成两段：前一段解析不了，后一段不以 `{` 开头，审计都静默跳过。
+  - 角色白名单只有 read 时，bash 命令 `git push origin main` 照常判越界；命令末尾夹一个 U+2028，tool_calls 为空、violations 为空。pi 工人的 bash 越界只靠这份事后审计（第 41、45 轮），这是实打实的绕过。正常输出里偶尔有这几个字符，也会丢掉 result、usage 或最后一条消息。
+  - 账本（ensure_ascii=False）、decisions.jsonl（ensure_ascii=False）、claude 的会话文件也是同样的读法。
+  - 另外：审计只接 ValueError，工具输入嵌套够深时 json.loads 抛 RecursionError，runner 直接崩掉。
+- **改法**：
+  - `jsonl_lines`：JSONL 一律只按 `\n` 切（read_text 已把 `\r\n`、`\r` 换成 `\n`）。用于 stream.jsonl、账本指标、claude 会话档位；codekit 的 `decisions.read_records` 同样改。字节层面的读取（调度器读 events.jsonl、kit_logs、codekit 的几份账本）本来就只认换行，不用改。
+  - `stream_events`：逐行解析，空行跳过；解析不了、不是对象、嵌套太深的都计数。两份审计有这种行就记一条越界（UNREADABLE_STREAM），回合作废、交站主，不再静默跳过。
+  - 写的一侧不改：读的一侧改了，已经写进去的记录也能读回来。
+- **先拿真实数据核对**：.agent/mailbox 下 471 份真实事件流，只按换行切之后，读不出来的行 0 条，含这三个字符的行 0 条：新规则在历史数据上没有误报，超时被杀的回合也没有留下半行。
+- **测试与变异**：新增测试 4 条，其中一条走真实的 TurnRunner（假 launcher 写出带 U+2028 的 Bash 调用，回合作废）。变异 11 个，全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

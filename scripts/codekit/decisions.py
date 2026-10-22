@@ -796,7 +796,8 @@ def read_records(path: Path) -> List[Dict[str, Any]]:
     """读一份 decisions.jsonl；坏行跳过。"""
     records: List[Dict[str, Any]] = []
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        # 只按换行切：记录用 ensure_ascii=False 写，字符串里的 0x85、U+2028、U+2029 会被 splitlines 当成行界（第 56 轮）
+        lines = Path(path).read_text(encoding="utf-8").split("\n")
     except OSError:
         return records
     for line in lines:

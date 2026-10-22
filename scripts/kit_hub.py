@@ -1196,16 +1196,44 @@ def turn_cost_usd(adapter: str, session: Dict[str, Any], reported: Any) -> Tuple
     return round(total - float(previous), 6), total
 
 
+def jsonl_lines(text: str) -> List[str]:
+    """JSONL 的行：只按换行切（第 56 轮）。read_text 已把 \\r\\n、\\r 换成 \\n；str.splitlines() 还会在 0x85、
+    U+2028、U+2029 等处断行，而 JS 的 JSON.stringify（claude、pi 的事件流）与 ensure_ascii=False 的 json.dumps
+    （账本、decisions.jsonl）都把这几个字符原样写进字符串：一条记录被拆成两段，两段都读不出来。"""
+    return text.split("\n")
+
+
+def stream_events(lines: Sequence[str]) -> Tuple[List[Dict[str, Any]], int]:
+    """逐行解析事件流：(事件, 读不出来的非空行数)。读不出来的包括不是 JSON、不是对象、嵌套太深：
+    RecursionError 此前没接住，工具输入嵌套够深就能让 runner 崩掉。"""
+    events: List[Dict[str, Any]] = []
+    unreadable = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except (ValueError, RecursionError):
+            event = None
+        if isinstance(event, dict):
+            events.append(event)
+        else:
+            unreadable += 1
+    return events, unreadable
+
+
+#: 第 56 轮：审计读不出来的行不再静默跳过。themistally-15 实测：pi 工人的 bash 命令末尾夹一个 U+2028，
+#: splitlines 把那条事件拆成两段、两段都被跳过，越界的调用就从审计里消失
+UNREADABLE_STREAM = "事件流里有 %d 行读不出来（不是 JSON 对象）：审计看不全这一回合，按越界处理"
+
+
 def claude_session_effort(session_id: str) -> Optional[str]:
     """claude 的会话文件里每条 assistant 记录带 effort：读出实际生效的档位（设计 §6.1）。"""
     base = Path.home() / ".claude" / "projects"
     for path in base.glob("*/%s.jsonl" % session_id):
         efforts = []
-        for line in read_text(path).splitlines():
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                continue
+        for entry in stream_events(jsonl_lines(read_text(path)))[0]:
             if entry.get("type") == "assistant" and entry.get("effort"):
                 efforts.append(str(entry["effort"]))
         return efforts[-1] if efforts else None
@@ -1233,14 +1261,10 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
     rejected_until: Optional[int] = None  # 额度限制（rate_limit_event 的 rejected）解除的时刻，epoch 秒
     outside: Dict[str, str] = {}  # 白名单之外的 tool_use：id → 工具名
     refused: set = set()
-    for line in lines:
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+    events, unreadable = stream_events(lines)
+    if unreadable:
+        violations.append(UNREADABLE_STREAM % unreadable)
+    for event in events:
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
             init = event
@@ -1392,14 +1416,10 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     terminal = False
     outside: Dict[str, str] = {}  # 白名单之外的调用：toolCallId → 工具名
     refused: set = set()
-    for line in lines:
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+    events, unreadable = stream_events(lines)
+    if unreadable:
+        violations.append(UNREADABLE_STREAM % unreadable)
+    for event in events:
         kind = event.get("type")
         if kind == "tool_execution_start":
             name = str(event.get("toolName"))
@@ -1514,7 +1534,7 @@ class TurnRunner:
             env.update(CLAUDE_WORKER_ENV)
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800)))
-        lines = read_text(turn_dir / "stream.jsonl").splitlines()
+        lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
         audit = (audit_claude_stream(lines, spec) if spec["adapter"] == "claude"
                  else audit_pi_stream(lines, spec, workspace, self.hub.repo))
         if spec["adapter"] == "claude":
@@ -4650,7 +4670,7 @@ def exec_metrics(hub: Hub) -> Dict[str, Dict[str, float]]:
     started: Dict[str, Any] = {}
     totals: Dict[str, Dict[str, float]] = {}
     ledger = hub.ledger()
-    for line in read_text(ledger).splitlines() if ledger.exists() else []:
+    for line in jsonl_lines(read_text(ledger)) if ledger.exists() else []:
         try:
             event = json.loads(line)
         except ValueError:
