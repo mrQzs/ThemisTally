@@ -8,6 +8,7 @@ import base64
 import errno
 import json
 import os
+import secrets
 import struct
 import sys
 import time
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]  # ts/packages/contracts/probes → 仓库根
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import kit_hub  # noqa: E402
 import pi_dispatch  # noqa: E402
 
 
@@ -107,8 +109,25 @@ def op_pyjson_roundtrip(request):
     return text_result(text, request.get("encode", False))
 
 
+def op_clock_sample(request):
+    """时间与编号：各取 count 个样本。回合编号、attempt 目录名、审计编号在 Python 里是内联写的，这里照抄原式。"""
+    out = {"utc_now": [], "pd_utc_now": [], "utc_compact": [], "turn_ids": [], "audit_ids": [],
+           "msg_ids": {sender: [] for sender in request["senders"]}}
+    for _ in range(request.get("count", 1)):
+        out["utc_now"].append(kit_hub.utc_now())
+        out["pd_utc_now"].append(pi_dispatch.utc_now())
+        out["utc_compact"].append(kit_hub.utc_compact())
+        out["turn_ids"].append("%s-%s" % (kit_hub.utc_compact(), os.urandom(2).hex()))  # kit_hub.TurnRunner.run
+        out["audit_ids"].append("aud-%s" % secrets.token_hex(16))  # kit_config 的审计记录
+        for sender in request["senders"]:
+            out["msg_ids"][sender].append(kit_hub.new_msg_id(sender))
+    out["attempt_dirs"] = ["attempt-%03d" % number for number in request["attempts"]]  # pi_dispatch.allocate_attempt
+    return dict(ok=True, **out)
+
+
 OPS = {
     "publish_new": op_publish_new,
+    "clock.sample": op_clock_sample,
     "pyjson.dumps": op_pyjson_dumps,
     "pyjson.loads": op_pyjson_loads,
     "pyjson.roundtrip": op_pyjson_roundtrip,

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./clock": "./src/clock.ts",
     "./publish": "./src/publish.ts",
     "./pyjson": "./src/pyjson.ts"
   }

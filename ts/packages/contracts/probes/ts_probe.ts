@@ -1,6 +1,7 @@
 // 契约探针（TS 实现）：stdin 读一个 JSON 请求，stdout 写一个 JSON 结果，与 python_probe.py 收发同样的 JSON。
 // 同一份源码由 `node`（类型擦除）与 `bun` 各跑一遍。
 import { existsSync } from "node:fs";
+import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
 import { publishNew } from "@themis/base/publish";
 import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads } from "@themis/base/pyjson";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
@@ -45,6 +46,26 @@ const OPS: Record<string, (request: Request) => Result> = {
   "pyjson.dumps": (request) =>
     textResult(dumps(fromTagged(request["value"] as Tagged), dumpsOptions(request["options"])), request["encode"]),
   "pyjson.loads": (request) => ({ ok: true, value: toTagged(loads(String(request["text"]))) }),
+  "clock.sample": (request) => {
+    const senders = request["senders"] as string[];
+    const out = {
+      utc_now: [] as string[],
+      pd_utc_now: [] as string[],
+      utc_compact: [] as string[],
+      turn_ids: [] as string[],
+      audit_ids: [] as string[],
+      msg_ids: Object.fromEntries(senders.map((sender) => [sender, [] as string[]])),
+    };
+    for (let index = 0; index < Number(request["count"] ?? 1); index += 1) {
+      out.utc_now.push(utcNow());
+      out.pd_utc_now.push(utcNow());
+      out.utc_compact.push(utcCompact());
+      out.turn_ids.push(newTurnId());
+      out.audit_ids.push(auditId());
+      for (const sender of senders) out.msg_ids[sender]?.push(newMsgId(sender));
+    }
+    return { ok: true, ...out, attempt_dirs: (request["attempts"] as number[]).map(attemptDirName) };
+  },
   "pyjson.roundtrip": (request) =>
     textResult(dumps(loads(String(request["text"])), dumpsOptions(request["options"])), request["encode"]),
 };

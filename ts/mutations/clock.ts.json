@@ -1,0 +1,30 @@
+{
+  "command": ["node", "node_modules/vitest/vitest.mjs", "run", "packages/base/test/clock.test.ts", "packages/contracts/test/clock.contract.test.ts"],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {"name": "C01 utcNow 四舍五入到秒", "file": "ts/packages/base/src/clock.ts",
+     "old": "export function utcNow(micros: number = nowMicros()): string {\n  const date = new Date(Math.floor(micros / 1000));",
+     "new": "export function utcNow(micros: number = nowMicros()): string {\n  const date = new Date(Math.round(micros / 1_000_000) * 1000);"},
+    {"name": "C02 utcNow 的月份差一", "file": "ts/packages/base/src/clock.ts",
+     "old": "`${pad(date.getUTCFullYear(), 4)}-${pad(date.getUTCMonth() + 1, 2)}-", "new": "`${pad(date.getUTCFullYear(), 4)}-${pad(date.getUTCMonth(), 2)}-"},
+    {"name": "C03 utcCompact 只写到毫秒", "file": "ts/packages/base/src/clock.ts",
+     "old": "`${pad(micros % 1_000_000, 6)}Z`", "new": "`${pad(Math.floor((micros % 1_000_000) / 1000), 3)}000Z`"},
+    {"name": "C04 utcCompact 用本地时间", "file": "ts/packages/base/src/clock.ts",
+     "old": "`T${pad(date.getUTCHours(), 2)}${pad(date.getUTCMinutes(), 2)}", "new": "`T${pad(date.getHours(), 2)}${pad(date.getUTCMinutes(), 2)}"},
+    {"name": "C05 内核不换成 kernel", "file": "ts/packages/base/src/clock.ts",
+     "old": "{ 站主: \"owner\", 内核: \"kernel\" }", "new": "{ 站主: \"owner\" }"},
+    {"name": "C06 信件编号的随机部分只有 2 个字节", "file": "ts/packages/base/src/clock.ts",
+     "old": "-${randomBytes(3).toString(\"hex\")}`;", "new": "-${randomBytes(2).toString(\"hex\")}`;"},
+    {"name": "C07 回合编号的随机部分 3 个字节", "file": "ts/packages/base/src/clock.ts",
+     "old": "return `${utcCompact(micros)}-${randomBytes(2).toString(\"hex\")}`;", "new": "return `${utcCompact(micros)}-${randomBytes(3).toString(\"hex\")}`;"},
+    {"name": "C08 attempt 目录名只补到两位", "file": "ts/packages/base/src/clock.ts",
+     "old": "return `attempt-${pad(number, 3)}`;", "new": "return `attempt-${pad(number, 2)}`;"},
+    {"name": "C09 审计编号只有 8 个字节", "file": "ts/packages/base/src/clock.ts",
+     "old": "return `aud-${randomBytes(16).toString(\"hex\")}`;", "new": "return `aud-${randomBytes(8).toString(\"hex\")}`;"},
+    {"name": "C10 utcNow 用本地时间", "file": "ts/packages/base/src/clock.ts",
+     "old": "`T${pad(date.getUTCHours(), 2)}:${pad(date.getUTCMinutes(), 2)}:", "new": "`T${pad(date.getHours(), 2)}:${pad(date.getUTCMinutes(), 2)}:"},
+    {"name": "C11 attempt 编号不查负数", "file": "ts/packages/base/src/clock.ts",
+     "old": "if (!Number.isSafeInteger(number) || number < 0) throw", "new": "if (!Number.isSafeInteger(number)) throw"}
+  ]
+}
