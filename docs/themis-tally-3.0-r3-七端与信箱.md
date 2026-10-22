@@ -1369,6 +1369,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **内核（`kit_hub.py`）**：`kernel_files` 加选择文件；`dispatcher.called` 记 `impl` 与 `tool_version`；第 61 轮的站主提交之后回归先跑 `ts_install_if_stale`：主工作区 ts/ 的合并哈希与戳记对不上，就在落地锁里 `bun install --frozen-lockfile`（postinstall 写新戳记），失败写阻塞信。
 - **TS 工作区**：`ts/package.json` 的 postinstall 跑 `ts/tools/stamp-install.mjs` 写装好戳记（合并哈希、Bun 版本与路径）；`ts/bunfig.toml` 是一份只有注释的空配置。
 - **测试**：见提交说明。`tests/conftest.py` 把进程内的选择文件钉成全 python：进程内调 `pd.main` 的用例测的是 Python 实现，TS 的对等由契约测试的端到端（第三种运行方式：独立 Python 进程经真的启动器）覆盖。
+- **复核**：themistally-15 在真仓库上比了 175 种调用（17 个任务、43 个 attempt），真命令行与钉成 Python 的输出逐字节一致，并亲眼抓到启动器起的 bun.exe 子进程。
+
+### 第 65 轮：协调人、合同端、审核端换到 MiniMax（2026-10-22，站主授权 themistally-15 测评后分配）
+
+- **起因**：第 63 轮之后这三个岗位停着：协调人的 `token/qwen3.7-plus` 是百炼编程套餐（条款禁止自动化调用），合同端、审核端的 `cc-switch-zhipu-glm` 是第三方中转、明文 HTTP，已从 pi 删除。站主授权 themistally-15 联网调研、出 7 道自动判分题实测之后分配。
+- **改法**：名册里审核端 `minimax/MiniMax-M3.1-Flash` max（实测 pi 回报 thinkingLevel=max，不再静默降级）、合同端 `minimax/MiniMax-M3` high（pi 把它的 max 压成 high）、协调人 `minimax/MiniMax-M3.1-Flash` high；门禁端、执行端不变。三个新绑定各 smoke 一次，都过（M3.1-Flash high 第一次“工具”一步没过：模型把 write 与 read 并行发出，read 先执行报 ENOENT；重跑通过）。测试里的名册断言与一处假事件流跟着改；名册、测试与模板里不再有 token、qwen、cc-switch-zhipu-glm 的在用绑定。
+- **要盯的**（写进 environment.md 的变更记录）：MiniMax 的数组参数可能被包进虚构的 item 键、并行工具结果对错号；Step Plan 限额时可能换模型；头三片看合同返工率、一审与终审能不能查出问题、回合作废率与 effort_effective（端点不回报，记为未确认）；MiniMax 的 key 是不是可以给自动化用，由 themistally-15 跟站主确认。
+- **接着做**：重发 T014 的门禁端事后检查（第 63 轮之前 bb 改名，它连续作废、返工预算用完），之后恢复正常派活。
 
 ## 11. 已知缺口与下一步
 

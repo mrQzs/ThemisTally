@@ -2647,11 +2647,11 @@ def test_only_the_planner_stays_on_claude():
     on = {name: (spec["adapter"], spec.get("provider"), spec["model"]) for name, spec in kh.ROSTER.items()
           if spec["adapter"] in ("claude", "pi", "dispatcher")}
     assert on == {
-        kh.COORDINATOR: ("pi", "token", "qwen3.7-plus"),
+        kh.COORDINATOR: ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 65 轮
         "planner-opus": ("claude", None, "claude-opus-5-5"),
-        "contract-glm": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),  # 第 46 轮：qwen 写合同接连出错
+        "contract-glm": ("pi", "minimax", "MiniMax-M3"),  # 第 65 轮（第 46 轮起是 glm-5.3）
         "gate-sonnet": ("pi", "cc-switch-step-fun", "step-5-preview"),  # 第 63 轮：bb 改名
-        "audit-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),
+        "audit-sonnet": ("pi", "minimax", "MiniMax-M3.1-Flash"),
         "exec-step": ("dispatcher", "cc-switch-step-fun", "step-5-preview")}
     assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "max"
     assert kh.CONTRACT_EXECUTOR_LINE == "- executor: cc-switch-step-fun/step-5-preview · thinking high"
@@ -2740,8 +2740,8 @@ def test_session_ids_change_on_a_fresh_restart(tmp_path):
 
     def launcher(cmd, cwd, env, out, err, timeout):
         seen.append(cmd)
-        out.write(b'{"type":"message_end","message":{"role":"assistant","provider":"cc-switch-zhipu-glm",'
-                  b'"model":"glm-5.3","thinkingLevel":"high","stopReason":"stop","content":[{"type":"text",'
+        out.write(b'{"type":"message_end","message":{"role":"assistant","provider":"minimax",'
+                  b'"model":"MiniMax-M3","thinkingLevel":"high","stopReason":"stop","content":[{"type":"text",'
                   b'"text":"```json\\n{\\"letter\\": {}}\\n```"}]}}\n')
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
