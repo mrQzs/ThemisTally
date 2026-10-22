@@ -1130,21 +1130,29 @@ def loose_json_object(text: str) -> Optional[Dict[str, Any]]:
 def last_fenced_object(text: str) -> Optional[Dict[str, Any]]:
     """```json 之后完整解析出的、紧跟着 ```（或文本结尾）的最后一个对象（第 59 轮）。T011 的协调人在重试回合里
     把第一个代码块的收尾 ``` 写在 `}` 后面同一行，接着写说明“让我重新组织输出”，再写第二个代码块：JSON_BLOCK_RE
-    要求收尾前有换行，于是从第一个 ```json 一直匹配到第二个的开头，报“后面又写了内容”，回合作废、主任务转站主。"""
-    found: Optional[Dict[str, Any]] = None
+    要求收尾前有换行，于是从第一个 ```json 一直匹配到第二个的开头，报“后面又写了内容”，回合作废、主任务转站主。
+
+    只看最后一块（第 59 轮补，themistally-15）：最后一块坏了就不收，不往前找更早的块——工人写了“重来”，前一块
+    就是它自己收回的交付。已经解析出的对象里面出现的 ```json（例如 state 里提到“```json 代码块”）不算块的开头。"""
+    last: Optional[Dict[str, Any]] = None
+    covered = -1
     for match in re.finditer(r"```json", text):
+        if match.start() < covered:
+            continue
         start = match.end()
         start += len(text[start:]) - len(text[start:].lstrip())
+        last = None
         if not text[start:].startswith("{"):
             continue
         try:
             data, end = json.JSONDecoder().raw_decode(text, start)
         except ValueError:
             continue
+        covered = end
         after = text[end:].lstrip()
         if isinstance(data, dict) and (not after or after.startswith("```")):
-            found = data
-    return found
+            last = data
+    return last
 
 
 def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:

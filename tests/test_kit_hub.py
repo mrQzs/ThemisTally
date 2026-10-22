@@ -5486,7 +5486,7 @@ def test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided(tmp_path, monke
 def test_inline_closing_fence_then_second_block_takes_the_last_complete_object():
     # T011 的协调人：第一个代码块的收尾贴在 } 后面，说明“让我重新组织输出”，再写第二个代码块；state 里还提到了 ```json
     first = '{"letters": [{"to": "a"}], "state": "上一回合没有 ```json 代码块"}'
-    second = '{"letters": [{"to": "b"}], "state": "新"}'
+    second = '{"letters": [{"to": "b"}], "state": "新：上一回合没有 ```json 代码块"}'  # T011 两块的 state 都提到了
     text = "说明\n```json\n" + first + "```门禁端已交付。让我重新组织输出。\n\n```json\n" + second + "```"
     warnings = []
     assert kh.extract_json_block(text, warnings) == json.loads(second)
@@ -5499,3 +5499,11 @@ def test_inline_closing_fence_then_second_block_takes_the_last_complete_object()
     assert kh.extract_json_block("```json\n" + second + "\n```", warnings) == json.loads(second) and warnings == []
     assert kh.last_fenced_object("```json\n" + first + "```") == json.loads(first)
     assert kh.last_fenced_object("```json\n" + first + " 尾巴") is None
+    # 第 59 轮补：只看最后一块。最后一块坏、前一块好 → 拒收（工人写了“重来”，前一块是它收回的）
+    broken = '{"letters": ['
+    with pytest.raises(kh.HubError, match="JSON 代码块解析失败"):
+        kh.extract_json_block("```json\n" + first + "```重来。\n\n```json\n" + broken + "\n```", [])
+    # 最后一块好、前一块坏 → 收最后一块
+    warnings = []
+    assert kh.extract_json_block("```json\n" + broken + "```重来。\n\n```json\n" + second + "```", warnings) == json.loads(second)
+    assert len(warnings) == 1
