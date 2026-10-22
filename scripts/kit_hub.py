@@ -770,6 +770,9 @@ def hotfix_reason(ts: Dict[str, Any]) -> Optional[str]:
     接着改（carry_source，第 35 轮）。"""
     if ts["exec"].get("conflicts"):
         return "执行端报了 %d 条合同矛盾" % ts["exec"]["conflicts"]
+    if ts["exec"].get("gate_claim"):
+        # 第 52 轮：T011 的执行端说对了至少 8 条，站主却要一条条去查；让门禁端自己先核实
+        return "执行端说门禁测试有错"
     audit_post = ts["audit_post"]
     if audit_post.get("verdict") == "返工" and "3-gate-pre" in return_stages(audit_post.get("target")):
         return "终审退回门禁端"
@@ -787,8 +790,8 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     if (ts.get("owner_rework") or {}).get("suffix") == suffix:
         return None  # 站主用 send --rework 指定的返工（站主是最终拍板人）
     if suffix == "5-exec" and ts["exec"].get("gate_claim"):
-        return ("执行端说门禁测试有错，协调人核实不了：先给站主发提问（附执行端的原话与没过的用例），"
-                "等站主答复再定是门禁热修补还是返工执行端")
+        return ("执行端说门禁测试有错，协调人核实不了：给 gate-sonnet 发返工（热修补，内核会把执行端的原话交给它"
+                "逐条核实），或者给站主发提问；门禁重新交付或站主答复之前不能返工执行端")
     done = (ts.get("reworks") or {}).get(suffix, 0)
     if suffix != "5-exec" and done >= MAX_STAGE_REWORKS:
         # 第 14 轮：执行端有合同预算封顶，别的阶段没有，同一处可以无限返工（docs/实际问题/协调端.md 的返工乒乓）
@@ -2779,6 +2782,22 @@ GATE_CLAIM_RE = re.compile(r"门禁[端测试探针用例的]*(?:缺陷|有错|�
                            r"|(?:任何|所有)实现都|gate (?:test )?(?:defect|bug)", re.I)
 
 
+#: 门禁测试实际撞过的坑（第 52 轮）：每一条都让执行端白跑过 attempt，开工时交给门禁端自查
+GATE_PITFALLS = (
+    "只用已安装版本里有的 API：先在 node_modules 里查。@testing-library/dom 10.4.0 的 fireEvent 没有 hashChange，"
+    "要写 fireEvent(window, new HashChangeEvent('hashchange'))（T011）。",
+    "每个探针文件自带它用到的辅助函数：探针之间不共享作用域，在一个探针里定义、另一个里调用会报 ReferenceError（T011）。",
+    "期望值要算出来，不凭印象手写：排序后的数组按 JS 默认排序（UTF-16 码元序，'candidate.patch' 在 'checks/…' 前面）；"
+    "依赖夹具的数量从夹具数，别写死（T011 的 setDetail 只给 1 行却断言 8 个选项；T012 的仓库数没算上保存进桩的那一个）。",
+    "卸载、清理对准被测的那个根：用 mountApp / render 返回的结果，不要另渲染一个空元素再卸载它（T011）。",
+    "jsdom 的局限：属性选择器匹配不了含 <、> 的值（改成遍历元素、比较 getAttribute）；写 location.hash 会用 "
+    "setTimeout(fn, 0) 派发 hashchange，假计时器下它是一个挂起的计时器，数计时器之前先推进掉（T011、T012）。",
+    "字样、白名单这类扫描不能误伤合同要求的元素：例如「待验收」分组胶囊含“验收”二字（T011）。",
+    "用例之间不留状态：模块级的桩、mock 覆盖、计时器、地址在每条用例开头重置，cleanup 之后重挂载要拿到新的数据。",
+    "同一行为在合同里只认一种说法：两条断言对同一行为的要求互相矛盾时，先发提问（T010 的 K25 与 D09）。",
+)
+
+
 def gate_claims(report: Dict[str, Any]) -> List[str]:
     """执行报告的局限、未决问题、合同矛盾里说门禁测试有错的那几条。T011 的执行端在局限里写“V01 12 项失败
     经逐一定位均为门禁端缺陷”，协调人核实不了，直接返工执行端，又跑了两小时；站主一查，至少 8 条是真的。"""
@@ -2809,7 +2828,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
                      check_exit=check_code, scope_violations=len(violations))
     claims = gate_claims(report) if check_code != 0 else []
     if claims:
-        ts["exec"]["gate_claim"] = True  # 站主答复之前不能返工执行端（_guard_rework）
+        ts["exec"]["gate_claim"] = True  # 门禁热修补或站主答复之前不能返工执行端（_guard_rework）
+        ts["exec"]["gate_claims"] = [claim[:600] for claim in claims[:8]]  # 热修补时交给门禁端
         hub.append_event("exec.gate_claimed", task=ts["task"], run_dir=str(run_dir), claims=len(claims))
 
     def listing(name: str) -> str:
@@ -2835,8 +2855,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
             "提交": "无（候选补丁 %s/candidate.patch）" % rel,
             "验证": verdict_line,
             "偏离": "解读：%s；局限：%s" % (listing("interpretations"), listing("limitations")),
-            "需协调人决定": ("执行端说门禁测试有错（原话见下面与“偏离”）：先给站主发提问，附执行端的原话与没过的用例；"
-                         "站主答复之前内核不放行执行端返工。" if claims else "") +
+            "需协调人决定": ("执行端说门禁测试有错（原话见下面与“偏离”）：给 gate-sonnet 发返工（热修补），"
+                         "或给站主发提问；门禁重新交付或站主答复之前，内核不放行执行端返工。" if claims else "") +
                         "合同矛盾：%s；未决问题：%s" % (listing("contract_conflicts"), listing("unresolved_questions")),
             "证据": "%s/summary.md、%s/executor-report.md、%s/checks/" % (rel, rel, rel)}
 
@@ -3491,6 +3511,16 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           target, "战前的基准测试应当在当前基线上失败（目标功能还没实现）" if stage == "3-gate-pre"
                           else "战后的白盒测试在候选上应当全部通过；候选不满足合同写明的行为时让它红着，"
                                "红的用例逐条写进 candidate_defects。不许用 xfail、skip 标掉")]
+            parts += ["", "## 门禁测试撞过的坑（T010–T012 实测，任何实现都过不了的写法；交付前逐条自查）", ""] + [
+                "- " + item for item in GATE_PITFALLS]
+            claims = (ts.get("hotfix") or {}).get("claims") if stage == "3-gate-pre" else None
+            if claims:
+                run_dir = ts["hotfix"].get("run_dir") or ""
+                parts += ["", "## 热修补：执行端说门禁测试有错（原话，内核转交）", "",
+                          "- 逐条核实：说对了的改测试（断言的意图不变），说错了的不改，并在交付信里逐条写结论与依据"
+                          "（合同出处、库的版本与源码位置、候选里的代码）。",
+                          "- 候选与检查日志（只读）：%s/candidate.patch、%s/checks/、%s/executor-report.md" % (
+                              run_dir, run_dir, run_dir), ""] + ["- " + claim for claim in claims]
             if stage == "6-gate-post" and ts["gate_post"].get("mutate_spec"):
                 parts.append("- 你上一次交的变异清单，内核存了档（可读）：%s。返工时在它上面改，不必整份重写。"
                              % ts["gate_post"]["mutate_spec"])
@@ -3759,6 +3789,8 @@ class Engine:
                 self.write_brief(meta["task-id"], brief)
             if meta["type"] == "返工" and suffix == "3-gate-pre" and hotfix_reason(ts):
                 ts["hotfix"] = {"reason": hotfix_reason(ts), "at": utc_now(), "previous_oracle": ts["oracle"].get("sha")}
+                if ts["exec"].get("gate_claims"):  # 门禁端重新交付时 ts["exec"] 会清空：原话与 attempt 先存下
+                    ts["hotfix"].update(claims=ts["exec"]["gate_claims"], run_dir=ts["exec"].get("run_dir"))
                 self.hub.append_event("hotfix.started", task=ts["task"], reason=ts["hotfix"]["reason"])
             if meta["type"] == "返工" and (ts.get("owner_rework") or {}).get("suffix") == suffix:
                 self.hub.append_event("owner_rework.used", task=ts["task"], **ts.pop("owner_rework"))

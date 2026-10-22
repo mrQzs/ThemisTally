@@ -5115,8 +5115,9 @@ def test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner(engine_env, 
     letter = kh.finish_exec(hub, ts, run_dir, 0)
     assert ts["exec"]["gate_claim"] is True
     assert letter["需协调人决定"].startswith("执行端说门禁测试有错") and "合同矛盾：无" in letter["需协调人决定"]
-    assert "先给站主发提问" in kh._guard_rework(ts, "5-exec")
-    assert kh._guard_rework(ts, "3-gate-pre") != kh._guard_rework(ts, "5-exec")
+    assert "给 gate-sonnet 发返工" in kh._guard_rework(ts, "5-exec") and "给站主发提问" in kh._guard_rework(ts, "5-exec")
+    assert kh._guard_rework(ts, "3-gate-pre") is None  # 第 52 轮：门禁端自己核实（热修补）
+    assert ts["exec"]["gate_claims"] == T011_LIMITATIONS[:2]
     ts["owner_rework"] = {"suffix": "5-exec", "msg": "m", "requested_at": "2026-10-22T00:00:00Z"}
     assert kh._guard_rework(ts, "5-exec") is None  # 站主明说返工执行端
     del ts["owner_rework"]
@@ -5156,3 +5157,51 @@ def test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused(tmp
     assert kh.parse_letter(letter)[1]["摘要"] == text  # 一个字也不少
     events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
     assert '"event": "exec.gate_claim_answered"' in events
+
+
+# ---------------------------------------------------------------------------
+# 第 52 轮：执行端说门禁有错时门禁端自己核实；门禁端开工时拿到撞过的坑
+# ---------------------------------------------------------------------------
+
+def test_a_gate_claim_opens_the_hotfix_and_holds_the_executor_until_the_gate_redelivers():
+    ts = locked(make_ts())
+    ts["audit_pre"].update(verdict="通过", contract_sha256="c1", oracle_sha="o" * 40)
+    ts["exec"].update(run_dir="r", check_ok=False, conflicts=0)
+    assert kh.hotfix_reason(ts) is None
+    assert "没有一审或终审退回" in kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre"))
+    ts["exec"].update(gate_claim=True, gate_claims=["V01 均为门禁端缺陷"])
+    assert kh.hotfix_reason(ts) == "执行端说门禁测试有错"
+    assert kh.guard(ts, meta("返工", "gate-sonnet", "T001-3-gate-pre")) is None
+    assert "给 gate-sonnet 发返工" in kh.guard(ts, meta("返工", "exec-step", "T001-5-exec"))
+    kh.invalidate_after(ts, "3-gate-pre")  # 门禁重新交付：执行端的旧结论与扣留一起作废
+    assert kh.hotfix_reason(ts) is None and not ts["exec"].get("gate_claim")
+
+
+def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    claims = ["V01 12 项失败经逐一定位均为门禁端缺陷：fireEvent.hashChange 不存在", "探针状态泄漏"]
+    ts["exec"].update(run_dir="C:/repo/.agent/runs/t001-doc/attempt-001", check_ok=False, conflicts=0,
+                      gate_claim=True, gate_claims=claims)
+    hub.save_state(state)
+    hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": "T001", "in-reply-to": "none", "type": "回复"},
+                fields())
+    item = dict(start_planner("# 热修补\n核实执行端说的门禁缺陷"), to="gate-sonnet", type="返工",
+                task_id="T001-3-gate-pre")
+    kh.Engine(hub, FakeRunner([({"letters": [item]}, [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["hotfix"]["reason"] == "执行端说门禁测试有错" and ts["hotfix"]["claims"] == claims
+    assert ts["hotfix"]["run_dir"].endswith("attempt-001")
+    kh.invalidate_after(ts, "3-gate-pre")  # 交付之后 exec 清空，原话还在热修补记录里
+    prompt = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], hub.repo)
+    assert "## 热修补：执行端说门禁测试有错（原话，内核转交）" in prompt
+    assert "- V01 12 项失败经逐一定位均为门禁端缺陷：fireEvent.hashChange 不存在" in prompt
+    assert "attempt-001/candidate.patch" in prompt and "attempt-001/checks/" in prompt
+    assert "fireEvent 没有 hashChange" in prompt  # 撞过的坑
+    post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
+    assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
+    del ts["hotfix"]
+    plain = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], hub.repo)
+    assert "## 门禁测试撞过的坑" in plain and "热修补：执行端说" not in plain
+    assert "撞过的坑" not in kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], hub.repo)
