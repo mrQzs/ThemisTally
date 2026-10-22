@@ -3440,6 +3440,12 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 上一回合跑满时限，什么也没交出。" + (
                       "工作目录里它留下的改动还在：先 `git status`、`git diff` 看清楚，在上面接着做，不要从头调查。"
                       if spec.get("workspace") == "stage" else "这一回合先把确定的部分交出来，不要从头调查。")]
+    owner = ts["stages"][suffix].get("owner_text") if suffix in ts.get("stages", {}) else None
+    if owner:
+        # 第 54 轮：T011 站主第二封信把门禁热修补收窄到 6 处、不复核、不读 events.jsonl，协调人的任务书照旧写
+        # “逐条复核”，门禁端看不到站主的原话
+        parts += ["", "## 站主的原话（站主指定的返工，内核原样转交；与任务书不一致时以这里为准）", "",
+                  "站主来信 %s：" % owner["msg"], "", str(owner["text"])]
     if error:
         parts += ["", "## 上一次输出没有通过内核校验，请改正后重新交出", "", error]
     parts += ["", "## 新信", ""] + (letters or ["（没有新信）"])
@@ -3803,7 +3809,10 @@ class Engine:
                     ts["hotfix"].update(claims=ts["exec"]["gate_claims"], run_dir=ts["exec"].get("run_dir"))
                 self.hub.append_event("hotfix.started", task=ts["task"], reason=ts["hotfix"]["reason"])
             if meta["type"] == "返工" and (ts.get("owner_rework") or {}).get("suffix") == suffix:
-                self.hub.append_event("owner_rework.used", task=ts["task"], **ts.pop("owner_rework"))
+                record = ts.pop("owner_rework")
+                if record.get("text"):
+                    ts["stages"][suffix]["owner_text"] = {"msg": record["msg"], "text": record.pop("text")}
+                self.hub.append_event("owner_rework.used", task=ts["task"], **record)
             elif meta["type"] == "返工":  # 站主指定的不算：站主是最终拍板人
                 reworks = ts.setdefault("reworks", {})
                 reworks[suffix] = reworks.get(suffix, 0) + 1
@@ -3931,6 +3940,7 @@ class Engine:
                 fields["内核核验"] = "未通过：" + "；".join(problems)[:1200]
             else:
                 stage.update(status="delivered", note="", delivered_at=utc_now())
+                stage.pop("owner_text", None)  # 站主的返工要求办完了
                 fields["内核核验"] = "通过"
                 invalidate_after(ts, suffix)
                 self.after_delivery(ts, suffix, fields, output)
@@ -4489,7 +4499,8 @@ def cmd_send(args: argparse.Namespace) -> int:
             ts["status"], ts["coordinator_rejections"] = "active", 0
         if args.rework:
             # 一审之前站主也能要合同改版（T001：此前只有审核退回或核验失败才放行返工）
-            ts["owner_rework"] = {"suffix": args.rework, "msg": msg, "requested_at": utc_now()}
+            # text：返工开始时内核把站主的原话交给那个阶段，不靠协调人转述（第 54 轮）
+            ts["owner_rework"] = {"suffix": args.rework, "msg": msg, "requested_at": utc_now(), "text": fields["摘要"]}
             hub.append_event("owner_rework.requested", task=args.task, suffix=args.rework, msg=msg)
         if args.facts_checked:
             record = ts["external_facts"]

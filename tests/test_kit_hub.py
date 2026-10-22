@@ -5257,3 +5257,52 @@ def test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint(engine_env):
     ts = hub.load_state()["tasks"]["T001"]
     assert ts["stages"]["1-plan"]["timed_out"] is False
     assert "上一回合超时作废" not in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], hub.repo)
+
+
+# ---------------------------------------------------------------------------
+# 第 54 轮：站主指定返工的原话由内核交给那个阶段
+# ---------------------------------------------------------------------------
+
+def test_the_owners_rework_words_reach_the_reworked_stage_verbatim(engine_env):
+    # T011：站主第二封信把门禁热修补收窄到 6 处、不复核；协调人的任务书照旧要它复核，门禁端看不到原话
+    hub = engine_env
+    owner_task(hub)
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    words = "只改 6 处确定的缺陷，复核那 4 条这一回合不做；不要读 events.jsonl。"
+    ts["owner_rework"] = {"suffix": "1-plan", "msg": "20261022T044239129690Z-owner-9c900f",
+                          "requested_at": "2026-10-22T04:42:39Z", "text": words}
+    hub.save_state(state)
+    item = dict(start_planner("# 返工\n改 6 处，再逐条复核另外 4 条"), type="返工")
+    kh.Engine(hub, FakeRunner([({"letters": [item]}, [])])).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert "owner_rework" not in ts
+    assert ts["stages"]["1-plan"]["owner_text"] == {"msg": "20261022T044239129690Z-owner-9c900f", "text": words}
+    events = (hub.root / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    used = [json.loads(line) for line in events.splitlines() if '"owner_rework.used"' in line]
+    assert len(used) == 1 and "text" not in used[0] and used[0]["msg"].endswith("owner-9c900f")
+    prompt = kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], hub.repo)
+    assert "## 站主的原话（站主指定的返工，内核原样转交；与任务书不一致时以这里为准）" in prompt
+    assert "站主来信 20261022T044239129690Z-owner-9c900f：\n\n" + words in prompt
+    assert prompt.index("## 站主的原话") < prompt.index("## 任务书")
+    assert "站主的原话" not in kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], hub.repo)
+    # 这个阶段交付通过之后，原话撤掉
+    runner = FakeRunner([(planner_delivery(), [])])
+    kh.Engine(hub, runner).step()
+    assert "## 站主的原话" in runner.calls[0][2]  # 返工回合真的拿到了
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered" and "owner_text" not in ts["stages"]["1-plan"]
+
+
+def test_owner_rework_records_the_letter_text(tmp_path):
+    import argparse
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    hub.save_state({"tasks": {"T001": kh.new_task_state("T001", "doc", "改文档", head, True)}})
+    body = tmp_path / "reply.md"
+    body.write_text("站主答复：只改 6 处。\n", encoding="utf-8")
+    kh.cmd_send(argparse.Namespace(repo=str(repo), task="T001", type="回复", reply_to=None, rework="3-gate-pre",
+                                   facts_checked=False, file=str(body)))
+    record = hub.load_state()["tasks"]["T001"]["owner_rework"]
+    assert record["suffix"] == "3-gate-pre" and record["text"] == "站主答复：只改 6 处。"
