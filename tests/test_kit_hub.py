@@ -4844,7 +4844,7 @@ def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
     assert [e["previous"] for e in events if e["event"] == "contract.executor_synced"] == [
         "- executor: step/step-5-preview · thinking high"]
     assert kh.sync_executor_line(hub, ts) is None  # 已经一致
-    md.write_text(md.read_text(encoding="utf-8").replace("bb/", "step/"), encoding="utf-8")
+    md.write_text(md.read_text(encoding="utf-8").replace("cc-switch-step-fun/", "step/"), encoding="utf-8")
     ts["contract"]["dispatched"] = True  # 派遣过的版本只增不改
     assert kh.sync_executor_line(hub, ts) is None and "step/" in md.read_text(encoding="utf-8")
 
