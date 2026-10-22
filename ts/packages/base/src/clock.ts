@@ -15,9 +15,29 @@ function pad(value: number, width: number): string {
   return String(value).padStart(width, "0");
 }
 
-/** 当前时刻的 Unix 微秒数。Date.now() 只到毫秒，用 performance 的高精度时钟补到微秒。 */
+/**
+ * 做一个“当前 Unix 微秒数”的时钟：以 wall（毫秒，跟随系统时钟与 NTP 校正，与 Python 的 datetime.now() 同源）为准，
+ * fine（高精度的毫秒数）只补毫秒以下的三位；进程内单调夹紧：取 max(上一次 + 1, 本次)，系统时钟往回调也不倒退。
+ * 不能直接用 performance.timeOrigin + performance.now()：那是单调时钟，不跟随系统时间校正，休眠期间也不走，
+ * hub 一跑几天就会偏离系统时间，也偏离 Python 写的时间。
+ */
+export function makeClock(wall: () => number, fine: () => number): () => number {
+  let last = 0;
+  return () => {
+    const subMillisecond = Math.floor((((fine() % 1) + 1) % 1) * 1000);
+    last = Math.max(last + 1, Math.floor(wall()) * 1000 + subMillisecond);
+    return last;
+  };
+}
+
+const systemClock = makeClock(
+  () => Date.now(),
+  () => performance.now(),
+);
+
+/** 当前时刻的 Unix 微秒数（系统时钟，进程内单调递增）。 */
 export function nowMicros(): number {
-  return Math.floor((performance.timeOrigin + performance.now()) * 1000);
+  return systemClock();
 }
 
 /** utc_now：秒精度，截断（Python 的 strftime 不进位）。 */
