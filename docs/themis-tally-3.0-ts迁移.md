@@ -361,6 +361,7 @@ SQLite 的启动检查：
 - **记下是哪一套产生的**：从第 ② 步起，证据和账本都记实现与版本，复审时才分得清。
   - attempt 的 `meta.json` 加 `impl` 与版本；
   - hub 的 `dispatcher.called` 事件与回合事件也加。
+  - 这是证据与账本格式的改动：第 ② 步做的时候照内核轮次走，在 r3 §10 记一轮。Python 版同时写 `impl: "python"`，不能只有 TS 版写。
 - **何时加**：第 ② 步第一次需要切换时才加。在那之前，这个文件不存在，也不读，等于全部是 `python`。
 - **随 kit 安装**：跟内核代码一起提交，算进指纹。
 - **怎么改**：每次切换都是一次提交，在 kdev 里改、测试、照第 9 节的流程合入，不在主工作区直接改。提交说明写明切了哪个组件、出口条件的证据。
@@ -420,8 +421,10 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 2. **`PROC_THREAD_ATTRIBUTE_JOB_LIST`**：`CreateProcessW` 的扩展属性在创建时直接指定 Job，同样不用挂起。
 3. **Bun FFI**：`bun:ffi` 调 `kernel32`（`CreateProcessW` 带 `CREATE_SUSPENDED`、`CreateJobObjectW`、`AssignProcessToJobObject`、`ResumeThread`、`TerminateJobObject`），照搬现行做法。`bun:ffi` 官方还标着实验性，Node 后备用不了。
 
+候选 1 的辅助程序用什么语言写（C、Bun 编译加 `bun:ffi`，或者别的）到 ④a 定，并写进本文：Node 自己调不了 Win32。
+
 验证用例：
-- 子进程在放行之前一条指令也不执行，用一个一启动就写文件的程序检验；
+- 子进程从第一条指令起就在 Job 里。检验办法：子进程一启动就派生一个脱离父进程的孙进程然后退出，结束 Job 之后孙进程也必须不在了。候选 3（挂起创建）另外要验证“放行之前一条指令也不执行”，用一个一启动就写文件的程序检验；
 - 孙进程也在 Job 里；
 - 超时之后整棵树都结束，包括脱离父进程的孙进程；
 - 宽限 15 秒的语义与现行一致。
@@ -488,7 +491,8 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 |---|---|---|---|
 | 0 | 本计划；`ts/` 工作区骨架；样板 `publish_new` | 带条件通过，合入 | 266cd33 |
 | 0.1 | 计划 v1.1（补进通过时附的条件）；包之间改按包名 import，并实测 Node 与 Bun 的解析 | 完成 | 见提交说明 |
-| ① | 共享基础库：publish（已完成）、pyjson、secrets、locks、jsonl、clock | 进行中 | |
+| ① | 共享基础库：publish、pyjson、secrets、locks、jsonl、clock | 进行中：publish、pyjson 完成 | |
+| ①-pyjson | json.dumps/loads 的 Python 兼容实现：契约三张表（dumps 20 条、loads 23 条、读改写 3 条），Python 先过；对照 4 个种子，每个 600 次 dumps、900 次 loads（含随机变形的非法输入）、300 次读改写，三种运行方式逐字节一致；变异 22 个，抓住 21 个，1 个声明等价（Y17：去掉 BOM 检查只改报错文字） | 完成 | 见提交说明 |
 | ② | 只读命令 | | |
 | ③ | 配置中心 | | |
 | ④a | Windows 进程监督的验证 | | |

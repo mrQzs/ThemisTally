@@ -1,0 +1,147 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/base/test/pyjson.test.ts",
+    "packages/contracts/test/pyjson.contract.test.ts",
+    "packages/contracts/test/pyjson.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "Y01 键按 UTF-16 码元排",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "if (typeof left === \"string\" && typeof right === \"string\") return compareCodePoints(left, right);",
+      "new": "if (typeof left === \"string\" && typeof right === \"string\") return left < right ? -1 : left > right ? 1 : 0;"
+    },
+    {
+      "name": "Y02 大数的指数门槛差一",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "if (decpt <= -4 || decpt > 16) {",
+      "new": "if (decpt <= -4 || decpt > 15) {"
+    },
+    {
+      "name": "Y03 小数的指数门槛差一",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "if (decpt <= -4 || decpt > 16) {",
+      "new": "if (decpt <= -5 || decpt > 16) {"
+    },
+    {
+      "name": "Y04 指数不补到两位",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "String(Math.abs(exponent)).padStart(2, \"0\")",
+      "new": "String(Math.abs(exponent))"
+    },
+    {
+      "name": "Y05 整数值的 float 不补 .0",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "return `${sign}${digits}${\"0\".repeat(decpt - digits.length)}.0`;",
+      "new": "return `${sign}${digits}${\"0\".repeat(decpt - digits.length)}`;"
+    },
+    {
+      "name": "Y06 -0.0 写成 0.0",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "return Object.is(value, -0) ? \"-0.0\" : \"0.0\";",
+      "new": "return \"0.0\";"
+    },
+    {
+      "name": "Y07 ensure_ascii 缺省为 False",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "const ensureAscii = options.ensureAscii ?? true;",
+      "new": "const ensureAscii = options.ensureAscii ?? false;"
+    },
+    {
+      "name": "Y08 0x1f 不转义",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    else if (unit < 0x20) out += hex4(unit);",
+      "new": "    else if (unit < 0x1f) out += hex4(unit);"
+    },
+    {
+      "name": "Y09 ensure_ascii 时 DEL 不转义",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "else if (unit < 0x20 || unit > 0x7e) out += hex4(unit);",
+      "new": "else if (unit < 0x20 || unit > 0x7f) out += hex4(unit);"
+    },
+    {
+      "name": "Y10 \\u 转义用大写十六进制",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "return \"\\\\u\" + unit.toString(16).padStart(4, \"0\");",
+      "new": "return \"\\\\u\" + unit.toString(16).toUpperCase().padStart(4, \"0\");"
+    },
+    {
+      "name": "Y11 indent 下项分隔符带空格",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "(indent === null ? [\", \", \": \"] : [\",\", \": \"])",
+      "new": "(indent === null ? [\", \", \": \"] : [\", \", \": \"])"
+    },
+    {
+      "name": "Y12 indent 下空数组也换行",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      if (item.length === 0) return \"[]\";",
+      "new": "      if (item.length === 0) return \"[\" + open + close + \"]\";"
+    },
+    {
+      "name": "Y13 忽略 sort_keys",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      if (sortKeys) entries.sort(",
+      "new": "      if (false) entries.sort("
+    },
+    {
+      "name": "Y14 bool 键写成 True",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (key === true) return \"true\";",
+      "new": "  if (key === true) return \"True\";"
+    },
+    {
+      "name": "Y15 只看小数点就算 float（1e5 当整数）",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "if (fraction !== undefined || exponent !== undefined) return [Number(whole), end];",
+      "new": "if (fraction !== undefined) return [Number(whole), end];"
+    },
+    {
+      "name": "Y16 重复的键取第一次的值",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    out.set(key, value); // 重复的键",
+      "new": "    if (!out.has(key)) out.set(key, value); // 重复的键"
+    },
+    {
+      "name": "Y17 不拒 BOM",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (text.startsWith(\"\\ufeff\")) throw decodeError(",
+      "new": "  if (false) throw decodeError(",
+      "equivalent": "去掉 BOM 检查后，BOM 不是空白，照样报 JSONDecodeError（Expecting value），只是错误信息不同；契约只比较错误种类。保留这项检查是为了与 Python 的报错文字一致"
+    },
+    {
+      "name": "Y18 不查 int 的位数上限",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (digits > INT_MAX_STR_DIGITS) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "Y19 字符串里放过控制字符",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      if (unit < 0x20) throw decodeError(\"Invalid control character at\", index);",
+      "new": "      void unit;"
+    },
+    {
+      "name": "Y20 空白多认不间断空格",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "const WHITESPACE_RE = /[ \\t\\n\\r]*/y;",
+      "new": "const WHITESPACE_RE = /[ \\t\\n\\r\\u00a0]*/y;"
+    },
+    {
+      "name": "Y21 encodeUtf8 不查孤立代理项",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (!text.isWellFormed()) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "Y22 忽略 allow_nan",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (!allowNan) throw new PyJsonError(",
+      "new": "  if (false) throw new PyJsonError("
+    }
+  ]
+}

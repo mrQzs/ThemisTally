@@ -2,6 +2,11 @@
 // 同一份源码由 `node`（类型擦除）与 `bun` 各跑一遍。
 import { existsSync } from "node:fs";
 import { publishNew } from "@themis/base/publish";
+import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads } from "@themis/base/pyjson";
+import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
+
+type Request = Record<string, unknown> & { op: string; barrier?: string };
+type Result = Record<string, unknown>;
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -16,16 +21,47 @@ function waitFor(barrier: string): void {
   while (!existsSync(barrier)) Atomics.wait(pause, 0, 0, 1);
 }
 
-const request = JSON.parse(await readStdin()) as { op: string; path: string; data_b64: string; barrier?: string };
-if (request.barrier) waitFor(request.barrier);
-if (request.op !== "publish_new") {
-  process.stdout.write(JSON.stringify({ ok: false, error: "UNKNOWN_OP" }));
-  process.exitCode = 2;
-} else {
+/** 请求里的参数用 Python 的名字（ensure_ascii、sort_keys…），换成 TS 的。 */
+function dumpsOptions(raw: unknown): DumpsOptions {
+  const options = (raw ?? {}) as Record<string, unknown>;
+  const out: { -readonly [K in keyof DumpsOptions]: DumpsOptions[K] } = {};
+  if ("ensure_ascii" in options) out.ensureAscii = options["ensure_ascii"] as boolean;
+  if ("indent" in options) out.indent = options["indent"] as number | null;
+  if ("sort_keys" in options) out.sortKeys = options["sort_keys"] as boolean;
+  if ("allow_nan" in options) out.allowNan = options["allow_nan"] as boolean;
+  if (options["separators"] != null) out.separators = options["separators"] as [string, string];
+  return out;
+}
+
+function textResult(text: string, encode: unknown): Result {
+  return encode ? { ok: true, b64: Buffer.from(encodeUtf8(text)).toString("base64") } : { ok: true, text };
+}
+
+const OPS: Record<string, (request: Request) => Result> = {
+  publish_new: (request) => ({
+    ok: true,
+    published: publishNew(String(request["path"]), Buffer.from(String(request["data_b64"]), "base64")),
+  }),
+  "pyjson.dumps": (request) =>
+    textResult(dumps(fromTagged(request["value"] as Tagged), dumpsOptions(request["options"])), request["encode"]),
+  "pyjson.loads": (request) => ({ ok: true, value: toTagged(loads(String(request["text"]))) }),
+  "pyjson.roundtrip": (request) =>
+    textResult(dumps(loads(String(request["text"])), dumpsOptions(request["options"])), request["encode"]),
+};
+
+function runOne(request: Request): Result {
+  if (request.barrier) waitFor(request.barrier);
+  const handler = OPS[request.op];
+  if (handler === undefined) return { ok: false, error: "UNKNOWN_OP" };
   try {
-    const published = publishNew(request.path, Buffer.from(request.data_b64, "base64"));
-    process.stdout.write(JSON.stringify({ ok: true, published }));
+    return handler(request);
   } catch (error) {
-    process.stdout.write(JSON.stringify({ ok: false, error: (error as NodeJS.ErrnoException).code ?? "EUNKNOWN" }));
+    if (error instanceof PyJsonError) return { ok: false, error: error.kind };
+    return { ok: false, error: (error as NodeJS.ErrnoException).code ?? "EUNKNOWN" };
   }
 }
+
+const request = JSON.parse(await readStdin()) as Request;
+const result =
+  request.op === "batch" ? { ok: true, results: (request["items"] as Request[]).map(runOne) } : runOne(request);
+process.stdout.write(JSON.stringify(result));

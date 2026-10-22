@@ -18,21 +18,38 @@ export const TS_NODE: Impl = { name: "ts-node", argv: ["node", join(PROBES, "ts_
 export const TS_BUN: Impl = { name: "ts-bun", argv: ["bun", join(PROBES, "ts_probe.ts")] };
 export const IMPLS: readonly Impl[] = [PYTHON, TS_NODE, TS_BUN];
 
-export interface PublishRequest {
-  readonly op: "publish_new";
-  readonly path: string;
-  readonly data_b64: string;
+/** 探针请求：op 加各自的参数；op 为 "batch" 时 items 是一串请求，一个进程办完（对照测试一次送几百个值）。 */
+export interface ProbeRequest {
+  readonly op: string;
   readonly barrier?: string;
+  readonly [key: string]: unknown;
 }
 
-export type ProbeResult = { readonly ok: true; readonly published: boolean } | { readonly ok: false; readonly error: string };
+/** 探针结果：ok 为 false 时 error 是错误码（ENOENT…）或 Python 的异常类名（TypeError…）。 */
+export interface ProbeResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly [key: string]: unknown;
+}
 
-export function runProbe(impl: Impl, request: PublishRequest): ProbeResult {
+export function runProbe(impl: Impl, request: ProbeRequest): ProbeResult {
   const [command, ...args] = impl.argv;
-  const done = spawnSync(command ?? "", args, { input: JSON.stringify(request), encoding: "utf8", timeout: 30_000 });
+  const done = spawnSync(command ?? "", args, {
+    input: JSON.stringify(request),
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 256 * 1024 * 1024,
+  });
   if (done.error) throw new Error(`${impl.name} 探针没能启动：${done.error.message}`);
   if (done.status !== 0) throw new Error(`${impl.name} 探针退出码 ${done.status}：${done.stderr}`);
   return JSON.parse(done.stdout) as ProbeResult;
+}
+
+/** 一批请求交给一个探针进程，按顺序返回各自的结果。 */
+export function runBatch(impl: Impl, items: readonly ProbeRequest[]): ProbeResult[] {
+  const result = runProbe(impl, { op: "batch", items });
+  if (!result.ok || !Array.isArray(result["results"])) throw new Error(`${impl.name} 批量请求失败：${JSON.stringify(result)}`);
+  return result["results"] as ProbeResult[];
 }
 
 export interface RacingProbe {
@@ -44,7 +61,7 @@ export interface RacingProbe {
 }
 
 /** 并发用例：探针起来之后先报就绪，等起跑文件出现再动手。 */
-export function startProbe(impl: Impl, request: PublishRequest): RacingProbe {
+export function startProbe(impl: Impl, request: ProbeRequest): RacingProbe {
   const [command, ...args] = impl.argv;
   const child = spawn(command ?? "", args, { stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "";
@@ -93,16 +110,21 @@ export function snapshot(dir: string): Record<string, string> {
   return out;
 }
 
-/** 可复现的伪随机字节（mulberry32）：对照测试的输入要能按种子重放。 */
-export function seededBytes(seed: number, length: number): Uint8Array {
+/** 可复现的伪随机数（mulberry32），取值 [0, 1)：对照测试的输入要能按种子重放。 */
+export function prng(seed: number): () => number {
   let state = seed >>> 0;
-  const next = (): number => {
+  return (): number => {
     state = (state + 0x6d2b79f5) >>> 0;
     let t = state;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** 可复现的伪随机字节。 */
+export function seededBytes(seed: number, length: number): Uint8Array {
+  const next = prng(seed);
   const out = new Uint8Array(length);
   for (let index = 0; index < length; index += 1) out[index] = Math.floor(next() * 256);
   return out;
