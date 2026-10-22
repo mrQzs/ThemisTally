@@ -11,6 +11,7 @@ import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { pyIntParse } from "@themis/base/pyre";
+import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
 import {
   type AllowList,
   allowEnum,
@@ -133,6 +134,17 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       default:
         return { ok: false, error: "UNKNOWN_FN" };
     }
+  },
+  "pyregex.search": (request) => {
+    let pattern;
+    try {
+      pattern = compileSearch(String(request["pattern"]));
+    } catch (error) {
+      if (error instanceof SearchPatternError) return { ok: true, outcome: "error", message: error.message };
+      if (error instanceof PyValueError) return { ok: true, outcome: "crash", error: "ValueError" };
+      throw error;
+    }
+    return { ok: true, outcome: "match", hits: (request["texts"] as string[]).map((text) => pattern.test(text)) };
   },
   "jsonl.records": (request) => ({
     ok: true,

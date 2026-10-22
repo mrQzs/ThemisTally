@@ -70,7 +70,8 @@ function compare(item: Case): void {
     const forSchema = JSON.parse(JSON.stringify({ ...pyargs, repo: at }, (_key, value: unknown) => (typeof value === "bigint" ? Number(value) : value)));
     expect(schemaErrors("pyargs-v1", forSchema), "启动器参数过 Schema").toEqual([]);
     if (pyargs["json"] === true && python.status === 0) {
-      const schema = { status: "status-v1", "logs list": "logs-list-v1", "logs show": "logs-show-v1", "logs cat": "logs-cat-v1" }[
+      const schema = { status: "status-v1", "logs list": "logs-list-v1", "logs show": "logs-show-v1", "logs cat": "logs-cat-v1",
+        "logs search": "logs-search-v1" }[
         (pyargs["command"] as string[]).join(" ") as "status"];
       expect(schemaErrors(schema, JSON.parse(text(python))), `${schema} 过 Schema`).toEqual([]);
     }
@@ -108,6 +109,30 @@ const cat = (target: string, file: string, options: { cursor?: string; limit?: n
     pyargs: { command: ["logs", "cat"], target, path: file, cursor: options.cursor ?? null, limit, json },
   };
 };
+const search = (pattern: string, options: { task?: string; max?: number | bigint; json?: boolean } = {}): Pick<Case, "argv" | "pyargs"> => {
+  const max = options.max ?? 50;
+  const json = options.json ?? false;
+  return {
+    argv: ["logs", "search", pattern, ...(options.task === undefined ? [] : ["--task", options.task]), "--max", String(max),
+      ...(json ? ["--json"] : [])],
+    pyargs: { command: ["logs", "search"], pattern, task: options.task ?? null, max, json },
+  };
+};
+
+/** 搜索用的证据：两个任务、三个 attempt，各种后缀（含大小写不同的 .LOG，不搜）。 */
+function searchable(repo: string): void {
+  const one = runs(repo, "alpha/attempt-001");
+  put(one, "summary.md", `# alpha\n找到 needle 了\r\n第三行 Needle\n${"长".repeat(150)}needle${C(0x1f600)}${"尾".repeat(80)}\n`);
+  put(one, "checks/01/V01.log", "PASS needle\nFAIL\n");
+  put(one, "notes/UPPER.LOG", "needle 不搜（后缀按大小写区分）\n");
+  put(one, "data.bin", "needle 不搜（不是文本后缀）\n");
+  put(runs(repo, "alpha/attempt-002"), "events.jsonl", [
+    '{"type": "tool", "text": "needle one"}', "not json needle", `{"api_key": "needle-secret-0123456789"}`,
+    `${"x".repeat(4 * 1024 * 1024 + 1)}`, '{"type": "tool", "text": "needle two"}',
+  ].join("\n"));
+  put(runs(repo, "beta/attempt-001"), "executor-report.json", { status: "completed", note: `needle ${C(0x4e2d, 0x6587)}`, token: "sk-ABCDEFGHIJKLMNOPQRSTUV" });
+}
+
 const show = (target: string, json: boolean): Pick<Case, "argv" | "pyargs"> => ({
   argv: ["logs", "show", target, ...(json ? ["--json"] : [])],
   pyargs: { command: ["logs", "show"], target, json },
@@ -603,6 +628,159 @@ const CASES: Case[] = [
     ...cat("alpha/attempt-001", "big.log"),
     check: (py) => expect(py.stderr.toString("utf8")).toContain("文件太大（超过上限 67108864 字节）"),
   },
+  // --- logs search（②b2）---
+  {
+    name: "X01 文本：跨任务与 attempt、行号、CRLF 去掉 \\r、长行截到 200 个码点、后缀按大小写区分、隐藏的行不搜",
+    setup: searchable,
+    ...search("needle"),
+    check: (py) => {
+      expect(text(py)).toContain("alpha/attempt-001/summary.md:2: 找到 needle 了\r\n");
+      expect(text(py)).toContain("alpha/attempt-002/events.jsonl:5: ");
+      expect(text(py)).not.toContain("UPPER.LOG");
+      expect(text(py)).not.toContain("not json needle");
+    },
+  },
+  {
+    name: "X02 JSON：匹配、脱敏之后的文本、不截断",
+    setup: searchable,
+    ...search("needle", { json: true }),
+    check: (py) => {
+      const data = JSON.parse(text(py)) as { matches: { path: string; line: number; text: string }[]; truncated: boolean };
+      expect(data.truncated).toBe(false);
+      expect(data.matches.map((m) => `${m.path}:${m.line}`)).toContain("events.jsonl:1");
+      expect(text(py)).not.toContain("needle-secret");
+    },
+  },
+  {
+    name: "X03 --max 截断：文本与 JSON",
+    setup: searchable,
+    ...search("needle", { max: 2 }),
+    check: (py) => expect(text(py)).toContain("（已截断：只显示前 2 条匹配）"),
+  },
+  {
+    name: "X04 --max 截断（JSON），--task 只搜一个任务",
+    setup: searchable,
+    ...search("needle", { max: 1, json: true, task: "alpha" }),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ truncated: true, matches: [{ task: "alpha" }] }),
+  },
+  {
+    name: "X05 Python 正则的语义：(?i) 用简单大小写映射（开尔文符号算 k）、\\w 认中文、\\b、后顾；分支里的 (?a:) 照常",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "notes.txt",
+      [`${C(0x212a)}ilo`, "中文word", "a-b", "x=1", `${C(0xb5)}${C(0xfb05)}`, `${C(0x3b9)} ${C(0x3a3)}`, "STRASSE", `stra${C(0xdf)}e`].join("\n")),
+    ...search(`(?i:kilo)|^${C(0x5c)}w+word$|${C(0x5c)}ba${C(0x5c)}b|(?<=x=)1|(?a:[^${C(0x5c)}w${C(0x10400)} A-i])|(?i:stra${C(0xdf)}e)`),
+    check: (py) => {
+      expect(text(py)).toContain(`notes.txt:1: ${C(0x212a)}ilo`);
+      expect(text(py)).toContain("notes.txt:2: 中文word");
+      expect(text(py)).toContain(`notes.txt:8: stra${C(0xdf)}e`);
+      expect(text(py)).toContain(`notes.txt:5: ${C(0xb5)}${C(0xfb05)}`); // 整个模式是分支：没有字符集前缀
+      expect(text(py)).not.toContain("STRASSE");
+    },
+  },
+  {
+    name: "X05b 整个模式就是 (?a:[^\\w…])：sre 的字符集前缀按整个模式的 Unicode \\w 判定，µ 不算起点",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "notes.txt", [`${C(0xb5)}${C(0xfb05)}`, "-", "b"].join("\n")),
+    ...search(`(?s)(?a:[^${C(0x5c)}w${C(0x10400)} A-i])`),
+    check: (py) => {
+      expect(text(py)).toContain("notes.txt:2: -");
+      expect(text(py)).not.toContain(`${C(0xb5)}`);
+    },
+  },
+  {
+    name: "X06 空的 PATTERN 匹配每一行（含空行），json 文件按缩进写出之后逐行搜",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "meta.json", { a: 1, password: "hunter2hunter2" }),
+    ...search("", { json: true }),
+    check: (py) => {
+      const data = JSON.parse(text(py)) as { matches: { text: string }[] };
+      expect(data.matches.map((m) => m.text)).toEqual(["{", '  "a": 1,', '  "password": "<redacted>"', "}", ""]);
+    },
+  },
+  {
+    name: "X07 跳过的大文件与链接：计数",
+    setup: (repo) => {
+      put(runs(repo, "alpha/attempt-001"), "big.log", Buffer.alloc(64 * 1024 * 1024 + 1, 0x61));
+      put(runs(repo, "alpha/attempt-001"), "ok.log", "aaa\n");
+      put(runs(repo, "elsewhere/attempt-001"), "x.log", "aaa\n");
+      junction(runs(repo, "elsewhere"), runs(repo, "linked"));
+    },
+    ...search("a+"),
+    check: (py) => {
+      expect(text(py)).toContain("跳过的大文件或读不出来的文件：1");
+      expect(text(py)).toContain("跳过的链接：1");
+    },
+  },
+  {
+    name: "X08 不合法的 PATTERN：re.error 的原文（位置、行列）",
+    setup: searchable,
+    ...search(`a${C(0xa)}(b`),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 不是合法的正则表达式：missing ), unterminated subpattern at position 2 (line 2, column 1)"),
+  },
+  {
+    name: "X08b 全局标志不在开头",
+    setup: searchable,
+    ...search("a(?i)b"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("global flags not at the start of the expression at position 1"),
+  },
+  {
+    name: "X09 反向引用拒绝（在 --max 检查之前）",
+    setup: searchable,
+    ...search(`(a)${C(0x5c)}1`, { max: 0 }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 不支持反向引用与条件分组"),
+  },
+  {
+    name: "X10 条件分组拒绝",
+    setup: searchable,
+    ...search("(a)?(?(1)b|c)"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 不支持反向引用与条件分组"),
+  },
+  {
+    name: "X11 括号嵌套超过 100 层",
+    setup: searchable,
+    ...search(`${"(".repeat(101)}a${")".repeat(101)}`),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 的括号嵌套超过 100 层"),
+  },
+  {
+    name: "X12 重复次数太大（OverflowError）",
+    setup: searchable,
+    ...search("a{4294967295}"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 不是合法的正则表达式：the repetition number is too large"),
+  },
+  {
+    name: "X13 编译期的错误：后顾不定宽",
+    setup: searchable,
+    ...search("(?<=a+)b"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("PATTERN 不是合法的正则表达式：look-behind requires fixed-width pattern"),
+  },
+  {
+    name: "X14 (?a)(?u)：Python 不接的 ValueError（崩溃，只比较退出码）",
+    setup: searchable,
+    ...search("(?a)(?u)x"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("ValueError"),
+    crash: true,
+  },
+  {
+    name: "X15 --max 为 0",
+    setup: searchable,
+    ...search("needle", { max: 0 }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--max 必须是不小于 1 的整数：0"),
+  },
+  {
+    name: "X16 --max 超出 JS 数字的精度",
+    setup: searchable,
+    ...search("needle", { max: 99999999999999999999n, json: true }),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ truncated: false }),
+  },
+  {
+    name: "X17 --task 不合法",
+    setup: searchable,
+    ...search("needle", { task: "../x" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--task 必须是合法的任务 ID"),
+  },
+  {
+    name: "X18 没有匹配、没有 runs 目录",
+    setup: () => {},
+    ...search("needle"),
+    check: (py) => expect(py.stdout.length).toBe(0),
+  },
 ];
 
 /** 同一个仓库里翻页：Python 与 TS 拿同一个游标逐页比较，下一页的游标取自 Python 的输出。 */
@@ -634,7 +812,7 @@ function comparePages(setup: (repo: string) => void, target: string, file: strin
   }
 }
 
-describe("第 ②a、②b1 步：status、logs list、logs show、logs cat 与 Python 逐字节一致", () => {
+describe("第 ②a、②b1、②b2 步：status、logs list、logs show、logs cat、logs search 与 Python 逐字节一致", () => {
   for (const item of CASES) it(item.name, () => compare(item), 120_000);
 
   it("P01 文本翻页：长行按片、补充平面字符按码点", () => {

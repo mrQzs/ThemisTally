@@ -5,6 +5,7 @@
   "exports": {
     "./logs": "./src/logs.ts",
     "./logs-cat": "./src/logs-cat.ts",
+    "./logs-search": "./src/logs-search.ts",
     "./repo": "./src/repo.ts",
     "./status": "./src/status.ts"
   },

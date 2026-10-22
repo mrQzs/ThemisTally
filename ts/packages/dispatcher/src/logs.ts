@@ -125,7 +125,7 @@ function readJson(file: string): PyValue | undefined {
 
 // --- 枚举 -----------------------------------------------------------------------
 
-function taskEntries(runs: string, links: LinkTally): Entry[] {
+export function taskEntries(runs: string, links: LinkTally): Entry[] {
   if (!exists(runs)) return [];
   const entries = scan(runs);
   if (entries === null) throw new LogsError(`无法列出 ${runs}`, LOGS_EXIT_FAIL);
@@ -139,9 +139,9 @@ function taskEntries(runs: string, links: LinkTally): Entry[] {
   });
 }
 
-type AttemptEntry = [name: string, number: bigint, entryPath: string];
+export type AttemptEntry = [name: string, number: bigint, entryPath: string];
 
-function attemptEntries(taskDir: string, links: LinkTally): AttemptEntry[] {
+export function attemptEntries(taskDir: string, links: LinkTally): AttemptEntry[] {
   const entries = scan(taskDir);
   if (entries === null) return [];
   const found: AttemptEntry[] = [];
@@ -368,14 +368,14 @@ export function repoOf(value: string | null): Repo {
   }
 }
 
-function checkTask(task: string | null): string | null {
+export function checkTask(task: string | null): string | null {
   if (task === null) return null;
   if (!TASK_ID_RE.test(task)) throw new LogsError(`--task 必须是合法的任务 ID：${pyRepr(task)}`, LOGS_EXIT_USAGE);
   return task;
 }
 
 export const emitJson = (out: PyOut, value: PyValue): void => out.print(dumps(value, { ensureAscii: false, indent: 2 }));
-const skippedLinksLine = (count: number): string => `跳过的链接：${count}`;
+export const skippedLinksLine = (count: number): string => `跳过的链接：${count}`;
 
 export interface ListArgs {
   readonly repo: string | null;

@@ -95,7 +95,7 @@ class CpText {
 }
 
 /** kit_logs.safe_mode。 */
-function safeMode(rel: string): "jsonl" | "json" | "text" {
+export function safeMode(rel: string): "jsonl" | "json" | "text" {
   const lower = rel.toLowerCase();
   if (lower.endsWith(".jsonl")) return "jsonl";
   if (lower.endsWith(".json")) return "json";
@@ -123,7 +123,7 @@ function jsonOrRecursion(error: unknown): boolean {
 }
 
 /** kit_logs.redacted_text：整份读出并脱敏（json 与 text 模式）。最多读上限加 1 字节。 */
-function redactedText(file: string, name: string, mode: "json" | "text"): string {
+export function redactedText(file: string, name: string, mode: "json" | "text"): string {
   const raw = readHead(file, SAFE_MAX_TEXT_BYTES + 1);
   if (raw === null) throw new LogsError(`读不出来：${name}`, LOGS_EXIT_USAGE);
   if (raw.length > SAFE_MAX_TEXT_BYTES) {
@@ -140,10 +140,10 @@ function redactedText(file: string, name: string, mode: "json" | "text"): string
   return redactSecrets(text);
 }
 
-type JsonlEntry = { text: string } | { hidden: "too_long" | "not_json" };
+export type JsonlEntry = { text: string } | { hidden: "too_long" | "not_json" };
 
 /** kit_logs._jsonl_entry。 */
-function jsonlEntry(raw: Buffer | null): JsonlEntry {
+export function jsonlEntry(raw: Buffer | null): JsonlEntry {
   if (raw === null) return { hidden: "too_long" };
   const line = REPLACE_UTF8.decode(raw);
   if (!pyStrip(line)) return { text: "" };

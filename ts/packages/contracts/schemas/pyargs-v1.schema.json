@@ -181,6 +181,55 @@
           "type": "boolean"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "pattern",
+        "task",
+        "max",
+        "json"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "logs",
+            "search"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max": {
+          "type": "integer"
+        },
+        "json": {
+          "type": "boolean"
+        }
+      }
     }
   ]
 }

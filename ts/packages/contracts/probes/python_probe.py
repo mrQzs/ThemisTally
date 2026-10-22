@@ -255,6 +255,17 @@ def op_pyfmt_call(request):
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 
+def op_pyregex_search(request):
+    """kit_logs._compile_search 加逐段 search（第 ②b2 步）：编译的结果，与每段文本有没有匹配。"""
+    try:
+        pattern = kit_logs._compile_search(request["pattern"])
+    except kit_logs.LogsError as exc:
+        return {"ok": True, "outcome": "error", "message": str(exc)}
+    except ValueError as exc:  # (?a)(?u) 之类：kit_logs 不接，命令行打堆栈
+        return {"ok": True, "outcome": "crash", "error": type(exc).__name__}
+    return {"ok": True, "outcome": "match", "hits": [pattern.search(text) is not None for text in request["texts"]]}
+
+
 def op_jsonl_records(request):
     """kit_logs._jsonl_records；limit 给了就临时换掉 SAFE_MAX_LINE_BYTES（函数每次调用时才读这个全局量）。"""
     saved = kit_logs.SAFE_MAX_LINE_BYTES
@@ -298,6 +309,7 @@ OPS = {
     "jsonl.read": op_jsonl_read,
     "jsonl.records": op_jsonl_records,
     "pyfmt.call": op_pyfmt_call,
+    "pyregex.search": op_pyregex_search,
     "jsonl.iter_lines": op_jsonl_iter_lines,
     "jsonl.lines_before": op_jsonl_lines_before,
     "clock.sample": op_clock_sample,

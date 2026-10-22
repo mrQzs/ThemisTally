@@ -1,0 +1,64 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "-t",
+    "X0|X1",
+    "packages/contracts/test/readonly.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "L01 后缀不分大小写",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "if (!SEARCH_SUFFIXES.some((suffix) => rel.endsWith(suffix))) continue;",
+      "new": "if (!SEARCH_SUFFIXES.some((suffix) => rel.toLowerCase().endsWith(suffix))) continue;"
+    },
+    {
+      "name": "L02 --max 为 0 也收",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "if (args.max < 1n)",
+      "new": "if (args.max < 0n)"
+    },
+    {
+      "name": "L03 截断多收一条",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "if (BigInt(matches.length) >= args.max) {",
+      "new": "if (BigInt(matches.length) > args.max) {"
+    },
+    {
+      "name": "L04 按 UTF-16 码元截 200",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "codePoints(text).slice(0, MAX_LINE_CHARS).join(\"\")",
+      "new": "text.slice(0, MAX_LINE_CHARS)"
+    },
+    {
+      "name": "L05 大文件不计数",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "skippedLarge += 1; // 太大或读不出来：不搜，计数",
+      "new": "skippedLarge += 0; // 太大或读不出来：不搜，计数"
+    },
+    {
+      "name": "L06 行尾的 \\r 不去",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "yield [index + 1, line.endsWith(\"\\r\") ? line.slice(0, -1) : line];",
+      "new": "yield [index + 1, line];"
+    },
+    {
+      "name": "L07 隐藏的行不占行号",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "      number += 1;\n      if (raw === null) continue;",
+      "new": "      if (raw === null) continue;\n      number += 1;"
+    },
+    {
+      "name": "L08 先查 --max 再编译",
+      "file": "ts/packages/dispatcher/src/logs-search.ts",
+      "old": "  const pattern = compilePattern(args.pattern);\n  if (args.max < 1n) throw new LogsError(`--max 必须是不小于 1 的整数：${args.max}`, LOGS_EXIT_USAGE);",
+      "new": "  if (args.max < 1n) throw new LogsError(`--max 必须是不小于 1 的整数：${args.max}`, LOGS_EXIT_USAGE);\n  const pattern = compilePattern(args.pattern);"
+    }
+  ]
+}

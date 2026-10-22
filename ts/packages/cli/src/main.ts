@@ -11,6 +11,7 @@ import { PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { LogsError, type ListArgs, type ShowArgs, cmdList, cmdShow } from "@themis/dispatcher/logs";
 import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
+import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 
@@ -81,6 +82,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runLogs(out, () => cmdShow(args as unknown as ShowArgs, out));
     case "logs cat":
       return runLogs(out, () => cmdCat(args as unknown as CatArgs, out));
+    case "logs search":
+      return runLogs(out, () => cmdSearch(args as unknown as SearchArgs, out));
     default:
       out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
       return 2;

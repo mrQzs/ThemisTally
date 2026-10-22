@@ -1,0 +1,208 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "packages/contracts/test/pyregex.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "R01 行列号的列多算一",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "const colno = pos - before.lastIndexOf(NL);",
+      "new": "const colno = pos - before.lastIndexOf(NL) + 1;"
+    },
+    {
+      "name": "R02 没有换行也写行列号",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "if (pattern.includes(NL)) text = ",
+      "new": "if (true) text = "
+    },
+    {
+      "name": "R03 八进制上限放宽",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "          if (value > 0o377) throw",
+      "new": "          if (value > 0o400) throw"
+    },
+    {
+      "name": "R04 重复下限等于 MAXREPEAT 不报溢出",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "if (min >= MAXREPEAT) throw new PyOverflowError",
+      "new": "if (min > MAXREPEAT) throw new PyOverflowError"
+    },
+    {
+      "name": "R05 锚点后面的量词不报错",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "if (last === undefined || last.op === \"AT\") throw",
+      "new": "if (last === undefined) throw"
+    },
+    {
+      "name": "R06 全局标志不在开头也收",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "            if (!first || subpattern.data.length > 0) {",
+      "new": "            if (false) {"
+    },
+    {
+      "name": "R07 字面量不加 _casefix 的等价",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "const targets = [lo, ...(rules.fixes?.get(lo) ?? [])];",
+      "new": "const targets = [lo];"
+    },
+    {
+      "name": "R08 没有大小写的字面量也折叠",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "if (rules === null || !rules.iscased(cp)) {",
+      "new": "if (rules === null) {",
+      "equivalent": "没有大小写的字符 c：Unicode 15 里不存在别的字符 x 小写之后等于 c（有的话 c 的大写就是 x，c 就算有大小写），小写化之后的集合仍只有 c 本身"
+    },
+    {
+      "name": "R09 字符集没有大小写成员也小写化",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "if (rules === null || !hascased) return set; // IN：不小写化",
+      "new": "if (rules === null) return set; // IN：不小写化",
+      "equivalent": "集合里没有有大小写的字面量与范围时，只剩没有大小写的字符与类别：逐个码点核对过，没有字符的 \\w、\\d、\\s 归属与它小写之后的不同，小写化之后的集合与原来相同"
+    },
+    {
+      "name": "R10 非 BMP 的范围不按 RANGE_UNI_IGNORE",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "tail.push(fixes ? { op: \"RANGE_UNI_IGNORE\", av: item.av } : item);",
+      "new": "tail.push(item);"
+    },
+    {
+      "name": "R11 \\s 不分 ASCII",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "    : category.endsWith(\"SPACE\") ? (unicode ? UNI_SPACE : ASCII_SPACE)",
+      "new": "    : category.endsWith(\"SPACE\") ? UNI_SPACE"
+    },
+    {
+      "name": "R12 不模拟字符集前缀的怪癖",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "if (items !== null) charset = flatten(inSet(items, flags & ~FLAG_IGNORECASE));",
+      "new": "if (items !== null && false) charset = flatten(inSet(items, flags & ~FLAG_IGNORECASE));"
+    },
+    {
+      "name": "R13 (?a:) 不清掉 Unicode",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "const base = addFlags & TYPE_FLAGS ? flags & ~TYPE_FLAGS : flags;",
+      "new": "const base = flags;"
+    },
+    {
+      "name": "R14 多行的 ^ 当成开头",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "return multiline ? At.BEGINNING_LINE : At.BEGINNING;",
+      "new": "return At.BEGINNING;"
+    },
+    {
+      "name": "R15 \\b 不分 ASCII",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "return unicode ? At.UNI_BOUNDARY : At.BOUNDARY;",
+      "new": "return At.UNI_BOUNDARY;"
+    },
+    {
+      "name": "R16 后顾不定宽不报错",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "if (lo !== hi) throw new PyReError(\"look-behind requires fixed-width pattern\");",
+      "new": "if (false) throw new PyReError(\"look-behind requires fixed-width pattern\");"
+    },
+    {
+      "name": "R17 字面量前缀收有大小写的",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "if (iscased?.(item.av)) return [prefix, false];",
+      "new": "if (false) return [prefix, false];"
+    },
+    {
+      "name": "R18 小写化不认大写字母",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "    return adjust(set, LOWER_KEYS, LOWER_KEYS.filter((cp) => contains(set, uniLower(cp))));",
+      "new": "    return set;"
+    },
+    {
+      "name": "R19 (?s) 的点不认换行",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "this.char(flags & FLAG_DOTALL ? EVERYTHING : NOT_NEWLINE);",
+      "new": "this.char(NOT_NEWLINE);"
+    },
+    {
+      "name": "R20 贪婪重复没有空匹配保护",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "if ((ctx.count < max || max === MAX_REPEAT) && this.ptr !== rep.lastPtr) {",
+      "new": "if (ctx.count < max || max === MAX_REPEAT) {"
+    },
+    {
+      "name": "R21 占有重复空轮不停",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "if ((ctx.count < max || max === MAX_REPEAT) && this.ptr !== ptr) {",
+      "new": "if (ctx.count < max || max === MAX_REPEAT) {"
+    },
+    {
+      "name": "R22 懒惰重复没有空匹配保护",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "if ((ctx.count >= max && max !== MAX_REPEAT) || this.ptr === rep.lastPtr) break;",
+      "new": "if (ctx.count >= max && max !== MAX_REPEAT) break;"
+    },
+    {
+      "name": "R23 否定后顾在边界上不查",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "          if (ptr >= back) {",
+      "new": "          if (ptr > back) {"
+    },
+    {
+      "name": "R24 任何锚点开头都只试开头",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "const anchored = code[0] === Op.AT && (code[1] === At.BEGINNING || code[1] === At.BEGINNING_STRING);",
+      "new": "const anchored = code[0] === Op.AT;"
+    },
+    {
+      "name": "R25 末尾的起点少试一个",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "const last = anchored ? 0 : minWidth > 1 ? Math.max(0, end - (minWidth - 1)) : end;",
+      "new": "const last = anchored ? 0 : minWidth > 1 ? Math.max(0, end - minWidth - 1) : end;"
+    },
+    {
+      "name": "R26 尾部字面量的预判反了",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "while (ctx.count >= min && (ptr >= end || text[ptr] !== literal)) {",
+      "new": "while (ctx.count >= min && (ptr >= end || text[ptr] === literal)) {"
+    },
+    {
+      "name": "R27 分支的预判反了",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "(ptr >= end || !flatContains(sets[code[pc + 2] as number] as FlatSet, text[ptr] as number))",
+      "new": "(ptr >= end || flatContains(sets[code[pc + 2] as number] as FlatSet, text[ptr] as number))"
+    },
+    {
+      "name": "R28 一段的计数漏掉上界",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "if (cp < lo || cp > hi) break;",
+      "new": "if (cp < lo || cp >= hi) break;"
+    },
+    {
+      "name": "R29 $ 不认末尾的换行",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "return (end - ptr === 1 && text[ptr] === NEWLINE) || ptr === end;",
+      "new": "return ptr === end;"
+    },
+    {
+      "name": "R30 空串上 \\b、\\B 照判",
+      "file": "ts/packages/base/src/pyregex/engine.ts",
+      "old": "        if (end === 0) return false;",
+      "new": ""
+    },
+    {
+      "name": "R31 嵌套上限差一",
+      "file": "ts/packages/base/src/pyregex/search.ts",
+      "old": "if (parenDepth(pattern) > SEARCH_MAX_NESTING)",
+      "new": "if (parenDepth(pattern) >= SEARCH_MAX_NESTING)"
+    },
+    {
+      "name": "R32 组里的反向引用不查",
+      "file": "ts/packages/base/src/pyregex/search.ts",
+      "old": "      return usesRefs(item.av[3]);",
+      "new": "      return false;"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://themis-tally.invalid/schemas/logs-search-v1.schema.json",
+  "title": "logs search --json：匹配的行、是否截断、跳过的链接与大文件",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "matches",
+    "truncated",
+    "skipped_links",
+    "skipped_large"
+  ],
+  "properties": {
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task",
+          "attempt",
+          "path",
+          "line",
+          "text"
+        ],
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "attempt": {
+            "type": "string",
+            "pattern": "^attempt-[0-9]+$"
+          },
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "skipped_links": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_large": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
