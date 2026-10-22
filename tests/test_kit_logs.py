@@ -334,3 +334,13 @@ def test_search_nesting_limit_is_explicit(tmp_path):
     # 不合法的正则照旧报 re.error 的原文（嵌套没超限时）
     code, out, err = run_logs(["search", "("], repo)
     assert err.strip() == "ERROR: PATTERN 不是合法的正则表达式：missing ), unterminated subpattern at position 0", err
+
+
+def test_search_does_not_print_re_warnings(tmp_path):
+    # 第 58 轮：re 的 FutureWarning 带着调用方的文件与源码行，stderr 里不再出现
+    repo = _search_repo(tmp_path)
+    for pattern in ("[[a]", "a[b&&c]", "((([[x]))))"):
+        code, out, err = run_logs(["search", pattern], repo)
+        assert "Warning" not in err, (pattern, err)
+    code, out, err = run_logs(["search", "[[a]"], repo)
+    assert (code, err) == (0, ""), err

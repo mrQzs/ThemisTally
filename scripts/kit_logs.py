@@ -31,6 +31,7 @@ import os
 import re
 import stat
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -933,9 +934,13 @@ def cmd_search(args: argparse.Namespace) -> int:
     try:
         if _paren_depth(args.pattern) > SEARCH_MAX_NESTING:
             raise LogsError(SEARCH_TOO_DEEP, EXIT_USAGE)
-        if _uses_refs(_re_parser.parse(args.pattern)):
-            raise LogsError(SEARCH_NO_REFS, EXIT_USAGE)
-        pattern = re.compile(args.pattern)
+        with warnings.catch_warnings():
+            # re 对 [[、--、&& 等写法发的 FutureWarning（以及 DeprecationWarning）带着调用方的文件与源码行，
+            # 同一个 PATTERN 还会在 parse、compile 各发一次：stderr 里是噪音，TS 版也写不出一样的字节（第 58 轮）
+            warnings.simplefilter("ignore")
+            if _uses_refs(_re_parser.parse(args.pattern)):
+                raise LogsError(SEARCH_NO_REFS, EXIT_USAGE)
+            pattern = re.compile(args.pattern)
     except (re.error, OverflowError, RecursionError) as exc:
         # 溢出与深嵌套的正则同样是编译失败（B11(c)）：用法错误，退出码 2。
         raise LogsError("PATTERN 不是合法的正则表达式：%s" % exc, EXIT_USAGE)
