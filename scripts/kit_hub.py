@@ -130,17 +130,19 @@ ROSTER: Dict[str, Dict[str, Any]] = {
                      "timeout": 2400, "workspace": "base"},
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
-    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "bb", "model": "step-5-preview",
-                    "thinking": "high", "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"],
-                    "timeout": 2400, "workspace": "stage"},
+    # 第 63 轮（站主 2026-10-22 重配 pi 的提供方）：bb 改名为 cc-switch-step-fun，同一个 StepFun 套餐端点、同一个模型。
+    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "cc-switch-step-fun",
+                    "model": "step-5-preview", "thinking": "high",
+                    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage"},
     # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
     # GLM 的模型配置没有 max 的映射，pi 静默按 high 跑（.agent/environment.md）。
     "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
                      "model": "glm-5.3", "thinking": "max", "tools": ["read", "grep", "find", "ls"],
                      "timeout": 2400, "workspace": "stage"},
     # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致
-    # （2026-10-21 起本机又回到 bb；还没派遣的合同由 sync_executor_line 改写，已派遣的不动）。
-    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "bb",
+    # （2026-10-21 起本机又回到 bb，2026-10-22 第 63 轮 bb 改名为 cc-switch-step-fun；还没派遣的合同由
+    # sync_executor_line 改写，已派遣的不动）。
+    "exec-step": {"role": "exec", "label": "执行端", "adapter": "dispatcher", "provider": "cc-switch-step-fun",
                   "model": "step-5-preview", "thinking": "high"},
     "jev-judge": {"role": "jev", "label": "JEV 端", "adapter": "jev"},
 }

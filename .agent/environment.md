@@ -39,15 +39,16 @@
 |---|---|
 | pi 版本 | 1.3.0 |
 | pi 调用方式 | `node …/@earendil-works/pi-coding-agent/dist/bundle/cli.js`（npm 全局安装，`~/AppData/Roaming/npm`） |
-| 执行模型 | `bb/step-5-preview`（2026-10-21 `pi --list-models` 列出；`step/…` 已不存在） |
+| 执行模型 | `cc-switch-step-fun/step-5-preview`（2026-10-22 第 63 轮：站主重配 pi 的提供方，`bb` 改名为 `cc-switch-step-fun`，同一个 StepFun 套餐端点、同一个模型；`bb/…`、`step/…` 都已不存在） |
 | 思考级别 | high；Pi 记录的 `thinkingLevel` 为 high，推理题有思考内容 |
 | 思考预算设置 | 未设置（使用默认） |
-| 凭据就绪 | `bb/step-5-preview` 与 `token/qwen3.7-plus` 的 smoke 两步通过（2026-10-21，`.agent/runs/_env/smoke-bb.json`、`smoke-token.json`） |
+| 凭据就绪 | `cc-switch-step-fun/step-5-preview` 的 smoke 两步通过（2026-10-22，`.agent/runs/_env/smoke-step-fun.json`）；更早的 `bb/step-5-preview`、`token/qwen3.7-plus`（2026-10-21，`smoke-bb.json`、`smoke-token.json`）只作历史记录 |
 | 工具集 | read, bash, powershell, edit, write, grep, find, ls |
 | Pi 可用的思考级别 | off, minimal, low, medium, high, xhigh, max |
 | rg / fd | rg 14.1.1 已安装；fd 未安装（find 工具首次使用时会下载） |
-| 七端的岗位（第 36 轮，用户 2026-10-21） | 规划端 Claude Code `claude-opus-5-5` max；审核端 `cc-switch-zhipu-glm/glm-5.3` max（Pi 静默降到 high：模型配置没有 xhigh / max 的映射）；门禁端 `bb/step-5-preview` high；合同端 `cc-switch-zhipu-glm/glm-5.3` high（第 46 轮从 qwen 换过来）；协调人 `token/qwen3.7-plus` high；执行端 `bb/step-5-preview` high。站主列的 `minimax/MiniMax-M3.1-Flash` 不在本机 `pi --list-models` 里（多半是凭据没配），有了再给协调人 |
-| pi 模型列表（2026-10-21） | bb/step-5-preview、cc-switch-zhipu-glm/glm-5.3、cc-switch-zhipu-glm/glm-5.3-flash、cpa/claude-opus-5-5-high、token/qwen3.7-plus |
+| 七端的岗位（第 63 轮，2026-10-22） | 规划端 Claude Code `claude-opus-5-5` max；门禁端、执行端 `cc-switch-step-fun/step-5-preview` high（bb 改名）。协调人（`token/qwen3.7-plus`）、合同端与审核端（`cc-switch-zhipu-glm/glm-5.3`）**停用、待重新分配**：百炼编程套餐的条款禁止自动化调用；cc-switch-zhipu-glm 是第三方中转、明文 HTTP，已从 pi 删除。站主让 themistally-15 测评之后分配，分配到了再走一轮。在那之前不给这三个岗位起新回合（不回会唤醒协调人的信、不开新任务） |
+| 七端的岗位（历史：第 36 轮，用户 2026-10-21） | 规划端 Claude Code `claude-opus-5-5` max；审核端 `cc-switch-zhipu-glm/glm-5.3` max（Pi 静默降到 high：模型配置没有 xhigh / max 的映射）；门禁端 `bb/step-5-preview` high；合同端 `cc-switch-zhipu-glm/glm-5.3` high（第 46 轮从 qwen 换过来）；协调人 `token/qwen3.7-plus` high；执行端 `bb/step-5-preview` high。站主列的 `minimax/MiniMax-M3.1-Flash` 不在本机 `pi --list-models` 里（多半是凭据没配），有了再给协调人 |
+| pi 模型列表（2026-10-22 第 63 轮） | cc-switch-qianwenai-token-plan/qwen3.8-max、cc-switch-step-fun/step-5-preview、cpa/claude-opus-5-5-high、minimax/MiniMax-M2.7、minimax/MiniMax-M2.7-highspeed、minimax/MiniMax-M3、minimax/MiniMax-M3.1-Flash、token/qwen3.7-plus。`cc-switch-zhipu-glm` 已删（第三方中转、明文 HTTP）。不给 hub 用的：`token/…`（百炼编程套餐，条款禁止自动化调用）、`cpa/…`（本机的 CLIProxyAPI） |
 | 注意 | 在 Git Bash 里直接跑 `pi -p` 要接 `< /dev/null`，否则它等标准输入，不会退出；调度器与 hub 都用 `stdin=DEVNULL`，不受影响 |
 
 ## 上下文与配置来源
@@ -110,3 +111,4 @@
 | 2026-10-21 | step-5-preview 回到 `bb` 提供商；七端只有规划端留在 Claude 上，协调人、合同端、门禁端、审核端换到 pi（第 36 轮）；qwen3.7-plus 与 bb/step-5-preview smoke 通过；MiniMax-M3.1-Flash 未列出 | MiniMax 配好后核验并换协调人；门禁端、审核端换模型后的头几片看回合作废率与终审质量 |
 | 2026-10-21 | 合同端从 `token/qwen3.7-plus` 换到 `cc-switch-zhipu-glm/glm-5.3` high（第 46 轮）：qwen 写合同接连出错，T011 返工五次，T013 四次没过、Scope 路径全少了 `desktop/web/` | 合同端与审核端同为 glm-5.3，少了一层独立性：看一审能不能照样查出合同的问题 |
 | 2026-10-22 | TS 迁移第一步：装 Bun 1.4.2（内置 SQLite 3.53.2），新建 `ts/` 工作区（TypeScript 6.0.3、Vitest 2.1.8、@types/node 24.19.0，`bun.lock`）；`bun build --compile` 在本机能打出单文件程序（实测 86 MB） | 升级 Bun 前重跑 `select sqlite_version()` 与契约测试；执行模型与思考级别不因迁移改变 |
+| 2026-10-22 | 第 63 轮：站主重配 pi 的提供方。`bb` 改名为 `cc-switch-step-fun`，门禁端、执行端跟着改，smoke 通过；`cc-switch-zhipu-glm` 删除（第三方中转、明文 HTTP，合同端与审核端的提示词与 key 都明文经过它）；`token/qwen3.7-plus` 是百炼编程套餐，条款禁止自动化调用。协调人、合同端、审核端停用，等 themistally-15 测评后的分配；T014 停在门禁端事后检查（bb 不在之后连续作废），不回信 | 分配到了走一轮换岗位、smoke、重发 T014 的门禁端事后检查；账本核对切换之后没有回合用到 cc-switch-zhipu-glm 或 token |

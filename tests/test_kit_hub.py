@@ -2649,11 +2649,11 @@ def test_only_the_planner_stays_on_claude():
         kh.COORDINATOR: ("pi", "token", "qwen3.7-plus"),
         "planner-opus": ("claude", None, "claude-opus-5-5"),
         "contract-glm": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),  # 第 46 轮：qwen 写合同接连出错
-        "gate-sonnet": ("pi", "bb", "step-5-preview"),
+        "gate-sonnet": ("pi", "cc-switch-step-fun", "step-5-preview"),  # 第 63 轮：bb 改名
         "audit-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),
-        "exec-step": ("dispatcher", "bb", "step-5-preview")}
+        "exec-step": ("dispatcher", "cc-switch-step-fun", "step-5-preview")}
     assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "max"
-    assert kh.CONTRACT_EXECUTOR_LINE == "- executor: bb/step-5-preview · thinking high"
+    assert kh.CONTRACT_EXECUTOR_LINE == "- executor: cc-switch-step-fun/step-5-preview · thinking high"
 
 
 def test_invalid_output_gets_one_retry(engine_env):
@@ -4839,7 +4839,7 @@ def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
     monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: (0, "ok"))
     monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
     assert kh.revalidate_contract(hub, ts) == []
-    assert "- executor: bb/step-5-preview · thinking high\n- base_sha: x" in md.read_text(encoding="utf-8")
+    assert "- executor: cc-switch-step-fun/step-5-preview · thinking high\n- base_sha: x" in md.read_text(encoding="utf-8")
     events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
     assert [e["previous"] for e in events if e["event"] == "contract.executor_synced"] == [
         "- executor: step/step-5-preview · thinking high"]
