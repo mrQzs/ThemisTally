@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import kit_config  # noqa: E402
 import kit_hub  # noqa: E402
+import kit_logs  # noqa: E402
 import pi_dispatch  # noqa: E402
 from codekit import decisions as codekit_decisions  # noqa: E402
 from codekit import secrets as codekit_secrets  # noqa: E402
@@ -214,6 +215,50 @@ def op_secrets_call(request):
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 
+def op_jsonl_append(request):
+    """kit_hub.Hub.append_event：账本在 <repo>/.agent/mailbox/ledger/events.jsonl。count 次，每次 data 里加 seq。"""
+    hub = kit_hub.Hub(Path(request["repo"]))
+    data = from_tagged(request["data"]) if "data" in request else {}
+    for seq in range(request.get("count", 1)):
+        extra = dict(data)
+        if request.get("count", 1) > 1:
+            extra["seq"] = seq
+        hub.append_event(request["event"], **extra)
+    return {"ok": True, "done_ms": time.time() * 1000}
+
+
+def op_jsonl_read(request):
+    """kit_hub 读账本的写法（exec_metrics 等处内联）：read_text、splitlines、逐行 json.loads，ValueError 跳过。"""
+    ledger = Path(request["path"])
+    out = []
+    for line in kit_hub.read_text(ledger).splitlines() if ledger.exists() else []:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return {"ok": True, "value": to_tagged(out)}
+
+
+def op_jsonl_records(request):
+    """kit_logs._jsonl_records；limit 给了就临时换掉 SAFE_MAX_LINE_BYTES（函数每次调用时才读这个全局量）。"""
+    saved = kit_logs.SAFE_MAX_LINE_BYTES
+    kit_logs.SAFE_MAX_LINE_BYTES = request.get("limit", saved)
+    try:
+        records = [[start, end, None if raw is None else base64.b64encode(raw).decode("ascii")]
+                   for start, end, raw in kit_logs._jsonl_records(Path(request["path"]), request["start"], request["final"])]
+    finally:
+        kit_logs.SAFE_MAX_LINE_BYTES = saved
+    return {"ok": True, "records": records}
+
+
+def op_jsonl_iter_lines(request):
+    return {"ok": True, "lines": list(kit_logs._iter_lines(Path(request["path"])))}
+
+
+def op_jsonl_lines_before(request):
+    return {"ok": True, "count": kit_logs._lines_before(Path(request["path"]), request["position"])}
+
+
 def op_filelock_run(request):
     """kit_hub.file_lock：拿锁后（signal 时）往 stderr 报 ready，持有 hold_ms 毫秒再放。"""
     try:
@@ -233,6 +278,11 @@ OPS = {
     "publish_new": op_publish_new,
     "filelock.run": op_filelock_run,
     "secrets.call": op_secrets_call,
+    "jsonl.append": op_jsonl_append,
+    "jsonl.read": op_jsonl_read,
+    "jsonl.records": op_jsonl_records,
+    "jsonl.iter_lines": op_jsonl_iter_lines,
+    "jsonl.lines_before": op_jsonl_lines_before,
     "clock.sample": op_clock_sample,
     "fs.read_text": op_fs_read_text,
     "fs.write_text_atomic": op_fs_write_text_atomic,

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
 import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
+import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
 import { FileLockTimeout, acquireFileLock } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
@@ -25,7 +26,7 @@ import {
   secretLikePaths,
   tokenShaped,
 } from "@themis/base/secrets";
-import { type DumpsOptions, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
+import { type DumpsOptions, type PyDict, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
@@ -105,6 +106,31 @@ function secretsCall(request: Request): Result {
 
 const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "secrets.call": secretsCall,
+  "jsonl.append": async (request) => {
+    const path = join(String(request["repo"]), ".agent", "mailbox", "ledger", "events.jsonl");
+    const data = "data" in request ? (fromTagged(request["data"] as Tagged) as PyDict) : new Map();
+    const count = Number(request["count"] ?? 1);
+    for (let seq = 0; seq < count; seq += 1) {
+      const extra: PyDict = new Map(data);
+      if (count > 1) extra.set("seq", BigInt(seq));
+      await appendEvent(path, String(request["event"]), extra);
+    }
+    return { ok: true, done_ms: Date.now() };
+  },
+  "jsonl.read": (request) => ({ ok: true, value: toTagged(readJsonl(String(request["path"]))) }),
+  "jsonl.records": (request) => ({
+    ok: true,
+    records: [
+      ...jsonlRecords(
+        String(request["path"]),
+        Number(request["start"]),
+        Boolean(request["final"]),
+        Number(request["limit"] ?? SAFE_MAX_LINE_BYTES),
+      ),
+    ].map(([start, end, raw]) => [start, end, raw === null ? null : raw.toString("base64")]),
+  }),
+  "jsonl.iter_lines": (request) => ({ ok: true, lines: [...iterLines(String(request["path"]))] }),
+  "jsonl.lines_before": (request) => ({ ok: true, count: linesBefore(String(request["path"]), Number(request["position"])) }),
   "filelock.run": async (request) => {
     const path = String(request["path"]);
     let lock;

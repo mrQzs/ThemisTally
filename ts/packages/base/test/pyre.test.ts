@@ -1,6 +1,6 @@
 // pyre 的白盒测试：构件本身的规则（契约与对照测的是拼出来的正则与函数）。
 import { describe, expect, it } from "vitest";
-import { W, WB, ci, pyLen, pyNfkc, pyRegex, pyRstrip, pyStrip } from "../src/pyre.ts";
+import { W, WB, ci, pyLen, pyNfkc, pyRegex, pyRstrip, pySplitlines, pyStrip } from "../src/pyre.ts";
 import { IGNORECASE_EXTRA, UNIDATA_VERSION } from "../src/pyunicode.ts";
 
 const C = (...cps: number[]): string => String.fromCodePoint(...cps);
@@ -27,6 +27,14 @@ describe("pyre 的构件", () => {
     expect(pyStrip(`${C(0xfeff)}a`)).toBe(`${C(0xfeff)}a`); // BOM 不是
     expect(pyRstrip(" a \n")).toBe(" a");
     expect(pyLen(`${C(0x1d400)}a`)).toBe(2);
+  });
+
+  it("splitlines 认 Python 的全部行界，末尾的行界之后不多出空行", () => {
+    const breaks = [0x0a, 0x0d, 0x0b, 0x0c, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029];
+    for (const cp of breaks) expect(pySplitlines(`a${C(cp)}b${C(cp)}`)).toEqual(["a", "b"]);
+    expect(pySplitlines("a\r\nb\n\r")).toEqual(["a", "b", ""]);
+    expect(pySplitlines("")).toEqual([]);
+    expect(pySplitlines(`a${C(0x1f)}b`)).toEqual([`a${C(0x1f)}b`]); // 0x1f 不是行界
   });
 
   it("pyNfkc：未分配码点用的占位符避开输入里已有的私用区字符；运行时比 Python 旧时拒绝", () => {

@@ -5,6 +5,7 @@
   "exports": {
     "./clock": "./src/clock.ts",
     "./fsutil": "./src/fsutil.ts",
+    "./jsonl": "./src/jsonl.ts",
     "./locks": "./src/locks.ts",
     "./native": "./src/native.ts",
     "./process": "./src/process.ts",

@@ -121,6 +121,28 @@ export function pyRstrip(text: string): string {
   return chars.slice(0, end).join("");
 }
 
+/** str.splitlines() 认的行界：\r\n，以及 \n \r \v \f 0x1c 0x1d 0x1e 0x85 U+2028 U+2029。 */
+const LINE_BREAK_RE = new RegExp(
+  `${BACKSLASH}r${BACKSLASH}n|[${[0x0a, 0x0d, 0x0b, 0x0c, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029].map(escapeCodePoint).join("")}]`,
+  "u",
+);
+
+/** str.splitlines()（不保留行尾）：末尾的行界之后不再多出空行；空串为 []。 */
+export function pySplitlines(text: string): string[] {
+  const lines: string[] = [];
+  let rest = text;
+  while (rest.length > 0) {
+    const match = LINE_BREAK_RE.exec(rest);
+    if (match === null) {
+      lines.push(rest);
+      break;
+    }
+    lines.push(rest.slice(0, match.index));
+    rest = rest.slice(match.index + match[0].length);
+  }
+  return lines;
+}
+
 /** str.isprintable()：空串为 true。 */
 export function pyIsPrintable(text: string): boolean {
   return codePoints(text).every(isPrintableChar);

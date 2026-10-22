@@ -1,0 +1,134 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/base/test/pyre.test.ts",
+    "packages/contracts/test/jsonl.contract.test.ts",
+    "packages/contracts/test/jsonl-read.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "L01 键不排序",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "return dumps(record, { ensureAscii: false, sortKeys: true });",
+      "new": "return dumps(record, { ensureAscii: false, sortKeys: false });"
+    },
+    {
+      "name": "L02 非 ASCII 转义",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "return dumps(record, { ensureAscii: false, sortKeys: true });",
+      "new": "return dumps(record, { ensureAscii: true, sortKeys: true });"
+    },
+    {
+      "name": "L03 调用方给的 at 不被盖掉",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  record.set(\"at\", at);",
+      "new": "  if (!record.has(\"at\")) record.set(\"at\", at);"
+    },
+    {
+      "name": "L04 不拿 .events.lock",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  await withFileLock(join(dirname(path), \".events.lock\"), (lock) => {",
+      "new": "  await ((body: (lock: { assertHeld(): void }) => void) => body({ assertHeld() {} }))((lock) => {"
+    },
+    {
+      "name": "L05 锁文件名不对",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  await withFileLock(join(dirname(path), \".events.lock\"), (lock) => {",
+      "new": "  await withFileLock(join(dirname(path), \".ledger.lock\"), (lock) => {"
+    },
+    {
+      "name": "L06 行尾写成 CRLF",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "encodeUtf8(`${line}\\n`)",
+      "new": "encodeUtf8(`${line}\\r\\n`)"
+    },
+    {
+      "name": "L08 读的时候只按换行切",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  for (const line of pySplitlines(readText(path))) {",
+      "new": "  for (const line of readText(path).split(\"\\n\")) {"
+    },
+    {
+      "name": "L09 读的时候什么错都吞",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "      if (error instanceof PyJsonError && (error.kind === \"JSONDecodeError\" || error.kind === \"ValueError\")) continue;",
+      "new": "      continue;"
+    },
+    {
+      "name": "L10 时间带毫秒",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  const line = eventLine(event, data, utcNow());",
+      "new": "  const line = eventLine(event, data, new Date().toISOString());"
+    },
+    {
+      "name": "L11 splitlines 不认 0x85",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "[0x0a, 0x0d, 0x0b, 0x0c, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029].map(escapeCodePoint)",
+      "new": "[0x0a, 0x0d, 0x0b, 0x0c, 0x1c, 0x1d, 0x1e, 0x2028, 0x2029].map(escapeCodePoint)"
+    },
+    {
+      "name": "L12 splitlines 把 CRLF 当两个行界",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "`${BACKSLASH}r${BACKSLASH}n|[",
+      "new": "`["
+    },
+    {
+      "name": "L13 splitlines 末尾多出空行",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "  while (rest.length > 0) {",
+      "new": "  for (let first = true; first || rest.length > 0; first = false) {"
+    },
+    {
+      "name": "L14 行尾只去 \\n、不去 \\r",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  if (end > 0 && raw[end - 1] === RETURN) end -= 1;\n",
+      "new": ""
+    },
+    {
+      "name": "L15 没有 \\n 时也不去 \\r",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "  if (end > 0 && raw[end - 1] === NEWLINE) end -= 1;\n  if (end > 0 && raw[end - 1] === RETURN) end -= 1;",
+      "new": "  if (end > 0 && raw[end - 1] === NEWLINE) {\n    end -= 1;\n    if (end > 0 && raw[end - 1] === RETURN) end -= 1;\n  }"
+    },
+    {
+      "name": "L16 上限按带行尾的字节数算",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "          if (stripEol(line).length > limit) {",
+      "new": "          if (line.length > limit) {"
+    },
+    {
+      "name": "L17 不看 final，末行没换行也给",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "      if (length === 0 || (!ended && !final)) return;",
+      "new": "      if (length === 0) return;"
+    },
+    {
+      "name": "L18 起点按 0 算",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "    let offset = start;",
+      "new": "    let offset = 0;"
+    },
+    {
+      "name": "L19 解码时吞掉 BOM",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "new TextDecoder(\"utf-8\", { fatal: false, ignoreBOM: true })",
+      "new": "new TextDecoder(\"utf-8\", { fatal: false })"
+    },
+    {
+      "name": "L20 lines_before 数到整块末尾",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "      const got = readSync(fd, chunk, 0, Math.min(chunk.length, position - offset), offset);",
+      "new": "      const got = readSync(fd, chunk, 0, chunk.length, offset);"
+    },
+    {
+      "name": "L21 iter_lines 文件不存在时报错",
+      "file": "ts/packages/base/src/jsonl.ts",
+      "old": "    fd = openSync(path, \"r\");\n  } catch {\n    return;",
+      "new": "    fd = openSync(path, \"r\");\n  } catch (error) {\n    throw error;"
+    }
+  ]
+}
