@@ -29,7 +29,7 @@ export class LogsError extends Error {
 }
 
 /** 本命令访问过程中遇到的链接条目数。 */
-class LinkTally {
+export class LinkTally {
   count = 0;
 
   hit(): void {
@@ -71,7 +71,7 @@ function scan(directory: string): Entry[] | null {
 }
 
 /** kit_logs._under：root 之下按段拼接。 */
-function under(root: string, parts: readonly string[]): string {
+export function under(root: string, parts: readonly string[]): string {
   let text = root;
   for (const part of parts) {
     if (!text.endsWith("\\") && !text.endsWith("/")) text += path.sep;
@@ -81,7 +81,7 @@ function under(root: string, parts: readonly string[]): string {
 }
 
 /** kit_logs._read_head：最多读 limit 字节（limit < 0 读全部）；读不了为 null。 */
-function readHead(file: string, limit: number): Buffer | null {
+export function readHead(file: string, limit: number): Buffer | null {
   let fd: number;
   try {
     fd = openSync(file, "r");
@@ -168,7 +168,7 @@ function attemptsOf(runs: string, task: string, links: LinkTally): AttemptEntry[
 }
 
 /** kit_logs._evidence：attempt 之下递归的普通文件 [(POSIX 相对路径, 字节数)]；attempt 目录列不出来为 null。 */
-function evidence(attemptDir: string, links: LinkTally): [string, number][] | null {
+export function evidence(attemptDir: string, links: LinkTally): [string, number][] | null {
   const entries = scan(attemptDir);
   if (entries === null) return null;
   const found: [string, number][] = [];
@@ -359,7 +359,7 @@ export function resolveTarget(runs: string, target: string): Target {
 
 // --- 命令 -----------------------------------------------------------------------
 
-function repoOf(value: string | null): Repo {
+export function repoOf(value: string | null): Repo {
   try {
     return Repo.discover(value);
   } catch (error) {
@@ -374,7 +374,7 @@ function checkTask(task: string | null): string | null {
   return task;
 }
 
-const emitJson = (out: PyOut, value: PyValue): void => out.print(dumps(value, { ensureAscii: false, indent: 2 }));
+export const emitJson = (out: PyOut, value: PyValue): void => out.print(dumps(value, { ensureAscii: false, indent: 2 }));
 const skippedLinksLine = (count: number): string => `跳过的链接：${count}`;
 
 export interface ListArgs {

@@ -1,0 +1,142 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--bail",
+    "1",
+    "-t",
+    "C0|C1|P0",
+    "packages/contracts/test/readonly.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "K01 长度按 UTF-16 码元",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "    this.length = text.length - this.astral.length;",
+      "new": "    this.length = text.length;"
+    },
+    {
+      "name": "K02 孤立代理项不写成转义",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  return dumps(value, { ensureAscii: false, indent }).replace(",
+      "new": "  return dumps(value, { ensureAscii: false, indent }) || (\"\").replace("
+    },
+    {
+      "name": "K03 json 模式不脱敏",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "      return `${dumpJson(redactJson(loads(text)), 2)}\\n`;",
+      "new": "      return `${dumpJson(loads(text), 2)}\\n`;"
+    },
+    {
+      "name": "K04 json 解析不了就报错、不退回文本",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "      if (!jsonOrRecursion(error)) throw error;",
+      "new": "      throw error;"
+    },
+    {
+      "name": "K05 只读到上限、不多读一个字节",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  const raw = readHead(file, SAFE_MAX_TEXT_BYTES + 1);",
+      "new": "  const raw = readHead(file, SAFE_MAX_TEXT_BYTES);"
+    },
+    {
+      "name": "K06 空白行当成要解析的行",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  if (!pyStrip(line)) return { text: \"\" };",
+      "new": "  if (!line) return { text: \"\" };"
+    },
+    {
+      "name": "K07 每行不加开销",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "const LINE_OVERHEAD = 16;",
+      "new": "const LINE_OVERHEAD = 0;"
+    },
+    {
+      "name": "K08 片号一律为 1",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "    const part = div(at - lineStart, limit) + 1;",
+      "new": "    const part = 1;"
+    },
+    {
+      "name": "K09 片数只按当前片",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "    page.set(\"parts\", BigInt(Math.max(part, ceilDiv(lineEnd - lineStart, limit))));",
+      "new": "    page.set(\"parts\", BigInt(part));"
+    },
+    {
+      "name": "K10 文本游标不核对文件身份",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "    if (cSize !== size || cMtime !== mtime || cIno !== ino) throw new StaleCursor();",
+      "new": ""
+    },
+    {
+      "name": "K11 JSONL 游标不核对之前的一段",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": " || digest(window) !== windowDigest) {",
+      "new": ") {"
+    },
+    {
+      "name": "K12 游标字段按十六进制也收",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  if (!/^[0-9]+$/u.test(field)) throw new LogsError(BAD_CURSOR, LOGS_EXIT_USAGE);",
+      "new": "  if (!/^[0-9a-f]+$/u.test(field)) throw new LogsError(BAD_CURSOR, LOGS_EXIT_USAGE);"
+    },
+    {
+      "name": "K13 路径的反斜杠不换",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  const rel = args.path.replaceAll(\"\\\\\", \"/\");",
+      "new": "  const rel = args.path;"
+    },
+    {
+      "name": "K14 文本模式加换行",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "    out.write(page.get(\"text\") as string);",
+      "new": "    out.print(page.get(\"text\") as string);"
+    },
+    {
+      "name": "K15 没读完不在 stderr 给游标",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  if (!page.get(\"done\")) out.printErr(`（未完：--cursor ${page.get(\"next_cursor\") as string}）`);",
+      "new": ""
+    },
+    {
+      "name": "K16 隐藏行的说明写错",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "\"不是合法 JSON\"",
+      "new": "\"不合法\""
+    },
+    {
+      "name": "K17 长行的片数一律为 1",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "        [\"parts\", BigInt(ceilDiv(chars.length, limit))],",
+      "new": "        [\"parts\", 1n],"
+    },
+    {
+      "name": "K18 --limit 不查下限",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  if (!(limit >= 1n && limit <= BigInt(SAFE_PAGE_CHARS))) {",
+      "new": "  if (!(limit <= BigInt(SAFE_PAGE_CHARS))) {"
+    },
+    {
+      "name": "K19 扩展名区分大小写",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  const lower = rel.toLowerCase();",
+      "new": "  const lower = rel;"
+    },
+    {
+      "name": "K20 码点换算的二分偏一位",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "      if ((this.astral[mid] as number) - mid < cp) low = mid + 1;",
+      "new": "      if ((this.astral[mid] as number) - mid <= cp) low = mid + 1;"
+    },
+    {
+      "name": "K21 JSONL 的行号从 0 数",
+      "file": "ts/packages/dispatcher/src/logs-cat.ts",
+      "old": "  let number = linesBefore(file, position) + 1;",
+      "new": "  let number = linesBefore(file, position);"
+    }
+  ]
+}

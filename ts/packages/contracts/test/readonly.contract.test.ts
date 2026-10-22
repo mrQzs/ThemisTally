@@ -67,9 +67,10 @@ function compare(item: Case): void {
     const at = item.repoAt ? item.repoAt(repo) : repo;
     const python = runPythonCli(["--repo", at, ...argv], at);
     item.check(python, repo);
-    expect(schemaErrors("pyargs-v1", { ...pyargs, repo: at }), "启动器参数过 Schema").toEqual([]);
+    const forSchema = JSON.parse(JSON.stringify({ ...pyargs, repo: at }, (_key, value: unknown) => (typeof value === "bigint" ? Number(value) : value)));
+    expect(schemaErrors("pyargs-v1", forSchema), "启动器参数过 Schema").toEqual([]);
     if (pyargs["json"] === true && python.status === 0) {
-      const schema = { status: "status-v1", "logs list": "logs-list-v1", "logs show": "logs-show-v1" }[
+      const schema = { status: "status-v1", "logs list": "logs-list-v1", "logs show": "logs-show-v1", "logs cat": "logs-cat-v1" }[
         (pyargs["command"] as string[]).join(" ") as "status"];
       expect(schemaErrors(schema, JSON.parse(text(python))), `${schema} 过 Schema`).toEqual([]);
     }
@@ -99,6 +100,14 @@ const list = (extra: { task?: string; state?: string }, json: boolean): Pick<Cas
     ...(extra.state === undefined ? [] : ["--state", extra.state]), ...(json ? ["--json"] : [])],
   pyargs: { command: ["logs", "list"], task: extra.task ?? null, state: extra.state ?? null, json },
 });
+const cat = (target: string, file: string, options: { cursor?: string; limit?: number | bigint; json?: boolean } = {}): Pick<Case, "argv" | "pyargs"> => {
+  const limit = options.limit ?? 262144;
+  const json = options.json ?? true;
+  return {
+    argv: ["logs", "cat", target, file, ...(options.cursor ? ["--cursor", options.cursor] : []), "--limit", String(limit), ...(json ? ["--json"] : [])],
+    pyargs: { command: ["logs", "cat"], target, path: file, cursor: options.cursor ?? null, limit, json },
+  };
+};
 const show = (target: string, json: boolean): Pick<Case, "argv" | "pyargs"> => ({
   argv: ["logs", "show", target, ...(json ? ["--json"] : [])],
   pyargs: { command: ["logs", "show"], target, json },
@@ -480,8 +489,179 @@ const CASES: Case[] = [
     ...show("alpha", false),
     check: (py) => expect(py.stderr.toString("utf8")).toContain("任务 alpha 没有 attempt"),
   },
+  // --- logs cat（②b1）---
+  {
+    name: "C01 文本页：一页放不下一行时按片给（part/parts），后面不是换行",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", `${"a".repeat(10)}\n${"b".repeat(25)}${C(0x1f600)}\ntail`),
+    ...cat("alpha/attempt-001", "summary.md", { limit: 8 }),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ mode: "text", part: 1, parts: 2, done: false }),
+  },
+  {
+    name: "C02 文本模式：原样写出（不加换行），CRLF 写成 \\r\\r\\n，没读完时 stderr 给游标",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "notes.txt", `one\r\ntwo\r\n${"x".repeat(50)}`),
+    ...cat("alpha/attempt-001", "notes.txt", { limit: 12, json: false }),
+    check: (py) => {
+      expect(py.stdout.includes(Buffer.from("one\r\r\n"))).toBe(true);
+      expect(py.stderr.toString("utf8")).toContain("（未完：--cursor t:");
+    },
+  },
+  {
+    name: "C03 json 模式：整份能解析时按键名脱敏、带缩进写出",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "executor-report.json", { token: "sk-ABCDEFGHIJKLMNOPQRSTUV", note: `中${C(0x1f600)}`, n: 1.5 }),
+    ...cat("alpha/attempt-001", "executor-report.json"),
+    check: (py) => {
+      expect(text(py)).not.toContain("ABCDEFGHIJKLMNOP");
+      expect(JSON.parse(text(py)).text).toContain('{\n  "token": ');
+    },
+  },
+  {
+    name: "C04 json 模式：带 BOM 解析不了，整份按文本脱敏",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "meta.json", `${C(0xfeff)}{"password": "hunter2hunter2"}`),
+    ...cat("alpha/attempt-001", "meta.json"),
+    check: (py) => expect(JSON.parse(text(py)).text.startsWith(C(0xfeff))).toBe(true),
+  },
+  {
+    name: "C05 JSONL：合法行脱敏、坏行与超长行只给占位、空白行写空、孤立代理项写成转义、末行没有换行照给",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", [
+      '{"type": "x", "api_key": "abcdefghijklmnop1234"}', "not json", "", ` ${C(0x9)} `,
+      `{"a": "x${C(0x5c)}ud800y"}`, `${"x".repeat(4 * 1024 * 1024 + 1)}`, '{"b": 1}',
+    ].join("\n")),
+    ...cat("alpha/attempt-001", "events.jsonl"),
+    check: (py) => {
+      const page = JSON.parse(text(py)) as { lines: Record<string, unknown>[] };
+      expect(page.lines.map((line) => line["hidden"] ?? "text")).toEqual(["text", "not_json", "text", "text", "text", "too_long", "text"]);
+      expect(text(py)).toContain(`x${C(0x5c, 0x5c)}ud800y`);
+    },
+  },
+  {
+    name: "C06 JSONL 的文本模式：隐藏的行写说明",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", '{"a": 1}\nnot json\n{"b": 2}\n'),
+    ...cat("alpha/attempt-001", "events.jsonl", { json: false }),
+    check: (py) => expect(text(py)).toContain("（第 2 行已隐藏：不是合法 JSON）"),
+  },
+  {
+    name: "C07 游标格式不对",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
+    ...cat("alpha/attempt-001", "summary.md", { cursor: "t:zz" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("游标格式不对"),
+  },
+  {
+    name: "C07b 游标字段是十六进制字母：过得了格式检查，按十进制解析时拒绝",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
+    ...cat("alpha/attempt-001", "summary.md", { cursor: "t:a:1:2:3" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("游标格式不对"),
+  },
+  {
+    name: "C15 扩展名大写的 .JSONL 也按 JSONL 读",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "EVENTS.JSONL", '{"a": 1}\nbad\n'),
+    ...cat("alpha/attempt-001", "EVENTS.JSONL"),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ mode: "jsonl" }),
+  },
+  {
+    name: "C08 文本游标对不上文件身份：已变化",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
+    ...cat("alpha/attempt-001", "summary.md", { cursor: "t:0:1:2:3" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("游标对应的文件已变化"),
+  },
+  {
+    name: "C09 JSONL 文件给文本游标：格式不对",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", '{"a": 1}\n'),
+    ...cat("alpha/attempt-001", "events.jsonl", { cursor: "t:0:0:0:0" }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("游标格式不对"),
+  },
+  {
+    name: "C10 --limit 为 0",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
+    ...cat("alpha/attempt-001", "summary.md", { limit: 0 }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("--limit 必须在 1 到 262144 之间：0"),
+  },
+  {
+    name: "C11 --limit 超出 JS 数字的精度：报错里原样写出",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
+    ...cat("alpha/attempt-001", "summary.md", { limit: 99999999999999999999n }),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("：99999999999999999999"),
+  },
+  {
+    name: "C12 路径用反斜杠：按斜杠认",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "checks/01/V01.log", "ok\n"),
+    ...cat("alpha/attempt-001", `checks${C(0x5c)}01${C(0x5c)}V01.log`),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ path: "checks/01/V01.log", text: "ok\n" }),
+  },
+  {
+    name: "C13 路径不在证据清单里（含经过链接的）",
+    setup: (repo) => {
+      put(runs(repo, "alpha/attempt-001"), "summary.md", "x");
+      put(runs(repo, "elsewhere/attempt-001"), "secret.txt", "y");
+      junction(runs(repo, "elsewhere/attempt-001"), runs(repo, "alpha/attempt-001/linked"));
+    },
+    ...cat("alpha/attempt-001", "linked/secret.txt"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("不在 alpha/attempt-001 的证据清单里：linked/secret.txt"),
+  },
+  {
+    name: "C14 文本超过 64 MiB：不显示",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "big.log", Buffer.alloc(64 * 1024 * 1024 + 1, 0x61)),
+    ...cat("alpha/attempt-001", "big.log"),
+    check: (py) => expect(py.stderr.toString("utf8")).toContain("文件太大（超过上限 67108864 字节）"),
+  },
 ];
 
-describe("第 ②a 步：status、logs list、logs show 与 Python 逐字节一致", () => {
+/** 同一个仓库里翻页：Python 与 TS 拿同一个游标逐页比较，下一页的游标取自 Python 的输出。 */
+function comparePages(setup: (repo: string) => void, target: string, file: string, limit: number, pages: number,
+  between?: (repo: string, page: number) => void): number {
+  const repo = makeRepo("pg");
+  let compared = 0;
+  try {
+    setup(repo);
+    let cursor: string | null = null;
+    for (let page = 1; page <= pages; page += 1) {
+      between?.(repo, page);
+      const python = runPythonCli(["--repo", repo, "logs", "cat", target, file, ...(cursor ? ["--cursor", cursor] : []), "--limit", String(limit), "--json"], repo);
+      for (const runtime of RUNTIMES) {
+        const other = runTsCli(runtime, { command: ["logs", "cat"], repo, target, path: file, cursor, limit, json: true }, repo);
+        expect([other.status, other.stderr.toString("utf8")], `${runtime} 第 ${page} 页`).toEqual([python.status, python.stderr.toString("utf8")]);
+        expect(other.stdout.equals(python.stdout), `${runtime} 第 ${page} 页 stdout\n${text(python)}\n---\n${text(other)}`).toBe(true);
+      }
+      compared += 1;
+      if (python.status !== 0) break;
+      expect(schemaErrors("logs-cat-v1", JSON.parse(text(python)))).toEqual([]);
+      const data = JSON.parse(text(python)) as { done: boolean; next_cursor: string };
+      if (data.done) break;
+      cursor = data.next_cursor;
+    }
+    return compared;
+  } finally {
+    removeDir(repo);
+  }
+}
+
+describe("第 ②a、②b1 步：status、logs list、logs show、logs cat 与 Python 逐字节一致", () => {
   for (const item of CASES) it(item.name, () => compare(item), 120_000);
+
+  it("P01 文本翻页：长行按片、补充平面字符按码点", () => {
+    const body = [`${"中".repeat(9)}${C(0x1f600)}${"b".repeat(13)}`, "short", "", `${C(0x1d400)}`.repeat(20), "end"].join("\n");
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", body), "alpha/attempt-001", "summary.md", 7, 40)).toBeGreaterThan(8);
+  }, 300_000);
+
+  it("P02 JSONL 翻页：一行超过一页时按片续读（行内字符位置）", () => {
+    const lines = ['{"a": 1}', `{"long": "${"x".repeat(70)}${C(0x1f600)}"}`, '{"b": 2}', "bad", '{"c": 3}'].join("\n") + "\n";
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", lines), "alpha/attempt-001", "events.jsonl", 20, 40)).toBeGreaterThan(5);
+  }, 300_000);
+
+  it("P03 JSONL 翻页途中文件变长：游标照常；之前的字节被改写：已变化", () => {
+    const lines = '{"a": 1}\n{"b": 2}\n{"c": 3}\n';
+    const file = (repo: string): string => join(runs(repo, "alpha/attempt-001"), "events.jsonl");
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", lines), "alpha/attempt-001", "events.jsonl", 30, 6,
+      (repo, page) => {
+        if (page === 2) writeFileSync(file(repo), `${lines}{"d": 4}\n`);
+      })).toBeGreaterThan(2);
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", lines), "alpha/attempt-001", "events.jsonl", 30, 3,
+      (repo, page) => {
+        if (page === 2) writeFileSync(file(repo), lines.replace('"a"', '"z"'));
+      })).toBe(2);
+    // 文件变长、之前的字节也被改了：大小与修改时间都说明不了，靠游标之前那一段的哈希
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", lines), "alpha/attempt-001", "events.jsonl", 30, 3,
+      (repo, page) => {
+        if (page === 2) writeFileSync(file(repo), `${lines.replace('"a"', '"z"')}{"d": 4}\n`);
+      })).toBe(2);
+  }, 300_000);
 });

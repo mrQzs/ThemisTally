@@ -128,6 +128,59 @@
           "type": "boolean"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "target",
+        "path",
+        "cursor",
+        "limit",
+        "json"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "logs",
+            "cat"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "json": {
+          "type": "boolean"
+        }
+      }
     }
   ]
 }

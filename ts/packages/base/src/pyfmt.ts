@@ -121,6 +121,11 @@ export class PyOut {
     writeAll(1, pyTextBytes(`${text}\n`));
   }
 
+  /** sys.stdout.write(text)：不加换行。 */
+  write(text: string): void {
+    writeAll(1, pyTextBytes(text));
+  }
+
   printErr(text = ""): void {
     writeAll(2, pyTextBytes(`${text}\n`));
   }

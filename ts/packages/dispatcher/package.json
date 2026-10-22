@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./logs": "./src/logs.ts",
+    "./logs-cat": "./src/logs-cat.ts",
     "./repo": "./src/repo.ts",
     "./status": "./src/status.ts"
   },

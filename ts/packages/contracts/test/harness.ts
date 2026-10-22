@@ -112,7 +112,10 @@ export function runPythonCli(argv: readonly string[], cwd: string): CliRun {
 
 /** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */
 export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown>, cwd: string): CliRun {
-  const encoded = Buffer.from(JSON.stringify(pyargs), "utf8").toString("base64");
+  // bigint 写成 JSON 整数原样（Python 的 int 不受 JS 数字精度限制）
+  const json = JSON.stringify(pyargs, (_key, value: unknown) => (typeof value === "bigint" ? `\u0000big:${value}` : value))
+    .replace(/"\\u0000big:(-?\d+)"/gu, "$1");
+  const encoded = Buffer.from(json, "utf8").toString("base64");
   return cliRun(runtime, [CLI_MAIN, "--pyargs-b64", encoded], cwd);
 }
 

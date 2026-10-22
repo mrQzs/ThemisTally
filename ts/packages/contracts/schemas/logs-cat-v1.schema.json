@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://themis-tally.invalid/schemas/logs-cat-v1.schema.json",
+  "title": "logs cat --json：一页（文本页或 JSONL 页）",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "mode",
+        "text",
+        "next_cursor",
+        "done"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "mode": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        },
+        "next_cursor": {
+          "type": "string",
+          "pattern": "^[tj](:[0-9a-f]{1,64})+$"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "part": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "mode",
+        "lines",
+        "next_cursor",
+        "done"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "mode": {
+          "const": "jsonl"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "n",
+                  "text"
+                ],
+                "properties": {
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "part": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "parts": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "n",
+                  "hidden"
+                ],
+                "properties": {
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "hidden": {
+                    "enum": [
+                      "too_long",
+                      "not_json"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "next_cursor": {
+          "type": "string",
+          "pattern": "^[tj](:[0-9a-f]{1,64})+$"
+        },
+        "done": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}
