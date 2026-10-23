@@ -3,8 +3,9 @@
 //   {"op":"lock","path":…,"wait":秒}  → {"ok":true} 或 {"ok":false,"error":"timeout"|"error","message":…}
 //   {"op":"unlock"}                    → {"ok":true}，然后退出
 //   stdin 关闭（父进程退出）            → 立即退出，由操作系统放锁
-//   {"op":"supervise","cmd":[…],"options":{…}}（迁移计划第 8.2 节 ④a）
-//                                      → 起子进程之后 {"spawned":pid}，结束之后 {"result":{…}}；
+//   {"op":"supervise","cmd":[…],"options":{…},"interrupted":布尔}（迁移计划第 8.2 节 ④a）
+//                                      → 起子进程之后 {"spawned":pid}，结束之后 {"result":{…}}；interrupted 为真
+//                                        （调用方开始之前就取消了）时不起子进程，直接交回 interrupted 的结果；
 //                                        参数错误（Python 会抛 ValueError 的）给 {"error":{"kind","message"}}
 //   {"op":"interrupt"}                 → 正在运行的 supervise 照中断处理（调用方收到 Ctrl+C 之类的信号时转发）
 //   stdin 关闭（调用方死了）            → 立即退出：Job 句柄随进程关闭，KILL_ON_JOB_CLOSE 带走整棵树
@@ -22,8 +23,11 @@ let held: FileLock | null = null;
 const interrupt: InterruptFlag = { interrupted: false };
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
-  const request = JSON.parse(line) as { op: string; path?: string; wait?: number; cmd?: string[]; options?: SuperviseOptions };
+  const request = JSON.parse(line) as {
+    op: string; path?: string; wait?: number; cmd?: string[]; options?: SuperviseOptions; interrupted?: boolean;
+  };
   if (request.op === "supervise") {
+    if (request.interrupted === true) interrupt.interrupted = true; // 调用方开始之前就取消了：不起子进程
     const options: SuperviseOptions = { ...(request.options as SuperviseOptions), onSpawn: (pid) => reply({ spawned: pid }) };
     helperSupervise(request.cmd ?? [], options, interrupt).then(
       (result) => {

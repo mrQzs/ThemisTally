@@ -126,7 +126,7 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     expect((await superviseWith(fakeApi({ active: 0 }).api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
   });
 
-  it("signal 取消：照中断处理（interrupted、CTRL_BREAK、结束 Job）；开始之前就取消的同样处理", async () => {
+  it("signal 取消：照中断处理（interrupted、CTRL_BREAK、结束 Job）", async () => {
     const running = fakeApi({ exitAfter: Infinity, ctrlBreak: 6 });
     const controller = new AbortController();
     // 限时 2 秒兜底：取消没有接上时记成超时，不至于一直跑下去
@@ -135,9 +135,22 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     });
     expect(result).toMatchObject({ interrupted: true, timed_out: false, ctrl_break: "failed" });
     expect(running.calls).toEqual(expect.arrayContaining(["ctrlBreak", "terminateJob"]));
+  });
+
+  it("开始之前就取消：不起子进程，与 Python 在 Popen 之前被中断一样（interrupted、没有 pid 与退出码），句柄都关掉", async () => {
     const early = fakeApi({ exitAfter: Infinity, ctrlBreak: 6 });
-    expect(await superviseWith(early.api, ["x.exe"], { ...OPTIONS, timeout: 2, signal: AbortSignal.abort() }))
-      .toMatchObject({ interrupted: true, timed_out: false });
+    const spawned: number[] = [];
+    const result = await superviseWith(early.api, ["x.exe"], {
+      ...OPTIONS, timeout: 2, signal: AbortSignal.abort(), onSpawn: (pid) => void spawned.push(pid),
+    });
+    expect(result).toEqual({
+      exit_code: null, timed_out: false, interrupted: true, spawn_error: null, wall_seconds: expect.any(Number),
+      stray_processes: null, kill_method: "job-object", pid: null, ctrl_break: null, ctrl_break_winerror: null,
+    });
+    expect(early.calls).toEqual(["job"]); // 没有 spawn、ctrlBreak、terminateJob
+    expect(spawned).toEqual([]);
+    expect(early.closed).toEqual(expect.arrayContaining([...early.opened, 1n])); // 输出文件照样打开过（建好），都关掉
+    expect(early.opened).toHaveLength(3);
   });
 
   it("handleSignals：缺省在运行期间装上 process 的中断监听器、结束后拿掉；false 时一个也不装", async () => {

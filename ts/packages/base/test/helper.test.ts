@@ -1,7 +1,7 @@
 // Node 后备的辅助进程（themistally-15 复核 ④a 的第 2、5 条）：Bun 从哪里找、辅助进程起不来时报清楚的错而不是让调用方
 // 崩掉、取消经辅助进程传到被监督的子进程。Vitest 跑在 Node 上，runSupervised 与 acquireFileLock 走的都是辅助进程。
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,22 @@ describe("Node 后备的辅助进程", () => {
       if (saved === undefined) delete process.env["THEMIS_NATIVE_CMD"];
       else process.env["THEMIS_NATIVE_CMD"] = saved;
     }
+  });
+
+  it.skipIf(!onWindows)("开始之前就取消（经辅助进程）：不起子进程，标记文件不存在，pid 与退出码为 null，输出文件照样建好", async () => {
+    // 不发 CTRL_BREAK（没有子进程），不用放进单独的控制台；即使实现有毛病起了子进程，它也只写个文件就退出
+    const marker = join(dir, "marker");
+    const env = Object.entries(process.env).filter((pair): pair is [string, string] => typeof pair[1] === "string");
+    const result = await runSupervised([PY, "-c", `open(${JSON.stringify(marker)}, 'w').close()`], {
+      cwd: dir, env, timeout: 20, grace: 2, signal: AbortSignal.abort(), handleSignals: false,
+      stdout: { path: join(dir, "out"), how: "create-new" }, stderr: { path: join(dir, "err"), how: "create-new" },
+    });
+    expect(result).toMatchObject({
+      interrupted: true, timed_out: false, pid: null, exit_code: null, kill_method: "job-object", ctrl_break: null,
+    });
+    await new Promise((done) => setTimeout(done, 1000)); // 万一起了子进程，给它写标记的时间
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(dir, "out"))).toBe(true);
   });
 
   it.skipIf(!onWindows)("signal 取消经辅助进程传过去：照中断处理，子进程被结束；handleSignals 为 false 时不装监听器", () => {

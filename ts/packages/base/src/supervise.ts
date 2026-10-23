@@ -233,6 +233,12 @@ async function superviseWindows(
       const stderr = api.openInheritable(options.stderr.path, options.stderr.how);
       opened.push(stderr);
       std = { stdin, stdout, stderr };
+      if (flag.interrupted) {
+        // 开始之前就取消了（themistally-15 复核 ④a）：不起子进程。与 Python 一样：_Interrupted 发生在 Popen 之前时
+        // proc 是 None，结果是 interrupted、没有 pid 与退出码；输出文件照样建好（Python 由调用方先打开）
+        result.interrupted = true;
+        return result;
+      }
       const environment = environmentBlock(options.env, api.compareIgnoreCase);
       child = api.spawnSuspended(list2cmdline(cmd), environment, options.cwd, std);
     } catch (error) {
@@ -304,16 +310,19 @@ async function superviseThroughHelper(cmd: readonly string[], options: Supervise
   helper.on("error", (error) => {
     spawnError ??= error;
   });
+  // 起不来时 stdout 可能先于 error 事件关闭；close 在 error 之后：读完 stdout 先等它，再看是不是起不来
+  const closed = new Promise<void>((done) => helper.once("close", () => done()));
   helper.stdin.on("error", () => undefined); // 起不来时写 stdin 会 EPIPE，原因由上面的 error 交代
   const { onSpawn, signal, handleSignals, ...request } = options;
-  helper.stdin.write(`${JSON.stringify({ op: "supervise", cmd, options: request })}\n`);
+  // 开始之前就取消了：随请求一起交代，辅助进程不起子进程（另发一行 interrupt 会与起子进程赛跑）
+  const aborted = signal?.aborted === true;
+  helper.stdin.write(`${JSON.stringify({ op: "supervise", cmd, options: request, interrupted: aborted })}\n`);
   const interrupt = (): void => {
     if (spawnError === null && !helper.stdin.destroyed) helper.stdin.write(`${JSON.stringify({ op: "interrupt" })}\n`);
   };
   const listens = handleSignals ?? true;
   if (listens) for (const name of INTERRUPTS) process.on(name, interrupt);
   signal?.addEventListener("abort", interrupt);
-  if (signal?.aborted) interrupt();
   try {
     const lines = createInterface({ input: helper.stdout });
     for await (const line of lines) {
@@ -322,6 +331,8 @@ async function superviseThroughHelper(cmd: readonly string[], options: Supervise
       if (message.error !== undefined) throw new PyCrash(message.error.kind, message.error.message);
       if (message.result !== undefined) return message.result;
     }
+    // 兜底的 5 秒不拖住事件循环（unref）：close 迟迟不来也不让命令行晚退出
+    await Promise.race([closed, new Promise<void>((done) => setTimeout(done, 5000).unref())]);
     if (spawnError !== null) throw new Error(`起不了进程监督的辅助进程（${command}）：${(spawnError as Error).message}`);
     throw new Error("进程监督的辅助进程没有交回结果就退出了");
   } finally {
@@ -363,6 +374,10 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
   if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);
   options.signal?.addEventListener("abort", onSignal);
   try {
+    if (flag.interrupted) {
+      result.interrupted = true; // 开始之前就取消了：不起子进程（同 Windows）
+      return result;
+    }
     const child = spawn(cmd[0] as string, cmd.slice(1), {
       cwd: options.cwd, env: Object.fromEntries(options.env), stdio: ["ignore", out, err], detached: true,
     });

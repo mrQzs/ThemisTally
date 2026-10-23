@@ -201,6 +201,24 @@
       "file": "ts/packages/base/src/native.ts",
       "old": "  if (exe !== undefined) return exe;\n",
       "new": ""
+    },
+    {
+      "name": "V33 开始之前就取消照样起子进程（进程内）",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "      if (flag.interrupted) {\n        // 开始之前就取消了（themistally-15 复核 ④a）：不起子进程。",
+      "new": "      if (false) {\n        // 开始之前就取消了（themistally-15 复核 ④a）：不起子进程。"
+    },
+    {
+      "name": "V34 辅助进程一路不交代已经取消",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "cmd, options: request, interrupted: aborted })",
+      "new": "cmd, options: request, interrupted: false })"
+    },
+    {
+      "name": "V35 辅助进程不认 interrupted 字段",
+      "file": "ts/packages/base/src/native-helper.ts",
+      "old": "    if (request.interrupted === true) interrupt.interrupted = true;",
+      "new": "    if (request.interrupted === null) interrupt.interrupted = true;"
     }
   ]
 }
