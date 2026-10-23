@@ -55,6 +55,10 @@
 | T9 | `.agent/.ui.lock/` 的语义照 D4（记 pid 与端口；已有活着的服务就报告它，退出 1）。二道脱敏用 `@themis/base/secrets` 已经移植、对照过的 `redactJson`，加按路由的白名单 | D4 |
 | T10 | 测试：10.1 的 U 系列改用 Vitest（`ts/packages/ui/test`），起真的服务进程发 HTTP 请求，子进程替身照旧。U4 在测试里起 Python 引导子进程，用内核真正的解析器核对每条 argv 模板；U9 的“与 CLI 一致”成了逐字节一致（两边就是同一条 CLI） | §10.1 |
 | T11 | 执行：`ts/packages/ui` 不在内核禁区里（迁移计划第 69 轮把禁区收窄到内核包与工作区文件），经 hub 派给执行器；包的骨架（`package.json`、`bun.lock` 的工作区登记）由规划端先提交。D1-B、D1-C 拆成三片：服务骨架、安全基线、握手与 `ui` 转交；读路由与二道脱敏白名单；SSE、作业与跟随。跟随要的 `logs cat`“只给写完的行”开关是 Python CLI（与 TS 只读实现）的改动，由规划端做 | §6、§9 |
+| T12 | （2026-10-23 补，与 themistally-15 定）T8 的落点：`@themis/base` 在内核禁区里，执行器写不了。第 1 片先把本机 HTTP 的安全基线写在 `ts/packages/ui/src/localhttp/`，到迁移第 ③d 步（`config secret set` 的一次性网页）由规划端整体搬进 `@themis/base/localhttp`，ui 改为从那里导入，测试跟着搬。内核包不反向依赖 ui 包（否则禁区就漏了）。附四个条件：（1）接口按 WHATWG 的 `Request`、`Response`、`Headers` 写，`Bun.serve` 只出现在服务那一层的薄适配里，多数检查写成纯函数、测试不起服务；（2）`localhttp/**` 只许导入 `node:*`、`@themis/base/*` 与内部的相对路径，不碰 Bun 的全局对象（源码卫生测试已加，调度器第 73 轮）；（3）搬家之前，第 2、3 片合同的 Scope 不含 `localhttp/**`，要改由规划端改；（4）第 1 片验收时规划端逐行审 localhttp，给它单列一份变异清单，至少覆盖一次性、60 秒过期、两种拒绝的响应相同、恒定时间比较、限速、Host、Origin、CSRF、请求体上限；落地后 themistally-15 独立复核 | D4、T8 |
+| T13 | （2026-10-23 补，themistally-15）静态资源的边界：解码、规范化之后的路径必须仍在 `--assets` 目录之内；拒绝 `..`、编码过的点与分隔符（`%2e`、`%2f`、`%5c`）、反斜杠、盘符与 UNC 路径、含 `:` 的名字（ADS）、末尾带点或空格的段（Windows 会去掉文件名末尾的点与空格，靠后缀判断的规则会被绕过，同 CVE-2024-43402）；不跟随重解析点跑出目录；不列目录；`Content-Type` 用白名单，加 `nosniff`。每一类配一条负面测试 | D4、§10.1 |
+| T14 | （2026-10-23 补，themistally-15）父进程监视不轮询 ppid：pid 会被复用；经 `pi_dispatch.py ui` 启动时直接父进程是 Python 启动器，外壳死了并不会传到启动器这一层。`--desktop` 模式以 stdin 的 EOF 为主信号：外壳起服务时给一个 stdin 管道并一直握着写端（启动器的 `run_handoff` 原样继承 stdin 句柄，直接起与经启动器起都成立）。stdin 是空设备时会立刻读到 EOF，所以只在 `--desktop` 下这样判断；U13 用管道来测 | §5.1、D10、§10.1 |
+| T15 | （2026-10-23 补，themistally-15）请求体 64 KiB：边读流边数字节，到 64 KiB 加 1 就停，不只看 `Content-Length`（分块传输没有这个头）；`Bun.serve` 的 `maxRequestBodySize` 再设一层作为第二道防线。负面测试用分块传输 | D4 |
 
 ### 0.1 第 6 轮（零 Blocking，“可以进入实现阶段”）
 
@@ -736,7 +740,8 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 - 第 7 版（T6）：在内核仓库里，`pi_dispatch.py ui …` 经启动器转交给 TS；桌面应用里外壳直接起打包好的服务程序，参数、握手与退出码都与下面相同。TS 没装好时，启动器在握手之前报错退出 2（迁移计划第 ② 步的原文）。
 - stdout 写一行握手 JSON：`{"themis_ui": 1, "bootstrap": "http://127.0.0.1:<port>/bootstrap/<nonce>", "origin": "http://127.0.0.1:<port>", "control": "<控制令牌>", "pid": <pid>}`；之后不再向 stdout 写任何内容。外壳只把 `control` 留在主进程里（D4）。
 - `--transcript` 可以给多个，用量路由把它们原样传给 `logs usage`（r2-S4）。
-- 父进程退出时，服务自己退出。
+- 父进程退出时，服务自己退出。第 7 版补（T14）：`--desktop` 模式以 stdin 的 EOF 为主信号，外壳起服务时给一个 stdin 管道并一直握着写端；外壳退出，管道的写端随之关闭，服务读到 EOF 就退出。
+- 第 7 版（第 73 轮）：经 `pi_dispatch.py ui` 起时，调度器先在 Python 里解析参数、找仓库（报错照调度器原文），再把参数连同仓库根目录、Python 解释器与 `pi_dispatch.py` 的路径交给 TS（pyargs-v1 的 ui 一支），服务用后两者起回调内核的子进程（T2）。
 - **退出码**：
   - 0：正常关闭（空闲超时或外壳退出）；
   - 2：用法错误，或找不到前端资源；
