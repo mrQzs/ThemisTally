@@ -169,6 +169,10 @@ export function windowsErrorText(winerror: number, message: string): string {
 /** 中断：照 run_supervised 的 _install_interrupt_handlers，运行期间接住这几个信号。 */
 const INTERRUPTS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const;
 
+/** pi_dispatch.JOB_SETTLE_SECONDS（第 74 轮）：主进程刚退出时 Job 的活动进程数可能还没减下来，大于 0 时先等这么久，
+ * 仍大于 0 才算残留。 */
+const JOB_SETTLE_MS = 250;
+
 /** 中断请求：信号处理器或辅助进程的 interrupt 请求置位，运行循环下一轮看到就照 _Interrupted 处理。 */
 export interface InterruptFlag {
   interrupted: boolean;
@@ -283,7 +287,12 @@ async function superviseWindows(
     options.signal?.removeEventListener("abort", onSignal);
     if (child !== null) {
       await waitExit(30_000);
-      const count = api.activeProcesses(job);
+      let count = api.activeProcesses(job);
+      const settle = performance.now() + JOB_SETTLE_MS;
+      while (count > 0 && performance.now() < settle) {
+        await sleep(10);
+        count = api.activeProcesses(job);
+      }
       if (count > 0) api.terminateJob(job);
       result.stray_processes = count > 0 ? true : count === 0 ? false : null;
       result.exit_code = exited ? api.exitCode(child.process) : null;

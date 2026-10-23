@@ -935,12 +935,22 @@ def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], gra
     return None, None
 
 
+#: 主进程刚退出时，Job 的活动进程数可能还没减下来：句柄已经 signaled，计数要过一会儿才归零。实测 PATH 很短时约
+#: 两百次一次，50 毫秒内归零；TS 迁移的进程监督契约因此偶发红（Python 报残留、TS 没报）。计数大于 0 时先等它这么
+#: 久，仍大于 0 才算残留（第 74 轮）。
+JOB_SETTLE_SECONDS = 0.25
+
+
 def _reap_stragglers(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob]) -> Optional[bool]:
     """主进程结束后，终止仍在运行的同组子进程；返回是否发现残留。"""
     if IS_WINDOWS:
         if job is None:
             return None
         count = job.active_processes()
+        settle = time.monotonic() + JOB_SETTLE_SECONDS
+        while count > 0 and time.monotonic() < settle:
+            time.sleep(0.01)
+            count = job.active_processes()
         if count > 0:
             job.terminate()
             return True

@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -144,3 +145,52 @@ def test_the_trailing_dot_bypass_is_real_and_now_refused(tmp_path):
     assert b"INJECTED" in done.stdout
     with pytest.raises(pd.DispatchError, match="含批处理特殊字符"):
         pd.ensure_argv_safe([name, INJECTION])
+
+
+# ---------------------------------------------------------------------------
+# 残留进程：Job 的计数滞后（第 74 轮）
+# ---------------------------------------------------------------------------
+
+class FakeJob:
+    """active_processes 依次给出 counts 里的数，最后一个一直重复。"""
+
+    def __init__(self, counts):
+        self.counts = list(counts)
+        self.terminated = 0
+        self.queries = 0
+
+    def active_processes(self):
+        self.queries += 1
+        return self.counts.pop(0) if len(self.counts) > 1 else self.counts[0]
+
+    def terminate(self):
+        self.terminated += 1
+
+
+def test_a_lagging_job_count_is_not_a_straggler():
+    # 主进程刚退出、计数还没减下来：等它归零，不算残留，也不结束 Job
+    job = FakeJob([1, 1, 0])
+    assert pd._reap_stragglers(None, job) is False
+    assert job.terminated == 0 and job.queries == 3
+
+
+def test_a_count_that_stays_up_is_a_straggler_after_the_settle_time():
+    job = FakeJob([2])
+    started = time.monotonic()
+    assert pd._reap_stragglers(None, job) is True
+    assert job.terminated == 1
+    assert time.monotonic() - started >= pd.JOB_SETTLE_SECONDS
+
+
+def test_an_unreadable_count_is_unknown_and_does_not_wait():
+    job = FakeJob([-1])
+    started = time.monotonic()
+    assert pd._reap_stragglers(None, job) is None
+    assert job.terminated == 0 and time.monotonic() - started < pd.JOB_SETTLE_SECONDS
+
+
+def test_a_clean_exit_does_not_wait():
+    job = FakeJob([0])
+    started = time.monotonic()
+    assert pd._reap_stragglers(None, job) is False
+    assert job.queries == 1 and time.monotonic() - started < pd.JOB_SETTLE_SECONDS

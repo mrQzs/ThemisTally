@@ -11,7 +11,8 @@ interface Script {
   /** exited 第几次调用开始返回 true（缺省第一次就结束）；Infinity 表示一直不结束，直到 terminateJob。 */
   exitAfter?: number;
   ctrlBreak?: number | null;
-  active?: number;
+  /** activeProcesses 的结果：一个数一直给它；一串数依次给出，最后一个一直重复（计数滞后，第 74 轮）。 */
+  active?: number | readonly number[];
   exitCode?: number;
 }
 
@@ -21,6 +22,7 @@ function fakeApi(script: Script = {}) {
   const closed: bigint[] = [];
   let next = 100n;
   let polls = 0;
+  let activeQueries = 0;
   let killed = false;
   const api: WinProcessApi = {
     createKillOnCloseJob: () => {
@@ -59,7 +61,12 @@ function fakeApi(script: Script = {}) {
       calls.push("terminateJob");
       killed = true;
     },
-    activeProcesses: () => script.active ?? 0,
+    activeProcesses: () => {
+      calls.push("active");
+      if (!Array.isArray(script.active)) return (script.active as number | undefined) ?? 0;
+      const sequence = script.active as readonly number[];
+      return sequence[Math.min(activeQueries++, sequence.length - 1)] ?? 0;
+    },
     close: (handle) => void closed.push(handle),
     compareIgnoreCase: (a, b) => {
       const x = a.toUpperCase();
@@ -124,6 +131,21 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     expect(stray.calls).toContain("terminateJob");
     expect((await superviseWith(fakeApi({ active: -1 }).api, ["x.exe"], OPTIONS)).stray_processes).toBeNull();
     expect((await superviseWith(fakeApi({ active: 0 }).api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
+  });
+
+  it("Job 的计数滞后（第 74 轮）：主进程刚退出时计数还是 1、随后归零，不算残留，也不结束 Job；一直大于 0 要等满 250 毫秒", async () => {
+    const lagging = fakeApi({ active: [1, 1, 0] });
+    expect((await superviseWith(lagging.api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
+    expect(lagging.calls.filter((call) => call === "active")).toHaveLength(3);
+    expect(lagging.calls).not.toContain("terminateJob");
+    const stays = fakeApi({ active: 1 });
+    const started = performance.now();
+    expect((await superviseWith(stays.api, ["x.exe"], OPTIONS)).stray_processes).toBe(true);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(240);
+    expect(stays.calls).toContain("terminateJob");
+    const clean = fakeApi({ active: 0 });
+    await superviseWith(clean.api, ["x.exe"], OPTIONS);
+    expect(clean.calls.filter((call) => call === "active")).toHaveLength(1);
   });
 
   it("signal 取消：照中断处理（interrupted、CTRL_BREAK、结束 Job）", async () => {

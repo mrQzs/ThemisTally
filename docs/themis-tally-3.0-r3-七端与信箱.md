@@ -1450,6 +1450,16 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - TS：契约 `ui.contract.test.ts` 5 条，经真的调度器跑，选择文件全是 python 时照样交给 TS，启动器实际交出的参数过 Schema；`ui/test/args.test.ts` 3 条；TS 全量 393 条全过。
   - 变异 18 个全部抓住：Python 7、TS 7、导入规则 4。
 
+### 第 74 轮：残留进程的判断等 Job 的计数归零（2026-10-23，TS 迁移的进程监督契约偶发红）
+
+- **现象**：S3b 几次偶发红，都是 Python 报 `stray_processes: true`、TS 报 false，子进程只是 `python -c pass`。
+- **实测**：`run_supervised` 跑 `python -c pass` 两百次（PATH 很短的情形）：有一次主进程已经退出（句柄 signaled），Job 的 ActiveProcesses 还是 1，50 毫秒后归零。`_reap_stragglers` 正好在这个窗口里查，就会误报残留，还顺手结束一次 Job。TS 的移植照搬了同样的判断，所以两边各自偶发，对不上。
+- **改法**：Python 与 TS 同一轮改。计数大于 0 时，每 10 毫秒再查一次，最多等 `JOB_SETTLE_SECONDS`（0.25 秒），仍大于 0 才算残留并结束 Job。计数为 0 或查不出来（-1）时不等。真正的残留（S6 的孙进程）照旧报 true，只是多等 0.25 秒。
+- **测试与变异**：
+  - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
+  - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。
+  - S3b、S1、S6 连跑 10 次全过。变异 4 个全部被各自那一侧抓住：不等、时限为 0，两边各两条。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
