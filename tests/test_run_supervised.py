@@ -113,3 +113,34 @@ def test_run_supervised_reports_no_ctrl_break_when_nothing_was_sent(tmp_path):
     with open(tmp_path / "o", "xb") as out, open(tmp_path / "e", "xb") as err:
         result = pd.run_supervised([sys.executable, "-c", "pass"], tmp_path, dict(os.environ), out, err, 30, 15.0)
     assert result["exit_code"] == 0 and result["ctrl_break"] is None and result["ctrl_break_winerror"] is None
+
+
+# ---------------------------------------------------------------------------
+# ensure_argv_safe：文件名末尾的点与空格（第 71 轮）
+# ---------------------------------------------------------------------------
+
+INJECTION = 'x" & echo INJECTED & rem "'
+
+
+@pytest.mark.parametrize("name", ["t.bat.", "t.bat ", "t.bat. .", "T.CMD..", "t.cmd  ", "t.bat", "T.BAT"])
+def test_batch_names_with_trailing_dots_and_spaces_are_checked(name):
+    with pytest.raises(pd.DispatchError, match="含批处理特殊字符"):
+        pd.ensure_argv_safe([name, "ok", INJECTION])
+    pd.ensure_argv_safe([name, "ok", "safe arg"])  # 安全的参数照样放行
+
+
+def test_other_names_are_not_batch_files():
+    for name in ("t.exe.", "t.batx", "t.bat.exe", "bat", "t.cmdline"):
+        pd.ensure_argv_safe([name, INJECTION])
+
+
+def test_the_trailing_dot_bypass_is_real_and_now_refused(tmp_path):
+    # Windows 去掉末尾的点：不经检查直接起 "t.bat."，注入的命令真的被 cmd.exe 执行了
+    script = tmp_path / "t.bat"
+    script.write_text("@echo ARG1=%1\r\n", encoding="ascii")
+    name = str(script) + "."
+    done = subprocess.run([name, INJECTION], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          timeout=60)
+    assert b"INJECTED" in done.stdout
+    with pytest.raises(pd.DispatchError, match="含批处理特殊字符"):
+        pd.ensure_argv_safe([name, INJECTION])

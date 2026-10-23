@@ -1415,6 +1415,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **撤回的一条**：原计划同一轮让 `run_supervised` 拒绝 `.bat`、`.cmd`，themistally-15 撤回：合同里 16 条检查命令以 npm 开头，Windows 上解析出来就是 `npm.CMD`。PD 本来就有 `ensure_argv_safe`（参数含批处理特殊字符就拒绝），TS 照这个分工移植。
 - **测试与变异**：新增 `tests/test_run_supervised.py` 4 条：没有控制台的调用方发送失败、错误码 6、不等宽限、整棵树都结束；不显示窗口的调用方真的送到（标记文件）、没等满宽限；三种状态的来源照 CPython；没超时的不发。用到 `run_supervised` 的测试文件（test_dispatch、legacy 生命周期与命令行、baseline 工具、kit_hub、kit_roles、kernel_impl）566 passed、2 skipped（要可见控制台的两条 legacy 用例本来就跳过）。变异 6 个全部抓住（宽限条件取反、送不到照样等、超时不写字段、不记错误码、已回收照发、发出去记成 failed）。
 
+### 第 71 轮：ensure_argv_safe 先去掉文件名末尾的点与空格（2026-10-23，themistally-15 复核 ④a 时实测绕过）
+
+- **实测**：`ensure_argv_safe` 只在 argv[0] 以 `.cmd`、`.bat` 结尾时检查参数里的批处理特殊字符。Windows 会去掉文件名末尾的点与空格：`t.bat.`、`t.bat `、`t.bat. .` 躲过了扩展名的判断，CreateProcess 照样经 cmd.exe 执行，参数 `x" & echo INJECTED & rem "` 里的命令真的被执行了（Rust 的 CVE-2024-43402，CVE-2024-24576 修得不完整的那一处）。`t.bat::$DATA`（193）与末尾带制表符（2）根本起不来。Python 与 TS 的移植都受影响。
+- **改法**：比较扩展名之前先 `rstrip(" .")`。属于防御纵深：能决定 argv[0] 的人本来就能跑任意程序，但这道检查的本意被架空了。TS 的 `ensureArgvSafe` 同一轮照改（④a 的补丁提交）。
+- **测试与变异**：`tests/test_run_supervised.py` 新增 9 条：末尾带点、空格的七种写法都被拦下（安全参数照样放行）；`t.exe.`、`t.bat.exe` 之类不当作批处理；实跑一次，先证明不经检查时注入真的执行了，再证明检查把它拦下。相关的 legacy 与调度器测试 36 条通过。变异 3 个全部抓住（不去、只去空格、只去点）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

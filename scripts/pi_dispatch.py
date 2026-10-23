@@ -2546,8 +2546,11 @@ def resolve_pi_command(repo: Optional["Repo"] = None, runtime: Optional[str] = N
 
 
 def ensure_argv_safe(cmd: Sequence[str]) -> None:
-    """Windows 批处理包装会经 cmd.exe 解析参数；含特殊字符时拒绝执行。"""
-    if IS_WINDOWS and cmd and cmd[0].lower().endswith((".cmd", ".bat")):
+    """Windows 批处理包装会经 cmd.exe 解析参数；含特殊字符时拒绝执行。
+
+    Windows 会去掉文件名末尾的点与空格：`t.bat.`、`t.bat `、`t.bat. .` 照样经 cmd.exe 执行，比较扩展名之前先去掉
+    （第 71 轮，themistally-15 实测绕过；Rust 的 CVE-2024-43402 就是 CVE-2024-24576 修得不完整的这一处）。"""
+    if IS_WINDOWS and cmd and cmd[0].rstrip(" .").lower().endswith((".cmd", ".bat")):
         for arg in cmd[1:]:
             if any(ch in BATCH_UNSAFE_CHARS for ch in arg):
                 raise DispatchError("参数 %r 含批处理特殊字符，不能安全传给 %s；"
