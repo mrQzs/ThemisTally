@@ -46,7 +46,7 @@
 |---|---|---|
 | T1 | 服务是 TS 工作区里的新包 `ts/packages/ui`（`@themis/ui`），用 Bun 运行（`Bun.serve`）。内核仍只依赖标准库，Python 一侧不加服务代码 | D2、D13、§8 |
 | T2 | 所有路由一律起子进程，跑 `python <kit>/scripts/pi_dispatch.py --repo <仓库> <argv…> --json`，包括原来进程内调用的状态列表（D3 的“快的只读路由”取消）。选择文件、`Repo.discover`、报错文字都只有一个来源：选择文件把 `readonly` 退回 `python` 时，桌面端跟着退。在服务里直接调 TS 实现，等于多一个读选择文件的入口，要另开一轮改迁移计划第 5 节的规矩。代价是每个请求起一次 Python（只读命令再起一次 Bun），延迟实测之后写回本节。**并发上限**（themistally-15）：服务同时起的子进程不超过 4 个（可配），多出来的排队，排队过长回 503 并带 `Retry-After`。一个页面会同时请求好几个接口，每个都要起 Python 加 Bun；10-22 下午 hub 的后台回归、测试与变异重跑撞在一起时出过一次内存告急。替代 D3 原来的“读命令最多并行 4 个” | D3 |
-| T3 | SSE 不靠高频轮询命令推送：服务只 stat、不读内容来察觉变化，有变化才跑一次 `status --json`（去抖；多个订阅者共用这一次）。stat 的范围与节奏（themistally-15）：每 2 秒一次；只看 `.agent/runs/` 下各级目录的列表，加上每个 attempt 的 `state.json`、`run.json`、`events.jsonl` 的大小与修改时间，不扫别的文件；照 logs 的规矩跳过链接与重解析点，不顺着 junction 跑出 `.agent/runs/`；没有订阅者就停掉轮询。每 15 秒发一行心跳注释；客户端断开就释放；EventSource 同样要会话 cookie。运行中 attempt 的已用时间由前端按起始时间自己走，不靠反复跑命令 | D7 |
+| T3 | SSE 不靠高频轮询命令推送：服务只 stat、不读内容来察觉变化，有变化才跑一次 `status --json`（去抖；多个订阅者共用这一次）。stat 的范围与节奏（themistally-15）：每 2 秒一次；范围就是 `status --json` 的输入，不多不少。名单单独放在 `ts/packages/contracts/status-inputs.json`（内核包，规划端维护），ui 包导入这份名单，不自己另写。按 PD 的 `_attempt_row`、`get_state`、`latest_verdict`、`_latest_numbered`、`task_attempts`、`_live_facts`，它是：列 `.agent/runs/` 下的任务目录、每个任务下的 `attempt-NNN`（只认 `ATTEMPT_DIR_RE`）、每个 attempt 的 `checks/` 与 `verdicts/`、`claim/` 在不在；读每个 attempt 的 `meta.json`、`run.json`、`events-summary.json`、`scope.json`、`state.json`、最新一份 `checks/<编号>/checks.json` 与 `verdicts/<编号>.json`，运行中的另读 `events.jsonl`、`run-started.json`。只认 `attempt-NNN`，`_env`、`_reports`、`_tmp` 与服务自己的临时文件怎么变都不触发刷新。照 logs 的规矩跳过链接与重解析点，不顺着 junction 跑出 `.agent/runs/`；没有订阅者就停掉轮询。守卫测试：Python 的 `status` 与 TS 的只读实现各在夹具上（一个运行中、一个已结束的 attempt）记下实际碰过的路径（打开、列目录、stat），归一之后与名单比对；以后 `status` 多读一个文件，测试就红，名单跟着改，监视自动跟上（themistally-15 更正：起初只列了 `state.json`、`run.json`、`events.jsonl`，check 跑完、verdict 落定这类变化会推不出去）。每 15 秒发一行心跳注释；客户端断开就释放；EventSource 同样要会话 cookie。运行中 attempt 的已用时间由前端按起始时间自己走，不靠反复跑命令 | D7 |
 | T4 | 子进程的监督在 TS 里实现：参数用列表、不经 shell；挂起创建、加入带 KILL_ON_JOB_CLOSE 的 Job 之后再恢复；超时或取消时结束整棵进程树（`logs search` 的灾难性回溯靠这一条兜住）。这要先过迁移计划的 ④a（TS 下的 Windows 进程监督验证），所以 ④a 是 D1-B 的前置。POSIX 用进程组，未实机验证 | D3、§9 |
 | T5 | 环境：子进程拿服务的环境，去掉决策 API 的 key（与内核的 `kernel_env` 相同），另设 `CODEKIT_ACTOR=user-ui`。服务本身照迁移计划第 ② 步的启动器规矩起：带 `--no-env-file` 与 `--config=ts/bunfig.toml`，环境去掉 BUN_OPTIONS、NODE_OPTIONS、NODE_PATH、BUN_INSPECT* | D3、D4 |
 | T6 | 入口有两种，跑的是同一个程序，写同一行握手（5.1）。在内核仓库里开发时用 `pi_dispatch.py ui …`：`ui` 只有 TS 实现、不进选择文件，调度器无条件转交，装好戳记、Bun 路径与上一条的防护都照第 ② 步。桌面应用里，外壳直接起随安装包带的单文件程序（`bun build --compile`；构建时关掉对 `.env` 与 `bunfig.toml` 的自动读取，D3 阶段实测）。目标仓库只需要 kit 装进去的 `pi_dispatch.py`：没有选择文件时只读命令走 Python，结果相同。第 ⑤ 步之前 TS 不随 kit 安装 | D13、D14、§5.1 |
@@ -829,6 +829,7 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 |---|---|
 | `ts/packages/ui`（新，第 7 版 T1；原稿是 `scripts/kit_ui.py`） | D2–D7、D13 |
 | `ts/package.json`、`bun.lock` | 登记 ui 工作区包（规划端提交，T11） |
+| `ts/packages/contracts/status-inputs.json`（新） | `status --json` 的输入名单与它的守卫测试，ui 的 SSE 照它监视（规划端提交，T3） |
 | `@themis/base` | 本机 HTTP 安全基线单列一个模块，与 `config secret set` 的一次性网页共用（T8）；TS 下的进程监督（迁移计划 ④a，T4） |
 | PD 的解析器与 `KIT_LOADED_FILES`（PD:96–101） | 登记 `ui`，惰性转交；状态列表抽成共用函数；`status --json` 补 `live`；新增公开的 `redact_json`；`_SECRET_KV_RE` 只从词首试起 |
 | KC:431 `ACTOR_RE` | 加 `user-ui` |
@@ -867,7 +868,7 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 
 ### 10.1 本机服务（第 7 版 T10：`ts/packages/ui/test`，Vitest，起真的服务进程发 HTTP 请求；命令行的一半仍在 `tests/test_desktop_cli.py`）
 
-第 7 版另加（T3、T7，各一条负面测试）：U23 引导地址过期（超过 60 秒）与第二次使用都拒绝，两种响应一样；U24 服务的日志与外壳的日志里没有引导地址与控制令牌；U25 `/control/*` 连续给错控制令牌之后限速，比较用恒定时间（看实现，不比时间）；U26 SSE 不带会话 cookie 时 401，订阅期间每 15 秒有心跳，断开之后服务释放这个订阅；U27 没有变化时 SSE 不跑 `status --json`（子进程替身的记录为空），有变化时多个订阅者只跑一次；没有订阅者时不 stat；`.agent/runs/` 里放一个指向外面的 junction，stat 不顺着它走；U28 同时发 10 个请求，任何时刻子进程不超过并发上限，排队的请求最后都拿到结果，排队过长的回 503 并带 `Retry-After`。
+第 7 版另加（T3、T7，各一条负面测试）：U23 引导地址过期（超过 60 秒）与第二次使用都拒绝，两种响应一样；U24 服务的日志与外壳的日志里没有引导地址与控制令牌；U25 `/control/*` 连续给错控制令牌之后限速，比较用恒定时间（看实现，不比时间）；U26 SSE 不带会话 cookie 时 401，订阅期间每 15 秒有心跳，断开之后服务释放这个订阅；U27 没有变化时 SSE 不跑 `status --json`（子进程替身的记录为空），有变化时多个订阅者只跑一次；没有订阅者时不 stat；`.agent/runs/` 里放一个指向外面的 junction，stat 不顺着它走；新建 `checks/<编号>/checks.json`、新写 `verdicts/<编号>.json` 都触发一次刷新，`_env`、`_tmp` 下的变化不触发；名单的守卫测试（Python 与 TS 的 `status` 实际碰过的路径与 `status-inputs.json` 一致）；U28 同时发 10 个请求，任何时刻子进程不超过并发上限，排队的请求最后都拿到结果，排队过长的回 503 并带 `Retry-After`。
 
 | 编号 | 失败场景 | 断言 |
 |---|---|---|
