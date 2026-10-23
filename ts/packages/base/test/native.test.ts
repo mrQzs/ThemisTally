@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FileLockLost, acquireFileLock, withFileLock } from "../src/native.ts";
+import { FileLockLost, acquireFileLock, bunExecutable, withFileLock } from "../src/native.ts";
 
 describe("native 文件锁（Node 经辅助进程）", () => {
   let dir = "";
@@ -35,7 +35,7 @@ describe("native 文件锁（Node 经辅助进程）", () => {
 
   it("辅助进程手上有活动句柄时，stdin 一关照样在限时内退出，锁也放掉", async () => {
     const helper = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", "native-helper.ts");
-    const child = spawn("bun", [helper, "__native"], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(bunExecutable(), [helper, "__native"], { stdio: ["pipe", "pipe", "pipe"] });
     const answers: string[] = [];
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => answers.push(...chunk.split("\n").filter(Boolean)));
     const exited = new Promise<number | null>((done) => child.on("exit", done));

@@ -126,6 +126,32 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     expect((await superviseWith(fakeApi({ active: 0 }).api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
   });
 
+  it("signal 取消：照中断处理（interrupted、CTRL_BREAK、结束 Job）；开始之前就取消的同样处理", async () => {
+    const running = fakeApi({ exitAfter: Infinity, ctrlBreak: 6 });
+    const controller = new AbortController();
+    // 限时 2 秒兜底：取消没有接上时记成超时，不至于一直跑下去
+    const result = await superviseWith(running.api, ["x.exe"], {
+      ...OPTIONS, timeout: 2, signal: controller.signal, onSpawn: () => setTimeout(() => controller.abort(), 100),
+    });
+    expect(result).toMatchObject({ interrupted: true, timed_out: false, ctrl_break: "failed" });
+    expect(running.calls).toEqual(expect.arrayContaining(["ctrlBreak", "terminateJob"]));
+    const early = fakeApi({ exitAfter: Infinity, ctrlBreak: 6 });
+    expect(await superviseWith(early.api, ["x.exe"], { ...OPTIONS, timeout: 2, signal: AbortSignal.abort() }))
+      .toMatchObject({ interrupted: true, timed_out: false });
+  });
+
+  it("handleSignals：缺省在运行期间装上 process 的中断监听器、结束后拿掉；false 时一个也不装", async () => {
+    const names = ["SIGINT", "SIGTERM", "SIGBREAK"] as const;
+    const before = names.map((name) => process.listenerCount(name));
+    const seen: number[][] = [];
+    const record = (): void => void seen.push(names.map((name) => process.listenerCount(name)));
+    await superviseWith(fakeApi().api, ["x.exe"], { ...OPTIONS, onSpawn: record });
+    await superviseWith(fakeApi().api, ["x.exe"], { ...OPTIONS, onSpawn: record, handleSignals: false });
+    expect(seen[0]).toEqual(before.map((count) => count + 1));
+    expect(seen[1]).toEqual(before);
+    expect(names.map((name) => process.listenerCount(name))).toEqual(before);
+  });
+
   it("启动失败的报错照 CPython：类名按错误码，文字去掉末尾的换行与句点", () => {
     expect(windowsErrorText(2, "The system cannot find the file specified.\r\n")).toBe(
       "FileNotFoundError: [WinError 2] The system cannot find the file specified");

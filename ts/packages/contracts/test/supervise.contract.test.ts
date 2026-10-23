@@ -297,13 +297,42 @@ describe.skipIf(!onWindows)("进程监督契约", () => {
   });
 
   it("S9 ensure_argv_safe：一组含特殊字符的语料，判定与报错和 Python 逐个一致", () => {
-    const programs = ["x.cmd", "X.CMD", "npm.Cmd", "a.bat", "A.BAT", "x.cmd.", "x.cmd ", "x.exe", "x.cmdx", "cmd",
+    // 末尾带点与空格的几种写法（第 71 轮）：Windows 去掉它们之后照样是批处理；制表符、:: 之类不去，也起不来
+    const programs = ["x.cmd", "X.CMD", "npm.Cmd", "a.bat", "A.BAT", "x.cmd.", "x.cmd ", "x.bat. .", "X.BAT..", "x.cmd  ",
+      "x.bat.\t", "x.bat::$DATA", "x.exe", "x.exe.", "x.bat.exe", "x.cmdx", "cmd", ".", " ",
       "ｘ.ＣＭＤ", "x.cmİ", "ẞ.cmd", "\u212Aey.CMD", "x.c\u0307md", "x.\u0130", "C:\\Program Files\\nodejs\\npm.cmd"];
     const args = ["a&b", "a|b", "a<b", "a>b", "a^b", "a%b", "a!b", 'a"b', "a\rb", "a\nb", "a b", "a-b", "中文", "", "a'b"];
     const items = programs.flatMap((program) => args.map((arg) => ({ op: "argv.ensure_safe", cmd: [program, "ok", arg] })));
     const python = runBatch(PYTHON_IMPL, items);
     expect(python.filter((result) => !result.ok).length).toBeGreaterThan(20); // 语料里确实有被拒的
+    const refused = (program: string): boolean => !(python[programs.indexOf(program) * args.length] as ProbeResult).ok; // 参数 a&b
+    for (const program of ["x.cmd.", "x.cmd ", "x.bat. .", "X.BAT..", "x.cmd  "]) expect(refused(program), program).toBe(true);
+    for (const program of ["x.bat.\t", "x.bat::$DATA", "x.exe.", "x.bat.exe", ".", " "]) expect(refused(program), program).toBe(false);
     for (const impl of IMPLS.slice(1)) expect(runBatch(impl, items), impl.name).toEqual(python);
+  });
+
+  it("S9b 文件名末尾带点的 .bat（第 71 轮，CVE-2024-43402）：照样经 cmd.exe 执行，注入真的生效；ensure_argv_safe 三套实现都拦下", () => {
+    // 进程监督本身不拒绝批处理（迁移计划第 8.2 节第 3 条），先证明绕过是真的：直接起 t.bat.，参数里的 echo 被 cmd.exe
+    // 执行了。再证明调用方该过的那一关把同一个 argv 拦下
+    const injection = 'x" & echo INJECTED & rem "';
+    const runs = acrossImpls("s9b", (impl, dir) => {
+      writeFileSync(join(dir, "t.bat"), "@echo ARG1=%1\r\n", "ascii");
+      const cmd = [`${join(dir, "t.bat")}.`, injection];
+      return { run: supervised(runProbe(impl, request(dir, "s9b", cmd))), check: runProbe(impl, { op: "argv.ensure_safe", cmd }) };
+    });
+    try {
+      for (const run of runs) {
+        expect(run.value.run.exit_code, run.impl.name).toBe(0);
+        expect(readFileSync(join(run.dir, "s9b.out"), "utf8"), run.impl.name).toContain("INJECTED");
+        expect(run.value.check.ok, run.impl.name).toBe(false);
+        expect(String(run.value.check["message"]), run.impl.name).toContain("含批处理特殊字符");
+      }
+      // 报错文字里有临时目录，各不相同：换成同一个占位再比
+      const masked = runs.map((run) => JSON.stringify(run.value.check).split(JSON.stringify(run.dir).slice(1, -1)).join("<dir>"));
+      for (const text of masked) expect(text).toBe(masked[0]);
+    } finally {
+      cleanup(runs);
+    }
   });
 
   it("S10 中断：调用方的进程组收到 CTRL_BREAK，三套实现都照中断处理，子进程也收到", () => {

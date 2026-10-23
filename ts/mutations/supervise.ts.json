@@ -4,7 +4,8 @@
     "node_modules/vitest/vitest.mjs",
     "run",
     "packages/contracts/test/supervise.contract.test.ts",
-    "packages/base/test/supervise.test.ts"
+    "packages/base/test/supervise.test.ts",
+    "packages/base/test/helper.test.ts"
   ],
   "cwd": "ts",
   "timeout_seconds": 900,
@@ -90,8 +91,8 @@
     {
       "name": "V14 不接中断信号",
       "file": "ts/packages/base/src/supervise.ts",
-      "old": "  for (const name of INTERRUPTS) process.on(name, onSignal);\n  const start = performance.now();",
-      "new": "  const start = performance.now();"
+      "old": "  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);\n  options.signal?.addEventListener(\"abort\", onSignal);\n  if (options.signal?.aborted) flag.interrupted = true;\n",
+      "new": "  options.signal?.addEventListener(\"abort\", onSignal);\n  if (options.signal?.aborted) flag.interrupted = true;\n"
     },
     {
       "name": "V15 Job 不带 KILL_ON_JOB_CLOSE",
@@ -122,6 +123,84 @@
       "file": "ts/packages/dispatcher/src/argv.ts",
       "old": "new Set('&|<>^%!\"\\r\\n');",
       "new": "new Set('&|<>^!\"\\r\\n');"
+    },
+    {
+      "name": "V20 ensure_argv_safe 不去末尾的点与空格",
+      "file": "ts/packages/dispatcher/src/argv.ts",
+      "old": "  const lowered = program.replace(/[ .]+$/u, \"\").toLowerCase();",
+      "new": "  const lowered = program.toLowerCase();"
+    },
+    {
+      "name": "V21 ensure_argv_safe 只去末尾的空格",
+      "file": "ts/packages/dispatcher/src/argv.ts",
+      "old": "  const lowered = program.replace(/[ .]+$/u, \"\").toLowerCase();",
+      "new": "  const lowered = program.replace(/[ ]+$/u, \"\").toLowerCase();"
+    },
+    {
+      "name": "V22 文件锁的辅助进程起不来时不接 error",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    child.on(\"exit\", onExit);\n    child.on(\"error\", onError);\n",
+      "new": "    child.on(\"exit\", onExit);\n"
+    },
+    {
+      "name": "V23 进程监督的辅助进程起不来时不接 error",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  helper.on(\"error\", (error) => {\n    spawnError ??= error;\n  });\n",
+      "new": ""
+    },
+    {
+      "name": "V24 signal 不接（进程内）",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);\n  options.signal?.addEventListener(\"abort\", onSignal);\n  if (options.signal?.aborted) flag.interrupted = true;\n",
+      "new": "  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);\n"
+    },
+    {
+      "name": "V25 开始之前就取消的不算",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  if (options.signal?.aborted) flag.interrupted = true;\n",
+      "new": ""
+    },
+    {
+      "name": "V26 handleSignals 不起作用（进程内）",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  const listens = options.handleSignals ?? true;\n  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);\n  options.signal?.addEventListener(\"abort\", onSignal);\n  if (options.signal?.aborted) flag.interrupted = true;\n",
+      "new": "  const listens = true;\n  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);\n  options.signal?.addEventListener(\"abort\", onSignal);\n  if (options.signal?.aborted) flag.interrupted = true;\n"
+    },
+    {
+      "name": "V27 辅助进程一路丢掉 signal",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  signal?.addEventListener(\"abort\", interrupt);\n",
+      "new": ""
+    },
+    {
+      "name": "V28 辅助进程一路照样装监听器",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  const listens = handleSignals ?? true;\n",
+      "new": "  const listens = true;\n"
+    },
+    {
+      "name": "V29 不看装好戳记里的 bun_path",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    if (typeof stamp.bun_path === \"string\" && statSync(stamp.bun_path).isFile()) return stamp.bun_path;\n",
+      "new": ""
+    },
+    {
+      "name": "V30 THEMIS_BUN 不优先",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "  const configured = env[\"THEMIS_BUN\"];\n  if (configured) return configured;\n",
+      "new": "  const configured = env[\"THEMIS_BUN\"];\n"
+    },
+    {
+      "name": "V31 PATH 的相对路径不跳过",
+      "file": "ts/packages/base/src/native.ts",
+      "old": ".filter((item) => item !== \"\" && isAbsolute(item));",
+      "new": ".filter((item) => item !== \"\");"
+    },
+    {
+      "name": "V32 PATH 上的 bun.exe 不优先于垫片",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "  if (exe !== undefined) return exe;\n",
+      "new": ""
     }
   ]
 }

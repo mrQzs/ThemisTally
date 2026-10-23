@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { BUN } from "./harness.ts";
 
 const CONTRACTS = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLISH = resolve(CONTRACTS, "..", "base", "src", "publish.ts");
@@ -12,7 +13,7 @@ const PRINT = "process.stdout.write(import.meta.resolve('@themis/base/publish'))
 describe("工作区的包名解析", () => {
   it.each([
     ["node", ["--input-type=module", "-e", PRINT]],
-    ["bun", ["-e", PRINT]],
+    [BUN, ["-e", PRINT]],
   ] as const)("%s：@themis/base/publish 解析到 ts/packages/base/src/publish.ts，不经 node_modules", (command, args) => {
     const done = spawnSync(command, args, { cwd: CONTRACTS, encoding: "utf8" });
     expect(done.error).toBeUndefined();

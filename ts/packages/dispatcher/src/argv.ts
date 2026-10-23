@@ -11,11 +11,12 @@ import { DispatchError, EXIT_USAGE } from "./repo.ts";
 /** pi_dispatch.BATCH_UNSAFE_CHARS */
 export const BATCH_UNSAFE_CHARS: ReadonlySet<string> = new Set('&|<>^%!"\r\n');
 
-/** pi_dispatch.ensure_argv_safe：Windows 批处理包装会经 cmd.exe 解析参数；含特殊字符时拒绝执行。 */
+/** pi_dispatch.ensure_argv_safe：Windows 批处理包装会经 cmd.exe 解析参数；含特殊字符时拒绝执行。Windows 会去掉文件名
+ * 末尾的点与空格（`t.bat.` 照样经 cmd.exe 执行），比较扩展名之前先去掉（第 71 轮，CVE-2024-43402）。 */
 export function ensureArgvSafe(cmd: readonly string[]): void {
   const program = cmd[0];
   if (process.platform !== "win32" || program === undefined) return;
-  const lowered = program.toLowerCase();
+  const lowered = program.replace(/[ .]+$/u, "").toLowerCase();
   if (!lowered.endsWith(".cmd") && !lowered.endsWith(".bat")) return;
   for (const arg of cmd.slice(1)) {
     if ([...arg].some((char) => BATCH_UNSAFE_CHARS.has(char))) {

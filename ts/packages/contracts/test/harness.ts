@@ -5,6 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bunExecutable } from "@themis/base/native";
 
 const PROBES = resolve(dirname(fileURLToPath(import.meta.url)), "..", "probes");
 
@@ -15,7 +16,11 @@ export interface Impl {
 
 export const PYTHON: Impl = { name: "python", argv: [process.env["THEMIS_PYTHON"] ?? "python", join(PROBES, "python_probe.py")] };
 export const TS_NODE: Impl = { name: "ts-node", argv: ["node", join(PROBES, "ts_probe.ts")] };
-export const TS_BUN: Impl = { name: "ts-bun", argv: ["bun", join(PROBES, "ts_probe.ts")] };
+// Bun 照启动器的来源找（THEMIS_BUN、装好戳记的 bun_path、PATH 上的 bun.exe 或 npm 垫片旁边那个），不按名字起：npm
+// 全局装的 Bun 在 PATH 上只有 .cmd 垫片，Node 不经 shell 起不了（themistally-15 复核 ④a：照缺省的 PATH，24 条契约里
+// 23 条报 spawn bun ENOENT）
+export const BUN = bunExecutable();
+export const TS_BUN: Impl = { name: "ts-bun", argv: [BUN, join(PROBES, "ts_probe.ts")] };
 export const IMPLS: readonly Impl[] = [PYTHON, TS_NODE, TS_BUN];
 
 /** 探针请求：op 加各自的参数；op 为 "batch" 时 items 是一串请求，一个进程办完（对照测试一次送几百个值）。 */
@@ -143,7 +148,7 @@ export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown
   const json = JSON.stringify(pyargs, (_key, value: unknown) => (typeof value === "bigint" ? `\u0000big:${value}` : value))
     .replace(/"\\u0000big:(-?\d+)"/gu, "$1");
   const encoded = Buffer.from(json, "utf8").toString("base64");
-  return cliRun(runtime, [CLI_MAIN, "--pyargs-b64", encoded], cwd);
+  return cliRun(runtime === "bun" ? BUN : runtime, [CLI_MAIN, "--pyargs-b64", encoded], cwd);
 }
 
 export function b64(data: Uint8Array): string {

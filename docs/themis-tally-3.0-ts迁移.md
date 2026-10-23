@@ -486,7 +486,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 - **实现**放在 `@themis/base/supervise`，照 `run_supervised` 的签名与返回（`exit_code`、`timed_out`、`interrupted`、`spawn_error`、`wall_seconds`、`stray_processes`、`kill_method`、`pid`），Python 先过契约，再对照、变异。逐条要求：
   1. **标准流**：`STARTF_USESTDHANDLES` 交给子进程，只让这三个句柄可继承（`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`），不把别的句柄漏给子进程；stdin 固定接空设备。
   2. **命令行**照 `subprocess.list2cmdline` 的引号规则，与 Python 对照。
-  3. **`.bat`、`.cmd` 照 Python 的分工**：supervise 本身不拒绝批处理文件，与 `run_supervised` 相同；调用方先过 `ensure_argv_safe`（argv[0] 以 `.cmd`、`.bat` 结尾时，参数里只要含 `BATCH_UNSAFE_CHARS` 里的字符就拒绝，防 BatBadBut 一类的命令注入，CVE-2024-24576），再调 supervise。`ensure_argv_safe` 逐字节移植进 `@themis/base`：同一个字符集、同样的报错文字，argv[0] 的小写比较用已移植的 Python lower。FFI 与 Python 的 subprocess 一致：`lpApplicationName` 传 NULL，命令行用 list2cmdline 拼好，`CreateProcessW` 碰到 `.cmd` 照样隐式起 cmd.exe，行为与 Python 相同（Node 系不经 shell 起不了 `.cmd`，这一点是 FFI 方案胜过 `Bun.spawn` 的地方）。契约加四个场景：一个 `.cmd` 假程序带安全参数能跑，退出码与输出与 Python 一致；参数含字符集里的每个字符时各自被拒、报错相同；参数带空格时引号正确；npm 这种经 `shutil.which` 解析得到 `.CMD` 的路径实跑一次。
+  3. **`.bat`、`.cmd` 照 Python 的分工**：supervise 本身不拒绝批处理文件，与 `run_supervised` 相同；调用方先过 `ensure_argv_safe`（argv[0] 以 `.cmd`、`.bat` 结尾时，参数里只要含 `BATCH_UNSAFE_CHARS` 里的字符就拒绝，防 BatBadBut 一类的命令注入，CVE-2024-24576；比较扩展名之前先去掉 argv[0] 末尾的空格与句点，第 71 轮），再调 supervise。`ensure_argv_safe` 逐字节移植进 `@themis/base`：同一个字符集、同样的报错文字，argv[0] 的小写比较用已移植的 Python lower。FFI 与 Python 的 subprocess 一致：`lpApplicationName` 传 NULL，命令行用 list2cmdline 拼好，`CreateProcessW` 碰到 `.cmd` 照样隐式起 cmd.exe，行为与 Python 相同（Node 系不经 shell 起不了 `.cmd`，这一点是 FFI 方案胜过 `Bun.spawn` 的地方）。契约加四个场景：一个 `.cmd` 假程序带安全参数能跑，退出码与输出与 Python 一致；参数含字符集里的每个字符时各自被拒、报错相同；参数带空格时引号正确；npm 这种经 `shutil.which` 解析得到 `.CMD` 的路径实跑一次。
      - **撤回的原写法**（themistally-15 2026-10-23 撤回）：原来写的是“supervise 与 `run_supervised` 一律拒绝 `.bat`、`.cmd`”。不成立：`.agent/plans/` 里有 16 条检查命令以 npm 开头（`npm ci`、`npm run build`、`npm test`），`_resolve_argv` 用 `shutil.which` 解析，Windows 上得到的就是 `npm.CMD`，照原写法改，桌面端各片的门禁检查会全部被拒；而“调用方先把垫片解析成 node 加脚本”只对 pi 成立。PD 本来就有 `ensure_argv_safe` 这道缓解。
   4. **环境块**照 CPython 的 `getenvironment`（`CREATE_UNICODE_ENVIRONMENT`）：排序、大小写不同的同名变量、键里含 `=` 或 NUL 时的处理，与 Python 逐条对照。
   5. **超时与宽限**：先 `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` 给子进程组发信号，等 grace 秒（缺省 15），再 `TerminateJobObject`；之后查 `ActiveProcesses` 算出 `stray_processes`。语义与 Python 一致，宽限的情形配契约。
@@ -504,6 +504,25 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
   - 启动失败的报错照 CPython 的 OSError：错误码先映射成 errno（PC/errmap.h）再定类名，文字是 FormatMessageW 去掉末尾的空白与句点（S4：找不到程序 2、工作目录不存在 267、不是可执行文件 193、空键 87）。`GetLastError` 在 bun:ffi 下取得到。
   - 坑：Windows 上 Python 的 `time.sleep` 只被 SIGINT 提前唤醒，测试用的子进程要分小段睡，SIGBREAK 的处理器才能及时运行。
   - POSIX（新会话、进程组、SIGTERM 加宽限再 SIGKILL）写了，未实机验证；本机只有 Windows，契约在 POSIX 上跳过。
+- **复核之后的修补（2026-10-23，themistally-15 复核 ④a；内核第 71、72 轮）**：
+  - **`ensure_argv_safe` 可以绕过**（第 71 轮）：Windows 会去掉文件名末尾的点与空格。`t.bat.`、`t.bat `、`t.bat. .` 躲过扩展名判断，照样经 cmd.exe 执行，参数里注入的命令真的执行了（Rust 的 CVE-2024-43402，CVE-2024-24576 修得不完整的那一处）。上面 S9 的“逐条一致”其实是两边一起漏。Python 与 TS 同一轮改：比较扩展名之前先去掉末尾的空格与句点（`rstrip(" .")`）。
+    - S9 的语料加了几种末尾写法，并钉住判定：五种写法被拒；六种不算批处理（末尾是制表符、`::$DATA`、`t.exe.`、`t.bat.exe`、`.`、一个空格）。
+    - 新增 S9b：三套实现先不经检查直接起 `t.bat.`，证明注入真的生效；再证明 `ensure_argv_safe` 把同一个 argv 拦下，报错相同。
+  - **Node 后备在辅助进程起不来时整个崩掉**：两处 spawn（进程监督、文件锁）都没接 `error` 事件，找不到 Bun 时调用方进程直接崩。现在都接住了，报“起不了……的辅助进程（命令）：原因”。
+    - Bun 也不再按名字起：npm 全局装的 Bun 在 PATH 上只有 `bun.cmd` 垫片，Node 不经 shell 起不了。
+    - 改用与启动器同一个来源（`bunExecutable`）：先看 `THEMIS_BUN`，再看装好戳记里的 `bun_path`，最后照 `find_bun` 的规则在 PATH 上找（`findBunOnPath`：任何一处的 `bun.exe` 优先，其次第一个 npm 垫片旁边那个，相对路径与空项跳过）。
+    - 契约的驱动也改用它（harness 的 ts-bun、runTsCli、workspace 测试）。复核时照缺省的 PATH，24 条里有 23 条报 `spawn bun ENOENT`，这个问题一并解决。
+  - **FFI 缓冲区的生存期**：指针参数改为直接传 TypedArray，调用期间由 Bun 保活，不先换成 `ptr()` 的数字。地址被嵌进结构体的两块（属性表、句柄数组）留到 `DeleteProcThreadAttributeList` 之后。这一条变异测不出来（取决于 GC 时机），靠代码复核。
+  - **给本机服务的两个选项**：
+    - `signal`（AbortSignal，照中断处理）；
+    - `handleSignals`（缺省 true，运行期间在 process 上装中断监听器，与 `run_supervised` 一样）。本机服务设为 false：Ctrl+C 停的是服务本身，由服务经 `signal` 取消每一次运行。
+    - 进程内、辅助进程、POSIX 三条路径都接上了，POSIX 未实机验证。
+  - **第 ④ 步要处理的**：Python 的调用方会把 stderr 并进 stdout。检查命令传 `subprocess.STDOUT`（`_run_command_item`）；hub 的内核 pytest 两边传同一个文件对象（`kit_hub.py` 的 `run_supervised(…, log, log, …)`）。TS 的 `SuperviseOptions` 现在只收两个路径，会开出两个句柄。移植这些调用方之前，要加一个“stderr 跟 stdout 用同一个句柄”的写法，配契约。
+  - **测试**：
+    - base 新增 `helper.test.ts`，4 条：Bun 的查找；辅助进程起不来时两处都报错、不崩；经辅助进程取消。取消这条在单独的 Node 进程里跑，由包装器以 CREATE_NO_WINDOW 起、有自己的控制台，原因见第 72 轮。
+    - `supervise.test.ts` 加了 signal 与 handleSignals 两条；契约 25 条；TS 全量 383 条全过。
+    - 变异 32 条全部抓住：原 19 条，新加 13 条，分别是不去末尾的点与空格、只去空格、两处不接 error、进程内与辅助进程一路的 signal 与 handleSignals、不看戳记、THEMIS_BUN 不优先、相对路径不跳过、垫片优先于 bun.exe。
+  - **第 72 轮的起因**：第一次跑这 32 条时，V17（不另起进程组）让子进程的 pid 不再是进程组号，取消测试发出的 CTRL_BREAK 广播到了整个控制台，跑 mutate 的外层 shell 被结束。mutate 自己接住了信号，却把这条算作抓住，还接着往下跑。内核改成：被中断的运行记出错，后面的变异不再运行。测试一侧把取消场景挪进了自己的控制台。重跑时 V17 被四条用例的断言抓住，不再波及外层。
 
 ### 8.3 依赖、锁文件、测试框架
 

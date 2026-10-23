@@ -52,8 +52,8 @@
 // 第 ⑥ 步之后是单文件程序的隐藏子命令 __native）替本进程持锁。辅助进程用 stdin/stdout 每行一个 JSON 通信，
 // stdin 一关就退出、由操作系统放锁；辅助进程意外退出时本进程把锁当作已丢，assertHeld 报错，不再开始新的写入。
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { closeSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** kit_hub.FILE_LOCK_SECONDS：拿锁的都是几毫秒的读写，等这么久说明有进程卡死。 */
@@ -192,15 +192,56 @@ async function acquireInProcess(path: string, waitSeconds: number): Promise<File
 // 辅助进程（Node 后备）
 // ---------------------------------------------------------------------------
 
-/** 辅助进程的命令：环境变量 THEMIS_NATIVE_CMD（JSON 数组）优先，缺省用 bun 跑 native-helper.ts。 */
-function helperCommand(): string[] {
-  const configured = process.env["THEMIS_NATIVE_CMD"];
-  if (configured) return JSON.parse(configured) as string[];
-  return ["bun", resolve(dirname(fileURLToPath(import.meta.url)), "native-helper.ts")];
+/** TS 工作区的根（本文件在 ts/packages/base/src）。 */
+const TS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** pi_dispatch.find_bun：PATH 里的绝对路径上找 bun.exe，没有时取 PATH 上第一个 npm 垫片 bun.cmd 旁边的
+ * node_modules/bun/bin/bun.exe；POSIX 找可执行的 bun。空项与相对路径跳过（当前目录里放一个 bun 就能顶替）。 */
+export function findBunOnPath(env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = Object.entries(env).find(([name]) => (process.platform === "win32" ? name.toUpperCase() : name) === "PATH")?.[1] ?? "";
+  const dirs = value.split(delimiter).filter((item) => item !== "" && isAbsolute(item));
+  const isFile = (path: string): boolean => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  };
+  if (process.platform !== "win32") return dirs.map((d) => join(d, "bun")).find(isFile) ?? null;
+  const exe = dirs.map((d) => join(d, "bun.exe")).find(isFile);
+  if (exe !== undefined) return exe;
+  const shim = dirs.find((d) => isFile(join(d, "bun.cmd")));
+  if (shim === undefined) return null;
+  const candidate = join(shim, "node_modules", "bun", "bin", "bun.exe");
+  return isFile(candidate) ? candidate : null;
 }
 
-/** 读辅助进程 stdout 的下一行（JSON）。 */
-function nextLine(child: ChildProcessWithoutNullStreams): Promise<Record<string, unknown>> {
+/** 起 Bun 用哪一个可执行文件（与启动器同一个来源，themistally-15 复核 ④a）：环境变量 THEMIS_BUN；装好戳记里记的
+ * bun_path（装依赖时用的那一个）；PATH 上照 find_bun 的规则找。不按名字起 "bun"：npm 全局装的 Bun 在 PATH 上只有
+ * bun.cmd 之类的垫片，Node 不经 shell 起不了 .cmd。都找不到就报错。 */
+export function bunExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env["THEMIS_BUN"];
+  if (configured) return configured;
+  try {
+    const stamp = JSON.parse(readFileSync(join(TS_ROOT, "node_modules", ".themis-installed"), "utf8")) as { bun_path?: unknown };
+    if (typeof stamp.bun_path === "string" && statSync(stamp.bun_path).isFile()) return stamp.bun_path;
+  } catch {
+    // 没有戳记或戳记里的路径不在了：照 PATH 找
+  }
+  const found = findBunOnPath(env);
+  if (found !== null) return found;
+  throw new Error("找不到 Bun：没有设 THEMIS_BUN，装好戳记里没有可用的 bun_path，PATH 上也没有 bun.exe 或 npm 的 bun.cmd 垫片");
+}
+
+/** 辅助进程的命令：环境变量 THEMIS_NATIVE_CMD（JSON 数组）优先，缺省用 bunExecutable() 跑 native-helper.ts。 */
+export function nativeHelperCommand(): string[] {
+  const configured = process.env["THEMIS_NATIVE_CMD"];
+  if (configured) return JSON.parse(configured) as string[];
+  return [bunExecutable(), resolve(dirname(fileURLToPath(import.meta.url)), "native-helper.ts")];
+}
+
+/** 读辅助进程 stdout 的下一行（JSON）。辅助进程起不来（spawn 的 error 事件）时报清楚的错，不让调用方整个崩掉。 */
+function nextLine(child: ChildProcessWithoutNullStreams, command: string): Promise<Record<string, unknown>> {
   return new Promise((done, fail) => {
     let buffer = "";
     const onData = (chunk: Buffer): void => {
@@ -214,24 +255,32 @@ function nextLine(child: ChildProcessWithoutNullStreams): Promise<Record<string,
       cleanup();
       fail(new FileLockLost(`文件锁的辅助进程退出了（退出码 ${String(code)}）`));
     };
+    const onError = (error: Error): void => {
+      cleanup();
+      fail(new Error(`起不了文件锁的辅助进程（${command}）：${error.message}`));
+    };
     const cleanup = (): void => {
       child.stdout.off("data", onData);
       child.off("exit", onExit);
+      child.off("error", onError);
     };
     child.stdout.on("data", onData);
     child.on("exit", onExit);
+    child.on("error", onError);
   });
 }
 
 async function acquireThroughHelper(path: string, waitSeconds: number): Promise<FileLock> {
-  const [command, ...args] = helperCommand();
+  const [command, ...args] = nativeHelperCommand();
   const child = spawn(command ?? "bun", [...args, "__native"], { stdio: ["pipe", "pipe", "pipe"] });
+  child.on("error", () => undefined); // 起不来时由 nextLine 报错；之后的 error 事件不再让进程崩掉
+  child.stdin.on("error", () => undefined); // 辅助进程起不来时写 stdin 会 EPIPE
   let alive = true;
   child.on("exit", () => {
     alive = false;
   });
   child.stdin.write(`${JSON.stringify({ op: "lock", path, wait: waitSeconds })}\n`);
-  const answer = await nextLine(child);
+  const answer = await nextLine(child, command ?? "bun");
   if (answer["ok"] !== true) {
     child.stdin.end();
     if (answer["error"] === "timeout") throw new FileLockTimeout(path);
@@ -249,7 +298,7 @@ async function acquireThroughHelper(path: string, waitSeconds: number): Promise<
       held = false;
       if (!alive) return;
       child.stdin.write(`${JSON.stringify({ op: "unlock" })}\n`);
-      await nextLine(child).catch(() => ({}));
+      await nextLine(child, command ?? "bun").catch(() => ({}));
       child.stdin.end();
     },
   };
@@ -391,6 +440,12 @@ const INVALID_HANDLE = -1n;
 
 let processApi: Promise<WinProcessApi> | undefined;
 
+/** 让缓冲区活到这里：存进模块级变量（可观察的写入，JIT 不会删掉），下一次调用时才换掉。 */
+let retained: unknown = null;
+function retain(value: unknown): void {
+  retained = value;
+}
+
 /** 进程监督要用的 Win32 调用（只在 Bun、Windows 下可用；进程里只绑定一次）。 */
 export function winProcessApi(): Promise<WinProcessApi> {
   processApi ??= bindWinProcessApi();
@@ -423,27 +478,31 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     FormatMessageW: { args: [T.u32, T.ptr, T.u32, T.u32, T.ptr, T.u32, T.ptr], returns: T.u32 },
     CompareStringOrdinal: { args: [T.ptr, T.i32, T.ptr, T.i32, T.i32], returns: T.i32 },
   });
+  // 指针参数一律直接传 TypedArray（Bun 在调用期间保活它），不先换成 ffi.ptr() 的数字：数字不受 GC 追踪，长时间运行、
+  // 被 JIT 优化的进程（本机服务）里缓冲区可能在调用之前就被回收（themistally-15 复核 ④a 的加固）。地址被嵌进结构体、
+  // 要活过这一次调用的缓冲区另见 spawnSuspended 的 keep。
+  type Buf = ArrayBufferView;
   const k = kernel32.symbols as unknown as {
     CreateJobObjectW(a: null, n: null): bigint;
-    SetInformationJobObject(job: bigint, kind: number, info: number, size: number): number;
-    QueryInformationJobObject(job: bigint, kind: number, info: number, size: number, ret: null): number;
+    SetInformationJobObject(job: bigint, kind: number, info: Buf, size: number): number;
+    QueryInformationJobObject(job: bigint, kind: number, info: Buf, size: number, ret: null): number;
     AssignProcessToJobObject(job: bigint, process: bigint): number;
     TerminateJobObject(job: bigint, code: number): number;
-    CreateFileW(name: number, access: number, share: number, security: number, disposition: number, flags: number, template: null): bigint;
-    InitializeProcThreadAttributeList(list: number | null, count: number, flags: number, size: number): number;
-    UpdateProcThreadAttribute(list: number, flags: number, attribute: bigint, value: number, size: bigint, previous: null, returned: null): number;
-    DeleteProcThreadAttributeList(list: number): number;
-    CreateProcessW(app: null, cmdline: number, pa: null, ta: null, inherit: number, flags: number, env: number | null, cwd: number | null, si: number, pi: number): number;
+    CreateFileW(name: Buf, access: number, share: number, security: Buf, disposition: number, flags: number, template: null): bigint;
+    InitializeProcThreadAttributeList(list: Buf | null, count: number, flags: number, size: Buf): number;
+    UpdateProcThreadAttribute(list: Buf, flags: number, attribute: bigint, value: Buf, size: bigint, previous: null, returned: null): number;
+    DeleteProcThreadAttributeList(list: Buf): number;
+    CreateProcessW(app: null, cmdline: Buf, pa: null, ta: null, inherit: number, flags: number, env: Buf | null, cwd: Buf | null, si: Buf, pi: Buf): number;
     ResumeThread(thread: bigint): number;
     TerminateProcess(process: bigint, code: number): number;
     WaitForSingleObject(handle: bigint, milliseconds: number): number;
-    GetExitCodeProcess(process: bigint, code: number): number;
+    GetExitCodeProcess(process: bigint, code: Buf): number;
     GenerateConsoleCtrlEvent(event: number, group: number): number;
     AttachConsole(pid: number): number;
     CloseHandle(handle: bigint): number;
     GetLastError(): number;
-    FormatMessageW(flags: number, source: null, id: number, language: number, buffer: number, size: number, args: null): number;
-    CompareStringOrdinal(a: number, la: number, b: number, lb: number, ignoreCase: number): number;
+    FormatMessageW(flags: number, source: null, id: number, language: number, buffer: Buf, size: number, args: null): number;
+    CompareStringOrdinal(a: Buf, la: number, b: Buf, lb: number, ignoreCase: number): number;
   };
   const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
   const fail = (call: string): never => {
@@ -459,7 +518,7 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
       if (job === 0n) fail("CreateJobObjectW");
       const limit = new Uint8Array(144);
       new DataView(limit.buffer).setUint32(16, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, true);
-      if (!k.SetInformationJobObject(job, JOB_EXTENDED_LIMIT_INFORMATION, ffi.ptr(limit), 144)) {
+      if (!k.SetInformationJobObject(job, JOB_EXTENDED_LIMIT_INFORMATION, limit, 144)) {
         const error = k.GetLastError();
         k.CloseHandle(job);
         throw new Win32Error("SetInformationJobObject", error);
@@ -470,21 +529,23 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
       const access = how === "read" ? GENERIC_READ : how === "append" ? FILE_APPEND_DATA : GENERIC_WRITE;
       const disposition = how === "create-new" ? CREATE_NEW : how === "truncate" ? CREATE_ALWAYS
         : how === "append" ? OPEN_ALWAYS : OPEN_EXISTING;
-      const handle = k.CreateFileW(ffi.ptr(wide(path)), access, FILE_SHARE_READ | FILE_SHARE_WRITE, ffi.ptr(inheritable),
-        disposition, FILE_ATTRIBUTE_NORMAL, null);
+      const handle = k.CreateFileW(wide(path), access, FILE_SHARE_READ | FILE_SHARE_WRITE, inheritable, disposition,
+        FILE_ATTRIBUTE_NORMAL, null);
       if (handle === INVALID_HANDLE || handle === 0n) fail("CreateFileW");
       return handle;
     },
     spawnSuspended(cmdline, environment, cwd, std) {
       const handles = [...new Set([std.stdin, std.stdout, std.stderr])];
       const size = new BigUint64Array(1);
-      k.InitializeProcThreadAttributeList(null, 1, 0, ffi.ptr(size)); // 先问要多大（这一次照例失败）
+      k.InitializeProcThreadAttributeList(null, 1, 0, size); // 先问要多大（这一次照例失败）
       const list = new Uint8Array(Number(size[0]));
-      if (!k.InitializeProcThreadAttributeList(ffi.ptr(list), 1, 0, ffi.ptr(size))) fail("InitializeProcThreadAttributeList");
+      if (!k.InitializeProcThreadAttributeList(list, 1, 0, size)) fail("InitializeProcThreadAttributeList");
+      // 属性表里存的是句柄数组的地址，STARTUPINFOEXW 里存的是属性表的地址：这两块要活到 DeleteProcThreadAttributeList
+      // 之后，不能只靠调用期间的保活
+      const inherited = new BigUint64Array(handles);
       try {
-        const inherited = new BigUint64Array(handles);
-        if (!k.UpdateProcThreadAttribute(ffi.ptr(list), 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, ffi.ptr(inherited),
-          BigInt(8 * handles.length), null, null)) fail("UpdateProcThreadAttribute");
+        if (!k.UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, BigInt(8 * handles.length),
+          null, null)) fail("UpdateProcThreadAttribute");
         const startup = new Uint8Array(112); // STARTUPINFOEXW
         const view = new DataView(startup.buffer);
         view.setUint32(0, 112, true);
@@ -494,18 +555,18 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
         view.setBigUint64(96, BigInt.asUintN(64, std.stderr), true);
         view.setBigUint64(104, BigInt(ffi.ptr(list)), true);
         const info = new Uint8Array(24); // PROCESS_INFORMATION
-        const line = wide(cmdline); // CreateProcessW 可能改写命令行：给一份可写的
-        const env = environment === null ? null : ffi.ptr(environment);
-        const dir = cwd === null ? null : ffi.ptr(wide(cwd));
         const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT
           | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT);
-        if (!k.CreateProcessW(null, ffi.ptr(line), null, null, 1, flags, env, dir, ffi.ptr(startup), ffi.ptr(info))) {
+        // 命令行给一份可写的（CreateProcessW 可能改写它）；环境块、工作目录、两个结构体都直接传，调用期间保活
+        if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment, cwd === null ? null : wide(cwd),
+          startup, info)) {
           fail("CreateProcessW");
         }
         const out = new DataView(info.buffer);
         return { process: out.getBigInt64(0, true), thread: out.getBigInt64(8, true), pid: out.getUint32(16, true) };
       } finally {
-        k.DeleteProcThreadAttributeList(ffi.ptr(list));
+        k.DeleteProcThreadAttributeList(list);
+        retain([list, inherited]);
       }
     },
     assign: (job, child) => k.AssignProcessToJobObject(job, child) !== 0,
@@ -514,7 +575,7 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     exited: (child, milliseconds) => k.WaitForSingleObject(child, Math.max(0, Math.floor(milliseconds))) === WAIT_OBJECT_0,
     exitCode(child) {
       const code = new Uint32Array(1);
-      if (!k.GetExitCodeProcess(child, ffi.ptr(code))) fail("GetExitCodeProcess");
+      if (!k.GetExitCodeProcess(child, code)) fail("GetExitCodeProcess");
       return code[0] as number;
     },
     ctrlBreak: (pid) => (k.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) ? null : k.GetLastError()),
@@ -522,16 +583,16 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     terminateJob: (job) => void k.TerminateJobObject(job, 1),
     activeProcesses(job) {
       const accounting = new Uint8Array(48);
-      if (!k.QueryInformationJobObject(job, JOB_BASIC_ACCOUNTING_INFORMATION, ffi.ptr(accounting), 48, null)) return -1;
+      if (!k.QueryInformationJobObject(job, JOB_BASIC_ACCOUNTING_INFORMATION, accounting, 48, null)) return -1;
       return new DataView(accounting.buffer).getUint32(40, true);
     },
     close: (handle) => void k.CloseHandle(handle),
     compareIgnoreCase(a, b) {
-      return k.CompareStringOrdinal(ffi.ptr(wide(a)), a.length, ffi.ptr(wide(b)), b.length, 1) - 2;
+      return k.CompareStringOrdinal(wide(a), a.length, wide(b), b.length, 1) - 2;
     },
     message(winerror) {
       const buffer = new Uint16Array(2048);
-      const n = k.FormatMessageW(0x1000 | 0x200, null, winerror, 0x0400, ffi.ptr(buffer), buffer.length, null);
+      const n = k.FormatMessageW(0x1000 | 0x200, null, winerror, 0x0400, buffer, buffer.length, null);
       return Buffer.from(buffer.buffer, 0, n * 2).toString("utf16le");
     },
   };

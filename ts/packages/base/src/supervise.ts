@@ -18,10 +18,8 @@
 // POSIX：新会话（进程组），超时先给进程组 SIGTERM、宽限后 SIGKILL；没有 PR_SET_PDEATHSIG。未实机验证。
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
-import { type OpenHow, type WinProcessApi, Win32Error, winProcessApi } from "./native.ts";
+import { type OpenHow, type WinProcessApi, Win32Error, nativeHelperCommand, winProcessApi } from "./native.ts";
 import { PyCrash } from "./pyfmt.ts";
 
 /** 标准输出、标准错误写到哪个文件、怎么开（"create-new" 同 Python 的 "xb"）。 */
@@ -40,6 +38,11 @@ export interface SuperviseOptions {
   readonly timeout: number | null;
   readonly grace?: number;
   readonly onSpawn?: (pid: number) => void;
+  /** 从外部取消这一次运行（本机服务：客户端断开、服务关闭），照中断处理（interrupted、结束整棵树）。 */
+  readonly signal?: AbortSignal;
+  /** 运行期间在 process 上装 SIGINT、SIGTERM、SIGHUP、SIGBREAK 监听器，与 run_supervised 一样（缺省 true）。本机服务
+   * 设 false：Ctrl+C 要停掉服务本身，由服务经 signal 把取消传给每一次运行。 */
+  readonly handleSignals?: boolean;
 }
 
 /** 与 run_supervised 返回的字典同名、同序。 */
@@ -192,7 +195,10 @@ async function superviseWindows(
   const onSignal = (): void => {
     flag.interrupted = true;
   };
-  for (const name of INTERRUPTS) process.on(name, onSignal);
+  const listens = options.handleSignals ?? true;
+  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);
+  options.signal?.addEventListener("abort", onSignal);
+  if (options.signal?.aborted) flag.interrupted = true;
   const start = performance.now();
   let child: { process: bigint; thread: bigint; pid: number } | null = null;
   let exited = false;
@@ -267,7 +273,8 @@ async function superviseWindows(
     if (child !== null) await terminateTree(Math.min(grace, 5));
     throw error;
   } finally {
-    for (const name of INTERRUPTS) process.off(name, onSignal);
+    if (listens) for (const name of INTERRUPTS) process.off(name, onSignal);
+    options.signal?.removeEventListener("abort", onSignal);
     if (child !== null) {
       await waitExit(30_000);
       const count = api.activeProcesses(job);
@@ -287,23 +294,26 @@ async function superviseWindows(
 // Node 后备（Windows）：经 Bun 辅助进程
 // ---------------------------------------------------------------------------
 
-function helperCommand(): string[] {
-  const configured = process.env["THEMIS_NATIVE_CMD"];
-  if (configured) return JSON.parse(configured) as string[];
-  return ["bun", resolve(dirname(fileURLToPath(import.meta.url)), "native-helper.ts")];
-}
-
 async function superviseThroughHelper(cmd: readonly string[], options: SuperviseOptions): Promise<SuperviseResult> {
-  const [command, ...args] = helperCommand();
+  const [command, ...args] = nativeHelperCommand();
   // DETACHED_PROCESS：辅助进程先不带控制台，再自己挂到调用方的控制台上（helperSupervise）。不这样的话，调用方没有控制台
   // 时 Windows 会给辅助进程另配一个，CTRL_BREAK 就发得出去了，与进程内调用（发不出去）不一致
   const helper = spawn(command ?? "bun", [...args, "__native"], { stdio: ["pipe", "pipe", "inherit"], detached: true });
-  const { onSpawn, ...request } = options;
+  // 辅助进程起不来（找不到 Bun 等）：spawn 的 error 事件没人接会让调用方整个崩掉（themistally-15 复核 ④a），记下来报清楚
+  let spawnError: Error | null = null;
+  helper.on("error", (error) => {
+    spawnError ??= error;
+  });
+  helper.stdin.on("error", () => undefined); // 起不来时写 stdin 会 EPIPE，原因由上面的 error 交代
+  const { onSpawn, signal, handleSignals, ...request } = options;
   helper.stdin.write(`${JSON.stringify({ op: "supervise", cmd, options: request })}\n`);
-  const onSignal = (): void => {
-    helper.stdin.write(`${JSON.stringify({ op: "interrupt" })}\n`);
+  const interrupt = (): void => {
+    if (spawnError === null && !helper.stdin.destroyed) helper.stdin.write(`${JSON.stringify({ op: "interrupt" })}\n`);
   };
-  for (const name of INTERRUPTS) process.on(name, onSignal);
+  const listens = handleSignals ?? true;
+  if (listens) for (const name of INTERRUPTS) process.on(name, interrupt);
+  signal?.addEventListener("abort", interrupt);
+  if (signal?.aborted) interrupt();
   try {
     const lines = createInterface({ input: helper.stdout });
     for await (const line of lines) {
@@ -312,9 +322,11 @@ async function superviseThroughHelper(cmd: readonly string[], options: Supervise
       if (message.error !== undefined) throw new PyCrash(message.error.kind, message.error.message);
       if (message.result !== undefined) return message.result;
     }
+    if (spawnError !== null) throw new Error(`起不了进程监督的辅助进程（${command}）：${(spawnError as Error).message}`);
     throw new Error("进程监督的辅助进程没有交回结果就退出了");
   } finally {
-    for (const name of INTERRUPTS) process.off(name, onSignal);
+    if (listens) for (const name of INTERRUPTS) process.off(name, interrupt);
+    signal?.removeEventListener("abort", interrupt);
     helper.stdin.end();
   }
 }
@@ -343,6 +355,13 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
   const start = performance.now();
   let exitCode: number | null = null;
   let finished = false;
+  const flag: InterruptFlag = { interrupted: options.signal?.aborted ?? false };
+  const onSignal = (): void => {
+    flag.interrupted = true;
+  };
+  const listens = options.handleSignals ?? true;
+  if (listens) for (const name of INTERRUPTS) process.on(name, onSignal);
+  options.signal?.addEventListener("abort", onSignal);
   try {
     const child = spawn(cmd[0] as string, cmd.slice(1), {
       cwd: options.cwd, env: Object.fromEntries(options.env), stdio: ["ignore", out, err], detached: true,
@@ -362,13 +381,21 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
     });
     options.onSpawn?.(spawned);
     const deadline = options.timeout ? start + options.timeout * 1000 : null;
+    const terminate = async (): Promise<void> => {
+      killGroup(spawned, "SIGTERM");
+      const until = performance.now() + grace * 1000;
+      while (!finished && performance.now() < until) await sleep(25);
+      killGroup(spawned, "SIGKILL");
+    };
     while (!finished) {
+      if (flag.interrupted) {
+        result.interrupted = true;
+        await terminate();
+        break;
+      }
       if (deadline !== null && performance.now() >= deadline) {
         result.timed_out = true;
-        killGroup(spawned, "SIGTERM");
-        const until = performance.now() + grace * 1000;
-        while (!finished && performance.now() < until) await sleep(25);
-        killGroup(spawned, "SIGKILL");
+        await terminate();
         break;
       }
       await sleep(25);
@@ -380,6 +407,8 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
     result.stray_processes = alive;
     result.exit_code = exitCode;
   } finally {
+    if (listens) for (const name of INTERRUPTS) process.off(name, onSignal);
+    options.signal?.removeEventListener("abort", onSignal);
     closeSync(out);
     closeSync(err);
     result.wall_seconds = elapsed(start);
