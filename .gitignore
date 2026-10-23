@@ -19,3 +19,6 @@ desktop/web/gate-probe/
 # TS 工作区（TS 迁移第一步）：依赖与构建产物不提交，锁文件 ts/bun.lock 提交
 ts/**/node_modules/
 ts/**/dist/
+
+# 桌面端本机服务（3.0 桌面端 D4）：锁目录记 pid 与端口，是本机运行状态，不提交
+.agent/.ui.lock/

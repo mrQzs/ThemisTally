@@ -6,3 +6,5 @@
 .agent/config-history/
 .agent/audit/
 .agent/.config.lock/
+# 桌面端本机服务（3.0 桌面端 D4）：锁目录记 pid 与端口，不提交
+.agent/.ui.lock/

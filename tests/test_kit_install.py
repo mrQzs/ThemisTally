@@ -25,9 +25,10 @@ LINE_RE = re.compile(r"^(ADD|SAME|UPDATE|KEEP|CONFLICT|APPEND|MANUAL|REMOVED) (\
 SUMMARY_KEYS = {"command", "target", "kit_root", "kit_version", "kit_commit", "counts", "unresolved", "backup",
                 "record"}
 RECORD = ".agent/kit-install.json"
-#: kit 的 gitignore.append.txt：运行证据，加上 3.0 第二轮配置中心的本机状态（本机覆盖、写入历史与审计、配置锁）
+#: kit 的 gitignore.append.txt：运行证据，加上 3.0 第二轮配置中心的本机状态（本机覆盖、写入历史与审计、配置锁），
+#: 以及桌面端本机服务的锁目录（T015 的规划拍板 Q2，2026-10-23）
 IGNORE_RULES = (".agent/runs/", ".agent/dispatch.local.json", ".agent/config-history/", ".agent/audit/",
-                ".agent/.config.lock/")
+                ".agent/.config.lock/", ".agent/.ui.lock/")
 PROBE = "scripts/pi_dispatch.py"
 
 
