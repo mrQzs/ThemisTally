@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "task_id": "t015-desktop-ui-core",
+  "plan_version": 2,
+  "title": "桌面端本机服务第 1 片：服务骨架、安全基线、握手（D1-B）",
+  "repository": "ThemisTally",
+  "base_sha": "822bd1beeff39aba6d9d8549d5ffe8fb7388fad4",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/**",
+      "ts/packages/ui/README.md",
+      "ts/packages/ui/test/app.test.ts",
+      "ts/packages/ui/test/fixtures/serve-entry.ts",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/launcher.e2e.test.ts",
+      "ts/packages/ui/test/lifecycle.test.ts",
+      "ts/packages/ui/test/localhttp-accesslog.test.ts",
+      "ts/packages/ui/test/localhttp-body.test.ts",
+      "ts/packages/ui/test/localhttp-control.test.ts",
+      "ts/packages/ui/test/localhttp-guards.test.ts",
+      "ts/packages/ui/test/localhttp-headers.test.ts",
+      "ts/packages/ui/test/localhttp-session.test.ts",
+      "ts/packages/ui/test/lockdir.test.ts",
+      "ts/packages/ui/test/service.test.ts",
+      "ts/packages/ui/test/static-paths.test.ts"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/src/**",
+      "ts/packages/ui/test/**"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "ts/packages/ui/package.json",
+      "ts/packages/ui/test/args.test.ts",
+      "ts/packages/base/**",
+      "ts/packages/cli/**",
+      "ts/packages/contracts/**",
+      "ts/mutations/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/tsconfig.json",
+      "ts/vitest.config.ts",
+      "desktop/**",
+      "tests/**",
+      "tests/test_gate_t015_*.py",
+      "scripts/**",
+      ".gitignore",
+      "gitignore.append.txt"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t015_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_kernel_impl.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ts/packages/ui/",
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ],
+      "output_must_not_match": [
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "握手与绑定——stdout 只有一行 JSON，字段与次序是 `themis_ui`、`bootstrap`、`origin`、`control`、`pid`，`origin` 是 `http://127.0.0.1:<port>`；只绑 127.0.0.1，同一端口在 ::1 上连不上",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "外壳能凭这一行找到服务，别的一概不写进 stdout"
+    },
+    {
+      "id": "D02",
+      "text": "U1 会话与引导地址——不带 cookie、cookie 错、cookie 重复时 GET 与 POST `/api/v1/ping` 都是 401 且 data 为 null；引导地址第一次 302 到 `/` 且 Set-Cookie 逐字，第二次 404 且没有 Set-Cookie；`/api/` 下不存在的路径没有会话 401、有会话 404",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "会话是唯一的 API 入口凭证，不泄露资源是否存在"
+    },
+    {
+      "id": "D03",
+      "text": "T7a 一次性与 60 秒——nonce 只能用一次；59999 毫秒可用、60000 毫秒拒绝；过期与用过两种拒绝走同一个响应（状态、头除 Date、正文逐字节相同）",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "引导地址是一次性的，猜不到也用不了第二次"
+    },
+    {
+      "id": "D04",
+      "text": "U2 Host 校验——只认 `127.0.0.1:<port>` 与 `localhost:<port>`；`evil.example:<port>`、端口不对、不带端口、`localhost.` 末尾带点一律 403；Host 不对时引导地址没有被消耗",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "防 DNS 重绑定"
+    },
+    {
+      "id": "D05",
+      "text": "U3 CSRF——POST 不带 `X-Themis-UI` 是 403；Origin 不同或缺是 403；Content-Type 不是 application/json 是 415；这三种情况下处理函数没有运行（posts 仍为 0）；合格的 POST 是 200 且 posts 变成 1",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "网页不能借外壳的浏览器发写请求"
+    },
+    {
+      "id": "D06",
+      "text": "U16 控制接口——不带令牌、令牌错、只带 cookie 都是 403；对的令牌是 200 并给出新的引导地址，旧会话 401、旧引导地址 404、新引导地址可用；Origin 是别的站点是 403 且不计入限速",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "只有外壳能换引导地址，网页不能把外壳的重新认证锁死"
+    },
+    {
+      "id": "D07",
+      "text": "T7c 恒定时间比较与限速——比较走 `timingSafeEqual` 的两份 32 字节摘要，长度不同与缺头都走同一条路且不抛错；连续 5 次失败之后锁定 1 秒，再失败翻倍，封顶 60 秒；锁定期内对的令牌也回 429 并带 Retry-After，且不计数；成功之后失败计数清零",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "令牌不能靠时序或暴力试出来"
+    },
+    {
+      "id": "D08",
+      "text": "T7b 日志里没有令牌——访问记录只有路由名、状态码与耗时，不含引导地址、控制令牌、cookie 与请求正文；不像名字的路由名记成 `invalid-route-name`；服务的 stdout 与 stderr 里也没有引导地址、控制令牌、cookie 与请求正文",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "令牌不能从日志流出去"
+    },
+    {
+      "id": "D09",
+      "text": "T13 静态资源边界——纯函数逐类给出 reason：`..` 段 dot-segment、`%2e`/`%2f`/`%5c` encoded-dot-or-separator、反斜杠 backslash、盘符 drive-letter、UNC empty-segment、ADS colon、末尾的点或空格 trailing-dot-or-space、坏编码 bad-encoding、控制字符 control-char、junction 跑出目录 reparse-point、`isWithin` 目录外为假、目录 directory、不在白名单的后缀 type-not-allowed；`rawPathOf` 不做规范化；`/` 给 index.html，`/assets/app.js` 的 Content-Type 照白名单并带 nosniff",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "静态资源永远出不了 `--assets` 目录"
+    },
+    {
+      "id": "D10",
+      "text": "T13 只解码一次与 HTTP 负面测试——原始 pathname 里先拒绝 `%2f`、`%5c`、`%2e`、`%00`（不分大小写）并回 400，之后只解码一次，`decodeURIComponent` 出错回 400，`%252e%252e` 解码一次是字面文件名、回 404；经 HTTP 的负面测试至少覆盖 `/..%2f..%2f<文件>`、`/%2e%2e%2f<文件>`、`/x%5c..%5c<文件>`、带 `%00` 的路径、`/%252e%252e%252f<文件>`，每条都断言拿不到 assets 之外的文件，明确拒绝的几种断言 400 且带安全头",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "编码过的分隔符不能绕过目录边界，第二次解码不能把 `%252e%252e` 变成 `..`"
+    },
+    {
+      "id": "D11",
+      "text": "T15 请求体上限——分块传输 65537 字节是 413 且之后不再读，65536 字节收下；Content-Length 声明超过 65536 是 413 且一个字节也不读；坏的 UTF-8、不是 JSON、空正文都是 400 且不回显原值",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "请求体是有限的一行，坏正文也不回显"
+    },
+    {
+      "id": "D12",
+      "text": "U12 安全头——经服务处理函数的响应都带 CSP（逐字照 D4）、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`；API、引导、控制与错误响应带 `Cache-Control: no-store`；静态资源带 `Cache-Control: no-cache`；响应里没有任何 `Access-Control-*` 头",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "本机响应不给浏览器别的能力"
+    },
+    {
+      "id": "D13",
+      "text": "U12 的范围与已知限制——README 写明 Bun 自己给出的三种响应（Content-Length 超过上限的 413、畸形请求行的 400、分块传输超过 Bun 上限的 413）不带安全头，并写明理由（纯文本，没有攻击者可控的 HTML）；服务自己的计数（64 KiB 加 1 就停）先于 Bun 的上限触发，`maxRequestBodySize` 是 131072",
+      "evidence": [
+        "review",
+        "V03"
+      ],
+      "intent": "已知限制写清楚，别被当成漏洞，也别让服务依赖 Bun 那一层"
+    },
+    {
+      "id": "D14",
+      "text": "U11 参数与已有服务——不带 `--desktop`、找不到前端资源都退出 2 且提示原文、stdout 为空；已有服务在运行时退出 1、stderr 报出 pid 与端口、stdout 为空、原来的服务照常响应；握手行之外 stdout 没有别的输出；`ts/packages/ui/test/args.test.ts` 的三条既有用例未改未删",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "用法错误与占用各有各的退出码，不静默"
+    },
+    {
+      "id": "D15",
+      "text": "U13 与 T14 生命周期、锁——`--idle-timeout 1` 时退出 0 且锁目录被清除；有请求就推迟空闲退出；stdin 管道关闭（EOF）时退出 0、锁目录被清除、stdout 仍只有握手一行；锁里的 pid 已经不在时接管，持有者活着或判断不了时 busy，owner.json 缺失且锁目录不到 10 秒时 busy、超过 10 秒时接管；释放只删自己的锁；空闲时限 null 为 1800 秒，bigint 与很大的值不让 setTimeout 溢出；经启动器起再走一遍 stdin EOF",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "服务不残留、不留锁、不占端口"
+    },
+    {
+      "id": "D16",
+      "text": "只有 GET 与 POST——PUT、DELETE、OPTIONS、HEAD 都是 405，带 `Allow: GET, POST` 与安全头，响应里没有 `Access-Control-*` 头",
+      "evidence": [
+        "V03"
+      ],
+      "intent": "方法白名单是 CSRF 的一半，HEAD 也不例外"
+    },
+    {
+      "id": "D17",
+      "text": "门禁、范围与测试完整性——G01、R01、V01 到 V07 全部通过；改动只落在 `ts/packages/ui/src/**`、`ts/packages/ui/test/**`、`ts/packages/ui/README.md`；不删、不跳过、不弱化既有测试；依赖清单与锁文件未改",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "scope",
+        "review"
+      ],
+      "intent": "不破坏已有门禁，也不靠削弱测试过关"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
