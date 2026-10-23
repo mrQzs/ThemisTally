@@ -937,8 +937,9 @@ def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], gra
 
 #: 主进程刚退出时，Job 的活动进程数可能还没减下来：句柄已经 signaled，计数要过一会儿才归零。实测 PATH 很短时约
 #: 两百次一次，50 毫秒内归零；TS 迁移的进程监督契约因此偶发红（Python 报残留、TS 没报）。计数大于 0 时先等它这么
-#: 久，仍大于 0 才算残留（第 74 轮）。
-JOB_SETTLE_SECONDS = 0.25
+#: 久，仍大于 0 才算残留（第 74 轮）。上限留得宽（themistally-15）：归零取决于退出中的线程什么时候被调度，hub 满负载
+#: 时被抢占几百毫秒不稀奇；只有计数大于 0（真残留或碰上这个窗口）才等，真残留反正马上要被结束，多等不花代价。
+JOB_SETTLE_SECONDS = 2.0
 
 
 def _reap_stragglers(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob]) -> Optional[bool]:

@@ -171,7 +171,7 @@ const INTERRUPTS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const;
 
 /** pi_dispatch.JOB_SETTLE_SECONDS（第 74 轮）：主进程刚退出时 Job 的活动进程数可能还没减下来，大于 0 时先等这么久，
  * 仍大于 0 才算残留。 */
-const JOB_SETTLE_MS = 250;
+const JOB_SETTLE_MS = 2000;
 
 /** 中断请求：信号处理器或辅助进程的 interrupt 请求置位，运行循环下一轮看到就照 _Interrupted 处理。 */
 export interface InterruptFlag {

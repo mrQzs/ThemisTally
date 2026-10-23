@@ -133,7 +133,7 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     expect((await superviseWith(fakeApi({ active: 0 }).api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
   });
 
-  it("Job 的计数滞后（第 74 轮）：主进程刚退出时计数还是 1、随后归零，不算残留，也不结束 Job；一直大于 0 要等满 250 毫秒", async () => {
+  it("Job 的计数滞后（第 74 轮）：主进程刚退出时计数还是 1、随后归零，不算残留，也不结束 Job；一直大于 0 要等满 2 秒", async () => {
     const lagging = fakeApi({ active: [1, 1, 0] });
     expect((await superviseWith(lagging.api, ["x.exe"], OPTIONS)).stray_processes).toBe(false);
     expect(lagging.calls.filter((call) => call === "active")).toHaveLength(3);
@@ -141,7 +141,7 @@ describe("supervise 的分支（假的 Win32 调用）", () => {
     const stays = fakeApi({ active: 1 });
     const started = performance.now();
     expect((await superviseWith(stays.api, ["x.exe"], OPTIONS)).stray_processes).toBe(true);
-    expect(performance.now() - started).toBeGreaterThanOrEqual(240);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(1990);
     expect(stays.calls).toContain("terminateJob");
     const clean = fakeApi({ active: 0 });
     await superviseWith(clean.api, ["x.exe"], OPTIONS);
