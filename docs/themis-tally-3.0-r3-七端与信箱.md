@@ -1460,6 +1460,18 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
     - 只有计数大于 0 时才等，真残留反正马上要被结束，多等不花代价。
   - 误报的代价它也查过：`stray_processes` 只进 run.json 与摘要表，不卡流水线，所以不上更重的办法。
   - 后备办法记在迁移计划第 8.2 节：列出 Job 里的进程号，只剩主进程自己就不算残留。
+
+### 第 75 轮：碰主工作区时，只读的 git 子命令不算越界（2026-10-23，T015 门禁端一回合作废）
+
+- **现象**：T015 的 gate-pre 返工回合跑了 27 分钟，因为 `cd <主工作区> && git log --oneline -3 && git status --porcelain=v1 … | head -20` 整回合作废。翻信箱：门禁回合因“bash 命令提到了主工作区”作废过 13 次（T011～T015）。大多是用 python 脚本读证据，这次是 git。
+- **原因**：第 66 轮按段判断，碰到主工作区的段只认 `READ_ONLY_COMMANDS`，git 一律算写。git status、git diff 平常确实会顺手刷新索引（写 `.git/index`，会和站主的 exclusive 抢锁）；log、show 这类只读对象库与引用。
+- **改法**：
+  - 新增 `read_only_git`：`READ_ONLY_GIT`（log、show、rev-parse、ls-files、ls-tree、cat-file、merge-base、describe、rev-list、blame、shortlog、for-each-ref、show-ref、grep、version）算只读；status、diff 带 `--no-optional-locks` 才算。
+  - 全局选项里的 `-c` 一律不认：core.fsmonitor、core.pager 能执行任意命令。命令已经小写，`-C <路径>` 与 `-c <键>=<值>` 分不开，按后面那个词有没有 `=` 区分。
+  - 带 `--output` 的不算只读。
+  - 违规说明里补一句：git 只许只读子命令，status、diff 要写成 `git --no-optional-locks status`。
+  - python 脚本证明不了只读，照旧越界。
+- **测试与变异**：`tests/test_kit_hub.py` 新增 1 条：6 种只读写法算警告，8 种（含实测作废的那一条、`-c` 两种写法、`--output`、checkout、stash、commit）照旧越界；第 66 轮那条里“再进主工作区跑 git log”的例子改成 git status。变异 4 个全部抓住：status 不带选项也放过、`-c` 当成 `-C`、不查 `--output`、git 一律算写。
 - **测试与变异**：
   - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
   - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。

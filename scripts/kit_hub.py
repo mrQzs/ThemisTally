@@ -1379,6 +1379,37 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
 #: 只读的命令：bash 里提到主工作区、但整条命令都是这些（且没有重定向）时只记警告
 READ_ONLY_COMMANDS = {"cat", "head", "tail", "ls", "grep", "rg", "find", "wc", "sort", "uniq", "diff", "stat", "file",
                       "echo", "pwd", "cut", "tr", "awk", "sed", "cd"}
+#: 碰主工作区时也算只读的 git 子命令（第 75 轮）：T015 门禁端 `cd <主工作区> && git log --oneline -3 && git status …`
+#: 整回合作废（27 分钟）。这些只读对象库与引用；status、diff 平常会顺手刷新索引（写 .git/index，与站主的
+#: exclusive 抢锁），带了 --no-optional-locks 才算只读。
+READ_ONLY_GIT = {"log", "show", "rev-parse", "ls-files", "ls-tree", "cat-file", "merge-base", "describe", "rev-list",
+                 "blame", "shortlog", "for-each-ref", "show-ref", "grep", "version"}
+NO_LOCK_GIT = {"status", "diff"}
+
+
+def read_only_git(args: Sequence[str]) -> bool:
+    """`git <args>`（已小写）是不是只读（第 75 轮）。全局选项里的 -c 一律不认：core.fsmonitor、core.pager 这类设置能
+    执行任意命令。命令已经小写，-C <路径> 与 -c <键>=<值> 分不开，按后面那个词有没有 = 区分。--output 会写文件。"""
+    rest = list(args)
+    no_locks = False
+    while rest and rest[0].startswith("-"):
+        option = rest.pop(0)
+        if option == "--no-optional-locks":
+            no_locks = True
+        elif option == "-c":
+            if not rest or "=" in rest[0]:
+                return False
+            rest.pop(0)  # -C <路径>
+        elif option.startswith(("-c", "--config-env", "--exec-path")):
+            return False
+        elif option in ("--git-dir", "--work-tree", "--namespace") and rest:
+            rest.pop(0)
+    if not rest:
+        return True  # git --version 之类
+    command, options = rest[0], rest[1:]
+    if any(option.startswith("--output") for option in options):
+        return False
+    return command in READ_ONLY_GIT or (command in NO_LOCK_GIT and no_locks)
 #: 不写文件的重定向：文件描述符之间（2>&1、>&2），或丢进空设备（2>/dev/null、&>nul）。第 41 轮：T012 门禁端的
 #: `ls "<主工作区>/desktop/web" 2>&1 | head` 因为 2>&1 里的 > 被当成写入，整回合作废
 HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d|&?\d*>>?\s*(?:/dev/null|nul)(?![\w./\\-])")
@@ -1457,7 +1488,8 @@ def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
         mentions = any(form in segment for form in repo_forms)
         touching = mentions or in_main or (piped and sep == "|")
         bare = split_chain(segment)[1]
-        if touching and (words[0] not in READ_ONLY_COMMANDS or ">" in bare or "sed -i" in bare):
+        read_only = words[0] in READ_ONLY_COMMANDS or (words[0] == "git" and read_only_git(words[1:]))
+        if touching and (not read_only or ">" in bare or "sed -i" in bare):
             return True
         if words[0] in ("cd", "pushd"):
             target = words[1].strip("'\"") if len(words) > 1 else "~"
@@ -1481,7 +1513,8 @@ def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Opt
             command = command.replace(form, "{工作目录}")  # 占位符不能带 >：会被当成重定向（第 41 轮）
         forms = path_forms(repo)
         if any(form in command for form in forms):
-            note = "bash 命令提到了主工作区（主工作区的文件用 read 读）：%s" % str(args.get("command"))[:200]
+            note = ("bash 命令提到了主工作区（主工作区的文件用 read 读；git 只许 log、show 这类只读子命令，status、diff 要写成 "
+                    "git --no-optional-locks status）：%s" % str(args.get("command"))[:200])
             return ("violation" if touches_main_unsafely(command, forms) else "warning"), note
     return "", ""
 

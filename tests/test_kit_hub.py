@@ -5913,7 +5913,7 @@ def test_only_the_segments_that_touch_the_main_worktree_must_be_read_only(tmp_pa
     for command in (
         "cd %s && git commit -qm x" % m,  # cd 进主工作区之后的段都算碰到
         "cd %s && cd .agent && rm -rf runs" % m,  # 相对路径的 cd 还在主工作区里
-        'cd "%s" && git status && cd "%s" && git log' % (w, m),  # 先进工作目录、再进主工作区
+        'cd "%s" && git status && cd "%s" && git status' % (w, m),  # 先进工作目录、再进主工作区（status 会写索引）
         "ls %s | xargs rm" % m,  # 主工作区的内容顺着管道流下去
         "cat %s/a | sort | tee b.txt" % m,  # 管道里隔一段照样算
         "cd %s/.agent; python -c 'print(1)'" % m,
@@ -5927,6 +5927,42 @@ def test_only_the_segments_that_touch_the_main_worktree_must_be_read_only(tmp_pa
     assert verdict("cd %s && ls; cd /tmp && rm -f x" % m) == "warning"
     # && 不是管道：前一段碰到主工作区，不连累后一段
     assert verdict("cat %s/a.md && git -C %s status" % (m, w)) == "warning"
+
+
+def test_read_only_git_subcommands_may_touch_the_main_worktree(tmp_path):
+    # 第 75 轮：T015 门禁端 `cd <主工作区> && git log --oneline -3 && git status …` 整回合作废（27 分钟）。log、show
+    # 这类只读；status、diff 带 --no-optional-locks 才不写索引；-c 能设 core.fsmonitor 执行任意命令，一律不认
+    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t015-gate-x"
+    repo = tmp_path / "ThemisTally"
+    m = str(repo).replace("\\", "/")
+
+    def verdict(command):
+        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
+
+    for command in (
+        "cd %s && git log --oneline -3 && git --no-optional-locks status --porcelain=v1 | head -20" % m,
+        "git -C %s log -3 --stat" % m,
+        "git -C %s show HEAD:scripts/kit_hub.py | head" % m,
+        "cd %s && git rev-parse HEAD && git ls-files ts | wc -l" % m,
+        "git -C %s --no-optional-locks diff --stat HEAD~1" % m,
+        "cd %s && git grep -n read_only_git" % m,
+    ):
+        assert verdict(command) == "warning", command
+    for command in (
+        # 实测作废的那一条：status 不带 --no-optional-locks 会刷新索引，照旧越界
+        "cd %s && git log --oneline -3 && git status --porcelain=v1 --untracked-files=all | head -20" % m,
+        "cd %s && git diff" % m,
+        "git -C %s -c core.fsmonitor=x status" % m,
+        "git -c core.pager=less -C %s log" % m,
+        "git -C %s log --output=x.txt" % m,
+        "cd %s && git checkout -- a.txt" % m,
+        "cd %s && git stash" % m,
+        "git -C %s commit -qm x" % m,
+    ):
+        assert verdict(command) == "violation", command
+    note = kh.pi_reach_problem("bash", {"command": "cd %s && git status" % m}, ws, repo)[1]
+    assert "--no-optional-locks" in note
+    assert kh.read_only_git(["--version"]) and not kh.read_only_git(["-c", "a=b", "log"])
 
 
 def test_split_chain_keeps_the_separators():
