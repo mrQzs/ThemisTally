@@ -5601,6 +5601,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                "cwd": spec["_commands"][0]["cwd"], "commands": spec["_commands"], "workspace": str(workspace),
                "workspace_kept": bool(args.keep_workspace), "candidate_files_left_modified": drifted,
                "baseline": baseline, "counts": counts, "counts_by_command": _mutation_counts_by_command(results, spec),
+               "not_run": _mutations_not_run(spec, results),
                "warnings": warnings, "results": results, "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     log_event(run_dir, "mutations", run=number, commands=[c["id"] for c in spec["_commands"]], **counts)
@@ -5609,7 +5610,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     if drifted:
         print("WARN  变异后候选文件没有恢复原样：%s（记录仍有效，干净副本%s）"
               % (", ".join(drifted[:10]), "已保留" if args.keep_workspace else "已移除"))
-    return EXIT_OK
+    return EXIT_FAIL if payload["not_run"] else EXIT_OK
 
 
 def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, env: Dict[str, str],
@@ -5682,6 +5683,8 @@ def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, e
                             rid = run_id(mid, command)
                             run = _run_command_item(item_for(command, rid), workspace, env, out_dir, grace)
                             runs[command["id"]] = _mutation_outcome(run, out_dir / ("%s.log" % rid))
+                            if runs[command["id"]]["interrupted"]:
+                                break
                     finally:
                         path.write_bytes(original)
         if runs:
@@ -5696,13 +5699,28 @@ def _run_mutation_rounds(spec: Dict[str, Any], workspace: Path, out_dir: Path, e
             record["decision"] = _decide_mutation(session, item, original, spec, mid)
         results.append(record)
         _print_mutation_record(record, item, commands, runs, multi, labelled, log_prefix, session)
+        if any(run["interrupted"] for run in runs.values()):
+            # 文件已在上面恢复；没跑的变异由调用方记进 not_run（第 72 轮）
+            print("MUTATE 被中断：后面 %d 条变异没有运行" % (len(spec["mutations"]) - index), flush=True)
+            break
     return baseline, results
 
 
+def _mutations_not_run(spec: Dict[str, Any], results: Sequence[Dict[str, Any]]) -> List[str]:
+    """运行被中断时清单里没有轮到的变异（名称）；跑完时为空（第 72 轮）。"""
+    return [item["name"] for item in spec["mutations"][len(results):]]
+
+
 def _mutation_outcome(run: Dict[str, Any], log_path: Path) -> Dict[str, Any]:
-    """一次变异运行的判定：只有退出码非 0 或超时算抓住；被拦下的命令与中断的测试会话是出错。"""
+    """一次变异运行的判定：只有退出码非 0 或超时算抓住；被拦下的命令、被中断的运行与中断的测试会话是出错。"""
     if run["status"] == "blocked":
         status = "error"
+    elif run.get("interrupted"):
+        # run_supervised 收到了 Ctrl+C、关闭控制台或控制台的 CTRL_BREAK（第 72 轮）：测试没有跑完，退出码不说明
+        # 任何事。此前记成“被取消”却算抓住，mutate 还接着跑后面的变异，按 Ctrl+C 停不下来
+        status = "error"
+        run = dict(run, reason="命令被中断（Ctrl+C、关闭控制台或控制台的 CTRL_BREAK），测试没有跑完，不算抓住；"
+                               "后面的变异不再运行")
     elif not run["passed"] and _session_aborted(log_path, run):
         # 变异让中断冒出了测试，整个 pytest 会话停在这里，后面的用例没有运行（2.3.0）
         status = "error"
@@ -5711,7 +5729,7 @@ def _mutation_outcome(run: Dict[str, Any], log_path: Path) -> Dict[str, Any]:
     else:
         status = "missed" if run["passed"] else "caught"
     return {"status": status, "exit_code": run.get("exit_code"), "timed_out": bool(run.get("timed_out")),
-            "log": run.get("log"), "reason": run.get("reason") or ""}
+            "interrupted": bool(run.get("interrupted")), "log": run.get("log"), "reason": run.get("reason") or ""}
 
 
 def _print_mutation_record(record: Dict[str, Any], item: Dict[str, Any], commands: Sequence[Dict[str, Any]],
@@ -5793,6 +5811,10 @@ def _mutation_counts_by_command(results: Sequence[Dict[str, Any]], spec: Dict[st
 
 
 def _print_mutation_totals(results: Sequence[Dict[str, Any]], spec: Dict[str, Any], record_path: str) -> None:
+    not_run = _mutations_not_run(spec, results)
+    if not_run:
+        print("变异清单 %d 条，运行被中断，只跑了 %d 条，下面的计数不完整；没有运行：%s"
+              % (len(spec["mutations"]), len(results), "、".join(not_run)))
     by_command = _mutation_counts_by_command(results, spec)
     labelled = len(spec["_commands"]) > 1 or _spec_has_expectations(spec)
     if not labelled:
@@ -5954,13 +5976,14 @@ def _mutate_tree(args: argparse.Namespace) -> int:
                "spec_sha256": sha256_file(out_dir / "spec.json"), "command": spec["_commands"][0]["argv"],
                "cwd": spec["_commands"][0]["cwd"], "commands": spec["_commands"], "files_left_modified": left,
                "baseline": baseline, "counts": counts, "counts_by_command": _mutation_counts_by_command(results, spec),
+               "not_run": _mutations_not_run(spec, results),
                "warnings": warnings, "results": results, "decisions": _mutation_decisions_payload(session)}
     write_json(out_dir / "mutations.json", payload, exclusive=True)
     _print_mutation_totals(results, spec, str(out_dir / "mutations.json"))
     _print_mutation_decisions(session, out_dir / DECISIONS_RECORD)
     if left:
         print("WARN  变异后文件没有恢复原样：%s" % ", ".join(left[:10]))
-    return EXIT_OK
+    return EXIT_FAIL if payload["not_run"] else EXIT_OK
 
 
 #: Codex 默认读取项目指令文件的上限（project_doc_max_bytes，字节）。
