@@ -477,6 +477,25 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 
 三项都通过才替换。结果写进本文。
 
+**④a 的方案（2026-10-22 与 themistally-15 定）**：选候选 3。
+
+- **可行性试验**（Bun 1.4.2，`bun:ffi` 调 kernel32）：先建带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job，`CreateProcessW` 带 `CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP`，`AssignProcessToJobObject` 之后 `ResumeThread`。
+  - 恢复之前等 1 秒，子进程“一启动就写的文件”不存在：放行之前一条指令也没执行；
+  - 子进程派生一个 `DETACHED_PROCESS` 的孙进程后以 7 退出，退出码原样取到；子进程退出之后孙进程仍在；`TerminateJobObject` 之后孙进程消失：它也在 Job 里，整棵树一起结束。
+- **为什么不是候选 1、2**：宽限期间要给子进程组发 `CTRL_BREAK`（现行 `_terminate_tree`），子进程必须在创建时就另起进程组。Node 的 `detached: true` 其实会带 `CREATE_NEW_PROCESS_GROUP`（libuv 的做法），但同时带 `DETACHED_PROCESS`，子进程没有控制台，`CTRL_BREAK` 一样发不进去；Bun 的 spawn 也给不出这个标志。候选 3 与 Python 的 `run_supervised` 一一对应。
+- **实现**放在 `@themis/base/supervise`，照 `run_supervised` 的签名与返回（`exit_code`、`timed_out`、`interrupted`、`spawn_error`、`wall_seconds`、`stray_processes`、`kill_method`、`pid`），Python 先过契约，再对照、变异。逐条要求：
+  1. **标准流**：`STARTF_USESTDHANDLES` 交给子进程，只让这三个句柄可继承（`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`），不把别的句柄漏给子进程；stdin 固定接空设备。
+  2. **命令行**照 `subprocess.list2cmdline` 的引号规则，与 Python 对照。
+  3. **拒绝 `.bat`、`.cmd`**（BatBadBut 一类的命令注入，CVE-2024-24576）：调用方本来就先把 npm 垫片解析成“node 加脚本”（`pd.resolve_pi_command`）。Python 的 `run_supervised` 在同一轮加上同样的拒绝，两边一致。
+  4. **环境块**照 CPython 的 `getenvironment`（`CREATE_UNICODE_ENVIRONMENT`）：排序、大小写不同的同名变量、键里含 `=` 或 NUL 时的处理，与 Python 逐条对照。
+  5. **超时与宽限**：先 `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` 给子进程组发信号，等 grace 秒（缺省 15），再 `TerminateJobObject`；之后查 `ActiveProcesses` 算出 `stray_processes`。语义与 Python 一致，宽限的情形配契约。
+  6. **控制台**：`GenerateConsoleCtrlEvent` 只能发给与调用方共用同一个控制台的进程组。桌面外壳起服务时多半不给可见控制台：送不到就直接结束 Job，`kill_method` 如实记录，不撒谎。桌面端设计 D3 的验证另加一条“照外壳的方式起服务”，核对子进程不弹控制台窗口、`CTRL_BREAK` 是否真的送到。
+  7. **调用方意外死掉**：Job 句柄随进程关闭，`KILL_ON_JOB_CLOSE` 带走整棵树。测试真的杀掉调用方进程。
+  8. **加入 Job 失败**：终止子进程、拒绝运行，与 Python 一样，不留没有监督的空窗。
+  9. **Node 后备**：Node 调不了 Win32，照 native 文件锁的做法起一个 Bun 辅助进程，经 stdin/stdout 的 JSON 通信；辅助进程读到 stdin 的 EOF（调用方死了）就结束 Job 并退出。“杀掉调用方”那条测试在 Node 路径上也跑一遍。
+  10. **POSIX**：进程组加 `PR_SET_PDEATHSIG`，未实机验证。
+- **验证用例**：上面原有的四条，加上第 1、3、4、6、7、8、9 条，以及“孙进程脱离父进程”的情形。结果写回本节。
+
 ### 8.3 依赖、锁文件、测试框架
 
 见第 2.3、2.4 节。
