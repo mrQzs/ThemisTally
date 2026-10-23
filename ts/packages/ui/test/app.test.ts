@@ -41,6 +41,14 @@ const post = (path: string, body: string, headers: Record<string, string> = {}):
     }),
   );
 
+const postRaw = (path: string, headers: Record<string, string> = {}): Promise<Response> =>
+  app.fetch(
+    new Request(`http://127.0.0.1:${PORT}${path}`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${PORT}`, ...headers },
+    }),
+  );
+
 const json = async (response: Response): Promise<Record<string, unknown>> => (await response.json()) as Record<string, unknown>;
 
 describe("请求管线", () => {
@@ -181,6 +189,69 @@ describe("请求管线", () => {
       "x-themis-control": "t".repeat(43),
     });
     expect(ok.status).toBe(200);
+  });
+
+  it("控制接口不读正文：只带对令牌就 200，正文与 CSRF 头全都无关", async () => {
+    const token = "t".repeat(43);
+    const bootstrapOf = async (response: Response): Promise<string> => {
+      const body = await json(response);
+      return String((body["data"] as Record<string, unknown>)["bootstrap"]).replace(ORIGIN, "");
+    };
+    // 只带对令牌：正文、Content-Type、X-Themis-UI、Origin、cookie 有没有都一律 200（穷举门，不读正文）
+    const headerSets: Record<string, string>[] = [
+      { "x-themis-control": token },
+      { "x-themis-control": token, origin: ORIGIN },
+      { "x-themis-control": token, "x-themis-ui": "1" },
+      { "x-themis-control": token, "content-type": "application/json" },
+      { "x-themis-control": token, "content-type": "text/plain" },
+      { "x-themis-control": token, "content-type": "application/jsonp" },
+      { "x-themis-control": token, cookie: "themis_session=nope" },
+      { "x-themis-control": token, origin: ORIGIN, "x-themis-ui": "1", "content-type": "application/json" },
+    ];
+    for (const headers of headerSets) {
+      const response = await postRaw("/control/bootstrap", headers);
+      expect(response.status, JSON.stringify(headers)).toBe(200);
+      const fresh = await bootstrapOf(response);
+      expect(fresh, JSON.stringify(headers)).toMatch(/^\/bootstrap\/[A-Za-z0-9_-]{43}$/u);
+      // 新给出的引导地址真的能建会话
+      const accepted = await get(fresh);
+      expect(accepted.status).toBe(302);
+      expect(accepted.headers.get("set-cookie")).toMatch(/^themis_session=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=\/$/u);
+    }
+    // 带坏正文、空正文、合法 JSON 对象正文：一样 200（正文被忽略）
+    for (const body of ["not json", "", "[]", '{"a":1}']) {
+      const response = await post("/control/bootstrap", body, { "x-themis-control": token });
+      expect(response.status, body).toBe(200);
+      expect(await bootstrapOf(response), body).toMatch(/^\/bootstrap\/[A-Za-z0-9_-]{43}$/u);
+    }
+    // 门还是令牌：令牌错、不带令牌、只带 cookie 都是 403
+    const full = { origin: ORIGIN, "x-themis-ui": "1", "content-type": "application/json" };
+    expect((await post("/control/bootstrap", "{}", full)).status).toBe(403);
+    expect((await post("/control/bootstrap", "{}", { ...full, "x-themis-control": "wrong" })).status).toBe(403);
+    const path = `/bootstrap/${app.issueBootstrap()}`;
+    const cookie = (await get(path)).headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect((await post("/control/bootstrap", "{}", { ...full, cookie })).status).toBe(403);
+    // 外来 Origin：403 且不计入限速（6 次之后对的令牌仍 200）
+    for (let index = 0; index < 6; index += 1) {
+      expect((await postRaw("/control/bootstrap", { "x-themis-control": token, origin: "https://evil.example" })).status).toBe(403);
+    }
+    expect((await postRaw("/control/bootstrap", { "x-themis-control": token })).status).toBe(200);
+    // 连续 5 次失败之后锁 1 秒：锁定期内对的令牌也 429 且带 Retry-After
+    for (let index = 0; index < 5; index += 1) {
+      expect((await postRaw("/control/bootstrap", { "x-themis-control": `wrong-${index}` })).status).toBe(403);
+    }
+    const locked = await postRaw("/control/bootstrap", { "x-themis-control": token });
+    expect(locked.status).toBe(429);
+    expect(Number(locked.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+    // 豁免没有外溢到 API：POST /api/v1/ping 仍要 CSRF 三查与 JSON 正文
+    const session = (await get(`/bootstrap/${app.issueBootstrap()}`)).headers.get("set-cookie")?.split(";")[0] ?? "";
+    const api = { cookie: session, origin: ORIGIN, "content-type": "application/json" };
+    expect((await post("/api/v1/ping", "{}", { ...api, "x-themis-ui": "0" })).status).toBe(403);
+    const noOrigin = { ...api } as Record<string, string>;
+    delete noOrigin["origin"];
+    expect((await post("/api/v1/ping", "{}", noOrigin)).status).toBe(403);
+    expect((await post("/api/v1/ping", "{}", { ...api, "x-themis-ui": "1", "content-type": "text/plain" })).status).toBe(415);
+    expect((await post("/api/v1/ping", "not json", { ...api, "x-themis-ui": "1" })).status).toBe(400);
   });
 
   it("访问记录只有路由名、状态码与耗时；引导地址进不了记录", async () => {

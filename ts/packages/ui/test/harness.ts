@@ -245,9 +245,35 @@ export function request(
   body: Buffer = Buffer.alloc(0),
   host?: string,
 ): Promise<RawResponse> {
+  return send(port, method, target, headers, body, host, true);
+}
+
+/**
+ * 发一个连 Content-Length 都不带的 POST：正文长度按 HTTP/1.1 的缺省规则是 0。控制接口「不读正文」的用例用它——
+ * 只带对令牌、别的什么都没有，服务也必须 200。
+ */
+export function requestNoBody(
+  port: number,
+  method: string,
+  target: string,
+  headers: readonly (readonly [string, string])[] = [],
+  host?: string,
+): Promise<RawResponse> {
+  return send(port, method, target, headers, Buffer.alloc(0), host, false);
+}
+
+function send(
+  port: number,
+  method: string,
+  target: string,
+  headers: readonly (readonly [string, string])[],
+  body: Buffer,
+  host: string | undefined,
+  declareLength: boolean,
+): Promise<RawResponse> {
   const lines = [`${method} ${target} HTTP/1.1`, `Host: ${host ?? `127.0.0.1:${port}`}`, "Connection: close", "Accept: */*"];
   for (const [name, value] of headers) lines.push(`${name}: ${value}`);
-  if (method === "POST" && !headers.some(([name]) => name.toLowerCase() === "transfer-encoding")) {
+  if (declareLength && method === "POST" && !headers.some(([name]) => name.toLowerCase() === "transfer-encoding")) {
     lines.push(`Content-Length: ${body.byteLength}`);
   }
   const raw = `${lines.join("\r\n")}\r\n\r\n`;

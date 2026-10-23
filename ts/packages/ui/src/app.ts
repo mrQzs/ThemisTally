@@ -118,9 +118,11 @@ export function createApp(options: AppOptions): App {
       if (match.route.name === "control.bootstrap" && !controlOriginAllowed(request.headers)) {
         return respond(routeName, errorResponse(403, "请求被拒绝"));
       }
-      // 4. POST：CSRF 三查，再读正文（超限 413、坏正文 400）
+      // 4. POST：CSRF 三查，再读正文（超限 413、坏正文 400）。control.bootstrap 不在这两步里——它的门是穷举的
+      // （Host、controlOriginAllowed、ControlGate 三道），不看正文也不看 CSRF 头：外壳发请求时带不带正文、
+      // Content-Type、X-Themis-UI 都没有核实过（站主记录 F9），豁免之后两种外壳都能 reauth。
       let body: unknown;
-      if (method === "POST") {
+      if (method === "POST" && match.route.name !== "control.bootstrap") {
         const rejection = csrfCheck(request);
         if (rejection !== null) return respond(routeName, errorResponse(rejection.status, rejection.message));
         const parsed = await readJsonBody(request);

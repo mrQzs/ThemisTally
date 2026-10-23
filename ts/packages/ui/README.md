@@ -11,7 +11,7 @@
 | --- | --- |
 | `src/main.ts` | `UiArgs`、`checkArgs`、退出码；`runUi` 转交 `serveUi` |
 | `src/server.ts` | 唯一出现 `Bun.serve` 的薄适配：拿锁、起服务、写握手行、起生命周期、关停 |
-| `src/app.ts` | 请求管线：Host → 方法 → `/api/` 会话 → CSRF 与正文 → 处理函数 → 安全头 → 访问记录 |
+| `src/app.ts` | 请求管线：Host → 方法 → `/api/` 会话 → CSRF 与正文（`control.bootstrap` 除外）→ 处理函数 → 安全头 → 访问记录 |
 | `src/routes.ts` | 路由表（本片四条：`bootstrap`、`control.bootstrap`、`api.ping.get`、`api.ping.post`） |
 | `src/envelope.ts` | 信封七字段：`ok`、`exit_code`、`data`、`output`、`messages`、`command`、`elapsed_ms` |
 | `src/static.ts` | 静态资源的目录边界（路径只解码一次）与 Content-Type 白名单 |
@@ -25,8 +25,8 @@
 
 - **只绑 127.0.0.1**：Host 必须整串等于 `127.0.0.1:<port>` 或 `localhost:<port>`，别的 Host 一律 403（防 DNS 重绑定）。
 - **一次性引导地址**：握手行给出 `http://127.0.0.1:<port>/bootstrap/<nonce>`，60 秒内只能用一次；成功时 302 到 `/` 并带上会话 cookie `themis_session=<令牌>; HttpOnly; SameSite=Strict; Path=/`（没有 Max-Age、没有 Secure）。过期、用过、不存在三种拒绝返回同一个 404 响应。
-- **控制接口**：`POST /control/bootstrap` 只认 `X-Themis-Control` 头里的令牌（从不看 cookie），恒定时间比较；连续 5 次失败锁 1 秒，之后翻倍、60 秒封顶，锁定期内对的令牌也回 429 并带 `Retry-After`，且不计数；成功之后计数清零。
-- **CSRF**：POST 要 Origin 同源、`X-Themis-UI: 1`、`Content-Type` 的媒体类型是 `application/json`，分别不对时 403、403、415，处理函数不运行。
+- **控制接口**：`POST /control/bootstrap` 只认 `X-Themis-Control` 头里的令牌（从不看 cookie），恒定时间比较；连续 5 次失败锁 1 秒，之后翻倍、60 秒封顶，锁定期内对的令牌也回 429 并带 `Retry-After`，且不计数；成功之后计数清零。这道门是穷举的三道（Host、`controlOriginAllowed`、令牌门）：**不读正文，也不做 CSRF 三查**——外壳发请求时带不带正文、`Content-Type`、`X-Themis-UI` 没有核实过（站主记录 F9），豁免之后两种外壳都能 reauth；Origin 是别的站点仍 403 且不计入限速。
+- **CSRF**：POST 要 Origin 同源、`X-Themis-UI: 1`、`Content-Type` 的媒体类型是 `application/json`，分别不对时 403、403、415，处理函数不运行。这一条只管 API 的写路由（`POST /api/v1/ping`）；`POST /control/bootstrap` 豁免，理由见上面「控制接口」。
 - **安全响应头**：每一份响应都带逐字固定的 CSP、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`；API、引导、控制与错误带 `Cache-Control: no-store`，静态资源带 `no-cache`；不开 CORS（`Access-Control-*` 一律删掉）。
 - **请求体上限**：服务自己数到 64 KiB（65536 字节）加 1 就停，Content-Length 声明超限时一个字节也不读；坏 UTF-8、不是 JSON、空正文都是 400 且不回显原值。
 - **静态资源边界**：原始路径上先拒绝 `%2f`、`%5c`、`%2e`、`%00`，之后 `decodeURIComponent` 只解一次；解码后再逐类查反斜杠、控制字符、空段（UNC）、`.`/`..`、盘符、冒号（ADS）、末尾的点或空格，再用目录边界、重解析点（junction）与 realpath 三道关口把 `--assets` 之外的字节挡住。
@@ -36,7 +36,7 @@
 
 ```
 GET  /bootstrap/<nonce>   一次性引导地址：302 到 / 并带会话 cookie（只验 Host）
-POST /control/bootstrap   换引导地址：作废全部会话与 nonce，200 信封 data 为 { bootstrap }
+POST /control/bootstrap   换引导地址：作废全部会话与 nonce，200 信封 data 为 { bootstrap }（只带对令牌，不读正文）
 GET  /api/v1/ping         要会话：200 信封 data 为 { posts }
 POST /api/v1/ping         要会话、CSRF、JSON 对象正文（不超过 64 KiB）：posts 加 1
 ```

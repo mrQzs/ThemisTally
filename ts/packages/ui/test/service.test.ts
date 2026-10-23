@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type RunningService, chunkedWatch, cliArgv, header, request, runBrief, startService } from "./harness.ts";
+import { type RunningService, chunkedWatch, cliArgv, header, request, requestNoBody, runBrief, startService } from "./harness.ts";
 
 let dir = "";
 let assets = "";
@@ -347,6 +347,80 @@ describe("服务", () => {
     expect(Number(header(locked, "retry-after"))).toBeGreaterThanOrEqual(1);
     await new Promise((done) => setTimeout(done, 1400));
     expect((await ctrl(token)).status).toBe(200);
+  });
+
+  it("D06 控制接口不读正文：只带对令牌就 200，豁免不外溢到 API", async () => {
+    const running = await open();
+    const port = running.port;
+    const token = running.handshake.control;
+    const bootstrapOf = async (response: { body: Buffer }): Promise<string> =>
+      String(((await envelope(response))["data"] as Record<string, unknown>)["bootstrap"]).replace(`http://127.0.0.1:${port}`, "");
+    let freshPath = "";
+    // 只带对令牌：正文、Content-Type、X-Themis-UI、Origin、cookie 有没有都一律 200（穷举门，不读正文）
+    const headerSets: [string, readonly [string, string][]][] = [
+      ["什么都不带", [["X-Themis-Control", token]]],
+      ["只带同源 Origin", [["X-Themis-Control", token], ["Origin", `http://127.0.0.1:${port}`]]],
+      ["只带 X-Themis-UI", [["X-Themis-Control", token], ["X-Themis-UI", "1"]]],
+      ["Content-Type 不是 JSON", [["X-Themis-Control", token], ["Content-Type", "text/plain"]]],
+      ["Content-Type 是 jsonp", [["X-Themis-Control", token], ["Content-Type", "application/jsonp"]]],
+      ["只带会话 cookie", [["X-Themis-Control", token], ["Cookie", "themis_session=nope"]]],
+      ["全套头", [["X-Themis-Control", token], ["Origin", `http://127.0.0.1:${port}`], ["X-Themis-UI", "1"], ["Content-Type", "application/json"]]],
+    ];
+    for (const [label, headers] of headerSets) {
+      const response = await requestNoBody(port, "POST", "/control/bootstrap", headers);
+      expect(response.status, label).toBe(200);
+      const fresh = await bootstrapOf(response);
+      expect(fresh, label).toMatch(/^\/bootstrap\/[A-Za-z0-9_-]{43}$/u);
+      // 新给出的引导地址真的能建会话
+      const accepted = await request(port, "GET", fresh);
+      expect(accepted.status, label).toBe(302);
+      expect(header(accepted, "set-cookie"), label).toMatch(/^themis_session=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=\/$/u);
+    }
+    // 带坏正文、空正文、合法 JSON 对象正文：一样 200（正文被忽略）
+    for (const [label, body] of [
+      ["坏 JSON", Buffer.from("not json", "utf8")],
+      ["空正文", Buffer.alloc(0)],
+      ["合法对象", Buffer.from('{"a":1}', "utf8")],
+    ] as const) {
+      const response = await request(port, "POST", "/control/bootstrap", [["X-Themis-Control", token]], body);
+      expect(response.status, label).toBe(200);
+      freshPath = await bootstrapOf(response);
+      expect(freshPath, label).toMatch(/^\/bootstrap\/[A-Za-z0-9_-]{43}$/u);
+    }
+    // 豁免没有外溢到 API：POST /api/v1/ping 仍要 CSRF 三查与 JSON 正文（会话要在上面几次成功的换引导地址之后重新拿）
+    const session = cookieOf(await request(port, "GET", freshPath));
+    expect(session).not.toBe("");
+    const apiBase: [string, string][] = [["Cookie", session], ["Origin", `http://127.0.0.1:${port}`], ["Content-Type", "application/json"]];
+    expect((await request(port, "POST", "/api/v1/ping", apiBase, Buffer.from("{}", "utf8"))).status).toBe(403); // 缺 X-Themis-UI
+    const noOrigin = apiBase.filter(([name]) => name.toLowerCase() !== "origin");
+    expect((await request(port, "POST", "/api/v1/ping", [...noOrigin, ["X-Themis-UI", "1"]], Buffer.from("{}", "utf8"))).status).toBe(403);
+    expect((await request(port, "POST", "/api/v1/ping", [...apiBase, ["X-Themis-UI", "1"], ["Content-Type", "text/plain"]], Buffer.from("{}", "utf8"))).status).toBe(415);
+    // 门还是令牌：令牌错、不带令牌、只带 cookie 都是 403
+    const full: [string, string][] = [["Origin", `http://127.0.0.1:${port}`], ["X-Themis-UI", "1"], ["Content-Type", "application/json"]];
+    expect((await request(port, "POST", "/control/bootstrap", full, Buffer.from("{}", "utf8"))).status).toBe(403);
+    expect((await request(port, "POST", "/control/bootstrap", [...full, ["X-Themis-Control", "wrong"]], Buffer.from("{}", "utf8"))).status).toBe(403);
+    // 握手行那个 nonce 已经被上面几次换引导地址作废了，用刚拿到的会话 cookie 证明门不看 cookie
+    const cookie = session;
+    expect(cookie).not.toBe("");
+    expect((await request(port, "POST", "/control/bootstrap", [...full, ["Cookie", cookie]], Buffer.from("{}", "utf8"))).status).toBe(403);
+    // 外来 Origin：403 且不计入限速（6 次之后对的令牌仍 200）
+    for (let index = 0; index < 6; index += 1) {
+      const foreign = await requestNoBody(port, "POST", "/control/bootstrap", [
+        ["X-Themis-Control", token],
+        ["Origin", "https://evil.example"],
+      ]);
+      expect(foreign.status).toBe(403);
+    }
+    const afterForeign = await requestNoBody(port, "POST", "/control/bootstrap", [["X-Themis-Control", token]]);
+    expect(afterForeign.status).toBe(200);
+    // 连续 5 次失败之后锁 1 秒：锁定期内对的令牌也 429 且带 Retry-After
+    for (let index = 0; index < 5; index += 1) {
+      const failed = await requestNoBody(port, "POST", "/control/bootstrap", [["X-Themis-Control", `wrong-${index}`]]);
+      expect(failed.status).toBe(403);
+    }
+    const locked = await requestNoBody(port, "POST", "/control/bootstrap", [["X-Themis-Control", token]]);
+    expect(locked.status).toBe(429);
+    expect(Number(header(locked, "retry-after"))).toBeGreaterThanOrEqual(1);
   });
 
   it("D08 日志里没有令牌：stdout 只有握手一行，stderr 里没有令牌、cookie、nonce 与正文", async () => {
