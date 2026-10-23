@@ -490,7 +490,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
      - **撤回的原写法**（themistally-15 2026-10-23 撤回）：原来写的是“supervise 与 `run_supervised` 一律拒绝 `.bat`、`.cmd`”。不成立：`.agent/plans/` 里有 16 条检查命令以 npm 开头（`npm ci`、`npm run build`、`npm test`），`_resolve_argv` 用 `shutil.which` 解析，Windows 上得到的就是 `npm.CMD`，照原写法改，桌面端各片的门禁检查会全部被拒；而“调用方先把垫片解析成 node 加脚本”只对 pi 成立。PD 本来就有 `ensure_argv_safe` 这道缓解。
   4. **环境块**照 CPython 的 `getenvironment`（`CREATE_UNICODE_ENVIRONMENT`）：排序、大小写不同的同名变量、键里含 `=` 或 NUL 时的处理，与 Python 逐条对照。
   5. **超时与宽限**：先 `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` 给子进程组发信号，等 grace 秒（缺省 15），再 `TerminateJobObject`；之后查 `ActiveProcesses` 算出 `stray_processes`。语义与 Python 一致，宽限的情形配契约。
-  6. **控制台**：`GenerateConsoleCtrlEvent` 只能发给与调用方共用同一个控制台的进程组。桌面外壳起服务时多半不给可见控制台：送不到就直接结束 Job，`kill_method` 如实记录，不撒谎。桌面端设计 D3 的验证另加一条“照外壳的方式起服务”，核对子进程不弹控制台窗口、`CTRL_BREAK` 是否真的送到。
+  6. **控制台**：`GenerateConsoleCtrlEvent` 只能发给与调用方共用同一个控制台的进程组。桌面外壳起服务时多半不给可见控制台。第 70 轮（Python 先改，与 themistally-15 定）：结果新增 `ctrl_break`（"sent" / "failed"，没发过为 None：returncode 已知时 CPython 的 `send_signal` 什么都不发）与 `ctrl_break_winerror`（失败的数字错误码，不记文字：文字随系统语言变）；"failed" 就不等宽限，直接结束 Job。`kill_method` 不改：它记的是结束整棵树的手段，Windows 上始终是 Job，本来就没撒谎。实测：调用方以 DETACHED_PROCESS 起（没有控制台）时发送失败、错误码 6；以 CREATE_NO_WINDOW 起（有控制台、不显示窗口）时子进程真的收到。"sent" 只说明事件交出去了，证明不了对方收到（GUI 程序、自己脱离控制台的进程都收不到）。桌面端设计 D3 的验证另加一条“照外壳的方式起服务”，核对子进程不弹控制台窗口、`CTRL_BREAK` 是否真的送到。
   7. **调用方意外死掉**：Job 句柄随进程关闭，`KILL_ON_JOB_CLOSE` 带走整棵树。测试真的杀掉调用方进程。
   8. **加入 Job 失败**：终止子进程、拒绝运行，与 Python 一样，不留没有监督的空窗。
   9. **Node 后备**：Node 调不了 Win32，照 native 文件锁的做法起一个 Bun 辅助进程，经 stdin/stdout 的 JSON 通信；辅助进程读到 stdin 的 EOF（调用方死了）就结束 Job 并退出。“杀掉调用方”那条测试在 Node 路径上也跑一遍。

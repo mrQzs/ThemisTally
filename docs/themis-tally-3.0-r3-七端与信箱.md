@@ -1408,6 +1408,13 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   
   变异 6 个全部抓住。
 
+### 第 70 轮：结束进程树时的 CTRL_BREAK 记下结果，发不出去就不等宽限（2026-10-23，TS 迁移 ④a 的前置）
+
+- **实测**：`_terminate_tree` 先给子进程组发 CTRL_BREAK、等宽限 15 秒，再结束 Job。发送失败的 OSError 被吞掉之后照样等满宽限。GenerateConsoleCtrlEvent 只能发给与调用方共用同一个控制台的进程组：调用方以 DETACHED_PROCESS 起（没有控制台，hub 的后台任务就是这样）时，发送失败、错误码 6，子进程收不到，等也白等；以 CREATE_NO_WINDOW 起（有控制台、不显示窗口）时，子进程真的收到。另记一个坑：Windows 上 Python 的 `time.sleep` 只被 SIGINT 提前唤醒，SIGBREAK 的处理器要等它醒来才运行，测试用的子进程要分小段睡。
+- **改法**（与 themistally-15 定，TS 的 supervise 照此实现、两边结果一致）：`run_supervised` 的结果新增 `ctrl_break`（"sent" / "failed"；没发过为 None，returncode 已知时 CPython 的 `send_signal` 什么都不发）与 `ctrl_break_winerror`（失败的数字错误码；不记文字，文字随系统语言变）。"failed" 或没发就不等宽限、直接结束 Job；"sent" 照旧最多等 grace；`except BaseException` 那条路径同样。`kill_method` 不改（Windows 上始终是 Job）。读这些字段的只有 `claim_model`（只读 `stray_processes`）、`baseline.py`（逐个复制 exit 相关字段与 `kill_method`），run.json 没有限定字段的 Schema，新增字段安全。
+- **撤回的一条**：原计划同一轮让 `run_supervised` 拒绝 `.bat`、`.cmd`，themistally-15 撤回：合同里 16 条检查命令以 npm 开头，Windows 上解析出来就是 `npm.CMD`。PD 本来就有 `ensure_argv_safe`（参数含批处理特殊字符就拒绝），TS 照这个分工移植。
+- **测试与变异**：新增 `tests/test_run_supervised.py` 4 条：没有控制台的调用方发送失败、错误码 6、不等宽限、整棵树都结束；不显示窗口的调用方真的送到（标记文件）、没等满宽限；三种状态的来源照 CPython；没超时的不发。用到 `run_supervised` 的测试文件（test_dispatch、legacy 生命周期与命令行、baseline 工具、kit_hub、kit_roles、kernel_impl）566 passed、2 skipped（要可见控制台的两条 legacy 用例本来就跳过）。变异 6 个全部抓住（宽限条件取反、送不到照样等、超时不写字段、不记错误码、已回收照发、发出去记成 failed）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

@@ -873,16 +873,38 @@ def _restore_handlers(previous: Dict[int, Any]) -> None:
             pass
 
 
-def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], grace: float) -> None:
+CtrlBreak = Tuple[Optional[str], Optional[int]]
+
+
+def _send_ctrl_break(proc: "subprocess.Popen[bytes]") -> CtrlBreak:
+    """给子进程组发 CTRL_BREAK（子进程以 CREATE_NEW_PROCESS_GROUP 创建），返回（状态, 错误码）（第 70 轮）：
+    - ("sent", None)：GenerateConsoleCtrlEvent 成功。只说明事件交给了共用本进程控制台、属于该进程组的进程，证明不了
+      对方收到了（GUI 程序、自己脱离了控制台的进程都收不到）；
+    - ("failed", winerror)：发送失败，例如本进程没有控制台（DETACHED_PROCESS 起的后台任务，错误码 6）。只记数字
+      错误码，不记报错文字：文字随系统语言变；
+    - (None, None)：returncode 已知，CPython 的 send_signal 什么都不发。"""
+    if proc.returncode is not None:
+        return None, None
+    try:
+        proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+    except OSError as exc:
+        return "failed", getattr(exc, "winerror", None)
+    except (ValueError, AttributeError):
+        return "failed", None
+    return "sent", None
+
+
+def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], grace: float) -> CtrlBreak:
+    """结束整棵进程树，返回 CTRL_BREAK 的（状态, 错误码），见 _send_ctrl_break；POSIX 为 (None, None)。Windows
+    先发 CTRL_BREAK：发出去了（"sent"）就最多等 grace 秒，再结束 Job；发送失败或没发（进程已经回收）就不等宽限，
+    直接结束 Job（第 70 轮：没有控制台的后台任务以前送不到也照样白等 15 秒）。"""
     if IS_WINDOWS:
-        try:
-            proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-        except (OSError, ValueError, AttributeError):
-            pass
-        try:
-            proc.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
-            pass
+        sent = _send_ctrl_break(proc)
+        if sent[0] == "sent":
+            try:
+                proc.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                pass
         if job is not None:
             job.terminate()
         else:
@@ -892,7 +914,7 @@ def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], gra
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             pass
-        return
+        return sent
     # POSIX：先 SIGTERM 给整个进程组（Pi 会清理自己跟踪的脱离子进程），宽限后 SIGKILL。
     _killpg(proc.pid, signal.SIGTERM)
     try:
@@ -904,6 +926,7 @@ def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], gra
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
         pass
+    return None, None
 
 
 def _reap_stragglers(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob]) -> Optional[bool]:
@@ -932,10 +955,12 @@ def run_supervised(cmd: Sequence[str], cwd: Path, env: Dict[str, str], stdout: A
     """在独立进程组 / Job Object 中运行命令，执行墙钟时限，结束后清理残留进程。
 
     stdin 固定为空设备：Pi 在 stdin 不是终端时会读取到 EOF，继承未关闭的管道会导致挂起。
+    ctrl_break、ctrl_break_winerror：超时或中断时给子进程组发 CTRL_BREAK 的结果（"sent" / "failed" 与失败的
+    数字错误码），没发过为 None（第 70 轮，见 _send_ctrl_break）。kill_method 照旧写结束整棵树的手段。
     """
     result: Dict[str, Any] = {"exit_code": None, "timed_out": False, "interrupted": False,
                               "spawn_error": None, "wall_seconds": 0.0, "stray_processes": None,
-                              "kill_method": None, "pid": None}
+                              "kill_method": None, "pid": None, "ctrl_break": None, "ctrl_break_winerror": None}
     kwargs: Dict[str, Any] = {"cwd": str(cwd), "env": env, "stdin": subprocess.DEVNULL,
                               "stdout": stdout, "stderr": stderr}
     job: Optional[_WinJob] = None
@@ -973,7 +998,7 @@ def run_supervised(cmd: Sequence[str], cwd: Path, env: Dict[str, str], stdout: A
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 result["timed_out"] = True
-                _terminate_tree(proc, job, grace)
+                result["ctrl_break"], result["ctrl_break_winerror"] = _terminate_tree(proc, job, grace)
                 break
             try:
                 proc.wait(timeout=1.0 if remaining is None else max(0.05, min(1.0, remaining)))
@@ -983,10 +1008,10 @@ def run_supervised(cmd: Sequence[str], cwd: Path, env: Dict[str, str], stdout: A
     except _Interrupted:
         result["interrupted"] = True
         if proc is not None:
-            _terminate_tree(proc, job, grace)
+            result["ctrl_break"], result["ctrl_break_winerror"] = _terminate_tree(proc, job, grace)
     except BaseException:
         if proc is not None:
-            _terminate_tree(proc, job, min(grace, 5.0))
+            result["ctrl_break"], result["ctrl_break_winerror"] = _terminate_tree(proc, job, min(grace, 5.0))
         raise
     finally:
         _restore_handlers(previous)
