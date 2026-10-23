@@ -2,6 +2,9 @@
   "name": "@themis/contracts",
   "private": true,
   "type": "module",
+  "exports": {
+    "./status-inputs.json": "./status-inputs.json"
+  },
   "dependencies": {
     "@themis/base": "workspace:*",
     "@themis/dispatcher": "workspace:*"

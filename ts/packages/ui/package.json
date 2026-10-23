@@ -6,6 +6,7 @@
     "./main": "./src/main.ts"
   },
   "dependencies": {
-    "@themis/base": "workspace:*"
+    "@themis/base": "workspace:*",
+    "@themis/contracts": "workspace:*"
   }
 }

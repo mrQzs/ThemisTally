@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "about": "status --json 的输入（桌面端设计第 7 版 T3）：本机服务只 stat 这些路径察觉变化，有变化才跑一次 status --json。路径相对 .agent/runs，用 / 分隔：<task> 是 .agent/runs 下的任意目录（_env、_reports 也算，status 照样列它们），<attempt> 是任务目录下名字符合 attempt_pattern 的目录，<n> 是名字符合 numbered_pattern 的条目（checks 下可以是目录 01 也可以是文件 01.json），verdicts 下的 <n>.json 是任意 .json。守卫测试 contracts/test/status-inputs.test.ts：Python 与 TS 的 status 在夹具上实际碰过的路径归一之后与本名单双向一致；status 多读或少读一个文件，测试就红，名单跟着改，本机服务的监视自动跟上。",
+  "attempt_pattern": "^attempt-\\d{3,}$",
+  "numbered_pattern": "^\\d{2,}(\\.json|\\.md)?$",
+  "list": [
+    "",
+    "<task>",
+    "<task>/<attempt>/checks",
+    "<task>/<attempt>/verdicts"
+  ],
+  "exists": [
+    "<task>/<attempt>/claim"
+  ],
+  "read": [
+    "<task>/<attempt>/meta.json",
+    "<task>/<attempt>/run.json",
+    "<task>/<attempt>/events-summary.json",
+    "<task>/<attempt>/scope.json",
+    "<task>/<attempt>/state.json",
+    "<task>/<attempt>/checks/<n>/checks.json",
+    "<task>/<attempt>/verdicts/<n>.json"
+  ],
+  "read_when_running": [
+    "<task>/<attempt>/events.jsonl",
+    "<task>/<attempt>/run-started.json"
+  ],
+  "incidental_stat": {
+    "<other>": "列 .agent/runs 时先 is_dir 再取名字：不是目录的条目不进结果，变了也不影响输出，由“列目录”覆盖",
+    "<task>/<attempt>": "task_attempts 先 is_dir 再比名字：由“列 <task>”覆盖",
+    "<task>/<other>": "同上，名字不是 attempt-NNN 的条目不进结果"
+  }
+}

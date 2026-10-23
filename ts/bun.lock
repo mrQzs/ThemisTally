@@ -39,6 +39,7 @@
       "name": "@themis/ui",
       "dependencies": {
         "@themis/base": "workspace:*",
+        "@themis/contracts": "workspace:*",
       },
     },
   },
