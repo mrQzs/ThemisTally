@@ -496,6 +496,14 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
   9. **Node 后备**：Node 调不了 Win32，照 native 文件锁的做法起一个 Bun 辅助进程，经 stdin/stdout 的 JSON 通信；辅助进程读到 stdin 的 EOF（调用方死了）就结束 Job 并退出。“杀掉调用方”那条测试在 Node 路径上也跑一遍。
   10. **POSIX**：进程组加 `PR_SET_PDEATHSIG`，未实机验证。
 - **验证用例**：上面原有的四条，加上第 1、3、4、6、7、8、9 条，以及“孙进程脱离父进程”的情形。结果写回本节。
+- **结果（2026-10-23，④a 完成）**：`@themis/base/supervise`（`runSupervised`）与 native.ts 的进程监督一节，`@themis/dispatcher/argv`（`ensureArgvSafe`）。契约 `contracts/test/supervise.contract.test.ts` 让 Python、TS 在 Bun 下、TS 在 Node 下（经辅助进程）跑同一组场景，结果逐字段比较（pid 与 wall_seconds 按范围），24 条全过：
+  - 原有四条：S11 挂起创建之后在加入 Job 之前停 1 秒，子进程一启动就写的文件不存在（放行之前一条指令也不执行，Bun）；S5a、S6 孙进程脱离父进程（DETACHED_PROCESS）也在 Job 里，超时与子进程退出之后都被结束；S5a、S5b、S5c 超时之后整棵树结束，宽限的语义与 Python 一致（发出去了最多等 grace，子进程收到就提前结束、不理会就等满）。
+  - 第 1 条：标准流只交三个句柄（S1 退出码与 stdout、stderr 逐字节）；第 2 条：S2 参数的引号（空串、制表符、引号前与末尾的反斜杠、中文、UNC）；第 3 条：S7 `.cmd` 假程序与 npm 经 which 解析出的 `npm.CMD` 照样能跑，S9 `ensure_argv_safe` 在 255 条语料（大小写、末尾的点与空格、全角、开尔文符号、İ 等，乘上每个特殊字符）上的判定与报错与 Python 逐条一致；第 4 条：S3 环境块（排序、大小写不同的同名变量留最后插入的、`=C:`、空值、Unicode）与 S3b 的六种报错。实测 CPython 3.12.10 是先按 dict 去重、再按排序后的次序逐个校验（被去掉的同名变量里含 NUL 不报错），空键交给 CreateProcessW、报错误码 87；
+  - 第 6 条：调用方以 DETACHED_PROCESS 起时发送失败、错误码 6、不等宽限（S5a），以 CREATE_NO_WINDOW 起时子进程真的收到（S5b，标记文件）；S10 调用方的进程组收到 CTRL_BREAK，三套实现都照中断处理；
+  - 第 7 条：S8 杀掉调用方，子进程与孙进程都结束（Python、Bun、Node 三条路径）；第 8 条：加入 Job 失败、恢复失败、建不了 Job 由 `base/test/supervise.test.ts` 用一套假的 Win32 调用覆盖（8 条），报错文字与 Python 相同；第 9 条：Node 后备的辅助进程以 DETACHED_PROCESS 起，再 `AttachConsole` 到调用方的控制台（调用方没有控制台就挂不上）。不这样的话，调用方没有控制台时 Windows 给辅助进程另配一个，CTRL_BREAK 就发得出去了，与进程内调用不一致（契约第一轮就是在这里红的）。
+  - 启动失败的报错照 CPython 的 OSError：错误码先映射成 errno（PC/errmap.h）再定类名，文字是 FormatMessageW 去掉末尾的空白与句点（S4：找不到程序 2、工作目录不存在 267、不是可执行文件 193、空键 87）。`GetLastError` 在 bun:ffi 下取得到。
+  - 坑：Windows 上 Python 的 `time.sleep` 只被 SIGINT 提前唤醒，测试用的子进程要分小段睡，SIGBREAK 的处理器才能及时运行。
+  - POSIX（新会话、进程组、SIGTERM 加宽限再 SIGKILL）写了，未实机验证；本机只有 Windows，契约在 POSIX 上跳过。
 
 ### 8.3 依赖、锁文件、测试框架
 
@@ -587,7 +595,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | ②c | `logs usage`。`@themis/base/pydatetime`：`datetime.fromisoformat` 的 C 实现（CPython 3.12.10 `_datetimemodule.c`，Python 实际用的就是它，不是 `_pydatetime.py`）逐段移植，在 UTF-8 字节上按 C 字符串解析，怪癖照搬并逐条在 Python 上实测过：秒后面的冒号当小数（`10:00:00:5` 是 0.5 秒）、小数点后一位都没有也收、`Z` 后面跟 NUL 当结尾、分隔符可以是任意字符（多字节按首字节跳过）、时区偏移的秒为零时连带的微秒丢掉、偏移的分钟不查上限（`+00:99`）；加 kit_logs._parse_iso 的换算（结尾 Z、必须带时区、换成 UTC、溢出为不可用）。`@themis/dispatcher/logs-usage`：执行端（events-summary.json 的 known、partial、unknown，按模型合计，计数一律 bigint）与规划端（会话记录逐行读、按消息 id 归组、重复与两种冲突、未完成、时间窗、坏行与非候选的计数、按模型与是否子代理合计）。对照：pydatetime 手挑 62 个写法加 4 个种子各 3000 个随机串，Python、Node、Bun 一致；logs usage 的契约用例 11 个，stdout 逐字节一致，`--json` 过 logs-usage-v1；真实数据：主仓库的 runs 加本机 119 MB 的会话记录，6 组参数在 Node、Bun 下共 12 次调用逐字节一致。变异：pydatetime 15 个、logs usage 16 个全部抓住（起初各漏一个：分隔符以外的代理字符、带 usage 的空 id，补了用例） | 完成 | 见提交说明 |
 | ②-切换 | 选择文件 `scripts/kernel-impl.json` 的 `readonly` 改成 `ts`（r3 §10 第 64 轮）。启动器照第 ② 步“转交给 TS 的启动器”：转交名单写死、检查次序（名单、discover、TS 入口、装好戳记、Bun 路径）、`--pyargs-b64`、句柄直接继承、带 KILL_ON_JOB_CLOSE 的 Job、退出码原样；Bun 固定带 `--no-env-file` 与 `--config=ts/bunfig.toml`，子进程环境去掉运行时注入变量。装好戳记由 `ts/package.json` 的 postinstall 写，第 61 轮的后台回归在戳记过期时于落地锁里重装。`meta.json` 记 `impl` 与冻结的 `kernel_protected`，账本的 `dispatcher.called` 记 `impl` 与 `tool_version`。测试：`tests/test_kernel_impl.py` 70 条（选择文件的严格解析、名单与参数键、检查次序、启动器四条、六种注入各一条并带对照组、回退逐字节、禁区与同目录判断）；hub 新增 5 条；readonly 契约用例全部加上经真的启动器的端到端（87 条全过）；全量 pytest 在藏起装好戳记时照过（2578 passed，test_dispatch.py 另 50 passed），说明没有测试依赖 TS 装没装。变异 36 个全部抓住（第一轮漏 2 个：规格的 `-k` 漏选一条、回退测试两边走同一份坏代码，补断言后抓住） | 完成 | 见提交说明 |
 | ③ | 配置中心 | | |
-| ④a | Windows 进程监督的验证 | | |
+| ④a | Windows 进程监督的验证（第 8.2 节，选候选 3）。`@themis/base/supervise`：`runSupervised` 与 `run_supervised`（第 70 轮）逐项一致，Bun 下经 native.ts 调 kernel32（挂起创建、另起进程组、加入带 KILL_ON_JOB_CLOSE 的 Job 再恢复、只继承三个标准流句柄、CTRL_BREAK 与宽限、残留进程），Node 下经 Bun 辅助进程（DETACHED_PROCESS 起、再挂到调用方的控制台）；`@themis/dispatcher/argv`：`ensure_argv_safe` 逐字节移植。契约 24 条（三套实现跑同一组场景，结果逐字段比较；含挂起之后一条指令也不执行、孙进程脱离父进程也被结束、两种控制台状态下 CTRL_BREAK 的去向、中断、杀掉调用方、`.cmd` 与 npm、255 条 `ensure_argv_safe` 语料）、白盒 8 条；变异 19 个全部抓住。第一轮契约查出 Node 后备的辅助进程在调用方没有控制台时被另配一个控制台，CTRL_BREAK 的结果与进程内调用不一致，改成 DETACHED_PROCESS 加 AttachConsole | 完成 | 见提交说明 |
 | ④ | 证据与门禁 | | |
 | ⑤ | 七端 hub 内核 | | |
 | ⑥ | 撤掉 Python | | |

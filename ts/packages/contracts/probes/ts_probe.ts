@@ -6,10 +6,13 @@ import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from
 import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
-import { FileLockTimeout, acquireFileLock } from "@themis/base/native";
+import { FileLockTimeout, type WinProcessApi, acquireFileLock, winProcessApi } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
-import { pyRepr, pyStrValue } from "@themis/base/pyfmt";
+import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
+import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
+import { ensureArgvSafe } from "@themis/dispatcher/argv";
+import { DispatchError } from "@themis/dispatcher/repo";
 import { pyIntParse } from "@themis/base/pyre";
 import { parseIsoUtc } from "@themis/base/pydatetime";
 import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
@@ -164,6 +167,52 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   }),
   "jsonl.iter_lines": (request) => ({ ok: true, lines: [...iterLines(String(request["path"]))] }),
   "jsonl.lines_before": (request) => ({ ok: true, count: linesBefore(String(request["path"]), Number(request["position"])) }),
+  // ④a：挂起创建之后、恢复之前，子进程一条指令也不执行（只在 Bun 下：要真的 Win32 调用）。在加入 Job 之前停 1 秒，
+  // 记下子进程一启动就写的标记文件这时在不在
+  "supervise.suspended_check": async (request) => {
+    const api = await winProcessApi();
+    const marker = String(request["marker"]);
+    let beforeResume: boolean | null = null;
+    const wrapped: WinProcessApi = {
+      ...api,
+      assign: (job, child) => {
+        sleepSync(1000);
+        beforeResume = existsSync(marker);
+        return api.assign(job, child);
+      },
+    };
+    const result = await superviseWith(wrapped, request["cmd"] as string[], {
+      cwd: String(request["cwd"]), env: request["env"] as [string, string][], timeout: 30,
+      stdout: request["stdout"] as OutputTarget, stderr: request["stderr"] as OutputTarget,
+    });
+    return { ok: true, before_resume: beforeResume, after: existsSync(marker), result };
+  },
+  "argv.ensure_safe": (request) => {
+    try {
+      ensureArgvSafe(request["cmd"] as string[]);
+    } catch (error) {
+      if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
+      throw error;
+    }
+    return { ok: true };
+  },
+  "supervise.run": async (request) => {
+    try {
+      const result = await runSupervised(request["cmd"] as string[], {
+        cwd: String(request["cwd"]),
+        env: request["env"] as [string, string][],
+        stdout: request["stdout"] as OutputTarget,
+        stderr: request["stderr"] as OutputTarget,
+        timeout: (request["timeout"] as number | null | undefined) ?? null,
+        grace: Number(request["grace"] ?? 15),
+        onSpawn: (pid) => void process.stderr.write(`spawned ${pid}\n`),
+      });
+      return { ok: true, result };
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      throw error;
+    }
+  },
   "filelock.run": async (request) => {
     const path = String(request["path"]);
     let lock;

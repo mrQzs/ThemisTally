@@ -17,6 +17,7 @@
     "./secrets": "./src/secrets.ts",
     "./pyjson": "./src/pyjson.ts",
     "./pyfmt": "./src/pyfmt.ts",
-    "./pypath": "./src/pypath.ts"
+    "./pypath": "./src/pypath.ts",
+    "./supervise": "./src/supervise.ts"
   }
 }

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./argv": "./src/argv.ts",
     "./logs": "./src/logs.ts",
     "./logs-cat": "./src/logs-cat.ts",
     "./logs-search": "./src/logs-search.ts",

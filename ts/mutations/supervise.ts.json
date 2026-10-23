@@ -1,0 +1,127 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/supervise.contract.test.ts",
+    "packages/base/test/supervise.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "V01 空参数不加引号",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    const needQuote = arg.includes(\" \") || arg.includes(\"\\t\") || arg === \"\";",
+      "new": "    const needQuote = arg.includes(\" \") || arg.includes(\"\\t\");"
+    },
+    {
+      "name": "V02 引号前的反斜杠不加倍",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "        result.push(\"\\\\\".repeat(backslashes.length * 2));",
+      "new": "        result.push(\"\\\\\".repeat(backslashes.length));"
+    },
+    {
+      "name": "V03 大小写不同的同名变量不去重",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    if (next !== undefined && compare(item.key, next.key) === 0) continue; // 同名变量留最后插入的那一个",
+      "new": "    if (next === null) continue;"
+    },
+    {
+      "name": "V04 键从第 0 个字符起查 =",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    if (item.key.indexOf(\"=\", 1) !== -1)",
+      "new": "    if (item.key.indexOf(\"=\") !== -1)"
+    },
+    {
+      "name": "V05 环境块不排序",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    .sort((a, b) => compare(a.key, b.key) || a.index - b.index);",
+      "new": "    ;"
+    },
+    {
+      "name": "V06 报错文字不去末尾的句点",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  while (end > 0 && ((message.codePointAt(end - 1) as number) <= 0x20 || message[end - 1] === \".\")) end -= 1;",
+      "new": "  while (end > 0 && (message.codePointAt(end - 1) as number) <= 0x20) end -= 1;"
+    },
+    {
+      "name": "V07 错误码 267 不映射成 NotADirectoryError",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  [267, \"ENOTDIR\"],",
+      "new": ""
+    },
+    {
+      "name": "V08 CTRL_BREAK 发不出去也等满宽限",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    if (result.ctrl_break === \"sent\") await waitExit(graceSeconds * 1000);",
+      "new": "    await waitExit(graceSeconds * 1000);"
+    },
+    {
+      "name": "V09 不记 CTRL_BREAK 的错误码",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "      result.ctrl_break_winerror = failed;",
+      "new": "      result.ctrl_break_winerror = null;"
+    },
+    {
+      "name": "V10 不加入 Job 就恢复",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "    if (!api.assign(job, child.process) || !api.resume(child.thread)) {",
+      "new": "    if (!api.resume(child.thread)) {"
+    },
+    {
+      "name": "V11 Node 后备的辅助进程不以 DETACHED_PROCESS 起",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "{ stdio: [\"pipe\", \"pipe\", \"inherit\"], detached: true });",
+      "new": "{ stdio: [\"pipe\", \"pipe\", \"inherit\"] });"
+    },
+    {
+      "name": "V12 辅助进程不挂到调用方的控制台",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  api.attachConsole(process.ppid);\n",
+      "new": ""
+    },
+    {
+      "name": "V13 残留进程记成 false",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "      result.stray_processes = count > 0 ? true : count === 0 ? false : null;",
+      "new": "      result.stray_processes = count > 0 ? false : count === 0 ? false : null;"
+    },
+    {
+      "name": "V14 不接中断信号",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": "  for (const name of INTERRUPTS) process.on(name, onSignal);\n  const start = performance.now();",
+      "new": "  const start = performance.now();"
+    },
+    {
+      "name": "V15 Job 不带 KILL_ON_JOB_CLOSE",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      new DataView(limit.buffer).setUint32(16, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, true);",
+      "new": "      new DataView(limit.buffer).setUint32(16, 0, true);"
+    },
+    {
+      "name": "V16 不挂起创建",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "        const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT",
+      "new": "        const flags = CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT"
+    },
+    {
+      "name": "V17 不另起进程组",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "        const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT",
+      "new": "        const flags = CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT"
+    },
+    {
+      "name": "V18 ensure_argv_safe 漏了 .bat",
+      "file": "ts/packages/dispatcher/src/argv.ts",
+      "old": "  if (!lowered.endsWith(\".cmd\") && !lowered.endsWith(\".bat\")) return;",
+      "new": "  if (!lowered.endsWith(\".cmd\")) return;"
+    },
+    {
+      "name": "V19 批处理特殊字符漏了 %",
+      "file": "ts/packages/dispatcher/src/argv.ts",
+      "old": "new Set('&|<>^%!\"\\r\\n');",
+      "new": "new Set('&|<>^!\"\\r\\n');"
+    }
+  ]
+}

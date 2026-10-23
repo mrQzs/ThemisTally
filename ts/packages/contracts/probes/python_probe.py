@@ -312,7 +312,43 @@ def op_filelock_run(request):
     return {"ok": True, "acquired_ms": acquired, "released_ms": released}
 
 
+OPEN_MODES = {"create-new": "xb", "truncate": "wb", "append": "ab"}
+
+
+def op_supervise_run(request):
+    """pi_dispatch.run_supervised（迁移计划第 8.2 节 ④a）：env 是 [键, 值] 的列表，按次序还原成 dict；标准流写进
+    request 给的两个文件（how 同 TS 的 OpenHow）。起子进程之后往 stderr 报 "spawned <pid>"（杀掉调用方的用例用）。
+    参数错误（Popen 抛的 ValueError）照原文交回。"""
+    env = {}
+    for key, value in request["env"]:
+        env[key] = value
+
+    def on_spawn(pid):
+        sys.stderr.write("spawned %d\n" % pid)
+        sys.stderr.flush()
+
+    out_spec, err_spec = request["stdout"], request["stderr"]
+    with open(out_spec["path"], OPEN_MODES[out_spec["how"]]) as out, open(err_spec["path"], OPEN_MODES[err_spec["how"]]) as err:
+        try:
+            result = pi_dispatch.run_supervised(request["cmd"], Path(request["cwd"]), env, out, err, request.get("timeout"),
+                                                request.get("grace", 15.0), on_spawn=on_spawn)
+        except ValueError as exc:
+            return {"ok": False, "error": "ValueError", "message": str(exc)}
+    return {"ok": True, "result": result}
+
+
+def op_argv_ensure_safe(request):
+    """pi_dispatch.ensure_argv_safe：通过为 ok，拒绝时交回报错原文与退出码。"""
+    try:
+        pi_dispatch.ensure_argv_safe(request["cmd"])
+    except pi_dispatch.DispatchError as exc:
+        return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
+    return {"ok": True}
+
+
 OPS = {
+    "supervise.run": op_supervise_run,
+    "argv.ensure_safe": op_argv_ensure_safe,
     "publish_new": op_publish_new,
     "filelock.run": op_filelock_run,
     "secrets.call": op_secrets_call,
