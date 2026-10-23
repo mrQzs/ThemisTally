@@ -1,0 +1,11 @@
+{
+  "name": "@themis/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./main": "./src/main.ts"
+  },
+  "dependencies": {
+    "@themis/base": "workspace:*"
+  }
+}

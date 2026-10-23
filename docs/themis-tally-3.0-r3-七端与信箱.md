@@ -1432,6 +1432,24 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 基线被中断照旧按“基线没通过”拒绝。
 - **测试与变异**：新增 `tests/test_mutate_interrupted.py`，4 条。在进程内替换 run_supervised，文件里出现指定文字时报 interrupted，覆盖：中间一条被中断、基线被中断、多命令清单里第一条命令被中断、跑完时 `not_run` 为空。变异 7 个全部抓住：仍算抓住、照样跑后面的变异、照样跑其余命令、不记 not_run、`--tree` 退出码照样 0、不记 interrupted、汇总不说明。
 
+### 第 73 轮：`ui` 子命令无条件转交给 TS；@themis/ui 的骨架（2026-10-23，桌面端 D1-B 第 1 片的前置）
+
+- **为什么**：桌面端设计第 7 版定本机服务用 TS 写在 `ts/packages/ui`（T1），内核仓库里经 `pi_dispatch.py ui …` 起（T6）。`ui` 只有 TS 实现，不进选择文件；ui 包不在内核禁区里、经 hub 派给执行器（T11）。包的骨架与调度器的转交属于禁区里的文件，由规划端先提交。
+- **调度器**：
+  - `ui` 子命令照设计 §5.1：`--desktop`、`--assets`、可重复的 `--transcript`、`--idle-timeout`；
+  - 新名单 `TS_ONLY_COMMANDS`。`cmd_ui` 先 `Repo.discover`（报错照原文），再把参数连同仓库根目录、`python`（`sys.executable`）、`kernel`（本文件）交给 TS，选择文件是什么都转交。`python` 与 `kernel` 供服务起子进程回调内核（T2）；
+  - `argv_impl` 把 ui 记为 ts（`-h` 仍算 python）；
+  - `ts_launch_command` 的两句报错对 ui 改说“ui 只有 TS 实现”，只读命令的原文一字不动。
+- **TS**：
+  - TS 入口加 `case "ui"`，用动态 `import("@themis/ui/main")`，类型用 `import type`：cli 在禁区里、ui 不在，静态导入的话 ui 包一坏，status、logs 也跟着起不来。崩溃照 crash 报。
+  - pyargs-v1 加 ui 一支：repo 必须是字符串，不许多余的键。
+  - 骨架 `ts/packages/ui`：package.json 与 bun.lock 的登记；`src/main.ts` 的 `runUi` 只做参数检查（不带 `--desktop`、资源目录不在、空闲时限不是正整数，都退出 2），其余报“还没有实现”，退出 1。
+  - 源码卫生加一条（themistally-15 的条件）：`ts/packages/ui/src/localhttp/**` 只许导入 `node:*`、`@themis/base/*` 与 localhttp 内部的相对路径，不碰 Bun 的全局对象。本机 HTTP 的安全基线先写在那里，到迁移第 ③d 步由规划端整体搬进 `@themis/base`。
+- **测试与变异**：
+  - Python：`tests/test_kernel_impl.py` 新增 4 条，覆盖名单与 argparse 一致、argv_impl、三种选择文件下都转交且参数逐项相等、没有 TS 入口与不在仓库里时的报错；全文件 76 条通过。
+  - TS：契约 `ui.contract.test.ts` 5 条，经真的调度器跑，选择文件全是 python 时照样交给 TS，启动器实际交出的参数过 Schema；`ui/test/args.test.ts` 3 条；TS 全量 393 条全过。
+  - 变异 18 个全部抓住：Python 7、TS 7、导入规则 4。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

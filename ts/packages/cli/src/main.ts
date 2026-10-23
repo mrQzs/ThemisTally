@@ -15,6 +15,7 @@ import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
+import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
 interface PyArgs {
   readonly command: readonly string[];
@@ -87,6 +88,15 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runLogs(out, () => cmdSearch(args as unknown as SearchArgs, out));
     case "logs usage":
       return runLogs(out, () => cmdUsage(args as unknown as UsageArgs, out));
+    case "ui":
+      // 只有 TS 实现的命令（桌面端第 7 版 T6，调度器第 73 轮无条件转交）。动态导入：@themis/ui 不在内核禁区里、经 hub
+      // 派给执行器，静态导入的话它一坏，status、logs 也跟着起不来
+      try {
+        const { runUi } = await import("@themis/ui/main");
+        return await runUi(args as unknown as UiArgs);
+      } catch (error) {
+        return crash(out, error);
+      }
     default:
       out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
       return 2;

@@ -19,6 +19,7 @@
       "dependencies": {
         "@themis/base": "workspace:*",
         "@themis/dispatcher": "workspace:*",
+        "@themis/ui": "workspace:*",
       },
     },
     "packages/contracts": {
@@ -30,6 +31,12 @@
     },
     "packages/dispatcher": {
       "name": "@themis/dispatcher",
+      "dependencies": {
+        "@themis/base": "workspace:*",
+      },
+    },
+    "packages/ui": {
+      "name": "@themis/ui",
       "dependencies": {
         "@themis/base": "workspace:*",
       },
@@ -146,6 +153,8 @@
     "@themis/contracts": ["@themis/contracts@workspace:packages/contracts"],
 
     "@themis/dispatcher": ["@themis/dispatcher@workspace:packages/dispatcher"],
+
+    "@themis/ui": ["@themis/ui@workspace:packages/ui"],
 
     "@types/estree": ["@types/estree@1.0.9", "", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
 

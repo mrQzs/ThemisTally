@@ -611,3 +611,55 @@ def test_same_dir_sees_through_short_names_and_junctions(tmp_path):
 def test_an_attempt_keeps_the_protected_set_it_was_prepared_with():
     assert pd.attempt_protected_paths({}, {"kernel_protected": ["ts/**"]}) == ["ts/**"]
     assert pd.attempt_protected_paths({"extra_protected_paths": ["spec.md"]}, {}) == ["spec.md"]  # 更早的 attempt
+
+
+# ---------------------------------------------------------------------------
+# 只有 TS 实现的命令（第 73 轮）：ui
+# ---------------------------------------------------------------------------
+
+def test_ts_only_keys_match_argparse():
+    # argparse 多了选项而名单没跟上，这里就红：不会悄悄丢掉一个参数（repo 由 cmd_ui 换成仓库根目录另交）
+    namespace = vars(pd.build_parser().parse_args(["ui"]))
+    assert set(pd.TS_ONLY_COMMANDS[("ui",)]) == set(namespace) - {"command", "func", "repo"}
+    assert not set(pd.TS_ONLY_COMMANDS) & set(pd.TS_READONLY_COMMANDS)
+
+
+def test_argv_impl_counts_ui_as_ts_whatever_the_selector():
+    for impl in (ALL_PYTHON, READONLY_TS):
+        for argv in (["ui"], ["ui", "--desktop", "--assets", "w"], ["--repo", "x", "ui"], ["--repo=x", "ui"]):
+            assert pd.argv_impl(argv, impl) == "ts", (argv, impl)
+        assert pd.argv_impl(["ui", "-h"], impl) == "python"
+        assert pd.argv_impl(["status"], impl) == ("ts" if impl is READONLY_TS else "python")
+
+
+def test_ui_is_handed_to_ts_whatever_the_selector(tmp_path):
+    bun = pd.find_bun()
+    if bun is None:
+        pytest.skip("本机 PATH 上没有 Bun")
+    root = fake_ts(tmp_path, bun, ECHO_PYARGS)
+    repo = git_repo(tmp_path / "repo")
+    expected = {"command": ["ui"], "repo": str(pd.Repo.discover(str(repo)).root), "desktop": True, "assets": "web",
+                "transcript": ["t1", "t2"], "idle_timeout": 9, "python": sys.executable,
+                "kernel": str((SCRIPTS / "pi_dispatch.py").resolve())}
+    argv = ["ui", "--desktop", "--assets", "web", "--transcript", "t1", "--transcript", "t2", "--idle-timeout", "9"]
+    for selector in (tmp_path / "absent.json", write_selector(tmp_path / "python.json"),
+                     write_selector(tmp_path / "ts.json", readonly="ts")):
+        done = main_with(selector, root, argv, repo)
+        assert done.returncode == 3 and done.stderr == b"", (selector, done.stderr)
+        assert done.stdout.startswith(b"FROM-TS ")
+        assert json.loads(done.stdout[len(b"FROM-TS "):]) == expected
+    bare = main_with(tmp_path / "absent.json", root, ["ui"], repo)
+    assert json.loads(bare.stdout[len(b"FROM-TS "):]) == dict(expected, desktop=False, assets=None, transcript=[],
+                                                             idle_timeout=None)
+
+
+def test_ui_without_ts_reports_the_missing_entry_and_discovery_errors_stay_in_python(tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    done = main_with(tmp_path / "absent.json", tmp_path / "no-ts", ["ui", "--desktop"], repo)
+    assert done.returncode == pd.EXIT_USAGE and done.stdout == b""
+    assert "ui 只有 TS 实现，但找不到 TS 入口" in done.stderr.decode("utf-8")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    done = main_with(tmp_path / "absent.json", tmp_path / "no-ts", ["--repo", str(plain), "ui", "--desktop"], plain)
+    assert done.returncode != 0 and "TS" not in done.stderr.decode("utf-8")
+    assert done.stderr.decode("utf-8").startswith("ERROR: ")

@@ -29,5 +29,12 @@ describe("契约 Schema 在 strict 下能编译", () => {
     expect(schemaErrors("pyargs-v1", { command: ["status"], repo: null, task_id: null, json: true, assess: true })).not.toEqual([]);
     expect(schemaErrors("pyargs-v1", { command: ["logs", "show"], repo: null, json: false })).not.toEqual([]);
     expect(schemaErrors("pyargs-v1", { command: ["logs", "cat"], repo: null, json: false })).not.toEqual([]);
+    const ui = { command: ["ui"], repo: "C:/r", desktop: true, assets: null, transcript: [], idle_timeout: null, python: "py", kernel: "pd.py" };
+    expect(schemaErrors("pyargs-v1", ui)).toEqual([]);
+    expect(schemaErrors("pyargs-v1", { ...ui, repo: null })).not.toEqual([]); // 调度器总给仓库根目录
+    expect(schemaErrors("pyargs-v1", { ...ui, idle_timeout: 1.5 })).not.toEqual([]);
+    expect(schemaErrors("pyargs-v1", { ...ui, json: true })).not.toEqual([]);
+    const { kernel: _kernel, ...withoutKernel } = ui;
+    expect(schemaErrors("pyargs-v1", withoutKernel)).not.toEqual([]);
   });
 });

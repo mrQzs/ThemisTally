@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@themis/base": "workspace:*",
-    "@themis/dispatcher": "workspace:*"
+    "@themis/dispatcher": "workspace:*",
+    "@themis/ui": "workspace:*"
   }
 }

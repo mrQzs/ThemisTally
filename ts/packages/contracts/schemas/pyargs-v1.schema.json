@@ -308,6 +308,65 @@
           "type": "boolean"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "desktop",
+        "assets",
+        "transcript",
+        "idle_timeout",
+        "python",
+        "kernel"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "ui"
+          ]
+        },
+        "repo": {
+          "type": "string"
+        },
+        "desktop": {
+          "type": "boolean"
+        },
+        "assets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transcript": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "idle_timeout": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "python": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        }
+      }
     }
   ]
 }

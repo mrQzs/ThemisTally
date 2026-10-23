@@ -2,7 +2,7 @@
 // 一律写成转义。2026-10-22 写 pyjson 时，编辑工具把源码里 U+FEFF、U+00A0 的转义换成了实际字符：行为没变，
 // 但变异清单的锚点对不上，人也看不出来。按码点的数值判断，本文件自己不写任何转义，免得再被换掉。
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -49,6 +49,78 @@ function hits(path: string): string[] {
       return [];
     });
 }
+
+/**
+ * 桌面端本机服务的本机 HTTP 安全基线（桌面端设计 T8）先写在 ts/packages/ui/src/localhttp/，到迁移第 ③d 步由规划端
+ * 整体搬进 @themis/base（与 themistally-15 定，2026-10-23）。为了搬家时只是机械地移动文件：localhttp 只许导入
+ * node:*、@themis/base/* 与 localhttp 内部的相对路径；不碰 Bun 的全局对象（Bun.serve 只在服务那一层的薄适配里，
+ * 接口按 WHATWG 的 Request、Response、Headers 写）。返回违规说明，合规时为空。
+ */
+export function localhttpViolations(source: string, fileDir: string, localhttpDir: string): string[] {
+  const found: string[] = [];
+  const pattern = /\b(?:import|export)\b[^;"'`]*?\bfrom\s*(["'])([^"']*)\1|\bimport\s*(["'])([^"']*)\3|\bimport\s*\(\s*([^)]*)\)|\brequire\s*\(\s*([^)]*)\)/gu;
+  for (const match of source.matchAll(pattern)) {
+    const literal = match[2] ?? match[4];
+    const dynamic = match[5] ?? match[6];
+    let specifier: string | undefined = literal;
+    if (dynamic !== undefined) {
+      const quoted = /^(["'])([^"']*)\1$/u.exec(dynamic.trim());
+      if (quoted === null) {
+        found.push(`动态导入的目标不是字面量：${dynamic.trim()}`);
+        continue;
+      }
+      specifier = quoted[2];
+    }
+    if (specifier === undefined) continue;
+    if (specifier.startsWith("node:") || specifier.startsWith("@themis/base/")) continue;
+    if (specifier.startsWith("./") || specifier.startsWith("../")) {
+      const target = relative(localhttpDir, resolve(fileDir, specifier));
+      if (target !== "" && !target.startsWith("..") && !isAbsolute(target)) continue; // 留在 localhttp 里面
+    }
+    found.push(`不许导入 ${specifier}`);
+  }
+  if (/\bBun\s*\./u.test(source)) found.push("不许用 Bun 的全局对象（Bun.serve 只在服务那一层的薄适配里）");
+  return found;
+}
+
+describe("localhttp 的导入（桌面端 T8，③d 之前留在 ui 包里）", () => {
+  const dir = join(ROOT, "packages", "ui", "src", "localhttp");
+
+  it("规则：node:*、@themis/base/* 与 localhttp 内部的相对路径可以，别的不行", () => {
+    const sub = join(dir, "sub");
+    const ok = [
+      'import { createHash } from "node:crypto";',
+      'import type { X } from "@themis/base/secrets";',
+      'export { a } from "./cookie.ts";',
+      'import { b } from "../limits.ts";',
+      'const m = await import("node:fs");',
+    ].join("\n");
+    expect(localhttpViolations(ok, sub, dir)).toEqual([]);
+    for (const bad of [
+      'import { serve } from "../../server.ts";',
+      'import { x } from "@themis/dispatcher/repo";',
+      'import "../../main.ts";',
+      'const m = await import(name);',
+      'const z = require("zlib");',
+      'import { y } from "vitest";',
+      "Bun.serve({ fetch });",
+    ]) {
+      expect(localhttpViolations(bad, sub, dir), bad).not.toEqual([]);
+    }
+  });
+
+  it("ts/packages/ui/src/localhttp 下的源码照规则导入", () => {
+    let names: string[] = [];
+    try {
+      names = files(dir).filter((path) => path.endsWith(".ts"));
+    } catch {
+      names = []; // 还没建：第 1 片之前
+    }
+    const found = names.flatMap((path) =>
+      localhttpViolations(readFileSync(path, "utf8"), dirname(path), dir).map((problem) => `${relative(ROOT, path)}：${problem}`));
+    expect(found).toEqual([]);
+  });
+});
 
 describe("源码卫生", () => {
   it("判断规则认得出 BOM、不间断空格、控制字符、行分隔符与替换字符，放过补充平面字符的代理对", () => {

@@ -150,6 +150,12 @@ TS_READONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("logs", "search"): ("repo", "pattern", "task", "max", "json"),
     ("logs", "usage"): ("repo", "task", "transcript", "since", "until", "json"),
 }
+#: 只有 TS 实现的命令（桌面端设计第 7 版 T6，第 73 轮）：不进选择文件，readonly 选什么都转交给 TS；装好戳记、Bun 路径
+#: 与环境的防护照第 ② 步（ts_launch_command）。值是从 argparse 原样交出的参数；cmd_ui 另交仓库根目录、python 与
+#: kernel（服务回调内核用，T2）。
+TS_ONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
+    ("ui",): ("desktop", "assets", "transcript", "idle_timeout"),
+}
 DEPENDENCY_PATTERNS = (
     "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json", "**/pnpm-lock.yaml",
     "**/pnpm-workspace.yaml", "**/yarn.lock", "**/bun.lock", "**/bun.lockb", "**/.npmrc",
@@ -7576,6 +7582,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    """桌面端的本机服务（桌面端设计 §5.1，第 7 版 T6）：只有 TS 实现（@themis/ui）。这里只解析参数、找仓库（报错照
+    调度器的原文），然后无条件转交；--desktop、--assets 与 --idle-timeout 的检查在 TS 里（桌面应用直接起打包好的
+    程序，不经这里）。交给 TS 的 repo 是仓库根目录；python、kernel 是服务起子进程回调内核用的解释器与本文件（T2）。"""
+    repo = Repo.discover(args.repo)
+    pyargs: Dict[str, Any] = {"command": ["ui"], "repo": str(repo.root)}
+    pyargs.update((key, getattr(args, key)) for key in TS_ONLY_COMMANDS[("ui",)])
+    pyargs["transcript"] = list(args.transcript or [])
+    pyargs.update(python=sys.executable, kernel=str(Path(__file__).resolve()))
+    return run_handoff(ts_launch_command(pyargs))
+
+
 def safe_output_path(args: argparse.Namespace) -> Optional[Path]:
     """--out 只能写到 .agent/runs/_env/ 或 .agent/runs/_reports/ 下，不能覆盖仓库文件或 attempt 证据。"""
     if not getattr(args, "out", None):
@@ -8411,6 +8429,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--assess", action="store_true", help="对运行中的 attempt 做一次运行健康判断（run-health，2.6.0）")
     p.set_defaults(func=cmd_status)
 
+    p = sub.add_parser("ui", help="桌面端的本机服务（只由桌面外壳启动；只有 TS 实现，3.0 桌面端 §5.1）")
+    p.add_argument("--desktop", action="store_true", help="由桌面外壳启动（不带时退出 2）")
+    p.add_argument("--assets", help="前端资源目录（不存在时退出 2）")
+    p.add_argument("--transcript", action="append", help="用量路由原样交给 logs usage 的会话记录，可重复给出")
+    p.add_argument("--idle-timeout", type=int, dest="idle_timeout",
+                   help="空闲多少秒之后退出（缺省读 ui.idle_timeout_seconds，1800）")
+    p.set_defaults(func=cmd_ui)
+
     p = sub.add_parser("decisions", help="决策模型记录的回放（2.6.0）")
     dsub = p.add_subparsers(dest="decisions_cmd")
     pr = dsub.add_parser("replay", help="把 shadow / on 的答案与 verdict、变异、tick 并排列出")
@@ -8594,8 +8620,11 @@ def ts_launch_command(pyargs: Dict[str, Any], ts_root: Optional[Path] = None,
     当前目录是用户的（相对路径的参数照它解析），Bun 默认会从那里读 .env 与 bunfig.toml（preload 会先执行任意脚本）。"""
     root = KERNEL_TS_ROOT if ts_root is None else ts_root
     entry = root / TS_ENTRY
+    # 为什么非走 TS 不可：只读命令是选择文件选的；ui 这类命令只有 TS 实现，与选择文件无关（第 73 轮）
+    command = tuple(pyargs.get("command") or ())
+    why = "%s 只有 TS 实现" % " ".join(command) if command in TS_ONLY_COMMANDS else "选择文件指向 ts"
     if not entry.is_file():
-        raise DispatchError("选择文件指向 ts，但找不到 TS 入口：%s" % entry, EXIT_USAGE)
+        raise DispatchError("%s，但找不到 TS 入口：%s" % (why, entry), EXIT_USAGE)
     try:
         stamp = json.loads((root / TS_STAMP).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -8606,7 +8635,7 @@ def ts_launch_command(pyargs: Dict[str, Any], ts_root: Optional[Path] = None,
         raise DispatchError("TS 依赖与 bun.lock 不一致：%s" % TS_INSTALL_HINT, EXIT_USAGE)
     bun = find_bun(env)
     if bun is None:
-        raise DispatchError("找不到 Bun：PATH 上既没有 bun.exe，也没有 npm 的 bun.cmd 垫片；选择文件指向 ts，不退回 Python",
+        raise DispatchError("找不到 Bun：PATH 上既没有 bun.exe，也没有 npm 的 bun.cmd 垫片；%s，不退回 Python" % why,
                             EXIT_USAGE)
     installed = stamp.get("bun_path")
     if not isinstance(installed, str) or norm_case(str(bun.resolve())) != norm_case(str(Path(installed).resolve())):
@@ -8654,14 +8683,17 @@ def readonly_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
 def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str:
     """这条调度器命令由哪一套实现回答，hub 账本的 dispatcher.called 记它。与 readonly_handoff 同一份名单：选择文件的
     readonly 是 ts、命令在 TS_READONLY_COMMANDS 里（status 不带 --assess）才是 ts。只认 hub 的写法（可选的全局
-    --repo，之后是完整拼写的子命令），带 -h 的按 python 算；hub 总在主工作区运行，碰不到 discover 出错转回 Python。"""
-    chosen = read_kernel_impl() if impl is None else impl
-    if chosen["readonly"] != "ts":
-        return "python"
+    --repo，之后是完整拼写的子命令），带 -h 的按 python 算；hub 总在主工作区运行，碰不到 discover 出错转回 Python。
+    只有 TS 实现的命令（TS_ONLY_COMMANDS，第 73 轮）与选择文件无关，总是 ts。"""
     words = list(argv)
     while words and (words[0] == "--repo" or words[0].startswith("--repo=")):
         words = words[2:] if words[0] == "--repo" else words[1:]
     if "-h" in words or "--help" in words:
+        return "python"
+    if tuple(words[:1]) in TS_ONLY_COMMANDS:
+        return "ts"
+    chosen = read_kernel_impl() if impl is None else impl
+    if chosen["readonly"] != "ts":
         return "python"
     if words[:1] == ["status"]:
         return "python" if "--assess" in words else "ts"
