@@ -3,8 +3,9 @@
 // 直接起打包好的单文件程序。两种都把参数整理成 UiArgs 交给 runUi，退出码照 §5.1：0 正常关闭，2 用法错误或找不到
 // 前端资源，1 已有服务在运行或其他错误。
 //
-// 骨架（规划端提交）只做参数的检查；服务本身（握手、监听、会话、控制接口、安全基线、空闲退出、监视父进程）由 hub 的
-// D1-B 第 1 片实现。本包不在内核禁区里，经 hub 派给执行器（T11）。
+// 骨架（规划端提交）只做参数的检查；服务本身（握手、监听、会话、控制接口、安全基线、空闲退出、stdin EOF 的
+// 关停）由 hub 的 D1-B 第 1 片实现，在 server.ts 的 serveUi 里（Bun 运行）。本包不在内核禁区里，经 hub 派给
+// 执行器（T11）。serveUi 用动态导入：它那边要引用本文件的退出码常量，静态导入会成环。
 import { statSync } from "node:fs";
 
 /** 交给 runUi 的参数：`pi_dispatch.py ui` 的 argparse 结果加上调度器补的几项（cmd_ui，pyargs-v1 的 ui 一支）。 */
@@ -48,12 +49,13 @@ export function checkArgs(args: UiArgs): string | null {
   return null;
 }
 
+/** 跑服务：参数检查通过之后转交 serveUi（server.ts）。 */
 export async function runUi(args: UiArgs, io: UiIo = { stdout: process.stdout, stderr: process.stderr }): Promise<number> {
   const problem = checkArgs(args);
   if (problem !== null) {
     io.stderr.write(`ERROR: ${problem}\n`);
     return EXIT_USAGE;
   }
-  io.stderr.write("ERROR: 本机服务还没有实现（桌面端 D1-B 第 1 片）\n");
-  return EXIT_ERROR;
+  const { serveUi } = await import("./server.ts");
+  return serveUi(args, io);
 }
