@@ -4,7 +4,7 @@
 /** 前端自报身份的请求头（CSRF 的一半：网页发不出自定义头）。 */
 export const UI_HEADER = "x-themis-ui";
 
-/** 只认 GET 与 POST：PUT、DELETE、OPTIONS、HEAD 一律 405（站主决定，HEAD 也不例外）。 */
+/** 只认 GET 与 POST：PUT、DELETE、OPTIONS、HEAD 一律 405（照 D4；HEAD 也不例外是规划端代定的，T015 的事实核实）。 */
 export function methodAllowed(method: string): boolean {
   return method === "GET" || method === "POST";
 }
