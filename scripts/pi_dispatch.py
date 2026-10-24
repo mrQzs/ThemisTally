@@ -1889,7 +1889,10 @@ def derive_contract_json(md: str, title: Optional[str] = None) -> Tuple[Dict[str
             body = (body[:intent_match.start()] + body[intent_match.end():]).strip()
         # 以“；证据”为分隔：正文里的“证据”二字不再截断（2.5.0；KitExperiment win-supervise 的 D05 以
         # “证据一半”开头，text 被解析成空串）。没有“；证据”时沿用第一个“证据”，老合同的解析不变。
-        separator = re.search(r"[；;]\s*证据", body)
+        # 第 80 轮：有带冒号的“；证据：”时取最后一个。T016 的 D07 正文里先有“；证据不登记任何白名单；用例：…的
+        # U22…”，第一个“；证据”被当成分隔，U22 成了证据，合同端交了四次都过不了校验。已有的合同只有这一份的解析变了。
+        labelled = list(re.finditer(r"[；;]\s*证据\s*[:：]", body))
+        separator = labelled[-1] if labelled else re.search(r"[；;]\s*证据", body)
         if separator:
             text, evidence_text = body[:separator.start()], body[separator.end():]
         else:
