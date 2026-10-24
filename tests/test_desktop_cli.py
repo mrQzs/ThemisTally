@@ -251,6 +251,33 @@ def test_cat_cursor_is_bound_to_the_file_identity(tmp_path):
     assert [line["n"] for page in pages for line in page["lines"]] == list(range(1, 22))
 
 
+def test_cat_complete_lines_leaves_the_unfinished_last_line_for_later(tmp_path):
+    # 第 87 轮（D7 的跟随）：JSONL 最后一行没有换行时可能还在写；--complete-lines 不给它，游标停在它的行首
+    repo = make_repo(tmp_path)
+    directory = attempt_dir(repo)
+    events = directory / "events.jsonl"
+    events.write_bytes(b'{"n": 1}\n{"n": 2}\n{"n": 3')
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl")
+    assert code == 0 and [line["n"] for line in json.loads(out)["lines"]] == [1, 2, 3]  # 不带开关照旧给
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--complete-lines")
+    page = json.loads(out)
+    assert code == 0 and [line["n"] for line in page["lines"]] == [1, 2] and page["done"] is False, page
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--complete-lines", "--cursor", page["next_cursor"])
+    idle = json.loads(out)  # 还没写完：什么也不给，游标不动
+    assert code == 0 and idle["lines"] == [] and idle["next_cursor"] == page["next_cursor"] and not idle["done"]
+    with open(str(events), "ab") as handle:
+        handle.write(b'}\n{"n": 4}\n')
+    code, out, err = cat(repo, "task-a/attempt-001", "events.jsonl", "--complete-lines", "--cursor", page["next_cursor"])
+    last = json.loads(out)
+    assert code == 0 and [(line["n"], line["text"]) for line in last["lines"]] == [(3, '{"n": 3}'), (4, '{"n": 4}')]
+    assert last["done"] is True
+    # 文本与 json 文件不受影响：带不带开关输出一样
+    (directory / "log.txt").write_text("a\nb", encoding="utf-8")
+    (directory / "report.json").write_text('{"a": 1}', encoding="utf-8")
+    for rel in ("log.txt", "report.json"):
+        assert cat(repo, "task-a/attempt-001", rel, "--complete-lines") == cat(repo, "task-a/attempt-001", rel)
+
+
 def test_cat_refuses_paths_outside_the_evidence_and_large_text(tmp_path):
     repo = make_repo(tmp_path)
     directory = attempt_dir(repo)

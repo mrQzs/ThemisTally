@@ -113,12 +113,15 @@ const list = (extra: { task?: string; state?: string }, json: boolean): Pick<Cas
     ...(extra.state === undefined ? [] : ["--state", extra.state]), ...(json ? ["--json"] : [])],
   pyargs: { command: ["logs", "list"], task: extra.task ?? null, state: extra.state ?? null, json },
 });
-const cat = (target: string, file: string, options: { cursor?: string; limit?: number | bigint; json?: boolean } = {}): Pick<Case, "argv" | "pyargs"> => {
+const cat = (target: string, file: string,
+  options: { cursor?: string; limit?: number | bigint; json?: boolean; completeLines?: boolean } = {}): Pick<Case, "argv" | "pyargs"> => {
   const limit = options.limit ?? 262144;
   const json = options.json ?? true;
+  const completeLines = options.completeLines ?? false;
   return {
-    argv: ["logs", "cat", target, file, ...(options.cursor ? ["--cursor", options.cursor] : []), "--limit", String(limit), ...(json ? ["--json"] : [])],
-    pyargs: { command: ["logs", "cat"], target, path: file, cursor: options.cursor ?? null, limit, json },
+    argv: ["logs", "cat", target, file, ...(options.cursor ? ["--cursor", options.cursor] : []), "--limit", String(limit),
+      ...(completeLines ? ["--complete-lines"] : []), ...(json ? ["--json"] : [])],
+    pyargs: { command: ["logs", "cat"], target, path: file, cursor: options.cursor ?? null, limit, complete_lines: completeLines, json },
   };
 };
 const search = (pattern: string, options: { task?: string; max?: number | bigint; json?: boolean } = {}): Pick<Case, "argv" | "pyargs"> => {
@@ -654,6 +657,36 @@ const CASES: Case[] = [
     ...cat("alpha/attempt-001", "events.jsonl", { json: false }),
     check: (py) => expect(text(py)).toContain("（第 2 行已隐藏：不是合法 JSON）"),
   },
+  // --complete-lines（第 87 轮，桌面端 D7 的跟随）
+  {
+    name: "C06b JSONL 带 --complete-lines：末行没有换行就不给，没读完",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", '{"a": 1}\n{"b": 2}\n{"c": 3'),
+    ...cat("alpha/attempt-001", "events.jsonl", { completeLines: true }),
+    check: (py) => expect(JSON.parse(text(py))).toMatchObject({ mode: "jsonl", lines: [{ n: 1 }, { n: 2 }], done: false }),
+  },
+  {
+    name: "C06c JSONL 的文本模式带 --complete-lines：同样不给末行，stderr 给游标",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", '{"a": 1}\n{"b": 2}\n{"c": 3'),
+    ...cat("alpha/attempt-001", "events.jsonl", { completeLines: true, json: false }),
+    check: (py) => {
+      expect(text(py)).not.toContain('"c"');
+      expect(py.stderr.toString("utf8")).toContain("（未完：--cursor j:");
+    },
+  },
+  {
+    name: "C06d 文本文件带 --complete-lines：与不带时逐字节相同",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "notes.txt", "a\nb"),
+    ...cat("alpha/attempt-001", "notes.txt", { completeLines: true }),
+    check: (py, repo) => expect(py.stdout.equals(runPythonCli(["--repo", repo, ...(cat("alpha/attempt-001", "notes.txt").argv as string[])],
+      repo).stdout)).toBe(true),
+  },
+  {
+    name: "C06e json 文件带 --complete-lines：与不带时逐字节相同",
+    setup: (repo) => put(runs(repo, "alpha/attempt-001"), "executor-report.json", '{"a": 1}'),
+    ...cat("alpha/attempt-001", "executor-report.json", { completeLines: true }),
+    check: (py, repo) => expect(py.stdout.equals(runPythonCli(
+      ["--repo", repo, ...(cat("alpha/attempt-001", "executor-report.json").argv as string[])], repo).stdout)).toBe(true),
+  },
   {
     name: "C07 游标格式不对",
     setup: (repo) => put(runs(repo, "alpha/attempt-001"), "summary.md", "x"),
@@ -959,7 +992,7 @@ const CASES: Case[] = [
 
 /** 同一个仓库里翻页：Python 与 TS 拿同一个游标逐页比较，下一页的游标取自 Python 的输出。 */
 function comparePages(setup: (repo: string) => void, target: string, file: string, limit: number, pages: number,
-  between?: (repo: string, page: number) => void): number {
+  between?: (repo: string, page: number) => void, completeLines = false): number {
   const repo = makeRepo("pg");
   let compared = 0;
   try {
@@ -967,13 +1000,15 @@ function comparePages(setup: (repo: string) => void, target: string, file: strin
     let cursor: string | null = null;
     for (let page = 1; page <= pages; page += 1) {
       between?.(repo, page);
-      const argv = ["--repo", repo, "logs", "cat", target, file, ...(cursor ? ["--cursor", cursor] : []), "--limit", String(limit), "--json"];
+      const argv = ["--repo", repo, "logs", "cat", target, file, ...(cursor ? ["--cursor", cursor] : []), "--limit", String(limit),
+        ...(completeLines ? ["--complete-lines"] : []), "--json"];
       const python = runPythonCli(argv, repo);
       const launched = runLauncherCli(argv, repo);
       expect([launched.status, launched.stderr.toString("utf8")], `启动器 第 ${page} 页`).toEqual([python.status, python.stderr.toString("utf8")]);
       expect(launched.stdout.equals(python.stdout), `启动器 第 ${page} 页 stdout`).toBe(true);
       for (const runtime of RUNTIMES) {
-        const other = runTsCli(runtime, { command: ["logs", "cat"], repo, target, path: file, cursor, limit, json: true }, repo);
+        const other = runTsCli(runtime, { command: ["logs", "cat"], repo, target, path: file, cursor, limit, complete_lines: completeLines,
+          json: true }, repo);
         expect([other.status, other.stderr.toString("utf8")], `${runtime} 第 ${page} 页`).toEqual([python.status, python.stderr.toString("utf8")]);
         expect(other.stdout.equals(python.stdout), `${runtime} 第 ${page} 页 stdout\n${text(python)}\n---\n${text(other)}`).toBe(true);
       }
@@ -1019,5 +1054,15 @@ describe("第 ②a、②b1、②b2 步：status、logs list、logs show、logs c
       (repo, page) => {
         if (page === 2) writeFileSync(file(repo), `${lines.replace('"a"', '"z"')}{"d": 4}\n`);
       })).toBe(2);
+  }, 300_000);
+
+  it("P04 JSONL 跟随（--complete-lines）：末行写完之前不给、游标不动，写完之后带游标续读", () => {
+    const file = (repo: string): string => join(runs(repo, "alpha/attempt-001"), "events.jsonl");
+    // 第 1 页只给 a；第 2 页文件没变，什么也不给；第 3 页之前 b 写完、又追加了 c：第 3 页给 b，第 4 页给 c、读完
+    // （页大小 30，每行另计 16 个字符的开销，b 与 c 放不进同一页）
+    expect(comparePages((repo) => put(runs(repo, "alpha/attempt-001"), "events.jsonl", '{"a": 1}\n{"b": 2'), "alpha/attempt-001",
+      "events.jsonl", 30, 6, (repo, page) => {
+        if (page === 3) writeFileSync(file(repo), '{"a": 1}\n{"b": 2}\n{"c": 3}\n');
+      }, true)).toBe(4);
   }, 300_000);
 });

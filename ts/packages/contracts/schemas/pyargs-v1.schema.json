@@ -139,6 +139,7 @@
         "path",
         "cursor",
         "limit",
+        "complete_lines",
         "json"
       ],
       "properties": {
@@ -176,6 +177,9 @@
         },
         "limit": {
           "type": "integer"
+        },
+        "complete_lines": {
+          "type": "boolean"
         },
         "json": {
           "type": "boolean"

@@ -1642,7 +1642,23 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 逐行都对上：“差在缩进、行尾空白或换行”（单行的 old 缩进不对也走这里）。
   - 首行在文件里出现多次时只比第一处，没有逐处去试。
 - **两处测试缺口**（themistally-15 的两条变异存活）：清单文件是链接（指到工作目录之外）要退回；同名条目改过 old、仍对不上时，不能点名成“一字没改”。各补一例。
-- **测试与变异**：test_kit_v280 新增 1 条（多行首行对上、缩进、单行缩进、文件更短、第三行不同、末行只是开头、中间行只是开头），test_kit_hub 的清单文件用例补两段。test_kit_v280、test_kit_hub、test_dispatch 共 314 条通过。变异 6 个全部抓住：首行对上之后不往下比、末行只是开头也算不同、中间行只是开头也算对上、清单文件是链接也收、点名只比名字、文件更短时不报。
+- **测试与变异**：test_kit_v280 新增 1 条（多行首行对上、缩进、单行缩进、文件更短、第三行不同、末行只是开头、中间行只是开头），test_kit_hub 的清单文件用例补两段。test_kit_v280、test_kit_hub、test_dispatch 共 314 条通过（第 87 轮修了一处：文件以换行结尾时 split 多出的空串被算成一行，old 比文件多一行时报成“与文件 Ln 不同”，原用例恰好钉住了这个错，一并改正）。变异 6 个全部抓住：首行对上之后不往下比、末行只是开头也算不同、中间行只是开头也算对上、清单文件是链接也收、点名只比名字、文件更短时不报。
+
+### 第 87 轮：`logs cat --complete-lines`（2026-10-24，桌面端第 4 片日志跟随的前置）
+
+- **为什么**：桌面端 D7 的跟随要“只追加已经写完的新行”。`events.jsonl` 就是执行器的原始 stdout，最后一行可能还在写；不带开关时它要么照给（半截解析不了，显示成“不是合法 JSON”的占位），要么游标越过它、写完之后再也读不到。`kit_logs.safe_page` 与 TS 的 `safePage` 早就有 `final` 参数（为假时 JSONL 最后一行没有换行就不给），两边的 CLI 都没露出来。
+- **改法**（Python 与 TS 同一个提交，themistally-15 定的分法甲；它指的路：TS 侧没有 logs 的 argparse 仿制，`-h` 与用法错误由 Python 回答，TS 只收解析好的 pyargs）：
+  - `kit_logs.py` 的 cat 加 `--complete-lines`，`cmd_cat` 传 `final=not args.complete_lines`；用法说明与 help 写明“其他文件不受影响”；
+  - `TS_READONLY_COMMANDS[("logs", "cat")]` 加 `complete_lines`（test_kernel_impl 核对名单与 Namespace 一致）；
+  - `pyargs-v1.schema.json` 的 logs cat 一支 required 与 properties 各加 `complete_lines`（boolean），v1 原地改；
+  - TS `logs-cat.ts` 的 `CatArgs` 加 `complete_lines`，`cmdCat` 给 `safePage` 传 `final = !args.complete_lines`。
+- **核对过的落点**：带开关读到没写完的那一行时，游标停在它的行首、`done` 为假；文件没变时同一个游标再读什么也不给、游标不动；补上换行之后带游标续读，行首、窗口哈希、只变长这几项核对照样成立。
+- **测试与变异**：
+  - Python：test_desktop_cli 新增 1 条（不带开关照旧给、带开关不给末行、没写完时游标不动、写完之后续读、文本与 json 文件带不带开关一样）；test_kernel_impl 的转交参数补 `complete_lines`，另加带开关的一例；
+  - TS 对照（readonly.contract.test.ts）：`cat()` 加 `completeLines`，pyargs 一律带 `complete_lines`；新增 C06b–C06e（JSONL 的 json 与文本两种输出、文本文件、json 文件）与逐页的 P04（末行写完之前不给、写完之后续读），Python、Node、Bun、启动器四方逐字节一致；
+  - 全量：TS 51 个文件 581 条通过、tsc 退出码 0；Python 2732 条通过、194 条跳过，唯一的失败是 test_kernel_impl 逐字钉了转交参数、没有 `complete_lines`，补上之后这个文件 76 条通过；
+  - 变异 5 个（两组命令：Python 一组、TS 对照一组），每个都至少被一组抓住：Python 不认开关（两组都红）、TS 不认开关（TS 组）、转交名单漏键（两组都红）、Schema 没有这个键（TS 组）、第 86 轮的末尾空串（Python 组）。另一组漏掉的是改动不在它那一侧，属预期。
+- 顺手：第 86 轮的 `_later_difference` 把文件末尾换行 split 出来的空串算成一行（themistally-15 复核时指出），改按去掉它之后的行数判断。
 
 ## 11. 已知缺口与下一步
 

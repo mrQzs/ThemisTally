@@ -333,6 +333,7 @@ export interface CatArgs {
   readonly path: string;
   readonly cursor: string | null;
   readonly limit: bigint;
+  readonly complete_lines: boolean;
   readonly json: boolean;
 }
 
@@ -345,7 +346,9 @@ export function cmdCat(args: CatArgs, out: PyOut): number {
   const rel = args.path.replaceAll("\\", "/");
   if (!files.some(([item]) => item === rel)) throw new LogsError(`不在 ${task}/${attempt} 的证据清单里：${rel}`, LOGS_EXIT_USAGE);
   const parts = rel.split("/");
-  const page = safePage(under(attemptDir, parts), parts[parts.length - 1] as string, rel, args.cursor, args.limit);
+  // --complete-lines（第 87 轮）：JSONL 最后一行没有换行就不给，跟随用
+  const page = safePage(under(attemptDir, parts), parts[parts.length - 1] as string, rel, args.cursor, args.limit,
+    !args.complete_lines);
   if (args.json) {
     emitJson(out, page);
     return LOGS_EXIT_OK;

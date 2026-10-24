@@ -168,7 +168,7 @@ TS_READONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("status",): ("repo", "task_id", "json"),
     ("logs", "list"): ("repo", "task", "state", "json"),
     ("logs", "show"): ("repo", "target", "json"),
-    ("logs", "cat"): ("repo", "target", "path", "cursor", "limit", "json"),
+    ("logs", "cat"): ("repo", "target", "path", "cursor", "limit", "complete_lines", "json"),
     ("logs", "search"): ("repo", "pattern", "task", "max", "json"),
     ("logs", "usage"): ("repo", "task", "transcript", "since", "until", "json"),
 }
@@ -5933,10 +5933,11 @@ def _later_difference(old: str, lines: List[str], number: int) -> List[str]:
     rest = rest[1:]
     while rest and not rest[-1].strip():
         rest.pop()  # old 末尾的换行不算一行
+    end = len(lines) - 1 if lines and lines[-1] == "" else len(lines)  # 文件以换行结尾时 split 多出的空串不算一行
     for offset, wanted in enumerate(rest, start=1):
         index = number - 1 + offset
-        if index >= len(lines):
-            return ["  首行对上了；文件在 L%d 就结束了，old 还多 %d 行" % (len(lines), len(rest) - offset + 1)]
+        if index >= end:
+            return ["  首行对上了；文件在 L%d 就结束了，old 还多 %d 行" % (end, len(rest) - offset + 1)]
         want, have = wanted.strip(), lines[index].strip()
         if want == have or (offset == len(rest) and have.startswith(want)):  # 末行可以只是那一行的开头
             continue

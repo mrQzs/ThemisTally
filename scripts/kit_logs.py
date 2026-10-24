@@ -6,7 +6,7 @@
   python scripts/kit_logs.py list [--task ID] [--state S] [--json]          运行证据的 attempt 清单
   python scripts/kit_logs.py show TARGET [--json]                          一个 attempt 的状态、摘要与证据清单
   python scripts/kit_logs.py search PATTERN [--task ID] [--max N] [--json] 在证据的文本文件里搜索（脱敏之后的文本）
-  python scripts/kit_logs.py cat TARGET PATH [--cursor C] [--limit N] [--json]
+  python scripts/kit_logs.py cat TARGET PATH [--cursor C] [--limit N] [--complete-lines] [--json]
                                                                             按页读一个证据文件（脱敏之后的文本）
   python scripts/kit_logs.py usage [--task ID] [--transcript PATH]… [--since T] [--until T] [--json]
                                                                             执行端与规划端的 token 用量（下界）
@@ -853,7 +853,7 @@ def cmd_cat(args: argparse.Namespace) -> int:
     if rel not in {item for item, _size in evidence}:
         # 只认证据清单里的相对路径：清单本身不含链接、不出 attempt 目录（B5、B11）
         raise LogsError("不在 %s/%s 的证据清单里：%s" % (task, attempt, rel), EXIT_USAGE)
-    page = safe_page(_under(attempt_dir, rel.split("/")), rel, args.cursor, args.limit)
+    page = safe_page(_under(attempt_dir, rel.split("/")), rel, args.cursor, args.limit, final=not args.complete_lines)
     if args.json:
         _emit_json(page)
         return EXIT_OK
@@ -1373,6 +1373,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path", help="证据清单里的相对路径（logs show 列出的那些）")
     p.add_argument("--cursor", help="上一页给出的 next_cursor")
     p.add_argument("--limit", type=int, default=SAFE_PAGE_CHARS, help="每页最多多少个字符（默认 %d）" % SAFE_PAGE_CHARS)
+    # 第 87 轮（桌面端 D7 的跟随，D3 末条）：JSONL 最后一行可能还在写，跟随时不给它，游标停在它的行首
+    p.add_argument("--complete-lines", action="store_true",
+                   help="只给已经写完的行：JSONL 最后一行没有换行就不给，游标停在那一行的行首（跟随用）；其他文件不受影响")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cat)
 

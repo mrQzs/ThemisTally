@@ -255,7 +255,9 @@ class AnchorHints(unittest.TestCase):
         self.assertIn("差在缩进", pd._anchor_hints(path, "def f(a):\n  return a + 1", 0)[1])
         self.assertIn("差在缩进", pd._anchor_hints(path, "  return a + 1", 0)[1])  # 单行也一样
         self.assertIn("文件在 L2 就结束了", pd._later_difference("x\ny\nz", ["x", "y"], 1)[0])
-        self.assertIn("old 第 3 行与文件 L3 不同", pd._anchor_hints(path, "def f(a):\n    return a + 1\n    pass", 0)[1])
+        # 第 87 轮（themistally-15 复核第 86 轮）：文件以换行结尾时 split 多出的空串不算一行，原来报成“与文件 L3 不同”
+        self.assertIn("文件在 L2 就结束了，old 还多 1 行", pd._anchor_hints(path, "def f(a):\n    return a + 1\n    pass", 0)[1])
+        self.assertIn("old 第 3 行与文件 L3 不同", pd._later_difference("x\ny\nz", ["x", "y", "w"], 1)[0])
         # 末行可以只是那一行的开头，不算不同；中间行只是开头就算不同
         self.assertIn("差在缩进", pd._later_difference("f(\nret", ["f(", "return x"], 1)[0])
         self.assertIn("old 第 2 行与文件 L2 不同", pd._later_difference("f(\nret\nz", ["f(", "return x", "z"], 1)[0])

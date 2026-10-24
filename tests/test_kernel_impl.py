@@ -183,7 +183,10 @@ def test_listed_commands_hand_off_the_parsed_arguments(tmp_path):
         "command": ["status"], "repo": str(repo), "task_id": None, "json": True}
     assert pd.readonly_handoff(args_of(["--repo", str(repo), "logs", "cat", "t.v1", "a.log", "--limit", "7"])) == {
         "command": ["logs", "cat"], "repo": str(repo), "target": "t.v1", "path": "a.log", "cursor": None,
-        "limit": 7, "json": False}
+        "limit": 7, "complete_lines": False, "json": False}
+    # 第 87 轮：--complete-lines 照传（跟随用）
+    assert pd.readonly_handoff(args_of(["--repo", str(repo), "logs", "cat", "t.v1", "a.log", "--complete-lines"]))[
+        "complete_lines"] is True
     # logs 自己的 --repo 优先，与 kit_logs.main 一样
     other = git_repo(tmp_path / "other")
     assert pd.readonly_handoff(args_of(["--repo", str(repo), "logs", "--repo", str(other), "list"]))["repo"] \
