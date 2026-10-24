@@ -226,7 +226,7 @@ claude -p --model <模型> --effort <档位>
 
 ```
 pi --provider <p> --model <m> --thinking <档位> --mode json
-   --no-approve --no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files
+   --no-approve --no-extensions --no-skills --no-prompt-templates --no-themes --no-mcp --no-context-files
    --tools <白名单> --append-system-prompt <角色提示词>
    --session-dir .agent/mailbox/sessions/<名字> --session-id <阶段任务>-<名字>  "<本回合输入>"
 ```
@@ -1460,6 +1460,10 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
     - 只有计数大于 0 时才等，真残留反正马上要被结束，多等不花代价。
   - 误报的代价它也查过：`stray_processes` 只进 run.json 与摘要表，不卡流水线，所以不上更重的办法。
   - 后备办法记在迁移计划第 8.2 节：列出 Job 里的进程号，只剩主进程自己就不算残留。
+- **测试与变异**：
+  - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
+  - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。
+  - S3b、S1、S6 连跑 10 次全过。变异 4 个全部被各自那一侧抓住：不等、时限为 0，两边各两条。
 
 ### 第 75 轮：碰主工作区时，只读的 git 子命令不算越界（2026-10-23，T015 门禁端一回合作废）
 
@@ -1561,10 +1565,20 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - plans 下一直是 v1，是因为合同还没派遣过，重写落在原来的 v1 上。
 - **改法**：`derive_contract_json` 有带冒号的“；证据：”时取最后一个；没有时照旧，先找第一个“；证据”（2.5.0），再找第一个“证据”。核过现有合同，只有 T016 v1 这一份的解析会变；已派遣过的合同派生出的 JSON 不变。
 - **测试与变异**：新增 `tests/test_contract_dod_parse.py`，3 条：T016 那种 D07 只取 V01（正文与目的都对）；正文里引用了“；证据：”写法时，证据取最后一处；老写法照旧。test_dispatch、test_kit_hub 一起 287 条通过。变异 2 个全部抓住：取第一个、不认带冒号的写法。
-- **测试与变异**：
-  - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
-  - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。
-  - S3b、S1、S6 连跑 10 次全过。变异 4 个全部被各自那一侧抓住：不等、时限为 0，两边各两条。
+
+### 第 81 轮：pi 一律带 --no-mcp（2026-10-24，themistally-15 评估七端设计时指出，安全）
+
+- **缺口**：pi 1.4.0 内置 MCP，`--help` 原文说 `--tools` 白名单“保留 MCP 工具，除非条目以 mcp__ 开头”。`RESOURCE_FLAGS` 里没有 `--no-mcp`：执行器（调度器的 run）、hub 的 pi 工人、doctor 与预检的探测都不关 MCP。本机 `~/.pi/agent` 现在没配 MCP 服务，眼下不是漏洞；以后配了（或工作区里出现项目级配置），工人与执行器就能调它，回合审计只能事后作废，挡不住副作用。
+- **改法**：`RESOURCE_FLAGS` 加 `--no-mcp`。它同时是 `REQUIRED_PI_FLAGS` 的一部分，所以：
+  - 执行器、hub 的 pi 工人、`--help` 与 `--list-models` 的探测都带上它；
+  - 不支持它的旧版 pi：派遣预检报“本机 pi 不支持参数：--no-mcp”并拒绝，`doctor` 与 `config doctor` 的缺参列表里也有它，不静默降级。
+- **核过的事实**：本机 pi 1.4.0 的 `--help` 有 `--no-mcp`（“Disable built-in MCP support: no servers connect and no MCP tools”）；带全套资源参数跑 `--list-models` 退出码 0。
+- **旧行为对照（codekit01）**：两处要分清“旧实现”与“当前实现”。
+  - `test_legacy_events` 的 LB_EVENTS_007：`self.pd` 是 a4fa199 的旧调度器，仍钉住旧的五项；跑的 CLI 是当前实现，它的 `--help`、`--list-models` 参数改成“旧的五项 + --no-mcp”。
+  - `codekit01_legacy.py` 预期文件头的 `argv_template` 原来按传进来的 pd 取 RESOURCE_FLAGS，差分重算用当前字节时就多出一项。头部记录的是锁定时的实现，改成一律取 a4fa199 的参数形状；`legacy-events.json` 一个字节不改（不为消除差异重新生成）。
+  - TS 侧还没有移植调度器的 pi 参数与这几份夹具的生成，没有要同步的地方。
+- **测试与变异**：新增 `tests/test_no_mcp.py`，3 条：RESOURCE_FLAGS 与必需参数都有它；假 pi 的 `--help` 去掉这一行时预检报“本机 pi 不支持参数：--no-mcp”并拒绝；带着它时预检没有问题。`tests/stub_pi_help.txt` 补上这一行。全量 2702 条通过、190 条跳过（pytest 退出码 0）。变异 3 个全部抓住：不带 --no-mcp、带上但不算必需参数、旧预期的文件头按当前参数重算。
+- 顺手：第 74 轮“测试与变异”一段当时落在了 §10 末尾，挪回第 74 轮。
 
 ## 11. 已知缺口与下一步
 

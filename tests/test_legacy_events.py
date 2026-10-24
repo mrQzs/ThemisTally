@@ -256,9 +256,11 @@ class PreflightRunTests(EventsCase):
         resource_flags = list(self.pd.RESOURCE_FLAGS)
         self.assertEqual(resource_flags, ["--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates",
                                           "--no-themes"])
-        self.assertEqual(argvs["help"], resource_flags + ["--help"])
+        # 第 81 轮：当前实现在旧的五项之后加了 --no-mcp（有意改动，关掉 pi 内置的 MCP；r3 §10 第 81 轮）
+        current_flags = resource_flags + ["--no-mcp"]
+        self.assertEqual(argvs["help"], current_flags + ["--help"])
         self.assertEqual(argvs["version"], ["--version"])
-        self.assertEqual(argvs["list-models"], resource_flags + ["--list-models", "step-5-preview"])
+        self.assertEqual(argvs["list-models"], current_flags + ["--list-models", "step-5-preview"])
         self.assertEqual(argvs["auth"], ["auth", "check", "--provider", "step", "--model", "step-5-preview", "--json"])
         self.assertNotIn("--no-refresh", argvs["auth"])
 

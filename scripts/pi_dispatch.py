@@ -93,7 +93,9 @@ KNOWN_TOOLS = ("read", "bash", "powershell", "edit", "write", "grep", "find", "l
 DEFAULT_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "bash"]
 DEFAULT_THINKING = "high"
 FALLBACK_THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-RESOURCE_FLAGS = ["--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes"]
+# 第 81 轮加 --no-mcp：pi 1.4.0 内置 MCP，--tools 白名单保留 MCP 工具（除非条目以 mcp__ 开头），以后本机或
+# 工作区配了 MCP 服务，执行器与 hub 工人就能调它。必需参数：不支持它的 pi 预检与 doctor 都报“不支持参数”
+RESOURCE_FLAGS = ["--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp"]
 REQUIRED_PI_FLAGS = ["--provider", "--model", "--thinking", "--mode", "--no-session", "--tools"] + RESOURCE_FLAGS
 EXECUTOR_ACTIONS = ("local_edit", "local_test", "local_commit", "network")
 INTEGRATION_ACTIONS = ("local_branch", "commit", "push", "open_pr", "merge", "deploy")

@@ -1047,7 +1047,9 @@ def compute_expected_events(*, require_locked_bytes: bool = True) -> Dict[str, A
                                   "git_blob": LEGACY_PI_DISPATCH_BLOB, "tool_version": LEGACY_TOOL_VERSION,
                                   "functions": ["summarize_events"]},
         "stub": {"path": LEGACY_STUB_PATH, "sha256": LEGACY_STUB_SHA256,
-                 "argv_template": stub_argv_template(pd),
+                 # 头部记录锁定时的实现：参数形状一律取 a4fa199 的 RESOURCE_FLAGS，差分重算用当前字节时也一样
+                 # （第 81 轮当前实现加了 --no-mcp，是有意的改动，不是旧行为漂移）
+                 "argv_template": stub_argv_template(),
                  "cwd_rule": {"revision": STUB_CWD_RULE_REVISION, "placeholder": STUB_CWD_PLACEHOLDER,
                               "description": "session 事件的 cwd（生成时临时目录的绝对路径）替换为固定占位值"}},
         "generator": {"path": "tests/codekit01_legacy.py", "write_command": WRITE_COMMAND,
