@@ -1494,7 +1494,12 @@ def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
     路径的段；cd 进主工作区之后的段（直到 cd 到别处）；同一条管道里排在碰到的段后面的段（主工作区的内容顺着管道往下流，
     `… | xargs rm`、`… | tee` 照样算写）。碰到的段要么第一个词不在 READ_ONLY_COMMANDS 里，要么有引号外的写入重定向或
     sed -i，就算写。T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据，
-    以前按整条命令看，git 不是只读命令，整回合作废（T014 那一回合跑了 16 分钟）。"""
+    以前按整条命令看，git 不是只读命令，整回合作废（T014 那一回合跑了 16 分钟）。
+
+    **这是启发式的流程约束，不是隔离**（第 78 轮之后与 themistally-15 定）：工人在自己的工作区里本来就能跑任意程序，
+    真正的隔离靠操作系统。名单式的判断总有漏网，已知的有：命令小写之后 grep 的 -O（用缺省分页程序打开文件）与 -o
+    分不开，less 又会执行 LESSOPEN 指定的预处理程序；HOME、XDG_CONFIG_HOME 能让 git 读另一份 gitconfig；bash 工具
+    若在两次调用之间保留环境变量，上一次 export 的变量这一次看不到。不再往名单里追加，除非又碰到实测作废的回合。"""
     chain, _bare = split_chain(HARMLESS_REDIRECT_RE.sub(" ", command))
     git_env_injected = GIT_ENV_INJECTION_RE.search(command) is not None
     in_main = False
