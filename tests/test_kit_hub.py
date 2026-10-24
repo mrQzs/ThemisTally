@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -28,6 +29,7 @@ import kit_hub as kh  # noqa: E402
 
 BASE = "a" * 40
 REAL_PI_SUPPORTED_FLAGS = kh.pi_supported_flags
+REAL_KERNEL_CHANGES = kh.kernel_changes
 
 
 class EveryFlag(set):
@@ -39,8 +41,11 @@ class EveryFlag(set):
 
 @pytest.fixture(autouse=True)
 def pi_knows_every_flag(monkeypatch):
-    """起 pi 工人之前要探本机 pi 的 --help（第 83 轮）；测试里一律当它认得全部参数，不真去起 pi。"""
+    """起 pi 工人之前要探本机 pi 的 --help（第 83 轮）；测试里一律当它认得全部参数，不真去起 pi。
+    起 hub 之前要核对内核文件与 HEAD 一致（第 91 轮）；规划端在草稿 worktree 里改内核时跑测试，内核本来就是脏的，
+    测试里一律当它干净（测这项核对本身的用例用 REAL_KERNEL_CHANGES）。"""
     monkeypatch.setattr(kh, "pi_supported_flags", lambda pi_cmd, env: EveryFlag())
+    monkeypatch.setattr(kh, "kernel_changes", lambda files=None: [])
 
 
 def make_ts(jev: bool = True) -> dict:
@@ -5437,6 +5442,7 @@ def test_owner_commands_pause_a_busy_task_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: False)  # 命令的进程已经不在：标记作废
     assert not kh.pause_requested(hub, "T002") and not marker.exists()
     monkeypatch.undo()
+    monkeypatch.setattr(kh, "kernel_changes", lambda files=None: [])  # undo 连自动夹具的也撤了（第 91 轮）
     marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
     # runner 在两步之间看到标记就让出锁，不等闲下来
     monkeypatch.setattr(kh, "code_fingerprint", lambda *args: "a")
@@ -6302,6 +6308,14 @@ SCHEMA_SAMPLES = [
     ({"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}}, {}, False),
     ({"type": "object", "additionalProperties": False, "properties": {"a": {"type": "string"}}}, {"a": "x", "b": 1}, False),
     ({"type": "object", "properties": {"a": {"type": "string"}}}, {"a": "x", "b": 1}, True),
+    # 第 91 轮（themistally-15 实测 JS 与 Python 的三处差别；规划端用 typebox 1.3.27 核过这几条）
+    ({"type": "string", "pattern": "^\\d+$"}, "٣", False),  # 阿拉伯-印度数字：JS 的 \d 只认 ASCII
+    ({"type": "string", "pattern": "^\\w+$"}, "é", False),
+    ({"type": "string", "pattern": "^abc$"}, "abc\n", False),  # JS 的 $ 不匹配末尾换行之前
+    ({"type": "string", "pattern": "^abc$"}, "abc", True), ({"type": "string", "pattern": "a.c"}, "a\nc", False),
+    ({"type": "string", "pattern": "^[$]x\\$$"}, "$x$", True),  # 字符类里与转义过的 $ 照旧是字面量
+    ({"type": "string", "maxLength": 1}, "\U0001F600", True),  # 长度两边都按码点数
+    ({"type": "string", "minLength": 2}, "\U0001F600", False),
 ]
 
 
@@ -6405,3 +6419,68 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     assert "## 交差（用 deliver 工具）" in coordinator and "## 输出格式" not in coordinator
     contract = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
     assert "## 输出格式" in contract and "deliver" not in contract
+
+
+def test_kernel_changes_lists_uncommitted_kernel_files(tmp_path):
+    # 第 91 轮：改过的与新放进来的（schemas/ 下未跟踪的 json）都算
+    repo, _head = git_repo(tmp_path)
+    hub_dir = repo / "scripts" / "hub"
+    (hub_dir / "schemas").mkdir(parents=True)
+    kernel = repo / "scripts" / "kit_hub.py"
+    kernel.write_text("# kernel\n", encoding="utf-8")
+    (hub_dir / "deliver.ts").write_text("// deliver\n", encoding="utf-8")
+    kh.git(["add", "-A"], repo)
+    kh.git(["commit", "-qm", "kernel"], repo)
+    files = [kernel, hub_dir / "deliver.ts"]
+    assert REAL_KERNEL_CHANGES(files) == []
+    (hub_dir / "deliver.ts").write_text("// changed\n", encoding="utf-8")
+    (hub_dir / "schemas" / "gate.json").write_text("{}", encoding="utf-8")
+    changes = REAL_KERNEL_CHANGES(files + [hub_dir / "schemas" / "gate.json"])
+    assert len(changes) == 2 and any("deliver.ts" in line for line in changes) and any(
+        line.startswith("??") and "gate.json" in line for line in changes)
+    assert REAL_KERNEL_CHANGES([tmp_path / "nowhere" / "x.py"])  # git 起不来：说不清是哪一份，也算不一致
+
+
+def test_kernel_changes_counts_a_git_error_as_changed(tmp_path, monkeypatch):
+    # git 起得来、但报错（这里让它找不到仓库）：同样说不清是哪一份代码，不能当成干净
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "no-such-git-dir"))
+    changes = REAL_KERNEL_CHANGES([repo / "README.md"])
+    assert len(changes) == 1 and "退出码" in changes[0]
+
+
+def events_of(hub):
+    return [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+
+
+def test_the_hub_refuses_to_start_on_a_changed_kernel(tmp_path, monkeypatch):
+    # 第 91 轮（themistally-15 复核第 90 轮）：新进程会把改过的文件当成基准（DELIVERY_SHA256 与载入的代码）
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    monkeypatch.setattr(kh, "kernel_changes", lambda files=None: [" M scripts/hub/deliver.ts"])
+    args = argparse.Namespace(allow_dirty_kernel=False)
+    with pytest.raises(kh.HubError) as raised:
+        kh.refuse_dirty_kernel(hub, args, "T001")
+    assert raised.value.code == kh.EXIT_BLOCKED and "deliver.ts" in str(raised.value) and "--allow-dirty-kernel" in str(raised.value)
+    assert [e for e in events_of(hub) if e["event"] == "runner.refused"][0]["changes"] == [" M scripts/hub/deliver.ts"]
+    kh.refuse_dirty_kernel(hub, argparse.Namespace(allow_dirty_kernel=True), "T001")  # 站主显式放行
+    assert any(e["event"] == "runner.dirty_kernel_allowed" for e in events_of(hub))
+    monkeypatch.setattr(kh, "kernel_changes", lambda files=None: [])
+    kh.refuse_dirty_kernel(hub, args, None)  # 干净的照常起
+    monkeypatch.setattr(kh, "kernel_changes", lambda files=None: ["?? scripts/hub/schemas/x.json"])
+    with pytest.raises(kh.HubError) as raised:  # cmd_run 一进来就核对
+        kh.cmd_run(argparse.Namespace(repo=str(repo), task="T001", allow_dirty_kernel=False))
+    assert "内核文件与 HEAD 不一致" in str(raised.value) and "x.json" in str(raised.value)
+    assert kh.build_parser().parse_args(["run", "--allow-dirty-kernel"]).allow_dirty_kernel is True
+
+
+def test_the_supervisor_passes_the_override_on_to_task_runners(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    seen = []
+    monkeypatch.setattr(kh.subprocess, "Popen", lambda argv, **kwargs: seen.append(argv))
+    base = dict(max_steps=1, poll=1.0, settle=1.0)
+    kh.spawn_task_runner(hub, "T001", argparse.Namespace(allow_dirty_kernel=False, **base))
+    kh.spawn_task_runner(hub, "T002", argparse.Namespace(allow_dirty_kernel=True, **base))
+    assert "--allow-dirty-kernel" not in seen[0] and seen[1][-1] == "--allow-dirty-kernel"

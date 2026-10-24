@@ -241,6 +241,34 @@ def _type_ok(kind: str, value: Any) -> bool:
     return expected is not None and isinstance(value, expected)
 
 
+def js_pattern(pattern: str) -> "re.Pattern[str]":
+    """把 schema 里的 pattern 编成与 JS（TypeBox 用的 RegExp）判定一致的 Python 正则（第 91 轮，themistally-15 实测）：
+    - `\\d`、`\\w`、`\\s`、`\\b` 在 JS 里只认 ASCII（`/^\\d+$/.test("٣")` 为假），Python 加 re.ASCII；
+    - JS 不带 m 时 `$` 只匹配真正的末尾（`/^abc$/.test("abc\\n")` 为假），Python 的 `$` 还能匹配末尾换行之前，
+      所以字符类之外、没有转义的 `$` 换成 `\\Z`。
+    字符串长度两边一样按码点数（TypeBox 1.3.27 实测 maxLength 1 收下一个 emoji），不用改。"""
+    out: List[str] = []
+    escaped = in_class = False
+    for char in pattern:
+        if escaped:
+            out.append(char)
+            escaped = False
+        elif char == "\\":
+            out.append(char)
+            escaped = True
+        elif char == "[" and not in_class:
+            in_class = True
+            out.append(char)
+        elif char == "]" and in_class:
+            in_class = False
+            out.append(char)
+        elif char == "$" and not in_class:
+            out.append("\\Z")
+        else:
+            out.append(char)
+    return re.compile("".join(out), re.ASCII)
+
+
 def schema_errors(schema: Dict[str, Any], value: Any, where: str = "$") -> List[str]:
     """按 SCHEMA_KEYWORDS 那个子集校验（第 90 轮）。pi 的 TypeBox 先校验过一遍，这里是内核的复核：两边的判定要一致，
     否则会出现“调用层收了、内核又退回”的来回（themistally-15）。"""
@@ -258,7 +286,7 @@ def schema_errors(schema: Dict[str, Any], value: Any, where: str = "$") -> List[
             errors.append("%s 至少 %d 个字符" % (where, schema["minLength"]))
         if "maxLength" in schema and len(value) > schema["maxLength"]:
             errors.append("%s 至多 %d 个字符" % (where, schema["maxLength"]))
-        if "pattern" in schema and re.search(schema["pattern"], value) is None:
+        if "pattern" in schema and js_pattern(schema["pattern"]).search(value) is None:
             errors.append("%s 不符合 %s" % (where, schema["pattern"]))
     if isinstance(value, dict):
         properties = schema.get("properties") or {}
@@ -328,6 +356,38 @@ def kernel_dirty(files: Optional[Sequence[Path]] = None) -> bool:
     except OSError:
         return True
     return proc.returncode != 0 or bool(proc.stdout.strip())
+
+
+def kernel_changes(files: Optional[Sequence[Path]] = None) -> List[str]:
+    """内核文件里没提交的改动（git status --porcelain 的行；git 出错时给一句说明）。"""
+    paths = list(files if files is not None else kernel_files())
+    try:
+        proc = subprocess.run(["git", "status", "--porcelain", "--"] + [str(p) for p in paths],
+                              cwd=str(paths[0].parent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        return ["git 起不来：%s" % exc]
+    if proc.returncode != 0:
+        return ["git status 退出码 %d（不在 Git 仓库里？）" % proc.returncode]
+    return [line for line in proc.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
+
+
+def refuse_dirty_kernel(hub: "Hub", args: argparse.Namespace, task: Optional[str]) -> None:
+    """起 hub 之前，内核文件必须与 HEAD 一致（第 91 轮，themistally-15 复核第 90 轮指出）。
+
+    交差工具的哈希（DELIVERY_SHA256）与内核代码都是进程载入时取的基准。门禁端有写工具、没有系统级隔离，按绝对路径
+    改了内核目录里的文件，那一回合会作废、runner 也会因为内核文件变了而退出（还有未提交的改动就不自动重启，
+    第 13 轮）；可下一次有人把 hub 起起来，新进程就把改过的文件当成了基准。正常的内核轮次都经 exclusive 提交合入，
+    不受影响；站主真要用未提交的内核跑（临时热修补），显式加 --allow-dirty-kernel。"""
+    changes = kernel_changes()
+    if not changes:
+        return
+    if getattr(args, "allow_dirty_kernel", False):
+        hub.append_event("runner.dirty_kernel_allowed", pid=os.getpid(), task=task, changes=changes[:20])
+        return
+    hub.append_event("runner.refused", pid=os.getpid(), task=task, reason="kernel_dirty", changes=changes[:20])
+    raise HubError("内核文件与 HEAD 不一致，hub 不起：%s。正常的内核轮次都经 exclusive 提交合入；真要用这份未提交的"
+                   "内核跑，站主显式加 --allow-dirty-kernel" % "；".join(changes[:10]), EXIT_BLOCKED)
 
 
 def kernel_settled(wait: float, poll: float) -> bool:
@@ -5484,6 +5544,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     hub.ensure()
     task = getattr(args, "task", None)
+    refuse_dirty_kernel(hub, args, task)
     if task is None and configured_parallel(hub, args) > 1:
         return supervise(hub, args, configured_parallel(hub, args))
     if task is None:
@@ -5587,7 +5648,8 @@ def spawn_task_runner(hub: Hub, task: str, args: argparse.Namespace) -> "subproc
         return subprocess.Popen(
             [sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run", "--task", task,
              "--max-steps", str(args.max_steps), "--idle-exit", str(TASK_RUNNER_IDLE_SECONDS),
-             "--poll", str(args.poll), "--settle", str(args.settle)],
+             "--poll", str(args.poll), "--settle", str(args.settle)]
+            + (["--allow-dirty-kernel"] if getattr(args, "allow_dirty_kernel", False) else []),
             cwd=str(hub.repo), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
 
 
@@ -5796,6 +5858,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--parallel", type=int,
                      help="最多几个主任务同时跑（每个主任务一个 runner 进程）；缺省读信箱的 runner.json，再缺省为 1（串行）")
     run.add_argument("--task", help="只办这个主任务的信（并行模式下由 supervisor 起，一般不手动用）")
+    run.add_argument("--allow-dirty-kernel", action="store_true",
+                     help="内核文件与 HEAD 不一致也起（站主临时热修补时显式放行；第 91 轮起缺省不起）")
     run.set_defaults(func=cmd_run)
     exclusive = sub.add_parser("exclusive", help="等所有执行端跑完、拿着落地锁跑一条命令（站主在并行期间提交、合入内核用）")
     exclusive.add_argument("--wait", type=float, default=7200.0, help="最多等多少秒")
