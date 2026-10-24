@@ -261,13 +261,18 @@ class FileStore:
         return True
 
 
+#: icacls 用绝对路径起（内核第 78 轮，同 pi_dispatch.SYSTEM_TOOL）：它管的是凭据文件的权限，不能让当前目录里的同名
+#: 程序顶替。
+ICACLS = os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "System32", "icacls.exe")
+
+
 def _restrict_windows_acl(path: Path) -> None:
     """只留当前用户的完全控制：失败不抛（文件已经在用户目录下）。"""
     user = os.environ.get("USERNAME")
-    if not user or not shutil.which("icacls"):
+    if not user or not os.path.isfile(ICACLS):
         return
     try:
-        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", "%s:F" % user],
+        subprocess.run([ICACLS, str(path), "/inheritance:r", "/grant:r", "%s:F" % user],
                        capture_output=True, timeout=20, check=False)
     except (OSError, subprocess.SubprocessError):
         pass

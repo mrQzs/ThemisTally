@@ -1517,6 +1517,23 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 子进程的环境都显式去掉这个变量，否则在 Claude Code 与 hub 的环境里会空过。
   - TS 全量 516 条全过。变异 7 个全部抓住：Python 不设变量、pid_alive 按名字、child_env 与 handoff_env 不强制；TS 不设变量、cli 不导入 harden、pidAlive 按名字。
   - native-helper 与 ui 入口的那一行没有单独的测试：经 cli 进来时父进程已经设上了；桌面应用直接起单文件程序的路径在 D3 落地时补测。
+
+### 第 78 轮：第 75、77 轮的尾巴（2026-10-24，themistally-15 复核时指出）
+
+- **只读的 git 名副其实**（复核第 75 轮）：
+  - 带 `--ext-diff`、`--textconv`、`--filters`、`--open-files-in-pager` 的子命令不算只读：外部 diff 程序、配置里的转换程序、打开匹配文件的程序都会被执行。
+  - grep 的 `-O<程序>`（小写之后是 `-o` 加程序名）不算只读；光一个 `-o` 是 `--only-matching`，照旧只读。
+  - diff 还要带 `--no-ext-diff`：它平常就会用 GIT_EXTERNAL_DIFF 或 diff.external。
+  - 同一条命令里设了 `GIT_*` 或 `PAGER`（export 或赋值），git 一律不算只读。GIT_CONFIG_COUNT、GIT_CONFIG_KEY_n 与 GIT_CONFIG_PARAMETERS 能注入配置，设变量的那一段又不提主工作区路径，按段看会漏网。
+  - 定性（themistally-15）：这几处不给工人新的能力，它在自己的工作区里本来就能跑任意程序；审计是启发式的，真正的隔离靠操作系统。修它只是让“只读”名副其实。
+- **codekit 里的两处**（复核第 77 轮）：
+  - `codekit/secrets.py` 管凭据文件权限的 icacls 改用 System32 的绝对路径；
+  - `codekit/baseline.py` 有自己的 `__main__`、按名字起 git、不导入 pi_dispatch，入口处照抄两行加固。
+  - 其余：scripts 下的 kit_* 入口都在模块顶部导入 pd，已经受保护；git_probe、offline_runner 是 codekit 的库代码，只经这些入口导入，不另加；decisions.py 的 `__main__` 不起子进程。
+- **测试与变异**：
+  - test_kit_hub 新增 1 条，3 种写法只读，10 种越界；第 75 轮那条里的 diff 例子补上 `--no-ext-diff`。
+  - test_exe_search 加 2 处：icacls 是绝对路径；以 `__main__` 运行 baseline.py 之后变量是 1。
+  - 变异 6 个全部抓住：grep 的 -O 放过、四个选项放过、diff 不要求 --no-ext-diff、不看环境注入、icacls 按名字、baseline 不加固。
 - **测试与变异**：
   - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
   - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。

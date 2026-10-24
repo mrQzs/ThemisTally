@@ -1385,6 +1385,12 @@ READ_ONLY_COMMANDS = {"cat", "head", "tail", "ls", "grep", "rg", "find", "wc", "
 READ_ONLY_GIT = {"log", "show", "rev-parse", "ls-files", "ls-tree", "cat-file", "merge-base", "describe", "rev-list",
                  "blame", "shortlog", "for-each-ref", "show-ref", "grep", "version"}
 NO_LOCK_GIT = {"status", "diff"}
+#: 让“只读”的 git 子命令执行别的程序的选项（第 78 轮）。
+RUNS_PROGRAM_GIT_OPTIONS = ("--ext-diff", "--textconv", "--filters", "--open-files-in-pager")
+#: 同一条命令里设了这些环境变量（export、赋值），git 就不算只读（第 78 轮）：GIT_CONFIG_COUNT、GIT_CONFIG_KEY_n、
+#: GIT_CONFIG_PARAMETERS 能注入配置（core.pager、diff.external…），GIT_EXTERNAL_DIFF、GIT_PAGER、PAGER 直接指定程序。
+#: 设变量的那一段不提主工作区路径，按段看照样漏网。命令已经小写
+GIT_ENV_INJECTION_RE = re.compile(r"\b(?:git_[a-z0-9_]+|pager)\s*=")
 
 
 def read_only_git(args: Sequence[str]) -> bool:
@@ -1409,6 +1415,15 @@ def read_only_git(args: Sequence[str]) -> bool:
     command, options = rest[0], rest[1:]
     if any(option.startswith("--output") for option in options):
         return False
+    # 第 78 轮（themistally-15 复核第 75 轮）：这些选项会经“只读”子命令执行别的程序。--ext-diff 用外部 diff 程序，
+    # --textconv、--filters 跑配置里的转换程序；grep 的 -O<程序>（小写之后是 -o 加程序名）与 --open-files-in-pager
+    # 用指定程序打开匹配的文件。光一个 -o 是 --only-matching，照旧只读
+    if any(option.startswith(RUNS_PROGRAM_GIT_OPTIONS) for option in options):
+        return False
+    if command == "grep" and any(option.startswith("-o") and option != "-o" for option in options):
+        return False
+    if command == "diff" and "--no-ext-diff" not in options:
+        return False  # diff 平常就会用 GIT_EXTERNAL_DIFF 或 diff.external
     return command in READ_ONLY_GIT or (command in NO_LOCK_GIT and no_locks)
 #: 不写文件的重定向：文件描述符之间（2>&1、>&2），或丢进空设备（2>/dev/null、&>nul）。第 41 轮：T012 门禁端的
 #: `ls "<主工作区>/desktop/web" 2>&1 | head` 因为 2>&1 里的 > 被当成写入，整回合作废
@@ -1481,6 +1496,7 @@ def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
     sed -i，就算写。T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据，
     以前按整条命令看，git 不是只读命令，整回合作废（T014 那一回合跑了 16 分钟）。"""
     chain, _bare = split_chain(HARMLESS_REDIRECT_RE.sub(" ", command))
+    git_env_injected = GIT_ENV_INJECTION_RE.search(command) is not None
     in_main = False
     piped = False
     for sep, segment in chain:
@@ -1488,7 +1504,8 @@ def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
         mentions = any(form in segment for form in repo_forms)
         touching = mentions or in_main or (piped and sep == "|")
         bare = split_chain(segment)[1]
-        read_only = words[0] in READ_ONLY_COMMANDS or (words[0] == "git" and read_only_git(words[1:]))
+        read_only = words[0] in READ_ONLY_COMMANDS or (
+            words[0] == "git" and not git_env_injected and read_only_git(words[1:]))
         if touching and (not read_only or ">" in bare or "sed -i" in bare):
             return True
         if words[0] in ("cd", "pushd"):

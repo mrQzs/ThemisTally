@@ -1560,4 +1560,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    if os.name == "nt":  # 按名字起 git 时不查当前目录（内核第 78 轮，同 pi_dispatch.harden_executable_search）
+        os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
     sys.exit(main())

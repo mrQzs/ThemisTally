@@ -101,3 +101,20 @@ def test_child_environments_carry_the_guard():
 def test_system_tools_are_called_by_absolute_path():
     assert Path(pd.SYSTEM_TOOL["tasklist"]).is_file() and Path(pd.SYSTEM_TOOL["tasklist"]).is_absolute()
     assert Path(pd.SYSTEM_TOOL["taskkill"]).is_file() and Path(pd.SYSTEM_TOOL["taskkill"]).is_absolute()
+    # 第 78 轮（themistally-15 复核第 77 轮）：管凭据文件权限的 icacls 同样用绝对路径
+    from codekit import secrets
+
+    assert Path(secrets.ICACLS).is_file() and Path(secrets.ICACLS).is_absolute()
+
+
+def test_the_standalone_baseline_tool_hardens_its_entry(tmp_path):
+    # 第 78 轮：codekit/baseline.py 有自己的 __main__、按名字起 git、不导入 pi_dispatch，单独运行时要自己设上
+    code = ("import os, runpy, sys\n"
+            "sys.argv = ['baseline.py', '--help']\n"
+            "try:\n"
+            "    runpy.run_path(%r, run_name='__main__')\n"
+            "except SystemExit:\n"
+            "    pass\n"
+            "print(os.environ.get(%r))" % (str(SCRIPTS / "codekit" / "baseline.py"), VAR))
+    out = run_in(planted(tmp_path), code)
+    assert out.strip().splitlines()[-1] == "1"

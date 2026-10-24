@@ -5944,7 +5944,7 @@ def test_read_only_git_subcommands_may_touch_the_main_worktree(tmp_path):
         "git -C %s log -3 --stat" % m,
         "git -C %s show HEAD:scripts/kit_hub.py | head" % m,
         "cd %s && git rev-parse HEAD && git ls-files ts | wc -l" % m,
-        "git -C %s --no-optional-locks diff --stat HEAD~1" % m,
+        "git -C %s --no-optional-locks diff --no-ext-diff --stat HEAD~1" % m,
         "cd %s && git grep -n read_only_git" % m,
     ):
         assert verdict(command) == "warning", command
@@ -5963,6 +5963,37 @@ def test_read_only_git_subcommands_may_touch_the_main_worktree(tmp_path):
     note = kh.pi_reach_problem("bash", {"command": "cd %s && git status" % m}, ws, repo)[1]
     assert "--no-optional-locks" in note
     assert kh.read_only_git(["--version"]) and not kh.read_only_git(["-c", "a=b", "log"])
+
+
+def test_read_only_git_refuses_options_that_run_other_programs(tmp_path):
+    # 第 78 轮（themistally-15 复核第 75 轮）：grep -O<程序>、--open-files-in-pager、--ext-diff、--textconv、
+    # --filters 会经“只读”子命令执行别的程序；diff 平常就用外部 diff 程序；设 GIT_* 或 PAGER 的那一段不提主工作区
+    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t016-gate-x"
+    repo = tmp_path / "ThemisTally"
+    m = str(repo).replace("\\", "/")
+
+    def verdict(command):
+        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
+
+    for command in (
+        "git -C %s grep -o needle" % m,  # --only-matching 照旧只读
+        "git -C %s --no-optional-locks diff --no-ext-diff HEAD~1" % m,
+        "git -C %s log -p --no-textconv -3" % m,
+    ):
+        assert verdict(command) == "warning", command
+    for command in (
+        "git -C %s grep -Ovim needle" % m,
+        "git -C %s grep --open-files-in-pager=vim needle" % m,
+        "git -C %s show --ext-diff HEAD" % m,
+        "git -C %s log -p --textconv" % m,
+        "git -C %s cat-file --filters HEAD:a.txt" % m,
+        "git -C %s cat-file --textconv HEAD:a.txt" % m,
+        "git -C %s --no-optional-locks diff HEAD~1" % m,  # 没带 --no-ext-diff
+        "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=x && git -C %s log" % m,
+        "git_external_diff=x; git -C %s show HEAD" % m,
+        "export PAGER=x; git -C %s grep -O needle" % m,
+    ):
+        assert verdict(command) == "violation", command
 
 
 def test_split_chain_keeps_the_separators():
