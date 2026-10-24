@@ -2647,10 +2647,10 @@ def test_only_the_planner_stays_on_claude():
     on = {name: (spec["adapter"], spec.get("provider"), spec["model"]) for name, spec in kh.ROSTER.items()
           if spec["adapter"] in ("claude", "pi", "dispatcher")}
     assert on == {
-        kh.COORDINATOR: ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 65 轮
+        kh.COORDINATOR: ("pi", "dsf", "deepseek-flash"),  # 第 79 轮（第 65 轮起 MiniMax-M3.1-Flash）
         "planner-opus": ("claude", None, "claude-opus-5-5"),
         "contract-glm": ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 67 轮（第 65 轮 M3，第 46 轮起 glm-5.3）
-        "gate-sonnet": ("pi", "cc-switch-step-fun", "step-5-preview"),  # 第 63 轮：bb 改名
+        "gate-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),  # 第 79 轮：智谱官方编程套餐（第 63 轮起 step）
         "audit-sonnet": ("pi", "cc-switch-qianwenai-token-plan", "qwen3.8-max"),  # 第 67 轮：站主明确接受条款风险
         "exec-step": ("dispatcher", "cc-switch-step-fun", "step-5-preview")}
     # qwen3.8-max 的 xhigh、max 被 pi 压成 high：写 high，不留静默降级

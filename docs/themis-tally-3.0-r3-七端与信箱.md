@@ -1534,6 +1534,24 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - test_kit_hub 新增 1 条，3 种写法只读，10 种越界；第 75 轮那条里的 diff 例子补上 `--no-ext-diff`。
   - test_exe_search 加 2 处：icacls 是绝对路径；以 `__main__` 运行 baseline.py 之后变量是 1。
   - 变异 6 个全部抓住：grep 的 -O 放过、四个选项放过、diff 不要求 --no-ext-diff、不看环境注入、icacls 按名字、baseline 不加固。
+
+### 第 79 轮：协调人换到 deepseek-flash，门禁端换到 glm-5.3（2026-10-24，站主亲自确认）
+
+- **决定**：站主在 themistally-15 的会话里定了换岗，又在规划端会话里亲自确认（“确认，两个都换”）。
+  - 协调人：`dsf/deepseek-flash` high；
+  - 门禁端：`cc-switch-zhipu-glm/glm-5.3` high；
+  - 合同端（MiniMax-M3.1-Flash）、审核端（qwen3.8-max）、执行端（step-5-preview）、规划端（Opus）不变。
+- **核过的事实**：
+  - dsf 连 DeepSeek 官方的 Anthropic 兼容端点，按量计费，没有禁止自动化的条款，key 与凭据库 DEEPSEEK_API_KEY 一致；
+  - cc-switch-zhipu-glm 已改连智谱官方编程套餐（HTTPS），第 63、65 轮记的第三方明文中转不在了；GLM Coding Plan 的名单里有 Pi Coding Agent；
+  - 规划端在本机 `pi --list-models` 核过两个模型都在。
+- **依据**（themistally-15 照 hub 的参数测评）：
+  - deepseek-flash 7/7，是测过最快的；
+  - glm-5.3 7/7，第 7 题“写测试抓变异”（门禁端的本行）抓住 3/3；
+  - MiniMax 两个型号都栽在第 7 题上。
+  - 两个模型都接受 thinking high，但 pi 下没观察到推理输出，environment.md 记作“请求 high，实际是否在思考未核实”。
+- **切换**：只改名册（`kit_hub.ROSTER`）与钉住名册的测试；hub 的 supervisor 看到内核代码提交之后，用新代码重启，正在跑的回合照旧跑完，新回合用新模型。
+- **要盯**：门禁端回合的作废率（glm-5.3 第一次在 hub 里写测试）、协调人的路由错误。
 - **测试与变异**：
   - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
   - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。

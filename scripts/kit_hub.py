@@ -119,8 +119,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 65 轮（站主 2026-10-22，themistally-15 出题实测之后分配）：qwen3.7-plus 是百炼编程套餐，条款禁止自动化
     # 调用，换到 MiniMax-M3.1-Flash。百炼编程套餐（token/）与本机的 CLIProxyAPI（cpa/）都不给 hub 用；阿里 Token Plan
     # （cc-switch-qianwenai-token-plan/）只给审核端用，见审核端的注释。
-    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "minimax",
-                  "model": "MiniMax-M3.1-Flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
+    # 第 79 轮（站主 2026-10-24 在规划端会话里亲自确认）：换到 dsf/deepseek-flash（DeepSeek 官方按量计费，没有禁止
+    # 自动化的条款）。themistally-15 照 hub 的参数实测：7 道判分题 7/7，是测过最快的（前 6 题每题 2–3 秒）。
+    # 请求 high，pi 下没观察到推理输出，是否真的在思考未核实。
+    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
+                  "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
                   "timeout": 1200, "workspace": "base"},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
@@ -139,8 +142,12 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
     # 第 63 轮（站主 2026-10-22 重配 pi 的提供方）：bb 改名为 cc-switch-step-fun，同一个 StepFun 套餐端点、同一个模型。
-    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "cc-switch-step-fun",
-                    "model": "step-5-preview", "thinking": "high",
+    # 第 79 轮（站主 2026-10-24 亲自确认）：换到 cc-switch-zhipu-glm/glm-5.3。同名提供方已改连智谱官方编程套餐
+    # （https://open.bigmodel.cn/api/coding/paas/v4，HTTPS），第 65 轮删掉的那个第三方明文中转不在了；GLM Coding Plan
+    # 只许名单内的工具使用，Pi Coding Agent 在名单里。themistally-15 实测 7/7，第 7 题（写测试抓变异，门禁端的本行）
+    # 54.6 秒、3 个变异全抓住。请求 high，pi 下回报的推理 token 是 0，是否真的在思考未核实。
+    "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
+                    "model": "glm-5.3", "thinking": "high",
                     "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage"},
     # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
     # 第 65 轮：从 cc-switch-zhipu-glm/glm-5.3 换到 MiniMax-M3.1-Flash max。
