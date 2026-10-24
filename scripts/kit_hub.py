@@ -1106,7 +1106,7 @@ def render_template(name: str, values: Dict[str, str], role: Optional[str] = Non
 
 #: 回合输出 JSON 的顶层键（OUTPUT_SPECS 与 ROLE_EXTRA_OUTPUT）
 OUTPUT_KEYS = {"letters", "letter", "report", "state", "external_facts", "contract_md", "mutation_spec",
-               "candidate_defects", "unmutated"}
+               "mutation_spec_file", "candidate_defects", "unmutated"}
 
 
 def merge_early_close(block: str, end: int, data: Any) -> Optional[Dict[str, Any]]:
@@ -2311,8 +2311,12 @@ def accept_gate_post(hub: Hub, ts: Dict[str, Any], workspace: Path, output: Dict
     after = set(workspace_status(workspace))
     added = sorted(after - before)
     expected = gate_file(ts, "whitebox")
-    bad = [path for status, path in added if status != "??" or path != expected]
+    # 第 85 轮：工作目录根下的变异清单文件也可以新增（mutation_spec_file），它不进仓库，内核读完存档
+    bad = [path for status, path in added if status != "??" or path not in (expected, GATE_SPEC_FILE)]
+    mismatch = ts["gate_post"].get("anchor_mismatch")  # 上一版清单锚点对不上的条目，跨交付留着（第 85 轮）
     ts["gate_post"] = {"ran": True, "ok": False}
+    if mismatch:
+        ts["gate_post"]["anchor_mismatch"] = mismatch
     if bad:
         return ["战后只能新增 %s（只增不改）：%s" % (expected, ", ".join(bad[:8]))]
     if not (workspace / expected).exists():
@@ -2393,11 +2397,45 @@ def unmutated_problems(ts: Dict[str, Any], spec: Dict[str, Any], output: Dict[st
     return []
 
 
+#: 战后门禁的变异清单文件（第 85 轮）：工作目录根下，输出里用 mutation_spec_file 指它
+GATE_SPEC_FILE = "mutation-spec.json"
+
+
+def gate_spec(workspace: Path, output: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """战后门禁交的变异清单：内联的 mutation_spec，或工作目录根下 mutation-spec.json 文件（二选一）。
+
+    第 85 轮：T016 的战后门禁 g1、g2 两回合在工作文件里把 W-M20 的锚点改对了（`[[[`），再把整份清单手抄进
+    输出时又写成 `[[`，内核两次退回同一处。交文件，内核读的就是门禁端自己核对过的那一份，不再靠抄。"""
+    named = output.get("mutation_spec_file")
+    if named is None:
+        return output.get("mutation_spec"), None
+    if output.get("mutation_spec") is not None:
+        return None, "mutation_spec 与 mutation_spec_file 只给一样（建议只给文件）"
+    if named != GATE_SPEC_FILE:
+        return None, "mutation_spec_file 只能是工作目录根下的 %s，收到的是 %r" % (GATE_SPEC_FILE, named)
+    path = workspace / GATE_SPEC_FILE
+    if path.is_symlink() or not path.is_file():
+        return None, "mutation_spec_file 指的 %s 不在工作目录根下，或者不是普通文件" % GATE_SPEC_FILE
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except (UnicodeDecodeError, ValueError) as exc:
+        return None, "%s 不是合法的 UTF-8 JSON：%s" % (GATE_SPEC_FILE, exc)
+
+
+def unchanged_mismatches(ts: Dict[str, Any], spec: Dict[str, Any]) -> List[str]:
+    """上一版清单锚点对不上的条目，这一版一字没改的（第 85 轮：T016 的 W-M20 连着两回合说改了、实际没改）。"""
+    before = ts["gate_post"].get("anchor_mismatch") or {}
+    return [str(item.get("name")) for item in spec.get("mutations") or []
+            if isinstance(item, dict) and item.get("name") in before and before[item["name"]] == item.get("old")]
+
+
 def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path,
                   output: Dict[str, Any]) -> List[str]:
-    spec = output.get("mutation_spec")
+    spec, problem = gate_spec(workspace, output)
+    if problem:
+        return [problem]
     if not isinstance(spec, dict) or not spec.get("mutations"):
-        return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异）"]
+        return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异），也没有 mutation_spec_file"]
     per_mutant = mutant_timeout(spec, ts["gate_post"].get("whitebox_seconds"))
     if per_mutant:
         spec = dict(spec, timeout_seconds=per_mutant)
@@ -2413,10 +2451,21 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
     code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--check-anchors"])
     if code != 0:
         listing = [line for line in out.splitlines() if line.strip() and not line.startswith("OK ")]
-        return ["变异清单没有通过锚点核对，变异没有跑：每条 old 要在候选文件里逐字出现 count 次（缺省 1 次；"
+        failed = {int(match.group(1)) for match in re.finditer(r"^(?:MISMATCH|MISSING)\s+M(\d+)\s", out, re.M)}
+        names = {str(item.get("name")) for index, item in enumerate(spec["mutations"], start=1)
+                 if index in failed and isinstance(item, dict)}
+        unchanged = [name for name in unchanged_mismatches(ts, spec) if name in names]
+        ts["gate_post"]["anchor_mismatch"] = {str(item.get("name")): item.get("old")
+                                              for index, item in enumerate(spec["mutations"], start=1)
+                                              if index in failed and isinstance(item, dict)}
+        note = ("这几条与上一版清单一字不差：上次就对不上，这次没有改：%s。先在文件里改好、自己核对过锚点再交；"
+                "建议把清单写进 %s，输出里只给 mutation_spec_file，不要再把清单抄进输出。" % (
+                    "、".join(unchanged), GATE_SPEC_FILE)) if unchanged else ""
+        return [note + "变异清单没有通过锚点核对，变异没有跑：每条 old 要在候选文件里逐字出现 count 次（缺省 1 次；"
                 "CRLF 先按 LF 比对），全角、半角标点与缩进都要照抄。清单存档在 %s；mutate --check-anchors 的结果"
                 "（不符的条目下列出文件里最相近的行）：\n%s" % (spec_path.relative_to(hub.repo).as_posix(),
                                                     "\n".join(listing[-40:]))]
+    ts["gate_post"].pop("anchor_mismatch", None)
     # 变异记录放在信箱的证据目录：终审能读主工作区（--add-dir），放系统临时目录它就读不到（T001 终审的意见）
     out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
     # 整份的时限按条数放宽：此前固定 3600 秒，几条变异卡到各自的时限，整份就判“没有跑完”
@@ -3802,8 +3851,10 @@ ROLE_EXTRA_OUTPUT = {
     "planner": '另加 "external_facts": [{"fact": "<计划依赖的仓库外事实>", "source": "<出处>", '
                '"verified": "<核实的命令与结果；没核实就写“未核实”>"}]，没有仓库外事实就写 []',
     "contract": '另加 "contract_md": "<合同 Markdown 全文>"',
-    "gate": '战后模式另加 "mutation_spec": {"commands": [{"id": "W1", "argv": ["python", "-m", "pytest", "<文件>", "-q"]}], '
-            '"mutations": [{"name": "…", "file": "<相对路径>", "old": "<原文片段>", "new": "<改坏后的片段>"}]}；'
+    "gate": '战后模式把变异清单写进工作目录根下的 mutation-spec.json：{"commands": [{"id": "W1", "argv": '
+            '["python", "-m", "pytest", "<文件>", "-q"]}], "mutations": [{"name": "…", "file": "<相对路径>", '
+            '"old": "<原文片段>", "new": "<改坏后的片段>"}]}，输出里另加 "mutation_spec_file": "mutation-spec.json"，'
+            '不要再把清单抄进输出（内核读的就是这个文件；也可以照旧内联 "mutation_spec": {同样的格式}，两样只给一样）；'
             '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
             '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '

@@ -228,6 +228,21 @@ class AnchorHints(unittest.TestCase):
         self.assertIn("（空行）", hints[0])
         self.assertIn("# end", hints[1])
 
+    def test_the_nearest_line_gets_the_first_differing_character(self):
+        # 第 85 轮：T016 的 W-M20 与源码 99% 相似、只差一个 `[`，“最相近”那一行看不出差在哪
+        path = _tmpdir(self) / "r.ts"
+        path.write_text('export const A: L = [[["p", "*"], f]];\nconst x = 1;\n', encoding="utf-8")
+        hints = pd._anchor_hints(path, 'export const A: L = [["p", "*"], f]];', 0)
+        self.assertTrue(hints[0].startswith("最相近 L1"), hints)
+        # 一串相同的括号里多了一个，对齐在哪一个上由 difflib 定（这里是第 23 个字符），只钉“多了「[」”
+        self.assertIn("第一处不同在 old 首行", hints[1])
+        self.assertIn("个字符：文件里多了「[」", hints[1])
+        # old 只是一行里的一段：文件那一行前后多出来的不算不同，指出的是全角与半角
+        path.write_text("fonts.css  # 随包字体（等距更纱黑体 SC）\n", encoding="utf-8")
+        hints = pd._anchor_hints(path, "# 随包字体(等距更纱黑体 SC)", 0)
+        self.assertIn("old 是「(」，文件是「（」", hints[1])
+        self.assertEqual(pd._first_difference("abc", "xxabcyy"), [])  # 只是一段，没有不同
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -712,6 +712,52 @@ def test_gate_post_checks_the_anchors_before_mutating(tmp_path, monkeypatch):
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
 
 
+def test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged(tmp_path, monkeypatch):
+    # 第 85 轮：T016 的战后门禁两回合在工作文件里把 W-M20 改对了（`[[[`），抄进输出时又少了一个 `[`，一字没改地交了两次
+    real = kh.run_pd
+    calls = []
+
+    def fake_pd(hub, args, timeout=600):
+        calls.append([arg for arg in args if arg.startswith("--")])
+        if "--check-anchors" in args:
+            return real(hub, args, timeout)
+        out_dir = Path(args[args.index("--out") + 1])
+        out_dir.mkdir(parents=True)
+        (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")
+        return 0, "变异 1 条"
+
+    repo, head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=fake_pd)
+    ts["exec"] = {"run_dir": str(tmp_path / "attempt-001")}
+    workspace = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    (workspace / "README.md").write_text("目录约定\nfonts.css  # 随包字体（等距更纱黑体 SC）\n", encoding="utf-8")
+    ts["workspaces"]["post-attempt-001"]["baseline_status"] = kh.workspace_status(workspace)
+    target = workspace / "tests" / "test_gate_t001_whitebox.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    command = ["python", "-m", "pytest", "tests/test_gate_t001_whitebox.py", "-q"]
+    wrong = {"name": "删掉 fonts.css 那一行", "file": "README.md", "old": "# 随包字体(等距更纱黑体 SC)", "new": ""}
+    spec_file = workspace / kh.GATE_SPEC_FILE
+    spec_file.write_text(json.dumps({"command": command, "mutations": [wrong]}, ensure_ascii=False), encoding="utf-8")
+    by_file = {"mutation_spec_file": kh.GATE_SPEC_FILE}
+    problems = kh.accept_gate_post(hub, ts, workspace, by_file)  # 清单文件不算违反“只增不改”
+    assert len(problems) == 1 and "锚点核对" in problems[0] and "一字不差" not in problems[0], problems
+    assert "第一处不同" in problems[0] and "old 是「(」，文件是「（」" in problems[0]  # 文件那一行前面多出来的不算
+    problems = kh.accept_gate_post(hub, ts, workspace, by_file)  # 原样再交：点名没改的那一条
+    assert "与上一版清单一字不差" in problems[0] and "删掉 fonts.css 那一行" in problems[0]
+    both = dict(by_file, mutation_spec={"command": command, "mutations": [wrong]})
+    assert "只给一样" in kh.accept_gate_post(hub, ts, workspace, both)[0]
+    assert "只能是工作目录根下" in kh.accept_gate_post(hub, ts, workspace, {"mutation_spec_file": "tests/x.json"})[0]
+    spec_file.write_text("{", encoding="utf-8")
+    assert "不是合法的 UTF-8 JSON" in kh.accept_gate_post(hub, ts, workspace, by_file)[0]
+    right = dict(wrong, old="# 随包字体（等距更纱黑体 SC）")
+    spec_file.write_text(json.dumps({"command": command, "mutations": [right]}, ensure_ascii=False), encoding="utf-8")
+    calls.clear()
+    assert kh.accept_gate_post(hub, ts, workspace, by_file) == []
+    assert calls == [["--tree", "--spec", "--check-anchors"], ["--tree", "--spec", "--out"]] and ts["gate_post"]["ok"]
+    assert "anchor_mismatch" not in ts["gate_post"]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
 def test_contract_title_is_the_registered_task_title(tmp_path, monkeypatch):
     # T003 的提交主题取自 Goal 第一行、截到 120 字，断在“让 `dist` 里恰有与”（第 12 轮）
     _repo, _head, hub, ts, _plans, calls = gate_setup(tmp_path, monkeypatch)
@@ -2823,6 +2869,8 @@ def test_the_review_record_names_the_model_of_the_final_audit_turn(tmp_path):
     hub, ts, run_dir = review_env(tmp_path)
     audit_turn(hub, "t-old", "2000-01-01T00:00:00Z", models=["claude-sonnet-5-5"])  # 这个 attempt 交付之前的终审
     audit_turn(hub, "t-bad", "2999-01-01T00:00:00Z", output_error="没有代码块")  # 作废的回合不算
+    # 终审退回战后门禁、门禁返工、再终审：同一个 attempt 有两个合格的终审回合，记最后那个（report.md 是它的）
+    audit_turn(hub, "t-first", "2997-01-01T00:00:00Z", models=["cc-switch-zhipu-glm/glm-5.3"])
     audit_turn(hub, "t-final", "2998-01-01T00:00:00Z")
     text = kh.write_review(hub, ts, run_dir, "PASS").read_text(encoding="utf-8")
     assert ("- 复审者：audit-sonnet（cc-switch-qianwenai-token-plan/qwen3.8-max，思考档位要求 high、生效 high；"

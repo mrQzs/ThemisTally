@@ -5905,11 +5905,31 @@ def _anchor_count(path: Path, old: str) -> int:
 ANCHOR_HINT_MIN_RATIO = 0.6
 
 
+#: 字符级提示里，不同之处两边各带多少个字符的上下文
+ANCHOR_DIFF_CONTEXT = 12
+
+
+def _first_difference(wanted: str, actual: str) -> List[str]:
+    """第一处不同在第几个字符、两边各是什么（第 85 轮）。T016 的 W-M20 与源码 99% 相似、只差一个 `[`，
+    “最相近”那一行看不出差在哪，门禁端两回合都没改对。"""
+    import difflib
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, wanted, actual, autojunk=False).get_opcodes():
+        if tag == "equal" or (tag == "insert" and i1 in (0, len(wanted))):
+            continue  # old 可以只是这一行的一段：文件那一行在它前后多出来的不算不同
+        what = {"insert": "文件里多了「%s」" % actual[j1:j2][:40], "delete": "old 里多了「%s」" % wanted[i1:i2][:40],
+                "replace": "old 是「%s」，文件是「%s」" % (wanted[i1:i2][:40], actual[j1:j2][:40])}[tag]
+        return ["  第一处不同在 old 首行（去掉首尾空白）第 %d 个字符：%s；old …%s…，文件 …%s…" % (
+            i1 + 1, what, wanted[max(0, i1 - ANCHOR_DIFF_CONTEXT):i2 + ANCHOR_DIFF_CONTEXT],
+            actual[max(0, j1 - ANCHOR_DIFF_CONTEXT):j2 + ANCHOR_DIFF_CONTEXT])]
+    return []
+
+
 def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
     """锚点对不上时该往哪里改（2.8.0）。
 
     出现 0 次：按 old 的第一个非空行，列出文件里最相近的至多 3 行（行号与原文）——常见原因是候选改了
-    措辞、拆了句子或换了缩进。出现多次：列出每一处的起始行号与锚点之后的下一行，方便补一行上下文让它唯一。
+    措辞、拆了句子或换了缩进。最相近的那一行下面再给第一处不同的字符位置与两边的片段（第 85 轮）。
+    出现多次：列出每一处的起始行号与锚点之后的下一行，方便补一行上下文让它唯一。
     """
     import difflib
     lines = path.read_bytes().decode("utf-8").replace(chr(13) + chr(10), chr(10)).split(chr(10))
@@ -5919,8 +5939,11 @@ def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
             return []
         scored = sorted(((difflib.SequenceMatcher(None, first, line.strip()).ratio(), number, line)
                          for number, line in enumerate(lines, start=1) if line.strip()), key=lambda x: (-x[0], x[1]))
-        return ["最相近 L%d（%.0f%%）：%s" % (number, ratio * 100, line.strip()[:160])
-                for ratio, number, line in scored[:3] if ratio >= ANCHOR_HINT_MIN_RATIO] or ["文件里没有相近的行"]
+        near = ["最相近 L%d（%.0f%%）：%s" % (number, ratio * 100, line.strip()[:160])
+                for ratio, number, line in scored[:3] if ratio >= ANCHOR_HINT_MIN_RATIO]
+        if not near:
+            return ["文件里没有相近的行"]
+        return near[:1] + _first_difference(first, scored[0][2].strip()) + near[1:]
     text = chr(10).join(lines)
     hints: List[str] = []
     start = text.find(old)
