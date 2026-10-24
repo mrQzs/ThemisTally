@@ -25,6 +25,20 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import kit_hub as kh  # noqa: E402
 
 BASE = "a" * 40
+REAL_PI_SUPPORTED_FLAGS = kh.pi_supported_flags
+
+
+class EveryFlag(set):
+    """认得全部参数的 pi。"""
+
+    def __contains__(self, item: object) -> bool:
+        return True
+
+
+@pytest.fixture(autouse=True)
+def pi_knows_every_flag(monkeypatch):
+    """起 pi 工人之前要探本机 pi 的 --help（第 83 轮）；测试里一律当它认得全部参数，不真去起 pi。"""
+    monkeypatch.setattr(kh, "pi_supported_flags", lambda pi_cmd, env: EveryFlag())
 
 
 def make_ts(jev: bool = True) -> dict:
@@ -2701,46 +2715,82 @@ def test_worker_retries_stop_when_the_output_stays_invalid(engine_env, planner_t
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "failed"
 
 
-def test_a_continuation_that_times_out_again_goes_to_the_coordinator(engine_env):
+TIMEOUT, BAD_FORMAT = (None, [], None, True), (None, [])
+
+
+@pytest.mark.parametrize("planner_turns, again", [
     # 第 82 轮：T016 的合同端第一回合超时，续上的回合又超时，内核在同一个卡住的会话里又续了一次，白等 40 分钟
+    ([TIMEOUT, TIMEOUT], True),
+    ([BAD_FORMAT, TIMEOUT], False),  # 第 83 轮：只超时了一次，不能说“又超时”
+    ([TIMEOUT, BAD_FORMAT, TIMEOUT], True),  # 超时不占格式重试（第 32 轮），最后一回合是超时之后又超时
+    ([TIMEOUT, BAD_FORMAT, BAD_FORMAT], False),
+    ([(None, ["写了工作目录以外的文件"], None, True)], False),  # 越界的回合不续，也不算又超时
+])
+def test_the_blocked_letter_says_timed_out_again_only_when_it_did(engine_env, planner_turns, again):
     hub = engine_env
     owner_task(hub)
-    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], None, True), (None, [], None, True),
-                         (planner_delivery(), [])])
+    runner = FakeRunner([({"letters": [start_planner()]}, [])] + planner_turns + [(planner_delivery(), [])])
     engine = kh.Engine(hub, runner)
     engine.step()
     engine.step()
-    assert len(runner.calls) == 3 and runner.fresh[2] is False  # 续的那一次仍是同一个会话
+    assert len(runner.calls) == 1 + len(planner_turns)
+    assert runner.fresh[2:] == [False] * (len(planner_turns) - 1)  # 续的都是同一个会话
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "failed"
     blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
                if "回合作废" in read]
-    assert len(blocked) == 1 and "连续两次超时" in blocked[0] and "开新会话" in blocked[0]
+    assert len(blocked) == 1
+    assert ("续接的回合又超时了" in blocked[0] and "开新会话" in blocked[0]) is again
+    assert ("可以发“返工”让它重做" in blocked[0]) is not again
 
 
-def test_one_timeout_keeps_the_usual_rework_hint(engine_env):
-    hub = engine_env
-    owner_task(hub)
-    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], None, True), (None, []), (None, [])])
-    engine = kh.Engine(hub, runner)
-    engine.step()
-    engine.step()
-    assert len(runner.calls) == 4  # 超时续一次，续上的回合格式错，再给一次（第 32 轮）
-    blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
-               if "回合作废" in read]
-    assert len(blocked) == 1 and "连续两次超时" not in blocked[0] and "可以发“返工”让它重做" in blocked[0]
+def pi_worker_turn(root: Path, monkeypatch, supported) -> tuple:
+    root.mkdir(parents=True, exist_ok=True)
+    hub = kh.Hub(root)
+    hub.ensure()
+    monkeypatch.setattr(kh, "pi_supported_flags", lambda pi_cmd, env: supported)
+    launched = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        launched.append(list(cmd))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("gate-sonnet", "T001-3-gate-pre", root, "角色", "输入")
+    return turn, launched
 
 
-def test_a_first_turn_that_times_out_with_a_violation_is_not_called_a_double_timeout(engine_env):
-    hub = engine_env
-    owner_task(hub)
-    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, ["写了工作目录以外的文件"], None, True)])
-    engine = kh.Engine(hub, runner)
-    engine.step()
-    engine.step()
-    assert len(runner.calls) == 2  # 越界的回合不续
-    blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
-               if "回合作废" in read]
-    assert len(blocked) == 1 and "连续两次超时" not in blocked[0]
+def test_the_pi_worker_command_carries_every_resource_flag(tmp_path, monkeypatch):
+    # 第 83 轮（themistally-15 复核第 81 轮的变异 M4）：只钉常量钉不住调用点
+    _turn, launched = pi_worker_turn(tmp_path, monkeypatch, EveryFlag())
+    assert len(launched) == 1 and "--no-mcp" in launched[0]
+    assert all(flag in launched[0] for flag in kh.pd.RESOURCE_FLAGS)
+
+
+def test_a_pi_worker_is_not_started_when_pi_does_not_know_a_flag(tmp_path, monkeypatch):
+    # 第 83 轮：pi 对不认识的参数静默忽略；被忽略的若是 --tools，只读的岗位就拿到写工具
+    _turn, launched = pi_worker_turn(tmp_path / "a", monkeypatch, EveryFlag())
+    every = {arg for arg in launched[0] if arg.startswith("--")}
+    turn, again = pi_worker_turn(tmp_path / "b", monkeypatch, every - {"--no-mcp", "--tools"})
+    assert again == [] and turn["output"] is None and turn["violations"] == []
+    assert "--no-mcp, --tools" in turn["api_error"] and "没有起这一回合" in turn["api_error"]
+    turn, again = pi_worker_turn(tmp_path / "c", monkeypatch, every)  # 每一个都核对：全认得才起
+    assert len(again) == 1 and turn["api_error"] is None
+    turn, again = pi_worker_turn(tmp_path / "d", monkeypatch, None)  # 读不出 --help 也不起
+    assert again == [] and "读不出本机 pi 的 --help" in turn["api_error"]
+
+
+def test_pi_help_is_probed_once_per_pi_command(monkeypatch):
+    calls = []
+
+    def capture(cmd, cwd=None, env=None, timeout=60):
+        calls.append(list(cmd))
+        return (0, "  --tools <tools>  allowlist\n  --no-mcp  no MCP\n", "") if cmd[0] == "pi" else (1, "", "boom")
+
+    monkeypatch.setattr(kh.pd, "run_capture", capture)
+    monkeypatch.setattr(kh, "_PI_FLAGS", {})
+    assert REAL_PI_SUPPORTED_FLAGS(["pi"], {}) == {"--tools", "--no-mcp"}
+    assert REAL_PI_SUPPORTED_FLAGS(["pi"], {}) == {"--tools", "--no-mcp"} and len(calls) == 1
+    assert calls[0][-1] == "--help" and "--no-mcp" in calls[0]  # 探的时候也带着资源参数，与调度器的预检一样
+    assert REAL_PI_SUPPORTED_FLAGS(["node", "cli.js"], {}) is None and len(calls) == 2
 
 
 def test_info_letters_do_not_wake_workers(engine_env):

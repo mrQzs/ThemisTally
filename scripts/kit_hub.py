@@ -1612,6 +1612,33 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error}
 
 
+#: pi 命令 → 它的 --help 列出的参数；读不出时是 None（第 83 轮：一个进程只探一次）
+_PI_FLAGS: Dict[Tuple[str, ...], Optional[set]] = {}
+
+
+def pi_supported_flags(pi_cmd: Sequence[str], env: Dict[str, str]) -> Optional[set]:
+    """本机 pi 的 --help 里列出的参数，按 pi 命令缓存（与调度器预检同一个解析）。"""
+    key = tuple(pi_cmd)
+    if key not in _PI_FLAGS:
+        code, out, err = pd.run_capture(list(pi_cmd) + list(pd.RESOURCE_FLAGS) + ["--help"], env=env, timeout=90)
+        _PI_FLAGS[key] = set(pd.parse_help(out + err)["flags"]) if code == 0 else None
+    return _PI_FLAGS[key]
+
+
+def pi_flags_problem(pi_cmd: Sequence[str], args: Sequence[str], env: Dict[str, str]) -> Optional[str]:
+    """第 83 轮：pi 遇到不认识的参数不报错、静默忽略（1.4.0 实测）。旧版 pi 上 --no-mcp 会失效；哪天被忽略的
+    是 --tools，只读的岗位就拿到 pi 默认的写工具，回合审计只能事后作废。所以起 pi 工人之前，这一回合命令里每个
+    -- 开头的参数都要在本机 pi 的 --help 里；有不认识的就不起，交给站主。"""
+    supported = pi_supported_flags(pi_cmd, env)
+    if supported is None:
+        return "读不出本机 pi 的 --help，核对不了参数，没有起这一回合（pi 命令：%s）" % " ".join(pi_cmd)
+    missing = sorted({arg for arg in args if arg.startswith("--") and arg not in supported})
+    if missing:
+        return ("本机 pi 不认识 hub 传给工人的参数：%s。pi 对不认识的参数静默忽略，照样起会让这些限制失效，"
+                "没有起这一回合（升级 pi 或改名册）" % ", ".join(missing))
+    return None
+
+
 class TurnRunner:
     """启动一个工人回合：一个后台进程，Job Object 监督（pd.run_supervised），事件流由内核截下。"""
 
@@ -1662,7 +1689,8 @@ class TurnRunner:
             sessions_dir = self.hub.root / "sessions" / agent
             sessions_dir.mkdir(parents=True, exist_ok=True)
             # pi 的输入一律用 @文件 附上（与调度器给执行器附合同的做法相同），命令行只放一句话。
-            cmd = pd.resolve_pi_command() + [
+            pi_cmd = pd.resolve_pi_command()
+            cmd = pi_cmd + [
                 "--provider", spec["provider"], "--model", spec["model"], "--thinking", spec["thinking"],
                 "--mode", "json"] + list(pd.RESOURCE_FLAGS) + [
                 "--no-context-files", "--tools", ",".join(spec["tools"]),
@@ -1676,11 +1704,15 @@ class TurnRunner:
         env = worker_env(config)
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
+        blocked = None if spec["adapter"] == "claude" else pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env)
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
-            result = self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800)))
+            result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
+                      else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
         lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
         audit = (audit_claude_stream(lines, spec) if spec["adapter"] == "claude"
                  else audit_pi_stream(lines, spec, workspace, self.hub.repo))
+        if blocked:
+            audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
         if spec["adapter"] == "claude":
             audit["effort_requested"] = spec["effort"]
             audit["effort_effective"] = claude_session_effort(session["id"])
@@ -4340,9 +4372,10 @@ class Engine:
                               "type": "阻塞"},
                              {"摘要": "%s 的回合作废，信没有投递" % agent, "提交": "无", "验证": "内核审计与校验",
                               "偏离": reason[:1500],
-                              "需协调人决定": ("连续两次超时（续了一次又超时），内核没有再续：发“返工”会开新会话，"
+                              # 第 83 轮：之前确实超时过（timeouts）才这样说；“格式错、续上的回合超时”只超时了一次
+                              "需协调人决定": ("超时之后续接的回合又超时了，内核没有再续：发“返工”会开新会话，"
                                          "只带任务书、state 与返工信；返工信里写清卡在哪里（阶段已标为 failed）"
-                                         if turn.get("timed_out") and turn.get("retry_of") else
+                                         if turn.get("timed_out") and timeouts else
                                          "可以发“返工”让它重做（阶段已标为 failed）"),
                               "证据": turn["turn_dir"]})
             return

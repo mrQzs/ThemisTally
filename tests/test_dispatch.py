@@ -486,7 +486,13 @@ def test_dispatcher_killed():
     dispatcher.wait()
     time.sleep(2)
     if IS_WINDOWS:
-        check("Job Object reaps pi and grandchild", not alive(pi_pid) and not alive(grandchild))
+        # 第 83 轮：满负载时 Job 收进程会慢于 2 秒（themistally-15 复核时偶发红一次，detail 是空的）：再等到 10 秒，
+        # 失败时报出各自还活不活
+        deadline = time.time() + 8
+        while (alive(pi_pid) or alive(grandchild)) and time.time() < deadline:
+            time.sleep(0.2)
+        check("Job Object reaps pi and grandchild", not alive(pi_pid) and not alive(grandchild),
+              {"pi": (pi_pid, alive(pi_pid)), "grandchild": (grandchild, alive(grandchild))})
     elif sys.platform.startswith("linux"):
         check("PDEATHSIG stops pi", not alive(pi_pid), pi_pid)
         if alive(grandchild):
@@ -1939,6 +1945,9 @@ def test_v23_attachments_main_repo_and_session_abort():
     repo, base = make_repo("v23attach")
     run_ok(repo, STUB_SCENARIO="readplan")
     info = jload(rd(repo) / "run.json")
+    # 第 81、83 轮：执行器的命令带着全部资源参数，--no-mcp 也在（只钉常量钉不住调用点）
+    check("executor command carries every resource flag",
+          "--no-mcp" in info["command"] and all(flag in info["command"] for flag in pd.RESOURCE_FLAGS), info["command"])
     attached = [Path(arg[1:]) for arg in info["command"] if arg.startswith("@")]
     check("attachments are outside the main repository",
           [a.name for a in attached] == ["plan.md", "instruction.md"]
