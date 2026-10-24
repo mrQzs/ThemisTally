@@ -1,5 +1,7 @@
 // 安全响应头（桌面端设计第 7 版 §5.2、D4）：本机服务发给浏览器的每一份响应都带同一套头——CSP 逐字照合同，
-// nosniff 防内容类型嗅探，no-referrer 不带路径（路径里可能有 nonce）。不开 CORS：Access-Control-* 一律删掉。
+// nosniff 防内容类型嗅探，no-referrer 不带路径（路径里可能有 nonce），Cross-Origin-Resource-Policy: same-origin 让别的
+// 站点不能用 no-cors 的方式嵌入这些响应（静态资源不验会话，themistally-15 复核 T015 时建议）。不开 CORS：
+// Access-Control-* 一律删掉。
 // 新建一个 Response、正文仍用原来的流（不缓冲）：第 3 片的 SSE 要靠它。
 /** 内容安全策略，逐字照合同（D4）。 */
 export const CSP =
@@ -21,6 +23,7 @@ export function withSecurityHeaders(response: Response, options: SecurityHeaderO
   headers.set("content-security-policy", CSP);
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");
+  headers.set("cross-origin-resource-policy", "same-origin");
   if (options.cacheControl !== undefined) headers.set("cache-control", options.cacheControl);
   else if (options.noStore === true) headers.set("cache-control", "no-store");
   return new Response(response.body, {

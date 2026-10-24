@@ -11,11 +11,12 @@ describe("安全响应头", () => {
     );
   });
 
-  it("三个安全头恒定带上，Access-Control-* 被删掉", () => {
+  it("四个安全头恒定带上，Access-Control-* 被删掉", () => {
     const response = withSecurityHeaders(new Response("hi", { headers: { "access-control-allow-origin": "*" } }));
     expect(response.headers.get("content-security-policy")).toBe(CSP);
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
     expect([...response.headers.keys()].filter((name) => name.startsWith("access-control"))).toEqual([]);
   });
