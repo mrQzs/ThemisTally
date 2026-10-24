@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -6226,4 +6227,51 @@ def test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs(tm
     assert json.loads((turn_dir / "inputs.json").read_text(encoding="utf-8"))["skipped"][0]["bytes"] == 100
     long_prompt = inputs / ("prompt-%s.md" % turn["turn_id"])  # 回合目录在主工作区里，工人读不到
     assert long_prompt.read_text(encoding="utf-8") == prompt and str(long_prompt) in seen[0][-1]
+    kh.remove_inputs(inputs)
+
+
+def test_stage_inputs_does_not_follow_directory_links_or_junctions(tmp_path, monkeypatch):
+    # 第 89 轮（themistally-15 复核第 88 轮的变异 Y2）：证据目录里要是有指向大目录的链接或联接，不能把整棵树抄进来
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    inputs_fixture(hub, monkeypatch, tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("不该被复制", encoding="utf-8")
+    run = hub.repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    made = []
+    try:
+        os.symlink(str(outside), str(run / "linked"), target_is_directory=True)
+        made.append("linked")
+    except (OSError, NotImplementedError):
+        pass
+    if os.name == "nt":
+        import _winapi
+        try:
+            _winapi.CreateJunction(str(outside), str(hub.task_dir("T001-1-plan") / "junction"))
+            made.append("junction")
+        except OSError:
+            pass
+    if not made:
+        pytest.skip("本机建不了目录链接，也建不了联接")
+    inputs, _listing = kh.stage_inputs(hub, make_ts(), "T001-1-plan-z")
+    files = [item["path"] for item in json.loads((inputs / kh.INPUTS_INDEX).read_text(encoding="utf-8"))["files"]]
+    assert not any("secret.txt" in path for path in files), files
+    assert not (inputs / ".agent" / "runs" / "t001-doc" / "attempt-001" / "linked").exists()
+    kh.remove_inputs(inputs)
+
+
+def test_stage_inputs_clears_this_tasks_leftover_directories(tmp_path, monkeypatch):
+    # 第 89 轮：runner 被系统收掉、没走到 finally 时输入目录会留下；开新回合时清掉同一主任务的，别的主任务不动
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    inputs_fixture(hub, monkeypatch, tmp_path)
+    parent = tmp_path / "worktrees" / (kh.INPUTS_DIR % tmp_path.name)
+    for name in ("T001-1-plan-old", "T001-20261024T000000Z", "T0011-1-plan-x", "T002-3-gate-pre-y"):
+        (parent / name).mkdir(parents=True)
+        leftover = parent / name / "a.md"
+        leftover.write_text("旧", encoding="utf-8")
+        os.chmod(str(leftover), stat.S_IREAD)
+    inputs, _listing = kh.stage_inputs(hub, make_ts(), "T001-1-plan-new")
+    assert sorted(path.name for path in parent.iterdir()) == ["T001-1-plan-new", "T0011-1-plan-x", "T002-3-gate-pre-y"]
     kh.remove_inputs(inputs)

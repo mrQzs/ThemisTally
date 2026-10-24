@@ -1023,7 +1023,12 @@ def _input_files(source: Path):
 
 def stage_inputs(hub: Hub, ts: Dict[str, Any], key: str) -> Tuple[Path, Dict[str, Any]]:
     """建这一回合的只读输入目录（第 88 轮）：照 input_sources 复制，文件设成只读；返回（目录，清单）。"""
-    target = worktree_root(hub.repo) / (INPUTS_DIR % hub.repo.name) / key
+    parent = worktree_root(hub.repo) / (INPUTS_DIR % hub.repo.name)
+    # 第 89 轮（themistally-15 复核第 88 轮）：runner 被系统收掉、没走到 finally 时，输入目录会留下（第 27 轮撞过）。
+    # 同一主任务的回合是一个接一个的（一个主任务一个 runner），开新回合时清掉这个主任务留下的旧目录
+    for stale in parent.glob(ts["task"] + "-*") if parent.is_dir() else []:
+        remove_inputs(stale)
+    target = parent / key
     remove_inputs(target)
     target.mkdir(parents=True)
     files: List[Dict[str, Any]] = []
