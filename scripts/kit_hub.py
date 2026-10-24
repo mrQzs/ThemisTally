@@ -4307,6 +4307,10 @@ class Engine:
                 break
             if retry and not timeouts:
                 break  # 输出不合格只重试一次
+            if retry and turn.get("timed_out"):
+                # 第 82 轮：超时只续一次。续上的回合又超时就停，交给协调人，返工开新会话。T016 的合同端在一个卡住的
+                # 会话里续了两次，又白等 80 分钟；换新会话 7 分钟就交了。账本里超时后的第一次续接 7 次成了 5 次
+                break
             # 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
             # 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
             timeouts += 1 if turn.get("timed_out") else 0
@@ -4335,7 +4339,11 @@ class Engine:
             self.hub.deliver({"from": KERNEL, "to": COORDINATOR, "task-id": task_id, "in-reply-to": "none",
                               "type": "阻塞"},
                              {"摘要": "%s 的回合作废，信没有投递" % agent, "提交": "无", "验证": "内核审计与校验",
-                              "偏离": reason[:1500], "需协调人决定": "可以发“返工”让它重做（阶段已标为 failed）",
+                              "偏离": reason[:1500],
+                              "需协调人决定": ("连续两次超时（续了一次又超时），内核没有再续：发“返工”会开新会话，"
+                                         "只带任务书、state 与返工信；返工信里写清卡在哪里（阶段已标为 failed）"
+                                         if turn.get("timed_out") and turn.get("retry_of") else
+                                         "可以发“返工”让它重做（阶段已标为 failed）"),
                               "证据": turn["turn_dir"]})
             return
         output = turn["output"]

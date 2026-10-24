@@ -1433,7 +1433,7 @@ class FakeRunner:
         api_error = rest[0] if rest else None
         timed_out = rest[1] if len(rest) > 1 else False
         rate_limited_until = rest[2] if len(rest) > 2 else None
-        return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output,
+        return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output, "retry_of": retry_of,
                 "violations": violations, "api_error": api_error, "timed_out": timed_out,
                 "rate_limited_until": rate_limited_until,
                 "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块")}
@@ -2687,7 +2687,7 @@ def test_a_timed_out_turn_does_not_use_up_the_format_retry(engine_env):
 
 @pytest.mark.parametrize("planner_turns", [
     [(None, []), (None, [])],  # 没有超时：输出不合格只重试一次
-    [(None, [], None, True), (None, [], None, True), (None, [], None, True)],  # 一直超时：最多重试两次
+    [(None, [], None, True), (None, [], None, True)],  # 一直超时：只续一次（第 82 轮）
     [(None, ["写了工作目录以外的文件"], None, True)],  # 越界的回合不重试，超时也一样
 ])
 def test_worker_retries_stop_when_the_output_stays_invalid(engine_env, planner_turns):
@@ -2699,6 +2699,48 @@ def test_worker_retries_stop_when_the_output_stays_invalid(engine_env, planner_t
     engine.step()
     assert len(runner.calls) == 1 + len(planner_turns)
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "failed"
+
+
+def test_a_continuation_that_times_out_again_goes_to_the_coordinator(engine_env):
+    # 第 82 轮：T016 的合同端第一回合超时，续上的回合又超时，内核在同一个卡住的会话里又续了一次，白等 40 分钟
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], None, True), (None, [], None, True),
+                         (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 3 and runner.fresh[2] is False  # 续的那一次仍是同一个会话
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "failed"
+    blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
+               if "回合作废" in read]
+    assert len(blocked) == 1 and "连续两次超时" in blocked[0] and "开新会话" in blocked[0]
+
+
+def test_one_timeout_keeps_the_usual_rework_hint(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, [], None, True), (None, []), (None, [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 4  # 超时续一次，续上的回合格式错，再给一次（第 32 轮）
+    blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
+               if "回合作废" in read]
+    assert len(blocked) == 1 and "连续两次超时" not in blocked[0] and "可以发“返工”让它重做" in blocked[0]
+
+
+def test_a_first_turn_that_times_out_with_a_violation_is_not_called_a_double_timeout(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (None, ["写了工作目录以外的文件"], None, True)])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 2  # 越界的回合不续
+    blocked = [read for read in (p.read_text(encoding="utf-8") for p in hub.unread(kh.COORDINATOR))
+               if "回合作废" in read]
+    assert len(blocked) == 1 and "连续两次超时" not in blocked[0]
 
 
 def test_info_letters_do_not_wake_workers(engine_env):
