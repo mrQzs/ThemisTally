@@ -1679,6 +1679,24 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **worker.md**：写进文件的内容同样会被审，测试与脚本里不要写死主工作区的路径。
 - **测试与变异**：test_kit_hub 新增 2 条；test_kit_hub 与两份 kit_install 测试一起 274 条通过。变异 3 个全部抓住：顺着链接与联接往下走、不清旧目录、连别的主任务一起清。
 
+### 第 90 轮：协调人用 deliver 工具交差（2026-10-24，七端改造第 1 条的第一步）
+
+- **为什么**：工人在最后一条消息里写 ```json 代码块交差，内核再从自由文本里抠出来；格式一错整回合作废。规划端 6/27、协调人三代模型共 31/362、合同端两代共 8/28 的回合输出不合格，约 10 轮内核在补解析（第 25、32、40、43、48、49、56、59、76、80 轮）。改成带 schema 的工具调用，格式错在调用层当场退回、同一回合里重交。
+- **入口实测**（规划端，最便宜的模型、最短的提示）：
+  - pi 1.4.0：`--extension <文件>` 在 `--no-extensions` 之下照样加载；扩展用 `defineTool` 注册工具，参数先由 pi 校验（TypeBox 1.3.27 的 Compile/Check，非 TypeBox 的 schema 先做类型转换），不合格回 isError（“Validation failed for tool "deliver": - letters.0.type: must be equal to one of the allowed values”），模型改了重交；execute 返回 `terminate: true`，这一回合随即结束。中文属性名没问题。
+  - claude 2.1.310：`--json-schema` 交出的结构化输出走 StructuredOutput 工具，result 带 `structured_output`；不合 schema 当场退回；能与 `--resume` 同用；一直交不对时 `structured_output` 为 null。规划端以后用它（切换之前另测 20 KB 以上的长交付）。
+- **改法**（只切协调人；其余岗位照旧用代码块）：
+  1. `scripts/hub/deliver.ts`：读环境变量 `THEMIS_DELIVER_SCHEMA` 指的 schema，用 `Type.Unsafe` 包成 deliver 工具的参数；execute 把 pi 校验、转换过的参数原样放进 details 并结束回合。
+  2. `scripts/hub/schemas/coordinator.json`：letters（可以是空的，不写死“每一步都由协调人发信”，第 3 条落地时只需收窄）与 state。schema 只用子集：type、properties、required、additionalProperties: false、enum、const、items、minLength、maxLength、pattern（只写 ASCII）。`schema_problems` 核对，用到别的关键字就不起。
+  3. 名册：协调人加 `"delivery": "tool"`。出问题把它改回 `"block"` 就切回代码块解析，这个岗位的旧路径撤掉之前一直留着。
+  4. 回合启动器：用 deliver 的岗位，命令里加 `--extension <内核目录>/hub/deliver.ts`（绝对路径），`--tools` 加 deliver，环境变量指向这个岗位的 schema。起之前核对扩展与 schema 的哈希与本进程载入时一致（`DELIVERY_SHA256`；门禁端有写工具、没有系统级隔离，能按绝对路径改内核目录），不一致就不起，按接口报错交给站主。回合记录写 `delivery` 与两个文件的哈希。
+  5. 审计与输出：`audit_pi_stream` 记下最后一次 isError 为假的 deliver 的 details（不读会话文件）；输出就是它，内核再用同一份 schema 复核一遍（`schema_errors`，标准库实现）。没有成功的 deliver、或复核不过，按“输出不合格”走，第 32、82 轮的重试规矩照旧。用 deliver 的岗位不再从最后一条消息里找代码块。
+  6. 内核文件：`deliver.ts` 与 `schemas/*.json` 纳入内核文件指纹，改了它们 supervisor 照常换代。
+  7. 提示词：用 deliver 的岗位，“输出格式”一节换成“交差（用 deliver 工具）”；coordinator.md 的两处说法改成不挑交差方式。
+- **判定对照**：子集校验器的 31 条样例（26 条单项、5 条协调人的整份 schema），用 pi 自带的 typebox 1.3.27 按 pi 的做法（Compile + Check）逐条判定，0 条不同（含 4.0 算整数、中文按字符计长度、pattern、additionalProperties）。对照脚本在规划端会话的 scratchpad（schema-probe/parity.mjs）。
+- **测试与变异**：test_kit_hub 新增 9 条（子集校验器 26 例参数化、schemas 只用子集且与内核的状态机一致、审计只认最后一次被收下的 deliver、协调人经 deliver 交差、代码块不再算数与复核不过、交差工具被改过就不起、提示词按交差方式切换），改写 3 条（内核文件、pi 工人的命令、限流那一条换成合同端）。test_kit_hub 280 条通过，全量 2767 条通过、194 条跳过（pytest 退出码 0）。变异 13 个全部抓住：协调人照旧用代码块、被拒的 deliver 也算、没给 deliver 的岗位调了也算、照旧读代码块、内核不复核、不核哈希、不给环境变量、不加扩展、提示词不换、不管多出来的键、4.0 不算整数、不查子集之外的关键字、交差工具不算内核文件。
+- **还没做**：规划端（claude --json-schema，先测长交付）、审核端、门禁端、合同端（结构化字段由内核渲染成 Markdown）；每个岗位证实之后撤掉它的代码块解析。思考证据（流里 thinking 块的字数）另做一轮。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

@@ -1,0 +1,31 @@
+{
+  "description": "协调人交差（七端改造第 1 条，第 90 轮）：这一回合要投递的信与进度断点。只用内核校验器支持的子集：type、properties、required、additionalProperties: false、enum、const、items、minLength、maxLength、pattern（只写 ASCII）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["letters", "state"],
+  "properties": {
+    "letters": {
+      "description": "这一回合要投递的信，可以是空的（没有要发的就给 []）",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["to", "type", "task_id", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "证据"],
+        "properties": {
+          "to": {"type": "string", "minLength": 1, "description": "收信人"},
+          "type": {"type": "string", "enum": ["开工", "返工", "通过", "等待", "停止", "汇报", "提问"]},
+          "task_id": {"type": "string", "minLength": 1, "description": "阶段任务或主任务"},
+          "in_reply_to": {"type": "string", "minLength": 1, "description": "回复的 msg-id，或 none"},
+          "摘要": {"type": "string", "minLength": 1},
+          "提交": {"type": "string"},
+          "验证": {"type": "string"},
+          "偏离": {"type": "string"},
+          "需协调人决定": {"type": "string"},
+          "证据": {"type": "string"},
+          "brief": {"type": "string", "description": "开工、返工时必填：下一阶段任务书的 Markdown 全文"}
+        }
+      }
+    },
+    "state": {"type": "string", "description": "你的进度断点，Markdown"}
+  }
+}

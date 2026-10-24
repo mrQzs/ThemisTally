@@ -40,6 +40,13 @@ import pi_dispatch as pd  # noqa: E402
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_BLOCKED = 0, 1, 2, 3
 MAILBOX = Path(".agent") / "mailbox"
 TEMPLATE_DIR = HERE / "hub"
+#: 交差工具（第 90 轮，七端改造第 1 条）：pi 扩展与各岗位的 schema（schemas/<岗位>.json）都在内核目录里
+DELIVER_TOOL = "deliver"
+DELIVER_EXTENSION = TEMPLATE_DIR / "deliver.ts"
+SCHEMA_DIR = TEMPLATE_DIR / "schemas"
+#: 内核复核 schema 时只认这些关键字（themistally-15 定的子集）：Python 用标准库实现，与 pi 的 TypeBox 判定一致
+SCHEMA_KEYWORDS = {"type", "properties", "required", "additionalProperties", "enum", "const", "items", "minLength",
+                   "maxLength", "pattern", "description"}
 OWNER = "站主"
 KERNEL = "内核"
 COORDINATOR = "womovie-c8"
@@ -123,9 +130,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 79 轮（站主 2026-10-24 在规划端会话里亲自确认）：换到 dsf/deepseek-flash（DeepSeek 官方按量计费，没有禁止
     # 自动化的条款）。themistally-15 照 hub 的参数实测：7 道判分题 7/7，是测过最快的（前 6 题每题 2–3 秒）。
     # 请求 high，pi 下没观察到推理输出，是否真的在思考未核实。
+    # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差（delivery: tool），不再从最后一条消息里抠 json 代码块。
+    # 出问题时把这一项改回 "block" 就切回代码块解析（这个岗位的旧路径撤掉之前一直留着）。
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
                   "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                  "timeout": 1200, "workspace": "base"},
+                  "timeout": 1200, "workspace": "base", "delivery": "tool"},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
@@ -180,7 +189,118 @@ def kernel_files() -> List[Path]:
     """内核文件：代码、调度器（内核在进程里直接调它的函数，第 13 轮补上）、提示词模板与选择文件（第 64 轮，迁移
     计划第 5 节）。TS 的源码不算：每条转交给 TS 的命令现起进程、现读源码，hub 进程从不加载它；第 ⑤ 步 hub 换成 TS
     时再纳入。"""
-    return [Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md")) + [HERE / "kernel-impl.json"]
+    return ([Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md")) + [HERE / "kernel-impl.json"]
+            + delivery_files())
+
+
+def delivery_files() -> List[Path]:
+    """交差工具的文件（第 90 轮）：pi 扩展与各岗位的 schema。它们在工人进程里跑、决定工人能交什么，算内核文件。"""
+    return [DELIVER_EXTENSION] + sorted(SCHEMA_DIR.glob("*.json"))
+
+
+def _file_sha256(path: Path) -> Optional[str]:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+#: 本进程载入时交差工具各文件的哈希（第 90 轮）：起 pi 之前核对，被改过就不起。门禁端有写工具，pi 又没有系统级
+#: 的隔离，它能按绝对路径改内核目录里的文件；回合审计会作废那一回合，改过的文件却会留到下一回合。合入新一轮内核时
+#: supervisor 会用新代码重启，这份记录跟着换
+DELIVERY_SHA256 = {path.name: _file_sha256(path) for path in delivery_files()}
+
+
+def schema_problems(schema: Any, where: str = "$") -> List[str]:
+    """schema 用到了子集之外的关键字（第 90 轮）：内核复核不了的写法，不许出现在 schemas/ 里。"""
+    if not isinstance(schema, dict):
+        return ["%s 不是对象" % where]
+    problems = ["%s 用了子集之外的关键字 %s" % (where, key) for key in sorted(set(schema) - SCHEMA_KEYWORDS)]
+    if "additionalProperties" in schema and schema["additionalProperties"] is not False:
+        problems.append("%s 的 additionalProperties 只能写 false" % where)
+    if "pattern" in schema and not str(schema["pattern"]).isascii():
+        problems.append("%s 的 pattern 只能写 ASCII" % where)
+    for key, sub in (schema.get("properties") or {}).items():
+        problems += schema_problems(sub, "%s.%s" % (where, key))
+    if "items" in schema:
+        problems += schema_problems(schema["items"], "%s[]" % where)
+    return problems
+
+
+SCHEMA_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
+
+
+def _type_ok(kind: str, value: Any) -> bool:
+    if isinstance(value, bool) and kind in ("integer", "number"):
+        return False
+    if kind == "integer":  # 与 TypeBox 一样：4.0 也算整数（JSON 里读回来是 float）
+        return isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+    if kind == "number":
+        return isinstance(value, (int, float))
+    expected = SCHEMA_TYPES.get(kind)
+    return expected is not None and isinstance(value, expected)
+
+
+def schema_errors(schema: Dict[str, Any], value: Any, where: str = "$") -> List[str]:
+    """按 SCHEMA_KEYWORDS 那个子集校验（第 90 轮）。pi 的 TypeBox 先校验过一遍，这里是内核的复核：两边的判定要一致，
+    否则会出现“调用层收了、内核又退回”的来回（themistally-15）。"""
+    kinds = schema.get("type")
+    if kinds is not None:
+        if not any(_type_ok(kind, value) for kind in (kinds if isinstance(kinds, list) else [kinds])):
+            return ["%s 应当是 %s" % (where, kinds)]
+    errors: List[str] = []
+    if "const" in schema and value != schema["const"]:
+        errors.append("%s 应当等于 %r" % (where, schema["const"]))
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append("%s 只能是 %s 之一" % (where, "、".join(str(item) for item in schema["enum"])))
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append("%s 至少 %d 个字符" % (where, schema["minLength"]))
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append("%s 至多 %d 个字符" % (where, schema["maxLength"]))
+        if "pattern" in schema and re.search(schema["pattern"], value) is None:
+            errors.append("%s 不符合 %s" % (where, schema["pattern"]))
+    if isinstance(value, dict):
+        properties = schema.get("properties") or {}
+        errors += ["%s 缺 %s" % (where, key) for key in schema.get("required") or [] if key not in value]
+        if schema.get("additionalProperties") is False:
+            errors += ["%s 多了 %s" % (where, key) for key in value if key not in properties]
+        for key, sub in properties.items():
+            if key in value:
+                errors += schema_errors(sub, value[key], "%s.%s" % (where, key))
+    if isinstance(value, list) and isinstance(schema.get("items"), dict):
+        for index, item in enumerate(value):
+            errors += schema_errors(schema["items"], item, "%s[%d]" % (where, index))
+    return errors
+
+
+def role_schema(role: str) -> Dict[str, Any]:
+    """一个岗位的交差 schema（schemas/<岗位>.json）。"""
+    return json.loads((SCHEMA_DIR / ("%s.json" % role)).read_text(encoding="utf-8"))
+
+
+def delivered_output(role: str, delivered: Optional[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """用 deliver 交差的回合的输出（第 90 轮）：最后一次成功的 deliver 的参数，内核再按同一份 schema 复核一遍。
+    没交或复核不过都按“输出不合格”走，第 32、82 轮的重试规矩照旧。返回（输出，问题）。"""
+    if delivered is None:
+        return None, "这一回合没有成功调用 deliver 交差（内核不再从最后一条消息里找 json 代码块）"
+    errors = schema_errors(role_schema(role), delivered)
+    if errors:
+        return None, "deliver 交上来的参数内核复核不过：%s" % "；".join(errors[:8])
+    return delivered, None
+
+
+def delivery_problem(role: str) -> Optional[str]:
+    """起 pi 之前核对交差工具（第 90 轮）：扩展与这个岗位的 schema 都在，哈希与本进程载入时一致，schema 只用子集。"""
+    for path in (DELIVER_EXTENSION, SCHEMA_DIR / ("%s.json" % role)):
+        now = _file_sha256(path)
+        if now is None:
+            return "交差工具的文件不在：%s，没有起这一回合" % path
+        if now != DELIVERY_SHA256.get(path.name):
+            return ("交差工具的文件被改过：%s（载入时 %s，现在 %s），没有起这一回合。内核刚合入新的一轮就等 supervisor "
+                    "用新代码重启；不是的话，查是谁改的" % (path, str(DELIVERY_SHA256.get(path.name))[:12], now[:12]))
+    problems = schema_problems(role_schema(role))
+    return "交差 schema 用了内核复核不了的写法：%s" % "；".join(problems) if problems else None
 
 
 def code_fingerprint(files: Optional[Sequence[Path]] = None) -> str:
@@ -1565,6 +1685,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     terminal = False
     outside: Dict[str, str] = {}  # 白名单之外的调用：toolCallId → 工具名
     refused: set = set()
+    delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
     events, unreadable = stream_events(lines)
     if unreadable:
         violations.append(UNREADABLE_STREAM % unreadable)
@@ -1587,6 +1708,11 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
                            if isinstance(b, dict))
             if call_id in outside and event.get("isError") and text.strip() == "Tool %s not found" % outside[call_id]:
                 refused.add(call_id)
+            # 第 90 轮：pi 校验、转换过的参数由 deliver.ts 放进 details；不合格的那几次（isError）不算
+            details = (event.get("result") or {}).get("details")
+            if (event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed and not event.get("isError")
+                    and isinstance(details, dict)):
+                delivered = details
         elif kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
             message = event["message"]
             models.add("%s/%s" % (message.get("provider"), message.get("model")))
@@ -1614,7 +1740,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     violations += ["调用了白名单之外的工具：%s" % name for cid, name in outside.items() if cid not in refused]
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
-            "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error}
+            "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered}
 
 
 #: pi 命令 → 它的 --help 列出的参数；读不出时是 None（第 83 轮：一个进程只探一次）
@@ -1656,6 +1782,9 @@ class TurnRunner:
         """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。"""
         spec = ROSTER[agent]
+        # 第 90 轮：这个岗位用 deliver 交差（pi 工人；claude 的 --json-schema 以后另做）
+        delivery = spec.get("delivery") == "tool" and spec["adapter"] != "claude"
+        tools = list(spec["tools"]) + ([DELIVER_TOOL] if delivery else [])
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
         turn_dir.mkdir(parents=True)
@@ -1706,10 +1835,13 @@ class TurnRunner:
             sessions_dir.mkdir(parents=True, exist_ok=True)
             # pi 的输入一律用 @文件 附上（与调度器给执行器附合同的做法相同），命令行只放一句话。
             pi_cmd = pd.resolve_pi_command()
+            # 第 90 轮（七端改造第 1 条）：用 deliver 交差的岗位另加扩展（内核目录里的绝对路径）与 deliver 工具；
+            # --no-extensions 只关掉自动发现，显式的 --extension 照样加载（pi 1.4.0 实测）
+            extension = ["--extension", str(DELIVER_EXTENSION)] if delivery else []
             cmd = pi_cmd + [
                 "--provider", spec["provider"], "--model", spec["model"], "--thinking", spec["thinking"],
-                "--mode", "json"] + list(pd.RESOURCE_FLAGS) + [
-                "--no-context-files", "--tools", ",".join(spec["tools"]),
+                "--mode", "json"] + list(pd.RESOURCE_FLAGS) + extension + [
+                "--no-context-files", "--tools", ",".join(tools),
                 "--append-system-prompt", str(role_path), "--session-dir", str(sessions_dir),
                 "--session-id", session["id"], "@%s" % (turn_dir / "prompt.md"), "按附件里的本回合输入办事。"]
         started = utc_now()
@@ -1720,13 +1852,16 @@ class TurnRunner:
         env = worker_env(config)
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
-        blocked = None if spec["adapter"] == "claude" else pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env)
+        if delivery:
+            env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
+        blocked = None if spec["adapter"] == "claude" else (
+            pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or (delivery_problem(spec["role"]) if delivery else None))
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
         lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
         audit = (audit_claude_stream(lines, spec, workspace, self.hub.repo) if spec["adapter"] == "claude"
-                 else audit_pi_stream(lines, spec, workspace, self.hub.repo))
+                 else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
         if spec["adapter"] == "claude":
@@ -1749,6 +1884,8 @@ class TurnRunner:
             session.pop("throttles", None)
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
+        elif not audit["violations"] and delivery:
+            output, output_error = delivered_output(spec["role"], audit.get("delivered"))
         elif not audit["violations"]:
             try:
                 output = extract_json_block(audit["final_text"], audit.setdefault("warnings", []))
@@ -1771,6 +1908,10 @@ class TurnRunner:
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
             "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
+            # 第 90 轮：怎么交差的；用 deliver 时记下扩展与这个岗位的 schema 的哈希
+            "delivery": "tool" if delivery else "block",
+            "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
+                DELIVER_EXTENSION.name, "%s.json" % spec["role"])} if delivery else None,
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
@@ -4107,8 +4248,17 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if seeded:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
-    parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
-              "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+    if spec.get("delivery") == "tool" and spec["adapter"] != "claude":
+        # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住
+        parts += ["", "## 交差（用 deliver 工具）", "",
+                  "- 这一回合做完，调用一次 `deliver` 工具交差；参数的格式在工具的说明里（内核给的 schema），大致如下。"
+                  "调用成功，这一回合就结束。",
+                  "- 参数不合格式时，工具当场退回并写明哪里不对：照着改了再调一次。",
+                  "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
+                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+    else:
+        parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
+                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     if role in ROLE_EXTRA_OUTPUT:
         parts.append(ROLE_EXTRA_OUTPUT[role])
     return "\n".join(parts) + "\n"

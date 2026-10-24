@@ -921,7 +921,9 @@ def test_runner_exits_between_steps_once_the_kernel_changes(tmp_path, monkeypatc
     here = Path(kh.__file__).parent
     assert kh.kernel_files()[:2] == [Path(kh.__file__), here / "pi_dispatch.py"]
     assert here / "hub" / "worker.md" in kh.kernel_files() and kh.code_fingerprint() == kh.code_fingerprint(kh.kernel_files())
-    assert kh.kernel_files()[-1] == here / "kernel-impl.json"  # 第 64 轮：切换选择文件也是换代
+    assert here / "kernel-impl.json" in kh.kernel_files()  # 第 64 轮：切换选择文件也是换代
+    # 第 90 轮：交差工具（pi 扩展与各岗位的 schema）也算内核文件
+    assert here / "hub" / "deliver.ts" in kh.kernel_files() and here / "hub" / "schemas" / "coordinator.json" in kh.kernel_files()
     repo, _head = git_repo(tmp_path)
     events, steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[True], no_restart=False, settle=0.0)
     assert len(steps) == 2 and spawned == []  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b；还没提交，退出
@@ -4977,7 +4979,10 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
         cmd, cwd, timeout = seen[-1]
         spec = kh.ROSTER[agent]
         assert cmd[cmd.index("--provider") + 1] == spec["provider"] and cmd[cmd.index("--model") + 1] == spec["model"]
-        assert cmd[cmd.index("--thinking") + 1] == spec["thinking"] and cmd[cmd.index("--tools") + 1] == ",".join(spec["tools"])
+        delivery = spec.get("delivery") == "tool"  # 第 90 轮：用 deliver 交差的岗位另加扩展与 deliver 工具
+        assert cmd[cmd.index("--thinking") + 1] == spec["thinking"] and cmd[cmd.index("--tools") + 1] == ",".join(
+            spec["tools"] + (["deliver"] if delivery else []))
+        assert ("--extension" in cmd) == delivery and (not delivery or cmd[cmd.index("--extension") + 1] == str(kh.DELIVER_EXTENSION))
         assert cwd == tmp_path / "ws" and timeout == spec["timeout"] and "claude" not in Path(cmd[0]).name
     assert seen[2][0][seen[2][0].index("--tools") + 1] == "read,grep,find,ls,edit,write,bash"  # 门禁端要写测试、跑测试
     assert all("write" not in cmd[cmd.index("--tools") + 1] for cmd, _cwd, _t in (seen[0], seen[1], seen[3]))
@@ -5093,7 +5098,7 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path):
     # 第 38 轮：T012 的协调人（pi 上的 qwen）回 429 throttling，没有解除时刻，内核当成接口故障、主任务转 blocked
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    spec = kh.ROSTER[kh.COORDINATOR]
+    spec = kh.ROSTER["contract-glm"]  # 用代码块交差的 pi 工人（协调人第 90 轮起用 deliver）
     answers = []
 
     def message(error):
@@ -5113,7 +5118,7 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path):
     for error in [throttle, throttle, None, throttle] + [throttle] * 5 + [None, "500 internal error"]:
         answers.append(error)
         before = int(time.time())
-        turn = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+        turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
         waits.append(None if turn["rate_limited_until"] is None else turn["rate_limited_until"] - before)
         assert (turn["output"] is None) == bool(error)
     assert [w if w is None else round(w / 300) * 300 for w in waits] == [
@@ -6275,3 +6280,128 @@ def test_stage_inputs_clears_this_tasks_leftover_directories(tmp_path, monkeypat
     inputs, _listing = kh.stage_inputs(hub, make_ts(), "T001-1-plan-new")
     assert sorted(path.name for path in parent.iterdir()) == ["T001-1-plan-new", "T0011-1-plan-x", "T002-3-gate-pre-y"]
     kh.remove_inputs(inputs)
+
+
+# ---------------------------------------------------------------------------
+# 第 90 轮（七端改造第 1 条）：用 deliver 工具交差
+# ---------------------------------------------------------------------------
+
+#: 子集校验器的样例：(schema, 值, 应当通过)。themistally-15 要求与 pi 的 TypeBox 判定逐条一致（规划端另用 pi 自带的
+#: typebox 1.3.27 跑过同一份样例，结果记在 r3 §10 第 90 轮）
+SCHEMA_SAMPLES = [
+    ({"type": "string"}, "x", True), ({"type": "string"}, 1, False), ({"type": "string"}, None, False),
+    ({"type": "integer"}, 4, True), ({"type": "integer"}, 4.0, True), ({"type": "integer"}, 4.5, False),
+    ({"type": "integer"}, True, False), ({"type": "number"}, 4.5, True), ({"type": "boolean"}, True, True),
+    ({"type": "boolean"}, 1, False), ({"type": "null"}, None, True), ({"type": "array"}, [], True),
+    ({"type": "object"}, [], False), ({"type": ["string", "null"]}, None, True),
+    ({"enum": ["开工", "返工"]}, "返工", True), ({"enum": ["开工", "返工"]}, "完成", False),
+    ({"const": "x"}, "x", True), ({"const": "x"}, "y", False),
+    ({"type": "string", "minLength": 1}, "", False), ({"type": "string", "maxLength": 2}, "中文字", False),
+    ({"type": "string", "pattern": "^T[0-9]{3}$"}, "T016", True), ({"type": "string", "pattern": "^T[0-9]{3}$"}, "T16", False),
+    ({"type": "array", "items": {"type": "string"}}, ["a", 1], False),
+    ({"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}}, {}, False),
+    ({"type": "object", "additionalProperties": False, "properties": {"a": {"type": "string"}}}, {"a": "x", "b": 1}, False),
+    ({"type": "object", "properties": {"a": {"type": "string"}}}, {"a": "x", "b": 1}, True),
+]
+
+
+@pytest.mark.parametrize("schema, value, ok", SCHEMA_SAMPLES)
+def test_the_schema_subset_validator(schema, value, ok):
+    assert (kh.schema_errors(schema, value) == []) is ok, kh.schema_errors(schema, value)
+
+
+def test_role_schemas_only_use_the_subset_and_match_the_kernel():
+    for path in sorted(kh.SCHEMA_DIR.glob("*.json")):
+        assert kh.schema_problems(json.loads(path.read_text(encoding="utf-8"))) == [], path.name
+    assert kh.schema_problems({"type": "object", "format": "date", "properties": {"a": {"$ref": "#/x"}}}) == [
+        "$ 用了子集之外的关键字 format", "$.a 用了子集之外的关键字 $ref"]
+    assert kh.schema_problems({"additionalProperties": True, "pattern": "中"}) == [
+        "$ 的 additionalProperties 只能写 false", "$ 的 pattern 只能写 ASCII"]
+    letter = kh.role_schema("coordinator")["properties"]["letters"]["items"]
+    assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
+    assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]
+    assert kh.role_schema("coordinator")["properties"]["letters"].get("minItems") is None  # 第 3 条落地前后都能交空的
+    assert kh.ROSTER[kh.COORDINATOR]["delivery"] == "tool"
+    assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name != kh.COORDINATOR)
+
+
+def deliver_events(*attempts):
+    """deliver 的调用：每次是 (参数, 是否被拒)。"""
+    events = []
+    for index, (args, refused) in enumerate(attempts):
+        call = "d%d" % index
+        events.append({"type": "tool_execution_start", "toolCallId": call, "toolName": "deliver", "args": args})
+        events.append({"type": "tool_execution_end", "toolCallId": call, "toolName": "deliver", "isError": refused,
+                       "result": {"content": [{"type": "text", "text": "x"}], "details": {} if refused else args}})
+    return events
+
+
+def test_the_pi_audit_takes_the_last_accepted_deliver():
+    spec = dict(kh.ROSTER[kh.COORDINATOR], tools=["read", "deliver"])
+    good = {"letters": [], "state": "第二次"}
+    audit = kh.audit_pi_stream(stream(*deliver_events(({"letters": "x"}, True), ({"letters": [], "state": "一"}, False),
+                                                      (good, False))), spec)
+    assert audit["delivered"] == good and audit["violations"] == []
+    assert kh.audit_pi_stream(stream(*deliver_events(({"letters": []}, True))), spec)["delivered"] is None
+    plain = dict(spec, tools=["read"])  # 没给 deliver 的岗位：调了也不算交差，而且是白名单之外的工具
+    found = kh.audit_pi_stream(stream(*deliver_events((good, False))), plain)
+    assert found["delivered"] is None and found["violations"] == ["调用了白名单之外的工具：deliver"]
+
+
+def coordinator_turn(tmp_path, events, monkeypatch=None):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER[kh.COORDINATOR]
+    done = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
+                                               "stopReason": "toolUse", "content": []}}
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append((cmd, env))
+        out.write(("\n".join(stream(*events, done)) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    return turn, seen
+
+
+def test_a_coordinator_turn_hands_in_through_deliver(tmp_path):
+    good = {"letters": [{"to": "planner-opus", "type": "开工", "task_id": "T001-1-plan", "in_reply_to": "none",
+                         "摘要": "开工", "提交": "无", "验证": "无", "偏离": "无", "需协调人决定": "无", "证据": "无",
+                         "brief": "# 任务书"}], "state": "进度"}
+    turn, seen = coordinator_turn(tmp_path, deliver_events((good, False)))
+    cmd, env = seen[0]
+    assert cmd[cmd.index("--extension") + 1] == str(kh.DELIVER_EXTENSION) and cmd[cmd.index("--tools") + 1].endswith(",deliver")
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "coordinator.json")
+    assert turn["output"] == good and turn["output_error"] is None
+    record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "coordinator.json"}
+
+
+def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
+    spec = kh.ROSTER[kh.COORDINATOR]
+    text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
+                                               "stopReason": "stop", "content": [
+                                                   {"type": "text", "text": "```json\n{\"letters\": [], \"state\": \"x\"}\n```"}]}}
+    turn, _seen = coordinator_turn(tmp_path / "a", [text])  # 代码块不再算数
+    assert turn["output"] is None and "没有成功调用 deliver" in turn["output_error"]
+    # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
+    turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
+    assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
+
+
+def test_a_changed_delivery_file_stops_the_turn(tmp_path, monkeypatch):
+    # 门禁端有写工具、没有系统级隔离，能按绝对路径改内核目录里的文件：哈希与载入时不同就不起
+    monkeypatch.setitem(kh.DELIVERY_SHA256, "coordinator.json", "0" * 64)
+    turn, seen = coordinator_turn(tmp_path, deliver_events(({"letters": [], "state": "x"}, False)))
+    assert seen == [] and "交差工具的文件被改过" in turn["api_error"] and turn["output"] is None
+
+
+def test_the_prompt_says_how_to_hand_in(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = make_ts()
+    coordinator = kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
+    assert "## 交差（用 deliver 工具）" in coordinator and "## 输出格式" not in coordinator
+    contract = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
+    assert "## 输出格式" in contract and "deliver" not in contract
