@@ -6331,6 +6331,12 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
         "$ 用了子集之外的关键字 format", "$.a 用了子集之外的关键字 $ref"]
     assert kh.schema_problems({"additionalProperties": True, "pattern": "中"}) == [
         "$ 的 additionalProperties 只能写 false", "$ 的 pattern 只能写 ASCII"]
+    # 第 92 轮：编不过的写法起 pi 之前就挡住（JS 认、Python 不认的 \p{…}、(?<名字>…)；Python 认、JS 不认的 (?P…)）
+    for pattern in ("^\\p{L}+$", "(?<n>x)"):
+        found = kh.schema_problems({"type": "string", "pattern": pattern})
+        assert len(found) == 1 and "内核编不过" in found[0], (pattern, found)
+    assert kh.schema_problems({"type": "string", "pattern": "(?P<n>x)"}) == ["$ 的 pattern 用了 JS 不认的 (?P…)"]
+    assert kh.schema_problems({"type": "string", "pattern": "^[a-z]+\\$$"}) == []
     letter = kh.role_schema("coordinator")["properties"]["letters"]["items"]
     assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
     assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]

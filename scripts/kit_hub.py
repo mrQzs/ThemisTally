@@ -220,6 +220,16 @@ def schema_problems(schema: Any, where: str = "$") -> List[str]:
         problems.append("%s 的 additionalProperties 只能写 false" % where)
     if "pattern" in schema and not str(schema["pattern"]).isascii():
         problems.append("%s 的 pattern 只能写 ASCII" % where)
+    elif "pattern" in schema:
+        # 第 92 轮（themistally-15 复核第 91 轮）：编不过的写法要在起 pi 之前挡住，不能等交差之后复核时炸在回合中途。
+        # `\p{…}`、`(?<名字>…)` 是 JS 认、Python 不认；`(?P<名字>…)` 是 Python 认、JS 不认
+        pattern = str(schema["pattern"])
+        try:
+            js_pattern(pattern)
+        except re.error as exc:
+            problems.append("%s 的 pattern 内核编不过（%s）" % (where, exc))
+        if "(?P" in pattern:
+            problems.append("%s 的 pattern 用了 JS 不认的 (?P…)" % where)
     for key, sub in (schema.get("properties") or {}).items():
         problems += schema_problems(sub, "%s.%s" % (where, key))
     if "items" in schema:

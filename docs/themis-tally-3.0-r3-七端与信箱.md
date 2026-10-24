@@ -1706,6 +1706,7 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 对照样例加到 34 条单项（阿拉伯-印度数字、é 配 `\w`、"abc\n" 配 `^abc$`、换行配 `.`、字符类与转义里的 `$`、emoji 的长度），与 typebox 1.3.27 逐条一致。
 - **自动换代会把改过的内核“洗白”**：`DELIVERY_SHA256` 与载入的内核代码都是进程启动时取的基准。门禁端按绝对路径改了内核目录里的文件，那一回合作废、runner 因内核文件变了而退出（有未提交的改动就不自动重启，第 13 轮）；可下一次有人把 hub 起起来，新进程就把改过的文件当成了基准。现在 `cmd_run`（supervisor、主任务的 runner、串行的 hub 都经它）一开始就 `refuse_dirty_kernel`：`kernel_changes()` 列出内核文件里没提交的改动（`git status --porcelain`，schemas/ 下未跟踪的 json 也在内；git 起不来或报错都算不一致），有就不起，记 `runner.refused`。正常的内核轮次都经 exclusive 提交合入，不受影响；站主真要用未提交的内核跑（临时热修补），显式加 `--allow-dirty-kernel`，记 `runner.dirty_kernel_allowed`，supervisor 把它传给主任务的 runner。
 - **测试与变异**：样例加 8 条；test_kit_hub 新增 4 条（列出改动与未跟踪的 schema、git 报错算不一致、不干净就不起与放行、开关传给主任务的 runner），测试里自动夹具一律当内核干净（规划端在草稿 worktree 里改内核时内核本来就是脏的；中途 `monkeypatch.undo()` 的那条补回替身）。test_kit_hub 292 条通过，全量 2779 条通过、194 条跳过（pytest 退出码 0）。变异 8 个全部抓住：不加 re.ASCII、$ 不换、字符类里的 $ 也换、转义过的 $ 也换、起 hub 不核对、放行开关不管用、开关不传、git 出错当成干净（第一次漏网：原用例的目录不存在，走的是“git 起不来”，补了 GIT_DIR 指向不存在之处的一例）。
+- **第 92 轮补一处**（themistally-15 复核第 91 轮）：`schema_problems` 原来不编译 pattern，`^\p{L}+$` 全是 ASCII、能过，`schema_errors` 一跑就抛 re.error，炸在交差之后的回合处理中途。现在每个 pattern 用 `js_pattern` 编一次，编不过就报（JS 认、Python 不认的 `\p{…}`、`(?<名字>…)`）；`(?P…)` 是 Python 认、JS 不认，也报。`delivery_problem` 本来就调它，起 pi 之前就挡住。test_kit_hub 292 条通过；变异 2 个全部抓住。themistally-15 另用 node 对了 js_pattern 的五个边界（转义的反斜杠之后的 `$`、字符类里转义的 `]`、`^x$` 配 "x\n"、`a$|^b`），都与 JS 一致。
 
 ## 11. 已知缺口与下一步
 
