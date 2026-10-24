@@ -243,6 +243,23 @@ class AnchorHints(unittest.TestCase):
         self.assertIn("old 是「(」，文件是「（」", hints[1])
         self.assertEqual(pd._first_difference("abc", "xxabcyy"), [])  # 只是一段，没有不同
 
+    def test_a_multiline_anchor_whose_first_line_matches_points_at_the_later_line(self):
+        # 第 86 轮（themistally-15 复核第 85 轮）：首行 100% 对上、第二行不同时，原来只给“最相近 L1（100%）”
+        path = _tmpdir(self) / "m.py"
+        path.write_text("def f(a):\n    return a + 1\n", encoding="utf-8")
+        hints = pd._anchor_hints(path, "def f(a):\n    return a + 2\n", 0)
+        self.assertTrue(hints[0].startswith("最相近 L1（100%）"), hints)
+        self.assertIn("首行对上了，old 第 2 行与文件 L2 不同", hints[1])
+        self.assertIn("old 第 2 行（去掉首尾空白）", hints[2])
+        self.assertIn("old 是「2」，文件是「1」", hints[2])
+        self.assertIn("差在缩进", pd._anchor_hints(path, "def f(a):\n  return a + 1", 0)[1])
+        self.assertIn("差在缩进", pd._anchor_hints(path, "  return a + 1", 0)[1])  # 单行也一样
+        self.assertIn("文件在 L2 就结束了", pd._later_difference("x\ny\nz", ["x", "y"], 1)[0])
+        self.assertIn("old 第 3 行与文件 L3 不同", pd._anchor_hints(path, "def f(a):\n    return a + 1\n    pass", 0)[1])
+        # 末行可以只是那一行的开头，不算不同；中间行只是开头就算不同
+        self.assertIn("差在缩进", pd._later_difference("f(\nret", ["f(", "return x"], 1)[0])
+        self.assertIn("old 第 2 行与文件 L2 不同", pd._later_difference("f(\nret\nz", ["f(", "return x", "z"], 1)[0])
+
 
 if __name__ == "__main__":
     unittest.main()

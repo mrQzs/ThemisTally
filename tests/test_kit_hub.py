@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import time
@@ -744,6 +745,11 @@ def test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged(tmp_path
     assert "第一处不同" in problems[0] and "old 是「(」，文件是「（」" in problems[0]  # 文件那一行前面多出来的不算
     problems = kh.accept_gate_post(hub, ts, workspace, by_file)  # 原样再交：点名没改的那一条
     assert "与上一版清单一字不差" in problems[0] and "删掉 fonts.css 那一行" in problems[0]
+    # 第 86 轮：同名、改过 old 但仍对不上的，不能说“一字没改”
+    changed = dict(wrong, old="# 随包字体[等距更纱黑体 SC]")
+    spec_file.write_text(json.dumps({"command": command, "mutations": [changed]}, ensure_ascii=False), encoding="utf-8")
+    problems = kh.accept_gate_post(hub, ts, workspace, by_file)
+    assert "锚点核对" in problems[0] and "一字不差" not in problems[0], problems
     both = dict(by_file, mutation_spec={"command": command, "mutations": [wrong]})
     assert "只给一样" in kh.accept_gate_post(hub, ts, workspace, both)[0]
     assert "只能是工作目录根下" in kh.accept_gate_post(hub, ts, workspace, {"mutation_spec_file": "tests/x.json"})[0]
@@ -755,6 +761,16 @@ def test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged(tmp_path
     assert kh.accept_gate_post(hub, ts, workspace, by_file) == []
     assert calls == [["--tree", "--spec", "--check-anchors"], ["--tree", "--spec", "--out"]] and ts["gate_post"]["ok"]
     assert "anchor_mismatch" not in ts["gate_post"]
+    # 第 86 轮：清单文件是链接（指到工作目录之外）就退回，不读它
+    outside = tmp_path / "outside-spec.json"
+    outside.write_text(spec_file.read_text(encoding="utf-8"), encoding="utf-8")
+    spec_file.unlink()
+    try:
+        os.symlink(outside, spec_file)
+    except (OSError, NotImplementedError):
+        kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+        pytest.skip("本机建不了符号链接")
+    assert "不是普通文件" in kh.accept_gate_post(hub, ts, workspace, by_file)[0]
     kh.git(["worktree", "remove", "--force", str(workspace)], repo)
 
 

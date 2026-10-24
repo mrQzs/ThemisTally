@@ -5909,7 +5909,7 @@ ANCHOR_HINT_MIN_RATIO = 0.6
 ANCHOR_DIFF_CONTEXT = 12
 
 
-def _first_difference(wanted: str, actual: str) -> List[str]:
+def _first_difference(wanted: str, actual: str, where: str = "old 首行") -> List[str]:
     """第一处不同在第几个字符、两边各是什么（第 85 轮）。T016 的 W-M20 与源码 99% 相似、只差一个 `[`，
     “最相近”那一行看不出差在哪，门禁端两回合都没改对。"""
     import difflib
@@ -5918,10 +5918,31 @@ def _first_difference(wanted: str, actual: str) -> List[str]:
             continue  # old 可以只是这一行的一段：文件那一行在它前后多出来的不算不同
         what = {"insert": "文件里多了「%s」" % actual[j1:j2][:40], "delete": "old 里多了「%s」" % wanted[i1:i2][:40],
                 "replace": "old 是「%s」，文件是「%s」" % (wanted[i1:i2][:40], actual[j1:j2][:40])}[tag]
-        return ["  第一处不同在 old 首行（去掉首尾空白）第 %d 个字符：%s；old …%s…，文件 …%s…" % (
-            i1 + 1, what, wanted[max(0, i1 - ANCHOR_DIFF_CONTEXT):i2 + ANCHOR_DIFF_CONTEXT],
+        return ["  第一处不同在 %s（去掉首尾空白）第 %d 个字符：%s；old …%s…，文件 …%s…" % (
+            where, i1 + 1, what, wanted[max(0, i1 - ANCHOR_DIFF_CONTEXT):i2 + ANCHOR_DIFF_CONTEXT],
             actual[max(0, j1 - ANCHOR_DIFF_CONTEXT):j2 + ANCHOR_DIFF_CONTEXT])]
     return []
+
+
+def _later_difference(old: str, lines: List[str], number: int) -> List[str]:
+    """首行在文件第 number 行对上了（或只是那一行的一段）：逐行比 old 的后续行与文件里接着的行（第 86 轮）。
+    themistally-15 实测：两行的 old 第二行是 `a + 2`、文件是 `a + 1`，只给“最相近 L2（100%）”，最像“已经对上了”。"""
+    rest = old.split(chr(10))
+    while rest and not rest[0].strip():
+        rest.pop(0)
+    rest = rest[1:]
+    while rest and not rest[-1].strip():
+        rest.pop()  # old 末尾的换行不算一行
+    for offset, wanted in enumerate(rest, start=1):
+        index = number - 1 + offset
+        if index >= len(lines):
+            return ["  首行对上了；文件在 L%d 就结束了，old 还多 %d 行" % (len(lines), len(rest) - offset + 1)]
+        want, have = wanted.strip(), lines[index].strip()
+        if want == have or (offset == len(rest) and have.startswith(want)):  # 末行可以只是那一行的开头
+            continue
+        return ["  首行对上了，old 第 %d 行与文件 L%d 不同" % (offset + 1, index + 1)] + _first_difference(
+            want, have, "old 第 %d 行" % (offset + 1))
+    return ["  逐行去掉首尾空白之后都对上了：差在缩进、行尾空白或换行"]
 
 
 def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
@@ -5943,7 +5964,8 @@ def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
                 for ratio, number, line in scored[:3] if ratio >= ANCHOR_HINT_MIN_RATIO]
         if not near:
             return ["文件里没有相近的行"]
-        return near[:1] + _first_difference(first, scored[0][2].strip()) + near[1:]
+        best = scored[0]
+        return near[:1] + (_first_difference(first, best[2].strip()) or _later_difference(old, lines, best[1])) + near[1:]
     text = chr(10).join(lines)
     hints: List[str] = []
     start = text.find(old)
