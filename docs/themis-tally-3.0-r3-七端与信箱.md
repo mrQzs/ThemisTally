@@ -1602,6 +1602,26 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **test_dispatcher_killed**：满负载时 Job 收进程会慢于 2 秒，themistally-15 复核时偶发红一次，detail 是空的。改成再等到 10 秒，失败时报出两个进程各自还活不活。
 - **测试与变异**：test_kit_hub 第 82 轮的三条并成一条参数化用例（五种序列：超时→超时、格式错→超时、超时→格式错→超时、超时→格式错→格式错、超时又越界），新增 3 条（工人命令带全部资源参数；有不认识的参数、读不出 `--help` 都不起；一个 pi 命令只探一次）；测试里一律当 pi 认得全部参数（autouse 夹具），不真去起 pi。test_kit_hub 243 条通过。变异 6 个全部抓住：工人命令去掉 --no-mcp、执行器命令去掉 --no-mcp、不核对照样起、只核对资源参数、每回合都探、提示又看回 retry_of。
 
+### 第 84 轮：复审记录写明真正的复审模型（2026-10-24，themistally-15 复核 T016 时指出）
+
+- **错处**：`write_review` 写死了“复审者：audit-sonnet（claude-sonnet-5-5，max）”。审核端第 36 轮（10-21）起先后是 glm-5.3、MiniMax-M3.1-Flash、qwen3.8-max；内核自己记的 REVISE（跑满时限、门禁热修补之后）根本没有终审，也照写这一行，还把这个任务早先的终审报告抄了进去（或写“终审报告为空”）。
+- **改法**：`final_audit_turn` 找这个 attempt 交付之后（candidate.patch 的修改时间之后）最后一个合格的终审回合记录（输出合格、没有违规）：
+  - 找到：写“复审者：audit-sonnet（<模型>，思考档位要求 <档>、生效 <档>；回合 <turn_id>），终审报告如下”，报告照旧取终审的 report.md；
+  - 没找到：写“复审者：没有终审回合（内核按 check 与运行状态记这一结论）”，报告一节写“（这个 attempt 没有终审）”，不抄早先的报告。
+- **勘误**：已提交的记录不改原文（verdict 已经算过它们的哈希，记在各 attempt 的 verdicts/ 下）。按回合记录逐份核对（终审回合取“这个 attempt 交付之后、verdict 之前”的最后一个合格回合），写错的如下；t001 至 t008 与 t009 的 attempt-001 确实是 claude-sonnet-5-5 max，没错。
+
+| 记录（.agent/reviews/…/attempt-NNN-hub.md） | 结论 | 实际的复审 |
+|---|---|---|
+| t009 attempt-002、t010 attempt-003、t011 attempt-005、t012 attempt-006、t013 attempt-002 | PASS | `cc-switch-zhipu-glm/glm-5.3`，要求 max、生效 high |
+| t013 attempt-001 | REVISE | `cc-switch-zhipu-glm/glm-5.3`，要求 max、生效 high（回合 20261022T013506627250Z-3b04） |
+| t014 attempt-002 | PASS | `minimax/MiniMax-M3.1-Flash`，要求 max、生效 max |
+| t015 attempt-004 | REVISE | `cc-switch-qianwenai-token-plan/qwen3.8-max`，high（回合 20261023T213434717392Z-7513） |
+| t015 attempt-005、t016 attempt-002 | PASS | `cc-switch-qianwenai-token-plan/qwen3.8-max`，high |
+| t010 attempt-001、t011 attempt-002、t011 attempt-003、t012 attempt-002、t012 attempt-004、t015 attempt-001、t016 attempt-001 | REVISE | 没有终审：内核按跑满时限或门禁热修补之后的返工记的 |
+
+  各条 PASS 的终审回合：t009 20261021T183344183495Z-ce44、t010 20261021T185539073300Z-b31f、t011 20261022T122503394973Z-eeef、t012 20261021T232425372116Z-cc4b、t013 20261022T023121573912Z-3f3f、t014 20261022T175317052764Z-463b、t015 20261023T225722074809Z-cf3d、t016 20261024T143820641818Z-ab5b。
+- **测试与变异**：test_kit_hub 新增 2 条：有交付之前的旧终审、作废的终审与合格的终审时，只认交付之后合格的那一个，写出模型、档位与回合号，不再出现 claude-sonnet-5-5；没有终审时照实写，也不抄早先的报告。test_kit_hub 245 条通过。变异 4 个全部抓住：复审者照旧写死、不看交付时刻、作废的终审回合也算、没有终审也抄早先的报告。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

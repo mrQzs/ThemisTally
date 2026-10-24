@@ -2793,6 +2793,52 @@ def test_pi_help_is_probed_once_per_pi_command(monkeypatch):
     assert REAL_PI_SUPPORTED_FLAGS(["node", "cli.js"], {}) is None and len(calls) == 2
 
 
+def audit_turn(hub, turn_id: str, finished_at: str, **extra) -> None:
+    record = {"turn_id": turn_id, "agent": "audit-sonnet", "session_key": "T001-7-audit-post",
+              "finished_at": finished_at, "models": ["cc-switch-qianwenai-token-plan/qwen3.8-max"],
+              "model_requested": "qwen3.8-max", "effort_requested": "high", "effort_effective": "high",
+              "output_error": None, "violations": []}
+    record.update(extra)
+    path = hub.root / "turns" / "audit-sonnet" / turn_id / "result.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+
+def review_env(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = locked(make_ts())
+    ts["oracle"]["sha"] = BASE
+    run_dir = tmp_path / "runs" / "attempt-002"
+    run_dir.mkdir(parents=True)
+    (run_dir / "candidate.patch").write_text("diff\n", encoding="utf-8")  # 交付时刻取它的修改时间（就是现在）
+    report = hub.task_dir("T001-7-audit-post") / "report.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("# 终审\n全部通过", encoding="utf-8")
+    return hub, ts, run_dir
+
+
+def test_the_review_record_names_the_model_of_the_final_audit_turn(tmp_path):
+    # 第 84 轮：原来写死 audit-sonnet（claude-sonnet-5-5，max），T009 起的终审其实是 glm-5.3、MiniMax、qwen3.8-max
+    hub, ts, run_dir = review_env(tmp_path)
+    audit_turn(hub, "t-old", "2000-01-01T00:00:00Z", models=["claude-sonnet-5-5"])  # 这个 attempt 交付之前的终审
+    audit_turn(hub, "t-bad", "2999-01-01T00:00:00Z", output_error="没有代码块")  # 作废的回合不算
+    audit_turn(hub, "t-final", "2998-01-01T00:00:00Z")
+    text = kh.write_review(hub, ts, run_dir, "PASS").read_text(encoding="utf-8")
+    assert ("- 复审者：audit-sonnet（cc-switch-qianwenai-token-plan/qwen3.8-max，思考档位要求 high、生效 high；"
+            "回合 t-final），终审报告如下") in text
+    assert "claude-sonnet-5-5" not in text and "全部通过" in text and text.rstrip().endswith("Verdict: PASS")
+
+
+def test_a_kernel_revise_without_an_audit_says_so(tmp_path):
+    # 跑满时限之类内核自己记的 REVISE：没有终审，也不抄这个任务早先的终审报告
+    hub, ts, run_dir = review_env(tmp_path)
+    audit_turn(hub, "t-old", "2000-01-01T00:00:00Z")
+    text = kh.write_review(hub, ts, run_dir, "REVISE").read_text(encoding="utf-8")
+    assert "- 复审者：没有终审回合（内核按 check 与运行状态记这一结论）" in text
+    assert "（这个 attempt 没有终审）" in text and "全部通过" not in text and "audit-sonnet（" not in text
+
+
 def test_info_letters_do_not_wake_workers(engine_env):
     hub = engine_env
     hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",

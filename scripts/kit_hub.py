@@ -3734,12 +3734,41 @@ def record_pass(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[str]:
     return None
 
 
+def final_audit_turn(hub: Hub, ts: Dict[str, Any], run_dir: Path) -> Optional[Dict[str, Any]]:
+    """这个 attempt 交付之后的最后一个终审回合记录（输出合格、没有违规）；没有终审过时为 None。"""
+    marker = run_dir / "candidate.patch"
+    since = _dt.datetime.fromtimestamp((marker if marker.is_file() else run_dir).stat().st_mtime,
+                                       _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    key = "%s-7-audit-post" % ts["task"]
+    found: List[Dict[str, Any]] = []
+    for path in (hub.root / "turns" / "audit-sonnet").glob("*/result.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (record.get("session_key") == key and str(record.get("finished_at") or "") >= since
+                and not record.get("output_error") and not record.get("violations")):
+            found.append(record)
+    return max(found, key=lambda r: str(r.get("finished_at"))) if found else None
+
+
 def write_review(hub: Hub, ts: Dict[str, Any], run_dir: Path, verdict: str) -> Path:
     """终审报告写成调度器的复审记录（verdict 要求的 “Verdict:” 行）。"""
     review_dir = hub.repo / ".agent" / "reviews" / ts["contract_task"]
     review_dir.mkdir(parents=True, exist_ok=True)
     review_path = review_dir / ("%s-hub.md" % run_dir.name)
-    audit_report = read_text(hub.task_dir("%s-7-audit-post" % ts["task"]) / "report.md")
+    # 第 84 轮：复审者从终审那一回合的记录取。原来写死“audit-sonnet（claude-sonnet-5-5，max）”，审核端第 36 轮起
+    # 先后是 glm-5.3、MiniMax-M3.1-Flash、qwen3.8-max（themistally-15 复核 T016 时指出）；跑满时限之类内核自己记的
+    # REVISE 根本没有终审，也不该把这个任务早先的终审报告抄进来
+    turn = final_audit_turn(hub, ts, run_dir)
+    if turn is None:
+        reviewer = "- 复审者：没有终审回合（内核按 check 与运行状态记这一结论）"
+        audit_report = "（这个 attempt 没有终审）"
+    else:
+        reviewer = "- 复审者：audit-sonnet（%s，思考档位要求 %s、生效 %s；回合 %s），终审报告如下" % (
+            ",".join(turn.get("models") or [str(turn.get("model_requested"))]), turn.get("effort_requested"),
+            turn.get("effort_effective") or "未回报", turn.get("turn_id"))
+        audit_report = read_text(hub.task_dir("%s-7-audit-post" % ts["task"]) / "report.md")
     gate = ts["gate_post"]
     body = [
         "# 复审记录：%s %s（七端信箱 hub）" % (ts["contract_task"], run_dir.name), "",
@@ -3748,7 +3777,7 @@ def write_review(hub: Hub, ts: Dict[str, Any], run_dir: Path, verdict: str) -> P
         "- 战后门禁：白盒测试退出码 %s；变异检查退出码 %s" % (gate.get("whitebox_exit"), gate.get("mutate_exit")),
         "- JEV：一审前 %s；终审前 %s" % ((ts["jev"].get("3j-jev") or {}).get("status"),
                                        (ts["jev"].get("6j-jev") or {}).get("status")),
-        "- 复审者：audit-sonnet（claude-sonnet-5-5，max），终审报告如下", "", "## 终审报告", "",
+        reviewer, "", "## 终审报告", "",
         audit_report.strip() or "（终审报告为空）", "", "Verdict: %s" % verdict, ""]
     if review_path.exists():
         review_path = review_dir / ("%s-hub-%s.md" % (run_dir.name, utc_compact()))
