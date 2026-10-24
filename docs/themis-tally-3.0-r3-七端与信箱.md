@@ -195,8 +195,8 @@ claude -p --model <模型> --effort <档位>
   --settings '{"autoMemoryEnabled": false, "advisorModel": ""}'
   --strict-mcp-config --disable-slash-commands
   --tools <白名单> [--allowedTools <Bash 规则>]
-  --add-dir <主工作区>
-  [--permission-mode acceptEdits --disallowedTools "Edit(//<主工作区>/**)" "Write(//<主工作区>/**)"]  # 有 Edit/Write 的工人
+  --add-dir <只读输入目录> [--add-dir <主工作区>/ts/node_modules] [--add-dir <主工作区>/desktop/web/node_modules]  # 第 88 轮
+  [--permission-mode acceptEdits --disallowedTools "Edit(//<主工作区>/**)" "Edit(//<输入目录>/**)" "Write(…)" …]  # 有 Edit/Write 的工人
   --permission-prompts none
   --append-system-prompt <角色提示词>
   (--session-id <uuid> | --resume <uuid>)  "<本回合输入>"
@@ -218,7 +218,7 @@ claude -p --model <模型> --effort <档位>
 | `--append-system-prompt-file` | 文件内容进了系统提示（角色提示词不占命令行） |
 | `--allowedTools "Bash(python -m pytest:*)"` 加 `--permission-prompts none` | pytest 能跑，`del` 被拒；`git status` 这类只读命令被内置规则放行 |
 | 默认权限模式 + `--permission-prompts none`（新环境，claude 2.1.303） | 工作目录里的 Write 也被拒（“没有人能答权限提示”）；工作目录之外的 Read 被拒。门禁端按旧的启动方式根本写不了测试 |
-| `--add-dir <主工作区>` | 主工作区可读：合同（`.agent/plans/`）、信箱、长输入文件、执行证据都只在主工作区里，worktree 里没有 |
+| `--add-dir <主工作区>` | 主工作区可读：合同（`.agent/plans/`）、信箱、长输入文件、执行证据都只在主工作区里，worktree 里没有。**第 88 轮起不再这样**：这些由内核每回合复制进只读输入目录，`--add-dir` 换成输入目录与两处已经装好的依赖（§10 第 88 轮） |
 | `--permission-mode acceptEdits` + `--disallowedTools "Write(//c/…/主工作区/**)"` | 工作目录里的写入放行，主工作区的写入被拒（“denied by your permission settings”）。绝对路径写成 `//` 加小写盘符、正斜杠 |
 | `--tools` 等变长参数 | 后面紧跟非选项参数会被吞掉（`--disallowedTools advisor "$P"` 把提示词当成了工具名）。拼命令时让它们后面紧跟另一个选项 |
 
@@ -1659,6 +1659,18 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 全量：TS 51 个文件 581 条通过、tsc 退出码 0；Python 2732 条通过、194 条跳过，唯一的失败是 test_kernel_impl 逐字钉了转交参数、没有 `complete_lines`，补上之后这个文件 76 条通过；
   - 变异 5 个（两组命令：Python 一组、TS 对照一组），每个都至少被一组抓住：Python 不认开关（两组都红）、TS 不认开关（TS 组）、转交名单漏键（两组都红）、Schema 没有这个键（TS 组）、第 86 轮的末尾空串（Python 组）。另一组漏掉的是改动不在它那一侧，属预期。
 - 顺手：第 86 轮的 `_later_difference` 把文件末尾换行 split 出来的空串算成一行（themistally-15 复核时指出），改按去掉它之后的行数判断。
+
+### 第 88 轮：工人不再需要主工作区（2026-10-24，七端改造第 2 条，站主批准、themistally-15 提出）
+
+- **为什么**：claude 工人一律 `--add-dir 主工作区`，pi 工人用 read 按绝对路径读主工作区，因为合同（`.agent/plans/` 不进提交）、信箱、长输入与执行证据只在那里。bash 碰主工作区时又要分只读与写，修这条判断用了约 6 轮（第 28、41、45、66、75、78 轮），门禁端在 step-5 上 53 条违规里 50 条是“bash 提到了主工作区”。T017 的战前门禁（glm-5.3）这一轮还在 bash 里跑了主工作区的 `pi_dispatch.py`，31 分钟的回合作废。
+- **改法**：
+  1. **只读输入目录**：每回合开工前，内核把这一回合要读的东西复制到 worktree 根目录下的 `<仓库名>-hub-inputs/<阶段任务>-<时刻>`，照相对仓库的原样摆放：本主任务各阶段的信箱目录（任务书、state、报告、门禁与变异的存档）、合同的各个版本、`.agent/runs/<合同任务>/` 的执行证据。只复制，不用硬链接或联接；文件设成只读；单个文件超过 4 MiB 的不复制（实测是十几 MB 的 events.jsonl），列进 `SKIPPED.md`。根下的 `INPUTS.json` 列着复制了哪些，回合目录另存一份 `inputs.json`。开工、返工连同超时续接与格式重试共用一份，回合结束就删。实测 T016 规模的主任务：294 个文件、3.1 MB、0.2 秒。
+  2. **提示词**：`turn_prompt` 里主工作区的路径（state、report、任务书、白盒与变异的存档、热修补的候选与检查日志、上一版变异清单）一律换成输入目录里的同一份；“仓库主工作区（只读参考）”换成“只读输入目录”；超过内联上限的长输入写进输入目录（回合目录在主工作区里，工人读不到）。
+  3. **claude 工人**：不再 `--add-dir 主工作区`，改为输入目录加两处已经装好的依赖（`ts/node_modules`、`desktop/web/node_modules`，有才加）；有写工具的，主工作区与输入目录的写入都拒绝。
+  4. **审计**：`pi_reach_problem` 改成任何工具的参数里出现主工作区的路径就判违规，读文件、搜索的工具读 `DEPENDENCY_DIRS` 是唯一的例外；读文件的相对路径解析之后落到主工作区也算。原来的只读命令、只读 git、无害重定向、按引号切段这套启发式（`READ_ONLY_COMMANDS`、`READ_ONLY_GIT`、`read_only_git`、`touches_main_unsafely`、`split_chain` 等）整个删掉。claude 的工具名对到 pi 的（`CLAUDE_REACH_NAMES`），`audit_claude_stream` 照同一套判断，原来 claude 只靠自己的权限。
+  5. **模板**：worker.md 写明输入目录、`INPUTS.json`、主工作区一律不碰、要跑内核的命令就跑工作目录里那一份；核实依赖只许用读文件、搜索的工具。
+- **仍是流程约束，不是隔离**：bash 经相对路径绕到主工作区查不出来；真正的隔离靠操作系统。
+- **测试与变异**：test_kit_hub 新增 4 条（复制范围、大小上限、只读、删除；每回合一份、回合结束就删、提示词里的路径换掉；回合目录存清单、长输入进输入目录；claude 也审主工作区），改写 3 条（pi 的读写规则、claude 的 `--add-dir` 与拒写规则、规划端的工具），删掉 4 条只测启发式的用例；测试里输入目录建在临时目录下。test_kit_hub 246 条通过，全量 2733 条通过、194 条跳过（pytest 退出码 0）。变异 14 个全部抓住：不建输入目录、不删、复制别的主任务、不设大小上限、不设只读、claude 照旧带主工作区、相对路径放过、依赖也不许读、claude 不审、长输入留在回合目录、不存清单、输入目录不拒写、提示词不换路径、bash 提到主工作区放过。
 
 ## 11. 已知缺口与下一步
 

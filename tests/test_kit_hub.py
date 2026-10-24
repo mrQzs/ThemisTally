@@ -1502,9 +1502,13 @@ class FakeRunner:
         self.outputs = list(outputs)
         self.calls = []
 
-    def run(self, agent, session_key, workspace, role_prompt, prompt, retry_of=None, fresh=False):
+    def run(self, agent, session_key, workspace, role_prompt, prompt, retry_of=None, fresh=False, inputs=None):
         self.calls.append((agent, session_key, prompt))
         self.fresh = getattr(self, "fresh", []) + [fresh]
+        # 第 88 轮：每回合的只读输入目录；记下它在回合进行时存不存在、里面有什么
+        self.inputs = getattr(self, "inputs", []) + [
+            (inputs, sorted(p.relative_to(inputs).as_posix() for p in inputs.rglob("*") if p.is_file())
+             if inputs is not None and inputs.is_dir() else None)]
         output, violations, *rest = self.outputs.pop(0)
         api_error = rest[0] if rest else None
         timed_out = rest[1] if len(rest) > 1 else False
@@ -1524,6 +1528,7 @@ def engine_env(tmp_path, monkeypatch):
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.setattr(kh, "ensure_worktree", lambda hub, ts, kind, commit: workspace)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo: tmp_path / "worktrees")  # 输入目录建在这里（第 88 轮）
     monkeypatch.setattr(kh, "role_prompt", lambda agent: "角色：%s" % agent)
     return hub
 
@@ -3040,11 +3045,14 @@ CLAUDE_AUDIT = {"role": "audit", "adapter": "claude", "model": "claude-sonnet-5-
                 "tools": ["Read", "Grep", "Glob"], "timeout": 2400, "workspace": "stage"}
 
 
-def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_path, monkeypatch):
+def test_claude_workers_read_the_inputs_and_write_only_their_worktree(tmp_path, monkeypatch):
     monkeypatch.setitem(kh.ROSTER, "gate-sonnet", CLAUDE_GATE)
     monkeypatch.setitem(kh.ROSTER, "audit-sonnet", CLAUDE_AUDIT)
     hub = kh.Hub(tmp_path)
     hub.ensure()
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (tmp_path / "ts" / "node_modules").mkdir(parents=True)  # 已经装好的依赖；desktop/web 的没有装就不加
     seen = []
 
     def launcher(cmd, cwd, env, out, err, timeout):
@@ -3052,16 +3060,17 @@ def test_claude_workers_read_the_main_repo_and_write_only_their_worktree(tmp_pat
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
     runner = kh.TurnRunner(hub, launcher=launcher)
-    runner.run("gate-sonnet", "T001-3-gate-pre", tmp_path / "ws", "角色", "输入")
-    runner.run("audit-sonnet", "T001-4-audit-pre", tmp_path / "ws", "角色", "输入")
+    runner.run("gate-sonnet", "T001-3-gate-pre", tmp_path / "ws", "角色", "输入", inputs=inputs)
+    runner.run("audit-sonnet", "T001-4-audit-pre", tmp_path / "ws", "角色", "输入", inputs=inputs)
     gate, audit = seen
-    for cmd in (gate, audit):  # 合同、信箱与执行证据只在主工作区里
-        assert cmd[cmd.index("--add-dir") + 1] == str(tmp_path)
-    # 默认模式下没人答权限提示，工作目录里的写入也会被拒：门禁端要 acceptEdits，主工作区的写入另行拒绝
+    for cmd in (gate, audit):  # 第 88 轮：不再 --add-dir 主工作区，只给输入目录与依赖
+        dirs = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--add-dir"]
+        assert dirs == [str(inputs), str(tmp_path / "ts" / "node_modules")] and str(tmp_path) not in dirs
+    # 默认模式下没人答权限提示，工作目录里的写入也会被拒：门禁端要 acceptEdits，主工作区与输入目录的写入另行拒绝
     assert gate[gate.index("--permission-mode") + 1] == "acceptEdits"
-    rule = kh.claude_path_rule(tmp_path)
+    rule, rule_inputs = kh.claude_path_rule(tmp_path), kh.claude_path_rule(inputs)
     assert gate[gate.index("--disallowedTools") + 1:gate.index("--permission-prompts")] == [
-        "Edit(%s)" % rule, "Write(%s)" % rule]
+        "Edit(%s)" % rule, "Edit(%s)" % rule_inputs, "Write(%s)" % rule, "Write(%s)" % rule_inputs]
     assert "--permission-mode" not in audit and "--disallowedTools" not in audit
 
 
@@ -3074,7 +3083,10 @@ def test_planner_may_only_run_npm_view(tmp_path):
         seen.append(cmd)
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
-    kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入",
+                                              inputs=inputs)
     cmd = seen[0]
     assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Bash"
     assert cmd[cmd.index("--allowedTools") + 1:cmd.index("--add-dir")] == ["Bash(npm view:*)"]
@@ -4530,7 +4542,7 @@ def test_claude_workers_return_to_the_workspace_after_each_command(tmp_path, mon
     runner.run("contract-glm", "T001-2-contract", tmp_path / "ws", "角色", "输入")
     assert "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR" not in seen[-1]
     worker = (kh.TEMPLATE_DIR / "worker.md").read_text(encoding="utf-8")
-    assert "不要 `cd` 到别处" in worker and "git -C" in worker
+    assert "不要 `cd` 到别处" in worker and "主工作区一律不碰" in worker and "只读输入目录" in worker
 
 
 def test_new_attempt_gate_post_starts_from_the_previous_whitebox(tmp_path):
@@ -4973,7 +4985,8 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
 def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
     repo, ws = tmp_path / "Repo", tmp_path / "Repo" / "wt"  # 测试里工作目录在仓库里：提到工作目录本身不算碰主工作区
     ws.mkdir(parents=True)
-    spec = {"tools": ["read", "write", "edit", "bash"], "provider": "p", "model": "m"}
+    spec = {"tools": ["read", "write", "edit", "bash", "grep"], "provider": "p", "model": "m"}
+    inputs = tmp_path / "inputs" / "T001-1-plan-x"
 
     def call(name, **args):
         return {"type": "tool_execution_start", "toolCallId": "c-%s" % name, "toolName": name, "args": args}
@@ -4981,40 +4994,34 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
     def audit(*events):
         return kh.audit_pi_stream(stream(*events), spec, ws, repo)
 
+    main = str(repo).replace("\\", "/")
     fine = audit(call("write", path="tests/test_gate_t001_baseline.py"), call("edit", path=str(ws / "a.py")),
-                 call("read", path=str(repo / ".agent" / "plans" / "t001.v1.md")),
+                 call("read", path=str(inputs / ".agent" / "plans" / "t001.v1.md")),  # 第 88 轮：材料在输入目录里
+                 call("read", path=str(ws / "scripts" / "kit_hub.py")),
+                 call("read", path=str(repo / "ts" / "node_modules" / "vitest" / "package.json")),  # 已经装好的依赖
+                 call("grep", pattern="export", path="%s/desktop/web/node_modules/react" % main),
                  call("bash", command="cd %s && python -m pytest -q tests" % str(ws).replace("\\", "/")),
+                 call("bash", command="python scripts/pi_dispatch.py --repo %s status" % str(ws).replace("\\", "/")),
                  call("bash", command="npm test"))
     assert fine["violations"] == [] and fine["warnings"] == []
-    looked = audit(call("bash", command="cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")),
-                   call("bash", command="grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))))
-    assert looked["violations"] == [] and len(looked["warnings"]) == 2 and "主工作区" in looked["warnings"][0]
-    # 第 41 轮：T012 门禁端的 `ls "<主工作区>/desktop/web/" 2>&1 | head` 被当成写入，整回合作废
-    main = str(repo).replace("\\", "/")
-    quiet = audit(call("bash", command='ls "%s/desktop/web/" 2>&1 | head -20; echo "---"' % main),
-                  call("bash", command='cd "%s" && ls "%s/.agent/" 2>/dev/null' % (str(ws).replace("\\", "/"), main)),
-                  call("bash", command="cat %s/a.md >&2 &>NUL; ls %s 2>>/dev/null" % (main, main)))
-    assert quiet["violations"] == [] and len(quiet["warnings"]) == 3
-    # 第 45 轮：T011 门禁端的 grep 模式里有 \|，按引号里的 | 切开之后 `require("` 不是只读命令，整回合作废
-    quoted = audit(call("bash", command='cd "%s" && grep -n "readFileSync\\|require(" tests/a.py | head; echo ===' % main),
-                   call("bash", command="grep -n 'a > b; rm -rf x' %s/f.py" % main),
-                   call("bash", command='grep -n "say \\"hi\\" > x" %s/f.py' % main),
-                   call("bash", command="grep -n a\\|b %s/f.py" % main))
-    assert quoted["violations"] == [] and len(quoted["warnings"]) == 4
-    segments, bare = kh.split_unquoted('a "x|y" | b && c; d || e & f')
-    assert segments == ['a "x|y"', "b", "c", "d", "e", "f"] and "x" not in bare and bare.split() == list("abcdef")
-    for event in (call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
-                  call("bash", command="ls %s 2>/dev/nullx" % main),  # 不是空设备：照旧算写入
-                  call("bash", command="cat %s/a 2>&1 > out.txt" % main),
-                  call("bash", command="cd %s && rm -rf tests" % main),
-                  call("bash", command='grep -n "x|y" %s/f.py | tee out.txt' % main),  # 引号外的管道照样切
-                  call("bash", command="echo 'a' > %s/f.py" % main),  # 引号外的 > 照样算写入
+    # 第 88 轮（七端改造第 2 条）：主工作区一律不碰。原来只读的写法（cat、grep、ls 2>&1、只读 git）只记警告，现在都作废
+    for event in (call("read", path=str(repo / ".agent" / "plans" / "t001.v1.md")),
+                  call("read", path="../.agent/mailbox/tasks/T001/brief.md"),  # 相对路径落到主工作区也算
+                  call("grep", pattern="x", path=str(repo / "scripts")),
+                  call("bash", command="cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")),
+                  call("bash", command="grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))),
+                  call("bash", command='ls "%s/desktop/web/" 2>&1 | head -20' % main),
+                  call("bash", command="git -C %s log --oneline -3" % main),
+                  call("bash", command="python %s/scripts/pi_dispatch.py --repo repo status --json" % main),  # T017 实测
+                  call("bash", command="cat %s/ts/node_modules/x/package.json" % main),  # 依赖也只许读文件的工具读
+                  call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
                   call("write", path=str(tmp_path / "Repo" / "wtx" / "a.py")),
+                  call("write", path=str(inputs / "x.md")),  # 输入目录也不许写
                   call("bash", command="cp a.py %s" % (repo / "scripts")),
-                  call("bash", command="cat x > %s" % str(repo / "y").replace("\\", "/")),
-                  call("bash", command="sed -i s/a/b/ %s" % (repo / "z")),
                   call("bash", command="ls && git -C %s checkout ." % str(repo).upper())):
-        assert len(audit(event)["violations"]) == 1, event
+        result = audit(event)
+        assert len(result["violations"]) == 1 and result["warnings"] == [], event
+    assert "主工作区" in audit(call("read", path=str(repo / "a.md")))["violations"][0]
     assert kh.audit_pi_stream(stream(call("write", path="../x")), spec)["violations"] == []  # 没给工作目录：照旧
     # 回合里也这样审：门禁端的回合写到工作目录之外，整回合作废
     hub = kh.Hub(repo)
@@ -5030,6 +5037,31 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
 
     turn = kh.TurnRunner(hub, launcher=launcher).run("gate-sonnet", "T001-3-gate-pre", ws, "角色", "输入")
     assert turn["violations"] == ["write 写到了工作目录之外：../outside.py"] and turn["output"] is None
+
+
+def test_claude_workers_are_audited_for_the_main_worktree_too(tmp_path):
+    # 第 88 轮：claude 的工具名对到 pi 的，同一套判断；原来 claude 只靠自己的权限
+    repo, ws = tmp_path / "Repo", tmp_path / "wt"
+    ws.mkdir(parents=True)
+    tools = ["Read", "Grep", "Glob", "Bash"]
+    spec, init = dict(SPEC, tools=tools), dict(INIT, tools=tools)
+
+    def use(name, **args):
+        return assistant({"type": "tool_use", "id": "u-%s" % name, "name": name, "input": args})
+
+    def violations(*events, **where):
+        return kh.audit_claude_stream(stream(init, *events, {"type": "result", "result": "ok"}), spec,
+                                      **where)["violations"]
+
+    assert violations(use("Read", file_path=str(ws / "a.md")), use("Grep", pattern="x", path=str(ws)),
+                      use("Read", file_path=str(repo / "ts" / "node_modules" / "a" / "package.json")),
+                      workspace=ws, repo=repo) == []
+    for event in (use("Read", file_path=str(repo / ".agent" / "plans" / "a.md")),
+                  use("Glob", pattern="*.md", path=str(repo / ".agent")),
+                  use("Bash", command="npm view x --prefix %s" % str(repo).replace("\\", "/"))):
+        found = violations(event, workspace=ws, repo=repo)
+        assert len(found) == 1 and "主工作区" in found[0], found
+    assert violations(use("Read", file_path=str(repo / "a.md"))) == []  # 没给工作目录：照旧只看白名单
 
 
 def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
@@ -6096,114 +6128,6 @@ def test_owner_sweeps_start_with_the_ts_reinstall(tmp_path, monkeypatch):
     assert ok and order == ["install", "gates"]
 
 
-def test_only_the_segments_that_touch_the_main_worktree_must_be_read_only(tmp_path):
-    # 第 66 轮：T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据；
-    # 以前整条命令里有 git（不是只读命令）就判越界，T014 那一回合跑了 16 分钟作废
-    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t014-post-attempt-002-x"
-    repo = tmp_path / "ThemisTally"
-    w, m = str(ws).replace("\\", "/"), str(repo).replace("\\", "/")
-
-    def verdict(command):
-        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
-
-    # 实测的那一条：只是提到主工作区、碰到它的段都只读 → 警告，不作废
-    assert verdict('cd "%s" && pwd && git status && echo "---LOG---" && git log --oneline -8 && echo "---" && '
-                   'wc -l "%s/.agent/runs/t014/attempt-002/candidate.patch"' % (w, m)) == "warning"
-    assert verdict('cd "%s" && git diff --stat && cat "%s/a.md" | head -5' % (w, m)) == "warning"
-    assert verdict("git status; ls %s/.agent | sort | uniq" % m) == "warning"
-    # 碰到主工作区的段不是只读 → 照旧越界
-    for command in (
-        "cd %s && git commit -qm x" % m,  # cd 进主工作区之后的段都算碰到
-        "cd %s && cd .agent && rm -rf runs" % m,  # 相对路径的 cd 还在主工作区里
-        'cd "%s" && git status && cd "%s" && git status' % (w, m),  # 先进工作目录、再进主工作区（status 会写索引）
-        "ls %s | xargs rm" % m,  # 主工作区的内容顺着管道流下去
-        "cat %s/a | sort | tee b.txt" % m,  # 管道里隔一段照样算
-        "cd %s/.agent; python -c 'print(1)'" % m,
-        "pushd %s && rm x" % m,
-        "wc -l %s/a > %s/count.txt" % (m, w),  # 碰到的段有写入重定向
-    ):
-        assert verdict(command) == "violation", command
-    # cd 到别处就出了主工作区：之后的段不算碰到
-    assert verdict("cd %s && ls && cd %s && git status" % (m, w)) == "warning"
-    assert verdict("cd %s && ls; cd ~ && git status" % m) == "warning"
-    assert verdict("cd %s && ls; cd /tmp && rm -f x" % m) == "warning"
-    # && 不是管道：前一段碰到主工作区，不连累后一段
-    assert verdict("cat %s/a.md && git -C %s status" % (m, w)) == "warning"
-
-
-def test_read_only_git_subcommands_may_touch_the_main_worktree(tmp_path):
-    # 第 75 轮：T015 门禁端 `cd <主工作区> && git log --oneline -3 && git status …` 整回合作废（27 分钟）。log、show
-    # 这类只读；status、diff 带 --no-optional-locks 才不写索引；-c 能设 core.fsmonitor 执行任意命令，一律不认
-    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t015-gate-x"
-    repo = tmp_path / "ThemisTally"
-    m = str(repo).replace("\\", "/")
-
-    def verdict(command):
-        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
-
-    for command in (
-        "cd %s && git log --oneline -3 && git --no-optional-locks status --porcelain=v1 | head -20" % m,
-        "git -C %s log -3 --stat" % m,
-        "git -C %s show HEAD:scripts/kit_hub.py | head" % m,
-        "cd %s && git rev-parse HEAD && git ls-files ts | wc -l" % m,
-        "git -C %s --no-optional-locks diff --no-ext-diff --stat HEAD~1" % m,
-        "cd %s && git grep -n read_only_git" % m,
-    ):
-        assert verdict(command) == "warning", command
-    for command in (
-        # 实测作废的那一条：status 不带 --no-optional-locks 会刷新索引，照旧越界
-        "cd %s && git log --oneline -3 && git status --porcelain=v1 --untracked-files=all | head -20" % m,
-        "cd %s && git diff" % m,
-        "git -C %s -c core.fsmonitor=x status" % m,
-        "git -c core.pager=less -C %s log" % m,
-        "git -C %s log --output=x.txt" % m,
-        "cd %s && git checkout -- a.txt" % m,
-        "cd %s && git stash" % m,
-        "git -C %s commit -qm x" % m,
-    ):
-        assert verdict(command) == "violation", command
-    note = kh.pi_reach_problem("bash", {"command": "cd %s && git status" % m}, ws, repo)[1]
-    assert "--no-optional-locks" in note
-    assert kh.read_only_git(["--version"]) and not kh.read_only_git(["-c", "a=b", "log"])
-
-
-def test_read_only_git_refuses_options_that_run_other_programs(tmp_path):
-    # 第 78 轮（themistally-15 复核第 75 轮）：grep -O<程序>、--open-files-in-pager、--ext-diff、--textconv、
-    # --filters 会经“只读”子命令执行别的程序；diff 平常就用外部 diff 程序；设 GIT_* 或 PAGER 的那一段不提主工作区
-    ws = tmp_path / "pi-worktrees" / "ThemisTally-hub-t016-gate-x"
-    repo = tmp_path / "ThemisTally"
-    m = str(repo).replace("\\", "/")
-
-    def verdict(command):
-        return kh.pi_reach_problem("bash", {"command": command}, ws, repo)[0]
-
-    for command in (
-        "git -C %s grep -o needle" % m,  # --only-matching 照旧只读
-        "git -C %s --no-optional-locks diff --no-ext-diff HEAD~1" % m,
-        "git -C %s log -p --no-textconv -3" % m,
-    ):
-        assert verdict(command) == "warning", command
-    for command in (
-        "git -C %s grep -Ovim needle" % m,
-        "git -C %s grep --open-files-in-pager=vim needle" % m,
-        "git -C %s show --ext-diff HEAD" % m,
-        "git -C %s log -p --textconv" % m,
-        "git -C %s cat-file --filters HEAD:a.txt" % m,
-        "git -C %s cat-file --textconv HEAD:a.txt" % m,
-        "git -C %s --no-optional-locks diff HEAD~1" % m,  # 没带 --no-ext-diff
-        "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=x && git -C %s log" % m,
-        "git_external_diff=x; git -C %s show HEAD" % m,
-        "export PAGER=x; git -C %s grep -O needle" % m,
-    ):
-        assert verdict(command) == "violation", command
-
-
-def test_split_chain_keeps_the_separators():
-    chain, bare = kh.split_chain('a "x|y" | b && c; d || e & f\ng')
-    assert chain == [("", 'a "x|y"'), ("|", "b"), ("&&", "c"), (";", "d"), ("||", "e"), ("&", "f"), ("\n", "g")]
-    assert kh.split_unquoted('a "x|y" | b && c')[0] == ['a "x|y"', "b", "c"]
-
-
 def test_background_sweeps_queue_behind_each_other(tmp_path, monkeypatch):
     # 第 68 轮：T014 落地时站主提交之后的回归与合入后回归同时跑全部门禁基准，两份前端流水线叠在一起，
     # T009 的 d14 有 13 条 Vitest 超时；后台回归之间也要排队
@@ -6222,3 +6146,84 @@ def test_background_sweeps_queue_behind_each_other(tmp_path, monkeypatch):
     assert not (hub.root / ".sweep").exists() and list(kh.exec_marks(hub).glob("*.json")) == []
     with kh.sweep_window(hub, "T001-after-land", "T001 合入后的门禁回归与落地预演"):
         pass  # 前一份跑完就轮到它
+
+
+# ---------------------------------------------------------------------------
+# 第 88 轮（七端改造第 2 条）：工人不再需要主工作区
+# ---------------------------------------------------------------------------
+
+def inputs_fixture(hub, monkeypatch, tmp_path):
+    monkeypatch.setattr(kh, "worktree_root", lambda repo: tmp_path / "worktrees")
+    monkeypatch.setattr(kh, "INPUT_FILE_LIMIT", 64)
+    stage = hub.task_dir("T001-1-plan")
+    stage.mkdir(parents=True, exist_ok=True)
+    (stage / "report.md").write_text("# 规划报告", encoding="utf-8")
+    (hub.task_dir("T001") / "brief.md").parent.mkdir(parents=True, exist_ok=True)
+    (hub.task_dir("T001") / "brief.md").write_text("# 任务书", encoding="utf-8")
+    other = hub.task_dir("T0011-1-plan")  # 名字以 T001 开头的别的主任务：不复制
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "report.md").write_text("别的任务", encoding="utf-8")
+    plans = hub.repo / ".agent" / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    (plans / "t001-doc.v1.md").write_text("# TASK: t001-doc", encoding="utf-8")
+    (plans / "t002-x.v1.md").write_text("# TASK: t002-x", encoding="utf-8")
+    run = hub.repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    run.mkdir(parents=True, exist_ok=True)
+    (run / "summary.md").write_text("# 摘要", encoding="utf-8")
+    (run / "events.jsonl").write_text("x" * 100, encoding="utf-8")  # 超过上限：不复制，列进清单
+
+
+def test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    inputs_fixture(hub, monkeypatch, tmp_path)
+    inputs, listing = kh.stage_inputs(hub, make_ts(), "T001-1-plan-x")
+    assert inputs == tmp_path / "worktrees" / (kh.INPUTS_DIR % tmp_path.name) / "T001-1-plan-x"
+    files = sorted(item["path"] for item in json.loads((inputs / kh.INPUTS_INDEX).read_text(encoding="utf-8"))["files"])
+    assert files == [".agent/mailbox/tasks/T001-1-plan/report.md", ".agent/mailbox/tasks/T001/brief.md",
+                     ".agent/plans/t001-doc.v1.md", ".agent/runs/t001-doc/attempt-001/summary.md"]
+    assert listing["skipped"] == [{"path": ".agent/runs/t001-doc/attempt-001/events.jsonl", "bytes": 100}]
+    assert "events.jsonl（100 字节）" in (inputs / "SKIPPED.md").read_text(encoding="utf-8")
+    copied = inputs / ".agent" / "plans" / "t001-doc.v1.md"
+    assert copied.read_text(encoding="utf-8") == "# TASK: t001-doc" and not os.access(str(copied), os.W_OK)
+    kh.remove_inputs(inputs)  # 只读的文件也删得掉
+    assert not inputs.exists()
+
+
+def test_each_turn_reads_its_own_copy_and_the_copy_is_gone_afterwards(engine_env, monkeypatch, tmp_path):
+    hub = engine_env
+    inputs_fixture(hub, monkeypatch, tmp_path)
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 2
+    for (inputs, listing), (_agent, _key, prompt) in zip(runner.inputs, runner.calls):
+        assert listing is not None and ".agent/plans/t001-doc.v1.md" in listing and "INPUTS.json" in listing
+        assert not any(path.startswith(".agent/mailbox/tasks/T0011") for path in listing)
+        assert "- 只读输入目录：%s" % inputs in prompt and "仓库主工作区（只读参考）" not in prompt
+        assert not inputs.exists()  # 回合结束就删
+    _inputs, (_a, _k, planner_prompt) = runner.inputs[1], runner.calls[1]
+    assert "## 任务书（%s）" % (runner.inputs[1][0] / ".agent" / "mailbox" / "tasks" / "T001-1-plan" / "brief.md") in planner_prompt
+
+
+def test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs(tmp_path, monkeypatch):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    inputs_fixture(hub, monkeypatch, tmp_path)
+    inputs, _listing = kh.stage_inputs(hub, make_ts(), "T001-1-plan-y")
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    prompt = "长" * (kh.MAX_INLINE_PROMPT + 1)
+    turn = kh.TurnRunner(hub, launcher=launcher).run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", prompt,
+                                                     inputs=inputs)
+    turn_dir = Path(turn["turn_dir"])
+    assert json.loads((turn_dir / "inputs.json").read_text(encoding="utf-8"))["skipped"][0]["bytes"] == 100
+    long_prompt = inputs / ("prompt-%s.md" % turn["turn_id"])  # 回合目录在主工作区里，工人读不到
+    assert long_prompt.read_text(encoding="utf-8") == prompt and str(long_prompt) in seen[0][-1]
+    kh.remove_inputs(inputs)

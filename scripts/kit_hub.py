@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -980,6 +981,91 @@ def worktree_root(repo: Path) -> Path:
     return root
 
 
+#: 回合的只读输入目录（第 88 轮，七端改造第 2 条）：worktree 根目录下的 <仓库名>-hub-inputs/<键>，每回合复制、
+#: 回合结束删除，清单留在回合目录的 inputs.json。只复制，不用硬链接或联接：工人写进去的东西回不到证据里
+INPUTS_DIR = "%s-hub-inputs"
+#: 输入目录根下的清单：复制了哪些、哪些太大没复制（工人可以读；回合目录另存一份 inputs.json）
+INPUTS_INDEX = "INPUTS.json"
+#: 单个文件超过这么大就不复制（多半是 events.jsonl、stderr.log），清单里记进 skipped
+INPUT_FILE_LIMIT = 4 * 1024 * 1024
+
+
+def input_sources(hub: Hub, ts: Dict[str, Any]) -> List[Path]:
+    """复制进输入目录的主工作区路径：本主任务各阶段的信箱目录（任务书、state、报告、门禁与变异的存档）、合同的各个版本、
+    调度器的执行证据。都照相对仓库的原样摆放：信里写的 `.agent/…` 路径在输入目录里照样找得到。"""
+    task = ts["task"]
+    tasks = hub.root / "tasks"
+    sources = [path for path in sorted(tasks.glob(task + "*"))
+               if path.is_dir() and (path.name == task or path.name.startswith(task + "-"))]
+    contract_task = ts.get("contract_task")
+    if contract_task:
+        plans = hub.repo / ".agent" / "plans"
+        sources += sorted(plans.glob("%s.v*.md" % contract_task)) + sorted(plans.glob("%s.v*.json" % contract_task))
+        runs = hub.repo / ".agent" / "runs" / contract_task
+        if runs.is_dir():
+            sources.append(runs)
+    return sources
+
+
+def _input_files(source: Path):
+    """source 下的普通文件，不顺着链接与联接走（证据目录本来就不该有，有也不跟）。"""
+    if source.is_file() and not source.is_symlink():
+        yield source
+        return
+    for folder, dirs, files in os.walk(str(source)):
+        dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(folder, name))
+                   and not getattr(os.path, "isjunction", lambda _p: False)(os.path.join(folder, name))]
+        for name in sorted(files):
+            path = Path(folder) / name
+            if not path.is_symlink():
+                yield path
+
+
+def stage_inputs(hub: Hub, ts: Dict[str, Any], key: str) -> Tuple[Path, Dict[str, Any]]:
+    """建这一回合的只读输入目录（第 88 轮）：照 input_sources 复制，文件设成只读；返回（目录，清单）。"""
+    target = worktree_root(hub.repo) / (INPUTS_DIR % hub.repo.name) / key
+    remove_inputs(target)
+    target.mkdir(parents=True)
+    files: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    for source in input_sources(hub, ts):
+        for path in _input_files(source):
+            rel = path.relative_to(hub.repo).as_posix()
+            size = path.stat().st_size
+            if size > INPUT_FILE_LIMIT:
+                skipped.append({"path": rel, "bytes": size})
+                continue
+            dest = target / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(path), str(dest))
+            os.chmod(str(dest), stat.S_IREAD)
+            files.append({"path": rel, "bytes": size})
+    index = {"files": files, "skipped": skipped}
+    (target / INPUTS_INDEX).write_text(json.dumps(index, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.chmod(str(target / INPUTS_INDEX), stat.S_IREAD)
+    if skipped:
+        note = ["# 没有复制进来的文件（超过 %d 字节）" % INPUT_FILE_LIMIT, ""] + [
+            "- %s（%d 字节）" % (item["path"], item["bytes"]) for item in skipped]
+        (target / "SKIPPED.md").write_text("\n".join(note) + "\n", encoding="utf-8", newline="\n")
+    return target, {"dir": str(target), "files": len(files), "bytes": sum(item["bytes"] for item in files),
+                    "skipped": skipped}
+
+
+def remove_inputs(path: Optional[Path]) -> None:
+    """删掉一个输入目录（文件是只读的：先改回可写再删）。"""
+    if path is None or not path.exists():
+        return
+
+    def writable(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(str(path), onexc=writable)
+    else:
+        shutil.rmtree(str(path), onerror=writable)
+
+
 def ensure_worktree(hub: Hub, ts: Dict[str, Any], kind: str, commit: str) -> Path:
     """阶段用的分离 HEAD worktree；同一种类在同一主任务里复用（会话续接要求工作目录不变）。"""
     recorded = ts["workspaces"].get(kind) or {}
@@ -1303,9 +1389,16 @@ def claude_path_rule(path: Path) -> str:
     return "//%s/**" % text.strip("/")
 
 
-def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
+#: claude 的工具名对应到 pi 的（第 88 轮）：碰没碰主工作区与 pi 用同一套判断（pi_reach_problem）
+CLAUDE_REACH_NAMES = {"Read": "read", "Grep": "grep", "Glob": "find", "LS": "ls", "Write": "write", "Edit": "edit",
+                      "MultiEdit": "edit", "NotebookEdit": "edit", "Bash": "bash"}
+
+
+def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optional[Path] = None,
+                        repo: Optional[Path] = None) -> Dict[str, Any]:
     """读内核自己截下的事件流：白名单之外的 tool_use / server_tool_use、init 的工具与 MCP、模型；
-    以及模型接口的报错（claude 把它合成为一条 `<synthetic>` 消息，带 error 与 api_error_status）。"""
+    以及模型接口的报错（claude 把它合成为一条 `<synthetic>` 消息，带 error 与 api_error_status）。
+    给了工作目录时，工具的参数照 pi_reach_problem 核对：写只能写工作目录，主工作区不许碰（第 88 轮）。"""
     allowed = set(spec["tools"])
     violations: List[str] = []
     tool_calls: Dict[str, int] = {}
@@ -1344,6 +1437,13 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
                         violations.append("调用了白名单之外的工具：%s（%s）" % (name, block.get("type")))
                     elif name not in allowed:
                         outside[str(block.get("id"))] = name
+                    elif workspace is not None:
+                        args = dict(block.get("input") or {})
+                        if "file_path" in args:
+                            args["path"] = args.pop("file_path")
+                        level, note = pi_reach_problem(CLAUDE_REACH_NAMES.get(name, name), args, workspace, repo)
+                        if level == "violation":
+                            violations.append(note)
         elif kind == "user":
             content = (event.get("message") or {}).get("content")
             for block in content if isinstance(content, list) else []:
@@ -1383,60 +1483,6 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str,
             "rate_limited_until": rejected_until if api_error and isinstance(rejected_until, int) else None}
 
 
-#: 只读的命令：bash 里提到主工作区、但整条命令都是这些（且没有重定向）时只记警告
-READ_ONLY_COMMANDS = {"cat", "head", "tail", "ls", "grep", "rg", "find", "wc", "sort", "uniq", "diff", "stat", "file",
-                      "echo", "pwd", "cut", "tr", "awk", "sed", "cd"}
-#: 碰主工作区时也算只读的 git 子命令（第 75 轮）：T015 门禁端 `cd <主工作区> && git log --oneline -3 && git status …`
-#: 整回合作废（27 分钟）。这些只读对象库与引用；status、diff 平常会顺手刷新索引（写 .git/index，与站主的
-#: exclusive 抢锁），带了 --no-optional-locks 才算只读。
-READ_ONLY_GIT = {"log", "show", "rev-parse", "ls-files", "ls-tree", "cat-file", "merge-base", "describe", "rev-list",
-                 "blame", "shortlog", "for-each-ref", "show-ref", "grep", "version"}
-NO_LOCK_GIT = {"status", "diff"}
-#: 让“只读”的 git 子命令执行别的程序的选项（第 78 轮）。
-RUNS_PROGRAM_GIT_OPTIONS = ("--ext-diff", "--textconv", "--filters", "--open-files-in-pager")
-#: 同一条命令里设了这些环境变量（export、赋值），git 就不算只读（第 78 轮）：GIT_CONFIG_COUNT、GIT_CONFIG_KEY_n、
-#: GIT_CONFIG_PARAMETERS 能注入配置（core.pager、diff.external…），GIT_EXTERNAL_DIFF、GIT_PAGER、PAGER 直接指定程序。
-#: 设变量的那一段不提主工作区路径，按段看照样漏网。命令已经小写
-GIT_ENV_INJECTION_RE = re.compile(r"\b(?:git_[a-z0-9_]+|pager)\s*=")
-
-
-def read_only_git(args: Sequence[str]) -> bool:
-    """`git <args>`（已小写）是不是只读（第 75 轮）。全局选项里的 -c 一律不认：core.fsmonitor、core.pager 这类设置能
-    执行任意命令。命令已经小写，-C <路径> 与 -c <键>=<值> 分不开，按后面那个词有没有 = 区分。--output 会写文件。"""
-    rest = list(args)
-    no_locks = False
-    while rest and rest[0].startswith("-"):
-        option = rest.pop(0)
-        if option == "--no-optional-locks":
-            no_locks = True
-        elif option == "-c":
-            if not rest or "=" in rest[0]:
-                return False
-            rest.pop(0)  # -C <路径>
-        elif option.startswith(("-c", "--config-env", "--exec-path")):
-            return False
-        elif option in ("--git-dir", "--work-tree", "--namespace") and rest:
-            rest.pop(0)
-    if not rest:
-        return True  # git --version 之类
-    command, options = rest[0], rest[1:]
-    if any(option.startswith("--output") for option in options):
-        return False
-    # 第 78 轮（themistally-15 复核第 75 轮）：这些选项会经“只读”子命令执行别的程序。--ext-diff 用外部 diff 程序，
-    # --textconv、--filters 跑配置里的转换程序；grep 的 -O<程序>（小写之后是 -o 加程序名）与 --open-files-in-pager
-    # 用指定程序打开匹配的文件。光一个 -o 是 --only-matching，照旧只读
-    if any(option.startswith(RUNS_PROGRAM_GIT_OPTIONS) for option in options):
-        return False
-    if command == "grep" and any(option.startswith("-o") and option != "-o" for option in options):
-        return False
-    if command == "diff" and "--no-ext-diff" not in options:
-        return False  # diff 平常就会用 GIT_EXTERNAL_DIFF 或 diff.external
-    return command in READ_ONLY_GIT or (command in NO_LOCK_GIT and no_locks)
-#: 不写文件的重定向：文件描述符之间（2>&1、>&2），或丢进空设备（2>/dev/null、&>nul）。第 41 轮：T012 门禁端的
-#: `ls "<主工作区>/desktop/web" 2>&1 | head` 因为 2>&1 里的 > 被当成写入，整回合作废
-HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d|&?\d*>>?\s*(?:/dev/null|nul)(?![\w./\\-])")
-
-
 def path_forms(path: Path) -> List[str]:
     """一个绝对路径在命令里可能的写法（小写）：C:\\a\\b、C:/a/b、/c/a/b。"""
     text = str(path.resolve())
@@ -1446,105 +1492,59 @@ def path_forms(path: Path) -> List[str]:
     return sorted(forms, key=len, reverse=True)
 
 
-def split_unquoted(command: str) -> Tuple[List[str], str]:
-    """按引号外的 |、||、&&、&、;、换行把命令切成段；返回（各段，去掉引号里内容的全文）。第 45 轮：T011 门禁端的
-    `grep -n "readFileSync\\|require(" …` 被按引号里的 | 切开，切出的 `require("` 不是只读命令，整回合作废。"""
-    chain, bare = split_chain(command)
-    return [segment for _sep, segment in chain], bare
+#: 工人可以按路径读的主工作区子树（第 88 轮）：已经装好的依赖，用来核实包的版本、导出与行为。只许读文件与搜索的
+#: 工具（READ_TOOLS）读，bash 不行；工作目录（worktree）里没有装依赖
+DEPENDENCY_DIRS = ("ts/node_modules", "desktop/web/node_modules")
+#: pi 上按路径读与搜索的工具：参数里的 path 就是读的位置
+READ_TOOLS = ("read", "grep", "find", "ls")
 
 
-def split_chain(command: str) -> Tuple[List[Tuple[str, str]], str]:
-    """同 split_unquoted，各段带上它前面的分隔符（第一段是空串）：返回（[(分隔符, 段)]，去掉引号里内容的全文）。"""
-    segments: List[Tuple[str, str]] = []
-    current: List[str] = []
-    bare: List[str] = []
-    quote: Optional[str] = None
-    sep = ""
-    i = 0
-    while i < len(command):
-        ch = command[i]
-        if quote:
-            current.append(ch)
-            if ch == quote:
-                quote = None
-            elif ch == "\\" and quote == '"' and i + 1 < len(command):
-                current.append(command[i + 1])
-                i += 1
-        elif ch in "'\"":
-            quote = ch
-            current.append(ch)
-        elif ch == "\\" and i + 1 < len(command):
-            current.append(command[i:i + 2])
-            i += 1
-        elif ch in "|&;\n":
-            segments.append((sep, "".join(current)))
-            current = []
-            bare.append(" ")
-            sep = ch
-            if command[i:i + 2] in ("||", "&&"):
-                sep = command[i:i + 2]
-                i += 1
-        else:
-            current.append(ch)
-            bare.append(ch)
-        i += 1
-    segments.append((sep, "".join(current)))
-    return [(s, seg.strip()) for s, seg in segments if seg.strip()], "".join(bare)
+def _within(target: str, root: str) -> bool:
+    """target 是不是 root 本身或它下面的路径（两个都已 normcase、abspath）。"""
+    return target == root or target.startswith(root.rstrip("\\/") + os.sep)
 
 
-#: cd 的目标是绝对路径、工作目录或家目录时离开主工作区；相对路径留在原处（第 66 轮）。
-CD_ELSEWHERE_RE = re.compile(r"^(?:/|[a-z]:|~|\{工作目录\})")
-
-
-def touches_main_unsafely(command: str, repo_forms: Sequence[str]) -> bool:
-    """一条已经小写、换掉了工作目录写法的 bash 命令，碰主工作区的那些段是不是只读（第 66 轮）。碰到的段：提到主工作区
-    路径的段；cd 进主工作区之后的段（直到 cd 到别处）；同一条管道里排在碰到的段后面的段（主工作区的内容顺着管道往下流，
-    `… | xargs rm`、`… | tee` 照样算写）。碰到的段要么第一个词不在 READ_ONLY_COMMANDS 里，要么有引号外的写入重定向或
-    sed -i，就算写。T013、T014 的门禁端事后检查先 cd 进自己的工作目录跑 git status、git log，再 wc 主工作区的证据，
-    以前按整条命令看，git 不是只读命令，整回合作废（T014 那一回合跑了 16 分钟）。
-
-    **这是启发式的流程约束，不是隔离**（第 78 轮之后与 themistally-15 定）：工人在自己的工作区里本来就能跑任意程序，
-    真正的隔离靠操作系统。名单式的判断总有漏网，已知的有：命令小写之后 grep 的 -O（用缺省分页程序打开文件）与 -o
-    分不开，less 又会执行 LESSOPEN 指定的预处理程序；HOME、XDG_CONFIG_HOME 能让 git 读另一份 gitconfig；bash 工具
-    若在两次调用之间保留环境变量，上一次 export 的变量这一次看不到。不再往名单里追加，除非又碰到实测作废的回合。"""
-    chain, _bare = split_chain(HARMLESS_REDIRECT_RE.sub(" ", command))
-    git_env_injected = GIT_ENV_INJECTION_RE.search(command) is not None
-    in_main = False
-    piped = False
-    for sep, segment in chain:
-        words = segment.split()
-        mentions = any(form in segment for form in repo_forms)
-        touching = mentions or in_main or (piped and sep == "|")
-        bare = split_chain(segment)[1]
-        read_only = words[0] in READ_ONLY_COMMANDS or (
-            words[0] == "git" and not git_env_injected and read_only_git(words[1:]))
-        if touching and (not read_only or ">" in bare or "sed -i" in bare):
-            return True
-        if words[0] in ("cd", "pushd"):
-            target = words[1].strip("'\"") if len(words) > 1 else "~"
-            in_main = True if mentions else (False if CD_ELSEWHERE_RE.match(target) else in_main)
-        piped = touching
-    return False
+def _arg_strings(value: Any) -> List[str]:
+    """参数里的全部字符串（嵌套的列表与字典也取）：主工作区的路径写在哪个键里都算。"""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _arg_strings(item)]
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _arg_strings(item)]
+    return []
 
 
 def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Optional[Path]) -> Tuple[str, str]:
-    """pi 不按路径限制写入（claude 有 --disallowedTools 与 --allowedTools）：写文件的工具只能写工作目录，
-    bash 不能碰主工作区（第 36 轮，门禁端换到 pi 上）。返回（"violation" / "warning" / "", 说明）。"""
+    """工具调用碰没碰不该碰的地方。返回（"violation" 或 "", 说明）。
+
+    写文件的工具只能写工作目录（第 36 轮，门禁端换到 pi 上）。第 88 轮（七端改造第 2 条）：工人要读的合同、信箱与执行证据
+    由内核每回合复制进只读输入目录，主工作区一律不碰，任何工具的参数提到主工作区就判违规；例外只有读文件与搜索的工具
+    读 DEPENDENCY_DIRS。原来 bash 碰主工作区时按启发式分只读与写（第 66、75、78 轮的只读命令、只读 git、无害重定向），
+    这一套整个撤掉，命令怎么写都不用再猜。仍是流程约束，不是隔离：经相对路径绕到主工作区的 bash 查不出来。"""
     root = os.path.normcase(os.path.abspath(str(workspace)))
     if name in ("write", "edit"):
         raw = str(args.get("path") or "")
         target = os.path.normcase(os.path.abspath(raw if os.path.isabs(raw) else os.path.join(str(workspace), raw)))
-        if target != root and not target.startswith(root.rstrip("\\/") + os.sep):
+        if not _within(target, root):
             return "violation", "%s 写到了工作目录之外：%s" % (name, raw)
-    if name == "bash" and repo is not None:
-        command = str(args.get("command") or "").lower()
-        for form in path_forms(workspace):
-            command = command.replace(form, "{工作目录}")  # 占位符不能带 >：会被当成重定向（第 41 轮）
-        forms = path_forms(repo)
-        if any(form in command for form in forms):
-            note = ("bash 命令提到了主工作区（主工作区的文件用 read 读；git 只许 log、show 这类只读子命令，status、diff 要写成 "
-                    "git --no-optional-locks status）：%s" % str(args.get("command"))[:200])
-            return ("violation" if touches_main_unsafely(command, forms) else "warning"), note
+    if repo is None:
+        return "", ""
+    main = os.path.normcase(os.path.abspath(str(repo)))
+    if name in READ_TOOLS and args.get("path") is not None:
+        raw = str(args.get("path"))
+        target = os.path.normcase(os.path.abspath(raw if os.path.isabs(raw) else os.path.join(str(workspace), raw)))
+        if not _within(target, root) and _within(target, main):  # 测试里工作目录可以在仓库里面
+            if any(_within(target, os.path.normcase(os.path.join(main, *dep.split("/")))) for dep in DEPENDENCY_DIRS):
+                return "", ""
+            return "violation", ("%s 读了主工作区：%s。合同、信箱与执行证据在只读输入目录里，主工作区只许读已经装好的依赖"
+                                 "（%s）" % (name, raw, "、".join(DEPENDENCY_DIRS)))
+    text = " ".join(_arg_strings(args)).lower()
+    for form in path_forms(workspace):
+        text = text.replace(form, "{工作目录}")
+    if any(form in text for form in path_forms(repo)):
+        return "violation", "%s 的参数提到了主工作区（材料在只读输入目录里，主工作区不许碰）：%s" % (
+            name, " ".join(_arg_strings(args))[:200])
     return "", ""
 
 
@@ -1647,8 +1647,9 @@ class TurnRunner:
         self.launcher = launcher or pd.run_supervised
 
     def run(self, agent: str, session_key: str, workspace: Path, role_prompt: str, prompt: str,
-            retry_of: Optional[str] = None, fresh: bool = False) -> Dict[str, Any]:
-        """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。"""
+            retry_of: Optional[str] = None, fresh: bool = False, inputs: Optional[Path] = None) -> Dict[str, Any]:
+        """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。
+        inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。"""
         spec = ROSTER[agent]
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
@@ -1665,8 +1666,14 @@ class TurnRunner:
         if first:
             session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-g%d" % (session_key, generation),
                        "cwd": str(workspace), "turns": 0, "created_at": utc_now(), "generation": generation}
+        long_prompt = turn_dir / "prompt.md"
+        if inputs is not None and len(prompt) > MAX_INLINE_PROMPT:
+            long_prompt = inputs / ("prompt-%s.md" % turn_id)  # 第 88 轮：回合目录在主工作区里，工人读不到
+            long_prompt.write_text(prompt, encoding="utf-8", newline="\n")
+        if inputs is not None and (inputs / INPUTS_INDEX).is_file():
+            shutil.copyfile(str(inputs / INPUTS_INDEX), str(turn_dir / "inputs.json"))
         inline = prompt if len(prompt) <= MAX_INLINE_PROMPT else (
-            "本回合的输入很长，已写在文件里，先完整读它再开始：%s" % (turn_dir / "prompt.md"))
+            "本回合的输入很长，已写在文件里，先完整读它再开始：%s" % long_prompt)
         if spec["adapter"] == "claude":
             cmd = ["claude", "-p", "--model", spec["model"], "--effort", spec["effort"],
                    "--output-format", "stream-json", "--verbose", "--setting-sources", "project",
@@ -1674,14 +1681,18 @@ class TurnRunner:
                    "--tools", ",".join(spec["tools"])]
             if spec.get("allowed_rules"):
                 cmd += ["--allowedTools"] + list(spec["allowed_rules"])
-            # 主工作区只读：合同（.agent/plans/）、信箱、长输入文件与执行证据都在那里，worktree 里没有。
-            cmd += ["--add-dir", str(self.hub.repo)]
+            # 第 88 轮（七端改造第 2 条）：不再 --add-dir 主工作区。合同、信箱、长输入与执行证据由内核复制进只读
+            # 输入目录；主工作区里只给已经装好的依赖（核实包的版本与行为）
+            for extra in ([inputs] if inputs is not None else []) + [
+                    self.hub.repo / dep for dep in DEPENDENCY_DIRS if (self.hub.repo / dep).is_dir()]:
+                cmd += ["--add-dir", str(extra)]
             writes = sorted({"Edit", "Write"} & set(spec["tools"]))
             if writes:
                 # 没有人能答权限提示，默认模式下连工作目录里的写入也会被拒（2026-10-19 实测）：
-                # 工作目录里的写入自动放行，主工作区的写入一律拒绝（拒绝规则优先）。
+                # 工作目录里的写入自动放行，主工作区与输入目录的写入一律拒绝（拒绝规则优先）。
                 cmd += ["--permission-mode", "acceptEdits", "--disallowedTools"] + [
-                    "%s(%s)" % (tool, claude_path_rule(self.hub.repo)) for tool in writes]
+                    "%s(%s)" % (tool, claude_path_rule(root)) for tool in writes
+                    for root in [self.hub.repo] + ([inputs] if inputs is not None else [])]
             cmd += ["--permission-prompts", "none", "--append-system-prompt-file", str(role_path)]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
@@ -1709,7 +1720,7 @@ class TurnRunner:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
         lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
-        audit = (audit_claude_stream(lines, spec) if spec["adapter"] == "claude"
+        audit = (audit_claude_stream(lines, spec, workspace, self.hub.repo) if spec["adapter"] == "claude"
                  else audit_pi_stream(lines, spec, workspace, self.hub.repo))
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
@@ -3948,8 +3959,21 @@ def external_facts_section(ts: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def input_path(hub: Hub, inputs: Optional[Path], path: Any) -> str:
+    """主工作区里的一个路径，在输入目录里对应的那一份（第 88 轮）；没有输入目录（测试直接调）或不在仓库里时原样。"""
+    text = str(path)
+    if inputs is None or not text:
+        return text
+    try:
+        rel = os.path.relpath(os.path.abspath(text), os.path.abspath(str(hub.repo)))
+    except ValueError:  # 不在同一个盘
+        return text
+    return text if rel == os.pardir or rel.startswith(os.pardir + os.sep) else str(inputs / rel)
+
+
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
-                workspace: Path, error: Optional[str] = None) -> str:
+                workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None) -> str:
+    shown = lambda path: input_path(hub, inputs, path)  # noqa: E731  主工作区的路径一律换成输入目录里的
     spec = ROSTER[agent]
     role = spec["role"]
     task_dir = hub.task_dir(task_id)
@@ -3958,9 +3982,11 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
              "- 主任务：%s %s" % (ts["task"], ts["title"]),
              "- 本回合的任务：%s" % task_id,
              "- 工作目录：%s" % workspace,
-             "- 仓库主工作区（只读参考）：%s" % hub.repo,
-             "- 你的 state.md：%s" % (task_dir / "state.md"),
-             "- 你的 report.md：%s（内核按你的输出写）" % (task_dir / "report.md")]
+             ("- 只读输入目录：%s（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 `.agent/…` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 %s）" % (inputs, "、".join(
+                 str(hub.repo / dep) for dep in DEPENDENCY_DIRS)) if inputs is not None else
+              "- 仓库主工作区（只读参考）：%s" % hub.repo),
+             "- 你的 state.md：%s" % shown(task_dir / "state.md"),
+             "- 你的 report.md：%s（内核按你的输出写）" % shown(task_dir / "report.md")]
     if spec.get("timeout"):
         # 第 53 轮：T011 的门禁端把 40 分钟都花在调查上，只改了一处就超时，整回合作废、一封信也没交出
         parts.append("- 本回合时限：%d 分钟。到点整个回合作废、什么也交不出：先把能确定的做完并交付，没做完的写进"
@@ -3984,10 +4010,10 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
         parts += ["", "## 主任务状态（内核）", "", stage_status_table(hub, ts)]
         owner_brief = read_text(hub.task_dir(ts["task"]) / "brief.md")
         if owner_brief and any("\ntype: 任务\n" in letter for letter in letters):
-            parts += ["", "## 站主的任务书（%s）" % (hub.task_dir(ts["task"]) / "brief.md"), "", owner_brief]
+            parts += ["", "## 站主的任务书（%s）" % shown(hub.task_dir(ts["task"]) / "brief.md"), "", owner_brief]
     else:
         brief = read_text(task_dir / "brief.md")
-        parts += ["", "## 任务书（%s）" % (task_dir / "brief.md"), "", brief or "（没有任务书）"]
+        parts += ["", "## 任务书（%s）" % shown(task_dir / "brief.md"), "", brief or "（没有任务书）"]
         state = read_text(task_dir / "state.md")
         if state:
             parts += ["", "## 你上次留下的 state.md", "", state]
@@ -4001,14 +4027,14 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           "上一轮没提的建议类意见不能在这一轮升级成阻塞项。"]
             if stage == "7-audit-post" and ts["gate_post"].get("whitebox_file"):
                 parts += ["", "- 白盒测试文件（内核存档，就是跑出下面结果的那一份）：%s"
-                          % (hub.repo / ts["gate_post"]["whitebox_file"])]
+                          % shown(hub.repo / ts["gate_post"]["whitebox_file"])]
             if stage == "7-audit-post" and ts["gate_post"].get("mutate_record"):
-                parts += ["", "- 内核的变异记录（逐条结果）：%s" % (hub.repo / ts["gate_post"]["mutate_record"]),
-                          "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
+                parts += ["", "- 内核的变异记录（逐条结果）：%s" % shown(hub.repo / ts["gate_post"]["mutate_record"]),
+                          "- 白盒测试的输出：%s" % shown(hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
             if stage == "7-audit-post" and ts["gate_post"].get("defects"):
                 parts += ["", "## 门禁端举证的候选缺陷（逐条裁定：成立的写进阻塞项、退回执行端；"
                           "不成立的——白盒测试误读了合同——退回战后门禁；有缺陷时不能判通过）", "",
-                          "- 白盒测试的输出：%s" % (hub.repo / (ts["gate_post"].get("whitebox_log") or ""))] + [
+                          "- 白盒测试的输出：%s" % shown(hub.repo / (ts["gate_post"].get("whitebox_log") or ""))] + [
                     "- `%s`：%s —— 合同：%s" % (d["test"], d["where"], d["contract"])
                     for d in ts["gate_post"]["defects"]]
             if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
@@ -4062,7 +4088,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                 "- " + item for item in GATE_PITFALLS]
             claims = (ts.get("hotfix") or {}).get("claims") if stage == "3-gate-pre" else None
             if claims:
-                run_dir = ts["hotfix"].get("run_dir") or ""
+                run_dir = shown(ts["hotfix"].get("run_dir") or "")
                 parts += ["", "## 热修补：执行端说门禁测试有错（原话，内核转交）", "",
                           "- 逐条核实：说对了的改测试（断言的意图不变），说错了的不改，并在交付信里逐条写结论与依据"
                           "（合同出处、库的版本与源码位置、候选里的代码）。",
@@ -4070,7 +4096,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                               run_dir, run_dir, run_dir), ""] + ["- " + claim for claim in claims]
             if stage == "6-gate-post" and ts["gate_post"].get("mutate_spec"):
                 parts.append("- 你上一次交的变异清单，内核存了档（可读）：%s。返工时在它上面改，不必整份重写。"
-                             % ts["gate_post"]["mutate_spec"])
+                             % shown(ts["gate_post"]["mutate_spec"]))
             seeded = (ts["workspaces"].get("post-%s" % Path(ts["exec"].get("run_dir") or ".").name) or {}).get(
                 "whitebox_seeded") if stage == "6-gate-post" else None
             if seeded:
@@ -4267,12 +4293,17 @@ class Engine:
             return
         workspace = ensure_worktree(self.hub, ts, "base", ts["base_head"])
         self.hub.save_state(state)
-        prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace)
-        turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt)
-        if turn["output"] is None and not turn["violations"] and not turn.get("api_error"):
-            prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, error=turn["output_error"])
-            turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt,
-                                   retry_of=turn["turn_id"])
+        inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (main, utc_compact()))  # 第 88 轮
+        try:
+            prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, inputs=inputs)
+            turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt, inputs=inputs)
+            if turn["output"] is None and not turn["violations"] and not turn.get("api_error"):
+                prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, error=turn["output_error"],
+                                     inputs=inputs)
+                turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt,
+                                       retry_of=turn["turn_id"], inputs=inputs)
+        finally:
+            remove_inputs(inputs)
         state = self.hub.load_state()
         ts = state["tasks"][main]
         if turn.get("rate_limited_until") and not turn["violations"]:
@@ -4408,27 +4439,11 @@ class Engine:
             return
         workspace = self.stage_workspace(ts, agent, suffix)
         self.hub.save_state(state)
-        prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace)
-        # 返工：干净重启，只带任务书、state 与这封返工信（用户评审建议 2）
-        fresh = "返工" in kinds
-        turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh)
-        error = self.output_problem(agent, task_id, turn)
-        timeouts = 0
-        for retry in range(WORKER_RETRIES_AFTER_TIMEOUT):
-            if not error or turn["violations"] or turn.get("api_error"):  # 接口报错重试也没用
-                break
-            if retry and not timeouts:
-                break  # 输出不合格只重试一次
-            if retry and turn.get("timed_out"):
-                # 第 82 轮：超时只续一次。续上的回合又超时就停，交给协调人，返工开新会话。T016 的合同端在一个卡住的
-                # 会话里续了两次，又白等 80 分钟；换新会话 7 分钟就交了。账本里超时后的第一次续接 7 次成了 5 次
-                break
-            # 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
-            # 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
-            timeouts += 1 if turn.get("timed_out") else 0
-            prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, error=error)
-            turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"])
-            error = self.output_problem(agent, task_id, turn)
+        inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (task_id, utc_compact()))  # 第 88 轮
+        try:
+            turn, error, timeouts = self.worker_turns(agent, task_id, ts, texts, workspace, kinds, inputs)
+        finally:
+            remove_inputs(inputs)
         state = self.hub.load_state()
         ts = state["tasks"][main]
         if turn.get("rate_limited_until") and not turn["violations"]:
@@ -4624,6 +4639,34 @@ class Engine:
         self.hub.append_event("exec.rechecked", task=main, run_dir=run_dir, check_ok=ts["exec"]["check_ok"])
         self.finish_kernel_stage(state, ts, "exec-step", "5-exec", fields, ok=ts["exec"]["check_ok"])
         return ts["exec"]
+
+    def worker_turns(self, agent: str, task_id: str, ts: Dict[str, Any], texts: List[str], workspace: Path,
+                     kinds: Collection[str], inputs: Path) -> Tuple[Dict[str, Any], Optional[str], int]:
+        """一次开工或返工的回合，连同超时续接与格式重试（第 32、82 轮）；输入目录由调用方建、删（第 88 轮）。
+        返回（最后一个回合，它的输出问题，超时过几次）。"""
+        prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, inputs=inputs)
+        # 返工：干净重启，只带任务书、state 与这封返工信（用户评审建议 2）
+        fresh = "返工" in kinds
+        turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh, inputs=inputs)
+        error = self.output_problem(agent, task_id, turn)
+        timeouts = 0
+        for retry in range(WORKER_RETRIES_AFTER_TIMEOUT):
+            if not error or turn["violations"] or turn.get("api_error"):  # 接口报错重试也没用
+                break
+            if retry and not timeouts:
+                break  # 输出不合格只重试一次
+            if retry and turn.get("timed_out"):
+                # 第 82 轮：超时只续一次。续上的回合又超时就停，交给协调人，返工开新会话。T016 的合同端在一个卡住的
+                # 会话里续了两次，又白等 80 分钟；换新会话 7 分钟就交了。账本里超时后的第一次续接 7 次成了 5 次
+                break
+            # 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
+            # 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
+            timeouts += 1 if turn.get("timed_out") else 0
+            prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, error=error, inputs=inputs)
+            turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"],
+                                   inputs=inputs)
+            error = self.output_problem(agent, task_id, turn)
+        return turn, error, timeouts
 
     def handle_pass(self, state: Dict[str, Any], meta: Dict[str, str]) -> None:
         """协调人对执行端发“通过”：结项（verdict PASS 与 integrate）。"""
