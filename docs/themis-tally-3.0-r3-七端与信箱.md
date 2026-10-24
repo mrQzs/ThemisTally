@@ -1472,6 +1472,17 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 违规说明里补一句：git 只许只读子命令，status、diff 要写成 `git --no-optional-locks status`。
   - python 脚本证明不了只读，照旧越界。
 - **测试与变异**：`tests/test_kit_hub.py` 新增 1 条：6 种只读写法算警告，8 种（含实测作废的那一条、`-c` 两种写法、`--output`、checkout、stash、commit）照旧越界；第 66 轮那条里“再进主工作区跑 git log”的例子改成 git status。变异 4 个全部抓住：status 不带选项也放过、`-c` 当成 `-C`、不查 `--output`、git 一律算写。
+
+### 第 76 轮：输出模式不看色码；两边同一条正则的合同在校验时拒绝（2026-10-24，T015 白花的几次 attempt）
+
+- **现象**（T015 的协调人逐条核过检查记录）：
+  - 合同 V07 的 `output_must_match` 与 `output_must_not_match` 写成了同一条正则，任何实现都过不了；validate 照样放行，执行端跑了几轮才由一审退回合同端。
+  - V02–V04 退出码 0、测试全过，却因为输出模式没容忍色码判了失败。Windows 上 picocolors 不看是不是终端、一律上色，Vitest 的输出写进日志也带 ANSI 控制序列。
+- **改法**：
+  - `_validate_command`：同一条正则字面上同时出现在两边就报错，说明任何输出都过不了。写法不同、意思相同的判断不了。
+  - `_run_command_item`：输出模式对着去掉 ANSI 控制序列（CSI 与 OSC，`ANSI_ESCAPE_RE`）之后的文本匹配，日志照原样保存。检查、基线、变异都经这里。
+  - 调度器移植到 TS（第 ④ 步）时照搬。
+- **测试与变异**：新增 `tests/test_check_output_patterns.py`，3 条：带色码与 OSC 超链接的 Vitest 输出照样匹配、日志里色码还在；禁止模式照样对可见文本生效；两边同一条正则在校验时报错，类型不对时不重复报。变异 3 个全部抓住：不去色码、只去 CSI、不查两边相同。
 - **测试与变异**：
   - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
   - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。

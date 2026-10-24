@@ -63,6 +63,9 @@ PLAN_KEY_RE = re.compile(r"^(?P<task>[a-z0-9][a-z0-9-]{0,63})\.v(?P<ver>[1-9][0-
 TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 ITEM_ID_RE = re.compile(r"^[A-Z][A-Z0-9_-]{0,31}$")
+#: ANSI 控制序列：CSI（ESC [ … 终止字节，颜色、光标）与 OSC（ESC ] … BEL 或 ESC \，标题、超链接）。检查与变异的输出
+#: 模式对着去掉它们之后的文本匹配（第 76 轮）。
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 MODEL_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$")
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 PLACEHOLDER_RE = re.compile(r"【待填|REPLACE_WITH")
@@ -1615,6 +1618,13 @@ def _validate_command(item: Any, group: str, seen: Dict[str, str], errors: List[
                 re.compile(pattern)
             except re.error as exc:
                 errors.append("%s %s 正则无效：%s" % (cid, key, exc))
+    # 同一条正则既要匹配又不许出现：任何输出都过不了（第 76 轮：T015 合同的 V07 这样写，白花了几次 attempt）。
+    # 只比字面相同；写法不同、意思相同的两条判断不了
+    must, must_not = item.get("output_must_match", []), item.get("output_must_not_match", [])
+    if isinstance(must, list) and isinstance(must_not, list):
+        for pattern in sorted({p for p in must if isinstance(p, str)} & {p for p in must_not if isinstance(p, str)}):
+            errors.append("%s 同一条正则既在 output_must_match 又在 output_must_not_match 里，任何输出都过不了：%s"
+                          % (cid, pattern))
     env = item.get("env", {})
     if not isinstance(env, dict) or not all(isinstance(k, str) and ENV_NAME_RE.match(k) and isinstance(v, str)
                                             for k, v in env.items()):
@@ -4857,7 +4867,9 @@ def _run_command_item(item: Dict[str, Any], work_dir: Path, env: Dict[str, str],
     log_path = out_dir / ("%s.log" % cid)
     with open(log_path, "xb") as handle:
         result = run_supervised(argv, cwd, run_env, handle, subprocess.STDOUT, item["timeout_seconds"], grace)
-    text = log_path.read_text(encoding="utf-8", errors="replace")
+    # 输出模式对着去掉 ANSI 控制序列之后的文本匹配（第 76 轮）；日志照原样保存。Windows 上 picocolors 不看是不是终端，
+    # 一律上色，Vitest 的输出写进文件也带色码：T015 合同的 V02–V04 退出码 0、测试全过，却因为模式没容忍色码判了失败
+    text = ANSI_ESCAPE_RE.sub("", log_path.read_text(encoding="utf-8", errors="replace"))
     must = [{"pattern": p, "matched": bool(re.search(p, text, re.M))} for p in item.get("output_must_match", [])]
     must_not = [{"pattern": p, "matched": bool(re.search(p, text, re.M))}
                 for p in item.get("output_must_not_match", [])]
