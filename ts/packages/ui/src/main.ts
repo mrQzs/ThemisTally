@@ -6,6 +6,7 @@
 // 骨架（规划端提交）只做参数的检查；服务本身（握手、监听、会话、控制接口、安全基线、空闲退出、stdin EOF 的
 // 关停）由 hub 的 D1-B 第 1 片实现，在 server.ts 的 serveUi 里（Bun 运行）。本包不在内核禁区里，经 hub 派给
 // 执行器（T11）。serveUi 用动态导入：它那边要引用本文件的退出码常量，静态导入会成环。
+import "@themis/base/harden"; // 第一个 import：桌面应用直接起打包好的程序时，这里就是入口（第 77 轮）
 import { statSync } from "node:fs";
 
 /** 交给 runUi 的参数：`pi_dispatch.py ui` 的 argparse 结果加上调度器补的几项（cmd_ui，pyargs-v1 的 ui 一支）。 */

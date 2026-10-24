@@ -3,11 +3,15 @@
 //   Windows：tasklist /FI "PID eq <pid>" /NH，输出里有这个编号就是 true；tasklist 跑不起来或非 0 退出为 null
 //   POSIX：kill(pid, 0)，ESRCH 为 false，EPERM（进程在、只是没权限）为 true
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+
+/** tasklist 的绝对路径（第 77 轮的第二道防线：不按名字起，当前目录里的同名程序顶替不了）。 */
+const TASKLIST = join(process.env["SystemRoot"] ?? "C:/Windows", "System32", "tasklist.exe");
 
 export function pidAlive(pid: number | null | undefined): boolean | null {
   if (!pid) return null;
   if (process.platform === "win32") {
-    const done = spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH"], { encoding: "utf8", timeout: 20_000 });
+    const done = spawnSync(TASKLIST, ["/FI", `PID eq ${pid}`, "/NH"], { encoding: "utf8", timeout: 20_000 });
     if (done.error || done.status !== 0) return null;
     return done.stdout.split(/\s+/).includes(String(pid));
   }

@@ -5,6 +5,7 @@
 // 报错照两边各自的写法：调度器的命令（status）写 `ERROR: ` 加 redact_tokens 之后的消息；kit_logs 的命令写
 // `ERROR: ` 加原消息，嵌套太深之类写 `ERROR: <类型>: <消息>`。Python 会打堆栈的地方（证据文件的类型不对等），
 // 这里写一行“崩溃”，退出码 1，契约只比较退出码。
+import "@themis/base/harden"; // 第一个 import：赶在其他模块的顶层代码之前设上，按名字起程序不查当前目录（第 77 轮）
 import { initFileAttributes } from "@themis/base/native";
 import { PyCrash, PyOut } from "@themis/base/pyfmt";
 import { PyJsonError, type PyValue, loads } from "@themis/base/pyjson";

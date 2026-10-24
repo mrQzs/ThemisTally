@@ -57,6 +57,23 @@ CONTRACT_SCHEMA_VERSION = 1
 MIN_PI_VERSION = (0, 80, 4)  # agent_settled 事件自 0.80.4 起提供
 IS_WINDOWS = os.name == "nt"
 
+#: 按名字起程序时不查当前目录（第 77 轮，themistally-15 复核 T015 时实测）。Windows 上 CreateProcess 与 libuv 按名字
+#: 找程序时，调用方自己的当前目录排在 System32 之前：仓库里放一个 git.exe，在仓库里跑本工具就会执行它。环境里有这个
+#: 变量（值不论）就不查当前目录，shutil.which 也认它。本模块一导入就设上，导入它的 kit_hub、kit_install 跟着受
+#: 保护，子进程照常继承；child_env、handoff_env 另外强制带上，配置删不掉。
+EXE_SEARCH_GUARD = "NoDefaultCurrentDirectoryInExePath"
+
+
+def harden_executable_search() -> None:
+    if IS_WINDOWS:
+        os.environ[EXE_SEARCH_GUARD] = "1"
+
+
+harden_executable_search()
+#: System32 里的工具用绝对路径起（第 77 轮的第二道防线）。
+SYSTEM_TOOL = {name: os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "System32", name + ".exe")
+               for name in ("tasklist", "taskkill")}
+
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_BLOCKED, EXIT_DRIFT = 0, 1, 2, 3, 4
 
 PLAN_KEY_RE = re.compile(r"^(?P<task>[a-z0-9][a-z0-9-]{0,63})\.v(?P<ver>[1-9][0-9]{0,3})$")
@@ -723,6 +740,8 @@ def child_env(config: Dict[str, Any], extra: Optional[Dict[str, str]] = None) ->
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")  # 避免 __pycache__ 混入候选或造成漂移
     if extra:
         env.update(extra)
+    if IS_WINDOWS:
+        env[EXE_SEARCH_GUARD] = "1"  # 第 77 轮：env_remove 与 extra 都去不掉
     return env, sorted(removed)
 
 
@@ -917,7 +936,7 @@ def _terminate_tree(proc: "subprocess.Popen[bytes]", job: Optional[_WinJob], gra
         if job is not None:
             job.terminate()
         else:
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], stdin=subprocess.DEVNULL,
+            subprocess.run([SYSTEM_TOOL["taskkill"], "/PID", str(proc.pid), "/T", "/F"], stdin=subprocess.DEVNULL,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             proc.wait(timeout=30)
@@ -1052,7 +1071,7 @@ def pid_alive(pid: Optional[int]) -> Optional[bool]:
     if not pid:
         return None
     if IS_WINDOWS:
-        code, out, _ = run_capture(["tasklist", "/FI", "PID eq %d" % pid, "/NH"], timeout=20)
+        code, out, _ = run_capture([SYSTEM_TOOL["tasklist"], "/FI", "PID eq %d" % pid, "/NH"], timeout=20)
         if code != 0:
             return None
         return str(pid) in out.split()
@@ -8726,8 +8745,11 @@ def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str
 def handoff_env(source: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """TS 子进程的环境：与这条命令走 Python 时看到的 os.environ 相同，只去掉 TS_RUNTIME_ENV_DROP。"""
     drop = {name.upper() for name in TS_RUNTIME_ENV_DROP}
-    return {name: value for name, value in (os.environ if source is None else source).items()
-            if name.upper() not in drop}
+    env = {name: value for name, value in (os.environ if source is None else source).items()
+           if name.upper() not in drop}
+    if IS_WINDOWS:
+        env[EXE_SEARCH_GUARD] = "1"  # 第 77 轮：TS 那边按名字起 git，不能查当前目录
+    return env
 
 
 def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int:

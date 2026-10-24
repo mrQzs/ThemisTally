@@ -10,6 +10,7 @@
 //   {"op":"interrupt"}                 → 正在运行的 supervise 照中断处理（调用方收到 Ctrl+C 之类的信号时转发）
 //   stdin 关闭（调用方死了）            → 立即退出：Job 句柄随进程关闭，KILL_ON_JOB_CLOSE 带走整棵树
 // 外部函数都在 native.ts，本文件不直接调 FFI。
+import "./harden.ts"; // 第一个 import：按名字起程序不查当前目录（第 77 轮）
 import { createInterface } from "node:readline";
 import { type FileLock, FileLockTimeout, helperAcquire } from "./native.ts";
 import { PyCrash } from "./pyfmt.ts";

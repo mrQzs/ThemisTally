@@ -1483,6 +1483,40 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - `_run_command_item`：输出模式对着去掉 ANSI 控制序列（CSI 与 OSC，`ANSI_ESCAPE_RE`）之后的文本匹配，日志照原样保存。检查、基线、变异都经这里。
   - 调度器移植到 TS（第 ④ 步）时照搬。
 - **测试与变异**：新增 `tests/test_check_output_patterns.py`，3 条：带色码与 OSC 超链接的 Vitest 输出照样匹配、日志里色码还在；禁止模式照样对可见文本生效；两边同一条正则在校验时报错，类型不对时不重复报。变异 3 个全部抓住：不去色码、只去 CSI、不查两边相同。
+
+### 第 77 轮：按名字起程序时不查当前目录（2026-10-24，themistally-15 复核 T015 时实测，安全）
+
+- **问题**：Windows 上 CreateProcess 与 libuv 按名字找程序时，调用方自己的当前目录排在 System32 之前；要看的是父进程自己的当前目录，与传给子进程的 cwd 无关。
+  - 仓库里放一个 git.exe，在仓库里跑 `pi_dispatch.py status` 就会执行它；
+  - 将来桌面应用打开一个克隆来的仓库也一样；
+  - `.ui.lock/owner.json` 能由仓库自己提交，让 pidAlive 去跑 tasklist。
+  - 在“打开一个不可信的仓库”这种威胁模型里，这是能执行任意代码的级别。
+  - 代码里按名字起的有：kit_hub 与 pi_dispatch 的 git、pid_alive 的 tasklist、_terminate_tree 后备的 taskkill；TS 的 base/process.ts 的 tasklist、dispatcher/repo.ts 的 git。
+  - hub 一直没出事，是因为 Claude Code 给 shell 设了 `NoDefaultCurrentDirectoryInExePath`；普通终端与桌面应用没有这层保护。
+- **实测**（规划端复现）：当前目录里放改了名的 hostname.exe 冒充 tasklist.exe。环境里没有这个变量时，Python subprocess、Node 与 Bun 的 spawnSync、Bun 下经 bun:ffi 的 runSupervised 都执行了冒牌程序。在运行时设上它（Python 的 `os.environ`，Node 与 Bun 的 `process.env`），四种都改为执行真的 tasklist。
+- **改法**（Python 与 TS 同改）：
+  - pi_dispatch 一导入就设上这个变量（`harden_executable_search`）。kit_hub、kit_install 在模块顶部导入 pd，起子进程都在函数里，跟着受保护。
+  - `child_env`、`handoff_env` 强制带上，配置的 env_remove 删不掉。
+  - tasklist、taskkill 改用 `%SystemRoot%\System32` 下的绝对路径（`SYSTEM_TOOL`），作为第二道防线。
+  - TS：新增副作用模块 `@themis/base/harden`，放在 cli 的 main.ts、native-helper.ts、ui 的 main.ts 的第一个 import（themistally-15：ESM 的 import 会被提升，写在函数体里来不及）；base/process.ts 的 tasklist 用绝对路径。
+  - 本机服务按 T5 构造内核子进程的环境时要保留这个变量，写进第 2 片的合同。
+- **测试与变异**：
+  - Python：`tests/test_exe_search.py`，7 条。
+    - 正对照：不导入 pd 时，按名字起 git 打印主机名；
+    - 导入 pd 之后，变量是 1，`git --version` 以 "git version" 开头；
+    - pid_alive 认得出自己（真的 tasklist 输出里有 pid），导入之后再删掉变量也一样；
+    - 在植入了 git.exe 的仓库里 status 照常答 `[]`；
+    - child_env 在 env_remove 列了它时照样带上；
+    - SYSTEM_TOOL 是绝对路径。
+  - TS：`base/test/harden.test.ts`，5 条。
+    - Node 的正对照；
+    - 导入 harden 之后 git 与 pidAlive 都是真的；
+    - 不导入 harden，pidAlive 也是真的（绝对路径）；
+    - Bun 的 runSupervised，不加固时打印主机名，加固后输出里有 Bun 自己的 pid；
+    - cli 的 status 在植入了 git.exe 的仓库里照常答 `[]`。
+  - 子进程的环境都显式去掉这个变量，否则在 Claude Code 与 hub 的环境里会空过。
+  - TS 全量 516 条全过。变异 7 个全部抓住：Python 不设变量、pid_alive 按名字、child_env 与 handoff_env 不强制；TS 不设变量、cli 不导入 harden、pidAlive 按名字。
+  - native-helper 与 ui 入口的那一行没有单独的测试：经 cli 进来时父进程已经设上了；桌面应用直接起单文件程序的路径在 D3 落地时补测。
 - **测试与变异**：
   - Python：`tests/test_run_supervised.py` 新增 4 条（假的 Job）：计数先 1 后 0 不算残留、不结束 Job；一直大于 0 等满时限才算；查不出来不等；干净退出只查一次。
   - TS：`supervise.test.ts` 的假 Win32 调用支持按次给出计数，新增 1 条，覆盖同样几种情形。
