@@ -34,6 +34,8 @@ export interface Route {
   readonly name: string;
   readonly method: "GET" | "POST";
   readonly pattern: RegExp;
+  /** 一次性引导地址与控制接口不验会话（外壳拿它们换会话）；其余路由一律要会话（T17：默认必须验证）。 */
+  readonly public?: true;
   readonly handle: (state: RouteState, params: readonly string[], input: RouteInput) => Response | Promise<Response>;
 }
 
@@ -53,6 +55,7 @@ export const ROUTES: readonly Route[] = [
     name: "bootstrap",
     method: "GET",
     pattern: BOOTSTRAP_RE,
+    public: true, // 一次性引导地址：拿它换会话，本身不要会话（T17）
     handle: (state, params) => {
       const nonce = params[0] ?? "";
       if (!state.nonces.consume(nonce)) return bootstrapRejected();
@@ -63,6 +66,7 @@ export const ROUTES: readonly Route[] = [
     name: "control.bootstrap",
     method: "POST",
     pattern: literal(CONTROL_PATH),
+    public: true, // 控制接口：门是穷举的（Host、Origin、控制令牌），不看会话（T17）
     handle: (state, _params, input) => {
       const verdict = state.control.check(input.request.headers);
       if (!verdict.ok) {

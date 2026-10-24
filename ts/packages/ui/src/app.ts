@@ -1,7 +1,9 @@
-// 请求管线（桌面端设计第 7 版 §5.2、D4）：把筛查、派发、安全头与访问记录按固定次序串起来。次序是安全边界的一部
-// 分——Host 先于一切（防 DNS 重绑定），方法先于会话（PUT 不带 cookie 也是 405，不泄露资源在不在），/api/ 先验
-// 会话（不存在的路径也 401，免得被探测），POST 再过 CSRF 与正文上限，最后才交给处理函数。这里照 WHATWG 的
-// Request/Response 写，不起服务也能测（app.test.ts 直接调 app.fetch）。
+// 请求管线（桌面端设计第 7 版 §5.2、D4、T17）：把筛查、派发、安全头与访问记录按固定次序串起来。次序是安全边界的一部
+// 分——Host 先于一切（防 DNS 重绑定），方法先于会话（PUT 不带 cookie 也是 405，不泄露资源在不在），会话默认必须
+// 验证：先 findRoute，命中且标了 public（一次性引导地址、控制接口）才不验，其余命中且路径以 /api/ 开头就要会话，
+// 没有就 401；没命中且路径以 /api/ 开头也 401（不存在的路径也不泄露它在不在），没命中且不是 /api/ 才是静态资源
+// （不验会话，照旧）。会话检查排在 POST 的 CSRF 与读正文之前。最后才交给处理函数，套安全头、记访问记录。这里照
+// WHATWG 的 Request/Response 写，不起服务也能测（app.test.ts 直接调 app.fetch）。
 import { readFile } from "node:fs/promises";
 import {
   AccessLog,
@@ -105,14 +107,18 @@ export function createApp(options: AppOptions): App {
         response.headers.set("allow", "GET, POST");
         return respond("rejected", response);
       }
-      // 3. /api/ 先验会话：不存在的路径也 401，免得被探测
-      if (pathname.startsWith("/api/") && !sessions.valid(readSessionCookie(request.headers))) {
-        return respond("unmatched", errorResponse(401, "未认证"));
-      }
+      // 3. 会话默认必须验证（T17）：先 findRoute，public 的不验，其余 /api/ 要会话，/api/ 下没命中的也 401
       const match = findRoute(method, pathname, extra);
       if (match === null) {
-        if (pathname.startsWith("/api/")) return respond("unmatched", errorResponse(404, "没有这个接口"));
+        if (pathname.startsWith("/api/")) {
+          // 不存在的 /api/ 路径：没有会话 401（不泄露它在不在），有会话才 404
+          if (!sessions.valid(readSessionCookie(request.headers))) return respond("unmatched", errorResponse(401, "未认证"));
+          return respond("unmatched", errorResponse(404, "没有这个接口"));
+        }
         return await serveStatic(pathname, respond);
+      }
+      if (match.route.public !== true && pathname.startsWith("/api/")) {
+        if (!sessions.valid(readSessionCookie(request.headers))) return respond("unmatched", errorResponse(401, "未认证"));
       }
       routeName = match.route.name;
       if (match.route.name === "control.bootstrap" && !controlOriginAllowed(request.headers)) {

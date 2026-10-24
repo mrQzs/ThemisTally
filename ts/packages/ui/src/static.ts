@@ -2,7 +2,7 @@
 // **只解码一次**：先在原始 pathname 里拒绝编码过的分隔符与 %00，之后 decodeURIComponent 只解一次，解码得到的
 // 字面内容（例如 %252e%252e 解一次是 %2e%2e）当成一个不存在的文件名，绝不再解第二次。每一类拒绝都有自己的
 // reason，纯函数、不碰进程状态，方便逐类钉住。
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes } from "@themis/base/native";
 
@@ -65,11 +65,16 @@ export function isReparsePoint(path: string): boolean {
   }
 }
 
+/** 解析时可注入的项（只给测试用）：stat 替身让「不是普通文件」这一类不依赖真实设备文件。 */
+export interface ResolveAssetOptions {
+  readonly stat?: (path: string) => Stats;
+}
+
 /**
  * 把 pathname 解析成 --assets 里的一个文件。步骤照合同：预解码拒绝、只解码一次、逐段检查、目录边界、重解析点、
- * realpath 边界、存在性、目录、后缀白名单。
+ * realpath 边界、存在性、目录、普通文件（T18：设备与管道文件不是静态资源）、后缀白名单。
  */
-export function resolveAsset(root: string, pathname: string): AssetResult {
+export function resolveAsset(root: string, pathname: string, options: ResolveAssetOptions = {}): AssetResult {
   if (ENCODED_NUL.test(pathname)) return refuse(400, "control-char");
   if (ENCODED_REJECT.test(pathname)) return refuse(400, "encoded-dot-or-separator");
   let decoded: string;
@@ -101,13 +106,15 @@ export function resolveAsset(root: string, pathname: string): AssetResult {
   } catch {
     // realpath 拿不到：交给下面的存在性检查说话
   }
+  const stat = options.stat ?? statSync;
   let stats;
   try {
-    stats = statSync(full);
+    stats = stat(full);
   } catch {
     return refuse(404, "not-found");
   }
   if (stats.isDirectory()) return refuse(404, "directory");
+  if (!stats.isFile()) return refuse(404, "not-a-file"); // 设备、管道、套接字都不是静态资源（T18）
   const extension = extname(basename(full)).replace(".", "").toLowerCase();
   const contentType = CONTENT_TYPES[extension];
   if (contentType === undefined) return refuse(404, "type-not-allowed");

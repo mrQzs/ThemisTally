@@ -10,10 +10,19 @@ import { withSecurityHeaders } from "./localhttp/headers.ts";
 import { randomToken } from "./localhttp/tokens.ts";
 import { acquireUiLock, busyMessage, type UiLock } from "./lockdir.ts";
 import { idleMs, IdleTimer, watchSignals, watchStdinEof } from "./lifecycle.ts";
+import { CursorTable } from "./cursors.ts";
+import { KernelRunner } from "./kernel.ts";
+import { readRoutes, type ReadRoutesState } from "./readroutes.ts";
 
 /** 测试入口才会传的覆盖项（CLI 与环境变量都碰不到）。 */
 export interface ServeOverrides {
   readonly nonceTtlMs?: number | undefined;
+  /** 同时在跑的内核子进程上限（缺省 4）。 */
+  readonly maxConcurrent?: number | undefined;
+  /** FIFO 队列长度（缺省 16）。 */
+  readonly maxQueue?: number | undefined;
+  /** 各读路由的时限覆盖（路由名 → 秒）：测试用短的时限触发 504，不必等真时限。 */
+  readonly timeouts?: Readonly<Record<string, number>> | undefined;
 }
 
 /** Bun.serve 用到的这几样（ts/ 里没有 Bun 的类型声明，只声明用到的）。 */
@@ -47,7 +56,7 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     io.stderr.write("ERROR: 本机服务只能在 Bun 下运行\n");
     return EXIT_ERROR;
   }
-  const acquired = acquireUiLock(args.repo, { pid: process.pid, pidAlive });
+  const acquired = await acquireUiLock(args.repo, { pid: process.pid, pidAlive });
   if (!("lock" in acquired)) {
     io.stderr.write(`ERROR: ${busyMessage(acquired.busy)}\n`);
     return EXIT_ERROR;
@@ -74,10 +83,21 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
   const running = server;
 
   const controlToken = randomToken();
+  // 第 2 片：19 条只读数据路由各起一个内核子进程；执行器、句柄表与临时根目录都归服务所有，关停时收干净
+  const runner = new KernelRunner({
+    repo: args.repo,
+    python: args.python,
+    kernel: args.kernel,
+    ...(overrides.maxConcurrent === undefined ? {} : { maxConcurrent: overrides.maxConcurrent }),
+    ...(overrides.maxQueue === undefined ? {} : { maxQueue: overrides.maxQueue }),
+  });
+  const readState: ReadRoutesState = { repo: args.repo, runner, cursors: new CursorTable(), transcript: args.transcript };
+  const extraRoutes = readRoutes(readState, overrides.timeouts ?? {});
   const appOptions = {
     port: running.port,
     assets,
     controlToken,
+    extraRoutes,
     onActivity: () => timer.touch(),
     ...(overrides.nonceTtlMs === undefined ? {} : { nonceTtlMs: overrides.nonceTtlMs }),
   };
@@ -143,6 +163,8 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     }
     timer.stop();
     stopStdin();
+    // 取消在跑的内核子进程、清空队列、删掉临时根目录（看门狗 3 秒兜底，不拖住外壳）
+    void runner.shutdown().catch(() => undefined);
     lock.release();
     finish();
   };

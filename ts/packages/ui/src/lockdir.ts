@@ -1,8 +1,12 @@
-// 每仓库一个的本机服务锁（桌面端设计第 7 版 §5.2、§5.4）：<repo>/.agent/.ui.lock 靠 mkdir 的原子性拿锁，拿到之后由
-// 服务写 owner.json（pid、端口、锁令牌、时间戳）。锁已经存在时按 owner.json 判断：pid 活着就 busy，判断不了
-// （pidAlive 为 null）也 busy——不接管，pid 已经不在才删掉重建。owner.json 缺失或读不出时，锁目录建立不到 10 秒
-// 算对方正在启动（busy），超过 10 秒才接管。释放只删自己的锁：owner.json 的令牌不是自己就不动。
+// 每仓库一个的本机服务锁（桌面端设计第 7 版 §5.2、§5.4、T19）：<repo>/.agent/.ui.lock 靠 mkdir 的原子性拿锁，拿到之后由
+// 服务写 owner.json（pid、端口、锁令牌、时间戳）。锁已经存在时按 owner.json 判断：pid 活着且有端口时，先探
+// 127.0.0.1 上的该端口（TCP 连接，1 秒时限）——连接被拒（ECONNREFUSED）说明这个 pid 已经是别人的进程（pid 被
+// 系统复用），删锁重建；连上了、超时或别的错误一律 busy running。端口为 null 时只看 pid（活着就 busy，不活着就
+// 接管）。pidAlive 为 null（判断不了）也 busy——不接管。owner.json 缺失或读不出时，锁目录建立不到 10 秒算对方
+// 正在启动（busy），超过 10 秒才接管。释放只删自己的锁：owner.json 的令牌不是自己就不动。不记进程创建时间
+// （base 没有该接口，ui 包不能改 base），防 pid 复用靠探端口。
 import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { writeTextAtomic } from "@themis/base/fsutil";
 import { randomToken } from "./localhttp/tokens.ts";
@@ -15,6 +19,11 @@ export const OWNER_FILE = "owner.json";
 export const LOCK_STARTUP_MS = 10000;
 /** 接管时删掉重建最多试几次。 */
 export const LOCK_TAKEOVER_ATTEMPTS = 3;
+/** 探端口的时限（毫秒）：连不上就是连不上，不拖住拿锁。 */
+export const PROBE_TIMEOUT_MS = 1000;
+
+/** 探一个端口的结论：被拒（没人监听）、连上了、超时、别的错误。 */
+export type ProbeVerdict = "refused" | "connected" | "timeout" | "other";
 
 export interface LockOwner {
   readonly pid: number;
@@ -49,6 +58,8 @@ export interface AcquireOptions {
   readonly pid: number;
   readonly pidAlive: (pid: number | null | undefined) => boolean | null;
   readonly now?: (() => number) | undefined;
+  /** 探端口（只给测试用）：缺省用 node:net 连 127.0.0.1，1 秒时限。 */
+  readonly probePort?: ((port: number) => Promise<ProbeVerdict>) | undefined;
 }
 
 /** 被占时的提示原文（调用方加 ERROR: 前缀写进 stderr）。 */
@@ -113,11 +124,29 @@ function makeLock(dir: string, pid: number): UiLock {
   };
 }
 
+/** 探一个端口：TCP 连 127.0.0.1，被拒是 refused，连上是 connected，超时是 timeout，其余错误是 other。 */
+export function probePort(port: number): Promise<ProbeVerdict> {
+  return new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1");
+    let settled = false;
+    const done = (verdict: ProbeVerdict): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(verdict);
+    };
+    socket.setTimeout(PROBE_TIMEOUT_MS, () => done("timeout"));
+    socket.once("connect", () => done("connected"));
+    socket.once("error", (error: NodeJS.ErrnoException) => done(error.code === "ECONNREFUSED" ? "refused" : "other"));
+  });
+}
+
 /** 拿锁：拿到返回 lock，被占返回 busy（带原因，调用方照 busyMessage 报告）。 */
-export function acquireUiLock(repo: string, options: AcquireOptions): AcquireResult {
+export async function acquireUiLock(repo: string, options: AcquireOptions): Promise<AcquireResult> {
   const agentDir = join(repo, ".agent");
   const dir = join(agentDir, ".ui.lock");
   const now = options.now ?? Date.now;
+  const probe = options.probePort ?? probePort;
   mkdirSync(agentDir, { recursive: true });
   for (let attempt = 0; attempt < LOCK_TAKEOVER_ATTEMPTS; attempt += 1) {
     try {
@@ -133,7 +162,16 @@ export function acquireUiLock(repo: string, options: AcquireOptions): AcquireRes
         continue;
       }
       const alive = options.pidAlive(owner.pid);
-      if (alive === true) return { busy: { pid: owner.pid, port: owner.port, why: "running" } };
+      if (alive === true) {
+        // pid 活着：有端口就探它，被拒说明 pid 已经被系统复用（接管）；连上了、超时、别的错误都是对方在跑
+        if (owner.port === null) return { busy: { pid: owner.pid, port: null, why: "running" } };
+        const verdict = await probe(owner.port);
+        if (verdict === "refused") {
+          removeLock(dir);
+          continue;
+        }
+        return { busy: { pid: owner.pid, port: owner.port, why: "running" } };
+      }
       if (alive === null) return { busy: { pid: owner.pid, port: owner.port, why: "unknown" } };
       removeLock(dir); // pid 已经不在：删掉重建
     }

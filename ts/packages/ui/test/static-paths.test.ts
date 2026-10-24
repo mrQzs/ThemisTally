@@ -1,7 +1,7 @@
 // 静态资源的目录边界（桌面端 T13、D09、D10）：每一类拒绝都有自己的 reason，逐类钉住；路径只解码一次，双重编码的
 // %252e%252e 解码一次是字面文件名、回 404。junction 一路在 Node 下（lstat）与 Bun 下（GetFileAttributesW）各测一次。
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, type Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -178,5 +178,27 @@ describe("Bun 下的重解析点", () => {
     expect(JSON.parse(out)).toEqual({ ok: false, status: 403, reason: "reparse-point" });
     const ok = execFileSync(bunPath(), [RESOLVE_ASSET_PROBE, root, "/assets/app.js"], { encoding: "utf8" });
     expect(JSON.parse(ok)).toMatchObject({ ok: true, contentType: "text/javascript; charset=utf-8" });
+  });
+});
+
+describe("只读普通文件（T18）", () => {
+  it("注入的 stat 说不是普通文件：404 not-a-file；目录仍记 directory，普通文件照常解析", () => {
+    const notFile = { isDirectory: () => false, isFile: () => false } as unknown as Stats;
+    expect(resolveAsset(root, "/assets/app.js", { stat: () => notFile })).toEqual({
+      ok: false,
+      status: 404,
+      reason: "not-a-file",
+    });
+    const directory = { isDirectory: () => true, isFile: () => false } as unknown as Stats;
+    expect(resolveAsset(root, "/assets/app.js", { stat: () => directory })).toEqual({
+      ok: false,
+      status: 404,
+      reason: "directory",
+    });
+    const file = { isDirectory: () => false, isFile: () => true } as unknown as Stats;
+    expect(resolveAsset(root, "/assets/app.js", { stat: () => file })).toMatchObject({
+      ok: true,
+      contentType: "text/javascript; charset=utf-8",
+    });
   });
 });

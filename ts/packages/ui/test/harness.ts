@@ -15,6 +15,8 @@ export const TS_ROOT = resolve(HERE, "..", "..", "..");
 export const REPO_ROOT = resolve(TS_ROOT, "..");
 export const CLI_ENTRY = join(TS_ROOT, "packages", "cli", "src", "main.ts");
 export const SERVE_ENTRY = join(HERE, "fixtures", "serve-entry.ts");
+/** 第 2 片的测试入口：pyargs 之外还能传 ServeOverrides（并发、队列、时限）与替身的 python/kernel。 */
+export const OVERRIDES_ENTRY = join(HERE, "fixtures", "serve-overrides.ts");
 export const BUNFIG = join(TS_ROOT, "bunfig.toml");
 export const RESOLVE_ASSET_PROBE = join(HERE, "fixtures", "resolve-asset.ts");
 
@@ -39,9 +41,15 @@ export interface StartOptions {
   readonly desktop?: boolean;
   /** 空闲秒数；null 是缺省的 1800。 */
   readonly idleTimeout?: number | null | undefined;
-  /** cli 走启动器同一条路；serve-entry 允许覆盖 nonce 有效期（T7a 的过期一条）。 */
-  readonly entry?: "cli" | "serve-entry";
+  /** cli 走启动器同一条路；serve-entry 允许覆盖 nonce 有效期（T7a 的过期一条）；overrides 走第 2 片的入口。 */
+  readonly entry?: "cli" | "serve-entry" | "overrides";
   readonly nonceTtlMs?: number;
+  /** 起内核子进程用的 Python（第 2 片：替身是 node 跑的 fake-kernel.mjs）。 */
+  readonly python?: string;
+  /** 内核 CLI 的入口（第 2 片：替身的路径）。 */
+  readonly kernel?: string;
+  /** 传给 serveUi 的覆盖项（maxConcurrent、maxQueue、timeouts；CLI 与环境变量碰不到）。 */
+  readonly overrides?: Readonly<Record<string, unknown>>;
 }
 
 export interface RunningService {
@@ -74,10 +82,16 @@ function pyargs(options: StartOptions): string {
     assets: options.assets,
     transcript: [],
     idle_timeout: options.idleTimeout ?? null,
-    python: process.execPath,
-    kernel: "pi_dispatch.py",
+    python: options.python ?? process.execPath,
+    kernel: options.kernel ?? "pi_dispatch.py",
   };
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+}
+
+/** ServeOverrides 的 base64（overrides 入口用）。 */
+function overridesB64(options: StartOptions): string | null {
+  if (options.overrides === undefined) return null;
+  return Buffer.from(JSON.stringify(options.overrides), "utf8").toString("base64");
 }
 
 /** 起任意一个进程，收它的 stdout/stderr，等 stdout 里出现握手行。 */
@@ -153,8 +167,10 @@ export async function startServiceProcess(argv: readonly string[], cwd: string, 
 
 /** 起一个服务进程（Bun 入口），等它写出握手行。 */
 export async function startService(options: StartOptions, timeoutMs = 45_000): Promise<RunningService> {
-  const entry = options.entry === "serve-entry" ? SERVE_ENTRY : CLI_ENTRY;
+  const entry = options.entry === "overrides" ? OVERRIDES_ENTRY : options.entry === "serve-entry" ? SERVE_ENTRY : CLI_ENTRY;
   const argv = [bunPath(), "--no-env-file", `--config=${BUNFIG}`, entry, "--pyargs-b64", pyargs(options)];
+  const encoded = overridesB64(options);
+  if (encoded !== null) argv.push("--overrides-b64", encoded);
   return startServiceProcess(argv, TS_ROOT, timeoutMs);
 }
 
