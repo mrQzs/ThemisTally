@@ -35,7 +35,16 @@ beforeEach(() => {
   if (committed.status !== 0) throw new Error(`git commit 失败：${committed.stderr}`);
   const attempt = join(repo, ".agent", "runs", "demo-task", "attempt-001");
   mkdirSync(attempt, { recursive: true });
-  writeFileSync(join(attempt, "notes.txt"), "第一行：夹具证据\n第二行：还是夹具\n", "utf8");
+  // 证据文件要跨过一页（内核每页 SAFE_PAGE_CHARS = 256 KiB）：第一页 done 为假、next_cursor 是句柄，
+  // 第二页 done 为真、next_cursor 是 null
+  const lines: string[] = [];
+  let written = 0;
+  while (written < 300 * 1024) {
+    const line = `line ${lines.length + 1}: fixture evidence for paging`;
+    lines.push(line);
+    written += line.length + 1;
+  }
+  writeFileSync(join(attempt, "notes.txt"), `${lines.join("\n")}\n`, "utf8");
 });
 
 afterEach(() => {
@@ -81,13 +90,6 @@ const cliText = (stdout: string): string => {
   return text.endsWith(lf) ? text.slice(0, -1) : text;
 };
 
-").join("
-").replace(/
-$/u, "");
-
-/gu, "
-").replace(/
-$/u, "");
 
 describe("真内核逐字节一致（U9）", () => {
   it("status 与 file 的 data 与 CLI stdout 逐字节相同", async () => {
@@ -101,7 +103,7 @@ describe("真内核逐字节一致（U9）", () => {
     expect(statusEnvelope["command"]).toEqual(["status", "--json"]);
     const cliStatus = spawnSync(PYTHON, [KERNEL, "--repo", repo, "status", "--json"], { encoding: "utf8", timeout: 120_000 });
     expect(cliStatus.status).toBe(0);
-    expect(rendered(statusEnvelope["data"])).toBe(cliStatus.stdout.replace(/\n$/u, ""));
+    expect(rendered(statusEnvelope["data"])).toBe(cliText(cliStatus.stdout));
 
     const first = await request(running.port, "GET", "/api/v1/attempts/demo-task/attempt-001/file?path=notes.txt", [["Cookie", cookie]]);
     expect(first.status).toBe(200);
@@ -116,7 +118,7 @@ describe("真内核逐字节一致（U9）", () => {
     const cliPageData = JSON.parse(cliPage.stdout) as Record<string, unknown>;
     const mine = JSON.parse(JSON.stringify(page)) as Record<string, unknown>;
     mine["next_cursor"] = cliPageData["next_cursor"]; // 句柄换回 CLI 的 next_cursor
-    expect(rendered(mine)).toBe(cliPage.stdout.replace(/\n$/u, ""));
+    expect(rendered(mine)).toBe(cliText(cliPage.stdout));
 
     // 第二页：把上一页的句柄交回去，内核认得真游标（done 为真、没有下一页）
     const second = await request(running.port, "GET", `/api/v1/attempts/demo-task/attempt-001/file?path=notes.txt&cursor=${handle}`, [

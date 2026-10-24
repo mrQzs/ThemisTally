@@ -4,6 +4,7 @@
 import { pidAlive } from "@themis/base/process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ENVELOPE_KEYS } from "../src/envelope.ts";
+import { CSP } from "../src/localhttp/headers.ts";
 import { READ_ROUTE_ARGV, READ_ROUTE_SPECS } from "../src/readroutes.ts";
 import { argvsOf, envelopeOf, readReport, startApp, type StartedApp } from "./support.ts";
 
@@ -84,6 +85,20 @@ describe("19 条读路由各一条替身用例", () => {
     for (const spec of READ_ROUTE_SPECS) {
       if (spec.timeoutSeconds === 15 || spec.timeoutSeconds === 60 || spec.timeoutSeconds === 120) continue;
       expect(spec.timeoutSeconds, spec.name).toBe(30);
+    }
+  });
+
+  it("读路由的响应带安全头与 no-store，没有 Access-Control-*（D14）", async () => {
+    started = await startApp();
+    const samples = ["/api/v1/meta", "/api/v1/status", "/api/v1/attempts/demo-task/attempt-001/file?path=a/b.txt", "/api/v1/secrets"];
+    for (const path of samples) {
+      const response = await started.get(path);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-security-policy"), path).toBe(CSP);
+      expect(response.headers.get("x-content-type-options"), path).toBe("nosniff");
+      expect(response.headers.get("referrer-policy"), path).toBe("no-referrer");
+      expect(response.headers.get("cache-control"), path).toBe("no-store");
+      expect([...response.headers.keys()].filter((name) => name.toLowerCase().startsWith("access-control")), path).toEqual([]);
     }
   });
 });

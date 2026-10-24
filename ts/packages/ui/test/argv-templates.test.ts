@@ -9,24 +9,32 @@ import { REPO_ROOT } from "./harness.ts";
 
 const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
 const SCRIPTS = join(REPO_ROOT, "scripts");
+/** 模板里不取值的开关选项（长选项，但不写成 --opt=值）。 */
+const VALUELESS_FLAGS = new Set(["--version", "--json"]);
 
-/** 用内核真正的解析器解析一条 argv；返回 {ok, json} 或 SystemExit 的退出码。 */
+/**
+ * 用内核真正的解析器解析一条 argv；返回 {ok, json} 或 SystemExit 的退出码。命令行是
+ * `<python> <kernel> --repo <仓库> <argv…>`：`status` 与 `--version` 由 pi_dispatch 自己的解析器接；`logs`、
+ * `plugins`、`config` 在 argparse 之前被截获转发给 kit_logs、kit_plugins、kit_config，那三个模块的解析器不收
+ * 组名（是 `list --json`，不是 `logs list --json`），所以按组名剥掉第一项再解析。
+ */
 function parseWithKernel(argv: readonly string[]): { status: number; stdout: string; stderr: string } {
   const program = [
     "import json, sys",
     `sys.path.insert(0, ${JSON.stringify(SCRIPTS)})`,
     "import pi_dispatch as pd, kit_config, kit_logs, kit_plugins",
     "argv = json.loads(sys.argv[1])",
-    "if argv[:1] == ['--version']:",
-    "    parser = pd.build_parser()",
-    "elif argv[:1] == ['status']:",
+    "if argv[:1] in (['--version'], ['status']):",
     "    parser = pd.build_parser()",
     "elif argv[:1] == ['logs']:",
     "    parser = kit_logs.build_parser()",
+    "    argv = argv[1:]",
     "elif argv[:1] == ['plugins']:",
     "    parser = kit_plugins.build_parser()",
+    "    argv = argv[1:]",
     "elif argv[:1] == ['config']:",
     "    parser = kit_config.build_parser()",
+    "    argv = argv[1:]",
     "else:",
     "    raise SystemExit('没有匹配的解析器：%r' % (argv[:1],))",
     "args = parser.parse_args(argv)",
@@ -69,7 +77,8 @@ describe("argv 模板过内核真正的解析器（U4）", () => {
   it("模板里的选项值一律写成 --opt=值，位置参数不以 - 开头", () => {
     for (const [name, argv] of Object.entries(READ_ROUTE_ARGV)) {
       for (const [index, part] of argv.entries()) {
-        if (part.startsWith("--")) expect(part, `${name} 的第 ${index} 项`).toContain("=");
+        // 取值的选项一律 --opt=值；不取值的开关（--version、--json）除外
+        if (part.startsWith("--") && !VALUELESS_FLAGS.has(part)) expect(part, `${name} 的第 ${index} 项`).toContain("=");
       }
       for (const part of argv) {
         if (!part.startsWith("--")) expect(part.startsWith("-"), `${name} 的位置参数不应以 - 开头：${part}`).toBe(false);

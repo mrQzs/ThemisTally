@@ -12,6 +12,32 @@ import { READ_ROUTE_SPECS, readRoutes } from "../src/readroutes.ts";
 
 const PORT = 53277;
 
+/**
+ * 「路由名 → 示例路径」表：合同路由表的 19 条读路由，一条不多、一条不少（漏一条即失败）。表里的路径要能命中
+ * 对应路由的正则，401 用例也逐条走这张表——它对不上路由表时就红。
+ */
+const READ_ROUTE_EXAMPLES: Readonly<Record<string, string>> = {
+  "api.meta.get": "/api/v1/meta",
+  "api.status.get": "/api/v1/status",
+  "api.attempts.list": "/api/v1/attempts?task=demo-task",
+  "api.attempts.show": "/api/v1/attempts/demo-task/attempt-001",
+  "api.attempts.file": "/api/v1/attempts/demo-task/attempt-001/file?path=notes.txt",
+  "api.usage.get": "/api/v1/usage",
+  "api.config.get": "/api/v1/config",
+  "api.config.validate": "/api/v1/config/validate",
+  "api.config.history.list": "/api/v1/config/history",
+  "api.config.history.show": "/api/v1/config/history/1",
+  "api.roles.get": "/api/v1/roles",
+  "api.profiles.get": "/api/v1/profiles",
+  "api.presets.list": "/api/v1/presets",
+  "api.presets.diff": "/api/v1/presets/base/diff/alt",
+  "api.runtimes.get": "/api/v1/runtimes",
+  "api.plugins.list": "/api/v1/plugins",
+  "api.plugins.show": "/api/v1/plugins/example-plugin",
+  "api.secrets.list": "/api/v1/secrets",
+  "api.secrets.show": "/api/v1/secrets/EXAMPLE_KEY",
+};
+
 let root = "";
 let app: App;
 
@@ -44,19 +70,28 @@ const session = async (): Promise<string> => {
 
 describe("19 条读路由都要会话（T17）", () => {
   it("「路由名 → 示例路径」表正好是路由表里的 19 条读路由", () => {
-    const registered = new Set(readRoutes({ repo: root, runner: { isClosing: false, run: async () => ({ kind: "closing" }) }, cursors: new CursorTable(), transcript: [] }).map((route) => route.name));
-    const listed = READ_ROUTE_SPECS.map((spec) => spec.name);
+    const routes = readRoutes({ repo: root, runner: { isClosing: false, run: async () => ({ kind: "closing" }) }, cursors: new CursorTable(), transcript: [] });
+    const registered = new Map(routes.map((route) => [route.name, route]));
+    const listed = Object.keys(READ_ROUTE_EXAMPLES);
+    expect(listed.length).toBe(19); // 19 条，一条不多一条不少
     expect(new Set(listed).size).toBe(listed.length); // 表里没有重复
-    expect(listed.length).toBe(19);
-    for (const name of listed) expect(registered.has(name), name).toBe(true);
-    const reads = [...registered].filter((name) => name !== "bootstrap" && name !== "control.bootstrap" && name !== "api.ping.get" && name !== "api.ping.post");
-    expect(reads.sort()).toEqual([...listed].sort()); // 一条不多、一条不少
+    for (const [name, example] of Object.entries(READ_ROUTE_EXAMPLES)) {
+      const route = registered.get(name);
+      expect(route, `${name} 应在读路由表里`).toBeDefined();
+      const pathname = example.split("?", 1)[0] ?? "";
+      expect(route?.pattern.test(pathname), `${name} 的示例路径应命中它的正则：${example}`).toBe(true);
+    }
+    const reads = routes
+      .map((route) => route.name)
+      .filter((name) => name !== "bootstrap" && name !== "control.bootstrap" && name !== "api.ping.get" && name !== "api.ping.post");
+    expect([...reads].sort()).toEqual([...listed].sort()); // 一条不多、一条不少
+    expect(READ_ROUTE_SPECS.map((spec) => spec.name)).toEqual(listed); // 登记表的顺序与名字和这张表一致
   });
 
   it("不带 cookie 访问任何一条读路由都是 401", async () => {
-    for (const spec of READ_ROUTE_SPECS) {
-      const response = await get(spec.path);
-      expect(response.status, `${spec.name}（${spec.path}）`).toBe(401);
+    for (const example of Object.values(READ_ROUTE_EXAMPLES)) {
+      const response = await get(example);
+      expect(response.status, `${example} 应要会话`).toBe(401);
       const body = (await response.json()) as Record<string, unknown>;
       expect(body["messages"]).toEqual(["ERROR: 未认证"]);
       expect(body["ok"]).toBe(false);
@@ -84,9 +119,9 @@ describe("19 条读路由都要会话（T17）", () => {
 
   it("带了会话之后 19 条读路由都过得了会话这一关（替身一律回 closing → 503）", async () => {
     const cookie = await session();
-    for (const spec of READ_ROUTE_SPECS) {
-      const response = await get(spec.path, cookie);
-      expect(response.status, `${spec.name}（${spec.path}）`).toBe(503);
+    for (const example of Object.values(READ_ROUTE_EXAMPLES)) {
+      const response = await get(example, cookie);
+      expect(response.status, example).toBe(503);
     }
   });
 });

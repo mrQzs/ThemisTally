@@ -392,11 +392,12 @@ async function fileRoute(state: ReadRoutesState, timeoutSeconds: number, params:
 /** 一页证据：next_cursor 换成句柄（没有下一页时是 null），其余字段原样。 */
 function withHandle(state: ReadRoutesState, task: string, attempt: string, path: string, page: PyValue): PyValue {
   if (!(page instanceof Map)) return page;
-  const next = page.get("next_cursor");
-  const handle = typeof next === "string" && next !== "" ? state.cursors.issue({ task, attempt, path, cursor: next }) : null;
   const out = new Map<string, PyValue>();
   for (const [key, value] of page) out.set(typeof key === "string" ? key : String(key), value);
-  out.set("next_cursor", handle);
+  // 内核在最后一页也带回一个游标，但 done 为真时没有下一页：这时候给界面 null，不发句柄
+  const next = page.get("next_cursor");
+  const hasNext = page.get("done") !== true && typeof next === "string" && next !== "";
+  out.set("next_cursor", hasNext ? state.cursors.issue({ task, attempt, path, cursor: next as string }) : null);
   return out;
 }
 

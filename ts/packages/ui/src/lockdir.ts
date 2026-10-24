@@ -1,10 +1,11 @@
 // 每仓库一个的本机服务锁（桌面端设计第 7 版 §5.2、§5.4、T19）：<repo>/.agent/.ui.lock 靠 mkdir 的原子性拿锁，拿到之后由
 // 服务写 owner.json（pid、端口、锁令牌、时间戳）。锁已经存在时按 owner.json 判断：pid 活着且有端口时，先探
 // 127.0.0.1 上的该端口（TCP 连接，1 秒时限）——连接被拒（ECONNREFUSED）说明这个 pid 已经是别人的进程（pid 被
-// 系统复用），删锁重建；连上了、超时或别的错误一律 busy running。端口为 null 时只看 pid（活着就 busy，不活着就
-// 接管）。pidAlive 为 null（判断不了）也 busy——不接管。owner.json 缺失或读不出时，锁目录建立不到 10 秒算对方
-// 正在启动（busy），超过 10 秒才接管。释放只删自己的锁：owner.json 的令牌不是自己就不动。不记进程创建时间
-// （base 没有该接口，ui 包不能改 base），防 pid 复用靠探端口。
+// 系统复用），删锁重建；连上了、超时或别的错误一律 busy running。锁目录还新（不到 PROBE_TAKEOVER_MIN_AGE_MS）
+// 时被拒也先当对方在跑：那一刻端口可能还没起来，也可能是谁手写的 owner.json，不抢还新的锁。端口为 null 时只看
+// pid（活着就 busy，不活着就接管）。pidAlive 为 null（判断不了）也 busy——不接管。owner.json 缺失或读不出时，锁
+// 目录建立不到 10 秒算对方正在启动（busy），超过 10 秒才接管。释放只删自己的锁：owner.json 的令牌不是自己就不
+// 动。不记进程创建时间（base 没有该接口，ui 包不能改 base），防 pid 复用靠探端口。
 import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
@@ -17,6 +18,12 @@ export const LOCK_DIR = ".agent/.ui.lock";
 export const OWNER_FILE = "owner.json";
 /** 锁目录建立不到这么久且没有 owner.json：算对方正在启动。 */
 export const LOCK_STARTUP_MS = 10000;
+/**
+ * pid 活着但端口连不上（被拒）时，只有锁目录已经存在久于这么久才判 pid 被系统复用（删锁重建）。
+ * 刚写下 owner.json 的那一刻端口可能还没起来（也可能是谁手写的 owner.json），这时候保守一点当对方在跑——
+ * 不抢一个还新的锁。真实的 pid 复用留下的锁至少是这个年纪：那个服务起来过、死过，pid 才轮到别人。
+ */
+export const PROBE_TAKEOVER_MIN_AGE_MS = LOCK_STARTUP_MS;
 /** 接管时删掉重建最多试几次。 */
 export const LOCK_TAKEOVER_ATTEMPTS = 3;
 /** 探端口的时限（毫秒）：连不上就是连不上，不拖住拿锁。 */
@@ -163,10 +170,14 @@ export async function acquireUiLock(repo: string, options: AcquireOptions): Prom
       }
       const alive = options.pidAlive(owner.pid);
       if (alive === true) {
-        // pid 活着：有端口就探它，被拒说明 pid 已经被系统复用（接管）；连上了、超时、别的错误都是对方在跑
+        // pid 活着：有端口就探它，被拒说明这个 pid 已经是别人的进程（pid 被系统复用）→ 删锁重建；
+        // 连上了、超时、别的错误一律是对方在跑。锁目录还新时不抢（见 PROBE_TAKEOVER_MIN_AGE_MS）。
         if (owner.port === null) return { busy: { pid: owner.pid, port: null, why: "running" } };
         const verdict = await probe(owner.port);
         if (verdict === "refused") {
+          if (lockAge(dir, now) < PROBE_TAKEOVER_MIN_AGE_MS) {
+            return { busy: { pid: owner.pid, port: owner.port, why: "running" } };
+          }
           removeLock(dir);
           continue;
         }
