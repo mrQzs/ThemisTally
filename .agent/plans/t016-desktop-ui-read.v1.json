@@ -1,0 +1,428 @@
+{
+  "schema_version": 1,
+  "task_id": "t016-desktop-ui-read",
+  "plan_version": 1,
+  "title": "桌面端本机服务第 2 片：读路由与二道脱敏白名单（D1-C 前半）",
+  "repository": "ThemisTally",
+  "base_sha": "fa8af4e0dd3ad56be2f1fe811e8c0c5241bdb085",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/routes.ts",
+      "ts/packages/ui/src/app.ts",
+      "ts/packages/ui/src/static.ts",
+      "ts/packages/ui/src/lockdir.ts",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/README.md",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/static-paths.test.ts",
+      "ts/packages/ui/test/lockdir.test.ts"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/src/kernelenv.ts",
+      "ts/packages/ui/src/kernel.ts",
+      "ts/packages/ui/src/kernelenvelope.ts",
+      "ts/packages/ui/src/redaction.ts",
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/cursors.ts",
+      "ts/packages/ui/test/**"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/package.json",
+      "ts/packages/ui/test/args.test.ts",
+      "ts/packages/base/**",
+      "ts/packages/cli/**",
+      "ts/packages/config/**",
+      "ts/packages/contracts/**",
+      "ts/packages/dispatcher/**",
+      "ts/packages/hub/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/tsconfig.json",
+      "ts/vitest.config.ts",
+      "ts/tools/**",
+      "ts/mutations/**",
+      "scripts/**",
+      "desktop/**",
+      "docs/**",
+      "tests/test_gate_t016_*.py",
+      "tests/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t016_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t015_baseline.py",
+        "-k",
+        "static",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ts/packages/ui/"
+      ],
+      "output_must_not_match": [
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ]
+    },
+    {
+      "id": "V08",
+      "argv": [
+        "node",
+        "-e",
+        "const fs=require('fs');const s=fs.readFileSync('packages/ui/README.md','utf8');const need=['config secret check','Retry-After','409','503','504'];const miss=need.filter((x)=>!s.includes(x));if(miss.length){console.error('README missing: '+miss.join(','));process.exit(1)}console.log('README ok')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "README ok"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "T17 会话默认必须验证——不带 cookie 访问任何一条读路由都是 401；只有 `bootstrap` 与 `control.bootstrap` 公开；`/api/` 下不存在的路径没有会话是 401；静态资源不验会话；测试里的「路由名 → 示例路径」表必须是 19 条读路由，一条不多一条不少，漏一条即失败；用例：`ts/packages/ui/test/routes-auth.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "会话是 API 的唯一入口凭证，不泄露资源是否存在"
+    },
+    {
+      "id": "D02",
+      "text": "T18 静态资源只读普通文件——不是普通文件一律 404 且 reason 是 `not-a-file`，目录仍是 `directory`，原有的 14 个 reason 一条不少；用例：`ts/packages/ui/test/static-paths.test.ts` 的 not-a-file 一条",
+      "evidence": [
+        "V02",
+        "V06"
+      ],
+      "intent": "设备与管道文件不该被当成静态资源发出去"
+    },
+    {
+      "id": "D03",
+      "text": "T19 防 pid 复用——pid 活着但端口连不上（被拒）时接管锁；端口有人监听或探测超时或别的错误时 busy running；端口为 null 时只看 pid；三条被占提示原文不变；用例：`ts/packages/ui/test/lockdir.test.ts` 的探端口三条",
+      "evidence": [
+        "V02",
+        "V06"
+      ],
+      "intent": "pid 被系统复用之后不能把别人的服务当成自己的"
+    },
+    {
+      "id": "D04",
+      "text": "子进程的环境（T5、T20）——名字大写后等于 `TYPESAFE_API_KEY` 的变量不在子进程环境里（服务起的每一个内核子进程都如此，与路由无关，不给任何路由开例外）；`CODEKIT_ACTOR` 是 `user-ui`；`NoDefaultCurrentDirectoryInExePath` 在；不设 `PYTHONUTF8=1`（除非执行端核实出 stdout 不是 UTF-8，那时才加并在 README 注明偏离 kernel_env）；用例：`ts/packages/ui/test/kernel-env.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "子进程拿不到决策 API 的 key，也不改内核认定的环境"
+    },
+    {
+      "id": "D05",
+      "text": "19 条读路由都有对应的内核 CLI 写法与 argv 模板，每条模板都能被内核真正的解析器解析，模板带 `--json` 时解析结果的 json 为真；每条路由各有一条替身用例（argv、时限、错误映射）；用例：`ts/packages/ui/test/argv-templates.test.ts` 与 `ts/packages/ui/test/kernel-runner.test.ts` 里的每条路由那条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "路由与内核的命令行一一对应，不靠猜"
+    },
+    {
+      "id": "D06",
+      "text": "信封的形状与脱敏次序——七个字段与次序照 `ENVELOPE_KEYS`；`messages` 只留 `ERROR`、`WARN` 开头的行且逐行过 redactSecrets；`command` 不含 python、kernel、`--repo` 与仓库路径，游标显示成 `<cursor>`、transcript 显示成 `<transcript>`；`data` 用 pyjson 的 dumps(ensureAscii:false, indent:2) 写出；用例：`ts/packages/ui/test/kernel-runner.test.ts` 与 `ts/packages/ui/test/redaction.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "信封是界面的唯一契约，顺序与写法不能各路由各一套"
+    },
+    {
+      "id": "D07",
+      "text": "二道脱敏与白名单——`/profiles` 的 credential_env、`/config` 的 secret.source、env_remove、env_keep、`/secrets` 的 name、source、used_by 原样返回；换成令牌形状、枚举之外的值或任意文本之后被遮掉；不合约束的白名单值照样遮掉；file 路由的数据不登记任何白名单条目；用例：`ts/packages/ui/test/redaction.test.ts` 的 U22 与 `ts/packages/ui/test/redaction-routes.test.ts` 的 U5",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "白名单只放名字与来源这类可枚举的形状，绝不放凭据值"
+    },
+    {
+      "id": "D08",
+      "text": "并发上限、队列与 503——同时 10 个请求，任何时刻在跑的子进程不超过 4；排队的都拿到结果；队列调小之后回 503 且带 `Retry-After: 2`；用例：`ts/packages/ui/test/kernel-runner.test.ts` 的 U28",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "服务不被请求洪水拖垮，也把排队这件事说清楚"
+    },
+    {
+      "id": "D09",
+      "text": "超时限时整棵树结束——超时回 504，信封是 ok=false、exit_code=null、command 是显示 argv、messages 只有「ERROR: 命令超时（N 秒），子进程已结束；请改用 CLI 查看」；子进程与孙进程都不在了；用例：`ts/packages/ui/test/kernel-runner.test.ts` 与 `ts/packages/ui/test/kernel-real.test.ts` 的 file 超时那条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "超时不能留下还在跑的进程"
+    },
+    {
+      "id": "D10",
+      "text": "断开取消与关停取消——客户端断开后 10 秒内那个 pid 不在了；关停时在跑的子进程被取消、队列被清空、新请求回 503；排队中被取消的请求不起子进程；用例：`ts/packages/ui/test/kernel-runner.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "连接没了就别占着机器"
+    },
+    {
+      "id": "D11",
+      "text": "file 路由的句柄与 409——句柄是 43 个字符的随机不透明句柄、不含内核游标；伪造的句柄、服务重启之前的句柄、换了 task/attempt/path 的句柄都回 409 且替身没有被调用；内核报「游标对应的文件已变化」回 409；`next_cursor` 是句柄；用例：`ts/packages/ui/test/cursors.test.ts` 的 U14f、`ts/packages/ui/test/kernel-real.test.ts` 与服务层的 U14d",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面拿不到也伪造不了内核游标"
+    },
+    {
+      "id": "D12",
+      "text": "合成的 `/secrets` 与 `/secrets/<name>`——名单来自 decisions 与各 profile 的 credential_env，去重且保序；逐条串行跑 `config secret check`；成功的信封 command 是空数组、exit_code 是 0；任何一条失败就停下并回那一条子命令的信封；每项是 `{name, source, store_mode, system_backend, used_by}`，不含 `file_dir`；用例：`ts/packages/ui/test/redaction.test.ts` 的 secrets 部分与 `ts/packages/ui/test/kernel-runner.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "凭据只报来源与名字，永不报值与路径"
+    },
+    {
+      "id": "D13",
+      "text": "meta 的 data 合成——`{version, repo_name}`，version 取 `--version` 的 stdout 去掉末尾换行，repo_name 取仓库目录名；用例：`ts/packages/ui/test/kernel-runner.test.ts` 的 meta 那条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "版本与仓库名不必起子进程就能给，也不外泄别的"
+    },
+    {
+      "id": "D14",
+      "text": "U12 安全头与 no-store——读路由的响应带 CSP、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer` 与 `Cache-Control: no-store`，响应里没有 `Access-Control-*`；用例：`ts/packages/ui/test/` 下的安全头那条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "本机响应不给浏览器别的能力"
+    },
+    {
+      "id": "D15",
+      "text": "U9 真内核逐字节一致——同一夹具仓库上，status 与 file 的 data 用 pyjson 的 dumps(ensure_ascii:false, indent:2) 拼出来，与 CLI 的 stdout（去掉末尾换行；file 另把句柄换回 CLI 的 next_cursor）逐字节相同；用例：`ts/packages/ui/test/kernel-real.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "服务给界面的与终端里看到的是同一份数据"
+    },
+    {
+      "id": "D16",
+      "text": "README——写结构表、最小 API、状态码（409、503 带 Retry-After、504）、已知限制；并写明决策 key 被去掉之后 `/secrets` 与 `/config` 显示的这把 key 的 source 不再是 env（与终端里同一条命令不同）；还要写明原因：桌面应用从开始菜单或资源管理器起，它的环境来自登录时的用户与系统环境变量；用户在终端里临时设的、或写在 PowerShell profile 里的变量，桌面应用看不到；所以「这把 key 在不在环境变量里」的权威说法只有用户在自己的终端里跑 `config secret check` 给出的那一个；服务不把这把 key 传给内核，`/secrets` 与 `/config` 里它的 source 不会是 env，以终端里的 `config secret check` 为准；界面上的文案（这把 key 显示成「环境变量：服务不检查，以终端为准」）属于前端，不在本片；用例：`ts/packages/ui/README.md` 由 V08 检查",
+      "evidence": [
+        "V08",
+        "V02"
+      ],
+      "intent": "显示不一致这件事写清楚，别被当成 bug"
+    },
+    {
+      "id": "D17",
+      "text": "门禁、范围、变异与接线——G01、R01、V01–V08 全部通过；改动只落在允许范围内的路径（V07 核对）；依赖清单与锁文件未改；既有用例未删未跳未弱化；M1–M21 每条都有会变红的用例；新增的六个源文件都能从 `main.ts` 顺 import 到达；T015 的长期断言（routes.ts 四条路由名/路径/引导正则、static.ts 原有 14 个 reason、lockdir.ts 三条被占提示原文、DURABLE_SRC 顺 import 可达）一条未破",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "V08"
+      ],
+      "intent": "不破坏已有门禁，也不靠削弱测试过关"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
