@@ -6391,6 +6391,27 @@ def test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner(engine_env
     assert "stalled" not in ts["exec"]
 
 
+def test_an_attempt_whose_candidate_was_not_collected_waits_for_the_owner(engine_env, monkeypatch):
+    # 第 104 轮：T017 attempt-001 的改动都在工作区里，调度器收集时被一个叫 nul 的文件卡住；信里写“改动 0 个文件”，
+    # 协调人照它从头重派。收集出错时照实写、并且站主指定之前不放行执行端返工
+    hub = engine_env
+    monkeypatch.setattr(kh, "run_pd", lambda hub, args, timeout=600: (3, "check 输出"))
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "INFRA_FAILURE"})
+    error = "git -c core.autocrlf=true 失败：error: open(\"ts/nul\"): No such file or directory"
+    (run_dir / "observations.json").write_text(json.dumps({"collect_errors": [error]}), encoding="utf-8")
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert ts["exec"]["collect_failed"] is True and "候选改动 没收上来（收集出错）" in letter["摘要"]
+    assert "0 个文件" not in letter["摘要"] and "ts/nul" in letter["需协调人决定"]
+    assert "候选没收上来" in kh._guard_rework(ts, "5-exec")
+    ts["owner_rework"] = {"suffix": "5-exec", "msg": "m", "requested_at": "2026-10-25T00:00:00Z"}
+    assert kh._guard_rework(ts, "5-exec") is None  # 站主指定：放行
+    del ts["owner_rework"]
+    (run_dir / "observations.json").write_text(json.dumps({"collect_errors": []}), encoding="utf-8")
+    letter = kh.finish_exec(hub, ts, run_dir, 1)
+    assert ts["exec"]["collect_failed"] is False and "候选改动 0 个文件" in letter["摘要"]
+
+
 # ---------------------------------------------------------------------------
 # 第 56 轮：JSONL 只按换行切；审计读不出来的行算越界
 # ---------------------------------------------------------------------------

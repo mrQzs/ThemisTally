@@ -1796,6 +1796,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：claude 不数字数（`thinking_chars` 记 None），记 result 回报的 `thinking_tokens`；pi 照旧数字数，另记 usage 里的 `reasoning`（probe99 的 MiniMax 回报 1223，dsf 回报 0，正好用字数补上）。metrics 分成“思考字数”“思考 token”两列，不混单位。拿 ba4b 的真实事件流核过：thinking_tokens 28501、thinking_chars None。
 - **测试与变异**：用到 kit_hub 的四个测试文件 458 条通过；变异 4 个全部抓住。
 
+### 第 104 轮：Windows 保留设备名的文件不再拖垮候选收集；收集出错时如实报、先问站主（2026-10-25，T017 attempt-001）
+
+- **撞上的事**：T017 的执行端 attempt-001 跑满 90 分钟（5400 秒）被结束，没交执行报告。调度器收集候选时 `git add -A` 失败：`error: open("ts/nul"): No such file or directory / unable to index file 'ts/nul'`。执行端（或它跑的测试替身）把报告写到了 `nul`——在这台 Windows Server 2025 上，带目录的 `…\ts\nul` 会建成一个真文件（内容是 fake-kernel 的运行日志），git 却按保留设备名去打开它，失败了。于是整轮没有候选（INFRA_FAILURE），内核给协调人的信写“候选改动 0 个文件”，协调人照它从头重派 attempt-002——而 attempt-001 的工作区里其实改了 20 个文件、新增 2469 行。
+- **调度器**（`pi_dispatch.py`）：`unindexable_paths` 在 Windows 上用 `git status` 找出文件名（不分大小写、带不带扩展名）是 con、prn、aux、nul、com1–9、lpt1–9 的新增或改动路径；`snapshot_tree` 用 `:(exclude,literal)` 把它们排除在快照之外（所有快照——候选、check --fresh、门禁、integrate——都经它，彼此一致）。`record_candidate` 把跳过了哪些记进 candidate.json，observations.json 与 summary.md 的“复审需要关注”各写一条。别的平台上这些是普通文件名，照常收。拿 attempt-001 留下的工作区实测：排除 `ts/nul` 之后 20 个文件、2469 行新增全部收进来。
+- **内核**（`finish_exec`）：observations.json 里有 `collect_errors` 时，信里写“候选改动 没收上来（收集出错）”，不写“0 个文件”；`ts.exec.collect_failed` 置真，`_guard_rework` 在站主用 `send --rework 5-exec` 指定之前不放行执行端返工（同第 55 轮跑满时限而一处没改的做法），理由写明“执行端的改动还在 attempt 的工作区里，从头重派会把它们丢掉”。
+- **attempt-002**：07:11:35 起跑，用的是旧代码（调度器进程启动时载入）。没有中途干预；后台盯着它的工作区，出现保留设备名的文件就提醒。
+- **测试**：新增 `tests/test_snapshot_reserved.py`（只在 Windows 上跑：不排除时 `git add` 确实失败、排除后快照只少那一个文件、候选记录列出它、保留名的判定），test_kit_hub 新增 1 条（收集出错时的信与返工的拦截、站主指定后放行）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

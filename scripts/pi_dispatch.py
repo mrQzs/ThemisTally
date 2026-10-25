@@ -1148,7 +1148,8 @@ def snapshot_tree(work_dir: Path, base: str, scratch_dir: Path, label: str, auto
             stale.unlink()
     try:
         git(["read-tree", base], work_dir, index_file=index)
-        git(line_ending_args(autocrlf) + ["add", "-A", "--", "."], work_dir, index_file=index)
+        git(line_ending_args(autocrlf) + ["add", "-A", "--", "."]
+            + [":(exclude,literal)%s" % path for path in unindexable_paths(work_dir)], work_dir, index_file=index)
         return git_text(["write-tree"], work_dir, index_file=index)
     finally:
         for stale in (index, index.with_name(index.name + ".lock")):
@@ -1157,6 +1158,21 @@ def snapshot_tree(work_dir: Path, base: str, scratch_dir: Path, label: str, auto
                     stale.unlink()
                 except OSError:
                     pass
+
+
+#: Windows 的保留设备名（不分大小写，带扩展名的也算）。新版 Windows 在带目录的路径里会把它建成真文件，git 却打不开，
+#: `git add` 整个失败、整轮改动收不进候选：T017 attempt-001 的测试替身把报告写到了 `nul`，90 分钟的改动没收进来，
+#: attempt 记成 INFRA_FAILURE，协调人看到“候选改动 0 个文件”，下一个 attempt 只好从头做
+RESERVED_NAME_RE = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$", re.I)
+
+
+def unindexable_paths(work_dir: Path) -> List[str]:
+    """工作副本里 git 在 Windows 上收不进的新增或改动的路径（保留设备名）。别的平台上它们是普通文件名，照常收。"""
+    if os.name != "nt":
+        return []
+    out = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"], work_dir).stdout.decode("utf-8", "replace")
+    paths = [item[3:] for item in out.split("\0") if len(item) > 3]
+    return sorted(path for path in paths if RESERVED_NAME_RE.match(path.rstrip("/").rsplit("/", 1)[-1]))
 
 
 def tree_from_patch(repo_root: Path, base: str, patch: Path, scratch_dir: Path,
@@ -3547,7 +3563,7 @@ def record_candidate(repo: Repo, run_dir: Path, work_dir: Path, base: str) -> Di
         roundtrip, verified = "error: %s" % exc, False
     return {"tree": tree, "base": base, "patch": "candidate.patch", "patch_sha256": sha256_file(patch_path),
             "patch_bytes": patch_path.stat().st_size, "patch_roundtrip_verified": verified,
-            "roundtrip_tree": roundtrip, "recorded_at": utc_now()}
+            "roundtrip_tree": roundtrip, "recorded_at": utc_now(), "unindexable_skipped": unindexable_paths(work_dir)}
 
 
 # ---------------------------------------------------------------------------
@@ -4303,6 +4319,9 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
                      % "、".join("`%s`" % p for p in own_reads[:5]))
     for path in extra.get("new_ignored_paths", []):
         attention.append("新增被 Git 忽略的路径：`%s`" % path)
+    for path in extra.get("unindexable_skipped", []):
+        attention.append("候选没有收这个文件：`%s`（Windows 的保留设备名，git 打不开；多半是命令把输出写到了 nul、con "
+                         "这类名字）" % path)
     changes = extra.get("main_repo_changes") or {}
     if changes.get("head_changed"):
         attention.append("运行期间主工作区 HEAD 由 `%s` 变为 `%s`：可能是规划器在批次运行期间集成了其他候选，"
@@ -5263,7 +5282,8 @@ def collect(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Dict[str,
         write_json(run_dir / "scope.json", scope, exclusive=True)
     except (DispatchError, OSError) as exc:
         collect_errors.append(str(exc))
-    observations: Dict[str, Any] = {"collect_errors": collect_errors}
+    observations: Dict[str, Any] = {"collect_errors": collect_errors,
+                                    "unindexable_skipped": candidate.get("unindexable_skipped") or []}
     try:
         before = read_json_or(run_dir / "ignored-before.json", [])
         after = ignored_inventory(work_dir)

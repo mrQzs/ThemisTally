@@ -1015,6 +1015,9 @@ def _guard_rework(ts: Dict[str, Any], suffix: str) -> Optional[str]:
     if suffix == "5-exec" and ts["exec"].get("gate_claim"):
         return ("执行端说门禁测试有错，协调人核实不了：给 gate-sonnet 发返工（热修补，内核会把执行端的原话交给它"
                 "逐条核实），或者给站主发提问；门禁重新交付或站主答复之前不能返工执行端")
+    if suffix == "5-exec" and ts["exec"].get("collect_failed"):
+        return ("上一轮 attempt 的候选没收上来（调度器收集出错），执行端的改动还在它的工作区里，从头重派会把它们丢掉。"
+                "给站主发提问（站主查明收集为什么失败、能不能把改动收回来）；站主用 send --rework 5-exec 指定之后才放行")
     if suffix == "5-exec" and ts["exec"].get("stalled"):
         # 第 55 轮：T011 的 attempt-003 跑满两小时一个文件没改，协调人原样再派，attempt-004 照样从头调查
         return ("上一轮 attempt 跑满时限、候选一处没改：原样再派多半还是这样。给站主发提问（拆小合同、换执行模型，"
@@ -3476,6 +3479,10 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     changed = len(scope["files"]) if isinstance(scope.get("files"), list) else len(report.get("changed_files") or [])
     # 第 55 轮：跑满时限而候选一处没改（返工版本的基线已含上一轮的候选，0 就是这一轮什么也没做）
     ts["exec"]["stalled"] = status == "TIMEOUT" and changed == 0
+    # 第 104 轮：候选没收上来时不能写“改动 0 个文件”。T017 attempt-001 的工作区里 20 个文件都改了，调度器收集时
+    # 被一个叫 nul 的文件卡住（git 打不开 Windows 的保留设备名），协调人照“0 个文件”从头重派了 attempt-002
+    collect_errors = json.loads(read_text(run_dir / "observations.json") or "{}").get("collect_errors") or []
+    ts["exec"]["collect_failed"] = bool(collect_errors)
     said = report.get("executor_status") or ("没交执行报告（模型最后一条输出被截断：stopReason=length）"
                                              if cut_off(run_dir) else "未知（没有可读的执行报告）")
     deviation = "解读：%s；局限：%s" % (listing("interpretations"), listing("limitations"))
@@ -3484,7 +3491,11 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
             len(unreported), "；".join(claim[:240] for claim in unreported[:3]))
     stalled = ("这一轮跑满时限、候选一处没改：给站主发提问（拆小合同、换执行模型或站主接手），站主指定之前内核不放行"
                "执行端返工。" if ts["exec"]["stalled"] else "")
-    return {"摘要": ("执行端自述 %s；DoD：%s；候选改动 %d 个文件" % (said, done, changed))[:400],
+    if collect_errors:
+        stalled = ("候选没收上来（调度器收集出错：%s）：执行端的改动还在 attempt 的工作区里，从头重派会丢掉它们。给站主发"
+                   "提问，站主指定之前内核不放行执行端返工。" % collect_errors[0][:300])
+    changed_text = "没收上来（收集出错）" if collect_errors else "%d 个文件" % changed
+    return {"摘要": ("执行端自述 %s；DoD：%s；候选改动 %s" % (said, done, changed_text))[:400],
             "提交": "无（候选补丁 %s/candidate.patch）" % rel,
             "验证": verdict_line,
             "偏离": deviation,
