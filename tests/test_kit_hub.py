@@ -1678,7 +1678,7 @@ def test_plan_delivery_must_list_its_external_facts(engine_env, facts, problem):
         del output["external_facts"]
     else:
         output["external_facts"] = facts
-    kh.Engine(hub, FakeRunner([(output, [])])).step()
+    kh.Engine(hub, FakeRunner([(output, []), (output, [])])).step()  # 第 108 轮：当场重交的那一回合原样再交
     stage = hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]
     assert stage["status"] == "failed" and problem in stage["note"]
     assert hub.unread(kh.OWNER) == []
@@ -2354,8 +2354,8 @@ def test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes(engine
     seen = []
     monkeypatch.setattr(kh.Engine, "auto_jev", lambda self, state, ts, suffix: seen.append(suffix))
     owner_task(hub)
-    empty = dict(planner_delivery(), report=" ")  # 内核核验不过：规划报告为空
-    engine = kh.Engine(hub, FakeRunner([({"letters": [start_planner()]}, []), (empty, [])]))
+    empty = dict(planner_delivery(), report=" ")  # 内核核验不过：规划报告为空（第 108 轮：当场重交也一样）
+    engine = kh.Engine(hub, FakeRunner([({"letters": [start_planner()]}, []), (empty, []), (empty, [])]))
     engine.step()
     engine.step()
     assert seen == []
@@ -2364,6 +2364,223 @@ def test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes(engine
                  "type": "返工"}, fields())
     kh.Engine(hub, FakeRunner([(planner_delivery(), [])])).step()
     assert seen == ["1-plan"]
+
+
+class HookedRunner(FakeRunner):
+    """FakeRunner 加钩子：第 n 次调用（从 1 数）之前先跑 hooks[n]（参数是这一回合的工作目录）。"""
+
+    def __init__(self, outputs: list, hooks: dict) -> None:
+        super().__init__(outputs)
+        self.hooks = hooks
+
+    def run(self, agent, session_key, workspace, *args, **kwargs):
+        hook = self.hooks.get(len(self.calls) + 1)
+        if hook:
+            hook(workspace)
+        return super().run(agent, session_key, workspace, *args, **kwargs)
+
+
+def coordinator_letter(hub) -> dict:
+    return kh.parse_letter(hub.unread(kh.COORDINATOR)[-1].read_text(encoding="utf-8"))[1]
+
+
+def retried_events(hub) -> list:
+    return [{k: v for k, v in e.items() if k != "at"} for e in kh.ledger_events(hub) if e["event"] == "delivery.retried"]
+
+
+def test_a_delivery_that_fails_the_check_is_redone_in_the_same_session(engine_env):
+    """第 108 轮：交付没过内核核验，同一会话里当场重交一次；重交期间阶段仍是 assigned、不写 last_letter，
+    协调人这时发来的返工被挡下。过了：信里注明，账本记一条，返工次数不加。"""
+    hub = engine_env
+    owner_task(hub)
+    empty = dict(planner_delivery(), report=" ")
+    seen = {}
+
+    def during_redelivery(_workspace):
+        ts = hub.load_state()["tasks"]["T001"]
+        seen.update(status=ts["stages"]["1-plan"]["status"], last_letter=ts["stages"]["1-plan"].get("last_letter"),
+                    guard=kh.guard(ts, meta("返工", "planner-opus", "T001-1-plan")))
+
+    runner = HookedRunner([({"letters": [start_planner()]}, []), (empty, []), (planner_delivery(), [])],
+                          {3: during_redelivery})
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert seen["status"] == "assigned" and seen["last_letter"] is None and "正在进行" in seen["guard"]
+    assert len(runner.calls) == 3 and runner.fresh[2] is False  # 同一会话
+    assert "内核核验没过" in runner.calls[2][2] and "规划端的 report 为空" in runner.calls[2][2]
+    assert "交“阻塞”信说明原因" in runner.calls[2][2]
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered" and not (ts.get("reworks") or {}).get("1-plan")
+    letter = coordinator_letter(hub)
+    assert letter["内核核验"] == "通过"
+    assert letter["验证"].startswith("（第一次交付内核核验没过：规划端的 report 为空；同一会话里当场重交了一次）")
+    assert retried_events(hub) == [{"event": "delivery.retried", "task": "T001", "stage": "1-plan",
+                                    "first": "规划端的 report 为空", "first_turn": "t2", "turn": "t3", "kind": "交付",
+                                    "ok": True}]
+
+
+def test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so(engine_env):
+    """第 108 轮：同一封信只重交一次；还不过照旧标 failed、核验信给协调人，写明已经当场重交过。"""
+    hub = engine_env
+    owner_task(hub)
+    empty = dict(planner_delivery(), report=" ")
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (empty, []), (empty, [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    assert len(runner.calls) == 3
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "failed" and not (ts.get("reworks") or {}).get("1-plan")
+    assert coordinator_letter(hub)["内核核验"] == "未通过（同一会话里已经当场重交过一次）：规划端的 report 为空"
+    assert [e["ok"] for e in retried_events(hub)] == [False]
+
+
+def test_a_redelivery_may_hand_in_a_block_instead(engine_env, monkeypatch):
+    """第 108 轮：改不了的，重交时交“阻塞”：阶段停下，不再核验。"""
+    hub = engine_env
+    checks = []
+    original = kh.Engine.verify_delivery
+    monkeypatch.setattr(kh.Engine, "verify_delivery", lambda self, *args: checks.append(1) or original(self, *args))
+    owner_task(hub)
+    empty = dict(planner_delivery(), report=" ")
+    blocked = dict(planner_delivery(), letter=dict(planner_delivery()["letter"], type="阻塞", 摘要="缺站主的决定"))
+    engine = kh.Engine(hub, FakeRunner([({"letters": [start_planner()]}, []), (empty, []), (blocked, [])]))
+    engine.step()
+    engine.step()
+    assert checks == [1]
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "paused"
+    assert [(e["kind"], e["ok"]) for e in retried_events(hub)] == [("阻塞", False)]
+
+
+@pytest.mark.parametrize("redo", [(None, ["write 写到了工作目录之外：../x"]),
+                                  (None, [], "429 throttling", False, 1893456000)])  # 真实的限流回合带 api_error
+def test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too(engine_env, redo):
+    """第 108 轮：重交的回合作废，或撞上限流（不放回原信：那会从头重跑一整个回合），照回合作废的路径交给协调人，
+    附上第一次核验的原话。"""
+    hub = engine_env
+    owner_task(hub)
+    empty = dict(planner_delivery(), report=" ")
+    engine = kh.Engine(hub, FakeRunner([({"letters": [start_planner()]}, []), (empty, []), redo]))
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "failed" and not ts.get("held")
+    letter = coordinator_letter(hub)
+    assert "回合作废" in letter["摘要"] and "第一次核验：规划端的 report 为空" in letter["偏离"]
+    assert [e["ok"] for e in retried_events(hub)] == [False]
+
+
+def test_a_contract_that_fails_derive_json_is_redrafted_under_the_same_number(engine_env, monkeypatch):
+    """第 108 轮：合同首交 derive-json 没过，同一会话重交：还没派遣，原号重写（旧稿进 evidence），返工次数不加。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    ts["stages"]["2-contract"]["status"] = "assigned"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "contract-glm", "task-id": "T001-2-contract", "in-reply-to": "none",
+                 "type": "开工"}, fields())
+    results = [["derive-json 失败：\nERROR definition_of_done 必须是非空数组\n合同无效：1 个错误"], []]
+
+    def revalidate(hub_, ts_):
+        problems = results.pop(0)
+        ts_["contract"]["validated"] = not problems
+        return problems
+
+    monkeypatch.setattr(kh, "revalidate_contract", revalidate)
+    monkeypatch.setattr(kh, "budget_problems", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh.Engine, "auto_jev", lambda self, state_, ts_, suffix: None)
+    out = {"letter": dict(planner_delivery()["letter"], 摘要="合同"), "report": "# 合同说明", "state": "",
+           "contract_md": "# TASK: t001-doc\n正文"}
+    runner = FakeRunner([(out, []), (dict(out, contract_md="# TASK: t001-doc\n改过的正文"), [])])
+    kh.Engine(hub, runner).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["contract"]["key"] == "t001-doc.v1" and ts["contract"]["validated"] is True
+    assert "改过的正文" in (hub.repo / ".agent" / "plans" / "t001-doc.v1.md").read_text(encoding="utf-8")
+    assert list((hub.task_dir("T001-2-contract") / "evidence").glob("t001-doc.v1.rejected-*.md"))
+    assert ts["stages"]["2-contract"]["status"] == "delivered" and not (ts.get("reworks") or {}).get("2-contract")
+    assert "derive-json 失败" in runner.calls[1][2] and coordinator_letter(hub)["内核核验"] == "通过"
+    # 第一次核验的摘要压成一行：多行的报错（“合同无效：1 个错误”这种带冒号的行）不混进信的正文
+    assert coordinator_letter(hub)["验证"] == ("（第一次交付内核核验没过：derive-json 失败： ERROR definition_of_done "
+                                             "必须是非空数组 合同无效：1 个错误；同一会话里当场重交了一次）读了文档")
+    # 重交的回合有输入目录，读得到刚交上、没过核验的那一稿（主工作区守卫不让碰）；原号重写时它才进 evidence
+    redo_inputs, listing = runner.inputs[1]
+    assert redo_inputs is not None and ".agent/plans/t001-doc.v1.md" in listing
+    assert (redo_inputs / ".agent" / "plans" / "t001-doc.v1.md").exists() is False  # 回合结束就删掉输入目录
+    assert [(e["stage"], e["ok"]) for e in retried_events(hub)] == [("2-contract", True)]
+
+
+def test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline(tmp_path, monkeypatch):
+    """第 108 轮：热修补的门禁交付提交了、baseline 没过，当场重交：退回基线保留文件，不二次升版，
+    差异仍对着执行端用过的那份基准测试（previous_oracle）。"""
+    baselines = []
+    calls = []
+    good = pd_with_baseline(calls)
+
+    def run_pd(hub_, args, timeout=600):
+        if args[0] == "baseline":
+            baselines.append(args[1])
+            if len(baselines) == 2:  # 热修补第一次交：baseline 不符合预期
+                return 1, "V01  pass  passed  不符合预期：基准测试在基线上通过了"
+        return good(hub_, args, timeout)
+
+    repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=run_pd)
+    (plans / "t001-doc.v2.json").write_text((plans / "t001-doc.v1.json").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(kh, "role_prompt", lambda agent: "角色")
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == []
+    first = ts["oracle"]["sha"]
+    ts["contract"]["dispatched"] = True
+    ts["hotfix"] = {"reason": "执行端报了 1 条合同矛盾", "previous_oracle": first}
+    ts["stages"]["3-gate-pre"] = {"status": "assigned", "kind": "返工"}
+    hub.save_state({"tasks": {"T001": ts}})
+    hub.deliver({"from": kh.COORDINATOR, "to": "gate-sonnet", "task-id": "T001-3-gate-pre", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+
+    def write(text):
+        return lambda ws: (ws / "tests" / "test_gate_t001_baseline.py").write_text(text, encoding="utf-8")
+
+    delivery = {"letter": dict(planner_delivery()["letter"], type="返工完成"), "report": "热修补", "state": ""}
+    runner = HookedRunner([(delivery, []), (delivery, [])],
+                          {1: write("def test_x():\n    assert 1 == 2\n"), 2: write("def test_x():\n    assert 1 == 3\n")})
+    kh.Engine(hub, runner).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert len(runner.calls) == 2 and baselines == ["t001-doc.v1", "t001-doc.v2", "t001-doc.v2"]
+    assert ts["contract"]["key"] == "t001-doc.v2" and not (plans / "t001-doc.v3.md").exists()  # 只升一次版
+    assert ts["oracle"]["locked"] and ts["stages"]["3-gate-pre"]["status"] == "delivered"
+    diff = (repo / ts["oracle"]["hotfix_diff"]).read_text(encoding="utf-8")
+    assert "assert False" in diff and "assert 1 == 3" in diff and "assert 1 == 2" not in diff
+    assert ts["hotfixes"][0]["previous_oracle"] == first
+    assert [(e["stage"], e["ok"]) for e in retried_events(hub)] == [("3-gate-pre", True)]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
+def test_a_second_hotfix_rework_keeps_the_original_previous_oracle(engine_env):
+    """第 108 轮（themistally-15 指出）：热修补交付提交了、没锁定就退回，协调人再发返工时 ts.oracle.sha 是那个
+    失败的提交；previous_oracle 沿用最早那份，一审拿到的差异才对着执行端用过的基准测试。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["exec"].update(run_dir="r", check_ok=False, conflicts=1)
+    hub.save_state(state)
+    item = dict(start_planner("# 热修补\n第 3 条断言写反了"), to="gate-sonnet", type="返工", task_id="T001-3-gate-pre")
+    for _ in range(2):
+        hub.deliver({"from": kh.OWNER, "to": kh.COORDINATOR, "task-id": "T001", "in-reply-to": "none",
+                     "type": "回复"}, fields())
+        kh.Engine(hub, FakeRunner([({"letters": [item]}, [])])).step()
+        for path in hub.unread("gate-sonnet"):
+            hub.take(path)
+        state = hub.load_state()
+        ts = state["tasks"]["T001"]
+        ts["oracle"] = {"sha": "f" * 40, "locked": False}  # 热修补交了、提交了，baseline 没过
+        ts["stages"]["3-gate-pre"].update(status="failed")
+        hub.save_state(state)
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["hotfix"]["previous_oracle"] == "o" * 40 and (ts.get("reworks") or {}).get("3-gate-pre") == 2
 
 
 def attempt_dir(hub, state: dict, violations: int = 0):

@@ -98,6 +98,9 @@ AUTO_JEV = {"2-contract": "3j-jev", "6-gate-post": "6j-jev"}
 MAX_STAGE_REWORKS = 3
 #: 工人回合的输出不合格时最多重试几次：只重试一次，前面有超时的回合才再给一次（第 32 轮）
 WORKER_RETRIES_AFTER_TIMEOUT = 2
+#: 第 108 轮：交付没过内核核验时，同一会话里当场重交那一回合收到的话
+REDELIVER_TEXT = ("内核核验没过（交付已收到，同一会话里当场重交一次）：\n%s\n\n照这些改，在这一回合里重新交差。"
+                  "要协调人或站主定、你自己改不了的，交“阻塞”信说明原因，不要原样重交。")
 #: 审核端“退回”的对象 → 阶段。
 #: “门禁端”指基准测试本身有错（走热修补）；“战后门禁”指白盒测试或变异清单不够，重做战后门禁。
 RETURN_TARGETS = {"合同端": "2-contract", "门禁端": "3-gate-pre", "战后门禁": "6-gate-post", "执行端": "5-exec",
@@ -4996,7 +4999,10 @@ class Engine:
                     return "开工、返工要附 brief（下一阶段任务书的 Markdown 全文）"
                 self.write_brief(meta["task-id"], brief)
             if meta["type"] == "返工" and suffix == "3-gate-pre" and hotfix_reason(ts):
-                ts["hotfix"] = {"reason": hotfix_reason(ts), "at": utc_now(), "previous_oracle": ts["oracle"].get("sha")}
+                # 第 108 轮（themistally-15 指出）：热修补交付提交了、却没锁定（baseline 没过）时 ts.oracle.sha 是那个
+                # 失败的提交；再发返工要沿用最早那份，一审拿到的差异才对着执行端用过的基准测试
+                previous = (ts.get("hotfix") or {}).get("previous_oracle") or ts["oracle"].get("sha")
+                ts["hotfix"] = {"reason": hotfix_reason(ts), "at": utc_now(), "previous_oracle": previous}
                 if ts["exec"].get("gate_claims"):  # 门禁端重新交付时 ts["exec"] 会清空：原话与 attempt 先存下
                     ts["hotfix"].update(claims=ts["exec"]["gate_claims"], run_dir=ts["exec"].get("run_dir"))
                 self.hub.append_event("hotfix.started", task=ts["task"], reason=ts["hotfix"]["reason"])
@@ -5077,20 +5083,45 @@ class Engine:
             turn, error, timeouts = self.worker_turns(agent, task_id, ts, texts, workspace, kinds, inputs, resume)
         finally:
             remove_inputs(inputs)
-        state = self.hub.load_state()
-        ts = state["tasks"][main]
-        if turn.get("rate_limited_until") and not turn["violations"]:
-            hold_letters(self.hub, ts, agent, [p.name for p in taken], turn["rate_limited_until"], suffix,
-                         turn["turn_id"])
-            self.hub.save_state(state)
-            return
-        if turn["violations"] or error:
-            reason = "；".join(turn["violations"]) or error
+        retried: Optional[Dict[str, str]] = None  # 第 108 轮：核验没过、在同一会话里当场重交过一次
+        while True:
+            state = self.hub.load_state()
+            ts = state["tasks"][main]
+            if turn.get("rate_limited_until") and not turn["violations"] and retried is None:
+                hold_letters(self.hub, ts, agent, [p.name for p in taken], turn["rate_limited_until"], suffix,
+                             turn["turn_id"])
+                self.hub.save_state(state)
+                return
+            if turn["violations"] or error or turn.get("rate_limited_until"):
+                break  # 回合作废（重交的回合撞上限流也算：放回原信会从头重跑一整个回合）
+            output = turn["output"]
+            directory = self.hub.task_dir(task_id)
+            if isinstance(output.get("report"), str):
+                keep_previous(directory / "report.md")  # 返工前的报告留着：上一轮的意见不丢
+                write_text_atomic(directory / "report.md", output["report"])
+            if isinstance(output.get("state"), str):
+                write_text_atomic(directory / "state.md", output["state"])
+            meta, fields = letter_from_output(agent, task_id, output)
+            problems: List[str] = []
+            if meta["type"] in ("交付", "返工完成"):
+                problems = self.verify_delivery(ts, agent, suffix, output, fields)
+            if not problems or retried is not None:
+                break
+            # 摘要压成一行：derive-json 的报错是多行的，信的正文有行数上限
+            retried = {"first": " ".join("；".join(problems).split())[:300], "first_turn": turn["turn_id"]}
+            turn, error = self.redeliver(state, ts, agent, task_id, suffix, texts, workspace, problems, turn)
+        if turn["violations"] or error or turn.get("rate_limited_until"):
+            reason = "；".join(turn["violations"]) or error or "接口限流（到 %s）" % turn["rate_limited_until"]
+            if retried:
+                self.hub.append_event("delivery.retried", task=ts["task"], stage=suffix, first=retried["first"],
+                                      first_turn=retried["first_turn"], turn=turn["turn_id"], ok=False)
+                reason += "（这是核验没过之后的当场重交；第一次核验：%s）" % retried["first"]
             # timed_out：下一回合的输入提醒它工作目录里的改动还在，接着做（第 53 轮）
             ts["stages"][suffix].update(status="failed", note="回合作废：%s" % reason,
                                         timed_out=bool(turn.get("timed_out")))
-            if turn.get("api_error") and not turn["violations"]:
-                # 环境问题（例如 2026-10-19 旧机器上的 403）：协调人也会遇到同样的错，直接交给站主
+            if turn.get("api_error") and not turn["violations"] and not turn.get("rate_limited_until"):
+                # 环境问题（例如 2026-10-19 旧机器上的 403）：协调人也会遇到同样的错，直接交给站主。带着
+                # rate_limited_until 走到这里的只有当场重交的回合（第 108 轮）：限流过后协调人照常能返工，交给它
                 self.escalate(ts, "%s 的回合遇到模型接口报错，阶段已标为 failed：%s（回合 %s）" % (
                     agent, turn["api_error"], turn["turn_id"]))
                 self.hub.save_state(state)
@@ -5107,17 +5138,12 @@ class Engine:
                                          "可以发“返工”让它重做（阶段已标为 failed）"),
                               "证据": turn["turn_dir"]})
             return
-        output = turn["output"]
-        directory = self.hub.task_dir(task_id)
-        if isinstance(output.get("report"), str):
-            keep_previous(directory / "report.md")  # 返工前的报告留着：上一轮的意见不丢
-            write_text_atomic(directory / "report.md", output["report"])
-        if isinstance(output.get("state"), str):
-            write_text_atomic(directory / "state.md", output["state"])
-        meta, fields = letter_from_output(agent, task_id, output)
-        problems: List[str] = []
-        if meta["type"] in ("交付", "返工完成"):
-            problems = self.verify_delivery(ts, agent, suffix, output, fields)
+        if retried:
+            self.hub.append_event("delivery.retried", task=ts["task"], stage=suffix, first=retried["first"],
+                                  first_turn=retried["first_turn"], turn=turn["turn_id"], kind=meta["type"],
+                                  ok=meta["type"] in ("交付", "返工完成") and not problems)
+            fields["验证"] = "（第一次交付内核核验没过：%s；同一会话里当场重交了一次）%s" % (
+                retried["first"][:200], fields.get("验证", ""))
         stage = ts["stages"][suffix]
         stage["fields"] = fields
         stage.pop("timed_out", None)  # 这一回合交出了信：上一回合超时的提醒用过了
@@ -5125,7 +5151,8 @@ class Engine:
         if meta["type"] in ("交付", "返工完成"):
             if problems:
                 stage.update(status="failed", note="；".join(problems)[:600])
-                fields["内核核验"] = "未通过：" + "；".join(problems)[:1200]
+                fields["内核核验"] = ("未通过%s：" % ("（同一会话里已经当场重交过一次）" if retried else "")
+                                  + "；".join(problems)[:1200])
             else:
                 stage.update(status="delivered", note="", delivered_at=utc_now())
                 stage.pop("owner_text", None)  # 站主的返工要求办完了
@@ -5309,6 +5336,27 @@ class Engine:
                                    inputs=inputs)
             error = self.output_problem(agent, task_id, turn)
         return turn, error, timeouts
+
+    def redeliver(self, state: Dict[str, Any], ts: Dict[str, Any], agent: str, task_id: str, suffix: str,
+                  texts: List[str], workspace: Path, problems: List[str],
+                  turn: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+        """第 108 轮：交付没过内核核验，在同一会话里当场重交一次，只跑一个回合（不套格式重试与超时续接）。
+        账本里约 45 次交付被核验退回，每次多走一圈：核验信 → 协调人一回合 → 返工开新会话 → 工人从头读。
+        阶段保持 assigned、不写 last_letter：协调人这期间发来的开工、返工照样被 stage_busy 挡下，hub 被收掉时
+        requeue 按“被打断”放回原信。战前门禁的核验先提交、后跑 baseline，没过时提交还在：照返工的做法退回基线、
+        保留文件。返回（重交的回合, 它的输出问题）。"""
+        if suffix == "3-gate-pre":
+            workspace = self.stage_workspace(ts, agent, suffix)
+        self.hub.save_state(state)  # 核验的副作用（合同已写入、门禁记录）先存下
+        inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (task_id, utc_compact()))
+        try:
+            prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, inputs=inputs,
+                                 error=REDELIVER_TEXT % "\n".join("- %s" % problem for problem in problems))
+            again = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"],
+                                    inputs=inputs)
+        finally:
+            remove_inputs(inputs)
+        return again, self.output_problem(agent, task_id, again)
 
     def handle_pass(self, state: Dict[str, Any], meta: Dict[str, str]) -> None:
         """协调人对执行端发“通过”：结项（verdict PASS 与 integrate）。"""
