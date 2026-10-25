@@ -16,6 +16,9 @@ import { readRoutes, type ReadRoutesState } from "./readroutes.ts";
 import { EventHub, eventRoutes } from "./events.ts";
 import { JobTable } from "./jobs.ts";
 import { jobRoutes } from "./jobroutes.ts";
+import { writeRoutes } from "./writeroutes.ts";
+import { ConfirmationTable } from "./confirmations.ts";
+import { OperationTable } from "./operations.ts";
 
 /** 测试入口才会传的覆盖项（CLI 与环境变量都碰不到）。 */
 export interface ServeOverrides {
@@ -38,6 +41,8 @@ export interface ServeOverrides {
   readonly maxSubscriptions?: number | undefined;
   /** SSE 每个会话的订阅数上限（缺省 4）。 */
   readonly maxSubscriptionsPerSession?: number | undefined;
+  /** 确认号的有效期（毫秒）：只给测试入口覆盖确认号的 TTL，生产路径用缺省值（不设数字字面量）。 */
+  readonly confirmationTtlMs?: number | undefined;
 }
 
 /** Bun.serve 用到的这几样（ts/ 里没有 Bun 的类型声明，只声明用到的）。 */
@@ -130,8 +135,18 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
   });
   const jobs = new JobTable();
   const timeouts = overrides.timeouts ?? {};
-  // 三批 extraRoutes 合成一批交给 createApp：19 条读路由 + SSE + 作业（新路由不并进 readRoutes()）
-  const extraRoutes = [...readRoutes(readState, timeouts), ...eventRoutes(hub), ...jobRoutes(runner, jobs, timeouts)];
+  // 第 5 片：预览确认号表与操作记录表。确认号只在内存里，服务退出即失效；表不写 .agent/
+  const confirmations = new ConfirmationTable({
+    ...(overrides.confirmationTtlMs === undefined ? {} : { ttlMs: overrides.confirmationTtlMs }),
+  });
+  const operations = new OperationTable();
+  // 四批 extraRoutes 合成一批交给 createApp：19 条读路由 + SSE + 作业 + 写路由（新路由不并进 readRoutes()）
+  const extraRoutes = [
+    ...readRoutes(readState, timeouts),
+    ...eventRoutes(hub),
+    ...jobRoutes(runner, jobs, timeouts),
+    ...writeRoutes({ runner, confirmations, operations }, timeouts),
+  ];
   const appOptions = {
     port: running.port,
     assets,
@@ -141,8 +156,8 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     ...(overrides.nonceTtlMs === undefined ? {} : { nonceTtlMs: overrides.nonceTtlMs }),
   };
   const timer = new IdleTimer(idleMs(args.idle_timeout), () => {
-    // 空闲判定：inflight 为 0、hub 订阅者为 0、作业表里没有在等或在跑的作业，三者都满足才退出；订阅开着算活动
-    if (app === null || app.inflight() > 0 || hub.subscribers > 0 || jobs.active() > 0) timer.touch();
+    // 空闲判定：inflight 为 0、hub 订阅者为 0、作业表里没有在等或在跑的作业、操作表里没有在跑或排队中的写，四者都满足才退出
+    if (app === null || app.inflight() > 0 || hub.subscribers > 0 || jobs.active() > 0 || operations.active() > 0) timer.touch();
     else shutdown(EXIT_OK);
   });
   app = createApp(appOptions);

@@ -1,6 +1,6 @@
 # @themis/ui
 
-桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；第 3 片加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定；第 4 片给 file 路由加「跟随」（`follow=1`，见「日志跟随」一节）。预览、写路由与凭据录入作业是后面几片的事。
+桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；第 3 片加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定；第 4 片给 file 路由加「跟随」（`follow=1`，见「日志跟随」一节）。第 5 片给本机服务接上「预览 → 确认号 → 带令牌执行 → 操作终态」这条写链路（`POST /api/v1/preview` 与七条写路由，见「写操作」一节）；凭据录入作业仍是后面几片的事。
 
 - 入口：`src/main.ts` 的 `runUi`（参数检查）转交 `src/server.ts` 的 `serveUi`。内核仓库里经 `pi_dispatch.py ui --desktop --assets <目录> …` 转交（调度器第 73 轮）；桌面应用里外壳直接起打包好的程序（T6）。
 - 本包不在内核禁区里（迁移计划第 69 轮），经 hub 派给执行器；`package.json` 与 `bun.lock` 的登记由规划端维护（禁区里的工作区文件）。
@@ -77,7 +77,23 @@ GET /api/v1/secrets/<name>                                config secret check <n
 
 `meta` 与 `/secrets` 的 `data` 由服务合成（分别是 `{version, repo_name}` 与 `{"secrets":[…]}`），其余路由的 `data` 是内核 stdout 的 JSON。`/api/v1/attempts/<task>/<attempt>/file` 给界面的 `next_cursor` 是 43 个字符的随机不透明句柄，内核游标只存在服务内存里（服务退出全部失效）。
 
-状态码：201 作业创建成功（创建动作产生了一个可寻址的新资源，语义上就是 201；作业失败一律走 4xx/5xx，201 只出现在这里）；400 请求体不是合法的 JSON、查询参数或路径参数不合格、作业参数不合格（都不起子进程）；401 未认证；403 请求被拒绝（Host、Origin、CSRF、控制令牌、静态越界）；404 没有这个接口或没有这个作业（引导地址失效也回 404）；405 只支持 GET 与 POST（带 `Allow: GET, POST`）；409 句柄无效或内核报「游标对应的文件已变化」（提示「游标无效或文件已变化，请从头读取」）、取消一个已结束的作业（提示「作业已经结束」）；413 请求体超过 64 KiB；415 只收 `application/json`；429 控制令牌失败次数过多（带 `Retry-After`）；500 服务内部错误（起不了子进程、要 JSON 的命令退出 0 但 stdout 不是合法 JSON、stdout 超过 32 MiB 或 stderr 超过 1 MiB、处理函数抛错）；503 队列满、服务正在关闭、作业表满、执行器收不了或 SSE 订阅数达到上限（都带 `Retry-After: 2`）；504 命令超时（信封的 `exit_code` 是 null，`messages` 只有一行「ERROR: 命令超时（N 秒），子进程已结束；请改用 CLI 查看」）。命令退出非 0 一律回 200（信封 `ok` 为 false、`exit_code` 原样）。服务自己产生的错误一律走同一个错误信封。
+第 5 片加的预览与七条写路由：全部要会话、CSRF 与 JSON 对象正文，参数在起子进程之前校验，不合格回 400（提示固定、不回显请求里的值）。执行用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（`needs_yes` 为真才加 `--yes`）。
+
+```
+POST /api/v1/preview                       基础 argv 加 --dry-run --json（预览，30 秒；回 {preview, confirmation}）
+POST /api/v1/roles/<role>                  config role set <role> <target>（90 秒）
+POST /api/v1/presets/<name>/use            config preset use <name>（90 秒）
+POST /api/v1/presets/<name>/save           config preset save <name>（90 秒）
+POST /api/v1/presets/<name>/remove         config preset remove <name>（90 秒）
+POST /api/v1/config/rollback/<n>           config rollback <n>（90 秒）
+POST /api/v1/plugins/<id>/enable           plugins enable <id>（90 秒）
+POST /api/v1/plugins/<id>/disable          plugins disable <id>（90 秒）
+GET  /api/v1/operations/<id>               查询一次写操作的结果（八键操作记录，不套信封、不套 data）
+```
+
+预览与写操作的语义见下面「写操作」一节。
+
+状态码：201 作业创建成功（创建动作产生了一个可寻址的新资源，语义上就是 201；作业失败一律走 4xx/5xx，201 只出现在这里）；400 请求体不是合法的 JSON、查询参数或路径参数不合格、作业参数不合格（都不起子进程）；401 未认证；403 请求被拒绝（Host、Origin、CSRF、控制令牌、静态越界）；404 没有这个接口或没有这个作业（引导地址失效也回 404）；405 只支持 GET 与 POST（带 `Allow: GET, POST`）；409 句柄无效或内核报「游标对应的文件已变化」（提示「游标无效或文件已变化，请从头读取」）、取消一个已结束的作业（提示「作业已经结束」）、确认号无效/已过期/已用过或与预览参数不符（提示见「写操作」）、写命令退出 4 的 stale（`exit_code` 是 4 的七字段信封）；413 请求体超过 64 KiB；415 只收 `application/json`；429 控制令牌失败次数过多（带 `Retry-After`）；500 服务内部错误（起不了子进程、要 JSON 的命令退出 0 但 stdout 不是合法 JSON、stdout 超过 32 MiB 或 stderr 超过 1 MiB、处理函数抛错）；503 队列满、服务正在关闭、作业表满、执行器收不了或 SSE 订阅数达到上限（都带 `Retry-After: 2`）；504 命令超时（信封的 `exit_code` 是 null，`messages` 只有一行「ERROR: 命令超时（N 秒），子进程已结束；请改用 CLI 查看」）。命令退出非 0 一律回 200（信封 `ok` 为 false、`exit_code` 原样）。服务自己产生的错误一律走同一个错误信封。
 
 ## 实时通道（SSE）
 
@@ -136,6 +152,17 @@ GET /api/v1/attempts/<task>/<attempt>/file?path=<p>&follow=1[&cursor=<句柄>]  
 
 因此：界面上这把 key 显示成「环境变量：服务不检查，以终端为准」（这段文案属于前端，不在本片），要确认它的真实来源请以终端里 `config secret check` 的输出为准。
 
+## 写操作
+
+预览 → 确认号 → 带令牌执行 → 操作终态（`POST /api/v1/preview` 与七条写路由）。服务只校验参数形状，组合规则（该给哪些权限、缺什么、能不能切）全交给内核；提示固定、不回显请求里的值，不合格不起子进程。`profile` 与 `runtime` 的五条写路由归 T020，本片只登记在 `T020_WRITE_COMMANDS`，请求它们回 400「action 不合法」。
+
+- **预览**（`POST /api/v1/preview`）：正文 `{action, args}`，起基础 argv 加 `--dry-run --json`（30 秒，用请求自己的 signal，不拿锁、不写任何文件）。退出 0 时核对内核预览的 `dry_run`/`action`/`state`/`needs_yes`，拿掉 `state` 令牌、剩下的过 `PREVIEW_ALLOW` 二道脱敏，回 200、`data` 是 `{preview, confirmation}`（`confirmation` 是 43 位 base64url 确认号）；预览不合格（`action` 对不上、`state` 形状不对等）回 500「内核的预览不合格」、不发号；内核退出非 0 回 200、`ok` 为假、不发号。
+- **确认号**：有效期 60 秒（从签发算起），只在内存里、不绑会话，服务退出即失效；容量 100，满了先清过期的、再挤掉最早发出还没用的那个。执行时把 `confirmation` 带回：缺失、不是字符串、格式不对、不在表里、已过期或用第二次 → 409「确认号无效、已过期或已用过：请重新预览」；与预览时的参数不符 → 409「确认号与这次请求的参数不符：请重新预览」且**不**消耗这个号。
+- **执行**：七条写路由共用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（预览给的 state 令牌原样带上；界面从 `command` 看到的只是占位 `--expect-state=<state>`，令牌不外泄），预览的 `needs_yes` 为真才加 `--yes`（plugins 的 `needs_yes` 恒为假），不带 `--json`；时限 90 秒。退出 0 → 200；退出 4（内核报「在预览之后被改过」）→ 409 七字段信封（`exit_code` 是 4，界面据此重新预览）、操作记 `stale`；其他非 0 → 200、`ok` 为假、操作记 `failed`；起不了子进程或输出超限 → 500。
+- **操作记录**（`GET /api/v1/operations/<id>`）：每次执行落一条八键操作记录 `{id, action, state, reason, created_ms, started_ms, finished_ms, envelope}`（`id` 就是确认号，`envelope` 是已脱敏的完整信封），不套信封、不套 `data`；格式不对与查不到回同一个 404「没有这个操作」；容量 100，满了淘汰最早结束的终态记录，没有可淘汰的回 503。
+- **断开不取消**：写运行用服务私有的 AbortController，客户端的 `request.signal` 不传给执行器——界面断线时子进程不被杀、终态照记，界面靠操作号把结果读回来（写入可能已部分完成，按「结果未知」重读）。
+- **503 与 504**：队列满或服务正在关停回 503 带 `Retry-After: 2`（不消耗确认号，重试不丢号）；超时回 504、操作记 `timed_out`（整棵进程树被结束）。有写在跑时服务不因空闲退出（空闲判定看 `operations.active()`）。
+
 ## 测试
 
 ```
@@ -153,7 +180,7 @@ node node_modules/typescript/bin/tsc -p tsconfig.json      # 类型
 ## 已知限制
 
 - 读路由的子进程并发上限 4、队列 16、各路由时限与输出上限（stdout 32 MiB、stderr 1 MiB）**不给用户配**：只开放给测试入口 `ServeOverrides`，对用户可配留给后面一片。SSE 的订阅上限（全局 16、每会话 4）、stat 间隔、去抖、心跳与作业的并发/队列/时限同样只开放给测试入口，CLI 与环境变量碰不到。
-- 本片不做预览、写路由与凭据录入作业，也不缓存脱敏结果。file 路由的跟随只给 JSONL（`follow=1`），普通文本明确回 400，见「日志跟随」一节。
+- 本片不做凭据录入作业，也不缓存脱敏结果。写路由只覆盖 role/preset/config rollback/plugins 七条，`profile add|edit|remove` 与 `runtime add|remove` 归 T020（登记在 `T020_WRITE_COMMANDS`，请求回 400「action 不合法」）。确认号表与操作表只在内存里，服务退出（含空闲退出）即失效，界面要按「结果未知」重读。file 路由的跟随只给 JSONL（`follow=1`），普通文本明确回 400，见「日志跟随」一节。
 - `file` 路由的句柄只在内存里：服务重启之后旧句柄一律 409（「游标无效或文件已变化，请从头读取」），界面要重新从头读取。
 - `/secrets` 与 `/config` 里 `TYPESAFE_API_KEY` 的 source 不会是 env（原因见上一节），与终端里同一条命令不同。
 - **输出上限的磁盘上界（H1）**：执行器边写边看，子进程跑着的时候每 100 毫秒看一次 stdout/stderr 的大小，超限就中止整棵树；两次轮询之间写完的由结束后的兜底检查抓住。临时目录里单个输出文件的磁盘上界约为「上限 + 写速度 ×（轮询间隔 100 毫秒 + 宽限 2 秒）」，不是硬上限。

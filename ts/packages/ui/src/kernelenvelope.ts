@@ -1,8 +1,8 @@
 // 内核路由的信封（桌面端设计第 7 版 §5.3、D06）：七个字段与次序照 envelope.ts 的 ENVELOPE_KEYS——
-// ok、exit_code、data、output、messages、command、elapsed_ms。本片不把 stdout 原样回传（output 恒为空数组）；
-// messages 只留 stderr 里以 ERROR 或 WARN 开头的行，逐行过 redactSecrets（其余行一律丢掉，例如 logs cat 的
-// 「（未完：--cursor …）」）；command 是显示用的 argv（不含 python、kernel、--repo 与仓库路径，--cursor= 的值换成
-// <cursor>、--transcript= 的值换成 <transcript>），再过 redactSecrets；data 用 pyjson 的 dumps(ensureAscii:false,
+// ok、exit_code、data、output、messages、command、elapsed_ms。读路由不填 output（缺省为空数组，stdout 不原样回传）；
+// 写命令（writeroutes.ts）填 stdout 的非空行进 output，逐行过 redactSecrets。messages 只留 stderr 里以 ERROR 或 WARN 开头
+// 的行，逐行过 redactSecrets（其余行一律丢掉，例如 logs cat 的「（未完：--cursor …）」）；command 是显示用的 argv（不含 python、kernel、--repo 与仓库路径，--cursor= 的值换成
+// <cursor>、--transcript= 的值换成 <transcript>、--expect-state= 的值换成 <state>），再过 redactSecrets；data 用 pyjson 的 dumps(ensureAscii:false,
 // indent:2) 写出；exit_code 原样（超时为 null）；elapsed_ms 是 wall_seconds × 1000 取整。写出时七个字段按次序手工
 // 拼：data 可能是任意结构，必须走 pyjson（Python 的 NaN、bigint、键次序都与 JSON.stringify 不同）。
 import { dumps, loads, type PyValue } from "@themis/base/pyjson";
@@ -15,6 +15,8 @@ export interface KernelEnvelope {
   readonly ok: boolean;
   readonly exitCode: number | null;
   readonly data: PyValue | null;
+  /** stdout 的非空行（逐行过 redactSecrets）：写命令才有，读路由不填（缺省 []）。 */
+  readonly output?: readonly string[];
   readonly messages: readonly string[];
   readonly command: readonly string[];
   readonly elapsedMs: number;
@@ -34,12 +36,13 @@ export function messagesOf(stderr: string): string[] {
   return out;
 }
 
-/** 显示用的 argv：游标与 transcript 的值换成占位符，每一项再过 redactSecrets。 */
+/** 显示用的 argv：游标与 transcript、expect-state 的值换成占位符，每一项再过 redactSecrets。 */
 export function displayArgv(argv: readonly string[]): string[] {
   return argv.map((arg) => {
     let shown = arg;
     if (shown.startsWith("--cursor=")) shown = "--cursor=<cursor>";
     else if (shown.startsWith("--transcript=")) shown = "--transcript=<transcript>";
+    else if (shown.startsWith("--expect-state=")) shown = "--expect-state=<state>";
     return redactSecrets(shown);
   });
 }
@@ -58,13 +61,14 @@ export function parseJsonData(stdout: string): PyValue | undefined {
   }
 }
 
-/** 七字段按次序手工拼；data 走 pyjson 的 dumps（其余六个是标量或字符串数组）。 */
+/** 七字段按次序手工拼；data 走 pyjson 的 dumps（其余六个是标量或字符串数组）；output 缺省 []（读路由不填）。 */
 export function envelopeBody(envelope: KernelEnvelope): string {
   const data = envelope.data === null ? "null" : dumps(envelope.data, { ensureAscii: false, indent: 2 });
+  const output = dumps([...(envelope.output ?? [])], { ensureAscii: false });
   const messages = dumps([...envelope.messages], { ensureAscii: false });
   const command = dumps([...envelope.command], { ensureAscii: false });
   const exitCode = envelope.exitCode === null ? "null" : String(envelope.exitCode);
-  return `{"ok": ${envelope.ok ? "true" : "false"}, "exit_code": ${exitCode}, "data": ${data}, "output": [], "messages": ${messages}, "command": ${command}, "elapsed_ms": ${Math.round(envelope.elapsedMs)}}`;
+  return `{"ok": ${envelope.ok ? "true" : "false"}, "exit_code": ${exitCode}, "data": ${data}, "output": ${output}, "messages": ${messages}, "command": ${command}, "elapsed_ms": ${Math.round(envelope.elapsedMs)}}`;
 }
 
 /** 信封转成响应（安全头由调用方的管线套上；这里只给正文与状态）。 */
