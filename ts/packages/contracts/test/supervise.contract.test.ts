@@ -70,12 +70,33 @@ function comparable(result: Supervised): Record<string, unknown> {
   return { ...rest, pid: pid === null ? null : "<pid>" };
 }
 
-function waitGone(pid: number): boolean {
-  for (let i = 0; i < 100; i += 1) {
-    if (pidAlive(pid) === false) return true;
-    spawnSync(PY, ["-c", "import time; time.sleep(0.1)"]);
+/** 等进程消失：消失了返回 true，等满 30 秒还在返回诊断（断言失败时打印出来）。
+ *  第 109 轮：S5a 在 V10（全量连跑三遍）里两次等不到孙进程消失（26 次里红 2 次），T017 的结项因此撤回一次。以前每轮
+ *  起一个 python 睡 0.1 秒、数满 100 轮：机器忙时又慢、又让进程号周转更快；pidAlive 为 null（tasklist 没跑出结果）
+ *  也算“还在”。现在按墙钟算，同步睡不起进程，null 当“不知道”接着等。还等不到，就查清这个进程号此刻是谁：
+ *  命令行是孙进程那段 range(1200)，就是真没被结束（supervise 的缺陷）；是别的进程，就是进程号被复用了。 */
+function waitGone(pid: number): true | string {
+  const deadline = Date.now() + 30_000;
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  let last: boolean | null = null;
+  while (Date.now() < deadline) {
+    last = pidAlive(pid);
+    if (last === false) return true;
+    Atomics.wait(nap, 0, 0, 100);
   }
-  return false;
+  return goneDiagnosis(pid, last);
+}
+
+function goneDiagnosis(pid: number, last: boolean | null): string {
+  const tasklist = spawnSync(join(process.env["SystemRoot"] ?? "C:/Windows", "System32", "tasklist.exe"),
+    ["/FI", `PID eq ${pid}`, "/NH"], { encoding: "utf8", timeout: 20_000 });
+  const query = `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Format-List Name,ProcessId,ParentProcessId,`
+    + "CreationDate,CommandLine | Out-String -Width 400";
+  // 按绝对路径起（第 77 轮的规矩：当前目录里的同名程序顶替不了）
+  const powershell = join(process.env["SystemRoot"] ?? "C:/Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const cim = spawnSync(powershell, ["-NoProfile", "-NonInteractive", "-Command", query], { encoding: "utf8", timeout: 60_000 });
+  return `进程 ${pid} 30 秒内没有消失。最后一次 pidAlive：${String(last)}；tasklist：${(tasklist.stdout ?? "").trim()}；`
+    + `Get-CimInstance：${(cim.stdout ?? "").trim() || `（没查到；${String(cim.error ?? cim.stderr)}）`}`;
 }
 
 /** 每套实现在自己的临时目录里跑同一个场景，返回各自的结果与目录。 */
@@ -86,8 +107,18 @@ function acrossImpls<T>(name: string, body: (impl: Impl, dir: string) => T): { i
   });
 }
 
+/** 收拾现场：删不掉只记一笔，不往外抛。清理不是断言（第 109 轮，themistally-15 指出）：孙进程真没被结束时，
+ *  它的当前目录就是 run.dir，Windows 删不掉，finally 里抛出的 EBUSY 会顶掉断言里 waitGone 的诊断。 */
+function tidy(path: string): void {
+  try {
+    removeDir(path);
+  } catch (error) {
+    console.warn(`清理 ${path} 没成功：${String(error)}`);
+  }
+}
+
 function cleanup(runs: readonly { dir: string }[]): void {
-  for (const run of runs) removeDir(run.dir);
+  for (const run of runs) tidy(run.dir);
 }
 
 const SLEEP = "import time\nfor _ in range(1200): time.sleep(0.1)";
@@ -416,7 +447,7 @@ describe.skipIf(!onWindows)("进程监督契约", () => {
       expect(waitGone(grandchild), "孙进程").toBe(true);
     } finally {
       probe.kill();
-      removeDir(dir);
+      tidy(dir);
     }
   });
 });
