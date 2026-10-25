@@ -2016,13 +2016,14 @@ def test_supervisor_requeues_only_tasks_nobody_is_working_on(tmp_path, monkeypat
     assert pending == ["T001"] and spawned == ["T001"] and count == 1
 
 
-def coordinator_cut_off(hub, turn=None):
-    """协调人读了信、记了“在办”，回合（跑完或没跑完）之后 runner 被收掉。"""
+def coordinator_cut_off(hub, finished=False):
+    """协调人读了信、记了“在办”，回合（跑完或没跑完）之后 runner 被收掉。返回（信，跑完的回合号）。"""
     path = hub.unread(kh.COORDINATOR)[0]
     hub.take(path)
     state = hub.load_state()
-    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_now()}
+    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_compact()}
     hub.save_state(state)
+    turn = "%s-c0de" % kh.utc_compact() if finished else None
     if turn:
         turn_dir = hub.root / "turns" / kh.COORDINATOR / turn
         turn_dir.mkdir(parents=True)
@@ -2030,14 +2031,14 @@ def coordinator_cut_off(hub, turn=None):
                                                           "output_error": None, "violations": []}), encoding="utf-8")
         hub.append_event("turn.finished", agent=kh.COORDINATOR, session_key="T001", turn_id=turn, output_ok=True,
                          violations=0)
-    return path
+    return path, turn
 
 
 def test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed(engine_env):
     # 第 94 轮：协调人先读信、后跑回合，runner 被收掉后信留在 cur，主任务悄悄停住（协调人占全部回合的六成）
     hub = engine_env
     owner_task(hub)
-    path = coordinator_cut_off(hub, "tC")
+    path, turn = coordinator_cut_off(hub, finished=True)
     runner = FakeRunner([({"letters": [start_planner(), start_planner()], "state": "s"}, [])])
     engine = kh.Engine(hub, runner)
     assert engine.step() is False and kh.tasks_with_work(hub) == []
@@ -2045,11 +2046,11 @@ def test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed(engine_env
         assert kh.requeue_interrupted(hub) == []
     assert kh.requeue_interrupted(hub) == ["T001"]
     ts = hub.load_state()["tasks"]["T001"]
-    assert "coordinator_turn" not in ts and ts["coordinator_resume"]["turn"] == "tC"
+    assert "coordinator_turn" not in ts and ts["coordinator_resume"]["turn"] == turn
     assert [p.name for p in hub.unread(kh.COORDINATOR)] == [path.name]
     assert engine.step()
     assert runner.session_ids == ["T001-g0"] and runner.fresh == [False]  # 回合跑完了：续接它的会话
-    assert "你上一回合（tC）的输出内核收到了，投递做到一半" in runner.calls[0][2]
+    assert "你上一回合（%s）的输出内核收到了，投递做到一半" % turn in runner.calls[0][2]
     ts = hub.load_state()["tasks"]["T001"]
     assert "coordinator_turn" not in ts and "coordinator_resume" not in ts
     # 第二封是重发上一回合投递过的开工：不算协调人出错，也不发核验信
@@ -2062,10 +2063,10 @@ def test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed(engine_env
 def test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once(engine_env):
     hub = engine_env
     owner_task(hub)
-    with open(hub.ledger(), "a", encoding="utf-8") as ledger:  # 更早一个跑完的回合：不是被打断的这一个
-        ledger.write(json.dumps({"at": "2026-01-01T00:00:00Z", "event": "turn.finished", "agent": kh.COORDINATOR,
-                                 "session_key": "T001", "turn_id": "t-old", "output_ok": True, "violations": 0}) + "\n")
-    path = coordinator_cut_off(hub)
+    # 上一个回合刚跑完、同一秒里下一个回合开始（第 95 轮：按秒比会把它当成被打断的这一个）
+    hub.append_event("turn.finished", agent=kh.COORDINATOR, session_key="T001", turn_id="%s-0ld0" % kh.utc_compact(),
+                     output_ok=True, violations=0)
+    path, _turn = coordinator_cut_off(hub)
     runner = FakeRunner([({"letters": [start_planner(), start_planner()], "state": "s"}, [])])
     engine = kh.Engine(hub, runner)
     assert kh.requeue_interrupted(hub) == ["T001"]
@@ -2076,7 +2077,7 @@ def test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once(eng
     assert ts["coordinator_rejections"] == 1  # 不是续接已交的回合：重发照常算
     # 同一封信第二次被打断：不再放回，主任务转 blocked，写信给站主
     state = hub.load_state()
-    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_now()}
+    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_compact()}
     hub.save_state(state)
     hub.take(hub.unread(kh.COORDINATOR)[0])  # 拒收的核验信也被读了
     assert kh.requeue_interrupted(hub) == []
@@ -2105,8 +2106,10 @@ def test_the_coordinator_marker_is_cleared_on_every_way_out_of_the_turn(engine_e
         state["tasks"]["T001"]["status"] = "active"
         hub.save_state(state)
         owner_task(hub)
+        before = kh.utc_compact()
         assert engine.step()
         assert "coordinator_turn" not in hub.load_state()["tasks"]["T001"]
+        assert before < seen[-1]["at"]  # 第 95 轮：标记要能和回合号（utc_compact 开头）比先后
     assert len(seen) == 3 and all(item and item["letters"] for item in seen)
 
     def boom(*args, **kwargs):

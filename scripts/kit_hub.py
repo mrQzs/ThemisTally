@@ -4485,11 +4485,13 @@ def ledger_events(hub: Hub) -> List[Dict[str, Any]]:
 
 
 def finished_turn(events: List[Dict[str, Any]], agent: str, session_key: str, since: str) -> Optional[str]:
-    """since 之后这个会话最后一个跑完的回合：输出合格、没违规的返回回合号，否则 None。"""
+    """since（utc_compact）之后开始的这个会话最后一个跑完的回合：输出合格、没违规的返回回合号，否则 None。
+    第 95 轮：按回合号比（它以开始时刻的 utc_compact 开头，到微秒），不按事件的 at（只到秒）——上一个回合与
+    下一个同一秒首尾相接时（相邻协调人回合里约 3%），按秒会把上一个当成被打断的这一个。"""
     turn: Optional[str] = None
     for event in events:
         if (event.get("event") == "turn.finished" and event.get("agent") == agent
-                and event.get("session_key") == session_key and str(event.get("at") or "") >= since):
+                and event.get("session_key") == session_key and str(event.get("turn_id") or "") > since):
             turn = event.get("turn_id") if event.get("output_ok") and not event.get("violations") else None
     return turn
 
@@ -4786,7 +4788,7 @@ class Engine:
         workspace = ensure_worktree(self.hub, ts, "base", ts["base_head"])
         # 第 94 轮：“在办”标记，回合办完（三个出口）或进程内出了意外（report_step_error）时清掉。runner 被收掉，
         # 标记就留着：requeue_interrupted 拿得到锁、看到它，就把这几封信放回去
-        ts["coordinator_turn"] = {"letters": [p.name for p in paths], "at": utc_now()}
+        ts["coordinator_turn"] = {"letters": [p.name for p in paths], "at": utc_compact()}
         resume = ts.pop("coordinator_resume", None)
         self.hub.save_state(state)
         session_id = resumed_session(self.hub, COORDINATOR, resume, workspace)
