@@ -7333,6 +7333,21 @@ def test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reaso
     assert "规划依赖 1 条未核实的仓库外事实" in runner.calls[0][2]
 
 
+def test_a_batch_that_is_not_routine_tells_the_coordinator_why(engine_env, kernel_routing):
+    """第 117 轮：不是例行流转的一批信照起协调人的回合，输入里写明为什么（T019 的规划在“需协调人决定”里写了
+    “无。”加一段说明：内核不当作“无”，协调人被叫醒却不知道原因）。"""
+    hub = engine_env
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"]["status"] = "delivered"
+    hub.save_state(state)
+    hub.deliver({"from": "planner-opus", "to": kh.COORDINATOR, "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "交付"}, fields(内核核验="通过", 需协调人决定="无。44 条过渡断言都不用退役"))
+    runner = FakeRunner([({"letters": [], "state": "看过"}, [])])
+    kh.Engine(hub, runner).step()
+    assert len(runner.calls) == 1
+    assert "## 内核没有代办这一批信\n\n这批信不是例行流转：planner-opus 的信里有需协调人决定的事" in runner.calls[0][2]
+
+
 def test_the_kernel_leaves_the_last_rework_of_a_stage_to_the_coordinator(engine_env, kernel_routing):
     """第 112 轮（themistally-15 补充）：代办与协调人共用返工计数，这一步会用掉这一阶段的最后一次返工时不代办，
     留给协调人选返工、热修补还是问站主。前两次照常代办，任务书用核验的全文。"""

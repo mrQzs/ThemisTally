@@ -5012,8 +5012,8 @@ class Engine:
         routing）让 requeue_interrupted 把信放回去，下一回合不再推导、直接起协调人的续接回合，它重发撞上
         BUSY_GUARD 的开工、返工不算出错（第 93、94 轮）。"""
         moves, why = routine_moves(texts)
-        if why:
-            return False, None
+        if why:  # 第 117 轮：叫醒协调人时说清为什么（T019 的规划交付后，协调人不知道这批信为什么到了它手里）
+            return False, "这批信不是例行流转：%s" % why
         items = []
         for move in moves:
             worker = STAGE_WORKER[move["suffix"]]
