@@ -661,6 +661,49 @@ def test_mutation_verdict_reads_the_record_not_the_exit_code():
     assert any("没有一条变异被抓住" in p for p in kh.mutation_problems(0, mutation_record("missed", unexpected=[]), ""))
     assert any("没有跑完" in p for p in kh.mutation_problems(2, mutation_record("caught"), "baseline failed"))
     assert any("没有跑完" in p for p in kh.mutation_problems(0, {}, ""))
+    # 第 118 轮：基线就红了的，说清楚是工作目录里本来就跑不通，依赖不要塞进 commands
+    red = kh.mutation_problems(2, {"aborted": "baseline_failed"}, "ERROR: 不做变异时 command 没有通过")
+    assert len(red) == 1 and "基线就红了" in red[0] and "不要放进 commands" in red[0]
+    assert "基线就红了" not in kh.mutation_problems(2, {}, "")[0]
+
+
+def multi_result(mid: str, expected_missed=(), **statuses) -> dict:
+    return {"id": mid, "status": "caught" if "caught" in statuses.values() else "missed",
+            "unexpected": [cid for cid, status in statuses.items() if status == "missed" and cid not in expected_missed],
+            "commands": {cid: {"status": status} for cid, status in statuses.items()}}
+
+
+def test_multi_command_mutation_verdict_splits_by_command_and_names_the_idle_one():
+    # 第 118 轮：T019 的战后门禁把 bun install 当一条命令放进清单，它谁也抓不住，26 条全记成意外漏网；
+    # vitest 其实抓住了 24 条，信里只有“26 条漏网”
+    record = {"commands": [{"id": "setup"}, {"id": "vitest"}, {"id": "gate"}],
+              "results": [multi_result("M01", setup="missed", vitest="caught", gate="missed"),
+                          multi_result("M02", setup="missed", vitest="missed", gate="caught")]}
+    problems = kh.mutation_problems(0, record, "")
+    assert "（按命令：setup 漏掉 M01、M02；vitest 漏掉 M02；gate 漏掉 M01）" in problems[0]
+    idle = [p for p in problems if p.startswith("命令 ")]
+    assert len(idle) == 1 and idle[0].startswith("命令 setup 一条变异都没抓住") and "expect_missed" in idle[0]
+    # 漏掉的都标了 expect_missed：不算漏网，那条命令也不点名
+    record["results"] = [multi_result("M01", expected_missed=("gate",), vitest="caught", gate="missed"),
+                         multi_result("M02", expected_missed=("gate",), vitest="caught", gate="missed")]
+    record["commands"] = [{"id": "vitest"}, {"id": "gate"}]
+    assert kh.mutation_problems(0, record, "") == []
+    # 单条命令的清单照旧，不加按命令的拆分
+    assert "按命令" not in kh.mutation_problems(0, mutation_record("caught", "missed"), "")[0]
+
+
+def test_expect_missed_on_every_command_is_an_undeclared_equivalence(tmp_path):
+    # 第 118 轮：expect_missed 列满每一条命令就谁也不用抓它，又不进终审对 equivalent 的复核
+    spec = {"commands": [{"id": "W1", "argv": ["x"]}, {"id": "W2", "argv": ["y"]}],
+            "mutations": [{"name": "a", "expect_missed": ["W2"]}, {"name": "b", "expect_missed": ["W2", "W1"]}]}
+    problems = kh.expected_missed_everywhere(spec)
+    assert len(problems) == 1 and "等于声明等价：b。" in problems[0] and "equivalent" in problems[0]
+    assert kh.run_mutations(None, {}, tmp_path, tmp_path, {"mutation_spec": spec}) == problems  # 不跑 mutate
+    single = {"command": ["x"], "mutations": [{"name": "c", "expect_missed": ["main"]}]}
+    assert kh.expected_missed_everywhere(single)  # 单条 command 的清单，调度器把它叫 main
+    assert kh.expected_missed_everywhere({"commands": [{"id": "W1"}], "mutations": [{"name": "d"}]}) == []
+    output = kh.ROLE_EXTRA_OUTPUT["gate"]
+    assert "expect_missed" in output and "准备步骤不要放进 commands" in output and "每条跑一遍、都要退出 0" in output
 
 
 def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
@@ -691,12 +734,19 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
     assert ts["gate_post"]["mutate_exit"] == 0  # 退出码是 0，照样不通过
     records["next"] = mutation_record("caught", "missed", unexpected=[])
     assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": spec}) == [] and ts["gate_post"]["ok"]
-    assert ts["gate_post"]["equivalent"] == ["等价改写：同一个字"]
+    assert ts["gate_post"]["equivalent"] == ["等价改写：同一个字"] and ts["gate_post"]["expect_missed"] == []
     # 第 15 轮：每条变异的时限按白盒用时定（下限 60 秒），写进存档的清单；整份的时限按条数放宽
     archived = json.loads(Path(ts["gate_post"]["mutate_spec"]).read_text(encoding="utf-8"))
     assert archived["timeout_seconds"] == ts["gate_post"]["mutant_timeout"] == 60 and timeouts[-1] == 3600
     assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": dict(spec, timeout_seconds=2000)}) == []
     assert ts["gate_post"]["mutant_timeout"] == 2000 and timeouts[-1] == 3 * 2000 + 600  # 门禁端写了就照它的
+    # 第 118 轮：标了 expect_missed 的记下来，终审逐条复核
+    multi = {"commands": [{"id": "W1", "argv": ["x"]}, {"id": "W2", "argv": ["y"]}],
+             "mutations": [{"name": "只改提示", "file": "README.md", "old": "基线", "new": "x", "expect_missed": ["W2"]}]}
+    records["next"] = {"commands": multi["commands"],
+                       "results": [multi_result("M01", expected_missed=("W2",), W1="caught", W2="missed")]}
+    assert kh.accept_gate_post(hub, ts, workspace, {"mutation_spec": multi}) == []
+    assert ts["gate_post"]["expect_missed"] == ["只改提示：W2"]
     record = ts["gate_post"]["mutate_record"]  # 在信箱的证据目录里：终审读得到
     assert record.startswith(".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-") and (repo / record).is_file()
     log = repo / ts["gate_post"]["whitebox_log"]
@@ -1044,10 +1094,11 @@ def test_review_history_survives_rework_and_seals_the_next_round(tmp_path, monke
     ts["gate_post"] = {"ok": True, "equivalent": ["等价改写：同一个字"]}
     kh.invalidate_after(ts, "5-exec")  # 执行端重跑：终审的记录清空，历史留着
     assert ts["audit_post"] == {} and ts["audit_history"][-1]["blockers"] == "1. 空的 except 吞掉了错误"
-    ts["gate_post"] = {"ok": True, "equivalent": ["等价改写：同一个字"],
+    ts["gate_post"] = {"ok": True, "equivalent": ["等价改写：同一个字"], "expect_missed": ["只改提示：gate"],
                        "mutate_record": ".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-1/mutations.json"}
     prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
     assert "复审封板" in prompt and "空的 except 吞掉了错误" in prompt and "等价改写：同一个字" in prompt
+    assert "那条命令真的测不到吗" in prompt and "- 只改提示：gate" in prompt  # 第 118 轮
     # 第 113 轮：内核的存档单起一节（T018 的终审输入里它们落在“下游须知”底下）
     archive = prompt.split("## 战后门禁的存档（内核）\n", 1)[1].split("\n## ", 1)[0]
     assert "evidence/mutate-1/mutations.json" in archive.replace("\\", "/")

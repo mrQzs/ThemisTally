@@ -2792,6 +2792,9 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
         return [problem]
     if not isinstance(spec, dict) or not spec.get("mutations"):
         return ["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异），也没有 mutation_spec_file"]
+    problems = expected_missed_everywhere(spec)
+    if problems:
+        return problems
     per_mutant = mutant_timeout(spec, ts["gate_post"].get("whitebox_seconds"))
     if per_mutant:
         spec = dict(spec, timeout_seconds=per_mutant)
@@ -2836,8 +2839,25 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
                            mutate_record=(out_dir / "mutations.json").relative_to(hub.repo).as_posix(),
                            mutation_counts=record.get("counts"),
                            equivalent=["%s：%s" % (m.get("name"), m["equivalent"]) for m in spec["mutations"]
-                                       if isinstance(m, dict) and m.get("equivalent")])
+                                       if isinstance(m, dict) and m.get("equivalent")],
+                           expect_missed=["%s：%s" % (m.get("name"), "、".join(map(str, m["expect_missed"])))
+                                          for m in spec["mutations"]
+                                          if isinstance(m, dict) and isinstance(m.get("expect_missed"), list)])
     return mutation_problems(code, record, out)
+
+
+def expected_missed_everywhere(spec: Dict[str, Any]) -> List[str]:
+    """第 118 轮：expect_missed 列满了每一条命令的变异，等于声明等价，却绕开了终审对 equivalent 的逐条复核。"""
+    commands = spec.get("commands")
+    ids = ({c.get("id") for c in commands if isinstance(c, dict)} if isinstance(commands, list)
+           else {"main"})  # 单条 command 的清单，调度器把那条命令叫 main
+    names = [str(m.get("name")) for m in spec.get("mutations") or [] if isinstance(m, dict)
+             and isinstance(m.get("expect_missed"), list) and ids <= set(m["expect_missed"])]
+    if not names:
+        return []
+    return ["这几条变异的 expect_missed 列满了每一条命令，等于声明等价：%s。真是等价改写的，去掉 expect_missed、"
+            "改写 \"equivalent\": \"<为什么改了行为也不变>\"（终审会逐条复核）；不是的，至少留一条命令抓它"
+            % "、".join(names)]
 
 
 #: 白盒测试的结果里不许出现的几种：T002 的战后门禁把 3 处合同违反标成 xfail(strict=True)，候选照样“通过”（第 9 轮）
@@ -2914,18 +2934,39 @@ def mutation_problems(code: int, record: Dict[str, Any], out: str) -> List[str]:
     所以读它写下的 mutations.json：意外漏网、没生效或出错的变异都不行，至少要抓住一条。"""
     results = record.get("results") or []
     if code != 0 or not results:
-        return ["变异检查没有跑完（退出码 %d）：\n%s" % (code, tail(out, 25))]
+        # 第 118 轮：T019 的门禁端看到基线红，把 bun install 塞进了 commands
+        hint = ("\n基线就红了：不做变异时这条命令在你的工作目录里本来就跑不通（依赖没装、cwd 或路径不对）。交差前先在"
+                "回合里跑通；依赖照合同的 setup 在回合里装，不要放进 commands。"
+                if record.get("aborted") == "baseline_failed" else "")
+        return ["变异检查没有跑完（退出码 %d）：\n%s%s" % (code, tail(out, 25), hint)]
 
     def statuses(item: Dict[str, Any]) -> Dict[str, str]:
         runs = item.get("commands") or {}
         return {cid: run.get("status") for cid, run in runs.items()} or {"": item.get("status")}
 
+    def missed_by(cid: str) -> List[str]:
+        return [str(r.get("id")) for r in results
+                if cid in (r.get("unexpected") or []) and statuses(r).get(cid, r.get("status")) == "missed"]
+
     problems: List[str] = []
     missed = [r.get("id") for r in results
               if any(statuses(r).get(cid, r.get("status")) == "missed" for cid in r.get("unexpected") or [])]
     broken = [r.get("id") for r in results if ({r.get("status")} | set(statuses(r).values())) & {"skipped", "error"}]
+    # 第 118 轮：多命令清单要按命令拆开说。T019 的战后门禁把 bun install 当一条命令放进清单，它谁也抓不住，
+    # 26 条全记成意外漏网；vitest 其实抓住了 24 条，信里只有“26 条漏网”，门禁端照着找不到错在哪
+    ids = [str(c.get("id")) for c in record.get("commands") or [] if isinstance(c, dict)]
+    multi = len(ids) > 1
     if missed:
-        problems.append("%d 条变异漏网、也没有声明等价：%s" % (len(missed), "、".join(map(str, missed))))
+        detail = "；".join("%s 漏掉 %s" % (cid, "、".join(missed_by(cid))) for cid in ids if missed_by(cid))
+        problems.append("%d 条变异漏网、也没有声明等价：%s%s" % (
+            len(missed), "、".join(map(str, missed)), "（按命令：%s）" % detail if multi and detail else ""))
+    idle = [cid for cid in ids if multi and missed_by(cid)
+            and not any(statuses(r).get(cid) == "caught" for r in results)]
+    if idle:
+        problems.append("命令 %s 一条变异都没抓住。commands 里每一条都是检验命令，每条变异缺省要被每一条抓住："
+                        "安装依赖这类准备步骤不要放进 commands（mutate 在你的工作目录里原地跑，依赖在你的回合里"
+                        "装好就在）；某条命令本来就测不到的变异，在那一条变异里写 \"expect_missed\": [\"<命令 id>\"]"
+                        % "、".join(idle))
     if broken:
         problems.append("%d 条变异没有生效或运行出错（skipped / error；old 片段要在文件里逐字出现）：%s" % (
             len(broken), "、".join(map(str, broken))))
@@ -4220,7 +4261,11 @@ ROLE_EXTRA_OUTPUT = {
     "gate": '战后模式把变异清单写进工作目录根下的 mutation-spec.json：{"commands": [{"id": "W1", "argv": '
             '["python", "-m", "pytest", "<文件>", "-q"]}], "mutations": [{"name": "…", "file": "<相对路径>", '
             '"old": "<原文片段>", "new": "<改坏后的片段>"}]}，输出里另加 "mutation_spec_file": "mutation-spec.json"，'
-            '不要再把清单抄进输出（内核读的就是这个文件）；'
+            '不要再把清单抄进输出（内核读的就是这个文件）；commands 里每一条都是检验命令，每条变异缺省要被每一条抓住，'
+            '某条命令本来就测不到的变异（例如静态检查碰不到的行为改动），在那一条里加 "expect_missed": ["<命令 id>"]'
+            '（至少留一条命令抓它，终审会看）；安装依赖这类准备步骤不要放进 commands：mutate 在你的工作目录里原地跑，'
+            '依赖在你的回合里照合同的 setup 装好就在；交差前在工作目录里把 commands 每条跑一遍、都要退出 0'
+            '（mutate 的基线就是这一步，缺依赖、cwd 错、路径错都能当场发现）；'
             '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
             '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
@@ -4467,6 +4512,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if stage == "7-audit-post" and ts["gate_post"].get("equivalent"):
                 parts += ["", "## 门禁端声明的等价变异（逐条复核：改了真的测不出来吗）", ""] + [
                     "- " + item for item in ts["gate_post"]["equivalent"]]
+            if stage == "7-audit-post" and ts["gate_post"].get("expect_missed"):
+                parts += ["", "## 门禁端标了“这条命令预期抓不住”的变异（逐条复核：那条命令真的测不到吗）", ""] + [
+                    "- " + item for item in ts["gate_post"]["expect_missed"]]
             if stage == "7-audit-post" and ts["gate_post"].get("unmutated"):
                 parts += ["", "## 门禁端说没法变异的改动文件（逐条复核：这些改动真的不用测吗）", ""] + [
                     "- " + item for item in ts["gate_post"]["unmutated"]]
