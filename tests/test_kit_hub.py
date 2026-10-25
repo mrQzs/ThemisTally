@@ -3477,8 +3477,11 @@ def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_p
     record("audit-sonnet", "20261019T020000Z-d", "T001-4-audit-pre", "s2", 4.0, 600)
     record("contract-glm", "20261019T020500Z-e", "T001-2-contract", "T001-2-contract-g0", None, 300)
     # 第 16 轮之后：cost_usd 已经是这一回合的
-    record("womovie-c8", "20261019T030000Z-f", "T002", "s3", 0.02, 30, session_cost_usd=0.02)
-    record("womovie-c8", "20261019T030100Z-g", "T002", "s3", 0.05, 30, session_cost_usd=0.07)  # 新记录不再换算
+    # 第 102 轮起另记交差被退回几次、thinking 块的字数
+    record("womovie-c8", "20261019T030000Z-f", "T002", "s3", 0.02, 30, session_cost_usd=0.02, deliver_refusals=2,
+           thinking_chars=500)
+    record("womovie-c8", "20261019T030100Z-g", "T002", "s3", 0.05, 30, session_cost_usd=0.07,  # 新记录不再换算
+           deliver_refusals=0, thinking_chars=300)
     rows = kh.turn_metrics(hub)
     assert [(r["agent"], r["cost_usd"]) for r in rows] == [
         ("womovie-c8", 0.10), ("womovie-c8", 0.15), ("womovie-c8", 0.02), ("audit-sonnet", 4.0),
@@ -3500,7 +3503,8 @@ def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_p
     args = parser.parse_args(["--repo", str(repo), "metrics"])
     assert args.func(args) == kh.EXIT_OK
     text = out.getvalue()
-    assert "| womovie-c8 | 3 | 3.0 | 0.27 |" in text and "| contract-glm | 1 | 5.0 | 未回报 |" in text
+    assert "| womovie-c8 | 3 | 3.0 | 0.27 | 未记 | 未记 |" in text and "| contract-glm | 1 | 5.0 | 未回报 | 未记 | 未记 |" in text
+    assert "| womovie-c8 | 2 | 1.0 | 0.07 | 2 | 800 |" in text
     assert "| 执行端（调度器 run） | 1 个 attempt | 30.0 |" in text
     assert "工人回合合计：7 个" in text and "4.34 美元" in text
 
@@ -6849,7 +6853,12 @@ def test_the_pi_audit_takes_the_last_accepted_deliver():
     audit = kh.audit_pi_stream(stream(*deliver_events(({"letters": "x"}, True), ({"letters": [], "state": "一"}, False),
                                                       (good, False))), spec)
     assert audit["delivered"] == good and audit["violations"] == []
+    assert audit["deliver_refusals"] == [1]  # 第 102 轮：被退回的那次，报错长度（这里的报错是 "x"）
     assert kh.audit_pi_stream(stream(*deliver_events(({"letters": []}, True))), spec)["delivered"] is None
+    thought = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
+                                                  "stopReason": "toolUse", "content": [
+                                                      {"type": "thinking", "thinking": "先看状态表"}, {"type": "text", "text": "好"}]}}
+    assert kh.audit_pi_stream(stream(thought, thought), spec)["thinking_chars"] == 10  # 两条消息各 5 个字
     plain = dict(spec, tools=["read"])  # 没给 deliver 的岗位：调了也不算交差，而且是白名单之外的工具
     found = kh.audit_pi_stream(stream(*deliver_events((good, False))), plain)
     assert found["delivered"] is None and found["violations"] == ["调用了白名单之外的工具：deliver"]
@@ -6974,10 +6983,14 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
     def launcher(cmd, cwd, env, out, err, timeout):
         seen.append(cmd)
         init = dict(INIT, tools=spec["tools"] + ["StructuredOutput"], model=spec["model"])
+        bad = {"type": "assistant", "message": {"model": spec["model"], "content": [
+            {"type": "thinking", "thinking": "想一想"}, {"type": "tool_use", "id": "u0", "name": "StructuredOutput", "input": {}}]}}
+        refused = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "u0", "is_error": True, "content": "缺 letter"}]}}
         use = {"type": "assistant", "message": {"model": spec["model"], "content": [
             {"type": "tool_use", "id": "u1", "name": "StructuredOutput", "input": good}]}}
         result = {"type": "result", "result": "", "structured_output": results.pop(0)}
-        out.write(("\n".join(stream(init, use, result)) + "\n").encode("utf-8"))
+        out.write(("\n".join(stream(init, bad, refused, use, result)) + "\n").encode("utf-8"))
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
     runner = kh.TurnRunner(hub, launcher=launcher)
@@ -6988,6 +7001,8 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
     assert turn["violations"] == [] and turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"planner.json"}
+    # 第 102 轮：StructuredOutput 被退回一次（报错“缺 letter”8 个字符）；thinking 块 3 个字
+    assert (record["deliver_refusals"], record["deliver_refusal_chars"], record["thinking_chars"]) == (1, 8, 3)
     turn = runner.run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")  # 交不成：structured_output 为 null
     assert turn["output"] is None and "没有成功交差" in turn["output_error"]
 

@@ -1641,6 +1641,9 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     rejected_until: Optional[int] = None  # 额度限制（rate_limit_event 的 rejected）解除的时刻，epoch 秒
     outside: Dict[str, str] = {}  # 白名单之外的 tool_use：id → 工具名
     refused: set = set()
+    structured: set = set()  # StructuredOutput 的 tool_use id（第 102 轮：数被退回几次）
+    refusals: List[int] = []
+    thinking = 0
     events, unreadable = stream_events(lines)
     if unreadable:
         violations.append(UNREADABLE_STREAM % unreadable)
@@ -1662,9 +1665,13 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
             for block in message.get("content") or []:
                 if not isinstance(block, dict):
                     continue
+                if block.get("type") == "thinking":
+                    thinking += len(str(block.get("thinking") or ""))
                 if block.get("type") in ("tool_use", "server_tool_use"):
                     name = str(block.get("name"))
                     tool_calls[name] = tool_calls.get(name, 0) + 1
+                    if name == STRUCTURED_TOOL:
+                        structured.add(block.get("id"))
                     if block.get("type") == "server_tool_use":  # 服务端工具（advisor）在服务端执行：一律作废
                         violations.append("调用了白名单之外的工具：%s（%s）" % (name, block.get("type")))
                     elif name not in allowed:
@@ -1679,9 +1686,12 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
         elif kind == "user":
             content = (event.get("message") or {}).get("content")
             for block in content if isinstance(content, list) else []:
-                if (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")
-                        and block.get("tool_use_id") in outside and "No such tool available" in str(block.get("content"))):
+                if not (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")):
+                    continue
+                if block.get("tool_use_id") in outside and "No such tool available" in str(block.get("content")):
                     refused.add(block["tool_use_id"])
+                elif block.get("tool_use_id") in structured:
+                    refusals.append(len(str(block.get("content") or "")))
         elif kind == "rate_limit_event":
             info = event.get("rate_limit_info") or {}
             rejected_until = info.get("resetsAt") if info.get("status") == "rejected" else None
@@ -1710,7 +1720,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     # 第 101 轮：--json-schema 交差，CLI 把校验过的结果放在 result 的 structured_output（交不成是 null）
     delivered = result.get("structured_output") if isinstance(result.get("structured_output"), dict) else None
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "delivered": delivered,
-            "init_session": init.get("session_id"),
+            "deliver_refusals": refusals, "thinking_chars": thinking, "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
             "models": sorted(models), "terminal": bool(result), "api_error": api_error,
@@ -1795,6 +1805,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     outside: Dict[str, str] = {}  # 白名单之外的调用：toolCallId → 工具名
     refused: set = set()
     delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
+    refusals: List[int] = []  # 第 102 轮：deliver 每次被退回时报错的长度（pi 把收到的参数原样写进报错）
+    thinking = 0  # 第 102 轮：thinking 块的字数。pi 不回报思考的 token 数，这是“有没有思考”的证据
     events, unreadable = stream_events(lines)
     if unreadable:
         violations.append(UNREADABLE_STREAM % unreadable)
@@ -1820,11 +1832,15 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
                 refused.add(call_id)
             # 第 90 轮：pi 校验、转换过的参数由 deliver.ts 放进 details；不合格的那几次（isError）不算
             details = (event.get("result") or {}).get("details")
-            if (event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed and not event.get("isError")
+            if event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed and event.get("isError"):
+                refusals.append(len(text))
+            elif (event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed
                     and isinstance(details, dict)):
                 delivered = details
         elif kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
             message = event["message"]
+            thinking += sum(len(str(block.get("thinking") or "")) for block in message.get("content") or []
+                            if isinstance(block, dict) and block.get("type") == "thinking")
             models.add("%s/%s" % (message.get("provider"), message.get("model")))
             if message.get("thinkingLevel"):
                 levels.add(str(message["thinkingLevel"]))
@@ -1850,7 +1866,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     violations += ["调用了白名单之外的工具：%s" % name for cid, name in outside.items() if cid not in refused]
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
-            "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered}
+            "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered,
+            "deliver_refusals": refusals, "thinking_chars": thinking}
 
 
 #: pi 命令 → 它的 --help 列出的参数；读不出时是 None（第 83 轮：一个进程只探一次）
@@ -2048,6 +2065,10 @@ class TurnRunner:
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
                 () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name,)) + ("%s.json" % spec["role"],)}
             if delivery else None,
+            # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）；thinking 块的字数
+            "deliver_refusals": len(audit.get("deliver_refusals") or []) if delivery else None,
+            "deliver_refusal_chars": sum(audit.get("deliver_refusals") or []) if delivery else None,
+            "thinking_chars": audit.get("thinking_chars"),
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
@@ -5733,8 +5754,15 @@ def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
             cost = total if previous is None or total < previous else round(total - previous, 6)
             last_total[str(record.get("session_id"))] = total
         rows.append({"task": stage_of(str(record.get("session_key") or ""))[0] or "?", "agent": record.get("agent"),
-                     "seconds": float(record.get("wall_seconds") or 0), "cost_usd": cost})
+                     "seconds": float(record.get("wall_seconds") or 0), "cost_usd": cost,
+                     "deliver_refusals": record.get("deliver_refusals"), "thinking_chars": record.get("thinking_chars")})
     return rows
+
+
+def recorded_sum(rows: List[Dict[str, Any]], key: str) -> str:
+    """回合记录里有这一项的加总；第 102 轮之前的记录、不用工具交差的回合没有，全都没有写“未记”。"""
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return str(sum(values)) if values else "未记"
 
 
 def exec_metrics(hub: Hub) -> Dict[str, Dict[str, float]]:
@@ -5771,13 +5799,14 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     tasks = sorted({row["task"] for row in rows} | set(executions))
     for task in tasks:
         print("## %s" % task)
-        print("| 工人 | 回合 | 分钟 | 美元 |")
-        print("|---|---|---|---|")
+        print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 |")
+        print("|---|---|---|---|---|---|")
         for agent in sorted({row["agent"] for row in rows if row["task"] == task}):
             mine = [row for row in rows if row["task"] == task and row["agent"] == agent]
             costs = [row["cost_usd"] for row in mine if row["cost_usd"] is not None]
-            print("| %s | %d | %.1f | %s |" % (agent, len(mine), sum(row["seconds"] for row in mine) / 60,
-                                              "%.2f" % sum(costs) if costs else "未回报"))
+            print("| %s | %d | %.1f | %s | %s | %s |" % (
+                agent, len(mine), sum(row["seconds"] for row in mine) / 60, "%.2f" % sum(costs) if costs else "未回报",
+                recorded_sum(mine, "deliver_refusals"), recorded_sum(mine, "thinking_chars")))
         if task in executions:
             print("| 执行端（调度器 run） | %d 个 attempt | %.1f | 见 pi_dispatch metrics |" % (
                 executions[task]["attempts"], executions[task]["seconds"] / 60))

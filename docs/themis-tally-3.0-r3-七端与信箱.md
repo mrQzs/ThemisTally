@@ -1781,6 +1781,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：名册里 planner-opus 加 `"delivery": "tool"`（回退写 "block"）。`TurnRunner.run` 给 claude 加 `--json-schema <planner.json 压成一行>`，核对白名单时算上 `StructuredOutput`，起回合之前照 pi 岗位核对 schema 文件的哈希与子集（`delivery_problem`），回合记录的 `delivery_sha256` 只记 schema（claude 不用 deliver.ts）。`audit_claude_stream` 从 result 读 `structured_output`（交不成是 null，按输出不合格走），StructuredOutput 的参数不做主工作区核对（交的是内容，同第 100 轮）。提示词的“交差（交结构化结果）”一节写明用 StructuredOutput、不要再写代码块。`delivered_output` 的报错改成“没有成功交差（pi 调 deliver，claude 交 StructuredOutput）”。
 - **schema**（`scripts/hub/schemas/planner.json`）：`{letter, report, state, external_facts}` 都必填，letter 照工人通用写法，external_facts 每条 `{fact, source, verified}`（fact、verified 至少一个字；没核实写“未核实”）。claude 的 schema 由 Anthropic 那边校验，不是 typebox；内核拿到之后照样用子集校验器复核一遍。历史规划端输出 23 份，原样过 19、补齐后 23 份全过。
 - **测试与变异**：新增 2 条（规划端经 StructuredOutput 交差：命令带 schema、`--tools` 不含 StructuredOutput、引用主工作区不作废、structured_output 为 null 时输出不合格、记录只记 planner.json；planner.json 被改过时不起回合），schema 与提示词的用例跟着改。用到 kit_hub 的四个测试文件 457 条通过；变异 8 个全部抓住。至此七端改造第 1 条的各岗位都切到了工具交差；代码块解析留着当回退，各岗位在真实回合里都跑过之后再撤。
+- **生产路径实测**（themistally-15 建议：规划端最后一个回合在第 88 轮之前，T018 开头的 Opus 回合会把第 88、101 轮第一次叠在一起跑）：kdev 内核、临时信箱，TurnRunner 的生产命令（`--setting-sources project`、`--settings`、`--add-dir` 输入目录、`--permission-prompts none`、`--json-schema`），只在探针脚本里把规划端换成 haiku。Read 两次（输入目录的任务书、工作目录的 README）都没被拒，StructuredOutput 一次交上，内核取到并复核通过，没有违规、没有警告，`delivery_sha256` 只有 planner.json；6 秒、0.003 美元。themistally-15 独立核了一遍，一致。
+
+### 第 102 轮：回合记录与 metrics 记下交差被退回几次、thinking 块的字数（2026-10-25）
+
+- **交差被退回**：pi 的 deliver 每次 isError、claude 的 StructuredOutput 每次 tool_result 报错，记下次数与报错的长度（`deliver_refusals`、`deliver_refusal_chars`，只在用工具交差的回合记）。用意：协调人 de20 的 deliver 被退回两次才交上；pi 校验失败时把收到的参数原样写进报错，合同端的 46 KB 一旦转义写错，这 46 KB 会回到上下文里（themistally-15 复核第 99 轮时指出）。退回太频繁再想办法。
+- **思考证据**：pi 不回报思考的 token 数，回合记录里的 reasoning 一直是 0，可事件流里有 thinking 块（第 79 轮之后的复盘里提过“思考证据应按流里 thinking 块的字数算”）。`thinking_chars` 记 assistant 消息里 thinking 块的字数，pi 与 claude 都记。
+- **metrics**：表格加两列“交差退回”“思考字数”，按工人加总；第 102 轮之前的记录没有这两项，写“未记”。`--json` 的每一行也带这两项。
+- **测试与变异**：pi、claude 两边的退回与思考字数、回合记录里的三项、metrics 的加总都有用例。用到 kit_hub 的四个测试文件 458 条通过；变异 7 个全部抓住。
 
 ## 11. 已知缺口与下一步
 
