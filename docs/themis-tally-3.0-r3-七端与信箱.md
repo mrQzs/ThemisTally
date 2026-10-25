@@ -1790,6 +1790,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **metrics**：表格加两列“交差退回”“思考字数”，按工人加总；第 102 轮之前的记录没有这两项，写“未记”。`--json` 的每一行也带这两项。
 - **测试与变异**：pi、claude 两边的退回与思考字数、回合记录里的三项、metrics 的加总都有用例。用到 kit_hub 的四个测试文件 458 条通过；变异 7 个全部抓住。
 
+### 第 103 轮：思考的证据按来源分开记（2026-10-25，themistally-15 复核第 102 轮指出）
+
+- **问题**：“按流里 thinking 块的字数算”只适用于 pi。claude 在 stream-json 里不给思考的正文：T017 的规划回合 ba4b（Opus 5.5，effort max）有 25 个 thinking 块，24 个是空的，合计 97 字；同一回合 result 的 `usage.output_tokens_details.thinking_tokens` 是 28,501。按字数算，规划端的思考显示成接近 0，和实际正好相反。
+- **改法**：claude 不数字数（`thinking_chars` 记 None），记 result 回报的 `thinking_tokens`；pi 照旧数字数，另记 usage 里的 `reasoning`（probe99 的 MiniMax 回报 1223，dsf 回报 0，正好用字数补上）。metrics 分成“思考字数”“思考 token”两列，不混单位。拿 ba4b 的真实事件流核过：thinking_tokens 28501、thinking_chars None。
+- **测试与变异**：用到 kit_hub 的四个测试文件 458 条通过；变异 4 个全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

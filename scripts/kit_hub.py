@@ -1643,7 +1643,6 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     refused: set = set()
     structured: set = set()  # StructuredOutput 的 tool_use id（第 102 轮：数被退回几次）
     refusals: List[int] = []
-    thinking = 0
     events, unreadable = stream_events(lines)
     if unreadable:
         violations.append(UNREADABLE_STREAM % unreadable)
@@ -1665,8 +1664,6 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
             for block in message.get("content") or []:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") == "thinking":
-                    thinking += len(str(block.get("thinking") or ""))
                 if block.get("type") in ("tool_use", "server_tool_use"):
                     name = str(block.get("name"))
                     tool_calls[name] = tool_calls.get(name, 0) + 1
@@ -1719,8 +1716,12 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     violations += ["调用了白名单之外的工具：%s（tool_use）" % name for tid, name in outside.items() if tid not in refused]
     # 第 101 轮：--json-schema 交差，CLI 把校验过的结果放在 result 的 structured_output（交不成是 null）
     delivered = result.get("structured_output") if isinstance(result.get("structured_output"), dict) else None
+    # 第 103 轮：claude 在 stream-json 里不给思考的正文（T017 规划回合 ba4b：25 个 thinking 块里 24 个是空的、合计
+    # 97 字，result 回报的 thinking_tokens 是 28,501），不数字数，记 result 回报的 token 数
+    thinking = ((result.get("usage") or {}).get("output_tokens_details") or {}).get("thinking_tokens")
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "delivered": delivered,
-            "deliver_refusals": refusals, "thinking_chars": thinking, "init_session": init.get("session_id"),
+            "deliver_refusals": refusals, "thinking_chars": None, "thinking_tokens": thinking,
+            "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
             "models": sorted(models), "terminal": bool(result), "api_error": api_error,
@@ -1867,7 +1868,9 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered,
-            "deliver_refusals": refusals, "thinking_chars": thinking}
+            "deliver_refusals": refusals, "thinking_chars": thinking,
+            # 第 103 轮：有的提供方回报 reasoning token（probe99 的 MiniMax 1223），有的回报 0（dsf），字数补上
+            "thinking_tokens": usage.get("reasoning")}
 
 
 #: pi 命令 → 它的 --help 列出的参数；读不出时是 None（第 83 轮：一个进程只探一次）
@@ -2065,10 +2068,11 @@ class TurnRunner:
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
                 () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name,)) + ("%s.json" % spec["role"],)}
             if delivery else None,
-            # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）；thinking 块的字数
+            # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。
+            # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数
             "deliver_refusals": len(audit.get("deliver_refusals") or []) if delivery else None,
             "deliver_refusal_chars": sum(audit.get("deliver_refusals") or []) if delivery else None,
-            "thinking_chars": audit.get("thinking_chars"),
+            "thinking_chars": audit.get("thinking_chars"), "thinking_tokens": audit.get("thinking_tokens"),
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
@@ -5755,7 +5759,8 @@ def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
             last_total[str(record.get("session_id"))] = total
         rows.append({"task": stage_of(str(record.get("session_key") or ""))[0] or "?", "agent": record.get("agent"),
                      "seconds": float(record.get("wall_seconds") or 0), "cost_usd": cost,
-                     "deliver_refusals": record.get("deliver_refusals"), "thinking_chars": record.get("thinking_chars")})
+                     "deliver_refusals": record.get("deliver_refusals"), "thinking_chars": record.get("thinking_chars"),
+                     "thinking_tokens": record.get("thinking_tokens")})
     return rows
 
 
@@ -5799,14 +5804,17 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     tasks = sorted({row["task"] for row in rows} | set(executions))
     for task in tasks:
         print("## %s" % task)
-        print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 |")
-        print("|---|---|---|---|---|---|")
+        # 思考：pi 数 thinking 块的字数（claude 的流里是空块，不数），token 是提供方回报的（claude 的 thinking_tokens、
+        # pi 的 reasoning；有的提供方回报 0）
+        print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 | 思考 token |")
+        print("|---|---|---|---|---|---|---|")
         for agent in sorted({row["agent"] for row in rows if row["task"] == task}):
             mine = [row for row in rows if row["task"] == task and row["agent"] == agent]
             costs = [row["cost_usd"] for row in mine if row["cost_usd"] is not None]
-            print("| %s | %d | %.1f | %s | %s | %s |" % (
+            print("| %s | %d | %.1f | %s | %s | %s | %s |" % (
                 agent, len(mine), sum(row["seconds"] for row in mine) / 60, "%.2f" % sum(costs) if costs else "未回报",
-                recorded_sum(mine, "deliver_refusals"), recorded_sum(mine, "thinking_chars")))
+                recorded_sum(mine, "deliver_refusals"), recorded_sum(mine, "thinking_chars"),
+                recorded_sum(mine, "thinking_tokens")))
         if task in executions:
             print("| 执行端（调度器 run） | %d 个 attempt | %.1f | 见 pi_dispatch metrics |" % (
                 executions[task]["attempts"], executions[task]["seconds"] / 60))
