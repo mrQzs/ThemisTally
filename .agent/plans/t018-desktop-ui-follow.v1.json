@@ -1,0 +1,472 @@
+{
+  "schema_version": 1,
+  "task_id": "t018-desktop-ui-follow",
+  "plan_version": 1,
+  "title": "桌面端本机服务第 4 片：日志跟随（D1-C 后半之二）",
+  "repository": "ThemisTally",
+  "base_sha": "fe538fc14404dff32e6e0478f2a861fb5d933795",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/README.md"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/test/follow.test.ts",
+      "ts/packages/ui/test/follow-real.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/src/cursors.ts",
+      "ts/packages/ui/package.json",
+      "ts/packages/ui/test/app.test.ts",
+      "ts/packages/ui/test/args.test.ts",
+      "ts/packages/ui/test/argv-templates.test.ts",
+      "ts/packages/ui/test/cursors.test.ts",
+      "ts/packages/ui/test/events-service.test.ts",
+      "ts/packages/ui/test/events.test.ts",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/jobs-service.test.ts",
+      "ts/packages/ui/test/jobs.test.ts",
+      "ts/packages/ui/test/kernel-env.test.ts",
+      "ts/packages/ui/test/kernel-real.test.ts",
+      "ts/packages/ui/test/kernel-runner.test.ts",
+      "ts/packages/ui/test/launcher.e2e.test.ts",
+      "ts/packages/ui/test/lifecycle.test.ts",
+      "ts/packages/ui/test/localhttp-accesslog.test.ts",
+      "ts/packages/ui/test/localhttp-body.test.ts",
+      "ts/packages/ui/test/localhttp-control.test.ts",
+      "ts/packages/ui/test/localhttp-guards.test.ts",
+      "ts/packages/ui/test/localhttp-headers.test.ts",
+      "ts/packages/ui/test/localhttp-session.test.ts",
+      "ts/packages/ui/test/lockdir.test.ts",
+      "ts/packages/ui/test/redaction-routes.test.ts",
+      "ts/packages/ui/test/redaction.test.ts",
+      "ts/packages/ui/test/routes-auth.test.ts",
+      "ts/packages/ui/test/service.test.ts",
+      "ts/packages/ui/test/static-paths.test.ts",
+      "ts/packages/ui/test/support.ts",
+      "ts/packages/ui/test/fixtures/fake-kernel.mjs",
+      "ts/packages/ui/test/fixtures/resolve-asset.ts",
+      "ts/packages/ui/test/fixtures/serve-entry.ts",
+      "ts/packages/ui/test/fixtures/serve-overrides.ts",
+      "ts/packages/base/**",
+      "ts/packages/cli/**",
+      "ts/packages/contracts/**",
+      "ts/packages/dispatcher/**",
+      "ts/packages/hub/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/tsconfig.json",
+      "ts/vitest.config.ts",
+      "ts/tools/**",
+      "ts/mutations/**",
+      "scripts/**",
+      "desktop/**",
+      "docs/**",
+      "tests/test_gate_t018_*.py",
+      "tests/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t018_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ts/packages/ui/"
+      ],
+      "output_must_not_match": [
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ]
+    },
+    {
+      "id": "V08",
+      "argv": [
+        "node",
+        "-e",
+        "const fs=require('fs');const s=fs.readFileSync('packages/ui/README.md','utf8');const need=['follow','poll_after_ms','--complete-lines','2000','409','503','Retry-After','已知限制'];const miss=need.filter((x)=>!s.includes(x));if(miss.length){console.error('README missing: '+miss.join(','));process.exit(1)}console.log('README ok')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "README ok"
+      ]
+    },
+    {
+      "id": "V09",
+      "argv": [
+        "node",
+        "-e",
+        "const {spawnSync}=require('child_process');for(let i=0;i<5;i++){const r=spawnSync(process.execPath,['node_modules/vitest/vitest.mjs','run','packages/ui/test/follow.test.ts','packages/ui/test/follow-real.test.ts'],{stdio:'inherit'});if(r.status===0){continue}console.error('run '+(i+1)+' failed');process.exit(1)}console.log('STABLE5')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "STABLE5"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`follow` 的参数校验——只认字面 `1`；`follow=0`、`follow=true`、`follow=`（空串）一律回 400「follow 参数不合格（只接受 1）」，不起子进程、不回显请求里的值；不带 `follow` 的请求行为逐字节不变；用例：`ts/packages/ui/test/follow.test.ts` 的 F8",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "不合格的取值到不了内核，也不给攻击者反馈"
+    },
+    {
+      "id": "D02",
+      "text": "非 JSONL 的跟随请求——`notes.txt`、`a.json`、`a.jſonl` 带 `follow=1` 回 400「只有 JSONL 文件支持跟随」（不起子进程、不回显路径），判定大小写不敏感（`LOG.JSONL` 放行）；用例：`ts/packages/ui/test/follow.test.ts` 的 F7",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "普通文本的跟随要么内核支持、要么明确拒绝，不悄悄退化成从头读"
+    },
+    {
+      "id": "D03",
+      "text": "跟随的 argv——不带游标与带游标两条逐项等于 `FOLLOW_ARGV`（`--json --complete-lines`，`--cursor=` 在最后），普通翻页的 argv 一条不变；`FOLLOW_ARGV` 不并进 `READ_ROUTE_ARGV`；用例：`ts/packages/ui/test/follow.test.ts` 的 F1 与 `ts/packages/ui/test/follow-real.test.ts` 的 R1",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "跟随与普通翻页在内核那里是两条明确的命令行，只给已经写完的行靠的就是 `--complete-lines`"
+    },
+    {
+      "id": "D04",
+      "text": "末尾也发句柄——内核回 `done: true` 并带游标时，跟随的 `next_cursor` 是 43 个字符的句柄；非跟随的同一份内核输出仍是 `null`；用例：`ts/packages/ui/test/follow.test.ts` 的 F2",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面拿着句柄才能继续要新行，而普通翻页的「没有下一页就是 null」不能被带坏"
+    },
+    {
+      "id": "D05",
+      "text": "空页复用请求里的句柄——带句柄 H 跟随、内核回空页时 `next_cursor === H`，句柄表项数不变，连做 5 次也一样；不带句柄的跟随空页发一个句柄，之后的轮询一直复用它；用例：`ts/packages/ui/test/follow.test.ts` 的 F3、F4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "空闲的长时间跟随不会把句柄表撑爆"
+    },
+    {
+      "id": "D06",
+      "text": "有内容时发新句柄、旧句柄仍可用——有内容的一页发新句柄（表 +1），旧句柄 H 不被丢掉，带 H 再请求不是 409；用例：`ts/packages/ui/test/follow.test.ts` 的 F5",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "请求被取消或响应丢了，带旧句柄重试照样接着给，不会从头读"
+    },
+    {
+      "id": "D07",
+      "text": "409 的情形沿用 T016——句柄格式不对、不在表里、绑定不符都不起子进程就回 409；内核退出 2 且 stderr 含「游标对应的文件已变化」时回 409 并丢掉这个句柄（再用它回 409 且不起子进程）；跟随不新增情形；用例：`ts/packages/ui/test/follow.test.ts` 的 F6 与 `ts/packages/ui/test/follow-real.test.ts` 的 R2 的截短那两步",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "文件被替换、截短、改写时界面能从头读，而不是静默地给错内容"
+    },
+    {
+      "id": "D08",
+      "text": "轮询下限——跟随响应的 data 里有 `poll_after_ms`，值为 2000（与 503 的 `Retry-After: 2` 一致）；非跟随响应的 data 里没有这个键；服务不强制下限、不回 429；用例：`ts/packages/ui/test/follow.test.ts` 的 F9 与 `ts/packages/ui/test/follow-real.test.ts` 的 R2 的每一步",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面知道该等多久，同时服务不替界面记时间表"
+    },
+    {
+      "id": "D09",
+      "text": "轮询照样经执行器——队列满时跟随请求回 503 且带 `retry-after: 2`，之后带同一个句柄重试成功（不丢行也不重复）；用例：`ts/packages/ui/test/follow.test.ts` 的 F10",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "跟随不绕过并发上限与队列，不把机器压垮"
+    },
+    {
+      "id": "D10",
+      "text": "句柄表有上界——发满 1024 个句柄之后，最早那个跟随句柄回 409；空闲跟随不涨表；用例：`ts/packages/ui/test/follow.test.ts` 的 F11",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "长时间跟随不会把服务内存吃光，被淘汰的句柄按既有约定回 409"
+    },
+    {
+      "id": "D11",
+      "text": "分片按片接着给——内核回 `part: 1, parts: 2, done: false` 时跟随给一个新句柄，下一次请求的 argv 带它的内核游标；用例：`ts/packages/ui/test/follow.test.ts` 的 F12 与 `ts/packages/ui/test/follow-real.test.ts` 的 R3",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "一行超过一页时跟着读完，不丢片也不重片"
+    },
+    {
+      "id": "D12",
+      "text": "真内核解析器——`FOLLOW_ARGV` 的两条用内核的 `kit_logs.build_parser()` 解析，解析成功、`json` 为真、`complete_lines` 为真；用例：`ts/packages/ui/test/follow-real.test.ts` 的 R1",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "跟随的命令行是内核真认的写法，不是照着猜的"
+    },
+    {
+      "id": "D13",
+      "text": "真内核上的增长全程——半行不给；补上换行后给且只给一次；再追加接着给；截短回 409（且句柄被丢）；每一步 `poll_after_ms === 2000`；用例：`ts/packages/ui/test/follow-real.test.ts` 的 R2",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "D7「跟随时只追加已经写完的新行」是真的，不是服务自己假装"
+    },
+    {
+      "id": "D14",
+      "text": "非跟随行为逐字节不变——既有 `ts/packages/ui/test/cursors.test.ts`（含 `next_cursor` 为 `null` 那条）与 `ts/packages/ui/test/kernel-real.test.ts` 的「data 与 CLI stdout 逐字节一致」照旧通过，一个字不改；用例：`ts/packages/ui/test/cursors.test.ts` 与 `ts/packages/ui/test/kernel-real.test.ts`（既有）",
+      "evidence": [
+        "V02",
+        "V06"
+      ],
+      "intent": "跟随是加法，不许把翻页的语义带坏"
+    },
+    {
+      "id": "D15",
+      "text": "README——加「日志跟随」一节，写明 `follow=1` 的形式与只认字面 `1`、两种 400 的提示原文、JSONL 判定大小写不敏感、末尾也发句柄、空页复用句柄、`poll_after_ms`（2000，与 `Retry-After: 2` 一致）、服务不强制下限、409 的已知情形（普通翻页停在半行中间之后改用跟随会 409）、并发轮询同一个句柄可能重复给行；既有的段落逐字保留",
+      "evidence": [
+        "V08"
+      ],
+      "intent": "界面前端拿这份 README 就能把跟随接上"
+    },
+    {
+      "id": "D16",
+      "text": "范围与依赖——改动只落在 `ts/packages/ui/src/readroutes.ts`、`ts/packages/ui/README.md` 与两个新测试文件上；`ts/packages/ui/src/localhttp/**`、`ts/packages/ui/src/cursors.ts`、`ts/packages/ui/package.json`、`ts/bun.lock`、`ts/package.json` 一个字未改；没有新增、升级或删除依赖",
+      "evidence": [
+        "scope",
+        "V07",
+        "review"
+      ],
+      "intent": "内核禁区与本机 HTTP 的安全基线不受本片影响"
+    },
+    {
+      "id": "D17",
+      "text": "门禁与回归——G01、R01、V01–V09 全部通过；既有用例未删未跳未弱化（ui 测试目录里没有 skip、only、todo）；M1–M8 每条都有会变红的用例",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "V08",
+        "V09",
+        "review"
+      ],
+      "intent": "不靠削弱测试过关，也不破坏已有门禁"
+    },
+    {
+      "id": "D18",
+      "text": "稳定性——本片两个新用例文件连跑 5 次都通过（全量并行下也稳）",
+      "evidence": [
+        "V09"
+      ],
+      "intent": "偶发红不能靠重跑蒙过去"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
