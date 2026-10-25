@@ -2016,6 +2016,204 @@ def test_supervisor_requeues_only_tasks_nobody_is_working_on(tmp_path, monkeypat
     assert pending == ["T001"] and spawned == ["T001"] and count == 1
 
 
+def coordinator_cut_off(hub, turn=None):
+    """协调人读了信、记了“在办”，回合（跑完或没跑完）之后 runner 被收掉。"""
+    path = hub.unread(kh.COORDINATOR)[0]
+    hub.take(path)
+    state = hub.load_state()
+    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_now()}
+    hub.save_state(state)
+    if turn:
+        turn_dir = hub.root / "turns" / kh.COORDINATOR / turn
+        turn_dir.mkdir(parents=True)
+        (turn_dir / "result.json").write_text(json.dumps({"session_id": "T001-g0", "workspace": str(hub.repo / "ws"),
+                                                          "output_error": None, "violations": []}), encoding="utf-8")
+        hub.append_event("turn.finished", agent=kh.COORDINATOR, session_key="T001", turn_id=turn, output_ok=True,
+                         violations=0)
+    return path
+
+
+def test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed(engine_env):
+    # 第 94 轮：协调人先读信、后跑回合，runner 被收掉后信留在 cur，主任务悄悄停住（协调人占全部回合的六成）
+    hub = engine_env
+    owner_task(hub)
+    path = coordinator_cut_off(hub, "tC")
+    runner = FakeRunner([({"letters": [start_planner(), start_planner()], "state": "s"}, [])])
+    engine = kh.Engine(hub, runner)
+    assert engine.step() is False and kh.tasks_with_work(hub) == []
+    with kh.DirLock(kh.runner_lock(hub, "T001")):
+        assert kh.requeue_interrupted(hub) == []
+    assert kh.requeue_interrupted(hub) == ["T001"]
+    ts = hub.load_state()["tasks"]["T001"]
+    assert "coordinator_turn" not in ts and ts["coordinator_resume"]["turn"] == "tC"
+    assert [p.name for p in hub.unread(kh.COORDINATOR)] == [path.name]
+    assert engine.step()
+    assert runner.session_ids == ["T001-g0"] and runner.fresh == [False]  # 回合跑完了：续接它的会话
+    assert "你上一回合（tC）的输出内核收到了，投递做到一半" in runner.calls[0][2]
+    ts = hub.load_state()["tasks"]["T001"]
+    assert "coordinator_turn" not in ts and "coordinator_resume" not in ts
+    # 第二封是重发上一回合投递过的开工：不算协调人出错，也不发核验信
+    assert ts["stages"]["1-plan"]["status"] == "assigned" and ts["coordinator_rejections"] == 0
+    assert hub.unread(kh.COORDINATOR) == [] and len(hub.unread("planner-opus")) == 1
+    events = [json.loads(line)["event"] for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert events.count("coordinator.resent") == 1 and events.count("letters.requeued") == 1
+
+
+def test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    with open(hub.ledger(), "a", encoding="utf-8") as ledger:  # 更早一个跑完的回合：不是被打断的这一个
+        ledger.write(json.dumps({"at": "2026-01-01T00:00:00Z", "event": "turn.finished", "agent": kh.COORDINATOR,
+                                 "session_key": "T001", "turn_id": "t-old", "output_ok": True, "violations": 0}) + "\n")
+    path = coordinator_cut_off(hub)
+    runner = FakeRunner([({"letters": [start_planner(), start_planner()], "state": "s"}, [])])
+    engine = kh.Engine(hub, runner)
+    assert kh.requeue_interrupted(hub) == ["T001"]
+    assert hub.load_state()["tasks"]["T001"]["coordinator_resume"]["turn"] is None
+    assert engine.step()
+    assert runner.fresh == [True] and runner.session_ids == [None] and "这是新会话" in runner.calls[0][2]
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["coordinator_rejections"] == 1  # 不是续接已交的回合：重发照常算
+    # 同一封信第二次被打断：不再放回，主任务转 blocked，写信给站主
+    state = hub.load_state()
+    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [path.name], "at": kh.utc_now()}
+    hub.save_state(state)
+    hub.take(hub.unread(kh.COORDINATOR)[0])  # 拒收的核验信也被读了
+    assert kh.requeue_interrupted(hub) == []
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["status"] == "blocked" and "coordinator_turn" not in ts and "coordinator_resume" not in ts
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "协调人（womovie-c8）的回合续接之后又被打断" in letters[0]
+    assert hub.unread(kh.COORDINATOR) == [] and (hub.inbox(kh.COORDINATOR).parent / "cur" / path.name).is_file()
+
+
+def test_the_coordinator_marker_is_cleared_on_every_way_out_of_the_turn(engine_env):
+    hub = engine_env
+    until = int(time.time()) + 3600
+    runner = FakeRunner([({"letters": [], "state": "s"}, []), (None, ["越界"]), (None, [], LIMIT, False, until)])
+    engine = kh.Engine(hub, runner)
+    seen = []
+    run = runner.run
+
+    def watched(*args, **kwargs):
+        seen.append(hub.load_state()["tasks"]["T001"].get("coordinator_turn"))
+        return run(*args, **kwargs)
+
+    runner.run = watched
+    for _ in range(3):  # 正常办完、回合作废转站主、额度扣信
+        state = hub.load_state()
+        state["tasks"]["T001"]["status"] = "active"
+        hub.save_state(state)
+        owner_task(hub)
+        assert engine.step()
+        assert "coordinator_turn" not in hub.load_state()["tasks"]["T001"]
+    assert len(seen) == 3 and all(item and item["letters"] for item in seen)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("模板读到一半")
+
+    runner.run = boom
+    state = hub.load_state()
+    state["tasks"]["T001"].update(status="active", held=[])
+    hub.save_state(state)
+    owner_task(hub)
+    assert engine.step()  # 进程内的意外：写信给站主，标记清掉，不再放回
+    assert "coordinator_turn" not in hub.load_state()["tasks"]["T001"]
+    assert kh.requeue_interrupted(hub) == []
+
+
+def test_a_jev_cut_off_by_a_kill_is_rerun(engine_env, monkeypatch):
+    # 第 94 轮：协调人开工的 JEV 走 worker_job，阶段已经存成 assigned，run_jev 跑到一半被收掉就卡住
+    hub = engine_env
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["3j-jev"].update(status="assigned", assigned_at=kh.utc_now(), kind="开工")
+    hub.save_state(state)
+    msg = hub.deliver({"from": kh.COORDINATOR, "to": "jev-judge", "task-id": "T001-3j-jev", "in-reply-to": "none",
+                       "type": "开工"}, fields())
+    taken = hub.take(hub.inbox("jev-judge") / ("%s.md" % msg))
+    calls = []
+    monkeypatch.setattr(kh, "run_jev", lambda hub_, ts, suffix: calls.append(suffix) or fields(摘要="JEV 判定"))
+    assert kh.requeue_interrupted(hub) == ["T001"]
+    assert [p.name for p in hub.unread("jev-judge")] == [taken.name]
+    assert kh.Engine(hub, FakeRunner([])).step()
+    stage = hub.load_state()["tasks"]["T001"]["stages"]["3j-jev"]
+    assert calls == ["3j-jev"] and stage["status"] == "delivered" and "resume" not in stage
+
+
+def test_a_stranded_exec_stage_is_reported_to_the_owner_once(engine_env):
+    # 第 94 轮：执行端不自己重跑（一次几十分钟、要花钱），写信给站主点明怎么接上
+    hub = engine_env
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["5-exec"].update(status="assigned", assigned_at=kh.utc_now(), kind="开工")
+    hub.save_state(state)
+    msg = hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                       "type": "开工"}, fields())
+    taken = hub.take(hub.inbox("exec-step") / ("%s.md" % msg))
+    marks = kh.exec_marks(hub)
+    marks.mkdir(parents=True, exist_ok=True)
+    (marks / "T001.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    assert kh.requeue_interrupted(hub) == [] and hub.unread(kh.OWNER) == []  # 调度器还在跑：先不报
+    (marks / "T001.json").unlink()
+    assert kh.requeue_interrupted(hub) == [] and hub.unread("exec-step") == []
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "执行端读了信、没人在办" in letters[0] and "task unstick T001 5-exec" in letters[0]
+    assert hub.load_state()["tasks"]["T001"]["stages"]["5-exec"]["stranded_notice"] == [taken.name]
+    assert kh.requeue_interrupted(hub) == [] and len(hub.unread(kh.OWNER)) == 1  # 同一批信只报一次
+
+
+def test_a_session_cut_short_mid_tool_call_is_not_continued(tmp_path, monkeypatch):
+    # 第 94 轮（通用规则）：要续接的会话停在没有结果的工具调用上，换新的一代并附“接着做”的说明
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    prompts = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        prompts.append(Path(cmd[-2][1:]).read_text(encoding="utf-8"))
+        out.write(b'{"type":"message_end","message":{"role":"assistant","provider":"minimax",'
+                  b'"model":"MiniMax-M3","thinkingLevel":"high","stopReason":"stop","content":[{"type":"text",'
+                  b'"text":"```json\\n{\\"letter\\": {}}\\n```"}]}}\n')
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    def session_file(generation, *messages):
+        path = hub.root / "sessions" / "contract-glm" / ("2026-10-25T00-00-0%dZ_T001-2-contract-g%d.jsonl"
+                                                          % (generation, generation))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps({"type": "message", "message": m}) + "\n" for m in messages),
+                        encoding="utf-8")
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    ask = {"role": "user", "content": [{"type": "text", "text": "输入"}]}
+    call = {"role": "assistant", "stopReason": "toolUse", "content": [{"type": "toolCall", "name": "bash"}]}
+    result = {"role": "toolResult", "toolName": "bash", "isError": False, "content": []}
+    runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
+    session_file(0, ask, call)  # 工具跑到一半被收掉
+    assert kh.session_cut_short(hub, "contract-glm", "pi", "T001-2-contract-g0")
+    turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
+    assert turn["session_id"] == "T001-2-contract-g1" and prompts[1].startswith("## 换了新会话（内核）")
+    assert "T001-2-contract-g0" in prompts[1] and prompts[1].endswith("输入")
+    session_file(1, ask, call, result)  # 停在工具结果上：超时被结束的回合多半这样，pi 接得上（第 82 轮）
+    assert runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")["session_id"] == "T001-2-contract-g1"
+    assert prompts[2] == "输入"
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["session"] for e in events if e["event"] == "session.cut_short"] == ["T001-2-contract-g0"]
+    session_file(1, ask, call, result)
+    path = next((hub.root / "sessions" / "contract-glm").glob("*_T001-2-contract-g1.jsonl"))
+    path.write_text(path.read_text(encoding="utf-8") + '{"type": "message", "message": {"role": "assis',
+                    encoding="utf-8")  # 被收掉时最后一行正写到一半
+    assert kh.session_cut_short(hub, "contract-glm", "pi", "T001-2-contract-g1")
+    # claude 的会话文件：assistant 记录里的 tool_use 没有结果
+    monkeypatch.setattr(kh.Path, "home", classmethod(lambda cls: tmp_path))
+    claude = tmp_path / ".claude" / "projects" / "C--ws" / "sess-1.jsonl"
+    claude.parent.mkdir(parents=True)
+    use = {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use"}]}}
+    claude.write_text(json.dumps(use) + "\n" + json.dumps({"type": "cost-state"}) + "\n", encoding="utf-8")
+    assert kh.session_cut_short(hub, "planner-opus", "claude", "sess-1")
+    answered = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
+    claude.write_text(json.dumps(use) + "\n" + json.dumps(answered) + "\n", encoding="utf-8")
+    assert not kh.session_cut_short(hub, "planner-opus", "claude", "sess-1")
+    assert not kh.session_cut_short(hub, "planner-opus", "claude", "sess-2")  # 找不到文件不算
+
+
 def test_interrupted_letters_reads_the_ledger_from_the_assignment_on(tmp_path):
     hub = kh.Hub(tmp_path)
     hub.ensure()
