@@ -1801,7 +1801,9 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **撞上的事**：T017 的执行端 attempt-001 跑满 90 分钟（5400 秒）被结束，没交执行报告。调度器收集候选时 `git add -A` 失败：`error: open("ts/nul"): No such file or directory / unable to index file 'ts/nul'`。执行端（或它跑的测试替身）把报告写到了 `nul`——在这台 Windows Server 2025 上，带目录的 `…\ts\nul` 会建成一个真文件（内容是 fake-kernel 的运行日志），git 却按保留设备名去打开它，失败了。于是整轮没有候选（INFRA_FAILURE），内核给协调人的信写“候选改动 0 个文件”，协调人照它从头重派 attempt-002——而 attempt-001 的工作区里其实改了 20 个文件、新增 2469 行。
 - **调度器**（`pi_dispatch.py`）：`unindexable_paths` 在 Windows 上用 `git status` 找出文件名（不分大小写、带不带扩展名）是 con、prn、aux、nul、com1–9、lpt1–9 的新增或改动路径；`snapshot_tree` 用 `:(exclude,literal)` 把它们排除在快照之外（所有快照——候选、check --fresh、门禁、integrate——都经它，彼此一致）。`record_candidate` 把跳过了哪些记进 candidate.json，observations.json 与 summary.md 的“复审需要关注”各写一条。别的平台上这些是普通文件名，照常收。拿 attempt-001 留下的工作区实测：排除 `ts/nul` 之后 20 个文件、2469 行新增全部收进来。
 - **内核**（`finish_exec`）：observations.json 里有 `collect_errors` 时，信里写“候选改动 没收上来（收集出错）”，不写“0 个文件”；`ts.exec.collect_failed` 置真，`_guard_rework` 在站主用 `send --rework 5-exec` 指定之前不放行执行端返工（同第 55 轮跑满时限而一处没改的做法），理由写明“执行端的改动还在 attempt 的工作区里，从头重派会把它们丢掉”。
-- **attempt-002**：07:11:35 起跑，用的是旧代码（调度器进程启动时载入）。没有中途干预；后台盯着它的工作区，出现保留设备名的文件就提醒。
+- **attempt-002 与本机的防护**：attempt-002 07:11:35 起跑，用的是旧代码（调度器进程启动时载入），这一轮的修复护不住它。规划端在主仓库的 `.git/info/exclude`（各 worktree 共用）里加了这些保留设备名：git 把它们当忽略文件跳过、不去打开，旧调度器的 `git add -A` 也就不会失败（临时仓库里实测：加之前退出码 128，加之后主工作树与链接的 worktree 都只加进了正常文件）；attempt-001 的工作区里 `ts/nul` 随即显示为忽略（`!!`）。T017 合入之后主工作区跑测试同样受保护。这是本机配置、不进仓库。
+- **attempt-001 没有救**：现有工具只认“最新的、还在跑的” attempt（`exec-recheck`、`collect --recover`）。要救就得中途结束 attempt-002、给调度器加“重新收集已结束的 attempt”、再引导内核改用 attempt-001，环节多、都是新路子。有了上面的防护，attempt-002 即使又跑满时限，下一轮返工也以它收得上来的候选为基线，不会再归零。
+- **nul 的来源**（themistally-15 核过）：仓库原有的 fake-kernel.mjs 只往 `FAKE_KERNEL_REPORT` 指的路径写、没设就跳过，support.ts 给的是 mkdtemp 的临时文件，仓库里搜不到往 `nul` 写的代码——多半是 attempt-001 新写的用例把 `FAKE_KERNEL_REPORT` 设成了 `nul`。AGENTS.md 的 Pi 执行器一节补一句：要丢弃输出就不设输出路径，或用 bash 的 `/dev/null`、node 的 `os.devNull`，不要写 `nul`、`con` 这类名字。
 - **测试**：新增 `tests/test_snapshot_reserved.py`（只在 Windows 上跑：不排除时 `git add` 确实失败、排除后快照只少那一个文件、候选记录列出它、保留名的判定），test_kit_hub 新增 1 条（收集出错时的信与返工的拦截、站主指定后放行）。
 
 ## 11. 已知缺口与下一步
