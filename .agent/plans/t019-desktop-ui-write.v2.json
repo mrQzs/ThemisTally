@@ -1,0 +1,515 @@
+{
+  "schema_version": 1,
+  "task_id": "t019-desktop-ui-write",
+  "plan_version": 2,
+  "title": "桌面端本机服务第 5 片：写配置的预览、确认号与操作终态（D2 之一）",
+  "repository": "ThemisTally",
+  "base_sha": "7a5aaf42eff61b0a84a2e0fe33f297b3ba3092b8",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/kernelenvelope.ts",
+      "ts/packages/ui/src/redaction.ts",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/README.md"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/src/writeroutes.ts",
+      "ts/packages/ui/src/confirmations.ts",
+      "ts/packages/ui/src/operations.ts",
+      "ts/packages/ui/test/write-argv.test.ts",
+      "ts/packages/ui/test/write-real.test.ts",
+      "ts/packages/ui/test/write-routes.test.ts",
+      "ts/packages/ui/test/confirmations.test.ts",
+      "ts/packages/ui/test/operations.test.ts",
+      "ts/packages/ui/test/fixtures/fake-write-kernel.mjs"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/src/cursors.ts",
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/jobs.ts",
+      "ts/packages/ui/src/jobroutes.ts",
+      "ts/packages/ui/src/events.ts",
+      "ts/packages/ui/src/watch.ts",
+      "ts/packages/ui/src/kernel.ts",
+      "ts/packages/ui/src/kernelenv.ts",
+      "ts/packages/ui/src/app.ts",
+      "ts/packages/ui/src/routes.ts",
+      "ts/packages/ui/src/envelope.ts",
+      "ts/packages/ui/src/main.ts",
+      "ts/packages/ui/src/lifecycle.ts",
+      "ts/packages/ui/src/lockdir.ts",
+      "ts/packages/ui/src/static.ts",
+      "ts/packages/ui/package.json",
+      "ts/packages/ui/test/app.test.ts",
+      "ts/packages/ui/test/args.test.ts",
+      "ts/packages/ui/test/argv-templates.test.ts",
+      "ts/packages/ui/test/cursors.test.ts",
+      "ts/packages/ui/test/events-service.test.ts",
+      "ts/packages/ui/test/events.test.ts",
+      "ts/packages/ui/test/follow-real.test.ts",
+      "ts/packages/ui/test/follow.test.ts",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/jobs-service.test.ts",
+      "ts/packages/ui/test/jobs.test.ts",
+      "ts/packages/ui/test/kernel-env.test.ts",
+      "ts/packages/ui/test/kernel-real.test.ts",
+      "ts/packages/ui/test/kernel-runner.test.ts",
+      "ts/packages/ui/test/launcher.e2e.test.ts",
+      "ts/packages/ui/test/lifecycle.test.ts",
+      "ts/packages/ui/test/localhttp-accesslog.test.ts",
+      "ts/packages/ui/test/localhttp-body.test.ts",
+      "ts/packages/ui/test/localhttp-control.test.ts",
+      "ts/packages/ui/test/localhttp-guards.test.ts",
+      "ts/packages/ui/test/localhttp-headers.test.ts",
+      "ts/packages/ui/test/localhttp-session.test.ts",
+      "ts/packages/ui/test/lockdir.test.ts",
+      "ts/packages/ui/test/redaction-routes.test.ts",
+      "ts/packages/ui/test/redaction.test.ts",
+      "ts/packages/ui/test/routes-auth.test.ts",
+      "ts/packages/ui/test/service.test.ts",
+      "ts/packages/ui/test/static-paths.test.ts",
+      "ts/packages/ui/test/support.ts",
+      "ts/packages/ui/test/fixtures/fake-kernel.mjs",
+      "ts/packages/ui/test/fixtures/resolve-asset.ts",
+      "ts/packages/ui/test/fixtures/serve-entry.ts",
+      "ts/packages/ui/test/fixtures/serve-overrides.ts",
+      "ts/packages/base/**",
+      "ts/packages/cli/**",
+      "ts/packages/contracts/**",
+      "ts/packages/dispatcher/**",
+      "ts/packages/hub/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/tsconfig.json",
+      "ts/vitest.config.ts",
+      "ts/tools/**",
+      "ts/mutations/**",
+      "scripts/**",
+      "desktop/**",
+      "docs/**",
+      "tests/test_gate_t019_*.py",
+      "tests/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t019_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "bun",
+        "x",
+        "vitest",
+        "run",
+        "packages/ui"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "bun",
+        "x",
+        "vitest",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "bun",
+        "x",
+        "vitest",
+        "run"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "bun",
+        "x",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "-k",
+        "static",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ts/packages/ui/"
+      ],
+      "output_must_not_match": [
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ]
+    },
+    {
+      "id": "V08",
+      "argv": [
+        "node",
+        "-e",
+        "const fs=require('fs');const s=fs.readFileSync('packages/ui/README.md','utf8');const need=['preview','confirmation','operations','--expect-state','409','503','504','60','已知限制','T020'];const miss=need.filter((x)=>!s.includes(x));if(miss.length){console.error('README missing: '+miss.join(','));process.exit(1)}console.log('README ok')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "README ok"
+      ]
+    },
+    {
+      "id": "V09",
+      "argv": [
+        "node",
+        "-e",
+        "const {spawnSync}=require('child_process');for(let i=0;i<5;i++){const r=spawnSync(process.execPath,['node_modules/vitest/vitest.mjs','run','packages/ui/test/write-argv.test.ts','packages/ui/test/write-routes.test.ts','packages/ui/test/confirmations.test.ts','packages/ui/test/operations.test.ts'],{stdio:'inherit'});if(r.status===0){continue}console.error('run '+(i+1)+' failed');process.exit(1)}console.log('STABLE5')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "STABLE5"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "七个写动作的登记与校验——`validateWriteArgs` 的每一类不合格都回 400 且提示固定、不回显请求里的值、不起子进程；T020 的五个 action 名回 400「action 不合法」；`buildWriteArgv` 拼出的基础 argv 与 `WRITE_ARGV` 逐条一致，且不含 `--dry-run`、`--json`、`--expect-state`、`--yes`；用例：`ts/packages/ui/test/write-argv.test.ts` 的 W3、W4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "不合法与不认识的动作到不了内核，服务也不给攻击者反馈"
+    },
+    {
+      "id": "D02",
+      "text": "argv 过内核真正的解析器——七条基础 argv 加 `--dry-run --json`、加 `--expect-state=v1;config=<64 个 0>`、加 `--yes`（plugins 不加）都过 `kit_config.build_parser()` 与 `kit_plugins.build_parser()`，解析出的 `dry_run`、`json`、`expect_state` 是期望的值；内核里带 `--dry-run` 的写命令集合恰好等于本片 7 条加 `T020_WRITE_COMMANDS` 的 5 条；用例：`ts/packages/ui/test/write-argv.test.ts` 的 W1、W2",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "命令行是内核真认的写法，不是照着猜的"
+    },
+    {
+      "id": "D03",
+      "text": "预览成功时的形状——stdout 解析成对象、`dry_run` 为真、`action` 与请求相同、`state` 过 `^v1(?:;(?:config|local)=(?:[0-9a-f]{64}|absent))+$`、`needs_yes` 是布尔；去掉 `state` 之后过 `redactJson(…, PREVIEW_ALLOW)`；回 200，信封的 `data` 是 `{\"preview\": …, \"confirmation\": \"<43 位>\"}`，信封仍是七字段；预览信封的任何层级都没有 `state` 键，正文里不出现令牌原文；**预览内容是内核算出来的变化的忠实反映**：白名单命中的值原样保留，该遮的位置恰为 `<redacted>`（见 §2.1）；用例：`ts/packages/ui/test/write-routes.test.ts` 的 S9、S10、S14 与 `ts/packages/ui/test/write-argv.test.ts` 的 W4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "令牌不外泄，预览能显示内核算出来的变化"
+    },
+    {
+      "id": "D04",
+      "text": "预览不合格与预览失败——形状不合格（`action` 不对、`state` 不对）回 500「内核的预览不合格」、不发确认号；内核退出非 0 回 200、`ok` 为假、`data` 里没有 `confirmation`，确认号表与操作表都不变；用例：S10、S11",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "不合格的预览不会变成一个能执行的确认号"
+    },
+    {
+      "id": "D05",
+      "text": "确认号的核对次序——缺号/不是字符串/格式不对/不在表里/已过期/用第二次一律 409「确认号无效、已过期或已用过：请重新预览」；argv 不符 409「确认号与这次请求的参数不符：请重新预览」且**不**消耗这个号；503（队列满或关停中）**不**消耗这个号；用例：S1–S4、S6",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面能分清「重新预览」与「参数变了」，重试不会白白丢掉确认号"
+    },
+    {
+      "id": "D06",
+      "text": "确认号的一次性与表满——同一个号只能用一次；表满 100 时先清过期的、再挤掉最早发出还没用的那个（第 1 个号回 409、第 101 个号能用）；TTL 是 60 秒，过期即失效；用例：S3、S7、C1、C2、C3、C5",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "失控的客户端不会把服务堵死，过期的令牌也不会一直能用"
+    },
+    {
+      "id": "D07",
+      "text": "执行的 argv——起的是 `基础 argv + --expect-state=<state>`，`needs_yes` 为真才加 `--yes`（plugins 的 needs_yes 恒为假，不加也不写特例），不带 `--json`；替身记下的 `--expect-state=` 与预览给的逐字相同；用例：S8、S9 与 R2",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "带令牌执行、该确认时才确认，写命令的形态是内核认的"
+    },
+    {
+      "id": "D08",
+      "text": "结果与 HTTP 状态——退出 0 回 200 信封；退出 4 回 409 且正文是七字段信封（`exit_code` 是 4、`messages` 里有内核的 ERROR）、操作记 `stale`；其他非 0 回 200 且 `ok` 为假、操作记 `failed`/`exit`；超时回 504、操作记 `timed_out`；起不了子进程或输出超限回 500；用例：S12、S13、S15 与 R1、R3",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面能分清「写成了」「配置变了要重新预览」「没写成」「超时」"
+    },
+    {
+      "id": "D09",
+      "text": "信封补 `output`——写命令的 `output` 是 stdout 的非空行、逐行过 `redactSecrets`，`messages` 是 stderr 里 ERROR/WARN 开头的行，`command` 是 `displayArgv(实际 argv)` 且 `--expect-state=<state>` 的值是占位；读路由的信封逐字节不变（`output` 仍是 `[]`）；用例：S9、S12 与 R4",
+      "evidence": [
+        "V02",
+        "V06"
+      ],
+      "intent": "界面能显示内核写了什么，同时令牌不外泄、读路由不被带坏"
+    },
+    {
+      "id": "D10",
+      "text": "操作记录——状态机 `queued → running → succeeded | failed | stale | timed_out` 每一步只走一次；`operationView` 是八键投影；`GET /api/v1/operations/<id>` 的正文就是它，格式不对与查不到回同一个 404「没有这个操作」；容量 100，满了淘汰最早结束的终态记录，没有可淘汰的回 503 且不消耗确认号；用例：S7、S12、S15、O1、O2、O3、O4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "断线之后界面能靠操作号把结果读回来"
+    },
+    {
+      "id": "D11",
+      "text": "断开不取消——写请求的客户端断开之后，子进程不被杀（替身的报告里有 end 行），终态照记；写运行用服务私有的信号，`request.signal` 不传给执行器；用例：S12",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面断线不会把正在写的配置留在半途而「没人知道」"
+    },
+    {
+      "id": "D12",
+      "text": "二道脱敏——预览只放行 `binding_changes.*.before|after` 的七个绑定字段、`resources.*.changed_keys.*`、`notes.*`、`warnings.*`、`running_attempts.*`；放行的值要么是 `allowPreviewName` 认的形状（null 或名字），要么是 `redactSecrets(v) === v` 的文字；`unreadable` 不进白名单；**放行的值原样保留，该遮的位置恰为 `<redacted>`，令牌原文不出现在响应正文里**；用例：S9（令牌原文的断言）、S14（放行与遮罩的行为级证明）与 W4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "预览能显示变化，但不因此把凭据值放出去"
+    },
+    {
+      "id": "D13",
+      "text": "接线与空闲——`server.ts` 建两张表、`writeRoutes` 进 `extraRoutes`（`readRoutes`/`eventRoutes`/`jobRoutes` 三个记号与 IdleTimer 的位置不动、关停仍先 `hub.close()`）；空闲判定加上 `operations.active() > 0`，有写在跑时服务不因空闲退出；用例：S13 的静态断言与 T017 的空闲用例",
+      "evidence": [
+        "V02",
+        "V06"
+      ],
+      "intent": "写操作期间服务不会被空闲计时器关掉"
+    },
+    {
+      "id": "D14",
+      "text": "真内核的四条——U6b：预览后用 CLI 改配置再执行 → 409、`exit_code` 是 4、配置与审计逐字节不变、操作记 stale；U7：经界面执行的审计 `actor` 是 `user-ui`、`confirmation` 是 `none`，有 RUNNING 的 attempt 且改变 execution 的绑定时 `needs_yes` 为真、执行带 `--yes`、`confirmation` 是 `flag`；U8：先预览再建 RUNNING 的 attempt 再执行 → 内核退出 1、提示里有 `--yes`、配置不变、操作记 failed/exit；U20：绑到未接通该角色的适配器 → `output` 里有那条 WARN、`ok` 为真；用例：`ts/packages/ui/test/write-real.test.ts` 的 R1–R4",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "确认号、令牌与 `--yes` 的语义在内核那侧真的成立，不是服务自己假装"
+    },
+    {
+      "id": "D15",
+      "text": "预览不写盘——预览前后 `<repo>/.agent/` 逐字节不变；用例：R5",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "预览只是预览"
+    },
+    {
+      "id": "D16",
+      "text": "README——「最小 API」补预览与七条写路由；加「写操作」一节（确认号 60 秒、409 的三种提示、503 与 `Retry-After: 2`、504、操作记录、断开不取消、部分写入与「结果未知」）；「已知限制」补本片限制并写清 T020 接的 5 条；既有的段落逐字保留",
+      "evidence": [
+        "V08"
+      ],
+      "intent": "界面前端拿这份 README 就能把预览与写操作接上"
+    },
+    {
+      "id": "D17",
+      "text": "范围与依赖——改动只落在 Scope 的允许集合内；`ts/packages/ui/src/localhttp/**`、`cursors.ts`、`readroutes.ts`、`ts/packages/ui/package.json`、`ts/bun.lock`、`ts/package.json` 一个字未改；没有新增、升级或删除依赖",
+      "evidence": [
+        "scope",
+        "V07",
+        "review"
+      ],
+      "intent": "内核禁区、本机 HTTP 的安全基线与既有读路由不受本片影响"
+    },
+    {
+      "id": "D18",
+      "text": "门禁与回归——G01、R01、V01–V09 全部通过；既有用例未删未跳未弱化（ui 测试目录里没有 skip、only、todo）；23 条变异每条都有会变红的用例",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "V08",
+        "V09",
+        "review"
+      ],
+      "intent": "不靠削弱测试过关，也不破坏已有门禁"
+    },
+    {
+      "id": "D19",
+      "text": "稳定性——本片的用例文件连跑 5 次都通过（全量并行下也稳）",
+      "evidence": [
+        "V09"
+      ],
+      "intent": "偶发红不能靠重跑蒙过去"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
