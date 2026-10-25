@@ -168,7 +168,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 出现额度类报错（429 等）或超时作废变多，就退回 minimax/MiniMax-M3.1-Flash max。
     "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "cc-switch-qianwenai-token-plan",
                      "model": "qwen3.8-max", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                     "timeout": 2400, "workspace": "stage"},
+                     "timeout": 2400, "workspace": "stage", "delivery": "tool"},  # 第 97 轮；回退写 "block"
     # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致
     # （2026-10-21 起本机又回到 bb，2026-10-22 第 63 轮 bb 改名为 cc-switch-step-fun；还没派遣的合同由
     # sync_executor_line 改写，已派遣的不动）。
@@ -4141,9 +4141,11 @@ ROLE_EXTRA_OUTPUT = {
             '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
             '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec）',
-    "audit": 'letter 里另加 "结论": "通过|返工"；返工时再加 "退回": "合同端|门禁端|战后门禁|执行端|规划端"'
-             '（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”隔开，例如 "合同端、门禁端"）'
-             '与 "阻塞项": "<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>"',
+    "audit": 'letter 里另加三项，都要写：'
+             '"结论": "通过|返工"（交付以外的信写“无”）；'
+             '"退回": "合同端|门禁端|战后门禁|执行端|规划端"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”'
+             '隔开，例如 "合同端、门禁端"；不是返工写“无”）；'
+             '"阻塞项": "<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>"（不是返工写“无”）',
 }
 
 

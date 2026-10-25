@@ -1,0 +1,28 @@
+{
+  "description": "审核端交差（七端改造第 1 条，第 97 轮）：交给协调人的信、report.md 与 state.md 的全文。只用内核校验器支持的子集：type、properties、required、additionalProperties: false、enum、const、items、minLength、maxLength、pattern（只写 ASCII）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["letter", "report", "state"],
+  "properties": {
+    "letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "证据", "结论", "退回", "阻塞项"],
+      "properties": {
+        "type": {"type": "string", "enum": ["交付", "返工完成", "提问", "阻塞", "交接", "进度"]},
+        "in_reply_to": {"type": "string", "minLength": 1, "description": "回复的 msg-id"},
+        "摘要": {"type": "string", "minLength": 1},
+        "提交": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "验证": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "偏离": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "需协调人决定": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "证据": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "结论": {"type": "string", "enum": ["通过", "返工", "无"], "description": "交付时写通过或返工；提问、阻塞等别的信写“无”"},
+        "退回": {"type": "string", "minLength": 1, "description": "返工时写退回对象（合同端|门禁端|战后门禁|执行端|规划端，几个用“、”隔开；一审只能退回规划端、合同端、门禁端）；不是返工写“无”"},
+        "阻塞项": {"type": "string", "minLength": 1, "description": "返工时逐条列出必须改的问题，只列会导致打回的，退回几个对象时注明每条归谁；不是返工写“无”"}
+      }
+    },
+    "report": {"type": "string", "minLength": 1, "description": "report.md 全文"},
+    "state": {"type": "string", "description": "state.md 全文"}
+  }
+}

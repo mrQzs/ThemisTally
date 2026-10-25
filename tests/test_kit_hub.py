@@ -6810,8 +6810,13 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
     assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]
     assert kh.role_schema("coordinator")["properties"]["letters"].get("minItems") is None  # 第 3 条落地前后都能交空的
-    assert kh.ROSTER[kh.COORDINATOR]["delivery"] == "tool"
-    assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name != kh.COORDINATOR)
+    tool = (kh.COORDINATOR, "audit-sonnet")  # 第 97 轮起审核端也用 deliver
+    assert all(kh.ROSTER[name]["delivery"] == "tool" for name in tool)
+    assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name not in tool)
+    audit = kh.role_schema("audit")["properties"]["letter"]
+    assert tuple(audit["properties"]["type"]["enum"]) == kh.WORKER_TYPES
+    assert set(kh.FIELDS) | set(kh.VERDICT_FIELDS) <= set(audit["required"])
+    assert tuple(audit["properties"]["结论"]["enum"]) == kh.VERDICTS + ("无",)
 
 
 def deliver_events(*attempts):
@@ -6837,10 +6842,10 @@ def test_the_pi_audit_takes_the_last_accepted_deliver():
     assert found["delivered"] is None and found["violations"] == ["调用了白名单之外的工具：deliver"]
 
 
-def coordinator_turn(tmp_path, events, monkeypatch=None):
+def coordinator_turn(tmp_path, events, monkeypatch=None, agent=kh.COORDINATOR, key="T001"):
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    spec = kh.ROSTER[kh.COORDINATOR]
+    spec = kh.ROSTER[agent]
     done = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
                                                "stopReason": "toolUse", "content": []}}
     seen = []
@@ -6850,7 +6855,7 @@ def coordinator_turn(tmp_path, events, monkeypatch=None):
         out.write(("\n".join(stream(*events, done)) + "\n").encode("utf-8"))
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
-    turn = kh.TurnRunner(hub, launcher=launcher).run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    turn = kh.TurnRunner(hub, launcher=launcher).run(agent, key, tmp_path, "角色", "输入")
     return turn, seen
 
 
@@ -6865,6 +6870,24 @@ def test_a_coordinator_turn_hands_in_through_deliver(tmp_path):
     assert turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "coordinator.json"}
+
+
+def test_an_audit_turn_hands_in_through_deliver(tmp_path):
+    # 第 97 轮：审核端也用 deliver。“结论、退回、阻塞项”都要写（不适用写“无”），T017 一审 ae8a 那种返工漏了阻塞项，
+    # 回合内就被工具挡回，不再多跑一个格式重试回合
+    good = {"letter": {"type": "交付", "in_reply_to": "m1", "摘要": "一审", "提交": "无", "验证": "无", "偏离": "无",
+                       "需协调人决定": "无", "证据": "无", "结论": "返工", "退回": "门禁端", "阻塞项": "1. 断言是空心的"},
+            "report": "# 一审", "state": ""}
+    missing = {"letter": {k: v for k, v in good["letter"].items() if k != "阻塞项"}, "report": "# 一审", "state": ""}
+    assert any("阻塞项" in error for error in kh.schema_errors(kh.role_schema("audit"), missing))
+    turn, seen = coordinator_turn(tmp_path, deliver_events((missing, True), (good, False)), agent="audit-sonnet",
+                                  key="T001-4-audit-pre")
+    cmd, env = seen[0]
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "audit.json")
+    assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,deliver"
+    assert turn["output"] == good and turn["output_error"] is None
+    _meta, fields = kh.letter_from_output("audit-sonnet", "T001-4-audit-pre", turn["output"])
+    assert (fields["结论"], fields["退回"], fields["阻塞项"]) == ("返工", "门禁端", "1. 断言是空心的")
 
 
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
@@ -6894,6 +6917,9 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     assert "## 交差（用 deliver 工具）" in coordinator and "## 输出格式" not in coordinator
     contract = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
     assert "## 输出格式" in contract and "deliver" not in contract
+    audit = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
+    assert "## 交差（用 deliver 工具）" in audit and "## 输出格式" not in audit
+    assert "交付以外的信写“无”" in audit and "不是返工写“无”" in audit  # 三项都必填，schema 卡着
 
 
 def test_kernel_changes_lists_uncommitted_kernel_files(tmp_path):
