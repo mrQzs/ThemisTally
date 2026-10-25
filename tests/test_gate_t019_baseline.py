@@ -23,8 +23,9 @@ write-routes、confirmations、operations、write-real、fake-write-kernel.mjs�
 变异清单）：
 
 - 静态断言（不用流水线，全量 pytest 也跑）：三个新源文件在位、都能从 main.ts 顺 import 到达（D13，接进产品才算
-  实现）；``WRITE_ACTIONS`` 七个 action 与参数形状、T020 的五个 action 名不登记、五类 400 提示原文（D01）；
-  ``WRITE_ARGV``/``T020_WRITE_COMMANDS`` 与七条命令路径（D01/D02）；九条路由（预览 + 七写 + 操作查询）、两条
+  实现）；``WRITE_ACTIONS`` 七个 action 与参数形状、五类 400 提示原文（D01）；``WRITE_ARGV`` 与七条命令路径
+  （D01/D02；“T020 的五个 action 名不登记”“``T020_WRITE_COMMANDS``”两项站主 2026-10-25 退役：T020 把五条接进
+  ``WRITE_ACTIONS``、删掉这个导出）；九条路由（预览 + 七写 + 操作查询）、两条
   409 与 404/500 的提示原文、时限键 ``api.preview``（30）/``api.write``（90）、预览对 ``dry_run``/``action``/
   ``state``（含 ``absent`` 的形状）/``needs_yes`` 的核对、执行 argv 的 ``--expect-state=``/``--yes``（D03–D08）；
   confirmations.ts 的 ``CONFIRMATION_TTL_MS = 60_000``/``MAX_CONFIRMATIONS = 100``/43 位 base64url/记录绑定的键
@@ -94,17 +95,9 @@ READ_ROUTE_NAMES = (
     "api.presets.diff", "api.runtimes.get", "api.plugins.list", "api.plugins.show",
     "api.secrets.list", "api.secrets.show",
 )
-# 合同 Behavior contract 第 1 节：七个 action 与 T020 只登记不实现的五个
+# 合同 Behavior contract 第 1 节：七个 action（T020 只登记不实现的五个，站主 2026-10-25 随 T020 退役）
 WRITE_ACTION_NAMES = ("role.set", "preset.use", "preset.save", "preset.remove", "config.rollback",
                       "plugin.enable", "plugin.disable")
-T020_ACTION_NAMES = ("profile.add", "profile.edit", "profile.remove", "runtime.add", "runtime.remove")
-T020_COMMAND_PATHS = (
-    ("config", "profile", "add"),
-    ("config", "profile", "edit"),
-    ("config", "profile", "remove"),
-    ("config", "runtime", "add"),
-    ("config", "runtime", "remove"),
-)
 # 第 5 节：九条路由的名字与路径
 WRITE_ROUTE_NAMES = ("api.preview", "api.roles.set", "api.presets.use", "api.presets.save",
                      "api.presets.remove", "api.config.rollback", "api.plugins.enable",
@@ -160,7 +153,6 @@ WRITE_ARGV_TEST_TOKENS = (
     (r"WRITE_ACTIONS", "W4：动作登记表驱动校验"),
     (r"validateWriteArgs", "W4：同一个校验函数"),
     (r"buildWriteArgv", "W1/W3：由参数拼基础 argv"),
-    (r"T020_WRITE_COMMANDS", "W2：T020 的五条只登记不实现"),
     (r"build_parser", "W1/W2：内核真正的解析器"),
     (r"kit_config", "W1：config 组的解析器"),
     (r"kit_plugins", "W1：plugins 组的解析器"),
@@ -173,7 +165,6 @@ WRITE_ARGV_TEST_TOKENS = (
     (r"action 不合法", "W4：T020 的五个 action 名回 400"),
     (r"参数含有未知键", "W4：未知键回 400"),
     (r"参数缺少必填键", "W4：缺必填键回 400"),
-    (r"T020", "W2：用例里显式列出归 T020 的五条"),
     (r"\b64\b", "W1：--expect-state 的 64 位十六进制示例"),
 )
 # write-routes.test.ts（S1–S15）要点
@@ -588,8 +579,8 @@ def test_static_no_task_literal():
 # ---------------------------------------------------------------------------
 
 def test_static_write_actions_registry():
-    """D01：``WRITE_ACTIONS`` 登记七个 action；T020 的五个 action 名不在登记表里（回 400「action 不合法」）；
-    ``T020_WRITE_COMMANDS`` 只登记五条命令路径；``WRITE_ARGV`` 是七条命令路径的示例表。"""
+    """D01：``WRITE_ACTIONS`` 登记七个 action；``WRITE_ARGV`` 是七条命令路径的示例表。T020 的五个 action 名不登记、
+    ``T020_WRITE_COMMANDS`` 只登记五条命令路径这两项，站主 2026-10-25 随 T020 退役。"""
     code = strip_ts_comments(need_file("ts/packages/ui/src/writeroutes.ts"))
     problems = []
     if "WRITE_ACTIONS" not in code:
@@ -599,15 +590,6 @@ def test_static_write_actions_registry():
         for action in WRITE_ACTION_NAMES:
             if f'"{action}"' not in block and f"'{action}'" not in block:
                 problems.append(f"WRITE_ACTIONS 里应有「{action}」")
-        for action in T020_ACTION_NAMES:
-            if f'"{action}"' in block or f"'{action}'" in block:
-                problems.append(f"WRITE_ACTIONS 里不应有「{action}」（T020 只登记不实现，请求回 400）")
-    if "T020_WRITE_COMMANDS" not in code:
-        problems.append("writeroutes.ts 应有 T020_WRITE_COMMANDS（导出：五条命令路径）")
-    else:
-        for path in T020_COMMAND_PATHS:
-            if not _argv_written(code, *path):
-                problems.append(f"T020_WRITE_COMMANDS 应含「{' '.join(path)}」")
     if "WRITE_ARGV" not in code:
         problems.append("writeroutes.ts 应有 WRITE_ARGV 登记表（导出，同 READ_ROUTE_ARGV 的写法）")
     else:
@@ -620,7 +602,7 @@ def test_static_write_actions_registry():
         for sample in ("execution", "manual", "demo-preset", "demo-profile", "example-plugin", "demo-permission"):
             if sample not in block:
                 problems.append(f"WRITE_ARGV 的示例值「{sample}」不在登记表里（合同 Behavior contract）")
-    fail_if(problems, "WRITE_ACTIONS / WRITE_ARGV / T020_WRITE_COMMANDS（D01/D02）")
+    fail_if(problems, "WRITE_ACTIONS / WRITE_ARGV（D01/D02）")
 
 
 def test_static_write_validation():
