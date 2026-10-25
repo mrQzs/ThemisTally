@@ -5484,11 +5484,43 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
     assert all("write" not in cmd[cmd.index("--tools") + 1] for cmd, _cwd, _t in (seen[0], seen[1], seen[3]))
 
 
-def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
-    repo, ws = tmp_path / "Repo", tmp_path / "Repo" / "wt"  # 测试里工作目录在仓库里：提到工作目录本身不算碰主工作区
-    ws.mkdir(parents=True)
-    spec = {"tools": ["read", "write", "edit", "bash", "grep"], "provider": "p", "model": "m"}
+def reach_calls(tmp_path):
+    """碰没碰主工作区、工作目录之外的一批调用（名字, 参数）：审计用例与守卫扩展的对照用例（第 106 轮）共用。
+    返回（仓库, 工作目录, 合规的, 违规的）。测试里工作目录在仓库里：提到工作目录本身不算碰主工作区。"""
+    repo, ws = tmp_path / "Repo", tmp_path / "Repo" / "wt"
+    ws.mkdir(parents=True, exist_ok=True)
     inputs = tmp_path / "inputs" / "T001-1-plan-x"
+    main = str(repo).replace("\\", "/")
+    fine = [("write", {"path": "tests/test_gate_t001_baseline.py"}), ("edit", {"path": str(ws / "a.py")}),
+            ("read", {"path": str(inputs / ".agent" / "plans" / "t001.v1.md")}),  # 第 88 轮：材料在输入目录里
+            ("read", {"path": str(ws / "scripts" / "kit_hub.py")}),
+            ("read", {"path": str(repo / "ts" / "node_modules" / "vitest" / "package.json")}),  # 已经装好的依赖
+            ("grep", {"pattern": "export", "path": "%s/desktop/web/node_modules/react" % main}),
+            ("bash", {"command": "cd %s && python -m pytest -q tests" % str(ws).replace("\\", "/")}),
+            ("bash", {"command": "python scripts/pi_dispatch.py --repo %s status" % str(ws).replace("\\", "/")}),
+            ("bash", {"command": "npm test"})]
+    # 第 88 轮（七端改造第 2 条）：主工作区一律不碰。原来只读的写法（cat、grep、ls 2>&1、只读 git）只记警告，现在都作废
+    bad = [("read", {"path": str(repo / ".agent" / "plans" / "t001.v1.md")}),
+           ("read", {"path": "../.agent/mailbox/tasks/T001/brief.md"}),  # 相对路径落到主工作区也算
+           ("grep", {"pattern": "x", "path": str(repo / "scripts")}),
+           ("bash", {"command": "cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")}),
+           ("bash", {"command": "grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))}),
+           ("bash", {"command": 'ls "%s/desktop/web/" 2>&1 | head -20' % main}),
+           ("bash", {"command": "git -C %s log --oneline -3" % main}),
+           ("bash", {"command": "python %s/scripts/pi_dispatch.py --repo repo status --json" % main}),  # T017 实测
+           ("bash", {"command": "cat %s/ts/node_modules/x/package.json" % main}),  # 依赖也只许读文件的工具读
+           ("write", {"path": "../outside.py"}), ("edit", {"path": str(repo / "scripts" / "kit_hub.py")}),
+           ("write", {"path": str(tmp_path / "Repo" / "wtx" / "a.py")}),
+           ("write", {"path": str(inputs / "x.md")}),  # 输入目录也不许写
+           ("bash", {"command": "cp a.py %s" % (repo / "scripts")}),
+           ("bash", {"command": "ls && git -C %s checkout ." % str(repo).upper()}),
+           ("write", {"path": str(tmp_path / "Temp" / "t017-wb-smoke" / "smoke1.ts")})]  # T017 战后门禁 faba 实测
+    return repo, ws, fine, bad
+
+
+def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
+    repo, ws, fine_calls, bad_calls = reach_calls(tmp_path)
+    spec = {"tools": ["read", "write", "edit", "bash", "grep"], "provider": "p", "model": "m"}
 
     def call(name, **args):
         return {"type": "tool_execution_start", "toolCallId": "c-%s" % name, "toolName": name, "args": args}
@@ -5496,33 +5528,11 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
     def audit(*events):
         return kh.audit_pi_stream(stream(*events), spec, ws, repo)
 
-    main = str(repo).replace("\\", "/")
-    fine = audit(call("write", path="tests/test_gate_t001_baseline.py"), call("edit", path=str(ws / "a.py")),
-                 call("read", path=str(inputs / ".agent" / "plans" / "t001.v1.md")),  # 第 88 轮：材料在输入目录里
-                 call("read", path=str(ws / "scripts" / "kit_hub.py")),
-                 call("read", path=str(repo / "ts" / "node_modules" / "vitest" / "package.json")),  # 已经装好的依赖
-                 call("grep", pattern="export", path="%s/desktop/web/node_modules/react" % main),
-                 call("bash", command="cd %s && python -m pytest -q tests" % str(ws).replace("\\", "/")),
-                 call("bash", command="python scripts/pi_dispatch.py --repo %s status" % str(ws).replace("\\", "/")),
-                 call("bash", command="npm test"))
+    fine = audit(*[call(name, **args) for name, args in fine_calls])
     assert fine["violations"] == [] and fine["warnings"] == []
-    # 第 88 轮（七端改造第 2 条）：主工作区一律不碰。原来只读的写法（cat、grep、ls 2>&1、只读 git）只记警告，现在都作废
-    for event in (call("read", path=str(repo / ".agent" / "plans" / "t001.v1.md")),
-                  call("read", path="../.agent/mailbox/tasks/T001/brief.md"),  # 相对路径落到主工作区也算
-                  call("grep", pattern="x", path=str(repo / "scripts")),
-                  call("bash", command="cat %s | head -20" % (repo / ".agent" / "plans" / "a.md")),
-                  call("bash", command="grep -n x /%s%s/scripts/kit_hub.py" % (str(repo)[0], str(repo)[2:].replace("\\", "/"))),
-                  call("bash", command='ls "%s/desktop/web/" 2>&1 | head -20' % main),
-                  call("bash", command="git -C %s log --oneline -3" % main),
-                  call("bash", command="python %s/scripts/pi_dispatch.py --repo repo status --json" % main),  # T017 实测
-                  call("bash", command="cat %s/ts/node_modules/x/package.json" % main),  # 依赖也只许读文件的工具读
-                  call("write", path="../outside.py"), call("edit", path=str(repo / "scripts" / "kit_hub.py")),
-                  call("write", path=str(tmp_path / "Repo" / "wtx" / "a.py")),
-                  call("write", path=str(inputs / "x.md")),  # 输入目录也不许写
-                  call("bash", command="cp a.py %s" % (repo / "scripts")),
-                  call("bash", command="ls && git -C %s checkout ." % str(repo).upper())):
-        result = audit(event)
-        assert len(result["violations"]) == 1 and result["warnings"] == [], event
+    for name, args in bad_calls:
+        result = audit(call(name, **args))
+        assert len(result["violations"]) == 1 and result["warnings"] == [], (name, args)
     assert "主工作区" in audit(call("read", path=str(repo / "a.md")))["violations"][0]
     assert kh.audit_pi_stream(stream(call("write", path="../x")), spec)["violations"] == []  # 没给工作目录：照旧
     # 回合里也这样审：门禁端的回合写到工作目录之外，整回合作废
@@ -5539,6 +5549,81 @@ def test_pi_workers_may_not_write_outside_their_worktree(tmp_path):
 
     turn = kh.TurnRunner(hub, launcher=launcher).run("gate-sonnet", "T001-3-gate-pre", ws, "角色", "输入")
     assert turn["violations"] == ["write 写到了工作目录之外：../outside.py"] and turn["output"] is None
+
+
+def test_the_guard_extension_judges_every_call_like_the_audit(tmp_path):
+    """第 106 轮：guard.ts 当场拦下的，正是 pi_reach_problem 事后判违规的，逐条一致，说明也逐字相同。
+    经 bun 跑扩展导出的纯函数，配置用内核给 pi 的那一份（guard_config）。"""
+    import subprocess
+    bun = kh.pd.find_bun(kh.kernel_env())
+    if bun is None:
+        pytest.skip("没有 Bun，跑不了 guard.ts")
+    repo, ws, fine, bad = reach_calls(tmp_path / "case")
+    driver = tmp_path / "driver.ts"
+    driver.write_text("import { guardDecision } from %s;\n"
+                      "const input = JSON.parse(await Bun.stdin.text());\n"
+                      "console.log(JSON.stringify(input.cases.map(([name, args]) => guardDecision(name, args, input.config) ?? null)));\n"
+                      % json.dumps(kh.GUARD_EXTENSION.as_uri()), encoding="utf-8")
+    # deliver 的参数提到主工作区照样放行：审计也不审它（第 100 轮），report 里引用路径是常事
+    cases = fine + [("deliver", {"report": "见 %s/scripts/kit_hub.py" % str(repo).replace("\\", "/")})] + bad
+    proc = subprocess.run([str(bun), str(driver)], cwd=str(tmp_path), capture_output=True, encoding="utf-8", timeout=120,
+                          input=json.dumps({"cases": cases, "config": json.loads(kh.guard_config(ws, repo))}))
+    assert proc.returncode == 0, proc.stderr
+    audited = [kh.pi_reach_problem(name, args, ws, repo) for name, args in fine + bad]
+    assert [level for level, _note in audited] == [""] * len(fine) + ["violation"] * len(bad)
+    expected = [None] * (len(fine) + 1) + [{"block": True, "reason": kh.GUARD_PREFIX + note + kh.GUARD_SUFFIX}
+                                           for _level, note in audited[len(fine):]]
+    assert json.loads(proc.stdout) == expected
+
+
+def test_calls_the_guard_blocked_are_warnings_not_violations(tmp_path):
+    """第 106 轮：守卫当场拦下的调用没有执行，只记警告。认的是：isError、details 是空对象、正文以 GUARD_PREFIX 开头
+    并以 GUARD_SUFFIX 收尾（pi 1.4.0 实测）；执行了、流被截断、对不上的，照旧判违规。"""
+    repo, ws = tmp_path / "Repo", tmp_path / "Repo" / "wt"
+    ws.mkdir(parents=True)
+    spec = {"tools": ["read", "write", "bash"], "provider": "p", "model": "m"}
+    start = {"type": "tool_execution_start", "toolCallId": "c1", "toolName": "write", "args": {"path": "../outside.py"}}
+    reason = kh.GUARD_PREFIX + "write 写到了工作目录之外：../outside.py" + kh.GUARD_SUFFIX
+
+    def end(is_error, text, details, call_id="c1"):
+        return {"type": "tool_execution_end", "toolCallId": call_id, "toolName": "write", "isError": is_error,
+                "result": {"content": [{"type": "text", "text": text}], "details": details}}
+
+    def audit(*events):
+        return kh.audit_pi_stream(stream(*events), spec, ws, repo)
+
+    note = "write 写到了工作目录之外：../outside.py"
+    blocked = audit(start, end(True, reason, {}))
+    assert blocked["violations"] == [] and blocked["warnings"] == ["守卫当场拦下，没有执行：" + note]
+    for tail in ([end(False, "Successfully wrote to ../outside.py", None)],  # 执行了
+                 [end(False, reason, {})],  # 没有报错：执行成功的结果，正文碰巧一样也不算
+                 [end(True, reason, None)],  # bash 跑完出错的样子：details 是 null
+                 # bash 超时：pi 抛错，同样是空对象，正文是命令自己的输出（可以以前缀开头），结尾是 pi 的状态行
+                 [end(True, reason + "\n\nCommand timed out after 5 seconds", {})],
+                 [end(True, "ENOENT: no such file", {})],  # 工具自己抛错：正文不是拦下的原因
+                 [end(True, "ENOENT: no such file" + kh.GUARD_SUFFIX, {})],  # 只有结尾对得上
+                 [end(True, reason, {}, call_id="c2")],  # 别的调用的结果
+                 []):  # 流被截断，看不到结果
+        result = audit(start, *tail)
+        assert result["violations"] == [note] and result["warnings"] == [], tail
+
+
+def test_pi_workers_load_the_guard_with_the_kernel_roots(tmp_path, monkeypatch):
+    """第 106 轮：每个 pi 工人都加载守卫扩展，配置由内核按这一回合的工作目录与主工作区算好；文件被改过就不起。"""
+    turn, seen = coordinator_turn(tmp_path / "a", deliver_events(({"letters": [], "state": "x"}, False)))
+    cmd, env = seen[0]
+    assert [cmd[i + 1] for i, item in enumerate(cmd) if item == "--extension"] == [
+        str(kh.DELIVER_EXTENSION), str(kh.GUARD_EXTENSION)]
+    config = json.loads(env["THEMIS_GUARD"])
+    root = os.path.normcase(os.path.abspath(str(tmp_path / "a")))
+    assert config["workspace"] == root and config["main"] == root
+    assert config["mainForms"] == kh.path_forms(tmp_path / "a") and config["readTools"] == list(kh.READ_TOOLS)
+    assert config["depNames"] == list(kh.DEPENDENCY_DIRS) and config["deps"] == [
+        os.path.normcase(os.path.join(root, *dep.split("/"))) for dep in kh.DEPENDENCY_DIRS]
+    assert turn["output"] is not None and kh.GUARD_EXTENSION in kh.kernel_files()
+    monkeypatch.setitem(kh.DELIVERY_SHA256, "guard.ts", "0" * 64)
+    turn, seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": "x"}, False)))
+    assert seen == [] and "guard.ts" in turn["api_error"] and "被改过" in turn["api_error"]
 
 
 def test_claude_workers_are_audited_for_the_main_worktree_too(tmp_path):
@@ -6945,7 +7030,7 @@ def test_a_coordinator_turn_hands_in_through_deliver(tmp_path):
     assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "coordinator.json")
     assert turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
-    assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "coordinator.json"}
+    assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "guard.ts", "coordinator.json"}
 
 
 def test_an_audit_turn_hands_in_through_deliver(tmp_path):

@@ -226,10 +226,13 @@ claude -p --model <模型> --effort <档位>
 
 ```
 pi --provider <p> --model <m> --thinking <档位> --mode json
-   --no-approve --no-extensions --no-skills --no-prompt-templates --no-themes --no-mcp --no-context-files
-   --tools <白名单> --append-system-prompt <角色提示词>
+   --no-approve --no-extensions --no-skills --no-prompt-templates --no-themes --no-mcp
+   --extension <内核目录>/hub/deliver.ts --extension <内核目录>/hub/guard.ts  # 第 90、106 轮
+   --no-context-files --tools <白名单>,deliver --append-system-prompt <角色提示词>
    --session-dir .agent/mailbox/sessions/<名字> --session-id <阶段任务>-<名字>  "<本回合输入>"
 ```
+
+- 环境变量：`THEMIS_DELIVER_SCHEMA` 指向这个岗位的 schema（第 90 轮），`THEMIS_GUARD` 是守卫的配置（第 106 轮）。
 
 - 实测：同一个 `--session-id` 的第二回合答出了第一回合的暗号。第一次用某个会话号时，stderr 有一行“creating a new session”，属于正常现象。
 - 实际档位读事件里 assistant 消息的 `thinkingLevel`。GLM-5.3 要求 max，生效 high：Pi 的 `clampThinkingLevel` 只在模型配置写了 xhigh 或 max 的映射时才开放这两档。
@@ -1817,6 +1820,27 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 历史数据：T012 的状态里留着 22:26 那条“没过”，22:38:48 那次预演通过的结果没进状态。themistally-15 查了账本：那次预演记的末端是 016fb5ac（22:32:04 合入），而 22:35:09 末端已经变成 75b56b7，它是在旧末端上起跑、末端变了之后才跑完的，存进去也是一条过时的记录；第 61 轮之前站主合入之后不重新预演，所以也没有新记录盖掉它。现在末端每动一次，owner_sweep 或 after_land 都会重新预演，丢掉或过时的记录到下一次末端变动就刷新；万一真碰上，第 105 轮只是把结项多挡一会儿，站主经 exclusive 提交一次就能解开。不为它加代码。
 - **协调人提示词**：终审通过那一条补一句：落地预演没过时内核拒收“通过”，等站主处理。
 - **测试**：test_kit_hub 新增 1 条（这个候选的预演没过时拒收、`allowed_moves` 不列；换了 attempt 的旧记录不挡；重新预演通过后放行）。变异 5 个全部抓住：不看预演、不核 run_dir、没预演过也挡、通过了也挡、终审没过也放。
+
+### 第 106 轮：pi 工人碰主工作区、写到工作目录之外，当场拦下（2026-10-25，T017 战后门禁）
+
+- **撞上的事**：T017 战后门禁第一个用 deliver 交差的回合（faba，glm-5.3，39 分钟）交上了，却被判 4 条违规、整回合作废：bash 跑了 `ls "C:\Code\ThemisTally\ts\node_modules\.themis-installed"`，write 往系统临时目录写了 3 个试跑的草稿 `.ts`。worker.md 第 1 节写明了这两条，模型照样犯。账本里门禁端因“碰主工作区、写到工作目录之外”作废的回合一共 13 个，合计约 338 分钟（step-5 时期 11 个，glm-5.3 时期 2 个）：规矩只在回合结束后的审计里生效，模型要到下一回合才知道。
+- **实测（pi 1.4.0，dsf/deepseek-flash，几分钱）**：扩展用 `pi.on("tool_call", …)` 返回 `{block: true, reason}` 就能在执行之前拦下，工作目录之外的写确实没发生；被拦的调用 pi 照样记 `tool_execution_start`（参数齐全），`tool_execution_end` 是 `isError`、正文就是 reason、`result.details` 是空对象 `{}`。对照真实回合：bash 跑完、退出码非 0 时 `details` 是 `null`；read、edit 自己抛错时是 `{}`，正文是 pi 的报错。
+- **守卫扩展**（新文件 `scripts/hub/guard.ts`）：每个 pi 工人（协调人、合同、门禁、审核）都加 `--extension guard.ts`。判定只照搬 `pi_reach_problem` 判“违规”的三条：写文件的工具写到工作目录之外；读文件、搜索的工具读主工作区（依赖目录除外）；任何工具的参数提到主工作区。deliver 不拦（第 100 轮，审计也不审它）。拦下的结果以“内核拦下：”开头，带上与审计逐字相同的说明，叫它照着改、别换写法绕。
+  - 路径的各种写法与规范化后的根目录由内核算（`guard_config`：`path_forms`、`normcase`），经环境变量 `THEMIS_GUARD` 传给扩展，扩展只做比较。
+  - 和 deliver.ts 一样算内核文件（`delivery_files`）：起 pi 之前核对哈希，被改过就不起；回合记录的 `delivery_sha256` 里有它。
+- **审计**：`audit_pi_stream` 判了违规的调用先记着，看到它的结果同时满足 `isError`、`details == {}`、正文以 `GUARD_PREFIX` 开头并以 `GUARD_SUFFIX` 收尾，改记警告“守卫当场拦下，没有执行：…”；没看到这样的结果（执行了、流被截断、对不上）照旧判违规。
+  - 结尾也要核（themistally-15 读 pi 源码指出）：bash 命令超时、被中止、没有退出码时，pi 的 bash 工具抛错，同样是 `isError` 加空对象，正文却以命令自己的输出开头，先 `echo` 一句“内核拦下：…”再让命令超时，前三条就都满足。各条出错路径的结尾都是 pi 加的状态行（Command timed out… 等），拦下原因的固定结尾它造不出来。只核首尾，不整段比对：守卫看到的参数是 pi 处理过的（见下面的已知缺口）。
+  - 两边的前缀与结尾是同名常量，对照用例逐字核对。
+- **提示词**：worker.md 第 1 节——
+  - 原来那条“被权限或范围拦下时：停下，发 `阻塞` 信”写明不含“内核拦下”：被守卫拦下时改在工作目录里写、读输入目录或工作目录里的那一份，接着干；不碰主工作区就拿不到必需的材料时才发阻塞信。拦下原因的结尾也带着这半句，模型当场看到的就是它。
+  - 临时文件：要反复改的草稿放在工作目录的 `.agent/runs/_scratch/` 下（被 Git 忽略；门禁的交付按 `git status` 列文件、不带 `--ignored`，不会把它算进去），交差前删掉；一次性的照 AGENTS.md 给执行器的写法，`T=$(mktemp -d)` … `rm -rf "$T"`。
+- **两份规则还是一份**（与 themistally-15 定）：审计仍是唯一的裁判，守卫漏拦的结果与今天一样（回合作废），会误伤的只有“守卫拦了、审计不判”一个方向，对照用例管的就是它。每次调用都起 Python 去问审计，要多一个故障点（起不来、超时、编码），扩展抛错时 pi 会拦下这次调用，等于误伤合规的调用。扩展加载失败（`THEMIS_GUARD` 缺了或坏了）pi 直接退出 1，回合起不来、看得见，不会在没有守卫的情况下悄悄跑。TS 迁移第 ⑤ 步审计换成 TS 之后直接 import guard.ts，到时只剩一份。themistally-15 把 674 个回合里 5169 次 pi 工具调用（不含 deliver）的参数分别喂给两边，0 处不一致（判违规的 1765 次，其中 1541 次在第 88 轮之前，那时读主工作区还是许可的）。
+- **不管的**：bash 经相对路径、环境变量或 8.3 短名（`ADMINI~1`）绕到主工作区的，审计本来就查不出，守卫也不管（端到端实测时探针用短名的 `ls` 两边都没认出，判定一致）；仍是流程约束，不是隔离。claude 工人（现在只有规划端）靠自己的权限规则当场拒绝，不在这一轮。
+- **已知缺口**（themistally-15 读 pi 源码指出，只记录）：
+  - 守卫与审计看到的不是同一份参数：`tool_execution_start` 记模型给的原始参数，`tool_call` 的 input 是 pi 经 `prepareArguments`、`validateToolArguments` 处理过的。edit 的 `edits` 以 JSON 字符串发来时，里面反斜杠的路径在原始参数里是转义过的，审计查不出、守卫查得出，结果是守卫拦了、审计却没有记录。历史上 146 次 edit 都是数组，0 次；pi 源码的注释说 GLM-5.1 会这样发。以后看到工人被拦得莫名其妙，再在审计里给“守卫拦下、审计不判”的结果记一条警告（约两行）。
+  - pi 解析 path 时（`utils/paths.js` 的 `resolvePath`）会去掉开头的 `@`、把 `/c/…` 换成 `C:\…`、展开 `~`、认 `file://`，审计与守卫都没做：`~/x` 实际写到用户目录，却判在工作目录里；`/c/<工作目录>/x` 实际在工作目录里，却判在外面。5169 次调用里一次都没有。
+- **端到端实测**：真 pi 加载 kdev 的 guard.ts、配置由 `guard_config` 算，四步里写工作目录之外、bash `ls` 主工作区、read 主工作区三步都当场拦下（目录里没有生成文件），工作目录里的写照常；事件流交给新的审计：违规 0 条，警告 3 条。
+- **测试**：test_kit_hub 新增 3 条：守卫与审计逐条对照（同一批调用，经 bun 跑 guard.ts 导出的 `guardDecision`，拦不拦、说明逐字都与 `pi_reach_problem` 一致，deliver 放行；找不到 bun 就跳过）、审计认“已拦下”的条件与八种对不上的情形（执行了、没报错、bash 跑完出错、bash 超时、工具自己抛错、只有结尾对得上、别的调用、流被截断）、每个 pi 工人加载守卫并拿到内核算的配置、文件被改过就不起。原来那条审计用例的调用清单抽成 `reach_calls` 共用，加上 faba 那种写到系统临时目录的。变异 17 个全部抓住（审计 6、接线 4、guard.ts 7）；第一遍漏了“不核前缀、只核结尾”，补了“只有结尾对得上”那条用例。
 
 ## 11. 已知缺口与下一步
 

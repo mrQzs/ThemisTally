@@ -45,6 +45,11 @@ DELIVER_TOOL = "deliver"
 #: claude 的 --json-schema 交差时，CLI 自己加上的工具（第 101 轮）
 STRUCTURED_TOOL = "StructuredOutput"
 DELIVER_EXTENSION = TEMPLATE_DIR / "deliver.ts"
+#: 第 106 轮：pi 工人的守卫扩展，碰主工作区、写到工作目录之外的调用在执行之前拦下；拦下的结果以这个前缀开头、
+#: 以这个结尾收尾（与 guard.ts 的同名常量逐字相同，对照用例核对）
+GUARD_EXTENSION = TEMPLATE_DIR / "guard.ts"
+GUARD_PREFIX = "内核拦下："
+GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，接着干；不要换写法绕过去"
 SCHEMA_DIR = TEMPLATE_DIR / "schemas"
 #: 内核复核 schema 时只认这些关键字（themistally-15 定的子集）：Python 用标准库实现，与 pi 的 TypeBox 判定一致
 SCHEMA_KEYWORDS = {"type", "properties", "required", "additionalProperties", "enum", "const", "items", "minLength",
@@ -197,8 +202,9 @@ def kernel_files() -> List[Path]:
 
 
 def delivery_files() -> List[Path]:
-    """交差工具的文件（第 90 轮）：pi 扩展与各岗位的 schema。它们在工人进程里跑、决定工人能交什么，算内核文件。"""
-    return [DELIVER_EXTENSION] + sorted(SCHEMA_DIR.glob("*.json"))
+    """交差工具的文件（第 90 轮）：pi 扩展与各岗位的 schema。它们在工人进程里跑、决定工人能交什么，算内核文件。
+    守卫扩展（第 106 轮）同样在工人进程里跑、决定工人能碰哪里，一并算。"""
+    return [DELIVER_EXTENSION, GUARD_EXTENSION] + sorted(SCHEMA_DIR.glob("*.json"))
 
 
 def _file_sha256(path: Path) -> Optional[str]:
@@ -335,14 +341,22 @@ def delivered_output(role: str, delivered: Optional[Dict[str, Any]]) -> Tuple[Op
 def delivery_problem(role: str) -> Optional[str]:
     """起 pi 之前核对交差工具（第 90 轮）：扩展与这个岗位的 schema 都在，哈希与本进程载入时一致，schema 只用子集。"""
     for path in (DELIVER_EXTENSION, SCHEMA_DIR / ("%s.json" % role)):
-        now = _file_sha256(path)
-        if now is None:
-            return "交差工具的文件不在：%s，没有起这一回合" % path
-        if now != DELIVERY_SHA256.get(path.name):
-            return ("交差工具的文件被改过：%s（载入时 %s，现在 %s），没有起这一回合。内核刚合入新的一轮就等 supervisor "
-                    "用新代码重启；不是的话，查是谁改的" % (path, str(DELIVERY_SHA256.get(path.name))[:12], now[:12]))
+        problem = worker_file_problem(path)
+        if problem:
+            return problem
     problems = schema_problems(role_schema(role))
     return "交差 schema 用了内核复核不了的写法：%s" % "；".join(problems) if problems else None
+
+
+def worker_file_problem(path: Path) -> Optional[str]:
+    """在工人进程里跑的内核文件（delivery_files）不在，或与本进程载入时的哈希不一致。"""
+    now = _file_sha256(path)
+    if now is None:
+        return "交差工具的文件不在：%s，没有起这一回合" % path
+    if now != DELIVERY_SHA256.get(path.name):
+        return ("交差工具的文件被改过：%s（载入时 %s，现在 %s），没有起这一回合。内核刚合入新的一轮就等 supervisor "
+                "用新代码重启；不是的话，查是谁改的" % (path, str(DELIVERY_SHA256.get(path.name))[:12], now[:12]))
+    return None
 
 
 def code_fingerprint(files: Optional[Sequence[Path]] = None) -> str:
@@ -1805,6 +1819,17 @@ def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Opt
     return "", ""
 
 
+def guard_config(workspace: Path, repo: Path) -> str:
+    """守卫扩展（guard.ts，第 106 轮）的配置，经环境变量 THEMIS_GUARD 传给 pi：pi_reach_problem 用到的根目录与
+    路径写法在这里算好，扩展只做比较，两边的规范化不会各写一套。"""
+    main = os.path.normcase(os.path.abspath(str(repo)))
+    return json.dumps({
+        "workspace": os.path.normcase(os.path.abspath(str(workspace))), "main": main,
+        "deps": [os.path.normcase(os.path.join(main, *dep.split("/"))) for dep in DEPENDENCY_DIRS],
+        "depNames": list(DEPENDENCY_DIRS), "workspaceForms": path_forms(workspace), "mainForms": path_forms(repo),
+        "readTools": list(READ_TOOLS)})
+
+
 def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optional[Path] = None,
                     repo: Optional[Path] = None) -> Dict[str, Any]:
     allowed = set(spec["tools"])
@@ -1817,6 +1842,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     terminal = False
     outside: Dict[str, str] = {}  # 白名单之外的调用：toolCallId → 工具名
     refused: set = set()
+    reach: Dict[str, str] = {}  # 第 106 轮：碰了不该碰的地方的调用，toolCallId → 说明；守卫当场拦下的只记警告
     delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
     refusals: List[int] = []  # 第 102 轮：deliver 每次被退回时报错的长度（pi 把收到的参数原样写进报错）
     thinking = 0  # 第 102 轮：thinking 块的字数。pi 不回报思考的 token 数，这是“有没有思考”的证据
@@ -1834,7 +1860,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
                 # 第 100 轮：deliver 交的是内容、不碰文件。report 里提到主工作区的路径（引用出处）不能当成“碰了主工作区”
                 level, note = pi_reach_problem(name, event.get("args") or {}, workspace, repo)
                 if level == "violation":
-                    violations.append(note)
+                    reach[str(event.get("toolCallId"))] = note
                 elif level:
                     reach_warnings.append(note)
         elif kind == "tool_execution_end":
@@ -1843,6 +1869,12 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
                            if isinstance(b, dict))
             if call_id in outside and event.get("isError") and text.strip() == "Tool %s not found" % outside[call_id]:
                 refused.add(call_id)
+            # 守卫拦下的调用没有执行（pi 1.4.0 实测：照样记 start；结果 isError、details 是空对象、正文是拦下的原因）。
+            # 结尾也核：bash 超时、被中止时 pi 抛错，同样是 isError 加空对象，正文却以命令自己的输出开头，结尾是 pi 加的
+            # 状态行（themistally-15 读 pi 源码指出）；只核首尾，不整段比，守卫看到的参数是 pi 处理过的
+            if (call_id in reach and event.get("isError") and (event.get("result") or {}).get("details") == {}
+                    and text.startswith(GUARD_PREFIX) and text.endswith(GUARD_SUFFIX)):
+                reach_warnings.append("守卫当场拦下，没有执行：%s" % reach.pop(call_id))
             # 第 90 轮：pi 校验、转换过的参数由 deliver.ts 放进 details；不合格的那几次（isError）不算
             details = (event.get("result") or {}).get("details")
             if event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed and event.get("isError"):
@@ -1876,6 +1908,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     # （T004 的合同端试了一次 bash，被拒后改用 ls，内核却把整个回合作废）；看不到拒绝结果的照旧作废。
     warnings = ["试图调用白名单之外的工具 %s，被 pi 拒绝" % name for cid, name in outside.items() if cid in refused]
     warnings += reach_warnings
+    violations += list(reach.values())  # 没看到守卫拦下的结果（执行了，或流被截断）
     violations += ["调用了白名单之外的工具：%s" % name for cid, name in outside.items() if cid not in refused]
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
@@ -2003,8 +2036,9 @@ class TurnRunner:
             # pi 的输入一律用 @文件 附上（与调度器给执行器附合同的做法相同），命令行只放一句话。
             pi_cmd = pd.resolve_pi_command()
             # 第 90 轮（七端改造第 1 条）：用 deliver 交差的岗位另加扩展（内核目录里的绝对路径）与 deliver 工具；
-            # --no-extensions 只关掉自动发现，显式的 --extension 照样加载（pi 1.4.0 实测）
-            extension = ["--extension", str(DELIVER_EXTENSION)] if delivery else []
+            # --no-extensions 只关掉自动发现，显式的 --extension 照样加载（pi 1.4.0 实测）。守卫扩展每个 pi 工人都加（第 106 轮）
+            extension = (["--extension", str(DELIVER_EXTENSION)] if delivery else []) + [
+                "--extension", str(GUARD_EXTENSION)]
             cmd = pi_cmd + [
                 "--provider", spec["provider"], "--model", spec["model"], "--thinking", spec["thinking"],
                 "--mode", "json"] + list(pd.RESOURCE_FLAGS) + extension + [
@@ -2021,8 +2055,11 @@ class TurnRunner:
             env.update(CLAUDE_WORKER_ENV)
         if delivery and spec["adapter"] != "claude":
             env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
+        if spec["adapter"] != "claude":
+            env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
         blocked = (delivery_problem(spec["role"]) if delivery else None) if spec["adapter"] == "claude" else (
-            pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or (delivery_problem(spec["role"]) if delivery else None))
+            pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or worker_file_problem(GUARD_EXTENSION)
+            or (delivery_problem(spec["role"]) if delivery else None))
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
@@ -2078,7 +2115,8 @@ class TurnRunner:
             # 第 90 轮：怎么交差的；用工具交差时记下这个岗位的 schema（pi 还有扩展）的哈希
             "delivery": "tool" if delivery else "block",
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
-                () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name,)) + ("%s.json" % spec["role"],)}
+                () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (
+                "%s.json" % spec["role"],)}
             if delivery else None,
             # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。
             # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数
