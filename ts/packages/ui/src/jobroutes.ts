@@ -3,9 +3,9 @@
 // kernel、--repo 与仓库。严格参数校验：每一类失败都回 400，提示固定、不回显请求里的值、不起子进程。创建成功回 201，
 // 创建与查询的正文都是同一个八键作业对象（不套七字段信封、不套 data）。与读路由、eventRoutes 的做法对称，另建一批、
 // 不并进 readRoutes()。
-import { TASK_ID_RE, type AllowList } from "@themis/base/secrets";
+import { redactJson, redactSecrets, TASK_ID_RE, type AllowList } from "@themis/base/secrets";
 import { errorResponse } from "./envelope.ts";
-import { completedEnvelope, displayArgv, envelopeBody, timeoutEnvelope } from "./kernelenvelope.ts";
+import { displayArgv, elapsedMsOf, envelopeBody, parseJsonData, timeoutEnvelope, type KernelEnvelope } from "./kernelenvelope.ts";
 import { KernelRunner } from "./kernel.ts";
 import {
   isTerminal,
@@ -24,6 +24,8 @@ const PLAN_KEY_RE = /^[a-z0-9][a-z0-9-]{0,63}\.v[1-9][0-9]{0,3}$/u;
 const PATTERN_MAX_CODEPOINTS = 512;
 /** max 的取值上界。 */
 const MAX_MATCHES_LIMIT = 1000;
+/** 作业路由的路径前缀（字面量单独放，路由正则由它拼；创建路由精确匹配它，查询/取消在它后面接捕获组）。 */
+export const JOBS_PATH = "/api/v1/jobs";
 
 /** 六个作业 kind。 */
 export const JOB_KINDS: readonly JobKind[] = ["doctor", "doctor-record", "runtime-scan", "runtime-probe", "models", "search"];
@@ -182,6 +184,17 @@ function serviceErrorEnvelope(argv: readonly string[], message: string): Record<
   return { ok: false, exit_code: null, data: null, output: [], messages: [`ERROR: ${message}`], command: displayArgv(argv), elapsed_ms: 0 };
 }
 
+/** messages 只留 stderr 里以 ERROR 或 WARN 开头的行，逐行过 redactSecrets（与读路由同一套二道脱敏）。 */
+function jobMessages(stderr: string): string[] {
+  const out: string[] = [];
+  for (const line of stderr.split(/\r?\n/)) {
+    if (line === "") continue;
+    if (!line.startsWith("ERROR") && !line.startsWith("WARN")) continue;
+    out.push(redactSecrets(line));
+  }
+  return out;
+}
+
 /** 把一次运行的结果落到作业的终态（状态机每一步只走一次）。 */
 async function runJob(runner: KernelRunner, record: JobRecord, argv: readonly string[], allow: AllowList | undefined): Promise<void> {
   const outcome = await runner.run(argv, record.timeoutSeconds, record.controller.signal, {
@@ -189,12 +202,22 @@ async function runJob(runner: KernelRunner, record: JobRecord, argv: readonly st
   });
   const now = Date.now();
   if (outcome.kind === "completed") {
-    const built = completedEnvelope(outcome, argv, allow);
-    if (built.kind === "invalid-json") {
+    // data 过 redactJson（六类作业的白名单全是 undefined，一律遮敏感键）；command 是显示用的 argv（search 的
+    // pattern 也在里面，由 displayArgv 逐项过 redactSecrets）；退出 0 却解析不了 stdout 记 invalid-json。
+    const parsed = parseJsonData(outcome.stdout);
+    if (parsed === undefined && outcome.result.exit_code === 0) {
       settle(record, "failed", "invalid-json", serviceErrorEnvelope(argv, "内核输出不是合法的 JSON"), now);
     } else {
-      const envelope = JSON.parse(envelopeBody(built.envelope)) as Record<string, unknown>;
-      settle(record, outcome.result.exit_code === 0 ? "succeeded" : "failed", outcome.result.exit_code === 0 ? null : "exit", envelope, now);
+      const envelope: KernelEnvelope = {
+        ok: outcome.result.exit_code === 0,
+        exitCode: outcome.result.exit_code,
+        data: parsed === undefined ? null : redactJson(parsed, allow),
+        messages: jobMessages(outcome.stderr),
+        command: displayArgv(argv),
+        elapsedMs: elapsedMsOf(outcome.result.wall_seconds),
+      };
+      const settled = JSON.parse(envelopeBody(envelope)) as Record<string, unknown>;
+      settle(record, outcome.result.exit_code === 0 ? "succeeded" : "failed", outcome.result.exit_code === 0 ? null : "exit", settled, now);
     }
   } else if (outcome.kind === "timeout") {
     settle(record, "timed_out", null, JSON.parse(envelopeBody(timeoutEnvelope(argv, record.timeoutSeconds, outcome.result.wall_seconds))) as Record<string, unknown>, now);
@@ -226,7 +249,7 @@ export function jobRoutes(runner: KernelRunner, table: JobTable, timeouts: Reado
     {
       name: "api.jobs.create",
       method: "POST",
-      pattern: /^\/api\/v1\/jobs$/u,
+      pattern: new RegExp(`^${JOBS_PATH}$`, "u"),
       handle: (_state, _params, input) => {
         const verdict = validateJob(input.body);
         if (!verdict.ok) return badJob(verdict.message);
@@ -245,7 +268,7 @@ export function jobRoutes(runner: KernelRunner, table: JobTable, timeouts: Reado
     {
       name: "api.jobs.get",
       method: "GET",
-      pattern: /^\/api\/v1\/jobs\/([^/]+)$/u,
+      pattern: new RegExp(`^${JOBS_PATH}/([^/]+)$`, "u"),
       handle: (_state, params) => {
         const id = params[0] ?? "";
         const record = table.get(id);
@@ -256,7 +279,7 @@ export function jobRoutes(runner: KernelRunner, table: JobTable, timeouts: Reado
     {
       name: "api.jobs.cancel",
       method: "POST",
-      pattern: /^\/api\/v1\/jobs\/([^/]+)\/cancel$/u,
+      pattern: new RegExp(`^${JOBS_PATH}/([^/]+)/cancel$`, "u"),
       handle: async (_state, params, input) => {
         if (!isJsonObject(input.body)) return badJob("请求体必须是 JSON 对象");
         const id = params[0] ?? "";

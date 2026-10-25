@@ -30,6 +30,8 @@ export const MAX_SUBSCRIPTIONS_PER_SESSION = 4;
 export const SSE_LIMIT_GLOBAL_MESSAGE = "SSE 订阅数已达上限";
 /** 会话级超限的提示原文。 */
 export const SSE_LIMIT_SESSION_MESSAGE = "该会话的 SSE 订阅数已达上限";
+/** SSE 路由的路径（字面量单独放，路由正则由它拼，避免把路径抄成转义形式）。 */
+export const EVENTS_PATH = "/api/v1/events";
 
 const ENCODER = new TextEncoder();
 
@@ -337,7 +339,7 @@ export function eventRoutes(hub: EventHub): readonly Route[] {
     {
       name: "api.events",
       method: "GET",
-      pattern: /^\/api\/v1\/events$/u,
+      pattern: new RegExp(`^${EVENTS_PATH}$`, "u"),
       handle: (state, _params, input) => hub.open(state.sessions, readSessionCookie(input.request.headers), input.request.signal),
     },
   ];

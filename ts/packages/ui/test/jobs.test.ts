@@ -71,7 +71,7 @@ describe("严格参数校验：每一类失败都回 400 且不起子进程（D1
       { kind: "search", pattern: "x", max: "5" }, // max 是字符串
       { kind: "search", pattern: "x", max: 0 }, // max 小于 1
       { kind: "search", pattern: "x", max: 1001 }, // max 大于 1000
-      { kind: "search", pattern: "ab" }, // pattern 含控制字符
+      { kind: "search", pattern: "a\u0001b" }, // pattern 含控制字符
       { kind: "search", pattern: "x".repeat(513) }, // pattern 超过 512 个码点
       { kind: "search", pattern: "" }, // pattern 为空
       { kind: "search", pattern: "\uD800" }, // pattern 含孤立代理项
