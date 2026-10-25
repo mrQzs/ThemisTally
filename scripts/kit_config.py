@@ -791,15 +791,36 @@ def config_transaction(repo: Any, action: str, target: Optional[str] = None, *, 
 
 
 @contextlib.contextmanager
-def config_transactions(repo: Any, action: str, target: Optional[str] = None, *, confirm: bool = False):
+def config_transactions(repo: Any, action: str, target: Optional[str] = None, *, confirm: bool = False,
+                        resources: Sequence[str] = ("config", "local")):
     """同一把配置锁里按资源各开一个事务（3.0 第二轮第 4 步，闸二第 4 片 S1）：runtime add --command 与 remove 先改配置、
     再改本机文件，中间不放锁，别的写入插不进两步之间。给调用方一个函数 resource → ConfigTransaction，用到时才读入
-    该资源；每个资源各记自己的历史与审计。"""
-    if _WRITE_MODE.get() is not None:
-        raise ConfigError("内部错误：两个资源的写入还不支持 --dry-run 与 --expect-state（%s）" % action)
+    该资源；每个资源各记自己的历史与审计。
+
+    resources 是这条命令可能写的资源，也就是令牌覆盖的（桌面端 D13）：写模式下一开始就读齐，带令牌时在第一次
+    publish 之前比对，不等用到本机文件时才读。
+    """
+    mode = _enter_write_mode(action)
+    if mode is None:
+        with ConfigLock(repo) as lock:
+            yield lambda resource: ConfigTransaction(repo, lock, resource, action, target, confirm,
+                                                     _read_resource(repo, resource))
+        return
+    if mode.dry_run:
+        mode.snapshot.update({name: _read_resource(repo, name) for name in resources})
+        yield lambda resource: ConfigTransaction(repo, None, resource, action, target, confirm,
+                                                 _declared(mode.snapshot, resource, action), mode.preview)
+        return
     with ConfigLock(repo) as lock:
+        snapshot = _check_state(repo, str(mode.expect_state), resources)
         yield lambda resource: ConfigTransaction(repo, lock, resource, action, target, confirm,
-                                                 _read_resource(repo, resource))
+                                                 _declared(snapshot, resource, action))
+
+
+def _declared(snapshot: Dict[str, Optional[bytes]], resource: str, action: str) -> Optional[bytes]:
+    if resource not in snapshot:  # 令牌没有覆盖它：写了就绕过了比对
+        raise ConfigError("内部错误：%s 写了没有声明的资源 %s" % (action, resource))
+    return snapshot[resource]
 
 
 #: --expect-state 对不上的退出码（桌面端 D6、D13）：本机服务转成 409，界面要求重新预览
@@ -1548,6 +1569,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("rollback", help="回到第 N 条已发布写入之后的配置（原样写回快照的字节，本身也记一条历史）")
     p.add_argument("number", type=int)
     p.add_argument("--yes", action="store_true", help="有 attempt 在运行时，确认要改变执行端或合同端的生效绑定")
+    _preview_options(p)
     p.set_defaults(func=cmd_rollback)
 
     p = sub.add_parser("init", help="从 kit 的示例生成配置文件（已存在则拒绝）")
@@ -1574,9 +1596,11 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--command", help='JSON 字符串数组，路径写绝对路径，例如 ["/usr/local/bin/pi"]')
     q.add_argument("--force", action="store_true", help="改已登记 runtime 的 adapter")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     q = actions.add_parser("remove", help="删除 runtime（有 profile 引用时拒绝），连同本机文件里的命令")
     q.add_argument("runtime_id")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     q = actions.add_parser("probe", help="运行 --version；pi 另加 --help，报缺少的参数")
     q.add_argument("runtime_id")
     q.add_argument("--json", action="store_true")
@@ -1601,9 +1625,11 @@ def build_parser() -> argparse.ArgumentParser:
         q.add_argument("--credential-env", action="append", dest="credential_env", metavar="NAME",
                        help="凭据所在的环境变量名，可重复；只写名字，不写值")
         q.add_argument("--yes", **yes)
+        _preview_options(q)
     q = actions.add_parser("remove", help="有角色或方案引用时拒绝")
     q.add_argument("profile_id")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     p.set_defaults(func=_roles_command("cmd_profile"))
 
     p = sub.add_parser("role", help="角色绑定：show、set")
@@ -1632,9 +1658,11 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--roles", help="逗号分隔的角色")
     q.add_argument("--force", action="store_true", help="覆盖同名方案")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     q = actions.add_parser("use", help="只覆盖方案里列出的角色，并记为当前方案")
     q.add_argument("name")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     q = actions.add_parser("diff", help="逐个角色比较两个方案")
     q.add_argument("a")
     q.add_argument("b")
@@ -1642,6 +1670,7 @@ def build_parser() -> argparse.ArgumentParser:
     q = actions.add_parser("remove", help="不能删当前在用的方案")
     q.add_argument("name")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     p.set_defaults(func=_roles_command("cmd_preset"))
 
     p = sub.add_parser("doctor", help="每个角色的就绪总览：命令、版本、模型、登录、思考级别、允许列表、凭据（不调用模型）")

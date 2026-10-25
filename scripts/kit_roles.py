@@ -720,7 +720,8 @@ def _runtime_add(args: Any) -> int:
     if args.adapter not in ADAPTERS:
         raise _error("--adapter 必须是 %s 之一" % "、".join(ADAPTERS), EXIT_USAGE)
     command = _parse_command(args.command) if args.command is not None else None
-    with kc.config_transactions(repo, "runtime.add", args.runtime_id, confirm=args.yes) as transaction:
+    with kc.config_transactions(repo, "runtime.add", args.runtime_id, confirm=args.yes,
+                                resources=("config", "local") if command is not None else ("config",)) as transaction:
         txn = transaction("config")
         config = txn.config
         runtimes = dict(_mapping(config, "runtimes"))

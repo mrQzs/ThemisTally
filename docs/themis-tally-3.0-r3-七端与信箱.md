@@ -1932,6 +1932,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **themistally-15 复审时补的**：预览什么也不写要有一条通用用例兜住（`redirect_stdout` 收不住子进程直接写 fd 1 的输出）；预览不能经 `_snapshot_ref(store=True)` 往 `config-history/` 写快照；contextvar 用 `set()` 拿 token、`finally` 里 `reset`；同一条命令第二次进事务是内部错误（第二次会拿自己刚写的状态去比令牌）；`binding_changes` 只给名字，没有凭据的取值。
 - **测试**：`tests/test_kit_roles.py` 新增 12 条：带 `--dry-run` 的每条命令（从解析器里找，新加的命令必须在用例里补一条参数）`.agent/` 前后逐字节一致、stdout 恰好一份 JSON；预览的变化、生效绑定与令牌；运行中的 attempt 进预览、执行时照样要 `--yes`（U8）；列不出来的 attempt 同样 `needs_yes`；原来没有绑定的角色 `before` 是 null；令牌对上就写、审计记 `user-ui`（U7）；预览之后配置被改，退出 4、配置与审计都不变（U6b）；`absent` 与空文件；格式不对与拿错命令的令牌；用法错；写模式不跨命令；第二次进事务。变异 20 个全部抓住（themistally-15 挑的两个存活变异——`needs_yes` 只看 running、没有绑定时给空对象——补用例后抓住）。
 
+### 第 115 轮：桌面端 D2 的内核一侧之二：其余写命令与两资源的声明（2026-10-25）
+
+- **挂选项**：`preset save|use|remove`、`profile add|edit|remove`、`runtime add|remove`、`rollback` 都挂上 `--dry-run`、`--json`、`--expect-state`（第 114 轮的 `_preview_options`）。handler 不用改：预览与令牌都在事务层。
+- **两资源的声明**：`config_transactions` 多一个 `resources`，就是令牌覆盖的资源。写模式下一开始就读齐：预览把它们都记进令牌，带令牌的执行在拿锁之后、第一次 publish 之前一起比对（设计 D13：两资源的命令在建本机文件事务之前就比）。写了没有声明的资源是内部错误（写了就绕过了比对）。`runtime add --command` 与 `runtime remove` 声明 config、local；不带 `--command` 的 `runtime add` 只声明 config，本机文件变了也不拦它。不在写模式时照旧用到才读。
+- **测试**：通用用例的参数表补齐 10 条命令（`rollback` 的编号运行时取历史里最后一条已发布的写入），每条都核对 `.agent/` 前后逐字节一致、stdout 恰好一份 JSON。新增 6 条：回滚到没有 v3 键的旧配置，执行端的 `after` 是 null（themistally-15 提醒：旧配置有 v3 键、新配置没有时照样比较）；`preset use` 预览出切换的绑定与 `active_preset`；U6c，`runtime add --command` 预览之后只改本机文件，退出 4、两个资源与审计都不变，本机文件只给 `changed`、不给 `changed_keys`；不带 `--command` 的令牌只有 config；`runtime remove` 在本机文件不存在时令牌也带 `local=absent`；写没有声明的资源报内部错误。相关的五个测试文件 167 条全过；变异 7 个全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

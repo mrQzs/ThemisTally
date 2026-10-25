@@ -714,6 +714,7 @@ flowchart LR
       - `--expect-state` 格式不对退出 2；资源集合与这条命令要写的不同（拿错了命令的令牌）、某个资源的哈希不同，都退出 4，报清是哪一个文件。
       - `--dry-run` 必须带 `--json`；与 `--expect-state` 同给是用法错（2）。预览的 JSON：`dry_run`、`action`、`changed`、`resources`（每个资源的 `changed`，config 另给 `changed_keys`：只给键路径不给取值，与 `history` 一致）、`binding_changes`（各角色 D8 比较的元组前后：mode、profile、runtime、adapter、provider、model、thinking）、`running_attempts`、`unreadable`、`needs_yes`、`warnings`（handler 原有的 WARN 行）、`state`。
       - 写模式由 CLI 层放进一个 contextvar，`config_transaction(s)` 读它，handler 不用知道；命令结束（成功或出错）就复位。同一条命令第二次进写入事务是内部错误。
+      - 两资源的命令（第 115 轮）：`config_transactions` 声明这条命令可能写的资源，写模式下一开始就读齐、一起比对；`runtime add --command` 与 `runtime remove` 声明 config 与 local，不带 `--command` 的 `runtime add` 只声明 config。写了没有声明的资源是内部错误。
   - 2.7 的一次性凭据页可以改用 `tokens.css` 的配色（可选）。
 - **KR**（r2-N1）：role / profile / preset / runtime 的写处理器（例如 KR:885、1038）拆出“在内存里修改配置”的纯函数，供写入与 `--dry-run` 共用；接收并传递 `--expect-state`。
   - **改由事务层实现**（D2 内核第 114 轮，themistally-15 同意）：拆纯函数的目的是写入与预览共用一份修改逻辑。改为让 `ConfigTransaction` 多一种预览形态：不拿锁读入，handler 照原样修改再 `publish`；预览的 `publish` 照常整份校验，把变化与运行中切换的扫描（D8 的同一个判定，只扫描、不拒绝）记下，不写文件、不存快照、不记审计。handler 不用拆，修改代码只有一份，不会分成两条慢慢分叉的路；代价是预览时收起 handler 原有的文字输出（只留 WARN 行进预览），stdout 只有一份 JSON，由一条通用用例逐条命令核对“`.agent/` 前后逐字节一致、stdout 恰好一份 JSON”。

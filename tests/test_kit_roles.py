@@ -1476,13 +1476,35 @@ def _preview_commands():
 class PreviewAndExpectedState(RolesRepo):
     """桌面端 D2（第 114 轮）：写命令的 --dry-run --json 与 --expect-state（D6、D13；U6b、U7、U8）。"""
 
-    #: 每条带 --dry-run 的写命令在这个夹具里的一条合法参数；新加了 --dry-run 的命令要在这里补一条
-    ARGV = {("role", "set"): ["role", "set", "execution", "exec-low"]}
+    #: 每条带 --dry-run 的写命令在这个夹具里的一条合法参数；新加了 --dry-run 的命令要在这里补一条。
+    #: {last} 换成历史里最后一条已发布的配置写入的编号
+    ARGV = {("role", "set"): ["role", "set", "execution", "exec-low"],
+            ("preset", "save"): ["preset", "save", "p1"],
+            ("preset", "use"): ["preset", "use", "fast"],
+            ("preset", "remove"): ["preset", "remove", "fast"],
+            ("profile", "add"): ["profile", "add", "new-p", "--runtime", "pi", "--model", "bb/step-5-x"],
+            ("profile", "edit"): ["profile", "edit", "exec-step", "--thinking", "low"],
+            ("profile", "remove"): ["profile", "remove", "oc-x"],
+            ("runtime", "add"): ["runtime", "add", "pi2", "--adapter", "pi", "--command", '["C:/tools/pi.exe"]'],
+            ("runtime", "remove"): ["runtime", "remove", "spare"],
+            ("rollback",): ["rollback", "{last}"]}
 
     def setUp(self):
         super().setUp()
-        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}}))
+        config = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}},
+                           presets={"fast": {"roles": {"execution": {"mode": "headless", "profile": "exec-low"}}}})
+        config["runtimes"]["spare"] = {"adapter": "opencode"}
+        self.write(config)
         self.repo_obj = pd.Repo.discover(str(self.repo))
+
+    def last_published(self):
+        code, out, err = run_config(["history", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        return max(entry["number"] for entry in json.loads(out)["entries"]
+                   if entry["resource"] == "config" and entry["state"] == "published")
+
+    def local_file(self):
+        return self.repo / ".agent" / "dispatch.local.json"
 
     def preview(self, argv):
         code, out, err = run_config(argv + ["--dry-run", "--json"], self.repo)
@@ -1503,11 +1525,13 @@ class PreviewAndExpectedState(RolesRepo):
         stdout 恰好是一份 JSON（themistally-15：redirect_stdout 收不住子进程直接写 fd 1 的输出，这条用例兜住）。"""
         self.assertEqual(_preview_commands(), sorted(self.ARGV))
         self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 0)  # 先有历史与审计
-        (self.repo / ".agent" / "dispatch.local.json").write_text('{"runtimes": {}}\n', encoding="utf-8")
+        self.local_file().write_text('{"runtimes": {"spare": {"command": ["C:/tools/oc.exe"]}}}\n', encoding="utf-8")
+        last = str(self.last_published())
         for path, argv in sorted(self.ARGV.items()):
             with self.subTest(command=path):
                 before = self.agent_files()
-                code, out, err = run_config(argv + ["--dry-run", "--json"], self.repo)
+                code, out, err = run_config([last if part == "{last}" else part for part in argv]
+                                            + ["--dry-run", "--json"], self.repo)
                 self.assertEqual(code, 0, err)
                 self.assertTrue(json.loads(out)["dry_run"])
                 self.assertEqual(self.agent_files(), before)
@@ -1583,6 +1607,80 @@ class PreviewAndExpectedState(RolesRepo):
             "role": "execution", "before": None,
             "after": {"mode": "headless", "profile": "exec-step", "runtime": "pi", "adapter": "pi", "provider": "bb",
                       "model": "step-5-preview", "thinking": "high"}}])
+
+    def test_a_rollback_to_a_config_without_bindings_shows_null_after(self):
+        """回滚到一份没有 v3 键的旧配置：旧配置有 v3 键、新配置没有，照样比较，执行端的 after 是 null（themistally-15）。"""
+        self.config_file.unlink()
+        self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 0)
+        plain = self.last_published()
+        bound = self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}})
+        for key in ("runtimes", "profiles", "roles"):
+            self.assertEqual(run_config(["set", key, json.dumps(bound[key])], self.repo)[0], 0)
+        payload = self.preview(["rollback", str(plain)])
+        self.assertEqual(payload["action"], "config.rollback")
+        self.assertEqual(payload["binding_changes"], [{
+            "role": "execution",
+            "before": {"mode": "headless", "profile": "exec-step", "runtime": "pi", "adapter": "pi", "provider": "bb",
+                       "model": "step-5-preview", "thinking": "high"},
+            "after": None}])
+        self.assertEqual(payload["resources"][0]["changed_keys"],
+                         sorted(payload["resources"][0]["changed_keys"]))  # key_diff 按键排序
+        self.assertIn("roles.execution.profile", payload["resources"][0]["changed_keys"])
+        code, _out, err = run_config(["rollback", str(plain), "--expect-state", payload["state"]], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(self.config_file.read_text(encoding="utf-8")), {"kill_grace_seconds": 20})
+
+    def test_preset_use_previews_the_bindings_it_switches(self):
+        payload = self.preview(["preset", "use", "fast"])
+        self.assertEqual([(c["role"], c["before"]["profile"], c["after"]["profile"]) for c in payload["binding_changes"]],
+                         [("execution", "exec-step", "exec-low")])
+        self.assertEqual(payload["resources"][0]["changed_keys"], ["active_preset", "roles.execution.profile"])
+
+    def test_a_two_resource_command_covers_the_local_file(self):
+        """U6c：runtime add --command 预览之后只有本机文件被改了，同样退出 4，两个资源都不变。"""
+        self.local_file().write_text('{"runtimes": {}}\n', encoding="utf-8")
+        argv = ["runtime", "add", "pi2", "--adapter", "pi", "--command", '["C:/tools/pi.exe"]']
+        payload = self.preview(argv)
+        local = self.local_file().read_bytes()
+        self.assertEqual(payload["state"], "v1;config=%s;local=%s" % (
+            hashlib.sha256(self.config_file.read_bytes()).hexdigest(), hashlib.sha256(local).hexdigest()))
+        self.assertEqual([(r["resource"], r["changed"]) for r in payload["resources"]], [("config", True), ("local", True)])
+        self.assertNotIn("changed_keys", payload["resources"][1])  # 本机文件只记哈希（与 history 一致）
+        self.local_file().write_text('{"runtimes": {"other": {"command": ["C:/x.exe"]}}}\n', encoding="utf-8")
+        before, local, audit = self.config_file.read_bytes(), self.local_file().read_bytes(), self.audit_bytes()
+        code, _out, err = run_config(argv + ["--expect-state", payload["state"]], self.repo)
+        self.assertEqual(code, 4, err)
+        self.assertIn(".agent/dispatch.local.json 在预览之后被改过", err)
+        self.assertEqual((self.config_file.read_bytes(), self.local_file().read_bytes(), self.audit_bytes()),
+                         (before, local, audit))
+
+    def test_runtime_add_without_a_command_covers_only_the_config(self):
+        argv = ["runtime", "add", "oc2", "--adapter", "opencode"]
+        payload = self.preview(argv)
+        self.assertEqual(payload["state"], "v1;config=%s" % hashlib.sha256(self.config_file.read_bytes()).hexdigest())
+        self.local_file().write_text('{"runtimes": {}}\n', encoding="utf-8")  # 不写本机文件的命令不管它
+        code, _out, err = run_config(argv + ["--expect-state", payload["state"]], self.repo)
+        self.assertEqual(code, 0, err)
+
+    def test_runtime_remove_covers_the_local_file_even_when_it_is_absent(self):
+        payload = self.preview(["runtime", "remove", "spare"])
+        self.assertTrue(payload["state"].endswith(";local=absent"), payload["state"])
+        self.local_file().write_text('{"runtimes": {}}\n', encoding="utf-8")
+        code, _out, err = run_config(["runtime", "remove", "spare", "--expect-state", payload["state"]], self.repo)
+        self.assertEqual(code, 4, err)
+        code, _out, err = run_config(["runtime", "remove", "spare", "--expect-state",
+                                      self.preview(["runtime", "remove", "spare"])["state"]], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("spare", json.loads(self.config_file.read_text(encoding="utf-8"))["runtimes"])
+
+    def test_writing_a_resource_that_was_not_declared_is_an_internal_error(self):
+        """令牌只覆盖声明了的资源：写没有声明的就绕过了比对。"""
+        token = kit_config._WRITE_MODE.set(kit_config.WriteMode(True, None))
+        self.addCleanup(kit_config._WRITE_MODE.reset, token)
+        with kit_config.config_transactions(self.repo_obj, "runtime.add", "x", resources=("config",)) as transaction:
+            transaction("config")
+            with self.assertRaisesRegex(kit_config.ConfigError, "没有声明的资源 local"):
+                transaction("local")
 
     def test_a_matching_state_writes_and_the_audit_records_user_ui(self):
         """U7：界面经服务执行，审计的 actor 是 user-ui。"""
