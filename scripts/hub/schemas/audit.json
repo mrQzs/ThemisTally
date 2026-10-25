@@ -7,7 +7,7 @@
     "letter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "证据", "结论", "退回", "阻塞项"],
+      "required": ["type", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "下游须知", "证据", "结论", "退回", "阻塞项"],
       "properties": {
         "type": {"type": "string", "enum": ["交付", "返工完成", "提问", "阻塞", "交接", "进度"]},
         "in_reply_to": {"type": "string", "minLength": 1, "description": "回复的 msg-id"},
@@ -15,7 +15,8 @@
         "提交": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
         "验证": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
         "偏离": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
-        "需协调人决定": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "需协调人决定": {"type": "string", "minLength": 1, "description": "拍板之前下一阶段不能开工的事；没有就写“无”"},
+        "下游须知": {"type": "string", "minLength": 1, "description": "给后面阶段的提醒（有合理默认、已按默认做的取舍，要后面核对的地方），内核原样附进下游各回合的输入；没有就写“无”"},
         "证据": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
         "结论": {"type": "string", "enum": ["通过", "返工", "无"], "description": "交付时写通过或返工；提问、阻塞等别的信写“无”"},
         "退回": {"type": "string", "minLength": 1, "description": "返工时写退回对象（合同端|门禁端|战后门禁|执行端|规划端，几个用“、”隔开；一审只能退回规划端、合同端、门禁端）；不是返工写“无”"},

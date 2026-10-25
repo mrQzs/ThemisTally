@@ -1552,7 +1552,7 @@ def test_start_without_brief_is_rejected(engine_env):
 
 def planner_delivery(facts: list = None) -> dict:
     return {"letter": {"type": "交付", "in_reply_to": "m", "摘要": "拆成 3 步", "提交": "无", "验证": "读了文档",
-                       "偏离": "无", "需协调人决定": "无", "证据": "report.md"},
+                       "偏离": "无", "需协调人决定": "无", "下游须知": "无", "证据": "report.md"},
             "report": "# 概要步骤\n1. …", "state": "2026-10-19T00:00Z 交付", "external_facts": facts or []}
 
 
@@ -6339,7 +6339,8 @@ def test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner(engine_env, 
         {"executor_status": "partial", "dod": [], "limitations": T011_LIMITATIONS}, ensure_ascii=False), encoding="utf-8")
     letter = kh.finish_exec(hub, ts, run_dir, 0)
     assert ts["exec"]["gate_claim"] is True
-    assert letter["需协调人决定"].startswith("执行端说门禁测试有错") and "合同矛盾：无" in letter["需协调人决定"]
+    # 第 111 轮：没有的待决项不再列成“合同矛盾：无”
+    assert letter["需协调人决定"].startswith("执行端说门禁测试有错") and "合同矛盾" not in letter["需协调人决定"]
     assert "给 gate-sonnet 发返工" in kh._guard_rework(ts, "5-exec") and "给站主发提问" in kh._guard_rework(ts, "5-exec")
     assert kh._guard_rework(ts, "3-gate-pre") is None  # 第 52 轮：门禁端自己核实（热修补）
     assert ts["exec"]["gate_claims"] == T011_LIMITATIONS[:2]
@@ -6350,7 +6351,7 @@ def test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner(engine_env, 
     assert '"event": "exec.gate_claimed"' in events and '"claims": 2' in events
     check["code"] = 0  # 检查过了：执行端说什么都不扣
     letter = kh.finish_exec(hub, ts, run_dir, 0)
-    assert not ts["exec"].get("gate_claim") and letter["需协调人决定"].startswith("合同矛盾")
+    assert not ts["exec"].get("gate_claim") and letter["需协调人决定"] == "无"  # 第 111 轮：没有待决项写“无”
     check["code"] = 1
     (run_dir / "executor-report.json").write_text(json.dumps(
         {"executor_status": "partial", "dod": [], "limitations": T011_LIMITATIONS[2:]}, ensure_ascii=False),
@@ -7132,7 +7133,7 @@ def test_an_audit_turn_hands_in_through_deliver(tmp_path):
     # 第 97 轮：审核端也用 deliver。“结论、退回、阻塞项”都要写（不适用写“无”），T017 一审 ae8a 那种返工漏了阻塞项，
     # 回合内就被工具挡回，不再多跑一个格式重试回合
     good = {"letter": {"type": "交付", "in_reply_to": "m1", "摘要": "一审", "提交": "无", "验证": "无", "偏离": "无",
-                       "需协调人决定": "无", "证据": "无", "结论": "返工", "退回": "门禁端", "阻塞项": "1. 断言是空心的"},
+                       "需协调人决定": "无", "下游须知": "无", "证据": "无", "结论": "返工", "退回": "门禁端", "阻塞项": "1. 断言是空心的"},
             "report": "# 一审", "state": ""}
     missing = {"letter": {k: v for k, v in good["letter"].items() if k != "阻塞项"}, "report": "# 一审", "state": ""}
     assert any("阻塞项" in error for error in kh.schema_errors(kh.role_schema("audit"), missing))
@@ -7149,7 +7150,7 @@ def test_an_audit_turn_hands_in_through_deliver(tmp_path):
 def test_a_gate_turn_hands_in_through_deliver(tmp_path):
     # 第 98 轮：门禁端用 deliver。变异清单只交文件（第 85 轮：手抄进输出会抄错锚点），内联的被工具挡回
     letter = {"type": "交付", "in_reply_to": "m1", "摘要": "战后", "提交": "无", "验证": "无", "偏离": "无",
-              "需协调人决定": "无", "证据": "无"}
+              "需协调人决定": "无", "下游须知": "无", "证据": "无"}
     inline = {"letter": letter, "report": "# 战后", "state": "", "mutation_spec": {"mutations": []}}
     good = {"letter": letter, "report": "# 战后", "state": "", "mutation_spec_file": kh.GATE_SPEC_FILE,
             "candidate_defects": [{"test": "test_x", "contract": "合同原文", "where": "src/a.ts:3"}]}
@@ -7167,7 +7168,7 @@ def test_a_gate_turn_hands_in_through_deliver(tmp_path):
 def test_a_contract_turn_hands_in_through_deliver(tmp_path):
     # 第 99 轮：合同端用 deliver，合同全文（中位约 24 KB）放在参数里；转义写错时工具当场退回，回合内改
     letter = {"type": "交付", "in_reply_to": "m1", "摘要": "合同", "提交": "无", "验证": "无", "偏离": "无",
-              "需协调人决定": "无", "证据": "无"}
+              "需协调人决定": "无", "下游须知": "无", "证据": "无"}
     good = {"letter": letter, "report": "# 合同说明", "state": "", "contract_md": "# TASK: t001-doc\n- plan_version: 1\n"}
     assert kh.schema_errors(kh.role_schema("contract"), dict(good, contract_md=""))
     assert kh.schema_errors(kh.role_schema("contract"), {key: value for key, value in good.items() if key != "contract_md"})
@@ -7195,7 +7196,7 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
     hub.ensure()
     spec = kh.ROSTER["planner-opus"]
     letter = {"type": "交付", "in_reply_to": "m1", "摘要": "规划", "提交": "无", "验证": "无", "偏离": "无",
-              "需协调人决定": "无", "证据": "无"}
+              "需协调人决定": "无", "下游须知": "无", "证据": "无"}
     good = {"letter": letter, "report": "出处 %s" % (hub.repo / "docs" / "x.md"), "state": "", "external_facts": []}
     seen, results = [], [good, None]
 
@@ -7239,6 +7240,44 @@ def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
     turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
     assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
+
+
+def test_downstream_notes_ride_along_to_every_later_turn(tmp_path):
+    """第 111 轮（七端改造第 3 条的拆字段）：规划、合同、门禁、审核的信多一栏“下游须知”；内核把依赖链上游、
+    已经交付通过的各阶段的须知原样附进后面每个工人回合的输入，不靠协调人转抄。"""
+    for role in ("planner", "contract", "gate", "audit"):
+        letter = kh.role_schema(role)["properties"]["letter"]
+        assert "下游须知" in letter["required"] and letter["properties"]["下游须知"]["minLength"] == 1, role
+    assert "下游须知" not in json.dumps(kh.role_schema("coordinator"), ensure_ascii=False)  # 协调人写 brief，不用它
+    meta, fields = kh.letter_from_output("planner-opus", "T001-1-plan", {"letter": dict(
+        planner_delivery()["letter"], 下游须知="合同端核对字体包里有 woff2")})
+    assert fields["下游须知"] == "合同端核对字体包里有 woff2"
+    assert "下游须知: 合同端核对字体包里有 woff2" in kh.render_letter(dict(meta, **{"msg-id": "m"}), fields)
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = locked(make_ts())
+    ts["stages"]["1-plan"]["fields"] = {"下游须知": "合同端核对字体包里有 woff2"}
+    ts["stages"]["2-contract"]["fields"] = {"下游须知": "无"}
+    ts["stages"]["3-gate-pre"]["fields"] = {"下游须知": "一审核对 D07 的断言是不是放宽过"}
+    ts["stages"]["3j-jev"] = {"status": "failed", "fields": {"下游须知": "没过核验的那封"}}  # 没交付通过：不往下传
+    ts["stages"]["5-exec"] = {"status": "delivered", "fields": {"下游须知": "下游的不算"}}
+    prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
+    section = prompt.split("## 上游各阶段的下游须知（内核原样附上）")[1].split("\n## ")[0]
+    assert section.strip().splitlines() == ["- 出自 1-plan（planner-opus）：合同端核对字体包里有 woff2",
+                                            "- 出自 3-gate-pre（gate-sonnet）：一审核对 D07 的断言是不是放宽过"]
+    assert "上游各阶段的下游须知" not in kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], tmp_path)
+
+
+def test_the_executor_letter_says_none_when_nothing_is_pending(engine_env, monkeypatch):
+    """第 111 轮：执行端的信（finish_exec）没有待决项时“需协调人决定”写“无”，有的才列，与别的岗位同一个判定。"""
+    hub = engine_env
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: (0, "check 输出"))
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    assert kh.finish_exec(hub, make_ts(), run_dir, 0)["需协调人决定"] == "无"
+    (run_dir / "executor-report.json").write_text(json.dumps(
+        {"executor_status": "completed", "dod": [], "unresolved_questions": ["D04 的空列表算不算错误"]},
+        ensure_ascii=False), encoding="utf-8")
+    assert kh.finish_exec(hub, make_ts(), run_dir, 0)["需协调人决定"] == "未决问题：D04 的空列表算不算错误"
 
 
 def test_a_delivery_the_kernel_cannot_read_is_an_interface_error(tmp_path):

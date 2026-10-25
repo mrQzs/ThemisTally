@@ -67,8 +67,10 @@ KERNEL_TYPES = ("核验", "阻塞")
 INFO_TYPES = ("通过", "等待", "停止")
 FIELDS = ("摘要", "提交", "验证", "偏离", "需协调人决定", "证据")
 VERDICT_FIELDS = ("结论", "退回", "阻塞项")
+#: 第 111 轮（七端改造第 3 条的拆字段）：给后面阶段的提醒，从“需协调人决定”里拆出来；内核原样附进下游各回合的输入
+HANDOFF_FIELD = "下游须知"
 KERNEL_FIELDS = ("内核核验",)
-KNOWN_FIELDS = FIELDS + VERDICT_FIELDS + KERNEL_FIELDS
+KNOWN_FIELDS = FIELDS + VERDICT_FIELDS + (HANDOFF_FIELD,) + KERNEL_FIELDS
 MAX_BODY_LINES = 40
 #: 站主一封信的字数上限（send 的正文）
 MAX_OWNER_CHARS = 2000
@@ -3433,14 +3435,16 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
         stalled = ("候选没收上来（调度器收集出错：%s）：执行端的改动还在 attempt 的工作区里，从头重派会丢掉它们。给站主发"
                    "提问，站主指定之前内核不放行执行端返工。" % collect_errors[0][:300])
     changed_text = "没收上来（收集出错）" if collect_errors else "%d 个文件" % changed
+    # 第 111 轮：没有待决项就写“无”，执行端与别的岗位同一个判定（第 3 条的内核代办只看“需协调人决定”是不是“无”）
+    pending = [("合同矛盾", listing("contract_conflicts")), ("未决问题", listing("unresolved_questions"))]
+    decide = (("执行端说门禁测试有错（原话见下面与“偏离”）：给 gate-sonnet 发返工（热修补），"
+               "或给站主发提问；门禁重新交付或站主答复之前，内核不放行执行端返工。" if claims else "") + stalled
+              + "；".join("%s：%s" % (name, text) for name, text in pending if text != "无"))
     return {"摘要": ("执行端自述 %s；DoD：%s；候选改动 %s" % (said, done, changed_text))[:400],
             "提交": "无（候选补丁 %s/candidate.patch）" % rel,
             "验证": verdict_line,
             "偏离": deviation,
-            "需协调人决定": ("执行端说门禁测试有错（原话见下面与“偏离”）：给 gate-sonnet 发返工（热修补），"
-                         "或给站主发提问；门禁重新交付或站主答复之前，内核不放行执行端返工。" if claims else "") +
-                        stalled +
-                        "合同矛盾：%s；未决问题：%s" % (listing("contract_conflicts"), listing("unresolved_questions")),
+            "需协调人决定": decide or "无",
             "证据": "%s/summary.md、%s/executor-report.md、%s/checks/" % (rel, rel, rel)}
 
 
@@ -4111,7 +4115,7 @@ OUTPUT_SPECS = {
                    '"需协调人决定": "无", "证据": "…", "brief": "<开工、返工时必填：下一阶段任务书的 Markdown 全文>"}], '
                    '"state": "<你的进度断点，Markdown>"}',
     "worker": '{"letter": {"type": "交付|返工完成|提问|阻塞|交接|进度", "in_reply_to": "<msg-id>", "摘要": "…", '
-              '"提交": "…", "验证": "…", "偏离": "…", "需协调人决定": "…", "证据": "…"}, '
+              '"提交": "…", "验证": "…", "偏离": "…", "需协调人决定": "…", "下游须知": "…", "证据": "…"}, '
               '"report": "<report.md 全文>", "state": "<state.md 全文>"}',
 }
 ROLE_EXTRA_OUTPUT = {
@@ -4235,6 +4239,25 @@ def external_facts_section(ts: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def upstream_notes(ts: Dict[str, Any], suffix: Optional[str]) -> List[str]:
+    """第 111 轮：依赖链上游各阶段最近一封信里的下游须知（不是“无”的），每条标明出自哪个阶段。只取已经交付通过的
+    阶段（themistally-15 指出）：核验没过的交付也会写 stage["fields"]，那封信里的须知不该往下传。"""
+    above: Set[str] = set()
+    todo = list(DEPENDS.get(suffix or "", ()))
+    while todo:
+        stage = todo.pop()
+        if stage not in above:
+            above.add(stage)
+            todo.extend(DEPENDS[stage])
+    notes = []
+    for stage in STAGE_ORDER:
+        record = ts["stages"].get(stage) or {}
+        text = str((record.get("fields") or {}).get(HANDOFF_FIELD) or "").strip()
+        if stage in above and record.get("status") == "delivered" and text and text not in ("无", "无。"):
+            notes.append("- 出自 %s（%s）：%s" % (stage, STAGE_WORKER[stage], text))
+    return notes
+
+
 def input_path(hub: Hub, inputs: Optional[Path], path: Any) -> str:
     """主工作区里的一个路径，在输入目录里对应的那一份（第 88 轮）；没有输入目录（测试直接调）或不在仓库里时原样。"""
     text = str(path)
@@ -4305,6 +4328,10 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
     else:
         brief = read_text(task_dir / "brief.md")
         parts += ["", "## 任务书（%s）" % shown(task_dir / "brief.md"), "", brief or "（没有任务书）"]
+        notes = upstream_notes(ts, stage_of(task_id)[1])
+        if notes:
+            # 第 111 轮：不管任务书是协调人写的还是内核写的，都由内核附上，不靠协调人转抄
+            parts += ["", "## 上游各阶段的下游须知（内核原样附上）", ""] + notes
         state = read_text(task_dir / "state.md")
         if state:
             parts += ["", "## 你上次留下的 state.md", "", state]
@@ -4419,7 +4446,7 @@ def letter_from_output(agent: str, task_id: str, data: Dict[str, Any]) -> Tuple[
     meta = {"from": agent, "to": COORDINATOR, "task-id": task_id,
             "in-reply-to": str(raw.get("in_reply_to") or "none"), "type": str(raw.get("type") or "")}
     fields = {key: str(raw.get(key, "")).strip() for key in FIELDS}
-    for key in VERDICT_FIELDS:
+    for key in VERDICT_FIELDS + (HANDOFF_FIELD,):
         if raw.get(key):
             fields[key] = str(raw[key]).strip()
     return meta, fields
