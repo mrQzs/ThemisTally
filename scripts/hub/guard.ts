@@ -10,7 +10,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export const GUARD_PREFIX = "内核拦下：";
 /** 拦下原因的固定结尾。内核认“已拦下”时连结尾一起核：bash 超时的报错也是 isError、details 为空对象，正文却是命令自己的输出。 */
-export const GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，接着干；不要换写法绕过去";
+export const GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，已经装好的依赖用 read、grep、find、ls 按路径读，接着干；不要换写法绕过去";
 
 export interface GuardConfig {
   /** 工作目录与主工作区，已按 os.path.normcase(os.path.abspath(...)) 规范化。 */

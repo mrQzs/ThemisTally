@@ -49,7 +49,7 @@ DELIVER_EXTENSION = TEMPLATE_DIR / "deliver.ts"
 #: 以这个结尾收尾（与 guard.ts 的同名常量逐字相同，对照用例核对）
 GUARD_EXTENSION = TEMPLATE_DIR / "guard.ts"
 GUARD_PREFIX = "内核拦下："
-GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，接着干；不要换写法绕过去"
+GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，已经装好的依赖用 read、grep、find、ls 按路径读，接着干；不要换写法绕过去"
 SCHEMA_DIR = TEMPLATE_DIR / "schemas"
 #: 内核复核 schema 时只认这些关键字（themistally-15 定的子集）：Python 用标准库实现，与 pi 的 TypeBox 判定一致
 SCHEMA_KEYWORDS = {"type", "properties", "required", "additionalProperties", "enum", "const", "items", "minLength",
