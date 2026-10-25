@@ -1708,6 +1708,17 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试与变异**：样例加 8 条；test_kit_hub 新增 4 条（列出改动与未跟踪的 schema、git 报错算不一致、不干净就不起与放行、开关传给主任务的 runner），测试里自动夹具一律当内核干净（规划端在草稿 worktree 里改内核时内核本来就是脏的；中途 `monkeypatch.undo()` 的那条补回替身）。test_kit_hub 292 条通过，全量 2779 条通过、194 条跳过（pytest 退出码 0）。变异 8 个全部抓住：不加 re.ASCII、$ 不换、字符类里的 $ 也换、转义过的 $ 也换、起 hub 不核对、放行开关不管用、开关不传、git 出错当成干净（第一次漏网：原用例的目录不存在，走的是“git 起不来”，补了 GIT_DIR 指向不存在之处的一例）。
 - **第 92 轮补一处**（themistally-15 复核第 91 轮）：`schema_problems` 原来不编译 pattern，`^\p{L}+$` 全是 ASCII、能过，`schema_errors` 一跑就抛 re.error，炸在交差之后的回合处理中途。现在每个 pattern 用 `js_pattern` 编一次，编不过就报（JS 认、Python 不认的 `\p{…}`、`(?<名字>…)`）；`(?P…)` 是 Python 认、JS 不认，也报。`delivery_problem` 本来就调它，起 pi 之前就挡住。test_kit_hub 292 条通过；变异 2 个全部抓住。themistally-15 另用 node 对了 js_pattern 的五个边界（转义的反斜杠之后的 `$`、字符类里转义的 `]`、`^x$` 配 "x\n"、`a$|^b`），都与 JS 一致。
 
+### 第 93 轮：runner 办到一半被收掉，内核把信放回去接着做（2026-10-25，T017 卡在战前门禁）
+
+- **撞上的事**：T017 战前门禁的回合 17:10:40 交付合格（c8d8），内核提交了基准测试（cf0f915）、跑完 derive-json 与 validate，正在跑 `pi_dispatch baseline` 时整个 hub 被系统按内存不足收掉（17:16）。状态在步骤末尾才 `save_state`，投影回到“3-gate-pre assigned、ts.oracle 为空、gate 记录的 commit 还是基线”，返工信 be79b0 却已从 new 移进 cur。于是：没有未读信，supervisor 不起 T017 的 runner；协调人重发返工被 `_guard_start` 拒（“已经开工、还没交付”）；站主的 `task unstick` 标成 failed 再返工也过不了——`stage_workspace` 按记录判断要不要退回基线，记录是旧的，worktree 实际停在基准测试的提交上，重交时“没有新增文件”。hub 重启之后 T017 会一直停在那里，不报错。
+- **放回信**（`requeue_interrupted`）：supervisor 每一轮、串行的 hub 起步时，找停在“已经开工”（`stage_busy`）、工人信箱里没有它的未读信的工人阶段（执行端走第 27 轮的 exec-recheck，JEV 由内核直接跑，都不算），拿着这个主任务的 runner 锁（拿不到就是有人在办：supervisor 起的、站主手动起的 `run --task`、`task_quiet`）重新核对，按账本找这一阶段开工之后被读掉、工人还没回信的信，从 cur 放回 new，阶段记 `resume={at, turn, letters}`，记 `letters.requeued`。只含告知类、工人没被唤醒的信（`worker.not_woken`）与扣着的信（`ts.held`）不放。supervisor 另跳过刚起、可能还没拿到锁的子进程和挂了暂停标记的主任务。
+- **只续接一次**：同一封信放回过、又被打断，多半是回合里跑的东西自己就把机器顶到了回收（五天里第三次被收，每次都是负载叠在一起）。这时不再放回：阶段标 failed、主任务转 blocked，写阻塞信给站主，附两次的回合号（`letters.requeue_refused`）。
+- **接着做**：`worker_job` 取出 resume。回合已经交了（读掉信之后有输出合格、没违规的 `turn.finished`，T017 就是这种），从那个回合的 result.json 取会话（不假定是记录里最新的），续接它，返工信也不开新会话；提示词写“你上一回合的交付内核收到了，核验做到一半 hub 被收掉了；文件都在，照原样再交一次，不用重做检查”。回合本身没跑完、或者工作目录换了（claude 按目录找会话），开新会话，提示词写“这是新会话：工作目录里留着上一回合的改动，先看一遍，接着做，做完再交”。没跑完的会话可能停在半截的工具调用上，不去接它（themistally-15 建议先实测能不能接、接不上再退；直接退省一次探测，也不会把回合卡在接口报错上）。
+- **pi 的会话号不撞旧文件**：会话记录在回合结束时才写，回合中途被收掉时这一代的会话文件（`<时刻>_<键>-g<代>.jsonl`）已经留下。`TurnRunner.run` 新开 pi 会话时跳过已有文件的代。`run(session_id=…)` 钉住要续接的会话，fresh 与记录里的都不管（claude 走 `--resume`）。
+- **门禁 worktree 看实际的 HEAD**：`stage_workspace` 在记录不是基线、或 worktree 的 HEAD 不是基线时都退回（`reset --mixed`，基准测试回到 `??`）。整段核验可以重跑：`update-ref` 不带旧值、覆盖旧引用，`set_contract_base` 重写 base_sha，baseline 按 `_next_number` 写到 02（01 是半截证据，照规矩不动）。
+- **顺手清掉**：被打断的 baseline 留下的临时 worktree（`pi-worktrees/ThemisTally-t017-desktop-ui-live-baseline-9b8ajjzd`，detached 在 cf0f915），不是证据，规划端 `git worktree remove` 了。pi_dispatch 的 finally 没走到，与第 89 轮清的输入目录同类，以后在调度器里统一收拾。
+- **测试与变异**：test_kit_hub 新增 9 条（被收掉后放回并续接同一会话，锁有人拿着时不动；没跑完的开新会话且只续接一次、会话不可用时开新会话、未读信与执行端不动、supervisor 只放没人办的、账本读法的边界、串行起步调用、门禁 worktree 记录丢了照样退回并重交通过、claude 续接点名的会话），pi 会话号那条补了跳过旧文件、钉住会话、格式重试仍在钉住的会话（themistally-15 要求确认：钉住的回合结束时记录就写成了它）。test_kit_hub 301 条通过，全量 2788 条通过、194 条跳过（pytest 退出码 0）。变异 25 个：第一次漏掉“有未读信也放”（用例里有未读信的阶段恰好没有读掉的信），补了“读掉一封、另有一封没读”的一例，重跑全部抓住。用真实账本空跑：T017 找到 be79b0、回合 c8d8、会话 T017-3-gate-pre-g1。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

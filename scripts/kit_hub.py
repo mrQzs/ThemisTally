@@ -1848,9 +1848,11 @@ class TurnRunner:
         self.launcher = launcher or pd.run_supervised
 
     def run(self, agent: str, session_key: str, workspace: Path, role_prompt: str, prompt: str,
-            retry_of: Optional[str] = None, fresh: bool = False, inputs: Optional[Path] = None) -> Dict[str, Any]:
+            retry_of: Optional[str] = None, fresh: bool = False, inputs: Optional[Path] = None,
+            session_id: Optional[str] = None) -> Dict[str, Any]:
         """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。
-        inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。"""
+        inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
+        session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         spec = ROSTER[agent]
         # 第 90 轮：这个岗位用 deliver 交差（pi 工人；claude 的 --json-schema 以后另做）
         delivery = spec.get("delivery") == "tool" and spec["adapter"] != "claude"
@@ -1864,9 +1866,19 @@ class TurnRunner:
         record = self.hub.agent_record(agent)
         session = record["sessions"].get(session_key)
         generation = int((session or {}).get("generation", 0))
-        if session and (fresh or session.get("cwd") != str(workspace)):
+        if session_id is not None:
+            if (session or {}).get("id") != session_id:
+                session = {"id": session_id, "cwd": str(workspace), "turns": 1, "created_at": utc_now(),
+                           "generation": generation}
+        elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
         first = session is None
+        if first and spec["adapter"] != "claude":
+            # 第 93 轮：会话记录在回合结束时才写，回合中途被收掉，这一代的会话文件已经留下了（可能停在半截的工具
+            # 调用上）。pi 的会话号按代数定，新会话跳过已有文件的代，不接着那个会话
+            sessions = self.hub.root / "sessions" / agent
+            while any(sessions.glob("*_%s-g%d.jsonl" % (session_key, generation))):
+                generation += 1
         if first:
             session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-g%d" % (session_key, generation),
                        "cwd": str(workspace), "turns": 0, "created_at": utc_now(), "generation": generation}
@@ -4188,7 +4200,8 @@ def input_path(hub: Hub, inputs: Optional[Path], path: Any) -> str:
 
 
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
-                workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None) -> str:
+                workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
+                resume: Optional[Dict[str, Any]] = None) -> str:
     shown = lambda path: input_path(hub, inputs, path)  # noqa: E731  主工作区的路径一律换成输入目录里的
     spec = ROSTER[agent]
     role = spec["role"]
@@ -4221,6 +4234,15 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "站主来信 %s：" % owner["msg"], "", str(owner["text"])]
     if error:
         parts += ["", "## 上一次输出没有通过内核校验，请改正后重新交出", "", error]
+    if resume and resume.get("session"):
+        # 第 93 轮：runner 办到一半被收掉，信由 requeue_interrupted 放回；回合已经交了，续接它的会话
+        parts += ["", "## 这一回合接着做（内核）", "",
+                  "- 你上一回合（%s）的交付内核收到了，核验做到一半 hub 被系统收掉了，交付没有记下来。" % resume["turn"],
+                  "- 会话与工作目录里的文件都在：照原样再交一次，不用重做检查。"]
+    elif resume:
+        parts += ["", "## 这一回合接着做（内核）", "",
+                  "- 上一回合办到一半，hub 被系统收掉了。这是新会话：工作目录里留着上一回合的改动，先看一遍，"
+                  "接着做，做完再交。"]
     parts += ["", "## 新信", ""] + (letters or ["（没有新信）"])
     if role == "coordinator":
         parts += ["", "## 主任务状态（内核）", "", stage_status_table(hub, ts)]
@@ -4402,6 +4424,146 @@ def release_held(hub: Hub) -> List[str]:
     if released:
         hub.save_state(state)
     return released
+
+
+#: 第 93 轮：被打断时不放回信的岗位（执行端走第 27 轮的 exec-recheck，JEV 由内核直接调决策 API）
+REQUEUE_SKIP_ADAPTERS = ("dispatcher", "jev")
+
+
+def ledger_events(hub: Hub) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    for line in jsonl_lines(read_text(hub.ledger())) if hub.ledger().exists() else []:
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    return events
+
+
+def interrupted_letters(hub: Hub, events: List[Dict[str, Any]], agent: str, stage_id: str, since: str,
+                        held: Collection[str] = ()) -> Tuple[List[str], Optional[str]]:
+    """一个阶段被读掉、工人还没回信的信（cur 里的文件名），以及读信之后跑完、输出合格的最后一个回合。
+    只含告知类、工人没被唤醒的信（worker.not_woken）与扣着的信（ts["held"]）不算：不是被打断的那一批。"""
+    taken: List[str] = []
+    turn: Optional[str] = None
+    for event in events:
+        if str(event.get("at") or "") < since:
+            continue
+        kind = event.get("event")
+        if kind == "letter.taken" and event.get("agent") == agent and "%s.md" % event.get("msg_id") not in taken:
+            taken.append("%s.md" % event.get("msg_id"))  # 放回去又读一次的，只算一封
+        elif kind == "worker.not_woken" and event.get("agent") == agent:
+            taken = [name for name in taken if name not in (event.get("letters") or [])]
+        elif kind == "letter.delivered" and event.get("sender") == agent and event.get("task_id") == stage_id:
+            taken, turn = [], None  # 工人回过信：之前读的信办完了
+        elif kind == "turn.finished" and event.get("session_key") == stage_id and taken:
+            turn = event.get("turn_id") if event.get("output_ok") and not event.get("violations") else None
+    box = hub.inbox(agent).parent / "cur"
+    names = [name for name in taken if name not in held and (box / name).is_file()
+             and parse_letter(read_text(box / name))[0].get("task-id") == stage_id]
+    return names, (turn if names else None)
+
+
+def stranded_stages(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """停在“已经开工”、工人信箱里却没有它的未读信的阶段（工人岗位；执行端、JEV 不算）。"""
+    stages: List[str] = []
+    for suffix, stage in ts["stages"].items():
+        agent = STAGE_WORKER.get(suffix)
+        if agent is None or ROSTER[agent]["adapter"] in REQUEUE_SKIP_ADAPTERS or not stage_busy(stage):
+            continue
+        stage_id = "%s-%s" % (ts["task"], suffix)
+        if not any(parse_letter(read_text(path))[0].get("task-id") == stage_id for path in hub.unread(agent)):
+            stages.append(suffix)
+    return stages
+
+
+def requeue_interrupted(hub: Hub, skip: Collection[str] = ()) -> List[str]:
+    """runner 办到一半被收掉（第 93 轮）：阶段停在 assigned，工人的信已经读掉（从 new 移进 cur），没有未读信，
+    supervisor 不起 runner；协调人重发开工、返工又被 _guard_start 拒（“已经开工、还没交付”），主任务就停在那里。
+    T017 的战前门禁 17:10 交付合格、基准测试已提交，内核跑 baseline 时整个 hub 被系统收掉：状态在步骤末尾才写，
+    投影回到“已派活”。这里把读掉的信放回 new、阶段记下 resume，worker_job 照它接着做。
+    主任务的 runner 锁有人拿着就不动（supervisor 起的、站主手动起的 run --task、站主命令的 task_quiet），
+    搬信时自己拿着这把锁。返回放回了哪些主任务的信。"""
+    requeued: List[str] = []
+    for task, ts in sorted(hub.load_state()["tasks"].items()):
+        if ts.get("status") != "active" or task in skip or not stranded_stages(hub, ts):
+            continue
+        try:
+            with DirLock(runner_lock(hub, task), wait_seconds=0):  # 持有者活着就拿不到；已经不在了才接管
+                if requeue_task(hub, task):
+                    requeued.append(task)
+        except HubError as exc:
+            if exc.code != EXIT_BLOCKED:
+                raise  # 有人在办：不动，下一轮再看
+    return requeued
+
+
+def requeue_task(hub: Hub, task: str) -> bool:
+    """拿着主任务的 runner 锁、重新核对之后放回信。同一封信只续接一次：放回过又被打断，多半是这个回合自己就把
+    机器顶到了内存回收（五天里第三次被收，每次都是负载叠在一起），再放回只会一遍遍花钱重跑。这时阶段标 failed、
+    主任务转 blocked，写信给站主。返回放回了没有。"""
+    state = hub.load_state()
+    ts = state["tasks"].get(task)
+    if ts is None or ts.get("status") != "active":
+        return False
+    events = ledger_events(hub)
+    held = {name for item in ts.get("held") or [] for name in item.get("letters") or []}
+    changed, moved_any = False, False
+    for suffix in stranded_stages(hub, ts):
+        agent, stage = STAGE_WORKER[suffix], ts["stages"][suffix]
+        stage_id = "%s-%s" % (task, suffix)
+        names, turn = interrupted_letters(hub, events, agent, stage_id, str(stage.get("assigned_at") or ""), held)
+        if not names:
+            continue  # 找不到读掉的信：留给站主的 task unstick
+        before = [event for event in events if event.get("event") == "letters.requeued" and event.get("task") == task
+                  and event.get("agent") == agent and set(event.get("letters") or []) & set(names)]
+        if before:
+            turns = "、".join(str(item or "没跑完") for item in (before[-1].get("turn"), turn))
+            text = ("%s（%s）的回合续接之后又被打断（回合 %s），内核不再放回它的信，阶段已标为 failed。多半是回合里跑的"
+                    "东西把机器顶到了内存回收：查明之后用 kit_hub.py send %s --type 回复 恢复，再让协调人返工"
+                    % (stage_id, agent, turns, task))
+            stage.update(status="failed", note=text[:600])
+            ts["notes"].append({"at": utc_now(), "text": text})
+            ts["status"] = "blocked"
+            hub.append_event("letters.requeue_refused", task=task, agent=agent, suffix=suffix, letters=names,
+                             turns=[before[-1].get("turn"), turn])
+            hub.deliver({"from": KERNEL, "to": OWNER, "task-id": task, "in-reply-to": "none", "type": "阻塞"},
+                        {"摘要": "%s 的回合两次被打断，内核不再续接" % stage_id, "提交": "无", "验证": "内核",
+                         "偏离": text, "需协调人决定": "请站主处理后用 kit_hub.py send %s --type 回复 恢复" % task,
+                         "证据": ".agent/mailbox/ledger/events.jsonl（letters.requeued）"})
+            changed = True
+            continue
+        box = hub.inbox(agent)
+        moved: List[str] = []
+        for name in names:
+            try:
+                os.rename(str(box.parent / "cur" / name), str(box / name))
+                moved.append(name)
+            except OSError:
+                pass  # 挪不动：当别人已经放回了
+        if not moved:
+            continue
+        stage["resume"] = {"at": utc_now(), "turn": turn, "letters": moved}
+        hub.append_event("letters.requeued", task=task, agent=agent, suffix=suffix, letters=moved, turn=turn)
+        changed = moved_any = True
+    if changed:
+        hub.save_state(state)
+    return moved_any
+
+
+def resumed_session(hub: Hub, agent: str, resume: Optional[Dict[str, Any]], workspace: Path) -> Optional[str]:
+    """被打断的阶段续接哪个会话（第 93 轮）：回合已经跑完、交了合格输出的，取它 result.json 里的会话（不假定是
+    记录里最新的那个）。回合本身没跑完（会话可能停在半截的工具调用上），或者工作目录换了（claude 按目录找会话），
+    返回 None：开新会话。"""
+    if not resume or not resume.get("turn"):
+        return None
+    try:
+        record = json.loads(read_text(hub.root / "turns" / agent / str(resume["turn"]) / "result.json") or "{}")
+    except ValueError:
+        return None
+    if record.get("workspace") != str(workspace) or record.get("output_error") or record.get("violations"):
+        return None
+    return record.get("session_id") or None
 
 
 def letters_held(hub: Hub) -> bool:
@@ -4662,11 +4824,12 @@ class Engine:
             fields = run_jev(self.hub, ts, suffix)
             self.finish_kernel_stage(state, ts, agent, suffix, fields, ok=True)
             return
+        resume = ts["stages"][suffix].pop("resume", None)  # 第 93 轮：被打断的阶段，信由 requeue_interrupted 放回
         workspace = self.stage_workspace(ts, agent, suffix)
         self.hub.save_state(state)
         inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (task_id, utc_compact()))  # 第 88 轮
         try:
-            turn, error, timeouts = self.worker_turns(agent, task_id, ts, texts, workspace, kinds, inputs)
+            turn, error, timeouts = self.worker_turns(agent, task_id, ts, texts, workspace, kinds, inputs, resume)
         finally:
             remove_inputs(inputs)
         state = self.hub.load_state()
@@ -4751,10 +4914,14 @@ class Engine:
     def stage_workspace(self, ts: Dict[str, Any], agent: str, suffix: str) -> Path:
         if suffix == "3-gate-pre":
             record = ts["workspaces"].get("gate") or {}
-            if record.get("path") and Path(record["path"]).is_dir() and record.get("commit") != ts["base_head"]:
-                # 返工：退回基线、保留文件（基准测试回到“新增”状态），工作目录不变，门禁端的会话才能续接
-                git(["reset", "-q", "--mixed", ts["base_head"]], Path(record["path"]))
-                record["commit"] = ts["base_head"]
+            if record.get("path") and Path(record["path"]).is_dir():
+                # 第 93 轮：也看 worktree 实际的 HEAD。内核提交了基准测试、还没写状态就被收掉（T017）：记录里还是
+                # 基线，worktree 却停在基准测试的提交上，不退回的话重交时“没有新增文件”
+                head = git(["rev-parse", "HEAD"], Path(record["path"]), check=False).strip()
+                if record.get("commit") != ts["base_head"] or (head and head != ts["base_head"]):
+                    # 返工：退回基线、保留文件（基准测试回到“新增”状态），工作目录不变，门禁端的会话才能续接
+                    git(["reset", "-q", "--mixed", ts["base_head"]], Path(record["path"]))
+                    record["commit"] = ts["base_head"]
             return ensure_worktree(self.hub, ts, "gate", ts["base_head"])
         if suffix == "4-audit-pre":
             if ts["oracle"].get("sha"):
@@ -4866,13 +5033,18 @@ class Engine:
         return ts["exec"]
 
     def worker_turns(self, agent: str, task_id: str, ts: Dict[str, Any], texts: List[str], workspace: Path,
-                     kinds: Collection[str], inputs: Path) -> Tuple[Dict[str, Any], Optional[str], int]:
+                     kinds: Collection[str], inputs: Path,
+                     resume: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Optional[str], int]:
         """一次开工或返工的回合，连同超时续接与格式重试（第 32、82 轮）；输入目录由调用方建、删（第 88 轮）。
-        返回（最后一个回合，它的输出问题，超时过几次）。"""
-        prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, inputs=inputs)
-        # 返工：干净重启，只带任务书、state 与这封返工信（用户评审建议 2）
-        fresh = "返工" in kinds
-        turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh, inputs=inputs)
+        resume：被打断之后接着做（第 93 轮）。返回（最后一个回合，它的输出问题，超时过几次）。"""
+        session_id = resumed_session(self.hub, agent, resume, workspace)
+        prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, inputs=inputs,
+                             resume=dict(resume, session=session_id) if resume else None)
+        # 返工：干净重启，只带任务书、state 与这封返工信（用户评审建议 2）。
+        # 被打断的（第 93 轮）：交过的续接那个回合的会话（返工也不重开）；没跑完的开新会话
+        fresh = ("返工" in kinds or resume is not None) and session_id is None
+        turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, fresh=fresh, inputs=inputs,
+                               session_id=session_id)
         error = self.output_problem(agent, task_id, turn)
         timeouts = 0
         for retry in range(WORKER_RETRIES_AFTER_TIMEOUT):
@@ -5570,6 +5742,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     fingerprint = code_fingerprint()
     with DirLock(runner_lock(hub, task), wait_seconds=1.0):
         hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, task=task)
+        if task is None:
+            requeue_interrupted(hub)  # 第 93 轮：串行的 hub 起步时没有别人在办（并行时由 supervisor 放回）
         idle_since = time.monotonic()
         while turns < args.max_steps:
             if code_fingerprint() != fingerprint:
@@ -5722,10 +5896,14 @@ def supervise_tick(hub: Hub, args: argparse.Namespace, parallel: int, children: 
                          "需协调人决定": "请站主看日志、修好之后重启 hub（kit_hub.py run）",
                          "证据": ".agent/mailbox/runners/%s.log" % task})
     release_held(hub)  # 到点的扣信放回信箱，下面就会给那个主任务起 runner（第 33 轮）
-    pending = tasks_with_work(hub)
     # 上一代 supervisor 起的、还在跑的主任务 runner（重启之后接着算数，不重复起）
     adopted = [p.name for p in sorted((hub.root / ".runners").glob("*"))
                if p.name not in children and lock_alive(p)] if (hub.root / ".runners").is_dir() else []
+    # 第 93 轮：没有 runner 拿着、却停在“已经开工”的阶段，把读掉的信放回去，下面就会起它的 runner。
+    # 刚起的子进程可能还没拿到锁；站主的命令挂了暂停标记的，让它先办
+    requeue_interrupted(hub, skip=set(children) | {
+        task for task in hub.load_state()["tasks"] if pause_requested(hub, task)})
+    pending = tasks_with_work(hub)
     live = len(children) + len(adopted)
     spawned = 0
     for task in pending:
