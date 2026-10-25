@@ -1842,6 +1842,13 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **端到端实测**：真 pi 加载 kdev 的 guard.ts、配置由 `guard_config` 算，四步里写工作目录之外、bash `ls` 主工作区、read 主工作区三步都当场拦下（目录里没有生成文件），工作目录里的写照常；事件流交给新的审计：违规 0 条，警告 3 条。
 - **测试**：test_kit_hub 新增 3 条：守卫与审计逐条对照（同一批调用，经 bun 跑 guard.ts 导出的 `guardDecision`，拦不拦、说明逐字都与 `pi_reach_problem` 一致，deliver 放行；找不到 bun 就跳过）、审计认“已拦下”的条件与八种对不上的情形（执行了、没报错、bash 跑完出错、bash 超时、工具自己抛错、只有结尾对得上、别的调用、流被截断）、每个 pi 工人加载守卫并拿到内核算的配置、文件被改过就不起。原来那条审计用例的调用清单抽成 `reach_calls` 共用，加上 faba 那种写到系统临时目录的。变异 17 个全部抓住（审计 6、接线 4、guard.ts 7）；第一遍漏了“不核前缀、只核结尾”，补了“只有结尾对得上”那条用例。
 
+### 第 107 轮：变异清单照 CRLF 文件逐字抄的锚点也认（2026-10-25，T017 战后门禁）
+
+- **撞上的事**：T017 战后门禁的第二次返工（65da）交上的清单，`events.ts` 的 9 条锚点全对不上，变异没跑，又返工一回合（第三次，35 分钟）。门禁端自己查到了根因：`events.ts` 在 worktree 里是 CRLF，它照文件原样把 `\r\n` 抄进了 old；调度器的 `_apply_mutation` 与 `_anchor_count` 先把文件归一成 LF，old 却不归一，带 CR 的 old 在归一过的文本里永远找不到。账本里战后门禁因锚点对不上被退回 4 次（T016 三次、T017 一次），返工次数又有上限（T017 的战后门禁这次正好用满 3 次）。
+- **改动**（`pi_dispatch.py`，调度器只有 Python 实现；mutate 也不在转交给 TS 的只读命令里）：比对之前，old 与 new 里的 CRLF 也先换成 LF——`_apply_mutation`、`_anchor_count`，以及锚点对不上时给提示的 `_anchor_hints`（themistally-15 复核时补：出现多次那一支原来拿没归一的 old 去找，照抄 CRLF 的 old 出现两次时只报次数、不列位置）。old 带 CR LF 原来必然对不上，现在能对上；new 带 CR LF 原来写回 CRLF 文件时会变成 CR CR LF，现在照常。LF 文件不受影响（写回仍是 LF）。清单校验里的 `new == old` 与“只插入代码”仍按原文比，只在 old、new 仅差换行时与归一后的口径不同，不管。
+- **提示词**：worker.md 战后一节补两句：换行写 `\n` 就行（CRLF 的文件与清单都按 LF 比对）；交差之前在工作目录里跑一遍 `mutate --tree . --spec mutation-spec.json --check-anchors`，退出码 0（每条都是 OK）再交。
+- **测试**：test_dispatch 新增 1 条（CRLF 文件、照抄的 CRLF old 与 new：核对与套用都对上，写回没有 CR CR LF；LF 文件里带 CR LF 的 old 也对上，写回仍是 LF；CRLF 的 old 出现两次时提示列出两处）。变异 4 个全部抓住：套用时都不归一、套用时只归一 old、核对时 old 不归一、提示里 old 不归一；themistally-15 另做 5 个也全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

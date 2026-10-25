@@ -5575,12 +5575,15 @@ def _apply_mutation(path: Path, old: str, new: str, count: int) -> Tuple[bytes, 
     返回（原始字节, 实际出现次数），调用方用原始字节恢复文件。清单按 LF 书写即可：
     文件是 CRLF 换行时（例如 Windows 上 autocrlf 检出的副本），先按 LF 比对，写回时
     再换回 CRLF。文件不是 UTF-8 文本时抛 UnicodeDecodeError。
+    old、new 里照文件原样抄来的 CRLF 也先换成 LF（第 107 轮）：不然 old 在归一过的文本里永远找不到
+    （T017 战后门禁照 CRLF 的 events.ts 逐字抄，9 条锚点对不上，多返工一回合），new 写回时还会变成 CR CR LF。
     """
     original = path.read_bytes()
     text = original.decode("utf-8")
     crlf, lf = chr(13) + chr(10), chr(10)
     uses_crlf = crlf in text
     normalized = text.replace(crlf, lf) if uses_crlf else text
+    old, new = old.replace(crlf, lf), new.replace(crlf, lf)
     found = normalized.count(old)
     if found == count:
         mutated = normalized.replace(old, new)
@@ -5916,9 +5919,10 @@ def _print_mutation_totals(results: Sequence[Dict[str, Any]], spec: Dict[str, An
 
 
 def _anchor_count(path: Path, old: str) -> int:
-    """old 在文件里的出现次数，按 _apply_mutation 的口径（CRLF 先按 LF 比对）。"""
+    """old 在文件里的出现次数，按 _apply_mutation 的口径（文件与 old 的 CRLF 都先按 LF 比对）。"""
+    crlf, lf = chr(13) + chr(10), chr(10)
     text = path.read_bytes().decode("utf-8")
-    return text.replace(chr(13) + chr(10), chr(10)).count(old)
+    return text.replace(crlf, lf).count(old.replace(crlf, lf))
 
 
 #: --check-anchors 的“最相近”提示：相似度不到这个值的行不列出。
@@ -5975,6 +5979,7 @@ def _anchor_hints(path: Path, old: str, found: int) -> List[str]:
     """
     import difflib
     lines = path.read_bytes().decode("utf-8").replace(chr(13) + chr(10), chr(10)).split(chr(10))
+    old = old.replace(chr(13) + chr(10), chr(10))  # 与 _anchor_count 同一口径（第 107 轮）
     if found == 0:
         first = next((line.strip() for line in old.split(chr(10)) if line.strip()), "")
         if not first:

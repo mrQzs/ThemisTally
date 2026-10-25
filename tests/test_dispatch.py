@@ -2283,6 +2283,30 @@ def test_v250_mutate_tree():
           code != 0 and "没有通过" in out and "这棵树" in out and (repo / "src/normalize.py").read_bytes() == before, out)
 
 
+def test_mutation_anchors_copied_with_crlf_still_match():
+    """第 107 轮：照 CRLF 文件逐字抄来的 old、new 也按 LF 比对与套用。T017 的战后门禁照 events.ts 的原样抄了
+    9 条锚点（带 CR LF），文件先按 LF 归一、old 却没有，核对全不符，多返工一回合；new 带 CR LF 写回时会变成 CR CR LF。"""
+    tmp_path = WORK / "v107-crlf"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    crlf = tmp_path / "events.ts"
+    crlf.write_bytes(b"const a = 1;\r\nconst b = 2;\r\nconst c = 3;\r\n")
+    old = "const a = 1;\r\nconst b = 2;"
+    assert pd._anchor_count(crlf, old) == 1
+    original, found = pd._apply_mutation(crlf, old, "const a = 0;\r\nconst b = 2;", 1)
+    assert found == 1 and crlf.read_bytes() == b"const a = 0;\r\nconst b = 2;\r\nconst c = 3;\r\n"
+    assert original == b"const a = 1;\r\nconst b = 2;\r\nconst c = 3;\r\n"
+    lf = tmp_path / "plain.py"
+    lf.write_bytes(b"x = 1\ny = 2\n")
+    assert pd._anchor_count(lf, "x = 1\r\ny = 2") == 1
+    _original, found = pd._apply_mutation(lf, "x = 1\r\ny = 2", "x = 0\r\ny = 2", 1)
+    assert found == 1 and lf.read_bytes() == b"x = 0\ny = 2\n"  # LF 文件写回仍是 LF
+    twice = tmp_path / "twice.ts"  # 出现多次时列出每一处（themistally-15 复核时补）
+    twice.write_bytes(b"a();\r\nb();\r\na();\r\nb();\r\nc();\r\n")
+    assert pd._anchor_count(twice, "a();\r\nb();") == 2
+    assert pd._anchor_hints(twice, "a();\r\nb();", 2) == ["出现在 L1；锚点之后的下一行：a();",
+                                                        "出现在 L3；锚点之后的下一行：c();"]
+
+
 def test_v250_summary_notes_and_doctor_note():
     """2.5.0：summary 备注掩盖退出码的管道、没有清理的临时目录、执行器自宣的解读；doctor 不带模型参数时说明未检查。"""
     cases = {
