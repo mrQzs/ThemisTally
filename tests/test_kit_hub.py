@@ -1262,88 +1262,6 @@ def test_audits_name_model_api_errors_instead_of_blaming_the_output():
     assert kh.audit_pi_stream(stream(pi_end("error", "429"), pi_end("stop")), spec)["api_error"] is None
 
 
-def test_output_block_is_the_last_json_fence():
-    text = "前文\n```json\n{\"a\": 1}\n```\n中间\n```json\n{\"letter\": {\"type\": \"交付\"}}\n```\n"
-    assert kh.extract_json_block(text) == {"letter": {"type": "交付"}}
-    with pytest.raises(kh.HubError):
-        kh.extract_json_block("没有代码块")
-    with pytest.raises(kh.HubError):
-        kh.extract_json_block("```json\n{坏的}\n```")
-    # 第 48 轮：T011 的协调人（qwen）三种写法都把整个对象写完了，四个回合作废、主任务两次转给站主
-    warnings: list = []
-    assert kh.extract_json_block("说明\n```json\n{\"letters\": [], \"state\": \"s\"}\n", warnings) == {
-        "letters": [], "state": "s"}  # 没写收尾的 ```
-    assert len(warnings) == 1 and "没有包在完整的 ```json 代码块里" in warnings[0]
-    assert kh.extract_json_block("这次确保 ```json 代码块收尾。\n\n```json\n{\"a\": 1}```", []) == {"a": 1}  # 收尾贴在同一行
-    assert kh.extract_json_block("{\"letters\": [{\"to\": \"x\"}]}\n\n说明：上次 ```json 没收尾。", []) == {
-        "letters": [{"to": "x"}]}  # 没有代码块，对象在前、说明在后
-    nested = "{\n\"letters\": [\n{\n\"to\": \"x\"\n}\n]\n}\n"  # 内层对象也在行首：不当成输出
-    assert kh.extract_json_block(nested, []) == {"letters": [{"to": "x"}]}
-    assert kh.extract_json_block("```json\n{\"a\": 1}\n``", []) == {"a": 1}
-    assert kh.extract_json_block("照 ```json 这个格式写：\n```json\n{\"a\": 2}", []) == {"a": 2}  # 取最后一个
-    for broken in ("```json\n{\"a\": 1, \"b\":", "```json\n说明文字", "```json", "[1, 2]",
-                   "示例：\n{\"letters\": []}\n真的：\n{\"letters\": [{\"to\":"):  # 最后一个对象坏了：不拿示例顶替
-        with pytest.raises(kh.HubError):
-            kh.extract_json_block(broken, [])
-    # 有收尾的代码块时照旧取它，后面没收尾的说明不管
-    assert kh.extract_json_block("```json\n{\"a\": 1}\n```\n后面又开一个 ```json\n说明", []) == {"a": 1}
-
-
-def test_output_block_tolerates_only_trailing_closers():
-    # T004 的协调人 8 次输出都在结尾多写了 `]}`，每次白跑一个回合（第 18 轮）
-    warnings: list = []
-    text = "```json\n{\"letters\": [{\"to\": \"x\"}], \"state\": \"s\"}]}\n```"
-    assert kh.extract_json_block(text, warnings) == {"letters": [{"to": "x"}], "state": "s"}
-    assert len(warnings) == 1 and "]}" in warnings[0]
-    clean: list = []
-    assert kh.extract_json_block("```json\n{\"a\": 1}\n```", clean) == {"a": 1} and clean == []
-    for extra in ("]} 还有话", "{\"b\": 2}", "x"):  # 多了别的内容照旧拒收
-        with pytest.raises(kh.HubError):
-            kh.extract_json_block("```json\n{\"a\": 1}%s\n```" % extra, [])
-    with pytest.raises(kh.HubError):
-        kh.extract_json_block("```json\n[1]]\n```", [])  # 顶层不是对象
-
-
-def test_output_block_merges_keys_written_after_an_early_close():
-    # 第 32 轮：T010 的规划端在 state 之后收了尾，又写了 `, "external_facts": [...]}`，四万多字的回合作废
-    warnings: list = []
-    text = ("```json\n{\"letter\": {\"type\": \"交付\"}, \"report\": \"r\", \"state\": \"s\"}, "
-            "\"external_facts\": [{\"fact\": \"f\"}]}\n```")
-    assert kh.extract_json_block(text, warnings) == {"letter": {"type": "交付"}, "report": "r", "state": "s",
-                                                     "external_facts": [{"fact": "f"}]}
-    assert len(warnings) == 1 and "提前收了尾" in warnings[0] and "external_facts" in warnings[0]
-    # 后面改写了已有的键：不是“补上漏写的键”，不并；只是重复已有键的，照第 25 轮取第一份
-    assert kh.merge_early_close("{\"a\": 1}, \"a\": 2}", 8, {"a": 1}) is None
-    assert kh.extract_json_block("```json\n{\"a\": 1}, \"a\": 2}\n```", []) == {"a": 1}
-    for bad in ("{\"a\": 1}, 坏的}", "{\"a\": 1} , \"state\": [}", "{\"a\": 1}\"state\": 2}",
-                "{\"a\": 1}, \"verdict\": 2}"):  # 认不得的键（第 25 轮）照旧拒收
-        with pytest.raises(kh.HubError):
-            kh.extract_json_block("```json\n%s\n```" % bad, [])
-    assert kh.merge_early_close("{\"a\": 1} , \"state\": \"s\"}", 8, {"a": 1}) == {"a": 1, "state": "s"}
-    assert kh.merge_early_close("{\"a\": 1}, \"a\": 1}", 8, {"a": 1}) is None  # 没有新键：不是漏写
-    assert kh.merge_early_close("{\"a\": 1}, \"a\": 2, \"state\": \"s\"}", 8, {"a": 1}) is None  # 顺手改了已有的键
-    assert kh.merge_early_close("[1], 2]", 3, [1]) is None  # 顶层不是对象
-    assert kh.merge_early_close("{\"a\": 1}, \"state\": 2", 8, {"a": 1}) is None  # 并不成一个对象（少了右括号）
-
-
-def test_turn_records_the_ignored_trailing_closers(tmp_path, monkeypatch):
-    monkeypatch.setitem(kh.ROSTER, "audit-sonnet", CLAUDE_AUDIT)
-    hub = kh.Hub(tmp_path)
-    hub.ensure()
-    final = "交付。\n```json\n{\"letter\": {\"type\": \"交付\"}, \"state\": \"s\"}]}\n```"
-
-    def launcher(cmd, cwd, env, out, err, timeout):
-        events = [INIT, {"type": "result", "result": final}]  # 审核端：只读三件工具，sonnet
-        out.write(("\n".join(json.dumps(e) for e in events) + "\n").encode("utf-8"))
-        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
-
-    turn = kh.TurnRunner(hub, launcher=launcher).run("audit-sonnet", "T001-7-audit-post", tmp_path, "角色", "输入")
-    assert turn["violations"] == [] and turn["output"] == {"letter": {"type": "交付"}, "state": "s"}
-    assert turn["output_error"] is None
-    record = json.loads(Path(turn["turn_dir"], "result.json").read_text(encoding="utf-8"))
-    assert any("末尾多了 ]}" in w for w in record["warnings"])
-
-
 def test_pi_refused_calls_outside_the_allowlist_only_warn():
     # T004 的合同端：pi 回 “Tool bash not found”，模型改用 ls，内核却把回合作废
     spec = {"tools": ["read", "ls"], "provider": "p", "model": "m"}
@@ -5062,23 +4980,6 @@ def test_supervisor_stops_restarting_a_crashing_runner(tmp_path, monkeypatch):
     assert [kh.letter_main(p) for p in hub.unread(kh.COORDINATOR)] == ["T001"]
 
 
-def test_output_block_takes_the_first_copy_when_keys_are_repeated():
-    # 第 25 轮：T008 的协调人两次都在对象结束之后又写了一遍 `], "state": "…"}`
-    warnings: list = []
-    text = ('```json\n{"letters": [{"to": "站主", "摘要": "x"}], "state": "# 断点 一"}], '
-            '"state": "# 断点 二"}\n```')
-    assert kh.extract_json_block(text, warnings) == {"letters": [{"to": "站主", "摘要": "x"}], "state": "# 断点 一"}
-    assert warnings == ["JSON 代码块末尾又写了一遍 state，已忽略，取第一份"]
-    for extra in (', "letters": []}', ', "verdict": "通过"}', '], {"to": "x"}]}'):
-        # 多出来的有对象里没有的键，或者又写了一遍 letters（可能是改过的信）：照旧拒收，并说清楚错在哪
-        with pytest.raises(kh.HubError, match="只能有一个 JSON 对象"):
-            kh.extract_json_block('```json\n{"letters": [], "state": "s"}%s\n```' % extra, [])
-
-
-# ---------------------------------------------------------------------------
-# 第 26 轮：回合中途出意外，信不能悄悄丢掉
-# ---------------------------------------------------------------------------
-
 class BrokenRunner:
     def run(self, *args, **kwargs):
         raise kh.HubError("git worktree add 失败：could not lock")
@@ -5691,10 +5592,11 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
         cmd, cwd, timeout = seen[-1]
         spec = kh.ROSTER[agent]
         assert cmd[cmd.index("--provider") + 1] == spec["provider"] and cmd[cmd.index("--model") + 1] == spec["model"]
-        delivery = spec.get("delivery") == "tool"  # 第 90 轮：用 deliver 交差的岗位另加扩展与 deliver 工具
+        # 第 90 轮起用 deliver 交差、第 106 轮起加守卫；第 110 轮撤掉代码块解析，每个 pi 工人都这样
         assert cmd[cmd.index("--thinking") + 1] == spec["thinking"] and cmd[cmd.index("--tools") + 1] == ",".join(
-            spec["tools"] + (["deliver"] if delivery else []))
-        assert ("--extension" in cmd) == delivery and (not delivery or cmd[cmd.index("--extension") + 1] == str(kh.DELIVER_EXTENSION))
+            spec["tools"] + ["deliver"])
+        assert [cmd[i + 1] for i, item in enumerate(cmd) if item == "--extension"] == [
+            str(kh.DELIVER_EXTENSION), str(kh.GUARD_EXTENSION)]
         assert cwd == tmp_path / "ws" and timeout == spec["timeout"] and "claude" not in Path(cmd[0]).name
     # 门禁端要写测试、跑测试（第 98 轮起另加 deliver 交差）
     assert seen[2][0][seen[2][0].index("--tools") + 1] == "read,grep,find,ls,edit,write,bash,deliver"
@@ -5897,19 +5799,22 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path, monkeypatc
     hub = kh.Hub(tmp_path)
     hub.ensure()
     # 这里测退避，不测交差：第 99 轮起 pi 岗位都用 deliver，借合同端按代码块交差（回退开关）
-    monkeypatch.setitem(kh.ROSTER, "contract-glm", dict(kh.ROSTER["contract-glm"], delivery="block"))
     spec = kh.ROSTER["contract-glm"]
     answers = []
+    good = {"letter": dict(planner_delivery()["letter"], 摘要="合同"), "report": "# 合同说明", "state": "",
+            "contract_md": "# TASK: t001-doc\n正文"}
 
     def message(error):
-        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [
-            {"type": "text", "text": "" if error else "```json\n{\"letters\": []}\n```"}], "stopReason": "error" if error else "stop"}
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [],
+                "stopReason": "error" if error else "toolUse"}
         if error:
             body["errorMessage"] = error
         return {"type": "message_end", "message": body}
 
     def launcher(cmd, cwd, env, out, err, timeout):
-        out.write((json.dumps(message(answers.pop(0))) + "\n").encode("utf-8"))
+        error = answers.pop(0)
+        events = [message(error)] + ([] if error else deliver_events((good, False)))
+        out.write(("\n".join(json.dumps(event, ensure_ascii=False) for event in events) + "\n").encode("utf-8"))
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
     runner = kh.TurnRunner(hub, launcher=launcher)
@@ -6824,32 +6729,6 @@ def test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided(tmp_path, monke
 # 第 59 轮：收尾的 ``` 写在同一行、后面又写了第二个代码块
 # ---------------------------------------------------------------------------
 
-def test_inline_closing_fence_then_second_block_takes_the_last_complete_object():
-    # T011 的协调人：第一个代码块的收尾贴在 } 后面，说明“让我重新组织输出”，再写第二个代码块；state 里还提到了 ```json
-    first = '{"letters": [{"to": "a"}], "state": "上一回合没有 ```json 代码块"}'
-    second = '{"letters": [{"to": "b"}], "state": "新：上一回合没有 ```json 代码块"}'  # T011 两块的 state 都提到了
-    text = "说明\n```json\n" + first + "```门禁端已交付。让我重新组织输出。\n\n```json\n" + second + "```"
-    warnings = []
-    assert kh.extract_json_block(text, warnings) == json.loads(second)
-    assert len(warnings) == 1 and "取最后一个完整的" in warnings[0]
-    # 后面跟的不是 ```、而是真内容：照旧拒收
-    with pytest.raises(kh.HubError, match="后面又写了内容"):
-        kh.extract_json_block("```json\n" + second + "\n另外：还有一件事\n```", [])
-    # 规矩的单个代码块：照旧，不记警告
-    warnings = []
-    assert kh.extract_json_block("```json\n" + second + "\n```", warnings) == json.loads(second) and warnings == []
-    assert kh.last_fenced_object("```json\n" + first + "```") == json.loads(first)
-    assert kh.last_fenced_object("```json\n" + first + " 尾巴") is None
-    # 第 59 轮补：只看最后一块。最后一块坏、前一块好 → 拒收（工人写了“重来”，前一块是它收回的）
-    broken = '{"letters": ['
-    with pytest.raises(kh.HubError, match="JSON 代码块解析失败"):
-        kh.extract_json_block("```json\n" + first + "```重来。\n\n```json\n" + broken + "\n```", [])
-    # 最后一块好、前一块坏 → 收最后一块
-    warnings = []
-    assert kh.extract_json_block("```json\n" + broken + "```重来。\n\n```json\n" + second + "```", warnings) == json.loads(second)
-    assert len(warnings) == 1
-
-
 def test_the_ledger_records_which_implementation_answered(tmp_path):
     # 第 64 轮（迁移计划第 5 节）：dispatcher.called 记下 impl 与版本
     repo, _head = git_repo(tmp_path)
@@ -7164,8 +7043,8 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert {"fact", "verified"} <= set(planner["properties"]["external_facts"]["items"]["required"])
     for role in ("audit", "gate", "contract", "planner"):  # 空的 report 在回合内就挡回（themistally-15 复核第 97 轮）
         assert kh.role_schema(role)["properties"]["report"]["minLength"] == 1, role
-    assert all(kh.ROSTER[name]["delivery"] == "tool" for name in tool)
-    assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name not in tool)
+    assert all(kh.ROSTER[name]["adapter"] in ("pi", "claude") for name in tool)
+    assert all("delivery" not in spec for spec in kh.ROSTER.values())  # 第 110 轮：回退开关撤了
     audit = kh.role_schema("audit")["properties"]["letter"]
     assert tuple(audit["properties"]["type"]["enum"]) == kh.WORKER_TYPES
     assert set(kh.FIELDS) | set(kh.VERDICT_FIELDS) <= set(audit["required"])
@@ -7173,7 +7052,6 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     gate = kh.role_schema("gate")
     assert tuple(gate["properties"]["letter"]["properties"]["type"]["enum"]) == kh.WORKER_TYPES
     assert gate["properties"]["mutation_spec_file"]["const"] == kh.GATE_SPEC_FILE and "mutation_spec" not in gate["properties"]
-    assert set(gate["properties"]) <= kh.OUTPUT_KEYS  # 内核认得的键
 
 
 def deliver_events(*attempts):
@@ -7356,11 +7234,69 @@ def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
                                                "stopReason": "stop", "content": [
                                                    {"type": "text", "text": "```json\n{\"letters\": [], \"state\": \"x\"}\n```"}]}}
-    turn, _seen = coordinator_turn(tmp_path / "a", [text])  # 代码块不再算数
-    assert turn["output"] is None and "没有成功交差" in turn["output_error"]
+    turn, _seen = coordinator_turn(tmp_path / "a", [text])  # 代码块不再算数（第 110 轮撤掉了解析，防有人加回去）
+    assert turn["output"] is None and "没有成功交差" in turn["output_error"] and turn["api_error"] is None
     # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
     turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
     assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
+
+
+def test_a_delivery_the_kernel_cannot_read_is_an_interface_error(tmp_path):
+    """第 110 轮（themistally-15 的意见）：交差工具报了成功、内核却读不到参数（pi 或 claude 升级改了形状），或者 pi 一条
+    回复都没有就以非零码退出：按接口报错交给站主，不当成工人的输出问题去重试、返工。"""
+    spec = kh.ROSTER[kh.COORDINATOR]
+    good = {"letters": [], "state": "x"}
+    shapeless = [{"type": "tool_execution_start", "toolCallId": "d0", "toolName": "deliver", "args": good},
+                 {"type": "tool_execution_end", "toolCallId": "d0", "toolName": "deliver", "isError": False,
+                  "result": {"content": [{"type": "text", "text": "内核已收到"}], "parameters": good}}]
+    turn, _seen = coordinator_turn(tmp_path / "a", shapeless)
+    assert turn["output"] is None and turn["api_error"].startswith("交差工具报了成功，内核读不到参数")
+    assert "deliver 报了成功 1 次" in turn["api_error"]
+    # 读不到的那次之后又交了一次读得到的：照常收下
+    turn, _seen = coordinator_turn(tmp_path / "b", shapeless + deliver_events((good, False)))
+    assert turn["output"] == good and turn["api_error"] is None
+    # 只有一次被 schema 退回的 deliver（isError）：工人自己的错，照输出不合格走、同一会话重试，不打扰站主
+    turn, _seen = coordinator_turn(tmp_path / "e", deliver_events(({"letters": "x"}, True)))
+    assert turn["api_error"] is None and "没有成功交差" in turn["output_error"]
+    # pi 一条回复都没有就以退出码 1 结束（扩展加载失败）
+    hub = kh.Hub(tmp_path / "c")
+    hub.ensure()
+
+    def silent(cmd, cwd, env, out, err, timeout):
+        err.write("Error: failed to load extension".encode("utf-8"))
+        return {"exit_code": 1, "timed_out": False, "wall_seconds": 0.5}
+
+    turn = kh.TurnRunner(hub, launcher=silent).run(kh.COORDINATOR, "T001", tmp_path / "c", "角色", "输入")
+    assert turn["output"] is None and "pi 一条回复都没有就以退出码 1 结束" in turn["api_error"]
+    # 超时被结束的不算（照超时续接），回过话再出错退出的也不算（照输出不合格走）
+    timed = kh.TurnRunner(hub, launcher=lambda *a: {"exit_code": 1, "timed_out": True, "wall_seconds": 1200.0})
+    assert timed.run(kh.COORDINATOR, "T001", tmp_path / "c", "角色", "输入")["api_error"] is None
+    spoke = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
+                                                "stopReason": "stop", "content": [{"type": "text", "text": "做完了"}]}}
+
+    def crashed(cmd, cwd, env, out, err, timeout):
+        out.write((json.dumps(spoke, ensure_ascii=False) + "\n").encode("utf-8"))
+        return {"exit_code": 1, "timed_out": False, "wall_seconds": 3.0}
+
+    turn = kh.TurnRunner(hub, launcher=crashed).run(kh.COORDINATOR, "T001", tmp_path / "c", "角色", "输入")
+    assert turn["api_error"] is None and "没有成功交差" in turn["output_error"]
+    # claude：StructuredOutput 被 CLI 收下了，result 里却没有 structured_output
+    planner = kh.ROSTER["planner-opus"]
+    hub = kh.Hub(tmp_path / "d")
+    hub.ensure()
+
+    def claude(cmd, cwd, env, out, err, timeout):
+        init = dict(INIT, tools=planner["tools"] + ["StructuredOutput"], model=planner["model"])
+        use = {"type": "assistant", "message": {"model": planner["model"], "content": [
+            {"type": "tool_use", "id": "u1", "name": "StructuredOutput", "input": {"report": "x"}}]}}
+        accepted = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "u1", "content": "Structured output provided successfully"}]}}
+        result = {"type": "result", "result": "", "structured": {"report": "x"}}
+        out.write(("\n".join(stream(init, use, accepted, result)) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=claude).run("planner-opus", "T001-1-plan", tmp_path / "d", "角色", "输入")
+    assert turn["output"] is None and "StructuredOutput 被收下 1 次" in turn["api_error"]
 
 
 def test_a_changed_delivery_file_stops_the_turn(tmp_path, monkeypatch):

@@ -116,8 +116,8 @@ type: <见下>
 
 **做法：**
 - 内核把新信直接放进本回合的输入，代替 `mail-take`。
-- 工人的最后一条消息末尾带一个 JSON 代码块：信件字段、`report`、`state`，以及角色产物，例如合同全文、审核结论。
-- 内核解析、校验之后，以这一回合的工人名义投递。
+- 工人用交差工具交出结果（第 90–101 轮；第 110 轮撤掉了原来的“最后一条消息里的 JSON 代码块”）：pi 上调 `deliver`（`scripts/hub/deliver.ts`），claude 上交 `StructuredOutput`（`--json-schema`）。参数按岗位的 schema（`scripts/hub/schemas/`）：信件字段、`report`、`state`，以及角色产物，例如合同全文、审核结论。格式不合当场退回，同一回合里重交。
+- 内核用同一份 schema 复核之后，以这一回合的工人名义投递。
 
 **理由：**
 1. 只读的角色（规划、合同、审核、协调人）不需要 shell，工具面更小。
@@ -126,7 +126,7 @@ type: <见下>
 
 **沿用：**
 - 心跳由内核按进程存活与回合记录给出；
-- 回合结束只有一种合法方式：交出这个 JSON 代码块；
+- 回合结束只有一种合法方式：用交差工具交上结果；
 - “同一思路连续失败 3 次就换思路或提问”；
 - 正文 40 行上限。
 
@@ -250,8 +250,9 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 
 ### 6.4 输出与重试
 
-- 工人最后一条消息里**最后一个** ```json 代码块就是输出。
-- 解析或校验不过时，内核续接同一会话再给一次机会，附上错误原因。第二次仍不过，就代发 `阻塞`。
+- 最后一次被收下的交差（pi 的 `deliver`、claude 的 `StructuredOutput`）就是输出，内核用同一份 schema 再复核一遍（第 90、101 轮）。消息里的文字不读（第 110 轮撤掉了代码块解析）。
+- 没交差或复核不过时，内核续接同一会话再给一次机会，附上错误原因。第二次仍不过，就代发 `阻塞`。
+- **交差工具报了成功、内核却读不到参数，或 pi 一条回复都没有就以非零码退出**（第 110 轮）：多半是 pi、claude 升级改了内部形状或扩展加载失败，不是工人的错，按下面的接口报错直接交给站主，不重试、不返工。
 - **模型接口报错不算工人的错，也不重试**：claude 把接口错误合成为一条 `<synthetic>` 消息（带 `error`、`api_error_status`），结果的 `terminal_reason` 是 `api_error`；pi 的最后一条 assistant 消息 `stopReason` 为 `error`。内核把它记进回合的 `api_error`，阶段标为 failed，主任务转 blocked，`阻塞` 信直接给站主（协调人也会撞上同样的错）。站主处理好环境后发 `回复` 恢复。
 - **返工时干净重启**（用户评审建议 2，`docs/优化.md`）：唤醒工人的信里有 `返工` 时，内核不续接旧会话，换一个新会话，输入只有任务书、state 与这封返工信。旧会话里失败的历史不再带着走。同一阶段里的重试仍然续接。
 
@@ -308,8 +309,8 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
 
 用户给出的两套模板（模板 A：工人；模板 B：协调人）收在 `scripts/hub/worker.md` 与 `scripts/hub/coordinator.md`。按 §3.3 改了三处：
 - 不调用 mail-take / mail-send；
-- 回合结束交出 JSON 代码块；
-- 产物写在 JSON 里，由内核落盘。
+- 回合结束用交差工具交上结果（原为交出 JSON 代码块，第 110 轮撤掉）；
+- 产物写在交差的参数里，由内核落盘。
 
 内核渲染时代入名字、角色、阶段任务、允许路径与输出格式，并把模板的 sha256 记进每个回合的 `result.json`。
 
@@ -1873,6 +1874,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **清理不顶掉诊断**（themistally-15 指出）：用例 finally 里的清理 `rmSync(recursive, force)` 只忽略 ENOENT。孙进程真没被结束时它的当前目录就是 run.dir，Windows 删不掉，抛出的 EBUSY 会顶掉断言里的诊断。清理改成删不掉只 `console.warn`、不往外抛。
 - **上次多半是测量的假象**（themistally-15 从 V10.log 看出）：那次报的是第 209 行的断言，不是 rmSync 的错，说明 waitGone 放弃之后清理顺利删掉了 run.dir；孙进程要是还活着，它的当前目录在那里，删不掉。所以多半是进程号被复用、进程已退出但还挂在进程列表里（有人拿着句柄），或者 tasklist 一直没跑出结果。诊断能分开：CreationDate 晚于这次运行就是复用，查不到或没有命令行多半是挂着的已退出进程。
 - **验证**：supervise 契约 25 条全过，类型检查通过；诊断里的两条查询在一个活着的 python 上实跑过，命令行原样带回。
+
+### 第 110 轮：撤掉代码块解析，交差只认工具（2026-10-25，七端改造第 1 条的最后一步）
+
+- **前提**：五个岗位都在真实回合里用工具交过差：协调人（14a9、de20 起）、规划端（c864，StructuredOutput）、门禁端（faba、03bf、65da、5d34）、审核端（c7c4）、合同端（582e、a89d），退回次数都记在回合记录里。代码块那条回退路径从第 97 轮起没在真实回合里跑过。
+- **撤掉，不留开关**（与 themistally-15 定）：留着就要一直维护 5 个解析函数（第 25、32、48、49、56、59 轮反复补过）、提示词里的“输出格式”一节与它们的用例；要回退就 `git revert` 这一轮，比拨名册的开关干净（开关一拨，提示词、审计、记录三处一起变）。
+- **改动**：
+  - 删 `merge_early_close`、`loose_json_object`、`last_fenced_object`、`extract_json_block`、`_extract_json_block` 与只有它们用的 `OUTPUT_KEYS`、`JSON_BLOCK_RE`（133 行）。生产代码里只有 TurnRunner 一处调用。
+  - 名册删掉 `"delivery"` 键与“回退写 block”的注释；`TurnRunner` 不再看它：claude 与 pi 的工人一律用工具交差（pi 加 deliver 扩展与守卫、claude 加 `--json-schema`），输出只认 `delivered_output`。`turn_prompt` 删掉“输出格式”那一支。
+  - 回合记录的 `"delivery"` 照写 `"tool"`：旧记录里有 `"block"`，按它区分新旧，metrics 不用改；`delivery_sha256`、`deliver_refusals` 一律记。
+  - worker.md 第 2 节、coordinator.md 第 3 节改成用交差工具；deliver.ts 里“不要再在消息里写 json 代码块，内核不读它”照留。§3.3、§6.4、§9 跟着改；§10 的历史条目照原样留着。
+- **两种“没交上”分开走**（themistally-15 的意见）：贵的那种不是模型没调交差工具，而是 pi 或 claude 升级之后，模型调了、工具也报了成功，内核却读不到参数（内核认的 pi 1.4.0 的 `tool_execution_end.result.details`、claude 的 `result.structured_output` 都是内部形状）。按输出不合格走，就是同一会话重试、写信给协调人、返工开新会话从头干，一直耗到返工上限，每个岗位每个阶段都这样。新加 `interface_problem`：
+  - pi：deliver 报了成功（不是 isError）、`result.details` 却不是对象（`audit_pi_stream` 计数）；claude：StructuredOutput 被 CLI 收下（不是错误的 tool_result）、result 里却没有 `structured_output`（`audit_claude_stream` 计数）。这一回合又没有读得到的交差时，按接口报错直接交给站主：不重试、不惊动协调人。
+  - pi 一条回复都没有就以非零码退出（扩展加载失败时 pi 直接 exit 1）也这样走；超时被结束的、回过话再出错退出的不算。
+  - 模型自己没调交差工具的，照第 90 轮按输出不合格走。
+  - themistally-15 提的“hub 起回合时核对 pi、claude 的版本，变了给站主一封提醒”没做：接口真变了，上面这条马上就让站主看到，先不为猜测加检查。
+- **测试**：删掉 6 条纯解析代码块的用例；“只写了代码块、没交 deliver → 没有成功交差”的留着（防将来有人把解析加回去），另断言它不是接口报错。改 3 条：pi 工人的命令（一律带 deliver 与守卫）、限流退避（原来借合同端临时设回 block，现在成功的回合交 deliver）、schema 用例（名册里没有 delivery 键）。新增 1 条接口报错：pi 读不到参数、读不到之后又交了读得到的照收、只有一次被 schema 退回的 deliver 照输出不合格走（themistally-15 复核时的变异“被退回的也算读不到”原来存活）、pi 不回话退出、超时与回过话再退出不算、claude 收下了却没有 structured_output。test_kit_hub 323 条全过；变异 11 个全部抓住（第一遍“读到了还按读不到”存活：pi 审计里那句判断与 `interface_problem` 重复，删掉审计里那一处，只留一处判定）。
 
 ## 11. 已知缺口与下一步
 

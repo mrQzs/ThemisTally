@@ -112,7 +112,6 @@ PAUSE_TYPES = ("提问", "阻塞", "交接", "进度")
 MAIN_TASK_RE = re.compile(r"^T\d{3,6}$")
 STAGE_TASK_RE = re.compile(r"^(T\d{3,6})-(%s)$" % "|".join(re.escape(s) for s in STAGE_ORDER))
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-JSON_BLOCK_RE = re.compile(r"```json[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.S)
 FIELD_LINE_RE = re.compile(r"^(\S+?)[:：][ \t]?(.*)$")
 PENDING_MARK_RE = re.compile(r"待(?:站主|协调人)?(?:确认|拍板|决定)")
 #: 回合输入超过这个长度就写进文件，命令行只给路径（Windows 命令行上限约 32K 字符）。
@@ -140,16 +139,17 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 79 轮（站主 2026-10-24 在规划端会话里亲自确认）：换到 dsf/deepseek-flash（DeepSeek 官方按量计费，没有禁止
     # 自动化的条款）。themistally-15 照 hub 的参数实测：7 道判分题 7/7，是测过最快的（前 6 题每题 2–3 秒）。
     # 请求 high，pi 下没观察到推理输出，是否真的在思考未核实。
-    # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差（delivery: tool），不再从最后一条消息里抠 json 代码块。
-    # 出问题时把这一项改回 "block" 就切回代码块解析（这个岗位的旧路径撤掉之前一直留着）。
+    # 第 90–101 轮（七端改造第 1 条）：claude 与 pi 的工人一律用工具交差（pi 的 deliver、claude 的
+    # StructuredOutput），不再从最后一条消息里抠 json 代码块。第 110 轮撤掉了代码块解析与名册上的回退开关，
+    # 要回退就 git revert 那一轮。
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
                   "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                  "timeout": 1200, "workspace": "base", "delivery": "tool"},
+                  "timeout": 1200, "workspace": "base"},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob", "Bash"], "allowed_rules": ["Bash(npm view:*)"],
-                     "timeout": 2400, "workspace": "base", "delivery": "tool"},  # 第 101 轮；回退写 "block"
+                     "timeout": 2400, "workspace": "base"},
     # 第 46 轮：qwen3.7-plus 写合同接连出错。T011 返工五次；T013 四次都没过，最后一份 Scope 的路径全少了
     # desktop/web/，执行端照它做会全部越界。换到 glm-5.3。合同原来由不同的模型一审（审核是 glm），现在同一个模型，
     # 少了一层独立性，靠内核的机械检查（第 40、43、46 轮）与 JEV 补。
@@ -158,7 +158,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # M3.1-Flash（AA 智能指数 42.7，M3 是 29.2）。合同端、审核端、执行端现在三家各不相同。
     "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "minimax",
                      "model": "MiniMax-M3.1-Flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                     "timeout": 2400, "workspace": "base", "delivery": "tool"},  # 第 99 轮；回退写 "block"
+                     "timeout": 2400, "workspace": "base"},
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
     # 第 63 轮（站主 2026-10-22 重配 pi 的提供方）：bb 改名为 cc-switch-step-fun，同一个 StepFun 套餐端点、同一个模型。
@@ -168,8 +168,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 54.6 秒、3 个变异全抓住。请求 high，pi 下回报的推理 token 是 0，是否真的在思考未核实。
     "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
                     "model": "glm-5.3", "thinking": "high",
-                    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage",
-                    "delivery": "tool"},  # 第 98 轮；回退写 "block"
+                    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage"},
     # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
     # 第 65 轮：从 cc-switch-zhipu-glm/glm-5.3 换到 MiniMax-M3.1-Flash max。
     # 第 67 轮：换到阿里 Token Plan 的 qwen3.8-max（7 道判分题 7/7，AA 智能指数 45.4）。Token Plan 的条款禁止自动化与
@@ -179,7 +178,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 出现额度类报错（429 等）或超时作废变多，就退回 minimax/MiniMax-M3.1-Flash max。
     "audit-sonnet": {"role": "audit", "label": "审核端", "adapter": "pi", "provider": "cc-switch-qianwenai-token-plan",
                      "model": "qwen3.8-max", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                     "timeout": 2400, "workspace": "stage", "delivery": "tool"},  # 第 97 轮；回退写 "block"
+                     "timeout": 2400, "workspace": "stage"},
     # provider 是本机 pi 登记的名字，要与 `pi --list-models` 和 .agent/environment.md 一致
     # （2026-10-21 起本机又回到 bb，2026-10-22 第 63 轮 bb 改名为 cc-switch-step-fun；还没派遣的合同由
     # sync_executor_line 改写，已派遣的不动）。
@@ -339,6 +338,22 @@ def delivered_output(role: str, delivered: Optional[Dict[str, Any]]) -> Tuple[Op
     if errors:
         return None, "deliver 交上来的参数内核复核不过：%s" % "；".join(errors[:8])
     return delivered, None
+
+
+def interface_problem(spec: Dict[str, Any], audit: Dict[str, Any], result: Dict[str, Any]) -> Optional[str]:
+    """不是工人的错、重试与返工都白费的两种“没交上”（第 110 轮，themistally-15 的意见），按接口报错直接交给站主：
+    - 交差工具报了成功，内核却读不到参数。内核认的是内部形状（pi 1.4.0 的 tool_execution_end.result.details，
+      claude 的 result.structured_output），pi 或 claude 一升级改了名或形状，每个岗位、每个阶段都会这样：按输出
+      不合格走就是同一会话重试、写信给协调人、返工开新会话从头干，一直耗到返工上限；
+    - pi 一条回复都没有就以非零码退出（扩展加载失败、参数不认时 pi 直接 exit 1）。
+    模型自己没调交差工具的，照第 90 轮的规矩按输出不合格走。"""
+    if audit.get("delivered") is None and audit.get("delivered_unreadable"):
+        return "交差工具报了成功，内核读不到参数（%s）：pi 或 claude 的接口可能变了，看版本与这一回合的事件流" % (
+            audit["delivered_unreadable"])
+    if (spec["adapter"] == "pi" and not audit.get("models") and result.get("exit_code") not in (0, None)
+            and not result.get("timed_out")):
+        return "pi 一条回复都没有就以退出码 %s 结束（扩展加载失败、参数不认……看这一回合的 stderr.log）" % result["exit_code"]
+    return None
 
 
 def delivery_problem(role: str) -> Optional[str]:
@@ -1422,138 +1437,6 @@ def render_template(name: str, values: Dict[str, str], role: Optional[str] = Non
     return text
 
 
-#: 回合输出 JSON 的顶层键（OUTPUT_SPECS 与 ROLE_EXTRA_OUTPUT）
-OUTPUT_KEYS = {"letters", "letter", "report", "state", "external_facts", "contract_md", "mutation_spec",
-               "mutation_spec_file", "candidate_defects", "unmutated"}
-
-
-def merge_early_close(block: str, end: int, data: Any) -> Optional[Dict[str, Any]]:
-    """第 32 轮：T010 的规划端在 state 之后就收了对象的尾，接着又写 `, "external_facts": [...]}`。报告四万多字、
-    花了 13.5 美元的回合因此作废，返工又从头规划一遍。对象后面紧跟逗号、去掉那个右括号就能并成一个对象，
-    并且并进来的都是输出格式里的新键时，照收；重复已有的键、认不得的键（第 25 轮：可能是别的内容）、
-    并不成一个对象的，返回 None 照旧处理。"""
-    try:
-        merged = json.loads(block[:end - 1] + block[end:])  # 去掉第一个对象的右括号
-    except ValueError:
-        return None
-    if not isinstance(merged, dict) or len(merged) <= len(data) or any(merged.get(k) != v for k, v in data.items()):
-        return None
-    if not set(merged) - set(data) <= OUTPUT_KEYS:
-        return None
-    return merged
-
-
-def loose_json_object(text: str) -> Optional[Dict[str, Any]]:
-    """没有完整 ```json 代码块时，消息里最后一个顶层 JSON 对象（第 48 轮）。T011 的协调人（qwen）三种写法都把
-    整个对象写完了：没写收尾的 ```、收尾的 ``` 贴在 `}` 后面同一行、整个没有代码块（对象在前、说明在后）；
-    内核认不出，四个回合作废，主任务两次转给站主。
-
-    候选是 ```json 之后、或行首的 `{`；落在已经解析出的对象里面的不算（缩进不规范时内层对象也在行首）。
-    最后一个候选必须完整解析成对象：它坏了就不收，免得拿前面的示例当输出。"""
-    starts = sorted({m.end() for m in re.finditer(r"```json", text)} | {m.start() for m in re.finditer(r"(?m)^\{", text)})
-    found: Optional[Dict[str, Any]] = None
-    covered = -1
-    for start in starts:
-        if start < covered:
-            continue
-        offset = len(text[start:]) - len(text[start:].lstrip())
-        if not text[start + offset:].startswith("{"):
-            continue
-        try:
-            data, end = json.JSONDecoder().raw_decode(text, start + offset)
-        except ValueError:
-            found = None  # 最后一个看着像对象的坏了：不收
-            continue
-        covered = end
-        found = data if isinstance(data, dict) else None
-    return found
-
-
-def last_fenced_object(text: str) -> Optional[Dict[str, Any]]:
-    """```json 之后完整解析出的、紧跟着 ```（或文本结尾）的最后一个对象（第 59 轮）。T011 的协调人在重试回合里
-    把第一个代码块的收尾 ``` 写在 `}` 后面同一行，接着写说明“让我重新组织输出”，再写第二个代码块：JSON_BLOCK_RE
-    要求收尾前有换行，于是从第一个 ```json 一直匹配到第二个的开头，报“后面又写了内容”，回合作废、主任务转站主。
-
-    只看最后一块（第 59 轮补，themistally-15）：最后一块坏了就不收，不往前找更早的块——工人写了“重来”，前一块
-    就是它自己收回的交付。已经解析出的对象里面出现的 ```json（例如 state 里提到“```json 代码块”）不算块的开头。"""
-    last: Optional[Dict[str, Any]] = None
-    covered = -1
-    for match in re.finditer(r"```json", text):
-        if match.start() < covered:
-            continue
-        start = match.end()
-        start += len(text[start:]) - len(text[start:].lstrip())
-        last = None
-        if not text[start:].startswith("{"):
-            continue
-        try:
-            data, end = json.JSONDecoder().raw_decode(text, start)
-        except ValueError:
-            continue
-        covered = end
-        after = text[end:].lstrip()
-        if isinstance(data, dict) and (not after or after.startswith("```")):
-            last = data
-    return last
-
-
-def extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
-    try:
-        return _extract_json_block(text, warnings)
-    except HubError as exc:
-        if not str(exc).startswith("JSON 代码块解析失败"):
-            raise
-        fenced = last_fenced_object(text or "")
-        if fenced is None:
-            raise
-        if warnings is not None:
-            warnings.append("JSON 代码块没有按规矩收尾（收尾的 ``` 写在同一行，后面又写了说明或第二个代码块），"
-                            "取最后一个完整的 ```json 对象")
-        return fenced
-
-
-def _extract_json_block(text: str, warnings: Optional[List[str]] = None) -> Dict[str, Any]:
-    blocks = JSON_BLOCK_RE.findall(text or "")
-    if not blocks:
-        loose = loose_json_object(text or "")
-        if loose is None:
-            raise HubError("最后一条消息里没有 ```json 代码块")
-        if warnings is not None:
-            warnings.append("JSON 没有包在完整的 ```json 代码块里（没写收尾的 ```、收尾贴在同一行，或者没有代码块），已照收")
-        return loose
-    block = blocks[-1].strip()
-    try:
-        data = json.loads(block)
-    except ValueError as exc:
-        # 协调人在长输出末尾多写一对 `]}`：T004 的协调人 8 次重试全是这一种，每次白跑一个回合（第 18 轮）。
-        # 对象本身完整、后面只多了右括号时照收并记警告；多了别的内容照旧拒收。
-        try:
-            data, end = json.JSONDecoder().raw_decode(block)
-        except ValueError:
-            raise HubError("JSON 代码块解析失败：%s" % exc)
-        rest = block[end:]
-        merged = merge_early_close(block, end, data)
-        if merged is not None:
-            if warnings is not None:
-                warnings.append("JSON 代码块的对象提前收了尾，后面的 %s 已并回对象" % "、".join(
-                    sorted(set(merged) - set(data))))
-            data = merged
-        elif rest.strip(" \t\r\n]}"):
-            # 第 25 轮：T008 的协调人两次都在对象结束之后又写了一遍 `], "state": "…"}`（重复已有的键）。
-            # 多出来的只是重复对象里已有的顶层键时，取第一份并记警告；有对象里没有的键（可能是真内容）照旧拒收
-            keys = set(re.findall(r'"([A-Za-z_]+)"\s*:', rest))
-            if not isinstance(data, dict) or not keys or not keys <= set(data) or "letters" in keys:
-                raise HubError("JSON 代码块解析失败：%s。代码块里只能有一个 JSON 对象：第一个对象在第 %d 个字符处"
-                               "已经结束，后面又写了内容。letters 与 state 各写一次，写完就收尾" % (exc, end))
-            if warnings is not None:
-                warnings.append("JSON 代码块末尾又写了一遍 %s，已忽略，取第一份" % "、".join(sorted(keys)))
-        elif warnings is not None:
-            warnings.append("JSON 代码块末尾多了 %s，已忽略" % rest.strip())
-    if not isinstance(data, dict):
-        raise HubError("JSON 代码块顶层必须是对象")
-    return data
-
-
 def turn_cost_usd(adapter: str, session: Dict[str, Any], reported: Any) -> Tuple[Optional[float], Optional[float]]:
     """（这一回合的花费，会话累计的花费）。claude -p --resume 的 total_cost_usd 是整个会话的累计值：
     T001 协调人 20 个回合从 0.04 涨到 2.17，按回合加总多算了十倍（第 16 轮）。减去会话上一回合记下的累计值；
@@ -1671,6 +1554,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     outside: Dict[str, str] = {}  # 白名单之外的 tool_use：id → 工具名
     refused: set = set()
     structured: set = set()  # StructuredOutput 的 tool_use id（第 102 轮：数被退回几次）
+    accepted = 0  # 其中被 CLI 收下的次数（第 110 轮）
     refusals: List[int] = []
     events, unreadable = stream_events(lines)
     if unreadable:
@@ -1712,7 +1596,10 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
         elif kind == "user":
             content = (event.get("message") or {}).get("content")
             for block in content if isinstance(content, list) else []:
-                if not (isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error")):
+                if not (isinstance(block, dict) and block.get("type") == "tool_result"):
+                    continue
+                if not block.get("is_error"):
+                    accepted += block.get("tool_use_id") in structured  # CLI 收下了交差（第 110 轮）
                     continue
                 if block.get("tool_use_id") in outside and "No such tool available" in str(block.get("content")):
                     refused.add(block["tool_use_id"])
@@ -1748,7 +1635,10 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     # 第 103 轮：claude 在 stream-json 里不给思考的正文（T017 规划回合 ba4b：25 个 thinking 块里 24 个是空的、合计
     # 97 字，result 回报的 thinking_tokens 是 28,501），不数字数，记 result 回报的 token 数
     thinking = ((result.get("usage") or {}).get("output_tokens_details") or {}).get("thinking_tokens")
+    unreadable = ("StructuredOutput 被收下 %d 次，result 里却没有 structured_output" % accepted
+                  if accepted and delivered is None else None)
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "delivered": delivered,
+            "delivered_unreadable": unreadable,
             "deliver_refusals": refusals, "thinking_chars": None, "thinking_tokens": thinking,
             "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
@@ -1848,6 +1738,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     reach: Dict[str, str] = {}  # 第 106 轮：碰了不该碰的地方的调用，toolCallId → 说明；守卫当场拦下的只记警告
     delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
     refusals: List[int] = []  # 第 102 轮：deliver 每次被退回时报错的长度（pi 把收到的参数原样写进报错）
+    unreadable = 0  # deliver 报了成功、result.details 却不是对象的次数（第 110 轮）
     thinking = 0  # 第 102 轮：thinking 块的字数。pi 不回报思考的 token 数，这是“有没有思考”的证据
     events, unreadable = stream_events(lines)
     if unreadable:
@@ -1885,6 +1776,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
             elif (event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed
                     and isinstance(details, dict)):
                 delivered = details
+            elif event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed:
+                unreadable += 1  # 第 110 轮：报了成功、事件里却没有参数（pi 升级改了形状）
         elif kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
             message = event["message"]
             thinking += sum(len(str(block.get("thinking") or "")) for block in message.get("content") or []
@@ -1916,6 +1809,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered,
+            "delivered_unreadable": "deliver 报了成功 %d 次，result.details 却不是对象" % unreadable if unreadable else None,
             "deliver_refusals": refusals, "thinking_chars": thinking,
             # 第 103 轮：有的提供方回报 reasoning token（probe99 的 MiniMax 1223），有的回报 0（dsf），字数补上
             "thinking_tokens": usage.get("reasoning")}
@@ -1962,10 +1856,9 @@ class TurnRunner:
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         spec = ROSTER[agent]
-        # 第 90 轮：这个岗位用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
+        # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
-        delivery = spec.get("delivery") == "tool"
-        tools = list(spec["tools"]) + ([STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL] if delivery else [])
+        tools = list(spec["tools"]) + [STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL]
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
         turn_dir.mkdir(parents=True)
@@ -2029,8 +1922,8 @@ class TurnRunner:
                     "%s(%s)" % (tool, claude_path_rule(root)) for tool in writes
                     for root in [self.hub.repo] + ([inputs] if inputs is not None else [])]
             cmd += ["--permission-prompts", "none", "--append-system-prompt-file", str(role_path)]
-            if delivery:  # haiku 实测：5.3 万字符的 report 一次交上、逐字一致，--resume 之后照样能交
-                cmd += ["--json-schema", json.dumps(role_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
+            # haiku 实测：5.3 万字符的 report 一次交上、逐字一致，--resume 之后照样能交
+            cmd += ["--json-schema", json.dumps(role_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
         else:
@@ -2040,8 +1933,7 @@ class TurnRunner:
             pi_cmd = pd.resolve_pi_command()
             # 第 90 轮（七端改造第 1 条）：用 deliver 交差的岗位另加扩展（内核目录里的绝对路径）与 deliver 工具；
             # --no-extensions 只关掉自动发现，显式的 --extension 照样加载（pi 1.4.0 实测）。守卫扩展每个 pi 工人都加（第 106 轮）
-            extension = (["--extension", str(DELIVER_EXTENSION)] if delivery else []) + [
-                "--extension", str(GUARD_EXTENSION)]
+            extension = ["--extension", str(DELIVER_EXTENSION), "--extension", str(GUARD_EXTENSION)]
             cmd = pi_cmd + [
                 "--provider", spec["provider"], "--model", spec["model"], "--thinking", spec["thinking"],
                 "--mode", "json"] + list(pd.RESOURCE_FLAGS) + extension + [
@@ -2056,13 +1948,12 @@ class TurnRunner:
         env = worker_env(config)
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
-        if delivery and spec["adapter"] != "claude":
-            env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
         if spec["adapter"] != "claude":
+            env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
             env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
-        blocked = (delivery_problem(spec["role"]) if delivery else None) if spec["adapter"] == "claude" else (
+        blocked = delivery_problem(spec["role"]) if spec["adapter"] == "claude" else (
             pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or worker_file_problem(GUARD_EXTENSION)
-            or (delivery_problem(spec["role"]) if delivery else None))
+            or delivery_problem(spec["role"]))
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
@@ -2071,6 +1962,8 @@ class TurnRunner:
                  if spec["adapter"] == "claude" else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
+        elif not audit.get("api_error"):
+            audit["api_error"] = interface_problem(spec, audit, result)
         if spec["adapter"] == "claude":
             audit["effort_requested"] = spec["effort"]
             audit["effort_effective"] = claude_session_effort(session["id"])
@@ -2091,13 +1984,8 @@ class TurnRunner:
             session.pop("throttles", None)
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
-        elif not audit["violations"] and delivery:
-            output, output_error = delivered_output(spec["role"], audit.get("delivered"))
         elif not audit["violations"]:
-            try:
-                output = extract_json_block(audit["final_text"], audit.setdefault("warnings", []))
-            except HubError as exc:
-                output_error = str(exc)
+            output, output_error = delivered_output(spec["role"], audit.get("delivered"))
         turn_cost, session_cost = turn_cost_usd(spec["adapter"], session, audit.get("cost_usd"))
         session["turns"] = int(session.get("turns", 0)) + 1
         session["last_turn"] = turn_id
@@ -2115,16 +2003,16 @@ class TurnRunner:
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
             "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
-            # 第 90 轮：怎么交差的；用工具交差时记下这个岗位的 schema（pi 还有扩展）的哈希
-            "delivery": "tool" if delivery else "block",
+            # 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希。第 110 轮起一律是 "tool"，
+            # 照写这个字段：旧记录里有 "block"，按它区分新旧
+            "delivery": "tool",
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
                 () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (
-                "%s.json" % spec["role"],)}
-            if delivery else None,
+                "%s.json" % spec["role"],)},
             # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。
             # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数
-            "deliver_refusals": len(audit.get("deliver_refusals") or []) if delivery else None,
-            "deliver_refusal_chars": sum(audit.get("deliver_refusals") or []) if delivery else None,
+            "deliver_refusals": len(audit.get("deliver_refusals") or []),
+            "deliver_refusal_chars": sum(audit.get("deliver_refusals") or []),
             "thinking_chars": audit.get("thinking_chars"), "thinking_tokens": audit.get("thinking_tokens"),
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
@@ -4505,7 +4393,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if seeded:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
-    if spec.get("delivery") == "tool" and spec["adapter"] != "claude":
+    if spec["adapter"] != "claude":
         # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住
         parts += ["", "## 交差（用 deliver 工具）", "",
                   "- 这一回合做完，调用一次 `deliver` 工具交差；参数的格式在工具的说明里（内核给的 schema），大致如下。"
@@ -4513,7 +4401,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 参数不合格式时，工具当场退回并写明哪里不对：照着改了再调一次。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
                   "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
-    elif spec.get("delivery") == "tool":
+    else:
         # 第 101 轮：claude 用 --json-schema 交差，CLI 给的工具叫 StructuredOutput
         parts += ["", "## 交差（交结构化结果）", "",
                   "- 这一回合做完，用 `StructuredOutput` 工具交出结构化结果；格式是内核给的 JSON Schema，大致如下。"
@@ -4521,9 +4409,6 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 不合格式时会退回并写明哪里不对：照着改了再交。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
                   "```", OUTPUT_SPECS["worker"], "```"]
-    else:
-        parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
-                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     if role in ROLE_EXTRA_OUTPUT:
         parts.append(ROLE_EXTRA_OUTPUT[role])
     return "\n".join(parts) + "\n"
