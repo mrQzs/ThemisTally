@@ -8,6 +8,9 @@ import { createApp, type App } from "../src/app.ts";
 import { CursorTable } from "../src/cursors.ts";
 import { KernelRunner } from "../src/kernel.ts";
 import { readRoutes, type ReadRoutesState } from "../src/readroutes.ts";
+import { EventHub, eventRoutes, type EventHubOptions } from "../src/events.ts";
+import { JobTable } from "../src/jobs.ts";
+import { jobRoutes } from "../src/jobroutes.ts";
 import { TS_ROOT } from "./harness.ts";
 
 /** 子进程替身（node 跑的 fake-kernel.mjs）。 */
@@ -129,4 +132,75 @@ export async function startApp(overrides: AppOverrides = {}): Promise<StartedApp
 /** 信封的正文（JSON 对象）。 */
 export async function envelopeOf(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
+}
+
+/**
+ * 第 3 片起应用的工具：把 hub（SSE 广播中枢）与作业表也接进来，三批 extraRoutes 合成一批交给 createApp。订阅计数、
+ * 心跳写失败的清理、作业的终态都在进程内跑，内核子进程走替身 fake-kernel.mjs。hub 与 jobs 覆盖项只给测试入口。
+ */
+export async function startAppWithHub(
+  overrides: AppOverrides & { readonly hub?: EventHubOptions } = {},
+): Promise<StartedAppWithHub> {
+  const dir = mkdtempSync(join(tmpdir(), "themis-ui-hub-"));
+  const report = join(dir, "report.jsonl");
+  process.env["FAKE_KERNEL_REPORT"] = report;
+  const repo = overrides.repo ?? TS_ROOT;
+  const runner = new KernelRunner({
+    repo,
+    python: overrides.python ?? process.execPath,
+    kernel: FAKE_KERNEL,
+    ...(overrides.maxConcurrent === undefined ? {} : { maxConcurrent: overrides.maxConcurrent }),
+    ...(overrides.maxQueue === undefined ? {} : { maxQueue: overrides.maxQueue }),
+    ...(overrides.stdoutLimitBytes === undefined ? {} : { stdoutLimitBytes: overrides.stdoutLimitBytes }),
+  });
+  const hub = new EventHub({ repo, runner, ...overrides.hub });
+  const jobs = new JobTable();
+  const state: ReadRoutesState = { repo, runner, cursors: new CursorTable(), transcript: overrides.transcript ?? [] };
+  const timeouts = overrides.timeouts ?? {};
+  const app = createApp({
+    port: 1,
+    assets: dir,
+    controlToken: "t".repeat(43),
+    extraRoutes: [...readRoutes(state, timeouts), ...eventRoutes(hub), ...jobRoutes(runner, jobs, timeouts)],
+  });
+  const nonce = app.issueBootstrap();
+  const booted = await app.fetch(new Request(`http://127.0.0.1:1/bootstrap/${nonce}`, { headers: { host: "127.0.0.1:1" } }));
+  const cookie = booted.headers.get("set-cookie")?.split(";")[0] ?? "";
+  const anon = { host: "127.0.0.1:1" };
+  const withCookie = { host: "127.0.0.1:1", cookie };
+  return {
+    app,
+    runner,
+    hub,
+    jobs,
+    report,
+    get: (target) => app.fetch(new Request(`http://127.0.0.1:1${target}`, { headers: withCookie })),
+    getAnon: (target) => app.fetch(new Request(`http://127.0.0.1:1${target}`, { headers: anon })),
+    post: (target, body) =>
+      app.fetch(
+        new Request(`http://127.0.0.1:1${target}`, {
+          method: "POST",
+          headers: { ...withCookie, origin: "http://127.0.0.1:1", "x-themis-ui": "1", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      ),
+    dispose: async () => {
+      delete process.env["FAKE_KERNEL_REPORT"];
+      hub.close();
+      await runner.shutdown();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+export interface StartedAppWithHub {
+  readonly app: App;
+  readonly runner: KernelRunner;
+  readonly hub: EventHub;
+  readonly jobs: JobTable;
+  readonly report: string;
+  get(target: string): Promise<Response>;
+  getAnon(target: string): Promise<Response>;
+  post(target: string, body: unknown): Promise<Response>;
+  dispose(): Promise<void>;
 }

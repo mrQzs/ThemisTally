@@ -13,6 +13,9 @@ import { idleMs, IdleTimer, watchSignals, watchStdinEof } from "./lifecycle.ts";
 import { CursorTable } from "./cursors.ts";
 import { KernelRunner } from "./kernel.ts";
 import { readRoutes, type ReadRoutesState } from "./readroutes.ts";
+import { EventHub, eventRoutes } from "./events.ts";
+import { JobTable } from "./jobs.ts";
+import { jobRoutes } from "./jobroutes.ts";
 
 /** 测试入口才会传的覆盖项（CLI 与环境变量都碰不到）。 */
 export interface ServeOverrides {
@@ -23,6 +26,18 @@ export interface ServeOverrides {
   readonly maxQueue?: number | undefined;
   /** 各读路由的时限覆盖（路由名 → 秒）：测试用短的时限触发 504，不必等真时限。 */
   readonly timeouts?: Readonly<Record<string, number>> | undefined;
+  /** SSE 的 stat 轮询间隔（毫秒；缺省 2000）。 */
+  readonly statIntervalMs?: number | undefined;
+  /** SSE 的去抖（毫秒；缺省 300）。 */
+  readonly debounceMs?: number | undefined;
+  /** SSE 的心跳间隔（毫秒；缺省 15000）。 */
+  readonly heartbeatMs?: number | undefined;
+  /** Bun 的全局连接空闲超时（秒）：只给测试入口覆盖，生产路径保持缺省（不设）。 */
+  readonly bunIdleTimeoutSeconds?: number | undefined;
+  /** SSE 全局同时开着的订阅数上限（缺省 16）。 */
+  readonly maxSubscriptions?: number | undefined;
+  /** SSE 每个会话的订阅数上限（缺省 4）。 */
+  readonly maxSubscriptionsPerSession?: number | undefined;
 }
 
 /** Bun.serve 用到的这几样（ts/ 里没有 Bun 的类型声明，只声明用到的）。 */
@@ -31,12 +46,16 @@ interface BunServeOptions {
   readonly port: number;
   readonly maxRequestBodySize: number;
   readonly development: boolean;
-  readonly fetch: (request: Request) => Response | Promise<Response>;
+  /** 全局连接空闲超时（秒）：只由 ServeOverrides.bunIdleTimeoutSeconds 覆盖，生产路径不设。 */
+  readonly idleTimeout?: number | undefined;
+  readonly fetch: (request: Request, server: BunServer) => Response | Promise<Response>;
   readonly error: (error: unknown) => Response | Promise<Response>;
 }
 
 interface BunServer {
   readonly port: number;
+  /** 只放宽某一条连接的空闲超时（SSE 订阅时对这一条请求调 timeout(request, 0)）。 */
+  timeout(request: Request, seconds: number): void;
   stop(closeActiveConnections?: boolean): void;
 }
 
@@ -72,7 +91,13 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
       port: 0,
       maxRequestBodySize: 131072,
       development: false,
-      fetch: (request: Request) => (app === null ? Promise.resolve(notReady()) : app.fetch(request)),
+      // 全局连接空闲超时只由测试入口覆盖，生产路径保持缺省（不设数字字面量；服务端写数据不重置空闲计时，站主拍板 B）
+      ...(overrides.bunIdleTimeoutSeconds === undefined ? {} : { idleTimeout: overrides.bunIdleTimeoutSeconds }),
+      fetch: (request: Request, bunServer: BunServer) => {
+        // SSE 订阅：只关掉这一条连接的空闲超时；其余请求不动，全局 idleTimeout 也不动
+        if (isEventsRequest(request)) bunServer.timeout(request, 0);
+        return app === null ? Promise.resolve(notReady()) : app.fetch(request);
+      },
       error: () => withSecurityHeaders(errorResponse(500, "服务内部错误"), { noStore: true }),
     });
   } catch (error) {
@@ -92,7 +117,21 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     ...(overrides.maxQueue === undefined ? {} : { maxQueue: overrides.maxQueue }),
   });
   const readState: ReadRoutesState = { repo: args.repo, runner, cursors: new CursorTable(), transcript: args.transcript };
-  const extraRoutes = readRoutes(readState, overrides.timeouts ?? {});
+  // 第 3 片：SSE 广播中枢与作业表。订阅算活动、空闲判定看它们；关停时先 hub.close() 再 runner.shutdown()
+  const hub = new EventHub({
+    repo: args.repo,
+    runner,
+    ...(overrides.statIntervalMs === undefined ? {} : { statIntervalMs: overrides.statIntervalMs }),
+    ...(overrides.debounceMs === undefined ? {} : { debounceMs: overrides.debounceMs }),
+    ...(overrides.heartbeatMs === undefined ? {} : { heartbeatMs: overrides.heartbeatMs }),
+    ...(overrides.timeouts?.["api.status.get"] === undefined ? {} : { statusTimeoutSeconds: overrides.timeouts["api.status.get"] }),
+    ...(overrides.maxSubscriptions === undefined ? {} : { maxSubscriptions: overrides.maxSubscriptions }),
+    ...(overrides.maxSubscriptionsPerSession === undefined ? {} : { maxSubscriptionsPerSession: overrides.maxSubscriptionsPerSession }),
+  });
+  const jobs = new JobTable();
+  const timeouts = overrides.timeouts ?? {};
+  // 三批 extraRoutes 合成一批交给 createApp：19 条读路由 + SSE + 作业（新路由不并进 readRoutes()）
+  const extraRoutes = [...readRoutes(readState, timeouts), ...eventRoutes(hub), ...jobRoutes(runner, jobs, timeouts)];
   const appOptions = {
     port: running.port,
     assets,
@@ -102,8 +141,9 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     ...(overrides.nonceTtlMs === undefined ? {} : { nonceTtlMs: overrides.nonceTtlMs }),
   };
   const timer = new IdleTimer(idleMs(args.idle_timeout), () => {
-    if (app === null || app.inflight() === 0) shutdown(EXIT_OK);
-    else timer.touch(); // 有请求在进行中：不算空闲
+    // 空闲判定：inflight 为 0、hub 订阅者为 0、作业表里没有在等或在跑的作业，三者都满足才退出；订阅开着算活动
+    if (app === null || app.inflight() > 0 || hub.subscribers > 0 || jobs.active() > 0) timer.touch();
+    else shutdown(EXIT_OK);
   });
   app = createApp(appOptions);
 
@@ -163,6 +203,8 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     }
     timer.stop();
     stopStdin();
+    // 先关 hub（关全部流、清全部定时器、中止在跑的 status），再 runner.shutdown()（A12：空闲退出走同一条路）
+    hub.close();
     // 取消在跑的内核子进程、清空队列、删掉临时根目录（看门狗 3 秒兜底，不拖住外壳）
     void runner.shutdown().catch(() => undefined);
     lock.release();
@@ -185,4 +227,14 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
 /** 服务还没建好时的占位响应（只可能出现在起服务与建应用之间的几毫秒里）。 */
 function notReady(): Response {
   return withSecurityHeaders(errorResponse(503, "服务正在启动"), { noStore: true });
+}
+
+/** 是不是 SSE 订阅请求（GET /api/v1/events）：对这一条请求关掉连接空闲超时。 */
+function isEventsRequest(request: Request): boolean {
+  if (request.method.toUpperCase() !== "GET") return false;
+  try {
+    return new URL(request.url).pathname === "/api/v1/events";
+  } catch {
+    return false;
+  }
 }

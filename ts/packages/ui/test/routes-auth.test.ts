@@ -7,8 +7,11 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, type App } from "../src/app.ts";
 import { CursorTable } from "../src/cursors.ts";
-import type { RunKernel } from "../src/kernel.ts";
+import { KernelRunner, type RunKernel } from "../src/kernel.ts";
 import { READ_ROUTE_SPECS, readRoutes } from "../src/readroutes.ts";
+import { EventHub, eventRoutes } from "../src/events.ts";
+import { JobTable } from "../src/jobs.ts";
+import { jobRoutes } from "../src/jobroutes.ts";
 
 const PORT = 53277;
 
@@ -122,6 +125,58 @@ describe("19 条读路由都要会话（T17）", () => {
     for (const example of Object.values(READ_ROUTE_EXAMPLES)) {
       const response = await get(example, cookie);
       expect(response.status, example).toBe(503);
+    }
+  });
+});
+
+/**
+ * 第 3 片的四条新路由（SSE 与作业）：也不标 public，不带 cookie 一律 401（T17）。表里正好是这四条，与
+ * eventRoutes()/jobRoutes() 的路由名一一对应；既有 19 条表与上面的断言一字不动。
+ */
+const NEW_ROUTE_EXAMPLES: Readonly<Record<string, { readonly method: string; readonly path: string }>> = {
+  "api.events": { method: "GET", path: "/api/v1/events" },
+  "api.jobs.create": { method: "POST", path: "/api/v1/jobs" },
+  "api.jobs.get": { method: "GET", path: "/api/v1/jobs/" + "A".repeat(43) },
+  "api.jobs.cancel": { method: "POST", path: "/api/v1/jobs/" + "A".repeat(43) + "/cancel" },
+};
+
+describe("第 3 片新路由都要会话（T17）", () => {
+  let hubApp: App;
+  let runner: KernelRunner;
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), "themis-ui-auth3-"));
+    // 真执行器（本用例不起作业也不订阅，run() 不会被调用；jobRoutes 要的是 KernelRunner，eventRoutes 收 RunKernel）
+    runner = new KernelRunner({ repo: dir, python: process.execPath, kernel: join(dir, "no-such-kernel") });
+    const hub = new EventHub({ repo: dir, runner });
+    const jobs = new JobTable();
+    hubApp = createApp({
+      port: PORT,
+      assets: dir,
+      controlToken: "t".repeat(43),
+      extraRoutes: [...eventRoutes(hub), ...jobRoutes(runner, jobs)],
+    });
+  });
+
+  afterAll(async () => {
+    await runner.shutdown();
+  });
+
+  const hit = (method: string, path: string, cookie?: string): Promise<Response> =>
+    hubApp.fetch(
+      new Request(`http://127.0.0.1:${PORT}${path}`, {
+        method,
+        headers: { host: `127.0.0.1:${PORT}`, ...(cookie === undefined ? {} : { cookie }) },
+      }),
+    );
+
+  it("四条新路由（api.events / api.jobs.create / api.jobs.get / api.jobs.cancel）不带 cookie 一律 401", async () => {
+    for (const [name, example] of Object.entries(NEW_ROUTE_EXAMPLES)) {
+      const response = await hit(example.method, example.path);
+      expect(response.status, `${name} 应要会话`).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body["messages"], name).toEqual(["ERROR: 未认证"]);
+      expect(body["ok"], name).toBe(false);
     }
   });
 });

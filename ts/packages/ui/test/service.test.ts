@@ -43,6 +43,44 @@ const cookieOf = (response: { headers: Map<string, string> }): string => {
   return value.split(";")[0] ?? "";
 };
 
+/** 发一个声明 Content-Length 超过上限（65537）的 POST：服务一个字节也不读，直接回 413。 */
+const declaredOverLimit = (port: number, headers: readonly [string, string][]): Promise<{ status: number; headers: Map<string, string>; body: Buffer }> =>
+  new Promise((done, fail) => {
+    const net = require("node:net") as typeof import("node:net");
+    const socket = net.connect(port, "127.0.0.1", () => {
+      const lines = [
+        "POST /api/v1/ping HTTP/1.1",
+        `Host: 127.0.0.1:${port}`,
+        "Connection: close",
+        "Content-Length: 65537",
+        ...headers.map(([name, value]) => `${name}: ${value}`),
+      ];
+      socket.end(`${lines.join("\r\n")}\r\n\r\n`, "latin1");
+    });
+    socket.setTimeout(15_000, () => socket.destroy(new Error("超时")));
+    let buffer = Buffer.alloc(0);
+    socket.on("data", (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+    });
+    const finish = (): void => {
+      const text = buffer.toString("latin1");
+      const at = text.indexOf("\r\n\r\n");
+      if (at < 0) {
+        fail(new Error("响应没有头"));
+        return;
+      }
+      const head = new Map<string, string>();
+      const status = Number(text.slice(0, at).split("\r\n")[0]?.split(" ")[1]);
+      for (const line of text.slice(0, at).split("\r\n").slice(1)) {
+        const colon = line.indexOf(":");
+        if (colon > 0) head.set(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+      }
+      done({ status, headers: head, body: buffer.subarray(at + 4) });
+    };
+    socket.once("end", finish);
+    socket.once("error", fail);
+  });
+
 const envelope = async (response: { body: Buffer }): Promise<Record<string, unknown>> =>
   JSON.parse(response.body.toString("utf8")) as Record<string, unknown>;
 
@@ -214,6 +252,7 @@ describe("服务", () => {
     expect(watched.response.status).toBe(413);
     expect(watched.early).toBe(true);
     expect(watched.sent).toBeLessThan(65537 + 8192);
+    expect(watched.heldBack).toBe(true); // 停发时收到了头：结尾块没发，413 先于读完正文回来
     const pad = "x".repeat(65536 - '{"pad":""}'.length);
     const exact = await request(port, "POST", "/api/v1/ping", base, Buffer.from(`{"pad":"${pad}"}`, "utf8"));
     expect(exact.status).toBe(200);
@@ -279,6 +318,11 @@ describe("服务", () => {
       65537 + 8192,
     );
     samples.push(["413-chunked", chunked.response]);
+    // 声明 Content-Length 65537 的 413：一个字节也不读，与分块 413 带同一套安全头
+    samples.push([
+      "413-content-length",
+      await declaredOverLimit(port, [["Cookie", cookie], ["Origin", `http://127.0.0.1:${port}`], ["X-Themis-UI", "1"], ["Content-Type", "application/json"]]),
+    ]);
     samples.push(["415-content-type", await request(port, "POST", "/api/v1/ping", [["Cookie", cookie], ["Origin", `http://127.0.0.1:${port}`], ["X-Themis-UI", "1"], ["Content-Type", "text/plain"]], Buffer.from("{}", "utf8"))]);
     samples.push(["403-control-no-token", await request(port, "POST", "/control/bootstrap", [["Origin", `http://127.0.0.1:${port}`], ["X-Themis-UI", "1"], ["Content-Type", "application/json"]], Buffer.from("{}", "utf8"))]);
     for (const [label, response] of samples) {

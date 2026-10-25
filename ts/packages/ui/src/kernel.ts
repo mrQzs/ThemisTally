@@ -21,6 +21,8 @@ export const MAX_STDOUT_BYTES = 32 * 1024 * 1024;
 export const MAX_STDERR_BYTES = 1024 * 1024;
 /** 服务私有的临时根目录前缀（系统临时目录下）。 */
 export const TEMP_PREFIX = "themis-ui-";
+/** H1：子进程跑着的时候每隔这么久用 statSync 看一次输出文件的大小（边写边看，不等结束）。 */
+export const OUTPUT_POLL_MS = 100;
 
 /** 一次运行的结果：completed 是进程跑完了（退出码可能非 0），其余都是服务这一侧的判定。 */
 export type RunOutcome =
@@ -47,6 +49,11 @@ export interface KernelRunnerOptions {
   readonly stderrLimitBytes?: number;
 }
 
+/** 一次运行可选的钩子：queued 变 running 的那一刻由执行器调一次 onStart（读路由不传，作业用它记 started_ms）。 */
+export interface RunHooks {
+  readonly onStart?: (() => void) | undefined;
+}
+
 /** 一次运行在队列里或在跑的表项：状态在 queued → running → settled 之间只走一次。 */
 interface Entry {
   readonly argv: readonly string[];
@@ -57,6 +64,10 @@ interface Entry {
   readonly signal: AbortSignal;
   readonly onRequestAbort: () => void;
   readonly onShutdown: () => void;
+  /** 摘掉请求 signal 与关停 signal 上的监听（H3：挂到 Entry 上，关停清队列时才摘得到）。 */
+  readonly release: () => void;
+  /** 本次运行的钩子（queued 变 running 时通知）。 */
+  readonly hooks: RunHooks | undefined;
   resolve: (outcome: RunOutcome) => void;
   state: "queued" | "running" | "settled";
 }
@@ -93,7 +104,7 @@ function internalError(detail: string): SuperviseResult {
 
 /** 执行器对外的那一点（读路由只用它跑命令；测试可以换替身）。 */
 export interface RunKernel {
-  run(argv: readonly string[], timeoutSeconds: number, signal: AbortSignal): Promise<RunOutcome>;
+  run(argv: readonly string[], timeoutSeconds: number, signal: AbortSignal, hooks?: RunHooks): Promise<RunOutcome>;
   readonly isClosing: boolean;
 }
 
@@ -138,11 +149,17 @@ export class KernelRunner implements RunKernel {
     return this.closing;
   }
 
+  /** 还能不能再收一次运行：在跑的小于上限，或者队列没满（创建作业之前先看它，收不了就不建作业）。 */
+  canAccept(): boolean {
+    return !this.closing && (this.active < this.maxConcurrent || this.queue.length < this.maxQueue);
+  }
+
   /**
    * 跑一次内核命令：argv 是路由给的模板（不含 python、kernel、--repo 与仓库路径）。取消看 signal（请求的
-   * signal）与服务关停；排队中被取消的直接出队、不起子进程；开始之前就已取消的不起子进程。
+   * signal）与服务关停；排队中被取消的直接出队、不起子进程；开始之前就已取消的不起子进程。hooks.onStart 在
+   * queued 变 running 的那一刻调一次（读路由不传）。
    */
-  run(argv: readonly string[], timeoutSeconds: number, signal: AbortSignal): Promise<RunOutcome> {
+  run(argv: readonly string[], timeoutSeconds: number, signal: AbortSignal, hooks?: RunHooks): Promise<RunOutcome> {
     if (this.closing) return Promise.resolve({ kind: "closing" });
     if (signal.aborted) return Promise.resolve({ kind: "interrupted", result: null });
     const controller = new AbortController();
@@ -173,6 +190,8 @@ export class KernelRunner implements RunKernel {
       signal,
       onRequestAbort,
       onShutdown,
+      release,
+      hooks,
       resolve: () => {},
       state: "queued",
     };
@@ -196,10 +215,20 @@ export class KernelRunner implements RunKernel {
   private async start(entry: Entry): Promise<RunOutcome> {
     entry.state = "running";
     this.active += 1;
+    entry.hooks?.onStart?.(); // queued 变 running：通知这一次（作业记 started_ms）
     const dir = mkdtempSync(join(this.root, "run-"));
     const stdoutPath = join(dir, "stdout.txt");
     const stderrPath = join(dir, "stderr.txt");
     let outcome: RunOutcome;
+    // H1：边写边看。子进程跑着的时候每隔 OUTPUT_POLL_MS 看一次输出大小，任一超限就记 overflow 并中止这次运行
+    let overflow = false;
+    const poll = setInterval(() => {
+      if (sizeOf(stdoutPath) > this.stdoutLimitBytes || sizeOf(stderrPath) > this.stderrLimitBytes) {
+        overflow = true;
+        entry.controller.abort(); // runSupervised 照中断处理，整棵树结束
+      }
+    }, OUTPUT_POLL_MS);
+    poll.unref?.();
     try {
       const result = await runSupervised([this.python, this.kernel, "--repo", this.repo, ...entry.argv], {
         cwd: this.repo,
@@ -211,10 +240,13 @@ export class KernelRunner implements RunKernel {
         signal: entry.controller.signal,
         handleSignals: false,
       });
+      // overflow 先于 timed_out 与 interrupted 判定（边写边看超限要记成 output-too-large，不是超时/中断）
       if (result.spawn_error !== null) outcome = { kind: "spawn-error", result };
+      else if (overflow) outcome = { kind: "output-too-large", result };
       else if (result.timed_out) outcome = { kind: "timeout", result };
       else if (result.interrupted) outcome = { kind: "interrupted", result };
       else if (sizeOf(stdoutPath) > this.stdoutLimitBytes || sizeOf(stderrPath) > this.stderrLimitBytes) {
+        // 结束后那次兜底：两次轮询之间就写完退出的情况也要抓住
         outcome = { kind: "output-too-large", result };
       } else {
         outcome = { kind: "completed", result, stdout: readOutput(stdoutPath), stderr: readOutput(stderrPath) };
@@ -222,9 +254,9 @@ export class KernelRunner implements RunKernel {
     } catch (error) {
       outcome = { kind: "spawn-error", result: internalError(error instanceof Error ? error.message : "未知错误") };
     } finally {
+      clearInterval(poll); // 轮询定时器在 finally 里清掉
       this.active -= 1;
-      entry.signal.removeEventListener("abort", entry.onRequestAbort);
-      this.shutdownController.signal.removeEventListener("abort", entry.onShutdown);
+      entry.release(); // 摘掉请求 signal 与关停 signal 上的监听（H3）
       entry.state = "settled";
       rmSync(dir, { recursive: true, force: true });
       this.pump();
@@ -253,6 +285,7 @@ export class KernelRunner implements RunKernel {
     for (const entry of drained) {
       if (entry.state !== "queued") continue;
       entry.state = "settled";
+      entry.release(); // H3：清队列时逐个摘掉请求 signal 与关停 signal 上的监听
       entry.resolve({ kind: "closing" });
     }
     this.shutdownController.abort();

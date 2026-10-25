@@ -131,6 +131,37 @@ describe("真内核逐字节一致（U9）", () => {
   });
 });
 
+describe("H2 越界路径由真内核拒绝（D21）", () => {
+  it("file 路由的 path 给 ../x、C:/x、a/../../x 时由内核拒绝（200 信封、ok=false、exit_code=2、data=null，正文不含夹具仓库之外的金丝雀）；..\\x 由服务回 400", async () => {
+    const running = await open();
+    const cookie = await sessionOf(running);
+    const canary = `T017-REAL-CANARY-${Math.random().toString(16).slice(2)}`;
+    writeFileSync(join(dir, "outside-secret.txt"), `${canary}\n`, "utf8"); // 夹具仓库之外
+    for (const path of ["../x", "C:/x", "a/../../x"]) {
+      const response = await request(
+        running.port,
+        "GET",
+        `/api/v1/attempts/demo-task/attempt-001/file?path=${encodeURIComponent(path)}`,
+        [["Cookie", cookie]],
+      );
+      expect(response.status, path).toBe(200); // 过了服务这一关，由内核拒绝：仍是 200 信封
+      const body = envelopeOf(response.body);
+      expect(body["ok"], path).toBe(false);
+      expect(body["exit_code"], path).toBe(2); // EXIT_USAGE：内核拒绝不在证据清单里的路径
+      expect(body["data"], path).toBe(null);
+      expect(response.body.toString("utf8"), path).not.toContain(canary);
+    }
+    // ..\x：反斜杠由服务自己回 400（同一条用例一起写明）
+    const backslash = await request(
+      running.port,
+      "GET",
+      `/api/v1/attempts/demo-task/attempt-001/file?path=${encodeURIComponent("..\\x")}`,
+      [["Cookie", cookie]],
+    );
+    expect(backslash.status).toBe(400);
+  });
+});
+
 describe("超时结束整棵树（D09）", () => {
   it("file 路由超时：504，孙进程也不在了，ping 与控制接口照常响应", async () => {
     const pidfile = join(dir, "grandchild.pid");

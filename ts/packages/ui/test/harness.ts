@@ -313,7 +313,10 @@ function send(
   });
 }
 
-/** 分块发送 total 字节，边发边看服务是不是提前回响应。 */
+/** 分块发送：两段式（D23）。先分块发到正文累计 65537 字节（8 块 8192 加 1 块 1 字节），每块之间让出 5 毫秒；
+ * 然后停下来，不发余下的块，也不发结尾的 0 块，等服务的响应头（最多 20 秒）。返回 heldBack（停发时收到了头）、
+ * early（响应头在发完 0 块之前就到了）、sent（实际发出的正文字节数）与响应。响应头到了之后收到的 error
+ * （ECONNRESET、EPIPE）照收到的响应算；头没到就出错，照旧判失败（不放宽）。 */
 export function chunkedWatch(
   port: number,
   method: string,
@@ -321,7 +324,8 @@ export function chunkedWatch(
   headers: readonly (readonly [string, string])[],
   total: number,
   chunkSize = 8192,
-): Promise<{ response: RawResponse; early: boolean; sent: number }> {
+): Promise<{ response: RawResponse; early: boolean; sent: number; heldBack: boolean }> {
+  const HOLD_AT = 65537; // 64 KiB 加 1：服务自己的计数器在这一步就回 413
   const lines = [`${method} ${target} HTTP/1.1`, `Host: 127.0.0.1:${port}`, "Connection: close", "Transfer-Encoding: chunked"];
   for (const [name, value] of headers) lines.push(`${name}: ${value}`);
   const filler = Buffer.alloc(chunkSize, 0x78);
@@ -329,43 +333,155 @@ export function chunkedWatch(
     let sent = 0;
     let buffer = Buffer.alloc(0);
     let finished = false;
+    let completed = false; // 有没有发过结尾的 0 块
     const socket = connect(port, "127.0.0.1", () => {
       socket.write(`${lines.join("\r\n")}\r\n\r\n`, "latin1");
       const pump = (): void => {
         if (sent >= total) {
+          completed = true;
           socket.write("0\r\n\r\n", "latin1");
           return;
         }
-        const size = Math.min(chunkSize, total - sent);
-        socket.write(Buffer.concat([Buffer.from(`${size.toString(16)}\r\n`, "latin1"), filler.subarray(0, size), Buffer.from("\r\n", "latin1")]));
-        sent += size;
-        setTimeout(pump, 0);
+        // 只发恰好越过上限的字节就停（尽量不让服务关连接时还有没读走的数据）
+        const capped = Math.min(chunkSize, total - sent, HOLD_AT - sent);
+        if (capped <= 0) return; // 已到停发点：不发余下的块，也不发结尾的 0 块
+        socket.write(Buffer.concat([Buffer.from(`${capped.toString(16)}\r\n`, "latin1"), filler.subarray(0, capped), Buffer.from("\r\n", "latin1")]));
+        sent += capped;
+        setTimeout(pump, 5);
       };
       pump();
     });
-    socket.setTimeout(40_000, () => socket.destroy(new Error("分块请求超时")));
-    const collect = (early: boolean): void => {
-      if (finished) return;
+    socket.setTimeout(20_000, () => socket.destroy(new Error("分块请求超时")));
+    const hasHead = (): boolean => buffer.includes("\r\n\r\n");
+    const collect = (): void => {
+      if (finished || !hasHead()) return;
       finished = true;
       const text = buffer.toString("latin1");
       const at = text.indexOf("\r\n\r\n");
-      if (at < 0) {
-        reject(new Error(`响应没有头：${text.slice(0, 200)}`));
-        return;
-      }
       const head = parseHead(text.slice(0, at));
-      done({ response: { status: head.status, headers: head.headers, body: buffer.subarray(at + 4) }, early, sent });
+      const heldBack = !completed && total > HOLD_AT && sent >= HOLD_AT;
+      done({ response: { status: head.status, headers: head.headers, body: buffer.subarray(at + 4) }, early: !completed, sent, heldBack });
     };
     socket.on("data", (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
-      collect(true);
+      collect();
     });
-    socket.once("end", () => collect(false));
-    socket.once("error", (error: Error) => reject(error));
+    socket.once("end", () => collect());
+    socket.once("error", (error: Error) => {
+      // 头已经收齐之后收到的 ECONNRESET/EPIPE 照收到的响应算；头没到就出错，照旧判失败
+      if (hasHead()) collect();
+      else if (!finished) reject(error);
+    });
   });
 }
 
 /** 系统临时目录里的一个空目录（不写进工作区，调用方负责删除）。 */
 export function systemScratch(name: string): string {
   return mkdtempSync(join(tmpdir(), `themis-ui-${name}-`));
+}
+
+// ---------------------------------------------------------------------------
+// SSE 客户端（原始套接字）：连上 GET /api/v1/events，把头解析一次，正文由后台线程收进缓冲区
+// ---------------------------------------------------------------------------
+
+export interface SseClient {
+  readonly status: number;
+  readonly headers: Map<string, string>;
+  header(name: string): string | null;
+  /** 目前的正文缓冲（UTF-8）。 */
+  buffer(): string;
+  /** 等缓冲里出现 needle（最多 timeoutMs 毫秒）；订阅被关且仍没有就抛错。 */
+  waitFor(needle: string, timeoutMs: number): Promise<void>;
+  /** 把缓冲按空行拆成 SSE 块（retry / 心跳 / 事件）。 */
+  blocks(): Record<string, unknown>[];
+  /** 直接断开（不发 abort）：服务下一次写心跳会失败。 */
+  close(): void;
+  /** 等服务把流关掉（会话作废、关停）。 */
+  waitClosed(timeoutMs: number): Promise<boolean>;
+}
+
+/** 连一条 SSE 订阅。 */
+export async function openSse(port: number, cookie: string, lastEventId?: string): Promise<SseClient> {
+  const head: [string, string][] = [
+    ["Host", `127.0.0.1:${port}`],
+    ["Connection", "close"],
+    ["Accept", "text/event-stream"],
+    ["Cookie", cookie],
+  ];
+  if (lastEventId !== undefined) head.push(["Last-Event-ID", lastEventId]);
+  const raw = (`GET /api/v1/events HTTP/1.1\r\n` + head.map(([n, v]) => `${n}: ${v}`).join("\r\n") + "\r\n\r\n").toString();
+  const socket = connect(port, "127.0.0.1");
+  let buf = "";
+  let closed = false;
+  let status = 0;
+  let headers = new Map<string, string>();
+  await new Promise<void>((done, reject) => {
+    const onData = (chunk: Buffer): void => {
+      buf += chunk.toString("utf8");
+      const at = buf.indexOf("\r\n\r\n");
+      if (at >= 0 && status === 0) {
+        const parsed = parseHead(buf.slice(0, at));
+        status = parsed.status;
+        headers = parsed.headers;
+        buf = buf.slice(at + 4);
+        socket.off("data", onData);
+        socket.on("data", (more: Buffer) => {
+          buf += more.toString("utf8");
+        });
+        done();
+      }
+    };
+    socket.once("error", reject);
+    socket.on("data", onData);
+    socket.once("connect", () => socket.write(raw, "latin1"));
+  });
+  socket.on("close", () => {
+    closed = true;
+  });
+  socket.on("error", () => {
+    closed = true;
+  });
+  return {
+    status,
+    headers,
+    header: (name) => header({ status, headers, body: Buffer.alloc(0) }, name),
+    buffer: () => buf,
+    waitFor: async (needle, timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (buf.includes(needle)) return;
+        if (closed) throw new Error(`订阅被关掉了，没等到 ${JSON.stringify(needle)}（末尾：${buf.slice(-160)}）`);
+        if (Date.now() > deadline) throw new Error(`${timeoutMs} 毫秒内没等到 ${JSON.stringify(needle)}（末尾：${buf.slice(-160)}）`);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    },
+    blocks: () => {
+      const out: Record<string, unknown>[] = [];
+      for (const block of buf.replace(/\r\n/g, "\n").split("\n\n")) {
+        const lines = block.split("\n").filter((l) => l !== "");
+        if (lines.length === 0) continue;
+        const item: Record<string, unknown> = {};
+        const data: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith("id: ")) item["id"] = line.slice(4);
+          else if (line.startsWith("event: ")) item["event"] = line.slice(7);
+          else if (line.startsWith("data: ")) data.push(line.slice(6));
+          else if (line.startsWith("retry: ")) item["retry"] = line.slice(7);
+          else if (line.startsWith(":")) item["comment"] = line;
+        }
+        if (data.length > 0) item["data"] = data.join("\n");
+        out.push(item);
+      }
+      return out;
+    },
+    close: () => socket.destroy(),
+    waitClosed: async (timeoutMs) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (closed) return true;
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      return closed;
+    },
+  };
 }

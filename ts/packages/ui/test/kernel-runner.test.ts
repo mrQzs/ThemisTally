@@ -2,6 +2,9 @@
 // （argv、时限、错误映射），加并发上限与排队、队列满 503 带 Retry-After、超时 504、断开与关停的取消、开始之前就
 // 取消、输出超限、起不了子进程、meta 的 data 合成与合成的 /secrets 的编排。子进程是 node 跑的 fake-kernel.mjs。
 import { pidAlive } from "@themis/base/process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ENVELOPE_KEYS } from "../src/envelope.ts";
 import { CSP } from "../src/localhttp/headers.ts";
@@ -15,6 +18,8 @@ beforeEach(() => {
   delete process.env["FAKE_KERNEL_STDERR"];
   delete process.env["FAKE_KERNEL_SLEEP_MS"];
   delete process.env["FAKE_KERNEL_EXIT"];
+  delete process.env["FAKE_KERNEL_PLAN"];
+  delete process.env["FAKE_KERNEL_PIDFILE"];
 });
 
 afterEach(async () => {
@@ -22,6 +27,8 @@ afterEach(async () => {
   delete process.env["FAKE_KERNEL_STDERR"];
   delete process.env["FAKE_KERNEL_SLEEP_MS"];
   delete process.env["FAKE_KERNEL_EXIT"];
+  delete process.env["FAKE_KERNEL_PLAN"];
+  delete process.env["FAKE_KERNEL_PIDFILE"];
   await started?.dispose();
   started = null;
 });
@@ -265,6 +272,84 @@ describe("并发、队列与取消（U28）", () => {
     const outcome = await started.runner.run(["status", "--json"], 30, controller.signal);
     expect(outcome.kind).toBe("interrupted");
     expect(argvsOf(started.report)).toEqual([]);
+  });
+});
+
+describe("H1 输出上限边写边看（D20）", () => {
+  it("洪泛输出：上限 1 MiB、时限 60 秒时 10 秒内就得到 output-too-large，事后孙进程也不在了", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "themis-ui-flood-"));
+    const pidfile = join(dir, "gc.pid");
+    process.env["FAKE_KERNEL_PLAN"] = "flood"; // 起孙进程之后洪泛 stdout
+    process.env["FAKE_KERNEL_PIDFILE"] = pidfile;
+    try {
+      started = await startApp({ stdoutLimitBytes: 1048576 });
+      const began = Date.now();
+      const response = await started.get("/api/v1/status");
+      const elapsed = Date.now() - began;
+      expect(response.status).toBe(500);
+      expect((await envelopeOf(response))["messages"]).toEqual(["ERROR: 内核输出超过上限"]);
+      expect(elapsed, `洪泛应在 10 秒内被抓到（实际 ${elapsed}ms）`).toBeLessThan(10000);
+      const grandchild = Number(readFileSync(pidfile, "utf8").trim());
+      expect(grandchild).toBeGreaterThan(0);
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && pidAlive(grandchild) !== false) await sleep(200);
+      expect(pidAlive(grandchild), `孙进程 ${grandchild} 应该已经不在了`).toBe(false);
+    } finally {
+      delete process.env["FAKE_KERNEL_PLAN"];
+      delete process.env["FAKE_KERNEL_PIDFILE"];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("H3 关停清队列并摘监听（D22）", () => {
+  it("排队中的条目经过关停之后监听器为 0，事后再 abort 也不会再次交代结果", async () => {
+    started = await startApp({ maxConcurrent: 1, maxQueue: 4 });
+    process.env["FAKE_KERNEL_SLEEP_MS"] = "8000";
+    // 会数监听器的假 signal（AbortSignal 形状：aborted + add/removeEventListener）
+    const listeners = new Set<() => void>();
+    const target = {
+      aborted: false,
+      addEventListener: (type: string, callback: () => void): void => {
+        if (type === "abort") listeners.add(callback);
+      },
+      removeEventListener: (type: string, callback: () => void): void => {
+        if (type === "abort") listeners.delete(callback);
+      },
+    };
+    const running = started.runner.run(["status", "--json"], 30, new AbortController().signal); // 占住名额
+    const queued = started.runner.run(["status", "--json"], 30, target as unknown as AbortSignal); // 排队
+    await sleep(200);
+    expect(listeners.size, "排队中的条目应挂了一个 abort 监听器").toBeGreaterThan(0);
+    await started.runner.shutdown(); // 清队列：逐个 release（摘监听）
+    expect(listeners.size, "关停之后监听器应归零").toBe(0);
+    for (const callback of [...listeners]) callback(); // 事后再 abort：监听器已摘，不会再次交代
+    const outcome = await queued;
+    expect(outcome.kind).toBe("closing");
+    await running.catch(() => undefined);
+  });
+});
+
+describe("canAccept 与 hooks.onStart（D16/D17）", () => {
+  it("canAccept：有名额时 true，名额占满时 false", async () => {
+    started = await startApp({ maxConcurrent: 1, maxQueue: 0 });
+    process.env["FAKE_KERNEL_SLEEP_MS"] = "500";
+    expect(started.runner.canAccept()).toBe(true);
+    const pending = started.runner.run(["status", "--json"], 30, new AbortController().signal);
+    await sleep(120);
+    expect(started.runner.canAccept(), "在跑的已占满上限、队列为 0").toBe(false);
+    await pending;
+  });
+
+  it("hooks.onStart：queued 变 running 的那一刻调一次", async () => {
+    started = await startApp();
+    let onStartCalls = 0;
+    await started.runner.run(["status", "--json"], 30, new AbortController().signal, {
+      onStart: () => {
+        onStartCalls += 1;
+      },
+    });
+    expect(onStartCalls).toBe(1);
   });
 });
 

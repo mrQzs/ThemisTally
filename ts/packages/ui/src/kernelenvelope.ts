@@ -169,3 +169,41 @@ export function runResponse(argv: readonly string[], outcome: RunOutcome, timeou
 
 /** 七个字段的名字（照 envelope.ts；这里再导出一次，方便信封的自查与测试）。 */
 export { ENVELOPE_KEYS };
+
+/**
+ * status --json 的一次跑完（completed）拼成七字段信封：/api/v1/status 与 SSE 共用这一个函数，保证两条通道的
+ * 信封逐字节一致（D03）。退出 0 却解析不了 stdout 时给 invalid-json（调用方回 500，与既有的读路由口径一致）；
+ * 退出非 0 时 stdout 不是合法 JSON 就当 data 为 null。data 过 redactJson（status 不登记白名单，一律遮敏感键）。
+ */
+export function statusEnvelope(
+  outcome: Extract<RunOutcome, { kind: "completed" }>,
+  argv: readonly string[],
+): { readonly kind: "envelope"; readonly envelope: KernelEnvelope } | { readonly kind: "invalid-json" } {
+  return completedEnvelope(outcome, argv, undefined);
+}
+
+/**
+ * 一次跑完（completed）拼成七字段信封：data 解析 stdout 的 JSON 并过 redactJson（allow 是该路由登记的白名单；作业
+ * 六类全是 undefined，一律遮）。退出 0 却解析不了 stdout → invalid-json（调用方自行决定回 500 或记 failed）。
+ * status 与作业共用这一个函数，脱敏口径只有一套（D03/D19）。
+ */
+export function completedEnvelope(
+  outcome: Extract<RunOutcome, { kind: "completed" }>,
+  argv: readonly string[],
+  allow: AllowList | undefined,
+): { readonly kind: "envelope"; readonly envelope: KernelEnvelope } | { readonly kind: "invalid-json" } {
+  const parsed = parseJsonData(outcome.stdout);
+  if (parsed === undefined && outcome.result.exit_code === 0) return { kind: "invalid-json" };
+  const data = parsed === undefined ? null : redactJson(parsed, allow);
+  return {
+    kind: "envelope",
+    envelope: {
+      ok: outcome.result.exit_code === 0,
+      exitCode: outcome.result.exit_code,
+      data,
+      messages: messagesOf(outcome.stderr),
+      command: displayArgv(argv),
+      elapsedMs: elapsedMsOf(outcome.result.wall_seconds),
+    },
+  };
+}

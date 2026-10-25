@@ -16,6 +16,7 @@ import {
   envelopeStatusResponse,
   parseJsonData,
   runResponse,
+  statusEnvelope,
   timeoutEnvelope,
 } from "./kernelenvelope.ts";
 import { CONFIG_ALLOW, EVIDENCE_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW } from "./redaction.ts";
@@ -418,7 +419,22 @@ export function readRoutes(state: ReadRoutesState, timeouts: Readonly<Record<str
       name: "api.status.get",
       method: "GET",
       pattern: exact("/api/v1/status"),
-      handle: (_state, _params, input) => jsonRoute(state, ["status", "--json"], at("api.status.get", DEFAULT_TIMEOUT), input, undefined),
+      // 与 SSE 共用 statusEnvelope：两条通道的信封逐字节一致（D03）。completed 照信封回 200，timeout 回 504，
+      // 其余错误映射照旧走 runResponse；退出 0 却解析不了 stdout 回 500。
+      handle: async (_state, _params, input) => {
+        const argv = ["status", "--json"];
+        const timeoutSeconds = at("api.status.get", DEFAULT_TIMEOUT);
+        const outcome = await state.runner.run(argv, timeoutSeconds, input.request.signal);
+        if (outcome.kind === "completed") {
+          const built = statusEnvelope(outcome, argv);
+          if (built.kind === "invalid-json") return errorResponse(500, "内核输出不是合法的 JSON");
+          return envelopeStatusResponse(built.envelope, 200);
+        }
+        if (outcome.kind === "timeout") {
+          return envelopeStatusResponse(timeoutEnvelope(argv, timeoutSeconds, outcome.result.wall_seconds), 504);
+        }
+        return runResponse(argv, outcome, timeoutSeconds);
+      },
     },
     {
       name: "api.attempts.list",
