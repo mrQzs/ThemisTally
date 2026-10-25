@@ -1262,17 +1262,17 @@ def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> 
     tasks = ".agent/mailbox/tasks"
     run_dir = ts["exec"].get("run_dir")
     run = Path(run_dir).relative_to(hub.repo).as_posix() if run_dir and Path(run_dir).is_absolute() else run_dir
-    sources = {
-        "站主的任务书": "%s/%s/brief.md" % (tasks, task),
-        "规划报告": "%s/%s-1-plan/report.md" % (tasks, task),
-        "合同": ts["contract"].get("md"),
-        "基准测试": "、".join(ts["oracle"].get("files") or []) or None,
-        "战前门禁的报告": "%s/%s-3-gate-pre/report.md" % (tasks, task),
-        "合同概述的 JEV 判断": "%s/%s-3j-jev/report.md" % (tasks, task) if "3j-jev" in ts["jev"] else None,
-        "候选补丁": "%s/candidate.patch" % run if run else None,
-        "执行概述与执行报告": "%s/summary.md、%s/executor-report.md" % (run, run) if run else None,
-        "战后门禁的报告": "%s/%s-6-gate-post/report.md" % (tasks, task),
-        "执行概述的 JEV 判断": "%s/%s-6j-jev/report.md" % (tasks, task) if "6j-jev" in ts["jev"] else None,
+    sources = {  # 每项一个路径列表，各自一对反引号：几个路径挤在一对反引号里，读的人得自己拆（T018 的终审任务书）
+        "站主的任务书": ["%s/%s/brief.md" % (tasks, task)],
+        "规划报告": ["%s/%s-1-plan/report.md" % (tasks, task)],
+        "合同": [ts["contract"]["md"]] if ts["contract"].get("md") else [],
+        "基准测试": list(ts["oracle"].get("files") or []),
+        "战前门禁的报告": ["%s/%s-3-gate-pre/report.md" % (tasks, task)],
+        "合同概述的 JEV 判断": ["%s/%s-3j-jev/report.md" % (tasks, task)] if "3j-jev" in ts["jev"] else [],
+        "候选补丁": ["%s/candidate.patch" % run] if run else [],
+        "执行概述与执行报告": ["%s/summary.md" % run, "%s/executor-report.md" % run] if run else [],
+        "战后门禁的报告": ["%s/%s-6-gate-post/report.md" % (tasks, task)],
+        "执行概述的 JEV 判断": ["%s/%s-6j-jev/report.md" % (tasks, task)] if "6j-jev" in ts["jev"] else [],
     }
     wanted = {"1-plan": ["站主的任务书"], "2-contract": ["站主的任务书", "规划报告"],
               "3-gate-pre": ["合同", "规划报告"],
@@ -1283,7 +1283,7 @@ def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> 
     lines = ["# %s-%s（%s，内核按例行流转写的任务书）" % (task, suffix, kind), "",
              "上一阶段交付通过、下一步按例行流转就是这里，所以这份任务书由内核写（七端改造第 3 条）。"
              "要做什么见你的岗位说明；下面的路径都在只读输入目录里照原样能找到。", "", "## 材料", ""]
-    lines += ["- %s：`%s`" % (name, sources[name]) for name in wanted if sources.get(name)]
+    lines += ["- %s：%s" % (name, "、".join("`%s`" % path for path in sources[name])) for name in wanted if sources[name]]
     stage = ts["stages"][suffix]
     if kind == "返工" and stage.get("problems"):
         lines += ["", "## 返工的原因：内核核验没过（原话）", ""] + ["- %s" % problem for problem in stage["problems"]]
@@ -4449,12 +4449,15 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                           "- 先逐条复核这些阻塞项是否已经解决，在报告里逐条写结论。",
                           "- 新的打回理由只能来自本轮新改动的内容，或者会导致错误结果的严重问题；"
                           "上一轮没提的建议类意见不能在这一轮升级成阻塞项。"]
+            archive = []  # 第 113 轮：单起一节，不然这几行落在前一节（下游须知）底下，像是上游写的
             if stage == "7-audit-post" and ts["gate_post"].get("whitebox_file"):
-                parts += ["", "- 白盒测试文件（内核存档，就是跑出下面结果的那一份）：%s"
-                          % shown(hub.repo / ts["gate_post"]["whitebox_file"])]
+                archive += ["- 白盒测试文件（就是跑出下面结果的那一份）：%s"
+                            % shown(hub.repo / ts["gate_post"]["whitebox_file"])]
             if stage == "7-audit-post" and ts["gate_post"].get("mutate_record"):
-                parts += ["", "- 内核的变异记录（逐条结果）：%s" % shown(hub.repo / ts["gate_post"]["mutate_record"]),
-                          "- 白盒测试的输出：%s" % shown(hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
+                archive += ["- 内核的变异记录（逐条结果）：%s" % shown(hub.repo / ts["gate_post"]["mutate_record"]),
+                            "- 白盒测试的输出：%s" % shown(hub.repo / (ts["gate_post"].get("whitebox_log") or ""))]
+            if archive:
+                parts += ["", "## 战后门禁的存档（内核）", ""] + archive
             if stage == "7-audit-post" and ts["gate_post"].get("defects"):
                 parts += ["", "## 门禁端举证的候选缺陷（逐条裁定：成立的写进阻塞项、退回执行端；"
                           "不成立的——白盒测试误读了合同——退回战后门禁；有缺陷时不能判通过）", "",

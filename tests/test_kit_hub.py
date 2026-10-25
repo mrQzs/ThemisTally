@@ -1048,7 +1048,9 @@ def test_review_history_survives_rework_and_seals_the_next_round(tmp_path, monke
                        "mutate_record": ".agent/mailbox/tasks/T001-6-gate-post/evidence/mutate-1/mutations.json"}
     prompt = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-7-audit-post", [], tmp_path)
     assert "复审封板" in prompt and "空的 except 吞掉了错误" in prompt and "等价改写：同一个字" in prompt
-    assert "evidence/mutate-1/mutations.json" in prompt.replace("\\", "/")
+    # 第 113 轮：内核的存档单起一节（T018 的终审输入里它们落在“下游须知”底下）
+    archive = prompt.split("## 战后门禁的存档（内核）\n", 1)[1].split("\n## ", 1)[0]
+    assert "evidence/mutate-1/mutations.json" in archive.replace("\\", "/")
     first = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
     assert "复审封板" not in first and "等价改写" not in first  # 只给同一阶段的上一轮
     engine.after_delivery(ts, "7-audit-post", {"结论": "通过"})
@@ -7451,6 +7453,18 @@ def test_an_audit_return_is_routed_with_the_blockers(engine_env, kernel_routing)
     ts["stages"]["3-gate-pre"] = {"status": "idle"}
     brief = kh.render_routine_brief(hub, ts, {"type": "开工", "suffix": "3-gate-pre", "fields": {}, "from_task": "x"})
     assert "最近一次审核也退回了这一阶段" in brief and "G03 断言是空心的" in brief
+
+
+def test_routine_briefs_quote_each_path_on_its_own(engine_env):
+    """第 113 轮：内核写的任务书里每个路径各自一对反引号（T018 的终审任务书把执行概述与执行报告挤在一对里）。"""
+    hub = engine_env
+    ts = hub.load_state()["tasks"]["T001"]
+    ts["exec"]["run_dir"] = str(hub.repo / ".agent" / "runs" / "t001-doc" / "attempt-001")
+    ts["oracle"]["files"] = ["tests/test_a.py", "tests/test_b.py"]
+    brief = kh.render_routine_brief(hub, ts, {"type": "开工", "suffix": "6-gate-post", "fields": {}, "from_task": "x"})
+    run = ".agent/runs/t001-doc/attempt-001"
+    assert "- 执行概述与执行报告：`%s/summary.md`、`%s/executor-report.md`" % (run, run) in brief
+    assert "- 基准测试：`tests/test_a.py`、`tests/test_b.py`" in brief
 
 
 def test_a_clean_slice_runs_from_task_to_pass_without_a_coordinator_turn(engine_env, kernel_routing, monkeypatch):
