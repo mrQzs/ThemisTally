@@ -1,0 +1,53 @@
+{
+  "description": "门禁端交差（七端改造第 1 条，第 98 轮）：交给协调人的信、report.md 与 state.md 的全文；战后另交变异清单文件名、没法变异的文件与候选缺陷。变异清单只交文件（mutation-spec.json），不内联。只用内核校验器支持的子集：type、properties、required、additionalProperties: false、enum、const、items、minLength、maxLength、pattern（只写 ASCII）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["letter", "report", "state"],
+  "properties": {
+    "letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "证据"],
+      "properties": {
+        "type": {"type": "string", "enum": ["交付", "返工完成", "提问", "阻塞", "交接", "进度"]},
+        "in_reply_to": {"type": "string", "minLength": 1, "description": "回复的 msg-id"},
+        "摘要": {"type": "string", "minLength": 1},
+        "提交": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "验证": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "偏离": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "需协调人决定": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "证据": {"type": "string", "minLength": 1, "description": "没有就写“无”"}
+      }
+    },
+    "report": {"type": "string", "minLength": 1, "description": "report.md 全文"},
+    "state": {"type": "string", "description": "state.md 全文"},
+    "mutation_spec_file": {"type": "string", "const": "mutation-spec.json", "description": "战后：变异清单写在工作目录根下的这个文件里"},
+    "unmutated": {
+      "type": "array",
+      "description": "战后：执行端改动、确实没法变异的文件（例如二进制文件），终审会复核",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "reason"],
+        "properties": {
+          "file": {"type": "string", "minLength": 1, "description": "相对路径"},
+          "reason": {"type": "string", "minLength": 1, "description": "为什么没法变异"}
+        }
+      }
+    },
+    "candidate_defects": {
+      "type": "array",
+      "description": "战后：候选不满足合同写明的行为时，红着的用例逐条举证",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "contract", "where"],
+        "properties": {
+          "test": {"type": "string", "minLength": 1, "description": "红的用例 node id 或函数名"},
+          "contract": {"type": "string", "minLength": 1, "description": "合同原文"},
+          "where": {"type": "string", "minLength": 1, "description": "候选文件:行"}
+        }
+      }
+    }
+  }
+}

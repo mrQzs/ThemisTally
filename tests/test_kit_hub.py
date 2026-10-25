@@ -5458,7 +5458,8 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
             spec["tools"] + (["deliver"] if delivery else []))
         assert ("--extension" in cmd) == delivery and (not delivery or cmd[cmd.index("--extension") + 1] == str(kh.DELIVER_EXTENSION))
         assert cwd == tmp_path / "ws" and timeout == spec["timeout"] and "claude" not in Path(cmd[0]).name
-    assert seen[2][0][seen[2][0].index("--tools") + 1] == "read,grep,find,ls,edit,write,bash"  # 门禁端要写测试、跑测试
+    # 门禁端要写测试、跑测试（第 98 轮起另加 deliver 交差）
+    assert seen[2][0][seen[2][0].index("--tools") + 1] == "read,grep,find,ls,edit,write,bash,deliver"
     assert all("write" not in cmd[cmd.index("--tools") + 1] for cmd, _cwd, _t in (seen[0], seen[1], seen[3]))
 
 
@@ -6810,13 +6811,17 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
     assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]
     assert kh.role_schema("coordinator")["properties"]["letters"].get("minItems") is None  # 第 3 条落地前后都能交空的
-    tool = (kh.COORDINATOR, "audit-sonnet")  # 第 97 轮起审核端也用 deliver
+    tool = (kh.COORDINATOR, "audit-sonnet", "gate-sonnet")  # 第 97、98 轮起审核端、门禁端也用 deliver
     assert all(kh.ROSTER[name]["delivery"] == "tool" for name in tool)
     assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name not in tool)
     audit = kh.role_schema("audit")["properties"]["letter"]
     assert tuple(audit["properties"]["type"]["enum"]) == kh.WORKER_TYPES
     assert set(kh.FIELDS) | set(kh.VERDICT_FIELDS) <= set(audit["required"])
     assert tuple(audit["properties"]["结论"]["enum"]) == kh.VERDICTS + ("无",)
+    gate = kh.role_schema("gate")
+    assert tuple(gate["properties"]["letter"]["properties"]["type"]["enum"]) == kh.WORKER_TYPES
+    assert gate["properties"]["mutation_spec_file"]["const"] == kh.GATE_SPEC_FILE and "mutation_spec" not in gate["properties"]
+    assert set(gate["properties"]) <= kh.OUTPUT_KEYS  # 内核认得的键
 
 
 def deliver_events(*attempts):
@@ -6890,6 +6895,24 @@ def test_an_audit_turn_hands_in_through_deliver(tmp_path):
     assert (fields["结论"], fields["退回"], fields["阻塞项"]) == ("返工", "门禁端", "1. 断言是空心的")
 
 
+def test_a_gate_turn_hands_in_through_deliver(tmp_path):
+    # 第 98 轮：门禁端用 deliver。变异清单只交文件（第 85 轮：手抄进输出会抄错锚点），内联的被工具挡回
+    letter = {"type": "交付", "in_reply_to": "m1", "摘要": "战后", "提交": "无", "验证": "无", "偏离": "无",
+              "需协调人决定": "无", "证据": "无"}
+    inline = {"letter": letter, "report": "# 战后", "state": "", "mutation_spec": {"mutations": []}}
+    good = {"letter": letter, "report": "# 战后", "state": "", "mutation_spec_file": kh.GATE_SPEC_FILE,
+            "candidate_defects": [{"test": "test_x", "contract": "合同原文", "where": "src/a.ts:3"}]}
+    assert kh.schema_errors(kh.role_schema("gate"), inline)
+    assert kh.schema_errors(kh.role_schema("gate"), dict(good, candidate_defects=[{"test": "t", "contract": "c"}]))
+    turn, seen = coordinator_turn(tmp_path, deliver_events((inline, True), (good, False)), agent="gate-sonnet",
+                                  key="T001-6-gate-post")
+    cmd, env = seen[0]
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "gate.json")
+    assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,edit,write,bash,deliver"
+    assert turn["output"] == good and turn["output_error"] is None
+    assert kh.candidate_defects(turn["output"]) == ([good["candidate_defects"][0]], [])
+
+
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     spec = kh.ROSTER[kh.COORDINATOR]
     text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
@@ -6920,6 +6943,8 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     audit = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in audit and "## 输出格式" not in audit
     assert "交付以外的信写“无”" in audit and "不是返工写“无”" in audit  # 三项都必填，schema 卡着
+    gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path)
+    assert "## 交差（用 deliver 工具）" in gate and "照旧内联" not in gate  # 第 98 轮：清单只交文件
 
 
 def test_kernel_changes_lists_uncommitted_kernel_files(tmp_path):

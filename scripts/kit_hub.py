@@ -158,7 +158,8 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 54.6 秒、3 个变异全抓住。请求 high，pi 下回报的推理 token 是 0，是否真的在思考未核实。
     "gate-sonnet": {"role": "gate", "label": "门禁端", "adapter": "pi", "provider": "cc-switch-zhipu-glm",
                     "model": "glm-5.3", "thinking": "high",
-                    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage"},
+                    "tools": ["read", "grep", "find", "ls", "edit", "write", "bash"], "timeout": 2400, "workspace": "stage",
+                    "delivery": "tool"},  # 第 98 轮；回退写 "block"
     # 第二重要的岗位：一审与终审是落地前最后的把关（T009 只差三个 import，只有终审查出来）。只读。
     # 第 65 轮：从 cc-switch-zhipu-glm/glm-5.3 换到 MiniMax-M3.1-Flash max。
     # 第 67 轮：换到阿里 Token Plan 的 qwen3.8-max（7 道判分题 7/7，AA 智能指数 45.4）。Token Plan 的条款禁止自动化与
@@ -4136,11 +4137,11 @@ ROLE_EXTRA_OUTPUT = {
     "gate": '战后模式把变异清单写进工作目录根下的 mutation-spec.json：{"commands": [{"id": "W1", "argv": '
             '["python", "-m", "pytest", "<文件>", "-q"]}], "mutations": [{"name": "…", "file": "<相对路径>", '
             '"old": "<原文片段>", "new": "<改坏后的片段>"}]}，输出里另加 "mutation_spec_file": "mutation-spec.json"，'
-            '不要再把清单抄进输出（内核读的就是这个文件；也可以照旧内联 "mutation_spec": {同样的格式}，两样只给一样）；'
+            '不要再把清单抄进输出（内核读的就是这个文件）；'
             '确实测不出来的等价改写，在那一条里加 "equivalent": "<为什么改了行为也不变>"（终审会逐条复核），'
             '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
-            '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec）',
+            '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec_file）',
     "audit": 'letter 里另加三项，都要写：'
              '"结论": "通过|返工"（交付以外的信写“无”）；'
              '"退回": "合同端|门禁端|战后门禁|执行端|规划端"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”'
