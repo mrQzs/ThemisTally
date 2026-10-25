@@ -48,6 +48,12 @@ export const STALE_CURSOR_TEXT = "游标对应的文件已变化";
 export const CURSOR_409_MESSAGE = "游标无效或文件已变化，请从头读取";
 /** 证据路径的长度上限（字符）。 */
 const PATH_MAX_CHARS = 1024;
+/** 跟随（follow=1）的轮询间隔下限（毫秒）：与 503 的 Retry-After: 2 一致；服务不强制下限（队列与 503 兜底）。 */
+export const FOLLOW_MIN_INTERVAL_MS = 2000;
+/** follow 取值不合格的 400 提示原文（只认字面 1，不回显请求里的值）。 */
+export const FOLLOW_VALUE_MESSAGE = "follow 参数不合格（只接受 1）";
+/** 非 JSONL 的跟随的 400 提示原文（普通文本不悄悄退化成从头读）。 */
+export const FOLLOW_JSONL_MESSAGE = "只有 JSONL 文件支持跟随";
 
 /** 读路由共用的状态：仓库、执行器、句柄表与用量路由的会话记录。 */
 export interface ReadRoutesState {
@@ -117,6 +123,17 @@ export const READ_ROUTE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "api.secrets.list.profiles": ["config", "profile", "show", "--json"],
   "api.secrets.list.check": ["config", "secret", "check", "EXAMPLE_KEY"],
   "api.secrets.show": ["config", "secret", "check", "EXAMPLE_KEY"],
+};
+
+/**
+ * file 路由跟随（follow=1）的 argv 登记表：示例值照 READ_ROUTE_ARGV 的约定（task=demo-task、attempt=attempt-001、
+ * path=events.jsonl、游标=fake-cursor-0001）。与翻页的差别只有 --complete-lines（内核只给已经写完的行）与
+ * --cursor= 仍排最后。**不并进 READ_ROUTE_ARGV**：--complete-lines 是不含 = 的开关，并进去就破了 argv 模板的
+ * 既有断言（A8）；替身与真内核的用例拿它逐条对照。
+ */
+export const FOLLOW_ARGV: Readonly<Record<string, readonly string[]>> = {
+  "api.attempts.file.follow": ["logs", "cat", "demo-task/attempt-001", "events.jsonl", "--json", "--complete-lines"],
+  "api.attempts.file.follow.cursor": ["logs", "cat", "demo-task/attempt-001", "events.jsonl", "--json", "--complete-lines", "--cursor=fake-cursor-0001"],
 };
 
 /** 一个字面路径的正则（路径里没有元字符，包起来就是精确匹配）。 */
@@ -337,16 +354,21 @@ async function metaRoute(state: ReadRoutesState, timeoutSeconds: number, input: 
   });
 }
 
-/** file 路由：证据分页；next_cursor 换成句柄，内核游标只在服务内存里。 */
+/** file 路由：证据分页；next_cursor 换成句柄，内核游标只在服务内存里。follow=1 是跟随（只认字面 1）。 */
 async function fileRoute(state: ReadRoutesState, timeoutSeconds: number, params: readonly string[], input: RouteInput): Promise<Response> {
   const task = params[0] ?? "";
   const attempt = params[1] ?? "";
   const url = new URL(input.request.url);
   const path = url.searchParams.get("path") ?? "";
   const handle = url.searchParams.get("cursor");
+  const follow = url.searchParams.get("follow");
   if (!TASK_ID_RE.test(task)) return badParam("任务 ID 不合法");
   if (!ATTEMPT_RE.test(attempt)) return badParam("attempt 编号不合法");
   if (!validPath(path)) return badParam("证据路径不合法");
+  if (follow !== null && follow !== "1") return badParam(FOLLOW_VALUE_MESSAGE); // 只认字面 1：0、true、空串都不行
+  const following = follow === "1";
+  // 普通文本的跟随要么内核支持、要么明确拒绝：不悄悄退化成从头读（那样每次轮询都要整份脱敏）
+  if (following && !path.toLowerCase().endsWith(".jsonl")) return badParam(FOLLOW_JSONL_MESSAGE);
   let cursor: string | null = null;
   if (handle !== null) {
     // 句柄格式不对、不在表里、绑定与本次请求不一致：409，不起子进程
@@ -356,7 +378,15 @@ async function fileRoute(state: ReadRoutesState, timeoutSeconds: number, params:
     if (binding.task !== task || binding.attempt !== attempt || binding.path !== path) return cursorConflict();
     cursor = binding.cursor;
   }
-  const argv = ["logs", "cat", `${task}/${attempt}`, path, "--json", ...(cursor === null ? [] : [`--cursor=${cursor}`])];
+  const argv = [
+    "logs",
+    "cat",
+    `${task}/${attempt}`,
+    path,
+    "--json",
+    ...(following ? ["--complete-lines"] : []),
+    ...(cursor === null ? [] : [`--cursor=${cursor}`]),
+  ];
   const outcome = await state.runner.run(argv, timeoutSeconds, input.request.signal);
   if (outcome.kind !== "completed") return runResponse(argv, outcome, timeoutSeconds);
   if (handle !== null && outcome.result.exit_code === 2 && outcome.stderr.includes(STALE_CURSOR_TEXT)) {
@@ -377,7 +407,7 @@ async function fileRoute(state: ReadRoutesState, timeoutSeconds: number, params:
       allow: EVIDENCE_ALLOW,
     });
   }
-  const data = withHandle(state, task, attempt, path, parsed);
+  const data = withHandle(state, task, attempt, path, parsed, following ? { handle } : null);
   return completedResponse({
     argv,
     exitCode: outcome.result.exit_code,
@@ -390,13 +420,33 @@ async function fileRoute(state: ReadRoutesState, timeoutSeconds: number, params:
   });
 }
 
-/** 一页证据：next_cursor 换成句柄（没有下一页时是 null），其余字段原样。 */
-function withHandle(state: ReadRoutesState, task: string, attempt: string, path: string, page: PyValue): PyValue {
+/** 一页证据是不是空页：内核的 lines 是空数组（位置没动、没有可给的内容）。 */
+function emptyPage(page: PyValue): boolean {
+  if (!(page instanceof Map)) return false;
+  const lines = page.get("lines");
+  return Array.isArray(lines) && lines.length === 0;
+}
+
+/** 跟随的 next_cursor：内核给了非空游标就发句柄（不看 done，末尾也要能继续要新行）；空页且请求带了句柄时原样回那个句柄（不发新句柄，表项数不变）。 */
+function followCursor(state: ReadRoutesState, task: string, attempt: string, path: string, page: PyValue, requested: string | null): string | null {
+  const next = page instanceof Map ? page.get("next_cursor") : undefined;
+  if (typeof next !== "string" || next === "") return requested; // 内核没给可接续的游标：界面拿不回比请求更旧的位置
+  if (requested !== null && emptyPage(page)) return requested;
+  return state.cursors.issue({ task, attempt, path, cursor: next });
+}
+
+/** 一页证据：next_cursor 换成句柄（没有下一页时是 null），其余字段原样；跟随时末尾追加 poll_after_ms。 */
+function withHandle(state: ReadRoutesState, task: string, attempt: string, path: string, page: PyValue, follow: { readonly handle: string | null } | null): PyValue {
   if (!(page instanceof Map)) return page;
   const out = new Map<string, PyValue>();
   for (const [key, value] of page) out.set(typeof key === "string" ? key : String(key), value);
-  // 内核在最后一页也带回一个游标，但 done 为真时没有下一页：这时候给界面 null，不发句柄
   const next = page.get("next_cursor");
+  if (follow !== null) {
+    out.set("next_cursor", followCursor(state, task, attempt, path, page, follow.handle));
+    out.set("poll_after_ms", FOLLOW_MIN_INTERVAL_MS);
+    return out;
+  }
+  // 内核在最后一页也带回一个游标，但 done 为真时没有下一页：这时候给界面 null，不发句柄
   const hasNext = page.get("done") !== true && typeof next === "string" && next !== "";
   out.set("next_cursor", hasNext ? state.cursors.issue({ task, attempt, path, cursor: next as string }) : null);
   return out;

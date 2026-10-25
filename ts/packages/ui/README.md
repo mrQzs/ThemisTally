@@ -1,6 +1,6 @@
 # @themis/ui
 
-桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；本片（第 3 片）加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定。跟随、预览、写路由与凭据录入作业是后面几片的事。
+桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；第 3 片加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定；第 4 片给 file 路由加「跟随」（`follow=1`，见「日志跟随」一节）。预览、写路由与凭据录入作业是后面几片的事。
 
 - 入口：`src/main.ts` 的 `runUi`（参数检查）转交 `src/server.ts` 的 `serveUi`。内核仓库里经 `pi_dispatch.py ui --desktop --assets <目录> …` 转交（调度器第 73 轮）；桌面应用里外壳直接起打包好的程序（T6）。
 - 本包不在内核禁区里（迁移计划第 69 轮），经 hub 派给执行器；`package.json` 与 `bun.lock` 的登记由规划端维护（禁区里的工作区文件）。
@@ -58,7 +58,7 @@ GET /api/v1/meta                                          --version             
 GET /api/v1/status                                        status --json                              （30 秒）
 GET /api/v1/attempts[?task=<task>]                        logs list --json [--task=<task>]           （30 秒）
 GET /api/v1/attempts/<task>/<attempt>                     logs show <task>/<attempt> --json           （30 秒）
-GET /api/v1/attempts/<task>/<attempt>/file?path=&cursor=  logs cat <task>/<attempt> <path> --json     （60 秒）
+GET /api/v1/attempts/<task>/<attempt>/file?path=&cursor=[&follow=1]  logs cat <task>/<attempt> <path> --json [--complete-lines]     （60 秒）
 GET /api/v1/usage                                         logs usage --json [--transcript=…]          （120 秒）
 GET /api/v1/config                                        config show --json                          （30 秒）
 GET /api/v1/config/validate                               config validate --json                      （30 秒）
@@ -105,6 +105,21 @@ POST /api/v1/jobs/<id>/cancel         要会话、CSRF、JSON 对象正文：取
 - **创建与查询的正文**：都是同一个八键作业对象 `{id, kind, state, reason, created_ms, started_ms, finished_ms, envelope}`，**不套七字段信封、不套 `data`**；创建成功的当下 `state` 是 `queued`，`reason`/`started_ms`/`finished_ms`/`envelope` 是 null（键都在）。
 - **状态机与取消**：queued → running → 四种终态之一（`succeeded`/`failed`/`cancelled`/`timed_out`）；取消排队中的不起子进程，取消在跑的结束整棵进程树（CTRL_BREAK、宽限 2 秒、再 terminateJob），取消已结束的回 409。结果与读路由同一套二道脱敏，`JOB_ALLOW` 六类全是 undefined（一律遮）。
 
+## 日志跟随
+
+```
+GET /api/v1/attempts/<task>/<attempt>/file?path=<p>&follow=1[&cursor=<句柄>]   logs cat <task>/<attempt> <p> --json --complete-lines [--cursor=<内核游标>]   （60 秒）
+```
+
+- **只认字面 `1`**：`follow` 与 `path`、`cursor` 同样从查询参数取（不另查重复参数，重复时取第一个）。取值不是字面 `1`（`0`、`true`、空串、`2`、`yes`、`01`）→ 400「follow 参数不合格（只接受 1）」，不起子进程、不回显请求里的值。不带 `follow` 就是普通翻页，行为逐字节不变。
+- **只给 JSONL**：`follow=1` 而路径不是 `.jsonl`（判定大小写不敏感，`LOG.JSONL` 放行）→ 400「只有 JSONL 文件支持跟随」，不起子进程、不回显路径。普通文本（`.txt`、`.json`）不支持跟随：不悄悄退化成从头读（退化后每次轮询都要整份脱敏，最多 64 MiB），也不用 409（界面对 409 的约定是「从头读」）。
+- **只给已经写完的行**：内核的 `--complete-lines` 把「最后一行还没有换行」的半行整行扣下，写完之后才从第 1 片起给。一行超过一页（256 KiB 个字符）时照样每次给一片、发一个新句柄，直到最后一片。
+- **末尾也发句柄**：跟随时只要内核给了非空的游标，`next_cursor` 一律是 43 个字符的随机不透明句柄，不看 `done`——界面拿着它才能继续要新行。非跟随（普通翻页）照旧：`done` 为真时 `next_cursor` 是 `null`。
+- **空页复用句柄**：没有新行时内核回空页（`lines` 是空数组），这时原样发回请求里的那个句柄，不发新句柄、句柄表项数不变——空闲的长时间跟随不会把句柄表撑爆（表仍是 1024 项、LRU 淘汰，被淘汰的旧句柄回 409）。有内容的一页才发新句柄，旧句柄留在表里（不丢）：请求被取消或响应丢了，带旧句柄重试照样接着给。
+- **轮询下限**：跟随响应的 `data` 末尾多一个键 `poll_after_ms`，值 2000（毫秒），与 503 的 `Retry-After: 2` 一致；非跟随的 `data` 里没有这个键。**服务不强制下限**：不按句柄记时间、不回 429；轮询太快由执行器兜底——同时在跑 4 个、FIFO 队列 16 个，队列满回 503 带 `Retry-After: 2`，前端照它等一会儿、带同一个句柄重试（句柄在排队失败时不受影响，不丢行也不重复）。
+- **409 的已知情形**：句柄格式不对、不在表里、绑定与本次请求不一致，以及内核报「游标对应的文件已变化」（文件被替换、截短、原地改写）都回 409「游标无效或文件已变化，请从头读取」，界面从头跟随。已知的一种：普通翻页拿到的句柄停在一条没写完的半行中间（行内位置不为 0），之后改用跟随，内核判这个游标失效 → 409，界面收到就从头跟随即可。
+- **并发轮询同一个句柄可能重复给行**：内核游标按文件位置记，两次并发的请求可能给出同样的行；界面要串行轮询（等上一次响应回来再排下一次），服务不加锁。按 2000 毫秒的下限，一个跟随者每分钟最多 30 次轮询、每次起 1 个 `logs cat` 子进程。
+
 ## 内核子进程
 
 - **命令行**：`[python, kernel, "--repo", repo, ...argv]`，argv 是列表、不经 shell，cwd 是仓库目录；`python` 与 `kernel` 取自 `UiArgs`。
@@ -138,7 +153,7 @@ node node_modules/typescript/bin/tsc -p tsconfig.json      # 类型
 ## 已知限制
 
 - 读路由的子进程并发上限 4、队列 16、各路由时限与输出上限（stdout 32 MiB、stderr 1 MiB）**不给用户配**：只开放给测试入口 `ServeOverrides`，对用户可配留给后面一片。SSE 的订阅上限（全局 16、每会话 4）、stat 间隔、去抖、心跳与作业的并发/队列/时限同样只开放给测试入口，CLI 与环境变量碰不到。
-- 本片不做跟随、预览、写路由与凭据录入作业，也不缓存脱敏结果；日志跟随要等内核先给 `logs cat` 补「只给已经写完的行」的开关。
+- 本片不做预览、写路由与凭据录入作业，也不缓存脱敏结果。file 路由的跟随只给 JSONL（`follow=1`），普通文本明确回 400，见「日志跟随」一节。
 - `file` 路由的句柄只在内存里：服务重启之后旧句柄一律 409（「游标无效或文件已变化，请从头读取」），界面要重新从头读取。
 - `/secrets` 与 `/config` 里 `TYPESAFE_API_KEY` 的 source 不会是 env（原因见上一节），与终端里同一条命令不同。
 - **输出上限的磁盘上界（H1）**：执行器边写边看，子进程跑着的时候每 100 毫秒看一次 stdout/stderr 的大小，超限就中止整棵树；两次轮询之间写完的由结束后的兜底检查抓住。临时目录里单个输出文件的磁盘上界约为「上限 + 写速度 ×（轮询间隔 100 毫秒 + 宽限 2 秒）」，不是硬上限。
