@@ -1120,6 +1120,22 @@ def test_guard_final_pass_needs_final_review():
     assert kh.guard(ts, meta("等待", "audit-sonnet", "T001-7-audit-post")) is None
 
 
+def test_guard_final_pass_waits_for_a_failed_rehearsal_of_this_candidate():
+    """第 105 轮：这个候选的落地预演没过，结项要等末端变了、重新预演通过；别的 attempt 留下的记录不挡。"""
+    ts = locked(make_ts())
+    ts["audit_post"]["verdict"] = "通过"
+    ts["exec"]["run_dir"] = r"C:\repo\.agent\runs\t001-doc\attempt-002"
+    ts["rehearsal"] = {"head": "f" * 40, "run_dir": ts["exec"]["run_dir"], "ok": False, "at": "x"}
+    reason = kh.guard(ts, meta("通过", "exec-step", "T001-5-exec"))
+    assert "落地预演没过（末端 ffffffffffff）" in reason
+    assert not any("通过 → exec-step" in move for move in kh.allowed_moves(ts))
+    ts["rehearsal"]["run_dir"] = r"C:\repo\.agent\runs\t001-doc\attempt-001"  # 返工之前那个候选的记录
+    assert kh.guard(ts, meta("通过", "exec-step", "T001-5-exec")) is None
+    ts["rehearsal"].update(run_dir=ts["exec"]["run_dir"], ok=True)  # 新末端上重新预演过了
+    assert kh.guard(ts, meta("通过", "exec-step", "T001-5-exec")) is None
+    assert any("通过 → exec-step" in move for move in kh.allowed_moves(ts))
+
+
 def test_upstream_redelivery_invalidates_only_dependents():
     ts = locked(make_ts())
     ts["jev"]["3j-jev"] = {"status": "answered"}

@@ -1105,7 +1105,16 @@ def guard(ts: Optional[Dict[str, Any]], meta: Dict[str, str]) -> Optional[str]:
         return _guard_rework(ts, suffix)
     if kind == "通过":
         if suffix == "5-exec":
-            return None if ts["audit_post"].get("verdict") == "通过" else "终审还没有通过，不能结项"
+            if ts["audit_post"].get("verdict") != "通过":
+                return "终审还没有通过，不能结项"
+            rehearsal = ts.get("rehearsal") or {}
+            if rehearsal.get("ok") is False and rehearsal.get("run_dir") == ts["exec"].get("run_dir"):
+                # 第 105 轮：integrate 只跑本合同的检查，预演红在别的主任务的门禁上照样落地，要到合入后回归才红
+                # （T011、T012 的协调人是停下来问站主的）。末端一动（站主提交之后的 owner_sweep、别的主任务落地之后），
+                # 内核就在新末端上重新预演，这条记录跟着刷新
+                return ("落地预演没过（末端 %s）：等站主处理（收窄门禁断言或协调哪一片返工），末端变了内核会重新预演，"
+                        "通过之后再发" % str(rehearsal.get("head") or "")[:12])
+            return None
         return None if ts["stages"][suffix]["status"] == "delivered" else "阶段 %s 还没交付" % suffix
     if kind in ("等待", "停止"):
         return None
