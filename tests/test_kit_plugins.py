@@ -13,6 +13,7 @@ Windows 上用 `cmd /c mklink /J` 建 junction，建不了就 skip。文件名�
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -278,4 +279,119 @@ def test_d11_05_no_change_path_battery_gate(tmp_path):
         assert "Traceback" not in out and "Traceback" not in err
         assert "plugins disable decisions" in err and "config decisions off" in err
         assert "没有变化" not in out
+        assert path.read_bytes() == before
+
+
+# --- 桌面端 D2（第 116 轮）：enable、disable 的预览与令牌（设计 D6、D13） ----------------------
+
+_GRANT = ["enable", "python-checks", "--allow-permission", "read-candidate"]
+#: 带 --dry-run 的插件写命令在这个夹具里的一条合法参数；新加了 --dry-run 的命令要在这里补一条
+_PREVIEW_ARGV = {("enable",): _GRANT, ("disable",): ["disable", "docs-change"]}
+
+
+def _plugin_preview_commands():
+    found = []
+    for action in _kp().build_parser()._actions:
+        if hasattr(action, "choices") and isinstance(action.choices, dict):
+            for name, child in action.choices.items():
+                if any("--dry-run" in a.option_strings for a in child._actions):
+                    found.append((name,))
+    return sorted(found)
+
+
+def _agent_files(env):
+    root = env.repo / ".agent"
+    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
+            for path in sorted(root.rglob("*"))}
+
+
+def test_d2_every_plugin_preview_writes_nothing_and_prints_one_json(tmp_path):
+    """与配置中心的写命令同一条要求（themistally-15）：.agent/ 前后逐字节一致，stdout 恰好一份 JSON。"""
+    assert _plugin_preview_commands() == sorted(_PREVIEW_ARGV)
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        assert run(["disable", "code-change"], env.repo)[0] == 0  # 先有历史与审计
+        for path, argv in sorted(_PREVIEW_ARGV.items()):
+            before = _agent_files(env)
+            code, out, err = run(argv + ["--dry-run", "--json"], env.repo)
+            assert code == 0, (path, err)
+            assert json.loads(out)["dry_run"] is True
+            assert _agent_files(env) == before, path
+
+
+def test_d2_the_text_dry_run_is_unchanged(tmp_path):
+    """不带 --json 的 --dry-run 仍是原有的文字预览（设计 §8），一字不差，后面也不跟预览 JSON。"""
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        code, out, err = run(_GRANT + ["--dry-run"], env.repo)
+        assert (code, err) == (0, "")
+        assert out == ('plugins.allowed_permissions: ["network-decisions"] → ["network-decisions", "read-candidate"]\n'
+                       "以下插件也将满足权限条件：code-change、docs-change、docs-checks、mutation-review、"
+                       "regression-tests、repo-analysis\n"
+                       "当前不限制，所有插件都算启用\n"
+                       "plugins 段（dry-run，未写入）：\n"
+                       '{\n  "allowed_permissions": [\n    "network-decisions",\n    "read-candidate"\n  ]\n}\n')
+
+
+def test_d2_the_json_preview_carries_the_permission_difference_as_notes(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"allowed_permissions": ["network-decisions"]}})
+        config_bytes = (env.repo / ".agent" / "dispatch.config.json").read_bytes()
+        code, out, err = run(_GRANT + ["--dry-run", "--json"], env.repo)
+        assert code == 0, err
+        payload = json.loads(out)
+        assert payload["action"] == "plugin.enable" and payload["changed"] is True
+        assert payload["resources"] == [{"resource": "config", "changed": True,
+                                         "changed_keys": ["plugins.allowed_permissions"]}]
+        assert payload["notes"] == [
+            'plugins.allowed_permissions: ["network-decisions"] → ["network-decisions", "read-candidate"]',
+            "以下插件也将满足权限条件：code-change、docs-change、docs-checks、mutation-review、regression-tests、"
+            "repo-analysis",
+            "当前不限制，所有插件都算启用"]
+        assert payload["state"] == "v1;config=%s" % hashlib.sha256(config_bytes).hexdigest()
+        code, out, err = run(["disable", "decisions", "--dry-run", "--json"], env.repo)
+        assert code == 0, err
+        assert json.loads(out)["notes"][-2:] == ["从不限制改为显式列表，之后新增的插件不会自动启用", "决策插件会因此变为 off"]
+
+
+def test_d2_expect_state_writes_when_it_matches_and_exits_4_when_stale(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        state = json.loads(run(["enable", "docs-change", "--dry-run", "--json"], env.repo)[1])["state"]
+        env.write_config({"plugins": {"enabled": ["decisions"]}, "kill_grace_seconds": 20})  # 预览之后被改
+        before = path.read_bytes()
+        code, out, err = run(["enable", "docs-change", "--expect-state", state], env.repo)
+        assert code == 4, (out, err)
+        assert "在预览之后被改过" in err and path.read_bytes() == before
+        state = json.loads(run(["enable", "docs-change", "--dry-run", "--json"], env.repo)[1])["state"]
+        code, out, err = run(["enable", "docs-change", "--expect-state", state], env.repo)
+        assert code == 0, err
+        assert env.read_config()["plugins"]["enabled"] == ["decisions", "docs-change"]
+
+
+def test_d2_the_preview_does_not_take_the_lock(tmp_path):
+    """行为变化（第 116 轮）：文字 dry-run 以前拿着配置锁跑，现在不拿：别人的锁挡不住预览，预览也挡不住别人的写入。
+    带令牌的执行照旧等锁。"""
+    with make_env(tmp_path) as env, mock.patch.object(kit_config, "LOCK_WAIT_SECONDS", 0.3):
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        lock = env.repo / ".agent" / kit_config.LOCK_NAME
+        lock.mkdir()
+        (lock / "owner.json").write_text(json.dumps({"pid": 1, "host": "elsewhere", "token": "t"}), encoding="utf-8")
+        assert run(["enable", "docs-change", "--dry-run"], env.repo)[0] == 0
+        code, out, err = run(["enable", "docs-change", "--dry-run", "--json"], env.repo)
+        assert code == 0, err
+        code, _out, err = run(["enable", "docs-change", "--expect-state", json.loads(out)["state"]], env.repo)
+        assert code == 1 and "配置锁被占用" in err
+
+
+def test_d2_json_without_dry_run_is_a_usage_error(tmp_path):
+    with make_env(tmp_path) as env:
+        env.write_config({"plugins": {"enabled": ["decisions"]}})
+        path = env.repo / ".agent" / "dispatch.config.json"
+        before = path.read_bytes()
+        for extra in (["--json"], ["--json", "--expect-state", "v1;config=absent"]):
+            code, out, err = run(["enable", "docs-change"] + extra, env.repo)
+            assert (code, out) == (2, ""), err
+            assert "--json 只与 --dry-run 一起用" in err
         assert path.read_bytes() == before

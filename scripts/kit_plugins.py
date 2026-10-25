@@ -6,8 +6,8 @@
   python scripts/kit_plugins.py list [--json]              每个插件一行：ID、版本、启用、锁、资源、缺的权限、状态
   python scripts/kit_plugins.py show <ID> [--json]         manifest 字段、每个资源的哈希核对、锁的 generation 与 lock_sha256
   python scripts/kit_plugins.py verify [ID] [--json]       核对所选插件（缺省全部）与“列入但未安装”；有问题退出 1
-  python scripts/kit_plugins.py enable <ID> [--allow-permission P …] [--dry-run]
-  python scripts/kit_plugins.py disable <ID> [--dry-run]
+  python scripts/kit_plugins.py enable <ID> [--allow-permission P …] [--dry-run [--json] | --expect-state STATE]
+  python scripts/kit_plugins.py disable <ID> [--dry-run [--json] | --expect-state STATE]
 
 设计与调用边界见 docs/themis-tally-3.0-r1-日志与插件管理.md 的 D5、D6、D10、D11：只读核对复用 codekit/plugins.py，
 决策题库另调 codekit/decisions.verify_battery_lock；链接与 junction 检查、fix 提示、整份校验写入都复用
@@ -629,9 +629,13 @@ def _finish_mutation(repo: Any, txn: Any, old_config: Dict[str, Any], new_config
     change_lines = _change_lines(old_config, new_config)
     changed = bool(change_lines)
     _battery_gate(repo, new_config)  # 无变化与写入共用：先题库门禁
-    if not dry_run and changed:
+    if changed:
+        if dry_run and txn.preview is None:  # --dry-run 只经 run_in_write_mode 进来：事务是预览形态，publish 不写
+            raise kit_config.ConfigError("内部错误：--dry-run 没有进预览")
         try:
-            txn.publish(new_config)  # 锁内整份校验、记历史与审计、原子替换（3.0 第二轮 D7）；“审计不全”原样透传
+            # 锁内整份校验、记历史与审计、原子替换（3.0 第二轮 D7）；“审计不全”原样透传。
+            # 预览（--dry-run，桌面端 D13）不拿锁，只整份校验、记下会怎样，不写
+            txn.publish(new_config)
         except OSError as exc:
             raise kit_config.ConfigError("写入失败：%s" % exc)
     else:
@@ -639,12 +643,14 @@ def _finish_mutation(repo: Any, txn: Any, old_config: Dict[str, Any], new_config
         if errors:
             raise kit_config.ConfigError("没有写入：" + "；".join(errors))
     # 到这里就是成功（写入 / dry-run / 无变化）
+    impact_lines = ["以下插件也将满足权限条件：%s" % "、".join(impact)] if impact else []
+    kit_config.preview_notes(change_lines + grant_problems + impact_lines + messages)  # 预览 JSON 的 notes
     for line in change_lines:
         print(line)
     for problem in grant_problems:
         print(problem)
-    if impact:
-        print("以下插件也将满足权限条件：%s" % "、".join(impact))
+    for line in impact_lines:
+        print(line)
     for message in messages:
         print(message)
     if not changed:
@@ -785,14 +791,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("enable", help="启用一个插件，可授予所缺权限；--dry-run 只预览")
     p.add_argument("plugin_id")
     p.add_argument("--allow-permission", action="append", default=[], metavar="P")
-    p.add_argument("--dry-run", action="store_true")
+    _preview_options(p)
     p.set_defaults(func=cmd_enable)
 
     p = sub.add_parser("disable", help="关闭一个插件；--dry-run 只预览")
     p.add_argument("plugin_id")
-    p.add_argument("--dry-run", action="store_true")
+    _preview_options(p)
     p.set_defaults(func=cmd_disable)
     return pd.no_abbrev(parser)  # 长选项不接受缩写（与调度器相同，3.0 第二轮）
+
+
+def _preview_options(parser: argparse.ArgumentParser) -> None:
+    """与配置中心的写命令同一组选项（桌面端 D6、D13）；只是 --dry-run 不带 --json 时仍是原有的文字预览。"""
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--json", action="store_true", help="与 --dry-run 一起用：输出预览的 JSON")
+    parser.add_argument("--expect-state", dest="expect_state", metavar="STATE",
+                        help="预览给的 state：在配置锁里比对，配置在预览之后变了就退出 4、什么也不写")
 
 
 def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> int:
@@ -809,6 +823,8 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
         parser.print_help()
         return EXIT_USAGE
     try:
+        if hasattr(args, "dry_run") and (args.dry_run or args.json or args.expect_state is not None):
+            return kit_config.run_in_write_mode(args, text_dry_run=True)
         return int(args.func(args))
     except pd.DispatchError as exc:
         print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)

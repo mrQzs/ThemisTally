@@ -837,10 +837,18 @@ class WriteMode:
         self.action: Optional[str] = None
         self.snapshot: Dict[str, Optional[bytes]] = {}
         self.preview: List[Dict[str, Any]] = []
+        self.notes: List[str] = []
 
 
 _WRITE_MODE: "contextvars.ContextVar[Optional[WriteMode]]" = contextvars.ContextVar("kit_config_write_mode",
                                                                                      default=None)
+
+
+def preview_notes(lines: Sequence[str]) -> None:
+    """handler 给预览加的说明（plugins 的权限差异，第 116 轮）：显示用的文字，界面原样显示、不解析。不在预览时什么也不做。"""
+    mode = _WRITE_MODE.get()
+    if mode is not None and mode.dry_run:
+        mode.notes.extend(lines)
 
 
 def _enter_write_mode(action: str) -> Optional[WriteMode]:
@@ -1689,18 +1697,21 @@ def build_parser() -> argparse.ArgumentParser:
     return pd.no_abbrev(parser)  # 长选项不接受缩写（与调度器相同，3.0 第二轮）
 
 
-def _run_in_write_mode(args: argparse.Namespace) -> int:
-    """带 --dry-run 或 --expect-state 的写命令（桌面端 D6、D13）。预览收起 handler 的文字输出，只把 WARN 行放进预览：
-    stdout 只有一份 JSON。"""
+def run_in_write_mode(args: argparse.Namespace, text_dry_run: bool = False) -> int:
+    """带 --dry-run 或 --expect-state 的写命令（桌面端 D6、D13）。--dry-run --json 收起 handler 的文字输出，只把 WARN 行
+    放进预览：stdout 只有一份 JSON。text_dry_run 为真时（plugins 原有的文字预览，设计 §8 不变）--dry-run 可以不带
+    --json：照样是预览、什么也不写，stdout 只有 handler 自己的文字。"""
+    if args.json and not args.dry_run:
+        raise ConfigError("--json 只与 --dry-run 一起用", EXIT_USAGE)
     if args.dry_run and args.expect_state is not None:
         raise ConfigError("--dry-run 与 --expect-state 不能一起用", EXIT_USAGE)
-    if args.dry_run and not args.json:
+    if args.dry_run and not args.json and not text_dry_run:
         raise ConfigError("--dry-run 只输出 JSON：加 --json", EXIT_USAGE)
     mode = WriteMode(args.dry_run, args.expect_state)
     token = _WRITE_MODE.set(mode)
     text = io.StringIO()
     try:
-        if not mode.dry_run:
+        if not args.json:
             return int(args.func(args))
         with contextlib.redirect_stdout(text):
             args.func(args)
@@ -1722,7 +1733,7 @@ def _preview_payload(mode: WriteMode, text: str) -> Dict[str, Any]:
             "binding_changes": [change for entry in entries for change in entry.get("binding_changes", [])],
             "running_attempts": running, "unreadable": unreadable, "needs_yes": bool(running or unreadable),
             "warnings": [line[len("WARN  "):] for line in text.splitlines() if line.startswith("WARN  ")],
-            "state": state_token(mode.snapshot)}
+            "notes": mode.notes, "state": state_token(mode.snapshot)}
 
 
 def _preview_options(parser: argparse.ArgumentParser) -> None:
@@ -1752,8 +1763,8 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     if args.command == "history" and (args.show is None) != (args.number is None):
         parser.error("history show 需要编号；只看列表时不带参数")
     try:
-        if getattr(args, "dry_run", False) or getattr(args, "expect_state", None) is not None:
-            return _run_in_write_mode(args)
+        if hasattr(args, "dry_run") and (args.dry_run or args.json or args.expect_state is not None):
+            return run_in_write_mode(args)
         return int(args.func(args))
     except ConfigError as exc:
         print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)  # 共用检查之外再挡一层（D9）

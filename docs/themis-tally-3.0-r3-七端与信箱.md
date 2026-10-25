@@ -1938,6 +1938,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **两资源的声明**：`config_transactions` 多一个 `resources`，就是令牌覆盖的资源。写模式下一开始就读齐：预览把它们都记进令牌，带令牌的执行在拿锁之后、第一次 publish 之前一起比对（设计 D13：两资源的命令在建本机文件事务之前就比）。写了没有声明的资源是内部错误（写了就绕过了比对）。`runtime add --command` 与 `runtime remove` 声明 config、local；不带 `--command` 的 `runtime add` 只声明 config，本机文件变了也不拦它。不在写模式时照旧用到才读。
 - **测试**：通用用例的参数表补齐 10 条命令（`rollback` 的编号运行时取历史里最后一条已发布的写入），每条都核对 `.agent/` 前后逐字节一致、stdout 恰好一份 JSON。新增 6 条：回滚到没有 v3 键的旧配置，执行端的 `after` 是 null（themistally-15 提醒：旧配置有 v3 键、新配置没有时照样比较）；`preset use` 预览出切换的绑定与 `active_preset`；U6c，`runtime add --command` 预览之后只改本机文件，退出 4、两个资源与审计都不变，本机文件只给 `changed`、不给 `changed_keys`；不带 `--command` 的令牌只有 config；`runtime remove` 在本机文件不存在时令牌也带 `local=absent`；写没有声明的资源报内部错误。相关的五个测试文件 167 条全过；变异 7 个全部抓住。
 
+### 第 116 轮：桌面端 D2 的内核一侧之三：plugins enable|disable 的预览与令牌（2026-10-25）
+
+- **做法**：`plugins enable|disable` 加 `--json`、`--expect-state`。`kit_plugins.main` 看到 `--dry-run`、`--json` 或 `--expect-state` 就走 `kit_config.run_in_write_mode(args, text_dry_run=True)`（第 114 轮的 `_run_in_write_mode` 公开出来，多一个参数）。`_finish_mutation` 有变化就 `publish`：预览形态的事务只整份校验、记下会怎样，不写；原来“dry-run 只校验、不 publish”的分支取消（`--dry-run` 却拿到真事务是内部错误）。权限差异经 `kit_config.preview_notes` 放进预览 JSON 的新字段 `notes`。
+- **文字 dry-run 不变**：不带 `--json` 的 `--dry-run` 仍是原有的文字预览，stdout 只有 handler 自己的文字，后面不跟 JSON；改动前后三个场景逐字比对一致，`test_kit_plugins_oracle.py` 的文字断言全部照过。
+- **行为变化（有意为之）**：文字 dry-run 以前拿着配置锁跑，现在不拿：别人的锁挡不住预览，预览也挡不住别人的写入。预览只是提示，真正的比对在带令牌执行时的锁里。
+- **themistally-15 复审时补的**：`notes` 是显示用的文字，界面原样显示、不解析，写进 D13 的实现说明；单给 `--json` 怎么办要与 config 一致——定为用法错（2），config 写命令以前会悄悄忽略，一并改掉；预览 JSON 的键集合钉死（第 114 轮的用例跟着改，T019 照这个形状接）。
+- **测试**：`tests/test_kit_plugins.py` 新增 6 条：带 `--dry-run` 的插件命令（从 `kit_plugins` 的解析器里找）`.agent/` 前后逐字节一致、stdout 恰好一份 JSON；文字 dry-run 与改动前逐字一致；`--json` 的预览带权限差异的 `notes` 与令牌；令牌对上就写、预览之后被改就退出 4；配置锁被占着时预览照样成功、带令牌的执行照旧等锁；单给 `--json` 是用法错。`tests/test_kit_roles.py` 钉死预览的键集合、config 写命令的 `notes` 为空、单给 `--json` 是用法错；config 一侧的通用用例补上 U15 的场景（先留下一条没有终结记录的 intent 和一次没记的外部改动，十条命令预览之后 `.agent/` 仍逐字节一致：预览不提前补判、不记外部改动）。配置与插件的六个测试文件 298 条全过；变异 10 个全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

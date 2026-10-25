@@ -1527,6 +1527,12 @@ class PreviewAndExpectedState(RolesRepo):
         self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 0)  # 先有历史与审计
         self.local_file().write_text('{"runtimes": {"spare": {"command": ["C:/tools/oc.exe"]}}}\n', encoding="utf-8")
         last = str(self.last_published())
+        # U15：再留下一条没有终结记录的 intent 和一次没记的外部改动，预览也不能提前补判或记录它们
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            self.assertEqual(run_config(["set", "kill_grace_seconds", "25"], self.repo)[0], 1)
+        config = json.loads(self.config_file.read_text(encoding="utf-8"))
+        config["kill_grace_seconds"] = 30
+        self.write(config)
         for path, argv in sorted(self.ARGV.items()):
             with self.subTest(command=path):
                 before = self.agent_files()
@@ -1539,6 +1545,10 @@ class PreviewAndExpectedState(RolesRepo):
     def test_the_preview_reports_the_change_the_bindings_and_the_state(self):
         payload = self.preview(["role", "set", "execution", "exec-low"])
         config_bytes = self.config_file.read_bytes()
+        # 交给服务、迁移计划第 ③ 步还要与 TS 逐字一致的形状：键集合钉死
+        self.assertEqual(sorted(payload), ["action", "binding_changes", "changed", "dry_run", "needs_yes", "notes",
+                                           "resources", "running_attempts", "state", "unreadable", "warnings"])
+        self.assertEqual(payload["notes"], [])  # notes 只有 plugins 用（权限差异）
         self.assertEqual(payload["action"], "role.set")
         self.assertTrue(payload["changed"])
         self.assertEqual(payload["resources"], [{"resource": "config", "changed": True,
@@ -1739,7 +1749,8 @@ class PreviewAndExpectedState(RolesRepo):
                 self.assertEqual((self.config_file.read_bytes(), self.audit_bytes()), (before, audit))
 
     def test_usage_errors(self):
-        for extra, needle in ((["--dry-run"], "加 --json"), (["--dry-run", "--json", "--expect-state", "v1"], "不能一起用")):
+        for extra, needle in ((["--dry-run"], "加 --json"), (["--dry-run", "--json", "--expect-state", "v1"], "不能一起用"),
+                              (["--json"], "--json 只与 --dry-run 一起用")):  # 以前单给 --json 会被悄悄忽略
             with self.subTest(extra=extra):
                 code, out, err = run_config(["role", "set", "execution", "exec-low"] + extra, self.repo)
                 self.assertEqual((code, out), (2, ""), err)
