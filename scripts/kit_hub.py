@@ -63,6 +63,8 @@ WORKER_TYPES = ("交付", "返工完成", "提问", "阻塞", "交接", "进度"
 COORDINATOR_TYPES = ("开工", "返工", "通过", "等待", "停止", "汇报", "提问")
 OWNER_TYPES = ("任务", "回复", "停止")
 KERNEL_TYPES = ("核验", "阻塞")
+#: 第 112 轮：内核代办例行流转时发给工人的信（七端改造第 3 条）
+ROUTED_TYPES = ("开工", "返工", "通过")
 #: 发给工人时只登记、不唤醒（每唤醒一次就是一个付费回合）。
 INFO_TYPES = ("通过", "等待", "停止")
 FIELDS = ("摘要", "提交", "验证", "偏离", "需协调人决定", "证据")
@@ -144,9 +146,11 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 90–101 轮（七端改造第 1 条）：claude 与 pi 的工人一律用工具交差（pi 的 deliver、claude 的
     # StructuredOutput），不再从最后一条消息里抠 json 代码块。第 110 轮撤掉了代码块解析与名册上的回退开关，
     # 要回退就 git revert 那一轮。
+    # 第 112 轮（七端改造第 3 条）："routing": "kernel" 时例行流转由内核代办，协调人只在例外时被唤醒；
+    # 去掉这一项就回到每封信都起协调人回合（拆字段、finish_exec 写“无”不随它变）
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
                   "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                  "timeout": 1200, "workspace": "base"},
+                  "timeout": 1200, "workspace": "base", "routing": "kernel"},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
@@ -702,7 +706,7 @@ def letter_errors(meta: Dict[str, str], fields: Dict[str, str], body_lines: int)
             errors.append("头部缺 %s" % key)
     sender, kind = meta.get("from", ""), meta.get("type", "")
     allowed = (OWNER_TYPES if sender == OWNER else COORDINATOR_TYPES if sender == COORDINATOR
-               else KERNEL_TYPES if sender == KERNEL else WORKER_TYPES if sender in WORKERS else ())
+               else KERNEL_TYPES + ROUTED_TYPES if sender == KERNEL else WORKER_TYPES if sender in WORKERS else ())
     if not allowed:
         errors.append("发信人 %s 不在名册里" % sender)
     elif kind not in allowed:
@@ -1203,6 +1207,97 @@ def allowed_moves(ts: Dict[str, Any]) -> List[str]:
     if guard(ts, {"type": "通过", "to": "exec-step", "task-id": "%s-5-exec" % ts["task"]}) is None:
         moves.append("通过 → exec-step（%s-5-exec）：结项，内核随后 verdict PASS 并 integrate" % ts["task"])
     return moves
+
+
+#: 第 112 轮（七端改造第 3 条）：交付通过之后例行的下一步；审核端按结论另算，执行端只在检查通过时
+ROUTINE_NEXT = {"1-plan": "2-contract", "2-contract": "3-gate-pre", "3-gate-pre": "4-audit-pre",
+                "5-exec": "6-gate-post", "6-gate-post": "7-audit-post"}
+
+
+def routine_moves(texts: Sequence[str]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """第 112 轮：这批信（协调人一个回合要处理的、同一主任务的）是不是全是例行信，例行的下一步是什么。
+    返回（下一步 [{type, suffix, reply_to, fields}], 不是例行时的原因）。只看信里的结构化字段，前置条件交给 guard。
+    分界（r3 §11）：上游已经有岗位下过结论的（审核的退回与阻塞项、内核核验列出的具体问题）由内核代办；只有原始
+    失败输出、还没人分诊的（执行端的检查没过），交协调人。JEV 的信只当附件。"""
+    moves: List[Dict[str, Any]] = []
+    for text in texts:
+        meta, fields, _lines = parse_letter(text)
+        sender, kind = meta.get("from", ""), meta.get("type", "")
+        suffix = stage_of(meta.get("task-id", ""))[1]
+        reply = {"reply_to": meta.get("msg-id") or "none", "fields": fields, "from_task": meta.get("task-id", "")}
+        if sender == OWNER and kind == "任务":
+            moves.append(dict(reply, type="开工", suffix="1-plan"))
+            continue
+        if sender == "jev-judge":
+            continue
+        if sender not in WORKERS or kind not in ("交付", "返工完成") or suffix is None:
+            return [], "%s 的“%s”要协调人看" % (sender, kind)
+        if (fields.get("需协调人决定") or "无").strip() not in ("无", "无。"):
+            return [], "%s 的信里有需协调人决定的事" % sender
+        check = fields.get("内核核验", "")
+        if suffix == "5-exec" and not check.startswith("通过"):
+            return [], "执行端的检查没过：原始失败还没人分诊，交协调人（错一次就是一个 attempt）"
+        if not check.startswith("通过"):
+            if "审核结论缺失" in check:  # themistally-15 指出：不单独排除，就会被“核验没过 → 返工”顺手代办掉
+                return [], "审核结论缺失，交协调人"
+            moves.append(dict(reply, type="返工", suffix=suffix))
+        elif suffix in ("4-audit-pre", "7-audit-post") and fields.get("结论") == "返工":
+            targets = return_stages(fields.get("退回"))
+            if not targets:
+                return [], "审核退回的对象认不出：%s" % fields.get("退回")
+            moves.append(dict(reply, type="返工", suffix=targets[0]))  # 退回几处：先返工最上游的
+        elif suffix in ("4-audit-pre", "7-audit-post"):
+            moves.append(dict(reply, type="开工" if suffix == "4-audit-pre" else "通过", suffix="5-exec"))
+        else:
+            moves.append(dict(reply, type="开工", suffix=ROUTINE_NEXT[suffix]))
+    if not moves:
+        return [], "这批信推不出下一步"
+    return moves, None
+
+
+def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> str:
+    """第 112 轮：内核代办时写的任务书。这一阶段要用的上游产物在信箱与仓库里的路径（工人在只读输入目录里照原样
+    找到），返工的原因照原话附上；上游的下游须知由 turn_prompt 统一附，这里不重复。"""
+    task, suffix, kind = ts["task"], move["suffix"], move["type"]
+    tasks = ".agent/mailbox/tasks"
+    run_dir = ts["exec"].get("run_dir")
+    run = Path(run_dir).relative_to(hub.repo).as_posix() if run_dir and Path(run_dir).is_absolute() else run_dir
+    sources = {
+        "站主的任务书": "%s/%s/brief.md" % (tasks, task),
+        "规划报告": "%s/%s-1-plan/report.md" % (tasks, task),
+        "合同": ts["contract"].get("md"),
+        "基准测试": "、".join(ts["oracle"].get("files") or []) or None,
+        "战前门禁的报告": "%s/%s-3-gate-pre/report.md" % (tasks, task),
+        "合同概述的 JEV 判断": "%s/%s-3j-jev/report.md" % (tasks, task) if "3j-jev" in ts["jev"] else None,
+        "候选补丁": "%s/candidate.patch" % run if run else None,
+        "执行概述与执行报告": "%s/summary.md、%s/executor-report.md" % (run, run) if run else None,
+        "战后门禁的报告": "%s/%s-6-gate-post/report.md" % (tasks, task),
+        "执行概述的 JEV 判断": "%s/%s-6j-jev/report.md" % (tasks, task) if "6j-jev" in ts["jev"] else None,
+    }
+    wanted = {"1-plan": ["站主的任务书"], "2-contract": ["站主的任务书", "规划报告"],
+              "3-gate-pre": ["合同", "规划报告"],
+              "4-audit-pre": ["合同", "基准测试", "战前门禁的报告", "合同概述的 JEV 判断"],
+              "6-gate-post": ["合同", "候选补丁", "执行概述与执行报告", "基准测试"],
+              "7-audit-post": ["合同", "候选补丁", "执行概述与执行报告", "战后门禁的报告", "执行概述的 JEV 判断"],
+              }.get(suffix, [])
+    lines = ["# %s-%s（%s，内核按例行流转写的任务书）" % (task, suffix, kind), "",
+             "上一阶段交付通过、下一步按例行流转就是这里，所以这份任务书由内核写（七端改造第 3 条）。"
+             "要做什么见你的岗位说明；下面的路径都在只读输入目录里照原样能找到。", "", "## 材料", ""]
+    lines += ["- %s：`%s`" % (name, sources[name]) for name in wanted if sources.get(name)]
+    stage = ts["stages"][suffix]
+    if kind == "返工" and stage.get("problems"):
+        lines += ["", "## 返工的原因：内核核验没过（原话）", ""] + ["- %s" % problem for problem in stage["problems"]]
+        if stage.get("redelivered"):
+            lines += ["", "上一个会话已经在同一会话里照这些原话当场重交过一次，还是没过：这一回合换个思路，"
+                      "改不了、要协调人或站主定的，交“阻塞”信说明原因。"]
+    elif kind == "返工":
+        lines += ["", "## 返工的原因：审核退回（阻塞项原文）", "", move["fields"].get("阻塞项") or "（审核没列阻塞项）",
+                  "", "审核报告：`%s/%s/report.md`" % (tasks, move["from_task"])]
+    last = (ts.get("audit_history") or [{}])[-1]
+    if kind == "开工" and last.get("verdict") == "返工" and suffix in return_stages(last.get("target")):
+        # 退回几处时，上游重新交付之后下游重新开工：带上最近一次审核对它列的阻塞项
+        lines += ["", "## 最近一次审核也退回了这一阶段（阻塞项原文）", "", last.get("blockers") or "（空）"]
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -4272,7 +4367,7 @@ def input_path(hub: Hub, inputs: Optional[Path], path: Any) -> str:
 
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
-                resume: Optional[Dict[str, Any]] = None) -> str:
+                resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
     shown = lambda path: input_path(hub, inputs, path)  # noqa: E731  主工作区的路径一律换成输入目录里的
     spec = ROSTER[agent]
     role = spec["role"]
@@ -4305,7 +4400,12 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "站主来信 %s：" % owner["msg"], "", str(owner["text"])]
     if error:
         parts += ["", "## 上一次输出没有通过内核校验，请改正后重新交出", "", error]
-    if resume and resume.get("session") and role == "coordinator":
+    if resume and resume.get("routing") and role == "coordinator":
+        # 第 112 轮（themistally-15 指出）：被收掉的是内核代办，不是你的回合，工作目录里没有你留下的改动
+        parts += ["", "## 这一批信接着办（内核）", "",
+                  "- 上一次是内核在代办这批信，做到一半 hub 被收掉了：已经投出去的看下面的主任务状态表，"
+                  "重发的开工、返工内核不收，也不算你出错。"]
+    elif resume and resume.get("session") and role == "coordinator":
         # 第 94 轮：协调人的回合跑完了，投递做到一半被收掉
         parts += ["", "## 这一回合接着做（内核）", "",
                   "- 你上一回合（%s）的输出内核收到了，投递做到一半 hub 被系统收掉了。" % resume["turn"],
@@ -4322,6 +4422,12 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
     parts += ["", "## 新信", ""] + (letters or ["（没有新信）"])
     if role == "coordinator":
         parts += ["", "## 主任务状态（内核）", "", stage_status_table(hub, ts)]
+        if ts.get("routed"):  # 第 112 轮：你上一回合之后内核代办的例行流转（那几封信不会再送到你这里）
+            parts += ["", "## 内核代办记录（你上一回合之后）", ""] + [
+                "- %s：%s（处理了 %s）" % (entry["at"], "；".join(entry["moves"]), "、".join(entry["letters"]))
+                for entry in ts["routed"]]
+        if routing_note:
+            parts += ["", "## 内核没有代办这一批信", "", routing_note]
         owner_brief = read_text(hub.task_dir(ts["task"]) / "brief.md")
         if owner_brief and any("\ntype: 任务\n" in letter for letter in letters):
             parts += ["", "## 站主的任务书（%s）" % shown(hub.task_dir(ts["task"]) / "brief.md"), "", owner_brief]
@@ -4610,6 +4716,8 @@ def requeue_task(hub: Hub, task: str) -> bool:
         turn = finished_turn(events, COORDINATOR, task, str(marker.get("at") or ""))
         if names and requeue_letters(hub, ts, events, COORDINATOR, task, names, turn, "协调人"):
             ts["coordinator_resume"] = {"at": utc_now(), "turn": turn, "letters": names}
+            if marker.get("routing"):  # 第 112 轮：被收掉的是内核代办，不是协调人的回合
+                ts["coordinator_resume"]["routing"] = True
             moved_any = True
     for suffix in stranded_stages(hub, ts) if ts.get("status") == "active" else []:
         agent, stage = STAGE_WORKER[suffix], ts["stages"][suffix]
@@ -4822,6 +4930,11 @@ class Engine:
             self.hub.append_event("coordinator.skipped", reason="主任务 %s 状态为 %s" % (main, ts.get("status")),
                                   letters=[p.name for p in paths])
             return
+        routing_note = None
+        if ROSTER[COORDINATOR].get("routing") == "kernel" and not ts.get("coordinator_resume"):
+            routed, routing_note = self.route(state, ts, paths, texts)
+            if routed:
+                return
         workspace = ensure_worktree(self.hub, ts, "base", ts["base_head"])
         # 第 94 轮：“在办”标记，回合办完（三个出口）或进程内出了意外（report_step_error）时清掉。runner 被收掉，
         # 标记就留着：requeue_interrupted 拿得到锁、看到它，就把这几封信放回去
@@ -4832,12 +4945,12 @@ class Engine:
         inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (main, utc_compact()))  # 第 88 轮
         try:
             prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, inputs=inputs,
-                                 resume=dict(resume, session=session_id) if resume else None)
+                                 resume=dict(resume, session=session_id) if resume else None, routing_note=routing_note)
             turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt, inputs=inputs,
                                    fresh=resume is not None and session_id is None, session_id=session_id)
             if turn["output"] is None and not turn["violations"] and not turn.get("api_error"):
                 prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, error=turn["output_error"],
-                                     inputs=inputs)
+                                     inputs=inputs, routing_note=routing_note)
                 turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt,
                                        retry_of=turn["turn_id"], inputs=inputs)
         finally:
@@ -4863,7 +4976,7 @@ class Engine:
         delivered = 0
         for item in output.get("letters") or []:
             reason = self.deliver_coordinator_letter(state, item)
-            if reason and resume and resume.get("turn") and BUSY_GUARD in reason:
+            if reason and resume and (resume.get("turn") or resume.get("routing")) and BUSY_GUARD in reason:
                 # 第 94 轮：上一回合跑完了、投递做到一半，续接的回合照原样重发了已经投递的开工、返工：不算协调人
                 # 出错、不发核验信（回合没跑完时什么也没投递，重发照常算）
                 self.hub.append_event("coordinator.resent", task=main, to=item.get("to"), task_id=item.get("task_id"))
@@ -4873,6 +4986,7 @@ class Engine:
                 delivered += 1
         ts = state["tasks"][main]
         ts.pop("coordinator_turn", None)
+        ts.pop("routed", None)  # 第 112 轮：内核代办记录这一回合看过了
         if rejected:
             ts["coordinator_rejections"] = int(ts.get("coordinator_rejections", 0)) + 1
             if ts["coordinator_rejections"] >= 3:
@@ -4887,10 +5001,57 @@ class Engine:
             ts["coordinator_rejections"] = 0
         self.hub.save_state(state)
 
-    def deliver_coordinator_letter(self, state: Dict[str, Any], item: Dict[str, Any]) -> Optional[str]:
+    def route(self, state: Dict[str, Any], ts: Dict[str, Any], paths: List[Path],
+              texts: List[str]) -> Tuple[bool, Optional[str]]:
+        """第 112 轮（七端改造第 3 条，r3 §11）：这批信全是例行信、每一步都过 guard 时，由内核代办，不起协调人的回合。
+        返回（代办了没有, 给协调人的话）：内核想代办、却被 guard 或“最后一次返工留给协调人”拦下时，告诉协调人
+        本想发什么、为什么没发，免得它重试同一封。信已经由调用方 take 走；中途被收掉时，“在办”标记（带
+        routing）让 requeue_interrupted 把信放回去，下一回合不再推导、直接起协调人的续接回合，它重发撞上
+        BUSY_GUARD 的开工、返工不算出错（第 93、94 轮）。"""
+        moves, why = routine_moves(texts)
+        if why:
+            return False, None
+        items = []
+        for move in moves:
+            worker = STAGE_WORKER[move["suffix"]]
+            task_id = "%s-%s" % (ts["task"], move["suffix"])
+            reason = guard(ts, {"type": move["type"], "to": worker, "task-id": task_id})
+            done = (ts.get("reworks") or {}).get(move["suffix"], 0)
+            if not reason and move["type"] == "返工" and move["suffix"] != "5-exec" and done + 1 >= MAX_STAGE_REWORKS:
+                # themistally-15 指出：代办与协调人共用返工计数，机械核验没过时内核会把返工一路用完
+                reason = "这一步是 %s 的最后一次返工（已经返工 %d 次），留给协调人定：返工、热修补还是问站主" % (
+                    move["suffix"], done)
+            if reason:
+                return False, "内核本想代办“%s → %s（%s）”，没有发：%s" % (move["type"], worker, task_id, reason)
+            items.append({"to": worker, "type": move["type"], "task_id": task_id, "in_reply_to": move["reply_to"],
+                          "摘要": "例行流转（内核代办）：%s 之后的下一步" % move["from_task"],
+                          "证据": "任务书：.agent/mailbox/tasks/%s/brief.md" % task_id,
+                          "brief": render_routine_brief(self.hub, ts, move)})
+        names = [path.name for path in paths]
+        ts["coordinator_turn"] = {"letters": names, "at": utc_compact(), "routing": True}
+        self.hub.save_state(state)
+        done_moves: List[str] = []
+        refused = None
+        for item in items:
+            reason = self.deliver_coordinator_letter(state, item, sender=KERNEL)
+            if reason:  # 前一封改了状态、后一封撞上 guard（同一批里几步互相影响）：剩下的交给协调人
+                refused = "内核代办到一半，“%s → %s（%s）”没有发：%s" % (item["type"], item["to"], item["task_id"], reason)
+                break
+            done_moves.append("%s → %s（%s）" % (item["type"], item["to"], item["task_id"]))
+        ts.pop("coordinator_turn", None)
+        if done_moves:  # 投出去的几步都记下，代办到一半时协调人也看得到（themistally-15 指出）
+            ts.setdefault("routed", []).append({"at": utc_now(), "letters": names, "moves": done_moves})
+            self.hub.append_event("route.kernel", task=ts["task"], letters=names, moves=done_moves, partial=bool(refused))
+        self.hub.save_state(state)
+        return refused is None, refused
+
+    def deliver_coordinator_letter(self, state: Dict[str, Any], item: Dict[str, Any],
+                                   sender: str = COORDINATOR) -> Optional[str]:
+        """协调人一封信的投递：形状、guard、brief 落盘、返工计数、热修补、站主指定的返工。第 112 轮起内核代办
+        例行流转也走这里（sender 是内核），这几样只有一份。"""
         if not isinstance(item, dict):
             return "信不是对象"
-        meta = {"from": COORDINATOR, "to": str(item.get("to") or ""), "task-id": str(item.get("task_id") or ""),
+        meta = {"from": sender, "to": str(item.get("to") or ""), "task-id": str(item.get("task_id") or ""),
                 "in-reply-to": str(item.get("in_reply_to") or "none"), "type": str(item.get("type") or "")}
         fields = {key: str(item.get(key, "")).strip() or "无" for key in FIELDS}
         body_lines = len(render_letter(dict(meta, **{"msg-id": "x"}), fields).splitlines()) - 8
@@ -4901,7 +5062,7 @@ class Engine:
         ts = state["tasks"].get(main or "")
         reason = guard(ts, meta)
         if reason:
-            self.hub.append_event("letter.rejected", sender=COORDINATOR, to=meta["to"], type=meta["type"],
+            self.hub.append_event("letter.rejected", sender=sender, to=meta["to"], type=meta["type"],
                                   task_id=meta["task-id"], reason=reason)
             return reason
         if meta["type"] in ("开工", "返工") and meta["to"] in WORKERS:
@@ -5062,12 +5223,15 @@ class Engine:
         stage["last_letter"] = meta["type"]  # 合同端发“阻塞”指出规划有缺陷时，协调人能退回规划端（第 15 轮）
         if meta["type"] in ("交付", "返工完成"):
             if problems:
-                stage.update(status="failed", note="；".join(problems)[:600])
+                # 第 112 轮：核验的全文另存（信里截到 1200 字、note 截到 600 字），内核写返工的任务书照它的原话
+                stage.update(status="failed", note="；".join(problems)[:600], problems=problems,
+                             redelivered=retried is not None)
                 fields["内核核验"] = ("未通过%s：" % ("（同一会话里已经当场重交过一次）" if retried else "")
                                   + "；".join(problems)[:1200])
             else:
                 stage.update(status="delivered", note="", delivered_at=utc_now())
-                stage.pop("owner_text", None)  # 站主的返工要求办完了
+                for key in ("owner_text", "problems", "redelivered"):  # 站主的返工要求、上一次核验的原话都办完了
+                    stage.pop(key, None)
                 fields["内核核验"] = "通过"
                 invalidate_after(ts, suffix)
                 self.after_delivery(ts, suffix, fields, output)

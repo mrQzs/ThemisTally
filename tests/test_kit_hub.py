@@ -46,6 +46,14 @@ def pi_knows_every_flag(monkeypatch):
     测试里一律当它干净（测这项核对本身的用例用 REAL_KERNEL_CHANGES）。"""
     monkeypatch.setattr(kh, "pi_supported_flags", lambda pi_cmd, env: EveryFlag())
     monkeypatch.setattr(kh, "kernel_changes", lambda files=None: [])
+    # 第 112 轮：内核代办默认打开；这些用例测的是协调人自己的回合（代办关掉时、或例外时走的路），先关掉，
+    # 测代办的用例用 kernel_routing 打开
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, {k: v for k, v in kh.ROSTER[kh.COORDINATOR].items() if k != "routing"})
+
+
+@pytest.fixture
+def kernel_routing(monkeypatch):
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], routing="kernel"))
 
 
 def make_ts(jev: bool = True) -> dict:
@@ -2350,6 +2358,8 @@ def test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so(engine_
     assert len(runner.calls) == 3
     ts = hub.load_state()["tasks"]["T001"]
     assert ts["stages"]["1-plan"]["status"] == "failed" and not (ts.get("reworks") or {}).get("1-plan")
+    # 第 112 轮：核验全文另存，内核写返工任务书时照它的原话
+    assert ts["stages"]["1-plan"]["problems"] == ["规划端的 report 为空"] and ts["stages"]["1-plan"]["redelivered"]
     assert coordinator_letter(hub)["内核核验"] == "未通过（同一会话里已经当场重交过一次）：规划端的 report 为空"
     assert [e["ok"] for e in retried_events(hub)] == [False]
 
@@ -7240,6 +7250,251 @@ def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
     turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
     assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
+
+
+def routine_letter(sender: str, kind: str, task_id: str, **extra: str) -> str:
+    meta = {"msg-id": "m-%s-%s" % (sender, task_id), "from": sender, "to": kh.COORDINATOR, "task-id": task_id,
+            "in-reply-to": "none", "type": kind}
+    return kh.render_letter(meta, fields(**extra))
+
+
+@pytest.mark.parametrize("letters, expected", [
+    ([(kh.OWNER, "任务", "T001", {})], [("开工", "1-plan")]),
+    ([("planner-opus", "交付", "T001-1-plan", {"内核核验": "通过"})], [("开工", "2-contract")]),
+    ([("contract-glm", "交付", "T001-2-contract", {"内核核验": "通过"}),
+      ("jev-judge", "交付", "T001-3j-jev", {"内核核验": "通过", "需协调人决定": "无（JEV 只是参考）"})],
+     [("开工", "3-gate-pre")]),  # JEV 的信只当附件
+    ([("contract-glm", "返工完成", "T001-2-contract", {"内核核验": "未通过：derive-json 失败"})], [("返工", "2-contract")]),
+    ([("gate-sonnet", "交付", "T001-3-gate-pre", {"内核核验": "通过"})], [("开工", "4-audit-pre")]),
+    ([("audit-sonnet", "交付", "T001-4-audit-pre", {"内核核验": "通过", "结论": "通过"})], [("开工", "5-exec")]),
+    ([("audit-sonnet", "交付", "T001-4-audit-pre", {"内核核验": "通过", "结论": "返工", "退回": "门禁端、合同端"})],
+     [("返工", "2-contract")]),  # 退回几处：先返工最上游的
+    ([("exec-step", "交付", "T001-5-exec", {"内核核验": "通过"})], [("开工", "6-gate-post")]),
+    ([("gate-sonnet", "交付", "T001-6-gate-post", {"内核核验": "未通过：1 条变异漏网"})], [("返工", "6-gate-post")]),
+    ([("audit-sonnet", "交付", "T001-7-audit-post", {"内核核验": "通过", "结论": "通过"})], [("通过", "5-exec")]),
+    ([("audit-sonnet", "交付", "T001-7-audit-post", {"内核核验": "通过", "结论": "返工", "退回": "执行端"})],
+     [("返工", "5-exec")]),
+])
+def test_routine_letters_map_to_the_next_step(letters, expected):
+    """第 112 轮（七端改造第 3 条，r3 §11 的例行规则）：只看信里的结构化字段推出下一步。"""
+    moves, why = kh.routine_moves([routine_letter(s, k, t, **extra) for s, k, t, extra in letters])
+    assert why is None and [(m["type"], m["suffix"]) for m in moves] == expected
+
+
+@pytest.mark.parametrize("letter, reason", [
+    (("exec-step", "交付", "T001-5-exec", {"内核核验": "未通过（短路：只能返工给执行端）"}), "执行端的检查没过"),
+    (("planner-opus", "交付", "T001-1-plan", {"内核核验": "通过", "需协调人决定": "Q1 字体用哪家"}), "需协调人决定"),
+    ((kh.OWNER, "回复", "T001", {}), "要协调人看"),
+    ((kh.KERNEL, "核验", "T001", {}), "要协调人看"),
+    (("planner-opus", "提问", "T001-1-plan", {}), "要协调人看"),
+    (("audit-sonnet", "交付", "T001-4-audit-pre", {"内核核验": "未通过：审核结论缺失"}), "审核结论缺失"),
+    (("jev-judge", "交付", "T001-3j-jev", {"内核核验": "通过"}), "推不出下一步"),
+])
+def test_exceptions_go_to_the_coordinator(letter, reason):
+    sender, kind, task_id, extra = letter
+    moves, why = kh.routine_moves([routine_letter(sender, kind, task_id, **extra)])
+    assert moves == [] and reason in why
+
+
+def test_the_kernel_routes_a_routine_batch_without_waking_the_coordinator(engine_env, kernel_routing):
+    """第 112 轮：例行的一批信由内核代办：不起协调人的回合，信从内核发出、附内核写的任务书，记账、留代办记录。"""
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([])
+    assert kh.Engine(hub, runner).step() and runner.calls == []
+    letter = hub.unread("planner-opus")[0]
+    meta, _fields, _ = kh.parse_letter(letter.read_text(encoding="utf-8"))
+    assert (meta["from"], meta["type"], meta["task-id"]) == (kh.KERNEL, "开工", "T001-1-plan")
+    brief = (hub.task_dir("T001-1-plan") / "brief.md").read_text(encoding="utf-8")
+    assert "内核按例行流转写的任务书" in brief and "`.agent/mailbox/tasks/T001/brief.md`" in brief
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "assigned" and hub.unread(kh.COORDINATOR) == []
+    assert ts["routed"][0]["moves"] == ["开工 → planner-opus（T001-1-plan）"] and "coordinator_turn" not in ts
+    assert [e["moves"] for e in kh.ledger_events(hub) if e["event"] == "route.kernel"] == [
+        ["开工 → planner-opus（T001-1-plan）"]]
+
+
+def test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reason(engine_env, kernel_routing):
+    """第 112 轮：例行推出的下一步过不了 guard（这里是规划依赖的仓库外事实还没核实），照起协调人的回合，
+    输入里写明内核本想发什么、为什么没发。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    ts["external_facts"] = {"pending": [{"fact": "字体包有 woff2"}]}
+    hub.save_state(state)
+    hub.deliver({"from": "planner-opus", "to": kh.COORDINATOR, "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "交付"}, fields(内核核验="通过"))
+    runner = FakeRunner([({"letters": [], "state": "等站主核实"}, [])])
+    kh.Engine(hub, runner).step()
+    assert len(runner.calls) == 1 and "内核本想代办“开工 → contract-glm（T001-2-contract）”，没有发" in runner.calls[0][2]
+    assert "规划依赖 1 条未核实的仓库外事实" in runner.calls[0][2]
+
+
+def test_the_kernel_leaves_the_last_rework_of_a_stage_to_the_coordinator(engine_env, kernel_routing):
+    """第 112 轮（themistally-15 补充）：代办与协调人共用返工计数，这一步会用掉这一阶段的最后一次返工时不代办，
+    留给协调人选返工、热修补还是问站主。前两次照常代办，任务书用核验的全文。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["exec"].update(run_dir="r", check_ok=True)
+    problems = ["1 条变异漏网、也没有声明等价：M09", "锚点核对：\n最相近 L172（100%）：" + "x" * 1500]
+    ts["stages"]["6-gate-post"] = {"status": "failed", "problems": problems, "redelivered": True}
+    ts["reworks"] = {"6-gate-post": 1}
+    hub.save_state(state)
+    hub.deliver({"from": "gate-sonnet", "to": kh.COORDINATOR, "task-id": "T001-6-gate-post", "in-reply-to": "none",
+                 "type": "交付"}, fields(内核核验="未通过：1 条变异漏网"))
+    runner = FakeRunner([])
+    kh.Engine(hub, runner).step()
+    assert runner.calls == [] and hub.unread("gate-sonnet")
+    brief = (hub.task_dir("T001-6-gate-post") / "brief.md").read_text(encoding="utf-8")
+    assert "- 1 条变异漏网、也没有声明等价：M09" in brief and "x" * 1500 in brief  # 全文，不是截过的那一栏
+    assert "照这些原话当场重交过一次，还是没过" in brief
+    for path in hub.unread("gate-sonnet"):
+        hub.take(path)
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["6-gate-post"] = {"status": "failed", "problems": problems}
+    hub.save_state(state)
+    hub.deliver({"from": "gate-sonnet", "to": kh.COORDINATOR, "task-id": "T001-6-gate-post", "in-reply-to": "none",
+                 "type": "交付"}, fields(内核核验="未通过：1 条变异漏网"))
+    runner = FakeRunner([({"letters": [], "state": "问站主"}, [])])
+    kh.Engine(hub, runner).step()  # 已经返工 2 次：第 3 次留给协调人
+    assert len(runner.calls) == 1 and "最后一次返工（已经返工 2 次），留给协调人定" in runner.calls[0][2]
+    assert "内核代办记录（你上一回合之后）" in runner.calls[0][2] and "返工 → gate-sonnet（T001-6-gate-post）" in runner.calls[0][2]
+    assert "routed" not in hub.load_state()["tasks"]["T001"]  # 协调人看过了，清掉
+
+
+def test_a_passing_delivery_clears_the_last_check(engine_env):
+    """第 112 轮：交付通过时清掉上一次核验的原话，下一次返工的任务书不会照着过时的问题写。"""
+    hub = engine_env
+    state = hub.load_state()
+    state["tasks"]["T001"]["stages"]["1-plan"] = {"status": "assigned", "problems": ["规划端的 report 为空"],
+                                                  "redelivered": True}
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "planner-opus", "task-id": "T001-1-plan", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+    kh.Engine(hub, FakeRunner([(planner_delivery(), [])])).step()
+    stage = hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]
+    assert stage["status"] == "delivered" and "problems" not in stage and "redelivered" not in stage
+
+
+def test_a_partly_routed_batch_records_what_went_out(engine_env, kernel_routing):
+    """第 112 轮（themistally-15 指出）：同一批里两步落在同一阶段，第一封投出去之后第二封撞上 guard：投出去的
+    那一步照样记进代办记录与账本，剩下的交给协调人，输入里写明代办到一半。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    ts["stages"]["2-contract"] = {"status": "failed", "problems": ["derive-json 失败"]}
+    ts["audit_pre"].update(verdict="返工", target="合同端")
+    hub.save_state(state)
+    for sender, task_id, extra in (("contract-glm", "T001-2-contract", {"内核核验": "未通过：derive-json 失败"}),
+                                   ("audit-sonnet", "T001-4-audit-pre",
+                                    {"内核核验": "通过", "结论": "返工", "退回": "合同端", "阻塞项": "1. D07 写反了"})):
+        hub.deliver({"from": sender, "to": kh.COORDINATOR, "task-id": task_id, "in-reply-to": "none", "type": "交付"},
+                    fields(**extra))
+    runner = FakeRunner([({"letters": [], "state": "看过"}, [])])
+    kh.Engine(hub, runner).step()
+    assert len(runner.calls) == 1 and "内核代办到一半" in runner.calls[0][2]
+    assert "返工 → contract-glm（T001-2-contract）" in runner.calls[0][2]  # 投出去的那一步在代办记录里
+    events = [e for e in kh.ledger_events(hub) if e["event"] == "route.kernel"]
+    assert [(e["moves"], e["partial"]) for e in events] == [(["返工 → contract-glm（T001-2-contract）"], True)]
+
+
+def test_a_routing_cut_short_is_handed_back_with_its_own_words(engine_env, kernel_routing):
+    """第 112 轮（themistally-15 指出）：内核代办到一半 hub 被收掉，信放回之后由协调人接着办：输入里说清上一次是内核在
+    代办，不是“你上一回合的改动还在工作目录里”；重发撞上“已经开工”的不算它出错。"""
+    hub = engine_env
+    owner_task(hub)
+    letter = hub.unread(kh.COORDINATOR)[0]
+    hub.take(letter)
+    state = hub.load_state()  # 内核已经把开工投给了规划端，还没清“在办”标记就被收掉
+    assert kh.Engine(hub, FakeRunner([])).deliver_coordinator_letter(state, start_planner(), sender=kh.KERNEL) is None
+    state = hub.load_state()
+    state["tasks"]["T001"]["coordinator_turn"] = {"letters": [letter.name], "at": kh.utc_compact(), "routing": True}
+    hub.save_state(state)
+    for path in hub.unread("planner-opus"):
+        hub.take(path)
+    assert kh.requeue_task(hub, "T001")
+    assert hub.load_state()["tasks"]["T001"]["coordinator_resume"]["routing"] is True
+    runner = FakeRunner([({"letters": [start_planner()], "state": "看过"}, [])])  # 照原样重发那封开工
+    kh.Engine(hub, runner).step()
+    assert len(runner.calls) == 1 and "上一次是内核在代办这批信" in runner.calls[0][2]
+    assert "工作目录里留着上一回合的改动" not in runner.calls[0][2]
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts.get("coordinator_rejections") == 0 and hub.unread(kh.COORDINATOR) == []  # 重发撞上“已经开工”不算出错
+
+
+def test_an_audit_return_is_routed_with_the_blockers(engine_env, kernel_routing):
+    """第 112 轮：审核退回几处时先返工最上游的，任务书照抄阻塞项；它重新交付之后，下游重新开工也带上那一轮的阻塞项。"""
+    hub = engine_env
+    state = hub.load_state()
+    ts = locked(state["tasks"]["T001"])
+    ts["jev"]["3j-jev"] = {"status": "answered"}
+    ts["audit_history"] = [{"stage": "4-audit-pre", "verdict": "返工", "target": "合同端、门禁端",
+                            "blockers": "1. D07 合同写反了（合同端）\n2. G03 断言是空心的（门禁端）"}]
+    ts["audit_pre"].update(verdict="返工", target="合同端、门禁端")
+    ts["stages"]["4-audit-pre"] = {"status": "delivered"}
+    hub.save_state(state)
+    hub.deliver({"from": "audit-sonnet", "to": kh.COORDINATOR, "task-id": "T001-4-audit-pre", "in-reply-to": "none",
+                 "type": "交付"}, fields(内核核验="通过", 结论="返工", 退回="合同端、门禁端",
+                                       阻塞项="1. D07 合同写反了（合同端）\n2. G03 断言是空心的（门禁端）"))
+    kh.Engine(hub, FakeRunner([])).step()
+    meta = kh.parse_letter(hub.unread("contract-glm")[0].read_text(encoding="utf-8"))[0]
+    assert (meta["type"], meta["task-id"]) == ("返工", "T001-2-contract")
+    brief = (hub.task_dir("T001-2-contract") / "brief.md").read_text(encoding="utf-8")
+    assert "审核退回（阻塞项原文）" in brief and "G03 断言是空心的" in brief
+    assert "`.agent/mailbox/tasks/T001-4-audit-pre/report.md`" in brief
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["reworks"] == {"2-contract": 1}
+    # 合同端重新交付：门禁回到 idle，下游开工带上那一轮审核对它列的阻塞项
+    ts["stages"]["3-gate-pre"] = {"status": "idle"}
+    brief = kh.render_routine_brief(hub, ts, {"type": "开工", "suffix": "3-gate-pre", "fields": {}, "from_task": "x"})
+    assert "最近一次审核也退回了这一阶段" in brief and "G03 断言是空心的" in brief
+
+
+def test_a_clean_slice_runs_from_task_to_pass_without_a_coordinator_turn(engine_env, kernel_routing, monkeypatch):
+    """第 112 轮的验收（r3 §11）：替身 runner 从站主的任务一路跑到结项信，交付都干净时协调人一个回合也不起。"""
+    hub = engine_env
+    workspace = hub.repo / "ws"
+
+    def verify(self, ts, agent, suffix, output, fields_):
+        if suffix == "2-contract":
+            ts["contract"].update(validated=True, key="t001-doc.v1", version=1, md=".agent/plans/t001-doc.v1.md")
+        if suffix == "3-gate-pre":
+            ts["oracle"].update(sha="o" * 40, locked=True, files=["tests/test_gate_t001_baseline.py"])
+        if suffix == "6-gate-post":
+            ts["gate_post"].update(ran=True, ok=True)
+        return []
+
+    def run_exec(hub_, ts):
+        ts["exec"] = {"run_dir": str(hub.repo / ".agent" / "runs" / "t001-doc" / "attempt-001"), "check_ok": True}
+        return fields(摘要="执行端自述 completed", 内核核验="通过")
+
+    def run_jev(hub_, ts, suffix):
+        ts["jev"][suffix] = {"status": "answered"}
+        return fields(摘要="JEV：无意见", 需协调人决定="无（JEV 只是参考，门禁不读）")
+
+    monkeypatch.setattr(kh.Engine, "verify_delivery", verify)
+    monkeypatch.setattr(kh, "run_exec", run_exec)
+    monkeypatch.setattr(kh, "run_jev", run_jev)
+    monkeypatch.setattr(kh, "rehearse_landing", lambda hub_, ts: None)
+    monkeypatch.setattr(kh, "apply_candidate", lambda hub_, ts: workspace)
+    monkeypatch.setattr(kh, "seed_whitebox", lambda hub_, ts, ws: None)
+    delivered = dict(planner_delivery(), contract_md="# TASK: t001-doc\n正文")
+    audit = dict(delivered, letter=dict(planner_delivery()["letter"], 结论="通过", 退回="无", 阻塞项="无"))
+    runner = FakeRunner([(delivered, []), (delivered, []), (delivered, []), (audit, []), (delivered, []), (audit, [])])
+    owner_task(hub)
+    engine = kh.Engine(hub, runner)
+    for _ in range(40):
+        if any(kh.parse_letter(p.read_text(encoding="utf-8"))[0].get("type") == "通过" for p in hub.unread("exec-step")):
+            break
+        assert engine.step()
+    passed = kh.parse_letter(hub.unread("exec-step")[0].read_text(encoding="utf-8"))[0]
+    assert (passed["from"], passed["type"], passed["task-id"]) == (kh.KERNEL, "通过", "T001-5-exec")
+    assert [call[0] for call in runner.calls] == ["planner-opus", "contract-glm", "gate-sonnet", "audit-sonnet",
+                                                 "gate-sonnet", "audit-sonnet"]  # 没有一个协调人回合
+    assert len([e for e in kh.ledger_events(hub) if e["event"] == "route.kernel"]) == 8
 
 
 def test_downstream_notes_ride_along_to_every_later_turn(tmp_path):
