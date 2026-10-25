@@ -6813,8 +6813,12 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
     assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]
     assert kh.role_schema("coordinator")["properties"]["letters"].get("minItems") is None  # 第 3 条落地前后都能交空的
-    tool = (kh.COORDINATOR, "audit-sonnet", "gate-sonnet", "contract-glm")  # 第 97–99 轮起各工人也用 deliver
-    for role in ("audit", "gate", "contract"):  # 空的 report 在回合内就挡回（themistally-15 复核第 97 轮）
+    # 第 97–99 轮起各 pi 工人也用 deliver，第 101 轮起规划端用 claude 的 --json-schema
+    tool = (kh.COORDINATOR, "audit-sonnet", "gate-sonnet", "contract-glm", "planner-opus")
+    planner = kh.role_schema("planner")
+    assert set(planner["required"]) == {"letter", "report", "state", "external_facts"}
+    assert {"fact", "verified"} <= set(planner["properties"]["external_facts"]["items"]["required"])
+    for role in ("audit", "gate", "contract", "planner"):  # 空的 report 在回合内就挡回（themistally-15 复核第 97 轮）
         assert kh.role_schema(role)["properties"]["report"]["minLength"] == 1, role
     assert all(kh.ROSTER[name]["delivery"] == "tool" for name in tool)
     assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name not in tool)
@@ -6947,13 +6951,54 @@ def test_a_contract_turn_hands_in_through_deliver(tmp_path):
     assert turn["output"] == good and turn["output_error"] is None
 
 
+def test_a_changed_planner_schema_stops_the_claude_turn(tmp_path, monkeypatch):
+    monkeypatch.setitem(kh.DELIVERY_SHA256, "planner.json", "0" * 64)  # 与 pi 岗位一样：哈希对不上就不起
+    seen = []
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    turn = kh.TurnRunner(hub, launcher=lambda *a: seen.append(a)).run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入")
+    assert seen == [] and "交差工具的文件被改过" in turn["api_error"]
+
+
+def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
+    # 第 101 轮：规划端（claude）用 --json-schema 交差。CLI 自己加上 StructuredOutput（init 的工具里有它）；
+    # 它交的是内容，引用主工作区的路径不算碰了主工作区；结果在 result 的 structured_output
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER["planner-opus"]
+    letter = {"type": "交付", "in_reply_to": "m1", "摘要": "规划", "提交": "无", "验证": "无", "偏离": "无",
+              "需协调人决定": "无", "证据": "无"}
+    good = {"letter": letter, "report": "出处 %s" % (hub.repo / "docs" / "x.md"), "state": "", "external_facts": []}
+    seen, results = [], [good, None]
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        init = dict(INIT, tools=spec["tools"] + ["StructuredOutput"], model=spec["model"])
+        use = {"type": "assistant", "message": {"model": spec["model"], "content": [
+            {"type": "tool_use", "id": "u1", "name": "StructuredOutput", "input": good}]}}
+        result = {"type": "result", "result": "", "structured_output": results.pop(0)}
+        out.write(("\n".join(stream(init, use, result)) + "\n").encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    turn = runner.run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")
+    cmd = seen[0]
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == kh.role_schema("planner")
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Bash"  # StructuredOutput 由 CLI 加，不进 --tools
+    assert turn["violations"] == [] and turn["output"] == good and turn["output_error"] is None
+    record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"planner.json"}
+    turn = runner.run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")  # 交不成：structured_output 为 null
+    assert turn["output"] is None and "没有成功交差" in turn["output_error"]
+
+
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     spec = kh.ROSTER[kh.COORDINATOR]
     text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
                                                "stopReason": "stop", "content": [
                                                    {"type": "text", "text": "```json\n{\"letters\": [], \"state\": \"x\"}\n```"}]}}
     turn, _seen = coordinator_turn(tmp_path / "a", [text])  # 代码块不再算数
-    assert turn["output"] is None and "没有成功调用 deliver" in turn["output_error"]
+    assert turn["output"] is None and "没有成功交差" in turn["output_error"]
     # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
     turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
     assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
@@ -6975,7 +7020,8 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     contract = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in contract and "contract_md" in contract  # 第 99 轮
     planner = kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], tmp_path)
-    assert "## 输出格式" in planner and "deliver" not in planner  # claude 走 --json-schema，另做
+    assert "## 交差（交结构化结果）" in planner and "StructuredOutput" in planner  # 第 101 轮：claude 走 --json-schema
+    assert "## 输出格式" not in planner and "deliver" not in planner and "external_facts" in planner
     audit = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in audit and "## 输出格式" not in audit
     assert "交付以外的信写“无”" in audit and "不是返工写“无”" in audit  # 三项都必填，schema 卡着

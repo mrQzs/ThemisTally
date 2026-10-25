@@ -42,6 +42,8 @@ MAILBOX = Path(".agent") / "mailbox"
 TEMPLATE_DIR = HERE / "hub"
 #: 交差工具（第 90 轮，七端改造第 1 条）：pi 扩展与各岗位的 schema（schemas/<岗位>.json）都在内核目录里
 DELIVER_TOOL = "deliver"
+#: claude 的 --json-schema 交差时，CLI 自己加上的工具（第 101 轮）
+STRUCTURED_TOOL = "StructuredOutput"
 DELIVER_EXTENSION = TEMPLATE_DIR / "deliver.ts"
 SCHEMA_DIR = TEMPLATE_DIR / "schemas"
 #: 内核复核 schema 时只认这些关键字（themistally-15 定的子集）：Python 用标准库实现，与 pi 的 TypeBox 判定一致
@@ -139,7 +141,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
                      "effort": "max", "tools": ["Read", "Grep", "Glob", "Bash"], "allowed_rules": ["Bash(npm view:*)"],
-                     "timeout": 2400, "workspace": "base"},
+                     "timeout": 2400, "workspace": "base", "delivery": "tool"},  # 第 101 轮；回退写 "block"
     # 第 46 轮：qwen3.7-plus 写合同接连出错。T011 返工五次；T013 四次都没过，最后一份 Scope 的路径全少了
     # desktop/web/，执行端照它做会全部越界。换到 glm-5.3。合同原来由不同的模型一审（审核是 glm），现在同一个模型，
     # 少了一层独立性，靠内核的机械检查（第 40、43、46 轮）与 JEV 补。
@@ -322,7 +324,8 @@ def delivered_output(role: str, delivered: Optional[Dict[str, Any]]) -> Tuple[Op
     """用 deliver 交差的回合的输出（第 90 轮）：最后一次成功的 deliver 的参数，内核再按同一份 schema 复核一遍。
     没交或复核不过都按“输出不合格”走，第 32、82 轮的重试规矩照旧。返回（输出，问题）。"""
     if delivered is None:
-        return None, "这一回合没有成功调用 deliver 交差（内核不再从最后一条消息里找 json 代码块）"
+        return None, ("这一回合没有成功交差（pi 调 deliver 工具，claude 交 StructuredOutput；"
+                      "内核不再从最后一条消息里找 json 代码块）")
     errors = schema_errors(role_schema(role), delivered)
     if errors:
         return None, "deliver 交上来的参数内核复核不过：%s" % "；".join(errors[:8])
@@ -1575,7 +1578,7 @@ def session_cut_short(hub: Hub, agent: str, adapter: str, session_id: str) -> bo
     用 deliver 交差的回合（第 90 轮）也是在工具结果之后结束的。
     pi 的会话文件在信箱的 sessions/<工人>/<时刻>_<会话号>.jsonl，消息带 role 与 stopReason；claude 的在
     ~/.claude/projects/*/<会话号>.jsonl，assistant 记录带 stop_reason，工具调用是 tool_use 块。找不到文件不算。
-    claude 以后改用 --json-schema 交差时，StructuredOutput 的收尾要另看（等有了真实的会话文件再定）。"""
+    claude 用 --json-schema 交差（第 101 轮）收在 StructuredOutput 的 tool_result 上，也不算（haiku 实测的会话文件）。"""
     if adapter == "claude":
         paths = sorted((Path.home() / ".claude" / "projects").glob("*/%s.jsonl" % session_id))
     else:
@@ -1666,7 +1669,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
                         violations.append("调用了白名单之外的工具：%s（%s）" % (name, block.get("type")))
                     elif name not in allowed:
                         outside[str(block.get("id"))] = name
-                    elif workspace is not None:
+                    elif workspace is not None and name != STRUCTURED_TOOL:  # 交的是内容、不碰文件（第 100、101 轮）
                         args = dict(block.get("input") or {})
                         if "file_path" in args:
                             args["path"] = args.pop("file_path")
@@ -1704,7 +1707,9 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     # （T001 的终审为一次被拒的 Bash 白白作废了 16 分钟）；看不到拒绝结果的照旧作废。
     warnings = ["试图调用白名单之外的工具 %s，被 CLI 拒绝" % name for tid, name in outside.items() if tid in refused]
     violations += ["调用了白名单之外的工具：%s（tool_use）" % name for tid, name in outside.items() if tid not in refused]
-    return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls,
+    # 第 101 轮：--json-schema 交差，CLI 把校验过的结果放在 result 的 structured_output（交不成是 null）
+    delivered = result.get("structured_output") if isinstance(result.get("structured_output"), dict) else None
+    return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "delivered": delivered,
             "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
@@ -1889,9 +1894,10 @@ class TurnRunner:
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         spec = ROSTER[agent]
-        # 第 90 轮：这个岗位用 deliver 交差（pi 工人；claude 的 --json-schema 以后另做）
-        delivery = spec.get("delivery") == "tool" and spec["adapter"] != "claude"
-        tools = list(spec["tools"]) + ([DELIVER_TOOL] if delivery else [])
+        # 第 90 轮：这个岗位用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
+        # StructuredOutput 工具（init 的工具里有它）
+        delivery = spec.get("delivery") == "tool"
+        tools = list(spec["tools"]) + ([STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL] if delivery else [])
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
         turn_dir.mkdir(parents=True)
@@ -1955,6 +1961,8 @@ class TurnRunner:
                     "%s(%s)" % (tool, claude_path_rule(root)) for tool in writes
                     for root in [self.hub.repo] + ([inputs] if inputs is not None else [])]
             cmd += ["--permission-prompts", "none", "--append-system-prompt-file", str(role_path)]
+            if delivery:  # haiku 实测：5.3 万字符的 report 一次交上、逐字一致，--resume 之后照样能交
+                cmd += ["--json-schema", json.dumps(role_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
         else:
@@ -1979,16 +1987,16 @@ class TurnRunner:
         env = worker_env(config)
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
-        if delivery:
+        if delivery and spec["adapter"] != "claude":
             env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
-        blocked = None if spec["adapter"] == "claude" else (
+        blocked = (delivery_problem(spec["role"]) if delivery else None) if spec["adapter"] == "claude" else (
             pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or (delivery_problem(spec["role"]) if delivery else None))
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
         lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
-        audit = (audit_claude_stream(lines, spec, workspace, self.hub.repo) if spec["adapter"] == "claude"
-                 else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
+        audit = (audit_claude_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo)
+                 if spec["adapter"] == "claude" else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
         if spec["adapter"] == "claude":
@@ -2035,10 +2043,11 @@ class TurnRunner:
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
             "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
-            # 第 90 轮：怎么交差的；用 deliver 时记下扩展与这个岗位的 schema 的哈希
+            # 第 90 轮：怎么交差的；用工具交差时记下这个岗位的 schema（pi 还有扩展）的哈希
             "delivery": "tool" if delivery else "block",
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
-                DELIVER_EXTENSION.name, "%s.json" % spec["role"])} if delivery else None,
+                () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name,)) + ("%s.json" % spec["role"],)}
+            if delivery else None,
         }
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
@@ -4418,6 +4427,14 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 参数不合格式时，工具当场退回并写明哪里不对：照着改了再调一次。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
                   "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+    elif spec.get("delivery") == "tool":
+        # 第 101 轮：claude 用 --json-schema 交差，CLI 给的工具叫 StructuredOutput
+        parts += ["", "## 交差（交结构化结果）", "",
+                  "- 这一回合做完，用 `StructuredOutput` 工具交出结构化结果；格式是内核给的 JSON Schema，大致如下。"
+                  "交上了，这一回合就结束。",
+                  "- 不合格式时会退回并写明哪里不对：照着改了再交。",
+                  "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
+                  "```", OUTPUT_SPECS["worker"], "```"]
     else:
         parts += ["", "## 输出格式", "", "最后一条消息末尾附一个 ```json 代码块（只认最后一个）：", "",
                   "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]

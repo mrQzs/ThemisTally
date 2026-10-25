@@ -1773,7 +1773,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 ### 第 100 轮：deliver 的参数不按“碰没碰主工作区”核对（2026-10-25）
 
 - **问题**：`audit_pi_stream` 对白名单里的每个工具调 `pi_reach_problem`，deliver 也在内；它把参数里的全部文字和主工作区的路径比对。deliver 交的是内容、不碰文件，可审核端、门禁端、合同端的 report 一旦引用了主工作区的路径（出处、证据），整个回合就按“碰了主工作区”作废。代码块交差时最后一条消息不过这道检查，所以第 97–99 轮把它们切到 deliver 才带出这个风险（第 97 轮的审核端已经在线）。工人的提示词里没有主工作区路径（第 88 轮换成了输入目录），所以不常见，但改法只是不对 deliver 做这项核对，是去掉一个误报。
-- **测试与变异**：新增 1 条用例（deliver 的参数引用主工作区：不作废；read 读主工作区：照旧作废）。用到 kit_hub 的四个测试文件 456 条通过；变异 2 个全部抓住。claude 规划端的 StructuredOutput 同理，放在第 101 轮。
+- **测试与变异**：新增 1 条用例（deliver 的参数引用主工作区：不作废；read 读主工作区：照旧作废）。用到 kit_hub 的四个测试文件 456 条通过；变异 2 个全部抓住。claude 规划端的 StructuredOutput 同理，放在第 101 轮。themistally-15 复核时补核了写入位置：report、state 进信箱的阶段目录，contract_md 进 `.agent/plans/`，清单文件名被 const 钉死，其余只是文字——写到哪由内核定，参数决定不了，不核对不会漏掉真越界；协调人的信“证据”一栏常写路径，作废走 escalate（主任务转 blocked），这一轮也一并免掉了。
+
+### 第 101 轮：规划端用 claude 的 --json-schema 交差（2026-10-25，七端改造第 1 条的最后一步）
+
+- **先实测**（haiku，省额度）：规划端的 report 中位约 3.6 万字符、最长 5.3 万（T012）。让 haiku 读那份最长的，原样经 `--json-schema` 交进 structured output：一次 StructuredOutput、逐字一致，output 41k token、133 秒、0.03 美元；`--resume` 之后再交一次，同样逐字一致。init 的工具里多了 `StructuredOutput`（`--tools` 不用写它，CLI 自己加）；result 事件带 `structured_output`；会话文件收尾是一条 user 的 tool_result，第 94 轮的规则不判它半截。第一次实测没测成：探针目录用了 8.3 短路径（`ADMINI~1`）被判为可疑路径、又没带 `--permission-prompts none`，Read 被拒——模型照样经 StructuredOutput 交了一封合规的“阻塞”信。
+- **改法**：名册里 planner-opus 加 `"delivery": "tool"`（回退写 "block"）。`TurnRunner.run` 给 claude 加 `--json-schema <planner.json 压成一行>`，核对白名单时算上 `StructuredOutput`，起回合之前照 pi 岗位核对 schema 文件的哈希与子集（`delivery_problem`），回合记录的 `delivery_sha256` 只记 schema（claude 不用 deliver.ts）。`audit_claude_stream` 从 result 读 `structured_output`（交不成是 null，按输出不合格走），StructuredOutput 的参数不做主工作区核对（交的是内容，同第 100 轮）。提示词的“交差（交结构化结果）”一节写明用 StructuredOutput、不要再写代码块。`delivered_output` 的报错改成“没有成功交差（pi 调 deliver，claude 交 StructuredOutput）”。
+- **schema**（`scripts/hub/schemas/planner.json`）：`{letter, report, state, external_facts}` 都必填，letter 照工人通用写法，external_facts 每条 `{fact, source, verified}`（fact、verified 至少一个字；没核实写“未核实”）。claude 的 schema 由 Anthropic 那边校验，不是 typebox；内核拿到之后照样用子集校验器复核一遍。历史规划端输出 23 份，原样过 19、补齐后 23 份全过。
+- **测试与变异**：新增 2 条（规划端经 StructuredOutput 交差：命令带 schema、`--tools` 不含 StructuredOutput、引用主工作区不作废、structured_output 为 null 时输出不合格、记录只记 planner.json；planner.json 被改过时不起回合），schema 与提示词的用例跟着改。用到 kit_hub 的四个测试文件 457 条通过；变异 8 个全部抓住。至此七端改造第 1 条的各岗位都切到了工具交差；代码块解析留着当回退，各岗位在真实回合里都跑过之后再撤。
 
 ## 11. 已知缺口与下一步
 

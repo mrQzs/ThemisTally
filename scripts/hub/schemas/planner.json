@@ -1,0 +1,39 @@
+{
+  "description": "规划端交差（七端改造第 1 条，第 101 轮；claude 的 --json-schema）：交给协调人的信、report.md 与 state.md 的全文，以及计划依赖的仓库外事实。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["letter", "report", "state", "external_facts"],
+  "properties": {
+    "letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "in_reply_to", "摘要", "提交", "验证", "偏离", "需协调人决定", "证据"],
+      "properties": {
+        "type": {"type": "string", "enum": ["交付", "返工完成", "提问", "阻塞", "交接", "进度"]},
+        "in_reply_to": {"type": "string", "minLength": 1, "description": "回复的 msg-id"},
+        "摘要": {"type": "string", "minLength": 1},
+        "提交": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "验证": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "偏离": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "需协调人决定": {"type": "string", "minLength": 1, "description": "没有就写“无”"},
+        "证据": {"type": "string", "minLength": 1, "description": "没有就写“无”"}
+      }
+    },
+    "report": {"type": "string", "minLength": 1, "description": "report.md 全文"},
+    "state": {"type": "string", "description": "state.md 全文"},
+    "external_facts": {
+      "type": "array",
+      "description": "计划依赖的仓库外事实，没有就给 []",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fact", "source", "verified"],
+        "properties": {
+          "fact": {"type": "string", "minLength": 1},
+          "source": {"type": "string", "description": "出处"},
+          "verified": {"type": "string", "minLength": 1, "description": "核实的命令与结果；没核实就写“未核实”"}
+        }
+      }
+    }
+  }
+}
