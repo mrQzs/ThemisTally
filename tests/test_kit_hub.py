@@ -3346,6 +3346,37 @@ def test_role_prompt_only_renders_the_workers_own_duties():
     gate = kh.role_prompt("gate-sonnet")
     assert "只增不改" in gate and "`audit-sonnet`（审核端）" not in gate
     assert "planner-opus" in kh.role_prompt(kh.COORDINATOR)
+    # 第 96 轮：审核端照“罕见竞态先报再做”时，具体能触发的问题照常退回
+    assert "能给出具体触发路径的正确性或安全问题，照常写进阻塞项退回" in kh.role_prompt("audit-sonnet")
+    assert "罕见的竞态与边界" not in gate
+
+
+def test_engineering_rules_from_committed_agents_md_reach_the_pi_roles(tmp_path, monkeypatch):
+    # 第 96 轮：合同端、门禁端、审核端带 --no-context-files，读不到 AGENTS.md；内核把“通用工程要求”一节拼进去
+    repo, _head = git_repo(tmp_path)
+    agents = repo / "AGENTS.md"
+    agents.write_text("# AGENTS\n\n## 角色判定\n\n- 略\n\n%s\n\n- 测试测真实实现。\n- 少用 mock。\n\n## 规划端\n\n- 只给规划端\n"
+                      % kh.ENGINEERING_HEADING, encoding="utf-8")
+    kh.git(["add", "AGENTS.md"], repo)
+    kh.git(["commit", "-q", "-m", "rules"], repo)
+    agents.write_text("没提交的改动\n", encoding="utf-8")  # 站主改了还没提交：不跟着变
+    monkeypatch.setattr(kh, "HERE", repo / "scripts")
+    assert kh.engineering_rules() == "%s\n\n- 测试测真实实现。\n- 少用 mock。" % kh.ENGINEERING_HEADING
+    for agent in ("contract-glm", "gate-sonnet", "audit-sonnet"):
+        assert kh.role_prompt(agent).endswith("\n%s\n\n- 测试测真实实现。\n- 少用 mock。\n" % kh.ENGINEERING_HEADING)
+    for agent in (kh.COORDINATOR, "planner-opus"):  # 协调人不写代码；规划端经 claude 自己读 AGENTS.md
+        assert kh.ENGINEERING_HEADING not in kh.role_prompt(agent)
+    (tmp_path / "plain").mkdir()
+    monkeypatch.setattr(kh, "HERE", tmp_path / "plain" / "scripts")  # 切不出来：报错，不悄悄少一节规则
+    with pytest.raises(kh.HubError, match="找不到"):
+        kh.role_prompt("gate-sonnet")
+    assert "planner-opus" in kh.role_prompt(kh.COORDINATOR)  # 不拼的岗位不受影响
+
+
+def test_the_committed_agents_md_has_the_engineering_rules():
+    # 第 96 轮：标题改了名，合同端、门禁端、审核端的提示词就拼不上，这里先红
+    rules = kh.engineering_rules()
+    assert rules.startswith(kh.ENGINEERING_HEADING) and "测试测真实实现" in rules and "\n## " not in rules
 
 
 def test_session_ids_change_on_a_fresh_restart(tmp_path):

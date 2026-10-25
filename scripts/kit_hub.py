@@ -4147,12 +4147,30 @@ ROLE_EXTRA_OUTPUT = {
 }
 
 
+#: 第 96 轮：这几个 pi 岗位带 --no-context-files，读不到 AGENTS.md（执行端经调度器、规划端经 claude 都读得到）
+ENGINEERING_ROLES = ("contract", "gate", "audit")
+ENGINEERING_HEADING = "## 通用工程要求（所有代理）"
+
+
 def role_prompt(agent: str) -> str:
     spec = ROSTER[agent]
     values = {"名字": agent, "角色": spec["label"], "协调人": COORDINATOR, "仓库": "ThemisTally"}
     if agent == COORDINATOR:
         return render_template("coordinator.md", values)
-    return render_template("worker.md", values, role=spec["role"])
+    prompt = render_template("worker.md", values, role=spec["role"])
+    return prompt + "\n" + engineering_rules() + "\n" if spec["role"] in ENGINEERING_ROLES else prompt
+
+
+def engineering_rules() -> str:
+    """AGENTS.md 里“通用工程要求”一节。取已提交的版本：站主改了还没提交时不跟着变，也不会因此让 hub 停下。
+    切不出来（标题改了名）就报错交给站主，不悄悄少一节规则。"""
+    text = git(["show", "HEAD:AGENTS.md"], HERE.parent, check=False)
+    start = text.find(ENGINEERING_HEADING + "\n")
+    if start < 0:
+        raise HubError("已提交的 AGENTS.md 里找不到“%s”一节，合同端、门禁端、审核端的提示词要拼它：标题改了名就同步改"
+                       " kit_hub.ENGINEERING_HEADING" % ENGINEERING_HEADING[3:], EXIT_BLOCKED)
+    end = text.find("\n## ", start + 1)
+    return text[start:end if end >= 0 else len(text)].strip()
 
 
 def stage_status_table(hub: Hub, ts: Dict[str, Any]) -> str:
