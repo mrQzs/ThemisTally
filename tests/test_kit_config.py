@@ -868,7 +868,7 @@ class ConfigTransactions(TempRepo):
             self.set("kill_grace_seconds", "20")
         with mock.patch.dict(os.environ, {"CODEKIT_ACTOR": "root"}):
             code, _, err = self.set("kill_grace_seconds", "21")
-        self.assertIn("不是 user 或 agent:<角色>", err)
+        self.assertIn("不是 user、user-ui 或 agent:<角色>", err)
         os.environ.pop("CODEKIT_ACTOR", None)
         self.set("kill_grace_seconds", "22")
         self.assertEqual([r["actor"] for r in self.records("intent")], ["agent:planning_review", "undeclared", "undeclared"])

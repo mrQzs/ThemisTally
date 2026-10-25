@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import contextvars
 import getpass
 import hashlib
 import html
+import io
 import json
 import os
 import re
@@ -428,7 +430,8 @@ AUDIT_DIR = "audit"
 AUDIT_NAME = "management.jsonl"
 LOCAL_NAME = "dispatch.local.json"
 ACTOR_ENV = "CODEKIT_ACTOR"
-ACTOR_RE = re.compile(r"^(?:user|agent:[a-z][a-z_]{0,31})$")
+#: user-ui 是桌面端本机服务给子进程设的（桌面端 D6、D13）；和其余取值一样是自声明，不是认证
+ACTOR_RE = re.compile(r"^(?:user|user-ui|agent:[a-z][a-z_]{0,31})$")
 #: 审计记录的 resource → .agent/ 下的文件。补判、外部改动都只在同一资源内比较；只有 config 存快照。
 RESOURCES = {"config": CONFIG_NAME, "local": LOCAL_NAME}
 APPROVAL_NOTE = "P3 之前没有批准记录"
@@ -507,13 +510,13 @@ def _sha(data: Optional[bytes]) -> Optional[str]:
 
 
 def _actor() -> str:
-    """CODEKIT_ACTOR 的自声明（user 或 agent:<角色>），没设记 undeclared。这不是认证（上位设计 8.6）。"""
+    """CODEKIT_ACTOR 的自声明（user、user-ui 或 agent:<角色>），没设记 undeclared。这不是认证（上位设计 8.6）。"""
     value = os.environ.get(ACTOR_ENV)
     if not value:
         return "undeclared"
     if ACTOR_RE.match(value):
         return value
-    print("WARN  %s=%r 不是 user 或 agent:<角色>，审计记为 undeclared" % (ACTOR_ENV, value), file=sys.stderr)
+    print("WARN  %s=%r 不是 user、user-ui 或 agent:<角色>，审计记为 undeclared" % (ACTOR_ENV, value), file=sys.stderr)
     return "undeclared"
 
 
@@ -654,18 +657,28 @@ def _warn_unignored(repo: Any) -> None:
                   file=sys.stderr)
 
 
-class ConfigTransaction:
-    """一次写入：在配置锁内读入资源，调用方修改后 publish；不 publish 就什么也不写（D7）。"""
+def _read_resource(repo: Any, resource: str) -> Optional[bytes]:
+    path = repo.agent_dir / RESOURCES[resource]
+    try:
+        return path.read_bytes() if path.exists() else None
+    except OSError as exc:
+        raise ConfigError("读不出 %s：%s" % (path, exc))
 
-    def __init__(self, repo: Any, lock: ConfigLock, resource: str, action: str, target: Optional[str],
-                 confirm: bool) -> None:
+
+class ConfigTransaction:
+    """一次写入：在配置锁内读入资源，调用方修改后 publish；不 publish 就什么也不写（D7）。
+
+    preview 不为 None 是预览（--dry-run，桌面端 D6、D13）：不拿锁（lock 为 None），publish 照常整份校验，把会怎样
+    记进 preview；不写文件、不存快照、不记审计。
+    """
+
+    def __init__(self, repo: Any, lock: Optional[ConfigLock], resource: str, action: str, target: Optional[str],
+                 confirm: bool, before: Optional[bytes], preview: Optional[List[Dict[str, Any]]] = None) -> None:
         self.repo, self.lock, self.resource = repo, lock, resource
         self.action, self.target, self.confirm = action, target, confirm
         self.path = repo.agent_dir / RESOURCES[resource]
-        try:
-            self.before: Optional[bytes] = self.path.read_bytes() if self.path.exists() else None
-        except OSError as exc:
-            raise ConfigError("读不出 %s：%s" % (self.path, exc))
+        self.before = before
+        self.preview = preview
         # 调用方改的是 config；original 由同一份字节另外解析，保持写入前的样子，供 D8 比较前后的生效绑定
         self.original: Dict[str, Any] = {} if self.before is None else _parse_object(self.path, self.before)
         self.config: Dict[str, Any] = {} if self.before is None else _parse_object(self.path, self.before)
@@ -689,6 +702,8 @@ class ConfigTransaction:
             errors = validate_config(new_config, self.repo)
             if errors:
                 raise ConfigError("没有写入：" + "；".join(errors))
+        if self.preview is not None:
+            return self._preview(new_config, data)
         if self.before is not None and data == self.before:
             return False
         confirmation = _binding_switch_confirmation(self.repo, self.original, new_config, self.confirm) \
@@ -733,6 +748,16 @@ class ConfigTransaction:
         _warn_unignored(self.repo)
         return True
 
+    def _preview(self, new_config: Dict[str, Any], data: bytes) -> bool:
+        """预览这次写入（桌面端 D6）：只给键路径不给取值，与 history 的 changed_keys 一致；运行中切换只扫描、不拒绝。"""
+        entry: Dict[str, Any] = {"resource": self.resource, "changed": data != self.before}
+        if self.resource == "config":
+            diff = key_diff(self.before if self.before is not None else b"{}", data)
+            entry["changed_keys"] = [item[0] for item in diff] if diff is not None else None
+            entry.update(_switch_preview(self.repo, self.original, new_config))
+        self.preview.append(entry)
+        return entry["changed"]
+
     def _append(self, record: Dict[str, Any]) -> None:
         try:
             _append_audit(self.repo, record)
@@ -749,9 +774,20 @@ class ConfigTransaction:
 @contextlib.contextmanager
 def config_transaction(repo: Any, action: str, target: Optional[str] = None, *, resource: str = "config",
                        confirm: bool = False):
-    """持配置锁读入资源（config 或 local），交给调用方修改并 publish。所有写配置的入口都经过这里（D7）。"""
+    """持配置锁读入资源（config 或 local），交给调用方修改并 publish。所有写配置的入口都经过这里（D7）。
+
+    CLI 层设了写模式时（桌面端 D6、D13）：预览不拿锁、什么也不写；--expect-state 在锁内先比对令牌，再用比对过的
+    那批字节建事务。
+    """
+    mode = _enter_write_mode(action)
+    if mode is not None and mode.dry_run:
+        mode.snapshot[resource] = _read_resource(repo, resource)
+        yield ConfigTransaction(repo, None, resource, action, target, confirm, mode.snapshot[resource], mode.preview)
+        return
     with ConfigLock(repo) as lock:
-        yield ConfigTransaction(repo, lock, resource, action, target, confirm)
+        before = (_check_state(repo, str(mode.expect_state), (resource,))[resource] if mode is not None
+                  else _read_resource(repo, resource))
+        yield ConfigTransaction(repo, lock, resource, action, target, confirm, before)
 
 
 @contextlib.contextmanager
@@ -759,8 +795,68 @@ def config_transactions(repo: Any, action: str, target: Optional[str] = None, *,
     """同一把配置锁里按资源各开一个事务（3.0 第二轮第 4 步，闸二第 4 片 S1）：runtime add --command 与 remove 先改配置、
     再改本机文件，中间不放锁，别的写入插不进两步之间。给调用方一个函数 resource → ConfigTransaction，用到时才读入
     该资源；每个资源各记自己的历史与审计。"""
+    if _WRITE_MODE.get() is not None:
+        raise ConfigError("内部错误：两个资源的写入还不支持 --dry-run 与 --expect-state（%s）" % action)
     with ConfigLock(repo) as lock:
-        yield lambda resource: ConfigTransaction(repo, lock, resource, action, target, confirm)
+        yield lambda resource: ConfigTransaction(repo, lock, resource, action, target, confirm,
+                                                 _read_resource(repo, resource))
+
+
+#: --expect-state 对不上的退出码（桌面端 D6、D13）：本机服务转成 409，界面要求重新预览
+EXIT_STALE = 4
+STATE_RE = re.compile(r"^v1(?:;(?:config|local)=(?:[0-9a-f]{64}|absent))+$")
+
+
+class WriteMode:
+    """一条写命令的预览或带令牌的执行（桌面端 D6、D13）：CLI 层设进 _WRITE_MODE，config_transaction 读它，handler 不用知道。"""
+
+    def __init__(self, dry_run: bool, expect_state: Optional[str]) -> None:
+        self.dry_run, self.expect_state = dry_run, expect_state
+        self.entered = False
+        self.action: Optional[str] = None
+        self.snapshot: Dict[str, Optional[bytes]] = {}
+        self.preview: List[Dict[str, Any]] = []
+
+
+_WRITE_MODE: "contextvars.ContextVar[Optional[WriteMode]]" = contextvars.ContextVar("kit_config_write_mode",
+                                                                                     default=None)
+
+
+def _enter_write_mode(action: str) -> Optional[WriteMode]:
+    """同一条命令第二次进事务是内部错误：第二次会拿自己刚写的状态去比令牌，误报对不上（themistally-15）。"""
+    mode = _WRITE_MODE.get()
+    if mode is None:
+        return None
+    if mode.entered:
+        raise ConfigError("内部错误：带 --dry-run 或 --expect-state 的命令只能进一次写入事务（%s）" % action)
+    mode.entered, mode.action = True, action
+    return mode
+
+
+def state_token(snapshot: Dict[str, Optional[bytes]]) -> str:
+    """预览给的令牌：v1;<资源>=<原始字节的 sha256|absent>，资源按名字排序，只列这条命令会写的（与 themistally-15 定死，
+    迁移计划第 ③ 步照它逐字移植）。sha256 与审计 before_ref、after_ref 里的是同一个值；absent 与空文件分得开。"""
+    return ";".join(["v1"] + ["%s=%s" % (name, _sha(data) or "absent") for name, data in sorted(snapshot.items())])
+
+
+def _check_state(repo: Any, token: str, resources: Sequence[str]) -> Dict[str, Optional[bytes]]:
+    """拿锁之后、第一次 publish 之前：一次读齐这条命令要写的资源，与令牌比对，对上了返回这批字节（r1-1）。"""
+    names = [part.split("=", 1)[0] for part in token.split(";")[1:]]
+    if not STATE_RE.match(token) or names != sorted(set(names)):
+        raise ConfigError("--expect-state 的令牌格式不对：只接受预览（--dry-run --json）给的 state", EXIT_USAGE)
+    if names != sorted(resources):
+        raise ConfigError("--expect-state 的令牌是预览写 %s 的命令时给的，这条命令要写 %s：什么也没写，按这条命令重新预览"
+                          % (_resource_files(names), _resource_files(sorted(resources))), EXIT_STALE)
+    expected = dict(part.split("=", 1) for part in token.split(";")[1:])
+    snapshot = {name: _read_resource(repo, name) for name in names}
+    changed = [name for name in names if (_sha(snapshot[name]) or "absent") != expected[name]]
+    if changed:
+        raise ConfigError("%s 在预览之后被改过：什么也没写，重新预览" % _resource_files(changed), EXIT_STALE)
+    return snapshot
+
+
+def _resource_files(names: Sequence[str]) -> str:
+    return "、".join(".agent/" + RESOURCES[name] for name in names)
 
 
 def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any],
@@ -783,6 +879,25 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
         raise ConfigError("这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：%s）；"
                           "确认要切换就加 --yes" % "、".join(unreadable))
     return "flag"
+
+
+#: 预览里生效绑定的字段，就是 D8 比较的元组（kit_roles.binding_tuple）：只有名字，没有凭据的取值
+BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", "thinking")
+
+
+def _switch_preview(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> Dict[str, Any]:
+    """预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色生效绑定的前后。"""
+    if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
+        return {"binding_changes": [], "running_attempts": [], "unreadable": []}
+    roles = _kit_roles()
+    changes = []
+    for role in roles.ROLES:
+        before, after = roles.binding_tuple(old_config, role), roles.binding_tuple(new_config, role)
+        if before != after:
+            changes.append({"role": role, "before": dict(zip(BINDING_FIELDS, before)) if before else None,
+                            "after": dict(zip(BINDING_FIELDS, after)) if after else None})
+    in_flight, unreadable = roles.binding_switch_in_flight(repo, old_config, new_config)
+    return {"binding_changes": changes, "running_attempts": in_flight, "unreadable": unreadable}
 
 
 #: 配置 v3 的五个键（3.0 第二轮 D1）：与 kit_roles 共用 PD 的这一份（本模块不在导入时依赖 kit_roles，D12）。
@@ -1501,6 +1616,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--host", help="interactive_host 的宿主：claude-code 或 codex")
     q.add_argument("--cadence-seconds", type=int, dest="cadence_seconds", help="scheduler_agent 的 headless 周期（至少 60）")
     q.add_argument("--yes", **yes)
+    _preview_options(q)
     p.set_defaults(func=_roles_command("cmd_role"))
 
     p = sub.add_parser("preset", help="方案：list、show、save、use、diff、remove")
@@ -1544,6 +1660,51 @@ def build_parser() -> argparse.ArgumentParser:
     return pd.no_abbrev(parser)  # 长选项不接受缩写（与调度器相同，3.0 第二轮）
 
 
+def _run_in_write_mode(args: argparse.Namespace) -> int:
+    """带 --dry-run 或 --expect-state 的写命令（桌面端 D6、D13）。预览收起 handler 的文字输出，只把 WARN 行放进预览：
+    stdout 只有一份 JSON。"""
+    if args.dry_run and args.expect_state is not None:
+        raise ConfigError("--dry-run 与 --expect-state 不能一起用", EXIT_USAGE)
+    if args.dry_run and not args.json:
+        raise ConfigError("--dry-run 只输出 JSON：加 --json", EXIT_USAGE)
+    mode = WriteMode(args.dry_run, args.expect_state)
+    token = _WRITE_MODE.set(mode)
+    text = io.StringIO()
+    try:
+        if not mode.dry_run:
+            return int(args.func(args))
+        with contextlib.redirect_stdout(text):
+            args.func(args)
+    finally:
+        _WRITE_MODE.reset(token)  # 同一进程里接着跑的写入不能还是预览（themistally-15）
+    print(json.dumps(_preview_payload(mode, text.getvalue()), ensure_ascii=False, indent=2))
+    return EXIT_OK
+
+
+def _preview_payload(mode: WriteMode, text: str) -> Dict[str, Any]:
+    if not mode.entered:
+        raise ConfigError("内部错误：这条命令没有进写入事务，给不出预览")
+    entries = mode.preview
+    running = [name for entry in entries for name in entry.get("running_attempts", [])]
+    unreadable = [where for entry in entries for where in entry.get("unreadable", [])]
+    return {"dry_run": True, "action": mode.action, "changed": any(entry["changed"] for entry in entries),
+            "resources": [{key: entry[key] for key in ("resource", "changed", "changed_keys") if key in entry}
+                          for entry in entries],
+            "binding_changes": [change for entry in entries for change in entry.get("binding_changes", [])],
+            "running_attempts": running, "unreadable": unreadable, "needs_yes": bool(running or unreadable),
+            "warnings": [line[len("WARN  "):] for line in text.splitlines() if line.startswith("WARN  ")],
+            "state": state_token(mode.snapshot)}
+
+
+def _preview_options(parser: argparse.ArgumentParser) -> None:
+    """界面用到的写命令（桌面端 D6、D13）：预览与带令牌的执行。"""
+    parser.add_argument("--dry-run", action="store_true", dest="dry_run",
+                        help="只预览，不写任何文件（要与 --json 一起用）：变化、在运行的 attempt、是否要 --yes、state 令牌")
+    parser.add_argument("--json", action="store_true", help="与 --dry-run 一起用")
+    parser.add_argument("--expect-state", dest="expect_state", metavar="STATE",
+                        help="预览给的 state：在配置锁里比对，配置在预览之后变了就退出 4、什么也不写")
+
+
 def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1562,6 +1723,8 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     if args.command == "history" and (args.show is None) != (args.number is None):
         parser.error("history show 需要编号；只看列表时不带参数")
     try:
+        if getattr(args, "dry_run", False) or getattr(args, "expect_state", None) is not None:
+            return _run_in_write_mode(args)
         return int(args.func(args))
     except ConfigError as exc:
         print("ERROR: %s" % pd.redact_tokens(str(exc)), file=sys.stderr)  # 共用检查之外再挡一层（D9）

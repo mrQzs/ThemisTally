@@ -709,8 +709,14 @@ flowchart LR
     - `--expect-state <令牌>`：拿到配置锁之后、第一次 publish 之前，一次读齐这条命令要写的全部资源并比对，比对之后用同一批字节构造事务；不一致就抛 `ConfigError(code=4)`，一个字节都不写（r1-1）。
       - 两资源的命令（`runtime add --command`、`runtime remove`）在延迟创建本机文件事务之前就要比较本机文件（KC:756–764 的工厂是用到时才读）。
       - 不能用 `pd.DispatchError`：KR 的 `_run` 会把它的退出码映射成 1。
+    - **实现说明**（D2 内核第 114 轮，2026-10-25，与 themistally-15 定）：
+      - `state` 令牌的字节格式定死：`v1;<资源>=<sha256 十六进制|absent>`，资源（`config`、`local`）按名字排序，只列这条命令会写的。哈希是原始字节的 SHA-256，与审计 `before_ref`、`after_ref` 里的是同一个值；文件不存在写 `absent`，与空文件分得开。服务原样传回、不解析；迁移计划第 ③ 步照它逐字移植，并写进配置契约。
+      - `--expect-state` 格式不对退出 2；资源集合与这条命令要写的不同（拿错了命令的令牌）、某个资源的哈希不同，都退出 4，报清是哪一个文件。
+      - `--dry-run` 必须带 `--json`；与 `--expect-state` 同给是用法错（2）。预览的 JSON：`dry_run`、`action`、`changed`、`resources`（每个资源的 `changed`，config 另给 `changed_keys`：只给键路径不给取值，与 `history` 一致）、`binding_changes`（各角色 D8 比较的元组前后：mode、profile、runtime、adapter、provider、model、thinking）、`running_attempts`、`unreadable`、`needs_yes`、`warnings`（handler 原有的 WARN 行）、`state`。
+      - 写模式由 CLI 层放进一个 contextvar，`config_transaction(s)` 读它，handler 不用知道；命令结束（成功或出错）就复位。同一条命令第二次进写入事务是内部错误。
   - 2.7 的一次性凭据页可以改用 `tokens.css` 的配色（可选）。
 - **KR**（r2-N1）：role / profile / preset / runtime 的写处理器（例如 KR:885、1038）拆出“在内存里修改配置”的纯函数，供写入与 `--dry-run` 共用；接收并传递 `--expect-state`。
+  - **改由事务层实现**（D2 内核第 114 轮，themistally-15 同意）：拆纯函数的目的是写入与预览共用一份修改逻辑。改为让 `ConfigTransaction` 多一种预览形态：不拿锁读入，handler 照原样修改再 `publish`；预览的 `publish` 照常整份校验，把变化与运行中切换的扫描（D8 的同一个判定，只扫描、不拒绝）记下，不写文件、不存快照、不记审计。handler 不用拆，修改代码只有一份，不会分成两条慢慢分叉的路；代价是预览时收起 handler 原有的文字输出（只留 WARN 行进预览），stdout 只有一份 JSON，由一条通用用例逐条命令核对“`.agent/` 前后逐字节一致、stdout 恰好一份 JSON”。
 - **KP**：`plugins enable|disable` 现有的 `--dry-run` 在写入事务里运行（KP:627–653），改成同样的纯读路径，并补 `--json` 与 `state`；接受 `--expect-state`（它们写的是配置的 `plugins` 段）。
 - **PD**：
   - `status --json` 给运行中的 attempt 补 `live` 对象（D7），文本输出不变；

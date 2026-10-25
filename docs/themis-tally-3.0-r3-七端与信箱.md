@@ -1924,6 +1924,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **战后门禁的存档单起一节**：终审输入里“白盒测试文件、内核的变异记录、白盒测试的输出”这几行原来没有标题，接在前一节后面；第 111 轮把“上游各阶段的下游须知”放在它们前面之后，它们看上去像是上游写的须知。改为单起“战后门禁的存档（内核）”一节。
 - **测试**：新增任务书路径一条；终审输入那条改为断言存档在自己的一节里。变异 2 个全部抓住。
 
+### 第 114 轮：桌面端 D2 的内核一侧之一：预览与令牌的骨架，role set 先走通（2026-10-25）
+
+- **为什么由规划端做**：D2 要给配置中心的写命令加 `--dry-run --json` 与 `--expect-state`（桌面端设计 D6、D13）。`kit_config.py`、`kit_roles.py`、`kit_plugins.py` 都在 `KIT_LOADED_FILES` 里，执行端碰不到，所以照 `logs cat --complete-lines`（第 87 轮）的先例，由规划端做内核轮次、themistally-15 复审；本机服务的预览、确认号与操作终态之后经 hub 派活。迁移计划第 ③ 步还没开工，这几轮只改 Python，第 ③ 步照落地后的行为移植。
+- **做法**：dry-run 放在事务层，不按 D13 原文拆纯函数（KR 一项注明“改由事务层实现”，理由见桌面端设计 D13 的实现说明）。CLI 层看到 `--dry-run` 或 `--expect-state` 就把写模式放进 contextvar，`config_transaction` 读它：预览不拿锁、`publish` 只记下会怎样；带令牌的执行在拿锁之后先比对、用比对过的那批字节建事务。令牌格式 `v1;<资源>=<sha256|absent>` 与 themistally-15 定死。`ACTOR_RE` 加 `user-ui`。
+- **范围**：本轮只给 `config role set` 挂选项。`config_transactions`（两资源）在写模式下先报内部错误，第 115 轮给其余写命令挂选项并做两资源的声明；第 116 轮做 `plugins enable|disable`。
+- **themistally-15 复审时补的**：预览什么也不写要有一条通用用例兜住（`redirect_stdout` 收不住子进程直接写 fd 1 的输出）；预览不能经 `_snapshot_ref(store=True)` 往 `config-history/` 写快照；contextvar 用 `set()` 拿 token、`finally` 里 `reset`；同一条命令第二次进事务是内部错误（第二次会拿自己刚写的状态去比令牌）；`binding_changes` 只给名字，没有凭据的取值。
+- **测试**：`tests/test_kit_roles.py` 新增 12 条：带 `--dry-run` 的每条命令（从解析器里找，新加的命令必须在用例里补一条参数）`.agent/` 前后逐字节一致、stdout 恰好一份 JSON；预览的变化、生效绑定与令牌；运行中的 attempt 进预览、执行时照样要 `--yes`（U8）；列不出来的 attempt 同样 `needs_yes`；原来没有绑定的角色 `before` 是 null；令牌对上就写、审计记 `user-ui`（U7）；预览之后配置被改，退出 4、配置与审计都不变（U6b）；`absent` 与空文件；格式不对与拿错命令的令牌；用法错；写模式不跨命令；第二次进事务。变异 20 个全部抓住（themistally-15 挑的两个存活变异——`needs_yes` 只看 running、没有绑定时给空对象——补用例后抓住）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

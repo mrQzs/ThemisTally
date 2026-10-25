@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -1454,6 +1456,216 @@ class SwitchCheckTime(RolesRepo):
         self.assertEqual(child.returncode, 0, err.decode("utf-8", "replace"))
         records, _ = kit_config.read_audit(pd.Repo.discover(str(self.repo)))
         self.assertEqual([r for r in records if r["phase"] == "intent"][-1]["confirmation"], "none")
+
+
+def _preview_commands():
+    """解析器里带 --dry-run 的写命令（子命令路径）：桌面端 D6、D13 的预览入口。"""
+    found = []
+
+    def walk(parser, path):
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, child in action.choices.items():
+                    walk(child, path + (name,))
+            elif "--dry-run" in action.option_strings:
+                found.append(path)
+    walk(kit_config.build_parser(), ())
+    return sorted(found)
+
+
+class PreviewAndExpectedState(RolesRepo):
+    """桌面端 D2（第 114 轮）：写命令的 --dry-run --json 与 --expect-state（D6、D13；U6b、U7、U8）。"""
+
+    #: 每条带 --dry-run 的写命令在这个夹具里的一条合法参数；新加了 --dry-run 的命令要在这里补一条
+    ARGV = {("role", "set"): ["role", "set", "execution", "exec-low"]}
+
+    def setUp(self):
+        super().setUp()
+        self.write(self.base(roles={"execution": {"mode": "headless", "profile": "exec-step"}}))
+        self.repo_obj = pd.Repo.discover(str(self.repo))
+
+    def preview(self, argv):
+        code, out, err = run_config(argv + ["--dry-run", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
+    def agent_files(self):
+        root = self.repo / ".agent"
+        return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
+                for path in sorted(root.rglob("*"))}
+
+    def audit_bytes(self):
+        path = kit_config.audit_path(self.repo_obj)
+        return path.read_bytes() if path.exists() else None
+
+    def test_every_preview_writes_nothing_and_prints_one_json(self):
+        """凡是接受 --dry-run 的写命令：.agent/ 前后逐字节一致（配置、本机文件、内容寻址的快照、审计、锁目录），
+        stdout 恰好是一份 JSON（themistally-15：redirect_stdout 收不住子进程直接写 fd 1 的输出，这条用例兜住）。"""
+        self.assertEqual(_preview_commands(), sorted(self.ARGV))
+        self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 0)  # 先有历史与审计
+        (self.repo / ".agent" / "dispatch.local.json").write_text('{"runtimes": {}}\n', encoding="utf-8")
+        for path, argv in sorted(self.ARGV.items()):
+            with self.subTest(command=path):
+                before = self.agent_files()
+                code, out, err = run_config(argv + ["--dry-run", "--json"], self.repo)
+                self.assertEqual(code, 0, err)
+                self.assertTrue(json.loads(out)["dry_run"])
+                self.assertEqual(self.agent_files(), before)
+
+    def test_the_preview_reports_the_change_the_bindings_and_the_state(self):
+        payload = self.preview(["role", "set", "execution", "exec-low"])
+        config_bytes = self.config_file.read_bytes()
+        self.assertEqual(payload["action"], "role.set")
+        self.assertTrue(payload["changed"])
+        self.assertEqual(payload["resources"], [{"resource": "config", "changed": True,
+                                                 "changed_keys": ["roles.execution.profile"]}])
+        self.assertEqual(payload["binding_changes"], [{
+            "role": "execution",
+            "before": {"mode": "headless", "profile": "exec-step", "runtime": "pi", "adapter": "pi", "provider": "bb",
+                       "model": "step-5-preview", "thinking": "high"},
+            "after": {"mode": "headless", "profile": "exec-low", "runtime": "pi", "adapter": "pi", "provider": "bb",
+                      "model": "step-5-mini", "thinking": "low"}}])
+        self.assertEqual((payload["running_attempts"], payload["unreadable"], payload["needs_yes"]), ([], [], False))
+        self.assertEqual(payload["state"], "v1;config=%s" % hashlib.sha256(config_bytes).hexdigest())
+        # 没有变化的写入：changed 为假，令牌照给
+        same = self.preview(["role", "set", "execution", "exec-step"])
+        self.assertEqual((same["changed"], same["resources"][0]["changed_keys"], same["binding_changes"]),
+                         (False, [], []))
+        # handler 的 WARN 行进预览，其余文字不进
+        oc = self.preview(["role", "set", "execution", "oc-x"])
+        self.assertEqual(len(oc["warnings"]), 1)
+        self.assertIn("没有接通 execution", oc["warnings"][0])
+
+    def test_a_running_attempt_shows_in_the_preview_and_still_needs_yes(self):
+        """U8：预览只是提示；执行时内核照样扫描，不带 --yes 的切换被拒绝，带上才写。"""
+        run_dir = self.repo / ".agent" / "runs" / "t1" / "attempt-001"
+        run_dir.mkdir(parents=True)
+        pd.set_state(run_dir, "RUNNING")
+        payload = self.preview(["role", "set", "execution", "exec-low"])
+        self.assertEqual((payload["running_attempts"], payload["needs_yes"]), (["t1/attempt-001"], True))
+        before = self.config_file.read_bytes()
+        code, _out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", payload["state"]],
+                                     self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("--yes", err)
+        self.assertEqual(self.config_file.read_bytes(), before)
+        code, _out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", payload["state"],
+                                      "--yes"], self.repo)
+        self.assertEqual(code, 0, err)
+        records, _ = kit_config.read_audit(self.repo_obj)
+        self.assertEqual([r for r in records if r["phase"] == "intent"][-1]["confirmation"], "flag")
+
+    def test_an_attempt_that_cannot_be_read_also_needs_yes(self):
+        """列不出来不当作“没有在运行的”（D8）：预览的 unreadable 非空、needs_yes 为真，执行时不带 --yes 照样被拒
+        （themistally-15：needs_yes 只看 running 的变异存活过；界面靠它决定问不问用户）。"""
+        run_dir = self.repo / ".agent" / "runs" / "t1" / "attempt-001"
+        run_dir.mkdir(parents=True)
+        (run_dir / "state.json").write_text(json.dumps(["RUNNING"]), encoding="utf-8")
+        payload = self.preview(["role", "set", "execution", "exec-low"])
+        self.assertEqual(payload["running_attempts"], [])
+        self.assertEqual(len(payload["unreadable"]), 1)
+        self.assertIn("不是对象", payload["unreadable"][0])
+        self.assertTrue(payload["needs_yes"])
+        before = self.config_file.read_bytes()
+        code, _out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", payload["state"]],
+                                     self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("无法确认有没有在运行的 attempt", err)
+        self.assertEqual(self.config_file.read_bytes(), before)
+
+    def test_a_role_that_had_no_binding_shows_null_before(self):
+        """binding_changes 的形状要交给服务、第 ③ 步还要与 TS 逐字一致：原来没有绑定的角色，before 是 null，不是空对象
+        （themistally-15）。没有绑定的只有没写的 execution（由合同决定，其余角色缺省是 manual）；role set 只能设、
+        不能撤，after 为 null 的情形不经预览命令出现。"""
+        self.write(self.base())
+        payload = self.preview(["role", "set", "execution", "exec-step"])
+        self.assertEqual(payload["binding_changes"], [{
+            "role": "execution", "before": None,
+            "after": {"mode": "headless", "profile": "exec-step", "runtime": "pi", "adapter": "pi", "provider": "bb",
+                      "model": "step-5-preview", "thinking": "high"}}])
+
+    def test_a_matching_state_writes_and_the_audit_records_user_ui(self):
+        """U7：界面经服务执行，审计的 actor 是 user-ui。"""
+        payload = self.preview(["role", "set", "execution", "exec-low"])
+        with mock.patch.dict(os.environ, {"CODEKIT_ACTOR": "user-ui"}):
+            code, out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", payload["state"]],
+                                        self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("已设置 roles.execution", out)
+        self.assertNotIn("WARN", err)
+        self.assertEqual(json.loads(self.config_file.read_text(encoding="utf-8"))["roles"]["execution"]["profile"],
+                         "exec-low")
+        records, _ = kit_config.read_audit(self.repo_obj)
+        self.assertEqual([r for r in records if r["phase"] == "intent"][-1]["actor"], "user-ui")
+
+    def test_a_state_that_changed_after_the_preview_exits_4_and_writes_nothing(self):
+        """U6b：预览之后另一个进程用 CLI 改了配置：锁内比对不一致，退出 4，配置与审计都不变。"""
+        payload = self.preview(["role", "set", "execution", "exec-low"])
+        self.assertEqual(run_config(["set", "kill_grace_seconds", "20"], self.repo)[0], 0)
+        before, audit = self.config_file.read_bytes(), self.audit_bytes()
+        code, _out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", payload["state"]],
+                                     self.repo)
+        self.assertEqual(code, 4, err)
+        self.assertIn(".agent/dispatch.config.json 在预览之后被改过", err)
+        self.assertEqual((self.config_file.read_bytes(), self.audit_bytes()), (before, audit))
+
+    def test_a_missing_file_is_absent_not_the_hash_of_nothing(self):
+        self.config_file.unlink()
+        payload = self.preview(["role", "set", "contract", "manual"])
+        self.assertEqual(payload["state"], "v1;config=absent")
+        self.assertEqual(payload["resources"], [{"resource": "config", "changed": True,
+                                                 "changed_keys": ["roles.contract.mode"]}])
+        self.config_file.write_bytes(b"")  # 空文件不是“没有文件”
+        code, _out, err = run_config(["role", "set", "contract", "manual", "--expect-state", payload["state"]],
+                                     self.repo)
+        self.assertEqual(code, 4, err)
+        self.assertEqual(self.config_file.read_bytes(), b"")
+        self.config_file.unlink()
+        code, _out, err = run_config(["role", "set", "contract", "manual", "--expect-state", payload["state"]],
+                                     self.repo)
+        self.assertEqual(code, 0, err)
+
+    def test_malformed_and_foreign_states_are_refused(self):
+        sha = hashlib.sha256(self.config_file.read_bytes()).hexdigest()
+        before, audit = self.config_file.read_bytes(), self.audit_bytes()
+        cases = [("v2;config=%s" % sha, 2, "格式不对"), ("v1;config=%s" % sha[:63], 2, "格式不对"),
+                 ("v1", 2, "格式不对"), ("v1;config=%s;config=%s" % (sha, sha), 2, "格式不对"),
+                 ("v1;local=absent;config=%s" % sha, 2, "格式不对"),  # 资源没按名字排序
+                 ("v1;config=%s;local=absent" % sha, 4, "令牌是预览写 .agent/dispatch.config.json、.agent/dispatch.local.json")]
+        for token, expected, needle in cases:
+            with self.subTest(token=token):
+                code, _out, err = run_config(["role", "set", "execution", "exec-low", "--expect-state", token],
+                                             self.repo)
+                self.assertEqual(code, expected, err)
+                self.assertIn(needle, err)
+                self.assertEqual((self.config_file.read_bytes(), self.audit_bytes()), (before, audit))
+
+    def test_usage_errors(self):
+        for extra, needle in ((["--dry-run"], "加 --json"), (["--dry-run", "--json", "--expect-state", "v1"], "不能一起用")):
+            with self.subTest(extra=extra):
+                code, out, err = run_config(["role", "set", "execution", "exec-low"] + extra, self.repo)
+                self.assertEqual((code, out), (2, ""), err)
+                self.assertIn(needle, err)
+
+    def test_the_write_mode_does_not_outlive_the_command(self):
+        """同一进程里接着跑的写入不能还是预览（themistally-15）：成功与出错两条路都复位。"""
+        self.preview(["role", "set", "execution", "exec-low"])
+        code, _out, err = run_config(["role", "set", "execution", "exec-nope", "--dry-run", "--json"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIsNone(kit_config._WRITE_MODE.get())
+        self.assertEqual(run_config(["role", "set", "execution", "exec-low"], self.repo)[0], 0)
+        self.assertEqual(json.loads(self.config_file.read_text(encoding="utf-8"))["roles"]["execution"]["profile"],
+                         "exec-low")
+
+    def test_a_second_transaction_in_one_command_is_an_internal_error(self):
+        """一条命令只比对一次令牌：第二次进事务会拿自己刚写的状态去比，误报对不上（themistally-15）。"""
+        token = kit_config._WRITE_MODE.set(kit_config.WriteMode(True, None))
+        self.addCleanup(kit_config._WRITE_MODE.reset, token)
+        with kit_config.config_transaction(self.repo_obj, "role.set", "execution"):
+            pass
+        with self.assertRaisesRegex(kit_config.ConfigError, "只能进一次写入事务"):
+            with kit_config.config_transaction(self.repo_obj, "role.set", "execution"):
+                pass
 
 
 if __name__ == "__main__":
