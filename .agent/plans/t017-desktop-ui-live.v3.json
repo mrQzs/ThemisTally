@@ -1,0 +1,579 @@
+{
+  "schema_version": 1,
+  "task_id": "t017-desktop-ui-live",
+  "plan_version": 3,
+  "title": "桌面端本机服务第 3 片：SSE 与作业（D1-C 后半之一）",
+  "repository": "ThemisTally",
+  "base_sha": "f62eeac1b3ee2f5777b2c97955587b8349ba1a5b",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/kernel.ts",
+      "ts/packages/ui/src/kernelenvelope.ts",
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/README.md",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/support.ts",
+      "ts/packages/ui/test/service.test.ts",
+      "ts/packages/ui/test/argv-templates.test.ts",
+      "ts/packages/ui/test/kernel-runner.test.ts",
+      "ts/packages/ui/test/kernel-real.test.ts",
+      "ts/packages/ui/test/routes-auth.test.ts",
+      "ts/packages/ui/test/fixtures/fake-kernel.mjs",
+      "ts/packages/ui/test/fixtures/serve-overrides.ts"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/src/watch.ts",
+      "ts/packages/ui/src/events.ts",
+      "ts/packages/ui/src/jobs.ts",
+      "ts/packages/ui/src/jobroutes.ts",
+      "ts/packages/ui/test/events.test.ts",
+      "ts/packages/ui/test/events-service.test.ts",
+      "ts/packages/ui/test/jobs.test.ts",
+      "ts/packages/ui/test/jobs-service.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/package.json",
+      "ts/packages/ui/test/args.test.ts",
+      "ts/packages/base/**",
+      "ts/packages/cli/**",
+      "ts/packages/config/**",
+      "ts/packages/contracts/**",
+      "ts/packages/dispatcher/**",
+      "ts/packages/hub/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/tsconfig.json",
+      "ts/vitest.config.ts",
+      "ts/tools/**",
+      "ts/mutations/**",
+      "scripts/**",
+      "desktop/**",
+      "docs/**",
+      "tests/test_gate_t017_*.py",
+      "tests/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t017_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests[^\\n]*[1-9]\\d*[^\\n]*passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V06",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "V07",
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "ts/packages/ui/"
+      ],
+      "output_must_not_match": [
+        "(?m)^\\s*\\S+\\s+(?!ts/packages/ui/)"
+      ]
+    },
+    {
+      "id": "V08",
+      "argv": [
+        "node",
+        "-e",
+        "const fs=require('fs');const s=fs.readFileSync('packages/ui/README.md','utf8');const need=['events','jobs','Retry-After','409','503','504','config secret check','TYPESAFE_API_KEY','已知限制','131072','订阅上限'];const miss=need.filter((x)=>!s.includes(x));if(miss.length){console.error('README missing: '+miss.join(','));process.exit(1)}console.log('README ok')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 120,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "README ok"
+      ]
+    },
+    {
+      "id": "V09",
+      "argv": [
+        "node",
+        "-e",
+        "const {spawnSync}=require('child_process');for(let i=0;i<20;i++){const r=spawnSync(process.execPath,['node_modules/vitest/vitest.mjs','run','packages/ui/test/service.test.ts'],{stdio:'inherit'});if(r.status===0){continue}console.error('run '+(i+1)+' failed');process.exit(1)}console.log('STABLE20')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "STABLE20"
+      ]
+    },
+    {
+      "id": "V10",
+      "argv": [
+        "node",
+        "-e",
+        "const {spawnSync}=require('child_process');for(let i=0;i<3;i++){const r=spawnSync(process.execPath,['node_modules/vitest/vitest.mjs','run'],{stdio:'inherit'});if(r.status===0){continue}console.error('pass '+(i+1)+' failed');process.exit(1)}console.log('STABLE3')"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 3000,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "STABLE3"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "SSE 路由与鉴权——`GET /api/v1/events` 要会话（不带 cookie 一律 401），响应带 `content-type: text/event-stream; charset=utf-8`、既有那套安全头与 `Cache-Control: no-store`；用例：`ts/packages/ui/test/routes-auth.test.ts` 的新表与 `ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "SSE 是界面的实时通道，不能绕过会话"
+    },
+    {
+      "id": "D02",
+      "text": "SSE 的快照与序号——每次订阅（含重连）的第一条都是 snapshot 并带序号；序号从 1 起单调递增、内容相同不推不加号；重连后第一条仍是 snapshot 且序号大于断开之前；带 Last-Event-ID 重连也一样；序号递增与「重连后序号大于断开之前」由 `ts/packages/ui/test/events-service.test.ts` 的命名用例（用例名里带 snapshot 与 reconnect 的那两条）钉住——G01 不做这两条的正向断言（真内核在非 git 目录上 status 恒定，正向断言在 G01 里做不了），只由这批白盒用例与战后变异承担；用例：`ts/packages/ui/test/events-service.test.ts` 的 U17 那几条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "断线重连之后界面拿得到当前状态，而不是等着下一次变化"
+    },
+    {
+      "id": "D03",
+      "text": "SSE 推的内容与 `/api/v1/status` 一致——拼回来的 data 与 `/api/v1/status` 的正文（去掉末尾换行）逐字节相同，同一套脱敏（敏感键被遮成 `<redacted>`）；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "实时通道与轮询接口给界面的是同一份数据，脱敏口径也只有一套"
+    },
+    {
+      "id": "D04",
+      "text": "SSE 的心跳与 retry——流一打开先写 `retry: 3000`；每 15 秒写一行 `: hb`；四个常量（2000、300、15000、3000）由一条单元测试钉住；用例：`ts/packages/ui/test/events.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "客户端知道该等多久，连着的连接不会因为静默被当成断了"
+    },
+    {
+      "id": "D05",
+      "text": "SSE 只 stat 名单上的输入——名单从 `@themis/contracts/status-inputs.json` 导入（一个字都不许抄进 ui 包）；名单之外的变化（`_tmp/x`、`<attempt>/notes.txt`、`verdicts/readme.txt`、非 attempt-NNN 的目录）不触发；名单上的变化（checks 下新增 02/checks.json、verdicts 下新增 1.json、claim 出现、events.jsonl 变长）触发；用例：`ts/packages/ui/test/events.test.ts` 与 `ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "服务只跟着内核的 status 输入走，名单改了监视自动跟上"
+    },
+    {
+      "id": "D06",
+      "text": "SSE 跳过链接与重解析点——runs 下的 junction 不跟随（往外部目录写东西不触发）；根目录本身是重解析点时整轮指纹是固定的一行；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "监视不许跑出 `.agent/runs/`"
+    },
+    {
+      "id": "D07",
+      "text": "SSE 的去抖与共享——2 秒内写 20 次文件，status 不超过 2 次；3 个订阅者改一次文件只跑 1 次 status；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "一阵连续写入只惊动内核一次，几个页面看的是同一份结果"
+    },
+    {
+      "id": "D08",
+      "text": "SSE 的起与停——第一个订阅者到来才起第一次 status；全部断开之后改文件没有 status 被起；关停时 hub 关掉全部流与定时器；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "没人看的时候别费机器"
+    },
+    {
+      "id": "D09",
+      "text": "SSE 的会话失效即断流——`revokeAll` 之后流被关掉；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "会话作废之后旧窗口不该继续收到推送"
+    },
+    {
+      "id": "D10",
+      "text": "Bun 的连接空闲超时——订阅时对这一条请求调 `server.timeout(req, 0)`，全局 `idleTimeout` 生产路径保持缺省；测试入口把全局设成 2 秒、心跳 500 毫秒时，订阅保持 6 秒以上并收到至少 6 次心跳；同一服务上非 SSE 的空闲 keep-alive 连接仍在约 2 到 4 秒内被关；用例：`ts/packages/ui/test/events-service.test.ts` 的 Bun 空闲超时那两条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "SSE 不会被 Bun 的默认空闲超时掐断，同时没有把全局的空闲保护一起放宽"
+    },
+    {
+      "id": "D11",
+      "text": "SSE 不拖慢别的接口——file 路由的子进程超时期间与之后，SSE 照常收到心跳与 update，`/control/bootstrap` 照常回 200（U9 的 SSE 一半）；用例：`ts/packages/ui/test/events-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "一个慢命令不该把实时通道与控制接口一起拖住"
+    },
+    {
+      "id": "D12",
+      "text": "作业路由与鉴权——`POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel` 要会话；两个 POST 还要 CSRF 与 JSON 对象正文；不带 cookie 一律 401；用例：`ts/packages/ui/test/routes-auth.test.ts` 的新表与 `ts/packages/ui/test/jobs-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "作业会起子进程，入口必须与别的路由一样验会话"
+    },
+    {
+      "id": "D13",
+      "text": "作业的严格参数校验——正文不是对象、kind 不对、键多一个或少一个、类型不对、record/runtime/task 的格式不对、max 不在 1–1000、pattern 超长或含控制字符，每一类都回 400 且不起子进程；用例：`ts/packages/ui/test/jobs.test.ts` 的每一类一条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "不合格的参数到不了内核，也回显不了攻击者给的值"
+    },
+    {
+      "id": "D14",
+      "text": "作业的 argv 与时限——六个 kind 交给执行器的 argv 与 `JOB_ARGV` 逐条一致；时限照表（doctor 与 doctor-record 600 秒、runtime-scan 150 秒、runtime-probe 150 秒、models 120 秒、search 180 秒）；用例：`ts/packages/ui/test/jobs.test.ts`（替身逐条对照 argv）与 `ts/packages/ui/test/argv-templates.test.ts`（真内核解析器）",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "路由与内核的命令行一一对应，不靠猜"
+    },
+    {
+      "id": "D15",
+      "text": "pattern 用 `--` 传——`-x`、`--json`、`--`、`-1` 四个 pattern 过内核真正的解析器，解析出的 pattern 与原值相等、json 为真、task 与 max 照传；在 git 夹具仓库上跑完整的 `logs search --json -- -x` 退出码 0、stdout 是合法 JSON；用例：`ts/packages/ui/test/argv-templates.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "以 `-` 开头的搜索词也要能传得进去"
+    },
+    {
+      "id": "D16",
+      "text": "作业表——作业号是 43 位随机、彼此不同、不连号；不在表里与格式不对的回同一个 404「没有这个作业」；101 个作业之后最早结束的终态作业被淘汰；没有可淘汰的终态作业时回 503 带 `Retry-After: 2`；执行器收不了时回 503 带 `Retry-After: 2` 且不建作业；用例：`ts/packages/ui/test/jobs.test.ts` 与 `ts/packages/ui/test/jobs-service.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "作业号不可猜，内存里的表不会无限长"
+    },
+    {
+      "id": "D17",
+      "text": "作业的状态机与四种终态——succeeded、failed、cancelled、timed_out 各一例；search 在平方级耗时的脱敏输入上超时后终态是 timed_out（不是 failed 或 succeeded），messages 是超时那一行、data 是 null、没有匹配；用例：`ts/packages/ui/test/jobs-service.test.ts` 与 `ts/packages/ui/test/kernel-real.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "读不出结果的作业要老实说超时，不能报成成功或失败"
+    },
+    {
+      "id": "D18",
+      "text": "作业的取消——取消排队中的作业不起子进程；取消在跑的作业结束整棵进程树（孙进程也不在了）；取消已经结束的作业回 409「作业已经结束」；用例：`ts/packages/ui/test/jobs-service.test.ts` 与 `ts/packages/ui/test/kernel-real.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "取消要真的停掉机器上的活儿"
+    },
+    {
+      "id": "D19",
+      "text": "作业结果的脱敏与白名单——`JOB_ALLOW` 恰好六项、全是 undefined；doctor 输出里带敏感键的值被遮成 `<redacted>`；messages 只留 `ERROR`/`WARN` 开头的行并逐行过 `redactSecrets`；用例：`ts/packages/ui/test/jobs.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "作业结果与读路由同一套二道脱敏，白名单不登记就是不登记"
+    },
+    {
+      "id": "D20",
+      "text": "H1 输出上限边写边看——替身洪泛输出、上限 1 MiB、时限 60 秒时，10 秒内就得到 output-too-large（不是拖到超时），事后孙进程也不在了；结束后那次检查仍兜住「两次轮询之间就写完退出」；轮询定时器在 finally 里清掉；用例：`ts/packages/ui/test/kernel-runner.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "临时目录的磁盘也要有上界，不能等到进程结束才发现"
+    },
+    {
+      "id": "D21",
+      "text": "H2 越界路径由真内核拒绝——`../x`、`C:/x`、`a/../../x` 时是 200 信封、`ok` 为 false、`exit_code` 为 2、`data` 为 null、正文不含夹具仓库之外的金丝雀内容；`..\\x` 由服务回 400；用例：`ts/packages/ui/test/kernel-real.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "越界的兜底不只靠内核的说法，要有用例写明"
+    },
+    {
+      "id": "D22",
+      "text": "H3 关停清队列并摘监听——用一个会数监听器的 EventTarget 当请求的 signal，排队中的条目经过关停之后监听器为 0，事后再 abort 也不会再次交代结果；用例：`ts/packages/ui/test/kernel-runner.test.ts`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "关停之后不留悬挂的监听器"
+    },
+    {
+      "id": "D23",
+      "text": "D11/D12 的稳定化——`chunkedWatch` 两段式；D11 仍断言 413、`early` 为真、`sent` 小于 total，并加 `heldBack` 为真；D12 的两种 413（分块与声明 Content-Length 65537）都带同一套安全头；头已经收齐之后的 ECONNRESET 照收到的响应算，头没到就出错照旧判失败（不放宽断言）；用例：`ts/packages/ui/test/service.test.ts` 的 D11 与 D12",
+      "evidence": [
+        "V02",
+        "V09"
+      ],
+      "intent": "负载下也稳定，而且「413 在读完之前回来」这件事不再取决于机器快慢"
+    },
+    {
+      "id": "D24",
+      "text": "稳定性验收——D11、D12 所在的 `service.test.ts` 单跑 20 次、全量 vitest 跑 3 遍都通过",
+      "evidence": [
+        "V09",
+        "V10"
+      ],
+      "intent": "偶发红不能靠重跑蒙过去"
+    },
+    {
+      "id": "D25",
+      "text": "README 与门禁——README 补新路由、SSE 报文格式与序号规则、**SSE 订阅上限（全局 16、每会话 4）与超限时的 503 带 `Retry-After`**、作业的 kind/argv/时限/终态/取消/容量、状态码（409、503 带 Retry-After、504）、已知限制（H1 的磁盘上界、SSE 的 stat 成本、作业表只在内存），并逐字保留 D13 那几段与 T016 钉住的那几段；G01、R01、V01–V10 全部通过；改动只落在允许范围内的路径；既有用例未删未跳未弱化；M1–M25 每条都有会变红的用例；新增的四个源文件都能从 `main.ts` 顺 import 到达",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "V08",
+        "V09",
+        "V10",
+        "review"
+      ],
+      "intent": "不破坏已有门禁，也不靠削弱测试过关"
+    },
+    {
+      "id": "D26",
+      "text": "范围与依赖——依赖清单与锁文件未改（`dependency_changes: forbidden`）；没有新增、升级或删除任何依赖；`ts/packages/ui/src/localhttp/**` 一个字未改",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "内核禁区与本机 HTTP 的安全基线不受本片影响"
+    },
+    {
+      "id": "D27",
+      "text": "SSE 的订阅上限——同时开着的订阅全局最多 16 个、同一个会话最多 4 个（两个数只由 `ServeOverrides.maxSubscriptions` 与 `ServeOverrides.maxSubscriptionsPerSession` 覆盖）；超限时新的订阅请求回 503、带 `Retry-After: 2`、正文是错误信封（`ok` 为 false、`exit_code` 为 null、`data` 为 null、`messages` 一行 `ERROR: SSE 订阅数已达上限`，会话级写 `ERROR: 该会话的 SSE 订阅数已达上限`），**已有的订阅不挤掉**（照旧开着、照旧收心跳）；关掉一条之后名额立刻还回来；用例：`ts/packages/ui/test/events-service.test.ts` 的 U18",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "服务自己管住连接数，不会被一堆窗口撑爆，也不把别人的连接踢掉"
+    },
+    {
+      "id": "D28",
+      "text": "SSE 的主动断开——会话作废（`revokeAll` 之后 `valid` 为 false，含控制令牌换发引导地址那条路）、服务关停、空闲退出时，这些订阅一律被关流并清掉各自的定时器，订阅计数同时减一；用例：`ts/packages/ui/test/events-service.test.ts` 的 U19 与关停那条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "会话作废之后旧窗口不该继续挂着连接，服务退出时不留悬挂的流与定时器"
+    },
+    {
+      "id": "D29",
+      "text": "SSE 的心跳写失败立刻清理——写心跳失败（客户端已经走了）就清定时器、关流、订阅计数各减一，不等空闲超时；用例：`ts/packages/ui/test/events-service.test.ts` 的 U20（替身客户端直接断开，订阅计数归零、定时器清掉）",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "走了的客户端要立刻把名额还回来，不能占着上限"
+    },
+    {
+      "id": "D30",
+      "text": "订阅算活动——有订阅开着时空闲计时器不退出（`timer.touch()`），订阅全部断开之后空闲时限到了才退出；用例：`ts/packages/ui/test/events-service.test.ts` 的 U21",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "界面开着的时候服务不该自己跑掉"
+    },
+    {
+      "id": "D31",
+      "text": "作业创建与查询的响应形状——`POST /api/v1/jobs` 成功回 **201**（创建动作产生了一个可寻址的新资源，语义上就是 201），正文就是那八个键的作业对象（`id`、`kind`、`state`、`reason`、`created_ms`、`started_ms`、`finished_ms`、`envelope`），**不套七字段信封、不套 `data`**，作业号就在顶层的 `id` 键上；创建成功的当下 `state` 是 `queued`，`reason`、`started_ms`、`finished_ms`、`envelope` 是 `null`（键都在）。`GET /api/v1/jobs/<id>` 的正文是同一个八键对象、不套信封，这八个键一个都不能少（值可以是 `null`）；不在表里与格式不对的 `<id>` 仍回同一个 404「没有这个作业」（原文不变）。README 里也要写明这两条；用例：`ts/packages/ui/test/jobs-service.test.ts` 的创建与查询那两条",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "前端拿到创建响应就能直接查同一个作业，不必猜字段在哪一层，也不必两认"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
