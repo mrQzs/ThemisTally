@@ -6851,6 +6851,21 @@ def test_the_pi_audit_takes_the_last_accepted_deliver():
     assert found["delivered"] is None and found["violations"] == ["调用了白名单之外的工具：deliver"]
 
 
+def test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach(tmp_path):
+    # 第 100 轮：deliver 交的是内容、不碰文件；report 引用主工作区的路径不能让回合作废（别的工具照旧核对）
+    repo, workspace = tmp_path / "repo", tmp_path / "ws"
+    repo.mkdir()
+    workspace.mkdir()
+    spec = dict(kh.ROSTER[kh.COORDINATOR], tools=["read", "deliver"])
+    quoted = {"letters": [], "state": "证据在 %s" % (repo / ".agent" / "runs" / "x" / "summary.md")}
+    audit = kh.audit_pi_stream(stream(*deliver_events((quoted, False))), spec, workspace, repo)
+    assert audit["delivered"] == quoted and audit["violations"] == []
+    read = {"type": "tool_execution_start", "toolCallId": "r1", "toolName": "read",
+            "args": {"path": str(repo / ".agent" / "runs" / "x" / "summary.md")}}
+    audit = kh.audit_pi_stream(stream(read), spec, workspace, repo)
+    assert len(audit["violations"]) == 1 and "读了主工作区" in audit["violations"][0]
+
+
 def coordinator_turn(tmp_path, events, monkeypatch=None, agent=kh.COORDINATOR, key="T001"):
     hub = kh.Hub(tmp_path)
     hub.ensure()

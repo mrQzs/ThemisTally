@@ -1800,7 +1800,8 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
             tool_calls[name] = tool_calls.get(name, 0) + 1
             if name not in allowed:
                 outside[str(event.get("toolCallId"))] = name
-            elif workspace is not None:
+            elif workspace is not None and name != DELIVER_TOOL:
+                # 第 100 轮：deliver 交的是内容、不碰文件。report 里提到主工作区的路径（引用出处）不能当成“碰了主工作区”
                 level, note = pi_reach_problem(name, event.get("args") or {}, workspace, repo)
                 if level == "violation":
                     violations.append(note)
