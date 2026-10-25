@@ -148,7 +148,7 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # M3.1-Flash（AA 智能指数 42.7，M3 是 29.2）。合同端、审核端、执行端现在三家各不相同。
     "contract-glm": {"role": "contract", "label": "合同端", "adapter": "pi", "provider": "minimax",
                      "model": "MiniMax-M3.1-Flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                     "timeout": 2400, "workspace": "base"},
+                     "timeout": 2400, "workspace": "base", "delivery": "tool"},  # 第 99 轮；回退写 "block"
     # 门禁端写测试、跑测试，是最吃编码的岗位：用在本仓库实战过的 step。pi 不按路径限制写入，
     # 写到工作目录之外、bash 碰主工作区，由 audit_pi_stream 判越界（第 36 轮）。
     # 第 63 轮（站主 2026-10-22 重配 pi 的提供方）：bb 改名为 cc-switch-step-fun，同一个 StepFun 套餐端点、同一个模型。

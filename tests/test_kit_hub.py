@@ -5569,11 +5569,13 @@ def test_unsent_contracts_get_the_rostered_executor_line(tmp_path, monkeypatch):
     assert kh.sync_executor_line(hub, ts) is None and "step/" in md.read_text(encoding="utf-8")
 
 
-def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path):
+def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path, monkeypatch):
     # 第 38 轮：T012 的协调人（pi 上的 qwen）回 429 throttling，没有解除时刻，内核当成接口故障、主任务转 blocked
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    spec = kh.ROSTER["contract-glm"]  # 用代码块交差的 pi 工人（协调人第 90 轮起用 deliver）
+    # 这里测退避，不测交差：第 99 轮起 pi 岗位都用 deliver，借合同端按代码块交差（回退开关）
+    monkeypatch.setitem(kh.ROSTER, "contract-glm", dict(kh.ROSTER["contract-glm"], delivery="block"))
+    spec = kh.ROSTER["contract-glm"]
     answers = []
 
     def message(error):
@@ -6811,7 +6813,9 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert tuple(letter["properties"]["type"]["enum"]) == kh.COORDINATOR_TYPES  # 与内核的状态机同一份
     assert set(kh.FIELDS) <= set(letter["required"]) and "brief" in letter["properties"]
     assert kh.role_schema("coordinator")["properties"]["letters"].get("minItems") is None  # 第 3 条落地前后都能交空的
-    tool = (kh.COORDINATOR, "audit-sonnet", "gate-sonnet")  # 第 97、98 轮起审核端、门禁端也用 deliver
+    tool = (kh.COORDINATOR, "audit-sonnet", "gate-sonnet", "contract-glm")  # 第 97–99 轮起各工人也用 deliver
+    for role in ("audit", "gate", "contract"):  # 空的 report 在回合内就挡回（themistally-15 复核第 97 轮）
+        assert kh.role_schema(role)["properties"]["report"]["minLength"] == 1, role
     assert all(kh.ROSTER[name]["delivery"] == "tool" for name in tool)
     assert all(spec.get("delivery", "block") == "block" for name, spec in kh.ROSTER.items() if name not in tool)
     audit = kh.role_schema("audit")["properties"]["letter"]
@@ -6913,6 +6917,21 @@ def test_a_gate_turn_hands_in_through_deliver(tmp_path):
     assert kh.candidate_defects(turn["output"]) == ([good["candidate_defects"][0]], [])
 
 
+def test_a_contract_turn_hands_in_through_deliver(tmp_path):
+    # 第 99 轮：合同端用 deliver，合同全文（中位约 24 KB）放在参数里；转义写错时工具当场退回，回合内改
+    letter = {"type": "交付", "in_reply_to": "m1", "摘要": "合同", "提交": "无", "验证": "无", "偏离": "无",
+              "需协调人决定": "无", "证据": "无"}
+    good = {"letter": letter, "report": "# 合同说明", "state": "", "contract_md": "# TASK: t001-doc\n- plan_version: 1\n"}
+    assert kh.schema_errors(kh.role_schema("contract"), dict(good, contract_md=""))
+    assert kh.schema_errors(kh.role_schema("contract"), {key: value for key, value in good.items() if key != "contract_md"})
+    turn, seen = coordinator_turn(tmp_path, deliver_events((dict(good, contract_md=""), True), (good, False)),
+                                  agent="contract-glm", key="T001-2-contract")
+    cmd, env = seen[0]
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "contract.json")
+    assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,deliver"
+    assert turn["output"] == good and turn["output_error"] is None
+
+
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
     spec = kh.ROSTER[kh.COORDINATOR]
     text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
@@ -6939,7 +6958,9 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     coordinator = kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in coordinator and "## 输出格式" not in coordinator
     contract = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], tmp_path)
-    assert "## 输出格式" in contract and "deliver" not in contract
+    assert "## 交差（用 deliver 工具）" in contract and "contract_md" in contract  # 第 99 轮
+    planner = kh.turn_prompt(hub, ts, "planner-opus", "T001-1-plan", [], tmp_path)
+    assert "## 输出格式" in planner and "deliver" not in planner  # claude 走 --json-schema，另做
     audit = kh.turn_prompt(hub, ts, "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in audit and "## 输出格式" not in audit
     assert "交付以外的信写“无”" in audit and "不是返工写“无”" in audit  # 三项都必填，schema 卡着
