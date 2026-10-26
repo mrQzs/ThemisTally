@@ -371,6 +371,2140 @@
           "type": "string"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "validate"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "key",
+        "value",
+        "yes",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "set"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "key",
+        "yes",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "unset"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "show",
+        "number",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "history"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "show": {
+          "anyOf": [
+            {
+              "enum": [
+                "show"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "number",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "rollback"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "number": {
+          "type": "integer"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "init"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "what",
+        "state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "decisions"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "what": {
+          "enum": [
+            "off",
+            "shadow",
+            "on",
+            "marker"
+          ]
+        },
+        "state": {
+          "anyOf": [
+            {
+              "enum": [
+                "on",
+                "off"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "action",
+        "name",
+        "tty",
+        "no_browser",
+        "timeout",
+        "verify",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "secret"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "enum": [
+            "set",
+            "check",
+            "remove"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "tty": {
+          "type": "boolean"
+        },
+        "no_browser": {
+          "type": "boolean"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "verify": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "runtime",
+            "list"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "add",
+        "json",
+        "yes",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "runtime",
+            "scan"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "add": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "runtime_id",
+        "adapter",
+        "command_option",
+        "force",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "runtime",
+            "add"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime_id": {
+          "type": "string"
+        },
+        "adapter": {
+          "type": "string"
+        },
+        "command_option": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "runtime_id",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "runtime",
+            "remove"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime_id": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "runtime_id",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "runtime",
+            "probe"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime_id": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "runtime",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "models"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "profile_id",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "profile",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "profile_id",
+        "runtime",
+        "model",
+        "thinking",
+        "credential_env",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "profile",
+            "add"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credential_env": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "profile_id",
+        "runtime",
+        "model",
+        "thinking",
+        "credential_env",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "profile",
+            "edit"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credential_env": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "profile_id",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "profile",
+            "remove"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "role",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "role",
+        "target",
+        "host",
+        "cadence_seconds",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "role",
+            "set"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cadence_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "list"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "name",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "name",
+        "description",
+        "roles",
+        "force",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "save"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roles": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "name",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "use"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "a",
+        "b",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "diff"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "name",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "preset",
+            "remove"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "record",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "doctor"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "record": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "plugins",
+            "list"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plugin_id",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "plugins",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plugin_id": {
+          "type": "string"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plugin_id",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "plugins",
+            "verify"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plugin_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plugin_id",
+        "allow_permission",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "plugins",
+            "enable"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plugin_id": {
+          "type": "string"
+        },
+        "allow_permission": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plugin_id",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "plugins",
+            "disable"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plugin_id": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
     }
   ]
 }

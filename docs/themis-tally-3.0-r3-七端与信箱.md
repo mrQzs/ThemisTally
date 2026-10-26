@@ -2057,6 +2057,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 单次时限从 3600 秒加到 5400 秒：省下重读的开销，但每次失败的代价也更大。先看 T022 attempt-003（接着 a002 改）的结果。
 - **留意**：本轮合入时，正在跑的 supervisor 还是旧代码，它最后一次重启照旧会等；合入之后再停掉那一个空等的父进程。
 
+### 第 122 轮：配置中心切到 TS（2026-10-26，TS 迁移第 ③ 步的切换）
+
+- **起因**：第 ③ 步六片（③a1、③a2、③b、③c、③d、③e）都已合入，各自过了契约、对照与变异，themistally-15 逐片复核。照迁移计划第 ③ 步与第 5 节一次提交切换：选择文件 `scripts/kernel-impl.json` 的 `config` 改成 `ts`。
+- **调度器（`pi_dispatch.py`）**：
+  - 转交名单写死（`TS_CONFIG_COMMANDS`）：config 与 plugins 下的 33 个叶子命令，值是交给 TS 的参数键。runtime add 的 `--command` 在 Namespace 里压掉了子命令的 dest，交成 `command_option`。
+  - `config_handoff`：按 kit_config、kit_plugins 自己的 argparse 解析，`-h`、用法错误、没给子命令时打帮助、kit_config 的两条组合检查（抽成 `kit_config.check_parsed`，两边共用）都由 Python 当场回答；命令路径按 `*_action` 的 dest 定。`secret set` 不转交：`--tty` 的 getpass 直接读写控制台，网页模式打开的浏览器会落进启动器的 Job，`--verify` 是花钱的真实请求。
+  - 不先跑 `Repo.discover`（与 readonly 不同；themistally-15 复核时给的理由）：TS 已经在 Python 调 `kit_config._repo` 的那一步找仓库，契约逐个叶子比过 discover 的三种报错（不在仓库里、`--repo` 是文件、linked worktree）；也少起一次 git，桌面端每页要读好几条 config。
+  - pyargs 带 `context`：kit 根（`KIT_ROOT`）与等配置锁的秒数（`kit_config.LOCK_WAIT_SECONDS`）；TS 不读环境变量、不设默认值。
+  - `argv_impl`：config、plugins 开头、在名单里、不是 secret set、不带 -h 的，选择文件 config 为 ts 时账本记 ts。
+  - 启动器、装好戳记、Bun 路径与环境的防护照第 64 轮，没有改。
+- **桌面端本机服务**：照旧起 `python scripts/pi_dispatch.py --repo <仓库> config|plugins …`，不用改；凭据录入作业的 `secret set` 仍是 Python。
+- **行为变更（两边同一轮改）**：`kit_config.check_parsed` 按处理函数认 decisions、history（以前按 `args.command`）。runtime add 的 `--command` 压掉 `args.command`，`runtime add … --command decisions` 以前撞上 AttributeError、打堆栈退出 1，现在与别的写错的 `--command` 一样报用法错误、退出 2（themistally-15 复核切换提纲时查出）。
+- **测试**：`tests/test_kernel_impl.py` 核对 argparse 的每个叶子都在名单里、每条的键与 Namespace 一致、`secret set` 与帮助、用法错误不转交、main 真的转交（假入口回显参数）、改回 python 与没有选择文件时逐字节相同、`--command decisions` 一类的取值。TS 契约的配置中心五份（config-readonly、config-write、plugins-commands、roles-commands、roles-probe）都加第四种运行方式“经真的启动器”：选择文件 config 为 ts，在独立 Python 进程里调 `pd.main`，交替写序列与锁互斥契约里也有它。`pyargs-v1.schema.json` 按 argparse 补上 33 条，schemas.test 核对启动器为每条命令生成的参数都过 Schema、命令路径盖满名单。config-launcher 契约把每个叶子（37 条 argv）在四种环境里经真的启动器跑一遍，与钉成 Python 的逐字节比较：不在仓库里、`--repo` 是文件、linked worktree、跑过 init 的仓库（有预览选项的带 `--dry-run --json`，其余照常写，另比最后的状态）。system 模式的凭据往返（Python 写入 `code-kit:THEMIS_CONTRACT_*`、三种实现读到的一致、TS 删除）默认跳过，设 `THEMIS_CREDMAN_ROUNDTRIP=1` 才跑（站主同意时的三个条件），合入前手动跑过一次。变异 18 个（漏键、多键、command_option、secret set、-h、组合检查、context、argv_impl 与 main 的分支），全部抓住。
+- **实测**：主工作区的真实配置（凭据库设 off）上 13 条只读命令，钉成 Python 与经启动器逐字节相同。耗时（10 次的中位数）：config show --json 0.13 s → 0.28 s，config role show --json 0.13 s → 0.25 s，plugins list --json 0.14 s → 0.28 s，多出来的是起 Bun。
+- **回退**：选择文件的 `config` 改回 `python`，一次提交。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

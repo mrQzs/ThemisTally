@@ -307,7 +307,7 @@ describe("读命令", () => {
     ] as const) {
       for (const command of commands) {
         const python = shown(run("python", repo, command), repo);
-        for (const runner of ["node", "bun"] as const) {
+        for (const runner of ["node", "bun", "launcher"] as const) {
           const other = shown(run(runner, repo, command), repo);
           if (JSON.stringify(other) !== JSON.stringify(python)) problems.push({ command: command.label, runner, python, other });
         }
@@ -336,7 +336,6 @@ describe("本机文件写不进去", () => {
     const python = results[0] as (typeof results)[number];
     expect(python.steps.map((step) => step["status"])).toEqual([0, 1, 0]);
     expect(String(python.steps[1]?.["stderr"])).toContain("写入失败：[WinError 5] Access is denied: ");
-    expect(results[1]).toEqual(python);
-    expect(results[2]).toEqual(python);
+    for (const other of results.slice(1)) expect(other).toEqual(python);
   });
 });

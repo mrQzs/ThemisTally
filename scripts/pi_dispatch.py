@@ -178,6 +178,51 @@ TS_READONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
 TS_ONLY_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("ui",): ("desktop", "assets", "transcript", "idle_timeout"),
 }
+#: config 选 ts 时转交给 TS 的命令（迁移计划第 ③ 步），值同样是交给 TS 的参数键，名单写死。config 的命令按 kit_config
+#: 的 argparse 解析，plugins 的按 kit_plugins 的；secret 只转交 check 与 remove（set 在不转交名单里）。runtime add 的
+#: --command 在 Namespace 里压掉了子命令的 dest（command），交给 TS 时叫 command_option。tests/test_kernel_impl.py
+#: 核对每条的键与 Namespace 一致。
+TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
+    ("config", "show"): ("repo", "json"),
+    ("config", "validate"): ("repo", "json"),
+    ("config", "set"): ("repo", "key", "value", "yes"),
+    ("config", "unset"): ("repo", "key", "yes"),
+    ("config", "history"): ("repo", "show", "number", "json"),
+    ("config", "rollback"): ("repo", "number", "yes", "dry_run", "json", "expect_state"),
+    ("config", "init"): ("repo",),
+    ("config", "decisions"): ("repo", "what", "state"),
+    ("config", "secret"): ("repo", "action", "name", "tty", "no_browser", "timeout", "verify"),
+    ("config", "runtime", "list"): ("repo", "json"),
+    ("config", "runtime", "scan"): ("repo", "add", "json", "yes"),
+    ("config", "runtime", "add"): ("repo", "runtime_id", "adapter", "command_option", "force", "yes", "dry_run", "json",
+                                   "expect_state"),
+    ("config", "runtime", "remove"): ("repo", "runtime_id", "yes", "dry_run", "json", "expect_state"),
+    ("config", "runtime", "probe"): ("repo", "runtime_id", "json"),
+    ("config", "models"): ("repo", "runtime", "json"),
+    ("config", "profile", "show"): ("repo", "profile_id", "json"),
+    ("config", "profile", "add"): ("repo", "profile_id", "runtime", "model", "thinking", "credential_env", "yes", "dry_run",
+                                   "json", "expect_state"),
+    ("config", "profile", "edit"): ("repo", "profile_id", "runtime", "model", "thinking", "credential_env", "yes", "dry_run",
+                                    "json", "expect_state"),
+    ("config", "profile", "remove"): ("repo", "profile_id", "yes", "dry_run", "json", "expect_state"),
+    ("config", "role", "show"): ("repo", "json"),
+    ("config", "role", "set"): ("repo", "role", "target", "host", "cadence_seconds", "yes", "dry_run", "json", "expect_state"),
+    ("config", "preset", "list"): ("repo", "json"),
+    ("config", "preset", "show"): ("repo", "name", "json"),
+    ("config", "preset", "save"): ("repo", "name", "description", "roles", "force", "yes", "dry_run", "json", "expect_state"),
+    ("config", "preset", "use"): ("repo", "name", "yes", "dry_run", "json", "expect_state"),
+    ("config", "preset", "diff"): ("repo", "a", "b", "json"),
+    ("config", "preset", "remove"): ("repo", "name", "yes", "dry_run", "json", "expect_state"),
+    ("config", "doctor"): ("repo", "record", "json"),
+    ("plugins", "list"): ("repo", "json"),
+    ("plugins", "show"): ("repo", "plugin_id", "json"),
+    ("plugins", "verify"): ("repo", "plugin_id", "json"),
+    ("plugins", "enable"): ("repo", "plugin_id", "allow_permission", "dry_run", "json", "expect_state"),
+    ("plugins", "disable"): ("repo", "plugin_id", "dry_run", "json", "expect_state"),
+}
+#: 配置中心命令的路径后两段由哪个 dest 给出（runtime add 的 --command 会压掉 command，路径不能读它）
+CONFIG_ACTION_DESTS = (("runtime", "runtime_action"), ("profile", "profile_action"), ("role", "role_action"),
+                       ("preset", "preset_action"))
 DEPENDENCY_PATTERNS = (
     "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json", "**/pnpm-lock.yaml",
     "**/pnpm-workspace.yaml", "**/yarn.lock", "**/bun.lock", "**/bun.lockb", "**/.npmrc",
@@ -8817,9 +8862,61 @@ def readonly_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     return pyargs
 
 
+def config_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
+    """config 选 ts 时，config 或 plugins 的这条命令要不要交给 TS：要就返回交给 TS 的参数（pyargs-v1），不要就返回
+    None，由 Python 照旧回答。参数照 kit_config.main、kit_plugins.main 的写法解析：-h、用法错误、没给子命令时打帮助、
+    kit_config 的两条组合检查都由 Python 当场回答。不先找仓库（与 readonly_handoff 不同）：TS 在 Python 调
+    kit_config._repo 的那一步找仓库，契约逐个叶子比过 Repo.discover 的三种报错；也少起一次 git（桌面端每页要读好几条
+    config）。context 交 kit 根与等配置锁的秒数（TS 不读环境变量、不设默认值）。"""
+    try:
+        import kit_config
+        import kit_plugins
+    except ModuleNotFoundError:
+        return None
+    if args.func is cmd_config:
+        parser = kit_config.build_parser()
+        parsed = parser.parse_args(list(args.args))
+    elif args.func is cmd_plugins:
+        parser = kit_plugins.build_parser()
+        parsed = parser.parse_args(list(args.args))
+    else:
+        return None
+    if args.repo is not None and not parsed.repo:
+        parsed.repo = args.repo
+    if not getattr(parsed, "func", None):
+        return None
+    if args.func is cmd_config:
+        kit_config.check_parsed(parser, parsed)
+        path = next((("config", family, getattr(parsed, dest)) for family, dest in CONFIG_ACTION_DESTS
+                     if hasattr(parsed, dest)), ("config", parsed.command))
+        if path == ("config", "secret") and parsed.action == "set":
+            return None
+    else:
+        path = ("plugins", parsed.command)
+    keys = TS_CONFIG_COMMANDS.get(path)
+    if keys is None:
+        return None
+    pyargs: Dict[str, Any] = {"command": list(path)}
+    pyargs.update((key, getattr(parsed, "command" if key == "command_option" else key)) for key in keys)
+    pyargs["context"] = {"kit_root": str(KIT_ROOT), "lock_wait_seconds": kit_config.LOCK_WAIT_SECONDS}
+    return pyargs
+
+
+def config_argv_path(words: Sequence[str]) -> Tuple[str, ...]:
+    """argv_impl 用：hub 写法的 config、plugins 命令在 TS_CONFIG_COMMANDS 里的路径（不解析选项）。"""
+    if len(words) < 2:
+        return ()
+    if words[0] == "plugins":
+        return ("plugins", words[1])
+    if words[1] in {family for family, _dest in CONFIG_ACTION_DESTS} and len(words) >= 3:
+        return ("config", words[1], words[2])
+    return ("config", words[1])
+
+
 def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str:
-    """这条调度器命令由哪一套实现回答，hub 账本的 dispatcher.called 记它。与 readonly_handoff 同一份名单：选择文件的
-    readonly 是 ts、命令在 TS_READONLY_COMMANDS 里（status 不带 --assess）才是 ts。只认 hub 的写法（可选的全局
+    """这条调度器命令由哪一套实现回答，hub 账本的 dispatcher.called 记它。与 readonly_handoff、config_handoff 同一份
+    名单：选择文件的 readonly 是 ts、命令在 TS_READONLY_COMMANDS 里（status 不带 --assess）才是 ts；config 是 ts、
+    命令在 TS_CONFIG_COMMANDS 里（secret set 除外）才是 ts。只认 hub 的写法（可选的全局
     --repo，之后是完整拼写的子命令），带 -h 的按 python 算；hub 总在主工作区运行，碰不到 discover 出错转回 Python。
     只有 TS 实现的命令（TS_ONLY_COMMANDS，第 73 轮）与选择文件无关，总是 ts。"""
     words = list(argv)
@@ -8830,6 +8927,9 @@ def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str
     if tuple(words[:1]) in TS_ONLY_COMMANDS:
         return "ts"
     chosen = read_kernel_impl() if impl is None else impl
+    if words[:1] in (["config"], ["plugins"]):
+        listed = config_argv_path(words) in TS_CONFIG_COMMANDS and words[1:3] != ["secret", "set"]
+        return "ts" if chosen["config"] == "ts" and listed else "python"
     if chosen["readonly"] != "ts":
         return "python"
     if words[:1] == ["status"]:
@@ -8918,6 +9018,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if impl["readonly"] == "ts":
             pyargs = readonly_handoff(args)
+            if pyargs is not None:
+                return run_handoff(ts_launch_command(pyargs))
+        if impl["config"] == "ts":
+            pyargs = config_handoff(args)
             if pyargs is not None:
                 return run_handoff(ts_launch_command(pyargs))
         return int(args.func(args))

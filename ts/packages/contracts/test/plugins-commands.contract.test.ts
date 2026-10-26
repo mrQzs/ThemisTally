@@ -7,7 +7,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, 
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RUNNERS, type Runner, gitRepo, normalize, state } from "./config-cli.ts";
-import { type CliRun, REPO, removeDir, runPythonCliAt, runTsCli, scratchDir } from "./harness.ts";
+import { type CliRun, REPO, removeDir, runConfigLauncherCli, runPythonCliAt, runTsCli, scratchDir } from "./harness.ts";
 
 const ROOT = realpathSync.native(scratchDir("plugins-cmd"));
 const SAVED: Record<string, string | undefined> = {};
@@ -74,6 +74,7 @@ const disable = (id: string, options: MutateOptions = {}): Step => mutation("dis
 
 function runStep(runner: Runner, kit: string, repo: string, cwd: string, step: Step): CliRun {
   if (runner === "python") return runPythonCliAt(kit, ["--repo", repo, "plugins", ...step.argv], cwd);
+  if (runner === "launcher") return runConfigLauncherCli(["--repo", repo, "plugins", ...step.argv], cwd, kit);
   return runTsCli(runner, { command: ["plugins", step.action], repo, ...step.fields, context: { kit_root: kit, lock_wait_seconds: 5.0 } }, cwd);
 }
 

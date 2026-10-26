@@ -116,6 +116,8 @@ const SELECTOR_DIR = mkdtempSync(join(tmpdir(), "themis-selector-"));
 const PYTHON_SELECTOR = join(SELECTOR_DIR, "absent.json");
 const TS_SELECTOR = join(SELECTOR_DIR, "readonly-ts.json");
 writeFileSync(TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "python", dispatcher: "python", hub: "python" }));
+const CONFIG_TS_SELECTOR = join(SELECTOR_DIR, "config-ts.json");
+writeFileSync(CONFIG_TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "ts", dispatcher: "python", hub: "python" }));
 process.on("exit", () => rmSync(SELECTOR_DIR, { recursive: true, force: true }));
 
 /** 独立的 Python 进程里改 pi_dispatch 的 KERNEL_IMPL_PATH 再调 pd.main(argv)。JSON 的字符串与数组照样是 Python
@@ -148,6 +150,15 @@ export function runPythonCliAt(kitRoot: string, argv: readonly string[], cwd: st
 export function runLauncherCli(argv: readonly string[], cwd: string): CliRun {
   return pdMain(TS_SELECTOR, argv, cwd);
 }
+
+/** 第 ③ 步切换之后的写法：选择文件的 config 也是 ts，config、plugins 命令经真的启动器转交给 TS（pyargs 由
+ * pi_dispatch.config_handoff 从 argparse 的结果生成）。kitRoot 同 runPythonCliAt。 */
+export function runConfigLauncherCli(argv: readonly string[], cwd: string, kitRoot?: string): CliRun {
+  return pdMain(CONFIG_TS_SELECTOR, argv, cwd, kitRoot);
+}
+
+/** 起子进程用的选择文件路径（并发用例自己起 pd.main）。 */
+export const SELECTORS = { python: PYTHON_SELECTOR, configTs: CONFIG_TS_SELECTOR } as const;
 
 /** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */
 export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown>, cwd: string): CliRun {

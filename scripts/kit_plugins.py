@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 """kit_plugins —— 插件管理的第一片（3.0 第一轮）：list / show / verify 只读，enable / disable 只改 `plugins` 键。
 
-用法（调度器 `python scripts/pi_dispatch.py plugins …` 原样转发到这里）：
-  python scripts/kit_plugins.py list [--json]              每个插件一行：ID、版本、启用、锁、资源、缺的权限、状态
-  python scripts/kit_plugins.py show <ID> [--json]         manifest 字段、每个资源的哈希核对、锁的 generation 与 lock_sha256
-  python scripts/kit_plugins.py verify [ID] [--json]       核对所选插件（缺省全部）与“列入但未安装”；有问题退出 1
-  python scripts/kit_plugins.py enable <ID> [--allow-permission P …] [--dry-run [--json] | --expect-state STATE]
-  python scripts/kit_plugins.py disable <ID> [--dry-run [--json] | --expect-state STATE]
+用法：走调度器（`python scripts/pi_dispatch.py plugins …` 与它等价）。选择文件 `scripts/kernel-impl.json` 的 config 为 ts 时
+由 TS 实现回答（迁移计划第 ③ 步）；直接运行本文件总是 Python 实现。
+  bash scripts/dispatch-pi.sh plugins list [--json]              每个插件一行：ID、版本、启用、锁、资源、缺的权限、状态
+  bash scripts/dispatch-pi.sh plugins show <ID> [--json]         manifest 字段、每个资源的哈希核对、锁的 generation 与 lock_sha256
+  bash scripts/dispatch-pi.sh plugins verify [ID] [--json]       核对所选插件（缺省全部）与“列入但未安装”；有问题退出 1
+  bash scripts/dispatch-pi.sh plugins enable <ID> [--allow-permission P …] [--dry-run [--json] | --expect-state STATE]
+  bash scripts/dispatch-pi.sh plugins disable <ID> [--dry-run [--json] | --expect-state STATE]
 
 设计与调用边界见 docs/themis-tally-3.0-r1-日志与插件管理.md 的 D5、D6、D10、D11：只读核对复用 codekit/plugins.py，
 决策题库另调 codekit/decisions.verify_battery_lock；链接与 junction 检查、fix 提示、整份校验写入都复用

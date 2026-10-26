@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BUN, type CliRun, REPO, prng, removeDir, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
+import { BUN, type CliRun, REPO, prng, removeDir, runPythonCli, runConfigLauncherCli, runTsCli, SELECTORS, scratchDir } from "./harness.ts";
 
 const ROOT = realpathSync.native(scratchDir("config-write"));
 const ENV: Record<string, string | undefined> = { CODEKIT_SECRET_STORE: "off", TYPESAFE_API_KEY: undefined, PI_DISPATCH_WORKTREE_ROOT: undefined, CODEKIT_ACTOR: "user" };
@@ -107,10 +107,13 @@ const roles = (path: [string, string], argv: string[], fields: Record<string, un
   args: (repo) => ({ command: ["config", ...path], repo, yes: false, dry_run: false, json: false, expect_state: null, ...fields, context }),
 });
 
-type Runner = "python" | "node" | "bun";
+/** launcher：选择文件的 config 是 ts，经真的启动器转交（第 ③ 步的切换）。 */
+type Runner = "python" | "node" | "bun" | "launcher";
+const RUNNERS: readonly Runner[] = ["python", "node", "bun", "launcher"];
 
 function run(runner: Runner, repo: string, command: Command): CliRun {
   if (runner === "python") return runPythonCli(["--repo", repo, command.group ?? "config", ...command.argv], repo);
+  if (runner === "launcher") return runConfigLauncherCli(["--repo", repo, command.group ?? "config", ...command.argv], repo);
   return runTsCli(runner, command.args(repo), repo);
 }
 
@@ -230,7 +233,7 @@ describe("交替写契约", () => {
           continue;
         }
         const command = "expectFromPreview" in item ? rollback(item.expectFromPreview, { expect_state: lastPreview ?? STALE }) : item;
-        const runner = (["python", "node", "bun"] as const)[Math.floor(next() * 3)] as Runner;
+        const runner = RUNNERS[Math.floor(next() * RUNNERS.length)] as Runner;
         const left = run(runner, mixed, command);
         const right = run("python", pure, command);
         if (command.argv.includes("--dry-run") && right.status === 0) {
@@ -253,7 +256,7 @@ describe("交替写契约", () => {
 
 describe("init 与几条单独的写法", () => {
   it("中断的事务（只有 intent）由下一次写入补判；审计末尾的半行单独成行；回滚到没有发布的那一条被拒", () => {
-    const results = (["python", "node", "bun"] as const).map((runner) => {
+    const results = RUNNERS.map((runner) => {
       const repo = gitRepo(`interrupted-${runner}`);
       const before = '{"kill_grace_seconds": 20}' + String.fromCharCode(10);
       writeFileSync(join(repo, ".agent", "dispatch.config.json"), before);
@@ -280,23 +283,21 @@ describe("init 与几条单独的写法", () => {
       const steps = [set("kill_grace_seconds", "25"), rollback(1), rollback(2, { dry_run: true, json: true })].map((command) => shown(run(runner, repo, command), repo));
       return { steps, state: state(repo) };
     });
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
+    for (const other of results.slice(1)) expect(other).toEqual(results[0]);
   });
 
   it("每种运行方式各在一个新仓库里 init，再 init 一次被拒；结果与 Python 一致", () => {
-    const results = (["python", "node", "bun"] as const).map((runner) => {
+    const results = RUNNERS.map((runner) => {
       const repo = gitRepo(`init-${runner}`);
       const first = shown(run(runner, repo, init), repo);
       const second = shown(run(runner, repo, init), repo);
       return { first, second, state: state(repo) };
     });
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
+    for (const other of results.slice(1)) expect(other).toEqual(results[0]);
   });
 
   it("历史与审计目录没被忽略时提示 WARN；CODEKIT_ACTOR 不合格式时记 undeclared 并提示", () => {
-    const results = (["python", "node", "bun"] as const).map((runner) => {
+    const results = RUNNERS.map((runner) => {
       const repo = gitRepo(`warn-${runner}`, { ignoreHistory: false });
       process.env["CODEKIT_ACTOR"] = "robot";
       try {
@@ -305,8 +306,7 @@ describe("init 与几条单独的写法", () => {
         process.env["CODEKIT_ACTOR"] = "user";
       }
     });
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
+    for (const other of results.slice(1)) expect(other).toEqual(results[0]);
   });
 
   it("运行中：thinking 从显式 high 改成不写不算切换；预览报 needs_yes；令牌的哈希不是十六进制退出 2；删光子键连段删掉", () => {
@@ -323,19 +323,18 @@ describe("init 与几条单独的写法", () => {
       set("pricing.s/only", PRICE("page")),
       unset("pricing.s/only"),
     ];
-    const results = (["python", "node", "bun"] as const).map((runner) => {
+    const results = RUNNERS.map((runner) => {
       const repo = gitRepo(`switch-${runner}`, { running: true });
       return { steps: steps.map((command) => shown(run(runner, repo, command), repo)), state: state(repo) };
     });
     expect(results[0]?.steps.map((step) => step.status)).toEqual([0, 0, 0, 0, 1, 0, 2, 0, 0]);
     expect((JSON.parse(results[0]?.steps[5]?.stdout as string) as { needs_yes: boolean }).needs_yes).toBe(true);
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
+    for (const other of results.slice(1)) expect(other).toEqual(results[0]);
   });
 
   // 报错照 CPython 的 OSError：替换走 MoveFileExW（[WinError N] …: '临时文件' -> '配置'），建目录走 CreateDirectoryW
   it.runIf(process.platform === "win32")("写不进去：配置文件只读、快照目录与审计目录被同名文件占着；之后的写入补判中断的事务", () => {
-    const results = (["python", "node", "bun"] as const).map((runner) => {
+    const results = RUNNERS.map((runner) => {
       const repo = gitRepo(`blocked-${runner}`);
       const agent = join(repo, ".agent");
       const config = join(agent, "dispatch.config.json");
@@ -366,8 +365,7 @@ describe("init 与几条单独的写法", () => {
     expect(String(python.steps[1]?.["stderr"])).toContain("写入失败：[WinError 5] Access is denied: ");
     expect(String(python.steps[3]?.["stderr"])).toContain("快照存不下（[WinError 183]");
     expect(String(python.steps[4]?.["stderr"])).toContain("审计写不进去（[WinError 183]");
-    expect(results[1]).toEqual(python);
-    expect(results[2]).toEqual(python);
+    for (const other of results.slice(1)) expect(other).toEqual(python);
   });
 });
 
@@ -378,14 +376,14 @@ function startWrite(runner: Runner, repo: string, command: Command): Promise<num
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(join(REPO, "scripts"))})`,
     "import pi_dispatch as pd",
-    `pd.KERNEL_IMPL_PATH = pd.Path(${JSON.stringify(join(ROOT, "absent-selector.json"))})`,
+    `pd.KERNEL_IMPL_PATH = pd.Path(${JSON.stringify(runner === "launcher" ? SELECTORS.configTs : SELECTORS.python)})`,
     `sys.exit(pd.main(${JSON.stringify(["--repo", repo, "config", ...command.argv])}))`,
   ].join("\n");
   const pyargs = JSON.stringify(command.args(repo), (_key, value: unknown) => (typeof value === "bigint" ? Number(value) : value));
   const encoded = Buffer.from(pyargs, "utf8").toString("base64");
   const main = join(REPO, "ts", "packages", "cli", "src", "main.ts");
   const [exe, args] =
-    runner === "python" ? [python, ["-c", program]] : [runner === "bun" ? BUN : "node", [main, "--pyargs-b64", encoded]];
+    runner === "python" || runner === "launcher" ? [python, ["-c", program]] : [runner === "bun" ? BUN : "node", [main, "--pyargs-b64", encoded]];
   return new Promise((done) => {
     const child = spawn(exe, args, { cwd: repo, stdio: "ignore" });
     child.on("close", (code) => done(code ?? -1));
@@ -395,7 +393,7 @@ function startWrite(runner: Runner, repo: string, command: Command): Promise<num
 describe("锁互斥契约", () => {
   it("Python、Node、Bun 同时往同一份配置各写不同的键：读改写不丢更新，审计每笔都有 intent 与 commit", async () => {
     const repo = gitRepo("race");
-    const runners: Runner[] = ["python", "node", "bun", "python", "node", "bun", "python", "node", "bun"];
+    const runners: Runner[] = [...RUNNERS, ...RUNNERS, ...RUNNERS];
     const codes = await Promise.all(runners.map((runner, index) => startWrite(runner, repo, set(`pricing.s/race${index}`, PRICE("race")))));
     expect(codes).toEqual(runners.map(() => 0));
     const config = JSON.parse(readFileSync(join(repo, ".agent", "dispatch.config.json"), "utf8")) as { pricing: Record<string, unknown> };

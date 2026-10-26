@@ -2,20 +2,21 @@
 # -*- coding: utf-8 -*-
 """kit_config —— Code-Kit 的配置管理器（2.7.0）：看、改、校验 `.agent/dispatch.config.json`，开关决策模式，存取凭据。
 
-用法（也可以写成 `bash scripts/dispatch-pi.sh config …`，调度器会转发到这里）：
-  python scripts/kit_config.py show [--json]            每个键的生效值、来源与说明；决策模式与原因；凭据的来源（不报值）
-  python scripts/kit_config.py validate                 整份校验（复用调度器各键自己的校验），有错退出 1
-  python scripts/kit_config.py set <键路径> <值>        例如 set decisions.mode shadow、set kill_grace_seconds 20、
-                                                        set release_check.allow '["tests/fixtures/**:home path"]'
-  python scripts/kit_config.py unset <键路径>
-  python scripts/kit_config.py init                     从 kit 的 dispatch.config.example.json 生成，已存在则拒绝
-  python scripts/kit_config.py decisions off|shadow|on  等于 set decisions.mode
-  python scripts/kit_config.py decisions marker on|off  建或删 .agent/DECISIONS_OFF（存在就一票否决）
-  python scripts/kit_config.py secret set <环境变量名> [--tty] [--no-browser] [--timeout 秒] [--verify]
-                                                        一次性本机网页（或 --tty 隐藏输入）把值直接存进凭据库；
-                                                        规划端只看到 {"stored": true, "verified": …} 一行
-  python scripts/kit_config.py secret check <环境变量名>  在哪一层找到（env / credential_store / file / none）
-  python scripts/kit_config.py secret remove <环境变量名>
+用法：走调度器（`python scripts/pi_dispatch.py config …` 与它等价）。选择文件 `scripts/kernel-impl.json` 的 config 为 ts 时，
+除 `secret set` 以外的命令由 TS 实现回答（迁移计划第 ③ 步）；直接运行本文件总是 Python 实现。
+  bash scripts/dispatch-pi.sh config show [--json]            每个键的生效值、来源与说明；决策模式与原因；凭据的来源（不报值）
+  bash scripts/dispatch-pi.sh config validate                 整份校验（复用调度器各键自己的校验），有错退出 1
+  bash scripts/dispatch-pi.sh config set <键路径> <值>        例如 set decisions.mode shadow、set kill_grace_seconds 20、
+                                                              set release_check.allow '["tests/fixtures/**:home path"]'
+  bash scripts/dispatch-pi.sh config unset <键路径>
+  bash scripts/dispatch-pi.sh config init                     从 kit 的 dispatch.config.example.json 生成，已存在则拒绝
+  bash scripts/dispatch-pi.sh config decisions off|shadow|on  等于 set decisions.mode
+  bash scripts/dispatch-pi.sh config decisions marker on|off  建或删 .agent/DECISIONS_OFF（存在就一票否决）
+  bash scripts/dispatch-pi.sh config secret set <环境变量名> [--tty] [--no-browser] [--timeout 秒] [--verify]
+                                                              一次性本机网页（或 --tty 隐藏输入）把值直接存进凭据库；
+                                                              规划端只看到 {"stored": true, "verified": …} 一行
+  bash scripts/dispatch-pi.sh config secret check <环境变量名>  在哪一层找到（env / credential_store / file / none）
+  bash scripts/dispatch-pi.sh config secret remove <环境变量名>
 
 值的写法：先按 JSON 解析，解析不了的按字符串；键路径最多两层（`release_check.allow`、`decisions.mode`）。
 写回原子：读原文件、改、整份校验、写临时文件再替换；以下划线开头的说明键与键顺序保留。
@@ -1745,6 +1746,16 @@ def _preview_options(parser: argparse.ArgumentParser) -> None:
                         help="预览给的 state：在配置锁里比对，配置在预览之后变了就退出 4、什么也不写")
 
 
+def check_parsed(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """argparse 管不了的两条组合检查。选择文件的 config 是 ts 时，pi_dispatch 转交之前同样先过：用法错误由 Python 回答
+    （迁移计划第 ③ 步）。按处理函数认命令：runtime add 的 --command 在 Namespace 里压掉了 command，以前按 command
+    认，`runtime add … --command decisions` 会撞上 AttributeError（themistally-15 复核 ③-切换时查出）。"""
+    if args.func is cmd_decisions and (args.what == "marker") != (args.state is not None):
+        parser.error("decisions marker 需要 on 或 off；其它模式不带第二个参数")
+    if args.func is cmd_history and (args.show is None) != (args.number is None):
+        parser.error("history show 需要编号；只看列表时不带参数")
+
+
 def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1758,10 +1769,7 @@ def main(argv: Optional[Sequence[str]] = None, repo: Optional[str] = None) -> in
     if not getattr(args, "func", None):
         parser.print_help()
         return EXIT_USAGE
-    if args.command == "decisions" and (args.what == "marker") != (args.state is not None):
-        parser.error("decisions marker 需要 on 或 off；其它模式不带第二个参数")
-    if args.command == "history" and (args.show is None) != (args.number is None):
-        parser.error("history show 需要编号；只看列表时不带参数")
+    check_parsed(parser, args)
     try:
         if hasattr(args, "dry_run") and (args.dry_run or args.json or args.expect_state is not None):
             return run_in_write_mode(args)

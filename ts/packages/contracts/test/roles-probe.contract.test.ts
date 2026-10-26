@@ -1,66 +1,25 @@
 // 会运行本机 CLI 的配置中心命令的命令行契约（迁移第 ③d 片）：runtime scan [--add]、runtime probe、models、doctor [--record]。
-//   - 假的 pi：BIN 里的 fake-pi.mjs 按旁边的 fake-pi.json 回答 --version、--help、--list-models [模型] 与 auth check，并把收到的
-//     argv 与 child_env 的几项结果记进 FAKE_PI_LOG。pi.cmd 是 npm 样式的垫片（resolve_pi_command 绕过它直接起 node；scan 与
-//     PI_DISPATCH_PI_CMD 指向它时经 CreateProcessW 起 cmd.exe）。claude.cmd 只回答版本，codex.exe 是起不来的文件。
-//   - PATH 只留 BIN、git、node、python 与系统目录：scan 找到的只有这几个假的。
+//   - 假的 pi、claude、codex 与只留它们的 PATH 见 fake-cli.ts；场景改的是 BIN 里 fake-pi.json 的回答。
 //   - 读命令：同一个仓库里 Python、Node、Bun 的 stdout、stderr、退出码与假 pi 的记录逐字节相同；scan --add 各用一个新仓库，
 //     最后的配置、快照与审计也要相同。每个场景另断言 Python 的输出里有它要测的路径。
 // 转义的反斜杠一律用 String.fromCharCode(92) 拼（源码里不写 \u 转义）。
-import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Command, CONTEXT, RUNNERS, type Runner, gitRepo, run, shown, state } from "./config-cli.ts";
+import { installFakeCli } from "./fake-cli.ts";
 import { removeDir, runPythonCli, scratchDir } from "./harness.ts";
 
 const ROOT = realpathSync.native(scratchDir("roles-probe"));
 const BIN = join(ROOT, "bin");
-const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
-const CRLF = String.fromCharCode(13, 10);
 const ESC = String.fromCharCode(27);
 const WIN = process.platform === "win32";
 
-/** PATH 上某个程序所在的目录（改 PATH 之前查）。 */
-function dirOf(program: string): string {
-  const done = spawnSync(WIN ? "where" : "which", [program], { encoding: "utf8" });
-  const first = done.stdout.split(/\r?\n/u).find(Boolean);
-  if (!first) throw new Error(`PATH 上没有 ${program}`);
-  return dirname(first);
-}
-
-const FAKE_PI = [
-  'import { appendFileSync, readFileSync } from "node:fs";',
-  'import { dirname, join } from "node:path";',
-  'import { fileURLToPath } from "node:url";',
-  "const here = dirname(fileURLToPath(import.meta.url));",
-  'const spec = JSON.parse(readFileSync(join(here, "fake-pi.json"), "utf8"));',
-  "const argv = process.argv.slice(2);",
-  'const at = argv.indexOf("--list-models");',
-  'const mode = argv.includes("--version") ? "version" : argv.includes("--help") ? "help" : at >= 0 ? (argv[at + 1] ? `list:${argv[at + 1]}` : "list") : argv[0] === "auth" ? "auth" : "other";',
-  'const reply = spec[mode] ?? spec[mode.split(":")[0]] ?? { code: 9 };',
-  "const seen = (name) => process.env[name] ?? null;",
-  "if (process.env.FAKE_PI_LOG) {",
-  '  const env = Object.fromEntries(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "PYTHONDONTWRITEBYTECODE", "GITHUB_TOKEN", "FAKE_KEY", "NoDefaultCurrentDirectoryInExePath"].map((name) => [name, seen(name)]));',
-  "  appendFileSync(process.env.FAKE_PI_LOG, JSON.stringify({ mode, argv, env }) + String.fromCharCode(10));",
-  "}",
-  'if (reply.out) process.stdout.write(Buffer.from(reply.out, "utf8"));',
-  'if (reply.err) process.stderr.write(Buffer.from(reply.err, "utf8"));',
-  "process.exitCode = reply.code ?? 0;",
-  "",
-].join(LF);
-
 const SAVED: Record<string, string | undefined> = {};
 beforeAll(() => {
-  const keep = [BIN, dirOf("git"), dirname(process.execPath), dirOf(process.env["THEMIS_PYTHON"] ?? "python")];
-  const system = WIN ? [join(process.env["SystemRoot"] ?? "C:/Windows", "System32"), process.env["SystemRoot"] ?? "C:/Windows"] : ["/usr/bin", "/bin"];
-  mkdirSync(BIN, { recursive: true });
-  writeFileSync(join(BIN, "fake-pi.mjs"), FAKE_PI);
-  writeFileSync(join(BIN, "pi.cmd"), ["@ECHO off", "SET dp0=%~dp0", `node "%dp0%${BS}fake-pi.mjs" %*`, ""].join(CRLF));
-  writeFileSync(join(BIN, "claude.cmd"), ["@echo off", "echo claude 9.9.9 (fake)", ""].join(CRLF));
-  writeFileSync(join(BIN, "codex.exe"), "not a program");
   const env: Record<string, string | undefined> = {
-    PATH: [...keep, ...system].join(WIN ? ";" : ":"),
+    PATH: installFakeCli(BIN),
     CODEKIT_SECRET_STORE: "off",
     CODEKIT_ACTOR: "user",
     PI_DISPATCH_PI_CMD: undefined,
@@ -319,7 +278,7 @@ describe.runIf(WIN)("runtime probe、models、doctor", () => {
     for (const repo of [invalid, plain]) {
       for (const command of [probe("pi"), models("pi"), doctor(), scan(), scan(true)]) {
         const python = shown(run("python", repo, command), repo);
-        for (const runner of ["node", "bun"] as const) {
+        for (const runner of ["node", "bun", "launcher"] as const) {
           const other = shown(run(runner, repo, command), repo);
           if (JSON.stringify(other) !== JSON.stringify(python)) problems.push({ command: command.label, runner, python, other });
         }
@@ -343,8 +302,7 @@ describe.runIf(WIN)("runtime scan", () => {
     for (const fragment of ["pi.CMD（", "pi 0.80.4", "claude 9.9.9 (fake)", "[WinError 216]", "PATH 上没有", "已登记：claude-code、codex", "已登记：没有新的"]) {
       expect(output, fragment).toContain(fragment);
     }
-    expect(results[1]).toEqual(python);
-    expect(results[2]).toEqual(python);
+    for (const other of results.slice(1)) expect(other).toEqual(python);
   });
 });
 

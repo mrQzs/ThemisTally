@@ -1,0 +1,124 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kernel_impl.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "S01 漏键：config show 不交 json",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    (\"config\", \"show\"): (\"repo\", \"json\"),",
+      "new": "    (\"config\", \"show\"): (\"repo\",),"
+    },
+    {
+      "name": "S02 多键：config validate 多交 yes",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    (\"config\", \"validate\"): (\"repo\", \"json\"),",
+      "new": "    (\"config\", \"validate\"): (\"repo\", \"json\", \"yes\"),"
+    },
+    {
+      "name": "S03 command_option 不改名",
+      "file": "scripts/pi_dispatch.py",
+      "old": "getattr(parsed, \"command\" if key == \"command_option\" else key)",
+      "new": "getattr(parsed, key, None)"
+    },
+    {
+      "name": "S04 secret set 也转交",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if path == (\"config\", \"secret\") and parsed.action == \"set\":\n            return None\n",
+      "new": ""
+    },
+    {
+      "name": "S05 带 -h 的也算 ts",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if \"-h\" in words or \"--help\" in words:\n        return \"python\"\n",
+      "new": ""
+    },
+    {
+      "name": "S06 转交之前不过组合检查",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        kit_config.check_parsed(parser, parsed)\n",
+      "new": ""
+    },
+    {
+      "name": "S07 等锁的秒数传错",
+      "file": "scripts/pi_dispatch.py",
+      "old": "\"lock_wait_seconds\": kit_config.LOCK_WAIT_SECONDS}",
+      "new": "\"lock_wait_seconds\": 5.0}"
+    },
+    {
+      "name": "S08 kit 根传错",
+      "file": "scripts/pi_dispatch.py",
+      "old": "pyargs[\"context\"] = {\"kit_root\": str(KIT_ROOT),",
+      "new": "pyargs[\"context\"] = {\"kit_root\": str(KIT_ROOT.parent),"
+    },
+    {
+      "name": "S09 argv_impl 不看选择文件的 config",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        return \"ts\" if chosen[\"config\"] == \"ts\" and listed else \"python\"",
+      "new": "        return \"ts\" if listed else \"python\""
+    },
+    {
+      "name": "S10 argv_impl 把 secret set 也算 ts",
+      "file": "scripts/pi_dispatch.py",
+      "old": " and words[1:3] != [\"secret\", \"set\"]",
+      "new": ""
+    },
+    {
+      "name": "S11 argv_impl 的 plugins 路径",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        return (\"plugins\", words[1])",
+      "new": "        return (\"config\", words[1])"
+    },
+    {
+      "name": "S12 main 按 readonly 判 config",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if impl[\"config\"] == \"ts\":\n            pyargs = config_handoff(args)",
+      "new": "        if impl[\"readonly\"] == \"ts\":\n            pyargs = config_handoff(args)"
+    },
+    {
+      "name": "S13 少一个子命令族",
+      "file": "scripts/pi_dispatch.py",
+      "old": "                       (\"preset\", \"preset_action\"))",
+      "new": "                       )"
+    },
+    {
+      "name": "S14 plugins 自己的 --repo 不优先",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if args.repo is not None and not parsed.repo:\n        parsed.repo = args.repo\n    if not getattr(parsed, \"func\", None):\n        return None\n    if args.func is cmd_config:",
+      "new": "    if args.repo is not None:\n        parsed.repo = args.repo\n    if not getattr(parsed, \"func\", None):\n        return None\n    if args.func is cmd_config:"
+    },
+    {
+      "name": "S15 没给子命令也往下走",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if not getattr(parsed, \"func\", None):\n        return None\n    if args.func is cmd_config:\n        kit_config.check_parsed",
+      "new": "    if args.func is cmd_config:\n        kit_config.check_parsed"
+    },
+    {
+      "name": "S16 check_parsed 按 args.command 认 decisions",
+      "file": "scripts/kit_config.py",
+      "old": "    if args.func is cmd_decisions and",
+      "new": "    if args.command == \"decisions\" and"
+    },
+    {
+      "name": "S17 check_parsed 按 args.command 认 history",
+      "file": "scripts/kit_config.py",
+      "old": "    if args.func is cmd_history and",
+      "new": "    if args.command == \"history\" and"
+    },
+    {
+      "name": "S18 main 不调 check_parsed",
+      "file": "scripts/kit_config.py",
+      "old": "    check_parsed(parser, args)\n    try:",
+      "new": "    try:"
+    }
+  ]
+}

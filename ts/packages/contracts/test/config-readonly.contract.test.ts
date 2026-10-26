@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type CliRun, REPO, removeDir, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
+import { type CliRun, REPO, removeDir, runPythonCli, runConfigLauncherCli, runTsCli, scratchDir } from "./harness.ts";
 
 const ROOT = realpathSync.native(scratchDir("config-ro"));
 const SAVED: Record<string, string | undefined> = {};
@@ -58,8 +58,8 @@ function compare(repo: string, runs: readonly Run[]): void {
   const problems: unknown[] = [];
   for (const run of runs) {
     const python = runPythonCli(["--repo", repo, "config", ...run.argv], repo);
-    for (const runtime of ["node", "bun"] as const) {
-      const other = runTsCli(runtime, run.args, repo);
+    for (const runtime of ["node", "bun", "launcher"] as const) {
+      const other = runtime === "launcher" ? runConfigLauncherCli(["--repo", repo, "config", ...run.argv], repo) : runTsCli(runtime, run.args, repo);
       if (other.status !== python.status || !other.stdout.equals(python.stdout) || !other.stderr.equals(python.stderr)) {
         problems.push({ name: run.name, runtime, python: shown(python), other: shown(other) });
       }

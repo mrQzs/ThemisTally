@@ -3,10 +3,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type CliRun, REPO, runPythonCli, runTsCli } from "./harness.ts";
+import { type CliRun, REPO, runConfigLauncherCli, runPythonCli, runTsCli } from "./harness.ts";
 
-export type Runner = "python" | "node" | "bun";
-export const RUNNERS: readonly Runner[] = ["python", "node", "bun"];
+/** launcher：选择文件的 config 是 ts，经真的启动器转交（第 ③ 步的切换）。 */
+export type Runner = "python" | "node" | "bun" | "launcher";
+export const RUNNERS: readonly Runner[] = ["python", "node", "bun", "launcher"];
 
 /** 一条命令：Python 的 argv（config 之后的部分）与 TS 的 pyargs（argparse 解析之后的值）。 */
 export interface Command {
@@ -32,6 +33,7 @@ export function gitRepo(path: string, ignore = true): string {
 
 export function run(runner: Runner, repo: string, command: Command): CliRun {
   if (runner === "python") return runPythonCli(["--repo", repo, "config", ...command.argv], repo);
+  if (runner === "launcher") return runConfigLauncherCli(["--repo", repo, "config", ...command.argv], repo);
   return runTsCli(runner, command.args(repo), repo);
 }
 

@@ -20,8 +20,12 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import argparse  # noqa: E402
+
 import kit_hub as kh  # noqa: E402
+import kit_config  # noqa: E402
 import kit_logs  # noqa: E402
+import kit_plugins  # noqa: E402
 import pi_dispatch as pd  # noqa: E402
 
 ALL_PYTHON = {name: "python" for name in pd.KERNEL_IMPL_COMPONENTS}
@@ -666,3 +670,157 @@ def test_ui_without_ts_reports_the_missing_entry_and_discovery_errors_stay_in_py
     done = main_with(tmp_path / "absent.json", tmp_path / "no-ts", ["--repo", str(plain), "ui", "--desktop"], plain)
     assert done.returncode != 0 and "TS" not in done.stderr.decode("utf-8")
     assert done.stderr.decode("utf-8").startswith("ERROR: ")
+
+
+# ---------------------------------------------------------------------------
+# 第 ③ 步的切换：config 选 ts 时，config、plugins 命令转交给 TS
+# ---------------------------------------------------------------------------
+
+CONFIG_TS = dict(READONLY_TS, config="ts")
+
+#: 每条转交的命令各一条 argv（与 ts/packages/contracts/test/schemas.test.ts 的样例相同）
+CONFIG_SAMPLES = [
+    ["config", "show"], ["config", "validate", "--json"], ["config", "set", "k", "v"], ["config", "unset", "k", "--yes"],
+    ["config", "history", "show", "3", "--json"], ["config", "rollback", "2", "--dry-run", "--json"], ["config", "init"],
+    ["config", "decisions", "marker", "on"], ["config", "secret", "check", "SOME_NAME"], ["config", "runtime", "list"],
+    ["config", "runtime", "scan", "--add"], ["config", "runtime", "add", "pi", "--adapter", "pi", "--command", '["C:/pi.exe"]'],
+    ["config", "runtime", "remove", "pi", "--yes"], ["config", "runtime", "probe", "pi", "--json"], ["config", "models", "pi"],
+    ["config", "profile", "show"],
+    ["config", "profile", "add", "p", "--runtime", "pi", "--model", "a/b", "--thinking", "high", "--credential-env", "K"],
+    ["config", "profile", "edit", "p", "--model", "a/c"], ["config", "profile", "remove", "p"], ["config", "role", "show", "--json"],
+    ["config", "role", "set", "scheduler_agent", "p", "--cadence-seconds", "60"], ["config", "preset", "list"],
+    ["config", "preset", "show", "day"], ["config", "preset", "save", "day", "--description", "d", "--roles", "execution"],
+    ["config", "preset", "use", "day", "--expect-state=v1;config=x"], ["config", "preset", "diff", "a", "b"],
+    ["config", "preset", "remove", "day", "--dry-run", "--json"], ["config", "doctor", "--record", "t.v1"],
+    ["plugins", "list", "--json"], ["plugins", "show", "x"], ["plugins", "verify"],
+    ["plugins", "enable", "x", "--allow-permission", "a"], ["plugins", "disable", "x"],
+]
+#: Namespace 里不交给 TS 的键：func 与子命令的 dest（runtime add 的 command 是 --command 的值，交成 command_option）
+NOT_HANDED = {"func", "command", "runtime_action", "profile_action", "role_action", "preset_action"}
+
+
+def leaf_paths(parser, prefix):
+    subs = [action for action in parser._actions if isinstance(action, argparse._SubParsersAction)]
+    if not subs:
+        return [prefix]
+    return [path for action in subs for name, child in action.choices.items() for path in leaf_paths(child, prefix + (name,))]
+
+
+def test_every_config_and_plugins_leaf_is_on_the_list():
+    # argparse 多了子命令而名单没跟上，这里就红
+    leaves = leaf_paths(kit_config.build_parser(), ("config",)) + leaf_paths(kit_plugins.build_parser(), ("plugins",))
+    assert sorted(leaves) == sorted(pd.TS_CONFIG_COMMANDS)
+    assert sorted(tuple(pd.config_handoff(args_of(argv))["command"]) for argv in CONFIG_SAMPLES) == sorted(pd.TS_CONFIG_COMMANDS)
+    assert not set(pd.TS_CONFIG_COMMANDS) & (set(pd.TS_READONLY_COMMANDS) | set(pd.TS_ONLY_COMMANDS))
+
+
+@pytest.mark.parametrize("argv", CONFIG_SAMPLES, ids=lambda argv: " ".join(argv[:3]))
+def test_the_config_handoff_keys_match_argparse(argv):
+    # argparse 多了选项而名单没跟上，这里就红：不会悄悄丢掉一个参数
+    parser = kit_config.build_parser() if argv[0] == "config" else kit_plugins.build_parser()
+    expected = set(vars(parser.parse_args(argv[1:]))) - NOT_HANDED
+    pyargs = pd.config_handoff(args_of(argv))
+    path = tuple(pyargs["command"])
+    if path == ("config", "runtime", "add"):
+        expected |= {"command_option"}
+    assert set(pd.TS_CONFIG_COMMANDS[path]) == expected
+    assert set(pyargs) == expected | {"command", "context"}
+
+
+def test_config_handoff_passes_the_parsed_arguments_and_the_context():
+    argv = ["--repo", "C:/r", "config", "runtime", "add", "pi", "--adapter", "pi", "--command", '["C:/pi.exe"]']
+    assert pd.config_handoff(args_of(argv)) == {
+        "command": ["config", "runtime", "add"], "repo": "C:/r", "runtime_id": "pi", "adapter": "pi",
+        "command_option": '["C:/pi.exe"]', "force": False, "yes": False, "dry_run": False, "json": False,
+        "expect_state": None, "context": {"kit_root": str(pd.KIT_ROOT), "lock_wait_seconds": kit_config.LOCK_WAIT_SECONDS}}
+    # 没给 --command 时是 None，不是子命令的名字
+    assert pd.config_handoff(args_of(["config", "runtime", "add", "pi", "--adapter", "pi"]))["command_option"] is None
+    assert pd.config_handoff(args_of(["config", "role", "set", "scheduler_agent", "p", "--cadence-seconds", "60"]))[
+        "cadence_seconds"] == 60
+    # plugins 自己的 --repo 优先，与 kit_plugins.main 一样
+    assert pd.config_handoff(args_of(["--repo", "C:/a", "plugins", "--repo", "C:/b", "list"]))["repo"] == "C:/b"
+    assert pd.config_handoff(args_of(["--repo", "C:/a", "plugins", "list"]))["repo"] == "C:/a"
+
+
+@pytest.mark.parametrize("value", ["decisions", "history", "show"])
+def test_a_command_option_named_like_a_subcommand_is_just_a_bad_command(tmp_path, capsys, value):
+    # 以前按 args.command 认 decisions、history：runtime add 的 --command 压掉它之后撞上 AttributeError、打堆栈
+    # （themistally-15 复核 ③-切换时查出）。现在按处理函数认，与转交给 TS 时一样报 --command 的写法不对
+    repo = git_repo(tmp_path / "repo")
+    assert kit_config.main(["runtime", "add", "r1", "--adapter", "pi", "--command", value], repo=str(repo)) == pd.EXIT_USAGE
+    assert "--command 必须是非空的 JSON 字符串数组" in capsys.readouterr().err
+    argv = ["--repo", str(repo), "config", "runtime", "add", "r1", "--adapter", "pi", "--command", value]
+    assert pd.config_handoff(args_of(argv))["command_option"] == value
+
+def test_secret_set_help_and_usage_errors_stay_in_python():
+    assert pd.config_handoff(args_of(["config", "secret", "set", "SOME_NAME"])) is None
+    assert pd.config_handoff(args_of(["config"])) is None  # 没给子命令：交回 Python 打帮助
+    assert pd.config_handoff(args_of(["plugins"])) is None
+    assert pd.config_handoff(args_of(["status"])) is None
+    for argv in (["config", "decisions", "marker"], ["config", "history", "show"], ["config", "show", "--nope"],
+                 ["config", "-h"], ["plugins", "enable"]):
+        with pytest.raises(SystemExit):  # argparse 当场答（打用法或帮助后退出），不转交
+            pd.config_handoff(args_of(argv))
+
+
+def test_argv_impl_follows_the_config_switch():
+    for impl in (ALL_PYTHON, READONLY_TS):
+        for argv in (["config", "show"], ["plugins", "list"], ["--repo", "x", "config", "doctor"]):
+            assert pd.argv_impl(argv, impl) == "python", (argv, impl)
+    for argv in (["config", "show"], ["config", "runtime", "add", "pi"], ["config", "secret", "check", "X"],
+                 ["plugins", "enable", "x"], ["--repo", "x", "config", "doctor", "--json"], ["--repo=x", "plugins", "list"]):
+        assert pd.argv_impl(argv, CONFIG_TS) == "ts", argv
+    for argv in (["config", "secret", "set", "X"], ["config", "-h"], ["plugins", "--help"], ["config"], ["config", "nope"],
+                 ["plugins"], ["config", "runtime"]):
+        assert pd.argv_impl(argv, CONFIG_TS) == "python", argv
+    assert pd.argv_impl(["status"], CONFIG_TS) == "ts"
+
+
+def test_main_really_hands_config_and_plugins_commands_to_ts(tmp_path):
+    bun = pd.find_bun()
+    if bun is None:
+        pytest.skip("本机 PATH 上没有 Bun")
+    root = fake_ts(tmp_path, bun, ECHO_PYARGS)
+    repo = git_repo(tmp_path / "repo")
+    selector = write_selector(tmp_path / "ts.json", readonly="ts", config="ts")
+    done = main_with(selector, root, ["config", "doctor", "--json"], repo)
+    assert done.returncode == 3 and done.stderr == b""
+    assert done.stdout.startswith(b"FROM-TS ")
+    assert json.loads(done.stdout[len(b"FROM-TS "):]) == {
+        "command": ["config", "doctor"], "repo": None, "record": None, "json": True,
+        "context": {"kit_root": str(pd.KIT_ROOT), "lock_wait_seconds": kit_config.LOCK_WAIT_SECONDS}}
+    done = main_with(selector, root, ["plugins", "verify", "code-change"], repo)
+    assert done.returncode == 3
+    assert json.loads(done.stdout[len(b"FROM-TS "):])["command"] == ["plugins", "verify"]
+
+
+def test_config_stays_in_python_until_the_selector_says_ts(tmp_path):
+    # TS 目录不存在：要是转交了就会报“找不到 TS 入口”，输出与没有选择文件时逐字节相同才说明是 Python 答的
+    repo = git_repo(tmp_path / "repo")
+    missing = tmp_path / "no-selector.json"
+    readonly_only = write_selector(tmp_path / "readonly.json", readonly="ts")
+    for argv in (["config", "show"], ["config", "validate", "--json"], ["plugins", "list"], ["config", "role", "show"]):
+        before = main_with(missing, tmp_path / "no-ts", argv, repo)
+        after = main_with(readonly_only, tmp_path / "no-ts", argv, repo)
+        assert (after.returncode, after.stdout, after.stderr) == (before.returncode, before.stdout, before.stderr), argv
+        assert "TS" not in after.stderr.decode("utf-8")
+
+
+def test_config_commands_off_the_list_never_touch_ts(tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    missing = tmp_path / "no-selector.json"
+    config_ts = write_selector(tmp_path / "config.json", readonly="ts", config="ts")
+    for argv in (["config"], ["config", "-h"], ["config", "decisions", "marker"], ["config", "history", "show"],
+                 ["plugins"], ["plugins", "--help"], ["plugins", "enable"]):
+        before = main_with(missing, tmp_path / "no-ts", argv, repo)
+        after = main_with(config_ts, tmp_path / "no-ts", argv, repo)
+        assert (after.returncode, after.stdout, after.stderr) == (before.returncode, before.stdout, before.stderr), argv
+
+
+def test_a_listed_config_command_without_ts_reports_the_missing_entry(tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    selector = write_selector(tmp_path / "config.json", readonly="ts", config="ts")
+    for argv in (["config", "show"], ["plugins", "list"]):
+        done = main_with(selector, tmp_path / "no-ts", argv, repo)
+        assert done.returncode == pd.EXIT_USAGE and done.stdout == b""
+        assert "选择文件指向 ts，但找不到 TS 入口" in done.stderr.decode("utf-8")
