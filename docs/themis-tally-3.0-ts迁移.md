@@ -1,10 +1,11 @@
 # Themis Tally 3.0：实现语言迁移到 TypeScript 的计划
 
-- **状态**：v1.3（见下）。v1.2 于 2026-10-22 themistally-15 同意，附的条件已补进（第 ② 步的启动器与切换测试、Schema 的位置、第 10 节的 `--assess`）。
+- **状态**：v1.4（见下）。v1.2 于 2026-10-22 themistally-15 同意，附的条件已补进（第 ② 步的启动器与切换测试、Schema 的位置、第 10 节的 `--assess`）。
   - v1 于 2026-10-22 带条件通过。站主委托 themistally-15 会话答复，第 0 步的提交 266cd33 照常合入。
   - v1.1 补进了通过时附的条件：第 2.1、2.2、2.4、3.2、4、5、8.2、8.5 节，以及第 1.4 节的 pyjson。
   - v1.2 按开工前的调查改第 ② 步：调度器的 `metrics` 没有 `--json`、只出 Markdown；带 `--json` 的 `status`、`metrics` 另有一份在 hub 里；`logs cat` 漏写了；仓库里没有 `themis` 入口，桌面端的本机服务也还没建。第 ② 步的范围、出口条件与拆分照实改（第 4 节）。
   - v1.3（2026-10-26，themistally-15 同意，附的七条已补进）按开工前的调查重写第 ③ 步：配置中心随桌面端 D2 长大了，原文“13 个 `--json` 子命令”过时；plugins 归入第 ③ 步，`secret set` 留在 Python，拆成六片加切换（第 4 节）。另记站主同日的决定：T022 的 A、B 做完后暂停开新切片，专心推迁移；以及 themistally-15 转达时附的协调意见（不是站主原话）：之后内核文件只修挡住工作的缺陷，迁移本身的切换不在其内（第 9 节、第 10.1 节）。
+  - v1.4（2026-10-26，themistally-15 复审）按开工前的调查与复审重写第 ④ 节：21 条命令加 `status --assess`，八片加切换，开工前定下 D1（平台与版本经 `context` 交）、D2（Ctrl+C 与 CTRL_BREAK 的转发）、D3（`NODE_OPTIONS` 等经换名的环境变量交给 pi）、D4（决策会话的 HTTP 逐项对齐），写明对照办法五条、影子运行的隔离做法与混合期的 26 个名字。
 - **决定来源**：站主 2026-10-22 的指示“TT 技术栈迁移：在实现中逐步转到 Claude Code 的技术栈”。
 - **进度**：记在第 11 节，每完成一步汇报。
 - **问题与答复**：计划、quizs 接口、待决项都直接发给 themistally-15 会话，由它答复。AGENTS.md 规定只能由站主本人定的事，由它转给站主：
@@ -493,32 +494,94 @@ v1.3 按开工前的调查（2026-10-26）重写本节。
 
 ### ④ 证据与门禁
 
-- **先决条件（④a）**：Windows 进程监督的三项行为先在 TS 下验证（第 8.2 节），通过才开工。
-- **内容**：prepare、run、check、mutate、verdict、integrate，加上合同校验、范围门禁、脱敏与证据目录的写法；`metrics`（只出 Markdown，读决策记录与价格表，v1.2 从第 ② 步挪来）。
+v1.4 按开工前的调查（2026-10-26，基线 `d1873a9`，用 ast 建引用图，逐个名字核对 `ts/packages` 里有没有）与 themistally-15 的复审重写本节。
+
+- **先决条件（④a）**：已完成（第 8.2 节）。欠一项：stderr 并进 stdout 的“共用句柄”写法（第 8.2 节“第 ④ 步要处理的”），在 ④b3 补。
+- **内容**：调度器 `pi_dispatch.py` 里还没切走的全部子命令，共 21 条，外加第 ② 步留在 Python 的 `status --assess`：
+  - attempt 的命令：`prepare`、`run`、`collect`、`check`、`baseline`、`mutate`、`verdict`、`branch`、`review-draft`、`integrate`、`mark`、`cleanup`、`wait`；
+  - 合同：`validate`、`derive-json`；
+  - 其余：`metrics`、`decisions`（replay）、`doctor`、`release-check`、`smoke`、`sync-adapters`。
+  - `cmd_planner` 没有注册进 `build_parser`，没有调用方，是死代码，不移植。
+  - 规模：attempt 与合同的 16 条命令，闭包约 6,690 行 Python。其中已移植约 1,040 行（进程监督、脱敏、锁、status 用到的读取、一部分配置校验），未移植约 5,650 行。另带 `codekit/decisions.py` 的会话与 HTTP（约 310 行）、`codekit/planner.validate_publication_receipt`（约 42 行）；`decisions`、`doctor`、`release-check`、`smoke`、`sync-adapters` 约 340 行。
+- **拆成八片加切换**，每片一次提交，各自走契约（Python 先过）、对照、变异；库函数导出（hub 与后面几片要用），命令处理函数只做编排：
+
+  | 片 | 内容 | Python 量 |
+  |---|---|---|
+  | ④b1 | **合同**：<br>• 解析与校验：`_md_*`、`normalize_contract`、`derive_contract_json`、`validate_contract`、`invisible_char_warnings`、`validate_plan`；<br>• 路径模式与保护名单（`glob_regex` 照 Python 拼出同样的正则文字，交给 ②b2 的 sre 移植编译）；<br>• `plan_key_from_arg`、`resolve_commit`、planner-v2 发布门禁；<br>• 命令 `validate`、`derive-json`。<br>base 补 `shlex.split`、Unicode Cf 表、Python 的 `str.split()`；pyregex 补不带 logs 限制的编译入口 | 约 1,050 |
+  | ④b2 | **证据目录与 git 管道**：<br>• `write_json`、`sha256_file`；<br>• 完整的 `git()`：收 stderr、`index_file`、check 与报错格式，不受 Node 缺省 1 MiB 输出上限所限；<br>• `snapshot_tree`、`tree_drift`、`diff_raw`、主仓库指纹；<br>• `set_state`、`log_event`、`allocate_attempt`、`budget_usage`、`verify_inputs`、`record_candidate`、`evaluate_scope`；<br>• 命令 `mark`、`cleanup`、`wait`（不含 `--assess`）、`metrics`、`release-check`、`sync-adapters`。<br>证据目录契约在这一片建立：两边交替 `set_state`，Python 的 `get_state`、`budget_usage`、`_running_attempts` 读 TS 写的结果要一致（混合期 hub 进程内读它们） | 约 800 |
+  | ④b6 | **事件分析与摘要**：`summarize_events`、`extract_report`、`review_hints`、`write_summary`。以探针为主，语料是 stub_pi 的剧本、test_legacy_events 的夹具与 codekit01 的投影，再加随机变形 | 约 905 |
+  | ④b3 | **检查与门禁**：<br>• 命令运行器（`_resolve_argv`、`_run_command_item`、`_run_setup`、`prepare_fresh_workspace`）；<br>• `check`（含 `--fresh`）、`baseline`、`evaluate_gates`、`verdict`；<br>• supervise 补共用句柄，`pyWhich` 补 `path=`。<br>出口条件里 check、verdict 的影子运行从这一片起做 | 约 490 |
+  | ④b4 | **决策会话**：<br>• `decisions_session`、report-screen、mutation-equivalence、run-health；<br>• `codekit/decisions` 的 `Session`、`http_transport`、`check_answer`、记录读写、`usage_totals`；<br>• 命令 `wait --assess`、`status --assess`、`decisions`（replay）、`doctor`。<br>D4 的 HTTP 对齐在这一片做 | 约 740 |
+  | ④b5 | **mutate**：<br>• 清单、轮次、`--tree`、`--check-anchors`、`--out`，interrupted 照 test_mutate_interrupted；<br>• `difflib.SequenceMatcher` 逐行为移植：锚点提示的“最相近的行”与百分比逐字节进 `--check-anchors` 的输出，hub 原样转进信里。<br>出口条件里 `mutate --check-anchors` 的影子运行从这一片起做 | 约 630 |
+  | ④b7 | **prepare、run、collect、smoke**：pi 预检、上下文证据、执行说明、领取与 TaskLock | 约 875 |
+  | ④b8 | **branch、integrate、review-draft**：契约固定 `GIT_AUTHOR_*`、`GIT_COMMITTER_*` 的身份与日期，提交 SHA 就能逐字节比；`merge-tree --write-tree` 要 Git ≥ 2.40，`merge --ff-only` 只在临时仓库里比 | 约 635 |
+  | ④-切换 | 见下 | — |
+
+  - 次序：④b1 → ④b2 → ④b6 → ④b3 → ④b4 → ④b5 → ④b7 → ④b8。
+  - 依赖：④b3 依赖 ④b1、④b2；④b4 只依赖第 ③ 步的 decisions 设置；④b5 依赖 ④b2–④b4；④b6 只依赖 ④b2，又挡着 ④b7，所以提前；④b7 依赖 ④b1–④b4、④b6；④b8 依赖 ④b2、④b3。
+- **开工前定下的四件事**：
+  - **D1 Python 的平台与版本**：prepare 写进 `meta.json` 的 `platform`（`platform.platform()`）与 `python`（`platform.python_version()`）；`attempt_origin_notes` 比较当前平台的系统名（3775 行），结果进 verdict JSON 与 `summary.md`；doctor 报 `platform.machine()`。TS 拿不到 Python 的这些值：启动器把它们放进 pyargs 的 `context`，TS 原样用。第 ⑥ 步撤掉 Python 之后 `python` 字段怎么写，到时再定，记在第 10 节。
+  - **D2 Ctrl+C 与 CTRL_BREAK**：
+    - 问题：经启动器时 TS 在另一个进程组，收不到 Ctrl+C。启动器也没装 SIGBREAK 处理，收到 CTRL_BREAK（桌面端靠它让 run 优雅停下）就按缺省退出，Job 一关，TS 被硬杀，attempt 停在 `RUNNING`；check、mutate、baseline、integrate 同理。Python 的 `run_supervised` 把 SIGINT、SIGTERM、SIGHUP、SIGBREAK 都当中断，照常收尾。
+    - 启动器：SIGINT 与 SIGBREAK 都接住，给 TS 的进程组发 CTRL_BREAK（CTRL_C 发不到指定的进程组），之后一直等 TS 自己退出。TS 收到 break 之后要先等 pi 的宽限（`kill_grace_seconds`），再收集证据，所以不设固定的短宽限；用户再按一次 Ctrl+C，或启动器本身被杀（Job 关闭），才结束 Job。
+    - 输出与退出码：TS 自己处理了（优雅收尾）的，原样交回。TS 没装处理、按缺省死掉的，启动器按原来的信号补：SIGINT 补“已取消。”、退出 130；SIGBREAK 补 0xC000013A（Python 在 `run_supervised` 之外收到 SIGBREAK 时按缺省退出，什么也不写）。Bun 与 Node 按缺省被 break 结束时的退出码实测确定，不猜。
+    - 放在哪：TS 一侧在 ④b3、④b5、④b7 各自的命令里做，用例直接给 TS 的进程组发 CTRL_BREAK，与 Python 收到 CTRL_BREAK 比证据（状态 `CANCELLED`、`run.json` 的 interrupted）。启动器的转发放进切换那一轮：路由到那一轮才有，端到端用例只能在那里跑。
+    - 第 ③ 步的 config 写命令：TS 不装处理，经上面的对应照旧是“已取消。”、退出 130，行为不变；第 ③ 步接受的“持锁一瞬留锁”也不变。
+  - **D3 交给 pi 的 `NODE_OPTIONS` 等变量**：启动器从 TS 进程的环境里去掉 `TS_RUNTIME_ENV_DROP`（`BUN_OPTIONS`、`NODE_OPTIONS`、`NODE_PATH`、`BUN_INSPECT*`），可 run 与 smoke 起的 pi 是 node 程序，照 Python 的 `child_env` 应当拿到它们（第 ③ 步的探测命令也一样，见第 10 节）。
+    - 做法：启动器把被去掉的原值换个名字放进 TS 的环境（`THEMIS_PARENT_<名字>`），TS 自己不用；`childEnv` 拼子进程环境时还原成原名，再删掉换过名的那几个。不走 pyargs：值会出现在进程命令行里，同用户的任何进程都看得到。
+    - 放在哪：TS 的还原在 ④b7，启动器换名放进切换那一轮。
+    - 契约：调用方环境里设上这几个变量，比假 pi 收到的环境，dispatch.config 的过滤与 `env_remove` 一起比。
+  - **D4 决策会话的 HTTP**：Python 的 `http_transport` 用 `http.client`。下面几处 Bun 的 fetch 缺省都不一样，逐项对齐：
+    - 代理：`http.client` 不走代理（环境变量与注册表都不看）；
+    - 证书：ssl 的缺省上下文，Windows 上读系统证书库；
+    - 重定向：不跟随（凭据不跟去别的主机）；
+    - 超时：每次 socket 操作各算，不是总时限；
+    - 原因码：network 带异常类名（`ConnectionRefusedError`、`RemoteDisconnected`、`gaierror`、`SSLCertVerificationError` 等），定一张对照表。
+    - 做法：用 `node:http`、`node:https` 一级的客户端，Bun 的实际语义实测。契约只用本机的假端点：拒绝连接、超时、连接被重置、各状态码、回复过大、自签名的 HTTPS。API key 一律用假值；碰 Credential Manager 的用例照站主同意时的三个条件（system 模式缺省跳过、只用 `THEMIS_CONTRACT_` 前缀并在 finally 里删、前后各扫一遍、只按前缀枚举）。
+- **对照办法**（各片的命令行契约都照这几条）：
+  1. 同一场景两套实现各跑一遍，比证据目录。每个文件列出允许变的字段（时间、耗时、pid、临时路径、随机 ID，以及 `meta.json` 的 `impl`：python 对 ts，按设计不同），先核格式，再换占位符，其余逐字节；两边的文件集合也要一致，不多不少。
+  2. 每个场景断言自己走到了要测的路径（事件序列、状态转移），免得两边一样地早早失败也算一致。
+  3. 同一个 attempt 的各个阶段交替跑：全 Python、全 TS、按阶段交替，再加中途回退（TS 开跑、Python 收尾，反过来也一样），即回退条件。
+  4. 跨实现的锁与预算竞争：同一个任务，一个 Python 进程持 TaskLock、allocate，一个 TS 进程来抢，照第 ③ 步的锁互斥契约。
+  5. stdout、stderr、退出码逐字节比。hub 解析输出的三处单列用例：prepare 的 attempt 路径（`kit_hub.py` 3039 行）、baseline 的“基线检查记录：”（2538 行，`BASELINE_RECORD_RE`）、`mutate --check-anchors` 的 `MISMATCH`/`MISSING`/`OK` 行（2819 行）。
+  - pi 一律用 `tests/stub_pi.py` 的剧本。smoke 与 run 的契约只用 stub_pi；真跑 smoke 会调执行模型、花钱，要站主在对话里明确要求。
+  - release-check 的拒绝清单：TS 版照样只报编号、不回显内容，用例用临时清单文件。
+  - “崩溃只比退出码”照第 ② 步的规矩：`normalize_contract`、`summarize_events` 遇到深层嵌套抛 RecursionError；md 不是 UTF-8；`latest_verdict` 遇到非数字文件名；`plan_version` 是 `isdigit()` 为真、`int()` 却不收的字符（例如 ²）。
+- **base 要补的**（各片用到时带上，不单独成片）：
+  - `pyRound` 与 `%.Nf`：Python 对恰在中点的二进制值半数取偶，JS 的 `toFixed`、`Math.round` 不是；
+  - 文本模式写文件：Windows 上是 CRLF（derive-json 写的合同 JSON、preflight 的 `pi-help.txt` 等、`metrics --out`、`decisions.jsonl` 的追加）；
+  - `shlex.quote`：安全字符集只认 ASCII；Windows 上执行说明里的自检命令用 `list2cmdline`（`supervise.ts` 已有）；
+  - `difflib.SequenceMatcher`（④b5）：语料覆盖 `len(b) ≥ 200` 时 autojunk 生效的情形与最长匹配并列时的取法，以 CPython 3.12 为参照。
 - **出口条件**：
-  - `test_dispatch.py` 等现有用例的场景全部有 TS 对应用例；
-  - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict` 与 `mutate --check-anchors` 的输出与 Python 版按契约一致。`check`、`verdict` 会写 attempt 目录（`checks/NN`、`verdicts/`）和 Git 对象，所以 TS 版的写命令只在复制到临时目录的副本上跑，绝不碰真实的 `.agent/runs/`；
-  - 至少一片真实切片在 `dispatcher` 选 `ts`、hub 仍是 Python 的组合下完整走完并落地。
-- **切换**：`dispatcher` 改成 `ts`，由 `pi_dispatch.py` 的入口按选择文件转交（第 5 节）。
+  - `test_dispatch.py`、legacy 四个文件、v2100、v280、v300 等现有用例（约 300 个）的场景全部有 TS 对应的契约（同场景两边各跑，不逐条重写断言）；
+  - 切换之前照第 ③ 步的 A3、A4：在 `dispatcher: ts` 下跑全量 pytest（起真脚本的 legacy 与 test_dispatch 会走 TS，原有断言直接拿来测 TS），没装 TS 依赖的临时 worktree 里再跑一遍；
+  - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict`（④b3 起）与 `mutate --check-anchors`（④b5 起）的输出与 Python 版按契约一致。做法：
+    - 仓库用 `git clone --shared` 建临时副本，新的 Git 对象写进副本自己的库，不碰真的 `.git` 与 `.agent/runs/`；
+    - 每个副本各跑 `check --fresh`，各自建工作树，不共用原来的 worktree；
+    - 耗时、时间戳换成占位符；每条检查命令的退出码两边必须一致，不一致就两边各重跑一次，还不一致才算差异、去查；
+    - 影子运行是重活，不与 hub 的门禁、owner sweep 重叠；切换那一轮拿当时最近的 attempt 把三项再跑一遍（后面几片会改共用的代码）。
+  - 至少一片真实切片在 `dispatcher: ts`、hub 仍是 Python 的组合下完整走完并落地。这是迁移验收片，属于站主允许的例外：登记前先告诉 themistally-15，并报告用户。
+- **切换**：`dispatcher` 改成 `ts`。同在这一轮的：`TS_DISPATCHER_COMMANDS`（路径 → 参数键）与 pyargs Schema 补上全部命令；`argv_impl` 照新名单；常量表逐项对照（`RESOURCE_FLAGS`、`MUTATION_DEFAULT_TIMEOUT`、状态表、`TOOL_VERSION`）；`context` 加 D1 的平台与版本；D2 的转发与 D3 的换名环境变量；全部命令行契约加“经真的启动器”。改的是内核文件，照第 9 节合入前跑全部门禁基准。
 - **回退**：改回 `python`。证据目录格式由契约保证一致，已经开跑的 attempt 用 Python 的 `collect --recover`、`check` 接着处理。
-- **混合期**：dispatcher 切到 `ts` 之后，hub 仍是 Python，`kit_hub.py` 在进程内直接调用的 `pi_dispatch` 名字仍是 Python 版。这些名字到第 ⑤ 步之后才能删，期间要由契约保证它们读得懂 TS 版写的东西：
+- **混合期**：`dispatcher` 切到 `ts` 之后，hub 仍是 Python，`kit_hub.py` 在进程内直接调用的 `pi_dispatch` 名字仍是 Python 版（`d1873a9` 时 26 个）。这些名字到第 ⑤ 步之后才能删，期间要由契约保证它们读得懂 TS 版写的东西：
 
   | 名字（`kit_hub.py` 里的次数） | 用途 | 由哪份契约覆盖 |
   |---|---|---|
-  | `pd.get_state`（10） | 读 attempt 的 `state.json` | 第 ④ 步证据目录契约：Python 的 `get_state` 读 TS 版写的 `state.json` 要得到同样的状态 |
-  | `pd.pid_alive`（6） | 锁的持有进程还在不在 | 第 ① 步 `locks` |
+  | `pd.get_state`（10） | 读 attempt 的 `state.json` | ④b2 证据目录契约：Python 的 `get_state` 读 TS 写的 `state.json` 得到同样的状态 |
+  | `pd.pid_alive`（7） | 锁的持有进程还在不在 | 第 ① 步 `locks` |
   | `pd.Repo`（5） | 找仓库、读配置 | 第 ③ 步配置契约 |
-  | `pd.run_supervised`（3） | 回合与门禁命令的进程监督 | 第 ④a 步的验证用例 |
-  | `pd.DispatchError`（3） | 异常类型 | 不跨语言，留在 Python |
-  | `pd._md_section`（2）、`pd._md_scope_lists`（1）、`pd._CHECK_LINE_RE`（1） | 解析合同 Markdown | 第 ④ 步合同契约（`derive-json` 的输入输出） |
-  | `pd.write_json`（1） | 写证据 JSON（`indent=2`，不排序） | 第 ① 步 `pyjson` |
-  | `pd.publish_new`（1） | 发布信件 | 第 ① 步 `publish`（已完成） |
-  | `pd.compile_patterns`（1）、`pd.matches`（1） | Scope 的路径通配 | 第 ④ 步范围门禁契约 |
-  | `pd.child_env`（1） | 子进程环境变量的过滤 | 第 ④ 步 |
-  | `pd.budget_usage`（1） | 各合同版本累计的 attempt 与墙钟 | 第 ④ 步证据目录契约（读 TS 版写的 claim 与 run 记录） |
-  | `pd._running_attempts`（1） | 正在跑的 attempt | 同上 |
-  | `pd.resolve_pi_command`（1） | 解析 pi 的命令 | 第 ③ 步角色绑定契约 |
-  | `pd.RESOURCE_FLAGS`、`pd.MUTATION_DEFAULT_TIMEOUT`（各 1） | 常量 | 第 ④ 步：两套实现的常量表逐项对照 |
+  | `pd.run_supervised`（5） | 回合与门禁命令的进程监督 | ④a；hub 的 pytest 两边传同一个文件对象，TS 的共用句柄写法在 ④b3 |
+  | `pd.DispatchError`（4） | 异常类型 | 不跨语言，留在 Python |
+  | `pd.RESOURCE_FLAGS`（2）、`pd.MUTATION_DEFAULT_TIMEOUT`（1） | 常量 | 切换那一轮：两套实现的常量表逐项对照 |
+  | `pd._md_section`（2）、`pd._CHECK_LINE_RE`（1）、`pd._md_scope_lists`（1） | 解析合同 Markdown | ④b1 合同契约（`derive-json` 的输入输出） |
+  | `pd.compile_patterns`、`pd.matches`（各 1） | Scope 的路径通配 | ④b1 路径模式契约 |
+  | `pd.child_env`、`pd.run_capture`、`pd.parse_help`（各 1） | 子进程环境与 pi 的探测 | 第 ③d 步 |
+  | `pd.publish_new`（1） | 发布信件 | 第 ① 步 `publish` |
+  | `pd.resolve_pi_command`（1） | 解析 pi 的命令 | 第 ③c 步角色绑定契约 |
+  | `pd.write_json`（1） | 写证据 JSON（`indent=2`，不排序） | ④b2 |
+  | `pd.budget_usage`、`pd._running_attempts`（各 1） | 各合同版本累计的 attempt 与墙钟、正在跑的 attempt | ④b2 证据目录契约（读 TS 写的 claim 与 `run.json`） |
+  | `pd.argv_impl`、`pd.TOOL_VERSION`（各 1） | 账本记由哪一套回答 | 切换那一轮 |
+  | `pd.read_kernel_impl`、`pd.TS_STAMP`、`pd.ts_deps_digest`、`pd.find_bun`（各 1） | 启动器与装好戳记 | 不属第 ④ 步 |
 
 ### ⑤ 七端 hub 内核
 
@@ -774,7 +837,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 只把 strerror 放进输出的 lstat、listdir 一类（第 ③ 步：运行中切换的扫描、本机文件“看不了”） | Python 的文字是 Win32 错误码经 FormatMessageW；TS 从 libuv 的错误码只认得出拒绝访问（EACCES、EPERM 当 5 号错误，文字照样取 FormatMessageW，跟着界面语言），其余错误码反推不回 | 接受（themistally-15 同意）：<br>• 拒绝访问以外的错误码，文字不保证一致；<br>• 会把整条报错放进输出的 os.replace、os.rename、Path.mkdir（“写入失败”“审计写不进去”“快照存不下”）走原生 Win32，逐字一致，契约有用例；<br>• 锁目录、marker 与凭据文件的 mkdir、unlink 失败时 Python 直接崩溃，不进受控的输出 |
 | JSON 嵌套 1001 层到约 2994 层、里面又有文法错误（第 ③e 片，themistally-15 复核 ac10a2e 时实测） | TS 的 pyjson 在第 1001 层报 RecursionError，CPython 3.12 在 Windows 上要到约 2995–2998 层（看最底下是什么、钩子占几格）。这个窗口里 `strict_json_loads` 的错误码不同：Python 报 `E_JSON_SYNTAX`，TS 报 `E_JSON_LIMIT`；`plugins verify`、`plugins list --json` 里“解析失败：…”的码随之不同，退出码相同 | 接受（2026-10-26，themistally-15 建议）：不按调用路径模拟 CPython 的 C 递归预算。合法的深文档两边都是 `E_JSON_LIMIT`；正常的 manifest、锁不会嵌套上千层 |
 | 配置嵌套约 993 层到约 2997 层（第 ①、③a2 步起就有，themistally-15 复核 ③e 时实测） | Python 的 `json.loads` 读得完，`secret_like_paths` 递归时撞上解释器的递归上限，打堆栈退出 1；TS 在 998 层以下报“配置无效…”，999 层以上报“ERROR: 无法解析 …：RecursionError”，都是退出 1。约 2998 层以上两边都报“无法解析…RecursionError”。契约里“嵌套很深”用的 3000 层在窗口外面 | 接受（同上）：退出码一致、文字不同；要逐字一致得同时模拟 C 递归预算与 `secret_like_paths` 当时的 Python 栈深，为至少 990 层深的配置加这些复杂度不值 |
-| 切换之后，配置中心起的 CLI 拿不到 `NODE_OPTIONS`、`NODE_PATH`（第 ③ 步的切换，themistally-15 复核 ③d 时查出） | 启动器的 `handoff_env` 把 `TS_RUNTIME_ENV_DROP` 从 TS 进程的环境里去掉，TS 的 `childEnv` 又从 `process.env` 拼；Python 的 `child_env` 会把这两个变量带给 pi。runtime scan、probe、models、doctor 起的 pi 是 node 程序，用户要是靠 `NODE_OPTIONS` 给 pi 加内存上限，经 TS 探测时就没有 | 接受（2026-10-26）：本机的进程、用户、机器三层都没设这两个变量，选择文件也不随 kit 分发；探测只跑 --version、--help、--list-models 与 auth check。第 ④ 步 run 也由 TS 起 pi 时要真改，做法之一是启动器把去掉的原值另外交给 TS、只用在子进程上，到时再定 |
+| 切换之后，配置中心起的 CLI 拿不到 `NODE_OPTIONS`、`NODE_PATH`（第 ③ 步的切换，themistally-15 复核 ③d 时查出） | 启动器的 `handoff_env` 把 `TS_RUNTIME_ENV_DROP` 从 TS 进程的环境里去掉，TS 的 `childEnv` 又从 `process.env` 拼；Python 的 `child_env` 会把这两个变量带给 pi。runtime scan、probe、models、doctor 起的 pi 是 node 程序，用户要是靠 `NODE_OPTIONS` 给 pi 加内存上限，经 TS 探测时就没有 | 接受（2026-10-26）：本机的进程、用户、机器三层都没设这两个变量，选择文件也不随 kit 分发；探测只跑 --version、--help、--list-models 与 auth check。第 ④ 步照 D3 修：启动器把去掉的原值换名放进 TS 的环境，`childEnv` 还原成原名（④b7 与切换那一轮） |
 
 ### 10.1 迁移期间暂缓的改进
 
@@ -826,6 +889,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | ③e | plugins 命令与 strict_json_loads。`plugins-commands`（kit_plugins 的 list、show、verify、enable、disable：枚举、读前链接检查、单插件核对、权限授予与影响、题库门禁、dry-run 的文字与 JSON 预览）、`cli` 转交 plugins；`@themis/base` 的 `protocols`（strict_json_loads，错误码与先后次序照 Python）、pyjson 的组装器、pyio 的读错误不带文件名。契约：严格 JSON 51 条加三个种子各 600 份随机文档；plugins 21 个场景、98 步，覆盖 oracle 的 P1–P17 与复审补的场景，每个场景断言走到了要测的路径；交替写序列加进 plugins 的写命令。变异：TS 严格 JSON 12 个、plugins 24 个，第一轮各漏 1 个、补用例后抓住，另 3 个等价；Python 8 个，抓住 7、1 个等价 | 完成 | 见提交说明 |
 | ③d | 会运行本机 CLI 的命令。`@themis/dispatcher/pi-cli`（run_capture 走 ④a 的 runSupervised、child_env、parse_help 与 --list-models 的解析、pi_model_readiness）、`@themis/config/roles-probe`（runtime scan [--add]、runtime probe、models、doctor [--record]），cli 转交这四条。契约：探针级 6 条（解析 26 条手写加三个种子各 400 段、child_env、cwd_relative_parts、run_capture 12 条，另一条只测 TS 的进程树超时）；命令行 12 条，假 pi 经 npm 样式垫片与 PI_DISPATCH_PI_CMD 两条路起，每步另比假 pi 收到的 argv 与环境。变异：TS 47 个，第一轮各漏 1 个（C07 等价、R18 补夹具后抓住）；Python 8 个全部抓住 | 完成 | 见提交说明 |
 | ③-切换 | 选择文件 `scripts/kernel-impl.json` 的 `config` 改成 `ts`（r3 §10 第 122 轮）。`TS_CONFIG_COMMANDS` 写死 config、plugins 下 33 个叶子命令（`secret set` 不转交），`config_handoff` 用 kit_config、kit_plugins 自己的 argparse 解析，帮助、用法错误与 kit_config 的两条组合检查由 Python 答，不先找仓库，context 交 kit 根与等配置锁的秒数；`argv_impl` 照同一份名单。契约：配置中心五份都加第四种运行方式“经真的启动器”（交替写与锁互斥里也有）；pyargs Schema 按 argparse 补上 33 条，并核对启动器生成的参数 | 完成 | 见提交说明 |
+| 0.4 | 计划 v1.4：按开工前的调查与 themistally-15 的复审重写第 ④ 步（21 条命令加 `status --assess`、八片加切换、D1–D4、对照办法、影子运行、混合期的 26 个名字） | 复审中 | |
 | ④a | Windows 进程监督的验证（第 8.2 节，选候选 3）。`@themis/base/supervise`：`runSupervised` 与 `run_supervised`（第 70 轮）逐项一致，Bun 下经 native.ts 调 kernel32（挂起创建、另起进程组、加入带 KILL_ON_JOB_CLOSE 的 Job 再恢复、只继承三个标准流句柄、CTRL_BREAK 与宽限、残留进程），Node 下经 Bun 辅助进程（DETACHED_PROCESS 起、再挂到调用方的控制台）；`@themis/dispatcher/argv`：`ensure_argv_safe` 逐字节移植。契约 24 条（三套实现跑同一组场景，结果逐字段比较；含挂起之后一条指令也不执行、孙进程脱离父进程也被结束、两种控制台状态下 CTRL_BREAK 的去向、中断、杀掉调用方、`.cmd` 与 npm、255 条 `ensure_argv_safe` 语料）、白盒 8 条；变异 19 个全部抓住。第一轮契约查出 Node 后备的辅助进程在调用方没有控制台时被另配一个控制台，CTRL_BREAK 的结果与进程内调用不一致，改成 DETACHED_PROCESS 加 AttachConsole | 完成 | 见提交说明 |
 | ④ | 证据与门禁 | | |
 | ⑤ | 七端 hub 内核 | | |
