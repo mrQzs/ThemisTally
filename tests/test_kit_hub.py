@@ -620,6 +620,36 @@ def test_planner_sees_the_transitional_gate_assertions(tmp_path):
     assert "test_transitional_" in kh.role_prompt("gate-sonnet")
 
 
+def test_planner_sees_the_transitional_frontend_cases(tmp_path):
+    # 第 121 轮：T022 的规划漏了 page-app.test.tsx 的“写入口个数（过渡）”，执行端只好越界改它
+    workspace = tmp_path / "ws"
+    tests = workspace / "desktop" / "web" / "tests"
+    (tests / "pages").mkdir(parents=True)
+    (tests / "page-app.test.tsx").write_text(
+        "import { describe, it } from 'vitest';\n\n"
+        "describe('页面', () => {\n  it('正常的用例', () => {});\n});\n\n"
+        "describe('写入口个数（过渡）', () => {\n  it.skip(\"禁用按钮（过渡）\", () => {});\n"
+        "  test(`模板（过渡）`, () => {});\n  // describe('注释里的（过渡）')\n});\n", encoding="utf-8")
+    (tests / "pages" / "readonly2-app.test.ts").write_text("describe('夹具下的写入口（过渡）', () => {});\n",
+                                                           encoding="utf-8")
+    (tests / "notes.md").write_text("describe('不是测试文件（过渡）')\n", encoding="utf-8")
+    section = kh.transitional_section(workspace)
+    assert section[1].startswith("## 前端测试里的过渡用例")
+    assert "- `desktop/web/tests/page-app.test.tsx:7`：写入口个数（过渡）" in section
+    assert "- `desktop/web/tests/page-app.test.tsx:8`：禁用按钮（过渡）" in section
+    assert "- `desktop/web/tests/page-app.test.tsx:9`：模板（过渡）" in section
+    assert "- `desktop/web/tests/pages/readonly2-app.test.ts:1`：夹具下的写入口（过渡）" in section
+    assert not any("正常的用例" in line or "注释里" in line or "不是测试文件" in line for line in section)
+    assert "允许修改范围" in section[-1]
+
+
+def test_planner_sizes_the_slice_against_one_attempt():
+    # 第 121 轮：T022 两次跑满 3600 秒，工具只占 1–3%，其余全是生成；规划报告判定一次做得完，缺的是这个标尺
+    prompt = kh.role_prompt("planner-opus")
+    assert "一小时约 14 万输出 token" in prompt and "拆成几片分别派" in prompt
+    assert "14 万输出 token" not in kh.role_prompt("contract-glm")
+
+
 def test_gate_rules_keep_the_regression_tests_valid_after_integration():
     # T002 的 D02 断言“相对基线的改动只落在允许集合内”，落到分支末端上必然失败（第 11 轮）
     assert "不写相对基线的改动范围断言" in kh.role_prompt("gate-sonnet")
@@ -1028,7 +1058,7 @@ def run_with_kernel_change(repo, monkeypatch, dirty, no_restart, settle):
     steps, spawned = [], []
     monkeypatch.setattr(kh.Engine, "step", lambda self: steps.append(1) or True)
 
-    def spawn(argv):
+    def spawn(hub, argv):
         # 运行锁已经交出：子进程拿得到
         with kh.DirLock(kh.Hub(repo).root / ".runner", wait_seconds=0.1):
             spawned.append(list(argv))
@@ -1055,6 +1085,33 @@ def test_runner_restarts_on_committed_kernel_changes(tmp_path, monkeypatch):
     assert changed["restart"] is True and changed["steps"] == 2
     _events, _steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[False], no_restart=True, settle=60.0)
     assert spawned == []  # --no-restart：照第 9 轮退出
+
+
+def test_spawn_runner_returns_while_the_new_hub_runs(tmp_path):
+    # 第 121 轮：父进程等子进程时，每换一次代码就多一个空等的父进程（10/24 到 10/26 攒下 18 个，约 850 MB）
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    marker = tmp_path / "child.pid"  # 子进程自己写下 pid：账本没记、记错时也能核对、也能结束它
+    program = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+    began = time.monotonic()
+    code = kh.spawn_runner(hub, [sys.executable, "-c", program, str(marker)])
+    elapsed = time.monotonic() - began
+    child = None
+    try:
+        deadline = time.monotonic() + 15
+        while child is None and time.monotonic() < deadline:
+            text = marker.read_text(encoding="utf-8") if marker.is_file() else ""
+            child = int(text) if text else None
+            time.sleep(0.1)
+        events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+        respawned = [e for e in events if e["event"] == "runner.respawned"]
+        assert code == kh.EXIT_OK and elapsed < 15  # 不转交子进程的退出码，也不等它
+        assert respawned and respawned[-1]["pid"] == os.getpid() and respawned[-1]["child"] == child
+        assert kh.pd.pid_alive(child) is True  # 返回时新 hub 还在跑
+    finally:
+        if child is not None and kh.pd.pid_alive(child):
+            os.kill(child, 9)
 
 
 def test_kernel_dirty_reads_git_status(tmp_path, monkeypatch):
@@ -4058,7 +4115,7 @@ def test_task_runner_exits_for_the_supervisor_on_kernel_changes(tmp_path, monkey
     seen = iter(["a", "b"])
     monkeypatch.setattr(kh, "code_fingerprint", lambda *args: next(seen))
     monkeypatch.setattr(kh, "kernel_dirty", lambda *args: False)
-    monkeypatch.setattr(kh, "spawn_runner", lambda argv: pytest.fail("主任务 runner 不自己重启"))
+    monkeypatch.setattr(kh, "spawn_runner", lambda hub, argv: pytest.fail("主任务 runner 不自己重启"))
     code = kh.cmd_run(argparse.Namespace(repo=str(repo), max_steps=10, idle_exit=0.0, poll=0.0, settle=0.0,
                                          no_restart=False, parallel=None, task="T002"))
     assert code == kh.EXIT_RESTART
@@ -4970,7 +5027,7 @@ def test_supervisor_restart_keeps_where_parallel_came_from(tmp_path, monkeypatch
     (hub.root / "runner.json").write_text('{"parallel": 2}', encoding="utf-8")
     seen = []
     monkeypatch.setattr(kh, "kernel_settled", lambda *a: True)
-    monkeypatch.setattr(kh, "spawn_runner", lambda argv: seen.append(argv) or 0)
+    monkeypatch.setattr(kh, "spawn_runner", lambda hub, argv: seen.append(argv) or 0)
     for flag in (None, 3):
         prints = iter(["a", "b"])
         monkeypatch.setattr(kh, "code_fingerprint", lambda *a: next(prints))

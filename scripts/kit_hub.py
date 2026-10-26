@@ -453,9 +453,15 @@ def kernel_settled(wait: float, poll: float) -> bool:
     return True
 
 
-def spawn_runner(argv: Sequence[str]) -> int:
-    """用新代码起一个 hub：子进程继承输出，父进程等它结束（后台任务的通知仍在整个调度结束时才来）。"""
-    return subprocess.run(list(argv), stdin=subprocess.DEVNULL).returncode
+def spawn_runner(hub: "Hub", argv: Sequence[str]) -> int:
+    """用新代码起一个 hub 后立即返回 EXIT_OK，不等它结束，也不转交它的退出码（第 121 轮）。子进程继承输出；它的 pid
+    记进账本（runner.respawned），找活着的 supervisor 看最后一条。
+
+    以前父进程等子进程，好让后台任务的通知在整个调度结束时才来；supervisor 改用 Start-Process 脱离会话启动之后没人再
+    等这个通知，每换一次代码就多一个空等的父进程：10/24 到 10/26 攒下 18 个，约 850 MB。"""
+    child = subprocess.Popen(list(argv), stdin=subprocess.DEVNULL)
+    hub.append_event("runner.respawned", pid=os.getpid(), child=child.pid)
+    return EXIT_OK
 
 
 class HubError(Exception):
@@ -4404,17 +4410,36 @@ TRANSITIONAL_RE = re.compile(r"^[ \t]*def (test_transitional_\w+)\([^)]*\)[^:\n]
                              r"(?:\n[ \t]*[rRuU]?(?:\"\"\"|''')([^\n]*))?", re.M)
 
 
+#: 前端测试里的过渡用例：describe、it、test 的标题带“（过渡）”（第 121 轮）
+FRONTEND_TRANSITIONAL_RE = re.compile(r"^[ \t]*(?:describe|it|test)(?:\.\w+)*\(\s*([\"'`])((?:(?!\1).)*（过渡）(?:(?!\1).)*)\1",
+                                      re.M)
+
+
 def transitional_section(workspace: Path) -> List[str]:
-    """规划端要看到仓库里现有的过渡断言，写明本任务会推翻哪几条：站主在开工合同端之前退役它们（第 8 轮）。"""
-    found = []
-    for path in sorted((Path(workspace) / "tests").glob("test_gate_*.py")):
+    """规划端要看到仓库里现有的过渡断言，写明本任务会推翻哪几条（第 8 轮）。门禁测试里的由站主在开工合同端之前退役；
+    前端测试里标题带“（过渡）”的，会推翻的那几个测试文件要写进合同的允许修改范围（第 121 轮：T022 的规划漏了
+    page-app.test.tsx 的“写入口个数（过渡）”，执行端只好越界改它）。"""
+    root = Path(workspace)
+    gate = []
+    for path in sorted((root / "tests").glob("test_gate_*.py")):
         for match in TRANSITIONAL_RE.finditer(read_text(path)):
             note = (match.group(2) or "").strip().strip("\"'").strip() or "（没有说明）"
-            found.append("- `%s::%s`：%s" % (path.relative_to(workspace).as_posix(), match.group(1), note))
-    if not found:
-        return []
-    return ["", "## 仓库里现有的过渡断言（门禁测试里只在当时那一片成立的断言）", ""] + found + [
-        "- 本任务会推翻其中哪几条，写进 report，并在信的“需协调人决定”里列出：站主在开工合同端之前退役它们。"]
+            gate.append("- `%s::%s`：%s" % (path.relative_to(root).as_posix(), match.group(1), note))
+    frontend = []
+    tests = root / "desktop" / "web" / "tests"
+    for path in sorted(tests.rglob("*.test.ts*")) if tests.is_dir() else []:
+        text = read_text(path)
+        for match in FRONTEND_TRANSITIONAL_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            frontend.append("- `%s:%d`：%s" % (path.relative_to(root).as_posix(), line, match.group(2)))
+    lines: List[str] = []
+    if gate:
+        lines += ["", "## 仓库里现有的过渡断言（门禁测试里只在当时那一片成立的断言）", ""] + gate + [
+            "- 本任务会推翻其中哪几条，写进 report，并在信的“需协调人决定”里列出：站主在开工合同端之前退役它们。"]
+    if frontend:
+        lines += ["", "## 前端测试里的过渡用例（describe、it 的标题带“（过渡）”）", ""] + frontend + [
+            "- 本任务会推翻其中哪几条，写进 report：那几个测试文件要写进合同的允许修改范围，由执行端照新行为改。"]
+    return lines
 
 
 def external_facts_section(ts: Dict[str, Any]) -> List[str]:
@@ -6272,8 +6297,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         hub.append_event("runner.stopped", pid=os.getpid(), steps=turns, task=task)
     if restart and task is not None:
         return EXIT_RESTART  # 主任务 runner 不自己重启：supervisor 看到它退出、还有信，就用新代码再起
-    if restart:  # 运行锁已经交出：子进程要拿到它
-        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
+    if restart:  # 运行锁已经交出：子进程要拿到它。退出码是 EXIT_OK，不是新 hub 的（第 121 轮起不等它）
+        return spawn_runner(hub, [sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run",
                              "--max-steps", str(args.max_steps - turns), "--idle-exit", str(args.idle_exit),
                              "--poll", str(args.poll), "--settle", str(args.settle)])
     print("hub 退出：处理了 %d 件事；站主未读 %d 封" % (turns, len(hub.unread(OWNER))), flush=True)
@@ -6445,9 +6470,9 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
                 break
             time.sleep(args.poll)
         hub.append_event("runner.stopped", pid=os.getpid(), steps=started)
-    if restart:
+    if restart:  # 退出码是 EXIT_OK，不是新 supervisor 的（第 121 轮起不等它）；跑着的主任务 runner 照旧归新的管
         flag = [] if getattr(args, "parallel", None) is None else ["--parallel", str(parallel)]
-        return spawn_runner([sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run"] + flag + [
+        return spawn_runner(hub, [sys.executable, str(Path(__file__)), "--repo", str(hub.repo), "run"] + flag + [
                              "--max-steps", str(args.max_steps),
                              "--idle-exit", str(args.idle_exit), "--poll", str(args.poll),
                              "--settle", str(args.settle)])
