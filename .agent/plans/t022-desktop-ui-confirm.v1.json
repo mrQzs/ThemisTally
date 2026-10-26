@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "task_id": "t022-desktop-ui-confirm",
+  "plan_version": 1,
+  "title": "桌面端前端：写操作的确认框与流程（D2 之四，W3、W3b）",
+  "repository": "ThemisTally",
+  "base_sha": "ef19b182b69429231e4fce04301471693823dc5d",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/components/Dialog.tsx",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetBar.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetsTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetDiff.tsx",
+      "desktop/web/src/pages/readonly2/plugins-PluginsView.tsx",
+      "desktop/web/src/pages/readonly2/plugins-PluginDrawer.tsx",
+      "desktop/web/src/pages/readonly2/history-HistoryDrawer.tsx",
+      "desktop/web/src/pages/readonly2/logs-SearchResults.tsx",
+      "desktop/web/src/pages/tasks/common-FileReader.tsx",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/readonly2-plugins.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/write-flow.css",
+      "desktop/web/tests/writes-outcome.test.ts",
+      "desktop/web/tests/writes-snapshots.test.ts",
+      "desktop/web/tests/writes-flow.test.tsx",
+      "desktop/web/tests/writes-dialog.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t022_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-RuntimesView.tsx",
+      "desktop/web/src/pages/readonly2/history-HistoryView.tsx",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/main.tsx",
+      "docs/**",
+      "ts/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t022_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "^$"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`api.ts` 只新增 `preview`、`getOperation`、`usePreset`、`setPluginEnabled` 四个导出与配套类型，13 个读函数一行未改，`Envelope.exit_code` 放宽成 `number | null`；`src` 下仍不出现 `fetch`、`XMLHttpRequest`、`EventSource`、`WebSocket`",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "读侧不动是新旧两片能并存的前提"
+    },
+    {
+      "id": "D02",
+      "text": "`api.ts` **不导出** `removePreset`、`removeProfile`、`removeRuntime`、`rollback`（也不放桩、不接界面），LATER_API 里的 `setRole`、`savePreset`、`saveProfile`、`addRuntime` 等同样没有",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "B 片的写函数提前出现会让 B 片的门禁与快照无从谈起"
+    },
+    {
+      "id": "D03",
+      "text": "九个状态与第四节的映射表逐行一致：预览中、可确认、执行中、确认结果中、重读中、完成、完成但有警告、失败、已部分写入、结果未知、状态已变、确认已失效、成功但重读失败、预览失败、被拒",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "映射错一行就会把「失败」显示成「成功」"
+    },
+    {
+      "id": "D04",
+      "text": "成功只在重读之后才说——重读之前整页没有「已切换」，重读兑现之后才有；`write=exit3` 走完之后 `document.body` 的文字里没有「已切换」也没有「成功」，Toast 区域是空的，对话框里有 ERROR 原文与「内核拒绝」",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "W3 是这一片的核心红线"
+    },
+    {
+      "id": "D05",
+      "text": "已部分写入的判定是「退出码非 0 且重读后快照不同」——退出 1 加注入的「重读后快照不同」→ 对话框里有「已部分写入，结果待核实」，对话框文字里没有「成功」；快照相同 → 失败；重读失败 → 结果未知；退出 0 且重读失败 → 「命令已成功，但重新读取失败，请刷新」且不弹轻提示",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "把「部分写入」判反是最容易犯、后果最大的错"
+    },
+    {
+      "id": "D06",
+      "text": "B 片的四个入口（方案表 [删除…]、profile [删除]、运行时 [删除…]、历史抽屉 [回滚到这一条之后]）在 A 片期间**仍是带「第二阶段接入」提示的 `DisabledAction`**（禁用、悬停提示照旧）",
+      "evidence": [
+        "V02",
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "站主决定第一条，A 片不越界"
+    },
+    {
+      "id": "D07",
+      "text": "点插件表的 [启用…]/[停用…] **只弹写确认框**：插件抽屉不开、`getPlugin` 没被调用",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "站主决定第四条，旧门禁退役之后要有人管这条"
+    },
+    {
+      "id": "D08",
+      "text": "执行中对话框关不掉——Esc、点遮罩、[取消]、头部关闭钮都不关框，外层 Drawer 也不关；焦点陷阱与关闭后焦点返回保持",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "命令已经发出，不能假装取消"
+    },
+    {
+      "id": "D09",
+      "text": "方案 [切换…] 选中的不是当前方案时可点，走完流程后弹轻提示「已切换到方案 economy」；选中的就是当前方案时是普通的禁用 `Button`（primary、md、不带提示）；没有方案时不渲染 [切换…]",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "这一片最常走的路径"
+    },
+    {
+      "id": "D10",
+      "text": "方案表 [使用] 可点（ghost、sm），当前行照旧只写「当前方案不能删」",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "接上写入口而不动 B 片的入口"
+    },
+    {
+      "id": "D11",
+      "text": "插件页在 `?mock=data` 与 `?mock=offline` 下 [启用…]/[停用…] 都可点；禁用的插件页按钮只剩「核对全部」（抽屉开时加「重新核对」）并照旧带「第二阶段接入」提示；[切换…] 仍是 primary、md",
+      "evidence": [
+        "V02",
+        "R01",
+        "G01"
+      ],
+      "intent": "保持门禁现状，不制造新的禁用断言"
+    },
+    {
+      "id": "D12",
+      "text": "轮询上限 120 秒——119 秒仍是 running 时不下结论，120 秒进「结果未知」，404 立刻进「结果未知」，查到终态之后进重读；连接中断时先轮询再下结论",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "连接中断不轮询就下结论会把未知说成失败"
+    },
+    {
+      "id": "D13",
+      "text": "报错与 WARN 一律按纯文本显示（`<b>x</b>` 原样显示成文字），WARN 行从 `output` 与 `messages` 两处都认；确认框的变化区为空时写「预览没有列出变化」，不出现「没有变化」",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "W3b 的口径与「报错按 HTML 渲染」的坑"
+    },
+    {
+      "id": "D14",
+      "text": "`Dialog` 的 `dismissible` 缺省为 `true` 时行为一字不变（既有的对话框用例照过）；`PageFrame` 的 `children` 第二个参数可选，其余页面照旧编译；新增的 CSS 只用既有令牌、`npm run check:contract` 通过",
+      "evidence": [
+        "V02",
+        "V03",
+        "V04",
+        "R01"
+      ],
+      "intent": "通用能力的改动不许影响别的调用方"
+    },
+    {
+      "id": "D15",
+      "text": "所有修改都在允许集合内（新增文件都在 `allowed_new_files`，没有删文件，依赖与锁文件没动，`forbidden_paths` 里的门禁文件与 B 片入口文件一个都没动）",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D16",
+      "text": "没有删除、跳过或弱化既有测试；三份既有测试只照新行为改那几条断言；新用例写在新建的四个 `writes-*.test.*` 文件里，不出现 skip/only/todo",
+      "evidence": [
+        "V02",
+        "review",
+        "scope"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
