@@ -1,10 +1,11 @@
 // 写配置的预览、确认号与操作终态（桌面端设计第 7 版 §5.3、D6/D13）：POST /api/v1/preview 起基础 argv 加 --dry-run
 // --json 跑内核预览，核对 dry_run/action/state/needs_yes，拿掉 state 令牌、过 PREVIEW_ALLOW 脱敏，签发 43 位确认号；
-// 七条写路由（role set、preset use|save|remove、config rollback、plugins enable|disable）用同一个 validateWriteArgs 与
-// buildWriteArgv，执行是基础 argv 加 --expect-state=<state>（needs_yes 为真才加 --yes），退出 4 转 409 的 stale，结果落进
-// 操作表（GET /api/v1/operations/<id> 可查）。profile/runtime 的五条写路由归 T020，本片只登记在 T020_WRITE_COMMANDS。
+// 十二条写路由（role set、preset use|save|remove、config rollback、plugins enable|disable、profile add|edit|remove、
+// runtime add|remove）用同一个 validateWriteArgs 与 buildWriteArgv，执行是基础 argv 加 --expect-state=<state>
+// （needs_yes 为真才加 --yes），退出 4 转 409 的 stale，结果落进操作表（GET /api/v1/operations/<id> 可查）。
+// OPEN_WRITE_COMMAND_PATHS 与 NOT_OPEN_WRITE_COMMANDS 显式列出开放与不开放的写命令（U4）。
 // 与读路由、jobRoutes 对称，另建一批、不并进 readRoutes()。服务只校验形状，组合规则交给内核；提示固定、不回显请求里的值。
-import { redactJson, TASK_ID_RE } from "@themis/base/secrets";
+import { allowEnvName, redactJson, TASK_ID_RE } from "@themis/base/secrets";
 import { type PyDict, type PyKey, type PyValue } from "@themis/base/pyjson";
 import { errorResponse } from "./envelope.ts";
 import type { Route, RouteInput } from "./routes.ts";
@@ -36,7 +37,7 @@ import {
 
 /** 预览的时限（秒）。 */
 export const PREVIEW_TIMEOUT = 30;
-/** 七条写路由共用的时限（秒）。 */
+/** 十二条写路由共用的时限（秒）。 */
 export const WRITE_TIMEOUT = 90;
 
 /** history 编号的形状（内核的 HISTORY_N_RE）：1 到 9 位数字，不以 0 开头。 */
@@ -45,6 +46,12 @@ const HISTORY_N_RE = /^[1-9][0-9]{0,8}$/u;
 const PLUGIN_ID_RE = /^[a-z][a-z0-9-]{0,63}$/u;
 /** state 令牌的形状（kit_config.py 的 STATE_RE）。 */
 const STATE_RE = /^v1(?:;(?:config|local)=(?:[0-9a-f]{64}|absent))+$/u;
+/** model 的形状（scripts/pi_dispatch.py:86 的 MODEL_TOKEN_RE）：在第一个 / 处切成 provider 与 id 两段，两段都过它。 */
+const MODEL_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/u;
+/** thinking 的七个取值（scripts/pi_dispatch.py:95 的 FALLBACK_THINKING_LEVELS）。 */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+/** adapter 的四个取值（scripts/kit_roles.py:45 的 ADAPTERS）。 */
+const ADAPTERS = ["pi", "claude-code", "codex", "opencode"] as const;
 
 /** role 的取值（kit_roles.py 的 ROLES）。 */
 const ROLES = ["planning_review", "contract", "execution", "scheduler_agent"] as const;
@@ -65,7 +72,7 @@ interface WriteActionSpec {
   readonly optional: readonly string[];
 }
 
-/** 七个写 action 与各自参数的形状（T020 的五条不在这里，请求它们回 400「action 不合法」）。 */
+/** 十二个写 action 与各自参数的形状。profile/runtime 的路径参数与正文同名键合并后校验（路径参数压正文）。 */
 export const WRITE_ACTIONS: Readonly<Record<string, WriteActionSpec>> = {
   "role.set": { required: ["role", "target"], optional: ["host", "cadence_seconds"] },
   "preset.use": { required: ["name"], optional: [] },
@@ -74,12 +81,18 @@ export const WRITE_ACTIONS: Readonly<Record<string, WriteActionSpec>> = {
   "config.rollback": { required: ["number"], optional: [] },
   "plugin.enable": { required: ["id"], optional: ["allow_permission"] },
   "plugin.disable": { required: ["id"], optional: [] },
+  "profile.add": { required: ["profile", "runtime", "model"], optional: ["thinking", "credential_env"] },
+  "profile.edit": { required: ["profile"], optional: ["runtime", "model", "thinking", "credential_env"] },
+  "profile.remove": { required: ["profile"], optional: [] },
+  "runtime.add": { required: ["runtime", "adapter"], optional: ["command", "force"] },
+  "runtime.remove": { required: ["runtime"], optional: [] },
 };
 
 /**
- * 七条 action 各一条示例 argv（填示例值：role=execution、target=manual 与 demo-profile、preset=demo-preset、number=1、
- * 插件 id=example-plugin、权限=demo-permission），供真内核与替身用例逐条过内核解析器，写法照 READ_ROUTE_ARGV。位置参数
- * 都由正则保证不以 - 开头；选项的值一律写成 --opt=值；--force 是不取值的开关。
+ * 十二条写命令的示例 argv（十三条示例：role.set 保留两行，其余各一行；填示例值：role=execution、target=manual 与
+ * demo-profile、preset=demo-preset、number=1、插件 id=example-plugin、权限=demo-permission、runtime=demo-runtime、
+ * adapter=pi、model=demo-provider/demo-model），供真内核与替身用例逐条过内核解析器，写法照 READ_ROUTE_ARGV。位置参数
+ * 都由正则保证不以 - 开头；选项的值一律写成 --opt=值；--force 是不取值的开关；--command 的值是 JSON.stringify(command)。
  */
 export const WRITE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "role.set": ["config", "role", "set", "execution", "manual"],
@@ -90,15 +103,41 @@ export const WRITE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "config.rollback": ["config", "rollback", "1"],
   "plugin.enable": ["plugins", "enable", "example-plugin", "--allow-permission=demo-permission"],
   "plugin.disable": ["plugins", "disable", "example-plugin"],
+  "profile.add": ["config", "profile", "add", "demo-profile", "--runtime=demo-runtime", "--model=demo-provider/demo-model", "--thinking=high", "--credential-env=DEMO_API_KEY", "--credential-env=OTHER_KEY"],
+  "profile.edit": ["config", "profile", "edit", "demo-profile", "--model=demo-provider/demo-model", "--credential-env=DEMO_API_KEY"],
+  "profile.remove": ["config", "profile", "remove", "demo-profile"],
+  "runtime.add": ["config", "runtime", "add", "demo-runtime", "--adapter=pi", "--command=[\"C:/tools/pi.exe\",\"--flag\"]", "--force"],
+  "runtime.remove": ["config", "runtime", "remove", "demo-runtime"],
 };
 
-/** T020 只登记不实现的五条写命令（profile add|edit|remove、runtime add|remove）；本片不实现，请求回 400。 */
-export const T020_WRITE_COMMANDS: readonly (readonly string[])[] = [
-  ["config", "profile", "add"],
-  ["config", "profile", "edit"],
-  ["config", "profile", "remove"],
-  ["config", "runtime", "add"],
-  ["config", "runtime", "remove"],
+/**
+ * U4：开放给界面的写命令路径，恰好 12 条，每条一个字符串；与内核里带 --dry-run 的写命令集合逐条相等
+ * （write-argv.test.ts 的 W2 用 kit_config/kit_plugins 的 build_parser 递归枚举核对）。
+ */
+export const OPEN_WRITE_COMMAND_PATHS: readonly string[] = [
+  "config role set",
+  "config preset use",
+  "config preset save",
+  "config preset remove",
+  "config rollback",
+  "plugins enable",
+  "plugins disable",
+  "config profile add",
+  "config profile edit",
+  "config profile remove",
+  "config runtime add",
+  "config runtime remove",
+];
+
+/** U4：显式不开放的写命令，每条带一句理由；命令路径都不在 OPEN_WRITE_COMMAND_PATHS 里，也都被内核解析器拒绝。 */
+export const NOT_OPEN_WRITE_COMMANDS: readonly { readonly path: readonly string[]; readonly reason: string }[] = [
+  { path: ["config", "set"], reason: "任意键写入，没有 --dry-run 与 --expect-state，无从预览，也无从比对令牌。" },
+  { path: ["config", "unset"], reason: "同 config set。" },
+  { path: ["config", "init"], reason: "首次从示例生成配置，已存在就拒绝；归首次运行与 CLI，没有预览。" },
+  { path: ["config", "decisions"], reason: "决策模式的开关，没有预览与令牌；要开放，先由站主给内核加 --dry-run。" },
+  { path: ["config", "runtime", "scan"], reason: "批量登记（--add），没有预览；设计稿定为「扫描结果逐个登记，一次确认一条 runtime add」，界面走 runtime.add。" },
+  { path: ["config", "secret"], reason: "凭据。set 是凭据录入作业，归 T021；remove 没有预览与令牌。" },
+  { path: ["prepare", "run", "verdict"], reason: "调度器顶层命令（花钱或集成一档）没有 --dry-run 与令牌，不在配置写命令的比对范围里。" },
 ];
 
 /** 写路由共用的状态：执行器、确认号表与操作表。 */
@@ -148,6 +187,26 @@ function validAllowPermission(value: unknown): boolean {
   return true;
 }
 
+/** model：字符串，在第一个 / 处切成 provider 与 id 两段，两段都过 MODEL_TOKEN_RE（照 kit_roles 的 _split_model）。 */
+function validModel(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const at = value.indexOf("/");
+  if (at < 0) return false;
+  return MODEL_TOKEN_RE.test(value.slice(0, at)) && MODEL_TOKEN_RE.test(value.slice(at + 1));
+}
+
+/** credential_env：非空数组，每项过 allowEnvName（ENV_NAME_RE 且不像令牌）；不去重、不设个数上限；空数组不合法（内核没有清空的写法）。 */
+function validCredentialEnv(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.every((item) => allowEnvName(item));
+}
+
+/** command：非空数组，每项 cleanText(item, 1, 1024)（非空、不超过 1024 码点、不含控制字符与孤立代理项）。 */
+function validCommand(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.every((item) => cleanText(item, 1, 1024));
+}
+
 /** 单个键的取值是否合格（键名已在 WRITE_ACTIONS 里，未知键在此之前已被拒）。 */
 function validValue(key: string, value: unknown): boolean {
   if (key === "role") return typeof value === "string" && (ROLES as readonly string[]).includes(value);
@@ -161,12 +220,18 @@ function validValue(key: string, value: unknown): boolean {
   if (key === "number") return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 999999999;
   if (key === "id") return typeof value === "string" && PLUGIN_ID_RE.test(value);
   if (key === "allow_permission") return validAllowPermission(value);
+  if (key === "profile" || key === "runtime") return typeof value === "string" && TASK_ID_RE.test(value);
+  if (key === "model") return validModel(value);
+  if (key === "thinking") return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+  if (key === "credential_env") return validCredentialEnv(value);
+  if (key === "adapter") return typeof value === "string" && (ADAPTERS as readonly string[]).includes(value);
+  if (key === "command") return validCommand(value);
   return false;
 }
 
 /**
- * 预览与七条写路由共用的同一个校验函数：正文不是对象 → 400「请求体必须是 JSON 对象」；action 不在登记表里（含 T020 的
- * 五条）→ 400「action 不合法」；args 有未知键 → 400「参数含有未知键」；缺必填键 → 400「参数缺少必填键」；某个值不合格 →
+ * 预览与十二条写路由共用的同一个校验函数：正文不是对象 → 400「请求体必须是 JSON 对象」；action 不在登记表里 →
+ * 400「action 不合法」；args 有未知键 → 400「参数含有未知键」；缺必填键 → 400「参数缺少必填键」；某个值不合格 →
  * 400「<键> 不合法」。提示固定、不回显请求里的值，不合格时不起子进程。
  */
 export function validateWriteArgs(action: string, args: unknown): Verdict {
@@ -216,6 +281,30 @@ export function buildWriteArgv(action: string, args: Record<string, unknown>): r
     }
     case "plugin.disable":
       return ["plugins", "disable", String(args["id"])];
+    case "profile.add": {
+      const argv = ["config", "profile", "add", String(args["profile"]), `--runtime=${String(args["runtime"])}`, `--model=${String(args["model"])}`];
+      if (args["thinking"] !== undefined) argv.push(`--thinking=${String(args["thinking"])}`);
+      for (const name of (args["credential_env"] as string[] | undefined) ?? []) argv.push(`--credential-env=${name}`);
+      return argv;
+    }
+    case "profile.edit": {
+      const argv = ["config", "profile", "edit", String(args["profile"])];
+      if (args["runtime"] !== undefined) argv.push(`--runtime=${String(args["runtime"])}`);
+      if (args["model"] !== undefined) argv.push(`--model=${String(args["model"])}`);
+      if (args["thinking"] !== undefined) argv.push(`--thinking=${String(args["thinking"])}`);
+      for (const name of (args["credential_env"] as string[] | undefined) ?? []) argv.push(`--credential-env=${name}`);
+      return argv;
+    }
+    case "profile.remove":
+      return ["config", "profile", "remove", String(args["profile"])];
+    case "runtime.add": {
+      const argv = ["config", "runtime", "add", String(args["runtime"]), `--adapter=${String(args["adapter"])}`];
+      if (args["command"] !== undefined) argv.push(`--command=${JSON.stringify(args["command"])}`);
+      if (args["force"] === true) argv.push("--force");
+      return argv;
+    }
+    case "runtime.remove":
+      return ["config", "runtime", "remove", String(args["runtime"])];
     default:
       return [];
   }
@@ -284,6 +373,10 @@ async function previewRoute(state: WriteRoutesState, timeoutSeconds: number, inp
   const body = input.body;
   if (typeof body !== "object" || body === null || Array.isArray(body)) return errorResponse(400, "请求体必须是 JSON 对象");
   const obj = body as Record<string, unknown>;
+  // 预览正文的顶层键只许 action 与 args（在 validateWriteArgs 之前判，多出任何键 → 400，不起子进程）
+  for (const key of Object.keys(obj)) {
+    if (key !== "action" && key !== "args") return errorResponse(400, "参数含有未知键");
+  }
   const action = typeof obj["action"] === "string" ? obj["action"] : "";
   const verdict = validateWriteArgs(action, obj["args"]);
   if (!verdict.ok) return errorResponse(400, verdict.message);
@@ -367,7 +460,7 @@ async function runWrite(state: WriteRoutesState, op: OperationRecord, runArgv: r
   }
 }
 
-/** 七条写路由共用的执行链：校验 → 确认号核对 → argv 绑定 → canAccept → 操作表 → 拿号 → 跑。 */
+/** 十二条写路由共用的执行链：校验 → 确认号核对 → argv 绑定 → canAccept → 操作表 → 拿号 → 跑。 */
 async function executeWrite(
   state: WriteRoutesState,
   action: string,
@@ -458,6 +551,36 @@ export function writeRoutes(state: WriteRoutesState, timeouts: Readonly<Record<s
       method: "POST",
       pattern: /^\/api\/v1\/plugins\/([^/]+)\/disable$/u,
       handle: (_state, params, input) => run("plugin.disable", { id: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.profiles.add",
+      method: "POST",
+      pattern: /^\/api\/v1\/profiles\/([^/]+)\/add$/u,
+      handle: (_state, params, input) => run("profile.add", { profile: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.profiles.edit",
+      method: "POST",
+      pattern: /^\/api\/v1\/profiles\/([^/]+)\/edit$/u,
+      handle: (_state, params, input) => run("profile.edit", { profile: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.profiles.remove",
+      method: "POST",
+      pattern: /^\/api\/v1\/profiles\/([^/]+)\/remove$/u,
+      handle: (_state, params, input) => run("profile.remove", { profile: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.runtimes.add",
+      method: "POST",
+      pattern: /^\/api\/v1\/runtimes\/([^/]+)\/add$/u,
+      handle: (_state, params, input) => run("runtime.add", { runtime: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.runtimes.remove",
+      method: "POST",
+      pattern: /^\/api\/v1\/runtimes\/([^/]+)\/remove$/u,
+      handle: (_state, params, input) => run("runtime.remove", { runtime: params[0] ?? "" }, input),
     },
     {
       name: "api.operations.get",

@@ -17,6 +17,7 @@ import { EventHub, eventRoutes } from "./events.ts";
 import { JobTable } from "./jobs.ts";
 import { jobRoutes } from "./jobroutes.ts";
 import { writeRoutes } from "./writeroutes.ts";
+import { findRoute, type Route } from "./routes.ts";
 import { ConfirmationTable } from "./confirmations.ts";
 import { OperationTable } from "./operations.ts";
 
@@ -90,6 +91,8 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
 
   let app: App | null = null;
   let server: BunServer | null = null;
+  // 由内核子进程应答、可能跑满路由时限的两批路由（19 条读路由 + 12 条写路由）：在 bun.serve 之后才建，fetch 里迟绑定判定
+  let kernelAnsweredRoutes: readonly Route[] | null = null;
   try {
     server = bun.serve({
       hostname: "127.0.0.1",
@@ -99,8 +102,9 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
       // 全局连接空闲超时只由测试入口覆盖，生产路径保持缺省（不设数字字面量；服务端写数据不重置空闲计时，站主拍板 B）
       ...(overrides.bunIdleTimeoutSeconds === undefined ? {} : { idleTimeout: overrides.bunIdleTimeoutSeconds }),
       fetch: (request: Request, bunServer: BunServer) => {
-        // SSE 订阅：只关掉这一条连接的空闲超时；其余请求不动，全局 idleTimeout 也不动
-        if (isEventsRequest(request)) bunServer.timeout(request, 0);
+        // SSE 订阅，与由内核子进程应答的读路由/写路由：只关掉这一条连接的空闲超时；其余请求不动，全局 idleTimeout 也不动
+        const batch = kernelAnsweredRoutes;
+        if (isEventsRequest(request) || (batch !== null && matchesBatch(request, batch))) bunServer.timeout(request, 0);
         return app === null ? Promise.resolve(notReady()) : app.fetch(request);
       },
       error: () => withSecurityHeaders(errorResponse(500, "服务内部错误"), { noStore: true }),
@@ -147,6 +151,8 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     ...jobRoutes(runner, jobs, timeouts),
     ...writeRoutes({ runner, confirmations, operations }, timeouts),
   ];
+  // 读路由与写路由这两批由内核子进程应答、可能跑满路由时限：为它们放宽这一条连接的空闲超时（同一批路由再建一份只作判定用）
+  kernelAnsweredRoutes = [...readRoutes(readState, timeouts), ...writeRoutes({ runner, confirmations, operations }, timeouts)];
   const appOptions = {
     port: running.port,
     assets,
@@ -252,4 +258,16 @@ function isEventsRequest(request: Request): boolean {
   } catch {
     return false;
   }
+}
+
+/** 请求命中的是不是这两批路由里的某一条（用 findRoute 判定，不另抄路径表；ping 等基础路由不算）。 */
+function matchesBatch(request: Request, batch: readonly Route[]): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    return false;
+  }
+  const matched = findRoute(request.method.toUpperCase(), pathname, batch);
+  return matched !== null && batch.includes(matched.route);
 }

@@ -50,6 +50,8 @@ export interface StartOptions {
   readonly kernel?: string;
   /** 传给 serveUi 的覆盖项（maxConcurrent、maxQueue、timeouts；CLI 与环境变量碰不到）。 */
   readonly overrides?: Readonly<Record<string, unknown>>;
+  /** 只合进服务子进程环境的变量（不改 vitest 进程的 process.env）：慢请求用例经它把替身的门文件与睡眠时长传给服务。 */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface RunningService {
@@ -63,14 +65,15 @@ export interface RunningService {
   stderr(): string;
 }
 
-/** 子进程的环境：去掉会让 Bun 与 Node 改行为的几项。 */
-function childEnv(): NodeJS.ProcessEnv {
+/** 子进程的环境：去掉会让 Bun 与 Node 改行为的几项；extra 只合进这一次的子进程（慢请求用例的替身变量用）。 */
+function childEnv(extra?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
     if (/^(?:BUN_OPTIONS|NODE_OPTIONS|NODE_PATH|BUN_INSPECT)/u.test(name)) continue;
     env[name] = value;
   }
+  for (const [name, value] of Object.entries(extra ?? {})) env[name] = value;
   return env;
 }
 
@@ -95,12 +98,12 @@ function overridesB64(options: StartOptions): string | null {
 }
 
 /** 起任意一个进程，收它的 stdout/stderr，等 stdout 里出现握手行。 */
-export async function startServiceProcess(argv: readonly string[], cwd: string, timeoutMs = 45_000): Promise<RunningService> {
+export async function startServiceProcess(argv: readonly string[], cwd: string, timeoutMs = 45_000, extraEnv?: Readonly<Record<string, string>>): Promise<RunningService> {
   const [command, ...rest] = argv;
   if (command === undefined) throw new Error("空的命令");
   const child = spawn(command, rest, {
     cwd,
-    env: childEnv(),
+    env: childEnv(extraEnv),
     stdio: "pipe",
   });
   let out = "";
@@ -171,7 +174,7 @@ export async function startService(options: StartOptions, timeoutMs = 45_000): P
   const argv = [bunPath(), "--no-env-file", `--config=${BUNFIG}`, entry, "--pyargs-b64", pyargs(options)];
   const encoded = overridesB64(options);
   if (encoded !== null) argv.push("--overrides-b64", encoded);
-  return startServiceProcess(argv, TS_ROOT, timeoutMs);
+  return startServiceProcess(argv, TS_ROOT, timeoutMs, options.env);
 }
 
 /** 跑一个应当立刻退出的进程（用法错误、锁被占），收齐全再返回。 */

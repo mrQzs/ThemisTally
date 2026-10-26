@@ -1,6 +1,6 @@
 # @themis/ui
 
-桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；第 3 片加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定；第 4 片给 file 路由加「跟随」（`follow=1`，见「日志跟随」一节）。第 5 片给本机服务接上「预览 → 确认号 → 带令牌执行 → 操作终态」这条写链路（`POST /api/v1/preview` 与七条写路由，见「写操作」一节）；凭据录入作业仍是后面几片的事。
+桌面端的本机服务（`docs/themis-tally-3.0-桌面端.md`，第 7 版 §0.0a）：Bun 运行，只绑 127.0.0.1，是桌面端唯一的后端，也是安全边界（D4）。第 1 片是服务骨架、安全基线与握手；第 2 片加 19 条只读数据路由；第 3 片加桌面端本机服务的第 3 片：SSE 路由 `GET /api/v1/events`（实时通道）与作业路由 `POST /api/v1/jobs`、`GET /api/v1/jobs/<id>`、`POST /api/v1/jobs/<id>/cancel`（起内核子进程的作业），并把第 2 片复核留下的三条加固（输出上限边写边看、真内核拒绝越界路径、关停清队列并摘监听）落定；第 4 片给 file 路由加「跟随」（`follow=1`，见「日志跟随」一节）。第 5 片给本机服务接上「预览 → 确认号 → 带令牌执行 → 操作终态」这条写链路（`POST /api/v1/preview` 与 12 条写路由，见「写操作」一节）；T020 把 profile 与 runtime 的五条写路由接进这条链；凭据录入作业仍是后面几片的事。
 
 - 入口：`src/main.ts` 的 `runUi`（参数检查）转交 `src/server.ts` 的 `serveUi`。内核仓库里经 `pi_dispatch.py ui --desktop --assets <目录> …` 转交（调度器第 73 轮）；桌面应用里外壳直接起打包好的程序（T6）。
 - 本包不在内核禁区里（迁移计划第 69 轮），经 hub 派给执行器；`package.json` 与 `bun.lock` 的登记由规划端维护（禁区里的工作区文件）。
@@ -77,7 +77,7 @@ GET /api/v1/secrets/<name>                                config secret check <n
 
 `meta` 与 `/secrets` 的 `data` 由服务合成（分别是 `{version, repo_name}` 与 `{"secrets":[…]}`），其余路由的 `data` 是内核 stdout 的 JSON。`/api/v1/attempts/<task>/<attempt>/file` 给界面的 `next_cursor` 是 43 个字符的随机不透明句柄，内核游标只存在服务内存里（服务退出全部失效）。
 
-第 5 片加的预览与七条写路由：全部要会话、CSRF 与 JSON 对象正文，参数在起子进程之前校验，不合格回 400（提示固定、不回显请求里的值）。执行用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（`needs_yes` 为真才加 `--yes`）。
+第 5 片加的预览与 12 条写路由：全部要会话、CSRF 与 JSON 对象正文，参数在起子进程之前校验，不合格回 400（提示固定、不回显请求里的值）。执行用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（`needs_yes` 为真才加 `--yes`）。
 
 ```
 POST /api/v1/preview                       基础 argv 加 --dry-run --json（预览，30 秒；回 {preview, confirmation}）
@@ -88,6 +88,11 @@ POST /api/v1/presets/<name>/remove         config preset remove <name>（90 秒�
 POST /api/v1/config/rollback/<n>           config rollback <n>（90 秒）
 POST /api/v1/plugins/<id>/enable           plugins enable <id>（90 秒）
 POST /api/v1/plugins/<id>/disable          plugins disable <id>（90 秒）
+POST /api/v1/profiles/<id>/add             config profile add <id> --runtime=<r> --model=<m> [--thinking=<t>] [--credential-env=<名>]…（90 秒）
+POST /api/v1/profiles/<id>/edit            config profile edit <id> [--runtime=] [--model=] [--thinking=] [--credential-env=<名>]…（90 秒）
+POST /api/v1/profiles/<id>/remove          config profile remove <id>（90 秒）
+POST /api/v1/runtimes/<id>/add             config runtime add <id> --adapter=<a> [--command=<JSON.stringify(command)>] [--force]（90 秒）
+POST /api/v1/runtimes/<id>/remove          config runtime remove <id>（90 秒）
 GET  /api/v1/operations/<id>               查询一次写操作的结果（八键操作记录，不套信封、不套 data）
 ```
 
@@ -105,7 +110,7 @@ GET /api/v1/events   要会话：text/event-stream，先发一份全量快照并
 - **序号**：hub 内单调递增，服务启动后从 1 起；每产生一份内容不同的信封加 1，内容相同就不推也不加号。每次订阅（含重连、带 `Last-Event-ID`）第一条都是 snapshot，带当时的序号。
 - **监视与去抖**：只 stat `@themis/contracts/status-inputs.json` 名单上的输入（`.agent/runs` 之下），每 2 秒一轮、去抖 300 毫秒、同一时刻最多一次 status，多个订阅者共用一次 status；没有订阅者就停。
 - **心跳与订阅上限**：每 15 秒写一行 `: hb`。**订阅上限**：全局同时开着 16 个、每个会话 4 个；超限回 503 带 `Retry-After: 2`，不挤掉已有的订阅，关掉一条名额立刻还回来。会话作废（`revokeAll`，含控制令牌换发引导地址）、服务关停与空闲退出时主动关流并清定时器；心跳写失败（客户端消失）立刻清理。
-- **连接空闲超时**：SSE 订阅时对这一条请求调 `server.timeout(req, 0)`，只关掉这条连接的空闲超时；全局 `idleTimeout` 生产路径保持缺省（服务端写数据不重置空闲计时）。
+- **连接空闲超时**：SSE 订阅，与由内核子进程应答的请求（19 条读路由、预览、12 条写路由）对这一条请求调 `server.timeout(req, 0)`，只关掉这条连接的空闲超时；全局 `idleTimeout` 生产路径保持缺省（服务端写数据不重置空闲计时）。
 
 ## 作业
 
@@ -154,12 +159,15 @@ GET /api/v1/attempts/<task>/<attempt>/file?path=<p>&follow=1[&cursor=<句柄>]  
 
 ## 写操作
 
-预览 → 确认号 → 带令牌执行 → 操作终态（`POST /api/v1/preview` 与七条写路由）。服务只校验参数形状，组合规则（该给哪些权限、缺什么、能不能切）全交给内核；提示固定、不回显请求里的值，不合格不起子进程。`profile` 与 `runtime` 的五条写路由归 T020，本片只登记在 `T020_WRITE_COMMANDS`，请求它们回 400「action 不合法」。
+预览 → 确认号 → 带令牌执行 → 操作终态（`POST /api/v1/preview` 与 12 条写路由）。服务只校验参数形状，组合规则（该给哪些权限、缺什么、能不能切）全交给内核；提示固定、不回显请求里的值，不合格不起子进程。`profile` 与 `runtime` 的五条写路由（T020）与本片七条走同一条链：同样的预览 → 确认号 → 带令牌执行 → 操作终态。
 
 - **预览**（`POST /api/v1/preview`）：正文 `{action, args}`，起基础 argv 加 `--dry-run --json`（30 秒，用请求自己的 signal，不拿锁、不写任何文件）。退出 0 时核对内核预览的 `dry_run`/`action`/`state`/`needs_yes`，拿掉 `state` 令牌、剩下的过 `PREVIEW_ALLOW` 二道脱敏，回 200、`data` 是 `{preview, confirmation}`（`confirmation` 是 43 位 base64url 确认号）；预览不合格（`action` 对不上、`state` 形状不对等）回 500「内核的预览不合格」、不发号；内核退出非 0 回 200、`ok` 为假、不发号。
 - **确认号**：有效期 60 秒（从签发算起），只在内存里、不绑会话，服务退出即失效；容量 100，满了先清过期的、再挤掉最早发出还没用的那个。执行时把 `confirmation` 带回：缺失、不是字符串、格式不对、不在表里、已过期或用第二次 → 409「确认号无效、已过期或已用过：请重新预览」；与预览时的参数不符 → 409「确认号与这次请求的参数不符：请重新预览」且**不**消耗这个号。
-- **执行**：七条写路由共用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（预览给的 state 令牌原样带上；界面从 `command` 看到的只是占位 `--expect-state=<state>`，令牌不外泄），预览的 `needs_yes` 为真才加 `--yes`（plugins 的 `needs_yes` 恒为假），不带 `--json`；时限 90 秒。退出 0 → 200；退出 4（内核报「在预览之后被改过」）→ 409 七字段信封（`exit_code` 是 4，界面据此重新预览）、操作记 `stale`；其他非 0 → 200、`ok` 为假、操作记 `failed`；起不了子进程或输出超限 → 500。
+- **执行**：12 条写路由共用同一个 `validateWriteArgs`/`buildWriteArgv`，起的命令行是基础 argv 加 `--expect-state=<state>`（预览给的 state 令牌原样带上；界面从 `command` 看到的只是占位 `--expect-state=<state>`，令牌不外泄），预览的 `needs_yes` 为真才加 `--yes`（plugins 的 `needs_yes` 恒为假），不带 `--json`；时限 90 秒。退出 0 → 200；退出 4（内核报「在预览之后被改过」）→ 409 七字段信封（`exit_code` 是 4，界面据此重新预览）、操作记 `stale`；其他非 0 → 200、`ok` 为假、操作记 `failed`；起不了子进程或输出超限 → 500。
 - **操作记录**（`GET /api/v1/operations/<id>`）：每次执行落一条八键操作记录 `{id, action, state, reason, created_ms, started_ms, finished_ms, envelope}`（`id` 就是确认号，`envelope` 是已脱敏的完整信封），不套信封、不套 `data`；格式不对与查不到回同一个 404「没有这个操作」；容量 100，满了淘汰最早结束的终态记录，没有可淘汰的回 503。
+- **profile 与 runtime 的五条**（T020）：路径参数 `<id>` 压过正文里的同名键（`mergeArgs`），正文里的 `confirmation` 不进 args。`profile.add` 必填 `runtime` 与 `model`、可选 `thinking` 与 `credential_env`；`profile.edit` 只必填路径 `profile`（一个可选项都不给时服务照形状放行，内核预览退出 2、提示「至少给一项」，回 200、`ok` 为假、不发确认号）；`profile.remove` 只必填 `profile`；`runtime.add` 必填 `adapter`、可选 `command` 与 `force`；`runtime.remove` 只必填 `runtime`。选项的值一律写成 `--opt=值`、次序固定；`--command` 的值是 `JSON.stringify(command)`；`--force` 是不取值的开关。校验：`profile`/`runtime` 过 `TASK_ID_RE`，`model` 在第一个 `/` 处切成两段都过 `MODEL_TOKEN_RE`，`thinking` 七选一，`adapter` 四选一（`pi`/`claude-code`/`codex`/`opencode`），`command` 每项 1–1024 码点，`credential_env` 每项过 `allowEnvName`；绝对路径与疑似凭据交给内核判定。
+- **两资源令牌**：`runtime add` 带 `--command` 与 `runtime remove` 的 state 令牌带 config 与 local 两段（`v1;config=<C>;local=<L>`，本机文件不存在时是 `local=absent`），`runtime add` 不带 `--command` 与其余十条只有 config 段；令牌形状由内核给，服务按 `STATE_RE` 核对。改本机文件 `.agent/dispatch.local.json` 会让 local 段失效，执行回 409。
+- **`credential_env` 的三种写法**：缺省（args 里没有这个键）时 argv 不带 `--credential-env`、内核不改这一项；非空数组时每项一个 `--credential-env=<名>`、内核整份替换（保持请求次序、不去重、不设个数上限）；空数组回 400「credential_env 不合法」、不起子进程（内核没有清空的写法，见「已知限制」）。
 - **断开不取消**：写运行用服务私有的 AbortController，客户端的 `request.signal` 不传给执行器——界面断线时子进程不被杀、终态照记，界面靠操作号把结果读回来（写入可能已部分完成，按「结果未知」重读）。
 - **503 与 504**：队列满或服务正在关停回 503 带 `Retry-After: 2`（不消耗确认号，重试不丢号）；超时回 504、操作记 `timed_out`（整棵进程树被结束）。有写在跑时服务不因空闲退出（空闲判定看 `operations.active()`）。
 
@@ -180,7 +188,7 @@ node node_modules/typescript/bin/tsc -p tsconfig.json      # 类型
 ## 已知限制
 
 - 读路由的子进程并发上限 4、队列 16、各路由时限与输出上限（stdout 32 MiB、stderr 1 MiB）**不给用户配**：只开放给测试入口 `ServeOverrides`，对用户可配留给后面一片。SSE 的订阅上限（全局 16、每会话 4）、stat 间隔、去抖、心跳与作业的并发/队列/时限同样只开放给测试入口，CLI 与环境变量碰不到。
-- 本片不做凭据录入作业，也不缓存脱敏结果。写路由只覆盖 role/preset/config rollback/plugins 七条，`profile add|edit|remove` 与 `runtime add|remove` 归 T020（登记在 `T020_WRITE_COMMANDS`，请求回 400「action 不合法」）。确认号表与操作表只在内存里，服务退出（含空闲退出）即失效，界面要按「结果未知」重读。file 路由的跟随只给 JSONL（`follow=1`），普通文本明确回 400，见「日志跟随」一节。
+- 本片不做凭据录入作业，也不缓存脱敏结果。写路由覆盖 12 条（role set、preset use|save|remove、config rollback、plugins enable|disable、profile add|edit|remove、runtime add|remove）；`credential_env` 清不空——内核没有清空的写法（给空串会变成 `[""]` 被整份校验拒掉），服务对空数组回 400「credential_env 不合法」，真要清空由站主另开一轮给内核加选项。确认号表与操作表只在内存里，服务退出（含空闲退出）即失效，界面要按「结果未知」重读。file 路由的跟随只给 JSONL（`follow=1`），普通文本明确回 400，见「日志跟随」一节。
 - `file` 路由的句柄只在内存里：服务重启之后旧句柄一律 409（「游标无效或文件已变化，请从头读取」），界面要重新从头读取。
 - `/secrets` 与 `/config` 里 `TYPESAFE_API_KEY` 的 source 不会是 env（原因见上一节），与终端里同一条命令不同。
 - **输出上限的磁盘上界（H1）**：执行器边写边看，子进程跑着的时候每 100 毫秒看一次 stdout/stderr 的大小，超限就中止整棵树；两次轮询之间写完的由结束后的兜底检查抓住。临时目录里单个输出文件的磁盘上界约为「上限 + 写速度 ×（轮询间隔 100 毫秒 + 宽限 2 秒）」，不是硬上限。

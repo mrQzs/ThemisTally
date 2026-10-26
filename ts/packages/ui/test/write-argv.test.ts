@@ -1,9 +1,9 @@
-// 写 argv 的登记、校验与内核解析器（桌面端 §5.3、D01/D02）：W1 七条基础 argv 加 --dry-run --json / --expect-state= /
-// --yes（plugins 不加）都过内核真正的解析器；W2 内核里带 --dry-run 的写命令集合恰好等于本片 7 条加 T020 的 5 条；
-// W3 基础 argv 不含那四个开关；W4 validateWriteArgs 的每一类不合格（含 T020 的五个 action 名）回固定 400、不回显值。
+// 写 argv 的登记、校验与内核解析器（桌面端 §5.3、D01/D02）：W1 十二条命令的基础 argv 加 --dry-run --json / --expect-state= /
+// --yes（plugins 不加）都过内核真正的解析器；W2 内核里带 --dry-run 的写命令集合恰好等于 OPEN_WRITE_COMMAND_PATHS（12 条），
+// 不开放名单都被内核解析器拒绝且与开放集合不相交；W3 基础 argv 不含那四个开关；W4 validateWriteArgs 的每一类不合格回固定 400、不回显值。
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { buildWriteArgv, T020_WRITE_COMMANDS, validateWriteArgs, WRITE_ACTIONS, WRITE_ARGV } from "../src/writeroutes.ts";
+import { buildWriteArgv, NOT_OPEN_WRITE_COMMANDS, OPEN_WRITE_COMMAND_PATHS, validateWriteArgs, WRITE_ACTIONS, WRITE_ARGV } from "../src/writeroutes.ts";
 import { REPO_ROOT } from "./harness.ts";
 
 const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
@@ -84,21 +84,21 @@ describe("W1：七条基础 argv 过内核真正的解析器（dry_run/json/expe
   });
 });
 
-describe("W2：内核带 --dry-run 的写命令集合 = 本片 7 条 + T020 的 5 条", () => {
-  it("恰好 12 条，且等于七条命令路径加 T020_WRITE_COMMANDS", () => {
-    const slice = [
-      ["config", "role", "set"],
-      ["config", "preset", "save"],
-      ["config", "preset", "use"],
-      ["config", "preset", "remove"],
-      ["config", "rollback"],
-      ["plugins", "enable"],
-      ["plugins", "disable"],
-    ];
-    const expected = [...slice, ...T020_WRITE_COMMANDS.map((path) => [...path])].map((path) => path.join(" ")).sort();
+describe("W2：开放集合 = 内核 --dry-run 集合 = 12 条；不开放名单被拒且不相交", () => {
+  it("OPEN_WRITE_COMMAND_PATHS 恰好 12 条，与内核 --dry-run 集合逐条相等", () => {
+    const open = [...OPEN_WRITE_COMMAND_PATHS].sort();
     const seen = dryRunCommands().map((path) => path.join(" ")).sort();
-    expect(seen).toEqual(expected);
-    expect(seen).toHaveLength(12);
+    expect(open).toHaveLength(12);
+    expect(seen).toEqual(open);
+  });
+
+  it("NOT_OPEN_WRITE_COMMANDS 每条都被内核解析器拒绝、与开放集合不相交", () => {
+    const open = new Set(OPEN_WRITE_COMMAND_PATHS);
+    for (const entry of NOT_OPEN_WRITE_COMMANDS) {
+      const key = entry.path.join(" ");
+      expect(open.has(key), `${key} 不该在开放集合里`).toBe(false);
+      expect(() => parse([...entry.path, "--dry-run", "--json"]), `${key} 加 --dry-run 应被内核解析器拒绝`).toThrow();
+    }
   });
 });
 
@@ -118,6 +118,11 @@ describe("W3：七条基础 argv 不含 --dry-run/--json/--expect-state/--yes", 
       "config.rollback": { number: 1 },
       "plugin.enable": { id: "example-plugin" },
       "plugin.disable": { id: "example-plugin" },
+      "profile.add": { profile: "demo-profile", runtime: "demo-runtime", model: "demo-provider/demo-model", thinking: "high", credential_env: ["DEMO_API_KEY", "OTHER_KEY"] },
+      "profile.edit": { profile: "demo-profile", model: "demo-provider/demo-model", credential_env: ["DEMO_API_KEY"] },
+      "profile.remove": { profile: "demo-profile" },
+      "runtime.add": { runtime: "demo-runtime", adapter: "pi", command: ["C:/tools/pi.exe", "--flag"], force: true },
+      "runtime.remove": { runtime: "demo-runtime" },
     };
     for (const [action, args] of Object.entries(examples)) {
       const argv = buildWriteArgv(action, args);
@@ -146,13 +151,14 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
     bad("role.set", null, "请求体必须是 JSON 对象");
   });
 
-  it("action 不合法（含 T020 的五个 action 名）", () => {
-    for (const t020 of ["profile.add", "profile.edit", "profile.remove", "runtime.add", "runtime.remove", "nope", ""]) {
-      bad(t020, {}, "action 不合法");
+  it("action 不合法（未登记的名字）", () => {
+    for (const name of ["nope", "", "profile", "runtime", "config.profile.add"]) {
+      bad(name, {}, "action 不合法");
     }
-    expect(Object.keys(WRITE_ACTIONS).sort()).toEqual(
-      ["config.rollback", "plugin.disable", "plugin.enable", "preset.remove", "preset.save", "preset.use", "role.set"],
-    );
+    expect(Object.keys(WRITE_ACTIONS).sort()).toEqual([
+      "config.rollback", "plugin.disable", "plugin.enable", "preset.remove", "preset.save", "preset.use",
+      "profile.add", "profile.edit", "profile.remove", "role.set", "runtime.add", "runtime.remove",
+    ]);
   });
 
   it("未知键、缺必填键", () => {
@@ -207,6 +213,32 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
     bad("plugin.enable", { id: "example-plugin", allow_permission: [5] }, "allow_permission 不合法");
   });
 
+  it("profile/runtime/model/thinking/credential_env/adapter/command 的取值", () => {
+    bad("profile.remove", { profile: "Bad_Profile" }, "profile 不合法");
+    bad("runtime.remove", { runtime: "Bad_Runtime" }, "runtime 不合法");
+    ok("profile.remove", { profile: "demo-profile" });
+    ok("runtime.remove", { runtime: "demo-runtime" });
+    bad("profile.add", { profile: "demo-profile", runtime: "demo-runtime", model: "no-slash" }, "model 不合法");
+    bad("profile.add", { profile: "demo-profile", runtime: "demo-runtime", model: "/model" }, "model 不合法");
+    bad("profile.add", { profile: "demo-profile", runtime: "demo-runtime", model: "provider/" }, "model 不合法");
+    ok("profile.add", { profile: "demo-profile", runtime: "demo-runtime", model: "demo-provider/demo-model" });
+    bad("profile.add", { profile: "p", runtime: "r", model: "a/b", thinking: "turbo" }, "thinking 不合法");
+    ok("profile.add", { profile: "p", runtime: "r", model: "a/b", thinking: "xhigh" });
+    bad("profile.add", { profile: "p", runtime: "r", model: "a/b", credential_env: [] }, "credential_env 不合法");
+    bad("profile.add", { profile: "p", runtime: "r", model: "a/b", credential_env: ["apikey_0123456789abcdefghijklmnopqrst"] }, "credential_env 不合法");
+    bad("profile.add", { profile: "p", runtime: "r", model: "a/b", credential_env: "DEMO_API_KEY" }, "credential_env 不合法");
+    ok("profile.add", { profile: "p", runtime: "r", model: "a/b", credential_env: ["DEMO_API_KEY", "OTHER_KEY"] });
+    bad("runtime.add", { runtime: "demo-runtime", adapter: "vim" }, "adapter 不合法");
+    ok("runtime.add", { runtime: "demo-runtime", adapter: "opencode" });
+    bad("runtime.add", { runtime: "r", adapter: "pi", command: [] }, "command 不合法");
+    bad("runtime.add", { runtime: "r", adapter: "pi", command: ["a\u0001b"] }, "command 不合法");
+    bad("runtime.add", { runtime: "r", adapter: "pi", command: ["x".repeat(1025)] }, "command 不合法");
+    bad("runtime.add", { runtime: "r", adapter: "pi", command: "pi" }, "command 不合法");
+    ok("runtime.add", { runtime: "r", adapter: "pi", command: ["C:/tools/pi.exe", "--flag"] });
+    bad("runtime.add", { runtime: "r", adapter: "pi", force: false }, "force 不合法");
+    ok("runtime.add", { runtime: "r", adapter: "pi", force: true });
+  });
+
   it("buildWriteArgv 拼出的基础 argv 与登记表逐条一致", () => {
     expect(buildWriteArgv("role.set", { role: "execution", target: "manual" })).toEqual(["config", "role", "set", "execution", "manual"]);
     expect(buildWriteArgv("role.set", { role: "scheduler_agent", target: "manual", host: "codex", cadence_seconds: 3600 })).toEqual([
@@ -219,5 +251,16 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
     expect(buildWriteArgv("plugin.enable", { id: "example-plugin", allow_permission: ["a", "b"] })).toEqual([
       "plugins", "enable", "example-plugin", "--allow-permission=a", "--allow-permission=b",
     ]);
+    expect(buildWriteArgv("profile.add", { profile: "demo-profile", runtime: "demo-runtime", model: "demo-provider/demo-model", thinking: "high", credential_env: ["DEMO_API_KEY", "OTHER_KEY"] })).toEqual([
+      "config", "profile", "add", "demo-profile", "--runtime=demo-runtime", "--model=demo-provider/demo-model", "--thinking=high", "--credential-env=DEMO_API_KEY", "--credential-env=OTHER_KEY",
+    ]);
+    expect(buildWriteArgv("profile.edit", { profile: "demo-profile", model: "demo-provider/demo-model", credential_env: ["DEMO_API_KEY"] })).toEqual([
+      "config", "profile", "edit", "demo-profile", "--model=demo-provider/demo-model", "--credential-env=DEMO_API_KEY",
+    ]);
+    expect(buildWriteArgv("profile.remove", { profile: "demo-profile" })).toEqual(["config", "profile", "remove", "demo-profile"]);
+    expect(buildWriteArgv("runtime.add", { runtime: "demo-runtime", adapter: "pi", command: ["C:/tools/pi.exe", "--flag"], force: true })).toEqual([
+      "config", "runtime", "add", "demo-runtime", "--adapter=pi", "--command=[\"C:/tools/pi.exe\",\"--flag\"]", "--force",
+    ]);
+    expect(buildWriteArgv("runtime.remove", { runtime: "demo-runtime" })).toEqual(["config", "runtime", "remove", "demo-runtime"]);
   });
 });
