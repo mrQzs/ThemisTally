@@ -4057,7 +4057,7 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
 - 任务：{task_id} · 合同版本 v{version} · {attempt_id}
 - 工作目录：{work_dir}（独立 worktree，基线 {base}）
 - 可用工具：{tools}
-- 单轮时限：{timeout} 秒，到时会被强制终止，未完成的自检与报告都会丢失。你看不到已用时间：开始时用 shell 记下时间（例如 `date +%s`），之后定期对比。用时过半前应开始修改文件，不要在动手前长时间推演；剩余不到五分之一时停止扩展，转入收尾：最后一次改动之后已经通过的检查不要重跑，与改动无关的检查也不必为求稳再跑（attempt 结束后调度器会在固定候选上重跑合同的全部检查）；一条检查跑多久以这一轮实测的用时为准，剩下的时间跑不完就不开跑、在报告里写明，不要用比实测用时短的 `timeout` 截着跑；结束时留出写执行报告的几分钟。
+- 单轮时限：{timeout} 秒，到时会被强制终止，未完成的自检与报告都会丢失。你看不到已用时间：开始时用 shell 记下时间（例如 `date +%s`）；之后每次开跑一条合同检查之前、每次动手修一个新发现的问题之前，都先用 `date +%s` 算出已用时间。用时过半前应开始修改文件，不要在动手前长时间推演；剩余不到五分之一时停止扩展，转入收尾：不再开新的修改，来不及修的问题，相关 DoD 标 not_done、在 note 里写明，executor_status 写 partial；最后一次改动之后已经通过的检查不要重跑，与改动无关的检查也不必为求稳再跑（attempt 结束后调度器会在固定候选上重跑合同的全部检查）；一条检查跑多久以这一轮实测的用时为准；这一轮还没跑过的，看机器合同摘要里的实测用时；剩下的时间跑不完就不开跑、在报告里写明，不要用比实测用时短的 `timeout` 截着跑；结束时留出写执行报告的几分钟。
 
 ## 必须遵守
 1. 只修改合同 Scope 允许的文件；需要越界、需要新增依赖或需要远程写入时，停止并在报告中说明。
@@ -4115,7 +4115,7 @@ def setup_facts_text(setup_results: Sequence[Dict[str, Any]]) -> str:
 
 def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor: Dict[str, Any],
                        timeout: int, extra_protected: Sequence[str] = (),
-                       setup_results: Sequence[Dict[str, Any]] = ()) -> str:
+                       setup_results: Sequence[Dict[str, Any]] = (), measured: Optional[Dict[str, int]] = None) -> str:
     tools = executor["tools"]
     has_shell = bool({"bash", "powershell"} & set(tools))
     actions = contract["authorization"]["executor"]
@@ -4137,7 +4137,23 @@ def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor:
         work_dir=meta["worktree"], base=meta["base_sha"], tools=",".join(tools), timeout=timeout,
         commit_rule=commit_rule, self_check_rule=self_check_rule, dod_ids=dod_ids,
         setup_facts=setup_facts_text(setup_results),
-        machine_summary=machine_summary(contract, extra_protected, self_check_tools))
+        machine_summary=machine_summary(contract, extra_protected, self_check_tools, measured))
+
+
+def measured_check_seconds(runs: Path, checks: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+    """每条检查跑完的实测用时里最长的一次（第 120 轮）：本任务 baseline 与各 attempt 的 checks.json 里，同 id、
+    同 argv、同 cwd、没超时、退出码等于期望的。基线上预期失败的检查很快就失败，那次的用时不算。
+    取最长而不取最近：估长了最多少跑一条能跑完的检查（内核事后反正全跑），估短了开跑之后被时限掐断。
+    T021 的 attempt-001 开跑 R01 之前不知道它要跑十几分钟（baseline 与 attempt 上实测 671–973 秒）。"""
+    wanted = {c["id"]: (c["argv"], c.get("cwd", ".")) for c in checks}
+    longest: Dict[str, float] = {}
+    for path in list(runs.glob("baseline/*/checks.json")) + list(runs.glob("attempt-*/checks/*/checks.json")):
+        for item in read_json_or(path, {}).get("results") or []:
+            if (wanted.get(item.get("id")) != (item.get("argv"), item.get("cwd", ".")) or item.get("timed_out")
+                    or item.get("exit_code") != item.get("expected_exit_code") or item.get("wall_seconds") is None):
+                continue
+            longest[item["id"]] = max(longest.get(item["id"], 0.0), float(item["wall_seconds"]))
+    return {cid: int(round(seconds)) for cid, seconds in longest.items()}
 
 
 #: 自检照抄的写法保留的输出行数（2.10.0）。
@@ -4169,7 +4185,8 @@ def self_check_command(check: Dict[str, Any], tools: Sequence[str]) -> Optional[
     return None
 
 
-def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (), tools: Sequence[str] = ()) -> str:
+def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (), tools: Sequence[str] = (),
+                    measured: Optional[Dict[str, int]] = None) -> str:
     scope = contract["scope"]
 
     def listing(values: Sequence[str]) -> str:
@@ -4193,11 +4210,12 @@ def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (
     }
     for check in contract["checks"]:
         expected = check.get("expected_exit_code", 0)
-        lines.append("  - %s%s：`%s`（cwd %s，超时 %ss%s%s）" % (
+        seconds = (measured or {}).get(check["id"])
+        lines.append("  - %s%s：`%s`（cwd %s，超时 %ss%s%s%s）" % (
             check["id"], "（必要）" if check.get("required", True) else "",
             subprocess.list2cmdline(check["argv"]) if IS_WINDOWS else " ".join(shlex_quote(a) for a in check["argv"]),
-            check.get("cwd", "."), check["timeout_seconds"], "，期望退出码 %s" % expected if expected != 0 else "",
-            base_notes.get(check.get("expect_on_base", "any"), "")))
+            check.get("cwd", "."), check["timeout_seconds"], "，实测最长 %s 秒" % seconds if seconds is not None else "",
+            "，期望退出码 %s" % expected if expected != 0 else "", base_notes.get(check.get("expect_on_base", "any"), "")))
         form = self_check_command(check, tools)
         if form:
             # 2.10.0：执行器照抄合同的检查命令再接管道，退出码就成了 tail 的；给出现成的截短写法。
@@ -5221,7 +5239,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         write_json(run_dir / "executor.json", executor, exclusive=True)
         write_text(run_dir / "instruction.md", render_instruction(meta, contract, executor, timeout,
                                                                   attempt_protected_paths(config, meta),
-                                                                  read_json_or(run_dir / "setup.json", [])))
+                                                                  read_json_or(run_dir / "setup.json", []),
+                                                                  measured_check_seconds(run_dir.parent, contract["checks"])))
         shutil.copyfile(str(run_dir / "instruction.md"), str(attach_dir / "instruction.md"))
         run_info["attachments"] = [{"name": name, "path": str(attach_dir / name),
                                     "sha256": sha256_file(attach_dir / name)}

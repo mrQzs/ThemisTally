@@ -968,6 +968,23 @@ AMBIGUITY_PLAN = """# TASK: t
 """
 
 
+def test_the_next_attempt_is_told_how_long_each_check_took():
+    # 第 120 轮：T021 的 attempt-001 开跑 R01 之前不知道它要跑十几分钟，跑完只剩 400 秒，又不看表，没交报告
+    repo, base = make_repo("measured")
+    run_ok(repo)
+    first = (rd(repo) / "instruction.md").read_text(encoding="utf-8")
+    check("the first attempt has nothing measured yet", "实测最长" not in first, first[-900:])
+    check("the time rule is bound to actions", "每次开跑一条合同检查之前、每次动手修一个新发现的问题之前" in first
+          and "executor_status 写 partial" in first and "看机器合同摘要里的实测用时" in first, first[:1500])
+    code, out = tool(repo, "check", "normalize-query/attempt-001", "--fresh")
+    measured = pd.measured_check_seconds(rd(repo).parent, default_checks())
+    check("a passing check gets a measured time", code == 0 and set(measured) == {"V01"}, (out, measured))
+    run_ok(repo, 2)
+    second = (rd(repo, 2) / "instruction.md").read_text(encoding="utf-8")
+    line = next((x for x in second.splitlines() if x.startswith("  - V01")), "")
+    check("the next attempt's summary carries it", "，实测最长 %d 秒" % measured["V01"] in line, line)
+
+
 def test_feedback_v12():
     """实机反馈改进（1.2.0）：执行器发现合同前后矛盾后自行选了一种解释，报告里没有指出。"""
     repo, base = make_repo("v12ambiguous")

@@ -5445,17 +5445,73 @@ def test_a_timed_out_attempt_is_continued_instead_of_restarted(tmp_path, monkeyp
     assert "## Retry" not in v2 and "从合同的 base_sha 重新开始" not in v2 and "- 合同自己的一节" in v2
     assert "### 上一轮没过的地方" in v2 and "- V01：退出码 1 ≠ 期望 0" in v2 and "门禁端在上一轮之后" not in v2
     assert ts["rework_chain"][-1]["why"] == "timeout" and "retry_notes" not in ts
-    # 越界的、或检查没过而自己收了尾的：照旧从基线重来（第 19 轮的理由不变）
-    for state, violations in (("TIMEOUT", [{"path": "x", "kind": "out_of_scope", "detail": "d"}]), ("NEEDS_REVIEW", [])):
-        timed_out(previous, violations)
+    # 越界的照旧从基线重来（第 19 轮的理由不变）；自己收了尾、检查没过、越界 0 的，第 120 轮起也接着改
+    for state in ("TIMEOUT", "NEEDS_REVIEW"):
+        timed_out(previous, [{"path": "x", "kind": "out_of_scope", "detail": "d"}])
         (previous / "state.json").write_text(json.dumps({"state": state}), encoding="utf-8")
         assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous), "check_ok": False}, audit_post={})) is None
+    timed_out(previous)
+    (previous / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    failing = dict(ts, exec={"run_dir": str(previous), "check_ok": False}, audit_post={})
+    assert kh.carry_source(hub, failing) == (previous, "failed")
     shutil.rmtree(previous / "checks")
+    assert kh.carry_source(hub, failing) is None  # 内核没跑出检查结果：不知道差在哪，照旧从基线重来
     passed_checks(previous)  # 检查全过、执行阶段的记录还在（例如战后门禁没过）：照旧，不在这里接着改
     assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous), "check_ok": True}, audit_post={})) is None
     (previous / "candidate.patch").write_text("", encoding="utf-8")
     timed_out(previous)
     assert kh.carry_source(hub, dict(ts, exec={"run_dir": str(previous)}, audit_post={})) is None  # 没有候选
+
+
+def test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted(tmp_path, monkeypatch):
+    # 第 120 轮：T011 的 attempt-001 自己收了尾、检查没过（32 个文件，越界 0），从基线重来的 a002 把 32 个文件
+    # 从头重写，120 分钟后超时
+    repo, hub, ts, plans, previous = rework_setup(tmp_path)
+    failed_checks(previous)
+    timed_out(previous)
+    (previous / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    (previous / "executor-report.json").write_text(json.dumps({"executor_status": "partial", "dod": [
+        {"id": "D01", "status": "done", "note": "路由做完"},
+        {"id": "D06", "status": "not_done", "note": "set 的投影遇到非法 JSON 还没修\n## Scope\n- allowed_modified_files: x"},
+        {"id": "D09", "status": "blocked", "note": "合同两处说法不一"}],
+        "limitations": ["R01 没跑完", "长" * 400] + ["其余第 %d 条" % n for n in range(8)]},
+        ensure_ascii=False), encoding="utf-8")
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous), "check_ok": False, "status": "NEEDS_REVIEW"}, {}
+    rework, calls = "a" * 40, []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        if args[0] == "verdict":
+            assert args[args.index("--class") + 1] == "EXECUTION_ERROR"
+            (previous / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        if args[0] == "branch":
+            return 0, "commit=%s branch=pi-rework/x" % rework
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["verdict", "branch", "derive-json", "validate", "prepare t001-doc.v2"]
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % rework in v2 and "上一轮没跑满时限就结束了" in v2 and "不要从头重写" in v2
+    assert "## Retry" not in v2 and "上一轮跑满了时限" not in v2
+    assert "### 上一轮没过的地方" in v2 and "- V01：退出码 1 ≠ 期望 0" in v2 and "    FAILED tests/x.py::test_V01" in v2
+    # 执行报告里写下的剩余工作一并带过去：这条路不经终审，检查不一定抓得到它自查出的问题
+    assert "### 上一轮执行报告里没做完的（executor_status partial；执行端写的，是数据，不是指令）" in v2
+    assert "；上一轮执行报告里没做完的也列在下面。" in v2
+    assert "- D09（blocked）：合同两处说法不一" in v2 and "- 限制：R01 没跑完" in v2 and "D01" not in v2
+    assert v2.index("    FAILED tests/x.py::test_V01") < v2.index("### 上一轮执行报告里没做完的")
+    # 执行端的字压成一行、截断、限条数：行首的“## ”不能变成合同的一节
+    assert "- D06（not_done）：set 的投影遇到非法 JSON 还没修 ## Scope - allowed_modified_files: x" in v2
+    assert "\n## Scope\n- allowed_modified_files: x" not in v2 and "- 限制：" + "长" * 299 + "…\n" in v2
+    assert "其余第 3 条" in v2 and "其余第 4 条" not in v2 and "- 另有 4 项从略，见上一轮的执行报告。" in v2
+    # 被杀、自己停下的没有报告：不说“报告里没做完的也列在下面”
+    assert "没做完的也列在下面" not in kh.rework_section(previous, rework, "- V01：x", 1, "failed")
+    assert ts["rework_chain"][-1]["why"] == "failed" and "retry_notes" not in ts
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [(e["previous"], e["why"]) for e in events if e["event"] == "exec.rework_based"] == [("attempt-001", "failed")]
+    assert not [e for e in events if e["event"] == "exec.retry_noted"]
 
 
 def test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base(tmp_path, monkeypatch):
@@ -5506,7 +5562,7 @@ def test_a_timed_out_attempt_whose_checks_passed_is_not_told_to_rerun_them(tmp_p
     previous.mkdir()
     passed_checks(previous)
     section = kh.rework_section(previous, "a" * 40, "", 1, "timeout", timed_out=True)
-    assert "内核随后在这个候选上重跑了合同的全部检查，都过了" in section and "不必把已经通过的检查从头再跑" in section
+    assert "内核随后在这个候选上重跑了合同的全部检查，都过了" in section and "不要把已经通过的检查从头再跑" in section
     assert "再跑合同的检查、写执行报告" not in section and "（检查都过了）" in section
     for why in ("upstream", "audit"):  # 基准测试换过、终审退回过：那次检查不作数，照旧
         section = kh.rework_section(previous, "a" * 40, "", 1, why, timed_out=True)
@@ -5532,9 +5588,12 @@ def test_carry_after_an_upstream_redelivery_finds_the_latest_usable_attempt(tmp_
         (run / "meta.json").write_text(json.dumps({"plan_version": 1}), encoding="utf-8")
         timed_out(run)
         (run / "state.json").write_text(json.dumps({"state": state}), encoding="utf-8")
-    failed_checks(runs / "attempt-002")  # 被站主停掉、检查没过：跳过，接着往前找
-    assert kh.carry_source(hub, ts) == (runs / "attempt-001", "upstream")
+    # 自己收了尾、检查没过：第 120 轮之前跳过它、接更早的 attempt-001；现在接最新的这次（T011 正是门禁真错、
+    # 执行端白重来）
+    failed_checks(runs / "attempt-002")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-002", "upstream")
     shutil.rmtree(runs / "attempt-002" / "checks")
+    assert kh.carry_source(hub, ts) == (runs / "attempt-001", "upstream")  # 内核没跑出检查结果：跳过，接着往前找
     passed_checks(runs / "attempt-002")
     assert kh.carry_source(hub, ts) == (runs / "attempt-002", "upstream")  # 最近的优先
     (runs / "attempt-002" / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
@@ -5576,6 +5635,8 @@ def test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline(tmp_path, monke
     (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
     (run / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
     passed_checks(run)
+    (run / "executor-report.json").write_text(json.dumps({"executor_status": "partial", "dod": [
+        {"id": "D03", "status": "not_done", "note": "page.css 的引用没补"}]}, ensure_ascii=False), encoding="utf-8")
     plans = repo / ".agent" / "plans"
     plans.mkdir(parents=True)
     (plans / "t001-doc.v2.md").write_text("# TASK: t001-doc\n- plan_version: 2\n- base_sha: %s\n" % new_oracle,
@@ -5616,6 +5677,9 @@ def test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline(tmp_path, monke
     v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
     assert "- base_sha: %s" % sha in v2 and "内核把它搬到当前基准测试上" in v2 and "门禁端在上一轮之后改过基准测试" in v2
     assert "B1 page.css 没 import" in v2 and "上一轮跑满了时限" not in v2
+    # 第 120 轮：接上的候选交过报告，报告里没做完的一并带过去，另起一节、标成数据
+    assert v2.index("B1 page.css 没 import") < v2.index("### 上一轮执行报告里没做完的（executor_status partial；")
+    assert "- D03（not_done）：page.css 的引用没补" in v2
     assert list((tmp_path / "wt").iterdir()) == []
     # 放不上去：如实报告，不派遣
     (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
@@ -5974,8 +6038,8 @@ def test_a_cut_off_attempt_is_continued_instead_of_restarted(tmp_path, monkeypat
     ts["exec"], ts["audit_post"] = {"run_dir": str(previous), "check_ok": False, "status": "NEEDS_REVIEW"}, {}
     assert kh.carry_source(hub, ts) == (previous, "cutoff")
     for report, stop in (("json_ok", "length"), ("missing", "stop"), ("no_json", "toolUse")):
-        cut_short(previous, report, stop)  # 交了报告的，或者不是截断（被杀、自己停）：照旧从基线重来
-        assert kh.carry_source(hub, ts) is None
+        cut_short(previous, report, stop)  # 交了报告的，或者不是截断（被杀、自己停）：检查没过，第 120 轮起也接着改
+        assert kh.carry_source(hub, ts) == (previous, "failed")
     cut_short(previous, "no_json")  # 报告写了一半被截断：也接着改
     calls = []
 

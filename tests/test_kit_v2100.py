@@ -227,6 +227,35 @@ class InstructionForms(unittest.TestCase):
         self.assertNotIn("期望退出码", lines[at])
         self.assertIn("，期望退出码 3", next(line for line in lines if line.startswith("  - V02")))
 
+    def test_each_check_gets_its_longest_measured_time(self):
+        # 第 120 轮：取最长的一次；超时、退出码不等于期望（基线上预期失败的很快就失败）、argv 或 cwd 不同的都不算
+        def result(cid, seconds, argv=("python", "run.py"), cwd=".", exit_code=0, expected=0, timed_out=False):
+            return {"id": cid, "argv": list(argv), "cwd": cwd, "exit_code": exit_code, "expected_exit_code": expected,
+                    "timed_out": timed_out, "wall_seconds": seconds}
+
+        runs = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, runs, True)
+        files = {"baseline/01/checks.json": [result("V01", 100.4),
+                                             result("V02", 2, ("python", "probe.py"), exit_code=1, expected=3)],
+                 "attempt-001/checks/01/checks.json": [result("V01", 250, timed_out=True), result("V01", 180.6),
+                                                       result("V02", 40, ("python", "other.py"), exit_code=3, expected=3),
+                                                       result("V02", 41, ("python", "probe.py"), "sub", 3, 3)],
+                 "attempt-001/checks/02/checks.json": [result("V01", 150)]}
+        for name, results in files.items():
+            (runs / name).parent.mkdir(parents=True, exist_ok=True)
+            (runs / name).write_text(json.dumps({"results": results}), encoding="utf-8")
+        (runs / "attempt-002" / "checks" / "01").mkdir(parents=True)
+        (runs / "attempt-002" / "checks" / "01" / "checks.json").write_text("{坏的", encoding="utf-8")
+        measured = pd.measured_check_seconds(runs, _contract()["checks"])
+        self.assertEqual(measured, {"V01": 181})
+        lines = pd.machine_summary(_contract(), (), [], measured).splitlines()
+        self.assertIn("超时 60s，实测最长 181 秒）", next(line for line in lines if line.startswith("  - V01")))
+        v02 = next(line for line in lines if line.startswith("  - V02"))
+        self.assertNotIn("实测最长", v02)
+        self.assertIn("超时 60s，期望退出码 3", v02)
+        self.assertIn("实测最长 181 秒", pd.render_instruction(META, _contract(), EXECUTOR, 600, (), (), measured))
+        self.assertNotIn("实测最长 ", pd.render_instruction(META, _contract(), EXECUTOR, 600))
+
     def test_without_tools_the_summary_has_no_forms(self):
         self.assertNotIn("自检照抄：`", pd.machine_summary(_contract()))
 
