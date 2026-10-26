@@ -8868,19 +8868,15 @@ def config_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     kit_config 的两条组合检查都由 Python 当场回答。不先找仓库（与 readonly_handoff 不同）：TS 在 Python 调
     kit_config._repo 的那一步找仓库，契约逐个叶子比过 Repo.discover 的三种报错；也少起一次 git（桌面端每页要读好几条
     config）。context 交 kit 根与等配置锁的秒数（TS 不读环境变量、不设默认值）。"""
+    if args.func is not cmd_config and args.func is not cmd_plugins:
+        return None  # 先看命令再 import：别的命令不白白加载 kit_config、kit_plugins（以脚本方式运行时每条约多 31 ms）
     try:
         import kit_config
         import kit_plugins
     except ModuleNotFoundError:
         return None
-    if args.func is cmd_config:
-        parser = kit_config.build_parser()
-        parsed = parser.parse_args(list(args.args))
-    elif args.func is cmd_plugins:
-        parser = kit_plugins.build_parser()
-        parsed = parser.parse_args(list(args.args))
-    else:
-        return None
+    parser = kit_config.build_parser() if args.func is cmd_config else kit_plugins.build_parser()
+    parsed = parser.parse_args(list(args.args))
     if args.repo is not None and not parsed.repo:
         parsed.repo = args.repo
     if not getattr(parsed, "func", None):

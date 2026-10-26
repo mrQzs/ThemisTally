@@ -784,6 +784,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 |---|---|---|---|
 | 2026-10-26 | `pi_dispatch.secret_like_paths`（Python 与 TS 一致） | 键名含 `token` 就算疑似凭据：`pricing` 文档写着可以填的 `per_tokens` 一写，`validate` 就整段报“pricing 里有疑似凭据”，内核也不读这份配置。改成只在值像凭据、或键名是凭据类名字（`api_key`、`access_token` 这类）时才算；两边同一轮改。现在没人写 `per_tokens`，不挡路 | 第 ③a2 片的整份校验契约 |
 | 2026-10-26 | `ts/packages/ui/test/secret-entry.test.ts` 的“全部反例都不回 201” | 握手时限只有 1 秒，负载重时偶发少起子进程（2026-10-26 全量与 T023 的执行端同时跑时 5≠10，单独重跑两遍都过）。门禁与 hub 的回归常与别的重活同时跑，红了会被当成返工。再红一次就放宽这条用例的时限（只改测试夹具，不改产品行为）；合入前红了就单独重跑一遍 | themistally-15 复核 ③d |
+| 2026-10-26 | `desktop/web/tests/shellpages-settings.test.tsx`（门禁 T004、T013 的流水线跑它） | `grabShell` 负载重时拿到 null（2026-10-26 在 6ed53d0 上跑全部门禁基准，正与 T023 的收尾同时跑，13 条红；dc53c27 那一遍与 3d1e101 的 owner sweep 都过）。用的是桩（createShellStub，jsdom 里），不碰真内核。处理同上一条：合入前红了就单独重跑一遍；门禁或 hub 回归里再红一次就改夹具 | themistally-15 复核切换 |
 
 **已定**（2026-10-22，themistally-15 代站主答复）：
 1. 选择文件就是 `scripts/kernel-impl.json`，规矩见第 5 节。

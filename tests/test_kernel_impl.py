@@ -757,6 +757,16 @@ def test_a_command_option_named_like_a_subcommand_is_just_a_bad_command(tmp_path
     argv = ["--repo", str(repo), "config", "runtime", "add", "r1", "--adapter", "pi", "--command", value]
     assert pd.config_handoff(args_of(argv))["command_option"] == value
 
+def test_other_commands_do_not_load_the_config_modules(monkeypatch):
+    # 先看命令再 import（themistally-15 复核切换时实测：以脚本方式运行时，每条非配置中心的命令白白多约 31 ms）。
+    # 本模块开头已经 import 了这两个模块，先从 sys.modules 里拿掉，收尾时 monkeypatch 放回
+    monkeypatch.delitem(sys.modules, "kit_config")
+    monkeypatch.delitem(sys.modules, "kit_plugins")
+    for argv in (["status"], ["validate", "x.v1"], ["metrics"]):
+        assert pd.config_handoff(args_of(argv)) is None
+    assert "kit_config" not in sys.modules and "kit_plugins" not in sys.modules
+
+
 def test_secret_set_help_and_usage_errors_stay_in_python():
     assert pd.config_handoff(args_of(["config", "secret", "set", "SOME_NAME"])) is None
     assert pd.config_handoff(args_of(["config"])) is None  # 没给子命令：交回 Python 打帮助
