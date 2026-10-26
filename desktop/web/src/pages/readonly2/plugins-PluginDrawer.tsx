@@ -12,7 +12,7 @@ export type PluginReader = (id: string) => Promise<Envelope<PluginShowData>>;
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'error'; command: string[]; exit_code: number; messages: string[] }
+  | { kind: 'error'; command: string[]; exit_code: number | null; messages: string[] }
   | { kind: 'ok'; data: PluginShowData };
 
 const RESULT_TONE: Record<string, TagTone> = {

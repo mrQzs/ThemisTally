@@ -22,7 +22,7 @@ export default function PluginsPage() {
         <DisabledAction label="核对全部" variant="secondary" size="md" icon={<ListChecksIcon width={16} height={16} />} />
       }
     >
-      {(data) => <PluginsView data={data} getPlugin={getPlugin} />}
+      {(data, reload) => <PluginsView data={data} getPlugin={getPlugin} reload={reload} />}
     </PageFrame>
   );
 }

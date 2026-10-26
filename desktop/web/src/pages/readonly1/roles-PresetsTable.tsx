@@ -9,6 +9,8 @@ import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
 import { presetRoleTitle } from './roles-logic';
 import { PresetDiff, type PresetDiffState } from './roles-PresetDiff';
+import { useWriteFlow } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
 
 interface PresetRow {
   rowId: string;
@@ -32,11 +34,13 @@ export interface PresetsTableProps {
   active: string;
   totalRoles: number;
   onDiff: (a: string, b: string) => Promise<Envelope<PresetDiffData>>;
+  reload?: () => Promise<void>;
 }
 
-export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTableProps) {
+export function PresetsTable({ presets, active, totalRoles, onDiff, reload }: PresetsTableProps) {
   const [openName, setOpenName] = useState<string | null>(null);
   const [diff, setDiff] = useState<PresetDiffState | null>(null);
+  const { start, flow } = useWriteFlow(reload);
   const reqRef = useRef(0);
   // 面板 id 用 useId 加行序号：各行互不相同，也不拿方案名拼（收起的按钮不给 aria-controls）。
   const diffId = useId();
@@ -84,7 +88,13 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
         '当前方案不能删'
       ) : (
         <>
-          <DisabledAction label="使用" variant="ghost" size="sm" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => start({ action: 'preset.use', args: { name: p.name }, title: `使用方案 ${p.name}？` })}
+          >
+            使用
+          </Button>
           <DisabledAction label="删除…" variant="ghost" size="sm" />
           <Button
             variant="ghost"
@@ -113,6 +123,7 @@ export function PresetsTable({ presets, active, totalRoles, onDiff }: PresetsTab
       {openName !== null && (
         <PresetDiff id={panelId} active={active} name={openName} state={diff} totalRoles={totalRoles} />
       )}
+      <WriteFlow flow={flow} />
     </Section>
   );
 }

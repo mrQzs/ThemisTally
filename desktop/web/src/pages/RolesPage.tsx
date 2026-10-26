@@ -43,7 +43,7 @@ export default function RolesPage() {
         </>
       }
     >
-      {(data) => <RolesView data={data} onDiff={diffPresets} />}
+      {(data, reload) => <RolesView data={data} onDiff={diffPresets} reload={reload} />}
     </PageFrame>
   );
 }

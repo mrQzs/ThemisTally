@@ -3,10 +3,12 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { CheckIcon, CircleXIcon, TriangleAlertIcon } from '../../icons';
 import { PluginsIcon } from '../../icons/frame';
 import { DisabledAction } from '../../shell/DisabledAction';
-import { Drawer, Tag, Table, type TableColumn } from '../../components';
+import { Button, Drawer, Tag, Table, type TableColumn } from '../../components';
 import type { PluginsData } from '../../api';
 import { enabledView, lockView, pluginAction, statusTone, type PluginRow } from './plugins-logic';
 import { PluginDrawer, type PluginReader } from './plugins-PluginDrawer';
+import { useWriteFlow, type WriteSpec } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import './plugins-styles.css';
 
 interface PluginRowView {
@@ -74,9 +76,11 @@ function MissingCell({ missing }: { missing: readonly string[] }) {
   );
 }
 
-function ActionCell({ enabled }: { enabled: string }) {
+function ActionCell({ enabled, id, start }: { enabled: string; id: string; start: (spec: WriteSpec) => void }) {
   const action = pluginAction(enabled);
   if (action.kind === 'detail') return <span className="r2-dim">详情</span>;
+  const writeAction = action.kind === 'disable' ? 'plugin.disable' : 'plugin.enable';
+  const title = action.kind === 'disable' ? `停用插件 ${id}？` : `启用插件 ${id}？`;
   return (
     <span
       className="r2-act"
@@ -84,7 +88,9 @@ function ActionCell({ enabled }: { enabled: string }) {
         e.stopPropagation();
       }}
     >
-      <DisabledAction label={action.label} variant="ghost" size="sm" />
+      <Button variant="ghost" size="sm" onClick={() => start({ action: writeAction, args: { id }, title })}>
+        {action.label}
+      </Button>
     </span>
   );
 }
@@ -101,10 +107,11 @@ function drawerTitle(row: PluginRow): ReactNode {
   );
 }
 
-export function PluginsView({ data, getPlugin }: { data: PluginsData; getPlugin: PluginReader }) {
+export function PluginsView({ data, getPlugin, reload }: { data: PluginsData; getPlugin: PluginReader; reload?: () => Promise<void> }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const notInstalledId = useId();
   const problemsId = useId();
+  const { start, flow } = useWriteFlow(reload);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const rows: PluginRow[] = data.plugins ?? [];
@@ -141,7 +148,7 @@ export function PluginsView({ data, getPlugin }: { data: PluginsData; getPlugin:
         {r.reason ? <span className="r2-plugins__reason">{r.reason}</span> : null}
       </>
     ),
-    action: <ActionCell enabled={r.enabled} />,
+    action: <ActionCell enabled={r.enabled} id={r.id} start={start} />,
   }));
 
   return (
@@ -194,6 +201,7 @@ export function PluginsView({ data, getPlugin }: { data: PluginsData; getPlugin:
       >
         {openRow ? <PluginDrawer row={openRow} load={getPlugin} /> : null}
       </Drawer>
+      <WriteFlow flow={flow} />
     </div>
   );
 }

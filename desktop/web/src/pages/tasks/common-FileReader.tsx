@@ -10,7 +10,7 @@ export type FileReadStatus = 'loading' | 'error' | 'data';
 export interface FileRead {
   status: FileReadStatus;
   command: string[];
-  exit_code: number;
+  exit_code: number | null;
   messages: string[];
   /** 已读到的各页（顺序即到达顺序）。 */
   pages: ViewerPage[];
@@ -48,7 +48,7 @@ export function toViewerPage(data: FileData): ViewerPage {
 export function useFilePages(read: (cursor?: string) => Promise<Envelope<FileData>>): FileRead {
   const [pages, setPages] = useState<ViewerPage[]>([]);
   const [status, setStatus] = useState<FileReadStatus>('loading');
-  const [err, setErr] = useState<{ command: string[]; exit_code: number; messages: string[] }>({
+  const [err, setErr] = useState<{ command: string[]; exit_code: number | null; messages: string[] }>({
     command: [], exit_code: 0, messages: [],
   });
   const [hasMore, setHasMore] = useState(false);
@@ -112,7 +112,7 @@ export interface FileReadNoteProps {
 /** 一次读取失败的命令、退出码与 messages。 */
 export interface ReadFailure {
   command: string[];
-  exit_code: number;
+  exit_code: number | null;
   messages: string[];
 }
 

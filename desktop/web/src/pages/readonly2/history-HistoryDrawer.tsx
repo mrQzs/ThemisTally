@@ -19,7 +19,7 @@ export type HistoryReader = (n: number) => Promise<Envelope<HistoryDetail>>;
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'error'; command: string[]; exit_code: number; messages: string[] }
+  | { kind: 'error'; command: string[]; exit_code: number | null; messages: string[] }
   | { kind: 'ok'; detail: HistoryDetail };
 
 export function HistoryDrawer({ entry, load }: { entry: HistoryEntry; load: HistoryReader }) {

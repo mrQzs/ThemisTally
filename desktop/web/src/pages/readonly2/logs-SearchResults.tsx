@@ -6,7 +6,7 @@ import './logs-styles.css';
 
 export type SearchState =
   | { kind: 'idle' }
-  | { kind: 'error'; command: string[]; exit_code: number; messages: string[] }
+  | { kind: 'error'; command: string[]; exit_code: number | null; messages: string[] }
   | { kind: 'ok'; q: string; max: number; data: SearchData };
 
 const HINT = '输入 Python 正则表达式后检索；全量检索可能要半分钟左右，建议先选任务缩小范围。';
@@ -22,7 +22,7 @@ function Excerpt({ text, q }: { text: string; q: string }) {
   );
 }
 
-function ErrorBlock({ command, exitCode, messages }: { command: string[]; exitCode: number; messages: string[] }) {
+function ErrorBlock({ command, exitCode, messages }: { command: string[]; exitCode: number | null; messages: string[] }) {
   return (
     <div className="r2-search__error">
       <p className="r2-search__error-cmd">没能检索：命令（{command.join(' ')}）返回退出码 {exitCode}。</p>

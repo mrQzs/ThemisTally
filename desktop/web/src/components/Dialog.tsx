@@ -17,9 +17,11 @@ export interface DialogProps {
   title: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  /** 能不能关闭：缺省 true。false 时 Esc 仍 stopPropagation 但不调 onClose、头部关闭钮禁用（命令已发出，不能假装取消）。 */
+  dismissible?: boolean;
 }
 
-export function Dialog({ open, onClose, title, children, footer }: DialogProps) {
+export function Dialog({ open, onClose, title, children, footer, dismissible = true }: DialogProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   useOverlayFocus(open, dialogRef);
@@ -29,7 +31,7 @@ export function Dialog({ open, onClose, title, children, footer }: DialogProps) 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      onClose();
+      if (dismissible) onClose();
       return;
     }
     if (e.key === 'Tab') {
@@ -73,7 +75,7 @@ export function Dialog({ open, onClose, title, children, footer }: DialogProps) 
         >
           <div className="tt-dialog__head">
             <h2 className="tt-dialog__title" id={titleId}>{title}</h2>
-            <IconButton label="关闭（Esc）" icon={<XIcon />} size="sm" onClick={onClose} />
+            <IconButton label="关闭（Esc）" icon={<XIcon />} size="sm" onClick={onClose} disabled={!dismissible} />
           </div>
           <div className="tt-dialog__body">{children}</div>
           {footer && <div className="tt-dialog__footer">{footer}</div>}

@@ -6,7 +6,7 @@ import { bindingText, roleName } from './roles-logic';
 
 export type PresetDiffState =
   | { status: 'loading' }
-  | { status: 'error'; command: string; exit_code: number; messages: string[] }
+  | { status: 'error'; command: string; exit_code: number | null; messages: string[] }
   | { status: 'data'; data: PresetDiffData };
 
 export interface PresetDiffProps {

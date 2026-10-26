@@ -17,7 +17,7 @@ type Phase = 'loading' | 'data' | 'empty' | 'error';
 
 interface ErrorInfo {
   command: string[];
-  exit_code: number;
+  exit_code: number | null;
   messages: string[];
 }
 
@@ -30,7 +30,7 @@ export interface PageFrameProps<T> {
   load: () => Promise<Envelope<T>>;
   isEmpty?: (data: T) => boolean;
   empty?: { title: string; description?: string };
-  children: (data: T) => ReactNode;
+  children: (data: T, reload: () => Promise<void>) => ReactNode;
 }
 
 export function PageFrame<T>({
@@ -107,6 +107,12 @@ export function PageFrame<T>({
 
   const hasData = phase === 'data' || phase === 'empty';
 
+  // 刷新页面显示（写操作成功后调）：触发一次刷新，返回已兑现的 Promise（重读判定不靠它）。
+  const reload = useCallback((): Promise<void> => {
+    request(true);
+    return Promise.resolve();
+  }, [request]);
+
   const renderBody = () => {
     if (phase === 'loading') return <Skeleton />;
     if (phase === 'error') {
@@ -136,7 +142,7 @@ export function PageFrame<T>({
     if (phase === 'empty' && empty) {
       return <EmptyState title={empty.title} description={empty.description} />;
     }
-    return <>{data != null ? children(data) : null}</>;
+    return <>{data != null ? children(data, reload) : null}</>;
   };
 
   return (

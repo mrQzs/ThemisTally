@@ -23,16 +23,63 @@ import {
   EMPTY_PLUGINS,
   EMPTY_HISTORY,
 } from './mock/empty';
+import {
+  mockGetOperation,
+  mockPreview,
+  mockSetPluginEnabled,
+  mockUsePreset,
+} from './mock/writes';
 
 // 信封（UI 文档 8.9 :1093–1095）：ok、exit_code、data、output、messages、command、elapsed_ms。
+// exit_code 放宽成 number | null：超时（504）等信封的退出码是 null（照 ts/packages/ui 的 timeoutEnvelope）。
 export interface Envelope<T> {
   ok: boolean;
-  exit_code: number;
+  exit_code: number | null;
   data: T | null;
   output: string[];
   messages: string[];
   command: string[];
   elapsed_ms: number;
+}
+
+// A 片三个写动作（B 片的删除、回滚不在此列）。
+export type WriteAction = 'preset.use' | 'plugin.enable' | 'plugin.disable';
+
+// 一次 HTTP 式响应：状态码加七字段信封（写路由不回 data，data 恒 null；预览回 PreviewData）。
+export interface HttpReply<T> {
+  status: number;
+  body: Envelope<T>;
+}
+
+// 预览里的一条角色绑定变化（演示用的简化形状，照 UI 文档 7.11 的变化行）。
+export interface BindingChange {
+  role: string;
+  from: string;
+  to: string;
+}
+
+// 预览数据（POST /api/v1/preview 的 data）：命令是将要运行的写命令（不含 --dry-run --json）。
+export interface PreviewData {
+  binding_changes: BindingChange[];
+  resources: string[];
+  notes: string[];
+  warnings: string[];
+  running_attempts: string[];
+  needs_yes: boolean;
+  command: string[];
+  confirmation: string;
+}
+
+// 操作记录暴露给界面的八键投影（照 ts/packages/ui/src/operations.ts 的 operationView，八键一个不能少）。
+export interface OperationView {
+  id: string;
+  action: string;
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'stale' | 'timed_out';
+  reason: string | null;
+  created_ms: number;
+  started_ms: number | null;
+  finished_ms: number | null;
+  envelope: Envelope<null> | null;
 }
 
 export type MetaData = typeof metaJson;
@@ -186,4 +233,22 @@ export function listSecrets(): Promise<Envelope<SecretsData>> {
   return read(['config', 'show'], (mode) =>
     okEnvelope(['config', 'show'], mode === 'empty' ? clone(EMPTY_SECRETS) : clone(secretsJson)),
   );
+}
+
+// A 片四个写函数：预览、查操作、用方案、启停插件。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
+// B 片的 removePreset/removeProfile/removeRuntime/rollback 不在此列（不放桩、不接界面）。
+export function preview(action: WriteAction, args: Record<string, string>): Promise<HttpReply<PreviewData>> {
+  return mockPreview(action, args);
+}
+
+export function getOperation(id: string): Promise<HttpReply<OperationView>> {
+  return mockGetOperation(id);
+}
+
+export function usePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
+  return mockUsePreset(name, confirmation);
+}
+
+export function setPluginEnabled(id: string, enabled: boolean, confirmation: string): Promise<HttpReply<null>> {
+  return mockSetPluginEnabled(id, enabled, confirmation);
 }

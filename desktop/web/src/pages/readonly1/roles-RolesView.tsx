@@ -18,16 +18,17 @@ export interface RolesViewData {
 export interface RolesViewProps {
   data: RolesViewData;
   onDiff: (a: string, b: string) => Promise<Envelope<PresetDiffData>>;
+  reload?: () => Promise<void>;
 }
 
-export function RolesView({ data, onDiff }: RolesViewProps) {
+export function RolesView({ data, onDiff, reload }: RolesViewProps) {
   const active = data.presets.active_preset;
   const roleInfos = data.roles.roles.map(normalizeRole);
   const activePreset = data.presets.presets.find((p) => p.name === active);
   const totalRoles = activePreset ? activePreset.roles.length : 0;
   return (
     <div className="rl" data-page="roles">
-      <PresetBar presets={data.presets.presets} active={active} />
+      <PresetBar presets={data.presets.presets} active={active} reload={reload} />
       <div className="rl-grid tt-grid-2">
         {roleInfos.map((r) => (
           <RoleCard key={r.role} role={r} activePreset={active} />
@@ -35,7 +36,7 @@ export function RolesView({ data, onDiff }: RolesViewProps) {
       </div>
       <ProfilesTable profiles={data.profiles.profiles} roles={roleInfos} />
       {data.presets.presets.length > 0 && (
-        <PresetsTable presets={data.presets.presets} active={active} totalRoles={totalRoles} onDiff={onDiff} />
+        <PresetsTable presets={data.presets.presets} active={active} totalRoles={totalRoles} onDiff={onDiff} reload={reload} />
       )}
     </div>
   );

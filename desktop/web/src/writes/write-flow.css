@@ -1,0 +1,92 @@
+// 写确认框的样式（A 片）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色。
+.wf-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+
+.wf-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.wf-label {
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-3);
+}
+
+.wf-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-1);
+}
+
+.wf-changes__empty {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-3);
+}
+
+.wf-change {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tt-space-2);
+  font: var(--tt-text-sm);
+  color: var(--tt-text-1);
+}
+
+.wf-change__role {
+  color: var(--tt-text-2);
+  min-width: 5rem;
+}
+
+.wf-change__from,
+.wf-change__to {
+  font: var(--tt-mono-md);
+}
+
+.wf-change__arrow {
+  color: var(--tt-text-3);
+}
+
+.wf-risk {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.wf-note {
+  margin: 0;
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+
+.wf-warn-line {
+  margin: 0;
+  font: var(--tt-mono-md);
+}
+
+.wf-error {
+  margin: var(--tt-space-2) 0 0;
+  font: var(--tt-mono-md);
+  color: var(--tt-text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wf-reason {
+  display: inline-block;
+  margin-right: var(--tt-space-2);
+  padding: 0 var(--tt-space-2);
+  border-radius: var(--tt-radius-sm);
+  background: var(--tt-surface-2);
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-2);
+}
+
+.wf-partial {
+  display: block;
+  font: var(--tt-text-sm-medium);
+  color: var(--tt-text-1);
+}
