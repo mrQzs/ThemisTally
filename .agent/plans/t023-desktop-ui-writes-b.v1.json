@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "task_id": "t023-desktop-ui-writes-b",
+  "plan_version": 1,
+  "title": "桌面端前端：删除与回滚的写入口（D2 之五，T022 的 B 片）",
+  "repository": "ThemisTally",
+  "base_sha": "5edda28f31c8e107d93a800deda2acb2d51afdcf",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetsTable.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-RuntimesView.tsx",
+      "desktop/web/src/pages/readonly2/history-HistoryView.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/page-runtimes.test.tsx",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/tests/readonly2-history.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/writes-remove.test.tsx",
+      "desktop/web/tests/writes-rollback.test.tsx",
+      "desktop/web/tests/writes-snapshots-b.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t023_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/main.tsx",
+      "desktop/web/src/pages/readonly2/history-logic.ts",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "docs/**",
+      "ts/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t023_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "^$"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`api.ts` 新增且只新增 `removePreset`、`removeProfile`、`removeRuntime`、`rollback` 四个写函数与 `WriteAction` 的四个新成员；13 个读函数、A 片的四个写函数与既有类型一字未改；`desktop/web/src` 下仍不出现那四个联网词",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "读侧不动是新旧两片并存的前提"
+    },
+    {
+      "id": "D02",
+      "text": "四个新写函数的确认号与参数核对生效——号不存在、action 不符或 args 不符时返回 409 且 `exit_code` 为 null（显示「确认已失效」），确认号与对象都对时按 200 走完",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「删错对象、rollback 用错编号、确认号传错」"
+    },
+    {
+      "id": "D03",
+      "text": "四个新 action 的确认框标题、变化区摘要与成功轻提示逐字照第四节（标题与轻提示一律写在 `src/writes/`，入口文件里一个字都不许写这 13 条动作说明）",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "T013 的「动作说明只有一份」与 T022 的「文字在 writes/ 里」两条同时守住"
+    },
+    {
+      "id": "D04",
+      "text": "四个新 action 的 [确认…] 在所有状态都是 `variant=\"danger\"`，A 片三个 action 仍是 `variant=\"primary\"`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "删除与回滚的确认按钮用危险样式（UI 设计 7.11）"
+    },
+    {
+      "id": "D05",
+      "text": "四个入口可点并走同一条流程——点入口只弹确认框；方案表点 [删除…] 不调 `onDiff`；历史抽屉点回滚钮不关抽屉、不换条目（`h2` 与 `selectedKey` 不变）；入口按钮样式照门禁（方案表与 profile 表 ghost/sm、运行时 ghost/sm、回滚 secondary/md + RotateCcwIcon 16）",
+      "evidence": [
+        "V02",
+        "R01",
+        "G01"
+      ],
+      "intent": "接上写入口而不破既有门禁"
+    },
+    {
+      "id": "D06",
+      "text": "本机文件条目（`resource === 'local'`）的回滚钮禁用，悬停提示是「本机文件不存快照，不能回滚」；**最新一条可点**",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "快照不存在的条目不许回滚，最新一条不是空操作"
+    },
+    {
+      "id": "D07",
+      "text": "成功只在重读之后才说——重读兑现之前整页没有「已删除…」/「已回滚…」；重读之后弹对应轻提示、关框、并调一次 `reload()`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "W3 是这一片的核心红线"
+    },
+    {
+      "id": "D08",
+      "text": "成功之后那一行真的从表里消失——用组件级用例注入 `reload`（或替掉的读函数）让那一行消失，断言 `reload` 被调一次、行不见了",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「成功之后不重读，删掉的行还留在表里」"
+    },
+    {
+      "id": "D09",
+      "text": "确认框里（`[role=\"dialog\"]` 元素内）不出现「没有变化」这个子串；最新一条回滚时变化区写「预览没有列出变化」；抽屉底栏那句「这是最新的一条，回滚后没有变化」照旧在抽屉里",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "W3b 的口径与断言的落点"
+    },
+    {
+      "id": "D10",
+      "text": "四个新 action 的快照只比参与比对的字段——只改被排除的字段（含 `getHistory` 整份、runtime 的 `source`/`command`、preset 的 `description`/`roles`、profile 的 runtime/provider/model/options/credential_env）仍判定相同；改比较的字段就判定不同",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「快照把会自己变的字段也拿来比」"
+    },
+    {
+      "id": "D11",
+      "text": "`in-use` 的三种内核原文照第五节逐字；执行后是「失败」并带原因标签「内核拒绝」，对话框里有内核原文，**不出现**「成功」与「已部分写入」，Toast 区为空",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「还被引用、删不掉」显示成成功"
+    },
+    {
+      "id": "D12",
+      "text": "回滚成功后历史抽屉仍开着、仍是同一条（`reload` 不卸载子组件）；确认框开着时抽屉仍在、`h2` 不变",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "确认框与抽屉两层互不干扰"
+    },
+    {
+      "id": "D13",
+      "text": "既有测试只照新行为改那几条断言——`page-app.test.tsx` 的写入口个数（角色页 9、运行时页 6、总览 0）、`readonly2-app.test.tsx` 的抽屉禁用按钮与可用按钮白名单、`page-runtimes.test.tsx` 的 [删除…] 可点、`readonly2-history.test.tsx` 的最新一条可点与本机文件条目禁用；没有删除、跳过或弱化任何既有用例；A 片四份 `writes-*` 照旧全绿",
+      "evidence": [
+        "V02",
+        "review"
+      ],
+      "intent": "既有测试是别的片的契约，不能借机削弱"
+    },
+    {
+      "id": "D14",
+      "text": "所有修改都在允许集合内（新增文件都在 `allowed_new_files`，没有删文件，依赖与锁文件没动，`forbidden_paths` 里的门禁文件、`history-logic.ts`、`components/index.ts`、`mock/*.json` 一个都没动）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    },
+    {
+      "id": "D15",
+      "text": "遇到合同与既有测试或门禁冲突时，执行端没有越界改范围外的文件（冲突写进执行报告的 `contract_conflicts`）；临时文件没有写到 `/tmp` 这类固定路径（用 `T=$(mktemp -d)` 并在同一条命令里删掉）",
+      "evidence": [
+        "review",
+        "scope"
+      ],
+      "intent": "上一轮 T022 的 attempt-001 就是在这两处出的问题"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
