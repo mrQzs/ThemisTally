@@ -495,7 +495,7 @@ flowchart LR
 2. 服务读子进程 stderr 的握手行 `{"url", "note"}`（KC:1359–1360），把一次性页面的地址与作业号交回页面；页面调用 `host.openSecretWindow(url, jobId)`，由外壳另开一个小窗口，并记下窗口与作业的对应（D10）；
 3. 子进程存活期间作业保持“等待保存”；用户保存后子进程退出，stdout 的结果 `{"name", "stored", "backend"}` 作为作业结果；
 4. 用户关掉小窗口时，外壳主进程用控制令牌调 `POST /control/jobs/<作业号>/cancel`，服务页已经卸载也能取消（r3-S1）；超过 `--timeout`（缺省 600 秒）时，子进程自己关掉页面服务器并退出（KC:1326）。两种情况服务都结束作业，并确认子进程已经退出；
-5. 结束之后重查 `config secret check <name> --json`。
+5. 结束之后重查 `config secret check <name>`（本来就只输出一行 JSON，不带 `--json`）。
 6. 值只在 2.7 的一次性页面里输入，服务与界面都拿不到；作业结果与信封里都没有值。
 
 ### D7 实时状态与日志跟随
@@ -785,8 +785,8 @@ ui --desktop --assets <目录> [--transcript <目录>]… [--idle-timeout <秒>]
 | POST `/api/v1/preview` `{"action", "args"}` | 对应写命令的 `--dry-run --json`；返回预览、`state` 令牌与一次性确认号（D6） | 读 |
 | POST `/api/v1/roles/<role>` | `config role set <role> <profile 或模式> [--yes]` | 改配置 |
 | POST `/api/v1/presets/<name>/use`、`/save`、`/remove` | `config preset use|save|remove <name> [--yes]` | 改配置 |
-| POST `/api/v1/profiles/<id>`（add / edit / remove） | `config profile add|edit|remove …` | 改配置 |
-| POST `/api/v1/runtimes/<id>`（add / remove） | `config runtime add|remove …` | 改配置 |
+| POST `/api/v1/profiles/<id>/add`、`/edit`、`/remove` | `config profile add|edit|remove <id> …`（T020） | 改配置 |
+| POST `/api/v1/runtimes/<id>/add`、`/remove` | `config runtime add|remove <id> …`（T020） | 改配置 |
 | POST `/api/v1/plugins/<id>/enable`、`/disable` | `plugins enable|disable <id>` | 改配置 |
 | POST `/api/v1/config/rollback/<n>` | `config rollback <n> [--yes]` | 改配置 |
 | POST `/api/v1/secrets/<name>/entry` | 作业：`config secret set <name> --no-browser`；读 stderr 的握手，返回作业号与一次性页面的地址；作业在保存、超时或取消时结束（D6 的凭据录入） | 凭据录入 |
