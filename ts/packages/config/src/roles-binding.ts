@@ -3,6 +3,7 @@
 import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { isLinkOrJunction } from "@themis/base/pypath";
+import { pyLstatStrerror } from "@themis/base/pyos";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes } from "@themis/base/pyio";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { cmpCodePoints, pyLower } from "@themis/base/pyre";
@@ -79,13 +80,7 @@ function plainDir(path: string): boolean {
 
 /** "<路径>（<strerror>）"：Python 的 exc.strerror。 */
 function unreadable(path: string, error: unknown): string {
-  return `${path}（${strerror(error)}）`;
-}
-
-function strerror(error: unknown): string {
-  const code = (error as NodeJS.ErrnoException).code;
-  if (code === "EACCES" || code === "EPERM") return "Access is denied";
-  return (error as Error).message;
+  return `${path}（${pyLstatStrerror(error)}）`;
 }
 
 /** Windows 上 Path 的排序按小写比较。 */

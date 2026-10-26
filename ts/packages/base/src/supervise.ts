@@ -154,12 +154,18 @@ const CLASS_OF_ERRNO = new Map<string, string>([
   ["EAGAIN", "BlockingIOError"],
 ]);
 
-/** CPython 给 Windows 错误码构造的 OSError 的 "类名: 文字"（PyErr_SetExcFromWindowsErr）。 */
-export function windowsErrorText(winerror: number, message: string): string {
+/** CPython 给 Windows 错误码构造的 OSError：类名（由错误码映射）与 strerror（FormatMessageW 去掉末尾的空白与句点）。 */
+export function windowsOSError(winerror: number, message: string): { name: string; strerror: string } {
   const name = CLASS_OF_ERRNO.get(ERRNO_OF_WINERROR.get(winerror) ?? "") ?? "OSError";
   let end = message.length;
   while (end > 0 && ((message.codePointAt(end - 1) as number) <= 0x20 || message[end - 1] === ".")) end -= 1;
-  return `${name}: [WinError ${winerror}] ${message.slice(0, end)}`;
+  return { name, strerror: message.slice(0, end) };
+}
+
+/** CPython 给 Windows 错误码构造的 OSError 的 "类名: 文字"（PyErr_SetExcFromWindowsErr）。 */
+export function windowsErrorText(winerror: number, message: string): string {
+  const { name, strerror } = windowsOSError(winerror, message);
+  return `${name}: [WinError ${winerror}] ${strerror}`;
 }
 
 // ---------------------------------------------------------------------------

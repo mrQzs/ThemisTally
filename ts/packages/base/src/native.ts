@@ -51,7 +51,7 @@
 // 运行方式：Bun 下在本进程里经 bun:ffi 调用；Node 下（后备）每次拿锁起一个辅助进程（native-helper.ts，
 // 第 ⑥ 步之后是单文件程序的隐藏子命令 __native）替本进程持锁。辅助进程用 stdin/stdout 每行一个 JSON 通信，
 // stdin 一关就退出、由操作系统放锁；辅助进程意外退出时本进程把锁当作已丢，assertHeld 报错，不再开始新的写入。
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -346,14 +346,91 @@ export async function initFileAttributes(): Promise<void> {
   if (getFileAttributes !== undefined) return;
   if (!isBun || process.platform !== "win32") {
     getFileAttributes = null;
+    win32Files = null;
+    win32Message = null;
     return;
   }
   const ffi = await import("bun:ffi");
+  const T = ffi.FFIType;
   const kernel32 = ffi.dlopen("kernel32.dll", {
-    GetFileAttributesW: { args: [ffi.FFIType.ptr], returns: ffi.FFIType.u32 },
+    GetFileAttributesW: { args: [T.ptr], returns: T.u32 },
+    MoveFileExW: { args: [T.ptr, T.ptr, T.u32], returns: T.i32 },
+    CreateDirectoryW: { args: [T.ptr, T.ptr], returns: T.i32 },
+    GetLastError: { args: [], returns: T.u32 },
+    FormatMessageW: { args: [T.u32, T.ptr, T.u32, T.u32, T.ptr, T.u32, T.ptr], returns: T.u32 },
   });
-  const call = kernel32.symbols as unknown as { GetFileAttributesW(name: number): number };
-  getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(Buffer.from(`${path}\0`, "utf16le")));
+  const call = kernel32.symbols as unknown as {
+    GetFileAttributesW(name: number): number;
+    MoveFileExW(src: number, dst: number, flags: number): number;
+    CreateDirectoryW(path: number, security: null): number;
+    GetLastError(): number;
+    FormatMessageW(flags: number, source: null, id: number, language: number, buffer: number, size: number, args: null): number;
+  };
+  const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
+  getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(wide(path)));
+  win32Message = (winerror) => {
+    const buffer = new Uint16Array(2048);
+    const n = call.FormatMessageW(0x1000 | 0x200, null, winerror, 0x0400, ffi.ptr(buffer), buffer.length, null);
+    return Buffer.from(buffer.buffer, 0, n * 2).toString("utf16le");
+  };
+  const failure = (): Win32Failure => {
+    const winerror = call.GetLastError(); // 失败之后立即取
+    return { winerror, message: (win32Message as (code: number) => string)(winerror) };
+  };
+  win32Files = (request) => {
+    // 缓冲区放在局部变量里，调用期间一直被引用
+    if (request.op === "mkdir") {
+      const path = wide(request.path);
+      return call.CreateDirectoryW(ffi.ptr(path), null) ? null : failure();
+    }
+    const [src, dst] = [wide(request.src), wide(request.dst)];
+    return call.MoveFileExW(ffi.ptr(src), ffi.ptr(dst), request.op === "replace" ? MOVEFILE_REPLACE_EXISTING : 0) ? null : failure();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Win32 的文件操作（迁移第 ③ 步补，themistally-15 复核查出）：配置中心会把 os.replace、os.rename、os.mkdir 的报错原样
+// 写进输出，CPython 在 Windows 上直接调 Win32，文字是 [WinError N] 加 FormatMessageW。libuv 把错误码映射成 EPERM、
+// EACCES 之类，反推不回原来的码（5 与 32 都会映射走），所以这里也直接调：Bun 下由 initFileAttributes 一起绑好、
+// 同步调用；Node 下（后备，或入口没有先 init）每次同步起一个辅助进程问一次。
+//   MoveFileExW(src, dst, flags) -> BOOL：os.replace 带 MOVEFILE_REPLACE_EXISTING，os.rename 不带
+//   CreateDirectoryW(path, NULL) -> BOOL：os.mkdir
+// ---------------------------------------------------------------------------
+
+const MOVEFILE_REPLACE_EXISTING = 0x1;
+
+export type Win32FileOp = { readonly op: "replace" | "rename"; readonly src: string; readonly dst: string } | { readonly op: "mkdir"; readonly path: string };
+
+/** 失败时的 Windows 错误码与 FormatMessageW 的原文（未去掉末尾的换行与句点）。 */
+export interface Win32Failure {
+  readonly winerror: number;
+  readonly message: string;
+}
+
+let win32Files: ((request: Win32FileOp) => Win32Failure | null) | null | undefined;
+let win32Message: ((winerror: number) => string) | null | undefined;
+
+/** 同步问一次辅助进程（Node 后备）：发一行 JSON，等它回一行再退出。 */
+function askHelperSync(request: Record<string, unknown>): Record<string, unknown> {
+  const [command, ...args] = nativeHelperCommand();
+  const done = spawnSync(command ?? "bun", [...args, "__native"], { input: `${JSON.stringify(request)}\n`, encoding: "utf8", windowsHide: true });
+  const line = (done.stdout ?? "").split("\n").find((text) => text.trim() !== "");
+  if (done.error || !line) throw new Error(`辅助进程没有回答（${String(request["op"])}）：${done.error?.message ?? done.stderr}`);
+  const answer = JSON.parse(line) as Record<string, unknown>;
+  if (answer["error"] !== undefined) throw new Error(`辅助进程出错（${String(request["op"])}）：${String(answer["error"])}`);
+  return answer;
+}
+
+/** 做一次 Win32 文件操作：成功为 null，失败给出错误码与文字。只在 Windows 上调用。 */
+export function win32FileOp(request: Win32FileOp): Win32Failure | null {
+  if (win32Files) return win32Files(request);
+  return (askHelperSync({ op: "file", request })["failure"] as Win32Failure | null | undefined) ?? null;
+}
+
+/** FormatMessageW 给这个错误码的原文（未去掉末尾的换行与句点；跟着系统界面的语言）。只在 Windows 上调用。 */
+export function win32ErrorMessage(winerror: number): string {
+  if (win32Message) return win32Message(winerror);
+  return String(askHelperSync({ op: "message", winerror })["message"]);
 }
 
 /** GetFileAttributesW 的值；没有绑定、或取不到（路径不存在等）时为 null，调用方退回 lstat。 */

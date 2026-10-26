@@ -3,7 +3,7 @@
 // 审计只在配置锁内追加（两套实现共用这把锁）；快照按内容寻址，两套实现共用。
 // 写模式：--dry-run --json 预览（不拿锁、什么也不写）；--expect-state 拿锁之后先比对令牌，对上了才写。
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { utcNow } from "@themis/base/clock";
 import { ConfigLock, LockBusyError, LockWriteError } from "@themis/base/locks";
@@ -11,7 +11,7 @@ import { type PyOut, pyRepr } from "@themis/base/pyfmt";
 import { pyOSErrorOf, pyReadBytes, PyOSError } from "@themis/base/pyio";
 import { type PyDict, type PyValue, dumps, encodeUtf8 } from "@themis/base/pyjson";
 import { PY_END, cmpCodePoints, pyRegex, pySplitlines } from "@themis/base/pyre";
-import { publishNew } from "@themis/base/publish";
+import { PyWinError, pathMkdir, pyPublishNew, pyReplace } from "@themis/base/pyos";
 import { secretLikePaths } from "@themis/base/secrets";
 import { git } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
@@ -49,7 +49,9 @@ const isDict = (value: PyValue | undefined): value is PyDict => value instanceof
 /** (ref or {}).get("sha256")。 */
 const refSha = (ref: PyValue | undefined): string | null => (isDict(ref) && typeof ref.get("sha256") === "string" ? (ref.get("sha256") as string) : null);
 /** str(OSError)：认得的错误码照 open() 的写法，其余照 Node 的原文。 */
-const osText = (error: unknown, path: string): string => pyOSErrorOf(error, path)?.message ?? (error as Error).message;
+/** str(exc)：已经照 Python 构造好的（Win32 的 PyWinError、CRT 的 PyOSError）原样，Node 的文件错误换成 open() 的写法。 */
+const osText = (error: unknown, path: string): string =>
+  error instanceof PyWinError || error instanceof PyOSError ? error.message : (pyOSErrorOf(error, path)?.message ?? (error as Error).message);
 
 // --- 写模式 ---------------------------------------------------------------------------------------
 
@@ -136,7 +138,7 @@ function checkState(repo: RepoLike, token: string, resources: readonly string[])
 /** 只在配置锁内调用：同一时间只有一个追加者。文件不以换行结尾时先补一个，中断留下的半行单独成行。 */
 function appendAudit(repo: RepoLike, record: PyDict): void {
   const path = auditPath(repo);
-  mkdirSync(dirname(path), { recursive: true });
+  pathMkdir(dirname(path), true, true); // Path.mkdir(parents=True, exist_ok=True)：Win32，报错照 [WinError N]
   let prefix = "";
   if (existsSync(path) && statSync(path).size) {
     const fd = openSync(path, "r");
@@ -170,8 +172,8 @@ function snapshotRef(repo: RepoLike, resource: string, data: Buffer | null, stor
   if (reason !== null) return refOf([["kind", "config-snapshot"], ["sha256", sha], ["stored", false], ["reason", reason]]);
   if (isFile(target)) return refOf([["kind", "config-snapshot"], ["sha256", sha], ["stored", true]]);
   if (!store) return refOf([["kind", "config-snapshot"], ["sha256", sha], ["stored", false]]);
-  mkdirSync(dirname(target), { recursive: true });
-  publishNew(target, data); // 已存在（同一内容）返回 false，无妨
+  pathMkdir(dirname(target), true, true);
+  pyPublishNew(target, data); // 已存在（同一内容）返回 false，无妨
   return refOf([["kind", "config-snapshot"], ["sha256", sha], ["stored", true]]);
 }
 
@@ -373,8 +375,8 @@ export class ConfigTransaction {
     this.append(intent);
     const temp = joinPath((this.lock as ConfigLock).path, `${basename(this.path)}.${tokenHex(8)}.tmp`);
     try {
-      writeFileSync(temp, data);
-      renameSync(temp, this.path);
+      writeFileSync(temp, data); // temp.write_bytes：CRT 的 open，报 [Errno N]
+      pyReplace(temp, this.path); // os.replace：Win32 的 MoveFileExW，报 [WinError N] …: '临时文件' -> '配置'
     } catch (error) {
       throw new ConfigError(`写入失败：${osText(error, temp)}`);
     }

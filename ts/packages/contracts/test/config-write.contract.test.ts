@@ -7,7 +7,7 @@
 // 锁互斥契约：两套实现同时往同一份配置写不同的键，读改写不丢更新，审计每笔都有 intent 与 commit。
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUN, type CliRun, REPO, prng, removeDir, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
@@ -113,6 +113,7 @@ function normalize(text: string, repo: string): string {
     .replaceAll(repo.replaceAll(backslash, backslash + backslash), "<REPO>")
     .replaceAll(repo, "<REPO>")
     .replace(/aud-[0-9a-f]{32}/gu, slot("aud"))
+    .replace(/\.[0-9a-f]{16}\.tmp/gu, ".<tmp>.tmp")
     .replace(/\b[0-9a-f]{32}\b/gu, slot("txn"))
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/gu, "<AT>");
 }
@@ -293,6 +294,43 @@ describe("init 与几条单独的写法", () => {
     expect((JSON.parse(results[0]?.steps[5]?.stdout as string) as { needs_yes: boolean }).needs_yes).toBe(true);
     expect(results[1]).toEqual(results[0]);
     expect(results[2]).toEqual(results[0]);
+  });
+
+  // 报错照 CPython 的 OSError：替换走 MoveFileExW（[WinError N] …: '临时文件' -> '配置'），建目录走 CreateDirectoryW
+  it.runIf(process.platform === "win32")("写不进去：配置文件只读、快照目录与审计目录被同名文件占着；之后的写入补判中断的事务", () => {
+    const results = (["python", "node", "bun"] as const).map((runner) => {
+      const repo = gitRepo(`blocked-${runner}`);
+      const agent = join(repo, ".agent");
+      const config = join(agent, "dispatch.config.json");
+      const steps: Record<string, unknown>[] = [];
+      const step = (command: Command): void => {
+        steps.push(shown(run(runner, repo, command), repo));
+      };
+      step(set("kill_grace_seconds", "20"));
+      chmodSync(config, 0o444);
+      try {
+        step(set("kill_grace_seconds", "21"));
+      } finally {
+        chmodSync(config, 0o644);
+      }
+      step(set("kill_grace_seconds", "22"));
+      renameSync(join(agent, "config-history"), join(agent, "config-history.moved"));
+      writeFileSync(join(agent, "config-history"), "");
+      step(set("kill_grace_seconds", "23"));
+      rmSync(join(agent, "config-history"));
+      renameSync(join(agent, "config-history.moved"), join(agent, "config-history"));
+      renameSync(join(agent, "audit"), join(agent, "audit.moved"));
+      writeFileSync(join(agent, "audit"), "");
+      step(set("kill_grace_seconds", "24"));
+      return { steps, config: readFileSync(config, "utf8"), audit: normalize(readFileSync(join(agent, "audit.moved", "management.jsonl"), "utf8"), repo) };
+    });
+    const python = results[0] as (typeof results)[number];
+    expect(python.steps.map((item) => item["status"])).toEqual([0, 1, 0, 1, 1]);
+    expect(String(python.steps[1]?.["stderr"])).toContain("写入失败：[WinError 5] Access is denied: ");
+    expect(String(python.steps[3]?.["stderr"])).toContain("快照存不下（[WinError 183]");
+    expect(String(python.steps[4]?.["stderr"])).toContain("审计写不进去（[WinError 183]");
+    expect(results[1]).toEqual(python);
+    expect(results[2]).toEqual(python);
   });
 });
 

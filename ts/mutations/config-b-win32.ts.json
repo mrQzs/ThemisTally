@@ -1,0 +1,38 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/config-write.contract.test.ts",
+    "-t",
+    "写不进去"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "W1 不带目标路径",
+      "file": "ts/packages/base/src/pyos.ts",
+      "old": "${filename2 === undefined ? \"\" : ` -> ${pyRepr(filename2)}`}",
+      "new": ""
+    },
+    {
+      "name": "W2 不去末尾的句点",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": " || message[end - 1] === \".\")) end -= 1;",
+      "new": ")) end -= 1;"
+    },
+    {
+      "name": "W3 exist_ok 时不看是不是目录",
+      "file": "ts/packages/base/src/pyos.ts",
+      "old": "    if (!existOk || !isDir(path)) throw error;",
+      "new": "    if (!existOk) throw error;"
+    },
+    {
+      "name": "W4 替换不带 REPLACE_EXISTING",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "request.op === \"replace\" ? MOVEFILE_REPLACE_EXISTING : 0",
+      "new": "0"
+    }
+  ]
+}

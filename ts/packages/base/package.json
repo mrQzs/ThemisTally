@@ -22,6 +22,7 @@
     "./supervise": "./src/supervise.ts",
     "./pyio": "./src/pyio.ts",
     "./pyurl": "./src/pyurl.ts",
-    "./pyvalue": "./src/pyvalue.ts"
+    "./pyvalue": "./src/pyvalue.ts",
+    "./pyos": "./src/pyos.ts"
   }
 }
