@@ -1,0 +1,86 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/protocols.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "J01 BOM 不拒",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "  if (raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf) throw new ProtocolError(\"E_JSON_BOM\");\n",
+      "new": ""
+    },
+    {
+      "name": "J02 长度上限差一",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "raw.length > maxBytes",
+      "new": "raw.length > maxBytes + 1"
+    },
+    {
+      "name": "J03 浮点溢出不拒",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "return Number.isFinite(value) ? { t: \"value\", v: value } : { t: \"bad\", code: \"E_JSON_NON_FINITE\" };",
+      "new": "return { t: \"value\", v: value };"
+    },
+    {
+      "name": "J04 位数判定差一",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "raw.length) > 16)",
+      "new": "raw.length) > 17)",
+      "equivalent": "16 位与 17 位之间没有合法 JSON 整数能区分：JSON 不许前导零，17 位的整数一定大于 2^53-1，后面的值检查照样报 E_INTEGER_RANGE；位数判定只是省掉长整数转换"
+    },
+    {
+      "name": "J05 整数范围不看负数",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "(value < 0n ? -value : value) > MAX_SAFE_INTEGER",
+      "new": "value > MAX_SAFE_INTEGER"
+    },
+    {
+      "name": "J06 重复键不拒",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "        if (out.has(key)) throw new ProtocolError(\"E_JSON_DUPLICATE_KEY\");\n",
+      "new": ""
+    },
+    {
+      "name": "J07 键里的代理项不查",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "        if (LONE_SURROGATE.test(key)) throw new ProtocolError(\"E_JSON_UNICODE\");\n",
+      "new": ""
+    },
+    {
+      "name": "J08 值里的代理项不查",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "      if (LONE_SURROGATE.test(node.v)) throw new ProtocolError(\"E_JSON_UNICODE\");\n",
+      "new": ""
+    },
+    {
+      "name": "J09 深度上限差一",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "    case \"list\":\n      if (level + 1 > maxDepth)",
+      "new": "    case \"list\":\n      if (level + 2 > maxDepth)"
+    },
+    {
+      "name": "J10 递归超限当作文法错误",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "error.kind === \"RecursionError\" ? \"E_JSON_LIMIT\" : \"E_JSON_SYNTAX\"",
+      "new": "\"E_JSON_SYNTAX\""
+    },
+    {
+      "name": "J11 先查重复键再查键里的代理项",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "        if (LONE_SURROGATE.test(key)) throw new ProtocolError(\"E_JSON_UNICODE\");\n        if (out.has(key)) throw new ProtocolError(\"E_JSON_DUPLICATE_KEY\");",
+      "new": "        if (out.has(key)) throw new ProtocolError(\"E_JSON_DUPLICATE_KEY\");\n        if (LONE_SURROGATE.test(key)) throw new ProtocolError(\"E_JSON_UNICODE\");",
+      "equivalent": "重复键与键里的代理项先查哪个看不出来：重复的键与前面某个键相同，前面那个键已经查过代理项"
+    },
+    {
+      "name": "J12 编码错误报成文法错误",
+      "file": "ts/packages/base/src/protocols.ts",
+      "old": "throw new ProtocolError(\"E_JSON_ENCODING\")",
+      "new": "throw new ProtocolError(\"E_JSON_SYNTAX\")"
+    }
+  ]
+}

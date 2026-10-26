@@ -8,6 +8,7 @@
     "./decisions": "./src/decisions.ts",
     "./history": "./src/history.ts",
     "./plugin-records": "./src/plugin-records.ts",
+    "./plugins-commands": "./src/plugins-commands.ts",
     "./roles-binding": "./src/roles-binding.ts",
     "./roles-check": "./src/roles-check.ts",
     "./roles-commands": "./src/roles-commands.ts",

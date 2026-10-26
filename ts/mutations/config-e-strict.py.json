@@ -1,0 +1,31 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/protocols.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "Q01 重复键不拒",
+      "file": "scripts/codekit/protocols.py",
+      "old": "            if key in result:\n",
+      "new": "            if False:\n"
+    },
+    {
+      "name": "Q02 位数判定差一",
+      "file": "scripts/codekit/protocols.py",
+      "old": "    if len(digits) > 16:",
+      "new": "    if len(digits) > 17:",
+      "equivalent": "16 位与 17 位之间没有合法 JSON 整数能区分（同 TS 的 J04）"
+    },
+    {
+      "name": "Q03 浮点溢出不拒",
+      "file": "scripts/codekit/protocols.py",
+      "old": "    if not math.isfinite(value):\n        return _NUMERIC_OVERFLOW",
+      "new": "    if False:\n        return _NUMERIC_OVERFLOW"
+    }
+  ]
+}

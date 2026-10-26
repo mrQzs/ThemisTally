@@ -1,0 +1,42 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/plugins-commands.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q04 不认只差 CRLF",
+      "file": "scripts/kit_plugins.py",
+      "old": "            if hashlib.sha256(data.replace(_CRLF, _LF)).hexdigest() == ref[\"sha256\"]:",
+      "new": "            if False:"
+    },
+    {
+      "name": "Q05 未安装不报",
+      "file": "scripts/kit_plugins.py",
+      "old": "    return [name for name in value if name not in present]",
+      "new": "    return []"
+    },
+    {
+      "name": "Q06 关掉决策插件不提示",
+      "file": "scripts/kit_plugins.py",
+      "old": "        messages.append(\"决策插件会因此变为 off\")\n",
+      "new": "        pass\n"
+    },
+    {
+      "name": "Q07 显式列表不去掉链接目录",
+      "file": "scripts/kit_plugins.py",
+      "old": "                             if not is_link and name != plugin_id)",
+      "new": "                             if name != plugin_id)"
+    },
+    {
+      "name": "Q08 影响清单不要求补全全部权限",
+      "file": "scripts/kit_plugins.py",
+      "old": "        if required & granted and not (required - new_allowed):",
+      "new": "        if required & granted:"
+    }
+  ]
+}

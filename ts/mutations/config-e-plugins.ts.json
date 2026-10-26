@@ -1,0 +1,157 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/plugins-commands.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "P01 根是链接不报",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (isLinkOrJunction(root)) return ROOT_LINK;\n",
+      "new": ""
+    },
+    {
+      "name": "P02 不按小写排序",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "    names = readdirSync(root).sort(pathOrder);",
+      "new": "    names = readdirSync(root).sort(cmpCodePoints);",
+      "equivalent": "PLUGIN_ID 只认小写字母、数字与连字符：留下来的名字按小写比较与按码点比较次序相同"
+    },
+    {
+      "name": "P03 链接目录不列",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "    entries.push([name, link]);",
+      "new": "    if (!link) entries.push([name, link]);"
+    },
+    {
+      "name": "P04 manifest 不查链接",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (link !== null) return { value: null, isLink: true, message: link };\n",
+      "new": ""
+    },
+    {
+      "name": "P05 null 当作对象",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (value === null) return { value: null, isLink: false, message: \"不是对象（内容是 null）\" };\n",
+      "new": ""
+    },
+    {
+      "name": "P06 资源不查越界",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "    if (!isWithin(joinPath(kitRoot, rel), joinPath(kitRoot, prefix))) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "P07 不认只差 CRLF",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "      if (sha256(crlfToLf(data)) === entry.get(\"sha256\")) {",
+      "new": "      if (false) {"
+    },
+    {
+      "name": "P08 资源读取失败不改锁列",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "lockStatus: readFailed ? INVALID : OK",
+      "new": "lockStatus: OK"
+    },
+    {
+      "name": "P09 漂移报成无效",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "error.code === \"E_PLUGIN_LOCK_DRIFT\" || error.code === \"E_PLUGIN_LOCK_BINDING\" ? DRIFT : INVALID",
+      "new": "INVALID"
+    },
+    {
+      "name": "P10 带 depends_on 也照常核对",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (report.dependsOn.length || report.conflicts.length) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "P11 decisions 不核对题库",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (pluginId === DECISIONS_PLUGIN_ID) {\n    const [batteryLock",
+      "new": "  if (false) {\n    const [batteryLock"
+    },
+    {
+      "name": "P12 目录名与 plugin_id 不比",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  if (!isDict(manifest) || manifest.get(\"plugin_id\") !== pluginId) {",
+      "new": "  if (!isDict(manifest)) {"
+    },
+    {
+      "name": "P13 不限制时也做权限核对",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "const allowedList = (view: View): PyValue[] | null => (view.allowedPresent && Array.isArray(view.allowedValue) ? view.allowedValue : null);",
+      "new": "const allowedList = (view: View): PyValue[] | null => (Array.isArray(view.allowedValue) ? view.allowedValue : []);"
+    },
+    {
+      "name": "P14 未安装不报",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  return view.enabledValue.filter((name) => !(typeof name === \"string\" && present.has(name)));",
+      "new": "  return [];"
+    },
+    {
+      "name": "P15 list 的原因不带首条问题",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "reason = report.problems.length ? `${report.lockStatus}：${report.problems[0]}` : report.lockStatus;",
+      "new": "reason = report.lockStatus;"
+    },
+    {
+      "name": "P16 verify 只看锁列",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "const isConsistent = (report: Report): boolean => report.lockStatus === OK && report.resourceStatus === OK;",
+      "new": "const isConsistent = (report: Report): boolean => report.lockStatus === OK;"
+    },
+    {
+      "name": "P17 授予权限不要求一个不多一个不少",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "      if (!sameSet) {",
+      "new": "      if (false) {"
+    },
+    {
+      "name": "P18 不限制时给权限不拒",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "    throw new DispatchError(\"当前不限制权限，不需要 --allow-permission\", EXIT_USAGE);\n",
+      "new": ""
+    },
+    {
+      "name": "P19 影响清单不要求补全全部权限",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": " && [...required].every((item) => newAllowed.has(item))",
+      "new": ""
+    },
+    {
+      "name": "P20 题库门禁不查",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  batteryGate(repo, kit, newConfig); // 无变化与写入共用：先题库门禁",
+      "new": "  // 题库门禁去掉"
+    },
+    {
+      "name": "P21 关掉决策插件不提示",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "    messages.push(\"决策插件会因此变为 off\");\n",
+      "new": ""
+    },
+    {
+      "name": "P22 显式列表不去掉链接目录",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "      .filter(([name, link]) => !link && name !== pluginId)",
+      "new": "      .filter(([name]) => name !== pluginId)"
+    },
+    {
+      "name": "P23 plugins 段不合法时不给修复提示",
+      "file": "ts/packages/config/src/plugins-commands.ts",
+      "old": "  throw new ConfigError(hint ? `${error}；修复：${hint}` : error, EXIT_FAIL);",
+      "new": "  throw new ConfigError(error, EXIT_FAIL);"
+    },
+    {
+      "name": "P24 plugins 的 DispatchError 不接住",
+      "file": "ts/packages/config/src/cli.ts",
+      "old": "    if (error instanceof ConfigError || error instanceof DispatchError) {",
+      "new": "    if (error instanceof ConfigError) {"
+    }
+  ]
+}

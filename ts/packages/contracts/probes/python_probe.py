@@ -31,6 +31,7 @@ import kit_roles  # noqa: E402
 import pi_dispatch  # noqa: E402
 from codekit import decisions as codekit_decisions  # noqa: E402
 from codekit import plugins as codekit_plugins  # noqa: E402
+from codekit import protocols as codekit_protocols  # noqa: E402
 from codekit import secrets as codekit_secrets  # noqa: E402
 
 
@@ -358,6 +359,16 @@ def op_argv_ensure_safe(request):
 # --- 第 ③ 步：配置中心 ----------------------------------------------------------
 # 输入的 JSON 值以 JSON 文本传（两边各自 json.loads / pyjson.loads），结果用带标签编码；报错带 str(exc)。
 
+def op_protocols_strict(request):
+    """codekit.protocols.strict_json_loads：给定的字节，结果是值或 ProtocolError 的错误码（迁移第 ③e 片）。"""
+    data = base64.b64decode(request["data_b64"])
+    try:
+        value = codekit_protocols.strict_json_loads(data)
+    except codekit_protocols.ProtocolError as exc:
+        return {"ok": False, "error": "ProtocolError", "code": exc.code}
+    return {"ok": True, "value": to_tagged(value)}
+
+
 def op_plugins_call(request):
     """codekit/plugins.py 的记录层：fn 选函数，json_args 是各个参数的 JSON 文本。"""
     fn = request["fn"]
@@ -628,6 +639,7 @@ def op_pyvalue_eq(request):
 
 OPS = {
     "plugins.call": op_plugins_call,
+    "protocols.strict": op_protocols_strict,
     "decisions.call": op_decisions_call,
     "config.call": op_config_call,
     "roles.call": op_roles_call,

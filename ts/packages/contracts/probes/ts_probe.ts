@@ -15,6 +15,7 @@ import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { DispatchError, Repo } from "@themis/dispatcher/repo";
 import { allowedExecutorCheck, loadBindingRecord, resolvePiCommand } from "@themis/dispatcher/executor";
 import { pyWhich } from "@themis/base/pyshutil";
+import { ProtocolError, strictJsonLoads } from "@themis/base/protocols";
 import { readLocal, runtimeCommand } from "@themis/config/roles-local";
 import { resolveRoleExecutor } from "@themis/config/roles-binding";
 import { parseIsoUtc } from "@themis/base/pydatetime";
@@ -421,6 +422,14 @@ function pyurlCall(request: Request): Result {
 
 const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "plugins.call": pluginsCall,
+  "protocols.strict": (request) => {
+    try {
+      return { ok: true, value: toTagged(strictJsonLoads(Buffer.from(String(request["data_b64"]), "base64"))) };
+    } catch (error) {
+      if (error instanceof ProtocolError) return { ok: false, error: "ProtocolError", code: error.code };
+      throw error;
+    }
+  },
   "decisions.call": decisionsCall,
   "config.call": configCall,
   "roles.call": rolesCall,

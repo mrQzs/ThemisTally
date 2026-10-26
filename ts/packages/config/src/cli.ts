@@ -5,10 +5,12 @@ import { PyOut } from "@themis/base/pyfmt";
 import { dumps } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { type ConfigArgs, cmdHistory, cmdSecret, cmdShow, cmdValidate } from "./commands.ts";
+import { DispatchError } from "@themis/dispatcher/repo";
+import { PLUGINS_ACTIONS, type PluginsArgs, runPluginsCommand } from "./plugins-commands.ts";
 import { ROLES_COMMANDS, type RolesArgs, runRolesCommand } from "./roles-commands.ts";
 import { WriteMode, previewPayload, setWriteMode } from "./transaction.ts";
 import { type WriteArgs, cmdDecisions, cmdInit, cmdRollback, cmdSet, cmdUnset, writeContext } from "./write-commands.ts";
-import { ConfigError, kitAt } from "./validate.ts";
+import { ConfigError, type Kit, kitAt } from "./validate.ts";
 
 export interface ConfigContext {
   readonly kit_root?: unknown;
@@ -33,6 +35,7 @@ export const CONFIG_COMMANDS = [
   "config decisions",
   "config rollback",
   ...ROLES_COMMANDS.map((path) => `config ${path}`),
+  ...PLUGINS_ACTIONS.map((action) => `plugins ${action}`),
 ];
 
 /** --dry-run --json 时收起 handler 写 stdout 的文字（只取 WARN 行进预览）；stderr 照常写。 */
@@ -72,6 +75,24 @@ export function runInWriteMode(args: WriteModeArgs, out: PyOut, handler: (out: P
 /** kit_config.main：带预览选项的子命令（Namespace 里有 dry_run）给了 --dry-run、--json 或 --expect-state 时走写模式。 */
 const inWriteMode = (args: WriteModeArgs): boolean => "dry_run" in args && Boolean(args.dry_run || args.json || args.expect_state != null);
 
+/**
+ * kit_plugins.main：DispatchError 与 ConfigError 都写一行 `ERROR: ` 加 redact_tokens 之后的文字。带预览选项时走写模式，
+ * --dry-run 不带 --json 是原有的文字预览。
+ */
+function runPlugins(args: PluginsArgs & WriteModeArgs, kit: Kit, lockWait: number, out: PyOut): number {
+  const action = args.command[1] as string;
+  const handler = (o: PyOut): number => runPluginsCommand(action, { args, kit, lockWaitSeconds: lockWait, out: o });
+  try {
+    return inWriteMode(args) ? runInWriteMode(args, out, handler, true) : handler(out);
+  } catch (error) {
+    if (error instanceof ConfigError || error instanceof DispatchError) {
+      out.printErr(`ERROR: ${redactTokens(error.message)}`);
+      return error.code;
+    }
+    throw error;
+  }
+}
+
 export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & { readonly context?: ConfigContext }, out: PyOut): Promise<number> {
   const kitRoot = args.context?.kit_root;
   const rawWait = args.context?.lock_wait_seconds;
@@ -82,6 +103,7 @@ export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & {
     return 1;
   }
   const kit = kitAt(kitRoot);
+  if (args.command[0] === "plugins") return runPlugins(args as unknown as PluginsArgs & WriteModeArgs, kit, lockWait, out);
   try {
     switch (args.command.join(" ")) {
       case "config validate":

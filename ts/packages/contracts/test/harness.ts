@@ -120,12 +120,14 @@ process.on("exit", () => rmSync(SELECTOR_DIR, { recursive: true, force: true }))
 
 /** 独立的 Python 进程里改 pi_dispatch 的 KERNEL_IMPL_PATH 再调 pd.main(argv)。JSON 的字符串与数组照样是 Python
  * 的字面量（孤立代理项写成 \udXXX，Python 读回来仍是孤立代理项，与命令行上的 argv 一样）。 */
-function pdMain(selector: string, argv: readonly string[], cwd: string): CliRun {
+function pdMain(selector: string, argv: readonly string[], cwd: string, kitRoot?: string): CliRun {
   const program = [
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(join(REPO_ROOT, "scripts"))})`,
     "import pi_dispatch as pd",
     `pd.KERNEL_IMPL_PATH = pd.Path(${JSON.stringify(selector)})`,
+    // 换 kit 根（插件夹具）：照 kit_plugins oracle 的做法改模块常量，TS 一侧经 pyargs 的 context 拿到同一个目录
+    ...(kitRoot === undefined ? [] : [`pd.KIT_ROOT = pd.Path(${JSON.stringify(kitRoot)})`, 'pd.DECISIONS_PLUGIN_DIR = pd.KIT_ROOT / "plugins" / "decisions"']),
     `sys.exit(pd.main(${JSON.stringify(argv)}))`,
   ].join("\n");
   return cliRun(process.env["THEMIS_PYTHON"] ?? "python", ["-c", program], cwd);
@@ -134,6 +136,11 @@ function pdMain(selector: string, argv: readonly string[], cwd: string): CliRun 
 /** pi_dispatch 的 <argv>，钉成 Python 实现回答（对照的基准）。 */
 export function runPythonCli(argv: readonly string[], cwd: string): CliRun {
   return pdMain(PYTHON_SELECTOR, argv, cwd);
+}
+
+/** 同 runPythonCli，kit 根换成 kitRoot（plugins/ 与决策插件都从那里读）。 */
+export function runPythonCliAt(kitRoot: string, argv: readonly string[], cwd: string): CliRun {
+  return pdMain(PYTHON_SELECTOR, argv, cwd, kitRoot);
 }
 
 /** pi_dispatch 的 <argv>，选择文件的 readonly 是 ts：经真的启动器转交给 TS（参数由启动器从 argparse 的结果生成，

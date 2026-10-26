@@ -16,13 +16,13 @@ const CRT_ERRNO: Readonly<Record<string, readonly [number, string]>> = {
   EBUSY: [13, "Permission denied"],
 };
 
-/** Python 的 OSError（open() 抛出的那一种）：str(exc) 就是 message。 */
+/** Python 的 OSError（CRT 的 open、read 抛出的那一种）：str(exc) 就是 message；read 的报错不带文件名。 */
 export class PyOSError extends Error {
   override readonly name = "OSError";
   readonly errno: number;
   readonly strerror: string;
-  constructor(errno: number, strerror: string, filename: string) {
-    super(`[Errno ${errno}] ${strerror}: ${pyRepr(filename)}`);
+  constructor(errno: number, strerror: string, filename: string | null) {
+    super(filename === null ? `[Errno ${errno}] ${strerror}` : `[Errno ${errno}] ${strerror}: ${pyRepr(filename)}`);
     this.errno = errno;
     this.strerror = strerror;
   }
@@ -38,10 +38,17 @@ export function pyOSErrorType(error: PyOSError): string {
   return error.errno === 2 ? "FileNotFoundError" : error.errno === 13 ? "PermissionError" : "OSError";
 }
 
-/** Node 的文件错误换成 open() 会抛的 PyOSError；不在表里的错误码为 null，调用方照原样抛。 */
+/**
+ * Node 的文件错误换成 Python 会抛的 PyOSError；不在表里的错误码为 null，调用方照原样抛。打开之后读的时候出错（例如别的
+ * 进程锁住了字节：Node 报 EBUSY、syscall 是 read），Python 的 FileIO.read 报的 OSError 不带文件名。目录例外：Node 打开
+ * 目录成功、读的时候才报 EISDIR，Python 在 open 时就拒绝，报错带文件名。
+ */
 export function pyOSErrorOf(error: unknown, shown: string): PyOSError | null {
-  const known = CRT_ERRNO[(error as NodeJS.ErrnoException | undefined)?.code ?? ""];
-  return known === undefined ? null : new PyOSError(known[0], known[1], shown);
+  const failure = error as NodeJS.ErrnoException | undefined;
+  const known = CRT_ERRNO[failure?.code ?? ""];
+  if (known === undefined) return null;
+  const whileReading = failure?.syscall === "read" && failure.code !== "EISDIR";
+  return new PyOSError(known[0], known[1], whileReading ? null : shown);
 }
 
 /** Path(shown).read_bytes()；shown 是 Python 那边 str(path) 的写法，只用在报错文字里。 */

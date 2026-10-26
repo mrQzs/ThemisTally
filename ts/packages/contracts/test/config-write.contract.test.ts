@@ -49,6 +49,8 @@ interface Command {
   readonly label: string;
   readonly argv: string[];
   readonly args: (repo: string) => Record<string, unknown>;
+  /** pi_dispatch 的子命令：缺省是 config，plugins 的写命令是 plugins。 */
+  readonly group?: string;
 }
 
 const context = { kit_root: REPO, lock_wait_seconds: 5.0 };
@@ -90,6 +92,13 @@ const rollback = (number: number, flags: RollbackFlags = {}): Command => ({
     context,
   }),
 });
+/** plugins enable|disable（第 ③e 片）。 */
+const plugin = (action: "enable" | "disable", id: string): Command => ({
+  label: `plugins ${action} ${id}`,
+  group: "plugins",
+  argv: [action, id],
+  args: (repo) => ({ command: ["plugins", action], repo, plugin_id: id, ...(action === "enable" ? { allow_permission: [] } : {}), dry_run: false, json: false, expect_state: null, context }),
+});
 const init: Command = { label: "init", argv: ["init"], args: (repo) => ({ command: ["config", "init"], repo, context }) };
 /** kit_roles 的写命令（第 ③c 片）：path 是 config 之后的两段，fields 是其余的 Namespace（预览选项取缺省）。 */
 const roles = (path: [string, string], argv: string[], fields: Record<string, unknown>): Command => ({
@@ -101,7 +110,7 @@ const roles = (path: [string, string], argv: string[], fields: Record<string, un
 type Runner = "python" | "node" | "bun";
 
 function run(runner: Runner, repo: string, command: Command): CliRun {
-  if (runner === "python") return runPythonCli(["--repo", repo, "config", ...command.argv], repo);
+  if (runner === "python") return runPythonCli(["--repo", repo, command.group ?? "config", ...command.argv], repo);
   return runTsCli(runner, command.args(repo), repo);
 }
 
@@ -193,6 +202,9 @@ function commands(seed: number): Step[] {
     () => roles(["preset", "save"], ["day", "--force"], { name: "day", description: null, roles: null, force: true }),
     () => roles(["preset", "use"], ["day"], { name: "day" }),
     () => roles(["preset", "remove"], ["day"], { name: "day" }),
+    // 第 ③e 片的写命令（kit 根是本仓库：真实的插件与题库）
+    () => plugin("enable", pick(["code-change", "decisions"])),
+    () => plugin("disable", pick(["code-change", "decisions", "docs-change"])),
   ];
   return [set("runtimes", RUNTIMES), set("profiles", PROFILES), ...Array.from({ length: 30 }, () => pick(pool)())];
 }

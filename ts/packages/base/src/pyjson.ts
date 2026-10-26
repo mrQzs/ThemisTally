@@ -388,76 +388,114 @@ function scanString(text: string, end: number): [string, number] {
   }
 }
 
-function parseNumber(text: string, index: number): [bigint | number, number] | null {
+/**
+ * 解析出来的值怎么组装：json.loads 的 object_pairs_hook、parse_int、parse_float、parse_constant 四个钩子。
+ * 文法与报错由同一个扫描器负责，各种用法只换组装方式。
+ */
+export interface JsonBuilder<V> {
+  object(pairs: [string, V][]): V;
+  array(items: V[]): V;
+  string(value: string): V;
+  literal(value: null | boolean): V;
+  /** NaN、Infinity、-Infinity。 */
+  constant(raw: string): V;
+  /** 数的原文；isFloat 时有小数点或指数。 */
+  number(raw: string, isFloat: boolean): V;
+}
+
+/** json.loads 缺省的组装：dict、list、int（bigint）与 float（number）。 */
+const PY_BUILDER: JsonBuilder<PyValue> = {
+  object(pairs) {
+    const out: PyDict = new Map();
+    for (const [key, value] of pairs) out.set(key, value); // 重复的键：Python 的 dict 保留第一次出现的位置、最后一次的值，Map.set 同样
+    return out;
+  },
+  array: (items) => items,
+  string: (value) => value,
+  literal: (value) => value,
+  constant: (raw) => (raw === "NaN" ? NaN : raw === "Infinity" ? Infinity : -Infinity),
+  number(raw, isFloat) {
+    if (isFloat) return Number(raw);
+    checkIntDigits(raw.length - (raw.startsWith("-") ? 1 : 0), true);
+    return BigInt(raw);
+  },
+};
+
+function parseNumber<V>(text: string, index: number, builder: JsonBuilder<V>): [V, number] | null {
   NUMBER_RE.lastIndex = index;
   const match = NUMBER_RE.exec(text);
   if (match === null) return null;
-  const [whole, integer = "", fraction, exponent] = match;
-  const end = index + whole.length;
-  if (fraction !== undefined || exponent !== undefined) return [Number(whole), end];
-  checkIntDigits(integer.length - (integer.startsWith("-") ? 1 : 0), true);
-  return [BigInt(integer), end];
+  const [whole, , fraction, exponent] = match;
+  return [builder.number(whole, fraction !== undefined || exponent !== undefined), index + whole.length];
 }
 
-function scanValue(text: string, index: number, depth: number): [PyValue, number] {
+function scanValue<V>(text: string, index: number, depth: number, builder: JsonBuilder<V>): [V, number] {
   // 嵌套极深时 Python 报 RecursionError；具体在第几层取决于解释器的递归上限，契约不比较这个层数
   if (depth > 1000) throw new PyJsonError("RecursionError", "maximum recursion depth exceeded while decoding a JSON object");
   const char = text[index];
   if (char === undefined) throw decodeError(text, "Expecting value", index);
-  if (char === '"') return scanString(text, index + 1);
-  if (char === "{") return scanObject(text, index + 1, depth + 1);
-  if (char === "[") return scanArray(text, index + 1, depth + 1);
-  if (char === "n" && text.startsWith("null", index)) return [null, index + 4];
-  if (char === "t" && text.startsWith("true", index)) return [true, index + 4];
-  if (char === "f" && text.startsWith("false", index)) return [false, index + 5];
-  if (char === "N" && text.startsWith("NaN", index)) return [NaN, index + 3];
-  if (char === "I" && text.startsWith("Infinity", index)) return [Infinity, index + 8];
-  if (char === "-" && text.startsWith("-Infinity", index)) return [-Infinity, index + 9];
-  const number = parseNumber(text, index);
+  if (char === '"') {
+    const [value, end] = scanString(text, index + 1);
+    return [builder.string(value), end];
+  }
+  if (char === "{") return scanObject(text, index + 1, depth + 1, builder);
+  if (char === "[") return scanArray(text, index + 1, depth + 1, builder);
+  if (char === "n" && text.startsWith("null", index)) return [builder.literal(null), index + 4];
+  if (char === "t" && text.startsWith("true", index)) return [builder.literal(true), index + 4];
+  if (char === "f" && text.startsWith("false", index)) return [builder.literal(false), index + 5];
+  for (const constant of ["NaN", "Infinity", "-Infinity"]) {
+    if (char === constant[0] && text.startsWith(constant, index)) return [builder.constant(constant), index + constant.length];
+  }
+  const number = parseNumber(text, index, builder);
   if (number === null) throw decodeError(text, "Expecting value", index);
   return number;
 }
 
-function scanObject(text: string, index: number, depth: number): [PyDict, number] {
-  const out: PyDict = new Map();
+function scanObject<V>(text: string, index: number, depth: number, builder: JsonBuilder<V>): [V, number] {
+  const pairs: [string, V][] = [];
   let position = skipWhitespace(text, index);
-  if (text[position] === "}") return [out, position + 1];
+  if (text[position] === "}") return [builder.object(pairs), position + 1];
   for (;;) {
     if (text[position] !== '"') throw decodeError(text, "Expecting property name enclosed in double quotes", position);
     const [key, afterKey] = scanString(text, position + 1);
     position = skipWhitespace(text, afterKey);
     if (text[position] !== ":") throw decodeError(text, "Expecting ':' delimiter", position);
     position = skipWhitespace(text, position + 1);
-    const [value, afterValue] = scanValue(text, position, depth);
-    out.set(key, value); // 重复的键：Python 的 dict 保留第一次出现的位置、最后一次的值，Map.set 同样
+    const [value, afterValue] = scanValue(text, position, depth, builder);
+    pairs.push([key, value]);
     position = skipWhitespace(text, afterValue);
-    if (text[position] === "}") return [out, position + 1];
+    if (text[position] === "}") return [builder.object(pairs), position + 1];
     if (text[position] !== ",") throw decodeError(text, "Expecting ',' delimiter", position);
     position = skipWhitespace(text, position + 1);
   }
 }
 
-function scanArray(text: string, index: number, depth: number): [PyValue[], number] {
-  const out: PyValue[] = [];
+function scanArray<V>(text: string, index: number, depth: number, builder: JsonBuilder<V>): [V, number] {
+  const items: V[] = [];
   let position = skipWhitespace(text, index);
-  if (text[position] === "]") return [out, position + 1];
+  if (text[position] === "]") return [builder.array(items), position + 1];
   for (;;) {
-    const [value, afterValue] = scanValue(text, position, depth);
-    out.push(value);
+    const [value, afterValue] = scanValue(text, position, depth, builder);
+    items.push(value);
     position = skipWhitespace(text, afterValue);
-    if (text[position] === "]") return [out, position + 1];
+    if (text[position] === "]") return [builder.array(items), position + 1];
     if (text[position] !== ",") throw decodeError(text, "Expecting ',' delimiter", position);
     position = skipWhitespace(text, position + 1);
   }
+}
+
+/** json.loads(str, 钩子…)：整份文本是一个值（前后可有空白），开头的 BOM 与尾随的内容照 Python 报错。 */
+export function loadsWith<V>(text: string, builder: JsonBuilder<V>): V {
+  if (text.startsWith(BOM)) throw decodeError(text, "Unexpected UTF-8 BOM (decode using utf-8-sig)", 0);
+  const [value, end] = scanValue(text, skipWhitespace(text, 0), 0, builder);
+  const tail = skipWhitespace(text, end);
+  if (tail !== text.length) throw decodeError(text, "Extra data", tail);
+  return value;
 }
 
 /** json.loads(str)：与 Python 3.12 一致，接受 NaN、Infinity、-Infinity；整数与浮点分开（bigint / number）。 */
 export function loads(text: string): PyValue {
-  if (text.startsWith(BOM)) throw decodeError(text, "Unexpected UTF-8 BOM (decode using utf-8-sig)", 0);
-  const [value, end] = scanValue(text, skipWhitespace(text, 0), 0);
-  const tail = skipWhitespace(text, end);
-  if (tail !== text.length) throw decodeError(text, "Extra data", tail);
-  return value;
+  return loadsWith(text, PY_BUILDER);
 }
 
 /** rawDecode 的结果：end 按码点（Python 的 str 下标，kit_hub 把它写进“第 %d 个字符处”），endUnits 按 UTF-16 下标。 */
@@ -472,6 +510,6 @@ export interface RawDecoded {
  * 不跳过开头的空白，也不查 BOM（kit_hub.py:1117、1142 与 pi_dispatch.py:2641 在用）。
  */
 export function rawDecode(text: string, index = 0): RawDecoded {
-  const [value, endUnits] = scanValue(text, index, 0);
+  const [value, endUnits] = scanValue(text, index, 0, PY_BUILDER);
   return { value, end: codePointIndex(text, endUnits), endUnits };
 }
