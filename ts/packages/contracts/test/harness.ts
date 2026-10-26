@@ -192,3 +192,30 @@ export function seededBytes(seed: number, length: number): Uint8Array {
   for (let index = 0; index < length; index += 1) out[index] = Math.floor(next() * 256);
   return out;
 }
+
+// --- 第 ③ 步：配置中心 ----------------------------------------------------------------------
+
+/** 仓库根：契约可以只读真实数据（例如 plugins/ 下提交的 manifest 与锁）。 */
+export const REPO = REPO_ROOT;
+
+export interface Mismatch {
+  readonly impl: string;
+  readonly index: number;
+  readonly request: ProbeRequest;
+  readonly python: ProbeResult | undefined;
+  readonly other: ProbeResult | undefined;
+}
+
+/** 同一批请求交给每一套实现：以 Python 的结果为准，其余逐条比较（JSON 文本相同才算一致）。 */
+export function runAgreeing(requests: readonly ProbeRequest[]): { python: ProbeResult[]; mismatches: Mismatch[] } {
+  const [python = [], ...others] = IMPLS.map((impl) => runBatch(impl, requests));
+  const mismatches: Mismatch[] = [];
+  others.forEach((results, position) => {
+    requests.forEach((request, index) => {
+      if (JSON.stringify(results[index]) !== JSON.stringify(python[index])) {
+        mismatches.push({ impl: IMPLS[position + 1]?.name ?? "?", index, request, python: python[index], other: results[index] });
+      }
+    });
+  });
+  return { python, mismatches };
+}

@@ -13,7 +13,6 @@ import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { DispatchError } from "@themis/dispatcher/repo";
-import { pyIntParse } from "@themis/base/pyre";
 import { parseIsoUtc } from "@themis/base/pydatetime";
 import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
 import {
@@ -33,7 +32,33 @@ import {
   secretLikePaths,
   tokenShaped,
 } from "@themis/base/secrets";
-import { type DumpsOptions, type PyDict, PyJsonError, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
+import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
+import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes, pyReadText } from "@themis/base/pyio";
+import { pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
+import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
+import { pyEq } from "@themis/base/pyvalue";
+import {
+  type Battery,
+  DecisionError,
+  QuestionError,
+  type Settings,
+  batteryLinkProblem,
+  checkQuestion,
+  checkQuestions,
+  loadBatteries,
+  loadBattery,
+  settingsFromConfig,
+  verifyBatteryLock,
+} from "@themis/config/decisions";
+import {
+  PluginError,
+  canonicalBytes,
+  checkPermissionIntersection,
+  digest,
+  resolvePlugins,
+  validateLock,
+  validateManifest,
+} from "@themis/config/plugin-records";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
@@ -111,7 +136,154 @@ function secretsCall(request: Request): Result {
   }
 }
 
+// --- 第 ③ 步：配置中心（与 python_probe.py 同名的 op）---------------------------------
+
+function pluginsCall(request: Request): Result {
+  const args = ((request["json_args"] ?? []) as string[]).map((text) => loads(text));
+  try {
+    switch (request["fn"]) {
+      case "validate_manifest":
+        return { ok: true, value: toTagged(validateManifest(args[0])) };
+      case "validate_lock":
+        return { ok: true, value: toTagged(args.length > 1 ? validateLock(args[0], args[1]) : validateLock(args[0])) };
+      case "resolve_plugins":
+        return { ok: true, value: toTagged(resolvePlugins(args[0], args[1])) };
+      case "check_permission_intersection":
+        return { ok: true, value: toTagged(checkPermissionIntersection(args[0] as PyValue, args[1] as PyValue, args[2] ?? null)) };
+      case "canonical_bytes":
+        return { ok: true, b64: Buffer.from(canonicalBytes(args[0] as PyValue)).toString("base64") };
+      case "digest":
+        return { ok: true, value: toTagged(digest(args[0] as PyValue)) };
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  } catch (error) {
+    if (error instanceof PluginError) return { ok: false, error: "PluginError", message: error.message };
+    throw error;
+  }
+}
+
+function batteryValue(battery: Battery): PyValue {
+  return new Map<string, PyValue>([
+    ["id", battery.id],
+    ["version", battery.version],
+    ["description", battery.description],
+    ["state_fields", battery.state_fields],
+    ["questions", battery.questions],
+    ["labels", battery.labels],
+    ["thresholds", battery.thresholds],
+    ["sha256", battery.sha256],
+    ["path", battery.path],
+  ]);
+}
+
+function settingsValue(settings: Settings): PyValue {
+  return new Map<string, PyValue>([
+    ["mode", settings.mode],
+    ["configured_mode", settings.configured_mode],
+    ["reason", settings.reason],
+    ["api_key_env", settings.api_key_env],
+    ["base_url", settings.base_url],
+    ["model", settings.model],
+    ["timeout_seconds", settings.timeout_seconds],
+    ["budget_seconds", settings.budget_seconds],
+    ["max_state_chars", settings.max_state_chars],
+    ["points", settings.points],
+    ["marker_present", settings.marker_present],
+  ]);
+}
+
+function decisionsValue(request: Request): PyValue {
+  switch (request["fn"]) {
+    case "check_question":
+      return checkQuestion(String(request["name"]), loads(String(request["question"])));
+    case "check_questions":
+      return checkQuestions(loads(String(request["questions"])));
+    case "load_battery":
+      return batteryValue(loadBattery(String(request["path"])));
+    case "load_batteries":
+      return new Map([...loadBatteries(String(request["root"]))].map(([id, battery]) => [id, batteryValue(battery)]));
+    case "verify_battery_lock":
+      return verifyBatteryLock(String(request["plugin_dir"]));
+    case "settings_from_config": {
+      const agentDir = (request["agent_dir"] as string | undefined) || null;
+      const pluginDir = (request["plugin_dir"] as string | undefined) || null;
+      return settingsValue(settingsFromConfig(loads(String(request["config"])), agentDir, pluginDir));
+    }
+    case "battery_link_problem":
+      return batteryLinkProblem(String(request["kit_root"]), String(request["plugin_dir"]));
+    default:
+      throw new Error("UNKNOWN_FN");
+  }
+}
+
+function decisionsCall(request: Request): Result {
+  try {
+    return { ok: true, value: toTagged(decisionsValue(request)) };
+  } catch (error) {
+    if (error instanceof DecisionError) return { ok: false, error: "DecisionError", code: error.code, detail: error.detail };
+    if (error instanceof QuestionError) return { ok: false, error: "ValueError", message: error.message };
+    if (error instanceof PyCrash) return { ok: false, error: error.kind };
+    throw error;
+  }
+}
+
+function unicodeCall(request: Request): Result {
+  if (request["fn"] === "lower_table") {
+    const table: [number, string][] = [];
+    for (let cp = 0; cp < 0x110000; cp += 1) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const char = String.fromCodePoint(cp);
+      const lowered = pyLower(char);
+      if (lowered !== char) table.push([cp, lowered]);
+    }
+    return { ok: true, table };
+  }
+  const text = String(request["text"]);
+  if (request["fn"] === "lower") return { ok: true, text: pyLower(text) };
+  if (request["fn"] === "casefold") return { ok: true, text: pyCasefold(text) };
+  if (request["fn"] === "nfc") return { ok: true, text: pyNfc(text) };
+  return { ok: false, error: "UNKNOWN_FN" };
+}
+
+function pyioCall(request: Request): Result {
+  try {
+    if (request["fn"] === "read_text") return { ok: true, text: pyReadText(String(request["path"])) };
+    if (request["fn"] === "read_bytes") return { ok: true, b64: pyReadBytes(String(request["path"])).toString("base64") };
+    if (request["fn"] === "decode") return { ok: true, text: pyDecodeUtf8(Buffer.from(String(request["b64"]), "base64")) };
+  } catch (error) {
+    if (error instanceof PyOSError) return { ok: false, error: "OSError", message: error.message };
+    if (error instanceof PyUnicodeDecodeError) return { ok: false, error: "UnicodeDecodeError", message: error.message };
+    throw error;
+  }
+  return { ok: false, error: "UNKNOWN_FN" };
+}
+
+function pyurlCall(request: Request): Result {
+  const text = String(request["text"]);
+  if (request["fn"] === "ip_kind") return { ok: true, kind: ipAddressKind(text) };
+  try {
+    const parts = urlsplit(text);
+    const port = urlPort(parts);
+    const { username, password } = urlUserinfo(parts);
+    return { ok: true, ...parts, port, hostname: urlHostname(parts), username, password };
+  } catch (error) {
+    if (error instanceof UrlValueError) return { ok: false, error: "ValueError" };
+    throw error;
+  }
+}
+
 const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
+  "plugins.call": pluginsCall,
+  "decisions.call": decisionsCall,
+  "unicode.call": unicodeCall,
+  "pyio.call": pyioCall,
+  "pyurl.call": pyurlCall,
+  "pyvalue.eq": (request) => {
+    const left = loads(String(request["a"]));
+    const right = loads(String(request["b"]));
+    return { ok: true, result: request["nested"] ? pyEq([left], [right]) : pyEq(left, right) };
+  },
   "secrets.call": secretsCall,
   "jsonl.append": async (request) => {
     const path = join(String(request["repo"]), ".agent", "mailbox", "ledger", "events.jsonl");

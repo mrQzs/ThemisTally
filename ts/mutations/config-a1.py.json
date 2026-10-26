@@ -1,0 +1,86 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/plugin-records.contract.test.ts",
+    "packages/contracts/test/decisions.contract.test.ts",
+    "packages/contracts/test/pybase-config.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "P01 路径键不做 casefold",
+      "file": "scripts/codekit/plugins.py",
+      "old": "return unicodedata.normalize(\"NFC\", value[\"path\"]).casefold()",
+      "new": "return unicodedata.normalize(\"NFC\", value[\"path\"]).lower()"
+    },
+    {
+      "name": "P02 资源路径不做 NFC",
+      "file": "scripts/codekit/plugins.py",
+      "old": "name = unicodedata.normalize(\"NFC\", value[\"path\"].replace(\"\\\\\", \"/\"))",
+      "new": "name = value[\"path\"].replace(\"\\\\\", \"/\")"
+    },
+    {
+      "name": "P03 字符串数组不查重复",
+      "file": "scripts/codekit/plugins.py",
+      "old": "    if len(set(value)) != len(value):\n        _fail(\"E_PLUGIN_SCHEMA\", path, \"duplicate value\")\n",
+      "new": ""
+    },
+    {
+      "name": "P04 锁里的资源不查次序",
+      "file": "scripts/codekit/plugins.py",
+      "old": "        if [(ref[\"kind\"], ref[\"id\"]) for ref in refs] != sorted((ref[\"kind\"], ref[\"id\"]) for ref in refs):",
+      "new": "        if False:"
+    },
+    {
+      "name": "P05 深度上限多一层",
+      "file": "scripts/codekit/plugins.py",
+      "old": "MAX_DEPTH = 64",
+      "new": "MAX_DEPTH = 65"
+    },
+    {
+      "name": "P06 名字比较时下划线不算分隔",
+      "file": "scripts/codekit/decisions.py",
+      "old": "return re.sub(r\"[\\W_]+\", \" \", str(text).lower()).strip()",
+      "new": "return re.sub(r\"\\W+\", \" \", str(text).lower()).strip()"
+    },
+    {
+      "name": "P07 不拒端口 0",
+      "file": "scripts/codekit/decisions.py",
+      "old": " or port == 0\n",
+      "new": "\n"
+    },
+    {
+      "name": "P08 不认只差换行",
+      "file": "scripts/codekit/decisions.py",
+      "old": "            only_eol = hashlib.sha256(data.replace(crlf, chr(10).encode())).hexdigest() == locked[name]",
+      "new": "            only_eol = False"
+    },
+    {
+      "name": "P09 清单目录按原名排序",
+      "file": "scripts/codekit/decisions.py",
+      "old": "for path in sorted(root.glob(\"*.json\")):",
+      "new": "for path in sorted(root.glob(\"*.json\"), key=lambda item: item.name):"
+    },
+    {
+      "name": "P10 官方凭据名区分大小写",
+      "file": "scripts/codekit/decisions.py",
+      "old": "settings.api_key_env.upper() == DEFAULT_API_KEY_ENV",
+      "new": "settings.api_key_env == DEFAULT_API_KEY_ENV"
+    },
+    {
+      "name": "P11 不查 kit 之下的链接",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            return first_link_component(Path(KIT_ROOT), \"%s/%s\" % (base, rel))",
+      "new": "            return None"
+    },
+    {
+      "name": "P12 名字截短的阈值",
+      "file": "scripts/codekit/decisions.py",
+      "old": "return text if len(text) <= 80 else text[:77] + \"...\"",
+      "new": "return text if len(text) <= 81 else text[:77] + \"...\""
+    }
+  ]
+}

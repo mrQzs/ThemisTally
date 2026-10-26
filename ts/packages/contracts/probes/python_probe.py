@@ -7,6 +7,7 @@ stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252）�
 import base64
 import datetime
 import errno
+import ipaddress
 import json
 import os
 import secrets
@@ -14,6 +15,8 @@ import struct
 import sys
 import time
 import types
+import unicodedata
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]  # ts/packages/contracts/probes → 仓库根
@@ -24,6 +27,7 @@ import kit_hub  # noqa: E402
 import kit_logs  # noqa: E402
 import pi_dispatch  # noqa: E402
 from codekit import decisions as codekit_decisions  # noqa: E402
+from codekit import plugins as codekit_plugins  # noqa: E402
 from codekit import secrets as codekit_secrets  # noqa: E402
 
 
@@ -346,7 +350,139 @@ def op_argv_ensure_safe(request):
     return {"ok": True}
 
 
+# --- 第 ③ 步：配置中心 ----------------------------------------------------------
+# 输入的 JSON 值以 JSON 文本传（两边各自 json.loads / pyjson.loads），结果用带标签编码；报错带 str(exc)。
+
+def op_plugins_call(request):
+    """codekit/plugins.py 的记录层：fn 选函数，json_args 是各个参数的 JSON 文本。"""
+    fn = request["fn"]
+    args = [json.loads(text) for text in request.get("json_args", [])]
+    try:
+        if fn == "validate_manifest":
+            value = codekit_plugins.validate_manifest(args[0])
+        elif fn == "validate_lock":
+            value = codekit_plugins.validate_lock(*args)
+        elif fn == "resolve_plugins":
+            value = list(codekit_plugins.resolve_plugins(args[0], args[1]))
+        elif fn == "check_permission_intersection":
+            value = codekit_plugins.check_permission_intersection(
+                args[0], allowed_permissions=args[1], platform_name=args[2] if len(args) > 2 else None)
+        elif fn == "canonical_bytes":
+            return {"ok": True, "b64": base64.b64encode(codekit_plugins.canonical_bytes(args[0])).decode("ascii")}
+        elif fn == "digest":
+            value = codekit_plugins.digest(args[0])
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except codekit_plugins.PluginError as exc:
+        return {"ok": False, "error": "PluginError", "message": str(exc)}
+    return {"ok": True, "value": to_tagged(value)}
+
+
+def op_decisions_call(request):
+    """codekit/decisions.py 里配置中心用到的部分，加上 pi_dispatch.battery_link_problem。"""
+    fn = request["fn"]
+    try:
+        if fn == "check_question":
+            value = codekit_decisions.check_question(request["name"], json.loads(request["question"]))
+        elif fn == "check_questions":
+            value = codekit_decisions.check_questions(json.loads(request["questions"]))
+        elif fn == "load_battery":
+            value = codekit_decisions.load_battery(Path(request["path"]))
+        elif fn == "load_batteries":
+            value = codekit_decisions.load_batteries(Path(request["root"]))
+        elif fn == "verify_battery_lock":
+            value = codekit_decisions.verify_battery_lock(Path(request["plugin_dir"]))
+        elif fn == "settings_from_config":
+            agent_dir, plugin_dir = request.get("agent_dir"), request.get("plugin_dir")
+            value = codekit_decisions.settings_from_config(
+                json.loads(request["config"]), Path(agent_dir) if agent_dir else None,
+                Path(plugin_dir) if plugin_dir else None).as_dict()
+        elif fn == "battery_link_problem":
+            saved = pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR
+            pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = Path(request["kit_root"]), Path(request["plugin_dir"])
+            try:
+                value = pi_dispatch.battery_link_problem()
+            finally:
+                pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = saved
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except codekit_decisions.DecisionError as exc:
+        return {"ok": False, "error": "DecisionError", "code": exc.code, "detail": exc.detail}
+    except ValueError as exc:  # check_question 的报错；JSON 与 UTF-8 的错误在 load_battery 里已经包成 DecisionError
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+    except (OverflowError, TypeError, RecursionError) as exc:  # Python 没接住、会打堆栈的：只比较类名
+        return {"ok": False, "error": type(exc).__name__}
+    return {"ok": True, "value": to_tagged(value)}
+
+
+def op_unicode_call(request):
+    """str.lower、str.casefold、unicodedata.normalize("NFC")；fn 为 lower_table 时交回全部会被 lower 改变的码点。"""
+    fn = request["fn"]
+    if fn == "lower_table":
+        table = []
+        for cp in range(0x110000):
+            if 0xD800 <= cp <= 0xDFFF:
+                continue
+            lowered = chr(cp).lower()
+            if lowered != chr(cp):
+                table.append([cp, lowered])
+        return {"ok": True, "table": table}
+    text = request["text"]
+    if fn == "lower":
+        return {"ok": True, "text": text.lower()}
+    if fn == "casefold":
+        return {"ok": True, "text": text.casefold()}
+    if fn == "nfc":
+        return {"ok": True, "text": unicodedata.normalize("NFC", text)}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
+def op_pyio_call(request):
+    """Path.read_text / read_bytes 与 bytes.decode("utf-8") 的结果或报错原文。"""
+    fn = request["fn"]
+    try:
+        if fn == "read_text":
+            return {"ok": True, "text": Path(request["path"]).read_text(encoding="utf-8")}
+        if fn == "read_bytes":
+            return {"ok": True, "b64": base64.b64encode(Path(request["path"]).read_bytes()).decode("ascii")}
+        if fn == "decode":
+            return {"ok": True, "text": base64.b64decode(request["b64"]).decode("utf-8")}
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"ok": False, "error": "OSError" if isinstance(exc, OSError) else "UnicodeDecodeError", "message": str(exc)}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
+def op_pyurl_call(request):
+    """urlsplit 加 port、hostname、username、password；ip_address 认出的类型。抛 ValueError 时只交回类名。"""
+    if request["fn"] == "ip_kind":
+        try:
+            address = ipaddress.ip_address(request["text"])
+        except ValueError:
+            return {"ok": True, "kind": None}
+        return {"ok": True, "kind": "v4" if isinstance(address, ipaddress.IPv4Address) else "v6"}
+    try:
+        parts = urllib.parse.urlsplit(request["text"])
+        port = parts.port
+    except ValueError:
+        return {"ok": False, "error": "ValueError"}
+    return {"ok": True, "scheme": parts.scheme, "netloc": parts.netloc, "path": parts.path, "query": parts.query,
+            "fragment": parts.fragment, "port": port, "hostname": parts.hostname, "username": parts.username,
+            "password": parts.password}
+
+
+def op_pyvalue_eq(request):
+    """json.loads 读出的两个值用 == 比：nested 时各包进一个 list 再比（容器里先比身份）。"""
+    left, right = json.loads(request["a"]), json.loads(request["b"])
+    return {"ok": True, "result": [left] == [right] if request.get("nested") else left == right}
+
+
 OPS = {
+    "plugins.call": op_plugins_call,
+    "decisions.call": op_decisions_call,
+    "unicode.call": op_unicode_call,
+    "pyio.call": op_pyio_call,
+    "pyurl.call": op_pyurl_call,
+    "pyvalue.eq": op_pyvalue_eq,
     "supervise.run": op_supervise_run,
     "argv.ensure_safe": op_argv_ensure_safe,
     "publish_new": op_publish_new,

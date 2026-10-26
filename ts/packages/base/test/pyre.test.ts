@@ -42,7 +42,7 @@ describe("pyre 的构件", () => {
     const pua = C(0xf0000);
     expect(pyNfkc(`${pua}${unassigned}${pua}`)).toBe(`${pua}${unassigned}${pua}`);
     expect(pyNfkc(`${C(0xff41)}${unassigned}`)).toBe(`a${unassigned}`);
-    expect(() => pyNfkc("a", "14.0")).toThrow(/拒绝脱敏/);
+    expect(() => pyNfkc("a", "14.0")).toThrow(/NFKC 的结果无法保证一致/);
     expect(pyNfkc("a", UNIDATA_VERSION)).toBe("a");
   });
 });

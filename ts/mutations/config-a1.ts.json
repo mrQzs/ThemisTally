@@ -1,0 +1,266 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/plugin-records.contract.test.ts",
+    "packages/contracts/test/decisions.contract.test.ts",
+    "packages/contracts/test/pybase-config.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "M01 安全文本不查孤立代理项",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "const UNSAFE_TEXT = /[\\u0000-\\u001f\\u007f\\ud800-\\udfff]/u;",
+      "new": "const UNSAFE_TEXT = /[\\u0000-\\u001f\\u007f]/u;"
+    },
+    {
+      "name": "M02 深度上限多一层",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "const MAX_DEPTH = 64;",
+      "new": "const MAX_DEPTH = 65;"
+    },
+    {
+      "name": "M03 负的大整数不查范围",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "if ((value < 0n ? -value : value) > MAX_SAFE_INTEGER)",
+      "new": "if (value > MAX_SAFE_INTEGER)"
+    },
+    {
+      "name": "M04 规范字节不排序键",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "sortKeys: true, separators",
+      "new": "sortKeys: false, separators"
+    },
+    {
+      "name": "M05 盘符按 UTF-16 码元看第二个字符",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "return codePoints(name)[1] === \":\";",
+      "new": "return name[1] === \":\";"
+    },
+    {
+      "name": "M06 路径键用 toLowerCase 代替 casefold",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "return pyCasefold(pyNfc(ref.get(\"path\") as string));",
+      "new": "return pyNfc(ref.get(\"path\") as string).toLowerCase();"
+    },
+    {
+      "name": "M07 资源路径不做 NFC",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "const name = pyNfc((value.get(\"path\") as string).replaceAll(\"\\\\\", \"/\"));",
+      "new": "const name = (value.get(\"path\") as string).replaceAll(\"\\\\\", \"/\");"
+    },
+    {
+      "name": "M08 别名不看边界",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "new RegExp(`(?<![a-z0-9])${alias}(?![a-z0-9])`, \"u\")",
+      "new": "new RegExp(alias, \"u\")"
+    },
+    {
+      "name": "M09 字符串数组不查重复",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "if (new Set(value).size !== value.length) fail(\"E_PLUGIN_SCHEMA\", path, \"duplicate value\");",
+      "new": ""
+    },
+    {
+      "name": "M10 排序用 JS 的缺省（UTF-16）",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "[...values].sort(cmpCodePoints);",
+      "new": "[...values].sort();"
+    },
+    {
+      "name": "M11 启用的插件不排序",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "for (const name of sortedStrings(names)) visit(name);",
+      "new": "for (const name of names) visit(name);"
+    },
+    {
+      "name": "M12 不查启用插件之间的冲突",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "    if (conflict.length) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "M13 锁里的资源不查次序",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "if (refs.some((ref, position) => cmpIdentity(ref, canonical[position] as PyDict) !== 0)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "M14 锁与 manifest 不比资源列表",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": " || !pyEq(row.get(\"resources\") as PyValue, resources)) {",
+      "new": ") {"
+    },
+    {
+      "name": "M15 权限交集不算缺的",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "const missing = required.filter((permission) => !allowed.has(permission));",
+      "new": "const missing: string[] = [];"
+    },
+    {
+      "name": "M16 报错文字的格式",
+      "file": "ts/packages/config/src/plugin-records.ts",
+      "old": "super(`${code} at ${path}: ${message}`);",
+      "new": "super(`${code} at ${path} ${message}`);"
+    },
+    {
+      "name": "D01 名字比较时下划线不算分隔",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "new RegExp(`(?:${NOT_W}|_)+`, \"gu\")",
+      "new": "new RegExp(`(?:${NOT_W})+`, \"gu\")"
+    },
+    {
+      "name": "D02 名字截短的阈值",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "return pyLen(text) <= 80 ?",
+      "new": "return pyLen(text) <= 81 ?"
+    },
+    {
+      "name": "D03 ::1 不算本机",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "hostname === \"127.0.0.1\" || hostname === \"::1\" || hostname === \"localhost\"",
+      "new": "hostname === \"127.0.0.1\" || hostname === \"localhost\""
+    },
+    {
+      "name": "D04 不拒端口 0",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "    port === 0 ||\n",
+      "new": ""
+    },
+    {
+      "name": "D05 官方凭据名区分大小写",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "settings.api_key_env.toUpperCase() === DEFAULT_API_KEY_ENV",
+      "new": "settings.api_key_env === DEFAULT_API_KEY_ENV"
+    },
+    {
+      "name": "D06 清单 id 的 $ 用 JS 的写法",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "const BATTERY_ID_RE = new RegExp(`^[a-z][a-z0-9-]{0,63}${PY_END}`, \"u\");",
+      "new": "const BATTERY_ID_RE = new RegExp(\"^[a-z][a-z0-9-]{0,63}$\", \"u\");"
+    },
+    {
+      "name": "D07 glob 在 Windows 上也分大小写",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "(process.platform === \"win32\" ? JSON_NAME : /^[^]*\\.json$/u).test(name)",
+      "new": "/^[^]*\\.json$/u.test(name)"
+    },
+    {
+      "name": "D08 清单目录按原名排序",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "const sortKey = (name: string): string => (process.platform === \"win32\" ? pyLower(name) : name);",
+      "new": "const sortKey = (name: string): string => name;"
+    },
+    {
+      "name": "D09 不认只差换行",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "const onlyEol = createHash(\"sha256\").update(lf).digest(\"hex\") === expected;",
+      "new": "const onlyEol = false;"
+    },
+    {
+      "name": "D10 超出 double 的整数不报 OverflowError",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "  if (!Number.isFinite(result)) throw new PyCrash(\"OverflowError\", \"int too large to convert to float\");\n",
+      "new": ""
+    },
+    {
+      "name": "D11 list(str) 不拆字符",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "if (typeof value === \"string\") return codePoints(value);",
+      "new": "if (typeof value === \"string\") return [value];"
+    },
+    {
+      "name": "D12 相对 kit 根的比较分大小写",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "const norm = (value: string): string => (process.platform === \"win32\" ? pyLower(value) : value);",
+      "new": "const norm = (value: string): string => value;"
+    },
+    {
+      "name": "D13 不看标记文件",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "if (agentDir !== null && existsSync(joinPath(agentDir, OFF_MARKER))) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "D14 区间的写法不带 .0",
+      "file": "ts/packages/config/src/decisions.ts",
+      "old": "between ${low.toFixed(1)} and ${high.toFixed(1)}",
+      "new": "between ${low} and ${high}"
+    },
+    {
+      "name": "B01 不换掉未分配的码点",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "    if (!inTable(UNASSIGNED, cp)) return char;",
+      "new": "    return char;"
+    },
+    {
+      "name": "B02 casefold 用 toLowerCase",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": ".map((char) => table.get(codePoint(char)) ?? char)",
+      "new": ".map((char) => char.toLowerCase())"
+    },
+    {
+      "name": "B03 E0 之后不查过短的编码",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "    !(lead === 0xe0 && second < 0xa0) &&\n",
+      "new": ""
+    },
+    {
+      "name": "B04 数据提前结束时只报一个字节",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "return [index, end, \"unexpected end of data\"];",
+      "new": "return [index, index + 1, \"unexpected end of data\"];"
+    },
+    {
+      "name": "B05 读目录报不存在",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "EISDIR: [13, \"Permission denied\"],",
+      "new": "EISDIR: [2, \"No such file or directory\"],"
+    },
+    {
+      "name": "B06 端口上限差一",
+      "file": "ts/packages/base/src/pyurl.ts",
+      "old": "if (value > 65535n)",
+      "new": "if (value > 65536n)"
+    },
+    {
+      "name": "B07 不查网络位置的 NFKC",
+      "file": "ts/packages/base/src/pyurl.ts",
+      "old": "if (!netloc || /^[\\u0000-\\u007f]*$/u.test(netloc)) return;",
+      "new": "return;"
+    },
+    {
+      "name": "B08 IPv4 放过前导零",
+      "file": "ts/packages/base/src/pyurl.ts",
+      "old": "(octet !== \"0\" && octet.startsWith(\"0\"))",
+      "new": "false"
+    },
+    {
+      "name": "B09 IPv6 的 :: 不要求至少省掉一段",
+      "file": "ts/packages/base/src/pyurl.ts",
+      "old": "    if (8 - (high + low) < 1) return false;\n",
+      "new": ""
+    },
+    {
+      "name": "B10 容器里的 NaN 不相等",
+      "file": "ts/packages/base/src/pyvalue.ts",
+      "old": "left === right || (nested && Number.isNaN(left) && Number.isNaN(right))",
+      "new": "left === right"
+    },
+    {
+      "name": "B11 int 与 float 换成 double 再比",
+      "file": "ts/packages/base/src/pyvalue.ts",
+      "old": "return Number.isInteger(float) && BigInt(float) === int;",
+      "new": "return float === Number(int);"
+    },
+    {
+      "name": "B12 dict 不比键数",
+      "file": "ts/packages/base/src/pyvalue.ts",
+      "old": "  if (a.size !== b.size) return false;\n",
+      "new": ""
+    }
+  ]
+}

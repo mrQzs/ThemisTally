@@ -7,6 +7,7 @@
 //   - .（不带 DOTALL）：Python 只不配 \n，JS 还不配 \r、U+2028、U+2029，所以写成 [^\n]
 // 所有正则都带 u 标志：按码点匹配（量词按码点计数，孤立代理项也算一个字符），与 Python 的 str 一致。
 import {
+  CASEFOLD,
   CF_CC,
   DIGIT,
   IGNORECASE_EXTRA,
@@ -53,6 +54,7 @@ export function inTable(table: readonly number[], cp: number): boolean {
 
 /** Python 的 \w、\d、\s 与它们的补集，以及 \b。 */
 export const W = charClass(WORD);
+export const NOT_W = charClass(WORD, true);
 export const D = charClass(DIGIT);
 export const S = charClass(SPACE);
 export const NOT_S = charClass(SPACE, true);
@@ -226,8 +228,46 @@ function* privateUse(): Generator<number> {
  * （themistally-15 用 825,345 个码点验证过零差异）。运行时比 Python 的版本还旧时拒绝：反方向的差异兜不住。
  */
 export function pyNfkc(text: string, runtime: string = process.versions.unicode ?? "0.0"): string {
+  return withPythonUnicode(text, runtime, "NFKC", (swapped) => swapped.normalize("NFKC"));
+}
+
+/** unicodedata.normalize("NFC", text)：做法与 pyNfkc 相同（迁移第 ③ 步 plugins 的资源路径）。 */
+export function pyNfc(text: string, runtime: string = process.versions.unicode ?? "0.0"): string {
+  return withPythonUnicode(text, runtime, "NFC", (swapped) => swapped.normalize("NFC"));
+}
+
+/**
+ * str.lower()：完整的小写映射加 Final_Sigma（Σ 前面有带大小写的字母、后面没有时写成 ς），JS 的 toLowerCase 同样如此。
+ * 未分配的码点照 pyNfkc 换成私用区占位符：私用区字符既不带大小写、也不是“可忽略”的，Final_Sigma 的判定与 Python
+ * 眼里的未分配字符相同。逐码点的映射由对照测试与 Python 全量比较。
+ */
+export function pyLower(text: string, runtime: string = process.versions.unicode ?? "0.0"): string {
+  return withPythonUnicode(text, runtime, "lower", (swapped) => swapped.toLowerCase());
+}
+
+let casefoldTable: Map<number, string> | undefined;
+
+/** str.casefold()：逐个码点查 CASEFOLD 表（Python 不看上下文，JS 没有 casefold）。 */
+export function pyCasefold(text: string): string {
+  if (casefoldTable === undefined) {
+    casefoldTable = new Map();
+    for (let index = 0; index < CASEFOLD.length; ) {
+      const cp = CASEFOLD[index] ?? 0;
+      const length = CASEFOLD[index + 1] ?? 0;
+      casefoldTable.set(cp, String.fromCodePoint(...CASEFOLD.slice(index + 2, index + 2 + length)));
+      index += 2 + length;
+    }
+  }
+  const table = casefoldTable;
+  return codePoints(text)
+    .map((char) => table.get(codePoint(char)) ?? char)
+    .join("");
+}
+
+/** 先把 Python 眼里未分配的码点换成私用区占位符，交给 JS 的 Unicode 函数，再换回来（见 pyNfkc）。 */
+function withPythonUnicode(text: string, runtime: string, what: string, transform: (swapped: string) => string): string {
   if (!versionAtLeast(runtime, UNIDATA_VERSION)) {
-    throw new Error(`运行时的 Unicode ${runtime} 比 Python 参照版本 ${UNIDATA_VERSION} 旧，NFKC 的结果无法保证一致，拒绝脱敏`);
+    throw new Error(`运行时的 Unicode ${runtime} 比 Python 参照版本 ${UNIDATA_VERSION} 旧，${what} 的结果无法保证一致，拒绝处理`);
   }
   const chars = codePoints(text);
   const present = new Set(chars.map(codePoint));
@@ -248,7 +288,7 @@ export function pyNfkc(text: string, runtime: string = process.versions.unicode 
     }
     return placeholder;
   });
-  const normalized = swapped.join("").normalize("NFKC");
+  const normalized = transform(swapped.join(""));
   if (originals.size === 0) return normalized;
   return codePoints(normalized)
     .map((char) => originals.get(codePoint(char)) ?? char)

@@ -73,6 +73,14 @@ def main():
     body = ", ".join("%s: [%s]" % (letter, ", ".join("0x%x" % cp for cp in cps)) for letter, cps in sorted(extra.items()))
     parts.append("/** re.IGNORECASE：ASCII 字母之外还匹配的码点（按小写字母列） */\n")
     parts.append("export const IGNORECASE_EXTRA: Readonly<Record<string, readonly number[]>> = { %s };\n" % body)
+    # str.casefold 逐个码点映射、不看上下文（JS 没有 casefold）：迁移第 ③ 步 plugins 的资源路径键
+    folds = []
+    for cp in range(MAX):
+        folded = chr(cp).casefold()
+        if folded != chr(cp):
+            folds.append("0x%x, %d, %s" % (cp, len(folded), ", ".join("0x%x" % ord(ch) for ch in folded)))
+    parts.append("/** str.casefold 改变的码点：码点、折叠后的长度、折叠后的码点，逐个排（%d 个） */\n" % len(folds))
+    parts.append("export const CASEFOLD: readonly number[] = [%s];\n" % ", ".join(folds))
     with open(out_path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("".join(parts))
     print("wrote", out_path, {name: len(ranges(predicate)) for name, _, predicate in tables[:3]}, extra)

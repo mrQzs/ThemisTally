@@ -19,6 +19,9 @@
     "./pyjson": "./src/pyjson.ts",
     "./pyfmt": "./src/pyfmt.ts",
     "./pypath": "./src/pypath.ts",
-    "./supervise": "./src/supervise.ts"
+    "./supervise": "./src/supervise.ts",
+    "./pyio": "./src/pyio.ts",
+    "./pyurl": "./src/pyurl.ts",
+    "./pyvalue": "./src/pyvalue.ts"
   }
 }
