@@ -78,14 +78,17 @@ describe('PresetBar', () => {
     { name: 'economy', description: 'y', roles: ['execution'], active: false },
   ] as any;
 
-  it('选项与初值、两种说明、[切换…] 禁用', () => {
+  it('选项与初值、两种说明、[切换…] 选中当前方案时禁用、改选后可点', () => {
     const { container } = render(<PresetBar presets={presets} active="default" />);
     const radios = qa(container, '[role="radio"]');
     expect(radios.map((r: any) => text(r))).toEqual(['default', 'economy']);
     expect(text(container)).toContain('当前：default · 4 个角色');
     expect(btn(container, '切换…')?.disabled).toBe(true);
     fireEvent.click(radios[1]);
-    expect(text(container)).toContain('已选 economy · 切换在第二阶段接入');
+    expect(text(container)).toContain('已选 economy');
+    expect(text(container)).not.toContain('切换在第二阶段接入');
+    expect(btn(container, '切换…')?.disabled, '选中的不是当前方案时可点').toBe(false);
+    expect(btn(container, '切换…')?.closest('.tt-tooltip-wrap'), '可点入口不带提示包裹').toBeNull();
   });
 
   it('无方案时只写提示', () => {

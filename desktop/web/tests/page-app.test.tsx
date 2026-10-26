@@ -90,9 +90,9 @@ describe('夹具值与点击导航', () => {
 
 describe('写入口个数（过渡）', () => {
   const disabled = () => qa(frame(), 'button').filter((b: any) => b.disabled);
-  it('角色页 13、运行时页 9、总览 0', async () => {
+  it('角色页 12（保存当前为方案…、新建 profile、4 张角色卡的 [更改…]、profile 表 2 行的 [编辑] 与 [删除]、方案表非当前行的 [删除…]、方案条的 [切换…]）、运行时页 9、总览 0', async () => {
     await mount('#/roles');
-    expect(disabled().length, '角色页').toBe(13);
+    expect(disabled().length, '角色页').toBe(12);
     cleanup();
     await mount('#/runtimes');
     expect(disabled().length, '运行时页').toBe(9);

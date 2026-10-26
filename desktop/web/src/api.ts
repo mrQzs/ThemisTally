@@ -58,7 +58,7 @@ export interface BindingChange {
   to: string;
 }
 
-// 预览数据（POST /api/v1/preview 的 data）：命令是将要运行的写命令（不含 --dry-run --json）。
+// 预览数据（POST /api/v1/preview 的 data）：command 是 README :83–95 的预览写法（带 --dry-run --json）。
 export interface PreviewData {
   binding_changes: BindingChange[];
   resources: string[];

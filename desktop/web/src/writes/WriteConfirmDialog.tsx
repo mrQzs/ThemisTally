@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import { Banner, Button, CommandLine, Dialog, Skeleton, Toast } from '../components';
 import type { BindingChange } from '../api';
+// 样式表接线：放在组件 import 之后（照仓库里组件带自己的样式表的写法）。
+import './write-flow.css';
 
 export interface ConfirmContent {
   command: string;

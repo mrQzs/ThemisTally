@@ -25,7 +25,6 @@ import {
   type WriteClass,
 } from './writeOutcome';
 import type { ConfirmContent, FlowRender, FlowView } from './WriteConfirmDialog';
-import './write-flow.css';
 
 export interface WriteSpec {
   action: WriteAction;
@@ -306,7 +305,8 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
       snapRef.current = snapRes.s.snapshot;
       confirmRef.current = data.confirmation;
       const content = {
-        command: dispatchCommand(data.command),
+        // 预览命令带 --dry-run --json（第二节）；「将运行的命令」要的是真正会跑的写命令，去掉这两个开关。
+        command: dispatchCommand(data.command.filter((a) => a !== '--dry-run' && a !== '--json')),
         changes: data.binding_changes,
         warnings: data.warnings,
         running: data.running_attempts,

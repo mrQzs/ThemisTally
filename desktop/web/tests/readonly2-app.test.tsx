@@ -104,7 +104,7 @@ describe('四页五态（经 ?mock=）', () => {
 });
 
 describe('夹具下的写入口（过渡）', () => {
-  it('凭据 2、日志 0、插件 3（抽屉开 4）、历史 0（抽屉开 1），每个都禁用', async () => {
+  it('凭据 2、日志 0、插件 1（抽屉开 2）、历史 0（抽屉开 1），每个都禁用', async () => {
     await mountApp('#/secrets?mock=data');
     expect(disabledWrites().map((b) => text(b))).toEqual(['录入…', '录入…']);
     cleanup();
@@ -112,14 +112,14 @@ describe('夹具下的写入口（过渡）', () => {
     expect(disabledWrites()).toHaveLength(0);
     cleanup();
     await mountApp('#/plugins?mock=data');
-    expect(disabledWrites().map((b) => text(b)).sort()).toEqual(['停用…', '启用…', '核对全部'].sort());
+    expect(disabledWrites().map((b) => text(b))).toEqual(['核对全部']);
     const rows = Array.from(document.querySelectorAll('main tbody tr')) as HTMLElement[];
     act(() => { rows[2].focus(); });
     const { fireEvent } = await import('@testing-library/react');
     fireEvent.keyDown(rows[2], { key: 'Enter' });
     await settle();
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(disabledWrites().map((b) => text(b)).sort()).toEqual(['停用…', '启用…', '核对全部', '重新核对'].sort());
+    expect(disabledWrites().map((b) => text(b))).toEqual(['核对全部', '重新核对']);
     cleanup();
     await mountApp('#/history?mock=data');
     expect(disabledWrites()).toHaveLength(0);
@@ -131,7 +131,7 @@ describe('夹具下的写入口（过渡）', () => {
   }, 60000);
 
   it('各页可用按钮只在白名单内，可用链接只有 [去设置]', async () => {
-    const allowed = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)'];
+    const allowed = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)', '启用…', '停用…'];
     const problems: string[] = [];
     for (const mock of ['data', 'error']) {
       for (const p of PAGES) {

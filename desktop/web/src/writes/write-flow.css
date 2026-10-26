@@ -1,4 +1,4 @@
-// 写确认框的样式（A 片）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色。
+/* 写确认框的样式（A 片）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色。 */
 .wf-content {
   display: flex;
   flex-direction: column;

@@ -73,6 +73,8 @@ function newOpId(action: string): string {
 }
 
 function previewData(action: WriteAction, args: Record<string, string>, confirmation: string): PreviewData {
+  // 预览命令照 README :83–95：基础 argv 加 --dry-run --json（对话框的「将运行的命令」另去掉这两个开关）。
+  const command = [...baseArgv(action, args), '--dry-run', '--json'];
   if (action === 'preset.use') {
     return {
       binding_changes: [{ role: 'execution', from: 'step-high', to: 'step-low' }],
@@ -81,7 +83,7 @@ function previewData(action: WriteAction, args: Record<string, string>, confirma
       warnings: [],
       running_attempts: [],
       needs_yes: false,
-      command: baseArgv(action, args),
+      command,
       confirmation,
     };
   }
@@ -92,7 +94,7 @@ function previewData(action: WriteAction, args: Record<string, string>, confirma
     warnings: [],
     running_attempts: [],
     needs_yes: false,
-    command: baseArgv(action, args),
+    command,
     confirmation,
   };
 }
@@ -135,6 +137,9 @@ function executeEnvelope(scenario: WriteScenario, action: WriteAction, args: Rec
       return env({ ok: false, exit_code: 2, messages: ['ERROR 用法错误：preset use 需要一个方案名'], command });
     case 'exit3':
       return env({ ok: false, exit_code: 3, messages: ['ERROR 内核拒绝：写不进去配置文件'], command });
+    case 'reread-fail-exit1':
+      // 与 exit1 同一份执行响应（200 ok:false 退出 1），区别在重读：本情景让重读失败。
+      return env({ ok: false, exit_code: 1, messages: ['ERROR 内核拒绝：profile step-low 不存在'], command });
     case 'stale':
       return env({ ok: false, exit_code: 4, messages: ['ERROR 在预览之后配置被改动了，请重新预览'], command });
     case 'expired':

@@ -124,9 +124,10 @@ describe('插件页：表', () => {
     for (const [id, label] of [['alpha', '停用…'], ['delta', '停用…'], ['beta', '启用…']]) {
       const btn = act3(id).querySelector('button') as HTMLButtonElement;
       expect(text(btn), id).toBe(label);
-      expect(btn.disabled).toBe(true);
+      expect(btn.disabled, id).toBe(false);
       expect(btn.getAttribute('data-variant')).toBe('ghost');
       expect(btn.getAttribute('data-size')).toBe('sm');
+      expect(btn.closest('.tt-tooltip-wrap'), '可点入口不带提示包裹').toBeNull();
     }
     expect(text(act3('gamma'))).toBe('详情');
     expect(act3('gamma').querySelector('button, a, [tabindex]')).toBeNull();
@@ -173,13 +174,18 @@ describe('插件页：抽屉', () => {
     expect(rs[0].getAttribute('tabindex')).toBe('0');
   });
 
-  it('点禁用入口不开抽屉；点行只换内容；换行后 Esc 焦点回后打开的那一行', async () => {
+  it('点启停入口只弹写确认框：插件抽屉不开、getPlugin 不被调用；点行只换内容；换行后 Esc 焦点回后打开的那一行', async () => {
     const calls: string[] = [];
     await mount((id) => { calls.push(id); return Promise.resolve(ok(showFor(id), ['plugins', 'show', id])); });
     const rs = rows();
     const btn = cells(rs[0])[7].querySelector('button') as HTMLButtonElement;
     fireEvent.click(btn);
-    fireEvent.click(btn.closest('.tt-tooltip-wrap') as HTMLElement);
+    await settle();
+    expect(dialog(), '点 [停用…] 弹写确认框').not.toBeNull();
+    expect(dialog()!.getAttribute('aria-modal')).toBe('true');
+    expect(document.querySelector('[role="dialog"][aria-modal="false"]'), '插件抽屉不开').toBeNull();
+    expect(calls, 'getPlugin 不被调用').toEqual([]);
+    fireEvent.click(buttonByText(dialog() as HTMLElement, '取消'));
     await settle();
     expect(dialog()).toBeNull();
     expect(calls).toEqual([]);
@@ -293,21 +299,25 @@ describe('插件页：抽屉', () => {
     };
     expect(text(dd('ID'))).toBe('beta');
   });
-  it('悬停 400ms 出现 role=tooltip，文字是「第二阶段接入」', async () => {
+  it('悬停 400ms 出现 role=tooltip，文字是「第二阶段接入」（抽屉里的 [重新核对]）', async () => {
     await mount();
-    const wrap = cells(rows()[0])[7].querySelector('.tt-tooltip-wrap') as HTMLElement;
+    await openByEnter(rowOf('beta'));
+    const again = buttonByText(dialog() as HTMLElement, '重新核对');
+    const wrap = again.closest('.tt-tooltip-wrap') as HTMLElement;
     expect(wrap).not.toBeNull();
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
     fireEvent.mouseEnter(wrap);
     act(() => { vi.advanceTimersByTime(399); });
-    expect(document.querySelector('[role="tooltip"]'), '400ms 内不出现').toBeNull();
+    expect(again.getAttribute('aria-describedby'), '400ms 内不出现').toBeFalsy();
     act(() => { vi.advanceTimersByTime(1); });
-    const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+    const tipId = again.getAttribute('aria-describedby') as string;
+    expect(tipId, '悬停 400ms 后触发元素应带 aria-describedby').toBeTruthy();
+    const tip = document.getElementById(tipId) as HTMLElement;
     expect(tip).not.toBeNull();
+    expect(tip.getAttribute('role')).toBe('tooltip');
     expect(text(tip)).toBe('第二阶段接入');
     fireEvent.mouseLeave(wrap);
     act(() => { vi.advanceTimersByTime(400); });
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(document.getElementById(tipId)).toBeNull();
   });
 
   it('关闭钮的提示出现后：第一次 Esc 只关提示，第二次才关抽屉', async () => {
