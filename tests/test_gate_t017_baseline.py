@@ -216,9 +216,14 @@ def fail_if(problems, title):
     assert not problems, title + "：\n" + "\n".join(f"- {p}" for p in problems[:40])
 
 
+#: 行注释与块注释在同一次从左往右的扫描里认：先出现的那一种算数（与 T006 门禁同一写法，见 7fafe2f）。原来先删块注释、
+#: 再删行注释，行注释里的 `/*`（例如 `src/mock/*.json`）会被当成块注释的开头，一直吞到后面某个 `*/`。
+#: 冒号、引号或反引号紧跟的 `//` 不算行注释（网址、以 // 开头的字符串），与原来相同。
+_TS_COMMENT = re.compile(r"(?<![:'\"`])//[^\n]*|/\*.*?\*/", re.S)
+
+
 def strip_ts_comments(text):
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"(?m)(^|[^:'\"`])//[^\n]*", r"\1", text)
+    return _TS_COMMENT.sub("", text)
 
 
 def _argv_written(code, *parts):
