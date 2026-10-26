@@ -6,8 +6,8 @@
 四个写函数与配套类型（``Envelope.exit_code`` 放宽成 ``number | null``），新增 ``src/mock/writes.ts``（``?write=``
 演示情景）、``src/writes/`` 的 ``writeOutcome.ts``/``snapshots.ts``/``useWriteFlow.ts``/``WriteConfirmDialog.tsx``/
 ``write-flow.css``，``Dialog`` 加 ``dismissible``，``PageFrame`` 的 ``children`` 加可选 ``reload``，并把三个写入口
-（角色页方案 [切换…]、方案表 [使用]、插件表 [启用…]/[停用…]）接上；B 片的四个入口照旧是带「第二阶段接入」提示的
-``DisabledAction``。成功只在重读之后才说（W3）；确认框里不出现「没有变化」这个子串（W3b）。
+（角色页方案 [切换…]、方案表 [使用]、插件表 [启用…]/[停用…]）接上；B 片的四个入口在 A 片期间照旧是带「第二阶段接入」
+提示的 ``DisabledAction``（T023 准备时退役了守它们的过渡断言，见下方）。成功只在重读之后才说（W3）；确认框里不出现「没有变化」这个子串（W3b）。
 
 基线（7fafe2f，desktop/web 内容与 531a608 相同）上 ``src/mock/writes.ts``、``src/writes/`` 与四个 ``tests/writes-*``
 测试文件都不存在，``api.ts``
@@ -19,12 +19,11 @@
 D16 附带的 21 条变异靠这些断言加执行端的四个 ``writes-*`` 测试文件抓，战后门禁另出变异清单）：
 
 - 静态断言（``test_s*``，不用流水线，全量 pytest 也跑）：新文件在位（D01）；api.ts 恰好四个写函数加配套类型、
-  13 个读函数都在、exit_code 放宽（D01）；不导出 B 片的四个写函数与 LATER_API 里的名字（D02，过渡）；Dialog 的
+  13 个读函数都在、exit_code 放宽（D01）；Dialog 的
   dismissible（D08）；PageFrame 的 reload 与六处类型放宽（D14）；write-flow.css 只用既有令牌且被接进源码（D14）；
-  B 片四个入口仍是 DisabledAction（D06，过渡）；三个入口的接线（D09–D11）；不新增 JSON 夹具、页面文件与
+  三个入口的接线（D09–D11）；不新增 JSON 夹具、页面文件与
   components/index.ts（D15）；执行端四个测试文件在位、不用 skip/only/todo、且带有覆盖映射表/快照/轮询/对话框的记号
-  （D03–D05、D12–D13）；页面与视图不引入写函数（第八节）；mock/writes.ts 收全 19 个情景值（第二节）；page-app.test.tsx
-  的「写入口个数（过渡）」计数 13→12 且用例名列出所数按钮（D17，v2 新增，过渡——见下方过渡断言与 B 片退役清单）。
+  （D03–D05、D12–D13）；页面与视图不引入写函数（第八节）；mock/writes.ts 收全 19 个情景值（第二节）。
 - 流水线断言（``pipeline`` 会话级夹具，全量 pytest 默认跳过，点名运行本文件才跑）：npm ci、npm run build、
   npm test、npm run check:contract，再把探针逐份写成 ``gate-probe/probe-<唯一标识>-t022-<键>.test.tsx``，各用
   ``npm test -- gate-probe/<文件名>`` 跑，``finally`` 里删除。
@@ -35,23 +34,17 @@ D16 附带的 21 条变异靠这些断言加执行端的四个 ``writes-*`` 测�
   情景逐行（预览、执行、getOperation 三列）、``exit_code`` 为 null；
 - dialog：``dismissible`` 缺省行为不变；为 false 时 Esc、遮罩、头部关闭钮都不关框（D08/M14–M16）；
 - entries：三个入口接上（[切换…] 可点且 primary md、说明「已选 economy」；[使用] ghost sm；插件 [启用…]/[停用…] 可点
-  且不冒泡——抽屉不开、getPlugin 不被调用，offline 下也保持可点）（D07、D09–D11）；B 片 [删除…] 照旧禁用带提示（D06）；
+  且不冒泡——抽屉不开、getPlugin 不被调用，offline 下也保持可点）（D07、D09–D11）；
 - flow：经真实 ``?write=`` 情景走完确认流程——完成才弹「已切换到方案 economy」且关框、重读卡住时整页没有「已切换」（W3/M1）、
   exit3 之后整页没有「已切换」没有「成功」（W3/M18）、warn 不关框列 WARN 行（M17）、stale/expired 两种 409（M4）、busy 回到
   可确认提示「服务繁忙」（M5/M6）、closing 到失败带「服务出错」、reread-fail 是「命令已成功，但重新读取失败」且不弹轻提示
   （M9）、drop-done 轮询到终态（M12）、drop-lost 进「结果未知」（M13）、drop-hang 到 119 秒不下结论、121 秒进「结果未知」
   （M10/M11）、执行中 Esc/遮罩/[取消]/关闭钮都关不掉（M14–M16）、确认框任何状态都不出现「没有变化」（W3b）。
 
-过渡断言（``test_transitional_`` 开头，docstring 第一行写明哪项后续工作推翻它）：api.ts 不导出 B 片的四个写函数
-（B 片开工时推翻）、B 片四个入口仍是 DisabledAction（B 片接上时推翻）、page-app.test.tsx 的「写入口个数（过渡）」
-仍是 A 片的 12/9/0 计数与按钮列举用例名（B 片接上时推翻：角色页 12→9、运行时页 9→8）。其余（入口接线、确认框
-文案、W3/W3b、令牌规则、文件名单）是长期断言。
-
-B 片退役清单（B 片开工准备时统一退役，站主按名字找，共五项）：``test_transitional_s03_api_no_b_writes_no_later_names``、
-``test_transitional_s09_b_entries_still_disabled_actions``、``test_transitional_s17_page_app_write_entry_count`` 三条
-``test_transitional_`` 用例；entries 探针里 it 名带「（过渡：B 片开工时推翻）」的那条（方案表 [删除…] 仍是带
-「第二阶段接入」提示的禁用入口）；api 探针 FORBIDDEN 数组里 B 片的四个名字（removePreset、removeProfile、
-removeRuntime、rollback）。
+过渡断言（B 片开工时推翻的五项）已在 T023 准备时退役（2026-10-26，规划端提交）：``test_transitional_s03``、
+``s09``、``s17`` 三条用例，entries 探针里方案表 [删除…] 仍禁用的那条，api 探针 FORBIDDEN 里 B 片的四个名字。
+退役只停止断言 A 片期间的旧行为（B 片入口禁用、不导出 B 片写函数、写入口个数 12/9/0），不提前断言 B 片的新行为：
+B 片合入前后本文件都能过。LATER_API 的名字照旧由 api 探针守着。
 
 合同没有写死、门禁端按最合理读法定下的地方（交付信「下游须知」里逐条列出，终审可改）：``preview`` 的 args 记录键名
 （``preset.use`` 用 ``{name}``、插件用 ``{id}``）；getOperation 在 ``drop-*``/busy/expired 情景里用预览返回的 confirmation
@@ -116,11 +109,6 @@ RELAXED_TYPE_FILES = (
     f"{SRC_REL}/pages/readonly2/logs-SearchResults.tsx",
     f"{SRC_REL}/pages/readonly2/plugins-PluginDrawer.tsx",
 )
-# B 片四个入口所在的文件（A 片期间照旧是 DisabledAction）
-B_ENTRY_FILES = (PRESETSTABLE_REL, f"{SRC_REL}/pages/readonly1/roles-ProfilesTable.tsx",
-                 f"{SRC_REL}/pages/readonly1/runtimes-RuntimesView.tsx",
-                 f"{SRC_REL}/pages/readonly2/history-HistoryView.tsx")
-
 # 基线名单：src/mock 恰 14 份 JSON、src/pages 顶层恰 9 个 *Page.tsx（不新增 JSON、不新增页面文件）
 BASELINE_MOCK_JSON_COUNT = 14
 BASELINE_PAGE_COUNT = 9
@@ -131,12 +119,6 @@ API_READS = ("getMeta", "getStatus", "getAttempt", "readFile", "getRoles", "getP
 # 合同第一节：四个新写函数与配套类型
 API_NEW_EXPORTS = ("preview", "getOperation", "usePreset", "setPluginEnabled")
 API_NEW_TYPES = ("WriteAction", "HttpReply", "BindingChange", "PreviewData", "OperationView")
-# B 片的四个写函数（站主决定第二条）与 T006 LATER_API 里剩下的名字：api.ts 一律不许导出
-B_WRITE_EXPORTS = ("removePreset", "removeProfile", "removeRuntime", "rollback")
-LATER_API = ("listAttempts", "getConfig", "validateConfig", "getHistoryEntry", "getPlugin", "checkSecret",
-             "subscribeEvents", "search", "startJob", "getJob", "cancelJob", "startSecretEntry",
-             "setRole", "savePreset", "saveProfile", "addRuntime")
-
 # 合同第二节的 19 个情景值
 WRITE_SCENARIOS = ("ok", "warn", "exit1", "exit2", "exit3", "stale", "expired", "busy", "closing", "spawn",
                    "toolarge", "timeout", "drop-done", "drop-lost", "drop-hang", "preview-fail",
@@ -257,15 +239,6 @@ def test_s02_api_four_write_exports_and_types():
         "WriteAction 应只有 preset.use / plugin.enable / plugin.disable 三个成员"
 
 
-def test_transitional_s03_api_no_b_writes_no_later_names():
-    """B 片（写函数与删除/回滚入口）开工时推翻：api.ts 不导出 removePreset/removeProfile/removeRuntime/rollback，
-    也不放 LATER_API 里的任何名字（站主决定第二条、T006 的 LATER_API 现状）。"""
-    text = read_rel(API_REL)
-    for name in B_WRITE_EXPORTS + LATER_API:
-        assert not re.search(rf"export (?:async )?function {name}\b", text), \
-            f"api.ts 不许导出 {name}（B 片或后续片的名字）"
-
-
 def test_s04_no_network_words_in_src():
     """S04 / 非目标：src 下任何文字（注释也算）不出现 fetch、XMLHttpRequest、EventSource、WebSocket。"""
     problems = []
@@ -316,26 +289,6 @@ def test_s08_write_flow_css_tokens_and_wiring():
     assert importers, "src 里没有模块 import write-flow.css（CSS 没接进产品）"
     entry_texts = "".join(read_rel(rel) for rel in (PRESETBAR_REL, PRESETSTABLE_REL, PLUGINSVIEW_REL))
     assert "writes/" in entry_texts, "三个入口文件应从 src/writes/ 引入写流程（CSS 的接线上游）"
-
-
-def test_transitional_s09_b_entries_still_disabled_actions():
-    """B 片（写函数与删除/回滚入口）开工时推翻：B 片的四个入口仍是 DisabledAction——方案表 [删除…]、profile 表
-    [删除]、运行时表 [删除…]、历史页 [回滚到这一条之后]（站主决定第一条，A 片不越界）。"""
-    need_new_sources()
-    pairs = (
-        (PRESETSTABLE_REL, 'label="删除…"'),
-        (f"{SRC_REL}/pages/readonly1/roles-ProfilesTable.tsx", 'label="删除"'),
-        (f"{SRC_REL}/pages/readonly1/runtimes-RuntimesView.tsx", 'label="删除…"'),
-        (f"{SRC_REL}/pages/readonly2/history-HistoryView.tsx", "回滚到这一条之后"),
-    )
-    for rel, marker in pairs:
-        text = read_rel(rel)
-        assert marker in text, f"{rel} 里应有 {marker}（B 片的入口在 A 片期间不动）"
-        assert "DisabledAction" in text, f"{rel} 的 B 片入口应仍是 DisabledAction"
-    # 方案表里 [删除…] 仍是 DisabledAction、[使用] 不再是
-    table = read_rel(PRESETSTABLE_REL)
-    assert re.search(r"<DisabledAction label=\"删除…\"", table), "方案表 [删除…] 应仍是 DisabledAction"
-    assert not re.search(r"<DisabledAction label=\"使用\"", table), "方案表 [使用] 应换成可点的 Button"
 
 
 def test_s10_presetbar_wiring():
@@ -410,31 +363,6 @@ def test_s16_mock_writes_scenarios():
     text = read_rel(f"{MOCK_REL}/writes.ts")
     missing = [v for v in WRITE_SCENARIOS if f"'{v}'" not in text and f'"{v}"' not in text]
     assert not missing, f"mock/writes.ts 缺少情景值 {missing}"
-
-
-def test_transitional_s17_page_app_write_entry_count():
-    """B 片（接上四个删除/回滚入口）开工时推翻：page-app.test.tsx 是共享文件，B 片接上方案表 [删除…]、profile 表
-    [删除]×2（角色页 12→9）、运行时页 [删除…]（9→8）后必然改写「写入口个数（过渡）」块，这条断言随之作废。
-    S17 / D17（v2 新增）：A 片只改角色页那一个计数——由 13 改成 12（接上方案表 [使用] 之后它不再是禁用按钮；
-    [切换…] 在默认选中当前方案时仍是禁用的普通 Button，照旧计入），用例名按 D17 写死成列出所数按钮的写法；
-    运行时页 9 与总览 0 不动；该文件其余用例（三页五态、总览指标、点指标卡换到任务页）一个字都不改。"""
-    rel = f"{TESTS_REL}/page-app.test.tsx"
-    need_file(rel)
-    text = read_rel(rel)
-    for marker in ("三页五态（经 ?mock=）", "总览指标", "点指标卡换到任务页并保留 mock"):
-        assert marker in text, f"{rel} 的其余用例应照旧（缺「{marker}」，D17：一个字都不改）"
-    m = re.search(r"describe\(['\"]写入口个数（过渡）['\"]", text)
-    assert m, f"{rel} 应保留「写入口个数（过渡）」这条过渡用例"
-    rest = text[m.start():]
-    nxt = rest.find("describe(", 1)
-    block = rest if nxt < 0 else rest[:nxt]
-    assert "角色页 13" not in block and "toBe(13)" not in block, \
-        "角色页的禁用计数应已从 13 改成 12（接上方案表 [使用] 之后它不再是禁用按钮）"
-    for marker in ("角色页 12", "运行时页 9", "总览 0",
-                   "保存当前为方案…", "新建 profile", "更改…", "编辑", "删除…", "切换…"):
-        assert marker in block, f"「写入口个数（过渡）」的用例名应列出所数的按钮（缺「{marker}」，D17 写死的写法）"
-    for num in ("12", "9", "0"):
-        assert f"toBe({num})" in block, f"「写入口个数（过渡）」应仍断言 toBe({num})（运行时页 9 与总览 0 不动）"
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +497,7 @@ import * as api from '../src/api';
 const READS = ['getMeta', 'getStatus', 'getAttempt', 'readFile', 'getRoles', 'getProfiles', 'getPresets',
   'diffPresets', 'getRuntimes', 'getPlugins', 'getHistory', 'getUsage', 'listSecrets'];
 const WRITES = ['preview', 'getOperation', 'usePreset', 'setPluginEnabled'];
-const FORBIDDEN = ['removePreset', 'removeProfile', 'removeRuntime', 'rollback',
+const FORBIDDEN = [
   'listAttempts', 'getConfig', 'validateConfig', 'getHistoryEntry', 'getPlugin', 'checkSecret', 'subscribeEvents',
   'search', 'startJob', 'getJob', 'cancelJob', 'startSecretEntry', 'setRole', 'savePreset', 'saveProfile', 'addRuntime'];
 
@@ -578,10 +506,10 @@ async function p(action: api.WriteAction, args: Record<string, string>): Promise
 }
 
 describe('T022 api：四个写函数', () => {
-  it('导出集合：四个写函数与 13 个读函数都在；B 片与 LATER_API 的名字不在', () => {
+  it('导出集合：四个写函数与 13 个读函数都在；LATER_API 的名字不在', () => {
     for (const n of WRITES) expect(typeof (api as any)[n], '应导出 ' + n).toBe('function');
     for (const n of READS) expect(typeof (api as any)[n], '读函数 ' + n + ' 应保留').toBe('function');
-    for (const n of FORBIDDEN) expect((api as any)[n], '不许导出 ' + n + '（过渡：B 片开工时推翻）').toBeUndefined();
+    for (const n of FORBIDDEN) expect((api as any)[n], '不许导出 ' + n + '（LATER_API 的名字）').toBeUndefined();
   });
 
   it('preview 返回 HttpReply<PreviewData>：八键齐全、命令照 README 的预览写法、confirmation 非空', async () => {
@@ -772,7 +700,7 @@ describe('T022 Dialog 的 dismissible', () => {
 """
 
 # ---------------------------------------------------------------------------
-# entries 探针：三个入口接上、B 片照旧禁用（合同第七节、D06–D11）
+# entries 探针：三个入口接上（合同第七节、D07–D11）
 # ---------------------------------------------------------------------------
 
 PROBE_ENTRIES = PROBE_PRELUDE + PROBE_API_MOCK + r"""
@@ -866,14 +794,6 @@ describe('T022 三个写入口', () => {
     expect(maybeButton(confirmDialog() as HTMLElement, '取消')).not.toBeNull();
     expect(maybeButton(confirmDialog() as HTMLElement, '确认…')).not.toBeNull();
     w3bCheck('方案表 [使用] 打开的确认框');
-  });
-
-  it('方案表 [删除…] 仍是带「第二阶段接入」提示的禁用入口（过渡：B 片开工时推翻）', async () => {
-    vi.useFakeTimers();
-    await mountApp('#/roles?write=ok');
-    const del = buttonByText(presetRow('economy'), '删除…');
-    expect(del.disabled, '[删除…] 在 A 片仍禁用').toBe(true);
-    expect(await tipOf(del), '[删除…] 悬停仍是「第二阶段接入」').toBe('第二阶段接入');
   });
 
   it('插件 [启用…]/[停用…] 可点（ghost、sm）：点开只弹写确认框——抽屉不开、getPlugin 不被调用', async () => {
@@ -1388,7 +1308,7 @@ def test_p1_pipeline_steps_pass(pipeline):
 
 
 def test_d01_d02_probe_api(pipeline):
-    """api 探针 / D01、D02：四个写函数的导出集合（B 片与 LATER_API 的名字不在——过渡）、PreviewData 与
+    """api 探针 / D01、D02：四个写函数的导出集合（LATER_API 的名字不在）、PreviewData 与
     OperationView 的形状、命令照 README 的预览写法、19 个 ?write= 情景的预览/执行/getOperation 三列逐行。"""
     assert_probe_ok(pipeline, "api")
 
@@ -1401,7 +1321,7 @@ def test_d08_probe_dialog(pipeline):
 def test_d06_d07_d09_d10_d11_probe_entries(pipeline):
     """entries 探针 / D06、D07、D09–D11：[切换…] 可点且 primary md、说明「已选 economy」；[使用] ghost sm、当前行
     「当前方案不能删」；插件 [启用…]/[停用…] 可点、不冒泡（抽屉不开、getPlugin 不被调用）；offline 下也保持可点；
-    [核对全部] 照旧禁用带提示；B 片 [删除…] 仍禁用带「第二阶段接入」（过渡）；ok 流程关框弹「已切换到方案 economy」。"""
+    [核对全部] 照旧禁用带提示；ok 流程关框弹「已切换到方案 economy」。"""
     assert_probe_ok(pipeline, "entries")
 
 
