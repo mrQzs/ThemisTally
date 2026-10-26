@@ -17,7 +17,9 @@ import { dirname, join } from "node:path";
 import { utcNow } from "./clock.ts";
 import { readText, sleepSync, writeText, writeTextAtomic } from "./fsutil.ts";
 import { pidAlive } from "./process.ts";
-import { type PyDict, type PyValue, dumps, loads } from "./pyjson.ts";
+import { PyOSError, PyUnicodeDecodeError, pyOSErrorOf, pyReadText } from "./pyio.ts";
+import { pyStrValue } from "./pyfmt.ts";
+import { type PyDict, PyJsonError, type PyValue, dumps, loads } from "./pyjson.ts";
 
 /** 锁被占用、等满了还没拿到。 */
 export class LockBusyError extends Error {
@@ -136,6 +138,43 @@ export class TaskLock {
   }
 }
 
+/** 配置锁的 owner.json 写不进去：Python 报“写不进配置锁 <路径>：<OSError>”。 */
+export class LockWriteError extends Error {
+  override readonly name = "LockWriteError";
+}
+
+/** kit_config._read_owner：读不出、不是合法 JSON 或不是对象时为 null（与 readOwner 的“读不出当作 {}”不同）。 */
+function readConfigOwner(path: string): PyDict | null {
+  try {
+    const value = loads(pyReadText(join(path, "owner.json")));
+    return value instanceof Map ? value : null;
+  } catch (error) {
+    if (error instanceof PyOSError || error instanceof PyUnicodeDecodeError) return null;
+    if (error instanceof PyJsonError && error.kind !== "RecursionError") return null;
+    throw error;
+  }
+}
+
+/** kit_config.ConfigLock._busy_message：写明持有者是否还在运行；同一台主机上才判断，pid 不是 int 时写 None。 */
+function configLockBusyMessage(path: string): string {
+  const owner = readConfigOwner(path);
+  let who = "持有者信息读不出来";
+  if (owner !== null) {
+    const raw = owner.get("pid");
+    const pid = typeof raw === "bigint" || typeof raw === "boolean" ? raw : null; // isinstance(x, int)：bool 也算
+    const host = owner.has("host") ? (owner.get("host") as PyValue) : null;
+    let state = "在另一台主机上，无法判断是否在运行";
+    if (host === hostname()) {
+      // pid_alive(True) 查的是 "PID eq 1"，再找字符串 "True"：永远找不到
+      const alive = pid === true ? false : pidAlive(pid === null || pid === false ? null : Number(pid));
+      state = alive === true ? "仍在运行" : alive === false ? "已退出" : "无法判断是否在运行";
+    }
+    const created = owner.has("created_at") ? (owner.get("created_at") as PyValue) : null;
+    who = `进程 ${pyStrValue(pid)}（主机 ${pyStrValue(host)}，${state}，${pyStrValue(created)} 起持有）`;
+  }
+  return `配置锁被占用：${path}，${who}。确认没有别的写配置的命令在运行之后，删除这个目录再重试（锁从不自动清除）`;
+}
+
 /** kit_config 的 LOCK_NAME 与 LOCK_WAIT_SECONDS。 */
 export const CONFIG_LOCK_NAME = ".config.lock";
 export const CONFIG_LOCK_WAIT_SECONDS = 30;
@@ -156,11 +195,11 @@ export class ConfigLock {
     const deadline = performance.now() + this.waitSeconds * 1000;
     while (!makeDir(this.path)) {
       if (performance.now() >= deadline) {
-        const owner = readOwner(this.path);
-        throw new LockBusyError(`配置锁被占用：${this.path}（持有者 pid ${String(owner["pid"] ?? "未知")}）`);
+        throw new LockBusyError(configLockBusyMessage(this.path));
       }
       sleepSync(100);
     }
+    const ownerFile = join(this.path, "owner.json");
     try {
       const text = ownerJson([
         ["pid", BigInt(process.pid)],
@@ -169,9 +208,11 @@ export class ConfigLock {
         ["created_at", utcNow()],
       ]);
       // Path.write_text 用文本模式：Windows 上 \n 写成 \r\n
-      writeText(join(this.path, "owner.json"), process.platform === "win32" ? text.replace(/\n/g, "\r\n") : text, false);
+      writeText(ownerFile, process.platform === "win32" ? text.replace(/\n/g, "\r\n") : text, false);
     } catch (error) {
       removeTree(this.path); // 目录已建、初始化没完成：删掉锁，否则它永远不会被自动清除
+      const os = pyOSErrorOf(error, ownerFile);
+      if (os !== null) throw new LockWriteError(`写不进配置锁 ${this.path}：${os.message}`);
       throw error;
     }
     return this;

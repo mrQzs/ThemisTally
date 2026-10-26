@@ -518,7 +518,8 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     try {
       lock.acquire();
     } catch (error) {
-      if (error instanceof LockBusyError) return { ok: false, error: "busy" };
+      // 配置锁的报错文字要与 Python 逐字一致（第 ③b 片），另外两把锁只比较“被占用”
+      if (error instanceof LockBusyError) return request["kind"] === "config" ? { ok: false, error: "busy", message: error.message } : { ok: false, error: "busy" };
       throw error;
     }
     const acquired = Date.now();

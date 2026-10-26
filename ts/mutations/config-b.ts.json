@@ -1,0 +1,157 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/config-write.contract.test.ts",
+    "packages/contracts/test/locks.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 令牌对不上也写",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "  if (changed.length) throw new ConfigError(`${resourceFiles(changed)} 在预览之后被改过：什么也没写，重新预览`, EXIT_STALE);\n",
+      "new": ""
+    },
+    {
+      "name": "T02 不查令牌的格式",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "if (!STATE_RE.test(token) || names.length",
+      "new": "if (names.length"
+    },
+    {
+      "name": "T03 审计末尾不补换行",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "prefix = last[0] === 0x0a ? \"\" : \"\\n\";",
+      "new": "prefix = \"\";"
+    },
+    {
+      "name": "T04 不记外部改动",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "    if (current !== lastKnown) this.append(",
+      "new": "    if (false) this.append("
+    },
+    {
+      "name": "T05 不补判中断的事务",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "      this.append(this.record(\"resolve\", [[\"txn\", txn], [\"result\", result]]));\n",
+      "new": ""
+    },
+    {
+      "name": "T06 内容没变也写",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "    if (this.before !== null && data.equals(this.before)) return false;\n",
+      "new": ""
+    },
+    {
+      "name": "T07 预览总说有变化",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "const changed = this.before === null || !data.equals(this.before);",
+      "new": "const changed = true;"
+    },
+    {
+      "name": "T08 有 attempt 在运行也不要 --yes",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "    if (inFlight.length) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "T09 被忽略时也提示 WARN",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": ".agent/${name}/probe`], ctx.repo.root).status !== 0) {",
+      "new": ".agent/${name}/probe`], ctx.repo.root).status === 0) {"
+    },
+    {
+      "name": "T10 不合格式的 actor 不提示",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "  ctx.out.printErr(`WARN  ${ACTOR_ENV}=${pyRepr(value)} 不是 user、user-ui 或 agent:<角色>，审计记为 undeclared`);\n",
+      "new": ""
+    },
+    {
+      "name": "T11 单资源事务不放锁",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "    return body(new ConfigTransaction(ctx, lock, resource, action, target, confirm, before, null));\n  } finally {\n    lock.release();",
+      "new": "    return body(new ConfigTransaction(ctx, lock, resource, action, target, confirm, before, null));\n  } finally {\n    void lock;"
+    },
+    {
+      "name": "T12 预览不要 --yes",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "[\"needs_yes\", running.length > 0 || unreadable.length > 0],",
+      "new": "[\"needs_yes\", false],"
+    },
+    {
+      "name": "T13 不整份校验就写",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "      if (errors.length) throw new ConfigError(`没有写入：${errors.join(\"；\")}`);",
+      "new": ""
+    },
+    {
+      "name": "B01 缺省的思考级别",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "const DEFAULT_THINKING = \"high\";",
+      "new": "const DEFAULT_THINKING = \"medium\";"
+    },
+    {
+      "name": "B02 RUNNING 不算在跑",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "return state === \"RUNNING\" || state === \"COLLECTING\"",
+      "new": "return state === \"COLLECTING\""
+    },
+    {
+      "name": "W01 键路径在最后一个点处分开",
+      "file": "ts/packages/config/src/write-commands.ts",
+      "old": "const dot = keyPath.indexOf(\".\");",
+      "new": "const dot = keyPath.lastIndexOf(\".\");"
+    },
+    {
+      "name": "W02 不是 JSON 的值不当字符串",
+      "file": "ts/packages/config/src/write-commands.ts",
+      "old": "if (error instanceof PyJsonError && error.kind !== \"RecursionError\") return text;",
+      "new": "if (error instanceof PyJsonError && error.kind !== \"RecursionError\") throw new ConfigError(\"bad value\");"
+    },
+    {
+      "name": "W03 删光子键后留下空对象",
+      "file": "ts/packages/config/src/write-commands.ts",
+      "old": "      if (!section.size) config.delete(parts[0] as string);\n",
+      "new": ""
+    },
+    {
+      "name": "W04 标记文件写 LF",
+      "file": "ts/packages/config/src/write-commands.ts",
+      "old": "\"decisions are off while this file exists\\r\\n\"",
+      "new": "\"decisions are off while this file exists\\n\""
+    },
+    {
+      "name": "W05 回滚到没发布的那一条也行",
+      "file": "ts/packages/config/src/write-commands.ts",
+      "old": "    if (entry.state !== \"published\") {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "C01 --json 不带 --dry-run 也行",
+      "file": "ts/packages/config/src/cli.ts",
+      "old": "  if (args.json && !args.dry_run) throw new ConfigError(\"--json 只与 --dry-run 一起用\", 2);\n",
+      "new": ""
+    },
+    {
+      "name": "L01 被占用的报错不写持有者",
+      "file": "ts/packages/base/src/locks.ts",
+      "old": "        throw new LockBusyError(configLockBusyMessage(this.path));",
+      "new": "        throw new LockBusyError(`配置锁被占用：${this.path}`);"
+    },
+    {
+      "name": "L02 同一台主机上不判断在不在运行",
+      "file": "ts/packages/base/src/locks.ts",
+      "old": "    if (host === hostname()) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "L03 owner.json 不是对象也当读得出",
+      "file": "ts/packages/base/src/locks.ts",
+      "old": "    return value instanceof Map ? value : null;",
+      "new": "    return value instanceof Map ? value : new Map();"
+    }
+  ]
+}

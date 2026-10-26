@@ -171,7 +171,9 @@ def op_lock_run(request):
     lock = make_lock(request)
     try:
         lock.__enter__()
-    except (kit_hub.HubError, pi_dispatch.DispatchError, kit_config.ConfigError):
+    except kit_config.ConfigError as exc:  # 配置锁的报错文字要逐字一致（第 ③b 片）
+        return {"ok": False, "error": "busy", "message": str(exc)}
+    except (kit_hub.HubError, pi_dispatch.DispatchError):
         return {"ok": False, "error": "busy"}
     acquired = time.time() * 1000
     owner = (lock.path / "owner.json").read_bytes()

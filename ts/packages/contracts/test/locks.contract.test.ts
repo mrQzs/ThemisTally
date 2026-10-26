@@ -90,10 +90,34 @@ describe.each(IMPLS)("目录锁契约 impl=$name", (impl) => {
     );
   });
 
-  it("CL2 ConfigLock 从不接管：持有者已经不在也等满报忙", () => {
-    occupy(join(dir, ".config.lock"), `{"pid": ${deadPid()}, "host": "x", "token": "dead", "created_at": "2026-10-22T00:00:00Z"}`);
-    expect(run({ kind: "config", root: dir, wait: 1 })).toEqual({ ok: false, error: "busy" });
+  // 被占用时的报错文字逐字比较（第 ③b 片；第 ① 步只比较了类型）：kit_config.ConfigLock._busy_message
+  const busy = (who: string): string =>
+    `配置锁被占用：${join(dir, ".config.lock")}，${who}。确认没有别的写配置的命令在运行之后，删除这个目录再重试（锁从不自动清除）`;
+
+  it("CL2 ConfigLock 从不接管：持有者已经不在也等满报忙；另一台主机上的写明无法判断", () => {
+    const pid = deadPid();
+    occupy(join(dir, ".config.lock"), `{"pid": ${pid}, "host": "x", "token": "dead", "created_at": "2026-10-22T00:00:00Z"}`);
+    expect(run({ kind: "config", root: dir, wait: 1 })).toEqual({
+      ok: false,
+      error: "busy",
+      message: busy(`进程 ${pid}（主机 x，在另一台主机上，无法判断是否在运行，2026-10-22T00:00:00Z 起持有）`),
+    });
     expect(existsSync(join(dir, ".config.lock", "owner.json"))).toBe(true);
+  });
+
+  it("CL4 ConfigLock 被占：同一台主机上的持有者已退出；pid 不是整数时写 None", () => {
+    const pid = deadPid();
+    occupy(join(dir, ".config.lock"), `{"pid": ${pid}, "host": ${JSON.stringify(hostname())}, "token": "dead", "created_at": "2026-10-22T00:00:00Z"}`);
+    expect(run({ kind: "config", root: dir, wait: 0.2 })).toMatchObject({ message: busy(`进程 ${pid}（主机 ${hostname()}，已退出，2026-10-22T00:00:00Z 起持有）`) });
+    occupy(join(dir, ".config.lock"), `{"pid": "12", "host": [1], "created_at": null}`);
+    expect(run({ kind: "config", root: dir, wait: 0.2 })).toMatchObject({ message: busy("进程 None（主机 [1]，在另一台主机上，无法判断是否在运行，None 起持有）") });
+  });
+
+  it("CL5 ConfigLock 被占：owner.json 读不出来（不是合法 JSON，或不是对象）", () => {
+    occupy(join(dir, ".config.lock"), "{not json");
+    expect(run({ kind: "config", root: dir, wait: 0.2 })).toMatchObject({ message: busy("持有者信息读不出来") });
+    occupy(join(dir, ".config.lock"), "[1, 2]");
+    expect(run({ kind: "config", root: dir, wait: 0.2 })).toMatchObject({ message: busy("持有者信息读不出来") });
   });
 
   it("CL3 ConfigLock 释放前令牌被改：不删", () => {

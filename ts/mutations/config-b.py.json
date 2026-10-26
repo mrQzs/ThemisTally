@@ -1,0 +1,55 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/config-write.contract.test.ts",
+    "packages/contracts/test/locks.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "U01 令牌对不上也写",
+      "file": "scripts/kit_config.py",
+      "old": "    if changed:\n        raise ConfigError(\"%s 在预览之后被改过：什么也没写，重新预览\" % _resource_files(changed), EXIT_STALE)\n",
+      "new": ""
+    },
+    {
+      "name": "U02 不记外部改动",
+      "file": "scripts/kit_config.py",
+      "old": "        if current != last_known:",
+      "new": "        if False:"
+    },
+    {
+      "name": "U03 内容没变也写",
+      "file": "scripts/kit_config.py",
+      "old": "        if self.before is not None and data == self.before:\n            return False\n",
+      "new": ""
+    },
+    {
+      "name": "U04 审计末尾不补换行",
+      "file": "scripts/kit_config.py",
+      "old": "prefix = b\"\" if handle.read(1) == b\"\\n\" else b\"\\n\"",
+      "new": "prefix = b\"\""
+    },
+    {
+      "name": "U05 有 attempt 在运行也不要 --yes",
+      "file": "scripts/kit_config.py",
+      "old": "    if not confirm:\n        if in_flight:",
+      "new": "    if False:\n        if in_flight:"
+    },
+    {
+      "name": "U06 删光子键后留下空对象",
+      "file": "scripts/kit_config.py",
+      "old": "            if not section:\n                del config[parts[0]]\n",
+      "new": ""
+    },
+    {
+      "name": "U07 被占用的报错不写持有者",
+      "file": "scripts/kit_config.py",
+      "old": "                    raise ConfigError(self._busy_message())",
+      "new": "                    raise ConfigError(\"配置锁被占用：%s\" % self.path)"
+    }
+  ]
+}

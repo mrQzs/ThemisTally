@@ -2,13 +2,22 @@
 // 报错照 kit_config.main：ConfigError 写 `ERROR: ` 加 redact_tokens 之后的消息，退出码是它带的码。
 // kit_root 与 lock_wait_seconds 只从 pyargs 的 context 取（迁移计划第 ③ 步：不设环境变量、也不设默认值），缺了按内部错误退出。
 import { PyOut } from "@themis/base/pyfmt";
+import { dumps } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { type ConfigArgs, cmdHistory, cmdSecret, cmdShow, cmdValidate } from "./commands.ts";
+import { WriteMode, previewPayload, setWriteMode } from "./transaction.ts";
+import { type WriteArgs, cmdDecisions, cmdInit, cmdRollback, cmdSet, cmdUnset, writeContext } from "./write-commands.ts";
 import { ConfigError, kitAt } from "./validate.ts";
 
 export interface ConfigContext {
   readonly kit_root?: unknown;
   readonly lock_wait_seconds?: unknown;
+}
+
+interface WriteModeArgs {
+  readonly dry_run?: boolean;
+  readonly json?: boolean;
+  readonly expect_state?: string | null;
 }
 
 /** 已经转交给 TS 的 config 子命令；其余的仍由 Python 回答（③c 起逐片加进来）。 */
@@ -17,9 +26,50 @@ export const CONFIG_COMMANDS = [
   "config show",
   "config history",
   "config secret",
+  "config set",
+  "config unset",
+  "config init",
+  "config decisions",
+  "config rollback",
 ];
 
-export async function runConfig(args: ConfigArgs & { readonly context?: ConfigContext }, out: PyOut): Promise<number> {
+/** --dry-run --json 时收起 handler 写 stdout 的文字（只取 WARN 行进预览）；stderr 照常写。 */
+class CapturingOut extends PyOut {
+  text = "";
+
+  override print(text = ""): void {
+    this.text += `${text}\n`;
+  }
+
+  override write(text: string): void {
+    this.text += text;
+  }
+}
+
+/**
+ * kit_config.run_in_write_mode：带 --dry-run 或 --expect-state 的写命令。--dry-run --json 收起 handler 的文字输出，stdout 只有
+ * 一份预览 JSON；textDryRun 为真时（plugins 的文字预览）--dry-run 可以不带 --json。
+ */
+export function runInWriteMode(args: WriteModeArgs, out: PyOut, handler: (out: PyOut) => number, textDryRun = false): number {
+  if (args.json && !args.dry_run) throw new ConfigError("--json 只与 --dry-run 一起用", 2);
+  if (args.dry_run && args.expect_state != null) throw new ConfigError("--dry-run 与 --expect-state 不能一起用", 2);
+  if (args.dry_run && !args.json && !textDryRun) throw new ConfigError("--dry-run 只输出 JSON：加 --json", 2);
+  const mode = new WriteMode(Boolean(args.dry_run), args.expect_state ?? null);
+  setWriteMode(mode);
+  const capture = new CapturingOut();
+  try {
+    if (!args.json) return handler(out);
+    handler(capture);
+  } finally {
+    setWriteMode(null); // 同一进程里接着跑的写入不能还是预览
+  }
+  out.print(dumps(previewPayload(mode, capture.text), { ensureAscii: false, indent: 2 }));
+  return 0;
+}
+
+const inWriteMode = (args: WriteModeArgs): boolean => Boolean(args.dry_run || args.json || args.expect_state != null);
+
+export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & { readonly context?: ConfigContext }, out: PyOut): Promise<number> {
   const kitRoot = args.context?.kit_root;
   const rawWait = args.context?.lock_wait_seconds;
   // 启动器交的是 Python 的 float（30.0），JSON 里写成整数时 pyjson 读成 bigint：两种都收
@@ -40,6 +90,18 @@ export async function runConfig(args: ConfigArgs & { readonly context?: ConfigCo
       case "config secret":
         if (args.action === "set") throw new ConfigError("内部错误：secret set 不转交给 TS（迁移计划第 ③ 步的不转交名单）");
         return await cmdSecret(args, out);
+      case "config set":
+        return cmdSet(writeContext(args, kit, lockWait, out), args);
+      case "config unset":
+        return cmdUnset(writeContext(args, kit, lockWait, out), args);
+      case "config init":
+        return cmdInit(writeContext(args, kit, lockWait, out));
+      case "config decisions":
+        return cmdDecisions(writeContext(args, kit, lockWait, out), args);
+      case "config rollback": {
+        const handler = (o: PyOut): number => cmdRollback(writeContext(args, kit, lockWait, o), args);
+        return inWriteMode(args) ? runInWriteMode(args, out, handler) : handler(out);
+      }
       default:
         out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
         return 2;
