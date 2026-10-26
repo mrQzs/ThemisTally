@@ -2501,8 +2501,9 @@ describe('D08 profile 表', () => {
     rows.forEach((row) => {
       const ops = qa(row['操作'], 'button');
       expect(ops.map(textOf)).toEqual(['编辑', '删除']);
+      // [删除] 不再断言禁用：T022 的 B 片接上 profile 删除（站主按 T022 规划报告 §16.3 R12 退役）
+      expect(ops[0].disabled, '[编辑] 仍禁用').toBe(true);
       ops.forEach((b) => {
-        expect(b.disabled).toBe(true);
         expect(b.getAttribute('data-variant')).toBe('ghost');
         expect(b.getAttribute('data-size')).toBe('sm');
       });
@@ -2835,14 +2836,15 @@ describe('D10 CLI 运行时表', () => {
     expect(titleAttr(rows[1]['命令'])).toBe(c41);
   });
 
-  it('操作：[探测]（来源不是 missing）、[模型]（adapter 是 pi 且来源不是 missing）、[删除…]（总有）；都禁用', async () => {
+  // [删除…] 不再断言禁用：T022 的 B 片接上运行时删除（站主按 T022 规划报告 §16.3 R13 退役）
+  it('操作：[探测]（来源不是 missing）、[模型]（adapter 是 pi 且来源不是 missing）、[删除…]（总有）；[探测]、[模型] 禁用', async () => {
     await mountRuntimes();
     const rows = tableRows(runtimeTable());
     const want = [['探测', '模型', '删除…'], ['探测', '删除…'], ['探测', '删除…'], ['删除…'], ['探测', '删除…']];
     rows.forEach((x, i) => {
       const ops = qa(x['操作'], 'button');
       expect(ops.map(textOf), '第 ' + (i + 1) + ' 行的操作').toEqual(want[i]);
-      ops.forEach((b) => expect(b.disabled, textOf(b) + ' 应禁用').toBe(true));
+      ops.filter((b) => textOf(b) !== '删除…').forEach((b) => expect(b.disabled, textOf(b) + ' 应禁用').toBe(true));
     });
     await (async () => {
       cleanup();
@@ -3729,17 +3731,17 @@ def test_d06_probe_roles_combined_read(pipeline):
 
 
 def test_d07_probe_preset_bar(pipeline):
-    """D07：当前方案——分段选项与初值、两种说明、[切换…] 始终禁用、无方案时的文字（Vitest 探针 roles）。"""
+    """D07：当前方案——分段选项与初值、说明、[切换…] 的样式、无方案时的文字（Vitest 探针 roles）。[切换…] 的禁用与“切换在第二阶段接入”在 T022 退役（T022 规划报告 §10 R2、R3）。"""
     assert_probe_group(pipeline, "roles", "D07 当前方案")
 
 
 def test_d08_probe_profiles_table(pipeline):
-    """D08：profile 表——各列、thinking 缺省、凭据标签、被引用、操作禁用、空时文字（Vitest 探针 roles）。"""
+    """D08：profile 表——各列、thinking 缺省、凭据标签、被引用、[编辑] 禁用、空时文字（Vitest 探针 roles）。[删除] 的禁用在 T022 退役（T022 规划报告 §16.3 R12）。"""
     assert_probe_group(pipeline, "roles", "D08 profile 表")
 
 
 def test_d09_probe_presets_table(pipeline):
-    """D09：方案表——各列、当前行、[使用][删除…] 禁用、[查看差异] 可用（Vitest 探针 roles）。"""
+    """D09：方案表——各列、当前行、[使用][删除…] 的样式、[查看差异] 可用（Vitest 探针 roles）。[使用][删除…] 的禁用在 T022 退役（T022 规划报告 §10 R4）。"""
     assert_probe_group(pipeline, "roles", "D09 方案表")
 
 

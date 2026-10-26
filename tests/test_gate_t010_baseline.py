@@ -2367,19 +2367,18 @@ describe('D04 插件表', () => {
     }
   });
 
-  it('操作：启用/是 → [停用…]，停用/否 → [启用…]（ghost、sm、disabled），不限制 → 文字「详情」；单元格里没有可聚焦元素', async () => {
+  // 不再断言 [启用…]/[停用…] 禁用、表里没有可用按钮：T022 接上插件启停（站主按 T022 规划报告 §16.3 R10 退役）
+  it('操作：启用/是 → [停用…]，停用/否 → [启用…]（ghost、sm），不限制 → 文字「详情」；「详情」格里没有可聚焦元素', async () => {
     const table = await mountPluginsTable();
     const act = (id: string) => cellsOf(rowOf(table, id))[7];
     for (const [id, label] of [['alpha', '停用…'], ['delta', '停用…'], ['beta', '启用…'], ['eps', '启用…']]) {
       const btn = buttonByText(act(id), label);
-      expect(btn.disabled, id).toBe(true);
       expect(btn.getAttribute('data-variant')).toBe('ghost');
       expect(btn.getAttribute('data-size')).toBe('sm');
     }
     expect(textOf(act('gamma'))).toBe('详情');
     expect(act('gamma').querySelector('button, a, [tabindex]')).toBeNull();
     expect(table.querySelectorAll('tbody td a, tbody td input, tbody td select, tbody td [tabindex]').length).toBe(0);
-    expect(table.querySelectorAll('tbody td button:not(:disabled)').length).toBe(0);
   });
 
   it('表下两个小节：列入但未安装、问题，列出内容；为空写「没有」', async () => {
@@ -2411,14 +2410,10 @@ describe('D04 插件表', () => {
 });
 
 describe('D05 插件抽屉：内容与读取', () => {
-  it('点禁用入口不开抽屉（包裹 span 拦下 click 冒泡）；点「详情」那一行（不限制）开抽屉', async () => {
+  // 不再断言点禁用的 [停用…] 不开抽屉：T022 接上插件启停后它是可点的按钮，弹的写确认框也是 role=dialog
+  // （站主按 T022 规划报告 §16.3 R11 退役）
+  it('点「详情」那一行（不限制）开抽屉', async () => {
     const table = await mountPluginsTable();
-    const btn = buttonByText(cellsOf(rowOf(table, 'alpha'))[7], '停用…');
-    fireEvent.click(btn);
-    fireEvent.click(btn.closest('.tt-tooltip-wrap') as HTMLElement);
-    await settle();
-    expect(dialog(), '点禁用钮不该开抽屉').toBeNull();
-    expect(callsOf('getPlugin').length).toBe(0);
     fireEvent.click(cellsOf(rowOf(table, 'gamma'))[7]);
     await settle();
     expect(dialog(), '点「详情」所在行应开抽屉').not.toBeNull();
@@ -2861,7 +2856,8 @@ describe('D07 差异抽屉：头部、dl、键级差异', () => {
     expect(textOf(d)).toContain('快照里有疑似凭据，只存了哈希。');
   });
 
-  it('footer：最新一条写「这是最新的一条，回滚后没有变化」，本机文件写「本机文件不存快照，不能回滚」，其余不写；[回滚到这一条之后] 禁用（secondary、md、RotateCcwIcon 16）', async () => {
+  // 不再断言 [回滚到这一条之后] 禁用：T022 的 B 片接上回滚（站主按 T022 规划报告 §16.3 R14 退役）
+  it('footer：最新一条写「这是最新的一条，回滚后没有变化」，本机文件写「本机文件不存快照，不能回滚」，其余不写；[回滚到这一条之后]（secondary、md、RotateCcwIcon 16）', async () => {
     const table = await mountHistory();
     const open = async (n: number) => {
       if (dialog()) key('Escape');
@@ -2871,18 +2867,15 @@ describe('D07 差异抽屉：头部、dl、键级差异', () => {
     let d = await open(8);
     expect(textOf(d)).toContain('这是最新的一条，回滚后没有变化');
     const btn = buttonByText(d, '回滚到这一条之后');
-    expect(btn.disabled).toBe(true);
     expect(btn.getAttribute('data-variant')).toBe('secondary');
     expect(btn.getAttribute('data-size')).toBe('md');
     expect(hasIcon(btn, RotateCcwIcon, 16)).toBe(true);
     d = await open(4);
     expect(textOf(d)).toContain('本机文件不存快照，不能回滚');
     expect(textOf(d)).not.toContain('这是最新的一条');
-    expect(buttonByText(d, '回滚到这一条之后').disabled).toBe(true);
     d = await open(5);
     expect(textOf(d)).not.toContain('这是最新的一条');
     expect(textOf(d)).not.toContain('本机文件不存快照，不能回滚');
-    expect(buttonByText(d, '回滚到这一条之后').disabled).toBe(true);
   });
 });
 
@@ -3605,7 +3598,8 @@ def test_d02_d03_probe_logs(pipeline):
 
 def test_d04_d05_probe_plugins(pipeline):
     """plugins 探针 / D04、D05：表（八列、rowHeight 40、版本 tt-num、启用三种写法加未知、锁与资源四类取值与图标、title 为 reason、缺的权限、状态与 reason、
-    操作三种情形、无可聚焦单元格）；两个小节与「没有」；[核对全部] 禁用；isEmpty 规则；抽屉——点禁用钮不开、点「详情」行开；标题、warning 条、manifest 小节（dl 顺序、
+    操作三种情形、「详情」格无可聚焦元素）；两个小节与「没有」；[核对全部] 禁用；isEmpty 规则；抽屉——点「详情」行开（启停按钮的禁用与“点禁用钮不开”
+    在 T022 退役，T022 规划报告 §16.3 R10、R11）；标题、warning 条、manifest 小节（dl 顺序、
     权限（缺）、列表、checks 不显示）、资源哈希（前 12 位加…、title 全文）、锁（generation、全文、复制三结果、不弹轻提示）、[重新核对] 禁用；读取中、出错（pre 纯文本）、
     过期回应丢弃；焦点与 Esc（Enter 与点击打开、aria-modal=false、无遮罩、焦点进关闭钮、400ms 内 Esc 回触发行、提示出现后两次 Esc、抽屉外 Esc 与点击不关、
     换行后焦点回后打开那行、关闭后选中行保留、切路由抽屉消失）。"""
@@ -3616,7 +3610,7 @@ def test_d06_d07_probe_history(pipeline):
     """history 探针 / D06、D07：表（十列、倒序、#n tt-num、相对时间与 formatLocalUtc 的 title、解析不了原样无 title、资源、动作中文 title、对象、执行者五种 tone、
     确认、状态四种写法加（补判）与原状态码 title、改动的键 Tag 与遮蔽 note、外部改动标签）、两行注记、broken_lines 的 warning 条、isEmpty 规则；抽屉——标题、dl、
     外部改动条、键级差异五种情形（本机文件优先、非空数组 KeyDiff、空数组、遮蔽的两个分支加锁提示、其他）、KeyDiff 的 U+2212 与加号、未设置、JSON、遮蔽值、
-    footer 两种说明与 [回滚到这一条之后] 禁用；读取中、出错、过期回应；焦点与 Esc 同插件抽屉。"""
+    footer 两种说明与 [回滚到这一条之后] 的样式（禁用断言在 T022 退役，T022 规划报告 §16.3 R14）；读取中、出错、过期回应；焦点与 Esc 同插件抽屉。"""
     assert_probe_ok(pipeline, "history")
 
 
