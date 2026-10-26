@@ -121,14 +121,27 @@ export function createApp(options: AppOptions): App {
         if (!sessions.valid(readSessionCookie(request.headers))) return respond("unmatched", errorResponse(401, "未认证"));
       }
       routeName = match.route.name;
-      if (match.route.name === "control.bootstrap" && !controlOriginAllowed(request.headers)) {
-        return respond(routeName, errorResponse(403, "请求被拒绝"));
+      // 控制门（Route.control）：一次过 Origin 与控制令牌两道，都过了就免 CSRF、不读正文。Origin 先于令牌门，
+      // 所以外来 Origin 的失败不计入令牌限速；门只按 control 标记判，不按路由名特判（T021：后加的控制路由不会绕过令牌）。
+      if (match.route.control === true) {
+        if (!controlOriginAllowed(request.headers)) return respond(routeName, errorResponse(403, "请求被拒绝"));
+        const verdict = state.control.check(request.headers);
+        if (!verdict.ok) {
+          if (verdict.status === 429) {
+            const limited = errorResponse(429, "控制令牌失败次数过多");
+            limited.headers.set("retry-after", String(verdict.retryAfterSeconds));
+            return respond(routeName, limited);
+          }
+          return respond(routeName, errorResponse(403, "请求被拒绝"));
+        }
+        const controlled = await match.route.handle(state, match.params, { request, body: undefined });
+        return respond(routeName, controlled);
       }
-      // 4. POST：CSRF 三查，再读正文（超限 413、坏正文 400）。control.bootstrap 不在这两步里——它的门是穷举的
-      // （Host、controlOriginAllowed、ControlGate 三道），不看正文也不看 CSRF 头：外壳发请求时带不带正文、
-      // Content-Type、X-Themis-UI 都没有核实过（站主记录 F9），豁免之后两种外壳都能 reauth。
+      // 4. POST：CSRF 三查，再读正文（超限 413、坏正文 400）。控制接口不在这两步里——它的门是穷举的三道
+      //（Host、Origin、控制令牌）：外壳发请求时带不带正文、Content-Type、X-Themis-UI 都没有核实过（站主记录 F9），
+      // 豁免之后两种外壳都能 reauth。
       let body: unknown;
-      if (method === "POST" && match.route.name !== "control.bootstrap") {
+      if (method === "POST") {
         const rejection = csrfCheck(request);
         if (rejection !== null) return respond(routeName, errorResponse(rejection.status, rejection.message));
         const parsed = await readJsonBody(request);

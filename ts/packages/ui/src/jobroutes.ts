@@ -89,6 +89,19 @@ function jobAlreadyDone(): Response {
   return errorResponse(409, "作业已经结束");
 }
 
+/**
+ * 取消一个作业（两条取消路由共用）：格式不对或不在表里 404，已终态 409，否则 abort 之后等子进程树结束
+ * （await record.exited：六类作业它就是 run，录入作业的子进程一结束就落定，不等重查跑完），回当时的八键作业对象。
+ */
+export async function cancelJob(table: JobTable, id: string): Promise<Response> {
+  const record = table.get(id);
+  if (record === null) return jobNotFound();
+  if (isTerminal(record.state)) return jobAlreadyDone();
+  record.controller.abort(); // 排队中出队、在跑中止信号（整棵树结束）
+  await record.exited; // 等它落到 cancelled（录入作业的重查没跑完也回）
+  return jobResponse(record, 200);
+}
+
 /** 503 带 Retry-After: 2（作业表满、执行器收不了）。 */
 function jobRetryLater(message: string): Response {
   const response = errorResponse(503, message);
@@ -261,6 +274,7 @@ export function jobRoutes(runner: KernelRunner, table: JobTable, timeouts: Reado
         const created = jobResponse(record, 201); // 创建成功的当下 state=queued
         const allow = JOB_ALLOW[verdict.kind];
         record.run = runJob(runner, record, argv, allow); // 后台跑，落到终态
+        record.exited = record.run; // 六类作业的 exited 就是 run（取消等它落到终态）
         void record.run;
         return created;
       },
@@ -282,14 +296,17 @@ export function jobRoutes(runner: KernelRunner, table: JobTable, timeouts: Reado
       pattern: new RegExp(`^${JOBS_PATH}/([^/]+)/cancel$`, "u"),
       handle: async (_state, params, input) => {
         if (!isJsonObject(input.body)) return badJob("请求体必须是 JSON 对象");
-        const id = params[0] ?? "";
-        const record = table.get(id);
-        if (record === null) return jobNotFound();
-        if (isTerminal(record.state)) return jobAlreadyDone(); // 已经结束：409
-        record.controller.abort(); // 排队中出队、在跑中止信号（整棵树结束）
-        await record.run; // 等它落到 cancelled
-        return jobResponse(record, 200);
+        return await cancelJob(table, params[0] ?? "");
       },
+    },
+    {
+      // 控制取消（U18b）：外壳在凭据小窗口关掉时调它。门只在 app.ts 一处（control: true），这里不读正文、
+      // 不做 CSRF、也不再调 control.check；只带对令牌、别的什么都没有也要能取消。
+      name: "control.jobs.cancel",
+      method: "POST",
+      pattern: new RegExp("^/control/jobs/([^/]+)/cancel$", "u"),
+      control: true,
+      handle: async (_state, params) => await cancelJob(table, params[0] ?? ""),
     },
   ];
 }

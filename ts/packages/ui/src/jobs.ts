@@ -30,7 +30,8 @@ export function isTerminal(state: JobState): boolean {
 /** 一条作业的内部记录（暴露给界面的只是 jobView 投影出的八键对象，controller 与 argv 不出去）。 */
 export interface JobRecord {
   readonly id: string;
-  readonly kind: JobKind;
+  /** 六个作业 kind，加上凭据录入作业（不并进 JOB_KINDS 四张表）。 */
+  readonly kind: JobKind | "secret-entry";
   readonly argv: readonly string[];
   readonly timeoutSeconds: number;
   readonly created_ms: number;
@@ -38,6 +39,8 @@ export interface JobRecord {
   readonly controller: AbortController;
   /** 这次运行的 Promise（取消时等它落到终态）。 */
   run: Promise<void>;
+  /** 子进程结束就落定的 Promise：六类作业它就是 run，录入作业的子进程一结束就落定（不等重查）。 */
+  exited: Promise<void>;
   state: JobState;
   reason: JobReason | null;
   started_ms: number | null;
@@ -75,7 +78,7 @@ export class JobTable {
    * 建一个作业（state=queued）。满了先淘汰最早结束的终态作业；没有可淘汰的终态作业时返回 null（调用方回 503 带
    * Retry-After）。实际上在等加在跑的作业最多只有执行器的 4 加 16 个，100 个满表时总有终态的可以淘汰。
    */
-  create(kind: JobKind, argv: readonly string[], timeoutSeconds: number, now: number): JobRecord | null {
+  create(kind: JobKind | "secret-entry", argv: readonly string[], timeoutSeconds: number, now: number): JobRecord | null {
     if (this.records.size >= MAX_JOBS && !this.evictOldestTerminal()) return null;
     const id = newJobId();
     const record: JobRecord = {
@@ -86,6 +89,7 @@ export class JobTable {
       created_ms: now,
       controller: new AbortController(),
       run: Promise.resolve(),
+      exited: Promise.resolve(),
       state: "queued",
       reason: null,
       started_ms: null,

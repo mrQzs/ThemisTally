@@ -181,7 +181,7 @@ async function jsonRoute(
 }
 
 /** config secret check 的一行 JSON → {name, source, store_mode, system_backend}（不带 file_dir）。 */
-function secretCheckData(parsed: PyValue): Map<string, PyValue> | null {
+export function secretCheckData(parsed: PyValue): Map<string, PyValue> | null {
   if (!(parsed instanceof Map)) return null;
   const out = new Map<string, PyValue>();
   for (const key of ["name", "source", "store_mode", "system_backend"]) {

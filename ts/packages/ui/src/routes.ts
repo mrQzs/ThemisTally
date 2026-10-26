@@ -36,6 +36,8 @@ export interface Route {
   readonly pattern: RegExp;
   /** 一次性引导地址与控制接口不验会话（外壳拿它们换会话）；其余路由一律要会话（T17：默认必须验证）。 */
   readonly public?: true;
+  /** 控制接口：门是穷举的三道（Host、Origin、控制令牌），由 app.ts 的管线统一判断，不看正文也不做 CSRF 三查。 */
+  readonly control?: true;
   readonly handle: (state: RouteState, params: readonly string[], input: RouteInput) => Response | Promise<Response>;
 }
 
@@ -67,16 +69,8 @@ export const ROUTES: readonly Route[] = [
     method: "POST",
     pattern: literal(CONTROL_PATH),
     public: true, // 控制接口：门是穷举的（Host、Origin、控制令牌），不看会话（T17）
-    handle: (state, _params, input) => {
-      const verdict = state.control.check(input.request.headers);
-      if (!verdict.ok) {
-        if (verdict.status === 429) {
-          const response = errorResponse(429, "控制令牌失败次数过多");
-          response.headers.set("retry-after", String(verdict.retryAfterSeconds));
-          return response;
-        }
-        return errorResponse(403, "请求被拒绝");
-      }
+    control: true, // 门由 app.ts 的管线按 Route.control 统一判断
+    handle: (state) => {
       state.sessions.revokeAll();
       state.nonces.revokeAll();
       return envelopeResponse(okEnvelope({ bootstrap: `${state.origin}/bootstrap/${state.nonces.issue()}` }));

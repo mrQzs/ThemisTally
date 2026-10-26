@@ -16,6 +16,7 @@ import { readRoutes, type ReadRoutesState } from "./readroutes.ts";
 import { EventHub, eventRoutes } from "./events.ts";
 import { JobTable } from "./jobs.ts";
 import { jobRoutes } from "./jobroutes.ts";
+import { secretEntryRoutes } from "./secretentry.ts";
 import { writeRoutes } from "./writeroutes.ts";
 import { findRoute, type Route } from "./routes.ts";
 import { ConfirmationTable } from "./confirmations.ts";
@@ -144,15 +145,20 @@ export async function serveUi(args: UiArgs, io: UiIo, overrides: ServeOverrides 
     ...(overrides.confirmationTtlMs === undefined ? {} : { ttlMs: overrides.confirmationTtlMs }),
   });
   const operations = new OperationTable();
-  // 四批 extraRoutes 合成一批交给 createApp：19 条读路由 + SSE + 作业 + 写路由（新路由不并进 readRoutes()）
+  // 四批 extraRoutes 合成一批交给 createApp：19 条读路由 + SSE + 作业 + 写路由 + 凭据录入（新路由不并进 readRoutes()）
   const extraRoutes = [
     ...readRoutes(readState, timeouts),
     ...eventRoutes(hub),
     ...jobRoutes(runner, jobs, timeouts),
     ...writeRoutes({ runner, confirmations, operations }, timeouts),
+    ...secretEntryRoutes(runner, jobs, timeouts),
   ];
-  // 读路由与写路由这两批由内核子进程应答、可能跑满路由时限：为它们放宽这一条连接的空闲超时（同一批路由再建一份只作判定用）
-  kernelAnsweredRoutes = [...readRoutes(readState, timeouts), ...writeRoutes({ runner, confirmations, operations }, timeouts)];
+  // 读路由、写路由与凭据录入这三批由内核子进程应答、可能跑满路由时限：为它们放宽这一条连接的空闲超时（同一批路由再建一份只作判定用）
+  kernelAnsweredRoutes = [
+    ...readRoutes(readState, timeouts),
+    ...writeRoutes({ runner, confirmations, operations }, timeouts),
+    ...secretEntryRoutes(runner, jobs, timeouts),
+  ];
   const appOptions = {
     port: running.port,
     assets,

@@ -126,6 +126,20 @@ POST /api/v1/jobs/<id>/cancel         要会话、CSRF、JSON 对象正文：取
 - **创建与查询的正文**：都是同一个八键作业对象 `{id, kind, state, reason, created_ms, started_ms, finished_ms, envelope}`，**不套七字段信封、不套 `data`**；创建成功的当下 `state` 是 `queued`，`reason`/`started_ms`/`finished_ms`/`envelope` 是 null（键都在）。
 - **状态机与取消**：queued → running → 四种终态之一（`succeeded`/`failed`/`cancelled`/`timed_out`）；取消排队中的不起子进程，取消在跑的结束整棵进程树（CTRL_BREAK、宽限 2 秒、再 terminateJob），取消已结束的回 409。结果与读路由同一套二道脱敏，`JOB_ALLOW` 六类全是 undefined（一律遮）。
 
+## 凭据录入与控制取消
+
+```
+POST /api/v1/secrets/<name>/entry   要会话、CSRF、JSON 对象正文（必须是空对象）：起一个凭据录入作业，回 201 与 { job, url }
+POST /control/jobs/<id>/cancel     控制接口（只带对令牌，不读正文）：取消一个作业，回 200 与当时的八键作业对象
+```
+
+- **录入作业**（`src/secretentry.ts`）：argv 恰好是 `config secret set <name> --no-browser --timeout=600`（没有 `--verify`、没有 `--tty`，`--timeout` 恒为页面时限 600 秒，不被测试入口的时限覆盖改写）。校验次序是正文 → 凭据名 → 执行器 → 作业表，任何一关不过都不起子进程：正文不是对象回 400「请求体必须是 JSON 对象」、带任何键回 400「请求体含有未知键」、名字不过 `allowEnvName` 回 400「凭据名不合法」；执行器收不了回 503「服务繁忙，请稍后重试」、作业表满回 503「作业表已满，请稍后重试」（都带 `Retry-After: 2`，且都不建作业）。`secret-entry` **不并进** `POST /api/v1/jobs` 的 kind 名单（四张 `JOB_*` 表仍是六项，提交它回 400「kind 不合法」）。
+- **一次性页面地址**：内核把地址以一行 JSON 写到 stderr，服务在子进程还活着的时候从 stderr 读它，只认整串匹配 `^http://127\.0\.0\.1:(\d{1,5})/([A-Za-z0-9_-]{32})$` 且端口在 1–65535 的第一条完整行（`@` 别处、带 `?` 或 `#`、多一段路径、31/33 个字符的令牌、`localhost`、端口 0/65536/99999 都不算握手）。地址只活在这一次请求的局部变量里，**不挂到 `JobRecord` 或任何表上**：`GET /api/v1/jobs/<id>`、SSE、`messages`/`command` 与访问日志都拿不到它；握手行以 `{` 开头，照 `messages` 的规则也进不去。
+- **三种结束**：从请求到达起最多等 15 秒（排队时间算在内），到点先 `settle` 成 `timed_out` 再 abort 子进程，回 504；握手之前子进程就结束（退出码不论、起不了子进程、输出超限）回 502；服务关停中回 503；客户端先断开关乎作业终态 `cancelled`、不回响应。收到合格握手回 **201**，正文是 `{job, url}`（`job` 是八键作业对象，不套七字段信封、不套 `data`）。
+- **终态与重查**：状态仍是 queued → running → 四种终态，「等待保存」就是 `running`，不加新状态。终态信封七字段齐全，`data` 一律是 `{set, check}`：`set` 是 `config secret set` stdout 的白名单投影（只留实际出现的 `name`/`stored`/`backend`/`error`，恒为 null 的 `verified` 丢掉），`check` 是 `config secret check <name>`（不带 `--json`）经 `secretCheckData` 的投影（`name`、`source`、`store_mode`、`system_backend`，没有 `file_dir`）。重查只在收到过合格握手的作业上做，用一个只跟服务关停走的信号（取消或超时之后也照样跑得完，界面可以再读 `GET /api/v1/secrets/<name>`）。
+- **落盘**：stderr 文件在服务私有的临时目录里（读完删），地址在 `%TEMP%` 里待到作业结束；凭据落在内核的凭据库里（`CODEKIT_SECRET_STORE` 决定 file 还是系统后端），服务不经手值。
+- **控制门按 `Route.control` 统一判断**：`routes.ts` 的 `Route` 加 `control?: true`，`app.ts` 的管线对 `control === true` 的路由一次过 Origin（`controlOriginAllowed`，不过 403 且不计入令牌限速）与控制令牌（`ControlGate`，403 或 429 带 `Retry-After`）两道，两道都过就跳过 CSRF 与读正文（`body` 传 `undefined`）。原来按路由名 `control.bootstrap` 的两处特判删掉了：后加的控制路由不会绕过令牌。`control.bootstrap` 仍是 `public: true` 加 `control: true`（`routes.ts` 里 `public: true` 恰好两处），处理函数只剩业务。
+
 ## 日志跟随
 
 ```

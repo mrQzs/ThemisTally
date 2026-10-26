@@ -49,9 +49,13 @@ export interface KernelRunnerOptions {
   readonly stderrLimitBytes?: number;
 }
 
-/** 一次运行可选的钩子：queued 变 running 的那一刻由执行器调一次 onStart（读路由不传，作业用它记 started_ms）。 */
+/**
+ * 一次运行可选的钩子：queued 变 running 的那一刻由执行器调一次 onStart（读路由不传，作业用它记 started_ms）；
+ * onStderr 在轮询里把到目前为止的 stderr 全文交出来（凭据录入作业用它读一次性页面地址，读路由与六类作业不传）。
+ */
 export interface RunHooks {
   readonly onStart?: (() => void) | undefined;
+  readonly onStderr?: ((text: string) => void) | undefined;
 }
 
 /** 一次运行在队列里或在跑的表项：状态在 queued → running → settled 之间只走一次。 */
@@ -222,10 +226,19 @@ export class KernelRunner implements RunKernel {
     let outcome: RunOutcome;
     // H1：边写边看。子进程跑着的时候每隔 OUTPUT_POLL_MS 看一次输出大小，任一超限就记 overflow 并中止这次运行
     let overflow = false;
+    // stderr 上一次交给钩子的字节数：只在新字节出现时读全文（文件尚未创建或读不出就跳过这一轮，不算失败）
+    let stderrSeen = 0;
     const poll = setInterval(() => {
-      if (sizeOf(stdoutPath) > this.stdoutLimitBytes || sizeOf(stderrPath) > this.stderrLimitBytes) {
+      const stdoutSize = sizeOf(stdoutPath);
+      const stderrSize = sizeOf(stderrPath);
+      if (stdoutSize > this.stdoutLimitBytes || stderrSize > this.stderrLimitBytes) {
         overflow = true;
         entry.controller.abort(); // runSupervised 照中断处理，整棵树结束
+      }
+      if (stderrSize > stderrSeen) {
+        stderrSeen = stderrSize;
+        const text = readOutput(stderrPath);
+        if (text !== "") entry.hooks?.onStderr?.(text);
       }
     }, OUTPUT_POLL_MS);
     poll.unref?.();

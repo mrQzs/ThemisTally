@@ -9,6 +9,7 @@ import { createApp, type App } from "../src/app.ts";
 import { CursorTable } from "../src/cursors.ts";
 import { KernelRunner, type RunKernel } from "../src/kernel.ts";
 import { READ_ROUTE_SPECS, readRoutes } from "../src/readroutes.ts";
+import { secretEntryRoutes } from "../src/secretentry.ts";
 import { EventHub, eventRoutes } from "../src/events.ts";
 import { JobTable } from "../src/jobs.ts";
 import { jobRoutes } from "../src/jobroutes.ts";
@@ -172,6 +173,54 @@ describe("第 3 片新路由都要会话（T17）", () => {
 
   it("四条新路由（api.events / api.jobs.create / api.jobs.get / api.jobs.cancel）不带 cookie 一律 401", async () => {
     for (const [name, example] of Object.entries(NEW_ROUTE_EXAMPLES)) {
+      const response = await hit(example.method, example.path);
+      expect(response.status, `${name} 应要会话`).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body["messages"], name).toEqual(["ERROR: 未认证"]);
+      expect(body["ok"], name).toBe(false);
+    }
+  });
+});
+
+/**
+ * 第 7 片的录入路由（U18）：POST /api/v1/secrets/<name>/entry 也不标 public，不带 cookie 一律 401（T17）。
+ * 既有的 19 条表与上面的断言一字不动。
+ */
+const ENTRY_ROUTE_EXAMPLES: Readonly<Record<string, { readonly method: string; readonly path: string }>> = {
+  "api.secrets.entry": { method: "POST", path: "/api/v1/secrets/EXAMPLE_KEY/entry" },
+};
+
+describe("第 7 片录入路由也要会话（T17）", () => {
+  let entryApp: App;
+  let runner: KernelRunner;
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), "themis-ui-auth7-"));
+    // 真执行器（本用例不起作业，run() 不会被调用；jobRoutes 要的是 KernelRunner）
+    runner = new KernelRunner({ repo: dir, python: process.execPath, kernel: join(dir, "no-such-kernel") });
+    const jobs = new JobTable();
+    entryApp = createApp({
+      port: PORT,
+      assets: dir,
+      controlToken: "t".repeat(43),
+      extraRoutes: [...jobRoutes(runner, jobs), ...secretEntryRoutes(runner, jobs)],
+    });
+  });
+
+  afterAll(async () => {
+    await runner.shutdown();
+  });
+
+  const hit = (method: string, path: string, cookie?: string): Promise<Response> =>
+    entryApp.fetch(
+      new Request(`http://127.0.0.1:${PORT}${path}`, {
+        method,
+        headers: { host: `127.0.0.1:${PORT}`, ...(cookie === undefined ? {} : { cookie }) },
+      }),
+    );
+
+  it("api.secrets.entry 不带 cookie 回 401", async () => {
+    for (const [name, example] of Object.entries(ENTRY_ROUTE_EXAMPLES)) {
       const response = await hit(example.method, example.path);
       expect(response.status, `${name} 应要会话`).toBe(401);
       const body = (await response.json()) as Record<string, unknown>;
