@@ -18,14 +18,23 @@
       "name": "@themis/cli",
       "dependencies": {
         "@themis/base": "workspace:*",
+        "@themis/config": "workspace:*",
         "@themis/dispatcher": "workspace:*",
         "@themis/ui": "workspace:*",
+      },
+    },
+    "packages/config": {
+      "name": "@themis/config",
+      "dependencies": {
+        "@themis/base": "workspace:*",
+        "@themis/dispatcher": "workspace:*",
       },
     },
     "packages/contracts": {
       "name": "@themis/contracts",
       "dependencies": {
         "@themis/base": "workspace:*",
+        "@themis/config": "workspace:*",
         "@themis/dispatcher": "workspace:*",
       },
     },
@@ -150,6 +159,8 @@
     "@themis/base": ["@themis/base@workspace:packages/base"],
 
     "@themis/cli": ["@themis/cli@workspace:packages/cli"],
+
+    "@themis/config": ["@themis/config@workspace:packages/config"],
 
     "@themis/contracts": ["@themis/contracts@workspace:packages/contracts"],
 
