@@ -64,14 +64,16 @@ describe('CLI 运行时表', () => {
     rows.forEach((r) => expect(text(r['版本'])).toBe('—'));
   });
 
-  it('操作规则且都禁用', () => {
+  it('操作规则：[删除…] 可点，其余禁用', () => {
     const { container } = render(<RuntimesView runtimes={RUNTIMES} />);
     const rows = tableRows(sectionNamed(container, '已登记').querySelector('table'));
     const want = [['探测', '模型', '删除…'], ['探测', '删除…'], ['探测', '删除…'], ['删除…'], ['探测', '删除…']];
     rows.forEach((r, i) => {
       const ops = qa(r['操作'], 'button').map(text);
       expect(ops, `第 ${i + 1} 行`).toEqual(want[i]);
-      qa(r['操作'], 'button').forEach((b: any) => expect(b.disabled).toBe(true));
+      qa(r['操作'], 'button').forEach((b: any) => {
+        expect(b.disabled, `${text(b)} 的禁用状态`).toBe(text(b) === '删除…' ? false : true);
+      });
     });
   });
 });

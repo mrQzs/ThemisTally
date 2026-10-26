@@ -2,11 +2,13 @@
 // thinking 缺失「缺省」；凭据变量每变量一个 mono neutral Tag；被引用取当前无头且 profile 相符的角色名；操作禁用。
 import type { ReactNode } from 'react';
 import type { ProfilesData } from '../../api';
-import { Table, type TableColumn } from '../../components';
+import { Button, Table, type TableColumn } from '../../components';
 import { Tag } from '../../components';
 import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
 import { profileRefs, type RoleInfo } from './roles-logic';
+import { useWriteFlow } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
 
 type LooseProfile = {
   id: string;
@@ -41,9 +43,11 @@ const COLUMNS: readonly TableColumn<ProfileRow>[] = [
 export interface ProfilesTableProps {
   profiles: ProfilesData['profiles'];
   roles: readonly RoleInfo[];
+  reload?: () => Promise<void>;
 }
 
-export function ProfilesTable({ profiles, roles }: ProfilesTableProps) {
+export function ProfilesTable({ profiles, roles, reload }: ProfilesTableProps) {
+  const { start, flow } = useWriteFlow(reload);
   const rows: ProfileRow[] = profiles.map((raw) => {
     const p = raw as unknown as LooseProfile;
     const thinking = p.options && typeof p.options.thinking === 'string' ? p.options.thinking : null;
@@ -70,7 +74,13 @@ export function ProfilesTable({ profiles, roles }: ProfilesTableProps) {
       操作: (
         <>
           <DisabledAction label="编辑" variant="ghost" size="sm" />
-          <DisabledAction label="删除" variant="ghost" size="sm" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => start({ action: 'profile.remove', args: { profile: p.id } })}
+          >
+            删除
+          </Button>
         </>
       ),
     };
@@ -90,6 +100,7 @@ export function ProfilesTable({ profiles, roles }: ProfilesTableProps) {
           rowKey={(r) => r.rowId}
         />
       )}
+      <WriteFlow flow={flow} />
     </Section>
   );
 }

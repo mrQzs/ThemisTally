@@ -5,8 +5,14 @@ import {
   getOperation,
   getPlugins,
   getPresets,
+  getProfiles,
   getRoles,
+  getRuntimes,
   preview,
+  removePreset,
+  removeProfile,
+  removeRuntime,
+  rollback,
   setPluginEnabled,
   usePreset,
   type Envelope,
@@ -15,7 +21,15 @@ import {
 } from '../api';
 import { dispatchCommand } from '../components';
 import { writeScenario } from '../mock/writes';
-import { pluginSnapshot, presetSnapshot, sameSnapshot } from './snapshots';
+import {
+  pluginSnapshot,
+  presetRemoveSnapshot,
+  presetSnapshot,
+  profileRemoveSnapshot,
+  rollbackSnapshot,
+  runtimeRemoveSnapshot,
+  sameSnapshot,
+} from './snapshots';
 import {
   classifyTerminal,
   classifyWrite,
@@ -29,18 +43,53 @@ import type { ConfirmContent, FlowRender, FlowView } from './WriteConfirmDialog'
 export interface WriteSpec {
   action: WriteAction;
   args: Record<string, string>;
-  /** 对话框标题：动词加对象，如「切换到方案 economy？」。 */
-  title: string;
+  /** 对话框标题：动词加对象，如「切换到方案 economy？」；缺省由 titleOf(action, args) 补上。 */
+  title?: string;
 }
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
 const POLL_INTERVAL_MS = 1000;
 
+// 删除与回滚的确认钮用危险样式（UI 设计 7.11）；A 片三个动作仍是 primary。
+function dangerOf(action: WriteAction): boolean {
+  return (
+    action === 'preset.remove' ||
+    action === 'profile.remove' ||
+    action === 'runtime.remove' ||
+    action === 'config.rollback'
+  );
+}
+
+// 文字表（合同第四节）：确认框标题、变化区摘要与成功轻提示一律由这里按 action 与 args 拼；
+// 入口文件（readonly1、readonly2）只出按钮标签，不写这 13 条动作说明（T013）。
+
+/** 确认框标题：动词加对象；title 缺省时由 open 补上（A 片入口仍自带 title，行为不变）。 */
+function titleOf(action: WriteAction, args: Record<string, string>): string {
+  if (action === 'preset.remove') return `删除方案 ${args.name}？`;
+  if (action === 'profile.remove') return `删除 profile ${args.profile}？`;
+  if (action === 'runtime.remove') return `删除运行时 ${args.runtime}？`;
+  if (action === 'config.rollback') return `回滚到 #${args.number} 之后？`;
+  return `确认操作 ${action}？`;
+}
+
+/** 成功轻提示（重读之后才说，W3）。 */
 function successTextOf(action: WriteAction, args: Record<string, string>): string {
   if (action === 'preset.use') return `已切换到方案 ${args.name}`;
   if (action === 'plugin.enable') return `已启用插件 ${args.id}`;
-  return `已停用插件 ${args.id}`;
+  if (action === 'plugin.disable') return `已停用插件 ${args.id}`;
+  if (action === 'preset.remove') return `已删除方案 ${args.name}`;
+  if (action === 'profile.remove') return `已删除 profile ${args.profile}`;
+  if (action === 'runtime.remove') return `已删除运行时 ${args.runtime}`;
+  return `已回滚到 #${args.number} 之后`;
+}
+
+/** 变化区摘要：预览没有 binding_changes 时显示；没有摘要的动作（回滚与 A 片）返回 null，回落到「预览没有列出变化」。 */
+function changeSummaryOf(action: WriteAction, args: Record<string, string>): string | null {
+  if (action === 'preset.remove') return `方案表里去掉 ${args.name}，角色绑定不变`;
+  if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
+  if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
+  return null;
 }
 
 function isTerminalState(state: string): boolean {
@@ -60,6 +109,40 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
       if (!presets.ok || !roles.ok || !presets.data || !roles.data) return { ok: false };
       return { ok: true, snapshot: presetSnapshot(presets.data, roles.data) };
     }
+    if (action === 'preset.remove') {
+      const presets = await getPresets();
+      if (!presets.ok || !presets.data) return { ok: false };
+      return { ok: true, snapshot: presetRemoveSnapshot(presets.data) };
+    }
+    if (action === 'profile.remove') {
+      const profiles = await getProfiles();
+      if (!profiles.ok || !profiles.data) return { ok: false };
+      return { ok: true, snapshot: profileRemoveSnapshot(profiles.data) };
+    }
+    if (action === 'runtime.remove') {
+      const runtimes = await getRuntimes();
+      if (!runtimes.ok || !runtimes.data) return { ok: false };
+      return { ok: true, snapshot: runtimeRemoveSnapshot(runtimes.data) };
+    }
+    if (action === 'config.rollback') {
+      const [roles, presets, profiles, runtimes, plugins] = await Promise.all([
+        getRoles(),
+        getPresets(),
+        getProfiles(),
+        getRuntimes(),
+        getPlugins(),
+      ]);
+      if (
+        !roles.ok || !presets.ok || !profiles.ok || !runtimes.ok || !plugins.ok ||
+        !roles.data || !presets.data || !profiles.data || !runtimes.data || !plugins.data
+      ) {
+        return { ok: false };
+      }
+      return {
+        ok: true,
+        snapshot: rollbackSnapshot(roles.data, presets.data, profiles.data, runtimes.data, plugins.data),
+      };
+    }
     const plugins = await getPlugins();
     if (!plugins.ok || !plugins.data) return { ok: false };
     return { ok: true, snapshot: pluginSnapshot(plugins.data) };
@@ -71,6 +154,7 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
 export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: WriteSpec) => void; flow: FlowRender } {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [danger, setDanger] = useState(false);
   const [view, setView] = useState<FlowView>({ phase: 'previewing' });
   const [toast, setToast] = useState<string | null>(null);
 
@@ -308,6 +392,7 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
         // 预览命令带 --dry-run --json（第二节）；「将运行的命令」要的是真正会跑的写命令，去掉这两个开关。
         command: dispatchCommand(data.command.filter((a) => a !== '--dry-run' && a !== '--json')),
         changes: data.binding_changes,
+        summary: changeSummaryOf(spec.action, spec.args) ?? undefined,
         warnings: data.warnings,
         running: data.running_attempts,
         notes: data.notes,
@@ -327,7 +412,8 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
       snapRef.current = null;
       confirmRef.current = '';
       clsRef.current = null;
-      setTitle(spec.title);
+      setTitle(spec.title ?? titleOf(spec.action, spec.args));
+      setDanger(dangerOf(spec.action));
       setDialogOpen(true);
       setView({ phase: 'previewing' });
       void runPreview(spec, my);
@@ -343,7 +429,15 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
     const call =
       spec.action === 'preset.use'
         ? usePreset(spec.args.name, confirmRef.current)
-        : setPluginEnabled(spec.args.id, spec.action === 'plugin.enable', confirmRef.current);
+        : spec.action === 'preset.remove'
+          ? removePreset(spec.args.name, confirmRef.current)
+          : spec.action === 'profile.remove'
+            ? removeProfile(spec.args.profile, confirmRef.current)
+            : spec.action === 'runtime.remove'
+              ? removeRuntime(spec.args.runtime, confirmRef.current)
+              : spec.action === 'config.rollback'
+                ? rollback(Number(spec.args.number), confirmRef.current)
+                : setPluginEnabled(spec.args.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);
@@ -376,6 +470,7 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
   const flow: FlowRender = {
     open: dialogOpen,
     title,
+    danger,
     view,
     toast,
     onCancel: resetFlow,

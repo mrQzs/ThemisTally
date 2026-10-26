@@ -104,7 +104,7 @@ describe('四页五态（经 ?mock=）', () => {
 });
 
 describe('夹具下的写入口（过渡）', () => {
-  it('凭据 2、日志 0、插件 1（抽屉开 2）、历史 0（抽屉开 1），每个都禁用', async () => {
+  it('凭据 2、日志 0、插件 1（抽屉开 2）、历史 0（抽屉开 0），每个都禁用', async () => {
     await mountApp('#/secrets?mock=data');
     expect(disabledWrites().map((b) => text(b))).toEqual(['录入…', '录入…']);
     cleanup();
@@ -127,11 +127,11 @@ describe('夹具下的写入口（过渡）', () => {
     act(() => { rows2[0].focus(); });
     fireEvent.keyDown(rows2[0], { key: 'Enter' });
     await settle();
-    expect(disabledWrites().map((b) => text(b))).toEqual(['回滚到这一条之后']);
+    expect(disabledWrites().map((b) => text(b))).toEqual([]);
   }, 60000);
 
   it('各页可用按钮只在白名单内，可用链接只有 [去设置]', async () => {
-    const allowed = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)', '启用…', '停用…'];
+    const allowed = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)', '启用…', '停用…', '回滚到这一条之后'];
     const problems: string[] = [];
     for (const mock of ['data', 'error']) {
       for (const p of PAGES) {

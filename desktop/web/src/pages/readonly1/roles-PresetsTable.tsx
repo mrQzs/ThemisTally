@@ -5,7 +5,6 @@ import type { Envelope, PresetDiffData, PresetsData } from '../../api';
 import { Button, Table, type TableColumn } from '../../components';
 import { CheckIcon } from '../../icons';
 import { Tag } from '../../components';
-import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
 import { presetRoleTitle } from './roles-logic';
 import { PresetDiff, type PresetDiffState } from './roles-PresetDiff';
@@ -95,7 +94,13 @@ export function PresetsTable({ presets, active, totalRoles, onDiff, reload }: Pr
           >
             使用
           </Button>
-          <DisabledAction label="删除…" variant="ghost" size="sm" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => start({ action: 'preset.remove', args: { name: p.name } })}
+          >
+            删除…
+          </Button>
           <Button
             variant="ghost"
             size="sm"

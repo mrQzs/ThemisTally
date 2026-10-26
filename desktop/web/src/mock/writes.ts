@@ -22,11 +22,12 @@ export type WriteScenario =
   | 'preview-fail'
   | 'preview-busy'
   | 'reread-fail'
-  | 'reread-fail-exit1';
+  | 'reread-fail-exit1'
+  | 'in-use';
 
 const SCENARIOS: readonly WriteScenario[] = [
   'ok', 'warn', 'exit1', 'exit2', 'exit3', 'stale', 'expired', 'busy', 'closing', 'spawn', 'toolarge', 'timeout',
-  'drop-done', 'drop-lost', 'drop-hang', 'preview-fail', 'preview-busy', 'reread-fail', 'reread-fail-exit1',
+  'drop-done', 'drop-lost', 'drop-hang', 'preview-fail', 'preview-busy', 'reread-fail', 'reread-fail-exit1', 'in-use',
 ];
 
 export function writeScenario(): WriteScenario {
@@ -44,9 +45,13 @@ export function writeScenario(): WriteScenario {
   return 'ok';
 }
 
-// 基础写 argv（不含 --expect-state、--yes、--dry-run、--json）：照 README :83–95 的 12 条写路由。
+// 基础写 argv（不含 --expect-state、--yes、--dry-run、--json）：照 README :83–95 的写路由与服务侧 buildWriteArgv。
 function baseArgv(action: WriteAction, args: Record<string, string>): string[] {
   if (action === 'preset.use') return ['config', 'preset', 'use', args.name];
+  if (action === 'preset.remove') return ['config', 'preset', 'remove', args.name];
+  if (action === 'profile.remove') return ['config', 'profile', 'remove', args.profile];
+  if (action === 'runtime.remove') return ['config', 'runtime', 'remove', args.runtime];
+  if (action === 'config.rollback') return ['config', 'rollback', args.number];
   if (action === 'plugin.enable') return ['plugins', 'enable', args.id];
   return ['plugins', 'disable', args.id];
 }
@@ -61,14 +66,20 @@ function env<T>(over: Partial<Envelope<T>>): Envelope<T> {
 }
 
 // 每个预览签发一个不重复的确认号（43 位量级；流程把它当操作号用，drop-* 的轮询按它记次数）。
+// opActions 记全部 action（A 片 getOperation 按它反推 args 用）；opArgs 只记 B 片四个新 action 的 (action, args)，
+// 供 B 片写函数核对确认号与参数（第二节）。
 let opSeq = 0;
 const opActions = new Map<string, string>();
+const opArgs = new Map<string, { action: string; args: Record<string, string> }>();
 const opPolls = new Map<string, number>();
 
-function newOpId(action: string): string {
+const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback']);
+
+function newOpId(action: string, args: Record<string, string>): string {
   opSeq += 1;
   const id = `op${opSeq}${'y'.repeat(40)}`.slice(0, 43);
   opActions.set(id, action);
+  if (NEW_ACTIONS.has(action)) opArgs.set(id, { action, args });
   return id;
 }
 
@@ -87,6 +98,20 @@ function previewData(action: WriteAction, args: Record<string, string>, confirma
       confirmation,
     };
   }
+  if (action === 'config.rollback') {
+    // 夹具里最新一条（#42）时绑定不变（空）；其余编号给一条演示变化。
+    return {
+      binding_changes: args.number === '42' ? [] : [{ role: 'execution', from: 'step-low', to: 'step-high' }],
+      resources: ['config'],
+      notes: [],
+      warnings: [],
+      running_attempts: [],
+      needs_yes: false,
+      command,
+      confirmation,
+    };
+  }
+  // 三个删除与插件启停：binding_changes 恒空（删除靠变化区摘要说明）。
   return {
     binding_changes: [],
     resources: ['plugins'],
@@ -114,17 +139,33 @@ export function mockPreview(action: WriteAction, args: Record<string, string>): 
       body: env({ ok: false, exit_code: 2, messages: ['ERROR 预览不合格：参数不符合组合规则'], command }),
     });
   }
-  const id = newOpId(action);
+  const id = newOpId(action, args);
   return Promise.resolve({
     status: 200,
     body: { ok: true, exit_code: 0, data: previewData(action, args, id), output: [], messages: [], command, elapsed_ms: 0 },
   });
 }
 
+// in-use 的内核原文（合同第五节）：三个删除各有原文；config.rollback 与 A 片 action 照 exit1 的报错行。
+function inUseMessage(action: WriteAction, args: Record<string, string>): string {
+  if (action === 'preset.remove') {
+    return `ERROR: 方案 ${args.name} 正在用：先 preset use 别的方案，或 config unset active_preset`;
+  }
+  if (action === 'profile.remove') {
+    return `ERROR: profile ${args.profile} 被 roles.execution 引用：先改这些绑定或方案`;
+  }
+  if (action === 'runtime.remove') {
+    return `ERROR: runtime ${args.runtime} 被 profile step-high、step-low 引用：先改或删这些 profile`;
+  }
+  return 'ERROR 内核拒绝：profile step-low 不存在';
+}
+
 // 执行响应：第二节「执行」列。drop-* 由写函数直接抛错，不在这里。
 function executeEnvelope(scenario: WriteScenario, action: WriteAction, args: Record<string, string>): Envelope<null> {
   const command = writeArgv(action, args);
   switch (scenario) {
+    case 'in-use':
+      return env({ ok: false, exit_code: 1, messages: [inUseMessage(action, args)], command });
     case 'warn':
       return env({
         output: ['WARN 执行端已固定，切换不影响正在运行的 attempt'],
@@ -196,6 +237,45 @@ export function mockSetPluginEnabled(id: string, enabled: boolean, _confirmation
   return writeCall(writeScenario(), enabled ? 'plugin.enable' : 'plugin.disable', { id });
 }
 
+// B 片写函数的确认号与参数核对（第二节）：号不在表里、action 不符或 args 不符都按 409 的 expired 情景回应。
+function sameArgs(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
+
+function confirmWrite(action: WriteAction, args: Record<string, string>, confirmation: string): Promise<HttpReply<null>> {
+  const stored = opArgs.get(confirmation);
+  if (!stored || stored.action !== action || !sameArgs(stored.args, args)) {
+    return Promise.resolve({
+      status: 409,
+      body: env({
+        ok: false,
+        exit_code: null,
+        messages: ['ERROR 确认号无效、已过期或已用过：请重新预览'],
+        command: writeArgv(action, args),
+      }),
+    });
+  }
+  return writeCall(writeScenario(), action, args);
+}
+
+export function mockRemovePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
+  return confirmWrite('preset.remove', { name }, confirmation);
+}
+
+export function mockRemoveProfile(profile: string, confirmation: string): Promise<HttpReply<null>> {
+  return confirmWrite('profile.remove', { profile }, confirmation);
+}
+
+export function mockRemoveRuntime(runtime: string, confirmation: string): Promise<HttpReply<null>> {
+  return confirmWrite('runtime.remove', { runtime }, confirmation);
+}
+
+export function mockRollback(number: number, confirmation: string): Promise<HttpReply<null>> {
+  return confirmWrite('config.rollback', { number: String(number) }, confirmation);
+}
+
 // 操作终态的信封：连接中断后由 getOperation 查到，照当时会跑完的信封给出（WARN/ERROR 照常显示）。
 function terminalEnvelope(scenario: WriteScenario, action: WriteAction, args: Record<string, string>): Envelope<null> | null {
   switch (scenario) {
@@ -210,6 +290,7 @@ function terminalEnvelope(scenario: WriteScenario, action: WriteAction, args: Re
     case 'exit1':
     case 'exit2':
     case 'exit3':
+    case 'in-use':
       return executeEnvelope(scenario, action, args);
     case 'stale':
       return executeEnvelope('stale', action, args);
@@ -254,7 +335,9 @@ function ok(view: OperationView): HttpReply<OperationView> {
 export function mockGetOperation(id: string): Promise<HttpReply<OperationView>> {
   const scenario = writeScenario();
   const action = (opActions.get(id) ?? 'preset.use') as WriteAction;
-  const args: Record<string, string> = action === 'preset.use' ? { name: 'economy' } : { id: 'code-change' };
+  // B 片四个新 action 的 args 取自 opArgs（预览时记下）；A 片照旧按 action 反推。
+  const args: Record<string, string> =
+    opArgs.get(id)?.args ?? (action === 'preset.use' ? { name: 'economy' } : { id: 'code-change' });
   switch (scenario) {
     case 'ok':
     case 'warn':
@@ -262,6 +345,7 @@ export function mockGetOperation(id: string): Promise<HttpReply<OperationView>> 
     case 'exit1':
     case 'exit2':
     case 'exit3':
+    case 'in-use':
       return Promise.resolve(ok(opView(id, { state: 'failed', reason: 'exit', finished_ms: 5, envelope: terminalEnvelope(scenario, action, args) })));
     case 'stale':
       return Promise.resolve(ok(opView(id, { state: 'stale', finished_ms: 5, envelope: terminalEnvelope('stale', action, args) })));

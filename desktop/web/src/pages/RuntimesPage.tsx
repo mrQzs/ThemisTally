@@ -24,7 +24,7 @@ export default function RuntimesPage() {
         </>
       }
     >
-      {(data) => <RuntimesView runtimes={data.runtimes} />}
+      {(data, reload) => <RuntimesView runtimes={data.runtimes} reload={reload} />}
     </PageFrame>
   );
 }

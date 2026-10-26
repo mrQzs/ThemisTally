@@ -1,11 +1,13 @@
 // 历史与审计页视图（合同 D06）：十列宽表，行按编号倒序；点行或 Enter 打开差异抽屉，只换内容不关抽屉。
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActorTag, Banner, Drawer, MaskedValue, RelativeTime, Table, Tag, isMaskedPlaceholder, type TableColumn } from '../../components';
+import { ActorTag, Banner, Button, Drawer, MaskedValue, RelativeTime, Table, Tag, isMaskedPlaceholder, type TableColumn } from '../../components';
 import { actionTitle } from '../../components/actionTitle';
 import { RotateCcwIcon, TriangleAlertIcon } from '../../icons';
 import { DisabledAction } from '../../shell/DisabledAction';
 import type { HistoryData } from '../../api';
 import { HistoryDrawer, type HistoryReader } from './history-HistoryDrawer';
+import { useWriteFlow } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import {
   drawerTitle,
   resourceLabel,
@@ -63,8 +65,9 @@ function ChangedKeysCell({ entry }: { entry: HistoryEntry }) {
   return <span className="r2-dim">—</span>;
 }
 
-export function HistoryView({ data, getHistoryEntry }: { data: HistoryData; getHistoryEntry: HistoryReader }) {
+export function HistoryView({ data, getHistoryEntry, reload }: { data: HistoryData; getHistoryEntry: HistoryReader; reload?: () => Promise<void> }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const { start, flow } = useWriteFlow(reload);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [openNumber, setOpenNumber] = useState<number | null>(null);
   const entries: HistoryEntry[] = data.entries ?? [];
@@ -153,17 +156,30 @@ export function HistoryView({ data, getHistoryEntry }: { data: HistoryData; getH
             {openEntry && rollbackNote(openEntry, newestNumber) ? (
               <span className="r2-drawer__note-text">{rollbackNote(openEntry, newestNumber)}</span>
             ) : null}
-            <DisabledAction
-              label="回滚到这一条之后"
-              variant="secondary"
-              size="md"
-              icon={<RotateCcwIcon width={16} height={16} />}
-            />
+            {openEntry && (openEntry.resource === 'local' ? (
+              <DisabledAction
+                label="回滚到这一条之后"
+                reason="本机文件不存快照，不能回滚"
+                variant="secondary"
+                size="md"
+                icon={<RotateCcwIcon width={16} height={16} />}
+              />
+            ) : (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => start({ action: 'config.rollback', args: { number: String(openEntry.number) } })}
+              >
+                <RotateCcwIcon width={16} height={16} />
+                回滚到这一条之后
+              </Button>
+            ))}
           </div>
         }
       >
         {openEntry ? <HistoryDrawer entry={openEntry} load={getHistoryEntry} /> : null}
       </Drawer>
+      <WriteFlow flow={flow} />
     </div>
   );
 }

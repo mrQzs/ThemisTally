@@ -26,6 +26,10 @@ import {
 import {
   mockGetOperation,
   mockPreview,
+  mockRemovePreset,
+  mockRemoveProfile,
+  mockRemoveRuntime,
+  mockRollback,
   mockSetPluginEnabled,
   mockUsePreset,
 } from './mock/writes';
@@ -42,8 +46,15 @@ export interface Envelope<T> {
   elapsed_ms: number;
 }
 
-// A 片三个写动作（B 片的删除、回滚不在此列）。
-export type WriteAction = 'preset.use' | 'plugin.enable' | 'plugin.disable';
+// 七个写动作：A 片三个（切换方案、启停插件）加 B 片四个（删除方案/profile/运行时、回滚）。
+export type WriteAction =
+  | 'preset.use'
+  | 'plugin.enable'
+  | 'plugin.disable'
+  | 'preset.remove'
+  | 'profile.remove'
+  | 'runtime.remove'
+  | 'config.rollback';
 
 // 一次 HTTP 式响应：状态码加七字段信封（写路由不回 data，data 恒 null；预览回 PreviewData）。
 export interface HttpReply<T> {
@@ -235,8 +246,7 @@ export function listSecrets(): Promise<Envelope<SecretsData>> {
   );
 }
 
-// A 片四个写函数：预览、查操作、用方案、启停插件。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
-// B 片的 removePreset/removeProfile/removeRuntime/rollback 不在此列（不放桩、不接界面）。
+// 写函数：预览、查操作，加 A 片四个与 B 片四个。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
 export function preview(action: WriteAction, args: Record<string, string>): Promise<HttpReply<PreviewData>> {
   return mockPreview(action, args);
 }
@@ -251,4 +261,21 @@ export function usePreset(name: string, confirmation: string): Promise<HttpReply
 
 export function setPluginEnabled(id: string, enabled: boolean, confirmation: string): Promise<HttpReply<null>> {
   return mockSetPluginEnabled(id, enabled, confirmation);
+}
+
+// B 片四个写函数：删除方案/profile/运行时与回滚；确认号与参数核对在 mock 侧（第二节）。
+export function removePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
+  return mockRemovePreset(name, confirmation);
+}
+
+export function removeProfile(profile: string, confirmation: string): Promise<HttpReply<null>> {
+  return mockRemoveProfile(profile, confirmation);
+}
+
+export function removeRuntime(runtime: string, confirmation: string): Promise<HttpReply<null>> {
+  return mockRemoveRuntime(runtime, confirmation);
+}
+
+export function rollback(number: number, confirmation: string): Promise<HttpReply<null>> {
+  return mockRollback(number, confirmation);
 }

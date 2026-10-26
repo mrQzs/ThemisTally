@@ -2,10 +2,12 @@
 // 只收数据，不调 api。
 import type { ReactNode } from 'react';
 import type { RuntimesData } from '../../api';
-import { Table, Tag, type TableColumn } from '../../components';
+import { Button, Table, Tag, type TableColumn } from '../../components';
 import { CircleXIcon, PlayIcon } from '../../icons';
 import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
+import { useWriteFlow } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import {
   canModels,
   canProbe,
@@ -42,9 +44,11 @@ const COLUMNS: readonly TableColumn<RuntimeRowData>[] = [
 
 export interface RuntimesViewProps {
   runtimes: RuntimesData['runtimes'];
+  reload?: () => Promise<void>;
 }
 
-export function RuntimesView({ runtimes }: RuntimesViewProps) {
+export function RuntimesView({ runtimes, reload }: RuntimesViewProps) {
+  const { start, flow } = useWriteFlow(reload);
   const rows: RuntimeRowData[] = runtimes.map((rt) => {
     const full = commandFull(rt.command);
     return {
@@ -68,7 +72,13 @@ export function RuntimesView({ runtimes }: RuntimesViewProps) {
         <>
           {canProbe(rt.source) && <DisabledAction label="探测" variant="ghost" size="sm" />}
           {canModels(rt.adapter, rt.source) && <DisabledAction label="模型" variant="ghost" size="sm" />}
-          <DisabledAction label="删除…" variant="ghost" size="sm" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => start({ action: 'runtime.remove', args: { runtime: rt.id } })}
+          >
+            删除…
+          </Button>
         </>
       ),
     };
@@ -94,6 +104,7 @@ export function RuntimesView({ runtimes }: RuntimesViewProps) {
           </p>
         </div>
       </Section>
+      <WriteFlow flow={flow} />
     </div>
   );
 }

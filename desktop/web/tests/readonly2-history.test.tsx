@@ -264,17 +264,19 @@ describe('历史与审计：差异抽屉', () => {
     expect(text(d3)).toContain('快照里有疑似凭据，只存了哈希。');
   });
 
-  it('footer：两种说明与禁用的 [回滚到这一条之后]', async () => {
+  it('footer：两种说明与 [回滚到这一条之后] 的可用/禁用', async () => {
     await mount();
     let d = await open(8);
     expect(text(d)).toContain('这是最新的一条，回滚后没有变化');
     const btn = Array.from(d.querySelectorAll('button')).find((b) => text(b) === '回滚到这一条之后') as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+    expect(btn.disabled, '最新一条 #8 可回滚').toBe(false);
     expect(btn.getAttribute('data-variant')).toBe('secondary');
     expect(btn.getAttribute('data-size')).toBe('md');
     expect(btn.querySelector('svg')?.getAttribute('width')).toBe('16');
     d = await reopen(4);
     expect(text(d)).toContain('本机文件不存快照，不能回滚');
+    const btn4 = Array.from(d.querySelectorAll('button')).find((b) => text(b) === '回滚到这一条之后') as HTMLButtonElement;
+    expect(btn4.disabled, '本机文件 #4 禁用').toBe(true);
     expect(text(d)).not.toContain('这是最新的一条');
     d = await reopen(5);
     expect(text(d)).not.toContain('这是最新的一条');

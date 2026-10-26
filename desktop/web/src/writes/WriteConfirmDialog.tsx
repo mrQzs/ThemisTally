@@ -9,6 +9,8 @@ import './write-flow.css';
 export interface ConfirmContent {
   command: string;
   changes: BindingChange[];
+  /** 变化区摘要：预览没有 binding_changes 时显示；缺省回落「预览没有列出变化」。 */
+  summary?: string;
   warnings: string[];
   running: string[];
   notes: string[];
@@ -36,6 +38,8 @@ const LOCKED_PHASES = new Set(['executing', 'confirming', 'rereading']);
 export interface WriteConfirmDialogProps {
   open: boolean;
   title: string;
+  /** 删除与回滚的 [确认…] 用危险样式；A 片三个动作用 primary。 */
+  danger: boolean;
   view: FlowView;
   onCancel: () => void;
   onConfirm: () => void;
@@ -56,6 +60,7 @@ export function WriteFlow({ flow }: { flow: FlowRender }) {
       <WriteConfirmDialog
         open={flow.open}
         title={flow.title}
+        danger={flow.danger}
         view={flow.view}
         onCancel={flow.onCancel}
         onConfirm={flow.onConfirm}
@@ -70,8 +75,8 @@ export function WriteFlow({ flow }: { flow: FlowRender }) {
   );
 }
 
-function Changes({ changes }: { changes: BindingChange[] }) {
-  if (changes.length === 0) return <p className="wf-changes__empty">预览没有列出变化</p>;
+function Changes({ changes, summary }: { changes: BindingChange[]; summary?: string }) {
+  if (changes.length === 0) return <p className="wf-changes__empty">{summary ?? '预览没有列出变化'}</p>;
   return (
     <div className="wf-changes">
       {changes.map((c) => (
@@ -114,7 +119,7 @@ function Content({ content }: { content: ConfirmContent }) {
       </div>
       <div className="wf-section">
         <span className="wf-label">变化</span>
-        <Changes changes={content.changes} />
+        <Changes changes={content.changes} summary={content.summary} />
       </div>
       <Risks content={content} />
     </div>
@@ -199,41 +204,42 @@ function Body({ view }: { view: FlowView }): ReactNode {
   }
 }
 
-function Footer({ view, onCancel, onConfirm, onRepreview, onAck, onHistory }: WriteConfirmDialogProps): ReactNode {
+function Footer({ view, danger, onCancel, onConfirm, onRepreview, onAck, onHistory }: WriteConfirmDialogProps): ReactNode {
+  const confirmVariant = danger ? 'danger' : 'primary';
   switch (view.phase) {
     case 'previewing':
       return (
         <>
           <Button variant="secondary" onClick={onCancel}>取消</Button>
-          <Button variant="primary" disabled>确认…</Button>
+          <Button variant={confirmVariant} disabled>确认…</Button>
         </>
       );
     case 'confirmable':
       return (
         <>
           <Button variant="secondary" onClick={onCancel}>取消</Button>
-          <Button variant="primary" onClick={onConfirm}>确认…</Button>
+          <Button variant={confirmVariant} onClick={onConfirm}>确认…</Button>
         </>
       );
     case 'executing':
       return (
         <>
           <Button variant="secondary" disabled>取消</Button>
-          <Button variant="primary" loading loadingText="执行中…">确认…</Button>
+          <Button variant={confirmVariant} loading loadingText="执行中…">确认…</Button>
         </>
       );
     case 'confirming':
       return (
         <>
           <Button variant="secondary" disabled>取消</Button>
-          <Button variant="primary" loading loadingText="确认结果中…">确认…</Button>
+          <Button variant={confirmVariant} loading loadingText="确认结果中…">确认…</Button>
         </>
       );
     case 'rereading':
       return (
         <>
           <Button variant="secondary" disabled>取消</Button>
-          <Button variant="primary" loading loadingText="重读中…">确认…</Button>
+          <Button variant={confirmVariant} loading loadingText="重读中…">确认…</Button>
         </>
       );
     case 'doneWithWarning':

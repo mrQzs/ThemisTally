@@ -16,7 +16,7 @@ export default function HistoryPage() {
       isEmpty={isHistoryEmpty}
       empty={{ title: '还没有配置历史' }}
     >
-      {(data) => <HistoryView data={data} getHistoryEntry={getHistoryEntry} />}
+      {(data, reload) => <HistoryView data={data} getHistoryEntry={getHistoryEntry} reload={reload} />}
     </PageFrame>
   );
 }
