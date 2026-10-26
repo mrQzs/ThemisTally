@@ -7,7 +7,8 @@ import { redactTokens } from "@themis/base/secrets";
 import { type ConfigArgs, cmdHistory, cmdSecret, cmdShow, cmdValidate } from "./commands.ts";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { PLUGINS_ACTIONS, type PluginsArgs, runPluginsCommand } from "./plugins-commands.ts";
-import { ROLES_COMMANDS, type RolesArgs, runRolesCommand } from "./roles-commands.ts";
+import { ROLES_COMMANDS, type RolesArgs, type RolesEnv, runRolesCommand } from "./roles-commands.ts";
+import { PROBE_COMMANDS, runProbeCommand } from "./roles-probe.ts";
 import { WriteMode, previewPayload, setWriteMode } from "./transaction.ts";
 import { type WriteArgs, cmdDecisions, cmdInit, cmdRollback, cmdSet, cmdUnset, writeContext } from "./write-commands.ts";
 import { ConfigError, type Kit, kitAt } from "./validate.ts";
@@ -35,6 +36,7 @@ export const CONFIG_COMMANDS = [
   "config decisions",
   "config rollback",
   ...ROLES_COMMANDS.map((path) => `config ${path}`),
+  ...PROBE_COMMANDS.map((path) => `config ${path}`),
   ...PLUGINS_ACTIONS.map((action) => `plugins ${action}`),
 ];
 
@@ -129,12 +131,14 @@ export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & {
       }
       default: {
         const path = args.command.slice(1).join(" ");
+        const rolesEnv = (o: PyOut): RolesEnv => ({ args: args as unknown as RolesArgs, out: o, open: () => writeContext(args, kit, lockWait, o) });
+        // 会运行本机 CLI 的命令没有预览选项，不进写模式
+        if (PROBE_COMMANDS.includes(path)) return await runProbeCommand(path, rolesEnv(out));
         if (!ROLES_COMMANDS.includes(path)) {
           out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
           return 2;
         }
-        const roles = args as unknown as RolesArgs;
-        const handler = (o: PyOut): number => runRolesCommand(path, { args: roles, out: o, open: () => writeContext(args, kit, lockWait, o) });
+        const handler = (o: PyOut): number => runRolesCommand(path, rolesEnv(o));
         return inWriteMode(args) ? runInWriteMode(args, out, handler) : handler(out);
       }
     }

@@ -12,12 +12,14 @@ import { publishNew } from "@themis/base/publish";
 import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
+import { childEnv, listModelsEmptyReason, listModelsLines, listModelsRows, parseHelp, runCapture } from "@themis/dispatcher/pi-cli";
 import { DispatchError, Repo } from "@themis/dispatcher/repo";
 import { allowedExecutorCheck, loadBindingRecord, resolvePiCommand } from "@themis/dispatcher/executor";
 import { pyWhich } from "@themis/base/pyshutil";
 import { ProtocolError, strictJsonLoads } from "@themis/base/protocols";
 import { readLocal, runtimeCommand } from "@themis/config/roles-local";
 import { resolveRoleExecutor } from "@themis/config/roles-binding";
+import { cwdRelativeParts } from "@themis/config/roles-probe";
 import { parseIsoUtc } from "@themis/base/pydatetime";
 import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
 import {
@@ -39,7 +41,7 @@ import {
 } from "@themis/base/secrets";
 import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes, pyReadText } from "@themis/base/pyio";
-import { pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
+import { cmpCodePoints, pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
 import { pyEq } from "@themis/base/pyvalue";
 import { purePathStr } from "@themis/base/pypath";
@@ -526,6 +528,30 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       throw error;
     }
     return { ok: true };
+  },
+  "dispatch.child_env": (request) => {
+    const extra = request["extra"] == null ? null : new Map(request["extra"] as [string, string][]);
+    const [env, removed] = childEnv(loads(String(request["config_json"])) as PyDict, extra);
+    const last = new Map<string, [string, string]>();
+    for (const [key, value] of env) {
+      last.delete(key.toUpperCase());
+      last.set(key.toUpperCase(), [key, value]);
+    }
+    const byKey = (a: [string, string], b: [string, string]): number => cmpCodePoints(a[0], b[0]) || cmpCodePoints(a[1], b[1]);
+    return { ok: true, items: [...env].sort(byKey), effective: [...last.values()].sort(byKey), removed };
+  },
+  "roles.cwd_relative": (request) => {
+    process.chdir(String(request["cwd"]));
+    return { ok: true, parts: cwdRelativeParts(request["command"] as string[]) };
+  },
+  "dispatch.run_capture": async (request) => {
+    const env = request["env"] == null ? null : new Map(request["env"] as [string, string][]);
+    const [code, stdout, stderr] = await runCapture(request["cmd"] as string[], { cwd: (request["cwd"] as string | null) || null, env, timeout: Number(request["timeout"]) });
+    return { ok: true, code, stdout, stderr };
+  },
+  "dispatch.parse_cli": (request) => {
+    const text = String(request["text"]);
+    return { ok: true, help: parseHelp(text), lines: listModelsLines(text), rows: listModelsRows(text), empty_reason: listModelsEmptyReason(text) };
   },
   "supervise.run": async (request) => {
     try {

@@ -1,0 +1,145 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pi-cli.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "C01 os.environ 不转大写",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "    if (value !== undefined) environ.set(WIN ? name.toUpperCase() : name, value);",
+      "new": "    if (value !== undefined) environ.set(name, value);"
+    },
+    {
+      "name": "C02 env_keep 不起作用",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "(remove.has(upper) && !keep.has(upper))",
+      "new": "remove.has(upper)"
+    },
+    {
+      "name": "C03 仓库重定向变量不移除",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "GIT_REDIRECT_VARS.has(upper) || ",
+      "new": ""
+    },
+    {
+      "name": "C04 setdefault 写成覆盖",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (!env.has(\"PYTHONDONTWRITEBYTECODE\")) env.set(\"PYTHONDONTWRITEBYTECODE\", \"1\");",
+      "new": "  env.set(\"PYTHONDONTWRITEBYTECODE\", \"1\");"
+    },
+    {
+      "name": "C05 不强制带上 NoDefaultCurrentDirectoryInExePath",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (WIN) env.set(EXE_SEARCH_GUARD, \"1\");\n",
+      "new": ""
+    },
+    {
+      "name": "C06 extra 在强制变量之后写",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  for (const [name, value] of extra ?? []) env.set(name, value);\n  if (WIN) env.set(EXE_SEARCH_GUARD, \"1\");",
+      "new": "  if (WIN) env.set(EXE_SEARCH_GUARD, \"1\");\n  for (const [name, value] of extra ?? []) env.set(name, value);"
+    },
+    {
+      "name": "C07 被移除的变量名不排序",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "return [env, removed.sort(cmpCodePoints)];",
+      "new": "return [env, removed];",
+      "equivalent": "Windows 上子进程的环境块是排好序的（libuv、CPython 起子进程时都按不分大小写排），被移除的变量名都是 ASCII（DEFAULT_ENV_REMOVE、GIT_REDIRECT_VARS、ENV_NAME_RE），转成大写之后环境块的次序就是码点次序；只有 POSIX 上看得出，本机验证不了"
+    },
+    {
+      "name": "C08 找不到程序也报 126",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "match[1] === \"FileNotFoundError\" ? 127 : 126",
+      "new": "126"
+    },
+    {
+      "name": "C09 起不来的报错带类名",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "\"\", text.slice(match[0].length)];",
+      "new": "\"\", text];"
+    },
+    {
+      "name": "C10 超时的退出码",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "if (result.timed_out) return [124, \"\",",
+      "new": "if (result.timed_out) return [1, \"\","
+    },
+    {
+      "name": "C11 解码时去掉 BOM",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "new TextDecoder(\"utf-8\", { ignoreBOM: true })",
+      "new": "new TextDecoder(\"utf-8\")"
+    },
+    {
+      "name": "C12 长选项前面的字母不挡",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "(?<!${W})(?<!-)(--",
+      "new": "(?<!-)(--"
+    },
+    {
+      "name": "C13 思考级别不认空格",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "${S}*([a-z, ]+)`",
+      "new": "${S}*([a-z,]+)`"
+    },
+    {
+      "name": "C14 工具行的行首也认 CR",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "(?<![^\\\\n])${S}+([a-z_]+)",
+      "new": "(?<![^\\\\n\\\\r])${S}+([a-z_]+)"
+    },
+    {
+      "name": "C15 工具分节必须以空行结束",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "(?:\\\\n${S}*\\\\n|$)",
+      "new": "(?:\\\\n${S}*\\\\n)"
+    },
+    {
+      "name": "C16 只按空格切列",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "    if (!isSpace(char)) current += char;",
+      "new": "    if (char !== \" \") current += char;"
+    },
+    {
+      "name": "C17 表头也算一行",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "      inTable = parts.length >= 2 && parts[0] === \"provider\" && parts[1] === \"model\";\n      continue;",
+      "new": "      inTable = parts.length >= 2 && parts[0] === \"provider\" && parts[1] === \"model\";"
+    },
+    {
+      "name": "C18 不标疑似凭据",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "redactSecrets(line) !== line]",
+      "new": "false]"
+    },
+    {
+      "name": "C19 两种空表原因先后颠倒",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (NO_MODELS_RE.test(text)) return \"no_models\";\n  if (NO_MATCH_RE.test(text)) return \"no_match\";",
+      "new": "  if (NO_MATCH_RE.test(text)) return \"no_match\";\n  if (NO_MODELS_RE.test(text)) return \"no_models\";"
+    },
+    {
+      "name": "C20 空表原因不看词边界",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "No models available${WB}",
+      "new": "No models available"
+    },
+    {
+      "name": "C21 思考级别不去空白",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": ".split(\",\").map(pyStrip).filter(Boolean)",
+      "new": ".split(\",\").filter(Boolean)"
+    },
+    {
+      "name": "C22 以反斜杠开头的路径不算绝对路径",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "return head.startsWith(\"\\\\\") || ",
+      "new": "return "
+    }
+  ]
+}

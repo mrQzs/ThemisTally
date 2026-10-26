@@ -347,6 +347,47 @@ def op_supervise_run(request):
     return {"ok": True, "result": result}
 
 
+def _effective_env(env):
+    """子进程实际看到的环境：大小写不同的同名变量留最后插入的那一个（CPython 的 getenvironment），按码点排序。"""
+    last = {}
+    for key, value in env.items():
+        last.pop(key.upper(), None)
+        last[key.upper()] = [key, value]
+    return sorted(last.values())
+
+
+def op_dispatch_child_env(request):
+    """pi_dispatch.child_env（迁移第 ③d 片）：config 是 JSON 文本，extra 是 [键, 值] 的列表或 null。环境的键序只通过
+    大小写相同的变量留哪个体现出来，所以交回排好序的键值、实际生效的环境与被移除的变量名。"""
+    extra = None if request.get("extra") is None else {key: value for key, value in request["extra"]}
+    env, removed = pi_dispatch.child_env(json.loads(request["config_json"]), extra)
+    return {"ok": True, "items": sorted([key, value] for key, value in env.items()), "effective": _effective_env(env),
+            "removed": removed}
+
+
+def op_dispatch_run_capture(request):
+    """pi_dispatch.run_capture：env 是 [键, 值] 的列表（按次序还原成 dict）或 null（继承）。"""
+    env = None if request.get("env") is None else {key: value for key, value in request["env"]}
+    cwd = Path(request["cwd"]) if request.get("cwd") else None
+    code, out, err = pi_dispatch.run_capture(request["cmd"], cwd=cwd, env=env, timeout=request["timeout"])
+    return {"ok": True, "code": code, "stdout": out, "stderr": err}
+
+
+def op_dispatch_parse_cli(request):
+    """pi_dispatch.parse_help 与 --list-models 的三个解析函数，同一段文字一起交回。"""
+    text = request["text"]
+    help_info = pi_dispatch.parse_help(text)
+    return {"ok": True, "help": help_info, "lines": [list(row) for row in pi_dispatch.list_models_lines(text)],
+            "rows": [list(row) for row in pi_dispatch.list_models_rows(text)],
+            "empty_reason": pi_dispatch.list_models_empty_reason(text)}
+
+
+def op_roles_cwd_relative(request):
+    """kit_roles.cwd_relative_parts：先切到 request 给的目录（相对路径按它判断是否存在）。"""
+    os.chdir(request["cwd"])
+    return {"ok": True, "parts": kit_roles.cwd_relative_parts(request["command"])}
+
+
 def op_argv_ensure_safe(request):
     """pi_dispatch.ensure_argv_safe：通过为 ok，拒绝时交回报错原文与退出码。"""
     try:
@@ -651,6 +692,10 @@ OPS = {
     "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,
     "argv.ensure_safe": op_argv_ensure_safe,
+    "dispatch.child_env": op_dispatch_child_env,
+    "roles.cwd_relative": op_roles_cwd_relative,
+    "dispatch.run_capture": op_dispatch_run_capture,
+    "dispatch.parse_cli": op_dispatch_parse_cli,
     "publish_new": op_publish_new,
     "filelock.run": op_filelock_run,
     "secrets.call": op_secrets_call,

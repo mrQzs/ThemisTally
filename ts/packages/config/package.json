@@ -12,6 +12,7 @@
     "./roles-binding": "./src/roles-binding.ts",
     "./roles-check": "./src/roles-check.ts",
     "./roles-commands": "./src/roles-commands.ts",
+    "./roles-probe": "./src/roles-probe.ts",
     "./roles-local": "./src/roles-local.ts",
     "./secret-config": "./src/secret-config.ts",
     "./secret-store": "./src/secret-store.ts",

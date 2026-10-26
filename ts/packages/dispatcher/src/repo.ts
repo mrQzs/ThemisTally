@@ -21,7 +21,7 @@ export class DispatchError extends Error {
 }
 
 /** pi_dispatch.GIT_REDIRECT_VARS：会把 Git 引到别的仓库的变量。 */
-const GIT_REDIRECT_VARS = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+export const GIT_REDIRECT_VARS: ReadonlySet<string> = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
   "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_PREFIX"]);
 
 /** pi_dispatch.git_env。 */

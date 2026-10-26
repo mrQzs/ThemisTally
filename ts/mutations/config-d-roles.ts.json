@@ -1,0 +1,162 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-probe.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 版本先取 stderr",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "pySplitlines(redactSecrets(pyStrip(out || err)))",
+      "new": "pySplitlines(redactSecrets(pyStrip(err || out)))"
+    },
+    {
+      "name": "R02 --help 只看 stdout",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "const info = parseHelp(out + err);",
+      "new": "const info = parseHelp(out);"
+    },
+    {
+      "name": "R03 缺少的参数不查 --no-context-files",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "[...REQUIRED_PI_FLAGS, \"--no-context-files\"].filter",
+      "new": "REQUIRED_PI_FLAGS.filter"
+    },
+    {
+      "name": "R04 scan --add 重复登记",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "if (row.get(\"path\") && !runtimes.has(adapter)) {",
+      "new": "if (row.get(\"path\")) {"
+    },
+    {
+      "name": "R05 scan --add 只登记版本正常的",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "if (row.get(\"path\") && !runtimes.has(adapter)) {",
+      "new": "if (row.get(\"exit_code\") === 0n && !runtimes.has(adapter)) {"
+    },
+    {
+      "name": "R06 probe 不看 --help 的退出码",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "(help.exit_code === 0 && !help.missing_flags.length)",
+      "new": "(!help.missing_flags.length)"
+    },
+    {
+      "name": "R07 没有允许列表也标在不在",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "[\"allowed\", allowed.length ? allowed.some((entry) => entry.get(\"provider\") === provider && entry.get(\"model\") === model) : null],",
+      "new": "[\"allowed\", allowed.some((entry) => entry.get(\"provider\") === provider && entry.get(\"model\") === model)],"
+    },
+    {
+      "name": "R08 模型表不遮疑似凭据",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "[\"provider\", secret ? \"<redacted>\" : provider],",
+      "new": "[\"provider\", provider],"
+    },
+    {
+      "name": "R09 版本与 --help 不按 runtime 缓存",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "let probe = runtime !== null ? caches.byRuntime.get(runtime as string) : undefined;",
+      "new": "let probe: RuntimeProbe | undefined = undefined;"
+    },
+    {
+      "name": "R10 模型列表与登录不按模型缓存",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "let readiness = caches.byModel.get(key);",
+      "new": "let readiness: [PyDict, string[]] | undefined = undefined;"
+    },
+    {
+      "name": "R11 不报没有接通",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "if (!pyTruthy(field(\"connected\"))) problems.push(",
+      "new": "if (false) problems.push("
+    },
+    {
+      "name": "R12 绝对路径也算相对路径",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "command.filter((part, index) => !pyIsAbs(part) && pathExists(part)",
+      "new": "command.filter((part, index) => pathExists(part)"
+    },
+    {
+      "name": "R13 空的凭据变量也算可用",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "ready.set(name, Boolean(present.get(name.toUpperCase())));",
+      "new": "ready.set(name, present.has(name.toUpperCase()));"
+    },
+    {
+      "name": "R14 允许列表对每个角色都查",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "if ((field(\"role\") === \"execution\" || field(\"role\") === \"contract\") && pyTruthy(config.get(\"allowed_executors\"))) {",
+      "new": "if (pyTruthy(config.get(\"allowed_executors\"))) {"
+    },
+    {
+      "name": "R15 None 写成否",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "(value == null ? \"不适用\" : value ? \"是\" : \"否\")",
+      "new": "(value ? \"是\" : \"否\")"
+    },
+    {
+      "name": "R16 doctor 未就绪也退出 0",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "return rows.every((row) => row.get(\"ready\")) ? EXIT_OK : EXIT_FAIL;",
+      "new": "return EXIT_OK;"
+    },
+    {
+      "name": "R17 调度器错误的退出码原样带出",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "throw new ConfigError(error.message, error.code === EXIT_FAIL || error.code === EXIT_USAGE ? error.code : EXIT_FAIL);",
+      "new": "throw new ConfigError(error.message, error.code);"
+    },
+    {
+      "name": "R18 --list-models 失败的报错截 300 个字",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "headOf(redactSecrets(pyStrip(listErr || listOut)), 200)",
+      "new": "headOf(redactSecrets(pyStrip(listErr || listOut)), 300)"
+    },
+    {
+      "name": "R19 模型在不在表里不看 provider",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "rows.some(([rowProvider, rowModel]) => rowProvider === provider && rowModel === model)",
+      "new": "rows.some(([, rowModel]) => rowModel === model)"
+    },
+    {
+      "name": "R20 登录不看退出码",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "out.set(\"auth_ready\", isDict(auth) && auth.get(\"exit_code\") === 0n);",
+      "new": "out.set(\"auth_ready\", isDict(auth));"
+    },
+    {
+      "name": "R21 --record 写错按退出 1",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "${shownValue(planKey)}`, EXIT_USAGE);",
+      "new": "${shownValue(planKey)}`, EXIT_FAIL);"
+    },
+    {
+      "name": "R22 不报 --version 的退出码",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "if (probe.versionExitCode !== 0) problems.push(",
+      "new": "if (false) problems.push("
+    },
+    {
+      "name": "R23 models 报错的冒号",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "${runtime} --list-models 退出码 ${code}：",
+      "new": "${runtime} --list-models 退出码 ${code}:"
+    },
+    {
+      "name": "R24 思考级别一律算支持",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "const thinkingSupported = help.thinking_levels.includes(field(\"thinking\") as string);",
+      "new": "const thinkingSupported = true;"
+    },
+    {
+      "name": "R25 model 行不交 runtime 的命令行",
+      "file": "ts/packages/config/src/roles-probe.ts",
+      "old": "const { command, lines } = runtimeCommand(ctx.repo, config, runtime);\n  for (const line of lines) env.out.printErr(line);",
+      "new": "const { command, lines } = runtimeCommand(ctx.repo, config, runtime);\n  void lines;"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-probe.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q05 版本先取 stderr",
+      "file": "scripts/kit_roles.py",
+      "old": "first = pd.redact_secrets((out or err).strip()).splitlines()",
+      "new": "first = pd.redact_secrets((err or out).strip()).splitlines()"
+    },
+    {
+      "name": "Q06 scan --add 不看找没找到",
+      "file": "scripts/kit_roles.py",
+      "old": "if row[\"path\"] and row[\"adapter\"] not in runtimes:",
+      "new": "if row[\"adapter\"] not in runtimes:"
+    },
+    {
+      "name": "Q07 空的凭据变量也算可用",
+      "file": "scripts/kit_roles.py",
+      "old": "{name: bool(present.get(name.upper())) for name in names",
+      "new": "{name: name.upper() in present for name in names"
+    },
+    {
+      "name": "Q08 doctor 未就绪也退出 0",
+      "file": "scripts/kit_roles.py",
+      "old": "    return EXIT_OK if all(row[\"ready\"] for row in rows) else EXIT_FAIL",
+      "new": "    return EXIT_OK"
+    }
+  ]
+}

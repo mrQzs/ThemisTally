@@ -1,6 +1,6 @@
 // kit_roles.py 的配置中心命令（迁移第 ③c 片）：runtime list|add|remove、profile show|add|edit|remove、role show|set、
 // preset list|show|save|use|diff|remove。写入都经写入事务（配置锁、整份校验、D8 的确认、历史与审计）；读命令先整份校验，
-// 不合法就只报错误。输出照 Python 的 print 与 "%-Ns" 逐字。runtime scan|probe、models、doctor 在第 ③d 片。
+// 不合法就只报错误。输出照 Python 的 print 与 "%-Ns" 逐字。runtime scan|probe、models、doctor 在 roles-probe（第 ③d 片）。
 // 找仓库（kit_config._repo）放在 Python 调它的那一步：参数错与“不在 Git 仓库里”同时出现时，先报哪一个照 Python。
 import { readdirSync, statSync } from "node:fs";
 import { type PyOut, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
@@ -43,6 +43,10 @@ export interface RolesArgs {
   readonly roles?: string | null;
   readonly a?: string;
   readonly b?: string;
+  /** runtime scan --add */
+  readonly add?: boolean;
+  /** doctor --record TASK.vN */
+  readonly record?: string | null;
 }
 
 export interface RolesEnv {
@@ -55,20 +59,20 @@ export interface RolesEnv {
 const MODE_WORDS = ["manual", "disabled", "interactive_host"];
 
 const isDict = (value: PyValue | undefined): value is PyDict => value instanceof Map;
-const text = (value: PyValue | undefined): string => pyStrValue(value ?? null);
+export const text = (value: PyValue | undefined): string => pyStrValue(value ?? null);
 const json = (value: PyValue): string => dumps(value, { ensureAscii: false });
 /** "%-Ns"：按码点补齐。 */
-const padRight = (value: string, width: number): string => value + " ".repeat(Math.max(0, width - pyLen(value)));
+export const padRight = (value: string, width: number): string => value + " ".repeat(Math.max(0, width - pyLen(value)));
 /** json.loads(json.dumps(value))。 */
 const deepCopy = (value: PyValue): PyValue => loads(dumps(value));
 
-function printJson(out: PyOut, payload: PyValue): number {
+export function printJson(out: PyOut, payload: PyValue): number {
   out.print(dumps(payload, { ensureAscii: false, indent: 2 }));
   return EXIT_OK;
 }
 
 /** _open：读命令的开头先整份校验；不合法就只报错误、退出 1，不显示取值、不解析命令。 */
-function openChecked(env: RolesEnv): { ctx: WriteContext; config: PyDict } {
+export function openChecked(env: RolesEnv): { ctx: WriteContext; config: PyDict } {
   const ctx = env.open();
   const config = loadConfig(ctx.repo);
   const errors = validateConfig(config, ctx.repo, ctx.kit);
@@ -77,7 +81,7 @@ function openChecked(env: RolesEnv): { ctx: WriteContext; config: PyDict } {
 }
 
 /** 配置里一个对象键：缺省或 null 是空对象，其他类型报错。 */
-function mapping(config: PyDict, key: string): PyDict {
+export function mapping(config: PyDict, key: string): PyDict {
   const value = config.get(key) ?? null;
   if (value === null) return new Map();
   if (!isDict(value)) throw new ConfigError(`${key} 不是对象：先修好配置（config validate）`);
@@ -352,7 +356,7 @@ function activePreset(config: PyDict): string | null {
   return typeof active === "string" ? active : null;
 }
 
-function roleRows(config: PyDict): PyDict[] {
+export function roleRows(config: PyDict): PyDict[] {
   const explicit = mapping(config, "roles");
   const active = activePreset(config);
   const presets = mapping(config, "presets");
@@ -381,7 +385,7 @@ function roleRows(config: PyDict): PyDict[] {
   });
 }
 
-function roleText(row: PyDict): string {
+export function roleText(row: PyDict): string {
   const binding = row.get("binding");
   if (!isDict(binding)) return `由合同决定（没有写 roles.${text(row.get("role"))}）`;
   const mode = binding.get("mode") ?? null;

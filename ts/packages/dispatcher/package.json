@@ -6,6 +6,7 @@
     "./argv": "./src/argv.ts",
     "./executor": "./src/executor.ts",
     "./logs": "./src/logs.ts",
+    "./pi-cli": "./src/pi-cli.ts",
     "./logs-cat": "./src/logs-cat.ts",
     "./logs-search": "./src/logs-search.ts",
     "./logs-usage": "./src/logs-usage.ts",

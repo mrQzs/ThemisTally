@@ -430,7 +430,8 @@ function parseNumber<V>(text: string, index: number, builder: JsonBuilder<V>): [
 }
 
 function scanValue<V>(text: string, index: number, depth: number, builder: JsonBuilder<V>): [V, number] {
-  // 嵌套极深时 Python 报 RecursionError；具体在第几层取决于解释器的递归上限，契约不比较这个层数
+  // 嵌套极深时 Python 报 RecursionError；具体在第几层取决于解释器的递归上限，这里固定在 1000 层。两边报错层数不同的
+  // 窗口（strict_json_loads 的错误码、深配置的报错文字）记在迁移文档第 10 节，契约不比较
   if (depth > 1000) throw new PyJsonError("RecursionError", "maximum recursion depth exceeded while decoding a JSON object");
   const char = text[index];
   if (char === undefined) throw decodeError(text, "Expecting value", index);

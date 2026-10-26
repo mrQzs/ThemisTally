@@ -1,0 +1,36 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pi-cli.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "Q01 setdefault 写成覆盖",
+      "file": "scripts/pi_dispatch.py",
+      "old": "env.setdefault(\"PYTHONDONTWRITEBYTECODE\", \"1\")",
+      "new": "env.__setitem__(\"PYTHONDONTWRITEBYTECODE\", \"1\")"
+    },
+    {
+      "name": "Q02 找不到程序也报 126",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        return 127, \"\", str(exc)",
+      "new": "        return 126, \"\", str(exc)"
+    },
+    {
+      "name": "Q03 思考级别不认空格",
+      "file": "scripts/pi_dispatch.py",
+      "old": ":\\s*([a-z, ]+)\", text)",
+      "new": ":\\s*([a-z,]+)\", text)"
+    },
+    {
+      "name": "Q04 cwd_relative_parts 不看绝对路径",
+      "file": "scripts/kit_roles.py",
+      "old": "if not os.path.isabs(part) and os.path.exists(part)",
+      "new": "if os.path.exists(part)"
+    }
+  ]
+}
