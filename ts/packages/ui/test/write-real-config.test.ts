@@ -178,3 +178,20 @@ describe("C4（d）：U22——读到的 credential_env 原样回填进 profile.
     expect(after.find((item) => item.id === "seed-profile")?.credential_env, "配置里的值与提交的相同").toEqual(credentialEnv);
   });
 });
+
+describe("C5：profile.edit 一个可选项都不给——服务照形状放行，组合规则交给内核", () => {
+  it("预览回 200、ok 假、exit_code 2、提示「至少给一项」，不发确认号", async () => {
+    await open();
+    const seed = cli("config", "profile", "add", "seed-profile", "--runtime", "demo-runtime", "--model", "prov/mod");
+    expect(seed.status, seed.stderr).toBe(0);
+    // profile 是路径参数（算给过了），正文一个可选项都没有：服务照形状放行，由内核判定「至少给一项」
+    const previewed = await preview("profile.edit", { profile: "seed-profile" });
+    expect(previewed.status, "内核退出非 0 也回 200").toBe(200);
+    expect(previewed.body["ok"]).toBe(false);
+    expect(previewed.body["exit_code"]).toBe(2);
+    const body = previewed.body["data"] as Record<string, unknown> | null;
+    expect(body === null || body["confirmation"] === undefined, "不发确认号").toBe(true);
+    const messages = (previewed.body["messages"] as unknown[]) ?? [];
+    expect(messages.some((line) => String(line).includes("至少给一项")), `提示应含「至少给一项」：${JSON.stringify(messages)}`).toBe(true);
+  });
+});
