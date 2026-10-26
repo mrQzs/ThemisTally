@@ -8,11 +8,13 @@
 //                                        （调用方开始之前就取消了）时不起子进程，直接交回 interrupted 的结果；
 //                                        参数错误（Python 会抛 ValueError 的）给 {"error":{"kind","message"}}
 //   {"op":"interrupt"}                 → 正在运行的 supervise 照中断处理（调用方收到 Ctrl+C 之类的信号时转发）
+//   {"op":"cred_size","target":…}      → {"size":字节数或 null}，然后退出（凭据管理器，迁移第 ③a2 片；不读内容）
+//   {"op":"cred_delete","target":…}    → {"deleted":布尔}，然后退出
 //   stdin 关闭（调用方死了）            → 立即退出：Job 句柄随进程关闭，KILL_ON_JOB_CLOSE 带走整棵树
 // 外部函数都在 native.ts，本文件不直接调 FFI。
 import "./harden.ts"; // 第一个 import：按名字起程序不查当前目录（第 77 轮）
 import { createInterface } from "node:readline";
-import { type FileLock, FileLockTimeout, helperAcquire } from "./native.ts";
+import { type FileLock, FileLockTimeout, credentialBlobSize, credentialDelete, helperAcquire } from "./native.ts";
 import { PyCrash } from "./pyfmt.ts";
 import { type InterruptFlag, type SuperviseOptions, helperSupervise } from "./supervise.ts";
 
@@ -46,6 +48,20 @@ lines.on("line", (line) => {
     );
   } else if (request.op === "interrupt") {
     interrupt.interrupted = true;
+  } else if (request.op === "cred_size" || request.op === "cred_delete") {
+    const target = String((request as { target?: string }).target);
+    const work: Promise<Record<string, unknown>> =
+      request.op === "cred_size" ? credentialBlobSize(target).then((size) => ({ size })) : credentialDelete(target).then((deleted) => ({ deleted }));
+    work.then(
+      (answer) => {
+        reply(answer);
+        process.exit(0);
+      },
+      (error: unknown) => {
+        reply({ error: String((error as Error).message) });
+        process.exit(0);
+      },
+    );
   } else if (request.op === "lock" && held === null) {
     helperAcquire(String(request.path), Number(request.wait ?? 60)).then(
       (lock) => {

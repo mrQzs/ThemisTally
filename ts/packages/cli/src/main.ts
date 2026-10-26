@@ -16,6 +16,7 @@ import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
+import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
 interface PyArgs {
@@ -76,6 +77,13 @@ export async function main(argv: readonly string[]): Promise<number> {
   // 用 pyjson 解析：Python 的 int 可能超出 JS 数字的精度（例如 --limit 给了一个很大的数，报错里要原样写出）
   const args = plain(loads(Buffer.from(encoded, "base64").toString("utf8"))) as PyArgs & Record<string, unknown>;
   await initFileAttributes();
+  if (CONFIG_COMMANDS.includes(args.command.join(" "))) {
+    try {
+      return await runConfig(args as unknown as Parameters<typeof runConfig>[0], out);
+    } catch (error) {
+      return crash(out, error);
+    }
+  }
   switch (args.command.join(" ")) {
     case "status":
       return runDispatcher(out, () => cmdStatus(args as unknown as StatusArgs, out));

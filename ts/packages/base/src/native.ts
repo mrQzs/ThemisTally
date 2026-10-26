@@ -364,6 +364,88 @@ export function fileAttributes(path: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Windows 凭据管理器（迁移第 ③a2 片：config show、secret check、secret remove；advapi32，Bun FFI，Node 后备经辅助进程）
+//   CredReadW(TargetName: UTF-16LE 以 0 结尾, Type = CRED_TYPE_GENERIC, Flags = 0, &PCREDENTIALW) -> BOOL
+//   CredFree(PCREDENTIALW)；CredDeleteW(TargetName, CRED_TYPE_GENERIC, 0) -> BOOL
+//   CREDENTIALW（x64）：Flags 0、Type 4、TargetName 8、Comment 16、LastWritten 24、CredentialBlobSize 32、CredentialBlob 40…
+// 配置中心只要知道“这一项在不在、值是不是空的”：只取 CredentialBlobSize，不读、不拷贝凭据的内容。
+// ---------------------------------------------------------------------------
+
+const CRED_TYPE_GENERIC = 1;
+
+interface CredentialApi {
+  blobSize(target: string): number | null;
+  remove(target: string): boolean;
+}
+
+let credentialApi: Promise<CredentialApi> | undefined;
+
+async function bindCredentialApi(): Promise<CredentialApi> {
+  const ffi = await import("bun:ffi");
+  const { FFIType } = ffi;
+  const advapi32 = ffi.dlopen("advapi32.dll", {
+    CredReadW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+    CredDeleteW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32], returns: FFIType.i32 },
+    CredFree: { args: [FFIType.ptr], returns: FFIType.void },
+  });
+  const call = advapi32.symbols as unknown as {
+    CredReadW(target: number, type: number, flags: number, out: number): number;
+    CredDeleteW(target: number, type: number, flags: number): number;
+    CredFree(credential: number): void;
+  };
+  return {
+    blobSize(target) {
+      const name = Buffer.from(`${target}\0`, "utf16le");
+      const out = new BigUint64Array(1);
+      if (!call.CredReadW(ffi.ptr(name), CRED_TYPE_GENERIC, 0, ffi.ptr(out))) return null;
+      const credential = Number(out[0]);
+      try {
+        return ffi.read.u32(credential, 32);
+      } finally {
+        call.CredFree(credential);
+      }
+    },
+    remove(target) {
+      const name = Buffer.from(`${target}\0`, "utf16le");
+      return call.CredDeleteW(ffi.ptr(name), CRED_TYPE_GENERIC, 0) !== 0;
+    },
+  };
+}
+
+/** 问一次辅助进程（Node 后备）：发一行 JSON，读一行回答。 */
+async function askHelper(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const [command, ...args] = nativeHelperCommand();
+  const child = spawn(command ?? "bun", [...args, "__native"], { stdio: ["pipe", "pipe", "pipe"] });
+  child.on("error", () => undefined);
+  child.stdin.on("error", () => undefined);
+  child.stdin.write(`${JSON.stringify(request)}\n`);
+  try {
+    return await nextLine(child, command ?? "bun");
+  } finally {
+    child.stdin.end();
+  }
+}
+
+/** 凭据管理器里 target 这一项的 CredentialBlobSize（字节数）；没有这一项、或不在 Windows 上时为 null。 */
+export async function credentialBlobSize(target: string): Promise<number | null> {
+  if (process.platform !== "win32") return null;
+  if (!isBun) {
+    const answer = await askHelper({ op: "cred_size", target });
+    return typeof answer["size"] === "number" ? answer["size"] : null;
+  }
+  credentialApi ??= bindCredentialApi();
+  return (await credentialApi).blobSize(target);
+}
+
+/** 删掉凭据管理器里 target 这一项；删掉了为 true。 */
+export async function credentialDelete(target: string): Promise<boolean> {
+  if (process.platform !== "win32") return false;
+  if (!isBun) return (await askHelper({ op: "cred_delete", target }))["deleted"] === true;
+  credentialApi ??= bindCredentialApi();
+  return (await credentialApi).remove(target);
+}
+
+// ---------------------------------------------------------------------------
 // 进程监督（迁移计划第 8.2 节 ④a；Windows，Bun FFI）
 // 这里只做最薄的一层：每个调用照 Win32 的语义，失败时带 GetLastError 的错误码抛 Win32Error。run_supervised 的
 // 语义（环境块、命令行、宽限、残留进程）在 supervise.ts。

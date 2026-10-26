@@ -1,0 +1,76 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/validate.contract.test.ts",
+    "packages/contracts/test/secret-store.contract.test.ts",
+    "packages/contracts/test/config-readonly.contract.test.ts",
+    "packages/contracts/test/pybase-config.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q01 宽限可以为 0",
+      "file": "scripts/kit_config.py",
+      "old": "not 0 < float(value) <= 600",
+      "new": "not 0 <= float(value) <= 600"
+    },
+    {
+      "name": "Q02 同一句错误报两次",
+      "file": "scripts/kit_config.py",
+      "old": "            if message not in errors:  # 例如缺 kit_roles.py 时几个 v3 键报的是同一句，只报一次\n                errors.append(message)",
+      "new": "            errors.append(message)",
+      "equivalent": "validate_config 第二圈（各键校验）的去重：每个键的报错都带键名，只有缺 scripts/kit_roles.py 时几个 v3 键才报同一句，契约里到不了（TS 版没有这种失败）。说明键那一圈的去重另有用例（两个像令牌的说明键），对应 TS 的 V08"
+    },
+    {
+      "name": "Q03 不拒范围过宽的模式",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if pattern in (\"*\", \"**\", \"**/*\"):\n        return \"范围过宽\"\n",
+      "new": ""
+    },
+    {
+      "name": "Q04 节奏下限差一",
+      "file": "scripts/kit_roles.py",
+      "old": "cadence < 60:",
+      "new": "cadence < 59:"
+    },
+    {
+      "name": "Q05 观察记录也要 txn",
+      "file": "scripts/kit_config.py",
+      "old": "    if phase != \"observed\" and not isinstance(record.get(\"txn\"), str):",
+      "new": "    if not isinstance(record.get(\"txn\"), str):"
+    },
+    {
+      "name": "Q06 只比值不比键在不在",
+      "file": "scripts/kit_config.py",
+      "old": "            if old_flat.get(key, KeyError) != new_flat.get(key, KeyError)]",
+      "new": "            if old_flat.get(key) != new_flat.get(key)]"
+    },
+    {
+      "name": "Q07 补判不标出来",
+      "file": "scripts/kit_config.py",
+      "old": "(\"（补判）\" if row[\"resolved\"] else \"\")",
+      "new": "\"\""
+    },
+    {
+      "name": "Q08 凭据名不限长度",
+      "file": "scripts/codekit/secrets.py",
+      "old": " or len(name) > 128",
+      "new": ""
+    },
+    {
+      "name": "Q09 符号链接也读",
+      "file": "scripts/codekit/secrets.py",
+      "old": "            if path.is_symlink() or not path.is_file():",
+      "new": "            if not path.is_file():"
+    },
+    {
+      "name": "Q10 疑似凭据的取值照原样显示",
+      "file": "scripts/kit_config.py",
+      "old": "            value = SECRET_SHOWN if pd.secret_config_error(config, key) else config[key]",
+      "new": "            value = config[key]"
+    }
+  ]
+}

@@ -51,6 +51,7 @@ def main():
         ("IS_UPPER", "str.isupper（单个字符）", lambda cp: chr(cp).isupper()),
         ("IS_LOWER", "str.islower（单个字符）", lambda cp: chr(cp).islower()),
         ("IS_DIGIT", "str.isdigit（单个字符）", lambda cp: chr(cp).isdigit()),
+        ("IS_ALNUM", "str.isalnum（单个字符；凭据名的检查用，迁移第 ③ 步）", lambda cp: chr(cp).isalnum()),
         ("CF_CC", "unicodedata.category 为 Cf 或 Cc", lambda cp: unicodedata.category(chr(cp)) in ("Cf", "Cc")),
         # NFKC 的占位符换法要用：Python 眼里未分配的码点（ICU 版本更新，可能已有分解或组合类）
         ("UNASSIGNED", "unicodedata.category 为 Cn（Python 眼里未分配）", lambda cp: unicodedata.category(chr(cp)) == "Cn"),

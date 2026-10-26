@@ -185,3 +185,18 @@ describe("Python 的 ==", () => {
   });
 });
 
+describe("str(PurePath(...))", () => {
+  it("盘符、UNC、设备路径、相对路径与各种分隔符", () => {
+    const B = String.fromCharCode(92);
+    const samples = [
+      "C:/x//y/", "C:", "C:x/./y", "//server/share/a", `${B}${B}?${B}C:${B}x`, "/x", "a/../b", "", ".", `${B}${B}.${B}pipe${B}x`,
+      "//server", "//server/share", `C:${B}`, `x${B}`, `${B}${B}?${B}UNC${B}s${B}h${B}p`, "😀:x", "c:/Users//me/./.config/", "~", "a/./././b//",
+    ];
+    const next = prng(17);
+    const atoms = ["a", "C:", "/", B, ".", "..", "//", "?", "UNC", "😀", " "];
+    for (let index = 0; index < 600; index += 1) {
+      samples.push(Array.from({ length: 1 + Math.floor(next() * 6) }, () => atoms[Math.floor(next() * atoms.length)]).join(""));
+    }
+    agree(samples.flatMap((text) => [{ op: "pypath.pure", text }, { op: "pypath.pure", text, parts: ["code-kit", "secrets"] }]));
+  });
+});

@@ -777,6 +777,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 
 | 记下的日期 | 模块 | 改进 | 来源 |
 |---|---|---|---|
+| 2026-10-26 | `pi_dispatch.secret_like_paths`（Python 与 TS 一致） | 键名含 `token` 就算疑似凭据：`pricing` 文档写着可以填的 `per_tokens` 一写，`validate` 就整段报“pricing 里有疑似凭据”，内核也不读这份配置。改成只在值像凭据、或键名是凭据类名字（`api_key`、`access_token` 这类）时才算；两边同一轮改。现在没人写 `per_tokens`，不挡路 | 第 ③a2 片的整份校验契约 |
 
 **已定**（2026-10-22，themistally-15 代站主答复）：
 1. 选择文件就是 `scripts/kernel-impl.json`，规矩见第 5 节。
@@ -812,6 +813,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | 0.3 | 计划 v1.3：按开工前的调查重写第 ③ 步（plugins 归入、`secret set` 留在 Python、六片加切换、混跑的三条契约、混合期的进程内调用）；记下站主 2026-10-26 专心推迁移的决定 | 同意 | 与 @themis/config 的骨架同一次提交 |
 | ③ | 配置中心 | | |
 | ③a1 | 插件记录与题库锁。`@themis/config`：`plugin-records`（codekit/plugins 的记录层）、`decisions`（问题的形状、清单与内容锁、配置解析与生效模式、`battery_link_problem`）。`@themis/base` 加 `pyNfc`、`pyLower`、`pyCasefold`（CASEFOLD 表由 gen_pyunicode.py 生成）、`pyurl`（urlsplit、port、hostname、ip_address）、`pyio`（read_bytes、read_text 的 OSError 与 UnicodeDecodeError 原文）、`pyvalue`（Python 的 ==）。契约：插件记录 75 条（以 plugins/ 下提交的 9 个真实插件为底），决策 118 条（含临时目录里复制改坏的插件、junction 与文件符号链接）；对照：三个种子各 600 份改坏的 manifest 与锁、lower 与 casefold 与 NFC 跑遍全部码点、3,200 段随机字节解码、2,500 个拼出来的 URL、3,016 个地址、2,000 对随机值的 ==。变异：TS 42 个全部抓住（第一轮漏 4 个，补用例后重跑抓住），Python 12 个全部抓住 | 完成 | 见提交说明 |
+| ③a2 | 校验与只读展示。`validate`（kit_config 的 18 个键与 pi_dispatch 的几个校验函数、plugins 的修复提示、读配置文件）、`roles-check`（v3 五个键）、`secret-config`、`secret-store`（来源、删除、describe；Windows 凭据管理器经 FFI 只取字节数，Node 后备经辅助进程）、`history`（读审计、编号、快照、逐键差异）、`commands`（validate、show、history、secret check、secret remove）、`cli`。`@themis/base` 加 `purePathStr`（pathlib 的规整写法，含 ntpath.join）、`native.credentialBlobSize`、`credentialDelete`（FFI 单列：advapi32 的 CredReadW、CredDeleteW、CredFree）。契约：整份校验 80 条、凭据库 20 条（file 与 off 模式往返；system 模式只读不存在的测试目标）、命令行 41 次运行的 stdout、stderr、退出码逐字节；对照：600 个随机路径与固定的盘符、UNC、设备路径。变异：TS 39 个，第一轮漏 11 个，补 8 条用例后重跑抓住；H05 等价；R02 移到 ③c；V12 测不到（见提交说明）。Python 10 个：抓住 9，Q02 等价。查出 Python 一侧一个不挡路的缺陷，记在第 10.1 节 | 完成 | 见提交说明 |
 | ④a | Windows 进程监督的验证（第 8.2 节，选候选 3）。`@themis/base/supervise`：`runSupervised` 与 `run_supervised`（第 70 轮）逐项一致，Bun 下经 native.ts 调 kernel32（挂起创建、另起进程组、加入带 KILL_ON_JOB_CLOSE 的 Job 再恢复、只继承三个标准流句柄、CTRL_BREAK 与宽限、残留进程），Node 下经 Bun 辅助进程（DETACHED_PROCESS 起、再挂到调用方的控制台）；`@themis/dispatcher/argv`：`ensure_argv_safe` 逐字节移植。契约 24 条（三套实现跑同一组场景，结果逐字段比较；含挂起之后一条指令也不执行、孙进程脱离父进程也被结束、两种控制台状态下 CTRL_BREAK 的去向、中断、杀掉调用方、`.cmd` 与 npm、255 条 `ensure_argv_safe` 语料）、白盒 8 条；变异 19 个全部抓住。第一轮契约查出 Node 后备的辅助进程在调用方没有控制台时被另配一个控制台，CTRL_BREAK 的结果与进程内调用不一致，改成 DETACHED_PROCESS 加 AttachConsole | 完成 | 见提交说明 |
 | ④ | 证据与门禁 | | |
 | ⑤ | 七端 hub 内核 | | |

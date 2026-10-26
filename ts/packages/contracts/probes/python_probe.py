@@ -13,6 +13,7 @@ import os
 import secrets
 import struct
 import sys
+import tempfile
 import time
 import types
 import unicodedata
@@ -25,6 +26,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import kit_config  # noqa: E402
 import kit_hub  # noqa: E402
 import kit_logs  # noqa: E402
+import kit_roles  # noqa: E402
 import pi_dispatch  # noqa: E402
 from codekit import decisions as codekit_decisions  # noqa: E402
 from codekit import plugins as codekit_plugins  # noqa: E402
@@ -415,6 +417,95 @@ def op_decisions_call(request):
     return {"ok": True, "value": to_tagged(value)}
 
 
+def op_config_call(request):
+    """kit_config 的整份校验与读配置、kit_roles.config_errors、pi_dispatch 的几个校验函数。
+
+    kit_root 换成请求给的目录（第 ③ 步启动器经 pyargs 的 context 传 kit_root，决策插件在它之下）；env 里的变量在这次调用
+    期间设上（值为 null 表示删掉），tempfile 的缓存清掉，worktree_root 按这一次的环境现算。
+    """
+    fn = request["fn"]
+    saved_root = pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR
+    saved_env = {name: os.environ.get(name) for name in request.get("env", {})}
+    pi_dispatch.KIT_ROOT = Path(request["kit_root"])
+    pi_dispatch.DECISIONS_PLUGIN_DIR = pi_dispatch.KIT_ROOT / "plugins" / "decisions"
+    for name, setting in request.get("env", {}).items():
+        if setting is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = setting
+    tempfile.tempdir = None
+    try:
+        repo = pi_dispatch.Repo(Path(request["repo"])) if request.get("repo") else None
+        config = json.loads(request["config"]) if "config" in request else None
+        if fn == "validate_config":
+            value = kit_config.validate_config(config, repo, hints=request.get("hints", True))
+        elif fn == "plugins_fix_hint":
+            value = kit_config.plugins_fix_hint(config, repo)
+        elif fn == "plugins_section_error":
+            value = kit_config.plugins_section_error(config)
+        elif fn == "load_config":
+            value = kit_config.load_config(repo)
+        elif fn == "config_errors":
+            value = kit_roles.config_errors(config)
+        elif fn == "pricing_table":
+            value = pi_dispatch.pricing_table(config)
+        elif fn == "worktree_root":
+            value = str(repo.worktree_root(config))
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except kit_config.ConfigError as exc:
+        return {"ok": False, "error": "ConfigError", "message": str(exc), "code": exc.code}
+    except pi_dispatch.DispatchError as exc:
+        return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
+    except (OverflowError, TypeError, RecursionError) as exc:
+        return {"ok": False, "error": type(exc).__name__}
+    finally:
+        pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = saved_root
+        for name, setting in saved_env.items():
+            if setting is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = setting
+        tempfile.tempdir = None
+    return {"ok": True, "value": to_tagged(value)}
+
+
+def op_secret_store_call(request):
+    """codekit/secrets.py：source、describe、remove、_check_name。env 照 op_config_call 在这次调用期间设上。
+
+    契约只用测试专用的名字（THEMIS_CONTRACT_ 开头）与合成的假值；system 模式下只读不存在的测试目标（迁移计划第 ③ 步）。
+    """
+    fn, name = request["fn"], request["name"]
+    saved_env = {key: os.environ.get(key) for key in request.get("env", {})}
+    for key, setting in request.get("env", {}).items():
+        if setting is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = setting
+    try:
+        if fn == "source":
+            value = codekit_secrets.source(name)
+        elif fn == "describe":
+            value = codekit_secrets.describe(name)
+        elif fn == "remove":
+            value = codekit_secrets.remove(name)
+        elif fn == "check_name":
+            value = codekit_secrets._check_name(name)
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except codekit_secrets.SecretError as exc:
+        return {"ok": False, "error": "SecretError", "code": exc.code, "detail": exc.detail}
+    except UnicodeDecodeError:
+        return {"ok": False, "error": "UnicodeDecodeError"}
+    finally:
+        for key, setting in saved_env.items():
+            if setting is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = setting
+    return {"ok": True, "value": to_tagged(value)}
+
+
 def op_unicode_call(request):
     """str.lower、str.casefold、unicodedata.normalize("NFC")；fn 为 lower_table 时交回全部会被 lower 改变的码点。"""
     fn = request["fn"]
@@ -470,6 +561,11 @@ def op_pyurl_call(request):
             "password": parts.password}
 
 
+def op_pypath_pure(request):
+    """str(PurePath(text, *parts))：pathlib 的规整写法（按本机平台）。"""
+    return {"ok": True, "text": str(Path(request["text"], *request.get("parts", [])))}
+
+
 def op_pyvalue_eq(request):
     """json.loads 读出的两个值用 == 比：nested 时各包进一个 list 再比（容器里先比身份）。"""
     left, right = json.loads(request["a"]), json.loads(request["b"])
@@ -479,10 +575,13 @@ def op_pyvalue_eq(request):
 OPS = {
     "plugins.call": op_plugins_call,
     "decisions.call": op_decisions_call,
+    "config.call": op_config_call,
+    "secret_store.call": op_secret_store_call,
     "unicode.call": op_unicode_call,
     "pyio.call": op_pyio_call,
     "pyurl.call": op_pyurl_call,
     "pyvalue.eq": op_pyvalue_eq,
+    "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,
     "argv.ensure_safe": op_argv_ensure_safe,
     "publish_new": op_publish_new,

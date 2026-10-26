@@ -107,3 +107,98 @@ export function firstLinkComponent(root: string, rel: string): string | null {
   }
   return null;
 }
+
+const BS = String.fromCharCode(92);
+
+// --- pathlib 的规整写法（迁移第 ③ 步：配置中心把 str(Path(...)) 写进输出）---------------------------------
+
+interface ParsedPath {
+  readonly drive: string;
+  readonly root: string;
+  readonly tail: readonly string[];
+}
+
+/** ntpath.splitroot（Python 3.12）：(盘符或 UNC 前缀, 根, 其余)。下标按码点算：盘符的冒号是“第二个字符”。 */
+function winSplitroot(value: string): [string, string, string] {
+  const sep = BS;
+  const norm = value.replaceAll("/", sep);
+  const chars = Array.from(norm);
+  if (chars[0] === sep) {
+    if (chars[1] === sep) {
+      const start = norm.slice(0, 8).toUpperCase() === `${sep}${sep}?${sep}UNC${sep}` ? 8 : 2;
+      const index = norm.indexOf(sep, start);
+      if (index < 0) return [value, "", ""];
+      const second = norm.indexOf(sep, index + 1);
+      if (second < 0) return [value, "", ""];
+      return [value.slice(0, second), value.slice(second, second + 1), value.slice(second + 1)];
+    }
+    return ["", value.slice(0, 1), value.slice(1)];
+  }
+  if (chars[1] === ":") {
+    const driveLength = (chars[0] as string).length + 1;
+    return chars[2] === sep
+      ? [value.slice(0, driveLength), value.slice(driveLength, driveLength + 1), value.slice(driveLength + 1)]
+      : [value.slice(0, driveLength), "", value.slice(driveLength)];
+  }
+  return ["", "", value];
+}
+
+/** PurePath._parse_path：Windows 上 / 换成 \、UNC 的 \server\share 补上根；去掉空段与 "."，".." 照留。 */
+function parsePurePath(value: string): ParsedPath {
+  if (!value) return { drive: "", root: "", tail: [] };
+  const sep = WIN ? BS : "/";
+  const text = WIN ? value.replaceAll("/", sep) : value;
+  let drive = "";
+  let root = "";
+  let rest = text;
+  if (WIN) {
+    [drive, root, rest] = winSplitroot(text);
+    if (!root && drive.startsWith(sep) && !drive.endsWith(sep)) {
+      const parts = drive.split(sep);
+      if ((parts.length === 4 && !"?.".includes(parts[2] as string)) || parts.length === 6) root = sep;
+    }
+  } else if (text.startsWith("/")) {
+    root = text.startsWith("//") && !text.startsWith("///") ? "//" : "/";
+    rest = text.slice(root.length);
+  }
+  return { drive, root, tail: rest.split(sep).filter((part) => part !== "" && part !== ".") };
+}
+
+function formatPurePath(parsed: ParsedPath): string {
+  const sep = WIN ? BS : "/";
+  if (parsed.drive || parsed.root) return parsed.drive + parsed.root + parsed.tail.join(sep);
+  const tail = WIN && parsed.tail.length && winSplitroot(parsed.tail[0] as string)[0] ? [".", ...parsed.tail] : parsed.tail;
+  return tail.join(sep) || ".";
+}
+
+/** ntpath.join（Python 3.12）：后一段带根时替换前面的；UNC 前缀与不带根的部分之间补一个分隔符。 */
+function winJoin(first: string, ...rest: string[]): string {
+  const seps = BS + "/";
+  let [drive, root, tail] = winSplitroot(first);
+  for (const part of rest) {
+    const [partDrive, partRoot, partTail] = winSplitroot(part);
+    if (partRoot) {
+      if (partDrive || !drive) drive = partDrive;
+      root = partRoot;
+      tail = partTail;
+      continue;
+    }
+    if (partDrive && partDrive !== drive) {
+      if (partDrive.toLowerCase() !== drive.toLowerCase()) {
+        [drive, root, tail] = [partDrive, partRoot, partTail];
+        continue;
+      }
+      drive = partDrive;
+    }
+    if (tail && !seps.includes(tail[tail.length - 1] as string)) tail += BS;
+    tail += partTail;
+  }
+  if (tail && !root && drive && !`:${seps}`.includes(drive[drive.length - 1] as string)) return drive + BS + tail;
+  return drive + root + tail;
+}
+
+/** str(PurePath(value, *parts))：几段先照 os.path.join 拼起来（pathlib 就是这么做的），再规整。 */
+export function purePathStr(value: string, ...parts: string[]): string {
+  const joined = parts.length === 0 ? value : WIN ? winJoin(value, ...parts) : path.posix.join(value, ...parts);
+  return formatPurePath(parsePurePath(joined));
+}

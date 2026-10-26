@@ -6,7 +6,10 @@ declare module "bun:ffi" {
     readonly i64: number;
     readonly u32: number;
     readonly ptr: number;
+    readonly void: number;
   };
+  /** 从原生指针读数（凭据管理器只读 CREDENTIALW 的 CredentialBlobSize）。 */
+  export const read: { u32(pointer: number, byteOffset?: number): number };
   export function ptr(view: ArrayBufferView): number;
   export const suffix: string;
   export function dlopen<T extends Record<string, { args: readonly number[]; returns: number }>>(

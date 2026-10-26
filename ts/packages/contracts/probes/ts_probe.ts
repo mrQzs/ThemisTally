@@ -37,6 +37,7 @@ import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes, pyReadText 
 import { pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
 import { pyEq } from "@themis/base/pyvalue";
+import { purePathStr } from "@themis/base/pypath";
 import {
   type Battery,
   DecisionError,
@@ -59,6 +60,9 @@ import {
   validateLock,
   validateManifest,
 } from "@themis/config/plugin-records";
+import { configErrors } from "@themis/config/roles-check";
+import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
+import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
@@ -228,6 +232,86 @@ function decisionsCall(request: Request): Result {
   }
 }
 
+function configValue(request: Request, kit: Kit): PyValue {
+  const repo = request["repo"] ? { root: String(request["repo"]), agentDir: join(String(request["repo"]), ".agent") } : null;
+  const config = (request["config"] === undefined ? null : loads(String(request["config"]))) as PyDict;
+  switch (request["fn"]) {
+    case "validate_config":
+      return validateConfig(config, repo, kit, request["hints"] !== false);
+    case "plugins_fix_hint":
+      return pluginsFixHint(config, repo, kit);
+    case "plugins_section_error":
+      return pluginsSectionError(config);
+    case "load_config":
+      return loadConfig(repo as NonNullable<typeof repo>);
+    case "config_errors":
+      return configErrors(config);
+    case "pricing_table":
+      return pricingTable(config);
+    case "worktree_root":
+      return worktreeRoot(config, repo as NonNullable<typeof repo>);
+    default:
+      throw new Error("UNKNOWN_FN");
+  }
+}
+
+/** 与 python_probe.op_config_call 相同：env 里的变量在这次调用期间设上（null 表示删掉），调用完还原。 */
+function configCall(request: Request): Result {
+  const env = (request["env"] ?? {}) as Record<string, string | null>;
+  const saved = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
+  for (const [name, value] of Object.entries(env)) {
+    if (value === null) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    return { ok: true, value: toTagged(configValue(request, kitAt(String(request["kit_root"])))) };
+  } catch (error) {
+    if (error instanceof ConfigError) return { ok: false, error: "ConfigError", message: error.message, code: error.code };
+    if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
+    if (error instanceof PyCrash) return { ok: false, error: error.kind };
+    throw error;
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
+/** 与 python_probe.op_secret_store_call 相同。 */
+async function secretStoreCall(request: Request): Promise<Result> {
+  const env = (request["env"] ?? {}) as Record<string, string | null>;
+  const saved = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(env)) {
+    if (value === null) delete process.env[key];
+    else process.env[key] = value;
+  }
+  const name = String(request["name"]);
+  try {
+    switch (request["fn"]) {
+      case "source":
+        return { ok: true, value: toTagged(await source(name)) };
+      case "describe":
+        return { ok: true, value: toTagged(await describeSecret(name)) };
+      case "remove":
+        return { ok: true, value: toTagged(await removeSecret(name)) };
+      case "check_name":
+        return { ok: true, value: toTagged(checkName(name)) };
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  } catch (error) {
+    if (error instanceof SecretError) return { ok: false, error: "SecretError", code: error.code, detail: error.detail };
+    if (error instanceof PyCrash) return { ok: false, error: error.kind };
+    throw error;
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 function unicodeCall(request: Request): Result {
   if (request["fn"] === "lower_table") {
     const table: [number, string][] = [];
@@ -276,9 +360,12 @@ function pyurlCall(request: Request): Result {
 const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "plugins.call": pluginsCall,
   "decisions.call": decisionsCall,
+  "config.call": configCall,
+  "secret_store.call": secretStoreCall,
   "unicode.call": unicodeCall,
   "pyio.call": pyioCall,
   "pyurl.call": pyurlCall,
+  "pypath.pure": (request) => ({ ok: true, text: purePathStr(String(request["text"]), ...((request["parts"] ?? []) as string[])) }),
   "pyvalue.eq": (request) => {
     const left = loads(String(request["a"]));
     const right = loads(String(request["b"]));

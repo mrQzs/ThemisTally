@@ -3,8 +3,15 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cli": "./src/cli.ts",
+    "./commands": "./src/commands.ts",
     "./decisions": "./src/decisions.ts",
-    "./plugin-records": "./src/plugin-records.ts"
+    "./history": "./src/history.ts",
+    "./plugin-records": "./src/plugin-records.ts",
+    "./roles-check": "./src/roles-check.ts",
+    "./secret-config": "./src/secret-config.ts",
+    "./secret-store": "./src/secret-store.ts",
+    "./validate": "./src/validate.ts"
   },
   "dependencies": {
     "@themis/base": "workspace:*",

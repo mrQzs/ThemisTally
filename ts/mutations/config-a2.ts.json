@@ -1,0 +1,250 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/validate.contract.test.ts",
+    "packages/contracts/test/secret-store.contract.test.ts",
+    "packages/contracts/test/config-readonly.contract.test.ts",
+    "packages/contracts/test/pybase-config.compare.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 说明键也算未知键",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": ".filter((key) => !key.startsWith(\"_\") && !allowed.includes(key))",
+      "new": ".filter((key) => !allowed.includes(key))"
+    },
+    {
+      "name": "R03 占位符不算错",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": " || PLACEHOLDER_RE.test(value)) errors.push",
+      "new": ") errors.push"
+    },
+    {
+      "name": "R04 节奏下限差一",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "cadence < 60n",
+      "new": "cadence < 59n"
+    },
+    {
+      "name": "R05 方案只有说明键也算写了角色",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "![...roles.keys()].some((role) => !keyText(role).startsWith(\"_\"))",
+      "new": "!roles.size"
+    },
+    {
+      "name": "S01 令牌形状的键名照原样显示",
+      "file": "ts/packages/config/src/secret-config.ts",
+      "old": "const shown = tokenShaped(key) ? SECRET_KEY_SHOWN : key;",
+      "new": "const shown = key;"
+    },
+    {
+      "name": "S02 位置不限五处",
+      "file": "ts/packages/config/src/secret-config.ts",
+      "old": "suspicious.slice(0, 5)",
+      "new": "suspicious"
+    },
+    {
+      "name": "V01 不拒范围过宽的模式",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "if (pattern === \"*\" || pattern === \"**\" || pattern === \"**/*\") return \"范围过宽\";",
+      "new": ""
+    },
+    {
+      "name": "V02 宽限可以为 0",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "!(0 < toFloat(value) && toFloat(value) <= 600)",
+      "new": "!(0 <= toFloat(value) && toFloat(value) <= 600)"
+    },
+    {
+      "name": "V03 日期只认 ASCII 数字",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "const PRICE_DATE_RE = pyRegex(`^${D}{4}-${D}{2}-${D}{2}${PY_END}`);",
+      "new": "const PRICE_DATE_RE = pyRegex(`^[0-9]{4}-[0-9]{2}-[0-9]{2}${PY_END}`);"
+    },
+    {
+      "name": "V04 币种的 $ 用 JS 的写法",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "const CURRENCY_RE = pyRegex(`^[A-Z]{3}${PY_END}`);",
+      "new": "const CURRENCY_RE = pyRegex(`^[A-Z]{3}$`);"
+    },
+    {
+      "name": "V05 allow 是字符串时不拆字符",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "configured = section.size ? getOr(section, \"allow\", []) : [];",
+      "new": "configured = section.size ? getOr(section, \"allow\", []) : [];\n    if (typeof configured === \"string\") configured = [configured];"
+    },
+    {
+      "name": "V06 规则按第一个冒号切",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "const colon = rule.lastIndexOf(\":\");",
+      "new": "const colon = rule.indexOf(\":\");"
+    },
+    {
+      "name": "V07 worktree_root 在仓库里也放过",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "if (isWithin(root, repo.root)) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "V08 同一句错误报两次",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "    if (!errors.includes(message)) errors.push(message);",
+      "new": "    errors.push(message);"
+    },
+    {
+      "name": "V09 像令牌的未知键照原样显示",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "const shown = secretLikePaths(new Map([[key, null]])).length ? SECRET_KEY_SHOWN : pyReprValue(key);",
+      "new": "const shown = pyReprValue(key);"
+    },
+    {
+      "name": "V10 修复命令里的单引号不转义",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": ".replaceAll(\"'\", \"\\\\u0027\")",
+      "new": ""
+    },
+    {
+      "name": "V11 只有一个非法子键时也删整段",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "if (isDict(section) && bad.length === 1) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "V12 列不出插件目录时也给显式列表",
+      "file": "ts/packages/config/src/validate.ts",
+      "old": "  if (base !== null) {",
+      "new": "  if (true) {"
+    },
+    {
+      "name": "H01 观察记录也要 txn",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "if (phase !== \"observed\" && typeof record.get(\"txn\") !== \"string\") return false;",
+      "new": "if (typeof record.get(\"txn\") !== \"string\") return false;"
+    },
+    {
+      "name": "H02 空白行也算损坏",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "const blankBytes = (raw: Buffer): boolean => raw.every((byte) => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d));",
+      "new": "const blankBytes = (raw: Buffer): boolean => raw.length === 0;"
+    },
+    {
+      "name": "H03 后来的终结记录覆盖先前的",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "if (entry !== undefined && entry.state === null) {",
+      "new": "if (entry !== undefined) {"
+    },
+    {
+      "name": "H04 外部改动记在下一条上",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "(entries[entries.length - 1] as HistoryEntry).externalAfter += 1;",
+      "new": "leadingExternal += 0;"
+    },
+    {
+      "name": "H05 只比值不比键在不在",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "oldFlat.has(key) !== newFlat.has(key) || ",
+      "new": "",
+      "equivalent": "keyDiff 里先比键在不在：pyEq 遇到 undefined（键缺省）对任何取值都返回 false，去掉这一半结果不变；Python 一侧对应的 Q06 由“键从 null 变成缺省也算改动”抓住"
+    },
+    {
+      "name": "H06 空对象也展开",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "if (isDict(value) && (value.size || !prefix)) {",
+      "new": "if (isDict(value)) {"
+    },
+    {
+      "name": "H07 不核对快照的哈希",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "return sha256(data) === hash ? data : null;",
+      "new": "return data;"
+    },
+    {
+      "name": "H08 审计读不出时当作没有",
+      "file": "ts/packages/config/src/history.ts",
+      "old": "if (error instanceof PyOSError && error.errno === 2) return",
+      "new": "if (error instanceof PyOSError) return"
+    },
+    {
+      "name": "C01 疑似凭据的取值照原样显示",
+      "file": "ts/packages/config/src/commands.ts",
+      "old": "value = secretConfigError(config, key) !== null ? SECRET_SHOWN : (config.get(key) as PyValue);",
+      "new": "value = config.get(key) as PyValue;"
+    },
+    {
+      "name": "C02 键名补齐到 20",
+      "file": "ts/packages/config/src/commands.ts",
+      "old": "out.print(`  ${padRight(row.get(\"key\") as string, 24)} ${shown}",
+      "new": "out.print(`  ${padRight(row.get(\"key\") as string, 20)} ${shown}"
+    },
+    {
+      "name": "C03 补判不标出来",
+      "file": "ts/packages/config/src/commands.ts",
+      "old": "(row.get(\"resolved\") ? \"（补判）\" : \"\")",
+      "new": "\"\""
+    },
+    {
+      "name": "C04 编号不补齐",
+      "file": "ts/packages/config/src/commands.ts",
+      "old": "${padLeft(String(row.get(\"number\")), 4)}",
+      "new": "${String(row.get(\"number\"))}"
+    },
+    {
+      "name": "C05 快照缺失时不说明",
+      "file": "ts/packages/config/src/commands.ts",
+      "old": "?? \"快照缺失\"",
+      "new": "?? \"缺失\""
+    },
+    {
+      "name": "SS1 凭据名不限长度",
+      "file": "ts/packages/config/src/secret-store.ts",
+      "old": "    pyLen(name) > 128 ||\n",
+      "new": ""
+    },
+    {
+      "name": "SS2 凭据名只认 ASCII 字母数字",
+      "file": "ts/packages/config/src/secret-store.ts",
+      "old": "inTable(IS_ALNUM, char.codePointAt(0) ?? 0)",
+      "new": "/^[A-Za-z0-9]$/u.test(char)"
+    },
+    {
+      "name": "SS3 符号链接也读",
+      "file": "ts/packages/config/src/secret-store.ts",
+      "old": "if (lstatSync(file).isSymbolicLink() || !statSync(file).isFile()) return false;",
+      "new": "if (!statSync(file).isFile()) return false;"
+    },
+    {
+      "name": "SS4 环境变量不优先",
+      "file": "ts/packages/config/src/secret-store.ts",
+      "old": "  if (process.env[name]) return \"env\";\n",
+      "new": ""
+    },
+    {
+      "name": "SS5 删不存在的文件也算删掉了",
+      "file": "ts/packages/config/src/secret-store.ts",
+      "old": "if ((error as NodeJS.ErrnoException).code === \"ENOENT\") return false;",
+      "new": "if ((error as NodeJS.ErrnoException).code === \"ENOENT\") return true;"
+    },
+    {
+      "name": "P01 UNC 的空段当成合法前缀",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "!\"?.\".includes(parts[2] as string)",
+      "new": "![\"?\", \".\"].includes(parts[2] as string)"
+    },
+    {
+      "name": "P02 拼接时不在 UNC 前缀后补分隔符",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "return drive + BS + tail;",
+      "new": "return drive + tail;"
+    },
+    {
+      "name": "P03 不去掉 . 段",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "tail: rest.split(sep).filter((part) => part !== \"\" && part !== \".\") };",
+      "new": "tail: rest.split(sep).filter((part) => part !== \"\") };"
+    }
+  ]
+}
