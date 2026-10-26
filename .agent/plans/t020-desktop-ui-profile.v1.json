@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "task_id": "t020-desktop-ui-profile",
+  "plan_version": 1,
+  "title": "桌面端本机服务第 6 片：profile、runtime 的写路由，令牌不外泄的回归保护，慢请求不被空闲超时断开（D2 之二）",
+  "repository": "ThemisTally",
+  "base_sha": "b9387133090c85f993d118bb082d8192a49a1b5a",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/writeroutes.ts",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/test/harness.ts",
+      "ts/packages/ui/test/write-argv.test.ts",
+      "ts/packages/ui/test/write-routes.test.ts",
+      "ts/packages/ui/test/write-real.test.ts",
+      "ts/packages/ui/test/fixtures/fake-write-kernel.mjs",
+      "ts/packages/ui/README.md"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/test/write-config.test.ts",
+      "ts/packages/ui/test/write-real-config.test.ts",
+      "ts/packages/ui/test/slow-request.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t020_*.py",
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/src/readroutes.ts",
+      "desktop/**",
+      "docs/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t020_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "^$"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "五条写路由（`profile.add|edit|remove`、`runtime.add|remove`）能预览、能带确认号执行、能在操作表里查到终态，与现有七条走同一条链",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "接口可用，不是「代码写得像」"
+    },
+    {
+      "id": "D02",
+      "text": "五条 action 的必填/可选、校验与命令行模板照 Behavior contract（`--opt=值`、次序固定、`--command` 用 `JSON.stringify(command)`、路径参数压正文同名键）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "argv 拼错会让内核拒收，而错在“差不多”上最难发现"
+    },
+    {
+      "id": "D03",
+      "text": "预览正文多出顶层键回 400「参数含有未知键」且不起子进程；缺 action/缺 args 的两条提示原样保留",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "正文里的多余键不能被静默忽略"
+    },
+    {
+      "id": "D04",
+      "text": "U4 收紧——`WRITE_ACTIONS` 恰好 12 个 action，开放命令路径与内核 `--dry-run` 集合相等且恰好 12 条，不开放名单显式列出且每条带理由、与开放集合不相交、每条都被内核解析器拒绝",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "开放的写命令必须真的能预览与比对令牌"
+    },
+    {
+      "id": "D05",
+      "text": "令牌不外泄——12 行 × 4 查法（预览正文、执行正文、操作正文逐段 `includes` 为 false，整条令牌也不出现；替身 report 的 `expect_state` 与整条令牌逐字相同）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "令牌进了响应正文就等于凭据外泄"
+    },
+    {
+      "id": "D06",
+      "text": "空闲超时——真 Bun 服务走生产 `Bun.serve` 选项（不传 `idleTimeout`/`timeouts`）时，三条并发请求（读路由、预览、写路由）都拿到完整响应，替身三次调用都有 end 且退出码 0",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "慢请求被空闲超时掐断，界面就拿不到结果"
+    },
+    {
+      "id": "D07",
+      "text": "README 与行为同步——最小 API 有五条写路由；「写操作」一节有 12 条、profile、runtime、两资源令牌与 `credential_env` 的三种写法；第 108 行那条改成「SSE 订阅与由内核子进程应答的请求对这一条请求调 `server.timeout(req, 0)`」；已知限制写 credential_env 清不空；至少保留一处 “T020”",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "README 是这一片的对外说明，不许与实现对不上"
+    },
+    {
+      "id": "D08",
+      "text": "既有断言一条不推翻——T019 的 `write-*` 用例全过；`tests/test_gate_t019_baseline.py` 与 `tests/test_gate_t017_baseline.py` 全过；README 有 “T020” 与 profile、runtime；`server.ts` 里有 `.timeout(x, 0)` 且 `idleTimeout` 无数字字面量；`readroutes.ts` 里没有 WRITE；任务书列出的 43 条过渡断言一条不推翻",
+      "evidence": [
+        "R01",
+        "G01"
+      ],
+      "intent": "本片只许加，不许借机改别人的口径"
+    },
+    {
+      "id": "D09",
+      "text": "规划 §11 的 13 条变异每条都有能杀它的用例（下面逐条列出）",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "过了检查不等于目标——用例没断言到点就等于没测"
+    },
+    {
+      "id": "D10",
+      "text": "所有修改都在允许集合内（新增文件在 `allowed_new_files`，没有删文件，依赖与锁文件没动）",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "没有删除、跳过或弱化既有测试（`write-argv.test.ts` 的 W2/W4 是**改断言**到新事实，不是删掉；不许出现 skip/only/todo）",
+      "evidence": [
+        "review",
+        "R01"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
