@@ -1,4 +1,4 @@
-// kit_roles.py 的生效绑定与运行中切换（迁移第 ③b 片 D8；第 ③c 片再加 resolve_role_executor）。
+// kit_roles.py 的生效绑定与运行中切换（迁移第 ③b 片 D8）、resolve_role_executor（第 ③c 片）。
 // binding_tuple 是 D8 比较的元组：任何字段类型不对都按“没有这一项”处理，这里不抛异常（写入前的配置可能是手改坏的）。
 import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -10,7 +10,8 @@ import { cmpCodePoints, pyLower } from "@themis/base/pyre";
 import { pyStrValue } from "@themis/base/pyfmt";
 import { pyEq } from "@themis/base/pyvalue";
 import { TASK_ID_RE } from "@themis/base/secrets";
-import { adapterOf } from "./roles-check.ts";
+import { EXIT_BLOCKED, EXIT_USAGE } from "@themis/dispatcher/repo";
+import { ADAPTERS, adapterOf, configErrors, shownValue } from "./roles-check.ts";
 
 /** 没写的角色取的默认值；execution 没写时由合同决定。 */
 const DEFAULT_ROLES: Readonly<Record<string, PyDict | null>> = {
@@ -156,4 +157,48 @@ export function inFlightAttempts(runsDir: string): [string[], string[]] {
 export function bindingSwitchInFlight(runsDir: string, oldConfig: PyDict, newConfig: PyDict): [string[], string[]] {
   if (["execution", "contract"].every((role) => sameBinding(bindingTuple(oldConfig, role), bindingTuple(newConfig, role)))) return [[], []];
   return inFlightAttempts(runsDir);
+}
+
+export interface RoleExecutorError {
+  readonly message: string;
+  readonly code: number;
+}
+
+/**
+ * kit_roles.resolve_role_executor：按角色写的合同第一次建立版本记录时用的执行模型，返回（值, 错误），不抛异常（D4、D5）。
+ * 值含 role、profile、runtime、adapter、active_preset、provider、model、thinking。混合期由 Python 的内核在进程内调用，
+ * 两边对同一份配置必须逐字段一致（绑定解析契约）。
+ */
+export function resolveRoleExecutor(config: PyDict, role: PyValue): [PyDict | null, RoleExecutorError | null] {
+  if (role !== "execution" && role !== "contract") return [null, { message: `executor.role 只能是 execution 或 contract：${shownValue(role)}`, code: EXIT_USAGE }];
+  const errors = configErrors(config);
+  if (errors.length) return [null, { message: `角色绑定的配置无效：${errors.slice(0, 3).join("；")}；先修好配置（config validate）`, code: EXIT_USAGE }];
+  const binding = effectiveBinding(config, role);
+  if (binding === null || binding.get("mode") !== "headless") {
+    if (role === "contract" && binding !== null && binding.get("mode") === "manual") {
+      return [null, { message: "contract 角色是 manual（规划审核端手写合同），合同却写了 role:contract：改绑定（config role set contract <profile>）或改合同", code: EXIT_USAGE }];
+    }
+    return [null, { message: `按角色写的合同需要 ${role} 角色的 headless 绑定：config role set ${role} <profile>`, code: EXIT_USAGE }];
+  }
+  const [, profileId, runtime, adapter, provider, model, thinking] = bindingTuple(config, role) as (string | null)[];
+  if (adapter == null || !provider || !model) {
+    return [null, { message: `${role} 角色绑定的 profile ${shownValue(profileId ?? null)} 无效：先修好配置（config validate）`, code: EXIT_USAGE }];
+  }
+  if (!ADAPTERS[adapter]?.headless_roles.includes(role)) {
+    return [null, { message: `${role} 角色绑定到 ${adapter}（runtime ${runtime}）：这个适配器本轮没有接通 ${role}，不派遣`, code: EXIT_BLOCKED }];
+  }
+  const preset = config.get("active_preset");
+  return [
+    new Map<string, PyValue>([
+      ["role", role],
+      ["profile", profileId ?? null],
+      ["runtime", runtime ?? null],
+      ["adapter", adapter],
+      ["active_preset", typeof preset === "string" ? preset : null],
+      ["provider", provider],
+      ["model", model],
+      ["thinking", thinking ?? null],
+    ]),
+    null,
+  ];
 }

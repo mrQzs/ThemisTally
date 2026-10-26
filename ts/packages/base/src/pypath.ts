@@ -202,3 +202,29 @@ export function purePathStr(value: string, ...parts: string[]): string {
   const joined = parts.length === 0 ? value : WIN ? winJoin(value, ...parts) : path.posix.join(value, ...parts);
   return formatPurePath(parsePurePath(joined));
 }
+
+/** str(PurePath(value).parent)：没有可去的段时是它自己。 */
+export function purePathParent(value: string): string {
+  const parsed = parsePurePath(value);
+  return formatPurePath(parsed.tail.length ? { ...parsed, tail: parsed.tail.slice(0, -1) } : parsed);
+}
+
+/** os.path.join：Windows 上是 ntpath.join（不规整），其余照 posixpath.join。 */
+export function osPathJoin(first: string, ...rest: string[]): string {
+  if (WIN) return winJoin(first, ...rest);
+  let joined = first;
+  for (const part of rest) joined = part.startsWith("/") ? part : !joined || joined.endsWith("/") ? joined + part : `${joined}/${part}`;
+  return joined;
+}
+
+/** os.path.split（Python 3.12 的 ntpath.split）：(目录部分, 最后一段)；根先分出去，目录部分末尾的分隔符全部去掉。 */
+export function osPathSplit(value: string): [string, string] {
+  const seps = WIN ? BS + "/" : "/";
+  const rootLength = value.length - value.replace(/^\/+/u, "").length;
+  const [drive, root, rest] = WIN ? winSplitroot(value) : ["", value.slice(0, rootLength), value.slice(rootLength)];
+  let index = rest.length;
+  while (index && !seps.includes(rest[index - 1] as string)) index -= 1;
+  let end = index;
+  while (end && seps.includes(rest[end - 1] as string)) end -= 1;
+  return [drive + root + rest.slice(0, end), rest.slice(index)];
+}

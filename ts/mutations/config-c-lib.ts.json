@@ -1,0 +1,157 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-local.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "L01 不先查当前目录",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "  if (WIN && !process.env[\"NoDefaultCurrentDirectoryInExePath\"]) dirs.unshift(\".\");\n",
+      "new": ""
+    },
+    {
+      "name": "L02 不看 NoDefaultCurrentDirectoryInExePath",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "!process.env[\"NoDefaultCurrentDirectoryInExePath\"]",
+      "new": "true"
+    },
+    {
+      "name": "L03 名字带后缀时不先试名字本身",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "  if (exts.some((ext) => upper.endsWith(ext.toUpperCase()))) files.unshift(cmd);\n",
+      "new": ""
+    },
+    {
+      "name": "L04 PATHEXT 的点不去掉",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "    .map((ext) => ext.replace(/\\.+$/u, \"\"));",
+      "new": ";"
+    },
+    {
+      "name": "L05 目录也算",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "    if (statSync(name).isDirectory()) return false;\n",
+      "new": ""
+    },
+    {
+      "name": "L06 没有 PATH 时不取 defpath",
+      "file": "ts/packages/base/src/pyshutil.ts",
+      "old": "const path = raw ?? (WIN ? WIN_DEFPATH",
+      "new": "const path = raw ?? (WIN ? \"\""
+    },
+    {
+      "name": "L07 父目录不去掉最后一段",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "parsed.tail.length ? { ...parsed, tail: parsed.tail.slice(0, -1) } : parsed",
+      "new": "parsed"
+    },
+    {
+      "name": "L08 不先用包装旁边的 node.exe",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "const node = isFile(localNode) ? localNode : pyWhich(\"node\");",
+      "new": "const node = pyWhich(\"node\");"
+    },
+    {
+      "name": "L09 PI_DISPATCH_PI_CMD 收空串",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "typeof part === \"string\" && part)",
+      "new": "typeof part === \"string\")"
+    },
+    {
+      "name": "L10 PI_DISPATCH_PI_CMD 不是 JSON 时报错",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "      value = [override];",
+      "new": "      throw error;"
+    },
+    {
+      "name": "L11 允许列表取最后一条匹配项",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "(hits[0] as PyDict)",
+      "new": "(hits[hits.length - 1] as PyDict)"
+    },
+    {
+      "name": "L12 固定级别相同也报",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "pyTruthy(pinned) && !pyEq(pinned, thinking)",
+      "new": "pyTruthy(pinned)"
+    },
+    {
+      "name": "L13 版本记录不查链接",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "  if (link !== null) throw new BindingRecordError(`版本记录经过链接或 junction，不读取：${link}`, EXIT_DRIFT);\n",
+      "new": ""
+    },
+    {
+      "name": "L14 active_preset 可以缺",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "NULLABLE_FIELDS.every((key) => data.has(key) && (",
+      "new": "NULLABLE_FIELDS.every((key) => (",
+      "equivalent": "TS 的 Map.get 对缺的键返回 undefined，既不是 null 也不是字符串：去掉 has 之后，缺 active_preset 照样判成字段不全。Python 的 data.get 返回 None，那一侧的 key in data 才是必要的"
+    },
+    {
+      "name": "L15 版本记录不查凭据",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "  if (secret.length) throw new BindingRecordError(",
+      "new": "  if (false) throw new BindingRecordError("
+    },
+    {
+      "name": "L16 不查是否被跟踪",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "    if (git([\"ls-files\", \"--error-unmatch\", \"--\", LOCAL_REL], repo.root).status === 0) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "L17 本机文件不查链接",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "    if (link !== null) return [`${LOCAL_REL} 经过链接或 junction（${link}），不使用`];\n",
+      "new": ""
+    },
+    {
+      "name": "L18 本机文件不查凭据",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "  if (secret.length) return [`${LOCAL_REL} 里有疑似凭据",
+      "new": "  if (false) return [`${LOCAL_REL} 里有疑似凭据"
+    },
+    {
+      "name": "L19 空命令也算合法",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "      command.length > 0 &&\n",
+      "new": ""
+    },
+    {
+      "name": "L20 没登记的 runtime 不警告",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": ".filter((runtimeId) => !registered.has(runtimeId))",
+      "new": ".filter(() => false)"
+    },
+    {
+      "name": "L21 本机文件不优先于 PATH",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "    if (local.command !== null) return { command: local.command, source: \"local\", lines };\n",
+      "new": ""
+    },
+    {
+      "name": "L22 没接通也当作参数错",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "不派遣`, code: EXIT_BLOCKED }",
+      "new": "不派遣`, code: EXIT_USAGE }"
+    },
+    {
+      "name": "L23 contract 是 manual 不单独说",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "if (role === \"contract\" && binding !== null && binding.get(\"mode\") === \"manual\")",
+      "new": "if (false)"
+    },
+    {
+      "name": "R02 像令牌的 ID 也照原样显示（第 ③a2 片移来）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": " && secretLikePaths(new Map([[\"v\", value]])).length === 0) return pyReprValue(value);",
+      "new": ") return pyReprValue(value);"
+    }
+  ]
+}

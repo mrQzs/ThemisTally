@@ -1,0 +1,126 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-commands.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "C01 读命令也走写模式",
+      "file": "ts/packages/config/src/cli.ts",
+      "old": "\"dry_run\" in args && Boolean(",
+      "new": "Boolean("
+    },
+    {
+      "name": "C02 改 adapter 不要 --force",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "      throw new ConfigError(`runtime ${runtimeId} 已登记为 ${shownValue(current.get(\"adapter\") ?? null)}；改 adapter 要加 --force`);\n",
+      "new": ""
+    },
+    {
+      "name": "C03 删 runtime 不查 profile 引用",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    if (users.length) throw new ConfigError(`runtime ${runtimeId} 被 profile",
+      "new": "    if (false) throw new ConfigError(`runtime ${runtimeId} 被 profile"
+    },
+    {
+      "name": "C04 删 runtime 不删本机文件里的命令",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    if (commands?.has(runtimeId) && writeLocal(",
+      "new": "    if (false && writeLocal("
+    },
+    {
+      "name": "C05 非 pi 也显示缺省 thinking",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "adapter === \"pi\" ? DEFAULT_THINKING : null",
+      "new": "DEFAULT_THINKING"
+    },
+    {
+      "name": "C06 profile edit 不要求至少一项",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    throw new ConfigError(\"profile edit 至少给一项：--model、--thinking、--credential-env 或 --runtime\", EXIT_USAGE);\n",
+      "new": ""
+    },
+    {
+      "name": "C07 profile 的引用不看方案",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "      if (isDict(binding) && pyEq(binding.get(\"profile\") ?? null, profileId)) users.push(`presets.${name}.roles.${role}`);",
+      "new": "      if (false) users.push(`presets.${name}.roles.${role}`);"
+    },
+    {
+      "name": "C08 不标与方案不一致",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "[\"differs_from_preset\", presetRoles.has(role) && ",
+      "new": "[\"differs_from_preset\", false && "
+    },
+    {
+      "name": "C09 不标本轮未接通",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "row.get(\"connected\") ? \"\" : \" · 本轮未接通\"",
+      "new": "\"\""
+    },
+    {
+      "name": "C10 允许列表的两种提示对调",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "problem !== null && problem[0] === \"missing\"",
+      "new": "problem !== null && problem[0] === \"thinking\""
+    },
+    {
+      "name": "C11 非 interactive_host 也收 --host",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "      if (target !== \"interactive_host\") throw new ConfigError(\"--host 只用于 interactive_host\", EXIT_USAGE);\n",
+      "new": ""
+    },
+    {
+      "name": "C12 --roles 不去空白",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": ".map((role) => pyStrip(role))",
+      "new": ".map((role) => role)"
+    },
+    {
+      "name": "C13 合同按码点排序",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "(process.platform === \"win32\" ? pyLower(name) : name)",
+      "new": "name"
+    },
+    {
+      "name": "C14 合同文件名分大小写",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "process.platform === \"win32\" ? new RegExp(",
+      "new": "false ? new RegExp("
+    },
+    {
+      "name": "C15 preset use 换掉全部角色",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    const roles = new Map(mapping(config, \"roles\"));\n    for (const [role, binding] of listed)",
+      "new": "    const roles = new Map();\n    for (const [role, binding] of listed)"
+    },
+    {
+      "name": "C16 能删正在用的方案",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    if (pyEq(config.get(\"active_preset\") ?? null, name)) throw new ConfigError(",
+      "new": "    if (false) throw new ConfigError("
+    },
+    {
+      "name": "C17 diff 没列出的写成 null",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "(value !== null ? json(value) : \"未列出\")",
+      "new": "json(value)"
+    },
+    {
+      "name": "C18 不认按角色写的合同",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "  if (raw.has(\"role\")) return \"role\";\n",
+      "new": ""
+    },
+    {
+      "name": "C19 转交名单没有 kit_roles 的命令",
+      "file": "ts/packages/config/src/cli.ts",
+      "old": "  ...ROLES_COMMANDS.map((path) => `config ${path}`),",
+      "new": ""
+    }
+  ]
+}

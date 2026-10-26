@@ -33,6 +33,11 @@ export class PyUnicodeDecodeError extends Error {
   override readonly name = "UnicodeDecodeError";
 }
 
+/** type(exc).__name__：OSError 按 errno 落到的子类。 */
+export function pyOSErrorType(error: PyOSError): string {
+  return error.errno === 2 ? "FileNotFoundError" : error.errno === 13 ? "PermissionError" : "OSError";
+}
+
 /** Node 的文件错误换成 open() 会抛的 PyOSError；不在表里的错误码为 null，调用方照原样抛。 */
 export function pyOSErrorOf(error: unknown, shown: string): PyOSError | null {
   const known = CRT_ERRNO[(error as NodeJS.ErrnoException | undefined)?.code ?? ""];

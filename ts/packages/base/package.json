@@ -23,6 +23,7 @@
     "./pyio": "./src/pyio.ts",
     "./pyurl": "./src/pyurl.ts",
     "./pyvalue": "./src/pyvalue.ts",
-    "./pyos": "./src/pyos.ts"
+    "./pyos": "./src/pyos.ts",
+    "./pyshutil": "./src/pyshutil.ts"
   }
 }

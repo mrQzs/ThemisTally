@@ -36,7 +36,7 @@ function gitRepo(name: string, options: { ignoreHistory?: boolean; running?: boo
   mkdirSync(join(repo, ".agent"), { recursive: true });
   const done = spawnSync("git", ["init", "-q", repo], { encoding: "utf8" });
   if (done.status !== 0) throw new Error(`git init 失败：${done.stderr}`);
-  if (options.ignoreHistory ?? true) writeFileSync(join(repo, ".gitignore"), ".agent/config-history/\n.agent/audit/\n.agent/.config.lock/\n.agent/runs/\n");
+  if (options.ignoreHistory ?? true) writeFileSync(join(repo, ".gitignore"), ".agent/config-history/\n.agent/audit/\n.agent/.config.lock/\n.agent/runs/\n.agent/dispatch.local.json\n");
   if (options.running) {
     mkdirSync(join(repo, ".agent", "runs", "t1", "attempt-001"), { recursive: true });
     writeFileSync(join(repo, ".agent", "runs", "t1", "attempt-001", "state.json"), '{"state": "RUNNING"}');
@@ -91,6 +91,12 @@ const rollback = (number: number, flags: RollbackFlags = {}): Command => ({
   }),
 });
 const init: Command = { label: "init", argv: ["init"], args: (repo) => ({ command: ["config", "init"], repo, context }) };
+/** kit_roles 的写命令（第 ③c 片）：path 是 config 之后的两段，fields 是其余的 Namespace（预览选项取缺省）。 */
+const roles = (path: [string, string], argv: string[], fields: Record<string, unknown>): Command => ({
+  label: [...path, ...argv].join(" "),
+  argv: [...path, ...argv],
+  args: (repo) => ({ command: ["config", ...path], repo, yes: false, dry_run: false, json: false, expect_state: null, ...fields, context }),
+});
 
 type Runner = "python" | "node" | "bun";
 
@@ -132,6 +138,7 @@ function state(repo: string): Record<string, string> {
   return {
     config: read(join(agent, "dispatch.config.json")),
     marker: read(join(agent, "DECISIONS_OFF")),
+    local: read(join(agent, "dispatch.local.json")),
     lock: existsSync(join(agent, ".config.lock")) ? "<left>" : "<none>",
     snapshots: snapshots.join("\n"),
     history: normalize(runPythonCli(["--repo", repo, "config", "history", "--json"], repo).stdout.toString("utf8"), repo),
@@ -168,6 +175,24 @@ function commands(seed: number): Step[] {
     () => rollback(1, { json: true }),
     () => set("pricing.s/m.1", PRICE("page")),
     () => ({ external: pick(['{"kill_grace_seconds": 45}', '{"env_keep": ["Z"], "_note": "hand edited"}']) }),
+    // 第 ③c 片的写命令
+    () => {
+      const command = next() < 0.5 ? '["C:/tools/pi.exe"]' : null;
+      return roles(["runtime", "add"], ["pi", "--adapter", "pi", ...(command ? ["--command", command] : [])], { runtime_id: "pi", adapter: "pi", command_option: command, force: false });
+    },
+    () => roles(["runtime", "remove"], ["pi"], { runtime_id: "pi" }),
+    () => {
+      const thinking = pick(["high", "low", "bogus"]);
+      return roles(["profile", "edit"], ["exec", "--thinking", thinking], { profile_id: "exec", runtime: null, model: null, thinking, credential_env: null });
+    },
+    () => roles(["profile", "add"], ["third", "--runtime", "pi", "--model", "step/step-3"], { profile_id: "third", runtime: "pi", model: "step/step-3", thinking: null, credential_env: null }),
+    () => {
+      const [target, yes] = [pick(["exec", "other", "third", "manual"]), next() < 0.5];
+      return roles(["role", "set"], ["execution", target, ...(yes ? ["--yes"] : [])], { role: "execution", target, host: null, cadence_seconds: null, yes });
+    },
+    () => roles(["preset", "save"], ["day", "--force"], { name: "day", description: null, roles: null, force: true }),
+    () => roles(["preset", "use"], ["day"], { name: "day" }),
+    () => roles(["preset", "remove"], ["day"], { name: "day" }),
   ];
   return [set("runtimes", RUNTIMES), set("profiles", PROFILES), ...Array.from({ length: 30 }, () => pick(pool)())];
 }

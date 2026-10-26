@@ -1,0 +1,30 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-commands.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q06 preset use 不列影响",
+      "file": "scripts/kit_roles.py",
+      "old": "        print(\"影响（写入之前）：运行中与已准备的 attempt 不受影响（执行模型在 prepare 时已固定）\")\n",
+      "new": ""
+    },
+    {
+      "name": "Q07 不标与方案不一致",
+      "file": "scripts/kit_roles.py",
+      "old": "\"differs_from_preset\": role in preset_roles and",
+      "new": "\"differs_from_preset\": False and"
+    },
+    {
+      "name": "Q08 --roles 不去空白",
+      "file": "scripts/kit_roles.py",
+      "old": "[role.strip() for role in args.roles.split(\",\") if role.strip()]",
+      "new": "[role for role in args.roles.split(\",\") if role.strip()]"
+    }
+  ]
+}

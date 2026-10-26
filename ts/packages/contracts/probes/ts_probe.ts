@@ -12,7 +12,11 @@ import { publishNew } from "@themis/base/publish";
 import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
-import { DispatchError } from "@themis/dispatcher/repo";
+import { DispatchError, Repo } from "@themis/dispatcher/repo";
+import { allowedExecutorCheck, loadBindingRecord, resolvePiCommand } from "@themis/dispatcher/executor";
+import { pyWhich } from "@themis/base/pyshutil";
+import { readLocal, runtimeCommand } from "@themis/config/roles-local";
+import { resolveRoleExecutor } from "@themis/config/roles-binding";
 import { parseIsoUtc } from "@themis/base/pydatetime";
 import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
 import {
@@ -278,6 +282,64 @@ function configCall(request: Request): Result {
   }
 }
 
+function rolesValue(request: Request): PyValue {
+  const repo = request["repo"] ? new Repo(String(request["repo"])) : null;
+  const config = (request["config"] !== undefined ? loads(String(request["config"])) : new Map()) as PyDict;
+  switch (request["fn"]) {
+    case "which":
+      return pyWhich(String(request["name"]));
+    case "resolve_pi_command":
+      return resolvePiCommand();
+    case "read_local": {
+      const { commands, errors, warnings } = readLocal(repo as Repo, config);
+      return new Map<string, PyValue>([["commands", commands], ["errors", errors], ["warnings", warnings]]);
+    }
+    case "runtime_command": {
+      const adapter = request["adapter"] === undefined || request["adapter"] === null ? null : String(request["adapter"]);
+      const { command, source, lines } = runtimeCommand(repo as Repo, config, String(request["runtime"]), adapter);
+      return new Map<string, PyValue>([["command", command], ["source", source], ["lines", lines]]);
+    }
+    case "resolve_role_executor": {
+      const [value, error] = resolveRoleExecutor(config, request["role"] as PyValue);
+      const shownError = error === null ? null : new Map<string, PyValue>([["message", error.message], ["code", BigInt(error.code)]]);
+      return new Map<string, PyValue>([["value", value], ["error", shownError]]);
+    }
+    case "allowed_executor_check": {
+      const [provider, model, thinking] = loads(String(request["args"])) as PyValue[];
+      return allowedExecutorCheck(config, provider ?? null, model ?? null, thinking ?? null);
+    }
+    case "load_binding_record":
+      return loadBindingRecord((repo as Repo).root, String(request["task"]), BigInt(request["version"] as number));
+    default:
+      throw new Error("UNKNOWN_FN");
+  }
+}
+
+/** 与 python_probe.op_roles_call 相同。 */
+function rolesCall(request: Request): Result {
+  const env = (request["env"] ?? {}) as Record<string, string | null>;
+  const saved = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
+  const cwd = process.cwd();
+  for (const [name, value] of Object.entries(env)) {
+    if (value === null) delete process.env[name];
+    else process.env[name] = value;
+  }
+  if (request["cwd"]) process.chdir(String(request["cwd"]));
+  try {
+    return { ok: true, value: toTagged(rolesValue(request)) };
+  } catch (error) {
+    if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
+    if (error instanceof Error && error.message === "UNKNOWN_FN") return { ok: false, error: "UNKNOWN_FN" };
+    throw error;
+  } finally {
+    process.chdir(cwd);
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
 /** 与 python_probe.op_secret_store_call 相同。 */
 async function secretStoreCall(request: Request): Promise<Result> {
   const env = (request["env"] ?? {}) as Record<string, string | null>;
@@ -361,6 +423,7 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "plugins.call": pluginsCall,
   "decisions.call": decisionsCall,
   "config.call": configCall,
+  "roles.call": rolesCall,
   "secret_store.call": secretStoreCall,
   "unicode.call": unicodeCall,
   "pyio.call": pyioCall,

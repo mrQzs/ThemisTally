@@ -52,16 +52,16 @@ export function hasV3Keys(config: PyValue): boolean {
   return isDict(config) && V3_KEYS.some((key) => config.has(key));
 }
 
-function idOk(value: PyValue | undefined): boolean {
+export function idOk(value: PyValue | undefined): boolean {
   return typeof value === "string" && TASK_ID_RE.test(value);
 }
 
-function extraKeys(obj: PyDict, allowed: readonly string[]): string[] {
+export function extraKeys(obj: PyDict, allowed: readonly string[]): string[] {
   return [...obj.keys()].map(keyText).filter((key) => !key.startsWith("_") && !allowed.includes(key)).sort(cmpCodePoints);
 }
 
 /** {ID: 对象} 这一层的条目；下划线开头的是说明键。 */
-function entries(mapping: PyDict): [string, PyValue][] {
+export function entries(mapping: PyDict): [string, PyValue][] {
   return [...mapping].filter(([key]) => !keyText(key).startsWith("_")).map(([key, value]) => [keyText(key), value]);
 }
 

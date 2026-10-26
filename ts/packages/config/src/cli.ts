@@ -5,6 +5,7 @@ import { PyOut } from "@themis/base/pyfmt";
 import { dumps } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { type ConfigArgs, cmdHistory, cmdSecret, cmdShow, cmdValidate } from "./commands.ts";
+import { ROLES_COMMANDS, type RolesArgs, runRolesCommand } from "./roles-commands.ts";
 import { WriteMode, previewPayload, setWriteMode } from "./transaction.ts";
 import { type WriteArgs, cmdDecisions, cmdInit, cmdRollback, cmdSet, cmdUnset, writeContext } from "./write-commands.ts";
 import { ConfigError, kitAt } from "./validate.ts";
@@ -31,6 +32,7 @@ export const CONFIG_COMMANDS = [
   "config init",
   "config decisions",
   "config rollback",
+  ...ROLES_COMMANDS.map((path) => `config ${path}`),
 ];
 
 /** --dry-run --json 时收起 handler 写 stdout 的文字（只取 WARN 行进预览）；stderr 照常写。 */
@@ -67,7 +69,8 @@ export function runInWriteMode(args: WriteModeArgs, out: PyOut, handler: (out: P
   return 0;
 }
 
-const inWriteMode = (args: WriteModeArgs): boolean => Boolean(args.dry_run || args.json || args.expect_state != null);
+/** kit_config.main：带预览选项的子命令（Namespace 里有 dry_run）给了 --dry-run、--json 或 --expect-state 时走写模式。 */
+const inWriteMode = (args: WriteModeArgs): boolean => "dry_run" in args && Boolean(args.dry_run || args.json || args.expect_state != null);
 
 export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & { readonly context?: ConfigContext }, out: PyOut): Promise<number> {
   const kitRoot = args.context?.kit_root;
@@ -102,9 +105,16 @@ export async function runConfig(args: ConfigArgs & WriteArgs & WriteModeArgs & {
         const handler = (o: PyOut): number => cmdRollback(writeContext(args, kit, lockWait, o), args);
         return inWriteMode(args) ? runInWriteMode(args, out, handler) : handler(out);
       }
-      default:
-        out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
-        return 2;
+      default: {
+        const path = args.command.slice(1).join(" ");
+        if (!ROLES_COMMANDS.includes(path)) {
+          out.printErr(`ERROR: TS 实现还没有这条命令：${args.command.join(" ")}`);
+          return 2;
+        }
+        const roles = args as unknown as RolesArgs;
+        const handler = (o: PyOut): number => runRolesCommand(path, { args: roles, out: o, open: () => writeContext(args, kit, lockWait, o) });
+        return inWriteMode(args) ? runInWriteMode(args, out, handler) : handler(out);
+      }
     }
   } catch (error) {
     if (error instanceof ConfigError) {

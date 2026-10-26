@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import struct
 import sys
 import tempfile
@@ -472,6 +473,57 @@ def op_config_call(request):
     return {"ok": True, "value": to_tagged(value)}
 
 
+def op_roles_call(request):
+    """kit_roles 不起 CLI 的部分与它用到的 pi_dispatch 函数（迁移第 ③c 片）：shutil.which、resolve_pi_command、本机文件、
+    runtime_command、resolve_role_executor、allowed_executor_check、load_binding_record。
+
+    env 照 op_config_call 在这次调用期间设上；cwd 给出时在那里调用（shutil.which 先查当前目录）。
+    """
+    fn = request["fn"]
+    saved_env = {name: os.environ.get(name) for name in request.get("env", {})}
+    saved_cwd = os.getcwd()
+    for name, setting in request.get("env", {}).items():
+        if setting is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = setting
+    if request.get("cwd"):
+        os.chdir(request["cwd"])
+    try:
+        repo = pi_dispatch.Repo(Path(request["repo"])) if request.get("repo") else None
+        config = json.loads(request["config"]) if "config" in request else {}
+        if fn == "which":
+            value = shutil.which(request["name"])
+        elif fn == "resolve_pi_command":
+            value = pi_dispatch.resolve_pi_command()
+        elif fn == "read_local":
+            commands, errors, warnings = kit_roles.read_local(repo, config)
+            value = {"commands": commands, "errors": errors, "warnings": warnings}
+        elif fn == "runtime_command":
+            command, source, lines = kit_roles.runtime_command(repo, config, request["runtime"], request.get("adapter"))
+            value = {"command": command, "source": source, "lines": lines}
+        elif fn == "resolve_role_executor":
+            resolved, error = kit_roles.resolve_role_executor(config, request["role"])
+            value = {"value": resolved, "error": error}
+        elif fn == "allowed_executor_check":
+            problem = pi_dispatch.allowed_executor_check(config, *json.loads(request["args"]))
+            value = list(problem) if problem is not None else None
+        elif fn == "load_binding_record":
+            value = pi_dispatch.load_binding_record(repo, request["task"], request["version"])
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except pi_dispatch.DispatchError as exc:
+        return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
+    finally:
+        os.chdir(saved_cwd)
+        for name, setting in saved_env.items():
+            if setting is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = setting
+    return {"ok": True, "value": to_tagged(value)}
+
+
 def op_secret_store_call(request):
     """codekit/secrets.py：source、describe、remove、_check_name。env 照 op_config_call 在这次调用期间设上。
 
@@ -578,6 +630,7 @@ OPS = {
     "plugins.call": op_plugins_call,
     "decisions.call": op_decisions_call,
     "config.call": op_config_call,
+    "roles.call": op_roles_call,
     "secret_store.call": op_secret_store_call,
     "unicode.call": op_unicode_call,
     "pyio.call": op_pyio_call,
