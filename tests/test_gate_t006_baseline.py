@@ -109,11 +109,11 @@ FIXTURE_SOURCES = {
 
 API_FUNCTIONS = ("getMeta", "getStatus", "getAttempt", "readFile", "getRoles", "getProfiles", "getPresets",
                  "diffPresets", "getRuntimes", "getPlugins", "getHistory", "getUsage", "listSecrets")
-# 合同“非目标”：后面的片按需补的读函数、订阅、作业与写函数
+# 合同“非目标”：后面的片按需补的读函数、订阅、作业与写函数。T022（写操作的确认框与流程）补 preview、
+# getOperation 与不用填表单的写函数，这 8 个不再列（站主按 T022 规划报告 §10 R1 退役）
 LATER_API = ("listAttempts", "getConfig", "validateConfig", "getHistoryEntry", "getPlugin", "checkSecret",
-             "subscribeEvents", "search", "startJob", "getJob", "cancelJob", "preview", "getOperation",
-             "startSecretEntry", "setRole", "usePreset", "savePreset", "removePreset", "saveProfile",
-             "removeProfile", "addRuntime", "removeRuntime", "setPluginEnabled", "rollback")
+             "subscribeEvents", "search", "startJob", "getJob", "cancelJob",
+             "startSecretEntry", "setRole", "savePreset", "saveProfile", "addRuntime")
 
 TAB_IDS = ("overview", "tasks", "roles", "runtimes", "secrets", "logs", "plugins", "history", "settings")
 SHELL_FILES = ("router.ts", "routes.ts", "shortcuts.ts", "theme.ts", "ShellMenu.tsx", "TitleBar.tsx", "Logo.tsx",
@@ -3308,7 +3308,8 @@ def test_transitional_d02_mock_shell_values():
 def test_transitional_d06_api_only_thirteen_functions():
     """后面的片按需补读函数、订阅、作业与写函数时推翻（合同非目标：listAttempts、getConfig、subscribeEvents、写函数等）。
 
-    S1 / D06：src/api.ts 导出第 9 节有示例的 13 个读函数，不多声明后面的片才补的函数；不连服务（见 D08）。"""
+    S1 / D06：src/api.ts 导出第 9 节有示例的 13 个读函数，不多声明后面的片才补的函数；不连服务（见 D08）。
+    T022 补的 preview、getOperation 与 6 个不用填表单的写函数已从 LATER_API 退役（T022 规划报告 §10 R1）。"""
     text = _read(need_file(f"{SRC_REL}/api.ts"))
     names = exported_names(text)
     missing = [n for n in API_FUNCTIONS if n not in names]

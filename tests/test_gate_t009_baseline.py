@@ -2430,7 +2430,7 @@ describe('D07 当前方案', () => {
     expect(textOf(r)).toContain('当前：default · 4 个角色');
     fireEvent.click(radios[1]);
     expect(checked()).toEqual(['economy']);
-    expect(textOf(r)).toContain('已选 economy · 切换在第二阶段接入');
+    // 改选后的说明文字不再钉“切换在第二阶段接入”：T022 接上 [切换…]（站主按 T022 规划报告 §10 R2 退役）
     expect(textOf(r)).not.toContain('当前：default · 4 个角色');
     fireEvent.click(radios[0]);
     expect(checked()).toEqual(['default']);
@@ -2438,20 +2438,14 @@ describe('D07 当前方案', () => {
     expect((hoisted.spies.diffPresets as any).mock.calls.length, '改选不读差异').toBe(0);
   });
 
-  it('[切换…] 是禁用的 primary md，改选前后都禁用，悬停有提示', async () => {
+  // 不再断言禁用与“第二阶段接入”的悬停：T022 接上 [切换…]（站主按 T022 规划报告 §10 R3 退役）
+  it('[切换…] 是 primary md', async () => {
     await mountRoles();
     const r = root('roles');
     const b = btn(r, '切换…');
     expect(b, '应有 [切换…]').not.toBeNull();
-    expect(b.disabled).toBe(true);
     expect(b.getAttribute('data-variant')).toBe('primary');
     expect(b.getAttribute('data-size')).toBe('md');
-    fireEvent.click(qa(r, '[role="radio"]')[2]);
-    expect(btn(r, '切换…').disabled).toBe(true);
-    vi.useFakeTimers();
-    fireEvent.mouseEnter(btn(r, '切换…').parentElement);
-    advance(400);
-    expect(textOf(document.querySelector('[role="tooltip"]'))).toBe('第二阶段接入');
   });
 
   it('选中的方案角色数取该方案的 roles 长度', async () => {
@@ -2560,7 +2554,8 @@ describe('D09 方案表', () => {
     expect(qa(rows[1]['当前'], '.tt-tag').length).toBe(0);
   });
 
-  it('当前行写「当前方案不能删」且没有 [使用]、[删除…]；其余行 [使用]、[删除…] 禁用的 ghost sm，[查看差异] 可用', async () => {
+  // 不再断言 [使用]、[删除…] 禁用：T022 接上这两个入口（站主按 T022 规划报告 §10 R4 退役）
+  it('当前行写「当前方案不能删」且没有 [使用]、[删除…]；其余行 [使用]、[删除…] 是 ghost sm，[查看差异] 可用', async () => {
     await mountRoles();
     const rows = tableRows(sectionNamed(root('roles'), '方案').querySelector('table'));
     expect(textOf(rows[0]['操作'])).toContain('当前方案不能删');
@@ -2570,7 +2565,6 @@ describe('D09 方案表', () => {
       ['使用', '删除…'].forEach((label) => {
         const b = btn(rows[i]['操作'], label);
         expect(b, '第 ' + (i + 1) + ' 行应有 [' + label + ']').not.toBeNull();
-        expect(b.disabled).toBe(true);
         expect(b.getAttribute('data-variant')).toBe('ghost');
         expect(b.getAttribute('data-size')).toBe('sm');
       });
@@ -2918,9 +2912,11 @@ describe('D10 就绪检查区与空态', () => {
 # ---- pages：写入口与可用按钮白名单（D11，长期）；TRANS：经 ?mock= 渲染 App 三页的五态与夹具值（过渡） ----
 PROBE_PAGES = PRELUDE + API_MOCK + DATA + r"""
 const WHITELIST_LINKS = ['查看证据', '跟随事件', '查看全部历史'];
-function outsideWhitelist(): string[] {
+// extra：后面的片接上的写入口，按文字放行（T022 规划报告 §10 R5）
+function outsideWhitelist(extra: string[] = []): string[] {
   return qa(frame(), 'button').filter((b) => !b.disabled).filter((b) => !(
     textOf(b) === '刷新' || b.getAttribute('role') === 'radio' || textOf(b) === '查看差异' || b.getAttribute('aria-label') === '复制命令'
+    || extra.indexOf(textOf(b)) >= 0
   )).map((b) => textOf(b) || b.getAttribute('aria-label') || '?');
 }
 function disabledButtons(): any[] {
@@ -2941,23 +2937,27 @@ function tooltipTexts(): string[] {
 }
 
 describe('D11 写入口全部禁用', () => {
-  it('角色页：写入口全部禁用且悬停出「第二阶段接入」；可用按钮只在白名单里（刷新、分段选择段、[查看差异]）', async () => {
+  // T022 接上不用填表单的写入口：白名单放行 [切换…][使用][删除…][删除]，悬停只核对仍要填表单、还没接上的那几个
+  // （站主按 T022 规划报告 §10 R5、R6 退役）
+  it('角色页：要填表单的写入口仍禁用且悬停出「第二阶段接入」；可用按钮只在白名单里（刷新、分段选择段、[查看差异]、T022 接上的写入口）', async () => {
     set('getRoles', rolesMain());
     set('getProfiles', profilesMain());
     set('getPresets', presetsMain());
     await mountApp('#/roles');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist()).toEqual([]);
+    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
-    const tips = tooltipTexts();
+    const later = ['更改…', '保存当前为方案…', '新建 profile', '编辑'];
+    const tips = tooltipTexts().filter((t) => later.indexOf(t.split('=')[0]) >= 0);
+    expect(tips.length, '要填表单的写入口仍禁用').toBeGreaterThan(0);
     tips.forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
 
-  it('运行时页：写入口全部禁用且悬停出「第二阶段接入」；可用按钮只有刷新', async () => {
+  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新与 T022 接上的 [删除…]', async () => {
     set('getRuntimes', runtimesMain());
     await mountApp('#/runtimes');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist()).toEqual([]);
+    expect(outsideWhitelist(['删除…'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
     tooltipTexts().forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
@@ -3092,14 +3092,9 @@ describe('TRANS2 夹具里的具体值', () => {
   });
 });
 
+// 角色页 13、运行时页 9 两条计数不再核对：T022 接上一部分写入口（站主按 T022 规划报告 §10 R7 退役）
 describe('TRANS3 夹具下写入口的个数', () => {
-  it('角色页 13 个、运行时页 9 个、总览 0 个禁用按钮（页头加视图）', async () => {
-    await mountApp('#/roles');
-    expect(disabledButtons().length, '角色页').toBe(13);
-    cleanup();
-    await mountApp('#/runtimes');
-    expect(disabledButtons().length, '运行时页').toBe(9);
-    cleanup();
+  it('总览 0 个禁用按钮（页头加视图）', async () => {
     await mountApp('#/overview');
     expect(disabledButtons().length, '总览页').toBe(0);
   });
@@ -3785,7 +3780,7 @@ def test_transitional_trans2_fixture_values(pipeline):
 def test_transitional_trans3_write_entry_counts(pipeline):
     """接本机服务那一片推翻（夹具与 ?mock= 开关换成真实数据）。
 
-    D11：夹具下写入口个数——角色页 13、运行时页 9、总览 0。"""
+    D11：夹具下写入口个数——总览 0。角色页 13、运行时页 9 两条在 T022 接上写入口时退役（T022 规划报告 §10 R7）。"""
     assert_probe_group(pipeline, "pages", "TRANS3 夹具下写入口的个数")
 
 

@@ -2945,7 +2945,9 @@ const PAGES = [
   { id: 'plugins', title: '插件', cmd: 'plugins list', empty: '还没有插件', refresh: '刷新' },
   { id: 'history', title: '历史与审计', cmd: 'config history', empty: '还没有配置历史', refresh: '刷新' },
 ];
-const ALLOWED_BUTTONS = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)'];
+// '启用…'、'停用…'、'回滚到这一条之后' 由 T022 接上；'取消' 只在写操作的确认框里出现（站主按 T022 规划报告 §10 R9 放行）
+const ALLOWED_BUTTONS = ['刷新', '重新检查', '重试', '检索', '关闭（Esc）', '复制 lock_sha256', '(tab)',
+  '启用…', '停用…', '回滚到这一条之后', '取消'];
 
 function disabledWrites(): HTMLButtonElement[] {
   const all = Array.from(document.querySelectorAll('main button:disabled, [role="dialog"] button:disabled')) as HTMLButtonElement[];
@@ -3181,7 +3183,9 @@ describe('夹具下的具体值（过渡）', () => {
 });
 
 describe('D09 写入口', () => {
-  it('夹具下个数（不含 offline 的重新连接）：凭据 2、日志 0、插件 3（抽屉开 4）、历史 0（抽屉开 1）；每个都 disabled，悬停 400ms 出现提示「第二阶段接入」', async () => {
+  // 插件页 [启用…][停用…] 与历史抽屉的 [回滚到这一条之后] 由 T022 接上：插件页只核对 [核对全部]（抽屉开时加 [重新核对]）
+  // 仍禁用，历史抽屉不再核对个数；仍禁用的悬停都是「第二阶段接入」（站主按 T022 规划报告 §10 R8 退役）
+  it('夹具下（不含 offline 的重新连接）：凭据 2、日志 0；插件页 [核对全部]（抽屉开时加 [重新核对]）禁用；历史页 0；仍禁用的悬停 400ms 出现提示「第二阶段接入」', async () => {
     for (const mock of ['data', 'offline']) {
       vi.useFakeTimers();
       await mountApp('#/secrets?mock=' + mock);
@@ -3194,20 +3198,19 @@ describe('D09 写入口', () => {
       cleanup();
       await mountApp('#/plugins?mock=' + mock);
       w = disabledWrites();
-      expect(w.map((b) => textOf(b)).sort()).toEqual(['停用…', '启用…', '核对全部'].sort());
+      expect(w.map((b) => textOf(b))).toContain('核对全部');
       for (const b of w) expect(tipOf(b)).toBe('第二阶段接入');
       const rows = tbodyRows();
       await openByEnter(rows[2]);
       w = disabledWrites();
-      expect(w.map((b) => textOf(b)).sort()).toEqual(['停用…', '启用…', '核对全部', '重新核对'].sort());
+      expect(w.map((b) => textOf(b))).toContain('核对全部');
+      expect(w.map((b) => textOf(b))).toContain('重新核对');
       for (const b of w) expect(tipOf(b)).toBe('第二阶段接入');
       cleanup();
       await mountApp('#/history?mock=' + mock);
       expect(disabledWrites().length).toBe(0);
       await openByEnter(tbodyRows()[0]);
-      w = disabledWrites();
-      expect(w.map((b) => textOf(b))).toEqual(['回滚到这一条之后']);
-      expect(tipOf(w[0])).toBe('第二阶段接入');
+      for (const b of disabledWrites()) expect(tipOf(b)).toBe('第二阶段接入');
       cleanup();
       vi.useRealTimers();
     }
@@ -3632,8 +3635,8 @@ def test_transitional_app_probe_states_fixture_values_and_write_entries(pipeline
 
     app 探针：经 ?mock= 渲染 App 的四页五态（loading 299ms 无骨架 300ms 有；data；empty 时三页空态标题、日志仍是 data；error 的命令与退出码与报错原文；
     offline 的 role=alert、可能已过期、data-stale；整页恰一个 data-page-state）；夹具下的具体值（凭据两行、用量合计 22,031,448 与两行 attempt、检索真读取函数、
-    docs-checks 抽屉、历史 #42/#41/#40 抽屉）；D09 写入口个数（凭据 2、日志 0、插件 3 抽屉开 4、历史 0 抽屉开 1，不含重新连接）与悬停 400ms 出现「第二阶段接入」，
-    各页可用按钮只在白名单内、可用链接只有 [去设置]。"""
+    docs-checks 抽屉、历史 #42/#41/#40 抽屉）；D09 写入口（凭据 2、日志 0、插件页 [核对全部] 抽屉开加 [重新核对]、历史页 0，不含重新连接）与仍禁用的悬停 400ms 出现「第二阶段接入」，
+    各页可用按钮只在白名单内、可用链接只有 [去设置]。插件启停与历史回滚的个数断言在 T022 接上写入口时退役（T022 规划报告 §10 R8、R9）。"""
     assert_probe_ok(pipeline, "app")
 
 
