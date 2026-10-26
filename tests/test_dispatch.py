@@ -885,6 +885,10 @@ def test_feedback_v11():
     check("instruction forbids stashing own changes", "git stash" in instruction, instruction[:900])
     check("instruction tells the executor how to track elapsed time", "date +%s" in instruction
           and "五分之一" in instruction, instruction[:900])
+    check("instruction says not to rerun passed checks at the end", "已经通过的检查不要重跑" in instruction
+          and "调度器会在固定候选上重跑合同的全部检查" in instruction, instruction[:900])
+    check("instruction says not to cut a check short with a timeout", "以这一轮实测的用时为准" in instruction
+          and "不要用比实测用时短的 `timeout` 截着跑" in instruction, instruction[:900])
     check("planner paths include the design folder by default",
           ".agent/design/**" in pd.planner_paths({}), pd.planner_paths({}))
 

@@ -5499,6 +5499,27 @@ def passed_checks(run_dir):
     (folder / "checks.json").write_text(json.dumps({"results": [{"id": "V01", "status": "passed"}]}), encoding="utf-8")
 
 
+def test_a_timed_out_attempt_whose_checks_passed_is_not_told_to_rerun_them(tmp_path):
+    # 第 119 轮：T020 的 attempt-001 跑满时限、没交报告，内核随后的 check --fresh 全过；接着改的执行端却又被告知
+    # “再跑合同的检查”
+    previous = tmp_path / "attempt-001"
+    previous.mkdir()
+    passed_checks(previous)
+    section = kh.rework_section(previous, "a" * 40, "", 1, "timeout", timed_out=True)
+    assert "内核随后在这个候选上重跑了合同的全部检查，都过了" in section and "不必把已经通过的检查从头再跑" in section
+    assert "再跑合同的检查、写执行报告" not in section and "（检查都过了）" in section
+    for why in ("upstream", "audit"):  # 基准测试换过、终审退回过：那次检查不作数，照旧
+        section = kh.rework_section(previous, "a" * 40, "", 1, why, timed_out=True)
+        assert "再跑合同的检查、写执行报告" in section and "都过了" not in section
+    shutil.rmtree(previous / "checks")
+    failed_checks(previous)
+    section = kh.rework_section(previous, "a" * 40, kh.failure_lines(previous), 1, "timeout", timed_out=True)
+    assert "再跑合同的检查、写执行报告" in section and "都过了" not in section and "- V01：退出码 1" in section
+    shutil.rmtree(previous / "checks")  # 没有检查结果，不能说“检查都过了”
+    section = kh.rework_section(previous, "a" * 40, "", 1, "timeout", timed_out=True)
+    assert "都过了" not in section and "（内核没有跑出检查结果）" in section
+
+
 def test_carry_after_an_upstream_redelivery_finds_the_latest_usable_attempt(tmp_path):
     repo, hub, ts, plans, first = rework_setup(tmp_path)
     ts["exec"], ts["audit_post"] = {}, {}
