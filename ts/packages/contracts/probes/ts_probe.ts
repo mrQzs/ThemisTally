@@ -10,7 +10,7 @@ import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttribute
 import { abspath, isWithin, ntNormpath, pyExists, pyResolve } from "@themis/base/pypath";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
-import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
+import { PyCrash, type PyOut, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
@@ -26,6 +26,8 @@ import { childEnv, listModelsEmptyReason, listModelsLines, listModelsRows, parse
 import { DispatchError, Repo } from "@themis/dispatcher/repo";
 import { allowedExecutorCheck, loadBindingRecord, resolvePiCommand } from "@themis/dispatcher/executor";
 import { pyWhich } from "@themis/base/pyshutil";
+import { SequenceMatcher } from "@themis/base/pydifflib";
+import { checkAnchors, loadMutationSpec } from "@themis/dispatcher/mutate";
 import { ProtocolError, strictJsonLoads } from "@themis/base/protocols";
 import { readLocal, runtimeCommand } from "@themis/config/roles-local";
 import { resolveRoleExecutor } from "@themis/config/roles-binding";
@@ -854,6 +856,21 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "pyjson.dumps": (request) =>
     textResult(dumps(fromTagged(request["value"] as Tagged), dumpsOptions(request["options"])), request["encode"]),
   "pyjson.loads": (request) => ({ ok: true, value: toTagged(loads(String(request["text"]))) }),
+  "mutate.check_anchors": (request) => {
+    const tree = pyResolve(String(request["tree"]));
+    const results = (request["specs"] as string[]).map((specPath) => {
+      const [spec, problems] = loadMutationSpec(specPath);
+      if (spec === null) return { problems };
+      let text = "";
+      const code = checkAnchors(tree, spec, { print: (line = "") => void (text += `${line}${String.fromCharCode(10)}`) } as unknown as PyOut);
+      return { code, out: text };
+    });
+    return { ok: true, results };
+  },
+  "pydifflib.call": (request) => {
+    const matcher = new SequenceMatcher(String(request["a"]), String(request["b"]), request["autojunk"] !== false);
+    return { ok: true, ratio: toTagged(matcher.ratio()), blocks: matcher.getMatchingBlocks().map((block) => [...block]), opcodes: matcher.getOpcodes().map((code) => [...code]) };
+  },
   "pyjson.loads_bytes": (request) => {
     try {
       return { ok: true, value: toTagged(loadsBytes(Buffer.from(String(request["data"]), "base64"))) };

@@ -121,6 +121,30 @@ def op_pyjson_loads(request):
     return {"ok": True, "value": to_tagged(json.loads(request["text"]))}
 
 
+def op_mutate_check_anchors(request):
+    """④b5a：每份变异清单先校验，通过的再对 tree 做 _check_anchors（标准输出收进结果）。"""
+    tree = Path(request["tree"]).resolve()
+    results = []
+    for spec_path in request["specs"]:
+        spec, problems = pi_dispatch._load_mutation_spec(Path(spec_path))
+        if problems:
+            results.append({"problems": problems})
+            continue
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = pi_dispatch._check_anchors(tree, spec)
+        results.append({"code": code, "out": out.getvalue()})
+    return {"ok": True, "results": results}
+
+
+def op_pydifflib_call(request):
+    """difflib.SequenceMatcher(None, a, b, autojunk)（④b5a）：ratio、匹配块与 opcodes。"""
+    import difflib
+    matcher = difflib.SequenceMatcher(None, request["a"], request["b"], autojunk=request.get("autojunk", True))
+    return {"ok": True, "ratio": to_tagged(matcher.ratio()), "blocks": [list(block) for block in matcher.get_matching_blocks()],
+            "opcodes": [list(code) for code in matcher.get_opcodes()]}
+
+
 def op_pyjson_loads_bytes(request):
     """json.loads(bytes)（④b4a，决策端点的回复）：认编码、解码、解析；错误只分“解码”与“JSON”两类。"""
     try:
@@ -974,6 +998,8 @@ OPS = {
     "pyjson.roundtrip": op_pyjson_roundtrip,
     "pyjson.raw_decode": op_pyjson_raw_decode,
     "pyjson.loads_bytes": op_pyjson_loads_bytes,
+    "pydifflib.call": op_pydifflib_call,
+    "mutate.check_anchors": op_mutate_check_anchors,
     "decisions.client": op_decisions_client,
 }
 

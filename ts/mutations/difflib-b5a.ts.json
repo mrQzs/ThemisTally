@@ -1,0 +1,57 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pydifflib.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "L01 autojunk 的门槛按 > 200",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "    if (autojunk && n >= 200) {",
+      "new": "    if (autojunk && n > 200) {"
+    },
+    {
+      "name": "L02 popular 按 >= ntest",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": ".filter(([, indices]) => indices.length > ntest)",
+      "new": ".filter(([, indices]) => indices.length >= ntest)"
+    },
+    {
+      "name": "L03 不往前扩展",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "    while (besti > alo && bestj > blo && a[besti - 1] === b[bestj - 1]) {",
+      "new": "    while (false) {"
+    },
+    {
+      "name": "L04 不往后扩展",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "    while (besti + bestsize < ahi && bestj + bestsize < bhi && a[besti + bestsize] === b[bestj + bestsize]) bestsize += 1;",
+      "new": "    while (false) bestsize += 1;"
+    },
+    {
+      "name": "L05 相邻的块不合并",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "      if (i1 + k1 === i2 && j1 + k1 === j2) {",
+      "new": "      if (false) {",
+      "equivalent": "isjunk 为 None 时 bjunk 是空的，find_longest_match 在范围内两头都扩展到底（popular 也跨过去）：左半段的块若正好接在它前面，它本可以再往前扩一格，所以排序之后不会出现相邻的块，合并那一步在这里不起作用（20 万对随机串实测一次也没有）"
+    },
+    {
+      "name": "L06 两边都空时 ratio 为 0",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "    return length ? (2.0 * matches) / length : 1.0;",
+      "new": "    return length ? (2.0 * matches) / length : 0.0;"
+    },
+    {
+      "name": "L07 并列时取更靠后的",
+      "file": "ts/packages/base/src/pydifflib.ts",
+      "old": "        if (k > bestsize) {",
+      "new": "        if (k >= bestsize) {"
+    }
+  ]
+}

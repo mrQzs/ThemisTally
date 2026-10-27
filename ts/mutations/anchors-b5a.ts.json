@@ -1,0 +1,92 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/mutate-anchors.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "A01 路径里的 .. 不查",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  return !purePathStr(value).split(SEP).includes(\"..\");",
+      "new": "  return true;"
+    },
+    {
+      "name": "A02 绝对路径不查",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (process.platform === \"win32\" ? ntIsabs(value) : value.startsWith(\"/\")) return false;\n",
+      "new": ""
+    },
+    {
+      "name": "A03 命令 id 的 $ 不认结尾换行",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "const MUTATION_COMMAND_ID_RE = new RegExp(`^[A-Za-z][A-Za-z0-9_-]{0,31}${PY_END}`, \"u\");",
+      "new": "const MUTATION_COMMAND_ID_RE = new RegExp(\"^[A-Za-z][A-Za-z0-9_-]{0,31}$\", \"u\");"
+    },
+    {
+      "name": "A04 不可哈希的命令 id 不崩",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (unhashable) throw new PyCrash(\"TypeError\", `unhashable type: '${pyTypeName(unhashable.id)}'`);\n",
+      "new": ""
+    },
+    {
+      "name": "A05 equivalent 与 expect_missed 同写不报",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "      else if (expectMissed !== null) problems.push(",
+      "new": "      else if (false) problems.push("
+    },
+    {
+      "name": "A06 行首行尾多出的不算不同改成都算",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (tag === \"equal\" || (tag === \"insert\" && (i1 === 0 || i1 === wantedLength))) continue;",
+      "new": "    if (tag === \"equal\") continue;"
+    },
+    {
+      "name": "A07 末行不许只是那一行的开头",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (want === have || (offset === rest.length && have.startsWith(want))) continue;",
+      "new": "    if (want === have) continue;"
+    },
+    {
+      "name": "A08 文件末尾的空串也算一行",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  const end = lines.length && lines[lines.length - 1] === \"\" ? lines.length - 1 : lines.length;",
+      "new": "  const end = lines.length;"
+    },
+    {
+      "name": "A09 出现多次列六处",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "start !== -1 && hints.length < 5;",
+      "new": "start !== -1 && hints.length < 6;"
+    },
+    {
+      "name": "A10 相近行的门槛 0.65",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "const ANCHOR_HINT_MIN_RATIO = 0.6;",
+      "new": "const ANCHOR_HINT_MIN_RATIO = 0.65;"
+    },
+    {
+      "name": "A11 计数前不把 CRLF 换成 LF",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  return lfText(file).split(old.replaceAll(CRLF, LF)).length - 1;",
+      "new": "  return pyDecodeUtf8(pyReadBytes(file)).split(old).length - 1;"
+    },
+    {
+      "name": "A12 清单的问题不打到标准输出",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    for (const problem of problems) out.print(`ERROR ${problem}`);\n",
+      "new": ""
+    },
+    {
+      "name": "A13 状态列宽 9",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "out.print(`${status.padEnd(8)} ${mid}",
+      "new": "out.print(`${status.padEnd(9)} ${mid}"
+    }
+  ]
+}

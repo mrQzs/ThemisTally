@@ -23,6 +23,7 @@ import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 import { type DecisionsArgs, cmdDecisions } from "@themis/dispatcher/decisions-replay";
+import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
 import { decisionsSession } from "@themis/config/decisions-client";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
@@ -161,6 +162,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runBuffered((buffered) => cmdCheck(args as unknown as CheckArgs, buffered, hostPlatform(args)));
     case "baseline":
       return runBuffered((buffered) => cmdBaseline(args as unknown as BaselineArgs, buffered, planContext(args)));
+    case "mutate":
+      return runBuffered(async (buffered) => cmdMutate(args as unknown as MutateArgs, buffered));
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":
