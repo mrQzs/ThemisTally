@@ -190,6 +190,16 @@ export class SearchPattern {
  * re.compile(pattern) 再 search：报错照 Python 原样抛，PyReError 的 message 就是 str(re.error)，OverflowError、ValueError
  * 同理（迁移第 ④ 步：合同的 output_must_match 校验与检查日志的匹配、路径模式都用它）。不加 logs search 的那几条限制。
  */
+/**
+ * 合同 output_must_match、output_must_not_match 的校验（第 129 轮）：照 re.compile 解析加编译（报错照原样抛），再交回
+ * 有没有反向引用或条件分组（判据同 kit_logs._uses_refs）。只编不跑。
+ */
+export function patternUsesRefs(pattern: string): boolean {
+  const tree = parse(pattern);
+  compileProgram(tree, tree.state.flags, true);
+  return usesRefs(tree);
+}
+
 export function compilePattern(pattern: string): SearchPattern {
   const tree = parse(pattern);
   return new SearchPattern(compileProgram(tree, tree.state.flags));

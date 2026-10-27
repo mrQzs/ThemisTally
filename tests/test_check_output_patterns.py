@@ -60,3 +60,21 @@ def test_the_same_pattern_on_both_sides_is_refused_at_validation():
     # 类型不对的另有报错，这里不重复报，也不崩
     assert contract_errors({"output_must_match": "ok", "output_must_not_match": ["ok"]}) == [
         "V07 output_must_match 必须是字符串数组"]
+
+
+def test_back_references_and_conditional_groups_are_refused_at_validation():
+    """第 129 轮：反向引用（编号、(?P=name)）与条件分组（按编号、按名字）在校验时拒绝，按语法树判断：八进制转义、
+    字符类里的反斜杠加数字、转义了的反斜杠不是引用；引用了不存在的组照旧报“正则无效”，不被新规则抢先；编译阶段的错误
+    （后顾不定长）也照旧先报。"""
+    bs = chr(92)
+    refused = ["(a)" + bs + "1", "(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)" + bs + "10", "(?P<x>a)(?P=x)", "(a)?(?(1)b|c)",
+               "(?P<n>a)?(?(n)b)", "(?i:(a)" + bs + "1)", "x|(?:(a)" + bs + "1)+"]
+    for pattern in refused:
+        assert contract_errors({"output_must_not_match": [pattern]}) == [
+            "V07 output_must_not_match 不支持反向引用与条件分组：%s" % pattern], pattern
+    kept = [bs + "0", bs + "012", "[" + bs + "1]", "[" + bs + "1-" + bs + "3]", "(a)", "(?P<x>a)x", bs + bs + "1", "(?:a)" + bs + "d"]
+    for pattern in kept:
+        assert contract_errors({"output_must_match": [pattern]}) == [], pattern
+    for pattern in ("(a)" + bs + "2", "(?P=y)", "(?(2)a|b)", "(a)" + bs + "1(?<=a+)"):
+        errors = contract_errors({"output_must_match": [pattern]})
+        assert len(errors) == 1 and errors[0].startswith("V07 output_must_match 正则无效："), (pattern, errors)

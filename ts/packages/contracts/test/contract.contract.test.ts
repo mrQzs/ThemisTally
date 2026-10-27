@@ -143,6 +143,37 @@ describe("合同的解析与校验（按种子改坏）", () => {
     expect(errors.some((error) => error.includes("正则无效"))).toBe(true);
   });
 
+  it("第 129 轮：输出模式的反向引用与条件分组在校验时拒绝；八进制、字符类、引用不存在的组与编译阶段的错误照旧", () => {
+    const bs = ch(92);
+    const refused = [
+      `(a)${bs}1`, `(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)${bs}10`, "(?P<x>a)(?P=x)", "(a)?(?(1)b|c)", "(?P<n>a)?(?(n)b)", `(?i:(a)${bs}1)`,
+      `x|(?:(a)${bs}1)+`,
+    ];
+    const kept = [`${bs}0`, `${bs}012`, `[${bs}1]`, `[${bs}1-${bs}3]`, "(a)", "(?P<x>a)x", `${bs}${bs}1`];
+    const invalid = [`(a)${bs}2`, "(?P=y)", "(?(2)a|b)", `(a)${bs}1(?<=a+)`, `(?<=a+)(a)${bs}1`];
+    // 后顾里的引用、条件分组一支里的后顾：结局由 Python 定，两边一致即可
+    const either = [`(a)(?<=${bs}1)`, `(?<=(a)${bs}1)`, `(a)?(?(1)(?<=a+)|c)`, `(a)?(?(1)b|(?<=a+))`];
+    const patterns = [...refused, ...kept, ...invalid, ...either];
+    const head = "0123456789abcdef0123456789abcdef01234567";
+    const keys = ["output_must_match", "output_must_not_match"];
+    const requests = patterns.flatMap((pattern) => keys.map((key) => {
+      const data = jsonOf("t1", head);
+      const checks = data["checks"] as Json[];
+      checks[0] = { ...checks[0], [key]: [pattern] };
+      return validate(mdOf("t1", head), text(data), "t1.v1");
+    }));
+    const python = agreeInBatches(requests);
+    const errorsOf = (index: number): string[] => ((python[index] as ProbeResult)["errors"] as string[] | undefined) ?? [];
+    patterns.forEach((pattern, at) => {
+      keys.forEach((key, side) => {
+        const errors = errorsOf(at * 2 + side);
+        if (refused.includes(pattern)) expect(errors, pattern).toEqual([`V01 ${key} 不支持反向引用与条件分组：${pattern}`]);
+        if (kept.includes(pattern)) expect(errors, pattern).toEqual([]);
+        if (invalid.includes(pattern)) expect(errors.length === 1 && (errors[0] as string).startsWith(`V01 ${key} 正则无效：`), pattern).toBe(true);
+      });
+    });
+  });
+
   it("branch_subject：标题里的各种空白、已带 task-id 前缀的写法、没有标题时的版本与 attempt 编号", () => {
     const ws = [ch(9), ch(10), ch(13), ch(11), ch(12), ch(0x1c), ch(0x85), ch(0xa0), ch(0x3000), ch(0x2028), ch(0x200b)];
     const titles: unknown[] = [

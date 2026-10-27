@@ -49,8 +49,18 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+# 正则的语法分析是私有模块（检查的输出模式，第 129 轮；kit_logs 的 logs search 同样用它）：环境里的 Python 固定为 3.12，
+# 升级时核对；3.10 叫 sre_parse、sre_constants。
+try:
+    import re._constants as _re_constants
+    import re._parser as _re_parser
+except ImportError:  # pragma: no cover - Python 3.10
+    import sre_constants as _re_constants  # type: ignore[no-redef]
+    import sre_parse as _re_parser  # type: ignore[no-redef]
 
 TOOL_VERSION = "2.12.0"
 CONTRACT_SCHEMA_VERSION = 1
@@ -1682,6 +1692,16 @@ def _md_identity(md: str) -> Dict[str, str]:
     return identity
 
 
+def _uses_group_refs(node: Any) -> bool:
+    """正则的语法树里有没有反向引用（按编号或 (?P=name)）或条件分组（(?(id)yes|no)）。"""
+    if isinstance(node, _re_parser.SubPattern):
+        return any(op in (_re_constants.GROUPREF, _re_constants.GROUPREF_EXISTS) or _uses_group_refs(av)
+                   for op, av in node.data)
+    if isinstance(node, (list, tuple)):
+        return any(_uses_group_refs(item) for item in node)
+    return False
+
+
 def _validate_command(item: Any, group: str, seen: Dict[str, str], errors: List[str]) -> None:
     where = "%s 项" % group
     if not isinstance(item, dict):
@@ -1721,6 +1741,15 @@ def _validate_command(item: Any, group: str, seen: Dict[str, str], errors: List[
                 re.compile(pattern)
             except re.error as exc:
                 errors.append("%s %s 正则无效：%s" % (cid, key, exc))
+                continue
+            # 反向引用与条件分组不收（第 129 轮）：TS 的 sre 移植只记整段匹配，复现不了，与 logs search（第 58 轮）同理；
+            # 当时真实合同 977 条输出模式一条都没用到。按语法树判断：八进制转义与字符类里的反斜杠加数字不是引用。
+            # re.compile 已经为同一个模式发过 FutureWarning，再解析一次不重复发
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                tree = _re_parser.parse(pattern)
+            if _uses_group_refs(tree):
+                errors.append("%s %s 不支持反向引用与条件分组：%s" % (cid, key, pattern))
     # 同一条正则既要匹配又不许出现：任何输出都过不了（第 76 轮：T015 合同的 V07 这样写，白花了几次 attempt）。
     # 只比字面相同；写法不同、意思相同的两条判断不了
     must, must_not = item.get("output_must_match", []), item.get("output_must_not_match", [])

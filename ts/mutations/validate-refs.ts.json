@@ -1,0 +1,44 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/contract.contract.test.ts",
+    "-t",
+    "第 129 轮"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "R01 TS 的 validate 不拒绝反向引用与条件分组",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "      if (refs) errors.push(",
+      "new": "      if (refs && false) errors.push("
+    },
+    {
+      "name": "R02 校验时只解析不编译：编译阶段的错误被新规则抢先",
+      "file": "ts/packages/base/src/pyregex/search.ts",
+      "old": "  compileProgram(tree, tree.state.flags, true);\n",
+      "new": ""
+    },
+    {
+      "name": "R03 条件分组的是分支不编",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "          this.compile(item.av[1], flags);\n",
+      "new": ""
+    },
+    {
+      "name": "R04 条件分组的否分支不编",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "          if (item.av[2] !== null) this.compile(item.av[2], flags);\n",
+      "new": ""
+    },
+    {
+      "name": "R05 正则无效之后接着判反向引用（同一条报两次）",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "        errors.push(`${cid} ${key} 正则无效：${error.message}`);\n        continue;\n",
+      "new": "        errors.push(`${cid} ${key} 正则无效：${error.message}`);\n        refs = true;\n"
+    }
+  ]
+}

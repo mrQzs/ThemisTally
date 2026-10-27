@@ -141,6 +141,7 @@
   - pytest：`[1-9]\d* passed`
   - go：`^ok\s`
   - jest：`Tests:\s+[1-9]\d* passed`
+  - 模式按 Python 的 `re.search(…, re.M)` 对着去掉色码之后的输出匹配。反向引用（`\1`、`(?P=name)`）与条件分组（`(?(1)…)`）不支持，validate 会拒绝。
 - **避免监听模式**：vitest 用 `run`，jest 不加 `--watch`。
 - **调度器设置的环境**：
   - 检查命令默认带 `CI=1`、`PYTHONDONTWRITEBYTECODE=1`。

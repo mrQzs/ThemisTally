@@ -5,7 +5,7 @@
 // 切片与长度一律按码点。
 import { PyCrash, pyReprValue, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, type PyValue, dumps, loads } from "@themis/base/pyjson";
-import { PyReError, PyValueError, compilePattern } from "@themis/base/pyregex";
+import { PyReError, PyValueError, patternUsesRefs } from "@themis/base/pyregex";
 import { D, NOT_S, PY_END, S, WB, ci, cmpCodePoints, codePoints, isCf, isDigitChar, pyIntParse, pyLower, pyLstrip, pyRegex, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { ENV_NAME_RE } from "@themis/base/secrets";
 import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
@@ -455,12 +455,16 @@ function validateCommand(item: PyValue, group: string, seen: Map<string, string>
       continue;
     }
     for (const pattern of patterns) {
+      let refs: boolean;
       try {
-        compilePattern(pattern);
+        refs = patternUsesRefs(pattern);
       } catch (error) {
         if (!(error instanceof PyReError)) throw error;
         errors.push(`${cid} ${key} 正则无效：${error.message}`);
+        continue;
       }
+      // 反向引用与条件分组不收（第 129 轮）：sre 的移植只记整段匹配，复现不了
+      if (refs) errors.push(`${cid} ${key} 不支持反向引用与条件分组：${pattern}`);
     }
   }
   // 同一条正则既要匹配又不许出现：任何输出都过不了（第 76 轮）。只比字面相同

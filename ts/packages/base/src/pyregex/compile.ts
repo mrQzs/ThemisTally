@@ -371,8 +371,14 @@ const REPEAT_CODES: Readonly<Record<RepeatOp, readonly [Op, Op, Op]>> = {
 
 class CodeGen {
   readonly code: number[] = [];
+  /** 只为校验而编（第 129 轮）：反向引用不发指令，条件分组的两支照样编译，编译阶段的报错与 Python 次序一致；结果不能运行。 */
+  readonly validateOnly: boolean;
   readonly sets: FlatSet[] = [];
   private readonly setIndex = new Map<string, number>();
+
+  constructor(validateOnly = false) {
+    this.validateOnly = validateOnly;
+  }
 
   private char(set: Ranges): void {
     const key = set.map(([lo, hi]) => `${lo}-${hi}`).join(",");
@@ -472,8 +478,13 @@ class CodeGen {
           break;
         }
         case "GROUPREF":
+          if (!this.validateOnly) throw new Error("反向引用与条件分组在编译之前就该拒绝（kit_logs 第 58 轮）");
+          break;
         case "GROUPREF_EXISTS":
-          throw new Error("反向引用与条件分组在编译之前就该拒绝（kit_logs 第 58 轮）");
+          if (!this.validateOnly) throw new Error("反向引用与条件分组在编译之前就该拒绝（kit_logs 第 58 轮）");
+          this.compile(item.av[1], flags);
+          if (item.av[2] !== null) this.compile(item.av[2], flags);
+          break;
       }
     }
   }
@@ -546,7 +557,7 @@ function charsetPrefix(patternIn: SubPattern, flagsIn: number): SetItem[] | null
 }
 
 /** _compiler._code：信息块加字节码，末尾一条 SUCCESS。flags 是 parse 之后的 state.flags。 */
-export function compileProgram(pattern: SubPattern, flags: number): Program {
+export function compileProgram(pattern: SubPattern, flags: number, validateOnly = false): Program {
   let minWidth = 0;
   let prefix: number[] = [];
   let charset: FlatSet | null = null;
@@ -561,7 +572,7 @@ export function compileProgram(pattern: SubPattern, flags: number): Program {
       if (items !== null) charset = flatten(inSet(items, flags & ~FLAG_IGNORECASE));
     }
   }
-  const gen = new CodeGen();
+  const gen = new CodeGen(validateOnly);
   gen.compile(pattern, flags);
   gen.code.push(Op.SUCCESS);
   return { code: gen.code, sets: gen.sets, minWidth, prefix, charset, leading: leadingSet(gen.code, gen.sets) };
