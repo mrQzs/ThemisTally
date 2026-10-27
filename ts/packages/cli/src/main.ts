@@ -163,7 +163,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "baseline":
       return runBuffered((buffered) => cmdBaseline(args as unknown as BaselineArgs, buffered, planContext(args)));
     case "mutate":
-      return runBuffered(async (buffered) => cmdMutate(args as unknown as MutateArgs, buffered));
+      return runBuffered((buffered) => cmdMutate(args as unknown as MutateArgs, buffered, sessionsFor(args, buffered)));
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":

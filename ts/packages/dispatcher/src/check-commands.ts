@@ -62,7 +62,7 @@ const pad2 = (n: bigint): string => (n < 0n ? `-${String(-n)}` : String(n).padSt
 const firstPoints = (text: string, count: number): string => codePoints(text).slice(0, count).join("");
 const ljust = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - pyLen(text)));
 /** float(config.get("kill_grace_seconds", 15))。 */
-const graceOf = (config: PyDict): number => pyFloatOf(pyGet(config, "kill_grace_seconds", 15n));
+export const graceOf = (config: PyDict): number => pyFloatOf(pyGet(config, "kill_grace_seconds", 15n));
 
 function isDir(file: string): boolean {
   try {
@@ -97,7 +97,7 @@ function selectChecks(checks: PyDict[], only: string | null): PyDict[] {
 }
 
 /** str(exc)：prepare_fresh_workspace 接住的 DispatchError 与 OSError。 */
-function freshFailure(error: unknown): string | null {
+export function freshFailure(error: unknown): string | null {
   if (error instanceof DispatchError || error instanceof PyOSError || error instanceof PyWinError) return error.message;
   const os = pyOSErrorOf(error, "");
   return os === null ? null : os.message;
@@ -405,7 +405,7 @@ function declaredVerdict(text: string): string | null {
 }
 
 /** shutil.copyfile：只复制内容。 */
-function copyfile(source: string, target: string): void {
+export function copyfile(source: string, target: string): void {
   let data: Buffer;
   try {
     data = readFileSync(source);

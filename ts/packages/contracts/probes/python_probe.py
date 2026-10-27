@@ -137,6 +137,13 @@ def op_mutate_check_anchors(request):
     return {"ok": True, "results": results}
 
 
+def op_pystr_call(request):
+    """str.find(sub, start)、str.count(sub)、str.replace(sub, new, limit)（④b5b，按码点）。"""
+    text, sub = request["text"], request["sub"]
+    return {"ok": True, "find": text.find(sub, request["start"]), "count": text.count(sub),
+            "replace": text.replace(sub, request["new"], request["limit"])}
+
+
 def op_pydifflib_call(request):
     """difflib.SequenceMatcher(None, a, b, autojunk)（④b5a）：ratio、匹配块与 opcodes。"""
     import difflib
@@ -999,6 +1006,7 @@ OPS = {
     "pyjson.raw_decode": op_pyjson_raw_decode,
     "pyjson.loads_bytes": op_pyjson_loads_bytes,
     "pydifflib.call": op_pydifflib_call,
+    "pystr.call": op_pystr_call,
     "mutate.check_anchors": op_mutate_check_anchors,
     "decisions.client": op_decisions_client,
 }

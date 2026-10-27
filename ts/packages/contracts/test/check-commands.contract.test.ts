@@ -3,11 +3,11 @@
 // 崩溃只比退出码。检查命令是真的子进程（python -c），wall_seconds、pid 与 mkdtemp 的随机后缀换成占位符。
 // verdict 的场景按门禁逐项改证据，记录里整份 gates 都参与比较。不写转义序列。
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pythonCliCommand, tsCliCommand } from "./harness.ts";
+import { FAIL, OK, PLATFORM, PYTHON, TS_CONTEXT, BREAK_INNER, BREAK_OUTER, fullAttempt, json, py, state, type AttemptOptions } from "./attempt-fixtures.ts";
 import { jsonOf, mdOf } from "./plan-fixtures.ts";
 import { CONTEXT, LF, RUNNERS, type Runner, type Shown, git, newRepo, normalize, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
@@ -15,27 +15,12 @@ afterAll(removeCreated);
 
 const BT = "`";
 const CR = String.fromCharCode(13);
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}${LF}`;
 
 /** worktree_root 换成工作树旁边的 sub（④b3 补：建不出来时 Python 报 [WinError N]，照 os.mkdir）。 */
 function rootBeside(repo: string, wt: string, parent: string): void {
   put(repo, ".agent/dispatch.config.json", json({ worktree_root: join(dirname(wt), parent, "sub"), kill_grace_seconds: 1 }));
 }
 
-const sha = (data: string | Uint8Array): string => createHash("sha256").update(data).digest("hex");
-const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
-/** 本机的 platform.platform()：启动器交给 TS 的 context 里就是它（迁移计划 D1）。 */
-const PLATFORM = spawnSync(PYTHON, ["-c", "import platform; print(platform.platform())"], { encoding: "utf8" }).stdout.trim();
-const TS_CONTEXT = { ...CONTEXT, platform: PLATFORM };
-const state = (value: string): Record<string, unknown> => ({ state: value, at: "2026-01-01T00:00:00Z" });
-
-/** 检查项：python -c 的一段程序。 */
-function py(id: string, code: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { id, argv: ["python", "-c", code], cwd: ".", timeout_seconds: 60, required: true, expected_exit_code: 0, expect_on_base: "any", ...extra };
-}
-
-const OK = (id = "V01", extra: Record<string, unknown> = {}): Record<string, unknown> => py(id, "print('ok')", extra);
-const FAIL = (id = "V01", extra: Record<string, unknown> = {}): Record<string, unknown> => py(id, "import sys; print('boom'); sys.exit(1)", extra);
 /** 色码（CSI）与超链接（OSC，BEL 结尾与 ESC 反斜杠结尾各一处）。 */
 const ANSI_CODE = [
   "E = chr(27)",
@@ -44,80 +29,6 @@ const ANSI_CODE = [
   "print(E + ']0;title' + E + chr(92) + 'tail')",
   "print(E + '[3 qcursor')",
 ].join("; ");
-
-interface AttemptOptions {
-  readonly checks?: readonly Record<string, unknown>[];
-  readonly setup?: readonly Record<string, unknown>[];
-  readonly dod?: readonly Record<string, unknown>[];
-  readonly contract?: Record<string, unknown>;
-  readonly meta?: Record<string, unknown>;
-  /** 证据文件：null 删掉，字符串原样写，其余写成 JSON。 */
-  readonly files?: Record<string, unknown>;
-  readonly config?: Record<string, unknown>;
-  /** 证据写好之后再动手（改工作树、改补丁）。 */
-  readonly after?: (at: { repo: string; wt: string; runDir: string; head: string }) => void;
-  readonly review?: string;
-}
-
-/** 用临时索引求工作树的完整内容（已跟踪 + 未忽略的新文件），照 snapshot_tree。 */
-function treeOf(wt: string, head: string): string {
-  const env = { ...process.env, GIT_INDEX_FILE: join(tempDir("idx"), "candidate.index") };
-  const run = (...args: string[]): string => {
-    const done = spawnSync("git", ["-c", "core.autocrlf=false", ...args], { cwd: wt, env, encoding: "utf8" });
-    if (done.status !== 0) throw new Error(`git ${args.join(" ")} 失败：${done.stderr}`);
-    return done.stdout.trim();
-  };
-  run("read-tree", head);
-  run("add", "-A");
-  return run("write-tree");
-}
-
-/**
- * 一份各门禁都能通过的 attempt：工作树在基线上把 src/a.ts 改成 a = 2，候选就是它，补丁做过往返校验；合同、执行、
- * 范围、检查记录的证据齐全。工作树与 worktree_root 在仓库之外（长路径）；仓库里另有复审报告 review.md。
- */
-function fullAttempt(repo: string, head: string, runner: Runner, o: AttemptOptions = {}): Record<string, string> {
-  const wtRoot = realpathSync.native(tempDir(`wtr-${runner}`));
-  const wt = join(wtRoot, "wt");
-  git(repo, "worktree", "add", "-q", "--detach", wt, head);
-  put(wt, "src/a.ts", `export const a = 2;${LF}`);
-  const tree = treeOf(wt, head);
-  const patch = spawnSync("git", ["diff", "--binary", "--full-index", head, tree], { cwd: repo }).stdout;
-  const contract = {
-    ...jsonOf("t1", head), checks: o.checks ?? [OK()], setup: o.setup ?? [],
-    definition_of_done: o.dod ?? [{ id: "D01", text: "行为正确", evidence: ["V01"] }], ...o.contract,
-  };
-  const planMd = mdOf("t1", head);
-  const contractJson = json(contract);
-  const runDir = join(repo, ".agent", "runs", "t1", "attempt-001");
-  const files: Record<string, unknown> = {
-    "plan.md": planMd,
-    "contract.json": contractJson,
-    "meta.json": {
-      task_id: "t1", plan_version: 1, attempt_no: 1, worktree: wt, base_sha: head, git_autocrlf: "false",
-      plan_md_sha256: sha(planMd), contract_json_sha256: sha(contractJson), platform: PLATFORM, repository: realpathSync.native(repo), ...o.meta,
-    },
-    "state.json": state("NEEDS_REVIEW"),
-    "run.json": { exit_code: 0, timed_out: false, interrupted: false },
-    "events-summary.json": { problems: [], provider_thinking_levels: ["high"], requested_model: { thinking: "high" }, outside_worktree_paths: [], ambiguity_mention_count: 0 },
-    "report-status.json": { status: "json_ok" },
-    "scope.json": { violations: [] },
-    "observations.json": { main_repo_changes: { head_changed: false, other_paths: [] } },
-    "candidate.json": { tree, patch_roundtrip_verified: true, patch_sha256: sha(patch) },
-    "candidate.patch": patch,
-    "checks/01/checks.json": { run: 1, mode: "in_place", candidate_tree: tree, covers_all_required: true, results: [{ id: "V01", required: true, passed: true, status: "passed" }] },
-    ...o.files,
-  };
-  for (const [rel, content] of Object.entries(files)) {
-    if (content === null) continue;
-    put(runDir, rel, typeof content === "string" || content instanceof Uint8Array ? content : json(content));
-  }
-  for (const [rel, content] of Object.entries(files)) if (content === null) rmSync(join(runDir, rel), { recursive: true, force: true });
-  put(repo, ".agent/dispatch.config.json", json({ worktree_root: wtRoot, kill_grace_seconds: 1, ...o.config }));
-  put(repo, "review.md", o.review ?? `# 复审${LF}${LF}Verdict: PASS${LF}`);
-  o.after?.({ repo, wt, runDir, head });
-  return { "<WT>": wt, "<WTROOT>": wtRoot };
-}
 
 interface Scenario {
   readonly label: string;
@@ -510,40 +421,6 @@ describe("合并输出的次序", () => {
   for (const scenario of MERGED) it(scenario.label, () => runMerged(scenario));
 });
 
-/**
- * D2（迁移计划第 ④ 步）：检查跑到一半，命令的进程组收到 CTRL_BREAK。照 supervise 契约的 S10：外层以 CREATE_NO_WINDOW
- * 起一个不显示窗口的控制台，内层另起进程组跑命令，读到 CHECK（或 BASELINE）V01 那一行、再等一秒，给命令的进程组发
- * CTRL_BREAK。Python 的 run_supervised 与 TS 的 runSupervised 都把它当中断：这一项记被取消，后面的照跑，照常收尾。
- */
-const BREAK_INNER = [
-  "import json, signal, subprocess, sys, time",
-  "marker = sys.argv[3].encode('utf-8')",
-  "p = subprocess.Popen(json.loads(sys.argv[1]), cwd=sys.argv[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=0x200)",
-  "deadline = time.monotonic() + 60",
-  "seen = b''",
-  "while marker not in seen:",
-  "    line = p.stdout.readline()",
-  "    if not line or time.monotonic() > deadline:",
-  "        p.kill(); sys.exit('没等到 ' + sys.argv[3])",
-  "    seen += line",
-  "time.sleep(1)",
-  "p.send_signal(signal.CTRL_BREAK_EVENT)",
-  "out, err = p.communicate()",
-  "sys.stdout.write(json.dumps({'status': p.returncode, 'stdout': (seen + out).decode('utf-8', 'replace'), 'stderr': err.decode('utf-8', 'replace')}))",
-].join(LF);
-const BREAK_OUTER = [
-  "import os, subprocess, sys",
-  "p = subprocess.Popen([sys.executable, '-c'] + sys.argv[1:], stdout=subprocess.PIPE, creationflags=0x08000000)",
-  "try:",
-  "    out, _ = p.communicate(timeout=120)",
-  "except subprocess.TimeoutExpired:",
-  "    taskkill = os.path.join(os.environ['SystemRoot'], 'System32', 'taskkill.exe')",
-  "    subprocess.run([taskkill, '/T', '/F', '/PID', str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)",
-  "    p.communicate()",
-  "    sys.exit('内层 120 秒没结束，已结束整棵树')",
-  "sys.stdout.buffer.write(out)",
-].join(LF);
-
 function runBreak(scenario: Scenario, marker: string): void {
   const results = RUNNERS.map((runner) => {
     const { repo, head } = newRepo(`br-${runner}`, scenario.files ?? {});
@@ -561,6 +438,7 @@ function runBreak(scenario: Scenario, marker: string): void {
   if (scenario.text) expect(first.stdout).toContain(scenario.text);
 }
 
+/** D2：检查跑到一半，命令的进程组收到 CTRL_BREAK：这一项记被取消，后面的照跑，照常收尾。 */
 const SLEEPY = py("V01", "import time; time.sleep(60)");
 
 describe("D2：命令的进程组收到 CTRL_BREAK", () => {

@@ -2,17 +2,16 @@
 // 的逻辑（连续提示、输出打转）。Python 与 TS（Node、Bun）跑同一场景，比退出码、输出、发给端点的请求与决策记录。
 // 决策端点是单独进程的替身（probes/fake_endpoint.mjs）：被测命令照常用同步的 spawnSync 起。只用假 key（环境变量
 // THEMIS_CONTRACT_DECISIONS_KEY），不碰凭据库；事件文件的修改时间放到将来，“静默秒数”恒为 0，要测静默的那条另外抹掉数字。
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { KEY_NAME, type Reply, startEndpoint } from "./endpoint-fixtures.ts";
 import { IMPLS, runBatch } from "./harness.ts";
 import { CONTEXT, LF, RUNNERS, type Runner, newRepo, put, removeCreated, runCommand, shownOf, tempDir } from "./repo-fixtures.ts";
 
 const PROBES = resolve(dirname(fileURLToPath(import.meta.url)), "..", "probes");
 const REPO_ROOT = resolve(PROBES, "..", "..", "..", "..");
-const KEY_NAME = "THEMIS_CONTRACT_DECISIONS_KEY";
 const savedKey = process.env[KEY_NAME];
 
 beforeAll(() => {
@@ -24,37 +23,6 @@ afterAll(() => {
   else process.env[KEY_NAME] = savedKey;
   removeCreated();
 });
-
-interface Reply {
-  readonly status: number;
-  readonly body: string;
-}
-
-interface Endpoint {
-  readonly port: number;
-  requests(): unknown[];
-  stop(): void;
-}
-
-async function startEndpoint(replies: readonly Reply[]): Promise<Endpoint> {
-  const dir = tempDir("endpoint");
-  writeFileSync(join(dir, "replies.json"), JSON.stringify(replies));
-  const child = spawn("node", [join(PROBES, "fake_endpoint.mjs"), dir], { stdio: "ignore" });
-  const portFile = join(dir, "port");
-  for (let waited = 0; !existsSync(portFile); waited += 50) {
-    if (waited > 20_000) {
-      child.kill();
-      throw new Error("假端点 20 秒没起来");
-    }
-    await new Promise((done) => setTimeout(done, 50));
-  }
-  const log = join(dir, "requests.jsonl");
-  return {
-    port: Number(readFileSync(portFile, "utf8")),
-    requests: () => (existsSync(log) ? readFileSync(log, "utf8").split(LF).filter(Boolean).map((line) => JSON.parse(line) as unknown) : []),
-    stop: () => void child.kill(),
-  };
-}
 
 /** run-health 的回答：choice 是 argmax。 */
 function healthReply(choice = "keep_waiting", confidence = 0.66): Reply {

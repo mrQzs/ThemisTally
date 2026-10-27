@@ -1,0 +1,278 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/mutate-run.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "R01 基线失败之后照跑后面的命令",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (!pyTruthy(run.get(\"passed\") ?? null)) break;",
+      "new": ""
+    },
+    {
+      "name": "R02 失败命令的原因不带命令名",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "`命令 ${failed}：${reasonOf(baseline)}`",
+      "new": "`${failed}：${reasonOf(baseline)}`"
+    },
+    {
+      "name": "R03 多条命令的日志名不带命令 id",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "(multi ? `${base}-${command.id}` : base)",
+      "new": "(base)"
+    },
+    {
+      "name": "R04 insertion_only 恒为假",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "[\"insertion_only\", insertionOnly(item)]",
+      "new": "[\"insertion_only\", false]"
+    },
+    {
+      "name": "R05 count 缺省为 2",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    const count = item.has(\"count\") ? (item.get(\"count\") as bigint) : 1n;",
+      "new": "    const count = item.has(\"count\") ? (item.get(\"count\") as bigint) : 2n;"
+    },
+    {
+      "name": "R06 不记等价与预期",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "for (const key of [\"equivalent\", \"expect_missed\"]) if",
+      "new": "for (const key of [] as string[]) if"
+    },
+    {
+      "name": "R07 不是 UTF-8 时崩",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "record.set(\"status\", \"skipped\").set(\"reason\", \"文件不是 UTF-8 文本\");",
+      "new": "throw error;"
+    },
+    {
+      "name": "R08 不记 count_found",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "        record.set(\"count_found\", BigInt(found));\n",
+      "new": ""
+    },
+    {
+      "name": "R09 跑完不恢复文件",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "            writeFileSync(file, original);\n",
+      "new": ""
+    },
+    {
+      "name": "R10 中断之后照跑后面的命令",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "              if (outcome.get(\"interrupted\") === true) break;\n",
+      "new": ""
+    },
+    {
+      "name": "R11 中断之后照跑后面的变异",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if ([...runs.values()].some((run) => run.get(\"interrupted\") === true)) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "R12 没运行的条数多算一条",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "spec.mutations.length - index0 - 1",
+      "new": "spec.mutations.length - index0"
+    },
+    {
+      "name": "R13 被拦下不算出错",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (run.get(\"status\") === \"blocked\") {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "R14 不认测试会话中断",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  } else if (!pyTruthy(run.get(\"passed\") ?? null) && sessionAborted(logPath, run)) {",
+      "new": "  } else if (false) {"
+    },
+    {
+      "name": "R15 会话中断不看退出码",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (run.get(\"exit_code\") !== 2n) return false;\n",
+      "new": ""
+    },
+    {
+      "name": "R16 横幅至少四个叹号",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "`!{3,}${BS}s*KeyboardInterrupt",
+      "new": "`!{4,}${BS}s*KeyboardInterrupt"
+    },
+    {
+      "name": "R17 抓住与漏掉对调",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    status = pyTruthy(run.get(\"passed\") ?? null) ? \"missed\" : \"caught\";",
+      "new": "    status = pyTruthy(run.get(\"passed\") ?? null) ? \"caught\" : \"missed\";"
+    },
+    {
+      "name": "R18 不记超时",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "[\"timed_out\", pyTruthy(source.get(\"timed_out\") ?? null)]",
+      "new": "[\"timed_out\", false]"
+    },
+    {
+      "name": "R19 没有原因时记 null",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "? (source.get(\"reason\") as PyValue) : \"\"]",
+      "new": "? (source.get(\"reason\") as PyValue) : null]"
+    },
+    {
+      "name": "R20 结果行不标只插入代码",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "      record.get(\"insertion_only\") === true ? \"只插入代码\" : \"\",",
+      "new": "      \"\","
+    },
+    {
+      "name": "R21 预期内漏掉也带决策后缀",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "      status === \"missed\" && (cid === null || unexpected.includes(cid)) ? note : \"\",",
+      "new": "      status === \"missed\" ? note : \"\","
+    },
+    {
+      "name": "R22 不提示标了预期却被抓住",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "      } else if (expected === \"missed\") {",
+      "new": "      } else if (false) {"
+    },
+    {
+      "name": "R23 有预期标注的单命令清单不算带标注",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  const labelled = multi || specHasExpectations(spec);",
+      "new": "  const labelled = multi;"
+    },
+    {
+      "name": "R24 漏掉时不给建议",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (counts.get(\"missed\") !== 0n) out.print(MISSED_ADVICE);\n",
+      "new": ""
+    },
+    {
+      "name": "R25 预期漏掉不减意外",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": ".set(\"expected_missed\", (counts.get(\"missed\") as bigint) - BigInt(unexpectedMissed.length));",
+      "new": ".set(\"expected_missed\", counts.get(\"missed\") as bigint);"
+    },
+    {
+      "name": "R26 按命令计数时只看顶层",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (commandId !== null && runs instanceof Map && runs.has(commandId)) return",
+      "new": "    if (false) return"
+    },
+    {
+      "name": "R27 不打印没运行的变异",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (notRun.length) out.print(",
+      "new": "  if (false) out.print("
+    },
+    {
+      "name": "R28 已集成的不能做",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": " && state !== \"INTEGRATED\")",
+      "new": ")"
+    },
+    {
+      "name": "R29 总是移除干净副本",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    if (!args.keep_workspace) removeWorktree(repo, workspace);",
+      "new": "    removeWorktree(repo, workspace);"
+    },
+    {
+      "name": "R30 保留与移除的说法对调",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "${args.keep_workspace ? \"已保留\" : \"已移除\"}",
+      "new": "${args.keep_workspace ? \"已移除\" : \"已保留\"}"
+    },
+    {
+      "name": "R31 attempt 的日志不带 mutations/",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "\"mutations/\", session, out)",
+      "new": "\"\", session, out)"
+    },
+    {
+      "name": "R32 --tree 的记录不改写日志名",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "      if (pyTruthy(log)) run.set(\"log\", (log as string).split(\"/\").pop() as string);\n",
+      "new": ""
+    },
+    {
+      "name": "R33 配置写错时报错",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    config = new Map();\n  }\n  const [env] = childEnv(config);\n  const grace = graceOf(config);\n  const outDir",
+      "new": "    throw error;\n  }\n  const [env] = childEnv(config);\n  const grace = graceOf(config);\n  const outDir"
+    },
+    {
+      "name": "R34 --out 在树里也接受",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (isWithin(outDir, tree)) throw new DispatchError(",
+      "new": "  if (false) throw new DispatchError("
+    },
+    {
+      "name": "R35 --out 不建上级目录",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  pathMkdir(outDir, true, true);",
+      "new": "  pathMkdir(outDir, false, true);"
+    },
+    {
+      "name": "R36 不核对文件是否恢复原样",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": ".filter(([name, data]) => !pyReadBytes(purePathStr(tree, name)).equals(data))",
+      "new": ".filter(() => false)"
+    },
+    {
+      "name": "R37 shadow 也显示决策后缀",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "session.mode !== \"on\" || ",
+      "new": ""
+    },
+    {
+      "name": "R38 等价恰好到阈值不算",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (equivalent >= hint) return",
+      "new": "  if (equivalent > hint) return"
+    },
+    {
+      "name": "R39 缺口恰好到阈值不算",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  if (untested >= hint) return",
+      "new": "  if (untested > hint) return"
+    },
+    {
+      "name": "R40 上下文只取前 7 行",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": ".slice(-8);",
+      "new": ".slice(-7);"
+    },
+    {
+      "name": "R41 决策上下文不换 CRLF",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "    source = pyDecodeUtf8(original).replaceAll(CRLF, LF);",
+      "new": "    source = pyDecodeUtf8(original);"
+    },
+    {
+      "name": "R42 不记决策模型",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "[\"model\", session.settings.model]",
+      "new": "[\"model\", null]"
+    },
+    {
+      "name": "R43 意外抓住也问决策",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "unexpected.some((cid) => statuses.get(cid) === \"missed\")",
+      "new": "unexpected.length > 0"
+    },
+    {
+      "name": "R44 基线失败的记录不写树",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "[\"baseline\", baseline], [\"tree\", tree], [\"at\", utcNow()]",
+      "new": "[\"baseline\", baseline], [\"at\", utcNow()]"
+    }
+  ]
+}

@@ -73,8 +73,8 @@
     {
       "name": "A11 计数前不把 CRLF 换成 LF",
       "file": "ts/packages/dispatcher/src/mutate.ts",
-      "old": "  return lfText(file).split(old.replaceAll(CRLF, LF)).length - 1;",
-      "new": "  return pyDecodeUtf8(pyReadBytes(file)).split(old).length - 1;"
+      "old": "  return pyStrCount(lfText(file), old.replaceAll(CRLF, LF));",
+      "new": "  return pyStrCount(pyDecodeUtf8(pyReadBytes(file)), old);"
     },
     {
       "name": "A12 清单的问题不打到标准输出",

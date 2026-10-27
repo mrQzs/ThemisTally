@@ -28,6 +28,9 @@ export interface AssessBattery {
 export interface DecisionSession {
   readonly mode: string;
   readonly batteries: ReadonlyMap<string, AssessBattery>;
+  /** 本次会话每问一次记一条（mutate 的 decisions 汇总用）。 */
+  readonly records: readonly PyDict[];
+  readonly settings: { readonly model: string };
   ask(battery: AssessBattery, state: PyValue, context: PyDict | null): Promise<PyDict>;
 }
 

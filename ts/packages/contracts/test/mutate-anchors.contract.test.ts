@@ -118,6 +118,8 @@ const ANCHORS = [
   m("M15 是目录", "src", "x"),
   m("M16 期望两次", "src/a.ts", "const marker = 1;", { count: 2 }),
   m("M17 补充平面字符", "src/emoji.ts", `const face = "${String.fromCodePoint(0x1f601)}中文";`),
+  // 孤立的低位代理只对得上补充平面字符的半边：按码点数是 0 次
+  m("M18 孤立的低位代理", "src/emoji.ts", String.fromCharCode(0xde00)),
 ];
 
 const BAD_SPEC = {
@@ -149,7 +151,7 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  { label: "锚点：各种对上与对不上", spec: { command: ["x"], mutations: ANCHORS }, status: 1, text: "锚点核对：17 条，" },
+  { label: "锚点：各种对上与对不上", spec: { command: ["x"], mutations: ANCHORS }, status: 1, text: "锚点核对：18 条，" },
   { label: "锚点：全部对上", spec: { command: ["x"], mutations: [ANCHORS[0], ANCHORS[10], ANCHORS[15]] }, status: 0, text: "锚点核对：3 条，0 条不符" },
   { label: "清单的各种坏法", spec: BAD_SPEC, status: 2, text: "ERROR: 变异清单无效：" },
   { label: "清单的各种坏法：合并输出的次序", spec: BAD_SPEC, status: 2, merged: true },

@@ -1,0 +1,68 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pystr.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "P01 不查开头的半边",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "    if (!splitsHead && !splitsTail) return at;",
+      "new": "    if (!splitsTail) return at;"
+    },
+    {
+      "name": "P02 不查结尾的半边",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "    if (!splitsHead && !splitsTail) return at;",
+      "new": "    if (!splitsHead) return at;"
+    },
+    {
+      "name": "P03 空串的起点超过末尾也算找到",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "  if (!sub) return start <= text.length ? start : -1;",
+      "new": "  if (!sub) return start;"
+    },
+    {
+      "name": "P04 空串按 UTF-16 数",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "  if (!sub) return codePoints(text).length + 1;",
+      "new": "  if (!sub) return text.length + 1;"
+    },
+    {
+      "name": "P05 replace 不管次数",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "at !== -1 && (count < 0 || done < count)",
+      "new": "at !== -1"
+    },
+    {
+      "name": "P06 count 重叠着数",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "at = pyStrFind(text, sub, at + sub.length)) count += 1;",
+      "new": "at = pyStrFind(text, sub, at + 1)) count += 1;"
+    },
+    {
+      "name": "P07 开头的半边看错了位",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "&& at > 0 && isHighSurrogate(text.charCodeAt(at - 1));",
+      "new": "&& at > 0 && isLowSurrogate(text.charCodeAt(at - 1));"
+    },
+    {
+      "name": "P08 空串替换总补末尾",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "+ (points.length < limit ? replacement : \"\")",
+      "new": "+ replacement"
+    },
+    {
+      "name": "P09 空串替换多插一次",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "(index < limit ? replacement : \"\")",
+      "new": "(index <= limit ? replacement : \"\")"
+    }
+  ]
+}

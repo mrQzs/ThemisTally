@@ -318,3 +318,48 @@ function withPythonUnicode(text: string, runtime: string, what: string, transfor
 export function pyRegex(source: string, global = false): RegExp {
   return new RegExp(source, global ? "gu" : "u");
 }
+
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff;
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff;
+
+/**
+ * str.find(sub, start)：按码点比。indexOf 按 UTF-16 比，sub 以孤立的低位代理开头、或以孤立的高位代理结尾时，会对上补充平面字符的
+ * 半边，Python 不会，这样的位置跳过。start 是不落在代理对中间的 UTF-16 下标（不小于 0），交回的也是 UTF-16 下标。
+ */
+export function pyStrFind(text: string, sub: string, start = 0): number {
+  if (!sub) return start <= text.length ? start : -1;
+  const head = sub.charCodeAt(0);
+  const tail = sub.charCodeAt(sub.length - 1);
+  for (let at = text.indexOf(sub, start); at !== -1; at = text.indexOf(sub, at + 1)) {
+    const splitsHead = isLowSurrogate(head) && at > 0 && isHighSurrogate(text.charCodeAt(at - 1));
+    const splitsTail = isHighSurrogate(tail) && isLowSurrogate(text.charCodeAt(at + sub.length));
+    if (!splitsHead && !splitsTail) return at;
+  }
+  return -1;
+}
+
+/** str.count(sub)：不重叠，按码点；空串是码点数加一。 */
+export function pyStrCount(text: string, sub: string): number {
+  if (!sub) return codePoints(text).length + 1;
+  let count = 0;
+  for (let at = pyStrFind(text, sub); at !== -1; at = pyStrFind(text, sub, at + sub.length)) count += 1;
+  return count;
+}
+
+/** str.replace(old, new, count)：从左往右不重叠地换，按码点；count 小于 0 是全换。old 是空串时插在每个码点之前与末尾。 */
+export function pyStrReplace(text: string, old: string, replacement: string, count = -1): string {
+  if (!old) {
+    const points = codePoints(text);
+    const limit = count < 0 ? points.length + 1 : Math.min(count, points.length + 1);
+    return points.map((point, index) => (index < limit ? replacement : "") + point).join("") + (points.length < limit ? replacement : "");
+  }
+  let out = "";
+  let from = 0;
+  let done = 0;
+  for (let at = pyStrFind(text, old); at !== -1 && (count < 0 || done < count); at = pyStrFind(text, old, from)) {
+    out += text.slice(from, at) + replacement;
+    from = at + old.length;
+    done += 1;
+  }
+  return out + text.slice(from);
+}

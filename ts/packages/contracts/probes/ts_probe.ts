@@ -53,7 +53,7 @@ import {
 } from "@themis/base/secrets";
 import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, floatRepr, intRepr, loads, loadsBytes, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorType, pyReadBytes, pyReadText } from "@themis/base/pyio";
-import { cmpCodePoints, pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, pyCasefold, pyIntParse, pyLower, pyNfc, pyStrCount, pyStrFind, pyStrReplace } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
 import { pyEq } from "@themis/base/pyvalue";
 import { purePathStr } from "@themis/base/pypath";
@@ -866,6 +866,18 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       return { code, out: text };
     });
     return { ok: true, results };
+  },
+  "pystr.call": (request) => {
+    // start 与 find 的结果按码点交换：TS 一侧在 UTF-16 下标与码点下标之间换算（超过末尾的部分原样加上）
+    const [text, sub] = [String(request["text"]), String(request["sub"])];
+    const points = codePoints(text);
+    const start = Number(request["start"]);
+    const unitStart = points.slice(0, start).join("").length + Math.max(0, start - points.length);
+    const at = pyStrFind(text, sub, unitStart);
+    return {
+      ok: true, find: at === -1 ? -1 : codePoints(text.slice(0, at)).length, count: pyStrCount(text, sub),
+      replace: pyStrReplace(text, sub, String(request["new"]), Number(request["limit"])),
+    };
   },
   "pydifflib.call": (request) => {
     const matcher = new SequenceMatcher(String(request["a"]), String(request["b"]), request["autojunk"] !== false);

@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/mutate-anchors.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "A01 锚点按 UTF-16 数",
+      "file": "ts/packages/dispatcher/src/mutate.ts",
+      "old": "  return pyStrCount(lfText(file), old.replaceAll(CRLF, LF));",
+      "new": "  return lfText(file).split(old.replaceAll(CRLF, LF)).length - 1;"
+    }
+  ]
+}
