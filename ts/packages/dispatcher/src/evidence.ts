@@ -3,7 +3,7 @@
 // jsonl.appendEvent 加锁、排序键、落盘，是另一套写法）；state.json 先写同名 .tmp 再替换，不重试。证据坏了（缺文件、
 // 不是 JSON、类型不对）时 Python 不接、命令崩溃，这里照样抛出。
 import { createHash } from "node:crypto";
-import { appendFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, statSync, writeSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
 import { PyCrash, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
@@ -35,15 +35,27 @@ function withOSError<T>(file: string, body: () => T): T {
   }
 }
 
+/** 照 Python 的 open(…, encoding="utf-8") 再 write：先打开（建出文件），再编码写入；有孤立代理项时编码失败，留下空文件。 */
+function writeOpened(file: string, flags: string, text: string): void {
+  const fd = withOSError(file, () => openSync(file, flags));
+  try {
+    const bytes = encodeUtf8(text);
+    let offset = 0;
+    while (offset < bytes.length) offset += withOSError(file, () => writeSync(fd, bytes, offset));
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** write_json：indent=2、不转义非 ASCII、末尾一个换行；exclusive 时文件已存在就失败，否则先写同名 .tmp 再替换。 */
 export function writeJson(file: string, data: PyValue, exclusive = false): void {
-  const bytes = encodeUtf8(`${dumps(data, { ensureAscii: false, indent: 2 })}${LF}`);
+  const text = `${dumps(data, { ensureAscii: false, indent: 2 })}${LF}`;
   if (exclusive) {
-    withOSError(file, () => writeFileSync(file, bytes, { flag: "wx" }));
+    writeOpened(file, "wx", text);
     return;
   }
   const tmp = `${file}.tmp`;
-  withOSError(tmp, () => writeFileSync(tmp, bytes));
+  writeOpened(tmp, "w", text);
   pyReplace(tmp, file);
 }
 
@@ -52,7 +64,7 @@ export const readJson = (file: string): PyValue => loads(pyReadText(file));
 
 function appendHistory(runDir: string, record: PyDict): void {
   const file = path.join(runDir, "history.jsonl");
-  withOSError(file, () => appendFileSync(file, encodeUtf8(`${dumps(record, { ensureAscii: false })}${LF}`)));
+  writeOpened(file, "a", `${dumps(record, { ensureAscii: false })}${LF}`);
 }
 
 /** set_state：state、at，再按调用方给的次序加字段（值为 null 的也写）；history.jsonl 追加一行，state.json 整份换掉。 */

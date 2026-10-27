@@ -26,6 +26,8 @@ interface Scenario {
   readonly args: Record<string, unknown>;
   readonly status: number;
   readonly crash?: boolean;
+  /** 崩溃之后照样比较证据目录（编码失败时留下的空文件也要一样）。 */
+  readonly keepEvidence?: boolean;
   /** 输出里必须有的文字：证明走到了要测的分支，不是碰巧状态码对上。 */
   readonly text?: string;
 }
@@ -109,6 +111,8 @@ const SCENARIOS: Scenario[] = [
   mark("放弃 RUNNING，记录的进程不在", () => ({ "state.json": state("COLLECTING"), "pid.txt": "99999999" }), { state: "ABANDONED", force: true, reason: "调度器已退出" }, 0),
   mark("放弃 RUNNING，pid 是 0 与非数字", () => ({ "state.json": state("PREPARING"), "pid.txt": "pid?" }), { state: "ABANDONED", force: true }, 0),
   mark("放弃 RUNNING，pid 是上标数字", () => ({ "state.json": state("RUNNING"), "pid.txt": String.fromCodePoint(0xb2) }), { state: "ABANDONED", force: true }, 1, true),
+  { ...mark("reason 里有孤立代理项：写 history 时编码失败", () => ({ "state.json": state("PREPARED") }),
+    { state: "ABANDONED", reason: `x${String.fromCharCode(0xd800)}` }, 1, true), keepEvidence: true },
   mark("放弃 PREPARED，路径写法", () => ({ "state.json": state("PREPARED") }), { state: "ABANDONED", runDir: ".agent/runs/t1/attempt-001" }, 0),
   mark("找不到 attempt", () => ({ "state.json": state("PASS") }), { state: "ABANDONED", runDir: "nope" }, 2),
 
@@ -209,7 +213,7 @@ describe("mark、cleanup、wait", () => {
         const paths = { "<REPO>": repo, ...scenario.build(repo, head, runner) };
         const result = runCommand(runner, repo, scenario.argv, scenario.args);
         const shown: Shown = shownOf(result, paths, scenario.crash);
-        const evidence = scenario.crash ? {} : snapshotDir(join(repo, ".agent", "runs"), paths);
+        const evidence = scenario.crash && !scenario.keepEvidence ? {} : snapshotDir(join(repo, ".agent", "runs"), paths);
         const worktrees = scenario.crash ? "" : git(repo, "worktree", "list", "--porcelain").split(LF).filter((line) => line.startsWith("worktree ")).length;
         return { ...shown, evidence, worktrees };
       });
