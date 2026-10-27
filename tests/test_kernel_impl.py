@@ -406,15 +406,20 @@ def norm_env(env) -> dict:
     return {(name.upper() if pd.IS_WINDOWS else name): value for name, value in env.items()}
 
 
+def bare_environ() -> dict:
+    """os.environ 去掉键名像凭据的变量：子进程把整份环境打印回来，比较失败时 pytest 会把它写进输出。"""
+    return {name: value for name, value in os.environ.items() if not pd._SECRET_KEY_RE.match(name)}
+
+
 def test_the_environment_is_what_python_sees(tmp_path):
-    env = dict(os.environ, THEMIS_HANDOFF_MARK="中 x")
+    env = dict(bare_environ(), THEMIS_HANDOFF_MARK="中 x")
     seen = norm_env(child_env(tmp_path, env))
     assert seen == norm_env(pd.handoff_env(env)) and seen["THEMIS_HANDOFF_MARK"] == "中 x"
 
 
 @pytest.mark.parametrize("name", pd.TS_RUNTIME_ENV_DROP)
 def test_runtime_injection_variables_are_dropped(tmp_path, name):
-    env = dict(os.environ, THEMIS_HANDOFF_MARK="kept", **{name: "--inject"})
+    env = dict(bare_environ(), THEMIS_HANDOFF_MARK="kept", **{name: "--inject"})
     seen = norm_env(child_env(tmp_path, env))
     assert (name.upper() if pd.IS_WINDOWS else name) not in seen and seen["THEMIS_HANDOFF_MARK"] == "kept"
 

@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { pidAlive } from "@themis/base/process";
+import { secretKey } from "@themis/base/secrets";
 import { IMPLS, type Impl, type ProbeRequest, type ProbeResult, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
 
 const PY = process.env["THEMIS_PYTHON"] ?? "python";
@@ -20,7 +21,11 @@ const DETACHED_PROCESS = 0x00000008;
 const CREATE_NO_WINDOW = 0x08000000;
 const onWindows = process.platform === "win32";
 
-const BASE_ENV = Object.entries(process.env).filter((pair): pair is [string, string] => typeof pair[1] === "string");
+// 键名像凭据的变量（api key、token、secret、password，决策 key TYPESAFE_API_KEY 也在内）不交给子进程：用例用不到。
+// 请求一律经 stdin 交，不进任何进程的命令行（同用户的进程都读得到命令行；S10 以前把整份请求连环境放在 argv 里）
+const BASE_ENV = Object.entries(process.env).filter(
+  (pair): pair is [string, string] => typeof pair[1] === "string" && !secretKey(pair[0]),
+);
 
 interface Supervised {
   exit_code: number | null;
@@ -368,26 +373,42 @@ describe.skipIf(!onWindows)("进程监督契约", () => {
 
   it("S10 中断：调用方的进程组收到 CTRL_BREAK，三套实现都照中断处理，子进程也收到", () => {
     // 外层以 CREATE_NO_WINDOW 起一个不显示窗口的控制台，探针另起进程组、共用这个控制台；探针报 spawned 之后外层给
-    // 探针的进程组发 CTRL_BREAK（只到探针，被监督的子进程在自己的进程组里，由探针去结束）
+    // 探针的进程组发 CTRL_BREAK（只到探针，被监督的子进程在自己的进程组里，由探针去结束）。请求经两层的 stdin 交给探针。
+    // 内层等 spawned 时读到 EOF 或过了 60 秒就结束探针退出（以前读到 EOF 会空转）；外层等内层 90 秒，超时用 taskkill /T
+    // 结束整棵树（内层还活着，/T 才找得到它的子孙），不留孤儿
     const inner = [
       "import json, signal, subprocess, sys, time",
-      "argv, request = json.loads(sys.argv[1]), sys.argv[2]",
-      "p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=0x200)",
-      "p.stdin.write(request.encode('utf-8')); p.stdin.close()",
-      "while b'spawned' not in p.stderr.readline(): pass",
+      "p = subprocess.Popen(json.loads(sys.argv[1]), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=0x200)",
+      "p.stdin.write(sys.stdin.buffer.read()); p.stdin.close()",
+      "deadline = time.monotonic() + 60",
+      "line = p.stderr.readline()",
+      "while b'spawned' not in line:",
+      "    if not line or time.monotonic() > deadline:",
+      "        p.kill(); sys.exit('探针没报 spawned：stderr 关了或等满 60 秒')",
+      "    line = p.stderr.readline()",
       "time.sleep(1)",
       "p.send_signal(signal.CTRL_BREAK_EVENT)",
       "out = p.stdout.read(); p.wait()",
       "sys.stdout.buffer.write(out)",
     ].join("\n");
     const outer = [
-      "import subprocess, sys",
-      "done = subprocess.run([sys.executable, '-c', sys.argv[1], sys.argv[2], sys.argv[3]], stdout=subprocess.PIPE, creationflags=0x08000000)",
-      "sys.stdout.buffer.write(done.stdout)",
+      "import os, subprocess, sys",
+      "p = subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, creationflags=0x08000000)",
+      "try:",
+      "    out, _ = p.communicate(sys.stdin.buffer.read(), timeout=90)",
+      "except subprocess.TimeoutExpired:",
+      "    taskkill = os.path.join(os.environ['SystemRoot'], 'System32', 'taskkill.exe')",
+      "    subprocess.run([taskkill, '/T', '/F', '/PID', str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)",
+      "    p.communicate()",
+      "    sys.exit('内层 90 秒没结束，已结束整棵树')",
+      "sys.stdout.buffer.write(out)",
     ].join("\n");
     const runs = acrossImpls("s10", (impl, dir) => {
       const req = request(dir, "s10", [PY, "-c", SLEEP], { timeout: 120, grace: 15 });
-      const done = spawnSync(PY, ["-c", outer, inner, JSON.stringify(impl.argv), JSON.stringify(req)], { encoding: "utf8", timeout: 120_000 });
+      const done = spawnSync(PY, ["-c", outer, inner, JSON.stringify(impl.argv)], {
+        input: JSON.stringify(req), encoding: "utf8", timeout: 150_000,
+      });
+      if (done.status !== 0) throw new Error(`${impl.name} 中断用例的包装进程退出码 ${String(done.status)}：${done.stderr}`);
       return supervised(JSON.parse(done.stdout) as ProbeResult);
     });
     try {
