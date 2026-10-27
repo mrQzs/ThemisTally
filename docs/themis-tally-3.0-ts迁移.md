@@ -6,6 +6,7 @@
   - v1.2 按开工前的调查改第 ② 步：调度器的 `metrics` 没有 `--json`、只出 Markdown；带 `--json` 的 `status`、`metrics` 另有一份在 hub 里；`logs cat` 漏写了；仓库里没有 `themis` 入口，桌面端的本机服务也还没建。第 ② 步的范围、出口条件与拆分照实改（第 4 节）。
   - v1.3（2026-10-26，themistally-15 同意，附的七条已补进）按开工前的调查重写第 ③ 步：配置中心随桌面端 D2 长大了，原文“13 个 `--json` 子命令”过时；plugins 归入第 ③ 步，`secret set` 留在 Python，拆成六片加切换（第 4 节）。另记站主同日的决定：T022 的 A、B 做完后暂停开新切片，专心推迁移；以及 themistally-15 转达时附的协调意见（不是站主原话）：之后内核文件只修挡住工作的缺陷，迁移本身的切换不在其内（第 9 节、第 10.1 节）。
   - v1.4（2026-10-26，themistally-15 复审）按开工前的调查与复审重写第 ④ 节：21 条命令加 `status --assess`，八片加切换，开工前定下 D1（平台与版本经 `context` 交）、D2（Ctrl+C 与 CTRL_BREAK 的转发）、D3（`NODE_OPTIONS` 等经换名的环境变量交给 pi）、D4（决策会话的 HTTP 逐项对齐），写明对照办法五条、影子运行的隔离做法与混合期的 26 个名字。
+  - v1.5（2026-10-26，themistally-15 复审 v1.4 时要求）补 D5：起真调度器子进程的测试在没装 TS 依赖的环境里怎么办，按实测清点、钉成 Python 的做法、包装与真脚本的逐字节比较和分环境的出口条件；第 11 节 ③-切换一行补上 A3 的更正。
 - **决定来源**：站主 2026-10-22 的指示“TT 技术栈迁移：在实现中逐步转到 Claude Code 的技术栈”。
 - **进度**：记在第 11 节，每完成一步汇报。
 - **问题与答复**：计划、quizs 接口、待决项都直接发给 themistally-15 会话，由它答复。AGENTS.md 规定只能由站主本人定的事，由它转给站主：
@@ -538,6 +539,16 @@ v1.4 按开工前的调查（2026-10-26，基线 `d1873a9`，用 ast 建引用�
     - 超时：每次 socket 操作各算，不是总时限；
     - 原因码：network 带异常类名（`ConnectionRefusedError`、`RemoteDisconnected`、`gaierror`、`SSLCertVerificationError` 等），定一张对照表。
     - 做法：用 `node:http`、`node:https` 一级的客户端，Bun 的实际语义实测。契约只用本机的假端点：拒绝连接、超时、连接被重置、各状态码、回复过大、自签名的 HTTPS。API key 一律用假值；碰 Credential Manager 的用例照站主同意时的三个条件（system 模式缺省跳过、只用 `THEMIS_CONTRACT_` 前缀并在 finally 里删、前后各扫一遍、只按前缀枚举）。
+  - **D5 起真调度器子进程的测试**（themistally-15 复审 v1.4 时要求）：
+    - 问题：选择文件选了 ts 的命令，测试里起的 `scripts/pi_dispatch.py` 子进程会转交 TS；没装 TS 依赖的工作树里只报“TS 实现没装好”。会遇到的环境：执行端的 attempt worktree、`check --fresh` 的干净副本、门禁的 pre/post 工作区、新建的临时 worktree（A3）。hub 的 scratch worktree（owner sweep、门禁回归、落地预演）只跑 `test_gate_*`，其中起调度器的 ui 门禁流水线自己装依赖，不受影响。
+    - 清点（实测，不只靠读代码）：在 d1873a9 的新 worktree 里把选择文件改成无效值跑全量，凡是读真选择文件的用例都失败，8 failed。其中 6 条起真脚本跑调度器命令：`test_exe_search` 的 status、`test_kit_v300` 的 mark、`test_dispatch` 的 doctor、`test_codekit01_fixtures` 以当前实现重算、`test_kit_hub` 的两条锚点核对；2 条有意读它：`test_kernel_impl` 核对提交的选择文件，`test_kit_hub` 的账本用例跑 `--version`（从不转交，只在选择文件本身无效时失败）。另有两条会被启动器的报错蒙过去：`test_dispatch` 的 release-check 只断言非零，`test_kit_v300` 的 RepoArgument 只断言 `ERROR:` 与退出码 2。已经受影响的是 status（readonly，第 64 轮起）与 RepoArgument 的 plugins list（config，第 122 轮起）。
+    - 做法：`tests/python_kernel.py` 写一个只有 `pi_dispatch.py` 的 kit，加载真的 `scripts/pi_dispatch.py`，把选择文件指向自己旁边（不放就不存在，等于全部 python）。上面 6 条与 RepoArgument、release-check 经它起，不加内核开关。RepoArgument 收紧为断言“ERROR: --repo 不是目录”，release-check 收紧为断言 `EXIT_USAGE` 与“不在 Git 仓库中”。`test_exe_search` 另留一份经启动器转交 TS 的：`harden.test.ts` 直接起 `main.ts`、不经启动器，守不到 `handoff_env` 带上的第 77 轮防护；`pd.ts_launch_command` 报错时 skip 并写明原因。TS 那一侧由契约测试与装了依赖的全量运行覆盖。以后新增起真脚本的测试照这个办法。
+    - 包装与真脚本的差别：包装的进程里只有一份 `pi_dispatch` 模块，真脚本是 `__main__` 加上被别的模块 import 的第二份。在选择文件全是 python 的 worktree 里，把这几条测试起的 47 次调用各经包装与真脚本跑一遍、逐字节比较：除时间、新建仓库的提交号、随机临时目录名与带时间戳的清单文件名（两遍包装之间同样会变）之外，只有两条崩溃的堆栈最外层一帧不同（包装的第 5 行对真脚本的 `sys.exit(main())`），末行相同；codekit01 的投影本来就只取末行。
+    - 出口条件（每个环境分开写）：
+      1. 不装依赖：新建的 worktree，同一条命令里先核对 `ts/node_modules` 不在、pytest 跑完再核对一次；之前不跑任何会装依赖的步骤（点名运行的 ui 门禁流水线会 `bun install`）。全量 pytest 全过，经启动器转交 TS 的那一份 skip 并写明原因。
+      2. 同样的新 worktree，选择文件改成无效值：全量只有那 2 条有意读真选择文件的失败。D5 合入前与 ④-切换那一轮各跑一次。
+      3. 装了依赖、选择文件为提交的值：全量全过，TS 那一份真跑。
+      4. ④-切换那一轮（`dispatcher: ts`）：1、2、3 再各跑一遍。
 - **对照办法**（各片的命令行契约都照这几条）：
   1. 同一场景两套实现各跑一遍，比证据目录。每个文件列出允许变的字段（时间、耗时、pid、临时路径、随机 ID，以及 `meta.json` 的 `impl`：python 对 ts，按设计不同），先核格式，再换占位符，其余逐字节；两边的文件集合也要一致，不多不少。
   2. 每个场景断言自己走到了要测的路径（事件序列、状态转移），免得两边一样地早早失败也算一致。
@@ -554,7 +565,7 @@ v1.4 按开工前的调查（2026-10-26，基线 `d1873a9`，用 ast 建引用�
   - `difflib.SequenceMatcher`（④b5）：语料覆盖 `len(b) ≥ 200` 时 autojunk 生效的情形与最长匹配并列时的取法，以 CPython 3.12 为参照。
 - **出口条件**：
   - `test_dispatch.py`、legacy 四个文件、v2100、v280、v300 等现有用例（约 300 个）的场景全部有 TS 对应的契约（同场景两边各跑，不逐条重写断言）；
-  - 切换之前照第 ③ 步的 A3、A4：在 `dispatcher: ts` 下跑全量 pytest（起真脚本的 legacy 与 test_dispatch 会走 TS，原有断言直接拿来测 TS），没装 TS 依赖的临时 worktree 里再跑一遍；
+  - 切换之前照第 ③ 步的 A3、A4：在 `dispatcher: ts` 下跑全量 pytest（起真脚本的 legacy 与 test_dispatch 会走 TS，原有断言直接拿来测 TS），没装 TS 依赖的临时 worktree 里再跑一遍（环境照 D5 出口条件 1 证明）；
   - 影子运行：对最近的真实 attempt，TS 版的 `check`、`verdict`（④b3 起）与 `mutate --check-anchors`（④b5 起）的输出与 Python 版按契约一致。做法：
     - 仓库用 `git clone --shared` 建临时副本，新的 Git 对象写进副本自己的库，不碰真的 `.git` 与 `.agent/runs/`；
     - 每个副本各跑 `check --fresh`，各自建工作树，不共用原来的 worktree；
@@ -888,8 +899,8 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | ③c | kit_roles 不起 CLI 的部分。`roles-local`（本机文件的核对与读、`local_command`、`runtime_command`）、`roles-binding` 的 `resolve_role_executor`、`roles-commands`（runtime list\|add\|remove、profile、role、preset 的全部子命令）、`cli` 的写模式按 Namespace 里有没有 dry_run 判定；`@themis/dispatcher` 的 `executor`（executor_class、allowed_executor_check、load_binding_record、不带 runtime 的 resolve_pi_command）；`@themis/base` 的 `pyshutil`（shutil.which）与 pypath 的 join、split、parent。契约：库函数 79 条（假的 pi、node、claude 放在临时目录）；85 步写命令序列在三个仓库里各由一种实现执行，每一步与最终状态一致，断言走到 20 处关键路径；读命令三种仓库逐字节；交替写序列加进 ③c 的写命令。变异：TS 库函数 24 个抓 23、1 个等价（L14），命令 19 个全抓；Python 库函数 5 个、命令 3 个全抓；第 ③a2 片移来的 R02 抓住 | 完成 | 见提交说明 |
 | ③e | plugins 命令与 strict_json_loads。`plugins-commands`（kit_plugins 的 list、show、verify、enable、disable：枚举、读前链接检查、单插件核对、权限授予与影响、题库门禁、dry-run 的文字与 JSON 预览）、`cli` 转交 plugins；`@themis/base` 的 `protocols`（strict_json_loads，错误码与先后次序照 Python）、pyjson 的组装器、pyio 的读错误不带文件名。契约：严格 JSON 51 条加三个种子各 600 份随机文档；plugins 21 个场景、98 步，覆盖 oracle 的 P1–P17 与复审补的场景，每个场景断言走到了要测的路径；交替写序列加进 plugins 的写命令。变异：TS 严格 JSON 12 个、plugins 24 个，第一轮各漏 1 个、补用例后抓住，另 3 个等价；Python 8 个，抓住 7、1 个等价 | 完成 | 见提交说明 |
 | ③d | 会运行本机 CLI 的命令。`@themis/dispatcher/pi-cli`（run_capture 走 ④a 的 runSupervised、child_env、parse_help 与 --list-models 的解析、pi_model_readiness）、`@themis/config/roles-probe`（runtime scan [--add]、runtime probe、models、doctor [--record]），cli 转交这四条。契约：探针级 6 条（解析 26 条手写加三个种子各 400 段、child_env、cwd_relative_parts、run_capture 12 条，另一条只测 TS 的进程树超时）；命令行 12 条，假 pi 经 npm 样式垫片与 PI_DISPATCH_PI_CMD 两条路起，每步另比假 pi 收到的 argv 与环境。变异：TS 47 个，第一轮各漏 1 个（C07 等价、R18 补夹具后抓住）；Python 8 个全部抓住 | 完成 | 见提交说明 |
-| ③-切换 | 选择文件 `scripts/kernel-impl.json` 的 `config` 改成 `ts`（r3 §10 第 122 轮）。`TS_CONFIG_COMMANDS` 写死 config、plugins 下 33 个叶子命令（`secret set` 不转交），`config_handoff` 用 kit_config、kit_plugins 自己的 argparse 解析，帮助、用法错误与 kit_config 的两条组合检查由 Python 答，不先找仓库，context 交 kit 根与等配置锁的秒数；`argv_impl` 照同一份名单。契约：配置中心五份都加第四种运行方式“经真的启动器”（交替写与锁互斥里也有）；pyargs Schema 按 argparse 补上 33 条，并核对启动器生成的参数 | 完成 | 见提交说明 |
-| 0.4 | 计划 v1.4：按开工前的调查与 themistally-15 的复审重写第 ④ 步（21 条命令加 `status --assess`、八片加切换、D1–D4、对照办法、影子运行、混合期的 26 个名字） | 复审中 | |
+| ③-切换 | 选择文件 `scripts/kernel-impl.json` 的 `config` 改成 `ts`（r3 §10 第 122 轮）。`TS_CONFIG_COMMANDS` 写死 config、plugins 下 33 个叶子命令（`secret set` 不转交），`config_handoff` 用 kit_config、kit_plugins 自己的 argparse 解析，帮助、用法错误与 kit_config 的两条组合检查由 Python 答，不先找仓库，context 交 kit 根与等配置锁的秒数；`argv_impl` 照同一份名单。契约：配置中心五份都加第四种运行方式“经真的启动器”（交替写与锁互斥里也有）；pyargs Schema 按 argparse 补上 33 条，并核对启动器生成的参数。**更正（2026-10-26）**：第 122 轮提交说明里的 A3（“没装 TS 依赖的临时 worktree 里全量 pytest 3015 passed”）不成立：那个 worktree 里先跑了全部门禁基准，ui 门禁的流水线自己 `bun install --frozen-lockfile`、写下了装好戳记，之后的全量其实装了依赖。2026-10-26 在 d1873a9 的新 worktree 里补跑（同一条命令里先后核对 `ts/node_modules` 不在）：1 failed / 3029 passed / 229 skipped，失败的是 `test_exe_search` 的 `status --json`（第 64 轮把 readonly 切到 TS 起就有，报“TS 实现没装好”）；另有 `test_kit_v300` 的 RepoArgument 里 `plugins list` 被启动器的同一句报错蒙过去（只断言了 `ERROR:` 与退出码 2）。两处都由迁移计划 D5 修好 | 完成 | 见提交说明 |
+| 0.4 | 计划 v1.4：按开工前的调查与 themistally-15 的复审重写第 ④ 步（21 条命令加 `status --assess`、八片加切换、D1–D4、对照办法、影子运行、混合期的 26 个名字）；v1.5 补 D5（起真调度器子进程的测试在没装 TS 依赖时钉成 Python，分环境的出口条件） | v1.4 复审通过（themistally-15）；v1.5 待看 | |
 | ④a | Windows 进程监督的验证（第 8.2 节，选候选 3）。`@themis/base/supervise`：`runSupervised` 与 `run_supervised`（第 70 轮）逐项一致，Bun 下经 native.ts 调 kernel32（挂起创建、另起进程组、加入带 KILL_ON_JOB_CLOSE 的 Job 再恢复、只继承三个标准流句柄、CTRL_BREAK 与宽限、残留进程），Node 下经 Bun 辅助进程（DETACHED_PROCESS 起、再挂到调用方的控制台）；`@themis/dispatcher/argv`：`ensure_argv_safe` 逐字节移植。契约 24 条（三套实现跑同一组场景，结果逐字段比较；含挂起之后一条指令也不执行、孙进程脱离父进程也被结束、两种控制台状态下 CTRL_BREAK 的去向、中断、杀掉调用方、`.cmd` 与 npm、255 条 `ensure_argv_safe` 语料）、白盒 8 条；变异 19 个全部抓住。第一轮契约查出 Node 后备的辅助进程在调用方没有控制台时被另配一个控制台，CTRL_BREAK 的结果与进程内调用不一致，改成 DETACHED_PROCESS 加 AttachConsole | 完成 | 见提交说明 |
 | ④ | 证据与门禁 | | |
 | ⑤ | 七端 hub 内核 | | |
