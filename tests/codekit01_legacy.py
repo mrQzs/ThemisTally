@@ -61,6 +61,8 @@ import types
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+import python_kernel
+
 # ---------------------------------------------------------------------------
 # 固定常量
 # ---------------------------------------------------------------------------
@@ -709,13 +711,11 @@ def project_contracts_cli_temp_repo(cases: Sequence[Tuple[str, str, bytes, bytes
 
     require_locked_bytes 的含义同 load_legacy_pi_dispatch。
     """
-    pd_path = repo_path(LEGACY_PI_DISPATCH_PATH)
     out: Dict[str, Dict[str, Any]] = {}
     root = _make_owned_tempdir("codekit01-legacy-repo-")
     source_root: Optional[Path] = None
     try:
         repo, env, head = _make_temp_repo(root)
-        command_path = pd_path
         if require_locked_bytes:
             # The live dispatcher is a successor. Materialize only the
             # immutable historical blob inside our owned temp area.
@@ -725,6 +725,11 @@ def project_contracts_cli_temp_repo(cases: Sequence[Tuple[str, str, bytes, bytes
                 "%s:%s" % (SOURCE_REVISION, LEGACY_PI_DISPATCH_PATH), command="show"))
             if sha256_hex(command_path.read_bytes()) != LEGACY_PI_DISPATCH_SHA256:
                 raise RuntimeError("%s 的旧调度器 blob 摘要不匹配" % SOURCE_REVISION[:12])
+        else:
+            # 当前实现钉成 Python（TS 迁移计划 D5）：选择文件把 validate 交给 TS 之后，没装 TS 依赖的工作树里
+            # 起不来。包装不放在 root 下：崩溃时的堆栈会带上它的路径，撞上下面“输出含临时仓库路径”的检查
+            source_root = _make_owned_tempdir("codekit01-legacy-dispatch-")
+            command_path = python_kernel.script(source_root)
         plans = repo / ".agent" / "plans"
         for case_id, plan_key, md_raw, json_raw in cases:
             for leftover in plans.iterdir():

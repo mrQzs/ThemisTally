@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import kit_hub as kh  # noqa: E402
+import python_kernel  # noqa: E402
 
 BASE = "a" * 40
 REAL_PI_SUPPORTED_FLAGS = kh.pi_supported_flags
@@ -794,12 +795,15 @@ def test_gate_post_judges_mutations_from_the_record(tmp_path, monkeypatch):
 def test_gate_post_checks_the_anchors_before_mutating(tmp_path, monkeypatch):
     # T003 的 M29：old 把全角括号写成了半角，内核只回一句“M29 没生效”，门禁端手里没有原文，30 条全部重写（第 12 轮）
     real = kh.run_pd
+    kernel_dir = python_kernel.script(tmp_path / "kernel").parent
     calls = []
 
     def fake_pd(hub, args, timeout=600):
         calls.append([arg for arg in args if arg.startswith("--")])
         if "--check-anchors" in args:
-            return real(hub, args, timeout)  # 真的调度器：锚点核对不跑命令，只读文件
+            with monkeypatch.context() as pinned:  # 真的调度器（钉成 Python，迁移计划 D5）：锚点核对不跑命令，只读文件
+                pinned.setattr(kh, "HERE", kernel_dir)
+                return real(hub, args, timeout)
         out_dir = Path(args[args.index("--out") + 1])
         out_dir.mkdir(parents=True)
         (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")
@@ -833,12 +837,15 @@ def test_gate_post_checks_the_anchors_before_mutating(tmp_path, monkeypatch):
 def test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged(tmp_path, monkeypatch):
     # 第 85 轮：T016 的战后门禁两回合在工作文件里把 W-M20 改对了（`[[[`），抄进输出时又少了一个 `[`，一字没改地交了两次
     real = kh.run_pd
+    kernel_dir = python_kernel.script(tmp_path / "kernel").parent
     calls = []
 
     def fake_pd(hub, args, timeout=600):
         calls.append([arg for arg in args if arg.startswith("--")])
         if "--check-anchors" in args:
-            return real(hub, args, timeout)
+            with monkeypatch.context() as pinned:
+                pinned.setattr(kh, "HERE", kernel_dir)
+                return real(hub, args, timeout)
         out_dir = Path(args[args.index("--out") + 1])
         out_dir.mkdir(parents=True)
         (out_dir / "mutations.json").write_text(json.dumps(mutation_record("caught")), encoding="utf-8")

@@ -10,6 +10,7 @@ Windows 上 CreateProcess 与 libuv 按名字找程序时，调用方自己的�
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -23,6 +24,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import pi_dispatch as pd  # noqa: E402
+import python_kernel  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not pd.IS_WINDOWS, reason="当前目录参与按名字找程序是 Windows 的行为")
 
@@ -82,14 +84,33 @@ def test_the_absolute_tasklist_path_holds_even_without_the_variable(tmp_path):
     assert out.strip() == "True"
 
 
-def test_status_in_a_repo_with_a_planted_git(tmp_path):
+def status_in_a_planted_repo(tmp_path: Path, kernel: Path) -> None:
     plant = planted(tmp_path)
     subprocess.run(["git", "init", "-q", str(plant)], check=True, env=bare_env())
-    done = subprocess.run([sys.executable, str(SCRIPTS / "pi_dispatch.py"), "status", "--json"], cwd=str(plant),
+    done = subprocess.run([sys.executable, str(kernel), "status", "--json"], cwd=str(plant),
                           env=bare_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=120)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     assert done.stdout.decode("utf-8").strip() == "[]"
+
+
+def test_status_in_a_repo_with_a_planted_git(tmp_path):
+    # 钉成 Python（迁移计划 D5）：没装 TS 依赖的工作树里也要跑
+    status_in_a_planted_repo(tmp_path, python_kernel.script(tmp_path / "kernel"))
+
+
+def test_status_handed_to_ts_in_a_repo_with_a_planted_git(tmp_path):
+    # 经启动器转交 TS 时，TS 起 git 也不查当前目录（handoff_env 带上防护）。ts/ 的 harden.test.ts 直接起 main.ts、
+    # 不经启动器，所以这一份留在这里；没装依赖时跳过，Python 那一份照常跑
+    try:
+        pd.ts_launch_command({"command": ["status"]})
+    except pd.DispatchError as exc:
+        pytest.skip("没装 TS 依赖，经启动器转交 TS 的这一份不跑：%s" % exc)
+    kernel = python_kernel.script(tmp_path / "kernel")
+    selector = dict({name: "python" for name in pd.KERNEL_IMPL_COMPONENTS}, readonly="ts")
+    assert pd.argv_impl(["status", "--json"], selector) == "ts"
+    (kernel.parent / "kernel-impl.json").write_text(json.dumps(dict(selector, schema_version=1)), encoding="utf-8")
+    status_in_a_planted_repo(tmp_path, kernel)
 
 
 def test_child_environments_carry_the_guard():

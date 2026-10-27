@@ -45,6 +45,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 sys.path.insert(0, str(KIT / "scripts"))
 import pi_dispatch as pd  # noqa: E402
+import python_kernel  # noqa: E402
 
 
 def sh(cmd, cwd, env=None, check=True):
@@ -2766,8 +2767,10 @@ def test_v260_release_check_and_dod_intent():
     empty = WORK / "v260-empty"
     remove_tree(empty)
     empty.mkdir()
-    code, out = sh([PY, str(KIT / "scripts/pi_dispatch.py"), "--repo", str(empty), "release-check"], empty, check=False)
-    check("outside a git checkout release-check is not a pass", code != 0, out)
+    kernel = python_kernel.script(WORK / "python-kernel")  # 钉成 Python（迁移计划 D5）
+    code, out = sh([PY, str(kernel), "--repo", str(empty), "release-check"], empty, check=False)
+    check("outside a git checkout release-check is a usage error",
+          code == pd.EXIT_USAGE and "不在 Git 仓库中" in out, out)
     # DoD 的“目的”子句。
     md = build_md(contract(base, 2)).replace(
         "- D01: 行为正确；证据：V01。", "- D01: 行为正确；证据：V01；目的：保住空白折叠与小写化的真实语义，而不是让测试变绿。")
@@ -3151,7 +3154,9 @@ def test_v290_doctor_reports_the_kit_layout():
           and facts["kit"]["record"]["missing"] == ["scripts/codekit/secrets.py"]
           and "scripts/codekit/secrets.py" in facts["kit"]["missing"]
           and any("改过 1 个、缺 1 个" in n for n in facts["notes"]), out)
-    code, out = sh([PY, str(KIT / "scripts/pi_dispatch.py"), "--repo", str(repo), "doctor"], repo, check=False)
+    # 钉成 Python（迁移计划 D5）；包装加载的是 kit 的 scripts/pi_dispatch.py，所以仍是外部布局
+    kernel = python_kernel.script(WORK / "python-kernel")
+    code, out = sh([PY, str(kernel), "--repo", str(repo), "doctor"], repo, check=False)
     facts = json.loads(out)
     check("the kit run from outside the repository is the external layout", facts["kit"]["layout"] == "external"
           and facts["kit"]["missing"] == [], out)

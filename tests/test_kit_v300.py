@@ -21,6 +21,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import pi_dispatch as pd  # noqa: E402
+import python_kernel  # noqa: E402
 
 NEW_FILES = ("scripts/kit_logs.py", "scripts/kit_plugins.py")
 
@@ -138,13 +139,16 @@ class RepoArgument(unittest.TestCase):
     def test_repo_pointing_at_a_file_is_a_usage_error(self):
         target = ROOT / "README.md"
         env = dict(os.environ, PYTHONUTF8="1", CODEKIT_SECRET_STORE="off")
+        tmp = Path(tempfile.mkdtemp(prefix="kit-v300-kernel-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        kernel = python_kernel.script(tmp)  # 钉成 Python（迁移计划 D5）：plugins 在找仓库之前就按选择文件转交 TS
         for argv in (["status"], ["logs", "list"], ["plugins", "list"]):
             with self.subTest(argv=argv):
-                proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "pi_dispatch.py"), "--repo", str(target)]
+                proc = subprocess.run([sys.executable, str(kernel), "--repo", str(target)]
                                       + argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=120)
                 err = proc.stderr.decode("utf-8", "replace")
                 self.assertEqual(proc.returncode, 2, err)
-                self.assertIn("ERROR:", err)
+                self.assertIn("ERROR: --repo 不是目录", err)  # 只认 ERROR: 的话，启动器的“TS 实现没装好”也蒙得过去
                 self.assertNotIn("Traceback", err)
 
 
@@ -356,7 +360,8 @@ class RunDirBoundary(unittest.TestCase):
     def test_cli_reports_one_error_line(self):
         self.link(self.repo.runs_dir / "t1" / "attempt-002", self.outside / "attempt-001")
         env = dict(os.environ, PYTHONUTF8="1", CODEKIT_SECRET_STORE="off")
-        proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "pi_dispatch.py"), "--repo", str(self.root),
+        kernel = python_kernel.script(self.root.parent / "kernel")  # 钉成 Python（迁移计划 D5）
+        proc = subprocess.run([sys.executable, str(kernel), "--repo", str(self.root),
                                "mark", "t1", "ABANDONED", "--reason", "x"], stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, env=env, timeout=120)
         err = proc.stderr.decode("utf-8", "replace")
