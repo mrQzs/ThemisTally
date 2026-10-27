@@ -1,0 +1,130 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "summarize_events|shell"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "U01 布尔不当数字累加",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "  typeof value === \"bigint\" || typeof value === \"number\" || typeof value === \"boolean\";",
+      "new": "  typeof value === \"bigint\" || typeof value === \"number\";"
+    },
+    {
+      "name": "U02 不是正数的费用也加",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "if (isNumber(total) && pyPositive(total))",
+      "new": "if (isNumber(total))"
+    },
+    {
+      "name": "U03 消息正文用空格连",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "  return pyJoinStrings(NL, parts);",
+      "new": "  return pyJoinStrings(\" \", parts);"
+    },
+    {
+      "name": "U04 开头的 ## 不切",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "(index === 0 || text[index - 1] === NL)",
+      "new": "(index > 0 && text[index - 1] === NL)",
+      "equivalent": "开头就是标题时 Python 先切出一个空段；不切的话第一段照样以 ## 开头、照样按标题名判断，空段只让拼接结果多一个开头的换行，关键词里没有换行，计数不变"
+    },
+    {
+      "name": "U05 领域用语出现一次就算",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "filter(([, count]) => count >= 2)",
+      "new": "filter(([, count]) => count >= 1)"
+    },
+    {
+      "name": "U06 否定词的窗口 30",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "slice(match.start - 24, match.start)",
+      "new": "slice(match.start - 30, match.start)"
+    },
+    {
+      "name": "U07 否定答案的窗口 60",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "slice(match.end, match.end + 80)",
+      "new": "slice(match.end, match.end + 60)"
+    },
+    {
+      "name": "U08 合同字样的窗口 200",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "slice(match.start - 240, match.end + 240)",
+      "new": "slice(match.start - 200, match.end + 200)"
+    },
+    {
+      "name": "U09 摘录 250 个字符",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": ".join(\" \"), 260);",
+      "new": ".join(\" \"), 250);"
+    },
+    {
+      "name": "U10 空行只认空格",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "byte === 0x20 || (byte >= 0x09 && byte <= 0x0d)",
+      "new": "byte === 0x20"
+    },
+    {
+      "name": "U11 行尾只去一个回车",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "  while (end > 0 && raw[end - 1] === 13) end -= 1;",
+      "new": "  if (end > 0 && raw[end - 1] === 13) end -= 1;",
+      "equivalent": "多出来的回车留在行尾：JSON 本来就把回车当空白（json.loads 与 pyjson 都放过），解析结果不变；整行只有回车的在前面按空行跳过"
+    },
+    {
+      "name": "U12 不判截断",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "data.length > 0 && data[data.length - 1] !== 10",
+      "new": "false"
+    },
+    {
+      "name": "U13 不知道是否支持 settled 时也按 agent_end",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "complete = expectsSettled === false && !pendingWork",
+      "new": "complete = expectsSettled !== true && !pendingWork"
+    },
+    {
+      "name": "U14 报告里的思考块也剔掉",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": " && item.get(\"kind\") === \"text\"));",
+      "new": "));"
+    },
+    {
+      "name": "U15 压缩过也算估算完整",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "pricedMissing === 0n && compactions === 0 ?",
+      "new": "pricedMissing === 0n ?"
+    },
+    {
+      "name": "U16 工作副本外路径不计次数",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "first.set(\"occurrences\", (first.get(\"occurrences\") as bigint) + 1n);",
+      "new": "first.set(\"occurrences\", first.get(\"occurrences\") as bigint);"
+    },
+    {
+      "name": "U17 命令只留 400 个字符",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "commands.push(firstPoints(command, 500));",
+      "new": "commands.push(firstPoints(command, 400));"
+    },
+    {
+      "name": "U18 相对路径当绝对路径",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "pyResolve(purePathIsAbsolute(candidate) ? candidate",
+      "new": "pyResolve(true ? candidate"
+    },
+    {
+      "name": "U19 加法遇到超大 int 不报溢出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "(left === null ? (a as number) : intToFloat(left)) + (right === null ? (b as number) : intToFloat(right))",
+      "new": "Number(left ?? a) + Number(right ?? b)"
+    }
+  ]
+}

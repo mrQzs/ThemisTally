@@ -1,0 +1,104 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "summarize_events|shell"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "V01 等长的写法不按码点排",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": " || cmpCodePoints(a, b));",
+      "new": ");"
+    },
+    {
+      "name": "V02 .. 多跳一层才算跳出",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "      if (depth < 0) return true;",
+      "new": "      if (depth < -1) return true;"
+    },
+    {
+      "name": "V03 主仓库路径不看右边界",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "      if (following && !oneOf(`/${BS};|&)<>\"'`)(following)) continue;",
+      "new": ""
+    },
+    {
+      "name": "V04 ~ 不算存在",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "  if (text.startsWith(\"~\")) return true;",
+      "new": "  if (text.startsWith(\"~\")) return false;"
+    },
+    {
+      "name": "V05 开引号前的逗号不认",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "oneOf(\"=(;|&<>,`\")(at(points, start - 2))",
+      "new": "oneOf(\"=(;|&<>`\")(at(points, start - 2))"
+    },
+    {
+      "name": "V06 工作副本外路径不排除临时路径",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": " || TEMP_PATH.search(excerpt)) continue;",
+      "new": ") continue;"
+    },
+    {
+      "name": "V07 屏蔽时不看反斜杠转义的空白",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "        if (rest.endsWith(BS)) continue;",
+      "new": ""
+    },
+    {
+      "name": "V08 屏蔽时不看 .. 跳出",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": " || rest.includes(\"`\") || escapes(rest)) continue;",
+      "new": " || rest.includes(\"`\")) continue;"
+    },
+    {
+      "name": "V09 rm 的选项不认连字符",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "/^[A-Za-z-]$/u.test(at(points, letters))",
+      "new": "/^[A-Za-z]$/u.test(at(points, letters))"
+    },
+    {
+      "name": "V10 缓存目标不剥引号",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "  if (QUOTES.includes(chars[0] ?? \"\")) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "V11 Remove-Item 也判缓存清理",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "  if (REMOVE_ITEM.search(command)) return null;",
+      "new": ""
+    },
+    {
+      "name": "V12 摘录宽 150",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "width = 160): string {",
+      "new": "width = 150): string {"
+    },
+    {
+      "name": "V13 摘录窗口从命中前一半开始",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "Math.floor(width / 3)",
+      "new": "Math.floor(width / 2)"
+    },
+    {
+      "name": "V14 pipefail 也算掩盖",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "  if (PIPEFAIL.search(command)) return \"\";",
+      "new": ""
+    },
+    {
+      "name": "V15 同一行的临时路径摘录不去重",
+      "file": "ts/packages/dispatcher/src/shell-scan.ts",
+      "old": "      if (seen.has(excerpt)) continue;",
+      "new": ""
+    }
+  ]
+}

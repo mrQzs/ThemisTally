@@ -197,6 +197,13 @@ function winJoin(first: string, ...rest: string[]): string {
   return drive + root + tail;
 }
 
+/** PurePath(value).is_absolute()：Windows 上要同时有盘符（或 UNC 前缀）与根，POSIX 上以 / 开头。 */
+export function purePathIsAbsolute(value: string): boolean {
+  if (!WIN) return value.startsWith("/");
+  const parsed = parsePurePath(value);
+  return Boolean(parsed.drive && parsed.root);
+}
+
 /** str(PurePath(value, *parts))：几段先照 os.path.join 拼起来（pathlib 就是这么做的），再规整。 */
 export function purePathStr(value: string, ...parts: string[]): string {
   const joined = parts.length === 0 ? value : WIN ? winJoin(value, ...parts) : path.posix.join(value, ...parts);

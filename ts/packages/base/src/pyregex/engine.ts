@@ -2,7 +2,7 @@
 // 回溯用显式的上下文栈（与 sre 一样不递归），长行上的重复不会撑爆 JS 的调用栈。控制流照原样：DO_JUMP 压栈进入子模式，
 // 子模式走到 SUCCESS 或失败就弹栈，回到对应的跳转标签接着做。与 sre 不同的只有不影响“有没有匹配”的部分：不记捕获组
 // （MARK、lastmark），不做只为提速的预判（BRANCH 与 REPEAT_ONE 先看下一个字面量），toplevel 与 must_advance 恒为假
-// （search 用不到）。
+// （search 用不到）。searchSpan、matchSpan 交回匹配的起止位置（码点下标）：最后执行的那条 SUCCESS 就是最外层的，它的 ptr 是终点。
 import { At, type FlatSet, MAX_CP, Op, type Program, flatContains } from "./compile.ts";
 import { MAXREPEAT } from "./parser.ts";
 
@@ -692,39 +692,60 @@ class Matcher {
     this.repeat = null;
     return this.match(0);
   }
+
+  /** 上一次成功匹配的终点。 */
+  get endPtr(): number {
+    return this.ptr;
+  }
 }
 
-/** SRE(search)：整行里有没有一处匹配。信息块里的最小宽度、字面量前缀、字符集前缀照 sre 用来挑起点。 */
-export function search(program: Program, text: Int32Array, words: WordSets): boolean {
+/**
+ * SRE(search) 从 from 起找第一处匹配，交回 [起点, 终点]（码点下标），没有为 null。信息块里的最小宽度、字面量前缀、字符集
+ * 前缀照 sre 用来挑起点；后行断言照样看得见 from 之前的字符；以不带 MULTILINE 的 ^ 或 A 断言开头的模式只在下标 0 成立。
+ */
+export function searchSpan(program: Program, text: Int32Array, words: WordSets, from = 0): [number, number] | null {
   const end = text.length;
   const { minWidth, prefix, charset, code } = program;
-  if (minWidth && end < minWidth) return false;
+  if (minWidth && end - from < minWidth) return null;
   const matcher = new Matcher(program, text, words);
   if (prefix.length > 0) {
     // 字面量前缀：只在前缀出现的位置尝试（与 sre 的逐字比较、重叠表等价）
     const first = prefix[0] as number;
-    for (let ptr = 0; ptr + prefix.length <= end; ptr += 1) {
+    for (let ptr = from; ptr + prefix.length <= end; ptr += 1) {
       if (text[ptr] !== first) continue;
       let index = 1;
       while (index < prefix.length && text[ptr + index] === prefix[index]) index += 1;
-      if (index === prefix.length && matcher.tryAt(ptr)) return true;
+      if (index === prefix.length && matcher.tryAt(ptr)) return [ptr, matcher.endPtr];
     }
-    return false;
+    return null;
   }
   if (charset !== null) {
-    for (let ptr = 0; ptr < end; ptr += 1) {
-      if (flatContains(charset, text[ptr] as number) && matcher.tryAt(ptr)) return true;
+    for (let ptr = from; ptr < end; ptr += 1) {
+      if (flatContains(charset, text[ptr] as number) && matcher.tryAt(ptr)) return [ptr, matcher.endPtr];
     }
-    return false;
+    return null;
   }
-  // 一般情形：最小宽度大于 1 时，末尾放不下的起点不试；以 ^ 或 \A 开头时只试开头
+  // 一般情形：最小宽度大于 1 时，末尾放不下的起点不试；以 ^ 或 A 断言开头时只试开头
   const anchored = code[0] === Op.AT && (code[1] === At.BEGINNING || code[1] === At.BEGINNING_STRING);
+  if (anchored && from > 0) return null;
   const last = anchored ? 0 : minWidth > 1 ? Math.max(0, end - (minWidth - 1)) : end;
   const leading = program.leading;
-  for (let ptr = 0; ptr <= last; ptr += 1) {
+  for (let ptr = from; ptr <= last; ptr += 1) {
     // 第一个字符就对不上的起点，试了也是失败
     if (leading !== null && (ptr >= end || !flatContains(leading, text[ptr] as number))) continue;
-    if (matcher.tryAt(ptr)) return true;
+    if (matcher.tryAt(ptr)) return [ptr, matcher.endPtr];
   }
-  return false;
+  return null;
+}
+
+/** SRE(search)：整行里有没有一处匹配。 */
+export function search(program: Program, text: Int32Array, words: WordSets): boolean {
+  return searchSpan(program, text, words) !== null;
+}
+
+/** pattern.match(text, pos)：只在 pos 处试，交回 [起点, 终点]，没有为 null。 */
+export function matchSpan(program: Program, text: Int32Array, words: WordSets, pos = 0): [number, number] | null {
+  if (program.minWidth && text.length - pos < program.minWidth) return null;
+  const matcher = new Matcher(program, text, words);
+  return matcher.tryAt(pos) ? [pos, matcher.endPtr] : null;
 }

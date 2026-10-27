@@ -70,7 +70,7 @@ function finalOutcome(attempts: readonly string[]): [string, PyValue] {
 }
 
 /** frozen_executor_class：attempt 冻结合同（contract.json）的 executor 类别。 */
-function frozenExecutorClass(runDir: string): string {
+export function frozenExecutorClass(runDir: string): string {
   const raw = readJsonOr(path.join(runDir, "contract.json"), new Map());
   return executorClass(isDict(raw) ? (raw.get("executor") ?? null) : null);
 }
@@ -115,7 +115,7 @@ function pricedAttempt(runDir: string, pricing: PyDict): [string | null, number 
 }
 
 /** codekit.decisions.read_records：只按换行切（字符串里的 U+2028 之类不算行界），坏行跳过；读不了为空。 */
-function readRecords(file: string): PyDict[] {
+export function readRecords(file: string): PyDict[] {
   let text: string;
   try {
     text = pyReadText(file);

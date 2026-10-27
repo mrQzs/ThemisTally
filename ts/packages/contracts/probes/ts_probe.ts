@@ -16,6 +16,9 @@ import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
 import { compilePatterns, globRegexText, matches, patternError, reEscape } from "@themis/dispatcher/patterns";
 import { branchSubject, deriveContractJson, invisibleCharWarnings, validateContract } from "@themis/dispatcher/contract";
 import { validatePlan } from "@themis/dispatcher/contract-plan";
+import { ambiguityDomainWords, ambiguityMentions, extractReport, interpretationMentions, messageText, reviewHints, summarizeEvents } from "@themis/dispatcher/events";
+import { cacheDirCleanup, maskPaths, maskedExitMention, matchExcerpt, outsideMentions, pathForms, protectedMentions, tempDirWithoutCleanup } from "@themis/dispatcher/shell-scan";
+import { type BatteryView, writeSummary } from "@themis/dispatcher/summary";
 import { kernelProtectedPaths } from "@themis/dispatcher/kernel-config";
 import { PyOverflowError } from "@themis/base/pyregex";
 import { childEnv, listModelsEmptyReason, listModelsLines, listModelsRows, parseHelp, runCapture } from "@themis/dispatcher/pi-cli";
@@ -536,6 +539,78 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     const digits = Number(request["digits"]);
     const rounded = pyRound(value, digits);
     return { ok: true, fixed: pyFixed(value, digits), round: typeof rounded === "bigint" ? intRepr(rounded) : floatRepr(rounded) };
+  },
+  "events.call": (request) => {
+    const text = (key: string): string => String(request[key]);
+    try {
+      switch (request["fn"]) {
+        case "summarize": {
+          const [summary, finalText] = summarizeEvents(text("events"), text("work_dir"), fromTagged(request["executor"] as Tagged) as PyDict, {
+            stderrPath: request["stderr"] ? text("stderr") : null,
+            expectsSettled: (request["expects_settled"] ?? null) as PyValue,
+            allowedOutside: (request["allowed_outside"] ?? []) as string[],
+            planText: String(request["plan_text"] ?? ""),
+            protectedRoots: (request["protected_roots"] ?? []) as string[],
+          });
+          return { ok: true, summary: toTagged(summary), final_text: finalText };
+        }
+        case "extract_report":
+          return { ok: true, value: toTagged(extractReport(text("text"), text("run_dir"))) };
+        case "review_hints":
+          return { ok: true, value: toTagged(reviewHints(text("patch"))) };
+        case "write_summary": {
+          const questions = join(text("kit_root"), "plugins", "decisions", "questions");
+          const reportScreen = (): BatteryView | null => {
+            try {
+              return loadBatteries(questions).get("report-screen") ?? null;
+            } catch (error) {
+              if (error instanceof DecisionError) return null;
+              throw error;
+            }
+          };
+          writeSummary(text("run_dir"), new Repo(text("root")), { reportScreen });
+          return { ok: true };
+        }
+        case "message_text":
+          return { ok: true, value: messageText(fromTagged(request["message"] as Tagged) as PyDict) };
+        case "mentions": {
+          const message = fromTagged(request["message"] as Tagged) as PyDict;
+          const line = request["line"] as number;
+          return {
+            ok: true,
+            ambiguity: toTagged(ambiguityMentions(message, line, (request["skip"] ?? []) as string[])),
+            interpretation: toTagged(interpretationMentions(message, line)),
+          };
+        }
+        case "domain_words":
+          return { ok: true, value: ambiguityDomainWords(text("text")) };
+        case "scan": {
+          const command = text("command");
+          const scan = maskPaths(command, request["own"] as string[]);
+          return {
+            ok: true,
+            masked: scan,
+            protected: protectedMentions(scan, request["protected"] as string[]),
+            outside: outsideMentions(scan, request["protected"] as string[]),
+            cache: cacheDirCleanup(command),
+            exit: maskedExitMention(command),
+            leak: tempDirWithoutCleanup(command),
+          };
+        }
+        case "path_forms":
+          return { ok: true, value: pathForms(request["paths"] as string[]) };
+        case "excerpt":
+          return { ok: true, value: matchExcerpt(text("text"), request["start"] as number, request["end"] as number) };
+        default:
+          return { ok: false, error: "UNKNOWN_FN" };
+      }
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyJsonError) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyOSError) return { ok: false, error: pyOSErrorType(error), message: error.message };
+      if (error instanceof PyUnicodeDecodeError) return { ok: false, error: "UnicodeDecodeError", message: error.message };
+      throw error;
+    }
   },
   "contract.call": (request) => {
     try {

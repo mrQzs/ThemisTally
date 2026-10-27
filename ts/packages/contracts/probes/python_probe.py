@@ -413,6 +413,55 @@ def op_patterns_call(request):
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 
+def op_events_call(request):
+    """pi_dispatch 的事件流摘要与 summary.md（迁移第 ④b6 片）。写出的文件由测试自己读字节比较；异常交回类名与 str(exc)。"""
+    fn = request["fn"]
+
+    def path(key):
+        return Path(request[key])
+
+    try:
+        if fn == "summarize":
+            summary, final_text = pi_dispatch.summarize_events(
+                path("events"), path("work_dir"), from_tagged(request["executor"]),
+                stderr_path=path("stderr") if request.get("stderr") else None,
+                expects_settled=request.get("expects_settled"),
+                allowed_outside=[Path(item) for item in request.get("allowed_outside", [])],
+                plan_text=request.get("plan_text", ""),
+                protected_roots=[Path(item) for item in request.get("protected_roots", [])])
+            return {"ok": True, "summary": to_tagged(summary), "final_text": final_text}
+        if fn == "extract_report":
+            return {"ok": True, "value": to_tagged(pi_dispatch.extract_report(request["text"], path("run_dir")))}
+        if fn == "review_hints":
+            return {"ok": True, "value": to_tagged(pi_dispatch.review_hints(path("patch")))}
+        if fn == "write_summary":
+            # kit 根（问题清单的位置）就是本仓库：KIT_ROOT 按 pi_dispatch 自己的位置算，请求里的 kit_root 只给 TS 用
+            pi_dispatch.write_summary(path("run_dir"), pi_dispatch.Repo(path("root")))
+            return {"ok": True}
+        if fn == "message_text":
+            return {"ok": True, "value": pi_dispatch._message_text(from_tagged(request["message"]))}
+        if fn == "mentions":
+            message = from_tagged(request["message"])
+            return {"ok": True,
+                    "ambiguity": to_tagged(pi_dispatch.ambiguity_mentions(message, request["line"], request.get("skip", []))),
+                    "interpretation": to_tagged(pi_dispatch.interpretation_mentions(message, request["line"]))}
+        if fn == "domain_words":
+            return {"ok": True, "value": pi_dispatch.ambiguity_domain_words(request["text"])}
+        if fn == "scan":
+            command = request["command"]
+            scan = pi_dispatch._mask_paths(command, request["own"])
+            return {"ok": True, "masked": scan, "protected": pi_dispatch._protected_mentions(scan, request["protected"]),
+                    "outside": pi_dispatch._outside_mentions(scan, request["protected"]),
+                    "cache": pi_dispatch._cache_dir_cleanup(command), "exit": pi_dispatch._masked_exit_mention(command),
+                    "leak": pi_dispatch._temp_dir_without_cleanup(command)}
+        if fn == "path_forms":
+            return {"ok": True, "value": pi_dispatch._path_forms([Path(item) for item in request["paths"]])}
+        if fn == "excerpt":
+            return {"ok": True, "value": pi_dispatch._match_excerpt(request["text"], request["start"], request["end"])}
+    except Exception as exc:  # noqa: BLE001 —— 崩溃的类名与文字也要两边一致
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
 def op_contract_call(request):
     """pi_dispatch 的合同解析与校验（迁移第 ④b1 片）：derive_contract_json、validate_contract、invisible_char_warnings。
     异常交回类名与 str(exc)（命令行上它们是未捕获的崩溃，契约只比到这一层）。"""
@@ -776,6 +825,7 @@ OPS = {
     "pyshlex.split": op_pyshlex_split,
     "patterns.call": op_patterns_call,
     "contract.call": op_contract_call,
+    "events.call": op_events_call,
     "pyfmt.number": op_pyfmt_number,
     "dispatch.child_env": op_dispatch_child_env,
     "roles.cwd_relative": op_roles_cwd_relative,

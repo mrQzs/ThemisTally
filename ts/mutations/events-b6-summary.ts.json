@@ -1,0 +1,92 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "write_summary"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "W01 是否写反",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "(pyTruthy(value) ? \"是\" : \"否\")",
+      "new": "(pyTruthy(value) ? \"否\" : \"是\")"
+    },
+    {
+      "name": "W02 反引号不换",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "  return value.split(BACKTICK).join(\"'\");",
+      "new": "  return value;"
+    },
+    {
+      "name": "W03 字典取第一项不报 KeyError",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "  if (isDict(value)) throw new PyCrash(\"KeyError\", \"0\");",
+      "new": "  if (isDict(value)) return null;"
+    },
+    {
+      "name": "W04 清单不符时照样写版本",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "    get(record, \"reason\") === \"battery_drift\"",
+      "new": "    false"
+    },
+    {
+      "name": "W05 shadow 模式也进复审关注",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "    if (get(record, \"mode\") !== \"on\") continue;",
+      "new": ""
+    },
+    {
+      "name": "W06 临时路径摘录截断的条件差一",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "    if (greater(totalTempUses, shownCount)) {",
+      "new": "    if (greater(totalTempUses, shownCount - 1)) {"
+    },
+    {
+      "name": "W07 调用失败按真值判断",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "    if (failed === true) detail.push(\"调用失败\");",
+      "new": "    if (pyTruthy(failed)) detail.push(\"调用失败\");"
+    },
+    {
+      "name": "W08 次数大于等于 1 就写",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "greater(or(get(item, \"occurrences\"), 0n), 1)",
+      "new": "greater(or(get(item, \"occurrences\"), 0n), 0)"
+    },
+    {
+      "name": "W09 运行目录的文件列 6 个",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "listed(ownReads.slice(0, 5))",
+      "new": "listed(ownReads.slice(0, 6))"
+    },
+    {
+      "name": "W10 HEAD 只写 10 位",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "prefix(or(get(changes, \"head_before\"), \"?\"), 12)",
+      "new": "prefix(or(get(changes, \"head_before\"), \"?\"), 10)"
+    },
+    {
+      "name": "W11 noul 的置信度不取绝对值",
+      "file": "ts/packages/dispatcher/src/decision-records.ts",
+      "old": "Math.abs(2.0 * p - 1.0)",
+      "new": "(2.0 * p - 1.0)"
+    },
+    {
+      "name": "W12 score 的级数不减一",
+      "file": "ts/packages/dispatcher/src/decision-records.ts",
+      "old": "pyIntOf(pyGet(answer, \"levels\", 0n)) - 1n",
+      "new": "pyIntOf(pyGet(answer, \"levels\", 0n))"
+    },
+    {
+      "name": "W13 字符串拼接的报错用加法的说法",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "throw new PyCrash(\"TypeError\", `can only concatenate str (not \"${pyTypeName(b)}\") to str`);",
+      "new": "throw new PyCrash(\"TypeError\", `unsupported operand type(s) for +: 'str' and '${pyTypeName(b)}'`);"
+    }
+  ]
+}

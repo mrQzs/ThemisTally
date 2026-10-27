@@ -148,7 +148,8 @@ export function validatePlan(repo: Repo, planKey: string, ctx: PlanContext): Pla
   let [contract] = loaded;
   const [, errors, raw] = loaded;
   warnings.push(...invisibleCharWarnings(mdText, "Markdown"));
-  warnings.push(...invisibleCharWarnings(new TextDecoder("utf-8").decode(jsonBytes), "JSON"));
+  // 与 Python 的 decode("utf-8", "replace") 同义：开头的 BOM 留着，坏字节换成 U+FFFD（themistally-15 复核 ④b1 时建议）
+  warnings.push(...invisibleCharWarnings(new TextDecoder("utf-8", { ignoreBOM: true }).decode(jsonBytes), "JSON"));
   const base = isDict(raw) ? get(raw, "base_sha") : null;
   if (typeof base === "string" && SHA_RE.test(base)) {
     if (resolveCommit(repo.root, base) !== base) {
@@ -329,6 +330,8 @@ function plannerText(value: PyValue, field: string, pattern?: RegExp): void {
 /**
  * codekit.planner.validate_publication_receipt 的判定部分。末尾的 _json_value（check_json_value，1 MiB 的字节下界）对这里
  * 不可能失败：回执是 strict_json_loads 从不超过 1 MiB 的原文解出来的，每类值的下界都不超过它在原文里的字节数，深度上限也相同。
+ * 前提：value 必须是缺省上限（1 MiB、64 层）的 strictJsonLoads 的结果。以后（第 ⑤ 步）要用在别处来的值上，先移植这道检查
+ * （themistally-15 复核 ④b1 时核对过这条论证）。
  */
 export function validatePublicationReceipt(value: PyValue): void {
   if (!isDict(value)) throw new PlannerError("E_SCHEMA_TYPE", "publication receipt object required");

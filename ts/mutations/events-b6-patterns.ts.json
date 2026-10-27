@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "生成的正则表"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "G01 pi_dispatch 改了正则、生成的表没跟着改",
+      "file": "scripts/pi_dispatch.py",
+      "old": "ASSERT_RE = re.compile(r\"\\b(?:expect|assert\\w*|should)\\b\")",
+      "new": "ASSERT_RE = re.compile(r\"\\b(?:expect|assert\\w*)\\b\")"
+    }
+  ]
+}

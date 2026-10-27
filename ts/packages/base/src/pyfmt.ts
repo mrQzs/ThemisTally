@@ -4,7 +4,7 @@
 // 由入口按“崩溃”处理（退出码 1，stderr 不逐字比较，见契约）。
 import { writeSync } from "node:fs";
 import { type PyDict, type PyKey, type PyValue, floatRepr, intRepr } from "./pyjson.ts";
-import { codePoints, pyIsPrintable } from "./pyre.ts";
+import { codePoints, isDigitChar, isSpace, pyIntParse, pyIsPrintable } from "./pyre.ts";
 
 /** Python 运行时异常（AttributeError、TypeError、KeyError…）：照 Python，入口打印一行、退出码 1。 */
 export class PyCrash extends Error {
@@ -150,20 +150,147 @@ export function pyRound(value: number | bigint, digits: number): number | bigint
   return Number.parseFloat(pyFixed(value, digits));
 }
 
-/** a + b 在 JSON 值上的语义：int 与 bool 相加仍是 int，有 float 就是 float，其余类型照 Python 抛 TypeError。 */
+/** a + b 在 JSON 值上的数字语义：int 与 bool 相加仍是 int，有 float 就是 float（int 太大时抛 OverflowError），其余类型照 Python 抛 TypeError。 */
 export function pyAdd(a: PyValue, b: PyValue): bigint | number {
   const asInt = (value: PyValue): bigint | null => (typeof value === "bigint" ? value : typeof value === "boolean" ? (value ? 1n : 0n) : null);
   const left = asInt(a);
   const right = asInt(b);
   if (left !== null && right !== null) return left + right;
   const numeric = (value: PyValue): boolean => typeof value === "number" || asInt(value) !== null;
-  if (numeric(a) && numeric(b)) return Number(left ?? a) + Number(right ?? b);
+  if (numeric(a) && numeric(b)) return (left === null ? (a as number) : intToFloat(left)) + (right === null ? (b as number) : intToFloat(right));
   throw new PyCrash("TypeError", `unsupported operand type(s) for +: '${pyTypeName(a)}' and '${pyTypeName(b)}'`);
 }
 
 /** sum(values, start)。 */
 export function pySum(values: readonly PyValue[], start: bigint | number = 0n): bigint | number {
   return values.reduce<bigint | number>((total, value) => pyAdd(total, value), start);
+}
+
+/** a + b 的全部语义：数字照 pyAdd，str + str 与 list + list 是拼接，其余照 Python 抛 TypeError。 */
+export function pyPlus(a: PyValue, b: PyValue): PyValue {
+  if (typeof a === "string") {
+    if (typeof b === "string") return a + b;
+    throw new PyCrash("TypeError", `can only concatenate str (not "${pyTypeName(b)}") to str`);
+  }
+  if (Array.isArray(a)) {
+    if (Array.isArray(b)) return [...a, ...b];
+    throw new PyCrash("TypeError", `can only concatenate list (not "${pyTypeName(b)}") to list`);
+  }
+  return pyAdd(a, b);
+}
+
+/** float(int)：太大时照 Python 抛 OverflowError，不变成无穷。 */
+function intToFloat(value: bigint): number {
+  const result = Number(value);
+  if (!Number.isFinite(result)) throw new PyCrash("OverflowError", "int too large to convert to float");
+  return result;
+}
+
+/** (value or 0) > 0：不是数字的真值（字符串、列表、字典）照 Python 抛 TypeError。 */
+export function pyPositive(value: PyValue | undefined): boolean {
+  if (!pyTruthy(value)) return false;
+  if (typeof value === "bigint") return value > 0n;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "boolean") return value;
+  throw new PyCrash("TypeError", `'>' not supported between instances of '${pyTypeName(value)}' and 'int'`);
+}
+
+/** "%d" % value：int 原样，bool 是 1 与 0，float 截断，其余照 Python 抛异常。 */
+export function pyPercentD(value: PyValue | undefined): string {
+  return String(pyIntOf(value === undefined ? null : value, "%d format"));
+}
+
+/** int(value)：float 截断（NaN 抛 ValueError，无穷抛 OverflowError），字符串照 int() 解析。 */
+export function pyIntOf(value: PyValue, context = "int()"): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "boolean") return value ? 1n : 0n;
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) throw new PyCrash("ValueError", "cannot convert float NaN to integer");
+    if (!Number.isFinite(value)) throw new PyCrash("OverflowError", "cannot convert float infinity to integer");
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === "string" && context === "int()") {
+    const parsed = pyIntParse(value);
+    if (parsed === null) throw new PyCrash("ValueError", `invalid literal for int() with base 10: ${pyReprValue(value)}`);
+    return parsed;
+  }
+  throw new PyCrash("TypeError", context === "int()"
+    ? `int() argument must be a string, a bytes-like object or a real number, not '${pyTypeName(value)}'`
+    : `%d format: a real number is required, not ${pyTypeName(value)}`);
+}
+
+const FLOAT_WORDS = new Map<string, number>([["inf", Infinity], ["infinity", Infinity], ["nan", Number.NaN]]);
+
+/** float(value)：int 转成最近的 float（太大抛 OverflowError），字符串照 float() 解析（两头的空白、数字间的单个下划线、Unicode 十进制数字、inf 与 nan）。 */
+export function pyFloatOf(value: PyValue): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "bigint") return intToFloat(value);
+  if (typeof value !== "string") throw new PyCrash("TypeError", `float() argument must be a string or a real number, not '${pyTypeName(value)}'`);
+  const parsed = parseFloatText(value);
+  if (parsed === null) throw new PyCrash("ValueError", `could not convert string to float: ${pyReprValue(value)}`);
+  return parsed;
+}
+
+function parseFloatText(text: string): number | null {
+  // 先照 CPython 把 Unicode 十进制数字换成 ASCII、空白换成空格，再去掉两头的空格
+  let ascii = "";
+  for (const char of text) {
+    if (isSpace(char)) ascii += " ";
+    else if (isDigitChar(char) && pyIntParse(char) !== null) ascii += String(pyIntParse(char));
+    else if ((char.codePointAt(0) as number) < 128) ascii += char;
+    else return null;
+  }
+  const body = ascii.trim();
+  const sign = body.startsWith("-") ? -1 : 1;
+  const unsigned = body.startsWith("-") || body.startsWith("+") ? body.slice(1) : body;
+  const word = FLOAT_WORDS.get(unsigned.toLowerCase());
+  if (word !== undefined) return sign * word;
+  if (!FLOAT_SYNTAX.test(unsigned)) return null;
+  return sign * Number(unsigned.split("_").join(""));
+}
+
+/** 数字部分：数字之间可以有单个下划线；小数点前后至少一边有数字；指数可选。 */
+const DIGITS = "[0-9](?:_?[0-9])*";
+const FLOAT_SYNTAX = new RegExp(`^(?:${DIGITS}(?:[.](?:${DIGITS})?)?|[.]${DIGITS})(?:[eE][+-]?${DIGITS})?$`);
+
+/** iter(value) 交出的项：列表原样，字符串拆成码点，字典取键，其余照 Python 抛 TypeError。 */
+export function pyIter(value: PyValue | undefined): PyValue[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return codePoints(value);
+  if (value instanceof Map) return [...value.keys()] as PyValue[];
+  throw new PyCrash("TypeError", `'${pyTypeName(value)}' object is not iterable`);
+}
+
+/** value[key]（字符串键）：不是字典、没有这个键时照 Python 抛异常。 */
+export function pyItem(value: PyValue | undefined, key: string): PyValue {
+  if (value instanceof Map) {
+    if (!value.has(key)) throw new PyCrash("KeyError", pyRepr(key));
+    return value.get(key) as PyValue;
+  }
+  if (typeof value === "string") throw new PyCrash("TypeError", "string indices must be integers, not 'str'");
+  if (Array.isArray(value)) throw new PyCrash("TypeError", "list indices must be integers or slices, not str");
+  throw new PyCrash("TypeError", `'${pyTypeName(value)}' object is not subscriptable`);
+}
+
+/** sep.join(value)：value 先照 iter 展开，每一项都必须是字符串。 */
+export function pyJoin(sep: string, value: PyValue | undefined): string {
+  let items: PyValue[];
+  try {
+    items = pyIter(value);
+  } catch (error) {
+    if (error instanceof PyCrash) throw new PyCrash("TypeError", "can only join an iterable");
+    throw error;
+  }
+  return pyJoinStrings(sep, items);
+}
+
+/** sep.join(items)：不是字符串的项照 Python 报出它的序号与类型。 */
+export function pyJoinStrings(sep: string, items: readonly PyValue[]): string {
+  items.forEach((item, index) => {
+    if (typeof item !== "string") throw new PyCrash("TypeError", `sequence item ${index}: expected str instance, ${pyTypeName(item)} found`);
+  });
+  return items.join(sep);
 }
 
 function writeAll(fd: number, bytes: Buffer): void {

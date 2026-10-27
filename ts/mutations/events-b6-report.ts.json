@@ -1,0 +1,32 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "extract_report"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 json 块从第一个换行起试",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "for (let newline = spaceEnd - 1; newline >= head; newline -= 1) {",
+      "new": "for (let newline = head; newline < spaceEnd; newline += 1) {"
+    },
+    {
+      "name": "R02 报告结尾总补换行",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "finalText.endsWith(NL) ? finalText : finalText + NL",
+      "new": "finalText + NL"
+    },
+    {
+      "name": "R03 恰好 20 MiB 不算截断",
+      "file": "ts/packages/dispatcher/src/events.ts",
+      "old": "data.length >= HINT_LIMIT]",
+      "new": "data.length > HINT_LIMIT]"
+    }
+  ]
+}
