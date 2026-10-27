@@ -1,0 +1,284 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/prepare.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "E01 环境变量与合同不同也不报",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    if (pyTruthy(explicit) && !pyEq(explicit, envValue)) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "E02 按角色时冲突照合同的说法",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "      if (source !== null) throw new DispatchError(",
+      "new": "      if (false) throw new DispatchError("
+    },
+    {
+      "name": "E03 不在允许列表按思考级别报",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (problem !== null && problem[0] === \"missing\") {",
+      "new": "  if (problem !== null && problem[0] === \"x\") {"
+    },
+    {
+      "name": "E04 已有记录当作新绑定",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (existing !== null) return [existing, true];",
+      "new": "  if (existing !== null) return [existing, false];"
+    },
+    {
+      "name": "E05 当前没有绑定时不提示",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (value === null) return ",
+      "new": "  if (value === null && false) return "
+    },
+    {
+      "name": "E06 三项都不同才提示漂移",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "\"thinking\"].some((key) => !pyEq(value.get(key)",
+      "new": "\"thinking\"].every((key) => !pyEq(value.get(key)"
+    },
+    {
+      "name": "E07 五个 v3 键都在才比较",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (!V3_CONFIG_KEYS.some((key) => config.has(key))) return null;",
+      "new": "  if (!V3_CONFIG_KEYS.every((key) => config.has(key))) return null;"
+    },
+    {
+      "name": "E08 绑定与合同相同也提示",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (pyEq([provider, model, thinking ?? null], wanted)) return null;\n",
+      "new": ""
+    },
+    {
+      "name": "E09 note 不记 profile",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    [\"profile\", profileId ?? null],",
+      "new": "    [\"profile\", null],"
+    },
+    {
+      "name": "E10 已有记录也重新解析绑定",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    if (existing !== null) return existing;\n",
+      "new": ""
+    },
+    {
+      "name": "E11 记录的 attempt 编号补两位",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "String(attemptNo).padStart(3, \"0\")",
+      "new": "String(attemptNo).padStart(2, \"0\")"
+    },
+    {
+      "name": "E12 记录不写配置哈希",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": ".set(\"config_sha256\", configBytes !== null ? sha256(configBytes) : null);",
+      "new": ".set(\"config_sha256\", null);"
+    },
+    {
+      "name": "E13 记录的键不排序",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "indent: 2, sortKeys: true",
+      "new": "indent: 2, sortKeys: false"
+    },
+    {
+      "name": "E14 不核对记录的合同哈希",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (!pyEq(record.get(\"contract_json_sha256\") ?? null, contractSha)) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "E15 不释放任务锁",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    lock.release();\n",
+      "new": ""
+    },
+    {
+      "name": "P01 没领取的也算预算",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (!isDir(path.join(attempt, \"claim\"))) continue;\n",
+      "new": ""
+    },
+    {
+      "name": "P02 不看 run.json 的用时",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (run !== null && pyGet(run, \"wall_seconds\") !== null) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "P03 不算预留的时限",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "      wall += pyFloatOf(pyTruthy(reserved) ? reserved : 0n);",
+      "new": "      wall += pyFloatOf(0n);"
+    },
+    {
+      "name": "P04 编号取最后一个而不是最大的",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (value > number) number = value;",
+      "new": "    number = value;"
+    },
+    {
+      "name": "P05 编号也算同名的文件",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (match === null || !isDir(path.join(base, name))) continue;",
+      "new": "    if (match === null) continue;"
+    },
+    {
+      "name": "P06 正在运行的看错状态",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "if (getState(attempt) === \"RUNNING\")",
+      "new": "if (getState(attempt) === \"PREPARED\")"
+    },
+    {
+      "name": "P07 本任务自己的也提示重叠",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (pyEq(task, contract.get(\"task_id\") ?? null) || !attempts.length) continue;",
+      "new": "    if (!attempts.length) continue;"
+    },
+    {
+      "name": "P08 已集成的也提示重叠",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    if (!PENDING_INTEGRATION_STATES.includes(state)) continue;\n",
+      "new": ""
+    },
+    {
+      "name": "P09 重叠的文件用逗号连",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "overlap.slice(0, 10).join(\"、\")",
+      "new": "overlap.slice(0, 10).join(\",\")"
+    },
+    {
+      "name": "P10 记录的错误类型名写错",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  if (error instanceof BindingRecordError) return \"BindingRecordError\";\n",
+      "new": ""
+    },
+    {
+      "name": "P11 记录的错误丢了退出码",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "${error.message}`, error.code);",
+      "new": "${error.message}`, 3);"
+    },
+    {
+      "name": "P12 出错不标 PREPARE_FAILED",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    setState(runDir, \"PREPARE_FAILED\", [[\"reason\", `${exceptionName(error)}: ${(error as Error).message}`]]);\n",
+      "new": ""
+    },
+    {
+      "name": "P13 不查 setup 之后的改动",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  const dirty = failed.length ? \"\" : pyStrip(",
+      "new": "  const dirty = failed.length || true ? \"\" : pyStrip("
+    },
+    {
+      "name": "P14 有 setup 也提示补",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  if (!(contract.get(\"setup\") as PyValue[]).length) {",
+      "new": "  if (true) {"
+    },
+    {
+      "name": "P15 不查 .agent/runs 是否被忽略",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  if (git([\"check-ignore\", \"-q\", \".agent/runs/probe\"], repo.root).status !== 0) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "P16 主工作区总记干净",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "[\"source_worktree_dirty\", sourceStatus.length > 0]",
+      "new": "[\"source_worktree_dirty\", false]"
+    },
+    {
+      "name": "P17 没有 setup 也写 setup.json",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  if (setup.length) writeJson(path.join(runDir, \"setup.json\"), setup, true);",
+      "new": "  writeJson(path.join(runDir, \"setup.json\"), setup, true);"
+    },
+    {
+      "name": "P18 不做决策配置的严格检查",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  checkDecisions(config, repo.agentDir);\n",
+      "new": ""
+    },
+    {
+      "name": "P19 用时按 toFixed 舍入",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "pyFixed(usage.wall_seconds_used, 0)",
+      "new": "usage.wall_seconds_used.toFixed(0)"
+    },
+    {
+      "name": "P20 次数恰好用完不算",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  if (BigInt(usage.attempts_started) >= maxAttempts) {",
+      "new": "  if (BigInt(usage.attempts_started) > maxAttempts) {"
+    },
+    {
+      "name": "P21 worktree 前缀取 15 个码点",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "codePoints(path.basename(repo.root)).slice(0, 16)",
+      "new": "codePoints(path.basename(repo.root)).slice(0, 15)"
+    },
+    {
+      "name": "P22 run 目录打印成相对路径",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "  out.print(`Run directory: ${runDir}`);",
+      "new": "  out.print(`Run directory: ${displayPath(runDir, repo.root)}`);"
+    },
+    {
+      "name": "P23 setup 失败的说明换了标点",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "修正后重新 prepare；本 attempt 未领取",
+      "new": "修正后重新 prepare，本 attempt 未领取"
+    },
+    {
+      "name": "P24 写死的合同不比较绑定",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "set(\"_raw_executor\", rawExecutor), config), ctx.roles, out);",
+      "new": "set(\"_raw_executor\", rawExecutor), config), null, out);"
+    },
+    {
+      "name": "P25 不提示绑定漂移",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    const drift = existed ? bindingDriftNote(",
+      "new": "    const drift = false ? bindingDriftNote("
+    },
+    {
+      "name": "P26 meta 的记录路径留空",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": ".set(\"record_path\", bindingRecordRel(taskId, version))",
+      "new": ".set(\"record_path\", \"\")"
+    },
+    {
+      "name": "P27 impl 写成 python",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "[\"impl\", \"ts\"]",
+      "new": "[\"impl\", \"python\"]"
+    },
+    {
+      "name": "P28 python 字段写成平台",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "[\"python\", ctx.python]",
+      "new": "[\"python\", ctx.platform]"
+    },
+    {
+      "name": "P29 预检不核对记录的执行模型",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "    resolveBoundExecutor(contract, candidate, config);\n",
+      "new": ""
+    },
+    {
+      "name": "P30 重叠的文件全列出来",
+      "file": "ts/packages/dispatcher/src/prepare.ts",
+      "old": "overlap.slice(0, 10).join",
+      "new": "overlap.slice(0).join"
+    }
+  ]
+}

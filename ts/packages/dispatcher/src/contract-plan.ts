@@ -27,9 +27,9 @@ const CR = String.fromCharCode(13);
 const BT = "`";
 export const NOTE_PREFIX = "NOTE：";
 
-/** kit_roles 里 validate 用到的那一个函数（@themis/config/roles-binding 的 resolveRoleExecutor）。 */
+/** kit_roles 里 validate 用到的那一个函数（@themis/config/roles-binding 的 resolveRoleExecutor）；prepare 还用错误的退出码。 */
 export interface KitRoles {
-  resolveRoleExecutor(config: PyDict, role: PyValue): [PyDict | null, { readonly message: string } | null];
+  resolveRoleExecutor(config: PyDict, role: PyValue): [PyDict | null, { readonly message: string; readonly code: number } | null];
 }
 
 /** 启动器经 context 交来的 kit 根与选择文件，加上调用方交进来的 kit_roles（Python 找不到它时是 None）。 */
@@ -171,8 +171,8 @@ export function validatePlan(repo: Repo, planKey: string, ctx: PlanContext): Pla
   return [contract, errors, warnings];
 }
 
-/** validate_plan 的 `except (ValueError, UnicodeDecodeError)`：JSON 文法、UTF-8 与 planner-v2 严格解码的错误。 */
-function jsonParseError(error: unknown): boolean {
+/** validate_plan 与 prepare 的 `except (ValueError, UnicodeDecodeError)`：JSON 文法、UTF-8 与 planner-v2 严格解码的错误。 */
+export function jsonParseError(error: unknown): boolean {
   if (error instanceof PyJsonError) return error.kind !== "RecursionError";
   if (error instanceof PyCrash) return error.kind === "ValueError" || error.kind === "UnicodeDecodeError";
   return error instanceof PyUnicodeDecodeError || error instanceof ProtocolError;

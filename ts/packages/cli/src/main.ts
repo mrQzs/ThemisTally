@@ -24,10 +24,12 @@ import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 import { type DecisionsArgs, cmdDecisions } from "@themis/dispatcher/decisions-replay";
 import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
+import { type PrepareArgs, type PrepareContext, cmdPrepare } from "@themis/dispatcher/prepare";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
 import { decisionsSession } from "@themis/config/decisions-client";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
-import { resolveRoleExecutor } from "@themis/config/roles-binding";
+import { bindingTuple, resolveRoleExecutor } from "@themis/config/roles-binding";
+import { configErrors } from "@themis/config/roles-check";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
 interface PyArgs {
@@ -117,6 +119,13 @@ function planContext(args: Record<string, unknown>): PlanContext {
   return { kitRoot: context.kit_root, kernelImpl: context.kernel_impl, roles: { resolveRoleExecutor } };
 }
 
+/** prepare 的 context：再加本机的 platform.platform() 与 platform.python_version()，写进 meta.json（迁移计划 D1）。 */
+function prepareContext(args: Record<string, unknown>): PrepareContext {
+  const context = (args["context"] ?? {}) as { python?: unknown };
+  if (typeof context.python !== "string") throw new Error("pyargs 缺少 context.python");
+  return { ...planContext(args), roles: { resolveRoleExecutor, configErrors, bindingTuple }, platform: hostPlatform(args), python: context.python };
+}
+
 /** 本机的 platform.platform()：attempt_origin_notes 比较系统名用（迁移计划 D1，TS 拿不到 Python 的值）。 */
 function hostPlatform(args: Record<string, unknown>): string {
   const context = (args["context"] ?? {}) as { platform?: unknown };
@@ -164,6 +173,12 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runBuffered((buffered) => cmdBaseline(args as unknown as BaselineArgs, buffered, planContext(args)));
     case "mutate":
       return runBuffered((buffered) => cmdMutate(args as unknown as MutateArgs, buffered, sessionsFor(args, buffered)));
+    case "prepare":
+      return runBuffered((buffered) => {
+        const ctx = prepareContext(args);
+        const strict = (config: PyValue, agentDir: string): void => void decisionsSession(config, agentDir, null, null, { kitRoot: ctx.kitRoot, out: buffered }, true);
+        return cmdPrepare(args as unknown as PrepareArgs, buffered, ctx, strict);
+      });
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":
