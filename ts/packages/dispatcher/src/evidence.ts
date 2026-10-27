@@ -9,6 +9,7 @@ import { utcNow } from "@themis/base/clock";
 import { PyCrash, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyOSErrorOf, pyReadBytes, pyReadText } from "@themis/base/pyio";
 import { type PyDict, type PyValue, dumps, encodeUtf8, loads } from "@themis/base/pyjson";
+import { purePathStr } from "@themis/base/pypath";
 import { pyReplace } from "@themis/base/pyos";
 import type { SearchPattern } from "@themis/base/pyregex";
 import { codePoints } from "@themis/base/pyre";
@@ -25,6 +26,20 @@ export const DEFAULT_ARTIFACT_PATTERNS = ["**/__pycache__/**", "**/*.pyc", "**/.
 
 const LF = String.fromCharCode(10);
 const isDict = (value: PyValue | undefined): value is PyDict => value instanceof Map;
+
+/** 证据里的值交给子进程（git 的 sha、tree）：不是字符串时 Python 抛 TypeError。prepare 写的都是字符串，手改才会出现。 */
+export function strArg(value: PyValue): string {
+  if (typeof value !== "string") throw new PyCrash("TypeError", `expected str, bytes or os.PathLike object, not ${pyTypeName(value)}`);
+  return value;
+}
+
+/** Path(value)：不是字符串时 Python 3.12 抛 TypeError。 */
+export function pathArg(value: PyValue): string {
+  if (typeof value !== "string") {
+    throw new PyCrash("TypeError", `argument should be a str or an os.PathLike object where __fspath__ returns a str, not '${pyTypeName(value)}'`);
+  }
+  return purePathStr(value);
+}
 
 /** 文件操作出错时照 Python 报 OSError 的子类与文字。 */
 function withOSError<T>(file: string, body: () => T): T {

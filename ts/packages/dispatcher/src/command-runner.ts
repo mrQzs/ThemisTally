@@ -4,8 +4,9 @@
 import { statSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
-import { pyFloatOf, pyGet, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
-import { pyMkdir, pyReadTextReplace } from "@themis/base/pyio";
+import { PyCrash, pyFloatOf, pyGet, pyIntOf, pyItem, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { pyReadTextReplace } from "@themis/base/pyio";
+import { pathMkdir } from "@themis/base/pyos";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { expanduser, isWithin, ntIsabs, purePathStr, pyResolve } from "@themis/base/pypath";
 import { FLAG_MULTILINE, compilePy } from "@themis/base/pyregex";
@@ -15,7 +16,7 @@ import { pyGettempdir, pyMkdtemp } from "@themis/base/pytempfile";
 import { type SuperviseResult, runSupervised } from "@themis/base/supervise";
 import { ensureArgvSafe } from "./argv.ts";
 import { childEnv } from "./pi-cli.ts";
-import { sha256File } from "./evidence.ts";
+import { sha256File, strArg } from "./evidence.ts";
 import { snapshotTree } from "./gitops.ts";
 import { DispatchError, EXIT_USAGE, type Repo, gitChecked } from "./repo.ts";
 import { latestNumbered } from "./status.ts";
@@ -36,6 +37,14 @@ export const stripAnsiEscapes = (text: string): string => text.replace(ANSI_ESCA
 /** "%03d" % n：负号算在宽度里。 */
 const pad3 = (n: bigint): string => (n < 0n ? `-${String(-n).padStart(2, "0")}` : String(n).padStart(3, "0"));
 const firstPoints = (text: string, count: number): string => codePoints(text).slice(0, count).join("");
+
+/** "%s" % value[:count]（mkdtemp 的前缀）：字符串按码点截，列表截了照 str() 写，其余照 Python 崩（手改的 meta 才会出现）。 */
+function headOf(value: PyValue, count: number): string {
+  if (typeof value === "string") return firstPoints(value, count);
+  if (Array.isArray(value)) return pyStrValue(value.slice(0, count));
+  if (value instanceof Map) throw new PyCrash("KeyError", `slice(None, ${count}, None)`);
+  throw new PyCrash("TypeError", `'${pyTypeName(value)}' object is not subscriptable`);
+}
 
 function isDir(file: string): boolean {
   try {
@@ -99,7 +108,9 @@ function supervisedRecord(result: SuperviseResult): [string, PyValue][] {
 export async function runCommandItem(item: PyDict, workDir: string, env: ReadonlyMap<string, string>, outDir: string, grace: number): Promise<PyDict> {
   const cid = pyStrValue(item.get("id") as PyValue);
   const cwdRel = pyGet(item, "cwd", ".");
-  const cwd = pyResolve(purePathStr(workDir, pyStrValue(cwdRel)));
+  // work_dir / cwd：不是字符串时 Python 抛 TypeError（冻结合同被手改才会出现）
+  if (typeof cwdRel !== "string") throw new PyCrash("TypeError", `unsupported operand type(s) for /: '${WIN ? "WindowsPath" : "PosixPath"}' and '${pyTypeName(cwdRel)}'`);
+  const cwd = pyResolve(purePathStr(workDir, cwdRel));
   const record: PyDict = new Map<string, PyValue>([
     ["id", item.get("id") as PyValue],
     ["argv", item.get("argv") as PyValue],
@@ -180,7 +191,7 @@ export async function runSetup(runDir: string, workDir: string, contract: PyDict
   const setup = contract.get("setup") as PyDict[];
   if (!setup.length) return results;
   const setupDir = path.join(runDir, "setup");
-  pyMkdir(setupDir);
+  pathMkdir(setupDir, false, false);
   const [env] = childEnv(config);
   for (const item of setup) {
     results.push(await runCommandItem(item, workDir, env, setupDir, pyFloatOf(pyGet(config, "kill_grace_seconds", 15n))));
@@ -198,10 +209,10 @@ export async function prepareFreshWorkspace(
   env: ReadonlyMap<string, string>, grace: number,
 ): Promise<string> {
   const root = worktreeRoot(repo, config);
-  pyMkdir(root, { parents: true, existOk: true });
-  const prefix = `${firstPoints(path.basename(repo.root), 16)}-${firstPoints(meta.get("task_id") as string, 24)}-a${pad3(meta.get("attempt_no") as bigint)}-verify-`;
+  pathMkdir(root, true, true);
+  const prefix = `${firstPoints(path.basename(repo.root), 16)}-${headOf(pyItem(meta, "task_id"), 24)}-a${pad3(pyIntOf(pyItem(meta, "attempt_no"), "%d format"))}-verify-`;
   const workspace = pyResolve(purePathStr(pyMkdtemp(prefix, root)));
-  const base = meta.get("base_sha") as string;
+  const base = strArg(pyItem(meta, "base_sha"));
   gitChecked(["worktree", "add", "--detach", workspace, base], repo.root);
   const patch = path.join(runDir, "candidate.patch");
   if (statSync(patch).size > 0) gitChecked(["apply", "--binary", "--whitespace=nowarn", patch], workspace);
@@ -212,7 +223,7 @@ export async function prepareFreshWorkspace(
   const setup = contract.get("setup") as PyDict[];
   if (setup.length) {
     const setupDir = path.join(outDir, "setup");
-    pyMkdir(setupDir);
+    pathMkdir(setupDir, false, false);
     for (const item of setup) {
       const record = await runCommandItem(item, workspace, env, setupDir, grace);
       if (!record.get("passed")) throw new DispatchError(`干净副本的 setup ${pyStrValue(item.get("id") as PyValue)} 失败：${pyStrValue(record.get("reason") ?? null)}`);

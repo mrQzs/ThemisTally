@@ -21,7 +21,7 @@
     {
       "name": "G02 不查基线提交",
       "file": "ts/packages/dispatcher/src/gates.ts",
-      "old": "  if (resolveCommit(repo.root, s(base)) !== base) fail(\"G0\", \"基线提交不可用\");\n",
+      "old": "  if (resolveCommit(repo.root, base as string) !== base) fail(\"G0\", \"基线提交不可用\");\n",
       "new": ""
     },
     {
@@ -153,7 +153,7 @@
     {
       "name": "G24 只差行尾也报成被修改",
       "file": "ts/packages/dispatcher/src/gates.ts",
-      "old": "        if (lineEndingsOnly(workDir, s(tree), now)) {",
+      "old": "        if (lineEndingsOnly(workDir, tree as string, now)) {",
       "new": "        if (false) {"
     },
     {

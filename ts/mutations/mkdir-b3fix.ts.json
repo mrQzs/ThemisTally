@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "worktree_root",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "K01 干净副本的报错不认 PyWinError",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": " || error instanceof PyWinError) return error.message;",
+      "new": ") return error.message;"
+    },
+    {
+      "name": "K02 worktree_root 不补建上级",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  pathMkdir(root, true, true);",
+      "new": "  pathMkdir(root, false, true);"
+    },
+    {
+      "name": "K03 os.mkdir 走 Node 的 mkdirSync",
+      "file": "ts/packages/base/src/pyos.ts",
+      "old": "export function osMkdir(path: string, mode = 0o777): void {\n  if (!WIN) {",
+      "new": "export function osMkdir(path: string, mode = 0o777): void {\n  if (true) {"
+    }
+  ]
+}

@@ -95,11 +95,11 @@ export function pyPublishNew(path: string, data: Uint8Array): boolean {
   }
 }
 
-/** os.mkdir(path)。 */
-function osMkdir(path: string): void {
+/** os.mkdir(path, mode)。 */
+export function osMkdir(path: string, mode = 0o777): void {
   if (!WIN) {
     try {
-      mkdirSync(path);
+      mkdirSync(path, mode);
     } catch (error) {
       throw pyOSErrorOf(error, path) ?? error;
     }

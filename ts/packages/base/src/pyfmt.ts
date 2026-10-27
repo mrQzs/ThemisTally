@@ -298,28 +298,45 @@ function writeAll(fd: number, bytes: Buffer): void {
   while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
 }
 
+/** sys.stdout 的文本层与字节层各自的容量（io.DEFAULT_BUFFER_SIZE；Windows 上没有 st_blksize，就是它）。 */
+const STDOUT_CHUNK = 8192;
+
 /** 照 Python 的 print 往 stdout、stderr 写（同步写，进程退出前不会丢）。 */
 export class PyOut {
   /**
-   * stdout 块缓冲（④b3）：照 Python 的 sys.stdout 不是终端时的写法，攒到 8 KiB 以上、print(flush=True) 或调用 flush()
-   * 时才写出；stderr 照写不误（Python 3.9 起 stderr 总是行缓冲）。hub 把 stderr 并进 stdout 读，报错路径上 ERROR: 会排在
-   * 还没冲出的 NOTE、GATE 前面，次序要照。缺省不缓冲（已经切换的命令照旧）；打开的命令在退出前要调 flush()。
+   * stdout 块缓冲（④b3）：照 Python 的 sys.stdout 不是终端时的写法；stderr 照写不误（Python 3.9 起 stderr 总是行缓冲）。
+   * hub 把 stderr 并进 stdout 读，报错路径上 ERROR: 会排在还没冲出的 NOTE、GATE 前面，次序要照到字节。缺省不缓冲（已经
+   * 切换的命令照旧）；打开的命令在退出前要调 flush()。
+   *
+   * CPython 3.12 是两层（themistally-15 复核 d14ea7c 实测）：一次 print 是两次 write，正文一次、换行一次（按换成 CRLF
+   * 之后的 UTF-8 字节计）。文本层把每次 write 的字节攒进 pending，到 8192 及以上时整份交给字节层；一次 write 本身就有
+   * 8192 字节及以上时，先把手上的 pending 单独交出去（④b3 补实测：先写 5 字节、再写恰好 8192 字节，那 5 字节先落盘）。
+   * 字节层容量 8192：交来的放得下就留着；放不下就先把手上的写出去，再看交来的，超过 8192 直接写出，否则留着。flush 先交
+   * pending，再写出字节层。
    */
   private readonly buffered: boolean;
   private pending: Buffer[] = [];
   private pendingBytes = 0;
+  private held: Buffer | null = null;
 
   constructor(options: { readonly bufferStdout?: boolean } = {}) {
     this.buffered = options.bufferStdout === true;
   }
 
   print(text = "", options: { readonly flush?: boolean } = {}): void {
-    this.out(pyTextBytes(`${text}\n`), options.flush === true);
+    if (!this.buffered) {
+      writeAll(1, pyTextBytes(`${text}\n`));
+      return;
+    }
+    this.textWrite(pyTextBytes(text));
+    this.textWrite(pyTextBytes("\n"));
+    if (options.flush === true) this.flush();
   }
 
   /** sys.stdout.write(text)：不加换行。 */
   write(text: string): void {
-    this.out(pyTextBytes(text), false);
+    if (this.buffered) this.textWrite(pyTextBytes(text));
+    else writeAll(1, pyTextBytes(text));
   }
 
   printErr(text = ""): void {
@@ -328,20 +345,31 @@ export class PyOut {
 
   /** sys.stdout.flush()。 */
   flush(): void {
-    if (!this.pending.length) return;
-    const bytes = Buffer.concat(this.pending);
-    this.pending = [];
-    this.pendingBytes = 0;
-    writeAll(1, bytes);
+    if (this.pendingBytes) this.handOver();
+    if (this.held) writeAll(1, this.held);
+    this.held = null;
   }
 
-  private out(bytes: Buffer, flush: boolean): void {
-    if (!this.buffered) {
-      writeAll(1, bytes);
-      return;
-    }
+  private textWrite(bytes: Buffer): void {
+    if (bytes.length >= STDOUT_CHUNK && this.pendingBytes) this.handOver();
     this.pending.push(bytes);
     this.pendingBytes += bytes.length;
-    if (flush || this.pendingBytes > 8192) this.flush();
+    if (this.pendingBytes >= STDOUT_CHUNK) this.handOver();
+  }
+
+  /** 文本层的 pending 交给字节层（BufferedWriter.write）。 */
+  private handOver(): void {
+    const data = Buffer.concat(this.pending);
+    this.pending = [];
+    this.pendingBytes = 0;
+    const held = this.held ?? Buffer.alloc(0);
+    if (data.length <= STDOUT_CHUNK - held.length) {
+      this.held = Buffer.concat([held, data]);
+      return;
+    }
+    if (held.length) writeAll(1, held);
+    this.held = null;
+    if (data.length > STDOUT_CHUNK) writeAll(1, data);
+    else this.held = data;
   }
 }

@@ -147,8 +147,8 @@
     {
       "name": "U23 attempt 编号不补零",
       "file": "ts/packages/dispatcher/src/command-runner.ts",
-      "old": "-a${pad3(meta.get(\"attempt_no\") as bigint)}-verify-",
-      "new": "-a${String(meta.get(\"attempt_no\"))}-verify-"
+      "old": "-a${pad3(pyIntOf(pyItem(meta, \"attempt_no\"), \"%d format\"))}-verify-",
+      "new": "-a${String(pyIntOf(pyItem(meta, \"attempt_no\"), \"%d format\"))}-verify-"
     },
     {
       "name": "U24 仓库名截 15 个码点",

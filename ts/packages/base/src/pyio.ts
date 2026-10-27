@@ -5,7 +5,7 @@
 //     ENOENT，从错误码分不出来；配置中心读的都是固定的文件名，遇不到。
 //   - UnicodeDecodeError：CPython 的 UTF-8 解码器报的第一个错误，位置与原因照 Objects/stringlib/codecs.h。
 //   - 读文本用通用换行（\r\n 与单独的 \r 都换成 \n），开头的 BOM 保留。
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { pyRepr } from "./pyfmt.ts";
 
@@ -136,25 +136,3 @@ function badContinuation(bytes: Uint8Array, index: number, lead: number, length:
   return null;
 }
 
-/** Path(path).mkdir(parents=…, exist_ok=…)：照 pathlib 先建这一层，上级不存在且 parents 时补建上级再来；exist_ok 只放过已经是目录的。 */
-export function pyMkdir(path: string, options: { readonly parents?: boolean; readonly existOk?: boolean } = {}): void {
-  try {
-    mkdirSync(path);
-  } catch (error) {
-    const parent = dirname(path);
-    if ((error as NodeJS.ErrnoException).code === "ENOENT" && options.parents === true && parent !== path) {
-      pyMkdir(parent, { parents: true, existOk: true });
-      pyMkdir(path, { existOk: options.existOk === true });
-      return;
-    }
-    if (!(options.existOk === true && isDirectory(path))) throw pyOSErrorOf(error, path) ?? error;
-  }
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}

@@ -5,7 +5,8 @@ import { readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
 import { PyCrash, type PyOut, pyFloatOf, pyGet, pyItem, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
-import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyMkdir, pyOSErrorOf, pyReadBytes, pyReadText, pyReadTextReplace } from "@themis/base/pyio";
+import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorOf, pyReadBytes, pyReadText, pyReadTextReplace } from "@themis/base/pyio";
+import { PyWinError, pathMkdir } from "@themis/base/pyos";
 import { PyJsonError, type PyDict, type PyValue } from "@themis/base/pyjson";
 import { displayPath, purePathStr, pyExists, pyResolve } from "@themis/base/pypath";
 import { FLAG_IGNORECASE, FLAG_MULTILINE, compilePy } from "@themis/base/pyregex";
@@ -16,7 +17,9 @@ import { ProtocolError } from "@themis/base/protocols";
 import { prepareFreshWorkspace, runCommandItem, nextNumber, worktreeRoot } from "./command-runner.ts";
 import { type PlanContext, loadFixedContractPair, planKeyFromArg, printMessages, validatePlan } from "./contract-plan.ts";
 import { PLACEHOLDER_RE } from "./contract.ts";
-import { VERDICTS, artifactMatchers, candidatePatchOk, loadAttempt, logEvent, removeWorktree, setState, sha256File, splitExtras, writeJson } from "./evidence.ts";
+import {
+  VERDICTS, artifactMatchers, candidatePatchOk, loadAttempt, logEvent, pathArg, removeWorktree, setState, sha256File, splitExtras, strArg, writeJson,
+} from "./evidence.ts";
 import { FAILURE_CLASSES, GATES, attemptOriginNotes, evaluateGates, plannerAttemptPublicationErrors } from "./gates.ts";
 import { snapshotTree, treeDrift } from "./gitops.ts";
 import { repoConfig } from "./kernel-config.ts";
@@ -95,7 +98,7 @@ function selectChecks(checks: PyDict[], only: string | null): PyDict[] {
 
 /** str(exc)：prepare_fresh_workspace 接住的 DispatchError 与 OSError。 */
 function freshFailure(error: unknown): string | null {
-  if (error instanceof DispatchError || error instanceof PyOSError) return error.message;
+  if (error instanceof DispatchError || error instanceof PyOSError || error instanceof PyWinError) return error.message;
   const os = pyOSErrorOf(error, "");
   return os === null ? null : os.message;
 }
@@ -112,17 +115,17 @@ export async function cmdCheck(args: CheckArgs, out: PyOut, here: string): Promi
   for (const note of originNotes) out.print(`NOTE  ${note}`);
   const candidate = readJsonOr(path.join(runDir, "candidate.json"), new Map());
   if (!pyTruthy(pyGet(candidate, "tree"))) throw new DispatchError("没有候选记录（candidate.json），无法把检查绑定到确切内容");
-  const candidateTree = pyStrValue((candidate as PyDict).get("tree") as PyValue);
+  const candidateTree = (candidate as PyDict).get("tree") as PyValue;
   const checks = selectChecks(contract.get("checks") as PyDict[], args.only);
   const config = repoConfig(repo);
   const [env, removed] = childEnv(config);
   const grace = graceOf(config);
   const artifacts = artifactMatchers(config);
   const checksRoot = path.join(runDir, "checks");
-  pyMkdir(checksRoot, { existOk: true });
+  pathMkdir(checksRoot, false, true);
   const number = nextNumber(checksRoot);
   const outDir = path.join(checksRoot, pad2(number));
-  pyMkdir(outDir);
+  pathMkdir(outDir, false, false);
   const mode = args.fresh ? "fresh" : "in_place";
   let freshWorkspace: string | null = null;
   let workDir: string;
@@ -140,12 +143,11 @@ export async function cmdCheck(args: CheckArgs, out: PyOut, here: string): Promi
     }
     workDir = freshWorkspace;
   } else {
-    workDir = purePathStr(pyStrValue(pyItem(meta, "worktree")));
+    workDir = pathArg(pyItem(meta, "worktree"));
     if (!isDir(workDir)) {
       throw new DispatchError(`worktree 已不存在：${workDir}${originNotes.length ? "（attempt 不在本机派遣）" : ""}；可用 --fresh 在干净副本上验收`);
     }
   }
-  const base = pyStrValue(pyItem(meta, "base_sha"));
   const autocrlf = pyGet(meta, "git_autocrlf");
   const results: PyDict[] = [];
   let started: string;
@@ -156,8 +158,9 @@ export async function cmdCheck(args: CheckArgs, out: PyOut, here: string): Promi
   let postUnexpected: string[];
   let modifiedAfter: string[];
   try {
+    const base = strArg(pyItem(meta, "base_sha"));
     treeBefore = snapshotTree(workDir, base, outDir, "before", autocrlf);
-    const driftBefore = treeDrift(workDir, candidateTree, treeBefore);
+    const driftBefore = treeDrift(workDir, strArg(candidateTree), treeBefore);
     let preUnexpected: string[];
     [preArtifacts, preUnexpected] = splitExtras(driftBefore.added, artifacts);
     if (driftBefore.modified.length || preUnexpected.length) {
@@ -181,7 +184,7 @@ export async function cmdCheck(args: CheckArgs, out: PyOut, here: string): Promi
       out.print(`CHECK ${id} ${pyStrValue(record.get("status") as PyValue)} ${pyStrValue(pyTruthy(record.get("reason") ?? null) ? (record.get("reason") as PyValue) : "")}`, { flush: true });
     }
     treeAfter = snapshotTree(workDir, base, outDir, "after", autocrlf);
-    const driftAfter = treeDrift(workDir, candidateTree, treeAfter);
+    const driftAfter = treeDrift(workDir, strArg(candidateTree), treeAfter);
     [postArtifacts, postUnexpected] = splitExtras(driftAfter.added, artifacts);
     modifiedAfter = driftAfter.modified;
   } finally {
@@ -264,12 +267,12 @@ export async function cmdBaseline(args: BaselineArgs, out: PyOut, ctx: PlanConte
   const grace = graceOf(config);
   const taskId = pyStrValue(contract.get("task_id") as PyValue);
   const outRoot = path.join(repo.runsDir, taskId, "baseline");
-  pyMkdir(outRoot, { parents: true, existOk: true });
+  pathMkdir(outRoot, true, true);
   const number = nextNumber(outRoot);
   const outDir = path.join(outRoot, pad2(number));
-  pyMkdir(outDir);
+  pathMkdir(outDir, false, false);
   const root = worktreeRoot(repo, config);
-  pyMkdir(root, { parents: true, existOk: true });
+  pathMkdir(root, true, true);
   const workspace = pyResolve(purePathStr(pyMkdtemp(`${firstPoints(path.basename(repo.root), 16)}-${firstPoints(taskId, 24)}-baseline-`, root)));
   const base = pyStrValue(contract.get("base_sha") as PyValue);
   const results: PyDict[] = [];
@@ -373,7 +376,7 @@ export async function cmdVerdict(args: VerdictArgs, out: PyOut, here: string): P
     throw new DispatchError(`${verdict} 需要 --class（${FAILURE_CLASSES.join(", ")}）`, EXIT_USAGE);
   }
   const verdictDir = path.join(runDir, "verdicts");
-  pyMkdir(verdictDir, { existOk: true });
+  pathMkdir(verdictDir, false, true);
   const number = nextNumber(verdictDir);
   const reviewCopy = path.join(verdictDir, `${pad2(number)}.md`);
   copyfile(reviewPath, reviewCopy);

@@ -1,0 +1,82 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "类型不对|attempt_no 是 1.5|cwd 是 null",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "T01 G0 的 base_sha 不照 Python 崩",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (typeof base !== \"string\") pyPlus(base, \"^{commit}\");\n",
+      "new": ""
+    },
+    {
+      "name": "T02 G6 的 worktree 经 str()",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  const workDir = pathArg(pyItem(meta, \"worktree\"));",
+      "new": "  const workDir = s(pyItem(meta, \"worktree\"));"
+    },
+    {
+      "name": "T03 G6 的 tree 经 str()",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "treeDrift(workDir, strArg(tree), now)",
+      "new": "treeDrift(workDir, s(tree), now)"
+    },
+    {
+      "name": "T04 check 的 worktree 经 str()",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    workDir = pathArg(pyItem(meta, \"worktree\"));",
+      "new": "    workDir = pyStrValue(pyItem(meta, \"worktree\"));"
+    },
+    {
+      "name": "T05 check 的 base_sha 经 str()",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    const base = strArg(pyItem(meta, \"base_sha\"));",
+      "new": "    const base = pyStrValue(pyItem(meta, \"base_sha\"));"
+    },
+    {
+      "name": "T06 check 的 candidate.tree 经 str()",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "treeDrift(workDir, strArg(candidateTree), treeBefore)",
+      "new": "treeDrift(workDir, pyStrValue(candidateTree), treeBefore)"
+    },
+    {
+      "name": "T07 干净副本的 task_id 经 str() 再截",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "${headOf(pyItem(meta, \"task_id\"), 24)}",
+      "new": "${firstPoints(pyStrValue(pyItem(meta, \"task_id\")), 24)}"
+    },
+    {
+      "name": "T08 干净副本的 attempt_no 按 Number 取整",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "pad3(pyIntOf(pyItem(meta, \"attempt_no\"), \"%d format\"))",
+      "new": "pad3(BigInt(Math.trunc(Number(pyItem(meta, \"attempt_no\")))))"
+    },
+    {
+      "name": "T09 干净副本的 base_sha 经 str()",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  const base = strArg(pyItem(meta, \"base_sha\"));",
+      "new": "  const base = pyStrValue(pyItem(meta, \"base_sha\"));"
+    },
+    {
+      "name": "T10 检查项的 cwd 经 str()",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (typeof cwdRel !== \"string\") throw new PyCrash(\"TypeError\", `unsupported operand type(s) for /: '${WIN ? \"WindowsPath\" : \"PosixPath\"}' and '${pyTypeName(cwdRel)}'`);\n  const cwd = pyResolve(purePathStr(workDir, cwdRel));",
+      "new": "  const cwd = pyResolve(purePathStr(workDir, pyStrValue(cwdRel)));"
+    },
+    {
+      "name": "T11 列表的 task_id 不截",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (Array.isArray(value)) return pyStrValue(value.slice(0, count));\n",
+      "new": ""
+    }
+  ]
+}

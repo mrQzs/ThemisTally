@@ -6,11 +6,13 @@ import { sleepSync } from "@themis/base/fsutil";
 import { PyCrash, type PyOut, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyReadText } from "@themis/base/pyio";
 import { type PyDict, type PyValue } from "@themis/base/pyjson";
-import { displayPath, normCase, purePathStr } from "@themis/base/pypath";
+import { displayPath, normCase } from "@themis/base/pypath";
 import { cmpCodePoints, codePoints, isDigitChar, pyIntParse, pyLower, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { pidAlive } from "@themis/base/process";
 import { pyEq } from "@themis/base/pyvalue";
-import { PASSING_VERDICTS, TERMINAL_STATES, artifactMatchers, candidatePatchOk, loadAttempt, logEvent, removeWorktree, setState, splitExtras } from "./evidence.ts";
+import {
+  PASSING_VERDICTS, TERMINAL_STATES, artifactMatchers, candidatePatchOk, loadAttempt, logEvent, pathArg, removeWorktree, setState, splitExtras, strArg,
+} from "./evidence.ts";
 import { snapshotTree, treeDrift } from "./gitops.ts";
 import { repoConfig } from "./kernel-config.ts";
 import { DispatchError, EXIT_BLOCKED, EXIT_FAIL, EXIT_OK, EXIT_USAGE, Repo, gitChecked, readJsonOr } from "./repo.ts";
@@ -29,18 +31,6 @@ function dictItem(value: PyValue, key: string): PyValue {
   if (!isDict(value)) throw new PyCrash("TypeError", `'${pyTypeName(value)}' object is not subscriptable`);
   if (!value.has(key)) throw new PyCrash("KeyError", `'${key}'`);
   return value.get(key) as PyValue;
-}
-
-/** 交给子进程的参数：不是字符串时 Python 抛 TypeError。 */
-function strArg(value: PyValue): string {
-  if (typeof value !== "string") throw new PyCrash("TypeError", `expected str, bytes or os.PathLike object, not ${pyTypeName(value)}`);
-  return value;
-}
-
-/** str(Path(value))：不是字符串时 Python 抛 TypeError。 */
-function pathStr(value: PyValue): string {
-  if (typeof value !== "string") throw new PyCrash("TypeError", `expected str, bytes or os.PathLike object, not ${pyTypeName(value)}`);
-  return purePathStr(value);
 }
 
 function exists(file: string): boolean {
@@ -146,7 +136,7 @@ export function cmdCleanup(args: CleanupArgs, out: PyOut): number {
   if ((state === "PREPARED" || state === "PREPARING") && !args.force) throw new DispatchError(`attempt 尚未运行（${state}）；确定放弃请加 --force`);
   const registered = registeredWorktrees(repo);
   const isRegistered = (worktree: string): boolean => registered.some((item) => normCase(item) === normCase(worktree));
-  const workDir = pathStr(dictItem(meta, "worktree"));
+  const workDir = pathArg(dictItem(meta, "worktree"));
   const lost: string[] = [];
   if (isRegistered(workDir)) {
     lost.push(...lostContent(repo, runDir, meta, workDir));
@@ -164,7 +154,7 @@ export function cmdCleanup(args: CleanupArgs, out: PyOut): number {
   // 保留下来的干净验收副本（check --fresh --keep-workspace）不含独有内容，一并移除
   for (const checksFile of keptCheckRecords(runDir)) {
     const record = readJsonOr(checksFile, new Map());
-    const workspace = pyTruthy(dictGet(record, "workspace_kept")) ? pathStr(dictGet(record, "workspace", "")) : null;
+    const workspace = pyTruthy(dictGet(record, "workspace_kept")) ? pathArg(dictGet(record, "workspace", "")) : null;
     if (workspace !== null && isRegistered(workspace)) {
       removeWorktree(repo, workspace);
       out.print(`已移除验收副本：${workspace}`);

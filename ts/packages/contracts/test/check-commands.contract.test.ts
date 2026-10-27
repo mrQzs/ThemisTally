@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pythonCliCommand, tsCliCommand } from "./harness.ts";
 import { jsonOf, mdOf } from "./plan-fixtures.ts";
@@ -16,6 +16,12 @@ afterAll(removeCreated);
 const BT = "`";
 const CR = String.fromCharCode(13);
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}${LF}`;
+
+/** worktree_root 换成工作树旁边的 sub（④b3 补：建不出来时 Python 报 [WinError N]，照 os.mkdir）。 */
+function rootBeside(repo: string, wt: string, parent: string): void {
+  put(repo, ".agent/dispatch.config.json", json({ worktree_root: join(dirname(wt), parent, "sub"), kill_grace_seconds: 1 }));
+}
+
 const sha = (data: string | Uint8Array): string => createHash("sha256").update(data).digest("hex");
 const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
 /** 本机的 platform.platform()：启动器交给 TS 的 context 里就是它（迁移计划 D1）。 */
@@ -191,6 +197,16 @@ const CHECKS: Scenario[] = [
   check("状态不能检查", { files: { "state.json": state("RUNNING") } }, {}, 3, "状态 RUNNING 不能运行验收检查"),
   check("没有候选记录", { files: { "candidate.json": null } }, {}, 3, "没有候选记录（candidate.json）"),
   check("候选记录是列表", { files: { "candidate.json": [] } }, {}, 1, undefined, true),
+  // 证据里 prepare 写的字符串字段被手改成别的类型：Python 在 Path()、git 参数、切片、%03d 上崩（④b3 补，themistally-15 复核 d14ea7c）
+  check("证据类型不对：meta.worktree 是 null", { meta: { worktree: null } }, {}, 1, undefined, true),
+  check("证据类型不对：meta.base_sha 是 null", { meta: { base_sha: null } }, {}, 1, undefined, true),
+  check("证据类型不对：candidate.tree 是数字", { files: { "candidate.json": { tree: 123, patch_roundtrip_verified: true } } }, {}, 1, undefined, true),
+  check("干净副本，证据类型不对：meta.base_sha 是数字", { meta: { base_sha: 7 } }, { fresh: true }, 1, undefined, true),
+  check("干净副本，证据类型不对：meta.attempt_no 是 null", { meta: { attempt_no: null } }, { fresh: true }, 1, undefined, true),
+  check("干净副本，证据类型不对：meta.task_id 是数字", { meta: { task_id: 5 } }, { fresh: true }, 1, undefined, true),
+  check("干净副本：attempt_no 是 1.5、task_id 是列表，照 Python 写进副本的名字", { meta: { attempt_no: 1.5, task_id: ["t1"] } }, { fresh: true }, 0,
+    "检查结果（fresh）"),
+  check("检查项的 cwd 是 null", { checks: [OK("V01", { cwd: null })] }, {}, 1, undefined, true),
   check("工作树不在", { meta: { worktree: "Z:/no/such/worktree" } }, {}, 3, "worktree 已不存在：Z:"),
   check("工作树不在，attempt 在另一台机器上派遣", { meta: { worktree: "Z:/no/such/worktree", platform: "Linux-6.1.0-x86_64-with-glibc2.36" } }, {}, 3,
     "（attempt 不在本机派遣）；可用 --fresh"),
@@ -239,6 +255,14 @@ const CHECKS: Scenario[] = [
   check("干净副本，setup 改了候选", { setup: [py("S1", "open('src/a.ts', 'a').write('// y')")] }, { fresh: true }, 3,
     "setup 改动了干净副本中的候选文件或产生了未忽略的新文件"),
   check("干净副本，worktree_root 在仓库里", { config: { worktree_root: "inside" } }, { fresh: true }, 3, "无法建立干净的验收副本：worktree_root 不能位于仓库内部"),
+  check("干净副本，worktree_root 在一个文件下面", {
+    after: ({ repo, wt }) => {
+      put(dirname(wt), "blocker.txt", "x");
+      rootBeside(repo, wt, "blocker.txt");
+    },
+  }, { fresh: true }, 3, "无法建立干净的验收副本：[WinError 183]"),
+  check("干净副本，worktree_root 的名字不合法", { after: ({ repo, wt }) => rootBeside(repo, wt, "a|b") }, { fresh: true }, 3,
+    "无法建立干净的验收副本：[WinError 123]"),
   check("planner-v2 的合同没有发布记录", { contract: { contract_family: "planner-v2" } }, {}, 3, "planner-v2 发布门禁拒绝验收检查"),
   check("第二次检查编号递增", { files: { "checks/01/checks.json": { aborted: "candidate_drift" } } }, {}, 0, ".agent/runs/t1/attempt-001/checks/02/checks.json"),
 ];
@@ -274,6 +298,10 @@ const VERDICTS: Scenario[] = [
   verdict("再次 verdict，编号递增", { files: { "state.json": state("REVISE"), "verdicts/01.md": "x", "verdicts/01.json": { verdict: "REVISE" } } }, { verdict: "PASS" }, 0,
     "verdicts/02.json"),
   verdict("候选记录是列表", { files: { "candidate.json": [] } }, { verdict: "PASS" }, 1, undefined, true),
+  // 用 REVISE：门禁不挡结论，TS 不崩就会把结论记下来（退出码 0），与 Python 的崩溃分得开
+  verdict("证据类型不对：meta.base_sha 是 null", { meta: { base_sha: null } }, { verdict: "REVISE", failureClass: "EXECUTION_ERROR" }, 1, undefined, true),
+  verdict("证据类型不对：meta.worktree 是 null", { meta: { worktree: null } }, { verdict: "REVISE", failureClass: "EXECUTION_ERROR" }, 1, undefined, true),
+  verdict("证据类型不对：candidate.tree 是数字", { files: { "candidate.json": { tree: 123, patch_roundtrip_verified: true } } }, { verdict: "REVISE", failureClass: "EXECUTION_ERROR" }, 1, undefined, true),
 
   gates("G0：合同被改、基线不可用、另一台机器与另一处仓库", {
     meta: { base_sha: "0".repeat(40), platform: "Linux-6.1.0-x86_64", repository: "D:/elsewhere" },
@@ -431,13 +459,17 @@ function runScenario(scenario: Scenario): void {
     if (scenario.label === "复审报告的路径写法") put(repo, "notes/r.md", REVIEW_PASS);
     const result = runCommand(runner, repo, scenario.argv, scenario.args);
     const shown: Shown = shownOf(result, paths, scenario.crash);
+    // 崩溃只比退出码，另核对两边都真是崩溃（Python 打堆栈，TS 写“崩溃”那一行），免得报错退出 1 冒充崩溃
+    const stderr = result.stderr.toString("utf8");
+    const crashed = scenario.crash ? stderr.includes("Traceback (most recent call last)") || stderr.includes("崩溃（Python 在这里会打印堆栈）") : null;
     const evidence = scenario.crash ? {} : scrubAll(snapshotDir(join(repo, ".agent", "runs"), paths));
     const worktrees = git(repo, "worktree", "list", "--porcelain").split(LF).filter((line) => line.startsWith("worktree ")).length;
-    return { status: shown.status, stdout: scrub(shown.stdout), stderr: scrub(shown.stderr), evidence, worktrees };
+    return { status: shown.status, stdout: scrub(shown.stdout), stderr: scrub(shown.stderr), evidence, worktrees, crashed };
   });
   for (const result of results.slice(1)) expect(result).toEqual(results[0]);
   const first = results[0] as Shown;
   expect(first.status, JSON.stringify(results[0])).toBe(scenario.status);
+  if (scenario.crash) expect((results[0] as { crashed: boolean }).crashed, "崩溃场景两边都要真崩").toBe(true);
   if (scenario.text) expect(`${first.stdout}${first.stderr}`).toContain(scenario.text);
 }
 
@@ -449,6 +481,15 @@ const MERGED: Scenario[] = [
   check("合并输出：另一处仓库的提示在漂移报错之后", { meta: { repository: "D:/elsewhere/repo" }, after: ({ wt }) => put(wt, "extra.txt", "x") }, {}, 4),
   check("合并输出：CHECK 行冲出之前攒着的 NOTE", { meta: { repository: "D:/elsewhere/repo" }, checks: [FAIL()] }, {}, 1),
   verdict("合并输出：GATE 行在 PASS 被拒的报错之后", { meta: { worktree: "Z:/no/such/worktree" }, files: { "run.json": { exit_code: 3 } } }, { verdict: "PASS" }, 1),
+  // 120 行 GATE 超过 8 KB：stdout 两层缓冲已经写出一部分，ERROR 落在某一行正文之后、它的换行之前（themistally-15 复核 d14ea7c）
+  verdict("合并输出：120 行 GATE 之后 PASS 被拒", {
+    files: {
+      "events-summary.json": {
+        problems: [], provider_thinking_levels: ["high"], requested_model: { thinking: "high" }, ambiguity_mention_count: 0,
+        outside_worktree_paths: Array.from({ length: 120 }, (_, i) => ({ path: `C:/main/${"d".repeat(i % 37)}/f${String(i).padStart(3, "0")}.ts`, tool: "read", main_repo: true, failed: false })),
+      },
+    },
+  }, { verdict: "PASS" }, 1),
   baseline("合并输出：WARN 在 setup 失败的报错之后", { V01: ["boom", 1], V02: ["ok", 0] }, [["V01", "", ""], ["V02", "", ""]], {}, 3, undefined,
     [{ id: "S1", argv: ["python", "-c", "raise SystemExit(1)"], cwd: ".", timeout_seconds: 60, required: true, expected_exit_code: 0 }]),
   baseline("合并输出：BASELINE 行与表格", { V01: ["boom", 1] }, [["V01", "", ""]], {}, 0),

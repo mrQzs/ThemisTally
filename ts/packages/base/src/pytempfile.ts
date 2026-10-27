@@ -2,9 +2,10 @@
 // 建临时副本。名字照 Python：前缀加 8 个 [a-z0-9_] 的随机字符；Node 的 mkdtemp 是 6 个、字符集不同，Windows 上也不看
 // TMPDIR。随机部分两边当然不同，契约里按“前缀 + 8 个字符”比。
 import { randomInt } from "node:crypto";
-import { closeSync, mkdirSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { pyReprValue } from "./pyfmt.ts";
-import { PyOSError, pyOSErrorOf } from "./pyio.ts";
+import { PyOSError } from "./pyio.ts";
+import { PyWinError, osMkdir } from "./pyos.ts";
 import { abspath, expanduser, osPathJoin } from "./pypath.ts";
 
 const WIN = process.platform === "win32";
@@ -89,12 +90,12 @@ export function pyMkdtemp(prefix: string, dir: string): string {
   for (let attempt = 0; attempt < TMP_MAX; attempt += 1) {
     const file = osPathJoin(dir, prefix + randomName());
     try {
-      mkdirSync(file, 0o700);
+      osMkdir(file, 0o700);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EEXIST") continue;
-      if ((code === "EPERM" || code === "EACCES") && WIN && isDir(dir)) continue;
-      throw pyOSErrorOf(error, file) ?? error;
+      if (error instanceof PyWinError ? error.name === "FileExistsError" : (error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      // Windows 上同名的是目录时报 PermissionError：dir 是目录（os.access 对目录总说可写）就换个名字再试
+      if (error instanceof PyWinError && error.name === "PermissionError" && isDir(dir)) continue;
+      throw error;
     }
     return abspath(file);
   }

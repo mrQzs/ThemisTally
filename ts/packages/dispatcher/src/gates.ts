@@ -1,16 +1,17 @@
 // pi_dispatch 的门禁（迁移第 ④b3 片）：verdict 前的 G0–G6 判定与它用到的输入核对。④b7 run/collect、④b8 branch、
-// integrate、review-draft 也用。各门禁的 problems、notes 的文字与次序照 Python；证据文件里的字段缺失或类型不对时照 Python
-// 抛同类异常。本机的 platform.platform() 由启动器放进 context（迁移计划 D1），这里作参数传入。
+// integrate、review-draft 也用。各门禁的 problems、notes 的文字与次序照 Python；证据字段缺失时照 Python 抛 KeyError，
+// 转成路径、当 git 参数的字符串字段类型不对时照 Python 抛 TypeError，其余类型不对的情况不逐处照搬（迁移计划第 10 节）。
+// 本机的 platform.platform() 由启动器放进 context（迁移计划 D1），这里作参数传入。
 import { statSync } from "node:fs";
 import path from "node:path";
-import { PyCrash, pyGet, pyItem, pyIter, pyJoin, pyPercentD, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { PyCrash, pyGet, pyItem, pyIter, pyJoin, pyPercentD, pyPlus, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { PyOSError, pyReadBytes } from "@themis/base/pyio";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { normCase, purePathStr, pyExists } from "@themis/base/pypath";
+import { normCase, pyExists } from "@themis/base/pypath";
 import { TASK_ID_RE } from "@themis/base/secrets";
 import { pyEq } from "@themis/base/pyvalue";
 import { resolveCommit, verifyPlannerPublication } from "./contract-plan.ts";
-import { candidatePatchOk, sha256File } from "./evidence.ts";
+import { candidatePatchOk, pathArg, sha256File, strArg } from "./evidence.ts";
 import { BindingRecordError, bindingRecordRel, executorClass, loadBindingRecord } from "./executor.ts";
 import { effectiveAutocrlf, lineEndingsOnly, snapshotTree, treeDrift } from "./gitops.ts";
 import { DispatchError, type Repo, readJsonOr } from "./repo.ts";
@@ -137,7 +138,9 @@ export function evaluateGates(repo: Repo, runDir: string, meta: PyValue, contrac
   for (const problem of plannerAttemptPublicationErrors(repo, runDir, contract)) fail("G0", problem);
   for (const problem of verifyInputs(runDir, meta, repo)) fail("G0", problem);
   const base = pyItem(meta, "base_sha");
-  if (resolveCommit(repo.root, s(base)) !== base) fail("G0", "基线提交不可用");
+  // resolve_commit 里是 sha + "^{commit}"：不是字符串时照 Python 抛 TypeError（手改的 meta 才会出现）
+  if (typeof base !== "string") pyPlus(base, "^{commit}");
+  if (resolveCommit(repo.root, base as string) !== base) fail("G0", "基线提交不可用");
   gate("G0").notes.push(...attemptOriginNotes(repo, meta, here));
   const state = getState(runDir);
   const read = (name: string, fallback: PyValue): PyValue => readJsonOr(path.join(runDir, name), fallback);
@@ -218,14 +221,14 @@ export function evaluateGates(repo: Repo, runDir: string, meta: PyValue, contrac
       }
     }
   }
-  const workDir = purePathStr(s(pyItem(meta, "worktree")));
+  const workDir = pathArg(pyItem(meta, "worktree"));
   const tree = get(candidate, "tree");
   if (pyTruthy(tree) && isDir(workDir)) {
     try {
-      const now = snapshotTree(workDir, s(base), runDir, "gate", get(meta, "git_autocrlf"));
-      const drift = treeDrift(workDir, s(tree), now);
+      const now = snapshotTree(workDir, base as string, runDir, "gate", get(meta, "git_autocrlf"));
+      const drift = treeDrift(workDir, strArg(tree), now);
       if (drift.modified.length) {
-        if (lineEndingsOnly(workDir, s(tree), now)) {
+        if (lineEndingsOnly(workDir, tree as string, now)) {
           fail("G6", `候选文件与记录只差行尾（CRLF / LF）：${drift.modified.length} 个文件。多半是 core.autocrlf 在运行后被改动` +
             `（prepare 时记录 ${s(get(meta, "git_autocrlf", "未记录"))}，现在 ${effectiveAutocrlf(repo.root)}）；先恢复配置再重新 verdict`);
         } else {

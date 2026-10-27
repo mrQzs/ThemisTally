@@ -1,0 +1,70 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pyout.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 print 合成一次 write",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    this.textWrite(pyTextBytes(text));\n    this.textWrite(pyTextBytes(\"\\n\"));",
+      "new": "    this.textWrite(pyTextBytes(`${text}\\n`));"
+    },
+    {
+      "name": "P02 大块 write 不先交出 pending",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (bytes.length >= STDOUT_CHUNK && this.pendingBytes) this.handOver();\n",
+      "new": ""
+    },
+    {
+      "name": "P03 pending 超过才交出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (this.pendingBytes >= STDOUT_CHUNK) this.handOver();",
+      "new": "    if (this.pendingBytes > STDOUT_CHUNK) this.handOver();"
+    },
+    {
+      "name": "P04 字节层放得下也写出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (data.length <= STDOUT_CHUNK - held.length) {",
+      "new": "    if (data.length < STDOUT_CHUNK - held.length) {",
+      "equivalent": "字节层收到放得下的数据时一定是空的：交来的要么本身就有 8192 及以上（只在空时恰好放得下），要么是大块 write 之前单独交出的 pending，紧接着就被大块挤出去；flush 里交出之后马上整份写出。所以“放得下就留着”与“先写出手上的（空）再留着”落点相同。代码照 BufferedWriter.write 的原样写，不依赖这个不变量"
+    },
+    {
+      "name": "P05 交来的不超过容量也直接写出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (data.length > STDOUT_CHUNK) writeAll(1, data);\n    else this.held = data;",
+      "new": "    writeAll(1, data);"
+    },
+    {
+      "name": "P06 交来的超过容量也留着",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (data.length > STDOUT_CHUNK) writeAll(1, data);\n    else this.held = data;",
+      "new": "    this.held = data;"
+    },
+    {
+      "name": "P07 字节层只有一层：交出就写",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    const held = this.held ?? Buffer.alloc(0);\n    if (data.length <= STDOUT_CHUNK - held.length) {",
+      "new": "    const held = this.held ?? Buffer.alloc(0);\n    if (false) {",
+      "equivalent": "字节层收到放得下的数据时一定是空的：交来的要么本身就有 8192 及以上（只在空时恰好放得下），要么是大块 write 之前单独交出的 pending，紧接着就被大块挤出去；flush 里交出之后马上整份写出。所以“放得下就留着”与“先写出手上的（空）再留着”落点相同。代码照 BufferedWriter.write 的原样写，不依赖这个不变量"
+    },
+    {
+      "name": "P08 恰好 8192 也直接写出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (data.length > STDOUT_CHUNK) writeAll(1, data);",
+      "new": "    if (data.length >= STDOUT_CHUNK) writeAll(1, data);"
+    },
+    {
+      "name": "P09 flush 不先交出 pending",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "  flush(): void {\n    if (this.pendingBytes) this.handOver();\n",
+      "new": "  flush(): void {\n"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "120 行 GATE",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "E01 回到单层：正文与换行一次写、超过 8192 整份写出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    this.textWrite(pyTextBytes(text));\n    this.textWrite(pyTextBytes(\"\\n\"));\n    if (options.flush === true) this.flush();",
+      "new": "    this.pending.push(pyTextBytes(`${text}\\n`));\n    this.pendingBytes += this.pending[this.pending.length - 1]!.length;\n    if (options.flush === true || this.pendingBytes > STDOUT_CHUNK) {\n      writeAll(1, Buffer.concat(this.pending));\n      this.pending = [];\n      this.pendingBytes = 0;\n    }"
+    }
+  ]
+}

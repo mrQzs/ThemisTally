@@ -54,7 +54,9 @@ export function normalize(text: string, paths: Record<string, string>): string {
   let out = text;
   const pairs = Object.entries(paths).flatMap(([label, value]) => [[label, value], [label, longPath(value)]] as [string, string][]);
   for (const [label, value] of pairs.sort(([, a], [, b]) => b.length - a.length)) {
-    out = out.replaceAll(value.replaceAll(SLASH, SLASH + SLASH), label).replaceAll(value, label);
+    // 写进 JSON 的 repr（报错文字记进 checks.json）反斜杠是四个
+    const doubled = value.replaceAll(SLASH, SLASH + SLASH);
+    out = out.replaceAll(doubled.replaceAll(SLASH, SLASH + SLASH), label).replaceAll(doubled, label).replaceAll(value, label);
   }
   return out.replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z/gu, "<AT>");
 }
