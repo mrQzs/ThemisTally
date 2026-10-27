@@ -21,6 +21,8 @@ import { cmpCodePoints, codePoints, isDigitChar, pyIntParse, pyLen } from "@them
 import { decisionsRedact, isSensitive, redactState } from "@themis/base/secrets";
 import { urlHostname, urlPort, urlsplit } from "@themis/base/pyurl";
 import { DispatchError, EXIT_USAGE } from "@themis/dispatcher/repo";
+// usage_totals 在 dispatcher（decisions replay 要用，dispatcher 不能 import 本包），这里照旧转出
+export { usageTotals } from "@themis/dispatcher/decision-records";
 import {
   type Battery, DecisionError, batteryLinkProblem, checkQuestion, joinPath, loadBatteries, loadLockedBatteries, settingsActive,
   settingsFromConfig, settingsOfficial, type Settings, verifyBatteryLock,
@@ -31,7 +33,6 @@ import { SecretError, resolve, source, storeMode } from "./secret-store.ts";
 export const ENDPOINT_PATH = "/v1/systemone";
 export const MAX_RESPONSE_BYTES = 1_000_000;
 export const USER_AGENT = "code-kit-decisions/2.8.0";
-const PRICE_USD_PER_MILLION_INPUT = 0.042;
 const RETRYABLE = new Set(["rate_limited", "overloaded", "network", "http_500", "http_502", "http_503", "http_504"]);
 const PROBABILITY_SUM_TOLERANCE = 0.01 + 1e-12;
 const SCORE_MEAN_TOLERANCE = 0.02 + 1e-12;
@@ -335,7 +336,7 @@ async function storedSecret(name: string): Promise<string | null> {
 }
 
 /** 问题清单在会话里用到的部分（probe 自己拼一份，不经文件）。 */
-export type SessionBattery = Pick<Battery, "id" | "version" | "sha256" | "questions">;
+export type SessionBattery = Pick<Battery, "id" | "version" | "sha256" | "questions" | "thresholds">;
 
 /**
  * Session：一条调度命令里的决策调用，共享时钟预算，记录追加到一个 decisions.jsonl。ask 总是交回一个结果，不因调用失败
@@ -504,35 +505,6 @@ function parentOf(file: string): string {
 // 给调用方的小工具
 // ---------------------------------------------------------------------------
 
-/** usage_totals：调用次数、有答案的次数、输入 token 与估算花费、各无意见原因的次数。 */
-export function usageTotals(records: readonly PyDict[]): PyDict {
-  const calls = records.length;
-  const answered = records.filter((record) => record.get("status") === "answered").length;
-  // (r.get("usage") or {}).get("input_tokens")：usage 是真值却不是字典时照 Python 抛 AttributeError
-  const inputTokens = (record: PyDict): PyValue | undefined => {
-    const usage = record.get("usage") ?? null;
-    if (!pyTruthy(usage)) return undefined;
-    if (!isDict(usage)) throw new PyCrash("AttributeError", `'${pyTypeName(usage)}' object has no attribute 'get'`);
-    return usage.get("input_tokens");
-  };
-  let tokens = 0n;
-  for (const record of records) {
-    const value = inputTokens(record);
-    if (typeof value === "bigint") tokens += value;
-    else if (typeof value === "boolean") tokens += value ? 1n : 0n;
-  }
-  const reasons = new Map<string, PyValue>();
-  for (const record of records) {
-    if (record.get("status") === "answered") continue;
-    const reason = pyStrValue(record.get("reason") ?? null);
-    reasons.set(reason, ((reasons.get(reason) as bigint | undefined) ?? 0n) + 1n);
-  }
-  return dict([
-    ["calls", BigInt(calls)], ["answered", BigInt(answered)], ["no_opinion", BigInt(calls - answered)], ["input_tokens", tokens],
-    ["estimated_cost_usd", pyRound((pyFloatOf(tokens) * PRICE_USD_PER_MILLION_INPUT) / 1_000_000, 8)], ["no_opinion_reasons", reasons],
-  ]);
-}
-
 /** Settings.as_dict。 */
 export function settingsDict(settings: Settings): PyDict {
   return dict([
@@ -594,7 +566,7 @@ function isDirectory(file: string): boolean {
  */
 export async function probe(settings: Settings, options: { transport?: Transport; environ?: NodeJS.ProcessEnv } = {}): Promise<PyDict> {
   const battery: SessionBattery = {
-    id: "probe", version: "1.0.0", sha256: "0".repeat(64),
+    id: "probe", version: "1.0.0", sha256: "0".repeat(64), thresholds: new Map(),
     questions: new Map([["ok", checkQuestion("noul", dict([["type", "noul"], ["instructions", "The text reports that every test passed."]]))]]),
   };
   const probeSettings: Settings = { ...settings, mode: "shadow", reason: "probe", points: ["probe"] };

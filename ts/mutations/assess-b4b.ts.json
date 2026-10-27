@@ -1,0 +1,94 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-commands.contract.test.ts",
+    "-t",
+    "assess",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "R01 用户消息也算",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "      if (message.get(\"role\") === \"assistant\") {",
+      "new": "      if (true) {"
+    },
+    {
+      "name": "R02 空白的 assistant 文本也收",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "        if (pyStrip(body)) texts.push(body);",
+      "new": "        texts.push(body);"
+    },
+    {
+      "name": "R03 工具出错一律记成没出错",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "[\"error\", pyTruthy(event.get(\"isError\") ?? null)]",
+      "new": "[\"error\", false]"
+    },
+    {
+      "name": "R04 第二次就算打转",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "previous.filter((item) => item === fingerprint).length >= 2",
+      "new": "previous.filter((item) => item === fingerprint).length >= 1"
+    },
+    {
+      "name": "R05 无意见时不看静默",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    action = health.repeating || health.quiet >= stall ? \"prepare_next_contract\" : \"keep_waiting\";",
+      "new": "    action = health.repeating ? \"prepare_next_contract\" : \"keep_waiting\";"
+    },
+    {
+      "name": "R06 静默很久也照模型的 keep_waiting",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    if (health.quiet >= stall && action === \"keep_waiting\") {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "R07 置信度到阈值也不算强",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    strong = confidence >= threshold(battery, \"action\", 0.7);",
+      "new": "    strong = false;"
+    },
+    {
+      "name": "R08 shadow 模式也提示",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    if ((count >= alertAfter || strong) && session.mode === \"on\") {",
+      "new": "    if (count >= alertAfter || strong) {"
+    },
+    {
+      "name": "R09 连续次数要超过 alert_after",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    if ((count >= alertAfter || strong) && session.mode === \"on\") {",
+      "new": "    if ((count > alertAfter || strong) && session.mode === \"on\") {"
+    },
+    {
+      "name": "W01 会话为空时不打印 NOTE",
+      "file": "ts/packages/dispatcher/src/attempt-commands.ts",
+      "old": "    if (session === null) out.print(\"NOTE  --assess：决策模式为 off 或 run-health 未启用，只按状态等待\");\n",
+      "new": ""
+    },
+    {
+      "name": "W02 每圈都问",
+      "file": "ts/packages/dispatcher/src/attempt-commands.ts",
+      "old": "elapsed - lastAssessed >= Number(args.assess_interval ?? 60.0)) {",
+      "new": "elapsed - lastAssessed >= 0) {"
+    },
+    {
+      "name": "T01 --json 时不打判断",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "    out.print(dumps(rows, { ensureAscii: false, indent: 2 }));\n    for (const line of assessments) out.print(line);\n",
+      "new": "    out.print(dumps(rows, { ensureAscii: false, indent: 2 }));\n"
+    },
+    {
+      "name": "T02 判断行不带 attempt",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "        if (line) assessments.push(`${pyStrValue(row.get(\"attempt\") as PyValue)}：${line}`);",
+      "new": "        if (line) assessments.push(line);"
+    }
+  ]
+}

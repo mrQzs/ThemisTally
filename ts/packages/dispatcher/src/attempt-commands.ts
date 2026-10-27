@@ -1,4 +1,4 @@
-// pi_dispatch 处理一个 attempt 的三条命令（迁移第 ④b2 片）：mark、cleanup、wait（--assess 属于 ④b4，这里不接）。
+// pi_dispatch 处理一个 attempt 的三条命令（迁移第 ④b2 片）：mark、cleanup、wait（--assess 是 ④b4b 接的，决策会话由 cli 交进来）。
 // 证据坏了（缺 meta.json、缺键、类型不对）时 Python 不接、命令崩溃，这里照样抛出（PyCrash 等），入口按崩溃处理。
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -13,9 +13,11 @@ import { pyEq } from "@themis/base/pyvalue";
 import {
   PASSING_VERDICTS, TERMINAL_STATES, artifactMatchers, candidatePatchOk, loadAttempt, logEvent, pathArg, removeWorktree, setState, splitExtras, strArg,
 } from "./evidence.ts";
+import { DECISIONS_RECORD } from "./decision-records.ts";
 import { snapshotTree, treeDrift } from "./gitops.ts";
 import { repoConfig } from "./kernel-config.ts";
 import { DispatchError, EXIT_BLOCKED, EXIT_FAIL, EXIT_OK, EXIT_USAGE, Repo, gitChecked, readJsonOr } from "./repo.ts";
+import { type DecisionSession, type HealthTracker, type SessionFactory, assessRun } from "./run-health.ts";
 import { getState, latestVerdict, liveFacts, liveText, resolveRunDir } from "./status.ts";
 
 const isDict = (value: PyValue | undefined): value is PyDict => value instanceof Map;
@@ -210,6 +212,8 @@ export interface WaitArgs {
   readonly run_dir: string;
   readonly timeout: bigint;
   readonly interval: number;
+  readonly assess?: boolean;
+  readonly assess_interval?: number;
 }
 
 const WAIT_ACTIVE_STATES = ["PREPARING", "RUNNING", "COLLECTING"];
@@ -222,16 +226,28 @@ const pyMax = (a: number, b: number): number => (b > a ? b : a);
  * wait：进入明确的结束状态时打印状态并退出 0；到时仍在运行时打印进度并退出 3。刚在后台启动的 run 可能还没领取，PREPARED
  * 最多再等 min(60, timeout) 秒。state.json 缺失、损坏或状态未知时退出 1。
  */
-export function cmdWait(args: WaitArgs, out: PyOut): number {
+export async function cmdWait(args: WaitArgs, out: PyOut, sessions: SessionFactory | null = null): Promise<number> {
   const repo = Repo.discover(args.repo);
   const runDir = resolveRunDir(repo, args.run_dir);
   if (args.timeout < 1n) throw new DispatchError("--timeout 必须是正整数（秒）", EXIT_USAGE);
   const timeout = Number(args.timeout);
   const started = performance.now();
   const shown = displayPath(runDir, repo.root);
+  let session: DecisionSession | null = null;
+  if (args.assess) {
+    session = sessions === null ? null : sessions(repoConfig(repo), repo.agentDir, path.join(runDir, DECISIONS_RECORD), "run-health");
+    if (session === null) out.print("NOTE  --assess：决策模式为 off 或 run-health 未启用，只按状态等待");
+  }
+  const tracker: HealthTracker = {};
+  let lastAssessed = -1e9;
   for (;;) {
     const state = getState(runDir);
     const elapsed = (performance.now() - started) / 1000;
+    if (session !== null && state === "RUNNING" && elapsed - lastAssessed >= Number(args.assess_interval ?? 60.0)) {
+      lastAssessed = elapsed;
+      const line = await assessRun(runDir, session, tracker);
+      if (line) out.print(line, { flush: true });
+    }
     if (WAIT_ACTIVE_STATES.includes(state) || (state === "PREPARED" && elapsed < pyMin(60, timeout))) {
       if (elapsed >= timeout) {
         const progress = state === "RUNNING" ? liveText(liveFacts(runDir)) : "";

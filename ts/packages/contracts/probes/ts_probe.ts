@@ -70,6 +70,7 @@ import {
   verifyBatteryLock,
 } from "@themis/config/decisions";
 import { Session, checkAnswer, decisionsSession, describe, httpTransport, probe, usageTotals } from "@themis/config/decisions-client";
+import { type HealthTracker, assessRun } from "@themis/dispatcher/run-health";
 import {
   PluginError,
   canonicalBytes,
@@ -266,7 +267,7 @@ async function decisionsClient(request: Request): Promise<Result> {
         return { ok: true, value: text(checkAnswer(String(request["name"]), loads(String(request["question"])) as PyDict, loads(String(request["answer"])))) };
       case "ask": {
         const raw = loads(String(request["battery"])) as PyDict;
-        const battery = { id: raw.get("id") as string, version: raw.get("version") as string, sha256: raw.get("sha256") as string, questions: checkQuestions(raw.get("questions")) };
+        const battery = { id: raw.get("id") as string, version: raw.get("version") as string, sha256: raw.get("sha256") as string, questions: checkQuestions(raw.get("questions")), thresholds: new Map() };
         const session = new Session(settings(), optional("record"));
         const context = request["context"] ? (loads(String(request["context"])) as PyDict) : null;
         const results: PyValue[] = [];
@@ -290,6 +291,16 @@ async function decisionsClient(request: Request): Promise<Result> {
           if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code, stdout: printed.join("") };
           throw error;
         }
+      }
+      case "assess": {
+        const out = { print: (): void => undefined };
+        const session = decisionsSession(loads(String(request["config"])), null, String(request["record"]), "run-health", { kitRoot: String(request["kit_root"]), out });
+        if (session === null) throw new Error("assess 的用例要一个会话");
+        const tracker: HealthTracker = {};
+        const lines: PyValue[] = [];
+        for (let tick = 0; tick < Number(request["ticks"]); tick += 1) lines.push(await assessRun(String(request["run_dir"]), session, tracker));
+        const streak = tracker.streak === undefined ? null : new Map([...tracker.streak].map(([key, count]) => [key, BigInt(count)]));
+        return { ok: true, value: text(new Map<string, PyValue>([["lines", lines], ["ticks", tracker.ticks === undefined ? null : BigInt(tracker.ticks)], ["streak", streak]])) };
       }
       default:
         return { ok: false, error: "UNKNOWN_FN" };

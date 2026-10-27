@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pyfmt.compare.test.ts",
+    "-t",
+    "sum",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "N07 累加和按 C long 判溢出",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "      if (value === null || !fitsLong(value) || !fitsSsize(total + value)) break;",
+      "new": "      if (value === null || !fitsLong(value) || !fitsLong(total + value)) break;"
+    }
+  ]
+}

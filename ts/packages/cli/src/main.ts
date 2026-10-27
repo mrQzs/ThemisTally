@@ -22,6 +22,9 @@ import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
+import { type DecisionsArgs, cmdDecisions } from "@themis/dispatcher/decisions-replay";
+import type { SessionFactory } from "@themis/dispatcher/run-health";
+import { decisionsSession } from "@themis/config/decisions-client";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import { resolveRoleExecutor } from "@themis/config/roles-binding";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
@@ -57,6 +60,19 @@ function dispatchFailure(out: PyOut, error: unknown): number {
 function runDispatcher(out: PyOut, body: () => number): number {
   try {
     return body();
+  } catch (error) {
+    return dispatchFailure(out, error);
+  }
+}
+
+/** 决策会话（④b4b，wait --assess、status --assess）：config 包的 decisionsSession，kit 根取启动器的 context。 */
+function sessionsFor(args: Record<string, unknown>, out: PyOut): SessionFactory {
+  return (config, agentDir, recordPath, point) => decisionsSession(config, agentDir, recordPath, point, { kitRoot: planContext(args).kitRoot, out });
+}
+
+async function runDispatcherAsync(out: PyOut, body: () => Promise<number>): Promise<number> {
+  try {
+    return await body();
   } catch (error) {
     return dispatchFailure(out, error);
   }
@@ -127,7 +143,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   switch (args.command.join(" ")) {
     case "status":
-      return runDispatcher(out, () => cmdStatus(args as unknown as StatusArgs, out));
+      return runDispatcherAsync(out, () => cmdStatus(args as unknown as StatusArgs, out, sessionsFor(args, out)));
     case "validate":
       return runDispatcher(out, () => cmdValidate(args as unknown as ValidateArgs, out, planContext(args)));
     case "derive-json":
@@ -137,12 +153,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "cleanup":
       return runDispatcher(out, () => cmdCleanup(args as unknown as CleanupArgs, out));
     case "wait":
-      // --assess 属于 ④b4（决策会话），这一片不接
-      if (args["assess"]) {
-        out.printErr("ERROR: TS 实现还没有这条命令：wait --assess");
-        return 2;
-      }
-      return runDispatcher(out, () => cmdWait(args as unknown as WaitArgs, out));
+      return runDispatcherAsync(out, () => cmdWait(args as unknown as WaitArgs, out, sessionsFor(args, out)));
+    case "decisions":
+    case "decisions replay":
+      return runDispatcher(out, () => cmdDecisions(args as unknown as DecisionsArgs, out));
     case "check":
       return runBuffered((buffered) => cmdCheck(args as unknown as CheckArgs, buffered, hostPlatform(args)));
     case "baseline":

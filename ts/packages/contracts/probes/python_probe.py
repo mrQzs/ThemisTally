@@ -704,6 +704,17 @@ def op_decisions_client(request):
                 pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = saved
             value = None if session is None else {"mode": session.mode, "batteries": sorted(session.batteries)}
             return {"ok": True, "value": text(value), "stdout": out.getvalue()}
+        if fn == "assess":  # ④b4b：同一个 tracker 连问几次 assess_run
+            saved = pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR
+            pi_dispatch.KIT_ROOT = Path(request["kit_root"])
+            pi_dispatch.DECISIONS_PLUGIN_DIR = pi_dispatch.KIT_ROOT / "plugins" / "decisions"
+            try:
+                session = pi_dispatch.decisions_session(json.loads(request["config"]), None, Path(request["record"]), "run-health")
+                tracker = {}
+                lines = [pi_dispatch.assess_run(Path(request["run_dir"]), session, tracker) for _ in range(request["ticks"])]
+            finally:
+                pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = saved
+            return {"ok": True, "value": text({"lines": lines, "ticks": tracker.get("ticks"), "streak": tracker.get("streak")})}
     except codekit_decisions.DecisionError as exc:
         return {"ok": False, "error": "DecisionError", "code": exc.code, "detail": exc.detail}
     except (ValueError, OverflowError, TypeError, AttributeError, KeyError, RecursionError) as exc:

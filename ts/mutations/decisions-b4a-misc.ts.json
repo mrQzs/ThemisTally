@@ -14,13 +14,13 @@
   "mutations": [
     {
       "name": "U01 布尔的 input_tokens 不算",
-      "file": "ts/packages/config/src/decisions-client.ts",
+      "file": "ts/packages/dispatcher/src/decision-records.ts",
       "old": "    else if (typeof value === \"boolean\") tokens += value ? 1n : 0n;\n",
       "new": ""
     },
     {
       "name": "U02 usage 是列表也不崩",
-      "file": "ts/packages/config/src/decisions-client.ts",
+      "file": "ts/packages/dispatcher/src/decision-records.ts",
       "old": "    if (!isDict(usage)) throw new PyCrash(\"AttributeError\", `'${pyTypeName(usage)}' object has no attribute 'get'`);\n",
       "new": ""
     },

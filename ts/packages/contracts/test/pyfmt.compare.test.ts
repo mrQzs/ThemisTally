@@ -84,6 +84,9 @@ describe("pyfmt 对照：sum", () => {
     const items: ProbeRequest[] = Array.from({ length: 400 }, () => ({
       op: "pyfmt.call", fn: "sum", value: { t: "list", v: Array.from({ length: Math.floor(rnd() * 14) }, item) },
     }));
+    // 累加和过了 2**31 还留在 int 路径（Py_ssize_t），到 2.0 才转进有补偿的 float 路径（themistally-15 复核 cf99239 的那一串）
+    const f = (value: number): Tagged => ({ t: "float", bits: floatBits(value) });
+    items.push({ op: "pyfmt.call", fn: "sum", value: { t: "list", v: [{ t: "bool", v: true }, int(2147483647n), f(2.0), f(-0.2), f(2.0), f(11.0), { t: "bool", v: false }, f(7e-6), f(-0.009373147144156338)] } });
     const [python, ...others] = IMPLS.map((impl) => runBatch(impl, items));
     for (const other of others) {
       const mismatches = (other ?? []).flatMap((result, index) =>

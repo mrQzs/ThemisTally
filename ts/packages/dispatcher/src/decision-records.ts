@@ -1,6 +1,6 @@
 // codekit/decisions.py 的决策记录与回答的可读形式（迁移第 ④b6 片）：write_summary 的“决策”一节用，之后的 decisions 命令与
 // hub 也用。读记录的 readRecords 在 metrics.ts（④b2）。
-import { pyFixed, pyFloatOf, pyGet, pyIntOf, pyStrValue } from "@themis/base/pyfmt";
+import { PyCrash, pyFixed, pyFloatOf, pyGet, pyIntOf, pyRound, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 
 /** pi_dispatch.DECISIONS_RECORD：attempt 目录里的决策记录。 */
@@ -29,4 +29,39 @@ export function answerValue(answer: PyValue): [string, number] {
   if (kind === "choice") return [pyStrValue(pyGet(answer, "choice")), pyFloatOf(pyGet(answer, "confidence", 0))];
   const shown = `${pyFixed(pyFloatOf(pyGet(answer, "score", 0)), 2)}/${pyIntOf(pyGet(answer, "levels", 0n)) - 1n}`;
   return [shown, pyFloatOf(pyGet(answer, "confidence", 0))];
+}
+
+const isDict = (value: PyValue | undefined): value is PyDict => value instanceof Map;
+const dict = (entries: readonly (readonly [string, PyValue])[]): PyDict => new Map(entries);
+
+/** codekit/decisions.PRICE_USD_PER_MILLION_INPUT。 */
+const PRICE_USD_PER_MILLION_INPUT = 0.042;
+
+/** usage_totals：调用次数、有答案的次数、输入 token 与估算花费、各无意见原因的次数。 */
+export function usageTotals(records: readonly PyDict[]): PyDict {
+  const calls = records.length;
+  const answered = records.filter((record) => record.get("status") === "answered").length;
+  // (r.get("usage") or {}).get("input_tokens")：usage 是真值却不是字典时照 Python 抛 AttributeError
+  const inputTokens = (record: PyDict): PyValue | undefined => {
+    const usage = record.get("usage") ?? null;
+    if (!pyTruthy(usage)) return undefined;
+    if (!isDict(usage)) throw new PyCrash("AttributeError", `'${pyTypeName(usage)}' object has no attribute 'get'`);
+    return usage.get("input_tokens");
+  };
+  let tokens = 0n;
+  for (const record of records) {
+    const value = inputTokens(record);
+    if (typeof value === "bigint") tokens += value;
+    else if (typeof value === "boolean") tokens += value ? 1n : 0n;
+  }
+  const reasons = new Map<string, PyValue>();
+  for (const record of records) {
+    if (record.get("status") === "answered") continue;
+    const reason = pyStrValue(record.get("reason") ?? null);
+    reasons.set(reason, ((reasons.get(reason) as bigint | undefined) ?? 0n) + 1n);
+  }
+  return dict([
+    ["calls", BigInt(calls)], ["answered", BigInt(answered)], ["no_opinion", BigInt(calls - answered)], ["input_tokens", tokens],
+    ["estimated_cost_usd", pyRound((pyFloatOf(tokens) * PRICE_USD_PER_MILLION_INPUT) / 1_000_000, 8)], ["no_opinion_reasons", reasons],
+  ]);
 }

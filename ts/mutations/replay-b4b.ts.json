@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-commands.contract.test.ts",
+    "-t",
+    "decisions replay",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "D01 通过类只认 PASS",
+      "file": "ts/packages/dispatcher/src/decisions-replay.ts",
+      "old": "    const passing = screen.filter((row) => PASSING_VERDICTS.includes(row.get(\"verdict\") as string));",
+      "new": "    const passing = screen.filter((row) => row.get(\"verdict\") === \"PASS\");"
+    },
+    {
+      "name": "D02 建议分布不排序",
+      "file": "ts/packages/dispatcher/src/decisions-replay.ts",
+      "old": "  ([...counts] as [string, PyValue][]).sort(([left], [right]) => cmpCodePoints(left, right))",
+      "new": "  ([...counts] as [string, PyValue][])"
+    },
+    {
+      "name": "D03 --out 写 LF",
+      "file": "ts/packages/dispatcher/src/decisions-replay.ts",
+      "old": "encodeUtf8(process.platform === \"win32\" ? text.split(LF).join(CR + LF) : text)",
+      "new": "encodeUtf8(text)"
+    },
+    {
+      "name": "D04 mutations/NN 下的记录不读",
+      "file": "ts/packages/dispatcher/src/run-health.ts",
+      "old": "    if (isDirectory) records.push(...readRecords(path.join(sub, DECISIONS_RECORD)));",
+      "new": "    if (false) records.push(...readRecords(path.join(sub, DECISIONS_RECORD)));"
+    },
+    {
+      "name": "D05 run-health 的无意见也取 choice",
+      "file": "ts/packages/dispatcher/src/decisions-replay.ts",
+      "old": "const choice = record.get(\"status\") === \"answered\" ? get(get(orEmpty(record.get(\"answers\")), \"action\", new Map()), \"choice\") : \"无意见\";",
+      "new": "const choice = get(get(orEmpty(record.get(\"answers\")), \"action\", new Map()), \"choice\");"
+    },
+    {
+      "name": "D06 缺子命令也照常回放",
+      "file": "ts/packages/dispatcher/src/decisions-replay.ts",
+      "old": "  if (args.decisions_cmd !== \"replay\") throw new DispatchError(\"decisions 需要子命令 replay\", EXIT_USAGE);\n",
+      "new": ""
+    }
+  ]
+}

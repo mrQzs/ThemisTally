@@ -11,6 +11,7 @@
     "./contract": "./src/contract.ts",
     "./contract-plan": "./src/contract-plan.ts",
     "./decision-records": "./src/decision-records.ts",
+    "./decisions-replay": "./src/decisions-replay.ts",
     "./events": "./src/events.ts",
     "./evidence": "./src/evidence.ts",
     "./executor": "./src/executor.ts",
@@ -26,6 +27,7 @@
     "./pi-cli": "./src/pi-cli.ts",
     "./release-check": "./src/release-check.ts",
     "./repo": "./src/repo.ts",
+    "./run-health": "./src/run-health.ts",
     "./shell-scan": "./src/shell-scan.ts",
     "./status": "./src/status.ts",
     "./summary": "./src/summary.ts"

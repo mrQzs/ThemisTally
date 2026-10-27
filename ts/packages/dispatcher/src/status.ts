@@ -1,12 +1,15 @@
 // pi_dispatch status（迁移第 ②a 步）：_attempt_row、_live_facts、resolve_run_dir、task_attempts、cmd_status。
-// --assess 要调决策模型，留在 Python（启动器不转交带 --assess 的调用）。
+// --assess 要调决策模型（④b4b 接上，决策会话由 cli 交进来）；启动器在 ④ 切换之前照旧不转交带 --assess 的调用。
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { PyCrash, type PyOut, pyGet, pyLenValue, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, type PyValue, dumps } from "@themis/base/pyjson";
 import { displayPath, firstLinkComponent, isLinkOrJunction, isWithin, pyResolve } from "@themis/base/pypath";
 import { D, PY_END, cmpCodePoints, codePoints, pyIntParse, pyRegex } from "@themis/base/pyre";
+import { DECISIONS_RECORD } from "./decision-records.ts";
+import { repoConfig } from "./kernel-config.ts";
 import { DispatchError, EXIT_OK, EXIT_USAGE, Repo, readJsonOr } from "./repo.ts";
+import { type SessionFactory, assessRun } from "./run-health.ts";
 
 export const TASK_ID_RE = pyRegex(`^[a-z0-9][a-z0-9-]{0,63}${PY_END}`);
 export const ATTEMPT_DIR_RE = pyRegex(`^attempt-(?<n>${D}{3,})${PY_END}`);
@@ -168,7 +171,7 @@ const STRPTIME_RE = new RegExp(
 );
 
 /** datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")，当作 UTC，返回毫秒；不合法（含 datetime 的取值检查）为 null。 */
-function strptimeUtc(text: string): number | null {
+export function strptimeUtc(text: string): number | null {
   const match = STRPTIME_RE.exec(text);
   if (!match || match[0].length !== text.length) return null;
   const part = (name: string): number => Number(intOf(match.groups?.[name] ?? ""));
@@ -266,6 +269,7 @@ export interface StatusArgs {
   readonly repo: string | null;
   readonly task_id: string | null;
   readonly json: boolean;
+  readonly assess?: boolean;
 }
 
 function formatCost(row: PyDict): string {
@@ -280,8 +284,8 @@ function ljust(text: string, width: number): string {
   return text + " ".repeat(Math.max(0, width - codePoints(text).length));
 }
 
-/** pi_dispatch.cmd_status（不带 --assess）。 */
-export function cmdStatus(args: StatusArgs, out: PyOut): number {
+/** pi_dispatch.cmd_status。 */
+export async function cmdStatus(args: StatusArgs, out: PyOut, sessions: SessionFactory | null = null): Promise<number> {
   const repo = Repo.discover(args.repo);
   const target = args.task_id;
   let attempts: string[];
@@ -296,15 +300,24 @@ export function cmdStatus(args: StatusArgs, out: PyOut): number {
     attempts = tasks.flatMap((task) => taskAttempts(repo, task));
   }
   const rows = attempts.map((attempt) => attemptRow(repo, attempt));
-  rows.forEach((row, index) => {
-    if (row.get("state") === "RUNNING") {
-      const facts = liveFacts(attempts[index] as string);
-      row.set("events_ok", liveText(facts));
-      row.set("live", facts);
+  const assessments: string[] = [];
+  for (const [index, row] of rows.entries()) {
+    if (row.get("state") !== "RUNNING") continue;
+    const attempt = attempts[index] as string;
+    const facts = liveFacts(attempt);
+    row.set("events_ok", liveText(facts));
+    row.set("live", facts);
+    if (args.assess) {
+      const session = sessions === null ? null : sessions(repoConfig(repo), repo.agentDir, path.join(attempt, DECISIONS_RECORD), "run-health");
+      if (session !== null) {
+        const line = await assessRun(attempt, session, {});
+        if (line) assessments.push(`${pyStrValue(row.get("attempt") as PyValue)}：${line}`);
+      }
     }
-  });
+  }
   if (args.json) {
     out.print(dumps(rows, { ensureAscii: false, indent: 2 }));
+    for (const line of assessments) out.print(line);
     return EXIT_OK;
   }
   if (rows.length === 0) {
@@ -325,6 +338,7 @@ export function cmdStatus(args: StatusArgs, out: PyOut): number {
   ])];
   const widths = header.map((_, column) => Math.max(...table.map((line) => codePoints(line[column] as string).length)));
   for (const line of table) out.print(line.map((cell, column) => ljust(cell, widths[column] as number)).join("  "));
+  for (const line of assessments) out.print(line);
   return EXIT_OK;
 }
 

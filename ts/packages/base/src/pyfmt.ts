@@ -166,12 +166,15 @@ const LONG_BITS = process.platform === "win32" ? 31n : 63n;
 const LONG_MAX = (1n << LONG_BITS) - 1n;
 const LONG_MIN = -(1n << LONG_BITS);
 const fitsLong = (value: bigint): boolean => value >= LONG_MIN && value <= LONG_MAX;
+/** Py_ssize_t：64 位平台上都是 64 位（int 快速路径的累加和；每一项与起点仍按 C long）。 */
+const fitsSsize = (value: bigint): boolean => value >= -(1n << 63n) && value < 1n << 63n;
 /** PyLong_Check：int 与 bool。 */
 const longOf = (value: PyValue): bigint | null => (typeof value === "bigint" ? value : typeof value === "boolean" ? (value ? 1n : 0n) : null);
 
 /**
  * sum(values, start)：照 CPython 3.12 的 builtin_sum（themistally-15 复核 b29ab6c 查出逐个相加差在末位）。
- * 1. 起点是 C long 能装下的 int 时，int 与 bool 精确累加；遇到别的项或要溢出时，把它与当前和按 + 加一次，转入下面。
+ * 1. 起点是 C long 能装下的 int 时，int 与 bool 精确累加：每一项要装得下 C long，累加和按 Py_ssize_t 判溢出（Windows 上
+ *    前者 32 位、后者 64 位，themistally-15 复核 cf99239 查出）；遇到别的项或要溢出时，把它与当前和按 + 加一次，转入下面。
  * 2. 当前和是 float 时用 Neumaier 补偿累加 float；int 与 bool 装得下 C long 就直接加（不补偿），装不下就先并入补偿量，
  *    之后余下的项按 + 逐个加，不再补偿。结束时补偿量非 0 且有限才并进去（inf、nan 不会被弄成 nan）。
  */
@@ -182,7 +185,7 @@ export function pySum(values: readonly PyValue[], start: bigint | number = 0n): 
     let total = result;
     for (; at < values.length; at += 1) {
       const value = longOf(values[at] as PyValue);
-      if (value === null || !fitsLong(value) || !fitsLong(total + value)) break;
+      if (value === null || !fitsLong(value) || !fitsSsize(total + value)) break;
       total += value;
     }
     if (at === values.length) return total;
