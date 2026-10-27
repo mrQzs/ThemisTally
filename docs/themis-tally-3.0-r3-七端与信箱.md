@@ -2085,6 +2085,13 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**（`tests/test_quiet_error_mode.py`，只在 Windows 上跑）：都从 CREATE_DEFAULT_ERROR_MODE 起的进程出发（不继承 conftest 设的），核对：对照组缺这几位；经 `pi_dispatch.main`、`kit_hub.main` 之后起的子进程带着；Bun 起 TS 入口与 Node 后备的辅助进程、Node 起的子进程本来就带着（哪天运行时不再这么做，就要在 TS 入口自己设）；pytest 进程自己带着；照 themistally-15 的实验起子进程后立即发 CTRL_BREAK，5 次都在超时之内退出、至少一次是 0xC0000142、事件 26 的计数不变。只测“设了模式”这一边：修坏了也只是等到超时、结束进程树，不故意弹框。数值在用例里写死，不读常数。变异 4 个（两个入口不调、常数只剩 0x3、conftest 不设），全部抓住。
 - **验证**：本轮 worktree 的全量 pytest 3041 passed / 228 skipped（13 分 33 秒），跑之前与之后各数一次事件 26：9 → 9。TS 没有改动，全量 vitest 随下一片（④b6）跑，同样前后数一次。
 
+### 第 124 轮：_path_forms 的次序不随散列变（2026-10-26）
+
+- **起因**：写 TS 迁移第 ④b6 片（事件流摘要）的契约时，随机变体里 252 条有 4 条两边不一致，查下来是 Python 自己不确定：同一路径用反斜杠、正斜杠与 Git Bash 的 `/c/…` 写出来都等长，`_path_forms` 只按长度排，等长的次序随集合的散列（PYTHONHASHSEED）而变。命令里两处匹配的摘录区间重叠时（例如 `cat C:/x/proj/a,/c/x/proj`：`C:/…` 的摘录到空白或命令分隔符为止，盖住了逗号后面的 `/c/…`），`_protected_mentions` 与 `_mask_paths` 的结果跟着变，同一份事件流每次 collect 可能写出不同的 events-summary。
+- **改动**：`_path_forms` 按（长度从长到短，字面）排序。TS 的 `pathForms` 随 ④b6 照同一规则。
+- **测试**（`tests/test_path_forms.py`）：输出按（-长度，字面）排好；Windows 上 16 个 PYTHONHASHSEED 各起一个进程，写法、主仓库路径的摘录与屏蔽结果完全相同，并钉住重叠命令的结果。修之前这条在 16 个种子下给出 5 种不同结果。
+- **验证**：test_path_forms、test_dispatch、test_legacy_events、test_codekit01_fixtures、test_quiet_error_mode 共 172 passed（另 1878 个子用例）。全量 pytest 与全量 vitest 随 ④b6 一起跑（那一片在本轮之上）。themistally-15 同意本轮的做法，补了一条：TS 按字面比较要按码点，不能用 JS 缺省的 UTF-16 码元次序（U+E000–U+FFFF 与代理对的先后会反过来），④b6 的契约放一条这样的路径。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

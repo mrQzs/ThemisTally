@@ -283,7 +283,11 @@ TEMP_PATH_RE = re.compile(
 
 
 def _path_forms(paths: Sequence[Path]) -> List[str]:
-    """路径在命令里可能出现的写法：原样、正斜杠、Git Bash 的 /c/…，以及解析后的长路径；按长度从长到短。"""
+    """路径在命令里可能出现的写法：原样、正斜杠、Git Bash 的 /c/…，以及解析后的长路径；按长度从长到短，等长的按字面。
+
+    同一路径用反斜杠、正斜杠与 Git Bash 的 /c/… 写出来都等长；只按长度排时它们的次序随集合的散列而变，摘录区间重叠时 _protected_mentions
+    与 _mask_paths 的结果就跟着变（第 124 轮）。
+    """
     forms = set()
     for path in paths:
         for text in {str(path), os.path.realpath(str(path))}:
@@ -291,7 +295,7 @@ def _path_forms(paths: Sequence[Path]) -> List[str]:
             forms.update({text.rstrip("\\/"), slash})
             if re.match(r"^[A-Za-z]:/", slash):
                 forms.add("/" + slash[0].lower() + slash[2:])
-    return sorted((form for form in forms if len(form) > 3), key=len, reverse=True)
+    return sorted((form for form in forms if len(form) > 3), key=lambda form: (-len(form), form))
 
 
 def _escapes(rest: str) -> bool:
