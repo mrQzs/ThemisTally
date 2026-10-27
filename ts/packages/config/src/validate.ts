@@ -10,6 +10,8 @@ import { abspath, isLinkOrJunction, isWithin, pyResolve } from "@themis/base/pyp
 import { D, NOT_S, PY_END, cmpCodePoints, codePoints, pyRegex, pyStrip } from "@themis/base/pyre";
 import { ENV_NAME_RE, SECRET_KEY_SHOWN, secretLikePaths } from "@themis/base/secrets";
 import { DispatchError, EXIT_FAIL, EXIT_USAGE } from "@themis/dispatcher/repo";
+import { patternError } from "@themis/dispatcher/patterns";
+import { extraProtectedPaths, plannerPaths } from "@themis/dispatcher/kernel-config";
 import { DecisionError, PLUGIN_ID as DECISIONS_PLUGIN_ID, batteryLinkProblem, joinPath, settingsActive, settingsFromConfig, verifyBatteryLock } from "./decisions.ts";
 import { PLUGIN_ID } from "./plugin-records.ts";
 import { MODEL_TOKEN_RE, THINKING_LEVELS, checkKey } from "./roles-check.ts";
@@ -66,29 +68,7 @@ function pyList(value: PyValue): PyValue[] {
 
 // --- pi_dispatch 的几个校验函数 ------------------------------------------------------------------
 
-/** pi_dispatch.pattern_error：仓库相对路径模式的毛病，没有为 null。 */
-export function patternError(pattern: PyValue | undefined): string | null {
-  if (typeof pattern !== "string" || !pattern) return "必须是非空字符串";
-  if (/[\u0000-\u001f\u007f]/u.test(pattern)) return "包含控制字符";
-  if (pattern.includes("\\")) return "请使用正斜杠";
-  if (pattern.startsWith("/") || /^[A-Za-z]:/u.test(pattern) || pattern.startsWith("~")) return "不能是绝对路径";
-  if (pattern.split("/").some((part) => part === "" || part === "." || part === "..")) return "不能包含空段、'.' 或 '..'";
-  if (pattern === "*" || pattern === "**" || pattern === "**/*") return "范围过宽";
-  return null;
-}
-
-const DEFAULT_PLANNER_PATHS = [".agent/plans/**", ".agent/reviews/**", ".agent/design/**", ".agent/publications/**", ".agent/*.md"];
-
-function patternList(config: PyDict, key: string, fallback: PyValue): string[] {
-  const values = getOr(config, key, fallback);
-  if (!Array.isArray(values) || !values.every((value) => typeof value === "string" && !patternError(value))) {
-    throw new DispatchError(`dispatch.config.json 的 ${key} 必须是仓库相对路径模式的数组`, EXIT_USAGE);
-  }
-  return [...(values as string[])];
-}
-
-export const extraProtectedPaths = (config: PyDict): string[] => patternList(config, "extra_protected_paths", []);
-export const plannerPaths = (config: PyDict): string[] => patternList(config, "planner_paths", [...DEFAULT_PLANNER_PATHS]);
+export { patternError };
 
 const TRAILER_RE = pyRegex(`^[A-Za-z][A-Za-z0-9-]*: ${NOT_S}[^\\n]*${PY_END}`);
 

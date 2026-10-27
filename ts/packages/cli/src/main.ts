@@ -12,11 +12,13 @@ import { PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { LogsError, type ListArgs, type ShowArgs, cmdList, cmdShow } from "@themis/dispatcher/logs";
 import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
+import { type DeriveJsonArgs, type PlanContext, type ValidateArgs, cmdDeriveJson, cmdValidate } from "@themis/dispatcher/contract-plan";
 import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
+import { resolveRoleExecutor } from "@themis/config/roles-binding";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
 interface PyArgs {
@@ -66,6 +68,13 @@ function runLogs(out: PyOut, body: () => number): number {
   }
 }
 
+/** 调度器命令的 context：启动器交来 kit 根与选择文件（Python 的 KERNEL_TS_ROOT.parent 与 read_kernel_impl()）；kit_roles 在这里交进去。 */
+function planContext(args: Record<string, unknown>): PlanContext {
+  const context = (args["context"] ?? {}) as { kit_root?: string; kernel_impl?: Record<string, string> };
+  if (typeof context.kit_root !== "string" || typeof context.kernel_impl !== "object") throw new Error("pyargs 缺少 context.kit_root 或 context.kernel_impl");
+  return { kitRoot: context.kit_root, kernelImpl: context.kernel_impl, roles: { resolveRoleExecutor } };
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const out = new PyOut();
   const at = argv.indexOf("--pyargs-b64");
@@ -87,6 +96,10 @@ export async function main(argv: readonly string[]): Promise<number> {
   switch (args.command.join(" ")) {
     case "status":
       return runDispatcher(out, () => cmdStatus(args as unknown as StatusArgs, out));
+    case "validate":
+      return runDispatcher(out, () => cmdValidate(args as unknown as ValidateArgs, out, planContext(args)));
+    case "derive-json":
+      return runDispatcher(out, () => cmdDeriveJson(args as unknown as DeriveJsonArgs, out, planContext(args)));
     case "logs list":
       return runLogs(out, () => cmdList(args as unknown as ListArgs, out));
     case "logs show":

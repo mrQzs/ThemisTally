@@ -9,8 +9,10 @@ import datetime
 import errno
 import ipaddress
 import json
+import re
 import os
 import secrets
+import shlex
 import shutil
 import struct
 import sys
@@ -388,6 +390,75 @@ def op_roles_cwd_relative(request):
     return {"ok": True, "parts": kit_roles.cwd_relative_parts(request["command"])}
 
 
+def op_pyshlex_split(request):
+    """shlex.split(text)（posix，不认注释）：合同检查行的命令照它拆（迁移第 ④b1 片）。"""
+    try:
+        return {"ok": True, "argv": shlex.split(request["text"])}
+    except ValueError as exc:
+        return {"ok": False, "error": "ValueError", "message": str(exc)}
+
+
+def op_patterns_call(request):
+    """pi_dispatch 的路径模式（迁移第 ④b1 片）：re.escape、glob_regex 的正则文字、matches、pattern_error。"""
+    fn = request["fn"]
+    if fn == "re_escape":
+        return {"ok": True, "value": re.escape(request["text"])}
+    if fn == "glob_text":
+        return {"ok": True, "value": pi_dispatch.glob_regex(request["pattern"]).pattern}
+    if fn == "matches":
+        compiled = pi_dispatch.compile_patterns(request["patterns"], request["ignore_case"])
+        return {"ok": True, "value": [pi_dispatch.matches(compiled, path) for path in request["paths"]]}
+    if fn == "pattern_error":
+        return {"ok": True, "value": pi_dispatch.pattern_error(json.loads(request["value_json"]))}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
+def op_contract_call(request):
+    """pi_dispatch 的合同解析与校验（迁移第 ④b1 片）：derive_contract_json、validate_contract、invisible_char_warnings。
+    异常交回类名与 str(exc)（命令行上它们是未捕获的崩溃，契约只比到这一层）。"""
+    fn = request["fn"]
+    try:
+        if fn == "derive":
+            contract, problems = pi_dispatch.derive_contract_json(request["md"], request.get("title"))
+            return {"ok": True, "contract": to_tagged(contract), "problems": problems}
+        if fn == "validate":
+            raw = json.loads(request["json_text"])
+            contract, errors, warnings = pi_dispatch.validate_contract(request["md"], raw, request["plan_key"],
+                                                                       request.get("extra_protected", []))
+            return {"ok": True, "contract": None if contract is None else to_tagged(contract), "errors": errors,
+                    "warnings": warnings}
+        if fn == "kernel_protected":
+            saved = pi_dispatch.KERNEL_TS_ROOT
+            pi_dispatch.KERNEL_TS_ROOT = Path(request["kit_root"]) / "ts"
+            try:
+                value = pi_dispatch.kernel_protected_paths(Path(request["root"]), dict(request["kernel_impl"]))
+            finally:
+                pi_dispatch.KERNEL_TS_ROOT = saved
+            return {"ok": True, "value": value}
+        if fn == "validate_plan":
+            # 选择文件与 kit 根由请求给出（TS 一侧经 context 拿到同样的两样）
+            impl = dict(request["kernel_impl"])
+            saved = pi_dispatch.read_kernel_impl, pi_dispatch.KERNEL_TS_ROOT
+            pi_dispatch.read_kernel_impl = lambda path=None: dict(impl)
+            pi_dispatch.KERNEL_TS_ROOT = Path(request["kit_root"]) / "ts"
+            try:
+                contract, errors, warnings = pi_dispatch.validate_plan(pi_dispatch.Repo(Path(request["root"])),
+                                                                     request["plan_key"])
+            finally:
+                pi_dispatch.read_kernel_impl, pi_dispatch.KERNEL_TS_ROOT = saved
+            return {"ok": True, "contract": None if contract is None else to_tagged(contract), "errors": errors,
+                    "warnings": warnings}
+        if fn == "branch_subject":
+            return {"ok": True, "value": pi_dispatch.branch_subject(request["task_id"], json.loads(request["title_json"]),
+                                                                    json.loads(request["plan_version_json"]),
+                                                                    request["attempt_no"])}
+        if fn == "invisible":
+            return {"ok": True, "value": pi_dispatch.invisible_char_warnings(request["text"], request["label"])}
+    except Exception as exc:  # noqa: BLE001 —— 崩溃的类名与文字也要两边一致
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_argv_ensure_safe(request):
     """pi_dispatch.ensure_argv_safe：通过为 ok，拒绝时交回报错原文与退出码。"""
     try:
@@ -692,6 +763,9 @@ OPS = {
     "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,
     "argv.ensure_safe": op_argv_ensure_safe,
+    "pyshlex.split": op_pyshlex_split,
+    "patterns.call": op_patterns_call,
+    "contract.call": op_contract_call,
     "dispatch.child_env": op_dispatch_child_env,
     "roles.cwd_relative": op_roles_cwd_relative,
     "dispatch.run_capture": op_dispatch_run_capture,

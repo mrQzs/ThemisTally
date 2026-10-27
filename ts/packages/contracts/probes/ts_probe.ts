@@ -12,6 +12,12 @@ import { publishNew } from "@themis/base/publish";
 import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
+import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
+import { compilePatterns, globRegexText, matches, patternError, reEscape } from "@themis/dispatcher/patterns";
+import { branchSubject, deriveContractJson, invisibleCharWarnings, validateContract } from "@themis/dispatcher/contract";
+import { validatePlan } from "@themis/dispatcher/contract-plan";
+import { kernelProtectedPaths } from "@themis/dispatcher/kernel-config";
+import { PyOverflowError } from "@themis/base/pyregex";
 import { childEnv, listModelsEmptyReason, listModelsLines, listModelsRows, parseHelp, runCapture } from "@themis/dispatcher/pi-cli";
 import { DispatchError, Repo } from "@themis/dispatcher/repo";
 import { allowedExecutorCheck, loadBindingRecord, resolvePiCommand } from "@themis/dispatcher/executor";
@@ -40,7 +46,7 @@ import {
   tokenShaped,
 } from "@themis/base/secrets";
 import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
-import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes, pyReadText } from "@themis/base/pyio";
+import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorType, pyReadBytes, pyReadText } from "@themis/base/pyio";
 import { cmpCodePoints, pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
 import { pyEq } from "@themis/base/pyvalue";
@@ -519,6 +525,70 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       stdout: request["stdout"] as OutputTarget, stderr: request["stderr"] as OutputTarget,
     });
     return { ok: true, before_resume: beforeResume, after: existsSync(marker), result };
+  },
+  "contract.call": (request) => {
+    try {
+      switch (request["fn"]) {
+        case "derive": {
+          const [contract, problems] = deriveContractJson(String(request["md"]), (request["title"] as string | null | undefined) ?? null);
+          return { ok: true, contract: toTagged(contract), problems };
+        }
+        case "validate": {
+          const raw = loads(String(request["json_text"]));
+          const [contract, errors, warnings] = validateContract(String(request["md"]), raw, String(request["plan_key"]), (request["extra_protected"] as string[] | undefined) ?? []);
+          return { ok: true, contract: contract === null ? null : toTagged(contract), errors, warnings };
+        }
+        case "kernel_protected":
+          return { ok: true, value: kernelProtectedPaths(String(request["root"]), String(request["kit_root"]), request["kernel_impl"] as Record<string, string>) };
+        case "validate_plan": {
+          const ctx = { kitRoot: String(request["kit_root"]), kernelImpl: request["kernel_impl"] as Record<string, string>, roles: { resolveRoleExecutor } };
+          const [contract, errors, warnings] = validatePlan(new Repo(String(request["root"])), String(request["plan_key"]), ctx);
+          return { ok: true, contract: contract === null ? null : toTagged(contract), errors, warnings };
+        }
+        case "branch_subject":
+          return {
+            ok: true,
+            value: branchSubject(String(request["task_id"]), loads(String(request["title_json"])), loads(String(request["plan_version_json"])),
+              BigInt(request["attempt_no"] as number)),
+          };
+        case "invisible":
+          return { ok: true, value: invisibleCharWarnings(String(request["text"]), String(request["label"])) };
+        default:
+          return { ok: false, error: "UNKNOWN_FN" };
+      }
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyJsonError) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError", message: error.message };
+      if (error instanceof DispatchError) return { ok: false, error: error.constructor.name, message: error.message };
+      if (error instanceof PyOSError) return { ok: false, error: pyOSErrorType(error), message: error.message };
+      if (error instanceof PyUnicodeDecodeError) return { ok: false, error: "UnicodeDecodeError", message: error.message };
+      throw error;
+    }
+  },
+  "patterns.call": (request) => {
+    switch (request["fn"]) {
+      case "re_escape":
+        return { ok: true, value: reEscape(String(request["text"])) };
+      case "glob_text":
+        return { ok: true, value: globRegexText(String(request["pattern"])) };
+      case "matches": {
+        const compiled = compilePatterns(request["patterns"] as string[], Boolean(request["ignore_case"]));
+        return { ok: true, value: (request["paths"] as string[]).map((path) => matches(compiled, path)) };
+      }
+      case "pattern_error":
+        return { ok: true, value: patternError(loads(String(request["value_json"]))) };
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  },
+  "pyshlex.split": (request) => {
+    try {
+      return { ok: true, argv: shlexSplit(String(request["text"])) };
+    } catch (error) {
+      if (error instanceof ShlexError) return { ok: false, error: "ValueError", message: error.message };
+      throw error;
+    }
   },
   "argv.ensure_safe": (request) => {
     try {

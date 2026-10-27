@@ -8,6 +8,7 @@
 // 所有正则都带 u 标志：按码点匹配（量词按码点计数，孤立代理项也算一个字符），与 Python 的 str 一致。
 import {
   CASEFOLD,
+  CF,
   CF_CC,
   DIGIT,
   IGNORECASE_EXTRA,
@@ -77,7 +78,8 @@ export function ci(literal: string): string {
       const extra = (IGNORECASE_EXTRA[lower] ?? []).map(escapeCodePoint).join("");
       out += `[${lower}${lower.toUpperCase()}${extra}]`;
     } else {
-      out += char.replace(/[\\^$.*+?()[\]{}|/-]/g, (c) => BACKSLASH + c);
+      // 只用在字符类外面：连字符本来就是字面量，u 模式也不认 BACKSLASH 加连字符这种转义
+      out += char.replace(/[\\^$.*+?()[\]{}|/]/g, (c) => BACKSLASH + c);
     }
   }
   return out;
@@ -91,6 +93,8 @@ export const isUpper = (char: string): boolean => inTable(IS_UPPER, codePoint(ch
 export const isLower = (char: string): boolean => inTable(IS_LOWER, codePoint(char));
 export const isDigitChar = (char: string): boolean => inTable(IS_DIGIT, codePoint(char));
 export const isCfOrCc = (char: string): boolean => inTable(CF_CC, codePoint(char));
+/** unicodedata.category(char) == "Cf"（不可见格式字符：零宽字符、双向控制符、BOM、软连字符等）。 */
+export const isCf = (char: string): boolean => inTable(CF, codePoint(char));
 
 /** 按码点拆成字符（孤立代理项也算一个）。 */
 export function codePoints(text: string): string[] {
@@ -130,6 +134,21 @@ const LINE_BREAK_RE = new RegExp(
 );
 
 /** str.splitlines()（不保留行尾）：末尾的行界之后不再多出空行；空串为 []。 */
+/** str.split()（不带参数）：按 Python 的空白（str.isspace）切分，去掉空段。 */
+export function pySplit(text: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  for (const char of text) {
+    if (!isSpace(char)) current += char;
+    else if (current) {
+      parts.push(current);
+      current = "";
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
 export function pySplitlines(text: string): string[] {
   const lines: string[] = [];
   let rest = text;

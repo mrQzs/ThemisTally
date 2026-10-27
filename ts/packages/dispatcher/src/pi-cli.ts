@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXE_SEARCH_GUARD } from "@themis/base/harden";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { S, W, WB, cmpCodePoints, codePoints, isSpace, pyRegex, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { S, W, WB, cmpCodePoints, codePoints, pyRegex, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { redactSecrets, stripAnsi } from "@themis/base/secrets";
 import { runSupervised } from "@themis/base/supervise";
 import { ensureArgvSafe } from "./argv.ts";
@@ -130,21 +130,6 @@ export function parseHelp(helpText: string): HelpInfo {
   const section = TOOLS_SECTION_RE.exec(text);
   const tools = section ? [...(section[1] as string).matchAll(TOOL_RE)].map((match) => match[1] as string) : [];
   return { flags, thinking_levels: thinking, builtin_tools: tools };
-}
-
-/** str.split()：按 Python 的空白切分，去掉空段。 */
-function pySplit(text: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  for (const char of text) {
-    if (!isSpace(char)) current += char;
-    else if (current) {
-      parts.push(current);
-      current = "";
-    }
-  }
-  if (current) parts.push(current);
-  return parts;
 }
 
 /** pi_dispatch.list_models_lines：表头之后每行的（provider，model，整行是否疑似凭据）。没有可用或匹配的模型时 Pi 输出的是

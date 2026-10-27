@@ -1,0 +1,128 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/contract-plan.contract.test.ts",
+    "-t",
+    "临时仓库|命令|kernel_protected"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 基线不是提交时仍交回合同",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "      contract = null;\n    } else {",
+      "new": "      contract = contract;\n    } else {"
+    },
+    {
+      "name": "P02 基线里有 AGENTS.md 时反而警告",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "`${base}:AGENTS.md`], repo.root).status !== 0) {",
+      "new": "`${base}:AGENTS.md`], repo.root).status === 0) {"
+    },
+    {
+      "name": "P03 差异里有一处规划路径就算 NOTE",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "changed.every((file) => matches(compiled, file))",
+      "new": "changed.some((file) => matches(compiled, file))"
+    },
+    {
+      "name": "P04 本任务新建的文件也查基线",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": " || newFiles.has(file) ||",
+      "new": " ||"
+    },
+    {
+      "name": "P05 检查的 cwd 不当作查找的根",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "!roots.includes(trimmed)) roots.push(trimmed);",
+      "new": "!roots.includes(trimmed)) void roots.length;"
+    },
+    {
+      "name": "P06 基线编号只写 10 位",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "const short = codePoints(base).slice(0, 12).join(\"\");",
+      "new": "const short = codePoints(base).slice(0, 10).join(\"\");"
+    },
+    {
+      "name": "P07 没有版本记录时不提醒",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "if (loadBindingRecord(repo.root, taskId, version) !== null) return [];",
+      "new": "if (loadBindingRecord(repo.root, taskId, version) === null) return [];"
+    },
+    {
+      "name": "P08 JSON 的摘要拿 Markdown 算",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "[\"json_sha256\", sha256(jsonBytes)]",
+      "new": "[\"json_sha256\", sha256(mdBytes)]"
+    },
+    {
+      "name": "P09 回执文字的控制字符不含 0x7f",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "(code >= 0x7f && code <= 0x9f)",
+      "new": "(code > 0x7f && code <= 0x9f)"
+    },
+    {
+      "name": "P10 outbox 里同一回执出现两次也算对上",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "ledgerMatches.length !== 1 ||",
+      "new": "ledgerMatches.length < 1 ||"
+    },
+    {
+      "name": "P11 planner-v2 严格解码的错误不报成 JSON 解析失败",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "return error instanceof PyUnicodeDecodeError || error instanceof ProtocolError;",
+      "new": "return error instanceof PyUnicodeDecodeError;"
+    },
+    {
+      "name": "P12 长标题的提示门槛写成 200",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "codePoints(derivedTitle).length > LONG_TITLE_CHARS",
+      "new": "codePoints(derivedTitle).length > 200"
+    },
+    {
+      "name": "P13 JSON 不存在也要 --force",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "if (exists(jsonPath) && !args.force)",
+      "new": "if (!args.force)"
+    },
+    {
+      "name": "P14 derive-json 写 LF",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "join(process.platform === \"win32\" ? CR + NL : NL)",
+      "new": "join(NL)"
+    },
+    {
+      "name": "P15 合同文件不在 plans 下也收",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "if (normCase(path.dirname(resolved)) === normCase(pyResolve(repo.plansDir))) return stem;",
+      "new": "if (resolved) return stem;"
+    },
+    {
+      "name": "P16 回执的 schema_version 不按 == 比",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "!pyEq(get(value, \"schema_version\"), 1n)) {",
+      "new": "get(value, \"schema_version\") !== 1n) {"
+    },
+    {
+      "name": "P17 check-ignore 的判断反了",
+      "file": "ts/packages/dispatcher/src/contract-plan.ts",
+      "old": "\"check-ignore\", \"-q\", \".agent/runs/probe\"], repo.root).status !== 0)",
+      "new": "\"check-ignore\", \"-q\", \".agent/runs/probe\"], repo.root).status === 0)"
+    },
+    {
+      "name": "P18 配置里有疑似凭据也照用",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
+      "old": "  if (suspicious.length) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "P19 选择文件有 ts 也不加内核禁区",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
+      "old": "includes(\"ts\") ? [...KERNEL_TS_PROTECTED] : []",
+      "new": "includes(\"ts\") ? [] : []"
+    }
+  ]
+}

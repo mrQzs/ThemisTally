@@ -10,7 +10,7 @@ import { type Program, WORD_SETS, compileProgram } from "./compile.ts";
 import { search } from "./engine.ts";
 import { type Item, PyOverflowError, PyReError, type SubPattern, parse } from "./parser.ts";
 
-export { PyValueError } from "./parser.ts";
+export { PyOverflowError, PyReError, PyValueError } from "./parser.ts";
 
 export const SEARCH_MAX_NESTING = 100;
 export const SEARCH_NO_REFS = "PATTERN 不支持反向引用与条件分组（logs search 只做逐行匹配）";
@@ -108,6 +108,15 @@ export class SearchPattern {
     }
     return search(this.program, buffer.subarray(0, size), WORD_SETS);
   }
+}
+
+/**
+ * re.compile(pattern) 再 search：报错照 Python 原样抛，PyReError 的 message 就是 str(re.error)，OverflowError、ValueError
+ * 同理（迁移第 ④ 步：合同的 output_must_match 校验与检查日志的匹配、路径模式都用它）。不加 logs search 的那几条限制。
+ */
+export function compilePattern(pattern: string): SearchPattern {
+  const tree = parse(pattern);
+  return new SearchPattern(compileProgram(tree, tree.state.flags));
 }
 
 /** kit_logs._compile_search。 */

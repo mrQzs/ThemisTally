@@ -25,6 +25,7 @@
     "./pyvalue": "./src/pyvalue.ts",
     "./pyos": "./src/pyos.ts",
     "./pyshutil": "./src/pyshutil.ts",
-    "./protocols": "./src/protocols.ts"
+    "./protocols": "./src/protocols.ts",
+    "./pyshlex": "./src/pyshlex.ts"
   }
 }

@@ -1,0 +1,158 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/patterns.contract.test.ts",
+    "packages/contracts/test/pyshlex.contract.test.ts",
+    "packages/contracts/test/contract.contract.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B01 节名不分大小写的展开去掉",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "##${S}+${ci(name)}${S}*",
+      "new": "##${S}+${name}${S}*"
+    },
+    {
+      "name": "B02 单值字段结尾的括号说明不去掉",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "replace(VALUE_NOTE_RE, \"\")",
+      "new": "replace(VALUE_NOTE_RE, \"$&\")"
+    },
+    {
+      "name": "B03 时间分配的子项缩进判断差一",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "indentOf(line) <= indent) break;",
+      "new": "indentOf(line) < indent) break;"
+    },
+    {
+      "name": "B04 Scope 的列表不认顿号",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "[,，、]${S}*",
+      "new": "[,，]${S}*"
+    },
+    {
+      "name": "B05 检查行只认“可选”不认 optional",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": " || pyLower(kind).includes(\"optional\")",
+      "new": ""
+    },
+    {
+      "name": "B06 超时的缺省值写成 300",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "timeout[1] as string) : 600n)",
+      "new": "timeout[1] as string) : 300n)"
+    },
+    {
+      "name": "B07 基线应失败当成应通过",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (markers.includes(\"基线应失败\")) return \"fail\";",
+      "new": "if (markers.includes(\"基线应失败\")) return \"pass\";"
+    },
+    {
+      "name": "B08 命令行里找不到程序名也算一致",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (position < 0) return false;",
+      "new": "if (position < 0) return true;"
+    },
+    {
+      "name": "B09 超时上限放宽到 86401",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "timeout > 86400n) errors.push",
+      "new": "timeout > 86401n) errors.push"
+    },
+    {
+      "name": "B10 expected_exit_code 不收布尔值",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (!isIntOrBool(get(item, \"expected_exit_code\", 0n)))",
+      "new": "if (!isInt(get(item, \"expected_exit_code\", 0n)))"
+    },
+    {
+      "name": "B11 不可哈希的 expect_on_base 不抛 TypeError",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (Array.isArray(expected) || isDict(expected)) throw new PyCrash",
+      "new": "if (false) throw new PyCrash"
+    },
+    {
+      "name": "B12 用户正则的 ValueError 不报成合同结构无效",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (error instanceof PyValueError) return [null",
+      "new": "if (error instanceof PyReError) return [null"
+    },
+    {
+      "name": "B13 plan_version 不按 Python 的 == 比",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "if (!pyEq(get(contract, \"plan_version\"), version))",
+      "new": "if (get(contract, \"plan_version\") !== version)"
+    },
+    {
+      "name": "B14 时间分配的警告门槛写成 80%",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "* 0.7) {",
+      "new": "* 0.8) {"
+    },
+    {
+      "name": "B15 带冒号的“；证据：”取第一个",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "(labelled[labelled.length - 1] as RegExpMatchArray)",
+      "new": "(labelled[0] as RegExpMatchArray)"
+    },
+    {
+      "name": "B16 不可见字符的提示多报一行",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "return found.length >= limit;",
+      "new": "return found.length > limit;"
+    },
+    {
+      "name": "B17 attempt 编号不写负号",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "const sign = attemptNo < 0n ? \"-\" : \"\";",
+      "new": "const sign = \"\";"
+    },
+    {
+      "name": "B18 检查的 required 缺省为 false",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "[\"checks\", [[\"cwd\", \".\"], [\"required\", true],",
+      "new": "[\"checks\", [[\"cwd\", \".\"], [\"required\", false],"
+    },
+    {
+      "name": "B19 derive 不写 plan_version",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "[\"plan_version\", isDigits(planVersion) ? firstInt(planVersion) : null],",
+      "new": "[\"plan_version\", null],"
+    },
+    {
+      "name": "B20 glob 的 **/ 至少要一段目录",
+      "file": "ts/packages/dispatcher/src/patterns.ts",
+      "old": "out += \"(?:[^/]+/)*\";",
+      "new": "out += \"(?:[^/]+/)+\";"
+    },
+    {
+      "name": "B21 shlex 在单引号里认反斜杠",
+      "file": "ts/packages/base/src/pyshlex.ts",
+      "old": "else if (next === BACKSLASH && state === '\"') {",
+      "new": "else if (next === BACKSLASH && state === \"'\") {"
+    },
+    {
+      "name": "B22 ci 又把连字符转义",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "{}|/]/g, (c) => BACKSLASH + c);",
+      "new": "{}|/-]/g, (c) => BACKSLASH + c);"
+    },
+    {
+      "name": "B23 str.split() 只认空格",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "if (!isSpace(char)) current += char;",
+      "new": "if (char !== \" \") current += char;"
+    },
+    {
+      "name": "B24 Cf 只认零宽空格",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "export const isCf = (char: string): boolean => inTable(CF, codePoint(char));",
+      "new": "export const isCf = (char: string): boolean => codePoint(char) === 0x200b;"
+    }
+  ]
+}

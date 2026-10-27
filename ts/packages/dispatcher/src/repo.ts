@@ -36,8 +36,8 @@ export function gitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** pi_dispatch.git(check=False)：返回退出码与 stdout 的字节。找不到 git 报 DispatchError。 */
-export function git(args: readonly string[], cwd: string): { status: number; stdout: Buffer } {
+/** pi_dispatch.git(check=False)：返回退出码与 stdout、stderr 的字节。找不到 git 报 DispatchError。 */
+export function git(args: readonly string[], cwd: string): { status: number; stdout: Buffer; stderr: Buffer } {
   const result = spawnSync("git", ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off", ...args], {
     cwd,
     env: gitEnv(),
@@ -48,7 +48,7 @@ export function git(args: readonly string[], cwd: string): { status: number; std
     if ((result.error as NodeJS.ErrnoException).code === "ENOENT") throw new DispatchError("未找到 git，请先安装 Git。");
     throw result.error;
   }
-  return { status: result.status ?? 1, stdout: result.stdout };
+  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
 function isDir(value: string): boolean {
@@ -64,11 +64,13 @@ export class Repo {
   readonly root: string;
   readonly agentDir: string;
   readonly runsDir: string;
+  readonly plansDir: string;
 
   constructor(root: string) {
     this.root = root;
     this.agentDir = path.join(root, ".agent");
     this.runsDir = path.join(this.agentDir, "runs");
+    this.plansDir = path.join(this.agentDir, "plans");
   }
 
   /** Repo.discover：--repo 或当前目录；必须在 Git 仓库的主工作区里。 */
