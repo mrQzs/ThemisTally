@@ -1,7 +1,7 @@
 // 契约测试与对照测试共用的探针驱动：同一个 JSON 请求交给每一套实现，比较 JSON 结果与磁盘上的结果。
 // 实现不在本机（例如没装 Bun）时直接失败，不跳过：迁移期间三种运行方式都要能跑。
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,10 +104,31 @@ export interface CliRun {
   readonly stderr: Buffer;
 }
 
-function cliRun(command: string, args: readonly string[], cwd: string): CliRun {
+/** merged：标准输出与标准错误写进同一个文件（hub 读到的就是这样的次序，④b3），合并的字节放在 stdout。 */
+function cliRun(command: string, args: readonly string[], cwd: string, merged = false): CliRun {
+  if (merged) return mergedRun(command, args, cwd);
   const done = spawnSync(command, args, { cwd, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
   if (done.error) throw new Error(`${command} 没能启动：${done.error.message}`);
   return { status: done.status ?? -1, stdout: done.stdout, stderr: done.stderr };
+}
+
+function mergedRun(command: string, args: readonly string[], cwd: string): CliRun {
+  const dir = mkdtempSync(join(tmpdir(), "themis-merged-"));
+  const file = join(dir, "out");
+  const fd = openSync(file, "w");
+  try {
+    const done = spawnSync(command, args, { cwd, timeout: 120_000, stdio: ["pipe", fd, fd] });
+    if (done.error) throw new Error(`${command} 没能启动：${done.error.message}`);
+    closeSync(fd);
+    return { status: done.status ?? -1, stdout: readFileSync(file), stderr: Buffer.alloc(0) };
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // 已经关过
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // 选择文件（迁移计划第 5 节）：提交的那份让 status、logs 转交给 TS，作对照基准的 Python 一边要钉成 python。
@@ -122,8 +143,8 @@ process.on("exit", () => rmSync(SELECTOR_DIR, { recursive: true, force: true }))
 
 /** 独立的 Python 进程里改 pi_dispatch 的 KERNEL_IMPL_PATH 再调 pd.main(argv)。JSON 的字符串与数组照样是 Python
  * 的字面量（孤立代理项写成 \udXXX，Python 读回来仍是孤立代理项，与命令行上的 argv 一样）。 */
-function pdMain(selector: string, argv: readonly string[], cwd: string, kitRoot?: string): CliRun {
-  const program = [
+function pdProgram(selector: string, argv: readonly string[], kitRoot?: string): string {
+  return [
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(join(REPO_ROOT, "scripts"))})`,
     "import pi_dispatch as pd",
@@ -132,12 +153,20 @@ function pdMain(selector: string, argv: readonly string[], cwd: string, kitRoot?
     ...(kitRoot === undefined ? [] : [`pd.KIT_ROOT = pd.Path(${JSON.stringify(kitRoot)})`, 'pd.DECISIONS_PLUGIN_DIR = pd.KIT_ROOT / "plugins" / "decisions"']),
     `sys.exit(pd.main(${JSON.stringify(argv)}))`,
   ].join("\n");
-  return cliRun(process.env["THEMIS_PYTHON"] ?? "python", ["-c", program], cwd);
+}
+
+function pdMain(selector: string, argv: readonly string[], cwd: string, kitRoot?: string, merged = false): CliRun {
+  return cliRun(process.env["THEMIS_PYTHON"] ?? "python", ["-c", pdProgram(selector, argv, kitRoot)], cwd, merged);
+}
+
+/** 钉成 Python 实现的命令行（程序加参数）：自己起进程的用例用（④b3 的中断用例另起进程组）。 */
+export function pythonCliCommand(argv: readonly string[]): string[] {
+  return [process.env["THEMIS_PYTHON"] ?? "python", "-c", pdProgram(PYTHON_SELECTOR, argv)];
 }
 
 /** pi_dispatch 的 <argv>，钉成 Python 实现回答（对照的基准）。 */
-export function runPythonCli(argv: readonly string[], cwd: string): CliRun {
-  return pdMain(PYTHON_SELECTOR, argv, cwd);
+export function runPythonCli(argv: readonly string[], cwd: string, merged = false): CliRun {
+  return pdMain(PYTHON_SELECTOR, argv, cwd, undefined, merged);
 }
 
 /** 同 runPythonCli，kit 根换成 kitRoot（plugins/ 与决策插件都从那里读）。 */
@@ -161,12 +190,18 @@ export function runConfigLauncherCli(argv: readonly string[], cwd: string, kitRo
 export const SELECTORS = { python: PYTHON_SELECTOR, configTs: CONFIG_TS_SELECTOR } as const;
 
 /** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */
-export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown>, cwd: string): CliRun {
+/** TS 入口的命令行（程序加参数），同 pythonCliCommand。 */
+export function tsCliCommand(runtime: "node" | "bun", pyargs: Record<string, unknown>): string[] {
   // bigint 写成 JSON 整数原样（Python 的 int 不受 JS 数字精度限制）
   const json = JSON.stringify(pyargs, (_key, value: unknown) => (typeof value === "bigint" ? `\u0000big:${value}` : value))
     .replace(/"\\u0000big:(-?\d+)"/gu, "$1");
   const encoded = Buffer.from(json, "utf8").toString("base64");
-  return cliRun(runtime === "bun" ? BUN : runtime, [CLI_MAIN, "--pyargs-b64", encoded], cwd);
+  return [runtime === "bun" ? BUN : runtime, CLI_MAIN, "--pyargs-b64", encoded];
+}
+
+export function runTsCli(runtime: "node" | "bun", pyargs: Record<string, unknown>, cwd: string, merged = false): CliRun {
+  const [command, ...args] = tsCliCommand(runtime, pyargs);
+  return cliRun(command as string, args, cwd, merged);
 }
 
 export function b64(data: Uint8Array): string {

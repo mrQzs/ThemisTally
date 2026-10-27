@@ -86,10 +86,10 @@ function longPath(value: string): string {
 export type Runner = "python" | "node" | "bun";
 export const RUNNERS: readonly Runner[] = ["python", "node", "bun"];
 
-/** 一条命令：Python 的 argv（--repo 之后）与 TS 的 pyargs。 */
-export function runCommand(runner: Runner, repo: string, argv: readonly string[], args: Record<string, unknown>, cwd = repo): CliRun {
-  if (runner === "python") return runPythonCli(["--repo", repo, ...argv], cwd);
-  return runTsCli(runner, { repo, ...args }, cwd);
+/** 一条命令：Python 的 argv（--repo 之后）与 TS 的 pyargs。merged 见 harness 的 cliRun。 */
+export function runCommand(runner: Runner, repo: string, argv: readonly string[], args: Record<string, unknown>, cwd = repo, merged = false): CliRun {
+  if (runner === "python") return runPythonCli(["--repo", repo, ...argv], cwd, merged);
+  return runTsCli(runner, { repo, ...args }, cwd, merged);
 }
 
 export interface Shown {

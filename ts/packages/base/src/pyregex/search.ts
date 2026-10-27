@@ -10,7 +10,7 @@ import { type Program, WORD_SETS, compileProgram } from "./compile.ts";
 import { matchSpan, search, searchSpan } from "./engine.ts";
 import { type Item, PyOverflowError, PyReError, type SubPattern, parse } from "./parser.ts";
 
-export { PyOverflowError, PyReError, PyValueError } from "./parser.ts";
+export { FLAG_DOTALL, FLAG_IGNORECASE, FLAG_MULTILINE, PyOverflowError, PyReError, PyValueError } from "./parser.ts";
 
 export const SEARCH_MAX_NESTING = 100;
 export const SEARCH_NO_REFS = "PATTERN 不支持反向引用与条件分组（logs search 只做逐行匹配）";
@@ -148,9 +148,9 @@ function matchOf(points: Int32Array, span: [number, number] | null): PyMatch | n
   return span === null ? null : { start: span[0], end: span[1], group: fromPoints(points, span[0], span[1]) };
 }
 
-/** re.compile(pattern)：报错照 Python 原样抛（PyReError 的 message 就是 str(re.error)）。 */
-export function compilePy(pattern: string): PyPattern {
-  const tree = parse(pattern);
+/** re.compile(pattern, flags)：报错照 Python 原样抛（PyReError 的 message 就是 str(re.error)）。flags 用 parser 的 FLAG_*。 */
+export function compilePy(pattern: string, flags = 0): PyPattern {
+  const tree = parse(pattern, flags);
   return new PyPattern(compileProgram(tree, tree.state.flags));
 }
 

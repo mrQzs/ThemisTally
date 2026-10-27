@@ -22,10 +22,13 @@ function accessCheck(name: string): boolean {
   }
 }
 
-/** 搜索的目录：带目录的名字只查那个目录；Windows 上名字不带分隔符时，_winapi.NeedCurrentDirectoryForExePath 让当前目录排第一。 */
-function searchDirs(dirname: string): string[] | null {
+/**
+ * 搜索的目录：带目录的名字只查那个目录；给了 path（不是 null）就按它，否则按本进程的 PATH；Windows 上名字不带分隔符时，
+ * _winapi.NeedCurrentDirectoryForExePath（看本进程的环境，不看 path）让当前目录排第一。
+ */
+function searchDirs(dirname: string, given: string | null): string[] | null {
   if (dirname) return [dirname];
-  const raw = process.env["PATH"];
+  const raw = given ?? process.env["PATH"];
   const path = raw ?? (WIN ? WIN_DEFPATH : "/bin:/usr/bin");
   if (!path) return null;
   const dirs = path.split(WIN ? ";" : ":");
@@ -47,10 +50,10 @@ function candidates(cmd: string): string[] {
   return files;
 }
 
-/** shutil.which(cmd)：找到时返回 os.path.join(目录, 文件名) 的原样拼法，找不到返回 null。 */
-export function pyWhich(name: string): string | null {
+/** shutil.which(cmd, path=path)：找到时返回 os.path.join(目录, 文件名) 的原样拼法，找不到返回 null。path 为 null 时按本进程的 PATH。 */
+export function pyWhich(name: string, path: string | null = null): string | null {
   const [dirname, cmd] = osPathSplit(name);
-  const dirs = searchDirs(dirname);
+  const dirs = searchDirs(dirname, path);
   if (dirs === null) return null;
   const files = candidates(cmd);
   const seen = new Set<string>();

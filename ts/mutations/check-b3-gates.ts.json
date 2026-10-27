@@ -1,0 +1,184 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "^verdict ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "G01 不核对合同的哈希",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "    if (!pyExists(file) || !pyEq(sha256File(file), get(meta, key))) problems.push(",
+      "new": "    if (false) problems.push("
+    },
+    {
+      "name": "G02 不查基线提交",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (resolveCommit(repo.root, s(base)) !== base) fail(\"G0\", \"基线提交不可用\");\n",
+      "new": ""
+    },
+    {
+      "name": "G03 系统名连版本一起比",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "platformFamily(recordedPlatform) !== platformFamily(here)",
+      "new": "s(recordedPlatform) !== here"
+    },
+    {
+      "name": "G04 仓库路径不规整大小写",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "normCase(s(recordedRepo)) !== normCase(repo.root)",
+      "new": "s(recordedRepo) !== repo.root"
+    },
+    {
+      "name": "G05 写死的合同带版本记录也不管",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "return contains(meta, \"executor_binding\") ? [\"不是按角色写的合同",
+      "new": "return false ? [\"不是按角色写的合同"
+    },
+    {
+      "name": "G06 按角色写的合同缺版本记录不管",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!isDict(binding)) return [\"按角色写的合同缺少",
+      "new": "  if (false) return [\"按角色写的合同缺少"
+    },
+    {
+      "name": "G07 缺 run.json 不算失败",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!pyTruthy(run)) fail(\"G1\", \"缺少 run.json\");\n",
+      "new": ""
+    },
+    {
+      "name": "G08 超时不算失败",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (pyTruthy(get(run, \"timed_out\"))) fail(\"G1\", \"运行超时\");\n",
+      "new": ""
+    },
+    {
+      "name": "G09 退出码不看",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!pyEq(get(run, \"exit_code\"), 0n)) fail(",
+      "new": "  if (false) fail("
+    },
+    {
+      "name": "G10 缺事件摘要不算问题",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "pyIter(get(events, \"problems\", [\"缺少事件摘要\"]))",
+      "new": "pyIter(get(events, \"problems\", []))"
+    },
+    {
+      "name": "G11 没有事件摘要也提思考级别",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (pyTruthy(events) && !pyTruthy(get(events, \"provider_thinking_levels\"))) {",
+      "new": "  if (!pyTruthy(get(events, \"provider_thinking_levels\"))) {"
+    },
+    {
+      "name": "G12 报告状态不提",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (get(report, \"status\") !== \"json_ok\") gate(\"G1\").notes.push(",
+      "new": "  if (false) gate(\"G1\").notes.push("
+    },
+    {
+      "name": "G13 列了解读也提歧义",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": " && !pyTruthy(get(report, \"interpretations\"))) {",
+      "new": ") {"
+    },
+    {
+      "name": "G14 缺 scope.json 不算失败",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (scope === null) fail(\"G2\", \"缺少 scope.json\");",
+      "new": "  if (scope === null) void 0;"
+    },
+    {
+      "name": "G15 HEAD 变了不提",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "if (pyTruthy(get(changes, \"head_changed\")) || pyTruthy(get(changes, \"other_paths\"))) {",
+      "new": "if (pyTruthy(get(changes, \"other_paths\"))) {"
+    },
+    {
+      "name": "G16 命令里访问主仓库失败了就不算",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "(shell || get(item, \"failed\") !== true)",
+      "new": "(get(item, \"failed\") !== true)"
+    },
+    {
+      "name": "G17 只认 bash",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "const shell = tool === \"bash\" || tool === \"powershell\";",
+      "new": "const shell = tool === \"bash\";"
+    },
+    {
+      "name": "G18 失败的工具调用也提",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "    } else if (get(item, \"failed\") !== true) {\n      gate(\"G2\").notes.push(`执行器访问了工作副本外路径",
+      "new": "    } else {\n      gate(\"G2\").notes.push(`执行器访问了工作副本外路径"
+    },
+    {
+      "name": "G19 aborted 的检查也算",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": " || pyTruthy(get(checks as PyValue, \"aborted\"))",
+      "new": ""
+    },
+    {
+      "name": "G20 不查检查对着哪个候选",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!pyEq(get(checks, \"candidate_tree\"), get(candidate, \"tree\"))) fail(",
+      "new": "  if (false) fail("
+    },
+    {
+      "name": "G21 缓存不提",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (pyTruthy(get(checks, \"artifact_files\"))) gate(\"G4\").notes.push(",
+      "new": "  if (false) gate(\"G4\").notes.push("
+    },
+    {
+      "name": "G22 非必要检查也要求通过",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "      if (!pyTruthy(pyGet(check, \"required\", true))) continue;\n",
+      "new": ""
+    },
+    {
+      "name": "G23 DoD 的 review 当检查编号",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "      } else if (ref !== \"review\") {",
+      "new": "      } else {"
+    },
+    {
+      "name": "G24 只差行尾也报成被修改",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "        if (lineEndingsOnly(workDir, s(tree), now)) {",
+      "new": "        if (false) {"
+    },
+    {
+      "name": "G25 新文件不提",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "      if (drift.added.length) gate(\"G6\").notes.push(",
+      "new": "      if (false) gate(\"G6\").notes.push("
+    },
+    {
+      "name": "G26 没有 tree 也提工作树不在",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  } else if (pyTruthy(tree)) {",
+      "new": "  } else {"
+    },
+    {
+      "name": "G27 不查补丁",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!candidatePatchOk(runDir, candidate)) fail(\"G6\",",
+      "new": "  if (false) fail(\"G6\","
+    },
+    {
+      "name": "G28 重新快照失败直接崩",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "      if (!(error instanceof DispatchError)) throw error;\n      fail(\"G6\", `无法重新快照",
+      "new": "      throw error;\n      fail(\"G6\", `无法重新快照"
+    }
+  ]
+}

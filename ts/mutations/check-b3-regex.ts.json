@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pyregex.compare.test.ts",
+    "-t",
+    "带标志编译",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "R01 不收 re.compile 的标志",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "  state.flags = flags;\n",
+      "new": ""
+    },
+    {
+      "name": "R02 第一支不按 re.X 解析",
+      "file": "ts/packages/base/src/pyregex/parser.ts",
+      "old": "  const p = parseSub(source, state, (flags & FLAG_VERBOSE) !== 0, 0);",
+      "new": "  const p = parseSub(source, state, false, 0);"
+    }
+  ]
+}

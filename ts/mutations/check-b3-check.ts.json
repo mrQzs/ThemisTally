@@ -1,0 +1,130 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "^check ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "K01 RUNNING 也能检查",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!REVIEWABLE_STATES.includes(state)) throw new DispatchError(`状态 ${state} 不能运行验收检查`);",
+      "new": "if (false) throw new DispatchError(`状态 ${state} 不能运行验收检查`);"
+    },
+    {
+      "name": "K02 不打印别处派遣的提示",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  for (const note of originNotes) out.print(`NOTE  ${note}`);\n",
+      "new": ""
+    },
+    {
+      "name": "K03 --only 不去空白",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "only.split(\",\").map(pyStrip)",
+      "new": "only.split(\",\")"
+    },
+    {
+      "name": "K04 --only 不滤掉空项",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": ".filter((item) => item !== \"\")",
+      "new": ""
+    },
+    {
+      "name": "K05 干净副本不查补丁",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!candidatePatchOk(runDir, candidate)) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "K06 干净副本失败不留记录",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "        [\"aborted\", \"fresh_workspace_failed\"], [\"mode\", \"fresh\"], [\"error\", message], [\"at\", utcNow()],\n",
+      "new": "        [\"mode\", \"fresh\"], [\"error\", message], [\"at\", utcNow()],\n"
+    },
+    {
+      "name": "K07 工作树不在时不提派遣位置",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "${originNotes.length ? \"（attempt 不在本机派遣）\" : \"\"}",
+      "new": ""
+    },
+    {
+      "name": "K08 只多了新文件不算漂移",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (driftBefore.modified.length || preUnexpected.length) {",
+      "new": "if (driftBefore.modified.length) {"
+    },
+    {
+      "name": "K09 漂移的退出码是 1",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "        EXIT_DRIFT,\n",
+      "new": "        EXIT_FAIL,\n"
+    },
+    {
+      "name": "K10 漂移的清单不照 Python 的列表写法",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "pyStrValue(items.slice(0, 10))",
+      "new": "items.slice(0, 10).join(\", \")"
+    },
+    {
+      "name": "K11 非必要检查也算",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "!pyTruthy(record.get(\"required\") as PyValue) || ",
+      "new": ""
+    },
+    {
+      "name": "K12 总说覆盖了全部必要检查",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "const coversAll = requiredIds.every((id) => ranIds.some((ran) => pyEq(ran, id)));",
+      "new": "const coversAll = true;"
+    },
+    {
+      "name": "K13 改了候选不警告",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  if (modifiedAfter.length) out.print(`WARN  检查修改了候选文件",
+      "new": "  if (false) out.print(`WARN  检查修改了候选文件"
+    },
+    {
+      "name": "K14 新文件不影响退出码",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "return requiredOk && !modifiedAfter.length && !postUnexpected.length ? EXIT_OK : EXIT_FAIL;",
+      "new": "return requiredOk && !modifiedAfter.length ? EXIT_OK : EXIT_FAIL;"
+    },
+    {
+      "name": "K15 不记 checks 事件",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  logEvent(runDir, \"checks\", [[\"run\", number], [\"mode\", mode], [\"passed\", requiredOk], [\"covers_all_required\", coversAll]]);\n",
+      "new": ""
+    },
+    {
+      "name": "K16 原地检查也记保留",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "[\"workspace_kept\", Boolean(args.fresh && args.keep_workspace)]",
+      "new": "[\"workspace_kept\", Boolean(args.keep_workspace)]"
+    },
+    {
+      "name": "K17 加了 --keep-workspace 也删干净副本",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (freshWorkspace !== null && !args.keep_workspace)",
+      "new": "if (freshWorkspace !== null)"
+    },
+    {
+      "name": "K18 缓存只算检查之后的",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "[...new Set([...preArtifacts, ...postArtifacts])]",
+      "new": "[...new Set([...postArtifacts])]"
+    },
+    {
+      "name": "K19 发布门禁不拦检查",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  if (publicationErrors.length) throw new DispatchError(`planner-v2 发布门禁拒绝验收检查",
+      "new": "  if (false) throw new DispatchError(`planner-v2 发布门禁拒绝验收检查"
+    }
+  ]
+}

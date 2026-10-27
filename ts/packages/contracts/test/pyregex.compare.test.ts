@@ -116,3 +116,44 @@ describe("pyregex 对照：编译结果与逐行匹配", () => {
     compare(Array.from({ length: 400 }, () => ({ op: "pyregex.search", pattern: pattern(SMALL), texts: Array.from({ length: 12 }, () => text(SMALL)) })));
   }, 120_000);
 });
+
+/** 第 ④b3 片：re.compile 的 flags 参数（检查的输出模式 re.M，baseline 的找不到目标 re.I，verdict 的 Verdict 行 re.M）。 */
+const FLAGS = [2, 8, 10, 16, 24, 26, 64, 72];
+const CRLF = C(0xd) + C(0xa);
+/** 反向引用与条件分组不比：sre 的移植只记整段匹配，validate 拒绝把它们写进输出模式（第 129 轮）。 */
+const REFS = new Set([`(a)${BS}1`, `((a)${BS}2)`, `(?i:(a)${BS}1)`, "(a)?(?(1)b|c)"]);
+const FLAG_PATTERNS: readonly string[] = [
+  ...PICKED.filter((pattern) => !REFS.has(pattern)),
+  `^${BS}s*Verdict:${BS}s*([A-Z_]+)${BS}s*$`, "^PASSED$", "^link$", "passed", "no tests? (?:found|ran|collected)", "Could not find", "找不到",
+  `^${BS}s*$`, "$", "^", `a$${BS}n^b`, "(?-m:^b)", "(?-i:k)K", ".+", `[${BS}s${BS}S]$`,
+  // re.X：第一支也按 verbose 解析（parse 的 flags 交给顶层的 _parse_sub）
+  "a b|c d", `x # 注释${C(0xa)}y`, "[ #]z",
+];
+const FLAG_TEXTS = [
+  ...PICKED_TEXTS, `Verdict: PASS`, `x${C(0xa)}  Verdict:  REVISE ${C(0xa)}y`, `${C(0xa)}${C(0xa)}Verdict: PASS${CRLF}`, `结论 Verdict: PASS`,
+  `ab${C(0xa)}PASSED${C(0xa)}`, `NO TESTS RAN in 0.1s`, `no test collected`, `COULD NOT FIND x`, `a${C(0xd)}b`, `a${C(0x2028)}b`, `a${C(0x85)}b`, "ab c d", "a b cd", "xy", " z#z",
+];
+
+function compareFlags(requests: ProbeRequest[]): void {
+  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests));
+  for (const other of others) {
+    const mismatches = requests.flatMap((request, index) =>
+      JSON.stringify(other[index]) === JSON.stringify(python?.[index]) ? [] : [{ pattern: request["pattern"], flags: request["flags"], python: python?.[index], other: other[index] }],
+    );
+    expect(mismatches.slice(0, 5)).toEqual([]);
+  }
+}
+
+describe("pyregex 对照：带标志编译（④b3）", () => {
+  it("手挑的写法 × 标志", () => {
+    compareFlags(FLAG_PATTERNS.flatMap((pattern) => FLAGS.map((flags) => ({ op: "pyregex.search_flags", pattern, flags, texts: FLAG_TEXTS }))));
+  }, 180_000);
+
+  it.each([21, 22])("随机（大小写与类别的边界）× 标志，种子 %i：300 个模式", (seed) => {
+    const { pattern, text } = generators(seed);
+    const rnd = prng(seed + 100);
+    compareFlags(Array.from({ length: 300 }, () => ({
+      op: "pyregex.search_flags", pattern: pattern(CASED), flags: FLAGS[Math.floor(rnd() * FLAGS.length)], texts: Array.from({ length: 10 }, () => text(CASED)),
+    })));
+  }, 180_000);
+});

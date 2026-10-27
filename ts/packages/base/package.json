@@ -26,6 +26,7 @@
     "./pyos": "./src/pyos.ts",
     "./pyshutil": "./src/pyshutil.ts",
     "./protocols": "./src/protocols.ts",
-    "./pyshlex": "./src/pyshlex.ts"
+    "./pyshlex": "./src/pyshlex.ts",
+    "./pytempfile": "./src/pytempfile.ts"
   }
 }

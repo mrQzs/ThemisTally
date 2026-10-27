@@ -811,11 +811,12 @@ function fixFlags(flags: number): number {
   return flags;
 }
 
-/** re._parser.parse(pattern)（flags=0）。 */
-export function parse(pattern: string): SubPattern {
+/** sre_parse.parse(pattern, flags)：flags 是 re.compile 的第二个参数（re.I、re.M 等），与模式里的内联标志合起来。 */
+export function parse(pattern: string, flags = 0): SubPattern {
   const source = new Tokenizer(pattern);
   const state = new State();
-  const p = parseSub(source, state, false, 0);
+  state.flags = flags;
+  const p = parseSub(source, state, (flags & FLAG_VERBOSE) !== 0, 0);
   state.flags = fixFlags(state.flags);
   if (source.next !== null) throw source.error("unbalanced parenthesis");
   for (const [group, pos] of state.grouprefpos) {

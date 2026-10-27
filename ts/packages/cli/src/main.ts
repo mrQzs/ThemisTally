@@ -14,6 +14,7 @@ import { LogsError, type ListArgs, type ShowArgs, cmdList, cmdShow } from "@them
 import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
 import { type SyncAdaptersArgs, cmdSyncAdapters } from "@themis/dispatcher/adapters";
 import { type CleanupArgs, type MarkArgs, type WaitArgs, cmdCleanup, cmdMark, cmdWait } from "@themis/dispatcher/attempt-commands";
+import { type BaselineArgs, type CheckArgs, type VerdictArgs, cmdBaseline, cmdCheck, cmdVerdict } from "@themis/dispatcher/check-commands";
 import { type MetricsArgs, cmdMetrics } from "@themis/dispatcher/metrics";
 import { type ReleaseCheckArgs, cmdReleaseCheck } from "@themis/dispatcher/release-check";
 import { type DeriveJsonArgs, type PlanContext, type ValidateArgs, cmdDeriveJson, cmdValidate } from "@themis/dispatcher/contract-plan";
@@ -44,15 +45,35 @@ function crash(out: PyOut, error: unknown): number {
   return EXIT_CRASH;
 }
 
+/** 调度器命令的报错：DispatchError 写 `ERROR: ` 加遮过令牌的消息，其余按崩溃。 */
+function dispatchFailure(out: PyOut, error: unknown): number {
+  if (error instanceof DispatchError) {
+    out.printErr(`ERROR: ${redactTokens(error.message)}`);
+    return error.code;
+  }
+  return crash(out, error);
+}
+
 function runDispatcher(out: PyOut, body: () => number): number {
   try {
     return body();
   } catch (error) {
-    if (error instanceof DispatchError) {
-      out.printErr(`ERROR: ${redactTokens(error.message)}`);
-      return error.code;
-    }
-    return crash(out, error);
+    return dispatchFailure(out, error);
+  }
+}
+
+/**
+ * 第 ④b3 片的命令（check、baseline、verdict）：标准输出照 Python 块缓冲，报错与崩溃先写进标准错误，退出前才冲出标准输出
+ * （Python 在解释器退出时冲出）。hub 把两路并在一起读，次序要照。
+ */
+async function runBuffered(body: (out: PyOut) => Promise<number>): Promise<number> {
+  const out = new PyOut({ bufferStdout: true });
+  try {
+    return await body(out);
+  } catch (error) {
+    return dispatchFailure(out, error);
+  } finally {
+    out.flush();
   }
 }
 
@@ -77,6 +98,13 @@ function planContext(args: Record<string, unknown>): PlanContext {
   const context = (args["context"] ?? {}) as { kit_root?: string; kernel_impl?: Record<string, string> };
   if (typeof context.kit_root !== "string" || typeof context.kernel_impl !== "object") throw new Error("pyargs 缺少 context.kit_root 或 context.kernel_impl");
   return { kitRoot: context.kit_root, kernelImpl: context.kernel_impl, roles: { resolveRoleExecutor } };
+}
+
+/** 本机的 platform.platform()：attempt_origin_notes 比较系统名用（迁移计划 D1，TS 拿不到 Python 的值）。 */
+function hostPlatform(args: Record<string, unknown>): string {
+  const context = (args["context"] ?? {}) as { platform?: unknown };
+  if (typeof context.platform !== "string") throw new Error("pyargs 缺少 context.platform");
+  return context.platform;
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -115,6 +143,12 @@ export async function main(argv: readonly string[]): Promise<number> {
         return 2;
       }
       return runDispatcher(out, () => cmdWait(args as unknown as WaitArgs, out));
+    case "check":
+      return runBuffered((buffered) => cmdCheck(args as unknown as CheckArgs, buffered, hostPlatform(args)));
+    case "baseline":
+      return runBuffered((buffered) => cmdBaseline(args as unknown as BaselineArgs, buffered, planContext(args)));
+    case "verdict":
+      return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":
       return runDispatcher(out, () => cmdMetrics(args as unknown as MetricsArgs, out));
     case "release-check":

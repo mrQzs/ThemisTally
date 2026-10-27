@@ -230,8 +230,8 @@
     {
       "name": "F37 调度器的报错不遮令牌",
       "file": "ts/packages/cli/src/main.ts",
-      "old": "      out.printErr(`ERROR: ${redactTokens(error.message)}`);",
-      "new": "      out.printErr(`ERROR: ${error.message}`);"
+      "old": "    out.printErr(`ERROR: ${redactTokens(error.message)}`);",
+      "new": "    out.printErr(`ERROR: ${error.message}`);"
     }
   ]
 }

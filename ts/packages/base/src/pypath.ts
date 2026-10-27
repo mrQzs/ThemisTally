@@ -22,6 +22,8 @@ const SEP = path.sep;
  * path.resolve：相对当前目录、规范化（.、..、重复分隔符，/ 换成反斜杠），不做上面两件事。
  */
 export function abspath(value: string): string {
+  // 路径里有 NUL 字符时 Python 的 _getfullpathname 抛 ValueError，退到 _abspath_fallback：带根的不接当前目录，再 normpath
+  if (WIN && value.includes(String.fromCharCode(0))) return ntNormpath(ntIsabs(value) ? value : winJoin(process.cwd(), value));
   const full = WIN ? win32FullPathName(ntNormpath(value)) : null;
   return full ?? path.resolve(value);
 }
@@ -168,7 +170,7 @@ function withPrefix(real: string, hadPrefix: boolean): string {
 }
 
 /** ntpath.isabs（Python 3.12）：以分隔符开头（含 UNC 与设备路径），或第二、三个字符是冒号加分隔符。/x 也算（Python 的老毛病）。 */
-function ntIsabs(value: string): boolean {
+export function ntIsabs(value: string): boolean {
   const head = value.slice(0, 3).replaceAll("/", BS);
   return head.startsWith(BS) || head.slice(1).startsWith(`:${BS}`);
 }

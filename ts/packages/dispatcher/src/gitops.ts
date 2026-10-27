@@ -3,10 +3,10 @@
 import { statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { PyCrash } from "@themis/base/pyfmt";
-import { pyDecodeUtf8, pyOSErrorOf } from "@themis/base/pyio";
+import { pyDecodeUtf8, pyDecodeUtf8Replace, pyOSErrorOf } from "@themis/base/pyio";
 import { type PyDict, type PyValue } from "@themis/base/pyjson";
-import { PY_END, ci, cmpCodePoints, pyRegex } from "@themis/base/pyre";
-import { gitChecked, gitText } from "./repo.ts";
+import { PY_END, ci, cmpCodePoints, pyRegex, pyStrip } from "@themis/base/pyre";
+import { git, gitChecked, gitText } from "./repo.ts";
 
 const LF = String.fromCharCode(10);
 const NUL = String.fromCharCode(0);
@@ -135,4 +135,16 @@ export function treeDrift(cwd: string, candidateTree: string, currentTree: strin
     modified: changes.filter((change) => change.get("status") !== "A").map((change) => change.get("path") as string),
     added: changes.filter((change) => change.get("status") === "A").map((change) => change.get("path") as string),
   };
+}
+
+/** effective_autocrlf：当前对本仓库生效的 core.autocrlf（true / false / input / unset）。 */
+export function effectiveAutocrlf(repoRoot: string): string {
+  const proc = git(["config", "--get", "core.autocrlf"], repoRoot);
+  const value = proc.status === 0 ? pyStrip(pyDecodeUtf8Replace(proc.stdout)).toLowerCase() : "";
+  return value || "unset";
+}
+
+/** line_endings_only：两棵树的差异是否只是行尾（CRLF / LF）。 */
+export function lineEndingsOnly(cwd: string, treeA: string, treeB: string): boolean {
+  return git(["diff", "--quiet", "--ignore-cr-at-eol", treeA, treeB, "--"], cwd).status === 0;
 }

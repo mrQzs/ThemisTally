@@ -1,0 +1,88 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "^baseline ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "B01 期望失败却通过不算不符",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    if (expect === \"fail\" && passed) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "B02 期望通过却失败不算不符",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    } else if (expect === \"pass\" && !passed) {",
+      "new": "    } else if (false) {"
+    },
+    {
+      "name": "B03 未标注且通过不另加说明",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    } else if (expect === \"any\" && passed) {",
+      "new": "    } else if (false) {"
+    },
+    {
+      "name": "B04 不看日志是不是找不到目标",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (expect === \"any\" && looksLikeMissingTarget(outDir, record)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "B05 找不到目标的模式分大小写",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "compilePy(pattern, FLAG_IGNORECASE)",
+      "new": "compilePy(pattern)"
+    },
+    {
+      "name": "B06 列宽不算表头",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "[...rows, [...header, \"\"]]",
+      "new": "rows"
+    },
+    {
+      "name": "B07 setup 失败照样跑检查",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "      if (!pyTruthy(record.get(\"passed\") as PyValue)) {\n        throw new DispatchError(`基线副本的 setup",
+      "new": "      if (false) {\n        throw new DispatchError(`基线副本的 setup"
+    },
+    {
+      "name": "B08 加了 --keep-workspace 也删副本",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    if (!args.keep_workspace) removeWorktree(repo, workspace);",
+      "new": "    removeWorktree(repo, workspace);"
+    },
+    {
+      "name": "B09 有不符也退出 0",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "return mismatches.length ? EXIT_FAIL : EXIT_OK;",
+      "new": "return EXIT_OK;"
+    },
+    {
+      "name": "B10 副本名不带 baseline",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "-${firstPoints(taskId, 24)}-baseline-`",
+      "new": "-${firstPoints(taskId, 24)}-base-`"
+    },
+    {
+      "name": "B11 不打印校验的提示",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  printMessages(out, errors, warnings);\n",
+      "new": ""
+    },
+    {
+      "name": "B12 worktree_root 不查仓库内外",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (isWithin(root, repo.root)) throw",
+      "new": "  if (false) throw"
+    }
+  ]
+}

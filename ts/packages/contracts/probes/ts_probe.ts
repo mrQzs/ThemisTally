@@ -31,7 +31,7 @@ import { readLocal, runtimeCommand } from "@themis/config/roles-local";
 import { resolveRoleExecutor } from "@themis/config/roles-binding";
 import { cwdRelativeParts } from "@themis/config/roles-probe";
 import { parseIsoUtc } from "@themis/base/pydatetime";
-import { PyValueError, SearchPatternError, compileSearch } from "@themis/base/pyregex";
+import { PyReError, PyValueError, SearchPatternError, compilePy, compileSearch } from "@themis/base/pyregex";
 import {
   type AllowList,
   allowEnum,
@@ -497,6 +497,24 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       throw error;
     }
     return { ok: true, outcome: "match", hits: (request["texts"] as string[]).map((text) => pattern.test(text)) };
+  },
+  "pyregex.search_flags": (request) => {
+    let pattern;
+    try {
+      pattern = compilePy(String(request["pattern"]), Number(request["flags"]));
+    } catch (error) {
+      if (error instanceof PyReError) return { ok: true, outcome: "error", message: error.message };
+      if (error instanceof PyValueError) return { ok: true, outcome: "crash", error: "ValueError" };
+      if (error instanceof PyOverflowError) return { ok: true, outcome: "crash", error: "OverflowError" };
+      throw error;
+    }
+    return {
+      ok: true, outcome: "match",
+      spans: (request["texts"] as string[]).map((text) => {
+        const found = pattern.search(text);
+        return found === null ? null : [found.start, found.end];
+      }),
+    };
   },
   "jsonl.records": (request) => ({
     ok: true,

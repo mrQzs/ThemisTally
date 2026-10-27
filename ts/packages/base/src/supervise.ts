@@ -33,7 +33,8 @@ export interface SuperviseOptions {
   /** 环境变量（按插入次序；Python 的 dict 次序决定大小写不同的同名变量留哪个）。 */
   readonly env: readonly (readonly [string, string])[];
   readonly stdout: OutputTarget;
-  readonly stderr: OutputTarget;
+  /** "stdout"：标准错误并进标准输出的同一个句柄（Python 的 stderr=subprocess.STDOUT；检查命令的日志就是这样写的，④b3）。 */
+  readonly stderr: OutputTarget | "stdout";
   /** 墙钟时限（秒）；null 或 0 不限。 */
   readonly timeout: number | null;
   readonly grace?: number;
@@ -240,8 +241,8 @@ async function superviseWindows(
       opened.push(stdin);
       const stdout = api.openInheritable(options.stdout.path, options.stdout.how);
       opened.push(stdout);
-      const stderr = api.openInheritable(options.stderr.path, options.stderr.how);
-      opened.push(stderr);
+      const stderr = options.stderr === "stdout" ? stdout : api.openInheritable(options.stderr.path, options.stderr.how);
+      if (stderr !== stdout) opened.push(stderr);
       std = { stdin, stdout, stderr };
       if (flag.interrupted) {
         // 开始之前就取消了（themistally-15 复核 ④a）：不起子进程。与 Python 一样：_Interrupted 发生在 Popen 之前时
@@ -377,7 +378,7 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
   const grace = options.grace ?? 15;
   const flags = (how: OutputTarget["how"]): string => (how === "create-new" ? "wx" : how === "truncate" ? "w" : "a");
   const out = openSync(options.stdout.path, flags(options.stdout.how));
-  const err = openSync(options.stderr.path, flags(options.stderr.how));
+  const err = options.stderr === "stdout" ? out : openSync(options.stderr.path, flags(options.stderr.how));
   const start = performance.now();
   let exitCode: number | null = null;
   let finished = false;
@@ -440,7 +441,7 @@ async function supervisePosix(cmd: readonly string[], options: SuperviseOptions)
     if (listens) for (const name of INTERRUPTS) process.off(name, onSignal);
     options.signal?.removeEventListener("abort", onSignal);
     closeSync(out);
-    closeSync(err);
+    if (err !== out) closeSync(err);
     result.wall_seconds = elapsed(start);
   }
   return result;

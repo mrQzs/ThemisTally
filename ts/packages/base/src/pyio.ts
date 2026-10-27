@@ -5,7 +5,8 @@
 //     ENOENT，从错误码分不出来；配置中心读的都是固定的文件名，遇不到。
 //   - UnicodeDecodeError：CPython 的 UTF-8 解码器报的第一个错误，位置与原因照 Objects/stringlib/codecs.h。
 //   - 读文本用通用换行（\r\n 与单独的 \r 都换成 \n），开头的 BOM 保留。
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { pyRepr } from "./pyfmt.ts";
 
 const CRT_ERRNO: Readonly<Record<string, readonly [number, string]>> = {
@@ -65,6 +66,19 @@ export function pyReadText(path: string, shown: string = path): string {
   return pyDecodeUtf8(pyReadBytes(path, shown)).replace(/\r\n?/gu, "\n");
 }
 
+/** bytes.decode("utf-8", "replace")：坏字节换成 U+FFFD（与 CPython 一样按最大有效子段替换），开头的 BOM 留着。 */
+export function pyDecodeUtf8Replace(bytes: Uint8Array): string {
+  return REPLACE_DECODER.decode(bytes);
+}
+
+/** Path(shown).read_text(encoding="utf-8", errors="replace")：宽松解码之后做通用换行。 */
+export function pyReadTextReplace(path: string, shown: string = path): string {
+  const CR = String.fromCharCode(13);
+  const LF = String.fromCharCode(10);
+  return pyDecodeUtf8Replace(pyReadBytes(path, shown)).split(CR + LF).join(LF).split(CR).join(LF);
+}
+
+const REPLACE_DECODER = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
 const DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** bytes.decode("utf-8")（strict）：不合法时照 CPython 报第一个错误。 */
@@ -120,4 +134,27 @@ function badContinuation(bytes: Uint8Array, index: number, lead: number, length:
     if (!isContinuation(byte)) return offset + 1;
   }
   return null;
+}
+
+/** Path(path).mkdir(parents=…, exist_ok=…)：照 pathlib 先建这一层，上级不存在且 parents 时补建上级再来；exist_ok 只放过已经是目录的。 */
+export function pyMkdir(path: string, options: { readonly parents?: boolean; readonly existOk?: boolean } = {}): void {
+  try {
+    mkdirSync(path);
+  } catch (error) {
+    const parent = dirname(path);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" && options.parents === true && parent !== path) {
+      pyMkdir(parent, { parents: true, existOk: true });
+      pyMkdir(path, { existOk: options.existOk === true });
+      return;
+    }
+    if (!(options.existOk === true && isDirectory(path))) throw pyOSErrorOf(error, path) ?? error;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }

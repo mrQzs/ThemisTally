@@ -1,0 +1,166 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "^check ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "U01 不去 OSC（超链接、标题）",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "|${ESC}${BS}][^${BEL}${ESC}]*(?:${BEL}|${ESC}${BS}${BS})`",
+      "new": "`"
+    },
+    {
+      "name": "U02 OSC 只认 BEL 结尾",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "(?:${BEL}|${ESC}${BS}${BS})`",
+      "new": "(?:${BEL})`"
+    },
+    {
+      "name": "U03 CSI 不认中间字节",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "[0-?]*[ -/]*[@-~]",
+      "new": "[0-?]*[@-~]"
+    },
+    {
+      "name": "U04 输出模式不带 re.M",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "compilePy(pattern, FLAG_MULTILINE)",
+      "new": "compilePy(pattern)"
+    },
+    {
+      "name": "U05 不设 CI",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (!runEnv.has(\"CI\")) runEnv.set(\"CI\", \"1\");\n",
+      "new": ""
+    },
+    {
+      "name": "U06 cwd 跳出工作副本也照跑",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "if (!isWithin(cwd, workDir) || !isDir(cwd))",
+      "new": "if (!isDir(cwd))"
+    },
+    {
+      "name": "U07 cwd 不查是不是目录",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "if (!isWithin(cwd, workDir) || !isDir(cwd))",
+      "new": "if (!isWithin(cwd, workDir))"
+    },
+    {
+      "name": "U08 带路径的程序不接 cwd",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "absolute ? purePathStr(program) : purePathStr(cwd, program)",
+      "new": "purePathStr(program)"
+    },
+    {
+      "name": "U09 名字按调度器自己的 PATH 找",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "pyWhich(program, env.get(\"PATH\") || env.get(\"Path\") || null)",
+      "new": "pyWhich(program, null)"
+    },
+    {
+      "name": "U10 不限时",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "    timeout: Number(item.get(\"timeout_seconds\")),",
+      "new": "    timeout: null,"
+    },
+    {
+      "name": "U11 起不来记成 failed",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (result.spawn_error) {\n    record.set(\"status\", \"blocked\")",
+      "new": "  if (result.spawn_error) {\n    record.set(\"status\", \"failed\")"
+    },
+    {
+      "name": "U12 超时写成被取消",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "result.timed_out ? \"超时\" : \"被取消\"",
+      "new": "\"被取消\""
+    },
+    {
+      "name": "U13 退出码按 JS 的全等比较（True 不等于 1）",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "const exitOk = sameNumber(exitCode, expected);",
+      "new": "const exitOk = exitCode === expected;"
+    },
+    {
+      "name": "U14 理由用逗号连接",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "reasons.join(\"; \")",
+      "new": "reasons.join(\", \")"
+    },
+    {
+      "name": "U15 must 有一条中就算",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "must.every((m) => m.get(\"matched\"))",
+      "new": "must.some((m) => m.get(\"matched\"))"
+    },
+    {
+      "name": "U16 must_not 全中才算",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "!mustNot.some((m) => m.get(\"matched\"))",
+      "new": "!mustNot.every((m) => m.get(\"matched\"))"
+    },
+    {
+      "name": "U17 编号加二",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "as bigint) + 1n;",
+      "new": "as bigint) + 2n;"
+    },
+    {
+      "name": "U18 worktree_root 在仓库里也放行",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (isWithin(root, repo.root)) throw",
+      "new": "  if (false) throw"
+    },
+    {
+      "name": "U19 干净副本不打补丁",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "if (statSync(patch).size > 0)",
+      "new": "if (statSync(patch).size > 1e12)"
+    },
+    {
+      "name": "U20 干净副本不核对候选树",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "\"fresh\", autocrlf) !== candidate.get(\"tree\")",
+      "new": "\"fresh\", autocrlf) === \"\""
+    },
+    {
+      "name": "U21 干净副本的 setup 失败不停",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "      if (!record.get(\"passed\")) throw new DispatchError(`干净副本的 setup",
+      "new": "      if (false) throw new DispatchError(`干净副本的 setup"
+    },
+    {
+      "name": "U22 setup 之后不复查",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "\"fresh-setup\", autocrlf) !== candidate.get(\"tree\")",
+      "new": "\"fresh-setup\", autocrlf) === \"\""
+    },
+    {
+      "name": "U23 attempt 编号不补零",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "-a${pad3(meta.get(\"attempt_no\") as bigint)}-verify-",
+      "new": "-a${String(meta.get(\"attempt_no\"))}-verify-"
+    },
+    {
+      "name": "U24 仓库名截 15 个码点",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "firstPoints(path.basename(repo.root), 16)",
+      "new": "firstPoints(path.basename(repo.root), 15)"
+    },
+    {
+      "name": "U25 日志的长度记成码点数",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": ".set(\"log_bytes\", BigInt(statSync(logPath).size))",
+      "new": ".set(\"log_bytes\", BigInt(text.length))"
+    }
+  ]
+}

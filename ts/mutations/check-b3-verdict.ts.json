@@ -1,0 +1,125 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "^verdict ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "D01 不查【待填】",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "const unfilled = pySplitlines(reviewText).filter((line) => PLACEHOLDER_RE.test(line)).map(pyStrip);",
+      "new": "const unfilled: string[] = [];"
+    },
+    {
+      "name": "D02 第一处待填不去空白",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": ".filter((line) => PLACEHOLDER_RE.test(line)).map(pyStrip);",
+      "new": ".filter((line) => PLACEHOLDER_RE.test(line));"
+    },
+    {
+      "name": "D03 Verdict 行不去空白",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "return pyStrip(match.group.slice(match.group.indexOf(\"Verdict:\") + \"Verdict:\".length));",
+      "new": "return match.group.slice(match.group.indexOf(\"Verdict:\") + \"Verdict:\".length);"
+    },
+    {
+      "name": "D04 Verdict 行不按多行",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "([A-Z_]+)${BS}s*$`, FLAG_MULTILINE);",
+      "new": "([A-Z_]+)${BS}s*$`);"
+    },
+    {
+      "name": "D05 --waive 不查门禁名",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!(GATES as readonly string[]).includes(gate) || !pyStrip(reason))",
+      "new": "if (!pyStrip(reason))"
+    },
+    {
+      "name": "D06 豁免理由不去空白",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    waivers.set(gate, pyStrip(reason));",
+      "new": "    waivers.set(gate, reason);"
+    },
+    {
+      "name": "D07 PASS 不看门禁",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  if (verdict === \"PASS\") {\n    if (failed.length) {",
+      "new": "  if (verdict === \"PASS\") {\n    if (false) {"
+    },
+    {
+      "name": "D08 PASS 收豁免",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    if (waivers.size) throw new DispatchError(\"PASS 不接受豁免",
+      "new": "    if (false) throw new DispatchError(\"PASS 不接受豁免"
+    },
+    {
+      "name": "D09 AWE 不要求每项都豁免",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "    if (missing.length) throw new DispatchError(`以下失败门禁没有豁免理由",
+      "new": "    if (false) throw new DispatchError(`以下失败门禁没有豁免理由"
+    },
+    {
+      "name": "D10 AWE 不要 --decided-by",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!waivers.size || !args.decided_by) throw",
+      "new": "if (!waivers.size) throw"
+    },
+    {
+      "name": "D11 其余结论不要 --class",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  } else if (!args.failure_class) {",
+      "new": "  } else if (false) {"
+    },
+    {
+      "name": "D12 只打印 G0 的提示",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "for (const gate of [\"G0\", \"G3\", \"G6\"])",
+      "new": "for (const gate of [\"G0\"])"
+    },
+    {
+      "name": "D13 记录里的报告路径不规整",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "[\"review_source\", reviewPath]",
+      "new": "[\"review_source\", args.review]"
+    },
+    {
+      "name": "D14 状态里不记失败类别",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "[[\"verdict_no\", number], [\"failure_class\", args.failure_class]]",
+      "new": "[[\"verdict_no\", number]]"
+    },
+    {
+      "name": "D15 报告是目录也收",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!isFile(reviewPath) || statSync(reviewPath).size === 0)",
+      "new": "if (!pyExists(reviewPath) || statSync(reviewPath).size === 0)",
+      "equivalent": "Windows 上目录的 st_size 是 0（CPython 的 os.stat 与 Node 的 statSync 都取目录项的文件大小，目录为 0）：报告是目录时换成只看存不存在，照样落进“大小为 0”那一半，报同一句；只有 POSIX 上看得出，本机验证不了。契约里“复审报告是目录”一条照样比对这句"
+    },
+    {
+      "name": "D16 空报告也收",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!isFile(reviewPath) || statSync(reviewPath).size === 0)",
+      "new": "if (!isFile(reviewPath))"
+    },
+    {
+      "name": "D17 RUNNING 也能记结论",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "if (!REVIEWABLE_STATES.includes(state)) throw new DispatchError(`状态 ${state} 不能记录验收结论`);",
+      "new": "if (false) throw new DispatchError(`状态 ${state} 不能记录验收结论`);"
+    },
+    {
+      "name": "D18 没过的门禁不提",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "  if (failed.length && verdict !== \"PASS\") out.print(`未通过的门禁：${failed.join(\", \")}`);\n",
+      "new": ""
+    }
+  ]
+}

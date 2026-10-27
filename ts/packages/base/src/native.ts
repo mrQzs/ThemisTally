@@ -462,7 +462,8 @@ export async function initFileAttributes(): Promise<void> {
       return new DataView(data.buffer).getUint32(0, true) & FILE_ATTRIBUTE_REPARSE_POINT ? error : 0;
     }
     if (error === 87) return opened(open(path, FILE_READ_ATTRIBUTES | GENERIC_READ, 3, FILE_FLAG_BACKUP_SEMANTICS)) === 0 ? 0 : error;
-    if (error === 1920) return opened(open(path, FILE_READ_ATTRIBUTES, 0, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT));
+    // 打不开的重解析点：带 OPEN_REPARSE_POINT 再开一次，还失败就照 CPython 交回原来的 1920
+    if (error === 1920) return opened(open(path, FILE_READ_ATTRIBUTES, 0, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)) === 0 ? 0 : error;
     return error;
   };
   finalPathName = (path) => {

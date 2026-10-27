@@ -279,6 +279,19 @@ def op_pyregex_search(request):
     return {"ok": True, "outcome": "match", "hits": [pattern.search(text) is not None for text in request["texts"]]}
 
 
+def op_pyregex_search_flags(request):
+    """re.compile(pattern, flags) 加逐段 search（第 ④b3 片：检查的输出模式带 re.M，baseline 的找不到目标带 re.I）：
+    编译的结果与每段的匹配起止（码点下标）。"""
+    try:
+        pattern = re.compile(request["pattern"], request["flags"])
+    except re.error as exc:
+        return {"ok": True, "outcome": "error", "message": str(exc)}
+    except (ValueError, OverflowError) as exc:
+        return {"ok": True, "outcome": "crash", "error": type(exc).__name__}
+    spans = [pattern.search(text) for text in request["texts"]]
+    return {"ok": True, "outcome": "match", "spans": [None if m is None else [m.start(), m.end()] for m in spans]}
+
+
 def op_pydatetime_parse_iso(request):
     """kit_logs._parse_iso（第 ②c 步）：每段文本换成 UTC 之后距 0001-01-01 的微秒数，不可用为 None。"""
     epoch = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
@@ -859,6 +872,7 @@ OPS = {
     "jsonl.records": op_jsonl_records,
     "pyfmt.call": op_pyfmt_call,
     "pyregex.search": op_pyregex_search,
+    "pyregex.search_flags": op_pyregex_search_flags,
     "pydatetime.parse_iso": op_pydatetime_parse_iso,
     "jsonl.iter_lines": op_jsonl_iter_lines,
     "jsonl.lines_before": op_jsonl_lines_before,

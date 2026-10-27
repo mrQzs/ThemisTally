@@ -1,0 +1,40 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "-t",
+    "合并输出|D2",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "O01 标准输出不缓冲",
+      "file": "ts/packages/cli/src/main.ts",
+      "old": "const out = new PyOut({ bufferStdout: true });",
+      "new": "const out = new PyOut();"
+    },
+    {
+      "name": "O02 报错之后不冲出标准输出",
+      "file": "ts/packages/cli/src/main.ts",
+      "old": "  } finally {\n    out.flush();\n  }",
+      "new": "  } finally {\n  }"
+    },
+    {
+      "name": "O03 CHECK 行不冲出",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "      out.print(`CHECK ${id} ...`, { flush: true });",
+      "new": "      out.print(`CHECK ${id} ...`);"
+    },
+    {
+      "name": "O04 BASELINE 行不冲出",
+      "file": "ts/packages/dispatcher/src/check-commands.ts",
+      "old": "      out.print(`BASELINE ${pyStrValue(item.get(\"id\") as PyValue)} ...`, { flush: true });",
+      "new": "      out.print(`BASELINE ${pyStrValue(item.get(\"id\") as PyValue)} ...`);"
+    }
+  ]
+}

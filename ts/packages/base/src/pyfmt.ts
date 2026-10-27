@@ -300,16 +300,48 @@ function writeAll(fd: number, bytes: Buffer): void {
 
 /** 照 Python 的 print 往 stdout、stderr 写（同步写，进程退出前不会丢）。 */
 export class PyOut {
-  print(text = ""): void {
-    writeAll(1, pyTextBytes(`${text}\n`));
+  /**
+   * stdout 块缓冲（④b3）：照 Python 的 sys.stdout 不是终端时的写法，攒到 8 KiB 以上、print(flush=True) 或调用 flush()
+   * 时才写出；stderr 照写不误（Python 3.9 起 stderr 总是行缓冲）。hub 把 stderr 并进 stdout 读，报错路径上 ERROR: 会排在
+   * 还没冲出的 NOTE、GATE 前面，次序要照。缺省不缓冲（已经切换的命令照旧）；打开的命令在退出前要调 flush()。
+   */
+  private readonly buffered: boolean;
+  private pending: Buffer[] = [];
+  private pendingBytes = 0;
+
+  constructor(options: { readonly bufferStdout?: boolean } = {}) {
+    this.buffered = options.bufferStdout === true;
+  }
+
+  print(text = "", options: { readonly flush?: boolean } = {}): void {
+    this.out(pyTextBytes(`${text}\n`), options.flush === true);
   }
 
   /** sys.stdout.write(text)：不加换行。 */
   write(text: string): void {
-    writeAll(1, pyTextBytes(text));
+    this.out(pyTextBytes(text), false);
   }
 
   printErr(text = ""): void {
     writeAll(2, pyTextBytes(`${text}\n`));
+  }
+
+  /** sys.stdout.flush()。 */
+  flush(): void {
+    if (!this.pending.length) return;
+    const bytes = Buffer.concat(this.pending);
+    this.pending = [];
+    this.pendingBytes = 0;
+    writeAll(1, bytes);
+  }
+
+  private out(bytes: Buffer, flush: boolean): void {
+    if (!this.buffered) {
+      writeAll(1, bytes);
+      return;
+    }
+    this.pending.push(bytes);
+    this.pendingBytes += bytes.length;
+    if (flush || this.pendingBytes > 8192) this.flush();
   }
 }
