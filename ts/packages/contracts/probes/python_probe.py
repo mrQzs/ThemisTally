@@ -413,6 +413,20 @@ def op_patterns_call(request):
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 
+def op_pypath_call(request):
+    """路径的几个 Python 语义（④b6 复核补）：os.path.abspath、normpath、Path(p).resolve()、pi_dispatch.is_within。"""
+    fn, value = request["fn"], request["path"]
+    if fn == "abspath":
+        return {"ok": True, "value": os.path.abspath(value)}
+    if fn == "normpath":
+        return {"ok": True, "value": os.path.normpath(value)}
+    if fn == "resolve":
+        return {"ok": True, "value": str(Path(value).resolve())}
+    if fn == "is_within":
+        return {"ok": True, "value": pi_dispatch.is_within(Path(value), Path(request["root"]))}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_events_call(request):
     """pi_dispatch 的事件流摘要与 summary.md（迁移第 ④b6 片）。写出的文件由测试自己读字节比较；异常交回类名与 str(exc)。"""
     fn = request["fn"]
@@ -826,6 +840,7 @@ OPS = {
     "patterns.call": op_patterns_call,
     "contract.call": op_contract_call,
     "events.call": op_events_call,
+    "pypath.call": op_pypath_call,
     "pyfmt.number": op_pyfmt_number,
     "dispatch.child_env": op_dispatch_child_env,
     "roles.cwd_relative": op_roles_cwd_relative,

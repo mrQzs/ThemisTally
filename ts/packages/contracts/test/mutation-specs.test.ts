@@ -17,8 +17,9 @@ interface Mutation {
   readonly count?: number;
 }
 
-/** str.count(part)：不重叠。 */
+/** str.count(part)：不重叠；空串照 Python 是码点数加一（不然下面的循环停不下来，themistally-15 复核 127 轮提醒）。 */
 function occurrences(text: string, part: string): number {
+  if (!part) return Array.from(text).length + 1;
   let count = 0;
   for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + part.length)) count += 1;
   return count;

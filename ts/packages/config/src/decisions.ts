@@ -250,6 +250,19 @@ function stem(name: string): string {
   return dot > 0 && dot < name.length - 1 ? name.slice(0, dot) : name;
 }
 
+/**
+ * pi_dispatch._decisions_summary 用的 report-screen 清单：kit 的 plugins/decisions/questions 下那一份；读不了（DecisionError）
+ * 或没有这一份时为 null。write_summary 的 SummaryContext.reportScreen 接它（dispatcher 不能 import 本包）。
+ */
+export function reportScreenBattery(kitRoot: string): Battery | null {
+  try {
+    return loadBatteries(joinPath(joinPath(joinPath(kitRoot, "plugins"), "decisions"), "questions")).get("report-screen") ?? null;
+  } catch (error) {
+    if (error instanceof DecisionError) return null;
+    throw error;
+  }
+}
+
 /** 目录下全部清单，按 id 索引；文件名必须等于 id。Windows 上 Path 的排序按小写比较。 */
 export function loadBatteries(root: string): Map<string, Battery> {
   if (!isDir(root)) throw new DecisionError("plugin_missing", `no battery directory at ${root}`);

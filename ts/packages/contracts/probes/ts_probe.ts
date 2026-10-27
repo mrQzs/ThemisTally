@@ -6,7 +6,8 @@ import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from
 import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
-import { FileLockTimeout, type WinProcessApi, acquireFileLock, winProcessApi } from "@themis/base/native";
+import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttributes, winProcessApi } from "@themis/base/native";
+import { abspath, isWithin, ntNormpath, pyResolve } from "@themis/base/pypath";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue } from "@themis/base/pyfmt";
@@ -18,7 +19,7 @@ import { branchSubject, deriveContractJson, invisibleCharWarnings, validateContr
 import { validatePlan } from "@themis/dispatcher/contract-plan";
 import { ambiguityDomainWords, ambiguityMentions, extractReport, interpretationMentions, messageText, reviewHints, summarizeEvents } from "@themis/dispatcher/events";
 import { cacheDirCleanup, maskPaths, maskedExitMention, matchExcerpt, outsideMentions, pathForms, protectedMentions, tempDirWithoutCleanup } from "@themis/dispatcher/shell-scan";
-import { type BatteryView, writeSummary } from "@themis/dispatcher/summary";
+import { writeSummary } from "@themis/dispatcher/summary";
 import { kernelProtectedPaths } from "@themis/dispatcher/kernel-config";
 import { PyOverflowError } from "@themis/base/pyregex";
 import { childEnv, listModelsEmptyReason, listModelsLines, listModelsRows, parseHelp, runCapture } from "@themis/dispatcher/pi-cli";
@@ -64,6 +65,7 @@ import {
   checkQuestions,
   loadBatteries,
   loadBattery,
+  reportScreenBattery,
   settingsFromConfig,
   verifyBatteryLock,
 } from "@themis/config/decisions";
@@ -540,6 +542,21 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     const rounded = pyRound(value, digits);
     return { ok: true, fixed: pyFixed(value, digits), round: typeof rounded === "bigint" ? intRepr(rounded) : floatRepr(rounded) };
   },
+  "pypath.call": (request) => {
+    const value = String(request["path"]);
+    switch (request["fn"]) {
+      case "abspath":
+        return { ok: true, value: abspath(value) };
+      case "normpath":
+        return { ok: true, value: ntNormpath(value) };
+      case "resolve":
+        return { ok: true, value: pyResolve(purePathStr(value)) };
+      case "is_within":
+        return { ok: true, value: isWithin(purePathStr(value), purePathStr(String(request["root"]))) };
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  },
   "events.call": (request) => {
     const text = (key: string): string => String(request[key]);
     try {
@@ -559,16 +576,7 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
         case "review_hints":
           return { ok: true, value: toTagged(reviewHints(text("patch"))) };
         case "write_summary": {
-          const questions = join(text("kit_root"), "plugins", "decisions", "questions");
-          const reportScreen = (): BatteryView | null => {
-            try {
-              return loadBatteries(questions).get("report-screen") ?? null;
-            } catch (error) {
-              if (error instanceof DecisionError) return null;
-              throw error;
-            }
-          };
-          writeSummary(text("run_dir"), new Repo(text("root")), { reportScreen });
+          writeSummary(text("run_dir"), new Repo(text("root")), { reportScreen: () => reportScreenBattery(text("kit_root")) });
           return { ok: true };
         }
         case "message_text":
@@ -823,6 +831,7 @@ async function runOne(request: Request): Promise<Result> {
   }
 }
 
+await initFileAttributes(); // 与生产入口一样先绑好原生调用（Bun 下的 GetFullPathNameW 等）
 const request = JSON.parse(await readStdin()) as Request;
 let result: Result;
 if (request.op === "batch") {

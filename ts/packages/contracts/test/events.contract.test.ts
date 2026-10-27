@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { IMPLS, REPO, type ProbeRequest, type ProbeResult, prng, removeDir, runAgreeing, runBatch, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON as PYTHON_IMPL, REPO, TS_BUN, type ProbeRequest, type ProbeResult, prng, removeDir, runAgreeing, runBatch, scratchDir } from "./harness.ts";
 
 const ch = (...codes: number[]): string => String.fromCodePoint(...codes);
 const LF = ch(10);
@@ -409,6 +409,49 @@ function readJson(file: string): Record<string, unknown> {
   }
 }
 
+/**
+ * 只比 Python 与 Bun：Node 没有原生调用，abspath 退回 path.resolve，不去段尾的点与空格、不把 nul 映射成设备（第 10 节）。
+ */
+function agreeOnBun(requests: readonly ProbeRequest[]): ProbeResult[] {
+  const [python, bun] = [PYTHON_IMPL, TS_BUN].map((impl) => runBatch(impl, requests));
+  const bad = requests.map((_, index) => index).filter((index) => JSON.stringify(python?.[index]) !== JSON.stringify(bun?.[index]));
+  expect(bad.slice(0, 3).map((index) => ({ index, ...difference(python?.[index], bun?.[index]) }))).toEqual([]);
+  return python as ProbeResult[];
+}
+
+describe("路径的 Python 语义（④b6 复核补）", () => {
+  const work = STREAMS[0]?.work ?? ROOT;
+  const verbatim = `${BS}${BS}?${BS}`;
+  const paths = [
+    join(work, "nul"), join(work, "NUL "), join(work, "nul."), join(work, "Nul:"), join(work, "nul.txt"), join(work, "x. "), join(work, "x.."),
+    join(work, "sub", ".."), join(work, "nul") + BS, "nul", "NUL", `.${BS}nul`, `a${BS}nul`, "a/b/../c", "", ".", "..", `${BS}x`, "/x", "C:x",
+    "C:/Windows/../Windows", `${verbatim}${work}${BS}x`, `${verbatim}${join(REPO, "README.md")}`, `${verbatim}${join(work, "nul")}`,
+    "C:/../x", `${BS}..${BS}x`, `..${BS}..${BS}x`, join(ROOT, "gone", "NUL"), join(REPO, "README.md", "NUL"), join(work, "nul") + " ",
+  ];
+  const unc = [`${BS}${BS}server${BS}share${BS}nul`, `${verbatim}UNC${BS}server${BS}share${BS}x`];
+  it("abspath、normpath、resolve、is_within", () => {
+    const requests: ProbeRequest[] = [
+      ...[...paths, ...unc].flatMap((path) => ["abspath", "normpath"].map((fn) => ({ op: "pypath.call", fn, path }))),
+      ...paths.map((path) => ({ op: "pypath.call", fn: "resolve", path })),
+      ...paths.flatMap((path) => [work, REPO].map((rootDir) => ({ op: "pypath.call", fn: "is_within", path, root: rootDir }))),
+    ];
+    const python = agreeOnBun(requests);
+    expect(python.every((result) => result.ok)).toBe(true);
+  });
+
+  it("工具参数的路径是 nul 或带长路径前缀时，摘要两边一致", () => {
+    const lines = [`${verbatim}${work}${BS}x`, `${verbatim}${join(REPO, "README.md")}`, "nul", "NUL ", "nul.", "nul:", join(work, "nul"), join(ROOT, "gone", "NUL")].flatMap((value, index) => [
+      JSON.stringify({ type: "tool_execution_start", toolCallId: `p${index}`, toolName: "read", args: { path: value } }),
+      JSON.stringify({ type: "tool_execution_end", toolCallId: `p${index}`, isError: index % 2 === 0 }),
+    ]);
+    const events = Buffer.from(lines.join(LF) + LF, "utf8");
+    // worktree 已经删掉（真实 attempt 的旧 worktree）：nul 的上一级不在，Python 的 exists 是 false
+    const requests = [work, join(ROOT, "gone-worktree")].map((workDir, index) =>
+      summarizeRequest(`device-paths-${index}`, workDir, events, Buffer.alloc(0), { protected_roots: [REPO] }));
+    agreeOnBun(requests);
+  });
+});
+
 describe("shell 命令扫描与提及", () => {
   it("构造的命令：屏蔽、主仓库路径、工作副本外路径、缓存清理、掩盖退出码、没清理的临时目录", () => {
     const next = prng(77);
@@ -597,6 +640,11 @@ describe("write_summary", () => {
     const outside = join(ROOT, "outside-attempt");
     mkdirSync(outside, { recursive: true });
     dirs.push(outside); // 不在仓库里：下一步一节写绝对路径
+    // own_run_paths 的 path 全是 null：sorted 只有一项时不比较，照常写出（themistally-15 复核 ④b6 查出）
+    const nulls = join(MAIN, ".agent", "runs", "summaries", "attempt-nulls");
+    mkdirSync(nulls, { recursive: true });
+    writeFileSync(join(nulls, "events-summary.json"), JSON.stringify({ own_run_paths: [{ path: null }, { path: null }] }));
+    dirs.push(nulls);
     const requests = dirs.map((dir) => ({ op: "events.call", fn: "write_summary", run_dir: dir, root: MAIN, kit_root: REPO }));
     const python = agreeOnFiles(requests, (index) => [join(dirs[index] as string, "summary.md")]);
     const okCount = python.filter((result) => result.ok).length;

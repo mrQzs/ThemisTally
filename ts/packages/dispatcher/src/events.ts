@@ -1,13 +1,13 @@
 // pi_dispatch 的事件流摘要（迁移第 ④b6 片）：summarize_events、extract_report、review_hints 与它们的小助手。
 // 三份输出的 JSON 字节是 Python 与 TS 之间的契约（混合期 hub 仍是 Python，读这些文件）：键的次序、int 与 float 之分、
 // 码点下标、按码点排序都照 Python。正则原文来自生成的 event-patterns.ts。
-import { closeSync, existsSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readSync } from "node:fs";
 import path from "node:path";
 import { writeText } from "@themis/base/fsutil";
 import { pyAdd, pyGet, pyItem, pyJoinStrings, pyPositive, pyRepr, pyReprValue, pyRound, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorOf, pyReadBytes } from "@themis/base/pyio";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
-import { expanduser, isWithin, purePathIsAbsolute, purePathStr, pyResolve } from "@themis/base/pypath";
+import { expanduser, isWithin, purePathIsAbsolute, purePathStr, pyExists, pyResolve } from "@themis/base/pypath";
 import { compilePy, toPoints } from "@themis/base/pyregex";
 import { cmpCodePoints, codePoints, isSpace, pyLower, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { redactSecrets, stripAnsi } from "@themis/base/secrets";
@@ -221,7 +221,7 @@ export function summarizeEvents(eventsPath: string, workDir: string, executor: P
   const allowedOutside = options.allowedOutside ?? [];
   const protectedRoots = options.protectedRoots ?? [];
   const expectsSettled = options.expectsSettled ?? null;
-  const data = existsSync(eventsPath) ? pyReadBytes(eventsPath) : Buffer.alloc(0);
+  const data = pyExists(eventsPath) ? pyReadBytes(eventsPath) : Buffer.alloc(0);
   const ownForms = pathForms([workDir, ...allowedOutside]);
   const protectedForms = pathForms(protectedRoots);
   const protectedResolved = protectedRoots.map(pyResolve);
@@ -370,7 +370,7 @@ export function summarizeEvents(eventsPath: string, workDir: string, executor: P
         const item = record([
           ["tool", name],
           ["path", firstPoints(value, 300)],
-          ["exists", existsSync(resolved)],
+          ["exists", pyExists(resolved)],
           ["failed", null],
           ["main_repo", protectedResolved.some((root) => isWithin(resolved, root))],
         ]);
@@ -425,7 +425,7 @@ export function summarizeEvents(eventsPath: string, workDir: string, executor: P
   const providerLevels = reported("providerThinkingLevel");
   const modelMatch = assistant.length > 0 && actual.every(([provider, model]) => provider === requested[0] && model === requested[1]);
   let stderrFlags: string[] = [];
-  if (options.stderrPath != null && existsSync(options.stderrPath)) {
+  if (options.stderrPath != null && pyExists(options.stderrPath)) {
     const stderrText = stripAnsi(readTextReplace(options.stderrPath));
     stderrFlags = STDERR_FLAGS.filter(([, pattern]) => pattern.search(stderrText) !== null).map(([name]) => name);
   }

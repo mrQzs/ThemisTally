@@ -1,0 +1,57 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/events.contract.test.ts",
+    "-t",
+    "路径的 Python 语义"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 abspath 不调 GetFullPathNameW",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  const full = WIN ? win32FullPathName(ntNormpath(value)) : null;",
+      "new": "  const full = null;"
+    },
+    {
+      "name": "P02 长路径前缀不接回",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  if (real.startsWith(verbatim)) return real;",
+      "new": "  return real;"
+    },
+    {
+      "name": "P03 裸 nul 不当设备",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  if (normcase(norm) === \"nul\") return `${BS}${BS}.${BS}NUL`;",
+      "new": ""
+    },
+    {
+      "name": "P04 映射成设备的不算存在",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  return (win32FullPathName(norm) ?? \"\").startsWith(`${BS}${BS}.${BS}`) && existsSync(path.dirname(abspathPlain(norm)));",
+      "new": "  return false;"
+    },
+    {
+      "name": "P05 根下的 .. 不丢",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "    } else if (index === 0 && root) comps.splice(index, 1);",
+      "new": "    } else if (false) comps.splice(index, 1);"
+    },
+    {
+      "name": "P06 /x 不算绝对路径",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  return head.startsWith(BS) || head.slice(1).startsWith(`:${BS}`);",
+      "new": "  return head.slice(1).startsWith(`:${BS}`);",
+      "equivalent": "ntIsabs 只用在 pyResolve：/x 当成相对路径时接上当前目录，winJoin 遇到带根的 /x 只留下当前目录的盘符，结果与不接相同（当前目录与 /x 在同一个盘上，测试里造不出不同盘的当前目录）"
+    },
+    {
+      "name": "P07 设备路径不看上一级",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": " && existsSync(path.dirname(abspathPlain(norm)));",
+      "new": ";"
+    }
+  ]
+}

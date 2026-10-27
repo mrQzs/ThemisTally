@@ -13,6 +13,9 @@
 //       锁第 0 个字节、长度 1，与 Python 的 msvcrt.locking(fd, LK_NBLCK, 1)（_locking 即 LockFile）锁同一个区间，互斥。
 //     UnlockFileEx(hFile, dwReserved = 0, 1, 0, lpOverlapped) -> BOOL
 //     CloseHandle(hObject) -> BOOL
+//     GetFullPathNameW(lpFileName: UTF-16LE 以 0 结尾, nBufferLength: 字符数, lpBuffer, lpFilePart = NULL) -> DWORD
+//       （写进的字符数，不含结尾的 0；缓冲区不够时交回需要的大小，失败为 0）：Python 的 ntpath.abspath 就调它。它会去掉段尾的点
+//       与空格，把末段的 nul（可带结尾的点、空格、冒号）映射成 NUL 设备，规则随系统版本变，所以照调、不手写。
 //     GetFileAttributesW(lpFileName: UTF-16LE 以 0 结尾) -> DWORD，INVALID_FILE_ATTRIBUTES 为 0xFFFFFFFF
 //       不跟随重解析点，与 Python os.lstat 的 st_file_attributes 同一个值。pi_dispatch.is_link_or_junction 把带
 //       FILE_ATTRIBUTE_REPARSE_POINT（0x400）的条目一律当链接；Node 的 lstat 只认符号链接与 junction（第 ② 步）。
@@ -338,6 +341,15 @@ export const helperAcquire = acquireInProcess;
 export const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
 const INVALID_FILE_ATTRIBUTES = 0xffffffff;
 
+/** undefined 或 null：没有绑定（还没初始化、Node 后备、非 Windows）。 */
+let fullPathName: ((path: string) => string | null) | null | undefined;
+
+/** GetFullPathNameW：没有绑定、路径里有 NUL 字符或调用失败时为 null（调用方退回自己的算法）。 */
+export function win32FullPathName(value: string): string | null {
+  if (!fullPathName || value.includes(String.fromCharCode(0))) return null;
+  return fullPathName(value);
+}
+
 /** undefined：还没初始化；null：没有绑定（Node 后备、非 Windows）。 */
 let getFileAttributes: ((path: string) => number) | null | undefined;
 
@@ -346,6 +358,7 @@ export async function initFileAttributes(): Promise<void> {
   if (getFileAttributes !== undefined) return;
   if (!isBun || process.platform !== "win32") {
     getFileAttributes = null;
+    fullPathName = null;
     win32Files = null;
     win32Message = null;
     return;
@@ -354,6 +367,7 @@ export async function initFileAttributes(): Promise<void> {
   const T = ffi.FFIType;
   const kernel32 = ffi.dlopen("kernel32.dll", {
     GetFileAttributesW: { args: [T.ptr], returns: T.u32 },
+    GetFullPathNameW: { args: [T.ptr, T.u32, T.ptr, T.ptr], returns: T.u32 },
     MoveFileExW: { args: [T.ptr, T.ptr, T.u32], returns: T.i32 },
     CreateDirectoryW: { args: [T.ptr, T.ptr], returns: T.i32 },
     GetLastError: { args: [], returns: T.u32 },
@@ -361,6 +375,7 @@ export async function initFileAttributes(): Promise<void> {
   });
   const call = kernel32.symbols as unknown as {
     GetFileAttributesW(name: number): number;
+    GetFullPathNameW(name: number, size: number, buffer: number, part: null): number;
     MoveFileExW(src: number, dst: number, flags: number): number;
     CreateDirectoryW(path: number, security: null): number;
     GetLastError(): number;
@@ -368,6 +383,16 @@ export async function initFileAttributes(): Promise<void> {
   };
   const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
   getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(wide(path)));
+  fullPathName = (path) => {
+    const name = wide(path); // 调用期间一直被引用
+    for (let size = 1024; ; ) {
+      const buffer = new Uint16Array(size);
+      const written = call.GetFullPathNameW(ffi.ptr(name), size, ffi.ptr(buffer), null);
+      if (written === 0) return null;
+      if (written < size) return Buffer.from(buffer.buffer, 0, written * 2).toString("utf16le");
+      size = written + 1;
+    }
+  };
   win32Message = (winerror) => {
     const buffer = new Uint16Array(2048);
     const n = call.FormatMessageW(0x1000 | 0x200, null, winerror, 0x0400, ffi.ptr(buffer), buffer.length, null);

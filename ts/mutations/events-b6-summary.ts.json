@@ -87,6 +87,12 @@
       "file": "ts/packages/base/src/pyfmt.ts",
       "old": "throw new PyCrash(\"TypeError\", `can only concatenate str (not \"${pyTypeName(b)}\") to str`);",
       "new": "throw new PyCrash(\"TypeError\", `unsupported operand type(s) for +: 'str' and '${pyTypeName(b)}'`);"
+    },
+    {
+      "name": "W14 只有一项也比较类型",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "  if (unique.length < 2) return unique;",
+      "new": ""
     }
   ]
 }

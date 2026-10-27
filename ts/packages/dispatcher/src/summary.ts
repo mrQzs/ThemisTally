@@ -107,6 +107,7 @@ function sortedUnique(values: readonly PyValue[]): PyValue[] {
   }
   const unique: PyValue[] = [];
   for (const value of values) if (!unique.some((seen) => pyEq(seen, value))) unique.push(value);
+  if (unique.length < 2) return unique; // 一项不比较，什么类型都照常（themistally-15 复核 ④b6 查出）
   if (unique.every((value) => typeof value === "string")) return (unique as string[]).sort(cmpCodePoints);
   if (unique.every(numeric)) return unique.sort((a, b) => Number(a) - Number(b));
   const [left, right] = [unique[0] as PyValue, unique.find((value) => pyTypeName(value) !== pyTypeName(unique[0] as PyValue)) as PyValue];
