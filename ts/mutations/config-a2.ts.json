@@ -49,7 +49,7 @@
     },
     {
       "name": "V01 不拒范围过宽的模式",
-      "file": "ts/packages/config/src/validate.ts",
+      "file": "ts/packages/dispatcher/src/patterns.ts",
       "old": "if (pattern === \"*\" || pattern === \"**\" || pattern === \"**/*\") return \"范围过宽\";",
       "new": ""
     },
@@ -61,25 +61,25 @@
     },
     {
       "name": "V03 日期只认 ASCII 数字",
-      "file": "ts/packages/config/src/validate.ts",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
       "old": "const PRICE_DATE_RE = pyRegex(`^${D}{4}-${D}{2}-${D}{2}${PY_END}`);",
       "new": "const PRICE_DATE_RE = pyRegex(`^[0-9]{4}-[0-9]{2}-[0-9]{2}${PY_END}`);"
     },
     {
       "name": "V04 币种的 $ 用 JS 的写法",
-      "file": "ts/packages/config/src/validate.ts",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
       "old": "const CURRENCY_RE = pyRegex(`^[A-Z]{3}${PY_END}`);",
       "new": "const CURRENCY_RE = pyRegex(`^[A-Z]{3}$`);"
     },
     {
       "name": "V05 allow 是字符串时不拆字符",
-      "file": "ts/packages/config/src/validate.ts",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
       "old": "configured = section.size ? getOr(section, \"allow\", []) : [];",
       "new": "configured = section.size ? getOr(section, \"allow\", []) : [];\n    if (typeof configured === \"string\") configured = [configured];"
     },
     {
       "name": "V06 规则按第一个冒号切",
-      "file": "ts/packages/config/src/validate.ts",
+      "file": "ts/packages/dispatcher/src/kernel-config.ts",
       "old": "const colon = rule.lastIndexOf(\":\");",
       "new": "const colon = rule.indexOf(\":\");"
     },

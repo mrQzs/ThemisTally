@@ -2107,6 +2107,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**：`test_dispatch` 的 release-check 用例放 6 种形状像样的假 key（运行时拼出来，源码里没有完整的字面量），断言每条只报“前缀…（长度）”，前缀加下一个字符、前缀之后任意连续 4 个字符都不在输出里。TS 的 repo-commands 契约给“命中”场景加 `absent`：三种假 key 前缀之后的每一段都不许出现，并核对 `sk-…（27 字符）` 这一行。变异：两边各 3 个（照旧打前 24 个字符、前缀多带一个字符、长度只数前缀之后），全部抓住。
 - **顺带查出**：ts/mutations 下有 12 条旧变异的原文已经对不上代码（代码挪动之后清单没跟着改，例如 ④b2 补丁之后 evidence-b2 的 E01、E03），mutate 跑到它们时只会报出错，不会当成抓住。不是本轮造成的；④b6 之后单独修，并加一条检查：每条变异的原文在目标文件里恰好出现一次。
 
+### 第 127 轮：变异清单不悄悄过期（2026-10-27）
+
+- **起因**：第 126 轮核对变异原文时查出，ts/mutations 下有 12 条变异的原文在目标文件里已经找不到：config-a2 的 V01、V03–V06（④b2 把 pricing、release 的规则挪进 dispatcher 的 kernel-config 与 patterns），config-d-cli 的 C16（pi-cli 改用 base 的 pySplit），evidence-b2 的 E01、E03（④b2 补丁改了 write_json 与 history 的写法），pyjson 的 Y15、Y16、Y27、Y28（后来的重构改了调用形状）。mutate 跑到这些只报出错、不算抓住，清单却一直看着是全的。
+- **改动**：12 条逐条改到现在的写法（file 指到代码现在所在的文件，old、new 照现在的写法），重跑确认仍能抓住。新增 `ts/packages/contracts/test/mutation-specs.test.ts`：每份清单的每条变异，原文在目标文件里恰好出现 count 次（缺省 1），数法照 `_apply_mutation`（CRLF 先归一、不重叠地数）。几秒钟，挂在平常的 vitest 里，代码一挪清单没跟上就红。
+- **验证**：用改之前的 pyjson 清单跑这条检查，报出那 4 条；改好之后全部通过。12 条改好的变异各用原清单的命令重跑：config-a2 5 个、config-d-cli 1 个、evidence-b2 2 个、pyjson 4 个，全部抓住。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

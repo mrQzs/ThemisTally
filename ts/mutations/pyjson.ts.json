@@ -97,14 +97,14 @@
     {
       "name": "Y15 只看小数点就算 float（1e5 当整数）",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "if (fraction !== undefined || exponent !== undefined) return [Number(whole), end];",
-      "new": "if (fraction !== undefined) return [Number(whole), end];"
+      "old": "builder.number(whole, fraction !== undefined || exponent !== undefined)",
+      "new": "builder.number(whole, fraction !== undefined)"
     },
     {
       "name": "Y16 重复的键取第一次的值",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "    out.set(key, value); // 重复的键",
-      "new": "    if (!out.has(key)) out.set(key, value); // 重复的键"
+      "old": "for (const [key, value] of pairs) out.set(key, value);",
+      "new": "for (const [key, value] of pairs) if (!out.has(key)) out.set(key, value);"
     },
     {
       "name": "Y17 不拒 BOM",
@@ -169,14 +169,14 @@
     {
       "name": "Y27 解析时的位数上限用写出方向的措辞",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "(integer.startsWith(\"-\") ? 1 : 0), true);",
-      "new": "(integer.startsWith(\"-\") ? 1 : 0));"
+      "old": "checkIntDigits(raw.length - (raw.startsWith(\"-\") ? 1 : 0), true);",
+      "new": "checkIntDigits(raw.length - (raw.startsWith(\"-\") ? 1 : 0));"
     },
     {
       "name": "Y28 rawDecode 跳过开头的空白",
       "file": "ts/packages/base/src/pyjson.ts",
-      "old": "  const [value, endUnits] = scanValue(text, index, 0);",
-      "new": "  const [value, endUnits] = scanValue(text, skipWhitespace(text, index), 0);"
+      "old": "const [value, endUnits] = scanValue(text, index, 0, PY_BUILDER);",
+      "new": "const [value, endUnits] = scanValue(text, skipWhitespace(text, index), 0, PY_BUILDER);"
     },
     {
       "name": "Y29 rawDecode 的 end 按码元",

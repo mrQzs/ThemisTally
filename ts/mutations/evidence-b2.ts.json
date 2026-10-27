@@ -13,8 +13,8 @@
     {
       "name": "E01 state.json 缩进 4",
       "file": "ts/packages/dispatcher/src/evidence.ts",
-      "old": "indent: 2 })}${LF}`);",
-      "new": "indent: 4 })}${LF}`);"
+      "old": "indent: 2 })}${LF}`;",
+      "new": "indent: 4 })}${LF}`;"
     },
     {
       "name": "E02 状态记录先写 at",
@@ -25,8 +25,8 @@
     {
       "name": "E03 history 一行转义非 ASCII",
       "file": "ts/packages/dispatcher/src/evidence.ts",
-      "old": "encodeUtf8(`${dumps(record, { ensureAscii: false })}${LF}`)",
-      "new": "encodeUtf8(`${dumps(record, { ensureAscii: true })}${LF}`)"
+      "old": "writeOpened(file, \"a\", `${dumps(record, { ensureAscii: false })}${LF}`);",
+      "new": "writeOpened(file, \"a\", `${dumps(record, { ensureAscii: true })}${LF}`);"
     },
     {
       "name": "E04 补丁摘要不核对",

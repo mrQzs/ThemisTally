@@ -101,7 +101,7 @@
     },
     {
       "name": "C16 只按空格切列",
-      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "file": "ts/packages/base/src/pyre.ts",
       "old": "    if (!isSpace(char)) current += char;",
       "new": "    if (char !== \" \") current += char;"
     },
