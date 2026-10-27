@@ -9003,7 +9003,9 @@ def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int
             job = _WinJob()
         except Exception as exc:  # noqa: BLE001
             raise DispatchError("无法创建 Windows Job Object，拒绝在没有进程树监督的情况下转交给 TS：%s" % exc, EXIT_FAIL)
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x00000004
+        # 启动器没有控制台时 TS 子进程加 CREATE_NO_WINDOW，不弹窗口（第 128 轮补，themistally-15 复核时查出；同 run_supervised）
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x00000004 | (
+            0 if _has_console() else CREATE_NO_WINDOW)
     elif sys.platform.startswith("linux"):
         kwargs["preexec_fn"] = _linux_parent_death_signal
     proc: Optional["subprocess.Popen[bytes]"] = None

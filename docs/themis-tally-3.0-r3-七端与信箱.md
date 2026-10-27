@@ -2157,6 +2157,7 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 什么时候修：哪一片要动 token-contract.mjs；或者 W4 扫描范围里某个文件的行注释或字符串里出现 `/*`、后面又有 `*/`、中间有颜色或 `--tt-*`。两处一起修：脚本在 desktop/web 里，归切片；门禁归站主。
   - 不能照搬 7fafe2f 的正则：W4 同时扫 TS 与 CSS，按合同要扫行注释，CSS 又没有 `//` 注释。改法是按后缀分开：.css 照原样；TS 从左往右扫，块注释换成等长空白，行注释原样留下（照样扫）。
 
+- **补**（themistally-15 复核时查出）：启动器转交 TS 的 `run_handoff` 也只给 CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED，启动器没有控制台时每条转交给 TS 的命令（只读与配置命令）都会弹一个窗口，照同样写法补上（TS 继承这个隐藏控制台，不用另改）。新增 `tests/test_console_window.py`：以 DETACHED_PROCESS 起一个没有控制台的 Python，分别经 `run_supervised` 与 `run_handoff` 起子进程，子进程的 `GetConsoleWindow()` 都是 0。两条变异（各去掉一处标志）都抓住。test_kernel_impl、test_console_window、test_quiet_error_mode 131 passed。
 ### 七端改造第 3 条：顺利路径由内核推进（2026-10-25 方案定稿；第 111、112 轮实现，见 §10）
 
 用户 2026-10-24 批准这一条（修订 §0 第 5 项，站主决定）；时间点由规划端代定（站主授权“其余的你来决定”）：第 1 条四个岗位各在真实回合里交过一次、撤掉代码块解析之后，TS 迁移第 ⑤ 步之前。方案经 themistally-15 审过，下面是定稿。
