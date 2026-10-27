@@ -9,7 +9,9 @@
 //   - 链接：Node 后备没有 GetFileAttributesW，只认符号链接与 junction，认不出其他重解析点。
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes, win32FullPathName } from "./native.ts";
+import { FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes, win32ErrorMessage, win32FinalPathName, win32FullPathName, win32Stat } from "./native.ts";
+import { PyCrash, pyRepr } from "./pyfmt.ts";
+import { windowsOSError } from "./supervise.ts";
 
 const WIN = process.platform === "win32";
 const SEP = path.sep;
@@ -24,21 +26,29 @@ export function abspath(value: string): string {
   return full ?? path.resolve(value);
 }
 
-/**
- * Path.exists()（跟随链接）。Windows 上 GetFullPathNameW 映射成设备的路径（末段是 nul 一类），上一级（文件或目录都行）在时也算存在：
- * Python 的 os.stat 打得开 NUL 设备，但上一级不在时报 FileNotFoundError（themistally-15 实测）；Node 的 existsSync 打不开设备。
- * Node 后备没有原生调用，这一条照旧是 false（第 10 节）。
- */
-export function pyExists(value: string): boolean {
-  if (existsSync(value)) return true;
-  if (!WIN) return false;
-  const norm = ntNormpath(value);
-  return (win32FullPathName(norm) ?? "").startsWith(`${BS}${BS}.${BS}`) && existsSync(path.dirname(abspathPlain(norm)));
+/** Path.exists 当成“不存在”的 Windows 错误码：errno 落到 ENOENT、ENOTDIR、EBADF、ELOOP 的，加上 21、123、1921。 */
+const EXISTS_IGNORED = new Set([2, 3, 6, 15, 18, 21, 53, 67, 114, 123, 130, 161, 206, 267, 1921, 10009, 10062]);
+const NUL_CHAR = String.fromCharCode(0);
+
+/** CPython 用 Windows 错误码构造的 OSError，作为崩溃抛出（类名照 errno，文字是 [WinError N] 加 FormatMessageW）。 */
+function winCrash(winerror: number, path: string): PyCrash {
+  const { name, strerror } = windowsOSError(winerror, win32ErrorMessage(winerror));
+  return new PyCrash(name, `[WinError ${winerror}] ${strerror}: ${pyRepr(path)}`);
 }
 
-/** 不经 GetFullPathNameW 的绝对路径（只为取上一级：设备映射会把整条路径换掉）。 */
-function abspathPlain(value: string): string {
-  return path.resolve(value);
+/**
+ * Path.exists()（跟随链接）。Windows 上照 CPython 的 os.stat 打开（native.ts 的 win32Stat：段尾的点与空格照 Win32 规整、
+ * 打得开 NUL 设备但上一级要在、页面文件一类退到读目录条目）；“不存在”一类的错误为 false，其余错误照 Python 抛出。
+ * 路径里有 NUL 字符时 Python 接住 ValueError 交回 false。Node 后备没有原生调用，退回 existsSync（第 10 节）。
+ */
+export function pyExists(value: string): boolean {
+  if (!WIN) return existsSync(value);
+  if (value.includes(NUL_CHAR)) return false;
+  const error = win32Stat(value);
+  if (error === null) return existsSync(value);
+  if (error === 0) return true;
+  if (EXISTS_IGNORED.has(error)) return false;
+  throw winCrash(error, value);
 }
 
 /** ntpath.normpath（Python 3.12）：/ 换成反斜杠，去掉空段与 .，按段消 ..（根下的 .. 丢掉），什么都不剩时写 .。 */
@@ -103,18 +113,57 @@ export function displayPath(value: string, root?: string): string {
 }
 
 /**
- * Path.resolve()（非严格）：先规范化成绝对路径，再从最长的存在前缀求真实路径（展开链接、junction 与 8.3 短名，
- * 盘符与各段按磁盘上的大小写），剩下不存在的段原样接上。Windows 上照 ntpath.realpath（Python 3.12）：只 normpath、相对的接上
- * 当前目录，不调 GetFullPathNameW；规范化之后就是 nul 时是 NUL 设备；带着长路径前缀的，结果也带着（themistally-15 复核 ④b6 查出）。
+ * Path.resolve()（非严格）。Windows 上照 ntpath.realpath（Python 3.12）与 Path.resolve：只 normpath、相对的接上当前目录，
+ * 不调 GetFullPathNameW；规范化之后就是 nul 时是 NUL 设备；nt._getfinalpathname 打得开就用它的结果，打不开时按
+ * _getfinalpathname_nonstrict 一段段往上退、剩下的段原样接上（允许的错误码之外的照 Python 抛出，例如文件后面再接一段的
+ * NotADirectoryError）；最后去掉长路径前缀（原来就带着的留着）。路径里有 NUL 字符时 realpath 原样交回、随后的 stat 抛
+ * ValueError。Node 后备没有原生调用，退回 realpathSync.native 从最长的存在前缀求真实路径（第 10 节）。
  */
 export function pyResolve(value: string): string {
   if (!WIN) return resolveExisting(abspath(value));
   const norm = ntNormpath(value);
   if (normcase(norm) === "nul") return `${BS}${BS}.${BS}NUL`;
   const verbatim = `${BS}${BS}?${BS}`;
-  if (!norm.startsWith(verbatim)) return resolveExisting(ntIsabs(norm) ? norm : winJoin(process.cwd(), norm));
-  const real = resolveExisting(norm);
-  if (real.startsWith(verbatim)) return real;
+  const hadPrefix = norm.startsWith(verbatim);
+  const full = hadPrefix || ntIsabs(norm) ? norm : winJoin(process.cwd(), norm);
+  if (full.includes(NUL_CHAR)) throw new PyCrash("ValueError", "stat: embedded null character in path");
+  const first = win32FinalPathName(full);
+  if (first === null) return withPrefix(resolveExisting(full), hadPrefix);
+  const initial = "path" in first ? 0 : first.winerror;
+  let path = "path" in first ? first.path : finalNonstrict(full);
+  if (!hadPrefix && path.startsWith(verbatim)) {
+    const uncPrefix = `${verbatim}UNC${BS}`;
+    const stripped = path.startsWith(uncPrefix) ? `${BS}${BS}${path.slice(uncPrefix.length)}` : path.slice(verbatim.length);
+    const again = win32FinalPathName(stripped);
+    if (again !== null && ("path" in again ? again.path === path : again.winerror === initial)) path = stripped;
+  }
+  return purePathStr(path);
+}
+
+/** _getfinalpathname_nonstrict 接着往下走的错误码。 */
+const NONSTRICT_ALLOWED = new Set([1, 2, 3, 5, 21, 32, 50, 53, 65, 67, 87, 123, 161, 1920, 1921]);
+
+/** ntpath._getfinalpathname_nonstrict（不跟随打不开的链接：_readlink_deep 没有移植，第 10 节）。 */
+function finalNonstrict(start: string): string {
+  let path = start;
+  let tail = "";
+  while (path) {
+    const found = win32FinalPathName(path);
+    if (found === null) break;
+    if ("path" in found) return tail ? osPathJoin(found.path, tail) : found.path;
+    if (!NONSTRICT_ALLOWED.has(found.winerror)) throw winCrash(found.winerror, path);
+    const [head, name] = osPathSplit(path);
+    if (head && !name) return head + tail;
+    tail = tail ? osPathJoin(name, tail) : name;
+    path = head;
+  }
+  return tail;
+}
+
+/** Node 后备：realpathSync.native 会去掉长路径前缀，原来带着的接回去。 */
+function withPrefix(real: string, hadPrefix: boolean): string {
+  const verbatim = `${BS}${BS}?${BS}`;
+  if (!hadPrefix || real.startsWith(verbatim)) return real;
   return real.startsWith(`${BS}${BS}`) ? `${verbatim}UNC${BS}${real.slice(2)}` : verbatim + real;
 }
 

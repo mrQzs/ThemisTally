@@ -7,7 +7,7 @@ import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themi
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
 import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttributes, winProcessApi } from "@themis/base/native";
-import { abspath, isWithin, ntNormpath, pyResolve } from "@themis/base/pypath";
+import { abspath, isWithin, ntNormpath, pyExists, pyResolve } from "@themis/base/pypath";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue } from "@themis/base/pyfmt";
@@ -544,17 +544,24 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   },
   "pypath.call": (request) => {
     const value = String(request["path"]);
-    switch (request["fn"]) {
-      case "abspath":
-        return { ok: true, value: abspath(value) };
-      case "normpath":
-        return { ok: true, value: ntNormpath(value) };
-      case "resolve":
-        return { ok: true, value: pyResolve(purePathStr(value)) };
-      case "is_within":
-        return { ok: true, value: isWithin(purePathStr(value), purePathStr(String(request["root"]))) };
-      default:
-        return { ok: false, error: "UNKNOWN_FN" };
+    try {
+      switch (request["fn"]) {
+        case "abspath":
+          return { ok: true, value: abspath(value) };
+        case "normpath":
+          return { ok: true, value: ntNormpath(value) };
+        case "resolve":
+          return { ok: true, value: pyResolve(purePathStr(value)) };
+        case "exists":
+          return { ok: true, value: pyExists(purePathStr(value)) };
+        case "is_within":
+          return { ok: true, value: isWithin(purePathStr(value), purePathStr(String(request["root"]))) };
+        default:
+          return { ok: false, error: "UNKNOWN_FN" };
+      }
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      throw error;
     }
   },
   "events.call": (request) => {

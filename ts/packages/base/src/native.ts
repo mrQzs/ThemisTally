@@ -16,6 +16,12 @@
 //     GetFullPathNameW(lpFileName: UTF-16LE 以 0 结尾, nBufferLength: 字符数, lpBuffer, lpFilePart = NULL) -> DWORD
 //       （写进的字符数，不含结尾的 0；缓冲区不够时交回需要的大小，失败为 0）：Python 的 ntpath.abspath 就调它。它会去掉段尾的点
 //       与空格，把末段的 nul（可带结尾的点、空格、冒号）映射成 NUL 设备，规则随系统版本变，所以照调、不手写。
+//     os.stat 与 nt._getfinalpathname 的做法（CPython 3.12 的 win32_xstat_impl、os__getfinalpathname_impl）：
+//       CreateFileW(path, FILE_READ_ATTRIBUTES 0x80 或 0, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS 0x02000000, NULL)
+//       -> HANDLE；拒绝访问（5）或共享冲突（32，例如页面文件）时 FindFirstFileW(path, WIN32_FIND_DATAW 592 字节，属性在
+//       第 0 字节) -> HANDLE、FindClose；参数错误（87，例如控制台设备）时加 GENERIC_READ 0x80000000、共享读写再开；
+//       ERROR_CANT_ACCESS_FILE（1920）时加 FILE_FLAG_OPEN_REPARSE_POINT 0x00200000 再开。
+//       GetFinalPathNameByHandleW(hFile, 缓冲, 字符数, VOLUME_NAME_DOS = 0) -> DWORD；CloseHandle(hFile) -> BOOL
 //     GetFileAttributesW(lpFileName: UTF-16LE 以 0 结尾) -> DWORD，INVALID_FILE_ATTRIBUTES 为 0xFFFFFFFF
 //       不跟随重解析点，与 Python os.lstat 的 st_file_attributes 同一个值。pi_dispatch.is_link_or_junction 把带
 //       FILE_ATTRIBUTE_REPARSE_POINT（0x400）的条目一律当链接；Node 的 lstat 只认符号链接与 junction（第 ② 步）。
@@ -343,6 +349,25 @@ export const helperAcquire = acquireInProcess;
 export const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
 const INVALID_FILE_ATTRIBUTES = 0xffffffff;
 
+/** INVALID_HANDLE_VALUE（-1）或 NULL：i64_fast 交回 number，超出 2^53 时是 BigInt。 */
+const invalidHandle = (handle: number | bigint): boolean => handle === -1 || handle === 0 || handle === -1n || handle === 0n;
+const FILE_READ_ATTRIBUTES = 0x80;
+const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+const FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+
+let statPath: ((path: string) => number) | null | undefined;
+let finalPathName: ((path: string) => { readonly path: string } | { readonly winerror: number }) | null | undefined;
+
+/** os.stat(path) 照 CPython 打开：成功为 0，失败为 Windows 错误码；没有绑定（Node 后备）为 null。path 里不能有 NUL 字符。 */
+export function win32Stat(path: string): number | null {
+  return statPath ? statPath(path) : null;
+}
+
+/** nt._getfinalpathname(path)：带长路径前缀的最终路径，或失败的 Windows 错误码；没有绑定为 null。 */
+export function win32FinalPathName(path: string): { readonly path: string } | { readonly winerror: number } | null {
+  return finalPathName ? finalPathName(path) : null;
+}
+
 /** undefined 或 null：没有绑定（还没初始化、Node 后备、非 Windows）。 */
 let fullPathName: ((path: string) => string | null) | null | undefined;
 
@@ -361,6 +386,8 @@ export async function initFileAttributes(): Promise<void> {
   if (!isBun || process.platform !== "win32") {
     getFileAttributes = null;
     fullPathName = null;
+    statPath = null;
+    finalPathName = null;
     win32Files = null;
     win32Message = null;
     return;
@@ -370,6 +397,12 @@ export async function initFileAttributes(): Promise<void> {
   const kernel32 = ffi.dlopen("kernel32.dll", {
     GetFileAttributesW: { args: [T.ptr], returns: T.u32 },
     GetFullPathNameW: { args: [T.ptr, T.u32, T.ptr, T.ptr], returns: T.u32 },
+    // 句柄用 i64_fast：小整数交回 number，调用与随后的 GetLastError 之间没有 BigInt 分配（themistally-15 建议）
+    CreateFileW: { args: [T.ptr, T.u32, T.u32, T.ptr, T.u32, T.u32, T.ptr], returns: T.i64_fast },
+    CloseHandle: { args: [T.i64], returns: T.i32 },
+    FindFirstFileW: { args: [T.ptr, T.ptr], returns: T.i64_fast },
+    FindClose: { args: [T.i64], returns: T.i32 },
+    GetFinalPathNameByHandleW: { args: [T.i64, T.ptr, T.u32, T.u32], returns: T.u32 },
     MoveFileExW: { args: [T.ptr, T.ptr, T.u32], returns: T.i32 },
     CreateDirectoryW: { args: [T.ptr, T.ptr], returns: T.i32 },
     GetLastError: { args: [], returns: T.u32 },
@@ -378,6 +411,11 @@ export async function initFileAttributes(): Promise<void> {
   const call = kernel32.symbols as unknown as {
     GetFileAttributesW(name: number): number;
     GetFullPathNameW(name: number, size: number, buffer: number, part: null): number;
+    CreateFileW(name: number, access: number, share: number, security: null, disposition: number, flags: number, template: null): number | bigint;
+    CloseHandle(handle: number | bigint): number;
+    FindFirstFileW(name: number, data: number): number | bigint;
+    FindClose(handle: number | bigint): number;
+    GetFinalPathNameByHandleW(handle: number | bigint, buffer: number, size: number, flags: number): number;
     MoveFileExW(src: number, dst: number, flags: number): number;
     CreateDirectoryW(path: number, security: null): number;
     GetLastError(): number;
@@ -385,6 +423,64 @@ export async function initFileAttributes(): Promise<void> {
   };
   const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
   getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(wide(path)));
+  /**
+   * 打开：交回句柄（包成对象，与错误码区分），失败交回 GetLastError。返回值原先是 BigInt，分配可能赶上垃圾回收，回收里的
+   * 系统调用会把本线程的 last error 清成 0（契约里约一半的运行把不存在的路径判成存在）；现在用 i64_fast 交回 number，另外
+   * 失败却取到 0 时仍重开几次，绝不把 0 当成功；一直取不到就当找不到（2）。
+   */
+  const open = (path: string, access: number, share: number, flags: number): { readonly handle: number | bigint } | number => {
+    const name = wide(path); // 调用期间一直被引用
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const handle = call.CreateFileW(ffi.ptr(name), access, share, null, 3, flags, null);
+      if (!invalidHandle(handle)) return { handle };
+      const error = call.GetLastError();
+      if (error !== 0) return error;
+    }
+    return 2;
+  };
+  const opened = (result: { readonly handle: number | bigint } | number): number => {
+    if (typeof result === "number") return result;
+    call.CloseHandle(result.handle);
+    return 0;
+  };
+  statPath = (path) => {
+    const error = opened(open(path, FILE_READ_ATTRIBUTES, 0, FILE_FLAG_BACKUP_SEMANTICS));
+    if (error === 0) return 0;
+    if (error === 5 || error === 32) {
+      // 拒绝访问或共享冲突（页面文件）：改读上一级目录里的条目
+      const name = wide(path);
+      const data = new Uint8Array(592);
+      let found: number | bigint = -1;
+      let second = 0;
+      for (let attempt = 0; attempt < 5 && second === 0; attempt += 1) {
+        found = call.FindFirstFileW(ffi.ptr(name), ffi.ptr(data));
+        if (!invalidHandle(found)) break;
+        second = call.GetLastError(); // 同上：取到 0 就再试
+      }
+      if (invalidHandle(found)) return [2, 3, 21, 67].includes(second) ? second : error;
+      call.FindClose(found);
+      return new DataView(data.buffer).getUint32(0, true) & FILE_ATTRIBUTE_REPARSE_POINT ? error : 0;
+    }
+    if (error === 87) return opened(open(path, FILE_READ_ATTRIBUTES | GENERIC_READ, 3, FILE_FLAG_BACKUP_SEMANTICS)) === 0 ? 0 : error;
+    if (error === 1920) return opened(open(path, FILE_READ_ATTRIBUTES, 0, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT));
+    return error;
+  };
+  finalPathName = (path) => {
+    const result = open(path, 0, 0, FILE_FLAG_BACKUP_SEMANTICS);
+    if (typeof result === "number") return { winerror: result };
+    const handle = result.handle;
+    try {
+      for (let size = 1024; ; ) {
+        const buffer = new Uint16Array(size);
+        const length = call.GetFinalPathNameByHandleW(handle, ffi.ptr(buffer), size, 0);
+        if (length === 0) return { winerror: call.GetLastError() };
+        if (length < size) return { path: Buffer.from(buffer.buffer, 0, length * 2).toString("utf16le") };
+        size = length + 1;
+      }
+    } finally {
+      call.CloseHandle(handle);
+    }
+  };
   fullPathName = (path) => {
     const name = wide(path); // 调用期间一直被引用
     for (let size = 1024; ; ) {

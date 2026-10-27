@@ -416,14 +416,19 @@ def op_patterns_call(request):
 def op_pypath_call(request):
     """路径的几个 Python 语义（④b6 复核补）：os.path.abspath、normpath、Path(p).resolve()、pi_dispatch.is_within。"""
     fn, value = request["fn"], request["path"]
-    if fn == "abspath":
-        return {"ok": True, "value": os.path.abspath(value)}
-    if fn == "normpath":
-        return {"ok": True, "value": os.path.normpath(value)}
-    if fn == "resolve":
-        return {"ok": True, "value": str(Path(value).resolve())}
-    if fn == "is_within":
-        return {"ok": True, "value": pi_dispatch.is_within(Path(value), Path(request["root"]))}
+    try:
+        if fn == "abspath":
+            return {"ok": True, "value": os.path.abspath(value)}
+        if fn == "normpath":
+            return {"ok": True, "value": os.path.normpath(value)}
+        if fn == "resolve":
+            return {"ok": True, "value": str(Path(value).resolve())}
+        if fn == "exists":
+            return {"ok": True, "value": Path(value).exists()}
+        if fn == "is_within":
+            return {"ok": True, "value": pi_dispatch.is_within(Path(value), Path(request["root"]))}
+    except Exception as exc:  # noqa: BLE001 —— 崩溃的类名与文字也要两边一致
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 

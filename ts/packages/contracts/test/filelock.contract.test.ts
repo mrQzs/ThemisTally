@@ -26,13 +26,15 @@ describe.each(IMPLS)("文件锁契约 impl=$name", (impl) => {
   it("F2 被 Python 占着：等满报“等文件锁超时：<路径>”", async () => {
     const dir = scratchDir(`flock-busy-${impl.name}`);
     const path = join(dir, ".state.lock");
-    const holder = startProbe(IMPLS[0] as Impl, { op: "filelock.run", path, hold_ms: 4000, signal: true });
+    // 持锁方一直拿着，直到 finally 里结束它：等待方的探针启动要载入整个模块图、做原生初始化，机器忙时超过 3 秒并不稀奇，
+    // 以前持锁 4 秒就放，等待方晚到就拿到了锁（themistally-15 复核查出）
+    const holder = startProbe(IMPLS[0] as Impl, { op: "filelock.run", path, hold_ms: 60_000, signal: true });
     try {
       await holder.ready;
       expect(runProbe(impl, { op: "filelock.run", path, wait: 1 })).toEqual({ ok: false, error: "timeout", message: `等文件锁超时：${path}` });
-      await holder.result;
     } finally {
       holder.stop();
+      await holder.result.catch(() => undefined); // 等持锁进程真的退出、放掉文件再删目录
       removeDir(dir);
     }
   });

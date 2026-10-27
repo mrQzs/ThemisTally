@@ -4,6 +4,8 @@ declare module "bun:ffi" {
   export const FFIType: {
     readonly i32: number;
     readonly i64: number;
+    /** 64 位整数，值在 2^53 以内时交回 number（不分配 BigInt）。 */
+    readonly i64_fast: number;
     readonly u32: number;
     readonly ptr: number;
     readonly void: number;

@@ -415,7 +415,7 @@ function readJson(file: string): Record<string, unknown> {
 function agreeOnBun(requests: readonly ProbeRequest[]): ProbeResult[] {
   const [python, bun] = [PYTHON_IMPL, TS_BUN].map((impl) => runBatch(impl, requests));
   const bad = requests.map((_, index) => index).filter((index) => JSON.stringify(python?.[index]) !== JSON.stringify(bun?.[index]));
-  expect(bad.slice(0, 3).map((index) => ({ index, ...difference(python?.[index], bun?.[index]) }))).toEqual([]);
+  expect(bad.slice(0, 3).map((index) => ({ index, fn: requests[index]?.["fn"], path: requests[index]?.["path"], ...difference(python?.[index], bun?.[index]) }))).toEqual([]);
   return python as ProbeResult[];
 }
 
@@ -427,16 +427,19 @@ describe("路径的 Python 语义（④b6 复核补）", () => {
     join(work, "sub", ".."), join(work, "nul") + BS, "nul", "NUL", `.${BS}nul`, `a${BS}nul`, "a/b/../c", "", ".", "..", `${BS}x`, "/x", "C:x",
     "C:/Windows/../Windows", `${verbatim}${work}${BS}x`, `${verbatim}${join(REPO, "README.md")}`, `${verbatim}${join(work, "nul")}`,
     "C:/../x", `${BS}..${BS}x`, `..${BS}..${BS}x`, join(ROOT, "gone", "NUL"), join(REPO, "README.md", "NUL"), join(work, "nul") + " ",
+    // 第 129 轮补（themistally-15 复核 d544c14 查出）：段尾的点与空格、文件后面再接一段、设备路径、页面文件、NUL 字符
+    join(REPO, "README.md") + ".", REPO + BS + "...", REPO + BS + " " + BS + "README.md", join(REPO, "README.md") + BS + " ",
+    `${BS}${BS}.${BS}${REPO}${BS}nul:`, `C:${BS}pagefile.sys`, `a${ch(0)}b`, join(work, `x${ch(0)}`),
   ];
   const unc = [`${BS}${BS}server${BS}share${BS}nul`, `${verbatim}UNC${BS}server${BS}share${BS}x`];
   it("abspath、normpath、resolve、is_within", () => {
     const requests: ProbeRequest[] = [
       ...[...paths, ...unc].flatMap((path) => ["abspath", "normpath"].map((fn) => ({ op: "pypath.call", fn, path }))),
-      ...paths.map((path) => ({ op: "pypath.call", fn: "resolve", path })),
+      ...paths.flatMap((path) => ["resolve", "exists"].map((fn) => ({ op: "pypath.call", fn, path }))),
       ...paths.flatMap((path) => [work, REPO].map((rootDir) => ({ op: "pypath.call", fn: "is_within", path, root: rootDir }))),
     ];
     const python = agreeOnBun(requests);
-    expect(python.every((result) => result.ok)).toBe(true);
+    expect(python.filter((result) => !result.ok).map((result) => result.error).sort()).toEqual(["NotADirectoryError", "ValueError", "ValueError"]);
   });
 
   it("工具参数的路径是 nul 或带长路径前缀时，摘要两边一致", () => {
@@ -448,7 +451,11 @@ describe("路径的 Python 语义（④b6 复核补）", () => {
     // worktree 已经删掉（真实 attempt 的旧 worktree）：nul 的上一级不在，Python 的 exists 是 false
     const requests = [work, join(ROOT, "gone-worktree")].map((workDir, index) =>
       summarizeRequest(`device-paths-${index}`, workDir, events, Buffer.alloc(0), { protected_roots: [REPO] }));
-    agreeOnBun(requests);
+    // 路径里有 NUL 字符：Python 的 Path.resolve 里的 stat 抛 ValueError，collect 跟着崩；TS 照样崩（第 10 节）
+    const nul = JSON.stringify({ type: "tool_execution_start", toolCallId: "z", toolName: "read", args: { path: `a${ch(0)}b` } });
+    requests.push(summarizeRequest("nul-char", work, Buffer.from(nul + LF, "utf8"), Buffer.alloc(0)));
+    const results = agreeOnBun(requests);
+    expect(results.at(-1)).toMatchObject({ ok: false, error: "ValueError" });
   });
 });
 
