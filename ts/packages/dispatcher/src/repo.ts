@@ -2,8 +2,10 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { PyCrash, pyRepr } from "@themis/base/pyfmt";
 import { type PyValue, PyJsonError, loads } from "@themis/base/pyjson";
 import { normCase, pyResolve } from "@themis/base/pypath";
+import { pyStrip } from "@themis/base/pyre";
 
 export const EXIT_OK = 0;
 export const EXIT_FAIL = 1;
@@ -36,20 +38,51 @@ export function gitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+export interface GitOptions {
+  /** 整份换掉环境（缺省是 git_env()）。 */
+  readonly env?: NodeJS.ProcessEnv;
+  readonly indexFile?: string;
+}
+
+export interface GitResult {
+  readonly status: number;
+  readonly stdout: Buffer;
+  readonly stderr: Buffer;
+}
+
 /** pi_dispatch.git(check=False)：返回退出码与 stdout、stderr 的字节。找不到 git 报 DispatchError。 */
-export function git(args: readonly string[], cwd: string): { status: number; stdout: Buffer; stderr: Buffer } {
+export function git(args: readonly string[], cwd: string, options: GitOptions = {}): GitResult {
+  const env = options.env ? { ...options.env } : gitEnv();
+  if (options.indexFile !== undefined) env["GIT_INDEX_FILE"] = options.indexFile;
   const result = spawnSync("git", ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off", ...args], {
     cwd,
-    env: gitEnv(),
+    env,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
   if (result.error) {
-    if ((result.error as NodeJS.ErrnoException).code === "ENOENT") throw new DispatchError("未找到 git，请先安装 Git。");
+    if ((result.error as NodeJS.ErrnoException).code === "ENOENT") {
+      // Windows 上 cwd 不存在时 Python 抛的是 NotADirectoryError（WinError 267，命令崩溃），不是“找不到 git”
+      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: ${pyRepr(cwd)}`);
+      throw new DispatchError("未找到 git，请先安装 Git。");
+    }
     throw result.error;
   }
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
+
+/** git(check=True)：失败时报 `git <前两个参数> 失败：<stderr 或 stdout>`（带 -c 的调用，前两个参数就是 -c 与它的值）。 */
+export function gitChecked(args: readonly string[], cwd: string, options: GitOptions = {}): GitResult {
+  const proc = git(args, cwd, options);
+  if (proc.status !== 0) {
+    const message = pyStrip(proc.stderr.toString("utf8")) || pyStrip(proc.stdout.toString("utf8"));
+    throw new DispatchError(`git ${args.slice(0, 2).join(" ")} 失败：${message}`);
+  }
+  return proc;
+}
+
+/** git_text：git(check=True) 的 stdout 去掉两头空白。 */
+export const gitText = (args: readonly string[], cwd: string, options: GitOptions = {}): string => pyStrip(gitChecked(args, cwd, options).stdout.toString("utf8"));
 
 function isDir(value: string): boolean {
   try {

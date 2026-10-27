@@ -9,7 +9,7 @@ import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks
 import { FileLockTimeout, type WinProcessApi, acquireFileLock, winProcessApi } from "@themis/base/native";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
-import { PyCrash, pyRepr, pyStrValue } from "@themis/base/pyfmt";
+import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
@@ -45,7 +45,7 @@ import {
   secretLikePaths,
   tokenShaped,
 } from "@themis/base/secrets";
-import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
+import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, floatRepr, intRepr, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorType, pyReadBytes, pyReadText } from "@themis/base/pyio";
 import { cmpCodePoints, pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
@@ -525,6 +525,17 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       stdout: request["stdout"] as OutputTarget, stderr: request["stderr"] as OutputTarget,
     });
     return { ok: true, before_resume: beforeResume, after: existsSync(marker), result };
+  },
+  "pyfmt.number": (request) => {
+    let value: number | bigint;
+    if (typeof request["bits"] === "string") {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setBigUint64(0, BigInt(`0x${request["bits"]}`));
+      value = view.getFloat64(0);
+    } else value = BigInt(String(request["int"]));
+    const digits = Number(request["digits"]);
+    const rounded = pyRound(value, digits);
+    return { ok: true, fixed: pyFixed(value, digits), round: typeof rounded === "bigint" ? intRepr(rounded) : floatRepr(rounded) };
   },
   "contract.call": (request) => {
     try {

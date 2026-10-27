@@ -6,12 +6,12 @@ import path from "node:path";
 import { PyCrash, pyReprValue } from "@themis/base/pyfmt";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyReadBytes } from "@themis/base/pyio";
 import { type PyDict, PyJsonError, type PyValue, dumps, loads } from "@themis/base/pyjson";
-import { abspath, isLinkOrJunction, isWithin, pyResolve } from "@themis/base/pypath";
-import { D, NOT_S, PY_END, cmpCodePoints, codePoints, pyRegex, pyStrip } from "@themis/base/pyre";
+import { abspath, expanduser, isLinkOrJunction, isWithin, pyResolve } from "@themis/base/pypath";
+import { NOT_S, PY_END, cmpCodePoints, codePoints, pyRegex } from "@themis/base/pyre";
 import { ENV_NAME_RE, SECRET_KEY_SHOWN, secretLikePaths } from "@themis/base/secrets";
 import { DispatchError, EXIT_FAIL, EXIT_USAGE } from "@themis/dispatcher/repo";
 import { patternError } from "@themis/dispatcher/patterns";
-import { extraProtectedPaths, plannerPaths } from "@themis/dispatcher/kernel-config";
+import { extraProtectedPaths, plannerPaths, pricingTable, releaseAllowRules } from "@themis/dispatcher/kernel-config";
 import { DecisionError, PLUGIN_ID as DECISIONS_PLUGIN_ID, batteryLinkProblem, joinPath, settingsActive, settingsFromConfig, verifyBatteryLock } from "./decisions.ts";
 import { PLUGIN_ID } from "./plugin-records.ts";
 import { MODEL_TOKEN_RE, THINKING_LEVELS, checkKey } from "./roles-check.ts";
@@ -68,7 +68,7 @@ function pyList(value: PyValue): PyValue[] {
 
 // --- pi_dispatch 的几个校验函数 ------------------------------------------------------------------
 
-export { patternError };
+export { expanduser, patternError, pricingTable, releaseAllowRules };
 
 const TRAILER_RE = pyRegex(`^[A-Za-z][A-Za-z0-9-]*: ${NOT_S}[^\\n]*${PY_END}`);
 
@@ -83,96 +83,6 @@ export function commitTrailers(config: PyDict): string[] {
     throw new DispatchError("dispatch.config.json 的 commit_trailers 必须是单行 `Key: value` 字符串数组，不能含回车、换行等控制字符", EXIT_USAGE);
   }
   return [...(values as string[])];
-}
-
-const PRICE_FIELDS = ["input", "output", "cache_read", "cache_write"];
-const PRICE_DATE_RE = pyRegex(`^${D}{4}-${D}{2}-${D}{2}${PY_END}`);
-const CURRENCY_RE = pyRegex(`^[A-Z]{3}${PY_END}`);
-
-/** pi_dispatch.pricing_table：按 <provider>/<model> 给执行模型的单价。 */
-export function pricingTable(config: PyDict): PyDict {
-  const table = getOr(config, "pricing", new Map());
-  const bad = (message: string): never => {
-    throw new DispatchError(`dispatch.config.json 的 pricing 无效：${message}`, EXIT_USAGE);
-  };
-  if (!isDict(table)) bad("必须是对象，键为 <provider>/<model>");
-  const out: PyDict = new Map();
-  for (const [rawKey, entry] of table as PyDict) {
-    const key = rawKey as string;
-    const slash = key.indexOf("/");
-    const parts = slash < 0 ? [key] : [key.slice(0, slash), key.slice(slash + 1)];
-    if (parts.length !== 2 || !parts.every((part) => MODEL_TOKEN_RE.test(part))) bad(`键 ${pyReprValue(key)} 必须是 <provider>/<model>`);
-    if (!isDict(entry)) bad(`${key} 必须是对象`);
-    const fields = entry as PyDict;
-    const unknown = [...fields.keys()].map(String).filter((field) => ![...PRICE_FIELDS, "currency", "per_tokens", "source", "as_of"].includes(field)).sort(cmpCodePoints);
-    if (unknown.length) bad(`${key} 有未知字段 ${unknown.join(", ")}`);
-    for (const field of PRICE_FIELDS) {
-      const value = fields.get(field) ?? null;
-      if (value === null && (field === "input" || field === "output")) bad(`${key} 缺少 ${field} 单价`);
-      if (value !== null && (!isNumber(value) || !Number.isFinite(toFloat(value)) || value < 0)) bad(`${key}.${field} 必须是非负数`);
-    }
-    const perTokens = getOr(fields, "per_tokens", 1000000n);
-    if (typeof perTokens !== "bigint" || perTokens <= 0n) bad(`${key}.per_tokens 必须是正整数（缺省 1000000）`);
-    const currency = getOr(fields, "currency", "USD");
-    if (typeof currency !== "string" || !CURRENCY_RE.test(currency)) bad(`${key}.currency 必须是三个大写字母（例如 USD）`);
-    const source = fields.get("source");
-    if (typeof source !== "string" || !pyStrip(source)) bad(`${key}.source 必须写明价格来源（例如价格页与访问日期）`);
-    const asOf = fields.get("as_of");
-    if (typeof asOf !== "string" || !PRICE_DATE_RE.test(asOf)) bad(`${key}.as_of 必须是 YYYY-MM-DD`);
-    const merged = new Map(fields);
-    merged.set("per_tokens", perTokens);
-    merged.set("currency", currency);
-    out.set(key, merged);
-  }
-  return out;
-}
-
-const RELEASE_PATTERN_NAMES = ["api key", "home path", "private address"];
-
-/** pi_dispatch._release_allow_rules：允许规则 `<glob>:<模式名>`。 */
-export function releaseAllowRules(config: PyDict, extra: readonly string[]): [string, string][] {
-  const section = config.get("release_check");
-  let configured: PyValue = [];
-  if (isDict(section)) {
-    configured = section.size ? getOr(section, "allow", []) : [];
-  }
-  const rules: [string, string][] = [];
-  for (const rule of [...pyList(configured), ...extra]) {
-    if (typeof rule !== "string" || !rule.includes(":")) {
-      throw new DispatchError(`release-check 的允许规则要写成 <glob>:<模式名>，例如 tests/fixtures/**:home path：${pyReprValue(rule)}`, EXIT_USAGE);
-    }
-    const colon = rule.lastIndexOf(":");
-    const label = pyStrip(rule.slice(colon + 1));
-    if (label !== "*" && !RELEASE_PATTERN_NAMES.includes(label)) {
-      throw new DispatchError(`release-check 没有名为 ${pyReprValue(label)} 的模式（可用：${RELEASE_PATTERN_NAMES.join("、")} 或 *）`, EXIT_USAGE);
-    }
-    rules.push([pyStrip(rule.slice(0, colon)), label]);
-  }
-  return rules;
-}
-
-/** ntpath.expanduser：~ 与 ~user 换成用户目录；拿不到用户目录时原样。 */
-export function expanduser(value: string): string {
-  if (!value.startsWith("~")) return value;
-  if (process.platform !== "win32") {
-    const home = process.env["HOME"];
-    return home && (value === "~" || value.startsWith("~/")) ? home.replace(/\/+$/u, "") + value.slice(1) || "/" : value;
-  }
-  let end = 1;
-  while (end < value.length && value[end] !== "\\" && value[end] !== "/") end += 1;
-  let home: string;
-  if (process.env["USERPROFILE"] !== undefined) home = process.env["USERPROFILE"];
-  else if (process.env["HOMEPATH"] === undefined) return value;
-  else home = path.win32.join(process.env["HOMEDRIVE"] ?? "", process.env["HOMEPATH"]);
-  if (end !== 1) {
-    const target = value.slice(1, end);
-    const current = process.env["USERNAME"];
-    if (target !== current) {
-      if (current !== path.win32.basename(home)) return value;
-      home = path.win32.join(path.win32.dirname(home), target);
-    }
-  }
-  return home + value.slice(end);
 }
 
 /** tempfile.gettempdir：TMPDIR、TEMP、TMP 与平台的几个缺省目录里第一个写得进去的（abspath 过）。 */

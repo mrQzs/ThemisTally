@@ -12,6 +12,10 @@ import { PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { redactTokens } from "@themis/base/secrets";
 import { LogsError, type ListArgs, type ShowArgs, cmdList, cmdShow } from "@themis/dispatcher/logs";
 import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
+import { type SyncAdaptersArgs, cmdSyncAdapters } from "@themis/dispatcher/adapters";
+import { type CleanupArgs, type MarkArgs, type WaitArgs, cmdCleanup, cmdMark, cmdWait } from "@themis/dispatcher/attempt-commands";
+import { type MetricsArgs, cmdMetrics } from "@themis/dispatcher/metrics";
+import { type ReleaseCheckArgs, cmdReleaseCheck } from "@themis/dispatcher/release-check";
 import { type DeriveJsonArgs, type PlanContext, type ValidateArgs, cmdDeriveJson, cmdValidate } from "@themis/dispatcher/contract-plan";
 import { type SearchArgs, cmdSearch } from "@themis/dispatcher/logs-search";
 import { type UsageArgs, cmdUsage } from "@themis/dispatcher/logs-usage";
@@ -100,6 +104,23 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runDispatcher(out, () => cmdValidate(args as unknown as ValidateArgs, out, planContext(args)));
     case "derive-json":
       return runDispatcher(out, () => cmdDeriveJson(args as unknown as DeriveJsonArgs, out, planContext(args)));
+    case "mark":
+      return runDispatcher(out, () => cmdMark(args as unknown as MarkArgs, out));
+    case "cleanup":
+      return runDispatcher(out, () => cmdCleanup(args as unknown as CleanupArgs, out));
+    case "wait":
+      // --assess 属于 ④b4（决策会话），这一片不接
+      if (args["assess"]) {
+        out.printErr("ERROR: TS 实现还没有这条命令：wait --assess");
+        return 2;
+      }
+      return runDispatcher(out, () => cmdWait(args as unknown as WaitArgs, out));
+    case "metrics":
+      return runDispatcher(out, () => cmdMetrics(args as unknown as MetricsArgs, out));
+    case "release-check":
+      return runDispatcher(out, () => cmdReleaseCheck(args as unknown as ReleaseCheckArgs, out, planContext(args).kitRoot));
+    case "sync-adapters":
+      return runDispatcher(out, () => cmdSyncAdapters(args as unknown as SyncAdaptersArgs, out));
     case "logs list":
       return runLogs(out, () => cmdList(args as unknown as ListArgs, out));
     case "logs show":

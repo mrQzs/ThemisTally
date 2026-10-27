@@ -110,6 +110,62 @@ export function pyTextBytes(text: string, platform: string = process.platform): 
   return Buffer.from(platform === "win32" ? replaced.replace(/\n/gu, "\r\n") : replaced, "utf8");
 }
 
+/** 非负有限浮点数的精确值：分子与分母（2 的幂）。 */
+function exactRatio(value: number): [bigint, bigint] {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  const bits = view.getBigUint64(0);
+  const biased = Number((bits >> 52n) & 0x7ffn);
+  let mantissa = bits & ((1n << 52n) - 1n);
+  let exponent = -1074;
+  if (biased !== 0) {
+    mantissa |= 1n << 52n;
+    exponent = biased - 1075;
+  }
+  return exponent >= 0 ? [mantissa << BigInt(exponent), 1n] : [mantissa, 1n << BigInt(-exponent)];
+}
+
+/**
+ * "%.Nf" % value：按二进制的精确值舍入到 N 位小数，恰在中点时取偶（JS 的 toFixed 在中点向上，1e21 起还改用指数）。
+ * -0.0 写成 -0；int 先转成 float（与 Python 一样就近取偶）。
+ */
+export function pyFixed(value: number | bigint, digits: number): string {
+  const x = typeof value === "bigint" ? Number(value) : value;
+  if (Number.isNaN(x)) return "nan";
+  if (!Number.isFinite(x)) return x > 0 ? "inf" : "-inf";
+  const negative = x < 0 || Object.is(x, -0);
+  const [num, den] = exactRatio(Math.abs(x));
+  const scaled = num * 10n ** BigInt(digits);
+  let quotient = scaled / den;
+  const twice = 2n * (scaled - quotient * den);
+  if (twice > den || (twice === den && quotient % 2n === 1n)) quotient += 1n;
+  const text = quotient.toString().padStart(digits + 1, "0");
+  const body = digits ? `${text.slice(0, -digits)}.${text.slice(-digits)}` : text;
+  return negative ? `-${body}` : body;
+}
+
+/** round(value, ndigits)，ndigits ≥ 0：float 是离精确舍入结果最近的那个 float；int 原样交回。 */
+export function pyRound(value: number | bigint, digits: number): number | bigint {
+  if (typeof value === "bigint" || !Number.isFinite(value)) return value;
+  return Number.parseFloat(pyFixed(value, digits));
+}
+
+/** a + b 在 JSON 值上的语义：int 与 bool 相加仍是 int，有 float 就是 float，其余类型照 Python 抛 TypeError。 */
+export function pyAdd(a: PyValue, b: PyValue): bigint | number {
+  const asInt = (value: PyValue): bigint | null => (typeof value === "bigint" ? value : typeof value === "boolean" ? (value ? 1n : 0n) : null);
+  const left = asInt(a);
+  const right = asInt(b);
+  if (left !== null && right !== null) return left + right;
+  const numeric = (value: PyValue): boolean => typeof value === "number" || asInt(value) !== null;
+  if (numeric(a) && numeric(b)) return Number(left ?? a) + Number(right ?? b);
+  throw new PyCrash("TypeError", `unsupported operand type(s) for +: '${pyTypeName(a)}' and '${pyTypeName(b)}'`);
+}
+
+/** sum(values, start)。 */
+export function pySum(values: readonly PyValue[], start: bigint | number = 0n): bigint | number {
+  return values.reduce<bigint | number>((total, value) => pyAdd(total, value), start);
+}
+
 function writeAll(fd: number, bytes: Buffer): void {
   let offset = 0;
   while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);

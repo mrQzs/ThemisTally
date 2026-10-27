@@ -459,6 +459,16 @@ def op_contract_call(request):
     return {"ok": False, "error": "UNKNOWN_FN"}
 
 
+def op_pyfmt_number(request):
+    """"%.Nf" % x 与 round(x, N)：x 是 float（位模式）或 int（十进制字符串）。round 的结果交回 repr。"""
+    if "bits" in request:
+        value = struct.unpack(">d", bytes.fromhex(request["bits"]))[0]
+    else:
+        value = int(request["int"])
+    digits = request["digits"]
+    return {"ok": True, "fixed": "%.*f" % (digits, value), "round": repr(round(value, digits))}
+
+
 def op_argv_ensure_safe(request):
     """pi_dispatch.ensure_argv_safe：通过为 ok，拒绝时交回报错原文与退出码。"""
     try:
@@ -766,6 +776,7 @@ OPS = {
     "pyshlex.split": op_pyshlex_split,
     "patterns.call": op_patterns_call,
     "contract.call": op_contract_call,
+    "pyfmt.number": op_pyfmt_number,
     "dispatch.child_env": op_dispatch_child_env,
     "roles.cwd_relative": op_roles_cwd_relative,
     "dispatch.run_capture": op_dispatch_run_capture,

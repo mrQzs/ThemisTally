@@ -74,7 +74,7 @@ export function taskAttempts(repo: Repo, taskId: string): string[] {
 }
 
 /** pi_dispatch._latest_numbered：名字是两位以上数字（可带 .json、.md）的条目里编号最大的；并列取先遇到的。 */
-function latestNumbered(directory: string): string | null {
+export function latestNumbered(directory: string): string | null {
   if (!isDir(directory)) return null;
   let best: string | null = null;
   let bestNumber = 0n;
@@ -103,7 +103,7 @@ function stem(entry: string): string {
 }
 
 /** pi_dispatch.latest_verdict。 */
-function latestVerdict(runDir: string): PyValue {
+export function latestVerdict(runDir: string): PyValue {
   const directory = path.join(runDir, "verdicts");
   if (!isDir(directory)) return new Map();
   const files = sortedBy(globJson(directory), (entry) => intOf(stem(entry)));
@@ -111,7 +111,7 @@ function latestVerdict(runDir: string): PyValue {
 }
 
 /** pi_dispatch._attempt_row。键的次序就是输出的次序。 */
-function attemptRow(repo: Repo, runDir: string): PyDict {
+export function attemptRow(repo: Repo, runDir: string): PyDict {
   const meta = readJsonOr(path.join(runDir, "meta.json"), new Map());
   const run = readJsonOr(path.join(runDir, "run.json"), new Map());
   const events = readJsonOr(path.join(runDir, "events-summary.json"), new Map());
@@ -188,7 +188,7 @@ function countBytes(data: Buffer, needle: Buffer, from = 0): number {
 }
 
 /** pi_dispatch._live_facts：只读事件文件、不解析 JSON。 */
-function liveFacts(runDir: string): PyDict {
+export function liveFacts(runDir: string): PyDict {
   let data: Buffer;
   try {
     data = readFileSync(path.join(runDir, "events.jsonl"));
@@ -214,7 +214,7 @@ function liveFacts(runDir: string): PyDict {
 }
 
 /** pi_dispatch._live_text。 */
-function liveText(facts: PyDict): string {
+export function liveText(facts: PyDict): string {
   const elapsed = facts.get("elapsed_seconds");
   const quiet = facts.get("long_idle") ? ` 长时间没有工具调用（${String(facts.get("deltas_since_last_tool"))} 个增量）` : "";
   return `live:${String(facts.get("tool_calls"))}t${elapsed !== null && elapsed !== undefined ? ` ${String(elapsed)}s` : ""}${quiet}`;

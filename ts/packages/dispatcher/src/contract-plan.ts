@@ -19,7 +19,7 @@ import {
 import { BindingRecordError, executorClass, loadBindingRecord } from "./executor.ts";
 import { extraProtectedPaths, kernelProtectedPaths, plannerPaths, repoConfig } from "./kernel-config.ts";
 import { compilePatterns, matches } from "./patterns.ts";
-import { DispatchError, EXIT_BLOCKED, EXIT_OK, EXIT_USAGE, Repo, git } from "./repo.ts";
+import { DispatchError, EXIT_BLOCKED, EXIT_OK, EXIT_USAGE, Repo, git, gitText } from "./repo.ts";
 import { PLAN_KEY_RE } from "./status.ts";
 
 const NL = String.fromCharCode(10);
@@ -68,16 +68,6 @@ function isSymlink(file: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** git_text(check=True)：失败时报 `git <前两个参数> 失败：<stderr 或 stdout>`。 */
-function gitText(args: readonly string[], cwd: string): string {
-  const proc = git(args, cwd);
-  if (proc.status !== 0) {
-    const message = pyStrip(proc.stderr.toString("utf8")) || pyStrip(proc.stdout.toString("utf8"));
-    throw new DispatchError(`git ${args.slice(0, 2).join(" ")} 失败：${message}`);
-  }
-  return pyStrip(proc.stdout.toString("utf8"));
 }
 
 /** resolve_commit：解析成提交的完整 ID，不是提交时 null。 */

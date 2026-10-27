@@ -228,3 +228,27 @@ export function osPathSplit(value: string): [string, string] {
   while (end && seps.includes(rest[end - 1] as string)) end -= 1;
   return [drive + root + rest.slice(0, end), rest.slice(index)];
 }
+
+/** ntpath.expanduser：~ 与 ~user 换成用户目录；拿不到用户目录时原样。 */
+export function expanduser(value: string): string {
+  if (!value.startsWith("~")) return value;
+  if (process.platform !== "win32") {
+    const home = process.env["HOME"];
+    return home && (value === "~" || value.startsWith("~/")) ? home.replace(/\/+$/u, "") + value.slice(1) || "/" : value;
+  }
+  let end = 1;
+  while (end < value.length && value[end] !== "\\" && value[end] !== "/") end += 1;
+  let home: string;
+  if (process.env["USERPROFILE"] !== undefined) home = process.env["USERPROFILE"];
+  else if (process.env["HOMEPATH"] === undefined) return value;
+  else home = path.win32.join(process.env["HOMEDRIVE"] ?? "", process.env["HOMEPATH"]);
+  if (end !== 1) {
+    const target = value.slice(1, end);
+    const current = process.env["USERNAME"];
+    if (target !== current) {
+      if (current !== path.win32.basename(home)) return value;
+      home = path.win32.join(path.win32.dirname(home), target);
+    }
+  }
+  return home + value.slice(end);
+}
