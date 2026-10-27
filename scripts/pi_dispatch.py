@@ -8361,8 +8361,19 @@ RELEASE_PATTERNS = {
     "private address": re.compile(r"\b(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])|192\.168|10|172\.(?:1[6-9]|2\d|3[01]))"
                                   r"(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){2,3}\b(?!\.\d)|\b[a-z0-9-]+\.ts\.net\b"),
 }
+#: api key 命中时输出里只给这些公开的前缀与长度，前缀之后一个字符也不显示（第 126 轮）：这条命令正是推送前查凭据用的，
+#: 以前打出前 24 个字符，sk- 开头的 key 有 21 个字符是秘密本身。
+_RELEASE_KEY_PREFIX_RE = re.compile(r"apikey_|sk-|gh[pousr]_|AKIA|AIza|xox[abprs]-")
 RELEASE_BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".ico", ".zip", ".gz", ".pyc"}
 RELEASE_DENYLIST_ENV = "CODEKIT_RELEASE_DENYLIST"
+
+
+def _release_excerpt(label: str, text: str) -> str:
+    """命中处在输出里的写法：api key 只给公开前缀与长度（第 126 轮）；家目录路径、内网地址不是秘密，照旧给前 24 个字符。"""
+    if label != "api key":
+        return text[:24] + "…"
+    prefix = _RELEASE_KEY_PREFIX_RE.match(text)
+    return "%s…（%d 字符）" % (prefix.group(0) if prefix else "", len(text))
 
 
 def _release_allow_rules(config: Dict[str, Any], extra: Sequence[str]) -> List[Tuple[str, str]]:
@@ -8425,7 +8436,7 @@ def cmd_release_check(args: argparse.Namespace) -> int:
                 continue
             for match in pattern.finditer(content):
                 line_no = content.count("\n", 0, match.start()) + 1
-                problems.append("%s:%d: %s: %s…" % (name, line_no, label, match.group(0)[:24]))
+                problems.append("%s:%d: %s: %s" % (name, line_no, label, _release_excerpt(label, match.group(0))))
                 if sum(1 for p in problems if p.startswith(name + ":")) >= 20:
                     problems.append("%s: 命中过多，其余省略" % name)
                     break

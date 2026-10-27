@@ -125,13 +125,23 @@ export function cmdReleaseCheck(args: ReleaseCheckArgs, out: PyOut, kitRoot: str
   return EXIT_OK;
 }
 
+/** api key 命中时输出里只给这些公开的前缀与长度，前缀之后一个字符也不显示（第 126 轮）。 */
+const RELEASE_KEY_PREFIX_RE = /^(?:apikey_|sk-|gh[pousr]_|AKIA|AIza|xox[abprs]-)/u;
+
+/** _release_excerpt：api key 只给公开前缀与长度；家目录路径、内网地址不是秘密，照旧给前 24 个字符。 */
+function releaseExcerpt(label: string, text: string): string {
+  if (label !== "api key") return `${codePoints(text).slice(0, 24).join("")}…`;
+  const prefix = RELEASE_KEY_PREFIX_RE.exec(text);
+  return `${prefix ? prefix[0] : ""}…（${codePoints(text).length} 字符）`;
+}
+
 /** 一个文件按三条模式扫：一个文件命中满 20 条（连同先前模式的）就记一行“命中过多”，其余模式也不再扫。 */
 function scanPatterns(name: string, content: string, allowed: Set<string>, selfName: string, problems: string[]): void {
   for (const [label, pattern] of RELEASE_PATTERNS) {
     if (allowed.has("*") || allowed.has(label) || name === selfName) continue;
     for (const match of content.matchAll(pattern)) {
       const lineNo = content.slice(0, match.index).split(LF).length;
-      problems.push(`${name}:${lineNo}: ${label}: ${codePoints(match[0]).slice(0, 24).join("")}…`);
+      problems.push(`${name}:${lineNo}: ${label}: ${releaseExcerpt(label, match[0])}`);
       if (problems.filter((problem) => problem.startsWith(`${name}:`)).length >= 20) {
         problems.push(`${name}: 命中过多，其余省略`);
         return;

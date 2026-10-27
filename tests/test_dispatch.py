@@ -2740,9 +2740,21 @@ def test_v260_release_check_and_dod_intent():
     check("release-check finds home paths, private addresses and key shapes, lists binaries, and fails",
           code == pd.EXIT_FAIL and "notes.md:1: home path: /Users/alice/" in out and "home path: C:\\Users\\bob\\" in out
           and "private address: 192.168.1.20" in out and "private address: host.ts.net" in out
-          and "tests/fixtures/sample.txt:1: home path: /home/carol/" in out and "key.txt:1: api key: sk-abcdefghij" in out
+          and "tests/fixtures/sample.txt:1: home path: /home/carol/" in out and "key.txt:1: api key: sk-…（33 字符）" in out
           and "NOT SCANNED（1 个二进制或不可读文件）：logo.png" in out and "version.txt" not in out
           and "scripts/pi_dispatch.py" not in out, out)
+    # 第 126 轮：api key 只报公开前缀与长度，前缀之后的任何一段都不进输出
+    fakes = {"sk-": "sk-proj-" + "Zq7Rt2Lw9Xk4Vb8Nm3Hc6Jd1Fs5Gp0Ty" * 2, "ghp_": "ghp_" + "Kd83jLq0Zx72Mw41Np96Rb5Vc0Ty1Hs7Uf",
+             "AIza": "AIza" + "SyD3kL9qZ0xW7mN2vB5cH8jT1fR4gY6uP-e", "xoxb-": "xoxb-" + "1234567890-abcdefABCDEF",
+             "apikey_": "apikey_" + "Q7w9E2r4T6y8U0i1O3p5A7s9D2f4G6h8J0k", "AKIA": "AKIA" + "Z7Q2W9E4R6T1Y3U5"}
+    (repo / "fakes.txt").write_text("".join("k %s\n" % key for key in fakes.values()), encoding="utf-8")
+    code, out = tool(repo, "release-check")
+    pieces = [prefix + key[len(prefix)] for prefix, key in fakes.items()]
+    pieces += [key[len(prefix) + i:len(prefix) + i + 4] for prefix, key in fakes.items() for i in range(len(key) - len(prefix) - 3)]
+    check("release-check shows only the public prefix and length of a key",
+          all("api key: %s…（%d 字符）" % (prefix, len(key)) in out for prefix, key in fakes.items())
+          and not [piece for piece in pieces if piece in out], [piece for piece in pieces if piece in out][:5])
+    (repo / "fakes.txt").unlink()
     code, out = tool(repo, "release-check", "--allow", "tests/fixtures/**:home path", "--allow", "notes.md:*")
     check("--allow silences a pattern for a glob and everything for a file",
           code == pd.EXIT_FAIL and "sample.txt" not in out and "notes.md" not in out and "key.txt:1: api key" in out, out)

@@ -213,6 +213,24 @@
       "file": "ts/packages/base/src/pyfmt.ts",
       "old": "quotient % 2n === 1n)) quotient += 1n;",
       "new": "true)) quotient += 1n;"
+    },
+    {
+      "name": "R126-1 api key 照旧打前 24 个字符",
+      "file": "ts/packages/dispatcher/src/release-check.ts",
+      "old": "  if (label !== \"api key\") return",
+      "new": "  if (label !== \"api key\" || true) return"
+    },
+    {
+      "name": "R126-2 前缀多带一个字符",
+      "file": "ts/packages/dispatcher/src/release-check.ts",
+      "old": "/^(?:apikey_|sk-|gh[pousr]_|AKIA|AIza|xox[abprs]-)/u",
+      "new": "/^(?:apikey_|sk-.|gh[pousr]_|AKIA|AIza|xox[abprs]-)/u"
+    },
+    {
+      "name": "R126-3 长度只数前缀之后",
+      "file": "ts/packages/dispatcher/src/release-check.ts",
+      "old": "（${codePoints(text).length} 字符）",
+      "new": "（${codePoints(text).length - 3} 字符）"
     }
   ]
 }

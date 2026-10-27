@@ -25,6 +25,8 @@ interface Scenario {
   readonly crash?: boolean;
   readonly text?: string;
   readonly empty?: boolean;
+  /** 输出里不许出现的片段（release-check 的假 key 在前缀之后的每一段）。 */
+  readonly absent?: readonly string[];
 }
 
 function run(scenario: Scenario): void {
@@ -37,7 +39,9 @@ function run(scenario: Scenario): void {
   });
   for (const result of results.slice(1)) expect(result).toEqual(results[0]);
   expect((results[0] as Shown).status, JSON.stringify(results[0]).slice(0, 2000)).toBe(scenario.status);
-  if (scenario.text) expect(`${(results[0] as Shown).stdout}${(results[0] as Shown).stderr}`).toContain(scenario.text);
+  const shown = `${(results[0] as Shown).stdout}${(results[0] as Shown).stderr}`;
+  if (scenario.text) expect(shown).toContain(scenario.text);
+  for (const piece of scenario.absent ?? []) expect(shown, piece).not.toContain(piece);
 }
 
 function emptyRepo(runner: Runner): string {
@@ -107,9 +111,16 @@ const metrics = (label: string, build: Scenario["build"], out: string | null, st
 
 const KEY = `sk-${"a1B2".repeat(6)}`;
 const AKIA = `AKIA${"Q".repeat(16)}`;
+const GHP = `ghp_${"x".repeat(31)}`;
+/** 假 key 在公开前缀之后的每一段（含紧跟前缀的第一个字符）：输出里一段也不许有（第 126 轮）。 */
+function secretPieces(key: string, prefix: string): string[] {
+  const rest = key.slice(prefix.length);
+  return [prefix + rest.slice(0, 1), ...Array.from({ length: rest.length - 3 }, (_, index) => rest.slice(index, index + 4))];
+}
+const KEY_PIECES = [...secretPieces(KEY, "sk-"), ...secretPieces(AKIA, "AKIA"), ...secretPieces(GHP, "ghp_")];
 
 function hitFiles(repo: string): void {
-  put(repo, "cfg/keys.txt", [`token = ${KEY}`, `aws ${AKIA} end`, `ghp_${"x".repeat(31)}`].join(LF));
+  put(repo, "cfg/keys.txt", [`token = ${KEY}`, `aws ${AKIA} end`, GHP].join(LF));
   put(repo, "docs/home.md", [`见 C:${BS}Users${BS}bob${BS}proj`, "/home/alice/work/x", `/Users/Carol/dev/`, "(/home/Bad/x)"].join(LF));
   put(repo, "docs/net.md", ["192.168.1.20 与 10.0.0.1", "100.64.1.2:80 和 172.16.0.1.5", `192.168.${ch(0xff11)}.${ch(0xff12)}`, "box.tail1.ts.net"].join(CR + LF));
   put(repo, "docs/bom.md", `${ch(0xfeff)}第一行${LF}第二行${LF}key ${KEY}`);
@@ -181,7 +192,7 @@ const SCENARIOS: Scenario[] = [
   release("release-check：命中", (repo) => {
     hitFiles(repo);
     return {};
-  }, {}, 1, { text: "many.txt: 命中过多，其余省略" }),
+  }, {}, 1, { text: "cfg/keys.txt:1: api key: sk-…（27 字符）", absent: KEY_PIECES }),
   release("release-check：允许规则", (repo) => {
     hitFiles(repo);
     put(repo, ".agent/dispatch.config.json", JSON.stringify({ release_check: { allow: ["many.txt:*"] } }));
