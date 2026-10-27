@@ -174,6 +174,14 @@ const SCENARIOS: Scenario[] = [
     }
     return {};
   }, null, 0, { text: "首次验收通过率（PASS） | 12% |" }),
+  // sum() 是补偿求和：0.1 加十次是 1.0、0.1+0.2+0.3 是 0.6，逐个相加会差在末位（themistally-15 复核 b29ab6c）
+  metrics("metrics：人工分钟是 0.1 的倍数", (repo) => {
+    task(repo, "q1", Array.from({ length: 10 }, () => ({ "claim/": "", "state.json": { state: "REVISE" }, "verdicts/01.json": { verdict: "REVISE", failure_class: "EXECUTION_ERROR", human_minutes: 0.1 }, "run.json": { wall_seconds: 0.1 } })));
+    for (const [name, minutes] of [["q2", 0.1], ["q3", 0.2], ["q4", 0.3]] as const) {
+      task(repo, name, [{ "claim/": "", "state.json": { state: "PASS" }, "verdicts/01.json": { verdict: "PASS", human_minutes: minutes }, "run.json": { wall_seconds: minutes } }]);
+    }
+    return {};
+  }, null, 0, { text: "| 人工介入分钟 | 1.6 |" }),
   metrics("metrics：--out 写到 _reports", (repo) => {
     metricsTasks(repo);
     return {};

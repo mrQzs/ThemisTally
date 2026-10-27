@@ -272,6 +272,11 @@ def op_pyfmt_call(request):
         return {"ok": True, "text": repr(request["text"])}
     if fn == "str":
         return {"ok": True, "text": str(from_tagged(request["value"]))}
+    if fn == "sum":  # ④b4a 补：builtin_sum 的 float 补偿求和与 int 快速路径
+        try:
+            return {"ok": True, "value": to_tagged(sum(from_tagged(request["value"])))}
+        except (TypeError, OverflowError) as exc:
+            return {"ok": False, "error": type(exc).__name__}
     if fn == "int":
         try:
             return {"ok": True, "text": str(int(request["text"]))}

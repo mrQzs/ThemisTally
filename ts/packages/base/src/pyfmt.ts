@@ -161,9 +161,55 @@ export function pyAdd(a: PyValue, b: PyValue): bigint | number {
   throw new PyCrash("TypeError", `unsupported operand type(s) for +: '${pyTypeName(a)}' and '${pyTypeName(b)}'`);
 }
 
-/** sum(values, start)。 */
+/** C 的 long：Windows 上 32 位，其余 64 位（builtin_sum 的快速路径按它判断溢出）。 */
+const LONG_BITS = process.platform === "win32" ? 31n : 63n;
+const LONG_MAX = (1n << LONG_BITS) - 1n;
+const LONG_MIN = -(1n << LONG_BITS);
+const fitsLong = (value: bigint): boolean => value >= LONG_MIN && value <= LONG_MAX;
+/** PyLong_Check：int 与 bool。 */
+const longOf = (value: PyValue): bigint | null => (typeof value === "bigint" ? value : typeof value === "boolean" ? (value ? 1n : 0n) : null);
+
+/**
+ * sum(values, start)：照 CPython 3.12 的 builtin_sum（themistally-15 复核 b29ab6c 查出逐个相加差在末位）。
+ * 1. 起点是 C long 能装下的 int 时，int 与 bool 精确累加；遇到别的项或要溢出时，把它与当前和按 + 加一次，转入下面。
+ * 2. 当前和是 float 时用 Neumaier 补偿累加 float；int 与 bool 装得下 C long 就直接加（不补偿），装不下就先并入补偿量，
+ *    之后余下的项按 + 逐个加，不再补偿。结束时补偿量非 0 且有限才并进去（inf、nan 不会被弄成 nan）。
+ */
 export function pySum(values: readonly PyValue[], start: bigint | number = 0n): bigint | number {
-  return values.reduce<bigint | number>((total, value) => pyAdd(total, value), start);
+  let result: bigint | number = start;
+  let at = 0;
+  if (typeof result === "bigint" && fitsLong(result)) {
+    let total = result;
+    for (; at < values.length; at += 1) {
+      const value = longOf(values[at] as PyValue);
+      if (value === null || !fitsLong(value) || !fitsLong(total + value)) break;
+      total += value;
+    }
+    if (at === values.length) return total;
+    result = pyAdd(total, values[at] as PyValue);
+    at += 1;
+  }
+  if (typeof result === "number") {
+    let sum = result;
+    let compensation = 0;
+    for (; at < values.length; at += 1) {
+      const item = values[at] as PyValue;
+      if (typeof item === "number") {
+        const next = sum + item;
+        compensation += Math.abs(sum) >= Math.abs(item) ? sum - next + item : item - next + sum;
+        sum = next;
+        continue;
+      }
+      const value = longOf(item);
+      if (value === null || !fitsLong(value)) break;
+      sum += Number(value);
+    }
+    if (compensation !== 0 && Number.isFinite(compensation)) sum += compensation;
+    if (at === values.length) return sum;
+    result = sum;
+  }
+  for (; at < values.length; at += 1) result = pyAdd(result, values[at] as PyValue);
+  return result;
 }
 
 /** a + b 的全部语义：数字照 pyAdd，str + str 与 list + list 是拼接，其余照 Python 抛 TypeError。 */

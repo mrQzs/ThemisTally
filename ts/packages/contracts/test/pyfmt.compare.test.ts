@@ -2,7 +2,7 @@
 // 随机输入偏向边界：引号与反斜杠、控制字符、C1、软连字符与零宽字符（Cf）、行分隔符、私用区与未分配码点、
 // 孤立代理项、补充平面字符、各种十进制数字与空白、下划线。特殊字符一律用码点拼。
 import { describe, expect, it } from "vitest";
-import type { Tagged } from "../src/tagged.ts";
+import { type Tagged, floatBits } from "../src/tagged.ts";
 import { IMPLS, type ProbeRequest, prng, runBatch } from "./harness.ts";
 
 const C = (...cps: number[]): string => String.fromCodePoint(...cps);
@@ -61,4 +61,35 @@ describe("pyfmt 对照：repr、str、int", () => {
       expect(mismatches.slice(0, 3), `共 ${mismatches.length} 条不一致`).toEqual([]);
     }
   });
+});
+
+/**
+ * sum()（④b4a 补，themistally-15 复核 b29ab6c 查出）：CPython 3.12 的 builtin_sum 对 float 做 Neumaier 补偿求和，int 走 C long
+ * 的快速路径（Windows 上 32 位），溢出或遇到装不下的 int 就退回普通加法。float、int、bool 混着来，含 -0.0、inf、nan、
+ * 会吃掉小数的 1e16 与超出 float 范围的 int。
+ */
+describe("pyfmt 对照：sum", () => {
+  const FLOATS = [0.1, 0.2, 0.3, 0.7, 0.97, 2.5, 1, -0, 1e16, -1e16, 1e-17, 1e308, -1e308, Infinity, -Infinity, Number.NaN];
+  const INTS = [0n, 1n, -3n, 2n ** 31n - 1n, 2n ** 31n, -(2n ** 31n), -(2n ** 31n) - 1n, 2n ** 62n, 2n ** 63n, 10n ** 30n, 2n ** 1100n];
+  const int = (value: bigint): Tagged => ({ t: "int", hex: (value < 0n ? "-" : "") + (value < 0n ? -value : value).toString(16) });
+  it.each([41, 42, 43])("种子 %i：400 串", (seed) => {
+    const rnd = prng(seed);
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(rnd() * items.length)] as T;
+    const item = (): Tagged => {
+      const roll = rnd();
+      if (roll < 0.6) return { t: "float", bits: floatBits(rnd() < 0.5 ? pick(FLOATS) : (rnd() - 0.5) * 10 ** Math.floor(rnd() * 6)) };
+      if (roll < 0.85) return int(rnd() < 0.7 ? BigInt(Math.floor(rnd() * 200) - 100) : pick(INTS));
+      return { t: "bool", v: rnd() < 0.5 };
+    };
+    const items: ProbeRequest[] = Array.from({ length: 400 }, () => ({
+      op: "pyfmt.call", fn: "sum", value: { t: "list", v: Array.from({ length: Math.floor(rnd() * 14) }, item) },
+    }));
+    const [python, ...others] = IMPLS.map((impl) => runBatch(impl, items));
+    for (const other of others) {
+      const mismatches = (other ?? []).flatMap((result, index) =>
+        JSON.stringify(result) === JSON.stringify(python?.[index]) ? [] : [{ value: items[index]?.["value"], python: python?.[index], other: result }],
+      );
+      expect(mismatches.slice(0, 3), `共 ${mismatches.length} 条不一致`).toEqual([]);
+    }
+  }, 120_000);
 });

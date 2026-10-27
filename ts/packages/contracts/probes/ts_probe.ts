@@ -10,7 +10,7 @@ import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttribute
 import { abspath, isWithin, ntNormpath, pyExists, pyResolve } from "@themis/base/pypath";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
-import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue } from "@themis/base/pyfmt";
+import { PyCrash, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
@@ -528,6 +528,13 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
         return { ok: true, text: pyRepr(String(request["text"])) };
       case "str":
         return { ok: true, text: pyStrValue(fromTagged(request["value"] as Tagged)) };
+      case "sum":
+        try {
+          return { ok: true, value: toTagged(pySum(fromTagged(request["value"] as Tagged) as PyValue[])) };
+        } catch (error) {
+          if (error instanceof PyCrash) return { ok: false, error: error.kind };
+          throw error;
+        }
       case "int": {
         const value = pyIntParse(String(request["text"]));
         return value === null ? { ok: false, error: "ValueError" } : { ok: true, text: value.toString() };

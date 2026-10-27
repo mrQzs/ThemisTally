@@ -13,7 +13,7 @@ import { isIP } from "node:net";
 import tls from "node:tls";
 import { domainToASCII } from "node:url";
 import { utcNow } from "@themis/base/clock";
-import { PyCrash, type PyOut, pyFloatOf, pyRepr, pyReprValue, pyRound, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { PyCrash, type PyOut, pyFloatOf, pyRepr, pyReprValue, pyRound, pyStrValue, pySum, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, floatRepr, loadsBytes } from "@themis/base/pyjson";
 import { pathMkdir } from "@themis/base/pyos";
@@ -248,7 +248,7 @@ function distribution(name: string, raw: PyValue | undefined, keys: readonly str
     throw invalid(name, invariant, `missing ${reprList([...expected].filter((key) => !found.has(key)))}, unexpected ${reprList([...found].filter((key) => !expected.has(key)))}`);
   }
   const values = new Map(keys.map((key) => [key, unit(raw.get(key), `${name}.p[${key}]`)]));
-  const total = [...values.values()].reduce((sum, value) => sum + value, 0);
+  const total = pySum([...values.values()]) as number;
   if (Math.abs(total - 1.0) > PROBABILITY_SUM_TOLERANCE) throw invalid(name, invariant, `mass sums to ${floatRepr(total)}`);
   return values;
 }
@@ -299,7 +299,7 @@ export function checkAnswer(name: string, question: PyDict, answer: PyValue | un
       return a < b ? -1 : a > b ? 1 : 0;
     });
     for (const [key, probability] of distribution(name, raw, ordered, "score_distribution_mass")) spread.set(intOf(key), probability);
-    const mean = [...spread].reduce((sum, [level, probability]) => sum + Number(level) * probability, 0);
+    const mean = pySum([...spread].map(([level, probability]) => Number(level) * probability)) as number;
     if (Math.abs(mean - score) > SCORE_MEAN_TOLERANCE) {
       throw invalid(name, "score_matches_its_distribution", `score ${floatRepr(score)} against an expected value of ${floatRepr(mean)}`);
     }

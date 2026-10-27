@@ -377,9 +377,30 @@ function randomAnswers(seed: number, count: number): { name: string; question: s
   return out;
 }
 
+/** 概率合计偏 2%–8% 的 choice、期望值对不上的 score：报错文字里的 %r 是 sum() 的结果（补偿求和，末位与逐个相加不同）。 */
+function skewedAnswers(seed: number, count: number): { name: string; question: string; answer: string }[] {
+  const rnd = prng(seed);
+  return Array.from({ length: count }, (_, index) => {
+    const drift = (0.02 + rnd() * 0.06) * (rnd() < 0.5 ? -1 : 1);
+    if (rnd() < 0.5) {
+      const red = rnd() * 0.5;
+      const green = rnd() * (1 - red);
+      const blue = 1 - red - green + drift;
+      const probabilities = { red, green, blue };
+      const choice = Object.entries(probabilities).sort(([, a], [, b]) => b - a)[0]?.[0];
+      return { name: `s${index}`, question: JSON.stringify(QUESTIONS.choice), answer: JSON.stringify({ type: "choice", choice, probabilities, confidence: 0.5 }) };
+    }
+    const weights = [rnd(), rnd(), rnd(), rnd()];
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    const spread = Object.fromEntries(weights.map((value, level) => [String(level), value / total]));
+    const mean = weights.reduce((sum, value, level) => sum + (level * value) / total, 0);
+    return { name: `s${index}`, question: JSON.stringify(QUESTIONS.score), answer: JSON.stringify({ type: "score", score: Math.min(3, Math.max(0, mean + drift)), probabilities: spread }) };
+  });
+}
+
 describe("回答校验：随机回答", () => {
-  it.each([11, 12, 13])("种子 %i：400 条", async (seed) => {
-    const items = randomAnswers(seed, 400).map((item) => ({ op: "decisions.client", fn: "check_answer", ...item }));
+  it.each([11, 12, 13])("种子 %i：随机 400 条、概率偏离与期望值不符 200 条", async (seed) => {
+    const items = [...randomAnswers(seed, 400), ...skewedAnswers(seed, 200)].map((item) => ({ op: "decisions.client", fn: "check_answer", ...item }));
     const results = await Promise.all(IMPLS.map((impl) => askProbe(impl, { op: "batch", items })));
     const lists = results.map((result) => result["results"] as unknown[]);
     for (const list of lists.slice(1)) {

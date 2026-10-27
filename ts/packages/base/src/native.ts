@@ -260,7 +260,15 @@ function nextLine(child: ChildProcessWithoutNullStreams, command: string): Promi
       const end = buffer.indexOf("\n");
       if (end < 0) return;
       cleanup();
-      done(JSON.parse(buffer.slice(0, end)) as Record<string, unknown>);
+      // 解析失败不能从 data 回调里抛（会逃出 Promise），报错也不带原文：cred_read 的回复里是凭据的值
+      let answer: Record<string, unknown>;
+      try {
+        answer = JSON.parse(buffer.slice(0, end)) as Record<string, unknown>;
+      } catch {
+        fail(new Error(`辅助进程（${command}）的回复不是 JSON`));
+        return;
+      }
+      done(answer);
     };
     const onExit = (code: number | null): void => {
       cleanup();

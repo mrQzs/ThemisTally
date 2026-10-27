@@ -1,0 +1,103 @@
+{
+  "commands": [
+    {
+      "id": "sum",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/pyfmt.compare.test.ts",
+        "-t",
+        "sum",
+        "--bail",
+        "1"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "answers",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/decisions-client.contract.test.ts",
+        "-t",
+        "回答校验",
+        "--bail",
+        "1"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "metrics",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/repo-commands.contract.test.ts",
+        "-t",
+        "人工分钟",
+        "--bail",
+        "1"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600
+    }
+  ],
+  "mutations": [
+    {
+      "name": "N01 float 不做补偿",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "        compensation += Math.abs(sum) >= Math.abs(item) ? sum - next + item : item - next + sum;\n",
+      "new": ""
+    },
+    {
+      "name": "N02 补偿量不并回去",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "    if (compensation !== 0 && Number.isFinite(compensation)) sum += compensation;\n",
+      "new": ""
+    },
+    {
+      "name": "N03 C long 按 64 位算",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "const LONG_BITS = process.platform === \"win32\" ? 31n : 63n;",
+      "new": "const LONG_BITS = 63n;",
+      "expect_missed": [
+        "answers",
+        "metrics"
+      ]
+    },
+    {
+      "name": "N04 float 路径里多大的 int 都直接加",
+      "file": "ts/packages/base/src/pyfmt.ts",
+      "old": "      if (value === null || !fitsLong(value)) break;\n      sum += Number(value);",
+      "new": "      if (value === null) break;\n      sum += Number(value);",
+      "expect_missed": [
+        "answers",
+        "metrics"
+      ]
+    },
+    {
+      "name": "N05 check_answer 的合计逐个相加",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  const total = pySum([...values.values()]) as number;",
+      "new": "  const total = [...values.values()].reduce((sum, value) => sum + value, 0);",
+      "expect_missed": [
+        "sum",
+        "metrics"
+      ]
+    },
+    {
+      "name": "N06 score 的期望值逐个相加",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    const mean = pySum([...spread].map(([level, probability]) => Number(level) * probability)) as number;",
+      "new": "    const mean = [...spread].reduce((sum, [level, probability]) => sum + Number(level) * probability, 0);",
+      "expect_missed": [
+        "sum",
+        "metrics"
+      ]
+    }
+  ]
+}
