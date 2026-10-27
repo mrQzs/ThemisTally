@@ -219,6 +219,12 @@
       "file": "ts/packages/base/src/native-helper.ts",
       "old": "    if (request.interrupted === true) interrupt.interrupted = true;",
       "new": "    if (request.interrupted === null) interrupt.interrupted = true;"
+    },
+    {
+      "name": "N01 没有控制台也不加 CREATE_NO_WINDOW",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "          | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0);",
+      "new": "          | 0;"
     }
   ]
 }

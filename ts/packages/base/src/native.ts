@@ -37,6 +37,8 @@
 //     ResumeThread(hThread) -> DWORD（0xFFFFFFFF 为失败）；TerminateProcess(hProcess, 1) -> BOOL
 //     WaitForSingleObject(hProcess, 毫秒) -> DWORD（0 为已结束）；GetExitCodeProcess(hProcess, &code) -> BOOL
 //     GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT = 1, 进程组号) -> BOOL
+//     GetConsoleProcessList(list, 1) -> DWORD：本进程没有控制台时为 0（第 128 轮）。这时 CreateProcessW 加 CREATE_NO_WINDOW
+//       （0x08000000），子进程的控制台开在后台，不弹窗口；有控制台时不加，CTRL_BREAK 要靠父子共用同一个控制台
 //     AttachConsole(调用方的进程号) -> BOOL：Node 后备的辅助进程以 DETACHED_PROCESS 起，再挂到调用方的控制台上
 //       （调用方没有控制台就挂不上），控制台的有无与进程内调用一致，CTRL_BREAK 发不发得出去也一致
 //     GetLastError() -> DWORD：失败之后立即取（bun:ffi 下实测可靠：2、267、193 都对）
@@ -609,6 +611,7 @@ const CREATE_SUSPENDED = 0x4;
 const CREATE_NEW_PROCESS_GROUP = 0x200;
 const CREATE_UNICODE_ENVIRONMENT = 0x400;
 const EXTENDED_STARTUPINFO_PRESENT = 0x80000;
+const CREATE_NO_WINDOW = 0x08000000;
 const STARTF_USESTDHANDLES = 0x100;
 const PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x20002n;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
@@ -657,6 +660,7 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     GetExitCodeProcess: { args: [T.i64, T.ptr], returns: T.i32 },
     GenerateConsoleCtrlEvent: { args: [T.u32, T.u32], returns: T.i32 },
     AttachConsole: { args: [T.u32], returns: T.i32 },
+    GetConsoleProcessList: { args: [T.ptr, T.u32], returns: T.u32 },
     CloseHandle: { args: [T.i64], returns: T.i32 },
     GetLastError: { args: [], returns: T.u32 },
     FormatMessageW: { args: [T.u32, T.ptr, T.u32, T.u32, T.ptr, T.u32, T.ptr], returns: T.u32 },
@@ -683,6 +687,7 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     GetExitCodeProcess(process: bigint, code: Buf): number;
     GenerateConsoleCtrlEvent(event: number, group: number): number;
     AttachConsole(pid: number): number;
+    GetConsoleProcessList(list: Uint32Array, count: number): number;
     CloseHandle(handle: bigint): number;
     GetLastError(): number;
     FormatMessageW(flags: number, source: null, id: number, language: number, buffer: Buf, size: number, args: null): number;
@@ -739,8 +744,10 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
         view.setBigUint64(96, BigInt.asUintN(64, std.stderr), true);
         view.setBigUint64(104, BigInt(ffi.ptr(list)), true);
         const info = new Uint8Array(24); // PROCESS_INFORMATION
+        // 本进程没有控制台时子进程加 CREATE_NO_WINDOW（第 128 轮，与 pi_dispatch.run_supervised 相同）
         const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT
-          | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT);
+          | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT)
+          | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0);
         // 命令行给一份可写的（CreateProcessW 可能改写它）；环境块、工作目录、两个结构体都直接传，调用期间保活
         if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment, cwd === null ? null : wide(cwd),
           startup, info)) {

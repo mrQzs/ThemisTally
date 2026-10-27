@@ -952,6 +952,19 @@ def _restore_handlers(previous: Dict[int, Any]) -> None:
             pass
 
 
+#: 本进程没有控制台时给子进程加的创建标志（第 128 轮）。
+CREATE_NO_WINDOW = 0x08000000
+
+
+def _has_console() -> bool:
+    """本进程挂着控制台（GetConsoleProcessList 返回非 0）。计划任务、服务、以 DETACHED_PROCESS 起的进程都没有。"""
+    import ctypes
+    from ctypes import wintypes
+
+    buffer = (wintypes.DWORD * 1)()
+    return ctypes.windll.kernel32.GetConsoleProcessList(buffer, 1) != 0
+
+
 CtrlBreak = Tuple[Optional[str], Optional[int]]
 
 
@@ -1061,7 +1074,11 @@ def run_supervised(cmd: Sequence[str], cwd: Path, env: Dict[str, str], stdout: A
             result["spawn_error"] = "无法创建 Windows Job Object，拒绝在没有进程树监督的情况下运行：%s" % exc
             return result
         # 挂起创建：加入 Job 之后才恢复，子进程不会逃出监督。
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x00000004
+        # 本进程没有控制台时，Windows 会给子进程新开一个可见的控制台（这台机器上交给 Windows Terminal 开窗口，Job 结束时
+        # 交接断在中途，桌面上留下一个报错窗口）：加 CREATE_NO_WINDOW 开在后台（第 128 轮）。有控制台时不加，CTRL_BREAK 要靠
+        # 父子共用同一个控制台；没有控制台本来就发不出 CTRL_BREAK（错误码 6），加了也不变。
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x00000004 | (
+            0 if _has_console() else CREATE_NO_WINDOW)
         result["kill_method"] = "job-object"
     else:
         kwargs["start_new_session"] = True  # 子进程从创建起就在自己的进程组中

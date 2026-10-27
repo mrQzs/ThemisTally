@@ -232,6 +232,8 @@ describe.skipIf(!onWindows)("进程监督契约", () => {
       "g = subprocess.Popen([sys.executable, '-c', 'import time\\nfor _ in range(1200): time.sleep(0.1)'], creationflags=0x8,",
       "                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)",
       "pathlib.Path('grandchild.pid').write_text(str(g.pid))",
+      // 第 128 轮：监督进程没有控制台时，子进程的控制台开在后台（没有窗口），不在桌面上弹报错窗口
+      "import ctypes; pathlib.Path('console.txt').write_text(str(ctypes.windll.kernel32.GetConsoleWindow() or 0))",
       "for _ in range(1200): time.sleep(0.1)",
     ].join("\n");
     const runs = acrossImpls("s5a", (impl, dir) =>
@@ -243,6 +245,7 @@ describe.skipIf(!onWindows)("进程监督契约", () => {
         expect(run.value.wall_seconds, run.impl.name).toBeLessThan(8); // 以前送不到也照样白等 15 秒
         expect(waitGone(run.value.pid as number)).toBe(true);
         expect(waitGone(Number(readFileSync(join(run.dir, "grandchild.pid"), "utf8")))).toBe(true);
+        expect(readFileSync(join(run.dir, "console.txt"), "utf8"), run.impl.name).toBe("0");
       }
     } finally {
       cleanup(runs);

@@ -2113,6 +2113,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改动**：12 条逐条改到现在的写法（file 指到代码现在所在的文件，old、new 照现在的写法），重跑确认仍能抓住。新增 `ts/packages/contracts/test/mutation-specs.test.ts`：每份清单的每条变异，原文在目标文件里恰好出现 count 次（缺省 1），数法照 `_apply_mutation`（CRLF 先归一、不重叠地数）。几秒钟，挂在平常的 vitest 里，代码一挪清单没跟上就红。
 - **验证**：用改之前的 pyjson 清单跑这条检查，报出那 4 条；改好之后全部通过。12 条改好的变异各用原清单的命令重跑：config-a2 5 个、config-d-cli 1 个、evidence-b2 2 个、pyjson 4 个，全部抓住。
 
+### 第 128 轮：没有控制台的监督进程起子进程时不再弹窗（2026-10-27）
+
+- **起因**（themistally-15 查出）：站主桌面上反复弹出 Windows Terminal 的报错窗口（`[error 2147942632 (0x800700e8) when launching ...]`），是 supervise 契约的 S5a 弹的。S5a 让探针以 DETACHED_PROCESS 运行，监督进程没有控制台；两边内核起子进程时只给 CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP，父进程没有控制台时 Windows 会给子进程新开一个可见的控制台，这台机器的缺省终端是 Windows Terminal，就交给它开窗口；1 秒超时后 Job 结束整棵树，交接断在中途，窗口里留下这行报错。生产里从计划任务、服务或没有控制台的父进程起的调度器，每条检查命令也会弹一个窗口。
+- **改动**：本进程没有控制台（GetConsoleProcessList 返回 0）时，子进程的创建标志加 CREATE_NO_WINDOW：子进程有自己的隐藏控制台，没有窗口。有控制台时不加，CTRL_BREAK 要靠父子共用同一个控制台；没有控制台本来就发不出 CTRL_BREAK（错误码 6），S5a 原有的断言不受影响。Python 的 `run_supervised`（`_has_console`）与 TS 的 native.ts（绑 GetConsoleProcessList）同一轮改。
+- **测试**：S5a 让子进程把 `GetConsoleWindow()` 写进文件，断言三种实现都是 0。变异两条：TS 与 Python 各去掉这个标志，S5a 都变红（跑变异时会再弹出这两三个窗口）。supervise 契约 26 条全过；用到进程监督的 Python 用例 （test_run_supervised、test_dispatch、test_baseline_tool、test_legacy_cli、test_legacy_gates、test_legacy_lifecycle、test_mutate_interrupted、test_quiet_error_mode）248 passed / 2 skipped。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
