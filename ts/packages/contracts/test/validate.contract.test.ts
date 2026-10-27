@@ -122,8 +122,9 @@ describe("validate_config：各键", () => {
       errors("pricing 的键不是 <provider>/<model>", validate({ pricing: { step: PRICE } }), ["dispatch.config.json 的 pricing 无效：键 'step' 必须是 <provider>/<model>"]),
       errors("pricing 缺 output", validate({ pricing: { "s/m": { ...PRICE, output: null } } }), ["dispatch.config.json 的 pricing 无效：s/m 缺少 output 单价"]),
       errors("pricing 的单价为负", validate({ pricing: { "s/m": { ...PRICE, cache_read: -1 } } }), ["dispatch.config.json 的 pricing 无效：s/m.cache_read 必须是非负数"]),
-      // 现行缺陷（两边一致，记在迁移计划第 10.1 节）：键名含 token 就算疑似凭据，pricing 文档里的 per_tokens 一写就整段报凭据
-      errors("pricing 写了 per_tokens 就报疑似凭据", validate({ pricing: { "s/m": { ...PRICE, per_tokens: 1000 } } }), ["pricing 里有疑似凭据（pricing.s/m.per_tokens）：配置里只写环境变量名，凭据的值用 config secret set 存"]),
+      // 第 125 轮：pricing.<模型>.per_tokens 的值是数字时不算疑似凭据；写成字符串照算
+      errors("pricing 写了 per_tokens（数字）", validate({ pricing: { "s/m": { ...PRICE, per_tokens: 1000 } } }), []),
+      errors("pricing 的 per_tokens 写成字符串：照算疑似凭据", validate({ pricing: { "s/m": { ...PRICE, per_tokens: "1000" } } }), ["pricing 里有疑似凭据（pricing.s/m.per_tokens）：配置里只写环境变量名，凭据的值用 config secret set 存"]),
       errors("pricing 的币种末尾换行照 Python 的 $ 放过", validate({ pricing: { "s/m": { ...PRICE, currency: "EUR\n" } } }), []),
       errors("pricing 的日期是阿拉伯-印度数字（Python 的 \\d 认）", validate({ pricing: { "s/m": { ...PRICE, as_of: "٢٠٢٦-١٠-٢٦" } } }), []),
       errors("pricing 的来源只有空白", validate({ pricing: { "s/m": { ...PRICE, source: "　" } } }), ["dispatch.config.json 的 pricing 无效：s/m.source 必须写明价格来源（例如价格页与访问日期）"]),
