@@ -2,7 +2,7 @@
 // 按计划 §3.4 逐字比较。每套实现逐条通过，Python 实现先过。特殊字符一律用 String.fromCodePoint 拼（不写转义，
 // 免得编辑工具把它换成实际字符）。
 import { describe, expect, it } from "vitest";
-import type { Tagged } from "../src/tagged.ts";
+import { type Tagged, floatBits } from "../src/tagged.ts";
 import { IMPLS, type ProbeRequest, type ProbeResult, runBatch } from "./harness.ts";
 
 const C = (...cps: number[]): string => String.fromCodePoint(...cps);
@@ -16,6 +16,8 @@ const BEL = C(0x07);
 const S = (v: string): Tagged => ({ t: "str", v });
 const I = (n: number): Tagged => ({ t: "int", hex: n.toString(16) });
 const L = (...v: Tagged[]): Tagged => ({ t: "list", v });
+const F = (n: number): Tagged => ({ t: "float", bits: floatBits(n) });
+const B = (v: boolean): Tagged => ({ t: "bool", v });
 const D = (...v: [string, Tagged][]): Tagged => ({ t: "dict", v: v.map(([key, value]) => [S(key), value] as const) });
 
 interface Case {
@@ -79,6 +81,26 @@ const CASES: readonly Case[] = [
       value: D(["profiles", D(["p1", D(["credential_env", S("MY_KEY")], ["token", S("x")])])], ["list", L(S("sk-ABCDEFGHIJKLMNOPQRST"))]),
     },
     expect: { ok: true, paths: ["profiles.p1.token", "list.0"] },
+  },
+  {
+    name: "S21b secret_like_paths：pricing.<模型>.per_tokens 的值是数字时不算（第 125 轮）；字符串、布尔、别的位置照算",
+    request: {
+      op: "secrets.call",
+      fn: "secret_like_paths",
+      value: D(
+        ["pricing", D(
+          ["step/m", D(["per_tokens", I(1000000)], ["input", F(0.5)])],
+          ["a/b", D(["per_tokens", F(1000.5)])],
+          ["i/j", D(["per_tokens", I(0)])],
+          ["c/d", D(["per_tokens", S("1000000")])],
+          ["e/f", D(["per_tokens", B(true)])],
+          ["g/h", D(["x", D(["per_tokens", I(5)])])],
+        )],
+        ["per_tokens", I(1)],
+        ["other", D(["m", D(["per_tokens", I(2)])])],
+      ),
+    },
+    expect: { ok: true, paths: ["pricing.c/d.per_tokens", "pricing.e/f.per_tokens", "pricing.g/h.x.per_tokens", "per_tokens", "other.m.per_tokens"] },
   },
   {
     name: "S22 redact_json 的白名单：登记过的位置通过校验就原样保留",

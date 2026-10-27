@@ -849,7 +849,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 | JSON 嵌套 1001 层到约 2994 层、里面又有文法错误（第 ③e 片，themistally-15 复核 ac10a2e 时实测） | TS 的 pyjson 在第 1001 层报 RecursionError，CPython 3.12 在 Windows 上要到约 2995–2998 层（看最底下是什么、钩子占几格）。这个窗口里 `strict_json_loads` 的错误码不同：Python 报 `E_JSON_SYNTAX`，TS 报 `E_JSON_LIMIT`；`plugins verify`、`plugins list --json` 里“解析失败：…”的码随之不同，退出码相同 | 接受（2026-10-26，themistally-15 建议）：不按调用路径模拟 CPython 的 C 递归预算。合法的深文档两边都是 `E_JSON_LIMIT`；正常的 manifest、锁不会嵌套上千层 |
 | 配置嵌套约 993 层到约 2997 层（第 ①、③a2 步起就有，themistally-15 复核 ③e 时实测） | Python 的 `json.loads` 读得完，`secret_like_paths` 递归时撞上解释器的递归上限，打堆栈退出 1；TS 在 998 层以下报“配置无效…”，999 层以上报“ERROR: 无法解析 …：RecursionError”，都是退出 1。约 2998 层以上两边都报“无法解析…RecursionError”。契约里“嵌套很深”用的 3000 层在窗口外面 | 接受（同上）：退出码一致、文字不同；要逐字一致得同时模拟 C 递归预算与 `secret_like_paths` 当时的 Python 栈深，为至少 990 层深的配置加这些复杂度不值 |
 | 切换之后，配置中心起的 CLI 拿不到 `NODE_OPTIONS`、`NODE_PATH`（第 ③ 步的切换，themistally-15 复核 ③d 时查出） | 启动器的 `handoff_env` 把 `TS_RUNTIME_ENV_DROP` 从 TS 进程的环境里去掉，TS 的 `childEnv` 又从 `process.env` 拼；Python 的 `child_env` 会把这两个变量带给 pi。runtime scan、probe、models、doctor 起的 pi 是 node 程序，用户要是靠 `NODE_OPTIONS` 给 pi 加内存上限，经 TS 探测时就没有 | 接受（2026-10-26）：本机的进程、用户、机器三层都没设这两个变量，选择文件也不随 kit 分发；探测只跑 --version、--help、--list-models 与 auth check。第 ④ 步照 D3 修：启动器把去掉的原值换名放进 TS 的环境，`childEnv` 还原成原名（④b7 与切换那一轮） |
-| pricing 下的 `per_tokens` 被内核的疑似凭据检查当成凭据（④b2 写 metrics 契约时查出；Python 与 TS 的 secret_like_paths 逐字一致，两边一样错） | 用户照 kit_config 的说明给某个模型写了 per_tokens，Repo.config 就整份不读，所有调度器命令都报“有疑似凭据”、退出 2 | ④b1 合入后单独一轮内核修正，Python 与 TS 同一轮改，口径与 themistally-15 定 |
+| pricing 下的 `per_tokens` 被内核的疑似凭据检查当成凭据（④b2 写 metrics 契约时查出；Python 与 TS 的 secret_like_paths 逐字一致，两边一样错） | 用户照 kit_config 的说明给某个模型写了 per_tokens，Repo.config 就整份不读，所有调度器命令都报“有疑似凭据”、退出 2 | 已改（第 125 轮，r3 第 10 节）：只豁免 `pricing.<provider/model>.per_tokens`、值必须是数字，两边同一轮改，有契约与变异 |
 
 ### 10.1 迁移期间暂缓的改进
 
@@ -857,7 +857,7 @@ Node 的 `child_process` 不能挂起创建进程，所以要用别的手段。�
 
 | 记下的日期 | 模块 | 改进 | 来源 |
 |---|---|---|---|
-| 2026-10-26 | `pi_dispatch.secret_like_paths`（Python 与 TS 一致） | 键名含 `token` 就算疑似凭据：`pricing` 文档写着可以填的 `per_tokens` 一写，`validate` 就整段报“pricing 里有疑似凭据”，内核也不读这份配置。改成只在值像凭据、或键名是凭据类名字（`api_key`、`access_token` 这类）时才算；两边同一轮改。现在没人写 `per_tokens`，不挡路 | 第 ③a2 片的整份校验契约 |
+| 2026-10-26 | `pi_dispatch.secret_like_paths`（Python 与 TS 一致） | 键名含 `token` 就算疑似凭据：`pricing` 文档写着可以填的 `per_tokens` 一写，`validate` 就整段报“pricing 里有疑似凭据”，内核也不读这份配置。改成只在值像凭据、或键名是凭据类名字（`api_key`、`access_token` 这类）时才算；两边同一轮改。现在没人写 `per_tokens`，不挡路。**已改（第 125 轮）**：口径收窄为只豁免 `pricing.<provider/model>.per_tokens`、值必须是数字（themistally-15 定） | 第 ③a2 片的整份校验契约 |
 | 2026-10-26 | `ts/packages/ui/test/secret-entry.test.ts` 的“全部反例都不回 201” | 握手时限只有 1 秒，负载重时偶发少起子进程（2026-10-26 全量与 T023 的执行端同时跑时 5≠10，单独重跑两遍都过）。门禁与 hub 的回归常与别的重活同时跑，红了会被当成返工。再红一次就放宽这条用例的时限（只改测试夹具，不改产品行为）；合入前红了就单独重跑一遍 | themistally-15 复核 ③d |
 | 2026-10-26 | `desktop/web/tests/shellpages-settings.test.tsx`（门禁 T004、T013 的流水线跑它） | `grabShell` 负载重时拿到 null（2026-10-26 在 6ed53d0 上跑全部门禁基准，正与 T023 的收尾同时跑，13 条红；dc53c27 那一遍与 3d1e101 的 owner sweep 都过）。用的是桩（createShellStub，jsdom 里），不碰真内核。处理同上一条：合入前红了就单独重跑一遍；门禁或 hub 回归里再红一次就改夹具 | themistally-15 复核切换 |
 

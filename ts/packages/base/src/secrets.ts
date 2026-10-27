@@ -285,6 +285,17 @@ export const SECRET_NAME_FIELDS: readonly (readonly string[])[] = [
   ["env_keep"],
 ];
 
+/**
+ * NUMBER_FIELDS：键名带着凭据类的词、其实是数字参数的字段；值是数字（int 或 float，不含布尔）时免掉键名这一条
+ * （第 125 轮）。只放这一个位置，不按“数字一律不算凭据”放开：数字形式的 PIN、账号口令也可能是机密。
+ */
+export const NUMBER_FIELDS: readonly (readonly string[])[] = [["pricing", "*", "per_tokens"]];
+
+function numberField(path: readonly string[], value: PyValue): boolean {
+  if (typeof value !== "bigint" && typeof value !== "number") return false;
+  return NUMBER_FIELDS.some((rule) => rule.length === path.length && rule.every((part, index) => part === "*" || part === path[index]));
+}
+
 /** secret_like_paths 里代替有令牌形状的键名的那一级。 */
 export const SECRET_KEY_SHOWN = "（疑似凭据的键名）";
 
@@ -321,7 +332,7 @@ export function secretLikePaths(value: PyValue, path: readonly string[] = []): s
         continue;
       }
       const sub = [...path, pyStr(key)];
-      if (secretKey(pyStr(key)) && !emptyValue(item) && !secretNameField(sub, item)) {
+      if (secretKey(pyStr(key)) && !emptyValue(item) && !secretNameField(sub, item) && !numberField(sub, item)) {
         found.push(sub.join("."));
         continue;
       }

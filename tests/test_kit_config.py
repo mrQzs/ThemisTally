@@ -667,6 +667,19 @@ class ConfigTransactions(TempRepo):
         self.assertEqual(kit_config.pd.secret_like_paths({"decisions": {"api_key_env": "not a name"}}),
                          ["decisions.api_key_env"])
 
+    def test_per_tokens_under_pricing_is_a_number_not_a_secret(self):
+        # 第 125 轮：kit_config 的说明写着可以填 per_tokens，以前一写整份配置就被当成有疑似凭据
+        pricing = '{"step/step-5-preview": {"input": 1.5, "output": 6, "per_tokens": 1000000,' + ' "source": "价格页", "as_of": "2026-10-26"}}'
+        self.assertEqual(self.set("pricing", pricing)[0], 0)
+        self.assertTrue(self.records("intent")[-1]["after_ref"]["stored"])
+        self.assertEqual(kit_config.pd.Repo(self.repo).config()["pricing"]["step/step-5-preview"]["per_tokens"], 1000000)
+        paths = kit_config.pd.secret_like_paths({
+            "pricing": {"a": {"per_tokens": 1000.5}, "b": {"per_tokens": 0}, "c": {"per_tokens": "1000000"},
+                        "d": {"per_tokens": True}, "e": {"x": {"per_tokens": 5}}},
+            "per_tokens": 1, "other": {"m": {"per_tokens": 2}}})
+        self.assertEqual(paths, ["pricing.c.per_tokens", "pricing.d.per_tokens", "pricing.e.x.per_tokens", "per_tokens",
+                                 "other.m.per_tokens"])
+
     # T3 ------------------------------------------------------------------
     def test_intent_that_cannot_be_written_means_no_replacement(self):
         self.set("kill_grace_seconds", "20")

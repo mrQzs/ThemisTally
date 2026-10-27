@@ -2092,6 +2092,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**（`tests/test_path_forms.py`）：输出按（-长度，字面）排好；Windows 上 16 个 PYTHONHASHSEED 各起一个进程，写法、主仓库路径的摘录与屏蔽结果完全相同，并钉住重叠命令的结果。修之前这条在 16 个种子下给出 5 种不同结果。
 - **验证**：test_path_forms、test_dispatch、test_legacy_events、test_codekit01_fixtures、test_quiet_error_mode 共 172 passed（另 1878 个子用例）。全量 pytest 与全量 vitest 随 ④b6 一起跑（那一片在本轮之上）。themistally-15 同意本轮的做法，补了一条：TS 按字面比较要按码点，不能用 JS 缺省的 UTF-16 码元次序（U+E000–U+FFFF 与代理对的先后会反过来），④b6 的契约放一条这样的路径。
 
+### 第 125 轮：pricing 下的 per_tokens 不再算疑似凭据（2026-10-26）
+
+- **起因**：④b2 写 metrics 契约时查出（迁移计划第 10 节）：`secret_like_paths` 按键名判断，`per_tokens` 含 `token`，值又不为空，就算疑似凭据。kit_config 的说明写着 pricing 每个模型可以填 `per_tokens`，一写，配置中心不让写入，内核的 `Repo.config` 整份不读，所有调度器命令都报“有疑似凭据”、退出 2。Python 与 TS 逐字一致，两边一样错。
+- **口径**（themistally-15 定）：只豁免 `pricing.<provider/model>.per_tokens`，且值必须是数字（int 或 float，不含布尔）。不按“数字一律不算凭据”放开：数字形式的 PIN、账号口令也可能是机密。
+- **改动**：`pi_dispatch.NUMBER_FIELDS = (("pricing", "*", "per_tokens"),)` 与 `_number_field`；`secret_like_paths` 对这些位置、值是数字时免掉键名这一条，值的形状照样检查（与 SECRET_NAME_FIELDS 同一种豁免）。TS 的 `@themis/base/secrets` 同一轮照改（`NUMBER_FIELDS`、`numberField`）。
+- **测试**：`tests/test_kit_config.py` 新增一条：经配置中心写入带 per_tokens 的 pricing 成功并留下快照，`Repo.config` 读得出；整数、浮点、0 不算，字符串、布尔、多一层、别的位置、顶层照算。TS 的 secrets 契约加 S21b，同一组输入，三套实现与期望一致。变异：TS 5 个（不豁免、布尔也当数字、不看路径、`*` 不当通配，另把旧的 Z14 改成新写法），Python 3 个（不豁免、布尔、不看路径），全部抓住。
+- **验证**：test_kit_config、test_kit_roles、test_dispatch 共 191 passed；TS 的 secrets 契约与对照、repo-commands 契约、base 单测 81 passed。全量随 ④b6 一起跑。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

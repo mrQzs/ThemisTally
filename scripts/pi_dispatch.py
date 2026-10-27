@@ -2985,11 +2985,23 @@ def _secret_name_field(path: Tuple[str, ...], value: Any) -> bool:
     return all(isinstance(name, str) and ENV_NAME_RE.match(name) for name in names)
 
 
+#: 键名带着凭据类的词、其实是数字参数的字段：值是数字（int 或 float，不含布尔）时免掉键名这一条（第 125 轮）。
+#: 只放这一个位置，不按“数字一律不算凭据”放开：数字形式的 PIN、账号口令也可能是机密。
+NUMBER_FIELDS = (("pricing", "*", "per_tokens"),)
+
+
+def _number_field(path: Tuple[str, ...], value: Any) -> bool:
+    """path 是 NUMBER_FIELDS 之一，且值是数字。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return any(len(rule) == len(path) and all(r in ("*", p) for r, p in zip(rule, path)) for rule in NUMBER_FIELDS)
+
+
 def secret_like_paths(value: Any, path: Tuple[str, ...] = ()) -> List[str]:
     """JSON 结构里疑似凭据的位置（键路径用点连接）；配置快照与角色绑定的校验共用（3.0 第二轮 D1、D7）。
 
     键名像凭据（_SECRET_KEY_RE）且值不为空，或者字符串值有凭据、令牌的形状（release-check 的 api key 规则与
-    _SECRET_TOKEN_RE），都算。SECRET_NAME_FIELDS 列出的位置只免掉键名这一条，值的形状照样检查。
+    _SECRET_TOKEN_RE），都算。SECRET_NAME_FIELDS 与 NUMBER_FIELDS 列出的位置只免掉键名这一条，值的形状照样检查。
     键名本身有令牌的形状时也算，位置里这一级写成 SECRET_KEY_SHOWN、不再往下找：报出来的位置不含它（闸二第 2 片第 3 轮）。
     """
     found: List[str] = []
@@ -3000,7 +3012,7 @@ def secret_like_paths(value: Any, path: Tuple[str, ...] = ()) -> List[str]:
                 continue
             sub = path + (str(key),)
             if (_SECRET_KEY_RE.match(str(key)) and item not in (None, "", [], {})
-                    and not _secret_name_field(sub, item)):
+                    and not _secret_name_field(sub, item) and not _number_field(sub, item)):
                 found.append(".".join(sub))
                 continue
             found.extend(secret_like_paths(item, sub))
