@@ -11,6 +11,7 @@ import { pyStrValue } from "@themis/base/pyfmt";
 import { pyEq } from "@themis/base/pyvalue";
 import { TASK_ID_RE } from "@themis/base/secrets";
 import { EXIT_BLOCKED, EXIT_USAGE } from "@themis/dispatcher/repo";
+import { stateInFlight } from "@themis/dispatcher/status";
 import { ADAPTERS, adapterOf, configErrors, shownValue } from "./roles-check.ts";
 
 /** 没写的角色取的默认值；execution 没写时由合同决定。 */
@@ -52,11 +53,6 @@ export function bindingTuple(config: PyDict, role: string): (string | null)[] | 
 /** 两个元组相等（Python 的 ==：None 与字符串逐项比）。 */
 export function sameBinding(left: (string | null)[] | null, right: (string | null)[] | null): boolean {
   return pyEq(left, right);
-}
-
-/** pi_dispatch.state_in_flight。 */
-function stateInFlight(state: string, claimed: boolean): boolean {
-  return state === "RUNNING" || state === "COLLECTING" || (state === "PREPARED" && claimed);
 }
 
 interface Lstat {

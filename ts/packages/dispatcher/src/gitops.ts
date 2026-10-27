@@ -6,7 +6,7 @@ import { PyCrash } from "@themis/base/pyfmt";
 import { pyDecodeUtf8, pyDecodeUtf8Replace, pyOSErrorOf } from "@themis/base/pyio";
 import { type PyDict, type PyValue } from "@themis/base/pyjson";
 import { PY_END, ci, cmpCodePoints, pyRegex, pyStrip } from "@themis/base/pyre";
-import { git, gitChecked, gitText } from "./repo.ts";
+import { DispatchError, git, gitChecked, gitText } from "./repo.ts";
 
 const LF = String.fromCharCode(10);
 const NUL = String.fromCharCode(0);
@@ -147,4 +147,65 @@ export function effectiveAutocrlf(repoRoot: string): string {
 /** line_endings_only：两棵树的差异是否只是行尾（CRLF / LF）。 */
 export function lineEndingsOnly(cwd: string, treeA: string, treeB: string): boolean {
   return git(["diff", "--quiet", "--ignore-cr-at-eol", treeA, treeB, "--"], cwd).status === 0;
+}
+
+/** Path.unlink：删不掉时照 Python 报 OSError。 */
+function unlinkPy(file: string): void {
+  try {
+    unlinkSync(file);
+  } catch (error) {
+    throw pyOSErrorOf(error, file) ?? error;
+  }
+}
+
+/** tree_from_patch：在临时索引上把补丁应用到基线，重建候选树（往返校验与恢复用）。收尾删不掉索引时照 Python 报错。 */
+export function treeFromPatch(repoRoot: string, base: string, patch: string, scratchDir: string, autocrlf: PyValue | undefined = null): string {
+  const index = path.join(scratchDir, ".roundtrip.index");
+  if (exists(index)) unlinkPy(index);
+  try {
+    gitChecked(["read-tree", base], repoRoot, { indexFile: index });
+    if (statSync(patch).size > 0) {
+      gitChecked([...lineEndingArgs(autocrlf), "apply", "--cached", "--binary", "--whitespace=nowarn", patch], repoRoot, { indexFile: index });
+    }
+    return gitText(["write-tree"], repoRoot, { indexFile: index });
+  } finally {
+    if (exists(index)) unlinkPy(index);
+  }
+}
+
+/** ignored_inventory：工作副本里被忽略的路径（整个被忽略的目录记一项），去重后按码点排序；git 的退出码不看。 */
+export function ignoredInventory(workDir: string): string[] {
+  const out = git(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], workDir).stdout;
+  const items = new Set(splitBytes(out, 0).filter((item) => item.length > 0).map((item) => pyDecodeUtf8Replace(item)));
+  return [...items].sort(cmpCodePoints);
+}
+
+/**
+ * main_repo_fingerprint：主工作区的 HEAD 与内容树（已跟踪文件加没被忽略的新文件的内容）。按内容比，运行前已经脏、运行中
+ * 又被改写的文件也看得出来；不含被忽略的文件与仓库之外的路径。git 出错时内容树记成 "error: …"。
+ */
+export function mainRepoFingerprint(repoRoot: string, scratchDir: string): PyDict {
+  const head = pyStrip(pyDecodeUtf8(git(["rev-parse", "--verify", "--quiet", "HEAD"], repoRoot).stdout));
+  const index = path.join(scratchDir, ".main-fingerprint.index");
+  const stale = [index, `${index}.lock`];
+  for (const file of stale) if (exists(file)) unlinkPy(file);
+  let tree: string;
+  try {
+    if (head) gitChecked(["read-tree", head], repoRoot, { indexFile: index });
+    gitChecked(["add", "-A", "--", "."], repoRoot, { indexFile: index });
+    tree = gitText(["write-tree"], repoRoot, { indexFile: index });
+  } catch (error) {
+    if (!(error instanceof DispatchError)) throw error;
+    tree = `error: ${error.message}`;
+  } finally {
+    for (const file of stale) {
+      if (!exists(file)) continue;
+      try {
+        unlinkSync(file);
+      } catch {
+        // 照 Python：收尾时删不掉就算了
+      }
+    }
+  }
+  return new Map<string, PyValue>([["head", head], ["content_tree", tree]]);
 }

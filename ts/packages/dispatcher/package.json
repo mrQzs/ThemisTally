@@ -7,6 +7,7 @@
     "./argv": "./src/argv.ts",
     "./attempt-commands": "./src/attempt-commands.ts",
     "./check-commands": "./src/check-commands.ts",
+    "./collect": "./src/collect.ts",
     "./command-runner": "./src/command-runner.ts",
     "./contract": "./src/contract.ts",
     "./contract-plan": "./src/contract-plan.ts",

@@ -95,7 +95,7 @@
     },
     {
       "name": "B02 RUNNING 不算在跑",
-      "file": "ts/packages/config/src/roles-binding.ts",
+      "file": "ts/packages/dispatcher/src/status.ts",
       "old": "return state === \"RUNNING\" || state === \"COLLECTING\"",
       "new": "return state === \"COLLECTING\""
     },

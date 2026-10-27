@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXE_SEARCH_GUARD } from "@themis/base/harden";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { S, W, WB, cmpCodePoints, codePoints, pyRegex, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { D, S, W, WB, cmpCodePoints, codePoints, pyIntParse, pyRegex, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { redactSecrets, stripAnsi } from "@themis/base/secrets";
 import { runSupervised } from "@themis/base/supervise";
 import { ensureArgvSafe } from "./argv.ts";
@@ -223,4 +223,29 @@ export async function piModelReadiness(
   if (authCode !== 0) problems.push(`执行模型凭据未就绪（pi auth check --no-refresh 退出码 ${authCode}）`);
   if (thinking && !thinkingLevels.includes(thinking)) problems.push(`思考级别 ${thinking} 不受本机 pi 支持`);
   return [facts, problems];
+}
+
+/** agent_settled 事件自 pi 0.80.4 起提供。 */
+export const MIN_PI_VERSION: readonly bigint[] = [0n, 80n, 4n];
+const VERSION_RE = pyRegex(`(${D}+)[.](${D}+)[.](${D}+)`);
+
+/** parse_version：文字里第一个 x.y.z（数字照 Python 正则的数字类，含其他文字的数字）。 */
+export function parseVersion(text: string): bigint[] | null {
+  const match = VERSION_RE.exec(text);
+  return match ? [1, 2, 3].map((group) => pyIntParse(match[group] as string) as bigint) : null;
+}
+
+/** 元组比较：负数表示 a 小于 b。 */
+export function compareVersion(a: readonly bigint[], b: readonly bigint[]): number {
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const [x, y] = [a[index] as bigint, b[index] as bigint];
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return a.length - b.length;
+}
+
+/** _expects_settled：这个版本的 pi 会不会发 agent_settled；版本号读不出来时不知道（null）。 */
+export function expectsSettled(versionText: string): boolean | null {
+  const version = parseVersion(versionText);
+  return version === null ? null : compareVersion(version, MIN_PI_VERSION) >= 0;
 }

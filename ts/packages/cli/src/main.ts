@@ -15,6 +15,7 @@ import { type CatArgs, cmdCat } from "@themis/dispatcher/logs-cat";
 import { type SyncAdaptersArgs, cmdSyncAdapters } from "@themis/dispatcher/adapters";
 import { type CleanupArgs, type MarkArgs, type WaitArgs, cmdCleanup, cmdMark, cmdWait } from "@themis/dispatcher/attempt-commands";
 import { type BaselineArgs, type CheckArgs, type VerdictArgs, cmdBaseline, cmdCheck, cmdVerdict } from "@themis/dispatcher/check-commands";
+import { type CollectArgs, cmdCollect } from "@themis/dispatcher/collect";
 import { type MetricsArgs, cmdMetrics } from "@themis/dispatcher/metrics";
 import { type ReleaseCheckArgs, cmdReleaseCheck } from "@themis/dispatcher/release-check";
 import { type DeriveJsonArgs, type PlanContext, type ValidateArgs, cmdDeriveJson, cmdValidate } from "@themis/dispatcher/contract-plan";
@@ -27,6 +28,7 @@ import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
 import { type PrepareArgs, type PrepareContext, cmdPrepare } from "@themis/dispatcher/prepare";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
 import { decisionsSession } from "@themis/config/decisions-client";
+import { reportScreenBattery } from "@themis/config/decisions";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import { bindingTuple, resolveRoleExecutor } from "@themis/config/roles-binding";
 import { configErrors } from "@themis/config/roles-check";
@@ -178,6 +180,11 @@ export async function main(argv: readonly string[]): Promise<number> {
         const ctx = prepareContext(args);
         const strict = (config: PyValue, agentDir: string): void => void decisionsSession(config, agentDir, null, null, { kitRoot: ctx.kitRoot, out: buffered }, true);
         return cmdPrepare(args as unknown as PrepareArgs, buffered, ctx, strict);
+      });
+    case "collect":
+      return runBuffered((buffered) => {
+        const kitRoot = planContext(args).kitRoot;
+        return cmdCollect(args as unknown as CollectArgs, buffered, sessionsFor(args, buffered), { reportScreen: () => reportScreenBattery(kitRoot) });
       });
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));

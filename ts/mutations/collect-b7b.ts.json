@@ -1,0 +1,326 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/collect.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "C01 补丁大小记 0",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"patch_bytes\", BigInt(statSync(patchPath).size)]",
+      "new": "[\"patch_bytes\", 0n]"
+    },
+    {
+      "name": "C02 不写 candidate.stat.txt",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "    writeFileSync(statPath, stat);\n",
+      "new": ""
+    },
+    {
+      "name": "C03 补丁不带 --binary",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"diff\", \"--binary\", \"--no-ext-diff\"",
+      "new": "[\"diff\", \"--no-ext-diff\""
+    },
+    {
+      "name": "C04 受保护路径区分大小写",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "compilePatterns([...PROTECTED_PATTERNS, ...extraProtected], true)",
+      "new": "compilePatterns([...PROTECTED_PATTERNS, ...extraProtected], false)"
+    },
+    {
+      "name": "C05 不查 forbidden_paths",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "} else if (matches(forbidden, file)) {",
+      "new": "} else if (false) {"
+    },
+    {
+      "name": "C06 删除也按 allowed_modified 判",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "status === \"A\" ? allowedNew : status === \"D\" ? allowedDeleted : allowedModified",
+      "new": "status === \"A\" ? allowedNew : allowedModified"
+    },
+    {
+      "name": "C07 不看合同是否禁止依赖变更",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "scope.get(\"dependency_changes\") === \"forbidden\"",
+      "new": "true"
+    },
+    {
+      "name": "C08 点名允许的依赖清单也算违规",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (exactAllowed.has(file)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C09 不提醒敏感文件",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (matches(sensitive, file)) warnings.push(",
+      "new": "if (false) warnings.push("
+    },
+    {
+      "name": "C10 不查 HEAD 是否移动",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (headAfter !== base) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C11 local_commit 的判定反了",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "actions.includes(\"local_commit\") ? warnings : violations",
+      "new": "actions.includes(\"local_commit\") ? violations : warnings"
+    },
+    {
+      "name": "C12 计数漏了 T",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"A\", \"M\", \"D\", \"T\"].map",
+      "new": "[\"A\", \"M\", \"D\"].map"
+    },
+    {
+      "name": "C13 指纹不完整也照比",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (!shaLike(treeBefore) || !shaLike(treeAfter)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C14 规划端路径总区分大小写",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "compilePatterns(planner, IS_WINDOWS)",
+      "new": "compilePatterns(planner, false)"
+    },
+    {
+      "name": "C15 不报 HEAD 变化",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"head_changed\", pyTruthy(before) && !pyEq(pyGet(before, \"head\"), after.get(\"head\") ?? null)]",
+      "new": "[\"head_changed\", false]"
+    },
+    {
+      "name": "C16 DoD 不带 intent",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "    if (pyTruthy(pyGet(item, \"intent\"))) entry.set(\"intent\", pyItem(item, \"intent\"));\n",
+      "new": ""
+    },
+    {
+      "name": "C17 不交合同目标",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"contract_goal\", firstChars(pyStrip(mdSection(planMd, \"Goal\") || \"\"), 2000)]",
+      "new": "[\"contract_goal\", \"\"]"
+    },
+    {
+      "name": "C18 不数合同矛盾",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"contract_conflicts\", lenOf(or(report.get(\"contract_conflicts\") ?? null, []))]",
+      "new": "[\"contract_conflicts\", 0n]"
+    },
+    {
+      "name": "C19 不交复审线索",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"review_hints\", or(observations.get(\"review_hints\") ?? null, new Map())]",
+      "new": "[\"review_hints\", new Map()]"
+    },
+    {
+      "name": "C20 不记决策结果",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (decision !== null) observations.set(\"decisions\",",
+      "new": "if (false) observations.set(\"decisions\","
+    },
+    {
+      "name": "C21 不记 decisions_error",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "    observations.set(\"decisions_error\", error.message);\n",
+      "new": ""
+    },
+    {
+      "name": "C22 不记 collect_errors",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "    collectErrors.push(error.message);\n",
+      "new": ""
+    },
+    {
+      "name": "C23 运行前就有的忽略路径也算新的",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": ".filter((item) => !known.has(item))",
+      "new": ".filter(() => true)"
+    },
+    {
+      "name": "C24 没有运行前的指纹也算变化",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "const mainChanged = pyTruthy(mainBefore) && !pyEq(mainBefore, mainAfter);",
+      "new": "const mainChanged = !pyEq(mainBefore, mainAfter);"
+    },
+    {
+      "name": "C25 不做复审线索",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (pyTruthy(candidate.get(\"tree\") ?? null) && pyExists(path.join(runDir, \"candidate.patch\"))) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C26 超时不算 TIMEOUT",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "  if (pyTruthy(pyGet(runInfo, \"timed_out\"))) return \"TIMEOUT\";\n",
+      "new": ""
+    },
+    {
+      "name": "C27 没有回复也算 NEEDS_REVIEW",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "  if (!pyTruthy(events.get(\"assistant_messages\") ?? null)) return \"INFRA_FAILURE\";\n",
+      "new": ""
+    },
+    {
+      "name": "C28 不看 spawn_error",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (pyTruthy(pyGet(runInfo, \"spawn_error\")) || collectErrors.length",
+      "new": "if (false || collectErrors.length"
+    },
+    {
+      "name": "C29 state.json 不记 scope_ok",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"scope_ok\", pyGet(readJsonOr(path.join(runDir, \"scope.json\"), new Map()), \"ok\")]",
+      "new": "[\"scope_ok\", null]"
+    },
+    {
+      "name": "C30 不过 planner-v2 发布门禁",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (publicationErrors.length) throw new DispatchError(",
+      "new": "if (false) throw new DispatchError("
+    },
+    {
+      "name": "C31 结束了的 attempt 也能恢复",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (!attemptInFlight(runDir) || !args.recover) {",
+      "new": "if (!args.recover) {"
+    },
+    {
+      "name": "C32 不要求 --recover",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (!attemptInFlight(runDir) || !args.recover) {",
+      "new": "if (!attemptInFlight(runDir)) {"
+    },
+    {
+      "name": "C33 不查 Pi 进程是否还在",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (pidAlive(pid)) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "C34 pid.txt 不查是不是数字",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (!text || !codePoints(text).every(isDigitChar)) return null;",
+      "new": "if (!text) return null;"
+    },
+    {
+      "name": "C35 补的 run.json 不记中断",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "[\"interrupted\", true]",
+      "new": "[\"interrupted\", false]"
+    },
+    {
+      "name": "C36 没启动 Pi 也不记 spawn_error",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "const spawnError = pyTruthy(started) ? null : \"领取后调度器退出，未启动 Pi\";",
+      "new": "const spawnError = null;"
+    },
+    {
+      "name": "C37 不沿用 run-started 的 expects_agent_settled",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "const expects = pyGet(started, \"expects_agent_settled\", settled);",
+      "new": "const expects = settled;"
+    },
+    {
+      "name": "C38 半成品不改名",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (pyExists(file)) pyRename(",
+      "new": "if (false) pyRename("
+    },
+    {
+      "name": "C39 不记 recovered_collection",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "  logEvent(runDir, \"recovered_collection\");\n",
+      "new": ""
+    },
+    {
+      "name": "C40 不看内核 TS 禁区",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "pyGet(meta, \"kernel_protected\")",
+      "new": "null"
+    },
+    {
+      "name": "C41 附件目录不算允许的外部路径",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "...(pyTruthy(pyGet(runInfo, \"attachments_dir\")) ? [pathArg(pyItem(runInfo, \"attachments_dir\"))] : [])",
+      "new": "...[]"
+    },
+    {
+      "name": "C42 不交 expects_agent_settled",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "expectsSettled: pyGet(runInfo, \"expects_agent_settled\"),",
+      "new": "expectsSettled: null,"
+    },
+    {
+      "name": "C43 不交 plan.md 的文字",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "planText: readTextOr(path.join(runDir, \"plan.md\")),",
+      "new": "planText: \"\","
+    },
+    {
+      "name": "G01 往返校验不应用补丁",
+      "file": "ts/packages/dispatcher/src/gitops.ts",
+      "old": "    if (statSync(patch).size > 0) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "G02 忽略的目录逐个文件列",
+      "file": "ts/packages/dispatcher/src/gitops.ts",
+      "old": "\"--exclude-standard\", \"--directory\", \"-z\"",
+      "new": "\"--exclude-standard\", \"-z\""
+    },
+    {
+      "name": "G03 指纹不收未跟踪的文件",
+      "file": "ts/packages/dispatcher/src/gitops.ts",
+      "old": "[\"add\", \"-A\", \"--\", \".\"]",
+      "new": "[\"add\", \"-u\", \"--\", \".\"]"
+    },
+    {
+      "name": "P01 版本号只认 ASCII 数字",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "pyRegex(`(${D}+)[.](${D}+)[.](${D}+)`)",
+      "new": "pyRegex(`([0-9]+)[.]([0-9]+)[.]([0-9]+)`)"
+    },
+    {
+      "name": "P02 版本比较反了",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "if (x !== y) return x < y ? -1 : 1;",
+      "new": "if (x !== y) return x < y ? 1 : -1;"
+    },
+    {
+      "name": "P03 恰好 0.80.4 不算",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "compareVersion(version, MIN_PI_VERSION) >= 0",
+      "new": "compareVersion(version, MIN_PI_VERSION) > 0"
+    },
+    {
+      "name": "S01 没领取的 PREPARED 也算在运行",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "(state === \"PREPARED\" && claimed)",
+      "new": "(state === \"PREPARED\")"
+    },
+    {
+      "name": "S02 不看 claim 目录",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "state === \"PREPARED\" && isDir(path.join(runDir, \"claim\"))",
+      "new": "state === \"PREPARED\""
+    },
+    {
+      "name": "S03 COLLECTING 不算在运行",
+      "file": "ts/packages/dispatcher/src/status.ts",
+      "old": "state === \"RUNNING\" || state === \"COLLECTING\" ||",
+      "new": "state === \"RUNNING\" || state === \"COLLECTED\" ||"
+    }
+  ]
+}

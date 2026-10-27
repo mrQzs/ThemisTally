@@ -68,6 +68,20 @@ export function getState(runDir: string): string {
   return pyStrValue(pyGet(readJsonOr(path.join(runDir, "state.json"), new Map()), "state", "UNKNOWN"));
 }
 
+/**
+ * attempt_in_flight：attempt 还在运行（RUNNING、COLLECTING，或者已领取的 PREPARED）。collect --recover 与配置中心的运行中
+ * 切换确认共用；已经结束的 attempt 留着 claim/ 也不算。
+ */
+export function attemptInFlight(runDir: string): boolean {
+  const state = getState(runDir);
+  return stateInFlight(state, state === "PREPARED" && isDir(path.join(runDir, "claim")));
+}
+
+/** state_in_flight：判定本身，state 与“已领取”由调用方读出（配置中心在同一次读取上判定）。 */
+export function stateInFlight(state: string, claimed: boolean): boolean {
+  return state === "RUNNING" || state === "COLLECTING" || (state === "PREPARED" && claimed);
+}
+
 /** pi_dispatch.task_attempts：attempt-NNN 目录（跟随链接），按编号整数升序。 */
 export function taskAttempts(repo: Repo, taskId: string): string[] {
   const base = path.join(repo.runsDir, taskId);
