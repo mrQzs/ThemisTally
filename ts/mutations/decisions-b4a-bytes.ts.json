@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "loads",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "B01 UTF-8 不收编码的代理项",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      const second = cont(index + 1, lead === 0xe0 ? 0xa0 : 0x80, 0xbf);",
+      "new": "      const second = cont(index + 1, lead === 0xe0 ? 0xa0 : 0x80, lead === 0xed ? 0x9f : 0xbf);"
+    },
+    {
+      "name": "B02 E0 不查过长编码",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "      const second = cont(index + 1, lead === 0xe0 ? 0xa0 : 0x80, 0xbf);",
+      "new": "      const second = cont(index + 1, 0x80, 0xbf);"
+    },
+    {
+      "name": "B03 F4 不查上限",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "lead === 0xf4 ? 0x8f : 0xbf",
+      "new": "0xbf"
+    },
+    {
+      "name": "B04 UTF-8 的 BOM 不去掉",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "return utf8SurrogatePass(encoding === \"utf-8\" ? b : b.subarray(3));",
+      "new": "return utf8SurrogatePass(b);"
+    },
+    {
+      "name": "B05 UTF-32 不查超出 U+10FFFF",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "    if (value > 0x10ffff) throw undecodable(encoding);\n",
+      "new": ""
+    },
+    {
+      "name": "B06 UTF-16 长度是奇数也收",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "  if (body.length % width) throw undecodable(encoding);\n",
+      "new": ""
+    }
+  ]
+}

@@ -576,6 +576,7 @@ const CRED_TYPE_GENERIC = 1;
 
 interface CredentialApi {
   blobSize(target: string): number | null;
+  blob(target: string): Buffer | null;
   remove(target: string): boolean;
 }
 
@@ -602,6 +603,18 @@ async function bindCredentialApi(): Promise<CredentialApi> {
       const credential = Number(out[0]);
       try {
         return ffi.read.u32(credential, 32);
+      } finally {
+        call.CredFree(credential);
+      }
+    },
+    blob(target) {
+      const name = Buffer.from(`${target}\0`, "utf16le");
+      const out = new BigUint64Array(1);
+      if (!call.CredReadW(ffi.ptr(name), CRED_TYPE_GENERIC, 0, ffi.ptr(out))) return null;
+      const credential = Number(out[0]);
+      try {
+        const size = ffi.read.u32(credential, 32);
+        return size ? Buffer.from(ffi.toArrayBuffer(ffi.read.ptr(credential, 40), 0, size).slice(0)) : Buffer.alloc(0);
       } finally {
         call.CredFree(credential);
       }
@@ -636,6 +649,20 @@ export async function credentialBlobSize(target: string): Promise<number | null>
   }
   credentialApi ??= bindCredentialApi();
   return (await credentialApi).blobSize(target);
+}
+
+/**
+ * 凭据管理器里 target 这一项的值（CredentialBlob 的原始字节）；没有这一项为 null。只给决策会话构造请求头用（④b4，
+ * codekit/secrets.resolve），调用方不打印、不记录。Node 后备经辅助进程的管道传回。
+ */
+export async function credentialRead(target: string): Promise<Buffer | null> {
+  if (process.platform !== "win32") return null;
+  if (!isBun) {
+    const answer = await askHelper({ op: "cred_read", target });
+    return typeof answer["blob"] === "string" ? Buffer.from(answer["blob"], "base64") : null;
+  }
+  credentialApi ??= bindCredentialApi();
+  return (await credentialApi).blob(target);
 }
 
 /** 删掉凭据管理器里 target 这一项；删掉了为 true。 */

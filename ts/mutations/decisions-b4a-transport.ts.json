@@ -1,0 +1,112 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "传输",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "H01 留着 Connection 头",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    request.removeHeader(\"Connection\");\n",
+      "new": ""
+    },
+    {
+      "name": "H02 不发 Accept-Encoding",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    request.setHeader(\"Accept-Encoding\", \"identity\");\n",
+      "new": ""
+    },
+    {
+      "name": "H03 Host 总不带端口",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  return port === defaultPort ? encoded : `${encoded}:${port}`;",
+      "new": "  return encoded;"
+    },
+    {
+      "name": "H04 402 当成 http_402",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "402: \"credits_exhausted\", ",
+      "new": ""
+    },
+    {
+      "name": "H05 422 的正文不脱敏",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "decisionsRedact(pyDecodeUtf8Replace(data), 300)",
+      "new": "pyDecodeUtf8Replace(data)"
+    },
+    {
+      "name": "H06 恰好 MAX 也算过大",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (data.length > MAX_RESPONSE_BYTES) throw",
+      "new": "    if (data.length >= MAX_RESPONSE_BYTES) throw"
+    },
+    {
+      "name": "H07 分块断开当成读完",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "        else if (/chunked/iu.test(String(response.headers[\"transfer-encoding\"] ?? \"\"))) settle(new DecisionError(\"network\", \"IncompleteRead\"));\n",
+      "new": ""
+    },
+    {
+      "name": "H08 没收满就报 IncompleteRead",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "        else finish();",
+      "new": "        else settle(new DecisionError(\"network\", \"IncompleteRead\"));"
+    },
+    {
+      "name": "H09 行长不算 CRLF",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "(raw[index + 1] as string).length + 4 > MAX_LINE",
+      "new": "(raw[index + 1] as string).length + 2 > MAX_LINE"
+    },
+    {
+      "name": "H10 结尾的空行不计数",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  return raw.length / 2 + 1 > MAX_HEADERS ? \"HTTPException\" : null;",
+      "new": "  return null;"
+    },
+    {
+      "name": "H11 不放宽解析",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "maxHeaderSize: MAX_HEADERS * (MAX_LINE + 1), insecureHTTPParser: true,",
+      "new": "maxHeaderSize: MAX_HEADERS * (MAX_LINE + 1),"
+    },
+    {
+      "name": "H12 头部合计照缺省 16 KB",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "maxHeaderSize: MAX_HEADERS * (MAX_LINE + 1), insecureHTTPParser: true,",
+      "new": "insecureHTTPParser: true,"
+    },
+    {
+      "name": "H13 对端干净关闭当成 RST",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  if (code === \"ECONNRESET\" && error.message === \"socket hang up\") return new DecisionError(\"network\", \"RemoteDisconnected\");\n",
+      "new": ""
+    },
+    {
+      "name": "H14 证书校验失败当成 SSLError",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  if (CERT_VERIFY_CODES.has(code)) return new DecisionError(\"network\", \"SSLCertVerificationError\");\n",
+      "new": ""
+    },
+    {
+      "name": "H15 握手超时报 timed out",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "handshaken ? \"The read operation timed out\" : HANDSHAKE_TIMEOUT",
+      "new": "handshaken ? \"The read operation timed out\" : \"timed out\""
+    },
+    {
+      "name": "H16 收到数据不重新计时",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "      socket.on(\"data\", () => {\n        if (secure ? handshaken : connected) arm();\n      });\n",
+      "new": ""
+    }
+  ]
+}

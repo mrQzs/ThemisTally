@@ -10,6 +10,7 @@
 //   {"op":"interrupt"}                 → 正在运行的 supervise 照中断处理（调用方收到 Ctrl+C 之类的信号时转发）
 //   {"op":"cred_size","target":…}      → {"size":字节数或 null}，然后退出（凭据管理器，迁移第 ③a2 片；不读内容）
 //   {"op":"cred_delete","target":…}    → {"deleted":布尔}，然后退出
+//   {"op":"cred_read","target":…}      → {"blob":base64 或 null}，然后退出（决策会话的凭据，④b4；只经管道交回调用方）
 //   {"op":"file","request":{…}}        → {"failure":null 或 {"winerror","message"}}，然后退出（Win32 的 MoveFileExW、
 //                                        CreateDirectoryW，迁移第 ③ 步补；调用方同步等这一行）
 //   {"op":"message","winerror":N}      → {"message":FormatMessageW 的原文}，然后退出（同上）
@@ -17,7 +18,7 @@
 // 外部函数都在 native.ts，本文件不直接调 FFI。
 import "./harden.ts"; // 第一个 import：按名字起程序不查当前目录（第 77 轮）
 import { createInterface } from "node:readline";
-import { type FileLock, FileLockTimeout, type Win32FileOp, credentialBlobSize, credentialDelete, helperAcquire, initFileAttributes, win32ErrorMessage, win32FileOp } from "./native.ts";
+import { type FileLock, FileLockTimeout, type Win32FileOp, credentialBlobSize, credentialDelete, credentialRead, helperAcquire, initFileAttributes, win32ErrorMessage, win32FileOp } from "./native.ts";
 import { PyCrash } from "./pyfmt.ts";
 import { type InterruptFlag, type SuperviseOptions, helperSupervise } from "./supervise.ts";
 
@@ -63,10 +64,14 @@ lines.on("line", (line) => {
         process.exit(0);
       },
     );
-  } else if (request.op === "cred_size" || request.op === "cred_delete") {
+  } else if (request.op === "cred_size" || request.op === "cred_delete" || request.op === "cred_read") {
     const target = String((request as { target?: string }).target);
     const work: Promise<Record<string, unknown>> =
-      request.op === "cred_size" ? credentialBlobSize(target).then((size) => ({ size })) : credentialDelete(target).then((deleted) => ({ deleted }));
+      request.op === "cred_size"
+        ? credentialBlobSize(target).then((size) => ({ size }))
+        : request.op === "cred_read"
+          ? credentialRead(target).then((blob) => ({ blob: blob === null ? null : blob.toString("base64") }))
+          : credentialDelete(target).then((deleted) => ({ deleted }));
     work.then(
       (answer) => {
         reply(answer);

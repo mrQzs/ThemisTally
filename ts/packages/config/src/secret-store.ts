@@ -3,7 +3,7 @@
 // 写入（secret set）留在 Python（迁移计划第 ③ 步的不转交名单）。macOS Keychain 与 Linux secret-tool 的后端没有移植：
 // 第 ⑥ 步之前 TS 只在 Windows 上跑真实数据，POSIX 一侧未实机验证。
 import { lstatSync, statSync, unlinkSync } from "node:fs";
-import { credentialBlobSize, credentialDelete } from "@themis/base/native";
+import { credentialBlobSize, credentialDelete, credentialRead } from "@themis/base/native";
 import { PyCrash } from "@themis/base/pyfmt";
 import { PyOSError, PyUnicodeDecodeError, pyReadText } from "@themis/base/pyio";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
@@ -59,6 +59,8 @@ interface Backend {
   readonly name: string;
   /** 读到的值是否为真（非空）；读不出时为假。 */
   holds(name: string): Promise<boolean>;
+  /** 值本身（只给 resolve）；没有这一项时为 null。 */
+  read(name: string): Promise<string | null>;
   remove(name: string): Promise<boolean>;
 }
 
@@ -71,8 +73,20 @@ const windowsBackend: Backend = {
     if (size % 2 === 1) throw new PyCrash("UnicodeDecodeError", "'utf-16-le' codec can't decode byte: truncated data");
     return true;
   },
+  async read(name) {
+    const blob = await credentialRead(TARGET_PREFIX + name);
+    return blob === null ? null : utf16le(blob);
+  },
   remove: (name) => credentialDelete(TARGET_PREFIX + name),
 };
+
+/** raw.decode("utf-16-le")：长度是奇数或代理项不成对时 Python 抛 UnicodeDecodeError（resolve 不接，照样崩）。 */
+function utf16le(raw: Buffer): string {
+  if (raw.length % 2 === 1) throw new PyCrash("UnicodeDecodeError", "'utf-16-le' codec can't decode byte: truncated data");
+  const text = raw.toString("utf16le");
+  if (!text.isWellFormed()) throw new PyCrash("UnicodeDecodeError", "'utf-16-le' codec can't decode bytes: illegal UTF-16 surrogate");
+  return text;
+}
 
 const fileBackend: Backend = {
   name: "file",
@@ -87,6 +101,21 @@ const fileBackend: Backend = {
       return pyStrip(pyReadText(file)) !== "";
     } catch (error) {
       if (error instanceof PyOSError) return false;
+      if (error instanceof PyUnicodeDecodeError) throw new PyCrash("UnicodeDecodeError", error.message);
+      throw error;
+    }
+  },
+  async read(name) {
+    const file = purePathStr(secretsDir(), name);
+    try {
+      if (lstatSync(file).isSymbolicLink() || !statSync(file).isFile()) return null;
+    } catch {
+      return null;
+    }
+    try {
+      return pyStrip(pyReadText(file)) || null;
+    } catch (error) {
+      if (error instanceof PyOSError) return null;
       if (error instanceof PyUnicodeDecodeError) throw new PyCrash("UnicodeDecodeError", error.message);
       throw error;
     }
@@ -129,6 +158,23 @@ export async function source(name: string): Promise<string> {
     if (found) return backend === fileBackend ? "file" : "credential_store";
   }
   return "none";
+}
+
+/** secrets.resolve：值本身，只给要用它构造请求头的调用方（决策会话，④b4）。环境变量优先；读不出的后端跳过。 */
+export async function resolve(name: string): Promise<string | null> {
+  checkName(name);
+  const value = process.env[name];
+  if (value) return value;
+  for (const backend of backends()) {
+    let found: string | null = null;
+    try {
+      found = await backend.read(name);
+    } catch (error) {
+      if (error instanceof PyCrash) throw error;
+    }
+    if (found) return found;
+  }
+  return null;
 }
 
 /** 从每个后端删除；返回删掉了的后端名。 */

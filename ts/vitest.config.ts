@@ -7,5 +7,7 @@ export default defineConfig({
     environment: "node",
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    // 装好戳记过期就整轮先停（不跑几分钟才看到经启动器的契约一片红）
+    globalSetup: ["./vitest.global-setup.mjs"],
   },
 });

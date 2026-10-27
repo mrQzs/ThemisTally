@@ -499,6 +499,92 @@ export function loads(text: string): PyValue {
   return loadsWith(text, PY_BUILDER);
 }
 
+/**
+ * json.loads(bytes)（④b4，决策端点的回复）：照 json.detect_encoding 认出 UTF-8（带不带 BOM）、UTF-16、UTF-32，按
+ * surrogatepass 解码再解析。解不了码时抛 ValueError（Python 的 UnicodeDecodeError 是它的子类）。
+ */
+export function loadsBytes(data: Uint8Array): PyValue {
+  return loads(decodeDetected(data));
+}
+
+function detectEncoding(b: Uint8Array): string {
+  const starts = (...prefix: number[]): boolean => prefix.every((byte, index) => b[index] === byte);
+  if (starts(0x00, 0x00, 0xfe, 0xff) || starts(0xff, 0xfe, 0x00, 0x00)) return "utf-32";
+  if (starts(0xfe, 0xff) || starts(0xff, 0xfe)) return "utf-16";
+  if (starts(0xef, 0xbb, 0xbf)) return "utf-8-sig";
+  if (b.length >= 4) {
+    if (!b[0]) return b[1] ? "utf-16-be" : "utf-32-be";
+    if (!b[1]) return b[2] || b[3] ? "utf-16-le" : "utf-32-le";
+  } else if (b.length === 2) {
+    if (!b[0]) return "utf-16-be";
+    if (!b[1]) return "utf-16-le";
+  }
+  return "utf-8";
+}
+
+const undecodable = (encoding: string): PyJsonError => new PyJsonError("ValueError", `'${encoding}' codec can't decode the reply`);
+
+function decodeDetected(b: Uint8Array): string {
+  const encoding = detectEncoding(b);
+  if (encoding === "utf-8" || encoding === "utf-8-sig") return utf8SurrogatePass(encoding === "utf-8" ? b : b.subarray(3));
+  const width = encoding.startsWith("utf-16") ? 2 : 4;
+  let little = encoding.endsWith("-le");
+  let body = b;
+  if (encoding === "utf-16" || encoding === "utf-32") {
+    little = b[0] === 0xff;
+    body = b.subarray(width);
+  }
+  if (body.length % width) throw undecodable(encoding);
+  const units: number[] = [];
+  for (let index = 0; index < body.length; index += width) {
+    const at = (offset: number): number => body[little ? index + offset : index + width - 1 - offset] ?? 0;
+    const value = width === 2 ? at(0) | (at(1) << 8) : (at(0) | (at(1) << 8) | (at(2) << 16) | (at(3) << 24)) >>> 0;
+    if (value > 0x10ffff) throw undecodable(encoding);
+    if (width === 2 || value < 0x10000) units.push(value);
+    else units.push(0xd800 + ((value - 0x10000) >> 10), 0xdc00 + ((value - 0x10000) & 0x3ff));
+  }
+  return fromUnits(units);
+}
+
+/** UTF-8 照 CPython 的严格规则，只多收 ED A0–BF 开头的三字节代理项（surrogatepass）。 */
+function utf8SurrogatePass(b: Uint8Array): string {
+  const units: number[] = [];
+  const cont = (index: number, low = 0x80, high = 0xbf): number => {
+    const byte = b[index];
+    if (byte === undefined || byte < low || byte > high) throw undecodable("utf-8");
+    return byte & 0x3f;
+  };
+  let index = 0;
+  while (index < b.length) {
+    const lead = b[index] as number;
+    if (lead < 0x80) {
+      units.push(lead);
+      index += 1;
+    } else if (lead >= 0xc2 && lead <= 0xdf) {
+      units.push(((lead & 0x1f) << 6) | cont(index + 1));
+      index += 2;
+    } else if (lead >= 0xe0 && lead <= 0xef) {
+      const second = cont(index + 1, lead === 0xe0 ? 0xa0 : 0x80, 0xbf);
+      units.push(((lead & 0x0f) << 12) | (second << 6) | cont(index + 2));
+      index += 3;
+    } else if (lead >= 0xf0 && lead <= 0xf4) {
+      const second = cont(index + 1, lead === 0xf0 ? 0x90 : 0x80, lead === 0xf4 ? 0x8f : 0xbf);
+      const value = ((lead & 0x07) << 18) | (second << 12) | (cont(index + 2) << 6) | cont(index + 3);
+      units.push(0xd800 + ((value - 0x10000) >> 10), 0xdc00 + ((value - 0x10000) & 0x3ff));
+      index += 4;
+    } else {
+      throw undecodable("utf-8");
+    }
+  }
+  return fromUnits(units);
+}
+
+function fromUnits(units: readonly number[]): string {
+  let out = "";
+  for (let index = 0; index < units.length; index += 8192) out += String.fromCharCode(...units.slice(index, index + 8192));
+  return out;
+}
+
 /** rawDecode 的结果：end 按码点（Python 的 str 下标，kit_hub 把它写进“第 %d 个字符处”），endUnits 按 UTF-16 下标。 */
 export interface RawDecoded {
   readonly value: PyValue;

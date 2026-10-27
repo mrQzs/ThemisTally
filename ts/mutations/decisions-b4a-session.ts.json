@@ -1,0 +1,59 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "会话",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "S01 不重试",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "if (!RETRYABLE.has(error.code) || attempt > 1) throw error;",
+      "new": "if (!RETRYABLE.has(error.code) || attempt > 0) throw error;"
+    },
+    {
+      "name": "S02 503 不算可重试",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "\"http_500\", \"http_502\", \"http_503\", \"http_504\"",
+      "new": "\"http_500\", \"http_502\", \"http_504\""
+    },
+    {
+      "name": "S03 问题的 label 也发出去",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "filter(([field]) => field === \"type\" || field === \"instructions\" || field === \"criteria\")",
+      "new": "filter(() => true)",
+      "equivalent": "问题清单交给 ask 之前都经 check_question 规整过（Python 与 TS 都只留 type、instructions、criteria，label 另存在 labels 里），发出去时再过滤一遍是防御性的，现有路径上去掉它结果不变"
+    },
+    {
+      "name": "S04 用量不过滤",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "filter(([field]) => field === \"input_tokens\" || field === \"output_tokens\")",
+      "new": "filter(() => true)"
+    },
+    {
+      "name": "S05 不查像凭据的 state",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (isSensitive(encoded)) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "S06 记录行尾写 LF",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "(process.platform === \"win32\" ? String.fromCharCode(13) : \"\") + LF",
+      "new": "LF"
+    },
+    {
+      "name": "S07 记录的键不排序",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "dumps(record, { ensureAscii: false, sortKeys: true })",
+      "new": "dumps(record, { ensureAscii: false })"
+    }
+  ]
+}

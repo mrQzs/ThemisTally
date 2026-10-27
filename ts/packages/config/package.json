@@ -6,6 +6,7 @@
     "./cli": "./src/cli.ts",
     "./commands": "./src/commands.ts",
     "./decisions": "./src/decisions.ts",
+    "./decisions-client": "./src/decisions-client.ts",
     "./history": "./src/history.ts",
     "./plugin-records": "./src/plugin-records.ts",
     "./plugins-commands": "./src/plugins-commands.ts",

@@ -152,6 +152,7 @@
   - 检查过程中改动了候选文件，或产生了候选之外的新文件，门禁 G4 不通过。
   - 例外只有缓存类文件：默认是 Python 的 `__pycache__`、`*.pyc`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`。其他报告或缓存文件，加入 `.gitignore`，或写进 `.agent/dispatch.config.json` 的 `check_artifact_patterns`。
 - **`check --fresh`**：在一个干净副本（基线 + 候选补丁 + 合同 setup）上运行检查，不受执行 worktree 中被忽略文件（依赖、构建产物）的影响。中高风险任务建议用它作为 PASS 依据；合同的 setup 要能在全新副本中准备好依赖。
+- **候选会改 `ts/` 下的 `package.json` 或 `bun.lock`**：setup 在执行器改文件之前运行，候选改了这两类文件之后 `ts/` 的装好戳记就过期：vitest 的 globalSetup 会整轮停下，经启动器转交 TS 的命令报“TS 依赖与 bun.lock 不一致”。检查命令里先跑一条 `bun install --frozen-lockfile`（cwd 为 `ts`；只按锁文件重新链接，不改依赖），或者用 `check --fresh`。
 - **修复类任务**：尽量让回归测试在旧实现上失败、在新实现上通过。
   - 派遣前用 `baseline` 在基线副本上运行全部检查，并记录结果。
   - 专门证明修复的探针（常见是 `python -c "…; print('PROBE_OK')"`）加上 `"expect_on_base": "fail"`，Markdown 检查行写“基线应失败”。

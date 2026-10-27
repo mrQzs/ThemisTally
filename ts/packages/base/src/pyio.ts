@@ -5,8 +5,7 @@
 //     ENOENT，从错误码分不出来；配置中心读的都是固定的文件名，遇不到。
 //   - UnicodeDecodeError：CPython 的 UTF-8 解码器报的第一个错误，位置与原因照 Objects/stringlib/codecs.h。
 //   - 读文本用通用换行（\r\n 与单独的 \r 都换成 \n），开头的 BOM 保留。
-import { readFileSync, statSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { pyRepr } from "./pyfmt.ts";
 
 const CRT_ERRNO: Readonly<Record<string, readonly [number, string]>> = {

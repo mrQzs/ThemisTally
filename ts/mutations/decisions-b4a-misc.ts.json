@@ -1,0 +1,46 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "用量|doctor|decisions_session",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "U01 布尔的 input_tokens 不算",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    else if (typeof value === \"boolean\") tokens += value ? 1n : 0n;\n",
+      "new": ""
+    },
+    {
+      "name": "U02 usage 是列表也不崩",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (!isDict(usage)) throw new PyCrash(\"AttributeError\", `'${pyTypeName(usage)}' object has no attribute 'get'`);\n",
+      "new": ""
+    },
+    {
+      "name": "U03 内容锁不符记成 ok",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "      facts.set(\"battery_lock\", \"drift\");",
+      "new": "      facts.set(\"battery_lock\", \"ok\");"
+    },
+    {
+      "name": "U04 清单被改过也当用法错误",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (error.code !== \"battery_drift\" || strict) throw",
+      "new": "    if (true) throw"
+    },
+    {
+      "name": "U05 清单被改过不留记录",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    recordBatteryDrift(settings, recordPath, point, error.detail, ctx.out);\n",
+      "new": ""
+    }
+  ]
+}

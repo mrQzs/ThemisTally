@@ -49,7 +49,7 @@ import {
   secretLikePaths,
   tokenShaped,
 } from "@themis/base/secrets";
-import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, floatRepr, intRepr, loads, rawDecode, unitIndex } from "@themis/base/pyjson";
+import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encodeUtf8, floatRepr, intRepr, loads, loadsBytes, rawDecode, unitIndex } from "@themis/base/pyjson";
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorType, pyReadBytes, pyReadText } from "@themis/base/pyio";
 import { cmpCodePoints, pyCasefold, pyIntParse, pyLower, pyNfc } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
@@ -69,6 +69,7 @@ import {
   settingsFromConfig,
   verifyBatteryLock,
 } from "@themis/config/decisions";
+import { Session, checkAnswer, decisionsSession, describe, httpTransport, probe, usageTotals } from "@themis/config/decisions-client";
 import {
   PluginError,
   canonicalBytes,
@@ -246,6 +247,57 @@ function decisionsCall(request: Request): Result {
     if (error instanceof DecisionError) return { ok: false, error: "DecisionError", code: error.code, detail: error.detail };
     if (error instanceof QuestionError) return { ok: false, error: "ValueError", message: error.message };
     if (error instanceof PyCrash) return { ok: false, error: error.kind };
+    throw error;
+  }
+}
+
+/** 与 python_probe.op_decisions_client 相同（④b4a）：值按 json.dumps 交回。 */
+async function decisionsClient(request: Request): Promise<Result> {
+  const text = (value: PyValue): string => dumps(value, { ensureAscii: false });
+  const settings = (pluginDir: string | null = null): Settings => settingsFromConfig(loads(String(request["config"])), null, pluginDir);
+  const optional = (key: string): string | null => (request[key] ? String(request[key]) : null);
+  try {
+    switch (request["fn"]) {
+      case "transport": {
+        const raw = await httpTransport(Buffer.from(String(request["body"]), "base64"), request["headers"] as [string, string][], Number(request["timeout"]), String(request["url"]));
+        return { ok: true, raw: raw.toString("base64") };
+      }
+      case "check_answer":
+        return { ok: true, value: text(checkAnswer(String(request["name"]), loads(String(request["question"])) as PyDict, loads(String(request["answer"])))) };
+      case "ask": {
+        const raw = loads(String(request["battery"])) as PyDict;
+        const battery = { id: raw.get("id") as string, version: raw.get("version") as string, sha256: raw.get("sha256") as string, questions: checkQuestions(raw.get("questions")) };
+        const session = new Session(settings(), optional("record"));
+        const context = request["context"] ? (loads(String(request["context"])) as PyDict) : null;
+        const results: PyValue[] = [];
+        for (const state of request["states"] as string[]) results.push(await session.ask(battery, loads(state), context));
+        return { ok: true, value: text(new Map<string, PyValue>([["results", results], ["calls", BigInt(session.calls)], ["answered", BigInt(session.answered)], ["input_tokens", BigInt(session.inputTokens)]])) };
+      }
+      case "usage_totals":
+        return { ok: true, value: text(usageTotals(loads(String(request["records"])) as PyDict[])) };
+      case "describe":
+        return { ok: true, value: text(await describe(settings(optional("plugin_dir")), optional("plugin_dir"))) };
+      case "probe":
+        return { ok: true, value: text(await probe(settings())) };
+      case "session": {
+        const printed: string[] = [];
+        const out = { print: (line = ""): void => void printed.push(`${line}${String.fromCharCode(10)}`) };
+        try {
+          const session = decisionsSession(loads(String(request["config"])), optional("agent_dir"), optional("record"), optional("point"), { kitRoot: String(request["kit_root"]), out }, Boolean(request["strict"]));
+          const value: PyValue = session === null ? null : new Map<string, PyValue>([["mode", session.mode], ["batteries", [...session.batteries.keys()].sort(cmpCodePoints)]]);
+          return { ok: true, value: text(value), stdout: printed.join("") };
+        } catch (error) {
+          if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code, stdout: printed.join("") };
+          throw error;
+        }
+      }
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+  } catch (error) {
+    if (error instanceof DecisionError) return { ok: false, error: "DecisionError", code: error.code, detail: error.detail };
+    if (error instanceof PyCrash) return { ok: false, error: error.kind };
+    if (error instanceof PyJsonError) return { ok: false, error: error.kind === "JSONDecodeError" ? "ValueError" : error.kind };
     throw error;
   }
 }
@@ -444,6 +496,7 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     }
   },
   "decisions.call": decisionsCall,
+  "decisions.client": decisionsClient,
   "config.call": configCall,
   "roles.call": rolesCall,
   "secret_store.call": secretStoreCall,
@@ -783,6 +836,14 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "pyjson.dumps": (request) =>
     textResult(dumps(fromTagged(request["value"] as Tagged), dumpsOptions(request["options"])), request["encode"]),
   "pyjson.loads": (request) => ({ ok: true, value: toTagged(loads(String(request["text"]))) }),
+  "pyjson.loads_bytes": (request) => {
+    try {
+      return { ok: true, value: toTagged(loadsBytes(Buffer.from(String(request["data"]), "base64"))) };
+    } catch (error) {
+      if (error instanceof PyJsonError && (error.kind === "ValueError" || error.kind === "JSONDecodeError")) return { ok: false, error: error.kind === "ValueError" ? "decode" : "json" };
+      throw error;
+    }
+  },
   "pyjson.raw_decode": (request) => {
     const text = String(request["text"]);
     const decoded = rawDecode(text, unitIndex(text, Number(request["index"] ?? 0)));

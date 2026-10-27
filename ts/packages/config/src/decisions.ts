@@ -337,6 +337,17 @@ export function verifyBatteryLock(pluginDir: string): Map<string, string> {
   return locked;
 }
 
+/** load_locked_batteries：运行时的入口（2.8.0）：先核对内容锁，再读清单，读到的字节也要等于锁里的。 */
+export function loadLockedBatteries(pluginDir: string): Map<string, Battery> {
+  const locked = verifyBatteryLock(pluginDir);
+  const batteries = loadBatteries(joinPath(pluginDir, "questions"));
+  for (const battery of batteries.values()) {
+    const name = battery.path.slice(battery.path.lastIndexOf(SEP) + 1);
+    if (locked.get(name) !== battery.sha256) throw new DecisionError("battery_drift", `${name} changed while it was being read`);
+  }
+  return batteries;
+}
+
 /** dispatch.config.json 的 decisions 对象解析后的结果，加上实际生效的模式与原因。 */
 export interface Settings {
   mode: string;

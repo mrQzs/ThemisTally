@@ -5,6 +5,8 @@ TS 实现的探针（ts_probe.ts）收发同样的 JSON，契约测试与对照�
 stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252），stdout 只写 ASCII。
 """
 import base64
+import contextlib
+import io
 import datetime
 import errno
 import ipaddress
@@ -117,6 +119,16 @@ def op_pyjson_dumps(request):
 
 def op_pyjson_loads(request):
     return {"ok": True, "value": to_tagged(json.loads(request["text"]))}
+
+
+def op_pyjson_loads_bytes(request):
+    """json.loads(bytes)（④b4a，决策端点的回复）：认编码、解码、解析；错误只分“解码”与“JSON”两类。"""
+    try:
+        return {"ok": True, "value": to_tagged(json.loads(base64.b64decode(request["data"])))}
+    except UnicodeDecodeError:
+        return {"ok": False, "error": "decode"}
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "json"}
 
 
 def op_pyjson_raw_decode(request):
@@ -634,6 +646,66 @@ def op_decisions_call(request):
     return {"ok": True, "value": to_tagged(value)}
 
 
+def op_decisions_client(request):
+    """④b4a 的决策客户端：传输、回答校验、会话、用量合计、doctor 的事实与探测、decisions_session。
+
+    值按 json.dumps 交回（int 与 float 照样分开）；决策调用的环境变量由测试经子进程的环境给。"""
+    fn = request["fn"]
+
+    def text(value):
+        return json.dumps(value, ensure_ascii=False)
+
+    def settings(plugin_dir=None):
+        return codekit_decisions.settings_from_config(json.loads(request["config"]), None, plugin_dir)
+
+    try:
+        if fn == "transport":
+            raw = codekit_decisions.http_transport(base64.b64decode(request["body"]), dict(request["headers"]),
+                                                   request["timeout"], request["url"])
+            return {"ok": True, "raw": base64.b64encode(raw).decode("ascii")}
+        if fn == "check_answer":
+            return {"ok": True, "value": text(codekit_decisions.check_answer(
+                request["name"], json.loads(request["question"]), json.loads(request["answer"])))}
+        if fn == "ask":
+            battery = json.loads(request["battery"])
+            battery["questions"] = codekit_decisions.check_questions(battery["questions"])
+            record = Path(request["record"]) if request.get("record") else None
+            session = codekit_decisions.Session(settings(), record)
+            context = json.loads(request["context"]) if request.get("context") else None
+            results = [session.ask(battery, json.loads(state), context) for state in request["states"]]
+            return {"ok": True, "value": text({"results": results, "calls": session.calls, "answered": session.answered,
+                                              "input_tokens": session.input_tokens})}
+        if fn == "usage_totals":
+            return {"ok": True, "value": text(codekit_decisions.usage_totals(json.loads(request["records"])))}
+        if fn == "describe":
+            plugin_dir = Path(request["plugin_dir"]) if request.get("plugin_dir") else None
+            return {"ok": True, "value": text(codekit_decisions.describe(settings(plugin_dir), plugin_dir))}
+        if fn == "probe":
+            return {"ok": True, "value": text(codekit_decisions.probe(settings()))}
+        if fn == "session":
+            saved = pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR
+            pi_dispatch.KIT_ROOT = Path(request["kit_root"])
+            pi_dispatch.DECISIONS_PLUGIN_DIR = pi_dispatch.KIT_ROOT / "plugins" / "decisions"
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    session = pi_dispatch.decisions_session(
+                        json.loads(request["config"]), Path(request["agent_dir"]) if request.get("agent_dir") else None,
+                        Path(request["record"]) if request.get("record") else None, request.get("point"),
+                        strict=bool(request.get("strict")))
+            except pi_dispatch.DispatchError as exc:
+                return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code, "stdout": out.getvalue()}
+            finally:
+                pi_dispatch.KIT_ROOT, pi_dispatch.DECISIONS_PLUGIN_DIR = saved
+            value = None if session is None else {"mode": session.mode, "batteries": sorted(session.batteries)}
+            return {"ok": True, "value": text(value), "stdout": out.getvalue()}
+    except codekit_decisions.DecisionError as exc:
+        return {"ok": False, "error": "DecisionError", "code": exc.code, "detail": exc.detail}
+    except (ValueError, OverflowError, TypeError, AttributeError, KeyError, RecursionError) as exc:
+        return {"ok": False, "error": type(exc).__name__}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_config_call(request):
     """kit_config 的整份校验与读配置、kit_roles.config_errors、pi_dispatch 的几个校验函数。
 
@@ -885,6 +957,8 @@ OPS = {
     "pyjson.loads": op_pyjson_loads,
     "pyjson.roundtrip": op_pyjson_roundtrip,
     "pyjson.raw_decode": op_pyjson_raw_decode,
+    "pyjson.loads_bytes": op_pyjson_loads_bytes,
+    "decisions.client": op_decisions_client,
 }
 
 

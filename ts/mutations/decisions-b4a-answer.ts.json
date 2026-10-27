@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "回答校验",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "A01 不夹到 0..1",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "  return Math.min(1.0, Math.max(0.0, number));",
+      "new": "  return number;"
+    },
+    {
+      "name": "A02 不查 argmax",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (mass < top - ARGMAX_TOLERANCE) throw",
+      "new": "    if (false) throw"
+    },
+    {
+      "name": "A03 不查 score 与分布的均值",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (Math.abs(mean - score) > SCORE_MEAN_TOLERANCE) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "A04 等级键 int() 不认的也收",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "function intOf(text: string): bigint {\n  const value = pyIntParse(text);",
+      "new": "function intOf(text: string): bigint {\n  const value = pyIntParse(text) ?? 0n;"
+    },
+    {
+      "name": "A05 等级超出也收",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "      if (!isdigit(text) || intOf(text) >= BigInt(levels)) {",
+      "new": "      if (!isdigit(text)) {"
+    },
+    {
+      "name": "A06 score 的 confidence 缺省 0.5",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": ": 1.0, `${name}.confidence`)], [\"levels\"",
+      "new": ": 0.5, `${name}.confidence`)], [\"levels\""
+    }
+  ]
+}
