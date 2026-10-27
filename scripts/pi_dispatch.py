@@ -8992,7 +8992,28 @@ def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int
     return code
 
 
+#: 不弹系统错误框的错误模式：SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX（第 123 轮）。
+QUIET_ERROR_MODE = 0x8003
+
+
+def quiet_error_mode() -> None:
+    """Windows 上给本进程加上 QUIET_ERROR_MODE（与原有的模式按位或），之后起的子进程都继承（第 123 轮）。
+
+    控制台进程还在初始化时就收到 CTRL_BREAK（run_supervised 超时或中断时发给整个进程组），DLL 初始化失败
+    （0xC0000142）。进程的错误模式没有这几位时，系统弹出“Application Error”硬错误框，进程一直卡到有人点确定；
+    hub 无人值守时要等 Job 被结束才消失。有了就当场以 0xC0000142 退出。全仓库没有用 CREATE_DEFAULT_ERROR_MODE
+    起子进程的地方，所以设在入口就一路传下去。
+    """
+    if not IS_WINDOWS:
+        return
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetErrorMode(kernel32.GetErrorMode() | QUIET_ERROR_MODE)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    quiet_error_mode()
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]

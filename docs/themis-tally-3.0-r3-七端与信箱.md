@@ -2074,6 +2074,17 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **回退**：选择文件的 `config` 改回 `python`，一次提交。
 - **更正（2026-10-26，themistally-15 复核时要求）**：第 122 轮提交说明里的 A3（“没装 TS 依赖的临时 worktree 里全量 pytest 3015 passed”）不成立：那个 worktree 里先跑了全部门禁基准，ui 门禁的流水线自己 `bun install --frozen-lockfile`、写下了装好戳记，之后的全量其实装了依赖。2026-10-26 在 d1873a9 的新 worktree 里补跑（同一条命令里先后核对 `ts/node_modules` 不在）：1 failed / 3029 passed / 229 skipped，失败的是 `test_exe_search` 的 `status --json`（第 64 轮把 readonly 切到 TS 起就有，报“TS 实现没装好”）；另有 `test_kit_v300` 的 RepoArgument 里 `plugins list` 被启动器的同一句报错蒙过去（只断言了 `ERROR:` 与退出码 2）。两处都由迁移计划 D5 修好（迁移计划第 ④ 节）。
 
+### 第 123 轮：入口进程不弹系统错误框（2026-10-26）
+
+- **起因**：站主问“python 一直报错”：桌面上弹出“python.exe - Application Error：The application was unable to start correctly (0xc0000142)”。系统日志（System，来源 Application Popup，事件 26）10-26 20:28 到 10-27 04:24（UTC）共 8 次，都在跑全量 pytest 或门禁的时候。themistally-15 查出成因并实测了修法：控制台进程还在初始化时就收到 CTRL_BREAK（`run_supervised` 超时或中断时发给整个进程组；测试里超时很短、子进程一起来就起孙进程的用例，负载重时孙进程正好赶上），DLL 初始化失败；进程的错误模式缺 SEM_FAILCRITICALERRORS 这几位时，系统弹硬错误框，进程卡到有人点“确定”。生产里同样会发生：hub 无人值守时，卡住的进程要等 Job 被结束才消失。
+- **实测**：Python 进程的缺省错误模式是 0；Node 与 Bun 启动时（libuv）自己就设了 0x8003（SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX），它们起的子进程都继承，所以弹的都是 python.exe。设了 0x8003 的进程起子进程、立即给它的进程组发 CTRL_BREAK：5 次都当场以 0xC0000142 退出，系统日志没有新的事件 26。
+- **改动**：
+  - `pi_dispatch.quiet_error_mode()`：Windows 上把 `QUIET_ERROR_MODE = 0x8003` 与原有的模式按位或。`pi_dispatch.main` 与 `kit_hub.main` 一开头就调用：supervisor、runner 与它们起的门禁、执行器、检查都经这两个入口。全仓库没有用 CREATE_DEFAULT_ERROR_MODE 起子进程的地方，设在入口就一路传下去。
+  - `tests/conftest.py` 一导入就设上：进程内调 `run_supervised` 的用例与 pytest 起的子进程都继承。
+  - TS 一侧不改：运行时已经设了。起初照提议在 `native.ts` 加了 `quietErrorMode`、给 vitest 写了启动器，变异显示它们是空转（去掉也照样带着这几位），撤掉；改成用例钉住这个前提。
+- **测试**（`tests/test_quiet_error_mode.py`，只在 Windows 上跑）：都从 CREATE_DEFAULT_ERROR_MODE 起的进程出发（不继承 conftest 设的），核对：对照组缺这几位；经 `pi_dispatch.main`、`kit_hub.main` 之后起的子进程带着；Bun 起 TS 入口与 Node 后备的辅助进程、Node 起的子进程本来就带着（哪天运行时不再这么做，就要在 TS 入口自己设）；pytest 进程自己带着；照 themistally-15 的实验起子进程后立即发 CTRL_BREAK，5 次都在超时之内退出、至少一次是 0xC0000142、事件 26 的计数不变。只测“设了模式”这一边：修坏了也只是等到超时、结束进程树，不故意弹框。数值在用例里写死，不读常数。变异 4 个（两个入口不调、常数只剩 0x3、conftest 不设），全部抓住。
+- **验证**：本轮 worktree 的全量 pytest 3041 passed / 228 skipped（13 分 33 秒），跑之前与之后各数一次事件 26：9 → 9。TS 没有改动，全量 vitest 随下一片（④b6）跑，同样前后数一次。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

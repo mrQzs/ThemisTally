@@ -18,6 +18,13 @@ import pytest
 
 SLOW_FIXTURE = "pipeline"
 
+if os.name == "nt":
+    # 跑测试时起的子进程都继承这个错误模式（与 pi_dispatch.QUIET_ERROR_MODE 相同，第 123 轮）：还在初始化时就收到
+    # CTRL_BREAK 的子进程当场以 0xC0000142 退出，不弹“Application Error”硬错误框、不卡到有人点确定
+    import ctypes
+
+    ctypes.windll.kernel32.SetErrorMode(ctypes.windll.kernel32.GetErrorMode() | 0x8003)
+
 
 @pytest.fixture(autouse=True)
 def python_kernel_impl(request, monkeypatch, tmp_path_factory):

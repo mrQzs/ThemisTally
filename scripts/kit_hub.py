@@ -6603,6 +6603,7 @@ def cmd_exclusive(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    pd.quiet_error_mode()  # supervisor、runner 与它们起的门禁、执行器都继承（第 123 轮）
     # 控制台代码页不是 UTF-8 时（例如 cp1252）：中文输出会抛错，`send` 从管道读进来的中文会变成乱码
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
