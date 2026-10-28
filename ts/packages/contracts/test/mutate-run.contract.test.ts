@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BREAK_INNER, BREAK_OUTER, PYTHON, TS_CONTEXT, fullAttempt, state, type AttemptOptions } from "./attempt-fixtures.ts";
 import { KEY_NAME, type Reply, startEndpoint } from "./endpoint-fixtures.ts";
 import { pythonCliCommand, tsCliCommand } from "./harness.ts";
-import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { DIRECT_RUNNERS, LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 const CR = String.fromCharCode(13);
 const SEP = String.fromCharCode(92);
@@ -322,7 +322,7 @@ describe("D2：命令的进程组收到 CTRL_BREAK", () => {
 
 /** 读到 M01 的结果行、再等一秒，给 mutate 的进程组发 CTRL_BREAK（这时 M02 的命令睡着）。三边一致，交回 Python 的结果。 */
 function runBreak(spec: unknown): { status: number; stdout: string } {
-  const results = (RUNNERS as readonly Runner[]).map((runner) => {
+  const results = DIRECT_RUNNERS.map((runner) => {
     const { repo } = newRepo(`mbr-${runner}`);
     put(repo, ".agent/dispatch.config.json", JSON.stringify({ kill_grace_seconds: 1 }));
     const tree = buildTree();

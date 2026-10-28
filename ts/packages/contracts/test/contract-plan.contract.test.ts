@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { type CliRun, type ProbeRequest, type ProbeResult, REPO, removeDir, runAgreeing, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
+import { type CliRun, type ProbeRequest, type ProbeResult, REPO, removeDir, runAgreeing, runDispatcherLauncherCli, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
 import { type Json, type MdOptions, jsonOf, mdOf, text } from "./plan-fixtures.ts";
 
 const ch = (...codes: number[]): string => String.fromCodePoint(...codes);
@@ -288,8 +288,9 @@ describe("validate_plan", () => {
 
 // --- 命令一层 ------------------------------------------------------------------------------------
 
-type Runner = "python" | "node" | "bun";
-const RUNNERS: readonly Runner[] = ["python", "node", "bun"];
+/** launcher：选择文件的 dispatcher 是 ts，经真的启动器转交（第 ④ 步切换）。 */
+type Runner = "python" | "node" | "bun" | "launcher";
+const RUNNERS: readonly Runner[] = ["python", "node", "bun", "launcher"];
 
 interface Step {
   readonly label: string;
@@ -347,6 +348,7 @@ function steps(repo: string): Step[] {
 
 function runStep(runner: Runner, repo: string, step: Step): CliRun {
   if (runner === "python") return runPythonCli(["--repo", repo, ...step.argv], repo);
+  if (runner === "launcher") return runDispatcherLauncherCli(["--repo", repo, ...step.argv], repo);
   return runTsCli(runner, step.args, repo);
 }
 

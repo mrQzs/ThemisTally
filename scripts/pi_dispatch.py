@@ -233,6 +233,36 @@ TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
 #: 配置中心命令的路径后两段由哪个 dest 给出（runtime add 的 --command 会压掉 command，路径不能读它）
 CONFIG_ACTION_DESTS = (("runtime", "runtime_action"), ("profile", "profile_action"), ("role", "role_action"),
                        ("preset", "preset_action"))
+#: dispatcher 选 ts 时转交给 TS 的命令（迁移计划第 ④ 步的切换），值是交给 TS 的参数键，名单写死。status 只在带
+#: --assess 时由这份名单转交（不带的照 readonly 走 TS_READONLY_COMMANDS）；decisions 按 decisions_cmd 分成两条。
+#: config、logs、plugins、ui 各走各的名单。tests/test_kernel_impl.py 核对每条的键与 argparse 的 Namespace 一致。
+TS_DISPATCHER_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
+    ("doctor",): ("repo", "provider", "model", "thinking", "out", "probe_decisions"),
+    ("smoke",): ("repo", "provider", "model", "thinking", "timeout", "out", "keep"),
+    ("validate",): ("repo", "plan_key"),
+    ("derive-json",): ("repo", "plan_key", "title", "force", "print_only"),
+    ("baseline",): ("repo", "plan_key", "only", "keep_workspace"),
+    ("prepare",): ("repo", "plan_key"),
+    ("run",): ("repo", "run_dir", "timeout"),
+    ("collect",): ("repo", "run_dir", "recover"),
+    ("check",): ("repo", "run_dir", "only", "fresh", "keep_workspace"),
+    ("mutate",): ("repo", "run_dir", "spec", "keep_workspace", "tree", "out", "check_anchors"),
+    ("wait",): ("repo", "run_dir", "timeout", "interval", "assess", "assess_interval"),
+    ("sync-adapters",): ("repo", "check"),
+    ("verdict",): ("repo", "run_dir", "verdict", "review", "failure_class", "waive", "decided_by", "human_minutes",
+                   "note"),
+    ("status",): ("repo", "task_id", "json", "assess"),
+    ("decisions",): ("repo", "decisions_cmd"),
+    ("decisions", "replay"): ("repo", "decisions_cmd", "task_id", "json", "out"),
+    ("release-check",): ("repo", "allow", "denylist"),
+    ("metrics",): ("repo", "out"),
+    ("branch",): ("repo", "run_dir", "name", "rework", "trailer", "no_config_trailers"),
+    ("review-draft",): ("repo", "run_dir", "out", "force"),
+    ("integrate",): ("repo", "run_dir", "dry_run", "skip", "reason", "recheck", "name", "trailer", "no_config_trailers",
+                     "keep_worktree", "keep_workspace", "while_running"),
+    ("mark",): ("repo", "run_dir", "state", "ref", "reason", "force"),
+    ("cleanup",): ("repo", "run_dir", "force"),
+}
 DEPENDENCY_PATTERNS = (
     "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json", "**/pnpm-lock.yaml",
     "**/pnpm-workspace.yaml", "**/yarn.lock", "**/bun.lock", "**/bun.lockb", "**/.npmrc",
@@ -8973,6 +9003,27 @@ def config_handoff(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     return pyargs
 
 
+def dispatcher_handoff(args: argparse.Namespace, impl: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """dispatcher 选 ts 时，这条调度器命令要不要交给 TS：要就返回交给 TS 的参数（pyargs-v1），不要就返回 None。
+    名单 TS_DISPATCHER_COMMANDS；status 只有带 --assess 的归这里。不先找仓库：TS 在 Python 找仓库的那一步找，报错
+    逐字相同（各命令的契约都比过）。context 交 kit 根、选择文件，以及本机的 platform.platform()、
+    platform.python_version()、platform.machine()（迁移计划 D1：TS 拿不到 Python 的这些值）。"""
+    command = getattr(args, "command", None)
+    path: Tuple[str, ...] = (command,) if command else ()
+    if command == "decisions" and getattr(args, "decisions_cmd", None):
+        path = (command, args.decisions_cmd)
+    if path == ("status",) and not args.assess:
+        return None
+    keys = TS_DISPATCHER_COMMANDS.get(path)
+    if keys is None:
+        return None
+    pyargs: Dict[str, Any] = {"command": list(path)}
+    pyargs.update((key, getattr(args, key)) for key in keys)
+    pyargs["context"] = {"kit_root": str(KIT_ROOT), "kernel_impl": dict(impl), "platform": platform.platform(),
+                         "python": platform.python_version(), "machine": platform.machine()}
+    return pyargs
+
+
 def config_argv_path(words: Sequence[str]) -> Tuple[str, ...]:
     """argv_impl 用：hub 写法的 config、plugins 命令在 TS_CONFIG_COMMANDS 里的路径（不解析选项）。"""
     if len(words) < 2:
@@ -8987,7 +9038,8 @@ def config_argv_path(words: Sequence[str]) -> Tuple[str, ...]:
 def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str:
     """这条调度器命令由哪一套实现回答，hub 账本的 dispatcher.called 记它。与 readonly_handoff、config_handoff 同一份
     名单：选择文件的 readonly 是 ts、命令在 TS_READONLY_COMMANDS 里（status 不带 --assess）才是 ts；config 是 ts、
-    命令在 TS_CONFIG_COMMANDS 里（secret set 除外）才是 ts。只认 hub 的写法（可选的全局
+    命令在 TS_CONFIG_COMMANDS 里（secret set 除外）才是 ts；dispatcher 是 ts、命令在 TS_DISPATCHER_COMMANDS 里（status 只算
+    带 --assess 的）才是 ts。只认 hub 的写法（可选的全局
     --repo，之后是完整拼写的子命令），带 -h 的按 python 算；hub 总在主工作区运行，碰不到 discover 出错转回 Python。
     只有 TS 实现的命令（TS_ONLY_COMMANDS，第 73 轮）与选择文件无关，总是 ts。"""
     words = list(argv)
@@ -9001,6 +9053,9 @@ def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str
     if words[:1] in (["config"], ["plugins"]):
         listed = config_argv_path(words) in TS_CONFIG_COMMANDS and words[1:3] != ["secret", "set"]
         return "ts" if chosen["config"] == "ts" and listed else "python"
+    assess = words[:1] == ["status"] and "--assess" in words
+    if assess or (words[:1] != ["status"] and tuple(words[:1]) in TS_DISPATCHER_COMMANDS):
+        return "ts" if chosen["dispatcher"] == "ts" else "python"
     if chosen["readonly"] != "ts":
         return "python"
     if words[:1] == ["status"]:
@@ -9116,6 +9171,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 return run_handoff(ts_launch_command(pyargs))
         if impl["config"] == "ts":
             pyargs = config_handoff(args)
+            if pyargs is not None:
+                return run_handoff(ts_launch_command(pyargs))
+        if impl["dispatcher"] == "ts":
+            pyargs = dispatcher_handoff(args, impl)
             if pyargs is not None:
                 return run_handoff(ts_launch_command(pyargs))
         return int(args.func(args))

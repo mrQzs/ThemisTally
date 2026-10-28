@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { type CliRun, REPO, removeDir, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
+import { type CliRun, REPO, removeDir, runDispatcherLauncherCli, runPythonCli, runTsCli, scratchDir } from "./harness.ts";
 
 export const LF = String.fromCharCode(10);
 const SLASH = String.fromCharCode(92);
@@ -85,12 +85,16 @@ function longPath(value: string): string {
   }
 }
 
-export type Runner = "python" | "node" | "bun";
-export const RUNNERS: readonly Runner[] = ["python", "node", "bun"];
+/** python：钉成 Python 回答；node、bun：直接起 TS 入口；launcher：选择文件的 dispatcher 是 ts，经真的启动器转交（第 ④ 步切换）。 */
+export type Runner = "python" | "node" | "bun" | "launcher";
+export const RUNNERS: readonly Runner[] = ["python", "node", "bun", "launcher"];
+/** 自己拼命令行的用例（中断用例）用这三种：启动器把 CTRL_BREAK 转给 TS 在切换 b 才有。 */
+export const DIRECT_RUNNERS: readonly ("python" | "node" | "bun")[] = ["python", "node", "bun"];
 
 /** 一条命令：Python 的 argv（--repo 之后）与 TS 的 pyargs。merged 见 harness 的 cliRun。 */
 export function runCommand(runner: Runner, repo: string, argv: readonly string[], args: Record<string, unknown>, cwd = repo, merged = false): CliRun {
   if (runner === "python") return runPythonCli(["--repo", repo, ...argv], cwd, merged);
+  if (runner === "launcher") return runDispatcherLauncherCli(["--repo", repo, ...argv], cwd, merged);
   return runTsCli(runner, { repo, ...args }, cwd, merged);
 }
 

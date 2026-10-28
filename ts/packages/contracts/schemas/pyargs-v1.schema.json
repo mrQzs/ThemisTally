@@ -2505,6 +2505,2698 @@
           }
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "provider",
+        "model",
+        "thinking",
+        "out",
+        "probe_decisions",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "doctor"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "probe_decisions": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "provider",
+        "model",
+        "thinking",
+        "timeout",
+        "out",
+        "keep",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "smoke"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "integer"
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keep": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plan_key",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "validate"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_key": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plan_key",
+        "title",
+        "force",
+        "print_only",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "derive-json"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_key": {
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "print_only": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plan_key",
+        "only",
+        "keep_workspace",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "baseline"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_key": {
+          "type": "string"
+        },
+        "only": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keep_workspace": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "plan_key",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "prepare"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_key": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "timeout",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "run"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "recover",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "collect"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "recover": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "only",
+        "fresh",
+        "keep_workspace",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "check"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "only": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fresh": {
+          "type": "boolean"
+        },
+        "keep_workspace": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "spec",
+        "keep_workspace",
+        "tree",
+        "out",
+        "check_anchors",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "mutate"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spec": {
+          "type": "string"
+        },
+        "keep_workspace": {
+          "type": "boolean"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "check_anchors": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "timeout",
+        "interval",
+        "assess",
+        "assess_interval",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "wait"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "integer"
+        },
+        "interval": {
+          "type": "number"
+        },
+        "assess": {
+          "type": "boolean"
+        },
+        "assess_interval": {
+          "type": "number"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "check",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "sync-adapters"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "check": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "verdict",
+        "review",
+        "failure_class",
+        "waive",
+        "decided_by",
+        "human_minutes",
+        "note",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "verdict"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "ACCEPTED_WITH_EXCEPTION",
+            "REVISE",
+            "BLOCKED",
+            "ESCALATE"
+          ]
+        },
+        "review": {
+          "type": "string"
+        },
+        "failure_class": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "PLAN_ERROR",
+                "EXECUTION_ERROR",
+                "INFRA_FAILURE",
+                "SCOPE_VIOLATION",
+                "REQUIREMENT_BLOCKED",
+                "TIMEOUT",
+                "BUDGET_EXCEEDED",
+                "CANCELLED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waive": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "human_minutes": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "task_id",
+        "json",
+        "assess",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "status"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "assess": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "decisions_cmd",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "decisions"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decisions_cmd": {
+          "anyOf": [
+            {
+              "const": "replay"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "decisions_cmd",
+        "task_id",
+        "json",
+        "out",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "decisions",
+            "replay"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decisions_cmd": {
+          "anyOf": [
+            {
+              "const": "replay"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "allow",
+        "denylist",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "release-check"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "allow": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "denylist": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "out",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "metrics"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "name",
+        "rework",
+        "trailer",
+        "no_config_trailers",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "branch"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rework": {
+          "type": "boolean"
+        },
+        "trailer": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "no_config_trailers": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "out",
+        "force",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "review-draft"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "out": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "dry_run",
+        "skip",
+        "reason",
+        "recheck",
+        "name",
+        "trailer",
+        "no_config_trailers",
+        "keep_worktree",
+        "keep_workspace",
+        "while_running",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "integrate"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "skip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recheck": {
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trailer": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "no_config_trailers": {
+          "type": "boolean"
+        },
+        "keep_worktree": {
+          "type": "boolean"
+        },
+        "keep_workspace": {
+          "type": "boolean"
+        },
+        "while_running": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "state",
+        "ref",
+        "reason",
+        "force",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "mark"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "INTEGRATED",
+            "ABANDONED",
+            "SUPERSEDED"
+          ]
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "run_dir",
+        "force",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "cleanup"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_dir": {
+          "type": "string"
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "machine"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   ]
 }

@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { BREAK_OUTER, PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
 import { pythonCliCommand, tsCliCommand } from "./harness.ts";
 import { type Json, type MdOptions, jsonOf, mdOf, text } from "./plan-fixtures.ts";
-import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { DIRECT_RUNNERS, LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(() => removeCreated());
 
@@ -262,7 +262,7 @@ describe("D2：setup 跑到一半，prepare 的进程组收到 CTRL_BREAK", () =
       label: "D2", status: 1,
       json: (data) => void (data["setup"] = [setupItem("S01", "open('started.flag', 'w').close(); import time; time.sleep(30)")]),
     };
-    const results = (RUNNERS as readonly Runner[]).map((runner) => {
+    const results = DIRECT_RUNNERS.map((runner) => {
       const { repo, wtRoot, paths } = buildRepo(runner, item);
       const command = runner === "python" ? pythonCliCommand(["--repo", repo, "prepare", "t1.v1"]) : tsCliCommand(runner, { repo, ...ARGS });
       const done = spawnSync(PYTHON, ["-c", BREAK_OUTER, BREAK_ON_FLAG, JSON.stringify(command), repo, wtRoot], { encoding: "utf8", timeout: 150_000 });

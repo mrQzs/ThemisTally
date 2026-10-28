@@ -839,3 +839,77 @@ def test_a_listed_config_command_without_ts_reports_the_missing_entry(tmp_path):
         done = main_with(selector, tmp_path / "no-ts", argv, repo)
         assert done.returncode == pd.EXIT_USAGE and done.stdout == b""
         assert "选择文件指向 ts，但找不到 TS 入口" in done.stderr.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# 调度器命令（第 ④ 步的切换）
+# ---------------------------------------------------------------------------
+
+DISPATCHER_TS = dict(CONFIG_TS, dispatcher="ts")
+#: 每条调度器命令一个能过 argparse 的样例（名单里的全部路径）
+DISPATCHER_SAMPLES = [
+    ["doctor"], ["smoke", "--provider", "p", "--model", "m"], ["validate", "t.v1"], ["derive-json", "t.v1"], ["baseline", "t.v1"],
+    ["prepare", "t.v1"], ["run", "t"], ["collect", "t"], ["check", "t"], ["mutate", "--spec", "s.json"], ["wait", "t"],
+    ["sync-adapters"], ["verdict", "t", "--verdict", "PASS", "--review", "r.md"], ["status", "--assess"], ["decisions"],
+    ["decisions", "replay"], ["release-check"], ["metrics"], ["branch", "t"], ["review-draft", "t"], ["integrate", "t"],
+    ["mark", "t", "ABANDONED"], ["cleanup", "t"],
+]
+
+
+def test_every_dispatcher_subcommand_is_on_the_list():
+    # argparse 多了子命令而名单没跟上，这里就红；config、logs、plugins、ui 各有各的名单，decisions 不带子命令也是一条
+    leaves = [path for path in leaf_paths(pd.build_parser(), ()) if path[0] not in ("config", "logs", "plugins", "ui")]
+    assert sorted(leaves + [("decisions",)]) == sorted(pd.TS_DISPATCHER_COMMANDS)
+    handed = [tuple(pd.dispatcher_handoff(args_of(argv), DISPATCHER_TS)["command"]) for argv in DISPATCHER_SAMPLES]
+    assert sorted(handed) == sorted(pd.TS_DISPATCHER_COMMANDS)
+    assert not set(pd.TS_DISPATCHER_COMMANDS) & (set(pd.TS_CONFIG_COMMANDS) | set(pd.TS_ONLY_COMMANDS))
+
+
+@pytest.mark.parametrize("argv", DISPATCHER_SAMPLES, ids=lambda argv: " ".join(argv[:2]))
+def test_the_dispatcher_handoff_keys_match_argparse(argv):
+    # argparse 多了选项而名单没跟上，这里就红：不会悄悄丢掉一个参数
+    namespace = set(vars(pd.build_parser().parse_args(argv)))
+    pyargs = pd.dispatcher_handoff(args_of(argv), DISPATCHER_TS)
+    assert set(pd.TS_DISPATCHER_COMMANDS[tuple(pyargs["command"])]) == namespace - {"command", "func"}
+    assert set(pyargs) == namespace - {"func"} | {"context"}
+
+
+def test_dispatcher_handoff_passes_the_context_and_leaves_plain_status_alone():
+    pyargs = pd.dispatcher_handoff(args_of(["--repo", "R", "prepare", "t.v1"]), DISPATCHER_TS)
+    assert (pyargs["repo"], pyargs["plan_key"]) == ("R", "t.v1")
+    context = pyargs["context"]
+    assert context["kit_root"] == str(pd.KIT_ROOT) and context["kernel_impl"] == DISPATCHER_TS
+    assert (context["platform"], context["python"], context["machine"]) == (
+        pd.platform.platform(), pd.platform.python_version(), pd.platform.machine())
+    # 不带 --assess 的 status 照 readonly 的名单走；config 走自己的名单
+    assert pd.dispatcher_handoff(args_of(["status"]), DISPATCHER_TS) is None
+    assert pd.dispatcher_handoff(args_of(["config", "show"]), DISPATCHER_TS) is None
+
+
+def test_argv_impl_follows_the_dispatcher_switch():
+    for argv in (["prepare", "t.v1"], ["--repo", "R", "run", "t"], ["status", "--assess"], ["decisions", "replay"], ["integrate", "t"]):
+        assert pd.argv_impl(argv, CONFIG_TS) == "python", argv
+        assert pd.argv_impl(argv, DISPATCHER_TS) == "ts", argv
+    assert pd.argv_impl(["status"], dict(DISPATCHER_TS, readonly="python")) == "python"
+    assert pd.argv_impl(["run", "-h"], DISPATCHER_TS) == "python"
+
+
+def test_dispatcher_commands_stay_in_python_until_the_selector_says_ts(tmp_path):
+    # TS 目录不存在：要是转交了就会报“找不到 TS 入口”，输出与没有选择文件时逐字节相同才说明是 Python 答的
+    repo = git_repo(tmp_path / "repo")
+    missing = tmp_path / "no-selector.json"
+    config_ts = write_selector(tmp_path / "config.json", readonly="ts", config="ts")
+    for argv in (["validate", "nope.v1"], ["metrics"], ["status", "--assess"], ["sync-adapters", "--check"]):
+        before = main_with(missing, tmp_path / "no-ts", argv, repo)
+        after = main_with(config_ts, tmp_path / "no-ts", argv, repo)
+        assert (after.returncode, after.stdout, after.stderr) == (before.returncode, before.stdout, before.stderr), argv
+
+
+def test_a_listed_dispatcher_command_without_ts_reports_the_missing_entry(tmp_path):
+    # 不回退：选择文件指向 ts 而 TS 不在，明确报错，不悄悄改由 Python 回答
+    repo = git_repo(tmp_path / "repo")
+    selector = write_selector(tmp_path / "dispatcher.json", readonly="ts", config="ts", dispatcher="ts")
+    for argv in (["validate", "nope.v1"], ["metrics"], ["status", "--assess"], ["decisions", "replay"]):
+        done = main_with(selector, tmp_path / "no-ts", argv, repo)
+        assert done.returncode == pd.EXIT_USAGE and done.stdout == b"", argv
+        assert "选择文件指向 ts，但找不到 TS 入口" in done.stderr.decode("utf-8"), argv

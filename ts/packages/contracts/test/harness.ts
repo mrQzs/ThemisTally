@@ -139,6 +139,8 @@ const TS_SELECTOR = join(SELECTOR_DIR, "readonly-ts.json");
 writeFileSync(TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "python", dispatcher: "python", hub: "python" }));
 const CONFIG_TS_SELECTOR = join(SELECTOR_DIR, "config-ts.json");
 writeFileSync(CONFIG_TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "ts", dispatcher: "python", hub: "python" }));
+const DISPATCHER_TS_SELECTOR = join(SELECTOR_DIR, "dispatcher-ts.json");
+writeFileSync(DISPATCHER_TS_SELECTOR, JSON.stringify({ schema_version: 1, readonly: "ts", config: "ts", dispatcher: "ts", hub: "python" }));
 process.on("exit", () => rmSync(SELECTOR_DIR, { recursive: true, force: true }));
 
 /** 独立的 Python 进程里改 pi_dispatch 的 KERNEL_IMPL_PATH 再调 pd.main(argv)。JSON 的字符串与数组照样是 Python
@@ -186,8 +188,16 @@ export function runConfigLauncherCli(argv: readonly string[], cwd: string, kitRo
   return pdMain(CONFIG_TS_SELECTOR, argv, cwd, kitRoot);
 }
 
+/**
+ * 第 ④ 步切换之后的写法：选择文件的 dispatcher 也是 ts，调度器命令经真的启动器转交给 TS（pyargs 由
+ * pi_dispatch.dispatcher_handoff 从 argparse 的结果生成，context 是启动器自己的本机事实）。kitRoot 同 runPythonCliAt。
+ */
+export function runDispatcherLauncherCli(argv: readonly string[], cwd: string, merged = false, kitRoot?: string): CliRun {
+  return pdMain(DISPATCHER_TS_SELECTOR, argv, cwd, kitRoot, merged);
+}
+
 /** 起子进程用的选择文件路径（并发用例自己起 pd.main）。 */
-export const SELECTORS = { python: PYTHON_SELECTOR, configTs: CONFIG_TS_SELECTOR } as const;
+export const SELECTORS = { python: PYTHON_SELECTOR, configTs: CONFIG_TS_SELECTOR, dispatcherTs: DISPATCHER_TS_SELECTOR } as const;
 
 /** TS 入口：参数是 Python 启动器解析好之后交来的那一份。 */
 /** TS 入口的命令行（程序加参数），同 pythonCliCommand。 */

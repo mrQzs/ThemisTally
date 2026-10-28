@@ -13,7 +13,7 @@ import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
 import { dirOf, installFakeCli } from "./fake-cli.ts";
-import { type CliRun, REPO as KIT, runPythonCli, runTsCli } from "./harness.ts";
+import { type CliRun, REPO as KIT, runDispatcherLauncherCli, runPythonCli, runTsCli } from "./harness.ts";
 import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 const children: ChildProcess[] = [];
@@ -157,6 +157,7 @@ function runDoctor(runner: Runner, place: Place, o: DoctorOptions): CliRun {
     const done = spawnSync(PYTHON, [join(place.kit, "scripts", "pi_dispatch.py"), ...argv], { cwd: place.repo });
     return { status: done.status ?? -1, stdout: done.stdout, stderr: done.stderr };
   }
+  if (runner === "launcher") return runDispatcherLauncherCli(argv, place.repo, false, place.kit);
   const pyargs = {
     command: ["doctor"], repo: place.repo, provider: o.provider ?? null, model: o.model ?? null, thinking: o.thinking ?? null,
     out: o.out ?? null, probe_decisions: o.probe ?? false, context: { ...CONTEXT, kit_root: place.kit ?? KIT },
@@ -529,6 +530,7 @@ function runSmoke(runner: Runner, repo: string, item: SmokeCase): CliRun {
   const argv = ["--repo", repo, "smoke", "--provider", provider, "--model", model, "--thinking", thinking, "--timeout", String(timeout),
     ...(item.out === undefined ? [] : ["--out", item.out]), ...(item.keep ? ["--keep"] : [])];
   if (runner === "python") return runPythonCli(argv, repo);
+  if (runner === "launcher") return runDispatcherLauncherCli(argv, repo);
   const pyargs = { command: ["smoke"], repo, provider, model, thinking, timeout, out: item.out ?? null, keep: item.keep ?? false };
   return runTsCli(runner, pyargs, repo);
 }
