@@ -4554,12 +4554,14 @@ RUN_HEALTH_ACTIONS = ("keep_waiting", "prepare_next_contract", "collect")
 
 def _decisions_module():
     """scripts/codekit/decisions.py；不在本工具旁边时返回 None（决策功能等同 off，doctor 会说明）。"""
+    # 接 ImportError，不只是 ModuleNotFoundError：codekit 包在、decisions.py 不在时，from codekit import decisions 报的是
+    # “cannot import name”（ImportError），以前会让 doctor 整个崩掉（TS 迁移 ④b7d 查出）
     try:
         from codekit import decisions as module
-    except ModuleNotFoundError:
+    except ImportError:
         try:
             from scripts.codekit import decisions as module
-        except ModuleNotFoundError:
+        except ImportError:
             return None
     return module
 

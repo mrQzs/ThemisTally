@@ -1,0 +1,94 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "^doctor (干净的仓库|--repo 不是|kit|installed|决策模块|问题清单)",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "D34 不认 external",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "  if (normCase(kitRoot) !== normCase(pyResolve(repoRoot))) return \"external\";\n",
+      "new": ""
+    },
+    {
+      "name": "D35 source 与 installed 判反",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "\"scripts\", \"kit_install.py\")) ? \"source\" : \"installed\"",
+      "new": "\"scripts\", \"kit_install.py\")) ? \"installed\" : \"source\""
+    },
+    {
+      "name": "D36 不在仓库里也比路径",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "  if (repoRoot === null) return \"unknown\";\n",
+      "new": "  if (repoRoot === null) return \"external\";\n"
+    },
+    {
+      "name": "D37 /** 也当文件查",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "rel.endsWith(\"/**\") ? isDir",
+      "new": "false ? isDir"
+    },
+    {
+      "name": "D38 缺的文件只列一个",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "missing.slice(0, 8).join(\"、\")",
+      "new": "missing.slice(0, 1).join(\"、\")"
+    },
+    {
+      "name": "D39 source 布局也读安装记录",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (layout === \"installed\" && repo !== null)",
+      "new": "if (repo !== null)"
+    },
+    {
+      "name": "D41 安装记录不按路径排序",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "entries.sort(([a], [b]) => cmpCodePoints(a, b))",
+      "new": "entries"
+    },
+    {
+      "name": "D42 哈希比较反了",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "sha256File(file) !== digest",
+      "new": "sha256File(file) === digest"
+    },
+    {
+      "name": "D43 提示里只列一个文件",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "[...changed, ...gone].slice(0, 6)",
+      "new": "[...changed, ...gone].slice(0, 1)"
+    },
+    {
+      "name": "D44 kit_commit 取成 kit_version",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "[\"kit_commit\", pyGet(record, \"kit_commit\")]",
+      "new": "[\"kit_commit\", pyGet(record, \"kit_version\")]"
+    },
+    {
+      "name": "C01 不查决策模块在不在",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "if (!isFile(purePathStr(kitRoot, \"scripts\", \"codekit\", \"decisions.py\"))) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C04 问题清单经过链接也读",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "if (link === null) return describe(settings, pluginDir);",
+      "new": "return describe(settings, pluginDir);"
+    },
+    {
+      "name": "P01 Python 的 _decisions_module 只接 ModuleNotFoundError",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    except ImportError:\n        try:",
+      "new": "    except ModuleNotFoundError:\n        try:"
+    }
+  ]
+}

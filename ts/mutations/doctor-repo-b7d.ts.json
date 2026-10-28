@@ -1,0 +1,154 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "^doctor (干净的仓库|--out|--repo 不是|仓库|AGENTS.md|暂存的改名|CLAUDE.md 是指向|技能|没有 Git 作者身份|~/.pi/agent/bin)",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "D14 dirty_entries 不去空串",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": ".filter(Boolean).length",
+      "new": ".length"
+    },
+    {
+      "name": "D15 runs_ignored 反了",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "\".agent/runs/probe\"], root).status === 0",
+      "new": "\".agent/runs/probe\"], root).status !== 0"
+    },
+    {
+      "name": "D16 已提交的规则文件也提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (inTree && !inHead) notes.push(",
+      "new": "if (inTree) notes.push("
+    },
+    {
+      "name": "D17 .agent/runs/ 没被忽略不记问题",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    if (!repository.get(\"runs_ignored\")) problems.push(",
+      "new": "    if (false) problems.push("
+    },
+    {
+      "name": "D18 git_identity 总是 true",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "repository.set(\"git_identity\", identity === null);",
+      "new": "repository.set(\"git_identity\", true);"
+    },
+    {
+      "name": "D19 不带上下文取证的提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    notes.push(...(context.get(\"warnings\") as string[]));\n",
+      "new": ""
+    },
+    {
+      "name": "D20 不在仓库里的提示不带前缀",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    notes.push(`未在 Git 仓库中运行：${error.message}`);",
+      "new": "    notes.push(error.message);"
+    },
+    {
+      "name": "D21 AGENTS.md 链出仓库不提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (!isWithin(pyResolve(agentsMd), base)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "D22 AGENTS.md 多大都提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (size > CODEX_PROJECT_DOC_MAX_BYTES) {",
+      "new": "if (size > 0) {"
+    },
+    {
+      "name": "D23 没有 AGENTS.md 不提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    notes.push(\"仓库根目录没有 AGENTS.md：",
+      "new": "    void (\"仓库根目录没有 AGENTS.md："
+    },
+    {
+      "name": "D24 CLAUDE.md 链出仓库不提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (!isWithin(target, base)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "D25 CLAUDE.md 链到 AGENTS.md 也查 @AGENTS.md",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "normcase(target) === normcase(path.join(base, \"AGENTS.md\"))",
+      "new": "false"
+    },
+    {
+      "name": "D26 CLAUDE.md 有 @AGENTS.md 也提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "!pyReadTextReplace(claudeMd).includes(\"@AGENTS.md\")",
+      "new": "true"
+    },
+    {
+      "name": "D27 副本出错不记 claude_skill_adapters",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    facts.set(\"claude_skill_adapters\", new Map([[\"error\", error.message]]));\n",
+      "new": ""
+    },
+    {
+      "name": "D28 installed 总是 false",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "const installed = KIT_SKILLS.some((name) => pyExists(claudeSkillTarget(root, name)));",
+      "new": "const installed = false;"
+    },
+    {
+      "name": "D29 没装副本也列 drift",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "installed ? drift.slice(0, 50) : []",
+      "new": "drift.slice(0, 50)"
+    },
+    {
+      "name": "D30 1.x 布局判反",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (legacy.length) {",
+      "new": "if (!legacy.length) {"
+    },
+    {
+      "name": "D31 缺技能不提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "} else if (missing.length) {",
+      "new": "} else if (false) {"
+    },
+    {
+      "name": "D32 副本不一致不提示",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (drift.length && installed) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "D33 先查提交者身份",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "[\"GIT_AUTHOR_IDENT\", \"GIT_COMMITTER_IDENT\"]",
+      "new": "[\"GIT_COMMITTER_IDENT\", \"GIT_AUTHOR_IDENT\"]"
+    },
+    {
+      "name": "D45 --out 不照文本模式写",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (outPath !== null) writeTextMode(outPath, text + LF);",
+      "new": "if (outPath !== null) writeFileSync(outPath, text + LF);"
+    },
+    {
+      "name": "D46 退出码总是 0",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "return problems.length ? EXIT_FAIL : EXIT_OK;",
+      "new": "return EXIT_OK;"
+    },
+    {
+      "name": "D47 ok 总是 true",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "facts.set(\"ok\", !problems.length);",
+      "new": "facts.set(\"ok\", true);"
+    }
+  ]
+}

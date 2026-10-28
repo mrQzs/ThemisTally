@@ -1,0 +1,148 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "^smoke ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "S01 不校验 provider 与 model",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "if (!MODEL_TOKEN_RE.test(args[field]))",
+      "new": "if (false)"
+    },
+    {
+      "name": "S02 先校验 model",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "[\"provider\", \"model\"] as const",
+      "new": "[\"model\", \"provider\"] as const"
+    },
+    {
+      "name": "S03 不校验思考级别",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "if (!FALLBACK_THINKING_LEVELS.includes(args.thinking))",
+      "new": "if (false)"
+    },
+    {
+      "name": "S04 版本取 stderr",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "(await runCapture([...piCmd, \"--version\"], { timeout: 60 }))[1]",
+      "new": "(await runCapture([...piCmd, \"--version\"], { timeout: 60 }))[2]"
+    },
+    {
+      "name": "S05 不按版本判断 agent_settled",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "const settled = expectsSettled(versionText);",
+      "new": "const settled = null;"
+    },
+    {
+      "name": "S06 不加 --no-context-files",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "    \"--no-context-files\", \"--mode\", \"json\"];",
+      "new": "    \"--mode\", \"json\"];"
+    },
+    {
+      "name": "S07 不加 --no-session",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "\"--no-session\", ...RESOURCE_FLAGS,",
+      "new": "...RESOURCE_FLAGS,"
+    },
+    {
+      "name": "S08 不看事件流的 ok",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "summary.get(\"ok\") === true && passed",
+      "new": "passed"
+    },
+    {
+      "name": "S09 不看退出码",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "const ok = result.get(\"exit_code\") === 0n && ",
+      "new": "const ok = "
+    },
+    {
+      "name": "S10 前面失败了就不读 smoke.txt",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "    const passed = stepPassed(name, workspace, summary, finalText);\n    const ok = result.get(\"exit_code\") === 0n && summary.get(\"ok\") === true && passed;",
+      "new": "    const ok = result.get(\"exit_code\") === 0n && summary.get(\"ok\") === true && stepPassed(name, workspace, summary, finalText);"
+    },
+    {
+      "name": "S11 失败了也接着跑",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "    if (!ok) break;\n",
+      "new": ""
+    },
+    {
+      "name": "S12 final_text 截到 400",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": ".slice(0, 500).join(\"\")",
+      "new": ".slice(0, 400).join(\"\")"
+    },
+    {
+      "name": "S13 final_text 不先脱敏",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "codePoints(redactSecrets(finalText))",
+      "new": "codePoints(finalText)"
+    },
+    {
+      "name": "S14 --keep 也删",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "if (allOk && !args.keep) removeQuietly(workspace);",
+      "new": "if (allOk) removeQuietly(workspace);"
+    },
+    {
+      "name": "S15 --out 不照文本模式写",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "if (outPath !== null) writeTextMode(outPath, text + LF);",
+      "new": "if (outPath !== null) writeFileSync(outPath, text + LF);"
+    },
+    {
+      "name": "S16 退出码总是 0",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "return allOk ? EXIT_OK : EXIT_FAIL;",
+      "new": "return EXIT_OK;"
+    },
+    {
+      "name": "S17 第一步不看回复",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "if (name === \"no_tools\") return finalText.includes(\"PI_SMOKE_OK\");",
+      "new": "if (name === \"no_tools\") return true;"
+    },
+    {
+      "name": "S18 不看 smoke.txt 的内容",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "return content === \"PI_TOOL_OK\" && ",
+      "new": "return "
+    },
+    {
+      "name": "S19 不看工具错误",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "pyGet(summary, \"tool_errors\") === 0n && ",
+      "new": ""
+    },
+    {
+      "name": "S20 不要求读回",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": " && calls(\"read\") >= 1n",
+      "new": ""
+    },
+    {
+      "name": "S21 不要求调用写工具",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "calls(\"write\") >= 1n && ",
+      "new": ""
+    },
+    {
+      "name": "S22 不用 --timeout",
+      "file": "ts/packages/dispatcher/src/smoke.ts",
+      "old": "timeout: Number(args.timeout),",
+      "new": "timeout: 300,"
+    }
+  ]
+}

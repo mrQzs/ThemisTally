@@ -371,5 +371,21 @@ class RunDirBoundary(unittest.TestCase):
         self.assertFalse((self.outside / "attempt-001" / "state.json").exists())
 
 
+class DecisionsModuleMissing(unittest.TestCase):
+    """_decisions_module：codekit 包在、decisions.py 不在时返回 None（doctor 记 module_missing），不让 ImportError 抛出去。"""
+
+    def test_package_without_decisions(self):
+        with tempfile.TemporaryDirectory() as empty:
+            fakes = {}
+            for name in ("codekit", "scripts", "scripts.codekit"):
+                module = types.ModuleType(name)
+                module.__path__ = [empty]
+                fakes[name] = module
+            with mock.patch.dict(sys.modules, fakes):
+                for name in ("codekit.decisions", "scripts.codekit.decisions"):
+                    sys.modules.pop(name, None)
+                self.assertIsNone(pd._decisions_module())
+
+
 if __name__ == "__main__":
     unittest.main()

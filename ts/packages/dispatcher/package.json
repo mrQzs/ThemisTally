@@ -13,6 +13,7 @@
     "./contract-plan": "./src/contract-plan.ts",
     "./decision-records": "./src/decision-records.ts",
     "./decisions-replay": "./src/decisions-replay.ts",
+    "./doctor": "./src/doctor.ts",
     "./events": "./src/events.ts",
     "./evidence": "./src/evidence.ts",
     "./executor": "./src/executor.ts",
@@ -36,6 +37,7 @@
     "./run": "./src/run.ts",
     "./run-health": "./src/run-health.ts",
     "./shell-scan": "./src/shell-scan.ts",
+    "./smoke": "./src/smoke.ts",
     "./status": "./src/status.ts",
     "./summary": "./src/summary.ts"
   },

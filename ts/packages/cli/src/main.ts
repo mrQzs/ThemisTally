@@ -28,7 +28,10 @@ import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
 import { type PrepareArgs, type PrepareContext, cmdPrepare } from "@themis/dispatcher/prepare";
 import { type RunArgs, type RunContext, cmdRun } from "@themis/dispatcher/run";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
+import { type DoctorArgs, type DoctorContext, cmdDoctor } from "@themis/dispatcher/doctor";
+import { type SmokeArgs, cmdSmoke } from "@themis/dispatcher/smoke";
 import { decisionsSession } from "@themis/config/decisions-client";
+import { doctorDecisions } from "@themis/config/doctor-decisions";
 import { reportScreenBattery } from "@themis/config/decisions";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import { bindingTuple, resolveRoleExecutor } from "@themis/config/roles-binding";
@@ -137,6 +140,13 @@ function hostPlatform(args: Record<string, unknown>): string {
   return context.platform;
 }
 
+/** doctor 报的本机事实：platform.platform()、platform.machine() 与 platform.python_version()（迁移计划 D1）。 */
+function hostFacts(args: Record<string, unknown>): { platform: string; machine: string; python: string } {
+  const context = (args["context"] ?? {}) as { machine?: unknown; python?: unknown };
+  if (typeof context.machine !== "string" || typeof context.python !== "string") throw new Error("pyargs 缺少 context.machine 或 context.python");
+  return { platform: hostPlatform(args), machine: context.machine, python: context.python };
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const out = new PyOut();
   const at = argv.indexOf("--pyargs-b64");
@@ -201,6 +211,17 @@ export async function main(argv: readonly string[]): Promise<number> {
         };
         return cmdRun(args as unknown as RunArgs, buffered, context, sessionsFor(args, buffered), { reportScreen: () => reportScreenBattery(kitRoot) });
       });
+    case "doctor":
+      return runBuffered((buffered) => {
+        const doctorArgs = args as unknown as DoctorArgs;
+        const kitRoot = planContext(args).kitRoot;
+        // _doctor_decisions 在 config 包里（dispatcher 不依赖 config）
+        const decisions: DoctorContext["decisions"] = (facts, problems, notes) =>
+          doctorDecisions(kitRoot, doctorArgs.repo, doctorArgs.probe_decisions, facts, problems, notes);
+        return cmdDoctor(doctorArgs, buffered, { kitRoot, ...hostFacts(args), decisions });
+      });
+    case "smoke":
+      return runBuffered((buffered) => cmdSmoke(args as unknown as SmokeArgs, buffered));
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":

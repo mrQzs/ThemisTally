@@ -1,0 +1,76 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "^doctor (决策|配置|shadow|on、|DECISIONS_OFF|--probe-decisions|问题清单)",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "C02 ConfigSecretError 当成没有配置",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "    if (error instanceof ConfigSecretError) return invalid(error.message); // 照实报告，不当作没有配置（D9）\n",
+      "new": ""
+    },
+    {
+      "name": "C03 决策配置的错误不带前缀",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "return invalid(`dispatch.config.json 的 decisions 无效：${error.detail}`);",
+      "new": "return invalid(error.detail);"
+    },
+    {
+      "name": "C05 问题清单的问题不记",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "(fact(\"battery_problems\") as string[]).map((item) => `决策插件的问题清单无效：${item}`)",
+      "new": "[]"
+    },
+    {
+      "name": "C06 实际 off 不提示",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "if (settings.configured_mode !== \"off\" && !active) notes.push(",
+      "new": "if (false) notes.push("
+    },
+    {
+      "name": "C07 凭据不在不提示",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "if (active && noSecret) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "C08 官方与自定义端点的说法对调",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "settingsOfficial(settings) ? \"每次调用都会记为无意见（no_key）\" : \"自定义端点将不带凭据头调用\"",
+      "new": "settingsOfficial(settings) ? \"自定义端点将不带凭据头调用\" : \"每次调用都会记为无意见（no_key）\""
+    },
+    {
+      "name": "C09 生效时不提示",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "if (active) notes.push(",
+      "new": "if (false) notes.push("
+    },
+    {
+      "name": "C10 不探测时不记 probe",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "    decisions.set(\"probe\", null);\n",
+      "new": ""
+    },
+    {
+      "name": "C11 探测失败不记问题",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "    if (!result.get(\"ok\")) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "C12 env_var_set 取成名字",
+      "file": "ts/packages/config/src/doctor-decisions.ts",
+      "old": "[\"env_var_set\", fact(\"api_key_set\")]",
+      "new": "[\"env_var_set\", fact(\"api_key_env\")]"
+    }
+  ]
+}

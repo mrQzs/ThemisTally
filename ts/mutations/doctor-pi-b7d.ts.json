@@ -1,0 +1,94 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "^doctor (干净的仓库|PATH 上|只带 --provider|带执行模型|模型不在列表|--list-models 失败|pi 的版本|pi --help|pi 缺参数|PI_DISPATCH_PI_CMD|~/.pi/agent/bin)",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "D01 不记 git 不可用",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "  if (gitCode !== 0) problems.push(\"git 不可用\");\n",
+      "new": ""
+    },
+    {
+      "name": "D02 git 的版本不看 stderr",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "facts.set(\"git\", pyStrip(gitOut) || pyStrip(gitErr));",
+      "new": "facts.set(\"git\", pyStrip(gitOut));"
+    },
+    {
+      "name": "D03 不提示没有 claude、codex",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "  if (!found) notes.push(",
+      "new": "  if (false) notes.push("
+    },
+    {
+      "name": "D04 规划端版本取 stderr",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "{ timeout: 30 }))[1])",
+      "new": "{ timeout: 30 }))[2])"
+    },
+    {
+      "name": "D05 ~/.pi/agent/bin 不认 .exe",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "[tool, tool + \".exe\"].some",
+      "new": "[tool].some"
+    },
+    {
+      "name": "D06 pi 版本不看 stderr",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "pyStrip(versionOut || versionErr)",
+      "new": "pyStrip(versionOut)"
+    },
+    {
+      "name": "D07 版本比较反了",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "compareVersion(version, MIN_PI_VERSION) < 0",
+      "new": "compareVersion(version, MIN_PI_VERSION) > 0"
+    },
+    {
+      "name": "D08 --help 只看 stdout",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "parseHelp(helpOut + helpErr)",
+      "new": "parseHelp(helpOut)"
+    },
+    {
+      "name": "D09 不要求 --no-context-files",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "[...REQUIRED_PI_FLAGS, \"--no-context-files\"]",
+      "new": "[...REQUIRED_PI_FLAGS]"
+    },
+    {
+      "name": "D10 只带 --provider 也核对模型",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "if (args.provider && args.model) {",
+      "new": "if (args.provider) {"
+    },
+    {
+      "name": "D11 不记模型列表与凭据的事实",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "      for (const [key, value] of readiness) facts.set(key, value);\n",
+      "new": ""
+    },
+    {
+      "name": "D12 不记模型的问题",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "      problems.push(...found);\n",
+      "new": ""
+    },
+    {
+      "name": "D13 pi 的命令出错不记问题",
+      "file": "ts/packages/dispatcher/src/doctor.ts",
+      "old": "    if (!(error instanceof DispatchError)) throw error;\n    problems.push(error.message);\n",
+      "new": "    if (!(error instanceof DispatchError)) throw error;\n"
+    }
+  ]
+}
