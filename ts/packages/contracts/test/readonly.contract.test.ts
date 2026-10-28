@@ -38,12 +38,16 @@ function junction(target: string, link: string): void {
 const text = (run: CliRun): string => run.stdout.toString("utf8");
 const ELAPSED = /("elapsed_seconds": |live:\d+t )(\d+)/gu;
 
-/** 现取的秒数换成占位，同时检查两边相差不超过 5 秒。 */
-function withoutElapsed(python: CliRun, other: CliRun): [string, string] {
+/**
+ * 现取的秒数换成占位，同时检查两边相差不超过两次读取之间实际经过的秒数（since 是 Python 那次启动之前的时刻，取整再多给 1 秒）。
+ * 写死 5 秒时，全量负载下 Python、node、bun、启动器依次跑，最后一个读到的秒数比 Python 多了 6 秒。
+ */
+function withoutElapsed(python: CliRun, other: CliRun, since: number): [string, string] {
+  const slack = Math.ceil((Date.now() - since) / 1000) + 1;
   const a = [...text(python).matchAll(ELAPSED)].map((m) => Number(m[2]));
   const b = [...text(other).matchAll(ELAPSED)].map((m) => Number(m[2]));
   expect(b.length).toBe(a.length);
-  a.forEach((value, index) => expect(Math.abs(value - (b[index] as number))).toBeLessThanOrEqual(5));
+  a.forEach((value, index) => expect(Math.abs(value - (b[index] as number))).toBeLessThanOrEqual(slack));
   return [text(python).replace(ELAPSED, "$1<n>"), text(other).replace(ELAPSED, "$1<n>")];
 }
 
@@ -65,6 +69,7 @@ function compare(item: Case): void {
     const argv = typeof item.argv === "function" ? item.argv(repo) : item.argv;
     const pyargs = typeof item.pyargs === "function" ? item.pyargs(repo) : item.pyargs;
     const at = item.repoAt ? item.repoAt(repo) : repo;
+    const started = Date.now();
     const python = runPythonCli(["--repo", at, ...argv], at);
     item.check(python, repo);
     const forSchema = JSON.parse(JSON.stringify({ ...pyargs, repo: at }, (_key, value: unknown) => (typeof value === "bigint" ? Number(value) : value)));
@@ -81,7 +86,7 @@ function compare(item: Case): void {
       if (item.crash) continue;
       expect(other.stderr.toString("utf8"), `${runtime} stderr`).toBe(python.stderr.toString("utf8"));
       if (item.elapsed) {
-        const [a, b] = withoutElapsed(python, other);
+        const [a, b] = withoutElapsed(python, other, started);
         expect(b, `${runtime} stdout`).toBe(a);
       } else {
         expect(other.stdout.equals(python.stdout), `${runtime} stdout 逐字节\n--- python\n${text(python)}\n--- ${runtime}\n${text(other)}`).toBe(true);
@@ -93,7 +98,7 @@ function compare(item: Case): void {
     if (!item.crash) {
       expect(launched.stderr.toString("utf8"), "启动器 stderr").toBe(python.stderr.toString("utf8"));
       if (item.elapsed) {
-        const [a, b] = withoutElapsed(python, launched);
+        const [a, b] = withoutElapsed(python, launched, started);
         expect(b, "启动器 stdout").toBe(a);
       } else {
         expect(launched.stdout.equals(python.stdout), `启动器 stdout 逐字节\n--- python\n${text(python)}\n--- 启动器\n${text(launched)}`).toBe(true);
