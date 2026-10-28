@@ -28,6 +28,8 @@ import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
 import { type PrepareArgs, type PrepareContext, cmdPrepare } from "@themis/dispatcher/prepare";
 import { type RunArgs, type RunContext, cmdRun } from "@themis/dispatcher/run";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
+import { type BranchArgs, cmdBranch } from "@themis/dispatcher/branch";
+import { type ReviewDraftArgs, cmdReviewDraft } from "@themis/dispatcher/review-draft";
 import { type DoctorArgs, type DoctorContext, cmdDoctor } from "@themis/dispatcher/doctor";
 import { type SmokeArgs, cmdSmoke } from "@themis/dispatcher/smoke";
 import { decisionsSession } from "@themis/config/decisions-client";
@@ -36,6 +38,7 @@ import { reportScreenBattery } from "@themis/config/decisions";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import { bindingTuple, resolveRoleExecutor } from "@themis/config/roles-binding";
 import { configErrors } from "@themis/config/roles-check";
+import { commitTrailers, validTrailer } from "@themis/config/validate";
 import { localCommand } from "@themis/config/roles-local";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
@@ -222,6 +225,11 @@ export async function main(argv: readonly string[]): Promise<number> {
       });
     case "smoke":
       return runBuffered((buffered) => cmdSmoke(args as unknown as SmokeArgs, buffered));
+    case "branch":
+      // 尾注的规则在 config 包（validate），dispatcher 不依赖 config
+      return runBuffered(async (buffered) => cmdBranch(args as unknown as BranchArgs, buffered, { commitTrailers, validTrailer }));
+    case "review-draft":
+      return runBuffered(async (buffered) => cmdReviewDraft(args as unknown as ReviewDraftArgs, buffered, hostPlatform(args)));
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));
     case "metrics":

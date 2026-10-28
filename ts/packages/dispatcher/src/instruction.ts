@@ -256,7 +256,7 @@ function roundToInt(value: number): bigint {
  * Path(root).glob(pattern)（Python 3.12）：每一级都按 fnmatch 匹配目录里的名字（Windows 上不分大小写，re.I 下 s 也配 ſ），
  * 不是最后一级时只要目录；列不出的目录跳过。顺序是操作系统列目录的顺序。
  */
-function globPaths(root: string, parts: readonly string[]): string[] {
+export function globPaths(root: string, parts: readonly string[]): string[] {
   const [part, ...rest] = parts;
   if (part === undefined) return [root];
   if (!isDir(root)) return [];

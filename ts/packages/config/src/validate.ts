@@ -73,7 +73,7 @@ export { expanduser, patternError, pricingTable, releaseAllowRules };
 const TRAILER_RE = pyRegex(`^[A-Za-z][A-Za-z0-9-]*: ${NOT_S}[^\\n]*${PY_END}`);
 
 /** pi_dispatch.valid_trailer：单行 `Key: value`，不含控制字符。 */
-function validTrailer(value: PyValue): boolean {
+export function validTrailer(value: PyValue): boolean {
   return typeof value === "string" && TRAILER_RE.test(value) && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 

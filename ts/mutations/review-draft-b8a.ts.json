@@ -1,0 +1,244 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/branch-review.contract.test.ts",
+    "-t",
+    "^review-draft ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "R01 RUNNING 也生成",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "[\"PREPARING\", \"PREPARED\", \"RUNNING\", \"COLLECTING\"].includes(state)",
+      "new": "[\"PREPARING\"].includes(state)"
+    },
+    {
+      "name": "R02 --force 也不覆盖",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "if (pyExists(outPath) && !args.force) {",
+      "new": "if (pyExists(outPath)) {"
+    },
+    {
+      "name": "R03 单元格不并空白",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": ".replace(SPACES_RE, \" \")",
+      "new": ""
+    },
+    {
+      "name": "R04 单元格不换竖线",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": ".replaceAll(\"|\", \"/\")",
+      "new": ""
+    },
+    {
+      "name": "R05 单元格多留一个码点",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "points.length <= limit ? text",
+      "new": "points.length <= limit + 1 ? text"
+    },
+    {
+      "name": "R06 关注项不停在下一节",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "    if (line.startsWith(\"## \")) break;\n",
+      "new": ""
+    },
+    {
+      "name": "R07 关注项不去行尾空白",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "found.push(pyRstrip(line))",
+      "new": "found.push(line)"
+    },
+    {
+      "name": "R08 通过数不看 passed",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "ran.filter((record) => pyTruthy(get(record, \"passed\"))).length",
+      "new": "ran.length"
+    },
+    {
+      "name": "R09 检查中途停了也算有效",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "const checksLine = latest && !aborted",
+      "new": "const checksLine = latest"
+    },
+    {
+      "name": "R10 G5 不留待填",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "gate === \"G3\" || gate === \"G5\" ? REVIEW_TODO",
+      "new": "gate === \"G3\" ? REVIEW_TODO"
+    },
+    {
+      "name": "R11 G4 不写检查记录",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "if (gate === \"G4\") detail =",
+      "new": "if (false) detail ="
+    },
+    {
+      "name": "R12 DoD 的 scope 当检查找",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "      if (ref === \"scope\") return `scope（越界 ${lenOf(violations)}）`;\n",
+      "new": ""
+    },
+    {
+      "name": "R13 DoD 的 review 当检查找",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "      if (ref === \"review\") return \"复审\";\n",
+      "new": ""
+    },
+    {
+      "name": "R14 不写目的",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "(pyTruthy(get(item, \"intent\")) ? `；目的：",
+      "new": "(false ? `；目的："
+    },
+    {
+      "name": "R16 没有变异记录也写空的一节",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "  if (mutationLines.length) lines.push(",
+      "new": "  if (true) lines.push("
+    },
+    {
+      "name": "R17 interpretations 不是列表也照列",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "key === \"interpretations\" && reportStatus === \"json_ok\" && !Array.isArray(get(report, key))",
+      "new": "false"
+    },
+    {
+      "name": "R18 自述里的对象照 str 写",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "typeof value === \"string\" ? value : dumps(value, { ensureAscii: false })",
+      "new": "pyStrValue(value)"
+    },
+    {
+      "name": "R19 不写另有几处",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "if (Number(total) > lines.length && lines.length)",
+      "new": "if (false)"
+    },
+    {
+      "name": "R20 解读线索不限条数",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "clues.slice(0, REVIEW_CLUE_LIMIT)",
+      "new": "clues"
+    },
+    {
+      "name": "R21 没有关注项不写无",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "lines.push(\"- 摘要里的“复审需要关注”（原文）：\", ...(attention.length ? attention.map((line) => \"  \" + line) : [\"  - 无\"]));",
+      "new": "lines.push(\"- 摘要里的“复审需要关注”（原文）：\", ...attention.map((line) => \"  \" + line));"
+    },
+    {
+      "name": "R22 只有 local_branch 也写 integrate 落地",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "pyIn(\"local_branch\", integration) && pyIn(\"merge\", integration)",
+      "new": "pyIn(\"local_branch\", integration)"
+    },
+    {
+      "name": "R23 工作树清理了也不提示",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "isDirectory(worktree) ? \"\" :",
+      "new": "true ? \"\" :"
+    },
+    {
+      "name": "R24 不记 review_draft",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "  logEvent(runDir, \"review_draft\", [[\"path\", outPath]]);\n",
+      "new": ""
+    },
+    {
+      "name": "R25 待填数成总行数",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "lines.filter((line) => line.includes(REVIEW_TODO)).length",
+      "new": "lines.length"
+    },
+    {
+      "name": "R26 中途停了的变异也算",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "pyTruthy(data.get(\"aborted\") ?? null)",
+      "new": "false"
+    },
+    {
+      "name": "R27 多条命令当一条",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "const multi = commands.length > 1;",
+      "new": "const multi = false;"
+    },
+    {
+      "name": "R28 多条命令时不看各自的状态",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "return or(get(or(get(runs, cid as string), new Map()), \"status\"), record.get(\"status\") ?? null);",
+      "new": "return record.get(\"status\") ?? null;"
+    },
+    {
+      "name": "R29 不看 unexpected",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "record.has(\"unexpected\") ? (record.get(\"unexpected\") as PyValue) : commands",
+      "new": "commands"
+    },
+    {
+      "name": "R30 不列标了预期却被抓住的",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": ".filter((record) => pyIn(cid, or(record.get(\"unexpected\") ?? null, [])) && statusUnder(record, cid) === \"caught\")",
+      "new": ".filter(() => false)"
+    },
+    {
+      "name": "R31 不认等价变异",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "} else if (pyTruthy(record.get(\"equivalent\") ?? null) && missedSomewhere()) {",
+      "new": "} else if (false) {"
+    },
+    {
+      "name": "R32 不认预期内的漏掉",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "} else if (pyTruthy(record.get(\"expect_missed\") ?? null) && missedSomewhere()) {",
+      "new": "} else if (false) {"
+    },
+    {
+      "name": "R33 名字前不补 id",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "name.startsWith(s(id)) ? name : `${s(id)} ${name}`",
+      "new": "name"
+    },
+    {
+      "name": "R34 路径比较不分大小写",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "(process.platform === \"win32\" ? pyLower(value) : value)",
+      "new": "value"
+    },
+    {
+      "name": "R35 简报不列意外漏掉",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "        brief.push(`${shown}（${s(record.get(\"file\") ?? null)}，${label}）`);\n",
+      "new": ""
+    },
+    {
+      "name": "R36 简报的自述不带内容",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "`  - ${label}：${cell(statementText(value), 600)}`",
+      "new": "`  - ${label}`"
+    },
+    {
+      "name": "R38 没有费用也写 total",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": "get(cost, \"total\") !== null ?",
+      "new": "true ?"
+    },
+    {
+      "name": "R39 不写取消",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": " : pyTruthy(get(run, \"interrupted\")) ? \"取消\"",
+      "new": " : false ? \"取消\""
+    },
+    {
+      "name": "R40 没有实际模型不写未知",
+      "file": "ts/packages/dispatcher/src/review-draft.ts",
+      "old": ".join(\"、\") || \"未知\"",
+      "new": ".join(\"、\") || \"x\""
+    }
+  ]
+}

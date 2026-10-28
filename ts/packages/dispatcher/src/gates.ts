@@ -14,7 +14,7 @@ import { resolveCommit, verifyPlannerPublication } from "./contract-plan.ts";
 import { candidatePatchOk, pathArg, sha256File, strArg } from "./evidence.ts";
 import { BindingRecordError, bindingRecordRel, executorClass, loadBindingRecord } from "./executor.ts";
 import { effectiveAutocrlf, lineEndingsOnly, snapshotTree, treeDrift } from "./gitops.ts";
-import { DispatchError, type Repo, readJsonOr } from "./repo.ts";
+import { DispatchError, EXIT_BLOCKED, type Repo, readJsonOr } from "./repo.ts";
 import { getState, latestNumbered } from "./status.ts";
 
 export const FAILURE_CLASSES = [
@@ -118,6 +118,20 @@ export function plannerAttemptPublicationErrors(repo: Repo, runDir: string, cont
   }
   const taskId = path.basename(runDir).split(".v")[0] as string;
   return verifyPlannerPublication(repo, `${taskId}.v${s(contract.get("plan_version") ?? null)}`, md, machine);
+}
+
+/**
+ * require_authorized_action：有副作用的入口再核对一次合同授权（attempt 目录里的合同是运行时输入，不能只靠 prepare 的结论）。
+ * 不拿相近的动作代替：建候选分支必须明确有 integration.local_branch。
+ */
+export function requireAuthorizedAction(contract: PyValue, action: string, integration = false): void {
+  const section = integration ? "integration" : "executor";
+  const authorization = isDict(contract) ? contract.get("authorization") : null;
+  const actions = isDict(authorization) ? authorization.get(section) : null;
+  if (!Array.isArray(actions) || !actions.every((item) => typeof item === "string")) {
+    throw new DispatchError(`合同授权无效：authorization.${section} 必须是字符串数组`, EXIT_BLOCKED);
+  }
+  if (!actions.includes(action)) throw new DispatchError(`合同未授权动作：authorization.${section} 缺少 ${action}`, EXIT_BLOCKED);
 }
 
 interface Gate {

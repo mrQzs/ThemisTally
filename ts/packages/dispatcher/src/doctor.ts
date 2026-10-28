@@ -226,7 +226,7 @@ function plannerFileNotes(root: string, facts: PyDict): string[] {
 }
 
 /** git_identity_problem：branch 用 git commit-tree 创建候选提交，需要作者与提交者身份（git var 与 commit-tree 同一套判定）。 */
-function gitIdentityProblem(root: string): string | null {
+export function gitIdentityProblem(root: string): string | null {
   for (const name of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
     if (git(["var", name], root).status !== 0) {
       return `没有可用的 Git 作者身份（${name}）：branch 生成候选提交时会失败。配置 user.name 与 user.email，或在运行 branch 时提供 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL / GIT_COMMITTER_NAME / GIT_COMMITTER_EMAIL 环境变量`;

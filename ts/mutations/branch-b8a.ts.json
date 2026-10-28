@@ -1,0 +1,178 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/branch-review.contract.test.ts",
+    "-t",
+    "^branch ",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "B01 不过 planner-v2 发布门禁",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (publication.length) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "B02 不过 G0",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (problems.length) throw new DispatchError(`输入不一致（G0）",
+      "new": "if (false) throw new DispatchError(`输入不一致（G0）"
+    },
+    {
+      "name": "B03 不核对授权",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "  requireAuthorizedAction(contract, \"local_branch\", true);\n",
+      "new": ""
+    },
+    {
+      "name": "B04 REVISE 不带 --rework 也行",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "!passing && !(args.rework && verdict === \"REVISE\")",
+      "new": "!passing && !(verdict === \"REVISE\")"
+    },
+    {
+      "name": "B05 只认 PASS",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "typeof verdict === \"string\" && PASSING_VERDICTS.includes(verdict)",
+      "new": "verdict === \"PASS\""
+    },
+    {
+      "name": "B06 不查 Git 身份",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "  if (identity) throw new DispatchError(identity);\n",
+      "new": ""
+    },
+    {
+      "name": "B07 --no-config-trailers 也读配置",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "args.no_config_trailers ? [] : rules.commitTrailers(repoConfig(repo))",
+      "new": "rules.commitTrailers(repoConfig(repo))"
+    },
+    {
+      "name": "B08 不校验 --trailer",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (!rules.validTrailer(extra)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "B09 没有候选树也往下走",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "  if (!pyTruthy(tree)) throw new DispatchError(\"缺少候选记录\");\n",
+      "new": ""
+    },
+    {
+      "name": "B10 重建结果不同也往下走",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (rebuilt !== tree) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "B11 树对象在才重建",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "\"^{tree}\") as string], repo.root).status !== 0) {",
+      "new": "\"^{tree}\") as string], repo.root).status === 0) {"
+    },
+    {
+      "name": "B12 --rework 不换前缀",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "options.rework ? \"pi-rework\" : \"pi\"",
+      "new": "\"pi\""
+    },
+    {
+      "name": "B13 空的 --name 也用",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "options.name || defaultBranchName(prefix, meta)",
+      "new": "options.name ?? defaultBranchName(prefix, meta)"
+    },
+    {
+      "name": "B14 不查分支名",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (git([\"check-ref-format\", \"--branch\", name], repo.root).status !== 0) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "B15 不看同名分支",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (createRef && existing.status === 0) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "B16 不说指向别处",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "`分支已存在：${name}${same ? \"\" : \"（指向的不是这个候选）\"}`",
+      "new": "`分支已存在：${name}`"
+    },
+    {
+      "name": "B17 主题行不看标题",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "    subjectOf(meta, title),",
+      "new": "    subjectOf(meta, null),"
+    },
+    {
+      "name": "B18 尾注前不空行",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (options.trailers.length) lines.push(\"\", ...options.trailers);",
+      "new": "lines.push(...options.trailers);"
+    },
+    {
+      "name": "B19 说明末尾不带换行",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "encodeUtf8(lines.join(LF) + LF)",
+      "new": "encodeUtf8(lines.join(LF))"
+    },
+    {
+      "name": "B21 记录文件名不换斜杠",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "name.replace(/[^A-Za-z0-9._-]/gu, \"_\")",
+      "new": "name"
+    },
+    {
+      "name": "B22 不记 branch_created",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "    logEvent(runDir, \"branch_created\", [...record]);\n",
+      "new": ""
+    },
+    {
+      "name": "B23 --rework 也提示集成",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "  if (args.rework) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "B24 HEAD 前进了也说仍是基线",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "if (head === pyItem(meta, \"base_sha\")) {",
+      "new": "if (true) {"
+    },
+    {
+      "name": "B25 没有标题时 attempt 写成 000",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "titled ? 0n : BigInt(pyPercentD(attemptNo))",
+      "new": "0n"
+    },
+    {
+      "name": "B26 执行模型的 provider 写错",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "${pyStrValue(pyGet(executor, \"provider\"))}/",
+      "new": "x/"
+    },
+    {
+      "name": "G1 授权里混了非字符串也认",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "if (!Array.isArray(actions) || !actions.every((item) => typeof item === \"string\")) {",
+      "new": "if (!Array.isArray(actions)) {"
+    },
+    {
+      "name": "G2 没授权也行",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!actions.includes(action)) throw",
+      "new": "  if (false) throw"
+    }
+  ]
+}
