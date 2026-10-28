@@ -95,6 +95,13 @@ export function pyPublishNew(path: string, data: Uint8Array): boolean {
   }
 }
 
+/** except FileExistsError：Windows 上是 [WinError 183]，POSIX 上是 CRT 的 [Errno 17]（或还没换成 Python 异常的 EEXIST）。 */
+export function isFileExists(error: unknown): boolean {
+  if (error instanceof PyWinError) return error.name === "FileExistsError";
+  if (error instanceof PyOSError) return error.errno === 17;
+  return (error as NodeJS.ErrnoException).code === "EEXIST";
+}
+
 /** os.mkdir(path, mode)。 */
 export function osMkdir(path: string, mode = 0o777): void {
   if (!WIN) {

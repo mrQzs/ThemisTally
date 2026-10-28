@@ -107,8 +107,10 @@ describe("执行说明", () => {
       renderRequest(TOOLS[0], ACTIONS[0], [V01], [{ id: 1 }], [], null),
       call("render", { meta: tag(META), contract: tag({ scope: SCOPE, checks: [V01], definition_of_done: [] }), executor: tag({ tools: ["read"] }), timeout: tag(60) }),
       call("render", { meta: tag({ task_id: "t1" }), contract: tag(contractOf(["local_edit"], [], [])), executor: tag({ tools: ["read"] }), timeout: tag(60) }),
+      // 工具名里混了数字：照 Python 在 ",".join 那一步崩（themistally-15 复核 bf1eeaf 查出）
+      renderRequest(["read", 1], ACTIONS[1], [V01], DODS[2], [], null),
     ]);
-    expect(python.map((result) => result.error)).toEqual(["TypeError", "KeyError", "KeyError"]);
+    expect(python.map((result) => result.error)).toEqual(["TypeError", "KeyError", "KeyError", "TypeError"]);
   });
 
   it("machine_summary：期望退出码、必要与否、基线说明、cwd、超时与实测用时的写法", () => {
@@ -128,10 +130,12 @@ describe("执行说明", () => {
       call("machine_summary", { contract: tag(contractOf(["local_edit"], [], [], { allowed_modified_files: [] })) }),
       call("machine_summary", { contract: tag(contractOf(["local_edit"], [{ ...V01, argv: ["x", 2] }], [])), tools: ["bash"] }),
       call("machine_summary", { contract: tag(contractOf(["local_edit"], [{ id: "V09", argv: ["x"] }], [])) }),
+      // 检查项是字符串：Python 先 .get 期望退出码，报 AttributeError（themistally-15 复核 bf1eeaf 查出）
+      call("machine_summary", { contract: tag(contractOf(["local_edit"], ["V01"], [])) }),
     ];
     const python = agree(requests);
-    expect(python.map((result) => result.ok)).toEqual([true, true, true, true, false, false, false]);
-    expect(python.slice(-2).map((result) => result.error)).toEqual(["TypeError", "KeyError"]);
+    expect(python.map((result) => result.ok)).toEqual([true, true, true, true, false, false, false, false]);
+    expect(python.slice(-3).map((result) => result.error)).toEqual(["TypeError", "KeyError", "AttributeError"]);
   });
 
   it("self_check_command：bash、PowerShell、没有 shell，env 与 cwd 的各种写法", () => {
@@ -363,6 +367,8 @@ const PREFLIGHT: PreflightCase[] = [
   { name: "help-fails", spec: { ...GOOD, help: { err: `boom api_key=${KEY}${LF}`, code: 2 } } },
   { name: "help-fails-both", spec: { ...GOOD, help: { out: HELP, err: `${"warn ".repeat(80)}${LF}`, code: 1 } } },
   { name: "no-mcp", spec: { ...GOOD, help: { out: HELP.replace("  --no-mcp" + LF, "") } } },
+  // executor 没有 context_files：Python 用 .get，照常跑完（themistally-15 复核 bf1eeaf 查出）
+  { name: "no-context-key", executor: { provider: "step", model: "step-5-preview", thinking: "high", tools: ["read"] } },
   { name: "context-none", spec: { ...GOOD, help: { out: HELP.replace("  --no-context-files       Skip AGENTS.md" + LF, "") } }, executor: { ...EXECUTOR, context_files: "none" } },
   { name: "thinking", executor: { ...EXECUTOR, thinking: "max" } },
   { name: "tools", executor: { ...EXECUTOR, tools: ["read", "grep", "find"] } },

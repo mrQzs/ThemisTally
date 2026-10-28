@@ -1,0 +1,32 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run-pre.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "P01 executor 缺 context_files 时报 KeyError",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "pyGet(executor, \"context_files\") === \"none\"",
+      "new": "pyItem(executor, \"context_files\") === \"none\""
+    },
+    {
+      "name": "P02 工具名照 str 拼",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "[\"tools\", pyJoinStrings(\",\", rawTools)],",
+      "new": "[\"tools\", tools.join(\",\")],"
+    },
+    {
+      "name": "P03 先取 id 再取期望退出码",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "    const expected = pyGet(check, \"expected_exit_code\", 0n);\n    const id = pyItem(check, \"id\");",
+      "new": "    const id = pyItem(check, \"id\");\n    const expected = pyGet(check, \"expected_exit_code\", 0n);"
+    }
+  ]
+}

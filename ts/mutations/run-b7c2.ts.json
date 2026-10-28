@@ -1,0 +1,230 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 2400,
+  "mutations": [
+    {
+      "name": "U01 领取过的 PREPARED 也运行",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (state !== \"PREPARED\" || pyExists(path.join(runDir, \"claim\"))) {",
+      "new": "if (state !== \"PREPARED\") {"
+    },
+    {
+      "name": "U02 不写“已领取”",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "? \"（已领取）\" : \"\"",
+      "new": "? \"\" : \"\""
+    },
+    {
+      "name": "U03 不过 planner-v2 发布门禁",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "attemptContract.get(\"contract_family\") === \"planner-v2\"",
+      "new": "false"
+    },
+    {
+      "name": "U04 worktree 不在也不报",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    problems.push(`worktree 不存在：${workDir}`);\n",
+      "new": ""
+    },
+    {
+      "name": "U05 不查 worktree 的 HEAD",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (gitText([\"rev-parse\", \"HEAD\"], workDir) !== pyItem(meta, \"base_sha\"))",
+      "new": "if (false)"
+    },
+    {
+      "name": "U06 不查 worktree 的未提交变更",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": ".some((byte) => !ASCII_SPACE.has(byte))",
+      "new": ".some(() => false)"
+    },
+    {
+      "name": "U07 不记 run_refused",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    logEvent(runDir, \"run_refused\", [[\"problems\", problems]]);\n",
+      "new": ""
+    },
+    {
+      "name": "U08 不认按角色的合同",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "frozenExecutorClass(runDir) === \"role\"",
+      "new": "false"
+    },
+    {
+      "name": "U09 不看本机文件",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (!process.env[\"PI_DISPATCH_PI_CMD\"] && runtime !== null) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "U10 预检不通过也运行",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (!pyTruthy(pyItem(preflight, \"ok\"))) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "U11 不打 PREFLIGHT",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "out.print(`PREFLIGHT ${problem}`);",
+      "new": "void problem;"
+    },
+    {
+      "name": "U12 不打 NOTE",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "out.print(`NOTE  ${note}`);",
+      "new": "void note;"
+    },
+    {
+      "name": "U13 不加 --no-session",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "\"--no-session\", ...RESOURCE_FLAGS]",
+      "new": "...RESOURCE_FLAGS]"
+    },
+    {
+      "name": "U14 context_files none 不加参数",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (pyItem(executor, \"context_files\") === \"none\") cmd.push(\"--no-context-files\");",
+      "new": ""
+    },
+    {
+      "name": "U15 不附 plan.md",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "copyfile(path.join(runDir, \"plan.md\"), path.join(attachDir, \"plan.md\"));",
+      "new": ""
+    },
+    {
+      "name": "U16 剩余不足 60 秒也运行",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (remaining < 60) throw",
+      "new": "if (remaining < 0) throw"
+    },
+    {
+      "name": "U17 时限四舍五入",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "BigInt(Math.trunc(remaining))",
+      "new": "BigInt(Math.round(remaining))"
+    },
+    {
+      "name": "U18 --timeout 0 也收紧",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (requested) {",
+      "new": "if (requested !== null) {"
+    },
+    {
+      "name": "U19 时限可以小于 1",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (timeout < 1n) timeout = 1n;",
+      "new": ""
+    },
+    {
+      "name": "U20 次数恰好用完也运行",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": ">= (limit as bigint)",
+      "new": "> (limit as bigint)"
+    },
+    {
+      "name": "U21 不写 executor.json",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    writeJson(path.join(runDir, \"executor.json\"), executor, true);\n",
+      "new": ""
+    },
+    {
+      "name": "U22 执行说明不带 setup",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "attemptProtectedPaths(config, meta), setup,",
+      "new": "attemptProtectedPaths(config, meta), [],"
+    },
+    {
+      "name": "U23 执行说明不带实测用时",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "measuredCheckSeconds(purePathParent(runDir), pyItem(contract, \"checks\"))",
+      "new": "null"
+    },
+    {
+      "name": "U24 执行说明不列只读路径",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "attemptProtectedPaths(config, meta), setup,",
+      "new": "[], setup,"
+    },
+    {
+      "name": "U25 不写 ignored-before.json",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    writeJson(path.join(runDir, \"ignored-before.json\"), ignoredBefore, true);\n",
+      "new": ""
+    },
+    {
+      "name": "U26 run-started 不记附件",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    runInfo.set(\"attachments\", attachments);\n",
+      "new": ""
+    },
+    {
+      "name": "U27 启动前出错不记 INFRA_FAILURE",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    setState(runDir, \"INFRA_FAILURE\", [[\"reason\", spawnError]]);\n",
+      "new": ""
+    },
+    {
+      "name": "U28 异常类名不细分 OSError",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (error instanceof PyOSError) return pyOSErrorType(error);",
+      "new": "if (error instanceof PyOSError) return \"OSError\";"
+    },
+    {
+      "name": "U29 附件目录不删",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    removeQuietly(attachDir);\n",
+      "new": ""
+    },
+    {
+      "name": "U30 不打 Summary",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "out.print(`Summary: ${path.join(runDir, \"summary.md\")}`);",
+      "new": ""
+    },
+    {
+      "name": "U31 退出码不看事件流",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "finalState === \"NEEDS_REVIEW\" && pyTruthy(pyGet(events, \"ok\"))",
+      "new": "finalState === \"NEEDS_REVIEW\""
+    },
+    {
+      "name": "U32 不记 pid.txt",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "onSpawn: (pid) => writeText(path.join(runDir, \"pid.txt\"), `${pid}${LF}`),",
+      "new": ""
+    },
+    {
+      "name": "U33 run-started 之前不进 RUNNING",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    setState(runDir, \"RUNNING\");\n",
+      "new": ""
+    },
+    {
+      "name": "U34 跑完不进 COLLECTING",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "  setState(runDir, \"COLLECTING\");\n",
+      "new": ""
+    },
+    {
+      "name": "B01 open 的 EEXIST 不换成 FileExistsError",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "  EEXIST: [17, \"File exists\"],\n",
+      "new": ""
+    },
+    {
+      "name": "B02 errno 17 不算 FileExistsError",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "error.errno === 17 ? \"FileExistsError\" : ",
+      "new": ""
+    }
+  ]
+}

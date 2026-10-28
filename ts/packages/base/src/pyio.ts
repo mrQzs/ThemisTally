@@ -14,6 +14,8 @@ const CRT_ERRNO: Readonly<Record<string, readonly [number, string]>> = {
   EACCES: [13, "Permission denied"],
   EPERM: [13, "Permission denied"],
   EBUSY: [13, "Permission denied"],
+  // open(…, "x") 撞上已有的文件（④b7c2：run 写 executor.json 等独占证据）
+  EEXIST: [17, "File exists"],
 };
 
 /** Python 的 OSError（CRT 的 open、read 抛出的那一种）：str(exc) 就是 message；read 的报错不带文件名。 */
@@ -35,7 +37,7 @@ export class PyUnicodeDecodeError extends Error {
 
 /** type(exc).__name__：OSError 按 errno 落到的子类。 */
 export function pyOSErrorType(error: PyOSError): string {
-  return error.errno === 2 ? "FileNotFoundError" : error.errno === 13 ? "PermissionError" : "OSError";
+  return error.errno === 2 ? "FileNotFoundError" : error.errno === 13 ? "PermissionError" : error.errno === 17 ? "FileExistsError" : "OSError";
 }
 
 /**

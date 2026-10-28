@@ -112,7 +112,8 @@ export function renderInstruction(
   setupResults: PyValue = [],
   measured: ReadonlyMap<string, bigint> | null = null,
 ): string {
-  const tools = strings(pyItem(executor, "tools"));
+  const rawTools = pyIter(pyItem(executor, "tools"));
+  const tools = rawTools.map(pyStrValue);
   const hasShell = tools.includes("bash") || tools.includes("powershell");
   const actions = strings(pyItem(pyItem(contract, "authorization"), "executor"));
   const selfCheck = hasShell && actions.includes("local_test");
@@ -128,7 +129,7 @@ export function renderInstruction(
     ["attempt_id", pyStrValue(pyItem(meta, "attempt_id"))],
     ["work_dir", pyStrValue(pyItem(meta, "worktree"))],
     ["base", pyStrValue(pyItem(meta, "base_sha"))],
-    ["tools", tools.join(",")],
+    ["tools", pyJoinStrings(",", rawTools)],
     ["timeout", pyStrValue(timeout)],
     ["commit_rule", actions.includes("local_commit") ? COMMIT_ALLOWED : COMMIT_FORBIDDEN],
     ["self_check_rule", selfCheckRule],
@@ -189,8 +190,8 @@ export function machineSummary(contract: PyValue, extraProtected: readonly strin
     "- 验收检查（由验收端在固定候选上独立运行）：",
   ];
   for (const check of pyIter(pyItem(contract, "checks"))) {
-    const id = pyItem(check, "id");
     const expected = pyGet(check, "expected_exit_code", 0n);
+    const id = pyItem(check, "id");
     const seconds = typeof id === "string" ? measured?.get(id) : undefined;
     const required = pyTruthy(pyGet(check, "required", true)) ? "（必要）" : "";
     const facts = [

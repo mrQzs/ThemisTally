@@ -33,6 +33,7 @@
     "./preflight": "./src/preflight.ts",
     "./release-check": "./src/release-check.ts",
     "./repo": "./src/repo.ts",
+    "./run": "./src/run.ts",
     "./run-health": "./src/run-health.ts",
     "./shell-scan": "./src/shell-scan.ts",
     "./status": "./src/status.ts",

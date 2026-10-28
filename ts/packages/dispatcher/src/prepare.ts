@@ -7,7 +7,7 @@ import { utcNow } from "@themis/base/clock";
 import { PyCrash, type PyOut, pyFixed, pyFloatOf, pyGet, pyItem, pyRound, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { PyOSError, pyDecodeUtf8, pyDecodeUtf8Replace, pyOSErrorType, pyReadBytes } from "@themis/base/pyio";
 import { type PyDict, type PyValue, loads } from "@themis/base/pyjson";
-import { PyWinError, pathMkdir } from "@themis/base/pyos";
+import { PyWinError, isFileExists, pathMkdir } from "@themis/base/pyos";
 import { displayPath, normCase, purePathStr, pyResolve } from "@themis/base/pypath";
 import { cmpCodePoints, codePoints, pyIntParse, pyStrip } from "@themis/base/pyre";
 import { strictJsonLoads } from "@themis/base/protocols";
@@ -94,8 +94,7 @@ export function allocateAttempt(repo: Repo, taskId: string): [string, bigint] {
       pathMkdir(candidate, false, false);
       return [candidate, number];
     } catch (error) {
-      const exists = error instanceof PyWinError ? error.name === "FileExistsError" : (error as NodeJS.ErrnoException).code === "EEXIST";
-      if (!exists) throw error;
+      if (!isFileExists(error)) throw error;
       number += 1n;
     }
   }

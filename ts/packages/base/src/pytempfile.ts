@@ -5,7 +5,7 @@ import { randomInt } from "node:crypto";
 import { closeSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { pyReprValue } from "./pyfmt.ts";
 import { PyOSError } from "./pyio.ts";
-import { PyWinError, osMkdir } from "./pyos.ts";
+import { PyWinError, isFileExists, osMkdir } from "./pyos.ts";
 import { abspath, expanduser, osPathJoin } from "./pypath.ts";
 
 const WIN = process.platform === "win32";
@@ -92,7 +92,7 @@ export function pyMkdtemp(prefix: string, dir: string): string {
     try {
       osMkdir(file, 0o700);
     } catch (error) {
-      if (error instanceof PyWinError ? error.name === "FileExistsError" : (error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      if (isFileExists(error)) continue;
       // Windows 上同名的是目录时报 PermissionError：dir 是目录（os.access 对目录总说可写）就换个名字再试
       if (error instanceof PyWinError && error.name === "PermissionError" && isDir(dir)) continue;
       throw error;

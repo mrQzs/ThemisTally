@@ -85,7 +85,7 @@ export function resolveArgv(argv: readonly string[], cwd: string, env: ReadonlyM
 }
 
 /** run_supervised 的结果照 Python 的字典：整数是 bigint，wall_seconds 是 float。 */
-function supervisedRecord(result: SuperviseResult): [string, PyValue][] {
+export function supervisedRecord(result: SuperviseResult): [string, PyValue][] {
   const int = (value: number | null): bigint | null => (value === null ? null : BigInt(value));
   return [
     ["exit_code", int(result.exit_code)],

@@ -26,12 +26,14 @@ import { type StatusArgs, cmdStatus } from "@themis/dispatcher/status";
 import { type DecisionsArgs, cmdDecisions } from "@themis/dispatcher/decisions-replay";
 import { type MutateArgs, cmdMutate } from "@themis/dispatcher/mutate";
 import { type PrepareArgs, type PrepareContext, cmdPrepare } from "@themis/dispatcher/prepare";
+import { type RunArgs, type RunContext, cmdRun } from "@themis/dispatcher/run";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
 import { decisionsSession } from "@themis/config/decisions-client";
 import { reportScreenBattery } from "@themis/config/decisions";
 import { CONFIG_COMMANDS, runConfig } from "@themis/config/cli";
 import { bindingTuple, resolveRoleExecutor } from "@themis/config/roles-binding";
 import { configErrors } from "@themis/config/roles-check";
+import { localCommand } from "@themis/config/roles-local";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
 
 interface PyArgs {
@@ -185,6 +187,19 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runBuffered((buffered) => {
         const kitRoot = planContext(args).kitRoot;
         return cmdCollect(args as unknown as CollectArgs, buffered, sessionsFor(args, buffered), { reportScreen: () => reportScreenBattery(kitRoot) });
+      });
+    case "run":
+      return runBuffered((buffered) => {
+        const kitRoot = planContext(args).kitRoot;
+        // kit_roles.local_command 的提示行打到标准错误（Python 的 resolve_pi_command 照样打）
+        const context: RunContext = {
+          localCommand: (repo, config, runtime) => {
+            const local = localCommand({ root: repo.root, agentDir: repo.agentDir }, config, runtime as string);
+            for (const line of local.lines) buffered.printErr(line);
+            return local.command;
+          },
+        };
+        return cmdRun(args as unknown as RunArgs, buffered, context, sessionsFor(args, buffered), { reportScreen: () => reportScreenBattery(kitRoot) });
       });
     case "verdict":
       return runBuffered((buffered) => cmdVerdict(args as unknown as VerdictArgs, buffered, hostPlatform(args)));

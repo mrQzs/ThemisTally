@@ -118,7 +118,7 @@ export function writtenBindingNote(config: PyDict, resolved: PyDict, roles: Bind
 }
 
 /** TaskLock 的 with：占用时照 Python 报 DispatchError。 */
-function withTaskLock<T>(repo: Repo, taskId: string, body: () => T): T {
+export function withTaskLock<T>(repo: Repo, taskId: string, body: () => T): T {
   let lock: TaskLock;
   try {
     lock = new TaskLock(repo.runsDir, taskId).acquire();

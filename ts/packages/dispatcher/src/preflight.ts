@@ -5,7 +5,7 @@
 import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
-import { pyItem, pyIter, pyReprValue, pyStrValue } from "@themis/base/pyfmt";
+import { pyGet, pyItem, pyIter, pyReprValue, pyStrValue } from "@themis/base/pyfmt";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { pathMkdir } from "@themis/base/pyos";
 import { expanduser, isWithin, purePathParent, purePathStr, pyExists, pyResolve } from "@themis/base/pypath";
@@ -112,7 +112,7 @@ export async function piPreflight(piCmd: readonly string[], cwd: string, executo
   writeTextMode(path.join(outDir, "pi-help.txt"), helpText);
   const info = parseHelp(out + err);
   if (code !== 0) problems.push(`pi --help 退出码 ${code}：${firstChars(redactSecrets(pyStrip(err || out)), 300)}`);
-  const required = [...REQUIRED_PI_FLAGS, ...(pyItem(executor, "context_files") === "none" ? ["--no-context-files"] : [])];
+  const required = [...REQUIRED_PI_FLAGS, ...(pyGet(executor, "context_files") === "none" ? ["--no-context-files"] : [])];
   const missing = required.filter((flag) => !info.flags.includes(flag));
   if (missing.length) problems.push(`本机 pi 不支持参数：${missing.join(", ")}`);
   const thinking = pyItem(executor, "thinking");

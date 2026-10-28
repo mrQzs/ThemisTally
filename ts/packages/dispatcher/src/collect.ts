@@ -115,7 +115,7 @@ function recordCandidate(repo: Repo, runDir: string, workDir: string, base: stri
 }
 
 /** attempt_protected_paths：仓库配置的 extra_protected_paths，加上 prepare 时冻结进 meta.json 的内核 TS 禁区。 */
-function attemptProtectedPaths(config: PyDict, meta: PyValue): string[] {
+export function attemptProtectedPaths(config: PyDict, meta: PyValue): string[] {
   return [...extraProtectedPaths(config), ...((or(pyGet(meta, "kernel_protected"), []) as string[]))];
 }
 
