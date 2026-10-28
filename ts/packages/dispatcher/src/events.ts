@@ -3,7 +3,6 @@
 // 码点下标、按码点排序都照 Python。正则原文来自生成的 event-patterns.ts。
 import { closeSync, openSync, readSync } from "node:fs";
 import path from "node:path";
-import { writeText } from "@themis/base/fsutil";
 import { pyAdd, pyGet, pyItem, pyJoinStrings, pyPositive, pyRepr, pyReprValue, pyRound, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorOf, pyReadBytes } from "@themis/base/pyio";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
@@ -12,7 +11,7 @@ import { compilePy, toPoints } from "@themis/base/pyregex";
 import { cmpCodePoints, codePoints, isSpace, pyLower, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { redactSecrets, stripAnsi } from "@themis/base/secrets";
 import { EVENT_PATTERNS as P, STDERR_WARNING_PATTERNS } from "./event-patterns.ts";
-import { writeJson } from "./evidence.ts";
+import { writeJson, writeText } from "./evidence.ts";
 import {
   DELETE_LABEL,
   SUSPICIOUS,

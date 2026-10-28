@@ -37,6 +37,8 @@ interface Case {
   readonly timeout?: number;
   /** 运行 run 时的环境变量：undefined 删掉。 */
   readonly env?: Record<string, string | undefined>;
+  /** 跟各自的 attempt 有关的环境变量（在 env 之后）。 */
+  readonly envAt?: (at: At) => Record<string, string>;
   readonly json?: (data: Json) => void;
   readonly md?: MdOptions;
   readonly config?: Record<string, unknown>;
@@ -113,6 +115,7 @@ function runCase(item: Case): void {
       STUB_MAIN_REPO: at.repo,
       ...FIXED_DATES,
       ...item.env,
+      ...item.envAt?.(at),
     };
     const argv = ["run", RUN_REL, ...(item.timeout === undefined ? [] : ["--timeout", String(item.timeout)])];
     const result = withEnv(env, () => runCommand(runner, at.repo, argv, { command: ["run"], run_dir: RUN_REL, timeout: item.timeout ?? null, context: TS_CONTEXT }));
@@ -145,6 +148,28 @@ const otherAttempts = (...walls: number[]) => ({ runDir }: At): void => {
     put(other, "run.json", json({ wall_seconds: wall }));
   });
 };
+
+/**
+ * 包一层的 pi：预检问 --help 时先建出 WRAP_MKDIRS 里的目录，再交给 stub_pi。模拟另一个进程在状态检查之后、进任务锁之前
+ * 领取了这个 attempt 或用掉了次数，任务锁里的第二次核算才走得到（themistally-15 复核 ④b7c2 时指出的缺口）。
+ */
+const WRAP_DIR = tempDir("run-wrap");
+const WRAP = join(WRAP_DIR, "wrap_pi.py");
+put(WRAP_DIR, "wrap_pi.py", [
+  "import json",
+  "import os",
+  "import subprocess",
+  "import sys",
+  "",
+  'if "--help" in sys.argv:',
+  '    for item in json.loads(os.environ.get("WRAP_MKDIRS", "[]")):',
+  "        os.makedirs(item, exist_ok=True)",
+  'sys.exit(subprocess.call([sys.executable, os.environ["WRAP_STUB"]] + sys.argv[1:]))',
+  "",
+].join(LF));
+const wrapped = (...dirs: string[]): Record<string, string> => ({
+  PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, WRAP]), WRAP_STUB: STUB, WRAP_MKDIRS: JSON.stringify(dirs),
+});
 
 const SETUP = [{ id: "S01", argv: [PYTHON, "-c", "print('setup ok')"], cwd: ".", timeout_seconds: 60 }];
 
@@ -220,6 +245,12 @@ const CASES: Case[] = [
   { label: "次数用完：BUDGET_EXCEEDED", status: 3, before: otherAttempts(10, 20), text: "BUDGET_EXCEEDED：已达到 max_attempts_total=2。" },
   { label: "剩余墙钟不足 60 秒：BUDGET_EXCEEDED", status: 3, before: otherAttempts(2350.5), text: "BUDGET_EXCEEDED：剩余墙钟预算 50s，不足 60s。" },
   { label: "剩余墙钟比每轮上限少：时限取整", status: 0, before: otherAttempts(1500.4), text: "（时限 899s）" },
+  // --- 任务锁里的第二次核算：预检时另一个进程抢先 ---
+  { label: "预检之后次数才用完：任务锁里 BUDGET_EXCEEDED", status: 3, text: "BUDGET_EXCEEDED：已达到 max_attempts_total=2。",
+    envAt: ({ runDir }) => wrapped(join(runDir, "..", "attempt-008", "claim"), join(runDir, "..", "attempt-009", "claim")),
+    shows: { "state.json": '"state": "PREPARED"', "preflight/preflight.json": '"ok": true' } },
+  { label: "预检之后才被领取：任务锁里撞上 claim/", status: 3, text: "该 attempt 已被领取，不能重复运行。",
+    envAt: ({ runDir }) => wrapped(join(runDir, "claim")), shows: { "state.json": '"state": "PREPARED"' } },
   // --- 预检与 pi 的命令 ---
   { label: "--list-models 失败：预检不通过，attempt 保持 PREPARED", status: 3, env: { STUB_LIST_FAIL: "1" },
     text: ["PREFLIGHT pi --list-models 失败：", "预检失败：attempt 保持 PREPARED，未计入尝试次数。修正环境后可再次 run。"],
@@ -232,6 +263,14 @@ const CASES: Case[] = [
   { label: "executor.json 已经在了：记 spawn_error、INFRA_FAILURE，照 Python 崩", status: 1, crash: true,
     before: ({ runDir }) => put(runDir, "executor.json", "{}"),
     shows: { "run.json": '"spawn_error": "领取后、启动前失败：FileExistsError: ', "state.json": '"state": "INFRA_FAILURE"' } },
+  { label: "instruction.md 已经在了：spawn_error 照 Python 写 FileExistsError 与 Errno 17", status: 1, crash: true,
+    before: ({ runDir }) => put(runDir, "instruction.md", "x"),
+    shows: { "run.json": '"spawn_error": "领取后、启动前失败：FileExistsError: [Errno 17] File exists: ', "state.json": '"state": "INFRA_FAILURE"' } },
+  // --- 启动时（open "xb"）出错：照 Python 崩，没有 run.json，状态停在 RUNNING ---
+  { label: "events.jsonl 已经在了：照 Python 崩，状态停在 RUNNING", status: 1, crash: true,
+    before: ({ runDir }) => put(runDir, "events.jsonl", "x"), shows: { "state.json": '"state": "RUNNING"', "events.jsonl": "x" } },
+  { label: "stderr.log 已经在了：events.jsonl 先建出（空的），照 Python 崩", status: 1, crash: true,
+    before: ({ runDir }) => put(runDir, "stderr.log", "x"), shows: { "state.json": '"state": "RUNNING"', "stderr.log": "x", "events.jsonl": "" } },
 ];
 
 describe("run", () => {

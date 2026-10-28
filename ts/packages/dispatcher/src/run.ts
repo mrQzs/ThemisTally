@@ -7,7 +7,6 @@
 import { rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
-import { writeText } from "@themis/base/fsutil";
 import { PyCrash, type PyOut, pyFixed, pyFloatOf, pyGet, pyItem, pyJoinStrings, pyPercentD, pyTruthy } from "@themis/base/pyfmt";
 import { PyOSError, pyOSErrorType, pyReadBytes } from "@themis/base/pyio";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
@@ -20,7 +19,7 @@ import { copyfile } from "./check-commands.ts";
 import { attemptProtectedPaths, collect } from "./collect.ts";
 import { supervisedRecord } from "./command-runner.ts";
 import { verifyPlannerPublication } from "./contract-plan.ts";
-import { loadAttempt, logEvent, setState, sha256File, writeJson } from "./evidence.ts";
+import { loadAttempt, logEvent, setState, sha256File, writeJson, writeText } from "./evidence.ts";
 import { resolvePiCommand } from "./executor.ts";
 import { resolveBoundExecutor, resolveExecutor, withTaskLock } from "./executor-resolve.ts";
 import { verifyInputs } from "./gates.ts";
@@ -127,15 +126,18 @@ export async function cmdRun(args: RunArgs, out: PyOut, context: RunContext, ses
   }
   const attemptId = pyItem(meta, "attempt_id") as string;
   out.print(`RUNNING ${attemptId}（时限 ${timeout}s）`, { flush: true });
+  const grace = pyFloatOf(pyGet(config, "kill_grace_seconds", 15n));
   let result;
   try {
+    // 照 Python 的 open(…, "xb")：先依次独占建出两份输出，已存在就报 FileExistsError（状态停在 RUNNING，没有 run.json）
+    for (const name of ["events.jsonl", "stderr.log"]) writeText(path.join(runDir, name), "");
     result = await runSupervised(cmd, {
       cwd: workDir,
       env: [...env],
-      stdout: { path: path.join(runDir, "events.jsonl"), how: "create-new" },
-      stderr: { path: path.join(runDir, "stderr.log"), how: "create-new" },
+      stdout: { path: path.join(runDir, "events.jsonl"), how: "truncate" },
+      stderr: { path: path.join(runDir, "stderr.log"), how: "truncate" },
       timeout: Number(timeout),
-      grace: pyFloatOf(pyGet(config, "kill_grace_seconds", 15n)),
+      grace,
       onSpawn: (pid) => writeText(path.join(runDir, "pid.txt"), `${pid}${LF}`),
     });
   } finally {

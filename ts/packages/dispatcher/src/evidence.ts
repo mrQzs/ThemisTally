@@ -62,6 +62,11 @@ function writeOpened(file: string, flags: string, text: string): void {
   }
 }
 
+/** write_text：不转换换行；exclusive（缺省）时文件已存在报 FileExistsError。出错照 Python 报 OSError 的子类与文字。 */
+export function writeText(file: string, text: string, exclusive = true): void {
+  writeOpened(file, exclusive ? "wx" : "w", text);
+}
+
 /** write_json：indent=2、不转义非 ASCII、末尾一个换行；exclusive 时文件已存在就失败，否则先写同名 .tmp 再替换。 */
 export function writeJson(file: string, data: PyValue, exclusive = false): void {
   const text = `${dumps(data, { ensureAscii: false, indent: 2 })}${LF}`;

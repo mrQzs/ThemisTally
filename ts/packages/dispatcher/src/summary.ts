@@ -2,7 +2,6 @@
 // 一节解析（④b8）。取值照 Python 的 %s、%d 写法；证据文件里的字段缺失或类型不对时照 Python 抛同类异常，求值次序也照 Python，
 // 先出错的先报。
 import path from "node:path";
-import { writeText } from "@themis/base/fsutil";
 import {
   PyCrash,
   pyFixed,
@@ -25,6 +24,7 @@ import { cmpCodePoints, codePoints } from "@themis/base/pyre";
 import { redactSecrets } from "@themis/base/secrets";
 import { pyEq } from "@themis/base/pyvalue";
 import { DECISIONS_RECORD, answerValue, latestByPoint } from "./decision-records.ts";
+import { writeText } from "./evidence.ts";
 import { attemptExecutor, frozenExecutorClass, readRecords } from "./metrics.ts";
 import { type Repo, readJsonOr } from "./repo.ts";
 import { getState } from "./status.ts";

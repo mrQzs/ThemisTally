@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run.contract.test.ts",
+    "-t",
+    "预检之后|已经在了",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 任务锁里不重新核算次数与墙钟",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "const used = checkAttempts(repo, taskId, runDir, budget);",
+      "new": "const used = 0;"
+    },
+    {
+      "name": "R02 领取撞车不报“已被领取”",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "if (isFileExists(error)) throw new DispatchError(",
+      "new": "if (false) throw new DispatchError("
+    },
+    {
+      "name": "R03 启动前不先独占建出两份输出",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "    for (const name of [\"events.jsonl\", \"stderr.log\"]) writeText(path.join(runDir, name), \"\");\n",
+      "new": ""
+    },
+    {
+      "name": "R04 先建 stderr.log 再建 events.jsonl",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "for (const name of [\"events.jsonl\", \"stderr.log\"])",
+      "new": "for (const name of [\"stderr.log\", \"events.jsonl\"])"
+    },
+    {
+      "name": "R05 instruction.md 覆盖写",
+      "file": "ts/packages/dispatcher/src/run.ts",
+      "old": "writeText(path.join(runDir, \"instruction.md\"), instruction);",
+      "new": "writeText(path.join(runDir, \"instruction.md\"), instruction, false);"
+    },
+    {
+      "name": "R06 打开文件的错误不换成 Python 的 OSError",
+      "file": "ts/packages/dispatcher/src/evidence.ts",
+      "old": "const fd = withOSError(file, () => openSync(file, flags));",
+      "new": "const fd = openSync(file, flags);"
+    }
+  ]
+}
