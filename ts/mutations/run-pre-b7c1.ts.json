@@ -1,0 +1,452 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run-pre.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 只认 bash 是 shell",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "const hasShell = tools.includes(\"bash\") || tools.includes(\"powershell\");",
+      "new": "const hasShell = tools.includes(\"bash\");"
+    },
+    {
+      "name": "R02 自检不看 local_test",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "const selfCheck = hasShell && actions.includes(\"local_test\");",
+      "new": "const selfCheck = hasShell;"
+    },
+    {
+      "name": "R03 没有检查时不写“合同未列出”",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "|| \"（合同未列出）\";",
+      "new": "|| \"\";"
+    },
+    {
+      "name": "R04 DoD 缺 id 不写问号",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyGet(item, \"id\", \"?\")",
+      "new": "pyGet(item, \"id\", \"\")"
+    },
+    {
+      "name": "R05 local_commit 不放开提交",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "actions.includes(\"local_commit\") ? COMMIT_ALLOWED : COMMIT_FORBIDDEN",
+      "new": "COMMIT_FORBIDDEN"
+    },
+    {
+      "name": "R06 不写 setup 的事实",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "[\"setup_facts\", setupFactsText(setupResults)],",
+      "new": "[\"setup_facts\", \"\"],"
+    },
+    {
+      "name": "R07 没有自检授权也给自检写法",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "selfCheck ? tools : []",
+      "new": "tools"
+    },
+    {
+      "name": "R08 占位符只换第一个",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "[}]/gu;",
+      "new": "[}]/u;"
+    },
+    {
+      "name": "R09 setup 为空也写标题",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "if (!pyTruthy(setupResults)) return \"\";",
+      "new": "if (false) return \"\";"
+    },
+    {
+      "name": "R10 通过与失败写反",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "? \"已通过\" : \"失败\"",
+      "new": "? \"失败\" : \"已通过\""
+    },
+    {
+      "name": "R11 Windows 上也照 shlex 加引号",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "WIN ? list2cmdline(argv) :",
+      "new": "false ? list2cmdline(argv) :"
+    },
+    {
+      "name": "R12 env 不排序",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": ".sort(([a], [b]) => cmpCodePoints(a as string, b as string))",
+      "new": ""
+    },
+    {
+      "name": "R13 ./ 不算当前目录",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "cwd === \"\" || cwd === \".\" || cwd === \"./\"",
+      "new": "cwd === \"\" || cwd === \".\""
+    },
+    {
+      "name": "R14 自检只留 20 行",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "export const SELF_CHECK_TAIL_LINES = 40;",
+      "new": "export const SELF_CHECK_TAIL_LINES = 20;"
+    },
+    {
+      "name": "R15 PowerShell 的单引号不加倍",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "value.replaceAll(\"'\", \"''\")",
+      "new": "value"
+    },
+    {
+      "name": "R16 空清单不写“无”",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": ": \"无\");",
+      "new": ": \"\");"
+    },
+    {
+      "name": "R17 不列本仓库只读的路径",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "listing([...extraProtected])",
+      "new": "listing([])"
+    },
+    {
+      "name": "R18 期望退出码只认整数 0",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyEq(expected, 0n) ? \"\"",
+      "new": "expected === 0n ? \"\""
+    },
+    {
+      "name": "R19 不写实测用时",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "measured?.get(id)",
+      "new": "undefined"
+    },
+    {
+      "name": "R20 基线说明缺省按 fail",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyGet(check, \"expect_on_base\", \"any\")",
+      "new": "pyGet(check, \"expect_on_base\", \"fail\")"
+    },
+    {
+      "name": "R21 required 缺省按否",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyGet(check, \"required\", true)",
+      "new": "pyGet(check, \"required\", false)"
+    },
+    {
+      "name": "R22 实测用时不比 argv",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "!pyEq(target[0], pyGet(item, \"argv\")) ||",
+      "new": "false ||"
+    },
+    {
+      "name": "R23 实测用时不比 cwd",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "!pyEq(target[1], pyGet(item, \"cwd\", \".\")) ||",
+      "new": "false ||"
+    },
+    {
+      "name": "R24 超时的也算",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyTruthy(pyGet(item, \"timed_out\")) ||",
+      "new": "false ||"
+    },
+    {
+      "name": "R25 退出码不对的也算",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "!pyEq(pyGet(item, \"exit_code\"), pyGet(item, \"expected_exit_code\")) ||",
+      "new": "false ||"
+    },
+    {
+      "name": "R26 没有用时的不跳过",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "pyGet(item, \"wall_seconds\") === null",
+      "new": "false"
+    },
+    {
+      "name": "R27 取最长改成 Math.max",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "seconds > known ? seconds : known",
+      "new": "Math.max(known, seconds)"
+    },
+    {
+      "name": "R28 四舍五入不取偶",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "const up = rest > 0.5 || (rest === 0.5 && floor % 2 !== 0);",
+      "new": "const up = rest >= 0.5;"
+    },
+    {
+      "name": "R29 目录名区分大小写",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "WIN ? ci(piece) :",
+      "new": "false ? ci(piece) :"
+    },
+    {
+      "name": "R30 列表当 id 不崩",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "if (Array.isArray(id) || id instanceof Map) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "R31 检查不写 cwd 时不按 . 比",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "[pyItem(check, \"argv\"), pyGet(check, \"cwd\", \".\")]",
+      "new": "[pyItem(check, \"argv\"), pyGet(check, \"cwd\")]"
+    },
+    {
+      "name": "R32 不看 baseline",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "...globPaths(runs, [\"baseline\", \"*\", \"checks.json\"]), ",
+      "new": ""
+    },
+    {
+      "name": "R33 不看 attempt",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "...globPaths(runs, [\"attempt-*\", \"checks\", \"*\", \"checks.json\"])",
+      "new": ""
+    },
+    {
+      "name": "R34 无穷大不照 Python 崩",
+      "file": "ts/packages/dispatcher/src/instruction.ts",
+      "old": "if (!Number.isFinite(value)) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "F01 不看 --help 的退出码",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (code !== 0) problems.push(`pi --help 退出码",
+      "new": "if (false) problems.push(`pi --help 退出码"
+    },
+    {
+      "name": "F02 context_files none 不要求 --no-context-files",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "=== \"none\" ? [\"--no-context-files\"] : []",
+      "new": "=== \"none\" ? [] : []"
+    },
+    {
+      "name": "F03 不报缺少的参数",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (missing.length) problems.push(",
+      "new": "if (false) problems.push("
+    },
+    {
+      "name": "F04 不查思考级别",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (!info.thinking_levels.includes(thinking as string)) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "F05 没有工具清单也查工具",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (info.builtin_tools.length) {",
+      "new": "if (true) {"
+    },
+    {
+      "name": "F06 版本只看能不能解析",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (code !== 0 || version === null)",
+      "new": "if (version === null)"
+    },
+    {
+      "name": "F07 恰好 0.80.4 也提醒",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "compareVersion(version, MIN_PI_VERSION) < 0",
+      "new": "compareVersion(version, MIN_PI_VERSION) <= 0"
+    },
+    {
+      "name": "F08 --list-models 失败不报",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "problems.push(`pi --list-models 失败：${firstChars(redactSecrets(pyStrip(err || out)), 300)}`);",
+      "new": "void 0;"
+    },
+    {
+      "name": "F09 不查模型在不在列表",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "} else if (!rows.some(",
+      "new": "} else if (false && !rows.some("
+    },
+    {
+      "name": "F10 pi auth 不看词边界",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const PI_AUTH_RE = pyRegex(`${WB}pi auth${WB}`);",
+      "new": "const PI_AUTH_RE = pyRegex(`pi auth`);"
+    },
+    {
+      "name": "F11 auth-check.json 总写 stdout",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "redactSecrets(pyStrip(out) ? out : err)",
+      "new": "redactSecrets(out)"
+    },
+    {
+      "name": "F12 文本不转 CRLF",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "WIN ? text.replaceAll(LF, CRLF) : text",
+      "new": "text"
+    },
+    {
+      "name": "F13 pi-help.txt 不脱敏",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const helpText = redactSecrets(stripAnsi(out + err));",
+      "new": "const helpText = stripAnsi(out + err);"
+    },
+    {
+      "name": "F14 pi-help.txt 不去色码",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const helpText = redactSecrets(stripAnsi(out + err));",
+      "new": "const helpText = redactSecrets(out + err);"
+    },
+    {
+      "name": "F15 --help 的报错不截 300",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "pi --help 退出码 ${code}：${firstChars(redactSecrets(pyStrip(err || out)), 300)}",
+      "new": "pi --help 退出码 ${code}：${firstChars(redactSecrets(pyStrip(err || out)), 3000)}"
+    },
+    {
+      "name": "F16 --help 的报错先取 stdout",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "pi --help 退出码 ${code}：${firstChars(redactSecrets(pyStrip(err || out)), 300)}",
+      "new": "pi --help 退出码 ${code}：${firstChars(redactSecrets(pyStrip(out || err)), 300)}"
+    },
+    {
+      "name": "F17 版本先取 stderr",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const versionText = redactSecrets(pyStrip(out || err));",
+      "new": "const versionText = redactSecrets(pyStrip(err || out));"
+    },
+    {
+      "name": "F18 版本报错不截 200",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "${firstChars(versionText, 200)}",
+      "new": "${versionText}"
+    },
+    {
+      "name": "F19 有问题也算 ok",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "[\"ok\", problems.length === 0],",
+      "new": "[\"ok\", true],"
+    },
+    {
+      "name": "F20 auth check 失败不报",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (code !== 0) problems.push(`pi auth check",
+      "new": "if (false) problems.push(`pi auth check"
+    },
+    {
+      "name": "F21 auth 的报错先取 stderr",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "未就绪（退出码 ${code}）：${firstChars(redactSecrets(pyStrip(out || err)), 300)}",
+      "new": "未就绪（退出码 ${code}）：${firstChars(redactSecrets(pyStrip(err || out)), 300)}"
+    },
+    {
+      "name": "F22 --list-models 的报错先取 stdout",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "pi --list-models 失败：${firstChars(redactSecrets(pyStrip(err || out)), 300)}",
+      "new": "pi --list-models 失败：${firstChars(redactSecrets(pyStrip(out || err)), 300)}"
+    },
+    {
+      "name": "F23 没有 auth 子命令不记",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "    notes.push(\"本机 pi 没有 auth 子命令，跳过凭据检查\");\n",
+      "new": ""
+    },
+    {
+      "name": "F24 结果不脱敏",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const result = redactObj(",
+      "new": "const result = ("
+    },
+    {
+      "name": "F25 上下文文件不倒序",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "of chain.reverse()",
+      "new": "of chain"
+    },
+    {
+      "name": "F26 祖先目录也算 worktree",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "const inside = isWithin(directory, workDir);",
+      "new": "const inside = true;"
+    },
+    {
+      "name": "F27 不看 context_mode",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (contextMode === \"project\") {",
+      "new": "if (true) {"
+    },
+    {
+      "name": "F28 设置的键不排序",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "([...data.keys()] as string[]).sort(cmpCodePoints)",
+      "new": "([...data.keys()] as string[])"
+    },
+    {
+      "name": "F29 先找 AGENTS.md 再找 override",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "[\"AGENTS.override.md\", \"AGENTS.md\",",
+      "new": "[\"AGENTS.md\", \"AGENTS.override.md\","
+    },
+    {
+      "name": "F30 PI_CODING_AGENT_DIR 不规整",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "purePathStr(expanduser(configured))",
+      "new": "configured"
+    },
+    {
+      "name": "F31 不记项目资源",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": ".filter((name) => pyExists(purePathStr(workDir, name)))",
+      "new": ".filter(() => false)"
+    },
+    {
+      "name": "F32 不提醒全局系统提示词",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "    warnings.push(`全局 ${name} 会改变执行器系统提示词：${file}`);\n",
+      "new": ""
+    },
+    {
+      "name": "F33 不提醒工作副本之外的上下文",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "if (!inside) warnings.push(",
+      "new": "if (false) warnings.push("
+    },
+    {
+      "name": "F35 list-models.txt 不去色码",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "writeTextMode(path.join(outDir, \"list-models.txt\"), redactSecrets(stripAnsi(out + err)));",
+      "new": "writeTextMode(path.join(outDir, \"list-models.txt\"), redactSecrets(out + err));"
+    },
+    {
+      "name": "F34 不记文件大小",
+      "file": "ts/packages/dispatcher/src/preflight.ts",
+      "old": "item.set(\"bytes\", BigInt(statSync(file).size));",
+      "new": "item.set(\"bytes\", 0n);"
+    },
+    {
+      "name": "S01 空串不加引号",
+      "file": "ts/packages/base/src/pyshlex.ts",
+      "old": "if (!text) return \"''\";",
+      "new": "if (!text) return \"\";"
+    },
+    {
+      "name": "S02 @ 不算安全字符",
+      "file": "ts/packages/base/src/pyshlex.ts",
+      "old": "/^[A-Za-z0-9_@%+=:,./-]+$/u",
+      "new": "/^[A-Za-z0-9_%+=:,./-]+$/u"
+    },
+    {
+      "name": "S03 é 算安全字符",
+      "file": "ts/packages/base/src/pyshlex.ts",
+      "old": "/^[A-Za-z0-9_@%+=:,./-]+$/u",
+      "new": "/^[A-Za-zé0-9_@%+=:,./-]+$/u"
+    },
+    {
+      "name": "S04 只换第一个单引号",
+      "file": "ts/packages/base/src/pyshlex.ts",
+      "old": ".replaceAll(\"'\", `",
+      "new": ".replace(\"'\", `"
+    }
+  ]
+}

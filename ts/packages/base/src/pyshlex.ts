@@ -84,3 +84,13 @@ export function shlexSplit(text: string): string[] {
     tokens.push(token);
   }
 }
+
+/** shlex.quote 的安全字符：re.ASCII 下的单词字符与 @%+=:,./-，其余（包括非 ASCII）都要加引号。 */
+const SHLEX_SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/u;
+
+/** shlex.quote(s)：空串写成两个单引号；有不安全的字符时整体加单引号，单引号本身写成 '"'"'。 */
+export function shlexQuote(text: string): string {
+  if (!text) return "''";
+  if (SHLEX_SAFE.test(text)) return text;
+  return `'${text.replaceAll("'", `'"'"'`)}'`;
+}

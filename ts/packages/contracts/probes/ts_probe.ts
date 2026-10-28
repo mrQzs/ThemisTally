@@ -13,7 +13,9 @@ import { publishNew } from "@themis/base/publish";
 import { PyCrash, type PyOut, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
 import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
-import { ShlexError, shlexSplit } from "@themis/base/pyshlex";
+import { ShlexError, shlexQuote, shlexSplit } from "@themis/base/pyshlex";
+import { machineSummary, measuredCheckSeconds, renderInstruction, selfCheckCommand, setupFactsText } from "@themis/dispatcher/instruction";
+import { contextEvidence, piPreflight } from "@themis/dispatcher/preflight";
 import { compilePatterns, globRegexText, matches, patternError, reEscape } from "@themis/dispatcher/patterns";
 import { branchSubject, deriveContractJson, invisibleCharWarnings, validateContract } from "@themis/dispatcher/contract";
 import { validatePlan } from "@themis/dispatcher/contract-plan";
@@ -814,6 +816,42 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "dispatch.parse_cli": (request) => {
     const text = String(request["text"]);
     return { ok: true, help: parseHelp(text), lines: listModelsLines(text), rows: listModelsRows(text), empty_reason: listModelsEmptyReason(text) };
+  },
+  "run.call": async (request) => {
+    const tagged = (key: string): PyValue => (request[key] == null ? null : fromTagged(request[key] as Tagged));
+    const measured = (): Map<string, bigint> | null => tagged("measured") as Map<string, bigint> | null;
+    const strings = (key: string): string[] => (request[key] ?? []) as string[];
+    try {
+      switch (request["fn"]) {
+        case "shlex_quote":
+          return { ok: true, value: shlexQuote(String(request["text"])) };
+        case "render":
+          return { ok: true, value: renderInstruction(tagged("meta"), tagged("contract"), tagged("executor"), tagged("timeout"), strings("extra"), tagged("setup") ?? [], measured()) };
+        case "setup_facts":
+          return { ok: true, value: setupFactsText(tagged("setup")) };
+        case "self_check":
+          return { ok: true, value: selfCheckCommand(tagged("check"), strings("tools")) };
+        case "machine_summary":
+          return { ok: true, value: machineSummary(tagged("contract"), strings("extra"), strings("tools"), measured()) };
+        case "measured":
+          return { ok: true, value: toTagged(measuredCheckSeconds(String(request["runs"]), tagged("checks"))) };
+        case "context_evidence":
+          if (request["agent_dir"] == null) delete process.env["PI_CODING_AGENT_DIR"];
+          else process.env["PI_CODING_AGENT_DIR"] = String(request["agent_dir"]);
+          return { ok: true, value: toTagged(contextEvidence(String(request["work_dir"]), String(request["mode"]))) };
+        case "preflight": {
+          const env = new Map(request["env"] as [string, string][]);
+          return { ok: true, value: toTagged(await piPreflight(strings("pi_cmd"), String(request["cwd"]), tagged("executor"), String(request["out_dir"]), env)) };
+        }
+        default:
+          return { ok: false, error: "UNKNOWN_FN" };
+      }
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyJsonError) return { ok: false, error: error.kind, message: error.message };
+      if (error instanceof PyOSError) return { ok: false, error: pyOSErrorType(error), message: error.message };
+      throw error;
+    }
   },
   "supervise.run": async (request) => {
     try {

@@ -445,6 +445,48 @@ def op_dispatch_parse_cli(request):
             "empty_reason": pi_dispatch.list_models_empty_reason(text)}
 
 
+def op_run_call(request):
+    """run 之前的几步（迁移第 ④b7c1 片）：执行说明（render_instruction 与它的几个部件）、measured_check_seconds、
+    shlex.quote、context_evidence、pi_preflight。值带标签；异常交回类名与 str(exc)。"""
+    fn = request["fn"]
+
+    def tagged(key):
+        return from_tagged(request[key]) if request.get(key) is not None else None
+
+    try:
+        if fn == "shlex_quote":
+            return {"ok": True, "value": shlex.quote(request["text"])}
+        if fn == "render":
+            return {"ok": True, "value": pi_dispatch.render_instruction(
+                tagged("meta"), tagged("contract"), tagged("executor"), tagged("timeout"), request.get("extra", []),
+                tagged("setup") or [], tagged("measured"))}
+        if fn == "setup_facts":
+            return {"ok": True, "value": pi_dispatch.setup_facts_text(tagged("setup"))}
+        if fn == "self_check":
+            return {"ok": True, "value": pi_dispatch.self_check_command(tagged("check"), request["tools"])}
+        if fn == "machine_summary":
+            return {"ok": True, "value": pi_dispatch.machine_summary(tagged("contract"), request.get("extra", []),
+                                                                     request.get("tools", []), tagged("measured"))}
+        if fn == "measured":
+            return {"ok": True, "value": to_tagged(pi_dispatch.measured_check_seconds(Path(request["runs"]),
+                                                                                       tagged("checks")))}
+        if fn == "context_evidence":
+            if request.get("agent_dir") is None:
+                os.environ.pop("PI_CODING_AGENT_DIR", None)
+            else:
+                os.environ["PI_CODING_AGENT_DIR"] = request["agent_dir"]
+            return {"ok": True, "value": to_tagged(pi_dispatch.context_evidence(Path(request["work_dir"]),
+                                                                                 request["mode"]))}
+        if fn == "preflight":
+            env = {key: value for key, value in request["env"]}
+            result = pi_dispatch.pi_preflight(list(request["pi_cmd"]), Path(request["cwd"]), tagged("executor"),
+                                              Path(request["out_dir"]), env)
+            return {"ok": True, "value": to_tagged(result)}
+    except Exception as exc:  # noqa: BLE001 —— 崩溃的类名与文字也要两边一致
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+    return {"ok": False, "error": "UNKNOWN_FN"}
+
+
 def op_roles_cwd_relative(request):
     """kit_roles.cwd_relative_parts：先切到 request 给的目录（相对路径按它判断是否存在）。"""
     os.chdir(request["cwd"])
@@ -983,6 +1025,7 @@ OPS = {
     "roles.cwd_relative": op_roles_cwd_relative,
     "dispatch.run_capture": op_dispatch_run_capture,
     "dispatch.parse_cli": op_dispatch_parse_cli,
+    "run.call": op_run_call,
     "publish_new": op_publish_new,
     "filelock.run": op_filelock_run,
     "secrets.call": op_secrets_call,
