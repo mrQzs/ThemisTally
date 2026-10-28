@@ -35,11 +35,11 @@ const ANSI_ESCAPE = new RegExp(`${ESC}${BS}[[0-?]*[ -/]*[@-~]|${ESC}${BS}][^${BE
 export const stripAnsiEscapes = (text: string): string => text.replace(ANSI_ESCAPE, "");
 
 /** "%03d" % n：负号算在宽度里。 */
-const pad3 = (n: bigint): string => (n < 0n ? `-${String(-n).padStart(2, "0")}` : String(n).padStart(3, "0"));
-const firstPoints = (text: string, count: number): string => codePoints(text).slice(0, count).join("");
+export const pad3 = (n: bigint): string => (n < 0n ? `-${String(-n).padStart(2, "0")}` : String(n).padStart(3, "0"));
+export const firstPoints = (text: string, count: number): string => codePoints(text).slice(0, count).join("");
 
 /** "%s" % value[:count]（mkdtemp 的前缀）：字符串按码点截，列表截了照 str() 写，其余照 Python 崩（手改的 meta 才会出现）。 */
-function headOf(value: PyValue, count: number): string {
+export function headOf(value: PyValue, count: number): string {
   if (typeof value === "string") return firstPoints(value, count);
   if (Array.isArray(value)) return pyStrValue(value.slice(0, count));
   if (value instanceof Map) throw new PyCrash("KeyError", `slice(None, ${count}, None)`);

@@ -30,6 +30,7 @@ import { type RunArgs, type RunContext, cmdRun } from "@themis/dispatcher/run";
 import type { SessionFactory } from "@themis/dispatcher/run-health";
 import { type BranchArgs, cmdBranch } from "@themis/dispatcher/branch";
 import { type ReviewDraftArgs, cmdReviewDraft } from "@themis/dispatcher/review-draft";
+import { type IntegrateArgs, cmdIntegrate } from "@themis/dispatcher/integrate";
 import { type DoctorArgs, type DoctorContext, cmdDoctor } from "@themis/dispatcher/doctor";
 import { type SmokeArgs, cmdSmoke } from "@themis/dispatcher/smoke";
 import { decisionsSession } from "@themis/config/decisions-client";
@@ -228,6 +229,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "branch":
       // 尾注的规则在 config 包（validate），dispatcher 不依赖 config
       return runBuffered(async (buffered) => cmdBranch(args as unknown as BranchArgs, buffered, { commitTrailers, validTrailer }));
+    case "integrate":
+      return runBuffered((buffered) => cmdIntegrate(args as unknown as IntegrateArgs, buffered, { commitTrailers, validTrailer }));
     case "review-draft":
       return runBuffered(async (buffered) => cmdReviewDraft(args as unknown as ReviewDraftArgs, buffered, hostPlatform(args)));
     case "verdict":

@@ -22,6 +22,7 @@
     "./gates": "./src/gates.ts",
     "./gitops": "./src/gitops.ts",
     "./instruction": "./src/instruction.ts",
+    "./integrate": "./src/integrate.ts",
     "./kernel-config": "./src/kernel-config.ts",
     "./logs": "./src/logs.ts",
     "./logs-cat": "./src/logs-cat.ts",

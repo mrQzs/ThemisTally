@@ -1,0 +1,278 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/integrate.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "I01 不过发布门禁",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (publication.length) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "I02 不过 G0",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (problems.length) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "I03 不核对授权",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  requireAuthorizedAction(contract, \"local_branch\", true);\n",
+      "new": ""
+    },
+    {
+      "name": "I04 没授权 merge 也落地",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "\"integration\") as PyValue[]).includes(\"merge\")",
+      "new": "\"integration\") as PyValue[]).length > 0"
+    },
+    {
+      "name": "I05 已集成的不单独报",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (state === \"INTEGRATED\") {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "I06 不看状态",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": " || !PASSING_VERDICTS.includes(state)) {",
+      "new": ") {"
+    },
+    {
+      "name": "I07 --skip 不要 --reason",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (skip.length && !pyStrip(args.reason ?? \"\")) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "I08 未知检查不排序",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": ".filter((item) => !ids.some((id) => pyEq(id, item))).sort(cmpCodePoints)",
+      "new": ".filter((item) => !ids.some((id) => pyEq(id, item)))"
+    },
+    {
+      "name": "I09 游离 HEAD 也往下走",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (symbolic.status !== 0) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "I10 --while-running 不管用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (mayLand && !args.dry_run && !args.while_running) {",
+      "new": "if (mayLand && !args.dry_run) {"
+    },
+    {
+      "name": "I11 收集中的不算",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "[\"RUNNING\", \"COLLECTING\"].includes(getState(attempt))",
+      "new": "[\"RUNNING\"].includes(getState(attempt))"
+    },
+    {
+      "name": "I12 不查 Git 身份",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  if (identity) throw new DispatchError(identity);\n",
+      "new": ""
+    },
+    {
+      "name": "I13 --dry-run 也建分支",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "createRef: !args.dry_run",
+      "new": "createRef: true"
+    },
+    {
+      "name": "I14 不复用已有分支",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "createRef: !args.dry_run, reuse: true",
+      "new": "createRef: !args.dry_run, reuse: false"
+    },
+    {
+      "name": "I15 不说复用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "\"（复用已有分支）\"",
+      "new": "\"\""
+    },
+    {
+      "name": "I16 基线不在历史里也不提示",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (git([\"merge-base\", \"--is-ancestor\", base, head], repo.root).status !== 0) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "I17 冲突不记文件",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "finish(\"conflict\", [[\"conflicts\", conflicts]]);",
+      "new": "finish(\"conflict\");"
+    },
+    {
+      "name": "I18 --recheck 不管用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (args.recheck) reuseReason",
+      "new": "if (false) reuseReason"
+    },
+    {
+      "name": "I19 --skip 也沿用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "else if (skip.length) reuseReason",
+      "new": "else if (false) reuseReason"
+    },
+    {
+      "name": "I20 不记沿用自哪次",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "[\"reused_from\", from]",
+      "new": "[\"reused_from\", \"x\"]"
+    },
+    {
+      "name": "I21 验证副本的名字",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "\"%d format\"))}-integrate-`",
+      "new": "\"%d format\"))}-verify-`"
+    },
+    {
+      "name": "I22 中途出错不记已跑的结果",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "finish(\"workspace_failed\", [[\"error\", error.message], [\"results\", results]]);",
+      "new": "finish(\"workspace_failed\", [[\"error\", error.message], [\"results\", []]]);"
+    },
+    {
+      "name": "I23 --keep-workspace 不管用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (!args.keep_workspace) removeWorktree(repo, verified);",
+      "new": "removeWorktree(repo, verified);"
+    },
+    {
+      "name": "I24 非必要检查也要过",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "!pyTruthy(pyGet(item, \"required\", true)) || ",
+      "new": ""
+    },
+    {
+      "name": "I25 改了文件也算过",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "const passed = checksOk && !modified.length && !unexpected.length;",
+      "new": "const passed = checksOk && !unexpected.length;"
+    },
+    {
+      "name": "I26 新文件也算过",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "const passed = checksOk && !modified.length && !unexpected.length;",
+      "new": "const passed = checksOk && !modified.length;"
+    },
+    {
+      "name": "I27 --dry-run 也落地",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  if (args.dry_run) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "I28 没授权 merge 也去快进",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  if (!mayLand) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "I29 末端变了也快进",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (nowTarget !== target || nowHead !== head) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "I30 快进被拒当成落地",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (ff.status !== 0) {",
+      "new": "if (false) {"
+    },
+    {
+      "name": "I31 编号不补零",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "path.join(integrations, String(number).padStart(2, \"0\"))",
+      "new": "path.join(integrations, String(number))"
+    },
+    {
+      "name": "I32 --keep-worktree 不管用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  if (!args.keep_worktree) {",
+      "new": "  if (true) {"
+    },
+    {
+      "name": "I33 提交说明多一个换行",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "raw.subarray(at + 2)",
+      "new": "raw.subarray(at + 1)"
+    },
+    {
+      "name": "I34 落地提交的父提交写成基线",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "\"commit-tree\", mergedTree, \"-p\", head, \"-F\"",
+      "new": "\"commit-tree\", mergedTree, \"-p\", base, \"-F\""
+    },
+    {
+      "name": "I35 不认 check --fresh",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "pyEq(pyGet(data, \"mode\"), \"fresh\")",
+      "new": "pyEq(pyGet(data, \"mode\"), \"in_place\")"
+    },
+    {
+      "name": "I36 没有 mode 的中止记录不认",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "(!pyTruthy(pyGet(data, \"mode\")) && pyEq(pyGet(data, \"aborted\"), \"fresh_workspace_failed\"))",
+      "new": "false"
+    },
+    {
+      "name": "I37 编号从小到大取",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "a.value < b.value ? 1 : -1",
+      "new": "a.value < b.value ? -1 : 1"
+    },
+    {
+      "name": "I38 不看测的是哪棵树",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (!pyEq(pyGet(data, \"candidate_tree\"), candidateTree)) return",
+      "new": "if (false) return"
+    },
+    {
+      "name": "I39 少跑了检查也沿用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (missing.length) return",
+      "new": "if (false) return"
+    },
+    {
+      "name": "I40 不看 all_required_passed",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (failed.length || !pyTruthy(pyGet(data, \"all_required_passed\"))) return",
+      "new": "if (failed.length) return"
+    },
+    {
+      "name": "I41 检查改了文件也沿用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (pyTruthy(pyGet(data, \"modified_by_checks\")) || pyTruthy(pyGet(data, \"unexpected_files_by_checks\"))) return",
+      "new": "if (false) return"
+    },
+    {
+      "name": "I42 规划路径之外的改动也沿用",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": ".filter((file) => !matches(compiled, file))",
+      "new": ".filter(() => false)"
+    },
+    {
+      "name": "I43 不记验证副本的路径",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "[\"workspace\", workspace]",
+      "new": "[\"workspace\", null]"
+    },
+    {
+      "name": "I44 分支名不去 refs/heads/",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "target.startsWith(\"refs/heads/\") ? target.slice(\"refs/heads/\".length) : target",
+      "new": "target"
+    }
+  ]
+}
