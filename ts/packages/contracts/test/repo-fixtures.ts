@@ -91,6 +91,23 @@ function longPath(value: string): string {
 /** python：钉成 Python 回答；node、bun：直接起 TS 入口；launcher：选择文件的 dispatcher 是 ts，经真的启动器转交（第 ④ 步切换）。 */
 export type Runner = "python" | "node" | "bun" | "launcher";
 export const RUNNERS: readonly Runner[] = ["python", "node", "bun", "launcher"];
+/**
+ * 启动器会交给 TS 的参数：pi_dispatch.dispatcher_handoff 照 argparse 的结果生成（kernel_impl 照直连 TS 的契约写全 python）。
+ * node、bun 两种 runner 用它，不必每条命令手写 pyargs。
+ */
+export function pyargsOf(repo: string, argv: readonly string[]): Record<string, unknown> {
+  const program = [
+    "import json, sys",
+    `sys.path.insert(0, ${JSON.stringify(join(REPO, "scripts"))})`,
+    "import pi_dispatch as pd",
+    "impl = {name: 'python' for name in pd.KERNEL_IMPL_COMPONENTS}",
+    "print(json.dumps(pd.dispatcher_handoff(pd.build_parser().parse_args(json.loads(sys.argv[1])), impl)))",
+  ].join(LF);
+  const done = spawnSync(process.env["THEMIS_PYTHON"] ?? "python", ["-c", program, JSON.stringify(["--repo", repo, ...argv])], { encoding: "utf8" });
+  if (done.status !== 0) throw new Error(`生成参数失败：${done.stderr}`);
+  return JSON.parse(done.stdout) as Record<string, unknown>;
+}
+
 /** 自己起进程的用例（中断用例）用的命令行：launcher 那一条给启动器的进程组发 CTRL_BREAK，由它转发给 TS（切换 b）。 */
 export function commandOf(runner: Runner, repo: string, argv: readonly string[], args: Record<string, unknown>): string[] {
   if (runner === "python") return pythonCliCommand(["--repo", repo, ...argv]);

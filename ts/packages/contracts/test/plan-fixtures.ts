@@ -10,13 +10,15 @@ export interface MdOptions {
   readonly cwd?: string;
   readonly goal?: string;
   readonly family?: string;
+  /** integration_actions（缺省 none），JSON 的 authorization.integration 要另外改成一样的。 */
+  readonly integration?: string;
 }
 
 export function mdOf(task: string, base: string, o: MdOptions = {}): string {
   return [
     `# TASK: ${task}`, "",
     "## Identity", "- plan_version: 1", `- base_sha: ${base}`, "- risk_level: low", "- authorized_actions: local_edit, local_test",
-    "- integration_actions: none", `- executor: ${o.executor ?? "step/step-5-preview · thinking high"}`,
+    `- integration_actions: ${o.integration ?? "none"}`, `- executor: ${o.executor ?? "step/step-5-preview · thinking high"}`,
     ...(o.family ? [`- contract_family: ${o.family}`] : []), "",
     "## Goal", o.goal ?? "改一个文件。", "",
     "## Non-goals", "无", "",

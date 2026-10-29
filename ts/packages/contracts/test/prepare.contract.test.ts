@@ -51,7 +51,8 @@ interface Case {
   readonly env?: Record<string, string>;
   readonly before?: (at: At) => void;
   readonly crash?: boolean;
-  /** pi 的命令换成只写一个标记文件的探针：被拒的 prepare 不该调用它（K7、K8）。 */
+  /** pi 的命令换成只写一个标记文件的探针，被拒的 prepare 不该调用它（K7、K8）。现在 prepare 的任何路径都不调 pi（只跑合同的
+   * setup），这一项只当回归护栏；真正有区分力的是开 spy 时另断言的“不留 attempt”（themistally-15 复核 c1 时指出）。 */
   readonly spy?: boolean;
 }
 

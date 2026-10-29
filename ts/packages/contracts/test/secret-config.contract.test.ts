@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PYTHON, fullAttempt, json, state } from "./attempt-fixtures.ts";
 import { REPO as KIT, runPythonCli } from "./harness.ts";
 import { jsonOf, mdOf } from "./plan-fixtures.ts";
-import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { LF, RUNNERS, type Runner, git, newRepo, pyargsOf, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -54,20 +54,6 @@ function withEnv<T>(env: Record<string, string>, body: () => T): T {
   }
 }
 
-/** 启动器会交给 TS 的参数：pi_dispatch.dispatcher_handoff 照 argparse 的结果生成（kernel_impl 照直连 TS 的契约写全 python）。 */
-function pyargsOf(repo: string, argv: readonly string[]): Record<string, unknown> {
-  const program = [
-    "import json, sys",
-    `sys.path.insert(0, ${JSON.stringify(join(KIT, "scripts"))})`,
-    "import pi_dispatch as pd",
-    "impl = {name: 'python' for name in pd.KERNEL_IMPL_COMPONENTS}",
-    "print(json.dumps(pd.dispatcher_handoff(pd.build_parser().parse_args(json.loads(sys.argv[1])), impl)))",
-  ].join(LF);
-  const done = spawnSync(PYTHON, ["-c", program, JSON.stringify(["--repo", repo, ...argv])], { encoding: "utf8" });
-  if (done.status !== 0) throw new Error(`生成参数失败：${done.stderr}`);
-  return JSON.parse(done.stdout) as Record<string, unknown>;
-}
-
 function filesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
@@ -94,7 +80,7 @@ interface Setup {
 }
 
 /** 跑一条命令，四种 runner 的结果要相同；返回其中一份，供各用例另加断言。 */
-function runScenario(argv: readonly string[], config: Record<string, unknown>, setup: Setup = {}): { status: number; stderr: string } {
+function runScenario(argv: readonly string[], config: Record<string, unknown>, setup: Setup = {}): { status: number; stderr: string; evidence: Record<string, string> } {
   const results = RUNNERS.map((runner) => {
     // 配置里有各自的 worktree_root：忽略它与证据目录，主工作区的内容树才与路径无关
     const { repo, head } = newRepo(`sc-${runner}`, { ".gitignore": [".agent/runs/", ".agent/dispatch.config.json", ""].join(LF) });
@@ -141,6 +127,17 @@ describe("覆盖审计点名的三条命令：四处放法都拒绝", () => {
   }
 });
 
+describe("collect --recover：配置读不了就失败收尾", () => {
+  // collect 读两次配置：范围门禁的受保护路径（attempt_protected_paths），主工作区变化的规划路径（planner_paths）。配置有
+  // 疑似凭据、读不了时，不能当作没有受保护路径去算范围：读出错记下来，状态 INFRA_FAILURE（themistally-15 复核 c1 时指出）
+  it("状态 INFRA_FAILURE，证据里记下读配置出错", () => {
+    const first = runScenario(["collect", "t1", "--recover"], PLACES["commit_trailers"] as Record<string, unknown>,
+      { files: { "state.json": state("RUNNING") } });
+    expect(first.evidence["runs/t1/attempt-001/state.json"]).toContain("INFRA_FAILURE");
+    expect(Object.entries(first.evidence).filter(([, text]) => text.includes("疑似凭据")).map(([rel]) => rel), "读配置出错记进了证据").not.toEqual([]);
+  }, 120_000);
+});
+
 describe("其余调度器命令：读配置的拒绝，不读的照常；四边相同，令牌不外露", () => {
   // [argv, 读不读配置, 夹具]
   const COMMANDS: [string[], boolean, Setup][] = [
@@ -150,7 +147,6 @@ describe("其余调度器命令：读配置的拒绝，不读的照常；四边�
     [["integrate", "t1", "--dry-run"], true, { files: { "state.json": state("PASS") } }],
     [["release-check"], true, {}],
     [["mutate", "t1", "--spec", "spec.json"], true, {}],
-    [["collect", "t1", "--recover"], false, { files: { "state.json": state("RUNNING") } }],
     [["verdict", "t1", "--verdict", "PASS", "--review", "review.md"], false, {}],
     [["review-draft", "t1"], false, {}],
     [["mark", "t1", "ABANDONED"], false, {}],
