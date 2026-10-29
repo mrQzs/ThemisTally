@@ -4,12 +4,12 @@
 // PI_CODING_AGENT_DIR 指向临时目录。比退出码、标准输出与标准错误、.agent/runs 下的全部证据。路径、时间、pid、用时与 mkdtemp 的
 // 随机后缀换成占位符；崩溃只比退出码与证据。不写转义序列。
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pidAlive } from "@themis/base/process";
 import { BREAK_OUTER, PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
-import { REPO as KIT, runPythonCli } from "./harness.ts";
+import { BUN, REPO as KIT, runPythonCli } from "./harness.ts";
 import { type Json, type MdOptions, jsonOf, mdOf } from "./plan-fixtures.ts";
 import { LF, RUNNERS, type Runner, commandOf, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
@@ -48,6 +48,8 @@ interface Case {
   readonly before?: (at: At) => void;
   readonly shows?: Record<string, string | readonly string[]>;
   readonly crash?: boolean;
+  /** PATH 换成 SAFE_PATH（最前面是 pi.cmd 桩），跑完核对桩该不该被调用过（K17 的回落经过 PATH）。 */
+  readonly stubbed?: "runs" | "unused";
 }
 
 function scrub(text: string): string {
@@ -120,13 +122,16 @@ function runCase(item: Case): void {
       ...item.envAt?.(at),
     };
     const argv = ["run", RUN_REL, ...(item.timeout === undefined ? [] : ["--timeout", String(item.timeout)])];
-    const result = withEnv(env, () => runCommand(runner, at.repo, argv, { command: ["run"], run_dir: RUN_REL, timeout: item.timeout ?? null, context: TS_CONTEXT }));
+    const mark = join(tempDir(`run-pi-mark-${runner}`), "ran");
+    const stubEnv = item.stubbed ? { PATH: SAFE_PATH, THEMIS_PI_STUB_MARK: mark } : {};
+    const result = withEnv({ ...env, ...stubEnv }, () => runCommand(runner, at.repo, argv, { command: ["run"], run_dir: RUN_REL, timeout: item.timeout ?? null, context: TS_CONTEXT }));
     const stderr = result.stderr.toString("utf8");
     results.push({
       status: result.status,
       stdout: item.crash ? "" : scrub(normalize(result.stdout.toString("utf8"), paths)),
       stderr: item.crash ? "" : scrub(normalize(stderr, paths)),
       crashed: item.crash ? crashed(stderr) : null,
+      stubRan: item.stubbed ? existsSync(mark) : null,
       evidence: Object.fromEntries(Object.entries(snapshotDir(join(at.repo, ".agent", "runs"), paths)).map(([key, value]) => [key, scrub(value)])),
     });
   }
@@ -134,6 +139,7 @@ function runCase(item: Case): void {
   const first = results[0] as (typeof results)[number];
   expect(first.status, JSON.stringify({ ...first, evidence: undefined })).toBe(item.status);
   if (item.crash) expect(first.crashed, "崩溃场景两边都要真崩").toBe(true);
+  if (item.stubbed) expect(first.stubRan, "PATH 上的 pi 桩").toBe(item.stubbed === "runs");
   for (const wanted of typeof item.text === "string" ? [item.text] : item.text ?? []) expect(first.stdout + first.stderr).toContain(wanted);
   for (const [rel, wanted] of Object.entries(item.shows ?? {})) {
     const content = first.evidence[`t1/attempt-001/${rel}`];
@@ -193,6 +199,20 @@ put(WRAP_DIR, "env_pi.py", [
   "",
 ].join(LF));
 
+/**
+ * K17 的回落经过 PATH（themistally-15 复核 c1 时给的做法）：PATH 最前面放一个 pi.cmd 桩，写标记文件、退出 9；去掉 PATH 里有 pi
+ * 的目录，再把 bun.exe 那一层加回来（启动器要找 bun，指纹核对要求同一个 bun.exe）。跑之前用 where 确认第一个 pi 就是桩，
+ * 不是就跳过这些用例，免得回落时调到真的 pi。标记的路径经环境变量 THEMIS_PI_STUB_MARK 交给桩。
+ */
+const PI_STUB_DIR = tempDir("run-pi-stub");
+put(PI_STUB_DIR, "pi.cmd", ["@echo off", 'echo x> "%THEMIS_PI_STUB_MARK%"', "exit /b 9", ""].join(String.fromCharCode(13, 10)));
+const SAFE_PATH = [
+  PI_STUB_DIR, dirname(BUN),
+  ...(process.env["PATH"] ?? "").split(";").filter((dir) => dir && !["pi.cmd", "pi.exe", "pi.ps1", "pi"].some((name) => existsSync(join(dir, name)))),
+].join(";");
+const STUB_FIRST = withEnv({ PATH: SAFE_PATH }, () => spawnSync("where", ["pi"], { encoding: "utf8" }).stdout.split(LF)[0]?.trim())
+  ?.toLowerCase() === join(realpathSync.native(PI_STUB_DIR), "pi.cmd").toLowerCase(); // where 打印长路径，临时目录可能是短名
+
 const SETUP = [{ id: "S01", argv: [PYTHON, "-c", "print('setup ok')"], cwd: ".", timeout_seconds: 60 }];
 
 // 按角色写的合同：prepare 发布版本记录，run 照记录取模型，pi 的命令来自本机文件（PI_DISPATCH_PI_CMD 不设）
@@ -204,6 +224,23 @@ const BOUND = {
 const ROLE_MD: MdOptions = { executor: "role:execution" };
 const roleJson = (data: Json): void => void (data["executor"] = { role: "execution", tools: ["read", "edit", "bash"], context_files: "project" });
 const LOCAL_FILE = json({ runtimes: { pi: { command: [PYTHON, STUB] }, ghost: { command: ["ghost"] } } });
+
+/** prepare 之后改配置的 allowed_executors（K11）。 */
+const tighten = (allowed: unknown[]) => ({ repo }: At): void => {
+  const agent = join(repo, ".agent");
+  put(agent, "dispatch.config.json", json({ ...(JSON.parse(readFileSync(join(agent, "dispatch.config.json"), "utf8")) as Json), allowed_executors: allowed }));
+};
+/** prepare 之后改版本记录的字段（K14）。 */
+const editRecord = (fields: Record<string, unknown>) => ({ repo }: At): void => {
+  const task = join(repo, ".agent", "runs", "t1");
+  put(task, "binding-v1.json", json({ ...(JSON.parse(readFileSync(join(task, "binding-v1.json"), "utf8")) as Json), ...fields }));
+};
+/** prepare 之后去掉 meta.json 的 executor_binding（K14b）。 */
+const dropMetaBinding = ({ runDir }: At): void => {
+  const meta = JSON.parse(readFileSync(join(runDir, "meta.json"), "utf8")) as Json;
+  delete meta["executor_binding"];
+  put(runDir, "meta.json", json(meta));
+};
 
 const CASES: Case[] = [
   // --- 跑完 ---
@@ -247,8 +284,32 @@ const CASES: Case[] = [
   { label: "配置的 extra_protected_paths：执行说明里列为只读", status: 0, config: { extra_protected_paths: ["docs/**"] },
     shows: { "instruction.md": "本仓库只读的路径：`docs/**`" } },
   { label: "按角色：模型取自版本记录，pi 的命令取自本机文件（另一个 runtime 没登记，打 WARN）", status: 0, md: ROLE_MD, json: roleJson, config: BOUND,
-    env: { PI_DISPATCH_PI_CMD: undefined, STUB_MODELS: "step step-5" }, before: ({ repo }) => put(repo, ".agent/dispatch.local.json", LOCAL_FILE),
+    env: { PI_DISPATCH_PI_CMD: undefined, STUB_MODELS: "step step-5" }, stubbed: "unused", before: ({ repo }) => put(repo, ".agent/dispatch.local.json", LOCAL_FILE),
     text: "WARN  .agent/dispatch.local.json 的 runtime", shows: { "executor.json": '"model": "step-5"', "run-started.json": "stub_pi.py" } },
+  // 覆盖审计的缺口（切换 c1）：r2 文档 9.4 节的 K10、K11、K14、K14b、K17 在 run 时
+  { label: "按角色：prepare 之后设了 PI_EXEC_PROVIDER：拒绝，仍是 PREPARED", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5", PI_EXEC_PROVIDER: "other" }, text: "冲突", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后设了 PI_EXEC_MODEL：拒绝，仍是 PREPARED", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5", PI_EXEC_MODEL: "other-model" }, text: "冲突", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后设了 PI_EXEC_THINKING：拒绝，仍是 PREPARED", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5", PI_EXEC_THINKING: "low" }, text: "冲突", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后收紧 allowed_executors：拒绝", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: tighten([{ provider: "step", model: "other" }]), text: "allowed_executors", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后钉了别的思考级别：拒绝", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: tighten([{ provider: "step", model: "step-5", thinking: "low" }]), text: "思考级别固定为 low", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后改了记录的 runtime：G0 拒绝", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: editRecord({ runtime: "oc" }), text: ["输入不一致（G0）", "版本记录"], shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：prepare 之后改了记录的合同哈希：G0 拒绝", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: editRecord({ contract_json_sha256: "0".repeat(64) }), text: ["输入不一致（G0）", "版本记录"], shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：meta 少了 executor_binding：G0 拒绝", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: dropMetaBinding, text: "缺少 meta.json 的 executor_binding", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：PI_DISPATCH_PI_CMD 仍然优先于本机文件", status: 0, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: ({ repo }) => put(repo, ".agent/dispatch.local.json", json({ runtimes: { pi: { command: [PYTHON, "-c", "import sys; sys.exit(7)"] } } })),
+    text: "NEEDS_REVIEW t1.v1.a001", shows: { "run-started.json": "stub_pi.py" } },
+  { label: "按角色：本机文件被 Git 跟踪就不用，回落到 PATH（这里是桩）：预检失败，仍是 PREPARED", status: 3, md: ROLE_MD, json: roleJson, config: BOUND,
+    env: { PI_DISPATCH_PI_CMD: undefined, STUB_MODELS: "step step-5" }, stubbed: "runs",
+    before: ({ repo }) => {
+      put(repo, ".agent/dispatch.local.json", LOCAL_FILE);
+      git(repo, "add", "-f", ".agent/dispatch.local.json");
+    },
+    text: ["被 Git 跟踪，不使用", "PREFLIGHT pi --help 退出码 9"], shows: { "state.json": '"state": "PREPARED"' } },
   { label: "全局 SYSTEM.md：打 NOTE", status: 0, env: { PI_CODING_AGENT_DIR: SYSTEM_AGENT_DIR }, text: "NOTE  全局 SYSTEM.md 会改变执行器系统提示词：" },
   // --- 拒绝运行 ---
   { label: "已经不是 PREPARED：不运行", status: 3, before: ({ runDir }) => put(runDir, "state.json", json({ state: "RUNNING", at: "2026-01-01T00:00:00Z" })),
@@ -304,7 +365,7 @@ const CASES: Case[] = [
 ];
 
 describe("run", () => {
-  for (const item of CASES) it(item.label, () => runCase(item), 240_000);
+  for (const item of CASES) (item.stubbed && !STUB_FIRST ? it.skip : it)(item.label, () => runCase(item), 240_000);
 });
 
 /**

@@ -1,0 +1,59 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/prepare.contract.test.ts",
+    "packages/contracts/test/run.contract.test.ts",
+    "-t",
+    "按角色",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "C21 PI_EXEC_* 与合同或记录冲突不拒绝",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    if (pyTruthy(explicit) && !pyEq(explicit, envValue)) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "C22 不在 allowed_executors 里不拒绝",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (problem !== null && problem[0] === \"missing\") {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "C23 钉了别的思考级别不拒绝",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "  if (problem !== null) throw new DispatchError(",
+      "new": "  if (false) throw new DispatchError("
+    },
+    {
+      "name": "C24 版本记录经过链接也读",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "  if (link !== null) throw new BindingRecordError(",
+      "new": "  if (false) throw new BindingRecordError("
+    },
+    {
+      "name": "C25 meta 少了 executor_binding 不算问题",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!isDict(binding)) return [\"按角色写的合同缺少 meta.json 的 executor_binding\"];",
+      "new": "  if (!isDict(binding)) return [];"
+    },
+    {
+      "name": "C26 meta 的副本与记录不一致不算问题",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "  if (!pyEq(copy, record)) return [",
+      "new": "  if (false) return ["
+    },
+    {
+      "name": "C27 适配器没接通也派遣",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "  if (!ADAPTERS[adapter]?.headless_roles.includes(role)) {",
+      "new": "  if (false) {"
+    }
+  ]
+}

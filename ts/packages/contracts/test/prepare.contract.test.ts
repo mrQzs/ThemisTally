@@ -2,8 +2,8 @@
 // worktree 与 setup。每个场景按三份实现各建一份相同的仓库（固定作者与时间，提交号相同）与合同对，跑同一条 prepare，比退出码、
 // 标准输出与标准错误、.agent/runs 下的全部证据、worktree 的数目与检出的文件。meta.json 的 impl 按设计不同（python 对 ts），
 // 单独断言；路径、时间、wall_seconds、pid 与 mkdtemp 的随机后缀换成占位符。崩溃只比退出码与证据。不写转义序列。
-import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync, utimesSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, utimesSync } from "node:fs";
 import { basename, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { BREAK_OUTER, PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
@@ -51,6 +51,8 @@ interface Case {
   readonly env?: Record<string, string>;
   readonly before?: (at: At) => void;
   readonly crash?: boolean;
+  /** pi 的命令换成只写一个标记文件的探针：被拒的 prepare 不该调用它（K7、K8）。 */
+  readonly spy?: boolean;
 }
 
 function withEnv<T>(env: Record<string, string>, body: () => T): T {
@@ -109,7 +111,9 @@ function metaImpls(runs: string): string[] {
 function runCase(item: Case): void {
   const results = (RUNNERS as readonly Runner[]).map((runner) => {
     const { repo, wtRoot, paths } = buildRepo(runner, item);
-    const result = withEnv(item.env ?? {}, () => runCommand(runner, repo, ["prepare", "t1.v1"], ARGS));
+    const marker = join(tempDir(`pspy-${runner}`), "ran");
+    const spy = item.spy ? { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, "-c", `open(${JSON.stringify(marker)}, 'a').write('x')`]) } : {};
+    const result = withEnv({ ...item.env, ...spy }, () => runCommand(runner, repo, ["prepare", "t1.v1"], ARGS));
     const worktrees = worktreesIn(wtRoot);
     worktrees.forEach((wt, index) => void (paths[index ? `<WT${index}>` : "<WT>"] = wt));
     const runs = join(repo, ".agent", "runs");
@@ -124,6 +128,7 @@ function runCase(item: Case): void {
       registered: git(repo, "worktree", "list", "--porcelain").split(LF).filter((line) => line.startsWith("worktree ")).length,
       checkedOut: worktrees.map((wt) => readdirSync(wt).filter((name) => name !== ".git").sort()),
       // mkdtemp 的前缀：仓库目录名的前 16 个码点、任务号、编号（整个路径在比较里换成了占位符）
+      cliRan: existsSync(marker),
       prefixed: worktrees.every((wt) => basename(wt).startsWith(`${Array.from(basename(realpathSync.native(repo))).slice(0, 16).join("")}-t1-a`)),
     };
   });
@@ -131,6 +136,8 @@ function runCase(item: Case): void {
   const first = results[0] as (typeof results)[number];
   expect(first.status, JSON.stringify(first)).toBe(item.status);
   expect(first.prefixed, "worktree 目录名的前缀").toBe(true);
+  expect(first.cliRan, "被拒的 prepare 不调用 pi 的 CLI").toBe(false);
+  if (item.spy) expect(Object.keys(first.evidence).filter((rel) => rel.includes("attempt-")), "分配 attempt 之前就拒绝，不留 attempt").toEqual([]);
   if (item.crash) expect(first.crashed, "崩溃场景两边都要真崩").toBe(true);
   for (const wanted of typeof item.text === "string" ? [item.text] : item.text ?? []) expect(first.stdout + first.stderr).toContain(wanted);
 }
@@ -210,7 +217,7 @@ const CASES: Case[] = [
     config: { ...BOUND, profiles: { exec: { ...PROFILES.exec, model: { provider: "step", id: "step-5-preview" } } } }, text: "PREPARED t1.v1.a001" },
   // --- 按角色写的合同 ---
   { label: "按角色：第一次 prepare 发布版本记录", status: 0, md: ROLE_MD, json: roleJson, config: BOUND, text: "PREPARED t1.v1.a001" },
-  { label: "按角色：没有绑定，分配 attempt 之前就拒绝", status: 2, md: ROLE_MD, json: roleJson, text: "按角色写的合同需要 execution 角色的 headless 绑定" },
+  { label: "按角色：没有绑定，分配 attempt 之前就拒绝", status: 2, md: ROLE_MD, json: roleJson, spy: true, text: "按角色写的合同需要 execution 角色的 headless 绑定" },
   { label: "按角色：已有记录、绑定已改：NOTE，沿用记录", status: 0, md: ROLE_MD, json: roleJson, config: BOUND,
     before: ({ runs, contractText }) => put(runs, "t1/binding-v1.json", record(contractText)),
     text: "NOTE  execution 绑定已改为 step/step-5 · thinking high（profile exec）；本版本沿用 step/step-4 · thinking high；要用新绑定，出新版本合同" },
@@ -224,6 +231,29 @@ const CASES: Case[] = [
     before: ({ runs }) => put(runs, "t1/binding-v1.json", json({ role: "execution" })), text: "版本记录无效（.agent/runs/t1/binding-v1.json）：字段不全或类型不对" },
   { label: "按角色：环境变量与记录冲突", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { PI_EXEC_PROVIDER: "zz" },
     text: "PI_EXEC_PROVIDER=zz 与execution 角色绑定的版本记录的 provider=step 冲突；以它为准，请移除环境变量" },
+  // 覆盖审计的缺口（切换 c1）：r2 文档 9.4 节的 K7、K8、K10、K16
+  { label: "按角色：合同角色是 manual：分配 attempt 之前就拒绝，不调用 CLI", status: 2, spy: true,
+    md: { executor: "role:contract" }, json: (data) => void (data["executor"] = { role: "contract", tools: ["read", "edit", "bash"], context_files: "project" }),
+    config: { runtimes: RUNTIMES, profiles: PROFILES, roles: { contract: { mode: "manual" } } }, text: "manual" },
+  { label: "按角色：绑定的适配器没有接通：退出 3，不调用 CLI", status: 3, md: ROLE_MD, json: roleJson, spy: true,
+    config: {
+      runtimes: { ...RUNTIMES, oc: { adapter: "opencode" } },
+      profiles: { ...PROFILES, "oc-x": { runtime: "oc", model: { provider: "oc", id: "x-1" } } },
+      roles: { execution: { mode: "headless", profile: "oc-x" } },
+    }, text: "没有接通" },
+  { label: "按角色：PI_EXEC_MODEL 与记录冲突", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { PI_EXEC_MODEL: "other-model" },
+    text: "PI_EXEC_MODEL=other-model 与execution 角色绑定的版本记录" },
+  { label: "按角色：PI_EXEC_THINKING 与记录冲突", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, env: { PI_EXEC_THINKING: "low" },
+    text: "PI_EXEC_THINKING=low 与execution 角色绑定的版本记录" },
+  { label: "按角色：记录不是 JSON：退出 4，原样留着", status: 4, md: ROLE_MD, json: roleJson, config: BOUND,
+    before: ({ runs }) => put(runs, "t1/binding-v1.json", "{not json"), text: "版本记录无效" },
+  { label: "按角色：记录经过 junction：退出 4", status: 4, md: ROLE_MD, json: roleJson, config: BOUND,
+    before: ({ runs, contractText }) => {
+      const elsewhere = join(runs, "elsewhere"); // 清理时就算顺着 junction 走，删的也是这个仓库自己的东西
+      put(elsewhere, "binding-v1.json", record(contractText));
+      mkdirSync(runs, { recursive: true });
+      symlinkSync(elsewhere, join(runs, "t1"), "junction");
+    }, text: "经过链接" },
   { label: "按角色：任务锁过期就接管", status: 0, md: ROLE_MD, json: roleJson, config: BOUND,
     before: ({ runs }) => {
       put(runs, "t1/.task.lock/owner.json", json({ pid: 1, at: "2026-01-01T00:00:00Z" }));
@@ -280,4 +310,52 @@ describe("D2：setup 跑到一半，prepare 的进程组收到 CTRL_BREAK", () =
     expect(first.evidence["t1/attempt-001/setup.json"]).toContain('"reason": "被取消"');
     expect(first.evidence["t1/attempt-001/state.json"]).toContain('"reason": "setup S01 失败：被取消"');
   }, 300_000);
+});
+
+/**
+ * K4（r2 文档 9.4 节，themistally-15 复核切换 c 时建议）：同一个按角色写的合同版本，同时起 8 个首次 prepare。发布在任务锁里，
+ * 8 个进程到那一步是排队的，完全串行也会 8 个都成功：这里测的是“同时起步”时的不变量——版本记录只有一份、内容完整；成功的
+ * attempt 记下同一份绑定；没有崩溃；不留半截的临时文件；成功的个数与 PREPARED 的个数相同。进程层面确实并发由起止时间核对
+ * （区间两两重叠）。发布时发现别人已经发布（publish_new 返回 False）那条路另在 publish-binding.test.ts 里直接调出来。四种 runner 各一组，另有一组四种混跑（各 2 个）：切换的
+ * 那一刻 Python 与 TS 会在同一个仓库里各自 prepare。
+ */
+function concurrentPrepares(runners: readonly Runner[]): Promise<{ status: number; stderr: string }[]> {
+  const item: Case = { label: "K4", status: 0, md: ROLE_MD, json: roleJson, config: BOUND };
+  const { repo } = buildRepo(runners[0] as Runner, item);
+  return Promise.all(runners.map((runner) => new Promise<{ status: number; stderr: string; start: number; end: number }>((resolve) => {
+    const [command, ...args] = commandOf(runner, repo, ["prepare", "t1.v1"], ARGS);
+    const start = performance.now();
+    const child = spawn(command as string, args, { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => void (stderr += chunk.toString("utf8")));
+    child.on("close", (code) => resolve({ status: code ?? -1, stderr, start, end: performance.now() }));
+  }))).then((results) => {
+    expect(Math.max(...results.map((one) => one.start)), "各进程的起止区间两两重叠").toBeLessThan(Math.min(...results.map((one) => one.end)));
+    const runs = join(repo, ".agent", "runs", "t1");
+    const record = JSON.parse(readFileSync(join(runs, "binding-v1.json"), "utf8")) as Record<string, unknown>;
+    expect(record["model"], "版本记录完整").toBe("step-5");
+    const metas = readdirSync(runs).filter((name) => name.startsWith("attempt-")).sort()
+      .map((name) => [JSON.parse(readFileSync(join(runs, name, "state.json"), "utf8")) as { state: string }, join(runs, name, "meta.json")] as const);
+    const prepared = metas.filter(([state]) => state.state === "PREPARED").map(([, meta]) => JSON.parse(readFileSync(meta, "utf8")) as Record<string, unknown>);
+    expect(prepared.length, "成功的个数与 PREPARED 的个数相同").toBe(results.filter((one) => one.status === 0).length);
+    for (const meta of prepared) expect(meta["executor_binding"], "成功的 attempt 记下同一份绑定").toEqual(prepared[0]?.["executor_binding"]);
+    expect(readdirSync(runs).filter((name) => name.includes(".tmp") || name.endsWith(".partial")), "不留临时文件").toEqual([]);
+    for (const one of results) expect(crashed(one.stderr), one.stderr).toBe(false);
+    return results;
+  });
+}
+
+describe("K4：同一版本同时起步的首次 prepare（概率性压力：记录只有一份且完整、不崩、不留临时文件）", () => {
+  const groups: [string, readonly Runner[]][] = [
+    ...RUNNERS.map((runner): [string, readonly Runner[]] => [runner, Array.from({ length: 8 }, () => runner)]),
+    ["四种混跑", RUNNERS.flatMap((runner) => [runner, runner])],
+  ];
+  for (const [label, runners] of groups) {
+    it(label, async () => {
+      for (let round = 0; round < 2; round += 1) {
+        const results = await concurrentPrepares(runners);
+        expect(results.some((one) => one.status === 0), "至少一个成功").toBe(true);
+      }
+    }, 600_000);
+  }
 });

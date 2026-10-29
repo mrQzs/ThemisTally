@@ -912,10 +912,11 @@ def test_argv_impl_follows_the_dispatcher_switch():
 
 def test_dispatcher_commands_stay_in_python_until_the_selector_says_ts(tmp_path):
     # TS 目录不存在：要是转交了就会报“找不到 TS 入口”，输出与没有选择文件时逐字节相同才说明是 Python 答的
+    # 挑输出里没有当前时间的命令：metrics 带精确到秒的生成时间，前后两次跨秒就不同
     repo = git_repo(tmp_path / "repo")
     missing = tmp_path / "no-selector.json"
     config_ts = write_selector(tmp_path / "config.json", readonly="ts", config="ts")
-    for argv in (["validate", "nope.v1"], ["metrics"], ["status", "--assess"], ["sync-adapters", "--check"]):
+    for argv in (["validate", "nope.v1"], ["decisions"], ["status", "--assess"], ["sync-adapters", "--check"]):
         before = main_with(missing, tmp_path / "no-ts", argv, repo)
         after = main_with(config_ts, tmp_path / "no-ts", argv, repo)
         assert (after.returncode, after.stdout, after.stderr) == (before.returncode, before.stdout, before.stderr), argv

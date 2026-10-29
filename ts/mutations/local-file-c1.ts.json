@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run.contract.test.ts",
+    "-t",
+    "本机文件",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "L11 本机文件被跟踪、没被忽略也照用",
+      "file": "ts/packages/config/src/roles-local.ts",
+      "old": "    return problems;\n  } catch (error) {",
+      "new": "    return [];\n  } catch (error) {"
+    }
+  ]
+}

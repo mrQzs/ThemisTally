@@ -1,0 +1,24 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/dispatcher/test/publish-binding.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P11 被抢先也用自己的候选",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    const chosen = published ? candidate : loadBindingRecord(repo.root, taskId, version);",
+      "new": "    const chosen = candidate;"
+    },
+    {
+      "name": "P12 采用别人的记录之后不再复核",
+      "file": "ts/packages/dispatcher/src/executor-resolve.ts",
+      "old": "    resolveBoundExecutor(frozenContract, record, config); // 对最终选定的记录重做两项检查",
+      "new": ""
+    }
+  ]
+}
