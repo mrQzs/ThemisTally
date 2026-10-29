@@ -1,0 +1,78 @@
+/* profile 表单对话框的样式（T024）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色。 */
+.pf-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.pf-field__label {
+  font: var(--tt-text-caption-strong);
+  color: var(--tt-text-3);
+}
+
+.pf-env {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.pf-env__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-space-2);
+}
+
+.pf-env__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+}
+
+.pf-env__remove {
+  margin-left: var(--tt-space-1);
+}
+
+.pf-bottom {
+  border-top: 1px solid var(--tt-border);
+  padding-top: var(--tt-space-3);
+}
+
+.pf-msg {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.pf-msg--muted {
+  color: var(--tt-text-3);
+}
+
+.pf-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.pf-preview__cmd {
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-1);
+  word-break: break-all;
+}
+
+.pf-preview__warn {
+  margin: 0;
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-2);
+}
+
+.pf-preview__error {
+  margin: 0;
+  font: var(--tt-mono-sm);
+  color: var(--tt-tone-danger-fg);
+}

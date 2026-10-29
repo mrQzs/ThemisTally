@@ -100,7 +100,7 @@ describe('PresetBar', () => {
 });
 
 describe('ProfilesTable', () => {
-  it('各列、thinking 缺省、凭据、被引用、操作禁用', () => {
+  it('各列、thinking 缺省、凭据、被引用、[编辑] 可点（ghost/sm）', () => {
     const profiles = [
       { id: 'step-high', runtime: 'pi', adapter: 'pi', provider: 'bb', model: 'step-5-preview', options: { thinking: 'high' }, credential_env: ['STEP_API_KEY', 'OTHER_KEY'] },
       { id: 'bare', runtime: 'pi', adapter: 'pi', provider: 'bb', model: 'step-5-mini', options: {}, credential_env: [] },
@@ -113,7 +113,9 @@ describe('ProfilesTable', () => {
     const creds = qa(trs[0].children[4], '.tt-tag').map(text);
     expect(creds).toEqual(['STEP_API_KEY', 'OTHER_KEY']);
     expect(text(trs[0].children[6])).toContain('编辑');
-    expect(btn(trs[0].children[6], '编辑')?.disabled).toBe(true);
+    expect(btn(trs[0].children[6], '编辑')?.disabled, '[编辑] 可点').toBe(false);
+    expect(btn(trs[0].children[6], '编辑')?.getAttribute('data-variant')).toBe('ghost');
+    expect(btn(trs[0].children[6], '编辑')?.getAttribute('data-size')).toBe('sm');
     expect(text(trs[1].children[3])).toBe('缺省');
   });
 });

@@ -24,6 +24,8 @@ import {
   EMPTY_HISTORY,
 } from './mock/empty';
 import {
+  mockAddProfile,
+  mockEditProfile,
   mockGetOperation,
   mockPreview,
   mockRemovePreset,
@@ -46,7 +48,7 @@ export interface Envelope<T> {
   elapsed_ms: number;
 }
 
-// 七个写动作：A 片三个（切换方案、启停插件）加 B 片四个（删除方案/profile/运行时、回滚）。
+// 写动作：A 片三个（切换方案、启停插件）、B 片四个（删除方案/profile/运行时、回滚）加本片两个（新建/编辑 profile）。
 export type WriteAction =
   | 'preset.use'
   | 'plugin.enable'
@@ -54,7 +56,12 @@ export type WriteAction =
   | 'preset.remove'
   | 'profile.remove'
   | 'runtime.remove'
-  | 'config.rollback';
+  | 'config.rollback'
+  | 'profile.add'
+  | 'profile.edit';
+
+// 写操作的参数：值是字符串或字符串数组（T024 新增；数组按顺序原样传给服务，不拼成字符串）。
+export type WriteArgs = Record<string, string | string[]>;
 
 // 一次 HTTP 式响应：状态码加七字段信封（写路由不回 data，data 恒 null；预览回 PreviewData）。
 export interface HttpReply<T> {
@@ -247,7 +254,8 @@ export function listSecrets(): Promise<Envelope<SecretsData>> {
 }
 
 // 写函数：预览、查操作，加 A 片四个与 B 片四个。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
-export function preview(action: WriteAction, args: Record<string, string>): Promise<HttpReply<PreviewData>> {
+// preview 的参数放宽成 WriteArgs：旧调用点传 Record<string,string> 仍然合法，行为不变。
+export function preview(action: WriteAction, args: WriteArgs): Promise<HttpReply<PreviewData>> {
   return mockPreview(action, args);
 }
 
@@ -278,4 +286,32 @@ export function removeRuntime(runtime: string, confirmation: string): Promise<Ht
 
 export function rollback(number: number, confirmation: string): Promise<HttpReply<null>> {
   return mockRollback(number, confirmation);
+}
+
+// 本片两个写函数：新建与编辑 profile。参数键名与服务侧 WRITE_ACTIONS 一一对应（profile/runtime/model/thinking/credential_env）。
+// credential_env 为空数组时不传这个键（服务侧空数组不合法）；数组按顺序原样传给服务，不拼成字符串。确认号与参数核对在 mock 侧。
+export function addProfile(
+  args: {
+    profile: string;
+    runtime: string;
+    model: string;
+    thinking?: string;
+    credential_env?: string[];
+  },
+  confirmation: string
+): Promise<HttpReply<null>> {
+  return mockAddProfile(args, confirmation);
+}
+
+export function editProfile(
+  args: {
+    profile: string;
+    runtime?: string;
+    model?: string;
+    thinking?: string;
+    credential_env?: string[];
+  },
+  confirmation: string
+): Promise<HttpReply<null>> {
+  return mockEditProfile(args, confirmation);
 }

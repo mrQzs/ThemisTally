@@ -24,7 +24,8 @@ interface ErrorInfo {
 export interface PageFrameProps<T> {
   title: string;
   description?: string;
-  actions?: ReactNode;
+  // 页头操作区：既可以是 ReactNode（老用法），也可以是 (reload) => ReactNode（T024：入口要拿 reload 接写流程）。
+  actions?: ReactNode | ((reload: () => Promise<void>) => ReactNode);
   /** 刷新钮文字，缺省「刷新」。 */
   refreshLabel?: string;
   load: () => Promise<Envelope<T>>;
@@ -156,7 +157,7 @@ export function PageFrame<T>({
           {description && <p className="tt-page__desc">{description}</p>}
         </div>
         <div className="tt-page__actions">
-          {actions}
+          {typeof actions === 'function' ? actions(reload) : actions}
           <Button variant="secondary" loading={refreshing} loadingText="刷新中…" onClick={() => request(true)}>
             <RefreshCwIcon width={16} height={16} />
             {refreshLabel}

@@ -21,6 +21,19 @@ export interface ProfileRemoveSnapshot {
   profiles: Array<{ id: string }>;
 }
 
+// profile.add / profile.edit 的快照（第七节）：profiles[].{id,runtime,provider,model,options.thinking,credential_env}（按 id 排序）。
+// 排除 adapter（由 runtime 推出）与其余字段；options.thinking 取 options?.thinking ?? null（缺省算 null）。
+export interface ProfileSnapshot {
+  profiles: Array<{
+    id: string;
+    runtime: unknown;
+    provider: unknown;
+    model: unknown;
+    thinking: string | null;
+    credential_env: unknown;
+  }>;
+}
+
 export interface RuntimeRemoveSnapshot {
   runtimes: Array<{ id: string; adapter: string }>;
 }
@@ -83,6 +96,22 @@ export function runtimeRemoveSnapshot(runtimes: RuntimesData): RuntimeRemoveSnap
   return {
     runtimes: runtimes.runtimes
       .map((r) => ({ id: r.id, adapter: r.adapter }))
+      .sort(byKey<{ id: string }>('id')),
+  };
+}
+
+/** profile.add / profile.edit 的快照：profiles[].{id,runtime,provider,model,options.thinking,credential_env}（按 id；排除 adapter 与其余字段）。 */
+export function profileSnapshot(profiles: ProfilesData): ProfileSnapshot {
+  return {
+    profiles: profiles.profiles
+      .map((p) => ({
+        id: p.id,
+        runtime: p.runtime,
+        provider: p.provider,
+        model: p.model,
+        thinking: p.options?.thinking ?? null,
+        credential_env: p.credential_env,
+      }))
       .sort(byKey<{ id: string }>('id')),
   };
 }

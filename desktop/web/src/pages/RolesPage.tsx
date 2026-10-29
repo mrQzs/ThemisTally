@@ -14,6 +14,7 @@ import {
   type RolesData,
 } from '../api';
 import { RolesView, type RolesViewData } from './readonly1/roles-RolesView';
+import { NewProfileAction } from '../writes/ProfileForm';
 
 const loadRoles = (): Promise<Envelope<RolesViewData>> =>
   Promise.all([getRoles(), getProfiles(), getPresets()]).then(([roles, profiles, presets]) => {
@@ -36,12 +37,12 @@ export default function RolesPage() {
       title="角色与模型"
       description="四个角色各用哪个 CLI 与模型；方案可以一键切换"
       load={loadRoles}
-      actions={
+      actions={(reload) => (
         <>
           <DisabledAction label="保存当前为方案…" />
-          <DisabledAction label="新建 profile" />
+          <NewProfileAction reload={reload} />
         </>
-      }
+      )}
     >
       {(data, reload) => <RolesView data={data} onDiff={diffPresets} reload={reload} />}
     </PageFrame>

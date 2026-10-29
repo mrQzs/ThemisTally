@@ -2,6 +2,8 @@
 // 连接中断先轮询 getOperation 再下结论（D12）；计时器在卸载与流程重置时清掉。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  addProfile,
+  editProfile,
   getOperation,
   getPlugins,
   getPresets,
@@ -18,6 +20,7 @@ import {
   type Envelope,
   type OperationView,
   type WriteAction,
+  type WriteArgs,
 } from '../api';
 import { dispatchCommand } from '../components';
 import { writeScenario } from '../mock/writes';
@@ -26,6 +29,7 @@ import {
   presetRemoveSnapshot,
   presetSnapshot,
   profileRemoveSnapshot,
+  profileSnapshot,
   rollbackSnapshot,
   runtimeRemoveSnapshot,
   sameSnapshot,
@@ -42,10 +46,15 @@ import type { ConfirmContent, FlowRender, FlowView } from './WriteConfirmDialog'
 
 export interface WriteSpec {
   action: WriteAction;
-  args: Record<string, string>;
+  // 参数放宽成 WriteArgs（T024）：旧调用处传 Record<string,string> 仍然合法；数组按顺序原样传给服务。
+  args: WriteArgs;
   /** 对话框标题：动词加对象，如「切换到方案 economy？」；缺省由 titleOf(action, args) 补上。 */
   title?: string;
 }
+
+// profile.add / profile.edit 的写参数（键名与服务侧 WRITE_ACTIONS 一一对应）；spec.args 是 WriteArgs，这里按下标取出。
+type AddProfileArgs = { profile: string; runtime: string; model: string; thinking?: string; credential_env?: string[] };
+type EditProfileArgs = { profile: string; runtime?: string; model?: string; thinking?: string; credential_env?: string[] };
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
@@ -65,30 +74,41 @@ function dangerOf(action: WriteAction): boolean {
 // 入口文件（readonly1、readonly2）只出按钮标签，不写这 13 条动作说明（T013）。
 
 /** 确认框标题：动词加对象；title 缺省时由 open 补上（A 片入口仍自带 title，行为不变）。 */
-function titleOf(action: WriteAction, args: Record<string, string>): string {
+function titleOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'preset.remove') return `删除方案 ${args.name}？`;
   if (action === 'profile.remove') return `删除 profile ${args.profile}？`;
   if (action === 'runtime.remove') return `删除运行时 ${args.runtime}？`;
   if (action === 'config.rollback') return `回滚到 #${args.number} 之后？`;
+  if (action === 'profile.add') return `新建 profile ${args.profile}？`;
+  if (action === 'profile.edit') return `修改 profile ${args.profile}？`;
   return `确认操作 ${action}？`;
 }
 
 /** 成功轻提示（重读之后才说，W3）。 */
-function successTextOf(action: WriteAction, args: Record<string, string>): string {
+function successTextOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'preset.use') return `已切换到方案 ${args.name}`;
   if (action === 'plugin.enable') return `已启用插件 ${args.id}`;
   if (action === 'plugin.disable') return `已停用插件 ${args.id}`;
   if (action === 'preset.remove') return `已删除方案 ${args.name}`;
   if (action === 'profile.remove') return `已删除 profile ${args.profile}`;
   if (action === 'runtime.remove') return `已删除运行时 ${args.runtime}`;
+  if (action === 'profile.add') return `已新建 profile ${args.profile}`;
+  if (action === 'profile.edit') return `已修改 profile ${args.profile}`;
   return `已回滚到 #${args.number} 之后`;
 }
 
 /** 变化区摘要：预览没有 binding_changes 时显示；没有摘要的动作（回滚与 A 片）返回 null，回落到「预览没有列出变化」。 */
-function changeSummaryOf(action: WriteAction, args: Record<string, string>): string | null {
+function changeSummaryOf(action: WriteAction, args: WriteArgs): string | null {
   if (action === 'preset.remove') return `方案表里去掉 ${args.name}，角色绑定不变`;
   if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
   if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
+  if (action === 'profile.add') return `profile 表里加上 ${args.profile}`;
+  if (action === 'profile.edit') {
+    // 只列改动过的字段（args 里只放改动过的键），按 runtime、model、thinking、credential_env 的次序用「、」连接。
+    const order = ['runtime', 'model', 'thinking', 'credential_env'];
+    const changed = order.filter((k) => args[k] !== undefined);
+    return `profile ${args.profile} 改动：${changed.length > 0 ? changed.join('、') : '没有改动'}`;
+  }
   return null;
 }
 
@@ -142,6 +162,11 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
         ok: true,
         snapshot: rollbackSnapshot(roles.data, presets.data, profiles.data, runtimes.data, plugins.data),
       };
+    }
+    if (action === 'profile.add' || action === 'profile.edit') {
+      const profiles = await getProfiles();
+      if (!profiles.ok || !profiles.data) return { ok: false };
+      return { ok: true, snapshot: profileSnapshot(profiles.data) };
     }
     const plugins = await getPlugins();
     if (!plugins.ok || !plugins.data) return { ok: false };
@@ -426,18 +451,23 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
     if (!spec) return;
     const my = flowRef.current;
     setView({ phase: 'executing', content: contentOf() });
+    const sargs = spec.args as Record<string, string>;
     const call =
       spec.action === 'preset.use'
-        ? usePreset(spec.args.name, confirmRef.current)
+        ? usePreset(sargs.name, confirmRef.current)
         : spec.action === 'preset.remove'
-          ? removePreset(spec.args.name, confirmRef.current)
+          ? removePreset(sargs.name, confirmRef.current)
           : spec.action === 'profile.remove'
-            ? removeProfile(spec.args.profile, confirmRef.current)
+            ? removeProfile(sargs.profile, confirmRef.current)
             : spec.action === 'runtime.remove'
-              ? removeRuntime(spec.args.runtime, confirmRef.current)
+              ? removeRuntime(sargs.runtime, confirmRef.current)
               : spec.action === 'config.rollback'
-                ? rollback(Number(spec.args.number), confirmRef.current)
-                : setPluginEnabled(spec.args.id, spec.action === 'plugin.enable', confirmRef.current);
+                ? rollback(Number(sargs.number), confirmRef.current)
+                : spec.action === 'profile.add'
+                  ? addProfile(spec.args as unknown as AddProfileArgs, confirmRef.current)
+                  : spec.action === 'profile.edit'
+                    ? editProfile(spec.args as unknown as EditProfileArgs, confirmRef.current)
+                    : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);

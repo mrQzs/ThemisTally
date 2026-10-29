@@ -4,11 +4,11 @@ import type { ReactNode } from 'react';
 import type { ProfilesData } from '../../api';
 import { Button, Table, type TableColumn } from '../../components';
 import { Tag } from '../../components';
-import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
 import { profileRefs, type RoleInfo } from './roles-logic';
 import { useWriteFlow } from '../../writes/useWriteFlow';
 import { WriteFlow } from '../../writes/WriteConfirmDialog';
+import { EditProfileAction } from '../../writes/ProfileForm';
 
 type LooseProfile = {
   id: string;
@@ -73,7 +73,7 @@ export function ProfilesTable({ profiles, roles, reload }: ProfilesTableProps) {
       被引用: profileRefs(roles, p.id),
       操作: (
         <>
-          <DisabledAction label="编辑" variant="ghost" size="sm" />
+          <EditProfileAction profile={p} reload={reload} />
           <Button
             variant="ghost"
             size="sm"
