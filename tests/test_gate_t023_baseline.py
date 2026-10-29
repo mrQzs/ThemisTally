@@ -277,12 +277,12 @@ def test_s06_presetstable_delete_wired():
 
 
 def test_s07_profilestable_delete_wired():
-    """S07 / D05：profile 表 [删除] 可点（ghost sm）走 profile.remove；[编辑] 照旧 DisabledAction；加 reload prop。"""
+    """S07 / D05：profile 表 [删除] 可点（ghost sm）走 profile.remove；加 reload prop。"""
     need_file(PROFILESTABLE_REL)
     text = read_rel(PROFILESTABLE_REL)
     assert "'profile.remove'" in text, "profile 表 [删除] 应走 profile.remove"
     assert re.search(r"args:\s*\{\s*profile", text), "profile.remove 的 args 键应是 {profile}"
-    assert re.search(r'<DisabledAction label="编辑"', text), "[编辑] 照旧是 DisabledAction"
+    # [编辑] 不再断言是 DisabledAction：T024 接上 profile 编辑（站主按 T024 规划报告 §7.1 退役）
     assert not re.search(r'<DisabledAction label="删除"', text), "[删除] 不应再是 DisabledAction"
     assert re.search(r"reload\?:", text), "ProfilesTableProps 应加 reload? prop"
     assert re.search(r'useWriteFlow\(', text), "ProfilesTable 应自调 useWriteFlow"
@@ -764,11 +764,10 @@ describe('T023 四个写入口', () => {
     w3bCheck('方案表 [删除…] 打开的确认框');
   });
 
-  it('profile 表 [删除] 可点（ghost sm），标题与摘要；[编辑] 照旧禁用提示「第二阶段接入」', async () => {
+  it('profile 表 [删除] 可点（ghost sm），标题与摘要', async () => {
     await mountApp('#/roles?write=ok');
     const row = rowIn(sectionByTitle('profile'), 'step-low');
-    const edit = Array.from(row.querySelectorAll('button')).find((b) => textOf(b) === '编辑') as HTMLButtonElement;
-    expect(edit.disabled, '[编辑] 照旧禁用').toBe(true);
+    // [编辑] 不再断言禁用与悬停提示：T024 接上 profile 编辑（站主按 T024 规划报告 §7.1 退役）
     const del = buttonByText(row, '删除');
     expect(del.disabled).toBe(false);
     expect(del.getAttribute('data-variant')).toBe('ghost');
@@ -780,9 +779,6 @@ describe('T023 四个写入口', () => {
     expect(t).toContain('profile 表里去掉 step-low');
     expect(t).toContain('config profile remove step-low');
     w3bCheck('profile [删除] 打开的确认框');
-    // [编辑] 的悬停提示照旧（Tooltip）
-    vi.useFakeTimers();
-    expect(await tipOf(edit)).toBe('第二阶段接入');
   });
 
   it('运行时 [删除…] 三行都可点（ghost sm），行内其余按钮禁用；标题与摘要', async () => {

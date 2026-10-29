@@ -2366,13 +2366,13 @@ describe('D06 角色卡', () => {
     expect(textOf(document.querySelector('[role="tooltip"]'))).toBe('第二阶段接入');
   });
 
-  it('页头 actions：[保存当前为方案…]、[新建 profile] 禁用，排在刷新钮之前', async () => {
+  it('页头 actions：[保存当前为方案…]、[新建 profile] 排在刷新钮之前；[保存当前为方案…] 禁用', async () => {
     await mountRoles();
     const actions = document.querySelector('.tt-page__actions') as any;
     const buttons = qa(actions, 'button');
     expect(buttons.map(textOf)).toEqual(['保存当前为方案…', '新建 profile', '刷新']);
     expect(buttons[0].disabled).toBe(true);
-    expect(buttons[1].disabled).toBe(true);
+    // [新建 profile] 不再断言禁用：T024 接上 profile 新建（站主按 T024 规划报告 §7.1 退役）
     expect(buttons[2].disabled).toBe(false);
   });
 
@@ -2507,7 +2507,7 @@ describe('D08 profile 表', () => {
       const ops = qa(row['操作'], 'button');
       expect(ops.map(textOf)).toEqual(['编辑', '删除']);
       // [删除] 不再断言禁用：T022 的 B 片接上 profile 删除（站主按 T022 规划报告 §16.3 R12 退役）
-      expect(ops[0].disabled, '[编辑] 仍禁用').toBe(true);
+      // [编辑] 同样不再断言禁用：T024 接上 profile 编辑（站主按 T024 规划报告 §7.1 退役）
       ops.forEach((b) => {
         expect(b.getAttribute('data-variant')).toBe('ghost');
         expect(b.getAttribute('data-size')).toBe('sm');
@@ -2945,16 +2945,16 @@ function tooltipTexts(): string[] {
 
 describe('D11 写入口全部禁用', () => {
   // T022 接上不用填表单的写入口：白名单放行 [切换…][使用][删除…][删除]，悬停只核对仍要填表单、还没接上的那几个
-  // （站主按 T022 规划报告 §10 R5、R6 退役）
-  it('角色页：要填表单的写入口仍禁用且悬停出「第二阶段接入」；可用按钮只在白名单里（刷新、分段选择段、[查看差异]、T022 接上的写入口）', async () => {
+  // （站主按 T022 规划报告 §10 R5、R6 退役）；T024 接上 [新建 profile] 与 profile [编辑]，一并放进白名单（站主按 T024 规划报告 §7.1 退役）
+  it('角色页：要填表单的写入口仍禁用且悬停出「第二阶段接入」；可用按钮只在白名单里（刷新、分段选择段、[查看差异]、T022 与 T024 接上的写入口）', async () => {
     set('getRoles', rolesMain());
     set('getProfiles', profilesMain());
     set('getPresets', presetsMain());
     await mountApp('#/roles');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除'])).toEqual([]);
+    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
-    const later = ['更改…', '保存当前为方案…', '新建 profile', '编辑'];
+    const later = ['更改…', '保存当前为方案…'];
     const tips = tooltipTexts().filter((t) => later.indexOf(t.split('=')[0]) >= 0);
     expect(tips.length, '要填表单的写入口仍禁用').toBeGreaterThan(0);
     tips.forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
