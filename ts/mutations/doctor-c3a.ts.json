@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/doctor-smoke.contract.test.ts",
+    "-t",
+    "一个模型都没有|没有与执行模型匹配的",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "A04 没有任何模型也当成没有匹配",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (NO_MODELS_RE.test(text)) return \"no_models\";",
+      "new": "  if (NO_MODELS_RE.test(text)) return \"no_match\";"
+    }
+  ]
+}

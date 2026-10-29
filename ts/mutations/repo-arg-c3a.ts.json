@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/repo-arg.contract.test.ts",
+    "-t",
+    "不存在的路径|一个文件",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "A01 --repo 不先确认是目录",
+      "file": "ts/packages/dispatcher/src/repo.ts",
+      "old": "    if (!isDir(base)) throw new DispatchError(",
+      "new": "    if (false) throw new DispatchError("
+    }
+  ]
+}

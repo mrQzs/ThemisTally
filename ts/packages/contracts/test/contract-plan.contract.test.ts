@@ -312,6 +312,15 @@ function commandFixture(name: string): History {
   plan(h.repo, "d-long", mdOf("d-long", base, { goal: `把${"很长的一句话".repeat(12)}写成标题。` }), null);
   plan(h.repo, "d-bad", mdOf("d-bad", base).replace("## Budget", "## Spending"), null);
   put(h.repo, "src/ok-head.v1.md", "x");
+  // 覆盖审计的缺口（切换 c3a）：JSON 里的条目类型不对要报错、不崩；只在 JSON 里改了 forbidden_paths；DoD 的 intent 是空字符串
+  const dod = (extra: Json): Json[] => [{ id: "D01", text: "行为正确", evidence: ["V01"], ...extra }];
+  plan(h.repo, "v-auth", mdOf("v-auth", base), text({ ...jsonOf("v-auth", base), authorization: { executor: [{}], integration: [] } }));
+  plan(h.repo, "v-evid", mdOf("v-evid", base), text({ ...jsonOf("v-evid", base), definition_of_done: dod({ evidence: [{ a: 1 }] }) }));
+  const forbid = jsonOf("v-forbid", base);
+  plan(h.repo, "v-forbid", mdOf("v-forbid", base), text({ ...forbid, scope: { ...(forbid["scope"] as Json), forbidden_paths: ["secrets.txt"] } }));
+  plan(h.repo, "v-intent", mdOf("v-intent", base), text({ ...jsonOf("v-intent", base), definition_of_done: dod({ intent: "" }) }));
+  // 配置里的 commit_trailers 写坏了（带换行）：validate 不管它，“合法”那一步照样通过；branch 才拒绝（branch-review 契约）
+  put(h.repo, ".agent/dispatch.config.json", text({ commit_trailers: [`not a trailer${ch(10)}with newline`] }));
   return h;
 }
 
@@ -343,6 +352,10 @@ function steps(repo: string): Step[] {
     derive("长标题", "d-long.v1", { print: true }),
     derive("有问题照样写出", ".agent/plans/d-bad.v1.md"),
     derive("缺 Markdown", "nothing.v1"),
+    validate("authorization.executor 里有不是字符串的", "v-auth.v1"),
+    validate("DoD 的 evidence 里有不是字符串的", "v-evid.v1"),
+    validate("只在 JSON 里改了 forbidden_paths", "v-forbid.v1"),
+    validate("DoD 的 intent 是空字符串", "v-intent.v1"),
   ];
 }
 
@@ -368,7 +381,10 @@ describe("validate 与 derive-json 命令", () => {
     });
     for (const transcript of transcripts.slice(1)) expect(transcript).toEqual(transcripts[0]);
     const python = transcripts[0] as Json[];
-    expect(python.map((row) => row["status"])).toEqual([0, 0, 0, 2, 2, 2, 2, 1, 0, 0, 2, 0, 3, 3, 0, 2, 2]);
+    expect(python.map((row) => row["status"])).toEqual([0, 0, 0, 2, 2, 2, 2, 1, 0, 0, 2, 0, 3, 3, 0, 2, 2, 2, 2, 2, 2]);
+    const said = (index: number): string => `${String((python[index] as Json)["stdout"])}${String((python[index] as Json)["stderr"])}`;
+    expect([said(17).includes("authorization.executor"), said(18).includes("evidence"), said(19).includes("secrets.txt"),
+      said(20).includes("intent（目的）必须是非空字符串")]).toEqual([true, true, true, true]);
     // 写出的 JSON 是文本模式：Windows 上换行是 CRLF
     const written = Buffer.from(String((python[9] as Json)["file"]), "base64").toString("utf8");
     expect(written.includes(ch(13, 10))).toBe(process.platform === "win32");

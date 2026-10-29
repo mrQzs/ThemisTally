@@ -257,6 +257,33 @@ const SCENARIOS: Scenario[] = [
     symlinkSync(outside, join(repo, ".agents", "skills", "review-pi"), "junction");
     return { "<OUT>": outside };
   }, false, 3, { text: "或其上级目录是符号链接或 junction" }),
+  // 覆盖审计的缺口（切换 c3a；test_dispatch 1465、1483、1508）：副本目录或源技能里的链接
+  sync("sync-adapters：副本目录是 junction：拒绝，不动它指向的目录", (repo, runner) => {
+    skillSources(repo);
+    const outside = tempDir(`rc-copy-link-${runner}`);
+    put(outside, "plan-task/keep.md", "keep");
+    mkdirSync(join(repo, ".claude"), { recursive: true });
+    symlinkSync(outside, join(repo, ".claude", "skills"), "junction");
+    return { "<OUT>": outside };
+  }, false, 3, { text: "链接" }),
+  sync("sync-adapters：--check 副本是 junction，内容相同也拒绝", (repo, runner) => {
+    skillSources(repo);
+    const mirror = tempDir(`rc-mirror-${runner}`);
+    for (const name of SKILLS) {
+      put(mirror, `${name}/SKILL.md`, `# ${name}${LF}`);
+      put(mirror, `${name}/refs/a.md`, "a");
+    }
+    mkdirSync(join(repo, ".claude"), { recursive: true });
+    symlinkSync(mirror, join(repo, ".claude", "skills"), "junction");
+    return { "<OUT>": mirror };
+  }, true, 3, { text: "链接", absent: ["一致。"] }),
+  sync("sync-adapters：源技能里套了 junction：不跟随", (repo, runner) => {
+    skillSources(repo);
+    const secret = tempDir(`rc-nested-${runner}`);
+    put(secret, "outside.md", "outside");
+    symlinkSync(secret, join(repo, ".agents", "skills", "plan-task", "linked"), "junction");
+    return { "<OUT>": secret };
+  }, false, 0, { absent: ["outside.md"] }),
   sync("sync-adapters：目标是文件", (repo) => {
     skillSources(repo, ["plan-task"]);
     put(repo, ".claude/skills/plan-task", "file");

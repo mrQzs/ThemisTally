@@ -213,6 +213,24 @@ const SAFE_PATH = [
 const STUB_FIRST = withEnv({ PATH: SAFE_PATH }, () => spawnSync("where", ["pi"], { encoding: "utf8" }).stdout.split(LF)[0]?.trim())
   ?.toLowerCase() === join(realpathSync.native(PI_STUB_DIR), "pi.cmd").toLowerCase(); // where 打印长路径，临时目录可能是短名
 
+/** prepare 之后把 meta.json 的一个字段改坏（G0 要拒绝，不冒堆栈）。 */
+const breakMeta = (field: string, value: unknown) => ({ runDir }: At): void => {
+  put(runDir, "meta.json", json({ ...(JSON.parse(readFileSync(join(runDir, "meta.json"), "utf8")) as Json), [field]: value }));
+};
+
+/** 又一层包装的 pi：正式运行时（带 --mode）先在工作树里建一个符号链接 src/link.py，再交给 stub_pi。 */
+const LINK_WRAP = join(WRAP_DIR, "link_pi.py");
+put(WRAP_DIR, "link_pi.py", [
+  "import os",
+  "import subprocess",
+  "import sys",
+  "",
+  'if "--mode" in sys.argv:',
+  '    os.symlink("normalize.py", os.path.join("src", "link.py"))',
+  'sys.exit(subprocess.call([sys.executable, os.environ["WRAP_STUB"]] + sys.argv[1:]))',
+  "",
+].join(LF));
+
 const SETUP = [{ id: "S01", argv: [PYTHON, "-c", "print('setup ok')"], cwd: ".", timeout_seconds: 60 }];
 
 // 按角色写的合同：prepare 发布版本记录，run 照记录取模型，pi 的命令来自本机文件（PI_DISPATCH_PI_CMD 不设）
@@ -310,6 +328,17 @@ const CASES: Case[] = [
       git(repo, "add", "-f", ".agent/dispatch.local.json");
     },
     text: ["被 Git 跟踪，不使用", "PREFLIGHT pi --help 退出码 9"], shows: { "state.json": '"state": "PREPARED"' } },
+  // 覆盖审计的缺口（切换 c3a）：meta 损坏（test_dispatch 3754）、本机文件给的批处理包装（3563）、新建符号链接（test_legacy_cli 1254）
+  { label: "按角色：meta 的 plan_version 坏了：G0 拒绝，不冒堆栈", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: breakMeta("plan_version", "bad"), text: "输入不一致（G0）", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：meta 的 task_id 带 ..：G0 拒绝，不冒堆栈", status: 3, md: ROLE_MD, json: roleJson, config: BOUND, env: { STUB_MODELS: "step step-5" },
+    before: breakMeta("task_id", "../escape"), text: "输入不一致（G0）", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "按角色：本机文件给的批处理包装带特殊字符：预检运行它之前就拒绝", status: 2, md: ROLE_MD, json: roleJson, config: BOUND, 
+    env: { PI_DISPATCH_PI_CMD: undefined, STUB_MODELS: "step step-5" }, stubbed: "unused",
+    before: ({ repo }) => put(repo, ".agent/dispatch.local.json", json({ runtimes: { pi: { command: [join(PI_STUB_DIR, "pi.cmd"), "a&b"] } } })),
+    text: "批处理特殊字符", shows: { "state.json": '"state": "PREPARED"' } },
+  { label: "新建符号链接：范围记越界", status: 0, env: { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, LINK_WRAP]), WRAP_STUB: STUB },
+    shows: { "scope.json": '"kind": "symlink"', "changes.json": '"new_mode": "120000"' } },
   { label: "全局 SYSTEM.md：打 NOTE", status: 0, env: { PI_CODING_AGENT_DIR: SYSTEM_AGENT_DIR }, text: "NOTE  全局 SYSTEM.md 会改变执行器系统提示词：" },
   // --- 拒绝运行 ---
   { label: "已经不是 PREPARED：不运行", status: 3, before: ({ runDir }) => put(runDir, "state.json", json({ state: "RUNNING", at: "2026-01-01T00:00:00Z" })),

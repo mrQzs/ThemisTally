@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run.contract.test.ts",
+    "-t",
+    "批处理包装|符号链接",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "A06 批处理特殊字符不拒绝",
+      "file": "ts/packages/dispatcher/src/argv.ts",
+      "old": "    if ([...arg].some((char) => BATCH_UNSAFE_CHARS.has(char))) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "A07 新建符号链接不算越界",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "    if (newMode === \"120000\") {",
+      "new": "    if (false) {"
+    }
+  ]
+}

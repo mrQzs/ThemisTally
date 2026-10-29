@@ -3,11 +3,14 @@
 // cleanup 的场景用真的 git worktree：干净的、改过文件的、多了新文件与缓存的、没有候选记录的、补丁缺失的、配置有疑似凭据的、
 // 目录在却没登记的、已经不在的，以及保留下来的验收副本。不写转义序列。
 import { createHash } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { BREAK_OUTER, PYTHON } from "./attempt-fixtures.ts";
+import { BUN } from "./harness.ts";
 import { jsonOf } from "./plan-fixtures.ts";
-import { LF, RUNNERS, type Runner, type Shown, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { LF, RUNNERS, type Runner, type Shown, commandOf, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -180,6 +183,7 @@ const SCENARIOS: Scenario[] = [
   wait("还在跑，到时", { "state.json": state("RUNNING"), "events.jsonl": EVENTS }, 1, 3),
   wait("PREPARED 没有开始", { "state.json": state("PREPARED") }, 1, 3),
   wait("状态未知", { "run.json": {} }, 1, 1),
+  { ...wait("state.json 是数组：照 Python 崩", { "state.json": "[]" }, 5, 1), crash: true },
   { ...wait("timeout 不是正数", { "state.json": state("PASS") }, 0, 2) },
 ];
 
@@ -223,4 +227,78 @@ describe("mark、cleanup、wait", () => {
       if (text) expect(`${(results[0] as Shown).stdout}${(results[0] as Shown).stderr}`).toContain(text);
     });
   }
+});
+
+// --- wait：要在运行中途动手的几条（覆盖审计：test_legacy_cli 的 LB-EXIT-024、026，以及 wait 收到 CTRL_BREAK） ---------------
+
+const WAIT_ARGS = (timeout: number) => ({ command: ["wait"], run_dir: "t1", timeout: BigInt(timeout), interval: 0.2, assess: false, assess_interval: 60.0 });
+const WAIT_ARGV = (timeout: number) => ["wait", "t1", "--timeout", String(timeout), "--interval", "0.2"];
+
+/** 起 wait，过 delayMs 毫秒做一件事（改状态），等它退出；交回退出码与 stdout。 */
+function waitWhile(runner: Runner, repo: string, timeout: number, delayMs: number, act: () => void): Promise<{ status: number; stdout: string }> {
+  const [command, ...args] = commandOf(runner, repo, WAIT_ARGV(timeout), WAIT_ARGS(timeout));
+  const child = spawn(command as string, args, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  child.stdout.on("data", (chunk: Buffer) => void (stdout += chunk.toString("utf8")));
+  const timer = setTimeout(act, delayMs);
+  return new Promise((resolve) => child.on("close", (code) => {
+    clearTimeout(timer);
+    resolve({ status: code ?? -1, stdout });
+  }));
+}
+
+/** 命令起来之后过两秒，给它的进程组发 CTRL_BREAK（launcher 一边打到启动器，由它转发给 TS）。 */
+const BREAK_AFTER = [
+  "import json, signal, subprocess, sys, time",
+  "p = subprocess.Popen(json.loads(sys.argv[1]), cwd=sys.argv[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=0x200)",
+  "time.sleep(2)",
+  "p.send_signal(signal.CTRL_BREAK_EVENT)",
+  "out, err = p.communicate()",
+  "sys.stdout.write(json.dumps({'status': p.returncode, 'stdout': out.decode('utf-8', 'replace'), 'stderr': err.decode('utf-8', 'replace')}))",
+].join(LF);
+
+describe("wait：运行中途", () => {
+  it("PREPARED 在宽限内照样等，期间变成 NEEDS_REVIEW 就退出 0", async () => {
+    const results = [];
+    for (const runner of RUNNERS) {
+      const { repo } = newRepo(`wg-${runner}`);
+      const dir = attempt(repo, { "state.json": state("PREPARED") });
+      results.push(await waitWhile(runner, repo, 120, 2500, () => put(dir, "state.json", json(state("NEEDS_REVIEW")))));
+    }
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    expect(results[0]).toEqual({ status: 0, stdout: `已结束：.agent/runs/t1/attempt-001 · NEEDS_REVIEW${String.fromCharCode(13)}${LF}` });
+  }, 120_000);
+
+  it("PATH 里没有 git：退出 3", () => {
+    // 只留 Python、Node 与 bun.exe 所在的目录：启动器要找 bun，node 那一种 runner 按名字起 node
+    const python = spawnSync(PYTHON, ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).stdout.trim();
+    const path = [dirname(python), dirname(process.execPath), dirname(BUN)].join(";");
+    const results = RUNNERS.map((runner) => {
+      const { repo } = newRepo(`wn-${runner}`);
+      attempt(repo, { "state.json": state("NEEDS_REVIEW") });
+      const saved = process.env["PATH"];
+      process.env["PATH"] = path;
+      try {
+        const result = runCommand(runner, repo, WAIT_ARGV(5), WAIT_ARGS(5));
+        return { status: result.status, stdout: result.stdout.toString("utf8"), stderr: result.stderr.toString("utf8") };
+      } finally {
+        process.env["PATH"] = saved;
+      }
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    expect(results[0]).toEqual({ status: 3, stdout: "", stderr: `ERROR: 未找到 git，请先安装 Git。${String.fromCharCode(13)}${LF}` });
+  }, 120_000);
+
+  it("等待中收到 CTRL_BREAK：按缺省处理结束，0xC000013A", () => {
+    const results = RUNNERS.map((runner) => {
+      const { repo } = newRepo(`wb-${runner}`);
+      attempt(repo, { "state.json": state("RUNNING") });
+      const command = commandOf(runner, repo, WAIT_ARGV(60), WAIT_ARGS(60));
+      const done = spawnSync(PYTHON, ["-c", BREAK_OUTER, BREAK_AFTER, JSON.stringify(command), repo], { encoding: "utf8", timeout: 150_000 });
+      if (done.status !== 0) throw new Error(`${runner} 中断用例的包装进程退出码 ${String(done.status)}：${done.stderr}`);
+      return JSON.parse(done.stdout) as { status: number; stdout: string; stderr: string };
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    expect(results[0]?.status).toBe(0xc000013a);
+  }, 300_000);
 });

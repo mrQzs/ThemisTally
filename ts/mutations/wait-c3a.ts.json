@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/attempt-commands.contract.test.ts",
+    "-t",
+    "宽限",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "A02 PREPARED 不给宽限",
+      "file": "ts/packages/dispatcher/src/attempt-commands.ts",
+      "old": "(state === \"PREPARED\" && elapsed < pyMin(60, timeout))",
+      "new": "(state === \"PREPARED\" && elapsed < 0)"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/contract-plan.contract.test.ts",
+    "-t",
+    "validate 与 derive-json 命令",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "A03 authorization.executor 的条目不核对类型",
+      "file": "ts/packages/dispatcher/src/contract.ts",
+      "old": "  if (!isStrList(rawExecutorActions) || !rawExecutorActions.every((action) => EXECUTOR_ACTIONS.includes(action))) {",
+      "new": "  if (!Array.isArray(rawExecutorActions) || !rawExecutorActions.every((action) => typeof action !== \"string\" || EXECUTOR_ACTIONS.includes(action))) {"
+    }
+  ]
+}

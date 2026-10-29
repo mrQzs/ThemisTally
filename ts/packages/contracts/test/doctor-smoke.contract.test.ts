@@ -261,6 +261,13 @@ const DOCTOR: DoctorCase[] = [
   { label: "模型不在列表、凭据没就绪、思考级别不支持", status: 1, options: { provider: "step", model: "step-9", thinking: "ultra" },
     spec: { ...GOOD, auth: { out: `{"ok": false, "detail": "${KEY}"}`, code: 1 } }, absent: [KEY],
     text: ["执行模型 step/step-9 不在可用模型列表中", "执行模型凭据未就绪（pi auth check --no-refresh 退出码 1）", "思考级别 ultra 不受本机 pi 支持"] },
+  // 覆盖审计的缺口（切换 c3a；test_dispatch 766、772）：pi 0.87 没有可用或匹配的模型时只输出一句说明，不输出表格
+  { label: "pi 一个模型都没有", status: 1, options: { provider: "step", model: "step-5", thinking: "high" },
+    spec: { ...GOOD, list: { out: `No models available. Use /login to log into a provider via OAuth or API key. See:${LF}  /pi/docs/providers.md${LF}` } },
+    text: ['"empty_reason": "no_models"', "pi 没有任何可用模型"] },
+  { label: "没有与执行模型匹配的", status: 1, options: { provider: "step", model: "step-5", thinking: "high" },
+    spec: { ...GOOD, list: { out: `No models matching "step-5"${LF}` } },
+    text: ['"empty_reason": "no_match"', "没有与 step-5 匹配的"] },
   { label: "--list-models 失败：错误里的凭据遮掉", status: 1, options: { provider: "step", model: "step-5" },
     // 先脱敏再截：stderr_tail 取最后 300 个字符，问题里取前 200 个
     spec: { ...GOOD, list: { err: `${"前".repeat(150)} models.json 解析失败：apiKey ${KEY} ${"后".repeat(280)}`, code: 2 } }, absent: [KEY],

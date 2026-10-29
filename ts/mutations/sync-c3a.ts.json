@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/repo-commands.contract.test.ts",
+    "-t",
+    "副本目录是 junction|副本是 junction",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "A05 副本经过链接也照写",
+      "file": "ts/packages/dispatcher/src/adapters.ts",
+      "old": "  repoLocalPath(root, `${CLAUDE_SKILL_DIR}/${name}`, \"拒绝同步，以免写入或删除链接指向的目录\");",
+      "new": "  `${root}/${CLAUDE_SKILL_DIR}/${name}`;"
+    }
+  ]
+}
