@@ -3,13 +3,15 @@
 // prepare 建好 attempt（三边相同），再跑同一条 run。pi 一律是 stub_pi（PI_DISPATCH_PI_CMD 或本机文件指向它），不调真实的 pi；
 // PI_CODING_AGENT_DIR 指向临时目录。比退出码、标准输出与标准错误、.agent/runs 下的全部证据。路径、时间、pid、用时与 mkdtemp 的
 // 随机后缀换成占位符；崩溃只比退出码与证据。不写转义序列。
+import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
+import { pidAlive } from "@themis/base/process";
+import { BREAK_OUTER, PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
 import { REPO as KIT, runPythonCli } from "./harness.ts";
 import { type Json, type MdOptions, jsonOf, mdOf } from "./plan-fixtures.ts";
-import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { LF, RUNNERS, type Runner, commandOf, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(() => removeCreated());
 
@@ -171,6 +173,26 @@ const wrapped = (...dirs: string[]): Record<string, string> => ({
   PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, WRAP]), WRAP_STUB: STUB, WRAP_MKDIRS: JSON.stringify(dirs),
 });
 
+/**
+ * 迁移计划 D3：另一层包装的 pi，正式运行时（带 --mode）把收到的运行时注入变量写进 worktree 的 env.json（跟着候选进证据），
+ * 再交给 stub_pi。stub_pi 本身不能改：它的字节钉在 a4fa199（codekit01 的旧夹具核对它）。
+ */
+const ENV_WRAP = join(WRAP_DIR, "env_pi.py");
+put(WRAP_DIR, "env_pi.py", [
+  "import json",
+  "import os",
+  "import subprocess",
+  "import sys",
+  "",
+  'if "--mode" in sys.argv:',
+  '    seen = {name: os.environ.get(name) for name in ("BUN_OPTIONS", "NODE_OPTIONS", "NODE_PATH")}',
+  '    seen["parent"] = sorted(name for name in os.environ if name.upper().startswith("THEMIS_PARENT_"))',
+  '    with open("env.json", "w", encoding="utf-8") as handle:',
+  "        handle.write(json.dumps(seen, sort_keys=True))",
+  'sys.exit(subprocess.call([sys.executable, os.environ["WRAP_STUB"]] + sys.argv[1:]))',
+  "",
+].join(LF));
+
 const SETUP = [{ id: "S01", argv: [PYTHON, "-c", "print('setup ok')"], cwd: ".", timeout_seconds: 60 }];
 
 // 按角色写的合同：prepare 发布版本记录，run 照记录取模型，pi 的命令来自本机文件（PI_DISPATCH_PI_CMD 不设）
@@ -193,6 +215,14 @@ const CASES: Case[] = [
       "preflight/preflight.json": '"ok": true', "preflight/context-files.json": '"scope": "worktree"', "preflight/pi-version.txt": "0.87.0",
       "ignored-before.json": "[]", "pid.txt": "<PID>",
     } },
+  // 迁移计划 D3：调用方环境里的运行时注入变量照 Python 交给 pi（launcher 一边经启动器换名、TS 入口还原），env_remove 照样去掉
+  { label: "D3：NODE_OPTIONS、BUN_OPTIONS 交给 pi，env_remove 去掉 NODE_PATH", status: 0,
+    env: {
+      PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, ENV_WRAP]), WRAP_STUB: STUB,
+      NODE_OPTIONS: "--max-old-space-size=3072", NODE_PATH: "Z:/themis-contract-none", BUN_OPTIONS: "--smol",
+    },
+    config: { env_remove: ["NODE_PATH"] },
+    shows: { "candidate.patch": ['"BUN_OPTIONS": "--smol"', '"NODE_OPTIONS": "--max-old-space-size=3072"', '"NODE_PATH": null', '"parent": []'] } },
   { label: "--timeout 30：本轮时限收紧到 30 秒", status: 0, timeout: 30, text: "（时限 30s）",
     shows: { "claim/reservation.json": '"timeout_seconds": 30', "instruction.md": "单轮时限：30 秒" } },
   { label: "--timeout 是负数：时限 1 秒，挂住的 Pi 超时", status: 1, timeout: -5, scenario: "hang", text: ["（时限 1s）", "TIMEOUT t1.v1.a001"],
@@ -275,6 +305,57 @@ const CASES: Case[] = [
 
 describe("run", () => {
   for (const item of CASES) it(item.label, () => runCase(item), 240_000);
+});
+
+/**
+ * D2：pi 跑到一半，run 的进程组收到 CTRL_BREAK（launcher 一边打到启动器，由它转发给 TS，切换 b）。stub_pi 的 hang 剧本起一个
+ * 孙进程、把它的进程号写进 worktree 的 child.pid；看到这个文件再等一秒发 CTRL_BREAK。跑完 pi 与孙进程都不在
+ * （themistally-15 复核切换 b 的设计时要求每条中断用例都查）。
+ */
+const BREAK_ON_PI = [
+  "import json, os, signal, subprocess, sys, time",
+  "p = subprocess.Popen(json.loads(sys.argv[1]), cwd=sys.argv[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=0x200)",
+  "deadline = time.monotonic() + 60",
+  "while not os.path.exists(sys.argv[3]):",
+  "    if p.poll() is not None or time.monotonic() > deadline:",
+  "        p.kill(); sys.exit('没等到 pi 起来')",
+  "    time.sleep(0.2)",
+  "time.sleep(1)",
+  "p.send_signal(signal.CTRL_BREAK_EVENT)",
+  "out, err = p.communicate()",
+  "sys.stdout.write(json.dumps({'status': p.returncode, 'stdout': out.decode('utf-8', 'replace'), 'stderr': err.decode('utf-8', 'replace')}))",
+].join(LF);
+
+/** 最多等 30 秒，等这些进程都退出；交回各自是否还在。 */
+function settled(pids: readonly number[]): (boolean | null)[] {
+  const deadline = Date.now() + 30_000;
+  while (pids.some((pid) => pidAlive(pid)) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  return pids.map((pid) => pidAlive(pid));
+}
+
+describe("D2：pi 跑到一半，run 的进程组收到 CTRL_BREAK", () => {
+  it("四边证据相同，pi 与它的子进程都不在了", () => {
+    const results = RUNNERS.map((runner) => {
+      const { at, paths } = prepared(runner, { label: "D2", status: 1 });
+      const env = { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, STUB]), PI_CODING_AGENT_DIR: AGENT_DIR, STUB_SCENARIO: "hang", STUB_MAIN_REPO: at.repo, ...FIXED_DATES };
+      const command = commandOf(runner, at.repo, ["run", RUN_REL], { command: ["run"], run_dir: RUN_REL, timeout: null, context: TS_CONTEXT });
+      const done = withEnv(env, () =>
+        spawnSync(PYTHON, ["-c", BREAK_OUTER, BREAK_ON_PI, JSON.stringify(command), at.repo, join(at.wt, "child.pid")], { encoding: "utf8", timeout: 150_000 }),
+      );
+      if (done.status !== 0) throw new Error(`${runner} 中断用例的包装进程退出码 ${String(done.status)}：${done.stderr}`);
+      const run = JSON.parse(done.stdout) as { status: number; stdout: string; stderr: string };
+      const pids = [join(at.runDir, "pid.txt"), join(at.wt, "child.pid")].map((path) => Number(readFileSync(path, "utf8").trim()));
+      return {
+        status: run.status, stdout: scrub(normalize(run.stdout, paths)), stderr: scrub(normalize(run.stderr, paths)),
+        evidence: Object.fromEntries(Object.entries(snapshotDir(join(at.repo, ".agent", "runs"), paths)).map(([key, value]) => [key, scrub(value)])),
+        alive: settled(pids),
+      };
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const first = results[0] as (typeof results)[number];
+    expect(first.alive).toEqual([false, false]);
+    expect(first.evidence["t1/attempt-001/run.json"]).toContain('"interrupted": true');
+  }, 600_000);
 });
 
 describe("run 的现场清理", () => {

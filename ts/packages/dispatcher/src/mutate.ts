@@ -26,7 +26,7 @@ import { DispatchError, EXIT_BLOCKED, EXIT_FAIL, EXIT_OK, EXIT_USAGE, Repo, read
 import type { AssessBattery, DecisionSession, SessionFactory } from "./run-health.ts";
 import { getState, resolveRunDir } from "./status.ts";
 
-const MUTATION_DEFAULT_TIMEOUT = 600n;
+export const MUTATION_DEFAULT_TIMEOUT = 600n;
 const MUTATION_MAX_COMMANDS = 8;
 const MUTATION_COMMAND_ID_PATTERN = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
 const MUTATION_COMMAND_ID_RE = new RegExp(`^[A-Za-z][A-Za-z0-9_-]{0,31}${PY_END}`, "u");

@@ -161,6 +161,11 @@ function pdMain(selector: string, argv: readonly string[], cwd: string, kitRoot?
   return cliRun(process.env["THEMIS_PYTHON"] ?? "python", ["-c", pdProgram(selector, argv, kitRoot)], cwd, merged);
 }
 
+/** 经真启动器、选择文件的 dispatcher 为 ts 的命令行（切换 b：中断用例给启动器的进程组发 CTRL_BREAK，由它转发给 TS）。 */
+export function dispatcherLauncherCommand(argv: readonly string[]): string[] {
+  return [process.env["THEMIS_PYTHON"] ?? "python", "-c", pdProgram(DISPATCHER_TS_SELECTOR, argv)];
+}
+
 /** 钉成 Python 实现的命令行（程序加参数）：自己起进程的用例用（④b3 的中断用例另起进程组）。 */
 export function pythonCliCommand(argv: readonly string[]): string[] {
   return [process.env["THEMIS_PYTHON"] ?? "python", "-c", pdProgram(PYTHON_SELECTOR, argv)];

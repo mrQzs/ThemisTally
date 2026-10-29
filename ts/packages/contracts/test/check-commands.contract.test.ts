@@ -6,10 +6,9 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { pythonCliCommand, tsCliCommand } from "./harness.ts";
 import { FAIL, OK, PLATFORM, PYTHON, TS_CONTEXT, BREAK_INNER, BREAK_OUTER, fullAttempt, json, py, state, type AttemptOptions } from "./attempt-fixtures.ts";
 import { jsonOf, mdOf } from "./plan-fixtures.ts";
-import { CONTEXT, DIRECT_RUNNERS, LF, RUNNERS, type Runner, type Shown, git, newRepo, normalize, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { CONTEXT, LF, RUNNERS, type Runner, commandOf, type Shown, git, newRepo, normalize, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -422,10 +421,10 @@ describe("合并输出的次序", () => {
 });
 
 function runBreak(scenario: Scenario, marker: string): void {
-  const results = DIRECT_RUNNERS.map((runner) => {
+  const results = RUNNERS.map((runner) => {
     const { repo, head } = newRepo(`br-${runner}`, scenario.files ?? {});
     const paths = { "<REPO>": repo, ...scenario.build(repo, head, runner) };
-    const command = runner === "python" ? pythonCliCommand(["--repo", repo, ...scenario.argv]) : tsCliCommand(runner, { repo, ...scenario.args });
+    const command = commandOf(runner, repo, scenario.argv, scenario.args);
     const done = spawnSync(PYTHON, ["-c", BREAK_OUTER, BREAK_INNER, JSON.stringify(command), repo, marker], { encoding: "utf8", timeout: 150_000 });
     if (done.status !== 0) throw new Error(`${runner} 中断用例的包装进程退出码 ${String(done.status)}：${done.stderr}`);
     const run = JSON.parse(done.stdout) as { status: number; stdout: string; stderr: string };

@@ -165,11 +165,18 @@ TS_ENTRY = "packages/cli/src/main.ts"
 TS_STAMP = "node_modules/.themis-installed"
 TS_BUNFIG = "bunfig.toml"
 TS_INSTALL_HINT = "在 ts/ 下运行 bun install --frozen-lockfile"
-#: 转交给 TS 时从子进程环境去掉的运行时注入变量（不区分大小写）：它们不影响 Python 的行为，却能往 TS 进程里塞代码。
+#: 转交给 TS 时不以原名交给 TS 进程的运行时注入变量（不区分大小写）：它们不影响 Python 的行为，却能往 TS 进程里塞代码。
 #: 实测 Bun 1.4.2（2026-10-22）：BUN_OPTIONS 是默认参数（--preload 照样生效），NODE_PATH 让裸模块名多一处解析来源；
 #: NODE_OPTIONS 现在 Bun 不理会，Node 后备会；BUN_INSPECT* 打开调试器。“环境一致”指命令逻辑看到的变量一致，不含这些。
 TS_RUNTIME_ENV_DROP = ("BUN_OPTIONS", "NODE_OPTIONS", "NODE_PATH", "BUN_INSPECT", "BUN_INSPECT_CONNECT_TO",
                        "BUN_INSPECT_NOTIFY")
+#: 迁移计划 D3：上面那几个换名成前缀加原名交给 TS，换过的原名用逗号连起来放进 TS_PARENT_NAMES_ENV；TS 的入口
+#: （@themis/base/parent-env）照这份名单还原成原名。TS 进程自己不受影响（这几个变量都只在启动时读），它起的 pi、
+#: 检查命令、git 钩子照 Python 拿到它们。
+TS_PARENT_ENV_PREFIX = "THEMIS_PARENT_"
+TS_PARENT_NAMES_ENV = "THEMIS_PARENT_NAMES"
+#: 进程按 Ctrl+C、CTRL_BREAK 的缺省处理结束时的退出码（Python、Bun、Node 实测相同）。
+STATUS_CONTROL_C_EXIT = 0xC000013A
 #: readonly 选 ts 时转交给 TS 的命令（迁移计划第 ② 步），值是交给 TS 的参数键（契约见
 #: ts/packages/contracts/schemas/pyargs-v1.schema.json）。名单写死：其余子命令一律由 Python 回答。Namespace 里
 #: 不交的键只有 command、func 与 status 的 assess（带 --assess 的调用不转交）；tests/test_kernel_impl.py 核对其余的键
@@ -937,9 +944,9 @@ class _WinJob:
                                                  self._ctypes.sizeof(accounting), None)
         return int(accounting.ActiveProcesses) if ok else -1
 
-    def terminate(self) -> None:
+    def terminate(self, code: int = 1) -> None:
         if self.handle:
-            self._k32.TerminateJobObject(self.handle, 1)
+            self._k32.TerminateJobObject(self.handle, code)
 
     def close(self) -> None:
         if self.handle:
@@ -9064,22 +9071,60 @@ def argv_impl(argv: Sequence[str], impl: Optional[Dict[str, str]] = None) -> str
 
 
 def handoff_env(source: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    """TS 子进程的环境：与这条命令走 Python 时看到的 os.environ 相同，只去掉 TS_RUNTIME_ENV_DROP。"""
+    """TS 子进程的环境：与这条命令走 Python 时看到的 os.environ 相同，只是 TS_RUNTIME_ENV_DROP 换了名（迁移计划 D3，
+    见 TS_PARENT_ENV_PREFIX）。"""
     drop = {name.upper() for name in TS_RUNTIME_ENV_DROP}
-    env = {name: value for name, value in (os.environ if source is None else source).items()
-           if name.upper() not in drop}
+    env: Dict[str, str] = {}
+    renamed: List[str] = []
+    for name, value in (os.environ if source is None else source).items():
+        if name.upper() in drop:
+            renamed.append(name)
+            name = TS_PARENT_ENV_PREFIX + name
+        env[name] = value
+    if renamed:
+        env[TS_PARENT_NAMES_ENV] = ",".join(renamed)
     if IS_WINDOWS:
         env[EXE_SEARCH_GUARD] = "1"  # 第 77 轮：TS 那边按名字起 git，不能查当前目录
     return env
 
 
+def _forward_interrupts(proc: "subprocess.Popen[bytes]", job: _WinJob, seen: List[int]) -> Dict[int, Any]:
+    """转交期间接住 Ctrl+C 与 CTRL_BREAK（迁移计划 D2），返回原来的处理函数；收到的信号依次记进 seen。
+
+    第一个转成 CTRL_BREAK 发给 TS 的进程组（CTRL_C 发不到指定的进程组），之后一直等 TS 自己收尾：run、check 这些
+    要先等 pi 的宽限（kill_grace_seconds）再收集证据，不设固定的短宽限。再按一次 Ctrl+C 才结束 Job。
+    发不出去（本进程没有控制台，错误码 6）时照转发之前的做法：Ctrl+C 结束 Job、写“已取消。”；CTRL_BREAK 以
+    0xC000013A 结束 Job，启动器交回同一个退出码（以前是启动器自己按缺省处理结束）。
+    """
+    def handler(signum: int, _frame: Any) -> None:
+        if seen and signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        if seen:
+            return
+        seen.append(signum)
+        if _send_ctrl_break(proc)[0] != "sent":
+            if signum == signal.SIGINT:
+                raise KeyboardInterrupt
+            job.terminate(STATUS_CONTROL_C_EXIT)
+
+    previous: Dict[int, Any] = {}
+    for sig in (signal.SIGINT, signal.SIGBREAK):  # type: ignore[attr-defined]
+        try:
+            previous[sig] = signal.signal(sig, handler)
+        except (ValueError, OSError):  # 不在主线程
+            pass
+    return previous
+
+
 def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int:
     """起 TS 子进程并等它结束。stdin、stdout、stderr 直接继承句柄（不经管道：字节原样，isatty 与 Python 一致）；
-    环境是 handoff_env()（缺省）；当前目录不变；退出码原样交回。启动器自己一个字节也不写。
+    环境是 handoff_env()（缺省）；当前目录不变；退出码原样交回。启动器自己一个字节也不写，只有一处例外：按了 Ctrl+C
+    而 TS 按缺省处理结束，照 Python 收到 Ctrl+C 抛 KeyboardInterrupt，由 main 写“已取消。”、退出 130。
 
     Windows：挂起创建、加入带 KILL_ON_JOB_CLOSE 的 Job 之后才恢复（与 run_supervised 同一套）。启动器被杀
-    （run_pd 超时）时 Job 句柄随之关闭，子进程跟着结束，不成孤儿。子进程另起进程组，Ctrl+C 只到启动器：终止 Job，
-    再由 main 写“已取消。”。POSIX：父进程死、子进程跟着死只在 Linux 上用 PR_SET_PDEATHSIG 尽力而为，未实机验证
+    （run_pd 超时）时 Job 句柄随之关闭，子进程跟着结束，不成孤儿。子进程另起进程组，收不到 Ctrl+C：启动器把 Ctrl+C
+    与 CTRL_BREAK 转发给它（_forward_interrupts，迁移计划 D2）。POSIX：子进程与启动器同在终端的前台进程组，Ctrl+C
+    两边都收到，启动器照旧终止它（未实机验证）；父进程死、子进程跟着死只在 Linux 上用 PR_SET_PDEATHSIG 尽力而为
     （macOS 没有对应机制）。
     """
     kwargs: Dict[str, Any] = {"env": handoff_env() if env is None else env}
@@ -9095,14 +9140,23 @@ def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int
     elif sys.platform.startswith("linux"):
         kwargs["preexec_fn"] = _linux_parent_death_signal
     proc: Optional["subprocess.Popen[bytes]"] = None
+    seen: List[int] = []
+    previous: Dict[int, Any] = {}
     try:
         try:
             proc = subprocess.Popen(list(cmd), **kwargs)
         except OSError as exc:
             raise DispatchError("TS 子进程没能启动：%s: %s" % (type(exc).__name__, exc), EXIT_FAIL)
-        if job is not None and not job.attach_and_resume(proc):
-            raise DispatchError("TS 子进程未能加入 Job Object，已在启动前终止", EXIT_FAIL)
-        code = proc.wait()
+        if job is not None:
+            if not job.attach_and_resume(proc):
+                raise DispatchError("TS 子进程未能加入 Job Object，已在启动前终止", EXIT_FAIL)
+            previous = _forward_interrupts(proc, job, seen)
+        while True:
+            try:
+                code = proc.wait(timeout=0.25)  # 不带超时的 wait 在 Windows 上要等子进程退出，信号处理函数一直排不上
+                break
+            except subprocess.TimeoutExpired:
+                continue
     except BaseException:
         if proc is not None and proc.poll() is None:
             if job is not None:
@@ -9115,8 +9169,11 @@ def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int
                 pass
         raise
     finally:
+        _restore_handlers(previous)
         if job is not None:
             job.close()
+    if seen[:1] == [signal.SIGINT] and code == STATUS_CONTROL_C_EXIT:
+        raise KeyboardInterrupt  # TS 没处理、按缺省结束：照 Python 收到 Ctrl+C
     if code < 0:  # POSIX：被信号结束，照 shell 的写法交回 128 + 信号
         return 128 - code
     if IS_WINDOWS and code > 0x7FFFFFFF:  # NTSTATUS 之类的大值：按有符号 32 位交给 sys.exit，进程退出码原样

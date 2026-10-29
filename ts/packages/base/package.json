@@ -9,6 +9,7 @@
     "./jsonl": "./src/jsonl.ts",
     "./locks": "./src/locks.ts",
     "./native": "./src/native.ts",
+    "./parent-env": "./src/parent-env.ts",
     "./process": "./src/process.ts",
     "./protocols": "./src/protocols.ts",
     "./publish": "./src/publish.ts",

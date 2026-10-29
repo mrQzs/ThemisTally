@@ -216,7 +216,7 @@ export interface WaitArgs {
   readonly assess_interval?: number;
 }
 
-const WAIT_ACTIVE_STATES = ["PREPARING", "RUNNING", "COLLECTING"];
+export const WAIT_ACTIVE_STATES = ["PREPARING", "RUNNING", "COLLECTING"];
 
 /** Python 的 min、max：比较不成立时留第一个（NaN 不会传染）。 */
 const pyMin = (a: number, b: number): number => (b < a ? b : a);

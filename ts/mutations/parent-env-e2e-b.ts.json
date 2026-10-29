@@ -1,0 +1,30 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kernel_impl.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "restored_variables"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 入口不还原",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "restoreParentEnv(process.env);\n",
+      "new": ""
+    },
+    {
+      "name": "P09 前缀写错",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "export const TS_PARENT_ENV_PREFIX = \"THEMIS_PARENT_\";",
+      "new": "export const TS_PARENT_ENV_PREFIX = \"THEMIS_PARENT\";"
+    }
+  ]
+}

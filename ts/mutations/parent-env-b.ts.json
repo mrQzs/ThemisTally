@@ -1,0 +1,54 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/base/test/parent-env.test.ts"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P02 名单本身不删",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "  delete env[TS_PARENT_NAMES_ENV];\n",
+      "new": ""
+    },
+    {
+      "name": "P03 换过名的不删",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "    delete env[TS_PARENT_ENV_PREFIX + name];\n",
+      "new": ""
+    },
+    {
+      "name": "P04 值不在也还原",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "    if (value === undefined) continue;\n",
+      "new": ""
+    },
+    {
+      "name": "P05 没有名单也往下走",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "  if (names === undefined) return;\n",
+      "new": ""
+    },
+    {
+      "name": "P06 main.ts 先 harden 后 parent-env",
+      "file": "ts/packages/cli/src/main.ts",
+      "old": "import \"@themis/base/parent-env\"; // 第一个 import：赶在其他模块的顶层代码读环境之前，还原启动器换过名的变量（D3）\nimport \"@themis/base/harden\";",
+      "new": "import \"@themis/base/harden\";\nimport \"@themis/base/parent-env\"; // 第一个 import：赶在其他模块的顶层代码读环境之前，还原启动器换过名的变量（D3）"
+    },
+    {
+      "name": "P07 parent-env 自己 import 了别的模块",
+      "file": "ts/packages/base/src/parent-env.ts",
+      "old": "export const TS_PARENT_ENV_PREFIX = ",
+      "new": "import \"node:os\";\nexport const TS_PARENT_ENV_PREFIX = "
+    },
+    {
+      "name": "P08 harden 自己 import 了别的模块",
+      "file": "ts/packages/base/src/harden.ts",
+      "old": "export const EXE_SEARCH_GUARD = ",
+      "new": "import \"node:os\";\nexport const EXE_SEARCH_GUARD = "
+    }
+  ]
+}

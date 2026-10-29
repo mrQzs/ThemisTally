@@ -1,0 +1,82 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kernel_impl.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B01 不换名、照旧去掉",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            name = TS_PARENT_ENV_PREFIX + name\n        env[name] = value\n",
+      "new": "            continue\n        env[name] = value\n"
+    },
+    {
+      "name": "B02 不写名单",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if renamed:\n        env[TS_PARENT_NAMES_ENV] = \",\".join(renamed)\n",
+      "new": ""
+    },
+    {
+      "name": "B03 不转发，一律照旧结束 Job",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if _send_ctrl_break(proc)[0] != \"sent\":",
+      "new": "        if True:"
+    },
+    {
+      "name": "B04 第二次 Ctrl+C 不结束 Job",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if seen and signum == signal.SIGINT:\n            raise KeyboardInterrupt\n",
+      "new": ""
+    },
+    {
+      "name": "B05 TS 按缺省结束不补“已取消。”",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        raise KeyboardInterrupt  # TS 没处理、按缺省结束：照 Python 收到 Ctrl+C",
+      "new": "        pass"
+    },
+    {
+      "name": "B06 CTRL_BREAK 也补“已取消。”",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if seen[:1] == [signal.SIGINT] and code == STATUS_CONTROL_C_EXIT:",
+      "new": "    if seen and code == STATUS_CONTROL_C_EXIT:"
+    },
+    {
+      "name": "B07 发不出去时 CTRL_BREAK 不结束 Job",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            job.terminate(STATUS_CONTROL_C_EXIT)",
+      "new": "            pass"
+    },
+    {
+      "name": "B08 结束 Job 不用给的退出码",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            self._k32.TerminateJobObject(self.handle, code)",
+      "new": "            self._k32.TerminateJobObject(self.handle, 1)"
+    },
+    {
+      "name": "B09 不带超时地等",
+      "file": "scripts/pi_dispatch.py",
+      "old": "                code = proc.wait(timeout=0.25)",
+      "new": "                code = proc.wait()"
+    },
+    {
+      "name": "B10 不装处理函数",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            previous = _forward_interrupts(proc, job, seen)",
+      "new": "            previous = {}"
+    },
+    {
+      "name": "B11 只接 Ctrl+C",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    for sig in (signal.SIGINT, signal.SIGBREAK):  # type: ignore[attr-defined]",
+      "new": "    for sig in (signal.SIGINT,):"
+    }
+  ]
+}

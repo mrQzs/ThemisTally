@@ -29,7 +29,7 @@ import { ATTEMPT_DIR_RE, getState, taskAttempts } from "./status.ts";
 /** pi_dispatch.TOOL_VERSION：写进 meta.json；切换那一轮再与常量表逐项对照。 */
 export const TOOL_VERSION = "2.12.0";
 
-const PENDING_INTEGRATION_STATES = ["PREPARING", "PREPARED", "RUNNING", "COLLECTING", "NEEDS_REVIEW", "PASS", "ACCEPTED_WITH_EXCEPTION", "REVISE"];
+export const PENDING_INTEGRATION_STATES = ["PREPARING", "PREPARED", "RUNNING", "COLLECTING", "NEEDS_REVIEW", "PASS", "ACCEPTED_WITH_EXCEPTION", "REVISE"];
 const EXECUTOR_STYLE: Readonly<Record<string, string>> = { role: "按角色", written: "写死", legacy: "旧" };
 
 export interface PrepareArgs {

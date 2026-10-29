@@ -418,10 +418,26 @@ def test_the_environment_is_what_python_sees(tmp_path):
 
 
 @pytest.mark.parametrize("name", pd.TS_RUNTIME_ENV_DROP)
-def test_runtime_injection_variables_are_dropped(tmp_path, name):
-    env = dict(bare_environ(), THEMIS_HANDOFF_MARK="kept", **{name: "--inject"})
+def test_runtime_injection_variables_are_renamed(tmp_path, name):
+    # 迁移计划 D3：不以原名进 TS 进程，换名交过去，由 TS 的入口还原给它起的子进程
+    drop = {item.upper() for item in pd.TS_RUNTIME_ENV_DROP}
+    env = {key: value for key, value in bare_environ().items() if key.upper() not in drop}
+    env.update(THEMIS_HANDOFF_MARK="kept", **{name: "--inject"})
     seen = norm_env(child_env(tmp_path, env))
-    assert (name.upper() if pd.IS_WINDOWS else name) not in seen and seen["THEMIS_HANDOFF_MARK"] == "kept"
+    key = name.upper() if pd.IS_WINDOWS else name
+    assert key not in seen and seen["THEMIS_HANDOFF_MARK"] == "kept"
+    assert seen[pd.TS_PARENT_ENV_PREFIX + key] == "--inject" and seen[pd.TS_PARENT_NAMES_ENV] == key
+
+
+def test_handoff_env_lists_the_renamed_variables():
+    env = pd.handoff_env({"KEEP": "1", "node_options": "--x", "BUN_OPTIONS": "--y"})
+    env.pop(pd.EXE_SEARCH_GUARD, None)
+    assert env == {"KEEP": "1", "THEMIS_PARENT_node_options": "--x", "THEMIS_PARENT_BUN_OPTIONS": "--y",
+                   "THEMIS_PARENT_NAMES": "node_options,BUN_OPTIONS"}
+    # 没有要换名的就不加名单：环境与以前逐字相同
+    plain = pd.handoff_env({"KEEP": "1"})
+    plain.pop(pd.EXE_SEARCH_GUARD, None)
+    assert plain == {"KEEP": "1"}
 
 
 # ---------------------------------------------------------------------------
@@ -913,3 +929,170 @@ def test_a_listed_dispatcher_command_without_ts_reports_the_missing_entry(tmp_pa
         done = main_with(selector, tmp_path / "no-ts", argv, repo)
         assert done.returncode == pd.EXIT_USAGE and done.stdout == b"", argv
         assert "选择文件指向 ts，但找不到 TS 入口" in done.stderr.decode("utf-8"), argv
+
+
+# ---------------------------------------------------------------------------
+# 切换 b：真的 Bun 里还原换过名的变量（D3）
+# ---------------------------------------------------------------------------
+
+RESTORE_PROBE = """import %(restore)s;
+import "./reader.mjs";
+import { spawnSync } from "node:child_process";
+let mod = "no";
+try { mod = (await import("zzinjected")).default; } catch {}
+const kid = spawnSync(%(kid)s[0], %(kid)s.slice(1), { encoding: "utf8" });
+console.log(JSON.stringify({ atLoad: globalThis["__atLoad"] ?? null, inj: globalThis["__inj"] ?? null, mod,
+  kid: (kid.stdout ?? "").trim(), parent: Object.keys(process.env).filter((name) => name.toUpperCase().startsWith("THEMIS_PARENT_")) }));
+"""
+KID_CODE = {
+    "BUN_OPTIONS": 'console.log(globalThis["__inj"] ?? "none")',
+    "NODE_PATH": 'import("zzinjected").then((m) => console.log(m.default), () => console.log("none"))',
+    "NODE_OPTIONS": 'console.log(globalThis["__inj"] ?? "none")',
+}
+
+
+@pytest.mark.parametrize("case", ["BUN_OPTIONS", "NODE_PATH", "NODE_OPTIONS"])
+def test_restored_variables_reach_children_but_not_the_ts_process(tmp_path, case):
+    # themistally-15 复核切换 b 的设计时要求：入口还原之后，后加载的模块读到的已经是原名；TS 进程自己没被注入（BUN_OPTIONS
+    # 的预加载没跑，NODE_PATH 里的模块解析不到：Bun 只在启动时读它，哪个版本改成运行时读，这里就红）；它起的子进程拿到原值
+    bun = pd.find_bun()
+    if bun is None:
+        pytest.skip("本机 PATH 上没有 Bun")
+    kid_exe = str(bun) if case != "NODE_OPTIONS" else shutil.which("node.exe" if pd.IS_WINDOWS else "node")
+    if kid_exe is None:
+        pytest.skip("本机 PATH 上没有 Node")
+    restore = json.dumps((pd.KERNEL_TS_ROOT / "packages" / "base" / "src" / "parent-env.ts").as_uri())
+    kid = json.dumps([Path(kid_exe).as_posix(), "-e", KID_CODE[case]])
+    root = fake_ts(tmp_path, bun, RESTORE_PROBE % {"restore": restore, "kid": kid})
+    (root / "packages" / "cli" / "src" / "reader.mjs").write_text(
+        'globalThis["__atLoad"] = process.env[%s] ?? null;' % json.dumps(case), encoding="utf-8")
+    cwd, env = injection_case(tmp_path, case)
+    done = launcher("sys.exit(pd.run_handoff(pd.ts_launch_command({'command': ['status']}, pd.Path(%r))))"
+                    % str(root), cwd=str(cwd), env=env)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {"atLoad": env[case], "inj": None, "mod": "no",
+                                       "kid": "injected" if case == "NODE_PATH" else case, "parent": []}
+
+
+# ---------------------------------------------------------------------------
+# 切换 b：启动器转发 Ctrl+C 与 CTRL_BREAK（D2）
+# ---------------------------------------------------------------------------
+
+SIGNAL_CHILD = """import os, signal, subprocess, sys, time
+ready, mode = sys.argv[1], sys.argv[2]
+base = os.path.dirname(ready)
+
+
+def on_break(*_):
+    open(os.path.join(base, "got-break"), "w").close()
+    if mode == "default":
+        os._exit(-1073741510)  # 0xC000013A：与按缺省处理结束相同
+    if mode == "handled":
+        print("收尾", flush=True)
+        os._exit(5)
+
+
+signal.signal(signal.SIGBREAK, on_break)
+if mode == "stubborn":
+    grand = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    open(os.path.join(base, "pids"), "w").write(str(os.getpid()) + " " + str(grand.pid))
+open(ready, "w").close()
+for _ in range(1200):  # 小步睡：SIGBREAK 打断不了 time.sleep，处理函数要等这一步睡完
+    time.sleep(0.1)
+"""
+SIGNAL_LAUNCHER = """import os, signal, threading, time
+CHILD, READY, MODE, SIGNALS, SELECTOR = %r, %r, %r, %r, %r
+
+
+def slow(args):  # Python 一边的对照：metrics 换成一直等的命令
+    open(READY, "w").close()
+    time.sleep(60)
+    return 0
+
+
+def fire():
+    deadline = time.monotonic() + 60
+    while not os.path.exists(READY):
+        if time.monotonic() > deadline:
+            return
+        time.sleep(0.05)
+    time.sleep(0.5)
+    for name in SIGNALS:
+        signal.raise_signal(getattr(signal, name))
+        time.sleep(1.5)
+
+
+pd.cmd_metrics = slow
+pd.ts_launch_command = lambda pyargs, *rest, **kwargs: [sys.executable, CHILD, READY, MODE]
+pd.KERNEL_IMPL_PATH = pd.Path(SELECTOR)
+threading.Thread(target=fire, daemon=True).start()
+sys.exit(pd.main(["metrics"]))
+"""
+CREATE_NO_WINDOW = 0x08000000
+DETACHED_PROCESS = 0x00000008
+WINDOWS_ONLY = pytest.mark.skipif(not pd.IS_WINDOWS, reason="CTRL_BREAK 与 Job Object 只在 Windows 上")
+
+
+def signalled(where: Path, impl: str, mode: str, signals, flags: int = CREATE_NO_WINDOW):
+    """pd.main(["metrics"])：impl 为 ts 时转交给假 TS（SIGNAL_CHILD 的 mode），为 python 时 metrics 一直等。假 TS 就绪之后
+    在启动器进程里依次发 signals（signal.raise_signal，相隔 1.5 秒）。CREATE_NO_WINDOW 给启动器一个自己的隐藏控制台，
+    转发的 CTRL_BREAK 才发得出去；DETACHED_PROCESS 起的启动器没有控制台。"""
+    where.mkdir()
+    child = where / "child.py"
+    child.write_text(SIGNAL_CHILD, encoding="utf-8")
+    selector = write_selector(where / "selector.json", **(DISPATCHER_TS if impl == "ts" else {}))
+    code = SIGNAL_LAUNCHER % (str(child), str(where / "ready"), mode, list(signals), str(selector))
+    return launcher(code, cwd=str(where), creationflags=flags)
+
+
+def assert_gone(where: Path) -> None:
+    pids = [int(pid) for pid in (where / "pids").read_text(encoding="utf-8").split()]
+    deadline = time.monotonic() + 30
+    while any(pd.pid_alive(pid) for pid in pids) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert [pd.pid_alive(pid) for pid in pids] == [False, False]
+
+
+@WINDOWS_ONLY
+def test_ctrl_c_reaches_ts_as_ctrl_break_and_a_default_exit_reads_as_cancelled(tmp_path):
+    # TS 没处理、按缺省结束：与 Python 收到 Ctrl+C 逐字节相同（“已取消。”、退出 130，themistally-15 第 5 条）
+    reference = signalled(tmp_path / "py", "python", "default", ["SIGINT"])
+    done = signalled(tmp_path / "ts", "ts", "default", ["SIGINT"])
+    assert (done.returncode, done.stdout, done.stderr) == (reference.returncode, reference.stdout, reference.stderr)
+    assert done.returncode == 130 and "已取消。" in done.stderr.decode("utf-8")
+    assert (tmp_path / "ts" / "got-break").exists()  # TS 收到了转发的 CTRL_BREAK，不是被 Job 结束的
+
+
+@WINDOWS_ONLY
+def test_ts_that_handles_the_break_keeps_its_exit_code(tmp_path):
+    done = signalled(tmp_path / "ts", "ts", "handled", ["SIGINT"])
+    assert done.returncode == 5 and done.stderr == b""
+    assert done.stdout.decode("utf-8").strip() == "收尾"
+
+
+@WINDOWS_ONLY
+def test_ctrl_break_to_the_launcher_is_forwarded(tmp_path):
+    done = signalled(tmp_path / "ts", "ts", "default", ["SIGBREAK"])
+    assert (done.returncode, done.stdout, done.stderr) == (pd.STATUS_CONTROL_C_EXIT, b"", b"")
+    assert (tmp_path / "ts" / "got-break").exists()
+
+
+@WINDOWS_ONLY
+def test_a_second_ctrl_c_ends_the_job(tmp_path):
+    # TS 不理会 CTRL_BREAK：再按一次 Ctrl+C 才结束 Job，TS 与它起的子进程都不在了（themistally-15 第 6 条）
+    reference = signalled(tmp_path / "py", "python", "stubborn", ["SIGINT"])
+    done = signalled(tmp_path / "ts", "ts", "stubborn", ["SIGINT", "SIGINT"])
+    assert (done.returncode, done.stdout, done.stderr) == (reference.returncode, reference.stdout, reference.stderr)
+    assert (tmp_path / "ts" / "got-break").exists()
+    assert_gone(tmp_path / "ts")
+
+
+@WINDOWS_ONLY
+@pytest.mark.parametrize("name", ["SIGINT", "SIGBREAK"])
+def test_without_a_console_the_launcher_ends_the_job_as_before(tmp_path, name):
+    # 发不出 CTRL_BREAK（错误码 6）：照转发之前的做法结束 Job；Ctrl+C 写“已取消。”，CTRL_BREAK 交回 0xC000013A
+    done = signalled(tmp_path / "ts", "ts", "stubborn", [name], flags=DETACHED_PROCESS)
+    assert done.returncode == (130 if name == "SIGINT" else pd.STATUS_CONTROL_C_EXIT) and done.stdout == b""
+    assert ("已取消。" in done.stderr.decode("utf-8")) == (name == "SIGINT")
+    assert not (tmp_path / "ts" / "got-break").exists()
+    assert_gone(tmp_path / "ts")
