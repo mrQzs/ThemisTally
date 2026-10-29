@@ -2137,6 +2137,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 加载次序：parent-env 还原环境、harden 必须在任何读环境变量、起子进程的代码之前执行。现在是静态 import，次序由 import 的先后保证；改成动态加载之后要靠代码自己守，逐个确认按需加载的模块顶层不读 `process.env`、不起进程。合入之后 themistally-15 把 72 步全量关再跑一遍，算作那一片的验收之一。
 - **验收**：切换之后跑一片真实的迁移验收片，由 hub 派遣、执行、验收、落地，全程经 TS 调度器（用户 2026-10-28 批了这次的花费）；结果另记，themistally-15 做独立复审。
 
+### 第 130 轮：Win32 调用失败却取到错误码 0 时重做（2026-10-29，切换 d 时查出）
+
+- **起因**：切换 d 的全量 vitest 里，roles-probe 的 runtime scan 偶发失败（单跑通过）：同一个坏的可执行文件，Python 报 `[WinError 216]`，TS 报 `[WinError 0] The operation completed successfully`。调度器切到 TS 之后，起 pi 失败时偶尔也会报成错误码 0。
+- **原因**：native.ts 在 Win32 调用返回失败之后，再单独调一次 GetLastError。两次 FFI 调用之间，运行时自己的系统调用会把本线程的 last error 清成 0，负载高时偶发。推测是访问线程局部存储（TlsGetValue 成功时会清成 0，themistally-15 提出），没有验证。迁移的“路径语义的再补”（2026-10-27）给 os.stat 那一路的 CreateFileW 加了“取到 0 就重开”，进程监督这几处记进迁移计划 10.1，写的是“等实际碰到”。
+- **实测**：同一个 Bun 进程里起 3000 次不存在的程序。不加分配压力 3000 次都是 2；加分配压力，4 轮里 2 轮各有 1 次取到 0。次数不随压力加大而增加，像是跟 JIT 升级、GC 这类偶发事件绑在一起。
+- **改动**（设计与 themistally-15 定）：
+  - 新的纯函数 `retryWin32(attempt, failed, readError)`：失败取到 0 就把这次调用重做，最多 5 次；取到真的错误码就交它；重做成功就照成功走。5 次都取到 0 时交 0，Python 不会报 0，那时两边文字不同（迁移计划第 10 节）。
+  - native.ts 里读 GetLastError 的 13 处全部经它取：fail() 的七处（CreateJobObjectW、openInheritable 的 CreateFileW、InitializeProcThreadAttributeList、UpdateProcThreadAttribute、CreateProcessW、GetExitCodeProcess，改成 `check`），SetInformationJobObject，ctrlBreak，MoveFileExW 与 CreateDirectoryW，statPath 的 CreateFileW 与 FindFirstFileW（原来自己写的重开循环），GetFinalPathNameByHandleW。AssignProcessToJobObject、ResumeThread、TerminateJobObject、WaitForSingleObject 失败时不取错误码，不动。
+  - 能重做的前提是失败时没有副作用，逐个核过（themistally-15 也对过一遍）：不建进程、不给句柄、不建文件、不改 Job；属性表只动本进程内存；GetExitCodeProcess、GetFinalPathNameByHandleW 只读；GenerateConsoleCtrlEvent 失败就没发出去；MoveFileExW 不带 COPY_ALLOWED，只在同一个卷上改名，是原子的。拿 mkdir 占位的（检查记录的编号目录、mkdtemp）重做时建成了，与正常重试建成一样。
+  - CreateProcessW 每次重做都现做一份可写的命令行：它可能改写 lpCommandLine，失败的那一次可能改了一半（themistally-15 提出）。
+- **测试**：`packages/base/test/native-lasterror.test.ts`。
+  - retryWin32 的五条：成功不取错误码；首次就取到真的错误码不重做；[0, 0, 216] 重做到 216；重做成功照成功走；一直是 0 做 5 次交 0。
+  - 源码核对：带点号的 `.GetLastError()` 只出现在两处 `lastError` 的定义里，`lastError` 从不直接调用。FFI 符号表、类型声明与注释都不带点号，不用放宽规则（themistally-15 提出）。
+  - 压力：Bun 子进程里带着分配压力起 3000 次不存在的程序，错误码都是 2。修之前约一半的轮次会红，只当回归保护，变异不靠它。
+  - 变异 8 条（`ts/mutations/lasterror-e.ts.json`）：重做的三条规矩，加五处改回失败后直接取错误码。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

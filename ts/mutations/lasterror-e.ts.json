@@ -1,0 +1,62 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/base/test/native-lasterror.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "E1 取到 0 也不重做",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    if (winerror !== 0 || tries === WIN32_ATTEMPTS) return { winerror };",
+      "new": "    return { winerror };"
+    },
+    {
+      "name": "E2 只做一次",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "const WIN32_ATTEMPTS = 5;",
+      "new": "const WIN32_ATTEMPTS = 1;"
+    },
+    {
+      "name": "E3 重做成功也不算成功",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    if (!failed(value)) return { value };",
+      "new": "    if (!failed(value) && tries === 1) return { value };"
+    },
+    {
+      "name": "E4 CreateProcessW 改回失败后直接取错误码",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "        check(\"CreateProcessW\", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment,\n          cwd === null ? null : wide(cwd), startup, info), falsy);",
+      "new": "        if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment, cwd === null ? null : wide(cwd), startup, info)) {\n          throw new Win32Error(\"CreateProcessW\", k.GetLastError());\n        }"
+    },
+    {
+      "name": "E5 ctrlBreak 改回直接取错误码",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      const sent = retryWin32(() => k.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid), falsy, lastError);",
+      "new": "      const sent = k.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) ? { value: 1 } : { winerror: k.GetLastError() };"
+    },
+    {
+      "name": "E6 check 不经 retryWin32",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "    const result = retryWin32(attempt, failed, lastError);",
+      "new": "    const value = attempt();\n    const result = failed(value) ? { winerror: lastError() } : { value };"
+    },
+    {
+      "name": "E7 CreateDirectoryW 改回直接取错误码",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      return outcome(retryWin32(() => call.CreateDirectoryW(ffi.ptr(path), null), falsy, lastError));",
+      "new": "      return call.CreateDirectoryW(ffi.ptr(path), null) ? null : outcome({ winerror: call.GetLastError() });"
+    },
+    {
+      "name": "E8 statPath 的 FindFirstFileW 改回直接取错误码",
+      "file": "ts/packages/base/src/native.ts",
+      "old": "      const found = retryWin32(() => call.FindFirstFileW(ffi.ptr(name), ffi.ptr(data)), invalidHandle, lastError);",
+      "new": "      const handle = call.FindFirstFileW(ffi.ptr(name), ffi.ptr(data));\n      const found = invalidHandle(handle) ? { winerror: call.GetLastError() } : { value: handle };"
+    }
+  ]
+}

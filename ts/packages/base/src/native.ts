@@ -47,7 +47,7 @@
 //       （0x08000000），子进程的控制台开在后台，不弹窗口；有控制台时不加，CTRL_BREAK 要靠父子共用同一个控制台
 //     AttachConsole(调用方的进程号) -> BOOL：Node 后备的辅助进程以 DETACHED_PROCESS 起，再挂到调用方的控制台上
 //       （调用方没有控制台就挂不上），控制台的有无与进程内调用一致，CTRL_BREAK 发不发得出去也一致
-//     GetLastError() -> DWORD：失败之后立即取（bun:ffi 下实测可靠：2、267、193 都对）
+//     GetLastError() -> DWORD：失败之后立即取；两次 FFI 调用之间偶尔被运行时清成 0，一律经 retryWin32 取（第 130 轮）
 //     FormatMessageW(FROM_SYSTEM | IGNORE_INSERTS, NULL, 错误码, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 缓冲,
 //       字符数, NULL) -> DWORD：与 CPython 给 OSError 取文字的调用相同
 //     CompareStringOrdinal(a, 长度, b, 长度, bIgnoreCase = TRUE) -> int（1 小于、2 等于、3 大于）：环境块的排序与
@@ -430,21 +430,18 @@ export async function initFileAttributes(): Promise<void> {
     FormatMessageW(flags: number, source: null, id: number, language: number, buffer: number, size: number, args: null): number;
   };
   const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
+  const lastError = (): number => call.GetLastError();
   getFileAttributes = (path) => call.GetFileAttributesW(ffi.ptr(wide(path)));
   /**
-   * 打开：交回句柄（包成对象，与错误码区分），失败交回 GetLastError。返回值原先是 BigInt，分配可能赶上垃圾回收，回收里的
-   * 系统调用会把本线程的 last error 清成 0（契约里约一半的运行把不存在的路径判成存在）；现在用 i64_fast 交回 number，另外
-   * 失败却取到 0 时仍重开几次，绝不把 0 当成功；一直取不到就当找不到（2）。
+   * 打开：交回句柄（包成对象，与错误码区分），失败交回错误码。返回值原先是 BigInt，分配可能赶上垃圾回收，回收里的
+   * 系统调用会把本线程的 last error 清成 0（契约里约一半的运行把不存在的路径判成存在）；现在用 i64_fast 交回 number，
+   * 取到 0 时照 retryWin32 重开，绝不把 0 当成功；一直取不到就当找不到（2）。
    */
   const open = (path: string, access: number, share: number, flags: number): { readonly handle: number | bigint } | number => {
     const name = wide(path); // 调用期间一直被引用
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const handle = call.CreateFileW(ffi.ptr(name), access, share, null, 3, flags, null);
-      if (!invalidHandle(handle)) return { handle };
-      const error = call.GetLastError();
-      if (error !== 0) return error;
-    }
-    return 2;
+    const result = retryWin32(() => call.CreateFileW(ffi.ptr(name), access, share, null, 3, flags, null), invalidHandle, lastError);
+    if ("value" in result) return { handle: result.value };
+    return result.winerror === 0 ? 2 : result.winerror;
   };
   const opened = (result: { readonly handle: number | bigint } | number): number => {
     if (typeof result === "number") return result;
@@ -458,15 +455,9 @@ export async function initFileAttributes(): Promise<void> {
       // 拒绝访问或共享冲突（页面文件）：改读上一级目录里的条目
       const name = wide(path);
       const data = new Uint8Array(592);
-      let found: number | bigint = -1;
-      let second = 0;
-      for (let attempt = 0; attempt < 5 && second === 0; attempt += 1) {
-        found = call.FindFirstFileW(ffi.ptr(name), ffi.ptr(data));
-        if (!invalidHandle(found)) break;
-        second = call.GetLastError(); // 同上：取到 0 就再试
-      }
-      if (invalidHandle(found)) return [2, 3, 21, 67].includes(second) ? second : error;
-      call.FindClose(found);
+      const found = retryWin32(() => call.FindFirstFileW(ffi.ptr(name), ffi.ptr(data)), invalidHandle, lastError);
+      if ("winerror" in found) return [2, 3, 21, 67].includes(found.winerror) ? found.winerror : error;
+      call.FindClose(found.value);
       return new DataView(data.buffer).getUint32(0, true) & FILE_ATTRIBUTE_REPARSE_POINT ? error : 0;
     }
     if (error === 87) return opened(open(path, FILE_READ_ATTRIBUTES | GENERIC_READ, 3, FILE_FLAG_BACKUP_SEMANTICS)) === 0 ? 0 : error;
@@ -481,8 +472,9 @@ export async function initFileAttributes(): Promise<void> {
     try {
       for (let size = 1024; ; ) {
         const buffer = new Uint16Array(size);
-        const length = call.GetFinalPathNameByHandleW(handle, ffi.ptr(buffer), size, 0);
-        if (length === 0) return { winerror: call.GetLastError() };
+        const got = retryWin32(() => call.GetFinalPathNameByHandleW(handle, ffi.ptr(buffer), size, 0), (length) => length === 0, lastError);
+        if ("winerror" in got) return { winerror: got.winerror };
+        const length = got.value;
         if (length < size) return { path: Buffer.from(buffer.buffer, 0, length * 2).toString("utf16le") };
         size = length + 1;
       }
@@ -505,18 +497,20 @@ export async function initFileAttributes(): Promise<void> {
     const n = call.FormatMessageW(0x1000 | 0x200, null, winerror, 0x0400, ffi.ptr(buffer), buffer.length, null);
     return Buffer.from(buffer.buffer, 0, n * 2).toString("utf16le");
   };
-  const failure = (): Win32Failure => {
-    const winerror = call.GetLastError(); // 失败之后立即取
-    return { winerror, message: (win32Message as (code: number) => string)(winerror) };
-  };
+  // 失败时没有改动（MoveFileExW 不带 COPY_ALLOWED，只在同一个卷上改名），可以重做。拿 mkdir 占位的（检查记录的编号目录、
+  // mkdtemp）重做时建成了，与正常重试建成一样
+  const outcome = (result: Win32Outcome<number>): Win32Failure | null =>
+    "value" in result ? null : { winerror: result.winerror, message: (win32Message as (code: number) => string)(result.winerror) };
+  const falsy = (ok: number): boolean => !ok;
   win32Files = (request) => {
     // 缓冲区放在局部变量里，调用期间一直被引用
     if (request.op === "mkdir") {
       const path = wide(request.path);
-      return call.CreateDirectoryW(ffi.ptr(path), null) ? null : failure();
+      return outcome(retryWin32(() => call.CreateDirectoryW(ffi.ptr(path), null), falsy, lastError));
     }
     const [src, dst] = [wide(request.src), wide(request.dst)];
-    return call.MoveFileExW(ffi.ptr(src), ffi.ptr(dst), request.op === "replace" ? MOVEFILE_REPLACE_EXISTING : 0) ? null : failure();
+    const flags = request.op === "replace" ? MOVEFILE_REPLACE_EXISTING : 0;
+    return outcome(retryWin32(() => call.MoveFileExW(ffi.ptr(src), ffi.ptr(dst), flags), falsy, lastError));
   };
 }
 
@@ -698,6 +692,26 @@ export class Win32Error extends Error {
   }
 }
 
+/** 一次 Win32 调用的结果：成功交回返回值，失败交回错误码。 */
+export type Win32Outcome<T> = { readonly value: T } | { readonly winerror: number };
+
+const WIN32_ATTEMPTS = 5;
+
+/**
+ * 调一次 Win32，失败时取错误码。失败却取到 0 时把这次调用重做，最多 5 次；重做成功就照成功走。取到 0 是因为两次 FFI 调用
+ * 之间，运行时自己的系统调用把本线程的 last error 清成了 0（负载高时偶发；推测是访问线程局部存储，TlsGetValue 成功时会
+ * 清成 0），r3 §10 第 130 轮。只用于失败时没有副作用、可以重做的调用。5 次都取到 0 时交 0：Python 不会报 0，那时两边的
+ * 文字不同（迁移计划第 10 节）。native.ts 里的 GetLastError 一律经这里取，测试按源码核对。
+ */
+export function retryWin32<T>(attempt: () => T, failed: (value: T) => boolean, readError: () => number): Win32Outcome<T> {
+  for (let tries = 1; ; tries += 1) {
+    const value = attempt();
+    if (!failed(value)) return { value };
+    const winerror = readError();
+    if (winerror !== 0 || tries === WIN32_ATTEMPTS) return { winerror };
+  }
+}
+
 /** 交给子进程的三个标准流句柄（都要可继承）。 */
 export interface StdHandles {
   readonly stdin: bigint;
@@ -826,23 +840,27 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     CompareStringOrdinal(a: Buf, la: number, b: Buf, lb: number, ignoreCase: number): number;
   };
   const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
-  const fail = (call: string): never => {
-    throw new Win32Error(call, k.GetLastError());
+  const lastError = (): number => k.GetLastError();
+  // 下面经 check 调的几个，失败时都没有副作用（不建进程、不给句柄、不改 Job），取到 0 时可以重做（retryWin32）
+  const check = <T>(call: string, attempt: () => T, failed: (value: T) => boolean): T => {
+    const result = retryWin32(attempt, failed, lastError);
+    if ("winerror" in result) throw new Win32Error(call, result.winerror);
+    return result.value;
   };
+  const falsy = (ok: number): boolean => !ok;
   // SECURITY_ATTRIBUTES（x64，24 字节）：nLength、lpSecurityDescriptor = NULL、bInheritHandle = TRUE
   const inheritable = new Uint8Array(24);
   new DataView(inheritable.buffer).setUint32(0, 24, true);
   new DataView(inheritable.buffer).setUint32(16, 1, true);
   return {
     createKillOnCloseJob() {
-      const job = k.CreateJobObjectW(null, null);
-      if (job === 0n) fail("CreateJobObjectW");
+      const job = check("CreateJobObjectW", () => k.CreateJobObjectW(null, null), (handle) => handle === 0n);
       const limit = new Uint8Array(144);
       new DataView(limit.buffer).setUint32(16, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, true);
-      if (!k.SetInformationJobObject(job, JOB_EXTENDED_LIMIT_INFORMATION, limit, 144)) {
-        const error = k.GetLastError();
+      const set = retryWin32(() => k.SetInformationJobObject(job, JOB_EXTENDED_LIMIT_INFORMATION, limit, 144), falsy, lastError);
+      if ("winerror" in set) {
         k.CloseHandle(job);
-        throw new Win32Error("SetInformationJobObject", error);
+        throw new Win32Error("SetInformationJobObject", set.winerror);
       }
       return job;
     },
@@ -850,23 +868,21 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
       const access = how === "read" ? GENERIC_READ : how === "append" ? FILE_APPEND_DATA : GENERIC_WRITE;
       const disposition = how === "create-new" ? CREATE_NEW : how === "truncate" ? CREATE_ALWAYS
         : how === "append" ? OPEN_ALWAYS : OPEN_EXISTING;
-      const handle = k.CreateFileW(wide(path), access, FILE_SHARE_READ | FILE_SHARE_WRITE, inheritable, disposition,
-        FILE_ATTRIBUTE_NORMAL, null);
-      if (handle === INVALID_HANDLE || handle === 0n) fail("CreateFileW");
-      return handle;
+      return check("CreateFileW", () => k.CreateFileW(wide(path), access, FILE_SHARE_READ | FILE_SHARE_WRITE, inheritable, disposition,
+        FILE_ATTRIBUTE_NORMAL, null), (handle) => handle === INVALID_HANDLE || handle === 0n);
     },
     spawnSuspended(cmdline, environment, cwd, std) {
       const handles = [...new Set([std.stdin, std.stdout, std.stderr])];
       const size = new BigUint64Array(1);
       k.InitializeProcThreadAttributeList(null, 1, 0, size); // 先问要多大（这一次照例失败）
       const list = new Uint8Array(Number(size[0]));
-      if (!k.InitializeProcThreadAttributeList(list, 1, 0, size)) fail("InitializeProcThreadAttributeList");
+      check("InitializeProcThreadAttributeList", () => k.InitializeProcThreadAttributeList(list, 1, 0, size), falsy);
       // 属性表里存的是句柄数组的地址，STARTUPINFOEXW 里存的是属性表的地址：这两块要活到 DeleteProcThreadAttributeList
       // 之后，不能只靠调用期间的保活
       const inherited = new BigUint64Array(handles);
       try {
-        if (!k.UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, BigInt(8 * handles.length),
-          null, null)) fail("UpdateProcThreadAttribute");
+        check("UpdateProcThreadAttribute", () => k.UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+          BigInt(8 * handles.length), null, null), falsy);
         const startup = new Uint8Array(112); // STARTUPINFOEXW
         const view = new DataView(startup.buffer);
         view.setUint32(0, 112, true);
@@ -880,11 +896,10 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
         const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT
           | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT)
           | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0);
-        // 命令行给一份可写的（CreateProcessW 可能改写它）；环境块、工作目录、两个结构体都直接传，调用期间保活
-        if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment, cwd === null ? null : wide(cwd),
-          startup, info)) {
-          fail("CreateProcessW");
-        }
+        // 命令行给一份可写的（CreateProcessW 可能改写它），重做时也现做一份新的：失败的那一次可能已经改了一半；
+        // 环境块、工作目录、两个结构体都直接传，调用期间保活
+        check("CreateProcessW", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment,
+          cwd === null ? null : wide(cwd), startup, info), falsy);
         const out = new DataView(info.buffer);
         return { process: out.getBigInt64(0, true), thread: out.getBigInt64(8, true), pid: out.getUint32(16, true) };
       } finally {
@@ -898,10 +913,14 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     exited: (child, milliseconds) => k.WaitForSingleObject(child, Math.max(0, Math.floor(milliseconds))) === WAIT_OBJECT_0,
     exitCode(child) {
       const code = new Uint32Array(1);
-      if (!k.GetExitCodeProcess(child, code)) fail("GetExitCodeProcess");
+      check("GetExitCodeProcess", () => k.GetExitCodeProcess(child, code), falsy);
       return code[0] as number;
     },
-    ctrlBreak: (pid) => (k.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) ? null : k.GetLastError()),
+    ctrlBreak(pid) {
+      // 失败时没有发出去，重做成功也只发了一次
+      const sent = retryWin32(() => k.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid), falsy, lastError);
+      return "winerror" in sent ? sent.winerror : null;
+    },
     attachConsole: (pid) => k.AttachConsole(pid) !== 0,
     terminateJob: (job) => void k.TerminateJobObject(job, 1),
     activeProcesses(job) {
