@@ -2119,6 +2119,24 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改动**：本进程没有控制台（GetConsoleProcessList 返回 0）时，子进程的创建标志加 CREATE_NO_WINDOW：子进程有自己的隐藏控制台，没有窗口。有控制台时不加，CTRL_BREAK 要靠父子共用同一个控制台；没有控制台本来就发不出 CTRL_BREAK（错误码 6），S5a 原有的断言不受影响。Python 的 `run_supervised`（`_has_console`）与 TS 的 native.ts（绑 GetConsoleProcessList）同一轮改。
 - **测试**：S5a 让子进程把 `GetConsoleWindow()` 写进文件，断言三种实现都是 0。变异两条：TS 与 Python 各去掉这个标志，S5a 都变红（跑变异时会再弹出这两三个窗口）。supervise 契约 26 条全过；用到进程监督的 Python 用例 （test_run_supervised、test_dispatch、test_baseline_tool、test_legacy_cli、test_legacy_gates、test_legacy_lifecycle、test_mutate_interrupted、test_quiet_error_mode）248 passed / 2 skipped。
 
+### 第 129 轮：调度器切到 TS（2026-10-29，TS 迁移第 ④ 步的切换）
+
+- **起因**：第 ④ 步 21 条命令（④b1 到 ④b8b）都已合入、逐片复核与实机比对。切换分四片：a 启动器转交调度器命令；b 启动器转发 Ctrl+C与 CTRL_BREAK、运行时注入变量换名交给 TS 再由入口还原（D2、D3）；c 实测全量 pytest 一条调度器命令都不经 TS，按覆盖审计用契约补缺口（安全两类、Python 开跑 TS 收尾、其余缺口）；d 翻选择文件。翻之前 themistally-15 在 211c34d 的临时克隆里过了全量关：72 步，dispatcher为 python 与 ts 经真启动器逐字节一致（全部 23 条调度器命令、崩溃恢复、环境变量、CTRL_BREAK、假凭据 15 步、按角色绑定 18 步、Python 开跑 TS 收尾 2 条），崩溃 0、泄露 0。
+- **影子运行**：影子运行（第 ④ 步的出口条件，themistally-15 在 211c34d 上跑，dispatcher 为 python 与 ts 经真启动器）：最近的真实 attempt t023-desktop-ui-writes-b/attempt-001 的副本上，完整的 check --fresh（npm ci 加 6 条检查）每条的结论与退出码两边相同，verdict PASS 两边都因 R01 拒绝（R01 两边是同样的 12 条早期基线测试失败：干净副本建在今天的末端上，与实现无关）；mutate --check-anchors 7 条锚点两边一致；故意改坏两个锚点，difflib 的“最相近的行”提示两边逐字相同（第一次在真实源码上走到这条路）。其余差异都是被测程序自己的耗时、并行完成次序与慢测试单列。
+- **改动**：选择文件 `scripts/kernel-impl.json` 的 `dispatcher` 改成 `ts`。hub 仍是 Python（第 ⑤ 步才换）：
+  - hub 经 `run_pd` 起的调度器命令从此由 TS 回答；
+  - hub 在进程内调的 pi_dispatch 函数（`get_state`、`budget_usage`、`_running_attempts`、`_CHECK_LINE_RE` 等）照旧是 Python，读 TS 写的证据（chain 契约每一步之后都核对过）；
+  - 没装 TS 依赖的树里直接跑那棵树自己的启动器会报“TS 实现没装好”（迁移计划第 10 节）；hub 用主工作区的启动器，依赖由 `ts_install_if_stale` 跟上。
+- **测试**：doctor-smoke 契约的 kit 拷贝不再带选择文件。python 那一边直接起拷贝里的 `pi_dispatch.py`，翻转之后拷过去的选择文件指向 ts，它去找拷贝里没有的 TS，5 条失败；选择文件本来就不随 kit 安装，拷贝里没有它才是目标仓库的样子。
+- **查出的缺陷**（全量 vitest 时偶发，与翻转无关）：TS 起进程时 `CreateProcessW` 失败之后才调 `GetLastError`，高负载下 Bun 的运行时会在两次 FFI 调用之间把本线程的 last error 清成 0，报成 `[WinError 0] The operation completed successfully`（roles-probe 的 runtime scan，Python 是 `[WinError 216]`）。`CreateFileW` 早已为同一个原因加了“取到 0 就重开”，`CreateProcessW` 没加。调度器切到 TS 之后，起 pi 失败时偶尔会报错码 0。紧接着单独一片修，排在验收片之前。
+- **不回退**（用户 2026-10-28：“我们不会回退到Python,最后都转为ts”）。
+- **实测耗时**（`python ts/tools/dispatch-timing.py`，主仓库，只读命令，各 10 次取中位数，钉成全部 Python 对比经真启动器的全部 TS；机器空闲，CPU 负载约 4%）：validate 0.31 s → 1.28 s，metrics 0.23 → 1.02，wait（已结束）0.11 → 0.77，sync-adapters --check 0.13 → 0.86，release-check 3.80 → 8.33。已经由 TS 回答的也变慢了：status --json 0.17 → 0.83，config show --json 0.17 → 0.75（第 122 轮记的是 0.13 → 0.28，之后 main.ts 越长越大，一直没量）。第一组是在 themistally-15 的全量关刚收尾时量的，整体高约 0.7 秒，作废。
+  - 拆开看：Bun 本身启动 0.02 s，启动器准备 2 ms，起 git 两边都是每次 20 ms 左右；main.ts 光加载就要 0.55 s；validate 的 CPU 剖析里约 0.7 s 在 pyregex 编译（几个模块在加载时就把一批模式全编译了）、0.37 s 在起 git、0.16 s 在 zlib。
+  - 判断（与 themistally-15 定）：不挡切换。正确性的关已经过了；hub 没有短超时（`run_pd` 缺省 600 秒，另有两处 1800 秒），慢一两秒不会被误判成超时；hub 一个任务大约几十次调度器调用，每次多 1 s 左右，合计不到一分钟，任务本身一般一小时。
+  - 但这是带着已知的性能回退上线，要尽快收回来：“TS 启动开销”一片紧接在验收片之后、第 ⑤ 步之前做，单独成片好归因。做法是正则用到时才编译、命令模块按需动态加载，都不改行为，契约照常守着；目标与计时的固定项写在迁移计划第 9 节。
+  - 加载次序：parent-env 还原环境、harden 必须在任何读环境变量、起子进程的代码之前执行。现在是静态 import，次序由 import 的先后保证；改成动态加载之后要靠代码自己守，逐个确认按需加载的模块顶层不读 `process.env`、不起进程。合入之后 themistally-15 把 72 步全量关再跑一遍，算作那一片的验收之一。
+- **验收**：切换之后跑一片真实的迁移验收片，由 hub 派遣、执行、验收、落地，全程经 TS 调度器（用户 2026-10-28 批了这次的花费）；结果另记，themistally-15 做独立复审。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

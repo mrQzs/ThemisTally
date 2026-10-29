@@ -9,7 +9,7 @@
 //   - 路径、时间、用时、mkdtemp 的随机后缀与探测的延迟换成占位符；崩溃只比退出码。不写转义序列。
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
 import { fileSecretStore } from "./endpoint-fixtures.ts";
@@ -205,10 +205,13 @@ function skillFiles(sources: readonly string[], copies: Record<string, string>):
 }
 const SAME_COPIES = Object.fromEntries(SKILLS.map((name) => [name, `# ${name}` + LF]));
 
-/** 一份 kit 的拷贝（scripts 与 plugins，不带 __pycache__），自己也是 Git 仓库：doctor 就在它里面跑。 */
+/** 一份 kit 的拷贝（scripts 与 plugins，不带 __pycache__），自己也是 Git 仓库：doctor 就在它里面跑。不带选择文件
+ * （它不随 kit 安装）：python 那一边直接起拷贝里的 pi_dispatch.py，带上它就会去找拷贝里没有的 TS（切换 d 之后）。 */
 const kitPlace = (edit: (kit: string) => void = () => undefined) => (): Place => {
   const kit = realpathSync.native(tempDir("doc-kit"));
-  cpSync(join(KIT, "scripts"), join(kit, "scripts"), { recursive: true, filter: (src) => !src.includes("__pycache__") });
+  cpSync(join(KIT, "scripts"), join(kit, "scripts"), {
+    recursive: true, filter: (src) => !src.includes("__pycache__") && basename(src) !== "kernel-impl.json",
+  });
   cpSync(join(KIT, "plugins"), join(kit, "plugins"), { recursive: true });
   put(kit, ".gitignore", ".agent/runs/" + LF);
   put(kit, "AGENTS.md", "# AGENTS" + LF);
