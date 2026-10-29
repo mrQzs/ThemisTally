@@ -5,10 +5,10 @@
 // TS 写的证据。另一条链：Python 的 run 跑到一半，调度器被硬杀，由各 runner 的 collect --recover 收尾。pi 一律是 stub_pi。
 // 不写转义序列。
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { PYTHON, json } from "./attempt-fixtures.ts";
+import { PYTHON, json, sha } from "./attempt-fixtures.ts";
 import { REPO as KIT, pythonCliCommand, runPythonCli } from "./harness.ts";
 import { type Json, jsonOf, mdOf } from "./plan-fixtures.ts";
 import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, pyargsOf, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
@@ -58,12 +58,26 @@ function scrub(text: string): string {
     .replace(/ in [0-9.]+s/gu, " in <S>s")
     .replace(/pi-attach-[a-z0-9_]{8}/gu, "pi-attach-<R>")
     .replace(/-integrate-[a-z0-9_]{8}/gu, "-integrate-<R>") // integrate 验证副本的 mkdtemp 后缀
+    .replace(/-verify-[a-z0-9_]{8}/gu, "-verify-<R>") // check --fresh 干净副本的 mkdtemp 后缀
     .replace(/(instruction[.]md",[^"]*"sha256": ")[0-9a-f]{64}/gu, "$1<SHA>")
     .replace(/^[0-9]+$/gmu, "<PID>");
 }
 
 /** Python 的 prepare 建好的 attempt：合同允许新建 stub_pi 写的两个文件、授权 local_branch 与 merge（integrate 才落地）；仓库根的 conftest.py 让 pytest 找得到 src。 */
-function preparedRepo(runner: Runner): { repo: string; paths: Record<string, string> } {
+interface Prepared {
+  /** prepare 之前把仓库的 core.autocrlf 设成 true（meta 记下 git_autocrlf: "true"）。 */
+  readonly autocrlf?: boolean;
+  /** 按角色写的合同（role:execution），配置里有 execution 的 headless 绑定，prepare 发布版本记录。 */
+  readonly role?: boolean;
+}
+
+const BOUND = {
+  runtimes: { pi: { adapter: "pi" } },
+  profiles: { exec: { runtime: "pi", model: { provider: "step", id: "step-5" }, options: { thinking: "high" }, credential_env: ["STEP_KEY"] } },
+  roles: { execution: { mode: "headless", profile: "exec" } },
+};
+
+function preparedRepo(runner: Runner, o: Prepared = {}): { repo: string; paths: Record<string, string> } {
   const { repo, head } = newRepo(`ch-${runner}`, {
     ".gitignore": [".agent/runs/", ".agent/dispatch.config.json", "review.md", "__pycache__/", ".pytest_cache/", "child.pid", ""].join(LF),
     "conftest.py": ["import os", "import sys", "", "sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))", ""].join(LF),
@@ -71,15 +85,21 @@ function preparedRepo(runner: Runner): { repo: string; paths: Record<string, str
   const data = jsonOf("t1", head);
   (data["scope"] as Json)["allowed_new_files"] = NEW_FILES;
   (data["authorization"] as Json)["integration"] = ["local_branch", "merge"];
-  put(repo, ".agent/plans/t1.v1.md", mdOf("t1", head, { newFiles: NEW_FILES.join(", "), integration: "local_branch, merge" }));
+  if (o.role) data["executor"] = { role: "execution", tools: ["read", "edit", "bash"], context_files: "project" };
+  put(repo, ".agent/plans/t1.v1.md", mdOf("t1", head, {
+    newFiles: NEW_FILES.join(", "), integration: "local_branch, merge", ...(o.role ? { executor: "role:execution" } : {}),
+  }));
   put(repo, ".agent/plans/t1.v1.json", json(data));
   const wtRoot = realpathSync.native(tempDir(`ch-wtr-${runner}`));
-  put(repo, ".agent/dispatch.config.json", json({ worktree_root: wtRoot, kill_grace_seconds: 1 }));
+  // 配置里有各自的 worktree_root：按角色时版本记录与摘要里的配置哈希（全长与前 12 位）也各不相同
+  const configText = json({ worktree_root: wtRoot, kill_grace_seconds: 1, ...(o.role ? BOUND : {}) });
+  put(repo, ".agent/dispatch.config.json", configText);
+  if (o.autocrlf) git(repo, "config", "core.autocrlf", "true");
   put(repo, "review.md", `# 复审${LF}${LF}Verdict: PASS${LF}`);
   const prep = runPythonCli(["--repo", repo, "prepare", "t1.v1"], repo);
   if (prep.status !== 0) throw new Error(`prepare 失败：${prep.stdout.toString("utf8")}${prep.stderr.toString("utf8")}`);
   const wt = (JSON.parse(readFileSync(join(repo, RUN_REL, "meta.json"), "utf8")) as { worktree: string }).worktree;
-  return { repo, paths: { "<REPO>": repo, "<WT>": wt, "<WTROOT>": wtRoot, "<AGENT>": AGENT_DIR } };
+  return { repo, paths: { "<REPO>": repo, "<WT>": wt, "<WTROOT>": wtRoot, "<AGENT>": AGENT_DIR, "<CONFIG_SHA>": sha(configText), "<CONFIG_SHA12>": sha(configText).slice(0, 12) } };
 }
 
 function envFor(repo: string, scenario: string): Record<string, string> {
@@ -113,6 +133,7 @@ function step(runner: Runner, repo: string, paths: Record<string, string>, argv:
     stdout: scrub(normalize(stdout, paths)),
     stderr: scrub(normalize(result.stderr.toString("utf8"), paths)),
     evidence: Object.fromEntries(Object.entries(snapshotDir(join(repo, ".agent", "runs"), paths)).map(([key, value]) => [key, scrub(value)])),
+    reviews: existsSync(join(repo, ".agent", "reviews")) ? snapshotDir(join(repo, ".agent", "reviews"), paths) : {},
     hub: hubView(repo, stdout, paths),
   };
 }
@@ -135,6 +156,61 @@ describe("Python 开跑、TS 收尾", () => {
     const first = results[0] as (typeof results)[number];
     expect(first.steps.map((one) => one.status), JSON.stringify(first.steps.map((one) => [one.argv, one.stdout, one.stderr]))).toEqual([0, 0, 0, 0]);
     expect(first.steps.map((one) => (one.hub as HubView).state)).toEqual(["NEEDS_REVIEW", "NEEDS_REVIEW", "PASS", "INTEGRATED"]);
+  }, 600_000);
+
+  it("core.autocrlf=true：prepare 记下 true，check 通过；之后改回 false，verdict PASS 与 branch 照记下的值重建树", () => {
+    const results = RUNNERS.map((runner) => {
+      const { repo, paths } = preparedRepo(runner, { autocrlf: true });
+      const steps = [step(runner, repo, paths, ["run", RUN_REL]), step(runner, repo, paths, ["check", "t1"])];
+      git(repo, "config", "core.autocrlf", "false");
+      // 记下 true、仓库当前 false：干净副本与验证副本这两条写工作区的路径（themistally-15 复核 c3b 时提出）。integrate 带 --recheck，
+      // 不沿用 check --fresh 的结果，才会真的建验证副本
+      steps.push(step(runner, repo, paths, ["check", "t1", "--fresh"]));
+      steps.push(step(runner, repo, paths, ["verdict", "t1", "--verdict", "PASS", "--review", "review.md"]));
+      steps.push(step(runner, repo, paths, ["branch", "t1"]));
+      steps.push(step(runner, repo, paths, ["integrate", "t1", "--dry-run", "--recheck"]));
+      return { steps, git: gitState(repo) };
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const first = results[0] as (typeof results)[number];
+    expect(first.steps.map((one) => one.status), JSON.stringify(first.steps.map((one) => [one.argv, one.stdout, one.stderr]))).toEqual([0, 0, 0, 0, 0, 0]);
+    const integrate = first.steps[5] as Record<string, unknown>;
+    expect(String(integrate["stdout"]), "没有沿用 check --fresh 的结果").not.toContain("沿用");
+    expect((integrate["evidence"] as Record<string, string>)["t1/attempt-001/integrations/01/integration.json"], "建了验证副本").toContain("workspace");
+    expect((first.steps[0]?.evidence as Record<string, string>)["t1/attempt-001/meta.json"]).toContain('"git_autocrlf": "true"');
+  }, 600_000);
+
+  it("反过来：prepare 记下 false，之后仓库改成 true：干净副本建不起来（两边共有的缺陷）", () => {
+    const results = RUNNERS.map((runner) => {
+      const { repo, paths } = preparedRepo(runner);
+      const steps = [step(runner, repo, paths, ["run", RUN_REL]), step(runner, repo, paths, ["check", "t1"])];
+      git(repo, "config", "core.autocrlf", "true");
+      steps.push(step(runner, repo, paths, ["check", "t1", "--fresh"]));
+      steps.push(step(runner, repo, paths, ["verdict", "t1", "--verdict", "PASS", "--review", "review.md"]));
+      steps.push(step(runner, repo, paths, ["integrate", "t1", "--dry-run", "--recheck"]));
+      return { steps, git: gitState(repo) };
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const first = results[0] as (typeof results)[number];
+    // 两边共有的缺陷（迁移计划 10.1）：干净副本由当前配置检出、打补丁，却按记下的值快照，记下 false、当前 true 时树对不上；
+    // 没有有效的独立检查记录，PASS 被 G3、G4 拒绝，integrate 走不到验证副本。修好之前守住两边一致
+    expect(first.steps.map((one) => one.status)).toEqual([0, 0, 3, 1, 3]);
+    expect(String(first.steps[2]?.stderr)).toContain("干净副本与候选树不一致");
+  }, 600_000);
+
+  it("K13：按角色写的合同领取之后、还没有 executor.json 就崩了，collect --recover 与 review-draft 用版本记录里的模型", () => {
+    const results = RUNNERS.map((runner) => {
+      const { repo, paths } = preparedRepo(runner, { role: true });
+      const runDir = join(repo, ...RUN_REL.split("/"));
+      mkdirSync(join(runDir, "claim"), { recursive: true });
+      put(runDir, "state.json", json({ state: "RUNNING", at: "2026-01-01T00:00:00Z" }));
+      return [step(runner, repo, paths, ["collect", "t1", "--recover"]), step(runner, repo, paths, ["review-draft", "t1"])];
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const [recover, draft] = results[0] as Record<string, unknown>[];
+    expect((recover?.evidence as Record<string, string>)["t1/attempt-001/executor.json"], "没有 executor.json").toBeUndefined();
+    expect((recover?.evidence as Record<string, string>)["t1/attempt-001/summary.md"]).toContain("要求的执行模型：step/step-5 · thinking=high");
+    expect([draft?.status, Object.values(draft?.reviews as Record<string, string>).join("").includes("step-5")]).toEqual([0, true]);
   }, 600_000);
 
   it("Python 的 run 跑到一半调度器被硬杀，由各 runner 的 collect --recover 收尾", async () => {

@@ -1,0 +1,23 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/branch-review.contract.test.ts",
+    "-t",
+    "候选树对象被清掉",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "R1 branch 按补丁重建不用记下的 autocrlf",
+      "file": "ts/packages/dispatcher/src/branch.ts",
+      "old": "path.join(runDir, \"candidate.patch\"), runDir, pyGet(meta, \"git_autocrlf\"))",
+      "new": "path.join(runDir, \"candidate.patch\"), runDir, null)",
+      "equivalent": "git apply --cached 只改索引里的 blob，不经过工作区，不做行尾转换：2026-10-29 实测 core.autocrlf 为 true 与 false 重建出同一棵树"
+    }
+  ]
+}

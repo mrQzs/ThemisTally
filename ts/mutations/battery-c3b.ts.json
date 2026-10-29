@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/run.contract.test.ts",
+    "-t",
+    "问题清单漂移",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B5 运行中问题清单漂移也当成用法错误",
+      "file": "ts/packages/config/src/decisions-client.ts",
+      "old": "    if (error.code !== \"battery_drift\" || strict) throw new DispatchError(`决策插件的问题清单无效：${error.detail}`, EXIT_USAGE);",
+      "new": "    throw new DispatchError(`决策插件的问题清单无效：${error.detail}`, EXIT_USAGE);"
+    }
+  ]
+}

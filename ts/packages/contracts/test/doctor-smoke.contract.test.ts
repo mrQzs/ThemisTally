@@ -12,6 +12,7 @@ import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, renameSync
 import { delimiter, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
+import { fileSecretStore } from "./endpoint-fixtures.ts";
 import { dirOf, installFakeCli } from "./fake-cli.ts";
 import { type CliRun, REPO as KIT, runDispatcherLauncherCli, runPythonCli, runTsCli } from "./harness.ts";
 import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, snapshotDir, tempDir } from "./repo-fixtures.ts";
@@ -79,6 +80,10 @@ const EMPTY_GITCONFIG = join(realpathSync.native(tempDir("doc-gitconfig")), "emp
 put(join(EMPTY_GITCONFIG, ".."), "empty.gitconfig", "");
 const OUTSIDE = realpathSync.native(tempDir("doc-outside"));
 put(OUTSIDE, "AGENTS.md", "仓库之外的规则" + LF);
+
+/** 文件凭据库里的假值（切换 c3b；test_dispatch 2846）：环境变量里没有，doctor 从文件凭据库读。 */
+const STORED_VALUE = "THEMIS_CONTRACT_stored_value_0123456789";
+const STORE_ENV = fileSecretStore(DECISIONS_KEY, STORED_VALUE);
 
 const DOCTOR_ENV: Record<string, string | undefined> = {
   PATH: FAKE_PATH,
@@ -379,6 +384,10 @@ const DOCTOR: DoctorCase[] = [
   { label: "on、官方端点、凭据不在，--probe-decisions：不探测，记问题", status: 1, options: { probe: true },
     setup: withConfig({ decisions: { mode: "on", api_key_env: DECISIONS_KEY } }),
     text: ["每次调用都会记为无意见（no_key）", `--probe-decisions：凭据 ${DECISIONS_KEY} 既不在环境变量也不在凭据库里，无法探测`] },
+  // 覆盖审计的缺口（切换 c3b；test_dispatch 2846）：凭据不在环境变量里、在文件凭据库里：报来源，不报值
+  { label: "凭据在文件凭据库里：报 secret_source file，不出现值", status: 0, env: STORE_ENV,
+    setup: withConfig({ decisions: { mode: "shadow", base_url: "http://127.0.0.1:9", api_key_env: DECISIONS_KEY } }),
+    text: ['"secret_source": "file"', '"secret_store_mode": "file"'], absent: [STORED_VALUE] },
   { label: "DECISIONS_OFF 标记：配置 shadow，实际 off", status: 0,
     setup: withConfig({ decisions: { mode: "shadow", base_url: "http://127.0.0.1:9", api_key_env: DECISIONS_KEY } }, (repo) => put(repo, ".agent/DECISIONS_OFF", "")),
     text: "决策配置为 shadow，实际生效 off：marker" },

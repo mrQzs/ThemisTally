@@ -255,6 +255,17 @@ const CASES: Case[] = [
       mkdirSync(runs, { recursive: true });
       symlinkSync(elsewhere, join(runs, "t1"), "junction");
     }, text: "经过链接" },
+  // 覆盖审计的缺口（切换 c3b；test_dispatch 3787 的 K12③）：旧合同的 provider、model 为 null（或只有一项为 null），prepare 不提前
+  // 解析，允许列表挡不住它；写死的合同照样在 prepare 时被挡住（上面的“不在 allowed_executors 里”）
+  ...([[null, null], ["step", null], [null, "step-5-preview"]] as const).map(([provider, model]): Case => ({
+    label: `旧合同的执行模型是 ${String(provider)}/${String(model)}：prepare 不提前解析`, status: 0,
+    md: { executor: `${provider ?? "None"}/${model ?? "None"} · thinking high` },
+    json: (data) => {
+      (data["executor"] as Json)["provider"] = provider;
+      (data["executor"] as Json)["model"] = model;
+    },
+    config: { allowed_executors: [{ provider: "other", model: "other" }] }, text: "PREPARED t1.v1.a001",
+  })),
   { label: "按角色：任务锁过期就接管", status: 0, md: ROLE_MD, json: roleJson, config: BOUND,
     before: ({ runs }) => {
       put(runs, "t1/.task.lock/owner.json", json({ pid: 1, at: "2026-01-01T00:00:00Z" }));

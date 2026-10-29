@@ -4,12 +4,13 @@
 // PI_CODING_AGENT_DIR 指向临时目录。比退出码、标准输出与标准错误、.agent/runs 下的全部证据。路径、时间、pid、用时与 mkdtemp 的
 // 随机后缀换成占位符；崩溃只比退出码与证据。不写转义序列。
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pidAlive } from "@themis/base/process";
 import { BREAK_OUTER, PYTHON, TS_CONTEXT, json, sha } from "./attempt-fixtures.ts";
-import { BUN, REPO as KIT, runPythonCli } from "./harness.ts";
+import { startEndpoint } from "./endpoint-fixtures.ts";
+import { BUN, REPO as KIT, runDispatcherLauncherCli, runPythonCli, runPythonCliAt, runTsCli } from "./harness.ts";
 import { type Json, type MdOptions, jsonOf, mdOf } from "./plan-fixtures.ts";
 import { LF, RUNNERS, type Runner, commandOf, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
@@ -84,7 +85,7 @@ function withEnv<T>(env: Record<string, string | undefined>, body: () => T): T {
 }
 
 /** 一份 PREPARED 的 attempt：Python 的 prepare 建的（三边相同），worktree 在仓库之外。 */
-function prepared(runner: Runner, item: Case): { at: At; paths: Record<string, string> } {
+function prepared(runner: Runner, item: Case, kit?: string): { at: At; paths: Record<string, string> } {
   // 配置里有 worktree_root（三份实现各不相同），不进主工作区的指纹
   // stub_pi 的 hang 剧本把子进程号写进 worktree 的 child.pid：忽略它，候选树才三边相同
   const ignored = [".agent/runs/", ".agent/dispatch.config.json", ".agent/dispatch.local.json", "child.pid", ""];
@@ -97,7 +98,8 @@ function prepared(runner: Runner, item: Case): { at: At; paths: Record<string, s
   const configText = json({ worktree_root: wtRoot, kill_grace_seconds: 1, ...item.config });
   put(repo, ".agent/dispatch.config.json", configText);
   const configSha = sha(configText);
-  const prep = runPythonCli(["--repo", repo, "prepare", "t1.v1"], repo);
+  const prep = kit === undefined ? runPythonCli(["--repo", repo, "prepare", "t1.v1"], repo)
+    : runPythonCliAt(kit, ["--repo", repo, "prepare", "t1.v1"], repo);
   if (prep.status !== 0) throw new Error(`prepare 失败：${prep.stdout.toString("utf8")}${prep.stderr.toString("utf8")}`);
   const runDir = join(repo, ...RUN_REL.split("/"));
   const wt = (JSON.parse(readFileSync(join(runDir, "meta.json"), "utf8")) as { worktree: string }).worktree;
@@ -446,6 +448,36 @@ describe("D2：pi 跑到一半，run 的进程组收到 CTRL_BREAK", () => {
     expect(first.alive).toEqual([false, false]);
     expect(first.evidence["t1/attempt-001/run.json"]).toContain('"interrupted": true');
   }, 600_000);
+  it("领取之前（等别人的任务锁）收到 CTRL_BREAK：按缺省处理结束，仍是 PREPARED，别人的锁原样", () => {
+    // test_legacy_lifecycle 的 LB-LIFE-035：中断处理只在 runSupervised 里装；写完 preflight/context-files.json 之后停在等锁
+    // （最多 30 秒），这时收到 CTRL_BREAK 按缺省处理结束，退出码 0xC000013A，不写“已取消。”
+    const results = RUNNERS.map((runner) => {
+      const { at, paths } = prepared(runner, { label: "D2 领取之前", status: 0 });
+      const lock = join(at.runDir, "..", ".task.lock");
+      put(lock, "owner.json", json({ pid: 1, at: "2026-01-01T00:00:00Z" }));
+      const env = { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, STUB]), PI_CODING_AGENT_DIR: AGENT_DIR, STUB_SCENARIO: "ok", STUB_MAIN_REPO: at.repo, ...FIXED_DATES };
+      const command = commandOf(runner, at.repo, ["run", RUN_REL], { command: ["run"], run_dir: RUN_REL, timeout: null, context: TS_CONTEXT });
+      const flag = join(at.runDir, "preflight", "context-files.json");
+      const started = Date.now();
+      const done = withEnv(env, () =>
+        spawnSync(PYTHON, ["-c", BREAK_OUTER, BREAK_ON_PI, JSON.stringify(command), at.repo, flag], { encoding: "utf8", timeout: 150_000 }),
+      );
+      if (done.status !== 0) throw new Error(`${runner} 中断用例的包装进程退出码 ${String(done.status)}：${done.stderr}`);
+      const run = JSON.parse(done.stdout) as { status: number; stdout: string; stderr: string };
+      return {
+        status: run.status, stdout: scrub(normalize(run.stdout, paths)), stderr: scrub(normalize(run.stderr, paths)),
+        evidence: Object.fromEntries(Object.entries(snapshotDir(join(at.repo, ".agent", "runs"), paths)).map(([key, value]) => [key, scrub(value)])),
+        quick: Date.now() - started < 25_000,
+      };
+    });
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const first = results[0] as (typeof results)[number];
+    expect([first.status, first.quick], "按缺省处理马上结束，不等到锁超时").toEqual([0xc000013a, true]);
+    expect(first.stdout + first.stderr).not.toContain("已取消。");
+    expect(first.evidence["t1/attempt-001/state.json"]).toContain('"state": "PREPARED"');
+    expect(Object.keys(first.evidence).filter((rel) => ["/claim/", "/run-started.json", "/run.json", "/pid.txt"].some((part) => rel.includes(part))), "领取之前").toEqual([]);
+    expect(first.evidence["t1/.task.lock/owner.json"], "别人的锁原样").toBeDefined();
+  }, 600_000);
 });
 
 describe("run 的现场清理", () => {
@@ -459,4 +491,51 @@ describe("run 的现场清理", () => {
     expect(() => readFileSync(join(started.attachments_dir, "plan.md"))).toThrow();
     rmSync(at.repo, { recursive: true, force: true });
   }, 120_000);
+});
+/**
+ * run 期间问题清单漂移（切换 c3b；test_dispatch 3080，2.8.0）：prepare 时问题清单与插件内容锁一致，run 之前被改了。收集时
+ * 跳过 report-screen，决策记录记 battery_drift，run 照常完成。kit 是一份拷贝（scripts 与 plugins）：Python 与启动器把 KIT_ROOT
+ * 指向它，直连 TS 的 context.kit_root 指向它。决策 shadow、假端点、假凭据；端点一次都不该被调用。
+ */
+const KIT_COPY = realpathSync.native(tempDir("run-kit"));
+cpSync(join(KIT, "scripts"), join(KIT_COPY, "scripts"), { recursive: true, filter: (src) => !src.includes("__pycache__") });
+cpSync(join(KIT, "plugins"), join(KIT_COPY, "plugins"), { recursive: true });
+const BATTERY = join(KIT_COPY, "plugins", "decisions", "questions", "report-screen.json");
+const BATTERY_BYTES = readFileSync(BATTERY);
+const FAKE_KEY = "THEMIS_CONTRACT_DECISIONS_KEY";
+
+describe("run 期间问题清单漂移", () => {
+  it("跳过 report-screen，记 battery_drift，照常完成；端点没被调用", async () => {
+    const results = [];
+    for (const runner of RUNNERS) {
+      writeFileSync(BATTERY, BATTERY_BYTES);
+      const endpoint = await startEndpoint([{ status: 500, body: "{}" }]);
+      try {
+        const decisions = { mode: "shadow", base_url: `http://127.0.0.1:${endpoint.port}`, api_key_env: FAKE_KEY, timeout_seconds: 5, budget_seconds: 30 };
+        const { at, paths } = prepared(runner, { label: "漂移", status: 0, config: { decisions } }, KIT_COPY);
+        writeFileSync(BATTERY, Buffer.concat([BATTERY_BYTES, Buffer.from(" ")]));
+        const env = { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, STUB]), PI_CODING_AGENT_DIR: AGENT_DIR, STUB_SCENARIO: "ok", STUB_MAIN_REPO: at.repo,
+          [FAKE_KEY]: "THEMIS_CONTRACT_fake_value", ...FIXED_DATES };
+        const argv = ["--repo", at.repo, "run", RUN_REL];
+        const result = withEnv(env, () => runner === "python" ? runPythonCliAt(KIT_COPY, argv, at.repo)
+          : runner === "launcher" ? runDispatcherLauncherCli(argv, at.repo, false, KIT_COPY)
+            : runTsCli(runner, { repo: at.repo, command: ["run"], run_dir: RUN_REL, timeout: null, context: { ...TS_CONTEXT, kit_root: KIT_COPY } }, at.repo));
+        results.push({
+          status: result.status, stdout: scrub(normalize(result.stdout.toString("utf8"), { ...paths, "<KIT>": KIT_COPY })),
+          stderr: scrub(normalize(result.stderr.toString("utf8"), { ...paths, "<KIT>": KIT_COPY })),
+          evidence: Object.fromEntries(Object.entries(snapshotDir(join(at.repo, ".agent", "runs"), { ...paths, "<KIT>": KIT_COPY })).map(([key, value]) => [key, scrub(value)])),
+          requests: endpoint.requests().length,
+        });
+      } finally {
+        endpoint.stop();
+        writeFileSync(BATTERY, BATTERY_BYTES);
+      }
+    }
+    for (const result of results.slice(1)) expect(result).toEqual(results[0]);
+    const first = results[0] as (typeof results)[number];
+    expect([first.status, first.requests], first.stdout + first.stderr).toEqual([0, 0]);
+    expect(first.evidence["t1/attempt-001/state.json"]).toContain('"state": "NEEDS_REVIEW"');
+    expect(first.evidence["t1/attempt-001/decisions.jsonl"]).toContain('"reason": "battery_drift"');
+    expect(first.evidence["t1/attempt-001/summary.md"]).toContain("与内容锁不符，本次没有问");
+  }, 600_000);
 });

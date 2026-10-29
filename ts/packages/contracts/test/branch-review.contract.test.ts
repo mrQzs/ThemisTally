@@ -2,10 +2,11 @@
 // 提交号相同，工作树的路径换成占位符），跑同一条命令，比较退出码、两路输出、跑完之后 .agent/runs 与 .agent/reviews 下的全部证据，
 // 以及各分支指向的提交与提交说明。提交身份与时间固定（GIT_AUTHOR_*、GIT_COMMITTER_*），候选提交的 SHA 才三边相同。
 // 崩溃只比退出码。不写转义序列。
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { TS_CONTEXT, fullAttempt, state, type AttemptOptions } from "./attempt-fixtures.ts";
+import { TS_CONTEXT, fullAttempt, json, sha, state, type AttemptOptions } from "./attempt-fixtures.ts";
 import { LF, RUNNERS, type Runner, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
@@ -63,6 +64,27 @@ interface BranchFlags {
 }
 
 /** 一份可以建分支的 attempt：合同授权 local_branch，最新结论是 verdict。o 里的同名项覆盖。 */
+/**
+ * 生产里的组合（切换 c3b，themistally-15 建议）：Git for Windows 的系统默认 core.autocrlf=true，本机真实 attempt 的 meta 全记 true；
+ * 候选树没有引用指着，过了 gc 期限被清掉，给旧 attempt 建分支就按补丁重建。候选树照生产用 autocrlf=true 快照（CRLF 存成 LF），
+ * 一个 CRLF 文件、一个 LF 文件；重写候选记录、补丁与检查记录里的候选树，再 prune。实测 apply --cached 不做行尾转换，记下的
+ * autocrlf 不影响重建结果：这条守的是两边在这个组合下一致。
+ */
+const CR = String.fromCharCode(13);
+
+function crlfCandidate({ repo, wt, runDir, head }: { repo: string; wt: string; runDir: string; head: string }): void {
+  const env = { ...process.env, GIT_INDEX_FILE: join(tempDir("br-crlf-idx"), "candidate.index") };
+  const snap = (...args: string[]): string => spawnSync("git", ["-c", "core.autocrlf=true", ...args], { cwd: wt, env, encoding: "utf8" }).stdout.trim();
+  snap("read-tree", head);
+  snap("add", "-A");
+  const tree = snap("write-tree");
+  const patch = spawnSync("git", ["diff", "--binary", "--full-index", head, tree], { cwd: repo }).stdout;
+  put(runDir, "candidate.patch", patch);
+  put(runDir, "candidate.json", json({ tree, patch_roundtrip_verified: true, patch_sha256: sha(patch) }));
+  put(runDir, "checks/01/checks.json", json({ run: 1, mode: "in_place", candidate_tree: tree, covers_all_required: true,
+    results: [{ id: "V01", required: true, passed: true, status: "passed" }] }));
+  git(repo, "prune", "--expire=now");
+}
 function branchable(verdict: string | null, o: AttemptOptions = {}): AttemptOptions {
   return {
     ...o,
@@ -122,6 +144,9 @@ const BRANCH: Scenario[] = [
   branch("合同没有标题：主题行写 Pi 候选 v1 attempt 001", branchable("PASS", { contract: { ...AUTH("local_branch"), title: "" } }), {}, 0, "已创建本地分支 "),
   branch("标题以 task-id 加冒号开头：不再加前缀", branchable("PASS", { contract: { ...AUTH("local_branch"), title: "t1：多行" + LF + "标题" } }), {}, 0, "已创建本地分支 "),
   branch("候选树对象被清掉：按补丁重建", branchable("PASS", { after: ({ repo }) => void git(repo, "prune", "--expire=now") }), {}, 0, "已创建本地分支 "),
+  branch("autocrlf=true 下候选树对象被清掉：按补丁重建", branchable("PASS", {
+    candidateFiles: { "src/crlf.txt": `a${CR}${LF}b${CR}${LF}`, "src/lf.txt": `a${LF}b${LF}` }, meta: { git_autocrlf: "true" }, after: crlfCandidate,
+  }), {}, 0, "已创建本地分支 "),
   branch("候选树对象不在、补丁重建出来的不一样：拒绝", branchable("PASS", { files: { "candidate.json": { tree: "1".repeat(40), patch_roundtrip_verified: true } } }), {}, 3,
     "候选树对象已丢失，且补丁重建结果不一致"),
   branch("没有候选记录", branchable("PASS", { files: { "candidate.json": { patch_roundtrip_verified: true } } }), {}, 3, "缺少候选记录"),

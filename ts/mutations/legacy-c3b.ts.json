@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/prepare.contract.test.ts",
+    "-t",
+    "旧合同",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B1 旧合同也当成写死的",
+      "file": "ts/packages/dispatcher/src/executor.ts",
+      "old": "  return pyTruthy(raw.get(\"provider\") ?? null) && pyTruthy(raw.get(\"model\") ?? null) ? \"written\" : \"legacy\";",
+      "new": "  return \"written\";"
+    }
+  ]
+}

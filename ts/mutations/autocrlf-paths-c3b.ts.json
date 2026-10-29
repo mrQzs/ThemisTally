@@ -1,0 +1,30 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/chain.contract.test.ts",
+    "-t",
+    "autocrlf|反过来",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "F1 干净副本不用记下的 autocrlf",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  const autocrlf = meta.get(\"git_autocrlf\") ?? null;",
+      "new": "  const autocrlf = null;",
+      "equivalent": "干净副本由当前配置检出、打补丁，再按记下的值快照。记下 true、当前 false 时工作区全是 LF，按 true 或 false 快照结果相同；记下 false、当前 true 时 stub_pi 写的 CRLF 在两种快照下都对不上候选，两边都拒绝（共有的缺陷，见迁移计划 10.1）。2026-10-29 实测。前提是副本按当前配置检出、打补丁；照迁移计划 10.1 修好之后不再等价，那时去掉这条的 equivalent 重跑，应被抓住"
+    },
+    {
+      "name": "F2 验证副本不用记下的 autocrlf",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "  const autocrlf = pyGet(meta, \"git_autocrlf\");",
+      "new": "  const autocrlf = null;",
+      "equivalent": "验证副本与 F1 同理：在契约能布置的组合下，按记下的值还是按当前值快照，结果相同；反方向时 PASS 被拒，走不到验证副本。前提是副本按当前配置检出、打补丁；照迁移计划 10.1 修好之后不再等价，那时去掉这条的 equivalent 重跑，应被抓住"
+    }
+  ]
+}

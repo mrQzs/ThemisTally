@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/chain.contract.test.ts",
+    "-t",
+    "autocrlf|K13",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "B2 verdict 的 G6 快照不用记下的 autocrlf",
+      "file": "ts/packages/dispatcher/src/gates.ts",
+      "old": "snapshotTree(workDir, base as string, runDir, \"gate\", get(meta, \"git_autocrlf\"))",
+      "new": "snapshotTree(workDir, base as string, runDir, \"gate\", null)"
+    },
+    {
+      "name": "B3 没有 executor.json 时不用记录里的模型",
+      "file": "ts/packages/dispatcher/src/metrics.ts",
+      "old": "  if (!isDict(binding) || frozenExecutorClass(runDir) !== \"role\") return redactObj(fallback);",
+      "new": "  if (true) return redactObj(fallback);"
+    }
+  ]
+}

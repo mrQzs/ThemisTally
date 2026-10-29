@@ -8,12 +8,14 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs
 import { dirname, join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BREAK_INNER, BREAK_OUTER, PYTHON, TS_CONTEXT, fullAttempt, state, type AttemptOptions } from "./attempt-fixtures.ts";
-import { KEY_NAME, type Reply, startEndpoint } from "./endpoint-fixtures.ts";
+import { KEY_NAME, type Reply, fileSecretStore, startEndpoint } from "./endpoint-fixtures.ts";
 import { LF, RUNNERS, type Runner, commandOf, git, newRepo, normalize, put, removeCreated, runCommand, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 const CR = String.fromCharCode(13);
 const SEP = String.fromCharCode(92);
 const savedKey = process.env[KEY_NAME];
+const STORED_VALUE = "THEMIS_CONTRACT_stored_value_9876543210";
+const STORE_ENV = fileSecretStore(KEY_NAME, STORED_VALUE);
 
 beforeAll(() => {
   process.env[KEY_NAME] = "fake-key-for-contract";
@@ -186,6 +188,10 @@ interface TreeCase {
   readonly merged?: boolean;
   /** 跑完之后树与开始时逐字节相同（缺省要求相同）。 */
   readonly treeChanges?: boolean;
+  /** 跑这条命令时另设的环境变量（undefined 删掉）。 */
+  readonly env?: Record<string, string | undefined>;
+  /** 每次决策调用都要带的 Authorization 头。 */
+  readonly auth?: string;
 }
 
 function outFor(kind: NonNullable<TreeCase["out"]>, tree: string): string | null {
@@ -223,7 +229,20 @@ async function runTreeCase(item: TreeCase): Promise<void> {
       const out = outFor(item.out ?? "given", tree);
       const argv = ["mutate", "--tree", tree, "--spec", spec, ...(out === null ? [] : ["--out", out])];
       const args = { command: ["mutate"], run_dir: null, spec, keep_workspace: false, tree, out, check_anchors: false, context: TS_CONTEXT };
-      const result = runCommand(runner, repo, argv, args, repo, item.merged === true);
+      const saved = Object.fromEntries(Object.keys(item.env ?? {}).map((key) => [key, process.env[key]]));
+      const apply = (values: Record<string, string | undefined>): void => {
+        for (const [key, value] of Object.entries(values)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      };
+      apply(item.env ?? {});
+      let result;
+      try {
+        result = runCommand(runner, repo, argv, args, repo, item.merged === true);
+      } finally {
+        apply(saved);
+      }
       const stdoutRaw = result.stdout.toString("utf8");
       const stderrRaw = result.stderr.toString("utf8");
       createdOut = out === null ? printedOut(stdoutRaw) : null;
@@ -238,6 +257,7 @@ async function runTreeCase(item: TreeCase): Promise<void> {
         crashed: item.crash ? crashed(stderrRaw) : null,
         record,
         requests: endpoint ? scrub(JSON.stringify(endpoint.requests())) : "",
+        authOk: item.auth === undefined || (endpoint !== null && endpoint.auths().length > 0 && endpoint.auths().every((one) => one === item.auth)),
         tree: after,
         treeSame: JSON.stringify(after) === JSON.stringify(initial),
       });
@@ -251,6 +271,7 @@ async function runTreeCase(item: TreeCase): Promise<void> {
   expect(first.status, JSON.stringify({ ...first, tree: undefined })).toBe(item.status);
   if (item.crash) expect(first.crashed, "崩溃场景两边都要真崩").toBe(true);
   expect(first.treeSame, "跑完之后树与开始时逐字节相同").toBe(!item.treeChanges);
+  expect(first.authOk, "每次决策调用都带了期望的凭据头").toBe(true);
   if (item.text) expect(first.stdout + first.stderr).toContain(item.text);
 }
 
@@ -286,6 +307,9 @@ const TREE_CASES: TreeCase[] = [
   { label: "决策 shadow：只记录不显示", spec: DECIDE, status: 0, replies: [ANSWER(0.85, 0.1)], decisions: { mode: "shadow" },
     text: "决策（mutation-equivalence, shadow）：2 次调用，2 次有答案 · 记录 <OUT>" },
   { label: "决策 on：端点回 500，无意见", spec: DECIDE, status: 0, replies: [FAILING], text: "决策（mutation-equivalence, on）：2 次调用，0 次有答案" },
+  // 覆盖审计的缺口（切换 c3b；test_dispatch 2855）：环境变量里没有凭据，决策调用带文件凭据库里的值
+  { label: "决策 on：凭据只在文件凭据库里，调用带的是它", spec: DECIDE, status: 0, replies: [ANSWER(0.85, 0.1)], text: "决策：可能等价 p=0.85",
+    env: { [KEY_NAME]: undefined, ...STORE_ENV }, auth: `Bearer ${STORED_VALUE}` },
   { label: "决策 on、带预期标注：只问意外漏掉的", spec: LABELLED, status: 0, replies: [ANSWER(0.85, 0.1)], text: "1 次调用，1 次有答案" },
   { label: "决策 on、三条命令：意外漏掉的那条问一次", spec: MULTI, status: 0, treeChanges: true, replies: [ANSWER(0.2, 0.9)], text: "决策：可能是测试缺口 p=0.90" },
   { label: "决策 off：不问也不打印", spec: DECIDE, status: 0, replies: [ANSWER(0.85, 0.1)], decisions: { mode: "off" }, text: "变异 3 个：抓住 1，漏掉 2" },
