@@ -1,0 +1,62 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/base/test/pyre.test.ts",
+    "packages/contracts/test/pyregex.compare.test.ts",
+    "packages/contracts/test/nfkc.compare.test.ts",
+    "packages/contracts/test/pystr.compare.test.ts",
+    "packages/contracts/test/repo-commands.contract.test.ts",
+    "packages/contracts/test/validate.contract.test.ts",
+    "packages/dispatcher/test/patterns.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "P1 字面量缓存的键不分 unicode 与 ASCII",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "    const key = `${rules.unicode ? \"u\" : \"a\"}${cp}`;",
+      "new": "    const key = `${cp}`;"
+    },
+    {
+      "name": "P2 小写会变的码点区间算错（用了 UPPER_KEYS）",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "const LOWER_KEY_RANGES = fromPoints(LOWER_KEYS);",
+      "new": "const LOWER_KEY_RANGES = fromPoints(UPPER_KEYS);"
+    },
+    {
+      "name": "P3 union 丢掉 b 的剩余部分",
+      "file": "ts/packages/base/src/pyregex/compile.ts",
+      "old": "  while (i < a.length || j < b.length) {",
+      "new": "  while (i < a.length) {"
+    },
+    {
+      "name": "P4 没有未分配码点的判定一律当没有",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "  if (!hasUnassigned(text)) return transform(text);",
+      "new": "  return transform(text);"
+    },
+    {
+      "name": "P5 hasUnassigned 跳过非 BMP 字符",
+      "file": "ts/packages/base/src/pyre.ts",
+      "old": "    if (cp > 0xffff) index += 1;",
+      "new": "    if (cp > 0xffff) {\n      index += 1;\n      continue;\n    }"
+    },
+    {
+      "name": "P6 有拒绝清单时反而不比",
+      "file": "ts/packages/dispatcher/src/release-check.ts",
+      "old": "    if (!deny.length) continue; // 没有拒绝清单就不必算小写（Python 照样算，结果用不上）",
+      "new": "    if (deny.length) continue;"
+    },
+    {
+      "name": "P7 glob 缓存的键不分大小写",
+      "file": "ts/packages/dispatcher/src/patterns.ts",
+      "old": "  const key = `${ignoreCase ? \"i\" : \"c\"}${pattern}`;",
+      "new": "  const key = pattern;"
+    }
+  ]
+}

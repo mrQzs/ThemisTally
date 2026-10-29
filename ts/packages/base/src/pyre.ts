@@ -283,11 +283,27 @@ export function pyCasefold(text: string): string {
     .join("");
 }
 
+/** Python 眼里未分配的码点（ASCII 都已分配，不查表）。快路与占位符共用这一个判定，两边的结果才一致。 */
+const isUnassigned = (cp: number): boolean => cp >= 0x80 && inTable(UNASSIGNED, cp);
+
+/** 有没有未分配的码点。代理项照 codePoints 的拆法：成对的取整个码点，落单的照单元。 */
+function hasUnassigned(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) < 0x80) continue;
+    const cp = text.codePointAt(index) as number;
+    if (cp > 0xffff) index += 1;
+    if (isUnassigned(cp)) return true;
+  }
+  return false;
+}
+
 /** 先把 Python 眼里未分配的码点换成私用区占位符，交给 JS 的 Unicode 函数，再换回来（见 pyNfkc）。 */
 function withPythonUnicode(text: string, runtime: string, what: string, transform: (swapped: string) => string): string {
   if (!versionAtLeast(runtime, UNIDATA_VERSION)) {
     throw new Error(`运行时的 Unicode ${runtime} 比 Python 参照版本 ${UNIDATA_VERSION} 旧，${what} 的结果无法保证一致，拒绝处理`);
   }
+  // 绝大多数文本没有未分配的码点：不拆、不换，直接交给 JS（release-check 每个文件都要算一次小写）
+  if (!hasUnassigned(text)) return transform(text);
   const chars = codePoints(text);
   const present = new Set(chars.map(codePoint));
   const placeholders = new Map<number, string>();
@@ -295,7 +311,7 @@ function withPythonUnicode(text: string, runtime: string, what: string, transfor
   const spare = privateUse();
   const swapped = chars.map((char) => {
     const cp = codePoint(char);
-    if (!inTable(UNASSIGNED, cp)) return char;
+    if (!isUnassigned(cp)) return char;
     let placeholder = placeholders.get(cp);
     if (placeholder === undefined) {
       let next = spare.next();

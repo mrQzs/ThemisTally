@@ -76,11 +76,24 @@ function contains(set: Ranges, cp: number): boolean {
   return false;
 }
 
-/** 去掉若干码点，再加上若干码点。 */
-function adjust(set: Ranges, remove: Iterable<number>, add: Iterable<number>): Ranges {
-  const drop = fromPoints(remove);
-  const kept = complement(normalize([...complement(set), ...drop]));
-  return normalize([...kept, ...fromPoints(add)]);
+/** 两个区间集的并：两边都已按起点排好、各自互不相交，线性归并，结果与 normalize([...a, ...b]) 相同（不排序）。 */
+function union(a: Ranges, b: Ranges): Ranges {
+  const out: [number, number][] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const takeA = j >= b.length || (i < a.length && (a[i] as readonly [number, number])[0] <= (b[j] as readonly [number, number])[0]);
+    const [lo, hi] = (takeA ? a[i++] : b[j++]) as readonly [number, number];
+    const last = out[out.length - 1];
+    if (last && lo <= last[1] + 1) last[1] = Math.max(last[1], hi);
+    else out.push([lo, hi]);
+  }
+  return out;
+}
+
+/** 去掉 drop 里的码点，再加上 add 里的。 */
+function adjust(set: Ranges, drop: Ranges, add: Iterable<number>): Ranges {
+  return union(complement(union(complement(set), drop)), fromPoints(add));
 }
 
 // --- 大小写（sre 的 unicode_tolower、Py_UNICODE_TOUPPER、ascii 版） -----------------------------
@@ -115,13 +128,17 @@ function caseRules(flags: number): CaseRules | null {
   return { iscased: asciiCased, tolower: asciiLower, fixes: null, unicode: false };
 }
 
+// 小写会变的码点：每个有大小写的字面量都要用一次，只算一次（原先每次现排约 1400 个码点，是编译的大头）
+const LOWER_KEY_RANGES = fromPoints(LOWER_KEYS);
+const ASCII_UPPER: Ranges = [[0x41, 0x5a]];
+const ASCII_UPPER_POINTS = Array.from({ length: 26 }, (_, index) => 0x41 + index);
+
 /** 匹配时先对目标字符取小写再查 S 的那些字符：(S 去掉小写会变的) ∪ {小写会变、且小写落在 S 里的}。 */
 function lowered(set: Ranges, rules: CaseRules): Ranges {
   if (rules.unicode) {
-    return adjust(set, LOWER_KEYS, LOWER_KEYS.filter((cp) => contains(set, uniLower(cp))));
+    return adjust(set, LOWER_KEY_RANGES, LOWER_KEYS.filter((cp) => contains(set, uniLower(cp))));
   }
-  const upper = Array.from({ length: 26 }, (_, index) => 0x41 + index);
-  return adjust(set, upper, upper.filter((cp) => contains(set, cp + 32)));
+  return adjust(set, ASCII_UPPER, ASCII_UPPER_POINTS.filter((cp) => contains(set, cp + 32)));
 }
 
 // --- 类别 -------------------------------------------------------------------------------------
@@ -143,6 +160,11 @@ function categorySet(category: Category, flags: number): Ranges {
 
 // --- 单个字符的匹配器 ---------------------------------------------------------------------------
 
+// 有大小写的字面量在 IGNORECASE 下的集合只取决于码点与 unicode 与否：各个模式里的字母反复用到，算一次就记下
+// （集合只读，char() 与 flatten 都不改它）。大小写展开只有 caseRules 的两种：移植只收 str 模式（没有 bytes），
+// LOCALE 照 Python 报错；以后添了会改变展开的标志，键要跟着改
+const loweredLiterals = new Map<string, Ranges>();
+
 /** LITERAL / NOT_LITERAL（_compile 的 LITERAL_CODES 分支）。 */
 function literalSet(cp: number, negate: boolean, flags: number): Ranges {
   const rules = caseRules(flags);
@@ -150,9 +172,14 @@ function literalSet(cp: number, negate: boolean, flags: number): Ranges {
   if (rules === null || !rules.iscased(cp)) {
     set = [[cp, cp]];
   } else {
-    const lo = rules.tolower(cp);
-    const targets = [lo, ...(rules.fixes?.get(lo) ?? [])];
-    set = lowered(fromPoints(targets), rules);
+    const key = `${rules.unicode ? "u" : "a"}${cp}`;
+    let cached = loweredLiterals.get(key);
+    if (cached === undefined) {
+      const lo = rules.tolower(cp);
+      cached = lowered(fromPoints([lo, ...(rules.fixes?.get(lo) ?? [])]), rules);
+      loweredLiterals.set(key, cached);
+    }
+    set = cached;
   }
   return negate ? complement(set) : set;
 }

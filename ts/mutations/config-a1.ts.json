@@ -193,7 +193,7 @@
     {
       "name": "B01 不换掉未分配的码点",
       "file": "ts/packages/base/src/pyre.ts",
-      "old": "    if (!inTable(UNASSIGNED, cp)) return char;",
+      "old": "    if (!isUnassigned(cp)) return char;",
       "new": "    return char;"
     },
     {

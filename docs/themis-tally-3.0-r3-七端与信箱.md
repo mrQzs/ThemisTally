@@ -2153,6 +2153,19 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 压力：Bun 子进程里带着分配压力起 3000 次不存在的程序，错误码都是 2。修之前约一半的轮次会红，只当回归保护，变异不靠它。
   - 变异 8 条（`ts/mutations/lasterror-e.ts.json`）：重做的三条规矩，加五处改回失败后直接取错误码。
 
+### 第 131 轮：TS 的启动开销（2026-10-29，第 129 轮约定的那一片）
+
+- **起因**：第 129 轮切换时量出每条调度器命令经 TS 比 Python 慢 0.6 到 1.0 秒，与 themistally-15 定了目标（单条命令慢不超过 0.5 秒，release-check 不超过 Python 的 1.5 倍），排在验收片之后、第 ⑤ 步之前。
+- **剖析**（bun --cpu-prof）：main.ts 光加载 0.51 秒里约 0.39 秒在 sre 移植编译 shell-scan、events 两个模块顶层的固定模式；release-check 9.1 秒里 5 秒多在每个文件的 Python 式小写（withPythonUnicode 逐码点换占位符）、0.48 秒在每个文件每条规则现编 glob。原先设想的“命令模块按需加载”不是大头：编译修好之后，剩下的固定开销里 Bun 第一次访问 process.env 要 57 毫秒（谁先访问都要付），node:http 28 毫秒，就没做，parent-env 与 harden 的次序也就不动。
+- **改动**（都不改行为）：
+  - `pyregex/compile.ts`：IGNORECASE 下每个有大小写的字面量都要做一次 lowered，原先每次都把约 1400 个“小写会变的码点”现展开、排序。改成区间只算一次（LOWER_KEY_RANGES）；adjust 用线性归并的 union 代替“拼起来再 sort”（结果与 normalize 相同）；字面量集合按“码点加是否 Unicode”缓存。大小写展开只有 caseRules 的两种：移植只收 str 模式，LOCALE 照 Python 报错，注释写明以后添了会改变展开的标志，键要跟着改（themistally-15 提出）。
+  - `pyre.ts`：withPythonUnicode 先扫一遍有没有 Python 眼里未分配的码点，没有就直接交给 JS；判定抽成 isUnassigned，快路与占位符共用（themistally-15 提出）。旧路径在没有占位符时本来也是原样返回，结果相同。
+  - `release-check.ts`：拒绝清单为空时不算小写（Python 照样算，结果用不上）。
+  - `patterns.ts`：globRegex 按“模式加是否区分大小写”缓存（Python 的 re 自己也有编译缓存）。SearchPattern 只有一块同步覆盖的缓冲区，共用安全。
+- **测试**：`dispatcher/test/patterns.test.ts` 新加：同一个 glob 先区分、再不区分大小写编译，再反过来，各照各的标志匹配。这是变异 P7（缓存键不分大小写）第一轮漏掉之后补的：collect、contract 里受保护的路径不区分大小写，合同 Scope 的清单区分，两边可能写着同一个 glob，缓存混用就能换个大小写绕过受保护路径。
+- **扩大种子的随机对照**（themistally-15 要求，临时复制、跑完删掉）：pyregex 三组各换 15 个新种子、每个 300 到 400 个模式，pystr 15 个新种子、每个 1000 条，63 条全部与 Python 一致。
+- **计时**（第 9 节的固定项，kb3 当内核、主仓库当目标，机器空闲，两遍对得上）：validate +0.92 → +0.43~0.46 秒，metrics +0.76 → +0.38~0.40，wait 与 sync-adapters +0.67 → +0.29~0.30，status --json +0.64 → +0.29，config show +0.56 → +0.21~0.23；release-check 7.5 → 2.05 秒（Python 3.36）。34 个固定模式的编译 336 → 30 毫秒，main.ts 光加载 0.55 → 0.17 秒。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

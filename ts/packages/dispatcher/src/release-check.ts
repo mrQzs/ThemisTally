@@ -109,6 +109,7 @@ export function cmdReleaseCheck(args: ReleaseCheckArgs, out: PyOut, kitRoot: str
     scanned += 1;
     const allowed = new Set(rules.filter(([pattern]) => fnmatchPath(name, pattern)).map(([, label]) => label));
     scanPatterns(name, content, allowed, selfName, problems);
+    if (!deny.length) continue; // 没有拒绝清单就不必算小写（Python 照样算，结果用不上）
     const lowered = pyLower(content);
     deny.forEach((entry, index) => {
       if (lowered.includes(entry)) problems.push(`${name}: 含拒绝清单第 ${index + 1} 项`);

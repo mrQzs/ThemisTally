@@ -80,9 +80,18 @@ export function globRegexText(pattern: string): string {
   return out;
 }
 
+// 编译过的 glob 记下来：release-check 每个文件都拿每条放行规则去比（Python 的 re 自己也有编译缓存）
+const globCache = new Map<string, SearchPattern>();
+
 /** glob_regex(pattern, ignore_case) 编译后的 fullmatch。 */
 export function globRegex(pattern: string, ignoreCase = false): SearchPattern {
-  return compilePattern(`${ignoreCase ? "(?i)" : ""}${BS}A(?:${globRegexText(pattern)})${BS}Z`);
+  const key = `${ignoreCase ? "i" : "c"}${pattern}`;
+  let compiled = globCache.get(key);
+  if (compiled === undefined) {
+    compiled = compilePattern(`${ignoreCase ? "(?i)" : ""}${BS}A(?:${globRegexText(pattern)})${BS}Z`);
+    globCache.set(key, compiled);
+  }
+  return compiled;
 }
 
 export function compilePatterns(patterns: readonly string[], ignoreCase = false): SearchPattern[] {

@@ -49,8 +49,8 @@
     {
       "name": "R07 字面量不加 _casefix 的等价",
       "file": "ts/packages/base/src/pyregex/compile.ts",
-      "old": "const targets = [lo, ...(rules.fixes?.get(lo) ?? [])];",
-      "new": "const targets = [lo];"
+      "old": "      cached = lowered(fromPoints([lo, ...(rules.fixes?.get(lo) ?? [])]), rules);",
+      "new": "      cached = lowered(fromPoints([lo]), rules);"
     },
     {
       "name": "R08 没有大小写的字面量也折叠",
@@ -117,7 +117,7 @@
     {
       "name": "R18 小写化不认大写字母",
       "file": "ts/packages/base/src/pyregex/compile.ts",
-      "old": "    return adjust(set, LOWER_KEYS, LOWER_KEYS.filter((cp) => contains(set, uniLower(cp))));",
+      "old": "    return adjust(set, LOWER_KEY_RANGES, LOWER_KEYS.filter((cp) => contains(set, uniLower(cp))));",
       "new": "    return set;"
     },
     {
