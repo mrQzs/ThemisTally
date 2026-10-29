@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "task_id": "t024-desktop-ui-forms",
+  "plan_version": 2,
+  "title": "桌面端前端：需要填表单的写入口（D2 之六）",
+  "repository": "ThemisTally",
+  "base_sha": "b222d975ced43b9c1f7d7bbfab1031a690eea6f4",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/page-app.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/profileRules.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/profile-form.css",
+      "desktop/web/tests/writes-profile-form.test.tsx",
+      "desktop/web/tests/writes-profile-api.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t024_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/components/index.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/main.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "docs/**",
+      "ts/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t024_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "^$"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`api.ts` 新增且只新增 `addProfile`、`editProfile` 两个写函数与 `WriteAction` 的 `profile.add`、`profile.edit` 两个成员；新增 `export type WriteArgs = Record<string, string | string[]>`；`preview` 与 `WriteSpec.args` 改用它且**只放宽**（T022/T023 的既有调用处与行为一字不改）；`desktop/web/src` 下仍不出现那四个联网词",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "读侧与旧片不动是新旧并存的前提"
+    },
+    {
+      "id": "D02",
+      "text": "`credential_env` 这类数组按顺序原样传给服务，不拼成字符串；mock 的 `sameArgs` 对数组按顺序逐项比（丢项、顺序错、多了项都算不符）",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「数组被拼成字符串」「顺序被打乱」"
+    },
+    {
+      "id": "D03",
+      "text": "两个新写函数的确认号与参数核对生效——号不存在、action 不符或 args 不符时返回 409 且 `exit_code` 为 null（界面显示「确认已失效」），确认号与参数都对时按 200 走完",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「写函数确认号或参数传错」"
+    },
+    {
+      "id": "D04",
+      "text": "表单校验照内核原式：ID 过 `^[a-z0-9][a-z0-9-]{0,63}$`、凭据变量名过 `^[A-Za-z_][A-Za-z0-9_]{0,127}$`、模型在第一个 `/` 处切开且两段都过 `^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$`；不合法的值**不调** preview（用例断言调用次数为 0）",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "表单不放过内核不认的值"
+    },
+    {
+      "id": "D05",
+      "text": "编辑 profile 时 ID 只读、只传与初值不同的字段（thinking 原来缺省、界面显示 high 但没动过就不传）；全都没改时 [确认…] 不可点并写「还没有改动」（对话框里不出现「没有变化」）",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「没改的字段也传」「ID 能改」"
+    },
+    {
+      "id": "D06",
+      "text": "底部实时预览照约定：表单合法才在 300ms 防抖后调 preview；显示去掉 `--dry-run`/`--json` 的命令、警告原文、报错原文；迟到的回应按序号丢弃；[确认…] 只有在「表单合法且最后一次预览对应当前取值且状态码 200 且 ok 为真」时可点",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "确认之前看得见内核会做什么"
+    },
+    {
+      "id": "D07",
+      "text": "`preview-warn` 情景下警告行同时出现在表单底部与确认框里、可以确认、执行成功；`preview-invalid` 情景下底部显示内核原文 `ERROR: model 不合法` 且 [确认…] 不可点",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "杀掉「预览带警告不显示」「校验不过也能点确认」"
+    },
+    {
+      "id": "D08",
+      "text": "两个入口可点并走同一条流程——页头 [新建 profile] 可点、次序照旧（[保存当前为方案…]、新建 profile、刷新）、样式 secondary/md；profile 表 [编辑] 可点、样式 ghost/sm；点入口只打开表单对话框；**对话框关着时页里不渲染任何按钮**（连禁用的 [确认…] 也没有）",
+      "evidence": [
+        "V02",
+        "R01",
+        "G01"
+      ],
+      "intent": "接上入口又不破 T009 的页头次序、白名单与禁用数"
+    },
+    {
+      "id": "D09",
+      "text": "确认框标题、变化区摘要、成功轻提示逐字照第六节（「新建 profile \\<id\\>？」「修改 profile \\<id\\>？」「profile 表里加上 \\<id\\>」「profile \\<id\\> 改动：\\<字段名列表\\>」「已新建 profile \\<id\\>」「已修改 profile \\<id\\>」），且这些文字只出现在 `src/writes/`",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "T013 的「动作说明只有一份」与 T022/T023 的「文字在 writes/ 里」同时守住"
+    },
+    {
+      "id": "D10",
+      "text": "成功只在重读之后才说——重读兑现之前整页没有「已新建 profile…」/「已修改 profile…」；重读之后弹对应轻提示、关框、并调一次 `reload()`",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "W3 是这一片的核心红线"
+    },
+    {
+      "id": "D11",
+      "text": "两个新 action 的快照只比 `profiles[].{id, runtime, provider, model, options.thinking, credential_env}`；改 `adapter` 等被排除的字段仍判定相同",
+      "evidence": [
+        "V02"
+      ],
+      "intent": "快照不把会自己变的字段拿来比"
+    },
+    {
+      "id": "D12",
+      "text": "既有测试只照新行为改那几条断言——`page-roles.test.tsx` 的 [编辑] 改成可点（ghost/sm 两条断言照旧）、`page-app.test.tsx` 的角色页禁用按钮个数 9→6（运行时页 6、总览 0 不变）；没有删除、跳过或弱化任何既有用例；A/B 片的七份 `writes-*` 照旧全绿",
+      "evidence": [
+        "V02",
+        "review"
+      ],
+      "intent": "既有测试是别的片的契约，不能借机削弱"
+    },
+    {
+      "id": "D13",
+      "text": "所有修改都在允许集合内（新增文件都在 `allowed_new_files`，没有删文件，依赖与锁文件没动，`forbidden_paths` 里的门禁文件、`components/index.ts`、`mock/*.json`、`docs/**`、`ts/**`、`scripts/**` 一个都没动）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    },
+    {
+      "id": "D14",
+      "text": "遇到合同与既有测试或门禁冲突时，执行端没有越界改范围外的文件（冲突写进执行报告的 `contract_conflicts`）；临时文件没有写到 `/tmp` 这类固定路径（用 `T=$(mktemp -d)` 并在同一条命令里删掉）",
+      "evidence": [
+        "review",
+        "scope"
+      ],
+      "intent": "上一轮 T022 的 attempt-001 就是在这两处出的问题"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
