@@ -1,12 +1,13 @@
 # Themis Tally 3.0：实现语言迁移到 TypeScript 的计划
 
-- **状态**：v1.4（见下）。v1.2 于 2026-10-22 themistally-15 同意，附的条件已补进（第 ② 步的启动器与切换测试、Schema 的位置、第 10 节的 `--assess`）。
+- **状态**：v1.6（见下）。v1.2 于 2026-10-22 themistally-15 同意，附的条件已补进（第 ② 步的启动器与切换测试、Schema 的位置、第 10 节的 `--assess`）。
   - v1 于 2026-10-22 带条件通过。站主委托 themistally-15 会话答复，第 0 步的提交 266cd33 照常合入。
   - v1.1 补进了通过时附的条件：第 2.1、2.2、2.4、3.2、4、5、8.2、8.5 节，以及第 1.4 节的 pyjson。
   - v1.2 按开工前的调查改第 ② 步：调度器的 `metrics` 没有 `--json`、只出 Markdown；带 `--json` 的 `status`、`metrics` 另有一份在 hub 里；`logs cat` 漏写了；仓库里没有 `themis` 入口，桌面端的本机服务也还没建。第 ② 步的范围、出口条件与拆分照实改（第 4 节）。
   - v1.3（2026-10-26，themistally-15 同意，附的七条已补进）按开工前的调查重写第 ③ 步：配置中心随桌面端 D2 长大了，原文“13 个 `--json` 子命令”过时；plugins 归入第 ③ 步，`secret set` 留在 Python，拆成六片加切换（第 4 节）。另记站主同日的决定：T022 的 A、B 做完后暂停开新切片，专心推迁移；以及 themistally-15 转达时附的协调意见（不是站主原话）：之后内核文件只修挡住工作的缺陷，迁移本身的切换不在其内（第 9 节、第 10.1 节）。
   - v1.4（2026-10-26，themistally-15 复审）按开工前的调查与复审重写第 ④ 节：21 条命令加 `status --assess`，八片加切换，开工前定下 D1（平台与版本经 `context` 交）、D2（Ctrl+C 与 CTRL_BREAK 的转发）、D3（`NODE_OPTIONS` 等经换名的环境变量交给 pi）、D4（决策会话的 HTTP 逐项对齐），写明对照办法五条、影子运行的隔离做法与混合期的 26 个名字。
   - v1.5（2026-10-26，themistally-15 复审 v1.4 时要求）补 D5：起真调度器子进程的测试在没装 TS 依赖的环境里怎么办，按实测清点、钉成 Python 的做法、包装与真脚本的逐字节比较和分环境的出口条件；第 11 节 ③-切换一行补上 A3 的更正。④b1 合入时补：切换那一轮的 context 加 `kit_root` 与 `kernel_impl`（第 ④ 节“切换”）。
+  - v1.6（2026-10-29）按开工前的只读调查（基线 139a0fa）重写第 ⑤ 步：已经备好的与缺的、逐字节风险、开工前定下的 E1–E6、十片加切换、影子运行的做法；混合期表补第 27 个名字。
 - **决定来源**：站主 2026-10-22 的指示“TT 技术栈迁移：在实现中逐步转到 Claude Code 的技术栈”。
 - **进度**：记在第 11 节，每完成一步汇报。
 - **问题与答复**：计划、quizs 接口、待决项都直接发给 themistally-15 会话，由它答复。AGENTS.md 规定只能由站主本人定的事，由它转给站主：
@@ -580,7 +581,7 @@ v1.4 按开工前的调查（2026-10-26，基线 `d1873a9`，用 ast 建引用�
   - 至少一片真实切片在 `dispatcher: ts`、hub 仍是 Python 的组合下完整走完并落地。这是迁移验收片，属于站主允许的例外：登记前先告诉 themistally-15，并报告用户。
 - **切换**：`dispatcher` 改成 `ts`。同在这一轮的：`TS_DISPATCHER_COMMANDS`（路径 → 参数键）与 pyargs Schema 补上全部命令；`argv_impl` 照新名单；常量表逐项对照（`RESOURCE_FLAGS`、`MUTATION_DEFAULT_TIMEOUT`、状态表、`TOOL_VERSION`）；`context` 加 D1 的平台与版本，以及 `kit_root` 与 `kernel_impl`（④b1 的 kernel_protected_paths 要用，即 Python 的 `KERNEL_TS_ROOT.parent` 与 `read_kernel_impl()`）；D2 的转发与 D3 的换名环境变量；全部命令行契约加“经真的启动器”。改的是内核文件，照第 9 节合入前跑全部门禁基准。
 - **不回退**（用户 2026-10-28：“我们不会回退到Python,最后都转为ts”）：切换之后不留改回 `python` 的退路，只为回退准备的交替对照（TS 开跑、Python 收尾）不做；“Python 开跑、TS 收尾”照做（切换那一刻 Python 已经 prepare 的 attempt 由 TS 接着跑）。
-- **混合期**：`dispatcher` 切到 `ts` 之后，hub 仍是 Python，`kit_hub.py` 在进程内直接调用的 `pi_dispatch` 名字仍是 Python 版（`d1873a9` 时 26 个）。这些名字到第 ⑤ 步之后才能删，期间要由契约保证它们读得懂 TS 版写的东西：
+- **混合期**：`dispatcher` 切到 `ts` 之后，hub 仍是 Python，`kit_hub.py` 在进程内直接调用的 `pi_dispatch` 名字仍是 Python 版（`d1873a9` 时 26 个；`139a0fa` 时 27 个，多了第 123 轮的 `quiet_error_mode`，由第 ⑤ 步的 ⑤j 补 FFI）。这些名字到第 ⑤ 步之后才能删，期间要由契约保证它们读得懂 TS 版写的东西：
 
   | 名字（`kit_hub.py` 里的次数） | 用途 | 由哪份契约覆盖 |
   |---|---|---|
@@ -602,13 +603,55 @@ v1.4 按开工前的调查（2026-10-26，基线 `d1873a9`，用 ast 建引用�
 
 ### ⑤ 七端 hub 内核
 
-- **内容**：`kit_hub.py` 全部，含 hub 自己的 `status --json`、`metrics --json`（v1.2 从第 ② 步挪来）。现有的 pytest 场景（第 56 轮时 216 个）逐个移成 TS 用例。工人运行时照旧是 `claude -p` 与 `pi --mode json`；quizs 替代 pi 另开轮次做。
+v1.6 按开工前的调查重写（2026-10-29，基线 `139a0fa`，只读盘点，themistally-15 复审）。
+
+- **内容**：`kit_hub.py` 全部（6625 行、251 个顶层定义），含 hub 自己的 `status --json`、`metrics --json`。`tests/test_kit_hub.py` 的场景（现在 297 个）照第 ④ 步的规矩两边各跑，不逐条重写断言。工人运行时照旧是 `claude -p` 与 `pi --mode json`；quizs 替代 pi 另开轮次做。
+- **已经备好的**：hub 在进程内调的 27 个 `pi_dispatch` 名字里，21 个在 TS 里已有对应；缺 `argv_impl`、`read_kernel_impl`、`TS_STAMP`、`ts_deps_digest`（只在 `ts/tools/stamp-install.mjs` 里有）与 `quiet_error_mode`（base 没有 SetErrorMode 的 FFI），`_running_attempts` 有但没导出。base 已有时钟与编号、账本追加、`DirLock`、与 msvcrt 互斥的文件锁、原子写、pyjson、Python 字符串与正则的辅助、不覆盖的 `pyRename`、支持共用句柄的 `runSupervised`；JEV 用的决策会话在 config 包。
+- **逐字节的主要风险**（各片照此写契约）：
+  - 约 105 处按码点截断、`len()`；`splitlines`、`strip`、无参 `split`、`lower` 的 Python 语义：一律用 base 的辅助。
+  - 约 30 个常量正则：Python 的 `$`、Unicode 版的字符类；`FRONTEND_TRANSITIONAL_RE` 用了反向引用（见 E6）。
+  - 七种 JSON 写法（sort_keys 与否、indent 0/1/2、ensure_ascii），`INPUTS.json` 在 Windows 上是 CRLF；银行家舍入与 `%` 格式。
+  - 异常文字会进给站主的信与账本：只对齐类型名，堆栈照第 3.4 节只比类型。
+  - Python 全同步，TS 的进程监督、文件锁、决策会话是异步：Engine 每一步严格串行 await，一个 runner 内不并发。
+- **开工前定下的**：
+  - E1 调度器怎么调：TS hub 照旧起 Python 启动器（`python scripts/pi_dispatch.py …`），选择文件仍只在启动器读（第 5 节）。账本 `dispatcher.called` 的 impl 由 TS 移植的 `argv_impl` 与转交名单算，契约逐个 argv 形状对照 Python。第 ⑥ 步撤 Python 时改成直接起 TS 入口。
+  - E2 站主命令走哪一套：切换后 `kit_hub.py` 的全部子命令都转交 TS（同第 ④ 步的启动器），站主命令与 runner 用同一套实现，不让两套同时写信箱。切换时先经 `exclusive` 等执行端跑完、停掉 Python 的 supervisor，再翻选择文件、起 TS 的。混跑契约只覆盖切换那一刻（三方合并、DirLock、文件锁的交替与并发）。
+    - 停没停掉做成机械的检查，不靠人记（themistally-15 提出：T024 的 hub 是 Start-Process 脱离起的，这种进程容易漏）：翻选择文件之前看 `.runner`、`.runners` 下的锁与 `agents/owner.json` 里的 pid 是否还活着，有活的就拒绝翻，并报出是哪个 pid。
+  - E3 内核文件指纹：hub 为 ts 时纳入 `ts/packages/{base,config,dispatcher,hub,cli}/src/**` 与 `ts/package.json`、`bun.lock`、`bunfig.toml`；开销在 ⑤j 实测，每轮超过 50 毫秒就改成按修改时间缓存。
+  - E4 回退：照“不回退”（用户 2026-10-28）。原先写的“停掉 TS hub、起 Python hub”删去；TS hub 出了问题照常修 TS。Python hub 留到第 ⑥ 步，只为对照与影子运行。
+  - E5 迁移计划 10.1 里的 `retry_section` 改进是行为变更：切换之后另开内核轮次在 TS 上做，不混进逐字节移植的片。
+  - E6 `FRONTEND_TRANSITIONAL_RE` 的反向引用：按三种引号展开成三个分支（双引号、单引号、反引号各一支，分支里的否定前瞻换成对应引号的字面量），交给 pyregex 编译（themistally-15 提出）。反向引用只可能是这三个字符之一，同一位置只有一支能开头，最左匹配与匹配长度都与原式相同；空白、单词字符、多行下的行首、点号都保留 Python 语义（手译成 JS 正则要逐个对齐的远不止点号）。pyregex 不记捕获组，标题从整段匹配里取：开引号之后到末尾的闭引号之前。对照另外生成带 U+FEFF、0x1c 到 0x1f、0x85、U+2028、U+2029 与非 ASCII 字母的标题，不只靠真实语料。
+- **拆片**（每片一次提交：Python 先过契约，TS 再过，Node、Bun 各一遍；对照按种子生成输入；变异检验；库函数导出，命令处理只编排）：
+
+  | 片 | 内容 | Python 行 | 依赖 | 契约与对照 |
+  |---|---|---|---|---|
+  | ⑤a | 常量与名册、schema 子集校验器、信件（解析、渲染、letter_errors）、主任务状态与守卫（guard、allowed_moves、routine_moves、render_routine_brief、invalidate_after）、阶段状态表 | 约 900 | 无 | 随机状态 × 全部（信件类型, 阶段）比 guard 文字与允许的下一步；随机信件（全角冒号、续行、超长、补充平面字符）的解析与往返 |
+  | ⑤b | 信箱、账本与状态：Hub、HubState 三方合并、agent 记录、投递与收信、扣信 | 约 350 | ⑤a | 混跑契约：两套实现交替、并发改同一键与不同键（state.json 逐字节、state.conflict），并发投递不覆盖，take 与 requeue 的改名竞争 |
+  | ⑤c | 回合审计：事件流、claude 与 pi 的审计、守卫配置、花费、半截会话 | 约 450 | ⑤a | 事件流夹具加随机变形，审计结果逐字节；guard.ts 与 TS 审计同一份配置三方一致；真实回合的回放一次（不进提交） |
+  | ⑤d | 回合启动与输入：TurnRunner、提示词与模板、输入目录、交付文件核对 | 约 800 | ⑤a–⑤c | 注入 launcher：同一状态与剧本下两边的命令、环境（按名单）、role.md、prompt.md、result.json（时间与编号换占位）、INPUTS.json（含 CRLF）逐字节 |
+  | ⑤e | 合同与战前门禁（含 E1 的 run_pd 与 argv_impl） | 约 500 | ⑤b | 临时仓库加真调度器：.agent/plans 下的文件、git 提交与 refs（固定作者与日期，SHA 可比）、问题清单逐字 |
+  | ⑤f | 战后门禁与变异 | 约 400 | ⑤e | pytest 输出与 mutations.json 的语料对照；真工作树上跑白盒与 mutate --check-anchors |
+  | ⑤g | 执行端代办与 JEV：派遣、接着改、返工与重派、交付信 | 约 750 | ⑤e、⑤f | contracts 的 attempt 夹具：各种状态组合下的结论、改写后的合同、交付信逐字；JEV 用假端点 |
+  | ⑤h | 结项、落地与后台回归：finalize、撤销落地、复审记录、owner sweep 一族（补 TS_STAMP、depsDigest，导出 runningAttempts） | 约 650 | ⑤b、⑤g | 临时仓库的落地链：提交 SHA、复审记录字节、owner-sweep.json；Python exclusive 对 TS 结项的锁与标记 |
+  | ⑤i | 调度循环与 Engine | 约 930 | ⑤a–⑤h | 同一初始信箱、同一回合剧本，两边跑到静止，比信箱、state.json、事件序列（时间与编号换占位）；被收掉之后续接、扣信、当场重交、代办到一半 |
+  | ⑤j | 命令行与进程模型：子命令、内核文件指纹与换代（E3）、supervisor、exclusive、owner-sweep、status 与 metrics 的 --json、SetErrorMode 的 FFI、kit_hub.py 的转交（E2） | 约 1100 | ⑤i | stdout（CRLF）、stderr、退出码逐字节；supervisor 一轮（假子进程）；经真启动器各一遍；定 hub 命令的耗时目标（见下） |
+  | ⑤-切换 | 选择文件的 hub 改成 ts；kernel_files 纳入 TS 源码；回合事件与 result.json 记 impl；全部门禁基准；验收片 | — | 全部 | 见出口条件 |
+
+  ⑤a→⑤b→⑤c→⑤d；⑤e 只依赖 ⑤b，可以与 ⑤c、⑤d 并行；⑤f→⑤g→⑤h；⑤i 等前面全部；⑤j 最后。297 个场景按领域分到各片（⑤a 36、⑤b 约 10、⑤c 16、⑤d 46、⑤e 约 25、⑤f 约 14、⑤g 27、⑤h 33、⑤i 46、⑤j 约 44）。
+- **影子运行**（⑤a、⑤b 之后就做起来，后面几片期间一直跑着攒证据）：
+  - TS 加一个只读子命令，不拿 hub 的锁、不写 `.agent/mailbox`，结果写到 `.agent/runs/_shadow/`。轮询 `state.json` 的哈希与各信箱 `new` 下的文件名，变了就取快照。
+  - 同一份快照交给 TS 与 Python 探针（探针在进程内调 kit_hub 的纯函数，不起 hub）：每个主任务 × 阶段 × 信件类型的 guard 结论、允许的下一步、内核代办的结论与任务书全文、新信的解析与往返。
+  - 事后核对：账本里新出现的 `letter.rejected`、`route.kernel` 与 TS 在之前最近一份快照上的结论比；新回合的事件流用 TS 审计重算，与 Python 写下的 result.json 比。
+  - 不改 Python 埋点（迁移期间内核文件只修挡路的缺陷）。轮询很轻；回合审计的重算在空闲时做，不与门禁、扫描、全量测试重叠。
+  - 快照要防“取了一半”：取之前与之后各算一次 state.json 的哈希、核对各信箱 `new` 下的文件名，不一致就重取。事后核对时，快照与Python 当时的决定之间有时间差，对不上的先单列成“时序”一类逐条查，不直接算作不一致（themistally-15 提出）。
+  - `.agent/runs/_shadow/` 要被各处扫描跳过：budget_usage、metrics、status、`_running_attempts`、cleanup，以及 hub 自己按目录名遍历的地方。`TASK_ID_RE` 要求首字符是字母或数字，按理都会跳过，用一条契约钉住。
 - **出口条件**：
-  - 场景用例全过；
-  - 影子运行：TS hub 以只读方式读同一个信箱，对每封待办信算出守卫结论与“允许的下一步”，与 Python hub 一致，连续一片切片不出差异；
-  - 至少一片切片由 TS hub 从头到尾办完并落地。
-- **切换**：`hub` 改成 `ts`，由 supervisor 的入口决定起哪一套。
-- **回退**：停掉 TS hub，起 Python hub，接着用同一个信箱。信件、账本、`state.json` 的格式由契约保证一致。
+  - 场景用例全过，并且做一次覆盖审计（themistally-15 提出，第 ④ 步切换 c 的教训：pytest 一条调度器命令都没交给 TS）：297 个场景逐个对到 TS 契约，记成 COVERED、PARTIAL、MISSING，切换前 MISSING 清零或写明理由；每片交付时写明这一片对掉了哪些场景；
+  - 影子运行：一片切片从登记到结项，零差异；
+  - 至少一片切片由 TS hub 从头到尾办完并落地（验收片，登记前先告诉 themistally-15，并报告用户）。
+- **计时**：第 9 节的固定项加上 hub 的命令（`kit_hub.py status`、`status --json`、`metrics --json`）与空闲时调度循环一轮的耗时（E3 的指纹开销就在里面）；⑤j 定目标，切换时对照（themistally-15 提出）。
+- **切换**：选择文件的 `hub` 改成 `ts`，次序照 E2。切换的验收里专门走一遍站主在主工作区的提交：`exclusive` 包住提交，再跑 owner-sweep，两者都经 TS（themistally-15 提出）。
+- **不回退**：照 E4。
 
 ### ⑥ 撤掉 Python
 
