@@ -1,0 +1,15 @@
+{
+  "name": "@themis/hub",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./constants": "./src/constants.ts",
+    "./errors": "./src/errors.ts",
+    "./letters": "./src/letters.ts",
+    "./schema": "./src/schema.ts",
+    "./taskstate": "./src/taskstate.ts"
+  },
+  "dependencies": {
+    "@themis/base": "workspace:*"
+  }
+}

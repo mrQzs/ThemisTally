@@ -8,6 +8,7 @@
   "dependencies": {
     "@themis/base": "workspace:*",
     "@themis/config": "workspace:*",
-    "@themis/dispatcher": "workspace:*"
+    "@themis/dispatcher": "workspace:*",
+    "@themis/hub": "workspace:*"
   }
 }

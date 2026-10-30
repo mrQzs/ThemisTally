@@ -10,7 +10,7 @@ import { type Program, WORD_SETS, compileProgram } from "./compile.ts";
 import { matchSpan, search, searchSpan } from "./engine.ts";
 import { type Item, PyOverflowError, PyReError, type SubPattern, parse } from "./parser.ts";
 
-export { FLAG_DOTALL, FLAG_IGNORECASE, FLAG_MULTILINE, PyOverflowError, PyReError, PyValueError } from "./parser.ts";
+export { FLAG_ASCII, FLAG_DOTALL, FLAG_IGNORECASE, FLAG_MULTILINE, PyOverflowError, PyReError, PyValueError } from "./parser.ts";
 
 export const SEARCH_MAX_NESTING = 100;
 export const SEARCH_NO_REFS = "PATTERN 不支持反向引用与条件分组（logs search 只做逐行匹配）";

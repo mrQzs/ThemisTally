@@ -1001,6 +1001,66 @@ def op_pyvalue_eq(request):
     return {"ok": True, "result": [left] == [right] if request.get("nested") else left == right}
 
 
+def op_hub_call(request):
+    """第 ⑤a 片：kit_hub 的纯函数（信件、schema、主任务状态与守卫）。结果带标签；HubError 交回文字与退出码，别的异常只比
+    类型。改状态的函数（invalidate_after、move_base）连同改过的 ts 一起交回。new_task_state 的 created_at 换成请求给的值。
+    """
+    fn = request["fn"]
+    args = [from_tagged(item) for item in request["args"]]
+    hub = types.SimpleNamespace(repo=Path(request.get("repo") or "."))
+    try:
+        if fn == "parse_letter":
+            value = list(kit_hub.parse_letter(*args))
+        elif fn == "routine_moves":
+            value = list(kit_hub.routine_moves(*args))
+        elif fn == "stage_of":
+            value = list(kit_hub.stage_of(*args))
+        elif fn == "invalidate_after":
+            kit_hub.invalidate_after(*args)
+            value = args[0]
+        elif fn == "move_base":
+            value = [kit_hub.move_base(*args), args[0]]
+        elif fn == "new_task_state":
+            value = kit_hub.new_task_state(*args[:5])
+            value["created_at"] = args[5]
+        elif fn in ("render_routine_brief", "stage_status_table"):
+            value = getattr(kit_hub, fn)(hub, *args)
+        elif fn in ("guard", "allowed_moves", "render_letter", "letter_errors", "schema_problems", "schema_errors", "return_stages",
+                    "hotfix_reason", "upstream_notes", "dependents", "stage_busy", "gate_pattern", "gate_file"):
+            value = getattr(kit_hub, fn)(*args)
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    return {"ok": True, "value": to_tagged(value)}
+
+def op_hub_samples(request):
+    """第 ⑤a 片：tests/test_kit_hub.py 里参数化的样例（只读），对照测试拿去交给三边，样例只有 pytest 这一个来源。
+    test_letter_shape_errors 的 lambda 在这里照用例的写法先执行，交回具体的信头与正文。"""
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_kit_hub as cases  # noqa: E402
+
+    def params(fn):
+        return [mark.args[1] for mark in fn.pytestmark if mark.name == "parametrize"][0]
+
+    shape = []
+    for change, _expected in params(cases.test_letter_shape_errors):
+        head = {"from": "planner-opus", "to": kit_hub.COORDINATOR, "task-id": "T001-1-plan", "in-reply-to": "none",
+                "type": "交付"}
+        body = cases.fields()
+        change(head, body, 0)
+        shape.append([head, body, 6])
+    routine = [[cases.routine_letter(s, k, task, **extra) for s, k, task, extra in letters]
+               for letters, _expected in params(cases.test_routine_letters_map_to_the_next_step)]
+    exceptions = [[cases.routine_letter(s, k, task, **extra)]
+                  for (s, k, task, extra), _reason in params(cases.test_exceptions_go_to_the_coordinator)]
+    schema = [[schema, value] for schema, value, _ok in cases.SCHEMA_SAMPLES]
+    value = {"shape": shape, "routine": routine, "exceptions": exceptions, "schema": schema,
+             "fields": cases.fields(), "base": cases.BASE}
+    return {"ok": True, "value": to_tagged(value)}
+
 OPS = {
     "plugins.call": op_plugins_call,
     "protocols.strict": op_protocols_strict,
@@ -1033,6 +1093,8 @@ OPS = {
     "jsonl.read": op_jsonl_read,
     "jsonl.records": op_jsonl_records,
     "pyfmt.call": op_pyfmt_call,
+    "hub.call": op_hub_call,
+    "hub.samples": op_hub_samples,
     "pyregex.search": op_pyregex_search,
     "pyregex.search_flags": op_pyregex_search_flags,
     "pydatetime.parse_iso": op_pydatetime_parse_iso,

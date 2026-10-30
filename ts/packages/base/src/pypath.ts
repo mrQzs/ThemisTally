@@ -11,6 +11,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes, win32ErrorMessage, win32FinalPathName, win32FullPathName, win32Stat } from "./native.ts";
 import { PyCrash, pyRepr } from "./pyfmt.ts";
+import { pyLower } from "./pyre.ts";
 import { windowsOSError } from "./supervise.ts";
 
 const WIN = process.platform === "win32";
@@ -313,6 +314,20 @@ export function purePathIsAbsolute(value: string): boolean {
   if (!WIN) return value.startsWith("/");
   const parsed = parsePurePath(value);
   return Boolean(parsed.drive && parsed.root);
+}
+
+/**
+ * PurePath(value).relative_to(root).as_posix()（Python 3.12，不带 walk_up）：root 等于 value 或是它的上级时，交回剩下的段用 /
+ * 连起来（一段不剩是 "."）；否则 null（Python 抛 ValueError）。Windows 上比较照 _str_normcase，即整串 str.lower()。
+ */
+export function purePathRelativePosix(value: string, root: string): string | null {
+  const self = parsePurePath(value);
+  const other = parsePurePath(root);
+  const fold = (text: string): string => (WIN ? pyLower(text) : text);
+  if (fold(self.drive + self.root) !== fold(other.drive + other.root) || other.tail.length > self.tail.length) return null;
+  if (other.tail.some((part, index) => fold(part) !== fold(self.tail[index] as string))) return null;
+  const rest = self.tail.slice(other.tail.length);
+  return rest.length ? rest.join("/") : ".";
 }
 
 /** str(PurePath(value, *parts))：几段先照 os.path.join 拼起来（pathlib 就是这么做的），再规整。 */

@@ -88,6 +88,7 @@ import { configErrors } from "@themis/config/roles-check";
 import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
 import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
+import { hubCall } from "./hub_probe.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
 type Result = Record<string, unknown>;
@@ -537,6 +538,7 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     return { ok: true, done_ms: Date.now() };
   },
   "jsonl.read": (request) => ({ ok: true, value: toTagged(readJsonl(String(request["path"]))) }),
+  "hub.call": (request) => hubCall(request, fromTagged as never, toTagged),
   "pyfmt.call": (request) => {
     switch (request["fn"]) {
       case "repr":

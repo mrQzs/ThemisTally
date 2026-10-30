@@ -1,0 +1,197 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-state.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "A01 字段名前允许有空白",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "    if (isSpace(chars[at - 1] as string)) return null;\n",
+      "new": "",
+      "equivalent": "已知的字段名里都没有空白：放过空白之后，带空白的字段名照样认不成已知字段，整行照旧当续行，结果相同"
+    },
+    {
+      "name": "A02 冒号后只认空格、不认制表符",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "rest[0] === \" \" || rest[0] === TAB ? rest.slice(1) : rest",
+      "new": "rest[0] === \" \" ? rest.slice(1) : rest",
+      "equivalent": "冒号之后的值随后整体 strip：那一个制表符先去掉与否，结果相同"
+    },
+    {
+      "name": "A03 续行不去两格缩进",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "line.startsWith(\"  \") ? line.slice(2) : line",
+      "new": "line"
+    },
+    {
+      "name": "A04 主任务号带着末尾换行时去掉换行",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "return MAIN_TASK.match(text) ? [text, null] : [null, null];",
+      "new": "return MAIN_TASK.match(text) ? [text.trimEnd(), null] : [null, null];"
+    },
+    {
+      "name": "A05 正文行数的上限多放一行",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "if (bodyLines > MAX_BODY_LINES)",
+      "new": "if (bodyLines > MAX_BODY_LINES + 1)"
+    },
+    {
+      "name": "A06 收信人用 in 判断名册",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "if (receiver && !hasOwn(ROSTER, receiver) && receiver !== OWNER)",
+      "new": "if (receiver && !(receiver in ROSTER) && receiver !== OWNER)"
+    },
+    {
+      "name": "A07 一审的退回范围按终审算",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "suffix === \"4-audit-pre\" && names.some",
+      "new": "suffix === \"7-audit-post\" && names.some"
+    },
+    {
+      "name": "A08 整数不认 4.0",
+      "file": "ts/packages/hub/src/schema.ts",
+      "old": "if (kind === \"integer\") return typeof value === \"bigint\" || (typeof value === \"number\" && Number.isInteger(value));",
+      "new": "if (kind === \"integer\") return typeof value === \"bigint\";"
+    },
+    {
+      "name": "A09 布尔也算数字",
+      "file": "ts/packages/hub/src/schema.ts",
+      "old": "  if (typeof value === \"boolean\" && (kind === \"integer\" || kind === \"number\")) return false;\n",
+      "new": "",
+      "equivalent": "Python 要这一句是因为 bool 是 int 的子类；JS 的布尔不是 bigint 也不是 number，删掉之后 integer、number 照样不收布尔"
+    },
+    {
+      "name": "A10 js_pattern 不换掉 $",
+      "file": "ts/packages/hub/src/schema.ts",
+      "old": "out += char === \"$\" && !inClass ? `${BS}Z` : char;",
+      "new": "out += char;"
+    },
+    {
+      "name": "A11 子集外的关键字不排序",
+      "file": "ts/packages/hub/src/schema.ts",
+      "old": ".filter((key) => !SCHEMA_KEYWORDS.has(key)).sort(cmpCodePoints);",
+      "new": ".filter((key) => !SCHEMA_KEYWORDS.has(key));"
+    },
+    {
+      "name": "A12 additionalProperties 写 true 也放过",
+      "file": "ts/packages/hub/src/schema.ts",
+      "old": "schema.get(\"additionalProperties\") !== false",
+      "new": "schema.get(\"additionalProperties\") !== false && schema.get(\"additionalProperties\") !== true"
+    },
+    {
+      "name": "A13 合同端开工不看待核实的仓库外事实",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "    if (pyTruthy(pending)) return",
+      "new": "    if (false && pyTruthy(pending)) return"
+    },
+    {
+      "name": "A14 一审之后合同与基线要都变了才拦",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "!pyEq(pyGet(audit, \"contract_sha256\"), pyGet(pyItem(ts, \"contract\"), \"sha256\")) || !pyEq(",
+      "new": "!pyEq(pyGet(audit, \"contract_sha256\"), pyGet(pyItem(ts, \"contract\"), \"sha256\")) && !pyEq("
+    },
+    {
+      "name": "A15 返工次数到上限多放一次",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "atLeast(done, MAX_STAGE_REWORKS)",
+      "new": "atLeast(done, MAX_STAGE_REWORKS + 1)"
+    },
+    {
+      "name": "A16 退回几处时下游也算上游",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": ".filter((stage) => stageIndex(stage) < stageIndex(suffix));",
+      "new": ".filter((stage) => stageIndex(stage) <= stageIndex(suffix));"
+    },
+    {
+      "name": "A17 落地预演的 ok 为空也当没过",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "if (pyGet(rehearsal, \"ok\") === false && pyEq(",
+      "new": "if (!pyTruthy(pyGet(rehearsal, \"ok\")) && pyEq("
+    },
+    {
+      "name": "A18 一审作废时不保留 fails",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "ts.set(\"audit_pre\", dict([\"fails\", pyGet(pyItem(ts, \"audit_pre\"), \"fails\", 0n)]));",
+      "new": "ts.set(\"audit_pre\", dict([\"fails\", 0n]));"
+    },
+    {
+      "name": "A19 需协调人决定写“无。”也当有事",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "if (decision !== \"无\" && decision !== \"无。\")",
+      "new": "if (decision !== \"无\")"
+    },
+    {
+      "name": "A20 审核结论缺失也代办返工",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "      if (check.includes(\"审核结论缺失\")) return [[], \"审核结论缺失，交协调人\"];\n",
+      "new": ""
+    },
+    {
+      "name": "A21 任务书不提当场重交过",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "    if (pyTruthy(pyGet(stage, \"redelivered\"))) {",
+      "new": "    if (false && pyTruthy(pyGet(stage, \"redelivered\"))) {"
+    },
+    {
+      "name": "A22 任务书取第一条审核记录",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "const last = historyList[historyList.length - 1] as PyValue;",
+      "new": "const last = historyList[0] as PyValue;"
+    },
+    {
+      "name": "A23 状态表的备注截到 150",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "head(noteText.replaceAll(LF, \" \"), 160)",
+      "new": "head(noteText.replaceAll(LF, \" \"), 150)"
+    },
+    {
+      "name": "A24 状态表的返工次数不排序",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": ".sort((a, b) => cmpCodePoints(a[0], b[0]));",
+      "new": ";"
+    },
+    {
+      "name": "A25 下游须知不看上游交付了没有",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "&& pyEq(pyGet(record, \"status\"), \"delivered\") && text",
+      "new": "&& text"
+    },
+    {
+      "name": "A26 退回对象不按流水线排序",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "return [...stages].sort((a, b) => stageIndex(a) - stageIndex(b));",
+      "new": "return [...stages];"
+    },
+    {
+      "name": "A27 依赖没放行也许开工合同端",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "&& pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))",
+      "new": "&& pyTruthy(pyGet(ts, \"after\")) && false"
+    },
+    {
+      "name": "A28 热修补不认站主指定的门禁返工",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "\"3-gate-pre\") && pyTruthy(pyGet(execution, \"run_dir\"))) return \"站主指定门禁返工\";",
+      "new": "\"3-gate-pre\") && false) return \"站主指定门禁返工\";"
+    },
+    {
+      "name": "A29 相对路径的比较分大小写",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "const fold = (text: string): string => (WIN ? pyLower(text) : text);",
+      "new": "const fold = (text: string): string => text;"
+    },
+    {
+      "name": "A30 相对路径不核对前缀的各段",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "  if (other.tail.some((part, index) => fold(part) !== fold(self.tail[index] as string))) return null;\n",
+      "new": ""
+    }
+  ]
+}
