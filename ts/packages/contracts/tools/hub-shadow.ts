@@ -6,19 +6,24 @@
 // 比什么：状态（读出与账本）；每个主任务的只读结论与 guard 的整张表；每封信的读出、解析、往返、形状校验；写给协调人的信单独成批时
 // 的内核代办与任务书；账本里每次 route.kernel 的那批信重算的下一步（还要与账本记的一致，partial 时是它的前缀）；已结束回合的审计、
 // 半截会话与生效档位。--watch 时只算变了的部分，另比新出现的 letter.rejected：上一份与这一份快照的状态各算一次 guard，对上一个
-// 就算一致，都对不上记成“时序”交给人看。
+// 就算一致，都对不上记成“时序”交给人看；watch 开始以后才结束的回合，TS 的审计还要与 hub 当时写下的 result.json 比（只比同一版
+// 内核写下的）。前面几类是两边探针彼此一致，这两类是 TS 与真实 hub 的决定一致。
 // 探针不开在用的文件：状态与账本复制进临时的快照仓库，信件与事件流由这里经 fs 读出、按原始字节传过去，会话文件按会话号复制进
 // 临时目录，用完删掉。结果只写数量、对不上的键（主任务号、信的文件名、回合号）与快照的哈希，不写内容。
+// --watch 的某一轮出错（探针失败、回合目录在列出与读取之间被清掉……）只记错误的类型，接着跑；出错的那一轮不算数，下一轮从上一次
+// 成功的那份快照比起。退出码：0 一致，1 有对不上的，2 出错（--once），3 快照不稳。
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sleepSync } from "@themis/base/fsutil";
-import { type PyValue, loads } from "@themis/base/pyjson";
+import { readText, sleepSync } from "@themis/base/fsutil";
+import { jsonlLines } from "@themis/base/jsonl";
+import { type PyValue, dumps, loads } from "@themis/base/pyjson";
 import {
-  COORDINATOR, COORDINATOR_TYPES, KERNEL, KERNEL_TYPES, OWNER, OWNER_TYPES, ROSTER, STAGE_ORDER, STAGE_WORKER, WORKER_TYPES,
+  COORDINATOR, COORDINATOR_TYPES, DELIVER_TOOL, KERNEL, KERNEL_TYPES, OWNER, OWNER_TYPES, ROSTER, STAGE_ORDER, STAGE_WORKER,
+  STRUCTURED_TOOL, WORKER_TYPES,
 } from "@themis/hub/constants";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
@@ -115,12 +120,16 @@ function pauseForTest(attempt: number): void {
 
 // --- 探针 ------------------------------------------------------------------------------------------------------
 
+class ProbeFailed extends Error {
+  override name = "ProbeFailed";
+}
+
 /** 一批请求交给一边的探针：（结果，探针进程的峰值内存，字节；拿不到是 0）。 */
 function batchWithPeak(argv: readonly string[], items: readonly Item[]): { results: Item[]; peak: number } {
   const done = spawnSync(argv[0] as string, argv.slice(1), {
     input: JSON.stringify({ op: "batch", items }), encoding: "utf8", maxBuffer: 2 * 1024 * 1024 * 1024, timeout: 1_800_000,
   });
-  if (done.status !== 0) throw new Error(`探针退出码 ${done.status}（${argv[0]}）`);
+  if (done.status !== 0) throw new ProbeFailed(`探针退出码 ${done.status}（${argv[0]}）`);
   const reply = JSON.parse(done.stdout) as { results: Item[]; peak_bytes?: number | null };
   return { results: reply.results, peak: reply.peak_bytes ?? 0 };
 }
@@ -148,7 +157,7 @@ class Comparison {
     this.stateSha = stateSha;
   }
 
-  /** 同一批请求交给两边，逐个比带标签的结果；交回 Python 的结果。 */
+  /** 同一批请求交给两边，逐个比带标签的结果；交回 TS 的结果（再与 hub 记下的决定比时，比的是 TS 会不会做出同样的决定）。 */
   run(category: string, keys: readonly string[], items: readonly Item[]): Item[] {
     const start = Date.now();
     const python = batchWithPeak(PYTHON, items);
@@ -157,7 +166,7 @@ class Comparison {
       if (JSON.stringify(python.results[index]) !== JSON.stringify(ts.results[index])) this.miss(category, key);
     });
     this.count(category, keys.length, Date.now() - start, python.peak, ts.peak);
-    return python.results;
+    return ts.results;
   }
 
   miss(category: string, key: string): void {
@@ -257,11 +266,11 @@ function compareRoutes(cmp: Comparison, snapshot: Snapshot, events: readonly Led
   const routes = events.filter(({ event, line }) => line > after && event["event"] === "route.kernel");
   const usable = routes.filter(({ event }) => ((event["letters"] as string[] | undefined) ?? []).every((name) => byName.has(name)));
   const keys = usable.map(({ line }) => `账本第 ${line} 行`);
-  const python = cmp.run("route.kernel", keys, usable.map(({ event }) => ({
+  const results = cmp.run("route.kernel", keys, usable.map(({ event }) => ({
     op: "hub.shadow_route", b64s: (event["letters"] as string[]).map((name) => (byName.get(name) as Buffer).toString("base64")),
   })));
   usable.forEach(({ event }, at) => {
-    const result = python[at] as { ok?: boolean; value?: Tagged };
+    const result = results[at] as { ok?: boolean; value?: Tagged };
     const recorded = (event["moves"] as string[] | undefined) ?? [];
     const moves = result.ok ? ((fromTagged(result.value as Tagged) as PyValue[])[0] as Map<string, PyValue>[]) : [];
     const ours = moves.map((move) => {
@@ -297,34 +306,74 @@ function endedTurns(repo: string): Turn[] {
   return turns;
 }
 
-/** 回合：审计重算、半截会话、claude 的生效档位。会话文件按会话号复制进临时的 USERPROFILE 与快照仓库，两边看同一份字节。 */
-function compareTurns(cmp: Comparison, repo: string, snapRepo: string, turns: readonly Turn[]): void {
+/** run_turn 原样写进 result.json 的审计字段（warnings、deliver_refusals 与生效档位另算；api_error、output_error 还会被 blocked、
+ * interface_problem、delivered_output 改写，归 ⑤d）。 */
+const RECORD_FIELDS = ["models", "tool_calls", "violations", "usage", "terminal", "thinking_chars", "thinking_tokens"];
+/** 影子这棵树里 kit_hub.py 的哈希，算法与 kit_hub 的 HUB_SHA256 相同：result.json 是同一版内核写下的，才拿来比。 */
+const KIT_HUB_SHA = sha256(readFileSync(resolve(PROBES, "..", "..", "..", "..", "scripts", "kit_hub.py")));
+
+/** 一个要与 result.json 比的回合：它在这一批里的审计与生效档位是第几个请求。 */
+interface Recorded {
+  readonly id: string;
+  readonly adapter: string;
+  readonly record: Map<string, PyValue>;
+  readonly audit: number;
+  readonly effort: number | null;
+  /** 会话文件在 result.json 写下之后又改过（claude 的会话被 --resume 接着写）：生效档位对不上算“时序”。 */
+  readonly sessionMoved: boolean;
+}
+
+/**
+ * 回合：审计重算、半截会话、claude 的生效档位。会话文件按会话号复制进临时的 USERPROFILE 与快照仓库，两边看同一份字节。
+ * againstRecords（--watch 有了上一份快照之后，即 watch 开始以后才结束的回合）时，TS 的结果还要与 hub 当时写下的 result.json 比；
+ * 别的内核写下的不比，交回它们的个数。
+ */
+function compareTurns(cmp: Comparison, repo: string, snapRepo: string, turns: readonly Turn[], againstRecords: boolean): number {
   const home = mkdtempSync(join(tmpdir(), "themis-shadow-home-"));
+  let otherKernel = 0;
   try {
     let items: Item[] = [];
     let keys: string[] = [];
+    let recorded: Recorded[] = [];
     let size = 0;
     const flush = (): void => {
-      if (items.length) cmp.run("回合", keys, items);
-      [items, keys, size] = [[], [], 0];
+      if (items.length) {
+        const results = cmp.run("回合", keys, items);
+        for (const turn of recorded) compareRecord(cmp, turn, results);
+      }
+      [items, keys, recorded, size] = [[], [], [], 0];
     };
     for (const turn of turns) {
       const spec = ROSTER[turn.agent];
       if (!spec) continue;
-      const result = JSON.parse(readFileSync(join(turn.dir, "result.json"), "utf8")) as { workspace?: string | null; session_id?: unknown };
-      const lines = readFileSync(join(turn.dir, "stream.jsonl")).toString("utf8").split(LF);
+      const resultPath = join(turn.dir, "result.json");
+      const result = JSON.parse(readFileSync(resultPath, "utf8")) as { workspace?: string | null; session_id?: unknown; hub_sha256?: unknown };
+      // 照 hub 的 run_turn：事件流按通用换行读，审计用的工具表加上交差用的工具（pi 的 deliver、claude 的 StructuredOutput）
+      const lines = jsonlLines(readText(join(turn.dir, "stream.jsonl")));
+      const tools = [...(spec.tools ?? []), spec.adapter === "claude" ? STRUCTURED_TOOL : DELIVER_TOOL];
       const fn = spec.adapter === "claude" ? "audit_claude_stream" : "audit_pi_stream";
       const audit = (name: string, ...args: PyValue[]): Item => ({ op: "hub.audit", fn: name, args: args.map((arg) => toTagged(arg)), home });
-      items.push(audit(fn, lines, py(spec), result.workspace ?? null, repo));
+      const auditAt = items.length;
+      items.push(audit(fn, lines, py({ ...spec, tools }), result.workspace ?? null, repo));
       keys.push(`${turn.id} 审计`);
+      let effortAt: number | null = null;
+      let sessionTime = 0;
       if (typeof result.session_id === "string" && result.session_id) {
-        copySessions(turn.agent, spec.adapter, result.session_id, repo, snapRepo, home);
+        sessionTime = copySessions(turn.agent, spec.adapter, result.session_id, repo, snapRepo, home);
         if (spec.adapter === "claude") {
+          effortAt = items.length;
           items.push(audit("claude_session_effort", result.session_id));
           keys.push(`${turn.id} 生效档位`);
         }
         items.push(audit("session_cut_short", snapRepo, turn.agent, spec.adapter, result.session_id));
         keys.push(`${turn.id} 半截会话`);
+      }
+      if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
+      else if (againstRecords) {
+        recorded.push({
+          id: turn.id, adapter: spec.adapter, record: loads(readText(resultPath)) as Map<string, PyValue>, audit: auditAt, effort: effortAt,
+          sessionMoved: sessionTime > statSync(resultPath).mtimeMs,
+        });
       }
       size += turn.size;
       if (size > BATCH_BYTES) flush();
@@ -333,28 +382,68 @@ function compareTurns(cmp: Comparison, repo: string, snapRepo: string, turns: re
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+  return otherKernel;
 }
 
-/** 按会话号复制会话文件：claude 的在 ~/.claude/projects 下各目录里的“<号>.jsonl”，pi 的在信箱 sessions/<工人> 下以“_<号>.jsonl”结尾的文件。 */
-function copySessions(agent: string, adapter: string, session: string, repo: string, snapRepo: string, home: string): void {
-  if (adapter === "claude") {
-    const projects = join(homedir(), ".claude", "projects");
-    if (!existsSync(projects)) return;
-    for (const dir of readdirSync(projects)) {
-      const file = join(projects, dir, `${session}.jsonl`);
-      if (!existsSync(file)) continue;
-      mkdirSync(join(home, ".claude", "projects", dir), { recursive: true });
-      writeFileSync(join(home, ".claude", "projects", dir, `${session}.jsonl`), readFileSync(file));
-    }
+/** TS 的审计按 run_turn 的写法折成 result.json 的那几个字段，逐个与记下的比；对不上的键只写字段名，不写值。 */
+function compareRecord(cmp: Comparison, turn: Recorded, results: readonly Item[]): void {
+  const value = (at: number): PyValue | undefined => {
+    const result = results[at] as { ok?: boolean; value?: Tagged };
+    return result.ok ? fromTagged(result.value as Tagged) : undefined;
+  };
+  const list = (item: PyValue | undefined): PyValue[] => (Array.isArray(item) ? item : []);
+  const audit = value(turn.audit);
+  cmp.count("回合与 result.json", 1, 0);
+  if (!(audit instanceof Map)) {
+    cmp.miss("回合与 result.json", `${turn.id}：审计出错`);
     return;
   }
-  const sessions = join(repo, ".agent", "mailbox", "sessions", agent);
-  if (!existsSync(sessions)) return;
-  for (const name of readdirSync(sessions)) {
-    if (!name.endsWith(`_${session}.jsonl`)) continue;
-    mkdirSync(join(snapRepo, ".agent", "mailbox", "sessions", agent), { recursive: true });
-    writeFileSync(join(snapRepo, ".agent", "mailbox", "sessions", agent, name), readFileSync(join(sessions, name)));
+  const refusals = list(audit.get("deliver_refusals"));
+  const ours = new Map<string, PyValue>([
+    ...RECORD_FIELDS.map((name): [string, PyValue] => [name, audit.get(name) ?? null]),
+    ["warnings", list(audit.get("warnings"))],
+    ["deliver_refusals", BigInt(refusals.length)],
+    ["deliver_refusal_chars", refusals.reduce<bigint>((sum, chars) => sum + BigInt(chars as bigint), 0n)],
+  ]);
+  if (turn.adapter !== "claude") ours.set("effort_effective", list(audit.get("effective_levels")).map(String).join(",") || null);
+  else if (turn.effort !== null) ours.set("effort_effective", value(turn.effort) ?? null);
+  const same = (name: string, item: PyValue): boolean => dumps(item, { sortKeys: true }) === dumps(turn.record.get(name) ?? null, { sortKeys: true });
+  const differ = [...ours].filter(([name, item]) => !same(name, item)).map(([name]) => name);
+  if (!differ.length) return;
+  if (turn.sessionMoved && differ.join() === "effort_effective") {
+    cmp.count("时序", 1, 0);
+    cmp.miss("时序", `${turn.id}：effort_effective`);
+    return;
   }
+  cmp.miss("回合与 result.json", `${turn.id}：${differ.join("、")}`);
+}
+
+/**
+ * 按会话号复制会话文件：claude 的在 ~/.claude/projects 下各目录里的“<号>.jsonl”，pi 的在信箱 sessions/<工人> 下以“_<号>.jsonl”结尾的文件。
+ * 交回复制的文件里最晚的修改时刻（毫秒，没有是 0）。
+ */
+function copySessions(agent: string, adapter: string, session: string, repo: string, snapRepo: string, home: string): number {
+  let latest = 0;
+  const copy = (from: string, to: string): void => {
+    mkdirSync(dirname(to), { recursive: true });
+    writeFileSync(to, readFileSync(from));
+    latest = Math.max(latest, statSync(from).mtimeMs);
+  };
+  if (adapter === "claude") {
+    const projects = join(homedir(), ".claude", "projects");
+    if (!existsSync(projects)) return latest;
+    for (const dir of readdirSync(projects)) {
+      const file = join(projects, dir, `${session}.jsonl`);
+      if (existsSync(file)) copy(file, join(home, ".claude", "projects", dir, `${session}.jsonl`));
+    }
+    return latest;
+  }
+  const sessions = join(repo, ".agent", "mailbox", "sessions", agent);
+  if (!existsSync(sessions)) return latest;
+  for (const name of readdirSync(sessions)) {
+    if (name.endsWith(`_${session}.jsonl`)) copy(join(sessions, name), join(snapRepo, ".agent", "mailbox", "sessions", agent, name));
+  }
+  return latest;
 }
 
 /** 新出现的 letter.rejected：上一份与这一份快照里那个主任务的状态各算一次 guard，对上一个就算一致，都对不上记“时序”。 */
@@ -404,7 +493,7 @@ function taskHashes(state: Buffer): Map<string, string> {
 
 function round(repo: string, previous: Previous | null): { report: Record<string, unknown>; next: Previous | null } {
   const { snapshot, tries } = takeSnapshot(repo);
-  if (snapshot === null) return { report: { skipped: "快照不稳，跳过", tries }, next: previous };
+  if (snapshot === null) return { report: { skipped: "快照不稳，跳过", tries }, next: null }; // 与出错一样：下一轮重试
   const snapRepo = mkdtempSync(join(tmpdir(), "themis-shadow-snap-"));
   try {
     const ledgerDir = join(snapRepo, ".agent", "mailbox", "ledger");
@@ -423,10 +512,11 @@ function round(repo: string, previous: Previous | null): { report: Record<string
     const missing = compareRoutes(cmp, snapshot, events, previous?.ledgerLines ?? 0);
     if (previous) compareRejections(cmp, events, previous.ledgerLines, [previous.snapshot.state, snapshot.state]);
     const turns = endedTurns(repo).filter((turn) => previous?.turns.get(turn.id) !== turn.size);
-    compareTurns(cmp, repo, snapRepo, turns);
+    const otherKernel = compareTurns(cmp, repo, snapRepo, turns, previous !== null);
     const report = {
       at: new Date().toISOString(), state_sha256: snapshot.stateSha, ledger_bytes: snapshot.ledger.length, letters: snapshot.letters.size, tries,
       categories: Object.fromEntries(cmp.counts), shadow_peak_mb: Math.round(process.resourceUsage().maxRSS / 1024), guard_combos: guardCombos, mismatches: cmp.mismatches, route_letters_missing: missing,
+      result_json_other_kernel: otherKernel,
     };
     const seen = new Map(previous?.turns ?? []);
     for (const turn of turns) seen.set(turn.id, turn.size);
@@ -443,6 +533,12 @@ function write(out: string, report: Record<string, unknown>, keep: boolean): voi
   if (keep) writeFileSync(join(out, `${String(report["at"] ?? new Date().toISOString()).replace(/[:.]/gu, "-")}.json`), text);
 }
 
+/** 只记错误的类型与 fs 的错误码，不记消息：消息里可能带着信件、事件流的片段或命令行。 */
+function failure(error: unknown): Record<string, unknown> {
+  const code = (error as { code?: unknown } | null)?.code;
+  return { at: new Date().toISOString(), error: { type: error instanceof Error ? error.name : typeof error, code: typeof code === "string" ? code : null } };
+}
+
 /** --watch 每轮先看的指纹：state.json 的哈希与账本的长度，变了才重算。 */
 function quickPrint(mailbox: string): string {
   const ledger = join(mailbox, "ledger", "events.jsonl");
@@ -457,14 +553,22 @@ function main(argv: readonly string[]): number {
   const repo = resolve(option("--repo") ?? ".");
   const out = resolve(option("--out") ?? join(repo, ".agent", "runs", "_shadow"));
   if (!argv.includes("--watch")) {
-    const { report } = round(repo, null);
+    let report: Record<string, unknown>;
+    try {
+      report = round(repo, null).report;
+    } catch (error) {
+      report = failure(error);
+    }
     write(out, report, true);
     const mismatched = (report["mismatches"] as unknown[] | undefined)?.length ?? 0;
-    process.stdout.write(`${JSON.stringify({ mismatches: mismatched, skipped: report["skipped"] ?? null, categories: report["categories"] ?? {} })}${LF}`);
-    return report["skipped"] ? 3 : mismatched ? 1 : 0;
+    process.stdout.write(`${JSON.stringify({ mismatches: mismatched, skipped: report["skipped"] ?? null, error: report["error"] ?? null, categories: report["categories"] ?? {} })}${LF}`);
+    return report["error"] ? 2 : report["skipped"] ? 3 : mismatched ? 1 : 0;
   }
   const interval = Number(option("--interval") ?? "30") * 1000;
   const rounds = Number(option("--rounds") ?? "0");
+  // 事后要能证明影子跟完了整段，中间没有空档：latest.json 每轮都带开始时刻、已跑与出错的轮数、最后一轮的时刻
+  const watch = { started: new Date().toISOString(), rounds: 0, errors: 0, last_round: "" };
+  let streak = 0;
   let done = 0;
   let previous: Previous | null = null;
   let last = "";
@@ -479,9 +583,20 @@ function main(argv: readonly string[]): number {
         if (again === quick) break;
         quick = again;
       }
-      const { report, next } = round(repo, previous);
-      write(out, report, Boolean((report["mismatches"] as unknown[] | undefined)?.length));
-      if (next) [previous, last] = [next, quick];
+      let report: Record<string, unknown>;
+      try {
+        const result = round(repo, previous);
+        report = result.report;
+        if (result.next) [previous, last] = [result.next, quick];
+        streak = 0;
+      } catch (error) {
+        // 这一轮不算数：previous 与 last 都不动，下一轮照样重算，把这期间的变化一起比；同一串错误只另存第一份
+        report = { ...failure(error), consecutive_errors: (streak += 1) };
+        watch.errors += 1;
+      }
+      watch.rounds += 1;
+      watch.last_round = String(report["at"] ?? new Date().toISOString());
+      write(out, { ...report, watch }, Boolean((report["mismatches"] as unknown[] | undefined)?.length) || streak === 1);
       done += 1;
       if (rounds && done >= rounds) return 0;
     }

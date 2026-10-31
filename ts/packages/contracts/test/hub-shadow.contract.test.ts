@@ -4,13 +4,15 @@
 //     1000 层报错、算读不出的行）；账本里 route.kernel 记的下一步被改过，只在“route.kernel 与账本”报一处；
 //   - 取快照时 state.json 被改了（THEMIS_SHADOW_PAUSE 让影子在读完之后停住，测试趁机改）：改一次就重取，次次都改就“快照不稳，跳过”；
 //   - --watch 两轮：第二轮只重算状态变了的主任务；新出现的 letter.rejected 用上一份与这一份快照各算一次 guard，原因只在上一份上
-//     对得上的也算一致，都对不上的记“时序”；
+//     对得上的也算一致，都对不上的记“时序”；某一轮出错只记错误的类型、接着跑，那一轮不算数，下一轮补比；
+//   - --watch 开始以后才结束的回合：TS 的审计与 Python 照 run_turn 写下的 result.json 比（审计带交差工具 deliver、事件流里有单独的
+//     CR 分行），一致；result.json 被改过的报出来；hub_sha256 是别的内核的只计数、不比；
 //   - 影子的输出放在 .agent/runs/_shadow/ 时，status --json、metrics、decisions replay --json 在 Python 与经启动器的 TS 下相同、
 //     不提 _shadow（prepare 与 integrate 两处在各自的契约里带着 _shadow 跑）。
 // 影子与探针都套 backup_privilege.py off；会话文件从临时的 USERPROFILE 与临时信箱里取，不碰真的家目录。
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { dumps } from "@themis/base/pyjson";
@@ -110,6 +112,41 @@ function fixture(name: string, o: { tamperRoute?: boolean; deep?: boolean } = {}
     put(repo, `${deep}/result.json`, line({ workspace: null }));
   }
   return { repo, home, state, routeLine: 2, nextLine: 5 };
+}
+
+/** 照 kit_hub 的 run_turn 写一个 pi 回合的 result.json：审计用名册的工具表加 deliver、事件流按通用换行读，字段照 summary 的写法。 */
+const RUN_TURN_RECORD = [
+  "import sys",
+  "from pathlib import Path",
+  "sys.path.insert(0, sys.argv[1])",
+  "import kit_hub as kh",
+  "turn, agent, workspace, repo = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4]), Path(sys.argv[5])",
+  "spec = kh.ROSTER[agent]",
+  "tools = list(spec['tools']) + [kh.DELIVER_TOOL]",
+  "audit = kh.audit_pi_stream(kh.jsonl_lines(kh.read_text(turn / 'stream.jsonl')), dict(spec, tools=tools), workspace, repo)",
+  "kh.pd.write_json(turn / 'result.json', {",
+  "    'workspace': str(workspace), 'hub_sha256': kh.HUB_SHA256, 'models': audit.get('models'),",
+  "    'effort_effective': ','.join(audit.get('effective_levels') or []) or None,",
+  "    'tool_calls': audit['tool_calls'], 'violations': audit['violations'], 'usage': audit.get('usage'), 'terminal': audit.get('terminal'),",
+  "    'warnings': audit.get('warnings') or [], 'deliver_refusals': len(audit.get('deliver_refusals') or []),",
+  "    'deliver_refusal_chars': sum(audit.get('deliver_refusals') or []),",
+  "    'thinking_chars': audit.get('thinking_chars'), 'thinking_tokens': audit.get('thinking_tokens'),",
+  "}, exclusive=True)",
+].join(LF);
+
+/** 在 gate-sonnet 下放一个已结束的回合：事件流调用 deliver，前两个事件之间用单独的 CR 分行；result.json 由 Python 照 run_turn 写下。 */
+function recordedTurn(fx: Fixture, id: string): string {
+  const dir = `.agent/mailbox/turns/gate-sonnet/${id}`;
+  put(fx.repo, `${dir}/stream.jsonl`, [
+    line({ type: "tool_execution_start", toolName: "deliver", toolCallId: "d1", args: { 摘要: "做完了" } }) + CR
+      + line({ type: "message_end", message: { role: "assistant", provider: "cc-switch-zhipu-glm", model: "glm-5.3", stopReason: "stop", content: [{ type: "text", text: "完" }] } }),
+    line({ type: "agent_end" }),
+  ].join(LF));
+  const done = spawnSync(PYTHON, ["-c", RUN_TURN_RECORD, join(REPO, "scripts"), join(fx.repo, dir), "gate-sonnet", join(ROOT, "ws"), fx.repo], {
+    encoding: "utf8", env: { ...process.env, PYTHONUTF8: "1" },
+  });
+  expect(done.status, done.stderr).toBe(0);
+  return join(fx.repo, dir, "result.json");
 }
 
 /** 套 backup_privilege.py off 起影子，交回退出码与 latest.json。 */
@@ -228,6 +265,51 @@ describe("⑤-影子：--watch", () => {
     expect(categories["时序"]).toMatchObject({ compared: 2, mismatched: 1 });
     expect(report["mismatches"]).toEqual([{ category: "时序", key: `账本第 ${fx.nextLine + 1} 行`, state_sha256: report["state_sha256"] }]);
   });
+
+  it("watch 开始以后才结束的回合：TS 的审计与 hub 写下的 result.json 一致；被改过的报出来，别的内核写下的只计数", async () => {
+    const fx = fixture("watch-record");
+    const out = join(fx.repo, "shadow-out");
+    const exited = startShadow(fx, ["--watch", "--interval", "1", "--rounds", "2"], {});
+    await waitFor(join(out, "latest.json"));
+    recordedTurn(fx, "20261031T000000000004Z-ffff");
+    const tampered = recordedTurn(fx, "20261031T000000000005Z-gggg");
+    const rewrite = (path: string, change: (record: Record<string, unknown>) => void): void => {
+      const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      change(record);
+      writeFileSync(path, JSON.stringify(record));
+    };
+    rewrite(tampered, (record) => (record["violations"] as string[]).push("编出来的违规"));
+    rewrite(recordedTurn(fx, "20261031T000000000006Z-hhhh"), (record) => Object.assign(record, { hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
+    // 回合不在每轮先看的指纹里：照 hub 的样子在账本记一笔，第二轮才开始
+    const ledger = join(fx.repo, ".agent", "mailbox", "ledger", "events.jsonl");
+    writeFileSync(ledger, readFileSync(ledger, "utf8") + line({ at: AT, event: "turn.finished", turn_id: "20261031T000000000006Z-hhhh" }) + LF);
+    expect(await exited).toBe(0);
+    const report = JSON.parse(readFileSync(join(out, "latest.json"), "utf8")) as Record<string, unknown>;
+    expect((report["categories"] as Record<string, unknown>)["回合与 result.json"]).toMatchObject({ compared: 2, mismatched: 1 });
+    expect(report["result_json_other_kernel"]).toBe(1);
+    expect(report["mismatches"]).toEqual([{ category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-gggg：violations", state_sha256: report["state_sha256"] }]);
+  }, 120_000);
+
+  it("某一轮出错（回合的 result.json 只写了一半）：只记错误的类型，接着跑；那一轮不算数，下一轮整份补比", async () => {
+    const fx = fixture("watch-error");
+    const half = ".agent/mailbox/turns/gate-sonnet/20261031T000000000003Z-eeee";
+    put(fx.repo, `${half}/stream.jsonl`, line({ type: "agent_end" }));
+    put(fx.repo, `${half}/result.json`, "{");
+    const out = join(fx.repo, "shadow-out");
+    const exited = startShadow(fx, ["--watch", "--interval", "3", "--rounds", "2"], {});
+    await waitFor(join(out, "latest.json"));
+    put(fx.repo, `${half}/result.json`, line({ workspace: null }));
+    expect(await exited).toBe(0);
+    const report = JSON.parse(readFileSync(join(out, "latest.json"), "utf8")) as Record<string, unknown>;
+    expect([report["error"], report["mismatches"]]).toEqual([undefined, []]);
+    expect(report["watch"]).toMatchObject({ rounds: 2, errors: 1, last_round: report["at"] });
+    expect(compared(report), "第二轮从头比：三个主任务都算，补全的回合也审了").toMatchObject({ 主任务: 3, 回合: 6 });
+    const kept = readdirSync(out).filter((name) => name !== "latest.json");
+    expect(kept.length, kept.join(" ")).toBe(1);
+    expect(JSON.parse(readFileSync(join(out, kept[0] as string), "utf8"))).toMatchObject({
+      error: { type: "SyntaxError", code: null }, consecutive_errors: 1, watch: { rounds: 1, errors: 1 },
+    });
+  }, 120_000);
 });
 
 describe("⑤-影子：_shadow 被调度器各处跳过", () => {

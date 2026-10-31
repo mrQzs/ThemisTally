@@ -71,6 +71,54 @@
       "new": "false"
     },
     {
+      "name": "S14 --watch 某一轮出错就退出",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "        report = { ...failure(error), consecutive_errors: (streak += 1) };",
+      "new": "        throw error;"
+    },
+    {
+      "name": "S15 出错的那一轮也当成算过，等下一次变化才重算",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "        watch.errors += 1;",
+      "new": "        watch.errors += 1;\n        last = quick;"
+    },
+    {
+      "name": "S16 出错的那一轮不另存",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "?.length) || streak === 1);",
+      "new": "?.length));"
+    },
+    {
+      "name": "S17 审计的工具表退回名册原样（不加交差工具）",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "py({ ...spec, tools })",
+      "new": "py(spec)"
+    },
+    {
+      "name": "S18 事件流改回按 LF 切",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "jsonlLines(readText(join(turn.dir, \"stream.jsonl\")))",
+      "new": "readFileSync(join(turn.dir, \"stream.jsonl\")).toString(\"utf8\").split(LF)"
+    },
+    {
+      "name": "S19 不与 result.json 比",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  const differ = [...ours].filter(([name, item]) => !same(name, item)).map(([name]) => name);",
+      "new": "  const differ: string[] = [];"
+    },
+    {
+      "name": "S20 去掉内核闸门",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;",
+      "new": "if (false) otherKernel += 1;"
+    },
+    {
+      "name": "S21 pi 的生效档位空的时候是空串而不是 None",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": ".map(String).join(\",\") || null)",
+      "new": ".map(String).join(\",\"))"
+    },
+    {
       "name": "S11 TS 的阶段状态表表头改了",
       "file": "ts/packages/hub/src/taskstate.ts",
       "old": "  const rows = [\"| 阶段 | 工人 | 状态 | 备注 |\", \"|---|---|---|---|\"];",
