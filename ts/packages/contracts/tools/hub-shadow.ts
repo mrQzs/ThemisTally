@@ -249,6 +249,80 @@ function compareTasks(cmp: Comparison, snapRepo: string, tasks: readonly string[
   return metas.reduce((sum, list) => sum + list.length, 0);
 }
 
+/** 快照里的 tasks（照 Python 的值：整数是 int）；读不出时是空的。 */
+function taskMap(state: Buffer): Map<string, PyValue> {
+  try {
+    const tasks = (loads(state.toString("utf8")) as Map<string, PyValue>).get("tasks");
+    return tasks instanceof Map ? (tasks as Map<string, PyValue>) : new Map();
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * 提示词（⑤d1，themistally-15 提的静态一类）：全部 pi、claude 岗位的 role_prompt，加上每个主任务（watch 时只算 ts 变了的）协调人的一份、
+ * 各个不是 idle 的阶段那个工人的一份 turn_prompt；参数取典型的（没有新信、不续接、没有报错与代办说明、没有输入目录，工作目录是主仓库）。
+ * 两边用同一份快照、同一批任务书，没有时间差。
+ */
+function comparePrompts(cmp: Comparison, repo: string, snapRepo: string, state: Buffer, names: readonly string[]): void {
+  copyPromptInputs(repo, snapRepo, state, names);
+  const agents = Object.keys(ROSTER).filter((agent) => ["pi", "claude"].includes(ROSTER[agent]?.adapter ?? ""));
+  const items: Item[] = agents.map((agent) => ({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(agent)] }));
+  const keys = agents.map((agent) => `${agent} 角色`);
+  const tasks = taskMap(state);
+  for (const name of names) {
+    const ts = tasks.get(name);
+    if (!(ts instanceof Map)) continue;
+    const turn = (agent: string, taskId: string): Item => ({
+      op: "hub.prompt", fn: "turn_prompt", args: ([snapRepo, ts, agent, taskId, [], repo, null, null, null, null] as PyValue[]).map((arg) => toTagged(arg)),
+    });
+    items.push(turn(COORDINATOR, name));
+    keys.push(`${name} 协调人`);
+    const stages = ts.get("stages");
+    for (const [suffix, stage] of stages instanceof Map ? stages : []) {
+      const agent = STAGE_WORKER[String(suffix)];
+      if (agent === undefined || !agents.includes(agent) || !(stage instanceof Map) || stage.get("status") === "idle") continue;
+      items.push(turn(agent, `${name}-${String(suffix)}`));
+      keys.push(`${name}-${String(suffix)}`);
+    }
+  }
+  cmp.run("提示词", keys, items);
+}
+
+/**
+ * turn_prompt 在快照仓库里要读的：各主任务与阶段目录的 brief.md、state.md，合同任务 runs 目录里算预算用的 claim、run.json、
+ * reservation.json；还有 .git，指向主仓库的 git 目录（ls-tree 只读对象库）。都由这里经 fs 读出复制过去，探针不开主仓库里在用的文件。
+ * 快照仓库因此与主仓库共用 index、HEAD 与 refs：在这里只准跑只读对象库的 git 命令（ls-tree、show、cat-file）；要跑 status、diff、add、
+ * worktree 这些（status 会顺手刷新 index、要拿 index.lock，可能撞上 hub 正在做的提交），先换成私有的 git 目录加 alternates。
+ */
+function copyPromptInputs(repo: string, snapRepo: string, state: Buffer, names: readonly string[]): void {
+  const tasksDir = join(repo, ".agent", "mailbox", "tasks");
+  for (const dir of existsSync(tasksDir) ? readdirSync(tasksDir) : []) {
+    for (const file of ["brief.md", "state.md"]) {
+      const from = join(tasksDir, dir, file);
+      if (!existsSync(from)) continue;
+      mkdirSync(join(snapRepo, ".agent", "mailbox", "tasks", dir), { recursive: true });
+      writeFileSync(join(snapRepo, ".agent", "mailbox", "tasks", dir, file), readFileSync(from));
+    }
+  }
+  const tasks = taskMap(state);
+  for (const name of names) {
+    const ts = tasks.get(name);
+    const contractTask = ts instanceof Map ? ts.get("contract_task") : null;
+    if (typeof contractTask !== "string" || !contractTask) continue;
+    const runs = join(repo, ".agent", "runs", contractTask);
+    for (const attempt of existsSync(runs) ? readdirSync(runs) : []) {
+      const from = join(runs, attempt);
+      if (!statSync(from).isDirectory()) continue;
+      const to = join(snapRepo, ".agent", "runs", contractTask, attempt);
+      mkdirSync(existsSync(join(from, "claim")) ? join(to, "claim") : to, { recursive: true });
+      for (const rel of ["run.json", join("claim", "reservation.json")]) if (existsSync(join(from, rel))) writeFileSync(join(to, rel), readFileSync(join(from, rel)));
+    }
+  }
+  const gitDir = join(repo, ".git");
+  if (existsSync(gitDir)) writeFileSync(join(snapRepo, ".git"), statSync(gitDir).isDirectory() ? `gitdir: ${gitDir}${LF}` : readFileSync(gitDir));
+}
+
 function compareLetters(cmp: Comparison, snapshot: Snapshot, only?: ReadonlySet<string>): void {
   const rels = [...snapshot.letters.keys()].filter((rel) => !only || only.has(rel));
   cmp.run("信件", rels, rels.map((rel) => ({ op: "hub.shadow_letter", b64: (snapshot.letters.get(rel) as Buffer).toString("base64") })));
@@ -506,6 +580,7 @@ function round(repo: string, previous: Previous | null): { report: Record<string
     const hashes = taskHashes(snapshot.state);
     const changed = previous ? [...hashes].filter(([name, hash]) => previous.taskHashes.get(name) !== hash).map(([name]) => name) : [...hashes.keys()];
     const guardCombos = compareTasks(cmp, snapRepo, changed.sort());
+    comparePrompts(cmp, repo, snapRepo, snapshot.state, changed);
     const fresh = previous ? new Set([...snapshot.letters.keys()].filter((rel) => !previous.snapshot.letters.has(rel))) : undefined;
     compareLetters(cmp, snapshot, fresh);
     compareRoutine(cmp, snapRepo, snapshot, fresh);

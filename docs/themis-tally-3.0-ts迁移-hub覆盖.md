@@ -27,7 +27,7 @@
 | `test_guard_final_pass_waits_for_a_failed_rehearsal_of_this_candidate` | 1248 | COVERED | 同上（含 allowed_moves） |
 | `test_upstream_redelivery_invalidates_only_dependents` | 1264 | COVERED | 同上（invalidate_after 两次） |
 | `test_allowed_moves_lists_only_passing_letters` | 1281 | COVERED | 同上 |
-| `test_legacy_task_without_external_facts_is_not_blocked` | 1807 | PARTIAL | guard 一句在「守卫：热修补……」；external_facts_section 归 ⑤d |
+| `test_legacy_task_without_external_facts_is_not_blocked` | 1807 | COVERED | guard 一句在「守卫：热修补……」；external_facts_section 在 hub-prompt（⑤d1）的记下的调用 |
 | `test_audit_may_return_several_stages_and_the_upstream_one_goes_first` | 5223 | PARTIAL | letter_errors、return_stages、guard、hotfix_reason 都在「守卫：热修补……」；最后两句核对提示词（ROLE_EXTRA_OUTPUT、worker.md）归 ⑤d |
 | `test_owner_ordered_gate_rework_is_a_hotfix_and_holds_the_executor_back` | 5460 | COVERED | hub-state.compare「守卫：热修补……」 |
 | `test_a_gate_claim_opens_the_hotfix_and_holds_the_executor_until_the_gate_redelivers` | 6604 | COVERED | 同上 |
@@ -36,7 +36,7 @@
 | `test_routine_letters_map_to_the_next_step（11 个参数）` | 7480 | COVERED | hub-state.compare「信件」：hub.samples 用用例的 routine_letter 渲染 |
 | `test_exceptions_go_to_the_coordinator（7 个参数）` | 7495 | COVERED | 同上 |
 | `test_routine_briefs_quote_each_path_on_its_own` | 7673 | COVERED | hub-state.compare「守卫：开工、返工、通过」：engine_env 只提供仓库与状态，直接调 |
-| `test_downstream_notes_ride_along_to_every_later_turn` | 7729 | PARTIAL | upstream_notes 在随机对照里；进回合输入（turn_prompt）归 ⑤d |
+| `test_downstream_notes_ride_along_to_every_later_turn` | 7729 | COVERED | upstream_notes 在随机对照里；进回合输入（turn_prompt）与 letter_from_output 在 hub-prompt（⑤d1）的记下的调用 |
 | `test_stage_reworks_are_capped` | 1564 | PARTIAL | 返工上限的 guard 与状态表在随机对照里；经 Engine 的场景归 ⑤i |
 
 ⑤a 里的变异（ts/mutations/hub-a.ts.json）30 条（含 base 的 purePathRelativePosix 两条），抓住 27 条，3 条照实测标为等价：字段名前的空白（已知字段名里没有空白）、冒号后的制表符（值随后整体 strip）、布尔不算数字（JS 的布尔本来就不是数字）。
@@ -91,4 +91,48 @@
 
 ⑤c 里的变异（ts/mutations/hub-c.ts.json）37 条，抓住 36，1 条照实测标为等价（C25：main 已经 normcase，依赖目录名是小写 ASCII、按段拼接，再 normcase 一次不改任何字）。第一轮漏掉 4 条：补了“说明截到 200 个字”“1 与 1.0 在集合里是同一个”“dict() 把长度为 2 的字符串当成一对”三例；截断那条补了之后仍漏，原因是契约的临时目录带 8.3 短名，path_forms 经 resolve 得到长名，命令里写短名对不上、根本没被判违规。主工作区改按长名搭之后抓住，短名的写法留作一种“不该被判违规”的写法。
 
-其余场景随各片补（⑤d 到 ⑤j）。
+## ⑤d 回合启动与输入
+
+### ⑤d1 提示词与交差核对
+
+做法：照 ⑤c，Python 探针 hub.audit_samples 跑下表的用例与 ⑤a 一节的 1807、7729（共 34 条），记下它们对回合输入与交差核对函数的每一次顶层调用（Hub 记成仓库路径），契约 hub-prompt 交给 Python、Node、Bun 在同一份文件上重放、逐字比。采样照 pytest 先搭两个 autouse 夹具（test_kit_hub 的 pi_knows_every_flag、conftest 的 python_kernel_impl；⑤c 起初没搭，那时采的用例不受影响，⑤c 的契约照旧全过）与用例自己的 engine_env。用例里改过的内核全局（模板目录、HERE、read_text 的替身）重放时已经撤销：要点在那上面的三条另有手写的对照（两边设同一个值），记 COVERED；其余照实记 PARTIAL。经 Engine 的用例里 turn_prompt 是按模块名取的，照样记下，正好带来真实的主任务状态形状。记录器另记下调用当时的结果（themistally-15 提出），契约先核对 Python 重放与它：对不上的用例 5 条（下表注明），只有另有手写对照的两条记 COVERED；⑤c 用同一个采样，94 次调用全部对上，⑤c 一节的数字不变。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_planner_sees_the_transitional_gate_assertions` | 599 | COVERED | hub-prompt：记下的调用三边重放；「过渡断言」另有生成的门禁测试与前端测试 |
+| `test_planner_sees_the_transitional_frontend_cases` | 624 | COVERED | hub-prompt：同上（E6 的三支） |
+| `test_planner_sizes_the_slice_against_one_attempt` | 647 | COVERED | hub-prompt：记下的调用 |
+| `test_gate_rules_keep_the_regression_tests_valid_after_integration` | 654 | COVERED | hub-prompt：同上 |
+| `test_role_prompt_only_renders_the_workers_own_duties` | 3619 | COVERED | hub-prompt：同上；「手写的对照」另有临时模板目录里的角色段 |
+| `test_engineering_rules_from_committed_agents_md_reach_the_pi_roles` | 3631 | COVERED | 用例改 HERE 指到临时仓库（重放时已撤销，当时的结果与重放对不上）：「手写的对照」两边设同一个内核仓库（已提交与没提交、在末尾、标题后没有换行、不是仓库） |
+| `test_the_committed_agents_md_has_the_engineering_rules` | 3653 | COVERED | hub-prompt：记下的调用（真的内核仓库） |
+| `test_template_read_waits_out_a_file_being_replaced` | 5134 | COVERED | 用例换掉 read_text 与 sleep（重放时已撤销，当时的结果与重放对不上）：「手写的对照」用真的文件——先是空的、0.3 秒后有内容，一直是空的、不存在的报 HubError |
+| `test_worker_prompts_state_the_turn_time_limit` | 6660 | COVERED | hub-prompt：记下的调用；随机对照另有没有时限的岗位 |
+| `test_the_prompt_says_how_to_hand_in` | 7836 | COVERED | hub-prompt：记下的调用 |
+| `test_unreadable_lines_are_not_counted_as_unreadable_deliveries` | 7918 | COVERED | ⑤c 已覆盖审计一半；interface_problem 在 hub-prompt 的记下的调用 |
+| `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | PARTIAL | turn_prompt 的预算一行在记下的调用；accept_contract 归 ⑤e |
+| `test_kernel_writes_the_contract_version_and_base_it_assigns` | 1441 | PARTIAL | next_contract_version 在「回合输入的小件」；accept_contract 改写合同归 ⑤e |
+| `test_contract_runs_the_earlier_gates_as_regression_checks` | 1472 | PARTIAL | regression_gates 与合同端的回合输入在记下的调用；contract_requirements 归 ⑤e |
+| `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | PARTIAL | 站主决定进合同端的回合输入在记下的调用；附进合同归 ⑤e |
+| `test_gate_post_judges_mutations_from_the_record` | 740 | PARTIAL | 审核端的存档一节在记下的调用；变异判定归 ⑤f |
+| `test_gate_post_checks_the_anchors_before_mutating` | 795 | PARTIAL | 同上；锚点核对归 ⑤f |
+| `test_mutations_must_cover_the_changed_files` | 1531 | PARTIAL | 同上；覆盖核对归 ⑤f |
+| `test_new_attempt_gate_post_starts_from_the_previous_whitebox` | 5295 | PARTIAL | turn_prompt 的“新的 attempt”一行在记下的调用；seed_whitebox 归 ⑤f |
+| `test_worker_env_drops_the_decision_key_and_host_session_vars` | 3893 | PARTIAL | worker_env 在「手写的对照」（设了假 key 的环境，只比名字）；kernel_env 归 ⑤f |
+| `test_planner_may_only_run_npm_view` | 3827 | PARTIAL | role_prompt 在记下的调用；claude 工人的 --allowedTools 归 ⑤d2 |
+| `test_an_audit_turn_hands_in_through_deliver` | 7348 | PARTIAL | letter_from_output、role_schema 在记下的调用；经 TurnRunner 的回合归 ⑤d2 |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | role_prompt 在记下的调用；热修补的重交归 ⑤g |
+| `test_candidate_defects_go_to_the_final_review_which_cannot_pass_them` | 993 | PARTIAL | 终审的候选缺陷一节在记下的调用；经 Engine 的流转归 ⑤i |
+| `test_review_history_survives_rework_and_seals_the_next_round` | 1152 | PARTIAL | 复审封板一节在记下的调用；经 Engine 的流转归 ⑤i |
+| `test_unverified_external_facts_wait_for_the_owner` | 1745 | PARTIAL | 仓库外事实一节在记下的调用（其中有的当时的结果与重放对不上：多回合之后文件已变）；Engine 与 send --facts-checked 归 ⑤i、⑤j |
+| `test_a_turn_killed_midway_restarts_in_a_new_session_and_is_requeued_only_once` | 1985 | PARTIAL | 续接说明在记下的调用；requeue 归 ⑤i |
+| `test_requeue_leaves_unread_and_kernel_run_stages_alone` | 2029 | PARTIAL | 同上 |
+| `test_the_gate_hotfix_turn_carries_the_executors_words` | 6622 | PARTIAL | 热修补的原话一节在记下的调用；经 Engine 的流转归 ⑤i |
+| `test_a_timed_out_voided_turn_is_resumed_not_restarted` | 6669 | PARTIAL | “上一回合超时作废”一节在记下的调用（其中有的当时的结果与重放对不上）；经 Engine 的流转归 ⑤i |
+| `test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint` | 6695 | PARTIAL | 同上 |
+| `test_the_owners_rework_words_reach_the_reworked_stage_verbatim` | 6712 | PARTIAL | 站主的原话一节在记下的调用（其中有的当时的结果与重放对不上）；经 Engine 的流转归 ⑤i |
+
+COVERED 11、PARTIAL 21。前几片留给 ⑤d 的 PARTIAL：⑤a 的 1807、7729 改成 COVERED（见上）；⑤c 的 5946、3692、3798、5856、7303 都经 TurnRunner，归 ⑤d2。
+另有按种子生成的回合输入（第 ⑤a 片的随机主任务状态加回合输入用到的字段，乘全部岗位、有无输入目录、四种续接、报错与代办说明）与生成的过渡断言，不算进某个用例的覆盖。变异 ts/mutations/hub-d1.ts.json 37 个全部抓住（第一轮漏 2 个：模板只重读一次——“正被替换”那条靠时序碰运气，改成探针调用前写标记、写入的进程等标记再过 0.3 秒；说明行只认 r、R 前缀——后面的去引号顺手去掉了多留下的引号，加了以空白加引号开头的说明）；影子的变异加 S23，23 个全部抓住。
+
+其余场景随各片补（⑤d2 到 ⑤j）。

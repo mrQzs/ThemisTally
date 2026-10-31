@@ -146,3 +146,53 @@ export const CLAUDE_REACH_NAMES: Readonly<Record<string, string>> = {
 export const DEPENDENCY_DIRS: readonly string[] = ["ts/node_modules", "desktop/web/node_modules"];
 /** pi 上按路径读与搜索的工具：参数里的 path 就是读的位置。 */
 export const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+
+// --- 回合启动与输入（第 ⑤d 片）：kit_hub.py 的同名常量 ---------------------------------------------------------------
+
+/** 回合输入超过这个长度就写进文件，命令行只给路径（Windows 命令行上限约 32K 字符）。 */
+export const MAX_INLINE_PROMPT = 20000;
+/** 只有内核调决策 API 时需要它；工人与调度器子进程一律拿不到。 */
+export const DECISIONS_KEY_ENV = "TYPESAFE_API_KEY";
+/** 工人进程不继承的会话变量：让 hub 无论从哪里启动，工人的行为都一样。 */
+export const WORKER_ENV_DROP: readonly string[] = [DECISIONS_KEY_ENV, "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"];
+export const CLAUDE_SETTINGS = { autoMemoryEnabled: false, advisorModel: "" } as const;
+/** claude 工人另加的环境（第 28 轮）：每条 Bash 命令之后 shell 回到工作目录。 */
+export const CLAUDE_WORKER_ENV: Readonly<Record<string, string>> = { CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "1" };
+/** 模板读到空文件时再读几次（合入内核时文件正被替换，第 26 轮）。 */
+export const TEMPLATE_READ_TRIES = 5;
+/** 回合的只读输入目录（第 88 轮）：worktree 根目录下的 <仓库名>-hub-inputs/<键>；%s 是仓库名。 */
+export const INPUTS_DIR = "%s-hub-inputs";
+export const INPUTS_INDEX = "INPUTS.json";
+/** 单个文件超过这么大就不复制进输入目录，清单里记进 skipped。 */
+export const INPUT_FILE_LIMIT = 4 * 1024 * 1024;
+/** 交差格式（逐字进提示词）。 */
+export const OUTPUT_SPECS: Readonly<Record<string, string>> = {
+  coordinator: "{\"letters\": [{\"to\": \"<收信人>\", \"type\": \"开工|返工|通过|等待|停止|汇报|提问\", \"task_id\": \"<阶段任务或主任务>\", \"in_reply_to\": \"<msg-id 或 none>\", \"摘要\": \"…\", \"提交\": \"无\", \"验证\": \"…\", \"偏离\": \"无\", \"需协调人决定\": \"无\", \"证据\": \"…\", \"brief\": \"<开工、返工时必填：下一阶段任务书的 Markdown 全文>\"}], \"state\": \"<你的进度断点，Markdown>\"}",
+  worker: "{\"letter\": {\"type\": \"交付|返工完成|提问|阻塞|交接|进度\", \"in_reply_to\": \"<msg-id>\", \"摘要\": \"…\", \"提交\": \"…\", \"验证\": \"…\", \"偏离\": \"…\", \"需协调人决定\": \"…\", \"下游须知\": \"…\", \"证据\": \"…\"}, \"report\": \"<report.md 全文>\", \"state\": \"<state.md 全文>\"}",
+};
+/** 各岗位另加的输出要求（逐字进提示词）。 */
+export const ROLE_EXTRA_OUTPUT: Readonly<Record<string, string>> = {
+  planner: "另加 \"external_facts\": [{\"fact\": \"<计划依赖的仓库外事实>\", \"source\": \"<出处>\", \"verified\": \"<核实的命令与结果；没核实就写“未核实”>\"}]，没有仓库外事实就写 []",
+  contract: "另加 \"contract_md\": \"<合同 Markdown 全文>\"",
+  gate: "战后模式把变异清单写进工作目录根下的 mutation-spec.json：{\"commands\": [{\"id\": \"W1\", \"argv\": [\"python\", \"-m\", \"pytest\", \"<文件>\", \"-q\"]}], \"mutations\": [{\"name\": \"…\", \"file\": \"<相对路径>\", \"old\": \"<原文片段>\", \"new\": \"<改坏后的片段>\"}]}，输出里另加 \"mutation_spec_file\": \"mutation-spec.json\"，不要再把清单抄进输出（内核读的就是这个文件）；commands 里每一条都是检验命令，每条变异缺省要被每一条抓住，某条命令本来就测不到的变异（例如静态检查碰不到的行为改动），在那一条里加 \"expect_missed\": [\"<命令 id>\"]（至少留一条命令抓它，终审会看）；安装依赖这类准备步骤不要放进 commands：mutate 在你的工作目录里原地跑，依赖在你的回合里照合同的 setup 装好就在；交差前在工作目录里把 commands 每条跑一遍、都要退出 0（mutate 的基线就是这一步，缺依赖、cwd 错、路径错都能当场发现）；确实测不出来的等价改写，在那一条里加 \"equivalent\": \"<为什么改了行为也不变>\"（终审会逐条复核），其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）另加 \"unmutated\": [{\"file\": \"<相对路径>\", \"reason\": \"<为什么>\"}]（终审会复核）；候选不满足合同写明的行为时另加 \"candidate_defects\": [{\"test\": \"<红的用例 node id 或函数名>\", \"contract\": \"<合同原文>\", \"where\": \"<候选文件:行>\"}]（这时可以不给 mutation_spec_file）",
+  audit: "letter 里另加三项，都要写：\"结论\": \"通过|返工\"（交付以外的信写“无”）；\"退回\": \"合同端|门禁端|战后门禁|执行端|规划端\"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”隔开，例如 \"合同端、门禁端\"；不是返工写“无”）；\"阻塞项\": \"<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>\"（不是返工写“无”）",
+};
+/** 第 96 轮：这几个 pi 岗位带 --no-context-files，读不到 AGENTS.md，内核把“通用工程要求”一节拼进它们的角色提示词。 */
+export const ENGINEERING_ROLES: readonly string[] = ["contract", "gate", "audit"];
+export const ENGINEERING_HEADING = "## 通用工程要求（所有代理）";
+/** 合同的总预算给这一版至少留几次 attempt：一次失败之后还能返工给执行端。 */
+export const MIN_ATTEMPTS_LEFT = 2;
+/** 门禁测试实际撞过的坑（第 52 轮）：开工时交给门禁端自查。 */
+export const GATE_PITFALLS: readonly string[] = [
+  "只用已安装版本里有的 API：先在 node_modules 里查。@testing-library/dom 10.4.0 的 fireEvent 没有 hashChange，要写 fireEvent(window, new HashChangeEvent('hashchange'))（T011）。",
+  "每个探针文件自带它用到的辅助函数：探针之间不共享作用域，在一个探针里定义、另一个里调用会报 ReferenceError（T011）。",
+  "期望值要算出来，不凭印象手写：排序后的数组按 JS 默认排序（UTF-16 码元序，'candidate.patch' 在 'checks/…' 前面）；依赖夹具的数量从夹具数，别写死（T011 的 setDetail 只给 1 行却断言 8 个选项；T012 的仓库数没算上保存进桩的那一个）。",
+  "卸载、清理对准被测的那个根：用 mountApp / render 返回的结果，不要另渲染一个空元素再卸载它（T011）。",
+  "jsdom 的局限：属性选择器匹配不了含 <、> 的值（改成遍历元素、比较 getAttribute）；写 location.hash 会用 setTimeout(fn, 0) 派发 hashchange，假计时器下它是一个挂起的计时器，数计时器之前先推进掉（T011、T012）。",
+  "字样、白名单这类扫描不能误伤合同要求的元素：例如「待验收」分组胶囊含“验收”二字（T011）。",
+  "用例之间不留状态：模块级的桩、mock 覆盖、计时器、地址在每条用例开头重置，cleanup 之后重挂载要拿到新的数据。",
+  "同一行为在合同里只认一种说法：两条断言对同一行为的要求互相矛盾时，先发提问（T010 的 K25 与 D09）。",
+  "辅助函数收几个参数就只传几个：rowOf 只收一个参数，logsCatRow 把覆盖值当第二个参数传进去，被悄悄丢掉，D05「取不到写—」、D09「checks 为 -」的夹具都没生效（T011）。写完夹具，先断言夹具本身取到了想要的值。",
+  "断言命令文本照真实的连接方式写：信封的 command 按空格连接（logs cat <task>/<attempt> <路径>），正则别写成路径里的斜杠（T011 的 D06）。",
+  "只断言合同写明的内容：合同没规定的细节（例如出错时读哪个文件、显示哪条路径）不写死；一条用例里不同时要求互斥的两种状态（T011 的 TRANS：既要缺省选中 ui-readonly-api，又要页面上有 logs-cat 的表，少点了一下）。",
+];

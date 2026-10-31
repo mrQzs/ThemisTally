@@ -1,0 +1,236 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "D01 别的角色的职责段也留着",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "(who === role ? body : \"\")",
+      "new": "(who === role || true ? body : \"\")"
+    },
+    {
+      "name": "D02 占位符只换第一处、值里的 $ 当替换模式",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "text = text.split(`{{${key}}}`).join(value);",
+      "new": "text = text.replace(`{{${key}}}`, value);"
+    },
+    {
+      "name": "D03 模板只重读一次",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "attempt < TEMPLATE_READ_TRIES",
+      "new": "attempt < 1"
+    },
+    {
+      "name": "D04 工程要求读工作区里没提交的 AGENTS.md",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "const text = git([\"show\", \"HEAD:AGENTS.md\"], kernelRoot, false);",
+      "new": "const text = readText(purePathStr(kernelRoot, \"AGENTS.md\"));"
+    },
+    {
+      "name": "D05 工程要求一节取到文件末尾",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "text.slice(start, end >= 0 ? end : text.length)",
+      "new": "text.slice(start, text.length)"
+    },
+    {
+      "name": "D06 工程要求不拼进合同端、门禁端、审核端",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "ENGINEERING_ROLES.includes(spec.role) ?",
+      "new": "false ?"
+    },
+    {
+      "name": "D07 没有说明时的写法改了",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "|| \"（没有说明）\"",
+      "new": "|| \"（无）\""
+    },
+    {
+      "name": "D08 说明行只认 r、R 前缀",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "\"rRuU\".includes(line[0] as string)",
+      "new": "\"rR\".includes(line[0] as string)"
+    },
+    {
+      "name": "D09 前端过渡用例的行号从 0 数",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": ".filter((char) => char === LF).length + 1;",
+      "new": ".filter((char) => char === LF).length;"
+    },
+    {
+      "name": "D10 前端过渡用例的标题可以跨行",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "[^${quote}${BS}n]*（过渡）[^${quote}${BS}n]*",
+      "new": "[^${quote}]*（过渡）[^${quote}]*"
+    },
+    {
+      "name": "D11 前端测试目录不往下找",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (lstatOrNull(child)?.isDirectory()) walk(child);",
+      "new": "if (false) walk(child);"
+    },
+    {
+      "name": "D12 仓库外事实没写出处时的写法改了",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "or(pyGet(item, \"source\"), \"未写\")",
+      "new": "or(pyGet(item, \"source\"), \"无\")"
+    },
+    {
+      "name": "D13 仓库外的路径也换成输入目录里的",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "rel === \"..\" || rel.startsWith(`..${BS}`)",
+      "new": "rel === \"..\""
+    },
+    {
+      "name": "D14 回归测试不排除自己这一片的",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "GATE_BASELINE.match(path) !== null && path !== own)",
+      "new": "GATE_BASELINE.match(path) !== null)"
+    },
+    {
+      "name": "D15 内核的 git 关掉文件名的引号转义",
+      "file": "ts/packages/hub/src/kernel.ts",
+      "old": "spawnSync(\"git\", [...args],",
+      "new": "spawnSync(\"git\", [\"-c\", \"core.quotepath=off\", ...args],"
+    },
+    {
+      "name": "D16 派遣过的草稿也原号重写",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": " && !pyTruthy(pyGet(current, \"dispatched\"))",
+      "new": ""
+    },
+    {
+      "name": "D17 已用掉的秒数不按 %d 截断",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "${pyPercentD(used.wall_seconds_used)} 秒",
+      "new": "${used.wall_seconds_used} 秒"
+    },
+    {
+      "name": "D18 时限写成秒",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "Math.floor(spec.timeout / 60)",
+      "new": "spec.timeout"
+    },
+    {
+      "name": "D19 内核代办的续接说明给了所有岗位",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "pyTruthy(pyGet(resume, \"routing\")) && role === \"coordinator\"",
+      "new": "pyTruthy(pyGet(resume, \"routing\"))"
+    },
+    {
+      "name": "D20 站主的任务书不认整行的 type",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": ".includes(`${LF}type: 任务${LF}`)",
+      "new": ".includes(\"type: 任务\")"
+    },
+    {
+      "name": "D21 审核历史不按阶段过滤",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": ".filter((item) => pyEq(pyGet(item, \"stage\"), stage));",
+      "new": ".filter(() => true);"
+    },
+    {
+      "name": "D22 白盒测试的输出没写时不按空串",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "      `- 白盒测试的输出：${inRepo(or(pyGet(gatePost(), \"whitebox_log\"), \"\"))}`);",
+      "new": "      `- 白盒测试的输出：${inRepo(pyGet(gatePost(), \"whitebox_log\"))}`);"
+    },
+    {
+      "name": "D23 候选缺陷的写法改了",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": " —— 合同：",
+      "new": " — 合同："
+    },
+    {
+      "name": "D24 等价变异等清单里的值不是字符串也照写",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": ".map((item) => pyPlus(\"- \", item))",
+      "new": ".map((item) => `- ${pyStrValue(item)}`)"
+    },
+    {
+      "name": "D25 门禁检查的格式少了反斜杠",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "超时：600s · 期望退出码：0 · 输出须匹配：\" + code(`${BS}d+ passed`)",
+      "new": "超时：600s · 期望退出码：0 · 输出须匹配：\" + code(`d+ passed`)"
+    },
+    {
+      "name": "D26 门禁的坑换了列表符号",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "GATE_PITFALLS.map((item) => `- ${item}`)",
+      "new": "GATE_PITFALLS.map((item) => `* ${item}`)"
+    },
+    {
+      "name": "D27 热修补的原话在每个门禁阶段都给",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "const claims = pre ?",
+      "new": "const claims = true ?"
+    },
+    {
+      "name": "D28 上一轮白盒测试按整个 run_dir 找",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "purePathName(pyStrValue(or(pyGet(pyItem(ts, \"exec\"), \"run_dir\"), \".\")))",
+      "new": "pyStrValue(or(pyGet(pyItem(ts, \"exec\"), \"run_dir\"), \".\"))"
+    },
+    {
+      "name": "D29 复核不过只列三条",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "errors.slice(0, 8)",
+      "new": "errors.slice(0, 3)"
+    },
+    {
+      "name": "D30 pi 以退出码 0 结束也算接口报错",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "!(code === null || pyEq(code, 0n))",
+      "new": "!(code === null)"
+    },
+    {
+      "name": "D31 被改过的哈希只取前 8 位",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "now.slice(0, 12)",
+      "new": "now.slice(0, 8)"
+    },
+    {
+      "name": "D32 信的 in-reply-to 缺省为空",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "or(pyGet(raw, \"in_reply_to\"), \"none\")",
+      "new": "or(pyGet(raw, \"in_reply_to\"), \"\")"
+    },
+    {
+      "name": "D33 结论三项与下游须知没写也加上",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (pyTruthy(pyGet(raw, key))) fields.set(key,",
+      "new": "fields.set(key,"
+    },
+    {
+      "name": "D34 说明行前的制表符不算空白",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "text[index] === \" \" || text[index] === TAB",
+      "new": "text[index] === \" \""
+    },
+    {
+      "name": "D35 协调人也拿工人的交差格式",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "OUTPUT_SPECS[role === \"coordinator\" ? \"coordinator\" : \"worker\"]",
+      "new": "OUTPUT_SPECS[\"worker\"]"
+    },
+    {
+      "name": "D36 不附上次留下的 state.md",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (state) parts.push(",
+      "new": "if (false) parts.push("
+    },
+    {
+      "name": "D37 不附上游的下游须知",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (notes.length) parts.push(",
+      "new": "if (false) parts.push("
+    }
+  ]
+}

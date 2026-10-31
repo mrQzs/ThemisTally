@@ -5,9 +5,12 @@
   "exports": {
     "./audit": "./src/audit.ts",
     "./constants": "./src/constants.ts",
+    "./delivery": "./src/delivery.ts",
     "./errors": "./src/errors.ts",
+    "./kernel": "./src/kernel.ts",
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
+    "./prompt": "./src/prompt.ts",
     "./schema": "./src/schema.ts",
     "./taskstate": "./src/taskstate.ts"
   },

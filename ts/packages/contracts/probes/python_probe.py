@@ -4,6 +4,7 @@
 TS 实现的探针（ts_probe.ts）收发同样的 JSON，契约测试与对照测试对两边一视同仁。
 stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252），stdout 只写 ASCII。
 """
+import ast
 import base64
 import contextlib
 import io
@@ -1214,10 +1215,88 @@ def op_hub_audit(request):
         return {"ok": False, "error": type(exc).__name__}
     return {"ok": True, "value": to_tagged(value)}
 
+def op_hub_prompt(request):
+    """第 ⑤d 片：kit_hub 的回合输入与交差核对。参数带标签，仓库按路径给（Hub 由它建），路径参数照 kit_hub 的调用方转成 Path。
+    template_dir、kernel_root 给了时，调用期间把 kit_hub 的 TEMPLATE_DIR、HERE 换成它（TS 那边以参数给同一个值），之后换回。
+    worker_env 只交回排好序的变量名（迁移计划第 0 节：不比值）。HubError 交回文字与退出码，别的异常只比类型。"""
+    fn = request["fn"]
+    args = [from_tagged(item) for item in request["args"]]
+    saved = {}
+    if request.get("template_dir") is not None:
+        saved["TEMPLATE_DIR"] = kit_hub.TEMPLATE_DIR
+        kit_hub.TEMPLATE_DIR = Path(request["template_dir"])
+    if request.get("kernel_root") is not None:
+        saved["HERE"] = kit_hub.HERE
+        kit_hub.HERE = Path(request["kernel_root"]) / "scripts"
+    path = lambda value: None if value is None else Path(value)  # noqa: E731
+    hub = lambda repo: kit_hub.Hub(Path(repo))  # noqa: E731
+    if request.get("started") is not None:  # 契约用：调用之前写一个标记，另一个进程据此掐时机
+        Path(request["started"]).write_text("", encoding="utf-8")
+    try:
+        if fn in ("render_template", "role_prompt", "engineering_rules", "delivery_problem", "role_schema", "external_facts_section",
+                  "interface_problem"):
+            value = getattr(kit_hub, fn)(*args)
+        elif fn in ("transitional_section", "worker_file_problem"):
+            value = getattr(kit_hub, fn)(Path(args[0]))
+        elif fn in ("letter_from_output", "delivered_output", "next_contract_version"):
+            value = list(getattr(kit_hub, fn)(*args))
+        elif fn == "input_path":
+            repo, inputs, target = args
+            value = kit_hub.input_path(hub(repo), path(inputs), target)
+        elif fn == "turn_prompt":
+            repo, ts, agent, task_id, letters, workspace, error, inputs, resume, routing_note = args
+            value = kit_hub.turn_prompt(hub(repo), ts, agent, task_id, letters, Path(workspace), error, path(inputs), resume, routing_note)
+        elif fn in ("regression_gates", "budget_usage"):
+            value = getattr(kit_hub, fn)(hub(args[0]), args[1])
+        elif fn == "worker_env":
+            value = sorted(kit_hub.worker_env(*args))
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    finally:
+        for name, original in saved.items():
+            setattr(kit_hub, name, original)
+    return {"ok": True, "value": to_tagged(value)}
+
+
+def _autouse_fixtures(path):
+    """一个测试文件里带 autouse=True 的 pytest 夹具的函数名（照源码找，不靠导入）。"""
+    names = []
+    for node in ast.parse(Path(path).read_text(encoding="utf-8")).body:
+        for deco in getattr(node, "decorator_list", []):
+            if isinstance(deco, ast.Call) and any(item.arg == "autouse" and getattr(item.value, "value", None) is True for item in deco.keywords):
+                names.append(node.name)
+    return names
+
+
+def _recorded_value(name, value):
+    """采样当时的结果，形状照 op_hub_audit、op_hub_prompt 的后处理（元组成列表，worker_env 只记排好序的名字：值不进样本），
+    存成 JSON 文字：随样本再经 to_tagged 也只是一个字符串，契约照原样拿去比。"""
+    if name == "worker_env":
+        value = sorted(value)
+    elif isinstance(value, tuple):
+        value = list(value)
+    try:
+        return json.dumps({"ok": True, "value": to_tagged(value)})
+    except Exception:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": "UNTAGGABLE"})
+
+
+def _recorded_error(exc):
+    if isinstance(exc, kit_hub.HubError):
+        return json.dumps({"ok": False, "error": "HubError", "message": str(exc), "code": exc.code})
+    return json.dumps({"ok": False, "error": type(exc).__name__})
+
+
 def op_hub_audit_samples(request):
-    """第 ⑤c 片：跑 tests/test_kit_hub.py 里 request["tests"] 列出的用例（都不经 Engine），记下它们对回合审计函数的
-    每一次顶层调用（内层的不记；参数照签名补全默认值，Path 换成字符串，元组换成列表），对照测试拿去交给三边重放：
-    样例只有 pytest 这一个来源。tmp_path 给 request["tmp"] 下的新目录，monkeypatch 用 pytest 的 MonkeyPatch，跑完撤销。"""
+    """第 ⑤c、⑤d 片：跑 tests/test_kit_hub.py 里 request["tests"] 列出的用例，记下它们对 request["functions"] 的每一次顶层调用
+    （内层的不记；参数照签名补全默认值，Path 换成字符串，Hub 换成仓库路径，元组换成列表）与当时的结果（_recorded_value），
+    对照测试拿去交给三边重放，并先核对 Python 重放与当时的结果：重放读的是用例跑完时的文件、用例改过的全局已经撤销，
+    对不上的那几条不算重放过这个场景。样例只有 pytest 这一个来源。tmp_path 给 request["tmp"] 下的新目录，monkeypatch 用 pytest
+    的 MonkeyPatch，跑完撤销；pytest 每条用例先搭的 autouse 夹具照样先搭，两个文件里的 autouse 夹具与已知的不一样就不采。"""
     import inspect
     import tempfile
     from _pytest.monkeypatch import MonkeyPatch
@@ -1225,9 +1304,16 @@ def op_hub_audit_samples(request):
     sys.path.insert(0, str(ROOT / "tests"))
     import test_kit_hub as cases  # noqa: E402
 
+    # 这里手搭的 autouse 夹具只有这两个：两个文件里再加了，采样会悄悄少搭一个（第 ⑤d 片撞过：Engine 的用例因此走了另一条路）
+    found = sorted(_autouse_fixtures(ROOT / "tests" / "test_kit_hub.py") + _autouse_fixtures(ROOT / "tests" / "conftest.py"))
+    if found != ["pi_knows_every_flag", "python_kernel_impl"]:
+        return {"ok": False, "error": "AUTOUSE_CHANGED", "names": found}
+
     def plain(value):
         if isinstance(value, Path):
             return str(value)
+        if isinstance(value, kit_hub.Hub):  # 第 ⑤d 片：Hub 记成仓库路径，重放时由它再建
+            return str(value.repo)
         if isinstance(value, (list, tuple)):
             return [plain(item) for item in value]
         if isinstance(value, dict):
@@ -1241,16 +1327,29 @@ def op_hub_audit_samples(request):
         signature = inspect.signature(fn)
 
         def wrapper(*args, **kwargs):
+            entry = None
             if depth[0] == 0:
                 bound = signature.bind(*args, **kwargs)
                 bound.apply_defaults()
-                calls.append({"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]})
+                entry = {"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]}
+                calls.append(entry)
             depth[0] += 1
             try:
-                return fn(*args, **kwargs)
+                value = fn(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001  记下之后照样抛回用例
+                if entry is not None:
+                    entry["result"] = _recorded_error(exc)
+                raise
             finally:
                 depth[0] -= 1
+            if entry is not None:
+                entry["result"] = _recorded_value(name, value)
+            return value
         return wrapper
+
+    def raw(fixture):
+        """pytest 夹具对象底下的原函数（pytest 8.4 起是 _get_wrapped_function）。"""
+        return fixture._get_wrapped_function() if hasattr(fixture, "_get_wrapped_function") else fixture.__wrapped__
 
     for name, fn in originals.items():
         setattr(kit_hub, name, recorder(name, fn))
@@ -1261,10 +1360,18 @@ def op_hub_audit_samples(request):
             params = inspect.signature(fn).parameters
             patch = MonkeyPatch()
             kwargs = {}
+            tmp = Path(tempfile.mkdtemp(dir=Path(request["tmp"]).resolve()))  # 照 pytest 用解析过的长路径：短名写法与 path_forms 展开后的对不上
             if "tmp_path" in params:
-                kwargs["tmp_path"] = Path(tempfile.mkdtemp(dir=Path(request["tmp"]).resolve()))  # 照 pytest 用解析过的长路径：短名写法与 path_forms 展开后的对不上
+                kwargs["tmp_path"] = tmp
             if "monkeypatch" in params:
                 kwargs["monkeypatch"] = patch
+            # 第 ⑤d 片：pytest 每条用例先搭的 autouse 夹具——test_kit_hub 的 pi_knows_every_flag（pi 认得全部参数、内核当成干净、
+            # 协调人的内核代办关掉）与 conftest 的 python_kernel_impl（调度器的选择文件钉成不存在）
+            raw(cases.pi_knows_every_flag)(patch)
+            if "pi_dispatch" in sys.modules:
+                patch.setattr(sys.modules["pi_dispatch"], "KERNEL_IMPL_PATH", tmp / "no-kernel-impl.json")
+            if "engine_env" in params:  # test_kit_hub 自己的夹具（建信箱、换掉 worktree 与 role_prompt）
+                kwargs["engine_env"] = raw(cases.engine_env)(tmp, patch)
             current[0] = test
             try:
                 fn(**kwargs)
@@ -1403,6 +1510,7 @@ OPS = {
     "hub.constants": op_hub_constants,
     "hub.audit": op_hub_audit,
     "hub.audit_samples": op_hub_audit_samples,
+    "hub.prompt": op_hub_prompt,
     "hub.shadow_task": op_hub_shadow_task,
     "hub.shadow_letter": op_hub_shadow_letter,
     "hub.shadow_routine": op_hub_shadow_routine,

@@ -78,14 +78,19 @@ const FUNCTIONS = ["audit_claude_stream", "audit_pi_stream", "pi_reach_problem",
   "jsonl_lines", "turn_cost_usd"];
 
 /** 每条记下的调用：(用例, 函数名, 参数)。 */
-function pytestCalls(): { test: string; fn: string; args: PyValue[] }[] {
+/** 采样当时的结果与 Python 重放对不上的用例：重放读的是用例跑完时的文件、用例改过的全局已经撤销，这几条不算重放过那个场景。 */
+function drifted(calls: readonly { test: string; result: string }[], python: readonly ProbeResult[]): string[] {
+  return [...new Set(calls.filter((item, at) => JSON.stringify(JSON.parse(item.result)) !== JSON.stringify(python[at])).map((item) => item.test))].sort();
+}
+
+function pytestCalls(): { test: string; fn: string; args: PyValue[]; result: string }[] {
   const tmp = join(ROOT, "samples");
   mkdirSync(tmp, { recursive: true });
   const recorded = runProbe(PYTHON, { op: "hub.audit_samples", tests: TESTS, functions: FUNCTIONS, tmp });
   expect(recorded.ok, JSON.stringify(recorded).slice(0, 2000)).toBe(true);
   const value = valueOf(recorded) as PyDict;
   expect(value.get("skipped")).toEqual([]);
-  return (value.get("calls") as PyDict[]).map((item) => ({ test: item.get("test") as string, fn: item.get("fn") as string, args: item.get("args") as PyValue[] }));
+  return (value.get("calls") as PyDict[]).map((item) => ({ test: item.get("test") as string, fn: item.get("fn") as string, args: item.get("args") as PyValue[], result: item.get("result") as string }));
 }
 
 describe("第 ⑤c 片：pytest 的场景（样例只有 tests/test_kit_hub.py 这一个来源）", () => {
@@ -94,7 +99,9 @@ describe("第 ⑤c 片：pytest 的场景（样例只有 tests/test_kit_hub.py �
   it("每条用例都记到了调用；三边重放逐字相同，都正常返回", () => {
     expect(new Set(calls.map((item) => item.test))).toEqual(new Set(TESTS));
     const requests = calls.map((item) => ({ op: "hub.audit", fn: item.fn, args: item.args.map(toTagged) }));
-    expect(agree(requests).filter((result) => !result.ok)).toEqual([]);
+    const python = agree(requests);
+    expect(python.filter((result) => !result.ok)).toEqual([]);
+    expect(drifted(calls, python), "当时的结果与 Python 重放").toEqual([]);
   });
 
   it("guard.ts 与 Python、TS 的审计用同一份 guard_config，判同一批调用逐条一致（Node 与 Bun 各跑一次扩展）", () => {

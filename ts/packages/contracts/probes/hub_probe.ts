@@ -8,15 +8,23 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
+import { PyOSError } from "@themis/base/pyio";
 import { jsonlLines } from "@themis/base/jsonl";
+import { cmpCodePoints } from "@themis/base/pyre";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
   turnCostUsd,
 } from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
+import { deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
+import { KERNEL_ROOT, TEMPLATE_DIR } from "@themis/hub/kernel";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
+import {
+  budgetUsage, engineeringRules, externalFactsSection, inputPath, letterFromOutput, nextContractVersion, regressionGates, renderTemplate, rolePrompt,
+  transitionalSection, turnPrompt,
+} from "@themis/hub/prompt";
 import { schemaErrors, schemaProblems } from "@themis/hub/schema";
 import {
   allowedMoves, dependents, gateFile, gatePattern, guard, hotfixReason, invalidateAfter, moveBase, newTaskState, renderRoutineBrief,
@@ -280,6 +288,79 @@ export async function hubAudit(request: Record<string, unknown>, fromTagged: (ta
   }
 }
 
+/** hub.prompt（第 ⑤d 片）：回合输入与交差核对，与 python_probe.py 的 op_hub_prompt 一一对应。template_dir、kernel_root 照参数传给
+ * 读模板目录、内核仓库的两个函数；worker_env 只交回排好序的变量名（不比值）。 */
+export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Result {
+  const args = (request["args"] as never[]).map(fromTagged);
+  const templateDir = typeof request["template_dir"] === "string" ? request["template_dir"] : TEMPLATE_DIR;
+  const kernelRoot = typeof request["kernel_root"] === "string" ? request["kernel_root"] : KERNEL_ROOT;
+  const [a, b, c, d, e, f, g, h, i, j] = args;
+  if (typeof request["started"] === "string") writeFileSync(request["started"], ""); // 契约用：调用之前写一个标记，另一个进程据此掐时机
+  try {
+    let value: PyValue;
+    switch (String(request["fn"])) {
+      case "render_template":
+        value = renderTemplate(textOf(a), [...dictOf(b)].map(([key, item]) => [String(key), item as string] as const), optionalText(c), templateDir);
+        break;
+      case "role_prompt":
+        value = rolePrompt(textOf(a), templateDir, kernelRoot);
+        break;
+      case "engineering_rules":
+        value = engineeringRules(kernelRoot);
+        break;
+      case "delivery_problem":
+        value = deliveryProblem(textOf(a));
+        break;
+      case "role_schema":
+        value = roleSchema(textOf(a));
+        break;
+      case "external_facts_section":
+        value = externalFactsSection(dictOf(a));
+        break;
+      case "interface_problem":
+        value = interfaceProblem(a as PyValue, b as PyValue, c as PyValue);
+        break;
+      case "transitional_section":
+        value = transitionalSection(textOf(a));
+        break;
+      case "worker_file_problem":
+        value = workerFileProblem(textOf(a));
+        break;
+      case "letter_from_output":
+        value = letterFromOutput(textOf(a), textOf(b), c as PyValue);
+        break;
+      case "delivered_output":
+        value = deliveredOutput(textOf(a), b as PyValue);
+        break;
+      case "next_contract_version":
+        value = nextContractVersion(dictOf(a));
+        break;
+      case "input_path":
+        value = inputPath(new Hub(textOf(a)), optionalText(b), c as PyValue);
+        break;
+      case "turn_prompt":
+        value = turnPrompt(new Hub(textOf(a)), dictOf(b), textOf(c), textOf(d), e as PyValue[], textOf(f), g as PyValue, optionalText(h), i as PyValue, j as PyValue);
+        break;
+      case "regression_gates":
+        value = regressionGates(new Hub(textOf(a)), dictOf(b));
+        break;
+      case "budget_usage": {
+        const used = budgetUsage(new Hub(textOf(a)), dictOf(b));
+        value = new Map<string, PyValue>([["attempts_started", BigInt(used.attempts_started)], ["wall_seconds_used", used.wall_seconds_used]]);
+        break;
+      }
+      case "worker_env":
+        value = [...workerEnv(a === null || a === undefined ? null : dictOf(a)).keys()].sort(cmpCodePoints);
+        break;
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+    return { ok: true, value: toTagged(value) };
+  } catch (error) {
+    return errorResult(error);
+  }
+}
+
 /** hub.constants（第 132 轮）：按名字取 @themis/hub/constants 的常量，转成 JSON 交回；与 python_probe.py 的 op_hub_constants 对应。 */
 export function hubConstants(request: Record<string, unknown>): Result {
   const table = constants as Record<string, unknown>;
@@ -423,10 +504,14 @@ export async function hubBox(request: Record<string, unknown>, fromTagged: (tagg
 
 const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
 
+/** OSError(errno, ...) 在 Python 里按 errno 成了哪个子类。 */
+const OS_ERRORS: Readonly<Record<number, string>> = { 2: "FileNotFoundError", 13: "PermissionError", 17: "FileExistsError", 20: "NotADirectoryError", 21: "IsADirectoryError" };
+
 function errorResult(error: unknown): Result {
   if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
   if (error instanceof PyCrash) return { ok: false, error: error.kind };
   if (error instanceof PyJsonError) return { ok: false, error: error.kind };
+  if (error instanceof PyOSError) return { ok: false, error: OS_ERRORS[error.errno] ?? "OSError" }; // Python 按 errno 选的子类
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOENT") return { ok: false, error: "FileNotFoundError" };
   if (code === "EEXIST") return { ok: false, error: "FileExistsError" };

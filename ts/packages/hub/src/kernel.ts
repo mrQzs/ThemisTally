@@ -1,0 +1,41 @@
+// 内核目录与内核的 git 调用（迁移第 ⑤d 片）：kit_hub.py 的 HERE、TEMPLATE_DIR、DELIVER_EXTENSION、GUARD_EXTENSION、SCHEMA_DIR 与 git()。
+// 路径照 Path(__file__).resolve() 解析到真实路径（8.3 短名展开、联接跟随）：hub 从短名或联接起，写进提示词、命令行的内核路径两边照样一样。
+// 模板、schema、扩展仍是 scripts/hub 下那一份，两套实现读同一份（第 1.2 节：数据与模板照原样沿用）。
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PyCrash } from "@themis/base/pyfmt";
+import { pyDecodeUtf8Replace } from "@themis/base/pyio";
+import { pyResolve } from "@themis/base/pypath";
+import { pyStrip } from "@themis/base/pyre";
+import { HubError } from "./errors.ts";
+
+/** kit_hub 的 HERE（scripts 目录）。这份源码在 ts/packages/hub/src 下，往上四层是仓库根。 */
+export const SCRIPTS_DIR = pyResolve(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "scripts"));
+/** HERE.parent：内核自己的仓库（engineering_rules 在这里读已提交的 AGENTS.md），不一定是 hub 管的仓库。 */
+export const KERNEL_ROOT = dirname(SCRIPTS_DIR);
+export const TEMPLATE_DIR = join(SCRIPTS_DIR, "hub");
+/** 交差工具（第 90 轮）与守卫扩展（第 106 轮）：pi 工人进程里跑的内核文件。 */
+export const DELIVER_EXTENSION = join(TEMPLATE_DIR, "deliver.ts");
+export const GUARD_EXTENSION = join(TEMPLATE_DIR, "guard.ts");
+export const SCHEMA_DIR = join(TEMPLATE_DIR, "schemas");
+
+/**
+ * kit_hub 的 git()：参数原样（不像调度器那样加 -c core.quotepath=off，ls-tree 列出的非 ASCII 文件名照 Git 的缺省加引号转义），
+ * 输出按 utf-8 加 replace 解码；check 时退出码不是 0 就抛 HubError，带 stderr 去掉两头空白后的前 400 个码点。
+ */
+export function git(args: readonly string[], cwd: string, check = true, timeout = 120): string {
+  const done = spawnSync("git", [...args], { cwd, timeout: timeout * 1000, maxBuffer: 1024 * 1024 * 1024, windowsHide: true });
+  if (done.error) {
+    const code = (done.error as NodeJS.ErrnoException).code;
+    if (code === "ETIMEDOUT") throw new PyCrash("TimeoutExpired", `Command '${["git", ...args].join(" ")}' timed out after ${timeout} seconds`);
+    if (code === "ENOENT") throw new PyCrash("FileNotFoundError", "[WinError 2] 系统找不到指定的文件。");
+    throw done.error;
+  }
+  const out = pyDecodeUtf8Replace(done.stdout);
+  if (check && done.status !== 0) {
+    const err = [...pyStrip(pyDecodeUtf8Replace(done.stderr))].slice(0, 400).join("");
+    throw new HubError(`git ${args.join(" ")} 失败：${err}`);
+  }
+  return out;
+}

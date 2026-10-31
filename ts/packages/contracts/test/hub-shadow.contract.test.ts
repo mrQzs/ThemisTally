@@ -1,5 +1,5 @@
 // ⑤-影子的契约（迁移计划第 ⑤ 步）：tools/hub-shadow.ts 在一个临时信箱上跑。
-//   - --once：状态、主任务（含 guard 整张表的组合数）、信件、内核代办、route.kernel（整批与 partial）、回合（没结束的不审）都比到，零差异；
+//   - --once：状态、主任务（含 guard 整张表的组合数）、提示词（⑤d1：各岗位的 role_prompt、各主任务协调人与不是 idle 的阶段的 turn_prompt）、信件、内核代办、route.kernel（整批与 partial）、回合（没结束的不审）都比到，零差异；
 //   - Python 与 TS 真有差异时报得出来：回合事件流里一行嵌套 1500 层的对象（第 10 节的已知差异：Python 读得出，base 的 loads 在
 //     1000 层报错、算读不出的行）；账本里 route.kernel 记的下一步被改过，只在“route.kernel 与账本”报一处；
 //   - 取快照时 state.json 被改了（THEMIS_SHADOW_PAUSE 让影子在读完之后停住，测试趁机改）：改一次就重取，次次都改就“快照不稳，跳过”；
@@ -168,7 +168,7 @@ describe("⑤-影子：静态重放", () => {
     const { status, report } = runShadow(fx, ["--once"]);
     expect(report["mismatches"]).toEqual([]);
     expect(status).toBe(0);
-    expect(compared(report)).toEqual({ 状态: 1, 主任务: 3, 信件: 7, 代办: 6, "route.kernel": 2, "route.kernel 与账本": 2, 回合: 5 });
+    expect(compared(report)).toEqual({ 状态: 1, 主任务: 3, 提示词: 8, 信件: 7, 代办: 6, "route.kernel": 2, "route.kernel 与账本": 2, 回合: 5 });
     expect(report["guard_combos"]).toBe(3 * COMBOS);
     expect(report["state_sha256"]).toBe(sha256(readFileSync(join(fx.repo, ".agent", "mailbox", "ledger", "state.json"))));
   });

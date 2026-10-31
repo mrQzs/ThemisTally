@@ -119,6 +119,12 @@
       "new": ".map(String).join(\",\"))"
     },
     {
+      "name": "S23 提示词一类不算各阶段的 turn_prompt",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "!(stage instanceof Map) || stage.get(\"status\") === \"idle\") continue;",
+      "new": "!(stage instanceof Map) || true) continue;"
+    },
+    {
       "name": "S22 会话文件变新就把生效档位记成时序，不分 claude 与 pi",
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
       "old": "if (turn.adapter === \"claude\" && turn.sessionMoved && ",

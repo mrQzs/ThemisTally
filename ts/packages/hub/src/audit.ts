@@ -347,7 +347,7 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
     }
   }
   if (counter.unreadable) violations.unshift(UNREADABLE_STREAM.replace("%d", String(counter.unreadable)));
-  const expected =`${pyStrValue(pyItem(spec, "provider"))}/${pyStrValue(pyItem(spec, "model"))}`;
+  const expected = `${pyStrValue(pyItem(spec, "provider"))}/${pyStrValue(pyItem(spec, "model"))}`;
   if (models.minus(new PySet([expected])).size) violations.push(`实际模型 ${pyReprValue(pySorted(models.values()))} 与要求 ${expected} 不一致`);
   // 与 claude 一样：pi 当场拒绝（“Tool bash not found”）的调用只记警告，看不到拒绝结果的照旧作废
   const warnings = [...outside].filter(([id]) => refused.has(id)).map(([, name]) => `试图调用白名单之外的工具 ${name}，被 pi 拒绝`);
@@ -395,7 +395,7 @@ function claudeProjects(): string {
 }
 
 /** sorted() 一组 Path：Windows 上按小写之后的各段逐段比（PureWindowsPath 不分大小写），POSIX 上按各段比。 */
-function comparePaths(a: string, b: string): number {
+export function comparePaths(a: string, b: string): number {
   const parts = (path: string): string[] => (WIN ? pyLower(path) : path).split(SEP);
   const left = parts(a);
   const right = parts(b);
@@ -458,7 +458,7 @@ function firstCodePoints(text: string, count: number): string {
   return codePoints(text).slice(0, count).join("");
 }
 
-function stripChars(text: string, chars: string): string {
+export function stripChars(text: string, chars: string): string {
   return stripRight(stripLeft(text, chars), chars);
 }
 

@@ -352,6 +352,11 @@ export function purePathParent(value: string): string {
   return formatPurePath(parsed.tail.length ? { ...parsed, tail: parsed.tail.slice(0, -1) } : parsed);
 }
 
+/** PurePath(value).name：规整之后的最后一段，只剩盘符或根时是空串。 */
+export function purePathName(value: string): string {
+  return parsePurePath(value).tail.at(-1) ?? "";
+}
+
 /** os.path.join：Windows 上是 ntpath.join（不规整），其余照 posixpath.join。 */
 export function osPathJoin(first: string, ...rest: string[]): string {
   if (WIN) return winJoin(first, ...rest);
