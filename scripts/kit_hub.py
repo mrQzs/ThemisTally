@@ -3952,8 +3952,7 @@ def sweep_gates(path: Path) -> Tuple[int, str, List[str]]:
 
 def keep_sweep_output(path: Path, out: str) -> None:
     """第 133 轮：门禁基准的全文每次覆盖写一份。记录与信只留最后 15 行：站主扫描在临时 worktree 里红过两次，
-    git 自己的报错都在被截掉的那段里，原因只能猜（themistally-15 建议）。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    git 自己的报错都在被截掉的那段里，原因只能猜（themistally-15 建议）。上级目录由 write_text_atomic 建。"""
     write_text_atomic(path, out)
 
 
@@ -4159,7 +4158,8 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
     with scratch_worktree(hub, "owner-sweep", head) as path:
         code, out, tests = sweep_gates(path)
     record = owner_sweep_path(hub)
-    keep_sweep_output(record.with_name("owner-sweep.log"), out)
+    # 不叫 owner-sweep.log：runners/ 下有同名的、子进程自己的输出，看的人容易拿错
+    keep_sweep_output(record.with_name("owner-sweep-pytest.log"), out)
     with file_lock(record.with_name(".owner-sweep.lock")):
         data = read_owner_sweep(hub)
         data["last"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
@@ -4178,7 +4178,7 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
                      "提交": "无", "验证": (summary + "\n" + tail(out, 15))[:1500],
                      "偏离": ("这期间站主合入的提交：\n" + commits)[:600] if commits else "无",
                      "需协调人决定": "请站主处理：收窄写得太宽的门禁断言，或者改回刚才的提交",
-                     "证据": ".agent/mailbox/ledger/owner-sweep.json；全文在 .agent/mailbox/ledger/owner-sweep.log"})
+                     "证据": ".agent/mailbox/ledger/owner-sweep.json；全文在 .agent/mailbox/ledger/owner-sweep-pytest.log"})
     for task in sorted(hub.load_state()["tasks"]):
         state = hub.load_state()  # 每次现读：预演一次要几分钟，runner 这期间照常写
         ts = state["tasks"][task]

@@ -2179,7 +2179,7 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：照第 124 轮，长度相同的按字面排。只动次序，不改判定。
 - **测试**：tests/test_path_forms.py 加两条：次序是“长的在前、等长按字面”；16 个散列种子下 guard_config 只有一种输出，写法的次序钉住。
 - **第二处**：audit_pi_stream 里“deliver 报了成功、result.details 却不是对象”的计数与 stream_events 交回的读不出的行数同名，事件流里有一行坏的（回合被收掉时最后一行没写完）就报“deliver 报了成功 1 次”，interface_problem 据此把回合当成 pi 的接口变了、直接交给站主。计数改成单独的变量；test_kit_hub.py 加一条：坏行只记越界，不算 deliver 读不出参数，两次真读不出时照旧报 2 次。
-- **第三处**（themistally-15 建议）：门禁基准的全文每次覆盖写一份：站主扫描写 ledger/owner-sweep.log，合入后的回归写主任务目录的regression-sweep.log，信的“证据”指过去。2026-10-31 两次站主扫描在内存吃紧时红了，信里唯一的回溯是临时 worktree 里 git status 失败，git 自己的报错在被截掉的那段里，原因只能猜。
+- **第三处**（themistally-15 建议）：门禁基准的全文每次覆盖写一份：站主扫描写 ledger/owner-sweep-pytest.log（runners/ 下的 owner-sweep.log 是子进程自己的输出，不同名免得拿错），合入后的回归写主任务目录的regression-sweep.log，信的“证据”指过去。2026-10-31 两次站主扫描在内存吃紧时红了，信里唯一的回溯是临时 worktree 里 git status 失败，git 自己的报错在被截掉的那段里，原因只能猜。
 
 ## 11. 已知缺口与下一步
 
