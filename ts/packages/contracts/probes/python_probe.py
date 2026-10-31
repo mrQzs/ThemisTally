@@ -1170,6 +1170,11 @@ def op_fs_hold_exclusive(request):
     kernel32.CloseHandle(ctypes.c_void_p(handle))
     return {"ok": True}
 
+def op_hub_constants(request):
+    """第 132 轮：kit_hub 里与 @themis/hub/constants 同名的常量，转成 JSON 交回（元组成了列表，键的次序照原样）。"""
+    return {"ok": True, "json": json.dumps({name: getattr(kit_hub, name) for name in request["names"]}, ensure_ascii=False)}
+
+
 OPS = {
     "plugins.call": op_plugins_call,
     "protocols.strict": op_protocols_strict,
@@ -1205,6 +1210,7 @@ OPS = {
     "hub.call": op_hub_call,
     "hub.samples": op_hub_samples,
     "hub.box": op_hub_box,
+    "hub.constants": op_hub_constants,
     "fs.hold_exclusive": op_fs_hold_exclusive,
     "pyregex.search": op_pyregex_search,
     "pyregex.search_flags": op_pyregex_search_flags,

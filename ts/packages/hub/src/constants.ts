@@ -115,7 +115,7 @@ export const ROSTER: Readonly<Record<string, RosterSpec>> = {
     tools: ["read", "grep", "find", "ls", "edit", "write", "bash"], timeout: 2400, workspace: "stage",
   },
   "audit-sonnet": {
-    role: "audit", label: "审核端", adapter: "pi", provider: "cc-switch-qianwenai-token-plan", model: "qwen3.8-max", thinking: "high",
+    role: "audit", label: "审核端", adapter: "pi", provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "max",
     tools: ["read", "grep", "find", "ls"], timeout: 2400, workspace: "stage",
   },
   "exec-step": { role: "exec", label: "执行端", adapter: "dispatcher", provider: "cc-switch-step-fun", model: "step-5-preview", thinking: "high" },

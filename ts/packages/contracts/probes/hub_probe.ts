@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
+import * as constants from "@themis/hub/constants";
 import { HubError } from "@themis/hub/errors";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
@@ -94,6 +95,12 @@ export function hubCall(request: Record<string, unknown>, fromTagged: (tagged: n
     if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError" };
     return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
   }
+}
+
+/** hub.constants（第 132 轮）：按名字取 @themis/hub/constants 的常量，转成 JSON 交回；与 python_probe.py 的 op_hub_constants 对应。 */
+export function hubConstants(request: Record<string, unknown>): Result {
+  const table = constants as Record<string, unknown>;
+  return { ok: true, json: JSON.stringify(Object.fromEntries((request["names"] as string[]).map((name) => [name, table[name]]))) };
 }
 
 /** hub.box（第 ⑤b 片）：在 repo 的信箱上按 steps 依次执行，交回每一步的结果；与 python_probe.py 的 op_hub_box 一一对应。 */

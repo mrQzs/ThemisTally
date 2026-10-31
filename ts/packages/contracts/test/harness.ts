@@ -26,6 +26,8 @@ export const IMPLS: readonly Impl[] = [PYTHON, TS_NODE, TS_BUN];
 /**
  * 第 ⑤b 片：同一套实现，起之前把令牌的备份与还原特权设成启用或停用（probes/backup_privilege.py，子进程继承令牌）。
  * libuv 打开文件总带 FILE_FLAG_BACKUP_SEMANTICS，读会不会撞上别的进程的独占打开，取决于备份特权启用没有。
+ * 用到它的契约（hub-mailbox 的 C4）要求管理员令牌：令牌里没有这两个特权时启动器报 PRIVILEGE_UNAVAILABLE，用例照上面的规矩
+ * 直接失败，不跳过。
  */
 export function withBackupPrivilege(impl: Impl, enabled: boolean): Impl {
   return { name: impl.name, argv: [PYTHON.argv[0] as string, join(PROBES, "backup_privilege.py"), enabled ? "on" : "off", ...impl.argv] };

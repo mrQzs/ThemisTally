@@ -5,11 +5,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loads, type PyDict, type PyValue } from "@themis/base/pyjson";
+import * as constants from "@themis/hub/constants";
 import { COORDINATOR, KERNEL, OWNER, STAGE_ORDER, STAGE_WORKER, WORKERS } from "@themis/hub/constants";
 import { renderLetter } from "@themis/hub/letters";
 import { invalidateAfter, newTaskState } from "@themis/hub/taskstate";
 import { describe, expect, it } from "vitest";
-import { IMPLS, type ProbeRequest, REPO as REPO_ROOT, prng, runBatch } from "./harness.ts";
+import { IMPLS, type ProbeRequest, REPO as REPO_ROOT, prng, runBatch, runProbe } from "./harness.ts";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 const BS = String.fromCharCode(92);
@@ -222,6 +223,16 @@ const REAL_SCHEMAS: PyValue[] = readdirSync(join(REPO_ROOT, "scripts", "hub", "s
   .map((name) => loads(readFileSync(join(REPO_ROOT, "scripts", "hub", "schemas", name), "utf8")));
 
 describe("第 ⑤a 片：信件、schema、主任务状态与守卫", () => {
+  // 第 132 轮换审核端模型时补：名册等常量两边各写一份，原先只靠用到它们的函数间接对上，名册没有函数用到
+  it("常量与 kit_hub 的同名常量逐项相同：名册、阶段、依赖、字段、上限，连键的次序", () => {
+    const names = Object.keys(constants);
+    const [python, ...others] = IMPLS.map((impl) => runProbe(impl, { op: "hub.constants", names }));
+    expect(python?.ok, JSON.stringify(python)).toBe(true);
+    const ours = JSON.stringify(JSON.parse(String(python?.["json"])));
+    for (const other of others) expect(JSON.stringify(JSON.parse(String(other["json"])))).toBe(ours);
+    expect(JSON.parse(ours)["ROSTER"]["audit-sonnet"]).toMatchObject({ provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "max" });
+  });
+
   it("新主任务的状态、门禁文件名、依赖的闭包", () => {
     compare([
       call("new_task_state", ["T001", "desktop-ui", "标题", "abc", true, "2026-10-29T00:00:00Z"]),
