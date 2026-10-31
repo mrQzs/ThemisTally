@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import kit_hub as kh  # noqa: E402
 import pi_dispatch as pd  # noqa: E402
 
 SEP = chr(92)
@@ -49,3 +50,29 @@ def test_forms_and_mentions_do_not_depend_on_the_hash_seed():
     forms, mentions, _masked = json.loads(seen.pop())
     assert forms[:3] == ["/c/x/proj", "C:/x/proj", PROJECT]
     assert mentions == ["/c/x/proj", "C:/x/proj/a,/c/x/proj"]
+
+def test_hub_forms_are_ordered_by_length_then_text():
+    # 第 133 轮：kit_hub.path_forms 是同一个毛病（三种写法等长、从集合按长度排），修法相同
+    forms = kh.path_forms(Path(PROJECT))
+    assert forms == sorted(set(forms), key=lambda form: (-len(form), form))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="盘符与 Git Bash 的 /c/ 写法只在 Windows 上有")
+def test_hub_forms_and_guard_config_do_not_depend_on_the_hash_seed():
+    code = chr(10).join([
+        "import sys",
+        "from pathlib import Path",
+        "sys.path.insert(0, %r)" % str(SCRIPTS),
+        "import kit_hub as kh",
+        "print(kh.guard_config(Path(%r), Path(%r)))" % (PROJECT, "C:/x"),
+    ])
+    seen = set()
+    for seed in range(16):
+        env = dict(os.environ, PYTHONHASHSEED=str(seed))
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
+        assert result.returncode == 0, result.stderr
+        seen.add(result.stdout.strip())
+    assert len(seen) == 1, seen
+    config = json.loads(seen.pop())
+    assert config["workspaceForms"] == ["/c/x/proj", "c:/x/proj", PROJECT.lower()]
+    assert config["mainForms"] == ["/c/x", "c:/x", "c:" + SEP + "x"]

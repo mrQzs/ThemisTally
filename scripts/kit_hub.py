@@ -1758,7 +1758,9 @@ def path_forms(path: Path) -> List[str]:
     forms = {text.lower(), text.replace("\\", "/").lower()}
     if len(text) > 2 and text[1] == ":":
         forms.add(("/%s%s" % (text[0], text[2:].replace("\\", "/"))).lower())
-    return sorted(forms, key=len, reverse=True)
+    # 第 133 轮：三种写法等长，只按长度排时次序随集合的散列变：guard_config 交给守卫的写法、pi_reach_problem 替换的先后
+    # 都跟着变（与 pi_dispatch._path_forms 第 124 轮同一个毛病）。等长的按字面排
+    return sorted(forms, key=lambda form: (-len(form), form))
 
 
 #: 工人可以按路径读的主工作区子树（第 88 轮）：已经装好的依赖，用来核实包的版本、导出与行为。只许读文件与搜索的
@@ -1843,7 +1845,9 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     reach: Dict[str, str] = {}  # 第 106 轮：碰了不该碰的地方的调用，toolCallId → 说明；守卫当场拦下的只记警告
     delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
     refusals: List[int] = []  # 第 102 轮：deliver 每次被退回时报错的长度（pi 把收到的参数原样写进报错）
-    unreadable = 0  # deliver 报了成功、result.details 却不是对象的次数（第 110 轮）
+    # deliver 报了成功、result.details 却不是对象的次数（第 110 轮）。第 133 轮：原来与下面读不出的行数同名，
+    # 事件流里有一行坏的就报“deliver 报了成功 1 次”，interface_problem 把回合当成接口变了交给站主
+    unread_details = 0
     thinking = 0  # 第 102 轮：thinking 块的字数。pi 不回报思考的 token 数，这是“有没有思考”的证据
     events, unreadable = stream_events(lines)
     if unreadable:
@@ -1882,7 +1886,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
                     and isinstance(details, dict)):
                 delivered = details
             elif event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed:
-                unreadable += 1  # 第 110 轮：报了成功、事件里却没有参数（pi 升级改了形状）
+                unread_details += 1  # 第 110 轮：报了成功、事件里却没有参数（pi 升级改了形状）
         elif kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
             message = event["message"]
             thinking += sum(len(str(block.get("thinking") or "")) for block in message.get("content") or []
@@ -1914,7 +1918,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "final_text": final_text,
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered,
-            "delivered_unreadable": "deliver 报了成功 %d 次，result.details 却不是对象" % unreadable if unreadable else None,
+            "delivered_unreadable": "deliver 报了成功 %d 次，result.details 却不是对象" % unread_details if unread_details else None,
             "deliver_refusals": refusals, "thinking_chars": thinking,
             # 第 103 轮：有的提供方回报 reasoning token（probe99 的 MiniMax 1223），有的回报 0（dsf），字数补上
             "thinking_tokens": usage.get("reasoning")}

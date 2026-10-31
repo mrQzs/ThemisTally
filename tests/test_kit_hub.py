@@ -7909,3 +7909,15 @@ def test_the_supervisor_passes_the_override_on_to_task_runners(tmp_path, monkeyp
     kh.spawn_task_runner(hub, "T001", argparse.Namespace(allow_dirty_kernel=False, **base))
     kh.spawn_task_runner(hub, "T002", argparse.Namespace(allow_dirty_kernel=True, **base))
     assert "--allow-dirty-kernel" not in seen[0] and seen[1][-1] == "--allow-dirty-kernel"
+
+def test_unreadable_lines_are_not_counted_as_unreadable_deliveries():
+    # 第 133 轮：deliver 读不出参数的次数与读不出的行数原来是同一个变量：事件流里有一行坏的（回合被收掉时最后一行没写完），
+    # 就报“deliver 报了成功 1 次”，interface_problem 把这一回合当成接口变了交给站主
+    spec = dict(kh.ROSTER["contract-glm"], tools=["read", kh.DELIVER_TOOL])
+    audit = kh.audit_pi_stream(["不是 JSON", json.dumps({"type": "agent_end"})], spec)
+    assert audit["violations"] == [kh.UNREADABLE_STREAM % 1] and audit["delivered_unreadable"] is None
+    assert kh.interface_problem(spec, audit, {"exit_code": 0}) is None
+    unread = json.dumps({"type": "tool_execution_end", "toolName": kh.DELIVER_TOOL, "toolCallId": "d1",
+                         "result": {"content": [], "details": None}})
+    audit = kh.audit_pi_stream(["不是 JSON", unread, unread], spec)
+    assert audit["delivered_unreadable"] == "deliver 报了成功 2 次，result.details 却不是对象"
