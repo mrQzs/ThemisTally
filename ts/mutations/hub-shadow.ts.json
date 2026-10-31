@@ -125,6 +125,12 @@
       "new": "!(stage instanceof Map) || true) continue;"
     },
     {
+      "name": "S24 不比回合的 role.md",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (value(turn.role) !== turn.roleMd) cmp.miss(",
+      "new": "if (false) cmp.miss("
+    },
+    {
       "name": "S22 会话文件变新就把生效档位记成时序，不分 claude 与 pi",
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
       "old": "if (turn.adapter === \"claude\" && turn.sessionMoved && ",

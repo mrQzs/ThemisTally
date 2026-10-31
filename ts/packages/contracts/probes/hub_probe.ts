@@ -1,11 +1,12 @@
 // hub.call（第 ⑤a 片）：按函数名调 @themis/hub 的纯函数，参数与结果照 python_probe.py 的 op_hub_call。
 // 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常只比类型。
-import { PyCrash, pyStrValue } from "@themis/base/pyfmt";
+import { PyCrash, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
@@ -16,8 +17,12 @@ import {
   turnCostUsd,
 } from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
-import { deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
+import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
+import { removeInputs, stageInputs } from "@themis/hub/inputs";
+import { INPUTS_INDEX } from "@themis/hub/constants";
+import { type Launcher, REAL_SOURCES, TurnRunner, type TurnSources } from "@themis/hub/turn";
+import { globPaths } from "@themis/dispatcher/instruction";
 import { KERNEL_ROOT, TEMPLATE_DIR } from "@themis/hub/kernel";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
@@ -359,6 +364,142 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
   } catch (error) {
     return errorResult(error);
   }
+}
+
+/** 一个目录下的文件（相对路径用正斜杠、排好序）：字节数、可不可写、sha256；与 python_probe.py 的 _tree_listing 对应。 */
+function treeListing(root: string): PyValue[] {
+  const rows: [string, PyValue][] = [];
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else {
+        let writable = true;
+        try {
+          accessSync(path, fsConstants.W_OK);
+        } catch {
+          writable = false;
+        }
+        const rel = relative(root, path).split(sep).join("/");
+        rows.push([rel, [rel, BigInt(statSync(path).size), writable, createHash("sha256").update(readFileSync(path)).digest("hex")]]);
+      }
+    }
+  };
+  walk(root);
+  return rows.sort(([a], [b]) => cmpCodePoints(a, b)).map(([, row]) => row);
+}
+
+/** hub.inputs（第 ⑤d 片）：stage_inputs 与 remove_inputs，与 python_probe.py 的 op_hub_inputs 一一对应。 */
+export function hubInputs(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Result {
+  const hub = new Hub(String(request["repo"]));
+  const restore = request["restore"] as Restore | undefined;
+  if (restore !== undefined) restoreTree(restore);
+  try {
+    if (typeof request["remove"] === "string") {
+      removeInputs(request["remove"]);
+      return { ok: true, value: toTagged(existsSync(request["remove"])) };
+    }
+    // 采样的重放（⑤d2）：对应 inputs_fixture 换掉的 worktree_root 与 INPUT_FILE_LIMIT
+    const root = request["worktree_root"];
+    const limit = request["input_file_limit"];
+    const [target, info] = stageInputs(hub, fromTagged(request["ts"] as never) as PyDict, String(request["key"]),
+      { ...(typeof root === "string" ? { root } : {}), ...(typeof limit === "number" ? { limit } : {}) });
+    const raw = (name: string): PyValue => (existsSync(join(target, name)) && statSync(join(target, name)).isFile() ? readFileSync(join(target, name)).toString("base64") : null);
+    return { ok: true, value: toTagged(new Map<string, PyValue>([["dir", target], ["info", info], ["files", treeListing(target)], ["index", raw(INPUTS_INDEX)], ["skipped", raw("SKIPPED.md")],
+      ["siblings", readdirSync(dirname(target)).sort(cmpCodePoints)]])) };
+  } catch (error) {
+    return errorResult(error);
+  }
+}
+
+/** 回合里内核自己定下的环境变量：比值（别的只比名字）。 */
+const KERNEL_SET_ENV = ["THEMIS_DELIVER_SCHEMA", "THEMIS_GUARD", "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"];
+/** 采样重放的快照：from 原样放回 to，links（[相对路径, 指向, 种类]）照记下的重建（快照里没有它们，见 python_probe.py 的 _snapshot_tree）。 */
+interface Restore {
+  readonly from: string;
+  readonly to: string;
+  readonly links?: readonly (readonly [string, string, string])[];
+}
+/** 把快照原样放回原来的位置（采样的重放：两边先后在调用当时的那个目录里跑）；只读的文件先改回可写再删，链接与联接照记下的重建。 */
+function restoreTree({ from: source, to: target, links = [] }: Restore): void {
+  const writable = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      const info = lstatSync(path);
+      if (info.isDirectory()) writable(path);
+      else if (!info.isSymbolicLink()) chmodSync(path, 0o666);
+    }
+  };
+  if (existsSync(target)) {
+    writable(target);
+    rmSync(target, { recursive: true, force: true });
+  }
+  cpSync(source, target, { recursive: true, verbatimSymlinks: true });
+  for (const [rel, pointed, kind] of links) symlinkSync(pointed, join(target, ...rel.split("/")), kind as "dir" | "file" | "junction");
+}
+
+/** hub.turn（第 ⑤d 片）：TurnRunner.run 配回放的 launcher，与 python_probe.py 的 op_hub_turn 一一对应。 */
+export async function hubTurn(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
+  const hub = new Hub(String(request["repo"]));
+  const script: PyDict = request["script"] === undefined || request["script"] === null ? new Map() : (fromTagged(request["script"] as never) as PyDict);
+  const restore = request["restore"] as Restore | undefined;
+  if (restore !== undefined) restoreTree(restore);
+  const calls: PyValue[] = [];
+  const launcher: Launcher = async (cmd, cwd, env, out, err, timeout) => {
+    calls.push(new Map<string, PyValue>([["cmd", [...cmd]], ["cwd", cwd], ["env", [...env.keys()].sort(cmpCodePoints)],
+      ["kernel_env", new Map<string, PyValue>(KERNEL_SET_ENV.map((name) => [name, env.get(name) ?? null]))], ["timeout", BigInt(timeout)]]));
+    appendFileSync(out, Buffer.from(String(script.get("stdout") ?? ""), "base64"));
+    appendFileSync(err, Buffer.from(String(script.get("stderr") ?? ""), "base64"));
+    return new Map<string, PyValue>([["exit_code", script.has("exit_code") ? (script.get("exit_code") as PyValue) : 0n], ["timed_out", pyTruthy(script.get("timed_out"))],
+      ["wall_seconds", script.has("wall_seconds") ? (script.get("wall_seconds") as PyValue) : 1.5]]);
+  };
+  const given = request["sources"] as Record<string, unknown> | undefined; // 不给时用真的来源：形状核对用
+  const sources: TurnSources = given === undefined ? REAL_SOURCES
+    : { compact: () => String(given["compact"]), random2: () => String(given["random2"]), uuid4: () => String(given["uuid4"]), seconds: () => Number(given["seconds"]) };
+  if (typeof request["home"] === "string") process.env["USERPROFILE"] = process.env["HOME"] = request["home"];
+  const ledger = hub.ledger();
+  const offset = existsSync(ledger) ? statSync(ledger).size : 0;
+  const [agent, key, workspace, role, prompt, retryOf, fresh, inputs, sessionId] = (request["args"] as never[]).map(fromTagged);
+  // 名册与交差文件的哈希：调用期间换成给定的值（只在探针里改，调用完还原；与 Python 那边的 monkeypatch 一样）
+  const roster = constants.ROSTER as Record<string, constants.RosterSpec>;
+  const shas = DELIVERY_SHA256 as Map<string, string | null>;
+  const givenRoster = (request["roster"] ?? {}) as Record<string, constants.RosterSpec>;
+  const givenShas = (request["delivery_sha256"] ?? {}) as Record<string, string>;
+  const savedRoster = Object.keys(givenRoster).map((name) => [name, Object.hasOwn(roster, name) ? roster[name] : undefined] as const);
+  const savedShas = Object.keys(givenShas).map((name) => [name, shas.has(name) ? shas.get(name) : undefined] as const);
+  Object.assign(roster, givenRoster);
+  for (const [name, value] of Object.entries(givenShas)) shas.set(name, value);
+  const givenEnv = (request["env"] ?? {}) as Record<string, string>;
+  const savedEnv = Object.keys(givenEnv).map((name) => [name, process.env[name]] as const);
+  Object.assign(process.env, givenEnv);
+  let summary: PyDict;
+  try {
+    summary = await new TurnRunner(hub, launcher, sources).run(textOf(agent), textOf(key), textOf(workspace), textOf(role), textOf(prompt), optionalText(retryOf),
+      Boolean(fresh), optionalText(inputs), optionalText(sessionId));
+  } catch (error) {
+    return errorResult(error);
+  } finally {
+    for (const [name, value] of savedRoster) {
+      if (value === undefined) delete roster[name];
+      else roster[name] = value;
+    }
+    for (const [name, value] of savedShas) {
+      if (value === undefined) shas.delete(name);
+      else shas.set(name, value);
+    }
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  const turnDir = String(summary.get("turn_dir"));
+  const b64 = (path: string): string => readFileSync(path).toString("base64");
+  const files = new Map<string, PyValue>(readdirSync(turnDir).sort(cmpCodePoints).map((name) => [name, b64(join(turnDir, name))]));
+  const longPrompts = new Map<string, PyValue>(inputs === null ? [] : globPaths(textOf(inputs), ["prompt-*.md"]).sort().map((path) => [basename(path), b64(path)]));
+  const record = hub.agentPath(textOf(agent));
+  const tail = existsSync(ledger) ? readFileSync(ledger).subarray(offset) : Buffer.alloc(0);
+  return { ok: true, value: toTagged(new Map<string, PyValue>([["summary", summary], ["calls", calls], ["files", files], ["long_prompts", longPrompts],
+    ["agent", existsSync(record) ? b64(record) : null], ["ledger", tail.toString("base64")]])) };
 }
 
 /** hub.constants（第 132 轮）：按名字取 @themis/hub/constants 的常量，转成 JSON 交回；与 python_probe.py 的 op_hub_constants 对应。 */

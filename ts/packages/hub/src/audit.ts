@@ -364,16 +364,22 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
 }
 
 // pi 命令 → 它的 --help 列出的参数；读不出时是 null（第 83 轮：一个进程只探一次）
-const PI_FLAGS = new Map<string, Set<string> | null>();
+const PI_FLAGS = new Map<string, Promise<Set<string> | null>>();
 
-/** 本机 pi 的 --help 里列出的参数，按 pi 命令缓存（与调度器预检同一个解析）。 */
-export async function piSupportedFlags(piCmd: readonly string[], env: ReadonlyMap<string, string>): Promise<Set<string> | null> {
+/**
+ * 本机 pi 的 --help 里列出的参数，按 pi 命令缓存（与调度器预检同一个解析）。缓存的是进行中的那一次：一个进程里同时起几个工人，
+ * 同一个 pi 命令也只探一次（Python 是同步的，天然如此）。探的时候抛了异常不留缓存，下一次照样重探，与 Python 一样。
+ */
+export function piSupportedFlags(piCmd: readonly string[], env: ReadonlyMap<string, string>): Promise<Set<string> | null> {
   const key = JSON.stringify(piCmd);
-  if (!PI_FLAGS.has(key)) {
-    const [code, out, err] = await runCapture([...piCmd, ...RESOURCE_FLAGS, "--help"], { env, timeout: 90 });
-    PI_FLAGS.set(key, code === 0 ? new Set(parseHelp(out + err).flags) : null);
+  let pending = PI_FLAGS.get(key);
+  if (pending === undefined) {
+    pending = runCapture([...piCmd, ...RESOURCE_FLAGS, "--help"], { env, timeout: 90 })
+      .then(([code, out, err]) => (code === 0 ? new Set(parseHelp(out + err).flags) : null));
+    pending.catch(() => PI_FLAGS.delete(key));
+    PI_FLAGS.set(key, pending);
   }
-  return PI_FLAGS.get(key) ?? null;
+  return pending;
 }
 
 /** 第 83 轮：pi 对不认识的参数静默忽略。起 pi 工人之前，命令里每个 -- 开头的参数都要在本机 pi 的 --help 里。 */

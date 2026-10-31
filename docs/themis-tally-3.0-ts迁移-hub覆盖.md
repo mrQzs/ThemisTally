@@ -81,13 +81,13 @@
 | `test_unreadable_stream_lines_are_violations` | 6894 | COVERED | hub-audit：同上 |
 | `test_the_pi_audit_takes_the_last_accepted_deliver` | 7285 | COVERED | hub-audit：同上 |
 | `test_unreadable_lines_are_not_counted_as_unreadable_deliveries` | 7918 | COVERED | hub-audit：同上（第 133 轮新加） |
-| `test_pi_workers_load_the_guard_with_the_kernel_roots` | 5946 | PARTIAL | hub-audit：用例里经 TurnRunner 的审计、guard_config、path_forms 调用在记下的调用里；起 pi 时带守卫的参数与环境归 ⑤d |
-| `test_a_session_cut_short_mid_tool_call_is_not_continued` | 2226 | PARTIAL | hub-audit：session_cut_short 的判法在「会话文件」；经 Engine 的续接归 ⑤i |
-| `test_turn_cost_is_this_turn_not_the_session_total` | 3692 | PARTIAL | hub-audit：turn_cost_usd 在「手写的边界」；TurnRunner 记会话累计归 ⑤d |
-| `test_claude_workers_read_the_inputs_and_write_only_their_worktree` | 3798 | PARTIAL | hub-audit：claude_path_rule 在「手写的边界」；claude 工人的参数与权限归 ⑤d |
-| `test_pi_workers_may_not_write_outside_their_worktree` | 5856 | PARTIAL | hub-audit：越界的判定在「guard.ts 的三方对照」与随机调用；经 TurnRunner 的回合归 ⑤d |
+| `test_pi_workers_load_the_guard_with_the_kernel_roots` | 5946 | COVERED | hub-audit：审计、guard_config、path_forms 在记下的调用；两次 TurnRunner.run 在 hub-turn（⑤d2）的采样重放：第一次没有覆盖值（带守卫的参数与 THEMIS_GUARD 逐字比），第二次照记下的 DELIVERY_SHA256 的 guard.ts（全零） |
+| `test_a_session_cut_short_mid_tool_call_is_not_continued` | 2226 | COVERED | hub-audit：session_cut_short 的判法在「会话文件」；经 TurnRunner 的三次回合在 hub-turn（⑤d2）的采样重放 |
+| `test_turn_cost_is_this_turn_not_the_session_total` | 3692 | COVERED | hub-audit：turn_cost_usd 在「手写的边界」；TurnRunner 记会话累计在 hub-turn（⑤d2）的采样重放 |
+| `test_claude_workers_read_the_inputs_and_write_only_their_worktree` | 3798 | COVERED | hub-audit：claude_path_rule 在「手写的边界」；两次 TurnRunner.run 在 hub-turn（⑤d2）的采样重放，照调用当时记下的覆盖值：名册的 gate-sonnet、audit-sonnet 换成用例的 CLAUDE_GATE、CLAUDE_AUDIT |
+| `test_pi_workers_may_not_write_outside_their_worktree` | 5856 | COVERED | hub-audit：越界的判定在「guard.ts 的三方对照」与随机调用；经 TurnRunner 的回合在 hub-turn（⑤d2）的采样重放 |
 | `test_ledger_session_and_decision_records_with_u2028_are_read_back` | 6907 | PARTIAL | hub-audit：claude_session_effort 那份会话文件原样在「会话文件」；exec_metrics 归 ⑤j；decisions.read_records 在 ④ 的契约里 |
-| `test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach` | 7303 | PARTIAL | hub-audit：deliver 不审在随机事件流与 guard 对照里；经 TurnRunner 的回合归 ⑤d |
+| `test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach` | 7303 | COVERED | hub-audit：用例只调 audit_pi_stream（不经 TurnRunner，⑤c 起初记错了），⑤d2 时加进 hub-audit 的采样清单，记下的调用三边重放 |
 
 ⑤c 里的变异（ts/mutations/hub-c.ts.json）37 条，抓住 36，1 条照实测标为等价（C25：main 已经 normcase，依赖目录名是小写 ASCII、按段拼接，再 normcase 一次不改任何字）。第一轮漏掉 4 条：补了“说明截到 200 个字”“1 与 1.0 在集合里是同一个”“dict() 把长度为 2 的字符串当成一对”三例；截断那条补了之后仍漏，原因是契约的临时目录带 8.3 短名，path_forms 经 resolve 得到长名，命令里写短名对不上、根本没被判违规。主工作区改按长名搭之后抓住，短名的写法留作一种“不该被判违规”的写法。
 
@@ -119,8 +119,8 @@
 | `test_mutations_must_cover_the_changed_files` | 1531 | PARTIAL | 同上；覆盖核对归 ⑤f |
 | `test_new_attempt_gate_post_starts_from_the_previous_whitebox` | 5295 | PARTIAL | turn_prompt 的“新的 attempt”一行在记下的调用；seed_whitebox 归 ⑤f |
 | `test_worker_env_drops_the_decision_key_and_host_session_vars` | 3893 | PARTIAL | worker_env 在「手写的对照」（设了假 key 的环境，只比名字）；kernel_env 归 ⑤f |
-| `test_planner_may_only_run_npm_view` | 3827 | PARTIAL | role_prompt 在记下的调用；claude 工人的 --allowedTools 归 ⑤d2 |
-| `test_an_audit_turn_hands_in_through_deliver` | 7348 | PARTIAL | letter_from_output、role_schema 在记下的调用；经 TurnRunner 的回合归 ⑤d2 |
+| `test_planner_may_only_run_npm_view` | 3827 | COVERED | role_prompt 在 hub-prompt 的记下的调用；claude 工人的 --allowedTools 在 hub-turn（⑤d2）的采样重放 |
+| `test_an_audit_turn_hands_in_through_deliver` | 7348 | COVERED | letter_from_output、role_schema 在 hub-prompt 的记下的调用；经 TurnRunner 的回合在 hub-turn（⑤d2）的采样重放 |
 | `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | role_prompt 在记下的调用；热修补的重交归 ⑤g |
 | `test_candidate_defects_go_to_the_final_review_which_cannot_pass_them` | 993 | PARTIAL | 终审的候选缺陷一节在记下的调用；经 Engine 的流转归 ⑤i |
 | `test_review_history_survives_rework_and_seals_the_next_round` | 1152 | PARTIAL | 复审封板一节在记下的调用；经 Engine 的流转归 ⑤i |
@@ -129,10 +129,39 @@
 | `test_requeue_leaves_unread_and_kernel_run_stages_alone` | 2029 | PARTIAL | 同上 |
 | `test_the_gate_hotfix_turn_carries_the_executors_words` | 6622 | PARTIAL | 热修补的原话一节在记下的调用；经 Engine 的流转归 ⑤i |
 | `test_a_timed_out_voided_turn_is_resumed_not_restarted` | 6669 | PARTIAL | “上一回合超时作废”一节在记下的调用（其中有的当时的结果与重放对不上）；经 Engine 的流转归 ⑤i |
-| `test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint` | 6695 | PARTIAL | 同上 |
+| `test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint` | 6695 | PARTIAL | “上一回合超时作废”一节不该出现，在记下的调用（当时的结果与重放对得上）；经 Engine 的流转归 ⑤i |
 | `test_the_owners_rework_words_reach_the_reworked_stage_verbatim` | 6712 | PARTIAL | 站主的原话一节在记下的调用（其中有的当时的结果与重放对不上）；经 Engine 的流转归 ⑤i |
 
 COVERED 11、PARTIAL 21。前几片留给 ⑤d 的 PARTIAL：⑤a 的 1807、7729 改成 COVERED（见上）；⑤c 的 5946、3692、3798、5856、7303 都经 TurnRunner，归 ⑤d2。
 另有按种子生成的回合输入（第 ⑤a 片的随机主任务状态加回合输入用到的字段，乘全部岗位、有无输入目录、四种续接、报错与代办说明）与生成的过渡断言，不算进某个用例的覆盖。变异 ts/mutations/hub-d1.ts.json 37 个全部抓住（第一轮漏 2 个：模板只重读一次——“正被替换”那条靠时序碰运气，改成探针调用前写标记、写入的进程等标记再过 0.3 秒；说明行只认 r、R 前缀——后面的去引号顺手去掉了多留下的引号，加了以空白加引号开头的说明）；影子的变异加 S23，23 个全部抓住。
 
-其余场景随各片补（⑤d2 到 ⑤j）。
+### ⑤d2 输入目录与 TurnRunner
+
+做法：Python 探针 hub.audit_samples 跑 27 条直接用到 TurnRunner、stage_inputs 的用例，记下这两个的每一次顶层调用（TurnRunner.run 24 条用例共 59 次，stage_inputs 4 条用例各 1 次）。调用当时把用例的仓库整份拷进快照（不含 .git；符号链接与联接不拷，记下指向与种类）。TurnRunner 另记 launcher 写出的字节与交回的结果、回合号与新会话号、当时的秒数（回合里取的秒数钉成这一个），以及名册与交差文件哈希里用例此刻改过的键（与采样开始时比，对应 monkeypatch.setitem；autouse 夹具 pi_knows_every_flag 去掉协调人岗位的 routing，所以每次都带着协调人这一条）；stage_inputs 另记当时的 worktree 根目录与 INPUT_FILE_LIMIT（inputs_fixture 两样都换了）。结束后照 hub.turn、hub.inputs 收集产物当作“当时的结果”。契约 hub-turn 交给 Python、Node、Bun 先后在调用当时的那个目录里重放：快照还原回原位置、链接与联接照记下的重建，覆盖值两边设同一组；先核对 Python 重放与当时的结果（全部对上），再逐字节比三边。采样与重放都用假 pi（PI_DISPATCH_PI_CMD，设计稿第 3 节）：采样时 --help 的探测被 autouse 夹具换成全认，pi 不起；重放时两边去探假 pi 的 --help。与纯 pytest 的条件有三处不同，看记录时要知道：（1）采样当时就设了 PI_DISPATCH_PI_CMD，指向假 pi（契约断言记下的 39 条 pi 命令都以它开头）；（2）回合里的 time.time 钉在记下的秒数（不钉的话限流那条在全量跑时撞过一次跨秒）；（3）快照里符号链接与联接不拷，按记下的指向与种类在重放前重建。前几片留给 ⑤d2 的 PARTIAL 都改成了 COVERED（见上面 ⑤c、⑤d1 两节）；⑤c 的 7303 其实不经 TurnRunner，加进了 hub-audit 的采样清单。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_turn_runner_reports_when_the_rate_limit_lifts` | 2317 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_session_ids_change_on_a_fresh_restart` | 3659 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_claude_resumes_the_named_session_of_an_interrupted_turn` | 3717 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_turn_with_api_error_says_so` | 3855 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_claude_workers_return_to_the_workspace_after_each_command` | 5275 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果；两次调用都照记下的覆盖值：名册的 gate-sonnet 换成用例的 CLAUDE_GATE |
+| `test_pi_workers_run_their_rostered_model_and_tools` | 5795 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_throttled_pi_turn_is_held_with_a_growing_backoff` | 6013 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果（11 次；回合里取的秒数钉成记下的那一个） |
+| `test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided` | 6928 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果；照记下的覆盖值：名册的 audit-sonnet 换成用例的 CLAUDE_AUDIT |
+| `test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only` | 7100 | COVERED | hub-turn：记下的 stage_inputs 三边在调用当时的目录里重放（worktree 根目录与 INPUT_FILE_LIMIT 照 inputs_fixture 换过的值），先核对 Python 重放与当时的结果 |
+| `test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs` | 7135 | COVERED | hub-turn：记下的 stage_inputs 三边在调用当时的目录里重放（worktree 根目录与 INPUT_FILE_LIMIT 照 inputs_fixture 换过的值），先核对 Python 重放与当时的结果；接着的 TurnRunner.run 同样重放 |
+| `test_stage_inputs_does_not_follow_directory_links_or_junctions` | 7156 | COVERED | hub-turn：记下的 stage_inputs 三边在调用当时的目录里重放（worktree 根目录与 INPUT_FILE_LIMIT 照 inputs_fixture 换过的值），先核对 Python 重放与当时的结果；快照里的目录符号链接与联接各一个，重放前照记下的重建 |
+| `test_stage_inputs_clears_this_tasks_leftover_directories` | 7187 | COVERED | hub-turn：记下的 stage_inputs 三边在调用当时的目录里重放（worktree 根目录与 INPUT_FILE_LIMIT 照 inputs_fixture 换过的值），先核对 Python 重放与当时的结果；比上一层剩下的目录 |
+| `test_a_coordinator_turn_hands_in_through_deliver` | 7335 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_gate_turn_hands_in_through_deliver` | 7366 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_contract_turn_hands_in_through_deliver` | 7384 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_changed_planner_schema_stops_the_claude_turn` | 7399 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果；照记下的覆盖值：DELIVERY_SHA256 的 planner.json（全零） |
+| `test_the_planner_hands_in_through_claude_json_schema` | 7408 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_no_deliver_or_a_bad_one_is_an_invalid_output` | 7449 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_delivery_the_kernel_cannot_read_is_an_interface_error` | 7771 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果 |
+| `test_a_changed_delivery_file_stops_the_turn` | 7829 | COVERED | hub-turn：记下的 TurnRunner.run 三边在调用当时的目录里重放，先核对 Python 重放与当时的结果；照记下的覆盖值：DELIVERY_SHA256 的 coordinator.json（全零） |
+
+COVERED 20。另有手写的场景，不算进某个用例的覆盖：pi 的交差成功、复核不过、没交、读不到参数、非零退出、超时、限流的退避与清零、被拦；会话的续接、fresh、工作目录变了、半截换新、跳过已有的代、给定会话号；claude 的新会话、续接、生效档位、输入目录与长输入、依赖目录；名册与交差文件换过的场景（coordinator.json、planner.json、guard.ts 全零，名册的 gate-sonnet、audit-sonnet 换成与用例逐字段相同的 CLAUDE_GATE、CLAUDE_AUDIT）；只读输入目录；真的来源的形状核对；claude 的路径。变异：hub-d2.ts.json 34 个全部抓住（turn.ts 24 个、inputs.ts 10 个）；hub-shadow.ts.json 加 S24，24 个里 23 个第一轮抓住，S22 漏过一次，把会话文件的时刻错开后单独重跑抓住。
+
+其余场景随各片补（⑤e 到 ⑤j）。

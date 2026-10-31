@@ -85,7 +85,7 @@
     {
       "name": "D13 仓库外的路径也换成输入目录里的",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "rel === \"..\" || rel.startsWith(`..${BS}`)",
+      "old": "rel === \"..\" || rel.startsWith(`..${SEP}`)",
       "new": "rel === \"..\""
     },
     {

@@ -196,3 +196,7 @@ export const GATE_PITFALLS: readonly string[] = [
   "断言命令文本照真实的连接方式写：信封的 command 按空格连接（logs cat <task>/<attempt> <路径>），正则别写成路径里的斜杠（T011 的 D06）。",
   "只断言合同写明的内容：合同没规定的细节（例如出错时读哪个文件、显示哪条路径）不写死；一条用例里不同时要求互斥的两种状态（T011 的 TRANS：既要缺省选中 ui-readonly-api，又要页面上有 logs-cat 的表，少点了一下）。",
 ];
+/** 第 38 轮：pi 的模型接口限流时扣信退避（秒），连着限流太多次就照旧按接口报错交给站主。 */
+export const THROTTLE_BACKOFF_SECONDS = 300;
+export const THROTTLE_BACKOFF_MAX = 3600;
+export const THROTTLE_MAX_HOLDS = 5;

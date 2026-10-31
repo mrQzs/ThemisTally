@@ -12,7 +12,7 @@
 // 影子与探针都套 backup_privilege.py off；会话文件从临时的 USERPROFILE 与临时信箱里取，不碰真的家目录。
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { dumps } from "@themis/base/pyjson";
@@ -21,10 +21,12 @@ import { renderLetter } from "@themis/hub/letters";
 import { guard, newTaskState, routineMoves } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { fullAttempt } from "./attempt-fixtures.ts";
-import { BUN, REPO, removeDir, runLauncherCli, runPythonCli, scratchDir } from "./harness.ts";
+import { BUN, PYTHON as PYTHON_IMPL, REPO, removeDir, runBatch, runLauncherCli, runPythonCli, scratchDir } from "./harness.ts";
+import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { LF, newRepo, normalize, put } from "./repo-fixtures.ts";
 
 const CR = String.fromCharCode(13);
+const BSLASH = String.fromCharCode(92);
 const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
 const PROBES = resolve(REPO, "ts", "packages", "contracts", "probes");
 const TOOL = resolve(REPO, "ts", "packages", "contracts", "tools", "hub-shadow.ts");
@@ -114,40 +116,42 @@ function fixture(name: string, o: { tamperRoute?: boolean; deep?: boolean } = {}
   return { repo, home, state, routeLine: 2, nextLine: 5 };
 }
 
-/** 照 kit_hub 的 run_turn 写一个 pi 回合的 result.json：审计用名册的工具表加 deliver、事件流按通用换行读，字段照 summary 的写法。 */
-const RUN_TURN_RECORD = [
-  "import sys",
-  "from pathlib import Path",
-  "sys.path.insert(0, sys.argv[1])",
-  "import kit_hub as kh",
-  "turn, agent, workspace, repo = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4]), Path(sys.argv[5])",
-  "spec = kh.ROSTER[agent]",
-  "tools = list(spec['tools']) + [kh.DELIVER_TOOL]",
-  "audit = kh.audit_pi_stream(kh.jsonl_lines(kh.read_text(turn / 'stream.jsonl')), dict(spec, tools=tools), workspace, repo)",
-  "kh.pd.write_json(turn / 'result.json', {",
-  "    'workspace': str(workspace), 'hub_sha256': kh.HUB_SHA256, 'models': audit.get('models'),",
-  "    'effort_effective': ','.join(audit.get('effective_levels') or []) or None,",
-  "    'tool_calls': audit['tool_calls'], 'violations': audit['violations'], 'usage': audit.get('usage'), 'terminal': audit.get('terminal'),",
-  "    'warnings': audit.get('warnings') or [], 'deliver_refusals': len(audit.get('deliver_refusals') or []),",
-  "    'deliver_refusal_chars': sum(audit.get('deliver_refusals') or []),",
-  "    'thinking_chars': audit.get('thinking_chars'), 'thinking_tokens': audit.get('thinking_tokens'),",
-  "}, exclusive=True)",
-].join(LF);
-
-/** 在 gate-sonnet 下放一个已结束的回合：事件流调用 deliver，前两个事件之间用单独的 CR 分行；result.json 由 Python 照 run_turn 写下。 */
+/**
+ * 在 gate-sonnet 下放一个已结束的回合：由当前内核真的 TurnRunner.run 写出（Python 探针的 hub.turn，配回放的 launcher：事件流调用 deliver，
+ * 前两个事件之间用单独的 CR 分行）。在另一个临时信箱里跑完再把回合目录复制过来：TurnRunner 会往账本追加 turn.finished，直接在影子盯着的
+ * 信箱里跑，第二轮可能在几个回合都放好之前就开始。回合号照注入的两段拼成，后半要是十六进制。交回 result.json 的路径。
+ */
 function recordedTurn(fx: Fixture, id: string): string {
-  const dir = `.agent/mailbox/turns/gate-sonnet/${id}`;
-  put(fx.repo, `${dir}/stream.jsonl`, [
+  const scratch = join(ROOT, `${fx.repo.split(BSLASH).join("/").split("/").at(-1)}-turns`);
+  for (const sub of ["agents", "ledger", "sessions", "turns"]) mkdirSync(join(scratch, ".agent", "mailbox", sub), { recursive: true });
+  const events = [
     line({ type: "tool_execution_start", toolName: "deliver", toolCallId: "d1", args: { 摘要: "做完了" } }) + CR
       + line({ type: "message_end", message: { role: "assistant", provider: "cc-switch-zhipu-glm", model: "glm-5.3", stopReason: "stop", content: [{ type: "text", text: "完" }] } }),
     line({ type: "agent_end" }),
-  ].join(LF));
-  const done = spawnSync(PYTHON, ["-c", RUN_TURN_RECORD, join(REPO, "scripts"), join(fx.repo, dir), "gate-sonnet", join(ROOT, "ws"), fx.repo], {
-    encoding: "utf8", env: { ...process.env, PYTHONUTF8: "1" },
-  });
-  expect(done.status, done.stderr).toBe(0);
-  return join(fx.repo, dir, "result.json");
+  ].join(LF);
+  const [compact, random2] = id.split("-") as [string, string];
+  const script = new Map<string, PyValue>([["stdout", Buffer.from(events, "utf8").toString("base64")], ["stderr", ""], ["exit_code", 0n], ["timed_out", false], ["wall_seconds", 1.5]]);
+  // 角色提示词照真实 hub 的传法：role_prompt(工人)，影子的“回合与 role.md”拿 TS 重算的与它比
+  const [role] = runBatch(PYTHON_IMPL, [{ op: "hub.prompt", fn: "role_prompt", args: [toTagged("gate-sonnet")] }]);
+  const args: PyValue[] = ["gate-sonnet", "T002-3-gate-pre", join(ROOT, "ws"), fromTagged(role?.["value"] as Tagged) as string, "输入", null, false, null, null];
+  const [done] = runBatch(PYTHON_IMPL, [{ op: "hub.turn", repo: scratch, args: args.map((arg) => toTagged(arg)), script: toTagged(script),
+    sources: { compact, random2, uuid4: "00000000-0000-4000-8000-000000000000", seconds: 1_800_000_000 }, env: { PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, FAKE_PI, "ok"]) } }]);
+  expect(done?.ok, JSON.stringify(done).slice(0, 500)).toBe(true);
+  const from = join(scratch, ".agent", "mailbox", "turns", "gate-sonnet", id);
+  const to = join(fx.repo, ".agent", "mailbox", "turns", "gate-sonnet", id);
+  cpSync(from, to, { recursive: true });
+  return join(to, "result.json");
 }
+
+/** 假 pi：--help 认 TurnRunner 给 pi 的全部参数。 */
+const FAKE_PI = ((): string => {
+  const path = join(ROOT, "fake_pi.py");
+  const flags = ["--provider", "--model", "--thinking", "--mode", "--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
+    "--extension", "--no-context-files", "--tools", "--append-system-prompt", "--session-dir", "--session-id"];
+  mkdirSync(ROOT, { recursive: true });
+  writeFileSync(path, ["import sys", "print('Usage: pi [options]')", `for flag in ${JSON.stringify(flags)}:`, "    print('  ' + flag + ' <x>   y')", ""].join(LF));
+  return path;
+})();
 
 /** 套 backup_privilege.py off 起影子，交回退出码与 latest.json。 */
 function runShadow(fx: Fixture, args: readonly string[], env: Record<string, string> = {}): { status: number; report: Record<string, unknown> } {
@@ -271,28 +275,34 @@ describe("⑤-影子：--watch", () => {
     const out = join(fx.repo, "shadow-out");
     const exited = startShadow(fx, ["--watch", "--interval", "1", "--rounds", "2"], {});
     await waitFor(join(out, "latest.json"));
-    recordedTurn(fx, "20261031T000000000004Z-ffff");
-    const tampered = recordedTurn(fx, "20261031T000000000005Z-gggg");
+    recordedTurn(fx, "20261031T000000000004Z-aa01");
+    const tampered = recordedTurn(fx, "20261031T000000000005Z-aa02");
     const rewrite = (path: string, change: (record: Record<string, unknown>) => void): void => {
       const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
       change(record);
       writeFileSync(path, JSON.stringify(record));
     };
     rewrite(tampered, (record) => (record["violations"] as string[]).push("编出来的违规"));
-    rewrite(recordedTurn(fx, "20261031T000000000006Z-hhhh"), (record) => Object.assign(record, { hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
+    writeFileSync(join(tampered, "..", "role.md"), "被改过的角色提示词"); // role.md 也改掉：“回合与 role.md”要报出来
+    rewrite(recordedTurn(fx, "20261031T000000000006Z-aa03"), (record) => Object.assign(record, { hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
     // pi 回合的会话文件比 result.json 新（下一回合续接了），生效档位被改过：pi 的档位来自事件流，照样算不一致，不算时序
-    rewrite(recordedTurn(fx, "20261031T000000000007Z-iiii"), (record) => Object.assign(record, { session_id: "p-sid-9", effort_effective: "high" }));
+    rewrite(recordedTurn(fx, "20261031T000000000007Z-aa04"), (record) => Object.assign(record, { session_id: "p-sid-9", effort_effective: "high" }));
     put(fx.repo, ".agent/mailbox/sessions/gate-sonnet/20261031_p-sid-9.jsonl", line({ type: "message", message: { role: "assistant", stopReason: "stop" } }) + LF);
+    // 文件时间按系统时钟的刻度走，紧接着写的两个文件修改时刻可能一样：显式设成比 result.json 晚 2 秒（不然这一条测不出“只限 claude”）
+    const later = (statSync(join(fx.repo, ".agent", "mailbox", "turns", "gate-sonnet", "20261031T000000000007Z-aa04", "result.json")).mtimeMs + 2000) / 1000;
+    utimesSync(join(fx.repo, ".agent", "mailbox", "sessions", "gate-sonnet", "20261031_p-sid-9.jsonl"), later, later);
     // 回合不在每轮先看的指纹里：照 hub 的样子在账本记一笔，第二轮才开始
     const ledger = join(fx.repo, ".agent", "mailbox", "ledger", "events.jsonl");
-    writeFileSync(ledger, readFileSync(ledger, "utf8") + line({ at: AT, event: "turn.finished", turn_id: "20261031T000000000006Z-hhhh" }) + LF);
+    writeFileSync(ledger, readFileSync(ledger, "utf8") + line({ at: AT, event: "turn.finished", turn_id: "20261031T000000000006Z-aa03" }) + LF);
     expect(await exited).toBe(0);
     const report = JSON.parse(readFileSync(join(out, "latest.json"), "utf8")) as Record<string, unknown>;
     expect((report["categories"] as Record<string, unknown>)["回合与 result.json"]).toMatchObject({ compared: 3, mismatched: 2 });
     expect(report["result_json_other_kernel"]).toBe(1);
+    expect((report["categories"] as Record<string, unknown>)["回合与 role.md"]).toMatchObject({ compared: 3, mismatched: 1 });
     expect(report["mismatches"]).toEqual([
-      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-gggg：violations", state_sha256: report["state_sha256"] },
-      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000007Z-iiii：effort_effective", state_sha256: report["state_sha256"] },
+      { category: "回合与 role.md", key: "gate-sonnet/20261031T000000000005Z-aa02：role.md", state_sha256: report["state_sha256"] },
+      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-aa02：violations", state_sha256: report["state_sha256"] },
+      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000007Z-aa04：effort_effective", state_sha256: report["state_sha256"] },
     ]);
   }, 120_000);
 

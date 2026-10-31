@@ -7,12 +7,14 @@
     "./constants": "./src/constants.ts",
     "./delivery": "./src/delivery.ts",
     "./errors": "./src/errors.ts",
+    "./inputs": "./src/inputs.ts",
     "./kernel": "./src/kernel.ts",
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
     "./schema": "./src/schema.ts",
-    "./taskstate": "./src/taskstate.ts"
+    "./taskstate": "./src/taskstate.ts",
+    "./turn": "./src/turn.ts"
   },
   "dependencies": {
     "@themis/base": "workspace:*",

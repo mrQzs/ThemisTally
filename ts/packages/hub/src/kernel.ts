@@ -2,9 +2,11 @@
 // 路径照 Path(__file__).resolve() 解析到真实路径（8.3 短名展开、联接跟随）：hub 从短名或联接起，写进提示词、命令行的内核路径两边照样一样。
 // 模板、schema、扩展仍是 scripts/hub 下那一份，两套实现读同一份（第 1.2 节：数据与模板照原样沿用）。
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PyCrash } from "@themis/base/pyfmt";
+import { PyCrash, pyRepr } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { pyResolve } from "@themis/base/pypath";
 import { pyStrip } from "@themis/base/pyre";
@@ -19,6 +21,16 @@ export const TEMPLATE_DIR = join(SCRIPTS_DIR, "hub");
 export const DELIVER_EXTENSION = join(TEMPLATE_DIR, "deliver.ts");
 export const GUARD_EXTENSION = join(TEMPLATE_DIR, "guard.ts");
 export const SCHEMA_DIR = join(TEMPLATE_DIR, "schemas");
+/** kit_hub 的 HUB_SHA256：kit_hub.py 的 sha256，本进程载入时算（result.json 记它；切换之后它该指什么归 ⑤j 或切换再定）。 */
+export const HUB_SHA256 = createHash("sha256").update(readFileSync(join(SCRIPTS_DIR, "kit_hub.py"))).digest("hex");
+
+function isDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * kit_hub 的 git()：参数原样（不像调度器那样加 -c core.quotepath=off，ls-tree 列出的非 ASCII 文件名照 Git 的缺省加引号转义），
@@ -29,7 +41,11 @@ export function git(args: readonly string[], cwd: string, check = true, timeout 
   if (done.error) {
     const code = (done.error as NodeJS.ErrnoException).code;
     if (code === "ETIMEDOUT") throw new PyCrash("TimeoutExpired", `Command '${["git", ...args].join(" ")}' timed out after ${timeout} seconds`);
-    if (code === "ENOENT") throw new PyCrash("FileNotFoundError", "[WinError 2] 系统找不到指定的文件。");
+    if (code === "ENOENT") {
+      // Windows 上 cwd 不存在时 Python 抛的是 NotADirectoryError（WinError 267），不是“找不到 git”（照调度器的 repo.ts）
+      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: ${pyRepr(cwd)}`);
+      throw new PyCrash("FileNotFoundError", "[WinError 2] 系统找不到指定的文件。");
+    }
     throw done.error;
   }
   const out = pyDecodeUtf8Replace(done.stdout);

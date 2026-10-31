@@ -73,6 +73,7 @@ const TESTS = [
   "test_pi_workers_load_the_guard_with_the_kernel_roots", "test_claude_workers_are_audited_for_the_main_worktree_too",
   "test_u2028_in_a_tool_call_cannot_hide_it_from_the_audit", "test_unreadable_stream_lines_are_violations",
   "test_the_pi_audit_takes_the_last_accepted_deliver", "test_unreadable_lines_are_not_counted_as_unreadable_deliveries",
+  "test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach", // ⑤d2 时补：它只调 audit_pi_stream，不经 TurnRunner
 ];
 const FUNCTIONS = ["audit_claude_stream", "audit_pi_stream", "pi_reach_problem", "guard_config", "path_forms", "claude_path_rule", "stream_events",
   "jsonl_lines", "turn_cost_usd"];

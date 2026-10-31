@@ -27,6 +27,7 @@ import { gateFile, gatePattern, stageStatusTable, upstreamNotes } from "./taskst
 
 const BS = String.fromCharCode(92);
 const TAB = String.fromCharCode(9);
+const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
 const LF = String.fromCharCode(10);
 const DQ = String.fromCharCode(34);
 const BT = String.fromCharCode(96);
@@ -216,7 +217,7 @@ export function inputPath(hub: Hub, inputs: string | null, path: PyValue): strin
   } catch {
     return text;
   }
-  return rel === ".." || rel.startsWith(`..${BS}`) ? text : purePathStr(inputs, rel);
+  return rel === ".." || rel.startsWith(`..${SEP}`) ? text : purePathStr(inputs, rel);
 }
 
 /** 任务基线上先前各片留下的门禁基准测试（第 14 轮）。 */
@@ -256,9 +257,9 @@ export function turnPrompt(
     `- 你：${agent}（${spec.label}）`,
     `- 主任务：${pyStrValue(pyItem(ts, "task"))} ${pyStrValue(pyItem(ts, "title"))}`,
     `- 本回合的任务：${taskId}`,
-    `- 工作目录：${workspace}`,
+    `- 工作目录：${purePathStr(workspace)}`, // 照 str(Path)：调用方传的路径没规整也一样
     inputs !== null
-      ? `- 只读输入目录：${inputs}（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 ` + BT + ".agent/…" + BT
+      ? `- 只读输入目录：${purePathStr(inputs)}（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 ` + BT + ".agent/…" + BT
         + ` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 ${DEPENDENCY_DIRS.map((dep) => purePathStr(hub.repo, dep)).join("、")}）`
       : `- 仓库主工作区（只读参考）：${hub.repo}`,
     `- 你的 state.md：${shown(purePathStr(taskDir, "state.md"))}`,

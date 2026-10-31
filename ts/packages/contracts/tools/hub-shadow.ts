@@ -393,6 +393,9 @@ interface Recorded {
   readonly record: Map<string, PyValue>;
   readonly audit: number;
   readonly effort: number | null;
+  /** 这一批里 role_prompt 的请求是第几个，与 hub 写下的 role.md（读不到是 null）。 */
+  readonly role: number;
+  readonly roleMd: string | null;
   /** 会话文件在 result.json 写下之后又改过（claude 的会话被 --resume 接着写）：生效档位对不上算“时序”。 */
   readonly sessionMoved: boolean;
 }
@@ -444,8 +447,13 @@ function compareTurns(cmp: Comparison, repo: string, snapRepo: string, turns: re
       }
       if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
       else if (againstRecords) {
+        const roleAt = items.length;
+        items.push({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(turn.agent)] });
+        keys.push(`${turn.id} 角色`);
+        const rolePath = join(turn.dir, "role.md");
         recorded.push({
           id: turn.id, adapter: spec.adapter, record: loads(readText(resultPath)) as Map<string, PyValue>, audit: auditAt, effort: effortAt,
+          role: roleAt, roleMd: existsSync(rolePath) ? readFileSync(rolePath).toString("utf8") : null,
           sessionMoved: sessionTime > statSync(resultPath).mtimeMs,
         });
       }
@@ -466,6 +474,9 @@ function compareRecord(cmp: Comparison, turn: Recorded, results: readonly Item[]
     return result.ok ? fromTagged(result.value as Tagged) : undefined;
   };
   const list = (item: PyValue | undefined): PyValue[] => (Array.isArray(item) ? item : []);
+  // role.md 只依赖模板与已提交的 AGENTS.md：TS 的 role_prompt 重算，逐字节比（设计稿第 7 节：prompt.md、inputs.json 只在契约里比）
+  cmp.count("回合与 role.md", 1, 0);
+  if (value(turn.role) !== turn.roleMd) cmp.miss("回合与 role.md", `${turn.id}：role.md`);
   const audit = value(turn.audit);
   cmp.count("回合与 result.json", 1, 0);
   if (!(audit instanceof Map)) {

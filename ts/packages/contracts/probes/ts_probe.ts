@@ -88,7 +88,7 @@ import { configErrors } from "@themis/config/roles-check";
 import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
 import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { hubAudit, hubBox, hubCall, hubConstants, hubPrompt, hubShadowLetter, hubShadowRoute, hubShadowRoutine, hubShadowTask } from "./hub_probe.ts";
+import { hubAudit, hubBox, hubCall, hubConstants, hubInputs, hubPrompt, hubShadowLetter, hubShadowRoute, hubShadowRoutine, hubShadowTask, hubTurn } from "./hub_probe.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
 type Result = Record<string, unknown>;
@@ -543,6 +543,8 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "hub.constants": (request) => hubConstants(request),
   "hub.audit": (request) => hubAudit(request, fromTagged as never, toTagged),
   "hub.prompt": (request) => hubPrompt(request, fromTagged as never, toTagged),
+  "hub.inputs": (request) => hubInputs(request, fromTagged as never, toTagged),
+  "hub.turn": (request) => hubTurn(request, fromTagged as never, toTagged),
   "hub.shadow_task": (request) => hubShadowTask(request, toTagged),
   "hub.shadow_letter": (request) => hubShadowLetter(request, toTagged),
   "hub.shadow_routine": (request) => hubShadowRoutine(request, toTagged),

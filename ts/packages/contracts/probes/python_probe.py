@@ -7,6 +7,7 @@ stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252）�
 import ast
 import base64
 import contextlib
+import hashlib
 import io
 import datetime
 import errno
@@ -17,6 +18,7 @@ import os
 import secrets
 import shlex
 import shutil
+import stat
 import struct
 import sys
 import tempfile
@@ -1262,6 +1264,186 @@ def op_hub_prompt(request):
     return {"ok": True, "value": to_tagged(value)}
 
 
+def _tree_listing(root):
+    """一个目录下的文件（相对路径用正斜杠、排好序）：字节数、可不可写、sha256。"""
+    rows = []
+    for folder, _dirs, files in os.walk(str(root)):
+        for name in files:
+            path = Path(folder) / name
+            rows.append([path.relative_to(root).as_posix(), path.stat().st_size, os.access(str(path), os.W_OK),
+                         hashlib.sha256(path.read_bytes()).hexdigest()])
+    return sorted(rows)
+
+
+def _inputs_artifacts(target, info):
+    """stage_inputs 留下的东西：（目录，清单）、输入目录里每个文件的字节数、可写与否、sha256，INPUTS.json、SKIPPED.md 的原始字节（base64），
+    以及上一层（<仓库名>-hub-inputs）里剩下的目录：这个主任务留下的旧目录清掉了、别的主任务的没动。"""
+    raw = lambda name: base64.b64encode((target / name).read_bytes()).decode("ascii") if (target / name).is_file() else None  # noqa: E731
+    return {"dir": str(target), "info": info, "files": _tree_listing(target), "index": raw(kit_hub.INPUTS_INDEX), "skipped": raw("SKIPPED.md"),
+            "siblings": sorted(os.listdir(str(target.parent)))}
+
+
+def op_hub_inputs(request):
+    """第 ⑤d 片：kit_hub 的 stage_inputs（与 remove_inputs），交回 _inputs_artifacts。HubError 交回文字与退出码，别的异常只比类型。
+    采样的重放（⑤d2）另给 restore（照 op_hub_turn），以及 worktree_root、input_file_limit：调用期间换掉 kit_hub 的 worktree_root 与
+    INPUT_FILE_LIMIT，对应 inputs_fixture 的 monkeypatch。"""
+    hub = kit_hub.Hub(Path(request["repo"]))
+    if request.get("restore") is not None:
+        _restore_tree(request["restore"]["from"], request["restore"]["to"], request["restore"].get("links", []))
+    saved = (kit_hub.worktree_root, kit_hub.INPUT_FILE_LIMIT)
+    if request.get("worktree_root") is not None:
+        kit_hub.worktree_root = lambda _repo: Path(request["worktree_root"])
+    if request.get("input_file_limit") is not None:
+        kit_hub.INPUT_FILE_LIMIT = request["input_file_limit"]
+    try:
+        if request.get("remove") is not None:
+            kit_hub.remove_inputs(Path(request["remove"]))
+            return {"ok": True, "value": to_tagged(Path(request["remove"]).exists())}
+        target, info = kit_hub.stage_inputs(hub, from_tagged(request["ts"]), request["key"])
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    finally:
+        kit_hub.worktree_root, kit_hub.INPUT_FILE_LIMIT = saved
+    return {"ok": True, "value": to_tagged(_inputs_artifacts(target, info))}
+
+
+#: 回合里内核自己定下的环境变量：比值（别的只比名字，迁移计划第 0 节）
+KERNEL_SET_ENV = ("THEMIS_DELIVER_SCHEMA", "THEMIS_GUARD", "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR")
+
+
+def _turn_launcher(calls, inner):
+    """包住一个 launcher：记下命令行、工作目录、环境的名字（内核自己定下的几个记值）与时限，再交给 inner。"""
+    def launcher(cmd, cwd, env, out, err, timeout):
+        calls.append({"cmd": list(cmd), "cwd": str(cwd), "env": sorted(env), "kernel_env": {name: env.get(name) for name in KERNEL_SET_ENV},
+                      "timeout": timeout})
+        return inner(cmd, cwd, env, out, err, timeout)
+    return launcher
+
+
+def _turn_artifacts(hub, summary, calls, inputs, agent, offset):
+    """一个回合留下的东西：summary、launcher 的调用、回合目录里每个文件的原始字节、输入目录里的长输入、会话记录与账本新增的部分（base64）。"""
+    turn_dir = Path(summary["turn_dir"])
+    b64 = lambda path: base64.b64encode(path.read_bytes()).decode("ascii")  # noqa: E731
+    files = {name: b64(turn_dir / name) for name in sorted(os.listdir(turn_dir))}
+    long_prompts = {path.name: b64(path) for path in sorted(Path(inputs).glob("prompt-*.md"))} if inputs is not None else {}
+    record = hub.agent_path(agent)
+    ledger = hub.ledger()
+    tail = ledger.read_bytes()[offset:] if ledger.exists() else b""
+    return {"summary": summary, "calls": calls, "files": files, "long_prompts": long_prompts,
+            "agent": b64(record) if record.exists() else None, "ledger": base64.b64encode(tail).decode("ascii")}
+
+
+#: os.readlink 交回的长路径前缀（两个反斜杠、问号、反斜杠）：记链接的指向时去掉，与用例建链接时给的写法一样
+LONG_PREFIX = chr(92) * 2 + "?" + chr(92)
+
+
+def _snapshot_tree(source, target):
+    """把 source 整份拷到 target（.git 不拷）：普通文件照 copy2，只读位跟着；符号链接与联接不拷，交回 [相对路径（正斜杠）, 指向, 种类]，
+    重放时由 _restore_tree 照原样重建。shutil.copytree 会顺着联接把整棵树抄进来，Node 的 cpSync 会把联接建成目录符号链接。"""
+    links = []
+
+    def walk(folder, parts):
+        os.makedirs(os.path.join(str(target), *parts), exist_ok=True)
+        for entry in sorted(os.scandir(folder), key=lambda item: item.name):
+            if entry.name == ".git":
+                continue
+            rel = parts + [entry.name]
+            if entry.is_symlink() or os.path.isjunction(entry.path):
+                pointed = os.readlink(entry.path)
+                if pointed.startswith(LONG_PREFIX) and not pointed.startswith(LONG_PREFIX + "UNC"):
+                    pointed = pointed[len(LONG_PREFIX):]
+                kind = "junction" if os.path.isjunction(entry.path) else "dir" if entry.is_dir() else "file"
+                links.append(["/".join(rel), pointed, kind])
+            elif entry.is_dir():
+                walk(entry.path, rel)
+            else:
+                shutil.copy2(entry.path, os.path.join(str(target), *rel))
+
+    walk(str(source), [])
+    return links
+
+
+def _restore_tree(source, target, links=()):
+    """把快照原样放回原来的位置（采样的重放：两边先后在调用当时的那个目录里跑），链接与联接照记下的重建。只读的文件先改回可写再删。"""
+    def writable(func, path, _exc):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+
+    if Path(target).exists():
+        shutil.rmtree(str(target), onexc=writable)
+    _snapshot_tree(source, target)
+    for rel, pointed, kind in links:
+        path = os.path.join(str(target), *rel.split("/"))
+        if kind == "junction":
+            import _winapi
+            _winapi.CreateJunction(pointed, path)
+        else:
+            os.symlink(pointed, path, target_is_directory=kind == "dir")
+
+
+def op_hub_turn(request):
+    """第 ⑤d 片：kit_hub.TurnRunner.run，配一个回放的 launcher：把 script 里的字节原样写进标准输出与标准错误，交回给定的
+    退出码、是否超时与用时，记下命令行、工作目录、环境的名字（内核自己定下的几个记值）与时限。不确定的几样窄窄地换成给定的值
+    （themistally-15 定的）：utc_compact；os.urandom 只在要 2 字节时；uuid4；time.time 只在 run() 期间。交回 summary、launcher 的调用、
+    回合目录里每个文件的原始字节、输入目录里的长输入、会话记录与账本新增的部分（base64）。"""
+    import uuid as uuid_module
+
+    hub = kit_hub.Hub(Path(request["repo"]))
+    script = from_tagged(request["script"]) if request.get("script") is not None else {}
+    calls = []
+    if request.get("restore") is not None:
+        _restore_tree(request["restore"]["from"], request["restore"]["to"], request["restore"].get("links", []))
+
+    def replayed(cmd, cwd, env, out, err, timeout):
+        out.write(base64.b64decode(script.get("stdout", "")))
+        err.write(base64.b64decode(script.get("stderr", "")))
+        return {"exit_code": script.get("exit_code", 0), "timed_out": bool(script.get("timed_out")), "wall_seconds": script.get("wall_seconds", 1.5)}
+
+    launcher = _turn_launcher(calls, replayed)
+
+    sources = request.get("sources")  # 不给时什么都不换：形状核对用真的来源
+    real_urandom = os.urandom
+    saved = (kit_hub.utc_compact, os.urandom, uuid_module.uuid4, time.time)
+    if request.get("home") is not None:
+        os.environ["USERPROFILE"] = os.environ["HOME"] = request["home"]
+    ledger = hub.ledger()
+    offset = ledger.stat().st_size if ledger.exists() else 0
+    agent, key, workspace, role, prompt, retry_of, fresh, inputs, session_id = [from_tagged(item) for item in request["args"]]
+    overrides = [(kit_hub.ROSTER, request.get("roster") or {}), (kit_hub.DELIVERY_SHA256, request.get("delivery_sha256") or {})]
+    saved_tables = [(table, {name: table.get(name, None) for name in given}, set(given) - set(table)) for table, given in overrides]
+    for table, given in overrides:
+        table.update(given)
+    given_env = request.get("env") or {}
+    saved_env = {name: os.environ.get(name) for name in given_env}
+    os.environ.update(given_env)
+    if sources is not None:
+        kit_hub.utc_compact = lambda: sources["compact"]
+        os.urandom = lambda n: bytes.fromhex(sources["random2"]) if n == 2 else real_urandom(n)
+        uuid_module.uuid4 = lambda: uuid_module.UUID(sources["uuid4"])
+        time.time = lambda: float(sources["seconds"])
+    try:
+        summary = kit_hub.TurnRunner(hub, launcher=launcher).run(agent, key, Path(workspace), role, prompt, retry_of, fresh,
+                                                                  None if inputs is None else Path(inputs), session_id)
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    finally:
+        kit_hub.utc_compact, os.urandom, uuid_module.uuid4, time.time = saved
+        for table, before, added in saved_tables:
+            table.update({name: value for name, value in before.items() if name not in added})
+            for name in added:
+                table.pop(name, None)
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    return {"ok": True, "value": to_tagged(_turn_artifacts(hub, summary, calls, inputs, agent, offset))}
+
+
 def _autouse_fixtures(path):
     """一个测试文件里带 autouse=True 的 pytest 夹具的函数名（照源码找，不靠导入）。"""
     names = []
@@ -1297,6 +1479,7 @@ def op_hub_audit_samples(request):
     对照测试拿去交给三边重放，并先核对 Python 重放与当时的结果：重放读的是用例跑完时的文件、用例改过的全局已经撤销，
     对不上的那几条不算重放过这个场景。样例只有 pytest 这一个来源。tmp_path 给 request["tmp"] 下的新目录，monkeypatch 用 pytest
     的 MonkeyPatch，跑完撤销；pytest 每条用例先搭的 autouse 夹具照样先搭，两个文件里的 autouse 夹具与已知的不一样就不采。"""
+    import copy
     import inspect
     import tempfile
     from _pytest.monkeypatch import MonkeyPatch
@@ -1321,7 +1504,17 @@ def op_hub_audit_samples(request):
         return value
 
     calls, depth, current = [], [0], [None]
-    originals = {name: getattr(kit_hub, name) for name in request["functions"]}
+    originals = {name: getattr(kit_hub, name) for name in request["functions"] if name not in ("TurnRunner.run", "stage_inputs")}
+    pristine = [(kit_hub.ROSTER, copy.deepcopy(kit_hub.ROSTER)), (kit_hub.DELIVERY_SHA256, dict(kit_hub.DELIVERY_SHA256))]
+
+    def overrides():
+        """用例此刻改过的名册岗位与交差文件哈希（与采样开始时比，对应 monkeypatch.setitem）：重放时两边设同一组。删掉的键重放设不回来，直接报错。"""
+        changed = []
+        for table, before in pristine:
+            if set(before) - set(table):
+                raise RuntimeError("用例删掉了 %s" % sorted(set(before) - set(table)))
+            changed.append({name: plain(value) for name, value in table.items() if name not in before or before[name] != value})
+        return json.dumps({"roster": changed[0], "delivery_sha256": changed[1]}, ensure_ascii=False)
 
     def recorder(name, fn):
         signature = inspect.signature(fn)
@@ -1347,12 +1540,88 @@ def op_hub_audit_samples(request):
             return value
         return wrapper
 
+    def turn_recorder(original):
+        """TurnRunner.run 的记录器（第 ⑤d 片）：调用当时把用例的仓库整份拷进快照（不含 .git），记下 home、launcher 写下的字节与交回的结果、
+        回合号与新会话号（重放时注入同一组）、当时的秒数；结束之后照 op_hub_turn 收集产物，存成“当时的结果”。"""
+        def run(self, agent, session_key, workspace, role_prompt, prompt, retry_of=None, fresh=False, inputs=None, session_id=None):
+            snapshot = Path(request["tmp"]).resolve() / "turn-snapshots" / str(len(calls))
+            links = _snapshot_tree(self.hub.repo, snapshot)
+            ledger = self.hub.ledger()
+            offset = ledger.stat().st_size if ledger.exists() else 0
+            entry = {"test": current[0], "fn": "TurnRunner.run", "repo": str(self.hub.repo), "snapshot": str(snapshot), "home": str(Path.home()),
+                     "args": [agent, session_key, str(workspace), role_prompt, prompt, retry_of, fresh, None if inputs is None else str(inputs), session_id],
+                     "seconds": int(time.time()), "links": links, "overrides": overrides()}
+            calls.append(entry)
+            returned, recorded = [], []
+            inner, saved = self.launcher, self.launcher
+
+            def launcher(cmd, cwd, env, out, err, timeout):
+                back = inner(cmd, cwd, env, out, err, timeout)
+                returned.append(back)
+                return back
+
+            self.launcher = _turn_launcher(recorded, launcher)
+            real_time = time.time
+            # 回合里取的秒数钉成记下的那一个（重放注入的也是它）：不钉的话两次取时间之间跨了一秒，限流的解除时刻就差 1（全量跑时撞过）
+            time.time = lambda: float(entry["seconds"])
+            try:
+                summary = original(self, agent, session_key, workspace, role_prompt, prompt, retry_of, fresh, inputs, session_id)
+            except Exception as exc:  # noqa: BLE001  记下之后照样抛回用例
+                entry["result"] = _recorded_error(exc)
+                raise
+            finally:
+                self.launcher = saved
+                time.time = real_time
+            turn_dir = Path(summary["turn_dir"])
+            back = returned[0] if returned else {}
+            raw = lambda name: base64.b64encode((turn_dir / name).read_bytes()).decode("ascii")  # noqa: E731
+            entry["script"] = {"stdout": raw("stream.jsonl"), "stderr": raw("stderr.log"), "exit_code": back.get("exit_code", 0),
+                               "timed_out": bool(back.get("timed_out")), "wall_seconds": back.get("wall_seconds", 1.5)}
+            compact, random2 = summary["turn_id"].rsplit("-", 1)
+            new_claude = summary["first_turn"] and kit_hub.ROSTER[agent]["adapter"] == "claude"
+            entry["sources"] = {"compact": compact, "random2": random2, "seconds": entry["seconds"],
+                                "uuid4": summary["session_id"] if new_claude else "00000000-0000-4000-8000-000000000000"}
+            entry["result"] = json.dumps({"ok": True, "value": to_tagged(_turn_artifacts(self.hub, summary, recorded, inputs, agent, offset))})
+            return summary
+        return run
+
+    def inputs_recorder(original):
+        """stage_inputs 的记录器（⑤d2，themistally-15 要的）：调用当时把用例的仓库整份拷进快照（链接与联接另记），记下当时的
+        worktree 根目录与 INPUT_FILE_LIMIT（inputs_fixture 两样都换了），结束之后照 op_hub_inputs 收集产物，存成“当时的结果”。
+        根目录不在仓库里时快照照不到输入目录的上一层，直接报错。"""
+        def stage(hub, ts, key):
+            root = kit_hub.worktree_root(hub.repo)
+            if not Path(root).resolve().is_relative_to(Path(hub.repo).resolve()):
+                raise RuntimeError("worktree 根目录不在用例的仓库里：快照照不到输入目录的上一层")
+            snapshot = Path(request["tmp"]).resolve() / "inputs-snapshots" / str(len(calls))
+            entry = {"test": current[0], "fn": "stage_inputs", "repo": str(hub.repo), "snapshot": str(snapshot), "links": _snapshot_tree(hub.repo, snapshot),
+                     "ts": plain(ts), "key": key, "worktree_root": str(root), "input_file_limit": kit_hub.INPUT_FILE_LIMIT}
+            calls.append(entry)
+            try:
+                target, info = original(hub, ts, key)
+            except Exception as exc:  # noqa: BLE001  记下之后照样抛回用例
+                entry["result"] = _recorded_error(exc)
+                raise
+            entry["result"] = json.dumps({"ok": True, "value": to_tagged(_inputs_artifacts(target, info))})
+            return target, info
+        return stage
+
     def raw(fixture):
         """pytest 夹具对象底下的原函数（pytest 8.4 起是 _get_wrapped_function）。"""
         return fixture._get_wrapped_function() if hasattr(fixture, "_get_wrapped_function") else fixture.__wrapped__
 
     for name, fn in originals.items():
         setattr(kit_hub, name, recorder(name, fn))
+    original_run = kit_hub.TurnRunner.run
+    if "TurnRunner.run" in request["functions"]:
+        kit_hub.TurnRunner.run = turn_recorder(original_run)
+    original_stage = kit_hub.stage_inputs
+    if "stage_inputs" in request["functions"]:
+        kit_hub.stage_inputs = inputs_recorder(original_stage)
+    # 采样期间的环境（⑤d2）：契约给假 pi 的 PI_DISPATCH_PI_CMD，采样与重放的命令行里是同一个假 pi
+    given_env = request.get("env") or {}
+    saved_env = {name: os.environ.get(name) for name in given_env}
+    os.environ.update(given_env)
     skipped = []
     try:
         for test in request["tests"]:
@@ -1384,6 +1653,13 @@ def op_hub_audit_samples(request):
     finally:
         for name, fn in originals.items():
             setattr(kit_hub, name, fn)
+        kit_hub.TurnRunner.run = original_run
+        kit_hub.stage_inputs = original_stage
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
     return {"ok": True, "value": to_tagged({"calls": calls, "skipped": skipped})}
 
 def _shadow_one(fn):
@@ -1511,6 +1787,8 @@ OPS = {
     "hub.audit": op_hub_audit,
     "hub.audit_samples": op_hub_audit_samples,
     "hub.prompt": op_hub_prompt,
+    "hub.inputs": op_hub_inputs,
+    "hub.turn": op_hub_turn,
     "hub.shadow_task": op_hub_shadow_task,
     "hub.shadow_letter": op_hub_shadow_letter,
     "hub.shadow_routine": op_hub_shadow_routine,

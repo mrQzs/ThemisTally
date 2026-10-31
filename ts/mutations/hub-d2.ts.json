@@ -1,0 +1,218 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T01 交差工具加反了",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "claude ? STRUCTURED_TOOL : DELIVER_TOOL]",
+      "new": "claude ? DELIVER_TOOL : STRUCTURED_TOOL]"
+    },
+    {
+      "name": "T02 返工重开不换新的一代",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "[session, generation] = [null, generation + 1n];",
+      "new": "[session, generation] = [null, generation];"
+    },
+    {
+      "name": "T03 工作目录变了也续接",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "(fresh || !pyEq(pyGet(session, \"cwd\"), where))",
+      "new": "fresh"
+    },
+    {
+      "name": "T04 半截会话照样续接",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "const cut = session !== null && sessionCutShort(",
+      "new": "const cut = false && sessionCutShort("
+    },
+    {
+      "name": "T05 只跳过一代已有的会话文件",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "while (globPaths(sessions, [",
+      "new": "if (globPaths(sessions, ["
+    },
+    {
+      "name": "T06 长输入不写进输入目录",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "      writeFileSync(longPrompt, prompt);",
+      "new": "      void longPrompt;"
+    },
+    {
+      "name": "T07 不留输入目录的清单",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "copyFileSync(join(inputs, INPUTS_INDEX), join(turnDir, \"inputs.json\"));",
+      "new": "void 0;"
+    },
+    {
+      "name": "T08 新会话与续接的参数反了",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "(first ? [\"--session-id\", id] : [\"--resume\", id])",
+      "new": "(first ? [\"--resume\", id] : [\"--session-id\", id])"
+    },
+    {
+      "name": "T09 写入的拒绝规则不含输入目录",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "...writes.flatMap((tool) => [this.hub.repo, ...(inputs !== null ? [inputs] : [])].map(",
+      "new": "...writes.flatMap((tool) => [this.hub.repo].map("
+    },
+    {
+      "name": "T10 claude 不经 which 找",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "cmd[0] = pyWhich(\"claude\") ?? \"claude\";",
+      "new": "cmd[0] = \"claude\";"
+    },
+    {
+      "name": "T11 claude 工人不加回到工作目录的环境",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "if (claude) for (const [name, value] of Object.entries(CLAUDE_WORKER_ENV)) env.set(name, value);",
+      "new": "if (false) for (const [name, value] of Object.entries(CLAUDE_WORKER_ENV)) env.set(name, value);"
+    },
+    {
+      "name": "T12 守卫配置的两个目录反了",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "guardConfig(where, this.hub.repo)",
+      "new": "guardConfig(this.hub.repo, where)"
+    },
+    {
+      "name": "T13 起 pi 之前不核对守卫扩展",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": " ?? workerFileProblem(GUARD_EXTENSION) ?? deliveryProblem(spec.role);",
+      "new": " ?? deliveryProblem(spec.role);"
+    },
+    {
+      "name": "T14 被拦下的回合用时记 1 秒",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "[\"wall_seconds\", 0]])",
+      "new": "[\"wall_seconds\", 1]])"
+    },
+    {
+      "name": "T15 审计已有接口报错也再判一次",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "else if (!pyTruthy(pyGet(audit, \"api_error\"))) audit.set(\"api_error\", interfaceProblem(",
+      "new": "else audit.set(\"api_error\", interfaceProblem("
+    },
+    {
+      "name": "T16 限流退避不加倍",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "THROTTLE_BACKOFF_SECONDS * 2 ** Number(throttles - 1n)",
+      "new": "THROTTLE_BACKOFF_SECONDS"
+    },
+    {
+      "name": "T17 没限流时不清掉限流次数",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "      current.delete(\"throttles\");",
+      "new": "      void current;"
+    },
+    {
+      "name": "T18 pi 的生效档位空的时候是空串",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": ".map((level) => level as string).join(\",\") || null);",
+      "new": ".map((level) => level as string).join(\",\"));"
+    },
+    {
+      "name": "T19 claude 的生效档位不取会话文件",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "audit.set(\"effort_effective\", claudeSessionEffort(id));",
+      "new": "audit.set(\"effort_effective\", null);"
+    },
+    {
+      "name": "T20 会话的回合数不加",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "pyIntOf(pyGet(current, \"turns\", 0n)) + 1n);",
+      "new": "pyIntOf(pyGet(current, \"turns\", 0n)));"
+    },
+    {
+      "name": "T21 会话累计花费不写回",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "if (sessionCost !== null) current.set(\"cost_usd_total\", sessionCost);",
+      "new": "if (false) current.set(\"cost_usd_total\", sessionCost);"
+    },
+    {
+      "name": "T22 claude 的交差哈希也记 pi 的扩展",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "(claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)])",
+      "new": "[purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]"
+    },
+    {
+      "name": "T23 被退回的报错字数记成次数",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "refused.reduce<bigint>((sum, chars) => sum + pyIntOf(chars), 0n)",
+      "new": "BigInt(refused.length)"
+    },
+    {
+      "name": "T24 turn.finished 一律记输出合格",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "[\"output_ok\", output !== null]",
+      "new": "[\"output_ok\", true]"
+    },
+    {
+      "name": "I01 超过上限的也复制",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "      if (size > limit) {",
+      "new": "      if (false) {"
+    },
+    {
+      "name": "I02 复制的文件不设只读",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "      chmodSync(dest, READ_ONLY);",
+      "new": "      void dest;"
+    },
+    {
+      "name": "I03 INPUTS.json 写 LF",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "process.platform === \"win32\" ? text.split(LF).join(CRLF) : text",
+      "new": "text"
+    },
+    {
+      "name": "I04 不清这个主任务留下的旧目录",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "for (const stale of isDir(parent) ? globPaths(",
+      "new": "for (const stale of false ? globPaths("
+    },
+    {
+      "name": "I05 顺着联接往下走",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "for (const name of dirs) if (!isLinkOrJunction(join(folder, name))) walk(join(folder, name));",
+      "new": "for (const name of dirs) walk(join(folder, name));"
+    },
+    {
+      "name": "I06 符号链接的文件也复制",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "if (!lstatOrNull(join(folder, name))?.isSymbolicLink()) found.push(join(folder, name));",
+      "new": "found.push(join(folder, name));"
+    },
+    {
+      "name": "I07 名字只是前缀相同的主任务目录也收",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "purePathName(path).startsWith(`${task}-`)",
+      "new": "purePathName(path).startsWith(task)"
+    },
+    {
+      "name": "I08 不收合同的 JSON",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": ", ...globPaths(plans, [`${name}.v*.json`]).sort(comparePaths));",
+      "new": ");"
+    },
+    {
+      "name": "I09 不写 SKIPPED.md",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "  if (skipped.length) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "I10 SKIPPED.md 写死 4 MB 的上限",
+      "file": "ts/packages/hub/src/inputs.ts",
+      "old": "超过 ${limit} 字节",
+      "new": "超过 ${INPUT_FILE_LIMIT} 字节"
+    }
+  ]
+}
