@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./audit": "./src/audit.ts",
     "./constants": "./src/constants.ts",
     "./errors": "./src/errors.ts",
     "./letters": "./src/letters.ts",
@@ -11,6 +12,7 @@
     "./taskstate": "./src/taskstate.ts"
   },
   "dependencies": {
-    "@themis/base": "workspace:*"
+    "@themis/base": "workspace:*",
+    "@themis/dispatcher": "workspace:*"
   }
 }

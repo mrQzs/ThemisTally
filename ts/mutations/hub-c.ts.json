@@ -1,0 +1,237 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-audit.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "C01 逐行解析不去两头的空白",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    const line = pyStrip(raw);",
+      "new": "    const line = raw;"
+    },
+    {
+      "name": "C02 嵌套太深不算读不出来的行",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "new Set([\"ValueError\", \"JSONDecodeError\", \"RecursionError\"])",
+      "new": "new Set([\"ValueError\", \"JSONDecodeError\"])"
+    },
+    {
+      "name": "C03 会话累计相等时也当成重开",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "if (previous === null || total < pyFloatOf(previous))",
+      "new": "if (previous === null || total <= pyFloatOf(previous))"
+    },
+    {
+      "name": "C04 花费只保留五位小数",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "pyRound(total - pyFloatOf(previous), 6)",
+      "new": "pyRound(total - pyFloatOf(previous), 5)"
+    },
+    {
+      "name": "C05 会话文件整串比大小",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "const last = paths.sort(comparePaths).at(-1);",
+      "new": "const last = paths.sort().at(-1);"
+    },
+    {
+      "name": "C06 最后一行读不出来不算半截",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  if (lines.length && !streamEvents(lines.slice(-1))[0].length) return true;",
+      "new": "  if (false) return true;"
+    },
+    {
+      "name": "C07 claude 停在 tool_use 不算半截",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "pyEq(pyGet(message, \"stop_reason\"), \"tool_use\")",
+      "new": "pyEq(pyGet(message, \"stop_reason\"), \"end_turn\")"
+    },
+    {
+      "name": "C08 生效档位取第一个",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    return efforts.at(-1) ?? null;",
+      "new": "    return efforts[0] ?? null;"
+    },
+    {
+      "name": "C09 权限规则的盘符不转小写",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "text = pyLower(chars[0] as string) + chars.slice(2).join(\"\");",
+      "new": "text = (chars[0] as string) + chars.slice(2).join(\"\");"
+    },
+    {
+      "name": "C10 服务端工具不作废",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "        if (pyEq(type, \"server_tool_use\")) {",
+      "new": "        if (false) {"
+    },
+    {
+      "name": "C11 拒绝的说法认错",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": ".includes(\"No such tool available\")",
+      "new": ".includes(\"No such tool available!\")"
+    },
+    {
+      "name": "C12 claude 的 file_path 不当成 path",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "          if (args.has(\"file_path\")) {",
+      "new": "          if (false) {"
+    },
+    {
+      "name": "C13 接口报错之后正常回复也不清掉",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "        apiError = null; // 报错之后模型又正常回复了：以最后的为准",
+      "new": "        // 不清"
+    },
+    {
+      "name": "C14 自动记忆不查",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    if (pyTruthy(pyGet(init, \"memory_paths\"))) violations.push(",
+      "new": "    if (false) violations.push("
+    },
+    {
+      "name": "C15 合成的消息也算模型",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  models.discard(\"<synthetic>\"); // claude 自己合成的消息（例如接口报错时）没有真实模型\n",
+      "new": ""
+    },
+    {
+      "name": "C16 额度解除时刻的布尔不算整数",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "isPyInt(rejectedUntil)",
+      "new": "typeof rejectedUntil === \"bigint\""
+    },
+    {
+      "name": "C17 交差被退回也算收下",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "          if (structured.has(useId)) accepted += 1n;",
+      "new": "          accepted += 1n;"
+    },
+    {
+      "name": "C18 等长的写法倒着排",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "|| cmpCodePoints(a, b));",
+      "new": "|| cmpCodePoints(b, a));"
+    },
+    {
+      "name": "C19 前缀相同就算在目录里",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "target.startsWith(stripRight(root, `${BS}/`) + SEP)",
+      "new": "target.startsWith(stripRight(root, `${BS}/`))"
+    },
+    {
+      "name": "C20 依赖目录不豁免",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "      if (DEPENDENCY_DIRS.some((dep) => within(target, normcase(osPathJoin(main, ...dep.split(\"/\")))))) return [\"\", \"\"];\n",
+      "new": ""
+    },
+    {
+      "name": "C21 参数文字不转小写",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  let text = pyLower(argStrings(args).join(\" \"));",
+      "new": "  let text = argStrings(args).join(\" \");"
+    },
+    {
+      "name": "C22 工作目录的写法不先换掉",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  for (const form of pathForms(space)) text = text.split(form).join(\"{工作目录}\");\n",
+      "new": ""
+    },
+    {
+      "name": "C23 说明截到 300 个字",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "firstCodePoints(argStrings(args).join(\" \"), 200)",
+      "new": "firstCodePoints(argStrings(args).join(\" \"), 300)"
+    },
+    {
+      "name": "C24 字典参数的值不往下找",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  if (value instanceof Map) return [...value.values()].flatMap(argStrings);",
+      "new": "  if (value instanceof Map) return [];"
+    },
+    {
+      "name": "C25 依赖目录不规范化",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "DEPENDENCY_DIRS.map((dep) => normcase(osPathJoin(main, ...dep.split(\"/\"))))",
+      "new": "DEPENDENCY_DIRS.map((dep) => osPathJoin(main, ...dep.split(\"/\")))",
+      "equivalent": "等价：main 已经 normcase（小写、反斜杠），依赖目录名是小写 ASCII、按段拼接，再 normcase 一次不改任何字"
+    },
+    {
+      "name": "C26 pi 拒绝的正文不去空白",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "pyStrip(text) === `Tool ${outside.get(callId)} not found`",
+      "new": "text === `Tool ${outside.get(callId)} not found`"
+    },
+    {
+      "name": "C27 守卫拦下不看 details 是空对象",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "isEmptyDict(pyGet(or(pyGet(event, \"result\"), new Map()), \"details\"))",
+      "new": "true"
+    },
+    {
+      "name": "C28 deliver 读不出参数不计数",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "      else if (deliver) unreadDetails += 1;\n",
+      "new": ""
+    },
+    {
+      "name": "C29 用量里的布尔也累加",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "        if (typeof value === \"bigint\" || typeof value === \"number\") usage.set(",
+      "new": "        if (typeof value !== \"string\") usage.set("
+    },
+    {
+      "name": "C30 没有结束原因也算出错",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "[\"is_error\", !(stop === null || pyEq(stop, \"stop\"))]",
+      "new": "[\"is_error\", !pyEq(stop, \"stop\")]"
+    },
+    {
+      "name": "C31 接口报错不看结束原因",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "apiError = pyEq(stop, \"error\") ?",
+      "new": "apiError = pyTruthy(stop) ?"
+    },
+    {
+      "name": "C32 1.0 与 1 不是集合里的同一个",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  if (Number.isInteger(value)) return `I${BigInt(value)}`;",
+      "new": "  if (false) return `I${BigInt(value)}`;"
+    },
+    {
+      "name": "C33 降序的头一段不翻过来",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    items.splice(0, run, ...items.slice(0, run).reverse());\n",
+      "new": ""
+    },
+    {
+      "name": "C34 长度为 2 的字符串不算一对",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    else if (typeof item === \"string\") pair = codePoints(item);",
+      "new": "    else if (typeof item === \"string\") pair = [item];"
+    },
+    {
+      "name": "C35 参数表不去重不排序",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  const missing = [...new Set(args.filter((arg) => arg.startsWith(\"--\") && !supported.has(arg)))].sort(cmpCodePoints);",
+      "new": "  const missing = args.filter((arg) => arg.startsWith(\"--\") && !supported.has(arg));"
+    },
+    {
+      "name": "C36 normcase 不调 LCMapStringEx",
+      "file": "ts/packages/base/src/pypath.ts",
+      "old": "return win32LowerCase(slashed) ?? slashed.toLowerCase();",
+      "new": "return slashed.toLowerCase();"
+    },
+    {
+      "name": "C37 读不出 --help 也接着核对",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  if (supported === null) return `读不出本机 pi 的 --help",
+      "new": "  if (supported === undefined) return `读不出本机 pi 的 --help"
+    }
+  ]
+}

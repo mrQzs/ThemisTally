@@ -2,14 +2,16 @@
 //   abspath、normcase、relpath、Path.resolve（非严格）、is_within、display_path、is_link_or_junction、
 //   first_link_component。
 // 与 Python 的已知差异（迁移计划第 10 节）：
-//   - normcase：Python 3.12 在 Windows 上用 LCMapStringEx 的不变区域小写，这里用 toLowerCase。只用于比较，
-//     只在路径含特殊大小写字符（例如 İ）时才可能不同。
+//   - normcase：Python 3.12 在 Windows 上用 LCMapStringEx 的不变区域小写。Bun 下照调（native.ts）；Node 后备没有原生调用，
+//     用 toLowerCase，路径含 İ、ẞ、词尾的 Σ 这类字符时与 Python 不同。
 //   - abspath、Path.exists：Bun 下照 Python 调 GetFullPathNameW（去掉段尾的点与空格、末段的 nul 映射成设备）；Node 后备
 //     没有原生调用，退回 path.resolve 与 existsSync，这两件都不做。
 //   - 链接：Node 后备没有 GetFileAttributesW，只认符号链接与 junction，认不出其他重解析点。
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes, win32ErrorMessage, win32FinalPathName, win32FullPathName, win32Stat } from "./native.ts";
+import {
+  FILE_ATTRIBUTE_REPARSE_POINT, fileAttributes, win32ErrorMessage, win32FinalPathName, win32FullPathName, win32LowerCase, win32Stat,
+} from "./native.ts";
 import { PyCrash, pyRepr } from "./pyfmt.ts";
 import { pyLower } from "./pyre.ts";
 import { windowsOSError } from "./supervise.ts";
@@ -73,9 +75,17 @@ export function ntNormpath(value: string): string {
   return drive + root + comps.join(BS);
 }
 
-/** os.path.normcase：Windows 上小写并把 / 换成 \；POSIX 上原样。 */
+/**
+ * os.path.normcase：Windows 上把 / 换成反斜杠，再照 Python 3.12 用 LCMapStringEx 的不变区域小写（Bun 下经 native.ts；
+ * 纯 ASCII 的直接小写，结果相同）；空串直接交回（Python 也不调，长度为 0 时这个 API 报错）。POSIX 上原样。
+ */
 export function normcase(value: string): string {
-  return WIN ? value.replace(/\//gu, "\\").toLowerCase() : value;
+  if (!WIN || !value) return value;
+  const slashed = value.split("/").join(BS);
+  for (let index = 0; index < slashed.length; index += 1) {
+    if (slashed.charCodeAt(index) > 0x7f) return win32LowerCase(slashed) ?? slashed.toLowerCase();
+  }
+  return slashed.toLowerCase();
 }
 
 /** pi_dispatch.norm_case：normcase(abspath(path))。 */

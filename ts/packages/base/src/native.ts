@@ -22,6 +22,10 @@
 //       第 0 字节) -> HANDLE、FindClose；参数错误（87，例如控制台设备）时加 GENERIC_READ 0x80000000、共享读写再开；
 //       ERROR_CANT_ACCESS_FILE（1920）时加 FILE_FLAG_OPEN_REPARSE_POINT 0x00200000 再开。
 //       GetFinalPathNameByHandleW(hFile, 缓冲, 字符数, VOLUME_NAME_DOS = 0) -> DWORD；CloseHandle(hFile) -> BOOL
+//     LCMapStringEx(lpLocaleName = LOCALE_NAME_INVARIANT（空串）, dwMapFlags = LCMAP_LOWERCASE 0x100, lpSrcStr: UTF-16LE,
+//                   cchSrc: 字符数, lpDestStr, cchDest, NULL, NULL, 0) -> int（写进的字符数；cchDest 为 0 时交回需要的大小）
+//       Python 3.12 的 ntpath.normcase 就调它（_winapi.LCMapStringEx）：与 str.lower() 不同，İ、ẞ 原样不动，词尾的 Σ 得 σ
+//       （第 ⑤c 片：guard_config 要把 normcase 的结果原样写出去）。
 //     GetFileAttributesW(lpFileName: UTF-16LE 以 0 结尾) -> DWORD，INVALID_FILE_ATTRIBUTES 为 0xFFFFFFFF
 //       不跟随重解析点，与 Python os.lstat 的 st_file_attributes 同一个值。pi_dispatch.is_link_or_junction 把带
 //       FILE_ATTRIBUTE_REPARSE_POINT（0x400）的条目一律当链接；Node 的 lstat 只认符号链接与 junction（第 ② 步）。
@@ -376,6 +380,16 @@ export function win32FinalPathName(path: string): { readonly path: string } | { 
   return finalPathName ? finalPathName(path) : null;
 }
 
+const LCMAP_LOWERCASE = 0x100;
+
+/** undefined 或 null：没有绑定（还没初始化、Node 后备、非 Windows）。 */
+let lowerCase: ((text: string) => string | null) | null | undefined;
+
+/** LCMapStringEx 的不变区域小写（ntpath.normcase 用的那个）：没有绑定或调用失败时为 null（调用方退回 toLowerCase）。 */
+export function win32LowerCase(text: string): string | null {
+  return lowerCase ? lowerCase(text) : null;
+}
+
 /** undefined 或 null：没有绑定（还没初始化、Node 后备、非 Windows）。 */
 let fullPathName: ((path: string) => string | null) | null | undefined;
 
@@ -393,6 +407,7 @@ export async function initFileAttributes(): Promise<void> {
   if (getFileAttributes !== undefined) return;
   if (!isBun || process.platform !== "win32") {
     getFileAttributes = null;
+    lowerCase = null;
     fullPathName = null;
     statPath = null;
     finalPathName = null;
@@ -405,6 +420,7 @@ export async function initFileAttributes(): Promise<void> {
   const kernel32 = ffi.dlopen("kernel32.dll", {
     GetFileAttributesW: { args: [T.ptr], returns: T.u32 },
     GetFullPathNameW: { args: [T.ptr, T.u32, T.ptr, T.ptr], returns: T.u32 },
+    LCMapStringEx: { args: [T.ptr, T.u32, T.ptr, T.i32, T.ptr, T.i32, T.ptr, T.ptr, T.ptr], returns: T.i32 },
     // 句柄用 i64_fast：小整数交回 number，调用与随后的 GetLastError 之间没有 BigInt 分配（themistally-15 建议）
     CreateFileW: { args: [T.ptr, T.u32, T.u32, T.ptr, T.u32, T.u32, T.ptr], returns: T.i64_fast },
     CloseHandle: { args: [T.i64], returns: T.i32 },
@@ -419,6 +435,7 @@ export async function initFileAttributes(): Promise<void> {
   const call = kernel32.symbols as unknown as {
     GetFileAttributesW(name: number): number;
     GetFullPathNameW(name: number, size: number, buffer: number, part: null): number;
+    LCMapStringEx(locale: number, flags: number, src: number, srcSize: number, dest: number | null, destSize: number, version: null, reserved: null, param: null): number;
     CreateFileW(name: number, access: number, share: number, security: null, disposition: number, flags: number, template: null): number | bigint;
     CloseHandle(handle: number | bigint): number;
     FindFirstFileW(name: number, data: number): number | bigint;
@@ -481,6 +498,15 @@ export async function initFileAttributes(): Promise<void> {
     } finally {
       call.CloseHandle(handle);
     }
+  };
+  const invariant = wide(""); // LOCALE_NAME_INVARIANT，一直被引用
+  lowerCase = (text) => {
+    const source = Buffer.from(text, "utf16le"); // 按长度传，不加结尾的 0：中间的 NUL 照样转换
+    const size = call.LCMapStringEx(ffi.ptr(invariant), LCMAP_LOWERCASE, ffi.ptr(source), text.length, null, 0, null, null, null);
+    if (size <= 0) return null;
+    const buffer = new Uint16Array(size);
+    const written = call.LCMapStringEx(ffi.ptr(invariant), LCMAP_LOWERCASE, ffi.ptr(source), text.length, ffi.ptr(buffer), size, null, null, null);
+    return written > 0 ? Buffer.from(buffer.buffer, 0, written * 2).toString("utf16le") : null;
   };
   fullPathName = (path) => {
     const name = wide(path); // 调用期间一直被引用

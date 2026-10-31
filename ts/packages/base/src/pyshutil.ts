@@ -1,7 +1,7 @@
 // shutil.which（Python 3.12，迁移第 ③c 片）：配置中心按 PATH 找 runtime 的程序。mode 固定是缺省的 F_OK | X_OK。
 // 调用方只传固定的程序名（pi、node、claude、codex、opencode），PATHEXT 与名字的大小写比较按 ASCII 写。
-// 去重用 normcase：Python 用 LCMapStringEx 转小写，这里用 toLowerCase；两者只在非 ASCII 的少数字符上不同，
-// 而去掉的只是与前面同名的目录，再查一遍结果也一样，不影响找到哪一个。
+// 去重用 normcase（Bun 下与 Python 一样调 LCMapStringEx；Node 后备用 toLowerCase，只在非 ASCII 的少数字符上不同，
+// 而去掉的只是与前面同名的目录，再查一遍结果也一样，不影响找到哪一个）。
 import { accessSync, constants, statSync } from "node:fs";
 import { normcase, osPathJoin, osPathSplit } from "./pypath.ts";
 

@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { IMPLS, PYTHON as PYTHON_IMPL, REPO, TS_BUN, type ProbeRequest, type ProbeResult, prng, removeDir, runAgreeing, runBatch, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON as PYTHON_IMPL, REPO, TS_BUN, TS_NODE, type ProbeRequest, type ProbeResult, prng, removeDir, runAgreeing, runBatch, scratchDir } from "./harness.ts";
 
 const ch = (...codes: number[]): string => String.fromCodePoint(...codes);
 const LF = ch(10);
@@ -440,6 +440,19 @@ describe("路径的 Python 语义（④b6 复核补）", () => {
     ];
     const python = agreeOnBun(requests);
     expect(python.filter((result) => !result.ok).map((result) => result.error).sort()).toEqual(["NotADirectoryError", "ValueError", "ValueError"]);
+  });
+
+  // 第 ⑤c 片：normcase 在 Bun 下照 Python 3.12 调 LCMapStringEx（不变区域小写），guard_config 要把它的结果原样写出去；
+  // Node 后备用 toLowerCase，下面断言的这几个字与 Python 不同（第 10 节）：İ、ẞ、ǅ、开尔文与埃的符号原样不动，词尾的 Σ 得 σ
+  it("normcase：Bun 与 Python 逐字相同（特殊大小写、NUL、辅助平面、空串）；Node 后备只在那几个字上不同", () => {
+    const [dotted, sharp, alpha, sigma, titled] = [ch(0x130), ch(0x1e9e), ch(0x391), ch(0x3a3), ch(0x1c5)];
+    const special = [alpha + sigma, sigma + alpha + sigma, dotted, sharp, titled, ch(0x212a), ch(0x212b), `C:/A/${dotted}stanbul`];
+    const plain = ["", ch(0x1c4), ch(0xfb03), ch(0x10400), `a${ch(0)}B`, `${ch(0x4e2d, 0x6587)}/Ab`, "ABC/def"];
+    const values = [...special, ...plain, ...paths];
+    const requests: ProbeRequest[] = values.map((path) => ({ op: "pypath.call", fn: "normcase", path }));
+    const python = agreeOnBun(requests);
+    const node = runBatch(TS_NODE, requests);
+    expect(values.filter((_, index) => JSON.stringify(node[index]) !== JSON.stringify(python[index]))).toEqual(special);
   });
 
   it("工具参数的路径是 nul 或带长路径前缀时，摘要两边一致", () => {

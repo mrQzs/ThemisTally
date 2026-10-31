@@ -7,7 +7,7 @@ import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themi
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
 import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttributes, winProcessApi } from "@themis/base/native";
-import { abspath, isWithin, ntNormpath, pyExists, pyResolve } from "@themis/base/pypath";
+import { abspath, isWithin, normcase, ntNormpath, pyExists, pyResolve } from "@themis/base/pypath";
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { PyCrash, type PyOut, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
@@ -88,7 +88,7 @@ import { configErrors } from "@themis/config/roles-check";
 import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
 import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { hubBox, hubConstants, hubCall } from "./hub_probe.ts";
+import { hubAudit, hubBox, hubConstants, hubCall } from "./hub_probe.ts";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
 type Result = Record<string, unknown>;
@@ -541,6 +541,7 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "hub.call": (request) => hubCall(request, fromTagged as never, toTagged),
   "hub.box": (request) => hubBox(request, fromTagged as never, toTagged),
   "hub.constants": (request) => hubConstants(request),
+  "hub.audit": (request) => hubAudit(request, fromTagged as never, toTagged),
   "pyfmt.call": (request) => {
     switch (request["fn"]) {
       case "repr":
@@ -645,6 +646,8 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
       switch (request["fn"]) {
         case "abspath":
           return { ok: true, value: abspath(value) };
+        case "normcase":
+          return { ok: true, value: normcase(value) };
         case "normpath":
           return { ok: true, value: ntNormpath(value) };
         case "resolve":

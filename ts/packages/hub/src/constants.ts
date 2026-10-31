@@ -125,3 +125,24 @@ export const WORKERS: readonly string[] = Object.keys(ROSTER).filter((name) => n
 const EXEC = ROSTER["exec-step"] as RosterSpec;
 export const EXECUTOR: readonly [string, string, string] = [EXEC.provider ?? "", EXEC.model ?? "", EXEC.thinking ?? ""];
 export const CONTRACT_EXECUTOR_LINE = `- executor: ${EXECUTOR[0]}/${EXECUTOR[1]} · thinking ${EXECUTOR[2]}`;
+
+// --- 回合审计（第 ⑤c 片）：kit_hub.py 的同名常量 ---------------------------------------------------------------------
+
+/** pi 工人交差的工具（第 90 轮）。 */
+export const DELIVER_TOOL = "deliver";
+/** claude 的 --json-schema 交差时，CLI 自己加上的工具（第 101 轮）。 */
+export const STRUCTURED_TOOL = "StructuredOutput";
+/** 守卫扩展（scripts/hub/guard.ts，第 106 轮）拦下的结果以这个前缀开头、以这个结尾收尾，与 guard.ts 的同名常量逐字相同。 */
+export const GUARD_PREFIX = "内核拦下：";
+export const GUARD_SUFFIX =
+  "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，已经装好的依赖用 read、grep、find、ls 按路径读，接着干；不要换写法绕过去";
+/** 第 56 轮：审计读不出来的行不再静默跳过（%d 是行数）。 */
+export const UNREADABLE_STREAM = "事件流里有 %d 行读不出来（不是 JSON 对象）：审计看不全这一回合，按越界处理";
+/** claude 的工具名对应到 pi 的（第 88 轮）：碰没碰主工作区与 pi 用同一套判断。 */
+export const CLAUDE_REACH_NAMES: Readonly<Record<string, string>> = {
+  Read: "read", Grep: "grep", Glob: "find", LS: "ls", Write: "write", Edit: "edit", MultiEdit: "edit", NotebookEdit: "edit", Bash: "bash",
+};
+/** 工人可以按路径读的主工作区子树（第 88 轮）：已经装好的依赖，只许 READ_TOOLS 读。 */
+export const DEPENDENCY_DIRS: readonly string[] = ["ts/node_modules", "desktop/web/node_modules"];
+/** pi 上按路径读与搜索的工具：参数里的 path 就是读的位置。 */
+export const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];

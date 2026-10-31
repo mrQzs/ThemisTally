@@ -1,12 +1,17 @@
 // hub.call（第 ⑤a 片）：按函数名调 @themis/hub 的纯函数，参数与结果照 python_probe.py 的 op_hub_call。
 // 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常只比类型。
 import { PyCrash, pyStrValue } from "@themis/base/pyfmt";
-import type { PyDict, PyValue } from "@themis/base/pyjson";
+import { type PyDict, PyJsonError, type PyValue } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
+import { jsonlLines } from "@themis/base/jsonl";
+import {
+  auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
+  turnCostUsd,
+} from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
 import { HubError } from "@themis/hub/errors";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
@@ -94,6 +99,65 @@ export function hubCall(request: Record<string, unknown>, fromTagged: (tagged: n
     if (error instanceof PyValueError) return { ok: false, error: "ValueError" };
     if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError" };
     return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
+  }
+}
+
+/** hub.audit（第 ⑤c 片）：按函数名调 @themis/hub/audit，与 python_probe.py 的 op_hub_audit 一一对应。 */
+export async function hubAudit(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
+  const args = (request["args"] as never[]).map(fromTagged);
+  if (typeof request["home"] === "string") process.env["USERPROFILE"] = process.env["HOME"] = request["home"];
+  const text = (value: PyValue | undefined): string => value as string;
+  const optional = (value: PyValue | undefined): string | null => (value === null || value === undefined ? null : (value as string));
+  const lines = (value: PyValue | undefined): string[] => value as string[];
+  try {
+    let value: PyValue;
+    switch (String(request["fn"])) {
+      case "turn_cost_usd":
+        value = turnCostUsd(text(args[0]), args[1] as PyValue, args[2] as PyValue);
+        break;
+      case "stream_events": {
+        const [events, unreadable] = streamEvents(lines(args[0]));
+        value = [events, BigInt(unreadable)];
+        break;
+      }
+      case "session_cut_short":
+        value = sessionCutShort(new Hub(text(args[0])).root, text(args[1]), text(args[2]), text(args[3]));
+        break;
+      case "claude_path_rule":
+        value = claudePathRule(text(args[0]));
+        break;
+      case "path_forms":
+        value = pathForms(text(args[0]));
+        break;
+      case "audit_claude_stream":
+        value = auditClaudeStream(lines(args[0]), args[1] as PyValue, optional(args[2]), optional(args[3]));
+        break;
+      case "audit_pi_stream":
+        value = auditPiStream(lines(args[0]), args[1] as PyValue, optional(args[2]), optional(args[3]));
+        break;
+      case "pi_reach_problem":
+        value = piReachProblem(text(args[0]), args[1] as PyValue, text(args[2]), optional(args[3]));
+        break;
+      case "guard_config":
+        value = guardConfig(text(args[0]), text(args[1]));
+        break;
+      case "jsonl_lines":
+        value = jsonlLines(text(args[0]));
+        break;
+      case "claude_session_effort":
+        value = claudeSessionEffort(text(args[0]));
+        break;
+      case "pi_flags_problem": {
+        const env = new Map(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+        value = await piFlagsProblem(lines(args[0]), lines(args[1]), env);
+        break;
+      }
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+    return { ok: true, value: toTagged(value) };
+  } catch (error) {
+    return errorResult(error);
   }
 }
 
@@ -243,6 +307,7 @@ const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
 function errorResult(error: unknown): Result {
   if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
   if (error instanceof PyCrash) return { ok: false, error: error.kind };
+  if (error instanceof PyJsonError) return { ok: false, error: error.kind };
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOENT") return { ok: false, error: "FileNotFoundError" };
   if (code === "EEXIST") return { ok: false, error: "FileExistsError" };

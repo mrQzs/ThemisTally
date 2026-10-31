@@ -522,6 +522,8 @@ def op_pypath_call(request):
     try:
         if fn == "abspath":
             return {"ok": True, "value": os.path.abspath(value)}
+        if fn == "normcase":
+            return {"ok": True, "value": os.path.normcase(value)}
         if fn == "normpath":
             return {"ok": True, "value": os.path.normpath(value)}
         if fn == "resolve":
@@ -1175,6 +1177,108 @@ def op_hub_constants(request):
     return {"ok": True, "json": json.dumps({name: getattr(kit_hub, name) for name in request["names"]}, ensure_ascii=False)}
 
 
+def op_hub_audit(request):
+    """第 ⑤c 片：kit_hub 的回合审计。参数带标签，路径是字符串，照 kit_hub 的调用方转成 Path；结果带标签（元组成了列表）。
+    home 给了时先设好 USERPROFILE 与 HOME（Path.home() 每次现读）。HubError 交回文字与退出码，别的异常只比类型。"""
+    fn = request["fn"]
+    args = [from_tagged(item) for item in request["args"]]
+    if request.get("home") is not None:
+        os.environ["USERPROFILE"] = os.environ["HOME"] = request["home"]
+    path = lambda value: None if value is None else Path(value)  # noqa: E731
+    try:
+        if fn == "turn_cost_usd":
+            value = list(kit_hub.turn_cost_usd(*args))
+        elif fn == "stream_events":
+            value = list(kit_hub.stream_events(*args))
+        elif fn == "session_cut_short":
+            value = kit_hub.session_cut_short(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn in ("claude_path_rule", "path_forms"):
+            value = getattr(kit_hub, fn)(Path(args[0]))
+        elif fn in ("audit_claude_stream", "audit_pi_stream"):
+            lines, spec, workspace, repo = args
+            value = getattr(kit_hub, fn)(lines, spec, path(workspace), path(repo))
+        elif fn == "pi_reach_problem":
+            name, call_args, workspace, repo = args
+            value = list(kit_hub.pi_reach_problem(name, call_args, Path(workspace), path(repo)))
+        elif fn == "guard_config":
+            value = kit_hub.guard_config(Path(args[0]), Path(args[1]))
+        elif fn == "pi_flags_problem":
+            value = kit_hub.pi_flags_problem(args[0], args[1], dict(os.environ))
+        elif fn in ("jsonl_lines", "claude_session_effort"):
+            value = getattr(kit_hub, fn)(*args)
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    return {"ok": True, "value": to_tagged(value)}
+
+def op_hub_audit_samples(request):
+    """第 ⑤c 片：跑 tests/test_kit_hub.py 里 request["tests"] 列出的用例（都不经 Engine），记下它们对回合审计函数的
+    每一次顶层调用（内层的不记；参数照签名补全默认值，Path 换成字符串，元组换成列表），对照测试拿去交给三边重放：
+    样例只有 pytest 这一个来源。tmp_path 给 request["tmp"] 下的新目录，monkeypatch 用 pytest 的 MonkeyPatch，跑完撤销。"""
+    import inspect
+    import tempfile
+    from _pytest.monkeypatch import MonkeyPatch
+
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_kit_hub as cases  # noqa: E402
+
+    def plain(value):
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, (list, tuple)):
+            return [plain(item) for item in value]
+        if isinstance(value, dict):
+            return {key: plain(item) for key, item in value.items()}
+        return value
+
+    calls, depth, current = [], [0], [None]
+    originals = {name: getattr(kit_hub, name) for name in request["functions"]}
+
+    def recorder(name, fn):
+        signature = inspect.signature(fn)
+
+        def wrapper(*args, **kwargs):
+            if depth[0] == 0:
+                bound = signature.bind(*args, **kwargs)
+                bound.apply_defaults()
+                calls.append({"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]})
+            depth[0] += 1
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                depth[0] -= 1
+        return wrapper
+
+    for name, fn in originals.items():
+        setattr(kit_hub, name, recorder(name, fn))
+    skipped = []
+    try:
+        for test in request["tests"]:
+            fn = getattr(cases, test)
+            params = inspect.signature(fn).parameters
+            patch = MonkeyPatch()
+            kwargs = {}
+            if "tmp_path" in params:
+                kwargs["tmp_path"] = Path(tempfile.mkdtemp(dir=Path(request["tmp"]).resolve()))  # 照 pytest 用解析过的长路径：短名写法与 path_forms 展开后的对不上
+            if "monkeypatch" in params:
+                kwargs["monkeypatch"] = patch
+            current[0] = test
+            try:
+                fn(**kwargs)
+            except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
+                if type(exc).__name__ != "Skipped":
+                    raise
+                skipped.append(test)
+            finally:
+                patch.undo()
+    finally:
+        for name, fn in originals.items():
+            setattr(kit_hub, name, fn)
+    return {"ok": True, "value": to_tagged({"calls": calls, "skipped": skipped})}
+
 OPS = {
     "plugins.call": op_plugins_call,
     "protocols.strict": op_protocols_strict,
@@ -1211,6 +1315,8 @@ OPS = {
     "hub.samples": op_hub_samples,
     "hub.box": op_hub_box,
     "hub.constants": op_hub_constants,
+    "hub.audit": op_hub_audit,
+    "hub.audit_samples": op_hub_audit_samples,
     "fs.hold_exclusive": op_fs_hold_exclusive,
     "pyregex.search": op_pyregex_search,
     "pyregex.search_flags": op_pyregex_search_flags,

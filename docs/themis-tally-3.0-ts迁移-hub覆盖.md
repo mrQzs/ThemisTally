@@ -60,4 +60,35 @@
 
 ⑤b 里的变异（ts/mutations/hub-b.ts.json）21 条，全部抓住。第一轮 20 条漏掉 5 条（存完不更新读出来时的样子、会话记录不加锁、new 里的信不排序、到点的边界、读不出时不报错），补了 B7 的只有空白的文件、B9 到 B11、C4 的备份特权停用状态与 C5 之后都抓住；另加“三方合并不加锁”一条。
 
-其余场景随各片补（⑤c 到 ⑤j）。
+## ⑤c 回合审计
+
+做法：样例只有 pytest 这一个来源。Python 探针 hub.audit_samples 跑下表里不经 Engine 的用例，记下它们对审计函数的每一次顶层调用（共 94 次；tmp_path 用解析过的长路径，与 pytest 一样），契约 hub-audit「pytest 的场景」把这些调用原样交给三边重放，逐字比整份结果，比 pytest 自己的断言严。另有 guard.ts 的三方对照、按种子改坏的事件流、手写的边界与会话文件。tests/test_path_forms.py 第 133 轮新加的两条（次序、16 个散列种子）只在 Python 一侧，TS 的 path_forms 由契约逐字比。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_claude_audit_rejects_advisor_and_tools_outside_the_allowlist` | 1303 | COVERED | hub-audit：记下的调用三边重放 |
+| `test_refused_calls_outside_the_allowlist_only_warn` | 1314 | COVERED | hub-audit：同上 |
+| `test_claude_audit_checks_init_and_model` | 1335 | COVERED | hub-audit：同上 |
+| `test_pi_audit_rejects_tools_and_records_effective_level` | 1348 | COVERED | hub-audit：同上 |
+| `test_audits_name_model_api_errors_instead_of_blaming_the_output` | 1368 | COVERED | hub-audit：同上 |
+| `test_pi_refused_calls_outside_the_allowlist_only_warn` | 1390 | COVERED | hub-audit：同上 |
+| `test_audit_reads_when_a_rate_limit_lifts` | 2348 | COVERED | hub-audit：同上 |
+| `test_claude_path_rule_uses_the_absolute_form` | 3848 | COVERED | hub-audit：同上；「手写的边界」另有 8.3 短名、大小写写错、相对路径 |
+| `test_the_guard_extension_judges_every_call_like_the_audit` | 5889 | COVERED | hub-audit：同上；「guard.ts 的三方对照」用它的 25 次调用加随机的字典参数，guard.ts 在 Node 与 Bun 下各跑一次 |
+| `test_calls_the_guard_blocked_are_warnings_not_violations` | 5914 | COVERED | hub-audit：记下的调用三边重放 |
+| `test_claude_workers_are_audited_for_the_main_worktree_too` | 5964 | COVERED | hub-audit：同上 |
+| `test_u2028_in_a_tool_call_cannot_hide_it_from_the_audit` | 6867 | COVERED | hub-audit：同上；「逐行解析」另有各种断行字符 |
+| `test_unreadable_stream_lines_are_violations` | 6894 | COVERED | hub-audit：同上 |
+| `test_the_pi_audit_takes_the_last_accepted_deliver` | 7285 | COVERED | hub-audit：同上 |
+| `test_unreadable_lines_are_not_counted_as_unreadable_deliveries` | 7918 | COVERED | hub-audit：同上（第 133 轮新加） |
+| `test_pi_workers_load_the_guard_with_the_kernel_roots` | 5946 | PARTIAL | hub-audit：用例里经 TurnRunner 的审计、guard_config、path_forms 调用在记下的调用里；起 pi 时带守卫的参数与环境归 ⑤d |
+| `test_a_session_cut_short_mid_tool_call_is_not_continued` | 2226 | PARTIAL | hub-audit：session_cut_short 的判法在「会话文件」；经 Engine 的续接归 ⑤i |
+| `test_turn_cost_is_this_turn_not_the_session_total` | 3692 | PARTIAL | hub-audit：turn_cost_usd 在「手写的边界」；TurnRunner 记会话累计归 ⑤d |
+| `test_claude_workers_read_the_inputs_and_write_only_their_worktree` | 3798 | PARTIAL | hub-audit：claude_path_rule 在「手写的边界」；claude 工人的参数与权限归 ⑤d |
+| `test_pi_workers_may_not_write_outside_their_worktree` | 5856 | PARTIAL | hub-audit：越界的判定在「guard.ts 的三方对照」与随机调用；经 TurnRunner 的回合归 ⑤d |
+| `test_ledger_session_and_decision_records_with_u2028_are_read_back` | 6907 | PARTIAL | hub-audit：claude_session_effort 那份会话文件原样在「会话文件」；exec_metrics 归 ⑤j；decisions.read_records 在 ④ 的契约里 |
+| `test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach` | 7303 | PARTIAL | hub-audit：deliver 不审在随机事件流与 guard 对照里；经 TurnRunner 的回合归 ⑤d |
+
+⑤c 里的变异（ts/mutations/hub-c.ts.json）37 条，抓住 36，1 条照实测标为等价（C25：main 已经 normcase，依赖目录名是小写 ASCII、按段拼接，再 normcase 一次不改任何字）。第一轮漏掉 4 条：补了“说明截到 200 个字”“1 与 1.0 在集合里是同一个”“dict() 把长度为 2 的字符串当成一对”三例；截断那条补了之后仍漏，原因是契约的临时目录带 8.3 短名，path_forms 经 resolve 得到长名，命令里写短名对不上、根本没被判违规。主工作区改按长名搭之后抓住，短名的写法留作一种“不该被判违规”的写法。
+
+其余场景随各片补（⑤d 到 ⑤j）。
