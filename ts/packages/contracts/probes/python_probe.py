@@ -1279,6 +1279,92 @@ def op_hub_audit_samples(request):
             setattr(kit_hub, name, fn)
     return {"ok": True, "value": to_tagged({"calls": calls, "skipped": skipped})}
 
+def _shadow_one(fn):
+    try:
+        return {"ok": True, "value": to_tagged(fn())}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+
+
+def _shadow_text(b64):
+    """影子传来的原始字节：写进临时文件，用 kit_hub.read_text 读出来（UTF-8、通用换行），这一步本身也在比。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "x"
+        path.write_bytes(base64.b64decode(b64))
+        return kit_hub.read_text(path)
+
+
+def op_hub_shadow_task(request):
+    """⑤-影子：一个主任务的只读结论。repo 是影子复制出来的快照（不是在用的信箱），探针自己读出状态；主任务不在状态里时
+    ts 是 None，只比 guard。其余：内核此刻允许的下一步、阶段状态表、热修补的原因、门禁文件、主任务与各阶段的上游须知、
+    guard 的整张表（request["metas"] 是一组信头）。每一项各自接住异常、交回类型，一项崩了不挡别的。"""
+    hub = kit_hub.Hub(Path(request["repo"]))
+    try:
+        ts = hub.load_state()["tasks"].get(request["task"])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": True, "items": [["load_state", {"ok": False, "error": type(exc).__name__}]]}
+    items = []
+    if ts is not None:
+        items += [["allowed_moves", _shadow_one(lambda: kit_hub.allowed_moves(ts))],
+                  ["stage_status_table", _shadow_one(lambda: kit_hub.stage_status_table(hub, ts))],
+                  ["hotfix_reason", _shadow_one(lambda: kit_hub.hotfix_reason(ts))],
+                  ["gate_pattern", _shadow_one(lambda: kit_hub.gate_pattern(ts))]]
+        items += [["gate_file " + kind, _shadow_one(lambda kind=kind: kit_hub.gate_file(ts, kind))] for kind in ("baseline", "whitebox")]
+        items += [["upstream_notes %s" % suffix, _shadow_one(lambda suffix=suffix: kit_hub.upstream_notes(ts, suffix))]
+                  for suffix in [None] + list(kit_hub.STAGE_ORDER)]
+    items += [["guard", _shadow_one(lambda meta=meta: kit_hub.guard(ts, meta))] for meta in request["metas"]]
+    return {"ok": True, "items": items}
+
+
+def op_hub_shadow_letter(request):
+    """⑤-影子：一封信（影子取到的原始字节）的读出、解析、往返（渲染之后再解析）、形状校验与所属主任务；每一项各自接住异常。"""
+    try:
+        text = _shadow_text(request["b64"])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": True, "items": [["read_text", {"ok": False, "error": type(exc).__name__}]]}
+    items = [["read_text", _shadow_one(lambda: text)]]
+    try:
+        meta, fields, lines = kit_hub.parse_letter(text)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": True, "items": items + [["parse_letter", {"ok": False, "error": type(exc).__name__}]]}
+    items += [["parse_letter", _shadow_one(lambda: [meta, fields, lines])],
+              ["render_letter", _shadow_one(lambda: kit_hub.render_letter(meta, fields))],
+              ["reparse", _shadow_one(lambda: list(kit_hub.parse_letter(kit_hub.render_letter(meta, fields))))],
+              ["letter_errors", _shadow_one(lambda: kit_hub.letter_errors(meta, fields, lines))],
+              ["stage_of", _shadow_one(lambda: list(kit_hub.stage_of(meta.get("task-id"))))]]
+    return {"ok": True, "items": items}
+
+
+def op_hub_shadow_routine(request):
+    """⑤-影子：写给协调人的一封信单独成批时，内核代办的结论（routine_moves），以及每个下一步的任务书（render_routine_brief，
+    用信所属主任务在快照里的状态）。"""
+    hub = kit_hub.Hub(Path(request["repo"]))
+    try:
+        text = _shadow_text(request["b64"])
+        moves, reason = kit_hub.routine_moves([text])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": True, "items": [["routine_moves", {"ok": False, "error": type(exc).__name__}]]}
+    items = [["routine_moves", _shadow_one(lambda: [moves, reason])]]
+    if not moves:
+        return {"ok": True, "items": items}
+    try:
+        main = kit_hub.stage_of(kit_hub.parse_letter(text)[0].get("task-id", ""))[0]
+        ts = hub.load_state()["tasks"].get(main or "")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": True, "items": items + [["ts", {"ok": False, "error": type(exc).__name__}]]}
+    if ts is not None:
+        items += [["brief", _shadow_one(lambda move=move: kit_hub.render_routine_brief(hub, ts, move))] for move in moves]
+    return {"ok": True, "items": items}
+
+
+def op_hub_shadow_route(request):
+    """⑤-影子：账本里一次 route.kernel 的那批信（原始字节），重算 routine_moves。"""
+    try:
+        texts = [_shadow_text(b64) for b64 in request["b64s"]]
+        return {"ok": True, "value": to_tagged(list(kit_hub.routine_moves(texts)))}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
 OPS = {
     "plugins.call": op_plugins_call,
     "protocols.strict": op_protocols_strict,
@@ -1317,6 +1403,10 @@ OPS = {
     "hub.constants": op_hub_constants,
     "hub.audit": op_hub_audit,
     "hub.audit_samples": op_hub_audit_samples,
+    "hub.shadow_task": op_hub_shadow_task,
+    "hub.shadow_letter": op_hub_shadow_letter,
+    "hub.shadow_routine": op_hub_shadow_routine,
+    "hub.shadow_route": op_hub_shadow_route,
     "fs.hold_exclusive": op_fs_hold_exclusive,
     "pyregex.search": op_pyregex_search,
     "pyregex.search_flags": op_pyregex_search_flags,
@@ -1356,10 +1446,34 @@ def run_one(request):
         return {"ok": False, "error": type(exc).__name__}
 
 
+def _peak_bytes():
+    """本进程到现在的峰值工作集（字节，Windows 的 PeakWorkingSetSize）；拿不到时是 None。影子按它记探针占了多少内存。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                (name, ctypes.c_size_t) for name in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                                   "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                                                   "PagefileUsage", "PeakPagefileUsage")]
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi = ctypes.WinDLL("psapi")
+        psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]  # 伪句柄 -1 要按句柄传
+        counters = Counters()
+        counters.cb = ctypes.sizeof(Counters)
+        if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            return None
+        return counters.PeakWorkingSetSize
+    except Exception:  # noqa: BLE001  不是 Windows 或调不到：不记
+        return None
+
 def main() -> int:
     request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     if request["op"] == "batch":
-        result = {"ok": True, "results": [run_one(item) for item in request["items"]]}
+        result = {"ok": True, "results": [run_one(item) for item in request["items"]], "peak_bytes": _peak_bytes()}
     else:
         result = run_one(request)
     sys.stdout.buffer.write(json.dumps(result).encode("ascii"))

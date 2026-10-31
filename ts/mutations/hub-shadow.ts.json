@@ -1,0 +1,92 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-shadow.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "S01 快照不核对前后的指纹",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    if (!torn && fingerprint(mailbox) === before && sha256(state) === before.split(LF)[0]) {",
+      "new": "    if (!torn) {"
+    },
+    {
+      "name": "S02 只取一次快照",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  for (let attempt = 1; attempt <= SNAPSHOT_TRIES; attempt += 1) {",
+      "new": "  for (let attempt = 1; attempt <= 1; attempt += 1) {"
+    },
+    {
+      "name": "S03 两边结果不比",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "      if (JSON.stringify(python.results[index]) !== JSON.stringify(ts.results[index])) this.miss(category, key);",
+      "new": "      if (false) this.miss(category, key);"
+    },
+    {
+      "name": "S04 guard 的表少了站主的信件类型",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "[...WORKER_TYPES, ...COORDINATOR_TYPES, ...OWNER_TYPES, ...KERNEL_TYPES]",
+      "new": "[...WORKER_TYPES, ...COORDINATOR_TYPES, ...KERNEL_TYPES]"
+    },
+    {
+      "name": "S05 不比不存在的主任务",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  const names = [...tasks, \"T999\"];",
+      "new": "  const names = [...tasks];"
+    },
+    {
+      "name": "S06 代办只看 cur",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "rel.startsWith(`inbox/${COORDINATOR}/`) && (!only || only.has(rel))",
+      "new": "rel.startsWith(`inbox/${COORDINATOR}/cur/`) && (!only || only.has(rel))"
+    },
+    {
+      "name": "S07 partial 不算前缀，要求整份相同",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    const fits = event[\"partial\"] ?",
+      "new": "    const fits = false ?"
+    },
+    {
+      "name": "S08 拒信只认这一份快照",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    if (!reasons.includes(String(event[\"reason\"]))) cmp.miss(",
+      "new": "    if (reasons.at(-1) !== String(event[\"reason\"])) cmp.miss("
+    },
+    {
+      "name": "S09 没有 result.json 的回合也审",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "      if (existsSync(join(dir, \"result.json\")) && existsSync(join(dir, \"stream.jsonl\")))",
+      "new": "      if (existsSync(join(dir, \"stream.jsonl\")))"
+    },
+    {
+      "name": "S10 --watch 每轮重算全部主任务也算对，换成一个也不重算",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "previous.taskHashes.get(name) !== hash",
+      "new": "false"
+    },
+    {
+      "name": "S11 TS 的阶段状态表表头改了",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "  const rows = [\"| 阶段 | 工人 | 状态 | 备注 |\", \"|---|---|---|---|\"];",
+      "new": "  const rows = [\"| 阶段 | 工人 | 状态 |\", \"|---|---|---|---|\"];"
+    },
+    {
+      "name": "S12 TS 的 guard 拒收原因改了",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "  if (stageBusy(stage)) return `阶段 ${suffix} 正在进行，不能返工`;",
+      "new": "  if (stageBusy(stage)) return `阶段 ${suffix} 正在进行`;"
+    },
+    {
+      "name": "S13 TS 渲染的信头少了结尾的 ---",
+      "file": "ts/packages/hub/src/letters.ts",
+      "old": "  const lines = [\"---\", ...META_KEYS.map((key) => `${key}: ${meta.get(key) ?? \"\"}`), \"---\"];",
+      "new": "  const lines = [\"---\", ...META_KEYS.map((key) => `${key}: ${meta.get(key) ?? \"\"}`)];"
+    }
+  ]
+}

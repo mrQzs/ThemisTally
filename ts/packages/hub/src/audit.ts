@@ -144,7 +144,7 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
             args.delete("file_path");
             args.set("path", value);
           }
-          const [level, note] = piReachProblem(CLAUDE_REACH_NAMES[name] ?? name, args.toDict(), workspace, repo);
+          const [level, note] = piReachProblem(Object.hasOwn(CLAUDE_REACH_NAMES, name) ? (CLAUDE_REACH_NAMES[name] as string) : name, args.toDict(), workspace, repo);
           if (level === "violation") violations.push(note);
         }
       }

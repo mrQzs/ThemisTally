@@ -3,9 +3,10 @@
 import { PyCrash, pyStrValue } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { sleepSync } from "@themis/base/fsutil";
+import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { jsonlLines } from "@themis/base/jsonl";
 import {
@@ -99,6 +100,124 @@ export function hubCall(request: Record<string, unknown>, fromTagged: (tagged: n
     if (error instanceof PyValueError) return { ok: false, error: "ValueError" };
     if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError" };
     return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
+  }
+}
+
+/** 影子的一项：交回带标签的值，崩了只交回类型（与 python_probe.py 的 _shadow_one 一致）。 */
+function shadowOne(fn: () => PyValue, toTagged: (value: PyValue) => unknown): Result {
+  try {
+    return { ok: true, value: toTagged(fn()) };
+  } catch (error) {
+    return { ok: false, error: crashKind(error) };
+  }
+}
+
+function crashKind(error: unknown): string {
+  if (error instanceof HubError) return "HubError";
+  if (error instanceof PyCrash) return error.kind;
+  if (error instanceof PyJsonError) return error.kind;
+  if (error instanceof Error && error.name === "UnicodeDecodeError") return "UnicodeDecodeError";
+  return `JS:${(error as Error).name}:${(error as Error).message}`;
+}
+
+/** 影子传来的原始字节：写进临时文件，用 base 的 readText 读出来（与 _shadow_text 一致，这一步本身也在比）。 */
+function shadowText(b64: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "themis-shadow-"));
+  try {
+    writeFileSync(join(dir, "x"), Buffer.from(b64, "base64"));
+    return readText(join(dir, "x"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** hub.shadow_task（⑤-影子）：一个主任务的只读结论，与 python_probe.py 的 op_hub_shadow_task 一一对应。 */
+export function hubShadowTask(request: Record<string, unknown>, toTagged: (value: PyValue) => unknown): Result {
+  const hub = new Hub(String(request["repo"]));
+  let ts: PyDict | null;
+  try {
+    ts = (hub.loadState().tasks().get(String(request["task"])) as PyDict | undefined) ?? null;
+  } catch (error) {
+    return { ok: true, items: [["load_state", { ok: false, error: crashKind(error) }]] };
+  }
+  const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
+  const items: [string, Result][] = [];
+  if (ts !== null) {
+    const task = ts;
+    items.push(
+      ["allowed_moves", one(() => allowedMoves(task))], ["stage_status_table", one(() => stageStatusTable(task))],
+      ["hotfix_reason", one(() => hotfixReason(task))], ["gate_pattern", one(() => gatePattern(task))],
+      ...["baseline", "whitebox"].map((kind): [string, Result] => [`gate_file ${kind}`, one(() => gateFile(task, kind))]),
+      ...[null, ...constants.STAGE_ORDER].map((suffix): [string, Result] => [`upstream_notes ${suffix ?? "None"}`, one(() => upstreamNotes(task, suffix))]),
+    );
+  }
+  for (const meta of request["metas"] as Record<string, string>[]) items.push(["guard", one(() => guard(ts, new Map(Object.entries(meta))))]);
+  return { ok: true, items };
+}
+
+/** hub.shadow_letter（⑤-影子）：一封信的读出、解析、往返、形状校验与所属主任务，与 op_hub_shadow_letter 一一对应。 */
+export function hubShadowLetter(request: Record<string, unknown>, toTagged: (value: PyValue) => unknown): Result {
+  let text: string;
+  try {
+    text = shadowText(String(request["b64"]));
+  } catch (error) {
+    return { ok: true, items: [["read_text", { ok: false, error: crashKind(error) }]] };
+  }
+  const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
+  const items: [string, Result][] = [["read_text", one(() => text)]];
+  let parsed: ReturnType<typeof parseLetter>;
+  try {
+    parsed = parseLetter(text);
+  } catch (error) {
+    return { ok: true, items: [...items, ["parse_letter", { ok: false, error: crashKind(error) }]] };
+  }
+  const [meta, fields, lines] = parsed;
+  const reparse = (): PyValue => {
+    const [again, againFields, againLines] = parseLetter(renderLetter(meta, fields));
+    return [again as PyDict, againFields as PyDict, BigInt(againLines)];
+  };
+  items.push(
+    ["parse_letter", one(() => [meta as PyDict, fields as PyDict, BigInt(lines)])], ["render_letter", one(() => renderLetter(meta, fields))],
+    ["reparse", one(reparse)], ["letter_errors", one(() => letterErrors(meta, fields, lines))],
+    ["stage_of", one(() => stageOf(meta.get("task-id") ?? null))],
+  );
+  return { ok: true, items };
+}
+
+/** hub.shadow_routine（⑤-影子）：一封写给协调人的信单独成批时的内核代办与任务书，与 op_hub_shadow_routine 一一对应。 */
+export function hubShadowRoutine(request: Record<string, unknown>, toTagged: (value: PyValue) => unknown): Result {
+  const repo = String(request["repo"]);
+  let text: string;
+  let routed: ReturnType<typeof routineMoves>;
+  try {
+    text = shadowText(String(request["b64"]));
+    routed = routineMoves([text]);
+  } catch (error) {
+    return { ok: true, items: [["routine_moves", { ok: false, error: crashKind(error) }]] };
+  }
+  const [moves, reason] = routed;
+  const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
+  const items: [string, Result][] = [["routine_moves", one(() => [moves, reason])]];
+  if (!moves.length) return { ok: true, items };
+  let ts: PyDict | undefined;
+  try {
+    const main = stageOf(parseLetter(text)[0].get("task-id") ?? "")[0];
+    ts = new Hub(repo).loadState().tasks().get(typeof main === "string" ? main : "") as PyDict | undefined;
+  } catch (error) {
+    return { ok: true, items: [...items, ["ts", { ok: false, error: crashKind(error) }]] };
+  }
+  const task = ts;
+  if (task !== undefined) for (const move of moves) items.push(["brief", one(() => renderRoutineBrief(repo, task, move as PyDict))]);
+  return { ok: true, items };
+}
+
+/** hub.shadow_route（⑤-影子）：账本里一次 route.kernel 的那批信，重算 routine_moves，与 op_hub_shadow_route 一一对应。 */
+export function hubShadowRoute(request: Record<string, unknown>, toTagged: (value: PyValue) => unknown): Result {
+  try {
+    const [moves, reason] = routineMoves((request["b64s"] as string[]).map(shadowText));
+    return { ok: true, value: toTagged([moves, reason]) };
+  } catch (error) {
+    return { ok: false, error: crashKind(error) };
   }
 }
 

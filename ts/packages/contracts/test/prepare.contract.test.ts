@@ -89,6 +89,8 @@ function buildRepo(runner: Runner, item: Case): { repo: string; wtRoot: string; 
   put(repo, ".agent/plans/t1.v1.json", contractText);
   const configText = json({ worktree_root: wtRoot, kill_grace_seconds: 1, ...item.config });
   put(repo, ".agent/dispatch.config.json", configText);
+  // ⑤-影子的输出照真的布局放一份：列 runs 下任务目录的地方（prepare 的 pending_attempt_notes）要跳过它，几套实现的输出照样相同
+  put(repo, ".agent/runs/_shadow/latest.json", `{"mismatches": []}${LF}`);
   item.before?.({ repo, runs: join(repo, ".agent", "runs"), contractText });
   return { repo, wtRoot, paths: { "<REPO>": repo, "<WTROOT>": wtRoot, "<CONFIG_SHA>": sha(configText) } };
 }

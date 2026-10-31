@@ -218,6 +218,8 @@ function runScenario(item: Scenario): void {
     const { repo, head } = newRepo(`ig-${runner}`);
     const options = typeof item.o === "function" ? item.o(repo) : item.o;
     const paths = { "<REPO>": repo, ...fullAttempt(repo, head, runner, options) };
+    // ⑤-影子的输出照真的布局放一份：列 runs 下任务目录的地方（integrate 的 _running_attempts）要跳过它，几套实现的输出照样相同
+    put(repo, ".agent/runs/_shadow/latest.json", `{"mismatches": []}${LF}`);
     const result = withEnv({ ...IDENTITY, ...item.env }, () => runCommand(runner, repo, argvOf(item.flags), pyargsOf(item.flags)));
     const stderr = result.stderr.toString("utf8");
     const show = (text: string): string => scrub(normalize(text, paths));
