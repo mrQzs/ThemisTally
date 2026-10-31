@@ -55,8 +55,8 @@
     {
       "name": "C08 生效档位取第一个",
       "file": "ts/packages/hub/src/audit.ts",
-      "old": "    return efforts.at(-1) ?? null;",
-      "new": "    return efforts[0] ?? null;"
+      "old": "pyTruthy(pyGet(entry, \"effort\"))) effort = ",
+      "new": "pyTruthy(pyGet(entry, \"effort\")) && effort === null) effort = "
     },
     {
       "name": "C09 权限规则的盘符不转小写",

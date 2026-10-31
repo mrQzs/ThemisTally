@@ -31,10 +31,11 @@ export function turnCostUsd(adapter: string, session: PyValue, reported: PyValue
   return [pyRound(total - pyFloatOf(previous), 6) as number, total];
 }
 
-/** 逐行解析事件流：(事件, 读不出来的非空行数)。读不出来的包括不是 JSON、不是对象、嵌套太深。 */
-export function streamEvents(lines: readonly string[]): [PyDict[], number] {
-  const events: PyDict[] = [];
-  let unreadable = 0;
+/**
+ * 逐行解析事件流，边读边交出；读不出来的非空行（不是 JSON、不是对象、嵌套太深）记进 counter。审计与会话的四处只走一遍，
+ * 不留整个事件数组：30 MB 的事件流解析成 Map 留着要近 1 GB，逐条丢掉只要两百来 MB（⑤-影子量的）。
+ */
+export function* eachEvent(lines: readonly string[], counter: { unreadable: number }): Generator<PyDict> {
   for (const raw of lines) {
     const line = pyStrip(raw);
     if (!line) continue;
@@ -44,10 +45,15 @@ export function streamEvents(lines: readonly string[]): [PyDict[], number] {
     } catch (error) {
       if (!(error instanceof PyJsonError && UNREADABLE_KINDS.has(error.kind))) throw error;
     }
-    if (event instanceof Map) events.push(event);
-    else unreadable += 1;
+    if (event instanceof Map) yield event;
+    else counter.unreadable += 1;
   }
-  return [events, unreadable];
+}
+
+/** kit_hub 的 stream_events：(事件, 读不出来的非空行数)。 */
+export function streamEvents(lines: readonly string[]): [PyDict[], number] {
+  const counter = { unreadable: 0 };
+  return [[...eachEvent(lines, counter)], counter.unreadable];
 }
 
 /** 会话停在半截（第 94 轮）：最后一条消息是模型发出、还没有结果的工具调用。会话文件找不到不算。 */
@@ -60,8 +66,8 @@ export function sessionCutShort(hubRoot: string, agent: string, adapter: string,
   const lines = jsonlLines(readText(last)).filter((line) => pyStrip(line));
   if (lines.length && !streamEvents(lines.slice(-1))[0].length) return true; // 最后一行没写完、读不出来：算半截
   const kinds = adapter === "claude" ? ["assistant", "user"] : ["message"];
-  const entries = streamEvents(lines)[0].filter((entry) => kinds.some((kind) => pyEq(pyGet(entry, "type"), kind)));
-  const entry = entries.at(-1);
+  let entry: PyDict | undefined;
+  for (const event of eachEvent(lines, { unreadable: 0 })) if (kinds.some((kind) => pyEq(pyGet(event, "type"), kind))) entry = event;
   if (entry === undefined) return false;
   const message = or(pyGet(entry, "message"), new Map());
   if (adapter === "claude") {
@@ -76,11 +82,11 @@ export function sessionCutShort(hubRoot: string, agent: string, adapter: string,
 /** claude 的会话文件里每条 assistant 记录带 effort：读出实际生效的档位（设计 §6.1）。只看 glob 到的第一个文件。 */
 export function claudeSessionEffort(sessionId: string): string | null {
   for (const path of globPaths(claudeProjects(), ["*", `${sessionId}.jsonl`])) {
-    const efforts: string[] = [];
-    for (const entry of streamEvents(jsonlLines(readText(path)))[0]) {
-      if (pyEq(pyGet(entry, "type"), "assistant") && pyTruthy(pyGet(entry, "effort"))) efforts.push(pyStrValue(pyItem(entry, "effort")));
+    let effort: string | null = null;
+    for (const entry of eachEvent(jsonlLines(readText(path)), { unreadable: 0 })) {
+      if (pyEq(pyGet(entry, "type"), "assistant") && pyTruthy(pyGet(entry, "effort"))) effort = pyStrValue(pyItem(entry, "effort"));
     }
-    return efforts.at(-1) ?? null;
+    return effort;
   }
   return null;
 }
@@ -109,9 +115,8 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
   const structured = new PySet(); // StructuredOutput 的 tool_use id
   let accepted = 0n; // 其中被 CLI 收下的次数
   const refusals: PyValue[] = [];
-  const [events, unreadable] = streamEvents(lines);
-  if (unreadable) violations.push(UNREADABLE_STREAM.replace("%d", String(unreadable)));
-  for (const event of events) {
+  const counter = { unreadable: 0 };
+  for (const event of eachEvent(lines, counter)) {
     const kind = pyGet(event, "type");
     if (pyEq(kind, "system") && pyEq(pyGet(event, "subtype"), "init")) {
       init = event;
@@ -170,6 +175,8 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
       result = event;
     }
   }
+  // 读完才知道读不出几行：放在最前面，与 Python 先数再审的次序一样（循环里只往后加）
+  if (counter.unreadable) violations.unshift(UNREADABLE_STREAM.replace("%d", String(counter.unreadable)));
   if (!init.size) {
     violations.push("事件流里没有 init");
   } else {
@@ -290,9 +297,8 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
   const refusals: PyValue[] = []; // deliver 每次被退回时报错的长度
   let unreadDetails = 0; // deliver 报了成功、result.details 却不是对象的次数
   let thinking = 0n; // thinking 块的字数
-  const [events, unreadable] = streamEvents(lines);
-  if (unreadable) violations.push(UNREADABLE_STREAM.replace("%d", String(unreadable)));
-  for (const event of events) {
+  const counter = { unreadable: 0 };
+  for (const event of eachEvent(lines, counter)) {
     const kind = pyGet(event, "type");
     if (pyEq(kind, "tool_execution_start")) {
       const name = pyStrValue(pyGet(event, "toolName"));
@@ -340,7 +346,8 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
       terminal = true;
     }
   }
-  const expected = `${pyStrValue(pyItem(spec, "provider"))}/${pyStrValue(pyItem(spec, "model"))}`;
+  if (counter.unreadable) violations.unshift(UNREADABLE_STREAM.replace("%d", String(counter.unreadable)));
+  const expected =`${pyStrValue(pyItem(spec, "provider"))}/${pyStrValue(pyItem(spec, "model"))}`;
   if (models.minus(new PySet([expected])).size) violations.push(`实际模型 ${pyReprValue(pySorted(models.values()))} 与要求 ${expected} 不一致`);
   // 与 claude 一样：pi 当场拒绝（“Tool bash not found”）的调用只记警告，看不到拒绝结果的照旧作废
   const warnings = [...outside].filter(([id]) => refused.has(id)).map(([, name]) => `试图调用白名单之外的工具 ${name}，被 pi 拒绝`);

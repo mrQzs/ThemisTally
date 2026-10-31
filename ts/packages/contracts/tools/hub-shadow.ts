@@ -410,7 +410,8 @@ function compareRecord(cmp: Comparison, turn: Recorded, results: readonly Item[]
   const same = (name: string, item: PyValue): boolean => dumps(item, { sortKeys: true }) === dumps(turn.record.get(name) ?? null, { sortKeys: true });
   const differ = [...ours].filter(([name, item]) => !same(name, item)).map(([name]) => name);
   if (!differ.length) return;
-  if (turn.sessionMoved && differ.join() === "effort_effective") {
+  // 只有 claude 的生效档位取自会话文件；pi 的来自事件流，会话文件续接时变新也与它无关，对不上就是真的不一致
+  if (turn.adapter === "claude" && turn.sessionMoved && differ.join() === "effort_effective") {
     cmp.count("时序", 1, 0);
     cmp.miss("时序", `${turn.id}：effort_effective`);
     return;

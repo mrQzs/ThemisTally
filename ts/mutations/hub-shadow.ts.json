@@ -119,6 +119,12 @@
       "new": ".map(String).join(\",\"))"
     },
     {
+      "name": "S22 会话文件变新就把生效档位记成时序，不分 claude 与 pi",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (turn.adapter === \"claude\" && turn.sessionMoved && ",
+      "new": "if (turn.sessionMoved && "
+    },
+    {
       "name": "S11 TS 的阶段状态表表头改了",
       "file": "ts/packages/hub/src/taskstate.ts",
       "old": "  const rows = [\"| 阶段 | 工人 | 状态 | 备注 |\", \"|---|---|---|---|\"];",

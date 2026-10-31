@@ -280,14 +280,20 @@ describe("⑤-影子：--watch", () => {
     };
     rewrite(tampered, (record) => (record["violations"] as string[]).push("编出来的违规"));
     rewrite(recordedTurn(fx, "20261031T000000000006Z-hhhh"), (record) => Object.assign(record, { hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
+    // pi 回合的会话文件比 result.json 新（下一回合续接了），生效档位被改过：pi 的档位来自事件流，照样算不一致，不算时序
+    rewrite(recordedTurn(fx, "20261031T000000000007Z-iiii"), (record) => Object.assign(record, { session_id: "p-sid-9", effort_effective: "high" }));
+    put(fx.repo, ".agent/mailbox/sessions/gate-sonnet/20261031_p-sid-9.jsonl", line({ type: "message", message: { role: "assistant", stopReason: "stop" } }) + LF);
     // 回合不在每轮先看的指纹里：照 hub 的样子在账本记一笔，第二轮才开始
     const ledger = join(fx.repo, ".agent", "mailbox", "ledger", "events.jsonl");
     writeFileSync(ledger, readFileSync(ledger, "utf8") + line({ at: AT, event: "turn.finished", turn_id: "20261031T000000000006Z-hhhh" }) + LF);
     expect(await exited).toBe(0);
     const report = JSON.parse(readFileSync(join(out, "latest.json"), "utf8")) as Record<string, unknown>;
-    expect((report["categories"] as Record<string, unknown>)["回合与 result.json"]).toMatchObject({ compared: 2, mismatched: 1 });
+    expect((report["categories"] as Record<string, unknown>)["回合与 result.json"]).toMatchObject({ compared: 3, mismatched: 2 });
     expect(report["result_json_other_kernel"]).toBe(1);
-    expect(report["mismatches"]).toEqual([{ category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-gggg：violations", state_sha256: report["state_sha256"] }]);
+    expect(report["mismatches"]).toEqual([
+      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-gggg：violations", state_sha256: report["state_sha256"] },
+      { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000007Z-iiii：effort_effective", state_sha256: report["state_sha256"] },
+    ]);
   }, 120_000);
 
   it("某一轮出错（回合的 result.json 只写了一半）：只记错误的类型，接着跑；那一轮不算数，下一轮整份补比", async () => {
