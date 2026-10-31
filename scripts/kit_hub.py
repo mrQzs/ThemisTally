@@ -3950,6 +3950,13 @@ def sweep_gates(path: Path) -> Tuple[int, str, List[str]]:
         return -1, "超过 %d 秒没有跑完" % SWEEP_SECONDS, tests
 
 
+def keep_sweep_output(path: Path, out: str) -> None:
+    """第 133 轮：门禁基准的全文每次覆盖写一份。记录与信只留最后 15 行：站主扫描在临时 worktree 里红过两次，
+    git 自己的报错都在被截掉的那段里，原因只能猜（themistally-15 建议）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, out)
+
+
 def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     """在合入后的末端上跑全部门禁基准（第 20 轮）。并行的两个主任务各自只验过自己合同的检查，合在一起可能
     互相打破：T007 的门禁不在 T006 的合同里，反之亦然。在临时 worktree 里跑，不碰主工作区。"""
@@ -3958,6 +3965,7 @@ def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
     with scratch_worktree(hub, "sweep", head) as path:
         code, out, tests = sweep_gates(path)
+    keep_sweep_output(hub.task_dir(ts["task"]) / "regression-sweep.log", out)
     ts["regression"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
     hub.append_event("regression.swept", task=ts["task"], head=head, exit=code)
     summary = "合入后的门禁回归（%d 份，末端 %s）：%s" % (len(tests), head[:12], tail(out, 1).strip() or "没有输出")
@@ -4151,6 +4159,7 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
     with scratch_worktree(hub, "owner-sweep", head) as path:
         code, out, tests = sweep_gates(path)
     record = owner_sweep_path(hub)
+    keep_sweep_output(record.with_name("owner-sweep.log"), out)
     with file_lock(record.with_name(".owner-sweep.lock")):
         data = read_owner_sweep(hub)
         data["last"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
@@ -4169,7 +4178,7 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
                      "提交": "无", "验证": (summary + "\n" + tail(out, 15))[:1500],
                      "偏离": ("这期间站主合入的提交：\n" + commits)[:600] if commits else "无",
                      "需协调人决定": "请站主处理：收窄写得太宽的门禁断言，或者改回刚才的提交",
-                     "证据": ".agent/mailbox/ledger/owner-sweep.json"})
+                     "证据": ".agent/mailbox/ledger/owner-sweep.json；全文在 .agent/mailbox/ledger/owner-sweep.log"})
     for task in sorted(hub.load_state()["tasks"]):
         state = hub.load_state()  # 每次现读：预演一次要几分钟，runner 这期间照常写
         ts = state["tasks"][task]
@@ -5607,7 +5616,7 @@ class Engine:
                              {"摘要": "%s 合入后的门禁回归%s" % (main, "通过" if ok else "没过"), "提交": "无",
                               "验证": summary[:1500], "偏离": "无",
                               "需协调人决定": "无" if ok else "请站主处理：合入的几个主任务互相打破了门禁",
-                              "证据": ".agent/mailbox/ledger/state.json（%s 的 regression）" % main})
+                              "证据": ".agent/mailbox/ledger/state.json（%s 的 regression）；全文在 .agent/mailbox/tasks/%s/regression-sweep.log" % (main, main)})
         if not ts or ts.get("status") != "done":
             return  # 没落地：末端没动，别的候选不用重新预演
         for other in sorted(state["tasks"]):

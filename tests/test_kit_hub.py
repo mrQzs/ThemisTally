@@ -4164,10 +4164,13 @@ def test_regression_sweep_runs_every_gate_baseline_on_the_new_tip(tmp_path, monk
     ts = make_ts()
     ok, summary = kh.regression_sweep(hub, ts)
     assert ok and "2 份" in summary and ts["regression"]["exit"] == 0  # 白盒不算门禁基准
+    log = hub.task_dir("T001") / "regression-sweep.log"  # 第 133 轮：全文每次覆盖写一份
+    assert "2 passed" in log.read_text(encoding="utf-8")
     (tests / "test_gate_t002_baseline.py").write_text("def test_red():\n    assert False\n", encoding="utf-8")
     kh.git(["commit", "-q", "-am", "被并行的另一片打破"], repo)
     ok, summary = kh.regression_sweep(hub, ts)
     assert not ok and "test_gate_t002_baseline.py::test_red" in summary
+    assert "assert False" in log.read_text(encoding="utf-8")  # 信里只有最后 15 行，失败的原文在全文里
     assert list((tmp_path / "wt").iterdir()) == []  # 临时 worktree 收掉了
 
 
@@ -4489,6 +4492,8 @@ def test_owner_commits_get_a_gate_sweep_and_rehearsals(tmp_path, monkeypatch):
     letters = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
     sweep_letter = next(text for text in letters if "门禁回归在末端 %s 上没过" % tip[:12] in text)
     assert "type: 阻塞" in sweep_letter and "站主合入的一轮" in sweep_letter and "test_g4" in sweep_letter
+    assert "全文在 .agent/mailbox/ledger/owner-sweep.log" in sweep_letter  # 第 133 轮
+    assert "1 failed, 3 passed" in (hub.root / "ledger" / "owner-sweep.log").read_text(encoding="utf-8")
     # 手上有过了检查的候选的主任务：在新末端上预演一次，同样红了就写信
     assert any("T001 的候选落地预演没过（站主的提交之后）" in text for text in letters)
     assert hub.load_state()["tasks"]["T001"]["rehearsal"]["head"] == tip
