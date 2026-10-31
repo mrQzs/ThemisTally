@@ -1,0 +1,140 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-mailbox.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B01 三方合并不看读出来时的样子，每个键都写",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "          if (mine === before) continue;\n",
+      "new": ""
+    },
+    {
+      "name": "B02 冲突不记账本",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "          if (onDisk !== before && onDisk !== mine) await this.appendEvent(",
+      "new": "          if (false) await this.appendEvent("
+    },
+    {
+      "name": "B03 删掉的键不删",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "          else theirs.delete(key);\n",
+      "new": ""
+    },
+    {
+      "name": "B04 存完不更新读出来时的样子",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "        if (mine === null) seen.delete(key);\n        else seen.set(key, mine);\n",
+      "new": ""
+    },
+    {
+      "name": "B05 手搭的 dict 也走合并",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      if (!(state instanceof HubState)) {",
+      "new": "      if (false) {"
+    },
+    {
+      "name": "B06 state.json 不排序键",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "dumps(state, { ensureAscii: false, indent: 2, sortKeys: true })",
+      "new": "dumps(state, { ensureAscii: false, indent: 2 })"
+    },
+    {
+      "name": "B07 会话记录不加锁",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "await withFileLock(join(dirname(this.agentPath(agent)), \".agents.lock\"), () => {",
+      "new": "await ((action: () => void) => action())(() => {"
+    },
+    {
+      "name": "B08 会话记录不写 last_turn_at",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      record.set(\"last_turn_at\", utcNow());\n",
+      "new": ""
+    },
+    {
+      "name": "B09 编号冲突时覆盖",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "if (!pyPublishNew(join(box, `${msgId}.md`), Buffer.from(text, \"utf8\"))) throw new HubError(`信件编号冲突：${msgId}`);",
+      "new": "writeTextAtomic(join(box, `${msgId}.md`), text);"
+    },
+    {
+      "name": "B10 new 里的信不排序",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": ".sort((a, b) => (fold(a) < fold(b) ? -1 : fold(a) > fold(b) ? 1 : 0));",
+      "new": ";"
+    },
+    {
+      "name": "B11 收信记的工人名取错一层",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "[[\"msg_id\", stem(path)], [\"agent\", basename(agentDir)]]",
+      "new": "[[\"msg_id\", stem(path)], [\"agent\", basename(dirname(path))]]"
+    },
+    {
+      "name": "B12 扣信的阶段不标 paused",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "    stage.set(\"status\", \"paused\").set(\"note\",",
+      "new": "    stage.set(\"status\", \"assigned\").set(\"note\","
+    },
+    {
+      "name": "B13 内核自己等也写信给站主",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "  if (reason) return at;\n",
+      "new": ""
+    },
+    {
+      "name": "B14 放回时不看阶段变没变",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      if (stage !== null && !pyEq(pyItem(stage, \"status\"), \"paused\")) {",
+      "new": "      if (false) {"
+    },
+    {
+      "name": "B15 放回之后阶段不回到 assigned",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      if (stage !== null) (stage as PyDict).set(\"status\", \"assigned\").set(\"note\", \"\");\n",
+      "new": ""
+    },
+    {
+      "name": "B16 到点的判断用 <",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      return until <= now;",
+      "new": "      return until < now;"
+    },
+    {
+      "name": "B17 留档序号不加一",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "  const index = globSuffix(dirname(path), suffix, `${base}.`).length + 1;",
+      "new": "  const index = globSuffix(dirname(path), suffix, `${base}.`).length;"
+    },
+    {
+      "name": "B18 读不出时不报错",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "    if (!pyStrip(text) && isNonEmptyFile(path)) throw new HubError(",
+      "new": "    if (false) throw new HubError("
+    },
+    {
+      "name": "B19 目录锁占用时持有者照 JSON 写",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "owner.size ? pyReprValue(owner) : \"未知\"",
+      "new": "owner.size ? JSON.stringify(Object.fromEntries(owner)) : \"未知\""
+    },
+    {
+      "name": "B21 三方合并不加锁",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "    await withFileLock(join(dirname(this.statePath()), \".state.lock\"), async () => {",
+      "new": "    await (async (action: () => Promise<void>) => action())(async () => {"
+    },
+    {
+      "name": "B20 账本坏行不跳过",
+      "file": "ts/packages/hub/src/mailbox.ts",
+      "old": "      events.push(loads(line));\n    } catch {",
+      "new": "      events.push(loads(line));\n    } finally {"
+    }
+  ]
+}

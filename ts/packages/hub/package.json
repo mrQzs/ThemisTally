@@ -6,6 +6,7 @@
     "./constants": "./src/constants.ts",
     "./errors": "./src/errors.ts",
     "./letters": "./src/letters.ts",
+    "./mailbox": "./src/mailbox.ts",
     "./schema": "./src/schema.ts",
     "./taskstate": "./src/taskstate.ts"
   },

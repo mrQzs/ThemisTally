@@ -3,7 +3,12 @@
 import { PyCrash, pyStrValue } from "@themis/base/pyfmt";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { sleepSync } from "@themis/base/fsutil";
+import { withFileLock } from "@themis/base/native";
 import { HubError } from "@themis/hub/errors";
+import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
 import { schemaErrors, schemaProblems } from "@themis/hub/schema";
 import {
@@ -89,4 +94,151 @@ export function hubCall(request: Record<string, unknown>, fromTagged: (tagged: n
     if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError" };
     return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
   }
+}
+
+/** hub.box（第 ⑤b 片）：在 repo 的信箱上按 steps 依次执行，交回每一步的结果；与 python_probe.py 的 op_hub_box 一一对应。 */
+export async function hubBox(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
+  const hub = new Hub(String(request["repo"]));
+  const states = new Map<string, HubState>();
+  const results: Result[] = [];
+  const tasksOf = (name: string): PyDict => (states.get(name) as HubState).tasks();
+  const optional = (value: PyValue | undefined): string | null => (value === null || value === undefined ? null : String(value));
+  const hold = async (task: PyValue | undefined, agent: PyValue | undefined, names: PyValue | undefined, until: number, rest: PyValue[]): Promise<PyValue> => {
+    const state = hub.loadState();
+    const [suffix, turn, reason] = rest;
+    const held = await holdLetters(hub, state.tasks().get(String(task)) as PyDict, String(agent), (names as PyValue[]).map(String), until, optional(suffix),
+      String(turn), optional(reason));
+    await hub.saveState(state);
+    return held;
+  };
+  for (const step of request["steps"] as unknown[][]) {
+    const name = String(step[0]);
+    const args = step.slice(1).map((item) => fromTagged(item as never));
+    try {
+      let value: PyValue = null;
+      switch (name) {
+        case "ensure":
+          hub.ensure();
+          break;
+        case "save_dict":
+          await hub.saveState(args[0] as PyDict);
+          break;
+        case "load":
+          states.set(String(args[0]), hub.loadState());
+          break;
+        case "set":
+          (tasksOf(String(args[0])).get(String(args[1])) as PyDict).set(String(args[2]), args[3] as PyValue);
+          break;
+        case "del": {
+          const ts = tasksOf(String(args[0])).get(String(args[1])) as PyDict;
+          if (!ts.has(String(args[2]))) throw new PyCrash("KeyError", String(args[2]));
+          ts.delete(String(args[2]));
+          break;
+        }
+        case "new_task":
+          tasksOf(String(args[0])).set(String(args[1]), args[2] as PyValue);
+          break;
+        case "save":
+          await hub.saveState(states.get(String(args[0])) as HubState);
+          break;
+        case "signal":
+          process.stderr.write("ready" + String.fromCharCode(10));
+          break;
+        case "wait":
+          while (!existsSync(String(args[0]))) sleepSync(5);
+          break;
+        case "read_state":
+          value = hub.readState();
+          break;
+        case "deliver":
+          value = await hub.deliver(metaOf(args[0]), fieldsOf(args[1]));
+          break;
+        case "unread":
+          value = hub.unread(String(args[0])).map((path) => path.slice(path.lastIndexOf(SEP) + 1));
+          break;
+        case "take_first": {
+          const first = hub.unread(String(args[0]))[0];
+          if (first === undefined) throw new PyCrash("IndexError", "list index out of range");
+          value = relative(hub.root, await hub.take(first)).split(SEP).join("/");
+          break;
+        }
+        case "save_agent_record":
+          hub.saveAgentRecord(String(args[0]), args[1] as PyDict);
+          break;
+        case "save_agent_session":
+          await hub.saveAgentSession(String(args[0]), String(args[1]), args[2] as PyValue);
+          break;
+        case "agent_record":
+          value = hub.agentRecord(String(args[0]));
+          break;
+        case "hold": {
+          const [task, agent, names, until, ...rest] = args;
+          value = await hold(task, agent, names, Number(until), rest);
+          break;
+        }
+        case "hold_until_now": {
+          // 到点的边界：等到新的一秒开头再扣，until 就是这一秒；紧接着的 release 落在同一秒里
+          sleepSync(1000 - (Date.now() % 1000));
+          const [task, agent, names, ...rest] = args;
+          value = await hold(task, agent, names, Math.floor(Date.now() / 1000), rest);
+          break;
+        }
+        case "hold_file_lock":
+          await withFileLock(join(hub.repo, String(args[0])), () => {
+            process.stderr.write("ready" + String.fromCharCode(10));
+            sleepSync(Number(args[1]));
+            writeFileSync(join(hub.repo, String(args[2])), "");
+          });
+          break;
+        case "exists":
+          value = existsSync(join(hub.repo, String(args[0])));
+          break;
+        case "release":
+          value = await releaseHeld(hub);
+          break;
+        case "ledger_events":
+          value = ledgerEvents(hub);
+          break;
+        case "write_file": {
+          const target = join(hub.repo, String(args[0]));
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, String(args[1]), "utf8");
+          break;
+        }
+        case "keep_previous":
+          keepPrevious(join(hub.repo, String(args[0])));
+          break;
+        case "letter_main":
+          value = letterMain(join(hub.repo, String(args[0])));
+          break;
+        case "dirlock": {
+          const lock = new DirLock(join(hub.repo, String(args[0])), Number(args[1])).acquire();
+          try {
+            sleepSync(Number(args[2]));
+          } finally {
+            lock.release();
+          }
+          break;
+        }
+        default:
+          value = new Map([["unknown_step", name]]);
+      }
+      results.push({ ok: true, value: toTagged(value) });
+    } catch (error) {
+      results.push(errorResult(error));
+    }
+  }
+  return { ok: true, results };
+}
+
+const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
+
+function errorResult(error: unknown): Result {
+  if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
+  if (error instanceof PyCrash) return { ok: false, error: error.kind };
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") return { ok: false, error: "FileNotFoundError" };
+  if (code === "EEXIST") return { ok: false, error: "FileExistsError" };
+  if (code === "EPERM" || code === "EACCES" || code === "EBUSY") return { ok: false, error: "PermissionError" };
+  return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
 }

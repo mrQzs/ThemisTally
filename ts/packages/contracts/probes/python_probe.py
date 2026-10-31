@@ -1061,6 +1061,115 @@ def op_hub_samples(request):
              "fields": cases.fields(), "base": cases.BASE}
     return {"ok": True, "value": to_tagged(value)}
 
+def op_hub_box(request):
+    """第 ⑤b 片：在 repo 的信箱上按 steps 依次执行（Hub、HubState 三方合并、投递与收信、agent 记录、扣信与放回、目录锁……），
+    交回每一步的结果（带标签）；HubError 记文字与退出码，别的异常记类型，出错之后接着走下一步。
+    signal 往 stderr 写 ready，wait 等起跑文件出现：混跑用例让一个进程停在两步之间。"""
+    hub = kit_hub.Hub(Path(request["repo"]))
+    states = {}
+    results = []
+    for step in request["steps"]:
+        name, args = step[0], [from_tagged(item) for item in step[1:]]
+        try:
+            if name == "ensure":
+                value = hub.ensure()
+            elif name == "save_dict":
+                value = hub.save_state(args[0])
+            elif name == "load":
+                states[args[0]] = hub.load_state()
+                value = None
+            elif name == "set":
+                states[args[0]]["tasks"][args[1]][args[2]] = args[3]
+                value = None
+            elif name == "del":
+                del states[args[0]]["tasks"][args[1]][args[2]]
+                value = None
+            elif name == "new_task":
+                states[args[0]]["tasks"][args[1]] = args[2]
+                value = None
+            elif name == "save":
+                value = hub.save_state(states[args[0]])
+            elif name == "signal":
+                sys.stderr.write("ready" + chr(10))
+                sys.stderr.flush()
+                value = None
+            elif name == "wait":
+                while not os.path.exists(args[0]):
+                    time.sleep(0.005)
+                value = None
+            elif name == "read_state":
+                value = hub._read_state()
+            elif name == "deliver":
+                value = hub.deliver(args[0], args[1])
+            elif name == "unread":
+                value = [path.name for path in hub.unread(args[0])]
+            elif name == "take_first":
+                value = hub.take(hub.unread(args[0])[0]).relative_to(hub.root).as_posix()
+            elif name == "save_agent_record":
+                value = hub.save_agent_record(args[0], args[1])
+            elif name == "save_agent_session":
+                value = hub.save_agent_session(args[0], args[1], args[2])
+            elif name == "agent_record":
+                value = hub.agent_record(args[0])
+            elif name == "hold":
+                state = hub.load_state()
+                value = kit_hub.hold_letters(hub, state["tasks"][args[0]], *args[1:])
+                hub.save_state(state)
+            elif name == "hold_until_now":
+                # 到点的边界：等到新的一秒开头再扣，until 就是这一秒；紧接着的 release 落在同一秒里
+                time.sleep(1 - time.time() % 1)
+                state = hub.load_state()
+                value = kit_hub.hold_letters(hub, state["tasks"][args[0]], args[1], args[2], int(time.time()), *args[3:])
+                hub.save_state(state)
+            elif name == "hold_file_lock":
+                with kit_hub.file_lock(hub.repo / args[0]):
+                    sys.stderr.write("ready" + chr(10))
+                    sys.stderr.flush()
+                    time.sleep(args[1] / 1000)
+                    (hub.repo / args[2]).write_text("", encoding="utf-8")
+                value = None
+            elif name == "exists":
+                value = (hub.repo / args[0]).exists()
+            elif name == "release":
+                value = kit_hub.release_held(hub)
+            elif name == "ledger_events":
+                value = kit_hub.ledger_events(hub)
+            elif name == "write_file":
+                target = hub.repo / args[0]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(args[1], encoding="utf-8")
+                value = None
+            elif name == "keep_previous":
+                value = kit_hub.keep_previous(hub.repo / args[0])
+            elif name == "letter_main":
+                value = kit_hub.letter_main(hub.repo / args[0])
+            elif name == "dirlock":
+                with kit_hub.DirLock(hub.repo / args[0], wait_seconds=args[1]):
+                    time.sleep(args[2] / 1000)
+                value = None
+            else:
+                value = {"unknown_step": name}
+            results.append({"ok": True, "value": to_tagged(value)})
+        except kit_hub.HubError as exc:
+            results.append({"ok": False, "error": "HubError", "message": str(exc), "code": exc.code})
+        except Exception as exc:  # noqa: BLE001  只比类型
+            results.append({"ok": False, "error": type(exc).__name__})
+    return {"ok": True, "results": results}
+
+def op_fs_hold_exclusive(request):
+    """第 ⑤b 片：用不许共享的方式打开一个文件、持有 hold_ms 毫秒（Windows 的共享冲突，别的进程读写都撞上 PermissionError）。"""
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    handle = kernel32.CreateFileW(request["path"], 0x80000000, 0, None, 3, 0, None)
+    if handle in (None, ctypes.c_void_p(-1).value):
+        return {"ok": False, "error": "OPEN_FAILED"}
+    sys.stderr.write("ready" + chr(10))
+    sys.stderr.flush()
+    time.sleep(request["hold_ms"] / 1000)
+    kernel32.CloseHandle(ctypes.c_void_p(handle))
+    return {"ok": True}
+
 OPS = {
     "plugins.call": op_plugins_call,
     "protocols.strict": op_protocols_strict,
@@ -1095,6 +1204,8 @@ OPS = {
     "pyfmt.call": op_pyfmt_call,
     "hub.call": op_hub_call,
     "hub.samples": op_hub_samples,
+    "hub.box": op_hub_box,
+    "fs.hold_exclusive": op_fs_hold_exclusive,
     "pyregex.search": op_pyregex_search,
     "pyregex.search_flags": op_pyregex_search_flags,
     "pydatetime.parse_iso": op_pydatetime_parse_iso,

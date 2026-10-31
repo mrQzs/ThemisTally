@@ -23,6 +23,14 @@ export const BUN = bunExecutable();
 export const TS_BUN: Impl = { name: "ts-bun", argv: [BUN, join(PROBES, "ts_probe.ts")] };
 export const IMPLS: readonly Impl[] = [PYTHON, TS_NODE, TS_BUN];
 
+/**
+ * 第 ⑤b 片：同一套实现，起之前把令牌的备份与还原特权设成启用或停用（probes/backup_privilege.py，子进程继承令牌）。
+ * libuv 打开文件总带 FILE_FLAG_BACKUP_SEMANTICS，读会不会撞上别的进程的独占打开，取决于备份特权启用没有。
+ */
+export function withBackupPrivilege(impl: Impl, enabled: boolean): Impl {
+  return { name: impl.name, argv: [PYTHON.argv[0] as string, join(PROBES, "backup_privilege.py"), enabled ? "on" : "off", ...impl.argv] };
+}
+
 /** 探针请求：op 加各自的参数；op 为 "batch" 时 items 是一串请求，一个进程办完（对照测试一次送几百个值）。 */
 export interface ProbeRequest {
   readonly op: string;
