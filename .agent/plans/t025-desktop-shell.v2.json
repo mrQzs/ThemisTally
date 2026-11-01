@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "task_id": "t025-desktop-shell",
+  "plan_version": 2,
+  "title": "桌面端外壳第 1 片：Electron 最小骨架（D3 之一）",
+  "repository": "ThemisTally",
+  "base_sha": "a99cb77ad204d657065ffb3881b1b88a8775be92",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test",
+      "network"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [],
+    "allowed_new_files": [
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json",
+      "desktop/shell/README.md",
+      "desktop/shell/main.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/python.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/tests/args.test.js",
+      "desktop/shell/tests/package.test.js",
+      "desktop/shell/tests/python.test.js",
+      "desktop/shell/tests/handshake.test.js",
+      "desktop/shell/tests/service.test.js",
+      "desktop/shell/tests/window.test.js",
+      "desktop/shell/tests/core.test.js",
+      "desktop/shell/tests/fixtures/fake-python-ok.js",
+      "desktop/shell/tests/fixtures/fake-python-old.js",
+      "desktop/shell/tests/fixtures/fake-python-fail.js",
+      "desktop/shell/tests/fixtures/fake-python-hang.js",
+      "desktop/shell/tests/fixtures/fake-service.js"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t025_*.py",
+      "tests/**",
+      "desktop/web/**",
+      "ts/**",
+      "scripts/**",
+      "docs/**",
+      ".agent/**",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "dependency_changes": "allowed"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t025_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass [1-9]\\d*"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "added [1-9]\\d* packages?"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`desktop/shell` 是一个新的 npm 包，`package.json` 的 `private` 为真、`main` 是 `main.js`、`type` 是 `commonjs`，`devDependencies` **只有** `electron` 且值恰好是 `44.9.0`（没有 `^`、`~` 或任何范围），没有 `dependencies`；`package-lock.json` 已提交，里面 electron 是 44.9.0；`scripts.test` 显式列出了 `tests/` 下的每一个 `*.test.js`，并且带 `--test-reporter=tap`（Node 24 默认 spec reporter 的输出不含 `# pass`，不带这个开关 V01 必失败）",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "依赖与测试入口固定下来，后面的门禁探针与执行端都照它跑"
+    },
+    {
+      "id": "D02",
+      "text": "`parseShellArgs` 照第二节工作：三个必需项缺一即报错、未知选项与位置参数报错、`repo`/`kit`/`assets` 三种路径不对各有自己的说明、`kit` 下缺 `scripts/pi_dispatch.py` 与 `assets` 下缺 `index.html` 各自报错、多个 `--transcript` 按给定顺序保留、`repo`/`kit`/`assets` 是绝对路径、`--python` 原样透传",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "参数错时不许起进程、不许开窗口"
+    },
+    {
+      "id": "D03",
+      "text": "找 Python 照第三节工作：候选顺序恰好是 `python3`、`python`、`py -3`；探测代码的版本门槛是 3.10；第一个可用的候选就赢；命令不存在、退出码非 0、超时三种都算不可用且超时会把子进程结束掉；给了 `--python` 时只试它一个、失败不回退；`findPython` 的时限是可覆盖的毫秒参数",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "Windows 上 `python3` 可能是应用商店的占位程序，必须试运行而不是只看命令在不在"
+    },
+    {
+      "id": "D04",
+      "text": "握手照第四节工作：只认第一行；五个字段缺一即报错；`origin` 必须严格是 `http://127.0.0.1:<端口>`；`bootstrap` 必须在同一个 origin 下；`control` 是非空字符串；`pid` 只校验是正整数（不要求等于子进程 pid）；**所有错误说明都不含握手行、不含任何字段的值**",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "握手是外壳与服务之间唯一的凭据面，不能因为报错把令牌漏出去"
+    },
+    {
+      "id": "D05",
+      "text": "服务命令行是参数列表：`[...python, <kit>/scripts/pi_dispatch.py, \"--repo\", <repo>, \"ui\", \"--desktop\", \"--assets\", <assets>, ...(\"--transcript\", t)…]`，不经 shell，参数里的空格、`&`、`\"`、`%` 原样到达",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不经 shell 是外壳不起注入的最硬的一道闸"
+    },
+    {
+      "id": "D06",
+      "text": "起服务照第五节工作：stdin 是管道且一个字节都不写、stdout 是管道、stderr 用 inherit、`windowsHide` 为真；stdout 只解析第一行，之后的内容抽干丢弃、不出现在任何输出里；握手分两段写也能拼成一行；不写握手时 30 秒超时被拒且子进程被结束；握手前以 2 退出时立刻被拒且错误里有退出码",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "只读第一行、不记服务输出，是「服务输出里可能有秘密」的防线"
+    },
+    {
+      "id": "D07",
+      "text": "收服务照第五节工作：关掉 stdin 写端后服务以 0 退出且没有走到 kill；服务忽略 EOF 时宽限期一到就被结束、进程真的没了",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "关窗口必须收干净服务，不留僵尸"
+    },
+    {
+      "id": "D08",
+      "text": "`webPreferences` 恰好是第六节那十个键（多一个、少一个、松一个都不行），没有 `preload` 键；`partitionName()` 两次不同且不以 `persist:` 开头；`isServiceUrl` 的正例通过，反例（别的端口、`localhost`、`https`、`http://127.0.0.1:8080@evil`、`javascript:`、`file:`、`data:`、`about:blank`、非法串）全部被拒",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "这是设计文档 §10.4 的 E1（窗口的安全选项被改松）"
+    },
+    {
+      "id": "D09",
+      "text": "编排照第七节工作：参数错 → 退出码 2 且不开窗口；找不到 Python → 1；握手失败或超时 → 1 且子进程被结束；服务意外退出 → 1、stderr 里有服务的退出码、窗口被关掉；正常关窗口且服务以 0 退出 → 0；关窗口后服务没有以 0 退出 → 1",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "退出码是这一片对外的唯一契约"
+    },
+    {
+      "id": "D10",
+      "text": "控制令牌与引导地址只留在主进程内存里：`openWindow` 收到的参数只有 `{ bootstrap, origin }`（序列化后不含 `control`），所有路径上 stdout 与 stderr 都不含控制令牌、不含引导地址里的 nonce",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "D4 的红线——渲染进程拿不到控制令牌"
+    },
+    {
+      "id": "D11",
+      "text": "`main.js` 是唯一 `require('electron')` 的文件；菜单置空；分区与权限处理器一律拒绝；新窗口一律拒绝；`will-navigate` 只放行服务 origin；用户参数在开发模式取 `process.argv.slice(2)`、打包后取 `slice(1)`；`src/**` 与 `main.js` 里没有 `persist:`、`shell: true`、fs 的写函数、`fetch`、`net.request`、`http(s).request`、`autoUpdater`、`crashReporter`、`openExternal`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "静态禁令把「顺手加一行 fetch」这类改松挡在门外"
+    },
+    {
+      "id": "D12",
+      "text": "README 写清装法、跑法、参数、退出码、三个时限、`npm ci` 不下载 Electron 本体以及 `node node_modules/electron/install.js` 的下载办法、手工冒烟步骤；README 里的命令与 `package.json` 的 `scripts` 一致",
+      "evidence": [
+        "review",
+        "G01"
+      ],
+      "intent": "真窗口只能靠手工冒烟，README 是那一段唯一的凭据"
+    },
+    {
+      "id": "D13",
+      "text": "所有修改都在允许集合内（新增文件都在 `allowed_new_files`，没有删文件、没有改既有文件，`forbidden_paths` 里的 `tests/**`、`desktop/web/**`、`ts/**`、`scripts/**`、`docs/**` 一个都没动，`desktop/web` 的 `package.json` 与 `package-lock.json` 一个字节没动）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    },
+    {
+      "id": "D14",
+      "text": "没有删除、跳过或弱化既有测试；`tests/test_gate_t001` … `t024` 照旧全过；新测试里没有 skip / only / todo；临时文件没有写到 `/tmp` 这类固定路径（用 `T=$(mktemp -d)` 并在同一条命令里删掉）；遇到合同与既有测试或门禁冲突时没有越界改文件（冲突写进执行报告的 `contract_conflicts`）",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "既有测试是别的片的契约，不能借机削弱"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
