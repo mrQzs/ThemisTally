@@ -164,4 +164,21 @@ COVERED 11、PARTIAL 21。前几片留给 ⑤d 的 PARTIAL：⑤a 的 1807、772
 
 COVERED 20。另有手写的场景，不算进某个用例的覆盖：pi 的交差成功、复核不过、没交、读不到参数、非零退出、超时、限流的退避与清零、被拦；会话的续接、fresh、工作目录变了、半截换新、跳过已有的代、给定会话号；claude 的新会话、续接、生效档位、输入目录与长输入、依赖目录；名册与交差文件换过的场景（coordinator.json、planner.json、guard.ts 全零，名册的 gate-sonnet、audit-sonnet 换成与用例逐字段相同的 CLAUDE_GATE、CLAUDE_AUDIT）；只读输入目录；真的来源的形状核对；claude 的路径。变异：hub-d2.ts.json 34 个全部抓住（turn.ts 24 个、inputs.ts 10 个）；hub-shadow.ts.json 加 S24，24 个里 23 个第一轮抓住，S22 漏过一次，把会话文件的时刻错开后单独重跑抓住。
 
-其余场景随各片补（⑤e 到 ⑤j）。
+## ⑤e 合同与战前门禁
+
+### ⑤e1a 纯文字的部分
+
+做法：先在 test_kit_hub.py 全部用例上采样一次（参数化的与要别的夹具的 19 条采不了），挑出调到 tail、tail_file、normalize_identity、normalize_markup、strip_decisions、decisions_section、unparsed_check_ids、external_fact_problems、unverified_facts、pytest_outcomes 的 80 条；Python 探针 hub.audit_samples 记下它们对这十个函数的顶层调用（约 370 次；tail 164 次按“文字的 sha256、行数”去重，去掉 118–120 次，随用例文字里的时刻与临时路径变），契约 hub-contract 交给 Python、Node、Bun 逐字比，并要求每个函数都有 Python 重放与当时结果相同的样本（只比得上漂移了的不算）。当时的结果与 Python 重放对不上的 2 条（DRIFTED）都是 tail_file：用例读过的检查日志后来删了，重放时报 FileNotFoundError；tail_file 在另外 10 条用例里有比得上的样本。采样器这一片起照 pytest 截下用例的标准输出与标准错误（有的用例经 hub 打印中文，探针的 stdout 不是 UTF-8 时会崩在打印上；monkeypatch 的 undo 也在截下的范围里）。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_tail_file_reads_only_the_end` | 1139 | COVERED | hub-contract：记下的调用；「手写的对照」另有空文件、恰好 n 行、不以换行结尾、CRLF、单独的 CR、按字节截在多字节字符中间、文件不在与是目录 |
+| `test_pytest_outcomes_reads_the_summary_not_the_captured_output` | 924 | PARTIAL | pytest_outcomes 在记下的调用与「手写的对照」（摘要行的各种写法、summary info 之前的 FAILED 不算、通用换行、Unicode 数字）；defect_matches 归 ⑤f |
+| `test_bold_item_ids_in_the_contract_are_normalized` | 6303 | PARTIAL | normalize_markup 在记下的调用；accept_contract 归 ⑤e2 |
+| `test_scope_notes_are_stripped_and_unparsed_check_ids_are_named` | 6406 | PARTIAL | normalize_markup、unparsed_check_ids 在记下的调用；contract_requirements 归 ⑤e1b |
+| `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | PARTIAL | strip_decisions、decisions_section 在记下的调用；accept_contract 归 ⑤e2，contract_requirements 归 ⑤e1b（⑤d1 记的那半照旧） |
+| `test_plan_delivery_must_list_its_external_facts` | 1711 | PARTIAL | 参数化的用例采样器跑不了：它给 external_fact_problems 的五种输入（没有这个键、写成“无”、第 2 条缺 verified、缺 fact、条目是字符串）在「手写的对照」；经 Engine 的重交归 ⑤i |
+
+COVERED 1、PARTIAL 5。其余 75 条只是经别的函数间接调到这十个（tail 在内核里有三十多处调用），覆盖记在它们的主体所在的片；这些调用在 hub-contract 里三边重放过。另有手写的对照（站主决定的附录与去掉、检查行编号、外部事实与没核实的事实、Identity 与粗体编号的边界与崩溃）与按种子生成的合同文字（掺全角标点、组合字符、希腊字母、Unicode 数字与空白、BMP 之外的字符），不算进某个用例的覆盖。变异 ts/mutations/hub-e1a.ts.json 31 条：第一轮 30 条抓住 29 条，漏掉的 E08（括号说明里允许嵌套）是因为用例里只有配平的嵌套括号，两种写法都匹配不上，补了一行括号没配平的 Scope 项之后单独重跑抓住。themistally-15 复核后：E12 原先靠崩溃抓住，换成语义上的“Scope 一节不在下一个标题处结束”；补 E31（单数的 warning 不改成复数，手写日志补一行 1 warning）；读文件改用 base 的 pyOSErrorOf、PyOSError 与 pyReadTextReplace，E03、E04 换锚点，E27 改打在 pyio.ts 的 pyReadTextReplace 上；这 5 条重跑都抓住。
+
+其余场景随各片补（⑤e1b 到 ⑤j）。

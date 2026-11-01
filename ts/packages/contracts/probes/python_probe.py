@@ -1264,6 +1264,29 @@ def op_hub_prompt(request):
     return {"ok": True, "value": to_tagged(value)}
 
 
+def op_hub_contract(request):
+    """第 ⑤e 片：kit_hub 的合同与战前门禁。参数带标签，路径参数照 kit_hub 的调用方转成 Path；结果带标签（元组成了列表）。
+    HubError 交回文字与退出码，别的异常只比类型。"""
+    fn = request["fn"]
+    args = [from_tagged(item) for item in request["args"]]
+    try:
+        if fn in ("tail", "strip_decisions", "decisions_section", "unparsed_check_ids", "external_fact_problems", "unverified_facts"):
+            value = getattr(kit_hub, fn)(*args)
+        elif fn in ("normalize_identity", "normalize_markup"):
+            value = list(getattr(kit_hub, fn)(*args))
+        elif fn == "tail_file":
+            value = kit_hub.tail_file(Path(args[0]), *args[1:])
+        elif fn == "pytest_outcomes":
+            value = list(kit_hub.pytest_outcomes(Path(args[0])))
+        else:
+            return {"ok": False, "error": "UNKNOWN_FN"}
+    except kit_hub.HubError as exc:
+        return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except Exception as exc:  # noqa: BLE001  只比类型
+        return {"ok": False, "error": type(exc).__name__}
+    return {"ok": True, "value": to_tagged(value)}
+
+
 def _tree_listing(root):
     """一个目录下的文件（相对路径用正斜杠、排好序）：字节数、可不可写、sha256。"""
     rows = []
@@ -1641,14 +1664,17 @@ def op_hub_audit_samples(request):
             if "engine_env" in params:  # test_kit_hub 自己的夹具（建信箱、换掉 worktree 与 role_prompt）
                 kwargs["engine_env"] = raw(cases.engine_env)(tmp, patch)
             current[0] = test
-            try:
-                fn(**kwargs)
-            except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
-                if type(exc).__name__ != "Skipped":
-                    raise
-                skipped.append(test)
-            finally:
-                patch.undo()
+            # 照 pytest 截下用例的输出（⑤e1a）：有的用例经 hub 往标准输出打印中文，探针的 stdout 不是 UTF-8 时会崩在打印上。
+            # undo 也在截下的范围里：用例用 monkeypatch 换过 sys.stdout 的，undo 会还原成这里的 StringIO
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    fn(**kwargs)
+                except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
+                    if type(exc).__name__ != "Skipped":
+                        raise
+                    skipped.append(test)
+                finally:
+                    patch.undo()
     finally:
         for name, fn in originals.items():
             setattr(kit_hub, name, fn)
@@ -1786,6 +1812,7 @@ OPS = {
     "hub.audit": op_hub_audit,
     "hub.audit_samples": op_hub_audit_samples,
     "hub.prompt": op_hub_prompt,
+    "hub.contract": op_hub_contract,
     "hub.inputs": op_hub_inputs,
     "hub.turn": op_hub_turn,
     "hub.shadow_task": op_hub_shadow_task,

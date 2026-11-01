@@ -47,12 +47,13 @@ export interface ProbeResult {
   readonly [key: string]: unknown;
 }
 
-export function runProbe(impl: Impl, request: ProbeRequest): ProbeResult {
+/** timeout：采样器跑几十条 pytest 用例，全量并行时会超过缺省的 60 秒（⑤e1a 实测），由调用方放宽。 */
+export function runProbe(impl: Impl, request: ProbeRequest, timeout = 60_000): ProbeResult {
   const [command, ...args] = impl.argv;
   const done = spawnSync(command ?? "", args, {
     input: JSON.stringify(request),
     encoding: "utf8",
-    timeout: 60_000,
+    timeout,
     maxBuffer: 256 * 1024 * 1024,
   });
   if (done.error) throw new Error(`${impl.name} 探针没能启动：${done.error.message}`);

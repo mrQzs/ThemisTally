@@ -1,0 +1,200 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "E01 n 为 0 时不交回整份",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "return start < 0 ? Math.max(0, length + start) : Math.min(start, length);",
+      "new": "return Math.max(0, length + start);"
+    },
+    {
+      "name": "E02 tail 不去两头的空白",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const parts = pySplitlines(pyStrip(text(value, \"strip\")));",
+      "new": "const parts = pySplitlines(text(value, \"strip\"));"
+    },
+    {
+      "name": "E03 tail_file 不按 limit 截",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const start = Math.max(0, info.size - Number(limit));",
+      "new": "const start = 0;"
+    },
+    {
+      "name": "E04 tail_file 不认目录",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (info.isDirectory()) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "E05 版本号只认 ASCII 数字",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "plan_version:[ ${TAB}]*${BT}?)(${D}+)",
+      "new": "plan_version:[ ${TAB}]*${BT}?)([0-9]+)"
+    },
+    {
+      "name": "E06 值是整数时按文字比",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (match[2] === wanted) continue;",
+      "new": "if (match[2] === pyStrValue(wanted)) continue;"
+    },
+    {
+      "name": "E07 改了的字段记成新值",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "changed.set(field, match[2] as string);",
+      "new": "changed.set(field, pyStrValue(wanted));"
+    },
+    {
+      "name": "E08 括号说明里允许嵌套",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "(?:（[^（）${LF}]*）[ ${TAB}]*)+${LINE_END}",
+      "new": "(?:（[^）${LF}]*）[ ${TAB}]*)+${LINE_END}"
+    },
+    {
+      "name": "E09 粗体编号不限 D 与 V",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "[*][*]([DV]${D}{2,})",
+      "new": "[*][*]([A-Z]${D}{2,})"
+    },
+    {
+      "name": "E10 粗体编号一位数字也算",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "([DV]${D}{2,})",
+      "new": "([DV]${D}{1,})"
+    },
+    {
+      "name": "E11 括号说明不计数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "  const body = (section[2] as string).replace(SCOPE_NOTE_RE, (_all, item: string) => {\n    count += 1;",
+      "new": "  const body = (section[2] as string).replace(SCOPE_NOTE_RE, (_all, item: string) => {\n    count += 0;"
+    },
+    {
+      "name": "E12 Scope 一节不在下一个标题处结束",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "([^]*?)(?=${LINE_START}##[ ${TAB}]|$)`);",
+      "new": "([^]*?)(?=$)`);"
+    },
+    {
+      "name": "E13 标题后有空白就不认",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "${DECISIONS_HEADING}[ ${TAB}]*${LINE_END}",
+      "new": "${DECISIONS_HEADING}${LINE_END}"
+    },
+    {
+      "name": "E14 只去掉第一份站主决定",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "|$)`, true);\n\n/** 去掉内核附的站主决定一节",
+      "new": "|$)`);\n\n/** 去掉内核附的站主决定一节"
+    },
+    {
+      "name": "E15 引用行不去行尾空白",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": ".map((line) => pyRstrip(`> ${line}`))",
+      "new": ".map((line) => `> ${line}`)"
+    },
+    {
+      "name": "E16 附录末尾不去空白",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "return `${pyRstrip(lines.join(LF))}${LF}`;",
+      "new": "return `${lines.join(LF)}${LF}`;"
+    },
+    {
+      "name": "E17 检查行不去两头空白",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "return lines.map(pyStrip).filter(",
+      "new": "return lines.filter("
+    },
+    {
+      "name": "E18 编号里不认连字符",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "([A-Za-z](?:${W}|-)*)",
+      "new": "([A-Za-z]${W}*)"
+    },
+    {
+      "name": "E19 外部事实的条目从 0 数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "[String(at + 1)]",
+      "new": "[String(at)]"
+    },
+    {
+      "name": "E20 外部事实不查 verified",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": " || !filled(item, \"verified\") ?",
+      "new": " ?"
+    },
+    {
+      "name": "E21 外部事实只认 null 为缺",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (!Array.isArray(facts)) return",
+      "new": "if (facts === null) return"
+    },
+    {
+      "name": "E22 source 缺了写成 None",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "pyStrip(pyStrValue(or(pyGet(item, \"source\"), \"\")))",
+      "new": "pyStrip(pyStrValue(pyGet(item, \"source\")))"
+    },
+    {
+      "name": "E23 无法核实不算没核实",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "(?:未|未能|无法|不能|没|没有)核实",
+      "new": "(?:未|未能|不能|没|没有)核实"
+    },
+    {
+      "name": "E24 error、warning 不改成复数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "counts.set(COUNT_NAMES[name] ?? name,",
+      "new": "counts.set(name,"
+    },
+    {
+      "name": "E25 每行摘要不重新计数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "      counts = new Map();\n",
+      "new": "      void counts;\n"
+    },
+    {
+      "name": "E26 summary info 之前的 FAILED 也算",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const report = inSummary ? PYTEST_REPORT_RE.exec(line) : null;",
+      "new": "const report = PYTEST_REPORT_RE.exec(line);"
+    },
+    {
+      "name": "E27 单独的回车不算换行",
+      "file": "ts/packages/base/src/pyio.ts",
+      "old": "return pyDecodeUtf8Replace(pyReadBytes(path, shown)).split(CR + LF).join(LF).split(CR).join(LF);",
+      "new": "return pyDecodeUtf8Replace(pyReadBytes(path, shown)).split(CR + LF).join(LF);"
+    },
+    {
+      "name": "E28 计数只认 ASCII 数字",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "((?:${D}+ [a-z]+(?:, )?)+)",
+      "new": "((?:[0-9]+ [a-z]+(?:, )?)+)"
+    },
+    {
+      "name": "E29 用例名带上错误说明",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "([^${LF}]+?)(?: - [^${LF}]*)?$",
+      "new": "([^${LF}]+?)$"
+    },
+    {
+      "name": "E30 拆不开时不报 ValueError",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (at < 0) throw new PyCrash(",
+      "new": "if (at < -1) throw new PyCrash("
+    },
+    {
+      "name": "E31 warning 不改成复数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const COUNT_NAMES: Record<string, string> = { error: \"errors\", warning: \"warnings\" };",
+      "new": "const COUNT_NAMES: Record<string, string> = { error: \"errors\" };"
+    }
+  ]
+}

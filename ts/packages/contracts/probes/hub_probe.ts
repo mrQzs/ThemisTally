@@ -17,6 +17,9 @@ import {
   turnCostUsd,
 } from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
+import {
+  decisionsSection, externalFactProblems, normalizeIdentity, normalizeMarkup, pytestOutcomes, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
+} from "@themis/hub/contract";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
 import { removeInputs, stageInputs } from "@themis/hub/inputs";
@@ -356,6 +359,52 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
       }
       case "worker_env":
         value = [...workerEnv(a === null || a === undefined ? null : dictOf(a)).keys()].sort(cmpCodePoints);
+        break;
+      default:
+        return { ok: false, error: "UNKNOWN_FN" };
+    }
+    return { ok: true, value: toTagged(value) };
+  } catch (error) {
+    return errorResult(error);
+  }
+}
+
+/** hub.contract（第 ⑤e 片）：合同与战前门禁，与 python_probe.py 的 op_hub_contract 一一对应。参数照原值交给函数，类型不对时由它照 Python 抛。 */
+export function hubContract(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Result {
+  const args = (request["args"] as never[]).map(fromTagged);
+  const [a, b] = args as [PyValue, PyValue];
+  try {
+    let value: PyValue;
+    switch (String(request["fn"])) {
+      case "tail":
+        value = args.length > 1 ? tail(a, b) : tail(a);
+        break;
+      case "tail_file":
+        value = tailFile(textOf(a), args[1] ?? 30n, (args[2] ?? 65536n) as number | bigint);
+        break;
+      case "normalize_identity":
+        value = normalizeIdentity(a, b);
+        break;
+      case "normalize_markup":
+        value = normalizeMarkup(a);
+        break;
+      case "strip_decisions":
+        value = stripDecisions(a);
+        break;
+      case "decisions_section":
+        value = decisionsSection(a);
+        break;
+      case "unparsed_check_ids":
+        value = unparsedCheckIds(a);
+        break;
+      case "external_fact_problems":
+        value = externalFactProblems(a);
+        break;
+      case "unverified_facts":
+        value = unverifiedFacts(a);
+        break;
+      case "pytest_outcomes":
+        value = pytestOutcomes(textOf(a));
         break;
       default:
         return { ok: false, error: "UNKNOWN_FN" };

@@ -5,6 +5,7 @@
   "exports": {
     "./audit": "./src/audit.ts",
     "./constants": "./src/constants.ts",
+    "./contract": "./src/contract.ts",
     "./delivery": "./src/delivery.ts",
     "./errors": "./src/errors.ts",
     "./inputs": "./src/inputs.ts",
