@@ -23,13 +23,26 @@ app.whenReady().then(async () => {
         event.preventDefault();
       }
     });
-    await contents.loadURL(bootstrap);
+    // 窗口一建好就注册 closed：页面加载完成前用户关窗时，'closed' 不能因为挂得晚而漏掉
     const closed = new Promise((resolve) => {
       win.on("closed", resolve);
     });
+    try {
+      await contents.loadURL(bootstrap);
+    } catch (err) {
+      // 加载期间窗口被关掉时 loadURL 会 reject：此时按「窗口已关」走正常收尾，
+      // 让 runShell 去关 stdin、收服务，而不是把拒绝抛成未捕获的退出
+      if (!win.isDestroyed()) {
+        throw err;
+      }
+    }
     return {
       closed,
-      close: () => win.close(),
+      close: () => {
+        if (!win.isDestroyed()) {
+          win.close();
+        }
+      },
     };
   };
 

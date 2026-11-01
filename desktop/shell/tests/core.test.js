@@ -37,6 +37,7 @@ function makeDirs(t) {
 
 function fakeSpawn(opts) {
   const calls = [];
+  const state = { stdinEnded: false, exit: null };
   const fn = (command, args) => {
     assert.ok(Array.isArray(command), "spawn 第一个参数必须是完整 argv 数组");
     assert.deepEqual(args, [], "spawn 第二个参数必须恒为 []");
@@ -57,7 +58,9 @@ function fakeSpawn(opts) {
     const onEnd = () => {
       if (ended || opts.exitOnStdinEnd === undefined) return;
       ended = true;
+      state.stdinEnded = true;
       setTimeout(() => {
+        state.exit = opts.exitOnStdinEnd;
         child.exitCode = opts.exitOnStdinEnd;
         child.emit("exit", opts.exitOnStdinEnd, null);
         child.emit("close", opts.exitOnStdinEnd, null);
@@ -66,8 +69,18 @@ function fakeSpawn(opts) {
     child.stdin.on("finish", onEnd);
     child.stdin.on("close", onEnd);
     child.stdout.write(HS);
+    if (opts.exitAfterHandshake !== undefined) {
+      // 握手行写完立刻退出：服务在开窗口完成之前就已经没了
+      setImmediate(() => {
+        state.exit = opts.exitAfterHandshake;
+        child.exitCode = opts.exitAfterHandshake;
+        child.emit("exit", opts.exitAfterHandshake, null);
+        child.emit("close", opts.exitAfterHandshake, null);
+      });
+    }
     if (opts.exitAfter !== undefined) {
       setTimeout(() => {
+        state.exit = opts.exitAfter;
         child.exitCode = opts.exitAfter;
         child.emit("exit", opts.exitAfter, null);
         child.emit("close", opts.exitAfter, null);
@@ -76,6 +89,7 @@ function fakeSpawn(opts) {
     return child;
   };
   fn.calls = calls;
+  fn.state = state;
   return fn;
 }
 
@@ -189,4 +203,166 @@ test("关窗口后服务以 7 退出：退出码 1", async (t) => {
   assert.equal(code, 1);
   assert.ok(io.errors().includes("服务没有以 0 正常退出"), io.errors());
   assertNoSecrets(io, w);
+});
+
+test("窗口在 openWindow 返回前就关了：仍走「关窗口」收尾，退出码 0", async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  let resolveClosed;
+  const closed = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
+  let closeCalled = false;
+  const openWindow = async () => {
+    // 页面还在加载，用户就关了窗口：closed 在 openWindow 返回之前兑现
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    resolveClosed();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return {
+      closed,
+      close: () => {
+        closeCalled = true;
+      },
+    };
+  };
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 0, io.all());
+  assert.equal(spawn.state.stdinEnded, true, "关窗口后必须关 stdin 收服务");
+  assert.equal(spawn.state.exit, 0);
+  assert.equal(closeCalled, false, "窗口已经关了，不必再 close");
+  assert.ok(!io.all().includes(TOKEN) && !io.all().includes(NONCE), io.all());
+});
+
+test("服务在握手后、开窗口完成前以 3 退出：退出码 1、stderr 有退出码、窗口被关掉", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  let closeCalled = false;
+  const openWindow = async () => {
+    // 开窗口要花时间（真机上 loadURL 如此）：服务在这段时间里退出，'exit' 不许漏掉
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return {
+      closed: new Promise(() => {}),
+      close: () => {
+        closeCalled = true;
+      },
+    };
+  };
+  const spawn = fakeSpawn({ exitAfterHandshake: 3 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 1, io.all());
+  assert.ok(io.errors().includes("服务意外退出（退出码 3）"), io.errors());
+  assert.equal(closeCalled, true);
+  assert.ok(!io.all().includes(TOKEN) && !io.all().includes(NONCE), io.all());
+});
+
+test("服务在开窗口之前就已经没了：一行 ERROR、不开窗口、退出码 1", async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const w = makeWindow();
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stdin = new PassThrough();
+  child.kill = () => {};
+  const spawn = (command, args) => {
+    assert.ok(Array.isArray(command) && Array.isArray(args) && args.length === 0);
+    // 握手行与退出都在 spawn 里同步发生：core 注册监听时服务已经没了
+    child.stdout.write(HS);
+    child.exitCode = 5;
+    child.emit("exit", 5, null);
+    return child;
+  };
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow: w.openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 1, io.all());
+  assert.ok(io.errors().includes("服务意外退出（退出码 5）"), io.errors());
+  assert.equal(w.calls.length, 0, "服务已死就不该开窗口");
+  assert.equal(w.closeCalled, false);
+  assertNoSecrets(io, w);
+});
+
+test("openWindow 失败：一行 ERROR、收干净子进程、退出码 1", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const openWindow = async () => {
+    // 真机上 loadURL 的拒绝里带着整条引导地址（含 nonce），外壳不许把它回显出来
+    const err = new Error(`ERR_FAILED (-2) loading ${ORIGIN}/bootstrap/${NONCE}`);
+    throw err;
+  };
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 1, io.all());
+  const lines = io.errors().split("\n").filter((line) => line.startsWith("ERROR: "));
+  assert.equal(lines.length, 1, io.errors());
+  assert.ok(io.errors().includes("打开窗口失败"), io.errors());
+  assert.equal(spawn.state.stdinEnded, true, "失败也要关 stdin 收服务");
+  assert.equal(spawn.state.exit, 0);
+  assert.ok(!io.all().includes(NONCE), io.all());
+  assert.ok(!io.all().includes("/bootstrap/"), io.all());
+});
+
+test("开窗口期间服务退出导致 openWindow 失败：报的是服务意外退出，退出码 1", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stdin = new PassThrough();
+  child.kill = () => {};
+  const spawn = (command, args) => {
+    assert.ok(Array.isArray(command) && Array.isArray(args) && args.length === 0);
+    child.stdout.write(HS);
+    setTimeout(() => {
+      child.exitCode = 4;
+      child.emit("exit", 4, null);
+      child.emit("close", 4, null);
+    }, 10);
+    return child;
+  };
+  const openWindow = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    throw new Error(`ERR_FAILED (-2) loading ${ORIGIN}/bootstrap/${NONCE}`);
+  };
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 1, io.all());
+  assert.ok(io.errors().includes("服务意外退出（退出码 4）"), io.errors());
+  assert.ok(!io.all().includes(NONCE), io.all());
+});
+
+test("不传 io：参数错时用默认的 process.stderr 写一行 ERROR，退出码 2", async (t) => {
+  const d = makeDirs(t);
+  const chunks = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk) => {
+    chunks.push(String(chunk));
+    return true;
+  };
+  t.after(() => {
+    process.stderr.write = original;
+  });
+  const w = makeWindow();
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--assets", d.assets],
+    openWindow: w.openWindow,
+    spawn,
+    env: process.env,
+  });
+  assert.equal(code, 2);
+  assert.equal(w.calls.length, 0);
+  assert.equal(spawn.calls.length, 0);
+  assert.ok(chunks.join("").includes("ERROR: "), chunks.join(""));
 });
