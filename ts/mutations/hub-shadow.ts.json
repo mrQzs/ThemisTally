@@ -97,8 +97,8 @@
     {
       "name": "S18 事件流改回按 LF 切",
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
-      "old": "jsonlLines(readText(join(turn.dir, \"stream.jsonl\")))",
-      "new": "readFileSync(join(turn.dir, \"stream.jsonl\")).toString(\"utf8\").split(LF)"
+      "old": "jsonlLines(textOf((files.get(\"stream.jsonl\") as { bytes: Buffer }).bytes))",
+      "new": "(files.get(\"stream.jsonl\") as { bytes: Buffer }).bytes.toString(\"utf8\").split(LF)"
     },
     {
       "name": "S19 不与 result.json 比",
@@ -129,6 +129,60 @@
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
       "old": "if (value(turn.role) !== turn.roleMd) cmp.miss(",
       "new": "if (false) cmp.miss("
+    },
+    {
+      "name": "S25 另存快照不去重",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  if (!fresh.length) return \"差异键都已存过\";",
+      "new": "  if (false) return \"差异键都已存过\";"
+    },
+    {
+      "name": "S26 另存快照不设份数上限",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (kept.length >= KEEP_MAX || treeBytes(dir) >= keepBytes())",
+      "new": "if (treeBytes(dir) >= keepBytes())"
+    },
+    {
+      "name": "S27 另存快照不设字节上限",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (kept.length >= KEEP_MAX || treeBytes(dir) >= keepBytes())",
+      "new": "if (kept.length >= KEEP_MAX)"
+    },
+    {
+      "name": "S28 另存快照不带回合文件",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    for (const [file, entry] of files) putFile(target, ",
+      "new": "    for (const [file, entry] of [] as [string, { bytes: Buffer; atimeMs: number; mtimeMs: number }][]) putFile(target, "
+    },
+    {
+      "name": "S29 另存快照不带上一份状态",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  if (previous) putFile(target, \"previous-state.json\", previous.snapshot.state);",
+      "new": "  void previous;"
+    },
+    {
+      "name": "S30 重放不用 --snapshot 给的目录",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "files: join(work, \"repo\"), home: join(work, \"home\"), git: manifest.git, workspace: manifest.repo",
+      "new": "files: manifest.repo, home: join(work, \"home\"), git: manifest.git, workspace: manifest.repo"
+    },
+    {
+      "name": "S31 重放不报内核变了",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (manifest.kit_hub_sha256 !== KIT_HUB_SHA) report[",
+      "new": "if (false) report["
+    },
+    {
+      "name": "S32 另存快照带上指向主仓库的 .git",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "  for (const rel of [\".agent/mailbox/tasks\", \".agent/runs\"]) {",
+      "new": "  if (existsSync(join(snapRepo, \".git\"))) cpSync(join(snapRepo, \".git\"), join(target, \"repo\", \".git\"));\n  for (const rel of [\".agent/mailbox/tasks\", \".agent/runs\"]) {"
+    },
+    {
+      "name": "S33 另存快照带上这一批全部回合",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "missed.push(...pending.filter(({ turn }) => fresh.some(",
+      "new": "missed.push(...pending.filter(({ turn }) => true || fresh.some("
     },
     {
       "name": "S22 会话文件变新就把生效档位记成时序，不分 claude 与 pi",

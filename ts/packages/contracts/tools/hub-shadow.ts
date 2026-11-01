@@ -12,13 +12,17 @@
 // 临时目录，用完删掉。结果只写数量、对不上的键（主任务号、信的文件名、回合号）与快照的哈希，不写内容。
 // --watch 的某一轮出错（探针失败、回合目录在列出与读取之间被清掉……）只记错误的类型，接着跑；出错的那一轮不算数，下一轮从上一次
 // 成功的那份快照比起。退出码：0 一致，1 有对不上的，2 出错（--once），3 快照不稳。
+// 对不上的那一轮另存一份快照（<输出目录>/snapshots/<时刻>/），给事后重放：同一个差异键只存第一次，最多 10 份、合计 2 GB，到了只记报告；
+// 回合几类对不上才带那几个回合的事件流与会话文件。会话文件是工人的完整对话，敏感程度与信箱一样：只放在本机的 .agent/runs/_shadow/ 下
+// （Git 忽略），查完就删（只删 _shadow/snapshots/ 下的目录），不提交、不外传。重放：……同上，--snapshot <另存的目录>，先复制到临时目录，两边照常探、
+// 照常比，报告写进那个目录的 replay.json；另存时与现在的 kit_hub.py 不同就报出来，退出码 4。
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readText, sleepSync } from "@themis/base/fsutil";
+import { sleepSync } from "@themis/base/fsutil";
 import { jsonlLines } from "@themis/base/jsonl";
 import { type PyValue, dumps, loads } from "@themis/base/pyjson";
 import {
@@ -28,6 +32,8 @@ import {
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 
 const LF = String.fromCharCode(10);
+const CR = String.fromCharCode(13);
+const TEXT = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const PROBES = resolve(dirname(fileURLToPath(import.meta.url)), "..", "probes");
 const PYTHON = [process.env["THEMIS_PYTHON"] ?? "python", join(PROBES, "python_probe.py")];
 const TS = [process.execPath, join(PROBES, "ts_probe.ts")];
@@ -264,8 +270,9 @@ function taskMap(state: Buffer): Map<string, PyValue> {
  * 各个不是 idle 的阶段那个工人的一份 turn_prompt；参数取典型的（没有新信、不续接、没有报错与代办说明、没有输入目录，工作目录是主仓库）。
  * 两边用同一份快照、同一批任务书，没有时间差。
  */
-function comparePrompts(cmp: Comparison, repo: string, snapRepo: string, state: Buffer, names: readonly string[]): void {
-  copyPromptInputs(repo, snapRepo, state, names);
+function comparePrompts(cmp: Comparison, source: Source, snapRepo: string, names: readonly string[]): void {
+  const { state } = source.snapshot;
+  copyPromptInputs(source.files, source.git, snapRepo, state, names);
   const agents = Object.keys(ROSTER).filter((agent) => ["pi", "claude"].includes(ROSTER[agent]?.adapter ?? ""));
   const items: Item[] = agents.map((agent) => ({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(agent)] }));
   const keys = agents.map((agent) => `${agent} 角色`);
@@ -274,7 +281,7 @@ function comparePrompts(cmp: Comparison, repo: string, snapRepo: string, state: 
     const ts = tasks.get(name);
     if (!(ts instanceof Map)) continue;
     const turn = (agent: string, taskId: string): Item => ({
-      op: "hub.prompt", fn: "turn_prompt", args: ([snapRepo, ts, agent, taskId, [], repo, null, null, null, null] as PyValue[]).map((arg) => toTagged(arg)),
+      op: "hub.prompt", fn: "turn_prompt", args: ([snapRepo, ts, agent, taskId, [], source.workspace, null, null, null, null] as PyValue[]).map((arg) => toTagged(arg)),
     });
     items.push(turn(COORDINATOR, name));
     keys.push(`${name} 协调人`);
@@ -295,7 +302,7 @@ function comparePrompts(cmp: Comparison, repo: string, snapRepo: string, state: 
  * 快照仓库因此与主仓库共用 index、HEAD 与 refs：在这里只准跑只读对象库的 git 命令（ls-tree、show、cat-file）；要跑 status、diff、add、
  * worktree 这些（status 会顺手刷新 index、要拿 index.lock，可能撞上 hub 正在做的提交），先换成私有的 git 目录加 alternates。
  */
-function copyPromptInputs(repo: string, snapRepo: string, state: Buffer, names: readonly string[]): void {
+function copyPromptInputs(repo: string, gitDir: string, snapRepo: string, state: Buffer, names: readonly string[]): void {
   const tasksDir = join(repo, ".agent", "mailbox", "tasks");
   for (const dir of existsSync(tasksDir) ? readdirSync(tasksDir) : []) {
     for (const file of ["brief.md", "state.md"]) {
@@ -319,7 +326,6 @@ function copyPromptInputs(repo: string, snapRepo: string, state: Buffer, names: 
       for (const rel of ["run.json", join("claim", "reservation.json")]) if (existsSync(join(from, rel))) writeFileSync(join(to, rel), readFileSync(join(from, rel)));
     }
   }
-  const gitDir = join(repo, ".git");
   if (existsSync(gitDir)) writeFileSync(join(snapRepo, ".git"), statSync(gitDir).isDirectory() ? `gitdir: ${gitDir}${LF}` : readFileSync(gitDir));
 }
 
@@ -400,71 +406,89 @@ interface Recorded {
   readonly sessionMoved: boolean;
 }
 
+/** 一个回合比对时读到的文件（result.json、stream.jsonl，有的话 role.md）：原始字节与时刻。对不上的回合照这一份另存，不事后再读。 */
+interface TurnFiles {
+  readonly turn: Turn;
+  readonly files: Map<string, { readonly bytes: Buffer; readonly atimeMs: number; readonly mtimeMs: number }>;
+}
+
+/** kit_hub.read_text 对一份已经读出来的字节：UTF-8（BOM 照留，坏字节报错）、通用换行。 */
+function textOf(bytes: Buffer): string {
+  return TEXT.decode(bytes).split(CR + LF).join(LF).split(CR).join(LF);
+}
+
 /**
- * 回合：审计重算、半截会话、claude 的生效档位。会话文件按会话号复制进临时的 USERPROFILE 与快照仓库，两边看同一份字节。
+ * 回合：审计重算、半截会话、claude 的生效档位。会话文件按会话号复制进临时的 home 与快照仓库，两边看同一份字节。
  * againstRecords（--watch 有了上一份快照之后，即 watch 开始以后才结束的回合）时，TS 的结果还要与 hub 当时写下的 result.json 比；
- * 别的内核写下的不比，交回它们的个数。
+ * 别的内核写下的不比。交回别的内核写下的个数，与对不上的回合比对时读到的文件（每批比完只留对不上的，内存只占一批）。
  */
-function compareTurns(cmp: Comparison, repo: string, snapRepo: string, turns: readonly Turn[], againstRecords: boolean): number {
-  const home = mkdtempSync(join(tmpdir(), "themis-shadow-home-"));
+function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: string, turns: readonly Turn[], againstRecords: boolean): { otherKernel: number; missed: TurnFiles[] } {
   let otherKernel = 0;
-  try {
-    let items: Item[] = [];
-    let keys: string[] = [];
-    let recorded: Recorded[] = [];
-    let size = 0;
-    const flush = (): void => {
-      if (items.length) {
-        const results = cmp.run("回合", keys, items);
-        for (const turn of recorded) compareRecord(cmp, turn, results);
-      }
-      [items, keys, recorded, size] = [[], [], [], 0];
-    };
-    for (const turn of turns) {
-      const spec = ROSTER[turn.agent];
-      if (!spec) continue;
-      const resultPath = join(turn.dir, "result.json");
-      const result = JSON.parse(readFileSync(resultPath, "utf8")) as { workspace?: string | null; session_id?: unknown; hub_sha256?: unknown };
-      // 照 hub 的 run_turn：事件流按通用换行读，审计用的工具表加上交差用的工具（pi 的 deliver、claude 的 StructuredOutput）
-      const lines = jsonlLines(readText(join(turn.dir, "stream.jsonl")));
-      const tools = [...(spec.tools ?? []), spec.adapter === "claude" ? STRUCTURED_TOOL : DELIVER_TOOL];
-      const fn = spec.adapter === "claude" ? "audit_claude_stream" : "audit_pi_stream";
-      const audit = (name: string, ...args: PyValue[]): Item => ({ op: "hub.audit", fn: name, args: args.map((arg) => toTagged(arg)), home });
-      const auditAt = items.length;
-      items.push(audit(fn, lines, py({ ...spec, tools }), result.workspace ?? null, repo));
-      keys.push(`${turn.id} 审计`);
-      let effortAt: number | null = null;
-      let sessionTime = 0;
-      if (typeof result.session_id === "string" && result.session_id) {
-        sessionTime = copySessions(turn.agent, spec.adapter, result.session_id, repo, snapRepo, home);
-        if (spec.adapter === "claude") {
-          effortAt = items.length;
-          items.push(audit("claude_session_effort", result.session_id));
-          keys.push(`${turn.id} 生效档位`);
-        }
-        items.push(audit("session_cut_short", snapRepo, turn.agent, spec.adapter, result.session_id));
-        keys.push(`${turn.id} 半截会话`);
-      }
-      if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
-      else if (againstRecords) {
-        const roleAt = items.length;
-        items.push({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(turn.agent)] });
-        keys.push(`${turn.id} 角色`);
-        const rolePath = join(turn.dir, "role.md");
-        recorded.push({
-          id: turn.id, adapter: spec.adapter, record: loads(readText(resultPath)) as Map<string, PyValue>, audit: auditAt, effort: effortAt,
-          role: roleAt, roleMd: existsSync(rolePath) ? readFileSync(rolePath).toString("utf8") : null,
-          sessionMoved: sessionTime > statSync(resultPath).mtimeMs,
-        });
-      }
-      size += turn.size;
-      if (size > BATCH_BYTES) flush();
+  const missed: TurnFiles[] = [];
+  let items: Item[] = [];
+  let keys: string[] = [];
+  let recorded: Recorded[] = [];
+  let pending: TurnFiles[] = [];
+  let size = 0;
+  const flush = (): void => {
+    if (items.length) {
+      const before = cmp.mismatches.length;
+      const results = cmp.run("回合", keys, items);
+      for (const turn of recorded) compareRecord(cmp, turn, results);
+      const fresh = cmp.mismatches.slice(before);
+      missed.push(...pending.filter(({ turn }) => fresh.some(({ key }) => key.startsWith(`${turn.id} `) || key.startsWith(`${turn.id}：`))));
     }
-    flush();
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+    [items, keys, recorded, pending, size] = [[], [], [], [], 0];
+  };
+  for (const turn of turns) {
+    const spec = ROSTER[turn.agent];
+    if (!spec) continue;
+    const files: TurnFiles["files"] = new Map();
+    for (const name of ["result.json", "stream.jsonl", "role.md"]) {
+      const path = join(turn.dir, name);
+      if (name === "role.md" && !existsSync(path)) continue;
+      const info = statSync(path);
+      files.set(name, { bytes: readFileSync(path), atimeMs: info.atimeMs, mtimeMs: info.mtimeMs });
+    }
+    pending.push({ turn, files });
+    const resultFile = files.get("result.json") as { bytes: Buffer; mtimeMs: number };
+    const result = JSON.parse(resultFile.bytes.toString("utf8")) as { workspace?: string | null; session_id?: unknown; hub_sha256?: unknown };
+    // 照 hub 的 run_turn：事件流按通用换行读，审计用的工具表加上交差用的工具（pi 的 deliver、claude 的 StructuredOutput）
+    const lines = jsonlLines(textOf((files.get("stream.jsonl") as { bytes: Buffer }).bytes));
+    const tools = [...(spec.tools ?? []), spec.adapter === "claude" ? STRUCTURED_TOOL : DELIVER_TOOL];
+    const fn = spec.adapter === "claude" ? "audit_claude_stream" : "audit_pi_stream";
+    const audit = (name: string, ...args: PyValue[]): Item => ({ op: "hub.audit", fn: name, args: args.map((arg) => toTagged(arg)), home });
+    const auditAt = items.length;
+    items.push(audit(fn, lines, py({ ...spec, tools }), result.workspace ?? null, source.workspace));
+    keys.push(`${turn.id} 审计`);
+    let effortAt: number | null = null;
+    let sessionTime = 0;
+    if (typeof result.session_id === "string" && result.session_id) {
+      sessionTime = copySessions(turn.agent, spec.adapter, result.session_id, source.files, source.home, snapRepo, home);
+      if (spec.adapter === "claude") {
+        effortAt = items.length;
+        items.push(audit("claude_session_effort", result.session_id));
+        keys.push(`${turn.id} 生效档位`);
+      }
+      items.push(audit("session_cut_short", snapRepo, turn.agent, spec.adapter, result.session_id));
+      keys.push(`${turn.id} 半截会话`);
+    }
+    if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
+    else if (againstRecords) {
+      const roleAt = items.length;
+      items.push({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(turn.agent)] });
+      keys.push(`${turn.id} 角色`);
+      const role = files.get("role.md");
+      recorded.push({
+        id: turn.id, adapter: spec.adapter, record: loads(textOf(resultFile.bytes)) as Map<string, PyValue>, audit: auditAt, effort: effortAt,
+        role: roleAt, roleMd: role ? role.bytes.toString("utf8") : null, sessionMoved: sessionTime > resultFile.mtimeMs,
+      });
+    }
+    size += turn.size;
+    if (size > BATCH_BYTES) flush();
   }
-  return otherKernel;
+  flush();
+  return { otherKernel, missed };
 }
 
 /** TS 的审计按 run_turn 的写法折成 result.json 的那几个字段，逐个与记下的比；对不上的键只写字段名，不写值。 */
@@ -505,18 +529,22 @@ function compareRecord(cmp: Comparison, turn: Recorded, results: readonly Item[]
 }
 
 /**
- * 按会话号复制会话文件：claude 的在 ~/.claude/projects 下各目录里的“<号>.jsonl”，pi 的在信箱 sessions/<工人> 下以“_<号>.jsonl”结尾的文件。
+ * 按会话号复制会话文件：claude 的在 sourceHome/.claude/projects 下各目录里的“<号>.jsonl”（实时跑时是本机的 home），pi 的在 repo 的信箱
+ * sessions/<工人> 下以“_<号>.jsonl”结尾的文件。
  * 交回复制的文件里最晚的修改时刻（毫秒，没有是 0）。
  */
-function copySessions(agent: string, adapter: string, session: string, repo: string, snapRepo: string, home: string): number {
+function copySessions(agent: string, adapter: string, session: string, repo: string, sourceHome: string, snapRepo: string, home: string): number {
   let latest = 0;
+  // 修改时刻照原文件设：从另存的快照重放时，“会话文件比 result.json 新”要与当时一样
   const copy = (from: string, to: string): void => {
     mkdirSync(dirname(to), { recursive: true });
     writeFileSync(to, readFileSync(from));
-    latest = Math.max(latest, statSync(from).mtimeMs);
+    const info = statSync(from);
+    utimesSync(to, info.atimeMs / 1000, info.mtimeMs / 1000);
+    latest = Math.max(latest, info.mtimeMs);
   };
   if (adapter === "claude") {
-    const projects = join(homedir(), ".claude", "projects");
+    const projects = join(sourceHome, ".claude", "projects");
     if (!existsSync(projects)) return latest;
     for (const dir of readdirSync(projects)) {
       const file = join(projects, dir, `${session}.jsonl`);
@@ -577,10 +605,31 @@ function taskHashes(state: Buffer): Map<string, string> {
   }
 }
 
-function round(repo: string, previous: Previous | null): { report: Record<string, unknown>; next: Previous | null } {
+/**
+ * 一轮读的来源。实时跑时：快照取自主仓库；回合、会话文件、任务书与合同的 runs 记录从主仓库读（files），claude 的会话从本机的 home 读，
+ * git 是主仓库的 .git，提示词与审计的工作目录参数是主仓库（workspace）。从另存的快照重放时，files、home 是快照目录里的 repo、home，
+ * git 与 workspace 是当时记下的。
+ */
+interface Source {
+  readonly snapshot: Snapshot;
+  readonly tries: number;
+  readonly files: string;
+  readonly home: string;
+  readonly git: string;
+  readonly workspace: string;
+}
+
+function round(repo: string, previous: Previous | null, keep: string | null): { report: Record<string, unknown>; next: Previous | null } {
   const { snapshot, tries } = takeSnapshot(repo);
   if (snapshot === null) return { report: { skipped: "快照不稳，跳过", tries }, next: null }; // 与出错一样：下一轮重试
+  return compare({ snapshot, tries, files: repo, home: homedir(), git: join(repo, ".git"), workspace: repo }, previous, keep);
+}
+
+/** 用一份快照比一轮；keep 是另存快照的目录（重放时是 null，不再另存）。 */
+function compare(source: Source, previous: Previous | null, keep: string | null): { report: Record<string, unknown>; next: Previous | null } {
+  const { snapshot, tries } = source;
   const snapRepo = mkdtempSync(join(tmpdir(), "themis-shadow-snap-"));
+  const home = mkdtempSync(join(tmpdir(), "themis-shadow-home-")); // 回合的会话文件复制到这里；另存也取这一份，删在最后
   try {
     const ledgerDir = join(snapRepo, ".agent", "mailbox", "ledger");
     mkdirSync(ledgerDir, { recursive: true });
@@ -591,26 +640,145 @@ function round(repo: string, previous: Previous | null): { report: Record<string
     const hashes = taskHashes(snapshot.state);
     const changed = previous ? [...hashes].filter(([name, hash]) => previous.taskHashes.get(name) !== hash).map(([name]) => name) : [...hashes.keys()];
     const guardCombos = compareTasks(cmp, snapRepo, changed.sort());
-    comparePrompts(cmp, repo, snapRepo, snapshot.state, changed);
+    comparePrompts(cmp, source, snapRepo, changed);
     const fresh = previous ? new Set([...snapshot.letters.keys()].filter((rel) => !previous.snapshot.letters.has(rel))) : undefined;
     compareLetters(cmp, snapshot, fresh);
     compareRoutine(cmp, snapRepo, snapshot, fresh);
     const { events, lines } = ledgerEvents(snapshot.ledger);
     const missing = compareRoutes(cmp, snapshot, events, previous?.ledgerLines ?? 0);
     if (previous) compareRejections(cmp, events, previous.ledgerLines, [previous.snapshot.state, snapshot.state]);
-    const turns = endedTurns(repo).filter((turn) => previous?.turns.get(turn.id) !== turn.size);
-    const otherKernel = compareTurns(cmp, repo, snapRepo, turns, previous !== null);
-    const report = {
+    const turns = endedTurns(source.files).filter((turn) => previous?.turns.get(turn.id) !== turn.size);
+    const { otherKernel, missed } = compareTurns(cmp, source, snapRepo, home, turns, previous !== null);
+    const report: Record<string, unknown> = {
       at: new Date().toISOString(), state_sha256: snapshot.stateSha, ledger_bytes: snapshot.ledger.length, letters: snapshot.letters.size, tries,
       categories: Object.fromEntries(cmp.counts), shadow_peak_mb: Math.round(process.resourceUsage().maxRSS / 1024), guard_combos: guardCombos, mismatches: cmp.mismatches, route_letters_missing: missing,
       result_json_other_kernel: otherKernel,
     };
+    if (keep !== null && cmp.mismatches.length) report["snapshot"] = keepSnapshot(keep, source, previous, snapRepo, home, missed, cmp.mismatches, String(report["at"]));
     const seen = new Map(previous?.turns ?? []);
     for (const turn of turns) seen.set(turn.id, turn.size);
     return { report, next: { snapshot, ledgerLines: lines, taskHashes: hashes, turns: seen } };
   } finally {
     rmSync(snapRepo, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
   }
+}
+
+// --- 另存的快照 ------------------------------------------------------------------------------------------------
+
+/**
+ * 另存的快照最多几份、合计多少字节（按盘上已有的算，不只算这个进程存的）：watch 一跑几个小时，回合的事件流动辄几十 MB，不设限会把盘
+ * 写满。THEMIS_SHADOW_KEEP_BYTES 只给契约换小的字节上限（照 THEMIS_SHADOW_PAUSE 的先例）。
+ */
+const KEEP_MAX = 10;
+const keepBytes = (): number => Number(process.env["THEMIS_SHADOW_KEEP_BYTES"] ?? 2 * 1024 * 1024 * 1024);
+
+const keyOf = (item: Mismatch): string => JSON.stringify([item.category, item.key]);
+
+function putFile(root: string, rel: string, bytes: Buffer | string, times?: { readonly atimeMs: number; readonly mtimeMs: number }): void {
+  const path = join(root, ...rel.split("/"));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, bytes);
+  if (times) utimesSync(path, times.atimeMs / 1000, times.mtimeMs / 1000);
+}
+
+/** 目录下的文件（相对路径用正斜杠、排好序），交回 [路径, 字节数, sha256]：manifest 只记这些，不记内容。 */
+function listFiles(root: string, prefix = ""): [string, number, string][] {
+  if (!existsSync(join(root, prefix))) return [];
+  const rows: [string, number, string][] = [];
+  for (const name of readdirSync(join(root, prefix)).sort()) {
+    const rel = prefix ? `${prefix}/${name}` : name;
+    const path = join(root, ...rel.split("/"));
+    if (lstatSync(path).isDirectory()) rows.push(...listFiles(root, rel));
+    else rows.push([rel, statSync(path).size, sha256(readFileSync(path))]);
+  }
+  return rows;
+}
+
+function treeBytes(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  for (const name of readdirSync(dir)) {
+    const info = lstatSync(join(dir, name));
+    total += info.isDirectory() ? treeBytes(join(dir, name)) : info.size;
+  }
+  return total;
+}
+
+/** 主仓库此刻的 HEAD（只读的 rev-parse，不碰 index）；拿不到是 null。 */
+function headOf(repo: string): string | null {
+  const done = spawnSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8", timeout: 30_000 });
+  return done.status === 0 ? done.stdout.trim() : null;
+}
+
+/**
+ * 对不上时另存这一轮的快照（themistally-15 的条件）。同一个差异键只存第一次（index.json 记着存在哪一份）；盘上已有 KEEP_MAX 份或合计
+ * keepBytes() 字节就不存，只记报告。目录按序号命名（001、002……），类与键写进 manifest.json：键里有“/”，长名字也会吃掉路径余量。
+ * 存的都是比对时用的那份字节：快照本身（状态、账本、信件）、上一份快照里要用的几样（状态、信件的文件名、账本行数、主任务的哈希）、
+ * 快照仓库里提示词读过的任务书与 runs 记录；回合几类对不上时，才带那几个回合比对时读到的文件，与快照仓库、临时 home 里复制过的会话
+ * 文件（不事后去 ~/.claude 读：claude 的会话可能已被 --resume 续写）。不带快照仓库里指向主仓库 git 目录的 .git：留在盘上的目录里有它，
+ * 谁在里面跑一次 git status 就会刷新主仓库的 index；路径与当时的 HEAD 记在 manifest 里，重放时只在临时的快照仓库里重建。
+ * 交回写进报告的一句：另存的目录名，或者没存的原因。
+ */
+function keepSnapshot(dir: string, source: Source, previous: Previous | null, snapRepo: string, home: string, missed: readonly TurnFiles[], mismatches: readonly Mismatch[], at: string): string {
+  const indexPath = join(dir, "index.json");
+  const index = existsSync(indexPath) ? (JSON.parse(readFileSync(indexPath, "utf8")) as Record<string, string>) : {};
+  const fresh = mismatches.filter((item) => !Object.hasOwn(index, keyOf(item)));
+  if (!fresh.length) return "差异键都已存过";
+  const kept = existsSync(dir) ? readdirSync(dir).filter((name) => lstatSync(join(dir, name)).isDirectory()) : [];
+  if (kept.length >= KEEP_MAX || treeBytes(dir) >= keepBytes()) return "快照已达上限";
+  const name = String(Math.max(0, ...kept.map((entry) => (/^[0-9]+$/u.test(entry) ? Number(entry) : 0))) + 1).padStart(3, "0");
+  const target = join(dir, name);
+  const { snapshot } = source;
+  putFile(target, "state.json", snapshot.state);
+  putFile(target, "events.jsonl", snapshot.ledger);
+  for (const [rel, bytes] of snapshot.letters) putFile(target, `letters/${rel}`, bytes);
+  if (previous) putFile(target, "previous-state.json", previous.snapshot.state);
+  for (const rel of [".agent/mailbox/tasks", ".agent/runs"]) {
+    const from = join(snapRepo, ...rel.split("/"));
+    if (existsSync(from)) cpSync(from, join(target, "repo", ...rel.split("/")), { recursive: true });
+  }
+  for (const { turn, files } of missed) {
+    for (const [file, entry] of files) putFile(target, `repo/.agent/mailbox/turns/${turn.id}/${file}`, entry.bytes, entry);
+    const session = (JSON.parse((files.get("result.json") as { bytes: Buffer }).bytes.toString("utf8")) as { session_id?: unknown }).session_id;
+    const adapter = ROSTER[turn.agent]?.adapter;
+    if (typeof session === "string" && session && adapter) copySessions(turn.agent, adapter, session, snapRepo, home, join(target, "repo"), join(target, "home"));
+  }
+  const manifest = {
+    repo: source.workspace, git: source.git, head: headOf(source.workspace), kit_hub_sha256: KIT_HUB_SHA, at, state_sha256: snapshot.stateSha, mismatches,
+    previous: previous && { ledger_lines: previous.ledgerLines, letters: [...previous.snapshot.letters.keys()], task_hashes: Object.fromEntries(previous.taskHashes) },
+    files: listFiles(target),
+  };
+  putFile(target, "manifest.json", `${JSON.stringify(manifest, null, 2)}${LF}`);
+  for (const item of fresh) index[keyOf(item)] = name;
+  writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}${LF}`);
+  return name;
+}
+
+interface KeptManifest {
+  readonly repo: string;
+  readonly git: string;
+  readonly kit_hub_sha256: string;
+  readonly previous: { readonly ledger_lines: number; readonly letters: string[]; readonly task_hashes: Record<string, string> } | null;
+}
+
+/**
+ * --snapshot：另存的快照先复制到 work（时刻照留），再照当时的样子读回来，存下的那份不被探针碰；watch 时的上一份快照照记下的重建，
+ * 回合只有另存的那几个，照当时那样与 result.json 比。
+ */
+function loadKept(dir: string, work: string): { source: Source; previous: Previous | null; manifest: KeptManifest } {
+  cpSync(dir, work, { recursive: true, preserveTimestamps: true });
+  const manifest = JSON.parse(readFileSync(join(work, "manifest.json"), "utf8")) as KeptManifest;
+  const letters = new Map<string, Buffer>();
+  for (const [rel] of listFiles(join(work, "letters"))) letters.set(rel, readFileSync(join(work, "letters", ...rel.split("/"))));
+  const state = readFileSync(join(work, "state.json"));
+  const snapshot: Snapshot = { state, stateSha: sha256(state), ledger: readFileSync(join(work, "events.jsonl")), letters };
+  const before = manifest.previous;
+  const previous: Previous | null = before === null ? null : {
+    snapshot: { state: readFileSync(join(work, "previous-state.json")), stateSha: "", ledger: Buffer.alloc(0), letters: new Map(before.letters.map((rel): [string, Buffer] => [rel, Buffer.alloc(0)])) },
+    ledgerLines: before.ledger_lines, taskHashes: new Map(Object.entries(before.task_hashes)), turns: new Map(),
+  };
+  return { source: { snapshot, tries: 0, files: join(work, "repo"), home: join(work, "home"), git: manifest.git, workspace: manifest.repo }, previous, manifest };
 }
 
 function write(out: string, report: Record<string, unknown>, keep: boolean): void {
@@ -639,10 +807,31 @@ function main(argv: readonly string[]): number {
   };
   const repo = resolve(option("--repo") ?? ".");
   const out = resolve(option("--out") ?? join(repo, ".agent", "runs", "_shadow"));
+  const keep = join(out, "snapshots");
+  const kept = option("--snapshot");
+  if (kept !== undefined) {
+    const dir = resolve(kept);
+    const work = mkdtempSync(join(tmpdir(), "themis-shadow-replay-"));
+    let report: Record<string, unknown>;
+    try {
+      const { source, previous, manifest } = loadKept(dir, work);
+      report = compare(source, previous, null).report;
+      // 另存时与现在的 kit_hub.py 不同：与 result.json 比的回合会被悄悄算成“别的内核”而不比，看起来像零差异
+      if (manifest.kit_hub_sha256 !== KIT_HUB_SHA) report["kernel_changed"] = { recorded: manifest.kit_hub_sha256, current: KIT_HUB_SHA };
+    } catch (error) {
+      report = failure(error);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+    writeFileSync(join(dir, "replay.json"), `${JSON.stringify(report, null, 2)}${LF}`);
+    const mismatched = (report["mismatches"] as unknown[] | undefined)?.length ?? 0;
+    process.stdout.write(`${JSON.stringify({ mismatches: mismatched, error: report["error"] ?? null, kernel_changed: report["kernel_changed"] ?? null, categories: report["categories"] ?? {} })}${LF}`);
+    return report["error"] ? 2 : report["kernel_changed"] ? 4 : mismatched ? 1 : 0;
+  }
   if (!argv.includes("--watch")) {
     let report: Record<string, unknown>;
     try {
-      report = round(repo, null).report;
+      report = round(repo, null, keep).report;
     } catch (error) {
       report = failure(error);
     }
@@ -672,7 +861,7 @@ function main(argv: readonly string[]): number {
       }
       let report: Record<string, unknown>;
       try {
-        const result = round(repo, previous);
+        const result = round(repo, previous, keep);
         report = result.report;
         if (result.next) [previous, last] = [result.next, quick];
         streak = 0;

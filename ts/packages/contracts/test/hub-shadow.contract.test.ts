@@ -9,10 +9,11 @@
 //     CR 分行），一致；result.json 被改过的报出来；hub_sha256 是别的内核的只计数、不比；
 //   - 影子的输出放在 .agent/runs/_shadow/ 时，status --json、metrics、decisions replay --json 在 Python 与经启动器的 TS 下相同、
 //     不提 _shadow（prepare 与 integrate 两处在各自的契约里带着 _shadow 跑）。
+//   - 对不上时另存快照：同一个差异键只存第一次、不是回合类的不带回合与会话、不带 .git、满 10 份只记报告；从另存的快照重放复现同一处差异。
 // 影子与探针都套 backup_privilege.py off；会话文件从临时的 USERPROFILE 与临时信箱里取，不碰真的家目录。
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { dumps } from "@themis/base/pyjson";
@@ -163,6 +164,15 @@ function runShadow(fx: Fixture, args: readonly string[], env: Record<string, str
   return { status: done.status ?? -1, report: JSON.parse(readFileSync(join(out, "latest.json"), "utf8")) as Record<string, unknown> };
 }
 
+/** 套 backup_privilege.py off 从另存的快照重放，交回退出码与那个目录里的 replay.json。 */
+function replayKept(fx: Fixture, dir: string): { status: number; report: Record<string, unknown> } {
+  const done = spawnSync(PYTHON, [join(PROBES, "backup_privilege.py"), "off", BUN, TOOL, "--snapshot", dir], {
+    encoding: "utf8", env: { ...process.env, USERPROFILE: fx.home }, timeout: 600_000,
+  });
+  expect(existsSync(join(dir, "replay.json")), done.stderr).toBe(true);
+  return { status: done.status ?? -1, report: JSON.parse(readFileSync(join(dir, "replay.json"), "utf8")) as Record<string, unknown> };
+}
+
 const compared = (report: Record<string, unknown>): Record<string, number> =>
   Object.fromEntries(Object.entries(report["categories"] as Record<string, { compared: number }>).map(([name, entry]) => [name, entry.compared]));
 
@@ -189,6 +199,70 @@ describe("⑤-影子：静态重放", () => {
     const { status, report } = runShadow(fx, ["--once"]);
     expect(status).toBe(1);
     expect(report["mismatches"]).toEqual([{ category: "route.kernel 与账本", key: `账本第 ${fx.routeLine} 行`, state_sha256: report["state_sha256"] }]);
+  });
+});
+
+describe("⑤-影子：对不上时另存快照", () => {
+  it("同一个差异键只存第一次；不是回合类的不带回合与会话；不带指向主仓库的 .git；从另存的快照重放，复现同一处差异", () => {
+    const fx = fixture("keep-route", { tamperRoute: true });
+    // 照主仓库的样子放一个 .git（提示词一类会把它写进快照仓库，指向这棵树的 git 目录）：另存时不能带上它
+    const gitDir = join(REPO, ".git");
+    writeFileSync(join(fx.repo, ".git"), statSync(gitDir).isDirectory() ? `gitdir: ${gitDir}${LF}` : readFileSync(gitDir));
+    const first = runShadow(fx, ["--once"]);
+    expect(first.status).toBe(1);
+    const dir = join(fx.repo, "shadow-out", "snapshots");
+    const name = String(first.report["snapshot"]);
+    expect(readdirSync(dir).sort()).toEqual(["index.json", name].sort());
+    expect(name).toBe("001");
+    for (const rel of [["manifest.json"], ["state.json"], ["events.jsonl"], ["letters"]]) expect(existsSync(join(dir, name, ...rel)), rel.join("/")).toBe(true);
+    expect((JSON.parse(readFileSync(join(dir, name, "manifest.json"), "utf8")) as { head: unknown }).head).toMatch(/^[0-9a-f]{40}$/u);
+    for (const rel of [["repo", ".agent", "mailbox", "turns"], ["repo", ".agent", "mailbox", "sessions"], ["home"], ["repo", ".git"]]) expect(existsSync(join(dir, name, ...rel)), rel.join("/")).toBe(false);
+    const second = runShadow(fx, ["--once"]);
+    expect(second.report["mismatches"]).toEqual(first.report["mismatches"]);
+    expect(second.report["snapshot"]).toBe("差异键都已存过");
+    expect(readdirSync(dir).length).toBe(2);
+    rmSync(join(fx.repo, ".agent", "mailbox"), { recursive: true, force: true }); // 重放只读另存的那份
+    const replay = replayKept(fx, join(dir, name));
+    expect(replay.status).toBe(1);
+    expect(replay.report["mismatches"]).toEqual(first.report["mismatches"]);
+    // 另存时的 kit_hub.py 与现在的不同：明确报出来，退出码 4，不悄悄当成零差异
+    const manifestPath = join(dir, name, "manifest.json");
+    writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(readFileSync(manifestPath, "utf8")), kit_hub_sha256: "0".repeat(64) }));
+    const changed = replayKept(fx, join(dir, name));
+    expect(changed.status).toBe(4);
+    expect(changed.report["kernel_changed"]).toMatchObject({ recorded: "0".repeat(64) });
+  });
+
+  it("回合类对不上：只带那个回合的目录；从另存的快照重放，复现同一处差异", () => {
+    const fx = fixture("keep-deep", { deep: true });
+    const first = runShadow(fx, ["--once"]);
+    expect(first.status).toBe(1);
+    const kept = join(fx.repo, "shadow-out", "snapshots", String(first.report["snapshot"]));
+    expect(readdirSync(join(kept, "repo", ".agent", "mailbox", "turns", "gate-sonnet"))).toEqual(["20261031T000000000002Z-dddd"]);
+    rmSync(join(fx.repo, ".agent", "mailbox"), { recursive: true, force: true });
+    const replay = replayKept(fx, kept);
+    expect(replay.status).toBe(1);
+    expect(replay.report["mismatches"]).toEqual(first.report["mismatches"]);
+  });
+
+  it("已经存了 10 份：这一份不存，报告写明“快照已达上限”", () => {
+    const fx = fixture("keep-full", { tamperRoute: true });
+    const dir = join(fx.repo, "shadow-out", "snapshots");
+    for (let n = 0; n < 10; n += 1) mkdirSync(join(dir, `old-${n}`), { recursive: true });
+    const { status, report } = runShadow(fx, ["--once"]);
+    expect(status).toBe(1);
+    expect(report["snapshot"]).toBe("快照已达上限");
+    expect(readdirSync(dir).length).toBe(10);
+  });
+
+  it("合计字节到了上限（只给契约用的开关调小）：这一份不存，报告写明“快照已达上限”", () => {
+    const fx = fixture("keep-bytes", { tamperRoute: true });
+    const dir = join(fx.repo, "shadow-out", "snapshots");
+    put(fx.repo, "shadow-out/snapshots/001/state.json", "x".repeat(2000));
+    const { status, report } = runShadow(fx, ["--once"], { THEMIS_SHADOW_KEEP_BYTES: "1000" });
+    expect(status).toBe(1);
+    expect(report["snapshot"]).toBe("快照已达上限");
+    expect(readdirSync(dir)).toEqual(["001"]);
   });
 });
 
@@ -304,7 +378,15 @@ describe("⑤-影子：--watch", () => {
       { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-aa02：violations", state_sha256: report["state_sha256"] },
       { category: "回合与 result.json", key: "gate-sonnet/20261031T000000000007Z-aa04：effort_effective", state_sha256: report["state_sha256"] },
     ]);
-  }, 120_000);
+    // 第二轮另存的快照：只带对不上的两个回合；重放照当时的上一份快照与 result.json 比，复现同样三处
+    const kept = join(out, "snapshots", String(report["snapshot"]));
+    expect(readdirSync(join(kept, "repo", ".agent", "mailbox", "turns", "gate-sonnet")).sort()).toEqual(["20261031T000000000005Z-aa02", "20261031T000000000007Z-aa04"]);
+    expect(existsSync(join(kept, "previous-state.json"))).toBe(true);
+    rmSync(join(fx.repo, ".agent", "mailbox"), { recursive: true, force: true }); // 回合、会话都只从另存的那份读
+    const replay = replayKept(fx, kept);
+    expect(replay.status).toBe(1);
+    expect(replay.report["mismatches"]).toEqual(report["mismatches"]);
+  }, 180_000);
 
   it("某一轮出错（回合的 result.json 只写了一半）：只记错误的类型，接着跑；那一轮不算数，下一轮整份补比", async () => {
     const fx = fixture("watch-error");
