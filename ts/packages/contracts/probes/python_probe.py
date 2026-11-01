@@ -1182,9 +1182,11 @@ def op_hub_constants(request):
 
 def op_hub_audit(request):
     """第 ⑤c 片：kit_hub 的回合审计。参数带标签，路径是字符串，照 kit_hub 的调用方转成 Path；结果带标签（元组成了列表）。
-    home 给了时先设好 USERPROFILE 与 HOME（Path.home() 每次现读）。HubError 交回文字与退出码，别的异常只比类型。"""
+    home 给了时先设好 USERPROFILE 与 HOME（Path.home() 每次现读），调用完还原（⑤e1b：同一批里下一个没带 home 的请求不沿用，照 hub.turn）。
+    HubError 交回文字与退出码，别的异常只比类型。"""
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
+    saved_home = {name: os.environ.get(name) for name in ("USERPROFILE", "HOME")} if request.get("home") is not None else {}
     if request.get("home") is not None:
         os.environ["USERPROFILE"] = os.environ["HOME"] = request["home"]
     path = lambda value: None if value is None else Path(value)  # noqa: E731
@@ -1215,6 +1217,12 @@ def op_hub_audit(request):
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
     except Exception as exc:  # noqa: BLE001  只比类型
         return {"ok": False, "error": type(exc).__name__}
+    finally:
+        for name, before in saved_home.items():
+            if before is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = before
     return {"ok": True, "value": to_tagged(value)}
 
 def op_hub_prompt(request):
@@ -1278,10 +1286,30 @@ def op_hub_contract(request):
             value = kit_hub.tail_file(Path(args[0]), *args[1:])
         elif fn == "pytest_outcomes":
             value = list(kit_hub.pytest_outcomes(Path(args[0])))
+        elif fn == "contract_paths":  # ⑤e1b：Path 交回字符串（采样器的 _recorded_value 同样换）
+            value = [str(path) for path in kit_hub.contract_paths(kit_hub.Hub(Path(args[0])), args[1])]
+        elif fn in ("scope_missing_prefix", "contract_requirements", "dod_coverage_problems", "budget_problems", "answers_question"):
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn == "read_kernel_impl":
+            value = pi_dispatch.read_kernel_impl(Path(args[0]))
+        elif fn == "argv_impl":  # impl 为 None 时读的选择文件换成给定的路径，调用完还原
+            argv, impl, impl_path = args
+            saved = pi_dispatch.KERNEL_IMPL_PATH
+            pi_dispatch.KERNEL_IMPL_PATH = Path(impl_path)
+            try:
+                value = pi_dispatch.argv_impl(argv, impl)
+            finally:
+                pi_dispatch.KERNEL_IMPL_PATH = saved
+        elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
+            value = {name: [list(key) for key in sorted(getattr(pi_dispatch, name))]
+                     for name in ("TS_READONLY_COMMANDS", "TS_ONLY_COMMANDS", "TS_CONFIG_COMMANDS", "TS_DISPATCHER_COMMANDS")}
+            value["CONFIG_ACTION_FAMILIES"] = sorted(family for family, _dest in pi_dispatch.CONFIG_ACTION_DESTS)
         else:
             return {"ok": False, "error": "UNKNOWN_FN"}
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
+    except pi_dispatch.DispatchError as exc:
+        return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
     except Exception as exc:  # noqa: BLE001  只比类型
         return {"ok": False, "error": type(exc).__name__}
     return {"ok": True, "value": to_tagged(value)}
@@ -1481,6 +1509,8 @@ def _recorded_value(name, value):
     存成 JSON 文字：随样本再经 to_tagged 也只是一个字符串，契约照原样拿去比。"""
     if name == "worker_env":
         value = sorted(value)
+    elif name == "contract_paths":  # ⑤e1b：Path 记成字符串，照 op_hub_contract
+        value = [str(path) for path in value]
     elif isinstance(value, tuple):
         value = list(value)
     try:

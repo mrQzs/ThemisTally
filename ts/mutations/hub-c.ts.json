@@ -244,6 +244,12 @@
       "file": "ts/packages/hub/src/audit.ts",
       "old": "    pending.catch(() => PI_FLAGS.delete(key));",
       "new": "    pending.catch(() => undefined);"
+    },
+    {
+      "name": "C40 hub.audit 的 home 不还原",
+      "file": "ts/packages/contracts/probes/hub_probe.ts",
+      "old": "    if (home !== null) {",
+      "new": "    if (false) {"
     }
   ]
 }

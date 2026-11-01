@@ -1,0 +1,242 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract-repo.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "B01 字符串里的 in 改成相等",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (typeof container === \"string\") return container.includes(item);",
+      "new": "if (typeof container === \"string\") return container === item;"
+    },
+    {
+      "name": "B02 字典里的 in 不查键",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (container instanceof Map) return container.has(item);",
+      "new": "if (container instanceof Map) return false;"
+    },
+    {
+      "name": "B03 None 里的 in 不报 TypeError",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "  throw new PyCrash(\"TypeError\", `argument of type '${pyTypeName(container)}' is not iterable`);",
+      "new": "  if (container === null) return false;\n  throw new PyCrash(\"TypeError\", `argument of type '${pyTypeName(container)}' is not iterable`);"
+    },
+    {
+      "name": "B04 读到不是 UTF-8 的 JSON 不算 ValueError",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": " || (error as Error | null)?.name === \"UnicodeDecodeError\";",
+      "new": ";"
+    },
+    {
+      "name": "B05 md 与 json 对调",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "return [purePathStr(plans, pyPlus(key, \".md\") as string), purePathStr(plans, pyPlus(key, \".json\") as string)];",
+      "new": "return [purePathStr(plans, pyPlus(key, \".json\") as string), purePathStr(plans, pyPlus(key, \".md\") as string)];"
+    },
+    {
+      "name": "B06 base_sha 不是字符串不报 TypeError",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (typeof base !== \"string\") throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "B07 git 失败不交回空",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "    if (error instanceof HubError) return [];\n    throw error;\n  }\n  const roots",
+      "new": "    if (false) return [];\n    throw error;\n  }\n  const roots"
+    },
+    {
+      "name": "B08 不带斜杠的也去找",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (!entry.includes(\"/\") || roots.has(",
+      "new": "if (roots.has("
+    },
+    {
+      "name": "B09 少前缀的报 7 条",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "missing.slice(0, 6).join(\"；\")",
+      "new": "missing.slice(0, 7).join(\"；\")"
+    },
+    {
+      "name": "B10 未决标注不去重",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "${[...new Set(pending)].sort(cmpCodePoints).join(",
+      "new": "${[...pending].sort(cmpCodePoints).join("
+    },
+    {
+      "name": "B11 forbidden_paths 缺了不按空列表",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "\"forbidden_paths\", []))) problems.push",
+      "new": "\"forbidden_paths\"))) problems.push"
+    },
+    {
+      "name": "B12 门禁检查没写 required 算假",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "pyEq(pyGet(check, \"expect_on_base\"), \"fail\") && pyTruthy(pyGet(check, \"required\", true))",
+      "new": "pyEq(pyGet(check, \"expect_on_base\"), \"fail\") && pyTruthy(pyGet(check, \"required\"))"
+    },
+    {
+      "name": "B13 回归检查要基线应失败",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "pyEq(pyGet(check, \"expect_on_base\"), \"pass\")",
+      "new": "pyEq(pyGet(check, \"expect_on_base\"), \"fail\")"
+    },
+    {
+      "name": "B14 执行模型不核对",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "declared.every((value, at) => pyEq(value, EXECUTOR[at] as string))",
+      "new": "declared.every(() => true)"
+    },
+    {
+      "name": "B15 integration 里有字典不报 TypeError",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (unhashable !== undefined) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "B16 DoD 读合同时的 KeyError 不接",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "(error instanceof PyCrash && error.kind === \"KeyError\")",
+      "new": "false"
+    },
+    {
+      "name": "B17 DoD 编号前面不看字母数字",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "compilePy(`(?<![A-Za-z0-9])${reEscape(id)}",
+      "new": "compilePy(`${reEscape(id)}"
+    },
+    {
+      "name": "B18 DoD 编号不转义",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "${reEscape(id)}(?![0-9])",
+      "new": "${id}(?![0-9])"
+    },
+    {
+      "name": "B19 attempt 恰好剩 2 次也报",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (attemptsLeft < BigInt(MIN_ATTEMPTS_LEFT))",
+      "new": "if (attemptsLeft <= BigInt(MIN_ATTEMPTS_LEFT))"
+    },
+    {
+      "name": "B20 墙钟恰好够两次也报",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (wallLeft < MIN_ATTEMPTS_LEFT * perAttempt)",
+      "new": "if (wallLeft <= MIN_ATTEMPTS_LEFT * perAttempt)"
+    },
+    {
+      "name": "B21 剩余墙钟不按 %d 截断",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "`只剩 ${pyPercentD(wallLeft)} 秒",
+      "new": "`只剩 ${wallLeft} 秒"
+    },
+    {
+      "name": "B22 msg_id 是假值也去找",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (!pyTruthy(msgId) || !isFile(path)) continue;",
+      "new": "if (!isFile(path)) continue;"
+    },
+    {
+      "name": "B23 只看 new",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "for (const box of [\"new\", \"cur\"]) {",
+      "new": "for (const box of [\"new\"]) {"
+    },
+    {
+      "name": "B24 坏信头不交回假",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "      if (error instanceof HubError) return false;",
+      "new": "      if (false) return false;"
+    },
+    {
+      "name": "K01 选择文件不存在也报错",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "if ((error as NodeJS.ErrnoException).code === \"ENOENT\") return",
+      "new": "if (false) return"
+    },
+    {
+      "name": "K02 重复的键不报",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "loadsWith(pyDecodeUtf8(raw), UNIQUE_KEYS)",
+      "new": "loadsWith(pyDecodeUtf8(raw), PY_BUILDER)"
+    },
+    {
+      "name": "K03 坏的 UTF-8 换成替换字符",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "loadsWith(pyDecodeUtf8(raw),",
+      "new": "loadsWith(raw.toString(\"utf8\"),"
+    },
+    {
+      "name": "K04 schema_version 只比数值",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "if (typeof version !== \"bigint\" || version !== 1n)",
+      "new": "if (Number(version) !== 1)"
+    },
+    {
+      "name": "K05 多键少键按 UTF-16 排",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "[...data.keys()].map(String).sort(cmpCodePoints)",
+      "new": "[...data.keys()].map(String).sort()"
+    },
+    {
+      "name": "K06 取值不分大小写",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "pyEq(data.get(name) as PyValue, impl)",
+      "new": "String(data.get(name)).toLowerCase() === impl"
+    },
+    {
+      "name": "K07 先读选择文件再看 -h",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "  if (words.includes(\"-h\") || words.includes(\"--help\")) return \"python\";",
+      "new": "  if (impl === null) readKernelImpl(implPath);\n  if (words.includes(\"-h\") || words.includes(\"--help\")) return \"python\";"
+    },
+    {
+      "name": "K08 不认 --repo= 的写法",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": " || (words[0] as string).startsWith(\"--repo=\"))",
+      "new": ")"
+    },
+    {
+      "name": "K09 secret set 不除外",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": " && !(words.length >= 3 && words[1] === \"secret\" && words[2] === \"set\")",
+      "new": ""
+    },
+    {
+      "name": "K10 status 带 --assess 不算 dispatcher",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "const assess = words[0] === \"status\" && words.includes(\"--assess\");",
+      "new": "const assess = false;"
+    },
+    {
+      "name": "K11 config 的路径不认动作的族",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "if (CONFIG_ACTION_FAMILIES.has(words[1] as string) && words.length >= 3)",
+      "new": "if (words.length >= 3)"
+    },
+    {
+      "name": "K12 logs 的子命令不查名单",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "return words.length >= 2 && words[0] === \"logs\" && TS_READONLY_COMMANDS.has(key([\"logs\", words[1] as string])) ? \"ts\" : \"python\";",
+      "new": "return words.length >= 2 && words[0] === \"logs\" ? \"ts\" : \"python\";"
+    },
+    {
+      "name": "K13 名单少一条",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "[\"integrate\"], [\"mark\"], [\"cleanup\"],",
+      "new": "[\"integrate\"], [\"cleanup\"],"
+    },
+    {
+      "name": "K14 只有 TS 实现的命令先于 -h 判定",
+      "file": "ts/packages/dispatcher/src/kernel-impl.ts",
+      "old": "  if (words.includes(\"-h\") || words.includes(\"--help\")) return \"python\";\n  if (TS_ONLY_COMMANDS.has(key(words.slice(0, 1)))) return \"ts\";",
+      "new": "  if (TS_ONLY_COMMANDS.has(key(words.slice(0, 1)))) return \"ts\";\n  if (words.includes(\"-h\") || words.includes(\"--help\")) return \"python\";"
+    }
+  ]
+}

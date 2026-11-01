@@ -181,4 +181,45 @@ COVERED 20。另有手写的场景，不算进某个用例的覆盖：pi 的交�
 
 COVERED 1、PARTIAL 5。其余 75 条只是经别的函数间接调到这十个（tail 在内核里有三十多处调用），覆盖记在它们的主体所在的片；这些调用在 hub-contract 里三边重放过。另有手写的对照（站主决定的附录与去掉、检查行编号、外部事实与没核实的事实、Identity 与粗体编号的边界与崩溃）与按种子生成的合同文字（掺全角标点、组合字符、希腊字母、Unicode 数字与空白、BMP 之外的字符），不算进某个用例的覆盖。变异 ts/mutations/hub-e1a.ts.json 31 条：第一轮 30 条抓住 29 条，漏掉的 E08（括号说明里允许嵌套）是因为用例里只有配平的嵌套括号，两种写法都匹配不上，补了一行括号没配平的 Scope 项之后单独重跑抓住。themistally-15 复核后：E12 原先靠崩溃抓住，换成语义上的“Scope 一节不在下一个标题处结束”；补 E31（单数的 warning 不改成复数，手写日志补一行 1 warning）；读文件改用 base 的 pyOSErrorOf、PyOSError 与 pyReadTextReplace，E03、E04 换锚点，E27 改打在 pyio.ts 的 pyReadTextReplace 上；这 5 条重跑都抓住。
 
-其余场景随各片补（⑤e1b 到 ⑤j）。
+### ⑤e1b 要读仓库、账本与信箱的部分
+
+做法：照 ⑤e1a 先在全部用例上采样一次，挑出调到 contract_paths、scope_missing_prefix、contract_requirements、dod_coverage_problems、budget_problems、answers_question 的 44 条（其中 25 条只是顺带调到 contract_paths），契约 hub-contract-repo 三边重放记下的调用，每个函数都要有 Python 重放与当时结果相同的样本。DRIFTED 7 条：重放读的是用例跑完时的合同与 runs，用例在调用之后改写了同号合同或领取了新的 attempt；漂移的调用照样三边比。按问题文字对过账：只在漂移样本里出现过的几类（预算的第二条、未决标注）在「手写的对照」里都有。带 .git 的快照记录器做出来以后（⑤e2 第 6 节第 1 条），这 7 条改用调用当时的快照重放、从 DRIFTED 拿掉（⑤e2 的出口条件）。pi_dispatch 的 read_kernel_impl、argv_impl 不在 kit_hub 里、采样器包不到，只有手写的对照与按种子生成的命令行；四张转交名单的键逐张对照 Python。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | PARTIAL | contract_requirements 在记下的调用；accept_gate_pre 归 ⑤e2 |
+| `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | 同上；workspace_status 与经 Engine 的返工归 ⑤e2、⑤i |
+| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | PARTIAL | contract_requirements 在记下的调用；accept_gate_pre 归 ⑤e2 |
+| `test_gate_pre_baseline_must_fail_on_assertions` | 491 | PARTIAL | 同上；hollow_baseline_problems 归 ⑤e2 |
+| `test_contract_with_pending_marks_is_rejected` | 521 | PARTIAL | 漂移（DRIFTED）：调用之后重交的 md 去掉了未决标注；未决标注的几种写法在「手写的对照」；⑤e2 改用调用当时的快照 |
+| `test_contract_budget_counts_attempts_of_earlier_versions` | 552 | PARTIAL | 漂移：几次调用之间改写同号合同的预算、领取新的 attempt；预算在「手写的对照」（runs 的四种形状、边界、各种取值）；⑤e2 改用快照 |
+| `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | PARTIAL | 漂移：accept_contract 里随后把预算改大；accept_contract 归 ⑤e2 |
+| `test_first_review_report_must_map_every_dod` | 662 | PARTIAL | dod_coverage_problems 在记下的调用与「手写的对照」（编号带正则的特殊字符）；经 Engine 的一审归 ⑤i |
+| `test_contract_title_is_the_registered_task_title` | 901 | PARTIAL | contract_requirements 在记下的调用；revalidate_contract 归 ⑤e2 |
+| `test_contract_requirements` | 1413 | PARTIAL | 漂移：同号合同一次次改写成不同的毛病，重放只读到最后一版；各种毛病在「手写的对照」；⑤e2 改用快照 |
+| `test_kernel_writes_the_contract_version_and_base_it_assigns` | 1441 | PARTIAL | contract_requirements 在记下的调用；accept_contract 归 ⑤e2 |
+| `test_contract_runs_the_earlier_gates_as_regression_checks` | 1472 | PARTIAL | 漂移：调用之后合同补上了回归检查；回归检查的缺与有在「手写的对照」；⑤e2 改用快照 |
+| `test_unverified_external_facts_wait_for_the_owner` | 1745 | PARTIAL | answers_question 在记下的调用；经 Engine 的流转归 ⑤i |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | contract_requirements 在记下的调用；热修补的重交归 ⑤g |
+| `test_facts_checked_before_the_plan_is_delivered_says_why` | 5777 | PARTIAL | answers_question 在记下的调用；send 归 ⑤j |
+| `test_scope_notes_are_stripped_and_unparsed_check_ids_are_named` | 6406 | PARTIAL | 漂移：调用之后重交的 md 改对了检查行编号；⑤e1a 那半照旧；⑤e2 改用快照 |
+| `test_scope_paths_missing_the_directory_prefix_are_named` | 6430 | COVERED | hub-contract-repo：记下的调用；「手写的对照」另有带通配符、第一段在根下有、非 ASCII（git 整条加引号、对不上）、多于 6 条 |
+| `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | PARTIAL | 漂移：调用之后重交的 md 去掉了未决标注；accept_contract 归 ⑤e2 |
+| `test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused` | 6579 | PARTIAL | answers_question 在记下的调用；send 归 ⑤j |
+
+COVERED 1、PARTIAL 18。另 25 条只是顺带调到 contract_paths，覆盖记在它们的主体所在的片。变异 ts/mutations/hub-e1b.ts.json 38 条全部抓住（contract.ts 的 ⑤e1b 部分 24 条、kernel-impl.ts 14 条：K14 是复核后补的“只有 TS 实现的命令先于 -h 判定”）；hub-c 加 C40（hub.audit 的 home 不还原），抓住。
+
+选择文件与 argv_impl 在 Python 那边的用例在 tests/test_kernel_impl.py（不在 test_kit_hub.py 的 297 个场景里）。下面 8 条的 argv、impl 与 15 种坏写法原样抄进 hub-contract-repo 的手写对照，三边比（themistally-15 复核 ⑤e1b 时对出缺的 ui 带 -h、空文件、not json、schema_version 为 2、hub 为 None、config 为列表）。
+
+| 用例（test_kernel_impl.py） | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_a_missing_selector_means_all_python` | 99 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_a_valid_selector_is_read_as_is` | 103 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_a_broken_selector_refuses_to_run` | 127 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_an_unreadable_selector_refuses_to_run` | 135 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_argv_impl_uses_the_same_list` | 219 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_argv_impl_counts_ui_as_ts_whatever_the_selector` | 655 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_argv_impl_follows_the_config_switch` | 797 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+| `test_argv_impl_follows_the_dispatcher_switch` | 905 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
+
+其余场景随各片补（⑤e2 到 ⑤j）。

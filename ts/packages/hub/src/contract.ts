@@ -1,12 +1,24 @@
 // 合同与战前门禁（迁移第 ⑤e 片）。⑤e1a 是纯文字的部分：kit_hub.py 的 tail、tail_file、normalize_identity、normalize_markup、
 // strip_decisions、decisions_section、unparsed_check_ids、external_fact_problems、unverified_facts、pytest_outcomes（⑤f 的，
 // hollow_baseline_problems 要用，提前移植）。文字逐字节照 Python；参数照 Python 收原值，类型不对时照它的异常类型抛。
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
+import { readText } from "@themis/base/fsutil";
 import { PyOSError, pyDecodeUtf8Replace, pyOSErrorOf, pyReadTextReplace } from "@themis/base/pyio";
-import { PyCrash, pyGet, pyItem, pyIter, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
-import { type PyDict, type PyValue } from "@themis/base/pyjson";
-import { D, S, W, pyIntParse, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { PyCrash, pyFloatOf, pyGet, pyIntOf, pyItem, pyIter, pyPercentD, pyPlus, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { PyJsonError, type PyDict, type PyValue, loads } from "@themis/base/pyjson";
+import { purePathStr } from "@themis/base/pypath";
+import { D, S, W, cmpCodePoints, pyIntParse, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { compilePy } from "@themis/base/pyregex";
+import { pyEq } from "@themis/base/pyvalue";
 import { CHECK_LINE_RE, mdSection } from "@themis/dispatcher/contract";
+import { reEscape } from "@themis/dispatcher/patterns";
+import { CONTRACT_EXECUTOR_LINE, EXECUTOR, MIN_ATTEMPTS_LEFT, OWNER } from "./constants.ts";
+import { HubError } from "./errors.ts";
+import { git } from "./kernel.ts";
+import { parseLetter } from "./letters.ts";
+import type { Hub } from "./mailbox.ts";
+import { budgetUsage, regressionGates } from "./prompt.ts";
+import { gateFile, gatePattern } from "./taskstate.ts";
 
 const LF = String.fromCharCode(10);
 const TAB = String.fromCharCode(9);
@@ -205,5 +217,169 @@ export function pytestOutcomes(logPath: string): [PyDict, string[], string[]] {
     if (report) (report[1] === "FAILED" ? failed : errored).push(report[2] as string);
   }
   return [counts, failed, errored];
+}
+
+// --- ⑤e1b：要读仓库、账本与信箱的部分 ------------------------------------------------------------------------------
+
+/** item in container：列表比元素、字符串查子串、字典查键；别的照 Python 报 TypeError。 */
+function pyIn(item: string, container: PyValue): boolean {
+  if (Array.isArray(container)) return container.some((value) => pyEq(value, item));
+  if (typeof container === "string") return container.includes(item);
+  if (container instanceof Map) return container.has(item);
+  throw new PyCrash("TypeError", `argument of type '${pyTypeName(container)}' is not iterable`);
+}
+
+/**
+ * except ValueError 接得住的：json.loads 的 ValueError 与 JSONDecodeError，以及 read_text 读到不是 UTF-8 的文件时的 UnicodeDecodeError
+ * （也是 ValueError 的子类；base 的 fsutil 与 pyio 各有一个，名字相同）。RecursionError 不算。
+ */
+const isValueError = (error: unknown): boolean =>
+  (error instanceof PyJsonError && (error.kind === "ValueError" || error.kind === "JSONDecodeError")) || (error as Error | null)?.name === "UnicodeDecodeError";
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** 合同的 md 与 json：.agent/plans/<键>.md、.json（键照 Python 拼：不是字符串时报 TypeError）。 */
+export function contractPaths(hub: Hub, ts: PyValue): [string, string] {
+  const key = pyItem(pyItem(ts, "contract"), "key");
+  const plans = purePathStr(hub.repo, ".agent", "plans");
+  return [purePathStr(plans, pyPlus(key, ".md") as string), purePathStr(plans, pyPlus(key, ".json") as string)];
+}
+
+/**
+ * Scope 里少了目录前缀的路径（第 46 轮），写成“原文 → 基线上的文件”。只认得出“第一段在仓库根下没有、某个目录下却正好有这个文件”的。
+ * 照 Python：git 不加 core.quotepath=off，ls-tree 列出的非 ASCII 路径整条带引号，这样的路径对不上（迁移计划第 10 节）。
+ */
+export function scopeMissingPrefix(hub: Hub, data: PyValue): string[] {
+  const base = pyGet(data, "base_sha");
+  if (!pyTruthy(base)) return [];
+  if (typeof base !== "string") throw new PyCrash("TypeError", `expected str, bytes or os.PathLike object, not ${pyTypeName(base)}`);
+  let files: string[];
+  try {
+    files = pySplitlines(git(["ls-tree", "-r", "--name-only", base], hub.repo));
+  } catch (error) {
+    if (error instanceof HubError) return [];
+    throw error;
+  }
+  const roots = new Set(files.map((path) => path.split("/")[0]));
+  const scope = or(pyGet(data, "scope"), new Map());
+  const out: string[] = [];
+  for (const name of ["allowed_modified_files", "allowed_new_files", "allowed_deleted_files", "forbidden_paths"]) {
+    for (const entry of pyIter(or(pyGet(scope, name), [])).map(pyStrValue)) {
+      if (!entry.includes("/") || roots.has(entry.split("/")[0]) || [..."*?["].some((char) => entry.includes(char))) continue;
+      const found = files.find((path) => path.endsWith(`/${entry}`));
+      if (found !== undefined) out.push(`${entry} → ${found}`);
+    }
+  }
+  return out;
+}
+
+/** 合同里的未决标注：T001 的合同端把待站主确认的问题写成 13 处标注留在正文里。 */
+export const PENDING_MARK_RE = pyRegex("待(?:站主|协调人)?(?:确认|拍板|决定)", true);
+
+/** 内核另外要求的几项：门禁测试路径禁改、门禁检查在基线上失败、回归检查、执行模型与集成授权；合同里不能留未决标注。 */
+export function contractRequirements(hub: Hub, ts: PyDict): string[] {
+  const [md, js] = contractPaths(hub, ts);
+  let data: PyValue;
+  try {
+    data = loads(readText(js));
+  } catch (error) {
+    if (isValueError(error)) return ["合同 JSON 读不出来"];
+    throw error;
+  }
+  const problems: string[] = [];
+  const written = stripDecisions(readText(md)); // 内核附的站主原文不算合同端写的
+  const unparsed = unparsedCheckIds(written);
+  if (unparsed.length) {
+    problems.push(`Validation commands 里这几行调度器认不出、等于没写：${unparsed.join("、")}。检查编号要是一个大写字母加至少两位数字，例如 G01、R01（DoD 的“证据”里跟着改）`);
+  }
+  const pending = written.match(PENDING_MARK_RE) ?? [];
+  if (pending.length) {
+    problems.push(`合同里还有 ${pending.length} 处未决标注（${[...new Set(pending)].sort(cmpCodePoints).join("、")}）：拿不准的事先发“提问”，等站主或协调人答复后再交合同，合同里只写已经定下的做法`);
+  }
+  const missing = scopeMissingPrefix(hub, data);
+  if (missing.length) {
+    problems.push(`Scope 的路径要从仓库根写起，这几条少了目录前缀（原文 → 基线上的文件）：${missing.slice(0, 6).join("；")}${missing.length > 6 ? `；另有 ${missing.length - 6} 条` : ""}`);
+  }
+  if (!pyIn(gatePattern(ts), pyGet(or(pyGet(data, "scope"), new Map()), "forbidden_paths", []))) problems.push(`Scope 的 forbidden_paths 要包含 ${gatePattern(ts)}`);
+  const baselineFile = gateFile(ts, "baseline");
+  const checks = (): PyValue[] => pyIter(or(pyGet(data, "checks"), []));
+  const gateChecks = checks().filter((check) => pyIn(baselineFile, or(pyGet(check, "argv"), [])));
+  if (!gateChecks.length) problems.push(`Validation commands 要有一条运行 ${baselineFile} 的必要检查`);
+  else if (!gateChecks.some((check) => pyEq(pyGet(check, "expect_on_base"), "fail") && pyTruthy(pyGet(check, "required", true)))) {
+    problems.push(`运行 ${baselineFile} 的检查要标“必要”与“基线应失败”`);
+  }
+  const guarded = regressionGates(hub, ts).filter((path) => !checks().some((check) =>
+    pyIn(path, or(pyGet(check, "argv"), [])) && pyEq(pyGet(check, "expect_on_base"), "pass") && pyTruthy(pyGet(check, "required", true))));
+  if (guarded.length) problems.push(`Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：${guarded.join("、")}`);
+  const executor = or(pyGet(data, "executor"), new Map());
+  const declared = [pyGet(executor, "provider"), pyGet(executor, "model"), pyGet(executor, "thinking")];
+  if (!declared.every((value, at) => pyEq(value, EXECUTOR[at] as string))) problems.push(`执行模型要写成：${CONTRACT_EXECUTOR_LINE}`);
+  const integration = pyIter(or(pyGet(or(pyGet(data, "authorization"), new Map()), "integration"), []));
+  const unhashable = integration.find((item) => Array.isArray(item) || item instanceof Map);
+  if (unhashable !== undefined) throw new PyCrash("TypeError", `unhashable type: '${pyTypeName(unhashable)}'`); // set(...)
+  if (!["local_branch", "merge"].every((name) => integration.some((item) => pyEq(item, name)))) problems.push("integration_actions 要写 local_branch, merge");
+  return problems;
+}
+
+/** 一审报告要有“DoD → 测试 → 断言”映射：合同里每个 DoD 的 id 都要在报告里出现。编号照 re.escape 转义，交给移植的 sre。 */
+export function dodCoverageProblems(hub: Hub, ts: PyDict, report: PyValue): string[] {
+  let dod: PyValue;
+  try {
+    dod = or(pyGet(loads(readText(contractPaths(hub, ts)[1])), "definition_of_done"), []);
+  } catch (error) {
+    if (isValueError(error) || (error instanceof PyCrash && error.kind === "KeyError")) return [];
+    throw error;
+  }
+  const ids = pyIter(dod).filter((item) => item instanceof Map && pyTruthy(pyGet(item, "id"))).map((item) => pyStrValue(pyGet(item, "id")));
+  const missing = ids.filter((id) => compilePy(`(?<![A-Za-z0-9])${reEscape(id)}(?![0-9])`).search(text(report, "re")) === null);
+  if (missing.length) {
+    return [`一审报告的“DoD → 测试 → 断言”映射表漏了 ${missing.join("、")}（每条 DoD 都要写由哪条测试的哪个断言证明，或者写明“只能人工审阅”）`];
+  }
+  return [];
+}
+
+/** T002：v2 照抄 v1 的 2 次，可 v1 已经用掉 1 次，v2 只剩 1 次、失败了就没有返工余量（第 8 轮）。只接 ValueError：contract_paths 的 KeyError 照样往外抛。 */
+export function budgetProblems(hub: Hub, ts: PyDict): string[] {
+  let budget: PyValue;
+  try {
+    budget = or(pyGet(loads(readText(contractPaths(hub, ts)[1])), "budget"), new Map());
+  } catch (error) {
+    if (isValueError(error)) return ["合同 JSON 读不出来"];
+    throw error;
+  }
+  const used = budgetUsage(hub, ts);
+  const perAttempt = pyFloatOf(or(pyGet(budget, "max_wall_seconds_per_attempt"), 0n));
+  const attemptsLeft = pyIntOf(or(pyGet(budget, "max_attempts_total"), 0n)) - BigInt(used.attempts_started);
+  const wallLeft = pyFloatOf(or(pyGet(budget, "max_wall_seconds_total"), 0n)) - used.wall_seconds_used;
+  const problems: string[] = [];
+  if (attemptsLeft < BigInt(MIN_ATTEMPTS_LEFT)) {
+    problems.push(`max_attempts_total=${pyStrValue(pyGet(budget, "max_attempts_total"))}，本任务各版本已用掉 ${used.attempts_started} 次，这一版只剩 ${attemptsLeft} 次：至少留 ${MIN_ATTEMPTS_LEFT} 次`);
+  }
+  if (wallLeft < MIN_ATTEMPTS_LEFT * perAttempt) {
+    problems.push(`max_wall_seconds_total=${pyStrValue(pyGet(budget, "max_wall_seconds_total"))}，已用掉 ${pyPercentD(used.wall_seconds_used)} 秒，`
+      + `只剩 ${pyPercentD(wallLeft)} 秒：至少留 ${MIN_ATTEMPTS_LEFT} 次单次时限（${pyPercentD(MIN_ATTEMPTS_LEFT * perAttempt)} 秒）`);
+  }
+  return problems;
+}
+
+/** msg_id 是不是发给站主的“提问”。文件名照 Python 拼（"%s.md"）；msg_id 是假值时两个信箱都不看。 */
+export function answersQuestion(hub: Hub, msgId: PyValue): boolean {
+  for (const box of ["new", "cur"]) {
+    const path = purePathStr(hub.inbox(OWNER, box), `${pyStrValue(msgId)}.md`);
+    if (!pyTruthy(msgId) || !isFile(path)) continue;
+    try {
+      return pyEq(parseLetter(readText(path))[0].get("type") ?? null, "提问");
+    } catch (error) {
+      if (error instanceof HubError) return false;
+      throw error;
+    }
+  }
+  return false;
 }
 

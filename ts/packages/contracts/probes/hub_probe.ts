@@ -18,8 +18,13 @@ import {
 } from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
 import {
-  decisionsSection, externalFactProblems, normalizeIdentity, normalizeMarkup, pytestOutcomes, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
+  answersQuestion, budgetProblems, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems, normalizeIdentity, normalizeMarkup,
+  pytestOutcomes, scopeMissingPrefix, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
 } from "@themis/hub/contract";
+import {
+  CONFIG_ACTION_FAMILIES, TS_CONFIG_COMMANDS, TS_DISPATCHER_COMMANDS, TS_ONLY_COMMANDS, TS_READONLY_COMMANDS, argvImpl, readKernelImpl,
+} from "@themis/dispatcher/kernel-impl";
+import { DispatchError } from "@themis/dispatcher/repo";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
 import { removeInputs, stageInputs } from "@themis/hub/inputs";
@@ -237,10 +242,25 @@ export function hubShadowRoute(request: Record<string, unknown>, toTagged: (valu
   }
 }
 
-/** hub.audit（第 ⑤c 片）：按函数名调 @themis/hub/audit，与 python_probe.py 的 op_hub_audit 一一对应。 */
+/** hub.audit（第 ⑤c 片）：按函数名调 @themis/hub/audit，与 python_probe.py 的 op_hub_audit 一一对应。home 只在调用期间设（⑤e1b，照 hub.turn）。 */
 export async function hubAudit(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
+  const home = typeof request["home"] === "string" ? request["home"] : null;
+  const saved = [process.env["USERPROFILE"], process.env["HOME"]] as const;
+  if (home !== null) process.env["USERPROFILE"] = process.env["HOME"] = home;
+  try {
+    return await auditCall(request, fromTagged, toTagged);
+  } finally {
+    if (home !== null) {
+      for (const [name, before] of [["USERPROFILE", saved[0]], ["HOME", saved[1]]] as const) {
+        if (before === undefined) delete process.env[name];
+        else process.env[name] = before;
+      }
+    }
+  }
+}
+
+async function auditCall(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
   const args = (request["args"] as never[]).map(fromTagged);
-  if (typeof request["home"] === "string") process.env["USERPROFILE"] = process.env["HOME"] = request["home"];
   const text = (value: PyValue | undefined): string => value as string;
   const optional = (value: PyValue | undefined): string | null => (value === null || value === undefined ? null : (value as string));
   const lines = (value: PyValue | undefined): string[] => value as string[];
@@ -369,6 +389,15 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
   }
 }
 
+/** sorted(元组)：逐项按码点比，短的是前缀时排前面。 */
+function compareWords(left: string[], right: string[]): number {
+  for (let at = 0; at < Math.min(left.length, right.length); at += 1) {
+    const order = cmpCodePoints(left[at] as string, right[at] as string);
+    if (order !== 0) return order;
+  }
+  return left.length - right.length;
+}
+
 /** hub.contract（第 ⑤e 片）：合同与战前门禁，与 python_probe.py 的 op_hub_contract 一一对应。参数照原值交给函数，类型不对时由它照 Python 抛。 */
 export function hubContract(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Result {
   const args = (request["args"] as never[]).map(fromTagged);
@@ -380,7 +409,8 @@ export function hubContract(request: Record<string, unknown>, fromTagged: (tagge
         value = args.length > 1 ? tail(a, b) : tail(a);
         break;
       case "tail_file":
-        value = tailFile(textOf(a), args[1] ?? 30n, (args[2] ?? 65536n) as number | bigint);
+        // 显式给的 null 照传（Python 遇到 None 报 TypeError），没给的才用缺省值
+        value = tailFile(textOf(a), args.length > 1 ? (args[1] as PyValue) : 30n, (args.length > 2 ? args[2] : 65536n) as number | bigint);
         break;
       case "normalize_identity":
         value = normalizeIdentity(a, b);
@@ -406,6 +436,39 @@ export function hubContract(request: Record<string, unknown>, fromTagged: (tagge
       case "pytest_outcomes":
         value = pytestOutcomes(textOf(a));
         break;
+      case "contract_paths":
+        value = contractPaths(new Hub(textOf(a)), b);
+        break;
+      case "scope_missing_prefix":
+        value = scopeMissingPrefix(new Hub(textOf(a)), b);
+        break;
+      case "contract_requirements":
+        value = contractRequirements(new Hub(textOf(a)), b as PyDict);
+        break;
+      case "dod_coverage_problems":
+        value = dodCoverageProblems(new Hub(textOf(a)), b as PyDict, args[2] as PyValue);
+        break;
+      case "budget_problems":
+        value = budgetProblems(new Hub(textOf(a)), b as PyDict);
+        break;
+      case "answers_question":
+        value = answersQuestion(new Hub(textOf(a)), b);
+        break;
+      case "read_kernel_impl":
+        value = readKernelImpl(textOf(a));
+        break;
+      case "argv_impl":
+        value = argvImpl(a as string[], b, textOf(args[2] as PyValue));
+        break;
+      case "kernel_impl_tables": {
+        const keys = (rows: ReadonlySet<string>): PyValue[] => [...rows].map((row) => JSON.parse(row) as string[]).sort(compareWords);
+        value = new Map<string, PyValue>([
+          ["TS_READONLY_COMMANDS", keys(TS_READONLY_COMMANDS)], ["TS_ONLY_COMMANDS", keys(TS_ONLY_COMMANDS)],
+          ["TS_CONFIG_COMMANDS", keys(TS_CONFIG_COMMANDS)], ["TS_DISPATCHER_COMMANDS", keys(TS_DISPATCHER_COMMANDS)],
+          ["CONFIG_ACTION_FAMILIES", [...CONFIG_ACTION_FAMILIES].sort(cmpCodePoints)],
+        ]);
+        break;
+      }
       default:
         return { ok: false, error: "UNKNOWN_FN" };
     }
@@ -700,6 +763,8 @@ const OS_ERRORS: Readonly<Record<number, string>> = { 2: "FileNotFoundError", 13
 
 function errorResult(error: unknown): Result {
   if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
+  if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
+  if ((error as Error | null)?.name === "UnicodeDecodeError") return { ok: false, error: "UnicodeDecodeError" }; // base 的 fsutil 与 pyio 各有一个
   if (error instanceof PyCrash) return { ok: false, error: error.kind };
   if (error instanceof PyJsonError) return { ok: false, error: error.kind };
   if (error instanceof PyOSError) return { ok: false, error: OS_ERRORS[error.errno] ?? "OSError" }; // Python 按 errno 选的子类

@@ -418,7 +418,20 @@ describe("第 ⑤c 片：会话文件与 pi 的 --help", () => {
   });
 });
 
-// --- 五、TS 独有：piSupportedFlags 的缓存 ---------------------------------------------------------------------------
+// --- 五、探针的 home 只在调用期间设 -------------------------------------------------------------------------------
+
+describe("第 ⑤e1b 片：hub.audit 的 home 只在调用期间设、调用完还原", () => {
+  it("同一批里先一条带 home、再一条不带：后一条看到的是进程原来的 home（读不到那个会话号）", () => {
+    const home = join(ROOT, "audit-home");
+    const session = `audit-home-${process.pid}-${Date.now()}`;
+    mkdirSync(join(home, ".claude", "projects", "C--x"), { recursive: true });
+    writeFileSync(join(home, ".claude", "projects", "C--x", `${session}.jsonl`), JSON.stringify({ type: "assistant", effort: "max" }) + LF);
+    const results = agree([{ ...call("claude_session_effort", session), home }, call("claude_session_effort", session)]);
+    expect(results.map(valueOf)).toEqual(["max", null]);
+  });
+});
+
+// --- 六、TS 独有：piSupportedFlags 的缓存 ---------------------------------------------------------------------------
 
 describe("第 ⑤e0 片：piSupportedFlags 缓存进行中的那一次（TS 独有，对等契约看不到）", () => {
   // 假 pi：每起一次往计数文件里记一行，按第二个参数退出

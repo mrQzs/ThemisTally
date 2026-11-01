@@ -403,8 +403,8 @@ export interface JsonBuilder<V> {
   number(raw: string, isFloat: boolean): V;
 }
 
-/** json.loads 缺省的组装：dict、list、int（bigint）与 float（number）。 */
-const PY_BUILDER: JsonBuilder<PyValue> = {
+/** json.loads 缺省的组装：dict、list、int（bigint）与 float（number）。要 object_pairs_hook 的在它上面换掉 object（⑤e1b 的选择文件）。 */
+export const PY_BUILDER: JsonBuilder<PyValue> = {
   object(pairs) {
     const out: PyDict = new Map();
     for (const [key, value] of pairs) out.set(key, value); // 重复的键：Python 的 dict 保留第一次出现的位置、最后一次的值，Map.set 同样
