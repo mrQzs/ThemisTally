@@ -7,7 +7,7 @@
 // 锁互斥契约：两套实现同时往同一份配置写不同的键，读改写不丢更新，审计每笔都有 intent 与 commit。
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUN, type CliRun, REPO, prng, removeDir, runPythonCli, runConfigLauncherCli, runTsCli, SELECTORS, scratchDir } from "./harness.ts";
@@ -369,8 +369,8 @@ describe("init 与几条单独的写法", () => {
   });
 });
 
-/** 起一个写命令的进程（不等它结束）。 */
-function startWrite(runner: Runner, repo: string, command: Command): Promise<number> {
+/** 起一个写命令的进程（不等它结束）。标准错误写进 errFile（不用管道：管道写满会卡住，时序也跟 ignore 差不多）。 */
+function startWrite(runner: Runner, repo: string, command: Command, errFile: string): Promise<number> {
   const python = process.env["THEMIS_PYTHON"] ?? "python";
   const program = [
     "import sys",
@@ -385,7 +385,9 @@ function startWrite(runner: Runner, repo: string, command: Command): Promise<num
   const [exe, args] =
     runner === "python" || runner === "launcher" ? [python, ["-c", program]] : [runner === "bun" ? BUN : "node", [main, "--pyargs-b64", encoded]];
   return new Promise((done) => {
-    const child = spawn(exe, args, { cwd: repo, stdio: "ignore" });
+    const err = openSync(errFile, "w");
+    const child = spawn(exe, args, { cwd: repo, stdio: ["ignore", "ignore", err] });
+    closeSync(err);
     child.on("close", (code) => done(code ?? -1));
   });
 }
@@ -394,8 +396,13 @@ describe("锁互斥契约", () => {
   it("Python、Node、Bun 同时往同一份配置各写不同的键：读改写不丢更新，审计每笔都有 intent 与 commit", async () => {
     const repo = gitRepo("race");
     const runners: Runner[] = [...RUNNERS, ...RUNNERS, ...RUNNERS];
-    const codes = await Promise.all(runners.map((runner, index) => startWrite(runner, repo, set(`pricing.s/race${index}`, PRICE("race")))));
-    expect(codes).toEqual(runners.map(() => 0));
+    const errDir = join(ROOT, "race-stderr");
+    mkdirSync(errDir, { recursive: true });
+    const errFile = (index: number): string => join(errDir, `${index}.log`);
+    const codes = await Promise.all(runners.map((runner, index) => startWrite(runner, repo, set(`pricing.s/race${index}`, PRICE("race")), errFile(index))));
+    // 负载重时偶发一个写进程退出码是 1（迁移计划第 10.1 节）：把那个进程的标准错误带进断言信息，下次红了能看到原因
+    const failed = codes.flatMap((code, index) => (code === 0 ? [] : [`#${index} ${runners[index]} 退出码 ${code}：${readFileSync(errFile(index), "utf8").slice(-4000)}`]));
+    expect(codes, failed.join(String.fromCharCode(10))).toEqual(runners.map(() => 0));
     const config = JSON.parse(readFileSync(join(repo, ".agent", "dispatch.config.json"), "utf8")) as { pricing: Record<string, unknown> };
     expect(Object.keys(config.pricing).sort()).toEqual(runners.map((_runner, index) => `s/race${index}`).sort());
     const audit = readFileSync(join(repo, ".agent", "audit", "management.jsonl"), "utf8")
