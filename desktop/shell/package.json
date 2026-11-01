@@ -1,0 +1,14 @@
+{
+  "name": "themistally-desktop-shell",
+  "private": true,
+  "version": "0.0.0",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test --test-reporter=tap tests/args.test.js tests/package.test.js tests/python.test.js tests/handshake.test.js tests/service.test.js tests/window.test.js tests/core.test.js",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.9.0"
+  }
+}
