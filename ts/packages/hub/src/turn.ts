@@ -158,16 +158,16 @@ export class TurnRunner {
       env.set("THEMIS_GUARD", guardConfig(where, this.hub.repo));
     }
     const blocked = claude ? deliveryProblem(spec.role)
-      : (await piFlagsProblem(piCmd as string[], cmd.slice((piCmd as string[]).length), env)) ?? workerFileProblem(GUARD_EXTENSION) ?? deliveryProblem(spec.role);
+      : (await piFlagsProblem(piCmd as string[], cmd.slice((piCmd as string[]).length), env)) || workerFileProblem(GUARD_EXTENSION) || deliveryProblem(spec.role);
     const out = join(turnDir, "stream.jsonl");
     const err = join(turnDir, "stderr.log");
     for (const path of [out, err]) closeSync(openSync(path, "wx"));
-    const result: PyDict = blocked !== null
+    const result: PyDict = blocked
       ? new Map<string, PyValue>([["exit_code", null], ["timed_out", false], ["wall_seconds", 0]])
       : await this.launcher(cmd, where, env, out, err, spec.timeout ?? 1800);
     const lines = jsonlLines(readText(out));
     const audit = (claude ? auditClaudeStream : auditPiStream)(lines, specDict(spec, tools), where, this.hub.repo);
-    if (blocked !== null) audit.set("api_error", blocked); // 按接口报错走：不重试，阶段标为 failed，直接交给站主
+    if (blocked) audit.set("api_error", blocked); // 按接口报错走：不重试，阶段标为 failed，直接交给站主
     else if (!pyTruthy(pyGet(audit, "api_error"))) audit.set("api_error", interfaceProblem(specDict(spec), audit, result));
     if (claude) {
       audit.set("effort_requested", spec.effort ?? null);

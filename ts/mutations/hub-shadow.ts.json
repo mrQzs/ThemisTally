@@ -85,8 +85,8 @@
     {
       "name": "S16 出错的那一轮不另存",
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
-      "old": "?.length) || streak === 1);",
-      "new": "?.length));"
+      "old": "Boolean(mismatched) || streak === 1);",
+      "new": "Boolean(mismatched));"
     },
     {
       "name": "S17 审计的工具表退回名册原样（不加交差工具）",
@@ -109,7 +109,7 @@
     {
       "name": "S20 去掉内核闸门",
       "file": "ts/packages/contracts/tools/hub-shadow.ts",
-      "old": "if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;",
+      "old": "if (against && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;",
       "new": "if (false) otherKernel += 1;"
     },
     {
@@ -207,6 +207,54 @@
       "file": "ts/packages/hub/src/letters.ts",
       "old": "  const lines = [\"---\", ...META_KEYS.map((key) => `${key}: ${meta.get(key) ?? \"\"}`), \"---\"];",
       "new": "  const lines = [\"---\", ...META_KEYS.map((key) => `${key}: ${meta.get(key) ?? \"\"}`)];"
+    },
+    {
+      "name": "S34 watch 的累计只记最后一轮",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    total.compared += entry.compared;",
+      "new": "    total.compared = entry.compared;"
+    },
+    {
+      "name": "S35 watch 不累计",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "        tally(watch, report);",
+      "new": "        // 不累计"
+    },
+    {
+      "name": "S36 每轮不往标准输出写那一行数量",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "      process.stdout.write(`${JSON.stringify({ round: watch.rounds",
+      "new": "      void (`${JSON.stringify({ round: watch.rounds"
+    },
+    {
+      "name": "S37 --records-since 正好在那个时刻结束的不算",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "ended >= since);",
+      "new": "ended > since);"
+    },
+    {
+      "name": "S38 没给 --records-since 时回合也与 result.json 比",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    const against = againstRecords || (since !== null",
+      "new": "    const against = againstRecords || (since === null"
+    },
+    {
+      "name": "S39 另存快照时不带会话文件",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (typeof session === \"string\" && session && adapter) copySessions(",
+      "new": "if (typeof session === \"string\" && session && adapter && false) copySessions("
+    },
+    {
+      "name": "S40 复制会话文件不照原文件设修改时刻",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "    utimesSync(to, info.atimeMs / 1000, info.mtimeMs / 1000);",
+      "new": "    void info;"
+    },
+    {
+      "name": "S41 读不出结束时刻的回合不计数",
+      "file": "ts/packages/contracts/tools/hub-shadow.ts",
+      "old": "if (since !== null && !againstRecords && Number.isNaN(ended)) noTime += 1;",
+      "new": "if (false) noTime += 1;"
     }
   ]
 }

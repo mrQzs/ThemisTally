@@ -85,8 +85,8 @@
     {
       "name": "T13 起 pi 之前不核对守卫扩展",
       "file": "ts/packages/hub/src/turn.ts",
-      "old": " ?? workerFileProblem(GUARD_EXTENSION) ?? deliveryProblem(spec.role);",
-      "new": " ?? deliveryProblem(spec.role);"
+      "old": " || workerFileProblem(GUARD_EXTENSION) || deliveryProblem(spec.role);",
+      "new": " || deliveryProblem(spec.role);"
     },
     {
       "name": "T14 被拦下的回合用时记 1 秒",

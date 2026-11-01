@@ -4,7 +4,7 @@
 import { chmodSync, copyFileSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type PyDict, type PyValue, dumps } from "@themis/base/pyjson";
-import { pyItem, pyStrValue } from "@themis/base/pyfmt";
+import { pyItem, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { isLinkOrJunction, purePathName, purePathRelativePosix, purePathStr } from "@themis/base/pypath";
 import { cmpCodePoints } from "@themis/base/pyre";
 import { worktreeRoot as dispatcherWorktreeRoot } from "@themis/dispatcher/command-runner";
@@ -35,7 +35,7 @@ export function inputSources(hub: Hub, ts: PyDict): string[] {
   const sources = globPaths(tasks, [`${task}*`]).sort(comparePaths)
     .filter((path) => isDir(path) && (purePathName(path) === task || purePathName(path).startsWith(`${task}-`)));
   const contractTask = ts.get("contract_task");
-  if (typeof contractTask === "string" ? contractTask : contractTask !== null && contractTask !== undefined && contractTask !== false) {
+  if (pyTruthy(contractTask)) {
     const name = pyStrValue(contractTask as PyValue);
     const plans = join(hub.repo, ".agent", "plans");
     sources.push(...globPaths(plans, [`${name}.v*.md`]).sort(comparePaths), ...globPaths(plans, [`${name}.v*.json`]).sort(comparePaths));

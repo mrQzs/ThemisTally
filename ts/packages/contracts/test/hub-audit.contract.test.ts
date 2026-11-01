@@ -4,15 +4,16 @@
 //   - tests/test_kit_hub.py 里不经 Engine 的审计用例：Python 探针跑一遍，记下它们对审计函数的每一次顶层调用，三边重放；
 //   - guard.ts（第 106 轮的守卫扩展）用同一份 guard_config 判同一批调用，拦下的说明与 piReachProblem 逐字相同；
 //   - 按种子生成、再随机换掉值的类型的 claude 与 pi 事件流，加坏行、断行字符与嵌套；手写的边界；
-//   - 会话文件（临时的 USERPROFILE 与信箱）；pi 的 --help（假的 pi）。
+//   - 会话文件（临时的 USERPROFILE 与信箱）；pi 的 --help（假的 pi）；
+//   - TS 独有（⑤e0）：piSupportedFlags 并发调同一个 pi 命令只起一次、非零退出缓存成 null、探的时候抛了异常不留缓存。
 // 已知差异（迁移计划第 10 节）：Node 后备的 normcase 用 toLowerCase，带 İ、ẞ 的路径只比 Python 与 Bun；嵌套在 900 到 2997 层
 // 之间时 Python 的结果随调用栈深度变，生成的嵌套避开这一段；NaN 不进 claude 的模型名（Python 的集合次序随散列变）。
 import { spawnSync } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type PyDict, type PyValue, dumps } from "@themis/base/pyjson";
-import { guardConfig } from "@themis/hub/audit";
+import { guardConfig, piSupportedFlags } from "@themis/hub/audit";
 import { GUARD_PREFIX, GUARD_SUFFIX } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
@@ -414,5 +415,50 @@ describe("第 ⑤c 片：会话文件与 pi 的 --help", () => {
       call("pi_flags_problem", [python, fake, "ok"], ["--model", "m", "-p", "--no-mcp"]),
     ]);
     expect(results.map((result) => valueOf(result) === null)).toEqual([false, false, true]);
+  });
+});
+
+// --- 五、TS 独有：piSupportedFlags 的缓存 ---------------------------------------------------------------------------
+
+describe("第 ⑤e0 片：piSupportedFlags 缓存进行中的那一次（TS 独有，对等契约看不到）", () => {
+  // 假 pi：每起一次往计数文件里记一行，按第二个参数退出
+  const fake = join(ROOT, "fake_pi_count.py");
+  writeFileSync(fake, ["import sys", "open(sys.argv[1], 'a').write('x' + chr(10))", "print('Usage: pi [options]')", "print('  --model <id>      model')",
+    "sys.exit(int(sys.argv[2]))", ""].join(LF));
+  const python = process.env["THEMIS_PYTHON"] ?? "python";
+  const env = new Map(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  const starts = (count: string): number => (existsSync(count) ? readFileSync(count, "utf8").split(LF).filter(Boolean).length : 0);
+  const restore = (name: string, value: string | undefined): void => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  };
+
+  it("同一个 pi 命令并发调两次只起一次；非零退出缓存成 null，再调也不重探", async () => {
+    const count = join(ROOT, "pi-starts-ok");
+    const cmd = [python, fake, count, "0"];
+    const [first, second] = await Promise.all([piSupportedFlags(cmd, env), piSupportedFlags(cmd, env)]);
+    expect(first?.has("--model")).toBe(true);
+    expect(second).toBe(first);
+    expect(starts(count)).toBe(1);
+    const failing = [python, fake, join(ROOT, "pi-starts-fail"), "1"];
+    expect(await piSupportedFlags(failing, env)).toBeNull();
+    expect(await piSupportedFlags(failing, env)).toBeNull();
+    expect(starts(failing[2] as string)).toBe(1);
+  });
+
+  it("探的时候抛了异常（临时目录建不出来）不留缓存：下一次照样重探", async () => {
+    const count = join(ROOT, "pi-starts-retry");
+    const cmd = [python, fake, count, "0"];
+    const [temp, tmp] = [process.env["TEMP"], process.env["TMP"]];
+    process.env["TEMP"] = process.env["TMP"] = join(ROOT, "no-such-dir");
+    try {
+      await expect(piSupportedFlags(cmd, env)).rejects.toThrow();
+    } finally {
+      restore("TEMP", temp);
+      restore("TMP", tmp);
+    }
+    expect(starts(count), "第一次没起来 pi").toBe(0);
+    expect((await piSupportedFlags(cmd, env))?.has("--model")).toBe(true);
+    expect(starts(count)).toBe(1);
   });
 });

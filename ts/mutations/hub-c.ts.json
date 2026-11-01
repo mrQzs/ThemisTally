@@ -232,6 +232,18 @@
       "file": "ts/packages/hub/src/audit.ts",
       "old": "  if (supported === null) return `读不出本机 pi 的 --help",
       "new": "  if (supported === undefined) return `读不出本机 pi 的 --help"
+    },
+    {
+      "name": "C38 piSupportedFlags 不缓存进行中的那一次",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "  let pending = PI_FLAGS.get(key);",
+      "new": "  let pending: Promise<Set<string> | null> | undefined;"
+    },
+    {
+      "name": "C39 探的时候出了异常也留着缓存",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "    pending.catch(() => PI_FLAGS.delete(key));",
+      "new": "    pending.catch(() => undefined);"
     }
   ]
 }

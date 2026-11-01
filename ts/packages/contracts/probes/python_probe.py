@@ -1406,8 +1406,6 @@ def op_hub_turn(request):
     sources = request.get("sources")  # 不给时什么都不换：形状核对用真的来源
     real_urandom = os.urandom
     saved = (kit_hub.utc_compact, os.urandom, uuid_module.uuid4, time.time)
-    if request.get("home") is not None:
-        os.environ["USERPROFILE"] = os.environ["HOME"] = request["home"]
     ledger = hub.ledger()
     offset = ledger.stat().st_size if ledger.exists() else 0
     agent, key, workspace, role, prompt, retry_of, fresh, inputs, session_id = [from_tagged(item) for item in request["args"]]
@@ -1415,7 +1413,8 @@ def op_hub_turn(request):
     saved_tables = [(table, {name: table.get(name, None) for name in given}, set(given) - set(table)) for table, given in overrides]
     for table, given in overrides:
         table.update(given)
-    given_env = request.get("env") or {}
+    # home 也在调用期间设、调用完还原：同一批里下一个没带 home 的请求不沿用
+    given_env = dict(request.get("env") or {}, **({"USERPROFILE": request["home"], "HOME": request["home"]} if request.get("home") is not None else {}))
     saved_env = {name: os.environ.get(name) for name in given_env}
     os.environ.update(given_env)
     if sources is not None:

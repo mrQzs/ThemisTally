@@ -456,7 +456,6 @@ export async function hubTurn(request: Record<string, unknown>, fromTagged: (tag
   const given = request["sources"] as Record<string, unknown> | undefined; // 不给时用真的来源：形状核对用
   const sources: TurnSources = given === undefined ? REAL_SOURCES
     : { compact: () => String(given["compact"]), random2: () => String(given["random2"]), uuid4: () => String(given["uuid4"]), seconds: () => Number(given["seconds"]) };
-  if (typeof request["home"] === "string") process.env["USERPROFILE"] = process.env["HOME"] = request["home"];
   const ledger = hub.ledger();
   const offset = existsSync(ledger) ? statSync(ledger).size : 0;
   const [agent, key, workspace, role, prompt, retryOf, fresh, inputs, sessionId] = (request["args"] as never[]).map(fromTagged);
@@ -469,7 +468,9 @@ export async function hubTurn(request: Record<string, unknown>, fromTagged: (tag
   const savedShas = Object.keys(givenShas).map((name) => [name, shas.has(name) ? shas.get(name) : undefined] as const);
   Object.assign(roster, givenRoster);
   for (const [name, value] of Object.entries(givenShas)) shas.set(name, value);
-  const givenEnv = (request["env"] ?? {}) as Record<string, string>;
+  // home 也在调用期间设、调用完还原：同一批里下一个没带 home 的请求不沿用
+  const home = typeof request["home"] === "string" ? { USERPROFILE: request["home"], HOME: request["home"] } : {};
+  const givenEnv = { ...((request["env"] ?? {}) as Record<string, string>), ...home };
   const savedEnv = Object.keys(givenEnv).map((name) => [name, process.env[name]] as const);
   Object.assign(process.env, givenEnv);
   let summary: PyDict;

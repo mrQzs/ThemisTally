@@ -6,7 +6,8 @@
 //   - --watch 两轮：第二轮只重算状态变了的主任务；新出现的 letter.rejected 用上一份与这一份快照各算一次 guard，原因只在上一份上
 //     对得上的也算一致，都对不上的记“时序”；某一轮出错只记错误的类型、接着跑，那一轮不算数，下一轮补比；
 //   - --watch 开始以后才结束的回合：TS 的审计与 Python 照 run_turn 写下的 result.json 比（审计带交差工具 deliver、事件流里有单独的
-//     CR 分行），一致；result.json 被改过的报出来；hub_sha256 是别的内核的只计数、不比；
+//     CR 分行），一致；result.json 被改过的报出来；hub_sha256 是别的内核的只计数、不比；--once 加 --records-since 时，finished_at 不早于
+//     那个时刻的回合也这样比（事后补比 watch 的那一段）；--watch 每轮往标准输出写一行数量，latest.json 的 watch 段带累计计数；
 //   - 影子的输出放在 .agent/runs/_shadow/ 时，status --json、metrics、decisions replay --json 在 Python 与经启动器的 TS 下相同、
 //     不提 _shadow（prepare 与 integrate 两处在各自的契约里带着 _shadow 跑）。
 //   - 对不上时另存快照：同一个差异键只存第一次、不是回合类的不带回合与会话、不带 .git、满 10 份只记报告；从另存的快照重放复现同一处差异。
@@ -144,6 +145,13 @@ function recordedTurn(fx: Fixture, id: string): string {
   return join(to, "result.json");
 }
 
+/** 改写一份 result.json（照 hub 的样子写成一行 JSON）。 */
+function rewrite(path: string, change: (record: Record<string, unknown>) => void): void {
+  const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  change(record);
+  writeFileSync(path, JSON.stringify(record));
+}
+
 /** 假 pi：--help 认 TurnRunner 给 pi 的全部参数。 */
 const FAKE_PI = ((): string => {
   const path = join(ROOT, "fake_pi.py");
@@ -200,6 +208,28 @@ describe("⑤-影子：静态重放", () => {
     expect(status).toBe(1);
     expect(report["mismatches"]).toEqual([{ category: "route.kernel 与账本", key: `账本第 ${fx.routeLine} 行`, state_sha256: report["state_sha256"] }]);
   });
+
+  it("--records-since：finished_at 不早于这个时刻的回合也与 hub 写下的 result.json、role.md 比（按时刻，不按字符串）；早一秒的不比，别的内核写下的只计数，读不出结束时刻的计数", () => {
+    const fx = fixture("since");
+    const since = "2026-10-31T12:00:00Z";
+    const ended = (at: string) => (record: Record<string, unknown>): void => void Object.assign(record, { finished_at: at });
+    rewrite(recordedTurn(fx, "20261031T000000000004Z-bb01"), ended("2026-10-31T12:00:00+00:00")); // 同一时刻的另一种写法
+    rewrite(recordedTurn(fx, "20261031T000000000005Z-bb02"), (record) => {
+      ended(since)(record);
+      (record["violations"] as string[]).push("编出来的违规");
+    });
+    rewrite(recordedTurn(fx, "20261031T000000000006Z-bb03"), (record) => Object.assign(record, { finished_at: "2026-10-31T11:59:59Z", violations: ["早一秒结束，不比"] }));
+    rewrite(recordedTurn(fx, "20261031T000000000007Z-bb04"), (record) => Object.assign(record, { finished_at: since, hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
+    const { status, report } = runShadow(fx, ["--once", "--records-since", since]);
+    expect(status).toBe(1);
+    // 夹具原有的两个回合（gate-sonnet 的 aaaa、planner-opus 的 bbbb）的 result.json 没有 finished_at
+    expect(report["records_since"]).toEqual({ at: "2026-10-31T12:00:00.000Z", no_finished_at: 2 });
+    const categories = report["categories"] as Record<string, unknown>;
+    expect(categories["回合与 result.json"]).toMatchObject({ compared: 2, mismatched: 1 });
+    expect(categories["回合与 role.md"]).toMatchObject({ compared: 2, mismatched: 0 });
+    expect(report["result_json_other_kernel"]).toBe(1);
+    expect(report["mismatches"]).toEqual([{ category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-bb02：violations", state_sha256: report["state_sha256"] }]);
+  }, 180_000);
 });
 
 describe("⑤-影子：对不上时另存快照", () => {
@@ -266,12 +296,17 @@ describe("⑤-影子：对不上时另存快照", () => {
   });
 });
 
-/** 起影子（不等），交回等它退出的 Promise。 */
-function startShadow(fx: Fixture, args: readonly string[], env: Record<string, string>): Promise<number> {
+/** 在后台起影子，交回退出码；给了 lines 时把标准输出按行收进去。 */
+function startShadow(fx: Fixture, args: readonly string[], env: Record<string, string>, lines?: string[]): Promise<number> {
   const child = spawn(PYTHON, [join(PROBES, "backup_privilege.py"), "off", BUN, TOOL, "--repo", fx.repo, "--out", join(fx.repo, "shadow-out"), ...args], {
-    env: { ...process.env, USERPROFILE: fx.home, ...env }, stdio: "ignore",
+    env: { ...process.env, USERPROFILE: fx.home, ...env }, stdio: ["ignore", lines ? "pipe" : "ignore", "ignore"],
   });
-  return new Promise((done) => child.on("close", (code) => done(code ?? -1)));
+  let text = "";
+  child.stdout?.on("data", (chunk: Buffer) => (text += chunk.toString("utf8")));
+  return new Promise((done) => child.on("close", (code) => {
+    lines?.push(...text.split(LF).filter(Boolean));
+    done(code ?? -1);
+  }));
 }
 
 async function waitFor(path: string): Promise<void> {
@@ -318,10 +353,11 @@ describe("⑤-影子：快照前后要一致", () => {
 });
 
 describe("⑤-影子：--watch", () => {
-  it("第二轮只重算状态变了的主任务；拒信的原因只在上一份快照上对得上也算一致，对不上的记“时序”", async () => {
+  it("第二轮只重算状态变了的主任务；拒信的原因只在上一份快照上对得上也算一致，对不上的记“时序”；每轮一行数量，watch 段带累计计数", async () => {
     const fx = fixture("watch");
     const out = join(fx.repo, "shadow-out");
-    const exited = startShadow(fx, ["--watch", "--interval", "1", "--rounds", "2"], {});
+    const lines: string[] = [];
+    const exited = startShadow(fx, ["--watch", "--interval", "1", "--rounds", "2"], {}, lines);
     await waitFor(join(out, "latest.json"));
     const before = (fx.state.get("tasks") as PyDict).get("T002") as PyDict;
     const rejectMeta = new Map([["from", COORDINATOR], ["to", "planner-opus"], ["task-id", "T002-1-plan"], ["type", "开工"]]);
@@ -342,7 +378,19 @@ describe("⑤-影子：--watch", () => {
     expect(categories["主任务"]?.compared, "只重算 T002 与不存在的主任务").toBe(2);
     expect(categories["时序"]).toMatchObject({ compared: 2, mismatched: 1 });
     expect(report["mismatches"]).toEqual([{ category: "时序", key: `账本第 ${fx.nextLine + 1} 行`, state_sha256: report["state_sha256"] }]);
-  });
+    // latest.json 每轮被盖掉：标准输出逐轮留一行，watch 段累计两轮（第一轮整份比了三个主任务，第二轮两个；时序只在第二轮）
+    const rounds = lines.map((text) => JSON.parse(text) as { round: number; mismatches: number; categories: unknown });
+    expect(rounds.map(({ round, mismatches }) => [round, mismatches])).toEqual([[1, 0], [2, 1]]);
+    expect(rounds[1]?.categories).toEqual(report["categories"]);
+    expect((report["watch"] as { totals: Record<string, unknown> }).totals).toMatchObject({
+      状态: { compared: 2, mismatched: 0 }, 主任务: { compared: 5, mismatched: 0 }, 时序: { compared: 2, mismatched: 1 },
+    });
+    // 从另存的快照重放：上一份快照照 manifest 重建，同一处“时序”复现，只对得上上一份快照的那封仍算一致
+    const replay = replayKept(fx, join(out, "snapshots", String(report["snapshot"])));
+    expect(replay.status).toBe(1);
+    expect(replay.report["mismatches"]).toEqual(report["mismatches"]);
+    expect((replay.report["categories"] as Record<string, unknown>)["时序"]).toMatchObject({ compared: 2, mismatched: 1 });
+  }, 180_000);
 
   it("watch 开始以后才结束的回合：TS 的审计与 hub 写下的 result.json 一致；被改过的报出来，别的内核写下的只计数", async () => {
     const fx = fixture("watch-record");
@@ -351,11 +399,6 @@ describe("⑤-影子：--watch", () => {
     await waitFor(join(out, "latest.json"));
     recordedTurn(fx, "20261031T000000000004Z-aa01");
     const tampered = recordedTurn(fx, "20261031T000000000005Z-aa02");
-    const rewrite = (path: string, change: (record: Record<string, unknown>) => void): void => {
-      const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-      change(record);
-      writeFileSync(path, JSON.stringify(record));
-    };
     rewrite(tampered, (record) => (record["violations"] as string[]).push("编出来的违规"));
     writeFileSync(join(tampered, "..", "role.md"), "被改过的角色提示词"); // role.md 也改掉：“回合与 role.md”要报出来
     rewrite(recordedTurn(fx, "20261031T000000000006Z-aa03"), (record) => Object.assign(record, { hub_sha256: "0".repeat(64), violations: ["旧内核写的"] }));
@@ -382,6 +425,9 @@ describe("⑤-影子：--watch", () => {
     const kept = join(out, "snapshots", String(report["snapshot"]));
     expect(readdirSync(join(kept, "repo", ".agent", "mailbox", "turns", "gate-sonnet")).sort()).toEqual(["20261031T000000000005Z-aa02", "20261031T000000000007Z-aa04"]);
     expect(existsSync(join(kept, "previous-state.json"))).toBe(true);
+    // aa04 的会话文件随回合另存，修改时刻照原文件：重放时“会话文件比 result.json 新”与当时一样
+    const session = (root: string): string => join(root, ".agent", "mailbox", "sessions", "gate-sonnet", "20261031_p-sid-9.jsonl");
+    expect(Math.abs(statSync(session(join(kept, "repo"))).mtimeMs - statSync(session(fx.repo)).mtimeMs)).toBeLessThan(2);
     rmSync(join(fx.repo, ".agent", "mailbox"), { recursive: true, force: true }); // 回合、会话都只从另存的那份读
     const replay = replayKept(fx, kept);
     expect(replay.status).toBe(1);

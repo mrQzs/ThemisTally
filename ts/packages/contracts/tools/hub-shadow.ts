@@ -2,7 +2,8 @@
 // 结果，攒“TS hub 会做出同样决定”的证据。只读：不拿 hub 的锁、不写信箱，结果写到 <仓库>/.agent/runs/_shadow/。
 // 用法（外面套 backup_privilege.py off：与以后经 Start-Process 起的 TS hub 同一种令牌，读不穿别的进程的独占打开）：
 //   python ts/packages/contracts/probes/backup_privilege.py off bun ts/packages/contracts/tools/hub-shadow.ts --repo <仓库> --once
-//   ……同上，--watch [--interval 30] [--rounds N]（算满 N 轮就停，给契约用）
+//   ……同上，--once 加 --records-since <ISO 时刻>：这个时刻之后结束的回合也与 hub 写下的 result.json、role.md 比（事后补比 watch 那一段）
+//   ……同上，--watch [--interval 30] [--rounds N]（算满 N 轮就停，给契约用）：每轮往标准输出写一行数量，latest.json 的 watch 带累计计数
 // 比什么：状态（读出与账本）；每个主任务的只读结论与 guard 的整张表；每封信的读出、解析、往返、形状校验；写给协调人的信单独成批时
 // 的内核代办与任务书；账本里每次 route.kernel 的那批信重算的下一步（还要与账本记的一致，partial 时是它的前缀）；已结束回合的审计、
 // 半截会话与生效档位。--watch 时只算变了的部分，另比新出现的 letter.rejected：上一份与这一份快照的状态各算一次 guard，对上一个
@@ -10,6 +11,12 @@
 // 内核写下的）。前面几类是两边探针彼此一致，这两类是 TS 与真实 hub 的决定一致。
 // 探针不开在用的文件：状态与账本复制进临时的快照仓库，信件与事件流由这里经 fs 读出、按原始字节传过去，会话文件按会话号复制进
 // 临时目录，用完删掉。结果只写数量、对不上的键（主任务号、信的文件名、回合号）与快照的哈希，不写内容。
+// “回合与 role.md”拿 TS 此刻算的 role_prompt 比回合当时写下的 role.md，而“同一版内核”只看 hub_sha256（kit_hub.py 的哈希）：模板
+// （scripts/hub/*.md）或已提交的 AGENTS.md 改了、kit_hub.py 没改，之前结束的回合会报对不上，其实是时序。--records-since 补比要赶在这类
+// 改动之前；真碰上了再加区分（Python 此刻重算的也对不上 role.md 就记“时序”）。
+// 重放的限度：规划端提示词“过渡期”一节读工作目录（manifest.repo，即主仓库）的 tests/test_gate_*.py 与 desktop/web/tests，--snapshot
+// 读的是此刻的主仓库；这些测试在另存之后改过（例如又有切片落地），提示词一类可能复现不出来。碰上了，在快照的副本里把 manifest.repo
+// 指向检出 manifest.head 的临时目录再重放。
 // --watch 的某一轮出错（探针失败、回合目录在列出与读取之间被清掉……）只记错误的类型，接着跑；出错的那一轮不算数，下一轮从上一次
 // 成功的那份快照比起。退出码：0 一致，1 有对不上的，2 出错（--once），3 快照不稳。
 // 对不上的那一轮另存一份快照（<输出目录>/snapshots/<时刻>/），给事后重放：同一个差异键只存第一次，最多 10 份、合计 2 GB，到了只记报告；
@@ -420,10 +427,13 @@ function textOf(bytes: Buffer): string {
 /**
  * 回合：审计重算、半截会话、claude 的生效档位。会话文件按会话号复制进临时的 home 与快照仓库，两边看同一份字节。
  * againstRecords（--watch 有了上一份快照之后，即 watch 开始以后才结束的回合）时，TS 的结果还要与 hub 当时写下的 result.json 比；
- * 别的内核写下的不比。交回别的内核写下的个数，与对不上的回合比对时读到的文件（每批比完只留对不上的，内存只占一批）。
+ * 别的内核写下的不比。--once 给了 --records-since 时（since 是毫秒），result.json 的 finished_at 不早于它的回合也这样比：watch 只在
+ * 每轮的报告里记数，事后补比一段时间里结束的全部回合靠它。交回别的内核写下的个数、给了 since 却读不出结束时刻的回合数，与对不上的回合
+ * 比对时读到的文件（每批比完只留对不上的，内存只占一批）。
  */
-function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: string, turns: readonly Turn[], againstRecords: boolean): { otherKernel: number; missed: TurnFiles[] } {
+function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: string, turns: readonly Turn[], againstRecords: boolean, since: number | null): { otherKernel: number; noTime: number; missed: TurnFiles[] } {
   let otherKernel = 0;
+  let noTime = 0;
   const missed: TurnFiles[] = [];
   let items: Item[] = [];
   let keys: string[] = [];
@@ -452,7 +462,10 @@ function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: s
     }
     pending.push({ turn, files });
     const resultFile = files.get("result.json") as { bytes: Buffer; mtimeMs: number };
-    const result = JSON.parse(resultFile.bytes.toString("utf8")) as { workspace?: string | null; session_id?: unknown; hub_sha256?: unknown };
+    const result = JSON.parse(resultFile.bytes.toString("utf8")) as { workspace?: string | null; session_id?: unknown; hub_sha256?: unknown; finished_at?: unknown };
+    const ended = typeof result.finished_at === "string" ? Date.parse(result.finished_at) : Number.NaN;
+    if (since !== null && !againstRecords && Number.isNaN(ended)) noTime += 1;
+    const against = againstRecords || (since !== null && ended >= since);
     // 照 hub 的 run_turn：事件流按通用换行读，审计用的工具表加上交差用的工具（pi 的 deliver、claude 的 StructuredOutput）
     const lines = jsonlLines(textOf((files.get("stream.jsonl") as { bytes: Buffer }).bytes));
     const tools = [...(spec.tools ?? []), spec.adapter === "claude" ? STRUCTURED_TOOL : DELIVER_TOOL];
@@ -473,8 +486,8 @@ function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: s
       items.push(audit("session_cut_short", snapRepo, turn.agent, spec.adapter, result.session_id));
       keys.push(`${turn.id} 半截会话`);
     }
-    if (againstRecords && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
-    else if (againstRecords) {
+    if (against && result.hub_sha256 !== KIT_HUB_SHA) otherKernel += 1;
+    else if (against) {
       const roleAt = items.length;
       items.push({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(turn.agent)] });
       keys.push(`${turn.id} 角色`);
@@ -488,7 +501,7 @@ function compareTurns(cmp: Comparison, source: Source, snapRepo: string, home: s
     if (size > BATCH_BYTES) flush();
   }
   flush();
-  return { otherKernel, missed };
+  return { otherKernel, noTime, missed };
 }
 
 /** TS 的审计按 run_turn 的写法折成 result.json 的那几个字段，逐个与记下的比；对不上的键只写字段名，不写值。 */
@@ -619,14 +632,14 @@ interface Source {
   readonly workspace: string;
 }
 
-function round(repo: string, previous: Previous | null, keep: string | null): { report: Record<string, unknown>; next: Previous | null } {
+function round(repo: string, previous: Previous | null, keep: string | null, since: number | null = null): { report: Record<string, unknown>; next: Previous | null } {
   const { snapshot, tries } = takeSnapshot(repo);
   if (snapshot === null) return { report: { skipped: "快照不稳，跳过", tries }, next: null }; // 与出错一样：下一轮重试
-  return compare({ snapshot, tries, files: repo, home: homedir(), git: join(repo, ".git"), workspace: repo }, previous, keep);
+  return compare({ snapshot, tries, files: repo, home: homedir(), git: join(repo, ".git"), workspace: repo }, previous, keep, since);
 }
 
-/** 用一份快照比一轮；keep 是另存快照的目录（重放时是 null，不再另存）。 */
-function compare(source: Source, previous: Previous | null, keep: string | null): { report: Record<string, unknown>; next: Previous | null } {
+/** 用一份快照比一轮；keep 是另存快照的目录（重放时是 null，不再另存）；since 见 compareTurns。 */
+function compare(source: Source, previous: Previous | null, keep: string | null, since: number | null = null): { report: Record<string, unknown>; next: Previous | null } {
   const { snapshot, tries } = source;
   const snapRepo = mkdtempSync(join(tmpdir(), "themis-shadow-snap-"));
   const home = mkdtempSync(join(tmpdir(), "themis-shadow-home-")); // 回合的会话文件复制到这里；另存也取这一份，删在最后
@@ -648,12 +661,14 @@ function compare(source: Source, previous: Previous | null, keep: string | null)
     const missing = compareRoutes(cmp, snapshot, events, previous?.ledgerLines ?? 0);
     if (previous) compareRejections(cmp, events, previous.ledgerLines, [previous.snapshot.state, snapshot.state]);
     const turns = endedTurns(source.files).filter((turn) => previous?.turns.get(turn.id) !== turn.size);
-    const { otherKernel, missed } = compareTurns(cmp, source, snapRepo, home, turns, previous !== null);
+    const { otherKernel, noTime, missed } = compareTurns(cmp, source, snapRepo, home, turns, previous !== null, since);
     const report: Record<string, unknown> = {
       at: new Date().toISOString(), state_sha256: snapshot.stateSha, ledger_bytes: snapshot.ledger.length, letters: snapshot.letters.size, tries,
       categories: Object.fromEntries(cmp.counts), shadow_peak_mb: Math.round(process.resourceUsage().maxRSS / 1024), guard_combos: guardCombos, mismatches: cmp.mismatches, route_letters_missing: missing,
       result_json_other_kernel: otherKernel,
     };
+    // 读不出结束时刻（没有 finished_at 或解析不了）的回合不补比，计数写明，不悄悄漏掉
+    if (since !== null) report["records_since"] = { at: new Date(since).toISOString(), no_finished_at: noTime };
     if (keep !== null && cmp.mismatches.length) report["snapshot"] = keepSnapshot(keep, source, previous, snapRepo, home, missed, cmp.mismatches, String(report["at"]));
     const seen = new Map(previous?.turns ?? []);
     for (const turn of turns) seen.set(turn.id, turn.size);
@@ -800,6 +815,33 @@ function quickPrint(mailbox: string): string {
   return `${sha256(readOr(join(mailbox, "ledger", "state.json")))}:${existsSync(ledger) ? statSync(ledger).size : 0}`;
 }
 
+interface Watch {
+  readonly started: string;
+  rounds: number;
+  errors: number;
+  last_round: string;
+  /** 跑完的各轮里每类累计比过几个、对不上几个（出错、跳过的轮不算）。 */
+  readonly totals: Record<string, { compared: number; mismatched: number }>;
+  result_json_other_kernel: number;
+}
+
+function tally(watch: Watch, report: Record<string, unknown>): void {
+  for (const [name, entry] of Object.entries((report["categories"] ?? {}) as Record<string, { compared: number; mismatched: number }>)) {
+    const total = (watch.totals[name] ??= { compared: 0, mismatched: 0 });
+    total.compared += entry.compared;
+    total.mismatched += entry.mismatched;
+  }
+  watch.result_json_other_kernel += Number(report["result_json_other_kernel"] ?? 0);
+}
+
+/** --records-since 的 ISO 时刻，交回毫秒；没给是 null。 */
+function recordsSince(text: string | undefined): number | null {
+  if (text === undefined) return null;
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) throw new RangeError("--records-since");
+  return at;
+}
+
 function main(argv: readonly string[]): number {
   const option = (name: string): string | undefined => {
     const at = argv.indexOf(name);
@@ -831,7 +873,7 @@ function main(argv: readonly string[]): number {
   if (!argv.includes("--watch")) {
     let report: Record<string, unknown>;
     try {
-      report = round(repo, null, keep).report;
+      report = round(repo, null, keep, recordsSince(option("--records-since"))).report;
     } catch (error) {
       report = failure(error);
     }
@@ -842,8 +884,8 @@ function main(argv: readonly string[]): number {
   }
   const interval = Number(option("--interval") ?? "30") * 1000;
   const rounds = Number(option("--rounds") ?? "0");
-  // 事后要能证明影子跟完了整段，中间没有空档：latest.json 每轮都带开始时刻、已跑与出错的轮数、最后一轮的时刻
-  const watch = { started: new Date().toISOString(), rounds: 0, errors: 0, last_round: "" };
+  // 事后要能证明影子跟完了整段，中间没有空档：latest.json 每轮都带开始时刻、已跑与出错的轮数、最后一轮的时刻，以及累计的计数
+  const watch: Watch = { started: new Date().toISOString(), rounds: 0, errors: 0, last_round: "", totals: {}, result_json_other_kernel: 0 };
   let streak = 0;
   let done = 0;
   let previous: Previous | null = null;
@@ -864,6 +906,7 @@ function main(argv: readonly string[]): number {
         const result = round(repo, previous, keep);
         report = result.report;
         if (result.next) [previous, last] = [result.next, quick];
+        tally(watch, report);
         streak = 0;
       } catch (error) {
         // 这一轮不算数：previous 与 last 都不动，下一轮照样重算，把这期间的变化一起比；同一串错误只另存第一份
@@ -872,7 +915,11 @@ function main(argv: readonly string[]): number {
       }
       watch.rounds += 1;
       watch.last_round = String(report["at"] ?? new Date().toISOString());
-      write(out, { ...report, watch }, Boolean((report["mismatches"] as unknown[] | undefined)?.length) || streak === 1);
+      const mismatched = (report["mismatches"] as unknown[] | undefined)?.length ?? 0;
+      write(out, { ...report, watch }, Boolean(mismatched) || streak === 1);
+      // 每轮一行只有数量的摘要：latest.json 每轮被盖掉，重定向到文件的标准输出留下逐轮的记录
+      process.stdout.write(`${JSON.stringify({ round: watch.rounds, at: watch.last_round, mismatches: mismatched, skipped: report["skipped"] ?? null, error: report["error"] ?? null,
+        categories: report["categories"] ?? {}, result_json_other_kernel: report["result_json_other_kernel"] ?? null })}${LF}`);
       done += 1;
       if (rounds && done >= rounds) return 0;
     }
