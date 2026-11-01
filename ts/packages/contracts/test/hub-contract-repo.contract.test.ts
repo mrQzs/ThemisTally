@@ -2,8 +2,8 @@
 // contract_paths、scope_missing_prefix、contract_requirements、dod_coverage_problems、budget_problems、answers_question，pi_dispatch.py
 // 的 read_kernel_impl、argv_impl（与四张转交名单的键）交给 Python、Node、Bun，逐字比带标签的结果（崩溃比类型；HubError、DispatchError
 // 比文字与退出码）。语料：
-//   - tests/test_kit_hub.py 里调到前六个函数的 44 条用例：Python 探针记下顶层调用，三边重放；每个函数都要有 Python 重放与当时结果相同的
-//     样本（只比得上漂移了的不算）；
+//   - tests/test_kit_hub.py 里调到前六个函数的 44 条用例：Python 探针记下顶层调用，读仓库的五个函数连同调用当时的快照（带 .git，⑤e2a），
+//     三边先原地放回快照再重放；每一条都要与当时的结果相同，每个函数都要有样本；
 //   - 一个真的临时仓库上的手写对照：合同要求的各种写法（Python 的 in 与 set：字符串查子串、字典查键、null 报 TypeError；required 没写
 //     算真、写成 null 算假）、Scope 少了目录前缀（含 git 给非 ASCII 路径整条加引号、对不上的那种）、DoD 编号带正则的特殊字符、预算
 //     （runs 里有领取过的 attempt）、站主信箱里的提问；
@@ -81,35 +81,26 @@ const TESTS = [
   "test_scope_paths_missing_the_directory_prefix_are_named", "test_the_executor_letter_says_none_when_nothing_is_pending",
   "test_unsent_contracts_get_the_rostered_executor_line", "test_unverified_external_facts_wait_for_the_owner",
 ];
-/**
- * 当时的结果与 Python 重放对不上的用例（覆盖审计里记 PARTIAL；漂移的调用照样留在三边比的语料里）。重放读的是用例跑完时的合同与 runs：
- * ⑤e2 有了带 .git 的快照记录器之后，这 7 条改用调用当时的快照重放，拿掉；多了少了都要看过再改。
- */
-const DRIFTED: string[] = [
-  "test_contract_budget_counts_attempts_of_earlier_versions", // 几次调用之间改写同号合同的预算、领取新的 attempt
-  "test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt", // accept_contract 里随后把同号合同的预算改大
-  "test_contract_requirements", // 同号合同一次次改写成不同的毛病，重放只读到最后一版
-  "test_contract_runs_the_earlier_gates_as_regression_checks", // 调用之后合同补上了回归检查
-  "test_contract_with_pending_marks_is_rejected", // 调用之后合同端重交的 md 去掉了未决标注
-  "test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer", // 调用之后重交的 md 去掉了未决标注
-  "test_scope_notes_are_stripped_and_unparsed_check_ids_are_named", // 调用之后重交的 md 改对了检查行编号
-];
 const FUNCTIONS = ["contract_paths", "scope_missing_prefix", "contract_requirements", "dod_coverage_problems", "budget_problems", "answers_question"];
+/** 读仓库的五个（contract_paths 只拼路径）：调用之间合同会被改写、runs 会多出 attempt，重放要放回调用当时的仓库（⑤e1b 时有 7 条用例因此漂移）。 */
+const SNAPSHOT_FUNCTIONS = FUNCTIONS.filter((fn) => fn !== "contract_paths");
 
 describe("第 ⑤e1b 片：pytest 的场景（样例只有 tests/test_kit_hub.py 这一个来源）", () => {
-  it("记到的顶层调用三边重放逐字相同；每个函数都有 Python 重放与当时结果相同的样本", () => {
+  it("记到的顶层调用放回调用当时的快照后三边重放逐字相同，也与当时的结果相同；每个函数都有样本", () => {
     const tmp = join(ROOT, "samples");
     mkdirSync(tmp, { recursive: true });
-    const recorded = runProbe(PYTHON, { op: "hub.audit_samples", tests: TESTS, functions: FUNCTIONS, tmp }, 600_000);
+    const recorded = runProbe(PYTHON, { op: "hub.audit_samples", tests: TESTS, functions: FUNCTIONS, snapshot_functions: SNAPSHOT_FUNCTIONS, tmp }, 600_000);
     expect(recorded.ok, JSON.stringify(recorded).slice(0, 2000)).toBe(true);
     const value = valueOf(recorded) as PyDict;
     expect(value.get("skipped")).toEqual([]);
-    const calls = (value.get("calls") as PyDict[]).map((item) => ({ test: item.get("test") as string, fn: item.get("fn") as string, args: item.get("args") as PyValue[], result: item.get("result") as string }));
-    const python = agree(calls.map((item) => ({ op: "hub.contract", fn: item.fn, args: item.args.map(toTagged) })), 0.8);
-    const same = calls.map((item, at) => JSON.stringify(JSON.parse(item.result)) === JSON.stringify(python[at]));
-    expect([...new Set(calls.filter((_, at) => !same[at]).map((item) => item.test))].sort(), "当时的结果与 Python 重放").toEqual(DRIFTED);
-    const live = new Set(calls.filter((_, at) => same[at]).map((item) => item.fn));
-    expect(FUNCTIONS.filter((fn) => !live.has(fn)), "没有一条比得上当时结果的样本").toEqual([]);
+    const calls = (value.get("calls") as PyDict[]).map((item) => ({
+      test: item.get("test") as string, fn: item.get("fn") as string, args: item.get("args") as PyValue[], result: item.get("result") as string,
+      restores: item.get("restores") as string | undefined,
+    }));
+    const python = agree(calls.map((item) => ({ op: "hub.contract", fn: item.fn, args: item.args.map(toTagged), restores: item.restores === undefined ? undefined : JSON.parse(item.restores) })), 0.8);
+    const drifted = calls.filter((item, at) => JSON.stringify(JSON.parse(item.result)) !== JSON.stringify(python[at])).map((item) => item.test);
+    expect([...new Set(drifted)].sort(), "当时的结果与 Python 重放").toEqual([]);
+    expect(FUNCTIONS.filter((fn) => !calls.some((item) => item.fn === fn)), "没有顶层调用").toEqual([]);
   }, 600_000);
 });
 

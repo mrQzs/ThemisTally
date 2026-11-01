@@ -1277,6 +1277,14 @@ def op_hub_contract(request):
     HubError 交回文字与退出码，别的异常只比类型。"""
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
+    for item in request.get("restores") or []:  # ⑤e2a：采样时调用当时的快照（带 .git），原地放回
+        _restore_tree(item["from"], item["to"], item.get("links", []), with_git=bool(item.get("git")))
+    given_env = request.get("env") or {}
+    saved_env = {name: os.environ.get(name) for name in given_env}
+    os.environ.update(given_env)
+    saved_impl = pi_dispatch.KERNEL_IMPL_PATH
+    if request.get("impl_path") is not None:
+        pi_dispatch.KERNEL_IMPL_PATH = Path(request["impl_path"])
     try:
         if fn in ("tail", "strip_decisions", "decisions_section", "unparsed_check_ids", "external_fact_problems", "unverified_facts"):
             value = getattr(kit_hub, fn)(*args)
@@ -1300,6 +1308,22 @@ def op_hub_contract(request):
                 value = pi_dispatch.argv_impl(argv, impl)
             finally:
                 pi_dispatch.KERNEL_IMPL_PATH = saved
+        elif fn == "workspace_status":
+            value = [list(item) for item in kit_hub.workspace_status(Path(args[0]))]
+        elif fn in ("contract_digest", "hollow_baseline_problems"):
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn == "run_pd":  # 交回结果与账本新增的行（不带 at）
+            hub = kit_hub.Hub(Path(args[0]))
+            ledger = hub.ledger()
+            offset = ledger.stat().st_size if ledger.exists() else 0
+            code, out = kit_hub.run_pd(hub, args[1], args[2])
+            added = ledger.read_bytes()[offset:].decode("utf-8").splitlines() if ledger.exists() else []
+            value = {"result": [code, out], "events": [{key: item for key, item in json.loads(line).items() if key != "at"} for line in added]}
+        elif fn in ("kernel_env", "kernel_pytest_env"):  # 原样的名字（排好序）；值只交 PYTHONDONTWRITEBYTECODE 一个（不是凭据）
+            env = getattr(kit_hub, fn)()
+            value = [sorted(env), env.get("PYTHONDONTWRITEBYTECODE")]
+        elif fn == "kernel_pytest":
+            value = list(kit_hub.KERNEL_PYTEST)
         elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
             value = {name: [list(key) for key in sorted(getattr(pi_dispatch, name))]
                      for name in ("TS_READONLY_COMMANDS", "TS_ONLY_COMMANDS", "TS_CONFIG_COMMANDS", "TS_DISPATCHER_COMMANDS")}
@@ -1312,6 +1336,13 @@ def op_hub_contract(request):
         return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
     except Exception as exc:  # noqa: BLE001  只比类型
         return {"ok": False, "error": type(exc).__name__}
+    finally:
+        pi_dispatch.KERNEL_IMPL_PATH = saved_impl
+        for name, before in saved_env.items():
+            if before is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = before
     return {"ok": True, "value": to_tagged(value)}
 
 
@@ -1390,15 +1421,15 @@ def _turn_artifacts(hub, summary, calls, inputs, agent, offset):
 LONG_PREFIX = chr(92) * 2 + "?" + chr(92)
 
 
-def _snapshot_tree(source, target):
-    """把 source 整份拷到 target（.git 不拷）：普通文件照 copy2，只读位跟着；符号链接与联接不拷，交回 [相对路径（正斜杠）, 指向, 种类]，
+def _snapshot_tree(source, target, with_git=False):
+    """把 source 整份拷到 target（.git 不拷；with_git 时连 .git 一起拷，⑤e2a 的调用当时快照）：普通文件照 copy2，只读位跟着；符号链接与联接不拷，交回 [相对路径（正斜杠）, 指向, 种类]，
     重放时由 _restore_tree 照原样重建。shutil.copytree 会顺着联接把整棵树抄进来，Node 的 cpSync 会把联接建成目录符号链接。"""
     links = []
 
     def walk(folder, parts):
         os.makedirs(os.path.join(str(target), *parts), exist_ok=True)
         for entry in sorted(os.scandir(folder), key=lambda item: item.name):
-            if entry.name == ".git":
+            if entry.name == ".git" and not with_git:
                 continue
             rel = parts + [entry.name]
             if entry.is_symlink() or os.path.isjunction(entry.path):
@@ -1416,7 +1447,7 @@ def _snapshot_tree(source, target):
     return links
 
 
-def _restore_tree(source, target, links=()):
+def _restore_tree(source, target, links=(), with_git=False):
     """把快照原样放回原来的位置（采样的重放：两边先后在调用当时的那个目录里跑），链接与联接照记下的重建。只读的文件先改回可写再删。"""
     def writable(func, path, _exc):
         os.chmod(path, stat.S_IWRITE)
@@ -1424,7 +1455,7 @@ def _restore_tree(source, target, links=()):
 
     if Path(target).exists():
         shutil.rmtree(str(target), onexc=writable)
-    _snapshot_tree(source, target)
+    _snapshot_tree(source, target, with_git)
     for rel, pointed, kind in links:
         path = os.path.join(str(target), *rel.split("/"))
         if kind == "junction":
@@ -1511,6 +1542,8 @@ def _recorded_value(name, value):
         value = sorted(value)
     elif name == "contract_paths":  # ⑤e1b：Path 记成字符串，照 op_hub_contract
         value = [str(path) for path in value]
+    elif name == "workspace_status":  # ⑤e2a：（状态，路径）的元组成列表，照 op_hub_contract
+        value = [list(item) for item in value]
     elif isinstance(value, tuple):
         value = list(value)
     try:
@@ -1568,6 +1601,26 @@ def op_hub_audit_samples(request):
             changed.append({name: plain(value) for name, value in table.items() if name not in before or before[name] != value})
         return json.dumps({"roster": changed[0], "delivery_sha256": changed[1]}, ensure_ascii=False)
 
+    snapshot_functions = set(request.get("snapshot_functions") or [])
+
+    def call_snapshots(bound):
+        """⑤e2a：调用当时的快照（带 .git），重放前原地放回（hub.contract 的 restores）。带 hub 的函数存仓库；workspace_status 存那个目录，
+        它是仓库外的 worktree（.git 是指针文件）时连主仓库一起存（worktree 的元数据在主仓库的 .git/worktrees 下）。"""
+        roots = []
+        if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
+            roots.append(Path(bound.arguments["hub"].repo))
+        if "path" in bound.arguments:
+            roots.append(Path(bound.arguments["path"]))
+            pointer = roots[-1] / ".git"
+            if pointer.is_file():
+                roots.append(Path(pointer.read_text(encoding="utf-8").split(":", 1)[1].strip()).parent.parent.parent)
+        restores = []
+        for root in roots:
+            snapshot = Path(request["tmp"]).resolve() / "call-snapshots" / str(len(calls)) / str(len(restores))
+            links = _snapshot_tree(root, snapshot, with_git=True)
+            restores.append({"from": str(snapshot), "to": str(root), "links": links, "git": True})
+        return restores
+
     def recorder(name, fn):
         signature = inspect.signature(fn)
 
@@ -1578,6 +1631,8 @@ def op_hub_audit_samples(request):
                 bound.apply_defaults()
                 entry = {"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]}
                 calls.append(entry)
+                if name in snapshot_functions:
+                    entry["restores"] = json.dumps(call_snapshots(bound), ensure_ascii=False)  # 同 result：存成 JSON 文字
             depth[0] += 1
             try:
                 value = fn(*args, **kwargs)

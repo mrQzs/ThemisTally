@@ -1,0 +1,201 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract-gate.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 kernel_env 不去掉决策 API 的 key",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "  for (const name of [...env.keys()]) if (name.toUpperCase() === DECISIONS_KEY_ENV) env.delete(name);\n",
+      "new": ""
+    },
+    {
+      "name": "R02 kernel_env 去 key 时分大小写",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "if (name.toUpperCase() === DECISIONS_KEY_ENV) env.delete(name);",
+      "new": "if (name === DECISIONS_KEY_ENV) env.delete(name);",
+      "equivalent": "等价（Windows）：kernelEnv 从 pyEnviron 取，名字已经是大写（同 dict(os.environ)），比之前再转大写不改任何字；POSIX 上不等价，R01 照旧守着去 key"
+    },
+    {
+      "name": "R03 kernel_pytest_env 不加 PYTHONDONTWRITEBYTECODE",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "  env.set(\"PYTHONDONTWRITEBYTECODE\", \"1\");\n",
+      "new": ""
+    },
+    {
+      "name": "R04 KERNEL_PYTEST 不带 -p no:cacheprovider",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "[kernelPython(), \"-m\", \"pytest\", \"-p\", \"no:cacheprovider\"]",
+      "new": "[kernelPython(), \"-m\", \"pytest\"]"
+    },
+    {
+      "name": "R05 标准错误不并进标准输出",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "stderr: \"stdout\", timeout,",
+      "new": "stderr: { path: `${out}.err`, how: \"create-new\" }, timeout,"
+    },
+    {
+      "name": "R06 超时的文字照写小数",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "`超时（${pyPercentD(timeout)} 秒）",
+      "new": "`超时（${timeout} 秒）"
+    },
+    {
+      "name": "R07 超时也记账本",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "    if (result.timed_out) return [124,",
+      "new": "    if (result.timed_out) await hub.appendEvent(\"dispatcher.called\", [[\"args\", [...args]]]);\n    if (result.timed_out) return [124,"
+    },
+    {
+      "name": "R08 选择文件坏了不记 invalid",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "    impl = \"invalid\";",
+      "new": "    impl = \"python\";"
+    },
+    {
+      "name": "R09 不看给定的选择文件",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "impl = argvImpl(args, null, implPath);",
+      "new": "impl = argvImpl(args, null, KERNEL_IMPL_PATH);"
+    },
+    {
+      "name": "R10 账本的退出码总记 0",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "[\"exit_code\", BigInt(code)]",
+      "new": "[\"exit_code\", 0n]"
+    },
+    {
+      "name": "R11 账本的 args 少了第一个",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "[[\"args\", [...args]],",
+      "new": "[[\"args\", args.slice(1)],"
+    },
+    {
+      "name": "R12 输出按 latin1 解码",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "text = pyDecodeUtf8Replace(readFileSync(out));",
+      "new": "text = readFileSync(out).toString(\"latin1\");"
+    },
+    {
+      "name": "R13 缺省的选择文件读 hub 仓库下的",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "timeout = 600, implPath = KERNEL_IMPL_PATH)",
+      "new": "timeout = 600, implPath = purePathStr(hub.repo, \"scripts\", \"kernel-impl.json\"))"
+    },
+    {
+      "name": "R14 kernel_env 的名字不照 os.environ 转大写",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "  const env = pyEnviron();",
+      "new": "  const env = new Map(Object.entries(process.env) as [string, string][]);"
+    },
+    {
+      "name": "W01 不超过 3 个字符的项也留下",
+      "file": "ts/packages/hub/src/kernel.ts",
+      "old": "if (points.length > 3) entries.push(",
+      "new": "if (points.length >= 3) entries.push("
+    },
+    {
+      "name": "W02 路径从第三个字符起",
+      "file": "ts/packages/hub/src/kernel.ts",
+      "old": "points.slice(3).join(\"\")",
+      "new": "points.slice(2).join(\"\")"
+    },
+    {
+      "name": "W03 未跟踪的目录不展开",
+      "file": "ts/packages/hub/src/kernel.ts",
+      "old": "\"--untracked-files=all\", \"-z\"",
+      "new": "\"-z\""
+    },
+    {
+      "name": "W04 按换行切",
+      "file": "ts/packages/hub/src/kernel.ts",
+      "old": "out.split(String.fromCharCode(0))",
+      "new": "out.split(String.fromCharCode(10))"
+    },
+    {
+      "name": "G01 读不了的文件按空内容算哈希",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "  } catch {\n    return null;\n  }\n}\n\n/** 合同 md 与 json",
+      "new": "  } catch {\n    return createHash(\"sha256\").update(\"\").digest(\"hex\");\n  }\n}\n\n/** 合同 md 与 json"
+    },
+    {
+      "name": "G02 两个哈希连反了",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "(sha256File(md) ?? \"\") + (sha256File(js) ?? \"\")",
+      "new": "(sha256File(js) ?? \"\") + (sha256File(md) ?? \"\")"
+    },
+    {
+      "name": "H01 记录行不必在行首",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "pyRegex(`${LINE_START}基线检查记录：",
+      "new": "pyRegex(`基线检查记录："
+    },
+    {
+      "name": "H02 行尾只去掉空格",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "基线检查记录：([^${LF}]+?)${S}*${LINE_END}",
+      "new": "基线检查记录：([^${LF}]+?) *${LINE_END}"
+    },
+    {
+      "name": "H03 记录行只认整段的末尾",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "基线检查记录：([^${LF}]+?)${S}*${LINE_END}",
+      "new": "基线检查记录：([^${LF}]+?)${S}*$"
+    },
+    {
+      "name": "H04 没起来的不算",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": " || pyTruthy(pyGet(item, \"spawn_error\"))) {",
+      "new": ") {"
+    },
+    {
+      "name": "H05 退出码只认整数 1",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (!pyEq(pyGet(item, \"exit_code\"), 1n)) {",
+      "new": "if (pyGet(item, \"exit_code\") !== 1n) {"
+    },
+    {
+      "name": "H06 日志相对记录所在的目录",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "purePathStr(purePathParent(purePathParent(recordPath)),",
+      "new": "purePathStr(purePathParent(recordPath),"
+    },
+    {
+      "name": "H07 没有计数也报没有失败",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "} else if (counts.size && !pyTruthy(counts.get(\"failed\"))) {",
+      "new": "} else if (!pyTruthy(counts.get(\"failed\"))) {"
+    },
+    {
+      "name": "H08 id 没写时不换成问号",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const name = pyStrValue(or(pyGet(item, \"id\"), \"?\"));",
+      "new": "const name = pyStrValue(pyGet(item, \"id\"));"
+    },
+    {
+      "name": "H09 先查 expected 的类型再拼 argv",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "    const argv = pyIter(or(pyGet(item, \"argv\"), [])).map(pyStrValue).join(\" \");\n    if (typeof expected !== \"string\") throw new PyCrash(\"TypeError\", `'in <string>' requires string as left operand, not ${pyTypeName(expected)}`);",
+      "new": "    if (typeof expected !== \"string\") throw new PyCrash(\"TypeError\", `'in <string>' requires string as left operand, not ${pyTypeName(expected)}`);\n    const argv = pyIter(or(pyGet(item, \"argv\"), [])).map(pyStrValue).join(\" \");"
+    },
+    {
+      "name": "H10 超时之后接着查退出码",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "      problems.push(`${name} 在基线上超时或没有跑起来：卡住的测试也算“失败”，但什么也没证明`);\n      continue;\n",
+      "new": "      problems.push(`${name} 在基线上超时或没有跑起来：卡住的测试也算“失败”，但什么也没证明`);\n"
+    },
+    {
+      "name": "H11 errors 的分支不看计数",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "if (pyTruthy(counts.get(\"errors\"))) {",
+      "new": "if (false) {"
+    }
+  ]
+}

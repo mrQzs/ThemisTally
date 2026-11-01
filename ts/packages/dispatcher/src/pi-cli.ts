@@ -38,7 +38,7 @@ function names(config: PyDict, key: string): string[] {
 }
 
 /** os.environ 的样子：Windows 上变量名是大写，大小写不同的同名变量留后一个的值、前一个的位置。 */
-function pyEnviron(): Map<string, string> {
+export function pyEnviron(): Map<string, string> {
   const environ = new Map<string, string>();
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined) environ.set(WIN ? name.toUpperCase() : name, value);

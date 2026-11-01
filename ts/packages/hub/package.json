@@ -13,6 +13,7 @@
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
+    "./runpd": "./src/runpd.ts",
     "./schema": "./src/schema.ts",
     "./taskstate": "./src/taskstate.ts",
     "./turn": "./src/turn.ts"

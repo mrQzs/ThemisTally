@@ -1,12 +1,13 @@
 // 合同与战前门禁（迁移第 ⑤e 片）。⑤e1a 是纯文字的部分：kit_hub.py 的 tail、tail_file、normalize_identity、normalize_markup、
 // strip_decisions、decisions_section、unparsed_check_ids、external_fact_problems、unverified_facts、pytest_outcomes（⑤f 的，
 // hollow_baseline_problems 要用，提前移植）。文字逐字节照 Python；参数照 Python 收原值，类型不对时照它的异常类型抛。
-import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { readText } from "@themis/base/fsutil";
 import { PyOSError, pyDecodeUtf8Replace, pyOSErrorOf, pyReadTextReplace } from "@themis/base/pyio";
 import { PyCrash, pyFloatOf, pyGet, pyIntOf, pyItem, pyIter, pyPercentD, pyPlus, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { PyJsonError, type PyDict, type PyValue, loads } from "@themis/base/pyjson";
-import { purePathStr } from "@themis/base/pypath";
+import { purePathParent, purePathStr } from "@themis/base/pypath";
 import { D, S, W, cmpCodePoints, pyIntParse, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { compilePy } from "@themis/base/pyregex";
 import { pyEq } from "@themis/base/pyvalue";
@@ -381,5 +382,66 @@ export function answersQuestion(hub: Hub, msgId: PyValue): boolean {
     }
   }
   return false;
+}
+
+// --- ⑤e2a：合同的哈希与战前门禁的基线核对 ----------------------------------------------------------------------------
+
+/** sha256_file：读不了（不在、是目录）时是 null。 */
+function sha256File(path: string): string | null {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/** 合同 md 与 json 的合并哈希：两个文件各自的 sha256（读不了算空串）连起来再取一次。 */
+export function contractDigest(hub: Hub, ts: PyValue): string {
+  const [md, js] = contractPaths(hub, ts);
+  return createHash("sha256").update(Buffer.from((sha256File(md) ?? "") + (sha256File(js) ?? ""), "utf8")).digest("hex");
+}
+
+/** baseline 交回的文字里，检查记录那一行（re.M：行尾的空白不算进路径）。 */
+export const BASELINE_RECORD_RE = pyRegex(`${LINE_START}基线检查记录：([^${LF}]+?)${S}*${LINE_END}`);
+
+/**
+ * 基准测试在基线上要“在断言上失败”（第 14 轮）：baseline 只看退出码是不是 0，超时、pytest 退出码 2–5、用例在 setup 出错都算“在基线上
+ * 失败”，测试其实没跑起来。读 baseline 写下的检查记录逐条核对。
+ */
+export function hollowBaselineProblems(hub: Hub, out: PyValue, expected: PyValue): string[] {
+  const match = BASELINE_RECORD_RE.exec(text(out, "re"));
+  const recordPath = match ? purePathStr(hub.repo, match[1] as string) : null;
+  if (recordPath === null || !isFile(recordPath)) return ["baseline 没有留下检查记录，核对不了基准测试在基线上是怎样失败的"];
+  const results = or(pyGet(loads(readText(recordPath) || "{}"), "results"), []);
+  // expected in “argv 拼成的文字”：照 Python 的求值次序，先拼文字，再查（expected 不是字符串时这时才报 TypeError）
+  const runs = (item: PyValue): boolean => {
+    const argv = pyIter(or(pyGet(item, "argv"), [])).map(pyStrValue).join(" ");
+    if (typeof expected !== "string") throw new PyCrash("TypeError", `'in <string>' requires string as left operand, not ${pyTypeName(expected)}`);
+    return argv.includes(expected);
+  };
+  const gate = pyIter(results).filter(runs);
+  if (!gate.length) return [`baseline 的检查记录里没有跑 ${pyStrValue(expected)} 的检查`];
+  const problems: string[] = [];
+  for (const item of gate) {
+    const name = pyStrValue(or(pyGet(item, "id"), "?"));
+    if (pyTruthy(pyGet(item, "timed_out")) || pyTruthy(pyGet(item, "interrupted")) || pyTruthy(pyGet(item, "spawn_error"))) {
+      problems.push(`${name} 在基线上超时或没有跑起来：卡住的测试也算“失败”，但什么也没证明`);
+      continue;
+    }
+    if (!pyEq(pyGet(item, "exit_code"), 1n)) {
+      problems.push(`${name} 在基线上的 pytest 退出码是 ${pyStrValue(pyGet(item, "exit_code"))}：只有 1 是用例失败（2 中断、3 内部错误、4 用法错误、`
+        + "5 没有用例）");
+      continue;
+    }
+    const log = purePathStr(purePathParent(purePathParent(recordPath)), pyStrValue(or(pyGet(item, "log"), "")));
+    const counts = isFile(log) ? pytestOutcomes(log)[0] : new Map<string, PyValue>();
+    if (pyTruthy(counts.get("errors"))) {
+      problems.push(`${name} 在基线上有 ${pyPercentD(counts.get("errors") as PyValue)} 个用例出错（setup 或夹具失败），不是断言失败：夹具在基线上做不成的事，`
+        + "把原因记下来，让用例断言它");
+    } else if (counts.size && !pyTruthy(counts.get("failed"))) {
+      problems.push(`${name} 在基线上没有失败的用例`);
+    }
+  }
+  return problems;
 }
 

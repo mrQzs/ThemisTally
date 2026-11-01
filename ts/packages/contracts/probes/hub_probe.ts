@@ -1,7 +1,7 @@
 // hub.call（第 ⑤a 片）：按函数名调 @themis/hub 的纯函数，参数与结果照 python_probe.py 的 op_hub_call。
 // 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常只比类型。
 import { PyCrash, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
-import { type PyDict, PyJsonError, type PyValue } from "@themis/base/pyjson";
+import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
 import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -11,15 +11,15 @@ import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
 import { jsonlLines } from "@themis/base/jsonl";
-import { cmpCodePoints } from "@themis/base/pyre";
+import { cmpCodePoints, pySplitlines } from "@themis/base/pyre";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
   turnCostUsd,
 } from "@themis/hub/audit";
 import * as constants from "@themis/hub/constants";
 import {
-  answersQuestion, budgetProblems, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems, normalizeIdentity, normalizeMarkup,
-  pytestOutcomes, scopeMissingPrefix, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
+  answersQuestion, budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems,
+  hollowBaselineProblems, normalizeIdentity, normalizeMarkup, pytestOutcomes, scopeMissingPrefix, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
 } from "@themis/hub/contract";
 import {
   CONFIG_ACTION_FAMILIES, TS_CONFIG_COMMANDS, TS_DISPATCHER_COMMANDS, TS_ONLY_COMMANDS, TS_READONLY_COMMANDS, argvImpl, readKernelImpl,
@@ -31,7 +31,8 @@ import { removeInputs, stageInputs } from "@themis/hub/inputs";
 import { INPUTS_INDEX } from "@themis/hub/constants";
 import { type Launcher, REAL_SOURCES, TurnRunner, type TurnSources } from "@themis/hub/turn";
 import { globPaths } from "@themis/dispatcher/instruction";
-import { KERNEL_ROOT, TEMPLATE_DIR } from "@themis/hub/kernel";
+import { KERNEL_ROOT, TEMPLATE_DIR, workspaceStatus } from "@themis/hub/kernel";
+import { kernelEnv, kernelPytest, kernelPytestEnv, runPd, setKernelPython } from "@themis/hub/runpd";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
 import {
@@ -399,9 +400,14 @@ function compareWords(left: string[], right: string[]): number {
 }
 
 /** hub.contract（第 ⑤e 片）：合同与战前门禁，与 python_probe.py 的 op_hub_contract 一一对应。参数照原值交给函数，类型不对时由它照 Python 抛。 */
-export function hubContract(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Result {
+export async function hubContract(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
   const args = (request["args"] as never[]).map(fromTagged);
   const [a, b] = args as [PyValue, PyValue];
+  for (const item of (request["restores"] as Restore[] | undefined) ?? []) restoreTree(item); // ⑤e2a：调用当时的快照（带 .git）
+  if (typeof request["python"] === "string") setKernelPython(request["python"]);
+  const givenEnv = Object.entries((request["env"] as Record<string, string> | undefined) ?? {});
+  const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
+  for (const [name, value] of givenEnv) process.env[name] = value;
   try {
     let value: PyValue;
     switch (String(request["fn"])) {
@@ -460,6 +466,37 @@ export function hubContract(request: Record<string, unknown>, fromTagged: (tagge
       case "argv_impl":
         value = argvImpl(a as string[], b, textOf(args[2] as PyValue));
         break;
+      case "workspace_status":
+        value = workspaceStatus(textOf(a));
+        break;
+      case "contract_digest":
+        value = contractDigest(new Hub(textOf(a)), b);
+        break;
+      case "hollow_baseline_problems":
+        value = hollowBaselineProblems(new Hub(textOf(a)), b, args[2] as PyValue);
+        break;
+      case "run_pd": {
+        // 交回结果与账本新增的行（不带 at），同 python_probe.py
+        const hub = new Hub(textOf(a));
+        const before = existsSync(hub.ledger()) ? statSync(hub.ledger()).size : 0;
+        // 没给 impl_path 时走 runPd 自己的缺省（内核目录下的选择文件，待办第 26 项）
+        const implPath = request["impl_path"];
+        const [code, out] = typeof implPath === "string" ? await runPd(hub, b as string[], Number(args[2]), implPath) : await runPd(hub, b as string[], Number(args[2]));
+        const added = existsSync(hub.ledger()) ? pySplitlines(readFileSync(hub.ledger()).subarray(before).toString("utf8")) : [];
+        const events = added.map((line) => new Map([...(loads(line) as PyDict)].filter(([key]) => key !== "at")));
+        value = new Map<string, PyValue>([["result", [BigInt(code), out]], ["events", events]]);
+        break;
+      }
+      case "kernel_env":
+      case "kernel_pytest_env": {
+        // 原样的名字（排好序）；值只交 PYTHONDONTWRITEBYTECODE 一个（不是凭据），同 python_probe.py
+        const env = request["fn"] === "kernel_env" ? kernelEnv() : kernelPytestEnv();
+        value = [[...env.keys()].sort(cmpCodePoints), env.get("PYTHONDONTWRITEBYTECODE") ?? null];
+        break;
+      }
+      case "kernel_pytest":
+        value = kernelPytest();
+        break;
       case "kernel_impl_tables": {
         const keys = (rows: ReadonlySet<string>): PyValue[] => [...rows].map((row) => JSON.parse(row) as string[]).sort(compareWords);
         value = new Map<string, PyValue>([
@@ -475,6 +512,11 @@ export function hubContract(request: Record<string, unknown>, fromTagged: (tagge
     return { ok: true, value: toTagged(value) };
   } catch (error) {
     return errorResult(error);
+  } finally {
+    for (const [name, before] of savedEnv) {
+      if (before === undefined) delete process.env[name];
+      else process.env[name] = before;
+    }
   }
 }
 

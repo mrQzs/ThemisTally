@@ -55,3 +55,18 @@ export function git(args: readonly string[], cwd: string, check = true, timeout 
   }
   return out;
 }
+
+/**
+ * kit_hub 的 workspace_status（迁移第 ⑤e2a 片）：git status --porcelain=v1 -z 的各项，切成（两个字符的状态，路径）。按码点切，与
+ * Python 的切片一样。照抄 Python 的毛病（迁移计划第 10.1 节）：-z 时改名与复制写成“XY 新路径、NUL、旧路径”，旧路径前没有状态码，
+ * 这里照样把旧路径的前两个字符当状态、第四个字符起当路径；旧路径不超过 3 个字符时整项丢掉。
+ */
+export function workspaceStatus(path: string): [string, string][] {
+  const out = git(["status", "--porcelain=v1", "--untracked-files=all", "-z"], path);
+  const entries: [string, string][] = [];
+  for (const item of out.split(String.fromCharCode(0))) {
+    const points = [...item];
+    if (points.length > 3) entries.push([points.slice(0, 2).join(""), points.slice(3).join("")]);
+  }
+  return entries;
+}

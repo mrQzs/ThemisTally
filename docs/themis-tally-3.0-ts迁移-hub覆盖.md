@@ -1,10 +1,12 @@
 # 第 ⑤ 步的覆盖审计：tests/test_kit_hub.py 的场景对到 TS 契约
 
-迁移计划第 ⑤ 步的出口条件（v1.6，themistally-15 提出）：297 个场景逐个对到 TS 契约，记成 COVERED、PARTIAL、MISSING；切换之前 MISSING 清零或写明理由。每片交付时补自己那一块。
+迁移计划第 ⑤ 步的出口条件（v1.6，themistally-15 提出）：298 个场景逐个对到 TS 契约，记成 COVERED、PARTIAL、MISSING；切换之前 MISSING 清零或写明理由。每片交付时补自己那一块。
 
 - **COVERED**：同一场景两边各跑：Python 与 TS（Node、Bun）在同样的输入上逐字比，输入取自用例本身（照步骤搭出的状态，或 Python 探针 hub.samples 从用例里取出的参数）。
 - **PARTIAL**：用例里的一部分已覆盖，其余归后面的片，写明归哪一片。
 - **MISSING**：还没有对应的契约。
+
+同一条用例出现在几节里时，以后面那节为准（例如 ⑤e1b 表里记成漂移的 7 条、⑤c 记 PARTIAL 的 worker_env 那条，⑤e2a 一节改记了新的状态）。
 
 随机对照（hub-state.compare 的“随机”几条）不算进某个用例的覆盖，只当额外的保护。
 
@@ -28,15 +30,15 @@
 | `test_upstream_redelivery_invalidates_only_dependents` | 1264 | COVERED | 同上（invalidate_after 两次） |
 | `test_allowed_moves_lists_only_passing_letters` | 1281 | COVERED | 同上 |
 | `test_legacy_task_without_external_facts_is_not_blocked` | 1807 | COVERED | guard 一句在「守卫：热修补……」；external_facts_section 在 hub-prompt（⑤d1）的记下的调用 |
-| `test_audit_may_return_several_stages_and_the_upstream_one_goes_first` | 5223 | PARTIAL | letter_errors、return_stages、guard、hotfix_reason 都在「守卫：热修补……」；最后两句核对提示词（ROLE_EXTRA_OUTPUT、worker.md）归 ⑤d |
-| `test_owner_ordered_gate_rework_is_a_hotfix_and_holds_the_executor_back` | 5460 | COVERED | hub-state.compare「守卫：热修补……」 |
-| `test_a_gate_claim_opens_the_hotfix_and_holds_the_executor_until_the_gate_redelivers` | 6604 | COVERED | 同上 |
-| `test_the_schema_subset_validator（34 个参数）` | 7231 | COVERED | hub-state.compare「schema 子集」：hub.samples 取 SCHEMA_SAMPLES |
-| `test_role_schemas_only_use_the_subset_and_match_the_kernel` | 7235 | COVERED | 同上：五份岗位 schema 加四种子集外写法 |
-| `test_routine_letters_map_to_the_next_step（11 个参数）` | 7480 | COVERED | hub-state.compare「信件」：hub.samples 用用例的 routine_letter 渲染 |
-| `test_exceptions_go_to_the_coordinator（7 个参数）` | 7495 | COVERED | 同上 |
-| `test_routine_briefs_quote_each_path_on_its_own` | 7673 | COVERED | hub-state.compare「守卫：开工、返工、通过」：engine_env 只提供仓库与状态，直接调 |
-| `test_downstream_notes_ride_along_to_every_later_turn` | 7729 | COVERED | upstream_notes 在随机对照里；进回合输入（turn_prompt）与 letter_from_output 在 hub-prompt（⑤d1）的记下的调用 |
+| `test_audit_may_return_several_stages_and_the_upstream_one_goes_first` | 5227 | PARTIAL | letter_errors、return_stages、guard、hotfix_reason 都在「守卫：热修补……」；最后两句核对提示词（ROLE_EXTRA_OUTPUT、worker.md）归 ⑤d |
+| `test_owner_ordered_gate_rework_is_a_hotfix_and_holds_the_executor_back` | 5464 | COVERED | hub-state.compare「守卫：热修补……」 |
+| `test_a_gate_claim_opens_the_hotfix_and_holds_the_executor_until_the_gate_redelivers` | 6608 | COVERED | 同上 |
+| `test_the_schema_subset_validator（34 个参数）` | 7235 | COVERED | hub-state.compare「schema 子集」：hub.samples 取 SCHEMA_SAMPLES |
+| `test_role_schemas_only_use_the_subset_and_match_the_kernel` | 7239 | COVERED | 同上：五份岗位 schema 加四种子集外写法 |
+| `test_routine_letters_map_to_the_next_step（11 个参数）` | 7484 | COVERED | hub-state.compare「信件」：hub.samples 用用例的 routine_letter 渲染 |
+| `test_exceptions_go_to_the_coordinator（7 个参数）` | 7499 | COVERED | 同上 |
+| `test_routine_briefs_quote_each_path_on_its_own` | 7677 | COVERED | hub-state.compare「守卫：开工、返工、通过」：engine_env 只提供仓库与状态，直接调 |
+| `test_downstream_notes_ride_along_to_every_later_turn` | 7733 | COVERED | upstream_notes 在随机对照里；进回合输入（turn_prompt）与 letter_from_output 在 hub-prompt（⑤d1）的记下的调用 |
 | `test_stage_reworks_are_capped` | 1564 | PARTIAL | 返工上限的 guard 与状态表在随机对照里；经 Engine 的场景归 ⑤i |
 
 ⑤a 里的变异（ts/mutations/hub-a.ts.json）30 条（含 base 的 purePathRelativePosix 两条），抓住 27 条，3 条照实测标为等价：字段名前的空白（已知字段名里没有空白）、冒号后的制表符（值随后整体 strip）、布尔不算数字（JS 的布尔本来就不是数字）。
@@ -49,14 +51,14 @@
 |---|---|---|---|
 | `test_delivery_never_overwrites_and_take_moves_to_cur` | 129 | COVERED | hub-mailbox「B1」：照搬；new 里的排序另有「B9」（NTFS 列目录的次序与 Python 的排序不同的名字） |
 | `test_rewritten_reports_and_briefs_keep_their_previous_versions` | 1175 | COVERED | hub-mailbox「B8」：照搬三轮；序号往后排另有「B5」 |
-| `test_state_saves_merge_by_task_and_key` | 3913 | COVERED | hub-mailbox「B2」：照步骤（two_task_hub 的两个主任务、手搭的 dict）；另有「B10」（存过之后读出来时的样子跟着更新）、「C1」（两套实现交错着存） |
-| `test_turn_end_keeps_the_sessions_other_tasks_wrote` | 3950 | COVERED | hub-mailbox「B3」：照搬；「C3」「C5」加并发 |
-| `test_file_lock_keeps_other_holders_out` | 3961 | COVERED | filelock.contract 的 F1、F2（第 ④ 步）；hub-mailbox「C5」：Python 拿着 .state.lock、.agents.lock 时，各套实现的写都等它放开 |
-| `test_state_writes_and_reads_wait_out_a_sharing_violation` | 6046 | COVERED | hub-mailbox「C4」：用真的独占打开代替 monkeypatch（短的等过去，长的读报“读不出”、写报 PermissionError，不留临时文件），备份特权启用、停用两种状态都跑；启用时 TS 的读是已知差异（迁移计划第 10 节）。missing.txt 一句在 locks.contract，新信箱一句在「B7」 |
+| `test_state_saves_merge_by_task_and_key` | 3912 | COVERED | hub-mailbox「B2」：照步骤（two_task_hub 的两个主任务、手搭的 dict）；另有「B10」（存过之后读出来时的样子跟着更新）、「C1」（两套实现交错着存） |
+| `test_turn_end_keeps_the_sessions_other_tasks_wrote` | 3949 | COVERED | hub-mailbox「B3」：照搬；「C3」「C5」加并发 |
+| `test_file_lock_keeps_other_holders_out` | 3960 | COVERED | filelock.contract 的 F1、F2（第 ④ 步）；hub-mailbox「C5」：Python 拿着 .state.lock、.agents.lock 时，各套实现的写都等它放开 |
+| `test_state_writes_and_reads_wait_out_a_sharing_violation` | 6050 | COVERED | hub-mailbox「C4」：用真的独占打开代替 monkeypatch（短的等过去，长的读报“读不出”、写报 PermissionError，不留临时文件），备份特权启用、停用两种状态都跑；启用时 TS 的读是已知差异（迁移计划第 10 节）。missing.txt 一句在 locks.contract，新信箱一句在「B7」 |
 | `test_a_rate_limited_worker_turn_is_held_and_resumed` | 1857 | PARTIAL | 扣信（额度限制写信给站主、阶段标 paused）、没到点不放、到点放回且阶段回到 assigned 在「B4」，到点的边界在「B11」；经 Engine 的回合归 ⑤i |
 | `test_held_letters_are_dropped_when_the_stage_was_restarted_meanwhile` | 1892 | PARTIAL | 阶段变了就丢掉、信留在 cur、记 letters.dropped 不记 letters.released 在「B4」；经 Engine 的回合归 ⑤i |
-| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5356 | PARTIAL | 内核自己等（带原因）不写信给站主在「B4」；执行端代办与落地锁归 ⑤g、⑤h |
-| `test_task_runner_only_takes_its_own_task_letters` | 3986 | PARTIAL | letter_main 在「B5」；Engine.next_job、tasks_with_work 归 ⑤i |
+| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | PARTIAL | 内核自己等（带原因）不写信给站主在「B4」；执行端代办与落地锁归 ⑤g、⑤h |
+| `test_task_runner_only_takes_its_own_task_letters` | 3985 | PARTIAL | letter_main 在「B5」；Engine.next_job、tasks_with_work 归 ⑤i |
 
 ⑤b 里的变异（ts/mutations/hub-b.ts.json）21 条，全部抓住。第一轮 20 条漏掉 5 条（存完不更新读出来时的样子、会话记录不加锁、new 里的信不排序、到点的边界、读不出时不报错），补了 B7 的只有空白的文件、B9 到 B11、C4 的备份特权停用状态与 C5 之后都抓住；另加“三方合并不加锁”一条。
 
@@ -191,25 +193,25 @@ COVERED 1、PARTIAL 5。其余 75 条只是经别的函数间接调到这十个�
 | `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | 同上；workspace_status 与经 Engine 的返工归 ⑤e2、⑤i |
 | `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | PARTIAL | contract_requirements 在记下的调用；accept_gate_pre 归 ⑤e2 |
 | `test_gate_pre_baseline_must_fail_on_assertions` | 491 | PARTIAL | 同上；hollow_baseline_problems 归 ⑤e2 |
-| `test_contract_with_pending_marks_is_rejected` | 521 | PARTIAL | 漂移（DRIFTED）：调用之后重交的 md 去掉了未决标注；未决标注的几种写法在「手写的对照」；⑤e2 改用调用当时的快照 |
-| `test_contract_budget_counts_attempts_of_earlier_versions` | 552 | PARTIAL | 漂移：几次调用之间改写同号合同的预算、领取新的 attempt；预算在「手写的对照」（runs 的四种形状、边界、各种取值）；⑤e2 改用快照 |
+| `test_contract_with_pending_marks_is_rejected` | 521 | PARTIAL | 漂移（DRIFTED）：调用之后重交的 md 去掉了未决标注；未决标注的几种写法在「手写的对照」；⑤e2a 改用调用当时的快照后对上，见 ⑤e2a 一节 |
+| `test_contract_budget_counts_attempts_of_earlier_versions` | 552 | PARTIAL | 漂移：几次调用之间改写同号合同的预算、领取新的 attempt；预算在「手写的对照」（runs 的四种形状、边界、各种取值）；⑤e2a 改用快照后对上 |
 | `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | PARTIAL | 漂移：accept_contract 里随后把预算改大；accept_contract 归 ⑤e2 |
 | `test_first_review_report_must_map_every_dod` | 662 | PARTIAL | dod_coverage_problems 在记下的调用与「手写的对照」（编号带正则的特殊字符）；经 Engine 的一审归 ⑤i |
 | `test_contract_title_is_the_registered_task_title` | 901 | PARTIAL | contract_requirements 在记下的调用；revalidate_contract 归 ⑤e2 |
-| `test_contract_requirements` | 1413 | PARTIAL | 漂移：同号合同一次次改写成不同的毛病，重放只读到最后一版；各种毛病在「手写的对照」；⑤e2 改用快照 |
+| `test_contract_requirements` | 1413 | PARTIAL | 漂移：同号合同一次次改写成不同的毛病，重放只读到最后一版；各种毛病在「手写的对照」；⑤e2a 改用快照后对上 |
 | `test_kernel_writes_the_contract_version_and_base_it_assigns` | 1441 | PARTIAL | contract_requirements 在记下的调用；accept_contract 归 ⑤e2 |
-| `test_contract_runs_the_earlier_gates_as_regression_checks` | 1472 | PARTIAL | 漂移：调用之后合同补上了回归检查；回归检查的缺与有在「手写的对照」；⑤e2 改用快照 |
+| `test_contract_runs_the_earlier_gates_as_regression_checks` | 1472 | PARTIAL | 漂移：调用之后合同补上了回归检查；回归检查的缺与有在「手写的对照」；⑤e2a 改用快照后对上 |
 | `test_unverified_external_facts_wait_for_the_owner` | 1745 | PARTIAL | answers_question 在记下的调用；经 Engine 的流转归 ⑤i |
 | `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | contract_requirements 在记下的调用；热修补的重交归 ⑤g |
 | `test_facts_checked_before_the_plan_is_delivered_says_why` | 5777 | PARTIAL | answers_question 在记下的调用；send 归 ⑤j |
-| `test_scope_notes_are_stripped_and_unparsed_check_ids_are_named` | 6406 | PARTIAL | 漂移：调用之后重交的 md 改对了检查行编号；⑤e1a 那半照旧；⑤e2 改用快照 |
+| `test_scope_notes_are_stripped_and_unparsed_check_ids_are_named` | 6406 | PARTIAL | 漂移：调用之后重交的 md 改对了检查行编号；⑤e1a 那半照旧；⑤e2a 改用快照后对上 |
 | `test_scope_paths_missing_the_directory_prefix_are_named` | 6430 | COVERED | hub-contract-repo：记下的调用；「手写的对照」另有带通配符、第一段在根下有、非 ASCII（git 整条加引号、对不上）、多于 6 条 |
 | `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | PARTIAL | 漂移：调用之后重交的 md 去掉了未决标注；accept_contract 归 ⑤e2 |
 | `test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused` | 6579 | PARTIAL | answers_question 在记下的调用；send 归 ⑤j |
 
 COVERED 1、PARTIAL 18。另 25 条只是顺带调到 contract_paths，覆盖记在它们的主体所在的片。变异 ts/mutations/hub-e1b.ts.json 38 条全部抓住（contract.ts 的 ⑤e1b 部分 24 条、kernel-impl.ts 14 条：K14 是复核后补的“只有 TS 实现的命令先于 -h 判定”）；hub-c 加 C40（hub.audit 的 home 不还原），抓住。
 
-选择文件与 argv_impl 在 Python 那边的用例在 tests/test_kernel_impl.py（不在 test_kit_hub.py 的 297 个场景里）。下面 8 条的 argv、impl 与 15 种坏写法原样抄进 hub-contract-repo 的手写对照，三边比（themistally-15 复核 ⑤e1b 时对出缺的 ui 带 -h、空文件、not json、schema_version 为 2、hub 为 None、config 为列表）。
+选择文件与 argv_impl 在 Python 那边的用例在 tests/test_kernel_impl.py（不在 test_kit_hub.py 的 298 个场景里）。下面 8 条的 argv、impl 与 15 种坏写法原样抄进 hub-contract-repo 的手写对照，三边比（themistally-15 复核 ⑤e1b 时对出缺的 ui 带 -h、空文件、not json、schema_version 为 2、hub 为 None、config 为列表）。
 
 | 用例（test_kernel_impl.py） | 行 | 状态 | TS 契约 |
 |---|---|---|---|
@@ -222,4 +224,53 @@ COVERED 1、PARTIAL 18。另 25 条只是顺带调到 contract_paths，覆盖记
 | `test_argv_impl_follows_the_config_switch` | 797 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
 | `test_argv_impl_follows_the_dispatcher_switch` | 905 | COVERED | hub-contract-repo：「test_kernel_impl.py」两条手写对照 |
 
-其余场景随各片补（⑤e2 到 ⑤j）。
+### ⑤e2a 内核调调度器，战前门禁里读工作区与基线记录的部分
+
+做法：采样器加调用当时的快照（themistally-15 定的 ⑤e2 出口条件）。记下的函数在顶层被调时，把它读的仓库连 .git 整份拷一份；工作区是仓库外的 worktree（.git 是指针文件）时，连主仓库一起拷（worktree 的元数据在主仓库的 .git/worktrees 下）。三边重放前各自把快照原地放回。“顶层”只看这三个函数之间的嵌套，accept_gate_pre、accept_contract、run_exec 等里面的调用照样记下。在 test_kit_hub.py 全部用例上采样一次，24 条用例调到它们，共 100 次（workspace_status 44、contract_digest 36、hollow_baseline_problems 20），每一次的三边重放都与当时的结果相同。contract_digest 复核设计时以为只能手写（用例不直接调它），按这个口径有 36 次样本，照常进语料。run_pd 在用例里被 gate_setup 换成假调度器，采样记不到真的：真调度器上的 run_pd 由手写的对照去碰（经启动器，选择文件照常；照 test_kit_hub.py 里唯一直接调真 run_pd 的 test_the_ledger_records_which_implementation_answered 写），交回的文字与账本新增的一行三边逐字比；录制与重放注入归 ⑤e2b。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_pre 归 ⑤e2b，Engine 归 ⑤i |
+| `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | 调到的三个函数在调用当时的快照上对上；用例直接调的 workspace_status 也在其中；accept_gate_pre 归 ⑤e2b，经 Engine 的返工归 ⑤i |
+| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_pre 归 ⑤e2b |
+| `test_gate_pre_baseline_must_fail_on_assertions` | 491 | PARTIAL | 调到的三个函数在调用当时的快照上对上；用例直接调的 hollow_baseline_problems（十几种检查记录）全在其中；accept_gate_pre 归 ⑤e2b |
+| `test_gate_post_judges_mutations_from_the_record` | 740 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_post 归 ⑤f |
+| `test_gate_post_checks_the_anchors_before_mutating` | 795 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_post 归 ⑤f |
+| `test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged` | 837 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_post 归 ⑤f |
+| `test_contract_title_is_the_registered_task_title` | 901 | PARTIAL | 调到的三个函数在调用当时的快照上对上；revalidate_contract 归 ⑤e2b |
+| `test_gate_post_may_leave_the_candidate_red_with_evidence` | 938 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_post 归 ⑤f |
+| `test_kernel_writes_the_contract_version_and_base_it_assigns` | 1441 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_contract 归 ⑤e2b |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | 调到的三个函数在调用当时的快照上对上；accept_gate_pre 归 ⑤e2b，热修补的重交归 ⑤g |
+| `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_rework_contract_lets_the_executor_modify_files_added_earlier` | 2842 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_retry_after_failed_checks_tells_the_executor_why` | 2926 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_post_gate_worktree_starts_from_the_attempt_base` | 3004 | PARTIAL | 调到的三个函数在调用当时的快照上对上；apply_candidate、attempt_base 归 ⑤f |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | 调到的三个函数在调用当时的快照上对上；retire_attempts 归 ⑤h，Engine 归 ⑤i |
+| `test_worker_env_drops_the_decision_key_and_host_session_vars` | 3893 | COVERED | hub-contract-gate：kernel_env 的手写对照（决策 key 大写与小写两种写法都去掉，名字照 os.environ 原样比）；worker_env 在 ⑤c 的「手写的对照」 |
+| `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base` | 5585 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline` | 5675 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_unsent_contracts_get_the_rostered_executor_line` | 5989 | PARTIAL | 调到的三个函数在调用当时的快照上对上；revalidate_contract、sync_executor_line 归 ⑤e2b |
+| `test_a_cut_off_attempt_is_continued_instead_of_restarted` | 6101 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_an_unsent_contract_gets_the_rostered_executor_before_dispatch` | 6193 | PARTIAL | 调到的三个函数在调用当时的快照上对上；run_exec 归 ⑤g |
+| `test_owner_raises_the_attempt_budget` | 6223 | PARTIAL | 调到的三个函数在调用当时的快照上对上；exec_marks 归 ⑤g，cmd_task_budget 归 ⑤j |
+| `test_the_ledger_records_which_implementation_answered` | 6949 | COVERED | hub-contract-gate：真调度器上的 run_pd（--version 的退出码、输出里的 TOOL_VERSION、账本 dispatcher.called 的 impl 与 tool_version，三边逐字比） |
+
+COVERED 2、PARTIAL 24：调到这三个函数的 24 条都是门禁、合同与执行流程里的一步，主体归 ⑤e2b、⑤f、⑤g、⑤h、⑤i；COVERED 的两条直接测 kernel_env 与真的 run_pd。hub-contract-gate 另有手写的对照：git status 的各种状态（暂存的改名照抄 Python 的毛病，迁移计划第 10.1 节）与仓库外的 worktree、合同两个文件在与不在、基线检查记录的每个分支、run_pd 的输出合并、账本、选择文件坏了记 invalid、超时，kernel_env 与 kernel_pytest_env 的名字，KERNEL_PYTEST。变异 ts/mutations/hub-e2a.ts.json 31 条：第一轮 29 条抓住 27 条；漏掉的 R03（mutate 起的命令本来就带 PYTHONDONTWRITEBYTECODE，只比名字看不出来）与 H10（超时那几条的退出码沿用了 1）补了用例（探针另交这个变量的值、契约先设成 0；退出码改成真实记录里的 null）之后单独重跑都抓住。复核后（themistally-15）kernel_env 改照 dict(os.environ)，R02（去 key 时分大小写）在 Windows 上成了等价变异，标 equivalent；补 R13（缺省的选择文件读 hub 仓库下的）与 R14（名字不照 os.environ 转大写）；H05 改由真的浮点退出码抓。这几条重跑：R01、R13、R14、H05 抓住，R02 记作预期内的等价。
+
+⑤e1b 记成漂移的 7 条：读仓库的五个函数（scope_missing_prefix、contract_requirements、dod_coverage_problems、budget_problems、answers_question）改用调用当时的快照重放之后，hub-contract-repo 的 244 次调用全部与当时的结果相同，DRIFTED 拿掉（待办第 25 项）：
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_contract_with_pending_marks_is_rejected` | 521 | COVERED | hub-contract-repo：调用当时的快照上的记下的调用（干净、两处未决标注、改成已确认，每一版都对上）；「手写的对照」另有未决标注的几种写法 |
+| `test_contract_budget_counts_attempts_of_earlier_versions` | 552 | COVERED | hub-contract-repo：调用当时的快照上的 budget_problems（几次改写预算、领取新的 attempt，每一次都对上）；「手写的对照」另有 runs 的四种形状、边界、各种取值 |
+| `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | PARTIAL | budget_problems 在调用当时的快照上对上；accept_contract 归 ⑤e2b |
+| `test_contract_requirements` | 1413 | COVERED | hub-contract-repo：调用当时的快照上的记下的调用（同号合同一次次改写成不同的毛病，每一版都对上）；「手写的对照」另有各种毛病 |
+| `test_contract_runs_the_earlier_gates_as_regression_checks` | 1472 | COVERED | contract_requirements 在调用当时的快照上对上（缺回归检查与补上之后）；regression_gates 与合同端的回合输入在 ⑤d1 的记下的调用 |
+| `test_scope_notes_are_stripped_and_unparsed_check_ids_are_named` | 6406 | COVERED | ⑤e1a 的 normalize_markup、unparsed_check_ids 与这里的 contract_requirements（调用当时的快照上对上）合起来 |
+| `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | PARTIAL | contract_requirements 在调用当时的快照上对上；accept_contract 归 ⑤e2b |
+
+这 7 条里 COVERED 5、PARTIAL 2。
+
+其余场景随各片补（⑤e2b 到 ⑤j）。
