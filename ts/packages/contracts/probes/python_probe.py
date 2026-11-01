@@ -1558,6 +1558,199 @@ def _recorded_error(exc):
     return json.dumps({"ok": False, "error": type(exc).__name__})
 
 
+#: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节）
+FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract")
+#: ⑤e2b：最外层调用期间的提交作者与日期（采样与三边重放一样），门禁基准测试的提交 SHA 才钉得住
+FLOW_GIT_ENV = {"GIT_AUTHOR_NAME": "themis-contract", "GIT_AUTHOR_EMAIL": "contract@example.invalid",
+                "GIT_COMMITTER_NAME": "themis-contract", "GIT_COMMITTER_EMAIL": "contract@example.invalid",
+                "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+00:00", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+00:00"}
+
+
+class _InjectionMismatch(Exception):
+    """重放注入的内层调用与记录对不上（参数不同、多调）。"""
+
+
+def _plain(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, kit_hub.Hub):
+        return str(value.repo)
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    return value
+
+
+def _flow_pin(micros):
+    """kit_hub.utc_now、utc_compact 钉成同一个时刻（Unix 微秒数）。"""
+    moment = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=micros)
+    return (lambda: moment.strftime("%Y-%m-%dT%H:%M:%SZ")), (lambda: moment.strftime("%Y%m%dT%H%M%S%fZ"))
+
+
+def _flow_listing(roots):
+    """几棵树里的文件：{“树的序号/相对路径（正斜杠）”: sha256}。.git 不进，链接与联接不跟。"""
+    listing = {}
+    for index, root in enumerate(roots):
+        for folder, dirs, files in os.walk(str(root)):
+            dirs[:] = [name for name in dirs if name != ".git" and not os.path.islink(os.path.join(folder, name))
+                       and not os.path.isjunction(os.path.join(folder, name))]
+            for name in files:
+                path = os.path.join(folder, name)
+                if name == ".git" or os.path.islink(path):
+                    continue
+                rel = os.path.relpath(path, str(root)).replace(os.sep, "/")
+                with open(path, "rb") as handle:
+                    listing["%d/%s" % (index, rel)] = hashlib.sha256(handle.read()).hexdigest()
+    return listing
+
+
+def _flow_path(roots, key):
+    index, rel = key.split("/", 1)
+    return os.path.join(str(roots[int(index)]), *rel.split("/"))
+
+
+def _flow_changes(roots, before):
+    """与 before 比：新建与改动的文件（原始字节，base64），删掉的文件。键按码点排序。"""
+    after = _flow_listing(roots)
+    write = {}
+    for key in sorted(after):
+        if before.get(key) != after[key]:
+            with open(_flow_path(roots, key), "rb") as handle:
+                write[key] = base64.b64encode(handle.read()).decode("ascii")
+    return {"write": write, "delete": sorted(key for key in before if key not in after)}
+
+
+def _flow_git(roots):
+    """用命令读出的 git 状态：每棵树的 HEAD 与 status -z 的原文，第一棵树里的全部引用。不是仓库的记 None。"""
+    import subprocess
+
+    def run(args, cwd):
+        done = subprocess.run(["git"] + args, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return done.stdout.decode("utf-8", "replace") if done.returncode == 0 else None
+
+    trees = []
+    for root in roots:
+        head = run(["rev-parse", "HEAD"], root)
+        trees.append({"head": head.strip() if head is not None else None,
+                      "status": run(["status", "--porcelain=v1", "--untracked-files=all", "-z"], root)})
+    return {"trees": trees, "refs": run(["for-each-ref", "--format=%(refname) %(objectname)"], roots[0])}
+
+
+def _flow_state(result, ts, roots, before, ledger, offset):
+    """一次最外层调用之后要比的：交回值、调用之后的 ts、几棵树里的文件改动、账本新增的部分、git 状态。"""
+    tail = ledger.read_bytes()[offset:] if ledger.exists() else b""
+    return {"result": result, "ts": to_tagged(_plain(ts)), "files": _flow_changes(roots, before),
+            "ledger": base64.b64encode(tail).decode("ascii"), "git": _flow_git(roots)}
+
+
+def _flow_inner_call(name, args, kwargs):
+    """内层调用要核对的参数：run_pd 比 argv 与 timeout（没给是 None），另外三个比仓库路径与调用那一刻的整份 ts。"""
+    if name == "run_pd":
+        timeout = args[2] if len(args) > 2 else kwargs.get("timeout")
+        return {"fn": name, "argv": [str(item) for item in args[1]], "timeout": timeout}
+    return {"fn": name, "repo": str(args[0].repo), "ts": to_tagged(_plain(args[1]))}
+
+
+def _flow_recorder(name, fn, roots, inner, busy):
+    """采样：用例换上的内层函数包一层，记参数、交回值或异常、调用期间的文件改动、调用之后的 ts。假函数里面再调名单上的不另录。"""
+    def record(*args, **kwargs):
+        if busy[0]:
+            return fn(*args, **kwargs)
+        entry = _flow_inner_call(name, args, kwargs)
+        before = _flow_listing(roots)
+        busy[0] = True
+        try:
+            value = fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001  录下来照样抛
+            entry["raise"] = [type(exc).__name__, str(exc)]
+            raise
+        else:
+            entry["value"] = to_tagged(_plain(value))
+        finally:
+            busy[0] = False
+            entry["files"] = _flow_changes(roots, before)
+            if name != "run_pd":
+                entry["ts_after"] = to_tagged(_plain(args[1]))
+            inner.append(entry)
+        return value
+    return record
+
+
+def _flow_injector(name, queue, roots):
+    """重放：照记录注入内层调用。参数逐次核对，对不上或多调报 _InjectionMismatch；照记录写文件、删文件、原地改 ts，再交回或抛出。"""
+    def inject(*args, **kwargs):
+        got = _flow_inner_call(name, args, kwargs)
+        expected = queue.pop(0) if queue else None
+        if expected is None or any(expected.get(key) != value for key, value in got.items()):
+            raise _InjectionMismatch(json.dumps({"got": got, "expected": expected and {key: expected.get(key) for key in got}}, ensure_ascii=False))
+        for key, data in expected["files"]["write"].items():
+            path = _flow_path(roots, key)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(base64.b64decode(data))
+        for key in expected["files"]["delete"]:
+            os.remove(_flow_path(roots, key))
+        if "ts_after" in expected:
+            ts = args[1]
+            ts.clear()
+            ts.update(from_tagged(expected["ts_after"]))
+        if "raise" in expected:
+            raise type(expected["raise"][0], (Exception,), {})(expected["raise"][1])
+        return from_tagged(expected["value"])
+    return inject
+
+
+def _flow_roots(hub, workspace):
+    roots = [Path(hub.repo)]
+    if workspace is not None and Path(workspace).resolve() != roots[0].resolve():
+        roots.append(Path(workspace))
+    return roots
+
+
+def op_hub_contract_flow(request):
+    """第 ⑤e2b 片：合同与战前门禁里改状态的六个函数，照调用当时重放。先原地放回快照（带 .git），钉住时刻与提交作者、日期，
+    用例当时换掉的内层函数照记录注入（request["inner"]，逐次核对；用完了还有剩的报 INJECTION_LEFTOVER），交回 _flow_state。"""
+    for item in request.get("restores") or []:
+        _restore_tree(item["from"], item["to"], item.get("links", []), with_git=bool(item.get("git")))
+    fn = request["fn"]
+    args = [from_tagged(item) for item in request["args"]]
+    hub = kit_hub.Hub(Path(args[0]))
+    ts = args[1]
+    rest = [Path(args[2])] if fn == "accept_gate_pre" else args[2:]
+    roots = [Path(root) for root in request["roots"]]
+    before = _flow_listing(roots)
+    ledger = hub.ledger()
+    offset = ledger.stat().st_size if ledger.exists() else 0
+    queue = list(request.get("inner") or [])
+    replaced = list(request.get("replaced") or [])
+    given_env = dict(FLOW_GIT_ENV, **(request.get("env") or {}))
+    saved_env = {name: os.environ.get(name) for name in given_env}
+    saved = {name: getattr(kit_hub, name) for name in replaced + ["utc_now", "utc_compact"]}
+    os.environ.update(given_env)
+    kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(request["pin"])
+    for name in replaced:
+        setattr(kit_hub, name, _flow_injector(name, queue, roots))
+    try:
+        value = getattr(kit_hub, fn)(hub, ts, *rest)
+        result = json.loads(_recorded_value(fn, value))
+        if queue:
+            result = {"ok": False, "error": "INJECTION_LEFTOVER", "left": [entry["fn"] for entry in queue]}
+    except _InjectionMismatch as exc:
+        result = {"ok": False, "error": "INJECTION_MISMATCH", "detail": str(exc)}
+    except Exception as exc:  # noqa: BLE001  与当时的结果一样记类型（HubError 记文字与退出码）
+        result = json.loads(_recorded_error(exc))
+    finally:
+        for name, item in saved.items():
+            setattr(kit_hub, name, item)
+        for name, item in saved_env.items():
+            if item is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = item
+    return {"ok": True, "value": _flow_state(result, ts, roots, before, ledger, offset)}
+
+
 def op_hub_audit_samples(request):
     """第 ⑤c、⑤d 片：跑 tests/test_kit_hub.py 里 request["tests"] 列出的用例，记下它们对 request["functions"] 的每一次顶层调用
     （内层的不记；参数照签名补全默认值，Path 换成字符串，Hub 换成仓库路径，元组换成列表）与当时的结果（_recorded_value），
@@ -1609,17 +1802,83 @@ def op_hub_audit_samples(request):
         roots = []
         if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
             roots.append(Path(bound.arguments["hub"].repo))
-        if "path" in bound.arguments:
-            roots.append(Path(bound.arguments["path"]))
+        for key in ("path", "workspace"):  # ⑤e2b：accept_gate_pre 的门禁草稿 worktree 叫 workspace
+            if bound.arguments.get(key) is None:
+                continue
+            roots.append(Path(bound.arguments[key]))
             pointer = roots[-1] / ".git"
             if pointer.is_file():
                 roots.append(Path(pointer.read_text(encoding="utf-8").split(":", 1)[1].strip()).parent.parent.parent)
+        unique = []
+        for root in roots:  # 指针指回的主仓库就是 hub 的仓库时只存一份
+            if all(root.resolve() != seen.resolve() for seen in unique):
+                unique.append(root)
+        roots = unique
         restores = []
         for root in roots:
             snapshot = Path(request["tmp"]).resolve() / "call-snapshots" / str(len(calls)) / str(len(restores))
             links = _snapshot_tree(root, snapshot, with_git=True)
             restores.append({"from": str(snapshot), "to": str(root), "links": links, "git": True})
         return restores
+
+    flow_functions = set(request.get("flow_functions") or [])
+    installed = {}
+
+    def flow_recorder(name, fn):
+        """⑤e2b：改状态的函数在最外层被调时照调用当时记：快照（带 .git）、钉住的时刻、用例当时换掉的内层函数的每一次调用、
+        调用之后的 _flow_state（交回值、ts、文件、账本、git 状态）。时刻与提交作者、日期只在这一次调用期间钉住。"""
+        signature = inspect.signature(fn)
+
+        def wrapper(*args, **kwargs):
+            if depth[0] > 0:
+                depth[0] += 1
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    depth[0] -= 1
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            entry = {"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]}
+            calls.append(entry)
+            hub = bound.arguments["hub"]
+            roots = _flow_roots(hub, bound.arguments.get("workspace"))
+            entry["restores"] = json.dumps(call_snapshots(bound), ensure_ascii=False)
+            entry["roots"] = [str(root) for root in roots]
+            entry["pin"] = time.time_ns() // 1000
+            entry["replaced"] = [item for item in FLOW_INNER if getattr(kit_hub, item) is not installed[item]]
+            inner, busy = [], [False]
+            before = _flow_listing(roots)
+            ledger = hub.ledger()
+            offset = ledger.stat().st_size if ledger.exists() else 0
+            saved = {item: getattr(kit_hub, item) for item in entry["replaced"] + ["utc_now", "utc_compact"]}
+            saved_env = {key: os.environ.get(key) for key in FLOW_GIT_ENV}
+            os.environ.update(FLOW_GIT_ENV)
+            kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(entry["pin"])
+            for item in entry["replaced"]:
+                setattr(kit_hub, item, _flow_recorder(item, saved[item], roots, inner, busy))
+            depth[0] += 1
+            raised = None
+            try:
+                value = fn(*args, **kwargs)
+                result = json.loads(_recorded_value(name, value))
+            except Exception as exc:  # noqa: BLE001  记下之后照样抛回用例
+                raised = exc
+                result = json.loads(_recorded_error(exc))
+            finally:
+                depth[0] -= 1
+                for item, original in saved.items():
+                    setattr(kit_hub, item, original)
+                for key, original in saved_env.items():
+                    if original is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = original
+            entry["inner"] = json.dumps(inner, ensure_ascii=False)
+            entry["result"] = json.dumps(_flow_state(result, bound.arguments["ts"], roots, before, ledger, offset), ensure_ascii=False)
+            if raised is not None:
+                raise raised
+            return value
+        return wrapper
 
     def recorder(name, fn):
         signature = inspect.signature(fn)
@@ -1718,7 +1977,8 @@ def op_hub_audit_samples(request):
         return fixture._get_wrapped_function() if hasattr(fixture, "_get_wrapped_function") else fixture.__wrapped__
 
     for name, fn in originals.items():
-        setattr(kit_hub, name, recorder(name, fn))
+        setattr(kit_hub, name, flow_recorder(name, fn) if name in flow_functions else recorder(name, fn))
+    installed.update({name: getattr(kit_hub, name) for name in FLOW_INNER})
     original_run = kit_hub.TurnRunner.run
     if "TurnRunner.run" in request["functions"]:
         kit_hub.TurnRunner.run = turn_recorder(original_run)
@@ -1898,6 +2158,7 @@ OPS = {
     "hub.audit_samples": op_hub_audit_samples,
     "hub.prompt": op_hub_prompt,
     "hub.contract": op_hub_contract,
+    "hub.contract_flow": op_hub_contract_flow,
     "hub.inputs": op_hub_inputs,
     "hub.turn": op_hub_turn,
     "hub.shadow_task": op_hub_shadow_task,

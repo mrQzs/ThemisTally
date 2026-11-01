@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PyCrash, pyRepr } from "@themis/base/pyfmt";
+import { PyCrash, pyRepr, pyReprValue } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { pyResolve } from "@themis/base/pypath";
 import { pyStrip } from "@themis/base/pyre";
@@ -40,7 +40,7 @@ export function git(args: readonly string[], cwd: string, check = true, timeout 
   const done = spawnSync("git", [...args], { cwd, timeout: timeout * 1000, maxBuffer: 1024 * 1024 * 1024, windowsHide: true });
   if (done.error) {
     const code = (done.error as NodeJS.ErrnoException).code;
-    if (code === "ETIMEDOUT") throw new PyCrash("TimeoutExpired", `Command '${["git", ...args].join(" ")}' timed out after ${timeout} seconds`);
+    if (code === "ETIMEDOUT") throw new PyCrash("TimeoutExpired", `Command '${pyReprValue(["git", ...args])}' timed out after ${timeout} seconds`); // str(TimeoutExpired)
     if (code === "ENOENT") {
       // Windows 上 cwd 不存在时 Python 抛的是 NotADirectoryError（WinError 267），不是“找不到 git”（照调度器的 repo.ts）
       if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: ${pyRepr(cwd)}`);

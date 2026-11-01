@@ -1,0 +1,308 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract-flow.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "J01 derive-json 少了 --force（参数对不上）",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "const args = [\"derive-json\", key, \"--force\"];",
+      "new": "const args = [\"derive-json\", key];"
+    },
+    {
+      "name": "J02 validate 调两次（多调）",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    [code, out] = await deps.runPd(hub, [\"validate\", key]);\n",
+      "new": "    [code, out] = await deps.runPd(hub, [\"validate\", key]);\n    [code, out] = await deps.runPd(hub, [\"validate\", key]);\n"
+    },
+    {
+      "name": "J03 derive-json 之后不调 validate（少调）",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    [code, out] = await deps.runPd(hub, [\"validate\", key]);\n",
+      "new": ""
+    },
+    {
+      "name": "K01 KERNEL_PYTEST 不带 -p no:cacheprovider",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "[kernelPython(), \"-m\", \"pytest\", \"-p\", \"no:cacheprovider\"]",
+      "new": "[kernelPython(), \"-m\", \"pytest\"]"
+    },
+    {
+      "name": "K02 kernel_pytest_env 不设 PYTHONDONTWRITEBYTECODE",
+      "file": "ts/packages/hub/src/runpd.ts",
+      "old": "  env.set(\"PYTHONDONTWRITEBYTECODE\", \"1\");\n",
+      "new": ""
+    },
+    {
+      "name": "T01 钉住的时刻不起作用",
+      "file": "ts/packages/base/src/clock.ts",
+      "old": "return pinned ?? systemClock();",
+      "new": "return systemClock();"
+    },
+    {
+      "name": "V01 带标题时不加 --title",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "if (pyTruthy(pyGet(ts, \"title\"))) args.push(",
+      "new": "if (false) args.push("
+    },
+    {
+      "name": "V02 derive-json 失败的输出不截尾",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "problems.push(`derive-json 失败：${LF}${tail(out)}`);",
+      "new": "problems.push(`derive-json 失败：${LF}${out}`);"
+    },
+    {
+      "name": "V03 不查内核要求",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (!problems.length) problems.push(...(await deps.contractRequirements(hub, ts)));\n",
+      "new": ""
+    },
+    {
+      "name": "V04 合同哈希不更新",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  contract.set(\"sha256\", contractDigest(hub, ts));\n",
+      "new": ""
+    },
+    {
+      "name": "V05 问题不记进 ts",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  contract.set(\"problems\", problems);\n",
+      "new": ""
+    },
+    {
+      "name": "V06 不先同步执行模型那一行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  await syncExecutorLine(hub, ts);\n",
+      "new": ""
+    },
+    {
+      "name": "A01 只有空白的 contract_md 也收",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "if (typeof given !== \"string\" || !pyStrip(given)) return",
+      "new": "if (typeof given !== \"string\" || !given) return"
+    },
+    {
+      "name": "A02 首行比较前不去掉开头的空白",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "pySplitlines(pyLstrip(given))[0]",
+      "new": "pySplitlines(given)[0]"
+    },
+    {
+      "name": "A03 已存在时一律当重交",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    if (!redraft) return [`${purePathName(path)} 已存在，合同版本只增不改`];\n",
+      "new": ""
+    },
+    {
+      "name": "A04 旧稿只留 md",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "for (const [old, suffix] of [[path, \".md\"], [json, \".json\"]] as const) {",
+      "new": "for (const [old, suffix] of [[path, \".md\"]] as const) {"
+    },
+    {
+      "name": "A05 旧稿的文件名不用钉住的时刻",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    const stamp = utcCompact();",
+      "new": "    const stamp = utcCompact(0);"
+    },
+    {
+      "name": "A06 Identity 规整了不记账本",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (changed.size) await hub.appendEvent(\"contract.identity_normalized\", [[\"task\", pyItem(ts, \"task\")], [\"key\", key], [\"written\", changed]]);\n",
+      "new": ""
+    },
+    {
+      "name": "A07 粗体编号规整了不记账本",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (bold) await hub.appendEvent(\"contract.markup_normalized\", [[\"task\", pyItem(ts, \"task\")], [\"key\", key], [\"lines\", bold]]);\n",
+      "new": ""
+    },
+    {
+      "name": "A08 不附站主决定",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (pyTruthy(pyGet(ts, \"decisions\"))) text += LF",
+      "new": "  if (false) text += LF"
+    },
+    {
+      "name": "A09 合同末尾不补换行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  writeText(path, `${pyRstrip(text)}${LF}`, false);",
+      "new": "  writeText(path, pyRstrip(text), false);"
+    },
+    {
+      "name": "A10 合同记录少了 written_version",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    [\"written_version\", version],\n",
+      "new": ""
+    },
+    {
+      "name": "A11 revalidate 过了不查预算",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    problems = await deps.budgetProblems(hub, ts);",
+      "new": "    if (false) problems = await deps.budgetProblems(hub, ts);"
+    },
+    {
+      "name": "A12 预算有问题也不改 validated",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    dict(pyItem(ts, \"contract\")).set(\"validated\", !problems.length);\n",
+      "new": ""
+    },
+    {
+      "name": "W01 合同照 Node 的写法写（孤立代理项悄悄换成 U+FFFD）",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  writeText(path, `${pyRstrip(text)}${LF}`, false);",
+      "new": "  (await import(\"node:fs\")).writeFileSync(path, `${pyRstrip(text)}${LF}`);"
+    },
+    {
+      "name": "B01 版本号加 2",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "const version = pyIntOf(pyItem(pyItem(ts, \"contract\"), \"version\")) + 1n;",
+      "new": "const version = pyIntOf(pyItem(pyItem(ts, \"contract\"), \"version\")) + 2n;"
+    },
+    {
+      "name": "B02 新版本已存在照样写",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (existsSync(newMd)) return [`${purePathName(newMd)} 已存在，合同版本只增不改`];\n",
+      "new": ""
+    },
+    {
+      "name": "B03 plan_version 有两行也换",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (count !== 1) return [\"合同 Identity 里找不到唯一的“- plan_version:”行\"];",
+      "new": "  if (count === 0) return [\"合同 Identity 里找不到唯一的“- plan_version:”行\"];"
+    },
+    {
+      "name": "B04 plan_version 的空白不跨行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "const PLAN_VERSION_RE = pyRegex(`${LINE_START}- plan_version:${S}*${D}+${S}*${LINE_END}`, true);",
+      "new": "const PLAN_VERSION_RE = pyRegex(`${LINE_START}- plan_version:[ ]*${D}+[ ]*${LINE_END}`, true);"
+    },
+    {
+      "name": "B05 bumped_from 记成新版本",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "[\"bumped_from\", version - 1n],",
+      "new": "[\"bumped_from\", version],"
+    },
+    {
+      "name": "B06 written_version 记成新版本",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    [\"written_version\", pyGet(pyItem(ts, \"contract\"), \"written_version\")],",
+      "new": "    [\"written_version\", version],"
+    },
+    {
+      "name": "S01 base_sha 有两行也换",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (count !== 1) return [\"合同 Identity 里找不到唯一的“- base_sha:”行\"];",
+      "new": "  if (count === 0) return [\"合同 Identity 里找不到唯一的“- base_sha:”行\"];"
+    },
+    {
+      "name": "S02 base_sha 的行尾空白不跨行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "const BASE_SHA_RE = pyRegex(`${LINE_START}- base_sha:${S}*${NOT_SPACE}+${S}*${LINE_END}`, true);",
+      "new": "const BASE_SHA_RE = pyRegex(`${LINE_START}- base_sha:[ ]*${NOT_SPACE}+[ ]*${LINE_END}`, true);"
+    },
+    {
+      "name": "Y01 已派遣的也改",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (pyTruthy(pyGet(pyItem(ts, \"contract\"), \"dispatched\"))) return null;\n",
+      "new": ""
+    },
+    {
+      "name": "Y02 比名册那行之前不去掉两头空白",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "if (match === null || pyStrip(match[0]) === CONTRACT_EXECUTOR_LINE) return null;",
+      "new": "if (match === null || match[0] === CONTRACT_EXECUTOR_LINE) return null;"
+    },
+    {
+      "name": "Y03 改了不记账本",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  await hub.appendEvent(\"contract.executor_synced\",",
+      "new": "  if (false) await hub.appendEvent(\"contract.executor_synced\","
+    },
+    {
+      "name": "G01 改动清单不截到 8 条",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "${bad.slice(0, 8).join(\", \")}",
+      "new": "${bad.join(\", \")}"
+    },
+    {
+      "name": "G02 收集失败也往下走",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (collected !== 0) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "G03 收集失败的输出截 30 行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "      + tail(collectOut, 15n)];",
+      "new": "      + tail(collectOut)];"
+    },
+    {
+      "name": "G04 已派遣也不升版",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (pyTruthy(pyGet(pyItem(ts, \"contract\"), \"dispatched\"))) {\n    const problems = await bumpContractVersion(hub, ts);",
+      "new": "  if (false) {\n    const problems = await bumpContractVersion(hub, ts);"
+    },
+    {
+      "name": "G05 引用名少了版本前的 v",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "/v${pyPercentD(pyItem(pyItem(ts, \"contract\"), \"version\"))}`;",
+      "new": "/${pyPercentD(pyItem(pyItem(ts, \"contract\"), \"version\"))}`;"
+    },
+    {
+      "name": "G06 不记门禁 worktree 的提交",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  dict(pyItem(pyItem(ts, \"workspaces\"), \"gate\")).set(\"commit\", sha);\n",
+      "new": ""
+    },
+    {
+      "name": "G07 热修补不留测试差异",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (pyTruthy(previous)) { // 热修补",
+      "new": "  if (false) { // 热修补"
+    },
+    {
+      "name": "G08 baseline 的时限照缺省",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "\"key\") as string], 1800);",
+      "new": "\"key\") as string]);"
+    },
+    {
+      "name": "G09 baseline 的尾巴截 30 行",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  dict(pyItem(ts, \"oracle\")).set(\"baseline_tail\", tail(out, 20n));",
+      "new": "  dict(pyItem(ts, \"oracle\")).set(\"baseline_tail\", tail(out));"
+    },
+    {
+      "name": "G10 不核对基线上是怎样失败的",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  problems = hollowBaselineProblems(hub, out, expected);\n",
+      "new": ""
+    },
+    {
+      "name": "G11 过了也不锁",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  dict(pyItem(ts, \"oracle\")).set(\"locked\", true);\n",
+      "new": ""
+    },
+    {
+      "name": "G12 锁定时不刷新合同哈希",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  dict(pyItem(ts, \"contract\")).set(\"sha256\", contractDigest(hub, ts));\n  if (pyTruthy(pyGet(ts, \"hotfix\"))) {",
+      "new": "  if (pyTruthy(pyGet(ts, \"hotfix\"))) {"
+    },
+    {
+      "name": "G13 热修补的记录少了合同键",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    record.set(\"contract\", pyItem(pyItem(ts, \"contract\"), \"key\"));\n",
+      "new": ""
+    }
+  ]
+}

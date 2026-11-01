@@ -273,4 +273,36 @@ COVERED 2、PARTIAL 24：调到这三个函数的 24 条都是门禁、合同与
 
 这 7 条里 COVERED 5、PARTIAL 2。
 
-其余场景随各片补（⑤e2b 到 ⑤j）。
+### ⑤e2b 合同与战前门禁里改状态的部分
+
+做法（设计稿第 6 节第 6 条、第 8 节，themistally-15 定的）：采样器的 flow_recorder 在 accept_contract、revalidate_contract、bump_contract_version、set_contract_base、accept_gate_pre、sync_executor_line 的最外层调用时记：调用当时的快照（带 .git，仓库外的门禁 worktree 一起）；钉住的时刻（kit_hub.utc_now、utc_compact 与 TS 的 withPinnedClock 钉在同一个微秒数上）；提交作者与日期（GIT_* 六个变量，只在这一次调用期间设）；用例当时换掉的 run_pd、contract_requirements、budget_problems、revalidate_contract 的每一次调用（参数、交回值、两棵树里的文件改动、调用之后的 ts）。三边先原地放回快照，再照记录注入（参数逐次核对，对不上、多调、少调都报错）重放，比交回值、调用之后的 ts、两棵树里新建/改动/删掉的文件（逐字节，.git 内部除外）、账本新增的部分、用命令读出的 git 状态（每棵树的 HEAD 与 status，全部引用）。这 23 条是在 test_kit_hub.py 全部能采样的用例上开着采样器跑一遍、按有没有最外层调用筛出来的；采不了的 19 条（参数化的与要别的夹具的，展开成 82 条）另用只计数的插件跑过，都没有走到这六个函数。23 条用例的 76 次调用，每一次三边都与当时的结果相同；只在比较这一步把交回值里 pytest 收集失败输出的用时换成占位（ts、文件、账本、git 状态照样逐字比）。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_dispatched_contract_is_bumped_not_edited` | 322 | COVERED | hub-contract-flow：bump 2 次（新版本、撞上已有的版本） |
+| `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | PARTIAL | accept_gate_pre 3 次；Engine 归 ⑤i |
+| `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | accept_gate_pre 2 次；经 Engine 的返工归 ⑤i |
+| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | COVERED | hub-contract-flow：accept_gate_pre 4 次（收集失败三次）；ensure_worktree 只用来搭门禁草稿 worktree，它本身归 ⑤i |
+| `test_gate_pre_baseline_must_fail_on_assertions` | 491 | COVERED | hub-contract-flow：accept_gate_pre 1 次，加上 ⑤e2a 的 hollow_baseline_problems；ensure_worktree 同上 |
+| `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | COVERED | hub-contract-flow：accept_contract 2 次，用例换上的 revalidate 照记录注入；guard 在 ⑤a |
+| `test_contract_title_is_the_registered_task_title` | 901 | COVERED | hub-contract-flow：revalidate_contract 1 次（derive-json 带 --title） |
+| `test_kernel_writes_the_contract_version_and_base_it_assigns` | 1441 | COVERED | hub-contract-flow：accept_contract 3 次；turn_prompt 在 ⑤d1 |
+| `test_a_contract_that_fails_derive_json_is_redrafted_under_the_same_number` | 2519 | PARTIAL | accept_contract 2 次（同号重交）；Engine 的当场重交归 ⑤i |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | accept_gate_pre 3 次；热修补的重交归 ⑤g |
+| `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | PARTIAL | bump 2、set_contract_base 2、sync 5 次；run_exec 归 ⑤g |
+| `test_rework_contract_lets_the_executor_modify_files_added_earlier` | 2842 | PARTIAL | bump 1、revalidate 2、sync 2 次；run_exec 归 ⑤g |
+| `test_retry_after_failed_checks_tells_the_executor_why` | 2926 | PARTIAL | bump 2、revalidate 2、sync 5 次；run_exec 归 ⑤g |
+| `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | PARTIAL | bump、set_contract_base、sync 各 1 次；run_exec 归 ⑤g |
+| `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | PARTIAL | bump、set_contract_base、sync 各 1 次；run_exec 归 ⑤g |
+| `test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base` | 5585 | PARTIAL | bump、set_contract_base、sync 各 1 次；run_exec 归 ⑤g |
+| `test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline` | 5675 | PARTIAL | set_contract_base、sync 各 1 次；run_exec 归 ⑤g |
+| `test_unsent_contracts_get_the_rostered_executor_line` | 5989 | COVERED | hub-contract-flow：revalidate 1 次、sync 2 次 |
+| `test_a_cut_off_attempt_is_continued_instead_of_restarted` | 6101 | PARTIAL | bump、set_contract_base、sync 各 1 次；run_exec 归 ⑤g |
+| `test_an_unsent_contract_gets_the_rostered_executor_before_dispatch` | 6193 | PARTIAL | sync 3 次、revalidate 2 次；run_exec 归 ⑤g |
+| `test_owner_raises_the_attempt_budget` | 6223 | PARTIAL | bump 1 次、revalidate 2 次；exec_marks 归 ⑤g，cmd_task_budget 归 ⑤j |
+| `test_bold_item_ids_in_the_contract_are_normalized` | 6303 | COVERED | hub-contract-flow：accept_contract 2 次 |
+| `test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer` | 6486 | COVERED | hub-contract-flow：accept_contract 3 次 |
+
+COVERED 9、PARTIAL 14。hub-contract-flow 另有手写的对照：真调度器上的门禁基准测试（走通：收集、提交、挂引用、改 base_sha、derive-json、validate、baseline；收集失败）与 KERNEL_PYTEST 不在 worktree 里留缓存（PYTHONDONTWRITEBYTECODE 先设成 0）；accept_gate_pre、revalidate、accept_contract、bump、set_contract_base、sync 样本没走到的分支（假的 run_pd 照手写的记录注入）；注入核对的三种报错。调度器自己写的证据（baseline/NN/ 下）比路径清单，checks.json 里钉不住的字段打占位后逐字比，日志不比内容。变异 ts/mutations/hub-e2b.ts.json 49 条全部抓住：第一轮 47 条抓住 44 条，漏掉的 A01（缺“只有空白”的用例）、G09（用例里 baseline 的输出都不到 20 行）补了用例；G12 起初当成等价，themistally-15 复核时指出用例换上的假 revalidate 不碰合同哈希，补了 baseline 那次改合同 JSON 的场景；复核后另加 S02（base_sha 的行尾空白不跨行）与 W01（合同照 Node 的写法写，孤立代理项悄悄换成 U+FFFD）；改完整份重跑。
+
+其余场景随各片补（⑤f 到 ⑤j）。

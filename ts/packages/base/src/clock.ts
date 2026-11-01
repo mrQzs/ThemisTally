@@ -35,9 +35,25 @@ const systemClock = makeClock(
   () => performance.now(),
 );
 
+let pinned: number | null = null;
+
 /** 当前时刻的 Unix 微秒数（系统时钟，进程内单调递增）。 */
 export function nowMicros(): number {
-  return systemClock();
+  return pinned ?? systemClock();
+}
+
+/**
+ * 只给契约用，生产代码不调（迁移第 ⑤e2b 片）：fn 运行期间 nowMicros 固定交回 micros，utcNow、utcCompact 跟着走，对应 Python 那边把
+ * kit_hub.utc_now、utc_compact 钉成同一个时刻。async 的 fn 等它结束；结束或抛错都在 finally 里还原。
+ */
+export async function withPinnedClock<T>(micros: number, fn: () => T | Promise<T>): Promise<T> {
+  const before = pinned;
+  pinned = micros;
+  try {
+    return await fn();
+  } finally {
+    pinned = before;
+  }
 }
 
 /** utc_now：秒精度，截断（Python 的 strftime 不进位）。 */

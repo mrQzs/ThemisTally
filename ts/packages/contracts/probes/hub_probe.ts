@@ -11,7 +11,11 @@ import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
 import { jsonlLines } from "@themis/base/jsonl";
-import { cmpCodePoints, pySplitlines } from "@themis/base/pyre";
+import { cmpCodePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { withPinnedClock } from "@themis/base/clock";
+import { pyDecodeUtf8Replace } from "@themis/base/pyio";
+import { spawnSync } from "node:child_process";
+import { type ContractDeps, REAL_DEPS, acceptContract, acceptGatePre, bumpContractVersion, revalidateContract, setContractBase, syncExecutorLine } from "@themis/hub/accept";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
   turnCostUsd,
@@ -518,6 +522,159 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       else process.env[name] = before;
     }
   }
+}
+
+// --- ⑤e2b：合同与战前门禁里改状态的六个函数，照调用当时重放（与 python_probe.py 的 op_hub_contract_flow 一一对应） -----------
+
+/** 最外层调用期间的提交作者与日期，同 python_probe.py 的 FLOW_GIT_ENV。 */
+const FLOW_GIT_ENV: Record<string, string> = {
+  GIT_AUTHOR_NAME: "themis-contract", GIT_AUTHOR_EMAIL: "contract@example.invalid", GIT_COMMITTER_NAME: "themis-contract",
+  GIT_COMMITTER_EMAIL: "contract@example.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00+00:00", GIT_COMMITTER_DATE: "2026-01-01T00:00:00+00:00",
+};
+
+/** 记录里的一次内层调用（python_probe.py 的 _flow_recorder 记下的）。 */
+interface InnerEntry {
+  readonly fn: string;
+  readonly [key: string]: unknown;
+}
+
+class InjectionMismatch extends Error {}
+
+/** 几棵树里的文件：{“树的序号/相对路径（正斜杠）”: sha256}。.git 不进，链接与联接不跟（lstat 把联接也当链接）。 */
+function flowListing(roots: readonly string[]): Map<string, string> {
+  const listing = new Map<string, string>();
+  roots.forEach((root, index) => {
+    const walk = (dir: string, rel: string[]): void => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        const info = lstatSync(path);
+        if (name === ".git" || info.isSymbolicLink()) continue;
+        if (info.isDirectory()) walk(path, [...rel, name]);
+        else listing.set(`${index}/${[...rel, name].join("/")}`, createHash("sha256").update(readFileSync(path)).digest("hex"));
+      }
+    };
+    walk(root, []);
+  });
+  return listing;
+}
+
+const flowPath = (roots: readonly string[], key: string): string => {
+  const [index, ...rel] = key.split("/");
+  return join(roots[Number(index)] as string, ...rel);
+};
+
+/** 与 before 比：新建与改动的文件（原始字节，base64），删掉的文件。键按码点排序。 */
+function flowChanges(roots: readonly string[], before: ReadonlyMap<string, string>): { write: Record<string, string>; delete: string[] } {
+  const after = flowListing(roots);
+  const write: Record<string, string> = {};
+  for (const key of [...after.keys()].sort(cmpCodePoints)) {
+    if (before.get(key) !== after.get(key)) write[key] = readFileSync(flowPath(roots, key)).toString("base64");
+  }
+  return { write, delete: [...before.keys()].filter((key) => !after.has(key)).sort(cmpCodePoints) };
+}
+
+/** 用命令读出的 git 状态：每棵树的 HEAD 与 status -z 的原文，第一棵树里的全部引用；不是仓库的记 null。 */
+function flowGit(roots: readonly string[]): Record<string, unknown> {
+  const run = (args: string[], cwd: string): string | null => {
+    const done = spawnSync("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1024 * 1024 * 1024, windowsHide: true });
+    return done.status === 0 ? pyDecodeUtf8Replace(done.stdout) : null;
+  };
+  const trees = roots.map((root) => {
+    const head = run(["rev-parse", "HEAD"], root);
+    return { head: head === null ? null : pyStrip(head), status: run(["status", "--porcelain=v1", "--untracked-files=all", "-z"], root) };
+  });
+  return { trees, refs: run(["for-each-ref", "--format=%(refname) %(objectname)"], roots[0] as string) };
+}
+
+/** 内层调用要核对的参数：run_pd 比 argv 与 timeout（没给是 null），另外三个比仓库路径与调用那一刻的整份 ts。 */
+function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyValue) => unknown): Record<string, unknown> {
+  if (name === "run_pd") return { fn: name, argv: (args[1] as string[]).map(String), timeout: args[2] ?? null };
+  return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict) };
+}
+
+/** 重放：照记录注入内层调用。参数逐次核对，对不上或多调抛 InjectionMismatch；照记录写文件、删文件、原地改 ts，再交回或抛出。 */
+function injector(name: string, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown) {
+  return async (...args: unknown[]): Promise<never> => {
+    const got = innerCall(name, args, toTagged);
+    const expected = queue.shift();
+    if (expected === undefined || Object.entries(got).some(([key, value]) => JSON.stringify(expected[key] ?? null) !== JSON.stringify(value))) {
+      throw new InjectionMismatch(JSON.stringify({ got, expected: expected && Object.fromEntries(Object.keys(got).map((key) => [key, expected[key]])) }));
+    }
+    const files = expected["files"] as { write: Record<string, string>; delete: string[] };
+    for (const [key, data] of Object.entries(files.write)) {
+      mkdirSync(dirname(flowPath(roots, key)), { recursive: true });
+      writeFileSync(flowPath(roots, key), Buffer.from(data, "base64"));
+    }
+    for (const key of files.delete) rmSync(flowPath(roots, key));
+    if ("ts_after" in expected) {
+      const ts = args[1] as PyDict;
+      ts.clear();
+      for (const [key, value] of fromTagged(expected["ts_after"] as never) as PyDict) ts.set(key, value);
+    }
+    if ("raise" in expected) {
+      const [kind, message] = expected["raise"] as [string, string];
+      throw new PyCrash(kind, message);
+    }
+    const value = fromTagged(expected["value"] as never);
+    return (name === "run_pd" ? [Number((value as PyValue[])[0]), (value as PyValue[])[1]] : value) as never;
+  };
+}
+
+/** 第 ⑤e2b 片：python_probe.py 的 op_hub_contract_flow。 */
+export async function hubContractFlow(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
+  for (const item of (request["restores"] as Restore[] | undefined) ?? []) restoreTree(item);
+  if (typeof request["python"] === "string") setKernelPython(request["python"]);
+  const fn = String(request["fn"]);
+  const args = (request["args"] as never[]).map(fromTagged);
+  const hub = new Hub(textOf(args[0]));
+  const ts = args[1] as PyDict;
+  const roots = request["roots"] as string[];
+  const before = flowListing(roots);
+  const ledger = hub.ledger();
+  const offset = existsSync(ledger) ? statSync(ledger).size : 0;
+  const queue = [...((request["inner"] as InnerEntry[] | undefined) ?? [])];
+  const replaced = new Set((request["replaced"] as string[] | undefined) ?? []);
+  const inject = (name: string) => injector(name, queue, roots, fromTagged, toTagged);
+  const deps: ContractDeps = {
+    runPd: replaced.has("run_pd") ? inject("run_pd") : REAL_DEPS.runPd,
+    contractRequirements: replaced.has("contract_requirements") ? inject("contract_requirements") : REAL_DEPS.contractRequirements,
+    budgetProblems: replaced.has("budget_problems") ? inject("budget_problems") : REAL_DEPS.budgetProblems,
+    revalidateContract: replaced.has("revalidate_contract") ? inject("revalidate_contract") : REAL_DEPS.revalidateContract,
+  };
+  const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
+  const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
+  for (const [name, value] of givenEnv) process.env[name] = value;
+  let result: Result;
+  try {
+    const value = await withPinnedClock(Number(request["pin"]), async (): Promise<PyValue> => {
+      switch (fn) {
+        case "accept_contract":
+          return acceptContract(hub, ts, args[2] as PyValue, deps);
+        case "revalidate_contract":
+          return revalidateContract(hub, ts, deps);
+        case "bump_contract_version":
+          return bumpContractVersion(hub, ts);
+        case "set_contract_base":
+          return setContractBase(hub, ts, textOf(args[2]), deps);
+        case "accept_gate_pre":
+          return acceptGatePre(hub, ts, textOf(args[2]), deps);
+        case "sync_executor_line":
+          return syncExecutorLine(hub, ts);
+        default:
+          throw new Error(`UNKNOWN_FN ${fn}`);
+      }
+    });
+    result = queue.length ? { ok: false, error: "INJECTION_LEFTOVER", left: queue.map((entry) => entry.fn) } : { ok: true, value: toTagged(value) };
+  } catch (error) {
+    result = error instanceof InjectionMismatch ? { ok: false, error: "INJECTION_MISMATCH", detail: error.message } : errorResult(error);
+  } finally {
+    for (const [name, before] of savedEnv) {
+      if (before === undefined) delete process.env[name];
+      else process.env[name] = before;
+    }
+  }
+  const tail = existsSync(ledger) ? readFileSync(ledger).subarray(offset) : Buffer.alloc(0);
+  return { ok: true, value: { result, ts: toTagged(ts), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots) } };
 }
 
 /** 一个目录下的文件（相对路径用正斜杠、排好序）：字节数、可不可写、sha256；与 python_probe.py 的 _tree_listing 对应。 */
