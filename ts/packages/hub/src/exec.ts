@@ -80,7 +80,7 @@ function pyIn(item: PyValue, container: PyValue | PySet): boolean {
 }
 
 /** value[:size]：字符串按码点，列表照切；字典照 3.12 拿切片当键查（slice 能散列了），别的类型报 TypeError。 */
-function pySliceHead(value: PyValue, size: number): PyValue {
+export function pySliceHead(value: PyValue, size: number): PyValue {
   if (typeof value === "string") return codePoints(value).slice(0, size).join("");
   if (Array.isArray(value)) return value.slice(0, size);
   if (value instanceof Map) throw new PyCrash("KeyError", `slice(None, ${size}, None)`);

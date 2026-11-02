@@ -1,6 +1,6 @@
 // 契约探针（TS 实现）：stdin 读一个 JSON 请求，stdout 写一个 JSON 结果，与 python_probe.py 收发同样的 JSON。
 // 同一份源码由 `node`（类型擦除）与 `bun` 各跑一遍。
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attemptDirName, auditId, mtimeUtcSeconds, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
 import { UnicodeDecodeError, readText, replaceError, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
@@ -61,10 +61,10 @@ import { pySorted } from "@themis/base/pyset";
 import { pyEq } from "@themis/base/pyvalue";
 import { purePathStr } from "@themis/base/pypath";
 import {
-  type Battery,
   DecisionError,
   QuestionError,
   type Settings,
+  batteryDict,
   batteryLinkProblem,
   checkQuestion,
   checkQuestions,
@@ -89,7 +89,7 @@ import { configErrors } from "@themis/config/roles-check";
 import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
 import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
 import { PY_EXCEPTION_PARENTS, pyCaught, pyExceptionName } from "@themis/base/pyexc";
-import { PyWinError } from "@themis/base/pyos";
+import { PyWinError, pyRename } from "@themis/base/pyos";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { hubAudit, hubBox, hubCall, hubConstants, hubContract, hubContractFlow, hubInputs, hubPrompt, hubShadowLetter, hubShadowRoute, hubShadowRoutine, hubShadowTask, hubTurn } from "./hub_probe.ts";
 
@@ -195,20 +195,6 @@ function pluginsCall(request: Request): Result {
   }
 }
 
-function batteryValue(battery: Battery): PyValue {
-  return new Map<string, PyValue>([
-    ["id", battery.id],
-    ["version", battery.version],
-    ["description", battery.description],
-    ["state_fields", battery.state_fields],
-    ["questions", battery.questions],
-    ["labels", battery.labels],
-    ["thresholds", battery.thresholds],
-    ["sha256", battery.sha256],
-    ["path", battery.path],
-  ]);
-}
-
 function settingsValue(settings: Settings): PyValue {
   return new Map<string, PyValue>([
     ["mode", settings.mode],
@@ -232,9 +218,9 @@ function decisionsValue(request: Request): PyValue {
     case "check_questions":
       return checkQuestions(loads(String(request["questions"])));
     case "load_battery":
-      return batteryValue(loadBattery(String(request["path"])));
+      return batteryDict(loadBattery(String(request["path"])));
     case "load_batteries":
-      return new Map([...loadBatteries(String(request["root"]))].map(([id, battery]) => [id, batteryValue(battery)]));
+      return new Map([...loadBatteries(String(request["root"]))].map(([id, battery]) => [id, batteryDict(battery)]));
     case "verify_battery_lock":
       return verifyBatteryLock(String(request["plugin_dir"]));
     case "settings_from_config": {
@@ -546,6 +532,38 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
                 : kind === "re-value" ? new PyValueError("x")
                   : kind === "re-overflow" ? new PyOverflowError("x") : new PyCrash(String(arg), "x")));
     return { ok: true, names, caught, made };
+  },
+  "pyexc.fs_call": (request) => {
+    // 第 ⑤g2 片：同 python_probe.py 的 pyexc.fs_real，用 Node 的 fs 触发（改名照 kit_hub 的移植走 base 的 pyRename），交回 pyExceptionName
+    // 与 except OSError 接不接得住；arg-type 是 Node 自己的参数错
+    const names: (string | null)[] = [];
+    const caught: boolean[] = [];
+    for (const kind of request["kinds"] as string[]) {
+      const work = join(String(request["dir"]), kind);
+      mkdirSync(work, { recursive: true });
+      writeFileSync(join(work, "file"), "x");
+      writeFileSync(join(work, "other"), "y");
+      mkdirSync(join(work, "dir"));
+      const actions: Record<string, () => unknown> = {
+        "unlink-missing": () => unlinkSync(join(work, "missing")),
+        "read-dir": () => readFileSync(join(work, "dir")),
+        "unlink-dir": () => unlinkSync(join(work, "dir")),
+        "rename-onto-dir": () => pyRename(join(work, "file"), join(work, "dir")),
+        "rename-onto-file": () => pyRename(join(work, "file"), join(work, "other")),
+        "listdir-file": () => readdirSync(join(work, "file")),
+        "mkdir-existing": () => mkdirSync(join(work, "dir")),
+        "arg-type": () => unlinkSync(5 as never),
+      };
+      try {
+        (actions[kind] as () => unknown)();
+        names.push(null);
+        caught.push(false);
+      } catch (error) {
+        names.push(pyExceptionName(error));
+        caught.push(pyCaught(error, ["OSError"]));
+      }
+    }
+    return { ok: true, names, caught };
   },
   "winerror.text": (request) => ({
     ok: true, text: pyWinErrorMessage(Number(request["code"]), typeof request["path"] === "string" ? request["path"] : undefined),

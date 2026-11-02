@@ -21,6 +21,12 @@ import {
   type GatePostDeps, REAL_GATE_POST_DEPS, acceptGatePost, applyCandidate, attemptBase, candidateDefects, defectMatchProblems, defectMatches, ensureWorktree,
   expectedMissedEverywhere, gateSpec, mutantTimeout, mutationProblems, runMutations, seedWhitebox, unchangedMismatches, unmutatedProblems,
 } from "@themis/hub/gatepost";
+import {
+  EXEC_LAND_WAIT_SECONDS, type ExecDeps, REAL_EXEC_DEPS, askSession, dispatchAttempt, ensureReworkScope, finalAuditTurn, finishExec, rebaseCandidate,
+  reworkAddedFiles, runExec, runJev, startRework, startRetry, writeReview,
+} from "@themis/hub/runexec";
+import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
+import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
 import { normcase } from "@themis/base/pypath";
 import type { SuperviseOptions } from "@themis/base/supervise";
 import {
@@ -717,6 +723,14 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
   if (name === "run_pd") return { fn: name, argv: (args[1] as string[]).map(String), timeout: args[2] ?? null };
   if (name === "worktree_root") return { fn: name, repo: args[0] };
   if (name === "mkdtemp") return { fn: name, prefix: args[0], dir: args[1] };
+  if (name === "load_locked_batteries") return { fn: name, path: args[0] }; // ⑤g2
+  if (name === "ask") { // ⑤g2：设置比 run_jev 改过的四样，账本比整个路径
+    const settings = args[0] as Settings;
+    return {
+      fn: name, settings: { mode: settings.mode, configured_mode: settings.configured_mode, reason: settings.reason, points: settings.points }, ledger: args[1],
+      battery: toTagged(args[2] as PyValue), state: toTagged(args[3] as PyValue), context: toTagged(args[4] as PyValue),
+    };
+  }
   if (name === "run_supervised") {
     const options = args[1] as SuperviseOptions;
     return {
@@ -776,6 +790,22 @@ function removeFresh(fresh: readonly string[], inner: readonly InnerEntry[]): vo
   }
 }
 
+/**
+ * ⑤g2 手写场景的真会话（同 python_probe.py 的 _jev_session）：传输层核对恰好是官方地址之后，一律改发本机的假端点，官方地址不交给真的
+ * 传输层；环境只给假 key。
+ */
+function jevAsk(jev: { endpoint: string; key: string } | undefined): ExecDeps["ask"] {
+  if (jev === undefined) return REAL_EXEC_DEPS.ask;
+  if (!jev.endpoint.startsWith("http://127.0.0.1:")) throw new Error("假端点只能在本机");
+  return (settings, ledger, battery, state, context) => askSession(settings, ledger, battery, state, context, {
+    transport: (body, headers, timeout, url) => {
+      if (url !== DEFAULT_BASE_URL + ENDPOINT_PATH) throw new Error("决策请求没有发往官方端点");
+      return httpTransport(body, headers, timeout, jev.endpoint + ENDPOINT_PATH);
+    },
+    environ: { [settings.api_key_env]: jev.key },
+  });
+}
+
 /** 第 ⑤e2b 片：python_probe.py 的 op_hub_contract_flow。 */
 export async function hubContractFlow(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
   for (const item of (request["restores"] as Restore[] | undefined) ?? []) restoreTree(item);
@@ -803,6 +833,13 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     worktreeRoot: replaced.has("worktree_root") ? inject("worktree_root") : REAL_GATE_POST_DEPS.worktreeRoot,
     runSupervised: replaced.has("run_supervised") ? inject("run_supervised") : REAL_GATE_POST_DEPS.runSupervised,
     mkdtemp: replaced.has("mkdtemp") ? inject("mkdtemp") : REAL_GATE_POST_DEPS.mkdtemp,
+  };
+  const execDeps: ExecDeps = { // ⑤g2：Python 那边 decisions.Session 换掉时，它的 ask 记成一次内层调用
+    ...deps, worktreeRoot: gateDeps.worktreeRoot, mkdtemp: gateDeps.mkdtemp,
+    reworkAddedFiles: replaced.has("rework_added_files") ? inject("rework_added_files") : REAL_EXEC_DEPS.reworkAddedFiles,
+    loadLockedBatteries: replaced.has("load_locked_batteries") ? inject("load_locked_batteries") : REAL_EXEC_DEPS.loadLockedBatteries,
+    ask: replaced.has("Session") ? inject("ask") : jevAsk(request["jev"] as { endpoint: string; key: string } | undefined),
+    landWaitSeconds: typeof request["land_wait"] === "number" ? request["land_wait"] : EXEC_LAND_WAIT_SECONDS,
   };
   const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
   const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
@@ -833,6 +870,28 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
           return acceptGatePost(hub, ts, textOf(args[2]), args[3] as PyValue, gateDeps);
         case "run_mutations":
           return runMutations(hub, ts, textOf(args[2]), textOf(args[3]), args[4] as PyValue, gateDeps);
+        case "run_exec": // ⑤g2
+          return runExec(hub, ts, execDeps);
+        case "finish_exec":
+          return finishExec(hub, ts, textOf(args[2]), args[3] as bigint | null, execDeps);
+        case "write_review":
+          return writeReview(hub, ts, textOf(args[2]), textOf(args[3]));
+        case "run_jev":
+          return runJev(hub, ts, textOf(args[2]), execDeps);
+        case "ensure_rework_scope":
+          return ensureReworkScope(hub, ts, execDeps);
+        case "dispatch_attempt": // 以下只进手写场景
+          return dispatchAttempt(hub, ts, execDeps);
+        case "start_rework":
+          return startRework(hub, ts, textOf(args[2]), args[3] as PyValue, execDeps);
+        case "rebase_candidate":
+          return rebaseCandidate(hub, ts, textOf(args[2]), textOf(args[3]), execDeps);
+        case "start_retry":
+          return startRetry(hub, ts, textOf(args[2]), execDeps);
+        case "final_audit_turn":
+          return finalAuditTurn(hub, ts, textOf(args[2]));
+        case "rework_added_files":
+          return reworkAddedFiles(hub, ts);
         default:
           throw new Error(`UNKNOWN_FN ${fn}`);
       }
@@ -1136,7 +1195,8 @@ const OS_ERRORS: Readonly<Record<number, string>> = { 2: "FileNotFoundError", 13
 
 /** ⑤f 起报错文字也比（str(exc)）：report_step_error 把它写进账本与给站主的信。Node 自己抛的错没有照 Python 的文字，露出原文，契约对不上时就知道漏了 pyOSErrorOf。 */
 function errorResult(error: unknown): Result {
-  if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
+  // ⑤g2：子类（LandBusy）记自己的类名，同 python_probe.py 的 _recorded_error
+  if (error instanceof HubError) return { ok: false, error: error.constructor.name, message: error.message, code: error.code };
   if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
   if ((error as Error | null)?.name === "UnicodeDecodeError") return { ok: false, error: "UnicodeDecodeError", message: (error as Error).message }; // base 的 fsutil 与 pyio 各有一个
   if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };

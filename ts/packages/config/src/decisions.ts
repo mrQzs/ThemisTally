@@ -157,6 +157,14 @@ export interface Battery {
   readonly path: string;
 }
 
+/** load_battery 交回的字典（键的次序照 Python）：执行端的 JEV 照字典取题库（⑤g2）。 */
+export function batteryDict(battery: Battery): PyDict {
+  return new Map<string, PyValue>([
+    ["id", battery.id], ["version", battery.version], ["description", battery.description], ["state_fields", battery.state_fields],
+    ["questions", battery.questions], ["labels", battery.labels], ["thresholds", battery.thresholds], ["sha256", battery.sha256], ["path", battery.path],
+  ]);
+}
+
 /** list(value)：str 拆成字符、dict 取键、其余不可迭代的照 Python 抛 TypeError。 */
 function pyList(value: PyValue): PyValue[] {
   if (Array.isArray(value)) return [...value];

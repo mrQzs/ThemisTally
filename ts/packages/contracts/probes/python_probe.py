@@ -1083,6 +1083,34 @@ def op_pyexc_real(request):
     return {"ok": True, "mro": mro, "names": made}
 
 
+def op_pyexc_fs_real(request):
+    """第 ⑤g2 片（pyexc 认 Node 的文件错误的对照）：在 request["dir"] 下每种各建一个目录（file、other 两个文件与 dir 目录），真触发一次，
+    交回 type(exc).__name__；没报错是 None。"""
+    base = Path(request["dir"])
+    names = []
+    for kind in request["kinds"]:
+        work = base / kind
+        work.mkdir(parents=True)
+        (work / "file").write_text("x", encoding="utf-8")
+        (work / "other").write_text("y", encoding="utf-8")
+        (work / "dir").mkdir()
+        actions = {
+            "unlink-missing": lambda: os.unlink(work / "missing"),
+            "read-dir": lambda: (work / "dir").read_bytes(),
+            "unlink-dir": lambda: os.unlink(work / "dir"),
+            "rename-onto-dir": lambda: os.rename(work / "file", work / "dir"),
+            "rename-onto-file": lambda: os.rename(work / "file", work / "other"),
+            "listdir-file": lambda: os.listdir(work / "file"),
+            "mkdir-existing": lambda: os.mkdir(work / "dir"),
+        }
+        try:
+            actions[kind]()
+            names.append(None)
+        except Exception as exc:  # noqa: BLE001  交回类名
+            names.append(type(exc).__name__)
+    return {"ok": True, "names": names}
+
+
 def op_winerror_real(request):
     """真触发一次 Windows 错误，交回 str(exc)：kind 是 exe（跑一个不存在的程序，CreateProcess 的 WinError 2）或 mkdir（os.mkdir 一个已在的目录，
     WinError 183，带路径）。"""
@@ -1693,20 +1721,24 @@ def _recorded_value(name, value):
 
 
 def _recorded_error(exc):
-    if isinstance(exc, kit_hub.HubError):
-        return json.dumps({"ok": False, "error": "HubError", "message": str(exc), "code": exc.code})
+    if isinstance(exc, kit_hub.HubError):  # ⑤g2：子类（LandBusy）记自己的类名，引擎靠它扣信
+        return json.dumps({"ok": False, "error": type(exc).__name__, "message": str(exc), "code": exc.code})
     return json.dumps({"ok": False, "error": type(exc).__name__, "message": str(exc)})
 
 
-#: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节；⑤f 加 worktree_root）
-FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract", "worktree_root")
+#: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节；⑤f 加 worktree_root；⑤g2 加
+#: rework_added_files 与决策端的 Session、load_locked_batteries，Session 换成一个类，它的 ask 记成一次内层调用）
+FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract", "worktree_root", "rework_added_files", "Session",
+              "load_locked_batteries")
 #: ⑤f：用例没换、也照记录注入的（themistally-15 定的，⑤f 设计稿第 3、10 节）：白盒测试那一次 run_supervised 只在 accept_gate_post 里录，
 #: mkdtemp 在建 worktree 的两个函数里录
-FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkdtemp",), "ensure_worktree": ("mkdtemp",)}
+FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkdtemp",), "ensure_worktree": ("mkdtemp",),
+               "run_exec": ("mkdtemp",)}  # ⑤g2：rebase_candidate 的临时 worktree
 #: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数
 FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract")
 #: 重放时要转成 Path 的参数（按位置）
-FLOW_PATH_ARGS = {"accept_gate_pre": (2,), "seed_whitebox": (2,), "accept_gate_post": (2,), "run_mutations": (2, 3)}
+FLOW_PATH_ARGS = {"accept_gate_pre": (2,), "seed_whitebox": (2,), "accept_gate_post": (2,), "run_mutations": (2, 3), "finish_exec": (2,),
+                  "write_review": (2,), "start_rework": (2,), "rebase_candidate": (2,), "start_retry": (2,), "final_audit_turn": (2,)}
 #: ⑤e2b：最外层调用期间的提交作者与日期（采样与三边重放一样），门禁基准测试的提交 SHA 才钉得住
 FLOW_GIT_ENV = {"GIT_AUTHOR_NAME": "themis-contract", "GIT_AUTHOR_EMAIL": "contract@example.invalid",
                 "GIT_COMMITTER_NAME": "themis-contract", "GIT_COMMITTER_EMAIL": "contract@example.invalid",
@@ -1730,8 +1762,25 @@ def _plain(value):
 
 
 def _flow_target(name):
-    """内层函数换在哪里：kit_hub 调的是 pd.run_supervised 与 tempfile.mkdtemp，其余是 kit_hub 自己的。"""
-    return {"run_supervised": kit_hub.pd, "mkdtemp": tempfile}.get(name, kit_hub)
+    """内层函数换在哪里：kit_hub 调的是 pd.run_supervised、tempfile.mkdtemp 与 decisions 的两样，其余是 kit_hub 自己的。"""
+    return {"run_supervised": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
+            "load_locked_batteries": codekit_decisions}.get(name, kit_hub)
+
+
+def _flow_install(name, original, make):
+    """换上 make(内层调用名, 原函数) 包出来的函数。decisions.Session 换成一个类：run_jev 建一个会话问一次，它的 ask 就是那一次
+    内层调用（记成 ask，参数是设置、账本路径、题库、state、context），原来的类留到 ask 时才建。"""
+    if name != "Session":
+        return make(name, original)
+    call = make("ask", lambda settings, ledger, battery, state, context: original(settings, ledger).ask(battery, state, context=context))
+
+    class Session:
+        def __init__(self, settings, record_path=None):
+            self.settings, self.record_path = settings, record_path
+
+        def ask(self, battery, state, context=None):
+            return call(self.settings, self.record_path, battery, state, context)
+    return Session
 
 
 def _env_check(env):
@@ -1794,6 +1843,9 @@ def _flow_git(roots):
 
     trees = []
     for root in roots:
+        if not Path(root).is_dir():  # ⑤g2：rebase_candidate 的临时 worktree 用完就收掉了
+            trees.append({"head": None, "status": None})
+            continue
         head = run(["rev-parse", "HEAD"], root)
         trees.append({"head": head.strip() if head is not None else None,
                       "status": run(["status", "--porcelain=v1", "--untracked-files=all", "-z"], root)})
@@ -1816,6 +1868,13 @@ def _flow_inner_call(name, args, kwargs):
         return {"fn": name, "repo": str(args[0])}
     if name == "mkdtemp":  # kit_hub 只用关键字传 prefix 与 dir
         return {"fn": name, "prefix": kwargs.get("prefix"), "dir": kwargs.get("dir")}
+    if name == "load_locked_batteries":  # ⑤g2
+        return {"fn": name, "path": str(args[0])}
+    if name == "ask":  # ⑤g2：设置比 run_jev 改过的四样，账本比整个路径（重放在同一处）
+        settings = args[0]
+        return {"fn": name, "settings": {"mode": settings.mode, "configured_mode": settings.configured_mode, "reason": settings.reason,
+                                         "points": list(settings.points)},
+                "ledger": str(args[1]), "battery": to_tagged(_plain(args[2])), "state": to_tagged(_plain(args[3])), "context": to_tagged(_plain(args[4]))}
     if name == "run_supervised":  # 标准输出是独占新建的日志，标准错误同一个句柄；grace 与中断处理照缺省
         given = dict(zip(("cmd", "cwd", "env", "stdout", "stderr", "timeout", "grace", "on_spawn"), args), **kwargs)
         log = given["stdout"]
@@ -1885,6 +1944,21 @@ def _flow_injector(name, queue, roots):
     return inject
 
 
+def _jev_session(endpoint, key):
+    """⑤g2 手写场景的真会话：run_jev 写死官方端点，传输层核对恰好是官方地址之后，一律改发本机的假端点（真的 HTTP），官方地址不交给
+    真的传输层；环境只给假 key（非空，不去问凭据库）。"""
+    if not endpoint.startswith("http://127.0.0.1:"):
+        raise RuntimeError("假端点只能在本机")
+    real = codekit_decisions.Session
+    official = codekit_decisions.DEFAULT_BASE_URL + codekit_decisions.ENDPOINT_PATH
+
+    def transport(body, headers, timeout, url):
+        if url != official:
+            raise RuntimeError("决策请求没有发往官方端点")
+        return codekit_decisions.http_transport(body, headers, timeout, endpoint + codekit_decisions.ENDPOINT_PATH)
+    return lambda settings, path: real(settings, path, transport=transport, environ={settings.api_key_env: key})
+
+
 def _remove_fresh(fresh, inner):
     """⑤f：调用当时还不在的树（mkdtemp 建的 worktree），重放前先删掉；只删记下的 mkdtemp 的 dir 下的目录。"""
     dirs = {os.path.normcase(str(entry.get("dir"))) for entry in inner if entry.get("fn") == "mkdtemp"}
@@ -1922,10 +1996,15 @@ def op_hub_contract_flow(request):
     given_env = dict(FLOW_GIT_ENV, **(request.get("env") or {}))
     saved_env = {name: os.environ.get(name) for name in given_env}
     saved = {name: getattr(_flow_target(name), name) for name in replaced + ["utc_now", "utc_compact"]}
+    saved_wait, saved_session = kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session
     os.environ.update(given_env)
     kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(request["pin"])
+    if request.get("land_wait") is not None:  # ⑤g2 手写场景：落地锁由另一个进程拿着，等锁的时限设短
+        kit_hub.EXEC_LAND_WAIT_SECONDS = request["land_wait"]
+    if request.get("jev"):
+        codekit_decisions.Session = _jev_session(request["jev"]["endpoint"], request["jev"]["key"])
     for name in replaced:
-        setattr(_flow_target(name), name, _flow_injector(name, queue, roots))
+        setattr(_flow_target(name), name, _flow_install(name, saved[name], lambda inner, _fn: _flow_injector(inner, queue, roots)))
     try:
         value = getattr(kit_hub, fn)(hub, ts, *rest)
         result = json.loads(_recorded_value(fn, value))
@@ -1938,6 +2017,7 @@ def op_hub_contract_flow(request):
     finally:
         for name, item in saved.items():
             setattr(_flow_target(name), name, item)
+        kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session = saved_wait, saved_session
         for name, item in saved_env.items():
             if item is None:
                 os.environ.pop(name, None)
@@ -2023,6 +2103,7 @@ def op_hub_audit_samples(request):
 
     flow_functions = set(request.get("flow_functions") or [])
     installed = {}
+    land_wait = kit_hub.EXEC_LAND_WAIT_SECONDS
 
     def flow_recorder(name, fn):
         """⑤e2b：改状态的函数在最外层被调时照调用当时记：快照（带 .git）、钉住的时刻、用例当时换掉的内层函数的每一次调用、
@@ -2045,7 +2126,10 @@ def op_hub_audit_samples(request):
             entry["restores"] = json.dumps(call_snapshots(bound), ensure_ascii=False)
             known = len(roots)
             entry["pin"] = time.time_ns() // 1000
-            entry["replaced"] = [item for item in FLOW_INNER if getattr(kit_hub, item) is not installed[item]] + list(FLOW_ALWAYS.get(name, ()))
+            entry["replaced"] = [item for item in FLOW_INNER if getattr(_flow_target(item), item) is not installed[item]] + list(FLOW_ALWAYS.get(name, ()))
+            if name == "run_exec" and kit_hub.EXEC_LAND_WAIT_SECONDS != land_wait:
+                # ⑤g2：用例自己拿着落地锁、等锁时限改短了（落地锁被占的那一条）。重放时拿锁的已经不在，不重放，契约钉住只跳这一条
+                entry["skip"] = "EXEC_LAND_WAIT_SECONDS=%r" % (kit_hub.EXEC_LAND_WAIT_SECONDS,)
             inner, busy = [], [False]
             before = _flow_listing(roots)
             ledger = hub.ledger() if hub is not None else None
@@ -2055,7 +2139,7 @@ def op_hub_audit_samples(request):
             os.environ.update(FLOW_GIT_ENV)
             kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(entry["pin"])
             for item in entry["replaced"]:
-                setattr(_flow_target(item), item, _flow_recorder(item, saved[item], roots, inner, busy))
+                setattr(_flow_target(item), item, _flow_install(item, saved[item], lambda inner_name, fn: _flow_recorder(inner_name, fn, roots, inner, busy)))
             depth[0] += 1
             raised = None
             try:
@@ -2181,7 +2265,7 @@ def op_hub_audit_samples(request):
 
     for name, fn in originals.items():
         setattr(kit_hub, name, flow_recorder(name, fn) if name in flow_functions else recorder(name, fn))
-    installed.update({name: getattr(kit_hub, name) for name in FLOW_INNER})
+    installed.update({name: getattr(_flow_target(name), name) for name in FLOW_INNER})
     original_run = kit_hub.TurnRunner.run
     if "TurnRunner.run" in request["functions"]:
         kit_hub.TurnRunner.run = turn_recorder(original_run)
@@ -2336,6 +2420,7 @@ OPS = {
     "winerror.real": op_winerror_real,
     "mtime.real": op_mtime_real,
     "pyexc.real": op_pyexc_real,
+    "pyexc.fs_real": op_pyexc_fs_real,
     "replace.real": op_replace_real,
     "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,

@@ -1,8 +1,9 @@
 // Python 异常的类名与继承关系（迁移第 ⑤g 片，themistally-15 定的）：base 里带 Python 类名的几种异常，except 子句照继承关系接。
-// 只列 kit_hub 会接到的几支；Node 自己的错误（没有照 Python 包过的）认不出，交回 null，except 接不住，照原样往外抛。
+// 只列 kit_hub 会接到的几支。Node 的文件错误（libuv 报的，带 syscall）照 Python 在 Windows 上抛的归到 OSError 的子类（⑤g2，映射照实测）；
+// Node 别的错误（参数错一类的 ERR_*）认不出，交回 null，except 接不住，照原样往外抛。
 import { UnicodeDecodeError } from "./fsutil.ts";
 import { PyCrash } from "./pyfmt.ts";
-import { PyOSError, PyUnicodeDecodeError } from "./pyio.ts";
+import { PyOSError, PyUnicodeDecodeError, pyOSErrorOf } from "./pyio.ts";
 import { PyJsonError } from "./pyjson.ts";
 import { PyWinError } from "./pyos.ts";
 import { PyOverflowError, PyReError, PyValueError } from "./pyregex/search.ts";
@@ -34,7 +35,20 @@ export function pyExceptionName(error: unknown): string | null {
   if (error instanceof PyValueError) return "ValueError";
   if (error instanceof PyOverflowError) return "OverflowError";
   if (error instanceof PyReError) return "error"; // re.error
-  return null;
+  return nodeOSErrorName(error);
+}
+
+/**
+ * Node 的文件错误在 Python 那边是哪一类：删不在的文件 ENOENT 对 FileNotFoundError；把目录当文件读 EISDIR 对 PermissionError [Errno 13]；
+ * 删目录 EPERM 对 PermissionError [WinError 5]；EACCES、EBUSY 也是 PermissionError；EEXIST 对 FileExistsError；ENOTDIR 对
+ * NotADirectoryError；别的系统错误是 OSError。
+ */
+function nodeOSErrorName(error: unknown): string | null {
+  const failure = error as NodeJS.ErrnoException | undefined;
+  if (!(error instanceof Error) || typeof failure?.code !== "string" || typeof failure.syscall !== "string") return null;
+  const known = pyOSErrorOf(error, "");
+  if (known !== null) return OS_ERRORS[known.errno] ?? "OSError";
+  return failure.code === "ENOTDIR" ? "NotADirectoryError" : "OSError";
 }
 
 /** except (kinds...)：照继承关系，子类也接得住。 */

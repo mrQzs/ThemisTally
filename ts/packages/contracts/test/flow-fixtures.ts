@@ -84,9 +84,9 @@ export const flow = (fn: string, sc: Scene, args: unknown[], extra: Extra = {}):
   fresh: extra.fresh ?? [], pin: PIN, replaced: extra.replaced ?? (extra.inner ? ["run_pd"] : []), inner: extra.inner ?? [], python: kernelPython(), env: extra.env ?? {},
 });
 /** 手写的一次 run_pd：argv、timeout（没给是 null）、交回值，调用期间写的文件（“树的序号/相对路径”: 文字）。 */
-export const pd = (argv: string[], code: number, out: string, timeout: number | null = null, write: Record<string, string> = {}): unknown => ({
+export const pd = (argv: string[], code: number, out: string, timeout: number | null = null, write: Record<string, string> = {}, remove: string[] = []): unknown => ({
   fn: "run_pd", argv, timeout, value: toTagged([BigInt(code), out]),
-  files: { write: Object.fromEntries(Object.entries(write).map(([key, text]) => [key, Buffer.from(text, "utf8").toString("base64")])), delete: [] },
+  files: { write: Object.fromEntries(Object.entries(write).map(([key, text]) => [key, Buffer.from(text, "utf8").toString("base64")])), delete: remove },
 });
 
 /**

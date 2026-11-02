@@ -410,7 +410,7 @@ COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一�
 | `test_requeue_leaves_unread_and_kernel_run_stages_alone` | 2029 | PARTIAL | interrupted_attempt 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
 | `test_a_stranded_exec_stage_is_reported_to_the_owner_once` | 2205 | PARTIAL | interrupted_attempt 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
 | `test_exec_verdict_reads_the_attempt_state_key` | 2641 | PARTIAL | attempts_left 4 次、gate_claims 1 次、failed_checks_brief 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
-| `test_exec_recheck_revisits_the_last_attempt_without_rerunning` | 2661 | PARTIAL | attempts_left 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_recheck_revisits_the_last_attempt_without_rerunning` | 2661 | PARTIAL | attempts_left 1 次；finish_exec 经 kh.Engine 的 exec-recheck 调到，归 ⑤i（⑤g2 复核时改记） |
 | `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | PARTIAL | attempts_left 5 次、carry_source 5 次、failed_attempt 3 次、empty_commit 2 次、rework_section 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
 | `test_exec_rework_reports_when_the_rework_base_cannot_be_built` | 2826 | PARTIAL | attempts_left 2 次、carry_source 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
 | `test_rework_contract_lets_the_executor_modify_files_added_earlier` | 2842 | PARTIAL | attempts_left 3 次、carry_source 3 次、failed_attempt 3 次、add_modified_files 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
@@ -428,7 +428,7 @@ COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一�
 | `test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain` | 4293 | PARTIAL | empty_commit 1 次；落地、结项与落地预演归 ⑤h |
 | `test_landing_rehearsal_reports_commits_that_no_longer_apply` | 4324 | PARTIAL | empty_commit 3 次；落地、结项与落地预演归 ⑤h |
 | `test_owner_commits_get_a_gate_sweep_and_rehearsals` | 4472 | PARTIAL | empty_commit 2 次；落地、结项与落地预演归 ⑤h |
-| `test_exec_recheck_resumes_an_execution_the_hub_was_killed_in` | 5152 | PARTIAL | interrupted_attempt 4 次、attempts_left 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_recheck_resumes_an_execution_the_hub_was_killed_in` | 5152 | PARTIAL | interrupted_attempt 4 次、attempts_left 1 次；finish_exec 经 kh.Engine 的 exec-recheck 调到，归 ⑤i（⑤g2 复核时改记） |
 | `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | PARTIAL | attempts_left 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
 | `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | PARTIAL | carry_source 7 次、attempts_left 1 次、empty_commit 1 次、failure_lines 1 次、rework_section 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
 | `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | PARTIAL | rework_section 2 次、attempts_left 1 次、carry_source 1 次、empty_commit 1 次、failure_lines 1 次、report_leftovers 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
@@ -452,6 +452,63 @@ COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一�
 
 COVERED 8、PARTIAL 36。PARTIAL 的 36 条，⑤g1 的函数只是它们的一步，主体分别归 ⑤g2、⑤h、⑤i、⑤j。
 
-变异：ts/mutations/hub-g1.ts.json 65 条：第一轮 61 条抓住 58 条，漏掉的 E12（返工链里没有 commit 的条目）、E30（Scope 标题前面的空白）、E59（四位数的 attempt）补了场景；写到一半复核后改的 pyCaught、pyIn 连同新加的 E60，7 条单独重跑都抓住；完整复核后 pyexc 补了 base 造得出的六个类名（BrokenPipeError、ConnectionError、ChildProcessError、BlockingIOError、TimeoutExpired、SubprocessError）与三边对照（继承关系逐对比 __mro__，认类逐个比 type(exc).__name__），并进 E61–E63（认不出 fsutil 的 UnicodeDecodeError、RecursionError 挂到 ValueError 下、ConnectionError 不算 OSError），单独重跑都抓住。themistally-15 另抽查的 X03（st_mtime 用 nsec / 1e9 算）、X04（微秒半数不取偶）判为等价：只出到秒，它在 Python 上跑的 40378 组时刻与 datetime.fromtimestamp 全同；X09（TS 探针还原时不设修改时刻）在 Windows 上 cpSync 照抄文件时刻、⑤g1 只比 candidate.patch，目录的时刻要到 ⑤h 的 final_audit_turn 才用上，届时补这条变异。
+变异：ts/mutations/hub-g1.ts.json 65 条：第一轮 61 条抓住 58 条，漏掉的 E12（返工链里没有 commit 的条目）、E30（Scope 标题前面的空白）、E59（四位数的 attempt）补了场景；写到一半复核后改的 pyCaught、pyIn 连同新加的 E60，7 条单独重跑都抓住；完整复核后 pyexc 补了 base 造得出的六个类名（BrokenPipeError、ConnectionError、ChildProcessError、BlockingIOError、TimeoutExpired、SubprocessError）与三边对照（继承关系逐对比 __mro__，认类逐个比 type(exc).__name__），并进 E61–E63（认不出 fsutil 的 UnicodeDecodeError、RecursionError 挂到 ValueError 下、ConnectionError 不算 OSError），单独重跑都抓住。themistally-15 另抽查的 X03（st_mtime 用 nsec / 1e9 算）、X04（微秒半数不取偶）判为等价：只出到秒，它在 Python 上跑的 40378 组时刻与 datetime.fromtimestamp 全同；X09（TS 探针还原时不设修改时刻）在 Windows 上 cpSync 照抄文件时刻、⑤g1 只比 candidate.patch，目录的时刻要到 final_audit_turn 才用上，届时补这条变异（final_audit_turn 实际在 ⑤g2 移植，X09 随 ⑤g2 补上，抓住）。
 
-其余场景随各片补（⑤g2 到 ⑤j）。
+### ⑤g2 改状态的部分
+
+做法（⑤g 设计稿第 12、13 节）：
+- 有顶层调用的五个函数（run_exec、finish_exec、write_review、run_jev、ensure_rework_scope）照 ⑤e2b 的 flow_recorder 记、照调用当时重放。用例当时换掉的 run_pd、contract_requirements、rework_added_files、worktree_root、决策端的 Session（记它的 ask：设置的四样、账本路径、题库、state、context）与 load_locked_batteries，以及 rebase_candidate 建临时 worktree 的 mkdtemp，照记录注入，参数逐次核对。
+- 落地锁被占的那一条（5360：用例在同一个进程里拿着锁，等锁时限改成 0.2 秒）不重放，契约钉住只跳这一条；手写场景里由另一个进程真的拿着锁。
+- dispatch_attempt、start_rework、rebase_candidate、start_retry、rework_added_files、final_audit_turn、exec_window、scratch_worktree 只在里面被调到，由手写场景管。
+
+契约：
+- hub-runexec：31 条用例的 63 次顶层调用（run_exec 27、finish_exec 25、write_review 9、run_jev 1、ensure_rework_scope 1），跳过 1 次，62 次三边重放都与当时的结果相同，当时都是正常交回。注入：run_pd 86、contract_requirements 12、rework_added_files 10、mkdtemp 2、worktree_root 2、ask 1、load_locked_batteries 1；新建的 worktree 2 次。
+- hub-runexec-scenes：15 组手写场景。
+  - 派遣：走通的整条路（run 的退出码 0 与 124），attempt 路径的 8 种写法，run 时限的 24 种写法与回落，照样崩的 7 种。
+  - finish_exec：门禁说法的截断、思考摘录、输出被截断时的自述、预算读不到、检查过了但有范围违规，以及 14 种怪类型。
+  - final_audit_turn：目录的原始次序、同一秒、跳过的 9 种，照样崩的 2 种；有补丁时目录的时刻另设，since 只取补丁的。
+  - write_review：已有记录时加 utc_compact，模型列表的几种写法，报告为空。
+  - 真 git：rebase_candidate 5 种（含 2 MiB 的二进制改动），start_rework 8 种（is-ancestor 的 0、1、128），start_retry 3 种，ensure_rework_scope 与 rework_added_files 8 种。
+  - run_exec：预算用完；另一个进程拿着落地锁，报 LandBusy；持有者已死时接管；派遣时执行标记被外面删了，收尾删不到照样吞掉。
+  - run_jev 的真会话：传输层只认官方地址、改发本机的假端点，只给假 key，凭据库关掉；延时与时刻打占位。
+- pybase-config：except OSError 认 Node 的文件错误。Python 真触发 7 种，类名与 Node 的错误经 pyExceptionName 的相同；Node 的参数错不算 OSError。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_execution_jev_gets_the_objective_fingerprint` | 1196 | COVERED | hub-runexec：run_jev 1 次 |
+| `test_exec_verdict_reads_the_attempt_state_key` | 2641 | COVERED | hub-runexec：finish_exec 4 次 |
+| `test_exec_recheck_revisits_the_last_attempt_without_rerunning` | 2661 | PARTIAL | finish_exec 1 次；finish_exec 经 kh.Engine 的 exec-recheck 调到；扣信、被打断的执行阶段与恢复归 ⑤i |
+| `test_finalize_lands_the_oracle_commit_first_and_can_be_retried` | 2684 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | COVERED | hub-runexec：run_exec 5 次 |
+| `test_exec_rework_reports_when_the_rework_base_cannot_be_built` | 2826 | COVERED | hub-runexec：run_exec 2 次 |
+| `test_rework_contract_lets_the_executor_modify_files_added_earlier` | 2842 | COVERED | hub-runexec：run_exec 3 次、ensure_rework_scope 1 次 |
+| `test_retry_after_failed_checks_tells_the_executor_why` | 2926 | COVERED | hub-runexec：run_exec 6 次 |
+| `test_exec_rework_stops_at_the_budget` | 2982 | COVERED | hub-runexec：run_exec 1 次、finish_exec 1 次 |
+| `test_finalize_lands_the_rework_chain_before_integrating` | 3024 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_failed_integrate_takes_the_landed_commits_back_off_the_branch` | 3132 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too` | 3157 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_failed_integrate_names_the_meanwhile_commits_only_when_the_candidate_had_passed` | 3169 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it` | 3181 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again` | 3210 | PARTIAL | write_review 1 次；落地、结项与落地预演归 ⑤h |
+| `test_the_review_record_names_the_model_of_the_final_audit_turn` | 3569 | COVERED | hub-runexec：write_review 1 次 |
+| `test_a_kernel_revise_without_an_audit_says_so` | 3583 | COVERED | hub-runexec：write_review 1 次 |
+| `test_exec_recheck_resumes_an_execution_the_hub_was_killed_in` | 5152 | PARTIAL | finish_exec 1 次；finish_exec 经 kh.Engine 的 exec-recheck 调到；扣信、被打断的执行阶段与恢复归 ⑤i |
+| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | PARTIAL | run_exec 1 次；落地锁被占的那一条不重放（契约钉住只跳它），由手写场景里另一个进程真的拿着锁；扣信、被打断的执行阶段与恢复归 ⑤i |
+| `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | COVERED | hub-runexec：run_exec 1 次 |
+| `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | COVERED | hub-runexec：run_exec 1 次 |
+| `test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base` | 5585 | COVERED | hub-runexec：run_exec 1 次 |
+| `test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline` | 5675 | COVERED | hub-runexec：run_exec 2 次 |
+| `test_a_cut_off_attempt_is_continued_instead_of_restarted` | 6101 | COVERED | hub-runexec：run_exec 1 次 |
+| `test_exec_letter_counts_the_candidate_and_names_the_failed_checks` | 6160 | COVERED | hub-runexec：finish_exec 4 次 |
+| `test_an_unsent_contract_gets_the_rostered_executor_before_dispatch` | 6193 | COVERED | hub-runexec：run_exec 3 次 |
+| `test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner` | 6548 | COVERED | hub-runexec：finish_exec 3 次 |
+| `test_gate_claims_only_in_the_thinking_are_held_when_there_is_no_report` | 6768 | COVERED | hub-runexec：finish_exec 4 次 |
+| `test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner` | 6808 | COVERED | hub-runexec：finish_exec 3 次 |
+| `test_an_attempt_whose_candidate_was_not_collected_waits_for_the_owner` | 6834 | COVERED | hub-runexec：finish_exec 2 次 |
+| `test_the_executor_letter_says_none_when_nothing_is_pending` | 7778 | COVERED | hub-runexec：finish_exec 2 次 |
+
+COVERED 21、PARTIAL 10。⑤g1 表里归 ⑤g2 的 21 条：19 条转 COVERED（上表）；2661、5152 的 finish_exec 经 kh.Engine 的 exec-recheck 调到，仍是 PARTIAL，改记归 ⑤i（⑤g1 表一并改了）。另加 3569、3583（只调 write_review）。PARTIAL 的 10 条：结项里调到 write_review 的 7 条归 ⑤h；2661、5152、5360 归 ⑤i。
+
+变异：ts/mutations/hub-g2.ts.json 58 条（runexec.ts 的 R01–R56 少 R53，加探针的 X09 与抽查补的 X10、X11），跑手写场景与采样契约：R 的 55 条抓住 53 条。R18（git diff 的输出按字节判空白改成解码之后 trim）事先判为等价：git diff 的输出要么为空、要么以 diff --git 开头。R51（交给 Session 的题库不带阈值）第一轮意外漏掉，查明 Session.ask 两边都只读题库的 id、version、sha256、questions，标留意用的阈值是 run_jev 自己从题库字典取的，判为等价。X09（TS 探针还原时不设修改时刻；themistally-15 在 ⑤g1 抽查，当时目录的时刻还没人用，留到 final_audit_turn 落地再补）单独跑抓住（挂的是 final_audit_turn 没有补丁、看目录时刻的那组场景）。ts/mutations/base-g2.ts.json 4 条（pyexc 认 Node 的文件错误：EISDIR 另归、不看 syscall、ENOTDIR 归 OSError、一律认不出）全部抓住。themistally-15 在自己的副本上抽查 11 条（R15、R16、R17、R44、R48、X09 与它另加的 Y02、Y08、Y10、Y17、Y18），10 条抓住。Y02（exec_window 收尾删执行标记出错不再吞掉）第一轮漏掉：Python 内核自己不删这个标记，只有站主手动删了、别的进程占着文件才走得到；补了场景（派遣时标记被外面删了），并进 X10，它重跑抓住。Y08（check_ok 不看范围违规）漏掉：Python 用例的 attempt_dir 从没给 finish_exec 带违规的 scope.json，采样只见过空的违规；补了场景（NEEDS_REVIEW、检查过了、有一条违规，check_ok 是 false），并进 X11，单独跑抓住。中途两次被系统按内存不足停掉（themistally-15 的抽查一次、单跑 X10 一次，其间有外部经 SSH 起的 Java 构建），用户同意后在内存回升时重跑。
+
+其余场景随各片补（⑤h 到 ⑤j）。

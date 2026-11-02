@@ -1,0 +1,365 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-runexec-scenes.contract.test.ts",
+  "packages/contracts/test/hub-runexec.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1200,
+ "mutations": [
+  {
+   "name": "R01 预算用完不挡",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (left !== null && left <= 0n) {",
+   "new": "  if (left !== null && left < 0n) {"
+  },
+  {
+   "name": "R02 返工版本没建成照样派遣",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "      if (problem) {",
+   "new": "      if (false) {"
+  },
+  {
+   "name": "R03 返工范围没补成照样派遣",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "    let problems = await ensureReworkScope(hub, ts, deps);\n    if (problems.length) {",
+   "new": "    let problems = await ensureReworkScope(hub, ts, deps);\n    if (false) {"
+  },
+  {
+   "name": "R04 名册改写之后不再校验",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "    if ((await syncExecutorLine(hub, ts)) !== null) {",
+   "new": "    if ((await syncExecutorLine(hub, ts)) === null) {"
+  },
+  {
+   "name": "R05 prepare 退出码非零照样派遣",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (code !== 0 || match === null) {",
+   "new": "  if (match === null) {"
+  },
+  {
+   "name": "R06 路径正则的数字类只认 ASCII",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "attempt-${BS}d{3})`);",
+   "new": "attempt-[0-9]{3})`);"
+  },
+  {
+   "name": "R07 run 目录不解析",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  const runDir = pyResolve(purePathStr(hub.repo, match.group));",
+   "new": "  const runDir = purePathStr(hub.repo, match.group);"
+  },
+  {
+   "name": "R08 不记派遣过",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": ".set(\"dispatched\", true); // 这个版本派遣过了",
+   "new": ".set(\"dispatched\", false); // 这个版本派遣过了"
+  },
+  {
+   "name": "R09 时限缺省写错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "\"max_wall_seconds_per_attempt\", 1200n)) + 900n;",
+   "new": "\"max_wall_seconds_per_attempt\", 1500n)) + 900n;"
+  },
+  {
+   "name": "R10 时限多加的写错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "\"max_wall_seconds_per_attempt\", 1200n)) + 900n;",
+   "new": "\"max_wall_seconds_per_attempt\", 1200n)) + 600n;"
+  },
+  {
+   "name": "R11 时限回落值写错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  let budget = 1800n;",
+   "new": "  let budget = 2100n;"
+  },
+  {
+   "name": "R12 TypeError 不回落",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "if (!pyCaught(error, [\"ValueError\", \"TypeError\"])) throw error;",
+   "new": "if (!pyCaught(error, [\"ValueError\"])) throw error;"
+  },
+  {
+   "name": "R13 run 的退出码不记",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "BigInt(runCode), deps);",
+   "new": "0n, deps);"
+  },
+  {
+   "name": "R14 超时的结论分类写错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "state === \"TIMEOUT\" ? \"TIMEOUT\" : \"EXECUTION_ERROR\"",
+   "new": "\"EXECUTION_ERROR\""
+  },
+  {
+   "name": "R15 is-ancestor 非零都算不是祖先",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "hub.repo, \"ignore\").status === 1;",
+   "new": "hub.repo, \"ignore\").status !== 0;"
+  },
+  {
+   "name": "R16 diff 的缓冲用 1 MiB",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "maxBuffer: Infinity, windowsHide: true });",
+   "new": "maxBuffer: 1024 * 1024, windowsHide: true });"
+  },
+  {
+   "name": "R17 apply 只取 stdout",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "stdio: [\"ignore\", fd, fd]",
+   "new": "stdio: [\"ignore\", fd, \"ignore\"]"
+  },
+  {
+   "name": "R18 bytes 的 strip 改成解码之后再 trim",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "const isBlankBytes = (data: Buffer): boolean => data.every((byte) => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d));",
+   "new": "const isBlankBytes = (data: Buffer): boolean => pyDecodeUtf8Replace(data).trim() === \"\";",
+   "equivalent": "git diff 的输出要么为空、要么以 diff --git 开头，不会只有空白；ASCII 以外的空白与 BOM 碰不到"
+  },
+  {
+   "name": "R19 空的返工提交不换回基线",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (reused) sha = base as string;",
+   "new": ""
+  },
+  {
+   "name": "R20 阻塞项取第一条",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "[...pyIter(or(pyGet(ts, \"audit_history\"), []))].reverse().find(",
+   "new": "[...pyIter(or(pyGet(ts, \"audit_history\"), []))].find("
+  },
+  {
+   "name": "R21 剩余工作只给 failed",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "why === \"failed\" || why === \"upstream\" ? reportLeftovers",
+   "new": "why === \"failed\" ? reportLeftovers"
+  },
+  {
+   "name": "R22 返工轮次从 0 起",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "pyGet(ts, \"rework_chain\"), []))) + 1n;",
+   "new": "pyGet(ts, \"rework_chain\"), []))) + 0n;"
+  },
+  {
+   "name": "R23 终审返工没派遣过不升版",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "\"dispatched\")) || why === \"audit\" ?",
+   "new": "\"dispatched\")) ?"
+  },
+  {
+   "name": "R24 不删重派说明",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "rstripLf(dropRetrySections(readText(md)))",
+   "new": "rstripLf(readText(md))"
+  },
+  {
+   "name": "R25 搬了候选不作废旧返工链",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (rebuilt && pyTruthy(pyGet(ts, \"rework_chain\"))) {",
+   "new": "  if (false) {"
+  },
+  {
+   "name": "R26 空的返工提交也进链",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (!reused) {",
+   "new": "  if (true) {"
+  },
+  {
+   "name": "R27 基准测试文件也搬",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": ":(exclude)${pyStrValue(path)}",
+   "new": ":(exclude)x${pyStrValue(path)}"
+  },
+  {
+   "name": "R28 临时 worktree 不收",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "    runGit([\"worktree\", \"remove\", \"--force\", path], hub.repo, \"ignore\");",
+   "new": ""
+  },
+  {
+   "name": "R29 不挂返工引用",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  git([\"update-ref\", ",
+   "new": "  if (false) git([\"update-ref\", "
+  },
+  {
+   "name": "R30 读不出新增文件时照样崩",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "    if (error instanceof HubError) return [",
+   "new": "    if (false) return ["
+  },
+  {
+   "name": "R31 范围比对取反",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": ".filter((path) => !matches(allowed, path as string))",
+   "new": ".filter((path) => matches(allowed, path as string))"
+  },
+  {
+   "name": "R32 重派次数不加一",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "retrySection(failed, ts, BigInt(pyLenValue(notes)) + 1n)",
+   "new": "retrySection(failed, ts, BigInt(pyLenValue(notes)))"
+  },
+  {
+   "name": "R33 check_ok 不看状态",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "exec.set(\"check_ok\", status === \"NEEDS_REVIEW\" && checkCode === 0",
+   "new": "exec.set(\"check_ok\", checkCode === 0"
+  },
+  {
+   "name": "R34 门禁说法多留一条",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "claims.slice(0, 8)",
+   "new": "claims.slice(0, 9)"
+  },
+  {
+   "name": "R35 每条门禁说法截长了",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "codePoints(claim).slice(0, 600)",
+   "new": "codePoints(claim).slice(0, 601)"
+  },
+  {
+   "name": "R36 只看报告不看思考摘录",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (!claims.length) claims = unreported;",
+   "new": ""
+  },
+  {
+   "name": "R37 截断的自述写成没有报告",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": ": cutOff(runDir) ? ",
+   "new": ": false ? "
+  },
+  {
+   "name": "R38 思考摘录多摘一处",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "unreported.slice(0, 3)",
+   "new": "unreported.slice(0, 4)"
+  },
+  {
+   "name": "R39 摘录截长了",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "codePoints(claim).slice(0, 240)",
+   "new": "codePoints(claim).slice(0, 250)"
+  },
+  {
+   "name": "R40 收集出错截长了",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "pyIndexAt(collectErrors, 0), 300)",
+   "new": "pyIndexAt(collectErrors, 0), 301)"
+  },
+  {
+   "name": "R41 跑满时限不判 stalled",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "exec.set(\"stalled\", status === \"TIMEOUT\" && changed === 0)",
+   "new": "exec.set(\"stalled\", false)"
+  },
+  {
+   "name": "R42 终审回合同一秒不算",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "since) >= 0",
+   "new": "since) > 0"
+  },
+  {
+   "name": "R43 同一秒取后遇到的",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "pyGet(best, \"finished_at\"))) > 0) best = record;",
+   "new": "pyGet(best, \"finished_at\"))) >= 0) best = record;"
+  },
+  {
+   "name": "R44 since 总看目录",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "mtimeUtcSeconds(isFile(marker) ? marker : runDir)",
+   "new": "mtimeUtcSeconds(runDir)"
+  },
+  {
+   "name": "R45 result.json 是目录时照样崩",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "if (pyCaught(error, [\"OSError\", \"ValueError\"])) continue;",
+   "new": "if (pyCaught(error, [\"ValueError\"])) continue;"
+  },
+  {
+   "name": "R46 坏 JSON 照样崩",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "if (pyCaught(error, [\"OSError\", \"ValueError\"])) continue;",
+   "new": "if (pyCaught(error, [\"OSError\"])) continue;"
+  },
+  {
+   "name": "R47 复审记录已在时照样覆盖",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "if (existsSync(reviewPath)) reviewPath",
+   "new": "if (false) reviewPath"
+  },
+  {
+   "name": "R48 落地锁被占报成 HubError",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "throw new LandBusy(error.message, EXIT_BLOCKED);",
+   "new": "throw new HubError(error.message, EXIT_BLOCKED);"
+  },
+  {
+   "name": "R49 合同目标不取 Goal",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "goal ? goal : pyGet(contract, \"title\")",
+   "new": "pyGet(contract, \"title\")"
+  },
+  {
+   "name": "R50 一审前题库取错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": ".get(\"contract-screen\");",
+   "new": ".get(\"report-screen\");"
+  },
+  {
+   "name": "R51 会话不带阈值",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "thresholds: pyItem(battery, \"thresholds\") } as unknown",
+   "new": "thresholds: new Map() } as unknown",
+   "equivalent": "Session.ask 两边都只读题库的 id、version、sha256、questions，不读 thresholds；标留意用的阈值是 run_jev 自己从题库字典取的"
+  },
+  {
+   "name": "R52 设置的原因写错",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  settings.reason = \"hub\";",
+   "new": "  settings.reason = \"shadow\";"
+  },
+  {
+   "name": "R54 合同末尾的空行不去",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  while (end > 0 && text[end - 1] === LF) end -= 1;",
+   "new": ""
+  },
+  {
+   "name": "R55 不是字符串的参数照样交给 git",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (typeof value !== \"string\") throw new PyCrash(\"TypeError\", `expected str",
+   "new": "  if (false) throw new PyCrash(\"TypeError\", `expected str"
+  },
+  {
+   "name": "R56 字典按整数键查不报 KeyError",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  if (value instanceof Map) throw new PyCrash(\"KeyError\", String(index));",
+   "new": "  if (value instanceof Map) return null;"
+  },
+  {
+   "name": "X09 TS 探针还原时不设修改时刻（⑤g1 themistally-15 抽查，留到 final_audit_turn 落地再补）",
+   "file": "ts/packages/contracts/probes/hub_probe.ts",
+   "old": "  copyTreeTimes(source, target); // ⑤g：文件与目录的修改时刻照快照，同 python_probe.py 的 _copy_dir_times",
+   "new": ""
+  },
+  {
+   "name": "X10 收尾删标记出错不再吞掉（themistally-15 抽查的 Y02）",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "      if (!pyCaught(error, [\"OSError\"])) throw error;",
+   "new": "      throw error;"
+  },
+  {
+   "name": "X11 check_ok 不看范围违规（themistally-15 抽查的 Y08）",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "status === \"NEEDS_REVIEW\" && checkCode === 0 && !pyTruthy(violations));",
+   "new": "status === \"NEEDS_REVIEW\" && checkCode === 0);"
+  }
+ ]
+}

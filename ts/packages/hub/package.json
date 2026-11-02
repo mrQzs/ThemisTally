@@ -16,6 +16,7 @@
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
+    "./runexec": "./src/runexec.ts",
     "./runpd": "./src/runpd.ts",
     "./schema": "./src/schema.ts",
     "./taskstate": "./src/taskstate.ts",
@@ -23,6 +24,7 @@
   },
   "dependencies": {
     "@themis/base": "workspace:*",
+    "@themis/config": "workspace:*",
     "@themis/dispatcher": "workspace:*"
   }
 }

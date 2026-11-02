@@ -1,0 +1,38 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/pybase-config.compare.test.ts",
+  "-t",
+  "认 Node 的文件错误"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "X01 EISDIR 归 IsADirectoryError",
+   "file": "ts/packages/base/src/pyexc.ts",
+   "old": "  const known = pyOSErrorOf(error, \"\");",
+   "new": "  if (failure.code === \"EISDIR\") return \"IsADirectoryError\";\n  const known = pyOSErrorOf(error, \"\");"
+  },
+  {
+   "name": "X02 不看 syscall",
+   "file": "ts/packages/base/src/pyexc.ts",
+   "old": "typeof failure?.code !== \"string\" || typeof failure.syscall !== \"string\") return null;",
+   "new": "typeof failure?.code !== \"string\") return null;"
+  },
+  {
+   "name": "X03 ENOTDIR 归 OSError",
+   "file": "ts/packages/base/src/pyexc.ts",
+   "old": "return failure.code === \"ENOTDIR\" ? \"NotADirectoryError\" : \"OSError\";",
+   "new": "return \"OSError\";"
+  },
+  {
+   "name": "X04 Node 的错误一律认不出",
+   "file": "ts/packages/base/src/pyexc.ts",
+   "old": "  return nodeOSErrorName(error);",
+   "new": "  return null;"
+  }
+ ]
+}

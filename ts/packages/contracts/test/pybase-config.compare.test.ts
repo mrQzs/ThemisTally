@@ -306,6 +306,23 @@ describe("Python 异常的继承关系与类名（第 ⑤g1 片：base 的 pyexc
   });
 });
 
+describe("except OSError 认 Node 的文件错误（第 ⑤g2 片：base 的 pyexc）", () => {
+  it.runIf(process.platform === "win32")("Python 真触发的 type(exc).__name__ 与 Node 的错误经 pyExceptionName 的相同，都是 OSError；Node 的参数错不是", () => {
+    const kinds = ["unlink-missing", "read-dir", "unlink-dir", "rename-onto-dir", "rename-onto-file", "listdir-file", "mkdir-existing"];
+    const dir = scratchDir("pyexc-fs");
+    try {
+      const real = runProbe(PYTHON, { op: "pyexc.fs_real", dir: join(dir, "python"), kinds })["names"];
+      expect(real).toEqual(["FileNotFoundError", "PermissionError", "PermissionError", "FileExistsError", "FileExistsError", "NotADirectoryError", "FileExistsError"]);
+      for (const impl of IMPLS.filter((item) => item !== PYTHON)) {
+        const ts = runProbe(impl, { op: "pyexc.fs_call", dir: join(dir, impl.name), kinds: [...kinds, "arg-type"] });
+        expect([ts["names"], ts["caught"]], impl.name).toEqual([[...(real as string[]), null], [...kinds.map(() => true), false]]);
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
 describe("str(PurePath(...))", () => {
   it("盘符、UNC、设备路径、相对路径与各种分隔符", () => {
     const B = String.fromCharCode(92);
