@@ -382,6 +382,6 @@ COVERED 9、PARTIAL 14。hub-contract-flow 另有手写的对照：真调度器�
 
 COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一步，主体分别归 ⑤g、⑤h、⑤i、⑤j。
 
-变异：ts/mutations/hub-f.ts.json 60 条，第一轮抓住 59 条；漏掉的 P57（没列的红用例只列前 10 条）补了 12 条都没列的场景之后，单独重跑抓住。ts/mutations/base-f.ts.json 5 条（pyset 的列表比较、replaceError、pyWinErrorMessage、relative_to 的文字）全部抓住。
+变异：ts/mutations/hub-f.ts.json 60 条，第一轮抓住 59 条；漏掉的 P57（没列的红用例只列前 10 条）补了 12 条都没列的场景之后，单独重跑抓住。ts/mutations/base-f.ts.json 5 条（pyset 的列表比较、replaceError、pyWinErrorMessage、relative_to 的文字）全部抓住。复核后（themistally-15 抽查 17 条，漏掉的是它自己设计的 X03–X05）补了三组手写场景：mutate 的 30 行输出（mutate_tail 与“没有跑完”都只附 25 行）、expect_missed 有两项以上又没列满、锚点对不上的条目名字不是字符串；并进 P61–P64，单独重跑都抓住。
 
 其余场景随各片补（⑤g 到 ⑤j）。

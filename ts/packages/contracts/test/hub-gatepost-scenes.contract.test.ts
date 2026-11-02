@@ -169,10 +169,14 @@ describe("第 ⑤f 片：run_mutations（手写，注入 run_pd）", () => {
     const run = (output: Record<string, unknown>, inner: unknown[] = []): ProbeRequest =>
       flow("run_mutations", sc, [postTs(sc, { gate_post: gate }), sc.wt, stageDir(sc), output], { inner, replaced: ["run_pd"] });
     const everywhere = { commands: [{ id: "W1" }, { id: "W2" }], mutations: [{ name: "全漏", expect_missed: ["W2", "W1"] }, { name: "只漏一条", expect_missed: ["W2"] }] };
+    const partly = { commands: [{ id: "W1" }, { id: "W2" }, { id: "W3" }], mutations: [
+      { name: "改标题", file: "src/doc.py", old: "'old'", new: "'x'", expect_missed: ["W1", "W2"] },
+      { name: "改返回", file: "src/doc.py", old: "return", new: "return ", expect_missed: ["W3", 1] }] };
     const results = agreeFlow([
       run({}), run({ mutation_spec: { mutations: [] } }), run({ mutation_spec: [1] }), run({ mutation_spec: everywhere }),
       run({ mutation_spec_file: SPEC_FILE }, [anchors(sc, 0, ANCHORS_OK), mutateCall(sc, 3600, RECORD_OK)]),
       run({ mutation_spec: { mutations: [{ name: `等价${C(0xd800)}`, file: "src/doc.py", old: "a", new: "b" }] } }),
+      run({ mutation_spec: partly }, [anchors(sc, 0, ANCHORS_OK), mutateCall(sc, 3600, RECORD_OK)]),
     ]);
     const shown = results.map((state) => returned(state));
     expect(shown[0]).toEqual(["输出里没有 mutation_spec（mutate --spec 的格式，至少一条变异），也没有 mutation_spec_file"]);
@@ -182,20 +186,27 @@ describe("第 ⑤f 片：run_mutations（手写，注入 run_pd）", () => {
     expect(shown[4]).toEqual([]);
     expect(shown[5]).toBe("UnicodeEncodeError");
     expect(text(results[5], `${STAGE_KEY}/mutation-spec-${STAMP}.json`)).toBe("");
+    // 两项以上、又没列满每一条命令：按“、”连，不是字符串的照 str
+    expect((tsAfter(results[6]).get("gate_post") as PyDict).get("expect_missed")).toEqual(["改标题：W1、W2", "改返回：W3、1"]);
   });
 
   it("锚点核对没过：记下对不上的（编号可以是 Unicode 数字）；下一版一字没改就点名；核对过了就清掉", () => {
     const sc = scene(BASE_FILES, (repo) => attempt(repo, []));
     const failed = lines("OK       M01 改标题  出现 1 次", `MISMATCH M${C(0x660, 0x662)} 等价  出现 0 次，期望 1 次`, "         最相近 L2（88%）：return 'old'",
       "MISSING  M09 不存在的  文件不在", "锚点核对：2 条，1 条不符");
-    const run = (gate: Record<string, unknown>, inner: unknown[]): ProbeRequest =>
-      flow("run_mutations", sc, [postTs(sc, { gate_post: { ran: true, ok: false, whitebox_seconds: 2.5, ...gate } }), sc.wt, stageDir(sc), { mutation_spec: SPEC2 }],
+    const run = (gate: Record<string, unknown>, inner: unknown[], spec: Record<string, unknown> = SPEC2): ProbeRequest =>
+      flow("run_mutations", sc, [postTs(sc, { gate_post: { ran: true, ok: false, whitebox_seconds: 2.5, ...gate } }), sc.wt, stageDir(sc), { mutation_spec: spec }],
         { inner });
+    // 名字不是字符串：一条没有 name、一条 name 是 true
+    const odd = { mutations: [{ file: "src/doc.py", old: "a", new: "b" }, { name: true, file: "src/doc.py", old: "c", new: "d" }] };
+    const oddOut = lines("MISMATCH M01 None  出现 0 次，期望 1 次", "MISMATCH M02 True  出现 0 次，期望 1 次", "锚点核对：2 条，2 条不符");
     const results = agreeFlow([
       run({}, [anchors(sc, 1, failed)]),
       run({ anchor_mismatch: { 等价: "return" } }, [anchors(sc, 1, failed)]),
       run({ anchor_mismatch: { 等价: "retur" } }, [anchors(sc, 1, failed)]),
       run({ anchor_mismatch: { 等价: "return" } }, [anchors(sc, 0, ANCHORS_OK), mutateCall(sc, 3600, RECORD_OK)]),
+      run({}, [anchors(sc, 1, oddOut)], odd),
+      run({ anchor_mismatch: { None: "a", True: "c" } }, [anchors(sc, 1, oddOut)], odd),
     ]);
     const shown: string[] = results.map((state) => (returned(state) as string[])[0] ?? "");
     expect(String(shown[0]).startsWith("变异清单没有通过锚点核对")).toBe(true);
@@ -204,6 +215,9 @@ describe("第 ⑤f 片：run_mutations（手写，注入 run_pd）", () => {
     expect(String(shown[1]).startsWith("这几条与上一版清单一字不差：上次就对不上，这次没有改：等价。")).toBe(true);
     expect(String(shown[2]).startsWith("变异清单没有通过锚点核对")).toBe(true);
     expect([shown[3], (tsAfter(results[3]).get("gate_post") as PyDict).has("anchor_mismatch")]).toEqual(["", false]);
+    // 键照 str(name)；下一版原样交上来时 unchanged_mismatches 拿原值查键（None、True 查不到“None”“True”），不点名
+    expect((tsAfter(results[4]).get("gate_post") as PyDict).get("anchor_mismatch")).toEqual(new Map([["None", "a"], ["True", "c"]]));
+    expect(String(shown[5]).startsWith("变异清单没有通过锚点核对")).toBe(true);
   });
 
   it("mutate 的记录：多条命令里漏网的按命令说、一条都没抓住的命令；没生效与出错；基线就红；记录读不出；超时", () => {
@@ -218,9 +232,12 @@ describe("第 ⑤f 片：run_mutations（手写，注入 run_pd）", () => {
         { id: "M02", status: "missed", commands: { W1: { status: "missed" }, W2: { status: "missed" } }, unexpected: ["W1", "W2"] }],
     };
     const broken = { results: [{ id: "M01", status: "skipped", unexpected: [] }, { id: "M02", status: "error", unexpected: [] }] };
+    // 30 行输出，前后带空行，第 15 行夹一个 U+2028（tail 先 strip、再按 splitlines 分）
+    const long = ["", "", ...Array.from({ length: 30 }, (_, at) => (at === 14 ? `第 15 行${C(0x2028)}续` : `第 ${at + 1} 行`)), "", ""].join(LF);
     const results = agreeFlow([
       run(MULTI, 3600, multi), run(SPEC2, 3600, broken), run(SPEC2, 3600, { aborted: "baseline_failed", baseline: {} }, 1, "MUTATE baseline ... 失败"),
       run(SPEC2, 3600, "{"), run(SPEC2, 3600, RECORD_OK, 124, "超时（3600 秒）：mutate"),
+      run(SPEC2, 3600, RECORD_OK, 0, long), run(SPEC2, 3600, "{", 0, long),
     ]);
     const shown = results.map((state) => returned(state) as string[]);
     expect(shown[0]).toEqual(["2 条变异漏网、也没有声明等价：M01、M02（按命令：W1 漏掉 M02；W2 漏掉 M01、M02）", expect.stringContaining("命令 W2 一条变异都没抓住。")]);
@@ -228,6 +245,10 @@ describe("第 ⑤f 片：run_mutations（手写，注入 run_pd）", () => {
     expect(shown[2]?.[0]).toContain("基线就红了");
     expect(shown[3]?.[0]).toBe(`变异检查没有跑完（退出码 0）：${LF}变异 2 个：抓住 1，漏掉 0，跳过 0，出错 0`);
     expect(shown[4]?.[0]).toContain("（退出码 124）");
+    // mutate_tail 与“没有跑完”后面都正好 25 行：31 行里的最后 25 行
+    const kept = (tsAfter(results[5]).get("gate_post") as PyDict).get("mutate_tail") as string;
+    expect([kept.split(LF).length, kept.split(LF)[0], kept.split(LF).at(-1), kept.includes(C(0x2028))]).toEqual([25, "第 7 行", "第 30 行", false]);
+    expect(shown[6]?.[0]).toBe(`变异检查没有跑完（退出码 0）：${LF}${kept}`);
   });
 
   it("变异要打在改动的文件上：测试文件与删掉的不算；unmutated 写了理由的放过，只记改动里的那几条", () => {

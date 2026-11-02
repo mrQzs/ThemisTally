@@ -371,6 +371,30 @@
       "file": "ts/packages/base/src/pyjson.ts",
       "old": "scanArray(text, index + 1, enter(depth, \"array\"), builder)",
       "new": "scanArray(text, index + 1, enter(depth, \"object\"), builder)"
+    },
+    {
+      "name": "P61 mutate_tail 只取 24 行",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "[\"mutate_tail\", tail(out, 25n)]",
+      "new": "[\"mutate_tail\", tail(out, 24n)]"
+    },
+    {
+      "name": "P62 expect_missed 改用逗号连",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": ".map(pyStrValue).join(\"、\")}`)],",
+      "new": ".map(pyStrValue).join(\",\")}`)],"
+    },
+    {
+      "name": "P63 anchor_mismatch 的键用 String",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "new Map(numbered.map(([, item]) => [pyStrValue(pyGet(item, \"name\")), pyGet(item, \"old\")]))",
+      "new": "new Map(numbered.map(([, item]) => [String(pyGet(item, \"name\")), pyGet(item, \"old\")]))"
+    },
+    {
+      "name": "P64 没有跑完时只附 24 行",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "${LF}${tail(out, 25n)}${hint}",
+      "new": "${LF}${tail(out, 24n)}${hint}"
     }
   ]
 }
