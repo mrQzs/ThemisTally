@@ -1,9 +1,9 @@
 // 主任务状态与内核校验（迁移第 ⑤a 片，kit_hub.py 923–1306 行，加 stage_status_table 与 upstream_notes）：守卫、
 // “内核此刻允许的下一步”、例行流转的推导与任务书。都是纯函数：状态是 json.loads 读出的 PyDict，取值照 Python 的
 // [] 与 .get，比较照 ==，截断按码点。拒收原因的文字逐字进信与账本，影子运行逐字对照。
-import { PyCrash, pyGet, pyItem, pyJoin, pyLenValue, pyPercentD, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { PyCrash, pyGet, pyItem, pyJoin, pyLenValue, pyPercentD, pyRepr, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { purePathIsAbsolute, purePathRelativePosix } from "@themis/base/pypath";
+import { purePathIsAbsolute, purePathRelativePosix, purePathStr } from "@themis/base/pypath";
 import { cmpCodePoints, codePoints, pyLower, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
 import {
@@ -401,10 +401,10 @@ function textItem(value: PyValue): string {
   return value;
 }
 
-/** Path(value).relative_to(repo).as_posix()：不在仓库之下照 Python 报 ValueError。 */
-function relativeTo(value: string, repo: string): string {
+/** Path(value).relative_to(repo).as_posix()：不在仓库之下照 Python 报 ValueError，文字是两个 str(Path) 的 repr（⑤f 起比文字）。 */
+export function relativeTo(value: string, repo: string): string {
   const rel = purePathRelativePosix(value, repo);
-  if (rel === null) throw new PyCrash("ValueError", `'${value}' is not in the subpath of '${repo}'`);
+  if (rel === null) throw new PyCrash("ValueError", `${pyRepr(purePathStr(value))} is not in the subpath of ${pyRepr(purePathStr(repo))}`);
   return rel;
 }
 

@@ -7,6 +7,9 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { win32ErrorMessage } from "./native.ts";
+import { PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorOf } from "./pyio.ts";
+import { PyWinError } from "./pyos.ts";
 import { encodeUtf8 } from "./pyjson.ts";
 
 /** kit_hub 的 SHARING_RETRIES、SHARING_PAUSE：40 次，每次隔 50 毫秒。 */
@@ -29,7 +32,6 @@ export function isPermissionError(error: unknown): boolean {
   return code === "EPERM" || code === "EACCES" || code === "EBUSY";
 }
 
-const DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** kit_hub.read_text。 */
 export function readText(path: string): string {
@@ -45,9 +47,10 @@ export function readText(path: string): string {
     }
     let text: string;
     try {
-      text = DECODER.decode(bytes);
-    } catch {
-      throw new UnicodeDecodeError(`'utf-8' codec can't decode bytes in ${path}`);
+      text = pyDecodeUtf8(bytes);
+    } catch (error) {
+      if (!(error instanceof PyUnicodeDecodeError)) throw error;
+      throw new UnicodeDecodeError(error.message); // 文字照 CPython 的 str(exc)（⑤f），类照旧
     }
     return text.replace(/\r\n?/g, "\n"); // 通用换行：Python 的文本模式读
   }
@@ -69,6 +72,17 @@ export function writeText(path: string, text: string, exclusive = true): void {
   }
 }
 
+/**
+ * renameSync 最后一次失败时照 CPython 的 os.replace 报：Windows 上 libuv 的 EPERM、EACCES 是 WinError 5，EBUSY 是 32，文字取
+ * FormatMessageW（跟着系统界面的语言），带两个路径（⑤f）。别的平台照 pyOSErrorOf。
+ */
+export function replaceError(error: unknown, src: string, dst: string): unknown {
+  const code = (error as NodeJS.ErrnoException).code;
+  const winerror = code === "EBUSY" ? 32 : code === "EPERM" || code === "EACCES" ? 5 : null;
+  if (process.platform === "win32" && winerror !== null) return new PyWinError(winerror, win32ErrorMessage(winerror), src, dst);
+  return pyOSErrorOf(error, src) ?? error;
+}
+
 /** kit_hub.write_text_atomic。 */
 export function writeTextAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -82,7 +96,7 @@ export function writeTextAtomic(path: string, text: string): void {
       if (!isPermissionError(error)) throw error; // 与 Python 一样：别的错误不删临时文件
       if (attempt === SHARING_RETRIES - 1) {
         rmSync(tmp, { force: true });
-        throw error;
+        throw replaceError(error, tmp, path);
       }
       sleepSync(SHARING_PAUSE_MS);
     }

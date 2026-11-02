@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
-import { UnicodeDecodeError, readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
+import { UnicodeDecodeError, readText, replaceError, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
 import { FileLockTimeout, type WinProcessApi, acquireFileLock, initFileAttributes, winProcessApi } from "@themis/base/native";
@@ -11,7 +11,7 @@ import { abspath, isWithin, normcase, ntNormpath, pyExists, pyResolve } from "@t
 import { pidAlive } from "@themis/base/process";
 import { publishNew } from "@themis/base/publish";
 import { PyCrash, type PyOut, pyFixed, pyRepr, pyRound, pyStrValue, pySum } from "@themis/base/pyfmt";
-import { type OutputTarget, runSupervised, superviseWith } from "@themis/base/supervise";
+import { type OutputTarget, pyWinErrorMessage, runSupervised, superviseWith } from "@themis/base/supervise";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
 import { ShlexError, shlexQuote, shlexSplit } from "@themis/base/pyshlex";
 import { machineSummary, measuredCheckSeconds, renderInstruction, selfCheckCommand, setupFactsText } from "@themis/dispatcher/instruction";
@@ -57,6 +57,7 @@ import { type DumpsOptions, type PyDict, PyJsonError, type PyValue, dumps, encod
 import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8, pyOSErrorType, pyReadBytes, pyReadText } from "@themis/base/pyio";
 import { cmpCodePoints, codePoints, pyCasefold, pyIntParse, pyLower, pyNfc, pyStrCount, pyStrFind, pyStrReplace } from "@themis/base/pyre";
 import { PyValueError as UrlValueError, ipAddressKind, urlHostname, urlPort, urlUserinfo, urlsplit } from "@themis/base/pyurl";
+import { pySorted } from "@themis/base/pyset";
 import { pyEq } from "@themis/base/pyvalue";
 import { purePathStr } from "@themis/base/pypath";
 import {
@@ -524,6 +525,21 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
     const left = loads(String(request["a"]));
     const right = loads(String(request["b"]));
     return { ok: true, result: request["nested"] ? pyEq([left], [right]) : pyEq(left, right) };
+  },
+  "replace.error": (request) => {
+    const error = replaceError(Object.assign(new Error("x"), { code: String(request["code"]) }), String(request["src"]), String(request["dst"])) as Error;
+    return { ok: true, error: error.name, text: error.message };
+  },
+  "winerror.text": (request) => ({
+    ok: true, text: pyWinErrorMessage(Number(request["code"]), typeof request["path"] === "string" ? request["path"] : undefined),
+  }),
+  "pyset.sorted": (request) => {
+    try {
+      return { ok: true, result: dumps(pySorted(loads(String(request["values"])) as PyValue[])) };
+    } catch (error) {
+      if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+      throw error;
+    }
   },
   "secrets.call": secretsCall,
   "jsonl.append": async (request) => {

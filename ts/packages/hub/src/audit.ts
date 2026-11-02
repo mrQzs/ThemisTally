@@ -9,6 +9,7 @@ import { type PyDict, type PyKey, PyJsonError, type PyValue, dumps, loads } from
 import { abspath, expanduser, normcase, ntIsabs, osPathJoin, purePathStr, pyResolve } from "@themis/base/pypath";
 import { cmpCodePoints, codePoints, pyLower, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
+import { PyKeyedDict, PySet, hashKey, pySorted } from "@themis/base/pyset";
 import { globPaths } from "@themis/dispatcher/instruction";
 import { RESOURCE_FLAGS, parseHelp, runCapture } from "@themis/dispatcher/pi-cli";
 import {
@@ -485,87 +486,6 @@ function isabs(path: string): boolean {
   return WIN ? ntIsabs(path) : path.startsWith("/");
 }
 
-/** 可散列的 JSON 值在 Python 里的相等类：1、1.0、True 是同一个；json.loads 出来的 NaN 都是同一个对象。 */
-function hashKey(value: PyValue): string {
-  if (Array.isArray(value)) throw new PyCrash("TypeError", "unhashable type: 'list'");
-  if (value instanceof Map) throw new PyCrash("TypeError", "unhashable type: 'dict'");
-  if (value === null) return "N";
-  if (typeof value === "string") return `S${value}`;
-  if (typeof value === "boolean") return value ? "I1" : "I0";
-  if (typeof value === "bigint") return `I${value}`;
-  if (Number.isNaN(value)) return "NaN";
-  if (Number.isInteger(value)) return `I${BigInt(value)}`;
-  return `F${value}`;
-}
-
-/** Python 的集合（元素是可散列的 JSON 值）。 */
-class PySet {
-  private readonly items = new Map<string, PyValue>();
-
-  constructor(values: Iterable<PyValue> = []) {
-    for (const value of values) this.add(value);
-  }
-
-  get size(): number {
-    return this.items.size;
-  }
-
-  add(value: PyValue): void {
-    const key = hashKey(value);
-    if (!this.items.has(key)) this.items.set(key, value);
-  }
-
-  has(value: PyValue): boolean {
-    return this.items.has(hashKey(value));
-  }
-
-  discard(value: PyValue): void {
-    this.items.delete(hashKey(value));
-  }
-
-  values(): PyValue[] {
-    return [...this.items.values()];
-  }
-
-  minus(other: PySet): PySet {
-    return new PySet(this.values().filter((value) => !other.has(value)));
-  }
-
-  equals(other: PySet): boolean {
-    return this.size === other.size && this.values().every((value) => other.has(value));
-  }
-}
-
-/** Python 的字典（键是可散列的值，按 Python 的相等合并，保留先插入的那个键）。 */
-class PyKeyedDict {
-  private readonly keys = new Map<string, PyKey>();
-  private readonly values = new Map<string, PyValue>();
-
-  has(key: PyKey): boolean {
-    return this.keys.has(hashKey(key));
-  }
-
-  get(key: PyKey): PyValue | undefined {
-    return this.values.get(hashKey(key));
-  }
-
-  set(key: PyKey, value: PyValue): void {
-    const hash = hashKey(key);
-    if (!this.keys.has(hash)) this.keys.set(hash, key);
-    this.values.set(hash, value);
-  }
-
-  delete(key: PyKey): void {
-    const hash = hashKey(key);
-    this.keys.delete(hash);
-    this.values.delete(hash);
-  }
-
-  toDict(): PyDict {
-    return new Map([...this.keys].map(([hash, key]) => [key, this.values.get(hash) as PyValue]));
-  }
-}
-
 /** dict(value)：字典照抄；别的当成成对的序列（长度为 2 的字符串也是一对），不成对照 Python 报错。 */
 function pyDictOf(value: PyValue): PyKeyedDict {
   const out = new PyKeyedDict();
@@ -587,73 +507,3 @@ function pyDictOf(value: PyValue): PyKeyedDict {
   return out;
 }
 
-/** Python 的 a < b（可散列的 JSON 值）：数与数、字符串与字符串可比，别的照 Python 抛 TypeError。 */
-function pyLess(a: PyValue, b: PyValue): boolean {
-  const numeric = (value: PyValue): value is bigint | number | boolean => typeof value === "bigint" || typeof value === "number" || typeof value === "boolean";
-  if (numeric(a) && numeric(b)) return compareNumbers(a, b) < 0;
-  if (typeof a === "string" && typeof b === "string") return cmpCodePoints(a, b) < 0;
-  throw new PyCrash("TypeError", `'<' not supported between instances of '${pyTypeName(a)}' and '${pyTypeName(b)}'`);
-}
-
-/** 两个数的大小，Python 的整数与浮点精确比较；有 NaN 时交回 NaN（比较都为假）。 */
-function compareNumbers(a: bigint | number | boolean, b: bigint | number | boolean): number {
-  const int = (value: bigint | number | boolean): bigint | number => (typeof value === "boolean" ? (value ? 1n : 0n) : value);
-  const left = int(a);
-  const right = int(b);
-  if (typeof left === "bigint" && typeof right === "bigint") return left < right ? -1 : left > right ? 1 : 0;
-  if (typeof left === "number" && typeof right === "number") return Number.isNaN(left) || Number.isNaN(right) ? Number.NaN : left - right;
-  return typeof left === "bigint" ? intFloat(left, right as number) : -intFloat(right as bigint, left as number);
-}
-
-function intFloat(int: bigint, float: number): number {
-  if (Number.isNaN(float)) return Number.NaN;
-  if (float === Number.POSITIVE_INFINITY) return -1;
-  if (float === Number.NEGATIVE_INFINITY) return 1;
-  const floor = Math.floor(float);
-  const whole = BigInt(floor);
-  if (int !== whole) return int < whole ? -1 : 1;
-  return floor === float ? 0 : -1;
-}
-
-/**
- * sorted(values)：照 CPython 3.12 的 list.sort，64 个以内先 count_run、再二分插入，比较的先后与 Python 相同，
- * 混了不能比的值时在同一处抛 TypeError，有 NaN 时排出来的次序也相同。更长的退回稳定的归并排序（全序时结果相同）。
- */
-function pySorted(values: readonly PyValue[]): PyValue[] {
-  const items = [...values];
-  const n = items.length;
-  if (n < 2) return items;
-  if (n >= 64) return mergeSort(items);
-  let run = 2;
-  if (pyLess(items[1] as PyValue, items[0] as PyValue)) {
-    while (run < n && pyLess(items[run] as PyValue, items[run - 1] as PyValue)) run += 1;
-    items.splice(0, run, ...items.slice(0, run).reverse());
-  } else {
-    while (run < n && !pyLess(items[run] as PyValue, items[run - 1] as PyValue)) run += 1;
-  }
-  for (let start = run; start < n; start += 1) {
-    const pivot = items[start] as PyValue;
-    let low = 0;
-    let high = start;
-    while (low < high) {
-      const middle = low + ((high - low) >> 1);
-      if (pyLess(pivot, items[middle] as PyValue)) high = middle;
-      else low = middle + 1;
-    }
-    items.splice(start, 1);
-    items.splice(low, 0, pivot);
-  }
-  return items;
-}
-
-function mergeSort(items: PyValue[]): PyValue[] {
-  if (items.length < 2) return items;
-  const middle = items.length >> 1;
-  const left = mergeSort(items.slice(0, middle));
-  const right = mergeSort(items.slice(middle));
-  const out: PyValue[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < left.length && j < right.length) out.push(pyLess(right[j] as PyValue, left[i] as PyValue) ? (right[j++] as PyValue) : (left[i++] as PyValue));
-  return [...out, ...left.slice(i), ...right.slice(j)];
-}

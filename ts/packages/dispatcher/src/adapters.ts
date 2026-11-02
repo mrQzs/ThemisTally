@@ -3,6 +3,7 @@
 // 目录悄悄跳过，读文件出错时 Python 不接、命令崩溃。
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pyWinErrorMessage } from "@themis/base/supervise";
 import { PyCrash, type PyOut } from "@themis/base/pyfmt";
 import { pyOSErrorOf, pyReadBytes } from "@themis/base/pyio";
 import { isLinkOrJunction, normcase, pyResolve } from "@themis/base/pypath";
@@ -101,7 +102,7 @@ export function syncAdapters(root: string): string[] {
     const existing = stat(targetDir);
     if (existing) {
       // shutil.rmtree 对文件（不是目录）抛 NotADirectoryError
-      if (!existing.isDirectory()) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: '${targetDir}'`);
+      if (!existing.isDirectory()) throw new PyCrash("NotADirectoryError", pyWinErrorMessage(267, targetDir)); // scandir 带文件名
       rmSync(targetDir, { recursive: true });
     }
     for (const [rel, data] of source) {

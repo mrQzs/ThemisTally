@@ -35,6 +35,12 @@ const normalize = (text: string): string => text.replace(ID_RE, "<ID>").replace(
 
 /** 结果里的临时仓库路径换成 <REPO>（照 JSON 里转义过的写法找），随机编号与时间换成占位符。 */
 const scrub = (value: unknown, repo: string): unknown => JSON.parse(normalize(JSON.stringify(value).split(JSON.stringify(repo).slice(1, -1)).join("<REPO>")));
+/** 报错文字里的路径是 repr 写的（反斜杠成双）：再换一遍仓库路径；write_text_atomic 的临时文件名里随机的 12 位十六进制换成 <HEX>。 */
+function scrubMessage(value: unknown, repo: string): unknown {
+  const slash = String.fromCharCode(92);
+  const shown = JSON.stringify(repo.split(slash).join(slash + slash)).slice(1, -1);
+  return JSON.parse(JSON.stringify(scrub(value, repo)).split(shown).join("<REPO>").replace(/state[.]json[.][0-9a-f]{12}[.]tmp/g, "state.json.<HEX>.tmp"));
+}
 
 /** 信箱里落盘的文件（锁文件除外），路径与内容里的随机编号与时间都换成占位符。 */
 function snapshot(repo: string): string[] {
@@ -298,7 +304,7 @@ describe("第 ⑤b 片：混跑（两套实现同时写一个信箱）", () => {
         tested.stop();
       }
       expect(result.ok, JSON.stringify(result)).toBe(true);
-      return { outcome: scrub((result["results"] as unknown[]).at(-1), repo), leftovers: readdirSync(ledger).filter((name) => name.endsWith(".tmp")) };
+      return { outcome: scrubMessage((result["results"] as unknown[]).at(-1), repo), leftovers: readdirSync(ledger).filter((name) => name.endsWith(".tmp")) };
     } finally {
       removeDir(repo);
     }
@@ -315,7 +321,13 @@ describe("第 ⑤b 片：混跑（两套实现同时写一个信箱）", () => {
       else if (label === "读") {
         const message = `读不出 ${["<REPO>", ".agent", "mailbox", "ledger", "state.json"].join(SEP)}（文件在，内容读不到）`;
         expect(python.outcome).toEqual({ ok: false, error: "HubError", code: 3, message });
-      } else expect(python.outcome).toEqual({ ok: false, error: "PermissionError" });
+      } else {
+        // os.replace 的两个路径都在文字里；系统的文字跟着界面语言（两边都取 FormatMessageW），这里只钉框架，三边照样逐字比
+        const outcome = python.outcome as { ok: boolean; error: string; message: string };
+        const ledgerDir = ["<REPO>", ".agent", "mailbox", "ledger"].join(SEP + SEP);
+        expect([outcome.ok, outcome.error, outcome.message.startsWith("[WinError 5] "),
+          outcome.message.endsWith(`: '${ledgerDir}${SEP}${SEP}state.json.<HEX>.tmp' -> '${ledgerDir}${SEP}${SEP}state.json'`)]).toEqual([false, "PermissionError", true, true]);
+      }
       for (const [index, other] of others.entries()) {
         const name = IMPLS[index + 1]?.name;
         if (enabled && holdMs > 1000 && label === "读") {

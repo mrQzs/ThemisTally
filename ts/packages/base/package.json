@@ -22,6 +22,7 @@
     "./pypath": "./src/pypath.ts",
     "./pyre": "./src/pyre.ts",
     "./pyregex": "./src/pyregex/search.ts",
+    "./pyset": "./src/pyset.ts",
     "./pyshlex": "./src/pyshlex.ts",
     "./pyshutil": "./src/pyshutil.ts",
     "./pytempfile": "./src/pytempfile.ts",

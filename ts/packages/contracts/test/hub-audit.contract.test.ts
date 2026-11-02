@@ -12,7 +12,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { type PyDict, type PyValue, dumps } from "@themis/base/pyjson";
+import { type PyDict, type PyValue, dumps, loads } from "@themis/base/pyjson";
+import { pyTruthy } from "@themis/base/pyfmt";
 import { guardConfig, piSupportedFlags } from "@themis/hub/audit";
 import { GUARD_PREFIX, GUARD_SUFFIX } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
@@ -51,10 +52,16 @@ function py(value: unknown): PyValue {
 const line = (value: unknown): string => dumps(py(value), { ensureAscii: false, separators: [",", ":"] });
 const call = (fn: string, ...args: unknown[]): ProbeRequest => ({ op: "hub.audit", fn, args: args.map((arg) => toTagged(py(arg))) });
 
-function agree(requests: readonly ProbeRequest[], impls: readonly Impl[] = IMPLS): ProbeResult[] {
+/** “'<' 不能比”里的两个类型名：只在排序的输入来自集合时换成占位（Python 的集合次序随 str 散列的盐变，谁先跟谁比不确定）。 */
+const SET_SORT = /'<' not supported between instances of '[^']*' and '[^']*'/g;
+const setSorted = (result: ProbeResult | undefined): string => JSON.stringify(result).replace(SET_SORT, "'<' not supported between instances of '<TYPE>' and '<TYPE>'");
+
+/** setSort(at)：第 at 个请求的排序输入来自集合（models、levels），比之前照 setSorted 规整；别的逐字比。 */
+function agree(requests: readonly ProbeRequest[], impls: readonly Impl[] = IMPLS, setSort: (at: number) => boolean = () => false): ProbeResult[] {
   const [python, ...others] = impls.map((impl) => runBatch(impl, requests));
+  const shownAt = (results: readonly ProbeResult[] | undefined, at: number): string => (setSort(at) ? setSorted(results?.[at]) : JSON.stringify(results?.[at]));
   for (const [index, other] of others.entries()) {
-    const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(python?.[at]) !== JSON.stringify(other[at]));
+    const bad = requests.map((_, at) => at).filter((at) => shownAt(python, at) !== shownAt(other, at));
     const shown = bad.slice(0, 2).map((at) => ({ at, fn: requests[at]?.["fn"], python: JSON.stringify(python?.[at]).slice(0, 1500), other: JSON.stringify(other[at]).slice(0, 1500) }));
     expect(shown, `${impls[index + 1]?.name} 与 Python 不同（共 ${bad.length} 处）`).toEqual([]);
   }
@@ -246,6 +253,21 @@ function claudeEvent(next: () => number): unknown {
     structured_output: pick(next, [{ report: "交了" }, null, [1]]), usage: { output_tokens_details: { thinking_tokens: pick(next, [12, null]) } } };
 }
 
+/** 流里有没有进 models 集合的、不是字符串的 model（assistant 事件的 message.model 为真才进）：有的话 sorted 报哪一对不确定。 */
+function oddModel(lines: readonly string[]): boolean {
+  return lines.some((text) => {
+    let event: PyValue;
+    try {
+      event = loads(text);
+    } catch {
+      return false;
+    }
+    const message = event instanceof Map && event.get("type") === "assistant" ? event.get("message") : null;
+    const model = message instanceof Map ? (message.get("model") ?? null) : null;
+    return pyTruthy(model) && typeof model !== "string";
+  });
+}
+
 function randomStream(next: () => number, event: (next: () => number) => unknown): string[] {
   return Array.from({ length: 1 + Math.floor(next() * 10) }, () => (next() < 0.08 ? junk(next) : line(mutate(next, event(next)))));
 }
@@ -265,11 +287,13 @@ describe("第 ⑤c 片：按种子生成、再改坏的事件流", () => {
 
   it.each([1, 2, 3])("claude 的事件流，种子 %i：150 份 × 有无工作目录", (seed) => {
     const next = prng(100 + seed);
+    const odd: boolean[] = [];
     const requests = Array.from({ length: 150 }, () => {
       const lines = randomStream(next, claudeEvent);
+      odd.push(oddModel(lines));
       return next() < 0.7 ? call("audit_claude_stream", lines, CLAUDE_SPEC, WORK, MAIN) : call("audit_claude_stream", lines, CLAUDE_SPEC, null, null);
     });
-    const results = agree(requests);
+    const results = agree(requests, IMPLS, (at) => odd[at] === true); // 只有 models 这个集合混了类型的才打占位
     expect(results.filter((result) => result.ok).length).toBeGreaterThan(40);
     expect(results.some((result) => !result.ok)).toBe(true);
   });
@@ -350,7 +374,7 @@ describe("第 ⑤c 片：手写的边界", () => {
       call("pi_reach_problem", "bash", { command: `${"x".repeat(250)} cat ${MAIN}` }, WORK, MAIN),
       claude(init, { type: "assistant", message: { model: 1 } }, { type: "assistant", message: { model: F(1) } }),
       claude(init, { type: "assistant", message: { content: [{ type: "tool_use", name: "Read", id: "t", input: ["fp", ["path", join(MAIN, "x")]] }] } }),
-    ]);
+    ], IMPLS, (at) => at === 12); // 第 12 条：models 是集合，里面有 1 与 "a"；第 8 条的工具表是列表，照样逐字比
     expect(results.map((result) => result.error ?? "")).toEqual([
       "AttributeError", "OverflowError", "AttributeError", "", "TypeError", "TypeError", "TypeError", "AttributeError", "TypeError", "TypeError", "TypeError",
       "TypeError", "TypeError", "ValueError", "TypeError", "ValueError", "AttributeError", "KeyError", "TypeError", "", "", "",

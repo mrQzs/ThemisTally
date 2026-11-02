@@ -1006,9 +1006,48 @@ def op_pyvalue_eq(request):
     return {"ok": True, "result": [left] == [right] if request.get("nested") else left == right}
 
 
+def op_pyset_sorted(request):
+    """sorted(json.loads(values))：交回 json.dumps 的结果，或 TypeError 与文字（混了类型时报的是哪一对，看 list.sort 比较的先后）。"""
+    values = json.loads(request["values"])
+    try:
+        return {"ok": True, "result": json.dumps(sorted(values))}
+    except TypeError as exc:
+        return {"ok": False, "error": "TypeError", "message": str(exc)}
+
+
+def op_replace_real(request):
+    """os.replace(src, dst) 真失败一次，交回类型、winerror 与 str(exc)：kind 是 busy（源文件被不共享地打开，WinError 32）或 denied
+    （目标是目录，WinError 5）。"""
+    import _winapi
+    src, dst = request["src"], request["dst"]
+    handle = _winapi.CreateFile(src, _winapi.GENERIC_READ, 0, 0, _winapi.OPEN_EXISTING, 0, 0) if request["kind"] == "busy" else None
+    try:
+        os.replace(src, dst)
+    except OSError as exc:
+        return {"ok": True, "error": type(exc).__name__, "winerror": exc.winerror, "text": str(exc)}
+    finally:
+        if handle is not None:
+            _winapi.CloseHandle(handle)
+    return {"ok": False, "error": "NO_ERROR"}
+
+
+def op_winerror_real(request):
+    """真触发一次 Windows 错误，交回 str(exc)：kind 是 exe（跑一个不存在的程序，CreateProcess 的 WinError 2）或 mkdir（os.mkdir 一个已在的目录，
+    WinError 183，带路径）。"""
+    import subprocess
+    try:
+        if request["kind"] == "exe":
+            subprocess.run([request["name"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            os.mkdir(request["path"])
+    except OSError as exc:
+        return {"ok": True, "error": type(exc).__name__, "text": str(exc)}
+    return {"ok": False, "error": "NO_ERROR"}
+
+
 def op_hub_call(request):
-    """第 ⑤a 片：kit_hub 的纯函数（信件、schema、主任务状态与守卫）。结果带标签；HubError 交回文字与退出码，别的异常只比
-    类型。改状态的函数（invalidate_after、move_base）连同改过的 ts 一起交回。new_task_state 的 created_at 换成请求给的值。
+    """第 ⑤a 片：kit_hub 的纯函数（信件、schema、主任务状态与守卫）。结果带标签；HubError 交回文字与退出码，别的异常交回
+    类型与文字。改状态的函数（invalidate_after、move_base）连同改过的 ts 一起交回。new_task_state 的 created_at 换成请求给的值。
     """
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
@@ -1037,8 +1076,8 @@ def op_hub_call(request):
             return {"ok": False, "error": "UNKNOWN_FN"}
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     return {"ok": True, "value": to_tagged(value)}
 
 def op_hub_samples(request):
@@ -1068,7 +1107,7 @@ def op_hub_samples(request):
 
 def op_hub_box(request):
     """第 ⑤b 片：在 repo 的信箱上按 steps 依次执行（Hub、HubState 三方合并、投递与收信、agent 记录、扣信与放回、目录锁……），
-    交回每一步的结果（带标签）；HubError 记文字与退出码，别的异常记类型，出错之后接着走下一步。
+    交回每一步的结果（带标签）；HubError 记文字与退出码，别的异常记类型与文字，出错之后接着走下一步。
     signal 往 stderr 写 ready，wait 等起跑文件出现：混跑用例让一个进程停在两步之间。"""
     hub = kit_hub.Hub(Path(request["repo"]))
     states = {}
@@ -1157,8 +1196,8 @@ def op_hub_box(request):
             results.append({"ok": True, "value": to_tagged(value)})
         except kit_hub.HubError as exc:
             results.append({"ok": False, "error": "HubError", "message": str(exc), "code": exc.code})
-        except Exception as exc:  # noqa: BLE001  只比类型
-            results.append({"ok": False, "error": type(exc).__name__})
+        except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+            results.append({"ok": False, "error": type(exc).__name__, "message": str(exc)})
     return {"ok": True, "results": results}
 
 def op_fs_hold_exclusive(request):
@@ -1183,7 +1222,7 @@ def op_hub_constants(request):
 def op_hub_audit(request):
     """第 ⑤c 片：kit_hub 的回合审计。参数带标签，路径是字符串，照 kit_hub 的调用方转成 Path；结果带标签（元组成了列表）。
     home 给了时先设好 USERPROFILE 与 HOME（Path.home() 每次现读），调用完还原（⑤e1b：同一批里下一个没带 home 的请求不沿用，照 hub.turn）。
-    HubError 交回文字与退出码，别的异常只比类型。"""
+    HubError 交回文字与退出码，别的异常交回类型与文字。"""
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
     saved_home = {name: os.environ.get(name) for name in ("USERPROFILE", "HOME")} if request.get("home") is not None else {}
@@ -1215,8 +1254,8 @@ def op_hub_audit(request):
             return {"ok": False, "error": "UNKNOWN_FN"}
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     finally:
         for name, before in saved_home.items():
             if before is None:
@@ -1228,7 +1267,7 @@ def op_hub_audit(request):
 def op_hub_prompt(request):
     """第 ⑤d 片：kit_hub 的回合输入与交差核对。参数带标签，仓库按路径给（Hub 由它建），路径参数照 kit_hub 的调用方转成 Path。
     template_dir、kernel_root 给了时，调用期间把 kit_hub 的 TEMPLATE_DIR、HERE 换成它（TS 那边以参数给同一个值），之后换回。
-    worker_env 只交回排好序的变量名（迁移计划第 0 节：不比值）。HubError 交回文字与退出码，别的异常只比类型。"""
+    worker_env 只交回排好序的变量名（迁移计划第 0 节：不比值）。HubError 交回文字与退出码，别的异常交回类型与文字。"""
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
     saved = {}
@@ -1264,8 +1303,8 @@ def op_hub_prompt(request):
             return {"ok": False, "error": "UNKNOWN_FN"}
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     finally:
         for name, original in saved.items():
             setattr(kit_hub, name, original)
@@ -1274,7 +1313,7 @@ def op_hub_prompt(request):
 
 def op_hub_contract(request):
     """第 ⑤e 片：kit_hub 的合同与战前门禁。参数带标签，路径参数照 kit_hub 的调用方转成 Path；结果带标签（元组成了列表）。
-    HubError 交回文字与退出码，别的异常只比类型。"""
+    HubError 交回文字与退出码，别的异常交回类型与文字。"""
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
     for item in request.get("restores") or []:  # ⑤e2a：采样时调用当时的快照（带 .git），原地放回
@@ -1324,6 +1363,17 @@ def op_hub_contract(request):
             value = [sorted(env), env.get("PYTHONDONTWRITEBYTECODE")]
         elif fn == "kernel_pytest":
             value = list(kit_hub.KERNEL_PYTEST)
+        elif fn in ("mutant_timeout", "expected_missed_everywhere", "defect_matches", "defect_match_problems", "mutation_problems",
+                    "unchanged_mismatches"):  # ⑤f 的纯函数
+            value = getattr(kit_hub, fn)(*args)
+        elif fn == "candidate_defects":
+            value = list(kit_hub.candidate_defects(*args))
+        elif fn == "gate_spec":
+            value = list(kit_hub.gate_spec(Path(args[0]), args[1]))
+        elif fn == "attempt_base":
+            value = kit_hub.attempt_base(args[0], Path(args[1]))
+        elif fn == "unmutated_problems":  # 连同改过的 ts["gate_post"]["unmutated"]，同采样器
+            value = [kit_hub.unmutated_problems(*args), args[0]["gate_post"].get("unmutated")]
         elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
             value = {name: [list(key) for key in sorted(getattr(pi_dispatch, name))]
                      for name in ("TS_READONLY_COMMANDS", "TS_ONLY_COMMANDS", "TS_CONFIG_COMMANDS", "TS_DISPATCHER_COMMANDS")}
@@ -1334,8 +1384,8 @@ def op_hub_contract(request):
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
     except pi_dispatch.DispatchError as exc:
         return {"ok": False, "error": "DispatchError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     finally:
         pi_dispatch.KERNEL_IMPL_PATH = saved_impl
         for name, before in saved_env.items():
@@ -1366,7 +1416,7 @@ def _inputs_artifacts(target, info):
 
 
 def op_hub_inputs(request):
-    """第 ⑤d 片：kit_hub 的 stage_inputs（与 remove_inputs），交回 _inputs_artifacts。HubError 交回文字与退出码，别的异常只比类型。
+    """第 ⑤d 片：kit_hub 的 stage_inputs（与 remove_inputs），交回 _inputs_artifacts。HubError 交回文字与退出码，别的异常交回类型与文字。
     采样的重放（⑤d2）另给 restore（照 op_hub_turn），以及 worktree_root、input_file_limit：调用期间换掉 kit_hub 的 worktree_root 与
     INPUT_FILE_LIMIT，对应 inputs_fixture 的 monkeypatch。"""
     hub = kit_hub.Hub(Path(request["repo"]))
@@ -1384,8 +1434,8 @@ def op_hub_inputs(request):
         target, info = kit_hub.stage_inputs(hub, from_tagged(request["ts"]), request["key"])
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     finally:
         kit_hub.worktree_root, kit_hub.INPUT_FILE_LIMIT = saved
     return {"ok": True, "value": to_tagged(_inputs_artifacts(target, info))}
@@ -1509,8 +1559,8 @@ def op_hub_turn(request):
                                                                   None if inputs is None else Path(inputs), session_id)
     except kit_hub.HubError as exc:
         return {"ok": False, "error": "HubError", "message": str(exc), "code": exc.code}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
     finally:
         kit_hub.utc_compact, os.urandom, uuid_module.uuid4, time.time = saved
         for table, before, added in saved_tables:
@@ -1546,6 +1596,8 @@ def _recorded_value(name, value):
         value = [list(item) for item in value]
     elif isinstance(value, tuple):
         value = list(value)
+    elif isinstance(value, Path):  # ⑤f：apply_candidate、ensure_worktree 交回 worktree 的路径
+        value = str(value)
     try:
         return json.dumps({"ok": True, "value": to_tagged(value)})
     except Exception:  # noqa: BLE001
@@ -1555,11 +1607,18 @@ def _recorded_value(name, value):
 def _recorded_error(exc):
     if isinstance(exc, kit_hub.HubError):
         return json.dumps({"ok": False, "error": "HubError", "message": str(exc), "code": exc.code})
-    return json.dumps({"ok": False, "error": type(exc).__name__})
+    return json.dumps({"ok": False, "error": type(exc).__name__, "message": str(exc)})
 
 
-#: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节）
-FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract")
+#: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节；⑤f 加 worktree_root）
+FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract", "worktree_root")
+#: ⑤f：用例没换、也照记录注入的（themistally-15 定的，⑤f 设计稿第 3、10 节）：白盒测试那一次 run_supervised 只在 accept_gate_post 里录，
+#: mkdtemp 在建 worktree 的两个函数里录
+FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkdtemp",), "ensure_worktree": ("mkdtemp",)}
+#: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数
+FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract")
+#: 重放时要转成 Path 的参数（按位置）
+FLOW_PATH_ARGS = {"accept_gate_pre": (2,), "seed_whitebox": (2,), "accept_gate_post": (2,), "run_mutations": (2, 3)}
 #: ⑤e2b：最外层调用期间的提交作者与日期（采样与三边重放一样），门禁基准测试的提交 SHA 才钉得住
 FLOW_GIT_ENV = {"GIT_AUTHOR_NAME": "themis-contract", "GIT_AUTHOR_EMAIL": "contract@example.invalid",
                 "GIT_COMMITTER_NAME": "themis-contract", "GIT_COMMITTER_EMAIL": "contract@example.invalid",
@@ -1582,6 +1641,19 @@ def _plain(value):
     return value
 
 
+def _flow_target(name):
+    """内层函数换在哪里：kit_hub 调的是 pd.run_supervised 与 tempfile.mkdtemp，其余是 kit_hub 自己的。"""
+    return {"run_supervised": kit_hub.pd, "mkdtemp": tempfile}.get(name, kit_hub)
+
+
+def _env_check(env):
+    """传给 run_supervised 的环境变量与当场的 kernel_pytest_env() 整份比：相同记 True，不同只记对不上的名字（值不进记录）。"""
+    expected = kit_hub.kernel_pytest_env()
+    if env == expected:
+        return True
+    return sorted(name for name in set(env) | set(expected) if env.get(name) != expected.get(name))
+
+
 def _flow_pin(micros):
     """kit_hub.utc_now、utc_compact 钉成同一个时刻（Unix 微秒数）。"""
     moment = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=micros)
@@ -1600,8 +1672,11 @@ def _flow_listing(roots):
                 if name == ".git" or os.path.islink(path):
                     continue
                 rel = os.path.relpath(path, str(root)).replace(os.sep, "/")
-                with open(path, "rb") as handle:
-                    listing["%d/%s" % (index, rel)] = hashlib.sha256(handle.read()).hexdigest()
+                data = b""
+                if os.path.getsize(path):  # 空文件不读：别的进程按字节区间锁着的锁文件读不出来（⑤f 的 add_worktree 等锁场景）
+                    with open(path, "rb") as handle:
+                        data = handle.read()
+                listing["%d/%s" % (index, rel)] = hashlib.sha256(data).hexdigest()
     return listing
 
 
@@ -1639,7 +1714,7 @@ def _flow_git(roots):
 
 def _flow_state(result, ts, roots, before, ledger, offset):
     """一次最外层调用之后要比的：交回值、调用之后的 ts、几棵树里的文件改动、账本新增的部分、git 状态。"""
-    tail = ledger.read_bytes()[offset:] if ledger.exists() else b""
+    tail = ledger.read_bytes()[offset:] if ledger is not None and ledger.exists() else b""
     return {"result": result, "ts": to_tagged(_plain(ts)), "files": _flow_changes(roots, before),
             "ledger": base64.b64encode(tail).decode("ascii"), "git": _flow_git(roots)}
 
@@ -1649,6 +1724,19 @@ def _flow_inner_call(name, args, kwargs):
     if name == "run_pd":
         timeout = args[2] if len(args) > 2 else kwargs.get("timeout")
         return {"fn": name, "argv": [str(item) for item in args[1]], "timeout": timeout}
+    if name == "worktree_root":
+        return {"fn": name, "repo": str(args[0])}
+    if name == "mkdtemp":  # kit_hub 只用关键字传 prefix 与 dir
+        return {"fn": name, "prefix": kwargs.get("prefix"), "dir": kwargs.get("dir")}
+    if name == "run_supervised":  # 标准输出是独占新建的日志，标准错误同一个句柄；grace 与中断处理照缺省
+        given = dict(zip(("cmd", "cwd", "env", "stdout", "stderr", "timeout", "grace", "on_spawn"), args), **kwargs)
+        log = given["stdout"]
+        return {"fn": name, "argv": [str(item) for item in given["cmd"]], "cwd": str(given["cwd"]), "env": _env_check(given["env"]),
+                "stdout": [str(log.name), "create-new" if "x" in log.mode else log.mode], "stderr": "stdout" if given["stderr"] is log else "other",
+                "timeout": given.get("timeout"), "grace": float(given.get("grace", 15.0)),
+                # pd.run_supervised 没有这个参数，总会装中断处理；TS 的 handleSignals 缺省也是 true，两边比的就是这一点
+                "handle_signals": True,
+                "on_spawn": given.get("on_spawn") is not None}
     return {"fn": name, "repo": str(args[0].repo), "ts": to_tagged(_plain(args[1]))}
 
 
@@ -1667,10 +1755,12 @@ def _flow_recorder(name, fn, roots, inner, busy):
             raise
         else:
             entry["value"] = to_tagged(_plain(value))
+            if name == "mkdtemp" and all(Path(value).resolve() != Path(root).resolve() for root in roots):
+                roots.append(Path(value))  # ⑤f：新建的 worktree 当新的一棵树（调用之前不在，重放前先删）
         finally:
             busy[0] = False
             entry["files"] = _flow_changes(roots, before)
-            if name != "run_pd":
+            if name in FLOW_TS_INNER:
                 entry["ts_after"] = to_tagged(_plain(args[1]))
             inner.append(entry)
         return value
@@ -1684,6 +1774,11 @@ def _flow_injector(name, queue, roots):
         expected = queue.pop(0) if queue else None
         if expected is None or any(expected.get(key) != value for key, value in got.items()):
             raise _InjectionMismatch(json.dumps({"got": got, "expected": expected and {key: expected.get(key) for key in got}}, ensure_ascii=False))
+        if name == "mkdtemp":
+            made = from_tagged(expected["value"])
+            if os.path.normcase(os.path.dirname(made)) != os.path.normcase(str(kwargs.get("dir"))):
+                raise _InjectionMismatch("mkdtemp 记下的目录不在 dir 下：%s" % made)
+            os.mkdir(made)
         for key, data in expected["files"]["write"].items():
             path = _flow_path(roots, key)
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1697,13 +1792,24 @@ def _flow_injector(name, queue, roots):
             ts.update(from_tagged(expected["ts_after"]))
         if "raise" in expected:
             raise type(expected["raise"][0], (Exception,), {})(expected["raise"][1])
-        return from_tagged(expected["value"])
+        value = from_tagged(expected["value"])
+        return Path(value) if name == "worktree_root" else value
     return inject
 
 
+def _remove_fresh(fresh, inner):
+    """⑤f：调用当时还不在的树（mkdtemp 建的 worktree），重放前先删掉；只删记下的 mkdtemp 的 dir 下的目录。"""
+    dirs = {os.path.normcase(str(entry.get("dir"))) for entry in inner if entry.get("fn") == "mkdtemp"}
+    for root in fresh:
+        if os.path.normcase(os.path.dirname(root)) not in dirs:
+            raise RuntimeError("新建的树不在 mkdtemp 的 dir 下：%s" % root)
+        if os.path.exists(root):
+            shutil.rmtree(root, onexc=lambda func, item, _exc: (os.chmod(item, stat.S_IWRITE), func(item)))
+
+
 def _flow_roots(hub, workspace):
-    roots = [Path(hub.repo)]
-    if workspace is not None and Path(workspace).resolve() != roots[0].resolve():
+    roots = [Path(hub.repo)] if hub is not None else []  # ⑤f：hub 可以是 None（用不到它就交回的调用）
+    if workspace is not None and all(Path(workspace).resolve() != root.resolve() for root in roots):
         roots.append(Path(workspace))
     return roots
 
@@ -1715,22 +1821,23 @@ def op_hub_contract_flow(request):
         _restore_tree(item["from"], item["to"], item.get("links", []), with_git=bool(item.get("git")))
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
-    hub = kit_hub.Hub(Path(args[0]))
+    hub = kit_hub.Hub(Path(args[0])) if args[0] is not None else None
     ts = args[1]
-    rest = [Path(args[2])] if fn == "accept_gate_pre" else args[2:]
+    rest = [Path(item) if index in FLOW_PATH_ARGS.get(fn, ()) else item for index, item in enumerate(args[2:], start=2)]
     roots = [Path(root) for root in request["roots"]]
+    _remove_fresh(request.get("fresh") or [], request.get("inner") or [])
     before = _flow_listing(roots)
-    ledger = hub.ledger()
-    offset = ledger.stat().st_size if ledger.exists() else 0
+    ledger = hub.ledger() if hub is not None else None
+    offset = ledger.stat().st_size if ledger is not None and ledger.exists() else 0
     queue = list(request.get("inner") or [])
     replaced = list(request.get("replaced") or [])
     given_env = dict(FLOW_GIT_ENV, **(request.get("env") or {}))
     saved_env = {name: os.environ.get(name) for name in given_env}
-    saved = {name: getattr(kit_hub, name) for name in replaced + ["utc_now", "utc_compact"]}
+    saved = {name: getattr(_flow_target(name), name) for name in replaced + ["utc_now", "utc_compact"]}
     os.environ.update(given_env)
     kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(request["pin"])
     for name in replaced:
-        setattr(kit_hub, name, _flow_injector(name, queue, roots))
+        setattr(_flow_target(name), name, _flow_injector(name, queue, roots))
     try:
         value = getattr(kit_hub, fn)(hub, ts, *rest)
         result = json.loads(_recorded_value(fn, value))
@@ -1738,11 +1845,11 @@ def op_hub_contract_flow(request):
             result = {"ok": False, "error": "INJECTION_LEFTOVER", "left": [entry["fn"] for entry in queue]}
     except _InjectionMismatch as exc:
         result = {"ok": False, "error": "INJECTION_MISMATCH", "detail": str(exc)}
-    except Exception as exc:  # noqa: BLE001  与当时的结果一样记类型（HubError 记文字与退出码）
+    except Exception as exc:  # noqa: BLE001  与当时的结果一样记类型与文字（HubError 另记退出码）
         result = json.loads(_recorded_error(exc))
     finally:
         for name, item in saved.items():
-            setattr(kit_hub, name, item)
+            setattr(_flow_target(name), name, item)
         for name, item in saved_env.items():
             if item is None:
                 os.environ.pop(name, None)
@@ -1802,10 +1909,14 @@ def op_hub_audit_samples(request):
         roots = []
         if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
             roots.append(Path(bound.arguments["hub"].repo))
-        for key in ("path", "workspace"):  # ⑤e2b：accept_gate_pre 的门禁草稿 worktree 叫 workspace
-            if bound.arguments.get(key) is None:
+        given = {key: bound.arguments.get(key) for key in ("path", "workspace", "run_dir")}  # ⑤e2b：门禁草稿 worktree 叫 workspace
+        ts = bound.arguments.get("ts")
+        if given["run_dir"] is None and isinstance(ts, dict) and isinstance(ts.get("exec"), dict) and ts["exec"].get("run_dir"):
+            given["run_dir"] = ts["exec"]["run_dir"]  # ⑤f：读 meta.json、scope.json、candidate.patch 的那个 attempt 目录
+        for key, value in given.items():
+            if value is None or (key == "run_dir" and not Path(value).is_dir()):
                 continue
-            roots.append(Path(bound.arguments[key]))
+            roots.append(Path(value))
             pointer = roots[-1] / ".git"
             if pointer.is_file():
                 roots.append(Path(pointer.read_text(encoding="utf-8").split(":", 1)[1].strip()).parent.parent.parent)
@@ -1843,19 +1954,19 @@ def op_hub_audit_samples(request):
             hub = bound.arguments["hub"]
             roots = _flow_roots(hub, bound.arguments.get("workspace"))
             entry["restores"] = json.dumps(call_snapshots(bound), ensure_ascii=False)
-            entry["roots"] = [str(root) for root in roots]
+            known = len(roots)
             entry["pin"] = time.time_ns() // 1000
-            entry["replaced"] = [item for item in FLOW_INNER if getattr(kit_hub, item) is not installed[item]]
+            entry["replaced"] = [item for item in FLOW_INNER if getattr(kit_hub, item) is not installed[item]] + list(FLOW_ALWAYS.get(name, ()))
             inner, busy = [], [False]
             before = _flow_listing(roots)
-            ledger = hub.ledger()
-            offset = ledger.stat().st_size if ledger.exists() else 0
-            saved = {item: getattr(kit_hub, item) for item in entry["replaced"] + ["utc_now", "utc_compact"]}
+            ledger = hub.ledger() if hub is not None else None
+            offset = ledger.stat().st_size if ledger is not None and ledger.exists() else 0
+            saved = {item: getattr(_flow_target(item), item) for item in entry["replaced"] + ["utc_now", "utc_compact"]}
             saved_env = {key: os.environ.get(key) for key in FLOW_GIT_ENV}
             os.environ.update(FLOW_GIT_ENV)
             kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(entry["pin"])
             for item in entry["replaced"]:
-                setattr(kit_hub, item, _flow_recorder(item, saved[item], roots, inner, busy))
+                setattr(_flow_target(item), item, _flow_recorder(item, saved[item], roots, inner, busy))
             depth[0] += 1
             raised = None
             try:
@@ -1867,12 +1978,14 @@ def op_hub_audit_samples(request):
             finally:
                 depth[0] -= 1
                 for item, original in saved.items():
-                    setattr(kit_hub, item, original)
+                    setattr(_flow_target(item), item, original)
                 for key, original in saved_env.items():
                     if original is None:
                         os.environ.pop(key, None)
                     else:
                         os.environ[key] = original
+            entry["roots"] = [str(root) for root in roots]
+            entry["fresh"] = [str(root) for root in roots[known:]]
             entry["inner"] = json.dumps(inner, ensure_ascii=False)
             entry["result"] = json.dumps(_flow_state(result, bound.arguments["ts"], roots, before, ledger, offset), ensure_ascii=False)
             if raised is not None:
@@ -1902,7 +2015,8 @@ def op_hub_audit_samples(request):
             finally:
                 depth[0] -= 1
             if entry is not None:
-                entry["result"] = _recorded_value(name, value)
+                shown = [value, plain(bound.arguments["ts"]["gate_post"].get("unmutated"))] if name == "unmutated_problems" else value
+                entry["result"] = _recorded_value(name, shown)
             return value
         return wrapper
 
@@ -2035,8 +2149,8 @@ def op_hub_audit_samples(request):
 def _shadow_one(fn):
     try:
         return {"ok": True, "value": to_tagged(fn())}
-    except Exception as exc:  # noqa: BLE001  只比类型
-        return {"ok": False, "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001  类型与文字（⑤f 起文字也比）
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
 
 
 def _shadow_text(b64):
@@ -2055,7 +2169,7 @@ def op_hub_shadow_task(request):
     try:
         ts = hub.load_state()["tasks"].get(request["task"])
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "items": [["load_state", {"ok": False, "error": type(exc).__name__}]]}
+        return {"ok": True, "items": [["load_state", {"ok": False, "error": type(exc).__name__, "message": str(exc)}]]}
     items = []
     if ts is not None:
         items += [["allowed_moves", _shadow_one(lambda: kit_hub.allowed_moves(ts))],
@@ -2074,12 +2188,12 @@ def op_hub_shadow_letter(request):
     try:
         text = _shadow_text(request["b64"])
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "items": [["read_text", {"ok": False, "error": type(exc).__name__}]]}
+        return {"ok": True, "items": [["read_text", {"ok": False, "error": type(exc).__name__, "message": str(exc)}]]}
     items = [["read_text", _shadow_one(lambda: text)]]
     try:
         meta, fields, lines = kit_hub.parse_letter(text)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "items": items + [["parse_letter", {"ok": False, "error": type(exc).__name__}]]}
+        return {"ok": True, "items": items + [["parse_letter", {"ok": False, "error": type(exc).__name__, "message": str(exc)}]]}
     items += [["parse_letter", _shadow_one(lambda: [meta, fields, lines])],
               ["render_letter", _shadow_one(lambda: kit_hub.render_letter(meta, fields))],
               ["reparse", _shadow_one(lambda: list(kit_hub.parse_letter(kit_hub.render_letter(meta, fields))))],
@@ -2096,7 +2210,7 @@ def op_hub_shadow_routine(request):
         text = _shadow_text(request["b64"])
         moves, reason = kit_hub.routine_moves([text])
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "items": [["routine_moves", {"ok": False, "error": type(exc).__name__}]]}
+        return {"ok": True, "items": [["routine_moves", {"ok": False, "error": type(exc).__name__, "message": str(exc)}]]}
     items = [["routine_moves", _shadow_one(lambda: [moves, reason])]]
     if not moves:
         return {"ok": True, "items": items}
@@ -2104,7 +2218,7 @@ def op_hub_shadow_routine(request):
         main = kit_hub.stage_of(kit_hub.parse_letter(text)[0].get("task-id", ""))[0]
         ts = hub.load_state()["tasks"].get(main or "")
     except Exception as exc:  # noqa: BLE001
-        return {"ok": True, "items": items + [["ts", {"ok": False, "error": type(exc).__name__}]]}
+        return {"ok": True, "items": items + [["ts", {"ok": False, "error": type(exc).__name__, "message": str(exc)}]]}
     if ts is not None:
         items += [["brief", _shadow_one(lambda move=move: kit_hub.render_routine_brief(hub, ts, move))] for move in moves]
     return {"ok": True, "items": items}
@@ -2116,7 +2230,7 @@ def op_hub_shadow_route(request):
         texts = [_shadow_text(b64) for b64 in request["b64s"]]
         return {"ok": True, "value": to_tagged(list(kit_hub.routine_moves(texts)))}
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": type(exc).__name__}
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
 
 OPS = {
     "plugins.call": op_plugins_call,
@@ -2129,6 +2243,9 @@ OPS = {
     "pyio.call": op_pyio_call,
     "pyurl.call": op_pyurl_call,
     "pyvalue.eq": op_pyvalue_eq,
+    "pyset.sorted": op_pyset_sorted,
+    "winerror.real": op_winerror_real,
+    "replace.real": op_replace_real,
     "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,
     "argv.ensure_safe": op_argv_ensure_safe,

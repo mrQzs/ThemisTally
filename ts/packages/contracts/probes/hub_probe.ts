@@ -1,6 +1,6 @@
 // hub.call（第 ⑤a 片）：按函数名调 @themis/hub 的纯函数，参数与结果照 python_probe.py 的 op_hub_call。
-// 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常只比类型。
-import { PyCrash, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
+// 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常交回类型与文字（⑤f 起文字也比）。
+import { PyCrash, pyGet, pyItem, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
 import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -10,12 +10,19 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
+import { PyWinError } from "@themis/base/pyos";
 import { jsonlLines } from "@themis/base/jsonl";
 import { cmpCodePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { withPinnedClock } from "@themis/base/clock";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { spawnSync } from "node:child_process";
 import { type ContractDeps, REAL_DEPS, acceptContract, acceptGatePre, bumpContractVersion, revalidateContract, setContractBase, syncExecutorLine } from "@themis/hub/accept";
+import {
+  type GatePostDeps, REAL_GATE_POST_DEPS, acceptGatePost, applyCandidate, attemptBase, candidateDefects, defectMatchProblems, defectMatches, ensureWorktree,
+  expectedMissedEverywhere, gateSpec, mutantTimeout, mutationProblems, runMutations, seedWhitebox, unchangedMismatches, unmutatedProblems,
+} from "@themis/hub/gatepost";
+import { normcase } from "@themis/base/pypath";
+import type { SuperviseOptions } from "@themis/base/supervise";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
   turnCostUsd,
@@ -121,20 +128,20 @@ export function hubCall(request: Record<string, unknown>, fromTagged: (tagged: n
     return value === undefined ? { ok: false, error: "UNKNOWN_FN" } : { ok: true, value: toTagged(value) };
   } catch (error) {
     if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
-    if (error instanceof PyCrash) return { ok: false, error: error.kind };
-    if (error instanceof PyReError) return { ok: false, error: "error" };
-    if (error instanceof PyValueError) return { ok: false, error: "ValueError" };
-    if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError" };
+    if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+    if (error instanceof PyReError) return { ok: false, error: "error", message: error.message };
+    if (error instanceof PyValueError) return { ok: false, error: "ValueError", message: error.message };
+    if (error instanceof PyOverflowError) return { ok: false, error: "OverflowError", message: error.message };
     return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
   }
 }
 
-/** 影子的一项：交回带标签的值，崩了只交回类型（与 python_probe.py 的 _shadow_one 一致）。 */
+/** 影子的一项：交回带标签的值，崩了交回类型与文字（与 python_probe.py 的 _shadow_one 一致）。 */
 function shadowOne(fn: () => PyValue, toTagged: (value: PyValue) => unknown): Result {
   try {
     return { ok: true, value: toTagged(fn()) };
   } catch (error) {
-    return { ok: false, error: crashKind(error) };
+    return { ok: false, error: crashKind(error), message: (error as Error).message };
   }
 }
 
@@ -164,7 +171,7 @@ export function hubShadowTask(request: Record<string, unknown>, toTagged: (value
   try {
     ts = (hub.loadState().tasks().get(String(request["task"])) as PyDict | undefined) ?? null;
   } catch (error) {
-    return { ok: true, items: [["load_state", { ok: false, error: crashKind(error) }]] };
+    return { ok: true, items: [["load_state", { ok: false, error: crashKind(error), message: (error as Error).message }]] };
   }
   const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
   const items: [string, Result][] = [];
@@ -187,7 +194,7 @@ export function hubShadowLetter(request: Record<string, unknown>, toTagged: (val
   try {
     text = shadowText(String(request["b64"]));
   } catch (error) {
-    return { ok: true, items: [["read_text", { ok: false, error: crashKind(error) }]] };
+    return { ok: true, items: [["read_text", { ok: false, error: crashKind(error), message: (error as Error).message }]] };
   }
   const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
   const items: [string, Result][] = [["read_text", one(() => text)]];
@@ -195,7 +202,7 @@ export function hubShadowLetter(request: Record<string, unknown>, toTagged: (val
   try {
     parsed = parseLetter(text);
   } catch (error) {
-    return { ok: true, items: [...items, ["parse_letter", { ok: false, error: crashKind(error) }]] };
+    return { ok: true, items: [...items, ["parse_letter", { ok: false, error: crashKind(error), message: (error as Error).message }]] };
   }
   const [meta, fields, lines] = parsed;
   const reparse = (): PyValue => {
@@ -219,7 +226,7 @@ export function hubShadowRoutine(request: Record<string, unknown>, toTagged: (va
     text = shadowText(String(request["b64"]));
     routed = routineMoves([text]);
   } catch (error) {
-    return { ok: true, items: [["routine_moves", { ok: false, error: crashKind(error) }]] };
+    return { ok: true, items: [["routine_moves", { ok: false, error: crashKind(error), message: (error as Error).message }]] };
   }
   const [moves, reason] = routed;
   const one = (fn: () => PyValue): Result => shadowOne(fn, toTagged);
@@ -230,7 +237,7 @@ export function hubShadowRoutine(request: Record<string, unknown>, toTagged: (va
     const main = stageOf(parseLetter(text)[0].get("task-id") ?? "")[0];
     ts = new Hub(repo).loadState().tasks().get(typeof main === "string" ? main : "") as PyDict | undefined;
   } catch (error) {
-    return { ok: true, items: [...items, ["ts", { ok: false, error: crashKind(error) }]] };
+    return { ok: true, items: [...items, ["ts", { ok: false, error: crashKind(error), message: (error as Error).message }]] };
   }
   const task = ts;
   if (task !== undefined) for (const move of moves) items.push(["brief", one(() => renderRoutineBrief(repo, task, move as PyDict))]);
@@ -243,7 +250,7 @@ export function hubShadowRoute(request: Record<string, unknown>, toTagged: (valu
     const [moves, reason] = routineMoves((request["b64s"] as string[]).map(shadowText));
     return { ok: true, value: toTagged([moves, reason]) };
   } catch (error) {
-    return { ok: false, error: crashKind(error) };
+    return { ok: false, error: crashKind(error), message: (error as Error).message };
   }
 }
 
@@ -501,6 +508,36 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "kernel_pytest":
         value = kernelPytest();
         break;
+      case "mutant_timeout": // ⑤f 的纯函数与只读文件的几个
+        value = mutantTimeout(a, b);
+        break;
+      case "expected_missed_everywhere":
+        value = expectedMissedEverywhere(a);
+        break;
+      case "defect_matches":
+        value = defectMatches(textOf(a), textOf(b));
+        break;
+      case "defect_match_problems":
+        value = defectMatchProblems(a as PyDict[], b as string[]);
+        break;
+      case "mutation_problems":
+        value = mutationProblems(a, b, args[2] as PyValue);
+        break;
+      case "unchanged_mismatches":
+        value = unchangedMismatches(dictOf(a), b);
+        break;
+      case "candidate_defects":
+        value = candidateDefects(a);
+        break;
+      case "gate_spec":
+        value = gateSpec(textOf(a), b);
+        break;
+      case "attempt_base":
+        value = attemptBase(dictOf(a), textOf(b));
+        break;
+      case "unmutated_problems": // 连同改过的 ts["gate_post"]["unmutated"]，同 python_probe.py
+        value = [unmutatedProblems(dictOf(a), b, args[2] as PyValue), pyGet(pyItem(a, "gate_post"), "unmutated")];
+        break;
       case "kernel_impl_tables": {
         const keys = (rows: ReadonlySet<string>): PyValue[] => [...rows].map((row) => JSON.parse(row) as string[]).sort(compareWords);
         value = new Map<string, PyValue>([
@@ -544,13 +581,15 @@ class InjectionMismatch extends Error {}
 function flowListing(roots: readonly string[]): Map<string, string> {
   const listing = new Map<string, string>();
   roots.forEach((root, index) => {
+    if (!existsSync(root)) return; // ⑤f：mkdtemp 建的 worktree 调用之前还不在
     const walk = (dir: string, rel: string[]): void => {
       for (const name of readdirSync(dir)) {
         const path = join(dir, name);
         const info = lstatSync(path);
         if (name === ".git" || info.isSymbolicLink()) continue;
         if (info.isDirectory()) walk(path, [...rel, name]);
-        else listing.set(`${index}/${[...rel, name].join("/")}`, createHash("sha256").update(readFileSync(path)).digest("hex"));
+        // 空文件不读：别的进程按字节区间锁着的锁文件读不出来（⑤f 的 add_worktree 等锁场景）
+        else listing.set(`${index}/${[...rel, name].join("/")}`, createHash("sha256").update(info.size ? readFileSync(path) : Buffer.alloc(0)).digest("hex"));
       }
     };
     walk(root, []);
@@ -586,9 +625,30 @@ function flowGit(roots: readonly string[]): Record<string, unknown> {
   return { trees, refs: run(["for-each-ref", "--format=%(refname) %(objectname)"], roots[0] as string) };
 }
 
-/** 内层调用要核对的参数：run_pd 比 argv 与 timeout（没给是 null），另外三个比仓库路径与调用那一刻的整份 ts。 */
+/** 传给 run_supervised 的环境变量与当场的 kernelPytestEnv() 整份比：相同记 true，不同只记对不上的名字（值不进记录）。 */
+function envCheck(env: readonly (readonly [string, string])[]): true | string[] {
+  const given = new Map(env);
+  const expected = kernelPytestEnv();
+  const names = [...new Set([...given.keys(), ...expected.keys()])].filter((name) => given.get(name) !== expected.get(name)).sort(cmpCodePoints);
+  return names.length ? names : true;
+}
+
+/**
+ * 内层调用要核对的参数：run_pd 比 argv 与 timeout（没给是 null）；⑤f 的 worktree_root 比仓库路径，mkdtemp 比 prefix 与 dir，
+ * run_supervised 比命令、目录、环境、输出去向、时限、grace 与中断处理；另外三个比仓库路径与调用那一刻的整份 ts。
+ */
 function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyValue) => unknown): Record<string, unknown> {
   if (name === "run_pd") return { fn: name, argv: (args[1] as string[]).map(String), timeout: args[2] ?? null };
+  if (name === "worktree_root") return { fn: name, repo: args[0] };
+  if (name === "mkdtemp") return { fn: name, prefix: args[0], dir: args[1] };
+  if (name === "run_supervised") {
+    const options = args[1] as SuperviseOptions;
+    return {
+      fn: name, argv: (args[0] as string[]).map(String), cwd: options.cwd, env: envCheck(options.env), stdout: [options.stdout.path, options.stdout.how],
+      stderr: options.stderr === "stdout" ? "stdout" : "other", timeout: options.timeout, grace: options.grace ?? 15, handle_signals: options.handleSignals ?? true,
+      on_spawn: options.onSpawn !== undefined,
+    };
+  }
   return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict) };
 }
 
@@ -599,6 +659,11 @@ function injector(name: string, queue: InnerEntry[], roots: readonly string[], f
     const expected = queue.shift();
     if (expected === undefined || Object.entries(got).some(([key, value]) => JSON.stringify(expected[key] ?? null) !== JSON.stringify(value))) {
       throw new InjectionMismatch(JSON.stringify({ got, expected: expected && Object.fromEntries(Object.keys(got).map((key) => [key, expected[key]])) }));
+    }
+    if (name === "mkdtemp") {
+      const made = fromTagged(expected["value"] as never) as string;
+      if (normcase(dirname(made)) !== normcase(String(args[1]))) throw new InjectionMismatch(`mkdtemp 记下的目录不在 dir 下：${made}`);
+      mkdirSync(made);
     }
     const files = expected["files"] as { write: Record<string, string>; delete: string[] };
     for (const [key, data] of Object.entries(files.write)) {
@@ -616,8 +681,23 @@ function injector(name: string, queue: InnerEntry[], roots: readonly string[], f
       throw new PyCrash(kind, message);
     }
     const value = fromTagged(expected["value"] as never);
+    if (name === "run_supervised") return superviseResult(value as PyDict) as never;
     return (name === "run_pd" ? [Number((value as PyValue[])[0]), (value as PyValue[])[1]] : value) as never;
   };
+}
+
+/** 记下的 run_supervised 结果（Python 的字典）换回 SuperviseResult：整数成 number。 */
+function superviseResult(value: PyDict): Record<string, unknown> {
+  return Object.fromEntries([...value].map(([key, item]) => [key, typeof item === "bigint" ? Number(item) : item]));
+}
+
+/** ⑤f：调用当时还不在的树（mkdtemp 建的 worktree），重放前先删掉；只删记下的 mkdtemp 的 dir 下的目录。 */
+function removeFresh(fresh: readonly string[], inner: readonly InnerEntry[]): void {
+  const dirs = new Set(inner.filter((entry) => entry.fn === "mkdtemp").map((entry) => normcase(String(entry["dir"]))));
+  for (const root of fresh) {
+    if (!dirs.has(normcase(dirname(root)))) throw new Error(`新建的树不在 mkdtemp 的 dir 下：${root}`);
+    if (existsSync(root)) rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** 第 ⑤e2b 片：python_probe.py 的 op_hub_contract_flow。 */
@@ -626,12 +706,13 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   if (typeof request["python"] === "string") setKernelPython(request["python"]);
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
-  const hub = new Hub(textOf(args[0]));
+  const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
   const ts = args[1] as PyDict;
   const roots = request["roots"] as string[];
+  removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
   const before = flowListing(roots);
-  const ledger = hub.ledger();
-  const offset = existsSync(ledger) ? statSync(ledger).size : 0;
+  const ledger = hub === null ? null : hub.ledger();
+  const offset = ledger !== null && existsSync(ledger) ? statSync(ledger).size : 0;
   const queue = [...((request["inner"] as InnerEntry[] | undefined) ?? [])];
   const replaced = new Set((request["replaced"] as string[] | undefined) ?? []);
   const inject = (name: string) => injector(name, queue, roots, fromTagged, toTagged);
@@ -640,6 +721,12 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     contractRequirements: replaced.has("contract_requirements") ? inject("contract_requirements") : REAL_DEPS.contractRequirements,
     budgetProblems: replaced.has("budget_problems") ? inject("budget_problems") : REAL_DEPS.budgetProblems,
     revalidateContract: replaced.has("revalidate_contract") ? inject("revalidate_contract") : REAL_DEPS.revalidateContract,
+  };
+  const gateDeps: GatePostDeps = {
+    runPd: deps.runPd,
+    worktreeRoot: replaced.has("worktree_root") ? inject("worktree_root") : REAL_GATE_POST_DEPS.worktreeRoot,
+    runSupervised: replaced.has("run_supervised") ? inject("run_supervised") : REAL_GATE_POST_DEPS.runSupervised,
+    mkdtemp: replaced.has("mkdtemp") ? inject("mkdtemp") : REAL_GATE_POST_DEPS.mkdtemp,
   };
   const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
   const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
@@ -660,6 +747,16 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
           return acceptGatePre(hub, ts, textOf(args[2]), deps);
         case "sync_executor_line":
           return syncExecutorLine(hub, ts);
+        case "apply_candidate": // ⑤f
+          return applyCandidate(hub, ts, gateDeps);
+        case "ensure_worktree":
+          return ensureWorktree(hub, ts, textOf(args[2]), args[3] as PyValue, gateDeps);
+        case "seed_whitebox":
+          return seedWhitebox(hub, ts, textOf(args[2]));
+        case "accept_gate_post":
+          return acceptGatePost(hub, ts, textOf(args[2]), args[3] as PyValue, gateDeps);
+        case "run_mutations":
+          return runMutations(hub, ts, textOf(args[2]), textOf(args[3]), args[4] as PyValue, gateDeps);
         default:
           throw new Error(`UNKNOWN_FN ${fn}`);
       }
@@ -673,7 +770,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
       else process.env[name] = before;
     }
   }
-  const tail = existsSync(ledger) ? readFileSync(ledger).subarray(offset) : Buffer.alloc(0);
+  const tail = ledger !== null && existsSync(ledger) ? readFileSync(ledger).subarray(offset) : Buffer.alloc(0);
   return { ok: true, value: { result, ts: toTagged(ts), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots) } };
 }
 
@@ -960,16 +1057,19 @@ const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
 /** OSError(errno, ...) 在 Python 里按 errno 成了哪个子类。 */
 const OS_ERRORS: Readonly<Record<number, string>> = { 2: "FileNotFoundError", 13: "PermissionError", 17: "FileExistsError", 20: "NotADirectoryError", 21: "IsADirectoryError" };
 
+/** ⑤f 起报错文字也比（str(exc)）：report_step_error 把它写进账本与给站主的信。Node 自己抛的错没有照 Python 的文字，露出原文，契约对不上时就知道漏了 pyOSErrorOf。 */
 function errorResult(error: unknown): Result {
   if (error instanceof HubError) return { ok: false, error: "HubError", message: error.message, code: error.code };
   if (error instanceof DispatchError) return { ok: false, error: "DispatchError", message: error.message, code: error.code };
-  if ((error as Error | null)?.name === "UnicodeDecodeError") return { ok: false, error: "UnicodeDecodeError" }; // base 的 fsutil 与 pyio 各有一个
-  if (error instanceof PyCrash) return { ok: false, error: error.kind };
-  if (error instanceof PyJsonError) return { ok: false, error: error.kind };
-  if (error instanceof PyOSError) return { ok: false, error: OS_ERRORS[error.errno] ?? "OSError" }; // Python 按 errno 选的子类
+  if ((error as Error | null)?.name === "UnicodeDecodeError") return { ok: false, error: "UnicodeDecodeError", message: (error as Error).message }; // base 的 fsutil 与 pyio 各有一个
+  if (error instanceof PyCrash) return { ok: false, error: error.kind, message: error.message };
+  if (error instanceof PyJsonError) return { ok: false, error: error.kind, message: error.message };
+  if (error instanceof PyOSError) return { ok: false, error: OS_ERRORS[error.errno] ?? "OSError", message: error.message }; // Python 按 errno 选的子类
+  if (error instanceof PyWinError) return { ok: false, error: error.name, message: error.message }; // Windows 错误码照 CPython 归的子类
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "ENOENT") return { ok: false, error: "FileNotFoundError" };
-  if (code === "EEXIST") return { ok: false, error: "FileExistsError" };
-  if (code === "EPERM" || code === "EACCES" || code === "EBUSY") return { ok: false, error: "PermissionError" };
+  const raw = `JS:${(error as Error).message}`;
+  if (code === "ENOENT") return { ok: false, error: "FileNotFoundError", message: raw };
+  if (code === "EEXIST") return { ok: false, error: "FileExistsError", message: raw };
+  if (code === "EPERM" || code === "EACCES" || code === "EBUSY") return { ok: false, error: "PermissionError", message: raw };
   return { ok: false, error: `JS:${(error as Error).name}:${(error as Error).message}` };
 }

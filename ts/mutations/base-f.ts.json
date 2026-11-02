@@ -1,0 +1,46 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pybase-config.compare.test.ts",
+    "packages/contracts/test/attempt-commands.contract.test.ts",
+    "packages/contracts/test/hub-state.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q01 列表按元素比时用严格的 ==",
+      "file": "ts/packages/base/src/pyset.ts",
+      "old": "if (!pyEq([a[index] as PyValue], [b[index] as PyValue])) return",
+      "new": "if (!pyEq(a[index] as PyValue, b[index] as PyValue)) return"
+    },
+    {
+      "name": "Q02 列表先比长度",
+      "file": "ts/packages/base/src/pyset.ts",
+      "old": "  if (Array.isArray(a) && Array.isArray(b)) {",
+      "new": "  if (Array.isArray(a) && Array.isArray(b)) {\n    if (a.length !== b.length) return a.length < b.length;"
+    },
+    {
+      "name": "Q03 replaceError 把 EBUSY 当成 5",
+      "file": "ts/packages/base/src/fsutil.ts",
+      "old": "code === \"EBUSY\" ? 32 :",
+      "new": "code === \"EBUSY\" ? 5 :"
+    },
+    {
+      "name": "Q04 pyWinErrorMessage 不带文件名",
+      "file": "ts/packages/base/src/supervise.ts",
+      "old": ": `[WinError ${winerror}] ${strerror}: ${pyRepr(filename)}`;",
+      "new": ": `[WinError ${winerror}] ${strerror}`;"
+    },
+    {
+      "name": "Q05 relative_to 的报错不用 repr",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "`${pyRepr(purePathStr(value))} is not in the subpath of ${pyRepr(purePathStr(repo))}`",
+      "new": "`'${value}' is not in the subpath of '${repo}'`"
+    }
+  ]
+}

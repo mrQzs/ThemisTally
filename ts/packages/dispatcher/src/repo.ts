@@ -2,10 +2,11 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { PyCrash, pyRepr } from "@themis/base/pyfmt";
+import { PyCrash } from "@themis/base/pyfmt";
 import { type PyValue, PyJsonError, loads } from "@themis/base/pyjson";
 import { normCase, pyResolve } from "@themis/base/pypath";
 import { pyStrip } from "@themis/base/pyre";
+import { pyWinErrorMessage } from "@themis/base/supervise";
 
 export const EXIT_OK = 0;
 export const EXIT_FAIL = 1;
@@ -63,7 +64,7 @@ export function git(args: readonly string[], cwd: string, options: GitOptions = 
   if (result.error) {
     if ((result.error as NodeJS.ErrnoException).code === "ENOENT") {
       // Windows 上 cwd 不存在时 Python 抛的是 NotADirectoryError（WinError 267，命令崩溃），不是“找不到 git”
-      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: ${pyRepr(cwd)}`);
+      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", pyWinErrorMessage(267)); // CreateProcess 失败，不带路径
       throw new DispatchError("未找到 git，请先安装 Git。");
     }
     throw result.error;

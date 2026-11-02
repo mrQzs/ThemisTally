@@ -305,4 +305,83 @@ COVERED 2、PARTIAL 24：调到这三个函数的 24 条都是门禁、合同与
 
 COVERED 9、PARTIAL 14。hub-contract-flow 另有手写的对照：真调度器上的门禁基准测试（走通：收集、提交、挂引用、改 base_sha、derive-json、validate、baseline；收集失败）与 KERNEL_PYTEST 不在 worktree 里留缓存（PYTHONDONTWRITEBYTECODE 先设成 0）；accept_gate_pre、revalidate、accept_contract、bump、set_contract_base、sync 样本没走到的分支（假的 run_pd 照手写的记录注入）；注入核对的三种报错。调度器自己写的证据（baseline/NN/ 下）比路径清单，checks.json 里钉不住的字段打占位后逐字比，日志不比内容。变异 ts/mutations/hub-e2b.ts.json 49 条全部抓住：第一轮 47 条抓住 44 条，漏掉的 A01（缺“只有空白”的用例）、G09（用例里 baseline 的输出都不到 20 行）补了用例；G12 起初当成等价，themistally-15 复核时指出用例换上的假 revalidate 不碰合同哈希，补了 baseline 那次改合同 JSON 的场景；复核后另加 S02（base_sha 的行尾空白不跨行）与 W01（合同照 Node 的写法写，孤立代理项悄悄换成 U+FFFD）；改完整份重跑。
 
-其余场景随各片补（⑤f 到 ⑤j）。
+## ⑤f 战后门禁与变异
+
+做法（⑤f 设计稿第 3、10 节，themistally-15 定的）：
+- 改状态的五个函数（apply_candidate、ensure_worktree、seed_whitebox、accept_gate_post、run_mutations）照 ⑤e2b 的 flow_recorder 记、照调用当时重放。
+- 注入名单：
+  - 用例当时换掉的 run_pd、worktree_root 照记录注入。
+  - 用例没换的两样也录下来注入：白盒测试那一次 pd.run_supervised（只在 accept_gate_post 里），建 worktree 的 tempfile.mkdtemp。
+  - run_supervised 核对命令、目录、环境变量（两边各自与当场的 kernel_pytest_env() 整份比，值不进记录）、输出去向、时限、grace 与中断处理。
+- mkdtemp 建出的目录是新的一棵树，重放前先删。
+- 其余十个函数照 ⑤e2a 记：读文件的三个（attempt_base、unmutated_problems、gate_spec）带调用当时的快照。
+- 从 ⑤f 起，探针对所有异常都交回 str(exc)，报错文字也逐字比；hub.call 与影子同样。
+
+契约：
+- hub-gatepost：样本是 41 条用例。
+  - 改状态的五个函数 48 次：apply_candidate 1、ensure_worktree 16、seed_whitebox 4、accept_gate_post 25、run_mutations 2。
+  - 注入 run_supervised 25、run_pd 24、mkdtemp 13、worktree_root 13，新建的树 13 次。
+  - 其余 107 次：attempt_base 74、mutation_problems 14、defect_matches 8、mutant_timeout 4、unmutated_problems 3、expected_missed_everywhere 3、candidate_defects 1。
+  - 三边重放与当时的结果逐字相同。
+- hub-gatepost-scenes：16 组手写场景。
+  - accept_gate_post 先挡下的几种与白盒测试的各种结果。
+  - run_mutations 的时限、清单、锚点、记录、unmutated。
+  - 纯函数的手写边界。
+  - 按种子随机换类型的 1120 次调用。
+  - 真 git 的 ensure_worktree、apply_candidate、seed_whitebox。
+  - add_worktree 真失败三次（GIT_TRACE 数到 worktree add 正好 3 行）。
+  - 真跑白盒 pytest、真跑 mutate（钉不住的照设计稿第 11.2 节打占位）。
+- hub-gatepost-lock：别的进程拿着 .git-worktrees.lock 约 70 秒，三边都等满 60 秒、超时一次、再试时拿到锁建成。
+- 另外几份契约：
+  - pybase-config：sorted 的对照；Windows 错误文字的对照（WinError 2、183）；os.replace 的文字对照（WinError 32、5）。
+  - attempt-commands、repo-commands：调度器三处 WinError 267 带文字比。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | PARTIAL | ensure_worktree 2 次（照调用当时重放）；accept_gate_pre 在 ⑤e2b，Engine 归 ⑤i |
+| `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | ensure_worktree 2 次；经 Engine 的返工归 ⑤i |
+| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | COVERED | hub-gatepost：ensure_worktree 1 次；accept_gate_pre 在 ⑤e2b |
+| `test_gate_pre_baseline_must_fail_on_assertions` | 491 | COVERED | hub-gatepost：ensure_worktree 1 次；accept_gate_pre 在 ⑤e2b |
+| `test_mutation_verdict_reads_the_record_not_the_exit_code` | 681 | COVERED | hub-gatepost：mutation_problems 11 次；hub-gatepost-scenes 另有手写的记录与随机换类型 |
+| `test_multi_command_mutation_verdict_splits_by_command_and_names_the_idle_one` | 707 | COVERED | hub-gatepost：mutation_problems 3 次；手写场景另有按命令拆开、一条都没抓住的命令 |
+| `test_expect_missed_on_every_command_is_an_undeclared_equivalence` | 726 | COVERED | hub-gatepost：expected_missed_everywhere 3 次、run_mutations 1 次（hub 是 None）；ROLE_EXTRA_OUTPUT 的文字在 ⑤a |
+| `test_gate_post_judges_mutations_from_the_record` | 740 | COVERED | hub-gatepost：accept_gate_post 5 次、ensure_worktree 1 次；turn_prompt 在 ⑤d1 |
+| `test_gate_post_checks_the_anchors_before_mutating` | 795 | COVERED | hub-gatepost：accept_gate_post 2 次、ensure_worktree 1 次（用例当时的调度器照记录注入）；手写场景另有锚点核对没过的几种 |
+| `test_gate_post_reads_the_spec_file_and_names_entries_left_unchanged` | 837 | COVERED | hub-gatepost：accept_gate_post 8 次、ensure_worktree 1 次；手写场景另有 gate_spec 的各个分支 |
+| `test_pytest_outcomes_reads_the_summary_not_the_captured_output` | 924 | COVERED | hub-gatepost：defect_matches 8 次；pytest_outcomes 在 ⑤e1a |
+| `test_gate_post_may_leave_the_candidate_red_with_evidence` | 938 | COVERED | hub-gatepost：accept_gate_post 10 次、ensure_worktree 1 次 |
+| `test_mutant_timeout_follows_the_whitebox_time` | 1497 | COVERED | hub-gatepost：mutant_timeout 4 次；手写场景另有 11.8、12.0、20.0 秒与整份的时限 |
+| `test_mutations_must_cover_the_changed_files` | 1531 | COVERED | hub-gatepost：run_mutations 1 次、unmutated_problems 3 次 |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | ensure_worktree 3 次；热修补的重交归 ⑤g |
+| `test_finalize_lands_the_oracle_commit_first_and_can_be_retried` | 2684 | PARTIAL | attempt_base 5 次；finalize 归 ⑤h |
+| `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | PARTIAL | attempt_base 3 次；run_exec 归 ⑤g |
+| `test_exec_rework_reports_when_the_rework_base_cannot_be_built` | 2826 | PARTIAL | attempt_base 3 次；run_exec 归 ⑤g |
+| `test_post_gate_worktree_starts_from_the_attempt_base` | 3004 | COVERED | hub-gatepost：apply_candidate 1 次、attempt_base 1 次；手写场景另有打补丁、已打过、meta.json 坏了 |
+| `test_finalize_lands_the_rework_chain_before_integrating` | 3024 | PARTIAL | attempt_base 6 次；finalize 归 ⑤h |
+| `test_failed_integrate_takes_the_landed_commits_back_off_the_branch` | 3132 | PARTIAL | attempt_base 3 次；撤销落地归 ⑤h |
+| `test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too` | 3157 | PARTIAL | attempt_base 2 次；撤销落地归 ⑤h |
+| `test_failed_integrate_names_the_meanwhile_commits_only_when_the_candidate_had_passed` | 3169 | PARTIAL | attempt_base 3 次；撤销落地归 ⑤h |
+| `test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it` | 3181 | PARTIAL | attempt_base 4 次；落地归 ⑤h |
+| `test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again` | 3210 | PARTIAL | attempt_base 3 次；finalize 归 ⑤h |
+| `test_owner_takeover_closes_the_task` | 3230 | PARTIAL | ensure_worktree 1 次；站主接手的命令归 ⑤j |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | ensure_worktree 2 次；retire_attempts 归 ⑤h，Engine 归 ⑤i |
+| `test_the_review_record_names_the_model_of_the_final_audit_turn` | 3569 | PARTIAL | attempt_base 1 次；复审记录归 ⑤h |
+| `test_a_kernel_revise_without_an_audit_says_so` | 3583 | PARTIAL | attempt_base 1 次；复审记录归 ⑤h |
+| `test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks` | 4221 | PARTIAL | attempt_base 13 次；落地预演归 ⑤h |
+| `test_landing_skips_an_empty_rework_commit` | 4274 | PARTIAL | attempt_base 4 次；落地归 ⑤h |
+| `test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain` | 4293 | PARTIAL | attempt_base 4 次；落地归 ⑤h |
+| `test_landing_rehearsal_reports_commits_that_no_longer_apply` | 4324 | PARTIAL | attempt_base 4 次；落地预演归 ⑤h |
+| `test_owner_commits_get_a_gate_sweep_and_rehearsals` | 4472 | PARTIAL | attempt_base 2 次；owner sweep 归 ⑤h |
+| `test_new_attempt_gate_post_starts_from_the_previous_whitebox` | 5295 | COVERED | hub-gatepost：seed_whitebox 4 次；手写场景另有大小写不同的存档名、目标已在、已经放过、没有存档 |
+| `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | PARTIAL | attempt_base 2 次；run_exec 归 ⑤g |
+| `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | PARTIAL | attempt_base 2 次；run_exec 归 ⑤g |
+| `test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base` | 5585 | PARTIAL | attempt_base 2 次；run_exec 归 ⑤g |
+| `test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline` | 5675 | PARTIAL | attempt_base 4 次；run_exec 归 ⑤g |
+| `test_a_cut_off_attempt_is_continued_instead_of_restarted` | 6101 | PARTIAL | attempt_base 2 次；run_exec 归 ⑤g |
+| `test_a_gate_turn_hands_in_through_deliver` | 7366 | COVERED | hub-gatepost：candidate_defects 1 次；schema_errors 在 ⑤a，交差在 ⑤d2 |
+
+COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一步，主体分别归 ⑤g、⑤h、⑤i、⑤j。
+
+变异：ts/mutations/hub-f.ts.json 60 条，第一轮抓住 59 条；漏掉的 P57（没列的红用例只列前 10 条）补了 12 条都没列的场景之后，单独重跑抓住。ts/mutations/base-f.ts.json 5 条（pyset 的列表比较、replaceError、pyWinErrorMessage、relative_to 的文字）全部抓住。
+
+其余场景随各片补（⑤g 到 ⑤j）。

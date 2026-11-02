@@ -19,8 +19,8 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { type OpenHow, type WinProcessApi, Win32Error, nativeHelperCommand, winProcessApi } from "./native.ts";
-import { PyCrash } from "./pyfmt.ts";
+import { type OpenHow, type WinProcessApi, Win32Error, nativeHelperCommand, win32ErrorMessage, winProcessApi } from "./native.ts";
+import { PyCrash, pyRepr } from "./pyfmt.ts";
 
 /** 标准输出、标准错误写到哪个文件、怎么开（"create-new" 同 Python 的 "xb"）。 */
 export interface OutputTarget {
@@ -161,6 +161,15 @@ export function windowsOSError(winerror: number, message: string): { name: strin
   let end = message.length;
   while (end > 0 && ((message.codePointAt(end - 1) as number) <= 0x20 || message[end - 1] === ".")) end -= 1;
   return { name, strerror: message.slice(0, end) };
+}
+
+/**
+ * str(OSError) 的 "[WinError N] <系统的文字>"（只在 Windows 上调用）：文字取 FormatMessageW、照 windowsOSError 去掉末尾的空白与句点，跟着
+ * 系统界面的语言；带文件名时接 ": " 与 repr（scandir、listdir 一类带，CreateProcess 的 cwd 不在时不带）。
+ */
+export function pyWinErrorMessage(winerror: number, filename?: string): string {
+  const { strerror } = windowsOSError(winerror, win32ErrorMessage(winerror));
+  return filename === undefined ? `[WinError ${winerror}] ${strerror}` : `[WinError ${winerror}] ${strerror}: ${pyRepr(filename)}`;
 }
 
 /** CPython 给 Windows 错误码构造的 OSError 的 "类名: 文字"（PyErr_SetExcFromWindowsErr）。 */

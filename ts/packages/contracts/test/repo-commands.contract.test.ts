@@ -6,7 +6,7 @@
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { CONTEXT, LF, RUNNERS, type Runner, type Shown, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { CONTEXT, LF, RUNNERS, type Runner, type Shown, crashText, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -23,6 +23,8 @@ interface Scenario {
   readonly snapshot: string;
   readonly status: number;
   readonly crash?: boolean;
+  /** 崩溃时连“类型: 文字”也比（crashText）。 */
+  readonly crashText?: boolean;
   readonly text?: string;
   readonly empty?: boolean;
   /** 输出里不许出现的片段（release-check 的假 key 在前缀之后的每一段）。 */
@@ -35,7 +37,10 @@ function run(scenario: Scenario): void {
     const extra = scenario.build(repo, runner);
     const paths = { "<REPO>": repo, ...extra };
     const result = runCommand(runner, repo, scenario.argv(repo, extra), scenario.args(repo, extra));
-    return { ...shownOf(result, paths, scenario.crash), after: scenario.crash ? {} : snapshotDir(join(repo, scenario.snapshot), paths) };
+    return {
+      ...shownOf(result, paths, scenario.crash), after: scenario.crash ? {} : snapshotDir(join(repo, scenario.snapshot), paths),
+      ...(scenario.crashText ? { crashText: crashText(result, paths) } : {}),
+    };
   });
   for (const result of results.slice(1)) expect(result).toEqual(results[0]);
   expect((results[0] as Shown).status, JSON.stringify(results[0]).slice(0, 2000)).toBe(scenario.status);
@@ -288,7 +293,7 @@ const SCENARIOS: Scenario[] = [
     skillSources(repo, ["plan-task"]);
     put(repo, ".claude/skills/plan-task", "file");
     return {};
-  }, false, 1, { crash: true }),
+  }, false, 1, { crash: true, crashText: true }), // shutil.rmtree 碰到文件：NotADirectoryError，带路径
 ];
 
 describe("metrics、release-check、sync-adapters", () => {

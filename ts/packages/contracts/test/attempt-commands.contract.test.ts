@@ -4,13 +4,13 @@
 // 目录在却没登记的、已经不在的，以及保留下来的验收副本。不写转义序列。
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { BREAK_OUTER, PYTHON } from "./attempt-fixtures.ts";
 import { BUN } from "./harness.ts";
 import { jsonOf } from "./plan-fixtures.ts";
-import { LF, RUNNERS, type Runner, type Shown, commandOf, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
+import { LF, RUNNERS, type Runner, type Shown, commandOf, crashText, git, newRepo, put, removeCreated, runCommand, shownOf, snapshotDir, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -29,6 +29,8 @@ interface Scenario {
   readonly args: Record<string, unknown>;
   readonly status: number;
   readonly crash?: boolean;
+  /** 崩溃时连“类型: 文字”也比（crashText）：以 starts 开头、以 ends 结尾；noPath 时文字里不带路径。 */
+  readonly crashText?: { readonly starts: string; readonly ends?: string; readonly noPath?: boolean };
   /** 崩溃之后照样比较证据目录（编码失败时留下的空文件也要一样）。 */
   readonly keepEvidence?: boolean;
   /** 输出里必须有的文字：证明走到了要测的分支，不是碰巧状态码对上。 */
@@ -174,6 +176,17 @@ const SCENARIOS: Scenario[] = [
     });
     return { "<WT>": gone, "<WS>": ws };
   }, 0),
+  { ...cleanup("登记的工作树目录被删了：git 在不在的 cwd 上起不来，照 Python 崩（NotADirectoryError，不带路径）", (repo, head, runner) => {
+    const wt = cleanAttempt(repo, head, `cl-deleted-${runner}`);
+    rmSync(wt, { recursive: true, force: true });
+    return { "<WT>": wt };
+  }, 1, false, true), crashText: { starts: "NotADirectoryError: [WinError 267] ", noPath: true } },
+  { ...cleanup("meta 里的 worktree 是个文件：listdir 照 Python 崩（NotADirectoryError，带路径）", (repo, head, runner) => {
+    const file = join(tempDir(`cl-file-${runner}`), "wt-file");
+    put(dirname(file), "wt-file", "x");
+    attempt(repo, { "meta.json": meta(head, file), "state.json": state("PASS"), "contract.json": jsonOf("t1", head) });
+    return { "<WT>": file };
+  }, 1, false, true), crashText: { starts: "NotADirectoryError: [WinError 267] ", ends: ": '<WT>'" } },
   cleanup("缺 meta.json", (repo, head) => {
     attempt(repo, { "state.json": state("PASS"), "contract.json": jsonOf("t1", head) });
     return {};
@@ -219,12 +232,17 @@ describe("mark、cleanup、wait", () => {
         const shown: Shown = shownOf(result, paths, scenario.crash);
         const evidence = scenario.crash && !scenario.keepEvidence ? {} : snapshotDir(join(repo, ".agent", "runs"), paths);
         const worktrees = scenario.crash ? "" : git(repo, "worktree", "list", "--porcelain").split(LF).filter((line) => line.startsWith("worktree ")).length;
-        return { ...shown, evidence, worktrees };
+        return { ...shown, evidence, worktrees, ...(scenario.crashText ? { crashText: crashText(result, paths) } : {}) };
       });
       for (const result of results.slice(1)) expect(result).toEqual(results[0]);
       expect((results[0] as Shown).status, JSON.stringify(results[0])).toBe(scenario.status);
       const text = scenario.text ?? TEXTS[scenario.label];
       if (text) expect(`${(results[0] as Shown).stdout}${(results[0] as Shown).stderr}`).toContain(text);
+      if (scenario.crashText) {
+        const shownText = (results[0] as { crashText: string }).crashText;
+        expect([shownText.startsWith(scenario.crashText.starts), shownText.endsWith(scenario.crashText.ends ?? ""), scenario.crashText.noPath ? !shownText.includes("'") : true],
+          shownText).toEqual([true, true, true]);
+      }
     });
   }
 });

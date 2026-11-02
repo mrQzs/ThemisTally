@@ -6,7 +6,7 @@
 //     当时换掉的 run_pd、contract_requirements、budget_problems、revalidate_contract 的每一次调用（参数、交回值、文件改动、调用之后
 //     的 ts），三边先原地放回快照、照记录注入再重放，每一次都要与当时的结果相同；
 //   - 只在比较这一步把 pytest 收集失败输出里的用时换成占位（第 6 节第 2 条），实现里不打。
-import { cpSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { CONTRACT_EXECUTOR_LINE } from "@themis/hub/constants";
@@ -14,6 +14,9 @@ import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, removeDir, runBatch, runProbe, runPythonCli, scratchDir } from "./harness.ts";
+import {
+  AT, BT, C, CR, LF, PIN, type Scene, agreeFlow, flow, pd, py, returned, scene, scrubResult, text, tsAfter, written,
+} from "./flow-fixtures.ts";
 import { git, newRepo, put, removeCreated, tempDir } from "./repo-fixtures.ts";
 
 const ROOT = scratchDir("contract-flow");
@@ -23,20 +26,6 @@ afterAll(() => {
 });
 
 const valueOf = (result: ProbeResult | undefined): PyValue => fromTagged(result?.["value"] as Tagged);
-/** pytest 的用时（行尾的“ in 0.12s”，满 60 秒时后面多一段“ (0:01:02)”）：只在比较这一步换成占位。 */
-const DURATION = new RegExp(" in [0-9]+[.][0-9]{2}s(?: [(][0-9]+:[0-9]{2}:[0-9]{2}[)])?$", "gm");
-function scrub(value: unknown): unknown {
-  if (typeof value === "string") return value.replace(DURATION, " in <DURATION>");
-  if (Array.isArray(value)) return value.map(scrub);
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item)]));
-  return value;
-}
-/** 只给交回值打用时的占位：ts、文件、账本、git 状态照样逐字比，用时漏进去时测试直接红（themistally-15 复核 ⑤e2b 时定）。 */
-function scrubResult(state: unknown): unknown {
-  if (state === null || typeof state !== "object" || !("result" in state)) return state;
-  const record = state as Record<string, unknown>;
-  return { ...record, result: scrub(record["result"]) };
-}
 
 // --- 一、pytest 的场景 -----------------------------------------------------------------------------------------
 
@@ -87,52 +76,7 @@ describe("第 ⑤e2b 片：pytest 的场景（样例只有 tests/test_kit_hub.py
 // 每个场景先在 run/ 下搭好（仓库与仓库外的门禁 worktree），带 .git 原样拷一份到 tpl/；三边各自先原地放回再跑，worktree 里的绝对路径
 // 就都还对。样本没走到的分支在这里：假的 run_pd 照手写的记录注入（参数逐次核对），门禁基准测试的走通与收集失败用真调度器。
 
-const C = (...codes: number[]): string => String.fromCodePoint(...codes);
-const LF = C(10);
-const CR = C(13);
-const BT = C(96);
-/** 2026-11-01T00:00:00Z 的 Unix 微秒数：手写场景都钉在这一刻。 */
-const PIN = Date.UTC(2026, 10, 1) * 1000;
-const AT = "2026-11-01T00:00:00Z";
 const GATE = "tests/test_gate_t001_baseline.py";
-
-let kernelPythonPath: string | null = null;
-function kernelPython(): string {
-  kernelPythonPath ??= (valueOf(runProbe(PYTHON, { op: "hub.contract", fn: "kernel_pytest", args: [] })) as string[])[0] as string;
-  return kernelPythonPath;
-}
-
-function py(value: unknown): PyValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "bigint") return value;
-  if (typeof value === "number") return Number.isInteger(value) ? BigInt(value) : value;
-  if (Array.isArray(value)) return value.map(py);
-  if (value instanceof Map) return value as PyDict;
-  return new Map(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, py(item)]));
-}
-
-interface Scene {
-  readonly repo: string;
-  readonly wt: string;
-  readonly head: string;
-  readonly restores: unknown[];
-  readonly roots: string[];
-}
-
-/** 一个场景：仓库提交了 files，prepare 在提交之后写别的（合同、worktree 里的文件）；搭在原处，再带 .git 原样拷一份当快照。 */
-function scene(files: Record<string, string>, prepare: (repo: string, wt: string, head: string) => void = () => undefined, worktree = true): Scene {
-  const { repo, head } = newRepo("flow-scene", files);
-  const wt = join(tempDir("flow-wt"), "wt");
-  if (worktree) git(repo, "worktree", "add", "-q", "--detach", wt, head);
-  prepare(repo, wt, head);
-  const tpl = tempDir("flow-tpl");
-  cpSync(repo, join(tpl, "repo"), { recursive: true });
-  const restores: unknown[] = [{ from: join(tpl, "repo"), to: repo, links: [], git: true }];
-  if (worktree) {
-    cpSync(wt, join(tpl, "wt"), { recursive: true });
-    restores.push({ from: join(tpl, "wt"), to: wt, links: [], git: true });
-  }
-  return { repo, wt, head, restores, roots: worktree ? [repo, wt] : [repo] };
-}
 
 /** 主任务状态：T001，合同键与版本照给的，门禁草稿 worktree 记在 workspaces 里。 */
 function taskState(sc: Scene, contract: Record<string, unknown>, extra: Record<string, unknown> = {}): PyDict {
@@ -142,21 +86,6 @@ function taskState(sc: Scene, contract: Record<string, unknown>, extra: Record<s
   for (const [key, value] of Object.entries(extra)) ts.set(key, py(value));
   return ts;
 }
-
-interface Extra {
-  readonly inner?: unknown[];
-  readonly replaced?: string[];
-  readonly env?: Record<string, string>;
-}
-const flow = (fn: string, sc: Scene, args: unknown[], extra: Extra = {}): ProbeRequest => ({
-  op: "hub.contract_flow", fn, args: [sc.repo, ...args].map((arg) => toTagged(py(arg))), restores: sc.restores, roots: sc.roots, pin: PIN,
-  replaced: extra.replaced ?? (extra.inner ? ["run_pd"] : []), inner: extra.inner ?? [], python: kernelPython(), env: extra.env ?? {},
-});
-/** 手写的一次 run_pd：argv、timeout（没给是 null）、交回值，调用期间写的文件（“树的序号/相对路径”: 文字）。 */
-const pd = (argv: string[], code: number, out: string, timeout: number | null = null, write: Record<string, string> = {}): unknown => ({
-  fn: "run_pd", argv, timeout, value: toTagged([BigInt(code), out]),
-  files: { write: Object.fromEntries(Object.entries(write).map(([key, text]) => [key, Buffer.from(text, "utf8").toString("base64")])), delete: [] },
-});
 
 /** 调度器自己写的证据（只用在真调度器的场景）：baseline/NN/ 下的文件比路径；checks.json 里钉不住的字段换成占位（只换值、不删键），日志不比内容。 */
 function evidence(state: Record<string, unknown>): Record<string, unknown> {
@@ -179,31 +108,6 @@ function evidence(state: Record<string, unknown>): Record<string, unknown> {
   }
   return { ...state, files: { ...files, write } };
 }
-
-/** 三边各跑一遍、逐个比（pytest 的用时换成占位；real 时调度器的证据照 evidence 比）；交回 Python 那边的结果（解开的 value）。 */
-function agreeFlow(requests: readonly ProbeRequest[], real = false): Record<string, unknown>[] {
-  const shown = (result: ProbeResult | undefined): unknown => {
-    const value = result?.["value"] as Record<string, unknown> | undefined;
-    // 注入核对出错时的 detail 两边各用自己的 JSON 写法，只比错误类型
-    const result_ = value?.["result"] as Record<string, unknown> | undefined;
-    const plain = value && result_ && "detail" in result_ ? { ...value, result: { ...result_, detail: "<DETAIL>" } } : value;
-    return scrubResult(plain && real ? evidence(plain) : (plain ?? result));
-  };
-  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests));
-  for (const [index, other] of others.entries()) {
-    const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(shown(python?.[at])) !== JSON.stringify(shown(other[at])));
-    const detail = bad.slice(0, 2).map((at) => ({ at, fn: requests[at]?.["fn"], python: shown(python?.[at]), other: shown(other[at]) }));
-    expect(JSON.stringify(detail).slice(0, 6000), `${IMPLS[index + 1]?.name} 与 Python 不同（共 ${bad.length} 处）`).toBe("[]");
-  }
-  return (python ?? []).map((result) => result["value"] as Record<string, unknown>);
-}
-const returned = (state: Record<string, unknown> | undefined): PyValue => {
-  const result = state?.["result"] as Record<string, unknown>;
-  return result["ok"] ? fromTagged(result["value"] as Tagged) : (result["error"] as string);
-};
-const tsAfter = (state: Record<string, unknown> | undefined): PyDict => fromTagged(state?.["ts"] as Tagged) as PyDict;
-const written = (state: Record<string, unknown> | undefined): Record<string, string> => (state?.["files"] as { write: Record<string, string> }).write;
-const text = (state: Record<string, unknown> | undefined, key: string): string => Buffer.from(written(state)[key] as string, "base64").toString("utf8");
 
 /** 一份过得了 derive-json、validate 与内核要求的合同 md（门禁基准测试在基线上应失败）。 */
 function contractMd(head: string, executor: string = CONTRACT_EXECUTOR_LINE): string {
@@ -239,7 +143,7 @@ describe("第 ⑤e2b 片：临时仓库上的手写对照", () => {
     });
     const [passed, failed] = agreeFlow([
       flow("accept_gate_pre", ok, [taskState(ok, V1), ok.wt], { env }), flow("accept_gate_pre", broken, [taskState(broken, V1), broken.wt], { env }),
-    ], true);
+    ], evidence);
     expect(returned(passed)).toEqual([]);
     const oracle = tsAfter(passed).get("oracle") as PyDict;
     expect([oracle.get("locked"), oracle.get("baseline_exit"), oracle.get("ref")]).toEqual([true, 0n, "refs/themis/oracle/t001-doc/v1"]);

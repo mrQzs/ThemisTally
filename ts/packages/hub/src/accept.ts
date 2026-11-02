@@ -10,7 +10,7 @@ import { readText, writeText } from "@themis/base/fsutil";
 import { PyCrash, pyGet, pyIntOf, pyItem, pyPercentD, pyReprValue, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { purePathName, purePathParent, purePathRelativePosix, purePathStr } from "@themis/base/pypath";
+import { purePathName, purePathParent, purePathStr } from "@themis/base/pypath";
 import { D, S, pyLstrip, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { runSupervised } from "@themis/base/supervise";
 import { CONTRACT_EXECUTOR_LINE } from "./constants.ts";
@@ -22,7 +22,7 @@ import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { nextContractVersion } from "./prompt.ts";
 import { kernelPytest, kernelPytestEnv, runPd } from "./runpd.ts";
-import { gateFile } from "./taskstate.ts";
+import { gateFile, relativeTo as relative } from "./taskstate.ts";
 
 const LF = String.fromCharCode(10);
 const TAB = String.fromCharCode(9);
@@ -163,13 +163,6 @@ export async function bumpContractVersion(hub: Hub, ts: PyDict): Promise<string[
   ]));
   await hub.appendEvent("contract.bumped", [["task", pyItem(ts, "task")], ["key", key]]);
   return [];
-}
-
-/** Path.relative_to(...).as_posix()：不在 root 下时与 Python 一样报 ValueError。 */
-function relative(path: string, root: string): string {
-  const rel = purePathRelativePosix(path, root);
-  if (rel === null) throw new PyCrash("ValueError", `'${path}' is not in the subpath of '${root}'`);
-  return rel;
 }
 
 export async function setContractBase(hub: Hub, ts: PyDict, sha: string, deps: ContractDeps = REAL_DEPS): Promise<string[]> {

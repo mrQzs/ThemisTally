@@ -2,6 +2,7 @@
 // 证据坏了（缺 meta.json、缺键、类型不对）时 Python 不接、命令崩溃，这里照样抛出（PyCrash 等），入口按崩溃处理。
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { pyWinErrorMessage } from "@themis/base/supervise";
 import { sleepSync } from "@themis/base/fsutil";
 import { PyCrash, type PyOut, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyReadText } from "@themis/base/pyio";
@@ -187,7 +188,7 @@ function lostContent(repo: Repo, runDir: string, meta: PyValue, workDir: string)
 
 /** any(path.iterdir())：不是目录时 Python 抛 NotADirectoryError。 */
 function hasEntries(dir: string): boolean {
-  if (!isDir(dir)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: '${dir}'`);
+  if (!isDir(dir)) throw new PyCrash("NotADirectoryError", pyWinErrorMessage(267, dir)); // listdir 带文件名
   return readdirSync(dir).length > 0;
 }
 

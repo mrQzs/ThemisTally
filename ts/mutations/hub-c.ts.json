@@ -199,13 +199,13 @@
     },
     {
       "name": "C32 1.0 与 1 不是集合里的同一个",
-      "file": "ts/packages/hub/src/audit.ts",
+      "file": "ts/packages/base/src/pyset.ts",
       "old": "  if (Number.isInteger(value)) return `I${BigInt(value)}`;",
       "new": "  if (false) return `I${BigInt(value)}`;"
     },
     {
       "name": "C33 降序的头一段不翻过来",
-      "file": "ts/packages/hub/src/audit.ts",
+      "file": "ts/packages/base/src/pyset.ts",
       "old": "    items.splice(0, run, ...items.slice(0, run).reverse());\n",
       "new": ""
     },

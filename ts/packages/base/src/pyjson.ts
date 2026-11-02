@@ -429,18 +429,25 @@ function parseNumber<V>(text: string, index: number, builder: JsonBuilder<V>): [
   return [builder.number(whole, fraction !== undefined || exponent !== undefined), index + whole.length];
 }
 
+/**
+ * 进一层对象或数组。嵌套极深时 Python 报 RecursionError：C 的 scanner 在进对象、进数组时各自检查，文字照它分开写（⑤f 起比文字）。
+ * 具体在第几层取决于解释器的递归上限，这里固定在 1000 层；两边报错层数不同的窗口（strict_json_loads 的错误码、深配置的报错文字）
+ * 记在迁移文档第 10 节，契约不比较。
+ */
+function enter(depth: number, kind: "object" | "array"): number {
+  if (depth >= 1000) throw new PyJsonError("RecursionError", `maximum recursion depth exceeded while decoding a JSON ${kind} from a unicode string`);
+  return depth + 1;
+}
+
 function scanValue<V>(text: string, index: number, depth: number, builder: JsonBuilder<V>): [V, number] {
-  // 嵌套极深时 Python 报 RecursionError；具体在第几层取决于解释器的递归上限，这里固定在 1000 层。两边报错层数不同的
-  // 窗口（strict_json_loads 的错误码、深配置的报错文字）记在迁移文档第 10 节，契约不比较
-  if (depth > 1000) throw new PyJsonError("RecursionError", "maximum recursion depth exceeded while decoding a JSON object");
   const char = text[index];
   if (char === undefined) throw decodeError(text, "Expecting value", index);
   if (char === '"') {
     const [value, end] = scanString(text, index + 1);
     return [builder.string(value), end];
   }
-  if (char === "{") return scanObject(text, index + 1, depth + 1, builder);
-  if (char === "[") return scanArray(text, index + 1, depth + 1, builder);
+  if (char === "{") return scanObject(text, index + 1, enter(depth, "object"), builder);
+  if (char === "[") return scanArray(text, index + 1, enter(depth, "array"), builder);
   if (char === "n" && text.startsWith("null", index)) return [builder.literal(null), index + 4];
   if (char === "t" && text.startsWith("true", index)) return [builder.literal(true), index + 4];
   if (char === "f" && text.startsWith("false", index)) return [builder.literal(false), index + 5];

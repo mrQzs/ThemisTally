@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { CASEFOLD, UNASSIGNED } from "@themis/base/pyunicode";
-import { type ProbeRequest, prng, removeDir, runAgreeing, scratchDir, seededBytes } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, prng, removeDir, runAgreeing, runProbe, scratchDir, seededBytes } from "./harness.ts";
 
 const C = (...cps: number[]): string => String.fromCodePoint(...cps);
 const agree = (requests: readonly ProbeRequest[]): void => {
@@ -182,6 +182,88 @@ describe("Python 的 ==", () => {
       requests.push(eq(a, b, next() < 0.5));
     }
     agree(requests);
+  });
+});
+
+describe("Python 的 sorted（第 ⑤f 片搬到 base 的 pySorted）", () => {
+  const sorted = (values: string): ProbeRequest => ({ op: "pyset.sorted", values });
+  it("指定的边界", () => {
+    agree([
+      '[[1, 2], [1], [0, 5], [1, 2, 0], []]',
+      '[[NaN, 1], [NaN, 0]]',
+      '[[true, "b"], [1, "a"], [1.0, "c"]]',
+      '[[1, "a"], [1, 2]]',
+      '[[{}], [{}]]',
+      '[[{"a": 1}], [{"a": 2}]]',
+      '[[], [[]], [[], 1], [[1]]]',
+      '[1, [1]]',
+      '[[1], "a"]',
+      '["b", "a", "B", "aa"]',
+      '[3, 1.5, true, false, 9007199254740993, 9007199254740992.0, -0.0, 0]',
+      '[NaN, 1, NaN, 0]',
+      '[null, null]',
+      '[null, 1]',
+    ].map(sorted));
+  });
+  it("随机的列表：混着数、字符串、嵌套的列表，偶尔有字典与 null", () => {
+    const atoms = ["0", "1", "-0.0", "1.0", "2", "true", "false", "NaN", "Infinity", '"a"', '"b"', '"1"', "9007199254740993", "9007199254740992.0", "[]"];
+    const next = prng(7);
+    const value = (depth: number): string => {
+      const roll = next();
+      if (roll < 0.02) return next() < 0.5 ? "{}" : "null";
+      if (depth > 1 || roll < 0.55) return atoms[Math.floor(next() * atoms.length)] as string;
+      return `[${Array.from({ length: Math.floor(next() * 4) }, () => value(depth + 1)).join(", ")}]`;
+    };
+    const requests: ProbeRequest[] = [];
+    for (let index = 0; index < 1500; index += 1) {
+      const lists = next() < 0.5;
+      const items = Array.from({ length: Math.floor(next() * 9) }, () => (lists ? `[${Array.from({ length: Math.floor(next() * 3) }, () => value(1)).join(", ")}]` : value(0)));
+      requests.push(sorted(`[${items.join(", ")}]`));
+    }
+    agree(requests);
+  });
+});
+
+describe("Windows 错误的文字（第 ⑤f 片：kernel.ts 找不到 git、turn.ts 回合目录已在）", () => {
+  it.runIf(process.platform === "win32")("Python 真触发的 str(exc) 与 pyWinErrorMessage 逐字相同：WinError 2 不带路径，WinError 183 带 repr 的路径", () => {
+    const dir = join(scratchDir("winerror"), "已经在的 目录");
+    mkdirSync(dir, { recursive: true });
+    try {
+      const exe = runProbe(PYTHON, { op: "winerror.real", kind: "exe", name: "themis-no-such-program-5f" });
+      const made = runProbe(PYTHON, { op: "winerror.real", kind: "mkdir", path: dir });
+      expect([exe["error"], made["error"]]).toEqual(["FileNotFoundError", "FileExistsError"]);
+      for (const impl of IMPLS.filter((item) => item !== PYTHON)) {
+        const texts = [runProbe(impl, { op: "winerror.text", code: 2 })["text"], runProbe(impl, { op: "winerror.text", code: 183, path: dir })["text"]];
+        expect(texts, impl.name).toEqual([exe["text"], made["text"]]);
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
+describe("os.replace 失败时的文字（第 ⑤f 片：fsutil 的 writeTextAtomic 最后一次失败时照它报）", () => {
+  it.runIf(process.platform === "win32")("Python 真触发的 WinError 32 与 5，与 TS 照 libuv 的错误码（EBUSY；EPERM、EACCES）造的文字逐字相同", () => {
+    const dir = scratchDir("replace");
+    try {
+      const src = join(dir, "state.json.0123456789ab.tmp");
+      const dst = join(dir, "state.json");
+      writeFileSync(src, "x");
+      writeFileSync(dst, "y");
+      mkdirSync(join(dir, "目录"));
+      const busy = runProbe(PYTHON, { op: "replace.real", kind: "busy", src, dst });
+      const denied = runProbe(PYTHON, { op: "replace.real", kind: "denied", src, dst: join(dir, "目录") });
+      expect([busy["winerror"], denied["winerror"]]).toEqual([32, 5]);
+      for (const impl of IMPLS.filter((item) => item !== PYTHON)) {
+        const shown = [["EBUSY", dst], ["EPERM", join(dir, "目录")], ["EACCES", join(dir, "目录")]].map(([code, target]) => {
+          const result = runProbe(impl, { op: "replace.error", code, src, dst: target });
+          return [result["error"], result["text"]];
+        });
+        expect(shown, impl.name).toEqual([[busy["error"], busy["text"]], [denied["error"], denied["text"]], [denied["error"], denied["text"]]]);
+      }
+    } finally {
+      removeDir(dir);
+    }
   });
 });
 

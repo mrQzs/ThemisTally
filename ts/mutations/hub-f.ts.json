@@ -1,0 +1,376 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-gatepost.contract.test.ts",
+    "packages/contracts/test/hub-gatepost-scenes.contract.test.ts",
+    "packages/contracts/test/hub-gatepost-lock.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "P01 attempt_base 不看 meta.json",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  return pyTruthy(base) ? base : pyItem(pyItem(ts, \"oracle\"), \"sha\");",
+      "new": "  return pyItem(pyItem(ts, \"oracle\"), \"sha\");"
+    },
+    {
+      "name": "P02 attempt_base 读不出 meta.json 时照样抛",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "    if (!isValueError(error)) throw error;\n    return pyItem(pyItem(ts, \"oracle\"), \"sha\");",
+      "new": "    throw error;"
+    },
+    {
+      "name": "P03 apply_candidate 不记 patched",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "    record.set(\"patched\", true);\n",
+      "new": ""
+    },
+    {
+      "name": "P04 apply_candidate 不打补丁",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "    if (existsSync(patch) && statSync(patch).size) git([\"apply\", \"--whitespace=nowarn\", patch], workspace);\n",
+      "new": ""
+    },
+    {
+      "name": "P05 apply_candidate 打过了也再打",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (!pyTruthy(pyGet(record, \"patched\"))) {",
+      "new": "  if (true) {"
+    },
+    {
+      "name": "P06 ensure_worktree 不比提交",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": " && pyEq(pyGet(recorded, \"commit\"), commit)) return existing;",
+      "new": ") return existing;"
+    },
+    {
+      "name": "P07 ensure_worktree 前缀取 15 个字",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": ".slice(0, 16).join(\"\")",
+      "new": ".slice(0, 15).join(\"\")"
+    },
+    {
+      "name": "P08 ensure_worktree 不记事件",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  await hub.appendEvent(\"workspace.created\", [[\"task\", task], [\"kind\", kind], [\"path\", path], [\"commit\", commit]]);\n",
+      "new": ""
+    },
+    {
+      "name": "P09 ensure_worktree 的 task 不转小写",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "-hub-${pyLower(task)}-${kind}-",
+      "new": "-hub-${task}-${kind}-"
+    },
+    {
+      "name": "P10 add_worktree 试 4 次",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "export const WORKTREE_ADD_TRIES = 3;",
+      "new": "export const WORKTREE_ADD_TRIES = 4;"
+    },
+    {
+      "name": "P11 add_worktree 等锁超时不转成 HubError",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "const error = caught instanceof FileLockTimeout ? new HubError(caught.message, EXIT_BLOCKED) : caught;",
+      "new": "const error = caught;"
+    },
+    {
+      "name": "P12 add_worktree 重试之前不等",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "setTimeout(done, attempt * 1000)",
+      "new": "setTimeout(done, 0)"
+    },
+    {
+      "name": "P13 seed_whitebox 按码点排序",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "globPaths(evidence, [\"whitebox-*.py\"]).sort(comparePaths);",
+      "new": "globPaths(evidence, [\"whitebox-*.py\"]).sort();"
+    },
+    {
+      "name": "P14 seed_whitebox 目标已在也放",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": " || existsSync(target)) return null;",
+      "new": ") return null;"
+    },
+    {
+      "name": "P15 seed_whitebox 放最早的一份",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "const latest = copies.at(-1);",
+      "new": "const latest = copies.at(0);"
+    },
+    {
+      "name": "P16 accept_gate_post 改了的文件不挡",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "status !== \"??\" || (path !== expected",
+      "new": "status === \"??\" && (path !== expected"
+    },
+    {
+      "name": "P17 accept_gate_post 清单文件不能新增",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "(path !== expected && path !== GATE_SPEC_FILE)",
+      "new": "path !== expected"
+    },
+    {
+      "name": "P18 accept_gate_post 列 9 个",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "bad.slice(0, 8).join(\", \")",
+      "new": "bad.slice(0, 9).join(\", \")"
+    },
+    {
+      "name": "P19 accept_gate_post 上一版锚点对不上的不留",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (pyTruthy(mismatch)) gatePost.set(\"anchor_mismatch\", mismatch);\n",
+      "new": ""
+    },
+    {
+      "name": "P20 accept_gate_post 白盒测试不存档",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  copyFileSync(purePathStr(workspace, expected), whiteboxCopy);\n",
+      "new": ""
+    },
+    {
+      "name": "P21 白盒时限 1799",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "timeout: 1800, grace: 15,",
+      "new": "timeout: 1799, grace: 15,"
+    },
+    {
+      "name": "P22 白盒 grace 0",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "grace: 15,\n    handleSignals: true,",
+      "new": "grace: 0,\n    handleSignals: true,"
+    },
+    {
+      "name": "P23 白盒标准错误另开一个文件",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "stderr: \"stdout\", timeout: 1800",
+      "new": "stderr: { path: `${whiteboxLog}.err`, how: \"create-new\" }, timeout: 1800"
+    },
+    {
+      "name": "P24 白盒日志尾巴取 16 行",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "tailFile(whiteboxLog, 15n)",
+      "new": "tailFile(whiteboxLog, 16n)"
+    },
+    {
+      "name": "P25 软结果的先后不同",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "export const SOFT_OUTCOMES = [\"xfailed\", \"xpassed\", \"skipped\"] as const;",
+      "new": "export const SOFT_OUTCOMES = [\"skipped\", \"xfailed\", \"xpassed\"] as const;"
+    },
+    {
+      "name": "P26 有出错的用例也算举证",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": " && failed.length && !errored.length && defects.length)",
+      "new": " && failed.length && defects.length)"
+    },
+    {
+      "name": "P27 举证对不上也记下缺陷",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "    if (!problems.length) gatePost.set(\"defects\", defects);",
+      "new": "    gatePost.set(\"defects\", defects);"
+    },
+    {
+      "name": "P28 超时不说",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "${result.timed_out ? \"（超时）\" : \"\"}",
+      "new": ""
+    },
+    {
+      "name": "P29 ok 不看缺陷",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "!problems.length && !pyTruthy(pyGet(gatePost, \"defects\"))",
+      "new": "!problems.length"
+    },
+    {
+      "name": "P30 变异时限是白盒用时的 4 倍",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "export const MUTANT_TIMEOUT_FACTOR = 5;",
+      "new": "export const MUTANT_TIMEOUT_FACTOR = 4;"
+    },
+    {
+      "name": "P31 变异时限不加 1",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "MUTANT_TIMEOUT_FACTOR) + 1n;",
+      "new": "MUTANT_TIMEOUT_FACTOR);"
+    },
+    {
+      "name": "P32 变异时限下限 59",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "export const MUTANT_TIMEOUT_MIN = 60n;",
+      "new": "export const MUTANT_TIMEOUT_MIN = 59n;"
+    },
+    {
+      "name": "P33 测试文件不认 tests/",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "(?:^|/)tests?/|",
+      "new": ""
+    },
+    {
+      "name": "P34 测试文件不认 .test.ts",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "|[.](?:test|spec)[.][cm]?[jt]sx?${PY_END}",
+      "new": ""
+    },
+    {
+      "name": "P35 删掉的文件也要变异",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": " && !pyEq(pyGet(item, \"status\"), \"D\")",
+      "new": ""
+    },
+    {
+      "name": "P36 unmutated 的理由不去空白",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "explained.set(pyGet(item, \"file\") as PyKey, pyStrip(pyStrValue(pyGet(item, \"reason\"))));",
+      "new": "explained.set(pyGet(item, \"file\") as PyKey, pyStrValue(pyGet(item, \"reason\")));"
+    },
+    {
+      "name": "P37 unmutated 不只记改动里的",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "pairs.filter(([file]) => typeof file === \"string\" && changed.includes(file))",
+      "new": "pairs"
+    },
+    {
+      "name": "P38 gate_spec 两样都给不挡",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (pyGet(output, \"mutation_spec\") !== null) return [null, \"mutation_spec 与 mutation_spec_file 只给一样（建议只给文件）\"];\n",
+      "new": ""
+    },
+    {
+      "name": "P39 gate_spec 的名字用 str 不用 repr",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "收到的是 ${pyReprValue(named)}",
+      "new": "收到的是 ${pyStrValue(named)}"
+    },
+    {
+      "name": "P40 gate_spec 不核是不是普通文件",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (isSymlink(path) || !isFile(path)) return [null, `mutation_spec_file 指的 ${GATE_SPEC_FILE} 不在工作目录根下，或者不是普通文件`];\n",
+      "new": ""
+    },
+    {
+      "name": "P41 in 字典之前不散列",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  hashKey(item);\n  return typeof item === \"string\" && container.has(item);",
+      "new": "  return typeof item === \"string\" && container.has(item);"
+    },
+    {
+      "name": "P42 unchanged_mismatches 不比 old",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": " && pyEq(dict(before).get(pyItem(item, \"name\") as string) as PyValue, pyGet(item, \"old\"))).map",
+      "new": ").map"
+    },
+    {
+      "name": "P43 整份时限不取 3600 的下限",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "const budget = pyLess(3600n, total) ? total : 3600n;",
+      "new": "const budget = total;"
+    },
+    {
+      "name": "P44 整份时限不乘命令数",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "BigInt(pyLenValue(or(pyGet(spec, \"commands\"), [null]))) * ",
+      "new": ""
+    },
+    {
+      "name": "P45 整份时限不算基线那一遍",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "pyLenValue(pyItem(spec, \"mutations\")) + 1)",
+      "new": "pyLenValue(pyItem(spec, \"mutations\")))"
+    },
+    {
+      "name": "P46 缺省的变异时限不是 600",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "or(pyGet(spec, \"timeout_seconds\"), MUTATION_DEFAULT_TIMEOUT)",
+      "new": "or(pyGet(spec, \"timeout_seconds\"), 60n)"
+    },
+    {
+      "name": "P47 锚点编号只认 ASCII 数字",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "M(${D}+)${S}",
+      "new": "M([0-9]+)${S}"
+    },
+    {
+      "name": "P48 锚点核对的结果只留最后一行",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "listing.slice(-40).join(LF)",
+      "new": "listing.slice(-1).join(LF)"
+    },
+    {
+      "name": "P49 一字没改的不点名",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  const note = unchanged.length",
+      "new": "  const note = false"
+    },
+    {
+      "name": "P50 锚点核对过了不清掉上一版的",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  gatePost.delete(\"anchor_mismatch\");\n",
+      "new": ""
+    },
+    {
+      "name": "P51 equivalent 记反了",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "mutations.filter((m) => pyTruthy(pyGet(m, \"equivalent\")))",
+      "new": "mutations.filter((m) => !pyTruthy(pyGet(m, \"equivalent\")))"
+    },
+    {
+      "name": "P52 unexpected 是字符串时只认整串",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (typeof container === \"string\") return container.includes(cid);",
+      "new": "  if (typeof container === \"string\") return container === cid;"
+    },
+    {
+      "name": "P53 一条命令也说“一条都没抓住”",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "ids.filter((cid) => multi && missedBy(cid).length",
+      "new": "ids.filter((cid) => missedBy(cid).length"
+    },
+    {
+      "name": "P54 broken 不先散列 status",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "    hashKey(status);\n",
+      "new": ""
+    },
+    {
+      "name": "P55 candidate_defects 不去空白",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "pyStrip(pyStrValue(or(pyGet(item, key), \"\")))",
+      "new": "pyStrValue(or(pyGet(item, key), \"\"))"
+    },
+    {
+      "name": "P56 defect_matches 后缀不要求 ::",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "nodeid.endsWith(`::${declared}`)",
+      "new": "nodeid.endsWith(declared)"
+    },
+    {
+      "name": "P57 没列的红用例列 11 条",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "undeclared.slice(0, 10)",
+      "new": "undeclared.slice(0, 11)"
+    },
+    {
+      "name": "P58 单条命令不叫 main",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "new PySet([\"main\"])",
+      "new": "new PySet([\"W1\"])"
+    },
+    {
+      "name": "P59 statuses 的 commands 不是字典也不报",
+      "file": "ts/packages/hub/src/gatepost.ts",
+      "old": "  if (!isDict(runs)) throw new PyCrash(\"AttributeError\", `'${pyTypeName(runs)}' object has no attribute 'items'`);\n",
+      "new": ""
+    },
+    {
+      "name": "P60 嵌套太深的数组也说是对象",
+      "file": "ts/packages/base/src/pyjson.ts",
+      "old": "scanArray(text, index + 1, enter(depth, \"array\"), builder)",
+      "new": "scanArray(text, index + 1, enter(depth, \"object\"), builder)"
+    }
+  ]
+}

@@ -6,10 +6,11 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PyCrash, pyRepr, pyReprValue } from "@themis/base/pyfmt";
+import { PyCrash, pyReprValue } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { pyResolve } from "@themis/base/pypath";
 import { pyStrip } from "@themis/base/pyre";
+import { pyWinErrorMessage } from "@themis/base/supervise";
 import { HubError } from "./errors.ts";
 
 /** kit_hub 的 HERE（scripts 目录）。这份源码在 ts/packages/hub/src 下，往上四层是仓库根。 */
@@ -43,8 +44,8 @@ export function git(args: readonly string[], cwd: string, check = true, timeout 
     if (code === "ETIMEDOUT") throw new PyCrash("TimeoutExpired", `Command '${pyReprValue(["git", ...args])}' timed out after ${timeout} seconds`); // str(TimeoutExpired)
     if (code === "ENOENT") {
       // Windows 上 cwd 不存在时 Python 抛的是 NotADirectoryError（WinError 267），不是“找不到 git”（照调度器的 repo.ts）
-      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", `[WinError 267] 目录名称无效。: ${pyRepr(cwd)}`);
-      throw new PyCrash("FileNotFoundError", "[WinError 2] 系统找不到指定的文件。");
+      if (process.platform === "win32" && !isDir(cwd)) throw new PyCrash("NotADirectoryError", pyWinErrorMessage(267)); // CreateProcess 失败，不带路径
+      throw new PyCrash("FileNotFoundError", pyWinErrorMessage(2)); // CreateProcess 找不到 git，不带路径
     }
     throw done.error;
   }

@@ -128,6 +128,18 @@ export interface Shown {
   readonly stderr: string;
 }
 
+/**
+ * 崩溃时的“类型: 文字”：Python 取堆栈的最后一行，TS 取“崩溃（Python 在这里会打印堆栈）：”后面那段，路径照 normalize 换成占位（⑤f 起，
+ * 文字会进线上输出的几处带它比）。
+ */
+export function crashText(result: CliRun, paths: Record<string, string>): string {
+  const stderr = result.stderr.toString("utf8");
+  const marker = "崩溃（Python 在这里会打印堆栈）：";
+  const at = stderr.lastIndexOf(marker);
+  const lines = (at >= 0 ? stderr.slice(at + marker.length) : stderr).split(LF).map((line) => line.trim()).filter(Boolean);
+  return normalize((at >= 0 ? lines[0] : lines.at(-1)) ?? "", paths);
+}
+
 /** 输出的比较口径；crash 时只比退出码（Python 打堆栈，TS 写一行“崩溃”）。 */
 export function shownOf(result: CliRun, paths: Record<string, string>, crash = false): Shown {
   if (crash) return { status: result.status, stdout: "", stderr: "" };

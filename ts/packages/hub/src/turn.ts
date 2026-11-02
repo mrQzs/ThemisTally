@@ -14,7 +14,7 @@ import { purePathName, purePathStr } from "@themis/base/pypath";
 import { pyLen } from "@themis/base/pyre";
 import { FLAG_IGNORECASE, compilePy } from "@themis/base/pyregex";
 import { pyWhich } from "@themis/base/pyshutil";
-import { runSupervised } from "@themis/base/supervise";
+import { pyWinErrorMessage, runSupervised } from "@themis/base/supervise";
 import { pyEq } from "@themis/base/pyvalue";
 import { resolvePiCommand } from "@themis/dispatcher/executor";
 import { writeJson } from "@themis/dispatcher/evidence";
@@ -105,7 +105,7 @@ export class TurnRunner {
     const tools = [...(spec.tools ?? []), claude ? STRUCTURED_TOOL : DELIVER_TOOL];
     const turnId = `${this.sources.compact()}-${this.sources.random2()}`;
     const turnDir = join(this.hub.root, "turns", agent, turnId);
-    if (existsSync(turnDir)) throw new PyCrash("FileExistsError", `[WinError 183] 当文件已存在时，无法创建该文件。: ${pyRepr(turnDir)}`);
+    if (existsSync(turnDir)) throw new PyCrash("FileExistsError", pyWinErrorMessage(183, turnDir)); // Path.mkdir 走 os.mkdir，带路径
     mkdirSync(turnDir, { recursive: true });
     const rolePath = join(turnDir, "role.md");
     writeFileSync(rolePath, rolePrompt);
