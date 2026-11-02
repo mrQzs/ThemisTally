@@ -13,7 +13,7 @@ import { CONTRACT_EXECUTOR_LINE } from "@themis/hub/constants";
 import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, removeDir, runBatch, runProbe, runPythonCli, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, runPythonCli, scratchDir } from "./harness.ts";
 import {
   AT, BT, C, CR, LF, PIN, type Scene, agreeFlow, flow, pd, py, returned, scene, scrubResult, text, tsAfter, written,
 } from "./flow-fixtures.ts";
@@ -63,7 +63,7 @@ describe("第 ⑤e2b 片：pytest 的场景（样例只有 tests/test_kit_hub.py
     expect(calls.length, "最外层调用的次数").toBe(76);
     const requests = calls.map((item) => item.request);
     for (const impl of IMPLS) {
-      const results = runBatch(impl, requests);
+      const results = runBatch(impl, requests, REPLAY_TIMEOUT);
       const bad = calls.map((_, at) => at).filter((at) => JSON.stringify(scrubResult(results[at]?.["value"])) !== JSON.stringify(scrubResult(calls[at]?.result)));
       const shown = bad.slice(0, 2).map((at) => ({ at, test: calls[at]?.test, fn: calls[at]?.fn, then: calls[at]?.result, replay: results[at] }));
       expect(JSON.stringify(shown).slice(0, 6000), `${impl.name} 与当时的结果不同（共 ${bad.length} 处）`).toBe("[]");

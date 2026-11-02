@@ -19,7 +19,7 @@ import { guardConfig, piSupportedFlags } from "@themis/hub/audit";
 import { GUARD_PREFIX, GUARD_SUFFIX } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { BUN, IMPLS, type Impl, PYTHON, type ProbeRequest, type ProbeResult, REPO, TS_BUN, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { BUN, IMPLS, type Impl, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, REPO, TS_BUN, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
 
 const ch = (...codes: number[]): string => String.fromCodePoint(...codes);
 const BS = ch(92);
@@ -59,7 +59,7 @@ const setSorted = (result: ProbeResult | undefined): string => JSON.stringify(re
 
 /** setSort(at)：第 at 个请求的排序输入来自集合（models、levels），比之前照 setSorted 规整；别的逐字比。 */
 function agree(requests: readonly ProbeRequest[], impls: readonly Impl[] = IMPLS, setSort: (at: number) => boolean = () => false): ProbeResult[] {
-  const [python, ...others] = impls.map((impl) => runBatch(impl, requests));
+  const [python, ...others] = impls.map((impl) => runBatch(impl, requests, REPLAY_TIMEOUT));
   const shownAt = (results: readonly ProbeResult[] | undefined, at: number): string => (setSort(at) ? setSorted(results?.[at]) : JSON.stringify(results?.[at]));
   for (const [index, other] of others.entries()) {
     const bad = requests.map((_, at) => at).filter((at) => shownAt(python, at) !== shownAt(other, at));

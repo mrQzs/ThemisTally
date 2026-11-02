@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
 
 const C = (...codes: number[]): string => String.fromCodePoint(...codes);
 const TAB = C(9);
@@ -44,7 +44,7 @@ const file = (name: string, content: string | Uint8Array): string => {
 
 /** 三边各跑一遍、逐个比；交回 Python 的结果。okShare：至少这一份比例的请求要正常交回（别让两边一样地早早失败也算一致）。 */
 function agree(requests: readonly ProbeRequest[], okShare = 0.5): ProbeResult[] {
-  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests));
+  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests, REPLAY_TIMEOUT));
   for (const [index, other] of others.entries()) {
     const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(python?.[at]) !== JSON.stringify(other[at]));
     const shown = bad.slice(0, 3).map((at) => ({ at, fn: requests[at]?.["fn"], args: requests[at]?.["args"], python: python?.[at], other: other[at] }));

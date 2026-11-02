@@ -61,7 +61,13 @@ export function runProbe(impl: Impl, request: ProbeRequest, timeout = 60_000): P
   return JSON.parse(done.stdout) as ProbeResult;
 }
 
-/** 一批请求交给一个探针进程，按顺序返回各自的结果。timeout 同 runProbe：采样的几百次重放在全量并行时会超过 60 秒（⑤g1 实测），由调用方放宽。 */
+/**
+ * 采样契约重放几十到几百次调用的那一批：全量并行时会超过缺省的 60 秒（2026-11-01 实测：hub-contract-flow、hub-exec、hub-gatepost 都超过过，
+ * 单跑时 hub-contract-flow 一份 78 秒），给 10 分钟。手写场景的小批照旧用缺省值。
+ */
+export const REPLAY_TIMEOUT = 600_000;
+
+/** 一批请求交给一个探针进程，按顺序返回各自的结果。timeout 同 runProbe，采样的重放给 REPLAY_TIMEOUT。 */
 export function runBatch(impl: Impl, items: readonly ProbeRequest[], timeout = 60_000): ProbeResult[] {
   const result = runProbe(impl, { op: "batch", items }, timeout);
   if (!result.ok || !Array.isArray(result["results"])) throw new Error(`${impl.name} 批量请求失败：${JSON.stringify(result)}`);

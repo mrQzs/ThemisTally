@@ -8,7 +8,7 @@ import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { COORDINATOR, ROSTER } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON as PYTHON_IMPL, type ProbeRequest, type ProbeResult, removeDir, runBatch, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON as PYTHON_IMPL, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, scratchDir } from "./harness.ts";
 
 const C = (...codes: number[]): string => String.fromCodePoint(...codes);
 const BS = C(92);
@@ -126,7 +126,7 @@ function replay(cases: Record<string, Setup>): Record<string, unknown> {
   const names = Object.keys(cases);
   const results = IMPLS.map((impl) => {
     const requests = names.map((name) => build(name, cases[name] as Setup));
-    return runBatch(impl, requests).map(shown);
+    return runBatch(impl, requests, REPLAY_TIMEOUT).map(shown);
   });
   const [python, ...others] = results;
   for (const [index, other] of others.entries()) {

@@ -17,7 +17,7 @@ import { TOOL_VERSION } from "@themis/dispatcher/prepare";
 import { kernelPytest } from "@themis/hub/runpd";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
 import { git, newRepo, put, removeCreated, tempDir } from "./repo-fixtures.ts";
 
 const C = (...codes: number[]): string => String.fromCodePoint(...codes);
@@ -41,7 +41,7 @@ const valueOf = (result: ProbeResult | undefined): PyValue => fromTagged(result?
 
 /** 三边各跑一遍、逐个比；交回 Python 的结果。okShare：至少这一份比例的请求要正常交回。 */
 function agree(requests: readonly ProbeRequest[], okShare = 0.5): ProbeResult[] {
-  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests));
+  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests, REPLAY_TIMEOUT));
   for (const [index, other] of others.entries()) {
     const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(python?.[at]) !== JSON.stringify(other[at]));
     const shown = bad.slice(0, 3).map((at) => ({ at, fn: requests[at]?.["fn"], args: requests[at]?.["args"], python: python?.[at], other: other[at] }));

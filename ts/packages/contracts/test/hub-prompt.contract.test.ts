@@ -18,7 +18,7 @@ import { COORDINATOR, ENGINEERING_HEADING, OWNER, ROSTER, STAGE_ORDER, STAGE_WOR
 import { DELIVER_EXTENSION, GUARD_EXTENSION, SCHEMA_DIR } from "@themis/hub/kernel";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, type Impl, PYTHON, type ProbeRequest, type ProbeResult, REPO, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, type Impl, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, REPO, prng, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
 import { taskStateKit } from "./hub-fixtures.ts";
 import { newRepo, put, removeCreated } from "./repo-fixtures.ts";
 
@@ -58,7 +58,7 @@ const valueOf = (result: ProbeResult | undefined): PyValue => fromTagged(result?
 
 /** 三边各跑一遍、逐个比；交回 Python 的结果。okShare：至少这一份比例的请求要正常交回（别让两边一样地早早失败也算一致）。 */
 function agree(requests: readonly ProbeRequest[], okShare = 0.5, impls: readonly Impl[] = IMPLS): ProbeResult[] {
-  const [python, ...others] = impls.map((impl) => runBatch(impl, requests));
+  const [python, ...others] = impls.map((impl) => runBatch(impl, requests, REPLAY_TIMEOUT));
   for (const [index, other] of others.entries()) {
     const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(python?.[at]) !== JSON.stringify(other[at]));
     // 提示词很长：从第一处不同的位置前后各取一段
