@@ -2181,6 +2181,14 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **第二处**：audit_pi_stream 里“deliver 报了成功、result.details 却不是对象”的计数与 stream_events 交回的读不出的行数同名，事件流里有一行坏的（回合被收掉时最后一行没写完）就报“deliver 报了成功 1 次”，interface_problem 据此把回合当成 pi 的接口变了、直接交给站主。计数改成单独的变量；test_kit_hub.py 加一条：坏行只记越界，不算 deliver 读不出参数，两次真读不出时照旧报 2 次。
 - **第三处**（themistally-15 建议）：门禁基准的全文每次覆盖写一份：站主扫描写 ledger/owner-sweep-pytest.log（runners/ 下的 owner-sweep.log 是子进程自己的输出，不同名免得拿错），合入后的回归写主任务目录的regression-sweep.log，信的“证据”指过去。2026-10-31 两次站主扫描在内存吃紧时红了，信里唯一的回溯是临时 worktree 里 git status 失败，git 自己的报错在被截掉的那段里，原因只能猜。
 
+### 第 134 轮：审计取工具参数里的字符串改用显式栈（2026-11-01，用户同意先验证、再堵）
+
+- **起因**：⑤c 移植回合审计时查出（迁移计划第 10 节“hub 审计遇到嵌套很深的值”那一行）：kit_hub._arg_strings 是递归的，工具参数嵌套到九百多层时，撞不撞解释器的递归上限取决于调用时的栈深，审计跟着时崩时不崩；TS 不崩。那一行原写“要堵上是改成显式栈，先说清楚、等用户同意”，用户 2026-11-01 同意：先验证，再堵。
+- **验证**：嵌套 N 层的工具参数交给 pi_reach_problem，在模块顶层调 995 层起崩，多垫 60 层调用栈 960 层就崩；1500、2900 层 json.loads 读得出，但 _arg_strings 一定崩（stream_events 早就接住 json.loads 的 RecursionError，崩只出在这里）。
+- **改法**：显式栈，判断的先后照旧（str → dict → list/tuple），孩子倒着压栈，次序照旧是先序、从左到右。随机两万组嵌套结构与原来的递归逐个比过，全同（themistally-15 另比了五万组，含集合、str 的子类、bytes、NaN）。唯一的调用方是 pi_reach_problem 的两处。
+- **测试**：tests/test_kit_hub.py 的 test_deeply_nested_tool_args_are_read_without_recursion（990、2000 层各垫 60 层调用栈照常判出，另有次序的断言）；hub-audit 契约钉了 960、997 层（997 层加上探针自己的几层栈才分得出原来的递归，990 层分不出）。变异 K01（改回递归）pytest 与契约都抓住，K02、K03（孩子不倒过来压栈）pytest 抓住。
+- **仍接受的**：1000 到 2997 层，base 的 loads 在 1000 层报 RecursionError（算读不出的行），Python 的 json.loads 读得出，这一段是确定的差异；这种输入几乎不会出现，契约生成的嵌套避开它。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

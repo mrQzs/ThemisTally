@@ -6,8 +6,9 @@
 //   - 按种子生成、再随机换掉值的类型的 claude 与 pi 事件流，加坏行、断行字符与嵌套；手写的边界；
 //   - 会话文件（临时的 USERPROFILE 与信箱）；pi 的 --help（假的 pi）；
 //   - TS 独有（⑤e0）：piSupportedFlags 并发调同一个 pi 命令只起一次、非零退出缓存成 null、探的时候抛了异常不留缓存。
-// 已知差异（迁移计划第 10 节）：Node 后备的 normcase 用 toLowerCase，带 İ、ẞ 的路径只比 Python 与 Bun；嵌套在 900 到 2997 层
-// 之间时 Python 的结果随调用栈深度变，生成的嵌套避开这一段；NaN 不进 claude 的模型名（Python 的集合次序随散列变）。
+// 已知差异（迁移计划第 10 节）：Node 后备的 normcase 用 toLowerCase，带 İ、ẞ 的路径只比 Python 与 Bun；嵌套在 1000 到 2997 层
+// 之间 base 的 loads 读不出、Python 读得出，生成的嵌套避开这一段（900 到 999 层 Python 原先随调用栈深度崩，第 134 轮改成显式栈，
+// 手写的边界钉了 960、997 层）；NaN 不进 claude 的模型名（Python 的集合次序随散列变）。
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -156,7 +157,7 @@ function runGuard(runtime: string, cases: readonly [string, PyValue][], config: 
 // --- 二、按种子生成、再改坏的事件流 ----------------------------------------------------------------------------
 
 const pick = <T>(next: () => number, items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
-/** 嵌套 depth 层的列表（只取 600：避开 Python 结果随调用栈变的那一段；更深的直接拼成文字，见 deepLine）。 */
+/** 嵌套 depth 层的列表（只取 600：探针的 from_tagged 也是递归的；更深的直接拼成文字，见 deepLine 与 deepRead）。 */
 const nested = (depth: number): unknown => {
   let value: unknown = "底";
   for (let index = 0; index < depth; index += 1) value = [value];
@@ -305,6 +306,16 @@ describe("第 ⑤c 片：按种子生成、再改坏的事件流", () => {
   it("逐行解析：坏行、断行字符、BOM、只有空白的行、深的嵌套", () => {
     const lines = ["{}", "[1]", "1", "  ", "", `{"a":1}${ch(0x2028)}`, ch(0xfeff) + "{}", `${ch(0x85)}{}${ch(0x85)}`, line(nested(600)), deepLine(4000), "{", "NaN", `{"x":NaN}`];
     agree([call("stream_events", lines), call("jsonl_lines", lines.join(LF)), call("jsonl_lines", `a${ch(0x2028)}b${LF}c${ch(13)}${LF}`)]);
+  });
+
+  it("工具参数嵌套到 960、997 层（第 134 轮）：Python 的 _arg_strings 改成显式栈，不再随调用栈深度崩，三边一致判出提到了主工作区", () => {
+    // 手拼一行：探针的 from_tagged 是递归的，这么深的值不能当参数传。997 层加两层字典是 999 层容器，在 base 的 loads 的 1000 层以内；
+    // 原来的递归写法在 997 层加上探针自己的几层栈会撞上递归上限，990 层还碰不到
+    const deepRead = (depth: number): string => `{"type":"tool_execution_start","toolCallId":"r1","toolName":"read","args":{"path":`
+      + `${"[".repeat(depth)}${JSON.stringify(join(MAIN, "a.txt"))}${"]".repeat(depth)}}}`;
+    const results = agree([960, 997].map((depth) => call("audit_pi_stream", [deepRead(depth)], PI_SPEC, WORK, MAIN)));
+    expect(results.map((result) => result.ok)).toEqual([true, true]);
+    for (const result of results) expect(JSON.stringify(result)).toContain("read 的参数提到了主工作区");
   });
 });
 

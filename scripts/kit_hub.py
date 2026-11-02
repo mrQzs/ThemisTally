@@ -1776,14 +1776,20 @@ def _within(target: str, root: str) -> bool:
 
 
 def _arg_strings(value: Any) -> List[str]:
-    """参数里的全部字符串（嵌套的列表与字典也取）：主工作区的路径写在哪个键里都算。"""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [text for item in value.values() for text in _arg_strings(item)]
-    if isinstance(value, (list, tuple)):
-        return [text for item in value for text in _arg_strings(item)]
-    return []
+    """参数里的全部字符串（嵌套的列表与字典也取）：主工作区的路径写在哪个键里都算。次序是先序、从左到右。
+    第 134 轮：用显式的栈，不递归。工具参数嵌套到九百多层时，递归撞不撞解释器的递归上限取决于调用时的栈深
+    （⑤c 迁移时查出：模块顶层 995 层才崩，多垫 60 层调用栈 960 层就崩），审计就跟着时崩时不崩。"""
+    found: List[str] = []
+    stack: List[Any] = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict):
+            stack.extend(reversed(list(item.values())))
+        elif isinstance(item, (list, tuple)):
+            stack.extend(reversed(item))
+    return found
 
 
 def pi_reach_problem(name: str, args: Dict[str, Any], workspace: Path, repo: Optional[Path]) -> Tuple[str, str]:

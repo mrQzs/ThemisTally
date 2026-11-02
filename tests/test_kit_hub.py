@@ -7315,6 +7315,25 @@ def test_a_deliver_that_quotes_the_main_worktree_is_not_a_reach(tmp_path):
     assert len(audit["violations"]) == 1 and "读了主工作区" in audit["violations"][0]
 
 
+def test_deeply_nested_tool_args_are_read_without_recursion(tmp_path):
+    # 第 134 轮：_arg_strings 原先是递归的，工具参数嵌套到九百多层时撞不撞递归上限取决于调用时的栈深（⑤c 迁移时查出），
+    # 审计就跟着时崩时不崩。改成显式栈之后，json.loads 读得出的深度都照常判；字符串照旧是先序、从左到右
+    repo, workspace = tmp_path / "repo", tmp_path / "ws"
+    repo.mkdir()
+    workspace.mkdir()
+    spec = dict(kh.ROSTER[kh.COORDINATOR], tools=["bash"])
+
+    def padded(frames, line):
+        return kh.audit_pi_stream([line], spec, workspace, repo) if frames == 0 else padded(frames - 1, line)
+
+    for depth in (990, 2000):  # json.dumps 撞递归上限，这一行手拼
+        line = ('{"type": "tool_execution_start", "toolCallId": "b1", "toolName": "bash", "args": {"command": '
+                + "[" * depth + json.dumps("cat %s" % (repo / "a.txt")) + "]" * depth + "}}")
+        audit = padded(60, line)
+        assert len(audit["violations"]) == 1 and "主工作区" in audit["violations"][0], depth
+    assert kh._arg_strings({"a": ["x", {"b": "y", "c": [1, ("z", None)]}], "d": "w"}) == ["x", "y", "z", "w"]
+
+
 def coordinator_turn(tmp_path, events, monkeypatch=None, agent=kh.COORDINATOR, key="T001"):
     hub = kh.Hub(tmp_path)
     hub.ensure()
