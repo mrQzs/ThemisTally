@@ -15,6 +15,7 @@
     "./publish": "./src/publish.ts",
     "./pydatetime": "./src/pydatetime.ts",
     "./pydifflib": "./src/pydifflib.ts",
+    "./pyexc": "./src/pyexc.ts",
     "./pyfmt": "./src/pyfmt.ts",
     "./pyio": "./src/pyio.ts",
     "./pyjson": "./src/pyjson.ts",

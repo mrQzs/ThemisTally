@@ -1,6 +1,6 @@
 // hub.call（第 ⑤a 片）：按函数名调 @themis/hub 的纯函数，参数与结果照 python_probe.py 的 op_hub_call。
 // 结果里的整数照 Python 写成 int（bigint）；HubError 交回文字与退出码，Python 语义的异常交回类型与文字（⑤f 起文字也比）。
-import { PyCrash, pyGet, pyItem, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
+import { PyCrash, pyGet, pyItem, pyReprValue, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
 import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -55,6 +55,13 @@ import {
   allowedMoves, dependents, gateFile, gatePattern, guard, hotfixReason, invalidateAfter, moveBase, newTaskState, renderRoutineBrief,
   returnStages, routineMoves, stageBusy, stageStatusTable, upstreamNotes,
 } from "@themis/hub/taskstate";
+import {
+  addModifiedFiles, attemptsLeft, carryBack, carrySource, carryable, checksPassed, cutOff, emptyCommit, failedAttempt, failedChecksBrief, failureLines, gateClaims,
+  interruptedAttempt, jevFlag, latestChecks, reportLeftovers, retrySection, reworkCommits, reworkSection, reworkSource, returnedBlockers, unfinishedWhy,
+  unreportedGateClaims,
+} from "@themis/hub/exec";
+import { PySet } from "@themis/base/pyset";
+import { copyTreeTimes } from "../src/tree-times.ts";
 
 type Result = Record<string, unknown>;
 
@@ -538,6 +545,75 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "unmutated_problems": // 连同改过的 ts["gate_post"]["unmutated"]，同 python_probe.py
         value = [unmutatedProblems(dictOf(a), b, args[2] as PyValue), pyGet(pyItem(a, "gate_post"), "unmutated")];
         break;
+      case "latest_checks": // ⑤g1：参数是 attempt 目录
+        value = latestChecks(textOf(a));
+        break;
+      case "cut_off":
+        value = cutOff(textOf(a));
+        break;
+      case "checks_passed":
+        value = checksPassed(textOf(a));
+        break;
+      case "unfinished_why":
+        value = unfinishedWhy(textOf(a));
+        break;
+      case "failed_checks_brief":
+        value = failedChecksBrief(textOf(a));
+        break;
+      case "failure_lines":
+        value = failureLines(textOf(a));
+        break;
+      case "report_leftovers":
+        value = reportLeftovers(textOf(a));
+        break;
+      case "unreported_gate_claims":
+        value = unreportedGateClaims(textOf(a));
+        break;
+      case "interrupted_attempt": // 交回 Path 或（Path, 原因），同 python_probe.py
+        value = interruptedAttempt(new Hub(textOf(a)), dictOf(b));
+        break;
+      case "carry_back":
+        value = carryBack(new Hub(textOf(a)), dictOf(b), args[2] as PyValue);
+        break;
+      case "carry_source":
+        value = carrySource(new Hub(textOf(a)), dictOf(b));
+        break;
+      case "rework_source":
+        value = reworkSource(dictOf(a));
+        break;
+      case "failed_attempt":
+        value = failedAttempt(dictOf(a));
+        break;
+      case "attempts_left":
+        value = attemptsLeft(new Hub(textOf(a)), dictOf(b));
+        break;
+      case "empty_commit":
+        value = emptyCommit(new Hub(textOf(a)), textOf(b));
+        break;
+      case "rework_commits": // 集合交回按 repr 排好的列表
+        value = reworkCommits(dictOf(a)).values().sort((x, y) => cmpCodePoints(pyReprValue(x), pyReprValue(y)));
+        break;
+      case "carryable": // carried 给的是列表，照调用方换成集合
+        value = args.length > 1 ? carryable(textOf(a), new PySet(b as PyValue[])) : carryable(textOf(a));
+        break;
+      case "returned_blockers":
+        value = returnedBlockers(dictOf(a), textOf(b));
+        break;
+      case "retry_section":
+        value = retrySection(textOf(a), dictOf(b), args[2] as PyValue);
+        break;
+      case "rework_section":
+        value = reworkSection(textOf(a), b, args[2] as PyValue, args[3] as PyValue, ...(args.slice(4) as PyValue[]));
+        break;
+      case "add_modified_files":
+        value = addModifiedFiles(textOf(a), b as string[]);
+        break;
+      case "gate_claims":
+        value = gateClaims(a);
+        break;
+      case "jev_flag":
+        value = jevFlag(a, b, args[2] as PyValue);
+        break;
       case "kernel_impl_tables": {
         const keys = (rows: ReadonlySet<string>): PyValue[] => [...rows].map((row) => JSON.parse(row) as string[]).sort(compareWords);
         value = new Map<string, PyValue>([
@@ -842,8 +918,9 @@ function restoreTree({ from: source, to: target, links = [] }: Restore): void {
     writable(target);
     rmSync(target, { recursive: true, force: true });
   }
-  cpSync(source, target, { recursive: true, verbatimSymlinks: true });
+  cpSync(source, target, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
   for (const [rel, pointed, kind] of links) symlinkSync(pointed, join(target, ...rel.split("/")), kind as "dir" | "file" | "junction");
+  copyTreeTimes(source, target); // ⑤g：文件与目录的修改时刻照快照，同 python_probe.py 的 _copy_dir_times
 }
 
 /** hub.turn（第 ⑤d 片）：TurnRunner.run 配回放的 launcher，与 python_probe.py 的 op_hub_turn 一一对应。 */

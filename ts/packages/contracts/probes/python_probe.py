@@ -1031,6 +1031,58 @@ def op_replace_real(request):
     return {"ok": False, "error": "NO_ERROR"}
 
 
+def op_mtime_real(request):
+    """第 ⑤g 片：把每个文件的修改时刻设成给定的纳秒数（os.utime(ns=...)），交回 kit_hub 3233、4271 两处的写法换成的秒
+    （fromtimestamp(st_mtime, utc).strftime），以及设好之后 stat 读到的 st_mtime_ns（文件系统的精度会截掉一些）。纳秒数用字符串传。"""
+    import datetime as _dt
+    texts, stored = [], []
+    for path, ns in request["files"]:
+        os.utime(path, ns=(int(ns), int(ns)))
+        texts.append(_dt.datetime.fromtimestamp(Path(path).stat().st_mtime, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        stored.append(str(Path(path).stat().st_mtime_ns))
+    return {"ok": True, "texts": texts, "stored": stored}
+
+
+def op_pyexc_real(request):
+    """第 ⑤g1 片（base 的 pyexc 的对照）：names 里每个类名取 __mro__，截到 Exception；specs 里每一项造一个对应的异常，交回 type(exc).__name__
+    （OSError(errno, "x") 与 OSError(0, "x", None, winerror) 构造时自己落到子类）。"""
+    import builtins
+    import re as re_module
+    import subprocess
+    special = {"JSONDecodeError": json.JSONDecodeError, "TimeoutExpired": subprocess.TimeoutExpired, "SubprocessError": subprocess.SubprocessError,
+               "error": re_module.error}
+
+    def cls(name):
+        return special.get(name) or getattr(builtins, name)
+
+    mro = {}
+    for name in request["names"]:
+        chain = []
+        for item in cls(name).__mro__:
+            chain.append(item.__name__)
+            if item is Exception:
+                break
+        mro[name] = chain
+    made = []
+    for kind, arg in request["specs"]:
+        if kind == "oserror":
+            made.append(type(OSError(arg, "x")).__name__)
+        elif kind == "winerror":
+            made.append(type(OSError(0, "x", None, arg)).__name__)
+        elif kind == "decode":
+            try:
+                bytes([0xFF]).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                made.append(type(exc).__name__)
+        elif kind == "json":
+            made.append(type(json.JSONDecodeError("x", "", 0)).__name__)
+        elif kind == "re-error":
+            made.append(type(re_module.error("x")).__name__)
+        else:  # re-value、re-overflow、crash：给的就是类名
+            made.append(cls({"re-value": "ValueError", "re-overflow": "OverflowError"}.get(kind, arg)).__name__)
+    return {"ok": True, "mro": mro, "names": made}
+
+
 def op_winerror_real(request):
     """真触发一次 Windows 错误，交回 str(exc)：kind 是 exe（跑一个不存在的程序，CreateProcess 的 WinError 2）或 mkdir（os.mkdir 一个已在的目录，
     WinError 183，带路径）。"""
@@ -1374,6 +1426,27 @@ def op_hub_contract(request):
             value = kit_hub.attempt_base(args[0], Path(args[1]))
         elif fn == "unmutated_problems":  # 连同改过的 ts["gate_post"]["unmutated"]，同采样器
             value = [kit_hub.unmutated_problems(*args), args[0]["gate_post"].get("unmutated")]
+        elif fn in ("latest_checks", "cut_off", "checks_passed", "unfinished_why", "failed_checks_brief", "failure_lines", "report_leftovers",
+                    "unreported_gate_claims"):  # ⑤g1：参数是 attempt 目录
+            value = getattr(kit_hub, fn)(Path(args[0]))
+        elif fn in ("interrupted_attempt", "carry_back", "carry_source", "rework_source", "failed_attempt"):  # 交回 Path 或（Path, 原因）
+            given = [kit_hub.Hub(Path(args[0]))] + args[1:] if fn in ("interrupted_attempt", "carry_back", "carry_source") else args
+            found = getattr(kit_hub, fn)(*given)
+            value = None if found is None else str(found) if isinstance(found, Path) else [str(found[0]), found[1]]
+        elif fn in ("attempts_left", "empty_commit"):
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn == "rework_commits":  # 集合交回按 repr 排好的列表
+            value = sorted(kit_hub.rework_commits(*args), key=repr)
+        elif fn == "carryable":  # carried 给的是列表，照调用方换成集合
+            value = kit_hub.carryable(Path(args[0]), set(args[1])) if len(args) > 1 else kit_hub.carryable(Path(args[0]))
+        elif fn == "returned_blockers":
+            value = kit_hub.returned_blockers(args[0], Path(args[1]))
+        elif fn in ("retry_section", "rework_section"):
+            value = getattr(kit_hub, fn)(Path(args[0]), *args[1:])
+        elif fn == "add_modified_files":
+            value = list(kit_hub.add_modified_files(*args))
+        elif fn in ("gate_claims", "jev_flag"):
+            value = getattr(kit_hub, fn)(*args)
         elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
             value = {name: [list(key) for key in sorted(getattr(pi_dispatch, name))]
                      for name in ("TS_READONLY_COMMANDS", "TS_ONLY_COMMANDS", "TS_CONFIG_COMMANDS", "TS_DISPATCHER_COMMANDS")}
@@ -1494,7 +1567,20 @@ def _snapshot_tree(source, target, with_git=False):
                 shutil.copy2(entry.path, os.path.join(str(target), *rel))
 
     walk(str(source), [])
+    _copy_dir_times(str(source), str(target), with_git)
     return links
+
+
+def _copy_dir_times(source, target, with_git=False):
+    """⑤g：目录的修改时刻照源目录设回去（文件的由 copy2 管）。在目录的内容放好之后设，由深到浅；链接与联接不进。
+    kit_hub 的 final_audit_turn 在没有 candidate.patch 时读 attempt 目录本身的时刻。对应 TS 的 copyTreeTimes。"""
+    for entry in os.scandir(source):
+        if entry.name == ".git" and not with_git:
+            continue
+        if entry.is_dir(follow_symlinks=False) and not entry.is_symlink() and not os.path.isjunction(entry.path):
+            _copy_dir_times(entry.path, os.path.join(target, entry.name), with_git)
+    info = os.stat(source)
+    os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns))
 
 
 def _restore_tree(source, target, links=(), with_git=False):
@@ -1513,6 +1599,8 @@ def _restore_tree(source, target, links=(), with_git=False):
             _winapi.CreateJunction(pointed, path)
         else:
             os.symlink(pointed, path, target_is_directory=kind == "dir")
+    if links:  # 重建链接改了所在目录的时刻
+        _copy_dir_times(str(source), str(target), with_git)
 
 
 def op_hub_turn(request):
@@ -1594,8 +1682,8 @@ def _recorded_value(name, value):
         value = [str(path) for path in value]
     elif name == "workspace_status":  # ⑤e2a：（状态，路径）的元组成列表，照 op_hub_contract
         value = [list(item) for item in value]
-    elif isinstance(value, tuple):
-        value = list(value)
+    elif isinstance(value, tuple):  # ⑤g1：carry_source、carry_back 交回（Path, 原因）
+        value = [str(item) if isinstance(item, Path) else item for item in value]
     elif isinstance(value, Path):  # ⑤f：apply_candidate、ensure_worktree 交回 worktree 的路径
         value = str(value)
     try:
@@ -1909,12 +1997,13 @@ def op_hub_audit_samples(request):
         roots = []
         if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
             roots.append(Path(bound.arguments["hub"].repo))
-        given = {key: bound.arguments.get(key) for key in ("path", "workspace", "run_dir")}  # ⑤e2b：门禁草稿 worktree 叫 workspace
+        # ⑤e2b：门禁草稿 worktree 叫 workspace；⑤g1：returned_blockers、rework_section 的上一轮 attempt 叫 previous
+        given = {key: bound.arguments.get(key) for key in ("path", "workspace", "run_dir", "previous")}
         ts = bound.arguments.get("ts")
         if given["run_dir"] is None and isinstance(ts, dict) and isinstance(ts.get("exec"), dict) and ts["exec"].get("run_dir"):
             given["run_dir"] = ts["exec"]["run_dir"]  # ⑤f：读 meta.json、scope.json、candidate.patch 的那个 attempt 目录
         for key, value in given.items():
-            if value is None or (key == "run_dir" and not Path(value).is_dir()):
+            if value is None or (key in ("run_dir", "previous") and not Path(value).is_dir()):
                 continue
             roots.append(Path(value))
             pointer = roots[-1] / ".git"
@@ -2245,6 +2334,8 @@ OPS = {
     "pyvalue.eq": op_pyvalue_eq,
     "pyset.sorted": op_pyset_sorted,
     "winerror.real": op_winerror_real,
+    "mtime.real": op_mtime_real,
+    "pyexc.real": op_pyexc_real,
     "replace.real": op_replace_real,
     "pypath.pure": op_pypath_pure,
     "supervise.run": op_supervise_run,

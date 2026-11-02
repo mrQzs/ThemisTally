@@ -89,7 +89,7 @@ function samples(): Call[] {
 function replay(calls: readonly Call[]): void {
   const requests = calls.map((item) => item.request);
   for (const impl of IMPLS) {
-    const results = runBatch(impl, requests);
+    const results = runBatch(impl, requests, 600_000);
     const shownOf = (at: number): unknown => (calls[at]?.request["op"] === "hub.contract_flow" ? results[at]?.["value"] : results[at]);
     const bad = calls.map((_, at) => at).filter((at) => JSON.stringify(shownOf(at)) !== JSON.stringify(calls[at]?.result));
     const shown = bad.slice(0, 2).map((at) => ({ at, test: calls[at]?.test, fn: calls[at]?.fn, then: calls[at]?.result, replay: results[at] }));

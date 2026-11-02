@@ -5,8 +5,10 @@
 //   newTurnId     kit_hub 回合编号（TurnRunner 里内联）      <utcCompact>-<4 位十六进制>
 //   attemptDir    pi_dispatch.allocate_attempt（内联）      attempt-001，满 1000 照写 attempt-1000
 //   auditId       kit_config 审计记录（内联）               aud-<32 位十六进制>
+//   mtimeUtcSeconds kit_hub 3233、4271（内联）               文件修改时刻，2026-10-22T01:02:03Z（微秒半数取偶，会进位）
 // 两套实现会同时往同一个信箱发信、写同一份账本：信箱按文件名排序，所以 utcCompact 必须定长、按时间单调。
 import { randomBytes } from "node:crypto";
+import { statSync } from "node:fs";
 
 /** 发信人的别名：信件编号与信箱目录用 ASCII 名字（kit_hub.SENDER_ALIAS）。 */
 export const SENDER_ALIAS: Readonly<Record<string, string>> = { 站主: "owner", 内核: "kernel" };
@@ -63,6 +65,35 @@ export function utcNow(micros: number = nowMicros()): string {
     `${pad(date.getUTCFullYear(), 4)}-${pad(date.getUTCMonth() + 1, 2)}-${pad(date.getUTCDate(), 2)}` +
     `T${pad(date.getUTCHours(), 2)}:${pad(date.getUTCMinutes(), 2)}:${pad(date.getUTCSeconds(), 2)}Z`
   );
+}
+
+/** C 的 round()：半数离零取整。 */
+function roundHalfAway(value: number): number {
+  const whole = Math.trunc(value);
+  return Math.abs(value - whole) >= 0.5 ? whole + Math.sign(value) : whole;
+}
+
+/**
+ * datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")（迁移第 ⑤g 片，kit_hub 3233、4271 两处）。
+ * st_mtime 是 sec + nsec * 1e-9 的浮点；fromtimestamp 把小数部分乘 1e6 后按半数取偶（_PyTime_ROUND_HALF_EVEN），满 1e6 就进到下一秒。
+ * 用 bigint 的 stat 拿 mtimeNs，不拿 mtimeMs 直接取整。
+ */
+export function mtimeUtcSeconds(path: string): string {
+  const ns = statSync(path, { bigint: true }).mtimeNs;
+  let sec = ns / 1_000_000_000n;
+  let nsec = ns % 1_000_000_000n;
+  if (nsec < 0n) {
+    nsec += 1_000_000_000n;
+    sec -= 1n;
+  }
+  const stamp = Number(sec) + Number(nsec) * 1e-9;
+  let whole = Math.trunc(stamp);
+  const scaled = (stamp - whole) * 1e6;
+  let micros = roundHalfAway(scaled);
+  if (Math.abs(scaled - micros) === 0.5) micros = 2 * roundHalfAway(scaled / 2);
+  if (micros >= 1e6) whole += 1;
+  else if (micros < 0) whole -= 1;
+  return utcNow(whole * 1_000_000);
 }
 
 /** utc_compact：%Y%m%dT%H%M%S%fZ，微秒六位。 */

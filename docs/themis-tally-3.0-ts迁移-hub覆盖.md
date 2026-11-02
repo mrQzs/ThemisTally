@@ -384,4 +384,74 @@ COVERED 15、PARTIAL 26。PARTIAL 的 26 条，⑤f 的函数只是它们的一�
 
 变异：ts/mutations/hub-f.ts.json 60 条，第一轮抓住 59 条；漏掉的 P57（没列的红用例只列前 10 条）补了 12 条都没列的场景之后，单独重跑抓住。ts/mutations/base-f.ts.json 5 条（pyset 的列表比较、replaceError、pyWinErrorMessage、relative_to 的文字）全部抓住。复核后（themistally-15 抽查 17 条，漏掉的是它自己设计的 X03–X05）补了三组手写场景：mutate 的 30 行输出（mutate_tail 与“没有跑完”都只附 25 行）、expect_missed 有两项以上又没列满、锚点对不上的条目名字不是字符串；并进 P61–P64，单独重跑都抓住。
 
-其余场景随各片补（⑤g 到 ⑤j）。
+## ⑤g 执行端代办与 JEV
+
+⑤g 拆成两片（themistally-15 同意）：⑤g1 是只读与纯文字的部分，⑤g2 是改状态的部分（派遣、返工版本、重派合同、收尾、JEV）。
+
+### ⑤g1 只读与纯文字的部分
+
+做法（⑤g 设计稿第 3、10 节）：
+- 读文件的十九个函数照 ⑤e2a 带调用当时的快照重放；快照与还原连文件、目录的修改时刻一起照原样（returned_blockers 拿 candidate.patch 的修改时刻跟终审记录比）。
+- 只采 ⑤g1 的函数：run_exec 等 ⑤g2 的不包，经它们调到的 ⑤g1 函数也算顶层。
+
+契约：
+- hub-exec：44 条用例的 248 次调用三边重放，都与当时的结果相同。次数钉住：attempts_left 56、carry_source 51、empty_commit 44、gate_claims 16、
+  failed_attempt 15、failed_checks_brief 13、rework_section 13、interrupted_attempt 6、jev_flag 6、add_modified_files 6、cut_off 5、failure_lines 5、
+  unreported_gate_claims 5、returned_blockers 3、retry_section 2、report_leftovers 2；rework_source、latest_checks、carryable、checks_passed、
+  unfinished_why、carry_back、rework_commits 没有顶层调用。
+- hub-exec-scenes：14 组手写场景（attempt 目录的 23 种形状、接着改的各个来源、返工节与重派节的文字、add_modified_files 的 12 种写法、
+  门禁有错的 31 种说法、jev_flag 的边界、修改时刻的同一秒与进位、真 git 的 empty_commit、按种子随机换类型的 660 次调用）。
+- pybase-config：修改时刻换成秒的对照（40 个设在边界上的文件）。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_jev_report_flags_answers_by_the_battery_thresholds` | 1184 | COVERED | hub-exec：jev_flag 5 次 |
+| `test_execution_jev_gets_the_objective_fingerprint` | 1196 | PARTIAL | jev_flag 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_requeue_leaves_unread_and_kernel_run_stages_alone` | 2029 | PARTIAL | interrupted_attempt 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
+| `test_a_stranded_exec_stage_is_reported_to_the_owner_once` | 2205 | PARTIAL | interrupted_attempt 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
+| `test_exec_verdict_reads_the_attempt_state_key` | 2641 | PARTIAL | attempts_left 4 次、gate_claims 1 次、failed_checks_brief 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_recheck_revisits_the_last_attempt_without_rerunning` | 2661 | PARTIAL | attempts_left 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_rework_continues_from_the_reviewed_candidate` | 2770 | PARTIAL | attempts_left 5 次、carry_source 5 次、failed_attempt 3 次、empty_commit 2 次、rework_section 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_rework_reports_when_the_rework_base_cannot_be_built` | 2826 | PARTIAL | attempts_left 2 次、carry_source 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_rework_contract_lets_the_executor_modify_files_added_earlier` | 2842 | PARTIAL | attempts_left 3 次、carry_source 3 次、failed_attempt 3 次、add_modified_files 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_add_modified_files_handles_both_list_forms` | 2902 | COVERED | hub-exec：add_modified_files 4 次 |
+| `test_retry_after_failed_checks_tells_the_executor_why` | 2926 | PARTIAL | attempts_left 6 次、carry_source 6 次、failed_attempt 6 次、retry_section 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_rework_stops_at_the_budget` | 2982 | PARTIAL | attempts_left 4 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_finalize_lands_the_rework_chain_before_integrating` | 3024 | PARTIAL | empty_commit 3 次；落地、结项与落地预演归 ⑤h |
+| `test_failed_integrate_takes_the_landed_commits_back_off_the_branch` | 3132 | PARTIAL | empty_commit 2 次；落地、结项与落地预演归 ⑤h |
+| `test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too` | 3157 | PARTIAL | empty_commit 1 次；落地、结项与落地预演归 ⑤h |
+| `test_failed_integrate_names_the_meanwhile_commits_only_when_the_candidate_had_passed` | 3169 | PARTIAL | empty_commit 2 次；落地、结项与落地预演归 ⑤h |
+| `test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it` | 3181 | PARTIAL | empty_commit 3 次；落地、结项与落地预演归 ⑤h |
+| `test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again` | 3210 | PARTIAL | empty_commit 1 次；落地、结项与落地预演归 ⑤h |
+| `test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks` | 4221 | PARTIAL | empty_commit 11 次；落地、结项与落地预演归 ⑤h |
+| `test_landing_skips_an_empty_rework_commit` | 4274 | PARTIAL | empty_commit 9 次；落地、结项与落地预演归 ⑤h |
+| `test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain` | 4293 | PARTIAL | empty_commit 1 次；落地、结项与落地预演归 ⑤h |
+| `test_landing_rehearsal_reports_commits_that_no_longer_apply` | 4324 | PARTIAL | empty_commit 3 次；落地、结项与落地预演归 ⑤h |
+| `test_owner_commits_get_a_gate_sweep_and_rehearsals` | 4472 | PARTIAL | empty_commit 2 次；落地、结项与落地预演归 ⑤h |
+| `test_exec_recheck_resumes_an_execution_the_hub_was_killed_in` | 5152 | PARTIAL | interrupted_attempt 4 次、attempts_left 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | PARTIAL | attempts_left 1 次；扣信、被打断的执行阶段与站主通知归 ⑤i |
+| `test_a_timed_out_attempt_is_continued_instead_of_restarted` | 5486 | PARTIAL | carry_source 7 次、attempts_left 1 次、empty_commit 1 次、failure_lines 1 次、rework_section 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted` | 5534 | PARTIAL | rework_section 2 次、attempts_left 1 次、carry_source 1 次、empty_commit 1 次、failure_lines 1 次、report_leftovers 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base` | 5585 | PARTIAL | attempts_left 1 次、carry_source 1 次、empty_commit 1 次、failure_lines 1 次、rework_section 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_a_timed_out_attempt_whose_checks_passed_is_not_told_to_rerun_them` | 5626 | COVERED | hub-exec：rework_section 5 次、failure_lines 1 次 |
+| `test_carry_after_an_upstream_redelivery_finds_the_latest_usable_attempt` | 5647 | COVERED | hub-exec：carry_source 6 次 |
+| `test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline` | 5675 | PARTIAL | attempts_left 2 次、carry_source 2 次、returned_blockers 1 次、report_leftovers 1 次、rework_section 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_carried_candidate_gets_only_the_final_review_blockers_raised_after_it` | 5762 | COVERED | hub-exec：returned_blockers 2 次 |
+| `test_a_cut_off_attempt_is_continued_instead_of_restarted` | 6101 | PARTIAL | carry_source 5 次、attempts_left 1 次、empty_commit 1 次、failure_lines 1 次、rework_section 1 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_an_abandoned_attempt_is_skipped_when_looking_for_a_candidate` | 6134 | COVERED | hub-exec：carry_source 6 次 |
+| `test_exec_letter_counts_the_candidate_and_names_the_failed_checks` | 6160 | PARTIAL | attempts_left 4 次、gate_claims 2 次、unreported_gate_claims 2 次、failed_checks_brief 2 次、cut_off 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_an_unsent_contract_gets_the_rostered_executor_before_dispatch` | 6193 | PARTIAL | attempts_left 3 次、carry_source 3 次、failed_attempt 3 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_owner_raises_the_attempt_budget` | 6223 | PARTIAL | attempts_left 2 次；站主改预算的命令归 ⑤j |
+| `test_an_unchanged_attempt_on_a_rework_base_still_carries_the_work` | 6324 | COVERED | hub-exec：carry_source 4 次 |
+| `test_gate_claims_in_the_executor_report_are_found` | 6540 | COVERED | hub-exec：gate_claims 3 次 |
+| `test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner` | 6548 | PARTIAL | attempts_left 3 次、gate_claims 2 次、failed_checks_brief 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_gate_claims_only_in_the_thinking_are_held_when_there_is_no_report` | 6768 | PARTIAL | attempts_left 4 次、gate_claims 3 次、unreported_gate_claims 3 次、failed_checks_brief 3 次、cut_off 3 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner` | 6808 | PARTIAL | attempts_left 3 次、gate_claims 3 次、failed_checks_brief 3 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_an_attempt_whose_candidate_was_not_collected_waits_for_the_owner` | 6834 | PARTIAL | attempts_left 2 次、gate_claims 2 次、failed_checks_brief 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+| `test_the_executor_letter_says_none_when_nothing_is_pending` | 7759 | PARTIAL | attempts_left 2 次；派遣、收尾与 JEV（run_exec、finish_exec、run_jev）归 ⑤g2 |
+
+COVERED 8、PARTIAL 36。PARTIAL 的 36 条，⑤g1 的函数只是它们的一步，主体分别归 ⑤g2、⑤h、⑤i、⑤j。
+
+变异：ts/mutations/hub-g1.ts.json 65 条：第一轮 61 条抓住 58 条，漏掉的 E12（返工链里没有 commit 的条目）、E30（Scope 标题前面的空白）、E59（四位数的 attempt）补了场景；写到一半复核后改的 pyCaught、pyIn 连同新加的 E60，7 条单独重跑都抓住；完整复核后 pyexc 补了 base 造得出的六个类名（BrokenPipeError、ConnectionError、ChildProcessError、BlockingIOError、TimeoutExpired、SubprocessError）与三边对照（继承关系逐对比 __mro__，认类逐个比 type(exc).__name__），并进 E61–E63（认不出 fsutil 的 UnicodeDecodeError、RecursionError 挂到 ValueError 下、ConnectionError 不算 OSError），单独重跑都抓住。themistally-15 另抽查的 X03（st_mtime 用 nsec / 1e9 算）、X04（微秒半数不取偶）判为等价：只出到秒，它在 Python 上跑的 40378 组时刻与 datetime.fromtimestamp 全同；X09（TS 探针还原时不设修改时刻）在 Windows 上 cpSync 照抄文件时刻、⑤g1 只比 candidate.patch，目录的时刻要到 ⑤h 的 final_audit_turn 才用上，届时补这条变异。
+
+其余场景随各片补（⑤g2 到 ⑤j）。

@@ -1,0 +1,406 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-exec-scenes.contract.test.ts",
+    "packages/contracts/test/hub-exec.contract.test.ts",
+    "packages/contracts/test/pybase-config.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "G01 修改时刻满 1e6 微秒不进位",
+      "file": "ts/packages/base/src/clock.ts",
+      "old": "  if (micros >= 1e6) whole += 1;",
+      "new": "  if (micros > 1e6) whole += 1;"
+    },
+    {
+      "name": "G02 修改时刻直接截到秒",
+      "file": "ts/packages/base/src/clock.ts",
+      "old": "  return utcNow(whole * 1_000_000);\n}",
+      "new": "  return utcNow(Number(ns / 1000n));\n}"
+    },
+    {
+      "name": "E01 interrupted_attempt 不挡还在办的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (ATTEMPT_IN_FLIGHT.includes(state)) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "E02 interrupted_attempt 不挡已有结论的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (ATTEMPT_CONCLUDED.includes(state)) throw new HubError(",
+      "new": "  if (false) throw new HubError("
+    },
+    {
+      "name": "E03 attempts_left 什么异常都吞",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    if (pyCaught(error, [\"ValueError\", \"KeyError\", \"TypeError\", \"AttributeError\"])) return null;",
+      "new": "    return null;"
+    },
+    {
+      "name": "E04 attempts_left 不减已领取的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "pyIntOf(pyItem(budget, \"max_attempts_total\")) - BigInt(budgetUsage(hub, ts).attempts_started)",
+      "new": "pyIntOf(pyItem(budget, \"max_attempts_total\"))"
+    },
+    {
+      "name": "E05 except ValueError 不接 JSONDecodeError",
+      "file": "ts/packages/base/src/pyexc.ts",
+      "old": "  JSONDecodeError: \"ValueError\", UnicodeError: \"ValueError\",",
+      "new": "  UnicodeError: \"ValueError\","
+    },
+    {
+      "name": "E06 rework_source 不看退回给谁",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": " || returnTarget(pyGet(audit, \"target\", \"\")) !== \"5-exec\"",
+      "new": ""
+    },
+    {
+      "name": "E07 rework_source 空补丁也算",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return isFile(patch) && statSync(patch).size ? path : null;",
+      "new": "  return isFile(patch) ? path : null;"
+    },
+    {
+      "name": "E08 RETURN_TARGETS.get 不先散列",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  hashKey(value);\n  return typeof value === \"string\" && Object",
+      "new": "  return typeof value === \"string\" && Object"
+    },
+    {
+      "name": "E09 latest_checks 取最早的一次",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  const last = checksOf(runDir).at(-1);",
+      "new": "  const last = checksOf(runDir).at(0);"
+    },
+    {
+      "name": "E10 cut_off 不看报告写没写成",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return pyGet(summary, \"final_stop_reason\") === \"length\" && pyGet(report, \"status\") !== \"json_ok\";",
+      "new": "  return pyGet(summary, \"final_stop_reason\") === \"length\";"
+    },
+    {
+      "name": "E11 cut_off 先取报告的键",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return pyGet(summary, \"final_stop_reason\") === \"length\" && pyGet(report, \"status\") !== \"json_ok\";",
+      "new": "  return pyGet(report, \"status\") !== \"json_ok\" && pyGet(summary, \"final_stop_reason\") === \"length\";"
+    },
+    {
+      "name": "E12 rework_commits 不滤掉空的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    if (pyTruthy(pyGet(item, \"commit\"))) commits.add(pyGet(item, \"commit\"));",
+      "new": "    commits.add(pyGet(item, \"commit\"));"
+    },
+    {
+      "name": "E13 carryable 也认 RUNNING",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (![\"TIMEOUT\", \"NEEDS_REVIEW\"].includes(state)",
+      "new": "  if (![\"TIMEOUT\", \"NEEDS_REVIEW\", \"RUNNING\"].includes(state)"
+    },
+    {
+      "name": "E14 carryable 不看越界",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (pyTruthy(pyGet(readJson(scope), \"violations\"))) return false;",
+      "new": "  readJson(scope);"
+    },
+    {
+      "name": "E15 carryable 收了尾的不要检查结果",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return state === \"TIMEOUT\" || cutOff(runDir) || pyTruthy(latestChecks(runDir));",
+      "new": "  return state === \"TIMEOUT\" || cutOff(runDir);"
+    },
+    {
+      "name": "E16 checks_passed 一条过就算",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "pyIter(results).every((item) => pyGet(item, \"status\") === \"passed\")",
+      "new": "pyIter(results).some((item) => pyGet(item, \"status\") === \"passed\")"
+    },
+    {
+      "name": "E17 unfinished_why 检查全过也说 failed",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return pyTruthy(latestChecks(runDir)) && !checksPassed(runDir) ? \"failed\" : null;",
+      "new": "  return pyTruthy(latestChecks(runDir)) ? \"failed\" : null;"
+    },
+    {
+      "name": "E18 carry_back 不跳过站主停掉的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    if (state === \"ABANDONED\") continue;",
+      "new": ""
+    },
+    {
+      "name": "E19 carry_back 不看合同重写过没有",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "(pyTruthy(written) && pyLess(pyIntOf(or(pyGet(meta, \"plan_version\"), 0n)), written))",
+      "new": "false"
+    },
+    {
+      "name": "E20 carry_back 不用给定的原因",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "      const reason = pyTruthy(why) ? why : unfinishedWhy(attempt);",
+      "new": "      const reason = unfinishedWhy(attempt);"
+    },
+    {
+      "name": "E21 carry_source 站主停掉的不往前找",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    if (getState(path) === \"ABANDONED\") return carryBack(hub, ts, null);",
+      "new": "    if (getState(path) === \"ABANDONED\") return null;"
+    },
+    {
+      "name": "E22 carry_source 不核能不能接着改",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    return why !== null && carryable(path, reworkCommits(ts)) ? [path, why] : null;",
+      "new": "    return why !== null ? [path, why] : null;"
+    },
+    {
+      "name": "E23 returned_blockers 同一秒不算",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "cmpCodePoints(pyStrValue(or(pyGet(item, \"at\"), \"\")), since) >= 0",
+      "new": "cmpCodePoints(pyStrValue(or(pyGet(item, \"at\"), \"\")), since) > 0"
+    },
+    {
+      "name": "E24 returned_blockers 不看退回给谁",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": " && returnStages(pyGet(item, \"target\")).includes(\"5-exec\")",
+      "new": ""
+    },
+    {
+      "name": "E25 returned_blockers 从最早的找",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  for (const item of [...pyIter(or(pyGet(ts, \"audit_history\"), []))].reverse()) {",
+      "new": "  for (const item of [...pyIter(or(pyGet(ts, \"audit_history\"), []))]) {"
+    },
+    {
+      "name": "E26 分隔符后面的空白不吃",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "const SCOPE_SEPARATOR = pyRegex(`[,，、]${S}*`);",
+      "new": "const SCOPE_SEPARATOR = pyRegex(`[,，、] *`);"
+    },
+    {
+      "name": "E27 条目不去反引号",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    items = rest.split(SCOPE_SEPARATOR).map((value) => stripChars(value, `${BT} `)).filter((value) => value);",
+      "new": "    items = rest.split(SCOPE_SEPARATOR).map((value) => stripChars(value, \" \")).filter((value) => value);"
+    },
+    {
+      "name": "E28 “无”当成文件名",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (rest && !rest.startsWith(\"无\") && ",
+      "new": "  if (rest && "
+    },
+    {
+      "name": "E29 已有的条目再加一遍",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "...paths.filter((path) => !items.includes(path))",
+      "new": "...paths"
+    },
+    {
+      "name": "E30 Scope 的标题不去两头空白",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  const start = lines.findIndex((line) => SCOPE_HEADING.test(pyStrip(line)));",
+      "new": "  const start = lines.findIndex((line) => SCOPE_HEADING.test(line));"
+    },
+    {
+      "name": "E31 check_ok 按真假判断",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "pyGet(pyItem(ts, \"exec\"), \"check_ok\") !== false",
+      "new": "pyTruthy(pyGet(pyItem(ts, \"exec\"), \"check_ok\"))"
+    },
+    {
+      "name": "E32 failed_attempt 不看目录在不在",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": " || !isDir(purePathStr(pyStrValue(runDir)))) return null;",
+      "new": ") return null;"
+    },
+    {
+      "name": "E33 in 字符串按相等比",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    return container.includes(item);",
+      "new": "    return container === item;"
+    },
+    {
+      "name": "E34 重派节的自述缺省不写未知",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "执行端自述 ${pyStrValue(or(pyGet(report, \"executor_status\"), \"未知\"))}",
+      "new": "执行端自述 ${pyStrValue(pyGet(report, \"executor_status\"))}"
+    },
+    {
+      "name": "E35 一句话的理由截 161 字",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "pyStrValue(pySliceHead(said, 160))",
+      "new": "pyStrValue(pySliceHead(said, 161))"
+    },
+    {
+      "name": "E36 字典切片照 3.11 报 unhashable",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (value instanceof Map) throw new PyCrash(\"KeyError\", `slice(None, ${size}, None)`);",
+      "new": "  if (value instanceof Map) throw new PyCrash(\"TypeError\", \"unhashable type: 'slice'\");"
+    },
+    {
+      "name": "E37 最多附 4 条没过的检查",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "export const RETRY_MAX_CHECKS = 3;",
+      "new": "export const RETRY_MAX_CHECKS = 4;"
+    },
+    {
+      "name": "E38 每条附 39 行日志",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "export const RETRY_LOG_LINES = 40;",
+      "new": "export const RETRY_LOG_LINES = 39;"
+    },
+    {
+      "name": "E39 范围违规的路径不加反引号",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "      `- ${BT}${pyStrValue(pyGet(item, \"path\"))}${BT}：",
+      "new": "      `- ${pyStrValue(pyGet(item, \"path\"))}："
+    },
+    {
+      "name": "E40 剩余工作每项 301 字",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "export const LEFTOVER_CHARS = 300;",
+      "new": "export const LEFTOVER_CHARS = 301;"
+    },
+    {
+      "name": "E41 剩余工作最多 9 项",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "export const LEFTOVER_MAX_ITEMS = 8;",
+      "new": "export const LEFTOVER_MAX_ITEMS = 9;"
+    },
+    {
+      "name": "E42 剩余工作不把空白压成一个",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    const text = pySplit(typeof value === \"string\" ? value : dumps(value, { ensureAscii: false })).join(\" \");",
+      "new": "    const text = typeof value === \"string\" ? value : dumps(value, { ensureAscii: false });"
+    },
+    {
+      "name": "E43 DoD 里不是字典的也取键",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": ".filter((item) => item instanceof Map && pyGet(item, \"status\") !== \"done\")",
+      "new": ".filter((item) => pyGet(item, \"status\") !== \"done\")"
+    },
+    {
+      "name": "E44 跑满时限检查没全过也说都过了",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (pyTruthy(timedOut) && why === \"timeout\" && passed) {",
+      "new": "  if (pyTruthy(timedOut) && why === \"timeout\") {"
+    },
+    {
+      "name": "E45 failed 不提剩余工作",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "下面列的没过${pyTruthy(leftovers) ? \"；上一轮执行报告里没做完的也列在下面\" : \"\"}。",
+      "new": "下面列的没过。"
+    },
+    {
+      "name": "E46 检查都过了与没跑出结果写反",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    empty = passed ? \"（检查都过了）\" : \"（内核没有跑出检查结果）\";",
+      "new": "    empty = passed ? \"（内核没有跑出检查结果）\" : \"（检查都过了）\";"
+    },
+    {
+      "name": "E47 阻塞项不是字符串也照常",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (typeof given !== \"string\") throw new PyCrash(\"AttributeError\", `'${pyTypeName(given)}' object has no attribute 'strip'`);",
+      "new": "  if (typeof given !== \"string\") return pyJoinStrings(LF, [...lines, title, \"\", empty, \"\"]);"
+    },
+    {
+      "name": "E48 字典没有 text 时不照 str",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "      const text = pyStrValue(item instanceof Map && pyTruthy(pyGet(item, \"text\")) ? pyGet(item, \"text\") : item);",
+      "new": "      const text = pyStrValue(item instanceof Map ? pyGet(item, \"text\") : item);"
+    },
+    {
+      "name": "E49 GATE_CLAIM_RE 分大小写",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "gate (?:test )?(?:defect|bug)\", FLAG_IGNORECASE);",
+      "new": "gate (?:test )?(?:defect|bug)\");"
+    },
+    {
+      "name": "E50 THINKING_GATE_RE 的窗口 61 个字",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "implementation)${BS}b).){0,60}?`",
+      "new": "implementation)${BS}b).){0,61}?`"
+    },
+    {
+      "name": "E51 THINKING_GATE_RE 不排除说自己的",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "`gate(?:(?![.;!?]|${BS}b(?:my|our|the app|implementation)${BS}b).){0,60}?`",
+      "new": "`gate(?:(?![.;!?]).){0,60}?`"
+    },
+    {
+      "name": "E52 思考摘录不压空白",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "      const text = item instanceof Map ? pySplit(pyStrValue(or(pyGet(item, \"excerpt\"), \"\"))).join(\" \") : \"\";",
+      "new": "      const text = item instanceof Map ? pyStrValue(or(pyGet(item, \"excerpt\"), \"\")) : \"\";"
+    },
+    {
+      "name": "E53 需关注的阈值不含边界",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    level = p >= pyFloatOf(pyGet(thresholds, \"action\", 2n)) ? \"需关注\"",
+      "new": "    level = p > pyFloatOf(pyGet(thresholds, \"action\", 2n)) ? \"需关注\""
+    },
+    {
+      "name": "E54 留意的缺省阈值是 0",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "p >= pyFloatOf(pyGet(thresholds, \"review\", 2n)) ? \"留意\"",
+      "new": "p >= pyFloatOf(pyGet(thresholds, \"review\", 0n)) ? \"留意\""
+    },
+    {
+      "name": "E55 round 不取偶",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return BigInt(Math.abs(value - rounded) === 0.5 ? 2 * roundHalfAway(value / 2) : rounded);",
+      "new": "  return BigInt(rounded);"
+    },
+    {
+      "name": "E56 empty_commit 比树写反",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  return trees.length === 2 && trees[0] === trees[1];",
+      "new": "  return trees.length === 2 && trees[0] !== trees[1];"
+    },
+    {
+      "name": "E57 empty_commit 根提交也算",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (parents.length !== 2) return false;",
+      "new": "  if (parents.length !== 2) return parents.length === 1;"
+    },
+    {
+      "name": "E58 attempt 名字分大小写",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "${process.platform === \"win32\" ? ci(\"attempt-\") : \"attempt-\"}",
+      "new": "attempt-"
+    },
+    {
+      "name": "E59 attempt 名字的数字不限三位",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "\"attempt-\"}[0-9][0-9][0-9]$`, \"u\");",
+      "new": "\"attempt-\"}[0-9]+$`, \"u\");"
+    },
+    {
+      "name": "E60 in 不能迭代的容器照 iter 报",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  throw new PyCrash(\"TypeError\", `argument of type '${pyTypeName(container)}' is not iterable`);",
+      "new": "  return pyIter(container).some((value) => pyEq(value, item));"
+    },
+    {
+      "name": "E61 认不出 fsutil 的 UnicodeDecodeError",
+      "file": "ts/packages/base/src/pyexc.ts",
+      "old": "  if (error instanceof PyUnicodeDecodeError || error instanceof UnicodeDecodeError) return \"UnicodeDecodeError\";",
+      "new": "  if (error instanceof PyUnicodeDecodeError) return \"UnicodeDecodeError\";"
+    },
+    {
+      "name": "E62 RecursionError 挂到 ValueError 下",
+      "file": "ts/packages/base/src/pyexc.ts",
+      "old": "  RecursionError: \"RuntimeError\",",
+      "new": "  RecursionError: \"ValueError\","
+    },
+    {
+      "name": "E63 ConnectionError 不算 OSError",
+      "file": "ts/packages/base/src/pyexc.ts",
+      "old": " ConnectionError: \"OSError\",",
+      "new": ""
+    }
+  ]
+}

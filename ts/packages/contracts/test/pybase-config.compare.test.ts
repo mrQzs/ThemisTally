@@ -267,6 +267,45 @@ describe("os.replace 失败时的文字（第 ⑤f 片：fsutil 的 writeTextAto
   });
 });
 
+describe("文件修改时刻换成秒（第 ⑤g 片：kit_hub 3233、4271 的 fromtimestamp(st_mtime, utc).strftime）", () => {
+  it("Python 用 os.utime(ns=...) 把文件设到边界上，两边各自 stat、各自换成秒，逐字相同；小数部分满 1e6 微秒时进到下一秒", () => {
+    const dir = scratchDir("mtime");
+    try {
+      const secs = [1n, 1_000_000_000n, 1_700_000_000n, 1_762_000_123n, 4_000_000_000n];
+      const nsecs = [0n, 123_456_789n, 499_999_999n, 500_000_000n, 999_999_499n, 999_999_500n, 999_999_501n, 999_999_999n];
+      const files = secs.flatMap((sec) => nsecs.map((nsec) => {
+        const path = join(dir, `${sec}-${nsec}.txt`);
+        writeFileSync(path, "x");
+        return [path, String(sec * 1_000_000_000n + nsec)];
+      }));
+      const real = runProbe(PYTHON, { op: "mtime.real", files });
+      const texts = real["texts"] as string[];
+      expect(texts[nsecs.length - 1]).toBe("1970-01-01T00:00:02Z"); // 1.999999999 秒：微秒取整满 1e6，进到下一秒
+      for (const impl of IMPLS.filter((item) => item !== PYTHON)) {
+        expect(runProbe(impl, { op: "mtime.seconds", paths: files.map(([path]) => path) })["texts"], impl.name).toEqual(texts);
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
+describe("Python 异常的继承关系与类名（第 ⑤g1 片：base 的 pyexc）", () => {
+  it.runIf(process.platform === "win32")("pyCaught 照 __mro__ 逐对判；base 的每种异常类，pyExceptionName 与 Python 的 type(exc).__name__ 相同", () => {
+    const specs = [...[1, 2, 13, 17, 20, 21, 28].map((errno) => ["oserror", errno]), ...[2, 5, 183, 267, 109, 128, 89, 1].map((winerror) => ["winerror", winerror]),
+      ["decode", "fsutil"], ["decode", "pyio"], ["json", null], ["re-error", null], ["re-value", null], ["re-overflow", null], ["crash", "KeyError"], ["crash", "TimeoutExpired"]];
+    for (const impl of IMPLS.filter((item) => item !== PYTHON)) {
+      const ts = runProbe(impl, { op: "pyexc.call", specs });
+      const names = ts["names"] as string[];
+      expect(names).toEqual(expect.arrayContaining(["BrokenPipeError", "ConnectionError", "ChildProcessError", "BlockingIOError", "TimeoutExpired", "SubprocessError"]));
+      const real = runProbe(PYTHON, { op: "pyexc.real", names, specs });
+      const mro = real["mro"] as Record<string, string[]>;
+      expect(ts["caught"], impl.name).toEqual(names.map((name) => names.map((kind) => (mro[name] as string[]).includes(kind))));
+      expect(ts["made"], impl.name).toEqual(real["names"]);
+    }
+  });
+});
+
 describe("str(PurePath(...))", () => {
   it("盘符、UNC、设备路径、相对路径与各种分隔符", () => {
     const B = String.fromCharCode(92);

@@ -61,9 +61,9 @@ export function runProbe(impl: Impl, request: ProbeRequest, timeout = 60_000): P
   return JSON.parse(done.stdout) as ProbeResult;
 }
 
-/** 一批请求交给一个探针进程，按顺序返回各自的结果。 */
-export function runBatch(impl: Impl, items: readonly ProbeRequest[]): ProbeResult[] {
-  const result = runProbe(impl, { op: "batch", items });
+/** 一批请求交给一个探针进程，按顺序返回各自的结果。timeout 同 runProbe：采样的几百次重放在全量并行时会超过 60 秒（⑤g1 实测），由调用方放宽。 */
+export function runBatch(impl: Impl, items: readonly ProbeRequest[], timeout = 60_000): ProbeResult[] {
+  const result = runProbe(impl, { op: "batch", items }, timeout);
   if (!result.ok || !Array.isArray(result["results"])) throw new Error(`${impl.name} 批量请求失败：${JSON.stringify(result)}`);
   return result["results"] as ProbeResult[];
 }

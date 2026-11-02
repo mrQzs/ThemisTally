@@ -9,6 +9,7 @@
     "./contract": "./src/contract.ts",
     "./delivery": "./src/delivery.ts",
     "./errors": "./src/errors.ts",
+    "./exec": "./src/exec.ts",
     "./gatepost": "./src/gatepost.ts",
     "./inputs": "./src/inputs.ts",
     "./kernel": "./src/kernel.ts",

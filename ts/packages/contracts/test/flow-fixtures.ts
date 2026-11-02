@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { expect } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
+import { copyTreeTimes } from "../src/tree-times.ts";
 import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, runBatch, runProbe } from "./harness.ts";
 import { git, newRepo, tempDir } from "./repo-fixtures.ts";
 
@@ -60,10 +61,12 @@ export function scene(files: Record<string, string>, prepare: (repo: string, wt:
   if (worktree) git(repo, "worktree", "add", "-q", "--detach", wt, head);
   prepare(repo, wt, head);
   const tpl = tempDir("flow-tpl");
-  cpSync(repo, join(tpl, "repo"), { recursive: true });
+  cpSync(repo, join(tpl, "repo"), { recursive: true, preserveTimestamps: true });
+  copyTreeTimes(repo, join(tpl, "repo")); // ⑤g：修改时刻也是场景的一部分（kit_hub 有两处拿它跟记录比）
   const restores: unknown[] = [{ from: join(tpl, "repo"), to: repo, links: [], git: true }];
   if (worktree) {
-    cpSync(wt, join(tpl, "wt"), { recursive: true });
+    cpSync(wt, join(tpl, "wt"), { recursive: true, preserveTimestamps: true });
+    copyTreeTimes(wt, join(tpl, "wt"));
     restores.push({ from: join(tpl, "wt"), to: wt, links: [], git: true });
   }
   return { repo, wt, head, restores, roots: worktree ? [repo, wt] : [repo] };

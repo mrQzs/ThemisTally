@@ -2,7 +2,7 @@
 // 同一份源码由 `node`（类型擦除）与 `bun` 各跑一遍。
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { attemptDirName, auditId, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
+import { attemptDirName, auditId, mtimeUtcSeconds, newMsgId, newTurnId, utcCompact, utcNow } from "@themis/base/clock";
 import { UnicodeDecodeError, readText, replaceError, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { SAFE_MAX_LINE_BYTES, appendEvent, iterLines, jsonlRecords, linesBefore, readJsonl } from "@themis/base/jsonl";
 import { ConfigLock, DirLock, LockBusyError, TaskLock } from "@themis/base/locks";
@@ -88,6 +88,8 @@ import {
 import { configErrors } from "@themis/config/roles-check";
 import { SecretError, checkName, describeSecret, removeSecret, source } from "@themis/config/secret-store";
 import { ConfigError, type Kit, kitAt, loadConfig, pluginsFixHint, pluginsSectionError, pricingTable, validateConfig, worktreeRoot } from "@themis/config/validate";
+import { PY_EXCEPTION_PARENTS, pyCaught, pyExceptionName } from "@themis/base/pyexc";
+import { PyWinError } from "@themis/base/pyos";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { hubAudit, hubBox, hubCall, hubConstants, hubContract, hubContractFlow, hubInputs, hubPrompt, hubShadowLetter, hubShadowRoute, hubShadowRoutine, hubShadowTask, hubTurn } from "./hub_probe.ts";
 
@@ -529,6 +531,21 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
   "replace.error": (request) => {
     const error = replaceError(Object.assign(new Error("x"), { code: String(request["code"]) }), String(request["src"]), String(request["dst"])) as Error;
     return { ok: true, error: error.name, text: error.message };
+  },
+  "mtime.seconds": (request) => ({ ok: true, texts: (request["paths"] as string[]).map(mtimeUtcSeconds) }),
+  "pyexc.call": (request) => {
+    // 第 ⑤g1 片：PY_EXCEPTION_PARENTS 的每一对名字照 pyCaught 判，specs 里每一项造一个 base 的异常，交回 pyExceptionName
+    const names = [...Object.keys(PY_EXCEPTION_PARENTS), "Exception"];
+    const caught = names.map((name) => names.map((kind) => pyCaught(new PyCrash(name, "x"), [kind])));
+    const made = (request["specs"] as [string, unknown][]).map(([kind, arg]) => pyExceptionName(
+      kind === "oserror" ? new PyOSError(Number(arg), "x", null)
+        : kind === "winerror" ? new PyWinError(Number(arg), "x", "f")
+          : kind === "decode" ? (arg === "fsutil" ? new UnicodeDecodeError("x") : new PyUnicodeDecodeError("x"))
+            : kind === "json" ? new PyJsonError("JSONDecodeError", "x")
+              : kind === "re-error" ? new PyReError("x")
+                : kind === "re-value" ? new PyValueError("x")
+                  : kind === "re-overflow" ? new PyOverflowError("x") : new PyCrash(String(arg), "x")));
+    return { ok: true, names, caught, made };
   },
   "winerror.text": (request) => ({
     ok: true, text: pyWinErrorMessage(Number(request["code"]), typeof request["path"] === "string" ? request["path"] : undefined),
