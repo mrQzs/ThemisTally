@@ -9,6 +9,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SHARING_PAUSE_MS, SHARING_RETRIES, isPermissionError } from "@themis/base/fsutil";
 import { EXE_SEARCH_GUARD } from "@themis/base/harden";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { D, S, W, WB, cmpCodePoints, codePoints, pyIntParse, pyRegex, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
@@ -104,7 +105,23 @@ export async function runCapture(cmd: readonly string[], options: CaptureOptions
     if (result.timed_out) return [124, "", `timeout after ${timeout}s`];
     return [result.exit_code as number, decodeReplace(join(dir, "stdout")), decodeReplace(join(dir, "stderr"))];
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await removeCaptureDir(dir);
+  }
+}
+
+/**
+ * 子进程树结束之后，还没退干净的进程可能仍拿着继承来的 stdout、stderr 句柄（Windows 上打开时不带 FILE_SHARE_DELETE），
+ * 删除报 EPERM、EBUSY：照 fsutil 的共享冲突短暂重试，最后还失败照旧抛出。rmSync 的 maxRetries 在 Node 的同步版与 Bun 上都不管用（Node 24.19、Bun 1.4.2 实测）。
+ */
+async function removeCaptureDir(dir: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isPermissionError(error) || attempt === SHARING_RETRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, SHARING_PAUSE_MS));
+    }
   }
 }
 
