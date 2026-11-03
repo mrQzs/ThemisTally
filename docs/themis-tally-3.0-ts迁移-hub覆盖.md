@@ -282,7 +282,7 @@ COVERED 2、PARTIAL 24：调到这三个函数的 24 条都是门禁、合同与
 | `test_dispatched_contract_is_bumped_not_edited` | 322 | COVERED | hub-contract-flow：bump 2 次（新版本、撞上已有的版本） |
 | `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | PARTIAL | accept_gate_pre 3 次；Engine 归 ⑤i |
 | `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | PARTIAL | accept_gate_pre 2 次；经 Engine 的返工归 ⑤i |
-| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | COVERED | hub-contract-flow：accept_gate_pre 4 次（收集失败三次）；ensure_worktree 只用来搭门禁草稿 worktree，它本身归 ⑤i |
+| `test_gate_pre_rejects_a_baseline_that_does_not_collect` | 474 | COVERED | hub-contract-flow：accept_gate_pre 4 次（收集失败三次）；ensure_worktree 只用来搭门禁草稿 worktree，它本身见 ⑤f 的表（hub-gatepost，COVERED） |
 | `test_gate_pre_baseline_must_fail_on_assertions` | 491 | COVERED | hub-contract-flow：accept_gate_pre 1 次，加上 ⑤e2a 的 hollow_baseline_problems；ensure_worktree 同上 |
 | `test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt` | 574 | COVERED | hub-contract-flow：accept_contract 2 次，用例换上的 revalidate 照记录注入；guard 在 ⑤a |
 | `test_contract_title_is_the_registered_task_title` | 901 | COVERED | hub-contract-flow：revalidate_contract 1 次（derive-json 带 --title） |
@@ -667,4 +667,143 @@ COVERED 10、PARTIAL 15。⑤h1 表里归 ⑤h2 的落地预演与 owner sweep�
   - 并进清单为 S95–S98，另加 ts 重装那处同类的 S99。
   - 只跑那条直接测试时，S96、S99 都由断言抓住；S97 由采样契约抓住。
 
-其余场景随各片补（⑤i 到 ⑤j）。
+## ⑤i 调度循环与 Engine
+
+拆成两片（⑤i 设计稿，themistally-04 复核两轮）：⑤i1 是工人一侧与结项，⑤i2 是选信、协调人一侧与续接。cmd_run 的循环本体归 ⑤j。
+
+用例怎么分到各片，不按测试体里的字面文字挑，而是机械得出：在 kb3 上带追踪跑整份 tests/test_kit_hub.py（299 条、362 个实例），记下每个实例进入过的 kit_hub 函数（按 qualname），以及各片采样器会记到的最外层调用。走到 ⑤i 函数的用例共 106 条：只走 ⑤i1 16 条，⑤i1 与 ⑤i2 都走 51 条，三片都走 5 条，只走 ⑤i2 9 条，⑤i2 加 ⑤j 25 条；另有 23 条只走 ⑤j。
+
+### ⑤i1 工人一侧与结项
+
+做法（⑤i 设计稿第 2–4 节，themistally-04 复核）：
+- 采样器给这一片的每个函数都装记录器，只记“同一片的函数不在栈上”的那一次，不挑名单：
+  - Engine 的 escalate、worker_job、auto_jev、stage_workspace、verify_delivery、after_delivery、finish_kernel_stage、recheck_exec、worker_turns、redeliver、handle_pass、after_land、after_land_run，以及 land、release_dependents，照 ⑤e2b 的流程函数记；
+  - 只读的 output_problem、resumed_session 照 ⑤e2a 记快照。
+- Engine 记成仓库与 only_task。它的 runner 在调用期间换成录制包装（内层名 runner），比 prompt 全文、fresh、session_id、retry_of，以及调用当时输入目录里的文件（相对路径与 sha256，按码点排）。
+- 用例当时换掉的内层函数照记录注入，另认一组只在 ⑤i 的最外层调用里认的名字（role_prompt、ensure_worktree、apply_candidate、seed_whitebox、run_exec、run_jev、finalize、tidy_finished、regression_sweep、Engine.verify_delivery、Engine.auto_jev）；mkdtemp、run_supervised、sweep_gates、pid_alive 在 ⑤i 的流程函数里总照记录注入。前几片的样本不变。
+- 钉住：时刻、信编号（⑤h2 的办法）与 time.time（执行端等不到落地锁时扣信，解除时刻是 int(time.time()) + 120）。
+- 随样本带上：名册的改动（overrides）；用例改过的 kit_hub 常量（实测只有 7117 经 inputs_fixture 把 INPUT_FILE_LIMIT 改成 64；TS 只认对得上 deps 的几个，不认的报错）；state 参数读出时的 seen（重放照样建 HubState，save_state 才照三方合并写）；ts 是 state 里的哪一项（ts_alias）；land 收到的是不是用例自己写的假 Engine（4001）。
+- 当场核对：传进来的 state 与调用当时的 state.json 是否相同（state_differs）。
+- 不重放的：调用当时目录锁有活的持有者（重放时持有者已经不在，接管与否两边不同）；release_dependents 一路不拿也不探锁，不受这条管（themistally-04 定）。
+- 带 parametrize 的用例照 pytest 的次序展开成“名[i]”，只认一层、普通的 argvalues。
+- 内层抛的 HubError 一族带退出码，重放照真的类抛；rehearse_landing 进了比调用之后 ts 的名单（4376 的假函数写 ts["rehearsal"]）。
+- 手写场景用的剧本（request 的 scripted）：照剧本按次交回、不核对参数，每次调用的参数照内层调用记下，随结果交回、三边互比；只给 Python 用例里也换掉的那几个用。剧本的一项可以带 listing：调用当时某个目录下的文件名（按码点排）记进这次调用（为 L01 加的，合入后回归的窗口标记只在窗口开着时在）。
+
+契约：
+- hub-engine：72 条用例（4 条带参数的展开成 15 个实例）。
+  - 最外层调用 156 次：worker_job 60、resumed_session 52、recheck_exec 6、release_dependents 6、after_land 6、auto_jev 5、stage_workspace 4、verify_delivery 4、after_delivery 4、escalate 3、worker_turns 2、handle_pass 2、land 2。
+  - 跳过 1 次：5360 的 worker_job（调用当时 .land 有活的持有者），由手写场景覆盖。
+  - 注入：runner 77、role_prompt 77、worktree_root 63、ensure_worktree 48、run_pd 10、Engine.verify_delivery 7、rehearse_landing 7、run_exec 6、run_jev 5、apply_candidate 4、pid_alive 3、Engine.auto_jev 2、finalize 2、revalidate_contract 2、_running_attempts 2、regression_sweep 2、seed_whitebox 2、budget_problems 1、tidy_finished 1、engine.handle_pass 1、engine.after_land 1。
+  - state 当场核对标出 11 次（用例把在内存里改过、没存盘的 state 传进去），ts_alias 5 次。
+  - 流程函数 103 次、resumed_session 52 次，三边重放都与当时的结果相同（JSON 文字逐字，键的次序也算）。
+- hub-engine-scenes：20 条 it。前 6 条是设计稿第 6 节的手写场景（6 组三边对照，“当场重交”的两组在同一条 it 里；另 1 条只测 TS 的时限测试）；接着 13 条是变异第二段之后补的，最后 1 条是 themistally-04 抽查之后补的（Z05），见下面的变异一段。
+  - 当场重交：核验没过、同一会话重交一次后通过；重交的回合撞上限流（不扣信、阶段 failed、信里带第一次核验）。
+  - 扣信：限流的工人回合；执行端等不到落地锁（另一个进程真拿着 .land，5360 的形状），扣信 120 秒、只记账本不写信、拿到锁之前不建返工版本。
+  - 不唤醒工人的信：主任务没登记、有一封缺 type，类型排不了序，照 Python 抛 TypeError（只比类型）。
+  - 结项：handle_pass 通过之后放行依赖它的主任务（真 git 取末端）。
+  - 只测 TS：另一个进程拿着 .land 时，land 照 landLockWaitSeconds 报“锁被占用：”，不等执行端的 landWaitSeconds。
+  - 设计稿第 6 节省掉的两场：战前门禁先退回基线再重交（2559 的 worker_job 一路走到 redeliver，stage_workspace 两次、真 git 26 次；426 的 stage_workspace 真跑退回基线那一支，都在采样里重放上了）；exec-recheck（2661 的 2 次、5152 的 4 次 recheck_exec 都重放上了）。“到点放回扣信”归 ⑤i2 的扣信场景。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_hotfix_rework_records_the_previous_baseline` | 307 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_gate_pre_commit_bumps_a_dispatched_contract_and_keeps_the_hotfix_diff` | 373 | COVERED | hub-engine：stage_workspace 1 次 |
+| `test_gate_rework_resets_a_worktree_the_state_lost_track_of` | 426 | COVERED | hub-engine：stage_workspace 1 次 |
+| `test_first_review_report_must_map_every_dod` | 662 | COVERED | hub-engine：verify_delivery 2 次 |
+| `test_candidate_defects_go_to_the_final_review_which_cannot_pass_them` | 993 | COVERED | hub-engine：after_delivery 2 次、verify_delivery 2 次 |
+| `test_review_history_survives_rework_and_seals_the_next_round` | 1152 | COVERED | hub-engine：after_delivery 2 次 |
+| `test_contract_block_or_executor_conflict_can_send_the_work_upstream` | 1504 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_coordinator_letters_pass_the_guard_before_delivery` | 1639 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_three_rejected_coordinator_turns_block_the_task` | 1655 | PARTIAL | hub-engine：resumed_session 3 次、escalate 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step 归 ⑤i2 |
+| `test_start_without_brief_is_rejected` | 1669 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step 归 ⑤i2 |
+| `test_worker_delivery_is_verified_then_forwarded` | 1684 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_plan_delivery_must_list_its_external_facts` | 1711 | PARTIAL | hub-engine：worker_job 5 次；next_job、step 归 ⑤i2 |
+| `test_plan_with_only_verified_facts_goes_straight_to_the_contract` | 1730 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_unverified_external_facts_wait_for_the_owner` | 1745 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2；cmd_send、main 归 ⑤j |
+| `test_plan_redelivery_replaces_the_external_facts` | 1791 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_worker_turn_with_violation_is_not_delivered` | 1815 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_model_api_errors_are_not_retried_and_go_to_the_owner` | 1831 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_rate_limited_worker_turn_is_held_and_resumed` | 1857 | PARTIAL | hub-engine：worker_job 2 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、letters_held、next_job、runner_may_idle_exit、step、supervisor_busy、write_brief 归 ⑤i2 |
+| `test_held_letters_are_dropped_when_the_stage_was_restarted_meanwhile` | 1892 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_rate_limited_turn_that_also_broke_the_rules_is_not_held` | 1913 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_stage_left_busy_by_a_killed_runner_is_requeued_and_resumed` | 1946 | PARTIAL | hub-engine：worker_job 1 次；interrupted_letters、next_job、requeue_interrupted、requeue_letters、requeue_task、runner_lock、step、stranded_stages、tasks_with_work 归 ⑤i2 |
+| `test_a_resumed_turn_without_a_usable_session_starts_fresh` | 2012 | COVERED | hub-engine：worker_turns 2 次、resumed_session 1 次 |
+| `test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed` | 2096 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、finished_turn、next_job、requeue_interrupted、requeue_letters、requeue_task、runner_lock、step、stranded_stages、tasks_with_work、write_brief 归 ⑤i2 |
+| `test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once` | 2122 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、finished_turn、next_job、requeue_interrupted、requeue_letters、requeue_task、runner_lock、step、stranded_stages、write_brief 归 ⑤i2 |
+| `test_the_coordinator_marker_is_cleared_on_every_way_out_of_the_turn` | 2150 | PARTIAL | hub-engine：resumed_session 4 次、escalate 1 次；coordinator_turn、fail_stage、next_job、report_step_error、requeue_interrupted、step、stranded_stages 归 ⑤i2 |
+| `test_a_jev_cut_off_by_a_kill_is_rerun` | 2187 | PARTIAL | hub-engine：worker_job 1 次；interrupted_letters、next_job、requeue_interrupted、requeue_letters、requeue_task、runner_lock、step、stranded_stages 归 ⑤i2 |
+| `test_a_rate_limited_coordinator_turn_is_held_and_resumed` | 2333 | PARTIAL | hub-engine：resumed_session 2 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_coordinator_api_error_is_not_retried` | 2360 | PARTIAL | hub-engine：escalate 1 次、resumed_session 1 次；coordinator_turn、next_job、step 归 ⑤i2 |
+| `test_kernel_runs_jev_right_after_a_passing_delivery` | 2370 | COVERED | hub-engine：auto_jev 5 次 |
+| `test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes` | 2395 | PARTIAL | hub-engine：worker_job 2 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_delivery_that_fails_the_check_is_redone_in_the_same_session` | 2434 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so` | 2466 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_redelivery_may_hand_in_a_block_instead` | 2484 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too` | 2503 | PARTIAL | hub-engine：worker_job 2 次、resumed_session 2 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_contract_that_fails_derive_json_is_redrafted_under_the_same_number` | 2519 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_a_second_hotfix_rework_keeps_the_original_previous_oracle` | 2607 | PARTIAL | hub-engine：resumed_session 2 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_exec_recheck_revisits_the_last_attempt_without_rerunning` | 2661 | COVERED | hub-engine：recheck_exec 2 次 |
+| `test_owner_takeover_closes_the_task` | 3230 | PARTIAL | hub-engine：release_dependents 1 次；runner_lock 归 ⑤i2；cmd_task_close、task_quiet 归 ⑤j |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | hub-engine：handle_pass 1 次；runner_lock 归 ⑤i2；cmd_task_cleanup、task_quiet 归 ⑤j |
+| `test_invalid_output_gets_one_retry` | 3426 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_timed_out_turn_does_not_use_up_the_format_retry` | 3437 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_worker_retries_stop_when_the_output_stays_invalid` | 3455 | PARTIAL | hub-engine：worker_job 3 次、resumed_session 3 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_the_blocked_letter_says_timed_out_again_only_when_it_did` | 3477 | PARTIAL | hub-engine：worker_job 5 次、resumed_session 5 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_info_letters_do_not_wake_workers` | 3592 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_rework_starts_a_clean_session` | 3601 | PARTIAL | hub-engine：worker_job 2 次；next_job、step 归 ⑤i2 |
+| `test_landing_waits_for_other_tasks_executors` | 4001 | COVERED | hub-engine：land 2 次 |
+| `test_exec_delivery_carries_the_rehearsal_and_warns_the_owner` | 4340 | COVERED | hub-engine：worker_job 3 次 |
+| `test_after_land_rehearses_the_other_active_candidates` | 4376 | COVERED | hub-engine：after_land 2 次 |
+| `test_after_land_reports_the_regression_to_the_owner` | 4405 | COVERED | hub-engine：after_land 3 次 |
+| `test_background_sweeps_hold_off_other_landings_while_they_run` | 4545 | COVERED | hub-engine：after_land 1 次 |
+| `test_release_moves_the_base_once_every_dependency_is_done` | 4808 | COVERED | hub-engine：release_dependents 3 次 |
+| `test_passing_and_owner_close_release_the_dependents` | 4855 | PARTIAL | hub-engine：handle_pass 1 次、release_dependents 1 次；runner_lock 归 ⑤i2；cmd_task_close、main、task_quiet 归 ⑤j |
+| `test_owner_adds_a_dependency_found_in_planning` | 4938 | PARTIAL | hub-engine：release_dependents 1 次；runner_lock 归 ⑤i2；cmd_task_after、main、task_quiet 归 ⑤j |
+| `test_a_crashed_turn_tells_the_owner_which_letters_were_taken` | 5119 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、fail_stage、next_job、report_step_error、step 归 ⑤i2 |
+| `test_exec_recheck_resumes_an_execution_the_hub_was_killed_in` | 5152 | COVERED | hub-engine：recheck_exec 4 次 |
+| `test_paused_worker_stage_can_be_started_again` | 5185 | PARTIAL | hub-engine：worker_job 1 次；deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_gate_post_workspace_is_seeded_before_the_gate_starts` | 5334 | COVERED | hub-engine：stage_workspace 2 次 |
+| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | PARTIAL | hub-engine：worker_job 1 次；另有 worker_job 1 次不重放（调用当时 .land 有活的持有者），由 hub-engine-scenes 的场景覆盖；next_job、step 归 ⑤i2 |
+| `test_a_crashed_worker_turn_leaves_the_stage_restartable` | 5390 | PARTIAL | hub-engine：worker_job 1 次；fail_stage、next_job、report_step_error、step 归 ⑤i2 |
+| `test_the_gate_hotfix_turn_carries_the_executors_words` | 6622 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_timed_out_voided_turn_is_resumed_not_restarted` | 6669 | PARTIAL | hub-engine：worker_job 2 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint` | 6695 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_the_owners_rework_words_reach_the_reworked_stage_verbatim` | 6712 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_each_turn_reads_its_own_copy_and_the_copy_is_gone_afterwards` | 7117 | PARTIAL | hub-engine：worker_job 1 次、resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
+| `test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reason` | 7542 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、next_job、route、step 归 ⑤i2 |
+| `test_a_batch_that_is_not_routine_tells_the_coordinator_why` | 7559 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、next_job、route、step 归 ⑤i2 |
+| `test_the_kernel_leaves_the_last_rework_of_a_stage_to_the_coordinator` | 7574 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、route、step、write_brief 归 ⑤i2 |
+| `test_a_passing_delivery_clears_the_last_check` | 7607 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
+| `test_a_partly_routed_batch_records_what_went_out` | 7621 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、next_job、route、step、write_brief 归 ⑤i2 |
+| `test_a_routing_cut_short_is_handed_back_with_its_own_words` | 7644 | PARTIAL | hub-engine：resumed_session 1 次；coordinator_turn、deliver_coordinator_letter、finished_turn、interrupted_letters、next_job、requeue_letters、requeue_task、step、stranded_stages、write_brief 归 ⑤i2 |
+| `test_a_clean_slice_runs_from_task_to_pass_without_a_coordinator_turn` | 7708 | PARTIAL | hub-engine：worker_job 7 次；coordinator_turn、deliver_coordinator_letter、next_job、route、step、write_brief 归 ⑤i2 |
+
+COVERED 16、PARTIAL 56。⑤i1 之后仍 PARTIAL 的，剩下的部分逐条写在上表：step、next_job、coordinator_turn 一族归 ⑤i2，task close、send 一类命令归 ⑤j。前几节写着“归 ⑤i”的 29 条里，这一片关掉 12 条（373、426、662、993、1152、2661、4001、4340、4376、4405、4545、5152），1711、1857、1892、2519、5360、6622、6669、6695、6712 在 ⑤i2 关掉，1745、3276 剩 ⑤j，⑤i2 的 5 条（1564、1985、2029、2205、3985）在下一片；474 那一行是旧的（⑤e2b 表），ensure_worktree 在 ⑤f 表已经 COVERED，这次改掉。
+
+变异：ts/mutations/hub-i1.ts.json 共 150 条（engine.ts），全部抓住，清单里没有判等价的。前 149 条分三段跑，第 150 条来自 themistally-04 的抽查：
+- 第一段只跑手写场景（当时的 6 条 it），147 条抓住 29 条。
+- 第二段：第一段漏掉的 118 条，用存下的 155 次样本请求让 node 重放，抓住 76 条，漏 42 条。
+- 漏掉的 42 条逐条报 themistally-04 定：
+  - 41 条补场景，即 hub-engine-scenes 的后 13 条 it。每条造一个让 Python 与变异体走出不同结果的输入，多是采样里没有的情形：
+    - 超长的文字（各处截断）；
+    - 两条以上的违规与核验问题；
+    - 缺 check_ok；
+    - 阶段里带 stranded_notice 或 resume；
+    - 下游阶段已经交付（作废）；
+    - ts 里没有 base_head 或 gate_post：照 Python 只在用到的分支里读（G08、D09）；
+    - 后台回归的窗口标记挡着落地（N05）。
+  - L01（合入后回归的窗口名）：
+    - 我原提议算等价，理由是按主任务号取标记文件的几处都取不到这个名字。
+    - themistally-04 指出不等价：landing_blockers 按文件名排序后列出挡路的。"T100-after-land.json" < "T1000.json" < "T100-afterland.json"，改名会让等待说明里两条的先后颠倒。
+    - 于是给剧本加了 listing，场景记下回归期间 exec-active 下的文件名。只留这一条 it 单跑时，也是它抓住的。
+  - 核查 Y01 时查出 dict() 对列表的报错与 Python 不同：
+    - 字符串键的项赋值，Python 报 list indices must be integers or slices, not str；
+    - pop(key, None)，Python 报 pop expected at most 1 argument, got 2。
+    - 已改成照 Python，新加的两行配 Y03、Y04。
+- 第三段：这 44 条（42 条加 Y03、Y04）只跑场景文件，全部抓住。每条都挂在为它写的那条 it 上，没有靠超时的。
+- themistally-04 在 0250956 的导出副本上抽查 14 条，抓住 12 条：清单里的 G08、L01，与它另写的 Z01–Z04、Z06–Z09、Z11、Z12。漏掉 2 条：
+  - Z05（规划的两类问题换次序）：补了场景（report 为空、又缺 external_facts），并进清单为第 150 条；单跑时只挂这一条 it。
+  - Z10（落地后预演别的主任务不排序）：判等价，理由同 ⑤h2 的 Y01：state.json 只经 canonical_state 写（sort_keys），after_land_run 从盘上现读，任务键本来就排好。不进清单。
+
+其余场景随各片补（⑤i2 到 ⑤j）。

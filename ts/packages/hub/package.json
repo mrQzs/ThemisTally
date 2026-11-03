@@ -8,6 +8,7 @@
     "./constants": "./src/constants.ts",
     "./contract": "./src/contract.ts",
     "./delivery": "./src/delivery.ts",
+    "./engine": "./src/engine.ts",
     "./errors": "./src/errors.ts",
     "./exec": "./src/exec.ts",
     "./gatepost": "./src/gatepost.ts",

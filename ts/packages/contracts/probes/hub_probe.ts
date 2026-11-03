@@ -22,7 +22,7 @@ import {
   expectedMissedEverywhere, gateSpec, mutantTimeout, mutationProblems, runMutations, seedWhitebox, unchangedMismatches, unmutatedProblems,
 } from "@themis/hub/gatepost";
 import {
-  EXEC_LAND_WAIT_SECONDS, type ExecDeps, REAL_EXEC_DEPS, askSession, dispatchAttempt, ensureReworkScope, finalAuditTurn, finishExec, rebaseCandidate,
+  EXEC_LAND_WAIT_SECONDS, type ExecDeps, LandBusy, REAL_EXEC_DEPS, askSession, dispatchAttempt, ensureReworkScope, finalAuditTurn, finishExec, rebaseCandidate,
   reworkAddedFiles, runExec, runJev, startRework, startRetry, writeReview,
 } from "@themis/hub/runexec";
 import {
@@ -33,6 +33,7 @@ import {
   LAND_WAIT_SECONDS, REAL_SWEEP_DEPS, SWEEP_SECONDS, SWEEP_WAIT_SECONDS, type SweepDeps, gateBaselines, markOwnerMoved, ownerSweep, readOwnerSweep, regressionSweep,
   rehearsalLetter, rehearseLanding, sweepGates, tsInstallIfStale,
 } from "@themis/hub/sweep";
+import { Engine, type EngineDeps, type StateLike, land, releaseDependents, resumedSession } from "@themis/hub/engine";
 import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
 import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
 import { normcase } from "@themis/base/pypath";
@@ -443,6 +444,12 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
   try {
     let value: PyValue;
     switch (String(request["fn"])) {
+      case "resumed_session": // ⑤i1：交回会话号或 None
+        value = resumedSession(new Hub(textOf(a)), textOf(b), args[2] as PyValue, textOf(args[3]));
+        break;
+      case "Engine.output_problem": // ⑤i1：参数前两个是仓库与 only_task
+        value = new Engine(new Hub(textOf(a)), null, optionalText(b)).outputProblem(textOf(args[2]), textOf(args[3]), args[4] as PyDict);
+        break;
       case "tail":
         value = args.length > 1 ? tail(a, b) : tail(a);
         break;
@@ -750,6 +757,20 @@ function envCheck(env: readonly (readonly [string, string])[], expected: Readonl
  * run_supervised 比命令、目录、环境、输出去向、时限、grace 与中断处理；另外三个比仓库路径与调用那一刻的整份 ts。
  */
 function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyValue) => unknown): Record<string, unknown> {
+  if (name === "runner") { // ⑤i1：Engine 的回合；输入目录记调用当时的文件
+    const [agent, sessionKey, workspace, role, prompt, retryOf, fresh, inputs, sessionId] = args;
+    return {
+      fn: name, agent, session_key: sessionKey, workspace, role_prompt: role, prompt, retry_of: retryOf ?? null, fresh: Boolean(fresh), inputs: inputs ?? null,
+      session_id: sessionId ?? null, inputs_files: inputsFiles(inputs),
+    };
+  }
+  if (name === "role_prompt") return { fn: name, agent: args[0] };
+  if (name === "Engine.verify_delivery" || name === "Engine.auto_jev") return { fn: name, args: toTagged(args.map((item) => stateData(item)) as PyValue) };
+  if (name === "engine.handle_pass") return { fn: name, state: toTagged(stateData(args[0])), meta: toTagged(args[1] as PyValue) }; // 4001 的假 Engine
+  if (name === "engine.after_land") return { fn: name, main: args[0] };
+  if (Object.hasOwn(REST_ARITY, name)) { // ⑤i1：hub、ts 之外的参数也比（最后的 deps 不算）
+    return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict), rest: toTagged(args.slice(2, 2 + (REST_ARITY[name] as number)) as PyValue) };
+  }
   if (name === "run_pd") return { fn: name, argv: (args[1] as string[]).map(String), timeout: args[2] ?? null };
   if (name === "worktree_root") return { fn: name, repo: args[0] };
   if (name === "mkdtemp") return { fn: name, prefix: args[0], dir: args[1] };
@@ -810,12 +831,13 @@ function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[
     for (const key of files.delete) rmSync(flowPath(roots, key));
     if ("output" in expected) appendFileSync((args[1] as SuperviseOptions).stdout.path, Buffer.from(expected["output"] as string, "base64")); // ⑤h2：ts_runner
     if ("ts_after" in expected) {
-      const ts = args[1] as PyDict;
+      const ts = (name.startsWith("Engine.") ? stateData(args[0]) : args[1]) as PyDict; // ⑤i1：Engine 的两个方法没有 self，ts 或 state 在第一个
       ts.clear();
       for (const [key, value] of fromTagged(expected["ts_after"] as never) as PyDict) ts.set(key, value);
     }
     if ("raise" in expected) {
-      const [kind, message] = expected["raise"] as [string, string];
+      const [kind, message, code] = expected["raise"] as [string, string, number?];
+      if (code !== undefined) throw kind === "LandBusy" ? new LandBusy(message, code) : new HubError(message, code); // ⑤i1：HubError 一族带退出码
       if (kind === "DispatchError") throw new DispatchError(message); // ⑤h1：同 python_probe.py，被调用的一方认得出
       throw new PyCrash(kind, message);
     }
@@ -862,6 +884,182 @@ function jevAsk(jev: { endpoint: string; key: string } | undefined): ExecDeps["a
   });
 }
 
+// --- ⑤i1：Engine 的方法、land、release_dependents（python_probe.py 的 _flow_call 与 FLOW_INNER_I 一带） -------------------------------------
+
+/** 用例换掉之后照记录注入、hub 与 ts 之外还有参数的那几个：参数个数（最后的 deps 不算），同 python_probe.py 记的 rest。 */
+const REST_ARITY: Readonly<Record<string, number>> = {
+  ensure_worktree: 2, apply_candidate: 0, seed_whitebox: 1, run_exec: 0, run_jev: 1, finalize: 0, tidy_finished: 1, regression_sweep: 0,
+};
+
+/** Engine 的方法、land、release_dependents 的参数名（不含 self、hub、engine），照 kit_hub.py 的签名次序；args_after 照这个次序列出。 */
+const ENGINE_PARAMS: Readonly<Record<string, readonly string[]>> = {
+  "Engine.escalate": ["ts", "text"], "Engine.worker_job": ["state", "agent", "paths"], "Engine.auto_jev": ["state", "ts", "suffix"],
+  "Engine.stage_workspace": ["ts", "agent", "suffix"], "Engine.verify_delivery": ["ts", "agent", "suffix", "output", "fields"],
+  "Engine.after_delivery": ["ts", "suffix", "fields", "output"], "Engine.finish_kernel_stage": ["state", "ts", "agent", "suffix", "fields", "ok"],
+  "Engine.recheck_exec": ["main"], "Engine.worker_turns": ["agent", "task_id", "ts", "texts", "workspace", "kinds", "inputs", "resume"],
+  "Engine.redeliver": ["state", "ts", "agent", "task_id", "suffix", "texts", "workspace", "problems", "turn"], "Engine.handle_pass": ["state", "meta"],
+  "Engine.after_land": ["main"], "Engine.after_land_run": ["main"], land: ["letter", "meta"], release_dependents: ["state", "done"],
+};
+
+/** 用例改过的 kit_hub 常量对应到 EngineDeps 的哪一项；不在这里的直接报错（themistally-04 定的：TS 只认支持的常量）。 */
+const CONSTANT_DEPS: Readonly<Record<string, string>> = {
+  INPUT_FILE_LIMIT: "inputFileLimit", EXEC_LAND_WAIT_SECONDS: "landWaitSeconds", LAND_WAIT_SECONDS: "landLockWaitSeconds", SWEEP_WAIT_SECONDS: "sweepWaitSeconds",
+  SWEEP_SECONDS: "sweepSeconds",
+};
+
+const stateData = (value: unknown): PyValue => (value instanceof HubState ? value.data : value as PyValue);
+const tasksOfState = (value: unknown): PyDict => (value instanceof HubState ? value.tasks() : pyItem(value as PyDict, "tasks") as PyDict);
+
+/** 回合的输入目录在调用当时的文件：{相对路径（正斜杠）: sha256}，按码点排；不是目录时记 null。同 python_probe.py 的 _inputs_files。 */
+function inputsFiles(inputs: unknown): Record<string, string> | null {
+  if (typeof inputs !== "string" || !existsSync(inputs) || !statSync(inputs).isDirectory()) return null;
+  const found: [string, string][] = [];
+  const walk = (dir: string, rel: string[]): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (lstatSync(path).isDirectory()) walk(path, [...rel, name]);
+      else if (statSync(path).isFile()) found.push([[...rel, name].join("/"), createHash("sha256").update(readFileSync(path)).digest("hex")]);
+    }
+  };
+  walk(inputs, []);
+  return Object.fromEntries(found.sort((left, right) => cmpCodePoints(left[0], right[0])));
+}
+
+/** ⑤i1 手写场景的剧本一项（同 python_probe.py 的 _flow_scripted）：value（带标签）或 raise（[类名, 文字, 退出码]）；files 照注入的写法写进几棵树。 */
+interface ScriptItem {
+  readonly value?: unknown;
+  readonly raise?: [string, string, number];
+  readonly files?: { readonly write?: Record<string, string> };
+  readonly listing?: string;
+}
+
+/** 照剧本按次交回、不核对参数，每次调用的参数照 innerCall 记进 calls，随结果交回、三边互相比。 */
+function scriptedInjector(name: string, items: readonly ScriptItem[], calls: unknown[], roots: readonly string[], fromTagged: (tagged: never) => PyValue,
+  toTagged: (value: PyValue) => unknown) {
+  const queue = [...items];
+  return (...args: unknown[]): never => {
+    calls.push(innerCall(name, args, toTagged));
+    const item = queue.shift();
+    if (item === undefined) throw new PyCrash("RuntimeError", `剧本用完了：${name}`);
+    for (const [key, data] of Object.entries(item.files?.write ?? {})) {
+      mkdirSync(dirname(flowPath(roots, key)), { recursive: true });
+      writeFileSync(flowPath(roots, key), Buffer.from(data, "base64"));
+    }
+    if (item.listing !== undefined) { // 调用当时某个目录下的文件名（按码点排；不是目录记 null），记进这次调用
+      const folder = flowPath(roots, item.listing);
+      (calls[calls.length - 1] as Record<string, unknown>)["listing"] = existsSync(folder) && statSync(folder).isDirectory() ? readdirSync(folder).sort(cmpCodePoints) : null;
+    }
+    if (item.raise !== undefined) {
+      const [kind, message, code] = item.raise;
+      throw kind === "LandBusy" ? new LandBusy(message, code) : new HubError(message, code);
+    }
+    return fromTagged(item.value as never) as never;
+  };
+}
+
+/** 内层函数从哪来：手写场景的剧本、采样的照记录注入，都不是就用真的。 */
+interface Pick {
+  readonly has: (name: string) => boolean;
+  readonly inject: (name: string) => (...args: unknown[]) => Promise<never>;
+  readonly injectSync: (name: string) => (...args: unknown[]) => never;
+}
+
+interface EngineFlow {
+  readonly run: () => Promise<PyValue>;
+  /** 交回值之外要比的 ts（签名里有 ts 才有）。 */
+  readonly ts: () => PyValue;
+  /** 调用之后的字典与列表参数，照签名次序。 */
+  readonly after: (toTagged: (value: PyValue) => unknown) => Record<string, unknown>;
+}
+
+/**
+ * python_probe.py 的 _flow_call：参数前两个是仓库与 only_task（release_dependents 没有 Engine，只有仓库）；state 当时是 load_state 读出来的
+ * （state_seen）照样建 HubState；ts 当时是 state 里的一项（ts_alias）接回同一个对象；land 收到假 Engine（fake_engine）时它的两个方法照记录注入。
+ */
+function engineFlow(fn: string, hub: Hub, args: readonly PyValue[], request: Record<string, unknown>, deps: EngineDeps, pick: Pick): EngineFlow {
+  const names = ENGINE_PARAMS[fn];
+  if (names === undefined) throw new Error(`UNKNOWN_FN ${fn}`);
+  const given: unknown[] = fn === "release_dependents" ? args.slice(1) : args.slice(2);
+  const at = (name: string): number => names.indexOf(name);
+  const seen = request["state_seen"] as Record<string, Record<string, string>> | null | undefined;
+  if (seen !== null && seen !== undefined) {
+    const state = new HubState(given[at("state")] as PyDict);
+    state.seen.clear();
+    for (const [task, keys] of Object.entries(seen)) state.seen.set(task, new Map(Object.entries(keys)));
+    given[at("state")] = state;
+  }
+  if (typeof request["ts_alias"] === "string") given[at("ts")] = pyItem(tasksOfState(given[at("state")]), request["ts_alias"]);
+  const engine = (): Engine => {
+    const made = new Engine(hub, { run: pick.inject("runner") }, optionalText(args[1]), deps);
+    if (pick.has("Engine.verify_delivery")) made.verifyDelivery = pick.inject("Engine.verify_delivery");
+    if (pick.has("Engine.auto_jev")) made.autoJev = pick.inject("Engine.auto_jev");
+    return made;
+  };
+  const g = (index: number): never => given[index] as never;
+  const none = async (done: Promise<void>): Promise<PyValue> => {
+    await done;
+    return null;
+  };
+  const calls: Record<string, () => Promise<PyValue>> = {
+    release_dependents: () => releaseDependents(hub, g(0) as StateLike, textOf(g(1))),
+    land: () => land(hub, request["fake_engine"] ? { handlePass: pick.inject("engine.handle_pass"), afterLand: pick.inject("engine.after_land") } : engine(),
+      textOf(g(0)), g(1) as Map<string, string>, deps),
+    "Engine.escalate": () => none(engine().escalate(g(0), textOf(g(1)))),
+    "Engine.worker_job": () => none(engine().workerJob(g(0), textOf(g(1)), g(2))),
+    "Engine.auto_jev": () => none(engine().autoJev(g(0), g(1), textOf(g(2)))),
+    "Engine.stage_workspace": () => engine().stageWorkspace(g(0), textOf(g(1)), textOf(g(2))),
+    "Engine.verify_delivery": () => engine().verifyDelivery(g(0), textOf(g(1)), textOf(g(2)), g(3), g(4)),
+    "Engine.after_delivery": () => none(engine().afterDelivery(g(0), textOf(g(1)), g(2), g(3))),
+    "Engine.finish_kernel_stage": () => none(engine().finishKernelStage(g(0), g(1), textOf(g(2)), textOf(g(3)), g(4), g(5))),
+    "Engine.recheck_exec": () => engine().recheckExec(textOf(g(0))),
+    "Engine.worker_turns": async () => {
+      const [turn, error, timeouts] = await engine().workerTurns(textOf(g(0)), textOf(g(1)), g(2), g(3), textOf(g(4)), g(5), optionalText(g(6)), g(7));
+      return [turn, error, BigInt(timeouts)]; // Python 的 int
+    },
+    "Engine.redeliver": () => engine().redeliver(g(0), g(1), textOf(g(2)), textOf(g(3)), textOf(g(4)), g(5), textOf(g(6)), g(7), g(8)),
+    "Engine.handle_pass": () => none(engine().handlePass(g(0), g(1))),
+    "Engine.after_land": () => none(engine().afterLand(textOf(g(0)))),
+    "Engine.after_land_run": () => none(engine().afterLandRun(textOf(g(0)))),
+  };
+  return {
+    run: calls[fn] as () => Promise<PyValue>,
+    ts: () => (names.includes("ts") ? stateData(given[at("ts")]) : null),
+    after: (tag) => Object.fromEntries(names.map((name, index) => [name, given[index]] as const)
+      .filter(([, value]) => value instanceof Map || Array.isArray(value) || value instanceof HubState)
+      .map(([name, value]) => [name, tag(stateData(value))])),
+  };
+}
+
+/** ⑤i1：Engine 的 deps：各片 deps 的并集，剧本或记录里有的照它交回，用例改过的常量照设。 */
+function engineDepsOf(gateDeps: GatePostDeps, landDeps: LandDeps, sweepDeps: SweepDeps, request: Record<string, unknown>, pick: Pick): EngineDeps {
+  const constantsGiven: Record<string, number> = {};
+  for (const [name, value] of Object.entries((request["constants"] as Record<string, unknown> | null | undefined) ?? {})) {
+    const key = CONSTANT_DEPS[name];
+    if (key === undefined) throw new Error(`UNSUPPORTED_CONSTANT ${name}`);
+    constantsGiven[key] = Number(value);
+  }
+  const deps: EngineDeps = {
+    ...gateDeps,
+    ...landDeps,
+    ...sweepDeps,
+    runSupervised: gateDeps.runSupervised, // 白盒测试那一次（sweepDeps 的是 ts 重装的 runner，Engine 走不到）
+    worktreeRoot: pick.has("worktree_root") ? pick.inject("worktree_root") : gateDeps.worktreeRoot,
+    ensureWorktree: pick.has("ensure_worktree") ? pick.inject("ensure_worktree") : (h, t, kind, commit, d) => ensureWorktree(h, t, kind, commit, d),
+    applyCandidate: pick.has("apply_candidate") ? pick.inject("apply_candidate") : (h, t, d) => applyCandidate(h, t, d),
+    seedWhitebox: pick.has("seed_whitebox") ? pick.inject("seed_whitebox") : (h, t, w) => seedWhitebox(h, t, w),
+    rolePrompt: pick.has("role_prompt") ? pick.injectSync("role_prompt") : (agent) => rolePrompt(agent),
+    runExec: pick.has("run_exec") ? pick.inject("run_exec") : (h, t, d) => runExec(h, t, d),
+    runJev: pick.has("run_jev") ? pick.inject("run_jev") : (h, t, suffix, d) => runJev(h, t, suffix, d),
+    finalize: pick.has("finalize") ? pick.inject("finalize") : (h, t, d) => finalize(h, t, d),
+    tidyFinished: pick.has("tidy_finished") ? pick.inject("tidy_finished") : (h, t, reason, d) => tidyFinished(h, t, reason, d),
+    regressionSweep: pick.has("regression_sweep") ? pick.inject("regression_sweep") : (h, t, d) => regressionSweep(h, t, d),
+    rehearseLanding: pick.has("rehearse_landing") ? pick.inject("rehearse_landing") : (h, t) => rehearseLanding(h, t, deps),
+    inputFileLimit: constants.INPUT_FILE_LIMIT,
+    ...constantsGiven,
+  };
+  return deps;
+}
+
 /** 第 ⑤e2b 片：python_probe.py 的 op_hub_contract_flow。 */
 export async function hubContractFlow(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
   for (const item of (request["restores"] as Restore[] | undefined) ?? []) restoreTree(item);
@@ -869,7 +1067,8 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
-  const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
+  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "release_dependents"; // ⑤i1：ts 从参数绑定里取
+  const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) || flowI ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
   const roots = request["roots"] as string[];
   removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
   const before = flowListing(roots);
@@ -879,6 +1078,23 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const replaced = new Set((request["replaced"] as string[] | undefined) ?? []);
   const inject = (name: string) => injector(name, queue, roots, fromTagged, toTagged);
   const injectSync = (name: string) => injectorSync(name, queue, roots, fromTagged, toTagged);
+  // ⑤i1 手写场景：剧本里的内层函数照剧本交回（每个名字一份剧本，记下的调用随结果交回）；别的照记录注入或用真的
+  const scripted = (request["scripted"] ?? {}) as Record<string, ScriptItem[]>;
+  const scriptCalls: unknown[] = [];
+  const scriptedOnce = new Map<string, (...args: unknown[]) => never>();
+  const scriptedFor = (name: string): ((...args: unknown[]) => never) => {
+    if (!scriptedOnce.has(name)) scriptedOnce.set(name, scriptedInjector(name, scripted[name] ?? [], scriptCalls, roots, fromTagged, toTagged));
+    return scriptedOnce.get(name) as (...args: unknown[]) => never;
+  };
+  const pick: Pick = {
+    has: (name) => Object.hasOwn(scripted, name) || replaced.has(name),
+    injectSync: (name) => (Object.hasOwn(scripted, name) ? scriptedFor(name) : injectSync(name)),
+    inject: (name) => {
+      if (!Object.hasOwn(scripted, name)) return inject(name);
+      const sync = scriptedFor(name);
+      return async (...args: unknown[]): Promise<never> => sync(...args);
+    },
+  };
   const deps: ContractDeps = {
     runPd: replaced.has("run_pd") ? inject("run_pd") : REAL_DEPS.runPd,
     contractRequirements: replaced.has("contract_requirements") ? inject("contract_requirements") : REAL_DEPS.contractRequirements,
@@ -917,9 +1133,23 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
   const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
   for (const [name, value] of givenEnv) process.env[name] = value;
+  // ⑤i1：名册与交差文件的哈希照采样当时的改动设上，调用完还原（同 hubTurn）
+  const roster = constants.ROSTER as Record<string, constants.RosterSpec>;
+  const shas = DELIVERY_SHA256 as Map<string, string | null>;
+  const givenRoster = (request["roster"] ?? {}) as Record<string, constants.RosterSpec>;
+  const givenShas = (request["delivery_sha256"] ?? {}) as Record<string, string>;
+  const savedRoster = Object.keys(givenRoster).map((name) => [name, Object.hasOwn(roster, name) ? roster[name] : undefined] as const);
+  const savedShas = Object.keys(givenShas).map((name) => [name, shas.has(name) ? shas.get(name) : undefined] as const);
+  Object.assign(roster, givenRoster);
+  for (const [name, value] of Object.entries(givenShas)) shas.set(name, value);
+  const holder: { flow: EngineFlow | null } = { flow: null };
   let result: Result;
   try {
     const value = await withPinnedClock(Number(request["pin"]), async (): Promise<PyValue> => {
+      if (flowI) { // ⑤i1：钉住的时刻也管 int(time.time())（nowMicros）
+        holder.flow = engineFlow(fn, hub, args, request, engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick), pick);
+        return holder.flow.run();
+      }
       switch (fn) {
         case "accept_contract":
           return acceptContract(hub, ts, args[2] as PyValue, deps);
@@ -1010,8 +1240,24 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
       else process.env[name] = before;
     }
   }
+  for (const [name, value] of savedRoster) {
+    if (value === undefined) delete roster[name];
+    else roster[name] = value;
+  }
+  for (const [name, value] of savedShas) {
+    if (value === undefined) shas.delete(name);
+    else shas.set(name, value);
+  }
   const tail = ledger !== null && existsSync(ledger) ? readFileSync(ledger).subarray(offset) : Buffer.alloc(0);
-  return { ok: true, value: { result, ts: toTagged(ts), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots) } };
+  const flow = holder.flow;
+  const shown = flow === null ? ts : flow.ts();
+  return {
+    ok: true, value: {
+      result, ts: toTagged(shown), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots),
+      ...(flow === null ? {} : { args_after: flow.after(toTagged) }),
+      ...(Object.keys(scripted).length > 0 ? { scripted_calls: scriptCalls } : {}),
+    },
+  };
 }
 
 /** 一个目录下的文件（相对路径用正斜杠、排好序）：字节数、可不可写、sha256；与 python_probe.py 的 _tree_listing 对应。 */

@@ -104,7 +104,7 @@ export function stageBusy(stage: PyValue): boolean {
   return pyEq(pyItem(stage, "status"), "assigned") && !(typeof last === "string" && (PAUSE_TYPES as readonly string[]).includes(last));
 }
 
-function guardStart(ts: PyDict, suffix: string): string | null {
+export function guardStart(ts: PyDict, suffix: string): string | null {
   if (stageBusy(stageAt(ts, suffix))) return `阶段 ${suffix} ${BUSY_GUARD}`;
   if (suffix === "1-plan") return null;
   if (suffix === "2-contract") {

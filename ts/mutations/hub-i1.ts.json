@@ -1,0 +1,915 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-engine-scenes.contract.test.ts",
+  "packages/contracts/test/hub-engine.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1500,
+ "mutations": [
+  {
+   "name": "E01 escalate 的 note 截 1999 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "appendTo(pyItem(ts, \"notes\"), new Map<string, PyValue>([[\"at\", utcNow()], [\"text\", head(text, 2000)]]));",
+   "new": "appendTo(pyItem(ts, \"notes\"), new Map<string, PyValue>([[\"at\", utcNow()], [\"text\", head(text, 1999)]]));"
+  },
+  {
+   "name": "E02 escalate 不转 blocked",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    ts.set(\"status\", \"blocked\");",
+   "new": "    ts.set(\"status\", \"active\");"
+  },
+  {
+   "name": "E03 escalate 的摘要取 199 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"摘要\", head(firstLine(text), 200)], [\"提交\", \"无\"], [\"验证\", \"内核\"], [\"偏离\", head(text, 1500)],",
+   "new": "      [\"摘要\", head(firstLine(text), 199)], [\"提交\", \"无\"], [\"验证\", \"内核\"], [\"偏离\", head(text, 1500)],"
+  },
+  {
+   "name": "W01 只要有一封告知类就不唤醒",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (ts === null || suffix === null || [...kinds].every((kind) => kind !== null && (INFO_TYPES as readonly string[]).includes(kind))) {",
+   "new": "    if (ts === null || suffix === null || [...kinds].some((kind) => kind !== null && (INFO_TYPES as readonly string[]).includes(kind))) {"
+  },
+  {
+   "name": "W02 不记 worker.not_woken",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.hub.appendEvent(\"worker.not_woken\", [[\"agent\", agent], [\"task_id\", taskId], [\"kinds\", sortedStrings(kinds)],",
+   "new": "      if (agent === \"\") await this.hub.appendEvent(\"worker.not_woken\", [[\"agent\", agent], [\"task_id\", taskId], [\"kinds\", sortedStrings(kinds)],"
+  },
+  {
+   "name": "W03 resume 不从阶段里拿掉",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const resume = popKey(stageNow, \"resume\");",
+   "new": "    const resume = stageNow.get(\"resume\") ?? null;"
+  },
+  {
+   "name": "W04 stranded_notice 不拿掉",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    popKey(stageNow, \"stranded_notice\");",
+   "new": "    void stageNow;"
+  },
+  {
+   "name": "W05 等不到落地锁扣 119 秒",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        const until = Math.floor(nowMicros() / 1_000_000) + EXEC_LAND_RETRY_SECONDS;",
+   "new": "        const until = Math.floor(nowMicros() / 1_000_000) + EXEC_LAND_RETRY_SECONDS - 1;"
+  },
+  {
+   "name": "W06 落地锁被占的原话截 159 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          `落地锁被占（${head(error.message, 160)}）`);",
+   "new": "          `落地锁被占（${head(error.message, 159)}）`);"
+  },
+  {
+   "name": "W07 扣信之后不存状态",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          `落地锁被占（${head(error.message, 160)}）`);\n        await this.hub.saveState(state);",
+   "new": "          `落地锁被占（${head(error.message, 160)}）`);"
+  },
+  {
+   "name": "W08 预演通过的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        fields.set(\"落地预演\", rehearsed[0] ? `通过：${rehearsed[1]}` :",
+   "new": "        fields.set(\"落地预演\", rehearsed[0] ? `通过: ${rehearsed[1]}` :"
+  },
+  {
+   "name": "W09 预演没过截 599 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "`没过，已写信给站主，站主处理之前别结项：${head(rehearsed[1], 600)}`);",
+   "new": "`没过，已写信给站主，站主处理之前别结项：${head(rehearsed[1], 599)}`);"
+  },
+  {
+   "name": "W10 预演没过不写信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        if (!rehearsed[0]) await rehearsalLetter(this.hub, ts, rehearsed[1], \"执行端交付时\");",
+   "new": "        void rehearsalLetter;"
+  },
+  {
+   "name": "W11 check_ok 缺省当通过",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.finishKernelStage(state, ts, agent, suffix, fields, pyGet(pyItem(ts, \"exec\"), \"check_ok\", false));",
+   "new": "      await this.finishKernelStage(state, ts, agent, suffix, fields, pyGet(pyItem(ts, \"exec\"), \"check_ok\", true));"
+  },
+  {
+   "name": "W12 JEV 判没过",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.finishKernelStage(state, ts, agent, suffix, fields, true);",
+   "new": "      await this.finishKernelStage(state, ts, agent, suffix, fields, false);"
+  },
+  {
+   "name": "W13 回合之前不存状态",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const workspace = await this.stageWorkspace(ts, agent, suffix);\n    await this.hub.saveState(state);",
+   "new": "    const workspace = await this.stageWorkspace(ts, agent, suffix);"
+  },
+  {
+   "name": "W14 回合之后不删输入目录",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      removeInputs(inputs);\n    }\n    let retried",
+   "new": "      void inputs;\n    }\n    let retried"
+  },
+  {
+   "name": "W15 重交过也扣信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "!pyTruthy(pyItem(turn, \"violations\")) && retried === null) {",
+   "new": "!pyTruthy(pyItem(turn, \"violations\"))) {"
+  },
+  {
+   "name": "W16 违规的限流回合也扣信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pyTruthy(pyGet(turn, \"rate_limited_until\")) && !pyTruthy(pyItem(turn, \"violations\")) && retried === null) {",
+   "new": "      if (pyTruthy(pyGet(turn, \"rate_limited_until\")) && retried === null) {"
+  },
+  {
+   "name": "W17 不留上一份报告",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        keepPrevious(purePathStr(directory, \"report.md\")); // 返工前的报告留着：上一轮的意见不丢",
+   "new": "        void keepPrevious;"
+  },
+  {
+   "name": "W18 不写报告",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        writeTextAtomic(purePathStr(directory, \"report.md\"), pyGet(output, \"report\") as string);",
+   "new": "        void writeTextAtomic;"
+  },
+  {
+   "name": "W19 不写 state.md",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (typeof pyGet(output, \"state\") === \"string\") writeTextAtomic(",
+   "new": "      if (typeof pyGet(output, \"state\") === \"number\") writeTextAtomic("
+  },
+  {
+   "name": "W20 什么信都核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (isDelivery(meta.get(\"type\"))) problems = await this.verifyDelivery(ts, agent, suffix, output, fields);",
+   "new": "      problems = await this.verifyDelivery(ts, agent, suffix, output, fields);"
+  },
+  {
+   "name": "W21 重交过了还重交",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (problems.length === 0 || retried !== null) break;",
+   "new": "      if (problems.length === 0) break;"
+  },
+  {
+   "name": "W22 不当场重交",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (problems.length === 0 || retried !== null) break;",
+   "new": "      if (problems.length >= 0 || retried !== null) break;"
+  },
+  {
+   "name": "W23 第一次核验不压成一行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      retried = { first: head(pySplit(problems.join(\"；\")).join(\" \"), 300), firstTurn: pyItem(turn, \"turn_id\") };",
+   "new": "      retried = { first: head(problems.join(\"；\"), 300), firstTurn: pyItem(turn, \"turn_id\") };"
+  },
+  {
+   "name": "W24 第一次核验截 299 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      retried = { first: head(pySplit(problems.join(\"；\")).join(\" \"), 300), firstTurn: pyItem(turn, \"turn_id\") };",
+   "new": "      retried = { first: head(pySplit(problems.join(\"；\")).join(\" \"), 299), firstTurn: pyItem(turn, \"turn_id\") };"
+  },
+  {
+   "name": "W25 delivery.retried 的 ok 一律真",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        [\"ok\", isDelivery(meta.get(\"type\")) && problems.length === 0]]);",
+   "new": "        [\"ok\", true]]);"
+  },
+  {
+   "name": "W26 验证的前缀截 199 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      fields.set(\"验证\", `（第一次交付内核核验没过：${head(retried.first, 200)}；",
+   "new": "      fields.set(\"验证\", `（第一次交付内核核验没过：${head(retried.first, 199)}；"
+  },
+  {
+   "name": "W27 不清 timed_out",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    stage.delete(\"timed_out\"); // 这一回合交出了信：上一回合超时的提醒用过了",
+   "new": "    void stage;"
+  },
+  {
+   "name": "W28 不记 last_letter",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    stage.set(\"last_letter\", pyItem(meta, \"type\")); // 合同端发“阻塞”指出规划有缺陷时，协调人能退回规划端（第 15 轮）",
+   "new": "    void meta;"
+  },
+  {
+   "name": "W29 核验没过的 note 截 599 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        stage.set(\"status\", \"failed\").set(\"note\", head(problems.join(\"；\"), 600)).set(\"problems\", problems).set(\"redelivered\", retried !== null);",
+   "new": "        stage.set(\"status\", \"failed\").set(\"note\", head(problems.join(\"；\"), 599)).set(\"problems\", problems).set(\"redelivered\", retried !== null);"
+  },
+  {
+   "name": "W30 redelivered 一律假",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": ".set(\"problems\", problems).set(\"redelivered\", retried !== null);",
+   "new": ".set(\"problems\", problems).set(\"redelivered\", false);"
+  },
+  {
+   "name": "W31 内核核验的原话截 1199 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "：${head(problems.join(\"；\"), 1200)}`);",
+   "new": "：${head(problems.join(\"；\"), 1199)}`);"
+  },
+  {
+   "name": "W32 通过时留着站主的原话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        for (const key of [\"owner_text\", \"problems\", \"redelivered\"]) stage.delete(key);",
+   "new": "        for (const key of [\"problems\", \"redelivered\"]) stage.delete(key);"
+  },
+  {
+   "name": "W33 通过时不让下游作废",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        invalidateAfter(ts, suffix);\n        await this.afterDelivery(ts, suffix, fields, output);",
+   "new": "        await this.afterDelivery(ts, suffix, fields, output);"
+  },
+  {
+   "name": "W34 通过时不做交付后的收尾",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        await this.afterDelivery(ts, suffix, fields, output);",
+   "new": "        void output;"
+  },
+  {
+   "name": "W35 暂停类的信不标 paused",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      stage.set(\"status\", \"paused\").set(\"paused_at\", utcNow());",
+   "new": "      stage.set(\"paused_at\", utcNow());"
+  },
+  {
+   "name": "W36 交付通过不接着跑 JEV",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyEq(pyItem(stage, \"status\"), \"delivered\")) await this.autoJev(current, ts, suffix);",
+   "new": "    if (pyEq(pyItem(stage, \"status\"), \"failed\")) await this.autoJev(current, ts, suffix);"
+  },
+  {
+   "name": "V01 违规用顿号连",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const violations = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"；\");",
+   "new": "    const violations = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"、\");"
+  },
+  {
+   "name": "V02 原因先取输出问题",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    let reason = violations || error ||",
+   "new": "    let reason = error || violations ||"
+  },
+  {
+   "name": "V03 限流的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    let reason = violations || error || `接口限流（到 ${",
+   "new": "    let reason = violations || error || `接口限流（至 ${"
+  },
+  {
+   "name": "V04 作废时 delivery.retried 的 ok 记真",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        [\"first_turn\", retried.firstTurn], [\"turn\", pyItem(turn, \"turn_id\")], [\"ok\", false]]);",
+   "new": "        [\"first_turn\", retried.firstTurn], [\"turn\", pyItem(turn, \"turn_id\")], [\"ok\", true]]);"
+  },
+  {
+   "name": "V05 作废原因里第一次核验的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      reason += `（这是核验没过之后的当场重交；第一次核验：${retried.first}）`;",
+   "new": "      reason += `（这是核验没过之后的重交；第一次核验：${retried.first}）`;"
+  },
+  {
+   "name": "V06 不记 timed_out",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      .set(\"timed_out\", pyTruthy(pyGet(turn, \"timed_out\")));",
+   "new": "      .set(\"timed_out\", false);"
+  },
+  {
+   "name": "V07 接口报错不交给站主",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyTruthy(pyGet(turn, \"api_error\")) && !pyTruthy(pyItem(turn, \"violations\"))",
+   "new": "    if (pyTruthy(pyGet(turn, \"api_errors\")) && !pyTruthy(pyItem(turn, \"violations\"))"
+  },
+  {
+   "name": "V08 限流的重交也交给站主",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "!pyTruthy(pyItem(turn, \"violations\")) && !pyTruthy(pyGet(turn, \"rate_limited_until\"))) {",
+   "new": "!pyTruthy(pyItem(turn, \"violations\"))) {"
+  },
+  {
+   "name": "V09 接口报错的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": " 的回合遇到模型接口报错，阶段已标为 failed：",
+   "new": " 的回合遇到模型接口报错，阶段标为 failed："
+  },
+  {
+   "name": "V10 没超时过也说又超时了",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const decide = pyTruthy(pyGet(turn, \"timed_out\")) && timeouts",
+   "new": "    const decide = pyTruthy(pyGet(turn, \"timed_out\"))"
+  },
+  {
+   "name": "V11 作废信的偏离截 1499 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[\"偏离\", head(reason, 1500)],",
+   "new": "[\"偏离\", head(reason, 1499)],"
+  },
+  {
+   "name": "V12 证据写回合号",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"需协调人决定\", decide], [\"证据\", pyItem(turn, \"turn_dir\")],",
+   "new": "      [\"需协调人决定\", decide], [\"证据\", pyItem(turn, \"turn_id\")],"
+  },
+  {
+   "name": "J01 JEV 不看 jev_enabled",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!jev || !pyTruthy(pyGet(ts, \"jev_enabled\")) || guardStart(ts, jev) !== null) return;",
+   "new": "    if (!jev || guardStart(ts, jev) !== null) return;"
+  },
+  {
+   "name": "J02 JEV 不看前置条件",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!jev || !pyTruthy(pyGet(ts, \"jev_enabled\")) || guardStart(ts, jev) !== null) return;",
+   "new": "    if (!jev || !pyTruthy(pyGet(ts, \"jev_enabled\"))) return;"
+  },
+  {
+   "name": "J03 JEV 的 kind",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": ".set(\"kind\", \"内核自动\");",
+   "new": ".set(\"kind\", \"内核\");"
+  },
+  {
+   "name": "J04 不记 jev.auto",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.appendEvent(\"jev.auto\", [[\"task\", pyItem(ts, \"task\")], [\"stage\", jev]]);",
+   "new": "    void jev;"
+  },
+  {
+   "name": "O01 没有输出的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyItem(turn, \"output\") === null) return or(pyGet(turn, \"output_error\"), \"没有输出\");",
+   "new": "    if (pyItem(turn, \"output\") === null) return or(pyGet(turn, \"output_error\"), \"没输出\");"
+  },
+  {
+   "name": "O02 正文行数少减一行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "fields)).length - 8);",
+   "new": "fields)).length - 7);"
+  },
+  {
+   "name": "O03 输出问题用顿号连",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    return errors.length > 0 ? errors.join(\"；\") : null;",
+   "new": "    return errors.length > 0 ? errors.join(\"、\") : null;"
+  },
+  {
+   "name": "G01 不看 worktree 实际的 HEAD",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        if (!pyEq(pyGet(record, \"commit\"), baseHead()) || (headSha && !pyEq(headSha, baseHead()))) {",
+   "new": "        if (!pyEq(pyGet(record, \"commit\"), baseHead())) {"
+  },
+  {
+   "name": "G02 不退回基线",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          git([\"reset\", \"-q\", \"--mixed\", pyStrValue(baseHead())], pathArg(path));",
+   "new": "          void git;"
+  },
+  {
+   "name": "G03 不记 commit",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          record.set(\"commit\", baseHead());",
+   "new": "          void record;"
+  },
+  {
+   "name": "G04 一审不用 oracle 的提交",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pyTruthy(pyGet(pyItem(ts, \"oracle\"), \"sha\"))) return",
+   "new": "      if (pyTruthy(pyGet(pyItem(ts, \"oracle\"), \"shas\"))) return"
+  },
+  {
+   "name": "G05 战后门禁不放白盒测试",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (suffix === \"6-gate-post\") await this.deps.seedWhitebox(this.hub, ts, workspace);",
+   "new": "      void workspace;"
+  },
+  {
+   "name": "G06 终审不用候选",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"6-gate-post\" || suffix === \"7-audit-post\") {",
+   "new": "    if (suffix === \"6-gate-post\") {"
+  },
+  {
+   "name": "G07 战前门禁用 base 那个 worktree",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      return this.deps.ensureWorktree(this.hub, ts, \"gate\", baseHead(), this.deps);",
+   "new": "      return this.deps.ensureWorktree(this.hub, ts, \"base\", baseHead(), this.deps);"
+  },
+  {
+   "name": "G08 一开头就读 base_head（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const baseHead = (): PyValue => pyItem(ts, \"base_head\"); // 照 Python 只在用到的分支里读",
+   "new": "    const early = pyItem(ts, \"base_head\");\n    const baseHead = (): PyValue => early;"
+  },
+  {
+   "name": "D01 空报告不算问题",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "? [] : [\"规划端的 report 为空\"]), ...externalFactProblems(output)];",
+   "new": "? [] : []), ...externalFactProblems(output)];"
+  },
+  {
+   "name": "D02 不核对仓库外事实",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "? [] : [\"规划端的 report 为空\"]), ...externalFactProblems(output)];",
+   "new": "? [] : [\"规划端的 report 为空\"])];"
+  },
+  {
+   "name": "D03 合同端不核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"2-contract\") return acceptContract(this.hub, ts, output, this.deps);",
+   "new": "    if (suffix === \"2-contracts\") return acceptContract(this.hub, ts, output, this.deps);"
+  },
+  {
+   "name": "D04 战前门禁不核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"3-gate-pre\") return acceptGatePre(",
+   "new": "    if (suffix === \"3-gate-pres\") return acceptGatePre("
+  },
+  {
+   "name": "D05 战后门禁的 worktree 键",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      const key = `post-${purePathName(pathArg(pyItem(pyItem(ts, \"exec\"), \"run_dir\")))}`;",
+   "new": "      const key = `gate-${purePathName(pathArg(pyItem(pyItem(ts, \"exec\"), \"run_dir\")))}`;"
+  },
+  {
+   "name": "D06 不查审核结论",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!(VERDICTS as readonly PyValue[]).some((item) => pyEq(item, verdict))) return [\"审核结论缺失\"];",
+   "new": "      void verdict;"
+  },
+  {
+   "name": "D07 一审不查 DoD 对照",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (suffix === \"4-audit-pre\") return dodCoverageProblems(",
+   "new": "      if (suffix === \"4-audit-pres\") return dodCoverageProblems("
+  },
+  {
+   "name": "D08 有候选缺陷也能判通过",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pyEq(verdict, \"通过\") && pyTruthy(defects())) {",
+   "new": "      if (pyEq(verdict, \"返工\") && pyTruthy(defects())) {"
+  },
+  {
+   "name": "D09 不短路，先读 gate_post（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      const defects = (): PyValue => pyGet(pyItem(ts, \"gate_post\"), \"defects\"); // 照 Python 短路：结论不是“通过”就不读",
+   "new": "      const read = pyGet(pyItem(ts, \"gate_post\"), \"defects\");\n      const defects = (): PyValue => read;"
+  },
+  {
+   "name": "A01 事实不去两端空白",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[\"fact\", \"source\", \"verified\"].map((key) => [key, pyStrip(pyStrValue(or(pyGet(item, key), \"\")))])));",
+   "new": "[\"fact\", \"source\", \"verified\"].map((key) => [key, pyStrValue(or(pyGet(item, key), \"\"))])));"
+  },
+  {
+   "name": "A02 不记 external_facts",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      ts.set(\"external_facts\", new Map<string, PyValue>([[\"items\", items], [\"pending\", pending], [\"at\", utcNow()]]));",
+   "new": "      ts.set(\"external_fact\", new Map<string, PyValue>([[\"items\", items], [\"pending\", pending], [\"at\", utcNow()]]));"
+  },
+  {
+   "name": "A03 一条没核实的不写信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pending.length > 0) {",
+   "new": "      if (pending.length > 1) {"
+  },
+  {
+   "name": "A04 出处没写的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "pyStrValue(source) : \"未写\"}）`;",
+   "new": "pyStrValue(source) : \"没写\"}）`;"
+  },
+  {
+   "name": "A05 事实清单截 1499 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[\"偏离\", head(listed, 1500)],",
+   "new": "[\"偏离\", head(listed, 1499)],"
+  },
+  {
+   "name": "A06 战后门禁举证缺陷不改内核核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"6-gate-post\" && pyTruthy(pyGet(pyItem(ts, \"gate_post\"), \"defects\"))) {",
+   "new": "    if (suffix === \"6-gate-posts\" && pyTruthy(pyGet(pyItem(ts, \"gate_post\"), \"defects\"))) {"
+  },
+  {
+   "name": "A07 审核记录不进 audit_history",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      appendTo(ts.get(\"audit_history\") as PyValue,",
+   "new": "      appendTo([],"
+  },
+  {
+   "name": "A08 阻塞项缺省 None",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[\"blockers\", pyGet(fields, \"阻塞项\", \"\")]",
+   "new": "[\"blockers\", pyGet(fields, \"阻塞项\")]"
+  },
+  {
+   "name": "A09 一审不记 contract_sha256",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        .set(\"contract_sha256\", pyGet(pyItem(ts, \"contract\"), \"sha256\")).set(\"oracle_sha\", pyGet(pyItem(ts, \"oracle\"), \"sha\"));",
+   "new": "        .set(\"oracle_sha\", pyGet(pyItem(ts, \"oracle\"), \"sha\"));"
+  },
+  {
+   "name": "A10 一审返工不加 fails",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pyEq(pyGet(fields, \"结论\"), \"返工\")) auditPre.set(\"fails\", pyIntOf(pyGet(auditPre, \"fails\", 0n)) + 1n);",
+   "new": "      if (pyEq(pyGet(fields, \"结论\"), \"返工\")) auditPre.set(\"fails\", pyIntOf(pyGet(auditPre, \"fails\", 0n)));"
+  },
+  {
+   "name": "A11 终审结论不记",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"7-audit-post\") dict(pyItem(ts, \"audit_post\"), \"update\")",
+   "new": "    if (suffix === \"7-audit-posts\") dict(pyItem(ts, \"audit_post\"), \"update\")"
+  },
+  {
+   "name": "F01 内核阶段通过不让下游作废",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      stage.set(\"status\", \"delivered\").set(\"delivered_at\", utcNow()).set(\"note\", \"\");\n      invalidateAfter(ts, suffix);",
+   "new": "      stage.set(\"status\", \"delivered\").set(\"delivered_at\", utcNow()).set(\"note\", \"\");"
+  },
+  {
+   "name": "F02 没过的 note 截 299 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      stage.set(\"status\", \"failed\").set(\"note\", head(pyStrValue(pyGet(fields, \"验证\", \"\")), 300));",
+   "new": "      stage.set(\"status\", \"failed\").set(\"note\", head(pyStrValue(pyGet(fields, \"验证\", \"\")), 299));"
+  },
+  {
+   "name": "F03 执行端没过不让下游作废",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (suffix === \"5-exec\") invalidateAfter(ts, suffix);",
+   "new": "      void suffix;"
+  },
+  {
+   "name": "F04 没过的内核核验写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    fields.set(\"内核核验\", pyTruthy(ok) ? \"通过\" : \"未通过（短路：只能返工给执行端）\");",
+   "new": "    fields.set(\"内核核验\", pyTruthy(ok) ? \"通过\" : \"未通过\");"
+  },
+  {
+   "name": "F05 交付信的发信人是内核",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.deliver(letterMeta(agent, COORDINATOR, `${pyStrValue(pyItem(ts, \"task\"))}-${suffix}`, \"交付\"), letterFields(fields));",
+   "new": "    await this.hub.deliver(letterMeta(KERNEL, COORDINATOR, `${pyStrValue(pyItem(ts, \"task\"))}-${suffix}`, \"交付\"), letterFields(fields));"
+  },
+  {
+   "name": "R01 停在 assigned 的不接着核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyEq(status, \"assigned\") && !pyTruthy(runDir)) {",
+   "new": "    if (pyEq(status, \"assigneds\") && !pyTruthy(runDir)) {"
+  },
+  {
+   "name": "R02 不标 dispatched",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      dict(pyItem(ts, \"contract\"), \"[]=\").set(\"dispatched\", true);",
+   "new": "      dict(pyItem(ts, \"contract\"), \"[]=\").set(\"dispatched\", false);"
+  },
+  {
+   "name": "R03 不记 exec.resumed",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.hub.appendEvent(\"exec.resumed\", [[\"task\", main], [\"run_dir\", runDir]]);",
+   "new": "      void main;"
+  },
+  {
+   "name": "R04 没判失败也能重新核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    } else if (!pyEq(status, \"failed\") || !pyTruthy(runDir) || !isDirectory(pathArg(runDir))) {",
+   "new": "    } else if (!pyTruthy(runDir) || !isDirectory(pathArg(runDir))) {"
+  },
+  {
+   "name": "R05 attempt 目录不在也重新核验",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    } else if (!pyEq(status, \"failed\") || !pyTruthy(runDir) || !isDirectory(pathArg(runDir))) {",
+   "new": "    } else if (!pyEq(status, \"failed\") || !pyTruthy(runDir)) {"
+  },
+  {
+   "name": "R06 重新核验的前缀",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "（站主 exec-recheck 重新核验，没有重跑执行端）",
+   "new": "（站主 exec-recheck 重新核验）"
+  },
+  {
+   "name": "R07 不记 exec.rechecked",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.appendEvent(\"exec.rechecked\", [[\"task\", main], [\"run_dir\", runDir], [\"check_ok\", pyItem(exec, \"check_ok\")]]);",
+   "new": "    void exec;"
+  },
+  {
+   "name": "R08 接着核验时不读 attempt 的退出码",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      runExit = pyGet(loads(readText(purePathStr(found, \"state.json\")) || \"{}\"), \"exit_code\");",
+   "new": "      runExit = null;"
+  },
+  {
+   "name": "T01 返工不开新会话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const fresh = ([...kinds].some((kind) => kind === \"返工\") || resume !== null) && sessionId === null;",
+   "new": "    const fresh = resume !== null && sessionId === null;"
+  },
+  {
+   "name": "T02 有会话也开新会话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const fresh = ([...kinds].some((kind) => kind === \"返工\") || resume !== null) && sessionId === null;",
+   "new": "    const fresh = [...kinds].some((kind) => kind === \"返工\") || resume !== null;"
+  },
+  {
+   "name": "T10 头一回合的 fresh 不看 resume（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const fresh = ([...kinds].some((kind) => kind === \"返工\") || resume !== null) && sessionId === null;",
+   "new": "    const fresh = [...kinds].some((kind) => kind === \"返工\") && sessionId === null;"
+  },
+  {
+   "name": "T03 不做格式重试与超时续接",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    for (let retry = 0; retry < WORKER_RETRIES_AFTER_TIMEOUT; retry += 1) {",
+   "new": "    for (let retry = 0; retry < 0; retry += 1) {"
+  },
+  {
+   "name": "T04 接口报错也重试",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!error || pyTruthy(pyItem(turn, \"violations\")) || pyTruthy(pyGet(turn, \"api_error\"))) break; // 接口报错重试也没用",
+   "new": "      if (!error || pyTruthy(pyItem(turn, \"violations\"))) break;"
+  },
+  {
+   "name": "T05 输出不合格重试不止一次",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (retry && !timeouts) break; // 输出不合格只重试一次",
+   "new": "      void retry;"
+  },
+  {
+   "name": "T06 超时续了又续",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (retry && pyTruthy(pyGet(turn, \"timed_out\"))) break;",
+   "new": "      void timeouts;"
+  },
+  {
+   "name": "T07 不超时也算超时",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      timeouts += pyTruthy(pyGet(turn, \"timed_out\")) ? 1 : 0;",
+   "new": "      timeouts += 1;"
+  },
+  {
+   "name": "T08 重试的输入不带上一回合的问题",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, error, inputs);",
+   "new": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, null, inputs);"
+  },
+  {
+   "name": "T09 重试不记 retry_of",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, pyItem(turn, \"turn_id\") as string, false, inputs, null);",
+   "new": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, null, false, inputs, null);"
+  },
+  {
+   "name": "X01 战前门禁重交前不重摆 worktree",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (suffix === \"3-gate-pre\") where = await this.stageWorkspace(ts, agent, suffix);",
+   "new": "    void where;"
+  },
+  {
+   "name": "X02 重交前不存核验的副作用",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.saveState(state); // 核验的副作用（合同已写入、门禁记录）先存下",
+   "new": "    void state;"
+  },
+  {
+   "name": "X03 核验原话不加短横",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      const listed = problems.map((problem) => `- ${pyStrValue(problem)}`).join(LF);",
+   "new": "      const listed = problems.map((problem) => `${pyStrValue(problem)}`).join(LF);"
+  },
+  {
+   "name": "X04 重交不带 REDELIVER_TEXT",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "REDELIVER_TEXT.replace(\"%s\", () => listed)",
+   "new": "listed"
+  },
+  {
+   "name": "X05 重交之后不删输入目录",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      removeInputs(inputs);\n    }\n    return [again,",
+   "new": "      void inputs;\n    }\n    return [again,"
+  },
+  {
+   "name": "H01 结项通过不标 done",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    ts.set(\"status\", ok ? \"done\" : pyItem(ts, \"status\"));",
+   "new": "    ts.set(\"status\", ok ? \"landed\" : pyItem(ts, \"status\"));"
+  },
+  {
+   "name": "H02 结项通过不放行依赖",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (ok) await releaseDependents(this.hub, state, main as string);",
+   "new": "    void releaseDependents;"
+  },
+  {
+   "name": "H03 收尾的原因写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        + \"这一轮没有复审结论，由后面的 attempt 取代\", this.deps)",
+   "new": "        + \"这一轮没有复审结论\", this.deps)"
+  },
+  {
+   "name": "H04 提交一栏截 199 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"提交\", detail ? head(lines[lines.length - 1] ?? indexError(), 200) : \"无\"]",
+   "new": "      [\"提交\", detail ? head(lines[lines.length - 1] ?? indexError(), 199) : \"无\"]"
+  },
+  {
+   "name": "H05 提交一栏取第一行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"提交\", detail ? head(lines[lines.length - 1] ?? indexError(), 200) : \"无\"]",
+   "new": "      [\"提交\", detail ? head(lines[0] ?? indexError(), 200) : \"无\"]"
+  },
+  {
+   "name": "H06 收尾没做完截 1499 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "head(`结项收尾没做完：${leftover.join(\"；\")}`, 1500)",
+   "new": "head(`结项收尾没做完：${leftover.join(\"；\")}`, 1499)"
+  },
+  {
+   "name": "H07 结项失败的偏离不写原因",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": ": \"无\") : head(detail, 1500)],",
+   "new": ": \"无\") : \"无\"],"
+  },
+  {
+   "name": "L01 合入后回归的窗口名",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await withSweepWindow(this.hub, `${main}-after-land`,",
+   "new": "    await withSweepWindow(this.hub, `${main}-afterland`,"
+  },
+  {
+   "name": "L02 待跑的回归不跑",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyTruthy(ts) && pyTruthy(pyGet(or(pyGet(ts, \"regression\"), new Map()), \"pending\"))) {",
+   "new": "    if (pyTruthy(ts) && pyTruthy(pyGet(or(pyGet(ts, \"regression\"), new Map()), \"pendings\"))) {"
+  },
+  {
+   "name": "L03 回归的验证截 1499 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[\"验证\", head(summary, 1500)]",
+   "new": "[\"验证\", head(summary, 1499)]"
+  },
+  {
+   "name": "L04 没落地也预演",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!pyTruthy(ts) || !pyEq(pyGet(ts, \"status\"), \"done\")) return;",
+   "new": "    if (!pyTruthy(ts)) return;"
+  },
+  {
+   "name": "L05 不是进行中的也预演",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!pyEq(pyGet(otherTs, \"status\"), \"active\")) continue;",
+   "new": "      void otherTs;"
+  },
+  {
+   "name": "L07 预演没过不写信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!rehearsed[0]) await rehearsalLetter(this.hub, otherTs, rehearsed[1], `${main} 刚落地`);",
+   "new": "      void rehearsed;"
+  },
+  {
+   "name": "L08 预演之后不存状态",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (rehearsed === null) continue;\n      await this.hub.saveState(state);",
+   "new": "      if (rehearsed === null) continue;"
+  },
+  {
+   "name": "Q01 续接不看工作目录",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (!pyEq(pyGet(record, \"workspace\"), purePathStr(workspace)) || pyTruthy(pyGet(record, \"output_error\")) || pyTruthy(pyGet(record, \"violations\"))) {",
+   "new": "  if (pyTruthy(pyGet(record, \"output_error\")) || pyTruthy(pyGet(record, \"violations\"))) {"
+  },
+  {
+   "name": "Q02 续接不看输出问题",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (!pyEq(pyGet(record, \"workspace\"), purePathStr(workspace)) || pyTruthy(pyGet(record, \"output_error\")) || pyTruthy(pyGet(record, \"violations\"))) {",
+   "new": "  if (!pyEq(pyGet(record, \"workspace\"), purePathStr(workspace)) || pyTruthy(pyGet(record, \"violations\"))) {"
+  },
+  {
+   "name": "Q03 续接不看违规",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (!pyEq(pyGet(record, \"workspace\"), purePathStr(workspace)) || pyTruthy(pyGet(record, \"output_error\")) || pyTruthy(pyGet(record, \"violations\"))) {",
+   "new": "  if (!pyEq(pyGet(record, \"workspace\"), purePathStr(workspace)) || pyTruthy(pyGet(record, \"output_error\"))) {"
+  },
+  {
+   "name": "Q04 result.json 读不出不当成开新会话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!pyCaught(error, [\"ValueError\"])) throw error;\n    return null;\n  }\n  if (!pyEq(",
+   "new": "    throw error;\n  }\n  if (!pyEq("
+  },
+  {
+   "name": "P01 不依赖它的也放行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!pyEq(pyGet(ts, \"status\"), \"active\") || !pyIter(after).some((item) => pyEq(item, done)) || pyTruthy(pyGet(ts, \"after_released\"))) continue;",
+   "new": "    if (!pyEq(pyGet(ts, \"status\"), \"active\") || pyTruthy(pyGet(ts, \"after_released\"))) continue;"
+  },
+  {
+   "name": "P02 放行过的再放行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!pyEq(pyGet(ts, \"status\"), \"active\") || !pyIter(after).some((item) => pyEq(item, done)) || pyTruthy(pyGet(ts, \"after_released\"))) continue;",
+   "new": "    if (!pyEq(pyGet(ts, \"status\"), \"active\") || !pyIter(after).some((item) => pyEq(item, done))) continue;"
+  },
+  {
+   "name": "P03 别的依赖没结项也放行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyIter(after).some((item) => !pyEq(pyGet(or(pyGet(tasks, pyStrValue(item)), new Map()), \"status\"), \"done\"))) continue;",
+   "new": "    void after;"
+  },
+  {
+   "name": "P04 after_released 不记 head",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    (ts as PyDict).set(\"after_released\", new Map<string, PyValue>([[\"at\", utcNow()], [\"head\", headSha],",
+   "new": "    (ts as PyDict).set(\"after_released\", new Map<string, PyValue>([[\"at\", utcNow()], [\"tip\", headSha],"
+  },
+  {
+   "name": "P05 不记 dependency.released",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await hub.appendEvent(\"dependency.released\", [[\"task\", task], [\"head\", headSha], [\"previous\", previous], [\"after\", after]]);",
+   "new": "    void task;"
+  },
+  {
+   "name": "P06 旧基线取 9 位",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "${head(pyStrValue(previous), 10)}",
+   "new": "${head(pyStrValue(previous), 9)}"
+  },
+  {
+   "name": "N01 有执行端在跑也落地",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (blockers.length > 0) return blockers;",
+   "new": "    void blockers;"
+  },
+  {
+   "name": "N02 不读掉结项信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await hub.take(letter);",
+   "new": "    void letter;"
+  },
+  {
+   "name": "N03 落地之后不跑合入后回归",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (main) await engine.afterLand(main);",
+   "new": "  void main;"
+  },
+  {
+   "name": "N04 land 等落地锁用 landWaitSeconds（themistally-04 点名，Y02 那一类）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  const lock = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();",
+   "new": "  const lock = new DirLock(purePathStr(hub.root, \".land\"), deps.landWaitSeconds).acquire();"
+  },
+  {
+   "name": "N05 不等后台回归",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const blockers = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, deps) : [];",
+   "new": "    const blockers = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, false, deps) : [];"
+  },
+  {
+   "name": "K01 None 与字符串混排不报错（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (kinds.has(null) && kinds.size > 1) throw new PyCrash(\"TypeError\", \"'<' not supported between instances of 'str' and 'NoneType'\");",
+   "new": "  void kinds;"
+  },
+  {
+   "name": "K02 not_woken 的类型不排序",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  return [...kinds].map((kind) => kind as PyValue).sort((a, b) => cmpCodePoints(String(a), String(b)));",
+   "new": "  return [...kinds].map((kind) => kind as PyValue);"
+  },
+  {
+   "name": "Y01 项赋值报 AttributeError 'update'（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (op === \"[]=\") throw new PyCrash(\"TypeError\", `'${pyTypeName(value)}' object does not support item assignment`);",
+   "new": "  if (op === \"[]=\") throw new PyCrash(\"AttributeError\", `'${pyTypeName(value)}' object has no attribute 'update'`);"
+  },
+  {
+   "name": "Y02 续接的 session 不带上",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  return new Map([...resume, [\"session\", sessionId]]);",
+   "new": "  return new Map([...resume, [\"session\", null]]);"
+  },
+  {
+   "name": "Y03 列表的项赋值报回 item assignment（themistally-04 复核第二段时要的）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (Array.isArray(value) && op === \"[]=\") throw new PyCrash(\"TypeError\", \"list indices must be integers or slices, not str\");",
+   "new": "  if (Array.isArray(value) && op === \"[]=\") throw new PyCrash(\"TypeError\", \"'list' object does not support item assignment\");"
+  },
+  {
+   "name": "Y04 列表的 pop 报回没有这个属性（themistally-04 复核第二段时要的）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (Array.isArray(value) && op === \"pop\") throw new PyCrash(\"TypeError\", \"pop expected at most 1 argument, got 2\");",
+   "new": "  if (Array.isArray(value) && op === \"pop\") throw new PyCrash(\"AttributeError\", \"'list' object has no attribute 'pop'\");"
+  },
+  {
+   "name": "Z05 规划的两类问题换次序（themistally-04 抽查）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "return [...(pyStrip(pyStrValue(or(pyGet(output, \"report\"), \"\"))) ? [] : [\"规划端的 report 为空\"]), ...externalFactProblems(output)];",
+   "new": "return [...externalFactProblems(output), ...(pyStrip(pyStrValue(or(pyGet(output, \"report\"), \"\"))) ? [] : [\"规划端的 report 为空\"])];"
+  }
+ ]
+}
