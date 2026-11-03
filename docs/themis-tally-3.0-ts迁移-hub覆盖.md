@@ -511,4 +511,55 @@ COVERED 21、PARTIAL 10。⑤g1 表里归 ⑤g2 的 21 条：19 条转 COVERED�
 
 变异：ts/mutations/hub-g2.ts.json 58 条（runexec.ts 的 R01–R56 少 R53，加探针的 X09 与抽查补的 X10、X11），跑手写场景与采样契约：R 的 55 条抓住 53 条。R18（git diff 的输出按字节判空白改成解码之后 trim）事先判为等价：git diff 的输出要么为空、要么以 diff --git 开头。R51（交给 Session 的题库不带阈值）第一轮意外漏掉，查明 Session.ask 两边都只读题库的 id、version、sha256、questions，标留意用的阈值是 run_jev 自己从题库字典取的，判为等价。X09（TS 探针还原时不设修改时刻；themistally-15 在 ⑤g1 抽查，当时目录的时刻还没人用，留到 final_audit_turn 落地再补）单独跑抓住（挂的是 final_audit_turn 没有补丁、看目录时刻的那组场景）。ts/mutations/base-g2.ts.json 4 条（pyexc 认 Node 的文件错误：EISDIR 另归、不看 syscall、ENOTDIR 归 OSError、一律认不出）全部抓住。themistally-15 在自己的副本上抽查 11 条（R15、R16、R17、R44、R48、X09 与它另加的 Y02、Y08、Y10、Y17、Y18），10 条抓住。Y02（exec_window 收尾删执行标记出错不再吞掉）第一轮漏掉：Python 内核自己不删这个标记，只有站主手动删了、别的进程占着文件才走得到；补了场景（派遣时标记被外面删了），并进 X10，它重跑抓住。Y08（check_ok 不看范围违规）漏掉：Python 用例的 attempt_dir 从没给 finish_exec 带违规的 scope.json，采样只见过空的违规；补了场景（NEEDS_REVIEW、检查过了、有一条违规，check_ok 是 false），并进 X11，单独跑抓住。中途两次被系统按内存不足停掉（themistally-15 的抽查一次、单跑 X10 一次，其间有外部经 SSH 起的 Java 构建），用户同意后在内存回升时重跑。
 
-其余场景随各片补（⑤h 到 ⑤j）。
+## ⑤h 结项、落地与后台回归
+
+⑤h 拆成两片（themistally-15 同意）：⑤h1 是结项与落地、结项后的收尾，⑤h2 是后台回归与落地预演。
+
+### ⑤h1 结项与落地、结项后的收尾
+
+做法（⑤h 设计稿，themistally-15 复核）：
+- 改状态的十个函数（finalize、landing_blockers、retire_attempts、tidy_finished、remove_workspaces、commit_records、land_oracle、land_rework_chain、undo_landing、record_pass）照 ⑤e2b 的 flow_recorder 记、照调用当时重放。用例当时换掉的 run_pd 与调度器的 _running_attempts 照记录注入；landing_blockers 里的 pd.pid_alive 一律照记录注入（执行标记记的是采样进程的 pid，重放时那个进程已经不在）。
+- landed_meanwhile、landing_chain、on_branch 放回调用当时的快照之后三边逐字比（on_branch 在落地预演的临时 worktree 里看时，快照连 where 一起存）；landing_records 是纯函数。
+- 语料：挂插件把 tests/test_kit_hub.py 全部跑一遍，看谁调到了这十四个函数，得 22 条；test_status_shows_the_parallel_runners 要 pytest 的 capsys，采样器不搭，不收。
+- 6 次调用重放不出来，钉在契约的 UNREPLAYABLE 表里，每一条写明原因与覆盖它的手写场景，契约核对每一条恰好对上一次调用：3276 的 tidy_finished 4 次与 retire_attempts 第 2 次（仓库外的 worktree 在调用之间被用例删改，快照不带）；3181 的第 1 次 finalize（假的 integrate 在调用期间 reset --hard 挪了分支，注入只重放文件）。
+- 采样器跑用例期间把文件描述符 1、2 接到空设备（exclusive 起的子进程直接写 1，会混进探针交回结果的通道）；注入的异常里，调度器的 DispatchError 与 OSError 一族照真的类抛（采样当时就是真的类）。
+
+契约：
+- hub-land：21 条用例。流程函数的顶层调用 55 次（finalize 20、landing_blockers 19、retire_attempts 4、tidy_finished 5、commit_records 2、land_oracle 2、land_rework_chain 3；remove_workspaces、undo_landing、record_pass 只在里面被调到），跳过 6 次，49 次三边重放都与当时的结果相同；注入 run_pd 25、_running_attempts 19、pid_alive 10。快照与纯函数 45 次（landed_meanwhile 7、landing_chain 11、on_branch 25、landing_records 2）三边相同。
+- hub-land-scenes：15 组手写场景。
+  - landing_blockers：标记的各种写法（没有 pid、pid 在、不在、字符串 0（pid_alive 交回 None）、浮点、True；有 label、只有 task、两样都没有；sweep 标记在 sweeps 为真、假、别的真值与假值时；坏 JSON、不是 UTF-8、目录、大写扩展名、不是 .json；NTFS 列目录与 Python 排序次序不同的两个名字），调度器记着在跑的 attempt（自己合同的滤掉）；注入的 _running_attempts（正反斜杠、前缀相同的别的合同、DispatchError 与 OSError 当成空、别的照样崩）与 pid_alive 的真、假、None；照样崩的 4 种。
+  - finalize：verdict 被拒；基准测试挑不上，不再落返工链；integrate 没过，列出期间先落地的提交、撤回并恢复记录；过了之后提交记录，分支前进时记回归待跑、没前进时不记。
+  - undo_landing 直接调：末端没动、已经不是祖先、reset --keep 被本地改动挡住、撤回并恢复记录；记录是列表时撤回之后照样崩。场景的仓库设 core.checkStat=minimal 与 core.trustctime=false（放回快照会换掉 ctime 与 inode）。
+  - commit_records：Windows 上不分大小写、后缀分大小写、前缀相同的别的合同族不算，复审记录目录一起提交；没东西可提交、什么都没有；add 报错；照样崩的 2 种。
+  - retire_attempts：没开跑且干净（cleanup --force）、没开跑但不干净、PREPARED 已开跑与 RUNNING 不动、mark 失败、有结论的只清 worktree 且 cleanup 失败、没有 worktree、目录名大写；照样崩的 4 种。
+  - remove_workspaces 与 tidy_finished：真删一个 worktree、路径已不在、空路径与已删过的跳过、不是 worktree 的目录删不掉；照样崩的 3 种。
+  - land_oracle 5 种；land_rework_chain 两条链（已落地的跳过、already、empty、ff、cherry-pick、挑不上停下；按 attempt 的基线筛、提交不存在照挑并报错）；on_branch、landing_chain、landed_meanwhile 直接调 6 种。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_finalize_lands_the_oracle_commit_first_and_can_be_retried` | 2684 | COVERED | hub-land：finalize 5 次 |
+| `test_finalize_lands_the_rework_chain_before_integrating` | 3024 | COVERED | hub-land：finalize 5 次 |
+| `test_failed_integrate_takes_the_landed_commits_back_off_the_branch` | 3132 | COVERED | hub-land：finalize 2 次 |
+| `test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too` | 3157 | COVERED | hub-land：finalize 1 次 |
+| `test_failed_integrate_names_the_meanwhile_commits_only_when_the_candidate_had_passed` | 3169 | COVERED | hub-land：finalize 2 次、landed_meanwhile 1 次 |
+| `test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it` | 3181 | COVERED | hub-land：finalize 3 次（第 1 次不重放：假的 integrate 在调用期间挪了分支，由手写场景直接调 undo_landing 的“已经不是祖先”覆盖）、landing_records 1 次 |
+| `test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again` | 3210 | COVERED | hub-land：finalize 2 次、landing_records 1 次、on_branch 3 次 |
+| `test_owner_takeover_closes_the_task` | 3230 | PARTIAL | tidy_finished 1 次；task close 的命令归 ⑤j |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | tidy_finished 4 次、retire_attempts 4 次，其中 5 次不重放（仓库外的 worktree 在调用之间被删改），由手写场景覆盖；Engine 归 ⑤i |
+| `test_landing_waits_for_other_tasks_executors` | 4001 | PARTIAL | landing_blockers 3 次；land 归 ⑤i |
+| `test_exec_window_marks_the_run_and_waits_for_a_landing` | 4034 | COVERED | hub-land：landing_blockers 1 次（exec_window 在 ⑤g2） |
+| `test_records_commit_takes_only_the_tasks_plans_and_reviews` | 4131 | COVERED | hub-land：commit_records 2 次 |
+| `test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks` | 4221 | PARTIAL | landing_chain 5 次、on_branch 11 次、landed_meanwhile 3 次；rehearse_landing 归 ⑤h2 |
+| `test_landing_skips_an_empty_rework_commit` | 4274 | PARTIAL | land_oracle 1 次、land_rework_chain 2 次、landing_chain 1 次、on_branch 4 次；rehearse_landing 归 ⑤h2 |
+| `test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain` | 4293 | PARTIAL | land_oracle 1 次、land_rework_chain 1 次、landing_chain 2 次、on_branch 2 次；rehearse_landing 归 ⑤h2 |
+| `test_landing_rehearsal_reports_commits_that_no_longer_apply` | 4324 | PARTIAL | landing_chain 2 次、on_branch 3 次、landed_meanwhile 2 次；rehearse_landing 归 ⑤h2 |
+| `test_exclusive_runs_the_command_once_executors_are_done` | 4427 | PARTIAL | landing_blockers 2 次（sweeps=False）；cmd_exclusive 归 ⑤j |
+| `test_exclusive_marks_an_owner_sweep_only_when_head_moves` | 4448 | PARTIAL | landing_blockers 3 次（sweeps=False）；mark_owner_moved 归 ⑤h2，cmd_exclusive 归 ⑤j |
+| `test_owner_commits_get_a_gate_sweep_and_rehearsals` | 4472 | PARTIAL | landing_chain 1 次、on_branch 2 次、landed_meanwhile 1 次；owner sweep 归 ⑤h2 |
+| `test_landing_waits_for_a_background_gate_sweep` | 4519 | PARTIAL | landing_blockers 6 次（sweeps 为假 2 次）；sweep_window 归 ⑤h2，cmd_exclusive 归 ⑤j |
+| `test_background_sweeps_hold_off_other_landings_while_they_run` | 4545 | PARTIAL | landing_blockers 4 次；owner sweep 归 ⑤h2，Engine 归 ⑤i |
+
+COVERED 9、PARTIAL 12。⑤g2 表里归 ⑤h 的 7 条结项用例（2684–3210）在这里转 COVERED；落地预演、owner sweep 与 sweep_window 的 8 条（4221、4274、4293、4324、4448、4472、4519、4545 里的 ⑤h2 部分）归 ⑤h2；3276、4001、4545 的 Engine 与 land 归 ⑤i；3230、4427、4448、4519 的命令归 ⑤j。
+
+变异：ts/mutations/hub-h1.ts.json 78 条（land.ts 的 L01–L89，编号有空），抓住 77 条，L46 等价。先只跑手写场景，68 条抓住 65 条；漏掉的 3 条都是场景没构造到，补了场景之后用清单里的完整命令（手写场景加采样契约）重跑：L22（基准测试挑不上照样落返工链；原来那一轮返工被 attempt 的基线筛掉，挑不挑都一样，改成 meta.json 的 base_sha 指向它）与 L74（mark 失败照样清 worktree；原来那个 attempt 没有 worktree）抓住；L46（commit 不带 --only）判为等价：git commit 在命令行给了路径时缺省就是 --only，临时仓库里实测站主暂存的别的文件照旧留在暂存区；等价靠的是前面没有路径就早退，只有空路径时 --only 才起作用（git 报错，而不是把站主暂存的东西提交掉），themistally-15 复核时指出，补了删掉早退的 L48 与没有记录、站主暂存了文件的场景，L48 抓住。themistally-15 点名的短路条件（L01、L02、L04–L12、L27、L28、L50、L55、L56、L70–L73、L75、L76）都抓住；L16（标记不排序）抓住：NTFS 列目录照 $UpCase 比，Python 按小写比，_ 与字母的先后不同。themistally-15 在自己导出的副本上抽查 13 条（清单里的 L05、L16、L22、L48、L57、L74、L75、L76 与它另加的 X01–X05），10 条抓住；X01（阶段 worktree 不按 kind 排序）、X02（verdict 被拒的输出少取一行）、X05（integrated 少记一行）漏掉：场景里 workspaces 的键本来就按字母序插入，注入的输出都只有一行。补了场景（键倒着插、两个能删成功；注入的输出加长到各处 tail 的行数都起作用），连同同一次改动管到的 integrate 问题与落地之后的 detail、retire 的两处、cherry-pick 冲突输出的两处 tail，并进清单为 L81–L89，单独跑 9 条全部抓住。
+其余场景随各片补（⑤h2 到 ⑤j）。

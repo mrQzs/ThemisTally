@@ -1,0 +1,484 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-land-scenes.contract.test.ts",
+  "packages/contracts/test/hub-land.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1500,
+ "mutations": [
+  {
+   "name": "L01 sweep 标记在 sweeps 为假时也挡着",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "(pyTruthy(pyGet(mark, \"sweep\")) && !pyTruthy(sweeps))",
+   "new": "(pyTruthy(pyGet(mark, \"sweep\")) && false)"
+  },
+  {
+   "name": "L02 sweep 标记在 sweeps 为真时也跳过",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "(pyTruthy(pyGet(mark, \"sweep\")) && !pyTruthy(sweeps))",
+   "new": "pyTruthy(pyGet(mark, \"sweep\"))"
+  },
+  {
+   "name": "L03 自己的标记也算挡着",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "if (pyEq(task, pyItem(ts, \"task\")) ||",
+   "new": "if (false ||"
+  },
+  {
+   "name": "L04 没有 pid 的标记不算挡着",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "if (pyTruthy(pyGet(mark, \"pid\")) && deps.pidAlive(",
+   "new": "if (!pyTruthy(pyGet(mark, \"pid\")) || deps.pidAlive("
+  },
+  {
+   "name": "L05 pid_alive 交回 None 也当作废",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "(pyItem(mark, \"pid\")))) === false) continue;",
+   "new": "(pyItem(mark, \"pid\")))) !== true) continue;"
+  },
+  {
+   "name": "L06 进程在的当作废、不在的挡着",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "(pyItem(mark, \"pid\")))) === false) continue;",
+   "new": "(pyItem(mark, \"pid\")))) === true) continue;"
+  },
+  {
+   "name": "L07 不看 label",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "found.push(or(pyGet(mark, \"label\"), `${pyStrValue(or(pyGet(mark, \"task\"), stem(path)))} 的执行端`));",
+   "new": "found.push(`${pyStrValue(or(pyGet(mark, \"task\"), stem(path)))} 的执行端`);"
+  },
+  {
+   "name": "L08 没有 task 时不退到文件名",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "pyStrValue(or(pyGet(mark, \"task\"), stem(path)))",
+   "new": "pyStrValue(pyGet(mark, \"task\"))"
+  },
+  {
+   "name": "L09 文件名留着扩展名",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "or(pyGet(mark, \"task\"), stem(path))",
+   "new": "or(pyGet(mark, \"task\"), purePathName(path))"
+  },
+  {
+   "name": "L10 自己合同的 attempt 不滤",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "...running.filter((item) => !item.replaceAll(BS, \"/\").startsWith(own))",
+   "new": "...running.filter(() => true)"
+  },
+  {
+   "name": "L11 反斜杠不换成斜杠",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "!item.replaceAll(BS, \"/\").startsWith(own)",
+   "new": "!item.startsWith(own)"
+  },
+  {
+   "name": "L12 前缀不带斜杠",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "pyPlus(pyItem(ts, \"contract_task\"), \"/\")",
+   "new": "pyPlus(pyItem(ts, \"contract_task\"), \"\")"
+  },
+  {
+   "name": "L13 调度器出错不接住",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "if (!(error instanceof DispatchError) && !pyCaught(error, [\"OSError\"])) throw error;",
+   "new": "throw error;"
+  },
+  {
+   "name": "L14 OSError 不接住",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "if (!(error instanceof DispatchError) && !pyCaught(error, [\"OSError\"])) throw error;",
+   "new": "if (!(error instanceof DispatchError)) throw error;"
+  },
+  {
+   "name": "L15 坏 JSON 不当成空",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "      if (!pyCaught(error, [\"ValueError\"])) throw error;\n      mark = new Map();",
+   "new": "      throw error;"
+  },
+  {
+   "name": "L16 标记不排序",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "globPaths(marks, [\"*.json\"]).map((item) => purePathStr(item)).sort(comparePaths)",
+   "new": "globPaths(marks, [\"*.json\"]).map((item) => purePathStr(item))"
+  },
+  {
+   "name": "L20 已经 PASS 还记一次结论",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (getState(runDir) !== \"PASS\") {",
+   "new": "  if (true) {"
+  },
+  {
+   "name": "L21 verdict 被拒照样往下",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (problem) return [false, problem];\n",
+   "new": ""
+  },
+  {
+   "name": "L22 基准测试挑不上照样落返工链",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "(await landOracle(hub, ts)) || (await landReworkChain(hub, ts))",
+   "new": "[await landOracle(hub, ts), await landReworkChain(hub, ts)].find(Boolean) ?? null"
+  },
+  {
+   "name": "L23 integrate 退出码非零不算没落地",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (code !== 0) problem = `integrate 没有落地",
+   "new": "    if (code < 0) problem = `integrate 没有落地"
+  },
+  {
+   "name": "L24 integrate 的时限不是 3600",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "[\"integrate\", runDir], 3600)",
+   "new": "[\"integrate\", runDir], 600)"
+  },
+  {
+   "name": "L25 没落地不撤回",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "problem + (await undoLanding(hub, ts, headBefore, recordsBefore))",
+   "new": "problem"
+  },
+  {
+   "name": "L26 不列期间先落地的提交",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "${tail(out, 15n)}${landedMeanwhile(hub, ts, headBefore)}`",
+   "new": "${tail(out, 15n)}`"
+  },
+  {
+   "name": "L27 分支没前进也记回归待跑",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!pyEq(headBefore, pyItem(ts, \"base_head\"))) {",
+   "new": "  if (true) {"
+  },
+  {
+   "name": "L28 分支前进了不记回归待跑",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!pyEq(headBefore, pyItem(ts, \"base_head\"))) {",
+   "new": "  if (false) {"
+  },
+  {
+   "name": "L29 落地前不拷记录",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "landingRecords(ts).map((record) => pyDictOf(record).toDict())",
+   "new": "(landingRecords(ts) as PyDict[])"
+  },
+  {
+   "name": "L30 末端没动也往下",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (head === headBefore) return \"\";\n",
+   "new": ""
+  },
+  {
+   "name": "L31 不是祖先照样 reset",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "runGit([\"merge-base\", \"--is-ancestor\", headBefore, \"HEAD\"], hub.repo, \"inherit\").status !== 0",
+   "new": "false"
+  },
+  {
+   "name": "L32 用 reset --hard",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "git([\"reset\", \"-q\", \"--keep\", headBefore], hub.repo);",
+   "new": "git([\"reset\", \"-q\", \"--hard\", headBefore], hub.repo);"
+  },
+  {
+   "name": "L33 记录不恢复",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    restoreRecord(records[index] as PyValue, recordsBefore[index] as PyDict);\n",
+   "new": ""
+  },
+  {
+   "name": "L34 不记 landing.undone",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  await hub.appendEvent(\"landing.undone\", [[\"task\", pyItem(ts, \"task\")], [\"head\", head], [\"back_to\", headBefore]]);\n",
+   "new": ""
+  },
+  {
+   "name": "L35 check 没过也列期间的提交",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!pyTruthy(pyGet(pyItem(ts, \"exec\"), \"check_ok\"))) return \"\";\n",
+   "new": ""
+  },
+  {
+   "name": "L36 期间的提交列十一个",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "log.slice(0, 10)",
+   "new": "log.slice(0, 11)"
+  },
+  {
+   "name": "L42 后缀不分大小写",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": ".filter((path) => suffix(path) === \".md\" || suffix(path) === \".json\")",
+   "new": ".filter((path) => suffix(path).toLowerCase() === \".md\" || suffix(path) === \".json\")"
+  },
+  {
+   "name": "L43 复审记录目录不提交",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (isDir(reviews)) paths.push(relativePosix(reviews, hub.repo));\n",
+   "new": ""
+  },
+  {
+   "name": "L44 没改动也提交",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!pyStrip(git([\"status\", \"--porcelain\", \"--\", ...paths], hub.repo))) return [null, null];\n",
+   "new": ""
+  },
+  {
+   "name": "L45 add 报错不接住",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    return [null, `合同与复审记录没有提交成（站主手动提交）：${error.message}`];",
+   "new": "    throw error;"
+  },
+  {
+   "name": "L46 commit 不带 --only",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "git([\"commit\", \"-q\", \"--only\", \"-m\", message, \"--\", ...paths], hub.repo);",
+   "new": "git([\"commit\", \"-q\", \"-m\", message, \"--\", ...paths], hub.repo);",
+   "equivalent": "git commit 在命令行给了路径时缺省就是 --only（git-commit 文档：This is the default mode of operation of git commit if any paths are given on the command line）；实测站主暂存的别的文件照旧留在暂存区。等价靠的是前面没有路径就早退（L48）；只有空路径时 --only 才起作用：git 会直接报错，而不是把站主暂存的东西提交掉"
+  },
+  {
+   "name": "L48 没有记录也往下提交",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!paths.length) return [null, null];\n",
+   "new": ""
+  },
+  {
+   "name": "L47 合同的 glob 少了 .v",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "`${pyStrValue(pyItem(ts, \"contract_task\"))}.v*`",
+   "new": "`${pyStrValue(pyItem(ts, \"contract_task\"))}*`"
+  },
+  {
+   "name": "L50 where 为空时不用 hub 的仓库",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  const cwd = where || hub.repo;",
+   "new": "  const cwd = where || process.cwd();"
+  },
+  {
+   "name": "L51 不看 cherry-pick -x 的标记",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  return Boolean(pyStrip(git([\"log\", \"--format=%H\", \"-n\", \"1\", \"--fixed-strings\", grep, \"HEAD\"], cwd, false)));",
+   "new": "  return false;"
+  },
+  {
+   "name": "L52 是祖先也不算",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "\"HEAD\"], cwd, \"inherit\").status === 0) return true;",
+   "new": "\"HEAD\"], cwd, \"inherit\").status === 0) return false;"
+  },
+  {
+   "name": "L53 run_dir 为空也筛",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (runDir === null) return [...pyIter(chain)];\n",
+   "new": ""
+  },
+  {
+   "name": "L54 判断不了的提交筛掉",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "argText(base)], hub.repo, \"ignore\").status !== 1);",
+   "new": "argText(base)], hub.repo, \"ignore\").status === 0);"
+  },
+  {
+   "name": "L55 files 为空也比内容",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (pyTruthy(files) && pyIter(files).every(same)) return null;",
+   "new": "  if (pyIter(files).every(same)) return null;"
+  },
+  {
+   "name": "L56 部分相同就不挑",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "pyIter(files).every(same)",
+   "new": "pyIter(files).some(same)"
+  },
+  {
+   "name": "L57 已在分支上也挑",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (!pyTruthy(oracle) || onBranch(hub, oracle)) return null;",
+   "new": "  if (!pyTruthy(oracle)) return null;"
+  },
+  {
+   "name": "L58 挑不上不 abort",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  runGit([\"cherry-pick\", \"--abort\"], hub.repo, \"ignore\");\n",
+   "new": ""
+  },
+  {
+   "name": "L59 基准测试不记 landed_by",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  markLanded(pyItem(ts, \"oracle\"), how);\n",
+   "new": ""
+  },
+  {
+   "name": "L60 已落地的不跳过",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "      if (pyTruthy(pyGet(link, \"landed_at\"))) continue;\n      how = \"already\";",
+   "new": "      how = \"already\";"
+  },
+  {
+   "name": "L61 空提交照挑",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    } else if (emptyCommit(hub, sha as string)) {",
+   "new": "    } else if (false) {"
+  },
+  {
+   "name": "L62 不按 attempt 的基线筛",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "landingChain(hub, ts, pyTruthy(runDir) ? pathArg(runDir) : null)",
+   "new": "landingChain(hub, ts, null)"
+  },
+  {
+   "name": "L63 verdict 记成 REVISE",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "[\"verdict\", runDir, \"--verdict\", \"PASS\", \"--review\", reviewPath]",
+   "new": "[\"verdict\", runDir, \"--verdict\", \"REVISE\", \"--review\", reviewPath]"
+  },
+  {
+   "name": "L64 verdict 被拒不报",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  if (code !== 0) return `verdict PASS 被门禁拒绝",
+   "new": "  if (false) return `verdict PASS 被门禁拒绝"
+  },
+  {
+   "name": "L65 已删过的不跳过",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (!pyTruthy(path) || pyTruthy(pyGet(record, \"removed_at\"))) continue;",
+   "new": "    if (!pyTruthy(path)) continue;"
+  },
+  {
+   "name": "L66 删不掉也记 removed_at",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": ".slice(0, 200).join(\"\")}`);\n        continue;",
+   "new": ".slice(0, 200).join(\"\")}`);"
+  },
+  {
+   "name": "L67 stderr 不去空白",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "codePoints(pyStrip(pyDecodeUtf8Replace(done.stderr)))",
+   "new": "codePoints(pyDecodeUtf8Replace(done.stderr))"
+  },
+  {
+   "name": "L68 stderr 截 100 个字",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": ".slice(0, 200).join(\"\")",
+   "new": ".slice(0, 100).join(\"\")"
+  },
+  {
+   "name": "L70 PREPARED 没开跑的不收",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    const neverRan = state === \"PREPARED\" && !pyExists(purePathStr(runDir, \"run-started.json\"));",
+   "new": "    const neverRan = false;"
+  },
+  {
+   "name": "L71 已开跑的 PREPARED 也收",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    const neverRan = state === \"PREPARED\" && !pyExists(purePathStr(runDir, \"run-started.json\"));",
+   "new": "    const neverRan = state === \"PREPARED\";"
+  },
+  {
+   "name": "L72 NEEDS_REVIEW 不记 ABANDONED",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (state === \"NEEDS_REVIEW\" || neverRan) {",
+   "new": "    if (neverRan) {"
+  },
+  {
+   "name": "L73 有结论的也记 ABANDONED",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (state === \"NEEDS_REVIEW\" || neverRan) {",
+   "new": "    if (true) {"
+  },
+  {
+   "name": "L74 mark 失败照样清 worktree",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "        problems.push(`${name} 没能记成 ABANDONED：${tail(out, 3n)}`);\n        continue;",
+   "new": "        problems.push(`${name} 没能记成 ABANDONED：${tail(out, 3n)}`);"
+  },
+  {
+   "name": "L75 干净的也不带 --force",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "      const clean = neverRan && !workspaceStatus(purePathStr(worktree as string)).length;",
+   "new": "      const clean = false;"
+  },
+  {
+   "name": "L76 不干净的也带 --force",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "      const clean = neverRan && !workspaceStatus(purePathStr(worktree as string)).length;",
+   "new": "      const clean = neverRan;"
+  },
+  {
+   "name": "L77 在跑的也动",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "    if (ATTEMPT_IN_FLIGHT.includes(state) && !neverRan) {",
+   "new": "    if (false) {"
+  },
+  {
+   "name": "L78 cleanup 失败不报",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "      if (code !== 0) problems.push(`${name} 的 worktree 没删掉",
+   "new": "      if (false) problems.push(`${name} 的 worktree 没删掉"
+  },
+  {
+   "name": "L81 阶段 worktree 不按 kind 排序（themistally-15 抽查的 X01）",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "[...workspaces].sort(([a], [b]) => cmpCodePoints(a as string, b as string))",
+   "new": "[...workspaces]"
+  },
+  {
+   "name": "L82 verdict 被拒的输出取 19 行（X02）",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "tail(out, 20n)",
+   "new": "tail(out, 19n)"
+  },
+  {
+   "name": "L83 integrated 记 14 行（X05）",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "[\"tail\", tail(out, 15n)]",
+   "new": "[\"tail\", tail(out, 14n)]"
+  },
+  {
+   "name": "L84 integrate 没过的问题取 14 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "：${LF}${tail(out, 15n)}${landedMeanwhile",
+   "new": "：${LF}${tail(out, 14n)}${landedMeanwhile"
+  },
+  {
+   "name": "L85 落地之后的 detail 取 5 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "  let detail = tail(out, 6n);",
+   "new": "  let detail = tail(out, 5n);"
+  },
+  {
+   "name": "L86 mark 失败的输出取 2 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "没能记成 ABANDONED：${tail(out, 3n)}",
+   "new": "没能记成 ABANDONED：${tail(out, 2n)}"
+  },
+  {
+   "name": "L87 cleanup 失败的输出取 2 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "的 worktree 没删掉：${tail(out, 3n)}",
+   "new": "的 worktree 没删掉：${tail(out, 2n)}"
+  },
+  {
+   "name": "L88 基准测试挑不上的 git 输出取 7 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "`基准测试提交 ${short(oracle)} 既不能 ff，也不能干净地挑到当前分支：${tail(out, 8n)}`",
+   "new": "`基准测试提交 ${short(oracle)} 既不能 ff，也不能干净地挑到当前分支：${tail(out, 7n)}`"
+  },
+  {
+   "name": "L89 返工提交挑不上的 git 输出取 7 行",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "的候选）既不能 ff，也不能干净地挑到当前分支：${tail(out, 8n)}`",
+   "new": "的候选）既不能 ff，也不能干净地挑到当前分支：${tail(out, 7n)}`"
+  },
+  {
+   "name": "L80 收尾不清阶段 worktree",
+   "file": "ts/packages/hub/src/land.ts",
+   "old": "[...(await removeWorkspaces(hub, ts)), ...(await retireAttempts(hub, ts, reason, deps))]",
+   "new": "[...(await retireAttempts(hub, ts, reason, deps))]"
+  }
+ ]
+}

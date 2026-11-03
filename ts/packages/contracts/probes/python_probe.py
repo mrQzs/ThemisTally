@@ -36,6 +36,7 @@ import kit_hub  # noqa: E402
 import kit_logs  # noqa: E402
 import kit_roles  # noqa: E402
 import pi_dispatch  # noqa: E402
+import builtins  # noqa: E402
 from codekit import decisions as codekit_decisions  # noqa: E402
 from codekit import plugins as codekit_plugins  # noqa: E402
 from codekit import protocols as codekit_protocols  # noqa: E402
@@ -1475,6 +1476,12 @@ def op_hub_contract(request):
             value = list(kit_hub.add_modified_files(*args))
         elif fn in ("gate_claims", "jev_flag"):
             value = getattr(kit_hub, fn)(*args)
+        elif fn == "landing_records":  # ⑤h1
+            value = kit_hub.landing_records(*args)
+        elif fn == "landed_meanwhile":
+            value = kit_hub.landed_meanwhile(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn in ("landing_chain", "on_branch"):  # 第三个参数是 Path 或 None
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), args[1], None if args[2] is None else Path(args[2]))
         elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
             value = {name: [list(key) for key in sorted(getattr(pi_dispatch, name))]
                      for name in ("TS_READONLY_COMMANDS", "TS_ONLY_COMMANDS", "TS_CONFIG_COMMANDS", "TS_DISPATCHER_COMMANDS")}
@@ -1729,16 +1736,17 @@ def _recorded_error(exc):
 #: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节；⑤f 加 worktree_root；⑤g2 加
 #: rework_added_files 与决策端的 Session、load_locked_batteries，Session 换成一个类，它的 ask 记成一次内层调用）
 FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract", "worktree_root", "rework_added_files", "Session",
-              "load_locked_batteries")
+              "load_locked_batteries", "_running_attempts")  # ⑤h1：landing_blockers 调的调度器 _running_attempts
 #: ⑤f：用例没换、也照记录注入的（themistally-15 定的，⑤f 设计稿第 3、10 节）：白盒测试那一次 run_supervised 只在 accept_gate_post 里录，
 #: mkdtemp 在建 worktree 的两个函数里录
 FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkdtemp",), "ensure_worktree": ("mkdtemp",),
-               "run_exec": ("mkdtemp",)}  # ⑤g2：rebase_candidate 的临时 worktree
+               "run_exec": ("mkdtemp",),  # ⑤g2：rebase_candidate 的临时 worktree
+               "landing_blockers": ("pid_alive",)}  # ⑤h1：执行标记记的是采样进程的 pid，重放时它已经不在
 #: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数
 FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract")
 #: 重放时要转成 Path 的参数（按位置）
 FLOW_PATH_ARGS = {"accept_gate_pre": (2,), "seed_whitebox": (2,), "accept_gate_post": (2,), "run_mutations": (2, 3), "finish_exec": (2,),
-                  "write_review": (2,), "start_rework": (2,), "rebase_candidate": (2,), "start_retry": (2,), "final_audit_turn": (2,)}
+                  "write_review": (2,), "start_rework": (2,), "rebase_candidate": (2,), "start_retry": (2,), "final_audit_turn": (2,), "record_pass": (2,)}
 #: ⑤e2b：最外层调用期间的提交作者与日期（采样与三边重放一样），门禁基准测试的提交 SHA 才钉得住
 FLOW_GIT_ENV = {"GIT_AUTHOR_NAME": "themis-contract", "GIT_AUTHOR_EMAIL": "contract@example.invalid",
                 "GIT_COMMITTER_NAME": "themis-contract", "GIT_COMMITTER_EMAIL": "contract@example.invalid",
@@ -1762,8 +1770,8 @@ def _plain(value):
 
 
 def _flow_target(name):
-    """内层函数换在哪里：kit_hub 调的是 pd.run_supervised、tempfile.mkdtemp 与 decisions 的两样，其余是 kit_hub 自己的。"""
-    return {"run_supervised": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
+    """内层函数换在哪里：kit_hub 调的是 pd.run_supervised、pd._running_attempts、tempfile.mkdtemp 与 decisions 的两样，其余是 kit_hub 自己的。"""
+    return {"run_supervised": kit_hub.pd, "_running_attempts": kit_hub.pd, "pid_alive": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
             "load_locked_batteries": codekit_decisions}.get(name, kit_hub)
 
 
@@ -1875,6 +1883,10 @@ def _flow_inner_call(name, args, kwargs):
         return {"fn": name, "settings": {"mode": settings.mode, "configured_mode": settings.configured_mode, "reason": settings.reason,
                                          "points": list(settings.points)},
                 "ledger": str(args[1]), "battery": to_tagged(_plain(args[2])), "state": to_tagged(_plain(args[3])), "context": to_tagged(_plain(args[4]))}
+    if name == "_running_attempts":  # ⑤h1：比仓库根
+        return {"fn": name, "repo": str(args[0].root)}
+    if name == "pid_alive":  # ⑤h1
+        return {"fn": name, "pid": args[0]}
     if name == "run_supervised":  # 标准输出是独占新建的日志，标准错误同一个句柄；grace 与中断处理照缺省
         given = dict(zip(("cmd", "cwd", "env", "stdout", "stderr", "timeout", "grace", "on_spawn"), args), **kwargs)
         log = given["stdout"]
@@ -1938,7 +1950,13 @@ def _flow_injector(name, queue, roots):
             ts.clear()
             ts.update(from_tagged(expected["ts_after"]))
         if "raise" in expected:
-            raise type(expected["raise"][0], (Exception,), {})(expected["raise"][1])
+            kind, message = expected["raise"]
+            # ⑤h1：调度器的 DispatchError 与内置的 OSError 一族照真的类抛（采样当时就是真的类，被调用的一方 except 才接得住）；
+            # 别的照旧是同名的新类（KeyError 一类的 str() 会给文字再加一层引号）
+            real = pi_dispatch.DispatchError if kind == "DispatchError" else getattr(builtins, kind, None)
+            if not (isinstance(real, type) and (real is pi_dispatch.DispatchError or issubclass(real, OSError))):
+                real = type(kind, (Exception,), {})
+            raise real(message)
         value = from_tagged(expected["value"])
         return Path(value) if name == "worktree_root" else value
     return inject
@@ -2077,8 +2095,9 @@ def op_hub_audit_samples(request):
         roots = []
         if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
             roots.append(Path(bound.arguments["hub"].repo))
-        # ⑤e2b：门禁草稿 worktree 叫 workspace；⑤g1：returned_blockers、rework_section 的上一轮 attempt 叫 previous
-        given = {key: bound.arguments.get(key) for key in ("path", "workspace", "run_dir", "previous")}
+        # ⑤e2b：门禁草稿 worktree 叫 workspace；⑤g1：returned_blockers、rework_section 的上一轮 attempt 叫 previous；
+        # ⑤h1：on_branch 在落地预演的临时 worktree 里看时叫 where（调用之后就收掉了）
+        given = {key: bound.arguments.get(key) for key in ("path", "workspace", "run_dir", "previous", "where")}
         ts = bound.arguments.get("ts")
         if given["run_dir"] is None and isinstance(ts, dict) and isinstance(ts.get("exec"), dict) and ts["exec"].get("run_dir"):
             given["run_dir"] = ts["exec"]["run_dir"]  # ⑤f：读 meta.json、scope.json、candidate.patch 的那个 attempt 目录
@@ -2297,16 +2316,30 @@ def op_hub_audit_samples(request):
                 kwargs["engine_env"] = raw(cases.engine_env)(tmp, patch)
             current[0] = test
             # 照 pytest 截下用例的输出（⑤e1a）：有的用例经 hub 往标准输出打印中文，探针的 stdout 不是 UTF-8 时会崩在打印上。
-            # undo 也在截下的范围里：用例用 monkeypatch 换过 sys.stdout 的，undo 会还原成这里的 StringIO
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                try:
-                    fn(**kwargs)
-                except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
-                    if type(exc).__name__ != "Skipped":
-                        raise
-                    skipped.append(test)
-                finally:
-                    patch.undo()
+            # undo 也在截下的范围里：用例用 monkeypatch 换过 sys.stdout 的，undo 会还原成这里的 StringIO。
+            # ⑤h1：子进程不经 sys.stdout，直接写文件描述符 1、2（exclusive 起的 git status --short），探针的 stdout 是交回结果的
+            # 通道：跑用例期间 1、2 接到空设备（Windows 上 dup2 连标准句柄一起换，子进程继承到的也是空设备），跑完接回
+            sys.stdout.flush()
+            saved_fds, sink = [os.dup(1), os.dup(2)], os.open(os.devnull, os.O_WRONLY)
+            os.dup2(sink, 1)
+            os.dup2(sink, 2)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        fn(**kwargs)
+                    except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
+                        if type(exc).__name__ != "Skipped":
+                            raise
+                        skipped.append(test)
+                    finally:
+                        patch.undo()
+            finally:
+                for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):  # 用例期间直接写进真流的，冲进空设备
+                    stream.flush()
+                os.dup2(saved_fds[0], 1)
+                os.dup2(saved_fds[1], 2)
+                for fd in saved_fds + [sink]:
+                    os.close(fd)
     finally:
         for name, fn in originals.items():
             setattr(kit_hub, name, fn)

@@ -25,6 +25,10 @@ import {
   EXEC_LAND_WAIT_SECONDS, type ExecDeps, REAL_EXEC_DEPS, askSession, dispatchAttempt, ensureReworkScope, finalAuditTurn, finishExec, rebaseCandidate,
   reworkAddedFiles, runExec, runJev, startRework, startRetry, writeReview,
 } from "@themis/hub/runexec";
+import {
+  type LandDeps, REAL_LAND_DEPS, commitRecords, finalize, landOracle, landReworkChain, landedMeanwhile, landingBlockers, landingChain, landingRecords, onBranch,
+  recordPass, removeWorkspaces, retireAttempts, tidyFinished, undoLanding,
+} from "@themis/hub/land";
 import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
 import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
 import { normcase } from "@themis/base/pypath";
@@ -41,7 +45,7 @@ import {
 import {
   CONFIG_ACTION_FAMILIES, TS_CONFIG_COMMANDS, TS_DISPATCHER_COMMANDS, TS_ONLY_COMMANDS, TS_READONLY_COMMANDS, argvImpl, readKernelImpl,
 } from "@themis/dispatcher/kernel-impl";
-import { DispatchError } from "@themis/dispatcher/repo";
+import { DispatchError, type Repo } from "@themis/dispatcher/repo";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
 import { removeInputs, stageInputs } from "@themis/hub/inputs";
@@ -620,6 +624,18 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "jev_flag":
         value = jevFlag(a, b, args[2] as PyValue);
         break;
+      case "landing_records": // ⑤h1
+        value = landingRecords(dictOf(a));
+        break;
+      case "landed_meanwhile":
+        value = landedMeanwhile(new Hub(textOf(a)), dictOf(b), textOf(args[2]));
+        break;
+      case "landing_chain": // 第三个参数是 Path 或 None
+        value = landingChain(new Hub(textOf(a)), dictOf(b), args[2] === null ? null : textOf(args[2]));
+        break;
+      case "on_branch":
+        value = onBranch(new Hub(textOf(a)), b, args[2] === null ? null : textOf(args[2]));
+        break;
       case "kernel_impl_tables": {
         const keys = (rows: ReadonlySet<string>): PyValue[] => [...rows].map((row) => JSON.parse(row) as string[]).sort(compareWords);
         value = new Map<string, PyValue>([
@@ -731,6 +747,8 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
       battery: toTagged(args[2] as PyValue), state: toTagged(args[3] as PyValue), context: toTagged(args[4] as PyValue),
     };
   }
+  if (name === "_running_attempts") return { fn: name, repo: (args[0] as Repo).root }; // ⑤h1
+  if (name === "pid_alive") return { fn: name, pid: args[0] };
   if (name === "run_supervised") {
     const options = args[1] as SuperviseOptions;
     return {
@@ -742,9 +760,12 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
   return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict) };
 }
 
-/** 重放：照记录注入内层调用。参数逐次核对，对不上或多调抛 InjectionMismatch；照记录写文件、删文件、原地改 ts，再交回或抛出。 */
-function injector(name: string, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown) {
-  return async (...args: unknown[]): Promise<never> => {
+/**
+ * 重放：照记录注入内层调用。参数逐次核对，对不上或多调抛 InjectionMismatch；照记录写文件、删文件、原地改 ts，再交回或抛出。
+ * ⑤h1：被调用的一方是同步的（_running_attempts、pid_alive）就直接用这个；异步的经 injector 包一层。
+ */
+function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown) {
+  return (...args: unknown[]): never => {
     const got = innerCall(name, args, toTagged);
     const expected = queue.shift();
     if (expected === undefined || Object.entries(got).some(([key, value]) => JSON.stringify(expected[key] ?? null) !== JSON.stringify(value))) {
@@ -768,12 +789,19 @@ function injector(name: string, queue: InnerEntry[], roots: readonly string[], f
     }
     if ("raise" in expected) {
       const [kind, message] = expected["raise"] as [string, string];
+      if (kind === "DispatchError") throw new DispatchError(message); // ⑤h1：同 python_probe.py，被调用的一方认得出
       throw new PyCrash(kind, message);
     }
     const value = fromTagged(expected["value"] as never);
     if (name === "run_supervised") return superviseResult(value as PyDict) as never;
     return (name === "run_pd" ? [Number((value as PyValue[])[0]), (value as PyValue[])[1]] : value) as never;
   };
+}
+
+/** 异步的被调用方（run_pd 等）：同 injectorSync，交回 Promise。 */
+function injector(name: string, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown) {
+  const sync = injectorSync(name, queue, roots, fromTagged, toTagged);
+  return async (...args: unknown[]): Promise<never> => sync(...args);
 }
 
 /** 记下的 run_supervised 结果（Python 的字典）换回 SuperviseResult：整数成 number。 */
@@ -822,6 +850,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const queue = [...((request["inner"] as InnerEntry[] | undefined) ?? [])];
   const replaced = new Set((request["replaced"] as string[] | undefined) ?? []);
   const inject = (name: string) => injector(name, queue, roots, fromTagged, toTagged);
+  const injectSync = (name: string) => injectorSync(name, queue, roots, fromTagged, toTagged);
   const deps: ContractDeps = {
     runPd: replaced.has("run_pd") ? inject("run_pd") : REAL_DEPS.runPd,
     contractRequirements: replaced.has("contract_requirements") ? inject("contract_requirements") : REAL_DEPS.contractRequirements,
@@ -840,6 +869,10 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     loadLockedBatteries: replaced.has("load_locked_batteries") ? inject("load_locked_batteries") : REAL_EXEC_DEPS.loadLockedBatteries,
     ask: replaced.has("Session") ? inject("ask") : jevAsk(request["jev"] as { endpoint: string; key: string } | undefined),
     landWaitSeconds: typeof request["land_wait"] === "number" ? request["land_wait"] : EXEC_LAND_WAIT_SECONDS,
+  };
+  const landDeps: LandDeps = { // ⑤h1：调度器的 _running_attempts 换掉时照记录注入
+    ...deps, runningAttempts: replaced.has("_running_attempts") ? injectSync("_running_attempts") : REAL_LAND_DEPS.runningAttempts,
+    pidAlive: replaced.has("pid_alive") ? injectSync("pid_alive") : REAL_LAND_DEPS.pidAlive,
   };
   const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
   const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
@@ -880,6 +913,26 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
           return runJev(hub, ts, textOf(args[2]), execDeps);
         case "ensure_rework_scope":
           return ensureReworkScope(hub, ts, execDeps);
+        case "finalize": // ⑤h1
+          return finalize(hub, ts, landDeps);
+        case "landing_blockers":
+          return landingBlockers(hub, ts, args[2] as PyValue, landDeps);
+        case "retire_attempts":
+          return retireAttempts(hub, ts, textOf(args[2]), landDeps);
+        case "tidy_finished":
+          return tidyFinished(hub, ts, textOf(args[2]), landDeps);
+        case "remove_workspaces":
+          return removeWorkspaces(hub, ts);
+        case "commit_records":
+          return commitRecords(hub, ts);
+        case "land_oracle":
+          return landOracle(hub, ts);
+        case "land_rework_chain":
+          return landReworkChain(hub, ts);
+        case "undo_landing":
+          return undoLanding(hub, ts, textOf(args[2]), args[3] as PyDict[]);
+        case "record_pass":
+          return recordPass(hub, ts, textOf(args[2]), landDeps);
         case "dispatch_attempt": // 以下只进手写场景
           return dispatchAttempt(hub, ts, execDeps);
         case "start_rework":

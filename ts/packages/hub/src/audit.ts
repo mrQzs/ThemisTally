@@ -487,7 +487,7 @@ function isabs(path: string): boolean {
 }
 
 /** dict(value)：字典照抄；别的当成成对的序列（长度为 2 的字符串也是一对），不成对照 Python 报错。 */
-function pyDictOf(value: PyValue): PyKeyedDict {
+export function pyDictOf(value: PyValue): PyKeyedDict {
   const out = new PyKeyedDict();
   if (value instanceof Map) {
     for (const [key, item] of value) out.set(key, item);

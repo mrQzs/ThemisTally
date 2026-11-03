@@ -277,7 +277,7 @@ async function verifyOnTip(
 }
 
 /** _running_attempts：正在运行或收集的 attempt（落地会改动主工作区，它们的复审会把这次改动列为主工作区变化）。 */
-function runningAttempts(repo: Repo): string[] {
+export function runningAttempts(repo: Repo): string[] {
   const found: string[] = [];
   for (const task of listDirNames(repo.runsDir).sort(cmpCodePoints)) {
     for (const attempt of taskAttempts(repo, task)) {

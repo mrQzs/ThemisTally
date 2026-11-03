@@ -81,7 +81,7 @@ export function askSession(settings: Settings, ledger: string, battery: PyValue,
 const or = (value: PyValue, fallback: PyValue): PyValue => (pyTruthy(value) ? value : fallback);
 
 /** 交给 subprocess 或 Path() 的值要是字符串：别的照 os.fsdecode 报 TypeError。 */
-function argText(value: PyValue): string {
+export function argText(value: PyValue): string {
   if (typeof value !== "string") throw new PyCrash("TypeError", `expected str, bytes or os.PathLike object, not ${pyTypeName(value)}`);
   return value;
 }
@@ -314,8 +314,11 @@ export async function rebaseCandidate(hub: Hub, ts: PyDict, previous: string, ba
 /** bytes.strip() 之后是空的：只去 ASCII 空白（空格、TAB、LF、VT、FF、CR）。 */
 const isBlankBytes = (data: Buffer): boolean => data.every((byte) => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d));
 
-/** 内核直接起的 git（不经 git()：没有时限、不核退出码）。找不到 git 照 Python 报 FileNotFoundError。 */
-function runGit(args: readonly string[], cwd: string, output: "pipe" | "ignore"): { status: number | null; stdout: Buffer; stderr: Buffer } {
+/**
+ * 内核直接起的 git（不经 git()：没有时限、不核退出码）。找不到 git 照 Python 报 FileNotFoundError。inherit 是 Python 没给 stdout、stderr
+ * 的写法（⑤h1 的 merge-base --is-ancestor）：输出跟着本进程。
+ */
+export function runGit(args: readonly string[], cwd: string, output: "pipe" | "ignore" | "inherit"): { status: number | null; stdout: Buffer; stderr: Buffer } {
   const done = spawnSync("git", [...args], { cwd, stdio: ["ignore", output, output], maxBuffer: Infinity, windowsHide: true });
   if (done.error) throw spawnFailure(done.error);
   return { status: done.status, stdout: done.stdout ?? Buffer.alloc(0), stderr: done.stderr ?? Buffer.alloc(0) };
@@ -326,7 +329,7 @@ function spawnFailure(error: Error): Error {
 }
 
 /** stderr 并进 stdout（Python 的 stderr=STDOUT）：两路接同一个临时文件，交错的次序与 Python 一样。 */
-function runMerged(argv: readonly string[], cwd: string): [number | null, Buffer] {
+export function runMerged(argv: readonly string[], cwd: string): [number | null, Buffer] {
   const dir = mkdtempSync(join(tmpdir(), "themis-merged-"));
   const file = join(dir, "output");
   try {

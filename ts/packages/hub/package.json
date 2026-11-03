@@ -13,6 +13,7 @@
     "./gatepost": "./src/gatepost.ts",
     "./inputs": "./src/inputs.ts",
     "./kernel": "./src/kernel.ts",
+    "./land": "./src/land.ts",
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
