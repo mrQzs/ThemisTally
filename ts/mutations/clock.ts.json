@@ -42,8 +42,8 @@
     {
       "name": "C06 信件编号的随机部分只有 2 个字节",
       "file": "ts/packages/base/src/clock.ts",
-      "old": "-${randomBytes(3).toString(\"hex\")}`;",
-      "new": "-${randomBytes(2).toString(\"hex\")}`;"
+      "old": "pinned === null ? randomBytes(3).toString(\"hex\")",
+      "new": "pinned === null ? randomBytes(2).toString(\"hex\")"
     },
     {
       "name": "C07 回合编号的随机部分 3 个字节",

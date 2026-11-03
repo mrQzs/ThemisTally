@@ -48,6 +48,9 @@ const UNIQUE_KEYS: JsonBuilder<PyValue> = {
   },
 };
 
+/** pi_dispatch 的 TS_STAMP：ts/ 下的装好戳记（postinstall 写，deps_sha256 是依赖清单的合并哈希）。 */
+export const TS_STAMP = "node_modules/.themis-installed";
+
 /**
  * 读选择文件。不存在等于全部 python；存在就严格解析：读不了、不是 JSON、键重复、多键少键、取值不是 python 或 ts、schema_version
  * 不是整数 1，都报错拒绝运行，不悄悄退回 python（否则运行中的内核与提交的选择对不上）。

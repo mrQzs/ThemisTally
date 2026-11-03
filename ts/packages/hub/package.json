@@ -20,6 +20,7 @@
     "./runexec": "./src/runexec.ts",
     "./runpd": "./src/runpd.ts",
     "./schema": "./src/schema.ts",
+    "./sweep": "./src/sweep.ts",
     "./taskstate": "./src/taskstate.ts",
     "./turn": "./src/turn.ts"
   },

@@ -562,4 +562,109 @@ COVERED 21、PARTIAL 10。⑤g1 表里归 ⑤g2 的 21 条：19 条转 COVERED�
 COVERED 9、PARTIAL 12。⑤g2 表里归 ⑤h 的 7 条结项用例（2684–3210）在这里转 COVERED；落地预演、owner sweep 与 sweep_window 的 8 条（4221、4274、4293、4324、4448、4472、4519、4545 里的 ⑤h2 部分）归 ⑤h2；3276、4001、4545 的 Engine 与 land 归 ⑤i；3230、4427、4448、4519 的命令归 ⑤j。
 
 变异：ts/mutations/hub-h1.ts.json 78 条（land.ts 的 L01–L89，编号有空），抓住 77 条，L46 等价。先只跑手写场景，68 条抓住 65 条；漏掉的 3 条都是场景没构造到，补了场景之后用清单里的完整命令（手写场景加采样契约）重跑：L22（基准测试挑不上照样落返工链；原来那一轮返工被 attempt 的基线筛掉，挑不挑都一样，改成 meta.json 的 base_sha 指向它）与 L74（mark 失败照样清 worktree；原来那个 attempt 没有 worktree）抓住；L46（commit 不带 --only）判为等价：git commit 在命令行给了路径时缺省就是 --only，临时仓库里实测站主暂存的别的文件照旧留在暂存区；等价靠的是前面没有路径就早退，只有空路径时 --only 才起作用（git 报错，而不是把站主暂存的东西提交掉），themistally-15 复核时指出，补了删掉早退的 L48 与没有记录、站主暂存了文件的场景，L48 抓住。themistally-15 点名的短路条件（L01、L02、L04–L12、L27、L28、L50、L55、L56、L70–L73、L75、L76）都抓住；L16（标记不排序）抓住：NTFS 列目录照 $UpCase 比，Python 按小写比，_ 与字母的先后不同。themistally-15 在自己导出的副本上抽查 13 条（清单里的 L05、L16、L22、L48、L57、L74、L75、L76 与它另加的 X01–X05），10 条抓住；X01（阶段 worktree 不按 kind 排序）、X02（verdict 被拒的输出少取一行）、X05（integrated 少记一行）漏掉：场景里 workspaces 的键本来就按字母序插入，注入的输出都只有一行。补了场景（键倒着插、两个能删成功；注入的输出加长到各处 tail 的行数都起作用），连同同一次改动管到的 integrate 问题与落地之后的 detail、retire 的两处、cherry-pick 冲突输出的两处 tail，并进清单为 L81–L89，单独跑 9 条全部抓住。
-其余场景随各片补（⑤h2 到 ⑤j）。
+
+### ⑤h2 后台回归与落地预演
+
+做法（⑤h 设计稿，themistally-04 复核）：
+- 改状态的六个函数（regression_sweep、rehearse_landing、rehearsal_letter、mark_owner_moved、owner_sweep、ts_install_if_stale）照 ⑤e2b 的 flow_recorder 记、照调用当时重放。
+  - sweep_gates 与建临时 worktree 的 mkdtemp，在 regression_sweep、rehearse_landing、owner_sweep 里一律照记录注入：门禁基准在重放里不真跑，真跑放在手写场景里。
+  - 用例当时换掉的 worktree_root、rehearse_landing、ts_install_if_stale，与调度器的 find_bun、read_kernel_impl，也照记录注入。
+- ts_install_if_stale 的 runner：
+  - 用例给了 runner 时，采样器把它换成录制包装，按内层的 run_supervised（内层名 ts_runner）注入，样本里 runner 记成 None；
+  - stdout、stderr 是文件对象时，记成 <temporary> 与 same（Windows 上 TemporaryFile 的 name 是路径字符串，所以按有没有 write 判断）；
+  - 环境与各自的 kernel_env() 比；
+  - 输出记原始字节，读完放回原来的文件位置，重放时原样写进 stdout。
+- read_owner_sweep 放回调用当时的快照之后，三边逐字比。
+- 信的编号（themistally-04 定的）：
+  - 钉住时刻时，new_msg_id 的后六位按调用次序从 000000 编起（%06x）。原来是随机后缀，写信的 6 次重放对不上。
+  - Python 的采样与重放都换掉，finally 里还原；TS 在 withPinnedClock 里存下、还原计数。
+  - 生产代码不钉时刻，withPinnedClock 只有 hub_probe 用，行为不变。
+- 时限分开（themistally-04 复核时指出）：
+  - EXEC_LAND_WAIT_SECONDS（60，exec_window）与 LAND_WAIT_SECONDS（3600，sweep_window 与 ts 重装）各有各的 deps 字段：landWaitSeconds、landLockWaitSeconds；
+  - 请求键也分开：land_wait 与 land_lock_wait；SWEEP_WAIT_SECONDS、SWEEP_SECONDS 另有 sweep_wait、sweep_seconds；
+  - 两边探针对称，finally 里还原。
+- 采样器的修补：
+  - 用例换掉 subprocess.Popen 时（supervisor 用例的 FakeProc），_flow_git 改用探针导入时存下的真 Popen；
+  - hub 仓库不在时（用例故意给的另一处路径），不存快照。
+- 语料：⑤h1 挂插件跑全部用例时，调到这几个函数的 24 条。
+
+契约：
+- hub-sweep：24 条用例。
+  - 流程函数的顶层调用 39 次（regression_sweep 2、rehearse_landing 15、rehearsal_letter 2、mark_owner_moved 7、owner_sweep 6、ts_install_if_stale 7），没有跳过，三边重放都与当时的结果相同。
+  - 注入：sweep_gates 14、mkdtemp 16、worktree_root 15、read_kernel_impl 6、find_bun 4、ts_runner 3、rehearse_landing 1、ts_install_if_stale 1。
+  - read_owner_sweep 43 次，放回快照之后三边相同。
+- hub-sweep-scenes：15 组手写场景。
+  - sweep_gates 与 gate_baselines：
+    - 真跑两份小门禁，一过一不过：文件名带大写的 B，码点排序在 a 前；不带 _baseline 的与 .txt 不选；仓库的 pytest.ini 写了 addopts = -rN，命令行的 -rfE 照样盖过它；
+    - 没有门禁基准；
+    - 只测 TS 的时限：按时交回，孙进程跟着整棵树结束，临时目录删掉。
+  - .sweep 与 .land：
+    - TS 挂着窗口时，Python 的 landing_blockers 认它的标记；Python 挂着时，TS 的也认；sweeps 为假时两边都不算；
+    - TS 等 .sweep 超时，HubError 原样抛出；
+    - 另一个进程拿着 .land 时，owner_sweep 与 ts 重装都原样抛出，.sweep 放掉；
+    - 只测 TS 的那条核对：等 .land 用的是 landLockWaitSeconds。
+  - regression_sweep：没有门禁基准；没过（输出长过 15 行）；过了。
+  - owner_sweep：
+    - 没有待跑；
+    - 没过：期间的提交 12 个，主题长的截 600 字，主题短的只列 10 个；跑的期间站主又动了 HEAD，pending 留着；
+    - 过了：执行标记被外面删了，收尾吞掉；先查一次 ts/ 的依赖；
+    - 收了尾的任务，条件齐全也不预演。
+  - ts_install_if_stale：
+    - 不装的三种；
+    - 要装的七种：戳记坏 JSON、是数组、哈希不对；装好了（输出长过 10 行，夹着非 UTF-8 的字节）；装完戳记对不上；超时，退出码 None 与 0 各一种，摘要长过 1500 字。
+  - mark_owner_moved、read_owner_sweep、rehearsal_letter 的边界与截断。
+  - rehearse_landing：
+    - 门禁没过、基准测试挑不上、补丁打不上、ts 没有 oracle 照样崩；
+    - 四道早退：末端就是 base_head、预演过、check 没过、oracle 是空提交。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_supervisor_runs_one_runner_per_task_up_to_the_limit` | 4050 | PARTIAL | read_owner_sweep 5 次；supervisor 归 ⑤j |
+| `test_regression_sweep_runs_every_gate_baseline_on_the_new_tip` | 4152 | COVERED | hub-sweep：regression_sweep 2 次（注入 sweep_gates 2 次；真跑门禁在 hub-sweep-scenes） |
+| `test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks` | 4221 | COVERED | hub-sweep：rehearse_landing 8 次（注入 sweep_gates 5 次；⑤h1 的部分在 hub-land） |
+| `test_landing_skips_an_empty_rework_commit` | 4274 | COVERED | hub-sweep：rehearse_landing 1 次（⑤h1 的部分在 hub-land） |
+| `test_a_fresh_attempt_after_a_gate_hotfix_lands_without_the_old_rework_chain` | 4293 | COVERED | hub-sweep：rehearse_landing 1 次（⑤h1 的部分在 hub-land） |
+| `test_landing_rehearsal_reports_commits_that_no_longer_apply` | 4324 | COVERED | hub-sweep：rehearse_landing 5 次（⑤h1 的部分在 hub-land） |
+| `test_exec_delivery_carries_the_rehearsal_and_warns_the_owner` | 4340 | PARTIAL | rehearsal_letter 1 次；Engine 的执行端交付归 ⑤i |
+| `test_after_land_rehearses_the_other_active_candidates` | 4376 | PARTIAL | rehearsal_letter 1 次；Engine 的 after_land 归 ⑤i |
+| `test_after_land_reports_the_regression_to_the_owner` | 4405 | PARTIAL | 采样没有记到调用（用例换掉了 regression_sweep）；after_land 里的 sweep_window 由 hub-sweep-scenes 的两边互认覆盖；after_land 归 ⑤i |
+| `test_exclusive_marks_an_owner_sweep_only_when_head_moves` | 4448 | PARTIAL | mark_owner_moved 2 次、read_owner_sweep 3 次；cmd_exclusive 归 ⑤j |
+| `test_owner_commits_get_a_gate_sweep_and_rehearsals` | 4472 | COVERED | hub-sweep：owner_sweep 4 次、mark_owner_moved 2 次、read_owner_sweep 3 次（注入 rehearse_landing 1 次；⑤h1 的部分在 hub-land） |
+| `test_landing_waits_for_a_background_gate_sweep` | 4519 | PARTIAL | 不在采样语料里：直接用 sweep_window，由 hub-sweep-scenes 的两边互认覆盖；cmd_exclusive 归 ⑤j |
+| `test_background_sweeps_hold_off_other_landings_while_they_run` | 4545 | PARTIAL | owner_sweep 1 次、mark_owner_moved 1 次；Engine 归 ⑤i |
+| `test_supervisor_starts_one_owner_sweep_at_a_time` | 4578 | PARTIAL | read_owner_sweep 5 次、mark_owner_moved 1 次；supervisor 归 ⑤j |
+| `test_supervisor_counts_runners_left_by_its_previous_generation` | 4652 | PARTIAL | read_owner_sweep 5 次；supervisor 归 ⑤j |
+| `test_supervisor_waits_for_a_settled_kernel_before_starting_runners` | 4671 | PARTIAL | read_owner_sweep 4 次；supervisor 归 ⑤j |
+| `test_supervisor_stays_while_a_runner_works_without_unread_letters` | 4727 | PARTIAL | read_owner_sweep 4 次；supervisor 归 ⑤j |
+| `test_supervisor_stays_while_letters_are_held` | 4767 | PARTIAL | read_owner_sweep 3 次；supervisor 归 ⑤j |
+| `test_supervisor_picks_up_runner_json_changes_while_running` | 5002 | PARTIAL | read_owner_sweep 4 次；supervisor 归 ⑤j |
+| `test_supervisor_keeps_going_after_a_bad_tick` | 5067 | PARTIAL | read_owner_sweep 2 次；supervisor 归 ⑤j |
+| `test_supervisor_stops_restarting_a_crashing_runner` | 5086 | PARTIAL | read_owner_sweep 5 次；supervisor 归 ⑤j |
+| `test_owner_sweeps_reinstall_stale_ts_dependencies_under_the_land_lock` | 6979 | COVERED | hub-sweep：ts_install_if_stale 2 次（注入 ts_runner 1 次） |
+| `test_a_failed_ts_reinstall_writes_to_the_owner` | 7007 | COVERED | hub-sweep：ts_install_if_stale 3 次（注入 ts_runner 2 次） |
+| `test_no_ts_reinstall_while_everything_runs_on_python` | 7031 | COVERED | hub-sweep：ts_install_if_stale 2 次 |
+| `test_owner_sweeps_start_with_the_ts_reinstall` | 7043 | COVERED | hub-sweep：owner_sweep 1 次、mark_owner_moved 1 次（注入 ts_install_if_stale 1 次） |
+
+COVERED 10、PARTIAL 15。⑤h1 表里归 ⑤h2 的落地预演与 owner sweep（4221、4274、4293、4324、4472）在这里转 COVERED；Engine 的执行端交付与 after_land（4340、4376、4405、4545）归 ⑤i；supervisor 与 cmd_exclusive（4050、4448、4519、4578、4652、4671、4727、4767、5002、5067、5086）归 ⑤j。
+
+变异：ts/mutations/hub-h2.ts.json 共 75 条（sweep.ts 的 S01–S99，编号有空；clock.ts 的 B01、B02），抓住 73 条，S95、B02 等价。
+- 分段跑，先只跑手写场景：
+  - 第一段跑到第 62 条时，外部的构建把内存吃紧，被系统停掉；复原留在文件里的那一条、核对锚点之后，接着跑剩下的。
+  - 只跑场景时漏掉的 S06、S15、S30、S32、S33、S35、S75、S80、S86、S94，补了场景之后抓住。
+  - S15（不带 -rfE）起初当成等价（pytest 9.1.1 的 -r 缺省就是 fE）；themistally-04 指出被管仓库的 pytest 配置可以改 -r，于是在场景的仓库里放了 addopts = -rN 的 pytest.ini。
+  - S94 连采样契约也漏掉：语料里没有“收了尾、条件却齐全”的任务。
+  - S92、S93 由采样契约抓住。
+- B02 等价：计数只在钉住期间加，withPinnedClock 退出时还原，钉住之外一直是 0；只有嵌套钉住才分得出，唯一的调用方不嵌套。
+- themistally-04 在新导出的副本上抽查 14 条，抓住 12 条。
+  - 抽的是清单里的 S04、S06、S31、S45、S63、S66、S71、S82、S86、S94，与它另加的 Y01–Y04。
+  - Y03（预演过只比 head）由采样契约抓住。
+  - Y02（挂标记等 .land 用执行端的时限）只是撞上探针的时限，不算断言抓住。
+  - Y01、Y04 漏掉。
+- 抽查之后的处理：
+  - Y04（戳记不查是不是对象）补了数组戳记的场景，由场景抓住。
+  - Y02 补了直接调 TS 的时限测试：执行端的时限给 30 秒，用错字段就过不了“10 秒内就抛”。
+  - Y01 等价：state.json 只经 canonical_state 写（sort_keys），读回来的任务键本来就排好。
+  - 并进清单为 S95–S98，另加 ts 重装那处同类的 S99。
+  - 只跑那条直接测试时，S96、S99 都由断言抓住；S97 由采样契约抓住。
+
+其余场景随各片补（⑤i 到 ⑤j）。

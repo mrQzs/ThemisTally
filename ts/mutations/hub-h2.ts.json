@@ -1,0 +1,467 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+  "packages/contracts/test/hub-sweep.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1500,
+ "mutations": [
+  {
+   "name": "S01 不过 .sweep 锁",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();",
+   "new": "  const sweep = { release: () => undefined };"
+  },
+  {
+   "name": "S02 标记不记 sweep",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"label\", label], [\"sweep\", true],",
+   "new": "[\"label\", label], [\"sweep\", false],"
+  },
+  {
+   "name": "S03 标记不记 label",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"label\", label], [\"sweep\", true],",
+   "new": "[\"label\", null], [\"sweep\", true],"
+  },
+  {
+   "name": "S04 收尾删标记出错不吞",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "        if (!pyCaught(error, [\"OSError\"])) throw error;",
+   "new": "        throw error;"
+  },
+  {
+   "name": "S05 收尾不删标记",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "        unlinkSync(path);",
+   "new": "        void path;"
+  },
+  {
+   "name": "S06 挂标记不过 .land",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();\n    try {\n      const mark",
+   "new": "    const land = { release: () => undefined };\n    try {\n      const mark"
+  },
+  {
+   "name": "S10 门禁基准不排序",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": ".map((path) => `tests/${purePathName(path)}`).sort(cmpCodePoints);",
+   "new": ".map((path) => `tests/${purePathName(path)}`);"
+  },
+  {
+   "name": "S11 模式少了 _baseline",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"test_gate_*_baseline.py\"]",
+   "new": "[\"test_gate_*.py\"]"
+  },
+  {
+   "name": "S12 没有门禁基准也跑",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (!tests.length) return [0, \"没有门禁基准可跑\", tests];\n",
+   "new": ""
+  },
+  {
+   "name": "S13 超时的退出码不是 -1",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (result.timed_out) return [-1, ",
+   "new": "    if (result.timed_out) return [124, "
+  },
+  {
+   "name": "S14 超时的文字",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "秒没有跑完`, tests];",
+   "new": "秒没跑完`, tests];"
+  },
+  {
+   "name": "S15 不带 -rfE",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "\"-q\", \"-rfE\", ...tests]",
+   "new": "\"-q\", ...tests]"
+  },
+  {
+   "name": "S16 全文不留",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  writeTextAtomic(path, out);",
+   "new": "  void path;"
+  },
+  {
+   "name": "S20 没有门禁基准不早退",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (!gateBaselines(hub.repo).length) return [true, \"合入后没有门禁基准可跑\"];\n",
+   "new": ""
+  },
+  {
+   "name": "S21 regression 记 14 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"tests\", [...tests]], [\"tail\", tail(out, 15n)], [\"at\", utcNow()]]));\n  await hub.appendEvent(\"regression.swept\"",
+   "new": "[\"tests\", [...tests]], [\"tail\", tail(out, 14n)], [\"at\", utcNow()]]));\n  await hub.appendEvent(\"regression.swept\""
+  },
+  {
+   "name": "S22 合入后回归的摘要取 2 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "份，末端 ${short(tip)}）：${pyStrip(tail(out, 1n))",
+   "new": "份，末端 ${short(tip)}）：${pyStrip(tail(out, 2n))"
+  },
+  {
+   "name": "S23 没过时附 14 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "code === 0 ? summary : `${summary}${LF}${tail(out, 15n)}`",
+   "new": "code === 0 ? summary : `${summary}${LF}${tail(out, 14n)}`"
+  },
+  {
+   "name": "S24 不记 regression.swept",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  await hub.appendEvent(\"regression.swept\", [[\"task\", pyItem(ts, \"task\")], [\"head\", tip], [\"exit\", BigInt(code)]]);\n",
+   "new": ""
+  },
+  {
+   "name": "S30 末端就是 base_head 也预演",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (pyEq(tip, baseHead) || pyEq(tip, attempted)) return null;",
+   "new": "  if (pyEq(tip, attempted)) return null;"
+  },
+  {
+   "name": "S31 attempt_base 短路不算（themistally-04 指出的次序）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  const [baseHead, attempted] = [pyItem(ts, \"base_head\"), attemptBase(ts, runDir)];\n  if (pyEq(tip, baseHead) || pyEq(tip, attempted)) return null;",
+   "new": "  if (pyEq(tip, pyItem(ts, \"base_head\")) || pyEq(tip, attemptBase(ts, runDir))) return null;"
+  },
+  {
+   "name": "S32 预演过的不跳过",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (pyEq(pyGet(seen, \"head\"), tip) && pyEq(pyGet(seen, \"run_dir\"), runDir)) return null;\n",
+   "new": ""
+  },
+  {
+   "name": "S33 check 没过也预演",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "!pyTruthy(given) || !pyTruthy(pyGet(pyItem(ts, \"exec\"), \"check_ok\")) ||",
+   "new": "!pyTruthy(given) ||"
+  },
+  {
+   "name": "S34 挑之前不看是否已在分支上",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "      if (onBranch(hub, sha, path) || emptyCommit(hub, sha as string)) continue;",
+   "new": "      if (emptyCommit(hub, sha as string)) continue;"
+  },
+  {
+   "name": "S35 空提交照挑",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "      if (onBranch(hub, sha, path) || emptyCommit(hub, sha as string)) continue;",
+   "new": "      if (onBranch(hub, sha, path)) continue;"
+  },
+  {
+   "name": "S36 挑不上的输出取 7 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "挑不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 8n)}`",
+   "new": "挑不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 7n)}`"
+  },
+  {
+   "name": "S37 补丁打不上的输出取 7 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "打不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 8n)}`",
+   "new": "打不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 7n)}`"
+  },
+  {
+   "name": "S38 空补丁也 apply",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (problem === null && pyStrip(readText(patch))) {",
+   "new": "    if (problem === null) {"
+  },
+  {
+   "name": "S39 预演没过附 14 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "      if (code !== 0) problem = `${summary}${LF}${tail(out, 15n)}`;",
+   "new": "      if (code !== 0) problem = `${summary}${LF}${tail(out, 14n)}`;"
+  },
+  {
+   "name": "S40 预演的摘要取 2 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n))",
+   "new": "的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 2n))"
+  },
+  {
+   "name": "S41 预演没过不列期间先落地的提交",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "`${problem as string | null}${landedMeanwhile(hub, ts, tip)}`",
+   "new": "`${problem as string | null}`"
+  },
+  {
+   "name": "S42 不记 rehearsal",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  ts.set(\"rehearsal\", new Map<string, PyValue>([[\"head\", tip], [\"run_dir\", runDir], [\"ok\", ok], [\"at\", utcNow()]]));\n",
+   "new": ""
+  },
+  {
+   "name": "S45 预演信的验证截 1499 字",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "：现在结项，integrate 会在末端上红`], [\"提交\", \"无\"], [\"验证\", head(summary, 1500)]",
+   "new": "：现在结项，integrate 会在末端上红`], [\"提交\", \"无\"], [\"验证\", head(summary, 1499)]"
+  },
+  {
+   "name": "S50 坏 JSON 不当成空",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (!pyCaught(error, [\"ValueError\"])) throw error;\n    return new Map();",
+   "new": "    throw error;"
+  },
+  {
+   "name": "S51 不是对象照样交回",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  return data instanceof Map ? data : new Map();",
+   "new": "  return data as PyDict;"
+  },
+  {
+   "name": "S52 已有待跑时 since 也改",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    const since = pyTruthy(pyGet(data, \"pending\")) ? pyGet(data, \"since\") : before;",
+   "new": "    const since = before;"
+  },
+  {
+   "name": "S53 命令记 7 个",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"command\", command.slice(0, 6)]",
+   "new": "[\"command\", command.slice(0, 7)]"
+  },
+  {
+   "name": "S54 不记 owner.moved",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  await hub.appendEvent(\"owner.moved\", [[\"before\", before], [\"after\", after]]);\n",
+   "new": ""
+  },
+  {
+   "name": "S55 没有待跑也跑",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (!pyTruthy(pyGet(marker, \"pending\"))) return null;\n",
+   "new": ""
+  },
+  {
+   "name": "S56 站主扫描不过窗口",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "return withSweepWindow(hub, \"owner-sweep\", \"站主提交之后的门禁回归\", () => ownerSweepRun(hub, marker, deps), deps);",
+   "new": "return ownerSweepRun(hub, marker, deps);"
+  },
+  {
+   "name": "S60 没有 package.json 也往下",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (!isKind(purePathStr(root, \"package.json\"), \"file\") || ![...deps.readKernelImpl()",
+   "new": "  if (![...deps.readKernelImpl()"
+  },
+  {
+   "name": "S61 不看选择文件",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": " || ![...deps.readKernelImpl().values()].includes(\"ts\")) return null;",
+   "new": ") return null;"
+  },
+  {
+   "name": "S62 戳记对得上也装",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (stamped()) return null;\n",
+   "new": ""
+  },
+  {
+   "name": "S63 戳记坏了不当没对上",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "      if (!pyCaught(error, [\"ValueError\"])) throw error;\n      return false;",
+   "new": "      throw error;"
+  },
+  {
+   "name": "S64 戳记不比哈希",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "pyGet(stamp, \"deps_sha256\") === depsDigest(root)",
+   "new": "pyTruthy(pyGet(stamp, \"deps_sha256\"))"
+  },
+  {
+   "name": "S65 找不到 Bun 不早报",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (bun === null) {",
+   "new": "  if (false) {"
+  },
+  {
+   "name": "S66 重装不过 .land",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();\n    let result",
+   "new": "    const land = { release: () => undefined };\n    let result"
+  },
+  {
+   "name": "S67 重装的时限不是 900",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "stderr: \"stdout\", timeout: TS_INSTALL_TIMEOUT,",
+   "new": "stderr: \"stdout\", timeout: 600,"
+  },
+  {
+   "name": "S68 装完不核戳记",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    ok = result.exit_code === 0 && !result.timed_out && stamped();",
+   "new": "    ok = result.exit_code === 0 && !result.timed_out;"
+  },
+  {
+   "name": "S69 超时不算没装好",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    ok = result.exit_code === 0 && !result.timed_out && stamped();",
+   "new": "    ok = result.exit_code === 0 && stamped();"
+  },
+  {
+   "name": "S70 不写“，超时”",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "${result.timed_out ? \"，超时\" : \"\"}",
+   "new": ""
+  },
+  {
+   "name": "S71 退出码 None 写成 null",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "result.exit_code === null ? \"None\" : result.exit_code",
+   "new": "String(result.exit_code)"
+  },
+  {
+   "name": "S72 重装输出取 9 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "${how}${LF}${tail(text, 10n)}",
+   "new": "${how}${LF}${tail(text, 9n)}"
+  },
+  {
+   "name": "S73 不记 ts.installed",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  await hub.appendEvent(\"ts.installed\", [[\"ok\", ok]]);\n",
+   "new": ""
+  },
+  {
+   "name": "S74 没装好不写信",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (!ok) {",
+   "new": "  if (false) {"
+  },
+  {
+   "name": "S75 重装信的验证截 1499 字",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "会报依赖不一致\"], [\"提交\", \"无\"], [\"验证\", head(summary, 1500)]",
+   "new": "会报依赖不一致\"], [\"提交\", \"无\"], [\"验证\", head(summary, 1499)]"
+  },
+  {
+   "name": "S80 不先重装 ts/",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  await deps.tsInstallIfStale(hub);\n",
+   "new": ""
+  },
+  {
+   "name": "S81 站主扫描的全文不留",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  keepSweepOutput(purePathStr(purePathParent(ownerSweepPath(hub)), \"owner-sweep-pytest.log\"), out);\n",
+   "new": ""
+  },
+  {
+   "name": "S82 head 动了也清待跑",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (pyEq(pyGet(data, \"head\"), tip)) data.set(\"pending\", false);",
+   "new": "    data.set(\"pending\", false);"
+  },
+  {
+   "name": "S83 last 记 14 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "data.set(\"last\", new Map<string, PyValue>([[\"head\", tip], [\"exit\", BigInt(code)], [\"tests\", [...tests]], [\"tail\", tail(out, 15n)]",
+   "new": "data.set(\"last\", new Map<string, PyValue>([[\"head\", tip], [\"exit\", BigInt(code)], [\"tests\", [...tests]], [\"tail\", tail(out, 14n)]"
+  },
+  {
+   "name": "S84 站主扫描的摘要取 2 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "上的全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n))",
+   "new": "上的全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 2n))"
+  },
+  {
+   "name": "S85 没过不写信",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (code !== 0) {\n    const since = pyGet(marker, \"since\");",
+   "new": "  if (false) {\n    const since = pyGet(marker, \"since\");"
+  },
+  {
+   "name": "S86 期间的提交列 11 个",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"log\", \"--oneline\", \"-n\", \"10\",",
+   "new": "[\"log\", \"--oneline\", \"-n\", \"11\","
+  },
+  {
+   "name": "S87 偏离截 599 字",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "head(`这期间站主合入的提交：${LF}${commits}`, 600)",
+   "new": "head(`这期间站主合入的提交：${LF}${commits}`, 599)"
+  },
+  {
+   "name": "S88 站主扫描信的验证截 1499 字",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "head(`${summary}${LF}${tail(out, 15n)}`, 1500)",
+   "new": "head(`${summary}${LF}${tail(out, 15n)}`, 1499)"
+  },
+  {
+   "name": "S89 站主扫描信的验证附 14 行",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "head(`${summary}${LF}${tail(out, 15n)}`, 1500)",
+   "new": "head(`${summary}${LF}${tail(out, 14n)}`, 1500)"
+  },
+  {
+   "name": "S92 预演前不存 state",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    await hub.saveState(state);\n",
+   "new": ""
+  },
+  {
+   "name": "S93 预演没过不写信",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (!rehearsed[0]) await rehearsalLetter(hub, ts, rehearsed[1], \"站主的提交之后\");\n",
+   "new": ""
+  },
+  {
+   "name": "S94 不是 active 也预演",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    if (pyGet(ts, \"status\") !== \"active\") continue;\n",
+   "new": ""
+  },
+  {
+   "name": "S95 站主扫描之后的任务不排序（Y01）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[...hub.loadState().tasks().keys()].map(String).sort(cmpCodePoints)",
+   "new": "[...hub.loadState().tasks().keys()].map(String)",
+   "equivalent": "等价（themistally-04 判）：state.json 只经 canonical_state 写（json.dumps 带 sort_keys=True，kit_hub.py:546；TS 的 canonicalState 同样），读回来的任务键本来就按码点排好，这里的排序是空操作，只有手改 state.json 才分得出。"
+  },
+  {
+   "name": "S96 挂标记等 .land 用执行端的时限（Y02）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();\n    try {\n      const mark",
+   "new": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landWaitSeconds).acquire();\n    try {\n      const mark"
+  },
+  {
+   "name": "S97 预演过只比 head（Y03）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  if (pyEq(pyGet(seen, \"head\"), tip) && pyEq(pyGet(seen, \"run_dir\"), runDir)) return null;",
+   "new": "  if (pyEq(pyGet(seen, \"head\"), tip)) return null;"
+  },
+  {
+   "name": "S98 戳记不查是不是对象（Y04）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    return stamp instanceof Map && pyGet(stamp, \"deps_sha256\") === depsDigest(root);",
+   "new": "    return pyGet(stamp, \"deps_sha256\") === depsDigest(root);"
+  },
+  {
+   "name": "S99 ts 重装等 .land 用执行端的时限",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();\n    let result",
+   "new": "    const land = new DirLock(purePathStr(hub.root, \".land\"), deps.landWaitSeconds).acquire();\n    let result"
+  },
+  {
+   "name": "B01 钉住时信编号照样随机",
+   "file": "ts/packages/base/src/clock.ts",
+   "old": "const tail = pinned === null ? randomBytes(3).toString(\"hex\") : (pinnedIds++).toString(16).padStart(6, \"0\");",
+   "new": "const tail = randomBytes(3).toString(\"hex\");"
+  },
+  {
+   "name": "B02 钉住时信编号不从 0 编起",
+   "file": "ts/packages/base/src/clock.ts",
+   "old": "  [pinned, pinnedIds] = [micros, 0];",
+   "new": "  [pinned, pinnedIds] = [micros, pinnedIds];",
+   "equivalent": "等价：计数只在钉住期间加，withPinnedClock 退出时（finally）还原成进入前的值，钉住之外一直是 0，所以进入时置 0 与沿用外层的值相同；只有嵌套钉住才分得出，唯一的调用方 hub_probe 不嵌套。Python 一侧每个请求新建计数，也没有嵌套。"
+  }
+ ]
+}

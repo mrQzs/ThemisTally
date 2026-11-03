@@ -29,6 +29,10 @@ import {
   type LandDeps, REAL_LAND_DEPS, commitRecords, finalize, landOracle, landReworkChain, landedMeanwhile, landingBlockers, landingChain, landingRecords, onBranch,
   recordPass, removeWorkspaces, retireAttempts, tidyFinished, undoLanding,
 } from "@themis/hub/land";
+import {
+  LAND_WAIT_SECONDS, REAL_SWEEP_DEPS, SWEEP_SECONDS, SWEEP_WAIT_SECONDS, type SweepDeps, gateBaselines, markOwnerMoved, ownerSweep, readOwnerSweep, regressionSweep,
+  rehearsalLetter, rehearseLanding, sweepGates, tsInstallIfStale,
+} from "@themis/hub/sweep";
 import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
 import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
 import { normcase } from "@themis/base/pypath";
@@ -624,6 +628,17 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "jev_flag":
         value = jevFlag(a, b, args[2] as PyValue);
         break;
+      case "sweep_gates": { // ⑤h2：真跑门禁基准；退出码照 Python 记成 int
+        const [code, out, tests] = await sweepGates(textOf(a));
+        value = [BigInt(code), out, tests];
+        break;
+      }
+      case "gate_baselines":
+        value = gateBaselines(textOf(a));
+        break;
+      case "read_owner_sweep": // ⑤h2
+        value = readOwnerSweep(new Hub(textOf(a)));
+        break;
       case "landing_records": // ⑤h1
         value = landingRecords(dictOf(a));
         break;
@@ -724,9 +739,8 @@ function flowGit(roots: readonly string[]): Record<string, unknown> {
 }
 
 /** 传给 run_supervised 的环境变量与当场的 kernelPytestEnv() 整份比：相同记 true，不同只记对不上的名字（值不进记录）。 */
-function envCheck(env: readonly (readonly [string, string])[]): true | string[] {
+function envCheck(env: readonly (readonly [string, string])[], expected: ReadonlyMap<string, string> = kernelPytestEnv()): true | string[] {
   const given = new Map(env);
-  const expected = kernelPytestEnv();
   const names = [...new Set([...given.keys(), ...expected.keys()])].filter((name) => given.get(name) !== expected.get(name)).sort(cmpCodePoints);
   return names.length ? names : true;
 }
@@ -749,6 +763,18 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
   }
   if (name === "_running_attempts") return { fn: name, repo: (args[0] as Repo).root }; // ⑤h1
   if (name === "pid_alive") return { fn: name, pid: args[0] };
+  if (name === "sweep_gates") return { fn: name, path: args[0] }; // ⑤h2
+  if (name === "find_bun") return { fn: name, env: envCheck([...(args[0] as Map<string, string>)], kernelEnv()) };
+  if (name === "read_kernel_impl") return { fn: name, args: 0 };
+  if (name === "ts_install_if_stale") return { fn: name, repo: (args[0] as Hub).repo };
+  if (name === "ts_runner") { // ts_install_if_stale 的 runner：输出写在 themis-ts-install- 临时目录下的 output，两路是同一个文件
+    const options = args[1] as SuperviseOptions;
+    const temporary = basename(options.stdout.path) === "output" && basename(dirname(options.stdout.path)).startsWith("themis-ts-install-");
+    return {
+      fn: name, argv: (args[0] as string[]).map(String), cwd: options.cwd, env: envCheck(options.env, kernelEnv()),
+      stdout: temporary ? "<temporary>" : options.stdout.path, stderr: options.stderr === "stdout" ? "same" : "other", timeout: options.timeout,
+    };
+  }
   if (name === "run_supervised") {
     const options = args[1] as SuperviseOptions;
     return {
@@ -782,6 +808,7 @@ function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[
       writeFileSync(flowPath(roots, key), Buffer.from(data, "base64"));
     }
     for (const key of files.delete) rmSync(flowPath(roots, key));
+    if ("output" in expected) appendFileSync((args[1] as SuperviseOptions).stdout.path, Buffer.from(expected["output"] as string, "base64")); // ⑤h2：ts_runner
     if ("ts_after" in expected) {
       const ts = args[1] as PyDict;
       ts.clear();
@@ -793,7 +820,8 @@ function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[
       throw new PyCrash(kind, message);
     }
     const value = fromTagged(expected["value"] as never);
-    if (name === "run_supervised") return superviseResult(value as PyDict) as never;
+    if (name === "run_supervised" || name === "ts_runner") return superviseResult(value as PyDict) as never;
+    if (name === "sweep_gates") return [Number((value as PyValue[])[0]), (value as PyValue[])[1], (value as PyValue[])[2]] as never; // ⑤h2：退出码是 number
     return (name === "run_pd" ? [Number((value as PyValue[])[0]), (value as PyValue[])[1]] : value) as never;
   };
 }
@@ -841,7 +869,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
-  const ts = args[1] as PyDict;
+  const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
   const roots = request["roots"] as string[];
   removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
   const before = flowListing(roots);
@@ -873,6 +901,18 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const landDeps: LandDeps = { // ⑤h1：调度器的 _running_attempts 换掉时照记录注入
     ...deps, runningAttempts: replaced.has("_running_attempts") ? injectSync("_running_attempts") : REAL_LAND_DEPS.runningAttempts,
     pidAlive: replaced.has("pid_alive") ? injectSync("pid_alive") : REAL_LAND_DEPS.pidAlive,
+  };
+  const sweepDeps: SweepDeps = { // ⑤h2：嵌在 owner_sweep 里的 rehearse_landing 没换掉时，照样用这一份 deps
+    ...execDeps, // land_wait 照 ⑤g2 只管 EXEC_LAND_WAIT_SECONDS；后台回归的三个时限各有各的键，同 python_probe.py
+    landLockWaitSeconds: typeof request["land_lock_wait"] === "number" ? request["land_lock_wait"] : LAND_WAIT_SECONDS,
+    sweepGates: replaced.has("sweep_gates") ? inject("sweep_gates") : REAL_SWEEP_DEPS.sweepGates,
+    rehearseLanding: replaced.has("rehearse_landing") ? inject("rehearse_landing") : (h, t) => rehearseLanding(h, t, sweepDeps),
+    findBun: replaced.has("find_bun") ? injectSync("find_bun") : REAL_SWEEP_DEPS.findBun,
+    readKernelImpl: replaced.has("read_kernel_impl") ? injectSync("read_kernel_impl") : REAL_SWEEP_DEPS.readKernelImpl,
+    runSupervised: replaced.has("ts_runner") ? inject("ts_runner") : REAL_SWEEP_DEPS.runSupervised,
+    tsInstallIfStale: replaced.has("ts_install_if_stale") ? inject("ts_install_if_stale") : (h) => tsInstallIfStale(h, sweepDeps),
+    sweepSeconds: typeof request["sweep_seconds"] === "number" ? request["sweep_seconds"] : SWEEP_SECONDS,
+    sweepWaitSeconds: typeof request["sweep_wait"] === "number" ? request["sweep_wait"] : SWEEP_WAIT_SECONDS,
   };
   const givenEnv = Object.entries({ ...FLOW_GIT_ENV, ...((request["env"] as Record<string, string> | undefined) ?? {}) });
   const savedEnv = givenEnv.map(([name]) => [name, process.env[name]] as const);
@@ -933,6 +973,18 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
           return undoLanding(hub, ts, textOf(args[2]), args[3] as PyDict[]);
         case "record_pass":
           return recordPass(hub, ts, textOf(args[2]), landDeps);
+        case "regression_sweep": // ⑤h2
+          return regressionSweep(hub, ts, sweepDeps);
+        case "rehearse_landing":
+          return rehearseLanding(hub, ts, sweepDeps);
+        case "rehearsal_letter":
+          return rehearsalLetter(hub, ts, textOf(args[2]), textOf(args[3])).then(() => null);
+        case "mark_owner_moved":
+          return markOwnerMoved(hub, textOf(args[1]), textOf(args[2]), args[3] as string[]).then(() => null);
+        case "owner_sweep":
+          return ownerSweep(hub, sweepDeps);
+        case "ts_install_if_stale":
+          return tsInstallIfStale(hub, sweepDeps);
         case "dispatch_attempt": // 以下只进手写场景
           return dispatchAttempt(hub, ts, execDeps);
         case "start_rework":

@@ -102,3 +102,20 @@ export function writeTextAtomic(path: string, text: string): void {
     }
   }
 }
+
+/**
+ * 删掉一次子进程用过的临时目录（⑤h2 从 pi-cli 挪来，runCapture、hub 的门禁回归与 ts/ 重装共用）：子进程树结束之后，还没退干净的进程
+ * 可能仍拿着继承来的 stdout、stderr 句柄（Windows 上打开时不带 FILE_SHARE_DELETE），删除报 EPERM、EBUSY：照共享冲突短暂重试，最后还
+ * 失败照旧抛出。rmSync 的 maxRetries 在 Node 的同步版与 Bun 上都不管用（Node 24.19、Bun 1.4.2 实测）。
+ */
+export async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isPermissionError(error) || attempt === SHARING_RETRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, SHARING_PAUSE_MS));
+    }
+  }
+}

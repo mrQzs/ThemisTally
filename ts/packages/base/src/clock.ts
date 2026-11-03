@@ -38,6 +38,8 @@ const systemClock = makeClock(
 );
 
 let pinned: number | null = null;
+/** 钉住期间已经编出的信编号个数（newMsgId 的尾巴照次序编）。 */
+let pinnedIds = 0;
 
 /** 当前时刻的 Unix 微秒数（系统时钟，进程内单调递增）。 */
 export function nowMicros(): number {
@@ -46,15 +48,16 @@ export function nowMicros(): number {
 
 /**
  * 只给契约用，生产代码不调（迁移第 ⑤e2b 片）：fn 运行期间 nowMicros 固定交回 micros，utcNow、utcCompact 跟着走，对应 Python 那边把
- * kit_hub.utc_now、utc_compact 钉成同一个时刻。async 的 fn 等它结束；结束或抛错都在 finally 里还原。
+ * kit_hub.utc_now、utc_compact 钉成同一个时刻。async 的 fn 等它结束；结束或抛错都在 finally 里还原。⑤h2：钉住期间 newMsgId 的尾巴照次序编
+ * （000000 起），对应 python_probe 把 kit_hub.new_msg_id 换成按次序编的：流程函数里写的信两边才一样。
  */
 export async function withPinnedClock<T>(micros: number, fn: () => T | Promise<T>): Promise<T> {
-  const before = pinned;
-  pinned = micros;
+  const [before, beforeIds] = [pinned, pinnedIds];
+  [pinned, pinnedIds] = [micros, 0];
   try {
     return await fn();
   } finally {
-    pinned = before;
+    [pinned, pinnedIds] = [before, beforeIds];
   }
 }
 
@@ -108,7 +111,8 @@ export function utcCompact(micros: number = nowMicros()): string {
 
 /** new_msg_id：<utcCompact>-<发信人别名>-<3 个随机字节的十六进制>。 */
 export function newMsgId(sender: string, micros: number = nowMicros()): string {
-  return `${utcCompact(micros)}-${SENDER_ALIAS[sender] ?? sender}-${randomBytes(3).toString("hex")}`;
+  const tail = pinned === null ? randomBytes(3).toString("hex") : (pinnedIds++).toString(16).padStart(6, "0");
+  return `${utcCompact(micros)}-${SENDER_ALIAS[sender] ?? sender}-${tail}`;
 }
 
 /** 回合编号：<utcCompact>-<2 个随机字节的十六进制>。 */

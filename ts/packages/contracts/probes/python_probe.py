@@ -20,6 +20,7 @@ import shlex
 import shutil
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -1480,6 +1481,12 @@ def op_hub_contract(request):
             value = kit_hub.landing_records(*args)
         elif fn == "landed_meanwhile":
             value = kit_hub.landed_meanwhile(kit_hub.Hub(Path(args[0])), *args[1:])
+        elif fn == "read_owner_sweep":  # ⑤h2
+            value = kit_hub.read_owner_sweep(kit_hub.Hub(Path(args[0])))
+        elif fn == "sweep_gates":  # 真跑门禁基准：交回（退出码, 输出, 跑了哪几份）
+            value = list(kit_hub.sweep_gates(Path(args[0])))
+        elif fn == "gate_baselines":
+            value = kit_hub.gate_baselines(Path(args[0]))
         elif fn in ("landing_chain", "on_branch"):  # 第三个参数是 Path 或 None
             value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), args[1], None if args[2] is None else Path(args[2]))
         elif fn == "kernel_impl_tables":  # 几张转交名单的键，TS 那边逐张对照
@@ -1736,12 +1743,20 @@ def _recorded_error(exc):
 #: ⑤e2b：用例当时换掉、契约照记录注入的内层函数（themistally-15 定的名单，设计稿第 8.8 节；⑤f 加 worktree_root；⑤g2 加
 #: rework_added_files 与决策端的 Session、load_locked_batteries，Session 换成一个类，它的 ask 记成一次内层调用）
 FLOW_INNER = ("run_pd", "contract_requirements", "budget_problems", "revalidate_contract", "worktree_root", "rework_added_files", "Session",
-              "load_locked_batteries", "_running_attempts")  # ⑤h1：landing_blockers 调的调度器 _running_attempts
+              "load_locked_batteries", "_running_attempts",  # ⑤h1：landing_blockers 调的调度器 _running_attempts
+              "sweep_gates", "rehearse_landing", "find_bun", "read_kernel_impl", "ts_install_if_stale")  # ⑤h2
 #: ⑤f：用例没换、也照记录注入的（themistally-15 定的，⑤f 设计稿第 3、10 节）：白盒测试那一次 run_supervised 只在 accept_gate_post 里录，
 #: mkdtemp 在建 worktree 的两个函数里录
 FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkdtemp",), "ensure_worktree": ("mkdtemp",),
                "run_exec": ("mkdtemp",),  # ⑤g2：rebase_candidate 的临时 worktree
-               "landing_blockers": ("pid_alive",)}  # ⑤h1：执行标记记的是采样进程的 pid，重放时它已经不在
+               "landing_blockers": ("pid_alive",),  # ⑤h1：执行标记记的是采样进程的 pid，重放时它已经不在
+               # ⑤h2：门禁基准不在重放里真跑（真跑放在手写场景），临时 worktree 照记录建
+               "regression_sweep": ("sweep_gates", "mkdtemp"), "rehearse_landing": ("sweep_gates", "mkdtemp"),
+               "owner_sweep": ("sweep_gates", "mkdtemp")}
+#: ⑤h2：没有 ts 参数的流程函数（重放与比较时 ts 记成 None）
+FLOW_NO_TS = ("owner_sweep", "mark_owner_moved", "ts_install_if_stale")
+#: ⑤h2：内层名与它换掉的属性名不同的（ts_install_if_stale 的 runner：重放时 runner 为 None，走 pd.run_supervised）
+FLOW_ATTR = {"ts_runner": "run_supervised"}
 #: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数
 FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract")
 #: 重放时要转成 Path 的参数（按位置）
@@ -1771,7 +1786,8 @@ def _plain(value):
 
 def _flow_target(name):
     """内层函数换在哪里：kit_hub 调的是 pd.run_supervised、pd._running_attempts、tempfile.mkdtemp 与 decisions 的两样，其余是 kit_hub 自己的。"""
-    return {"run_supervised": kit_hub.pd, "_running_attempts": kit_hub.pd, "pid_alive": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
+    return {"run_supervised": kit_hub.pd, "_running_attempts": kit_hub.pd, "pid_alive": kit_hub.pd, "find_bun": kit_hub.pd,
+            "read_kernel_impl": kit_hub.pd, "ts_runner": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
             "load_locked_batteries": codekit_decisions}.get(name, kit_hub)
 
 
@@ -1791,12 +1807,24 @@ def _flow_install(name, original, make):
     return Session
 
 
-def _env_check(env):
-    """传给 run_supervised 的环境变量与当场的 kernel_pytest_env() 整份比：相同记 True，不同只记对不上的名字（值不进记录）。"""
-    expected = kit_hub.kernel_pytest_env()
+def _env_check(env, expected=None):
+    """传给 run_supervised 的环境变量与当场的 kernel_pytest_env()（⑤h2 的 find_bun 比 kernel_env()）整份比：相同记 True，不同只记对不上的名字
+    （值不进记录）。"""
+    expected = kit_hub.kernel_pytest_env() if expected is None else expected
     if env == expected:
         return True
     return sorted(name for name in set(env) | set(expected) if env.get(name) != expected.get(name))
+
+
+def _flow_msg_id():
+    """⑤h2：钉住时刻的调用里 kit_hub.new_msg_id 的尾巴照次序编（000000 起），不用 os.urandom，同 TS 的 newMsgId 在 withPinnedClock 期间。"""
+    count = [0]
+
+    def new_msg_id(sender):
+        value = "%s-%s-%06x" % (kit_hub.utc_compact(), kit_hub.SENDER_ALIAS.get(sender, sender), count[0])
+        count[0] += 1
+        return value
+    return new_msg_id
 
 
 def _flow_pin(micros):
@@ -1841,13 +1869,17 @@ def _flow_changes(roots, before):
     return {"write": write, "delete": sorted(key for key in before if key not in after)}
 
 
+#: ⑤h2：探针载入时的 Popen。supervisor 的用例把 subprocess.Popen 换成了假的，采样器自己记 git 状态时不能跟着用假的
+_REAL_POPEN = subprocess.Popen
+
+
 def _flow_git(roots):
     """用命令读出的 git 状态：每棵树的 HEAD 与 status -z 的原文，第一棵树里的全部引用。不是仓库的记 None。"""
-    import subprocess
 
     def run(args, cwd):
-        done = subprocess.run(["git"] + args, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        return done.stdout.decode("utf-8", "replace") if done.returncode == 0 else None
+        with _REAL_POPEN(["git"] + args, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
+            out, _err = proc.communicate()
+        return out.decode("utf-8", "replace") if proc.returncode == 0 else None
 
     trees = []
     for root in roots:
@@ -1857,7 +1889,9 @@ def _flow_git(roots):
         head = run(["rev-parse", "HEAD"], root)
         trees.append({"head": head.strip() if head is not None else None,
                       "status": run(["status", "--porcelain=v1", "--untracked-files=all", "-z"], root)})
-    return {"trees": trees, "refs": run(["for-each-ref", "--format=%(refname) %(objectname)"], roots[0])}
+    # ⑤h2：hub 的仓库不在时（用例拿不存在的目录建 Hub）没有引用可读，与 TS 一样记 None
+    refs = run(["for-each-ref", "--format=%(refname) %(objectname)"], roots[0]) if Path(roots[0]).is_dir() else None
+    return {"trees": trees, "refs": refs}
 
 
 def _flow_state(result, ts, roots, before, ledger, offset):
@@ -1887,6 +1921,21 @@ def _flow_inner_call(name, args, kwargs):
         return {"fn": name, "repo": str(args[0].root)}
     if name == "pid_alive":  # ⑤h1
         return {"fn": name, "pid": args[0]}
+    if name == "sweep_gates":  # ⑤h2：比在哪个目录跑
+        return {"fn": name, "path": str(args[0])}
+    if name == "find_bun":
+        return {"fn": name, "env": _env_check(args[0] if args else kwargs.get("env"), kit_hub.kernel_env())}
+    if name == "read_kernel_impl":  # 内核目录下的选择文件，不带参数
+        return {"fn": name, "args": len(args) + len(kwargs)}
+    if name == "ts_install_if_stale":  # 用例换掉它时只比仓库
+        return {"fn": name, "repo": str(args[0].repo)}
+    if name == "ts_runner":  # ts_install_if_stale 的 runner：stdout、stderr 是文件对象时记成 <temporary>，同一个记成 same
+        given = dict(zip(("cmd", "cwd", "env", "stdout", "stderr", "timeout"), args), **kwargs)
+        out, err = given["stdout"], given["stderr"]
+        shape = lambda handle: "<temporary>" if hasattr(handle, "write") else str(handle)  # noqa: E731
+        return {"fn": name, "argv": [str(item) for item in given["cmd"]], "cwd": str(given["cwd"]),
+                "env": _env_check(given["env"], kit_hub.kernel_env()), "stdout": shape(out), "stderr": "same" if err is out else shape(err),
+                "timeout": given.get("timeout")}
     if name == "run_supervised":  # 标准输出是独占新建的日志，标准错误同一个句柄；grace 与中断处理照缺省
         given = dict(zip(("cmd", "cwd", "env", "stdout", "stderr", "timeout", "grace", "on_spawn"), args), **kwargs)
         log = given["stdout"]
@@ -1919,6 +1968,13 @@ def _flow_recorder(name, fn, roots, inner, busy):
         finally:
             busy[0] = False
             entry["files"] = _flow_changes(roots, before)
+            if name == "ts_runner":  # ⑤h2：输出记原始字节，读完把文件位置放回原处
+                handle = dict(zip(("cmd", "cwd", "env", "stdout"), args), **kwargs).get("stdout")
+                if hasattr(handle, "read"):
+                    position = handle.tell()
+                    handle.seek(0)
+                    entry["output"] = base64.b64encode(handle.read()).decode("ascii")
+                    handle.seek(position)
             if name in FLOW_TS_INNER:
                 entry["ts_after"] = to_tagged(_plain(args[1]))
             inner.append(entry)
@@ -1945,6 +2001,8 @@ def _flow_injector(name, queue, roots):
                 handle.write(base64.b64decode(data))
         for key in expected["files"]["delete"]:
             os.remove(_flow_path(roots, key))
+        if "output" in expected:  # ⑤h2：ts_runner 的输出原样写进 stdout
+            dict(zip(("cmd", "cwd", "env", "stdout"), args), **kwargs)["stdout"].write(base64.b64decode(expected["output"]))
         if "ts_after" in expected:
             ts = args[1]
             ts.clear()
@@ -2002,7 +2060,7 @@ def op_hub_contract_flow(request):
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
     hub = kit_hub.Hub(Path(args[0])) if args[0] is not None else None
-    ts = args[1]
+    ts = None if fn in FLOW_NO_TS else args[1]  # ⑤h2
     rest = [Path(item) if index in FLOW_PATH_ARGS.get(fn, ()) else item for index, item in enumerate(args[2:], start=2)]
     roots = [Path(root) for root in request["roots"]]
     _remove_fresh(request.get("fresh") or [], request.get("inner") or [])
@@ -2013,18 +2071,25 @@ def op_hub_contract_flow(request):
     replaced = list(request.get("replaced") or [])
     given_env = dict(FLOW_GIT_ENV, **(request.get("env") or {}))
     saved_env = {name: os.environ.get(name) for name in given_env}
-    saved = {name: getattr(_flow_target(name), name) for name in replaced + ["utc_now", "utc_compact"]}
+    saved = {name: getattr(_flow_target(name), FLOW_ATTR.get(name, name)) for name in replaced + ["utc_now", "utc_compact", "new_msg_id"]}
     saved_wait, saved_session = kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session
+    # ⑤h2：后台回归的三个时限各有各的键，同 hub_probe.ts；land_wait 照旧只管 EXEC_LAND_WAIT_SECONDS
+    waits = {"land_lock_wait": "LAND_WAIT_SECONDS", "sweep_wait": "SWEEP_WAIT_SECONDS", "sweep_seconds": "SWEEP_SECONDS"}
+    saved_waits = {name: getattr(kit_hub, name) for name in waits.values()}
+    for key, name in waits.items():
+        if request.get(key) is not None:
+            setattr(kit_hub, name, request[key])
     os.environ.update(given_env)
     kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(request["pin"])
+    kit_hub.new_msg_id = _flow_msg_id()
     if request.get("land_wait") is not None:  # ⑤g2 手写场景：落地锁由另一个进程拿着，等锁的时限设短
         kit_hub.EXEC_LAND_WAIT_SECONDS = request["land_wait"]
     if request.get("jev"):
         codekit_decisions.Session = _jev_session(request["jev"]["endpoint"], request["jev"]["key"])
     for name in replaced:
-        setattr(_flow_target(name), name, _flow_install(name, saved[name], lambda inner, _fn: _flow_injector(inner, queue, roots)))
+        setattr(_flow_target(name), FLOW_ATTR.get(name, name), _flow_install(name, saved[name], lambda inner, _fn: _flow_injector(inner, queue, roots)))
     try:
-        value = getattr(kit_hub, fn)(hub, ts, *rest)
+        value = getattr(kit_hub, fn)(hub, *args[1:2], *rest)
         result = json.loads(_recorded_value(fn, value))
         if queue:
             result = {"ok": False, "error": "INJECTION_LEFTOVER", "left": [entry["fn"] for entry in queue]}
@@ -2034,8 +2099,10 @@ def op_hub_contract_flow(request):
         result = json.loads(_recorded_error(exc))
     finally:
         for name, item in saved.items():
-            setattr(_flow_target(name), name, item)
+            setattr(_flow_target(name), FLOW_ATTR.get(name, name), item)
         kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session = saved_wait, saved_session
+        for name, item in saved_waits.items():
+            setattr(kit_hub, name, item)
         for name, item in saved_env.items():
             if item is None:
                 os.environ.pop(name, None)
@@ -2093,7 +2160,8 @@ def op_hub_audit_samples(request):
         """⑤e2a：调用当时的快照（带 .git），重放前原地放回（hub.contract 的 restores）。带 hub 的函数存仓库；workspace_status 存那个目录，
         它是仓库外的 worktree（.git 是指针文件）时连主仓库一起存（worktree 的元数据在主仓库的 .git/worktrees 下）。"""
         roots = []
-        if isinstance(bound.arguments.get("hub"), kit_hub.Hub):
+        # ⑤h2：用例拿不存在的仓库建 Hub（看 ts/ 不在时不装）：没有可存的
+        if isinstance(bound.arguments.get("hub"), kit_hub.Hub) and Path(bound.arguments["hub"].repo).exists():
             roots.append(Path(bound.arguments["hub"].repo))
         # ⑤e2b：门禁草稿 worktree 叫 workspace；⑤g1：returned_blockers、rework_section 的上一轮 attempt 叫 previous；
         # ⑤h1：on_branch 在落地预演的临时 worktree 里看时叫 where（调用之后就收掉了）
@@ -2138,6 +2206,9 @@ def op_hub_audit_samples(request):
                     depth[0] -= 1
             bound = signature.bind(*args, **kwargs)
             bound.apply_defaults()
+            runner = bound.arguments.get("runner") if name == "ts_install_if_stale" else None
+            if runner is not None:  # ⑤h2：给了 runner 时换成录制包装（内层名 ts_runner），样本里记成 None
+                bound.arguments["runner"] = None
             entry = {"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]}
             calls.append(entry)
             hub = bound.arguments["hub"]
@@ -2146,6 +2217,7 @@ def op_hub_audit_samples(request):
             known = len(roots)
             entry["pin"] = time.time_ns() // 1000
             entry["replaced"] = [item for item in FLOW_INNER if getattr(_flow_target(item), item) is not installed[item]] + list(FLOW_ALWAYS.get(name, ()))
+            entry["replaced"] += ["ts_runner"] if runner is not None else []
             if name == "run_exec" and kit_hub.EXEC_LAND_WAIT_SECONDS != land_wait:
                 # ⑤g2：用例自己拿着落地锁、等锁时限改短了（落地锁被占的那一条）。重放时拿锁的已经不在，不重放，契约钉住只跳这一条
                 entry["skip"] = "EXEC_LAND_WAIT_SECONDS=%r" % (kit_hub.EXEC_LAND_WAIT_SECONDS,)
@@ -2153,16 +2225,20 @@ def op_hub_audit_samples(request):
             before = _flow_listing(roots)
             ledger = hub.ledger() if hub is not None else None
             offset = ledger.stat().st_size if ledger is not None and ledger.exists() else 0
-            saved = {item: getattr(_flow_target(item), item) for item in entry["replaced"] + ["utc_now", "utc_compact"]}
+            patched = [item for item in entry["replaced"] if item != "ts_runner"]  # ts_runner 包的是参数，不换模块里的属性
+            saved = {item: getattr(_flow_target(item), item) for item in patched + ["utc_now", "utc_compact", "new_msg_id"]}
             saved_env = {key: os.environ.get(key) for key in FLOW_GIT_ENV}
             os.environ.update(FLOW_GIT_ENV)
             kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(entry["pin"])
-            for item in entry["replaced"]:
+            kit_hub.new_msg_id = _flow_msg_id()
+            for item in patched:
                 setattr(_flow_target(item), item, _flow_install(item, saved[item], lambda inner_name, fn: _flow_recorder(inner_name, fn, roots, inner, busy)))
+            if runner is not None:
+                bound.arguments["runner"] = _flow_recorder("ts_runner", runner, roots, inner, busy)
             depth[0] += 1
             raised = None
             try:
-                value = fn(*args, **kwargs)
+                value = fn(*bound.args, **bound.kwargs)
                 result = json.loads(_recorded_value(name, value))
             except Exception as exc:  # noqa: BLE001  记下之后照样抛回用例
                 raised = exc
@@ -2179,7 +2255,7 @@ def op_hub_audit_samples(request):
             entry["roots"] = [str(root) for root in roots]
             entry["fresh"] = [str(root) for root in roots[known:]]
             entry["inner"] = json.dumps(inner, ensure_ascii=False)
-            entry["result"] = json.dumps(_flow_state(result, bound.arguments["ts"], roots, before, ledger, offset), ensure_ascii=False)
+            entry["result"] = json.dumps(_flow_state(result, bound.arguments.get("ts"), roots, before, ledger, offset), ensure_ascii=False)
             if raised is not None:
                 raise raised
             return value
