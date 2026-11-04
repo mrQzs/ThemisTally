@@ -6,7 +6,7 @@ import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
 import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
 import { withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
@@ -34,6 +34,10 @@ import {
   rehearsalLetter, rehearseLanding, sweepGates, tsInstallIfStale,
 } from "@themis/hub/sweep";
 import { Engine, type EngineDeps, type StateLike, land, releaseDependents, resumedSession } from "@themis/hub/engine";
+import {
+  type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget, cmdTaskCleanup,
+  cmdTaskClose, cmdTaskNew, cmdTaskRebase, cmdTaskUnstick, configuredParallel, execMetrics, recordedSum, turnMetrics, uncommittedReferences,
+} from "@themis/hub/commands";
 import {
   finishedTurn, interruptedLetters, lettersHeld, reportStrandedExec, requeueInterrupted, requeueLetters, requeueTask, runnerLock, runnerMayIdleExit,
   strandedStages, supervisorBusy, tasksWithWork,
@@ -480,6 +484,21 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
         break;
       case "runner_lock": // 纯算路径
         value = runnerLock(new Hub(textOf(a)), optionalText(b));
+        break;
+      case "turn_metrics": // ⑤j1：只读，参数是仓库
+        value = turnMetrics(new Hub(textOf(a)));
+        break;
+      case "exec_metrics":
+        value = execMetrics(new Hub(textOf(a)));
+        break;
+      case "uncommitted_references":
+        value = uncommittedReferences(textOf(a), textOf(b));
+        break;
+      case "recorded_sum":
+        value = recordedSum(a as PyDict[], textOf(b));
+        break;
+      case "configured_parallel": // 第二个参数记成 Namespace 的各键
+        value = BigInt(configuredParallel(new Hub(textOf(a)), commandArgs(b)));
         break;
       case "tail":
         value = args.length > 1 ? tail(a, b) : tail(a);
@@ -970,6 +989,56 @@ async function quiesce(hub: Hub, engine: Engine, base: number, task: string | nu
 
 /** 模块函数（没有 Engine，参数第一个是仓库）：同 python_probe.py 的 FLOW_I_FUNCTIONS 去掉 land。 */
 const FLOW_I_MODULE = ["release_dependents", "requeue_interrupted", "requeue_task", "requeue_letters", "report_stranded_exec"];
+/** ⑤j1：站主命令（同 python_probe.py 的 FLOW_J1）：参数是仓库与 Namespace 的各键，另比 stdout、stderr。 */
+const FLOW_J1 = [
+  "cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cleanup",
+  "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
+];
+
+const LF = String.fromCharCode(10);
+
+/** ⑤j1：Namespace 记下的各键（pyjson 的 dict）换成命令的参数。 */
+function commandArgs(value: PyValue): CommandArgs {
+  if (!(value instanceof Map)) throw new Error("站主命令的参数要是 Namespace 的各键");
+  return Object.fromEntries([...value].map(([key, item]) => [String(key), item]));
+}
+
+/** ⑤j1：站主命令照名字调，输出截进 out，标准输入是采样时读到的文字。交回 Python 的 int（退出码）。 */
+async function commandCall(fn: string, args: CommandArgs, out: CommandOut, stdin: string, deps: EngineDeps): Promise<PyValue> {
+  const calls: Record<string, () => number | Promise<number>> = {
+    cmd_init: () => cmdInit(args, out),
+    cmd_task_new: () => cmdTaskNew(args, out),
+    cmd_task_close: () => cmdTaskClose(args, out, deps),
+    cmd_task_rebase: () => cmdTaskRebase(args, out, deps),
+    cmd_task_after: () => cmdTaskAfter(args, out, deps),
+    cmd_task_unstick: () => cmdTaskUnstick(args, out, deps),
+    cmd_task_budget: () => cmdTaskBudget(args, out, deps),
+    cmd_task_cleanup: () => cmdTaskCleanup(args, out, deps),
+    cmd_send: () => cmdSend(args, out, () => stdin),
+    cmd_exec_recheck: () => cmdExecRecheck(args, out, deps),
+    cmd_take: () => cmdTake(args, out),
+    cmd_status: () => cmdStatus(args, out, deps),
+    cmd_metrics: () => cmdMetrics(args, out),
+  };
+  return BigInt(await (calls[fn] as () => number | Promise<number>)());
+}
+
+/**
+ * ⑤j1：重放站主命令之前，--file、--brief 照调用当时的字节写回；调用当时不在的仓库外目录删掉，只删用例临时目录（仓库的上一层）下的
+ * （同 python_probe.py，报错文字也同）。
+ */
+function prepareCommand(request: Record<string, unknown>, repo: string): void {
+  for (const [path, data] of Object.entries((request["inputs"] as Record<string, string> | null | undefined) ?? {})) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, Buffer.from(data, "base64"));
+  }
+  const parent = normcase(dirname(resolve(repo)));
+  for (const path of (request["absent"] as string[] | null | undefined) ?? []) {
+    const rel = relative(parent, normcase(resolve(path)));
+    if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`调用当时不在的目录不在用例的临时目录下：${path}`);
+    if (existsSync(path)) rmSync(path, { recursive: true, force: true });
+  }
+}
 
 /** 用例改过的 kit_hub 常量对应到 EngineDeps 的哪一项；不在这里的直接报错（themistally-04 定的：TS 只认支持的常量）。 */
 const CONSTANT_DEPS: Readonly<Record<string, string>> = {
@@ -1166,7 +1235,15 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
-  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "quiesce" || FLOW_I_MODULE.includes(fn); // ⑤i1：ts 从参数绑定里取
+  const command = FLOW_J1.includes(fn); // ⑤j1：站主命令
+  if (command) prepareCommand(request, textOf(args[0]));
+  const captured = { out: [] as string[], err: [] as string[] };
+  const commandOut: CommandOut = {
+    print: (text = "") => void captured.out.push(`${text}${LF}`),
+    printErr: (text = "") => void captured.err.push(`${text}${LF}`),
+  };
+  // ⑤i1：ts 从参数绑定里取；⑤j1：站主命令没有 ts
+  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "quiesce" || FLOW_I_MODULE.includes(fn) || command;
   const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) || flowI ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
   const roots = request["roots"] as string[];
   removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
@@ -1259,6 +1336,10 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   let result: Result;
   try {
     const value = await withPinnedClock(Number(request["pin"]), async (): Promise<PyValue> => {
+      if (command) {
+        const stdin = typeof request["stdin"] === "string" ? request["stdin"] : "";
+        return commandCall(fn, commandArgs(args[1] as PyValue), commandOut, stdin, engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick));
+      }
       if (flowI) { // ⑤i1：钉住的时刻也管 int(time.time())（nowMicros）
         holder.flow = engineFlow(fn, hub, args, request, engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick), pick);
         return holder.flow.run();
@@ -1368,6 +1449,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     ok: true, value: {
       result, ts: toTagged(shown), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots),
       ...(flow === null || fn === "quiesce" ? {} : { args_after: flow.after(toTagged) }), // ⑤i2：跑到静止没有参数绑定，同 Python 不写这一项
+      ...(command ? { stdout: captured.out.join(""), stderr: captured.err.join("") } : {}), // ⑤j1
       ...(Object.keys(scripted).length > 0 ? { scripted_calls: scriptCalls } : {}),
       ...(peeks.length > 0 ? { deliver_peeks: peeks } : {}),
     },

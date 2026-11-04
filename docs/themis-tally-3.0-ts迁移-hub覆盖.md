@@ -977,4 +977,96 @@ COVERED 60、PARTIAL 30（再加只走 ⑤i1 的 16 条，⑤i 共 COVERED 76，
   - X10（抽查 V01，协调人不再续接后照样处理阶段）：requeue_letters 不再续接时把主任务转 blocked，requeue_task 处理阶段之前重新看状态（kit_hub.py:4873）。场景：协调人那批信放回过一次又被收掉，同时有一个停住的工人阶段：主任务转 blocked，阶段不动，工人的信留在 cur。
   - X11（抽查 V02，阶段的起点不用 assigned_at）：同一阶段重新开工之前读掉的旧信还在 cur 时才不同（kit_hub.py:4876）。场景：旧开工信在 assigned_at 之前读掉、新信在之后读掉，只放回新信。
 
-其余场景随各片补（⑤j）。
+### ⑤j1 站主命令
+
+做法（⑤j 设计稿第 1–3 节，themistally-04 复核设计、中段与移植）：
+- ⑤j 拆成三片：j1 站主命令，j2 进程模型（cmd_run、supervisor、exclusive、内核文件指纹），j3 转交（kit_hub.py 的 main 照选择文件转交 TS）。argparse 与 main 留在 Python 到第 ⑥ 步，命令接启动器交来的 pyargs（键同 argparse 的 Namespace）。
+- 采样器给 13 个站主命令装流程记录器：cmd_init、cmd_task_new、close、rebase、after、unstick、budget、cleanup、cmd_send、cmd_exec_recheck、cmd_take、cmd_status、cmd_metrics。只读的 uncommitted_references、turn_metrics、exec_metrics、configured_parallel、recorded_sum 照快照记。只记最外层。
+  - 命令的参数记成仓库与 Namespace 去掉 func 后的各键；仓库照 args.repo 用 pd.Repo.discover 找（同 find_repo，不经它的记录器）。
+  - 调用期间另记读到的标准输入与写出的 stdout、stderr，三边一起比；重放时标准输入给记下的文字。
+  - --file、--brief 指向的文件照调用当时的字节记下，重放前写回（6579 先写 2001 字、再把同一个文件写短）；记录器要求它们是绝对路径。
+  - 仓库外的目录（attempt 的 meta.json 记的 worktree、state 里各 workspaces 记的路径）：在的随快照存；不在的记成 absent，重放前删掉。3276 在 cleanup 之后又建了同一个 wt-attempt-001；第三次 cleanup 前删掉的 not-a-worktree 又被上一次重放的快照放回来，两处都实测过。只删用例临时目录（仓库的上一层）下的，别处报错；用例手搭的相对路径占位不算。
+  - lock_alive、supervisor_alive、pause_marker、find_repo、task_quiet 不单记：前两个看 pid 死活，task_quiet 是上下文管理器。它们随命令比，pid_alive 照记录注入；用例直接用它们的几处由手写场景覆盖。
+- 用例清单由 scratchpad 的 j1_tests.py 从 i_trace2.json 机械得出：走到这 18 个函数的 35 条。configured_parallel 中段挪进这一片（cmd_status 调它），4094 跟着归到 j1。
+
+契约：
+- hub-commands：35 条用例，最外层调用 146 次：configured_parallel 69、cmd_send 20、task_after 10、task_budget 10、task_unstick 8、task_new 7、task_rebase 7、task_close 6、task_cleanup 4、exec_metrics 2、cmd_status 1、cmd_metrics 1、turn_metrics 1。
+  - 跳过 1 次：4689 的 status（用例自己拿着 .runners/T002），由手写场景覆盖。
+  - 注入：run_pd 4、pid_alive 2、contract_requirements 1、tidy_finished 1。
+  - 站主命令 73 次、只读的 72 次，三边重放都与当时的结果逐字相同（交回值、文件、账本、git 状态、stdout、stderr）。
+- hub-commands-scenes：16 条 it，全部三边对照。
+  - 前 5 条补采样走不到的：整份测试里没有用例调的 init、take、exec-recheck；status 时另一个进程（真的 Python 子进程）拿着锁（补跳过的那一次），连同 owner.json 的几种写法（读不出、不是 UTF-8、持有者已退出）与 runner.json 的几种写法（坏 JSON、"x"、UTF-16 带 BOM）；task_quiet：主任务的锁有活的持有者时先打印再等，supervisor 拿着总锁时只等主任务的锁。
+  - 中间 8 条是变异补的（见下面的变异一段），每条 it 的标题写了对着哪几条变异；最后 3 条补 themistally-04 的抽查（S05、S08–S11）。
+- 复核时改的两处（themistally-04 实测）：lock_alive、configured_parallel 照 Python 的 except ValueError，也接住 read_text 读到不是 UTF-8 的文件时的 UnicodeDecodeError（PowerShell 5.1 的 Out-File 与 > 缺省写 UTF-16）；cmd_send 读标准输入时留下开头的 UTF-8 BOM（Python 的 utf-8 不去它，TextDecoder 要带 ignoreBOM）。
+- 接受的两处不同（themistally-04 复核时定，计划第 10 节）：坏台账上 strptime 与不是文字的 at 的报错文字不细分；sorted(set(...)) 全是同一种非文字的值时不排。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_owner_can_order_a_rework_before_the_first_review` | 261 | COVERED | hub-commands：cmd_send 4 次 |
+| `test_runner_exits_between_steps_once_the_kernel_changes` | 1027 | PARTIAL | hub-commands：configured_parallel 1 次；cmd_run、code_fingerprint、kernel_files、kernel_settled、refuse_dirty_kernel 归 ⑤j2 |
+| `test_runner_restarts_on_committed_kernel_changes` | 1082 | PARTIAL | hub-commands：configured_parallel 2 次；cmd_run、kernel_settled、refuse_dirty_kernel 归 ⑤j2 |
+| `test_unverified_external_facts_wait_for_the_owner` | 1745 | COVERED | hub-commands：cmd_send 3 次 |
+| `test_supervisor_puts_due_letters_back_and_starts_their_runner` | 1925 | PARTIAL | 这条走到的 ⑤j1 函数（pause_marker）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；pause_requested、supervise_tick 归 ⑤j2 |
+| `test_supervisor_requeues_only_tasks_nobody_is_working_on` | 2057 | PARTIAL | 这条走到的 ⑤j1 函数（pause_marker）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；pause_requested、supervise_tick 归 ⑤j2 |
+| `test_owner_takeover_closes_the_task` | 3230 | COVERED | hub-commands：cmd_task_close 5 次 |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | COVERED | hub-commands：cmd_task_cleanup 4 次 |
+| `test_task_brief_must_not_reference_uncommitted_paths` | 3373 | COVERED | hub-commands：cmd_task_new 4 次 |
+| `test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals` | 3737 | COVERED | hub-commands：cmd_metrics 1 次、exec_metrics 1 次、turn_metrics 1 次 |
+| `test_owner_reply_piped_on_a_non_utf8_console_keeps_its_text` | 3883 | PARTIAL | hub-commands：cmd_send 1 次；命令拿到的文字已比；字节怎么解码归 ⑤j3（经真启动器用管道送字节） |
+| `test_supervisor_runs_one_runner_per_task_up_to_the_limit` | 4050 | PARTIAL | hub-commands：configured_parallel 7 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_parallel_comes_from_the_flag_or_runner_json` | 4094 | COVERED | hub-commands：configured_parallel 4 次 |
+| `test_serial_runner_refuses_while_task_runners_are_alive` | 4106 | PARTIAL | hub-commands：configured_parallel 1 次；cmd_run、refuse_dirty_kernel 归 ⑤j2 |
+| `test_task_runner_exits_for_the_supervisor_on_kernel_changes` | 4118 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo、lock_alive）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_run、kernel_settled、refuse_dirty_kernel 归 ⑤j2 |
+| `test_exclusive_runs_the_command_once_executors_are_done` | 4427 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_exclusive 归 ⑤j2 |
+| `test_exclusive_marks_an_owner_sweep_only_when_head_moves` | 4448 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_exclusive 归 ⑤j2 |
+| `test_landing_waits_for_a_background_gate_sweep` | 4519 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_exclusive 归 ⑤j2 |
+| `test_supervisor_starts_one_owner_sweep_at_a_time` | 4578 | PARTIAL | 这条走到的 ⑤j1 函数（lock_alive）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；owner_sweep_tick 归 ⑤j2 |
+| `test_supervisor_counts_runners_left_by_its_previous_generation` | 4652 | PARTIAL | hub-commands：configured_parallel 7 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_supervisor_waits_for_a_settled_kernel_before_starting_runners` | 4671 | PARTIAL | hub-commands：configured_parallel 6 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_supervisor_ticks_the_owner_sweep_every_round` | 4679 | PARTIAL | hub-commands：configured_parallel 4 次；cmd_run、code_fingerprint、kernel_files、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_status_shows_the_parallel_runners` | 4689 | COVERED | cmd_status 1 次不重放；status 那次调用当时有活的持有者（.runners/T002），由 hub-commands-scenes 的 status 场景覆盖（真子进程拿着锁） |
+| `test_supervisor_stays_while_a_runner_works_without_unread_letters` | 4727 | PARTIAL | hub-commands：configured_parallel 6 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_supervisor_stays_while_letters_are_held` | 4767 | PARTIAL | hub-commands：configured_parallel 5 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_serial_hub_stays_while_letters_are_held` | 4776 | PARTIAL | hub-commands：configured_parallel 1 次；cmd_run、code_fingerprint、kernel_files、refuse_dirty_kernel 归 ⑤j2 |
+| `test_serial_hub_requeues_interrupted_stages_when_it_starts` | 4783 | PARTIAL | hub-commands：configured_parallel 1 次；cmd_run、code_fingerprint、kernel_files、refuse_dirty_kernel 归 ⑤j2 |
+| `test_task_new_records_only_unfinished_dependencies` | 4833 | COVERED | hub-commands：cmd_task_new 3 次 |
+| `test_passing_and_owner_close_release_the_dependents` | 4855 | COVERED | hub-commands：cmd_task_close 1 次 |
+| `test_owner_commands_only_need_the_task_lock_under_a_supervisor` | 4882 | COVERED | task_quiet 由 hub-commands-scenes 的两条覆盖：supervisor 拿着总锁时只等主任务的锁；.runner 有人拿着、不是 supervisor 时照样要拿总锁 |
+| `test_owner_rebases_a_task_before_its_contract_starts` | 4903 | COVERED | hub-commands：cmd_task_rebase 7 次 |
+| `test_owner_adds_a_dependency_found_in_planning` | 4938 | COVERED | hub-commands：cmd_task_after 10 次 |
+| `test_supervisor_picks_up_runner_json_changes_while_running` | 5002 | PARTIAL | hub-commands：configured_parallel 6 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_supervisor_restart_keeps_where_parallel_came_from` | 5035 | PARTIAL | hub-commands：configured_parallel 6 次；cmd_run、refuse_dirty_kernel、supervise 归 ⑤j2 |
+| `test_supervisor_keeps_going_after_a_bad_tick` | 5067 | PARTIAL | hub-commands：configured_parallel 5 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_supervisor_stops_restarting_a_crashing_runner` | 5086 | PARTIAL | hub-commands：configured_parallel 7 次；cmd_run、code_fingerprint、kernel_files、owner_sweep_tick、pause_requested、refuse_dirty_kernel、supervise、supervise_tick 归 ⑤j2 |
+| `test_owner_unsticks_a_stage_nobody_is_working_on` | 5425 | COVERED | hub-commands：cmd_task_unstick 8 次 |
+| `test_facts_checked_before_the_plan_is_delivered_says_why` | 5777 | COVERED | hub-commands：cmd_send 1 次 |
+| `test_owner_raises_the_attempt_budget` | 6223 | COVERED | hub-commands：cmd_task_budget 10 次 |
+| `test_owner_commands_pause_a_busy_task_runner` | 6346 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo、lock_alive、pause_marker、supervisor_alive、task_quiet）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_run、pause_requested、refuse_dirty_kernel、supervise_tick 归 ⑤j2 |
+| `test_answers_to_questions_before_the_contract_are_recorded_as_decisions` | 6449 | COVERED | hub-commands：cmd_send 8 次 |
+| `test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused` | 6579 | COVERED | hub-commands：cmd_send 2 次 |
+| `test_owner_rework_records_the_letter_text` | 6743 | COVERED | hub-commands：cmd_send 1 次 |
+| `test_ledger_session_and_decision_records_with_u2028_are_read_back` | 6907 | COVERED | hub-commands：exec_metrics 1 次 |
+| `test_the_hub_refuses_to_start_on_a_changed_kernel` | 7905 | PARTIAL | 这条走到的 ⑤j1 函数（find_repo）没有单独记下的调用：task_quiet、lock_alive 一类不单记，或只在 ⑤j2 的函数里面被调；到 ⑤j2 一起比；cmd_run、refuse_dirty_kernel 归 ⑤j2 |
+
+COVERED 20、PARTIAL 25。PARTIAL 里 24 条剩 ⑤j2（cmd_run、supervise 一类，逐条写在上表），3883 剩 ⑤j3：它在 j1 只比到“命令拿到的文字”，字节怎么解码要经真启动器比（themistally-04 定的）。设计稿第 1 节估的是 19 条转 COVERED，多出的 4689 是 configured_parallel 中段挪进 j1 之后它走到的函数都在 j1 了。
+
+变异：ts/mutations/hub-j1.ts.json 共 93 条（commands.ts），全部抓住，没有判等价的，没有靠超时的。前 88 条分三段跑，后 5 条补 themistally-04 的抽查：
+- 第一段只跑手写场景（当时的 5 条 it），抓住 13 条。
+- 第二段：漏掉的 75 条，用存下的 145 次样本请求让 node 重放，抓住 54 条，漏 21 条。
+- 漏掉的 21 条都是样本走不到的分支，补了 8 条 it：
+  - task new：不合格的主任务号与 slug、重复登记（J13、J14、J16），--no-jev（J20），任务书里不带斜杠的路径（J23）与几处没提交的路径的次序（J26）；
+  - task close 的收尾没做完要打印（J32），task after 的依赖排序（J41）；
+  - task budget：墙钟取较大值（J52）、Budget 行不唯一（J54）、执行端在办（J56）、主任务停了（J58）；
+  - send：blocked 的恢复（J67）、停止（J73）、正文 36 行（J71）；exec-recheck 没过的退出码（J74）；
+  - 锁：pid 问不出死活（J02）、runner 目录的排序（J77）、parallel 是负数（J06）、.runner 有人拿着却不是 supervisor（J03）、暂停标记里的 pid（J11，盯梢进程看别的进程问得到它活着）。
+  - J06 第一次写的 parallel 是 0，漏了：Python 的 value or 1 先把 0 变成 1，走不到 max(1, …)；改成 -2 后抓住。
+- 第三段：这 21 条按“该由哪条 it 抓住”分 8 组，每组用 vitest -t 只跑那一条 it（每组的基准都是 1 passed、12 skipped），全部抓住。20 条是三边对照比出的不同，J11 是盯梢进程的断言不符。
+- 抽查：themistally-04 在 1f87edd 上另写 15 条（commands.ts），抓住 10 条。漏的 5 条它都对过 Python，都是真缺口；各补一个三边场景，照原样加进清单（J89–J93），按 it 分 3 组用 vitest -t 跑（每组的基准都是 1 passed、15 skipped），全部抓住：
+  - J89（抽查 S05）：没登记的主任务带 --decision 回复，先报没有登记、信不投；
+  - J90（抽查 S08）：status 读 .runner 的 owner.json 要去空白，DirLock 写的带结尾换行（kit_hub.py:898–899）；
+  - J91（抽查 S09）：回合记录没有 session_key 时主任务写“?”，--json 与表格两份都比；
+  - J92（抽查 S10）：收到 exec.finished 之后撤掉 started，同一个 run_dir 的第二条不再算一次；
+  - J93（抽查 S11）：锁目录里还没有 owner.json、或是空文件时不去问死活，算活着（DirLock 先建目录、再写文件，kit_hub.py:897–899）。
+- readStdin 的变异（去掉 ignoreBOM、不换通用换行）放进 ⑤j3：j1 的契约换成记下的文字，走不到它。
+
+其余场景随各片补（⑤j2、⑤j3）。

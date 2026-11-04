@@ -1,0 +1,573 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-commands-scenes.contract.test.ts",
+  "packages/contracts/test/hub-commands.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 3600,
+ "mutations": [
+  {
+   "name": "J01 owner.json 读不出当成没人拿",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (isValueError(error)) return true; // 刚建",
+   "new": "if (isValueError(error)) return false; // 刚建"
+  },
+  {
+   "name": "J02 pid 问不出死活也算不在了",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "deps.pidAlive(Number(pyIntOf(pid))) === false);",
+   "new": "deps.pidAlive(Number(pyIntOf(pid))) !== true);"
+  },
+  {
+   "name": "J03 supervisor 不看 mode",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": " && pyStrip(readText(purePathStr(path, \"mode\"))) === \"supervisor\"",
+   "new": ""
+  },
+  {
+   "name": "J04 --parallel 不优先",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "let value: PyValue = args[\"parallel\"] ?? null;",
+   "new": "let value: PyValue = null;"
+  },
+  {
+   "name": "J05 runner.json 读不出时当成 2",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "也当成没写\n      value = null;",
+   "new": "也当成没写\n      value = 2n;"
+  },
+  {
+   "name": "J88 不是 UTF-8 的文件不当成 ValueError",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "error instanceof PyJsonError || error instanceof UnicodeDecodeError;",
+   "new": "error instanceof PyJsonError;"
+  },
+  {
+   "name": "J06 并行数不保底 1",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "return Number(parsed > 1n ? parsed : 1n);",
+   "new": "return Number(parsed);"
+  },
+  {
+   "name": "J07 并行数写错时当成 2",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "error.kind === \"ValueError\")) return 1;",
+   "new": "error.kind === \"ValueError\")) return 2;"
+  },
+  {
+   "name": "J08 没有 supervisor 时等 2 秒",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "OWNER_WAIT_SECONDS : 1.0);",
+   "new": "OWNER_WAIT_SECONDS : 2.0);"
+  },
+  {
+   "name": "J09 要等时不打印",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (lockAlive(runnerLock(hub, task), deps)) out.print(",
+   "new": "if (false) out.print("
+  },
+  {
+   "name": "J10 supervisor 在时也拿总锁",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "      if (supervisorAlive(hub, deps)) return await body();\n",
+   "new": ""
+  },
+  {
+   "name": "J11 暂停标记写错 pid",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "[[\"pid\", BigInt(process.pid)], [\"at\", utcNow()]]",
+   "new": "[[\"pid\", 0n], [\"at\", utcNow()]]"
+  },
+  {
+   "name": "J12 init 把忽略当成没忽略",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "\"x\"].join(SEP)], hub.repo, \"inherit\") === 0;",
+   "new": "\"x\"].join(SEP)], hub.repo, \"inherit\") !== 0;"
+  },
+  {
+   "name": "J13 task new 不核主任务号",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!MAIN_TASK_RE.match(task)) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "J14 task new 不核 slug",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!SLUG_RE.match(text(args, \"slug\"))) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "J15 任务书引用没提交的路径也照登记",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "  if (unseen.length > 0) {\n    throw new HubError(`任务书引用",
+   "new": "  if (false) {\n    throw new HubError(`任务书引用"
+  },
+  {
+   "name": "J16 重复登记不报错",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (tasks.has(task)) throw new HubError(`主任务 ${task} 已存在`",
+   "new": "if (false) throw new HubError(`主任务 ${task} 已存在`"
+  },
+  {
+   "name": "J17 --after 写没登记的不报错",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (unknown.length > 0) throw new HubError(`--after",
+   "new": "if (false) throw new HubError(`--after"
+  },
+  {
+   "name": "J18 结项的依赖也记进 after",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const waiting = after.filter((item) => !pyEq(getOf(tasks.get(item) as PyValue, \"status\"), \"done\"));",
+   "new": "const waiting = after;"
+  },
+  {
+   "name": "J19 任务书不去尾部空白",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "`${pyRstrip(brief)}${LF}`",
+   "new": "`${brief}${LF}`"
+  },
+  {
+   "name": "J20 --no-jev 不生效",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "!pyTruthy(args[\"no_jev\"] ?? false)",
+   "new": "true"
+  },
+  {
+   "name": "J21 登记的基线写 12 位",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "已登记 ${task}（基线 ${head(base, 10)}",
+   "new": "已登记 ${task}（基线 ${head(base, 12)}"
+  },
+  {
+   "name": "J22 引用路径不去尾部斜杠",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    while (path.endsWith(\"/\")) path = path.slice(0, -1); // str.rstrip(\"/\")\n",
+   "new": ""
+  },
+  {
+   "name": "J23 引用不带斜杠的也查",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!path.includes(\"/\") || path.includes(\"://\")",
+   "new": "if (path.includes(\"://\")"
+  },
+  {
+   "name": "J24 被 Git 忽略的路径也报",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (runCode([\"git\", \"check-ignore\", \"-q\", \"--\", path], repo, \"ignore\") === 0) continue;",
+   "new": "void 0;"
+  },
+  {
+   "name": "J25 没提交与有改动的报错对调",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "problems.push(`${path} 没有提交`);",
+   "new": "problems.push(`${path} 有未提交的改动`);"
+  },
+  {
+   "name": "J26 引用的路径不排序",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": ".map((match) => match.group.slice(1, -1)))].sort(cmpCodePoints);",
+   "new": ".map((match) => match.group.slice(1, -1)))];"
+  },
+  {
+   "name": "J27 close 的说明为空也照结项",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!note) throw new HubError(\"--file 要写明",
+   "new": "if (false) throw new HubError(\"--file 要写明"
+  },
+  {
+   "name": "J28 close 不查已经结项",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (pyEq(getOf(ts, \"status\"), \"done\")) throw new HubError(`主任务 ${task} 已经结项`",
+   "new": "if (false) throw new HubError(`主任务 ${task} 已经结项`"
+  },
+  {
+   "name": "J29 close 记的说明文件写成绝对路径",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "[\"note\", purePathRelativePosix(path, hub.repo) as string]",
+   "new": "[\"note\", path]"
+  },
+  {
+   "name": "J30 close 不做结项收尾",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const left = await deps.tidyFinished(hub, ts, `${task} 已由站主接手结项",
+   "new": "const left: string[] = []; void (`${task} 已由站主接手结项"
+  },
+  {
+   "name": "J31 close 不放行依赖它的主任务",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "await releaseDependents(hub, state, task); // 站主接手结项也算结项",
+   "new": "void releaseDependents; //"
+  },
+  {
+   "name": "J32 close 的收尾没做完不打印",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "for (const item of leftover) out.print(`结项收尾没做完：${item}`);",
+   "new": "void leftover;"
+  },
+  {
+   "name": "J33 rebase 不要求写原因",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!reason) throw new HubError(\"--reason 要写明为什么挪基线",
+   "new": "if (false) throw new HubError(\"--reason 要写明为什么挪基线"
+  },
+  {
+   "name": "J34 rebase 不查主任务进行中",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!pyEq(getOf(ts, \"status\"), \"active\")) throw new HubError(`主任务 ${task} 不在进行中`, EXIT_USAGE);\n    if (contractStarted(ts)) {\n      throw new HubError(`${task} 的合同端已经开工：合同的 base_sha",
+   "new": "if (contractStarted(ts)) {\n      throw new HubError(`${task} 的合同端已经开工：合同的 base_sha"
+  },
+  {
+   "name": "J35 rebase 不查合同端开工",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (contractStarted(ts)) {\n      throw new HubError(`${task} 的合同端已经开工：合同的 base_sha",
+   "new": "    if (false) {\n      throw new HubError(`${task} 的合同端已经开工：合同的 base_sha"
+  },
+  {
+   "name": "J36 rebase 基线没变也照挪",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (pyEq(pyItem(ts, \"base_head\"), now)) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "J37 rebase 记录不带原来的基线",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "[\"head\", now], [\"previous\", before], [\"reason\", reason]]",
+   "new": "[\"head\", now], [\"reason\", reason]]"
+  },
+  {
+   "name": "J38 rebase 信里的旧基线写 12 位",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "的基线从 ${head(before, 10)} 挪到",
+   "new": "的基线从 ${head(before, 12)} 挪到"
+  },
+  {
+   "name": "J39 after 可以等自己",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const unknown = on.filter((item) => !tasks.has(item) || item === task);",
+   "new": "const unknown = on.filter((item) => !tasks.has(item));"
+  },
+  {
+   "name": "J40 after 不查互相等",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (cyclic.length > 0) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "J41 after 的依赖不排序",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "...waiting])].sort(cmpCodePoints);",
+   "new": "...waiting])];"
+  },
+  {
+   "name": "J42 after 不撤 after_released",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    ts.delete(\"after_released\"); // 以前的依赖放行过了",
+   "new": "    void 0; //"
+  },
+  {
+   "name": "J43 after 依赖都结项了也照记",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (waiting.length === 0) {\n      out.print(`${on.join(\"、\")} 都已结项",
+   "new": "    if (false) {\n      out.print(`${on.join(\"、\")} 都已结项"
+  },
+  {
+   "name": "J44 after 不查合同端开工",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (contractStarted(ts)) {\n      throw new HubError(`${task} 的合同端已经开工：合同钉在当前基线上",
+   "new": "    if (false) {\n      throw new HubError(`${task} 的合同端已经开工：合同钉在当前基线上"
+  },
+  {
+   "name": "J45 unstick 不核阶段后缀",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!STAGE_ORDER.includes(suffix)) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "J46 unstick 没卡住的阶段也标",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!stageBusy(stage)) throw",
+   "new": "if (false) throw"
+  },
+  {
+   "name": "J47 unstick 不看在跑的 attempt",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": " || flying.length > 0) {",
+   "new": ") {"
+  },
+  {
+   "name": "J48 unstick 不看执行标记的进程",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "(pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) !== false) || flying",
+   "new": "false || flying"
+  },
+  {
+   "name": "J49 unstick 的 note 不带原因",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": ".set(\"note\", `站主标成 failed：${reason}`)",
+   "new": ".set(\"note\", \"站主标成 failed\")"
+  },
+  {
+   "name": "J50 预算不要求留两次",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (attempts < need || attempts <=",
+   "new": "if (attempts <"
+  },
+  {
+   "name": "J51 预算上限 21",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "attempts > 20n) {",
+   "new": "attempts > 21n) {"
+  },
+  {
+   "name": "J52 墙钟不取较大的",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const wall = current > wanted ? current : wanted;",
+   "new": "const wall = wanted;"
+  },
+  {
+   "name": "J53 已派遣的合同不升版",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (pyTruthy(getOf(pyItem(ts, \"contract\"), \"dispatched\"))) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "J54 Budget 行不唯一也改",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (count !== 1) return",
+   "new": "if (count === 0) return"
+  },
+  {
+   "name": "J55 追加之后不重算剩余次数",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "(pyItem(ts, \"exec\") as PyDict).set(\"attempts_left\", attemptsLeft(hub, ts));",
+   "new": "void attemptsLeft;"
+  },
+  {
+   "name": "J56 执行端在办也照追加",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (stageBusy(pyItem(pyItem(ts, \"stages\"), \"5-exec\")) || (pyTruthy(pid)",
+   "new": "if ((pyTruthy(pid)"
+  },
+  {
+   "name": "J57 没追加成报 USAGE",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "throw new HubError(`预算没有追加成：${problems.join(\"；\")}`, EXIT_BLOCKED);",
+   "new": "throw new HubError(`预算没有追加成：${problems.join(\"；\")}`, EXIT_USAGE);"
+  },
+  {
+   "name": "J58 停止的主任务也能追加",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "|| pyEq(status, \"stopped\") ",
+   "new": ""
+  },
+  {
+   "name": "J59 budget.raised 不带改动",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "...[...raised].map(([name, value]) => [String(name), value] as const)]",
+   "new": "]"
+  },
+  {
+   "name": "J60 cleanup 进行中的也收尾",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!pyEq(getOf(ts, \"status\"), \"done\")) throw new HubError(`主任务 ${task} 还没结项",
+   "new": "if (false) throw new HubError(`主任务 ${task} 还没结项"
+  },
+  {
+   "name": "J61 cleanup 没做完也退出 0",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "return leftover.length === 0 ? EXIT_OK : EXIT_FAIL;",
+   "new": "return EXIT_OK;"
+  },
+  {
+   "name": "J62 cleanup 不列没做完的",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "for (const item of leftover) out.print(`没做完：${item}`);",
+   "new": "void leftover;"
+  },
+  {
+   "name": "J63 信长正好 2000 字也拒收",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (codePoints(summary).length > MAX_OWNER_CHARS) {",
+   "new": "if (codePoints(summary).length >= MAX_OWNER_CHARS) {"
+  },
+  {
+   "name": "J64 空信的摘要不写无",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "fields.set(\"摘要\", summary || \"无\");",
+   "new": "fields.set(\"摘要\", summary);"
+  },
+  {
+   "name": "J65 JEV 也能指定返工",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": " || rework === \"3j-jev\" || rework === \"6j-jev\") {",
+   "new": ") {"
+  },
+  {
+   "name": "J66 站主决定不看是不是答复提问",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": " && answersQuestion(hub, replyTo));",
+   "new": ");"
+  },
+  {
+   "name": "J67 回信不把 blocked 恢复成 active",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "else if (ts !== null && pyEq(getOf(ts, \"status\"), \"blocked\")) ts.set(\"status\", \"active\").set(\"coordinator_rejections\", 0n);",
+   "new": ""
+  },
+  {
+   "name": "J68 核实事实之后 pending 不清空",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": ".set(\"checked\", pending).set(\"pending\", [])",
+   "new": ".set(\"checked\", pending)"
+  },
+  {
+   "name": "J69 回信不清门禁质疑",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "(pyItem(ts, \"exec\") as PyDict).set(\"gate_claim\", false);",
+   "new": "void 0;"
+  },
+  {
+   "name": "J70 记为决定时不打印",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (decision) out.print(\"已记为站主决定",
+   "new": "if (false) out.print(\"已记为站主决定"
+  },
+  {
+   "name": "J71 正文行数少算一行",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "pySplitlines(fields.get(\"摘要\") as string).length + 5);",
+   "new": "pySplitlines(fields.get(\"摘要\") as string).length + 4);"
+  },
+  {
+   "name": "J72 合同写出来之后的答复也记为决定",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "&& !pyTruthy(getOf(orMap(getOf(ts, \"contract\")), \"version\"))",
+   "new": ""
+  },
+  {
+   "name": "J73 停止的信不把主任务标 stopped",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (ts !== null && kind === \"停止\") ts.set(\"status\", \"stopped\");",
+   "new": "if (false) ts.set(\"status\", \"stopped\");"
+  },
+  {
+   "name": "J74 exec-recheck 没过也退出 0",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "return ok ? EXIT_OK : EXIT_FAIL;",
+   "new": "return EXIT_OK;"
+  },
+  {
+   "name": "J75 take 的 --peek 不生效",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "if (!pyTruthy(args[\"peek\"] ?? false)) await hub.take(path);",
+   "new": "await hub.take(path);"
+  },
+  {
+   "name": "J76 status 未读为 0 的也列",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": ".filter(([, count]) => count !== 0n)",
+   "new": ""
+  },
+  {
+   "name": "J77 status 的 runner 不排序",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": ".filter((name) => lockAlive(purePathStr(runnersDir, name), deps)).sort(cmpCodePoints)",
+   "new": ".filter((name) => lockAlive(purePathStr(runnersDir, name), deps))"
+  },
+  {
+   "name": "J78 status --json 缩进 1",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "{ ensureAscii: false, indent: 2 }));\n    return EXIT_OK;\n  }\n  for (const ts",
+   "new": "{ ensureAscii: false, indent: 1 }));\n    return EXIT_OK;\n  }\n  for (const ts"
+  },
+  {
+   "name": "J79 status 不数站主的未读",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "[...Object.keys(ROSTER), OWNER].map(",
+   "new": "[...Object.keys(ROSTER)].map("
+  },
+  {
+   "name": "J80 旧记录的花费不按会话相减",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "cost = previous === undefined || total < previous ? total : pyRound(total - previous, 6);",
+   "new": "cost = total;"
+  },
+  {
+   "name": "J81 回合不按 turn_id 排",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "(a, b) => cmpCodePoints(keys[a] as string, keys[b] as string) || a - b",
+   "new": "(a, b) => a - b"
+  },
+  {
+   "name": "J82 没记的写无",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "return values.length > 0 ? pyStrValue(pySum(values)) : \"未记\";",
+   "new": "return values.length > 0 ? pyStrValue(pySum(values)) : \"无\";"
+  },
+  {
+   "name": "J83 attempt 数加 2",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "entry.set(\"attempts\", (entry.get(\"attempts\") as bigint) + 1n);",
+   "new": "entry.set(\"attempts\", (entry.get(\"attempts\") as bigint) + 2n);"
+  },
+  {
+   "name": "J84 每个工人的分钟两位小数",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "| ${mine.length} | ${pyFixed(minutes, 1)} |",
+   "new": "| ${mine.length} | ${pyFixed(minutes, 2)} |"
+  },
+  {
+   "name": "J85 metrics 不列执行端那一行",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (found !== undefined) {\n      const entry = executions.get(found) as PyDict;",
+   "new": "    if (false) {\n      const entry = executions.get(found as PyKey) as PyDict;"
+  },
+  {
+   "name": "J86 metrics 的合计不算没回报的",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const known = rows.map((row) => pyItem(row, \"cost_usd\")).filter((cost) => cost !== null);",
+   "new": "const known: PyValue[] = [];"
+  },
+  {
+   "name": "J87 旧记录不看 session_cost_usd",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "const legacy = !record.has(\"session_cost_usd\");",
+   "new": "const legacy = true;"
+  },
+  {
+   "name": "J89 --decision 不查主任务登记没有（抽查 S05）",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (decision && ts === null) throw new HubError(`没有登记主任务 ${task}`, EXIT_USAGE);",
+   "new": "    void 0;"
+  },
+  {
+   "name": "J90 status 的 hub 记录不去空白（抽查 S08）",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "isDirectory(runner) ? pyStrip(readText(purePathStr(runner, \"owner.json\"))) : \"无\"",
+   "new": "isDirectory(runner) ? readText(purePathStr(runner, \"owner.json\")) : \"无\""
+  },
+  {
+   "name": "J91 回合没有主任务号时不写问号（抽查 S09）",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : \"\")[0] || \"?\"]",
+   "new": "stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : \"\")[0]]"
+  },
+  {
+   "name": "J92 exec.finished 之后不撤 started（抽查 S10）",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "      started.delete(key);",
+   "new": "      void key;"
+  },
+  {
+   "name": "J93 owner.json 没有 pid 也去问死活（抽查 S11）",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "return !(pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) === false);",
+   "new": "return !(deps.pidAlive(Number(pyIntOf(pid))) === false);"
+  }
+ ]
+}

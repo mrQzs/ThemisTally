@@ -4,6 +4,7 @@
 TS 实现的探针（ts_probe.ts）收发同样的 JSON，契约测试与对照测试对两边一视同仁。
 stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252），stdout 只写 ASCII。
 """
+import argparse
 import ast
 import base64
 import collections
@@ -1424,6 +1425,14 @@ def op_hub_contract(request):
             value = list(value) if isinstance(value, tuple) else value  # ⑤i2：interrupted_letters 的（名字, 回合）元组成列表，同 _recorded_value
         elif fn == "runner_lock":  # ⑤i2：纯算路径，交回字符串
             value = str(kit_hub.runner_lock(kit_hub.Hub(Path(args[0])), args[1]))
+        elif fn in ("turn_metrics", "exec_metrics"):  # ⑤j1：只读，参数是仓库
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])))
+        elif fn == "uncommitted_references":  # ⑤j1：仓库与任务书的文字
+            value = kit_hub.uncommitted_references(Path(args[0]), args[1])
+        elif fn == "recorded_sum":  # ⑤j1：纯函数
+            value = kit_hub.recorded_sum(*args)
+        elif fn == "configured_parallel":  # ⑤j1：第二个参数记成 Namespace 的各键
+            value = kit_hub.configured_parallel(kit_hub.Hub(Path(args[0])), argparse.Namespace(**args[1]))
         elif fn in ("normalize_identity", "normalize_markup"):
             value = list(getattr(kit_hub, fn)(*args))
         elif fn == "tail_file":
@@ -1797,6 +1806,10 @@ FLOW_INNER_I = ("role_prompt", "ensure_worktree", "apply_candidate", "seed_white
                 "regression_sweep", "Engine.verify_delivery", "Engine.auto_jev",
                 "release_held")  # ⑤i2：4778 的 hold_until_called 换掉它，step 每一步先调
 FLOW_ALWAYS_I = ("mkdtemp", "run_supervised", "sweep_gates", "pid_alive")
+#: ⑤j1：站主命令。参数只有一个 Namespace，记成仓库与 Namespace 的各键（去掉 func）；调用期间另记读到的标准输入与写出的 stdout、stderr。
+#: 照 ⑤i 的流程函数记（钉时刻、注入用例换掉的内层函数与 FLOW_ALWAYS_I）
+FLOW_J1 = ("cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cleanup",
+           "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics")
 #: ⑤i1：Engine 的方法里要转成 Path 的参数（方法参数的位置，不含 self）；worker_job 的 paths 是一组路径，另转
 FLOW_ENGINE_PATHS = {"Engine.worker_turns": (4, 6), "Engine.redeliver": (6,)}
 #: 参数里一组路径（paths）的位置（方法参数的位置，不含 self）：⑤i1 的 worker_job，⑤i2 的几个
@@ -1809,7 +1822,39 @@ FLOW_LOCKS = (".land", ".sweep", ".lock", ".runner", ".owner-sweep")
 
 
 def _flow_i(name):
-    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS or name == "quiesce"  # ⑤i2：跑到静止
+    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS or name == "quiesce" or name in FLOW_J1  # ⑤i2：跑到静止；⑤j1：站主命令
+
+
+class _Tee:
+    """⑤j1：站主命令调用期间的 stdout、stderr：照写进原来的流（用例照旧读得到），另记一份。"""
+
+    def __init__(self, inner):
+        self.inner, self.parts = inner, []
+
+    def write(self, text):
+        self.parts.append(text)
+        return self.inner.write(text)
+
+    def flush(self):
+        self.inner.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+class _StdinRecorder:
+    """⑤j1：站主命令调用期间的 stdin：照读原来的流，记下读到的文字（cmd_send 的 --file - 只调 read()）；没读过记 None。"""
+
+    def __init__(self, inner):
+        self.inner, self.taken = inner, None
+
+    def read(self, *args):
+        text = self.inner.read(*args)
+        self.taken = (self.taken or "") + text
+        return text
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
 
 
 def _quiesce(hub, engine, base, task, limit):
@@ -1894,6 +1939,32 @@ def _state_dirs(hub, ts=None, state=None):
             if outside and all(Path(item).resolve() != seen.resolve() for seen in found):
                 found.append(Path(item))
     return found
+
+
+def _outside_dirs(hub):
+    """⑤j1：站主命令会看在不在的仓库外目录：.agent/runs 下各 attempt 的 meta.json 记的 worktree（retire_attempts），与 state.json 里各主任务
+    workspaces 记的路径（remove_workspaces）。交回（在的，不在的）：在的随快照存，不在的重放前删掉。3276 在 cleanup 之后又建了同一个
+    wt-attempt-001，删掉的 not-a-worktree 又被上一次重放的快照放回来。"""
+    found = []
+    for meta in sorted((Path(hub.repo) / ".agent" / "runs").glob("*/attempt-*/meta.json")):
+        try:
+            found.append(json.loads(meta.read_text(encoding="utf-8")).get("worktree"))
+        except (OSError, ValueError):
+            continue
+    try:
+        tasks = list(hub.load_state()["tasks"].values())
+    except Exception:  # noqa: BLE001  同 _state_dirs
+        tasks = []
+    for ts in [item for item in tasks if isinstance(item, dict)]:
+        found += [record.get("path") for record in (ts.get("workspaces") or {}).values() if isinstance(record, dict)]
+    present, absent = [], []
+    for item in found:  # 用例手搭的状态里有相对路径的占位（"old" 一类），不算
+        if not isinstance(item, str) or not Path(item).is_absolute() or Path(item).resolve().is_relative_to(Path(hub.repo).resolve()):
+            continue
+        group = present if Path(item).is_dir() else absent
+        if all(Path(item).resolve() != seen.resolve() for seen in group):
+            group.append(Path(item))
+    return present, absent
 
 
 def _flow_after(bound):
@@ -2344,6 +2415,9 @@ def _flow_call(fn, hub, args, rest, queue, roots, request, runner=None):
 
     if not _flow_i(fn):
         return (lambda: getattr(kit_hub, fn)(hub, *args[1:2], *rest)), None
+    if fn in FLOW_J1:  # ⑤j1：站主命令，参数是仓库与 Namespace 的各键
+        namespace = argparse.Namespace(**args[1])
+        return (lambda: getattr(kit_hub, fn)(namespace)), None
     runner = runner or _flow_injector("runner", queue, roots)  # 手写场景给了剧本就照剧本
     if fn == "quiesce":  # ⑤i2 跑到静止：参数是仓库、only_task、最多几步
         engine = kit_hub.Engine(hub, runner=_RunnerProxy(runner), only_task=args[1])
@@ -2380,9 +2454,17 @@ def op_hub_contract_flow(request):
     time.time 也钉住；另比调用之后的字典与列表参数。"""
     for item in request.get("restores") or []:
         _restore_tree(item["from"], item["to"], item.get("links", []), with_git=bool(item.get("git")))
+    for path, data in (request.get("inputs") or {}).items():  # ⑤j1：站主命令的 --file、--brief 照调用当时的字节写回
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(base64.b64decode(data))
     fn = request["fn"]
     args = [from_tagged(item) for item in request["args"]]
     hub = kit_hub.Hub(Path(args[0])) if args[0] is not None else None
+    for path in request.get("absent") or []:  # ⑤j1：调用当时不在的仓库外目录，重放前删掉；只删用例临时目录（仓库的上一层）下的
+        if not Path(path).resolve().is_relative_to(Path(args[0]).resolve().parent):
+            raise RuntimeError("调用当时不在的目录不在用例的临时目录下：%s" % path)
+        if Path(path).exists():
+            shutil.rmtree(path, onexc=lambda func, item, _exc: (os.chmod(item, stat.S_IWRITE), func(item)))
     ts = None if fn in FLOW_NO_TS or _flow_i(fn) else args[1]  # ⑤h2；⑤i1 的 ts 从参数绑定里取
     rest = [Path(item) if index in FLOW_PATH_ARGS.get(fn, ()) else item for index, item in enumerate(args[2:], start=2)]
     roots = [Path(root) for root in request["roots"]]
@@ -2437,6 +2519,9 @@ def op_hub_contract_flow(request):
         real_deliver = saved.setdefault("Hub.deliver", kit_hub.Hub.deliver)
         kit_hub.Hub.deliver = lambda self, *more, **kw: (peeks.append(_flow_peek(roots, request["peek_deliver"])), real_deliver(self, *more, **kw))[1]
     call, bound = _flow_call(fn, hub, args, rest, queue, roots, request, runner)
+    streams, captured = (sys.stdin, sys.stdout, sys.stderr), None
+    if fn in FLOW_J1:  # ⑤j1：站主命令读采样时读到的标准输入，stdout、stderr 截下来随结果交回
+        sys.stdin, sys.stdout, sys.stderr = io.StringIO(request.get("stdin") or ""), io.StringIO(), io.StringIO()
     try:
         value = call()
         result = json.loads(_recorded_value(fn, value))
@@ -2447,6 +2532,9 @@ def op_hub_contract_flow(request):
     except Exception as exc:  # noqa: BLE001  与当时的结果一样记类型与文字（HubError 另记退出码）
         result = json.loads(_recorded_error(exc))
     finally:
+        if fn in FLOW_J1:
+            captured = (sys.stdout.getvalue(), sys.stderr.getvalue())
+            sys.stdin, sys.stdout, sys.stderr = streams
         for name, item in saved.items():
             setattr(_flow_target(name), _flow_attr(name), item)
         kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session, time.time = saved_wait, saved_session, saved_time
@@ -2466,6 +2554,8 @@ def op_hub_contract_flow(request):
     after = None if bound is None else _flow_after(bound)
     shown_ts = ts if bound is None else bound.arguments.get("ts")
     state = _flow_state(result, shown_ts, roots, before, ledger, offset, after)
+    if captured is not None:
+        state["stdout"], state["stderr"] = captured
     if scripted:
         state["scripted_calls"] = script_calls
     if peeks:
@@ -2517,6 +2607,8 @@ def op_hub_audit_samples(request):
             return str(value)
         if isinstance(value, kit_hub.Hub):  # 第 ⑤d 片：Hub 记成仓库路径，重放时由它再建
             return str(value.repo)
+        if isinstance(value, argparse.Namespace):  # ⑤j1：站主命令与 configured_parallel 的参数记成各键（func 是函数，不记）
+            return {key: plain(item) for key, item in vars(value).items() if key != "func"}
         if isinstance(value, (list, tuple)):
             return [plain(item) for item in value]
         if isinstance(value, (set, frozenset)):  # ⑤i1：worker_turns 的 kinds；它只拿来判断成员，记成排好序的列表
@@ -2605,9 +2697,22 @@ def op_hub_audit_samples(request):
             if runner is not None:  # ⑤h2：给了 runner 时换成录制包装（内层名 ts_runner），样本里记成 None
                 bound.arguments["runner"] = None
             engine = bound.arguments.get("self") if name.startswith("Engine.") else bound.arguments.get("engine") if name == "land" else None
-            hub = engine.hub if name.startswith("Engine.") else bound.arguments["hub"]
+            command = name in FLOW_J1
+            if command:  # ⑤j1：站主命令自己照 args.repo 找仓库（同 find_repo，这里不经它的记录器）
+                hub = kit_hub.Hub(kit_hub.pd.Repo.discover(bound.arguments["args"].repo).root)
+            else:
+                hub = engine.hub if name.startswith("Engine.") else bound.arguments["hub"]
             fake = name == "land" and not isinstance(engine, kit_hub.Engine)  # 4001：用例自己写的假 Engine
-            if engine is not None:
+            if command:
+                namespace = bound.arguments["args"]
+                entry = {"test": current[0], "fn": name, "args": [str(hub.repo), plain(namespace)]}
+                # --file、--brief 指向的文件照调用当时的字节记下：用例之后可能改写同一个文件（6579 先写 2001 字、再写短的），重放时先写回
+                given = [str(getattr(namespace, key)) for key in ("file", "brief") if getattr(namespace, key, None) not in (None, "-")]
+                relative = [path for path in given if not Path(path).is_absolute()]
+                if relative:  # 重放时照这个路径写回：相对路径会写进探针的当前目录（themistally-04 要的保护）
+                    raise RuntimeError("--file、--brief 要是绝对路径：%s" % "、".join(relative))
+                entry["inputs"] = {path: base64.b64encode(Path(path).read_bytes()).decode("ascii") for path in given if Path(path).is_file()}
+            elif engine is not None:
                 given = [plain(item) for key, item in bound.arguments.items() if key not in ("self", "hub", "engine")]
                 entry = {"test": current[0], "fn": name, "args": [str(hub.repo), None if fake else engine.only_task] + given}
                 if name == "land":
@@ -2616,6 +2721,10 @@ def op_hub_audit_samples(request):
                 entry = {"test": current[0], "fn": name, "args": [plain(item) for item in bound.arguments.values()]}
             calls.append(entry)
             extra = _state_dirs(hub, bound.arguments.get("ts"), bound.arguments.get("state")) if flow_i else []
+            if command:  # ⑤j1：仓库外的 attempt worktree 与阶段 worktree，在的随快照存，不在的记下、重放前删掉
+                present, absent = _outside_dirs(hub)
+                extra += [path for path in present if all(path.resolve() != seen.resolve() for seen in extra)]
+                entry["absent"] = [str(path) for path in absent]
             roots = _flow_roots(hub, bound.arguments.get("workspace"))
             roots += [path for path in extra if all(path.resolve() != root.resolve() for root in roots)]
             entry["restores"] = json.dumps(call_snapshots(bound, hub, extra), ensure_ascii=False)
@@ -2668,6 +2777,9 @@ def op_hub_audit_samples(request):
                                                          _flow_recorder("engine.after_land", engine.after_land, roots, inner, busy))
             _DIRLOCK_FAKE_PID[0] = False
             _TOUCHED_LOCKS.clear()
+            streams, captured = (sys.stdin, sys.stdout, sys.stderr), None
+            if command:  # ⑤j1：记下读到的标准输入与写出的 stdout、stderr，照样交给用例当时的流
+                sys.stdin, sys.stdout, sys.stderr = _StdinRecorder(streams[0]), _Tee(streams[1]), _Tee(streams[2])
             depth[0] += 1
             raised = None
             try:
@@ -2678,6 +2790,10 @@ def op_hub_audit_samples(request):
                 result = json.loads(_recorded_error(exc))
             finally:
                 depth[0] -= 1
+                if command:
+                    entry["stdin"] = sys.stdin.taken
+                    captured = ("".join(sys.stdout.parts), "".join(sys.stderr.parts))
+                    sys.stdin, sys.stdout, sys.stderr = streams
                 time.time = saved_time
                 if saved_runner is not None:
                     engine.runner = saved_runner
@@ -2697,8 +2813,11 @@ def op_hub_audit_samples(request):
             if flow_i and _DIRLOCK_FAKE_PID[0] and not entry.get("skip"):
                 entry["skip"] = "DirLock 接管时问的是用例换掉的 pid_alive（重放时两边都用真的）"
             entry["inner"] = json.dumps(inner, ensure_ascii=False)
-            after = _flow_after(bound) if flow_i else None
-            entry["result"] = json.dumps(_flow_state(result, bound.arguments.get("ts"), roots, before, ledger, offset, after), ensure_ascii=False)
+            after = _flow_after(bound) if flow_i and not command else None
+            state = _flow_state(result, bound.arguments.get("ts"), roots, before, ledger, offset, after)
+            if captured is not None:
+                state["stdout"], state["stderr"] = captured
+            entry["result"] = json.dumps(state, ensure_ascii=False)
             if raised is not None:
                 raise raised
             return value
@@ -2720,7 +2839,10 @@ def op_hub_audit_samples(request):
                 entry = {"test": current[0], "fn": name, "args": given}
                 calls.append(entry)
                 if name in snapshot_functions:  # ⑤i1：resumed_session 只拿 workspace 比字符串，不存那个目录
-                    restores = call_snapshots(bound, None if engine is None else engine.hub, skip=("workspace",) if name == "resumed_session" else ())
+                    # ⑤j1：uncommitted_references 的仓库参数叫 repo，另存它
+                    extra = (bound.arguments["repo"],) if name == "uncommitted_references" else ()
+                    restores = call_snapshots(bound, None if engine is None else engine.hub, extra=extra,
+                                              skip=("workspace",) if name == "resumed_session" else ())
                     entry["restores"] = json.dumps(restores, ensure_ascii=False)  # 同 result：存成 JSON 文字
             depth[0] += 1
             try:
