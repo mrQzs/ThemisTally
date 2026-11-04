@@ -1,0 +1,71 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-audit.contract.test.ts",
+  "packages/contracts/test/hub-gatepost-scenes.contract.test.ts",
+  "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+  "packages/contracts/test/hub-state.compare.test.ts",
+  "-t",
+  "覆盖审计补|按步骤"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "A01 探 --help 不带资源参数（3529）",
+   "file": "ts/packages/hub/src/audit.ts",
+   "old": "runCapture([...piCmd, ...RESOURCE_FLAGS, \"--help\"]",
+   "new": "runCapture([...piCmd, \"--help\"]"
+  },
+  {
+   "name": "A02 pi 的 --help 不缓存（3529）",
+   "file": "ts/packages/hub/src/audit.ts",
+   "old": "    PI_FLAGS.set(key, pending);\n",
+   "new": ""
+  },
+  {
+   "name": "A03 worktree add 不重试（4705）",
+   "file": "ts/packages/hub/src/gatepost.ts",
+   "old": "if (!(error instanceof HubError) || attempt === WORKTREE_ADD_TRIES) throw error;",
+   "new": "throw error;"
+  },
+  {
+   "name": "A04 重试之间不睡（4705）",
+   "file": "ts/packages/hub/src/gatepost.ts",
+   "old": "      await sleep(attempt);\n",
+   "new": ""
+  },
+  {
+   "name": "A05 重试之间睡的秒数翻倍（4705）",
+   "file": "ts/packages/hub/src/gatepost.ts",
+   "old": "await sleep(attempt);",
+   "new": "await sleep(attempt * 2);"
+  },
+  {
+   "name": "A06 守卫不看依赖（4796）",
+   "file": "ts/packages/hub/src/taskstate.ts",
+   "old": "if (starting && suffix !== \"1-plan\" && pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))) {",
+   "new": "if (false && starting && suffix !== \"1-plan\" && pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))) {"
+  },
+  {
+   "name": "A07 依赖放行了也挡（4796）",
+   "file": "ts/packages/hub/src/taskstate.ts",
+   "old": "if (starting && suffix !== \"1-plan\" && pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))) {",
+   "new": "if (starting && suffix !== \"1-plan\" && pyTruthy(pyGet(ts, \"after\"))) {"
+  },
+  {
+   "name": "A08 规划也被依赖挡（4796）",
+   "file": "ts/packages/hub/src/taskstate.ts",
+   "old": "if (starting && suffix !== \"1-plan\" && pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))) {",
+   "new": "if (starting && pyTruthy(pyGet(ts, \"after\")) && !pyTruthy(pyGet(ts, \"after_released\"))) {"
+  },
+  {
+   "name": "A09 标记挂在拿 .sweep 之前（7055）",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();",
+   "new": "  writeTextAtomic(path, `${dumps(new Map<string, PyValue>([[\"pid\", BigInt(process.pid)], [\"task\", name], [\"label\", label], [\"sweep\", true], [\"at\", utcNow()]]))}${LF}`);\n  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();"
+  }
+ ]
+}

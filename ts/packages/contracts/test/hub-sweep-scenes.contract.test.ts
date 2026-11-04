@@ -175,12 +175,12 @@ describe("第 ⑤h2 片：后台回归的标记与 .sweep 锁两边互认（手�
 });
 
 describe("第 ⑤h2 片：另一个进程拿着落地锁（手写）", () => {
-  /** 另一个进程（Python 的 DirLock）拿着 repo 的 .land，直到 flag 下出现 go；交回它退出的 Promise。 */
-  function holdLand(flag: string, repo: string, name: string): Promise<unknown> {
+  /** 另一个进程（Python 的 DirLock）拿着 repo 信箱下的 lock（缺省 .land），直到 flag 下出现 go；交回它退出的 Promise。 */
+  function holdLand(flag: string, repo: string, name: string, lock = ".land"): Promise<unknown> {
     const script = join(flag, `${name}.py`);
     writeFileSync(script, lines(
       "import sys", "import time", "from pathlib import Path", `sys.path.insert(0, ${JSON.stringify(join(REPO, "scripts"))})`, "import kit_hub as kh",
-      `with kh.DirLock(Path(${JSON.stringify(join(repo, ".agent", "mailbox", ".land"))}), wait_seconds=5):`,
+      `with kh.DirLock(Path(${JSON.stringify(join(repo, ".agent", "mailbox", lock))}), wait_seconds=5):`,
       `    Path(${JSON.stringify(join(flag, `${name}-ready`))}).write_text("ok")`,
       `    while not Path(${JSON.stringify(join(flag, "go"))}).exists():`, "        time.sleep(0.05)",
     ));
@@ -221,6 +221,39 @@ describe("第 ⑤h2 片：另一个进程拿着落地锁（手写）", () => {
       expect([result["error"], String(result["message"]).startsWith(`锁被占用：${land}`)]).toEqual(["HubError", true]);
     }
     expect(written(states[0])["0/.agent/mailbox/.sweep/owner.json"], ".sweep 放掉了").toBe(undefined);
+  }, 300_000);
+
+  it("后台回归之间排队：另一份拿着 .sweep 时，owner_sweep 等 SWEEP_WAIT_SECONDS 超时原样抛出，自己的标记没挂、.land 没碰（7055，⑤j3 覆盖审计补）", async () => {
+    const flag = tempDir("sweep-queue");
+    const exits: Promise<unknown>[] = [];
+    // 搭场景时就拿着（快照里带着这把锁）：拿着它的是正在跑的那一份后台回归
+    const queued = scene(BASE, (repo, _wt, head) => {
+      put(repo, OWNER, JSON.stringify({ pending: true, head, since: head, command: ["git"], at: AT }));
+      exits.push(holdLand(flag, repo, "sweep", ".sweep"));
+    }, false);
+    // 前一份跑完：另一个进程拿过 .sweep、又放掉（DirLock 退出时删掉整个目录），快照里没有这把锁；后一份照常拿到、跑完
+    const releaseFlag = tempDir("sweep-released");
+    const released = scene({ ...BASE, [GATE_OK]: lines("def test_ok():", "    assert True") }, (repo, _wt, head) => {
+      put(repo, OWNER, JSON.stringify({ pending: true, head, since: head, command: ["git"], at: AT }));
+      exits.push(holdLand(releaseFlag, repo, "sweep", ".sweep"));
+      writeFileSync(join(releaseFlag, "go"), "go");
+      for (let waited = 0; existsSync(join(repo, ".agent", "mailbox", ".sweep")) && waited < 600; waited += 1) sleepSync(50);
+    }, false);
+    const run = scratch(released, "owner-sweep", 0, lines("1 passed in 0.01s"), [GATE_OK]);
+    let states: Record<string, unknown>[] = [];
+    try {
+      states = agreeFlow([{ ...flow("owner_sweep", queued, []), sweep_wait: 0.6 }, { ...flow("owner_sweep", released, [], scratchExtra(run)), sweep_wait: 0.6 }]);
+    } finally {
+      writeFileSync(join(flag, "go"), "go");
+      await Promise.all(exits);
+    }
+    injectedCleanly(states);
+    const result = states[0]?.["result"] as Record<string, unknown>;
+    const sweep = join(queued.repo, ".agent", "mailbox", ".sweep");
+    expect([result["error"], String(result["message"]).startsWith(`锁被占用：${sweep}`)]).toEqual(["HubError", true]);
+    // 排队的那一份没挂标记，也没碰落地锁：挡着落地的只有正在跑的那一份
+    expect(Object.keys(written(states[0])).filter((key) => key.includes("exec-active") || key.includes("/.land/"))).toEqual([]);
+    expect((returned(states[1]) as PyValue[])[0]).toBe(true);
   }, 300_000);
 
   it("只测 TS：挂标记与 ts 重装等 .land 用的是 landLockWaitSeconds（LAND_WAIT_SECONDS），不是执行端的 landWaitSeconds", async () => {

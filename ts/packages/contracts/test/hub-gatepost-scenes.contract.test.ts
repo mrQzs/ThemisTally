@@ -12,7 +12,7 @@ import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, type ProbeRequest, type ProbeResult, prng, runAgreeing, runProbe } from "./harness.ts";
+import { IMPLS, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, prng, runAgreeing, runProbe } from "./harness.ts";
 import {
   AT, C, CR, DURATION, LF, type Scene, agreeFlow, flow, kernelPython, pd, py, returned, scene, text, tsAfter, written,
 } from "./flow-fixtures.ts";
@@ -441,6 +441,22 @@ describe("第 ⑤f 片：建 worktree、打候选补丁、接上一轮的白盒�
     expect([...record.keys()]).toEqual(["path", "commit", "created_at"]);
     expect(Object.keys(written(results[1]))).toContain("2/src/doc.py");
   });
+
+  it("ensure_worktree：git worktree add 失败就重试，共 3 次、两次之间睡 1、2 秒，次数用完照实报错（4705，⑤j3 覆盖审计补）", () => {
+    const sc = scene(BASE_FILES);
+    const bad = made(sc, "post-attempt-001");
+    const none = { write: {}, delete: [] };
+    // sleep 照剧本换（不真睡），记下的秒数三边比
+    const [state] = agreeFlow([{
+      ...flow("ensure_worktree", sc, [postTs(sc, { workspaces: {} }), "post-attempt-001", "f".repeat(40)],
+        { inner: bad.inner, replaced: ["worktree_root", "mkdtemp"], fresh: [bad.path] }),
+      scripted: { sleep: [{ value: toTagged(null), files: none }, { value: toTagged(null), files: none }] },
+    }], undefined, REPLAY_TIMEOUT);
+    const result = state?.["result"] as Record<string, unknown>;
+    expect([result["error"], String(result["message"]).startsWith(`git worktree add --detach ${bad.path} ${"f".repeat(40)} 失败：`)]).toEqual(["HubError", true]);
+    const slept = (state?.["scripted_calls"] as Record<string, unknown>[]).filter((call) => call["fn"] === "sleep").map((call) => call["seconds"]);
+    expect(slept).toEqual([1, 2]);
+  }, 600_000);
 
   it("apply_candidate：照 meta.json 的基线建 worktree、打补丁、记基线状态；已经打过就不再打；meta.json 坏了用基准测试的提交", () => {
     const sc = scene(BASE_FILES, (repo) => {

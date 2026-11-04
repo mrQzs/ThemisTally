@@ -1200,3 +1200,44 @@ COVERED 31。⑤j1 一节里剩 ⑤j2 的 24 条在这一片都比到了；3883 
     - R101（抽查 T09）：supervise_tick 算上一代的 runner 时，不算自己 children 里的（6433，Python 短路，不对它们调 lock_alive）。在跑的子进程都拿着自己的 .runners/<task>，生产上每一轮都会走到。
     - R102（抽查 T13）：exclusive.run 只记命令的前 6 项（6617）。R91 那条 it 的命令改成 7 项。
     - R103（抽查 T14）：cmd_owner_sweep 只把退出码是 EXIT_BLOCKED 的 HubError 当成“已经有一个在跑”（6404）。场景让还没有提交的仓库在 owner_sweep_run 里 git rev-parse HEAD 失败；HubError 的缺省退出码是 EXIT_FAIL（469），三边都照抛。
+
+### ⑤j3 转交
+
+第一个提交是覆盖审计，转交本身另起提交，接在本节后面。
+
+覆盖审计（⑤j3 设计稿第 5 节，themistally-04 定的做法）：
+- 起因：写 ⑤j3 设计稿时机械核对整份文档（scratchpad 的 j3_open_rows.py、j3_missing_rows.py）。
+  - tests/test_kit_hub.py 共 299 条，表里有行的 289 条；
+  - 3403、3408、3509、3516、3529、3872、4705、4796、7055、7318 这 10 条一次也没出现，连 MISSING 都没记；
+  - 5227 停在 ⑤a 一节的 PARTIAL（写“归 ⑤d”），⑤d 一节没有再列它。
+- 做法：逐条照 i_trace2.json 记的走到的函数，与各片采样的用例清单核。
+  - 样本里有这条用例的调用，就补行写 COVERED；
+  - 没有就补场景；
+  - 走到的分支已有三边对照的手写场景，按分支等价写 COVERED，写明是哪条场景、哪种假 pi 模式。
+- 这 10 条都不在任何一片的采样清单里，补了 4 条场景（3529、4705、4796、7055）。
+- 4705 要比 sleep 的秒数：gatepost.ts 的 addWorktree 把重试之间的等待抽成可注入的 sleep。
+  - GatePostDeps 多一项可选的 sleep，没给用真的；
+  - 探针在剧本里有 sleep 时换上，Python 那边换的是 kit_hub.time.sleep。
+  - hub-f 清单的 P12（重试之前不等）原文跟着换到缺省 sleep 里的 setTimeout，照 hub-f 的命令重跑，抓住。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_coordinator_runs_at_high_effort` | 3403 | COVERED | hub-state.compare「常量与 kit_hub 的同名常量逐项相同」：用例只断言 ROSTER 的取值，常量那条逐项比 |
+| `test_only_the_planner_stays_on_claude` | 3408 | COVERED | 同上：ROSTER 各岗位的 adapter、provider、model、effort、thinking，与 CONTRACT_EXECUTOR_LINE |
+| `test_the_pi_worker_command_carries_every_resource_flag` | 3509 | COVERED | 分支等价：hub-turn「pi：交差成功……被拦（参数不认、--help 读不出）」，起 pi 工人的命令行三边逐字比（假 pi 的 ok 模式），资源参数都在命令里 |
+| `test_a_pi_worker_is_not_started_when_pi_does_not_know_a_flag` | 3516 | COVERED | 分支等价：同一条场景，假 pi 的 missing 模式（--help 少一个参数，不起这一回合）与 fail 模式（--help 读不出） |
+| `test_pi_help_is_probed_once_per_pi_command` | 3529 | COVERED | hub-audit「探 --help 时带着资源参数……（3529，⑤j3 覆盖审计补）」：三边各跑一批，比交回值与每边起假 pi 的次数；并发调用只探一次另由 ⑤e0 那条只测 TS 的场景钉住 |
+| `test_cli_output_survives_a_non_utf8_console` | 3872 | COVERED | 只走 Python 留下的部分：--help 由 Python 的 argparse 回答、不转交（⑤j3 设计稿第 1 节），第 ⑥ 步撤 argparse 时再比 |
+| `test_worktree_add_retries_when_git_metadata_is_busy` | 4705 | COVERED | hub-gatepost-scenes「ensure_worktree：git worktree add 失败就重试……（4705，⑤j3 覆盖审计补）」：不存在的提交让三次都失败，sleep 照剧本换，记下的秒数 [1, 2] 与报错三边比 |
+| `test_dependent_task_plans_first_and_waits_for_its_dependencies` | 4796 | COVERED | hub-state.compare「守卫：开工、返工、通过……（按步骤）」照用例补的一段：带两个依赖时规划照常开工，合同端被挡、下一步里也不列它，after_released 之后放行 |
+| `test_audit_may_return_several_stages_and_the_upstream_one_goes_first` | 5227 | COVERED | ⑤a 一节记 PARTIAL 的最后两句：ROLE_EXTRA_OUTPUT 由 hub-state.compare 的常量一条逐项比；worker.md 是两边共用的同一份模板文件（TEMPLATE_DIR），hub-prompt 照它渲染、三边比 |
+| `test_background_sweeps_queue_behind_each_other` | 7055 | COVERED | hub-sweep-scenes「后台回归之间排队……（7055，⑤j3 覆盖审计补）」：另一个进程拿着 .sweep 时，owner_sweep 等 sweep_wait（同用例，把 SWEEP_WAIT_SECONDS 改短）超时原样抛出，没挂标记、没碰 .land；锁拿过又放掉之后照常拿到、跑完 |
+| `test_deeply_nested_tool_args_are_read_without_recursion` | 7318 | COVERED | hub-audit「工具参数嵌套到 960、997 层（第 134 轮）」。用例里 2000 层那一种落在计划第 10 节“hub 审计遇到嵌套很深的值”那条已接受的不同里：TS 的 loads 在 1000 层封顶；Python 3.12.10 实测直接调用到 2997 层，隔 60 层 C 调用是 2877 层 |
+
+全表合计（机械核对，每条用例取最后一行的状态）：tests/test_kit_hub.py 共 299 条，都有行；COVERED 298、PARTIAL 1。不是 COVERED 的：test_owner_reply_piped_on_a_non_utf8_console_keeps_its_text（3883 留给转交那一提交，经真启动器用管道送字节）。
+
+变异：ts/mutations/hub-j3a.ts.json 共 9 条，用 vitest -t 只跑四个契约文件里标题带“覆盖审计补”或“按步骤”的 5 条 it（基准 5 passed、64 skipped），全部抓住：
+- A01、A02（3529）：探 --help 不带资源参数；不缓存。
+- A03–A05（4705）：worktree add 不重试；重试之间不睡；睡的秒数翻倍。
+- A06–A08（4796）：守卫不看依赖；依赖放行了也挡；规划也被依赖挡。
+- A09（7055）：标记挂在拿 .sweep 之前。

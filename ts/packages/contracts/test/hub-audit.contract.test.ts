@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type PyDict, type PyValue, dumps, loads } from "@themis/base/pyjson";
 import { pyTruthy } from "@themis/base/pyfmt";
+import { RESOURCE_FLAGS } from "@themis/dispatcher/pi-cli";
 import { guardConfig, piSupportedFlags } from "@themis/hub/audit";
 import { GUARD_PREFIX, GUARD_SUFFIX } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
@@ -450,6 +451,32 @@ describe("第 ⑤c 片：会话文件与 pi 的 --help", () => {
       call("pi_flags_problem", [python, fake, "ok"], ["--model", "m", "-p", "--no-mcp"]),
     ]);
     expect(results.map((result) => valueOf(result) === null)).toEqual([false, false, true]);
+  });
+
+  it("探 --help 时带着资源参数（与调度器的预检一样）；同一个 pi 命令一个进程里只探一次，换个命令再探（3529，⑤j3 覆盖审计补）", () => {
+    // 假 pi：每起一次往计数文件记一行；命令行不是“带齐资源参数、最后一项是 --help”就当读不出
+    const fake = join(ROOT, "fake_pi_resources.py");
+    writeFileSync(fake, [
+      "import sys",
+      "open(sys.argv[1], 'a').write('x' + chr(10))",
+      `if sys.argv[-1] != '--help' or not all(flag in sys.argv for flag in ${JSON.stringify(RESOURCE_FLAGS)}):`,
+      "    sys.exit(1)",
+      "print('Usage: pi [options]')",
+      "print('  --model <id>  --tools <names>  --no-mcp')",
+      "",
+    ].join(LF));
+    const python = process.env["THEMIS_PYTHON"] ?? "python";
+    const runs = IMPLS.map((impl) => {
+      const count = join(ROOT, `pi-help-starts-${impl.name}`);
+      const results = runBatch(impl, [
+        call("pi_flags_problem", [python, fake, count], ["--model", "m", "--no-mcp"]), call("pi_flags_problem", [python, fake, count], ["--tools", "x", "--mode"]),
+        call("pi_flags_problem", [python, fake, count, "other"], ["--model", "m"]),
+      ]);
+      return { impl: impl.name, results, starts: readFileSync(count, "utf8").split(LF).filter(Boolean).length };
+    });
+    for (const run of runs.slice(1)) expect(run.results, run.impl).toEqual(runs[0]?.results);
+    expect(runs[0]?.results.map((result) => valueOf(result) === null)).toEqual([true, false, true]);
+    expect(runs.map((run) => [run.impl, run.starts])).toEqual(runs.map((run) => [run.impl, 2]));
   });
 });
 

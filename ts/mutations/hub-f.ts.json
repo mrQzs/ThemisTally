@@ -81,7 +81,7 @@
     {
       "name": "P12 add_worktree 重试之前不等",
       "file": "ts/packages/hub/src/gatepost.ts",
-      "old": "setTimeout(done, attempt * 1000)",
+      "old": "setTimeout(done, seconds * 1000)",
       "new": "setTimeout(done, 0)"
     },
     {

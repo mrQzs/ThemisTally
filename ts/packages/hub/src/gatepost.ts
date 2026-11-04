@@ -40,6 +40,8 @@ export interface GatePostDeps {
   readonly worktreeRoot: (repo: string) => string | Promise<string>;
   readonly runSupervised: (cmd: readonly string[], options: SuperviseOptions) => Promise<SuperviseResult>;
   readonly mkdtemp: (prefix: string, dir: string) => string | Promise<string>;
+  /** worktree add 重试之间的 time.sleep（契约照剧本换掉、记下秒数）；没给用真的。 */
+  readonly sleep?: (seconds: number) => Promise<void>;
 }
 
 export const REAL_GATE_POST_DEPS: GatePostDeps = {
@@ -128,7 +130,7 @@ export async function ensureWorktree(hub: Hub, ts: PyDict, kind: string, commit:
   if (typeof task !== "string") throw new PyCrash("AttributeError", `'${pyTypeName(task)}' object has no attribute 'lower'`);
   const prefix = `${codePoints(purePathName(hub.repo)).slice(0, 16).join("")}-hub-${pyLower(task)}-${kind}-`;
   const path = purePathStr(await deps.mkdtemp(prefix, purePathStr(await deps.worktreeRoot(hub.repo))));
-  await addWorktree(hub, path, pyStrValue(commit));
+  await addWorktree(hub, path, pyStrValue(commit), deps.sleep);
   workspaces.set(kind, new Map<string, PyValue>([["path", path], ["commit", commit], ["created_at", utcNow()]]));
   await hub.appendEvent("workspace.created", [["task", task], ["kind", kind], ["path", path], ["commit", commit]]);
   return path;
@@ -141,7 +143,8 @@ export const WORKTREE_ADD_TRIES = 3;
  * git worktree add，几个主任务的 runner 之间串行（第 20 轮）。撞上 Git 自己的锁就重试，每次多等一秒。kit_hub 的 file_lock 等锁超时
  * 报的也是 HubError（EXIT_BLOCKED），一样重试。
  */
-export async function addWorktree(hub: Hub, path: string, commit: string): Promise<void> {
+export async function addWorktree(hub: Hub, path: string, commit: string,
+  sleep: (seconds: number) => Promise<void> = (seconds) => new Promise((done) => setTimeout(done, seconds * 1000))): Promise<void> {
   for (let attempt = 1; attempt <= WORKTREE_ADD_TRIES; attempt += 1) {
     try {
       await withFileLock(purePathStr(hub.root, "ledger", ".git-worktrees.lock"), () => {
@@ -151,7 +154,7 @@ export async function addWorktree(hub: Hub, path: string, commit: string): Promi
     } catch (caught) {
       const error = caught instanceof FileLockTimeout ? new HubError(caught.message, EXIT_BLOCKED) : caught;
       if (!(error instanceof HubError) || attempt === WORKTREE_ADD_TRIES) throw error;
-      await new Promise((done) => setTimeout(done, attempt * 1000));
+      await sleep(attempt);
     }
   }
 }

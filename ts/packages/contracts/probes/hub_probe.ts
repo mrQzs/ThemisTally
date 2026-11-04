@@ -1528,6 +1528,8 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     worktreeRoot: replaced.has("worktree_root") ? inject("worktree_root") : REAL_GATE_POST_DEPS.worktreeRoot,
     runSupervised: replaced.has("run_supervised") ? inject("run_supervised") : REAL_GATE_POST_DEPS.runSupervised,
     mkdtemp: replaced.has("mkdtemp") ? inject("mkdtemp") : REAL_GATE_POST_DEPS.mkdtemp,
+    // ⑤j3 覆盖审计：worktree add 重试之间的 sleep 照剧本换（Python 那边换的是 kit_hub.time.sleep）
+    ...(pick.has("sleep") ? { sleep: pick.inject("sleep") } : {}),
   };
   const execDeps: ExecDeps = { // ⑤g2：Python 那边 decisions.Session 换掉时，它的 ask 记成一次内层调用
     ...deps, worktreeRoot: gateDeps.worktreeRoot, mkdtemp: gateDeps.mkdtemp,

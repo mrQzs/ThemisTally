@@ -312,6 +312,15 @@ function guardScenarios(base: string): ProbeRequest[] {
   items.push(call("invalidate_after", [ts, "2-contract"]));
   // test_allowed_moves_lists_only_passing_letters
   items.push(call("allowed_moves", [makeTs()]));
+  // test_dependent_task_plans_first_and_waits_for_its_dependencies（⑤j3 覆盖审计补，4796）：规划不受依赖限制；规划交了、依赖没结项时合同端不许
+  // 开工、下一步里也不列它；依赖放行（after_released）之后照常开工
+  ts = makeTs();
+  ts.set("after", ["T006", "T007"]);
+  g(ts, "开工", "planner-opus", "T001-1-plan");
+  stageRec(ts, "1-plan").set("status", "delivered");
+  g(ts, "开工", "contract-glm", "T001-2-contract"); items.push(call("allowed_moves", [ts]));
+  ts.set("after_released", dict(["head", "b".repeat(40)], ["previous", base], ["after", ["T006", "T007"]]));
+  g(ts, "开工", "contract-glm", "T001-2-contract"); items.push(call("allowed_moves", [ts]));
   // test_routine_briefs_quote_each_path_on_its_own（engine_env 只提供仓库与状态：这里直接调）
   ts = makeTs();
   part(ts, "exec").set("run_dir", `${REPO}/.agent/runs/t001-doc/attempt-001`);
