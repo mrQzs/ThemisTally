@@ -18,84 +18,22 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sleepSync } from "@themis/base/fsutil";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { COORDINATOR, FIELDS, OWNER } from "@themis/hub/constants";
+import { COORDINATOR, OWNER } from "@themis/hub/constants";
 import { REAL_ENGINE_DEPS, land } from "@themis/hub/engine";
 import { HubError } from "@themis/hub/errors";
 import { renderLetter } from "@themis/hub/letters";
 import { Hub, canonicalState } from "@themis/hub/mailbox";
 import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
-import { toTagged } from "../src/tagged.ts";
 import { REPO } from "./harness.ts";
-import { AT, LF, PIN, type Scene, agreeFlow, flow, kernelPython, py, returned, scene, text, tsAfter, written } from "./flow-fixtures.ts";
+import { AT, LF, type Scene, agreeFlow, flow, kernelPython, py, returned, scene, text, tsAfter, written } from "./flow-fixtures.ts";
 import { put, removeCreated, tempDir } from "./repo-fixtures.ts";
+import {
+  BASE_FILES, BOX, GATE, SECONDS, events, failure, fields, letter, lettersScene, lettersTo, lines, mailboxScene, planJob, planned, planned1, ran,
+  runnerCalls, setStage, stageOf, stagesAfter, stateAfter, stateScene, taskState, turn, value,
+} from "./engine-fixtures.ts";
 
 afterAll(removeCreated);
-
-const lines = (...items: string[]): string => [...items, ""].join(LF);
-const GATE = "tests/test_gate_t001_baseline.py";
-const BASE_FILES = { "src/doc.py": lines("def title():", "    return 'old'"), [GATE]: lines("def test_title():", "    assert False") };
-const BOX = ".agent/mailbox";
-const STATE = `0/${BOX}/ledger/state.json`;
-const SECONDS = Math.floor(PIN / 1_000_000);
-
-/** 信的各栏：缺省都是“无”，摘要另给。 */
-const fields = (extra: Record<string, string> = {}): Map<string, PyValue> =>
-  new Map<string, PyValue>([...FIELDS.map((key) => [key, "无"] as const), ["摘要", "开工"], ...Object.entries(extra)]);
-
-/** 在 agent 的 new 里放一封信，交回仓库里的路径。 */
-function letter(repo: string, agent: string, msgId: string, from: string, taskId: string, kind: string): string {
-  const meta = new Map([["msg-id", msgId], ["from", from], ["to", agent], ["task-id", taskId], ["in-reply-to", "none"], ["type", kind]]);
-  const rel = `${BOX}/inbox/${agent}/new/${msgId}.md`;
-  put(repo, rel, renderLetter(meta, fields()));
-  return join(repo, ...rel.split("/"));
-}
-
-/** T001 的状态：一个阶段停在 assigned（开工），其余缺省。 */
-function taskState(head: string, suffix: string, extra: Record<string, unknown> = {}): PyDict {
-  const ts = newTaskState("T001", "doc", "改文档", head, true, AT);
-  (ts.get("stages") as PyDict).set(suffix, py({ status: "assigned", assigned_at: AT, kind: "开工" }));
-  for (const [key, value] of Object.entries(extra)) ts.set(key, py(value));
-  return ts;
-}
-
-/** 摆好信箱的场景：state.json 写进去，一封开工信放进 agent 的 new；交回场景、state 与信的路径。 */
-function mailboxScene(agent: string, taskId: string, build: (head: string) => Map<string, PyValue>, more: (repo: string) => void = () => undefined) {
-  const box: { state: PyValue; path: string } = { state: null, path: "" };
-  const sc = scene(BASE_FILES, (repo, _wt, head) => {
-    const state = new Map<string, PyValue>([["tasks", build(head)]]);
-    put(repo, `${BOX}/ledger/state.json`, canonicalState(state));
-    box.path = letter(repo, agent, "20261101T000000000000Z-coordinator-000000", COORDINATOR, taskId, "开工");
-    box.state = state;
-    more(repo);
-  });
-  return { sc, state: box.state, path: box.path };
-}
-
-/** runner 交回的一个回合（FakeRunner 的形状）。 */
-function turn(id: string, output: unknown, extra: Record<string, unknown> = {}): unknown {
-  return {
-    value: toTagged(py({
-      turn_id: id, turn_dir: `turns/${id}`, output, retry_of: null, violations: [], api_error: null, timed_out: false, rate_limited_until: null,
-      output_error: output === null ? "没有代码块" : null, ...extra,
-    })),
-  };
-}
-const planned = (report: string): unknown => ({
-  letter: { type: "交付", in_reply_to: "m", 摘要: "拆成 3 步", 提交: "无", 验证: "读了文档", 偏离: "无", 需协调人决定: "无", 下游须知: "无", 证据: "report.md" },
-  report, state: "交付", external_facts: [],
-});
-const value = (item: unknown): unknown => ({ value: toTagged(py(item)) });
-
-/** 调用之后的 state.json（Python 那边写下的），按主任务、阶段取。 */
-const stateAfter = (state: Record<string, unknown> | undefined): Record<string, Record<string, unknown>> =>
-  (JSON.parse(text(state, STATE)) as { tasks: Record<string, Record<string, unknown>> }).tasks;
-const lettersTo = (state: Record<string, unknown> | undefined, agent: string): string[] =>
-  Object.keys(written(state)).filter((key) => key.startsWith(`0/${BOX}/inbox/${agent}/new/`)).map((key) => text(state, key));
-const events = (state: Record<string, unknown> | undefined): Record<string, unknown>[] =>
-  Buffer.from(String(state?.["ledger"]), "base64").toString("utf8").split(LF).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
-const runnerCalls = (state: Record<string, unknown> | undefined): Record<string, unknown>[] =>
-  (state?.["scripted_calls"] as Record<string, unknown>[]).filter((call) => call["fn"] === "runner");
 
 describe("第 ⑤i1 片：当场重交（手写）", () => {
   it("核验没过，同一会话重交一次后通过：返工次数不加，信里注明，账本记 delivery.retried；重交的回合续接上一回合、带核验原话", () => {
@@ -256,45 +194,6 @@ describe("第 ⑤i1 片：land 等落地锁的时限（只测 TS）", () => {
 });
 
 // --- 变异第二段补的场景 -----------------------------------------------------------------------------------------------------------------
-
-type Stages = Record<string, Record<string, unknown>>;
-const stagesAfter = (state: Record<string, unknown> | undefined): Stages => stateAfter(state)["T001"]?.["stages"] as Stages;
-const stageOf = (ts: PyDict, suffix: string): PyDict => (ts.get("stages") as PyDict).get(suffix) as PyDict;
-const setStage = (ts: PyDict, suffix: string, stage: PyValue): void => void (ts.get("stages") as PyDict).set(suffix, stage);
-const failure = (state: Record<string, unknown> | undefined): unknown[] => {
-  const result = state?.["result"] as Record<string, unknown>;
-  return [result["error"], result["message"]];
-};
-/** 执行端交回的信（run_exec 照剧本交回的 fields）。 */
-const ran = (verify: string): Record<string, string> => ({ 摘要: "执行端跑完", 提交: "无", 验证: verify, 偏离: "无", 需协调人决定: "无", 证据: "attempt-001" });
-
-/** 摆好信箱：state.json 里只有 build 建的 T001，kinds 每样一封信依次放进 agent 的 new；交回场景、state 与各封信的路径。 */
-function lettersScene(agent: string, taskId: string, kinds: readonly string[], build: (head: string) => PyDict,
-  more: (repo: string, wt: string) => void = () => undefined) {
-  const box: { state: PyValue; paths: string[] } = { state: null, paths: [] };
-  const sc = scene(BASE_FILES, (repo, wt, head) => {
-    const state = new Map<string, PyValue>([["tasks", new Map([["T001", build(head)]])]]);
-    put(repo, `${BOX}/ledger/state.json`, canonicalState(state));
-    box.paths = kinds.map((kind, index) => letter(repo, agent, `20261101T000000000000Z-coordinator-00000${index}`, COORDINATOR, taskId, kind));
-    box.state = state;
-    more(repo, wt);
-  });
-  return { sc, state: box.state, paths: box.paths };
-}
-
-/** 直接调 Engine 方法的场景：state.json 里只有 build 建的 T001。 */
-function stateScene(build: (head: string, repo: string) => PyDict): Scene {
-  return scene(BASE_FILES, (repo, _wt, head) => put(repo, `${BOX}/ledger/state.json`, canonicalState(new Map([["tasks", new Map([["T001", build(head, repo)]])]]))));
-}
-
-/** 规划端的一次 worker_job：剧本给回合，ensure_worktree 交回场景的 worktree，worktree_root 每建一次输入目录交回一次。 */
-function planJob(sc: ReturnType<typeof lettersScene>, runner: unknown[], roots: string, inputs = 1) {
-  return {
-    ...flow("Engine.worker_job", sc.sc, [null, sc.state, "planner-opus", sc.paths]),
-    scripted: { runner, ensure_worktree: [value(sc.sc.wt)], worktree_root: Array.from({ length: inputs }, () => value(roots)) },
-  };
-}
-const planned1 = (head: string): PyDict => taskState(head, "1-plan");
 
 describe("第 ⑤i1 片：变异第二段补的场景（手写）", () => {
   it("escalate：note 截 2000 字，摘要取首行前 200 字（E01、E03）", () => {

@@ -1,0 +1,659 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-step-scenes.contract.test.ts",
+  "packages/contracts/test/hub-step.contract.test.ts",
+  "packages/contracts/test/hub-quiesce.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 3600,
+ "mutations": [
+  {
+   "name": "N01 next_job 挑最晚的那封",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "if (first !== undefined && (best === null || cmpCodePoints(purePathName(first), best[1]) < 0)) best = [agent, purePathName(first), letters];",
+   "new": "if (first !== undefined && (best === null || cmpCodePoints(purePathName(first), best[1]) > 0)) best = [agent, purePathName(first), letters];"
+  },
+  {
+   "name": "N02 only_task 不过滤",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (this.onlyTask !== null) letters = letters.filter((path) => letterMain(path) === this.onlyTask);",
+   "new": "      if (this.onlyTask === \"T-none\") letters = letters.filter((path) => letterMain(path) === this.onlyTask);"
+  },
+  {
+   "name": "N03 协调人的信也按阶段任务过滤",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (agent === COORDINATOR) return [agent, letters];",
+   "new": "    if (agent === \"nobody\") return [agent, letters];"
+  },
+  {
+   "name": "N04 工人的信不按阶段任务过滤",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    return [agent, letters.filter((path) => taskIdOf(path) === taskId)];",
+   "new": "    return [agent, letters];"
+  },
+  {
+   "name": "S01 step 不先放回到点的扣信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.deps.releaseHeld(this.hub);",
+   "new": "    void this.deps;"
+  },
+  {
+   "name": "S02 step 办了事交回 false",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.reportStepError(agent, paths, error);\n    }\n    return true;",
+   "new": "      await this.reportStepError(agent, paths, error);\n    }\n    return false;"
+  },
+  {
+   "name": "S03 step 不接回合里的意外",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.reportStepError(agent, paths, error);\n    }",
+   "new": "      throw error;\n    }"
+  },
+  {
+   "name": "R01 出意外时找不到主任务用 T999",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const main = mains.find((item) => item) || \"T000\";",
+   "new": "    const main = mains.find((item) => item) || \"T999\";"
+  },
+  {
+   "name": "R02 step.error 只记文字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.appendEvent(\"step.error\", [[\"agent\", agent], [\"letters\", names], [\"error\", `${kind}: ${text}`]]);",
+   "new": "    await this.hub.appendEvent(\"step.error\", [[\"agent\", agent], [\"letters\", names], [\"error\", text]]);"
+  },
+  {
+   "name": "R03 协调人出意外不清在办标记",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (agent === COORDINATOR) { // 第 94 轮：这几封信下面写信报给了站主，“在办”标记清掉，不再放回",
+   "new": "    if (agent === \"nobody\") { // 第 94 轮：这几封信下面写信报给了站主，“在办”标记清掉，不再放回"
+  },
+  {
+   "name": "R04 回合出错的 note 截 199 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const stuck = await this.failStage(agent, paths, `回合出错：${kind}: ${head(text, 200)}`);",
+   "new": "    const stuck = await this.failStage(agent, paths, `回合出错：${kind}: ${head(text, 199)}`);"
+  },
+  {
+   "name": "R05 信的摘要截 599 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"摘要\", `${agent} 的回合出了意外，这几封信读了还没办：${head(names.join(\"、\"), 600)}`], [\"提交\", \"无\"], [\"验证\", `${kind}: ${head(text, 300)}`],",
+   "new": "      [\"摘要\", `${agent} 的回合出了意外，这几封信读了还没办：${head(names.join(\"、\"), 599)}`], [\"提交\", \"无\"], [\"验证\", `${kind}: ${head(text, 300)}`],"
+  },
+  {
+   "name": "R06 信的验证截 299 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"摘要\", `${agent} 的回合出了意外，这几封信读了还没办：${head(names.join(\"、\"), 600)}`], [\"提交\", \"无\"], [\"验证\", `${kind}: ${head(text, 300)}`],",
+   "new": "      [\"摘要\", `${agent} 的回合出了意外，这几封信读了还没办：${head(names.join(\"、\"), 600)}`], [\"提交\", \"无\"], [\"验证\", `${kind}: ${head(text, 299)}`],"
+  },
+  {
+   "name": "R07 不写阶段已标成 failed",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"需协调人决定\", `请站主看错误、处理好之后用 kit_hub.py send ${main} --type 回复 恢复${stuck ? `（阶段 ${stuck} 已标成 failed，协调人可以照原信重新开工或返工）` : \"\"}`],",
+   "new": "      [\"需协调人决定\", `请站主看错误、处理好之后用 kit_hub.py send ${main} --type 回复 恢复${\"\"}`],"
+  },
+  {
+   "name": "R08 文字为空时最后一行也带冒号",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const detail = codePoints([...frames, text ? `${qualified}: ${text}` : qualified].join(LF) + LF).slice(-1500).join(\"\");",
+   "new": "    const detail = codePoints([...frames, `${qualified}: ${text}`].join(LF) + LF).slice(-1500).join(\"\");"
+  },
+  {
+   "name": "X02 内核自己的异常带模块名（themistally-04 点名，由只测 TS 的断言守）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  const name = error instanceof LandBusy ? \"LandBusy\" : error instanceof HubError ? \"HubError\" : error instanceof DispatchError ? \"DispatchError\"",
+   "new": "  const name = error instanceof LandBusy ? \"kit_hub.LandBusy\" : error instanceof HubError ? \"kit_hub.HubError\" : error instanceof DispatchError ? \"DispatchError\""
+  },
+  {
+   "name": "F01 fail_stage 不看阶段是不是在办",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (ts !== null && suffix && stageBusy(pyItem(pyItem(ts, \"stages\"), suffix))) {",
+   "new": "      if (ts !== null && suffix) {"
+  },
+  {
+   "name": "F02 fail_stage 不写 note",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        dict(pyItem(pyItem(ts, \"stages\"), suffix), \"update\").set(\"status\", \"failed\").set(\"note\", note);",
+   "new": "        dict(pyItem(pyItem(ts, \"stages\"), suffix), \"update\").set(\"status\", \"failed\");"
+  },
+  {
+   "name": "C01 没登记的主任务的跳过原因",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.hub.appendEvent(\"coordinator.skipped\", [[\"reason\", \"信里没有登记过的主任务\"], [\"letters\", [purePathName(taken)]]]);",
+   "new": "      await this.hub.appendEvent(\"coordinator.skipped\", [[\"reason\", \"信里没有登记的主任务\"], [\"letters\", [purePathName(taken)]]]);"
+  },
+  {
+   "name": "C02 协调人一回合办全部主任务的信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const mine = paths.filter((_path, index) => mains[index] === main);",
+   "new": "    const mine = [...paths];"
+  },
+  {
+   "name": "C03 不是进行中的主任务也起回合",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!pyEq(pyGet(ts, \"status\"), \"active\")) {\n      await this.hub.appendEvent(\"coordinator.skipped\",",
+   "new": "    if (pyEq(pyGet(ts, \"status\"), \"T-none\")) {\n      await this.hub.appendEvent(\"coordinator.skipped\","
+  },
+  {
+   "name": "C04 续接的回合也走内核代办",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (rosterSpec(COORDINATOR).routing === \"kernel\" && !pyTruthy(pyGet(ts, \"coordinator_resume\"))) {",
+   "new": "    if (rosterSpec(COORDINATOR).routing === \"kernel\") {"
+  },
+  {
+   "name": "C05 代办了照样起协调人的回合",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (routed) return;",
+   "new": "      if (routed) void routed;"
+  },
+  {
+   "name": "C06 在办标记不记时刻",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    ts.set(\"coordinator_turn\", new Map<string, PyValue>([[\"letters\", names], [\"at\", utcCompact()]]));",
+   "new": "    ts.set(\"coordinator_turn\", new Map<string, PyValue>([[\"letters\", names]]));"
+  },
+  {
+   "name": "C07 续接标记不拿掉",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const resume = popKey(ts, \"coordinator_resume\");",
+   "new": "    const resume = pyGet(ts, \"coordinator_resume\", null);"
+  },
+  {
+   "name": "C08 续接时一律开新会话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null && sessionId === null,",
+   "new": "      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null,"
+  },
+  {
+   "name": "C09 接口报错也重试一次",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (pyItem(turn, \"output\") === null && !pyTruthy(pyItem(turn, \"violations\")) && !pyTruthy(pyGet(turn, \"api_error\"))) {",
+   "new": "      if (pyItem(turn, \"output\") === null && !pyTruthy(pyItem(turn, \"violations\"))) {"
+  },
+  {
+   "name": "C10 违规的限流回合也扣信",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (pyTruthy(pyGet(turn, \"rate_limited_until\")) && !pyTruthy(pyItem(turn, \"violations\"))) {\n      popKey(ts, \"coordinator_turn\");\n      await holdLetters(this.hub, ts, COORDINATOR, names,",
+   "new": "    if (pyTruthy(pyGet(turn, \"rate_limited_until\"))) {\n      popKey(ts, \"coordinator_turn\");\n      await holdLetters(this.hub, ts, COORDINATOR, names,"
+  },
+  {
+   "name": "C11 作废原因用顿号连",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      const reason = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"；\") || problemText(pyItem(turn, \"output_error\")) || \"没有输出\";",
+   "new": "      const reason = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"、\") || problemText(pyItem(turn, \"output_error\")) || \"没有输出\";"
+  },
+  {
+   "name": "C12 作废原因缺省的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      const reason = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"；\") || problemText(pyItem(turn, \"output_error\")) || \"没有输出\";",
+   "new": "      const reason = pyIter(pyItem(turn, \"violations\")).map((item) => pyStrValue(item)).join(\"；\") || problemText(pyItem(turn, \"output_error\")) || \"没输出\";"
+  },
+  {
+   "name": "C13 协调人回合作废的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.escalate(ts, `协调人回合作废：${reason}（回合 ${pyStrValue(pyItem(turn, \"turn_id\"))}）`);",
+   "new": "      await this.escalate(ts, `协调人回合作废：${reason}`);"
+  },
+  {
+   "name": "C14 协调人的 state 不落盘",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (typeof pyGet(output, \"state\") === \"string\") writeTextAtomic(purePathStr(this.hub.taskDir(main), \"state.md\"), pyGet(output, \"state\") as string);",
+   "new": "    void output;"
+  },
+  {
+   "name": "C15 续接的重发不看是不是撞上 BUSY_GUARD",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (reason && pyTruthy(resume) && (pyTruthy(pyGet(resume, \"turn\")) || pyTruthy(pyGet(resume, \"routing\"))) && reason.includes(BUSY_GUARD)) {",
+   "new": "      if (reason && pyTruthy(resume) && (pyTruthy(pyGet(resume, \"turn\")) || pyTruthy(pyGet(resume, \"routing\")))) {"
+  },
+  {
+   "name": "C16 续接的重发不认内核代办",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (reason && pyTruthy(resume) && (pyTruthy(pyGet(resume, \"turn\")) || pyTruthy(pyGet(resume, \"routing\"))) && reason.includes(BUSY_GUARD)) {",
+   "new": "      if (reason && pyTruthy(resume) && pyTruthy(pyGet(resume, \"turn\")) && reason.includes(BUSY_GUARD)) {"
+  },
+  {
+   "name": "C17 拒收的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        rejected.push(`${pyStrValue(pyGet(item, \"type\"))} → ${pyStrValue(pyGet(item, \"to\"))}（${pyStrValue(pyGet(item, \"task_id\"))}）：${reason}`);",
+   "new": "        rejected.push(`${pyStrValue(pyGet(item, \"type\"))} → ${pyStrValue(pyGet(item, \"to\"))}：${reason}`);"
+  },
+  {
+   "name": "C18 代办记录不清",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    popKey(ts, \"routed\"); // 第 112 轮：内核代办记录这一回合看过了",
+   "new": "    void ts; // 第 112 轮：内核代办记录这一回合看过了"
+  },
+  {
+   "name": "C19 连续拒收四次才转站主",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (count >= 3n) {",
+   "new": "      if (count >= 4n) {"
+  },
+  {
+   "name": "C20 没有拒收时不清零",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      ts.set(\"coordinator_rejections\", 0n);",
+   "new": "      ts.set(\"coordinator_rejections\", pyIntOf(pyGet(ts, \"coordinator_rejections\", 0n)));"
+  },
+  {
+   "name": "C21 拒收信的偏离截 1499 字",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          [\"偏离\", head(rejected.join(LF), 1500)], [\"需协调人决定\", \"按“内核此刻允许的下一步”改发\"], [\"证据\", pyItem(turn, \"turn_dir\")],",
+   "new": "          [\"偏离\", head(rejected.join(LF), 1499)], [\"需协调人决定\", \"按“内核此刻允许的下一步”改发\"], [\"证据\", pyItem(turn, \"turn_dir\")],"
+  },
+  {
+   "name": "C22 拒收信不写已投递几封",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          [\"摘要\", `你上一回合有 ${rejected.length} 封信被内核拒收，${delivered} 封已投递`], [\"提交\", \"无\"], [\"验证\", \"内核按状态机核对\"],",
+   "new": "          [\"摘要\", `你上一回合有 ${rejected.length} 封信被内核拒收`], [\"提交\", \"无\"], [\"验证\", \"内核按状态机核对\"],"
+  },
+  {
+   "name": "T01 不是例行流转的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (why) return [false, `这批信不是例行流转：${why}`]; // 第 117 轮：叫醒协调人时说清为什么",
+   "new": "    if (why) return [false, `这批信不是例行流转`]; // 第 117 轮：叫醒协调人时说清为什么"
+  },
+  {
+   "name": "T02 最后一次返工的界限差一",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!reason && kind === \"返工\" && suffix !== \"5-exec\" && done + 1n >= BigInt(MAX_STAGE_REWORKS)) {",
+   "new": "      if (!reason && kind === \"返工\" && suffix !== \"5-exec\" && done >= BigInt(MAX_STAGE_REWORKS)) {"
+  },
+  {
+   "name": "T03 执行端的返工也留给协调人",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (!reason && kind === \"返工\" && suffix !== \"5-exec\" && done + 1n >= BigInt(MAX_STAGE_REWORKS)) {",
+   "new": "      if (!reason && kind === \"返工\" && done + 1n >= BigInt(MAX_STAGE_REWORKS)) {"
+  },
+  {
+   "name": "T04 代办不过 guard",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      let reason = guard(ts, new Map([[\"type\", kind], [\"to\", worker], [\"task-id\", taskId]]));",
+   "new": "      let reason: string | null = null;"
+  },
+  {
+   "name": "T05 代办没发的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (reason) return [false, `内核本想代办“${kind} → ${worker}（${taskId}）”，没有发：${reason}`];",
+   "new": "      if (reason) return [false, `内核没有代办：${reason}`];"
+  },
+  {
+   "name": "T06 代办的在办标记不带 routing",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    ts.set(\"coordinator_turn\", new Map<string, PyValue>([[\"letters\", names], [\"at\", utcCompact()], [\"routing\", true]]));",
+   "new": "    ts.set(\"coordinator_turn\", new Map<string, PyValue>([[\"letters\", names], [\"at\", utcCompact()]]));"
+  },
+  {
+   "name": "T07 代办到一半不标 partial",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.hub.appendEvent(\"route.kernel\", [[\"task\", pyItem(ts, \"task\")], [\"letters\", names], [\"moves\", doneMoves], [\"partial\", refused !== null]]);",
+   "new": "      await this.hub.appendEvent(\"route.kernel\", [[\"task\", pyItem(ts, \"task\")], [\"letters\", names], [\"moves\", doneMoves], [\"partial\", false]]);"
+  },
+  {
+   "name": "T08 代办到一半当成办完",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    return [refused === null, refused];",
+   "new": "    return [true, refused];"
+  },
+  {
+   "name": "T09 代办记录不记",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      appendTo(ts.get(\"routed\") as PyValue, new Map<string, PyValue>([[\"at\", utcNow()], [\"letters\", names], [\"moves\", doneMoves]]));",
+   "new": "      void appendTo;"
+  },
+  {
+   "name": "T10 代办信的摘要",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        [\"摘要\", `例行流转（内核代办）：${pyStrValue(pyItem(move, \"from_task\"))} 之后的下一步`], [\"证据\", `任务书：.agent/mailbox/tasks/${taskId}/brief.md`],",
+   "new": "        [\"摘要\", `例行流转（内核代办）`], [\"证据\", `任务书：.agent/mailbox/tasks/${taskId}/brief.md`],"
+  },
+  {
+   "name": "D01 不是对象的写法",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (!(item instanceof Map)) return \"信不是对象\";",
+   "new": "    if (!(item instanceof Map)) return \"信不是字典\";"
+  },
+  {
+   "name": "D02 in-reply-to 缺省为空",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      [\"in-reply-to\", text(\"in_reply_to\", \"none\")], [\"type\", text(\"type\", \"\")]]);",
+   "new": "      [\"in-reply-to\", text(\"in_reply_to\", \"\")], [\"type\", text(\"type\", \"\")]]);"
+  },
+  {
+   "name": "D03 空栏不写“无”",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const fields = new Map<string, PyValue>(FIELDS.map((key) => [key, pyStrip(pyStrValue(pyGet(item, key, \"\"))) || \"无\"]));",
+   "new": "    const fields = new Map<string, PyValue>(FIELDS.map((key) => [key, pyStrip(pyStrValue(pyGet(item, key, \"\")))]));"
+  },
+  {
+   "name": "D04 正文行数少减一行",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    const bodyLines = pySplitlines(renderLetter(new Map([...meta, [\"msg-id\", \"x\"]]), fields)).length - 8;",
+   "new": "    const bodyLines = pySplitlines(renderLetter(new Map([...meta, [\"msg-id\", \"x\"]]), fields)).length - 7;"
+  },
+  {
+   "name": "D05 信的问题用顿号连",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    if (errors.length > 0) return errors.join(\"；\");",
+   "new": "    if (errors.length > 0) return errors.join(\"、\");"
+  },
+  {
+   "name": "D06 guard 拒收不记账本",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      await this.hub.appendEvent(\"letter.rejected\", [[\"sender\", sender], [\"to\", meta.get(\"to\") as string], [\"type\", meta.get(\"type\") as string],\n        [\"task_id\", meta.get(\"task-id\") as string], [\"reason\", reason]]);",
+   "new": "      void sender;"
+  },
+  {
+   "name": "D07 只有 claude 的工人要 brief",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      if (rosterSpec(to).adapter === \"claude\" || rosterSpec(to).adapter === \"pi\") {",
+   "new": "      if (rosterSpec(to).adapter === \"claude\") {"
+  },
+  {
+   "name": "D08 空 brief 也收",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        if (typeof brief !== \"string\" || !pyStrip(brief)) return \"开工、返工要附 brief（下一阶段任务书的 Markdown 全文）\";",
+   "new": "        if (typeof brief !== \"string\") return \"开工、返工要附 brief（下一阶段任务书的 Markdown 全文）\";"
+  },
+  {
+   "name": "D09 热修补的旧 oracle 不沿用",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        const previous = pyTruthy(earlier) ? earlier : pyGet(pyItem(live, \"oracle\"), \"sha\"); // 照 Python 的 or：用到时才读 oracle",
+   "new": "        const previous = pyGet(pyItem(live, \"oracle\"), \"sha\"); // 照 Python 的 or：用到时才读 oracle"
+  },
+  {
+   "name": "D10 热修补不存门禁的原话",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          hotfix.set(\"claims\", pyItem(pyItem(live, \"exec\"), \"gate_claims\")).set(\"run_dir\", pyGet(pyItem(live, \"exec\"), \"run_dir\"));",
+   "new": "          hotfix.set(\"claims\", pyItem(pyItem(live, \"exec\"), \"gate_claims\"));"
+  },
+  {
+   "name": "D11 站主的返工原话不进阶段",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "          dict(pyItem(pyItem(live, \"stages\"), stage), \"[]=\").set(\"owner_text\", words);",
+   "new": "          void words;"
+  },
+  {
+   "name": "D12 返工计数不加",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        reworks.set(stage, pyIntOf(pyGet(reworks, stage, 0n)) + 1n);",
+   "new": "        reworks.set(stage, pyIntOf(pyGet(reworks, stage, 0n)));"
+  },
+  {
+   "name": "D13 开工不记 kind",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      target.set(\"kind\", kind);",
+   "new": "      void kind;"
+  },
+  {
+   "name": "D14 last_letter 不清",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "      target.delete(\"last_letter\"); // stage_busy 靠它认旧状态里停下的阶段",
+   "new": "      void target; // stage_busy 靠它认旧状态里停下的阶段"
+  },
+  {
+   "name": "D15 投递之后不存状态",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    await this.hub.deliver(meta, fields);\n    await this.hub.saveState(state);\n    return null;",
+   "new": "    await this.hub.deliver(meta, fields);\n    return null;"
+  },
+  {
+   "name": "B01 brief 不去尾部空白",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    writeTextAtomic(current, `${pyRstrip(brief)}${LF}`);",
+   "new": "    writeTextAtomic(current, `${brief}${LF}`);"
+  },
+  {
+   "name": "B02 旧 brief 不留档",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    keepPrevious(current);\n    writeTextAtomic(current, `${pyRstrip(brief)}${LF}`);",
+   "new": "    writeTextAtomic(current, `${pyRstrip(brief)}${LF}`);"
+  },
+  {
+   "name": "Q01 finished_turn 同一刻开始的也算",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      && cmpCodePoints(pyStrValue(or(pyGet(event, \"turn_id\"), \"\")), since) > 0) {",
+   "new": "      && cmpCodePoints(pyStrValue(or(pyGet(event, \"turn_id\"), \"\")), since) >= 0) {"
+  },
+  {
+   "name": "Q02 finished_turn 违规的回合也算跑完",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      turn = pyTruthy(pyGet(event, \"output_ok\")) && !pyTruthy(pyGet(event, \"violations\")) ? pyGet(event, \"turn_id\") : null;\n    }\n  }\n  return turn;",
+   "new": "      turn = pyTruthy(pyGet(event, \"output_ok\")) ? pyGet(event, \"turn_id\") : null;\n    }\n  }\n  return turn;"
+  },
+  {
+   "name": "Q03 interrupted_letters 不看起点之前的事件",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    if (cmpCodePoints(pyStrValue(or(pyGet(event, \"at\"), \"\")), since) < 0) continue;",
+   "new": "    if (cmpCodePoints(pyStrValue(or(pyGet(event, \"at\"), \"\")), since) < -1) continue;"
+  },
+  {
+   "name": "Q04 放回又读的信算两封",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    if (pyEq(kind, \"letter.taken\") && pyEq(pyGet(event, \"agent\"), agent) && !taken.includes(name)) {",
+   "new": "    if (pyEq(kind, \"letter.taken\") && pyEq(pyGet(event, \"agent\"), agent)) {"
+  },
+  {
+   "name": "Q05 没唤醒工人的信也算被打断",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      taken = taken.filter((item) => !dropped.some((other) => pyEq(other, item)));",
+   "new": "      taken = taken.filter((item) => item !== \"\" || dropped.length < 0);"
+  },
+  {
+   "name": "Q06 工人回过信也不清",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      taken = []; // 工人回过信：之前读的信办完了",
+   "new": "      taken = [...taken]; // 工人回过信：之前读的信办完了"
+  },
+  {
+   "name": "Q07 扣着的信也算被打断",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  const names = taken.filter((name) => !held.some((item) => pyEq(item, name)) && isFile(purePathStr(box, name))",
+   "new": "  const names = taken.filter((name) => isFile(purePathStr(box, name))"
+  },
+  {
+   "name": "Q08 别的阶段的信也算",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    && parseLetter(readText(purePathStr(box, name)))[0].get(\"task-id\") === stageId);",
+   "new": "    && parseLetter(readText(purePathStr(box, name)))[0].get(\"task-id\") !== \"\");"
+  },
+  {
+   "name": "Q09 没在办的阶段也算卡住",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    if (agent === null || !stageBusy(stage)) continue;",
+   "new": "    if (agent === null) continue;"
+  },
+  {
+   "name": "Q10 requeue_interrupted 不看 skip",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    if (!pyEq(pyGet(ts, \"status\"), \"active\") || skip.some((item) => pyEq(item, task))",
+   "new": "    if (!pyEq(pyGet(ts, \"status\"), \"active\")"
+  },
+  {
+   "name": "Q11 拿不到锁的别的错也吞掉",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      if (!(error instanceof HubError) || error.code !== EXIT_BLOCKED) throw error; // 有人在办：不动，下一轮再看",
+   "new": "      if (!(error instanceof HubError)) throw error; // 有人在办：不动，下一轮再看"
+  },
+  {
+   "name": "Q12 requeue_task 不看主任务是不是进行中",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  if (ts === null || !pyEq(pyGet(ts, \"status\"), \"active\")) return false;\n  const events = ledgerEvents(hub);",
+   "new": "  if (ts === null) return false;\n  const events = ledgerEvents(hub);"
+  },
+  {
+   "name": "Q13 协调人的信不排除扣着的",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      .filter((name) => !held.some((item) => pyEq(item, name)) && isFile(purePathStr(box, pyStrValue(name))));",
+   "new": "      .filter((name) => isFile(purePathStr(box, pyStrValue(name))));"
+  },
+  {
+   "name": "Q14 续接记录不带 routing",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      if (pyTruthy(pyGet(marker, \"routing\"))) resume.set(\"routing\", true); // 第 112 轮：被收掉的是内核代办，不是协调人的回合",
+   "new": "      void marker; // 第 112 轮：被收掉的是内核代办，不是协调人的回合"
+  },
+  {
+   "name": "Q15 执行端也放回信",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    if (rosterSpec(agent).adapter === \"dispatcher\") {",
+   "new": "    if (rosterSpec(agent).adapter === \"none\") {"
+  },
+  {
+   "name": "Q16 不再续接时阶段的 note 截 599 字",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      stage.set(\"status\", \"failed\").set(\"note\", head(pyStrValue(pyItem(notes[notes.length - 1] as PyValue, \"text\")), 600));",
+   "new": "      stage.set(\"status\", \"failed\").set(\"note\", head(pyStrValue(pyItem(notes[notes.length - 1] as PyValue, \"text\")), 599));"
+  },
+  {
+   "name": "Q17 放回的阶段不记 resume",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "      stage.set(\"resume\", new Map<string, PyValue>([[\"at\", utcNow()], [\"turn\", turn], [\"letters\", moved]]));",
+   "new": "      void moved;"
+  },
+  {
+   "name": "Q18 没跑完的回合的写法",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    const turns = [pyGet(last, \"turn\"), turn].map((item) => (pyTruthy(item) ? pyStrValue(item) : \"没跑完\")).join(\"、\");",
+   "new": "    const turns = [pyGet(last, \"turn\"), turn].map((item) => (pyTruthy(item) ? pyStrValue(item) : \"None\")).join(\"、\");"
+  },
+  {
+   "name": "Q19 协调人也写阶段已标为 failed",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    const text = `${label}（${agent}）的回合续接之后又被打断（回合 ${turns}），内核不再放回它的信${agent === COORDINATOR ? \"\" : \"，阶段已标为 failed\"}。`",
+   "new": "    const text = `${label}（${agent}）的回合续接之后又被打断（回合 ${turns}），内核不再放回它的信，阶段已标为 failed。`"
+  },
+  {
+   "name": "Q20 不再续接时主任务不转 blocked",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    ts.set(\"status\", \"blocked\");\n    await hub.appendEvent(\"letters.requeue_refused\",",
+   "new": "    await hub.appendEvent(\"letters.requeue_refused\","
+  },
+  {
+   "name": "Q21 放回之后不记账本",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  if (moved.length > 0) await hub.appendEvent(\"letters.requeued\", [[\"task\", task], [\"agent\", agent], [\"key\", key], [\"letters\", moved], [\"turn\", turn]]);",
+   "new": "  if (moved.length < 0) await hub.appendEvent(\"letters.requeued\", [[\"task\", task], [\"agent\", agent], [\"key\", key], [\"letters\", moved], [\"turn\", turn]]);"
+  },
+  {
+   "name": "Q22 执行端被打断报过也再报",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  if (pyEq(pyGet(stage, \"stranded_notice\"), [...names])) return false;",
+   "new": "  if (pyEq(pyGet(stage, \"stranded_notice\"), \"never\")) return false;"
+  },
+  {
+   "name": "Q23 执行标记的进程还活着也报",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  if (pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) !== false) return false;",
+   "new": "  if (pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) === true) return false;"
+  },
+  {
+   "name": "Q24 执行端被打断的写法",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    how = `${purePathName(attempt)} 跑完了、还没有结论：用 kit_hub.py exec-recheck ${pyStrValue(task)} 重新核验（不重跑执行端）`;",
+   "new": "    how = `${purePathName(attempt)} 跑完了：用 kit_hub.py exec-recheck ${pyStrValue(task)} 重新核验（不重跑执行端）`;"
+  },
+  {
+   "name": "Q25 报过也不记",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  stage.set(\"stranded_notice\", [...names]);",
+   "new": "  void stage;"
+  },
+  {
+   "name": "Q26 证据截 599 字",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    [\"需协调人决定\", \"请站主照“偏离”里写的接上\"], [\"证据\", head(names.map((name) => pyStrValue(name)).join(\"、\"), 600)],",
+   "new": "    [\"需协调人决定\", \"请站主照“偏离”里写的接上\"], [\"证据\", head(names.map((name) => pyStrValue(name)).join(\"、\"), 599)],"
+  },
+  {
+   "name": "Q27 扣着的信要每个主任务都有才算",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  return [...hub.loadState().tasks().values()].some((ts) => pyTruthy(pyGet(ts, \"held\")));",
+   "new": "  return [...hub.loadState().tasks().values()].every((ts) => pyTruthy(pyGet(ts, \"held\")));"
+  },
+  {
+   "name": "Q28 supervisor 不看待办",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  return pending.length > 0 || pyTruthy(live) || lettersHeld(hub);",
+   "new": "  return pyTruthy(live) || lettersHeld(hub);"
+  },
+  {
+   "name": "Q29 tasks_with_work 取最晚那封",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "        first.set(main, seen !== undefined && cmpCodePoints(seen, name) <= 0 ? seen : name);",
+   "new": "        first.set(main, seen !== undefined && cmpCodePoints(seen, name) >= 0 ? seen : name);"
+  },
+  {
+   "name": "Q30 串行 hub 的锁写成 .runners",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  return task === null ? purePathStr(hub.root, \".runner\") : purePathStr(hub.root, \".runners\", task);",
+   "new": "  return task === null ? purePathStr(hub.root, \".runners\") : purePathStr(hub.root, \".runners\", task);"
+  },
+  {
+   "name": "X01 next_job 不比较最早那封（themistally-04 点名）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "if (first !== undefined && (best === null || cmpCodePoints(purePathName(first), best[1]) < 0)) best = [agent, purePathName(first), letters];",
+   "new": "if (first !== undefined && best === null) best = [agent, purePathName(first), letters];"
+  },
+  {
+   "name": "X03 requeue_interrupted 不排序（themistally-04 点名）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  for (const task of [...tasks.keys()].map(String).sort(cmpCodePoints)) {",
+   "new": "  for (const task of [...tasks.keys()].map(String)) {",
+   "equivalent": "requeue_interrupted 每次从盘上新读 state.json（Python 遍历的是 sorted(hub.load_state() 的 tasks 各项)，kit_hub.py:4840），盘上的 state 只由 canonical_state 写、键已按码点排好，读回来的 Map 就是码点序，再排一次不改次序。同 ⑤i1 的 Z10（themistally-04 同意）。前提是 state.json 只经 canonical_state 写；有了别的写法，去掉这条的 equivalent 重跑，应被抓住"
+  },
+  {
+   "name": "X04 续接过只看 agent，不看信有没有交集（themistally-04 点名）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    && pyEq(pyGet(event, \"agent\"), agent) && pyIter(or(pyGet(event, \"letters\"), [])).some((item) => names.some((name) => pyEq(item, name))));",
+   "new": "    && pyEq(pyGet(event, \"agent\"), agent));"
+  },
+  {
+   "name": "X05 runner_may_idle_exit 不看是不是主任务 runner（themistally-04 点名）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "  return task !== null || !lettersHeld(hub);",
+   "new": "  return !lettersHeld(hub);"
+  },
+  {
+   "name": "X06 被等的主任务不排前面（themistally-04 点名）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "    ? cmpCodePoints(first.get(left) as string, first.get(right) as string) : waiting(left) ? -1 : 1));",
+   "new": "    ? cmpCodePoints(first.get(left) as string, first.get(right) as string) : waiting(left) ? 1 : -1));"
+  },
+  {
+   "name": "X07 step.error 的类名带模块（抽查 W02）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "[[\"agent\", agent], [\"letters\", names], [\"error\", `${kind}: ${text}`]]",
+   "new": "[[\"agent\", agent], [\"letters\", names], [\"error\", `${qualified}: ${text}`]]"
+  },
+  {
+   "name": "X08 协调人信的栏不去首尾空白（抽查 W06）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "pyStrip(pyStrValue(pyGet(item, key, \"\"))) || \"无\"",
+   "new": "pyStrValue(pyGet(item, key, \"\")) || \"无\""
+  },
+  {
+   "name": "X09 热修补不看是不是门禁前（抽查 W07）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "if (kind === \"返工\" && stage === \"3-gate-pre\" && hotfixReason(live)) {",
+   "new": "if (kind === \"返工\" && hotfixReason(live)) {"
+  },
+  {
+   "name": "X10 协调人不再续接后照样处理阶段（抽查 V01）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "for (const suffix of pyEq(pyGet(ts, \"status\"), \"active\") ? strandedStages(hub, ts) : []) {",
+   "new": "for (const suffix of strandedStages(hub, ts)) {"
+  },
+  {
+   "name": "X11 阶段的起点不用 assigned_at（抽查 V02）",
+   "file": "ts/packages/hub/src/requeue.ts",
+   "old": "pyStrValue(or(pyGet(stage, \"assigned_at\"), \"\"))",
+   "new": "\"\""
+  }
+ ]
+}

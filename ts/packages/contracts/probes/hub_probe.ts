@@ -34,9 +34,13 @@ import {
   rehearsalLetter, rehearseLanding, sweepGates, tsInstallIfStale,
 } from "@themis/hub/sweep";
 import { Engine, type EngineDeps, type StateLike, land, releaseDependents, resumedSession } from "@themis/hub/engine";
+import {
+  finishedTurn, interruptedLetters, lettersHeld, reportStrandedExec, requeueInterrupted, requeueLetters, requeueTask, runnerLock, runnerMayIdleExit,
+  strandedStages, supervisorBusy, tasksWithWork,
+} from "@themis/hub/requeue";
 import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
 import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
-import { normcase } from "@themis/base/pypath";
+import { normcase, purePathName } from "@themis/base/pypath";
 import type { SuperviseOptions } from "@themis/base/supervise";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
@@ -450,6 +454,33 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "Engine.output_problem": // ⑤i1：参数前两个是仓库与 only_task
         value = new Engine(new Hub(textOf(a)), null, optionalText(b)).outputProblem(textOf(args[2]), textOf(args[3]), args[4] as PyDict);
         break;
+      case "Engine.next_job": // ⑤i2：（agent, 信的路径）
+        value = new Engine(new Hub(textOf(a)), null, optionalText(b)).nextJob();
+        break;
+      case "finished_turn": // ⑤i2：只看传进来的事件
+        value = finishedTurn(args[0] as PyValue[], textOf(b), textOf(args[2]), textOf(args[3]));
+        break;
+      case "interrupted_letters":
+        value = interruptedLetters(new Hub(textOf(a)), b as PyValue[], textOf(args[2]), textOf(args[3]), textOf(args[4]), (args[5] ?? []) as PyValue[]);
+        break;
+      case "stranded_stages":
+        value = strandedStages(new Hub(textOf(a)), b as PyDict);
+        break;
+      case "letters_held":
+        value = lettersHeld(new Hub(textOf(a)));
+        break;
+      case "supervisor_busy":
+        value = supervisorBusy(new Hub(textOf(a)), b as PyValue[], args[2] as PyValue);
+        break;
+      case "runner_may_idle_exit":
+        value = runnerMayIdleExit(new Hub(textOf(a)), optionalText(b));
+        break;
+      case "tasks_with_work":
+        value = tasksWithWork(new Hub(textOf(a)));
+        break;
+      case "runner_lock": // 纯算路径
+        value = runnerLock(new Hub(textOf(a)), optionalText(b));
+        break;
       case "tail":
         value = args.length > 1 ? tail(a, b) : tail(a);
         break;
@@ -768,6 +799,7 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
   if (name === "Engine.verify_delivery" || name === "Engine.auto_jev") return { fn: name, args: toTagged(args.map((item) => stateData(item)) as PyValue) };
   if (name === "engine.handle_pass") return { fn: name, state: toTagged(stateData(args[0])), meta: toTagged(args[1] as PyValue) }; // 4001 的假 Engine
   if (name === "engine.after_land") return { fn: name, main: args[0] };
+  if (name === "release_held") return { fn: name, repo: (args[0] as Hub).repo }; // ⑤i2：只有 hub 一个参数
   if (Object.hasOwn(REST_ARITY, name)) { // ⑤i1：hub、ts 之外的参数也比（最后的 deps 不算）
     return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict), rest: toTagged(args.slice(2, 2 + (REST_ARITY[name] as number)) as PyValue) };
   }
@@ -899,7 +931,45 @@ const ENGINE_PARAMS: Readonly<Record<string, readonly string[]>> = {
   "Engine.recheck_exec": ["main"], "Engine.worker_turns": ["agent", "task_id", "ts", "texts", "workspace", "kinds", "inputs", "resume"],
   "Engine.redeliver": ["state", "ts", "agent", "task_id", "suffix", "texts", "workspace", "problems", "turn"], "Engine.handle_pass": ["state", "meta"],
   "Engine.after_land": ["main"], "Engine.after_land_run": ["main"], land: ["letter", "meta"], release_dependents: ["state", "done"],
+  // ⑤i2（report_step_error 的 exc 记不下来，它只在 step 里被调到）
+  "Engine.step": [], "Engine.fail_stage": ["agent", "paths", "note"], "Engine.coordinator_turn": ["state", "paths"],
+  "Engine.route": ["state", "ts", "paths", "texts"], "Engine.deliver_coordinator_letter": ["state", "item", "sender"], "Engine.write_brief": ["task_id", "brief"],
+  requeue_interrupted: ["skip"], requeue_task: ["task"], requeue_letters: ["ts", "events", "agent", "key", "names", "turn", "label"],
+  report_stranded_exec: ["ts", "stage", "names"],
+  quiesce: ["limit"], // ⑤i2 跑到静止：参数是仓库、only_task、最多几步
 };
+
+/**
+ * python_probe.py 的 _quiesce（⑤i2 跑到静止，⑤i 设计稿第 5 节）。这段次序抄自 cmd_run，⑤j 换成真的 cmd_run 循环之后删掉：串行时先
+ * requeue_interrupted（钉在基准时刻）；每一步另钉基准加 i+1 秒（withPinnedClock 嵌套，信编号从头编）；exec-step 的未读信里有“通过”
+ * （指定了 task 时再按 letter_main 过滤）就取第一封 land，挡路就停；否则 step，交回 false 时照 cmd_run 问 runnerMayIdleExit：还有扣着的信
+ * 就接着走下一步，否则停。land 也算一步，最多 limit 步：limit 连空转的步也算进去，是给探针封顶；cmd_run 的 max_steps 只数 turns
+ * （land、step 办了事才加），两者不完全一样。
+ */
+async function quiesce(hub: Hub, engine: Engine, base: number, task: string | null, limit: number, deps: EngineDeps): Promise<PyValue> {
+  const done: PyValue[] = [];
+  if (task === null) done.push(["requeue", await requeueInterrupted(hub, [], deps)]);
+  for (let index = 0; index < limit; index += 1) {
+    const stop = await withPinnedClock(base + (index + 1) * 1_000_000, async (): Promise<boolean> => {
+      const passes = hub.unread("exec-step")
+        .filter((path) => parseLetter(readText(path))[0].get("type") === "通过" && (task === null || letterMain(path) === task));
+      const first = passes[0];
+      if (first !== undefined) {
+        const blockers = await land(hub, engine, first, parseLetter(readText(first))[0], deps);
+        done.push(["land", purePathName(first), blockers]);
+        return blockers.length > 0;
+      }
+      const moved = await engine.step();
+      done.push(["step", moved]);
+      return !moved && runnerMayIdleExit(hub, task);
+    });
+    if (stop) break;
+  }
+  return done;
+}
+
+/** 模块函数（没有 Engine，参数第一个是仓库）：同 python_probe.py 的 FLOW_I_FUNCTIONS 去掉 land。 */
+const FLOW_I_MODULE = ["release_dependents", "requeue_interrupted", "requeue_task", "requeue_letters", "report_stranded_exec"];
 
 /** 用例改过的 kit_hub 常量对应到 EngineDeps 的哪一项；不在这里的直接报错（themistally-04 定的：TS 只认支持的常量）。 */
 const CONSTANT_DEPS: Readonly<Record<string, string>> = {
@@ -931,6 +1001,14 @@ interface ScriptItem {
   readonly raise?: [string, string, number];
   readonly files?: { readonly write?: Record<string, string> };
   readonly listing?: string;
+  readonly peek?: string;
+  readonly ts_set?: readonly (readonly [readonly string[], unknown])[];
+}
+
+/** ⑤i2：调用当时某个文件的内容（不是文件记 null）：剧本一项的 peek（C06），与投信那一刻的 peek_deliver（T06）。同 python_probe.py 的 _flow_peek。 */
+function flowPeek(roots: readonly string[], rel: string): string | null {
+  const file = flowPath(roots, rel);
+  return existsSync(file) && statSync(file).isFile() ? readFileSync(file, "utf8") : null;
 }
 
 /** 照剧本按次交回、不核对参数，每次调用的参数照 innerCall 记进 calls，随结果交回、三边互相比。 */
@@ -948,6 +1026,12 @@ function scriptedInjector(name: string, items: readonly ScriptItem[], calls: unk
     if (item.listing !== undefined) { // 调用当时某个目录下的文件名（按码点排；不是目录记 null），记进这次调用
       const folder = flowPath(roots, item.listing);
       (calls[calls.length - 1] as Record<string, unknown>)["listing"] = existsSync(folder) && statSync(folder).isDirectory() ? readdirSync(folder).sort(cmpCodePoints) : null;
+    }
+    if (item.peek !== undefined) (calls[calls.length - 1] as Record<string, unknown>)["peek"] = flowPeek(roots, item.peek); // ⑤i2 C06：协调人回合进行中的在办标记
+    for (const [path, data] of item.ts_set ?? []) { // ⑤i2 跑到静止：照剧本改 ts（键的路径加新值），同 python_probe.py
+      let target = args[name.startsWith("Engine.") ? 0 : 1] as PyDict; // TS 的 Engine 方法剧本没有 self，ts 在第一个
+      for (const key of path.slice(0, -1)) target = pyItem(target, key) as PyDict;
+      target.set(path[path.length - 1] as string, fromTagged(data as never));
     }
     if (item.raise !== undefined) {
       const [kind, message, code] = item.raise;
@@ -979,7 +1063,7 @@ interface EngineFlow {
 function engineFlow(fn: string, hub: Hub, args: readonly PyValue[], request: Record<string, unknown>, deps: EngineDeps, pick: Pick): EngineFlow {
   const names = ENGINE_PARAMS[fn];
   if (names === undefined) throw new Error(`UNKNOWN_FN ${fn}`);
-  const given: unknown[] = fn === "release_dependents" ? args.slice(1) : args.slice(2);
+  const given: unknown[] = FLOW_I_MODULE.includes(fn) ? args.slice(1) : args.slice(2);
   const at = (name: string): number => names.indexOf(name);
   const seen = request["state_seen"] as Record<string, Record<string, string>> | null | undefined;
   if (seen !== null && seen !== undefined) {
@@ -1020,6 +1104,20 @@ function engineFlow(fn: string, hub: Hub, args: readonly PyValue[], request: Rec
     "Engine.handle_pass": () => none(engine().handlePass(g(0), g(1))),
     "Engine.after_land": () => none(engine().afterLand(textOf(g(0)))),
     "Engine.after_land_run": () => none(engine().afterLandRun(textOf(g(0)))),
+    "Engine.step": () => engine().step(),
+    "Engine.fail_stage": () => engine().failStage(textOf(g(0)), g(1), textOf(g(2))),
+    "Engine.coordinator_turn": () => none(engine().coordinatorTurn(g(0), g(1))),
+    "Engine.route": () => engine().route(g(0), g(1), g(2), g(3)),
+    "Engine.deliver_coordinator_letter": () => engine().deliverCoordinatorLetter(g(0), g(1), textOf(g(2))),
+    "Engine.write_brief": async () => {
+      engine().writeBrief(textOf(g(0)), textOf(g(1)));
+      return null;
+    },
+    requeue_interrupted: () => requeueInterrupted(hub, g(0), deps),
+    requeue_task: () => requeueTask(hub, textOf(g(0)), deps),
+    requeue_letters: () => requeueLetters(hub, g(0), g(1), textOf(g(2)), textOf(g(3)), g(4), g(5), textOf(g(6))),
+    report_stranded_exec: () => reportStrandedExec(hub, g(0), g(1), g(2), deps),
+    quiesce: () => quiesce(hub, engine(), Number(request["pin"]), optionalText(args[1]), Number(g(0)), deps),
   };
   return {
     run: calls[fn] as () => Promise<PyValue>,
@@ -1054,6 +1152,7 @@ function engineDepsOf(gateDeps: GatePostDeps, landDeps: LandDeps, sweepDeps: Swe
     tidyFinished: pick.has("tidy_finished") ? pick.inject("tidy_finished") : (h, t, reason, d) => tidyFinished(h, t, reason, d),
     regressionSweep: pick.has("regression_sweep") ? pick.inject("regression_sweep") : (h, t, d) => regressionSweep(h, t, d),
     rehearseLanding: pick.has("rehearse_landing") ? pick.inject("rehearse_landing") : (h, t) => rehearseLanding(h, t, deps),
+    releaseHeld: pick.has("release_held") ? pick.inject("release_held") : (h) => releaseHeld(h), // ⑤i2
     inputFileLimit: constants.INPUT_FILE_LIMIT,
     ...constantsGiven,
   };
@@ -1067,7 +1166,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
-  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "release_dependents"; // ⑤i1：ts 从参数绑定里取
+  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "quiesce" || FLOW_I_MODULE.includes(fn); // ⑤i1：ts 从参数绑定里取
   const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) || flowI ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
   const roots = request["roots"] as string[];
   removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
@@ -1086,10 +1185,24 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     if (!scriptedOnce.has(name)) scriptedOnce.set(name, scriptedInjector(name, scripted[name] ?? [], scriptCalls, roots, fromTagged, toTagged));
     return scriptedOnce.get(name) as (...args: unknown[]) => never;
   };
+  // ⑤i2 跑到静止：回合剧本按 agent 分开（"runner:<agent>"），各自照次交回，记下的调用同 runner（python_probe.py 的 _flow_runner_by_agent）
+  const byAgent = Object.keys(scripted).some((name) => name.startsWith("runner:"));
+  const peeks: (string | null)[] = []; // ⑤i2 T06：每次投信那一刻 peek_deliver 那个文件的内容，随结果交回（同 python_probe.py）
+  if (typeof request["peek_deliver"] === "string") {
+    const realDeliver = hub.deliver.bind(hub);
+    hub.deliver = async (...more) => (peeks.push(flowPeek(roots, request["peek_deliver"] as string)), realDeliver(...more));
+  }
+  const agentRunner = (...args: unknown[]): never => {
+    const key = `runner:${String(args[0])}`;
+    if (!Object.hasOwn(scripted, key)) throw new PyCrash("RuntimeError", `剧本里没有 ${String(args[0])} 的回合`);
+    if (!scriptedOnce.has(key)) scriptedOnce.set(key, scriptedInjector("runner", scripted[key] ?? [], scriptCalls, roots, fromTagged, toTagged));
+    return (scriptedOnce.get(key) as (...rest: unknown[]) => never)(...args);
+  };
   const pick: Pick = {
     has: (name) => Object.hasOwn(scripted, name) || replaced.has(name),
     injectSync: (name) => (Object.hasOwn(scripted, name) ? scriptedFor(name) : injectSync(name)),
     inject: (name) => {
+      if (name === "runner" && byAgent && !Object.hasOwn(scripted, "runner")) return async (...args: unknown[]): Promise<never> => agentRunner(...args);
       if (!Object.hasOwn(scripted, name)) return inject(name);
       const sync = scriptedFor(name);
       return async (...args: unknown[]): Promise<never> => sync(...args);
@@ -1254,8 +1367,9 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   return {
     ok: true, value: {
       result, ts: toTagged(shown), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots),
-      ...(flow === null ? {} : { args_after: flow.after(toTagged) }),
+      ...(flow === null || fn === "quiesce" ? {} : { args_after: flow.after(toTagged) }), // ⑤i2：跑到静止没有参数绑定，同 Python 不写这一项
       ...(Object.keys(scripted).length > 0 ? { scripted_calls: scriptCalls } : {}),
+      ...(peeks.length > 0 ? { deliver_peeks: peeks } : {}),
     },
   };
 }

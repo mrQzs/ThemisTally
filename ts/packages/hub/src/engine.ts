@@ -1,23 +1,24 @@
-// 调度循环的 Engine（迁移第 ⑤i 片；⑤i1 是工人一侧与结项）：kit_hub.py 的 Engine.__init__、escalate、worker_job、auto_jev、output_problem、
-// stage_workspace、verify_delivery、after_delivery、finish_kernel_stage、recheck_exec、worker_turns、redeliver、handle_pass、after_land、
-// after_land_run，模块函数 resumed_session、release_dependents、land，常数 REDELIVER_TEXT。选信、协调人一侧与续接由 ⑤i2 加进同一个类。
+// 调度循环的 Engine（迁移第 ⑤i 片）：kit_hub.py 的 Engine 全部方法，模块函数 resumed_session、release_dependents、land，常数 REDELIVER_TEXT。
+// ⑤i1 是工人一侧与结项（escalate、worker_job 一族、recheck_exec、handle_pass、after_land）；⑤i2 是选信与协调人一侧（next_job、step、
+// report_step_error、fail_stage、coordinator_turn、route、deliver_coordinator_letter、write_brief）。续接一族在 requeue.ts。
 // deps 只给契约用（⑤i 设计稿第 2、3 节）：用例当时换掉的内层函数照记录注入，各片的 deps 原样往下传；生产调用方不传。
 // 一步之内严格串行 await，次序与 Python 的同步调用一致。ts、state、回合的结果与工人的输出里，容器的取键与报错照 Python；标量照内核与
 // 回合实际写出的类型（violations 是文字的列表、rate_limited_until 是整数之类），别的类型不照 Python 处理。
-import { statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { nowMicros, utcCompact, utcNow } from "@themis/base/clock";
 import { readText, writeTextAtomic } from "@themis/base/fsutil";
-import { pyCaught } from "@themis/base/pyexc";
+import { pyCaught, pyExceptionName } from "@themis/base/pyexc";
 import { PyCrash, pyGet, pyIntOf, pyItem, pyIter, pyLenValue, pyRepr, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { type PyDict, type PyValue, loads } from "@themis/base/pyjson";
 import { purePathName, purePathStr } from "@themis/base/pypath";
-import { cmpCodePoints, codePoints, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, pyRstrip, pySplit, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
 import { pathArg } from "@themis/dispatcher/evidence";
+import { DispatchError } from "@themis/dispatcher/repo";
 import { acceptContract, acceptGatePre } from "./accept.ts";
 import {
-  AUTO_JEV, COORDINATOR, EXIT_USAGE, INFO_TYPES, INPUT_FILE_LIMIT, KERNEL, OWNER, PAUSE_TYPES, ROSTER, type RosterSpec, VERDICTS,
-  WORKER_RETRIES_AFTER_TIMEOUT,
+  AUTO_JEV, BUSY_GUARD, COORDINATOR, EXIT_USAGE, FIELDS, INFO_TYPES, INPUT_FILE_LIMIT, KERNEL, MAX_STAGE_REWORKS, OWNER, PAUSE_TYPES, ROSTER,
+  type RosterSpec, STAGE_WORKER, VERDICTS, WORKER_RETRIES_AFTER_TIMEOUT, WORKERS,
 } from "./constants.ts";
 import { dodCoverageProblems, externalFactProblems, unverifiedFacts } from "./contract.ts";
 import { HubError } from "./errors.ts";
@@ -27,11 +28,11 @@ import { removeInputs, stageInputs } from "./inputs.ts";
 import { git } from "./kernel.ts";
 import { type LandDeps, REAL_LAND_DEPS, finalize, landingBlockers, tidyFinished } from "./land.ts";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "./letters.ts";
-import { DirLock, type Hub, HubState, holdLetters, keepPrevious } from "./mailbox.ts";
+import { DirLock, type Hub, HubState, holdLetters, keepPrevious, letterMain, releaseHeld } from "./mailbox.ts";
 import { letterFromOutput, rolePrompt, turnPrompt } from "./prompt.ts";
 import { EXEC_LAND_RETRY_SECONDS, LandBusy, finishExec, runExec, runJev } from "./runexec.ts";
 import { REAL_SWEEP_DEPS, type SweepDeps, regressionSweep, rehearsalLetter, withSweepWindow } from "./sweep.ts";
-import { guardStart, invalidateAfter, moveBase } from "./taskstate.ts";
+import { guard, guardStart, hotfixReason, invalidateAfter, moveBase, renderRoutineBrief, routineMoves, stageBusy } from "./taskstate.ts";
 import { TurnRunner } from "./turn.ts";
 
 const LF = String.fromCharCode(10);
@@ -57,6 +58,8 @@ export interface EngineDeps extends SweepDeps, LandDeps, GatePostDeps {
   readonly finalize: (hub: Hub, ts: PyDict, deps: EngineDeps) => Promise<[boolean, string]>;
   readonly tidyFinished: (hub: Hub, ts: PyDict, reason: string, deps: EngineDeps) => Promise<string[]>;
   readonly regressionSweep: (hub: Hub, ts: PyDict, deps: EngineDeps) => Promise<[boolean, string]>;
+  /** ⑤i2：step 每一步先放回到点的扣信（4778 的 hold_until_called 换掉它）。 */
+  readonly releaseHeld: (hub: Hub) => Promise<string[]>;
   /** INPUT_FILE_LIMIT（inputs_fixture 改成 64）：交给 stageInputs 的 options.limit。 */
   readonly inputFileLimit: number;
 }
@@ -74,6 +77,7 @@ export const REAL_ENGINE_DEPS: EngineDeps = {
   finalize: (hub, ts, deps) => finalize(hub, ts, deps),
   tidyFinished: (hub, ts, reason, deps) => tidyFinished(hub, ts, reason, deps),
   regressionSweep: (hub, ts, deps) => regressionSweep(hub, ts, deps),
+  releaseHeld: (hub) => releaseHeld(hub),
   inputFileLimit: INPUT_FILE_LIMIT,
 };
 
@@ -98,6 +102,316 @@ export class Engine implements Landing {
     this.runner = runner ?? new TurnRunner(hub);
     this.onlyTask = onlyTask;
     this.deps = deps;
+  }
+
+  // -- 选下一件事（⑤i2） ----------------------------------------------------------------------------------------------------
+  /** 最早那封未读信属于谁：协调人交回它的全部未读信；工人只交回与最早那封同一个阶段任务的。 */
+  nextJob(): [string, string[]] | null {
+    let best: [string, string, string[]] | null = null;
+    for (const agent of Object.keys(ROSTER)) {
+      let letters = this.hub.unread(agent);
+      if (this.onlyTask !== null) letters = letters.filter((path) => letterMain(path) === this.onlyTask);
+      const first = letters[0];
+      if (first !== undefined && (best === null || cmpCodePoints(purePathName(first), best[1]) < 0)) best = [agent, purePathName(first), letters];
+    }
+    if (best === null) return null;
+    const [agent, , letters] = best;
+    if (agent === COORDINATOR) return [agent, letters];
+    const taskIdOf = (path: string): string => parseLetter(readText(path))[0].get("task-id") ?? "";
+    const taskId = taskIdOf(letters[0] as string);
+    return [agent, letters.filter((path) => taskIdOf(path) === taskId)];
+  }
+
+  async step(): Promise<boolean> {
+    await this.deps.releaseHeld(this.hub);
+    const job = this.nextJob();
+    if (job === null) return false;
+    const [agent, paths] = job;
+    const state = this.hub.loadState();
+    try {
+      if (agent === COORDINATOR) await this.coordinatorTurn(state, paths);
+      else await this.workerJob(state, agent, paths);
+    } catch (error) {
+      await this.reportStepError(agent, paths, error);
+    }
+    return true;
+  }
+
+  /**
+   * 第 26 轮：回合先收信、后干活，中途出了意外，信已经挪进 cur、没人再办，这个主任务就悄悄停住了。写一封阻塞信给站主：哪几封信读了没办、
+   * 错在哪，站主修好后回一封“回复”就能接着走。“偏离”是堆栈的最后 1500 个字符：这里写 JS 的栈帧，最后一行照 Python 的 format_exception
+   * 写成“类名: 文字”、结尾带换行，按码点切（⑤i 设计稿第 7 节，契约只比最后一行）。
+   */
+  async reportStepError(agent: string, paths: readonly string[], error: unknown): Promise<void> {
+    const names = paths.map((path) => purePathName(path));
+    const mains: (string | null)[] = [];
+    for (const path of paths) { // 信多半已经挪进 cur
+      const copy = existsSync(path) ? path : purePathStr(this.hub.inbox(agent, "cur"), purePathName(path));
+      try {
+        mains.push(letterMain(copy));
+      } catch (caught) {
+        if (!(caught instanceof HubError)) throw caught;
+        mains.push(null);
+      }
+    }
+    const main = mains.find((item) => item) || "T000";
+    const [kind, qualified] = pyErrorNames(error);
+    const text = error instanceof Error ? error.message : String(error);
+    const frames = (error instanceof Error ? error.stack ?? "" : "").split(LF).filter((line) => line.startsWith("    at "));
+    const detail = codePoints([...frames, text ? `${qualified}: ${text}` : qualified].join(LF) + LF).slice(-1500).join("");
+    await this.hub.appendEvent("step.error", [["agent", agent], ["letters", names], ["error", `${kind}: ${text}`]]);
+    if (agent === COORDINATOR) { // 第 94 轮：这几封信下面写信报给了站主，“在办”标记清掉，不再放回
+      const state = this.hub.loadState();
+      if (popKey(dict(pyGet(state.tasks(), main, new Map()), "pop"), "coordinator_turn") !== null) await this.hub.saveState(state);
+    }
+    const stuck = await this.failStage(agent, paths, `回合出错：${kind}: ${head(text, 200)}`);
+    await this.hub.deliver(letterMeta(KERNEL, OWNER, main, "阻塞"), new Map<string, PyValue>([
+      ["摘要", `${agent} 的回合出了意外，这几封信读了还没办：${head(names.join("、"), 600)}`], ["提交", "无"], ["验证", `${kind}: ${head(text, 300)}`],
+      ["偏离", detail],
+      ["需协调人决定", `请站主看错误、处理好之后用 kit_hub.py send ${main} --type 回复 恢复${stuck ? `（阶段 ${stuck} 已标成 failed，协调人可以照原信重新开工或返工）` : ""}`],
+      ["证据", ".agent/mailbox/ledger/events.jsonl（step.error）"],
+    ]));
+  }
+
+  /**
+   * 第 35 轮：工人的回合出了意外，阶段还停在 assigned，站主回信后协调人重发开工，内核以“已经开工、还没交付”拒收。标成 failed，开工、返工都能
+   * 再发。交回标了哪个阶段。
+   */
+  async failStage(agent: string, paths: readonly string[], note: string): Promise<string | null> {
+    if (agent === COORDINATOR) return null;
+    const state = this.hub.loadState();
+    for (const path of paths) {
+      const copy = existsSync(path) ? path : purePathStr(this.hub.inbox(agent, "cur"), purePathName(path));
+      const [main, suffix] = existsSync(copy) ? stageOf(parseLetter(readText(copy))[0].get("task-id") ?? "") : [null, null];
+      const ts = pyGet(state.tasks(), main || "") as PyDict | null;
+      if (ts !== null && suffix && stageBusy(pyItem(pyItem(ts, "stages"), suffix))) {
+        dict(pyItem(pyItem(ts, "stages"), suffix), "update").set("status", "failed").set("note", note);
+        await this.hub.saveState(state);
+        return `${main}-${suffix}`;
+      }
+    }
+    return null;
+  }
+
+  // -- 协调人（⑤i2） --------------------------------------------------------------------------------------------------------
+  /** 协调人一个回合只处理一个主任务的信（最早那封所属的主任务）；别的主任务的信留在 new 里。 */
+  async coordinatorTurn(state: StateLike, paths: readonly string[]): Promise<void> {
+    const mains = paths.map((path) => stageOf(parseLetter(readText(path))[0].get("task-id") ?? "")[0]);
+    if (mains.length === 0) indexError();
+    const main = mains[0] as string | null;
+    const tasks = tasksOf(state);
+    if (main === null || !contains(tasks, main)) {
+      const taken = await this.hub.take(paths[0] as string);
+      await this.hub.appendEvent("coordinator.skipped", [["reason", "信里没有登记过的主任务"], ["letters", [purePathName(taken)]]]);
+      return;
+    }
+    const mine = paths.filter((_path, index) => mains[index] === main);
+    const texts = mine.map((path) => readText(path));
+    for (const path of mine) await this.hub.take(path);
+    const names = mine.map((path) => purePathName(path));
+    let ts = pyItem(tasks, main) as PyDict;
+    if (!pyEq(pyGet(ts, "status"), "active")) {
+      await this.hub.appendEvent("coordinator.skipped", [["reason", `主任务 ${main} 状态为 ${pyStrValue(pyGet(ts, "status"))}`], ["letters", names]]);
+      return;
+    }
+    let routingNote: string | null = null;
+    if (rosterSpec(COORDINATOR).routing === "kernel" && !pyTruthy(pyGet(ts, "coordinator_resume"))) {
+      const [routed, note] = await this.route(state, ts, mine, texts);
+      if (routed) return;
+      routingNote = note;
+    }
+    const workspace = await this.deps.ensureWorktree(this.hub, ts, "base", pyItem(ts, "base_head"), this.deps);
+    // 第 94 轮：“在办”标记，回合办完（三个出口）或进程内出了意外（report_step_error）时清掉。runner 被收掉，标记就留着：
+    // requeue_interrupted 拿得到锁、看到它，就把这几封信放回去
+    ts.set("coordinator_turn", new Map<string, PyValue>([["letters", names], ["at", utcCompact()]]));
+    const resume = popKey(ts, "coordinator_resume");
+    await this.hub.saveState(state);
+    const sessionId = resumedSession(this.hub, COORDINATOR, resume, workspace);
+    const [inputs] = await this.stage(ts, `${main}-${utcCompact()}`); // 第 88 轮
+    let turn: PyDict;
+    try {
+      let prompt = turnPrompt(this.hub, ts, COORDINATOR, main, texts, workspace, null, inputs, withSession(resume, sessionId), routingNote);
+      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null && sessionId === null,
+        inputs, sessionId);
+      if (pyItem(turn, "output") === null && !pyTruthy(pyItem(turn, "violations")) && !pyTruthy(pyGet(turn, "api_error"))) {
+        prompt = turnPrompt(this.hub, ts, COORDINATOR, main, texts, workspace, pyItem(turn, "output_error"), inputs, null, routingNote);
+        turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, pyItem(turn, "turn_id") as string, false,
+          inputs, null);
+      }
+    } finally {
+      removeInputs(inputs);
+    }
+    const current = this.hub.loadState();
+    ts = pyItem(current.tasks(), main) as PyDict;
+    if (pyTruthy(pyGet(turn, "rate_limited_until")) && !pyTruthy(pyItem(turn, "violations"))) {
+      popKey(ts, "coordinator_turn");
+      await holdLetters(this.hub, ts, COORDINATOR, names, Number(pyItem(turn, "rate_limited_until")), null, pyStrValue(pyItem(turn, "turn_id")));
+      await this.hub.saveState(current);
+      return;
+    }
+    if (pyTruthy(pyItem(turn, "violations")) || pyItem(turn, "output") === null) {
+      popKey(ts, "coordinator_turn");
+      const reason = pyIter(pyItem(turn, "violations")).map((item) => pyStrValue(item)).join("；") || problemText(pyItem(turn, "output_error")) || "没有输出";
+      await this.escalate(ts, `协调人回合作废：${reason}（回合 ${pyStrValue(pyItem(turn, "turn_id"))}）`);
+      await this.hub.saveState(current);
+      return;
+    }
+    const output = pyItem(turn, "output");
+    if (typeof pyGet(output, "state") === "string") writeTextAtomic(purePathStr(this.hub.taskDir(main), "state.md"), pyGet(output, "state") as string);
+    const rejected: string[] = [];
+    let delivered = 0;
+    for (const item of pyIter(or(pyGet(output, "letters"), []))) {
+      const reason = await this.deliverCoordinatorLetter(current, item);
+      if (reason && pyTruthy(resume) && (pyTruthy(pyGet(resume, "turn")) || pyTruthy(pyGet(resume, "routing"))) && reason.includes(BUSY_GUARD)) {
+        // 第 94 轮：上一回合跑完了、投递做到一半，续接的回合照原样重发了已经投递的开工、返工：不算协调人出错、不发核验信
+        await this.hub.appendEvent("coordinator.resent", [["task", main], ["to", pyGet(item, "to")], ["task_id", pyGet(item, "task_id")]]);
+      } else if (reason) {
+        rejected.push(`${pyStrValue(pyGet(item, "type"))} → ${pyStrValue(pyGet(item, "to"))}（${pyStrValue(pyGet(item, "task_id"))}）：${reason}`);
+      } else {
+        delivered += 1;
+      }
+    }
+    ts = pyItem(current.tasks(), main) as PyDict;
+    popKey(ts, "coordinator_turn");
+    popKey(ts, "routed"); // 第 112 轮：内核代办记录这一回合看过了
+    if (rejected.length > 0) {
+      const count = pyIntOf(pyGet(ts, "coordinator_rejections", 0n)) + 1n;
+      ts.set("coordinator_rejections", count);
+      if (count >= 3n) {
+        await this.escalate(ts, `协调人连续 ${count} 个回合的信被内核拒收：${LF}${rejected.join(LF)}`);
+      } else {
+        await this.hub.deliver(letterMeta(KERNEL, COORDINATOR, main, "核验"), new Map<string, PyValue>([
+          ["摘要", `你上一回合有 ${rejected.length} 封信被内核拒收，${delivered} 封已投递`], ["提交", "无"], ["验证", "内核按状态机核对"],
+          ["偏离", head(rejected.join(LF), 1500)], ["需协调人决定", "按“内核此刻允许的下一步”改发"], ["证据", pyItem(turn, "turn_dir")],
+        ]));
+      }
+    } else {
+      ts.set("coordinator_rejections", 0n);
+    }
+    await this.hub.saveState(current);
+  }
+
+  /**
+   * 第 112 轮：这批信全是例行信、每一步都过 guard 时，由内核代办，不起协调人的回合。交回（代办了没有, 给协调人的话）：内核想代办、却被
+   * guard 或“最后一次返工留给协调人”拦下时，告诉协调人本想发什么、为什么没发。信已经由调用方 take 走；中途被收掉时，“在办”标记（带 routing）
+   * 让 requeue_interrupted 把信放回去，下一回合直接起协调人的续接回合。
+   */
+  async route(state: StateLike, ts: PyDict, paths: readonly string[], texts: readonly string[]): Promise<[boolean, string | null]> {
+    const [moves, why] = routineMoves(texts);
+    if (why) return [false, `这批信不是例行流转：${why}`]; // 第 117 轮：叫醒协调人时说清为什么
+    const items: PyDict[] = [];
+    for (const move of moves) {
+      const suffix = pyStrValue(pyItem(move, "suffix"));
+      const worker = STAGE_WORKER[suffix] as string;
+      const taskId = `${pyStrValue(pyItem(ts, "task"))}-${suffix}`;
+      const kind = pyStrValue(pyItem(move, "type"));
+      let reason = guard(ts, new Map([["type", kind], ["to", worker], ["task-id", taskId]]));
+      const done = pyIntOf(pyGet(or(pyGet(ts, "reworks"), new Map()), suffix, 0n));
+      if (!reason && kind === "返工" && suffix !== "5-exec" && done + 1n >= BigInt(MAX_STAGE_REWORKS)) {
+        // themistally-15 指出：代办与协调人共用返工计数，机械核验没过时内核会把返工一路用完
+        reason = `这一步是 ${suffix} 的最后一次返工（已经返工 ${done} 次），留给协调人定：返工、热修补还是问站主`;
+      }
+      if (reason) return [false, `内核本想代办“${kind} → ${worker}（${taskId}）”，没有发：${reason}`];
+      items.push(new Map<string, PyValue>([["to", worker], ["type", pyItem(move, "type")], ["task_id", taskId], ["in_reply_to", pyItem(move, "reply_to")],
+        ["摘要", `例行流转（内核代办）：${pyStrValue(pyItem(move, "from_task"))} 之后的下一步`], ["证据", `任务书：.agent/mailbox/tasks/${taskId}/brief.md`],
+        ["brief", renderRoutineBrief(this.hub.repo, ts, move)]]));
+    }
+    const names = paths.map((path) => purePathName(path));
+    ts.set("coordinator_turn", new Map<string, PyValue>([["letters", names], ["at", utcCompact()], ["routing", true]]));
+    await this.hub.saveState(state);
+    const doneMoves: string[] = [];
+    let refused: string | null = null;
+    for (const item of items) {
+      const reason = await this.deliverCoordinatorLetter(state, item, KERNEL);
+      const shown = `${pyStrValue(pyItem(item, "type"))} → ${pyStrValue(pyItem(item, "to"))}（${pyStrValue(pyItem(item, "task_id"))}）`;
+      if (reason) { // 前一封改了状态、后一封撞上 guard（同一批里几步互相影响）：剩下的交给协调人
+        refused = `内核代办到一半，“${shown}”没有发：${reason}`;
+        break;
+      }
+      doneMoves.push(shown);
+    }
+    popKey(ts, "coordinator_turn");
+    if (doneMoves.length > 0) { // 投出去的几步都记下，代办到一半时协调人也看得到（themistally-15 指出）
+      if (!ts.has("routed")) ts.set("routed", []);
+      appendTo(ts.get("routed") as PyValue, new Map<string, PyValue>([["at", utcNow()], ["letters", names], ["moves", doneMoves]]));
+      await this.hub.appendEvent("route.kernel", [["task", pyItem(ts, "task")], ["letters", names], ["moves", doneMoves], ["partial", refused !== null]]);
+    }
+    await this.hub.saveState(state);
+    return [refused === null, refused];
+  }
+
+  /**
+   * 协调人一封信的投递：形状、guard、brief 落盘、返工计数、热修补、站主指定的返工。第 112 轮起内核代办例行流转也走这里（sender 是内核）。
+   * 交回拒收的原因，投递了交回 null。
+   */
+  async deliverCoordinatorLetter(state: StateLike, item: PyValue, sender: string = COORDINATOR): Promise<string | null> {
+    if (!(item instanceof Map)) return "信不是对象";
+    const text = (key: string, fallback: string): string => pyStrValue(or(pyGet(item, key), fallback));
+    const meta = new Map<string, string>([["from", sender], ["to", text("to", "")], ["task-id", text("task_id", "")],
+      ["in-reply-to", text("in_reply_to", "none")], ["type", text("type", "")]]);
+    const fields = new Map<string, PyValue>(FIELDS.map((key) => [key, pyStrip(pyStrValue(pyGet(item, key, ""))) || "无"]));
+    const bodyLines = pySplitlines(renderLetter(new Map([...meta, ["msg-id", "x"]]), fields)).length - 8;
+    const errors = letterErrors(meta, fields, bodyLines);
+    if (errors.length > 0) return errors.join("；");
+    const [main, suffix] = stageOf(meta.get("task-id"));
+    const ts = pyGet(tasksOf(state), main || "") as PyDict | null;
+    const reason = guard(ts, meta);
+    if (reason) {
+      await this.hub.appendEvent("letter.rejected", [["sender", sender], ["to", meta.get("to") as string], ["type", meta.get("type") as string],
+        ["task_id", meta.get("task-id") as string], ["reason", reason]]);
+      return reason;
+    }
+    const kind = meta.get("type") as string;
+    const to = meta.get("to") as string;
+    if ((kind === "开工" || kind === "返工") && WORKERS.includes(to)) {
+      const live = ts as PyDict; // guard 放行了开工、返工，主任务一定登记过
+      const stage = suffix as string;
+      const brief = pyGet(item, "brief");
+      if (rosterSpec(to).adapter === "claude" || rosterSpec(to).adapter === "pi") {
+        if (typeof brief !== "string" || !pyStrip(brief)) return "开工、返工要附 brief（下一阶段任务书的 Markdown 全文）";
+        this.writeBrief(meta.get("task-id") as string, brief);
+      }
+      if (kind === "返工" && stage === "3-gate-pre" && hotfixReason(live)) {
+        // 第 108 轮（themistally-15 指出）：热修补交付提交了、却没锁定（baseline 没过）时 ts.oracle.sha 是那个失败的提交；再发返工要沿用
+        // 最早那份，一审拿到的差异才对着执行端用过的基准测试
+        const earlier = pyGet(or(pyGet(live, "hotfix"), new Map()), "previous_oracle");
+        const previous = pyTruthy(earlier) ? earlier : pyGet(pyItem(live, "oracle"), "sha"); // 照 Python 的 or：用到时才读 oracle
+        const hotfix = new Map<string, PyValue>([["reason", hotfixReason(live)], ["at", utcNow()], ["previous_oracle", previous]]);
+        live.set("hotfix", hotfix);
+        if (pyTruthy(pyGet(pyItem(live, "exec"), "gate_claims"))) { // 门禁端重新交付时 ts["exec"] 会清空：原话与 attempt 先存下
+          hotfix.set("claims", pyItem(pyItem(live, "exec"), "gate_claims")).set("run_dir", pyGet(pyItem(live, "exec"), "run_dir"));
+        }
+        await this.hub.appendEvent("hotfix.started", [["task", pyItem(live, "task")], ["reason", pyItem(hotfix, "reason")]]);
+      }
+      if (kind === "返工" && pyEq(pyGet(or(pyGet(live, "owner_rework"), new Map()), "suffix"), stage)) {
+        const record = popKey(live, "owner_rework") as PyDict;
+        if (pyTruthy(pyGet(record, "text"))) {
+          const words = new Map<string, PyValue>([["msg", pyItem(record, "msg")], ["text", popKey(record, "text")]]);
+          dict(pyItem(pyItem(live, "stages"), stage), "[]=").set("owner_text", words);
+        }
+        await this.hub.appendEvent("owner_rework.used", [["task", pyItem(live, "task")], ...[...record].map(([key, value]) => [String(key), value] as const)]);
+      } else if (kind === "返工") { // 站主指定的不算：站主是最终拍板人
+        if (!live.has("reworks")) live.set("reworks", new Map());
+        const reworks = dict(live.get("reworks") as PyValue, "get"); // reworks[suffix] = reworks.get(suffix, 0) + 1：先算右边
+        reworks.set(stage, pyIntOf(pyGet(reworks, stage, 0n)) + 1n);
+      }
+      const target = dict(pyItem(pyItem(live, "stages"), stage), "[]=");
+      target.set("status", "assigned");
+      target.set("assigned_at", utcNow());
+      target.set("kind", kind);
+      target.delete("last_letter"); // stage_busy 靠它认旧状态里停下的阶段
+    }
+    await this.hub.deliver(meta, fields);
+    await this.hub.saveState(state);
+    return null;
+  }
+
+  writeBrief(taskId: string, brief: string): void {
+    const directory = this.hub.taskDir(taskId);
+    mkdirSync(directory, { recursive: true });
+    const current = purePathStr(directory, "brief.md");
+    keepPrevious(current);
+    writeTextAtomic(current, `${pyRstrip(brief)}${LF}`);
   }
 
   /**
@@ -644,6 +958,29 @@ function dict(value: PyValue, op: string): PyDict {
   if (Array.isArray(value) && op === "pop") throw new PyCrash("TypeError", "pop expected at most 1 argument, got 2");
   if (op === "[]=") throw new PyCrash("TypeError", `'${pyTypeName(value)}' object does not support item assignment`);
   throw new PyCrash("AttributeError", `'${pyTypeName(value)}' object has no attribute '${op}'`);
+}
+
+/** key in container（state["tasks"] 一类）：字典查键、列表逐个比、字符串查子串，别的照 Python 报 not iterable。 */
+function contains(container: PyValue, key: string): boolean {
+  if (container instanceof Map) return container.has(key);
+  if (Array.isArray(container)) return container.some((item) => pyEq(item, key));
+  if (typeof container === "string") return container.includes(key);
+  throw new PyCrash("TypeError", `argument of type '${pyTypeName(container)}' is not iterable`);
+}
+
+/**
+ * traceback 最后一行的类名带模块名的几样（CPython 3.12.10 实测，themistally-04 复核时指出）：只列 TS 这边真抛得出来的。内置的不带；kit_hub
+ * 在生产上当脚本跑（__main__），它自己的 HubError、LandBusy 也不带。
+ */
+const QUALIFIED: Readonly<Record<string, string>> = {
+  JSONDecodeError: "json.decoder.JSONDecodeError", error: "re.error", DispatchError: "pi_dispatch.DispatchError",
+};
+
+/** step 接住的异常在 Python 里叫什么：交回（type(exc).__name__, traceback 最后一行写的类名）。认不出来的用 JS 的 name。 */
+function pyErrorNames(error: unknown): [string, string] {
+  const name = error instanceof LandBusy ? "LandBusy" : error instanceof HubError ? "HubError" : error instanceof DispatchError ? "DispatchError"
+    : pyExceptionName(error) ?? (error instanceof Error ? error.name : "Exception");
+  return [name, QUALIFIED[name] ?? name];
 }
 
 function appendTo(list: PyValue, item: PyValue): void {

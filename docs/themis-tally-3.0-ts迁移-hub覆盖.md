@@ -806,4 +806,175 @@ COVERED 16、PARTIAL 56。⑤i1 之后仍 PARTIAL 的，剩下的部分逐条写
   - Z05（规划的两类问题换次序）：补了场景（report 为空、又缺 external_facts），并进清单为第 150 条；单跑时只挂这一条 it。
   - Z10（落地后预演别的主任务不排序）：判等价，理由同 ⑤h2 的 Y01：state.json 只经 canonical_state 写（sort_keys），after_land_run 从盘上现读，任务键本来就排好。不进清单。
 
-其余场景随各片补（⑤i2 到 ⑤j）。
+### ⑤i2 选信、协调人一侧与续接
+
+做法（⑤i 设计稿第 4、5、7 节，themistally-04 复核）：
+- 采样器给 ⑤i 两片的全部函数都装记录器，只记最外层，样本只留 ⑤i2 的函数：
+  - Engine 的 step、fail_stage、coordinator_turn、route、deliver_coordinator_letter、write_brief，以及 requeue_interrupted、requeue_task、requeue_letters、report_stranded_exec 照流程函数记；
+  - 只读的 next_job、finished_turn、interrupted_letters、stranded_stages、letters_held、supervisor_busy、runner_may_idle_exit、tasks_with_work、runner_lock 照快照记（runner_lock 是纯算路径，不存快照）；
+  - report_step_error 只在 step 里被调到（它的 exc 参数记不下来）。
+- 跳过的收窄（themistally-04 要的）：采样期间给 DirLock.__enter__ 与 lock_alive 各套一层，记下这一次最外层调用拿过或探过的锁；只有“调用当时有活的持有者、又被这次调用碰过”的才跳过。第一版照 ⑤i1 的规则跳过 46 次，多是 cmd_run 自己拿着的 .runner；收窄之后 3 次。⑤i1 中段为 release_dependents 单开的例外由这条通则涵盖，删掉了；⑤i1 的样本不变（156 次，跳过 1 次）。
+- DirLock 接管时问的 pid_alive 不录也不注入，两边都用真的（TS 的 DirLock 自己判断，设计稿第 3 节）；用例换掉了 pid_alive、DirLock 又问过它的那次调用不重放，这 90 条里没有。
+- 内层名单加 release_held（4778 的 hold_until_called 换掉它，step 每一步先调）；参数里一组路径（paths）照方法的参数位置转回 Path；调用之后的元组参数也比（requeue_interrupted 的 skip）；采样器另认 capsys（1 条用例要）。
+- 回合出意外那封信的比法（设计稿第 7 节，themistally-04 定的四个条件）：
+  - 只认内核发给站主的“阻塞”信、摘要以“<agent> 的回合出了意外”开头；
+  - “偏离”只比最后一行，开头的“kit_hub.”去掉：用例 import kit_hub，生产上 kit_hub 当脚本跑（__main__），TS 照生产写；
+  - 账本里这封信的 letter.delivered 事件，sha256 换成占位；改写了哪些 msg_id 一起比，封数或 msg_id 不同就算不同；
+  - 只写一个函数（engine-fixtures 的 crashNormalized），三份输出都过它；其余照旧逐字比。TS 写的类名另由只测 TS 的断言守。
+
+契约：
+- hub-step：90 条用例（带参数的 4 条展开成 15 个实例）。
+  - ⑤i2 的最外层调用 563 次：runner_lock 264、step 127、requeue_interrupted 62、tasks_with_work 40、supervisor_busy 39、deliver_coordinator_letter 8、interrupted_letters 7、runner_may_idle_exit 7、fail_stage 3、next_job 3、letters_held 2、requeue_task 1。
+  - 跳过 3 次：requeue_interrupted 2 次（用例在进程里拿着 .runners/T001），由 hub-step-scenes 的 runner 锁场景覆盖；step 1 次（5360，.land），由 ⑤i1 的场景与本片的到点放回场景覆盖。
+  - 注入：role_prompt 126、runner 126、worktree_root 114、ensure_worktree 99、Engine.verify_delivery 7、run_pd 6、release_held 3、run_exec 3、run_jev 3、Engine.auto_jev 2、rehearse_landing 2、revalidate_contract 2、apply_candidate 2、budget_problems 1、pid_alive 1、seed_whitebox 1。
+  - state 当场核对标出 5 次，都是 1564 的 deliver_coordinator_letter。
+  - 流程函数 198 次、只读的 362 次，三边重放都与当时的结果相同。
+- hub-step-scenes：16 条 it，15 条三边对照，1 条只测 TS。前 5 条是本片原有的：
+  - 续接：另一个进程（真的 Python 子进程）拿着 .runners/T001 时 requeue_interrupted 不动、一个文件都不写；另配没人拿锁的对照，照常放回。
+  - 扣信：限流的协调人回合扣信、在办标记清掉；到点放回：协调人的信放回后接着起回合（解除时刻正好等于钉住的时刻，另配晚 1 秒的对照）；执行端的信放回后阶段从 paused 回到 assigned、接着跑执行端（5360 的形状）。
+  - 场景先 hub.ensure()：new 目录不在时 os.rename 报 OSError，会被当成“别人已经放回了”吞掉。
+  - 只测 TS：回合出意外那封信“偏离”的最后一行照生产写类名（HubError 不带模块名，DispatchError 带 pi_dispatch.）；账本里 step.error 的 error 只写类名（X07，补 themistally-04 的抽查）。
+  - 后 9 条是变异补的（见下面的变异一段），每条 it 的标题写了对着哪几条变异，全是三边对照：
+    - 回合出意外：信都读不出主任务、出错文字为空、400 字的出错文字、20 封信；
+    - 协调人的信：没登记的主任务、不是进行中的主任务、同时有两个主任务的信、回合进行中的在办标记；
+    - 协调人回合作废：限流又带两条违规、两次都没有输出；
+    - 拒收：头部缺几样、正文 40 行与 41 行、续接回合里因格式拒收、1600 字的类型；不是对象的信直接调 deliver_coordinator_letter；
+    - 内核代办：执行端第三次返工照样代办；
+    - 续接：扣着的信、续接过的是别的信、700 字的回合号、cur 里读不出信头的信、blocked 主任务直接调 requeue_task；
+    - 执行端被打断：pid_alive 问不出死活、attempt 跑完没结论、15 封信；
+    - 只读的：next_job、tasks_with_work，finished_turn 直接调；
+    - 内核代办投信那一刻的在办标记。
+  - 最后 2 条补 themistally-04 的抽查（见下面的变异一段，X08–X11），三边对照：
+    - 协调人的信：一栏只有空白；执行端报过合同矛盾时返工合同端；
+    - 续接：协调人的信放回过一次又被收掉、同时有停住的工人阶段；同一阶段重新开工之前读掉的旧信还在 cur。
+  - 探针为这批场景加了两样，两边对称：
+    - 剧本一项可以带 peek：调用当时读一个文件，记进这次调用。C06 用它在 runner 被调的那一刻读 state.json。
+    - 请求可以带 peek_deliver：每次投信那一刻读一个文件，结果里交回 deliver_peeks。T06 用它看代办途中的在办标记。Python 在类上包 Hub.deliver，请求末尾照 saved 还原（投信抛错也还原）；TS 包这次请求的 hub 实例。
+  - 场景辅助：tasksScene（state.json 里放几个主任务），engine-fixtures 的 letter 加 extra（另加的栏，如审计端的“结论”）。
+- hub-quiesce：跑到静止（设计稿第 5 节）。
+  - 两边探针各有一个流程名 quiesce，照 cmd_run 的串行次序驱动，这段次序抄自 cmd_run，⑤j 换成真的 cmd_run 之后删掉：串行时先 requeue_interrupted；exec-step 的未读信里有“通过”就取第一封 land，挡路就停；否则 step，交回 False 时照 cmd_run 问 runner_may_idle_exit，还有扣着的信就接着走（themistally-04 同意）；land 也算一步，最多 80 步。每一步钉基准加 i+1 秒，信编号从头编。
+  - 剧本由 TS 一侧按种子生成（quiesce-script.ts，mulberry32）：回合按 agent 分开；协调人的“开工”照阶段次序推进，其余从“返工、发错收件人、不附 brief、输出作废、什么都不发”里抽；工人从“合格交付、违规、格式错、超时、限流（80 秒内解除）、接口报错、阻塞信”里抽；内层函数对 ts 的改动写成键路径加新值（ts_set），两边只照着套用。
+  - 初始信箱：T001 已经走到结项、exec-step 有一封“通过”；T002 依赖 T001、规划已交付。
+  - 种子 1–30，每批 5 个，三边逐字相同（每一步做了什么、跑完时的信箱与 tasks 下的文件、state.json、账本、git 状态、runner 的调用序列）。契约另核对确实走到了：每个种子第一步都是 land、都放行了 T002；扣信与到点放回、内核代办、回合出意外、JEV 自动跑、当场重交都至少有一个种子走到。
+  - 与生产不同的一点：时刻钉住之后，同一步里投出的几封信时刻相同，在同一个信箱里按发件人别名排序，而不是按投递先后。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_owner_can_order_a_rework_before_the_first_review` | 261 | PARTIAL | hub-step：deliver_coordinator_letter 1 次；cmd_send、main 归 ⑤j |
+| `test_hotfix_rework_records_the_previous_baseline` | 307 | COVERED | hub-step：step 1 次 |
+| `test_runner_exits_between_steps_once_the_kernel_changes` | 1027 | PARTIAL | hub-step：requeue_interrupted 1 次、runner_lock 1 次；cmd_run、configured_parallel 归 ⑤j |
+| `test_runner_restarts_on_committed_kernel_changes` | 1082 | PARTIAL | hub-step：requeue_interrupted 2 次、runner_lock 2 次；cmd_run、configured_parallel 归 ⑤j |
+| `test_contract_block_or_executor_conflict_can_send_the_work_upstream` | 1504 | COVERED | hub-step：step 1 次 |
+| `test_stage_reworks_are_capped` | 1564 | COVERED | hub-step：deliver_coordinator_letter 5 次 |
+| `test_coordinator_letters_pass_the_guard_before_delivery` | 1639 | COVERED | hub-step：step 1 次 |
+| `test_three_rejected_coordinator_turns_block_the_task` | 1655 | COVERED | hub-step：step 4 次 |
+| `test_start_without_brief_is_rejected` | 1669 | COVERED | hub-step：step 1 次 |
+| `test_worker_delivery_is_verified_then_forwarded` | 1684 | COVERED | hub-step：step 2 次 |
+| `test_plan_delivery_must_list_its_external_facts` | 1711 | COVERED | hub-step：step 5 次 |
+| `test_plan_with_only_verified_facts_goes_straight_to_the_contract` | 1730 | COVERED | hub-step：step 2 次 |
+| `test_unverified_external_facts_wait_for_the_owner` | 1745 | PARTIAL | hub-step：step 1 次；cmd_send、main 归 ⑤j |
+| `test_plan_redelivery_replaces_the_external_facts` | 1791 | COVERED | hub-step：step 1 次 |
+| `test_worker_turn_with_violation_is_not_delivered` | 1815 | COVERED | hub-step：step 2 次 |
+| `test_model_api_errors_are_not_retried_and_go_to_the_owner` | 1831 | COVERED | hub-step：step 2 次 |
+| `test_a_rate_limited_worker_turn_is_held_and_resumed` | 1857 | COVERED | hub-step：step 4 次、supervisor_busy 4 次、runner_may_idle_exit 3 次、letters_held 2 次 |
+| `test_held_letters_are_dropped_when_the_stage_was_restarted_meanwhile` | 1892 | COVERED | hub-step：step 2 次 |
+| `test_a_rate_limited_turn_that_also_broke_the_rules_is_not_held` | 1913 | COVERED | hub-step：step 2 次 |
+| `test_supervisor_puts_due_letters_back_and_starts_their_runner` | 1925 | PARTIAL | hub-step：requeue_interrupted 1 次、tasks_with_work 1 次；pause_requested、supervise_tick 归 ⑤j |
+| `test_a_stage_left_busy_by_a_killed_runner_is_requeued_and_resumed` | 1946 | COVERED | hub-step：requeue_interrupted 4 次、step 2 次、tasks_with_work 2 次、runner_lock 1 次；另有 requeue_interrupted 1 次不重放（调用当时有活的持有者：.runners/T001），由手写场景覆盖 |
+| `test_a_turn_killed_midway_restarts_in_a_new_session_and_is_requeued_only_once` | 1985 | COVERED | hub-step：requeue_interrupted 3 次 |
+| `test_requeue_leaves_unread_and_kernel_run_stages_alone` | 2029 | COVERED | hub-step：requeue_interrupted 1 次 |
+| `test_supervisor_requeues_only_tasks_nobody_is_working_on` | 2057 | PARTIAL | hub-step：requeue_interrupted 2 次、tasks_with_work 2 次；pause_requested、supervise_tick 归 ⑤j |
+| `test_a_coordinator_turn_cut_off_by_a_kill_is_requeued_and_resumed` | 2096 | COVERED | hub-step：step 2 次、requeue_interrupted 1 次、runner_lock 1 次、tasks_with_work 1 次；另有 requeue_interrupted 1 次不重放（调用当时有活的持有者：.runners/T001），由手写场景覆盖 |
+| `test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once` | 2122 | COVERED | hub-step：requeue_interrupted 2 次、step 1 次 |
+| `test_the_coordinator_marker_is_cleared_on_every_way_out_of_the_turn` | 2150 | COVERED | hub-step：step 4 次、requeue_interrupted 1 次 |
+| `test_a_jev_cut_off_by_a_kill_is_rerun` | 2187 | COVERED | hub-step：step 1 次、requeue_interrupted 1 次 |
+| `test_a_stranded_exec_stage_is_reported_to_the_owner_once` | 2205 | COVERED | hub-step：requeue_interrupted 3 次 |
+| `test_interrupted_letters_reads_the_ledger_from_the_assignment_on` | 2279 | COVERED | hub-step：interrupted_letters 7 次 |
+| `test_a_rate_limited_coordinator_turn_is_held_and_resumed` | 2333 | COVERED | hub-step：step 2 次 |
+| `test_coordinator_api_error_is_not_retried` | 2360 | COVERED | hub-step：step 1 次 |
+| `test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes` | 2395 | COVERED | hub-step：step 3 次 |
+| `test_a_delivery_that_fails_the_check_is_redone_in_the_same_session` | 2434 | COVERED | hub-step：step 2 次 |
+| `test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so` | 2466 | COVERED | hub-step：step 2 次 |
+| `test_a_redelivery_may_hand_in_a_block_instead` | 2484 | COVERED | hub-step：step 2 次 |
+| `test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too` | 2503 | COVERED | hub-step：step 4 次 |
+| `test_a_contract_that_fails_derive_json_is_redrafted_under_the_same_number` | 2519 | COVERED | hub-step：step 1 次 |
+| `test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline` | 2559 | COVERED | hub-step：step 1 次 |
+| `test_a_second_hotfix_rework_keeps_the_original_previous_oracle` | 2607 | COVERED | hub-step：step 2 次 |
+| `test_owner_takeover_closes_the_task` | 3230 | PARTIAL | hub-step：runner_lock 10 次；cmd_task_close、lock_alive、task_quiet 归 ⑤j |
+| `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | hub-step：runner_lock 20 次；cmd_task_cleanup、lock_alive、task_quiet 归 ⑤j |
+| `test_invalid_output_gets_one_retry` | 3426 | COVERED | hub-step：step 2 次 |
+| `test_a_timed_out_turn_does_not_use_up_the_format_retry` | 3437 | COVERED | hub-step：step 2 次 |
+| `test_worker_retries_stop_when_the_output_stays_invalid` | 3455 | COVERED | hub-step：step 6 次 |
+| `test_the_blocked_letter_says_timed_out_again_only_when_it_did` | 3477 | COVERED | hub-step：step 10 次 |
+| `test_info_letters_do_not_wake_workers` | 3592 | COVERED | hub-step：step 1 次 |
+| `test_rework_starts_a_clean_session` | 3601 | COVERED | hub-step：step 2 次 |
+| `test_task_runner_only_takes_its_own_task_letters` | 3985 | COVERED | hub-step：next_job 3 次、tasks_with_work 2 次 |
+| `test_supervisor_runs_one_runner_per_task_up_to_the_limit` | 4050 | PARTIAL | hub-step：requeue_interrupted 5 次、supervisor_busy 5 次、tasks_with_work 5 次、runner_lock 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_serial_runner_refuses_while_task_runners_are_alive` | 4106 | PARTIAL | hub-step：runner_lock 2 次；cmd_run、configured_parallel、lock_alive 归 ⑤j |
+| `test_task_runner_exits_for_the_supervisor_on_kernel_changes` | 4118 | PARTIAL | hub-step：runner_lock 3 次；cmd_run、lock_alive 归 ⑤j |
+| `test_supervisor_counts_runners_left_by_its_previous_generation` | 4652 | PARTIAL | hub-step：requeue_interrupted 5 次、supervisor_busy 5 次、tasks_with_work 5 次、runner_lock 3 次；cmd_run、configured_parallel、lock_alive、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_supervisor_waits_for_a_settled_kernel_before_starting_runners` | 4671 | PARTIAL | hub-step：requeue_interrupted 4 次、supervisor_busy 4 次、tasks_with_work 4 次、runner_lock 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_supervisor_ticks_the_owner_sweep_every_round` | 4679 | PARTIAL | hub-step：requeue_interrupted 2 次、runner_lock 2 次、supervisor_busy 2 次、tasks_with_work 2 次；cmd_run、configured_parallel、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_status_shows_the_parallel_runners` | 4689 | PARTIAL | hub-step：runner_lock 1 次；cmd_status、configured_parallel、lock_alive 归 ⑤j |
+| `test_supervisor_stays_while_a_runner_works_without_unread_letters` | 4727 | PARTIAL | hub-step：requeue_interrupted 4 次、supervisor_busy 4 次、runner_lock 3 次；cmd_run、configured_parallel、lock_alive、owner_sweep_tick、supervise、supervise_tick 归 ⑤j |
+| `test_supervisor_stays_while_letters_are_held` | 4767 | PARTIAL | hub-step：requeue_interrupted 3 次、supervisor_busy 3 次、tasks_with_work 3 次、runner_lock 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_serial_hub_stays_while_letters_are_held` | 4776 | PARTIAL | hub-step：step 3 次、runner_may_idle_exit 3 次、requeue_interrupted 1 次、runner_lock 1 次；cmd_run、configured_parallel 归 ⑤j |
+| `test_serial_hub_requeues_interrupted_stages_when_it_starts` | 4783 | PARTIAL | hub-step：step 1 次、runner_lock 1 次、runner_may_idle_exit 1 次；cmd_run、configured_parallel 归 ⑤j |
+| `test_passing_and_owner_close_release_the_dependents` | 4855 | PARTIAL | hub-step：runner_lock 5 次；cmd_task_close、lock_alive、main、task_quiet 归 ⑤j |
+| `test_owner_commands_only_need_the_task_lock_under_a_supervisor` | 4882 | PARTIAL | hub-step：runner_lock 24 次；lock_alive、task_quiet 归 ⑤j |
+| `test_owner_rebases_a_task_before_its_contract_starts` | 4903 | PARTIAL | hub-step：runner_lock 30 次；cmd_task_rebase、lock_alive、main、task_quiet 归 ⑤j |
+| `test_owner_adds_a_dependency_found_in_planning` | 4938 | PARTIAL | hub-step：runner_lock 45 次；cmd_task_after、lock_alive、main、task_quiet 归 ⑤j |
+| `test_tasks_others_wait_for_get_runners_first` | 4984 | COVERED | hub-step：tasks_with_work 2 次 |
+| `test_supervisor_picks_up_runner_json_changes_while_running` | 5002 | PARTIAL | hub-step：requeue_interrupted 4 次、supervisor_busy 4 次、tasks_with_work 4 次、runner_lock 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_supervisor_restart_keeps_where_parallel_came_from` | 5035 | PARTIAL | hub-step：runner_lock 4 次；cmd_run、configured_parallel、supervise 归 ⑤j |
+| `test_supervisor_keeps_going_after_a_bad_tick` | 5067 | PARTIAL | hub-step：requeue_interrupted 3 次、supervisor_busy 3 次、runner_lock 2 次、tasks_with_work 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_supervisor_stops_restarting_a_crashing_runner` | 5086 | PARTIAL | hub-step：requeue_interrupted 5 次、supervisor_busy 5 次、tasks_with_work 5 次、runner_lock 2 次；cmd_run、configured_parallel、owner_sweep_tick、pause_requested、supervise、supervise_tick 归 ⑤j |
+| `test_a_crashed_turn_tells_the_owner_which_letters_were_taken` | 5119 | COVERED | hub-step：step 1 次 |
+| `test_paused_worker_stage_can_be_started_again` | 5185 | COVERED | hub-step：deliver_coordinator_letter 1 次、step 1 次 |
+| `test_exec_waits_for_the_landing_lock_by_holding_its_letter` | 5360 | COVERED | hub-step：step 1 次；另有 step 1 次不重放（调用当时有活的持有者：.land），由手写场景覆盖 |
+| `test_a_crashed_worker_turn_leaves_the_stage_restartable` | 5390 | COVERED | hub-step：fail_stage 3 次、step 1 次 |
+| `test_owner_unsticks_a_stage_nobody_is_working_on` | 5425 | PARTIAL | hub-step：runner_lock 30 次；cmd_task_unstick、lock_alive、task_quiet 归 ⑤j |
+| `test_owner_raises_the_attempt_budget` | 6223 | PARTIAL | hub-step：runner_lock 45 次；cmd_task_budget、lock_alive、task_quiet 归 ⑤j |
+| `test_owner_commands_pause_a_busy_task_runner` | 6346 | PARTIAL | hub-step：runner_lock 18 次、requeue_interrupted 2 次；cmd_run、lock_alive、pause_requested、supervise_tick、task_quiet 归 ⑤j |
+| `test_the_gate_hotfix_turn_carries_the_executors_words` | 6622 | COVERED | hub-step：step 1 次 |
+| `test_a_timed_out_voided_turn_is_resumed_not_restarted` | 6669 | COVERED | hub-step：step 3 次 |
+| `test_a_voided_turn_that_did_not_time_out_gets_no_resume_hint` | 6695 | COVERED | hub-step：step 2 次 |
+| `test_the_owners_rework_words_reach_the_reworked_stage_verbatim` | 6712 | COVERED | hub-step：step 2 次 |
+| `test_each_turn_reads_its_own_copy_and_the_copy_is_gone_afterwards` | 7117 | COVERED | hub-step：step 2 次 |
+| `test_the_kernel_routes_a_routine_batch_without_waking_the_coordinator` | 7524 | COVERED | hub-step：step 1 次 |
+| `test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reason` | 7542 | COVERED | hub-step：step 1 次 |
+| `test_a_batch_that_is_not_routine_tells_the_coordinator_why` | 7559 | COVERED | hub-step：step 1 次 |
+| `test_the_kernel_leaves_the_last_rework_of_a_stage_to_the_coordinator` | 7574 | COVERED | hub-step：step 2 次 |
+| `test_a_passing_delivery_clears_the_last_check` | 7607 | COVERED | hub-step：step 1 次 |
+| `test_a_partly_routed_batch_records_what_went_out` | 7621 | COVERED | hub-step：step 1 次 |
+| `test_a_routing_cut_short_is_handed_back_with_its_own_words` | 7644 | COVERED | hub-step：deliver_coordinator_letter 1 次、step 1 次、requeue_task 1 次 |
+| `test_an_audit_return_is_routed_with_the_blockers` | 7668 | COVERED | hub-step：step 1 次 |
+| `test_a_clean_slice_runs_from_task_to_pass_without_a_coordinator_turn` | 7708 | COVERED | hub-step：step 15 次 |
+
+COVERED 60、PARTIAL 30（再加只走 ⑤i1 的 16 条，⑤i 共 COVERED 76，同设计稿第 8 节）。PARTIAL 的 30 条剩下的部分归 ⑤j（cmd_run 的循环本体、cmd_send、supervise、task_quiet 一类），逐条写在上表。⑤i1 之后剩 ⑤i2 的 9 条（1711、1857、1892、2519、5360、6622、6669、6695、6712）与只走 ⑤i2 的 5 条（1564、1985、2029、2205、3985）在这里转 COVERED；1745、3276 剩 ⑤j。
+
+变异：ts/mutations/hub-i2.ts.json 共 107 条（engine.ts 与 requeue.ts），抓住 106 条，X03 判等价。前 102 条分四段跑，后 5 条补 themistally-04 的抽查：
+- 第一段只跑手写场景（当时的 5 条 it），抓住 7 条。
+- 第二段：第一段漏掉的 95 条，用存下的 560 次样本请求让 node 重放，抓住 62 条，漏 33 条。
+- 第三段：这 33 条只跑 hub-quiesce（30 份剧本），抓住 C20（没有拒收时拒收计数清零），漏 32 条。
+- 漏掉的 32 条逐条报 themistally-04 定，每条附改了哪一行、样本与剧本为什么走不到。样本里各条要的情形逐条数过：
+  - 截断长度 6 条（R04、R05、R06、C21、Q16、Q26）：样本里这几处的文字最长分别是 34、43、66、142、43 字，离截断（200 与 300、600、1500、600、600）都远；剧本的各栏只有一两个词。照 themistally-04 的规矩，补长文字的场景，不判等价。
+  - 走不到的分支：剧本只有两个已登记的主任务，runner 从不被收掉（没有残留的在办标记，续接一族走不到），协调人的作废回合只带一条违规、从不限流；样本里也一次都没有这些情形：同时有两个主任务的信、两条违规、正文 40 或 41 行、一封信几处格式问题、续接回合里的拒收、执行端第三次返工、扣着的信又在在办标记里。
+  - 三条只在进程死掉时看得到：
+    - D01（不是对象的信的拒收原因）：Python 的 coordinator_turn 拒收时要取 item.get，不是对象的信自己先崩，只有直接调 deliver_coordinator_letter 看得到。
+    - C06（协调人回合的在办标记带 at）：标记写进 ts 后、调 runner 之前就存盘（kit_hub.py:5092–5094），三个出口与 report_step_error 都会清掉，step 交回后看不到。剧本加 peek，在 runner 被调的那一刻读 state.json。标记不带 at 的后果：requeue_task 拿标记的 at 当 since（kit_hub.py:4867），since 成了空串，finished_turn 会认这一回合开始之前跑完的回合，续接记下的回合号就错了。
+    - T06（内核代办的在办标记带 routing）：代办的标记同样在投信前存盘（kit_hub.py:5182–5183），requeue_task 据它的 routing 把续接记成代办。探针加 peek_deliver，在投信那一刻读 state.json，三边比。
+  - 两条生产里走不到，补直接调用：
+    - Q01（finished_turn 严格大于 since）：真回合号是“开始时刻-随机后缀”（kit_hub.py:1977，TS 的 TurnRunner 同），标记的 at 不带后缀，turn_id 不可能恰好等于 since。
+    - Q12（requeue_task 先核主任务是不是进行中）：requeue_task 只有 requeue_interrupted 一个调用方（kit_hub.py:4845），进锁前已经筛过状态；进锁后再核一次，是防筛完到拿锁之间状态变了。
+  - Q11（拿不到锁之外的 HubError 照样抛）：cur 里一封读不出信头的信，parse_letter 抛 HubError（kit_hub.py:683，code 是缺省的 EXIT_FAIL），抛在 runner 锁里面。
+  - X03 判等价，同 ⑤i1 的 Z10（themistally-04 同意）：requeue_interrupted 每次从盘上新读 state.json（kit_hub.py:4840），盘上只由 canonical_state 写、键已按码点排好，再排一次不改次序。清单里这条标了 equivalent，写明前提。
+- 第四段：其余 31 条按“该由哪条 it 抓住”分 9 组，每组用 vitest -t 只跑那一条 it（每组的基准都是 1 passed、13 skipped），全部抓住。都是三边对照比出的不同，没有靠超时的。
+- 抽查：themistally-04 在 d0684dd 上另写 15 条（engine.ts 9 条、requeue.ts 6 条），抓住 10 条。漏的 5 条它都对过 Python，都是真缺口、没有等价的；各补一个场景，照原样加进清单（X07–X11），按 it 分 3 组用 vitest -t 跑（每组的基准都是 1 passed、15 skipped），全部抓住，没有靠超时的：
+  - X07（抽查 W02，step.error 的 error 写成带模块的类名）：Python 写 type(exc).__name__（kit_hub.py:5037）。只有别的模块的类两样写法不同（DispatchError 与 pi_dispatch.DispatchError），HubError 相同。只测 TS 那条 it 加看账本。
+  - X08（抽查 W06，协调人信的各栏不去首尾空白）：render_letter 本来就去空白（kit_hub.py:672），只有整栏是空白时不同：Python 写成“无”照投，变异后 letter_errors 报正文缺这一栏、拒收。场景：协调人一封汇报的“偏离”是三个空格。
+  - X09（抽查 W07，热修补不看是不是门禁前）：_guard_rework 见阶段 failed 就放行（kit_hub.py:1078），返工门禁前以外的阶段也会走到热修补那一句（kit_hub.py:5225）。场景：执行端报了 2 条合同矛盾、合同端核验没过，协调人返工合同端，不起热修补。
+  - X10（抽查 V01，协调人不再续接后照样处理阶段）：requeue_letters 不再续接时把主任务转 blocked，requeue_task 处理阶段之前重新看状态（kit_hub.py:4873）。场景：协调人那批信放回过一次又被收掉，同时有一个停住的工人阶段：主任务转 blocked，阶段不动，工人的信留在 cur。
+  - X11（抽查 V02，阶段的起点不用 assigned_at）：同一阶段重新开工之前读掉的旧信还在 cur 时才不同（kit_hub.py:4876）。场景：旧开工信在 assigned_at 之前读掉、新信在之后读掉，只放回新信。
+
+其余场景随各片补（⑤j）。

@@ -91,8 +91,10 @@ export const pd = (argv: string[], code: number, out: string, timeout: number | 
 
 /**
  * 三边各跑一遍、逐个比（pytest 的用时换成占位；normalize 给真跑的场景换掉钉不住的证据）；交回 Python 那边的结果（解开的 value）。
+ * timeout 交给 runBatch：跑得重的（⑤i2 的跑到静止、真进程拿锁的场景）给 REPLAY_TIMEOUT，整套并行时探针会慢好几倍。
  */
-export function agreeFlow(requests: readonly ProbeRequest[], normalize: (state: Record<string, unknown>) => unknown = (state) => state): Record<string, unknown>[] {
+export function agreeFlow(requests: readonly ProbeRequest[], normalize: (state: Record<string, unknown>) => unknown = (state) => state,
+  timeout?: number): Record<string, unknown>[] {
   const shown = (result: ProbeResult | undefined): unknown => {
     const value = result?.["value"] as Record<string, unknown> | undefined;
     // 注入核对出错时的 detail 两边各用自己的 JSON 写法，只比错误类型
@@ -100,7 +102,7 @@ export function agreeFlow(requests: readonly ProbeRequest[], normalize: (state: 
     const plain = value && result_ && "detail" in result_ ? { ...value, result: { ...result_, detail: "<DETAIL>" } } : value;
     return scrubResult(plain ? normalize(plain) : result);
   };
-  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests));
+  const [python, ...others] = IMPLS.map((impl) => runBatch(impl, requests, timeout));
   for (const [index, other] of others.entries()) {
     const bad = requests.map((_, at) => at).filter((at) => JSON.stringify(shown(python?.[at])) !== JSON.stringify(shown(other[at])));
     const detail = bad.slice(0, 2).map((at) => ({ at, fn: requests[at]?.["fn"], python: shown(python?.[at]), other: shown(other[at]) }));

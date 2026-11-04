@@ -6,6 +6,7 @@ stdin 按 UTF-8 读字节（Windows 上 sys.stdin 的缺省编码是 cp1252）�
 """
 import ast
 import base64
+import collections
 import contextlib
 import hashlib
 import io
@@ -1413,6 +1414,16 @@ def op_hub_contract(request):
             value = kit_hub.resumed_session(kit_hub.Hub(Path(args[0])), args[1], args[2], Path(args[3]))
         elif fn == "Engine.output_problem":  # ⑤i1：参数前两个是仓库与 only_task
             value = kit_hub.Engine(kit_hub.Hub(Path(args[0])), only_task=args[1]).output_problem(*args[2:])
+        elif fn == "Engine.next_job":  # ⑤i2：（agent, [Path]）的路径交回字符串，同 _recorded_value
+            found = kit_hub.Engine(kit_hub.Hub(Path(args[0])), only_task=args[1]).next_job()
+            value = None if found is None else [found[0], [str(path) for path in found[1]]]
+        elif fn == "finished_turn":  # ⑤i2：只看传进来的事件
+            value = kit_hub.finished_turn(*args)
+        elif fn in ("interrupted_letters", "stranded_stages", "letters_held", "supervisor_busy", "runner_may_idle_exit", "tasks_with_work"):
+            value = getattr(kit_hub, fn)(kit_hub.Hub(Path(args[0])), *args[1:])
+            value = list(value) if isinstance(value, tuple) else value  # ⑤i2：interrupted_letters 的（名字, 回合）元组成列表，同 _recorded_value
+        elif fn == "runner_lock":  # ⑤i2：纯算路径，交回字符串
+            value = str(kit_hub.runner_lock(kit_hub.Hub(Path(args[0])), args[1]))
         elif fn in ("normalize_identity", "normalize_markup"):
             value = list(getattr(kit_hub, fn)(*args))
         elif fn == "tail_file":
@@ -1728,6 +1739,8 @@ def _recorded_value(name, value):
         value = [str(path) for path in value]
     elif name == "workspace_status":  # ⑤e2a：（状态，路径）的元组成列表，照 op_hub_contract
         value = [list(item) for item in value]
+    elif name == "Engine.next_job" and value is not None:  # ⑤i2：（agent, [Path]）的路径记成字符串，照 op_hub_contract
+        value = [value[0], [str(path) for path in value[1]]]
     elif isinstance(value, tuple):  # ⑤g1：carry_source、carry_back 交回（Path, 原因）
         value = [str(item) if isinstance(item, Path) else item for item in value]
     elif isinstance(value, Path):  # ⑤f：apply_candidate、ensure_worktree 交回 worktree 的路径
@@ -1760,7 +1773,8 @@ FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkd
 #: ⑤h2：没有 ts 参数的流程函数（重放与比较时 ts 记成 None）
 FLOW_NO_TS = ("owner_sweep", "mark_owner_moved", "ts_install_if_stale")
 #: ⑤h2：内层名与它换掉的属性名不同的（ts_install_if_stale 的 runner：重放时 runner 为 None，走 pd.run_supervised）
-FLOW_ATTR = {"ts_runner": "run_supervised", "Engine.verify_delivery": "verify_delivery", "Engine.auto_jev": "auto_jev"}  # ⑤i1：Engine 的两个方法
+FLOW_ATTR = {"ts_runner": "run_supervised", "Engine.verify_delivery": "verify_delivery", "Engine.auto_jev": "auto_jev",  # ⑤i1：Engine 的两个方法
+             "Hub.deliver": "deliver"}  # ⑤i2：peek_deliver 包的
 #: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数。⑤i1 加上 Engine 的用例会换掉、换上的假函数会改 ts 的那几个（Engine 的两个方法第二个
 #: 参数是 ts 或 state，第一个是 Engine 本身）
 FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract",
@@ -1778,23 +1792,55 @@ FLOW_GIT_ENV = {"GIT_AUTHOR_NAME": "themis-contract", "GIT_AUTHOR_EMAIL": "contr
 #: ⑤i1：Engine 的方法在名单里写成 "Engine.<方法名>"。它们与 land、release_dependents 是 ⑤i 的流程函数，另外几样（themistally-04 复核的
 #: ⑤i 设计稿第 3、4 节）：认另一组用例会换掉的内层函数（FLOW_INNER_I，只在 ⑤i 的最外层调用里认，前几片的样本不变）；一路会走到的几样
 #: 总照记录注入（FLOW_ALWAYS_I）；钉住 time.time（执行端等不到落地锁时扣信，解除时刻是 int(time.time()) + 120）；名册的改动随样本带上
-FLOW_I_FUNCTIONS = ("land", "release_dependents")
+FLOW_I_FUNCTIONS = ("land", "release_dependents", "requeue_interrupted", "requeue_task", "requeue_letters", "report_stranded_exec")  # ⑤i2 加续接一族
 FLOW_INNER_I = ("role_prompt", "ensure_worktree", "apply_candidate", "seed_whitebox", "run_exec", "run_jev", "finalize", "tidy_finished",
-                "regression_sweep", "Engine.verify_delivery", "Engine.auto_jev")
+                "regression_sweep", "Engine.verify_delivery", "Engine.auto_jev",
+                "release_held")  # ⑤i2：4778 的 hold_until_called 换掉它，step 每一步先调
 FLOW_ALWAYS_I = ("mkdtemp", "run_supervised", "sweep_gates", "pid_alive")
 #: ⑤i1：Engine 的方法里要转成 Path 的参数（方法参数的位置，不含 self）；worker_job 的 paths 是一组路径，另转
 FLOW_ENGINE_PATHS = {"Engine.worker_turns": (4, 6), "Engine.redeliver": (6,)}
+#: 参数里一组路径（paths）的位置（方法参数的位置，不含 self）：⑤i1 的 worker_job，⑤i2 的几个
+FLOW_ENGINE_PATH_LISTS = {"Engine.worker_job": 2, "Engine.fail_stage": 1, "Engine.coordinator_turn": 1, "Engine.route": 2, "Engine.report_step_error": 1}
 #: TurnRunner.run 的参数名：Engine 调 runner 时有的按位置、有的按关键字给
 RUNNER_ARGS = ("agent", "session_key", "workspace", "role_prompt", "prompt", "retry_of", "fresh", "inputs", "session_id")
-#: 调用当时有活的持有者就不重放的目录锁，另加 .runners 下各主任务的：重放时持有者已经不在，接管与否两边会不同（⑤i 设计稿第 4 节的两类跳过）
+#: 调用当时有活的持有者就不重放的目录锁，另加 .runners 下各主任务的：重放时持有者已经不在，接管与否两边会不同（⑤i 设计稿第 4 节的两类跳过）。
+#: ⑤i2 起只算这次调用拿过或探过的（_TOUCHED_LOCKS）：⑤i1 中段为 release_dependents 单开的例外（它一路不碰锁）由这一条涵盖
 FLOW_LOCKS = (".land", ".sweep", ".lock", ".runner", ".owner-sweep")
-#: 一路不拿也不探目录锁的流程函数，不受上面那条跳过规则管（release_dependents 只调 git rev-parse、move_base、append_event、deliver；
-#: themistally-04 复核 ⑤i1 中段时定的）
-FLOW_LOCK_FREE = ("release_dependents",)
 
 
 def _flow_i(name):
-    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS
+    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS or name == "quiesce"  # ⑤i2：跑到静止
+
+
+def _quiesce(hub, engine, base, task, limit):
+    """⑤i2 跑到静止（⑤i 设计稿第 5 节）。这段次序抄自 cmd_run，⑤j 换成真的 cmd_run 循环之后删掉（themistally-04 定的三处）：
+    - 串行（task 是 None）时先 requeue_interrupted（钉在基准时刻）；
+    - 每一步钉一个时刻（基准加 i+1 秒，信编号从头编，同 TS 的 withPinnedClock）。exec-step 的未读信里 type 是“通过”的（指定了 task 时
+      再按 letter_main 过滤），照 unread 的次序取第一封 land；land 交回挡路者时直接停下，不学 finalize.deferred 与 sleep；
+    - 否则 step；交回 False 时照 cmd_run 问 runner_may_idle_exit：还有扣着的信（串行）就接着走下一步，等它到点放回，否则停。land 也算一步，
+      最多 limit 步。这里的 limit 连空转的步也算进去，是给探针封顶；cmd_run 的 max_steps 只数 turns（land、step 办了事才加），两者不完全一样。
+    指纹与换代、runner.started、pause、sleep 与空闲退出的计时都是 ⑤j 的事，不抄。交回每一步做了什么。"""
+    done = []
+    if task is None:
+        done.append(["requeue", kit_hub.requeue_interrupted(hub)])
+    for index in range(limit):
+        moment = base + (index + 1) * 1_000_000
+        kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(moment)
+        kit_hub.new_msg_id = _flow_msg_id()
+        time.time = lambda moment=moment: moment / 1_000_000
+        passes = [path for path in hub.unread("exec-step") if kit_hub.parse_letter(kit_hub.read_text(path))[0].get("type") == "通过"
+                  and (task is None or kit_hub.letter_main(path) == task)]
+        if passes:
+            blockers = kit_hub.land(hub, engine, passes[0], kit_hub.parse_letter(kit_hub.read_text(passes[0]))[0])
+            done.append(["land", passes[0].name, blockers])
+            if blockers:
+                break
+            continue
+        moved = engine.step()
+        done.append(["step", moved])
+        if not moved and kit_hub.runner_may_idle_exit(hub, task):
+            break
+    return done
 
 
 def _flow_attr(name):
@@ -1851,9 +1897,10 @@ def _state_dirs(hub, ts=None, state=None):
 
 
 def _flow_after(bound):
-    """⑤i1：调用之后要比的字典与列表参数（state、fields 这类被原地改的；ts 另在 _flow_state 里）。"""
+    """⑤i1：调用之后要比的字典与列表参数（state、fields 这类被原地改的；ts 另在 _flow_state 里）。⑤i2：元组也算（requeue_interrupted 的
+    skip 缺省是 ()，重放时从 JSON 来的是列表，两边都记成列表才对得上）。"""
     return {key: item for key, item in bound.arguments.items()
-            if key not in ("self", "hub", "engine") and isinstance(item, (dict, list, set, frozenset))}
+            if key not in ("self", "hub", "engine") and isinstance(item, (dict, list, tuple, set, frozenset))}
 
 
 class _RunnerProxy:
@@ -1874,6 +1921,25 @@ class _InjectionMismatch(Exception):
     """重放注入的内层调用与记录对不上（参数不同、多调）。"""
 
 
+class _Capsys:
+    """⑤i2：pytest 的 capsys 的替身（test_status_shows_the_parallel_runners 要）。采样器本来就把 sys.stdout、sys.stderr 截进两个 StringIO，
+    readouterr 照 pytest 交回上次读之后写进的部分（out、err 两栏的具名元组）。"""
+
+    def __init__(self, out, err):
+        self.streams, self.read = (out, err), [0, 0]
+
+    def readouterr(self):
+        parts = []
+        for index, stream in enumerate(self.streams):
+            text = stream.getvalue()
+            parts.append(text[self.read[index]:])
+            self.read[index] = len(text)
+        return _CaptureResult(*parts)
+
+
+_CaptureResult = collections.namedtuple("CaptureResult", "out err")
+
+
 def _plain(value):
     if isinstance(value, Path):
         return str(value)
@@ -1892,7 +1958,8 @@ def _flow_target(name):
     """内层函数换在哪里：kit_hub 调的是 pd.run_supervised、pd._running_attempts、tempfile.mkdtemp 与 decisions 的两样，其余是 kit_hub 自己的。"""
     return {"run_supervised": kit_hub.pd, "_running_attempts": kit_hub.pd, "pid_alive": kit_hub.pd, "find_bun": kit_hub.pd,
             "read_kernel_impl": kit_hub.pd, "ts_runner": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
-            "load_locked_batteries": codekit_decisions, "Engine.verify_delivery": kit_hub.Engine, "Engine.auto_jev": kit_hub.Engine}.get(name, kit_hub)
+            "load_locked_batteries": codekit_decisions, "Engine.verify_delivery": kit_hub.Engine, "Engine.auto_jev": kit_hub.Engine,
+            "Hub.deliver": kit_hub.Hub}.get(name, kit_hub)
 
 
 def _flow_install(name, original, make):
@@ -1977,6 +2044,30 @@ def _flow_changes(roots, before):
 _REAL_POPEN = subprocess.Popen
 #: ⑤i1：探针载入时的 pid_alive。判断目录锁有没有活的持有者时用它（用例可能把 pd.pid_alive 换掉了）
 _REAL_PID_ALIVE = kit_hub.pd.pid_alive
+#: ⑤i2：DirLock 接管时问的 pid_alive 不录也不注入，两边都用真的（TS 的 DirLock 自己判断，⑤i 设计稿第 3 节）。这一次最外层调用里，
+#: 用例换掉了 pid_alive、DirLock 又问过它时记下，那次调用不重放
+_DIRLOCK_FAKE_PID = [False]
+#: 探针载入时 DirLock.__enter__ 的代码：采样期间 __enter__ 外面套了一层（记拿过的锁），pid_alive 仍由原来的 __enter__ 调
+_DIRLOCK_ENTER_CODE = kit_hub.DirLock.__enter__.__code__
+#: ⑤i2：这一次最外层调用里拿过（DirLock）或探过（lock_alive）的目录锁。活锁的跳过只看这些（themistally-04 要的：跳过收窄到调用
+#: 真的拿过或探过的那把锁；串行 hub 的 .runner 由 cmd_run 拿着，requeue_interrupted、step 都不碰它）
+_TOUCHED_LOCKS = []
+
+
+def _from_dirlock(frame):
+    return frame.f_code is _DIRLOCK_ENTER_CODE
+
+
+def _touched_locks(hub):
+    """_TOUCHED_LOCKS 里在 hub 底下的，写成相对 hub.root 的路径（同 _live_locks）。"""
+    root = Path(hub.root).resolve()
+    found = set()
+    for path in _TOUCHED_LOCKS:
+        try:
+            found.add(Path(path).resolve().relative_to(root).as_posix())
+        except ValueError:
+            pass
+    return found
 
 
 def _flow_git(roots):
@@ -2028,6 +2119,8 @@ def _flow_inner_call(name, args, kwargs):
         return {"fn": name, "agent": args[0]}
     if name in ("Engine.verify_delivery", "Engine.auto_jev"):  # ⑤i1：第一个参数是 Engine 本身，不比
         return {"fn": name, "args": to_tagged(_plain(list(args[1:])))}
+    if name == "release_held":  # ⑤i2：只有 hub 一个参数
+        return {"fn": name, "repo": str(args[0].repo)}
     if name in FLOW_INNER_I:  # ⑤i1：hub、ts 之外的参数也比
         return {"fn": name, "repo": str(args[0].repo), "ts": to_tagged(_plain(args[1])), "rest": to_tagged(_plain(list(args[2:])))}
     if name == "run_pd":
@@ -2078,6 +2171,9 @@ def _flow_inner_call(name, args, kwargs):
 def _flow_recorder(name, fn, roots, inner, busy):
     """采样：用例换上的内层函数包一层，记参数、交回值或异常、调用期间的文件改动、调用之后的 ts。假函数里面再调名单上的不另录。"""
     def record(*args, **kwargs):
+        if name == "pid_alive" and _from_dirlock(sys._getframe(1)):
+            _DIRLOCK_FAKE_PID[0] = _DIRLOCK_FAKE_PID[0] or fn is not _REAL_PID_ALIVE
+            return fn(*args, **kwargs)
         if busy[0]:
             return fn(*args, **kwargs)
         entry = _flow_inner_call(name, args, kwargs)
@@ -2114,6 +2210,8 @@ def _flow_recorder(name, fn, roots, inner, busy):
 def _flow_injector(name, queue, roots):
     """重放：照记录注入内层调用。参数逐次核对，对不上或多调报 _InjectionMismatch；照记录写文件、删文件、原地改 ts，再交回或抛出。"""
     def inject(*args, **kwargs):
+        if name == "pid_alive" and _from_dirlock(sys._getframe(1)):
+            return _REAL_PID_ALIVE(*args, **kwargs)  # ⑤i2：同 _flow_recorder，DirLock 接管时用真的，不消耗记录
         got = _flow_inner_call(name, args, kwargs)
         expected = queue.pop(0) if queue else None
         if expected is None or any(expected.get(key) != value for key, value in got.items()):
@@ -2151,10 +2249,16 @@ def _flow_injector(name, queue, roots):
     return inject
 
 
+def _flow_peek(roots, rel):
+    """⑤i2：调用当时某个文件的内容（不是文件记 None）：剧本一项的 peek（C06），与投信那一刻的 peek_deliver（T06）。"""
+    path = _flow_path(roots, rel)
+    return open(path, "rb").read().decode("utf-8") if os.path.isfile(path) else None
+
+
 def _flow_scripted(name, items, calls, roots):
     """⑤i1 手写场景的剧本（request["scripted"]）：照剧本按次交回、不核对参数，每次调用的参数照 _flow_inner_call 记进 calls，随结果交回、
     三边互相比。剧本的一项：value（带标签），或 raise（[类名, 文字, 退出码]，HubError 一族）；files 照 _flow_injector 写进几棵树；listing 是一个目录，
-    调用当时它下面的文件名记进这次调用（L01：合入后回归的窗口标记只在窗口开着时在）。"""
+    调用当时它下面的文件名记进这次调用（L01：合入后回归的窗口标记只在窗口开着时在）；peek 是一个文件，调用当时它的内容记进这次调用。"""
     queue = list(items)
 
     def scripted(*args, **kwargs):
@@ -2170,12 +2274,32 @@ def _flow_scripted(name, items, calls, roots):
         if "listing" in item:  # 调用当时某个目录下的文件名（按码点排；不是目录记 None），记进这次调用
             folder = _flow_path(roots, item["listing"])
             calls[-1]["listing"] = sorted(os.listdir(folder)) if os.path.isdir(folder) else None
+        if "peek" in item:  # ⑤i2 C06：协调人回合进行中的在办标记
+            calls[-1]["peek"] = _flow_peek(roots, item["peek"])
+        for path, data in item.get("ts_set") or []:  # ⑤i2 跑到静止：照剧本改 ts（键的路径加新值，带标签），两边只照着套用
+            target = args[1]  # Engine 的方法第一个参数是 Engine 本身，ts 也在第二个
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = from_tagged(data)
         if "raise" in item:
             kind, message, code = item["raise"]
             raise getattr(kit_hub, kind)(message, code)
         value = from_tagged(item["value"])
         return Path(value) if name in ("worktree_root", "ensure_worktree", "apply_candidate") else value
     return scripted
+
+
+def _flow_runner_by_agent(scripted, calls, roots):
+    """⑤i2 跑到静止：回合剧本按 agent 分开（"runner:<agent>"），各自照次交回；记下的调用同 runner。剧本里没有这个 agent 时报 RuntimeError
+    （step 接住，写阻塞信给站主），两边一样。"""
+    queues = {key.split(":", 1)[1]: _flow_scripted("runner", items, calls, roots) for key, items in scripted.items() if key.startswith("runner:")}
+
+    def run(*args, **kwargs):
+        agent = dict(zip(RUNNER_ARGS, args), **kwargs)["agent"]
+        if agent not in queues:
+            raise RuntimeError("剧本里没有 %s 的回合" % agent)
+        return queues[agent](*args, **kwargs)
+    return run
 
 
 def _jev_session(endpoint, key):
@@ -2221,8 +2345,11 @@ def _flow_call(fn, hub, args, rest, queue, roots, request, runner=None):
     if not _flow_i(fn):
         return (lambda: getattr(kit_hub, fn)(hub, *args[1:2], *rest)), None
     runner = runner or _flow_injector("runner", queue, roots)  # 手写场景给了剧本就照剧本
-    if fn == "release_dependents":
-        target, given = kit_hub.release_dependents, [hub] + list(args[1:])
+    if fn == "quiesce":  # ⑤i2 跑到静止：参数是仓库、only_task、最多几步
+        engine = kit_hub.Engine(hub, runner=_RunnerProxy(runner), only_task=args[1])
+        return (lambda: _quiesce(hub, engine, request["pin"], args[1], args[2])), None
+    if fn in FLOW_I_FUNCTIONS and fn != "land":  # release_dependents 与 ⑤i2 的续接一族：模块函数，第一个参数是 hub
+        target, given = getattr(kit_hub, fn), [hub] + list(args[1:])
     elif fn == "land":
         if request.get("fake_engine"):
             engine = _EngineProxy(_flow_injector("engine.handle_pass", queue, roots), _flow_injector("engine.after_land", queue, roots))
@@ -2232,8 +2359,8 @@ def _flow_call(fn, hub, args, rest, queue, roots, request, runner=None):
     else:
         engine = kit_hub.Engine(hub, runner=_RunnerProxy(runner), only_task=args[1])
         target, given = getattr(kit_hub.Engine, fn.split(".", 1)[1]), [engine] + list(args[2:])
-        if fn == "Engine.worker_job":
-            given[3] = [Path(item) for item in given[3]]
+        if fn in FLOW_ENGINE_PATH_LISTS:  # 一组路径（paths）的参数位置，前面多一个 Engine
+            given[FLOW_ENGINE_PATH_LISTS[fn] + 1] = [Path(item) for item in given[FLOW_ENGINE_PATH_LISTS[fn] + 1]]
         for index in FLOW_ENGINE_PATHS.get(fn, ()):  # 方法参数的位置，前面多一个 Engine
             given[index + 1] = None if given[index + 1] is None else Path(given[index + 1])
     bound = inspect.signature(target).bind(*given)
@@ -2299,10 +2426,16 @@ def op_hub_contract_flow(request):
     # ⑤i1 手写场景：照剧本交回的内层函数（runner 另由 _flow_call 用），调用完还原
     scripted, script_calls = request.get("scripted") or {}, []
     for name, items in scripted.items():
-        if name != "runner":
+        if name != "runner" and not name.startswith("runner:"):
             saved.setdefault(name, getattr(_flow_target(name), _flow_attr(name)))
             setattr(_flow_target(name), _flow_attr(name), _flow_scripted(name, items, script_calls, roots))
     runner = _flow_scripted("runner", scripted["runner"], script_calls, roots) if "runner" in scripted else None
+    if runner is None and any(name.startswith("runner:") for name in scripted):
+        runner = _flow_runner_by_agent(scripted, script_calls, roots)
+    peeks = []  # ⑤i2 T06：每次投信那一刻 peek_deliver 那个文件的内容，随结果交回（代办的在办标记只在投信前后那一刻在）
+    if request.get("peek_deliver"):
+        real_deliver = saved.setdefault("Hub.deliver", kit_hub.Hub.deliver)
+        kit_hub.Hub.deliver = lambda self, *more, **kw: (peeks.append(_flow_peek(roots, request["peek_deliver"])), real_deliver(self, *more, **kw))[1]
     call, bound = _flow_call(fn, hub, args, rest, queue, roots, request, runner)
     try:
         value = call()
@@ -2335,6 +2468,8 @@ def op_hub_contract_flow(request):
     state = _flow_state(result, shown_ts, roots, before, ledger, offset, after)
     if scripted:
         state["scripted_calls"] = script_calls
+    if peeks:
+        state["deliver_peeks"] = peeks
     return {"ok": True, "value": state}
 
 
@@ -2494,10 +2629,10 @@ def op_hub_audit_samples(request):
             if name == "run_exec" and kit_hub.EXEC_LAND_WAIT_SECONDS != land_wait:
                 # ⑤g2：用例自己拿着落地锁、等锁时限改短了（落地锁被占的那一条）。重放时拿锁的已经不在，不重放，契约钉住只跳这一条
                 entry["skip"] = "EXEC_LAND_WAIT_SECONDS=%r" % (kit_hub.EXEC_LAND_WAIT_SECONDS,)
+            # ⑤i1：目录锁有活的持有者时，重放时持有者已经不在，接管与否两边不同，不重放（由手写场景覆盖）。⑤i2：只算这次调用拿过或
+            # 探过的锁，调用之后再定
+            held = _live_locks(hub) if flow_i and Path(hub.repo).exists() else []
             if flow_i:
-                held = _live_locks(hub) if Path(hub.repo).exists() and name not in FLOW_LOCK_FREE else []
-                if held:  # ⑤i1：重放时持有者已经不在，接管与否两边不同，不重放（由手写场景覆盖）
-                    entry["skip"] = "调用当时有活的持有者：%s" % "、".join(held)
                 entry["overrides"] = overrides()
                 entry["constants"] = {key: plain(getattr(kit_hub, key)) for key, item in constants.items() if getattr(kit_hub, key) is not item}
                 state, ts_given = bound.arguments.get("state"), bound.arguments.get("ts")
@@ -2531,6 +2666,8 @@ def op_hub_audit_samples(request):
             if fake:
                 bound.arguments["engine"] = _EngineProxy(_flow_recorder("engine.handle_pass", engine.handle_pass, roots, inner, busy),
                                                          _flow_recorder("engine.after_land", engine.after_land, roots, inner, busy))
+            _DIRLOCK_FAKE_PID[0] = False
+            _TOUCHED_LOCKS.clear()
             depth[0] += 1
             raised = None
             try:
@@ -2553,6 +2690,12 @@ def op_hub_audit_samples(request):
                         os.environ[key] = original
             entry["roots"] = [str(root) for root in roots]
             entry["fresh"] = [str(root) for root in roots[known:]]
+            touched = _touched_locks(hub) if held else set()
+            blocked = [item for item in held if item in touched]
+            if blocked and not entry.get("skip"):
+                entry["skip"] = "调用当时有活的持有者：%s" % "、".join(blocked)
+            if flow_i and _DIRLOCK_FAKE_PID[0] and not entry.get("skip"):
+                entry["skip"] = "DirLock 接管时问的是用例换掉的 pid_alive（重放时两边都用真的）"
             entry["inner"] = json.dumps(inner, ensure_ascii=False)
             after = _flow_after(bound) if flow_i else None
             entry["result"] = json.dumps(_flow_state(result, bound.arguments.get("ts"), roots, before, ledger, offset, after), ensure_ascii=False)
@@ -2667,6 +2810,16 @@ def op_hub_audit_samples(request):
     for name, fn in originals.items():
         setattr(*_owner_attr(name), flow_recorder(name, fn) if name in flow_functions else recorder(name, fn))
     installed.update({name: getattr(_flow_target(name), _flow_attr(name)) for name in FLOW_INNER + FLOW_INNER_I})
+    real_enter, real_alive = kit_hub.DirLock.__enter__, kit_hub.lock_alive
+
+    def entering(lock):  # ⑤i2：记下拿过的锁（_TOUCHED_LOCKS）
+        _TOUCHED_LOCKS.append(Path(lock.path))
+        return real_enter(lock)
+
+    def probing(path):  # ⑤i2：记下探过的锁
+        _TOUCHED_LOCKS.append(Path(path))
+        return real_alive(path)
+    kit_hub.DirLock.__enter__, kit_hub.lock_alive = entering, probing
     original_run = kit_hub.TurnRunner.run
     if "TurnRunner.run" in request["functions"]:
         kit_hub.TurnRunner.run = turn_recorder(original_run)
@@ -2698,6 +2851,9 @@ def op_hub_audit_samples(request):
                 kwargs["engine_env"] = raw(cases.engine_env)(tmp, patch)
             if "kernel_routing" in params:  # ⑤i1：打开协调人的内核代办（6 条用例）
                 kwargs["kernel_routing"] = raw(cases.kernel_routing)(patch)
+            out_buf, err_buf = io.StringIO(), io.StringIO()
+            if "capsys" in params:  # ⑤i2
+                kwargs["capsys"] = _Capsys(out_buf, err_buf)
             current[0] = test
             # 照 pytest 截下用例的输出（⑤e1a）：有的用例经 hub 往标准输出打印中文，探针的 stdout 不是 UTF-8 时会崩在打印上。
             # undo 也在截下的范围里：用例用 monkeypatch 换过 sys.stdout 的，undo 会还原成这里的 StringIO。
@@ -2708,7 +2864,7 @@ def op_hub_audit_samples(request):
             os.dup2(sink, 1)
             os.dup2(sink, 2)
             try:
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
                     try:
                         fn(**kwargs)
                     except BaseException as exc:  # noqa: BLE001  pytest.skip 抛的是 BaseException 的子类
@@ -2727,6 +2883,7 @@ def op_hub_audit_samples(request):
     finally:
         for name, fn in originals.items():
             setattr(*_owner_attr(name), fn)
+        kit_hub.DirLock.__enter__, kit_hub.lock_alive = real_enter, real_alive
         kit_hub.TurnRunner.run = original_run
         kit_hub.stage_inputs = original_stage
         for name, value in saved_env.items():
