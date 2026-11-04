@@ -1,0 +1,20 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-handoff.contract.test.ts",
+  "-t",
+  "命令表"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "J19 kit_hub.main 不设 quiet_error_mode（themistally-04 抽查 V19）",
+   "file": "scripts/kit_hub.py",
+   "old": "    pd.quiet_error_mode()  # supervisor、runner 与它们起的门禁、执行器都继承（第 123 轮）\n",
+   "new": ""
+  }
+ ]
+}

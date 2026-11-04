@@ -1,0 +1,94 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kernel_impl.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "P01 Job 不许脱离（少 0x800）",
+   "file": "scripts/pi_dispatch.py",
+   "old": "0x2000 | (0x800 if breakaway else 0)",
+   "new": "0x2000"
+  },
+  {
+   "name": "P02 run_handoff 的 breakaway 没传到 _WinJob",
+   "file": "scripts/pi_dispatch.py",
+   "old": "job = _WinJob(breakaway)",
+   "new": "job = _WinJob()"
+  },
+  {
+   "name": "P03 kit_hub 的转交不传 breakaway",
+   "file": "scripts/kit_hub.py",
+   "old": "pd.ts_launch_command(hub_handoff(args, impl)), breakaway=True)",
+   "new": "pd.ts_launch_command(hub_handoff(args, impl)))"
+  },
+  {
+   "name": "P04 pd 的 readonly 转交误传 breakaway",
+   "file": "scripts/pi_dispatch.py",
+   "old": "            pyargs = readonly_handoff(args)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs))",
+   "new": "            pyargs = readonly_handoff(args)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs), breakaway=True)"
+  },
+  {
+   "name": "P05 pd 的 config 转交误传 breakaway",
+   "file": "scripts/pi_dispatch.py",
+   "old": "            pyargs = config_handoff(args)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs))",
+   "new": "            pyargs = config_handoff(args)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs), breakaway=True)"
+  },
+  {
+   "name": "P06 pd 的 dispatcher 转交误传 breakaway",
+   "file": "scripts/pi_dispatch.py",
+   "old": "            pyargs = dispatcher_handoff(args, impl)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs))",
+   "new": "            pyargs = dispatcher_handoff(args, impl)\n            if pyargs is not None:\n                return run_handoff(ts_launch_command(pyargs), breakaway=True)"
+  },
+  {
+   "name": "P07 pd 的 ui 转交误传 breakaway",
+   "file": "scripts/pi_dispatch.py",
+   "old": "kernel=str(Path(__file__).resolve()))\n    return run_handoff(ts_launch_command(pyargs))",
+   "new": "kernel=str(Path(__file__).resolve()))\n    return run_handoff(ts_launch_command(pyargs), breakaway=True)"
+  },
+  {
+   "name": "P08 command 不加 hub 前缀",
+   "file": "scripts/kit_hub.py",
+   "old": "\"command\": [\"hub\"] + list(path)",
+   "new": "\"command\": list(path)"
+  },
+  {
+   "name": "P09 context 漏 executable",
+   "file": "scripts/kit_hub.py",
+   "old": "\"executable\": sys.executable,\n",
+   "new": "\n"
+  },
+  {
+   "name": "P10 context 漏 kit_hub",
+   "file": "scripts/kit_hub.py",
+   "old": "\"executable\": sys.executable,\n                        \"kit_hub\": str(Path(__file__))}}",
+   "new": "\"executable\": sys.executable}}"
+  },
+  {
+   "name": "P11 选择文件读在 parse_args 之后",
+   "file": "scripts/kit_hub.py",
+   "old": "    try:\n        impl = pd.read_kernel_impl()  # 格式错就拒绝运行，-h 也一样（同 pi_dispatch.main，迁移计划第 5 节）\n    except pd.DispatchError as exc:\n        print(\"ERROR: %s\" % exc, file=sys.stderr)\n        return exc.code\n    args = build_parser().parse_args(argv)\n",
+   "new": "    args = build_parser().parse_args(argv)\n    try:\n        impl = pd.read_kernel_impl()  # 格式错就拒绝运行，-h 也一样（同 pi_dispatch.main，迁移计划第 5 节）\n    except pd.DispatchError as exc:\n        print(\"ERROR: %s\" % exc, file=sys.stderr)\n        return exc.code\n"
+  },
+  {
+   "name": "P12 namespace 漏键",
+   "file": "scripts/kit_hub.py",
+   "old": "{key: getattr(args, key) for key in keys}",
+   "new": "{key: getattr(args, key) for key in keys if key != \"repo\"}"
+  },
+  {
+   "name": "P13 hub 选 python 也转交",
+   "file": "scripts/kit_hub.py",
+   "old": "if impl[\"hub\"] == \"ts\":",
+   "new": "if impl[\"hub\"] in (\"ts\", \"python\"):"
+  }
+ ]
+}

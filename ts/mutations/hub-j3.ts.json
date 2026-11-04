@@ -1,0 +1,124 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-handoff.contract.test.ts",
+  "packages/contracts/test/schemas.test.ts",
+  "packages/contracts/test/hub-runner-scenes.contract.test.ts",
+  "-t",
+  "⑤j3"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "J01 长命子进程不脱离 Job",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "{ stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);",
+   "new": "{ stdin, stdout, stderr }, 0);"
+  },
+  {
+   "name": "J02 长命子进程另起进程组",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "{ stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);",
+   "new": "{ stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB | 0x200);"
+  },
+  {
+   "name": "J03 context.executable 换成 process.execPath",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "setKernelPython(context.executable);",
+   "new": "setKernelPython(process.execPath);"
+  },
+  {
+   "name": "J04 不设 context.kit_hub",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "  setKitHub(context.kit_hub);\n",
+   "new": ""
+  },
+  {
+   "name": "J05 runHub 不用启动器的 context",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "  useLauncherContext(context);\n  try {",
+   "new": "  try {"
+  },
+  {
+   "name": "J06 setKitHub 不生效",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  kitHubPath = path;",
+   "new": "  void path;"
+  },
+  {
+   "name": "J07 hubArgv 照旧用 SCRIPTS_DIR 下的 kit_hub.py",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[kernelPython(), kitHubPath, \"--repo\", hub.repo]",
+   "new": "[kernelPython(), join(SCRIPTS_DIR, \"kit_hub.py\"), \"--repo\", hub.repo]"
+  },
+  {
+   "name": "J08 整数样的 float 解码成 int",
+   "file": "ts/packages/cli/src/main.ts",
+   "old": "  if (Array.isArray(value)) return value.map(plain);\n  return value;",
+   "new": "  if (Array.isArray(value)) return value.map(plain);\n  return typeof value === \"number\" && Number.isInteger(value) ? BigInt(value) : value;"
+  },
+  {
+   "name": "J09 HubError 不写 ERROR:",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "out.printErr(`ERROR: ${error.message}`);",
+   "new": "out.printErr(error.message);"
+  },
+  {
+   "name": "J10 退出码不照 exc.code",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "    return error.code;",
+   "new": "    return 1;"
+  },
+  {
+   "name": "J11 路径错位",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "[\"metrics\", cmdMetrics],",
+   "new": "[\"metrics\", cmdStatus],"
+  },
+  {
+   "name": "J12 入口不认 hub",
+   "file": "ts/packages/cli/src/main.ts",
+   "old": "if (args.command[0] === \"hub\") {",
+   "new": "if (args.command[0] === \"hub-off\") {"
+  },
+  {
+   "name": "J13 namespace 不拆出来",
+   "file": "ts/packages/cli/src/main.ts",
+   "old": "args[\"namespace\"] as CommandArgs",
+   "new": "args as unknown as CommandArgs"
+  },
+  {
+   "name": "J14 readStdin 去掉 ignoreBOM",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "new TextDecoder(\"utf-8\", { ignoreBOM: true })",
+   "new": "new TextDecoder(\"utf-8\")"
+  },
+  {
+   "name": "J15 readStdin 不换通用换行",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "  return decoded.split(CR + LF).join(LF).split(CR).join(LF);",
+   "new": "  return decoded;"
+  },
+  {
+   "name": "J16 命令表少 owner-sweep",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "  [\"owner-sweep\", cmdOwnerSweep],\n",
+   "new": ""
+  },
+  {
+   "name": "J17 runHub 只接 HubError（themistally-04 抽查 V10）",
+   "file": "ts/packages/hub/src/cli.ts",
+   "old": "if (!(error instanceof HubError || error instanceof DispatchError)) throw error;",
+   "new": "if (!(error instanceof HubError)) throw error;"
+  },
+  {
+   "name": "J18 context.kit_hub 先 resolve（themistally-04 抽查 V02）",
+   "file": "scripts/kit_hub.py",
+   "old": "\"kit_hub\": str(Path(__file__))}}",
+   "new": "\"kit_hub\": str(Path(__file__).resolve())}}"
+  }
+ ]
+}

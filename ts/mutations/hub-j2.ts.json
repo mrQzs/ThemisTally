@@ -596,13 +596,13 @@
   {
    "name": "P03 不用 cwd",
    "file": "ts/packages/hub/src/runner.ts",
-   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0);",
-   "new": "api.spawn(list2cmdline(argv), null, null, { stdin, stdout, stderr }, 0);"
+   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);",
+   "new": "api.spawn(list2cmdline(argv), null, null, { stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);"
   },
   {
    "name": "P04 flags 写成 CREATE_NEW_PROCESS_GROUP",
    "file": "ts/packages/hub/src/runner.ts",
-   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0);",
+   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);",
    "new": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0x200);"
   },
   {

@@ -6623,6 +6623,42 @@ def cmd_exclusive(args: argparse.Namespace) -> int:
     return code
 
 
+_TASK_KEYS = ("repo", "command", "task_command", "task")
+#: 选择文件的 hub 是 ts 时转交的命令（迁移第 ⑤j3 片）：命令函数 → （子命令路径，Namespace 里除 func 以外的键）。认命令照 args.func：
+#: exclusive 的余参也叫 command，它的 args.command 是要跑的命令，不是子命令名。
+HUB_COMMANDS: Dict[Any, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
+    cmd_init: (("init",), ("repo", "command")),
+    cmd_task_new: (("task", "new"), _TASK_KEYS + ("slug", "title", "brief", "no_jev", "after")),
+    cmd_task_close: (("task", "close"), _TASK_KEYS + ("ref", "file")),
+    cmd_task_rebase: (("task", "rebase"), _TASK_KEYS + ("reason",)),
+    cmd_task_after: (("task", "after"), _TASK_KEYS + ("on", "reason")),
+    cmd_task_unstick: (("task", "unstick"), _TASK_KEYS + ("stage", "reason")),
+    cmd_task_budget: (("task", "budget"), _TASK_KEYS + ("attempts", "reason")),
+    cmd_task_cleanup: (("task", "cleanup"), _TASK_KEYS),
+    cmd_send: (("send",), ("repo", "command", "task", "type", "file", "reply_to", "rework", "facts_checked", "decision",
+                           "no_decision")),
+    cmd_exec_recheck: (("exec-recheck",), ("repo", "command", "task")),
+    cmd_take: (("take",), ("repo", "command", "peek")),
+    cmd_metrics: (("metrics",), ("repo", "command", "json")),
+    cmd_status: (("status",), ("repo", "command", "json")),
+    cmd_run: (("run",), ("repo", "command", "max_steps", "idle_exit", "poll", "settle", "no_restart", "parallel", "task",
+                         "allow_dirty_kernel")),
+    cmd_exclusive: (("exclusive",), ("repo", "command", "wait")),
+    cmd_owner_sweep: (("owner-sweep",), ("repo", "command")),
+}
+
+
+def hub_handoff(args: argparse.Namespace, impl: Dict[str, str]) -> Dict[str, Any]:
+    """交给 TS 的参数（pyargs-v1）。command 是 ["hub", 子命令路径…]：pi_dispatch 的 status、run、metrics 与之同名。namespace 是
+    HUB_COMMANDS 列的键，取值原样。context 同 pi_dispatch.dispatcher_handoff，另加 executable 与 kit_hub：TS 起换代、主任务 runner、
+    owner-sweep 用的就是这两项，都照 Python 起它们时的写法原样，不 resolve（8.3 短路径 resolve 之后命令行就不同了）。"""
+    path, keys = HUB_COMMANDS[args.func]
+    return {"command": ["hub"] + list(path), "namespace": {key: getattr(args, key) for key in keys},
+            "context": {"kit_root": str(pd.KIT_ROOT), "kernel_impl": dict(impl), "platform": pd.platform.platform(),
+                        "python": pd.platform.python_version(), "executable": sys.executable,
+                        "kit_hub": str(Path(__file__))}}
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     pd.quiet_error_mode()  # supervisor、runner 与它们起的门禁、执行器都继承（第 123 轮）
     # 控制台代码页不是 UTF-8 时（例如 cp1252）：中文输出会抛错，`send` 从管道读进来的中文会变成乱码
@@ -6631,8 +6667,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
         except (AttributeError, ValueError):
             pass
+    try:
+        impl = pd.read_kernel_impl()  # 格式错就拒绝运行，-h 也一样（同 pi_dispatch.main，迁移计划第 5 节）
+    except pd.DispatchError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return exc.code
     args = build_parser().parse_args(argv)
     try:
+        if impl["hub"] == "ts":
+            # 换代、主任务 runner、owner-sweep 要比启动器活得久：启动器的 Job 许它们脱离（TS 起它们时带 CREATE_BREAKAWAY_FROM_JOB）
+            return pd.run_handoff(pd.ts_launch_command(hub_handoff(args, impl)), breakaway=True)
         return int(args.func(args))
     except HubError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)

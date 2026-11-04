@@ -1241,3 +1241,18 @@ COVERED 31。⑤j1 一节里剩 ⑤j2 的 24 条在这一片都比到了；3883 
 - A03–A05（4705）：worktree add 不重试；重试之间不睡；睡的秒数翻倍。
 - A06–A08（4796）：守卫不看依赖；依赖放行了也挡；规划也被依赖挡。
 - A09（7055）：标记挂在拿 .sweep 之前。
+
+转交（第二个提交，⑤j3 设计稿第 1–4、6–8 节）：
+- 选择文件的 hub 是 ts 时，kit_hub.py 的 main 把 argparse 解析好的参数交给 TS；TS 入口照 command 的 hub 前缀交给 @themis/hub/cli 的 runHub。
+- 3883 的字节：hub-handoff 的命令表场景经真启动器用管道送 UTF-8 字节，hub 选 python 与 ts 两边逐字比退出码、输出与整个信箱。三种情形：
+  - 普通中文，中间一个 CRLF；
+  - 开头带 BOM，摘要留下 U+FEFF；
+  - 四行各 499 字、CRLF 隔开，换成 LF 恰好 2000 字，照常投出：上限照通用换行之后的字数算，信里按 splitlines 分行，只有这里看得出 CR。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_owner_reply_piped_on_a_non_utf8_console_keeps_its_text` | 3883 | COVERED | hub-handoff「命令表……（3883）」：经真启动器用管道送字节，两边信箱逐字相同。用例的 cp1252 包装在 Python 进程里；经启动器时 kit_hub.main 先把三条流重设成 UTF-8，TS 照字节按 UTF-8 解码（ignoreBOM、通用换行） |
+
+全表合计（机械核对，每条用例取最后一行的状态）：tests/test_kit_hub.py 共 299 条，都有行；COVERED 299。
+
+变异：变异：hub-j3.ts.json 18 条（三个契约文件里标题带 ⑤j3 的 10 条 it）。前 16 条第一遍抓住 15 条；漏掉的 J15（readStdin 不换通用换行）只在 2000 字的上限上看得出（信按 splitlines 分行），补了恰好卡在上限上的一条，连同先前靠超时才抓住的 J05（嵌套那条的等待加了时限）重跑，都抓住。hub-j3.py.json 13 条（pytest tests/test_kernel_impl.py，基准 180 passed）全部抓住。三份结果的 files_left_modified 都是空的。themistally-04 在 v17 上抽查 V10（runHub 只接 HubError）漏网：补了 find_repo 三种报错的场景（DispatchError 一路抛到 kit_hub.main），加进清单成 J17，抓住。V02（context.kit_hub 先 resolve）也漏网：补了经 8.3 短写法起启动器的两条场景（交给 TS 的 context.kit_hub；Python 起 owner-sweep 的第二项），加进清单成 J18，抓住。J18 改的是 kit_hub.py，内核文件跟着不干净、要起 run 的场景都会挂，所以核它的是 hub 选 ts 的 status 那一条（不看内核），日志里挂的正是它。V19（kit_hub.main 不设 quiet_error_mode）先前算抓住是假的：错误模式从跑 mutate 的 pd.main 一路继承下来，启动器设不设都一样，挂的是要内核干净的脱离那条。hub_launcher 在 import kit_hub 之前先 SetErrorMode(0)；另起 hub-j3-errmode.ts.json 只跑命令表那条，J19 抓住：Python 一边 exclusive 的孙进程读到 0，TS 一边是 32771（Bun 自己设）。

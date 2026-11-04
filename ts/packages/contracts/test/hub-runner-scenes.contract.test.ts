@@ -284,6 +284,30 @@ describe("第 ⑤j2 片：变异检验补的（手写，剧本交回内层函数
     expect([returned(restarted), seconds(restarted), calls(restarted, "spawn_runner").length]).toEqual([0n, [0.1], 1]);
   }, 1_800_000);
 
+  it("⑤j3：经启动器转交时，串行 hub 与 supervisor 换代起的是启动器给的 Python 与 kit_hub.py（只有 TS：context 是转交才有的）", () => {
+    // 两个标记路径不存在、也不会被起：spawn_runner 照剧本交回，命令行照原样记下
+    const context = { executable: "C:/launcher-mark/python.exe", kit_hub: "C:/launcher-mark/kit_hub.py" };
+    const serial = hubScene();
+    const parallel = hubScene();
+    const requests = [
+      { ...flow("cmd_run", serial, [runArgs(serial.repo, { no_restart: false, settle: 5, poll: 0.05 })]), context,
+        scripted: { ...quiet, code_fingerprint: fingerprints(2), kernel_dirty: [value(false)], spawn_runner: [value(0)] } },
+      { ...flow("cmd_run", parallel, [runArgs(parallel.repo, { parallel: 2, no_restart: false, settle: 5, poll: 0.05, idle_exit: 3600 })]), context,
+        scripted: { kernel_changes: [value([])], code_fingerprint: fingerprints(2), kernel_dirty: [value(false)], spawn_runner: [value(0)] } },
+    ];
+    for (const impl of [TS_NODE, TS_BUN]) {
+      const [run, supervisor] = runBatch(impl, requests, REPLAY_TIMEOUT).map((result) => result["value"] as Record<string, unknown>);
+      // 第四项是 find_repo 解析出来的仓库路径（长路径），与这里的写法可能不同，不比
+      const argv = (state: Record<string, unknown> | undefined): unknown[] => {
+        const recorded = calls(state, "spawn_runner")[0]?.["argv"] as string[];
+        return [recorded.slice(0, 3), recorded.slice(4)];
+      };
+      const head = [context.executable, context.kit_hub, "--repo"];
+      expect(argv(run), impl.name).toEqual([head, ["run", "--max-steps", "5", "--idle-exit", "0", "--poll", "0.05", "--settle", "5"]]);
+      expect(argv(supervisor), impl.name).toEqual([head, ["run", "--parallel", "2", "--max-steps", "5", "--idle-exit", "3600", "--poll", "0.05", "--settle", "5"]]);
+    }
+  }, 1_800_000);
+
   it("supervise：拿着总锁的期间锁目录里有 mode；supervise_tick 不放回挂着活暂停标记的主任务（R78、R70）", () => {
     const sc = hubScene();
     const paused = twoTasks((repo) => put(repo, `${BOX}/.pause/T002`, JSON.stringify({ pid: BLOCKER })));

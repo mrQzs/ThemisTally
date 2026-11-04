@@ -5,6 +5,7 @@
   "exports": {
     "./accept": "./src/accept.ts",
     "./audit": "./src/audit.ts",
+    "./cli": "./src/cli.ts",
     "./commands": "./src/commands.ts",
     "./constants": "./src/constants.ts",
     "./contract": "./src/contract.ts",

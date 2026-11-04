@@ -811,8 +811,8 @@ function lenOf(value: PyValue): number {
 }
 
 /**
- * sys.stdin.read()：main 已把标准输入重设成 UTF-8（errors="replace"），通用换行。经启动器、管道送字节的情形归 ⑤j3 实测
- * （3883，themistally-04 定的），j1 的契约换成采样时读到的文字。
+ * sys.stdin.read()：main 已把标准输入重设成 UTF-8（errors="replace"），通用换行。经启动器、管道送字节的情形由 hub-handoff 契约的命令表
+ * 场景核（3883，⑤j3）；j1 的契约换成采样时读到的文字。
  */
 function readStdin(): string {
   const CR = String.fromCharCode(13);

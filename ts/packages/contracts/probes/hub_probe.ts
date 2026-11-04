@@ -40,8 +40,9 @@ import {
 } from "@themis/hub/commands";
 import {
   type ChildLike, type ChildLog, REAL_RUNNER_DEPS, type RunnerDeps, cmdExclusive, cmdOwnerSweep, cmdRun, codeFingerprint, kernelChanges, kernelDirty, kernelFiles, kernelSelection,
-  ownerSweepTick, pauseRequested, refuseDirtyKernel, spawnRunner, spawnTaskRunner, superviseTick,
+  ownerSweepTick, pauseRequested, refuseDirtyKernel, setKitHub, spawnRunner, spawnTaskRunner, superviseTick,
 } from "@themis/hub/runner";
+import { type HubContext, useLauncherContext } from "@themis/hub/cli";
 import {
   finishedTurn, interruptedLetters, lettersHeld, reportStrandedExec, requeueInterrupted, requeueLetters, requeueTask, runnerLock, runnerMayIdleExit,
   strandedStages, supervisorBusy, tasksWithWork,
@@ -996,8 +997,11 @@ function procShown(value: unknown): PyValue {
   return value as PyValue;
 }
 
+let rawArgv = false;
+
 /** 起子进程的命令行：Python 与 kit_hub.py 的路径换成占位（同 python_probe.py 的 _argv_shown；TS 起的是同一个启动器，路径各自取）。 */
 function argvShown(argv: readonly string[]): string[] {
+  if (rawArgv) return [...argv];
   const real = (path: string): string => {
     try {
       return normcase(realpathSync.native(path));
@@ -1461,6 +1465,11 @@ function engineDepsOf(gateDeps: GatePostDeps, landDeps: LandDeps, sweepDeps: Swe
 export async function hubContractFlow(request: Record<string, unknown>, fromTagged: (tagged: never) => PyValue, toTagged: (value: PyValue) => unknown): Promise<Result> {
   for (const item of (request["restores"] as Restore[] | undefined) ?? []) restoreTree(item);
   if (typeof request["python"] === "string") setKernelPython(request["python"]);
+  // ⑤j3：只有 TS 一边的场景给 context（启动器转交时 runHub 设的两项），这时起子进程的命令行照原样记；没给时还原，批量重放里不串到下一条
+  const launcher = request["context"] as HubContext | undefined;
+  if (launcher === undefined) setKitHub(join(SCRIPTS_DIR, "kit_hub.py"));
+  else useLauncherContext(launcher);
+  rawArgv = launcher !== undefined;
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）

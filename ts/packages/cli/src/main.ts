@@ -2,6 +2,8 @@
 // 经 `--pyargs-b64 <base64>` 交给这里：内容是应用默认值之后的完整参数，加上子命令路径 command（契约见
 // contracts/schemas/pyargs-v1.schema.json）。stdin、stdout、stderr 由启动器原样交给本进程继承，退出码原样交回。
 //
+// command 以 "hub" 开头的是 kit_hub.py 转交来的（⑤j3，见 @themis/hub/cli），参数在 namespace 与 context 里。
+//
 // 报错照两边各自的写法：调度器的命令（status）写 `ERROR: ` 加 redact_tokens 之后的消息；kit_logs 的命令写
 // `ERROR: ` 加原消息，嵌套太深之类写 `ERROR: <类型>: <消息>`。Python 会打堆栈的地方（证据文件的类型不对等），
 // 这里写一行“崩溃”，退出码 1，契约只比较退出码。
@@ -43,6 +45,8 @@ import { configErrors } from "@themis/config/roles-check";
 import { commitTrailers, validTrailer } from "@themis/config/validate";
 import { localCommand } from "@themis/config/roles-local";
 import type { UiArgs } from "@themis/ui/main"; // 只有类型，运行时不加载（ui 走下面的动态导入）
+import type { HubContext } from "@themis/hub/cli"; // 同上（hub 走动态导入）
+import type { CommandArgs } from "@themis/hub/commands";
 
 interface PyArgs {
   readonly command: readonly string[];
@@ -163,6 +167,15 @@ export async function main(argv: readonly string[]): Promise<number> {
   // 用 pyjson 解析：Python 的 int 可能超出 JS 数字的精度（例如 --limit 给了一个很大的数，报错里要原样写出）
   const args = plain(loads(Buffer.from(encoded, "base64").toString("utf8"))) as PyArgs & Record<string, unknown>;
   await initFileAttributes();
+  if (args.command[0] === "hub") {
+    // kit_hub.py 的命令（⑤j3）：动态导入，调度器的命令不白白加载 hub 的模块
+    try {
+      const { runHub } = await import("@themis/hub/cli");
+      return await runHub(args.command.slice(1), args["namespace"] as CommandArgs, args["context"] as HubContext, out);
+    } catch (error) {
+      return crash(out, error);
+    }
+  }
   if (CONFIG_COMMANDS.includes(args.command.join(" "))) {
     try {
       return await runConfig(args as unknown as Parameters<typeof runConfig>[0], out);

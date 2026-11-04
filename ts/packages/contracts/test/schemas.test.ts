@@ -136,3 +136,65 @@ describe("pyargs-v1 与第 ④ 步的切换", () => {
     expect(schemaErrors("pyargs-v1", { ...first, extra: 1 })).not.toEqual([]);
   });
 });
+
+describe("pyargs-v1 与 hub 的转交（⑤j3）", () => {
+  // 样例不手写：照 kit_hub.build_parser 的每个叶子机械生成两条（只给必填的；选项全给，互斥的只取第一个），经真的 parse_args 与
+  // kit_hub.hub_handoff 生成参数。交回的命令路径要盖满 kit_hub.HUB_COMMANDS，也要与 TS 的 HUB_COMMANDS 一致；每一份都过 Schema。
+  // Schema 里 hub 的条目照 HUB_COMMANDS 生成之后按手写文件维护，分支数要正好等于路径数，不留没人用的旧分支
+  const PROGRAM = [
+    "import argparse, json, sys",
+    `sys.path.insert(0, ${JSON.stringify(join(REPO, "scripts"))})`,
+    "import kit_hub",
+    "impl = {'readonly': 'ts', 'config': 'ts', 'dispatcher': 'ts', 'hub': 'ts'}",
+    "def leaves(parser, path):",
+    "    subs = [action for action in parser._actions if isinstance(action, argparse._SubParsersAction)]",
+    "    if not subs:",
+    "        yield path, parser",
+    "    for sub in subs:",
+    "        for name, child in sub.choices.items():",
+    "            yield from leaves(child, path + [name])",
+    "def argv_for(path, parser, full):",
+    "    skipped = {id(action) for group in parser._mutually_exclusive_groups for action in group._group_actions[1:]}",
+    "    options, positionals = [], []",
+    "    for action in parser._actions:",
+    "        if isinstance(action, argparse._HelpAction) or id(action) in skipped:",
+    "            continue",
+    "        if not action.option_strings:",
+    "            positionals += ['--', 'git', 'status'] if action.nargs == argparse.REMAINDER else ['x']",
+    "        elif action.required or full:",
+    "            options.append(action.option_strings[0])",
+    "            if not isinstance(action, argparse._StoreTrueAction):",
+    "                options.append(str(list(action.choices)[0]) if action.choices else '1' if action.type in (int, float) else 'x')",
+    "    return path + options + positionals",
+    "out = []",
+    "for path, parser in leaves(kit_hub.build_parser(), []):",
+    "    for full in (False, True):",
+    "        argv = argv_for(path, parser, full)",
+    "        out.append({'argv': argv, 'pyargs': kit_hub.hub_handoff(kit_hub.build_parser().parse_args(['--repo', 'C:/r'] + argv), impl)})",
+    "print(json.dumps({'samples': out, 'table': sorted(list(path) for path, _keys in kit_hub.HUB_COMMANDS.values())}))",
+  ].join(String.fromCharCode(10));
+
+  it("启动器为每条命令生成的参数都过 Schema，命令路径盖满两边的转交名单，Schema 的 hub 分支正好这么多", async () => {
+    const done = spawnSync(process.env["THEMIS_PYTHON"] ?? "python", ["-c", PROGRAM], { encoding: "utf8" });
+    expect(done.status, done.stderr).toBe(0);
+    const { samples, table } = JSON.parse(done.stdout) as { samples: { argv: string[]; pyargs: Record<string, unknown> }[]; table: string[][] };
+    const { HUB_COMMANDS } = await import("@themis/hub/cli");
+    const paths = samples.map((item) => (item.pyargs["command"] as string[]).join(" "));
+    expect([...new Set(paths)].sort()).toEqual(table.map((path) => ["hub", ...path].join(" ")).sort());
+    expect([...HUB_COMMANDS.keys()].sort()).toEqual(table.map((path) => path.join(" ")).sort());
+    for (const item of samples) expect(schemaErrors("pyargs-v1", item.pyargs), item.argv.join(" ")).toEqual([]);
+    const schema = JSON.parse(readFileSync(join(CONTRACT_SCHEMAS, "pyargs-v1.schema.json"), "utf8")) as { oneOf: { properties: { command: { const?: string[] } } }[] };
+    expect(schema.oneOf.filter((branch) => branch.properties.command.const?.[0] === "hub").length).toBe(table.length);
+    // namespace 少一个键、多一个键，context 少 executable 或 kit_hub，命令不带 hub 前缀，都不过
+    const first = samples.find((item) => item.argv.slice(0, 2).join(" ") === "task new")?.pyargs as {
+      command: string[]; namespace: Record<string, unknown>; context: Record<string, unknown> };
+    const { slug: _slug, ...missing } = first.namespace;
+    expect(schemaErrors("pyargs-v1", { ...first, namespace: missing })).not.toEqual([]);
+    expect(schemaErrors("pyargs-v1", { ...first, namespace: { ...first.namespace, extra: 1 } })).not.toEqual([]);
+    for (const key of ["executable", "kit_hub"]) {
+      const { [key]: _dropped, ...partial } = first.context;
+      expect(schemaErrors("pyargs-v1", { ...first, context: partial }), key).not.toEqual([]);
+    }
+    expect(schemaErrors("pyargs-v1", { ...first, command: first.command.slice(1) })).not.toEqual([]);
+  });
+});

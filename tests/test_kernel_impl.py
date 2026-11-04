@@ -1097,3 +1097,130 @@ def test_without_a_console_the_launcher_ends_the_job_as_before(tmp_path, name):
     assert ("已取消。" in done.stderr.decode("utf-8")) == (name == "SIGINT")
     assert not (tmp_path / "ts" / "got-break").exists()
     assert_gone(tmp_path / "ts")
+
+
+# ---------------------------------------------------------------------------
+# 第 ⑤ 步的转交：hub 选 ts 时，kit_hub.py 的命令转交给 TS（迁移第 ⑤j3 片）
+# ---------------------------------------------------------------------------
+
+HUB_TS = dict(DISPATCHER_TS, hub="ts")
+#: 每条 hub 命令一个能过 argparse 的样例（名单里的全部路径）
+HUB_SAMPLES = [
+    ["init"], ["task", "new", "T001", "--slug", "s", "--title", "t", "--brief", "b.md"],
+    ["task", "close", "T001", "--ref", "r", "--file", "f.md"], ["task", "rebase", "T001", "--reason", "r"],
+    ["task", "after", "T001", "--on", "T002", "--reason", "r"], ["task", "unstick", "T001", "5-exec", "--reason", "r"],
+    ["task", "budget", "T001", "--attempts", "3", "--reason", "r"], ["task", "cleanup", "T001"],
+    ["send", "T001", "--type", "回复"], ["exec-recheck", "T001"], ["take"], ["metrics"], ["status"], ["run"],
+    ["exclusive", "--", "git", "status"], ["owner-sweep"],
+]
+
+
+def test_every_hub_subcommand_is_on_the_list():
+    # argparse 多了子命令而名单没跟上，这里就红；路径前面加 "hub"，与调度器的 status、run、metrics 分开
+    paths = sorted(path for path, _keys in kh.HUB_COMMANDS.values())
+    assert sorted(leaf_paths(kh.build_parser(), ())) == paths
+    handed = [tuple(kh.hub_handoff(kh.build_parser().parse_args(argv), HUB_TS)["command"]) for argv in HUB_SAMPLES]
+    assert sorted(handed) == [("hub",) + path for path in paths]
+
+
+@pytest.mark.parametrize("argv", HUB_SAMPLES, ids=lambda argv: " ".join(argv[:2]))
+def test_the_hub_handoff_keys_match_argparse(argv):
+    # argparse 多了选项而名单没跟上，这里就红：不会悄悄丢掉一个参数；取值原样
+    args = kh.build_parser().parse_args(argv)
+    namespace = {key: value for key, value in vars(args).items() if key != "func"}
+    assert sorted(kh.HUB_COMMANDS[args.func][1]) == sorted(namespace)
+    assert kh.hub_handoff(args, HUB_TS)["namespace"] == namespace
+
+
+def test_hub_handoff_passes_the_launcher_context():
+    # exclusive 的 command 是要跑的命令，不是子命令名；executable 与 kit_hub 照 Python 起子进程时的写法原样
+    pyargs = kh.hub_handoff(kh.build_parser().parse_args(["--repo", "R", "exclusive", "--", "git", "status"]), HUB_TS)
+    assert pyargs["command"] == ["hub", "exclusive"]
+    assert pyargs["namespace"] == {"repo": "R", "command": ["--", "git", "status"], "wait": 7200.0}
+    assert pyargs["context"] == {
+        "kit_root": str(pd.KIT_ROOT), "kernel_impl": HUB_TS, "platform": pd.platform.platform(),
+        "python": pd.platform.python_version(), "executable": sys.executable, "kit_hub": str(Path(kh.__file__))}
+
+
+JOB_FLAGS = """
+import ctypes
+import sys
+from ctypes import wintypes
+
+
+class Basic(ctypes.Structure):
+    _fields_ = [("user", ctypes.c_longlong), ("job_user", ctypes.c_longlong), ("flags", wintypes.DWORD),
+                ("low", ctypes.c_size_t), ("high", ctypes.c_size_t), ("active", wintypes.DWORD),
+                ("affinity", ctypes.c_size_t), ("priority", wintypes.DWORD), ("scheduling", wintypes.DWORD)]
+
+
+info = Basic()
+ok = ctypes.windll.kernel32.QueryInformationJobObject(None, 2, ctypes.byref(info), ctypes.sizeof(info), None)
+open(sys.argv[1], "w").write(str(info.flags if ok else -1))
+"""
+
+FAKE_HANDOFF = """
+import json
+import kit_hub
+pd.KERNEL_IMPL_PATH = pd.Path(%(selector)r)
+
+
+def fake(pyargs):
+    pd.Path(%(pyargs)r).write_text(json.dumps(pyargs), encoding="utf-8")
+    return [sys.executable, %(child)r, %(flags)r]
+
+
+pd.ts_launch_command = fake
+sys.exit(%(main)s.main(%(argv)r))
+"""
+
+
+def fake_handoff(tmp_path: Path, selector: Path, main: str, argv, cwd: Path) -> "subprocess.CompletedProcess[bytes]":
+    """kit_hub.main 或 pd.main(argv)，选择文件是 selector；ts_launch_command 换成假入口：交来的参数写进 pyargs.json，
+    假入口把自己直接所在的 Job 的 LimitFlags 写进 flags.txt。没转交就两个文件都不写。"""
+    child = tmp_path / "job-flags.py"
+    child.write_text(JOB_FLAGS, encoding="utf-8")
+    for name in ("pyargs.json", "flags.txt"):
+        if (tmp_path / name).exists():
+            (tmp_path / name).unlink()
+    return launcher(FAKE_HANDOFF % {"selector": str(selector), "pyargs": str(tmp_path / "pyargs.json"), "child": str(child),
+                                    "flags": str(tmp_path / "flags.txt"), "main": main, "argv": list(argv)}, cwd=str(cwd))
+
+
+@WINDOWS_ONLY
+def test_only_the_hub_handoff_lets_children_break_away(tmp_path):
+    # kit_hub 的转交：KILL_ON_JOB_CLOSE | BREAKAWAY_OK，TS 起的换代、主任务 runner、owner-sweep 才能比启动器活得久；
+    # pi_dispatch 自己的三处转交照旧只有 KILL_ON_JOB_CLOSE
+    repo = git_repo(tmp_path / "repo")
+    selector = write_selector(tmp_path / "hub.json", **HUB_TS)
+    done = fake_handoff(tmp_path, selector, "kit_hub", ["--repo", str(repo), "status"], repo)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "flags.txt").read_text(encoding="utf-8") == str(0x2000 | 0x800)
+    assert json.loads((tmp_path / "pyargs.json").read_text(encoding="utf-8"))["command"] == ["hub", "status"]
+    for argv, command in ((["status"], ["status"]), (["config", "show"], ["config", "show"]), (["validate", "nope.v1"], ["validate"]),
+                          (["ui"], ["ui"])):
+        done = fake_handoff(tmp_path, selector, "pd", ["--repo", str(repo)] + argv, repo)
+        assert done.returncode == 0, (argv, done.stderr)
+        assert json.loads((tmp_path / "pyargs.json").read_text(encoding="utf-8"))["command"] == command, argv
+        assert (tmp_path / "flags.txt").read_text(encoding="utf-8") == str(0x2000), argv
+
+
+def test_a_bad_selector_stops_kit_hub_before_argparse(tmp_path):
+    # 同 pi_dispatch：选择文件坏了就拒绝运行，-h 也一样，报错与退出码逐字节相同
+    selector = tmp_path / "bad.json"
+    selector.write_text("{", encoding="utf-8")
+    for argv in (["-h"], ["status"]):
+        done = fake_handoff(tmp_path, selector, "kit_hub", argv, tmp_path)
+        reference = fake_handoff(tmp_path, selector, "pd", argv, tmp_path)
+        assert (done.returncode, done.stdout, done.stderr) == (reference.returncode, reference.stdout, reference.stderr)
+        assert done.returncode == pd.EXIT_USAGE and done.stdout == b"", argv
+        assert done.stderr.decode("utf-8").startswith("ERROR: 选择文件不是合法的 JSON："), argv
+    assert not (tmp_path / "pyargs.json").exists()
+
+
+def test_hub_commands_stay_in_python_until_the_selector_says_ts(tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    selector = write_selector(tmp_path / "dispatcher.json", **DISPATCHER_TS)
+    done = fake_handoff(tmp_path, selector, "kit_hub", ["--repo", str(repo), "init"], repo)
+    assert done.returncode == 0 and done.stdout.decode("utf-8").startswith("信箱："), done.stderr
+    assert not (tmp_path / "pyargs.json").exists()

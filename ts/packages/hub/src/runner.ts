@@ -241,7 +241,14 @@ export function pauseRequested(hub: Hub, task: string, deps: RunnerDeps = REAL_R
 
 /** Python 的 str(float)：argparse 的 type=float 参数原样写回命令行。 */
 const num = (value: PyValue | undefined): string => pyStrValue(value ?? null);
-const hubArgv = (hub: Hub): string[] => [kernelPython(), join(SCRIPTS_DIR, "kit_hub.py"), "--repo", hub.repo];
+let kitHubPath = join(SCRIPTS_DIR, "kit_hub.py");
+
+/** 换代、主任务 runner、owner-sweep 起的 kit_hub.py：经启动器转交时用启动器给的路径（Python 的 str(Path(__file__))，不 resolve）。 */
+export function setKitHub(path: string): void {
+  kitHubPath = path;
+}
+
+const hubArgv = (hub: Hub): string[] => [kernelPython(), kitHubPath, "--repo", hub.repo];
 
 /** 调度循环（串行，或 --task 时只办这个主任务的信）；并行时转给 supervise。 */
 export async function cmdRun(args: CommandArgs, out: CommandOut = new PyOut(), deps: RunnerDeps = REAL_RUNNER_DEPS): Promise<number> {
@@ -530,7 +537,7 @@ function runCommand(command: readonly string[], cwd: string, stdio: "inherit" | 
   return done.status ?? 1;
 }
 
-/** 真的 Popen（creationflags 照 Python 的 0）：不等它，本进程退出时子进程照常跑。win32 走 Win32 的 CreateProcessW，POSIX 照 child_process。 */
+/** 真的 Popen：不等它，本进程退出时子进程照常跑。win32 走 Win32 的 CreateProcessW，POSIX 照 child_process。 */
 async function popen(argv: readonly string[], cwd: string | null, log: ChildLog | null): Promise<ChildLike> {
   if (process.platform === "win32") return popenWindows(argv, cwd, log);
   const child: ChildProcess = spawn(argv[0] as string, argv.slice(1), {
@@ -549,11 +556,14 @@ async function popen(argv: readonly string[], cwd: string | null, log: ChildLog 
 }
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+const CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
 
 /**
  * Windows：不经 child_process。libuv 把不带 detached 的子进程放进它自己的 Job（KILL_ON_JOB_CLOSE），本进程一退出子进程就被杀；带 detached
- * 又多了 DETACHED_PROCESS 与 CREATE_NEW_PROCESS_GROUP。这里照 Python 的 Popen：不挂起、不另起进程组、共用控制台、不加 CREATE_NO_WINDOW，
- * 只继承三个标准句柄；stdin 接 NUL，stdout、stderr 接日志（追加），没有日志时接本进程的标准句柄（本进程没有时接 NUL；Python 是一根读端
+ * 又多了 DETACHED_PROCESS 与 CREATE_NEW_PROCESS_GROUP。这里照 Python 的 Popen：不挂起、不另起进程组、共用控制台、不加 CREATE_NO_WINDOW。
+ * 只多一位 CREATE_BREAKAWAY_FROM_JOB：本进程是启动器转交来的，在启动器的 Job 里（KILL_ON_JOB_CLOSE），换代、主任务 runner、owner-sweep
+ * 要比启动器活得久，同 Python 直接跑时一样；启动器的 Job 许脱离（BREAKAWAY_OK），本进程不在 Job 里时这一位不起作用。回合、门禁、执行端
+ * 不经这里，照旧留在 Job 里。只继承三个标准句柄；stdin 接 NUL，stdout、stderr 接日志（追加），没有日志时接本进程的标准句柄（本进程没有时接 NUL；Python 是一根读端
  * 关掉的管道，计划第 10 节记了这条）。线程句柄起完就关；进程句柄留到 poll 第一次拿到退出码再关，留着时 pid 也不会被复用。
  */
 async function popenWindows(argv: readonly string[], cwd: string | null, log: ChildLog | null): Promise<ChildLike> {
@@ -570,7 +580,7 @@ async function popenWindows(argv: readonly string[], cwd: string | null, log: Ch
     const stdin = take(api.openInheritable("NUL", "read"));
     const stdout = take(log === null ? api.inheritableStd("stdout") : api.openInheritable(log.path, "append"));
     const stderr = log === null ? take(api.inheritableStd("stderr")) : stdout; // stderr=STDOUT
-    spawned = api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0);
+    spawned = api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, CREATE_BREAKAWAY_FROM_JOB);
   } catch (error) {
     if (!(error instanceof Win32Error)) throw error;
     const { name } = windowsOSError(error.winerror, api.message(error.winerror));

@@ -848,9 +848,10 @@ class _Interrupted(Exception):
 
 
 class _WinJob:
-    """Windows Job Object：超时、取消或调度器退出时终止整个进程树。"""
+    """Windows Job Object：超时、取消或调度器退出时终止整个进程树。breakaway 为真时另许子进程带 CREATE_BREAKAWAY_FROM_JOB 脱离
+    （只给 kit_hub 的转交：TS 的 hub 起的换代、主任务 runner、owner-sweep 要比启动器活得久，同 Python 直接跑时一样）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, breakaway: bool = False) -> None:
         import ctypes
         from ctypes import wintypes
 
@@ -908,7 +909,8 @@ class _WinJob:
         if not self.handle:
             raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
         info = ExtendedLimit()
-        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE，breakaway 再加 JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        info.BasicLimitInformation.LimitFlags = 0x2000 | (0x800 if breakaway else 0)
         if not k32.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
             error = ctypes.get_last_error()
             k32.CloseHandle(self.handle)
@@ -9116,7 +9118,7 @@ def _forward_interrupts(proc: "subprocess.Popen[bytes]", job: _WinJob, seen: Lis
     return previous
 
 
-def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int:
+def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None, breakaway: bool = False) -> int:
     """起 TS 子进程并等它结束。stdin、stdout、stderr 直接继承句柄（不经管道：字节原样，isatty 与 Python 一致）；
     环境是 handoff_env()（缺省）；当前目录不变；退出码原样交回。启动器自己一个字节也不写，只有一处例外：按了 Ctrl+C
     而 TS 按缺省处理结束，照 Python 收到 Ctrl+C 抛 KeyboardInterrupt，由 main 写“已取消。”、退出 130。
@@ -9125,13 +9127,13 @@ def run_handoff(cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> int
     （run_pd 超时）时 Job 句柄随之关闭，子进程跟着结束，不成孤儿。子进程另起进程组，收不到 Ctrl+C：启动器把 Ctrl+C
     与 CTRL_BREAK 转发给它（_forward_interrupts，迁移计划 D2）。POSIX：子进程与启动器同在终端的前台进程组，Ctrl+C
     两边都收到，启动器照旧终止它（未实机验证）；父进程死、子进程跟着死只在 Linux 上用 PR_SET_PDEATHSIG 尽力而为
-    （macOS 没有对应机制）。
+    （macOS 没有对应机制）。breakaway 照 _WinJob，只有 kit_hub 的转交传真。
     """
     kwargs: Dict[str, Any] = {"env": handoff_env() if env is None else env}
     job: Optional[_WinJob] = None
     if IS_WINDOWS:
         try:
-            job = _WinJob()
+            job = _WinJob(breakaway)
         except Exception as exc:  # noqa: BLE001
             raise DispatchError("无法创建 Windows Job Object，拒绝在没有进程树监督的情况下转交给 TS：%s" % exc, EXIT_FAIL)
         # 启动器没有控制台时 TS 子进程加 CREATE_NO_WINDOW，不弹窗口（第 128 轮补，themistally-15 复核时查出；同 run_supervised）
