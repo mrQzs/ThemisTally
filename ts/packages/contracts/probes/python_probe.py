@@ -9,6 +9,7 @@ import ast
 import base64
 import collections
 import contextlib
+import ctypes
 import hashlib
 import io
 import datetime
@@ -1433,6 +1434,10 @@ def op_hub_contract(request):
             value = kit_hub.recorded_sum(*args)
         elif fn == "configured_parallel":  # ⑤j1：第二个参数记成 Namespace 的各键
             value = kit_hub.configured_parallel(kit_hub.Hub(Path(args[0])), argparse.Namespace(**args[1]))
+        elif fn == "kernel_files":  # ⑤j2：hub 是 python 时的内核文件清单（路径交回字符串）
+            value = [str(path) for path in kit_hub.kernel_files()]
+        elif fn in ("code_fingerprint", "kernel_dirty", "kernel_changes"):  # ⑤j2：给了 files 照真的算；没给就是内核文件
+            value = getattr(kit_hub, fn)(None if args[0] is None else [Path(item) for item in args[0]])
         elif fn in ("normalize_identity", "normalize_markup"):
             value = list(getattr(kit_hub, fn)(*args))
         elif fn == "tail_file":
@@ -1748,6 +1753,8 @@ def _recorded_value(name, value):
         value = [str(path) for path in value]
     elif name == "workspace_status":  # ⑤e2a：（状态，路径）的元组成列表，照 op_hub_contract
         value = [list(item) for item in value]
+    elif name == "kernel_files":  # ⑤j2：Path 的列表记成字符串，照 op_hub_contract
+        value = [str(path) for path in value]
     elif name == "Engine.next_job" and value is not None:  # ⑤i2：（agent, [Path]）的路径记成字符串，照 op_hub_contract
         value = [value[0], [str(path) for path in value[1]]]
     elif isinstance(value, tuple):  # ⑤g1：carry_source、carry_back 交回（Path, 原因）
@@ -1783,7 +1790,8 @@ FLOW_ALWAYS = {"accept_gate_post": ("run_supervised",), "apply_candidate": ("mkd
 FLOW_NO_TS = ("owner_sweep", "mark_owner_moved", "ts_install_if_stale")
 #: ⑤h2：内层名与它换掉的属性名不同的（ts_install_if_stale 的 runner：重放时 runner 为 None，走 pd.run_supervised）
 FLOW_ATTR = {"ts_runner": "run_supervised", "Engine.verify_delivery": "verify_delivery", "Engine.auto_jev": "auto_jev",  # ⑤i1：Engine 的两个方法
-             "Hub.deliver": "deliver"}  # ⑤i2：peek_deliver 包的
+             "Hub.deliver": "deliver",  # ⑤i2：peek_deliver 包的
+             "Popen": "Popen", "sleep": "sleep", "Engine.step": "step"}  # ⑤j2：kit_hub.subprocess.Popen、kit_hub.time.sleep、Engine.step
 #: 第二个参数是 ts、契约要比调用之后的 ts 的内层函数。⑤i1 加上 Engine 的用例会换掉、换上的假函数会改 ts 的那几个（Engine 的两个方法第二个
 #: 参数是 ts 或 state，第一个是 Engine 本身）
 FLOW_TS_INNER = ("contract_requirements", "budget_problems", "revalidate_contract",
@@ -1821,8 +1829,20 @@ RUNNER_ARGS = ("agent", "session_key", "workspace", "role_prompt", "prompt", "re
 FLOW_LOCKS = (".land", ".sweep", ".lock", ".runner", ".owner-sweep")
 
 
+#: ⑤j2：进程模型。cmd_run、cmd_owner_sweep、cmd_exclusive 同站主命令记（仓库与 Namespace 的各键）；其余第一个参数是 hub。
+FLOW_J2_COMMANDS = ("cmd_run", "cmd_owner_sweep", "cmd_exclusive")
+FLOW_J2 = FLOW_J2_COMMANDS + ("supervise_tick", "owner_sweep_tick", "spawn_runner", "spawn_task_runner", "refuse_dirty_kernel", "pause_requested")
+#: ⑤j2：用例换掉、契约照记录注入的内层函数（另有 FLOW_INNER_I 的 release_held 与 FLOW_ALWAYS_I 的 pid_alive）。交回进程对象的
+#: spawn_task_runner、Popen 交回录制代理，它的 poll 记成内层调用 proc.poll（⑤j 设计稿第 3 节）
+FLOW_INNER_J2 = ("spawn_task_runner", "spawn_runner", "kernel_dirty", "kernel_settled", "code_fingerprint", "kernel_changes", "tasks_with_work",
+                 "requeue_interrupted", "owner_sweep_tick", "Popen", "sleep", "Engine.step")
+COMMANDS = FLOW_J1 + FLOW_J2_COMMANDS  # 参数是 Namespace、仓库照 args.repo 找的
+STREAMS = FLOW_J1 + FLOW_J2  # 调用期间截 stdout、stderr、记读到的标准输入的
+
+
 def _flow_i(name):
-    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS or name == "quiesce" or name in FLOW_J1  # ⑤i2：跑到静止；⑤j1：站主命令
+    # ⑤j1：站主命令；⑤j2：进程模型（⑤i2 的跑到静止换成了真的 cmd_run）
+    return name.startswith("Engine.") or name in FLOW_I_FUNCTIONS or name in FLOW_J1 or name in FLOW_J2
 
 
 class _Tee:
@@ -1857,35 +1877,121 @@ class _StdinRecorder:
         return getattr(self.inner, name)
 
 
-def _quiesce(hub, engine, base, task, limit):
-    """⑤i2 跑到静止（⑤i 设计稿第 5 节）。这段次序抄自 cmd_run，⑤j 换成真的 cmd_run 循环之后删掉（themistally-04 定的三处）：
-    - 串行（task 是 None）时先 requeue_interrupted（钉在基准时刻）；
-    - 每一步钉一个时刻（基准加 i+1 秒，信编号从头编，同 TS 的 withPinnedClock）。exec-step 的未读信里 type 是“通过”的（指定了 task 时
-      再按 letter_main 过滤），照 unread 的次序取第一封 land；land 交回挡路者时直接停下，不学 finalize.deferred 与 sleep；
-    - 否则 step；交回 False 时照 cmd_run 问 runner_may_idle_exit：还有扣着的信（串行）就接着走下一步，等它到点放回，否则停。land 也算一步，
-      最多 limit 步。这里的 limit 连空转的步也算进去，是给探针封顶；cmd_run 的 max_steps 只数 turns（land、step 办了事才加），两者不完全一样。
-    指纹与换代、runner.started、pause、sleep 与空闲退出的计时都是 ⑤j 的事，不抄。交回每一步做了什么。"""
-    done = []
-    if task is None:
-        done.append(["requeue", kit_hub.requeue_interrupted(hub)])
-    for index in range(limit):
-        moment = base + (index + 1) * 1_000_000
-        kit_hub.utc_now, kit_hub.utc_compact = _flow_pin(moment)
-        kit_hub.new_msg_id = _flow_msg_id()
-        time.time = lambda moment=moment: moment / 1_000_000
-        passes = [path for path in hub.unread("exec-step") if kit_hub.parse_letter(kit_hub.read_text(path))[0].get("type") == "通过"
-                  and (task is None or kit_hub.letter_main(path) == task)]
-        if passes:
-            blockers = kit_hub.land(hub, engine, passes[0], kit_hub.parse_letter(kit_hub.read_text(passes[0]))[0])
-            done.append(["land", passes[0].name, blockers])
-            if blockers:
-                break
-            continue
-        moved = engine.step()
-        done.append(["step", moved])
-        if not moved and kit_hub.runner_may_idle_exit(hub, task):
-            break
-    return done
+#: ⑤j2：进程代理的编号（整次采样里递增）与当前这次最外层调用的记录上下文（inner、roots、busy）；重放时各编号对应的假进程
+_PROC = {"next": 0, "context": None, "replay": {}}
+
+
+class _ProcRecorder:
+    """⑤j2：用例造的假进程（或换掉的 Popen 起出来的）的录制代理。属性照转；poll 在有记录上下文、又不在别的内层调用里面时记成一次内层调用
+    proc.poll（交回值、调用期间的文件改动，同内层函数），poll 里 take 信造成的改动就随这一次记下，重放时在同一个次序写回。"""
+
+    def __init__(self, obj):
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_id", _PROC["next"])
+        _PROC["next"] += 1
+
+    def poll(self):
+        context = _PROC["context"]
+        if context is None or context[2][0]:
+            return self._obj.poll()
+        inner, roots, busy = context
+        entry = {"fn": "proc.poll", "proc": self._id}
+        before = _flow_listing(roots)
+        busy[0] = True
+        try:
+            value = self._obj.poll()
+        except Exception as exc:  # noqa: BLE001  录下来照样抛
+            entry["raise"] = [type(exc).__name__, str(exc)]
+            raise
+        else:
+            entry["value"] = to_tagged(_plain(value))
+        finally:
+            busy[0] = False
+            entry["files"] = _flow_changes(roots, before)
+            inner.append(entry)
+        return value
+
+    def __getattr__(self, name):
+        return getattr(self._obj, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._obj, name, value)
+
+
+class _ProcReplay:
+    """⑤j2：重放时的假进程。pid 照记录；poll 逐次核对记下的 proc.poll（编号相同），写回文件改动，交回记下的值；returncode 是最后一次 poll
+    的值（owner_sweep_tick 在 poll 不是 None 之后读它，真的 Popen 与用例的 FakeProc 都是这样）。只有 poll、pid、returncode 三样：
+    kit_hub 以后要是对这些进程调 kill、wait，重放报 AttributeError，正好当绊线（themistally-04 复核时要的；TS 的假进程照这个来）。"""
+
+    def __init__(self, ident, pid, queue, roots):
+        self._id, self.pid, self.returncode, self._queue, self._roots = ident, pid, None, queue, roots
+
+    def poll(self):
+        expected = self._queue.pop(0) if self._queue else None
+        if expected is None or expected.get("fn") != "proc.poll" or expected.get("proc") != self._id:
+            shown = expected and {key: expected.get(key) for key in ("fn", "proc")}
+            raise _InjectionMismatch(json.dumps({"got": {"fn": "proc.poll", "proc": self._id}, "expected": shown}, ensure_ascii=False))
+        _flow_apply_files(expected, self._roots)
+        self.returncode = from_tagged(expected["value"])
+        return self.returncode
+
+
+def _proc_shown(value):
+    """进程代理（录制的或重放的）记成编号与 pid。"""
+    return {"__proc__": value._id, "pid": getattr(value, "pid", None)}
+
+
+def _procs_of(value, queue, roots):
+    """重放：参数与注入的交回值里记成 {"__proc__", "pid"} 的换回假进程，同一个编号是同一个对象。"""
+    if isinstance(value, dict) and set(value) == {"__proc__", "pid"}:
+        return _PROC["replay"].setdefault(value["__proc__"], _ProcReplay(value["__proc__"], value["pid"], queue, roots))
+    if isinstance(value, dict):
+        return {key: _procs_of(item, queue, roots) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_procs_of(item, queue, roots) for item in value]
+    return value
+
+
+def _argv_shown(argv):
+    """起子进程的命令行：Python 与 kit_hub.py 的路径换成占位（TS 起的是同一个启动器，路径各自取）。"""
+    hub_file = os.path.normcase(str(Path(kit_hub.__file__).resolve()))
+    shown = []
+    for item in argv:
+        text = str(item)
+        if text == sys.executable:
+            shown.append("<python>")
+        elif text.endswith(".py") and os.path.normcase(str(Path(text).resolve())) == hub_file:
+            shown.append("<kit_hub>")
+        else:
+            shown.append(text)
+    return shown
+
+
+def _sleep_clock(pin, runner):
+    """⑤j2：跑到静止换成真的 cmd_run（⑤j 设计稿第 5 节，request["clock"] 是 "sleep"）要换上的几样，交回 {(对象, 属性): 新值}：
+    - time.sleep(秒) 把钉住的时钟往后挪这么多秒、不真睡；第 400 次抛错（cmd_run 的 max_steps 只数办了事的步，空转靠这道封顶）；
+    - time.monotonic、time.time 与 kit_hub.utc_now、utc_compact 跟着钉住的时钟走（new_msg_id 用 utc_compact，编号照次序接着编）；
+    - code_fingerprint 交回常数、kernel_changes 交回 []：开发中的内核是脏的、还在变；
+    - cmd_run 自己建的 Engine 用 TurnRunner：它的 run 照剧本交回（runner 是 None 就不换）。
+    time 是整个进程的模块，DirLock 的等待也算在内；跑到静止时锁都没人抢，次数与 TS 一样（TS 只换 cmdRun 的 deps）。"""
+    now, calls = [pin], [0]
+
+    def sleep(seconds):
+        calls[0] += 1
+        if calls[0] >= 400:
+            raise RuntimeError("跑到静止：sleep 调到第 400 次")
+        now[0] += round(seconds * 1_000_000)
+
+    def moment():
+        return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=now[0])
+
+    swaps = {(time, "sleep"): sleep, (time, "monotonic"): lambda: now[0] / 1_000_000, (time, "time"): lambda: now[0] / 1_000_000,
+             (kit_hub, "utc_now"): lambda: moment().strftime("%Y-%m-%dT%H:%M:%SZ"),
+             (kit_hub, "utc_compact"): lambda: moment().strftime("%Y%m%dT%H%M%S%fZ"),
+             (kit_hub, "code_fingerprint"): lambda files=None: "quiesce", (kit_hub, "kernel_changes"): lambda files=None: []}
+    if runner is not None:
+        swaps[(kit_hub.TurnRunner, "run")] = lambda self, *args, **kwargs: runner(*args, **kwargs)
+    return swaps
 
 
 def _flow_attr(name):
@@ -2016,6 +2122,10 @@ def _plain(value):
         return str(value)
     if isinstance(value, kit_hub.Hub):
         return str(value.repo)
+    if isinstance(value, (_ProcRecorder, _ProcReplay)):  # ⑤j2
+        return _proc_shown(value)
+    if isinstance(value, argparse.Namespace):  # ⑤j2：spawn_task_runner、supervise_tick 的 args
+        return {key: _plain(item) for key, item in vars(value).items() if key != "func"}
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     if isinstance(value, (set, frozenset)):  # ⑤i1：worker_turns 的 kinds，同采样器的 plain
@@ -2030,7 +2140,7 @@ def _flow_target(name):
     return {"run_supervised": kit_hub.pd, "_running_attempts": kit_hub.pd, "pid_alive": kit_hub.pd, "find_bun": kit_hub.pd,
             "read_kernel_impl": kit_hub.pd, "ts_runner": kit_hub.pd, "mkdtemp": tempfile, "Session": codekit_decisions,
             "load_locked_batteries": codekit_decisions, "Engine.verify_delivery": kit_hub.Engine, "Engine.auto_jev": kit_hub.Engine,
-            "Hub.deliver": kit_hub.Hub}.get(name, kit_hub)
+            "Hub.deliver": kit_hub.Hub, "Popen": kit_hub.subprocess, "sleep": kit_hub.time, "Engine.step": kit_hub.Engine}.get(name, kit_hub)
 
 
 def _flow_install(name, original, make):
@@ -2190,6 +2300,29 @@ def _flow_inner_call(name, args, kwargs):
         return {"fn": name, "agent": args[0]}
     if name in ("Engine.verify_delivery", "Engine.auto_jev"):  # ⑤i1：第一个参数是 Engine 本身，不比
         return {"fn": name, "args": to_tagged(_plain(list(args[1:])))}
+    if name == "spawn_task_runner":  # ⑤j2：args 记成 Namespace 的各键
+        return {"fn": name, "repo": str(args[0].repo), "task": args[1], "args": to_tagged(_plain(args[2]))}
+    if name == "spawn_runner":
+        return {"fn": name, "repo": str(args[0].repo), "argv": _argv_shown(args[1])}
+    if name in ("kernel_dirty", "code_fingerprint", "kernel_changes"):  # 用例换上的多是不看参数的 lambda：没给 files 记 None
+        files = args[0] if args else kwargs.get("files")  # 记成 paths：files 这个键是调用期间的文件改动
+        return {"fn": name, "paths": None if files is None else [str(item) for item in files]}
+    if name == "kernel_settled":
+        return {"fn": name, "wait": args[0], "poll": args[1]}
+    if name == "tasks_with_work":
+        return {"fn": name, "repo": str(args[0].repo)}
+    if name == "requeue_interrupted":
+        given = dict(zip(("hub", "skip"), args), **kwargs)
+        return {"fn": name, "repo": str(given["hub"].repo), "skip": sorted(given.get("skip") or [])}
+    if name == "owner_sweep_tick":
+        return {"fn": name, "repo": str(args[0].repo), "holder": to_tagged(_plain(args[1]))}
+    if name == "Popen":  # 比命令行、当前目录与输出写进哪个日志（文件名）
+        stdout = kwargs.get("stdout")
+        return {"fn": name, "argv": _argv_shown(args[0]), "cwd": kwargs.get("cwd"), "log": Path(stdout.name).name if hasattr(stdout, "name") else None}
+    if name == "sleep":
+        return {"fn": name, "seconds": args[0]}
+    if name == "Engine.step":  # 第一个参数是 Engine 本身：记它的仓库与 only_task
+        return {"fn": name, "repo": str(args[0].hub.repo), "only_task": args[0].only_task}
     if name == "release_held":  # ⑤i2：只有 hub 一个参数
         return {"fn": name, "repo": str(args[0].repo)}
     if name in FLOW_INNER_I:  # ⑤i1：hub、ts 之外的参数也比
@@ -2258,6 +2391,8 @@ def _flow_recorder(name, fn, roots, inner, busy):
                 entry["raise"].append(exc.code)
             raise
         else:
+            if name in ("spawn_task_runner", "Popen") and value is not None:  # ⑤j2：交回的进程换成录制代理，它的 poll 另记
+                value = _ProcRecorder(value)
             entry["value"] = to_tagged(_plain(value))
             if name == "mkdtemp" and all(Path(value).resolve() != Path(root).resolve() for root in roots):
                 roots.append(Path(value))  # ⑤f：新建的 worktree 当新的一棵树（调用之前不在，重放前先删）
@@ -2292,13 +2427,7 @@ def _flow_injector(name, queue, roots):
             if os.path.normcase(os.path.dirname(made)) != os.path.normcase(str(kwargs.get("dir"))):
                 raise _InjectionMismatch("mkdtemp 记下的目录不在 dir 下：%s" % made)
             os.mkdir(made)
-        for key, data in expected["files"]["write"].items():
-            path = _flow_path(roots, key)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "wb") as handle:
-                handle.write(base64.b64decode(data))
-        for key in expected["files"]["delete"]:
-            os.remove(_flow_path(roots, key))
+        _flow_apply_files(expected, roots)
         if "output" in expected:  # ⑤h2：ts_runner 的输出原样写进 stdout
             dict(zip(("cmd", "cwd", "env", "stdout"), args), **kwargs)["stdout"].write(base64.b64decode(expected["output"]))
         if "ts_after" in expected:
@@ -2315,9 +2444,20 @@ def _flow_injector(name, queue, roots):
             if not (isinstance(real, type) and (real is pi_dispatch.DispatchError or issubclass(real, OSError))):
                 real = type(kind, (Exception,), {})
             raise real(message)
-        value = from_tagged(expected["value"])
+        value = _procs_of(from_tagged(expected["value"]), queue, roots)  # ⑤j2：记下的进程换成假进程
         return Path(value) if name in ("worktree_root", "ensure_worktree", "apply_candidate") else value
     return inject
+
+
+def _flow_apply_files(expected, roots):
+    """照记录写文件、删文件（内层调用与 ⑤j2 假进程的 poll 共用）。"""
+    for key, data in expected["files"]["write"].items():
+        path = _flow_path(roots, key)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(base64.b64decode(data))
+    for key in expected["files"]["delete"]:
+        os.remove(_flow_path(roots, key))
 
 
 def _flow_peek(roots, rel):
@@ -2415,13 +2555,17 @@ def _flow_call(fn, hub, args, rest, queue, roots, request, runner=None):
 
     if not _flow_i(fn):
         return (lambda: getattr(kit_hub, fn)(hub, *args[1:2], *rest)), None
-    if fn in FLOW_J1:  # ⑤j1：站主命令，参数是仓库与 Namespace 的各键
+    if fn in COMMANDS:  # ⑤j1：站主命令，参数是仓库与 Namespace 的各键；⑤j2 的 cmd_run、cmd_owner_sweep、cmd_exclusive 同
         namespace = argparse.Namespace(**args[1])
         return (lambda: getattr(kit_hub, fn)(namespace)), None
+    if fn in FLOW_J2:  # ⑤j2：第一个参数是 hub；参数名是 args 的照建回 Namespace，记下的进程照建假进程
+        target = getattr(kit_hub, fn)
+        params = list(inspect.signature(target).parameters)
+        given = [hub] + [_procs_of(item, queue, roots) for item in args[1:]]
+        given = [argparse.Namespace(**item) if params[at] == "args" and isinstance(item, dict) else item for at, item in enumerate(given)]
+        bound = inspect.signature(target).bind(*given)
+        return (lambda: target(*bound.args, **bound.kwargs)), bound
     runner = runner or _flow_injector("runner", queue, roots)  # 手写场景给了剧本就照剧本
-    if fn == "quiesce":  # ⑤i2 跑到静止：参数是仓库、only_task、最多几步
-        engine = kit_hub.Engine(hub, runner=_RunnerProxy(runner), only_task=args[1])
-        return (lambda: _quiesce(hub, engine, request["pin"], args[1], args[2])), None
     if fn in FLOW_I_FUNCTIONS and fn != "land":  # release_dependents 与 ⑤i2 的续接一族：模块函数，第一个参数是 hub
         target, given = getattr(kit_hub, fn), [hub] + list(args[1:])
     elif fn == "land":
@@ -2447,6 +2591,47 @@ def _flow_call(fn, hub, args, rest, queue, roots, request, runner=None):
     return (lambda: target(*bound.args, **bound.kwargs)), bound
 
 
+def op_hub_popen(request):
+    """⑤j2：照 kit_hub 起长命子进程的写法起一个（stdin 接空设备；给了 log 就 open("ab") 追加、stderr 并进 stdout，没给就继承本进程的），
+    每 0.05 秒 poll 一次到它退出（最多 timeout 秒，到了就结束它），交回 poll 拿到的退出码、returncode、pid 是不是正数与日志的字节。
+    对照 TS 的 runner.ts 真 popen（Windows 上是 CreateProcessW）。
+    ctrl_c_default：起之前先 SetConsoleCtrlHandler(NULL, FALSE) 恢复缺省的 Ctrl+C 处理、起完恢复成 TRUE（探针原来就忽略 Ctrl+C）。子进程继承
+    这个属性，另起进程组的又会被隐式设成忽略，读它 PEB 里的 ConsoleFlags 就分得出有没有另起进程组（themistally-04 提的，不发任何信号）。
+    inherit：起之前本进程另开这个文件的一个可继承句柄，命令行里的 <handle> 换成它的数值，起完关掉；Popen 只让子进程继承三个标准句柄
+    （close_fds 时经 PROC_THREAD_ATTRIBUTE_HANDLE_LIST），拿不到它（N01 的变异让 CreateProcessW 不认属性表、全继承）。"""
+    argv, cwd, log = request["argv"], request.get("cwd"), request.get("log")
+    reset = bool(request.get("ctrl_c_default"))
+    extra = os.open(request["inherit"], os.O_WRONLY | os.O_APPEND | os.O_CREAT) if request.get("inherit") else None
+    if extra is not None:
+        import msvcrt
+        os.set_handle_inheritable(msvcrt.get_osfhandle(extra), True)
+        argv = [str(msvcrt.get_osfhandle(extra)) if item == "<handle>" else item for item in argv]
+    if reset:
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
+    try:
+        if log is None:
+            proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL)
+        else:
+            with open(log, "ab") as handle:
+                proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        return {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+    finally:
+        if reset:
+            ctypes.windll.kernel32.SetConsoleCtrlHandler(None, True)
+        if extra is not None:
+            os.close(extra)
+    deadline = time.monotonic() + request.get("timeout", 30)
+    code = proc.poll()
+    while code is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+        code = proc.poll()
+    if code is None:
+        proc.kill()
+    return {"ok": True, "value": {"code": code, "returncode": proc.returncode if code is not None else None, "pid": proc.pid > 0,
+                                  "log": None if log is None else base64.b64encode(Path(log).read_bytes()).decode("ascii")}}
+
+
 def op_hub_contract_flow(request):
     """第 ⑤e2b 片：合同与战前门禁里改状态的六个函数，照调用当时重放。先原地放回快照（带 .git），钉住时刻与提交作者、日期，
     用例当时换掉的内层函数照记录注入（request["inner"]，逐次核对；用完了还有剩的报 INJECTION_LEFTOVER），交回 _flow_state。
@@ -2454,6 +2639,7 @@ def op_hub_contract_flow(request):
     time.time 也钉住；另比调用之后的字典与列表参数。"""
     for item in request.get("restores") or []:
         _restore_tree(item["from"], item["to"], item.get("links", []), with_git=bool(item.get("git")))
+    _PROC["replay"] = {}  # ⑤j2：这一次重放的假进程（编号照样本）
     for path, data in (request.get("inputs") or {}).items():  # ⑤j1：站主命令的 --file、--brief 照调用当时的字节写回
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_bytes(base64.b64decode(data))
@@ -2519,9 +2705,21 @@ def op_hub_contract_flow(request):
         real_deliver = saved.setdefault("Hub.deliver", kit_hub.Hub.deliver)
         kit_hub.Hub.deliver = lambda self, *more, **kw: (peeks.append(_flow_peek(roots, request["peek_deliver"])), real_deliver(self, *more, **kw))[1]
     call, bound = _flow_call(fn, hub, args, rest, queue, roots, request, runner)
+    clock_saved = {}  # ⑤j2 跑到静止：真的 cmd_run，时钟只靠 sleep 往后挪（_sleep_clock）；调用完最先还原，再还原上面钉住的那几样
+    if request.get("clock") == "sleep":
+        for (owner, attr), item in _sleep_clock(request["pin"], runner).items():
+            clock_saved[(owner, attr)] = getattr(owner, attr)
+            setattr(owner, attr, item)
     streams, captured = (sys.stdin, sys.stdout, sys.stderr), None
-    if fn in FLOW_J1:  # ⑤j1：站主命令读采样时读到的标准输入，stdout、stderr 截下来随结果交回
+    saved_fds = None
+    if fn in STREAMS:  # ⑤j1：站主命令读采样时读到的标准输入，stdout、stderr 截下来随结果交回；⑤j2 同
         sys.stdin, sys.stdout, sys.stderr = io.StringIO(request.get("stdin") or ""), io.StringIO(), io.StringIO()
+        # ⑤j2：子进程不经 sys.stdout、直接写文件描述符 1、2（exclusive 起的 git status --short），探针的 stdout 是交回结果的通道：调用期间
+        # 1、2 接到空设备，同采样器跑用例时
+        streams[1].flush()
+        saved_fds = [os.dup(1), os.dup(2), os.open(os.devnull, os.O_WRONLY)]
+        os.dup2(saved_fds[2], 1)
+        os.dup2(saved_fds[2], 2)
     try:
         value = call()
         result = json.loads(_recorded_value(fn, value))
@@ -2532,9 +2730,16 @@ def op_hub_contract_flow(request):
     except Exception as exc:  # noqa: BLE001  与当时的结果一样记类型与文字（HubError 另记退出码）
         result = json.loads(_recorded_error(exc))
     finally:
-        if fn in FLOW_J1:
+        for (owner, attr), item in clock_saved.items():
+            setattr(owner, attr, item)
+        if fn in STREAMS:
             captured = (sys.stdout.getvalue(), sys.stderr.getvalue())
             sys.stdin, sys.stdout, sys.stderr = streams
+        if saved_fds is not None:
+            os.dup2(saved_fds[0], 1)
+            os.dup2(saved_fds[1], 2)
+            for fd in saved_fds:
+                os.close(fd)
         for name, item in saved.items():
             setattr(_flow_target(name), _flow_attr(name), item)
         kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session, time.time = saved_wait, saved_session, saved_time
@@ -2556,6 +2761,8 @@ def op_hub_contract_flow(request):
     state = _flow_state(result, shown_ts, roots, before, ledger, offset, after)
     if captured is not None:
         state["stdout"], state["stderr"] = captured
+    if fn in FLOW_J2:  # ⑤j2：探针自己的 pid，契约归一化时只换等于它的
+        state["self_pid"] = os.getpid()
     if scripted:
         state["scripted_calls"] = script_calls
     if peeks:
@@ -2607,6 +2814,8 @@ def op_hub_audit_samples(request):
             return str(value)
         if isinstance(value, kit_hub.Hub):  # 第 ⑤d 片：Hub 记成仓库路径，重放时由它再建
             return str(value.repo)
+        if isinstance(value, (_ProcRecorder, _ProcReplay)):  # ⑤j2：进程记成编号与 pid
+            return _proc_shown(value)
         if isinstance(value, argparse.Namespace):  # ⑤j1：站主命令与 configured_parallel 的参数记成各键（func 是函数，不记）
             return {key: plain(item) for key, item in vars(value).items() if key != "func"}
         if isinstance(value, (list, tuple)):
@@ -2697,7 +2906,14 @@ def op_hub_audit_samples(request):
             if runner is not None:  # ⑤h2：给了 runner 时换成录制包装（内层名 ts_runner），样本里记成 None
                 bound.arguments["runner"] = None
             engine = bound.arguments.get("self") if name.startswith("Engine.") else bound.arguments.get("engine") if name == "land" else None
-            command = name in FLOW_J1
+            command, streamed = name in COMMANDS, name in STREAMS
+            # ⑤j2：字典参数里用例自己造的进程对象（supervise_tick 的 children、owner_sweep_tick 的 holder）先换成录制代理，调用之后换回
+            wrapped = []
+            for item in bound.arguments.values() if name in FLOW_J2 else ():
+                for key, value in list(item.items()) if isinstance(item, dict) else ():
+                    if hasattr(value, "poll") and not isinstance(value, _ProcRecorder):
+                        item[key] = _ProcRecorder(value)
+                        wrapped.append((item, key, value, item[key]))
             if command:  # ⑤j1：站主命令自己照 args.repo 找仓库（同 find_repo，这里不经它的记录器）
                 hub = kit_hub.Hub(kit_hub.pd.Repo.discover(bound.arguments["args"].repo).root)
             else:
@@ -2730,7 +2946,7 @@ def op_hub_audit_samples(request):
             entry["restores"] = json.dumps(call_snapshots(bound, hub, extra), ensure_ascii=False)
             known = len(roots)
             entry["pin"] = time.time_ns() // 1000
-            names = FLOW_INNER + (FLOW_INNER_I if flow_i else ())
+            names = FLOW_INNER + (FLOW_INNER_I if flow_i else ()) + (FLOW_INNER_J2 if name in FLOW_J2 else ())
             entry["replaced"] = [item for item in names if getattr(_flow_target(item), _flow_attr(item)) is not installed[item]] + list(FLOW_ALWAYS.get(name, ()))
             entry["replaced"] += ["ts_runner"] if runner is not None else []
             if flow_i:
@@ -2738,6 +2954,11 @@ def op_hub_audit_samples(request):
             if name == "run_exec" and kit_hub.EXEC_LAND_WAIT_SECONDS != land_wait:
                 # ⑤g2：用例自己拿着落地锁、等锁时限改短了（落地锁被占的那一条）。重放时拿锁的已经不在，不重放，契约钉住只跳这一条
                 entry["skip"] = "EXEC_LAND_WAIT_SECONDS=%r" % (kit_hub.EXEC_LAND_WAIT_SECONDS,)
+            if name in FLOW_J2:  # ⑤j2：这个进程自己的 pid（runner.started 一类写的），契约只把等于它的换成占位
+                entry["self_pid"] = os.getpid()
+            if name == "spawn_runner" and "Popen" not in entry["replaced"]:
+                # ⑤j2：真起一个新 hub 子进程（1097），子进程号每次不同、写标记的时刻也不定，不重放（由手写场景覆盖，⑤j 设计稿第 4 节）
+                entry["skip"] = "起真子进程"
             # ⑤i1：目录锁有活的持有者时，重放时持有者已经不在，接管与否两边不同，不重放（由手写场景覆盖）。⑤i2：只算这次调用拿过或
             # 探过的锁，调用之后再定
             held = _live_locks(hub) if flow_i and Path(hub.repo).exists() else []
@@ -2778,8 +2999,9 @@ def op_hub_audit_samples(request):
             _DIRLOCK_FAKE_PID[0] = False
             _TOUCHED_LOCKS.clear()
             streams, captured = (sys.stdin, sys.stdout, sys.stderr), None
-            if command:  # ⑤j1：记下读到的标准输入与写出的 stdout、stderr，照样交给用例当时的流
+            if streamed:  # ⑤j1：记下读到的标准输入与写出的 stdout、stderr，照样交给用例当时的流
                 sys.stdin, sys.stdout, sys.stderr = _StdinRecorder(streams[0]), _Tee(streams[1]), _Tee(streams[2])
+            saved_context, _PROC["context"] = _PROC["context"], (inner, roots, busy)  # ⑤j2：进程代理的 poll 记进这一次
             depth[0] += 1
             raised = None
             try:
@@ -2790,7 +3012,8 @@ def op_hub_audit_samples(request):
                 result = json.loads(_recorded_error(exc))
             finally:
                 depth[0] -= 1
-                if command:
+                _PROC["context"] = saved_context
+                if streamed:
                     entry["stdin"] = sys.stdin.taken
                     captured = ("".join(sys.stdout.parts), "".join(sys.stderr.parts))
                     sys.stdin, sys.stdout, sys.stderr = streams
@@ -2818,6 +3041,9 @@ def op_hub_audit_samples(request):
             if captured is not None:
                 state["stdout"], state["stderr"] = captured
             entry["result"] = json.dumps(state, ensure_ascii=False)
+            for item, key, raw, proxy in wrapped:  # ⑤j2：调用之后的参数记完了，还是那个代理的换回用例自己的对象
+                if item.get(key) is proxy:
+                    item[key] = raw
             if raised is not None:
                 raise raised
             return value
@@ -2839,8 +3065,13 @@ def op_hub_audit_samples(request):
                 entry = {"test": current[0], "fn": name, "args": given}
                 calls.append(entry)
                 if name in snapshot_functions:  # ⑤i1：resumed_session 只拿 workspace 比字符串，不存那个目录
-                    # ⑤j1：uncommitted_references 的仓库参数叫 repo，另存它
+                    # ⑤j1：uncommitted_references 的仓库参数叫 repo，另存它；⑤j2：给了 files 的指纹、git status 存那几个文件所在的目录
+                    # （用例的临时目录；kit_hub.py 自己所在的内核目录不存，重放时就在原处）
                     extra = (bound.arguments["repo"],) if name == "uncommitted_references" else ()
+                    if name in ("code_fingerprint", "kernel_dirty", "kernel_changes") and bound.arguments.get("files") is not None:
+                        kernel_dir = Path(kit_hub.__file__).resolve().parent.parent
+                        dirs = {Path(item).parent for item in bound.arguments["files"]}
+                        extra = tuple(sorted((item for item in dirs if item.is_dir() and not item.resolve().is_relative_to(kernel_dir)), key=str))
                     restores = call_snapshots(bound, None if engine is None else engine.hub, extra=extra,
                                               skip=("workspace",) if name == "resumed_session" else ())
                     entry["restores"] = json.dumps(restores, ensure_ascii=False)  # 同 result：存成 JSON 文字
@@ -2931,7 +3162,7 @@ def op_hub_audit_samples(request):
 
     for name, fn in originals.items():
         setattr(*_owner_attr(name), flow_recorder(name, fn) if name in flow_functions else recorder(name, fn))
-    installed.update({name: getattr(_flow_target(name), _flow_attr(name)) for name in FLOW_INNER + FLOW_INNER_I})
+    installed.update({name: getattr(_flow_target(name), _flow_attr(name)) for name in FLOW_INNER + FLOW_INNER_I + FLOW_INNER_J2})
     real_enter, real_alive = kit_hub.DirLock.__enter__, kit_hub.lock_alive
 
     def entering(lock):  # ⑤i2：记下拿过的锁（_TOUCHED_LOCKS）
@@ -3148,6 +3379,7 @@ OPS = {
     "hub.prompt": op_hub_prompt,
     "hub.contract": op_hub_contract,
     "hub.contract_flow": op_hub_contract_flow,
+    "hub.popen": op_hub_popen,
     "hub.inputs": op_hub_inputs,
     "hub.turn": op_hub_turn,
     "hub.shadow_task": op_hub_shadow_task,

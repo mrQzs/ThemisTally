@@ -31,8 +31,8 @@
     {
       "name": "E4 CreateProcessW 改回失败后直接取错误码",
       "file": "ts/packages/base/src/native.ts",
-      "old": "        check(\"CreateProcessW\", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment,\n          cwd === null ? null : wide(cwd), startup, info), falsy);",
-      "new": "        if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment, cwd === null ? null : wide(cwd), startup, info)) {\n          throw new Win32Error(\"CreateProcessW\", k.GetLastError());\n        }"
+      "old": "      check(\"CreateProcessW\", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, all, environment,\n        cwd === null ? null : wide(cwd), startup, info), falsy);",
+      "new": "      if (!k.CreateProcessW(null, wide(cmdline), null, null, 1, all, environment, cwd === null ? null : wide(cwd), startup, info)) {\n        throw new Win32Error(\"CreateProcessW\", k.GetLastError());\n      }"
     },
     {
       "name": "E5 ctrlBreak 改回直接取错误码",

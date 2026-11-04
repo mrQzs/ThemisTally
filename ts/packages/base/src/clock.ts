@@ -61,6 +61,14 @@ export async function withPinnedClock<T>(micros: number, fn: () => T | Promise<T
   }
 }
 
+/**
+ * 只给契约用（⑤j2 跑到静止，对应 python_probe 换上的 time.sleep）：钉住期间把钉住的时刻往后挪 micros 微秒，信编号照次序接着编，不从头编；
+ * 没钉住时什么都不做。
+ */
+export function advancePinnedClock(micros: number): void {
+  if (pinned !== null) pinned += micros;
+}
+
 /** utc_now：秒精度，截断（Python 的 strftime 不进位）。 */
 export function utcNow(micros: number = nowMicros()): string {
   const date = new Date(Math.floor(micros / 1000));

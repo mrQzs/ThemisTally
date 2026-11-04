@@ -6,9 +6,8 @@
 //   - task_quiet：主任务的 runner 锁有活的持有者时先打印“等 … 办完手上这一步”再等；supervisor 拿着总锁时只等主任务的锁。
 // 不写转义序列。
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sleepSync } from "@themis/base/fsutil";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { COORDINATOR, OWNER } from "@themis/hub/constants";
 import { Hub, canonicalState } from "@themis/hub/mailbox";
@@ -19,6 +18,7 @@ import { REPO, REPLAY_TIMEOUT } from "./harness.ts";
 import { AT, BT, LF, type Scene, agreeFlow, flow, kernelPython, pd, py, returned, scene, written } from "./flow-fixtures.ts";
 import { put, removeCreated, tempDir } from "./repo-fixtures.ts";
 import { BASE_FILES, BOX, failure, letter, lettersTo, setStage, stateAfter } from "./engine-fixtures.ts";
+import { holdLock } from "./runner-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -31,17 +31,6 @@ function stateScene(edit: (ts: PyDict, repo: string) => void = () => undefined, 
     put(repo, `${BOX}/ledger/state.json`, canonicalState(new Map<string, PyValue>([["tasks", new Map([["T001", ts]])]])));
     more(repo);
   }, false);
-}
-
-/** 另一个进程（真的 Python 子进程，kit_hub.DirLock）拿着 path 这把锁，直到被结束；mode 给了就照 supervise 写进锁目录。 */
-function holdLock(path: string, held: ChildProcess[], mode: string | null = null): void {
-  const script = [
-    "import sys, time", "sys.path.insert(0, sys.argv[1])", "import kit_hub", "from pathlib import Path",
-    "kit_hub.DirLock(Path(sys.argv[2])).__enter__()", "time.sleep(600)",
-  ].join(LF);
-  held.push(spawn(kernelPython(), ["-c", script, join(REPO, "scripts"), path], { stdio: "ignore" }));
-  for (let waited = 0; !existsSync(join(path, "owner.json")) && waited < 200; waited += 1) sleepSync(100);
-  if (mode !== null) put(path, "mode", `${mode}${LF}`);
 }
 
 const stdoutOf = (state: Record<string, unknown> | undefined): string => state?.["stdout"] as string;

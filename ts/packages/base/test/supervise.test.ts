@@ -38,6 +38,12 @@ function fakeApi(script: Script = {}) {
       calls.push("spawn");
       return { process: 10n, thread: 11n, pid: 4242 };
     },
+    spawn: () => {
+      throw new Error("run_supervised 只用 spawnSuspended");
+    },
+    inheritableStd: () => {
+      throw new Error("run_supervised 不用本进程的标准句柄");
+    },
     assign: () => {
       calls.push("assign");
       return script.assign ?? true;

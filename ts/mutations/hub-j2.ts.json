@@ -1,0 +1,705 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-runner-scenes.contract.test.ts",
+  "packages/contracts/test/hub-runner.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 3600,
+ "mutations": [
+  {
+   "name": "R01 kit_hub.py 不算内核文件",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const files = [join(SCRIPTS_DIR, \"kit_hub.py\"), join(SCRIPTS_DIR, \"pi_dispatch.py\"),",
+   "new": "const files = [join(SCRIPTS_DIR, \"pi_dispatch.py\"),"
+  },
+  {
+   "name": "R02 选择文件不算内核文件",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    join(SCRIPTS_DIR, \"kernel-impl.json\"), ...deliveryFiles()];",
+   "new": "    ...deliveryFiles()];"
+  },
+  {
+   "name": "R03 hub 是 ts 也不加 E3",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "=== \"ts\" ? [...files, ...tsKernelFiles()] : files;",
+   "new": "=== \"ts\" ? files : files;"
+  },
+  {
+   "name": "R04 hub 是 python 也加 E3",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "=== \"ts\" ? [...files, ...tsKernelFiles()] : files;",
+   "new": "!== \"x\" ? [...files, ...tsKernelFiles()] : files;"
+  },
+  {
+   "name": "R05 选择文件坏了照抛",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (error instanceof DispatchError) return new Map();",
+   "new": "if (error instanceof DispatchError) throw error;"
+  },
+  {
+   "name": "R06 E3 少 cli",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const TS_KERNEL_PACKAGES = [\"base\", \"config\", \"dispatcher\", \"hub\", \"cli\"];",
+   "new": "const TS_KERNEL_PACKAGES = [\"base\", \"config\", \"dispatcher\", \"hub\"];"
+  },
+  {
+   "name": "R07 E3 源码不排序",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "return [...sources.sort(cmpCodePoints), \"package.json\",",
+   "new": "return [...sources, \"package.json\","
+  },
+  {
+   "name": "R08 E3 漏 bun.lock",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "\"package.json\", \"bun.lock\", \"bunfig.toml\"",
+   "new": "\"package.json\", \"bunfig.toml\""
+  },
+  {
+   "name": "R09 E3 漏 tsconfig.json",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "...manifests.sort(cmpCodePoints), \"tsconfig.json\"]",
+   "new": "...manifests.sort(cmpCodePoints)]"
+  },
+  {
+   "name": "R10 E3 漏各包的 package.json",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "...manifests.sort(cmpCodePoints), \"tsconfig.json\"]",
+   "new": "\"tsconfig.json\"]"
+  },
+  {
+   "name": "R11 读不到的文件不写 unreadable",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "data = Buffer.from(`${NUL}unreadable`, \"utf8\");",
+   "new": "data = Buffer.alloc(0);"
+  },
+  {
+   "name": "R12 指纹用整个路径",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "Buffer.from(basename(path), \"utf8\")",
+   "new": "Buffer.from(path, \"utf8\")"
+  },
+  {
+   "name": "R13 内容之后不加 0 字节",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "data, Buffer.from(NUL)]",
+   "new": "data]"
+  },
+  {
+   "name": "R14 空清单不报 IndexError",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  if (paths.length === 0) throw new PyCrash(\"IndexError\", \"list index out of range\");",
+   "new": ""
+  },
+  {
+   "name": "R15 起不来的两种错误码对调",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "isDirectory(cwd) ? 2 : 267",
+   "new": "isDirectory(cwd) ? 267 : 2"
+  },
+  {
+   "name": "R16 kernel_dirty 不看退出码",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "return failed !== null || code !== 0 ||",
+   "new": "return failed !== null ||"
+  },
+  {
+   "name": "R17 起不来时不带原因",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[`git 起不来：${failed}`]",
+   "new": "[`git 起不来`]"
+  },
+  {
+   "name": "R18 git 出错不报",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (code !== 0) return [`git status 退出码",
+   "new": "if (false) return [`git status 退出码"
+  },
+  {
+   "name": "R19 没改动也拒",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (changes.length === 0) return;",
+   "new": "if (changes.length < 0) return;"
+  },
+  {
+   "name": "R20 --allow-dirty-kernel 不放行",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (pyTruthy((args ?? {})[\"allow_dirty_kernel\"] ?? false)) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "R21 放行不记账本",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"runner.dirty_kernel_allowed\", [[\"pid\", BigInt(deps.selfPid)], [\"task\", task], [\"changes\", changes.slice(0, 20)]]);",
+   "new": "    void task;"
+  },
+  {
+   "name": "R22 拒绝的退出码写成用法错",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "+ \"内核跑，站主显式加 --allow-dirty-kernel\", EXIT_BLOCKED);",
+   "new": "+ \"内核跑，站主显式加 --allow-dirty-kernel\", EXIT_USAGE);"
+  },
+  {
+   "name": "R23 不等内核落定",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "while (deps.kernelDirty(null)) {",
+   "new": "while (false) {"
+  },
+  {
+   "name": "R24 到时限还等",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (deps.monotonic() >= deadline) return false;",
+   "new": "if (false) return false;"
+  },
+  {
+   "name": "R25 落定的间隔下限 1 秒",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "await deps.sleep(Math.max(poll, 0.1));",
+   "new": "await deps.sleep(Math.max(poll, 1));"
+  },
+  {
+   "name": "R26 不记子进程号",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"child\", child.pid === null ? null : BigInt(child.pid)]",
+   "new": "[\"child\", null]"
+  },
+  {
+   "name": "R27 spawn_runner 交回 1",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"child\", child.pid === null ? null : BigInt(child.pid)]]);\n  return EXIT_OK;",
+   "new": "[\"child\", child.pid === null ? null : BigInt(child.pid)]]);\n  return 1;"
+  },
+  {
+   "name": "R28 暂停标记不在也算在等",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (!isFile(marker)) return false;",
+   "new": "if (!isFile(marker)) return true;"
+  },
+  {
+   "name": "R29 命令的进程不在了也不删标记",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "      unlinkSync(marker);",
+   "new": "      void marker;"
+  },
+  {
+   "name": "R30 问不出死活也算不在",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "deps.pidAlive(Number(pyIntOf(pid))) === false) {",
+   "new": "deps.pidAlive(Number(pyIntOf(pid))) !== true) {"
+  },
+  {
+   "name": "R31 并行不转 supervise",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (task === null && configuredParallel(hub, args) > 1) return supervise(",
+   "new": "if (false) return supervise("
+  },
+  {
+   "name": "R32 串行不查活着的主任务 runner",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (busy.length > 0) throw new HubError(",
+   "new": "if (false) throw new HubError("
+  },
+  {
+   "name": "R33 不写 runner.started",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"runner.started\", [[\"pid\", BigInt(deps.selfPid)], [\"hub_sha256\", HUB_SHA256], [\"task\", task]]);",
+   "new": "    void HUB_SHA256;"
+  },
+  {
+   "name": "R34 串行起步不放回",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (task === null) await deps.requeueInterrupted(hub, [], deps);",
+   "new": "if (false) await deps.requeueInterrupted(hub, [], deps);"
+  },
+  {
+   "name": "R35 指纹变了不检查",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (deps.codeFingerprint(null) !== fingerprint) {\n        restart = !pyTruthy(args[\"no_restart\"] ?? false) && await deps.kernelSettled(Number(args[\"settle\"]), poll, deps);\n        await hub.appendEvent(\"runner.code_changed\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(turns)]",
+   "new": "if (false) {\n        restart = !pyTruthy(args[\"no_restart\"] ?? false) && await deps.kernelSettled(Number(args[\"settle\"]), poll, deps);\n        await hub.appendEvent(\"runner.code_changed\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(turns)]"
+  },
+  {
+   "name": "R36 --no-restart 也重启",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "        restart = !pyTruthy(args[\"no_restart\"] ?? false) && await deps.kernelSettled(Number(args[\"settle\"]), poll, deps);\n        await hub.appendEvent(\"runner.code_changed\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(turns)]",
+   "new": "        restart = await deps.kernelSettled(Number(args[\"settle\"]), poll, deps);\n        await hub.appendEvent(\"runner.code_changed\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(turns)]"
+  },
+  {
+   "name": "R37 换代的文字",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "\"已提交，hub 在两步之间用新代码重启\"",
+   "new": "\"已提交，hub 用新代码重启\""
+  },
+  {
+   "name": "R38 不看暂停",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (task !== null && pauseRequested(hub, task, deps)) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "R39 结项信不看类型",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": ".filter((path) => parseLetter(readText(path))[0].get(\"type\") === \"通过\"",
+   "new": ".filter((path) => parseLetter(readText(path))[0].get(\"type\") !== \"x\""
+  },
+  {
+   "name": "R40 结项信不按主任务过滤",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "        && (task === null || letterMain(path) === task));",
+   "new": "        && true);"
+  },
+  {
+   "name": "R41 挡路不记 finalize.deferred",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "            await hub.appendEvent(\"finalize.deferred\",",
+   "new": "            if (false) await hub.appendEvent(\"finalize.deferred\","
+  },
+  {
+   "name": "R42 同一封挡路信每轮都记",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (deferred !== meta.get(\"msg-id\")) {",
+   "new": "if (true) {"
+  },
+  {
+   "name": "R43 挡路不 sleep",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "          idleSince = deps.monotonic();\n          await deps.sleep(poll);\n          continue;",
+   "new": "          idleSince = deps.monotonic();\n          continue;"
+  },
+  {
+   "name": "R44 结项不算一件事",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "        deferred = null;\n        turns += 1;",
+   "new": "        deferred = null;\n        turns += 0;"
+  },
+  {
+   "name": "R45 step 办了事不算",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (await deps.engineStep(engine)) {\n        turns += 1;",
+   "new": "if (await deps.engineStep(engine)) {\n        turns += 0;"
+  },
+  {
+   "name": "R46 空闲不问 runner_may_idle_exit",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": ">= idleExit && runnerMayIdleExit(hub, task)) break;",
+   "new": ">= idleExit) break;"
+  },
+  {
+   "name": "R47 空闲不等 idle_exit",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (deps.monotonic() - idleSince >= idleExit &&",
+   "new": "if (true &&"
+  },
+  {
+   "name": "R48 不写 runner.stopped",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"runner.stopped\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(turns)], [\"task\", task]]);",
+   "new": "    void turns;"
+  },
+  {
+   "name": "R49 主任务 runner 自己重启",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (restart && task !== null) return EXIT_RESTART;",
+   "new": "if (false) return EXIT_RESTART;"
+  },
+  {
+   "name": "R50 换代的 max-steps 不减",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "String(maxSteps - turns)",
+   "new": "String(maxSteps)"
+  },
+  {
+   "name": "R51 退出那行的文字",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "hub 退出：处理了 ${turns} 件事；站主未读",
+   "new": "hub 退出：处理了 ${turns} 件事；未读"
+  },
+  {
+   "name": "R52 主任务 runner 的空闲时限写成 60",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "num(TASK_RUNNER_IDLE_SECONDS)",
+   "new": "num(60n)"
+  },
+  {
+   "name": "R53 不传 --allow-dirty-kernel",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "? [\"--allow-dirty-kernel\"] : []",
+   "new": "? [] : []"
+  },
+  {
+   "name": "R54 主任务 runner 的日志名",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "`${task}.log`",
+   "new": "`${task}.txt`"
+  },
+  {
+   "name": "R55 args 是 None 不抛",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (args === null) throw new PyCrash(\"AttributeError\"",
+   "new": "if (false) throw new PyCrash(\"AttributeError\""
+  },
+  {
+   "name": "R56 owner-sweep 还在跑也再起",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (proc !== null && proc.poll() === null) return false;",
+   "new": "if (false) return false;"
+  },
+  {
+   "name": "R57 不记 owner_sweep.exited",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"owner_sweep.exited\", [[\"code\", returncodeOf(proc)]]);",
+   "new": "    void proc;"
+  },
+  {
+   "name": "R58 不清 holder",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    holder.set(\"proc\", null);\n  }",
+   "new": "  }"
+  },
+  {
+   "name": "R59 不看 pending",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (!pyTruthy(pyGet(readOwnerSweep(hub), \"pending\")) || ",
+   "new": "if ("
+  },
+  {
+   "name": "R60 不看 .owner-sweep 的锁",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": " || lockAlive(purePathStr(hub.root, \".owner-sweep\"), deps)",
+   "new": ""
+  },
+  {
+   "name": "R61 owner-sweep 不等内核落定",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": " || deps.kernelDirty(null)) return false;",
+   "new": ") return false;"
+  },
+  {
+   "name": "R62 owner-sweep 的日志名",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "\"owner-sweep.log\"",
+   "new": "\"owner_sweep.log\""
+  },
+  {
+   "name": "R63 不记 owner_sweep.started",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  await hub.appendEvent(\"owner_sweep.started\",",
+   "new": "  if (false) await hub.appendEvent(\"owner_sweep.started\","
+  },
+  {
+   "name": "R64 已经有一个在跑时不接",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (error instanceof HubError && error.code === EXIT_BLOCKED) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "R65 没有待跑的文字",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "\"没有待跑的\"",
+   "new": "\"没有\""
+  },
+  {
+   "name": "R66 退出码 75 也算崩",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "code === EXIT_OK || code === EXIT_RESTART ? 0n",
+   "new": "code === EXIT_OK ? 0n"
+  },
+  {
+   "name": "R67 崩到上限不写信",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (failures.get(task) === BigInt(RUNNER_CRASH_LIMIT)) {",
+   "new": "if (false) {"
+  },
+  {
+   "name": "R68 不放回到点的扣信",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  await deps.releaseHeld(hub);",
+   "new": "  void hub;"
+  },
+  {
+   "name": "R69 上一代的 runner 不算",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": ".filter((name) => !children.has(name) && lockAlive(purePathStr(runners, name), deps))",
+   "new": ".filter((name) => !children.has(name) && false)"
+  },
+  {
+   "name": "R70 暂停的照样放回",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[...new Set([...children.keys(), ...paused])]",
+   "new": "[...children.keys()]"
+  },
+  {
+   "name": "R71 满了还起",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (live >= parallel || deps.kernelDirty(null)) break;",
+   "new": "if (deps.kernelDirty(null)) break;"
+  },
+  {
+   "name": "R72 内核有改动也起",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (live >= parallel || deps.kernelDirty(null)) break;",
+   "new": "if (live >= parallel) break;"
+  },
+  {
+   "name": "R73 暂停的也起",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    if (pauseRequested(hub, task, deps)) continue;",
+   "new": "    if (false) continue;"
+  },
+  {
+   "name": "R74 崩到上限的也起",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": " || (failures.get(task) ?? 0n) >= BigInt(RUNNER_CRASH_LIMIT)) continue;",
+   "new": ") continue;"
+  },
+  {
+   "name": "R75 交回的待办不去掉崩到上限的",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "return [pending.filter((task) => (failures.get(task) ?? 0n) < BigInt(RUNNER_CRASH_LIMIT)), live, spawned];",
+   "new": "return [pending, live, spawned];"
+  },
+  {
+   "name": "R76 child_started 不记 pid",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"task\", task], [\"pid\", child.pid === null ? null : BigInt(child.pid)]",
+   "new": "[\"task\", task], [\"pid\", null]"
+  },
+  {
+   "name": "R77 runner 退出那行不带退出码",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "`${task} 的 runner 退出（${code}）`",
+   "new": "`${task} 的 runner 退出`"
+  },
+  {
+   "name": "R78 不写 mode",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    writeMode(hub);",
+   "new": "    void writeMode;"
+  },
+  {
+   "name": "R79 不跟 runner.json",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "      current = configuredParallel(hub, args);",
+   "new": "      void configuredParallel;"
+  },
+  {
+   "name": "R80 出错的一轮算 0 个在跑",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[pending, live, spawned] = [[], 1, 0];",
+   "new": "[pending, live, spawned] = [[], 0, 0];"
+  },
+  {
+   "name": "R81 supervisor.error 不带文字",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const text = `${pyErrorNames(error)[0]}: ${error instanceof Error ? error.message : String(error)}`;",
+   "new": "const text = `${pyErrorNames(error)[0]}`;"
+  },
+  {
+   "name": "R83 换代的 --parallel 用起步时的",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"--parallel\", String(current)]",
+   "new": "[\"--parallel\", String(parallel)]"
+  },
+  {
+   "name": "R84 没给 --parallel 也带",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "args[\"parallel\"] === null || args[\"parallel\"] === undefined ? [] :",
+   "new": "false ? [] :"
+  },
+  {
+   "name": "R85 不顺带 owner-sweep",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "        await deps.ownerSweepTick(hub, sweeper, deps);",
+   "new": "        void sweeper;"
+  },
+  {
+   "name": "R86 忙不忙不看",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (supervisorBusy(hub, pending, BigInt(live))) idleSince = deps.monotonic();",
+   "new": "if (false) idleSince = deps.monotonic();"
+  },
+  {
+   "name": "R87 supervisor 不写 runner.stopped",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"runner.stopped\", [[\"pid\", BigInt(deps.selfPid)], [\"steps\", BigInt(started)]]);",
+   "new": "    void started;"
+  },
+  {
+   "name": "R88 不去掉 --",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (command[0] === \"--\") command = command.slice(1);",
+   "new": "void 0;"
+  },
+  {
+   "name": "R89 空命令不报错",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (command.length === 0) throw new HubError(\"要跑的命令写在",
+   "new": "if (false) throw new HubError(\"要跑的命令写在"
+  },
+  {
+   "name": "R90 不等执行端",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "      if (blockers.length === 0) break;",
+   "new": "      break;"
+  },
+  {
+   "name": "R91 要等的每轮都打印",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (!announced) {",
+   "new": "if (true) {"
+  },
+  {
+   "name": "R92 不记 exclusive.run",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "    await hub.appendEvent(\"exclusive.run\",",
+   "new": "    if (false) await hub.appendEvent(\"exclusive.run\","
+  },
+  {
+   "name": "R93 HEAD 没动也记",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (before && after && after !== before) await markOwnerMoved",
+   "new": "if (before && after) await markOwnerMoved"
+  },
+  {
+   "name": "R94 交回 0 不交命令的退出码",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  return code;\n}\n\n/** subprocess.run",
+   "new": "  return 0;\n}\n\n/** subprocess.run"
+  },
+  {
+   "name": "R95 命令起不来记成 OSError",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (done.error) throw new PyCrash(\"FileNotFoundError\", pyWinErrorMessage(2));\n  return done.status ?? 1;",
+   "new": "if (done.error) throw new PyCrash(\"OSError\", pyWinErrorMessage(2));\n  return done.status ?? 1;"
+  },
+  {
+   "name": "R96 后台回归也挡站主的命令",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"contract_task\", NUL]]), false, deps)",
+   "new": "[\"contract_task\", NUL]]), true, deps)"
+  },
+  {
+   "name": "P01 stderr 不跟 stdout 共用",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": ": stdout; // stderr=STDOUT",
+   "new": ": take(null); // stderr=STDOUT"
+  },
+  {
+   "name": "P02 日志清空重写",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "api.openInheritable(log.path, \"append\")",
+   "new": "api.openInheritable(log.path, \"truncate\")"
+  },
+  {
+   "name": "P03 不用 cwd",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0);",
+   "new": "api.spawn(list2cmdline(argv), null, null, { stdin, stdout, stderr }, 0);"
+  },
+  {
+   "name": "P04 flags 写成 CREATE_NEW_PROCESS_GROUP",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0);",
+   "new": "api.spawn(list2cmdline(argv), null, cwd, { stdin, stdout, stderr }, 0x200);"
+  },
+  {
+   "name": "P05 退出码当 0",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "code = api.exitCode(spawned.process);",
+   "new": "code = 0;"
+  },
+  {
+   "name": "P06 进程句柄起完就关",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "  api.close(spawned.thread);",
+   "new": "  api.close(spawned.thread);\n  api.close(spawned.process);"
+  },
+  {
+   "name": "P07 起不来记成 OSError",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "throw new PyCrash(name, pyWinErrorMessage(error.winerror));",
+   "new": "throw new PyCrash(\"OSError\", pyWinErrorMessage(error.winerror));"
+  },
+  {
+   "name": "P08 Bun 判断反了",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (!IS_BUN) throw new Error(",
+   "new": "if (IS_BUN) throw new Error("
+  },
+  {
+   "name": "P09 stdin 不接空设备",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const stdin = take(api.openInheritable(\"NUL\", \"read\"));",
+   "new": "const stdin = take(api.inheritableStd(\"stdout\"));"
+  },
+  {
+   "name": "N01 create 不加 EXTENDED_STARTUPINFO_PRESENT",
+   "file": "ts/packages/base/src/native.ts",
+   "old": "const all = flags | EXTENDED_STARTUPINFO_PRESENT | (environment",
+   "new": "const all = flags | (environment"
+  },
+  {
+   "name": "N02 HANDLE_LIST 少了 stdin",
+   "file": "ts/packages/base/src/native.ts",
+   "old": "const handles = [...new Set([std.stdin, std.stdout, std.stderr])];",
+   "new": "const handles = [...new Set([std.stdout, std.stderr])];"
+  },
+  {
+   "name": "N03 inheritableStd 不复制，直接交回本进程的句柄",
+   "file": "ts/packages/base/src/native.ts",
+   "old": "if (handle === 0n || handle === INVALID_HANDLE) return null;",
+   "new": "if (handle === 0n || handle === INVALID_HANDLE) return null;\n      if (handle !== 0n) return handle;"
+  },
+  {
+   "name": "N04 inheritableStd 复制成不可继承的",
+   "file": "ts/packages/base/src/native.ts",
+   "old": "k.DuplicateHandle(self, handle, self, copy, 0, 1, DUPLICATE_SAME_ACCESS)",
+   "new": "k.DuplicateHandle(self, handle, self, copy, 0, 0, DUPLICATE_SAME_ACCESS)"
+  },
+  {
+   "name": "R97 runner.refused 的 changes 不截前 20 条（抽查 T01）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"reason\", \"kernel_dirty\"], [\"changes\", changes.slice(0, 20)]]",
+   "new": "[\"reason\", \"kernel_dirty\"], [\"changes\", changes]]"
+  },
+  {
+   "name": "R98 拒绝的报错列前 20 条（抽查 T02）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "changes.slice(0, 10).join(\"；\")",
+   "new": "changes.slice(0, 20).join(\"；\")"
+  },
+  {
+   "name": "R99 空的暂停标记不当 {}（抽查 T04）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const data = loads(readText(marker) || \"{}\");",
+   "new": "const data = loads(readText(marker));"
+  },
+  {
+   "name": "R100 多封结项信先办最后一封（抽查 T06）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "const meta = parseLetter(readText(passes[0] as string))[0];\n        const blockers = await land(hub, engine, passes[0] as string, meta, deps);",
+   "new": "const meta = parseLetter(readText(passes.at(-1) as string))[0];\n        const blockers = await land(hub, engine, passes.at(-1) as string, meta, deps);"
+  },
+  {
+   "name": "R101 自己起的子进程也算上一代的（抽查 T09）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": ".filter((name) => !children.has(name) && lockAlive(purePathStr(runners, name), deps))",
+   "new": ".filter((name) => lockAlive(purePathStr(runners, name), deps))"
+  },
+  {
+   "name": "R102 exclusive.run 记整条命令（抽查 T13）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[[\"command\", command.slice(0, 6)]]",
+   "new": "[[\"command\", command]]"
+  },
+  {
+   "name": "R103 owner-sweep 什么 HubError 都当已经有一个在跑（抽查 T14）",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "if (error instanceof HubError && error.code === EXIT_BLOCKED) {",
+   "new": "if (error instanceof HubError) {"
+  }
+ ]
+}

@@ -977,7 +977,7 @@ const QUALIFIED: Readonly<Record<string, string>> = {
 };
 
 /** step 接住的异常在 Python 里叫什么：交回（type(exc).__name__, traceback 最后一行写的类名）。认不出来的用 JS 的 name。 */
-function pyErrorNames(error: unknown): [string, string] {
+export function pyErrorNames(error: unknown): [string, string] {
   const name = error instanceof LandBusy ? "LandBusy" : error instanceof HubError ? "HubError" : error instanceof DispatchError ? "DispatchError"
     : pyExceptionName(error) ?? (error instanceof Error ? error.name : "Exception");
   return [name, QUALIFIED[name] ?? name];

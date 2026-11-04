@@ -2,7 +2,8 @@
 // - 初始信箱：T001 已经走到结项，exec-step 的新信里有一封“通过”；T002 依赖 T001、规划已交付。第一步就是 land：handle_pass 结项、放行 T002，
 //   内核写信叫协调人开工合同端；之后协调人与各工人的回合照剧本。
 // - 回合按 agent 分开（"runner:<agent>"）：协调人从“开工下一步、返工、发错收件人、不附 brief、输出作废、什么都不发”里抽；工人从“合格交付、
-//   违规、格式错、超时、限流、接口报错、阻塞信”里抽。限流的解除时刻落在 80 步之内（基准加不到 80 秒），到点放回那条路也走得到。
+//   违规、格式错、超时、限流、接口报错、阻塞信”里抽。限流的解除时刻在基准之后 80 秒以内：⑤j2 起跑的是真的 cmd_run，办了事的步之间时钟
+//   不动，空闲时每轮 sleep 1 秒把钉住的时钟往后挪，到点放回那条路也走得到。
 // - verify_delivery、run_exec、run_jev、finalize、rehearse_landing、apply_candidate、seed_whitebox 等照剧本交回；对 ts 的改动写成键路径加新值
 //   （ts_set），两边只照着套用，不各写分支。
 // 剧本只求两边走同一条路，不求走得通：用完了、对不上都在 step 里报错（写阻塞信给站主），两边一样。不写转义序列。
@@ -94,7 +95,10 @@ function workerTurn(rand: () => number, agent: string, id: string): unknown {
 const withTs = (item: unknown, changes: readonly (readonly [string[], unknown])[]): unknown =>
   ({ ...(value(item) as object), ts_set: changes.map(([path, data]) => [path, toTagged(py(data))]) });
 
-/** 一个种子的跑到静止请求：只办全部主任务（串行，only_task 是 None），最多 80 步。 */
+/**
+ * 一个种子的跑到静止请求（⑤j2 起是真的 cmd_run，⑤j 设计稿第 5 节）：串行办全部主任务，最多 80 件事，空闲即退（idle_exit 0）、每轮 sleep 1 秒、
+ * 不重启。探针照 clock 换上四样：指纹交回常数、kernel_changes 交回 []、sleep 只把钉住的时钟往后挪、第 400 次 sleep 抛错。
+ */
 export function quiesceRequest(seed: number, sc: Scene, roots: string) {
   const rand = prng(seed);
   const repeat = <T>(count: number, make: (index: number) => T): T[] => Array.from({ length: count }, (_, index) => make(index));
@@ -118,5 +122,6 @@ export function quiesceRequest(seed: number, sc: Scene, roots: string) {
     seed_whitebox: repeat(6, () => value(null)),
   };
   for (const agent of WORKERS) scripted[`runner:${agent}`] = repeat(5, (index) => workerTurn(rand, agent, `${agent}-${index}`));
-  return { ...flow("quiesce", sc, [null, 80]), pin: PIN, scripted };
+  const args = { repo: sc.repo, task: null, max_steps: 80, idle_exit: 0, poll: 1, settle: 0, no_restart: true, parallel: 1, allow_dirty_kernel: false };
+  return { ...flow("cmd_run", sc, [args]), pin: PIN, scripted, clock: "sleep" };
 }

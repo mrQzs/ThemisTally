@@ -759,6 +759,13 @@ export interface WinProcessApi {
   openInheritable(path: string, how: OpenHow): bigint;
   /** 挂起创建、另起进程组；只让 std 这几个句柄被继承。environment 为 null 时继承本进程的环境。 */
   spawnSuspended(cmdline: string, environment: Buffer | null, cwd: string | null, std: StdHandles): Spawned;
+  /**
+   * 照 flags 创建（另加 EXTENDED_STARTUPINFO_PRESENT，给了环境块时加 CREATE_UNICODE_ENVIRONMENT），只让 std 这几个句柄被继承。⑤j2 的 hub
+   * 起长命子进程用（flags 照 Python Popen 的 creationflags）。
+   */
+  spawn(cmdline: string, environment: Buffer | null, cwd: string | null, std: StdHandles, flags: number): Spawned;
+  /** 本进程的标准输出或标准错误复制成可继承的一份（同 Python subprocess 的 _make_inheritable）；没有（空句柄或无效句柄）为 null。 */
+  inheritableStd(which: "stdout" | "stderr"): bigint | null;
   assign(job: bigint, process: bigint): boolean;
   resume(thread: bigint): boolean;
   terminateProcess(process: bigint): void;
@@ -795,6 +802,10 @@ const CREATE_ALWAYS = 2;
 const OPEN_EXISTING = 3;
 const CTRL_BREAK_EVENT = 1;
 const WAIT_OBJECT_0 = 0;
+const DUPLICATE_SAME_ACCESS = 0x2;
+/** GetStdHandle 的参数（DWORD 的 -11、-12）。 */
+const STD_OUTPUT_HANDLE = 0xfffffff5;
+const STD_ERROR_HANDLE = 0xfffffff4;
 const INVALID_HANDLE = -1n;
 
 let processApi: Promise<WinProcessApi> | undefined;
@@ -834,6 +845,9 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     AttachConsole: { args: [T.u32], returns: T.i32 },
     GetConsoleProcessList: { args: [T.ptr, T.u32], returns: T.u32 },
     CloseHandle: { args: [T.i64], returns: T.i32 },
+    GetStdHandle: { args: [T.u32], returns: T.i64 },
+    GetCurrentProcess: { args: [], returns: T.i64 },
+    DuplicateHandle: { args: [T.i64, T.i64, T.i64, T.ptr, T.u32, T.i32, T.u32], returns: T.i32 },
     GetLastError: { args: [], returns: T.u32 },
     FormatMessageW: { args: [T.u32, T.ptr, T.u32, T.u32, T.ptr, T.u32, T.ptr], returns: T.u32 },
     CompareStringOrdinal: { args: [T.ptr, T.i32, T.ptr, T.i32, T.i32], returns: T.i32 },
@@ -861,6 +875,9 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
     AttachConsole(pid: number): number;
     GetConsoleProcessList(list: Uint32Array, count: number): number;
     CloseHandle(handle: bigint): number;
+    GetStdHandle(which: number): bigint;
+    GetCurrentProcess(): bigint;
+    DuplicateHandle(source: bigint, handle: bigint, target: bigint, copy: Buf, access: number, inherit: number, options: number): number;
     GetLastError(): number;
     FormatMessageW(flags: number, source: null, id: number, language: number, buffer: Buf, size: number, args: null): number;
     CompareStringOrdinal(a: Buf, la: number, b: Buf, lb: number, ignoreCase: number): number;
@@ -878,6 +895,40 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
   const inheritable = new Uint8Array(24);
   new DataView(inheritable.buffer).setUint32(0, 24, true);
   new DataView(inheritable.buffer).setUint32(16, 1, true);
+  /** CreateProcessW：只让 std 这几个句柄被继承（PROC_THREAD_ATTRIBUTE_HANDLE_LIST）；flags 由调用方给，另加 EXTENDED_STARTUPINFO_PRESENT。 */
+  const create = (cmdline: string, environment: Buffer | null, cwd: string | null, std: StdHandles, flags: number): Spawned => {
+    const handles = [...new Set([std.stdin, std.stdout, std.stderr])];
+    const size = new BigUint64Array(1);
+    k.InitializeProcThreadAttributeList(null, 1, 0, size); // 先问要多大（这一次照例失败）
+    const list = new Uint8Array(Number(size[0]));
+    check("InitializeProcThreadAttributeList", () => k.InitializeProcThreadAttributeList(list, 1, 0, size), falsy);
+    // 属性表里存的是句柄数组的地址，STARTUPINFOEXW 里存的是属性表的地址：这两块要活到 DeleteProcThreadAttributeList
+    // 之后，不能只靠调用期间的保活
+    const inherited = new BigUint64Array(handles);
+    try {
+      check("UpdateProcThreadAttribute", () => k.UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+        BigInt(8 * handles.length), null, null), falsy);
+      const startup = new Uint8Array(112); // STARTUPINFOEXW
+      const view = new DataView(startup.buffer);
+      view.setUint32(0, 112, true);
+      view.setUint32(60, STARTF_USESTDHANDLES, true);
+      view.setBigUint64(80, BigInt.asUintN(64, std.stdin), true);
+      view.setBigUint64(88, BigInt.asUintN(64, std.stdout), true);
+      view.setBigUint64(96, BigInt.asUintN(64, std.stderr), true);
+      view.setBigUint64(104, BigInt(ffi.ptr(list)), true);
+      const info = new Uint8Array(24); // PROCESS_INFORMATION
+      const all = flags | EXTENDED_STARTUPINFO_PRESENT | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT);
+      // 命令行给一份可写的（CreateProcessW 可能改写它），重做时也现做一份新的：失败的那一次可能已经改了一半；
+      // 环境块、工作目录、两个结构体都直接传，调用期间保活
+      check("CreateProcessW", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, all, environment,
+        cwd === null ? null : wide(cwd), startup, info), falsy);
+      const out = new DataView(info.buffer);
+      return { process: out.getBigInt64(0, true), thread: out.getBigInt64(8, true), pid: out.getUint32(16, true) };
+    } finally {
+      k.DeleteProcThreadAttributeList(list);
+      retain([list, inherited]);
+    }
+  };
   return {
     createKillOnCloseJob() {
       const job = check("CreateJobObjectW", () => k.CreateJobObjectW(null, null), (handle) => handle === 0n);
@@ -898,40 +949,18 @@ async function bindWinProcessApi(): Promise<WinProcessApi> {
         FILE_ATTRIBUTE_NORMAL, null), (handle) => handle === INVALID_HANDLE || handle === 0n);
     },
     spawnSuspended(cmdline, environment, cwd, std) {
-      const handles = [...new Set([std.stdin, std.stdout, std.stderr])];
-      const size = new BigUint64Array(1);
-      k.InitializeProcThreadAttributeList(null, 1, 0, size); // 先问要多大（这一次照例失败）
-      const list = new Uint8Array(Number(size[0]));
-      check("InitializeProcThreadAttributeList", () => k.InitializeProcThreadAttributeList(list, 1, 0, size), falsy);
-      // 属性表里存的是句柄数组的地址，STARTUPINFOEXW 里存的是属性表的地址：这两块要活到 DeleteProcThreadAttributeList
-      // 之后，不能只靠调用期间的保活
-      const inherited = new BigUint64Array(handles);
-      try {
-        check("UpdateProcThreadAttribute", () => k.UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
-          BigInt(8 * handles.length), null, null), falsy);
-        const startup = new Uint8Array(112); // STARTUPINFOEXW
-        const view = new DataView(startup.buffer);
-        view.setUint32(0, 112, true);
-        view.setUint32(60, STARTF_USESTDHANDLES, true);
-        view.setBigUint64(80, BigInt.asUintN(64, std.stdin), true);
-        view.setBigUint64(88, BigInt.asUintN(64, std.stdout), true);
-        view.setBigUint64(96, BigInt.asUintN(64, std.stderr), true);
-        view.setBigUint64(104, BigInt(ffi.ptr(list)), true);
-        const info = new Uint8Array(24); // PROCESS_INFORMATION
-        // 本进程没有控制台时子进程加 CREATE_NO_WINDOW（第 128 轮，与 pi_dispatch.run_supervised 相同）
-        const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT
-          | (environment === null ? 0 : CREATE_UNICODE_ENVIRONMENT)
-          | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0);
-        // 命令行给一份可写的（CreateProcessW 可能改写它），重做时也现做一份新的：失败的那一次可能已经改了一半；
-        // 环境块、工作目录、两个结构体都直接传，调用期间保活
-        check("CreateProcessW", () => k.CreateProcessW(null, wide(cmdline), null, null, 1, flags, environment,
-          cwd === null ? null : wide(cwd), startup, info), falsy);
-        const out = new DataView(info.buffer);
-        return { process: out.getBigInt64(0, true), thread: out.getBigInt64(8, true), pid: out.getUint32(16, true) };
-      } finally {
-        k.DeleteProcThreadAttributeList(list);
-        retain([list, inherited]);
-      }
+      // 本进程没有控制台时子进程加 CREATE_NO_WINDOW（第 128 轮，与 pi_dispatch.run_supervised 相同）
+      return create(cmdline, environment, cwd, std, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP
+        | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0));
+    },
+    spawn: (cmdline, environment, cwd, std, flags) => create(cmdline, environment, cwd, std, flags),
+    inheritableStd(which) {
+      const handle = k.GetStdHandle(which === "stdout" ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+      if (handle === 0n || handle === INVALID_HANDLE) return null;
+      const copy = new BigInt64Array(1);
+      const self = k.GetCurrentProcess();
+      check("DuplicateHandle", () => k.DuplicateHandle(self, handle, self, copy, 0, 1, DUPLICATE_SAME_ACCESS), falsy);
+      return copy[0] as bigint;
     },
     assign: (job, child) => k.AssignProcessToJobObject(job, child) !== 0,
     resume: (thread) => k.ResumeThread(thread) >>> 0 !== 0xffffffff,

@@ -21,6 +21,7 @@
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
     "./runexec": "./src/runexec.ts",
+    "./runner": "./src/runner.ts",
     "./runpd": "./src/runpd.ts",
     "./schema": "./src/schema.ts",
     "./sweep": "./src/sweep.ts",

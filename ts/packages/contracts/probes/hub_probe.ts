@@ -3,19 +3,19 @@
 import { PyCrash, pyGet, pyItem, pyReprValue, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
 import { PyOverflowError, PyReError, PyValueError } from "@themis/base/pyregex";
-import { accessSync, appendFileSync, chmodSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { accessSync, appendFileSync, chmodSync, closeSync, constants as fsConstants, cpSync, openSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
-import { withFileLock } from "@themis/base/native";
+import { winProcessApi, withFileLock } from "@themis/base/native";
 import { PyOSError } from "@themis/base/pyio";
 import { PyWinError } from "@themis/base/pyos";
 import { jsonlLines } from "@themis/base/jsonl";
 import { cmpCodePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
-import { withPinnedClock } from "@themis/base/clock";
+import { advancePinnedClock, nowMicros, withPinnedClock } from "@themis/base/clock";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { type ContractDeps, REAL_DEPS, acceptContract, acceptGatePre, bumpContractVersion, revalidateContract, setContractBase, syncExecutorLine } from "@themis/hub/accept";
 import {
   type GatePostDeps, REAL_GATE_POST_DEPS, acceptGatePost, applyCandidate, attemptBase, candidateDefects, defectMatchProblems, defectMatches, ensureWorktree,
@@ -39,12 +39,16 @@ import {
   cmdTaskClose, cmdTaskNew, cmdTaskRebase, cmdTaskUnstick, configuredParallel, execMetrics, recordedSum, turnMetrics, uncommittedReferences,
 } from "@themis/hub/commands";
 import {
+  type ChildLike, type ChildLog, REAL_RUNNER_DEPS, type RunnerDeps, cmdExclusive, cmdOwnerSweep, cmdRun, codeFingerprint, kernelChanges, kernelDirty, kernelFiles, kernelSelection,
+  ownerSweepTick, pauseRequested, refuseDirtyKernel, spawnRunner, spawnTaskRunner, superviseTick,
+} from "@themis/hub/runner";
+import {
   finishedTurn, interruptedLetters, lettersHeld, reportStrandedExec, requeueInterrupted, requeueLetters, requeueTask, runnerLock, runnerMayIdleExit,
   strandedStages, supervisorBusy, tasksWithWork,
 } from "@themis/hub/requeue";
 import { DEFAULT_BASE_URL, type Settings } from "@themis/config/decisions";
 import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
-import { normcase, purePathName } from "@themis/base/pypath";
+import { normcase } from "@themis/base/pypath";
 import type { SuperviseOptions } from "@themis/base/supervise";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
@@ -65,8 +69,8 @@ import { removeInputs, stageInputs } from "@themis/hub/inputs";
 import { INPUTS_INDEX } from "@themis/hub/constants";
 import { type Launcher, REAL_SOURCES, TurnRunner, type TurnSources } from "@themis/hub/turn";
 import { globPaths } from "@themis/dispatcher/instruction";
-import { KERNEL_ROOT, TEMPLATE_DIR, workspaceStatus } from "@themis/hub/kernel";
-import { kernelEnv, kernelPytest, kernelPytestEnv, runPd, setKernelPython } from "@themis/hub/runpd";
+import { KERNEL_ROOT, SCRIPTS_DIR, TEMPLATE_DIR, workspaceStatus } from "@themis/hub/kernel";
+import { kernelEnv, kernelPytest, kernelPytestEnv, kernelPython, runPd, setKernelPython } from "@themis/hub/runpd";
 import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letterMain, releaseHeld } from "@themis/hub/mailbox";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
 import {
@@ -500,6 +504,21 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
       case "configured_parallel": // 第二个参数记成 Namespace 的各键
         value = BigInt(configuredParallel(new Hub(textOf(a)), commandArgs(b)));
         break;
+      case "kernel_files": // ⑤j2：内核文件清单（路径交回字符串）。TS 另认一个参数：选择文件的内容（E3 的场景用；Python 的不带参数）
+        value = kernelFiles(args.length > 0 ? (a as PyDict) : null);
+        break;
+      case "kernel_selection": // ⑤j2，只有 TS：读给定的选择文件，坏了交回 {}
+        value = kernelSelection(textOf(a));
+        break;
+      case "code_fingerprint": // ⑤j2：给了 files 照真的算；没给就是内核文件
+        value = codeFingerprint(kernelPaths(args));
+        break;
+      case "kernel_dirty":
+        value = kernelDirty(kernelPaths(args));
+        break;
+      case "kernel_changes":
+        value = kernelChanges(kernelPaths(args));
+        break;
       case "tail":
         value = args.length > 1 ? tail(a, b) : tail(a);
         break;
@@ -819,6 +838,20 @@ function innerCall(name: string, args: readonly unknown[], toTagged: (value: PyV
   if (name === "engine.handle_pass") return { fn: name, state: toTagged(stateData(args[0])), meta: toTagged(args[1] as PyValue) }; // 4001 的假 Engine
   if (name === "engine.after_land") return { fn: name, main: args[0] };
   if (name === "release_held") return { fn: name, repo: (args[0] as Hub).repo }; // ⑤i2：只有 hub 一个参数
+  // ⑤j2：进程模型换掉的内层函数（同 python_probe.py）；最后的 deps 不算
+  if (name === "spawn_task_runner") return { fn: name, repo: (args[0] as Hub).repo, task: args[1], args: toTagged(namespaceShown(args[2] as CommandArgs | null)) };
+  if (name === "spawn_runner") return { fn: name, repo: (args[0] as Hub).repo, argv: argvShown(args[1] as string[]) };
+  if (name === "kernel_dirty" || name === "code_fingerprint" || name === "kernel_changes") return { fn: name, paths: args[0] ?? null }; // 没给 files 记 null
+  if (name === "kernel_settled") return { fn: name, wait: args[0], poll: args[1] };
+  if (name === "tasks_with_work") return { fn: name, repo: (args[0] as Hub).repo };
+  if (name === "requeue_interrupted") return { fn: name, repo: (args[0] as Hub).repo, skip: [...((args[1] as string[] | undefined) ?? [])].sort(cmpCodePoints) };
+  if (name === "owner_sweep_tick") return { fn: name, repo: (args[0] as Hub).repo, holder: toTagged(procShown(args[1])) };
+  if (name === "Popen") { // 比命令行、当前目录与输出写进哪个日志（文件名）
+    const log = args[2] as ChildLog | null;
+    return { fn: name, argv: argvShown(args[0] as string[]), cwd: args[1] ?? null, log: log === null ? null : basename(log.path) };
+  }
+  if (name === "sleep") return { fn: name, seconds: args[0] };
+  if (name === "Engine.step") return { fn: name, repo: (args[0] as Engine).hub.repo, only_task: (args[0] as Engine).onlyTask }; // 第一个参数是 Engine 本身
   if (Object.hasOwn(REST_ARITY, name)) { // ⑤i1：hub、ts 之外的参数也比（最后的 deps 不算）
     return { fn: name, repo: (args[0] as Hub).repo, ts: toTagged(args[1] as PyDict), rest: toTagged(args.slice(2, 2 + (REST_ARITY[name] as number)) as PyValue) };
   }
@@ -874,12 +907,7 @@ function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[
       if (normcase(dirname(made)) !== normcase(String(args[1]))) throw new InjectionMismatch(`mkdtemp 记下的目录不在 dir 下：${made}`);
       mkdirSync(made);
     }
-    const files = expected["files"] as { write: Record<string, string>; delete: string[] };
-    for (const [key, data] of Object.entries(files.write)) {
-      mkdirSync(dirname(flowPath(roots, key)), { recursive: true });
-      writeFileSync(flowPath(roots, key), Buffer.from(data, "base64"));
-    }
-    for (const key of files.delete) rmSync(flowPath(roots, key));
+    applyFiles(expected, roots);
     if ("output" in expected) appendFileSync((args[1] as SuperviseOptions).stdout.path, Buffer.from(expected["output"] as string, "base64")); // ⑤h2：ts_runner
     if ("ts_after" in expected) {
       const ts = (name.startsWith("Engine.") ? stateData(args[0]) : args[1]) as PyDict; // ⑤i1：Engine 的两个方法没有 self，ts 或 state 在第一个
@@ -893,10 +921,97 @@ function injectorSync(name: string, queue: InnerEntry[], roots: readonly string[
       throw new PyCrash(kind, message);
     }
     const value = fromTagged(expected["value"] as never);
+    if (name === "spawn_task_runner" || name === "Popen") return procsOf(value, queue, roots, fromTagged) as never; // ⑤j2：记下的进程换成假进程
+    if (name === "spawn_runner") return Number(value) as never; // ⑤j2：退出码是 number
     if (name === "run_supervised" || name === "ts_runner") return superviseResult(value as PyDict) as never;
     if (name === "sweep_gates") return [Number((value as PyValue[])[0]), (value as PyValue[])[1], (value as PyValue[])[2]] as never; // ⑤h2：退出码是 number
     return (name === "run_pd" ? [Number((value as PyValue[])[0]), (value as PyValue[])[1]] : value) as never;
   };
+}
+
+/** 照记录写文件、删文件（内层调用与 ⑤j2 假进程的 poll 共用，同 python_probe.py 的 _flow_apply_files）。 */
+function applyFiles(expected: InnerEntry, roots: readonly string[]): void {
+  const files = expected["files"] as { write: Record<string, string>; delete: string[] };
+  for (const [key, data] of Object.entries(files.write)) {
+    mkdirSync(dirname(flowPath(roots, key)), { recursive: true });
+    writeFileSync(flowPath(roots, key), Buffer.from(data, "base64"));
+  }
+  for (const key of files.delete) rmSync(flowPath(roots, key));
+}
+
+/**
+ * ⑤j2：重放时的假进程（同 python_probe.py 的 _ProcReplay）。pid 照记录；poll 逐次核对记下的 proc.poll（编号相同），写回文件改动，交回记下的值；
+ * returncode 是最后一次 poll 的值。runner.ts 只经 ChildLike 用 pid、poll、returncode 三样：以后要调别的，先在两边的假进程一起加。
+ */
+class ProcReplay implements ChildLike {
+  returncode: number | null = null;
+  readonly ident: number;
+  readonly pid: number | null;
+  private readonly queue: InnerEntry[];
+  private readonly roots: readonly string[];
+  private readonly fromTagged: (tagged: never) => PyValue;
+
+  constructor(ident: number, pid: number | null, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue) {
+    this.ident = ident;
+    this.pid = pid;
+    this.queue = queue;
+    this.roots = roots;
+    this.fromTagged = fromTagged;
+  }
+
+  poll(): number | null {
+    const expected = this.queue.shift();
+    if (expected === undefined || expected.fn !== "proc.poll" || expected["proc"] !== this.ident) {
+      const shown = expected === undefined ? null : { fn: expected.fn, proc: expected["proc"] ?? null };
+      throw new InjectionMismatch(JSON.stringify({ got: { fn: "proc.poll", proc: this.ident }, expected: shown }));
+    }
+    applyFiles(expected, this.roots);
+    const value = this.fromTagged(expected["value"] as never);
+    this.returncode = value === null ? null : Number(value);
+    return this.returncode;
+  }
+}
+
+/** ⑤j2：这一次重放的假进程，编号照样本（同 python_probe.py 的 _PROC["replay"]）。 */
+const PROCS = new Map<number, ProcReplay>();
+
+/** 参数与注入的交回值里记成 {"__proc__", "pid"} 的换回假进程，同一个编号是同一个对象（同 python_probe.py 的 _procs_of）。 */
+function procsOf(value: unknown, queue: InnerEntry[], roots: readonly string[], fromTagged: (tagged: never) => PyValue): unknown {
+  if (value instanceof Map && value.size === 2 && value.has("__proc__") && value.has("pid")) {
+    const ident = Number(value.get("__proc__"));
+    const pid = value.get("pid");
+    if (!PROCS.has(ident)) PROCS.set(ident, new ProcReplay(ident, pid === null ? null : Number(pid), queue, roots, fromTagged));
+    return PROCS.get(ident);
+  }
+  if (value instanceof Map) return new Map([...value].map(([key, item]) => [key, procsOf(item, queue, roots, fromTagged)]));
+  if (Array.isArray(value)) return value.map((item) => procsOf(item, queue, roots, fromTagged));
+  return value;
+}
+
+/** 假进程记成编号与 pid（同 python_probe.py 的 _proc_shown）；字典与列表逐项，别的原样。 */
+function procShown(value: unknown): PyValue {
+  if (value instanceof ProcReplay) return new Map<string, PyValue>([["__proc__", BigInt(value.ident)], ["pid", value.pid === null ? null : BigInt(value.pid)]]);
+  if (value instanceof Map) return new Map([...value].map(([key, item]) => [key, procShown(item)]));
+  if (Array.isArray(value)) return value.map(procShown);
+  return value as PyValue;
+}
+
+/** 起子进程的命令行：Python 与 kit_hub.py 的路径换成占位（同 python_probe.py 的 _argv_shown；TS 起的是同一个启动器，路径各自取）。 */
+function argvShown(argv: readonly string[]): string[] {
+  const real = (path: string): string => {
+    try {
+      return normcase(realpathSync.native(path));
+    } catch {
+      return normcase(resolve(path));
+    }
+  };
+  const hubFile = real(join(SCRIPTS_DIR, "kit_hub.py"));
+  return argv.map((text) => (text === kernelPython() ? "<python>" : text.endsWith(".py") && real(text) === hubFile ? "<kit_hub>" : text));
+}
+
+/** ⑤j2：Namespace 记成各键（去掉 func，同 python_probe.py 的 _plain）；None 照旧。 */
+function namespaceShown(args: CommandArgs | null): PyValue {
+  return args === null ? null : new Map(Object.entries(args).filter(([key]) => key !== "func") as [string, PyValue][]);
 }
 
 /** 异步的被调用方（run_pd 等）：同 injectorSync，交回 Promise。 */
@@ -955,36 +1070,50 @@ const ENGINE_PARAMS: Readonly<Record<string, readonly string[]>> = {
   "Engine.route": ["state", "ts", "paths", "texts"], "Engine.deliver_coordinator_letter": ["state", "item", "sender"], "Engine.write_brief": ["task_id", "brief"],
   requeue_interrupted: ["skip"], requeue_task: ["task"], requeue_letters: ["ts", "events", "agent", "key", "names", "turn", "label"],
   report_stranded_exec: ["ts", "stage", "names"],
-  quiesce: ["limit"], // ⑤i2 跑到静止：参数是仓库、only_task、最多几步
 };
 
 /**
- * python_probe.py 的 _quiesce（⑤i2 跑到静止，⑤i 设计稿第 5 节）。这段次序抄自 cmd_run，⑤j 换成真的 cmd_run 循环之后删掉：串行时先
- * requeue_interrupted（钉在基准时刻）；每一步另钉基准加 i+1 秒（withPinnedClock 嵌套，信编号从头编）；exec-step 的未读信里有“通过”
- * （指定了 task 时再按 letter_main 过滤）就取第一封 land，挡路就停；否则 step，交回 false 时照 cmd_run 问 runnerMayIdleExit：还有扣着的信
- * 就接着走下一步，否则停。land 也算一步，最多 limit 步：limit 连空转的步也算进去，是给探针封顶；cmd_run 的 max_steps 只数 turns
- * （land、step 办了事才加），两者不完全一样。
+ * ⑤j2：跑到静止换成真的 cmd_run（⑤j 设计稿第 5 节，同 python_probe.py 的 _sleep_clock，request.clock 是 "sleep"）：sleep 把钉住的时钟往后挪、
+ * 不真睡，第 400 次抛错；monotonic 跟着钉住的时钟走；指纹交回常数、kernel_changes 交回 []。TS 只换 cmdRun 的 deps，Python 换的是整个 time
+ * 模块（DirLock 的等待也算在内）；跑到静止时锁都没人抢，次数一样，有分歧三边对照会抓到。
  */
-async function quiesce(hub: Hub, engine: Engine, base: number, task: string | null, limit: number, deps: EngineDeps): Promise<PyValue> {
-  const done: PyValue[] = [];
-  if (task === null) done.push(["requeue", await requeueInterrupted(hub, [], deps)]);
-  for (let index = 0; index < limit; index += 1) {
-    const stop = await withPinnedClock(base + (index + 1) * 1_000_000, async (): Promise<boolean> => {
-      const passes = hub.unread("exec-step")
-        .filter((path) => parseLetter(readText(path))[0].get("type") === "通过" && (task === null || letterMain(path) === task));
-      const first = passes[0];
-      if (first !== undefined) {
-        const blockers = await land(hub, engine, first, parseLetter(readText(first))[0], deps);
-        done.push(["land", purePathName(first), blockers]);
-        return blockers.length > 0;
-      }
-      const moved = await engine.step();
-      done.push(["step", moved]);
-      return !moved && runnerMayIdleExit(hub, task);
-    });
-    if (stop) break;
+function sleepClockDeps(deps: RunnerDeps): RunnerDeps {
+  let calls = 0;
+  return {
+    ...deps,
+    codeFingerprint: () => "quiesce",
+    kernelChanges: () => [],
+    sleep: async (seconds) => {
+      calls += 1;
+      if (calls >= 400) throw new PyCrash("RuntimeError", "跑到静止：sleep 调到第 400 次");
+      advancePinnedClock(Math.round(seconds * 1_000_000));
+    },
+    monotonic: () => nowMicros() / 1_000_000,
+  };
+}
+
+/**
+ * ⑤j2：cmd_run 自己建 Engine（runner 是 TurnRunner），剧本给的回合与 Engine 的两个方法换在原型上，调用完还原；同 Python 换在类上
+ * （TurnRunner.run、Engine.verify_delivery、Engine.auto_jev）。
+ */
+async function withEnginePatches<T>(pick: Pick, runner: boolean, body: () => Promise<T>): Promise<T> {
+  const turn = TurnRunner.prototype as unknown as Record<string, unknown>;
+  const engine = Engine.prototype as unknown as Record<string, unknown>;
+  const saved: [Record<string, unknown>, string, unknown][] = [];
+  const swap = (owner: Record<string, unknown>, name: string, fn: (...args: unknown[]) => Promise<never>): void => {
+    saved.push([owner, name, owner[name]]);
+    owner[name] = function patched(...args: unknown[]): Promise<never> {
+      return fn(...args);
+    };
+  };
+  if (runner) swap(turn, "run", pick.inject("runner"));
+  if (pick.has("Engine.verify_delivery")) swap(engine, "verifyDelivery", pick.inject("Engine.verify_delivery"));
+  if (pick.has("Engine.auto_jev")) swap(engine, "autoJev", pick.inject("Engine.auto_jev"));
+  try {
+    return await body();
+  } finally {
+    for (const [owner, name, value] of saved.reverse()) owner[name] = value;
   }
-  return done;
 }
 
 /** 模块函数（没有 Engine，参数第一个是仓库）：同 python_probe.py 的 FLOW_I_FUNCTIONS 去掉 land。 */
@@ -995,7 +1124,105 @@ const FLOW_J1 = [
   "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
 ];
 
+/** ⑤j2：进程模型（同 python_probe.py 的 FLOW_J2_COMMANDS、FLOW_J2）：前三个同站主命令记；其余第一个参数是 hub。都另比 stdout、stderr。 */
+const FLOW_J2_COMMANDS = ["cmd_run", "cmd_owner_sweep", "cmd_exclusive"];
+const FLOW_J2 = [...FLOW_J2_COMMANDS, "supervise_tick", "owner_sweep_tick", "spawn_runner", "spawn_task_runner", "refuse_dirty_kernel", "pause_requested"];
+
 const LF = String.fromCharCode(10);
+
+/** ⑤j2：kernel_files 一族的 files 参数：没给或 None 是 null。 */
+function kernelPaths(args: readonly PyValue[]): string[] | null {
+  const files = args[0];
+  return files === undefined || files === null ? null : (files as PyValue[]).map(textOf);
+}
+
+/** ⑤j2：进程模型的 deps：Engine 的 deps 加上用例换掉的内层函数（照记录注入）。探针的 stdout 是交回结果的通道，exclusive 跑的命令的输出不接过来。 */
+function runnerDepsOf(engineDeps: EngineDeps, pick: Pick): RunnerDeps {
+  const real = REAL_RUNNER_DEPS;
+  const sync = <T>(name: string, fallback: T): T => (pick.has(name) ? pick.injectSync(name) as T : fallback);
+  const async = <T>(name: string, fallback: T): T => (pick.has(name) ? pick.inject(name) as T : fallback);
+  return {
+    ...engineDeps,
+    spawnTaskRunner: async("spawn_task_runner", real.spawnTaskRunner),
+    spawnRunner: async("spawn_runner", real.spawnRunner),
+    kernelDirty: sync("kernel_dirty", real.kernelDirty),
+    kernelSettled: async("kernel_settled", real.kernelSettled),
+    codeFingerprint: sync("code_fingerprint", real.codeFingerprint),
+    kernelChanges: sync("kernel_changes", real.kernelChanges),
+    tasksWithWork: sync("tasks_with_work", real.tasksWithWork),
+    requeueInterrupted: async("requeue_interrupted", real.requeueInterrupted),
+    ownerSweepTick: async("owner_sweep_tick", real.ownerSweepTick),
+    popen: async("Popen", contractPopen),
+    sleep: async("sleep", real.sleep),
+    monotonic: real.monotonic,
+    engineStep: async("Engine.step", real.engineStep),
+    commandStdio: "ignore",
+    selfPid: process.pid,
+  };
+}
+
+/**
+ * ⑤j2：契约里真起子进程（Popen 没换掉时）。没给日志时接空设备，同 python_probe.py 重放时把 fd 1、2 接到空设备：继承了探针的 stdout，
+ * 调用方要等它退出才读得完结果。只给契约用的后备：Node 调不了 Win32（生产上 hub 在 Windows 只跑在 Bun 下），Windows 的 Node 改用
+ * child_process 加 detached（不进 libuv 的 Job，代价是另起进程组、没有控制台），别处照 runner.ts 的真 popen。
+ */
+async function contractPopen(argv: readonly string[], cwd: string | null, log: ChildLog | null): Promise<ChildLike> {
+  const fd = log === null ? openSync(devNull, "a") : null;
+  const given = log ?? { fd: fd as number, path: devNull };
+  try {
+    if (process.platform !== "win32" || typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") return await REAL_RUNNER_DEPS.popen(argv, cwd, given);
+    const child = spawn(argv[0] as string, argv.slice(1), { cwd: cwd ?? undefined, stdio: ["ignore", given.fd, given.fd], detached: true, windowsHide: true });
+    child.on("error", () => undefined);
+    child.unref();
+    return {
+      pid: child.pid ?? null,
+      poll: () => child.exitCode,
+      get returncode() {
+        return child.exitCode;
+      },
+    };
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+/**
+ * ⑤j2：第一个参数是 hub 的进程模型函数（同 python_probe.py 的 _flow_call 的 FLOW_J2 一支）：参数名是 args 的照建回 Namespace（不进 args_after），
+ * 记下的进程已换成假进程；args_after 照签名次序列出字典与列表参数，假进程记成编号与 pid。
+ */
+function runnerFlow(fn: string, hub: Hub, given: readonly unknown[], out: CommandOut, deps: RunnerDeps): EngineFlow {
+  const params = RUNNER_PARAMS[fn];
+  if (params === undefined) throw new Error(`UNKNOWN_FN ${fn}`);
+  const namespace = (value: unknown): CommandArgs | null => (value instanceof Map ? commandArgs(value as PyValue) : null);
+  const g = (index: number): never => given[index] as never;
+  const calls: Record<string, () => Promise<PyValue>> = {
+    supervise_tick: async () => {
+      const [pending, live, spawned] = await superviseTick(hub, namespace(g(0)), Number(g(1)), g(2), g(3), out, deps);
+      return [pending, BigInt(live), BigInt(spawned)];
+    },
+    owner_sweep_tick: () => ownerSweepTick(hub, g(0), deps),
+    spawn_runner: async () => BigInt(await spawnRunner(hub, (g(0) as PyValue[]).map(textOf), deps)),
+    spawn_task_runner: async () => spawnTaskRunner(hub, textOf(g(0)), namespace(g(1)), deps) as unknown as PyValue,
+    refuse_dirty_kernel: async () => {
+      await refuseDirtyKernel(hub, namespace(g(0)), optionalText(g(1)), deps);
+      return null;
+    },
+    pause_requested: async () => pauseRequested(hub, textOf(g(0)), deps),
+  };
+  return {
+    run: calls[fn] as () => Promise<PyValue>,
+    ts: () => null,
+    after: (tag) => Object.fromEntries(params.map((name, index) => [name, given[index]] as const)
+      .filter(([name, value]) => name !== "args" && (value instanceof Map || Array.isArray(value)))
+      .map(([name, value]) => [name, tag(procShown(value))])),
+  };
+}
+
+/** ⑤j2：runnerFlow 各函数 hub 之后的参数名，照 kit_hub.py 的签名次序。 */
+const RUNNER_PARAMS: Readonly<Record<string, readonly string[]>> = {
+  supervise_tick: ["args", "parallel", "children", "failures"], owner_sweep_tick: ["holder"], spawn_runner: ["argv"], spawn_task_runner: ["task", "args"],
+  refuse_dirty_kernel: ["args", "task"], pause_requested: ["task"],
+};
 
 /** ⑤j1：Namespace 记下的各键（pyjson 的 dict）换成命令的参数。 */
 function commandArgs(value: PyValue): CommandArgs {
@@ -1004,7 +1231,7 @@ function commandArgs(value: PyValue): CommandArgs {
 }
 
 /** ⑤j1：站主命令照名字调，输出截进 out，标准输入是采样时读到的文字。交回 Python 的 int（退出码）。 */
-async function commandCall(fn: string, args: CommandArgs, out: CommandOut, stdin: string, deps: EngineDeps): Promise<PyValue> {
+async function commandCall(fn: string, args: CommandArgs, out: CommandOut, stdin: string, deps: RunnerDeps): Promise<PyValue> {
   const calls: Record<string, () => number | Promise<number>> = {
     cmd_init: () => cmdInit(args, out),
     cmd_task_new: () => cmdTaskNew(args, out),
@@ -1019,6 +1246,9 @@ async function commandCall(fn: string, args: CommandArgs, out: CommandOut, stdin
     cmd_take: () => cmdTake(args, out),
     cmd_status: () => cmdStatus(args, out, deps),
     cmd_metrics: () => cmdMetrics(args, out),
+    cmd_run: () => cmdRun(args, out, deps), // ⑤j2
+    cmd_owner_sweep: () => cmdOwnerSweep(args, out, deps),
+    cmd_exclusive: () => cmdExclusive(args, out, deps),
   };
   return BigInt(await (calls[fn] as () => number | Promise<number>)());
 }
@@ -1186,7 +1416,6 @@ function engineFlow(fn: string, hub: Hub, args: readonly PyValue[], request: Rec
     requeue_task: () => requeueTask(hub, textOf(g(0)), deps),
     requeue_letters: () => requeueLetters(hub, g(0), g(1), textOf(g(2)), textOf(g(3)), g(4), g(5), textOf(g(6))),
     report_stranded_exec: () => reportStrandedExec(hub, g(0), g(1), g(2), deps),
-    quiesce: () => quiesce(hub, engine(), Number(request["pin"]), optionalText(args[1]), Number(g(0)), deps),
   };
   return {
     run: calls[fn] as () => Promise<PyValue>,
@@ -1235,7 +1464,10 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   const fn = String(request["fn"]);
   const args = (request["args"] as never[]).map(fromTagged);
   const hub = (args[0] === null ? null : new Hub(textOf(args[0]))) as Hub; // ⑤f：hub 可以是 None（用不到它就交回的调用）
-  const command = FLOW_J1.includes(fn); // ⑤j1：站主命令
+  const command = FLOW_J1.includes(fn) || FLOW_J2_COMMANDS.includes(fn); // ⑤j1：站主命令；⑤j2 的 run、owner-sweep、exclusive 同
+  const runnerFn = FLOW_J2.includes(fn) && !command; // ⑤j2：第一个参数是 hub 的进程模型函数
+  const streamed = FLOW_J1.includes(fn) || FLOW_J2.includes(fn); // 另比 stdout、stderr
+  PROCS.clear(); // ⑤j2：这一次重放的假进程
   if (command) prepareCommand(request, textOf(args[0]));
   const captured = { out: [] as string[], err: [] as string[] };
   const commandOut: CommandOut = {
@@ -1243,7 +1475,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     printErr: (text = "") => void captured.err.push(`${text}${LF}`),
   };
   // ⑤i1：ts 从参数绑定里取；⑤j1：站主命令没有 ts
-  const flowI = fn.startsWith("Engine.") || fn === "land" || fn === "quiesce" || FLOW_I_MODULE.includes(fn) || command;
+  const flowI = fn.startsWith("Engine.") || fn === "land" || FLOW_I_MODULE.includes(fn) || command || runnerFn;
   const ts = (["owner_sweep", "mark_owner_moved", "ts_install_if_stale"].includes(fn) || flowI ? null : args[1]) as PyDict; // ⑤h2：没有 ts 参数的记成 None
   const roots = request["roots"] as string[];
   removeFresh((request["fresh"] as string[] | undefined) ?? [], (request["inner"] as InnerEntry[] | undefined) ?? []);
@@ -1338,7 +1570,16 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
     const value = await withPinnedClock(Number(request["pin"]), async (): Promise<PyValue> => {
       if (command) {
         const stdin = typeof request["stdin"] === "string" ? request["stdin"] : "";
-        return commandCall(fn, commandArgs(args[1] as PyValue), commandOut, stdin, engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick));
+        const deps = runnerDepsOf(engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick), pick);
+        const clock = request["clock"] === "sleep";
+        // 回合只在跑到静止时照剧本换（同 _sleep_clock：剧本里有 runner 才换）；Engine 的两个方法照 Python，换掉了就换
+        return withEnginePatches(pick, clock && (Object.hasOwn(scripted, "runner") || byAgent), () =>
+          commandCall(fn, commandArgs(args[1] as PyValue), commandOut, stdin, clock ? sleepClockDeps(deps) : deps));
+      }
+      if (runnerFn) { // ⑤j2：记下的进程换成假进程（同一个编号同一个对象）
+        const given = args.slice(1).map((item) => procsOf(item, queue, roots, fromTagged));
+        holder.flow = runnerFlow(fn, hub, given, commandOut, runnerDepsOf(engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick), pick));
+        return holder.flow.run();
       }
       if (flowI) { // ⑤i1：钉住的时刻也管 int(time.time())（nowMicros）
         holder.flow = engineFlow(fn, hub, args, request, engineDepsOf(gateDeps, landDeps, sweepDeps, request, pick), pick);
@@ -1448,8 +1689,9 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
   return {
     ok: true, value: {
       result, ts: toTagged(shown), files: flowChanges(roots, before), ledger: tail.toString("base64"), git: flowGit(roots),
-      ...(flow === null || fn === "quiesce" ? {} : { args_after: flow.after(toTagged) }), // ⑤i2：跑到静止没有参数绑定，同 Python 不写这一项
-      ...(command ? { stdout: captured.out.join(""), stderr: captured.err.join("") } : {}), // ⑤j1
+      ...(flow === null ? {} : { args_after: flow.after(toTagged) }),
+      ...(streamed ? { stdout: captured.out.join(""), stderr: captured.err.join("") } : {}), // ⑤j1；⑤j2 同
+      ...(FLOW_J2.includes(fn) ? { self_pid: process.pid } : {}), // ⑤j2：探针自己的 pid，契约归一化时只换等于它的
       ...(Object.keys(scripted).length > 0 ? { scripted_calls: scriptCalls } : {}),
       ...(peeks.length > 0 ? { deliver_peeks: peeks } : {}),
     },
@@ -1736,6 +1978,50 @@ export async function hubBox(request: Record<string, unknown>, fromTagged: (tagg
 }
 
 const SEP = process.platform === "win32" ? String.fromCharCode(92) : "/";
+
+/**
+ * ⑤j2：python_probe.py 的 op_hub_popen。runner.ts 的真 popen（Windows 上是 CreateProcessW，只在 Bun 下有；Node 下照实交回它的报错），
+ * 给了 log 就照 spawnTaskRunner 先 open("a") 再起；每 50 毫秒 poll 一次到子进程退出（最多 timeout 秒）。ctrl_c_default 同 Python：起之前
+ * 恢复缺省的 Ctrl+C 处理、起完恢复成忽略（只在 Bun 下，经 bun:ffi），子进程读 PEB 的 ConsoleFlags 分得出有没有另起进程组。inherit 同 Python：
+ * 起之前本进程另开这个文件的一个可继承句柄（只在 Bun 下），命令行里的 <handle> 换成它的数值，起完关掉；子进程只该继承三个标准句柄。
+ */
+export async function hubPopen(request: Record<string, unknown>): Promise<Result> {
+  const path = (request["log"] as string | null | undefined) ?? null;
+  const fd = path === null ? null : openSync(path, "a");
+  const ctrlC = request["ctrl_c_default"] === true ? await consoleCtrlHandler() : null;
+  const api = typeof request["inherit"] === "string" ? await winProcessApi() : null;
+  const extra = api === null ? null : api.openInheritable(request["inherit"] as string, "append");
+  const argv = (request["argv"] as string[]).map((item) => (item === "<handle>" && extra !== null ? String(extra) : item));
+  let child: ChildLike;
+  ctrlC?.(0);
+  try {
+    child = await REAL_RUNNER_DEPS.popen(argv, (request["cwd"] as string | null | undefined) ?? null, fd === null ? null : { fd, path: path as string });
+  } catch (error) {
+    return errorResult(error);
+  } finally {
+    ctrlC?.(1);
+    if (fd !== null) closeSync(fd);
+    if (extra !== null) api?.close(extra);
+  }
+  const deadline = Date.now() + Number(request["timeout"] ?? 30) * 1000;
+  let code = child.poll();
+  while (code === null && Date.now() < deadline) {
+    await new Promise((done) => setTimeout(done, 50));
+    code = child.poll();
+  }
+  return {
+    ok: true,
+    value: { code, returncode: code === null ? null : child.returncode ?? null, pid: (child.pid ?? 0) > 0, log: path === null ? null : readFileSync(path).toString("base64") },
+  };
+}
+
+/** SetConsoleCtrlHandler(NULL, ignore)（只给 hubPopen 的 ctrl_c_default 用，只在 Bun 下）。 */
+async function consoleCtrlHandler(): Promise<(ignore: number) => void> {
+  const ffi = await import("bun:ffi");
+  const kernel32 = ffi.dlopen("kernel32.dll", { SetConsoleCtrlHandler: { args: [ffi.FFIType.ptr, ffi.FFIType.i32], returns: ffi.FFIType.i32 } });
+  const symbols = kernel32.symbols as unknown as { SetConsoleCtrlHandler(handler: null, ignore: number): number };
+  return (ignore) => void symbols.SetConsoleCtrlHandler(null, ignore);
+}
 
 /** OSError(errno, ...) 在 Python 里按 errno 成了哪个子类。 */
 const OS_ERRORS: Readonly<Record<number, string>> = { 2: "FileNotFoundError", 13: "PermissionError", 17: "FileExistsError", 20: "NotADirectoryError", 21: "IsADirectoryError" };

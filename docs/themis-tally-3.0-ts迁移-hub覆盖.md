@@ -1070,3 +1070,133 @@ COVERED 20、PARTIAL 25。PARTIAL 里 24 条剩 ⑤j2（cmd_run、supervise 一�
 - readStdin 的变异（去掉 ignoreBOM、不换通用换行）放进 ⑤j3：j1 的契约换成记下的文字，走不到它。
 
 其余场景随各片补（⑤j2、⑤j3）。
+
+### ⑤j2 进程模型
+
+做法（⑤j 设计稿第 4–7 节，themistally-04 复核设计、中段与移植）：
+- 新模块 @themis/hub/runner：kit_hub.py 的 kernel_files、code_fingerprint、kernel_dirty、kernel_changes、refuse_dirty_kernel、kernel_settled、spawn_runner、pause_requested、cmd_run、spawn_task_runner、owner_sweep_tick、cmd_owner_sweep、supervise_tick、supervise、cmd_exclusive。
+- E3：kernel_files 看选择文件。hub 是 ts 时，多出五个包（base、config、dispatcher、hub、cli）src 下的全部文件与依赖清单（package.json、bun.lock、bunfig.toml、各包的 package.json、tsconfig.json），按码点排。选择文件坏了当没写（kernel_selection 交回空）。实测 145 个文件，10.2 毫秒。
+- 起长命子进程（spawn_runner、spawn_task_runner、owner_sweep_tick 起的 owner-sweep）：Windows 上不经 child_process。
+  - 原因：libuv 把不带 detached 的子进程放进它自己的 Job（KILL_ON_JOB_CLOSE），父进程一退子进程就被杀；带 detached 又多了 DETACHED_PROCESS 与 CREATE_NEW_PROCESS_GROUP。
+  - 改成 base/native.ts 的 CreateProcessW（bun:ffi），同 Python 的 Popen：flags 0；属性表只放三个标准句柄；stdin 接 NUL；有日志时 stdout、stderr 都接日志，没有时继承本进程的标准句柄。
+  - 所以 hub 在 Windows 上只跑在 Bun 下，没有标准句柄时接 NUL（计划第 10 节两行）。POSIX 用 child_process.spawn 加 unref。
+  - native.ts 把 CreateProcessW 抽成共用的 create，spawnSuspended 也走它；另加 inheritableStd（DuplicateHandle 出可继承的一份）。
+- 跑到静止换成真的 cmd_run。
+  - 探针请求带 clock "sleep"：sleep 把钉住的时钟往后挪，monotonic、time 跟着钉住的时钟；内核指纹固定，kernel_changes 交回空；第 400 次 sleep 报错。
+  - ⑤i2 两边探针里照 cmd_run 抄的驱动删掉，计划第 10 节那一行关掉。
+- 采样器给 9 个函数装流程记录器。
+  - cmd_run、cmd_owner_sweep、cmd_exclusive 同站主命令记（Namespace、stdout、stderr）；supervise_tick、owner_sweep_tick、spawn_runner、spawn_task_runner、refuse_dirty_kernel、pause_requested 的第一个参数是 hub。
+  - 内层换掉的有：spawn_task_runner、spawn_runner、kernel_dirty、kernel_settled、code_fingerprint、kernel_changes、tasks_with_work、requeue_interrupted、owner_sweep_tick、Popen、sleep、Engine.step。
+  - 进程记成编号与 pid，重放时换成假进程。
+  - 账本里进程自己的 pid 换成占位再比（themistally-04 定的）。runner.child_started 的 pid 是注入的子进程号，照原样比。
+- 用例清单由 scratchpad 的 j2_tests.py 从 i_trace2.json 机械得出：31 条。⑤j1 一节写着“归 ⑤j2”的 24 条 PARTIAL 都在里面（脚本核过）。
+
+契约：
+- hub-runner：31 条用例，最外层调用 69 次：cmd_run 20、code_fingerprint 10、kernel_files 7、cmd_exclusive 7、owner_sweep_tick 6、supervise_tick 5、kernel_dirty 4、pause_requested 4、refuse_dirty_kernel 3、spawn_task_runner 2、spawn_runner 1。
+  - 跳过 5 次：1097 的 spawn_runner 起真子进程；4106、4652、4727 的 cmd_run 与 4578 的 owner_sweep_tick，调用当时有活的持有者。都由手写场景覆盖。
+  - 注入：kernel_dirty 29、proc.poll 26、kernel_changes 20、code_fingerprint 20、spawn_task_runner 19、tasks_with_work 8、pid_alive 7、Engine.step 6、_running_attempts 6、Popen 4、spawn_runner 3、release_held 3、sleep 3、owner_sweep_tick 2、kernel_settled 2、requeue_interrupted 1。
+  - 流程函数 43 次、只读的 21 次，三边重放都与当时的结果相同（交回值、文件、账本、git 状态、stdout、stderr）。
+- hub-runner-scenes：21 条 it。
+  - 采样跳过的 5 条：
+    - spawn_runner 真起子进程：三边交回时子进程还在跑；bun 上起它的进程退出之后，子进程照样跑完；
+    - 另一个进程（真的 Python 子进程）拿着锁时的 cmd_run、owner_sweep_tick、supervise_tick。
+  - 采样没调到的 3 条：owner-sweep 的两种退出；exclusive 交回命令的退出码、命令起不来报 FileNotFoundError；选择文件（只测 TS）。
+  - 起长命子进程 2 条，Python 的 Popen 与 bun 的 CreateProcessW 逐字比：
+    - 日志追加、stderr 并进 stdout、工作目录、stdin 是空设备、退出码、不给日志、起不来的报错；
+    - 子进程读自己 PEB 里的 ConsoleFlags 是 0，即没另起进程组（themistally-04 提的办法，不发任何信号）；
+    - Node 下报“只跑在 Bun 下”；
+    - 本进程另开的可继承句柄子进程拿不到（N01，见下）。
+  - 真的 git status 1 条（7873、7893）；E3 的内核文件 1 条。
+  - 变异补的 5 条，补 themistally-04 抽查的 4 条（另有两处并进了已有的 it），见下面的变异一段；每条 it 的标题写了对着哪几条变异或哪几条抽查。
+- hub-quiesce：种子 1–30，三边用真的 cmd_run 从同一个初始信箱照同一份剧本跑到静止，逐字相同。
+- base 的 supervise 单测：假 API 加了 spawn、inheritableStd（调用就抛），37 条都过。
+
+| 用例 | 行 | 状态 | TS 契约 |
+|---|---|---|---|
+| `test_runner_exits_between_steps_once_the_kernel_changes` | 1027 | COVERED | hub-runner：code_fingerprint 7 次、kernel_files 6 次、cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_runner_restarts_on_committed_kernel_changes` | 1082 | COVERED | hub-runner：cmd_run 2 次；⑤j1 的部分见上一节 |
+| `test_spawn_runner_returns_while_the_new_hub_runs` | 1097 | COVERED | spawn_runner 1 次不重放；hub-runner-scenes 的 spawn_runner 两条覆盖：三边交回时子进程还在跑；bun 上起子进程的进程退出之后子进程照样跑完 |
+| `test_kernel_dirty_reads_git_status` | 1124 | COVERED | hub-runner：kernel_dirty 4 次 |
+| `test_supervisor_puts_due_letters_back_and_starts_their_runner` | 1925 | COVERED | hub-runner：supervise_tick 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_requeues_only_tasks_nobody_is_working_on` | 2057 | COVERED | hub-runner：supervise_tick 2 次；⑤j1 的部分见上一节 |
+| `test_supervisor_runs_one_runner_per_task_up_to_the_limit` | 4050 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_serial_runner_refuses_while_task_runners_are_alive` | 4106 | COVERED | cmd_run 1 次不重放；hub-runner-scenes 的 cmd_run 场景覆盖（真子进程拿着 .runners/T002）；⑤j1 的部分见上一节 |
+| `test_task_runner_exits_for_the_supervisor_on_kernel_changes` | 4118 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_exclusive_runs_the_command_once_executors_are_done` | 4427 | COVERED | hub-runner：cmd_exclusive 3 次；⑤j1 的部分见上一节 |
+| `test_exclusive_marks_an_owner_sweep_only_when_head_moves` | 4448 | COVERED | hub-runner：cmd_exclusive 3 次；⑤j1 的部分见上一节 |
+| `test_landing_waits_for_a_background_gate_sweep` | 4519 | COVERED | hub-runner：cmd_exclusive 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_starts_one_owner_sweep_at_a_time` | 4578 | COVERED | hub-runner：owner_sweep_tick 5 次；owner_sweep_tick 1 次不重放；hub-runner-scenes 的 owner_sweep_tick 场景覆盖（真子进程拿着 .owner-sweep）；⑤j1 的部分见上一节 |
+| `test_supervisor_counts_runners_left_by_its_previous_generation` | 4652 | COVERED | cmd_run 1 次不重放；hub-runner-scenes 的 supervise_tick 场景覆盖（真子进程拿着 .runners/T001，占一个名额）；⑤j1 的部分见上一节 |
+| `test_supervisor_waits_for_a_settled_kernel_before_starting_runners` | 4671 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_ticks_the_owner_sweep_every_round` | 4679 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_stays_while_a_runner_works_without_unread_letters` | 4727 | COVERED | cmd_run 1 次不重放；hub-runner-scenes 的 supervise_tick 场景覆盖（没有待办时上一代的 runner 在跑也算忙）；⑤j1 的部分见上一节 |
+| `test_supervisor_stays_while_letters_are_held` | 4767 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_serial_hub_stays_while_letters_are_held` | 4776 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_serial_hub_requeues_interrupted_stages_when_it_starts` | 4783 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_picks_up_runner_json_changes_while_running` | 5002 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_restart_keeps_where_parallel_came_from` | 5035 | COVERED | hub-runner：cmd_run 2 次；⑤j1 的部分见上一节 |
+| `test_fingerprint_survives_a_file_being_swapped` | 5055 | COVERED | hub-runner：code_fingerprint 3 次 |
+| `test_supervisor_keeps_going_after_a_bad_tick` | 5067 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_supervisor_stops_restarting_a_crashing_runner` | 5086 | COVERED | hub-runner：cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_pi_workers_load_the_guard_with_the_kernel_roots` | 5946 | COVERED | hub-runner：kernel_files 1 次 |
+| `test_owner_commands_pause_a_busy_task_runner` | 6346 | COVERED | hub-runner：pause_requested 4 次、supervise_tick 2 次、cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_kernel_changes_lists_uncommitted_kernel_files` | 7873 | COVERED | 用例经 REAL_KERNEL_CHANGES 调，采样器包不到；hub-runner-scenes 的真 git status 场景覆盖 |
+| `test_kernel_changes_counts_a_git_error_as_changed` | 7893 | COVERED | 用例经 REAL_KERNEL_CHANGES 调，采样器包不到；hub-runner-scenes 的真 git status 场景覆盖（GIT_DIR 指向不在的目录） |
+| `test_the_hub_refuses_to_start_on_a_changed_kernel` | 7905 | COVERED | hub-runner：refuse_dirty_kernel 3 次、cmd_run 1 次；⑤j1 的部分见上一节 |
+| `test_the_supervisor_passes_the_override_on_to_task_runners` | 7927 | COVERED | hub-runner：spawn_task_runner 2 次 |
+
+COVERED 31。⑤j1 一节里剩 ⑤j2 的 24 条在这一片都比到了；3883 仍剩 ⑤j3。
+
+变异：ts/mutations/hub-j2.ts.json 共 115 条：
+- runner.ts 的 R01–R96（去掉 R82），与补抽查的 R97–R103；
+- 探针与 popen 的 P01–P09；
+- native.ts 的 N01–N04。
+
+抓住 114 条，R83 判等价，没有靠超时的。前 108 条分四段跑，后 7 条补 themistally-04 的抽查：
+- 第一段只跑 hub-runner-scenes（当时还没有变异补的那 5 条 it），抓住 46 条，漏 63 条。P04（popen 另起进程组）在加了 ConsoleFlags 那一段之后单独重跑，抓住了。
+- 第二段：漏掉的 62 条，用存下的 64 次样本请求让 node 重放，抓住 46 条，漏 16 条。
+- 第三段：前 15 条只跑 hub-quiesce，抓住 R44（落成不算一件事，“处理了 N 件事”对不上）；N01 只跑 supervise 契约，没抓住。
+- 补了 6 条 it（变异补的 5 条，加 popen 那组的 N01），第四段按“该由哪条 it 抓住”分 6 组，每组用 vitest -t 只跑那一条 it。每组的基准都是 1 passed、16 skipped。14 条全部抓住（R44 也放进去，结项信那条 it 也抓得住）：
+  - R39–R44，结项信：
+    - 被别的主任务的执行端挡两轮：finalize.deferred 只记一次，提示只打一次，每轮各睡 poll 秒（R41、R42、R43）；
+    - 落成（finalize 照剧本交回没过）算一件事（R44）；
+    - “返工”类型的 exec-step 信不当结项信（R39）；
+    - run --task T001 不办 T002 的结项信（R40）。
+  - R25、R47，等待：
+    - idle_exit 没到不退。前提是同一个信箱 idle_exit 为 0 时空闲就退（runner_may_idle_exit 是真），这一条先验过（themistally-04 要的）；
+    - 内核变了等落定时，poll 0.05 也至少睡 0.1 秒。
+  - R78、R70，supervise：
+    - .runner/mode 只在拿着总锁时在（DirLock 退出时整个目录删掉），所以在第一轮末尾的 sleep 里当场读它；
+    - supervise_tick 放回时跳过挂着活暂停标记的主任务，inner 核对 requeue_interrupted 的 skip。
+  - R30、R55：
+    - pause_requested 问不出命令进程的死活（None）时当它还在（kit_hub.py 用的是 is False）；
+    - spawn_task_runner 的 args 是 None 时，先建好日志再报 AttributeError。采样里 supervise_tick 有 5 次传 None，只是那几次 spawn_task_runner 被换掉了，所以分支留着。
+  - R91，exclusive：被挡两轮，“等这些跑完”只说一次，sleep 是 5、5。
+  - N01，只继承三个标准句柄（themistally-04 提的办法）：
+    - 起之前，本进程另开一个可继承句柄，命令行里给出它的数值；
+    - 子进程用 GetFinalPathNameByHandleW 问这个数值对应的路径，以那个独有的文件名结尾才算继承到了，数值碰巧撞上子进程自己的句柄也不会误判；
+    - 两边探针的 hub.popen 都加了 inherit，Python 走 close_fds 的 HANDLE_LIST，逐字比；
+    - 变异体不加 EXTENDED_STARTUPINFO_PRESENT，CreateProcessW 不认属性表，子进程打印 inherited。
+- 删掉的 1 条：R82（LandBusy 记成 HubError）。
+  - themistally-04 指出 LandBusy 只在 exec_window 里抛，进不了 supervise_tick、owner_sweep_tick，supervisor.error 拿不到它。
+  - supervisor.error 的类名改用 engine.ts 的 pyErrorNames（改成 export），runner.ts 不再另抄一份。两边逐种核过：LandBusy、HubError、DispatchError、pyExceptionName、error.name，最后兜底 Exception。
+  - 这条规则由 ⑤i 的变异覆盖；R81 的原文跟着换。
+- 判等价的 1 条：R83（换代的 --parallel 用起步时的值）。
+  - 只在 args.parallel 不是 None 时加这个参数。这时 configured_parallel（kit_hub.py:6242）每轮都交回 max(1, int(args.parallel))，与 cmd_run 传进来的初值相同。
+  - 只有直接拿别的 parallel 调 supervise 才分得出，生产上没有这样调的（themistally-04 定的）。
+- 跟着修的旧清单：native.ts 抽出共用的 create 之后，lasterror-e 的 E4 与 supervise 的 V16、V17、N01 原文对不上，mutation-specs 报“出现 0 次”。
+  - 照现在的代码改了原文与改法，意思不变。
+  - 四条按各自清单的命令重跑：都抓住了（lasterror-e 1 条、supervise 3 条，两份基准都 passed）。
+  - hub-j2 生成时、另两份这次改写时都用了 Path.write_text，Windows 上写成了 CRLF，三份都已换回 LF（HEAD 里的清单都是 LF）。
+- 抽查：themistally-04 在 b88f346 上另写 15 条（runner.ts 14 条、native.ts 1 条），基准 45 passed，抓住 6 条，漏 9 条：
+  - 判等价的 2 条：
+    - T03：kernel_settled 的时限 >= 改成 >；
+    - T11：supervise 空闲到点 >= 改成 >。
+    - 理由：生产与场景里 monotonic 是高精度的真时钟，正好相等几乎不可能；只有跑到静止的时钟是钉住的，而那里走不到这两处（themistally-04 定的）。
+  - 真缺口 7 条。各补了场景，照原样加进清单（R97–R103），用 vitest -t 只跑标题带“抽查 T”的 6 条 it（基准 6 passed、15 skipped），全部抓住：
+    - R97、R98（抽查 T01、T02）：refuse_dirty_kernel 拒绝时，账本只记前 20 条改动、报错只列前 10 条；放行时也只记前 20 条（kit_hub.py:440–444）。
+    - R99（抽查 T04）：空的暂停标记照 read_text(marker) or "{}" 当 {} 处理，交回 True、标记留着（6193）。read_text 遇到 OSError 也交回 ""，不只手改过的标记才是空的。
+    - R100（抽查 T06）：exec-step 里同时有两封结项信时，照名字的次序先办第一封（6298）。themistally-04 拿 hub-quiesce 重跑过，也抓不住，这条场景是必需的。
+    - R101（抽查 T09）：supervise_tick 算上一代的 runner 时，不算自己 children 里的（6433，Python 短路，不对它们调 lock_alive）。在跑的子进程都拿着自己的 .runners/<task>，生产上每一轮都会走到。
+    - R102（抽查 T13）：exclusive.run 只记命令的前 6 项（6617）。R91 那条 it 的命令改成 7 项。
+    - R103（抽查 T14）：cmd_owner_sweep 只把退出码是 EXIT_BLOCKED 的 HubError 当成“已经有一个在跑”（6404）。场景让还没有提交的仓库在 owner_sweep_run 里 git rev-parse HEAD 失败；HubError 的缺省退出码是 EXIT_FAIL（469），三边都照抛。

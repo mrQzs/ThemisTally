@@ -103,14 +103,14 @@
     {
       "name": "V16 不挂起创建",
       "file": "ts/packages/base/src/native.ts",
-      "old": "        const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT",
-      "new": "        const flags = CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT"
+      "old": "      return create(cmdline, environment, cwd, std, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP",
+      "new": "      return create(cmdline, environment, cwd, std, CREATE_NEW_PROCESS_GROUP"
     },
     {
       "name": "V17 不另起进程组",
       "file": "ts/packages/base/src/native.ts",
-      "old": "        const flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT",
-      "new": "        const flags = CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT"
+      "old": "      return create(cmdline, environment, cwd, std, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP",
+      "new": "      return create(cmdline, environment, cwd, std, CREATE_SUSPENDED"
     },
     {
       "name": "V18 ensure_argv_safe 漏了 .bat",
@@ -223,8 +223,8 @@
     {
       "name": "N01 没有控制台也不加 CREATE_NO_WINDOW",
       "file": "ts/packages/base/src/native.ts",
-      "old": "          | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0);",
-      "new": "          | 0;"
+      "old": "        | (k.GetConsoleProcessList(new Uint32Array(1), 1) === 0 ? CREATE_NO_WINDOW : 0));",
+      "new": "        | 0));"
     }
   ]
 }
