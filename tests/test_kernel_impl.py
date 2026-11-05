@@ -989,7 +989,9 @@ def on_break(*_):
     if mode == "default":
         os._exit(-1073741510)  # 0xC000013A：与按缺省处理结束相同
     if mode == "handled":
-        print("收尾", flush=True)
+        # 写 UTF-8 字节：子进程不在 UTF-8 模式时，管道上的 print 用 cp1252 之类的代码页，中文会抛 UnicodeEncodeError
+        sys.stdout.buffer.write(("收尾" + chr(10)).encode("utf-8"))
+        sys.stdout.buffer.flush()
         os._exit(5)
 
 
