@@ -1,1 +1,1 @@
-{"schema_version": 1, "readonly": "ts", "config": "ts", "dispatcher": "ts", "hub": "python"}
+{"schema_version": 1, "readonly": "ts", "config": "ts", "dispatcher": "ts", "hub": "ts"}
