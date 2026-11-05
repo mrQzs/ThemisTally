@@ -92,6 +92,7 @@ import { PY_EXCEPTION_PARENTS, pyCaught, pyExceptionName } from "@themis/base/py
 import { PyWinError, pyRename } from "@themis/base/pyos";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { hubAudit, hubBox, hubCall, hubConstants, hubContract, hubContractFlow, hubInputs, hubPopen, hubPrompt, hubShadowLetter, hubShadowRoute, hubShadowRoutine, hubShadowTask, hubTurn } from "./hub_probe.ts";
+import { HUB_IMPL, setHubImpl } from "@themis/hub/kernel";
 
 type Request = Record<string, unknown> & { op: string; barrier?: string };
 type Result = Record<string, unknown>;
@@ -1056,6 +1057,9 @@ const OPS: Record<string, (request: Request) => Result | Promise<Result>> = {
 
 async function runOne(request: Request): Promise<Result> {
   if (request.barrier) waitFor(request.barrier);
+  // 第 ⑤ 步切换：hub 记 hub_impl 的几处照 Python 写 "python"，三边才能逐字比；请求给 "default" 时用 TS 自己的值（只跑 TS 一边的场景核它）。
+  // 每条请求都设一次，批量重放里上一条的值不串到下一条
+  if (request.op.startsWith("hub.")) setHubImpl(request["hub_impl"] === "default" ? HUB_IMPL : typeof request["hub_impl"] === "string" ? request["hub_impl"] : "python");
   const handler = OPS[request.op];
   if (handler === undefined) return { ok: false, error: "UNKNOWN_OP" };
   try {

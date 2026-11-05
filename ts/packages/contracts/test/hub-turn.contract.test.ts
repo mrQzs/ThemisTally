@@ -451,3 +451,21 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     }
   }, 900_000);
 });
+
+describe("第 ⑤ 步切换（一）：回合记下的 hub_impl", () => {
+  // 三边逐字比的场景里 TS 的探针照 Python 写 "python"（ts_probe 的 runOne）；这一条请求带 hub_impl: "default"，各边用自己的值，各开一个探针进程
+  it("result.json、turn.finished 与交回的 summary：Python 写 python，Node、Bun 写 ts", () => {
+    const setup: Setup = { agent: COORDINATOR, script: { stdout: b64(stream(...delivers([{ letters: [], state: "一" }, false]), piDone(COORDINATOR))) } };
+    const text = (item: PyValue | undefined): string => Buffer.from(item as string, "base64").toString("utf8");
+    const seen = IMPLS.map((impl) => {
+      const result = runBatch(impl, [{ ...build("hub-impl", setup), hub_impl: "default" }], REPLAY_TIMEOUT)[0] as ProbeResult;
+      expect(result.ok, `${impl.name}：${JSON.stringify(result).slice(0, 300)}`).toBe(true);
+      const value = fromTagged(result["value"] as Tagged) as PyDict;
+      const record = JSON.parse(text((value.get("files") as PyDict).get("result.json"))) as Record<string, unknown>;
+      const finished = text(value.get("ledger")).split(LF).filter(Boolean).map((row) => JSON.parse(row) as Record<string, unknown>)
+        .filter((event) => event["event"] === "turn.finished").map((event) => event["hub_impl"]);
+      return [(value.get("summary") as PyDict).get("hub_impl"), record["hub_impl"], finished];
+    });
+    expect(seen).toEqual([["python", "python", ["python"]], ["ts", "ts", ["ts"]], ["ts", "ts", ["ts"]]]);
+  }, 600_000);
+});

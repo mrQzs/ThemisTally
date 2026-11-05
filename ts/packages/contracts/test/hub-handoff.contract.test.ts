@@ -96,9 +96,13 @@ function hubRepo(prefix: string, setup: readonly (readonly string[])[] = []): st
   return repo;
 }
 
-/** letter.delivered 记的信件哈希：信里有信件编号与时间，两边各跑一遍本来就不同（信的全文另在信箱里逐字比）。 */
+/**
+ * letter.delivered 记的信件哈希：信里有信件编号与时间，两边各跑一遍本来就不同（信的全文另在信箱里逐字比）。hub_impl 本来就各写各的（第 ⑤ 步
+ * 切换），换成占位；各边写的值另在命令表那条里断言。
+ */
 const shown = (text: string, repo: string): string => normalize(text, { "<REPO>": repo }).replace(MSG, "<MSG>")
-  .replace(/"pid": [0-9]+/gu, '"pid": <PID>').replace(/"sha256": "[0-9a-f]{64}"/gu, '"sha256": "<SHA>"');
+  .replace(/"pid": [0-9]+/gu, '"pid": <PID>').replace(/"sha256": "[0-9a-f]{64}"/gu, '"sha256": "<SHA>"')
+  .replace(/"hub_impl": "(python|ts)"/gu, '"hub_impl": "<IMPL>"');
 
 /** 信箱里全部文件（文件名与内容里的信件编号、仓库路径、时间、进程号换成占位），按名字排。 */
 function box(repo: string): [string, string][] {
@@ -205,12 +209,17 @@ describe.runIf(process.platform === "win32")("第 ⑤j3 片：经真启动器转
         const done = launchSync(impl, { argv: ["--repo", repo, ...call.argv] }, repo, call.input);
         return { argv: call.argv.join(" "), status: done.status, stdout: shown(done.stdout.toString("utf8"), repo), stderr: shown(done.stderr.toString("utf8"), repo) };
       });
-      return { results, box: box(repo) };
+      const impls = events(repo).filter((event) => ["runner.started", "exclusive.run"].includes(String(event["event"]))).map((event) => [event["event"], event["hub_impl"]]);
+      return { results, box: box(repo), impls };
     };
     const reference = runAll("python");
     const handed = runAll("ts");
     for (const [index, result] of handed.results.entries()) expect(result).toEqual(reference.results[index]);
     expect(handed.box).toEqual(reference.box);
+    // 第 ⑤ 步切换（一）：经真启动器、不经探针，各边写自己的 hub_impl（run 那一次的 runner.started、exclusive 那一次的 exclusive.run）
+    expect([reference.impls, handed.impls]).toEqual([
+      [["runner.started", "python"], ["exclusive.run", "python"]], [["runner.started", "ts"], ["exclusive.run", "ts"]],
+    ]);
     expect(handed.results.filter((result) => result.argv.startsWith("send ")).map((result) => result.status)).toEqual([0, 0, 0]);
     expect(handed.results.at(-1)?.stdout).toBe(`x 32771${CR}${LF}`); // 孙进程是 Python，文本模式的 print 在 Windows 上写 CRLF
     const texts = handed.box.map(([, text]) => text).join(LF);

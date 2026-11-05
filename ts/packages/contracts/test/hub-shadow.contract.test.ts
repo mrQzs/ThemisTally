@@ -230,6 +230,26 @@ describe("⑤-影子：静态重放", () => {
     expect(report["result_json_other_kernel"]).toBe(1);
     expect(report["mismatches"]).toEqual([{ category: "回合与 result.json", key: "gate-sonnet/20261031T000000000005Z-bb02：violations", state_sha256: report["state_sha256"] }]);
   }, 180_000);
+
+  it("第 ⑤ 步切换（一）：result.json 的 hub_impl 不进比较——切换后 TS hub 写的 ts、加这个字段之前的旧记录（没有这个键），都与重算的一致", () => {
+    const fx = fixture("impl");
+    const since = "2026-10-31T12:00:00Z";
+    const written: unknown[] = [];
+    rewrite(recordedTurn(fx, "20261031T000000000008Z-cc01"), (record) => {
+      written.push(record["hub_impl"]);
+      Object.assign(record, { finished_at: since, hub_impl: "ts" });
+    });
+    rewrite(recordedTurn(fx, "20261031T000000000009Z-cc02"), (record) => {
+      written.push(record["hub_impl"]);
+      record["finished_at"] = since;
+      delete record["hub_impl"];
+    });
+    expect(written, "Python 的 TurnRunner 写的是自己的值").toEqual(["python", "python"]);
+    const { status, report } = runShadow(fx, ["--once", "--records-since", since]);
+    expect(report["mismatches"]).toEqual([]);
+    expect(status).toBe(0);
+    expect((report["categories"] as Record<string, unknown>)["回合与 result.json"]).toMatchObject({ compared: 2, mismatched: 0 });
+  }, 180_000);
 });
 
 describe("⑤-影子：对不上时另存快照", () => {

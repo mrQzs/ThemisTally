@@ -23,7 +23,7 @@ import { EXIT_BLOCKED, EXIT_OK, EXIT_USAGE, KERNEL, OWNER } from "./constants.ts
 import { deliveryFiles } from "./delivery.ts";
 import { Engine, type EngineDeps, REAL_ENGINE_DEPS, land, pyErrorNames } from "./engine.ts";
 import { HubError } from "./errors.ts";
-import { HUB_SHA256, KERNEL_ROOT, SCRIPTS_DIR, TEMPLATE_DIR, git } from "./kernel.ts";
+import { HUB_SHA256, KERNEL_ROOT, SCRIPTS_DIR, TEMPLATE_DIR, git, hubImpl } from "./kernel.ts";
 import { landingBlockers } from "./land.ts";
 import { parseLetter, stageOf } from "./letters.ts";
 import { DirLock, Hub, letterMain } from "./mailbox.ts";
@@ -272,7 +272,7 @@ export async function cmdRun(args: CommandArgs, out: CommandOut = new PyOut(), d
   const fingerprint = deps.codeFingerprint(null);
   const lock = new DirLock(runnerLock(hub, task), 1.0).acquire();
   try {
-    await hub.appendEvent("runner.started", [["pid", BigInt(deps.selfPid)], ["hub_sha256", HUB_SHA256], ["task", task]]);
+    await hub.appendEvent("runner.started", [["pid", BigInt(deps.selfPid)], ["hub_sha256", HUB_SHA256], ["task", task], ["hub_impl", hubImpl()]]);
     if (task === null) await deps.requeueInterrupted(hub, [], deps); // 串行的 hub 起步时没有别人在办（并行时由 supervisor 放回）
     let idleSince = deps.monotonic();
     while (turns < maxSteps) {
@@ -449,7 +449,7 @@ export async function supervise(hub: Hub, args: CommandArgs, parallel: number, o
   const lock = new DirLock(runnerLock(hub, null), 1.0).acquire();
   try {
     writeMode(hub);
-    await hub.appendEvent("runner.started", [["pid", BigInt(deps.selfPid)], ["hub_sha256", HUB_SHA256], ["parallel", BigInt(current)]]);
+    await hub.appendEvent("runner.started", [["pid", BigInt(deps.selfPid)], ["hub_sha256", HUB_SHA256], ["parallel", BigInt(current)], ["hub_impl", hubImpl()]]);
     out.print(`hub 并行调度：最多 ${current} 个主任务同时跑`);
     let idleSince = deps.monotonic();
     for (;;) {
@@ -519,7 +519,7 @@ export async function cmdExclusive(args: CommandArgs, out: CommandOut = new PyOu
       }
       await deps.sleep(5);
     }
-    await hub.appendEvent("exclusive.run", [["command", command.slice(0, 6)]]);
+    await hub.appendEvent("exclusive.run", [["command", command.slice(0, 6)], ["hub_impl", hubImpl()]]);
     before = pyStrip(git(["rev-parse", "HEAD"], hub.repo, false));
     code = runCommand(command, hub.repo, deps.commandStdio);
     after = pyStrip(git(["rev-parse", "HEAD"], hub.repo, false));

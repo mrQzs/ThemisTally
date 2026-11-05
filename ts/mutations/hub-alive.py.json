@@ -1,0 +1,75 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_hub_alive.py",
+  "-q",
+  "-p",
+  "no:cacheprovider"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "A01 拿不到进程信息当成死的",
+   "file": "ts/tools/hub-alive.py",
+   "old": "if image == \"?\" or image in HUB_IMAGES:",
+   "new": "if image in HUB_IMAGES:"
+  },
+  {
+   "name": "A02 HUB_IMAGES 去掉 bun.exe",
+   "file": "ts/tools/hub-alive.py",
+   "old": "HUB_IMAGES = {\"python.exe\", \"pythonw.exe\", \"bun.exe\"}",
+   "new": "HUB_IMAGES = {\"python.exe\", \"pythonw.exe\"}"
+  },
+  {
+   "name": "A03 不查以“.”开头的锁目录",
+   "file": "ts/tools/hub-alive.py",
+   "old": "paths = sorted(root.glob(\".*/owner.json\")) + ",
+   "new": "paths = "
+  },
+  {
+   "name": "A04 不查 .runners",
+   "file": "ts/tools/hub-alive.py",
+   "old": " + sorted(root.glob(\".runners/*/owner.json\"))",
+   "new": ""
+  },
+  {
+   "name": "A05 不查 exec-active",
+   "file": "ts/tools/hub-alive.py",
+   "old": "paths += sorted((root / \"ledger\" / \"exec-active\").glob(\"*.json\")) + ",
+   "new": "paths += "
+  },
+  {
+   "name": "A06 不查 .pause",
+   "file": "ts/tools/hub-alive.py",
+   "old": " + sorted(p for p in (root / \".pause\").glob(\"*\") if p.is_file())",
+   "new": ""
+  },
+  {
+   "name": "A07 读不出 pid 的不报",
+   "file": "ts/tools/hub-alive.py",
+   "old": "            alive.append(\"%s：读不出 pid\" % source)",
+   "new": "            pass"
+  },
+  {
+   "name": "A08 有活的也交回 0",
+   "file": "ts/tools/hub-alive.py",
+   "old": "    return 1 if alive else 0",
+   "new": "    return 0"
+  },
+  {
+   "name": "A09 已退出的进程当活的",
+   "file": "ts/tools/hub-alive.py",
+   "old": "and code.value != STILL_ACTIVE:",
+   "new": "and False:"
+  },
+  {
+   "name": "A10 pid 小于等于 0 也拿去查进程（themistally-04 抽查 W6）",
+   "file": "ts/tools/hub-alive.py",
+   "old": "pid if type(pid) is int and pid > 0 else None",
+   "new": "pid if type(pid) is int else None"
+  }
+ ]
+}

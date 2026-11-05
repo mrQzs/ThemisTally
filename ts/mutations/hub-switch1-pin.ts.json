@@ -1,0 +1,30 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-turn.contract.test.ts"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1800,
+ "mutations": [
+  {
+   "name": "H21 探针不钉值（对照：三边逐字比的场景该红）",
+   "file": "ts/packages/contracts/probes/ts_probe.ts",
+   "old": "typeof request[\"hub_impl\"] === \"string\" ? request[\"hub_impl\"] : \"python\");",
+   "new": "typeof request[\"hub_impl\"] === \"string\" ? request[\"hub_impl\"] : HUB_IMPL);"
+  },
+  {
+   "name": "H22 TS result.json 的 hub_impl 挪到最后",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "[\"hub_sha256\", HUB_SHA256], [\"hub_impl\", hubImpl()],\n      // 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希；第 110 轮起一律是 \"tool\"\n      [\"delivery\", \"tool\"],\n      [\"delivery_sha256\", new Map((claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]).concat(`${spec.role}.json`).map((name) => [name, DELIVERY_SHA256.get(name) ?? null]))],\n      // 第 102 轮：交差被工具退回几次、报错多长；思考的证据（第 103 轮分开记）\n      [\"deliver_refusals\", BigInt(pyLenValue(refused))], [\"deliver_refusal_chars\", refused.reduce<bigint>((sum, chars) => sum + pyIntOf(chars), 0n)],\n      [\"thinking_chars\", pyGet(audit, \"thinking_chars\")], [\"thinking_tokens\", pyGet(audit, \"thinking_tokens\")],",
+   "new": "[\"hub_sha256\", HUB_SHA256],\n      // 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希；第 110 轮起一律是 \"tool\"\n      [\"delivery\", \"tool\"],\n      [\"delivery_sha256\", new Map((claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]).concat(`${spec.role}.json`).map((name) => [name, DELIVERY_SHA256.get(name) ?? null]))],\n      // 第 102 轮：交差被工具退回几次、报错多长；思考的证据（第 103 轮分开记）\n      [\"deliver_refusals\", BigInt(pyLenValue(refused))], [\"deliver_refusal_chars\", refused.reduce<bigint>((sum, chars) => sum + pyIntOf(chars), 0n)],\n      [\"thinking_chars\", pyGet(audit, \"thinking_chars\")], [\"thinking_tokens\", pyGet(audit, \"thinking_tokens\")], [\"hub_impl\", hubImpl()],"
+  },
+  {
+   "name": "H23 Python result.json 的 hub_impl 挪到最后",
+   "file": "scripts/kit_hub.py",
+   "old": "\"hub_sha256\": HUB_SHA256, \"hub_impl\": HUB_IMPL,\n            # 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希。第 110 轮起一律是 \"tool\"，\n            # 照写这个字段：旧记录里有 \"block\"，按它区分新旧\n            \"delivery\": \"tool\",\n            \"delivery_sha256\": {name: DELIVERY_SHA256.get(name) for name in (\n                () if spec[\"adapter\"] == \"claude\" else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (\n                \"%s.json\" % spec[\"role\"],)},\n            # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。\n            # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数\n            \"deliver_refusals\": len(audit.get(\"deliver_refusals\") or []),\n            \"deliver_refusal_chars\": sum(audit.get(\"deliver_refusals\") or []),\n            \"thinking_chars\": audit.get(\"thinking_chars\"), \"thinking_tokens\": audit.get(\"thinking_tokens\"),",
+   "new": "\"hub_sha256\": HUB_SHA256,\n            # 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希。第 110 轮起一律是 \"tool\"，\n            # 照写这个字段：旧记录里有 \"block\"，按它区分新旧\n            \"delivery\": \"tool\",\n            \"delivery_sha256\": {name: DELIVERY_SHA256.get(name) for name in (\n                () if spec[\"adapter\"] == \"claude\" else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (\n                \"%s.json\" % spec[\"role\"],)},\n            # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。\n            # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数\n            \"deliver_refusals\": len(audit.get(\"deliver_refusals\") or []),\n            \"deliver_refusal_chars\": sum(audit.get(\"deliver_refusals\") or []),\n            \"thinking_chars\": audit.get(\"thinking_chars\"), \"thinking_tokens\": audit.get(\"thinking_tokens\"), \"hub_impl\": HUB_IMPL,"
+  }
+ ]
+}

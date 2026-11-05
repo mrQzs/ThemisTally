@@ -308,6 +308,22 @@ describe("第 ⑤j2 片：变异检验补的（手写，剧本交回内层函数
     }
   }, 1_800_000);
 
+  it("第 ⑤ 步切换（一）：runner.started（串行、supervisor）与 exclusive.run 记的 hub_impl 是各边自己的值（请求带 hub_impl: default，各开一个探针进程）", () => {
+    const serial = hubScene();
+    const parallel = hubScene();
+    const owner = hubScene();
+    const requests = [
+      { ...flow("cmd_run", serial, [runArgs(serial.repo)]), hub_impl: "default", scripted: { ...quiet, code_fingerprint: steady(2), "Engine.step": [value(false)] } },
+      { ...flow("cmd_run", parallel, [runArgs(parallel.repo, { parallel: 2 })]), hub_impl: "default",
+        scripted: { ...quiet, tasks_with_work: [value([])], code_fingerprint: steady(2) } },
+      { ...flow("cmd_exclusive", owner, [{ repo: owner.repo, command: ["--", kernelPython(), "-c", "pass"], wait: 0 }]), hub_impl: "default" },
+    ];
+    const impls = IMPLS.map((impl) => runBatch(impl, requests, REPLAY_TIMEOUT).map((result) => events(result["value"] as Record<string, unknown>)
+      .filter((event) => event["event"] === "runner.started" || event["event"] === "exclusive.run").map((event) => [event["event"], event["hub_impl"]])));
+    const expected = (impl: string): unknown[] => [[["runner.started", impl]], [["runner.started", impl]], [["exclusive.run", impl]]];
+    expect(impls).toEqual([expected("python"), expected("ts"), expected("ts")]);
+  }, 1_800_000);
+
   it("supervise：拿着总锁的期间锁目录里有 mode；supervise_tick 不放回挂着活暂停标记的主任务（R78、R70）", () => {
     const sc = hubScene();
     const paused = twoTasks((repo) => put(repo, `${BOX}/.pause/T002`, JSON.stringify({ pid: BLOCKER })));

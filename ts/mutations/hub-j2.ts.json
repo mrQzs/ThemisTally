@@ -206,7 +206,7 @@
   {
    "name": "R33 不写 runner.started",
    "file": "ts/packages/hub/src/runner.ts",
-   "old": "    await hub.appendEvent(\"runner.started\", [[\"pid\", BigInt(deps.selfPid)], [\"hub_sha256\", HUB_SHA256], [\"task\", task]]);",
+   "old": "    await hub.appendEvent(\"runner.started\", [[\"pid\", BigInt(deps.selfPid)], [\"hub_sha256\", HUB_SHA256], [\"task\", task], [\"hub_impl\", hubImpl()]]);",
    "new": "    void HUB_SHA256;"
   },
   {
@@ -692,8 +692,8 @@
   {
    "name": "R102 exclusive.run 记整条命令（抽查 T13）",
    "file": "ts/packages/hub/src/runner.ts",
-   "old": "[[\"command\", command.slice(0, 6)]]",
-   "new": "[[\"command\", command]]"
+   "old": "[[\"command\", command.slice(0, 6)], [\"hub_impl\", hubImpl()]]",
+   "new": "[[\"command\", command], [\"hub_impl\", hubImpl()]]"
   },
   {
    "name": "R103 owner-sweep 什么 HubError 都当已经有一个在跑（抽查 T14）",

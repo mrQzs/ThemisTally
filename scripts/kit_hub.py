@@ -201,6 +201,9 @@ CONTRACT_EXECUTOR_LINE = "- executor: %s/%s · thinking %s" % EXECUTOR
 
 #: 本次进程载入的内核代码的哈希（载入时算一次）：运行中改了源文件，记录里的仍是正在跑的那一份。
 HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+#: 写这条记录的是哪一套 hub（第 ⑤ 步切换）：runner.started、exclusive.run、owner.swept、turn.finished 与回合的 result.json 记它，
+#: TS 的 hub 写 "ts"。HUB_SHA256 只是 kit_hub.py 的哈希，切到 TS 之后标不出实际在跑的代码。
+HUB_IMPL = "python"
 
 
 def kernel_files() -> List[Path]:
@@ -2117,7 +2120,7 @@ class TurnRunner:
             "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": turn_cost,
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],
-            "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256,
+            "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256, "hub_impl": HUB_IMPL,
             # 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希。第 110 轮起一律是 "tool"，
             # 照写这个字段：旧记录里有 "block"，按它区分新旧
             "delivery": "tool",
@@ -2135,7 +2138,7 @@ class TurnRunner:
                               exit_code=summary["exit_code"], timed_out=summary["timed_out"],
                               violations=len(audit["violations"]), output_ok=output is not None,
                               effort_requested=summary["effort_requested"], effort_effective=summary["effort_effective"],
-                              cost_usd=turn_cost, wall_seconds=summary["wall_seconds"])
+                              cost_usd=turn_cost, wall_seconds=summary["wall_seconds"], hub_impl=HUB_IMPL)
         summary["output"] = output
         summary["turn_dir"] = str(turn_dir)
         summary["rate_limited_until"] = audit.get("rate_limited_until")
@@ -4172,7 +4175,7 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
         if data.get("head") == head:  # 跑的期间站主又动了 HEAD：留着待跑，下一轮跑新的末端
             data["pending"] = False
         write_text_atomic(record, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-    hub.append_event("owner.swept", head=head, exit=code)
+    hub.append_event("owner.swept", head=head, exit=code, hub_impl=HUB_IMPL)
     summary = "站主的提交之后，末端 %s 上的全部门禁基准（%d 份）：%s" % (head[:12], len(tests),
                                                           tail(out, 1).strip() or "没有输出")
     if code != 0:
@@ -6273,7 +6276,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     deferred: Optional[str] = None
     fingerprint = code_fingerprint()
     with DirLock(runner_lock(hub, task), wait_seconds=1.0):
-        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, task=task)
+        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, task=task, hub_impl=HUB_IMPL)
         if task is None:
             requeue_interrupted(hub)  # 第 93 轮：串行的 hub 起步时没有别人在办（并行时由 supervisor 放回）
         idle_since = time.monotonic()
@@ -6465,7 +6468,7 @@ def supervise(hub: Hub, args: argparse.Namespace, parallel: int) -> int:
     fingerprint = code_fingerprint()
     with DirLock(runner_lock(hub, None), wait_seconds=1.0):
         write_text_atomic(runner_lock(hub, None) / "mode", "supervisor\n")  # 站主的命令据此只等主任务的锁
-        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, parallel=parallel)
+        hub.append_event("runner.started", pid=os.getpid(), hub_sha256=HUB_SHA256, parallel=parallel, hub_impl=HUB_IMPL)
         print("hub 并行调度：最多 %d 个主任务同时跑" % parallel, flush=True)
         idle_since = time.monotonic()
         while True:
@@ -6614,7 +6617,7 @@ def cmd_exclusive(args: argparse.Namespace) -> int:
                 print("等这些跑完：%s（新的执行端在此期间不会开始）" % "、".join(blockers), flush=True)
                 announced = True
             time.sleep(5)
-        hub.append_event("exclusive.run", command=command[:6])
+        hub.append_event("exclusive.run", command=command[:6], hub_impl=HUB_IMPL)
         before = git(["rev-parse", "HEAD"], hub.repo, check=False).strip()
         code = subprocess.run(command, cwd=str(hub.repo), stdin=subprocess.DEVNULL).returncode
         after = git(["rev-parse", "HEAD"], hub.repo, check=False).strip()

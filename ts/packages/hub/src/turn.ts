@@ -30,7 +30,7 @@ import {
   THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
-import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR } from "./kernel.ts";
+import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 
 const BS = String.fromCharCode(92);
@@ -210,7 +210,7 @@ export class TurnRunner {
       ["tool_calls", pyItem(audit, "tool_calls")], ["violations", pyItem(audit, "violations")], ["cost_usd", turnCost],
       ["session_cost_usd", sessionCost], ["usage", pyGet(audit, "usage")], ["terminal", pyGet(audit, "terminal")], ["output_error", outputError],
       ["api_error", pyGet(audit, "api_error")], ["warnings", pyTruthy(pyGet(audit, "warnings")) ? pyItem(audit, "warnings") : []],
-      ["role_prompt_sha256", createHash("sha256").update(rolePrompt, "utf8").digest("hex")], ["hub_sha256", HUB_SHA256],
+      ["role_prompt_sha256", createHash("sha256").update(rolePrompt, "utf8").digest("hex")], ["hub_sha256", HUB_SHA256], ["hub_impl", hubImpl()],
       // 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希；第 110 轮起一律是 "tool"
       ["delivery", "tool"],
       ["delivery_sha256", new Map((claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]).concat(`${spec.role}.json`).map((name) => [name, DELIVERY_SHA256.get(name) ?? null]))],
@@ -222,7 +222,7 @@ export class TurnRunner {
     await this.hub.appendEvent("turn.finished", [["turn_id", turnId], ["agent", agent], ["session_key", sessionKey],
       ["exit_code", pyItem(summary, "exit_code")], ["timed_out", pyItem(summary, "timed_out")], ["violations", BigInt(pyLenValue(pyItem(audit, "violations")))],
       ["output_ok", output !== null], ["effort_requested", pyItem(summary, "effort_requested")], ["effort_effective", pyItem(summary, "effort_effective")],
-      ["cost_usd", turnCost], ["wall_seconds", pyItem(summary, "wall_seconds")]]);
+      ["cost_usd", turnCost], ["wall_seconds", pyItem(summary, "wall_seconds")], ["hub_impl", hubImpl()]]);
     summary.set("output", output);
     summary.set("turn_dir", turnDir);
     summary.set("rate_limited_until", pyGet(audit, "rate_limited_until"));

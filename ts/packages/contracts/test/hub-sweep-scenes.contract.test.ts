@@ -23,7 +23,7 @@ import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { depsDigest } from "../../../tools/stamp-install.mjs";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPO, runBatch } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, REPO, runBatch } from "./harness.ts";
 import { AT, LF, PIN, type Scene, agreeFlow, flow, kernelPython, py, returned, scene, scrub, tsAfter, written } from "./flow-fixtures.ts";
 import { git, put, removeCreated, tempDir } from "./repo-fixtures.ts";
 
@@ -379,6 +379,19 @@ describe("第 ⑤h2 片：regression_sweep 与 owner_sweep（手写）", () => {
     const states = agreeFlow([flow("owner_sweep", closed, [], scratchExtra(run))]);
     injectedCleanly(states);
     expect((returned(states[0]) as PyValue[])[0]).toBe(true);
+  }, 600_000);
+
+  it("第 ⑤ 步切换（一）：owner.swept 记的 hub_impl 是各边自己的值（请求带 hub_impl: default，各开一个探针进程；三边逐字比的那几条照 Python 钉成 python）", () => {
+    const pending = gated((repo, head) => put(repo, OWNER, JSON.stringify({ pending: true, head, since: head, command: ["git", "merge"], at: AT })));
+    const run = scratch(pending, "owner-sweep", 0, lines("1 passed in 0.01s"), [GATE_OK]);
+    const request = { ...flow("owner_sweep", pending, [], scratchExtra(run)), hub_impl: "default" };
+    const swept = IMPLS.map((impl) => {
+      const state = runBatch(impl, [request], REPLAY_TIMEOUT)[0]?.["value"] as Record<string, unknown> | undefined;
+      const ledger = Buffer.from((state?.["ledger"] as string | undefined) ?? "", "base64").toString("utf8");
+      return ledger.split(LF).filter(Boolean).map((row) => JSON.parse(row) as Record<string, unknown>)
+        .filter((event) => event["event"] === "owner.swept").map((event) => event["hub_impl"]);
+    });
+    expect(swept).toEqual([["python"], ["ts"], ["ts"]]);
   }, 600_000);
 });
 

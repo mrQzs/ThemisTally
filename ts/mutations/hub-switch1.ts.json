@@ -1,0 +1,106 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-turn.contract.test.ts",
+  "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+  "packages/contracts/test/hub-runner-scenes.contract.test.ts",
+  "-t",
+  "hub_impl"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "H01 TS 的缺省写成 python",
+   "file": "ts/packages/hub/src/kernel.ts",
+   "old": "export const HUB_IMPL = \"ts\";",
+   "new": "export const HUB_IMPL = \"python\";"
+  },
+  {
+   "name": "H02 TS 串行的 runner.started 漏写",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"task\", task], [\"hub_impl\", hubImpl()]]);",
+   "new": "[\"task\", task]]);"
+  },
+  {
+   "name": "H03 TS supervisor 的 runner.started 漏写",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"parallel\", BigInt(current)], [\"hub_impl\", hubImpl()]]);",
+   "new": "[\"parallel\", BigInt(current)]]);"
+  },
+  {
+   "name": "H04 TS exclusive.run 漏写",
+   "file": "ts/packages/hub/src/runner.ts",
+   "old": "[\"command\", command.slice(0, 6)], [\"hub_impl\", hubImpl()]]);",
+   "new": "[\"command\", command.slice(0, 6)]]);"
+  },
+  {
+   "name": "H05 TS owner.swept 漏写",
+   "file": "ts/packages/hub/src/sweep.ts",
+   "old": "[\"exit\", BigInt(code)], [\"hub_impl\", hubImpl()]]);",
+   "new": "[\"exit\", BigInt(code)]]);"
+  },
+  {
+   "name": "H06 TS turn.finished 漏写",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "[\"wall_seconds\", pyItem(summary, \"wall_seconds\")], [\"hub_impl\", hubImpl()]]);",
+   "new": "[\"wall_seconds\", pyItem(summary, \"wall_seconds\")]]);"
+  },
+  {
+   "name": "H07 TS result.json 漏写",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "[\"hub_sha256\", HUB_SHA256], [\"hub_impl\", hubImpl()],",
+   "new": "[\"hub_sha256\", HUB_SHA256],"
+  },
+  {
+   "name": "H08 探针的 default 不还原（照样钉成 python）",
+   "file": "ts/packages/contracts/probes/ts_probe.ts",
+   "old": "request[\"hub_impl\"] === \"default\" ? HUB_IMPL :",
+   "new": "request[\"hub_impl\"] === \"default\" ? \"python\" :"
+  },
+  {
+   "name": "H11 Python 写成 ts",
+   "file": "scripts/kit_hub.py",
+   "old": "HUB_IMPL = \"python\"",
+   "new": "HUB_IMPL = \"ts\""
+  },
+  {
+   "name": "H12 Python result.json 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "\"hub_sha256\": HUB_SHA256, \"hub_impl\": HUB_IMPL,",
+   "new": "\"hub_sha256\": HUB_SHA256,"
+  },
+  {
+   "name": "H13 Python turn.finished 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "wall_seconds=summary[\"wall_seconds\"], hub_impl=HUB_IMPL)",
+   "new": "wall_seconds=summary[\"wall_seconds\"])"
+  },
+  {
+   "name": "H14 Python owner.swept 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "exit=code, hub_impl=HUB_IMPL)",
+   "new": "exit=code)"
+  },
+  {
+   "name": "H15 Python 串行的 runner.started 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "task=task, hub_impl=HUB_IMPL)",
+   "new": "task=task)"
+  },
+  {
+   "name": "H16 Python supervisor 的 runner.started 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "parallel=parallel, hub_impl=HUB_IMPL)",
+   "new": "parallel=parallel)"
+  },
+  {
+   "name": "H17 Python exclusive.run 漏写",
+   "file": "scripts/kit_hub.py",
+   "old": "command=command[:6], hub_impl=HUB_IMPL)",
+   "new": "command=command[:6])"
+  }
+ ]
+}

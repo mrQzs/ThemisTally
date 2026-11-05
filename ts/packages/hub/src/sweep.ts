@@ -27,7 +27,7 @@ import { KERNEL, OWNER } from "./constants.ts";
 import { tail } from "./contract.ts";
 import { emptyCommit, pySliceHead } from "./exec.ts";
 import { attemptBase } from "./gatepost.ts";
-import { git } from "./kernel.ts";
+import { git, hubImpl } from "./kernel.ts";
 import { landedMeanwhile, landingChain, onBranch } from "./land.ts";
 import { DirLock, type Hub } from "./mailbox.ts";
 import { KERNEL_IMPL_PATH, kernelEnv, kernelPytest, kernelPytestEnv } from "./runpd.ts";
@@ -338,7 +338,7 @@ export async function ownerSweepRun(hub: Hub, marker: PyDict, deps: SweepDeps = 
     if (pyEq(pyGet(data, "head"), tip)) data.set("pending", false); // 跑的期间站主又动了 HEAD：留着待跑，下一轮跑新的末端
     writeOwnerSweep(hub, data);
   });
-  await hub.appendEvent("owner.swept", [["head", tip], ["exit", BigInt(code)]]);
+  await hub.appendEvent("owner.swept", [["head", tip], ["exit", BigInt(code)], ["hub_impl", hubImpl()]]);
   const summary = `站主的提交之后，末端 ${short(tip)} 上的全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n)) || "没有输出"}`;
   if (code !== 0) {
     const since = pyGet(marker, "since");

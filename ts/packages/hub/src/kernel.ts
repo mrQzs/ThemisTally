@@ -22,8 +22,25 @@ export const TEMPLATE_DIR = join(SCRIPTS_DIR, "hub");
 export const DELIVER_EXTENSION = join(TEMPLATE_DIR, "deliver.ts");
 export const GUARD_EXTENSION = join(TEMPLATE_DIR, "guard.ts");
 export const SCHEMA_DIR = join(TEMPLATE_DIR, "schemas");
-/** kit_hub 的 HUB_SHA256：kit_hub.py 的 sha256，本进程载入时算（result.json 记它；切换之后它该指什么归 ⑤j 或切换再定）。 */
+/**
+ * kit_hub 的 HUB_SHA256：kit_hub.py 的 sha256，本进程载入时算（result.json 记它）。只代表 kit_hub.py：hub 选 ts 时它标的是启动器与 Python
+ * 参照那一版，标不出实际在跑的 TS 代码（迁移计划第 10 节）。
+ */
 export const HUB_SHA256 = createHash("sha256").update(readFileSync(join(SCRIPTS_DIR, "kit_hub.py"))).digest("hex");
+
+/** kit_hub 的 HUB_IMPL（第 ⑤ 步切换）：写这条记录的是哪一套 hub，Python 写 "python"。 */
+export const HUB_IMPL = "ts";
+let hubImplValue: string = HUB_IMPL;
+
+/** runner.started、exclusive.run、owner.swept、turn.finished 与回合的 result.json 记的 hub_impl。 */
+export function hubImpl(): string {
+  return hubImplValue;
+}
+
+/** 只给契约的探针用：三边逐字比时照 Python 写 "python"；各边写自己的值由只跑一边的场景核。 */
+export function setHubImpl(value: string): void {
+  hubImplValue = value;
+}
 
 function isDir(path: string): boolean {
   try {
