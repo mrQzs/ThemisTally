@@ -274,7 +274,10 @@ describe("握手：严格核对（D03）", () => {
   });
 
   it("全部反例都不回 201：@ 别处、? 与 #、多一段路径、31/33 个字符、localhost、端口 0、65536、99999", async () => {
-    started = await startApp({ maxConcurrent: 8, maxQueue: 16, timeouts: { "secret-entry.handshake": 1 } });
+    // 等握手的时限从请求到达起算，替身的启动也算在里面：每个反例都要等到点，又要断言替身都起来了（begin 行）。
+    // 2026-11-05 主仓库 owner-sweep 25 份门禁基准并跑时，时限 1 秒，10 个反例只数到 9 行 begin；只占满 CPU 复现不出来。
+    // 时限放到 3 秒；断言信息带上各反例的状态码（504 是等到点，502 是替身没打握手就退了），再出现时分得清
+    started = await startApp({ maxConcurrent: 8, maxQueue: 16, timeouts: { "secret-entry.handshake": 3 } });
     const gate = join(started.dir, "never-gate"); // 永不出现：子进程一直活着，轮询读得到握手行
     process.env["FAKE_SECRET_GATE"] = gate;
     const token32 = "a".repeat(32);
@@ -290,14 +293,16 @@ describe("握手：严格核对（D03）", () => {
       `http://127.0.0.1:65536/${token32}`,
       `http://127.0.0.1:99999/${token32}`,
     ];
+    const statuses: number[] = [];
     for (const url of bad) {
       process.env["FAKE_SECRET_URL"] = url;
       const response = await started.entry("EXAMPLE_KEY");
+      statuses.push(response.status);
       expect(response.status, url).not.toBe(201);
       const body = await entryBody(response);
       expect(body["url"], url).toBeNull();
     }
-    expect(begins(started.report).length, "每个反例都真的起了子进程").toBe(bad.length);
+    expect(begins(started.report).length, `每个反例都真的起了子进程（各反例的状态码：${statuses.join(" ")}）`).toBe(bad.length);
     // 正面对照：同一个应用、同一条读链路，合格的地址照样 201（证明反例不是「根本没读到」）
     process.env["FAKE_SECRET_URL"] = `http://127.0.0.1:8123/${token32}`;
     const ok = await started.entry("EXAMPLE_KEY");
