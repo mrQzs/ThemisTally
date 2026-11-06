@@ -548,3 +548,82 @@ test("控制令牌与引导地址不进宿主对象的 JSON", () => {
   assert.ok(!JSON.stringify(host).includes(TOKEN), JSON.stringify(host));
   assert.ok(!JSON.stringify(host).includes(server.bootstrapUrl));
 });
+
+test("D12：五个函数成功与各失败分支期间，stdout/stderr 不出现控制令牌、nonce、页面令牌", async () => {
+  resetAll();
+  const bootstrapUrl = server.bootstrapUrl;
+  const nonce = bootstrapUrl.slice(bootstrapUrl.lastIndexOf("/") + 1);
+  const secrets = [TOKEN, bootstrapUrl, nonce, PAGE_TOK];
+
+  // 接管 process.stdout/stderr 的 write：原样收集写入内容并转发给原实现（保住 TAP 输出不丢）
+  const chunks = [];
+  const savedOut = process.stdout.write;
+  const savedErr = process.stderr.write;
+  const capture = (saved) =>
+    function (...args) {
+      const chunk = args[0];
+      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return saved.apply(this, args);
+    };
+  process.stdout.write = capture(savedOut);
+  process.stderr.write = capture(savedErr);
+  try {
+    // reauth 成功：loadMain 收到整条 bootstrapUrl（含 nonce）
+    let host = makeHost();
+    assert.deepEqual(await host.reauth(), { ok: true });
+    // reauth 加载失败：拒绝消息里带着 bootstrapUrl
+    host = makeHost({ loadMain: async () => {
+      throw new Error("boom " + bootstrapUrl);
+    } });
+    assert.deepEqual(await host.reauth(), { ok: false, reason: "load-failed" });
+    // reauth bad-response（非 200）
+    server.state.bootstrapStatus = 500;
+    host = makeHost();
+    assert.deepEqual(await host.reauth(), { ok: false, reason: "bad-response" });
+    server.state.bootstrapStatus = 200;
+
+    // openSecretWindow 成功：url 带 PAGE_TOK；关窗发取消（头带 TOKEN）
+    resetAll();
+    host = makeHost();
+    await host.openSecretWindow(secretUrl(), jobId("k"));
+    wins[0].emit("closed");
+    await untilCancel(1);
+    // openSecretWindow 加载失败：拒绝消息带着 url（含 PAGE_TOK），关闭再取消
+    resetAll();
+    winCfg.failLoad = true;
+    host = makeHost();
+    assert.deepEqual(await host.openSecretWindow(secretUrl(), jobId("l")), { ok: false, reason: "load-failed" });
+    await untilCancel(1);
+    winCfg.failLoad = false;
+
+    // openExternal：打开、取消、打开失败、非法地址
+    resetAll();
+    host = makeHost();
+    assert.deepEqual(await host.openExternal("https://x.example/"), { ok: true });
+    confirmAnswer = false;
+    assert.deepEqual(await host.openExternal("https://x.example/"), { ok: false, reason: "cancelled" });
+    confirmAnswer = true;
+    openExternalMode = "fail";
+    assert.deepEqual(await host.openExternal("https://x.example/"), { ok: false, reason: "open-failed" });
+    openExternalMode = "ok";
+    assert.deepEqual(await host.openExternal("javascript:alert(1)"), { ok: false, reason: "bad-url" });
+
+    // reveal：通过与字面拒绝
+    resetAll();
+    host = makeHost();
+    assert.deepEqual(await host.reveal("a/b.txt"), { ok: true });
+    assert.deepEqual(await host.reveal(".."), { ok: false, reason: "bad-path" });
+
+    // notify：两类合法、其余拒绝
+    assert.deepEqual(await host.notify("attempt-finished"), { ok: true });
+    assert.deepEqual(await host.notify("constructor"), { ok: false, reason: "bad-kind" });
+  } finally {
+    process.stdout.write = savedOut;
+    process.stderr.write = savedErr;
+  }
+
+  const output = chunks.join("");
+  for (const secret of secrets) {
+    assert.ok(!output.includes(secret), "stdout/stderr 里出现秘密片段");
+  }
+});
