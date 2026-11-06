@@ -90,7 +90,24 @@ function startService(options) {
 function stopService(child, options) {
   const graceMs = options && options.graceMs !== undefined ? options.graceMs : 10000;
   return new Promise((resolve) => {
+    // 已经退出的子进程：事件早就发完了，等下去永远等不到——立即兑现，不碰 stdin、不等宽限期
+    if (typeof child.exitCode === "number" || child.signalCode) {
+      resolve({
+        exited: true,
+        code: typeof child.exitCode === "number" ? child.exitCode : null,
+        signal: child.signalCode ? child.signalCode : null,
+        killed: false,
+      });
+      return;
+    }
+
     let done = false;
+    // end 与子进程退出撞车时会往 stdin 抛 EPIPE：先接住，别让它变成未捕获的错误
+    try {
+      child.stdin.on("error", () => {});
+    } catch {
+      // stdin 已经没了
+    }
     try {
       child.stdin.end();
     } catch {

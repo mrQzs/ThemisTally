@@ -51,6 +51,7 @@ async function runShell(options) {
     openWindow,
     spawn,
     env,
+    onServiceReady,
   } = options;
 
   const parsed = parseShellArgs(argv);
@@ -94,6 +95,10 @@ async function runShell(options) {
 
   let win;
   try {
+    // 控制令牌只经这条可选回调进主进程：在开窗口之前，抛错照「打开窗口失败」收服务
+    if (onServiceReady) {
+      await onServiceReady({ origin: handshakeValue.origin, control: handshakeValue.control, repo });
+    }
     win = await openWindow({ bootstrap: handshakeValue.bootstrap, origin: handshakeValue.origin });
   } catch (err) {
     // 开窗口期间服务死了（loadURL 会随之 reject）时，根因是服务退出，优先报它

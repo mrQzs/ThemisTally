@@ -205,7 +205,7 @@ test("关窗口后服务以 7 退出：退出码 1", async (t) => {
   assertNoSecrets(io, w);
 });
 
-test("窗口在 openWindow 返回前就关了：仍走「关窗口」收尾，退出码 0", async (t) => {
+test("窗口在 openWindow 返回前就关了：仍走「关窗口」收尾，退出码 0", { timeout: 5000 }, async (t) => {
   const d = makeDirs(t);
   const io = makeIo();
   let resolveClosed;
@@ -262,7 +262,7 @@ test("服务在握手后、开窗口完成前以 3 退出：退出码 1、stderr
   assert.ok(!io.all().includes(TOKEN) && !io.all().includes(NONCE), io.all());
 });
 
-test("服务在开窗口之前就已经没了：一行 ERROR、不开窗口、退出码 1", async (t) => {
+test("服务在开窗口之前就已经没了：一行 ERROR、不开窗口、退出码 1", { timeout: 5000 }, async (t) => {
   const d = makeDirs(t);
   const io = makeIo();
   const w = makeWindow();
@@ -342,7 +342,7 @@ test("开窗口期间服务退出导致 openWindow 失败：报的是服务意�
   assert.ok(!io.all().includes(NONCE), io.all());
 });
 
-test("不传 io：参数错时用默认的 process.stderr 写一行 ERROR，退出码 2", async (t) => {
+test("不传 io：参数错时用默认的 process.stderr 写一行 ERROR，退出码 2", { timeout: 5000 }, async (t) => {
   const d = makeDirs(t);
   const chunks = [];
   const original = process.stderr.write.bind(process.stderr);
@@ -365,4 +365,70 @@ test("不传 io：参数错时用默认的 process.stderr 写一行 ERROR，退�
   assert.equal(w.calls.length, 0);
   assert.equal(spawn.calls.length, 0);
   assert.ok(chunks.join("").includes("ERROR: "), chunks.join(""));
+});
+
+test("onServiceReady 在 openWindow 之前调用，收到恰好 origin、control、repo 三键", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const events = [];
+  const openWindow = async (arg) => {
+    events.push(["openWindow", arg]);
+    return { closed: Promise.resolve(), close: () => {} };
+  };
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+    onServiceReady: (arg) => { events.push(["onServiceReady", arg]); },
+  });
+  assert.equal(code, 0, io.all());
+  assert.equal(events.length, 2, JSON.stringify(events.map((e) => e[0])));
+  assert.equal(events[0][0], "onServiceReady", "onServiceReady 必须在 openWindow 之前");
+  assert.equal(events[1][0], "openWindow");
+  assert.deepEqual(Object.keys(events[0][1]).sort(), ["control", "origin", "repo"]);
+  assert.equal(events[0][1].origin, ORIGIN);
+  assert.equal(events[0][1].control, TOKEN);
+  assert.equal(events[0][1].repo, path.resolve(d.repo));
+  // 令牌绝不进 openWindow
+  assert.ok(!JSON.stringify(events[1][1]).includes(TOKEN));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(spawn.state.stdinEnded, true, "关窗后要收服务（stdin 结束）");
+  assertNoSecrets(io, { calls: [] });
+});
+
+test("onServiceReady 抛错：一行 ERROR、不开窗口、收服务、退出码 1", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const openCalls = [];
+  const openWindow = async (arg) => { openCalls.push(arg); return { closed: Promise.resolve(), close: () => {} }; };
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow, spawn, env: process.env,
+    onServiceReady: () => { throw new Error("令牌侧出问题"); },
+  });
+  assert.equal(code, 1);
+  assert.equal(openCalls.length, 0);
+  const lines = io.errors().split("\n").filter((line) => line.trim().length > 0);
+  assert.equal(lines.length, 1, "必须只写一行 ERROR：" + JSON.stringify(lines));
+  assert.ok(lines[0].startsWith("ERROR: "), JSON.stringify(lines));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(spawn.state.stdinEnded, true, "抛错也要收服务");
+  assert.ok(!io.all().includes(TOKEN), io.all());
+});
+
+test("不传 onServiceReady：一切照旧，openWindow 仍只收 bootstrap 与 origin", { timeout: 5000 }, async (t) => {
+  const d = makeDirs(t);
+  const io = makeIo();
+  const w = makeWindow({ closed: Promise.resolve() });
+  const spawn = fakeSpawn({ exitOnStdinEnd: 0 });
+  const code = await runShell({
+    argv: ["--repo", d.repo, "--kit", d.kit, "--assets", d.assets, "--python", "python"],
+    io: io.io, openWindow: w.openWindow, spawn, env: process.env,
+  });
+  assert.equal(code, 0, io.all());
+  assert.equal(w.calls.length, 1);
+  assert.deepEqual(Object.keys(w.calls[0]).sort(), ["bootstrap", "origin"]);
+  assert.equal(w.calls[0].origin, ORIGIN);
+  assertNoSecrets(io, w);
 });

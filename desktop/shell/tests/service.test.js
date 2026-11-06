@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
+const { spawn } = require("node:child_process");
 const { serviceCommand, startService, stopService } = require("../src/service.js");
 
 const NODE = process.execPath;
@@ -149,4 +150,32 @@ test("不经 shell 起服务：参数里的空格 & \" % 原样到达", async (t
   await stopService(child, { graceMs: 4000 });
   const received = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.deepEqual(received, ["--repo", "C:/My Repo&a", "--assets", "C:/As\"sets%", "--transcript", "t one"]);
+});
+
+test("真子进程已经退出：stopService 立即兑现，不等宽限期", { timeout: 5000 }, async () => {
+  const child = spawn(process.execPath, ["-e", "process.exit(3)"], { stdio: ["pipe", "pipe", "inherit"] });
+  await new Promise((resolve) => child.on("exit", resolve));
+  const started = Date.now();
+  const r = await stopService(child, { graceMs: 10000 });
+  assert.ok(Date.now() - started < 3000, "已退出的子进程上 stopService 挂住了（旧实现的毛病）");
+  assert.equal(r.exited, true, JSON.stringify(r));
+  assert.equal(r.killed, false, JSON.stringify(r));
+  assert.equal(r.code, 3, JSON.stringify(r));
+});
+
+test("假子进程的 stdin 发 EPIPE：不抛、照常等退出", { timeout: 5000 }, async () => {
+  const child = new EventEmitter();
+  child.stdin = new EventEmitter();
+  child.stdin.end = () => {
+    setImmediate(() => child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" })));
+  };
+  setTimeout(() => {
+    child.exitCode = 0;
+    child.emit("exit", 0, null);
+    child.emit("close", 0, null);
+  }, 50);
+  const r = await stopService(child, { graceMs: 8000 });
+  assert.equal(r.exited, true, JSON.stringify(r));
+  assert.equal(r.killed, false, JSON.stringify(r));
+  assert.equal(r.code, 0, JSON.stringify(r));
 });

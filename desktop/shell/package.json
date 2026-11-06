@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "main.js",
   "scripts": {
-    "test": "node --test --test-reporter=tap tests/args.test.js tests/package.test.js tests/python.test.js tests/handshake.test.js tests/service.test.js tests/window.test.js tests/core.test.js",
+    "test": "node --test --test-reporter=tap tests/args.test.js tests/package.test.js tests/python.test.js tests/handshake.test.js tests/service.test.js tests/window.test.js tests/core.test.js tests/control.test.js tests/host.test.js tests/hostcheck.test.js tests/ipc.test.js tests/preload.test.js",
     "start": "electron ."
   },
   "devDependencies": {
