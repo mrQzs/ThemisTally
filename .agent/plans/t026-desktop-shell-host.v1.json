@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "task_id": "t026-desktop-shell-host",
+  "plan_version": 1,
+  "title": "桌面端外壳第 2 片：服务页的宿主接口（D3 之二）",
+  "repository": "ThemisTally",
+  "base_sha": "d2dda9d879ab9d1d84f1b972ddff4c1eba094999",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/README.md",
+      "desktop/shell/main.js",
+      "desktop/shell/package.json",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/tests/core.test.js",
+      "desktop/shell/tests/service.test.js",
+      "desktop/shell/tests/window.test.js"
+    ],
+    "allowed_new_files": [
+      "desktop/shell/preload.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/tests/control.test.js",
+      "desktop/shell/tests/fixtures/fake-control-server.js",
+      "desktop/shell/tests/host.test.js",
+      "desktop/shell/tests/hostcheck.test.js",
+      "desktop/shell/tests/ipc.test.js",
+      "desktop/shell/tests/preload.test.js"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t026_*.py",
+      "tests/**",
+      "desktop/shell/package-lock.json",
+      "desktop/web/**",
+      "ts/**",
+      "scripts/**",
+      "docs/**",
+      ".agent/**",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t026_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass [1-9]\\d*"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`desktop/shell/preload.js` 自包含：只 require electron 的 `contextBridge` 与 `ipcRenderer`；只调一次 `exposeInMainWorld`，名字是 `themisHost`；键恰好是 `reauth`、`openSecretWindow`、`openExternal`、`reveal`、`notify`，没有 `openSettings`；每个函数只把声明的实参转交给固定通道的 `ipcRenderer.invoke`，不做校验；`tests/preload.test.js` 用 `vm` 真跑一遍 preload 源码",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "E3：暴露面与 D10 的表一致，参数越界由主进程校验，渲染进程拿不到控制令牌"
+    },
+    {
+      "id": "D02",
+      "text": "`src/ipc.js`：`HOST_CHANNELS` 恰好五个、与 preload 逐字一致；只用 `ipcMain.handle`；来源不对回 `forbidden` 且不进 host；host 抛错回 `internal`，错误信息不外传；多余实参被丢掉",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "没有通用 IPC 接口，处理器不抛错，错误里的地址与令牌出不去"
+    },
+    {
+      "id": "D03",
+      "text": "`reauth`：发到 `POST /control/bootstrap`，头 `x-themis-control` 正确，没有 Origin 与 Cookie；只有 200、`ok` 为 true、`data.bootstrap` 是字符串且在服务 origin 下才加载，且只加载一次；成功返回恰好 `{ok:true}`；连不上回 `request-failed`；非 200、非 JSON、缺字段、别的 origin 回 `bad-response` 且不加载；加载失败回 `load-failed`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "D4 的重新认证：别的 origin 的地址不能进主窗口"
+    },
+    {
+      "id": "D04",
+      "text": "`reauth` 限速（时钟注入）：60 秒内最多 3 次，第 4 次回 `rate-limited` 且假服务收到的请求数不变、不加载；失败的也占名额；第 1 次之后 60000 毫秒放行",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "防 401 循环"
+    },
+    {
+      "id": "D05",
+      "text": "`openSecretWindow`：url 照 `secretentry.ts:32-35` 的形状与端口范围、jobId 照 `jobs.ts:11`，各配正反例（端口 0 与 65536、令牌 31 与 33 位、localhost、https、多余路径、查询串、末尾换行、作业号 42 与 44 位、非字符串）；不合格回 `bad-args` 且不开窗口；同时最多 1 个窗口：同一 jobId 再调回 `{ok:true}` 并聚焦，别的 jobId 回 `busy` 并聚焦，都不开新窗口、不发取消；窗口关闭后能再开；加载失败回 `load-failed` 并关窗；有一条用例核对服务源码里的正则字面量还在",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "外壳与服务的形状一致"
+    },
+    {
+      "id": "D06",
+      "text": "凭据窗口：`webPreferences` 恰好十键、没有 `preload`；分区由 `partitionName()` 另取，与主窗口不同；`createSecretWindow` 收到的 origin 是该 url 自己的 origin；`main.js` 只有一个建窗工厂（`new BrowserWindow` 恰好一处），两种窗口走同一套权限拒绝、新窗口拒绝与 `will-navigate`",
+      "evidence": [
+        "V01",
+        "G01",
+        "review"
+      ],
+      "intent": "E1、E2：拒绝规则靠结构保证相同"
+    },
+    {
+      "id": "D07",
+      "text": "关窗取消（窗口用 EventEmitter 假对象，请求用本机假服务）：触发 `closed` 后假服务恰好收到一次 `POST /control/jobs/<jobId>/cancel`，jobId 与头都对；再触发一次不重发；假服务回 404、409、500、断连或没在监听时，外壳不崩、没有未处理的拒绝",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "E8：服务页卸载之后关窗仍能取消，取消靠主进程不靠页面"
+    },
+    {
+      "id": "D08",
+      "text": "`openExternal`（确认与打开都注入）：确认为否时打开函数没被调用，回 `cancelled`；确认为是时打开函数被调一次、参数原样，回 `{ok:true}`；打开失败回 `open-failed`；非 http、https（`javascript:`、`file:`、`data:`、`ftp:`、`mailto:`）以及带首尾空白、换行的串、`http:\\\\x`、非字符串一律回 `bad-url` 且确认框没弹",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "校验与打开看的是同一个串"
+    },
+    {
+      "id": "D09",
+      "text": "`reveal` 字面检查：非字符串、空串、绝对路径、盘符、UNC、`..`、`.`、反斜杠、空段（含末尾的 `/`）、含 `:` 的名字、段尾的点或空格、控制字符（含 NUL）一律回 `bad-path`，且不碰文件系统、不调显示函数；relPath 相对 `<仓库>/.agent/`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "T13"
+    },
+    {
+      "id": "D10",
+      "text": "`reveal` 的 realpath：比较对象是 `<仓库>/.agent` 的 realpath；`.agent` 里指到外面的 junction，无论它本身还是经它的路径都拒绝；指到 `.agent` 内部的 junction 放行；不存在、`.agent` 缺失、realpath 落在 root 本身、不是文件也不是目录（注入 stat）都拒绝；通过时显示函数被调一次，参数是 realpath 之后的路径；`..foo` 这样的合法文件名不被误判",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "T13 的不跟随重解析点跑出目录、T18 的只认普通文件"
+    },
+    {
+      "id": "D11",
+      "text": "`notify`：`attempt-finished` 与 `awaiting-review` 两类，标题与正文逐字写死在主进程模块；其余（`constructor`、`__proto__`、`toString`、空串、数字、null、对象）回 `bad-kind` 且不发通知；渲染进程给的额外参数不进文案",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "文案不接受渲染进程给的文字"
+    },
+    {
+      "id": "D12",
+      "text": "控制令牌（测试里随机生成）不出现在五个函数任何路径的返回值、错误与 stdout、stderr 里，也不出现在 `JSON.stringify(createHost(...))` 里；bootstrap 的 nonce 与一次性页面的 32 位令牌同样不出现在返回值与输出里，包括假的 `loadURL` 拒绝消息带着它们的情形",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "D4 的红线"
+    },
+    {
+      "id": "D13",
+      "text": "T025 留下的三处：`tests/core.test.js` 第 208、265、345 三条补 `{ timeout: 5000 }`（已带 timeout 的 240、292、315 照旧）；`trackWindow` 在 load 拒绝时，`isDestroyed` 为真或 closed 已触发都按窗口已关处理，窗口还在且 closed 没触发才抛出，closed 在 load 之前就挂好（各一条用例，其中「closed 已触发而 `isDestroyed` 仍假」是新情形）；`stopService` 对**已退出**的子进程立即兑现 `{exited:true, code, killed:false}` 且不等宽限期（真子进程用例，带时限），stdin 发 EPIPE 不抛（假子进程用例）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "T025 终审第 6 节第 1–3 条"
+    },
+    {
+      "id": "D14",
+      "text": "E1 快照：`mainWebPreferences(p, q)` 是 T025 的十键加 `preload`，其余不变；`webPreferences(p)` 仍恰好十键、没有 `preload`；`main.js` 主窗口用前者、凭据窗口用后者，preload 路径由 `__dirname` 拼出绝对路径；`runShell` 的 `onServiceReady` 可选，在 `openWindow` 之前调用，收到 `origin`、`control`、`repo`，抛错时一行 ERROR、收服务、退出码 1；`openWindow` 仍只收 `bootstrap` 与 `origin`；`tests/test_gate_t025_baseline.py`（S03 收窄后）照旧全过",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "`tests/window.test.js:7` 那条是设计要求的改动，不算削弱断言"
+    },
+    {
+      "id": "D15",
+      "text": "静态禁令：`require('electron')` 只在 `main.js` 与 `preload.js`（`src/**` 与 `tests/**` 里一个都不许，测试里用注入的假 require，模块名字面量写成 `\"electron\"`）；`http.request` 只在 `src/control.js`；`shell.openExternal`、`showItemInFolder`、`dialog`、`Notification` 只在 `main.js`；`ipcMain.on`、`ipcRenderer.send` 不出现；主窗口用 `mainWebPreferences`、凭据窗口用 `webPreferences`；`main.js`、`src/**` 里（注释里也不许）没有 `persist:`、`shell: true`、fs 写函数、`fetch(`、`net.request`、`autoUpdater`、`crashReporter`；请求只发往 `127.0.0.1`",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "T025 的静态禁令按文件收紧，应用不向 127.0.0.1 以外发请求"
+    },
+    {
+      "id": "D16",
+      "text": "`scripts.test` 显式列出所有 `tests/*.test.js`（含本片新增的五份），带 `--test-reporter=tap` 且开关在文件清单之前；`devDependencies` 与锁文件不变；README 写清五个函数与失败 reason、凭据窗口上限、通知类型名与文案、relPath 基准、**不起真窗口的已知缺口**与手工冒烟步骤（窗口能开、页面照常、关窗退 0、在凭据小窗口里 Ctrl+V 能粘贴），T025 的要点还在",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "真窗口只能手工冒烟，README 是唯一凭据"
+    },
+    {
+      "id": "D17",
+      "text": "所有修改都在允许集合内；没有删除、跳过或弱化既有测试（`tests/window.test.js:7` 的改动见 D14）；新测试没有 skip、only、todo；用例不等真时限（时限一律用可覆盖的毫秒参数或注入时钟）；令牌与 key 都是测试里随机生成的假值；临时文件照 AGENTS.md 用 `T=$(mktemp -d)` 并在同一命令里 `rm -rf \"$T\"`；遇到合同与既有测试或门禁冲突时不越界改文件，写进 `contract_conflicts`",
+      "evidence": [
+        "scope",
+        "V01",
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "既有测试是别的片的契约"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
