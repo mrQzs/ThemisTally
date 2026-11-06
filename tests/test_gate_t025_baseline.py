@@ -74,16 +74,16 @@ CONTRACT_FILES = (
 
 # 静态禁令（合同第七节）：src/** 与 main.js 里不许出现；tests/** 只查 require('electron')
 REQUIRE_ELECTRON_RE = re.compile(r"require\(\s*['\"]electron['\"]\s*\)")
+# T026（服务页的宿主接口）起删掉 http(s).request 与 openExternal 两条：它们只在 T025 不做宿主接口时成立，T026 要带控制令牌
+# POST /control/*、要确认后交给系统浏览器。两处调用改由 T026 的门禁按文件收紧（站主 2026-11-06 拍板，T026 规划第 10 节）
 SRC_FORBIDDEN = (
     (re.compile(r"persist:"), "persist: 前缀"),
     (re.compile(r"shell\s*:\s*true"), "shell: true"),
     (re.compile(r"\b(writeFile|writeFileSync|appendFile|appendFileSync|mkdir|mkdirSync|rm|rmSync|unlink|unlinkSync|rename|renameSync)\s*\("), "fs 写函数"),
     (re.compile(r"\bfetch\s*\("), "fetch"),
     (re.compile(r"\bnet\.request\b"), "net.request"),
-    (re.compile(r"\bhttps?\.request\b"), "http(s).request"),
     (re.compile(r"\bautoUpdater\b"), "autoUpdater"),
     (re.compile(r"\bcrashReporter\b"), "crashReporter"),
-    (re.compile(r"\bopenExternal\b"), "openExternal"),
 )
 
 # main.js 的接线标记（D11）：菜单、分区与权限、新窗口拒绝、导航判定、取参与退出
