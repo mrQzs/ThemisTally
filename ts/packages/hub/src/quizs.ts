@@ -7,7 +7,7 @@ import { jsonlLines } from "@themis/base/jsonl";
 import { pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { runCapture } from "@themis/dispatcher/pi-cli";
-import { EXIT_BLOCKED, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, THROTTLE_RESET_MARGIN } from "./constants.ts";
+import { EXIT_BLOCKED, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_PERMIT_HELD, THROTTLE_RESET_MARGIN } from "./constants.ts";
 import { HubError } from "./errors.ts";
 
 const LF = String.fromCharCode(10);
@@ -124,7 +124,8 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
   }
   const code = pyGet(result, "exit_code");
   if (code !== 0n) {
-    audit.set("api_error", `quizs 退出码 ${pyStrValue(code)}（${pyStrValue(pyGet(result, "error_class"))}）`);
+    const errorClass = pyStrValue(pyGet(result, "error_class"));
+    audit.set("api_error", errorClass === "QUEUE_TIMEOUT" ? QUIZS_PERMIT_HELD : `quizs 退出码 ${pyStrValue(code)}（${errorClass}）`);
     const retryAt = pyGet(result, "retry_at");
     if (code === 3n && typeof retryAt === "string") audit.set("rate_limited_until", BigInt(Math.floor(Date.parse(retryAt) / 1000) + THROTTLE_RESET_MARGIN));
     return audit;

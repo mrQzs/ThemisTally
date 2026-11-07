@@ -216,6 +216,11 @@ export const THROTTLE_RESET_HORIZON = 86400;
 export const QUIZS_STATE_DIR = "quizs-state";
 export const QUIZS_FENCE_OPEN = "```json";
 export const QUIZS_FENCE_CLOSE = "```";
+/** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
+export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
+  + "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"
+  + "站主处理：在信箱目录下运行 quizs permits list --provider-state-dir quizs-state 看占着的是哪一条；状态是 unknown_remote 的，"
+  + "先到 DeepSeek 后台核实那次请求已经结束，再运行 quizs permits release --provider-state-dir quizs-state --attempt-id <那一条的 attempt_id> --confirm-terminal 释放";
 /** 第 141 轮：真实请求要的三份文件（Quizs 的 live plan、提供方档案与资格证书）由环境给路径；测试与 fake 提供方都不设。 */
 export const QUIZS_LIVE_FILES: readonly (readonly [string, string])[] = [
   ["--live-plan", "QUIZS_LIVE_PLAN"], ["--provider-profile", "QUIZS_PROVIDER_PROFILE"], ["--qualification", "QUIZS_QUALIFICATION"],

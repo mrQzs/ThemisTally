@@ -2252,6 +2252,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：路径由环境给（`QUIZS_LIVE_PLAN`、`QUIZS_PROVIDER_PROFILE`、`QUIZS_QUALIFICATION`，同 QUIZS_CMD 的做法），设了才加到 worker turn 的命令上；测试与 fake 提供方都不设。TS 与 kit_hub.py 各一份；契约采样器记下这几个 QUIZS_* 环境变量（原来只记 QUIZS_CMD），重放照样设上。
 - **测试**：test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block 加断言（设了才加、没设不加）；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 过。
 
+### 第 142 轮：quizs 排队超时＝提供方的并发名额被占，信里写明站主怎么核实、怎么释放
+
+- **起因**：P2a 离线重放时 DeepSeek 正有官方事故，一个回合收到 HTTP 503；Quizs 把 5xx 当“结果不明”，名额记成 unknown_remote 一直占着（Quizs 对一个提供方账户只开 1 个名额，崩溃、过期、取消都不释放），之后 25 个回合全部排队超时（退出码 5，QUEUE_TIMEOUT）。用户 11-07 定：DeepSeek 的 503 算确认被拒（Quizs 554d73b），500 仍算结果不明、TT 写信给站主核实。
+- **改法**：quizs 回合退出码 5、error_class 是 QUEUE_TIMEOUT 时，接口报错写成 QUIZS_PERMIT_HELD：说明名额被占的两种可能，以及站主的处理（`quizs permits list --provider-state-dir quizs-state` 找出 unknown_remote 那一条，到 DeepSeek 后台核实那次请求已结束，再 `quizs permits release … --attempt-id … --confirm-terminal` 释放；两条命令是 Quizs f88e18c 新加的）。措辞避开限流正则，照旧按接口报错交给站主，不当限流扣。TS 与 kit_hub.py 各一份。
+- **测试**：test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block 加排队超时的回合；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

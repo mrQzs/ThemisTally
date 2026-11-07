@@ -6191,6 +6191,7 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         [init, result(final_text="交差了，没有代码块")],
         [init, result(exit_code=3, error_class="RATE_LIMIT", retry_at="2026-11-07T10:44:51Z")],
         [init, {"type": "tool_call", "name": "write"}, result(final_text=block)],
+        [init, result(exit_code=5, error_class="QUEUE_TIMEOUT")],
     ]
     runner = kh.TurnRunner(hub, launcher=launcher)
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "ok"]))
@@ -6217,9 +6218,13 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert limited["rate_limited_until"] == reset + kh.THROTTLE_RESET_MARGIN and "RATE_LIMIT" in limited["api_error"]
     rogue = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     assert rogue["output"] is None and rogue["violations"] == ["调了名册之外的工具 write"]
+    # 第 142 轮：排队超时＝提供方的并发名额被占（结果不明的请求一直占着）：信里写明站主怎么核实、怎么释放，不当限流扣
+    held = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert held["api_error"] == kh.QUIZS_PERMIT_HELD and held.get("rate_limited_until") is None
+    assert "permits release" in held["api_error"] and "--confirm-terminal" in held["api_error"]
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
-    assert "冻结不了" in frozen["api_error"] and len(seen) == 4  # 快照冻不了就不起回合
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 5  # 快照冻不了就不起回合
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 

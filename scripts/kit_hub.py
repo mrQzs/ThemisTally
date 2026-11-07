@@ -513,6 +513,12 @@ THROTTLE_RESET_OFFSET, THROTTLE_RESET_MARGIN, THROTTLE_RESET_HORIZON = 8 * 3600,
 #: 缺省是 PATH 里的 quizs；Quizs 的提供方状态放在信箱的 quizs-state 下。交付是最后回答里的一个 json 代码块
 QUIZS_STATE_DIR, QUIZS_FENCE_OPEN, QUIZS_FENCE_CLOSE = "quizs-state", "```json", "```"
 #: 第 141 轮：真实请求要的三份文件（Quizs 的 live plan、提供方档案与资格证书）由环境给路径；测试与 fake 提供方都不设
+#: 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）
+QUIZS_PERMIT_HELD = (
+    "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
+    "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"
+    "站主处理：在信箱目录下运行 quizs permits list --provider-state-dir quizs-state 看占着的是哪一条；状态是 unknown_remote 的，"
+    "先到 DeepSeek 后台核实那次请求已经结束，再运行 quizs permits release --provider-state-dir quizs-state --attempt-id <那一条的 attempt_id> --confirm-terminal 释放")
 QUIZS_LIVE_FILES = (("--live-plan", "QUIZS_LIVE_PLAN"), ("--provider-profile", "QUIZS_PROVIDER_PROFILE"), ("--qualification", "QUIZS_QUALIFICATION"))
 
 
@@ -1962,7 +1968,8 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
                           "cacheWrite": cache_write, "output": usage.get("output") or 0}
     code = result.get("exit_code")
     if code != 0:
-        audit["api_error"] = "quizs 退出码 %s（%s）" % (code, result.get("error_class"))
+        error_class = result.get("error_class")
+        audit["api_error"] = QUIZS_PERMIT_HELD if error_class == "QUEUE_TIMEOUT" else "quizs 退出码 %s（%s）" % (code, error_class)
         if code == 3 and isinstance(result.get("retry_at"), str):
             moment = _dt.datetime.fromisoformat(result["retry_at"].replace("Z", "+00:00"))
             audit["rate_limited_until"] = int(moment.timestamp()) + THROTTLE_RESET_MARGIN
