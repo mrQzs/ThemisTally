@@ -2265,6 +2265,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：载体照写 QUIZS_TURN_BUDGETS（--max-requests 24、--max-input-bytes 2097152、--max-response-bytes 4194304；实际取它与 live plan 的较小者）。名册的 quizs 岗位可以写 fallback（替补字段）：起回合前 quizs_unready 查 QUIZS_CMD 与三份文件的环境变量、证书读得出且撑得过这一回合的时限再加 60 秒；不行就这一回合改用替补的字段（例如 adapter pi、provider dsf），开新会话，result.json 末尾记 quizs_fallback（原因）。TS 与 kit_hub.py 各一份。
 - **测试**：quizs 回合用例加预算断言；新用例 test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out（文件没设、证书读不出、撑不完这一回合三种退回 pi，证书够用照常走 quizs，证书不是对象）并进 hub-turn 契约重放（27 个用例）；test_kit_hub 与 test_kernel_impl 547 条、mutation-specs 过。名册还没换（下一轮）。
 
+### 第 144 轮：quizs 的交差提示写明不调用任何工具（DeepSeek 曾调一个名叫 json 的工具）
+
+- **起因**：P2a 第三轮里一个回合，DeepSeek 把“最后的回答写一个 json 代码块”读成了调一个名叫 json 的工具；Quizs 对未授权的工具一律硬停（退出码 6，POLICY），回合作废。这是 Quizs 的安全规则，不放松，改提示。
+- **改法**：quizs 的交差段落第三条改成：只写这一个 json 代码块；交差不调用任何工具（没有 deliver，也没有名叫 json 的工具），把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。TS 与 kit_hub.py 各一份。
+- **测试**：新用例 test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool（单列一条：hub-prompt 契约的重放不带名册覆盖，放进旧用例会让整条用例对不上）；test_kit_hub 与 test_kernel_impl 548 条、hub-prompt 与 hub-shadow 契约、mutation-specs 过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

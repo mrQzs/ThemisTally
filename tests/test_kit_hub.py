@@ -8077,6 +8077,15 @@ def test_a_changed_delivery_file_stops_the_turn(tmp_path, monkeypatch):
     assert seen == [] and "交差工具的文件被改过" in turn["api_error"] and turn["output"] is None
 
 
+def test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool(tmp_path, monkeypatch):
+    # 第 144 轮：P2a 里 DeepSeek 把“写一个 json 代码块”读成了调一个名叫 json 的工具（Quizs 按未授权工具硬停，回合作废）
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek"))
+    quizs = kh.turn_prompt(hub, make_ts(), kh.COORDINATOR, "T001", [], tmp_path)
+    assert "## 交差（最后的回答写一个 json 代码块）" in quizs and "没有名叫 json 的工具" in quizs and "deliver 工具" not in quizs
+
+
 def test_the_prompt_says_how_to_hand_in(tmp_path):
     hub = kh.Hub(tmp_path)
     hub.ensure()

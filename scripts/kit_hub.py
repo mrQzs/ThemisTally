@@ -4904,7 +4904,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 这一回合做完，最后的回答里只写一个 ```json 代码块，内容是一个 JSON 对象，格式是内核给的 JSON Schema，"
                   "大致如下。写完这一回合就结束。",
                   "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
-                  "- 只写这一个 json 代码块；没有 deliver 之类的交差工具。", "",
+                  "- 只写这一个 json 代码块。交差不调用任何工具（没有 deliver，也没有名叫 json 的工具）：把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。", "",
                   "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
     elif spec["adapter"] != "claude":
         # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住
