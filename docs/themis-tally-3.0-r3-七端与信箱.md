@@ -2240,6 +2240,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **结果**：D 回放重跑 30 个回合，TT 从 Quizs 取到的交付与 pi 当时的交付逐项相同（same 30、differ 0、failed 0）。test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 都过。
 - **Quizs 一侧同期**（tt-p1-coordinator 分支，不推送）：4aac689 加了 deepseek 提供方（deepseek-flash；402→BILLING 退出 4、429→RATE_LIMIT 退出 3、500/503→UPSTREAM 4；思考只开 high；reasoning_content 回传），StepFun 的请求字节不变；DeepSeek 的资格认证要真实请求，留到 P2。
 
+### 第 140 轮：岗位提示词模板写明三种交差方式（quizs 不再被叫去调 deliver）
+
+- **起因**：准备 P2a 离线重放时查出：第 137 轮给 quizs 载体写了回合提示里的交差一节（最后只写一个 json 代码块），岗位提示词模板却还写死“用 deliver 工具交差”（coordinator.md 第 79 行）、“pi 上调用 deliver，claude 上交 StructuredOutput”（worker.md 第 102 行）。quizs 回合会同时看到两种说法。
+- **改法**：两份模板改成同时写明 pi、claude、quizs 三种交法，格式照旧见本回合输入末尾的“交差”一节。模板是 TS 与 kit_hub.py 共用的一份文件，不用两边各改。
+- **测试**：没有测试钉着这两句；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
