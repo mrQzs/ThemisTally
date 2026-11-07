@@ -6198,6 +6198,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert ok["output"] == delivery and ok["output_error"] is None and ok["tool_calls"] == {"read": 1}
     cmd = seen[0]
     assert cmd[3:5] == ["worker", "turn"] and cmd[cmd.index("--read-snapshot") + 1] == "a" * 64
+    # 第 139 轮：Quizs 的 worker turn 要 --cwd 与 --readonly-root（D 回放经真的 Quizs 跑才发现：假 quizs 不核对参数）
+    assert cmd[cmd.index("--cwd") + 1] == str(tmp_path) and cmd[cmd.index("--readonly-root") + 1] == str(inputs)
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls" and "--extension" not in cmd and "--resume" not in cmd
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"

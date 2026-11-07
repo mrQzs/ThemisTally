@@ -168,7 +168,7 @@ export class TurnRunner {
     if (inputs !== null && statOrNull(join(inputs, INPUTS_INDEX))?.isFile()) copyFileSync(join(inputs, INPUTS_INDEX), join(turnDir, "inputs.json"));
     const inline = pyLen(prompt) <= MAX_INLINE_PROMPT ? prompt : `本回合的输入很长，已写在文件里，先完整读它再开始：${longPrompt}`;
     const [cmd, piCmd, quizsCmd, sessionsDir] = claude ? [this.claudeCommand(spec, rolePath, inputs, first, id, inline), null, [], ""]
-      : quizs ? this.quizsCommand(spec, agent, tools, rolePath, turnDir, id, inputs)
+      : quizs ? this.quizsCommand(spec, agent, tools, rolePath, turnDir, id, inputs, where)
       : [...this.piCommand(spec, agent, tools, rolePath, turnDir, id), [], ""];
     const started = utcNow();
     const env = workerEnv(this.config());
@@ -296,14 +296,17 @@ export class TurnRunner {
 
   /** 第 137 轮：quizs 回合的命令（不含 --read-snapshot：快照冻好了才知道），交回（命令, quizs 命令, 会话目录）。 */
   private quizsCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string,
-    inputs: string | null): [string[], null, string[], string] {
+    inputs: string | null, where: string): [string[], null, string[], string] {
     const sessionsDir = join(this.hub.root, "sessions", agent);
     const stateDir = join(this.hub.root, QUIZS_STATE_DIR);
     for (const folder of [sessionsDir, stateDir]) mkdirSync(folder, { recursive: true });
     const quizsCmd = resolveQuizsCommand();
     const deadlineMs = (this.sources.seconds() + (spec.timeout ?? 1800)) * 1000; // 取到秒：与 Python 的 int(time.time()) 一致
     const cmd = [...quizsCmd, "worker", "turn", "--provider", spec.provider ?? "", "--model", spec.model ?? "", "--thinking", spec.thinking ?? "",
-      "--tools", inputs !== null ? tools.join(",") : "none", "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
+      "--tools", inputs !== null ? tools.join(",") : "none",
+      // Quizs 的 worker turn 要 --cwd 与 --readonly-root（已有的目录，记进会话的固定前缀；只读快照照样要）
+      "--cwd", where, "--readonly-root", inputs ?? where,
+      "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
       "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir];
     return [cmd, null, quizsCmd, sessionsDir];
   }

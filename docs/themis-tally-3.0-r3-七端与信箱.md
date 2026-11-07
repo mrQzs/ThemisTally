@@ -2233,6 +2233,13 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **另两处的处理（用户定）**：每回合新会话放进 P2 对照再定（quizs 载体本来就每回合新会话，对照时一并看出错率与交付质量）；替补先不做（接口报错 446 回合里只有 1 次；以后可以是同一个模型换载体，pi 与 quizs 互为备份，不用换模型）。
 - **测试**：test_kit_hub 与 test_kernel_impl 546 条过；hub-turn 契约、mutation-specs 过；tsc 干净。
 
+### 第 139 轮：quizs 载体补上 --cwd 与 --readonly-root；D 回放 30/30 交付一致
+
+- **起因**：P1 的 D 回放（会话 scratchpad 的 replay_d）：取最近 30 个交了差的协调人回合里 pi 实际交付的 deliver 参数，做成 Quizs 的 fake 剧本，经 TT 的 quizs 载体与真的 Quizs CLI（源码入口，快照命令、git、会话库都是真的）跑一遍。第一次 30 个全部退出码 2：Quizs 的 worker turn 必须带 --cwd 与 --readonly-root（已有的目录，记进会话的固定前缀，只读快照照样要），第 137 轮的载体一个也没传；契约测试用的假 quizs 不核对参数，三边重放都过了（learn48）。
+- **改法**：两边载体加 `--cwd <工作目录> --readonly-root <输入目录，没有时用工作目录>`；pytest 断言这两项。
+- **结果**：D 回放重跑 30 个回合，TT 从 Quizs 取到的交付与 pi 当时的交付逐项相同（same 30、differ 0、failed 0）。test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 都过。
+- **Quizs 一侧同期**（tt-p1-coordinator 分支，不推送）：4aac689 加了 deepseek 提供方（deepseek-flash；402→BILLING 退出 4、429→RATE_LIMIT 退出 3、500/503→UPSTREAM 4；思考只开 high；reasoning_content 回传），StepFun 的请求字节不变；DeepSeek 的资格认证要真实请求，留到 P2。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

@@ -2189,6 +2189,8 @@ class TurnRunner:
             deadline_ms = (int(time.time()) + int(spec.get("timeout", 1800))) * 1000  # 取到秒：与 TS 的秒数来源一致
             cmd = quizs_cmd + ["worker", "turn", "--provider", spec["provider"], "--model", spec["model"],
                                "--thinking", spec["thinking"], "--tools", ",".join(tools) if inputs is not None else "none"]
+            # Quizs 的 worker turn 要 --cwd 与 --readonly-root（已有的目录，记进会话的固定前缀；只读快照照样要）
+            cmd += ["--cwd", str(workspace), "--readonly-root", str(inputs if inputs is not None else workspace)]
             cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
                     "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
         else:
