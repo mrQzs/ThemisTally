@@ -1047,6 +1047,12 @@ def test_runner_exits_between_steps_once_the_kernel_changes(tmp_path, monkeypatc
     assert here / "kernel-impl.json" in kh.kernel_files()  # 第 64 轮：切换选择文件也是换代
     # 第 90 轮：交差工具（pi 扩展与各岗位的 schema）也算内核文件
     assert here / "hub" / "deliver.ts" in kh.kernel_files() and here / "hub" / "schemas" / "coordinator.json" in kh.kernel_files()
+    # 第 146 轮（同 TS 的 kernelFiles）：选择文件的 hub 是 ts 时另加 TS 的源码与依赖清单；hub 是 python 时不加
+    ts_root = here.parent / "ts"
+    on_ts, on_python = kh.kernel_files({"hub": "ts"}), kh.kernel_files({"hub": "python"})
+    assert on_ts[:len(on_python)] == on_python and ts_root / "packages" / "hub" / "src" / "turn.ts" in on_ts
+    assert on_ts[-1] == ts_root / "tsconfig.json" and ts_root / "bun.lock" in on_ts and not any(ts_root in f.parents for f in on_python)
+    assert ts_root / "packages" / "contracts" / "package.json" in on_ts and not any("contracts" in f.parts and "src" in f.parts for f in on_ts)
     repo, _head = git_repo(tmp_path)
     events, steps, spawned = run_with_kernel_change(repo, monkeypatch, dirty=[True], no_restart=False, settle=0.0)
     assert len(steps) == 2 and spawned == []  # 启动时 a；第 1、2 步之前还是 a；第 3 步之前变成 b；还没提交，退出

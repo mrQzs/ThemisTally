@@ -2285,6 +2285,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **上线**：live 文件在 Quizs 的 .quizs/deepseek/tt-coordinator-live（plan、档案、证书），由 Quizs 的 scripts/renew-deepseek-worker.mjs 续签（证书剩不到 6 小时且枢纽 24 小时内活动过才花钱，一次最多 16 个请求，不到 1 元）；用户级环境变量 QUIZS_CMD（bun 跑 Quizs 源码入口，证书只认 bun@1.4.2）与三份文件的路径。
 - **上线实测**：第一次认证在 output_cap 上失败（q2-shadow 要 32768 个 token，DeepSeek 的流超 8 MiB），Quizs 加 q2-deepseek 档（输出 8192）后通过：9 个请求，证书到 2026-11-08T08:12Z；TurnRunner 用真证书经 Quizs 跑了一个协调人回合（P2a 第 0 回合的输入，临时信箱）：15 次只读工具、53 秒、交了 1 封信、核验通过。定时任务“ThemisTally Quizs DeepSeek renew”每 4 小时一次，第一次手动触发报 FRESH（剩 19.9 小时）。
 
+### 第 146 轮：Python 的内核文件清单补上 TS 源码（选择文件的 hub 是 ts 时，同 TS 的 kernelFiles）
+
+- **起因**：第 145 轮跑 hub-* 契约时，hub-runner 的只读重放在 kernel_files 与 code_fingerprint 上对不上：Python 的 kernel_files 只列 12 个文件，TS 的 kernelFiles 在选择文件的 hub 是 ts 时另加 TS 源码与依赖清单（E3），共 148 个。Python 的文档注释原本就写着“第 ⑤ 步 hub 换成 TS 时再纳入”，镜像一直没补；11-06（60bdaf2）hub 换成 ts 起，这条重放就对不上（owner-sweep 不跑 TS 契约，没被发现）。
+- **改法**：kit_hub.py 加 TS_KERNEL_PACKAGES、kernel_selection（读不了、不合法时交回 {}，当 hub 是 python）与 ts_kernel_files（base、config、dispatcher、hub、cli 的 src 下全部文件按相对路径的码点排，ts 下的 package.json、bun.lock、bunfig.toml，各包的 package.json，tsconfig.json）；kernel_files(impl=None) 在 hub 是 ts 时接上。本机实测 Python 与 TS 各 148 个、次序逐项相同；hub 是 python 时仍是原来的 12 个。
+- **测试**：test_kit_hub 的内核文件用例加 hub 是 ts、python 两种；test_kit_hub 与 test_kernel_impl 548 条、hub-runner 与 hub-handoff 契约过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

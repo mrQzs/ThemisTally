@@ -208,12 +208,47 @@ HUB_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 HUB_IMPL = "python"
 
 
-def kernel_files() -> List[Path]:
+#: 第 146 轮（同 TS 的 TS_KERNEL_PACKAGES）：hub 是 ts 时，这几个包的 src 下的全部文件都是 hub 进程的代码
+TS_KERNEL_PACKAGES = ("base", "config", "dispatcher", "hub", "cli")
+
+
+def kernel_files(impl: Optional[Dict[str, str]] = None) -> List[Path]:
     """内核文件：代码、调度器（内核在进程里直接调它的函数，第 13 轮补上）、提示词模板与选择文件（第 64 轮，迁移
-    计划第 5 节）。TS 的源码不算：每条转交给 TS 的命令现起进程、现读源码，hub 进程从不加载它；第 ⑤ 步 hub 换成 TS
-    时再纳入。"""
-    return ([Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md")) + [HERE / "kernel-impl.json"]
-            + delivery_files())
+    计划第 5 节）。选择文件的 hub 是 ts 时另加 TS 的源码与依赖清单（第 146 轮补上，同 TS 的 kernelFiles：第 ⑤ 步 hub
+    换成 TS 之后 hub 进程跑的就是它们）。impl 只给测试换。"""
+    files = ([Path(__file__), HERE / "pi_dispatch.py"] + sorted(TEMPLATE_DIR.glob("*.md")) + [HERE / "kernel-impl.json"]
+             + delivery_files())
+    return files + (ts_kernel_files() if (kernel_selection() if impl is None else impl).get("hub") == "ts" else [])
+
+
+def kernel_selection() -> Dict[str, str]:
+    """第 146 轮（同 TS 的 kernelSelection）：选择文件；读不了、不合法时交回 {}，当 hub 是 python。"""
+    try:
+        return pd.read_kernel_impl()
+    except pd.DispatchError:
+        return {}
+
+
+def ts_kernel_files() -> List[Path]:
+    """第 146 轮（同 TS 的 tsKernelFiles）：TS_KERNEL_PACKAGES 的 src 下的全部文件（按相对路径的码点排），ts 下的
+    package.json、bun.lock、bunfig.toml，各包的 package.json（按包名排），tsconfig.json。"""
+    root = HERE.parent / "ts"
+    sources: List[str] = []
+
+    def walk(folder: Path, rel: str) -> None:
+        for name in (os.listdir(folder) if folder.is_dir() else []):
+            if (folder / name).is_dir():
+                walk(folder / name, rel + "/" + name)
+            else:
+                sources.append(rel + "/" + name)
+
+    for name in TS_KERNEL_PACKAGES:
+        walk(root / "packages" / name / "src", "packages/%s/src" % name)
+    packages = root / "packages"
+    manifests = sorted("packages/%s/package.json" % name for name in (os.listdir(packages) if packages.is_dir() else [])
+                       if (packages / name / "package.json").is_file())
+    rels = sorted(sources) + ["package.json", "bun.lock", "bunfig.toml"] + manifests + ["tsconfig.json"]
+    return [root.joinpath(*rel.split("/")) for rel in rels]
 
 
 def delivery_files() -> List[Path]:
