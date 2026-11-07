@@ -35,7 +35,7 @@ import {
 } from "@themis/hub/sweep";
 import { Engine, type EngineDeps, type StateLike, land, releaseDependents, resumedSession } from "@themis/hub/engine";
 import {
-  type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget, cmdTaskCleanup,
+  type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget, cmdTaskCap, cmdTaskCleanup,
   cmdTaskClose, cmdTaskNew, cmdTaskRebase, cmdTaskUnstick, configuredParallel, execMetrics, recordedSum, turnMetrics, uncommittedReferences,
 } from "@themis/hub/commands";
 import {
@@ -1124,8 +1124,8 @@ async function withEnginePatches<T>(pick: Pick, runner: boolean, body: () => Pro
 const FLOW_I_MODULE = ["release_dependents", "requeue_interrupted", "requeue_task", "requeue_letters", "report_stranded_exec"];
 /** ⑤j1：站主命令（同 python_probe.py 的 FLOW_J1）：参数是仓库与 Namespace 的各键，另比 stdout、stderr。 */
 const FLOW_J1 = [
-  "cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cleanup",
-  "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
+  "cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cap",
+  "cmd_task_cleanup", "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
 ];
 
 /** ⑤j2：进程模型（同 python_probe.py 的 FLOW_J2_COMMANDS、FLOW_J2）：前三个同站主命令记；其余第一个参数是 hub。都另比 stdout、stderr。 */
@@ -1244,6 +1244,7 @@ async function commandCall(fn: string, args: CommandArgs, out: CommandOut, stdin
     cmd_task_after: () => cmdTaskAfter(args, out, deps),
     cmd_task_unstick: () => cmdTaskUnstick(args, out, deps),
     cmd_task_budget: () => cmdTaskBudget(args, out, deps),
+    cmd_task_cap: () => cmdTaskCap(args, out),
     cmd_task_cleanup: () => cmdTaskCleanup(args, out, deps),
     cmd_send: () => cmdSend(args, out, () => stdin),
     cmd_exec_recheck: () => cmdExecRecheck(args, out, deps),

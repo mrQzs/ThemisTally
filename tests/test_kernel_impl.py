@@ -1112,6 +1112,7 @@ HUB_SAMPLES = [
     ["task", "close", "T001", "--ref", "r", "--file", "f.md"], ["task", "rebase", "T001", "--reason", "r"],
     ["task", "after", "T001", "--on", "T002", "--reason", "r"], ["task", "unstick", "T001", "5-exec", "--reason", "r"],
     ["task", "budget", "T001", "--attempts", "3", "--reason", "r"], ["task", "cleanup", "T001"],
+    ["task", "cap", "T001", "--usd", "10", "--tokens", "2000000", "--reason", "r"],
     ["send", "T001", "--type", "回复"], ["exec-recheck", "T001"], ["take"], ["metrics"], ["status"], ["run"],
     ["exclusive", "--", "git", "status"], ["owner-sweep"],
 ]

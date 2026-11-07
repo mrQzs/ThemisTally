@@ -493,13 +493,13 @@
   },
   {
    "name": "J80 旧记录的花费不按会话相减",
-   "file": "ts/packages/hub/src/commands.ts",
+   "file": "ts/packages/hub/src/spend.ts",
    "old": "cost = previous === undefined || total < previous ? total : pyRound(total - previous, 6);",
    "new": "cost = total;"
   },
   {
    "name": "J81 回合不按 turn_id 排",
-   "file": "ts/packages/hub/src/commands.ts",
+   "file": "ts/packages/hub/src/spend.ts",
    "old": "(a, b) => cmpCodePoints(keys[a] as string, keys[b] as string) || a - b",
    "new": "(a, b) => a - b"
   },
@@ -535,7 +535,7 @@
   },
   {
    "name": "J87 旧记录不看 session_cost_usd",
-   "file": "ts/packages/hub/src/commands.ts",
+   "file": "ts/packages/hub/src/spend.ts",
    "old": "const legacy = !record.has(\"session_cost_usd\");",
    "new": "const legacy = true;"
   },
@@ -553,7 +553,7 @@
   },
   {
    "name": "J91 回合没有主任务号时不写问号（抽查 S09）",
-   "file": "ts/packages/hub/src/commands.ts",
+   "file": "ts/packages/hub/src/spend.ts",
    "old": "stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : \"\")[0] || \"?\"]",
    "new": "stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : \"\")[0]]"
   },

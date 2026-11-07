@@ -2201,6 +2201,18 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**：tests/test_kit_hub.py 的 test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error（两小时后、已经过去、三天以后，另有不是真日期、没写时刻两种），登记进 hub-turn 契约（用例数 24 → 25，记下的 pi 命令 39 → 42）；扣信的两条用例各加措辞断言（规划端走 claude、协调人走 pi）；metrics 的用例加两个带 usage 的回合。hub-turn、hub-engine、hub-step、hub-commands 契约与 mutation-specs 都过。
 - **量过之后不做的**（同一份方案页）：重复工具调用检测与去重回执（完全相同的调用不到 1%）；HarnessMM 的决策复用（协调人一回合中位只调一次模型）；合同升版只增不改（287 次升版删掉旧 DoD 只有 2 条、改写 200 处，硬检查会天天误报）。
 
+### 第 136 轮：任务的花费上限放进内核（2026-11-06，用户选“放进内核”）
+
+- **起因**：T026 的任务书写了“记账花费超过 8 美元，站主先问用户”，上限只写在任务书里，靠站主的盯信脚本去比；脚本没比记账，花到 9.72 美元才发现（AGENT_LEARNINGS 的 learn43）。参考 C:/Code/优化 的 Hypoloom（预算当预占：结果未知时按上限记），用户 11-06 选了把上限放进内核。
+- **改法**：
+  - 登记：`task new --cap-usd X --cap-tokens N`（都可不给），记成 ts 的 `spend_cap`；`task cap <主任务> [--usd X] [--tokens N] --reason …` 改上限。上限要大于 0。
+  - 检查：协调人回合（内核代办的流转之后）与 pi、claude 工人回合起之前，算这个主任务的已知花费加上这一回合的预占（同一工人在这个主任务里花得最多的一回合），超过上限就不起。美元只有 claude 回合回报，token 是 pi 回合的读上下文加输出；执行端（调度器 run）的花费不在回合记录里，不算。没设上限的主任务不读回合记录。
+  - 超了：读掉的信扣进 `held`，带 `cap` 标记，解除时刻是 `2100-01-01T00:00:00Z`（不会自己到点）；阶段标 paused；给站主写阻塞信，写明已知、预占、上限与怎么提高。扣进 held 是为了 supervisor 不空闲退出、requeue 不动它们：站主一 `task cap`，这几批信的解除时刻改成当时，下一步照常放回、接着做；还超就再扣一次。
+  - TS 一侧 turnMetrics 从 commands.ts 挪到新的 spend.ts（引擎要用，免得 engine 与 commands 互相引用），commands.ts 照旧转出它；变异 J80、J81、J87、J91 的目标跟着改成 spend.ts，B12 的原文加长（capLetters 有同样的开头）。
+  - pyargs-v1 的 Schema 加 hub task cap 一支、task new 加 cap_usd 与 cap_tokens；两边的 HUB_COMMANDS 都登记 task cap。
+- **测试**：tests/test_kit_hub.py 的 test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it（协调人照常起、规划端 3.00 加预占 3.00 超过 5.00 被扣、阻塞信、不会自己到点、task cap 的三种错误与放回、token 上限按 pi 回合算），登记进 hub-commands、hub-engine、hub-step 契约；两边探针加 cmd_task_cap。test_kit_hub.py 整份 364 条过。
+- **教训**：这条用例起初在 engine_env 里调 task cap，临时目录不是仓库、basetemp 又在本仓库下，命令一路找到了真的仓库，改了真实 state 里 T001 的 spend_cap、账本多了一行；已按原样撤回，用例改成先 git init 并断言定位结果（learn47）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

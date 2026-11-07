@@ -2348,6 +2348,61 @@ def test_a_rate_limited_coordinator_turn_is_held_and_resumed(engine_env):
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
 
 
+def test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it(engine_env, capsys):
+    # 第 136 轮：T026 的任务书写了 8 美元的上限，靠站主的盯信脚本去比，漏比了（learn43）；花到 9.72 美元才发现
+    hub = engine_env
+    owner_task(hub)
+    state = hub.load_state()
+    state["tasks"]["T001"]["spend_cap"] = {"usd": 5.0, "tokens": None}
+    hub.save_state(state)
+    old = hub.root / "turns" / "planner-opus" / "20261019T000000Z-p0"
+    old.mkdir(parents=True)
+    (old / "result.json").write_text(json.dumps({"turn_id": "20261019T000000Z-p0", "agent": "planner-opus",
+                                                "session_key": "T001-1-plan", "session_id": "s0", "cost_usd": 3.0,
+                                                "session_cost_usd": 3.0, "wall_seconds": 60}), encoding="utf-8")
+    runner = FakeRunner([({"letters": [start_planner()]}, []), (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()  # 协调人：已知 3.00 美元，协调人自己没花过，照常起
+    engine.step()  # 规划端：3.00 加上预占 3.00 超过 5.00，不起
+    assert len(runner.calls) == 1
+    ts = hub.load_state()["tasks"]["T001"]
+    held = ts["held"][0]
+    assert held["agent"] == "planner-opus" and held["cap"] is True and held["until"] == kh.SPEND_CAP_UNTIL
+    assert ts["stages"]["1-plan"]["status"] == "paused" and "task cap" in ts["stages"]["1-plan"]["note"]
+    letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
+    assert len(letters) == 1 and "type: 阻塞" in letters[0] and "已知 3.00，这一回合预占 3.00，上限 5.00" in letters[0]
+    assert kh.release_held(hub) == [] and kh.letters_held(hub)  # 不会自己到点；supervisor 也不空闲退出
+    # 站主命令按 --repo 找仓库：临时目录在本仓库的 .agent/runs 下、自己又不是仓库时，会一路找到真的仓库、改了真的 state
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(hub.repo)], check=True)
+    assert kh.find_repo(str(hub.repo)).resolve() == Path(hub.repo).resolve()
+    parser = kh.build_parser()
+    for bad in (["--reason", "x"], ["--usd", "0", "--reason", "x"], ["--usd", "9", "--reason", " "]):
+        args = parser.parse_args(["--repo", str(hub.repo), "task", "cap", "T001"] + bad)
+        with pytest.raises(kh.HubError):
+            args.func(args)
+    args = parser.parse_args(["--repo", str(hub.repo), "task", "cap", "T001", "--usd", "10", "--reason", "用户同意追加"])
+    assert args.func(args) == kh.EXIT_OK
+    assert "T001 的花费上限改为 美元 10.00、token 不设；扣下的 1 批信下一步放回，接着做" in capsys.readouterr().out
+    assert hub.load_state()["tasks"]["T001"]["spend_cap"] == {"usd": 10.0, "tokens": None}
+    assert engine.step()  # 放回、接着做
+    assert runner.calls[1][0] == "planner-opus"
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["1-plan"]["status"] == "delivered" and ts["held"] == []
+    # 没设上限的主任务不看回合记录；token 上限按 pi 回合的读上下文加输出算
+    ts["spend_cap"] = None
+    assert kh.spend_cap_problem(hub, ts, "planner-opus") is None
+    ts["spend_cap"] = {"usd": None, "tokens": 29999}
+    pi = hub.root / "turns" / kh.COORDINATOR / "20261019T000100Z-c0"
+    pi.mkdir(parents=True)
+    (pi / "result.json").write_text(json.dumps({"turn_id": "20261019T000100Z-c0", "agent": kh.COORDINATOR,
+                                               "session_key": "T001", "session_id": "T001-g0", "cost_usd": None,
+                                               "session_cost_usd": None, "wall_seconds": 5,
+                                               "usage": {"input": 9000, "cacheRead": 5000, "output": 1000}}), encoding="utf-8")
+    assert kh.spend_cap_problem(hub, ts, "planner-opus") is None  # 已用 1.5 万，规划端没有 token 记录
+    assert kh.spend_cap_problem(hub, ts, kh.COORDINATOR) == "token：已用 1.5 万，这一回合预占 1.5 万，上限 3.0 万"
+
+
 def test_audit_reads_when_a_rate_limit_lifts():
     def limit(status):
         return {"type": "rate_limit_event", "rate_limit_info": {"status": status, "resetsAt": 1792585200}}

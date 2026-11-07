@@ -16,7 +16,7 @@ import { pyPublishNew, pyRename, pyReplace } from "@themis/base/pyos";
 import { purePathStr } from "@themis/base/pypath";
 import { pyLower, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
-import { EXIT_BLOCKED, KERNEL, OWNER, ROSTER, SENDER_ALIAS } from "./constants.ts";
+import { EXIT_BLOCKED, KERNEL, OWNER, ROSTER, SENDER_ALIAS, SPEND_CAP_UNTIL } from "./constants.ts";
 import { HubError } from "./errors.ts";
 import { type Meta, newMsgId, parseLetter, renderLetter, stageOf } from "./letters.ts";
 
@@ -272,6 +272,32 @@ export class DirLock {
   release(): void {
     this.lock.release();
   }
+}
+
+/**
+ * 花费到了任务的上限（第 136 轮）：读掉的信扣进 held，解除时刻是 SPEND_CAP_UNTIL（不会自己到点），站主用 task cap 提高上限时改成当时，
+ * 下一步照常放回。扣进 held 是为了 supervisor 不空闲退出：站主一改上限就接着做。
+ */
+export async function capLetters(hub: Hub, ts: PyDict, agent: string, names: readonly string[], suffix: string | null,
+  problem: string): Promise<void> {
+  if (!ts.has("held")) ts.set("held", []);
+  const held = ts.get("held");
+  if (!Array.isArray(held)) throw new PyCrash("AttributeError", `'${pyTypeName(held)}' object has no attribute 'append'`);
+  held.push(new Map<string, PyValue>([["agent", agent], ["letters", [...names]], ["until", SPEND_CAP_UNTIL], ["suffix", suffix], ["turn", ""],
+    ["cap", true]]));
+  if (suffix) {
+    const stage = pyItem(pyItem(ts, "stages"), suffix) as PyDict;
+    stage.set("status", "paused").set("note", `花费到了上限（${problem}）：站主用 kit_hub.py task cap 提高上限之后接着做`);
+  }
+  const task = pyStrValue(pyItem(ts, "task"));
+  await hub.appendEvent("letters.held", [["task", pyItem(ts, "task")], ["agent", agent], ["letters", [...names]], ["until", SPEND_CAP_UNTIL],
+    ["reason", "花费上限"]]);
+  await hub.deliver(new Map([["from", KERNEL], ["to", OWNER], ["task-id", task], ["in-reply-to", "none"], ["type", "阻塞"]]), new Map<string, PyValue>([
+    ["摘要", `${task} 的花费到了上限，${agent} 的回合没有起：${problem}`], ["提交", "无"],
+    ["验证", "回合记录（turns 下的 result.json）的 cost_usd 与 usage；执行端（调度器 run）的花费不在其中"], ["偏离", "无"],
+    ["需协调人决定", `请站主定：提高上限（kit_hub.py task cap ${task} --usd … 或 --tokens … --reason …）之后内核把信放回、接着做；不再做就照常结项或停止`],
+    ["证据", `扣下的信：${names.join("、")}`],
+  ]));
 }
 
 /** pi 岗位的限流不走 rate_limit_event：内核认的是接口报错（TurnRunner 的 THROTTLE 与 throttleReset）。 */

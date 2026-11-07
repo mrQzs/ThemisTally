@@ -1816,8 +1816,8 @@ FLOW_INNER_I = ("role_prompt", "ensure_worktree", "apply_candidate", "seed_white
 FLOW_ALWAYS_I = ("mkdtemp", "run_supervised", "sweep_gates", "pid_alive")
 #: ⑤j1：站主命令。参数只有一个 Namespace，记成仓库与 Namespace 的各键（去掉 func）；调用期间另记读到的标准输入与写出的 stdout、stderr。
 #: 照 ⑤i 的流程函数记（钉时刻、注入用例换掉的内层函数与 FLOW_ALWAYS_I）
-FLOW_J1 = ("cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cleanup",
-           "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics")
+FLOW_J1 = ("cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cap",
+           "cmd_task_cleanup", "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics")
 #: ⑤i1：Engine 的方法里要转成 Path 的参数（方法参数的位置，不含 self）；worker_job 的 paths 是一组路径，另转
 FLOW_ENGINE_PATHS = {"Engine.worker_turns": (4, 6), "Engine.redeliver": (6,)}
 #: 参数里一组路径（paths）的位置（方法参数的位置，不含 self）：⑤i1 的 worker_job，⑤i2 的几个

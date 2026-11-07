@@ -31,6 +31,7 @@ const TESTS = [
   "test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline", "test_a_jev_cut_off_by_a_kill_is_rerun",
   "test_a_partly_routed_batch_records_what_went_out", "test_a_passing_delivery_clears_the_last_check",
   "test_a_rate_limited_coordinator_turn_is_held_and_resumed", "test_a_rate_limited_turn_that_also_broke_the_rules_is_not_held",
+  "test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it",
   "test_a_rate_limited_worker_turn_is_held_and_resumed", "test_a_redelivery_may_hand_in_a_block_instead",
   "test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so", "test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reason",
   "test_a_routing_cut_short_is_handed_back_with_its_own_words", "test_a_second_hotfix_rework_keeps_the_original_previous_oracle",
@@ -157,9 +158,9 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "Engine.deliver_coordinator_letter": 8,
       "Engine.fail_stage": 3,
       "Engine.next_job": 3,
-      "Engine.step": 127,
+      "Engine.step": 130,
       "interrupted_letters": 7,
-      "letters_held": 2,
+      "letters_held": 3,
       "requeue_interrupted": 62,
       "requeue_task": 1,
       "runner_lock": 264,
@@ -180,18 +181,18 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "Engine.verify_delivery": 7,
       "apply_candidate": 2,
       "budget_problems": 1,
-      "ensure_worktree": 99,
+      "ensure_worktree": 101,
       "pid_alive": 1,
       "rehearse_landing": 2,
       "release_held": 3,
       "revalidate_contract": 2,
-      "role_prompt": 126,
+      "role_prompt": 128,
       "run_exec": 3,
       "run_jev": 3,
       "run_pd": 6,
-      "runner": 126,
+      "runner": 128,
       "seed_whitebox": 1,
-      "worktree_root": 114,
+      "worktree_root": 116,
     });
     expect(tally(all.filter((item) => item.stateDiffers).map((item) => `${item.test} ${item.fn}`)), "state 当场核对").toEqual({
       "test_stage_reworks_are_capped Engine.deliver_coordinator_letter": 5,
@@ -219,7 +220,7 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
   }, 3_600_000);
   it("只读的：next_job、续接与 supervisor 用的几个判断放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(362);
+    expect(calls.length, "顶层调用次数").toBe(363);
     replay(calls);
   }, 1_800_000);
 });

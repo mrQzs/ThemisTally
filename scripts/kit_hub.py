@@ -4736,6 +4736,29 @@ def letter_from_output(agent: str, task_id: str, data: Dict[str, Any]) -> Tuple[
 # 调度循环
 # ---------------------------------------------------------------------------
 
+#: 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时
+SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z"
+
+
+def cap_letters(hub: Hub, ts: Dict[str, Any], agent: str, names: List[str], suffix: Optional[str], problem: str) -> None:
+    """花费到了任务的上限（第 136 轮）：读掉的信扣进 held，解除时刻是 SPEND_CAP_UNTIL（不会自己到点），站主用
+    task cap 提高上限时改成当时，下一步照常放回。扣进 held 是为了 supervisor 不空闲退出：站主一改上限就接着做。
+    """
+    ts.setdefault("held", []).append({"agent": agent, "letters": list(names), "until": SPEND_CAP_UNTIL, "suffix": suffix,
+                                      "turn": "", "cap": True})
+    if suffix:
+        ts["stages"][suffix].update(status="paused", note="花费到了上限（%s）：站主用 kit_hub.py task cap 提高上限之后接着做" % problem)
+    hub.append_event("letters.held", task=ts["task"], agent=agent, letters=list(names), until=SPEND_CAP_UNTIL,
+                     reason="花费上限")
+    hub.deliver({"from": KERNEL, "to": OWNER, "task-id": ts["task"], "in-reply-to": "none", "type": "阻塞"},
+                {"摘要": "%s 的花费到了上限，%s 的回合没有起：%s" % (ts["task"], agent, problem), "提交": "无",
+                 "验证": "回合记录（turns 下的 result.json）的 cost_usd 与 usage；执行端（调度器 run）的花费不在其中",
+                 "偏离": "无",
+                 "需协调人决定": "请站主定：提高上限（kit_hub.py task cap %s --usd … 或 --tokens … --reason …）之后"
+                               "内核把信放回、接着做；不再做就照常结项或停止" % ts["task"],
+                 "证据": "扣下的信：%s" % "、".join(names)})
+
+
 #: pi 岗位的限流不走 rate_limit_event：内核认的是接口报错（TurnRunner 的 THROTTLE_RE 与 throttle_reset）
 PI_THROTTLE_EVIDENCE = "模型接口报错里的限流（429、额度用尽之类）：报错写了重置时刻就扣到那之后 1 分钟，没写就从 5 分钟起加倍退避"
 
@@ -5114,6 +5137,11 @@ class Engine:
             routed, routing_note = self.route(state, ts, paths, texts)
             if routed:
                 return
+        problem = spend_cap_problem(self.hub, ts, COORDINATOR)
+        if problem:
+            cap_letters(self.hub, ts, COORDINATOR, [p.name for p in paths], None, problem)
+            self.hub.save_state(state)
+            return
         workspace = ensure_worktree(self.hub, ts, "base", ts["base_head"])
         # 第 94 轮：“在办”标记，回合办完（三个出口）或进程内出了意外（report_step_error）时清掉。runner 被收掉，
         # 标记就留着：requeue_interrupted 拿得到锁、看到它，就把这几封信放回去
@@ -5304,6 +5332,12 @@ class Engine:
             self.hub.append_event("worker.not_woken", agent=agent, task_id=task_id, kinds=sorted(kinds),
                                   letters=[p.name for p in taken])
             return
+        if ROSTER[agent]["adapter"] in ("pi", "claude"):
+            problem = spend_cap_problem(self.hub, ts, agent)
+            if problem:
+                cap_letters(self.hub, ts, agent, [p.name for p in taken], suffix, problem)
+                self.hub.save_state(state)
+                return
         # 第 93、94 轮：被打断的阶段，信由 requeue_interrupted 放回（JEV 没有会话，照常重跑）；执行端的报告用过了
         resume = ts["stages"][suffix].pop("resume", None)
         ts["stages"][suffix].pop("stranded_notice", None)
@@ -5711,6 +5745,8 @@ def uncommitted_references(repo: Path, brief: str) -> List[str]:
 def cmd_task_new(args: argparse.Namespace) -> int:
     hub = Hub(find_repo(args.repo))
     hub.ensure()
+    cap_usd, cap_tokens = getattr(args, "cap_usd", None), getattr(args, "cap_tokens", None)
+    check_spend_cap(cap_usd, cap_tokens)
     if not MAIN_TASK_RE.match(args.task):
         raise HubError("主任务号要像 T001", EXIT_USAGE)
     if not SLUG_RE.match(args.slug):
@@ -5733,6 +5769,8 @@ def cmd_task_new(args: argparse.Namespace) -> int:
         waiting = [item for item in after if state["tasks"][item].get("status") != "done"]
         if waiting:
             state["tasks"][args.task]["after"] = waiting
+        if cap_usd is not None or cap_tokens is not None:
+            state["tasks"][args.task]["spend_cap"] = {"usd": cap_usd, "tokens": cap_tokens}
         write_text_atomic(hub.task_dir(args.task) / "brief.md", brief.rstrip() + "\n")
         hub.save_state(state)
         hub.append_event("task.created", task=args.task, slug=args.slug, base_head=head,
@@ -5929,6 +5967,39 @@ def raise_budget(hub: Hub, ts: Dict[str, Any], attempts: int) -> Tuple[Dict[str,
     change = {"key": ts["contract"]["key"], "attempts": [budget.get("max_attempts_total"), attempts],
               "wall_total": [budget.get("max_wall_seconds_total"), wall]}
     return change, revalidate_contract(hub, ts)
+
+
+def cmd_task_cap(args: argparse.Namespace) -> int:
+    """站主改主任务的花费上限（第 136 轮）：被上限扣下的信改成当时到点，下一步照常放回、接着做。"""
+    hub = Hub(find_repo(args.repo))
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise HubError("--reason 要写明为什么改上限（会记进事件）", EXIT_USAGE)
+    if args.usd is None and args.tokens is None:
+        raise HubError("--usd 与 --tokens 至少给一个", EXIT_USAGE)
+    check_spend_cap(args.usd, args.tokens)
+    with DirLock(hub.root / ".lock"):
+        state = hub.load_state()
+        ts = state["tasks"].get(args.task)
+        if ts is None:
+            raise HubError("没有登记主任务 %s" % args.task, EXIT_USAGE)
+        cap = ts.setdefault("spend_cap", {"usd": None, "tokens": None})
+        if args.usd is not None:
+            cap["usd"] = args.usd
+        if args.tokens is not None:
+            cap["tokens"] = args.tokens
+        now = utc_now()
+        released = 0
+        for item in ts.get("held") or []:
+            if item.get("cap"):
+                item["until"] = now
+                released += 1
+        hub.save_state(state)
+        hub.append_event("spend_cap.set", task=args.task, usd=cap["usd"], tokens=cap["tokens"], reason=reason,
+                         released=released)
+    print("%s 的花费上限改为 %s%s" % (args.task, describe_spend_cap(cap),
+                                    "；扣下的 %d 批信下一步放回，接着做" % released if released else ""))
+    return EXIT_OK
 
 
 def cmd_task_budget(args: argparse.Namespace) -> int:
@@ -6143,6 +6214,39 @@ def recorded_sum(rows: List[Dict[str, Any]], key: str) -> str:
     """回合记录里有这一项的加总；第 102 轮之前的记录、不用工具交差的回合没有，全都没有写“未记”。"""
     values = [row[key] for row in rows if row.get(key) is not None]
     return str(sum(values)) if values else "未记"
+
+
+def spend_cap_problem(hub: Hub, ts: Dict[str, Any], agent: str) -> Optional[str]:
+    """任务的花费上限（第 136 轮）：已知花费加上这一回合的预占（同一工人在这个主任务里花得最多的一回合）超过上限时
+    交回说明，否则 None。美元只有 claude 回合回报，token 只有 pi 回合回报；执行端（调度器 run）的花费不在回合记录里。
+    没设上限的主任务不读回合记录。"""
+    cap = ts.get("spend_cap")
+    if not isinstance(cap, dict):
+        return None
+    rows = [row for row in turn_metrics(hub) if row["task"] == ts["task"]]
+    usd = [float(row["cost_usd"] or 0) for row in rows]
+    tokens = [(row["prompt_tokens"] or 0) + (row["output_tokens"] or 0) for row in rows]
+    mine = [index for index, row in enumerate(rows) if row["agent"] == agent]
+    reserve_usd = max([usd[index] for index in mine], default=0.0)
+    reserve_tokens = max([tokens[index] for index in mine], default=0)
+    over = []
+    if cap.get("usd") is not None and sum(usd) + reserve_usd > cap["usd"]:
+        over.append("美元：已知 %.2f，这一回合预占 %.2f，上限 %.2f" % (sum(usd), reserve_usd, cap["usd"]))
+    if cap.get("tokens") is not None and sum(tokens) + reserve_tokens > cap["tokens"]:
+        over.append("token：已用 %.1f 万，这一回合预占 %.1f 万，上限 %.1f 万" % (
+            sum(tokens) / 10000, reserve_tokens / 10000, cap["tokens"] / 10000))
+    return "；".join(over) or None
+
+
+def check_spend_cap(usd: Optional[float], tokens: Optional[int]) -> None:
+    """花费上限要大于 0；不设就不给（第 136 轮）。"""
+    if (usd is not None and usd <= 0) or (tokens is not None and tokens <= 0):
+        raise HubError("花费上限要大于 0", EXIT_USAGE)
+
+
+def describe_spend_cap(cap: Dict[str, Any]) -> str:
+    return "美元 %s、token %s" % ("%.2f" % cap["usd"] if cap.get("usd") is not None else "不设",
+                                 "%.1f 万" % (cap["tokens"] / 10000) if cap.get("tokens") is not None else "不设")
 
 
 def token_sum(rows: List[Dict[str, Any]], key: str) -> str:
@@ -6564,6 +6668,8 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--brief", required=True, help="站主的任务书（Markdown 文件）")
     new.add_argument("--no-jev", action="store_true", help="本任务不调 JEV")
     new.add_argument("--after", help="依赖的主任务（逗号分隔）：规划马上开工，合同端等它们都结项、内核把基线挪到新末端再开")
+    new.add_argument("--cap-usd", type=float, help="花费上限（美元，claude 回合回报的花费）：快到了内核扣住、写信给站主")
+    new.add_argument("--cap-tokens", type=int, help="token 上限（pi 回合的读上下文加输出）：快到了内核扣住、写信给站主")
     new.set_defaults(func=cmd_task_new)
     close = task.add_parser("close", help="站主接手结项：工作已由站主落在当前分支上")
     close.add_argument("task")
@@ -6589,6 +6695,12 @@ def build_parser() -> argparse.ArgumentParser:
     topup.add_argument("--attempts", type=int, required=True, help="新的 max_attempts_total（各版本累计）")
     topup.add_argument("--reason", required=True, help="为什么追加（记进事件）")
     topup.set_defaults(func=cmd_task_budget)
+    cap = task.add_parser("cap", help="改主任务的花费上限：被上限扣下的信下一步放回、接着做")
+    cap.add_argument("task")
+    cap.add_argument("--usd", type=float, help="新的美元上限")
+    cap.add_argument("--tokens", type=int, help="新的 token 上限")
+    cap.add_argument("--reason", required=True, help="为什么改（记进事件）")
+    cap.set_defaults(func=cmd_task_cap)
     cleanup = task.add_parser("cleanup", help="已结项主任务的收尾：删掉阶段与 attempt 的 worktree，"
                                               "没有结论的 attempt 记成 ABANDONED")
     cleanup.add_argument("task")
@@ -6678,12 +6790,13 @@ _TASK_KEYS = ("repo", "command", "task_command", "task")
 #: exclusive 的余参也叫 command，它的 args.command 是要跑的命令，不是子命令名。
 HUB_COMMANDS: Dict[Any, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     cmd_init: (("init",), ("repo", "command")),
-    cmd_task_new: (("task", "new"), _TASK_KEYS + ("slug", "title", "brief", "no_jev", "after")),
+    cmd_task_new: (("task", "new"), _TASK_KEYS + ("slug", "title", "brief", "no_jev", "after", "cap_usd", "cap_tokens")),
     cmd_task_close: (("task", "close"), _TASK_KEYS + ("ref", "file")),
     cmd_task_rebase: (("task", "rebase"), _TASK_KEYS + ("reason",)),
     cmd_task_after: (("task", "after"), _TASK_KEYS + ("on", "reason")),
     cmd_task_unstick: (("task", "unstick"), _TASK_KEYS + ("stage", "reason")),
     cmd_task_budget: (("task", "budget"), _TASK_KEYS + ("attempts", "reason")),
+    cmd_task_cap: (("task", "cap"), _TASK_KEYS + ("usd", "tokens", "reason")),
     cmd_task_cleanup: (("task", "cleanup"), _TASK_KEYS),
     cmd_send: (("send",), ("repo", "command", "task", "type", "file", "reply_to", "rework", "facts_checked", "decision",
                            "no_decision")),

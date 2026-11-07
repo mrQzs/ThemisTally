@@ -5335,7 +5335,9 @@
             "title",
             "brief",
             "no_jev",
-            "after"
+            "after",
+            "cap_usd",
+            "cap_tokens"
           ],
           "properties": {
             "repo": {
@@ -5373,6 +5375,26 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cap_usd": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cap_tokens": {
+              "anyOf": [
+                {
+                  "type": "integer"
                 },
                 {
                   "type": "null"
@@ -6001,6 +6023,150 @@
             },
             "attempts": {
               "type": "integer"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "kernel_impl",
+            "platform",
+            "python",
+            "executable",
+            "kit_hub"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "kernel_impl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readonly",
+                "config",
+                "dispatcher",
+                "hub"
+              ],
+              "properties": {
+                "readonly": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "config": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "dispatcher": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                },
+                "hub": {
+                  "type": "string",
+                  "enum": [
+                    "python",
+                    "ts"
+                  ]
+                }
+              }
+            },
+            "platform": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            },
+            "executable": {
+              "type": "string"
+            },
+            "kit_hub": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "namespace",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "hub",
+            "task",
+            "cap"
+          ]
+        },
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repo",
+            "command",
+            "task_command",
+            "task",
+            "usd",
+            "tokens",
+            "reason"
+          ],
+          "properties": {
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "command": {
+              "const": "task"
+            },
+            "task_command": {
+              "const": "cap"
+            },
+            "task": {
+              "type": "string"
+            },
+            "usd": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tokens": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "reason": {
               "type": "string"

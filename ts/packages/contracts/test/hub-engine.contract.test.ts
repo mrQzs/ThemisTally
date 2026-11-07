@@ -30,6 +30,7 @@ const TESTS = [
   "test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline", "test_a_jev_cut_off_by_a_kill_is_rerun",
   "test_a_partly_routed_batch_records_what_went_out", "test_a_passing_delivery_clears_the_last_check",
   "test_a_rate_limited_coordinator_turn_is_held_and_resumed", "test_a_rate_limited_turn_that_also_broke_the_rules_is_not_held",
+  "test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it",
   "test_a_rate_limited_worker_turn_is_held_and_resumed", "test_a_redelivery_may_hand_in_a_block_instead",
   "test_a_redelivery_that_still_fails_goes_to_the_coordinator_saying_so", "test_a_resumed_turn_without_a_usable_session_starts_fresh",
   "test_a_routine_step_the_guard_refuses_goes_to_the_coordinator_with_the_reason", "test_a_routing_cut_short_is_handed_back_with_its_own_words",
@@ -141,11 +142,11 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "Engine.recheck_exec": 6,
       "Engine.stage_workspace": 4,
       "Engine.verify_delivery": 4,
-      "Engine.worker_job": 60,
+      "Engine.worker_job": 62,
       "Engine.worker_turns": 2,
       "land": 2,
       "release_dependents": 6,
-      "resumed_session": 52,
+      "resumed_session": 53,
     });
     // 只跳调用当时目录锁有活的持有者的（设计稿第 4 节）：5360 由用例自己拿着落地锁，由 hub-engine-scenes 的手写场景覆盖
     expect(all.filter((item) => item.skip !== null).map((item) => [item.test, item.fn, item.skip]), "采样器标的 skip").toEqual([["test_exec_waits_for_the_landing_lock_by_holding_its_letter", "Engine.worker_job", "调用当时有活的持有者：.land"]]);
@@ -158,20 +159,20 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "budget_problems": 1,
       "engine.after_land": 1,
       "engine.handle_pass": 1,
-      "ensure_worktree": 48,
+      "ensure_worktree": 49,
       "finalize": 2,
       "pid_alive": 3,
       "regression_sweep": 2,
       "rehearse_landing": 7,
       "revalidate_contract": 2,
-      "role_prompt": 77,
+      "role_prompt": 78,
       "run_exec": 6,
       "run_jev": 5,
       "run_pd": 10,
-      "runner": 77,
+      "runner": 78,
       "seed_whitebox": 2,
       "tidy_finished": 1,
-      "worktree_root": 63,
+      "worktree_root": 64,
     });
     // 传进来的 state 与调用当时的 state.json 不同的（用例在内存里改过、没存盘），重放照记下的 state 传
     expect(tally(all.filter((item) => item.stateDiffers).map((item) => `${item.test} ${item.fn}`)), "state 当场核对").toEqual({
@@ -204,7 +205,7 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
   }, 3_600_000);
   it("只读的 resumed_session（output_problem 只在流程里被调到）：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(52);
+    expect(calls.length, "顶层调用次数").toBe(53);
     replay(calls);
   }, 1_800_000);
 });

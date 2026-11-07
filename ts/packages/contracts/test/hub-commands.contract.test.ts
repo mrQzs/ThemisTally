@@ -37,11 +37,11 @@ const TESTS = [
   "test_supervisor_stays_while_letters_are_held", "test_supervisor_stops_restarting_a_crashing_runner",
   "test_supervisor_ticks_the_owner_sweep_every_round", "test_supervisor_waits_for_a_settled_kernel_before_starting_runners",
   "test_task_brief_must_not_reference_uncommitted_paths", "test_task_new_records_only_unfinished_dependencies",
-  "test_unverified_external_facts_wait_for_the_owner",
+  "test_unverified_external_facts_wait_for_the_owner", "test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it",
 ];
 const FLOW = [
-  "cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cleanup",
-  "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
+  "cmd_init", "cmd_task_new", "cmd_task_close", "cmd_task_rebase", "cmd_task_after", "cmd_task_unstick", "cmd_task_budget", "cmd_task_cap",
+  "cmd_task_cleanup", "cmd_send", "cmd_exec_recheck", "cmd_take", "cmd_status", "cmd_metrics",
 ];
 const SNAPSHOT = ["uncommitted_references", "turn_metrics", "exec_metrics", "configured_parallel", "recorded_sum"];
 
@@ -129,6 +129,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       cmd_status: 1,
       cmd_task_after: 10,
       cmd_task_budget: 10,
+      cmd_task_cap: 4,
       cmd_task_cleanup: 4,
       cmd_task_close: 6,
       cmd_task_new: 7,
@@ -136,7 +137,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       cmd_task_unstick: 8,
       configured_parallel: 69,
       exec_metrics: 2,
-      turn_metrics: 1,
+      turn_metrics: 6,
     });
     // 只跳调用当时有活的持有者、这次调用又探过的锁（同 ⑤i2）：用例自己拿着 T002 的 runner 锁看 status，由手写场景覆盖
     expect(all.filter((item) => item.skip !== null).map((item) => [item.test, item.fn, item.skip]), "采样器标的 skip").toEqual([
@@ -155,7 +156,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
   }, 3_600_000);
   it("只读的：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(72);
+    expect(calls.length, "顶层调用次数").toBe(77);
     replay(calls, IMPLS);
   }, 1_800_000);
 });

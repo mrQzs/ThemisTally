@@ -208,3 +208,5 @@ export const THROTTLE_MAX_HOLDS = 5;
 export const THROTTLE_RESET_OFFSET = 8 * 3600;
 export const THROTTLE_RESET_MARGIN = 60;
 export const THROTTLE_RESET_HORIZON = 86400;
+/** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
+export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

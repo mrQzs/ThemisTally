@@ -32,6 +32,7 @@ import { letterErrors, stageOf } from "./letters.ts";
 import { DirLock, Hub } from "./mailbox.ts";
 import { budgetUsage } from "./prompt.ts";
 import { runnerLock } from "./requeue.ts";
+import { checkSpendCap, describeSpendCap, turnMetrics } from "./spend.ts";
 import { execMarks } from "./runexec.ts";
 import { moveBase, newTaskState, stageBusy, stageStatusTable } from "./taskstate.ts";
 
@@ -66,6 +67,8 @@ function getOf(value: PyValue, key: string): PyValue {
   if (!(value instanceof Map)) throw new PyCrash("AttributeError", `'${pyTypeName(value)}' object has no attribute 'get'`);
   return pyGet(value, key);
 }
+
+export { turnMetrics }; // 挪到了 spend.ts（引擎的花费上限也要用），探针照旧从这里取
 
 /** Python 的 except ValueError 接得住的：json.loads 的 JSONDecodeError，与 read_text 读到不是 UTF-8 的文件时的 UnicodeDecodeError。 */
 const isValueError = (error: unknown): boolean => error instanceof PyJsonError || error instanceof UnicodeDecodeError;
@@ -198,6 +201,9 @@ const meta = (sender: string, to: string, taskId: string, kind: string, replyTo 
 export async function cmdTaskNew(args: CommandArgs, out: CommandOut = new PyOut()): Promise<number> {
   const hub = new Hub(findRepo(optional(args, "repo")));
   hub.ensure();
+  const capUsd = args["cap_usd"] ?? null;
+  const capTokens = args["cap_tokens"] ?? null;
+  checkSpendCap(capUsd, capTokens);
   const task = text(args, "task");
   if (!MAIN_TASK_RE.match(task)) throw new HubError("主任务号要像 T001", EXIT_USAGE);
   if (!SLUG_RE.match(text(args, "slug"))) throw new HubError("--slug 只能是小写字母、数字与连字符", EXIT_USAGE);
@@ -218,6 +224,7 @@ export async function cmdTaskNew(args: CommandArgs, out: CommandOut = new PyOut(
     tasks.set(task, ts);
     const waiting = after.filter((item) => !pyEq(getOf(tasks.get(item) as PyValue, "status"), "done"));
     if (waiting.length > 0) ts.set("after", waiting);
+    if (capUsd !== null || capTokens !== null) ts.set("spend_cap", new Map<string, PyValue>([["usd", capUsd], ["tokens", capTokens]]));
     writeTextAtomic(purePathStr(hub.taskDir(task), "brief.md"), `${pyRstrip(brief)}${LF}`);
     await hub.saveState(loaded);
     await hub.appendEvent("task.created", [["task", task], ["slug", text(args, "slug")], ["base_head", base], ["after", pyGet(ts, "after")]]);
@@ -429,6 +436,42 @@ function subn(pattern: ReturnType<typeof compilePy>, replacement: string, value:
   return [result + points.slice(at).join(""), found.length];
 }
 
+/** 站主改主任务的花费上限（第 136 轮）：被上限扣下的信改成当时到点，下一步照常放回、接着做。 */
+export async function cmdTaskCap(args: CommandArgs, out: CommandOut = new PyOut()): Promise<number> {
+  const hub = new Hub(findRepo(optional(args, "repo")));
+  const task = text(args, "task");
+  const reason = pyStrip(optional(args, "reason") || "");
+  if (!reason) throw new HubError("--reason 要写明为什么改上限（会记进事件）", EXIT_USAGE);
+  const usd = args["usd"] ?? null;
+  const tokens = args["tokens"] ?? null;
+  if (usd === null && tokens === null) throw new HubError("--usd 与 --tokens 至少给一个", EXIT_USAGE);
+  checkSpendCap(usd, tokens);
+  const [limits, released] = await withStateLock(hub, async () => {
+    const state = hub.loadState();
+    const ts = pyGet(state.tasks(), task) as PyDict | null;
+    if (ts === null) throw new HubError(`没有登记主任务 ${task}`, EXIT_USAGE);
+    if (!ts.has("spend_cap")) ts.set("spend_cap", new Map<string, PyValue>([["usd", null], ["tokens", null]]));
+    const cap = ts.get("spend_cap") as PyDict;
+    if (usd !== null) cap.set("usd", usd);
+    if (tokens !== null) cap.set("tokens", tokens);
+    const now = utcNow();
+    let count = 0;
+    const held = pyGet(ts, "held");
+    for (const item of pyTruthy(held) ? pyIter(held) : []) {
+      if (pyTruthy(pyGet(item, "cap"))) {
+        (item as PyDict).set("until", now);
+        count += 1;
+      }
+    }
+    await hub.saveState(state);
+    await hub.appendEvent("spend_cap.set", [["task", task], ["usd", pyGet(cap, "usd")], ["tokens", pyGet(cap, "tokens")], ["reason", reason],
+      ["released", BigInt(count)]]);
+    return [cap, count] as const;
+  });
+  out.print(`${task} 的花费上限改为 ${describeSpendCap(limits)}${released ? `；扣下的 ${released} 批信下一步放回，接着做` : ""}`);
+  return EXIT_OK;
+}
+
 /** 合同的 attempt 预算用完了：出新版本合同追加预算。 */
 export async function cmdTaskBudget(args: CommandArgs, out: CommandOut = new PyOut(), deps: EngineDeps = REAL_ENGINE_DEPS): Promise<number> {
   const hub = new Hub(findRepo(optional(args, "repo")));
@@ -606,68 +649,6 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   return EXIT_OK;
 }
 
-/**
- * 回合读进去的上下文：每次模型调用的新输入、缓存读、缓存写之和（pi 的 usage 键名）。pi 岗位不回报花费，配额花在哪只看得到这几项；
- * claude 回合的记录里没有 usage，记为没有。
- */
-const USAGE_PROMPT_KEYS = ["input", "cacheRead", "cacheWrite", "cacheWrite1h"];
-
-/** 每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮之前的 claude 记录按会话依次相减换算回这一回合的）、token 用量。 */
-export function turnMetrics(hub: Hub): PyDict[] {
-  const records: PyValue[] = [];
-  for (const path of resultFiles(purePathStr(hub.root, "turns"))) {
-    try {
-      records.push(loads(pyReadText(path)));
-    } catch (error) {
-      if (error instanceof PyJsonError || error instanceof PyUnicodeDecodeError) continue; // 都是 ValueError
-      throw error;
-    }
-  }
-  const keyOf = (record: PyValue): string => { const id = getOf(record, "turn_id"); return pyTruthy(id) ? pyStrValue(id) : ""; };
-  const keys = records.map(keyOf); // 先算全部的键：record.get 报错照 Python 在排序之前抛
-  const order = records.map((_, index) => index).sort((a, b) => cmpCodePoints(keys[a] as string, keys[b] as string) || a - b);
-  const lastTotal = new Map<string, number>();
-  const rows: PyDict[] = [];
-  for (const record of order.map((index) => records[index] as PyDict)) {
-    let cost = pyGet(record, "cost_usd");
-    const legacy = !record.has("session_cost_usd");
-    if (legacy && cost !== null) {
-      const total = pyFloatOf(cost);
-      const session = pyStrValue(pyGet(record, "session_id"));
-      const previous = lastTotal.get(session);
-      cost = previous === undefined || total < previous ? total : pyRound(total - previous, 6);
-      lastTotal.set(session, total);
-    }
-    const sessionKey = pyGet(record, "session_key");
-    const wall = pyGet(record, "wall_seconds");
-    const usage = pyGet(record, "usage");
-    const tokens = (...keys: string[]): PyValue => usage instanceof Map
-      ? keys.map((key) => usage.get(key)).filter((value): value is bigint => typeof value === "bigint").reduce((a, b) => a + b, 0n)
-      : null;
-    rows.push(new Map<string, PyValue>([
-      ["task", stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : "")[0] || "?"], ["agent", pyGet(record, "agent")],
-      ["seconds", pyFloatOf(pyTruthy(wall) ? wall : 0n)], ["cost_usd", cost], ["deliver_refusals", pyGet(record, "deliver_refusals")],
-      ["thinking_chars", pyGet(record, "thinking_chars")], ["thinking_tokens", pyGet(record, "thinking_tokens")],
-      ["prompt_tokens", tokens(...USAGE_PROMPT_KEYS)], ["cache_read_tokens", tokens("cacheRead")], ["output_tokens", tokens("output")],
-    ]));
-  }
-  return rows;
-}
-
-/** turns 下两层目录里的 result.json（Python 用两层通配的 glob 找），照 sorted(Path)：逐段比，Windows 上每段先转小写。 */
-function resultFiles(turns: string): string[] {
-  const found: string[][] = [];
-  for (const agent of listDir(turns)) {
-    for (const turn of listDir(purePathStr(turns, agent))) {
-      if (isFile(purePathStr(turns, agent, turn, "result.json"))) found.push([agent, turn]);
-    }
-  }
-  const fold = (part: string): string => (process.platform === "win32" ? part.toLowerCase() : part);
-  found.sort((a, b) => cmpCodePoints(fold(a[0] as string), fold(b[0] as string)) || cmpCodePoints(fold(a[1] as string), fold(b[1] as string)));
-  return found.map(([agent, turn]) => purePathStr(turns, agent as string, turn as string, "result.json"));
-}
-
-/** 回合记录里有这一项的加总；全都没有写“未记”。 */
 export function recordedSum(rows: readonly PyDict[], key: string): string {
   const values = rows.filter((row) => pyGet(row, key) !== null).map((row) => pyItem(row, key));
   return values.length > 0 ? pyStrValue(pySum(values)) : "未记";
@@ -840,9 +821,6 @@ function readStdin(): string {
   return decoded.split(CR + LF).join(LF).split(CR).join(LF);
 }
 
-function listDir(path: string): string[] {
-  return isDirectory(path) ? readdirSync(path) : [];
-}
 
 function isDirectory(path: string): boolean {
   try {

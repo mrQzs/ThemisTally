@@ -4,7 +4,7 @@
 import type { PyOut } from "@themis/base/pyfmt";
 import { DispatchError } from "@themis/dispatcher/repo";
 import {
-  type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget,
+  type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget, cmdTaskCap,
   cmdTaskCleanup, cmdTaskClose, cmdTaskNew, cmdTaskRebase, cmdTaskUnstick,
 } from "./commands.ts";
 import { HubError } from "./errors.ts";
@@ -22,6 +22,7 @@ export const HUB_COMMANDS: ReadonlyMap<string, HubCommand> = new Map<string, Hub
   ["task after", cmdTaskAfter],
   ["task unstick", cmdTaskUnstick],
   ["task budget", cmdTaskBudget],
+  ["task cap", cmdTaskCap],
   ["task cleanup", cmdTaskCleanup],
   ["send", cmdSend],
   ["exec-recheck", cmdExecRecheck],

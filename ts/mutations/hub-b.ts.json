@@ -79,8 +79,8 @@
     {
       "name": "B12 扣信的阶段不标 paused",
       "file": "ts/packages/hub/src/mailbox.ts",
-      "old": "    stage.set(\"status\", \"paused\").set(\"note\",",
-      "new": "    stage.set(\"status\", \"assigned\").set(\"note\","
+      "old": "    stage.set(\"status\", \"paused\").set(\"note\", `${reason || \"额度限制\"}",
+      "new": "    stage.set(\"status\", \"assigned\").set(\"note\", `${reason || \"额度限制\"}"
     },
     {
       "name": "B13 内核自己等也写信给站主",

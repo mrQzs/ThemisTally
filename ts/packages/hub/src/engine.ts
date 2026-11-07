@@ -28,7 +28,8 @@ import { removeInputs, stageInputs } from "./inputs.ts";
 import { git } from "./kernel.ts";
 import { type LandDeps, REAL_LAND_DEPS, finalize, landingBlockers, tidyFinished } from "./land.ts";
 import { letterErrors, parseLetter, renderLetter, stageOf } from "./letters.ts";
-import { DirLock, type Hub, HubState, holdLetters, keepPrevious, letterMain, releaseHeld } from "./mailbox.ts";
+import { DirLock, type Hub, HubState, capLetters, holdLetters, keepPrevious, letterMain, releaseHeld } from "./mailbox.ts";
+import { spendCapProblem } from "./spend.ts";
 import { letterFromOutput, rolePrompt, turnPrompt } from "./prompt.ts";
 import { EXEC_LAND_RETRY_SECONDS, LandBusy, finishExec, runExec, runJev } from "./runexec.ts";
 import { REAL_SWEEP_DEPS, type SweepDeps, regressionSweep, rehearsalLetter, withSweepWindow } from "./sweep.ts";
@@ -219,6 +220,12 @@ export class Engine implements Landing {
       const [routed, note] = await this.route(state, ts, mine, texts);
       if (routed) return;
       routingNote = note;
+    }
+    const problem = spendCapProblem(this.hub, ts, COORDINATOR);
+    if (problem !== null) {
+      await capLetters(this.hub, ts, COORDINATOR, names, null, problem);
+      await this.hub.saveState(state);
+      return;
     }
     const workspace = await this.deps.ensureWorktree(this.hub, ts, "base", pyItem(ts, "base_head"), this.deps);
     // 第 94 轮：“在办”标记，回合办完（三个出口）或进程内出了意外（report_step_error）时清掉。runner 被收掉，标记就留着：
@@ -444,6 +451,14 @@ export class Engine implements Landing {
       await this.hub.appendEvent("worker.not_woken", [["agent", agent], ["task_id", taskId], ["kinds", sortedStrings(kinds)],
         ["letters", taken.map((path) => purePathName(path))]]);
       return;
+    }
+    if (["pi", "claude"].includes(rosterSpec(agent).adapter)) {
+      const problem = spendCapProblem(this.hub, ts, agent);
+      if (problem !== null) {
+        await capLetters(this.hub, ts, agent, taken.map((path) => purePathName(path)), suffix, problem);
+        await this.hub.saveState(state);
+        return;
+      }
     }
     // 第 93、94 轮：被打断的阶段，信由 requeue_interrupted 放回（JEV 没有会话，照常重跑）；执行端的报告用过了
     const stageNow = dict(pyItem(pyItem(ts, "stages"), suffix), "pop");
