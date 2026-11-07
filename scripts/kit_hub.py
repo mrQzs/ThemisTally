@@ -149,9 +149,10 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 要回退就 git revert 那一轮。
     # 第 112 轮（七端改造第 3 条）："routing": "kernel" 时例行流转由内核代办，协调人只在例外时被唤醒；
     # 去掉这一项就回到每封信都起协调人回合（拆字段、finish_exec 写“无”不随它变）
+    # 第 138 轮：时限 1200 → 600 秒（446 个回合最长 419 秒、p99 291 秒；卡死时少等 10 分钟，用户 2026-11-07 同意）
     COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
                   "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                  "timeout": 1200, "workspace": "base", "routing": "kernel"},
+                  "timeout": 600, "workspace": "base", "routing": "kernel"},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",

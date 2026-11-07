@@ -6832,7 +6832,7 @@ def test_worker_prompts_state_the_turn_time_limit(tmp_path):
     ts = make_ts()
     gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path)
     assert "- 本回合时限：40 分钟。到点整个回合作废" in gate
-    assert "- 本回合时限：20 分钟。" in kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
+    assert "- 本回合时限：10 分钟。" in kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
     assert "上一回合超时作废" not in gate
 
 

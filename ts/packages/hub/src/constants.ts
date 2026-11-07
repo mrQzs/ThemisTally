@@ -99,8 +99,9 @@ export interface RosterSpec {
 /** 七个岗位（键序与 kit_hub.ROSTER 相同：协调人在前）。 */
 export const ROSTER: Readonly<Record<string, RosterSpec>> = {
   [COORDINATOR]: {
+    // 第 138 轮：时限 1200 → 600 秒（446 个回合最长 419 秒、p99 291 秒；卡死时少等 10 分钟，用户 2026-11-07 同意）
     role: "coordinator", label: "调度代理端（协调人）", adapter: "pi", provider: "dsf", model: "deepseek-flash", thinking: "high",
-    tools: ["read", "grep", "find", "ls"], timeout: 1200, workspace: "base", routing: "kernel",
+    tools: ["read", "grep", "find", "ls"], timeout: 600, workspace: "base", routing: "kernel",
   },
   "planner-opus": {
     role: "planner", label: "规划端", adapter: "claude", model: "claude-opus-5-5", effort: "max",
