@@ -94,6 +94,8 @@ export interface RosterSpec {
   readonly timeout?: number;
   readonly workspace?: "base" | "stage";
   readonly routing?: "kernel";
+  /** 第 143 轮：quizs 岗位的替补：证书过期、文件没设时这一回合改用这些字段（例如退回 pi），开新会话。 */
+  readonly fallback?: Partial<RosterSpec>;
 }
 
 /** 七个岗位（键序与 kit_hub.ROSTER 相同：协调人在前）。 */
@@ -216,6 +218,13 @@ export const THROTTLE_RESET_HORIZON = 86400;
 export const QUIZS_STATE_DIR = "quizs-state";
 export const QUIZS_FENCE_OPEN = "```json";
 export const QUIZS_FENCE_CLOSE = "```";
+/** 第 143 轮：证书至少还要撑过这一回合的时限再加这么多秒，不然这一回合退回名册写的替补（fallback）。 */
+export const QUIZS_CERT_MARGIN = 60;
+/** 第 143 轮：quizs 每回合的预算。Quizs 默认请求 8 次、单次输入 512 KiB、单次回应 256 KiB；DeepSeek 的流式回应每个输出 token 约 290 字节，
+ *  256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者 */
+export const QUIZS_TURN_BUDGETS: readonly (readonly [string, string])[] = [
+  ["--max-requests", "24"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "4194304"],
+];
 /** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
 export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
   + "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"

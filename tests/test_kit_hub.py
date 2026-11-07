@@ -6202,6 +6202,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     # 第 139 轮：Quizs 的 worker turn 要 --cwd 与 --readonly-root（D 回放经真的 Quizs 跑才发现：假 quizs 不核对参数）
     assert cmd[cmd.index("--cwd") + 1] == str(tmp_path) and cmd[cmd.index("--readonly-root") + 1] == str(inputs)
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls" and "--extension" not in cmd and "--resume" not in cmd
+    # 第 143 轮：每回合的预算照写（Quizs 默认单次回应 256 KiB，DeepSeek 的流式回应不到 900 个 token 就超）
+    assert cmd[cmd.index("--max-response-bytes") + 1] == "4194304" and cmd[cmd.index("--max-requests") + 1] == "24"
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
     assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
@@ -6228,6 +6230,47 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
+
+def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, monkeypatch):
+    # 第 143 轮：quizs 岗位的资格证书最长 24 小时、要天天重新认证；文件没设、证书读不出或撑不完这一回合时，
+    # 这一回合退回名册写的替补（pi），开新会话，result.json 记下原因；证书撑得住就照常走 quizs
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek",
+                                                      fallback={"adapter": "pi", "provider": "dsf"}))
+    certificate = tmp_path / "qualification.json"
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, "-c", "pass"]))
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        if "worker" in cmd:
+            event = {"type": "result", "exit_code": 0, "error_class": None, "actual_model": "deepseek-flash",
+                     "usage": None, "thinking": None, "final_text": ""}
+        else:
+            event = {"type": "message_end", "message": {"role": "assistant", "provider": "dsf",
+                     "model": "deepseek-flash", "stopReason": "stop", "content": [{"type": "text", "text": "好"}]}}
+        out.write(json.dumps(event, ensure_ascii=False).encode("utf-8") + bytes([10]))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    unset = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert "worker" not in seen[0] and unset["quizs_fallback"] == "没有设 QUIZS_LIVE_PLAN"
+    for name, file in (("QUIZS_LIVE_PLAN", "plan.json"), ("QUIZS_PROVIDER_PROFILE", "profile.json"), ("QUIZS_QUALIFICATION", "qualification.json")):
+        monkeypatch.setenv(name, str(tmp_path / file))
+    unreadable = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert unreadable["quizs_fallback"] == "读不出资格证书 %s" % certificate
+    soon = (int(time.time()) + 100) * 1000
+    certificate.write_text(json.dumps({"expires_at_ms": soon}), encoding="utf-8")
+    short = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert short["quizs_fallback"] == "资格证书撑不完这一回合（%d 毫秒时到期）" % soon and "worker" not in seen[2]
+    record = json.loads((Path(short["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert list(record)[-1] == "quizs_fallback" and record["session_id"].startswith("T001-g")
+    certificate.write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    ready = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert "quizs_fallback" not in ready and seen[3][3:5] == ["worker", "turn"]
+    certificate.write_text(json.dumps([1]), encoding="utf-8")
+    assert kh.quizs_unready(int(time.time()), 600) == "资格证书里没有到期时刻"
 
 def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):
     # 第 37 轮：T010 的协调人回合替换 state.json 时撞上 WinError 5（别的进程正读着），回合出错，临时文件留在 ledger 里

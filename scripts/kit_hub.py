@@ -513,6 +513,11 @@ THROTTLE_RESET_OFFSET, THROTTLE_RESET_MARGIN, THROTTLE_RESET_HORIZON = 8 * 3600,
 #: 缺省是 PATH 里的 quizs；Quizs 的提供方状态放在信箱的 quizs-state 下。交付是最后回答里的一个 json 代码块
 QUIZS_STATE_DIR, QUIZS_FENCE_OPEN, QUIZS_FENCE_CLOSE = "quizs-state", "```json", "```"
 #: 第 141 轮：真实请求要的三份文件（Quizs 的 live plan、提供方档案与资格证书）由环境给路径；测试与 fake 提供方都不设
+#: 第 143 轮：证书至少还要撑过这一回合的时限再加这么多秒，不然这一回合退回名册写的替补（fallback）
+QUIZS_CERT_MARGIN = 60
+#: 第 143 轮：quizs 每回合的预算。Quizs 默认请求 8 次、单次输入 512 KiB、单次回应 256 KiB；DeepSeek 的流式回应每个输出 token 约 290 字节，
+#: 256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者
+QUIZS_TURN_BUDGETS = (("--max-requests", "24"), ("--max-input-bytes", "2097152"), ("--max-response-bytes", "4194304"))
 #: 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）
 QUIZS_PERMIT_HELD = (
     "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
@@ -1869,6 +1874,24 @@ def guard_config(workspace: Path, repo: Path) -> str:
         "readTools": list(READ_TOOLS)})
 
 
+def quizs_unready(now: int, timeout: int) -> Optional[str]:
+    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合）；起得了是 None。"""
+    for name in ("QUIZS_CMD",) + tuple(env for _flag, env in QUIZS_LIVE_FILES):
+        if not os.environ.get(name):
+            return "没有设 %s" % name
+    path = os.environ["QUIZS_QUALIFICATION"]
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "读不出资格证书 %s" % path
+    expires = data.get("expires_at_ms") if isinstance(data, dict) else None
+    if not isinstance(expires, int) or isinstance(expires, bool):
+        return "资格证书里没有到期时刻"
+    if expires < (now + timeout + QUIZS_CERT_MARGIN) * 1000:
+        return "资格证书撑不完这一回合（%d 毫秒时到期）" % expires
+    return None
+
+
 def resolve_quizs_command() -> List[str]:
     """quizs 的命令（第 137 轮）：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。"""
     raw = os.environ.get("QUIZS_CMD")
@@ -2114,7 +2137,12 @@ class TurnRunner:
         """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
-        spec = ROSTER[agent]
+        listed = {key: value for key, value in ROSTER[agent].items() if key != "fallback"}
+        substitute = ROSTER[agent].get("fallback")
+        # 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
+        fallback = (quizs_unready(int(time.time()), int(listed.get("timeout", 1800)))
+                    if listed["adapter"] == "quizs" and substitute else None)
+        spec = listed if fallback is None else {**listed, **substitute}
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
@@ -2134,8 +2162,8 @@ class TurnRunner:
                            "generation": generation}
         elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
-        if quizs:
-            session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）
+        if quizs or fallback is not None:
+            session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
         cut = session["id"] if session is not None and session_cut_short(
             self.hub, agent, spec["adapter"], session["id"]) else None
         if cut:
@@ -2202,6 +2230,7 @@ class TurnRunner:
             cmd += ["--cwd", str(workspace), "--readonly-root", str(inputs if inputs is not None else workspace)]
             cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
                     "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
+            cmd += [part for pair in QUIZS_TURN_BUDGETS for part in pair]
             for flag, name in QUIZS_LIVE_FILES:
                 if os.environ.get(name):
                     cmd += [flag, os.environ[name]]
@@ -2306,6 +2335,8 @@ class TurnRunner:
             "deliver_refusal_chars": sum(audit.get("deliver_refusals") or []),
             "thinking_chars": audit.get("thinking_chars"), "thinking_tokens": audit.get("thinking_tokens"),
         }
+        if fallback is not None:
+            summary["quizs_fallback"] = fallback
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
                               exit_code=summary["exit_code"], timed_out=summary["timed_out"],

@@ -27,12 +27,12 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  QUIZS_LIVE_FILES, QUIZS_STATE_DIR, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
-import { auditQuizsStream, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
+import { auditQuizsStream, quizsSnapshot, quizsUnready, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -115,7 +115,10 @@ export class TurnRunner {
   async run(agent: string, sessionKey: string, workspace: string, rolePrompt: string, prompt: string,
     retryOf: string | null = null, fresh = false, inputs: string | null = null, sessionId: string | null = null): Promise<PyDict> {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
-    const spec = ROSTER[agent] as RosterSpec;
+    const { fallback: substitute, ...listed } = ROSTER[agent] as RosterSpec;
+    // 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
+    const fallback = listed.adapter === "quizs" && substitute ? quizsUnready(this.sources.seconds(), listed.timeout ?? 1800) : null;
+    const spec: RosterSpec = fallback === null ? listed : { ...listed, ...substitute };
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
@@ -138,7 +141,7 @@ export class TurnRunner {
     } else if (pyTruthy(session) && (fresh || !pyEq(pyGet(session, "cwd"), where))) {
       [session, generation] = [null, generation + 1n]; // 返工重开，或工作目录变了（claude 按目录找会话）
     }
-    if (quizs) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）
+    if (quizs || fallback !== null) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
     const cut = session !== null && sessionCutShort(this.hub.root, agent, spec.adapter, pyStrValue(pyItem(session, "id"))) ? pyStrValue(pyItem(session, "id")) : null;
     if (cut !== null) {
       // 第 94 轮：要续接的会话停在半截：换新的一代，附上“接着做”的说明
@@ -252,6 +255,7 @@ export class TurnRunner {
       ["deliver_refusals", BigInt(pyLenValue(refused))], ["deliver_refusal_chars", refused.reduce<bigint>((sum, chars) => sum + pyIntOf(chars), 0n)],
       ["thinking_chars", pyGet(audit, "thinking_chars")], ["thinking_tokens", pyGet(audit, "thinking_tokens")],
     ]);
+    if (fallback !== null) summary.set("quizs_fallback", fallback);
     writeJson(join(turnDir, "result.json"), summary, true);
     await this.hub.appendEvent("turn.finished", [["turn_id", turnId], ["agent", agent], ["session_key", sessionKey],
       ["exit_code", pyItem(summary, "exit_code")], ["timed_out", pyItem(summary, "timed_out")], ["violations", BigInt(pyLenValue(pyItem(audit, "violations")))],
@@ -307,7 +311,8 @@ export class TurnRunner {
       // Quizs 的 worker turn 要 --cwd 与 --readonly-root（已有的目录，记进会话的固定前缀；只读快照照样要）
       "--cwd", where, "--readonly-root", inputs ?? where,
       "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
-      "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir];
+      "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir,
+      ...QUIZS_TURN_BUDGETS.flat()];
     for (const [flag, name] of QUIZS_LIVE_FILES) {
       const value = process.env[name];
       if (value) cmd.push(flag, value);

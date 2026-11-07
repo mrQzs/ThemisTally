@@ -370,6 +370,7 @@ const TURN_TESTS = [
   "test_a_throttled_pi_turn_is_held_with_a_growing_backoff",
   "test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error",
   "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
+  "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
   "test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided",
   "test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only",
   "test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs",
@@ -432,7 +433,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(value.get("skipped")).toEqual([]);
     const calls = value.get("calls") as PyDict[];
     const testOf = (item: PyDict): string => String(item.get("test"));
-    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(26);
+    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(27);
     expect([...new Set(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf))].sort(), "记到 stage_inputs 的用例").toEqual(STAGE_TESTS);
     const replayed = calls.filter((item) => item.get("fn") === "stage_inputs" || item.has("script"));
     // 记下的 pi 命令都以假 pi 开头（采样当时设了 PI_DISPATCH_PI_CMD）：以后改了采样，也不会悄悄又起本机的 pi

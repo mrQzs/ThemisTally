@@ -2258,6 +2258,13 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：quizs 回合退出码 5、error_class 是 QUEUE_TIMEOUT 时，接口报错写成 QUIZS_PERMIT_HELD：说明名额被占的两种可能，以及站主的处理（`quizs permits list --provider-state-dir quizs-state` 找出 unknown_remote 那一条，到 DeepSeek 后台核实那次请求已结束，再 `quizs permits release … --attempt-id … --confirm-terminal` 释放；两条命令是 Quizs f88e18c 新加的）。措辞避开限流正则，照旧按接口报错交给站主，不当限流扣。TS 与 kit_hub.py 各一份。
 - **测试**：test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block 加排队超时的回合；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 过。
 
+### 第 143 轮：quizs 载体传每回合预算；证书撑不完这一回合就退回名册写的替补（pi）
+
+- **起因一（预算）**：P2a 头一次真请求时，Quizs 的默认预算（请求 8 次、单次输入 512 KiB、单次回应 256 KiB）卡住了：DeepSeek 的流式回应每个输出 token 约 290 字节，256 KiB 不到 900 个 token 就被判回应过大，本地掐断又让名额成了结果不明。假提供方与 D 回放的回应都很小，碰不到（learn50）。
+- **起因二（证书）**：Quizs 的资格证书最长 24 小时（实际约 20 小时：认证 plan 准备起 20 小时到期），平常的工人回合要有效证书；证书过期、文件没设时协调人不能停摆（用户 11-07 定：全部按推荐来）。
+- **改法**：载体照写 QUIZS_TURN_BUDGETS（--max-requests 24、--max-input-bytes 2097152、--max-response-bytes 4194304；实际取它与 live plan 的较小者）。名册的 quizs 岗位可以写 fallback（替补字段）：起回合前 quizs_unready 查 QUIZS_CMD 与三份文件的环境变量、证书读得出且撑得过这一回合的时限再加 60 秒；不行就这一回合改用替补的字段（例如 adapter pi、provider dsf），开新会话，result.json 末尾记 quizs_fallback（原因）。TS 与 kit_hub.py 各一份。
+- **测试**：quizs 回合用例加预算断言；新用例 test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out（文件没设、证书读不出、撑不完这一回合三种退回 pi，证书够用照常走 quizs，证书不是对象）并进 hub-turn 契约重放（27 个用例）；test_kit_hub 与 test_kernel_impl 547 条、mutation-specs 过。名册还没换（下一轮）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

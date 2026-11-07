@@ -7,11 +7,33 @@ import { jsonlLines } from "@themis/base/jsonl";
 import { pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { runCapture } from "@themis/dispatcher/pi-cli";
-import { EXIT_BLOCKED, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_PERMIT_HELD, THROTTLE_RESET_MARGIN } from "./constants.ts";
+import { readFileSync } from "node:fs";
+import {
+  EXIT_BLOCKED, QUIZS_CERT_MARGIN, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, THROTTLE_RESET_MARGIN,
+} from "./constants.ts";
 import { HubError } from "./errors.ts";
 
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
+
+/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合）；起得了是 null。 */
+export function quizsUnready(now: number, timeout: number): string | null {
+  for (const name of ["QUIZS_CMD", ...QUIZS_LIVE_FILES.map(([, env]) => env)]) {
+    if (!process.env[name]) return `没有设 ${name}`;
+  }
+  const path = process.env["QUIZS_QUALIFICATION"] as string;
+  let data: PyValue;
+  try {
+    data = loads(readFileSync(path, "utf-8"));
+  } catch (error) {
+    if (!(error instanceof PyJsonError) && !(error instanceof Error && "code" in error)) throw error;
+    return `读不出资格证书 ${path}`;
+  }
+  const expires = data instanceof Map ? pyGet(data, "expires_at_ms") : null;
+  if (typeof expires !== "bigint") return "资格证书里没有到期时刻";
+  if (expires < BigInt((now + timeout + QUIZS_CERT_MARGIN) * 1000)) return `资格证书撑不完这一回合（${expires} 毫秒时到期）`;
+  return null;
+}
 
 /** quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。 */
 export function resolveQuizsCommand(): string[] {
