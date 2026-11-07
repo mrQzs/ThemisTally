@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  QUIZS_STATE_DIR, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  QUIZS_LIVE_FILES, QUIZS_STATE_DIR, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
@@ -308,6 +308,10 @@ export class TurnRunner {
       "--cwd", where, "--readonly-root", inputs ?? where,
       "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
       "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir];
+    for (const [flag, name] of QUIZS_LIVE_FILES) {
+      const value = process.env[name];
+      if (value) cmd.push(flag, value);
+    }
     return [cmd, null, quizsCmd, sessionsDir];
   }
 

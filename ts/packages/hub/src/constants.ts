@@ -216,5 +216,9 @@ export const THROTTLE_RESET_HORIZON = 86400;
 export const QUIZS_STATE_DIR = "quizs-state";
 export const QUIZS_FENCE_OPEN = "```json";
 export const QUIZS_FENCE_CLOSE = "```";
+/** 第 141 轮：真实请求要的三份文件（Quizs 的 live plan、提供方档案与资格证书）由环境给路径；测试与 fake 提供方都不设。 */
+export const QUIZS_LIVE_FILES: readonly (readonly [string, string])[] = [
+  ["--live-plan", "QUIZS_LIVE_PLAN"], ["--provider-profile", "QUIZS_PROVIDER_PROFILE"], ["--qualification", "QUIZS_QUALIFICATION"],
+];
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

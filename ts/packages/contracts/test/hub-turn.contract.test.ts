@@ -409,8 +409,9 @@ function sampled(item: PyDict): ProbeRequest {
   const overrides = JSON.parse(String(item.get("overrides"))) as { roster: Record<string, unknown>; delivery_sha256: Record<string, string> };
   return {
     op: "hub.turn", repo, restore, args: (item.get("args") as PyValue[]).map((arg) => toTagged(arg)), script: toTagged(item.get("script") as PyValue),
-    // 第 137 轮：quizs 回合的命令取 QUIZS_CMD，采样时记下用例设的那一个
-    home: String(item.get("home")), env: { ...piCmd("ok"), ...(item.get("quizs_cmd") ? { QUIZS_CMD: String(item.get("quizs_cmd")) } : {}) },
+    // 第 137、141 轮：quizs 回合的命令与真实请求的三份文件取 QUIZS_* 环境变量，采样时记下用例设的那几个
+    home: String(item.get("home")),
+    env: { ...piCmd("ok"), ...Object.fromEntries([...((item.get("quizs_env") as PyDict | null) ?? new Map())].map(([name, value]) => [String(name), String(value)])) },
     roster: overrides.roster, delivery_sha256: overrides.delivery_sha256,
     sources: { compact: String(sources.get("compact")), random2: String(sources.get("random2")), uuid4: String(sources.get("uuid4")), seconds: Number(sources.get("seconds")) },
   };

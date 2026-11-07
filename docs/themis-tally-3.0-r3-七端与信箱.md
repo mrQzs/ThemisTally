@@ -2246,6 +2246,12 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：两份模板改成同时写明 pi、claude、quizs 三种交法，格式照旧见本回合输入末尾的“交差”一节。模板是 TS 与 kit_hub.py 共用的一份文件，不用两边各改。
 - **测试**：没有测试钉着这两句；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约过。
 
+### 第 141 轮：quizs 载体带上真实请求要的三份文件（live plan、提供方档案、资格证书）
+
+- **起因**：Quizs 的真实请求要 `--live-plan`、`--provider-profile`、`--qualification`（平常的工人回合要资格证书）。第 137 轮的载体只够跑 fake 提供方，协调人真要换到 quizs（P2）就缺这一步。
+- **改法**：路径由环境给（`QUIZS_LIVE_PLAN`、`QUIZS_PROVIDER_PROFILE`、`QUIZS_QUALIFICATION`，同 QUIZS_CMD 的做法），设了才加到 worker turn 的命令上；测试与 fake 提供方都不设。TS 与 kit_hub.py 各一份；契约采样器记下这几个 QUIZS_* 环境变量（原来只记 QUIZS_CMD），重放照样设上。
+- **测试**：test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block 加断言（设了才加、没设不加）；test_kit_hub 与 test_kernel_impl 546 条、hub-turn 契约、mutation-specs 过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

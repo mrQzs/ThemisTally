@@ -6204,7 +6204,12 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
     assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
+    # 第 141 轮：真实请求要的 live plan、提供方档案与资格证书由环境给路径，设了才加
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.setenv(name, str(tmp_path / (name.lower() + ".json")))
     missing = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert seen[1][seen[1].index("--qualification") + 1] == str(tmp_path / "quizs_qualification.json")
+    assert "--live-plan" not in cmd and "--provider-profile" in seen[1]
     assert missing["output"] is None and "json 代码块" in missing["output_error"]
     assert missing["session_id"] != ok["session_id"] and ok["session_id"].startswith("T001-")  # 每回合一个新会话
     limited = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)

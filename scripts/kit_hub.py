@@ -512,6 +512,8 @@ THROTTLE_RESET_OFFSET, THROTTLE_RESET_MARGIN, THROTTLE_RESET_HORIZON = 8 * 3600,
 #: 第 137 轮：quizs 载体（P1：名册没换，协调人照旧走 pi；换载体要站主同意）。命令取 QUIZS_CMD（JSON 的字符串列表），
 #: 缺省是 PATH 里的 quizs；Quizs 的提供方状态放在信箱的 quizs-state 下。交付是最后回答里的一个 json 代码块
 QUIZS_STATE_DIR, QUIZS_FENCE_OPEN, QUIZS_FENCE_CLOSE = "quizs-state", "```json", "```"
+#: 第 141 轮：真实请求要的三份文件（Quizs 的 live plan、提供方档案与资格证书）由环境给路径；测试与 fake 提供方都不设
+QUIZS_LIVE_FILES = (("--live-plan", "QUIZS_LIVE_PLAN"), ("--provider-profile", "QUIZS_PROVIDER_PROFILE"), ("--qualification", "QUIZS_QUALIFICATION"))
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -2193,6 +2195,9 @@ class TurnRunner:
             cmd += ["--cwd", str(workspace), "--readonly-root", str(inputs if inputs is not None else workspace)]
             cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
                     "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
+            for flag, name in QUIZS_LIVE_FILES:
+                if os.environ.get(name):
+                    cmd += [flag, os.environ[name]]
         else:
             sessions_dir = self.hub.root / "sessions" / agent
             sessions_dir.mkdir(parents=True, exist_ok=True)

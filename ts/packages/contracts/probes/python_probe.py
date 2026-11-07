@@ -3101,7 +3101,8 @@ def op_hub_audit_samples(request):
             entry = {"test": current[0], "fn": "TurnRunner.run", "repo": str(self.hub.repo), "snapshot": str(snapshot), "home": str(Path.home()),
                      "args": [agent, session_key, str(workspace), role_prompt, prompt, retry_of, fresh, None if inputs is None else str(inputs), session_id],
                      "seconds": int(time.time()), "links": links, "overrides": overrides(),
-                     "quizs_cmd": os.environ.get("QUIZS_CMD")}  # 第 137 轮：quizs 回合的命令由环境给，重放时照样设上
+                     # 第 137、141 轮：quizs 回合的命令与真实请求的三份文件由环境给，重放时照样设上
+                     "quizs_env": {name: os.environ[name] for name in ("QUIZS_CMD", "QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION") if os.environ.get(name)}}
             calls.append(entry)
             returned, recorded = [], []
             inner, saved = self.launcher, self.launcher
