@@ -503,6 +503,24 @@ SHARING_RETRIES, SHARING_PAUSE = 40, 0.05
 #: pi 的模型接口限流（第 38 轮）：认得出的报错、第一次扣多久、最长扣多久、连着扣几次之后交给站主
 THROTTLE_RE = re.compile(r"\b429\b|throttl|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
 THROTTLE_BACKOFF_SECONDS, THROTTLE_BACKOFF_MAX, THROTTLE_MAX_HOLDS = 300, 3600, 5
+#: 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
+#: 是北京时间：T026 的门禁端 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了；按 UTC 读要到 18:44Z 才解除。
+#: 换算出来已经过去、或在 24 小时以外的不认，照旧退避（时区读错了也只是早醒一次，下一回合照旧退避）。
+THROTTLE_RESET_RE = re.compile("([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})")
+THROTTLE_RESET_OFFSET, THROTTLE_RESET_MARGIN, THROTTLE_RESET_HORIZON = 8 * 3600, 60, 86400
+
+
+def throttle_reset(error: str, now: int) -> Optional[int]:
+    """限流报错里的重置时刻（北京时间）加上余量，换成秒；没写、不是真日期、已经过去或在 24 小时以外时为 None。"""
+    match = THROTTLE_RESET_RE.search(error)
+    if not match:
+        return None
+    try:
+        moment = _dt.datetime(*(int(part) for part in match.groups()), tzinfo=_dt.timezone.utc)
+    except ValueError:
+        return None
+    reset = int(moment.timestamp()) - THROTTLE_RESET_OFFSET
+    return reset + THROTTLE_RESET_MARGIN if now < reset <= now + THROTTLE_RESET_HORIZON else None
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -2093,10 +2111,12 @@ class TurnRunner:
         if throttled:
             # 第 38 轮：pi 的模型接口限流（T012 的协调人：qwen 回 429 throttling），回报里没有解除时刻：
             # 同一会话连着被限流就加倍退避，扣信到点再办（第 33 轮的扣信）；成功一回就清零。
-            # 连着限流太多次多半是额度用完了：不再扣，照旧按接口报错交给站主（换模型要站主拍板）
+            # 连着限流太多次多半是额度用完了：不再扣，照旧按接口报错交给站主（换模型要站主拍板）。报错写了重置时刻就扣到那时
             session["throttles"] = int(session.get("throttles", 0)) + 1
             if session["throttles"] <= THROTTLE_MAX_HOLDS:
-                audit["rate_limited_until"] = int(time.time()) + min(
+                now = int(time.time())
+                reset = throttle_reset(str(audit["api_error"]), now)
+                audit["rate_limited_until"] = reset if reset is not None else now + min(
                     THROTTLE_BACKOFF_SECONDS * 2 ** (session["throttles"] - 1), THROTTLE_BACKOFF_MAX)
         else:
             session.pop("throttles", None)
@@ -4716,6 +4736,10 @@ def letter_from_output(agent: str, task_id: str, data: Dict[str, Any]) -> Tuple[
 # 调度循环
 # ---------------------------------------------------------------------------
 
+#: pi 岗位的限流不走 rate_limit_event：内核认的是接口报错（TurnRunner 的 THROTTLE_RE 与 throttle_reset）
+PI_THROTTLE_EVIDENCE = "模型接口报错里的限流（429、额度用尽之类）：报错写了重置时刻就扣到那之后 1 分钟，没写就从 5 分钟起加倍退避"
+
+
 def hold_letters(hub: Hub, ts: Dict[str, Any], agent: str, names: List[str], until: int,
                  suffix: Optional[str], turn_id: str, reason: Optional[str] = None) -> str:
     """回合撞上模型接口的额度限制（第 33 轮）：读掉的信先扣着，到解除的时刻再放回信箱。T010 的门禁端撞上
@@ -4733,7 +4757,8 @@ def hold_letters(hub: Hub, ts: Dict[str, Any], agent: str, names: List[str], unt
         return at
     hub.deliver({"from": KERNEL, "to": OWNER, "task-id": ts["task"], "in-reply-to": "none", "type": "核验"},
                 {"摘要": "%s 撞上模型接口的额度限制：%s 之后内核自动接着做，不用回信" % (agent, at),
-                 "提交": "无", "验证": "事件流里的 rate_limit_event（rejected，resetsAt）", "偏离": "无",
+                 "提交": "无", "验证": "事件流里的 rate_limit_event（rejected，resetsAt）"
+                 if ROSTER.get(agent, {}).get("adapter") == "claude" else PI_THROTTLE_EVIDENCE, "偏离": "无",
                  "需协调人决定": "无。要提前接着做，就在解除之后用 kit_hub.py send %s --type 回复" % ts["task"],
                  "证据": "回合 %s" % turn_id})
     return at
@@ -6072,8 +6097,13 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+#: 回合读进去的上下文：每次模型调用的新输入、缓存读、缓存写之和（pi 的 usage 键名）。pi 岗位不回报花费，
+#: 配额花在哪只看得到这几项；claude 回合的记录里没有 usage，记为没有
+USAGE_PROMPT_KEYS = ("input", "cacheRead", "cacheWrite", "cacheWrite1h")
+
+
 def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
-    """每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮）。第 16 轮之前的记录里，claude 工人的
+    """每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮）与 token 用量。第 16 轮之前的记录里，claude 工人的
     cost_usd 是会话累计值，按会话依次相减换算回这一回合的。"""
     records = []
     for path in sorted((hub.root / "turns").glob("*/*/result.json")):
@@ -6093,10 +6123,19 @@ def turn_metrics(hub: Hub) -> List[Dict[str, Any]]:
             total, previous = float(cost), last_total.get(str(record.get("session_id")))
             cost = total if previous is None or total < previous else round(total - previous, 6)
             last_total[str(record.get("session_id"))] = total
+        usage = record.get("usage")
+
+        def tokens(*keys: str) -> Optional[int]:
+            if not isinstance(usage, dict):
+                return None
+            return sum(value for value in (usage.get(key) for key in keys)
+                       if isinstance(value, int) and not isinstance(value, bool))
+
         rows.append({"task": stage_of(str(record.get("session_key") or ""))[0] or "?", "agent": record.get("agent"),
                      "seconds": float(record.get("wall_seconds") or 0), "cost_usd": cost,
                      "deliver_refusals": record.get("deliver_refusals"), "thinking_chars": record.get("thinking_chars"),
-                     "thinking_tokens": record.get("thinking_tokens")})
+                     "thinking_tokens": record.get("thinking_tokens"), "prompt_tokens": tokens(*USAGE_PROMPT_KEYS),
+                     "cache_read_tokens": tokens("cacheRead"), "output_tokens": tokens("output")})
     return rows
 
 
@@ -6104,6 +6143,12 @@ def recorded_sum(rows: List[Dict[str, Any]], key: str) -> str:
     """回合记录里有这一项的加总；第 102 轮之前的记录、不用工具交差的回合没有，全都没有写“未记”。"""
     values = [row[key] for row in rows if row.get(key) is not None]
     return str(sum(values)) if values else "未记"
+
+
+def token_sum(rows: List[Dict[str, Any]], key: str) -> str:
+    """token 用量的加总，以万为单位；记录里都没有时写“未记”。"""
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return "%.1f 万" % (sum(values) / 10000) if values else "未记"
 
 
 def exec_metrics(hub: Hub) -> Dict[str, Dict[str, float]]:
@@ -6142,22 +6187,24 @@ def cmd_metrics(args: argparse.Namespace) -> int:
         print("## %s" % task)
         # 思考：pi 数 thinking 块的字数（claude 的流里是空块，不数），token 是提供方回报的（claude 的 thinking_tokens、
         # pi 的 reasoning；有的提供方回报 0）
-        print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 | 思考 token |")
-        print("|---|---|---|---|---|---|---|")
+        print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 | 思考 token | 读上下文 token | 其中缓存读 | 输出 token |")
+        print("|---|---|---|---|---|---|---|---|---|---|")
         for agent in sorted({row["agent"] for row in rows if row["task"] == task}):
             mine = [row for row in rows if row["task"] == task and row["agent"] == agent]
             costs = [row["cost_usd"] for row in mine if row["cost_usd"] is not None]
-            print("| %s | %d | %.1f | %s | %s | %s | %s |" % (
+            print("| %s | %d | %.1f | %s | %s | %s | %s | %s | %s | %s |" % (
                 agent, len(mine), sum(row["seconds"] for row in mine) / 60, "%.2f" % sum(costs) if costs else "未回报",
                 recorded_sum(mine, "deliver_refusals"), recorded_sum(mine, "thinking_chars"),
-                recorded_sum(mine, "thinking_tokens")))
+                recorded_sum(mine, "thinking_tokens"), token_sum(mine, "prompt_tokens"),
+                token_sum(mine, "cache_read_tokens"), token_sum(mine, "output_tokens")))
         if task in executions:
             print("| 执行端（调度器 run） | %d 个 attempt | %.1f | 见 pi_dispatch metrics |" % (
                 executions[task]["attempts"], executions[task]["seconds"] / 60))
         print()
     known = [row["cost_usd"] for row in rows if row["cost_usd"] is not None]
-    print("工人回合合计：%d 个，%.1f 分钟，%.2f 美元（回报了花费的部分）" % (
-        len(rows), sum(row["seconds"] for row in rows) / 60, sum(known)))
+    print("工人回合合计：%d 个，%.1f 分钟，%.2f 美元（回报了花费的部分），token：读上下文 %s、输出 %s（回报了用量的部分）" % (
+        len(rows), sum(row["seconds"] for row in rows) / 60, sum(known), token_sum(rows, "prompt_tokens"),
+        token_sum(rows, "output_tokens")))
     return EXIT_OK
 
 

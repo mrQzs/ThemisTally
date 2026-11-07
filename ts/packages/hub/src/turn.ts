@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS,
+  THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
@@ -37,6 +37,21 @@ const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
 /** 第 38 轮：pi 的模型接口限流（429、throttling、rate limit……）。 */
 const THROTTLE = compilePy(`${BS}b429${BS}b|throttl|rate[ _-]?limit|too many requests|quota`, FLAG_IGNORECASE);
+const THROTTLE_RESET = /([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})/u;
+
+/**
+ * 限流报错里的重置时刻（北京时间，见 THROTTLE_RESET_OFFSET）加上余量，换成秒；没写、不是真日期、已经过去或在 24 小时以外时为 null。
+ * 不是真日期（2 月 30 日、25 点）照 Python 的 datetime 报 ValueError 那样不认，不让 Date.UTC 进位成别的日子。
+ */
+export function throttleReset(error: string, now: number): number | null {
+  const match = THROTTLE_RESET.exec(error);
+  if (match === null) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number) as [number, number, number, number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return null;
+  const reset = date.getTime() / 1000 - THROTTLE_RESET_OFFSET;
+  return now < reset && reset <= now + THROTTLE_RESET_HORIZON ? reset + THROTTLE_RESET_MARGIN : null;
+}
 
 /**
  * 起一个工人进程：照 pd.run_supervised 的形状，(命令, 工作目录, 环境, 标准输出的文件, 标准错误的文件, 时限秒) → 结果（exit_code、timed_out、
@@ -182,11 +197,13 @@ export class TurnRunner {
     const apiError = pyGet(audit, "api_error");
     const throttled = !claude && THROTTLE.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
     if (throttled) {
-      // 第 38 轮：同一会话连着被限流就加倍退避，扣信到点再办；连着限流太多次照旧按接口报错交给站主
+      // 第 38 轮：同一会话连着被限流就加倍退避，扣信到点再办；连着限流太多次照旧按接口报错交给站主。报错写了重置时刻就扣到那时
       const throttles = pyIntOf(pyGet(current, "throttles", 0n)) + 1n;
       current.set("throttles", throttles);
       if (throttles <= BigInt(THROTTLE_MAX_HOLDS)) {
-        audit.set("rate_limited_until", BigInt(this.sources.seconds()) + BigInt(Math.min(THROTTLE_BACKOFF_SECONDS * 2 ** Number(throttles - 1n), THROTTLE_BACKOFF_MAX)));
+        const now = this.sources.seconds();
+        const reset = throttleReset(pyStrValue(apiError), now);
+        audit.set("rate_limited_until", BigInt(reset ?? now + Math.min(THROTTLE_BACKOFF_SECONDS * 2 ** Number(throttles - 1n), THROTTLE_BACKOFF_MAX)));
       }
     } else {
       current.delete("throttles");

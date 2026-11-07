@@ -2189,6 +2189,18 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**：tests/test_kit_hub.py 的 test_deeply_nested_tool_args_are_read_without_recursion（990、2000 层各垫 60 层调用栈照常判出，另有次序的断言）；hub-audit 契约钉了 960、997 层（997 层加上探针自己的几层栈才分得出原来的递归，990 层分不出）。变异 K01（改回递归）pytest 与契约都抓住，K02、K03（孩子不倒过来压栈）pytest 抓住。
 - **仍接受的**：1000 到 2997 层，base 的 loads 在 1000 层报 RecursionError（算读不出的行），Python 的 json.loads 读得出，这一段是确定的差异；这种输入几乎不会出现，契约生成的嵌套避开它。
 
+### 第 135 轮：限流按报错里的重置时刻扣信，metrics 补 token 列（2026-11-06，参考 C:/Code/优化）
+
+- **起因**：用户 11-06 让参考 C:/Code/优化（superagent、Code Modernization、ub-mode、HarnessMM 论文、Hypoloom、pentagi、spec-kit）优化 TT 与 Quizs。先拿 814 个回合的记录量了一下，清单在方案页 https://claude.ai/artifact/SvETf529Y8dXWXMfKTXxPk ，这一轮做其中两项：
+  - T026 的门禁端（智谱 glm-5.3）撞上 5 小时上限，报错里写着重置时刻，内核却照第 38 轮从 5 分钟起加倍试探了 5 次、发了 5 封核验信（08:43–10:59Z）；核验信写的是 claude 路的 rate_limit_event，对 pi 岗位不对。
+  - metrics 里 pi 岗位的花费全是“未回报”，也没有 token 列：合同端一回合读上下文中位 100 万 token、门禁端 p90 454 万，表里看不出来。
+- **改法**：
+  - 限流：pi 路的限流报错里有 `YYYY-MM-DD HH:MM:SS` 就按北京时间换算，扣到那之后 60 秒；换算出来已经过去、在 24 小时以外、或不是真日期的不认，照旧加倍退避。北京时间的依据：T026 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了，按 UTC 读要到 18:44Z 才解除。时区读错了也只是早醒一次，下一回合照旧退避。核验信的“验证”按岗位写：claude 照旧，pi 写“模型接口报错里的限流”与怎么扣。
+  - metrics：每个回合行加 prompt_tokens（新输入、缓存读、缓存写之和）、cache_read_tokens、output_tokens，取自 result.json 的 usage（不是整数的值不算，没有 usage 的回合记为 None）；表里加三列，以万为单位，合计行跟着加。
+  - 没做“一阵限流只发一封核验信”：按重置时刻扣之后，一阵限流多半只扣一次。
+- **测试**：tests/test_kit_hub.py 的 test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error（两小时后、已经过去、三天以后，另有不是真日期、没写时刻两种），登记进 hub-turn 契约（用例数 24 → 25，记下的 pi 命令 39 → 42）；扣信的两条用例各加措辞断言（规划端走 claude、协调人走 pi）；metrics 的用例加两个带 usage 的回合。hub-turn、hub-engine、hub-step、hub-commands 契约与 mutation-specs 都过。
+- **量过之后不做的**（同一份方案页）：重复工具调用检测与去重回执（完全相同的调用不到 1%）；HarnessMM 的决策复用（协调人一回合中位只调一次模型）；合同升版只增不改（287 次升版删掉旧 DoD 只有 2 条、改写 200 处，硬检查会天天误报）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

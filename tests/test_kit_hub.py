@@ -1872,6 +1872,7 @@ def test_a_rate_limited_worker_turn_is_held_and_resumed(engine_env):
     assert held["until"] == time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
     letters = [p.read_text(encoding="utf-8") for p in hub.unread(kh.OWNER)]
     assert len(letters) == 1 and "type: 核验" in letters[0] and "额度限制" in letters[0] and held["until"] in letters[0]
+    assert "rate_limit_event" in letters[0]  # 规划端走 claude：解除时刻来自事件流
     assert hub.unread("planner-opus") == [] and hub.unread(kh.COORDINATOR) == []
     assert kh.letters_held(hub) and kh.supervisor_busy(hub, [], 0) and not kh.runner_may_idle_exit(hub, None)
     assert kh.runner_may_idle_exit(hub, "T001")  # 主任务 runner 可以退：到点由 supervisor 再起
@@ -2339,7 +2340,9 @@ def test_a_rate_limited_coordinator_turn_is_held_and_resumed(engine_env):
     ts = hub.load_state()["tasks"]["T001"]
     assert len(runner.calls) == 1 and ts["status"] == "active"  # 不再转 blocked
     assert ts["held"][0]["agent"] == kh.COORDINATOR and ts["held"][0]["suffix"] is None
-    assert hub.unread(kh.COORDINATOR) == [] and "额度限制" in hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    owner_letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
+    assert hub.unread(kh.COORDINATOR) == [] and "额度限制" in owner_letter
+    assert kh.PI_THROTTLE_EVIDENCE in owner_letter and "rate_limit_event" not in owner_letter  # 协调人走 pi：认的是接口报错
     make_held_due(hub)
     assert engine.step() and runner.calls[1][0] == kh.COORDINATOR
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
@@ -3759,11 +3762,19 @@ def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_p
            thinking_chars=500, thinking_tokens=900)
     record("womovie-c8", "20261019T030100Z-g", "T002", "s3", 0.05, 30, session_cost_usd=0.07,  # 新记录不再换算
            deliver_refusals=0, thinking_chars=300)
+    # pi 回合的 usage：读上下文是新输入、缓存读、缓存写之和（不是整数的不算）；没有 usage 的记“未记”
+    record("contract-glm", "20261019T030200Z-h", "T002-2-contract", "T002-2-contract-g0", None, 60,
+           usage={"input": 20000, "cacheRead": 70000, "cacheWrite": 4000, "cacheWrite1h": 1000, "output": 3600,
+                  "totalTokens": 98500})
+    record("contract-glm", "20261019T030300Z-i", "T002-2-contract", "T002-2-contract-g0", None, 60,
+           usage={"input": 5000, "cacheRead": True, "output": 1.5})
     rows = kh.turn_metrics(hub)
     assert [(r["agent"], r["cost_usd"]) for r in rows] == [
         ("womovie-c8", 0.10), ("womovie-c8", 0.15), ("womovie-c8", 0.02), ("audit-sonnet", 4.0),
-        ("contract-glm", None), ("womovie-c8", 0.02), ("womovie-c8", 0.05)]
-    assert [r["task"] for r in rows] == ["T001"] * 5 + ["T002"] * 2
+        ("contract-glm", None), ("womovie-c8", 0.02), ("womovie-c8", 0.05), ("contract-glm", None), ("contract-glm", None)]
+    assert [r["task"] for r in rows] == ["T001"] * 5 + ["T002"] * 4
+    assert [(r["prompt_tokens"], r["cache_read_tokens"], r["output_tokens"]) for r in rows[-3:]] == [
+        (None, None, None), (95000, 70000, 3600), (5000, 0, 0)]
     for event, at in (("exec.started", "2026-10-19T04:00:00Z"), ("exec.finished", "2026-10-19T04:30:00Z")):
         hub.append_event(event, task="T001", run_dir="r1", at_override=at)
     lines = hub.ledger().read_text(encoding="utf-8").splitlines()
@@ -3784,7 +3795,9 @@ def test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals(tmp_p
     assert "| contract-glm | 1 | 5.0 | 未回报 | 未记 | 未记 | 未记 |" in text
     assert "| womovie-c8 | 2 | 1.0 | 0.07 | 2 | 800 | 900 |" in text
     assert "| 执行端（调度器 run） | 1 个 attempt | 30.0 |" in text
-    assert "工人回合合计：7 个" in text and "4.34 美元" in text
+    assert "| contract-glm | 2 | 2.0 | 未回报 | 未记 | 未记 | 未记 | 10.0 万 | 7.0 万 | 0.4 万 |" in text
+    assert "| womovie-c8 | 2 | 1.0 | 0.07 | 2 | 800 | 900 | 未记 | 未记 | 未记 |" in text
+    assert "工人回合合计：9 个" in text and "4.34 美元" in text and "token：读上下文 10.0 万、输出 0.4 万" in text
 
 
 #: 第 36 轮之前门禁端、审核端在 claude 上的规格。claude 的这条路照旧保留（换回来时用），按原来的规格测
@@ -6045,6 +6058,38 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path, monkeypatc
     assert [w if w is None else round(w / 300) * 300 for w in waits] == [
         300, 600, None, 300, 600, 1200, 2400, 3600, None, None, None]  # 成功一回清零；连着 5 次之后交给站主；别的报错不扣
     assert kh.ROSTER["planner-opus"]["adapter"] == "claude"  # claude 有自己的 rate_limit_event（第 33 轮），不走这里
+
+
+def test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error(tmp_path):
+    # T026 的门禁端（智谱 glm-5.3）撞上 5 小时上限：报错写着北京时间的重置时刻，内核却从 5 分钟起加倍试探了 5 次
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER["gate-sonnet"]
+    errors = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [],
+                "stopReason": "error", "errorMessage": errors.pop(0)}
+        out.write((json.dumps({"type": "message_end", "message": body}, ensure_ascii=False) + chr(10)).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    beijing = kh._dt.timezone(kh._dt.timedelta(hours=8))
+
+    def limited(seconds_ahead):
+        at = kh._dt.datetime.fromtimestamp(int(time.time()) + seconds_ahead, beijing)
+        return '429 {"error":{"code":"1308","message":"已达到 5 小时的使用上限。您的限额将在 %s 重置。"}}' % at.strftime("%Y-%m-%d %H:%M:%S")
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    waits = []
+    for ahead in [7200, -600, 3 * 86400]:  # 两小时后；已经过去；三天以后（不认，照旧退避）
+        errors.append(limited(ahead))
+        before = int(time.time())
+        turn = runner.run("gate-sonnet", "T001-3-gate-pre", tmp_path, "角色", "输入")
+        waits.append(turn["rate_limited_until"] - before)
+    assert abs(waits[0] - 7200 - kh.THROTTLE_RESET_MARGIN) <= 2  # 扣到重置时刻之后一分钟
+    assert [round(w / 300) * 300 for w in waits[1:]] == [600, 1200]  # 认不了的照旧加倍退避，次数接着上一回合算
+    assert kh.throttle_reset("将在 2026-02-30 10:00:00 重置", 0) is None  # 不是真日期
+    assert kh.throttle_reset("429 too many requests", 0) is None
 
 
 def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):

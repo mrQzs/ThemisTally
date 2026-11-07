@@ -274,6 +274,9 @@ export class DirLock {
   }
 }
 
+/** pi 岗位的限流不走 rate_limit_event：内核认的是接口报错（TurnRunner 的 THROTTLE 与 throttleReset）。 */
+const PI_THROTTLE_EVIDENCE = "模型接口报错里的限流（429、额度用尽之类）：报错写了重置时刻就扣到那之后 1 分钟，没写就从 5 分钟起加倍退避";
+
 /** 回合撞上额度限制或内核自己等一会儿：读掉的信先扣着，到时放回。交回解除的时刻（就地改 ts）。 */
 export async function holdLetters(hub: Hub, ts: PyDict, agent: string, names: readonly string[], until: number,
   suffix: string | null, turnId: string, reason: string | null = null): Promise<string> {
@@ -291,7 +294,7 @@ export async function holdLetters(hub: Hub, ts: PyDict, agent: string, names: re
   if (reason) return at;
   await hub.deliver(new Map([["from", KERNEL], ["to", OWNER], ["task-id", task], ["in-reply-to", "none"], ["type", "核验"]]), new Map<string, PyValue>([
     ["摘要", `${agent} 撞上模型接口的额度限制：${at} 之后内核自动接着做，不用回信`], ["提交", "无"],
-    ["验证", "事件流里的 rate_limit_event（rejected，resetsAt）"], ["偏离", "无"],
+    ["验证", Object.hasOwn(ROSTER, agent) && ROSTER[agent]?.adapter === "claude" ? "事件流里的 rate_limit_event（rejected，resetsAt）" : PI_THROTTLE_EVIDENCE], ["偏离", "无"],
     ["需协调人决定", `无。要提前接着做，就在解除之后用 kit_hub.py send ${task} --type 回复`], ["证据", `回合 ${turnId}`],
   ]));
   return at;

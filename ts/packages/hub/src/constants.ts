@@ -200,3 +200,11 @@ export const GATE_PITFALLS: readonly string[] = [
 export const THROTTLE_BACKOFF_SECONDS = 300;
 export const THROTTLE_BACKOFF_MAX = 3600;
 export const THROTTLE_MAX_HOLDS = 5;
+/**
+ * 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
+ * 是北京时间：T026 的门禁端 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了；按 UTC 读要到 18:44Z 才解除。
+ * 换算出来已经过去、或在 24 小时以外的不认，照旧退避（时区读错了也只是早醒一次，下一回合照旧退避）。
+ */
+export const THROTTLE_RESET_OFFSET = 8 * 3600;
+export const THROTTLE_RESET_MARGIN = 60;
+export const THROTTLE_RESET_HORIZON = 86400;

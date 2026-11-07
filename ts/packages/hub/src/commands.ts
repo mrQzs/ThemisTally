@@ -606,7 +606,13 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   return EXIT_OK;
 }
 
-/** 每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮之前的 claude 记录按会话依次相减换算回这一回合的）。 */
+/**
+ * 回合读进去的上下文：每次模型调用的新输入、缓存读、缓存写之和（pi 的 usage 键名）。pi 岗位不回报花费，配额花在哪只看得到这几项；
+ * claude 回合的记录里没有 usage，记为没有。
+ */
+const USAGE_PROMPT_KEYS = ["input", "cacheRead", "cacheWrite", "cacheWrite1h"];
+
+/** 每个工人回合一行：主任务、工人、用时、这一回合的花费（第 16 轮之前的 claude 记录按会话依次相减换算回这一回合的）、token 用量。 */
 export function turnMetrics(hub: Hub): PyDict[] {
   const records: PyValue[] = [];
   for (const path of resultFiles(purePathStr(hub.root, "turns"))) {
@@ -634,10 +640,15 @@ export function turnMetrics(hub: Hub): PyDict[] {
     }
     const sessionKey = pyGet(record, "session_key");
     const wall = pyGet(record, "wall_seconds");
+    const usage = pyGet(record, "usage");
+    const tokens = (...keys: string[]): PyValue => usage instanceof Map
+      ? keys.map((key) => usage.get(key)).filter((value): value is bigint => typeof value === "bigint").reduce((a, b) => a + b, 0n)
+      : null;
     rows.push(new Map<string, PyValue>([
       ["task", stageOf(pyTruthy(sessionKey) ? pyStrValue(sessionKey) : "")[0] || "?"], ["agent", pyGet(record, "agent")],
       ["seconds", pyFloatOf(pyTruthy(wall) ? wall : 0n)], ["cost_usd", cost], ["deliver_refusals", pyGet(record, "deliver_refusals")],
       ["thinking_chars", pyGet(record, "thinking_chars")], ["thinking_tokens", pyGet(record, "thinking_tokens")],
+      ["prompt_tokens", tokens(...USAGE_PROMPT_KEYS)], ["cache_read_tokens", tokens("cacheRead")], ["output_tokens", tokens("output")],
     ]));
   }
   return rows;
@@ -660,6 +671,12 @@ function resultFiles(turns: string): string[] {
 export function recordedSum(rows: readonly PyDict[], key: string): string {
   const values = rows.filter((row) => pyGet(row, key) !== null).map((row) => pyItem(row, key));
   return values.length > 0 ? pyStrValue(pySum(values)) : "未记";
+}
+
+/** token 用量的加总，以万为单位；记录里都没有时写“未记”。 */
+export function tokenSum(rows: readonly PyDict[], key: string): string {
+  const values = rows.filter((row) => pyGet(row, key) !== null).map((row) => pyItem(row, key));
+  return values.length > 0 ? `${pyFixed(pyFloatOf(pySum(values)) / 10000, 1)} 万` : "未记";
 }
 
 /** 执行端每个主任务的 attempt 数与墙钟，读账本里的 exec.started / exec.finished。 */
@@ -743,15 +760,16 @@ export function cmdMetrics(args: CommandArgs, out: CommandOut = new PyOut()): nu
   const tasks = sortedValues([...rows.map((row) => pyItem(row, "task")), ...executions.keys()]);
   for (const task of tasks) {
     out.print(`## ${pyStrValue(task)}`);
-    out.print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 | 思考 token |");
-    out.print("|---|---|---|---|---|---|---|");
+    out.print("| 工人 | 回合 | 分钟 | 美元 | 交差退回 | 思考字数 | 思考 token | 读上下文 token | 其中缓存读 | 输出 token |");
+    out.print("|---|---|---|---|---|---|---|---|---|---|");
     const theirs = rows.filter((row) => pyEq(pyItem(row, "task"), task));
     for (const agent of sortedValues(theirs.map((row) => pyItem(row, "agent")))) {
       const mine = theirs.filter((row) => pyEq(pyItem(row, "agent"), agent));
       const costs = mine.map((row) => pyItem(row, "cost_usd")).filter((cost) => cost !== null);
       const minutes = pyFloatOf(pySum(mine.map((row) => pyItem(row, "seconds")))) / 60;
       out.print(`| ${pyStrValue(agent)} | ${mine.length} | ${pyFixed(minutes, 1)} | ${costs.length > 0 ? pyFixed(pySum(costs), 2) : "未回报"} | `
-        + `${recordedSum(mine, "deliver_refusals")} | ${recordedSum(mine, "thinking_chars")} | ${recordedSum(mine, "thinking_tokens")} |`);
+        + `${recordedSum(mine, "deliver_refusals")} | ${recordedSum(mine, "thinking_chars")} | ${recordedSum(mine, "thinking_tokens")} | `
+        + `${tokenSum(mine, "prompt_tokens")} | ${tokenSum(mine, "cache_read_tokens")} | ${tokenSum(mine, "output_tokens")} |`);
     }
     const found = [...executions.keys()].find((item) => pyEq(item, task));
     if (found !== undefined) {
@@ -762,7 +780,8 @@ export function cmdMetrics(args: CommandArgs, out: CommandOut = new PyOut()): nu
   }
   const known = rows.map((row) => pyItem(row, "cost_usd")).filter((cost) => cost !== null);
   const minutes = pyFloatOf(pySum(rows.map((row) => pyItem(row, "seconds")))) / 60;
-  out.print(`工人回合合计：${rows.length} 个，${pyFixed(minutes, 1)} 分钟，${pyFixed(pySum(known), 2)} 美元（回报了花费的部分）`);
+  out.print(`工人回合合计：${rows.length} 个，${pyFixed(minutes, 1)} 分钟，${pyFixed(pySum(known), 2)} 美元（回报了花费的部分），`
+    + `token：读上下文 ${tokenSum(rows, "prompt_tokens")}、输出 ${tokenSum(rows, "output_tokens")}（回报了用量的部分）`);
   return EXIT_OK;
 }
 
