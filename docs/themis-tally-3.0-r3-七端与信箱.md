@@ -2213,6 +2213,19 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **测试**：tests/test_kit_hub.py 的 test_a_task_over_its_spend_cap_is_held_until_the_owner_raises_it（协调人照常起、规划端 3.00 加预占 3.00 超过 5.00 被扣、阻塞信、不会自己到点、task cap 的三种错误与放回、token 上限按 pi 回合算），登记进 hub-commands、hub-engine、hub-step 契约；两边探针加 cmd_task_cap。test_kit_hub.py 整份 364 条过。
 - **教训**：这条用例起初在 engine_env 里调 task cap，临时目录不是仓库、basetemp 又在本仓库下，命令一路找到了真的仓库，改了真实 state 里 T001 的 spend_cap、账本多了一行；已按原样撤回，用例改成先 git init 并断言定位结果（learn47）。
 
+### 第 137 轮：quizs 载体（Quizs 接替 pi 的 P1，名册没换）
+
+- **起因**：/goal 要 Quizs 接替 pi；用户 11-06 定了第一个迁的岗位是协调人、模型不变（deepseek-flash），Quizs 由我直接改。P1 不花钱：两边先接上，用假 quizs 做契约测试；P2 换载体、花额度前带费用估计问用户。设计在会话的 quizs-p1-design.md。
+- **对齐 Quizs 自己的阶段**：Quizs 的方案把带 schema 的终结工具 `mail_send` 定在 Q4（要真实 broker），Q2 就能宣布只读岗位可切换，交付是 TQ-03 的 v1：result 的 `final_text` 是模型最后的完整回答，里面一个 json 代码块。所以不给 Quizs 加 deliver 工具，Quizs 的核心回合不改；TT 从 `final_text` 取出代码块，照岗位 schema 核验，没过照第 108 轮当场重交。
+- **改法（TS 与 kit_hub.py 各一份）**：
+  - 名册的 `adapter` 多一种 `quizs`（名册本身不改，协调人照旧是 pi）。命令取 `QUIZS_CMD`（JSON 的字符串列表），缺省 PATH 里的 quizs。
+  - 回合起之前，输入目录交 `quizs snapshot capture --dir` 冻成只读快照（Quizs 分支 c4f6831：建 git 树在 Quizs 里做一次），命令加 `--read-snapshot`；冻不了按接口报错不起回合。超过 256 个文本文件 Quizs 报错（协调人 56 个回合里有 1 个超，P2 再定）。
+  - 命令：`worker turn --provider --model --thinking --tools read,grep,find,ls --system-append role.md --prompt @prompt.md --session-dir --session-id --deadline --provider-state-dir`；每回合一个新会话（Quizs 的最终回答策略只认新会话），不加交差扩展与守卫。
+  - 审计（audit_quizs_stream）：init 与 tool_call 里名册之外的工具算越权；result 给退出码、模型、思考档位、用量（total_input、cache_read、cache_write、output）与最后的回答；退出码 3 带 retry_at 直接扣到那时加一分钟，不带时照第 38 轮退避。result.json 的 delivery 记 `final_json`。
+  - 提示词：交差一节写第三种（最后只写一个 json 代码块）；输入一节写“只读快照，路径相对快照根”，信箱与合同的路径写成相对仓库的。
+- **测试**：tests/test_kit_hub.py 的 test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block（假 quizs 答 snapshot capture；交差成功、没有代码块、退出码 3 带 retry_at、越权工具、快照冻不了、两个代码块与非对象），登记进 hub-turn 契约（采样器记下 QUIZS_CMD、重放照样设上；“以假 pi 开头”的检查不看 quizs）。
+- **没做的**：真实请求要的 live plan、提供方档案与资格证书（P2）；Quizs 的 DeepSeek 接入（下一步，先只做 loopback）；改了 Quizs 源码之后 Q1、Q3 的重新认证（要真实请求与 MSVC，开发机做）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

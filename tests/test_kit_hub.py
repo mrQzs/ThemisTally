@@ -6147,6 +6147,76 @@ def test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error(tmp_path):
     assert kh.throttle_reset("429 too many requests", 0) is None
 
 
+def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path, monkeypatch):
+    # 第 137 轮：quizs 载体（P1，名册没换）。输入目录交 quizs snapshot capture 冻成快照，回合只读快照、每回合一个新会话；
+    # 交付是最后回答里的一个 json 代码块，内核照岗位 schema 核验。退出码 3 带 retry_at 就扣到那时；快照冻不了就不起回合
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek",
+                                                      model="deepseek-flash", tools=["read", "grep", "find", "ls"]))
+    newline = chr(10)
+    inputs = tmp_path / "inputs"
+    (inputs / ".agent").mkdir(parents=True)
+    (inputs / ".agent" / "letter.md").write_text("开工", encoding="utf-8")
+    fake = tmp_path / "fake_quizs.py"
+    fake.write_text(newline.join([
+        "import json, sys",
+        "mode, args = sys.argv[1], sys.argv[2:]",
+        "assert args[:2] == ['snapshot', 'capture'] and '--dir' in args and '--git-executable' in args, args",
+        "if mode == 'snapfail':",
+        "    print(json.dumps({'type': 'result', 'exit_code': 2, 'error_class': 'USAGE'}))",
+        "    sys.exit(2)",
+        "print(json.dumps({'manifest_ref': 'a' * 64, 'files': 1, 'bytes': 6, 'skipped': []}))",
+        ""]), encoding="utf-8")
+    seen, outputs = [], []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        out.write((newline.join(json.dumps(event, ensure_ascii=False) for event in outputs.pop(0)) + newline).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    usage = {"total_input": 1000, "cache_read": 600, "cache_write": 100, "output": 50, "reasoning": None, "cost_microusd": None,
+             "cost_source": "unknown", "currency": "USD", "unknown_attempts": 0}
+
+    def result(**extra):
+        return dict({"type": "result", "exit_code": 0, "error_class": None, "actual_model": "deepseek-flash", "usage": usage,
+                     "thinking": {"requested": "high", "mapped": "high", "effective": "high", "verification_status": "provider_reported"},
+                     "final_text": ""}, **extra)
+
+    init = {"type": "init", "tools": [{"name": name} for name in ("find", "grep", "ls", "read")]}
+    delivery = {"letters": [], "state": "一"}
+    block = newline.join(["好的", "```json", json.dumps(delivery, ensure_ascii=False), "```", ""])
+    outputs += [
+        [init, {"type": "tool_call", "name": "read"}, result(final_text=block)],
+        [init, result(final_text="交差了，没有代码块")],
+        [init, result(exit_code=3, error_class="RATE_LIMIT", retry_at="2026-11-07T10:44:51Z")],
+        [init, {"type": "tool_call", "name": "write"}, result(final_text=block)],
+    ]
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "ok"]))
+    ok = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert ok["output"] == delivery and ok["output_error"] is None and ok["tool_calls"] == {"read": 1}
+    cmd = seen[0]
+    assert cmd[3:5] == ["worker", "turn"] and cmd[cmd.index("--read-snapshot") + 1] == "a" * 64
+    assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls" and "--extension" not in cmd and "--resume" not in cmd
+    record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
+    assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
+    missing = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert missing["output"] is None and "json 代码块" in missing["output_error"]
+    assert missing["session_id"] != ok["session_id"] and ok["session_id"].startswith("T001-")  # 每回合一个新会话
+    limited = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    reset = int(kh._dt.datetime(2026, 11, 7, 10, 44, 51, tzinfo=kh._dt.timezone.utc).timestamp())
+    assert limited["rate_limited_until"] == reset + kh.THROTTLE_RESET_MARGIN and "RATE_LIMIT" in limited["api_error"]
+    rogue = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert rogue["output"] is None and rogue["violations"] == ["调了名册之外的工具 write"]
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
+    frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 4  # 快照冻不了就不起回合
+    assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
+    assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
+
+
 def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):
     # 第 37 轮：T010 的协调人回合替换 state.json 时撞上 WinError 5（别的进程正读着），回合出错，临时文件留在 ledger 里
     monkeypatch.setattr(kh, "SHARING_PAUSE", 0)

@@ -85,8 +85,8 @@
     {
       "name": "D13 仓库外的路径也换成输入目录里的",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "rel === \"..\" || rel.startsWith(`..${SEP}`)",
-      "new": "rel === \"..\""
+      "old": "rel === \"..\" || rel.startsWith(`..${SEP}`) ? text : purePathStr(inputs, rel)",
+      "new": "rel === \"..\" ? text : purePathStr(inputs, rel)"
     },
     {
       "name": "D14 回归测试不排除自己这一片的",
@@ -217,8 +217,8 @@
     {
       "name": "D35 协调人也拿工人的交差格式",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "OUTPUT_SPECS[role === \"coordinator\" ? \"coordinator\" : \"worker\"]",
-      "new": "OUTPUT_SPECS[\"worker\"]"
+      "old": "内核不读它。\", \"\",\n      BT.repeat(3), OUTPUT_SPECS[role === \"coordinator\" ? \"coordinator\" : \"worker\"]",
+      "new": "内核不读它。\", \"\",\n      BT.repeat(3), OUTPUT_SPECS[\"worker\"]"
     },
     {
       "name": "D36 不附上次留下的 state.md",

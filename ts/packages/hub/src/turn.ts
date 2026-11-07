@@ -27,11 +27,12 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  QUIZS_STATE_DIR, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
+import { auditQuizsStream, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -116,8 +117,9 @@ export class TurnRunner {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
     const spec = ROSTER[agent] as RosterSpec;
     const claude = spec.adapter === "claude";
-    // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具
-    const tools = [...(spec.tools ?? []), claude ? STRUCTURED_TOOL : DELIVER_TOOL];
+    const quizs = spec.adapter === "quizs";
+    // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
+    const tools = [...(spec.tools ?? []), ...(quizs ? [] : [claude ? STRUCTURED_TOOL : DELIVER_TOOL])];
     const turnId = `${this.sources.compact()}-${this.sources.random2()}`;
     const turnDir = join(this.hub.root, "turns", agent, turnId);
     if (existsSync(turnDir)) throw new PyCrash("FileExistsError", pyWinErrorMessage(183, turnDir)); // Path.mkdir 走 os.mkdir，带路径
@@ -136,6 +138,7 @@ export class TurnRunner {
     } else if (pyTruthy(session) && (fresh || !pyEq(pyGet(session, "cwd"), where))) {
       [session, generation] = [null, generation + 1n]; // 返工重开，或工作目录变了（claude 按目录找会话）
     }
+    if (quizs) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）
     const cut = session !== null && sessionCutShort(this.hub.root, agent, spec.adapter, pyStrValue(pyItem(session, "id"))) ? pyStrValue(pyItem(session, "id")) : null;
     if (cut !== null) {
       // 第 94 轮：要续接的会话停在半截：换新的一代，附上“接着做”的说明
@@ -146,13 +149,13 @@ export class TurnRunner {
       await this.hub.appendEvent("session.cut_short", [["agent", agent], ["session_key", sessionKey], ["session", cut]]);
     }
     const first = session === null;
-    if (first && !claude) {
+    if (first && spec.adapter === "pi") {
       // 第 93 轮：pi 的会话号按代数定，新会话跳过已有会话文件的代（回合中途被收掉时那一代的会话文件已经留下了）
       const sessions = join(this.hub.root, "sessions", agent);
       while (globPaths(sessions, [`*_${sessionKey}-g${generation}.jsonl`]).length) generation += 1n;
     }
     if (first) {
-      session = new Map<string, PyValue>([["id", claude ? this.sources.uuid4() : `${sessionKey}-g${generation}`], ["cwd", where], ["turns", 0n],
+      session = new Map<string, PyValue>([["id", claude ? this.sources.uuid4() : quizs ? `${sessionKey}-${turnId}` : `${sessionKey}-g${generation}`], ["cwd", where], ["turns", 0n],
         ["created_at", utcNow()], ["generation", generation]]);
     }
     const current = session as PyDict;
@@ -164,16 +167,25 @@ export class TurnRunner {
     }
     if (inputs !== null && statOrNull(join(inputs, INPUTS_INDEX))?.isFile()) copyFileSync(join(inputs, INPUTS_INDEX), join(turnDir, "inputs.json"));
     const inline = pyLen(prompt) <= MAX_INLINE_PROMPT ? prompt : `本回合的输入很长，已写在文件里，先完整读它再开始：${longPrompt}`;
-    const [cmd, piCmd] = claude ? [this.claudeCommand(spec, rolePath, inputs, first, id, inline), null] : this.piCommand(spec, agent, tools, rolePath, turnDir, id);
+    const [cmd, piCmd, quizsCmd, sessionsDir] = claude ? [this.claudeCommand(spec, rolePath, inputs, first, id, inline), null, [], ""]
+      : quizs ? this.quizsCommand(spec, agent, tools, rolePath, turnDir, id, inputs)
+      : [...this.piCommand(spec, agent, tools, rolePath, turnDir, id), [], ""];
     const started = utcNow();
     const env = workerEnv(this.config());
     if (claude) for (const [name, value] of Object.entries(CLAUDE_WORKER_ENV)) env.set(name, value);
-    else {
+    else if (!quizs) {
       env.set("THEMIS_DELIVER_SCHEMA", purePathStr(SCHEMA_DIR, `${spec.role}.json`));
       env.set("THEMIS_GUARD", guardConfig(where, this.hub.repo));
     }
-    const blocked = claude ? deliveryProblem(spec.role)
-      : (await piFlagsProblem(piCmd as string[], cmd.slice((piCmd as string[]).length), env)) || workerFileProblem(GUARD_EXTENSION) || deliveryProblem(spec.role);
+    let blocked: string | null;
+    if (quizs) {
+      const [ref, problem] = inputs === null ? [null, null] : await quizsSnapshot(quizsCmd, sessionsDir, inputs, env);
+      blocked = deliveryProblem(spec.role) || problem;
+      if (ref !== null) cmd.push("--read-snapshot", ref);
+    } else {
+      blocked = claude ? deliveryProblem(spec.role)
+        : (await piFlagsProblem(piCmd as string[], cmd.slice((piCmd as string[]).length), env)) || workerFileProblem(GUARD_EXTENSION) || deliveryProblem(spec.role);
+    }
     const out = join(turnDir, "stream.jsonl");
     const err = join(turnDir, "stderr.log");
     for (const path of [out, err]) closeSync(openSync(path, "wx"));
@@ -181,7 +193,8 @@ export class TurnRunner {
       ? new Map<string, PyValue>([["exit_code", null], ["timed_out", false], ["wall_seconds", 0]])
       : await this.launcher(cmd, where, env, out, err, spec.timeout ?? 1800);
     const lines = jsonlLines(readText(out));
-    const audit = (claude ? auditClaudeStream : auditPiStream)(lines, specDict(spec, tools), where, this.hub.repo);
+    const audit = claude ? auditClaudeStream(lines, specDict(spec, tools), where, this.hub.repo)
+      : quizs ? auditQuizsStream(lines, specDict(spec, tools)) : auditPiStream(lines, specDict(spec, tools), where, this.hub.repo);
     if (blocked) audit.set("api_error", blocked); // 按接口报错走：不重试，阶段标为 failed，直接交给站主
     else if (!pyTruthy(pyGet(audit, "api_error"))) audit.set("api_error", interfaceProblem(specDict(spec), audit, result));
     if (claude) {
@@ -195,7 +208,8 @@ export class TurnRunner {
     let output: PyValue = null;
     let outputError: string | null = null;
     const apiError = pyGet(audit, "api_error");
-    const throttled = !claude && THROTTLE.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
+    // quizs 退出码 3 带了 retry_at 的，审计已经给出解除时刻（第 137 轮），不再走限流正则
+    const throttled = !claude && pyGet(audit, "rate_limited_until") === null && THROTTLE.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
     if (throttled) {
       // 第 38 轮：同一会话连着被限流就加倍退避，扣信到点再办；连着限流太多次照旧按接口报错交给站主。报错写了重置时刻就扣到那时
       const throttles = pyIntOf(pyGet(current, "throttles", 0n)) + 1n;
@@ -209,7 +223,10 @@ export class TurnRunner {
       current.delete("throttles");
     }
     if (pyTruthy(pyGet(audit, "api_error"))) outputError = `模型接口报错（环境问题，不是工人的输出问题）：${pyStrValue(pyItem(audit, "api_error"))}`;
-    else if (!pyTruthy(pyItem(audit, "violations"))) [output, outputError] = deliveredOutput(spec.role, pyGet(audit, "delivered"));
+    else if (!pyTruthy(pyItem(audit, "violations"))) {
+      [output, outputError] = pyTruthy(pyGet(audit, "delivery_error")) ? [null, pyStrValue(pyGet(audit, "delivery_error"))]
+        : deliveredOutput(spec.role, pyGet(audit, "delivered"));
+    }
     const [turnCost, sessionCost] = turnCostUsd(spec.adapter, current, pyGet(audit, "cost_usd"));
     current.set("turns", pyIntOf(pyGet(current, "turns", 0n)) + 1n);
     current.set("last_turn", turnId);
@@ -229,8 +246,8 @@ export class TurnRunner {
       ["api_error", pyGet(audit, "api_error")], ["warnings", pyTruthy(pyGet(audit, "warnings")) ? pyItem(audit, "warnings") : []],
       ["role_prompt_sha256", createHash("sha256").update(rolePrompt, "utf8").digest("hex")], ["hub_sha256", HUB_SHA256], ["hub_impl", hubImpl()],
       // 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希；第 110 轮起一律是 "tool"
-      ["delivery", "tool"],
-      ["delivery_sha256", new Map((claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]).concat(`${spec.role}.json`).map((name) => [name, DELIVERY_SHA256.get(name) ?? null]))],
+      ["delivery", quizs ? "final_json" : "tool"],
+      ["delivery_sha256", new Map((claude || quizs ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]).concat(`${spec.role}.json`).map((name) => [name, DELIVERY_SHA256.get(name) ?? null]))],
       // 第 102 轮：交差被工具退回几次、报错多长；思考的证据（第 103 轮分开记）
       ["deliver_refusals", BigInt(pyLenValue(refused))], ["deliver_refusal_chars", refused.reduce<bigint>((sum, chars) => sum + pyIntOf(chars), 0n)],
       ["thinking_chars", pyGet(audit, "thinking_chars")], ["thinking_tokens", pyGet(audit, "thinking_tokens")],
@@ -275,6 +292,20 @@ export class TurnRunner {
     cmd.push(...(first ? ["--session-id", id] : ["--resume", id]), inline);
     cmd[0] = pyWhich("claude") ?? "claude";
     return cmd;
+  }
+
+  /** 第 137 轮：quizs 回合的命令（不含 --read-snapshot：快照冻好了才知道），交回（命令, quizs 命令, 会话目录）。 */
+  private quizsCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string,
+    inputs: string | null): [string[], null, string[], string] {
+    const sessionsDir = join(this.hub.root, "sessions", agent);
+    const stateDir = join(this.hub.root, QUIZS_STATE_DIR);
+    for (const folder of [sessionsDir, stateDir]) mkdirSync(folder, { recursive: true });
+    const quizsCmd = resolveQuizsCommand();
+    const deadlineMs = (this.sources.seconds() + (spec.timeout ?? 1800)) * 1000; // 取到秒：与 Python 的 int(time.time()) 一致
+    const cmd = [...quizsCmd, "worker", "turn", "--provider", spec.provider ?? "", "--model", spec.model ?? "", "--thinking", spec.thinking ?? "",
+      "--tools", inputs !== null ? tools.join(",") : "none", "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
+      "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir];
+    return [cmd, null, quizsCmd, sessionsDir];
   }
 
   private piCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string): [string[], string[]] {

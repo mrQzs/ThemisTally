@@ -369,6 +369,7 @@ const TURN_TESTS = [
   "test_pi_workers_load_the_guard_with_the_kernel_roots",
   "test_a_throttled_pi_turn_is_held_with_a_growing_backoff",
   "test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error",
+  "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
   "test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided",
   "test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only",
   "test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs",
@@ -408,7 +409,9 @@ function sampled(item: PyDict): ProbeRequest {
   const overrides = JSON.parse(String(item.get("overrides"))) as { roster: Record<string, unknown>; delivery_sha256: Record<string, string> };
   return {
     op: "hub.turn", repo, restore, args: (item.get("args") as PyValue[]).map((arg) => toTagged(arg)), script: toTagged(item.get("script") as PyValue),
-    home: String(item.get("home")), env: piCmd("ok"), roster: overrides.roster, delivery_sha256: overrides.delivery_sha256,
+    // 第 137 轮：quizs 回合的命令取 QUIZS_CMD，采样时记下用例设的那一个
+    home: String(item.get("home")), env: { ...piCmd("ok"), ...(item.get("quizs_cmd") ? { QUIZS_CMD: String(item.get("quizs_cmd")) } : {}) },
+    roster: overrides.roster, delivery_sha256: overrides.delivery_sha256,
     sources: { compact: String(sources.get("compact")), random2: String(sources.get("random2")), uuid4: String(sources.get("uuid4")), seconds: Number(sources.get("seconds")) },
   };
 }
@@ -428,7 +431,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(value.get("skipped")).toEqual([]);
     const calls = value.get("calls") as PyDict[];
     const testOf = (item: PyDict): string => String(item.get("test"));
-    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(25);
+    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(26);
     expect([...new Set(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf))].sort(), "记到 stage_inputs 的用例").toEqual(STAGE_TESTS);
     const replayed = calls.filter((item) => item.get("fn") === "stage_inputs" || item.has("script"));
     // 记下的 pi 命令都以假 pi 开头（采样当时设了 PI_DISPATCH_PI_CMD）：以后改了采样，也不会悄悄又起本机的 pi
@@ -437,7 +440,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       const agent = String((item.get("args") as PyValue[])[0]);
       const roster = (JSON.parse(String(item.get("overrides"))) as { roster: Record<string, { adapter?: string }> }).roster;
       const back = JSON.parse(String(item.get("result"))) as ProbeResult;
-      if ((roster[agent] ?? ROSTER[agent])?.adapter === "claude" || !back.ok) return [];
+      if (["claude", "quizs"].includes(String((roster[agent] ?? ROSTER[agent])?.adapter)) || !back.ok) return [];
       return ((fromTagged(back["value"] as Tagged) as PyDict).get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
     expect(piHeads.length, "记下的 pi 命令").toBe(42);

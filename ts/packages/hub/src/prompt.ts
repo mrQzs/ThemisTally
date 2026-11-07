@@ -220,6 +220,18 @@ export function inputPath(hub: Hub, inputs: string | null, path: PyValue): strin
   return rel === ".." || rel.startsWith(`..${SEP}`) ? text : purePathStr(inputs, rel);
 }
 
+/** 主工作区里的一个路径在 quizs 快照里的写法（第 137 轮）：相对仓库、正斜杠；不在仓库里或不在同一个盘时原样。 */
+export function snapshotPath(hub: Hub, path: PyValue): string {
+  const text = pyStrValue(path);
+  let rel: string;
+  try {
+    rel = relpath(abspath(text), abspath(hub.repo));
+  } catch {
+    return text;
+  }
+  return !text || rel === ".." || rel.startsWith(`..${SEP}`) ? text : rel.split(SEP).join("/");
+}
+
 /** 任务基线上先前各片留下的门禁基准测试（第 14 轮）。 */
 const GATE_BASELINE = compilePy(`^tests/test_gate_t${BS}d+_baseline${BS}.py$`);
 
@@ -249,8 +261,10 @@ export function turnPrompt(
   hub: Hub, ts: PyDict, agent: string, taskId: string, letters: readonly PyValue[], workspace: string,
   error: PyValue = null, inputs: string | null = null, resume: PyValue = null, routingNote: PyValue = null,
 ): string {
-  const shown = (path: PyValue): string => inputPath(hub, inputs, path); // 主工作区的路径一律换成输入目录里的
   const spec = rosterSpec(agent);
+  const snapshot = spec.adapter === "quizs" && inputs !== null; // 第 137 轮：quizs 读的是输入目录冻成的快照
+  // 主工作区的路径一律换成输入里的那一份
+  const shown = (path: PyValue): string => (snapshot ? snapshotPath(hub, path) : inputPath(hub, inputs, path));
   const role = spec.role;
   const taskDir = hub.taskDir(taskId);
   const parts: PyValue[] = ["# 本回合输入（内核）", "",
@@ -258,10 +272,13 @@ export function turnPrompt(
     `- 主任务：${pyStrValue(pyItem(ts, "task"))} ${pyStrValue(pyItem(ts, "title"))}`,
     `- 本回合的任务：${taskId}`,
     `- 工作目录：${purePathStr(workspace)}`, // 照 str(Path)：调用方传的路径没规整也一样
-    inputs !== null
-      ? `- 只读输入目录：${purePathStr(inputs)}（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 ` + BT + ".agent/…" + BT
-        + ` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 ${DEPENDENCY_DIRS.map((dep) => purePathStr(hub.repo, dep)).join("、")}）`
-      : `- 仓库主工作区（只读参考）：${hub.repo}`,
+    snapshot
+      ? "- 只读快照：根目录就是内核这一回合复制的输入（信箱、合同与执行证据照相对仓库的原样摆放）；read、grep、find、ls 都用相对快照根的路径，"
+        + "信里写的 " + BT + ".agent/…" + BT + " 路径照原样读；主工作区与工作目录都读不到"
+      : inputs !== null
+        ? `- 只读输入目录：${purePathStr(inputs)}（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 ` + BT + ".agent/…" + BT
+          + ` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 ${DEPENDENCY_DIRS.map((dep) => purePathStr(hub.repo, dep)).join("、")}）`
+        : `- 仓库主工作区（只读参考）：${hub.repo}`,
     `- 你的 state.md：${shown(purePathStr(taskDir, "state.md"))}`,
     `- 你的 report.md：${shown(purePathStr(taskDir, "report.md"))}（内核按你的输出写）`];
   if (spec.timeout) {
@@ -303,7 +320,14 @@ export function turnPrompt(
   parts.push("", "## 新信", "", ...(letters.length ? letters : ["（没有新信）"]));
   if (role === "coordinator") coordinatorParts(hub, ts, letters, routingNote, parts, shown);
   else workerParts(hub, ts, agent, taskId, workspace, parts, shown);
-  if (spec.adapter !== "claude") {
+  if (spec.adapter === "quizs") {
+    // 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
+    parts.push("", "## 交差（最后的回答写一个 json 代码块）", "",
+      "- 这一回合做完，最后的回答里只写一个 " + BT.repeat(3) + "json 代码块，内容是一个 JSON 对象，格式是内核给的 JSON Schema，大致如下。写完这一回合就结束。",
+      "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
+      "- 只写这一个 json 代码块；没有 deliver 之类的交差工具。", "",
+      BT.repeat(3), OUTPUT_SPECS[role === "coordinator" ? "coordinator" : "worker"] as string, BT.repeat(3));
+  } else if (spec.adapter !== "claude") {
     // 第 90 轮：用 deliver 工具交差，格式由工具的 schema 卡住
     parts.push("", "## 交差（用 deliver 工具）", "",
       "- 这一回合做完，调用一次 " + BT + "deliver" + BT + " 工具交差；参数的格式在工具的说明里（内核给的 schema），大致如下。调用成功，这一回合就结束。",

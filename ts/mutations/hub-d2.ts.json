@@ -139,7 +139,7 @@
     {
       "name": "T22 claude 的交差哈希也记 pi 的扩展",
       "file": "ts/packages/hub/src/turn.ts",
-      "old": "(claude ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)])",
+      "old": "(claude || quizs ? [] : [purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)])",
       "new": "[purePathName(DELIVER_EXTENSION), purePathName(GUARD_EXTENSION)]"
     },
     {

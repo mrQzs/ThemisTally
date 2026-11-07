@@ -508,6 +508,9 @@ THROTTLE_BACKOFF_SECONDS, THROTTLE_BACKOFF_MAX, THROTTLE_MAX_HOLDS = 300, 3600, 
 #: 换算出来已经过去、或在 24 小时以外的不认，照旧退避（时区读错了也只是早醒一次，下一回合照旧退避）。
 THROTTLE_RESET_RE = re.compile("([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})")
 THROTTLE_RESET_OFFSET, THROTTLE_RESET_MARGIN, THROTTLE_RESET_HORIZON = 8 * 3600, 60, 86400
+#: 第 137 轮：quizs 载体（P1：名册没换，协调人照旧走 pi；换载体要站主同意）。命令取 QUIZS_CMD（JSON 的字符串列表），
+#: 缺省是 PATH 里的 quizs；Quizs 的提供方状态放在信箱的 quizs-state 下。交付是最后回答里的一个 json 代码块
+QUIZS_STATE_DIR, QUIZS_FENCE_OPEN, QUIZS_FENCE_CLOSE = "quizs-state", "```json", "```"
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -1857,6 +1860,116 @@ def guard_config(workspace: Path, repo: Path) -> str:
         "readTools": list(READ_TOOLS)})
 
 
+def resolve_quizs_command() -> List[str]:
+    """quizs 的命令（第 137 轮）：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。"""
+    raw = os.environ.get("QUIZS_CMD")
+    if not raw:
+        return [shutil.which("quizs") or "quizs"]
+    value = json.loads(raw)
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
+        raise HubError("QUIZS_CMD 要是非空的字符串列表（JSON）", EXIT_BLOCKED)
+    return value
+
+
+def fenced_json(text: str) -> Optional[Dict[str, Any]]:
+    """quizs 回合的交付（第 137 轮）：最后的回答里恰好一个 json 代码块，内容是 JSON 对象；别的一律 None。"""
+    newline = chr(10)
+    blocks: List[str] = []
+    current: Optional[List[str]] = None
+    for line in text.replace(chr(13) + newline, newline).split(newline):
+        if current is None:
+            if line.strip() == QUIZS_FENCE_OPEN:
+                current = []
+        elif line.strip() == QUIZS_FENCE_CLOSE:
+            blocks.append(newline.join(current))
+            current = None
+        else:
+            current.append(line)
+    if len(blocks) != 1 or current is not None:
+        return None
+    try:
+        value = json.loads(blocks[0])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def quizs_snapshot(quizs_cmd: Sequence[str], sessions_dir: Path, inputs: Path, env: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
+    """这一回合的输入目录交给 quizs snapshot capture 冻成只读快照（第 137 轮）：交回（manifest_ref, 问题）。"""
+    git_exe = shutil.which("git")
+    if git_exe is None:
+        return None, "找不到 git，quizs 冻结不了这一回合的输入，没有起这一回合"
+    code, out, _err = pd.run_capture(list(quizs_cmd) + ["snapshot", "capture", "--session-dir", str(sessions_dir), "--dir", str(inputs),
+                                                       "--git-executable", git_exe], env=env, timeout=180)
+    lines = [line for line in jsonl_lines(out) if line.strip()]  # 输出以换行结尾：最后一个是空串
+    try:
+        last = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        last = None
+    if code != 0 or not isinstance(last, dict) or not isinstance(last.get("manifest_ref"), str):
+        reason = last.get("error_class") if isinstance(last, dict) else None
+        return None, "quizs 冻结不了这一回合的输入（snapshot capture 退出码 %s，%s），没有起这一回合" % (code, reason or "读不出结果")
+    return last["manifest_ref"], None
+
+
+def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
+    """quizs 回合的审计（第 137 轮）：逐行读 Quizs 的 JSONL。init 与 tool_call 里名册之外的工具算越权；result 给出
+    退出码、模型、思考档位、用量与最后的回答（交付是其中一个 json 代码块）。退出码 3 带 retry_at 时直接扣到那时，
+    不带时照第 38 轮的限流退避（error_class 是 RATE_LIMIT 或 QUOTA，限流正则认得）。"""
+    allowed = set(spec["tools"])
+    audit: Dict[str, Any] = {"violations": [], "tool_calls": {}, "models": [], "effective_levels": [], "usage": None,
+                             "cost_usd": None, "delivered": None, "delivery_error": None, "api_error": None, "terminal": False,
+                             "warnings": [], "deliver_refusals": [], "thinking_chars": None, "thinking_tokens": None,
+                             "rate_limited_until": None}
+    result = None
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            audit["warnings"].append("quizs 的事件流里有读不出的行")
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if kind == "init":
+            for tool in event.get("tools") or []:
+                name = tool.get("name") if isinstance(tool, dict) else None
+                if name not in allowed:
+                    audit["violations"].append("quizs 给模型的工具里有名册之外的 %s" % name)
+        elif kind == "tool_call":
+            name = event.get("name")
+            audit["tool_calls"][name] = audit["tool_calls"].get(name, 0) + 1
+            if name not in allowed:
+                audit["violations"].append("调了名册之外的工具 %s" % name)
+        elif kind == "result":
+            result = event
+    if result is None:
+        audit["api_error"] = "quizs 没有交回 result 事件（看这一回合的 stderr.log）"
+        return audit
+    audit["terminal"] = True
+    if result.get("actual_model"):
+        audit["models"] = [result["actual_model"]]
+    effective = (result.get("thinking") or {}).get("effective")
+    if effective:
+        audit["effective_levels"] = [effective]
+    usage = result.get("usage") or {}
+    if usage.get("total_input") is not None:
+        cache_read, cache_write = usage.get("cache_read") or 0, usage.get("cache_write") or 0
+        audit["usage"] = {"input": usage["total_input"] - cache_read - cache_write, "cacheRead": cache_read,
+                          "cacheWrite": cache_write, "output": usage.get("output") or 0}
+    code = result.get("exit_code")
+    if code != 0:
+        audit["api_error"] = "quizs 退出码 %s（%s）" % (code, result.get("error_class"))
+        if code == 3 and isinstance(result.get("retry_at"), str):
+            moment = _dt.datetime.fromisoformat(result["retry_at"].replace("Z", "+00:00"))
+            audit["rate_limited_until"] = int(moment.timestamp()) + THROTTLE_RESET_MARGIN
+        return audit
+    audit["delivered"] = fenced_json(result.get("final_text") or "")
+    if audit["delivered"] is None:
+        audit["delivery_error"] = "最后的回答里没有恰好一个能解析成 JSON 对象的 json 代码块（quizs 用代码块交差）"
+    return audit
+
+
 def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optional[Path] = None,
                     repo: Optional[Path] = None) -> Dict[str, Any]:
     allowed = set(spec["tools"])
@@ -1994,7 +2107,8 @@ class TurnRunner:
         spec = ROSTER[agent]
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
-        tools = list(spec["tools"]) + [STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL]
+        quizs = spec["adapter"] == "quizs"
+        tools = list(spec["tools"]) + ([] if quizs else [STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL])
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
         turn_dir.mkdir(parents=True)
@@ -2010,6 +2124,8 @@ class TurnRunner:
                            "generation": generation}
         elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
+        if quizs:
+            session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）
         cut = session["id"] if session is not None and session_cut_short(
             self.hub, agent, spec["adapter"], session["id"]) else None
         if cut:
@@ -2021,14 +2137,15 @@ class TurnRunner:
             (turn_dir / "prompt.md").write_text(prompt, encoding="utf-8", newline="\n")
             self.hub.append_event("session.cut_short", agent=agent, session_key=session_key, session=cut)
         first = session is None
-        if first and spec["adapter"] != "claude":
+        if first and spec["adapter"] == "pi":
             # 第 93 轮：会话记录在回合结束时才写，回合中途被收掉，这一代的会话文件已经留下了（可能停在半截的工具
             # 调用上）。pi 的会话号按代数定，新会话跳过已有文件的代，不接着那个会话
             sessions = self.hub.root / "sessions" / agent
             while any(sessions.glob("*_%s-g%d.jsonl" % (session_key, generation))):
                 generation += 1
         if first:
-            session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-g%d" % (session_key, generation),
+            session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-%s" % (session_key, turn_id) if quizs
+                       else "%s-g%d" % (session_key, generation),
                        "cwd": str(workspace), "turns": 0, "created_at": utc_now(), "generation": generation}
         long_prompt = turn_dir / "prompt.md"
         if inputs is not None and len(prompt) > MAX_INLINE_PROMPT:
@@ -2062,6 +2179,17 @@ class TurnRunner:
             cmd += ["--json-schema", json.dumps(role_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
+        elif quizs:
+            sessions_dir = self.hub.root / "sessions" / agent
+            state_dir = self.hub.root / QUIZS_STATE_DIR
+            for folder in (sessions_dir, state_dir):
+                folder.mkdir(parents=True, exist_ok=True)
+            quizs_cmd = resolve_quizs_command()
+            deadline_ms = (int(time.time()) + int(spec.get("timeout", 1800))) * 1000  # 取到秒：与 TS 的秒数来源一致
+            cmd = quizs_cmd + ["worker", "turn", "--provider", spec["provider"], "--model", spec["model"],
+                               "--thinking", spec["thinking"], "--tools", ",".join(tools) if inputs is not None else "none"]
+            cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
+                    "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
         else:
             sessions_dir = self.hub.root / "sessions" / agent
             sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -2084,18 +2212,25 @@ class TurnRunner:
         env = worker_env(config)
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
-        if spec["adapter"] != "claude":
+        if spec["adapter"] == "pi":
             env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
             env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
-        blocked = delivery_problem(spec["role"]) if spec["adapter"] == "claude" else (
-            pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or worker_file_problem(GUARD_EXTENSION)
-            or delivery_problem(spec["role"]))
+        if quizs:
+            ref, problem = (None, None) if inputs is None else quizs_snapshot(quizs_cmd, sessions_dir, inputs, env)
+            blocked = delivery_problem(spec["role"]) or problem
+            if ref is not None:
+                cmd += ["--read-snapshot", ref]
+        else:
+            blocked = delivery_problem(spec["role"]) if spec["adapter"] == "claude" else (
+                pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or worker_file_problem(GUARD_EXTENSION)
+                or delivery_problem(spec["role"]))
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
         lines = jsonl_lines(read_text(turn_dir / "stream.jsonl"))
-        audit = (audit_claude_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo)
-                 if spec["adapter"] == "claude" else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
+        audit = (audit_claude_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo) if spec["adapter"] == "claude"
+                 else audit_quizs_stream(lines, dict(spec, tools=tools)) if quizs
+                 else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
         elif not audit.get("api_error"):
@@ -2107,7 +2242,9 @@ class TurnRunner:
             audit["effort_requested"] = spec["thinking"]
             audit["effort_effective"] = ",".join(audit.get("effective_levels") or []) or None
         output, output_error = None, None
-        throttled = spec["adapter"] != "claude" and bool(THROTTLE_RE.search(str(audit.get("api_error") or "")))
+        # quizs 退出码 3 带了 retry_at 的，审计已经给出解除时刻（第 137 轮），不再走限流正则
+        throttled = (spec["adapter"] != "claude" and audit.get("rate_limited_until") is None
+                     and bool(THROTTLE_RE.search(str(audit.get("api_error") or ""))))
         if throttled:
             # 第 38 轮：pi 的模型接口限流（T012 的协调人：qwen 回 429 throttling），回报里没有解除时刻：
             # 同一会话连着被限流就加倍退避，扣信到点再办（第 33 轮的扣信）；成功一回就清零。
@@ -2123,7 +2260,8 @@ class TurnRunner:
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:
-            output, output_error = delivered_output(spec["role"], audit.get("delivered"))
+            output, output_error = ((None, audit["delivery_error"]) if audit.get("delivery_error")
+                                    else delivered_output(spec["role"], audit.get("delivered")))
         turn_cost, session_cost = turn_cost_usd(spec["adapter"], session, audit.get("cost_usd"))
         session["turns"] = int(session.get("turns", 0)) + 1
         session["last_turn"] = turn_id
@@ -2143,9 +2281,9 @@ class TurnRunner:
             "role_prompt_sha256": sha256_text(role_prompt), "hub_sha256": HUB_SHA256, "hub_impl": HUB_IMPL,
             # 第 90 轮：怎么交差的，记下这个岗位的 schema（pi 还有扩展）的哈希。第 110 轮起一律是 "tool"，
             # 照写这个字段：旧记录里有 "block"，按它区分新旧
-            "delivery": "tool",
+            "delivery": "final_json" if quizs else "tool",
             "delivery_sha256": {name: DELIVERY_SHA256.get(name) for name in (
-                () if spec["adapter"] == "claude" else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (
+                () if spec["adapter"] in ("claude", "quizs") else (DELIVER_EXTENSION.name, GUARD_EXTENSION.name)) + (
                 "%s.json" % spec["role"],)},
             # 第 102 轮：交差被工具退回几次、报错多长（退回的报错连同收到的参数回到上下文里）。
             # 思考的证据（第 103 轮分开记）：pi 是 thinking 块的字数，claude 只有回报的 token 数
@@ -4533,11 +4671,23 @@ def input_path(hub: Hub, inputs: Optional[Path], path: Any) -> str:
     return text if rel == os.pardir or rel.startswith(os.pardir + os.sep) else str(inputs / rel)
 
 
+def snapshot_path(hub: Hub, path: Any) -> str:
+    """主工作区里的一个路径在 quizs 快照里的写法（第 137 轮）：相对仓库、正斜杠；不在仓库里时原样。"""
+    text = str(path)
+    try:
+        rel = os.path.relpath(os.path.abspath(text), os.path.abspath(str(hub.repo)))
+    except ValueError:  # 不在同一个盘
+        return text
+    return text if not text or rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel.replace(os.sep, "/")
+
+
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
-    shown = lambda path: input_path(hub, inputs, path)  # noqa: E731  主工作区的路径一律换成输入目录里的
     spec = ROSTER[agent]
+    snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
+    shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
+             else (lambda path: input_path(hub, inputs, path)))
     role = spec["role"]
     task_dir = hub.task_dir(task_id)
     parts = ["# 本回合输入（内核）", "",
@@ -4547,7 +4697,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
              "- 工作目录：%s" % workspace,
              ("- 只读输入目录：%s（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 `.agent/…` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 %s）" % (inputs, "、".join(
                  str(hub.repo / dep) for dep in DEPENDENCY_DIRS)) if inputs is not None else
-              "- 仓库主工作区（只读参考）：%s" % hub.repo),
+              "- 仓库主工作区（只读参考）：%s" % hub.repo) if not snapshot else
+             ("- 只读快照：根目录就是内核这一回合复制的输入（信箱、合同与执行证据照相对仓库的原样摆放）；read、grep、find、ls "
+              "都用相对快照根的路径，信里写的 `.agent/…` 路径照原样读；主工作区与工作目录都读不到"),
              "- 你的 state.md：%s" % shown(task_dir / "state.md"),
              "- 你的 report.md：%s（内核按你的输出写）" % shown(task_dir / "report.md")]
     if spec.get("timeout"):
@@ -4700,7 +4852,15 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if seeded:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
-    if spec["adapter"] != "claude":
+    if spec["adapter"] == "quizs":
+        # 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
+        parts += ["", "## 交差（最后的回答写一个 json 代码块）", "",
+                  "- 这一回合做完，最后的回答里只写一个 ```json 代码块，内容是一个 JSON 对象，格式是内核给的 JSON Schema，"
+                  "大致如下。写完这一回合就结束。",
+                  "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
+                  "- 只写这一个 json 代码块；没有 deliver 之类的交差工具。", "",
+                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+    elif spec["adapter"] != "claude":
         # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住
         parts += ["", "## 交差（用 deliver 工具）", "",
                   "- 这一回合做完，调用一次 `deliver` 工具交差；参数的格式在工具的说明里（内核给的 schema），大致如下。"

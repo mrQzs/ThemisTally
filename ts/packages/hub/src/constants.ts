@@ -84,7 +84,7 @@ export const ROUTINE_NEXT: Readonly<Record<string, string>> = {
 export interface RosterSpec {
   readonly role: string;
   readonly label: string;
-  readonly adapter: "pi" | "claude" | "dispatcher" | "jev";
+  readonly adapter: "pi" | "claude" | "quizs" | "dispatcher" | "jev";
   readonly provider?: string;
   readonly model?: string;
   readonly thinking?: string;
@@ -208,5 +208,12 @@ export const THROTTLE_MAX_HOLDS = 5;
 export const THROTTLE_RESET_OFFSET = 8 * 3600;
 export const THROTTLE_RESET_MARGIN = 60;
 export const THROTTLE_RESET_HORIZON = 86400;
+/**
+ * 第 137 轮：quizs 载体（P1：名册没换，协调人照旧走 pi；换载体要站主同意）。命令取 QUIZS_CMD（JSON 的字符串列表），缺省是 PATH 里的 quizs；
+ * Quizs 的提供方状态放在信箱的 quizs-state 下。交付是最后回答里的一个 json 代码块。
+ */
+export const QUIZS_STATE_DIR = "quizs-state";
+export const QUIZS_FENCE_OPEN = "```json";
+export const QUIZS_FENCE_CLOSE = "```";
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";
