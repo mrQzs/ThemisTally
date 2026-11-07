@@ -150,9 +150,10 @@ ROSTER: Dict[str, Dict[str, Any]] = {
     # 第 112 轮（七端改造第 3 条）："routing": "kernel" 时例行流转由内核代办，协调人只在例外时被唤醒；
     # 去掉这一项就回到每封信都起协调人回合（拆字段、finish_exec 写“无”不随它变）
     # 第 138 轮：时限 1200 → 600 秒（446 个回合最长 419 秒、p99 291 秒；卡死时少等 10 分钟，用户 2026-11-07 同意）
-    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "pi", "provider": "dsf",
+    # 第 145 轮：换到 quizs 载体（模型不变，用户 2026-11-07“全部按你的推荐完成任务”）；证书过期、文件没设时退回 pi
+    COORDINATOR: {"role": "coordinator", "label": "调度代理端（协调人）", "adapter": "quizs", "provider": "deepseek",
                   "model": "deepseek-flash", "thinking": "high", "tools": ["read", "grep", "find", "ls"],
-                  "timeout": 600, "workspace": "base", "routing": "kernel"},
+                  "timeout": 600, "workspace": "base", "routing": "kernel", "fallback": {"adapter": "pi", "provider": "dsf"}},
     # 最重要的岗位：全流程从规划出发。规划端只多一条只读的 `npm view`：T002 的字体包没有 woff2，规划、合同、
     # 门禁、一审都没法核实，执行端跑了 28 分钟才在预检里撞上（第 7 轮）。其他仓库外事实走 external_facts，由站主核实。
     "planner-opus": {"role": "planner", "label": "规划端", "adapter": "claude", "model": "claude-opus-5-5",
@@ -517,7 +518,15 @@ QUIZS_STATE_DIR, QUIZS_FENCE_OPEN, QUIZS_FENCE_CLOSE = "quizs-state", "```json",
 QUIZS_CERT_MARGIN = 60
 #: 第 143 轮：quizs 每回合的预算。Quizs 默认请求 8 次、单次输入 512 KiB、单次回应 256 KiB；DeepSeek 的流式回应每个输出 token 约 290 字节，
 #: 256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者
-QUIZS_TURN_BUDGETS = (("--max-requests", "24"), ("--max-input-bytes", "2097152"), ("--max-response-bytes", "4194304"))
+#: 第 145 轮：请求 24 → 32、工具调用 48（P2a 30 个回合里 2 个用完 24 次请求还没交差，都是输入多的回合）
+QUIZS_TURN_BUDGETS = (("--max-requests", "32"), ("--max-tool-calls", "48"), ("--max-input-bytes", "2097152"),
+                      ("--max-response-bytes", "4194304"))
+#: 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次
+QUIZS_BEHAVIOR_ERRORS = {
+    "BUDGET_EXHAUSTED": "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
+    "POLICY": "调了没有授权的工具。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
+    "TOOL_ERROR": "工具参数不合格式（JSON、路径写法或字段），回合被 Quizs 结束。重交时照工具说明写参数",
+}
 #: 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）
 QUIZS_PERMIT_HELD = (
     "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
@@ -1892,6 +1901,15 @@ def quizs_unready(now: int, timeout: int) -> Optional[str]:
     return None
 
 
+def effective_spec(agent: str, now: int) -> Tuple[Dict[str, Any], Optional[str]]:
+    """第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，
+    交差方式才对得上。"""
+    listed = {key: value for key, value in ROSTER[agent].items() if key != "fallback"}
+    substitute = ROSTER[agent].get("fallback")
+    reason = quizs_unready(now, int(listed.get("timeout", 1800))) if listed["adapter"] == "quizs" and substitute else None
+    return (listed if reason is None else {**listed, **substitute}), reason
+
+
 def resolve_quizs_command() -> List[str]:
     """quizs 的命令（第 137 轮）：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。"""
     raw = os.environ.get("QUIZS_CMD")
@@ -1992,6 +2010,9 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
     code = result.get("exit_code")
     if code != 0:
         error_class = result.get("error_class")
+        if error_class in QUIZS_BEHAVIOR_ERRORS:
+            audit["delivery_error"] = "quizs 退出码 %s（%s）：%s" % (code, error_class, QUIZS_BEHAVIOR_ERRORS[error_class])
+            return audit
         audit["api_error"] = QUIZS_PERMIT_HELD if error_class == "QUEUE_TIMEOUT" else "quizs 退出码 %s（%s）" % (code, error_class)
         if code == 3 and isinstance(result.get("retry_at"), str):
             moment = _dt.datetime.fromisoformat(result["retry_at"].replace("Z", "+00:00"))
@@ -2137,12 +2158,8 @@ class TurnRunner:
         """fresh=True：不续接旧会话，开一个干净的新会话（返工时用，旧会话里失败的历史不再带着走）。
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
-        listed = {key: value for key, value in ROSTER[agent].items() if key != "fallback"}
-        substitute = ROSTER[agent].get("fallback")
         # 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-        fallback = (quizs_unready(int(time.time()), int(listed.get("timeout", 1800)))
-                    if listed["adapter"] == "quizs" and substitute else None)
-        spec = listed if fallback is None else {**listed, **substitute}
+        spec, fallback = effective_spec(agent, int(time.time()))
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
@@ -2162,6 +2179,8 @@ class TurnRunner:
                            "generation": generation}
         elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
+        # 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）
+        throttles = (session or {}).get("throttles") if quizs or fallback is not None else None
         if quizs or fallback is not None:
             session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
         cut = session["id"] if session is not None and session_cut_short(
@@ -2185,6 +2204,8 @@ class TurnRunner:
             session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-%s" % (session_key, turn_id) if quizs
                        else "%s-g%d" % (session_key, generation),
                        "cwd": str(workspace), "turns": 0, "created_at": utc_now(), "generation": generation}
+            if throttles:
+                session["throttles"] = throttles
         long_prompt = turn_dir / "prompt.md"
         if inputs is not None and len(prompt) > MAX_INLINE_PROMPT:
             long_prompt = inputs / ("prompt-%s.md" % turn_id)  # 第 88 轮：回合目录在主工作区里，工人读不到
@@ -4730,7 +4751,8 @@ def snapshot_path(hub: Hub, path: Any) -> str:
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
-    spec = ROSTER[agent]
+    # 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
+    spec, _fallback = effective_spec(agent, int(time.time()))
     snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
     shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
              else (lambda path: input_path(hub, inputs, path)))

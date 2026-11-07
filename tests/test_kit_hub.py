@@ -3466,15 +3466,16 @@ def test_coordinator_runs_at_high_effort():
 def test_only_the_planner_stays_on_claude():
     # 第 36 轮（用户 2026-10-21）：最重要的岗位 Opus 5.5 max，第二重要的 GLM-5.3，其余换到 pi 上
     on = {name: (spec["adapter"], spec.get("provider"), spec["model"]) for name, spec in kh.ROSTER.items()
-          if spec["adapter"] in ("claude", "pi", "dispatcher")}
+          if spec["adapter"] in ("claude", "pi", "dispatcher", "quizs")}
     assert on == {
-        kh.COORDINATOR: ("pi", "dsf", "deepseek-flash"),  # 第 79 轮（第 65 轮起 MiniMax-M3.1-Flash）
+        kh.COORDINATOR: ("quizs", "deepseek", "deepseek-flash"),  # 第 145 轮换到 quizs（第 79 轮起 pi 的 dsf）
         "planner-opus": ("claude", None, "claude-opus-5-5"),
         "contract-glm": ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 67 轮（第 65 轮 M3，第 46 轮起 glm-5.3）
         "gate-sonnet": ("pi", "cc-switch-zhipu-glm", "glm-5.3"),  # 第 79 轮：智谱官方编程套餐（第 63 轮起 step）
         "audit-sonnet": ("pi", "minimax", "MiniMax-M3.1-Flash"),  # 第 132 轮：Token Plan 额度用完换回（第 67 轮起 qwen3.8-max）
         "exec-step": ("dispatcher", "cc-switch-step-fun", "step-5-preview")}
     # MiniMax-M3.1-Flash 的 max 在 pi 里生效（第 65 轮 smoke 回报 thinkingLevel=max），不是静默降级
+    assert kh.ROSTER[kh.COORDINATOR]["fallback"] == {"adapter": "pi", "provider": "dsf"}  # 证书过期时退回 pi
     assert kh.ROSTER["planner-opus"]["effort"] == "max" and kh.ROSTER["audit-sonnet"]["thinking"] == "max"
     # 第 132 轮起 Token Plan 不给任何岗位（额度用完；第 67 到 131 轮只给审核端）
     assert [name for name, spec in kh.ROSTER.items() if spec.get("provider") == "cc-switch-qianwenai-token-plan"] == []
@@ -5874,7 +5875,7 @@ def test_pi_workers_run_their_rostered_model_and_tools(tmp_path):
                        ("audit-sonnet", "T001-4-audit-pre")):
         runner.run(agent, key, tmp_path / "ws", "角色", "输入")
         cmd, cwd, timeout = seen[-1]
-        spec = kh.ROSTER[agent]
+        spec, _fallback = kh.effective_spec(agent, int(time.time()))  # 第 145 轮：协调人没设 quizs 的文件，退回 pi
         assert cmd[cmd.index("--provider") + 1] == spec["provider"] and cmd[cmd.index("--model") + 1] == spec["model"]
         # 第 90 轮起用 deliver 交差、第 106 轮起加守卫；第 110 轮撤掉代码块解析，每个 pi 工人都这样
         assert cmd[cmd.index("--thinking") + 1] == spec["thinking"] and cmd[cmd.index("--tools") + 1] == ",".join(
@@ -6152,7 +6153,7 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     # 交付是最后回答里的一个 json 代码块，内核照岗位 schema 核验。退出码 3 带 retry_at 就扣到那时；快照冻不了就不起回合
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek",
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek",
                                                       model="deepseek-flash", tools=["read", "grep", "find", "ls"]))
     newline = chr(10)
     inputs = tmp_path / "inputs"
@@ -6192,6 +6193,10 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         [init, result(exit_code=3, error_class="RATE_LIMIT", retry_at="2026-11-07T10:44:51Z")],
         [init, {"type": "tool_call", "name": "write"}, result(final_text=block)],
         [init, result(exit_code=5, error_class="QUEUE_TIMEOUT")],
+        [init, result(exit_code=5, error_class="BUDGET_EXHAUSTED")],
+        [init, result(exit_code=6, error_class="POLICY")],
+        [init, result(exit_code=3, error_class="RATE_LIMIT")],
+        [init, result(exit_code=3, error_class="RATE_LIMIT")],
     ]
     runner = kh.TurnRunner(hub, launcher=launcher)
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "ok"]))
@@ -6203,7 +6208,7 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert cmd[cmd.index("--cwd") + 1] == str(tmp_path) and cmd[cmd.index("--readonly-root") + 1] == str(inputs)
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls" and "--extension" not in cmd and "--resume" not in cmd
     # 第 143 轮：每回合的预算照写（Quizs 默认单次回应 256 KiB，DeepSeek 的流式回应不到 900 个 token 就超）
-    assert cmd[cmd.index("--max-response-bytes") + 1] == "4194304" and cmd[cmd.index("--max-requests") + 1] == "24"
+    assert cmd[cmd.index("--max-response-bytes") + 1] == "4194304" and cmd[cmd.index("--max-requests") + 1] == "32"
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
     assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
@@ -6224,9 +6229,18 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     held = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     assert held["api_error"] == kh.QUIZS_PERMIT_HELD and held.get("rate_limited_until") is None
     assert "permits release" in held["api_error"] and "--confirm-terminal" in held["api_error"]
+    # 第 145 轮：模型的做法结束的回合（预算用完、调了未授权的工具）记成交差不合格，内核会带着说明当场重交一次
+    for kind in ("BUDGET_EXHAUSTED", "POLICY"):
+        spent = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+        assert spent["api_error"] is None and spent["output"] is None and kh.QUIZS_BEHAVIOR_ERRORS[kind] in spent["output_error"]
+    # 第 145 轮：DeepSeek 的 429 不带重置时刻，走退避；每回合开新会话也照样累计次数，第二次的退避加倍
+    first = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    second = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert kh.THROTTLE_BACKOFF_SECONDS <= second["rate_limited_until"] - first["rate_limited_until"] <= kh.THROTTLE_BACKOFF_SECONDS + 30
+    assert second["session_id"] != first["session_id"]  # 还是每回合一个新会话
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
-    assert "冻结不了" in frozen["api_error"] and len(seen) == 5  # 快照冻不了就不起回合
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 9  # 快照冻不了就不起回合
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
@@ -6236,7 +6250,7 @@ def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, m
     # 这一回合退回名册写的替补（pi），开新会话，result.json 记下原因；证书撑得住就照常走 quizs
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek",
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek",
                                                       fallback={"adapter": "pi", "provider": "dsf"}))
     certificate = tmp_path / "qualification.json"
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, "-c", "pass"]))
@@ -7485,7 +7499,8 @@ def test_role_schemas_only_use_the_subset_and_match_the_kernel():
     assert {"fact", "verified"} <= set(planner["properties"]["external_facts"]["items"]["required"])
     for role in ("audit", "gate", "contract", "planner"):  # 空的 report 在回合内就挡回（themistally-15 复核第 97 轮）
         assert kh.role_schema(role)["properties"]["report"]["minLength"] == 1, role
-    assert all(kh.ROSTER[name]["adapter"] in ("pi", "claude") for name in tool)
+    # 第 145 轮：协调人走 quizs，交差是最后回答里的代码块，照同一份 schema 核验
+    assert all(kh.ROSTER[name]["adapter"] in ("pi", "claude", "quizs") for name in tool)
     assert all("delivery" not in spec for spec in kh.ROSTER.values())  # 第 110 轮：回退开关撤了
     audit = kh.role_schema("audit")["properties"]["letter"]
     assert tuple(audit["properties"]["type"]["enum"]) == kh.WORKER_TYPES
@@ -7559,10 +7574,14 @@ def test_deeply_nested_tool_args_are_read_without_recursion(tmp_path):
     assert kh._arg_strings({"a": ["x", {"b": "y", "c": [1, ("z", None)]}], "d": "w"}) == ["x", "y", "z", "w"]
 
 
+# 第 145 轮：协调人的名册不带替补字段，测 quizs 回合本身时用它
+BARE_COORDINATOR = {key: value for key, value in kh.ROSTER[kh.COORDINATOR].items() if key != "fallback"}
+
+
 def coordinator_turn(tmp_path, events, monkeypatch=None, agent=kh.COORDINATOR, key="T001"):
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    spec = kh.ROSTER[agent]
+    spec, _fallback = kh.effective_spec(agent, int(time.time()))  # 第 145 轮：协调人没设 quizs 的文件，退回 pi
     done = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
                                                "stopReason": "toolUse", "content": []}}
     seen = []
@@ -7691,7 +7710,7 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
 
 
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
-    spec = kh.ROSTER[kh.COORDINATOR]
+    spec, _fallback = kh.effective_spec(kh.COORDINATOR, int(time.time()))  # 第 145 轮：没设 quizs 的文件，退回 pi
     text = {"type": "message_end", "message": {"role": "assistant", "provider": spec["provider"], "model": spec["model"],
                                                "stopReason": "stop", "content": [
                                                    {"type": "text", "text": "```json\n{\"letters\": [], \"state\": \"x\"}\n```"}]}}
@@ -8015,7 +8034,7 @@ def test_the_executor_letter_says_none_when_nothing_is_pending(engine_env, monke
 def test_a_delivery_the_kernel_cannot_read_is_an_interface_error(tmp_path):
     """第 110 轮（themistally-15 的意见）：交差工具报了成功、内核却读不到参数（pi 或 claude 升级改了形状），或者 pi 一条
     回复都没有就以非零码退出：按接口报错交给站主，不当成工人的输出问题去重试、返工。"""
-    spec = kh.ROSTER[kh.COORDINATOR]
+    spec, _fallback = kh.effective_spec(kh.COORDINATOR, int(time.time()))  # 第 145 轮：没设 quizs 的文件，退回 pi
     good = {"letters": [], "state": "x"}
     shapeless = [{"type": "tool_execution_start", "toolCallId": "d0", "toolName": "deliver", "args": good},
                  {"type": "tool_execution_end", "toolCallId": "d0", "toolName": "deliver", "isError": False,
@@ -8081,7 +8100,7 @@ def test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool(tmp_path, monke
     # 第 144 轮：P2a 里 DeepSeek 把“写一个 json 代码块”读成了调一个名叫 json 的工具（Quizs 按未授权工具硬停，回合作废）
     hub = kh.Hub(tmp_path)
     hub.ensure()
-    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(kh.ROSTER[kh.COORDINATOR], adapter="quizs", provider="deepseek"))
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek"))
     quizs = kh.turn_prompt(hub, make_ts(), kh.COORDINATOR, "T001", [], tmp_path)
     assert "## 交差（最后的回答写一个 json 代码块）" in quizs and "没有名叫 json 的工具" in quizs and "deliver 工具" not in quizs
 

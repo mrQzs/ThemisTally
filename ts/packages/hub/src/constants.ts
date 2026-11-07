@@ -102,8 +102,9 @@ export interface RosterSpec {
 export const ROSTER: Readonly<Record<string, RosterSpec>> = {
   [COORDINATOR]: {
     // 第 138 轮：时限 1200 → 600 秒（446 个回合最长 419 秒、p99 291 秒；卡死时少等 10 分钟，用户 2026-11-07 同意）
-    role: "coordinator", label: "调度代理端（协调人）", adapter: "pi", provider: "dsf", model: "deepseek-flash", thinking: "high",
-    tools: ["read", "grep", "find", "ls"], timeout: 600, workspace: "base", routing: "kernel",
+    // 第 145 轮：换到 quizs 载体（模型不变，用户 2026-11-07“全部按你的推荐完成任务”）；证书过期、文件没设时退回 pi
+    role: "coordinator", label: "调度代理端（协调人）", adapter: "quizs", provider: "deepseek", model: "deepseek-flash", thinking: "high",
+    tools: ["read", "grep", "find", "ls"], timeout: 600, workspace: "base", routing: "kernel", fallback: { adapter: "pi", provider: "dsf" },
   },
   "planner-opus": {
     role: "planner", label: "规划端", adapter: "claude", model: "claude-opus-5-5", effort: "max",
@@ -223,8 +224,15 @@ export const QUIZS_CERT_MARGIN = 60;
 /** 第 143 轮：quizs 每回合的预算。Quizs 默认请求 8 次、单次输入 512 KiB、单次回应 256 KiB；DeepSeek 的流式回应每个输出 token 约 290 字节，
  *  256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者 */
 export const QUIZS_TURN_BUDGETS: readonly (readonly [string, string])[] = [
-  ["--max-requests", "24"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "4194304"],
+  // 第 145 轮：请求 24 → 32、工具调用 48（P2a 30 个回合里 2 个用完 24 次请求还没交差，都是输入多的回合）
+  ["--max-requests", "32"], ["--max-tool-calls", "48"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "4194304"],
 ];
+/** 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次。 */
+export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
+  BUDGET_EXHAUSTED: "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
+  POLICY: "调了没有授权的工具。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
+  TOOL_ERROR: "工具参数不合格式（JSON、路径写法或字段），回合被 Quizs 结束。重交时照工具说明写参数",
+};
 /** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
 export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
   + "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"

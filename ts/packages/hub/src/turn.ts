@@ -32,7 +32,7 @@ import {
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
-import { auditQuizsStream, quizsSnapshot, quizsUnready, resolveQuizsCommand } from "./quizs.ts";
+import { auditQuizsStream, effectiveSpec, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -115,10 +115,8 @@ export class TurnRunner {
   async run(agent: string, sessionKey: string, workspace: string, rolePrompt: string, prompt: string,
     retryOf: string | null = null, fresh = false, inputs: string | null = null, sessionId: string | null = null): Promise<PyDict> {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
-    const { fallback: substitute, ...listed } = ROSTER[agent] as RosterSpec;
     // 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-    const fallback = listed.adapter === "quizs" && substitute ? quizsUnready(this.sources.seconds(), listed.timeout ?? 1800) : null;
-    const spec: RosterSpec = fallback === null ? listed : { ...listed, ...substitute };
+    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds());
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
@@ -141,6 +139,8 @@ export class TurnRunner {
     } else if (pyTruthy(session) && (fresh || !pyEq(pyGet(session, "cwd"), where))) {
       [session, generation] = [null, generation + 1n]; // 返工重开，或工作目录变了（claude 按目录找会话）
     }
+    // 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）
+    const throttles = quizs || fallback !== null ? pyGet(session ?? new Map(), "throttles") : null;
     if (quizs || fallback !== null) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
     const cut = session !== null && sessionCutShort(this.hub.root, agent, spec.adapter, pyStrValue(pyItem(session, "id"))) ? pyStrValue(pyItem(session, "id")) : null;
     if (cut !== null) {
@@ -160,6 +160,7 @@ export class TurnRunner {
     if (first) {
       session = new Map<string, PyValue>([["id", claude ? this.sources.uuid4() : quizs ? `${sessionKey}-${turnId}` : `${sessionKey}-g${generation}`], ["cwd", where], ["turns", 0n],
         ["created_at", utcNow()], ["generation", generation]]);
+      if (pyTruthy(throttles)) session.set("throttles", throttles as PyValue);
     }
     const current = session as PyDict;
     const id = pyStrValue(pyItem(current, "id"));

@@ -5,7 +5,7 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { COORDINATOR, ROSTER } from "@themis/hub/constants";
+import { COORDINATOR, ROSTER, type RosterSpec } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { IMPLS, PYTHON as PYTHON_IMPL, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, scratchDir } from "./harness.ts";
@@ -48,7 +48,11 @@ const FAKE_PI = fakePi();
 const piCmd = (mode: string): Record<string, string> => ({ PI_DISPATCH_PI_CMD: JSON.stringify([PYTHON, FAKE_PI, mode]) });
 
 /** 名册里这个工人的模型说完了话（pi 的 message_end）：审计照它认模型。 */
-const piDone = (agent: string): unknown => ({ type: "message_end", message: { role: "assistant", provider: ROSTER[agent]?.provider, model: ROSTER[agent]?.model, stopReason: "toolUse", content: [] } });
+/** 第 145 轮：协调人换到 quizs；手写场景测的是 pi 载体，协调人照旧按纯 pi 的名册跑（去掉替补字段，载体与 provider 换回 pi 的）。 */
+const { fallback: _coordinatorFallback, ...BARE_COORDINATOR } = ROSTER[COORDINATOR] as RosterSpec;
+const PI_COORDINATOR: RosterSpec = { ...BARE_COORDINATOR, ...(_coordinatorFallback ?? {}) };
+const piSpec = (agent: string): RosterSpec | undefined => (agent === COORDINATOR ? PI_COORDINATOR : ROSTER[agent]);
+const piDone = (agent: string): unknown => ({ type: "message_end", message: { role: "assistant", provider: piSpec(agent)?.provider, model: piSpec(agent)?.model, stopReason: "toolUse", content: [] } });
 /** deliver 的调用：每次是（参数，是否被拒）；不被拒的那次 details 就是参数（pi 1.4.0 的形状）。 */
 function delivers(...attempts: [unknown, boolean][]): unknown[] {
   return attempts.flatMap(([args, refused], index) => [
@@ -100,7 +104,7 @@ function build(name: string, setup: Setup): ProbeRequest {
   setup.prepare?.(repo, workspace, home);
   const args: PyValue[] = [setup.agent, setup.key ?? "T001", workspace, "角色", setup.prompt ?? "输入", null, setup.fresh ?? false, inputs, setup.sessionId ?? null];
   return { op: "hub.turn", repo, args: args.map((arg) => toTagged(arg)), script: toTagged(pyScript(setup.script ?? {})), sources: SOURCES, home, env: piCmd(setup.mode ?? "ok"),
-    roster: setup.roster ?? {}, delivery_sha256: setup.shas ?? {} };
+    roster: setup.roster ?? { [COORDINATOR]: PI_COORDINATOR }, delivery_sha256: setup.shas ?? {} };
 }
 
 /** 带标签的值写成文字：int 写成带 n 的数，dict 写成键值对的数组（保留次序）。 */
@@ -155,7 +159,7 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
       "pi-timeout": { agent: COORDINATOR, script: { stdout: b64(stream(piDone(COORDINATOR))), exit_code: null, timed_out: true, wall_seconds: 1200.25 } },
       "pi-throttle": {
         agent: COORDINATOR,
-        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: ROSTER[COORDINATOR]?.provider, model: ROSTER[COORDINATOR]?.model, stopReason: "error", errorMessage: "429 Too Many Requests" } })) },
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "429 Too Many Requests" } })) },
         prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, throttles: 2 } })),
       },
       // 会话里记着限流的次数，这一回合没被限流：次数清掉
@@ -442,8 +446,12 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       const agent = String((item.get("args") as PyValue[])[0]);
       const roster = (JSON.parse(String(item.get("overrides"))) as { roster: Record<string, { adapter?: string }> }).roster;
       const back = JSON.parse(String(item.get("result"))) as ProbeResult;
-      if (["claude", "quizs"].includes(String((roster[agent] ?? ROSTER[agent])?.adapter)) || !back.ok) return [];
-      return ((fromTagged(back["value"] as Tagged) as PyDict).get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
+      if (!back.ok) return [];
+      const value = fromTagged(back["value"] as Tagged) as PyDict;
+      // 第 145 轮：协调人的名册是 quizs，没设 quizs 的文件时退回 pi（摘要里记 quizs_fallback），那一回合起的是 pi
+      const adapter = String((roster[agent] ?? ROSTER[agent])?.adapter);
+      if (adapter === "claude" || (adapter === "quizs" && !(value.get("summary") as PyDict).has("quizs_fallback"))) return [];
+      return (value.get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
     expect(piHeads.length, "记下的 pi 命令").toBe(42);
     expect(piHeads.filter((head) => head !== JSON.stringify(fake)), "不以假 pi 开头的 pi 命令").toEqual([]);

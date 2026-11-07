@@ -23,6 +23,7 @@ import { HubError } from "./errors.ts";
 import { KERNEL_ROOT, TEMPLATE_DIR, git } from "./kernel.ts";
 import { stageOf } from "./letters.ts";
 import type { Hub } from "./mailbox.ts";
+import { effectiveSpec } from "./quizs.ts";
 import { gateFile, gatePattern, stageStatusTable, upstreamNotes } from "./taskstate.ts";
 
 const BS = String.fromCharCode(92);
@@ -261,7 +262,9 @@ export function turnPrompt(
   hub: Hub, ts: PyDict, agent: string, taskId: string, letters: readonly PyValue[], workspace: string,
   error: PyValue = null, inputs: string | null = null, resume: PyValue = null, routingNote: PyValue = null,
 ): string {
-  const spec = rosterSpec(agent);
+  rosterSpec(agent);
+  // 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
+  const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000));
   const snapshot = spec.adapter === "quizs" && inputs !== null; // 第 137 轮：quizs 读的是输入目录冻成的快照
   // 主工作区的路径一律换成输入里的那一份
   const shown = (path: PyValue): string => (snapshot ? snapshotPath(hub, path) : inputPath(hub, inputs, path));

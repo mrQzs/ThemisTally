@@ -2271,6 +2271,20 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：quizs 的交差段落第三条改成：只写这一个 json 代码块；交差不调用任何工具（没有 deliver，也没有名叫 json 的工具），把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。TS 与 kit_hub.py 各一份。
 - **测试**：新用例 test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool（单列一条：hub-prompt 契约的重放不带名册覆盖，放进旧用例会让整条用例对不上）；test_kit_hub 与 test_kernel_impl 548 条、hub-prompt 与 hub-shadow 契约、mutation-specs 过。
 
+### 第 145 轮：协调人换到 quizs 载体（模型不变）；提示按这一回合实际用的配置；模型的做法结束的回合当场重交
+
+- **起因**：用户 11-07 定“全部按你的推荐完成任务”。P2a（30 个历史协调人回合经 Quizs + deepseek-flash 离线重放，周末空闲价实花约 1.7 元）交付 25/30；没交的 5 个：调了一个名叫 json 的工具 2 个（第 144 轮改了提示）、用完 24 次请求 2 个（都是输入多的回合）、没写出代码块 1 个。重放的输入是仓库里现在的版本（信箱目录不进 git，取不回当时的），“决定与 pi 相同”12/25 只作参考。
+- **改法**：
+  - 名册的协调人改成 adapter quizs、provider deepseek（模型、思考、工具、时限不变），fallback 写 pi 的 dsf：证书过期、文件没设时退回 pi（第 143 轮的机制）。
+  - effective_spec（TS 的 effectiveSpec）算这一回合实际用的配置；turn_prompt 也按它写——原来提示按名册写，退回 pi 的回合会被叫去写代码块，pi 却只认 deliver。
+  - Quizs 因模型的做法结束回合的错误（BUDGET_EXHAUSTED、POLICY、TOOL_ERROR，见 QUIZS_BEHAVIOR_ERRORS）记成交差不合格而不是接口报错：内核按原有的协调人重交路径带着说明当场重交一次，再不行才交给站主。
+  - 每回合预算：请求 24 → 32，工具调用 48。
+  - quizs 与替补每回合开新会话，开之前把连着被限流的次数带过来：DeepSeek 的 429 不带重置时刻、走退避，原来次数每回合清零，退避永远 5 分钟、太多次也不交给站主。
+- **契约**：hub-turn 的手写场景测的是 pi 载体，协调人照旧按纯 pi 的名册跑（build 默认带上 PI_COORDINATOR）；pi 命令计数把退回 pi 的协调人回合（摘要里有 quizs_fallback）算进去；hub-shadow 的角色提示词比对加上 quizs 岗位。
+- **测试**：测协调人 pi 交差的用例按实际配置伪造回应（测试环境没设 quizs 的文件，协调人退回 pi）；quizs 回合用例用不带替补字段的名册（BARE_COORDINATOR）；名册断言改成 quizs；quizs 回合用例加预算用完、未授权工具两种重交，连着两次不带重置时刻的限流退避加倍。test_kit_hub 与 test_kernel_impl 548 条、hub-* 契约、mutation-specs、schemas 过。
+- **上线**：live 文件在 Quizs 的 .quizs/deepseek/tt-coordinator-live（plan、档案、证书），由 Quizs 的 scripts/renew-deepseek-worker.mjs 续签（证书剩不到 6 小时且枢纽 24 小时内活动过才花钱，一次最多 16 个请求，不到 1 元）；用户级环境变量 QUIZS_CMD（bun 跑 Quizs 源码入口，证书只认 bun@1.4.2）与三份文件的路径。
+- **上线实测**：第一次认证在 output_cap 上失败（q2-shadow 要 32768 个 token，DeepSeek 的流超 8 MiB），Quizs 加 q2-deepseek 档（输出 8192）后通过：9 个请求，证书到 2026-11-08T08:12Z；TurnRunner 用真证书经 Quizs 跑了一个协调人回合（P2a 第 0 回合的输入，临时信箱）：15 次只读工具、53 秒、交了 1 封信、核验通过。定时任务“ThemisTally Quizs DeepSeek renew”每 4 小时一次，第一次手动触发报 FRESH（剩 19.9 小时）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

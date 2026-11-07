@@ -9,12 +9,20 @@ import { pyWhich } from "@themis/base/pyshutil";
 import { runCapture } from "@themis/dispatcher/pi-cli";
 import { readFileSync } from "node:fs";
 import {
-  EXIT_BLOCKED, QUIZS_CERT_MARGIN, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, THROTTLE_RESET_MARGIN,
+  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, ROSTER, THROTTLE_RESET_MARGIN,
+  type RosterSpec,
 } from "./constants.ts";
 import { HubError } from "./errors.ts";
 
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
+
+/** 第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，交差方式才对得上。 */
+export function effectiveSpec(agent: string, now: number): [RosterSpec, string | null] {
+  const { fallback: substitute, ...listed } = ROSTER[agent] as RosterSpec;
+  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800) : null;
+  return [reason === null ? listed : { ...listed, ...substitute }, reason];
+}
 
 /** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合）；起得了是 null。 */
 export function quizsUnready(now: number, timeout: number): string | null {
@@ -147,6 +155,10 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
   const code = pyGet(result, "exit_code");
   if (code !== 0n) {
     const errorClass = pyStrValue(pyGet(result, "error_class"));
+    if (Object.hasOwn(QUIZS_BEHAVIOR_ERRORS, errorClass)) {
+      audit.set("delivery_error", `quizs 退出码 ${pyStrValue(code)}（${errorClass}）：${QUIZS_BEHAVIOR_ERRORS[errorClass] as string}`);
+      return audit;
+    }
     audit.set("api_error", errorClass === "QUEUE_TIMEOUT" ? QUIZS_PERMIT_HELD : `quizs 退出码 ${pyStrValue(code)}（${errorClass}）`);
     const retryAt = pyGet(result, "retry_at");
     if (code === 3n && typeof retryAt === "string") audit.set("rate_limited_until", BigInt(Math.floor(Date.parse(retryAt) / 1000) + THROTTLE_RESET_MARGIN));

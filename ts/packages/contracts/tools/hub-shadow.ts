@@ -273,14 +273,14 @@ function taskMap(state: Buffer): Map<string, PyValue> {
 }
 
 /**
- * 提示词（⑤d1，themistally-15 提的静态一类）：全部 pi、claude 岗位的 role_prompt，加上每个主任务（watch 时只算 ts 变了的）协调人的一份、
+ * 提示词（⑤d1，themistally-15 提的静态一类）：全部 pi、claude、quizs（第 145 轮起的协调人）岗位的 role_prompt，加上每个主任务（watch 时只算 ts 变了的）协调人的一份、
  * 各个不是 idle 的阶段那个工人的一份 turn_prompt；参数取典型的（没有新信、不续接、没有报错与代办说明、没有输入目录，工作目录是主仓库）。
  * 两边用同一份快照、同一批任务书，没有时间差。
  */
 function comparePrompts(cmp: Comparison, source: Source, snapRepo: string, names: readonly string[]): void {
   const { state } = source.snapshot;
   copyPromptInputs(source.files, source.git, snapRepo, state, names);
-  const agents = Object.keys(ROSTER).filter((agent) => ["pi", "claude"].includes(ROSTER[agent]?.adapter ?? ""));
+  const agents = Object.keys(ROSTER).filter((agent) => ["pi", "claude", "quizs"].includes(ROSTER[agent]?.adapter ?? ""));
   const items: Item[] = agents.map((agent) => ({ op: "hub.prompt", fn: "role_prompt", args: [toTagged(agent)] }));
   const keys = agents.map((agent) => `${agent} 角色`);
   const tasks = taskMap(state);
