@@ -2289,7 +2289,8 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 
 - **起因**：第 145 轮跑 hub-* 契约时，hub-runner 的只读重放在 kernel_files 与 code_fingerprint 上对不上：Python 的 kernel_files 只列 12 个文件，TS 的 kernelFiles 在选择文件的 hub 是 ts 时另加 TS 源码与依赖清单（E3），共 148 个。Python 的文档注释原本就写着“第 ⑤ 步 hub 换成 TS 时再纳入”，镜像一直没补；11-06（60bdaf2）hub 换成 ts 起，这条重放就对不上（owner-sweep 不跑 TS 契约，没被发现）。
 - **改法**：kit_hub.py 加 TS_KERNEL_PACKAGES、kernel_selection（读不了、不合法时交回 {}，当 hub 是 python）与 ts_kernel_files（base、config、dispatcher、hub、cli 的 src 下全部文件按相对路径的码点排，ts 下的 package.json、bun.lock、bunfig.toml，各包的 package.json，tsconfig.json）；kernel_files(impl=None) 在 hub 是 ts 时接上。本机实测 Python 与 TS 各 148 个、次序逐项相同；hub 是 python 时仍是原来的 12 个。
-- **测试**：test_kit_hub 的内核文件用例加 hub 是 ts、python 两种；test_kit_hub 与 test_kernel_impl 548 条、hub-runner 与 hub-handoff 契约过。
+- **契约**：E3 那条（hub-runner-scenes）原来只要求 hub 是 python 时三边相同、hub 是 ts 时 TS 多出五个包，改成两种选择下三边都相同；Python 探针把选择文件的内容传给 kernel_files；采样器在 kernel_files 没给选择、code_fingerprint 没给 files 时记下调用当时实际用的那一份（conftest 把选择文件钉成不存在，重放在 pytest 之外读的是真的 ts）；hub-runner 的计数跟着改。
+- **测试**：test_kit_hub 的内核文件用例加 hub 是 ts、python 两种；test_kit_hub 与 test_kernel_impl 548 条、hub-runner 与 hub-runner-scenes（26 条）、hub-handoff、mutation-specs 过。
 
 ## 11. 已知缺口与下一步
 

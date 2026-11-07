@@ -507,7 +507,7 @@ describe("第 ⑤j2 片：真的 git status（手写，用例经 REAL_KERNEL_CHA
 });
 
 describe("第 ⑤j2 片：E3 内核文件（⑤j 设计稿第 6 节）", () => {
-  it("选择文件的 hub 是 python 时 TS 与 Python 逐项相同；是 ts 时 TS 正好多出五个包 src 下的全部文件与依赖清单", () => {
+  it("两种选择下三边逐项相同（第 146 轮起 Python 也照选择文件）；hub 是 ts 时比 python 正好多出五个包 src 下的全部文件与依赖清单", () => {
     const python = new Map([["hub", "python"]]);
     const listed = IMPLS.map((impl) => runBatch(impl, [{ op: "hub.contract", fn: "kernel_files", args: [toTagged(python)] }])[0]);
     expect(listed[1]).toEqual(listed[0]);
@@ -533,5 +533,8 @@ describe("第 ⑤j2 片：E3 内核文件（⑤j 设计稿第 6 节）", () => {
       expect(files.slice(0, base.length), impl.name).toEqual(base);
       expect(files.slice(base.length).map((path) => relative(root, path).split(String.fromCharCode(92)).join("/")), impl.name).toEqual(expected);
     }
+    const onTs = IMPLS.map((impl) => runBatch(impl, [{ op: "hub.contract", fn: "kernel_files", args: [toTagged(new Map([["hub", "ts"]]) as PyDict)] }])[0]);
+    expect(onTs[1], "hub 是 ts 时 ts-node 与 Python").toEqual(onTs[0]);
+    expect(onTs[2], "hub 是 ts 时 bun 与 Python").toEqual(onTs[0]);
   }, 600_000);
 });

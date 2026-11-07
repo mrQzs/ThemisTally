@@ -1434,8 +1434,8 @@ def op_hub_contract(request):
             value = kit_hub.recorded_sum(*args)
         elif fn == "configured_parallel":  # ⑤j1：第二个参数记成 Namespace 的各键
             value = kit_hub.configured_parallel(kit_hub.Hub(Path(args[0])), argparse.Namespace(**args[1]))
-        elif fn == "kernel_files":  # ⑤j2：hub 是 python 时的内核文件清单（路径交回字符串）
-            value = [str(path) for path in kit_hub.kernel_files()]
+        elif fn == "kernel_files":  # ⑤j2：内核文件清单（路径交回字符串）；第 146 轮起同 TS，给了选择文件的内容就照它
+            value = [str(path) for path in kit_hub.kernel_files(*args[:1])]
         elif fn in ("code_fingerprint", "kernel_dirty", "kernel_changes"):  # ⑤j2：给了 files 照真的算；没给就是内核文件
             value = getattr(kit_hub, fn)(None if args[0] is None else [Path(item) for item in args[0]])
         elif fn in ("normalize_identity", "normalize_markup"):
@@ -3062,6 +3062,16 @@ def op_hub_audit_samples(request):
                     given = [str(engine.hub.repo), engine.only_task] + [plain(item) for key, item in bound.arguments.items() if key != "self"]
                 else:
                     given = [plain(item) for item in bound.arguments.values()]
+                # 第 146 轮：没给选择文件、没给 files 时，记下调用当时实际用的那一份：conftest 把选择文件钉成“不存在”（全部 python），
+                # 重放在 pytest 之外，读到的是真的选择文件（hub 是 ts 时内核文件多出 TS 的源码）
+                if name == "kernel_files" and given and given[0] is None:
+                    given[0] = plain(kit_hub.kernel_selection())
+                elif name == "code_fingerprint" and given and given[0] is None:
+                    depth[0] += 1  # 算清单时 kernel_files 不算一次顶层调用
+                    try:
+                        given[0] = [str(path) for path in kit_hub.kernel_files()]
+                    finally:
+                        depth[0] -= 1
                 entry = {"test": current[0], "fn": name, "args": given}
                 calls.append(entry)
                 if name in snapshot_functions:  # ⑤i1：resumed_session 只拿 workspace 比字符串，不存那个目录

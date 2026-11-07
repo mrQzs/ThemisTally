@@ -126,7 +126,7 @@ describe("第 ⑤j2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       cmd_run: 20,
       code_fingerprint: 10,
       kernel_dirty: 4,
-      kernel_files: 7,
+      kernel_files: 9, // 第 146 轮：内核文件用例另测 hub 是 ts、python 两种
       owner_sweep_tick: 6,
       pause_requested: 4,
       refuse_dirty_kernel: 3,
@@ -167,7 +167,7 @@ describe("第 ⑤j2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
   }, 3_600_000);
   it("只读的：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(21);
+    expect(calls.length, "顶层调用次数").toBe(23);
     replay(calls, IMPLS);
   }, 1_800_000);
 });
