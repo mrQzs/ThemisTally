@@ -18,7 +18,7 @@ import { DispatchError } from "@themis/dispatcher/repo";
 import { acceptContract, acceptGatePre } from "./accept.ts";
 import {
   AUTO_JEV, BUSY_GUARD, COORDINATOR, EXIT_USAGE, FIELDS, INFO_TYPES, INPUT_FILE_LIMIT, KERNEL, MAX_STAGE_REWORKS, OWNER, PAUSE_TYPES, ROSTER,
-  type RosterSpec, STAGE_WORKER, VERDICTS, WORKER_RETRIES_AFTER_TIMEOUT, WORKERS,
+  type RosterSpec, SENDER_ALIAS, STAGE_WORKER, VERDICTS, WORKER_RETRIES_AFTER_TIMEOUT, WORKERS,
 } from "./constants.ts";
 import { dodCoverageProblems, externalFactProblems, unverifiedFacts } from "./contract.ts";
 import { HubError } from "./errors.ts";
@@ -360,7 +360,10 @@ export class Engine implements Landing {
   async deliverCoordinatorLetter(state: StateLike, item: PyValue, sender: string = COORDINATOR): Promise<string | null> {
     if (!(item instanceof Map)) return "信不是对象";
     const text = (key: string, fallback: string): string => pyStrValue(or(pyGet(item, key), fallback));
-    const meta = new Map<string, string>([["from", sender], ["to", text("to", "")], ["task-id", text("task_id", "")],
+    // 第 153 轮：msg-id 里站主的 ASCII 别名是 owner，协调人常照着把收信人也写成 owner（pi 时期内核发的 15 封拒收通知里 4 封、
+    // Quizs 重放的 58 个交差里 9 个都是它）：别名就是站主，照站主投递，不拒收
+    const receiver = text("to", "") === SENDER_ALIAS[OWNER] ? OWNER : text("to", "");
+    const meta = new Map<string, string>([["from", sender], ["to", receiver], ["task-id", text("task_id", "")],
       ["in-reply-to", text("in_reply_to", "none")], ["type", text("type", "")]]);
     const fields = new Map<string, PyValue>(FIELDS.map((key) => [key, pyStrip(pyStrValue(pyGet(item, key, ""))) || "无"]));
     const bodyLines = pySplitlines(renderLetter(new Map([...meta, ["msg-id", "x"]]), fields)).length - 8;

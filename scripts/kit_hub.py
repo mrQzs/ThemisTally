@@ -5634,7 +5634,10 @@ class Engine:
         例行流转也走这里（sender 是内核），这几样只有一份。"""
         if not isinstance(item, dict):
             return "信不是对象"
-        meta = {"from": sender, "to": str(item.get("to") or ""), "task-id": str(item.get("task_id") or ""),
+        to = str(item.get("to") or "")
+        # 第 153 轮：msg-id 里站主的 ASCII 别名是 owner，协调人常照着把收信人也写成 owner（pi 时期内核发的 15 封拒收通知里 4 封、
+        # Quizs 重放的 58 个交差里 9 个都是它）：别名就是站主，照站主投递，不拒收
+        meta = {"from": sender, "to": OWNER if to == SENDER_ALIAS[OWNER] else to, "task-id": str(item.get("task_id") or ""),
                 "in-reply-to": str(item.get("in_reply_to") or "none"), "type": str(item.get("type") or "")}
         fields = {key: str(item.get(key, "")).strip() or "无" for key in FIELDS}
         body_lines = len(render_letter(dict(meta, **{"msg-id": "x"}), fields).splitlines()) - 8

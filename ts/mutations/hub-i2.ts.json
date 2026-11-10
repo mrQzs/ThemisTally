@@ -654,6 +654,18 @@
    "file": "ts/packages/hub/src/requeue.ts",
    "old": "pyStrValue(or(pyGet(stage, \"assigned_at\"), \"\"))",
    "new": "\"\""
+  },
+  {
+   "name": "O01 协调人把收信人写成站主的别名 owner 时照旧拒收（第 153 轮）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "const receiver = text(\"to\", \"\") === SENDER_ALIAS[OWNER] ? OWNER : text(\"to\", \"\");",
+   "new": "const receiver = text(\"to\", \"\");"
+  },
+  {
+   "name": "O02 把内核的别名 kernel 也当成站主（第 153 轮）",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "text(\"to\", \"\") === SENDER_ALIAS[OWNER] ? OWNER",
+   "new": "Object.values(SENDER_ALIAS).includes(text(\"to\", \"\")) ? OWNER"
   }
  ]
 }

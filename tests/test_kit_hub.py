@@ -1646,15 +1646,21 @@ def test_coordinator_letters_pass_the_guard_before_delivery(engine_env):
     hub = engine_env
     owner_task(hub)
     bad = dict(start_planner(), to="exec-step", task_id="T001-5-exec")
-    runner = FakeRunner([({"letters": [start_planner(), bad], "state": "s"}, [])])
+    # 第 153 轮：收信人写成 msg-id 里站主的别名 owner 的，照站主投递，不算拒收
+    ask = dict(start_planner(), to="owner", type="提问", task_id="T001", 摘要="图标用哪一个？")
+    alias = dict(start_planner(), to="kernel", type="汇报", task_id="T001")  # 内核的别名不认：没有给内核写信这回事
+    runner = FakeRunner([({"letters": [start_planner(), bad, ask, alias], "state": "s"}, [])])
     assert kh.Engine(hub, runner).step()
     state = hub.load_state()["tasks"]["T001"]
+    asked = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
+    assert len(asked) == 1 and "type: 提问" in asked[0] and "to: 站主" in asked[0] and "图标用哪一个？" in asked[0]
     assert state["stages"]["1-plan"]["status"] == "assigned"
     assert (hub.task_dir("T001-1-plan") / "brief.md").read_text(encoding="utf-8").startswith("# 任务书")
     assert len(hub.unread("planner-opus")) == 1
     assert hub.unread("exec-step") == []  # 一审没通过的开工被拒收
     notice = hub.unread(kh.COORDINATOR)
     assert len(notice) == 1 and "type: 核验" in notice[0].read_text(encoding="utf-8")
+    assert "收信人 kernel 不在名册里" in notice[0].read_text(encoding="utf-8")
     assert state["coordinator_rejections"] == 1
 
 
