@@ -453,7 +453,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       if (adapter === "claude" || (adapter === "quizs" && !(value.get("summary") as PyDict).has("quizs_fallback"))) return [];
       return (value.get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
-    expect(piHeads.length, "记下的 pi 命令").toBe(45); // 第 145 轮：退回 pi 的协调人回合也算（证书退回的用例多 3 条）
+    expect(piHeads.length, "记下的 pi 命令").toBe(46); // 第 145 轮：退回 pi 的协调人回合也算（证书退回的用例多 3 条）；第 148 轮：live plan 读不出又多 1 条
     expect(piHeads.filter((head) => head !== JSON.stringify(fake)), "不以假 pi 开头的 pi 命令").toEqual([]);
     const label = (item: PyDict, at: number): string => `${testOf(item)}（第 ${at} 条记录，${String(item.get("fn"))}）`;
     const [python, ...others] = IMPLS.map((impl) => runBatch(impl, replayed.map(sampled)).map((result, at) => view(replayed[at] as PyDict, result)));

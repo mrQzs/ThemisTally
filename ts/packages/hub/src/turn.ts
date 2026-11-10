@@ -27,12 +27,13 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  EXIT_BLOCKED, QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
+import { HubError } from "./errors.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
-import { auditQuizsStream, effectiveSpec, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
+import { auditQuizsStream, effectiveSpec, quizsLivePlan, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -317,6 +318,13 @@ export class TurnRunner {
     for (const [flag, name] of QUIZS_LIVE_FILES) {
       const value = process.env[name];
       if (value) cmd.push(flag, value);
+    }
+    if (process.env["QUIZS_LIVE_PLAN"]) { // 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
+      const [plan, problem] = quizsLivePlan();
+      if (plan === null) throw new HubError(problem ?? "", EXIT_BLOCKED);
+      const turnPlan = join(turnDir, QUIZS_TURN_PLAN);
+      writeJson(turnPlan, new Map([...plan, ["plan_id", `${pyGet(plan, "plan_id") as string}.${purePathName(turnDir)}`]]));
+      cmd[cmd.indexOf("--live-plan") + 1] = turnPlan;
     }
     return [cmd, null, quizsCmd, sessionsDir];
   }

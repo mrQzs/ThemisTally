@@ -2802,11 +2802,12 @@ def op_hub_audit_samples(request):
     from _pytest.monkeypatch import MonkeyPatch
 
     sys.path.insert(0, str(ROOT / "tests"))
+    import conftest  # noqa: E402
     import test_kit_hub as cases  # noqa: E402
 
-    # 这里手搭的 autouse 夹具只有这两个：两个文件里再加了，采样会悄悄少搭一个（第 ⑤d 片撞过：Engine 的用例因此走了另一条路）
+    # 这里手搭的 autouse 夹具只有这三个：两个文件里再加了，采样会悄悄少搭一个（第 ⑤d 片撞过：Engine 的用例因此走了另一条路）
     found = sorted(_autouse_fixtures(ROOT / "tests" / "test_kit_hub.py") + _autouse_fixtures(ROOT / "tests" / "conftest.py"))
-    if found != ["pi_knows_every_flag", "python_kernel_impl"]:
+    if found != ["no_ambient_quizs", "pi_knows_every_flag", "python_kernel_impl"]:
         return {"ok": False, "error": "AUTOUSE_CHANGED", "names": found}
 
     def plain(value):
@@ -3208,8 +3209,10 @@ def op_hub_audit_samples(request):
             if "monkeypatch" in params:
                 kwargs["monkeypatch"] = patch
             # 第 ⑤d 片：pytest 每条用例先搭的 autouse 夹具——test_kit_hub 的 pi_knows_every_flag（pi 认得全部参数、内核当成干净、
-            # 协调人的内核代办关掉）与 conftest 的 python_kernel_impl（调度器的选择文件钉成不存在）
+            # 协调人的内核代办关掉）与 conftest 的 python_kernel_impl（调度器的选择文件钉成不存在）、no_ambient_quizs（第 148 轮：
+            # 不看这台机器上线用的 QUIZS_*，用例自己设的才算）
             raw(cases.pi_knows_every_flag)(patch)
+            raw(conftest.no_ambient_quizs)(patch)
             if "pi_dispatch" in sys.modules:
                 patch.setattr(sys.modules["pi_dispatch"], "KERNEL_IMPL_PATH", tmp / "no-kernel-impl.json")
             if "engine_env" in params:  # test_kit_hub 自己的夹具（建信箱、换掉 worktree 与 role_prompt）

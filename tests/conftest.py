@@ -38,6 +38,15 @@ def python_kernel_impl(request, monkeypatch, tmp_path_factory):
     monkeypatch.setattr(module, "KERNEL_IMPL_PATH", tmp_path_factory.getbasetemp() / "no-kernel-impl.json")
 
 
+@pytest.fixture(autouse=True)
+def no_ambient_quizs(monkeypatch):
+    """测试不看这台机器上线用的 QUIZS_*（协调人走 quizs 之后设在用户级环境变量里，第 145 轮）：要用的用例自己设。
+    不清掉的话，名册里的协调人在测试里会真的去找 Quizs 与证书，结果随机器、随证书到没到期而变（第 148 轮在设了
+    这些变量的新会话里跑才发现）。子进程继承的也是清过的环境。"""
+    for name in ("QUIZS_CMD", "QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def named_files(config: pytest.Config) -> set:
     """命令行里点名的测试文件（去掉 ``::用例`` 部分；目录不算点名）。"""
     files = set()

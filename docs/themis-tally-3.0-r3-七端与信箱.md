@@ -2298,6 +2298,15 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **数据**：pi 上的协调人续接越深越容易出错（10-25 起 446 个回合：会话第 1 回合出错 0%，第 2–9 回合 6%，第 10 回合以后 8%；41 个会话里 219 个回合在第 10 回合以后）。Quizs 每回合新会话的 P2a 重放交付 25/30，没交的 5 个都是交差格式与预算问题（第 144、145 轮已改），没有一个是缺上下文。代价是每回合重读输入：只读工具调用中位数 14.5 次（pi 长会话 7 次），每回合约 0.1 元（高峰价）。Quizs 的 fenced 最终回答策略本来就只认新会话。
 - **定案**：协调人每回合一个新会话，不续接；quizs 回合（第 137 轮起）与退回 pi 的回合（第 143 轮起）都已这样跑，连着被限流的次数跨会话累计（第 145 轮）。不再改代码。
 
+### 第 148 轮：quizs 回合每回合一份新的 live plan；测试不看这台机器上线用的 QUIZS_*
+
+- **起因**：11-10 用上线配置（真证书、内核自己的 TurnRunner）连着重放录下的协调人回合（P2b），第一个回合交差，第二个回合起 Quizs 一秒内以退出码 2 结束（USAGE：Final-response policy requires a fresh single-turn worker plan）。Quizs 的 fenced 交差策略只认没用过的 plan（providers/src/final-response.ts 的 assertFreshFinalResponseTurn：这份 plan 的预算记录里请求数与尝试数都得是 0），预算按 plan_id 记在提供方状态目录里。上线给的是一份用到证书到期的 plan，同一个枢纽里只有头一个回合起得来：真实任务里协调人从第二个回合起会每回合作废、交给站主。第 145 轮上线前只用真证书跑过一个回合；P2a 用的 qualification plan 不带这条策略；测试里的假 launcher 不核对 plan。上线后没有真实任务，没有回合受影响。
+- **改法**：内核每回合照 QUIZS_LIVE_PLAN 那份另写一份 `live-plan.json` 进回合目录，plan_id 接上回合号（`<原 plan_id>.<回合号>`），`--live-plan` 指向它，别的字段原样。证书绑的是档案、端点、模型、账户分区与凭据引用（Quizs 的 assertQualification 与 stepFunBinding），不绑 plan_id，每回合换 plan_id 证书照认。quizs_unready 加一条：live plan 读不出或没有 plan_id 时，这一回合退回替补。plan 里的 max_requests 从此是每回合的上限（实际取它与内核传的 32 的较小者），总花费归内核的花费上限管。
+- **测试不看这台机器上线用的 QUIZS_***：第 145 轮起用户级环境变量里设着 QUIZS_CMD 与三份文件的路径。在带这些变量的新会话里，test_kit_hub 的 quizs 用例直接红（名册里的协调人真的去找 Quizs 与证书，“没设就退回 pi”不成立）；之前几轮的测试与 owner-sweep 都是在没有这些变量的旧会话里跑的。tests/conftest.py 加 autouse 夹具 no_ambient_quizs 清掉这四个变量，ts/vitest.setup.mjs 在每个测试进程开头清掉（探针继承的也是清过的），采样器照搭这个夹具。
+- **测试**：quizs 用例的 launcher 照 Quizs 的规矩拒绝用过的 plan_id（去掉改法，这条用例就红，变异实测）；断言回合目录里那份 plan 的内容与 `--live-plan` 的指向；证书用例加“live plan 读不出就退回 pi”。test_kit_hub 与 test_kernel_impl 548 条过；hub-turn 三边重放过（回合目录里的 live-plan.json 逐字节相同；记下的 pi 命令 45 → 46），hub-prompt、hub-shadow、mutation-specs 过。
+- **续证（不在仓库里）**：定时任务从每 4 小时改成每 15 分钟、不弹窗口，空查不花钱。原来的间隔下，证书在空闲时过期后，下一个任务开头最长 4 小时的协调人回合都退回 pi；认证里的 output_cap 探测要模型把 8192 个 token 写满，带思考的 deepseek-flash 有时想完就停（4 次有效认证里 1 次没过），间隔短了才来得及重试。
+- **没做**：quizs 进程自己以退出码 2 结束（配置类问题，请求没有发出去）时，这一回合照旧记成接口出错、交给站主，不退回替补。要不要改成当场退回 pi，等站主定。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

@@ -6175,10 +6175,14 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         "    sys.exit(2)",
         "print(json.dumps({'manifest_ref': 'a' * 64, 'files': 1, 'bytes': 6, 'skipped': []}))",
         ""]), encoding="utf-8")
-    seen, outputs = [], []
+    seen, outputs, used_plans = [], [], []
 
     def launcher(cmd, cwd, env, out, err, timeout):
         seen.append(cmd)
+        if "--live-plan" in cmd:  # 真的 Quizs 的交差策略只认没用过的 plan：同一个 plan_id 第二回合就按 USAGE 退出（第 148 轮）
+            plan_id = json.loads(Path(cmd[cmd.index("--live-plan") + 1]).read_text(encoding="utf-8"))["plan_id"]
+            assert plan_id not in used_plans
+            used_plans.append(plan_id)
         out.write((newline.join(json.dumps(event, ensure_ascii=False) for event in outputs.pop(0)) + newline).encode("utf-8"))
         return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
 
@@ -6221,9 +6225,15 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     # 第 141 轮：真实请求要的 live plan、提供方档案与资格证书由环境给路径，设了才加
     for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
         monkeypatch.setenv(name, str(tmp_path / (name.lower() + ".json")))
+    (tmp_path / "quizs_live_plan.json").write_text(json.dumps({"plan_id": "tt-coordinator-1", "max_requests": 400}), encoding="utf-8")
     missing = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     assert seen[1][seen[1].index("--qualification") + 1] == str(tmp_path / "quizs_qualification.json")
     assert "--live-plan" not in cmd and "--provider-profile" in seen[1]
+    # 第 148 轮：Quizs 的交差策略只认没用过的 plan（一份 plan 只给一个回合）：每回合照环境给的那份另写一份进回合目录，
+    # plan_id 接上回合号。上线的那份 plan 只有头一个回合起得来，P2b 经真的 Quizs 连着重放两个回合才发现
+    turn_plan = Path(missing["turn_dir"]) / kh.QUIZS_TURN_PLAN
+    assert seen[1][seen[1].index("--live-plan") + 1] == str(turn_plan)
+    assert json.loads(turn_plan.read_text(encoding="utf-8")) == {"plan_id": "tt-coordinator-1." + missing["turn_id"], "max_requests": 400}
     assert missing["output"] is None and "json 代码块" in missing["output_error"]
     assert missing["session_id"] != ok["session_id"] and ok["session_id"].startswith("T001-")  # 每回合一个新会话
     limited = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
@@ -6247,6 +6257,7 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     assert "冻结不了" in frozen["api_error"] and len(seen) == 9  # 快照冻不了就不起回合
+    assert len(used_plans) == 8  # 设了 live plan 之后起的 8 个回合，各用各的 plan
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
@@ -6287,8 +6298,13 @@ def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, m
     record = json.loads((Path(short["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert list(record)[-1] == "quizs_fallback" and record["session_id"].startswith("T001-g")
     certificate.write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    planless = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert planless["quizs_fallback"] == "读不出 live plan %s" % (tmp_path / "plan.json")  # 第 148 轮：每回合要照它另写一份
+    (tmp_path / "plan.json").write_text(json.dumps({"plan_id": "p"}), encoding="utf-8")
     ready = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
-    assert "quizs_fallback" not in ready and seen[3][3:5] == ["worker", "turn"]
+    assert "quizs_fallback" not in ready and seen[4][3:5] == ["worker", "turn"]
+    (tmp_path / "plan.json").write_text(json.dumps({"plan_id": 7}), encoding="utf-8")
+    assert kh.quizs_unready(int(time.time()), 600) == "live plan 里没有 plan_id"
     certificate.write_text(json.dumps([1]), encoding="utf-8")
     assert kh.quizs_unready(int(time.time()), 600) == "资格证书里没有到期时刻"
 

@@ -569,6 +569,9 @@ QUIZS_PERMIT_HELD = (
     "站主处理：在信箱目录下运行 quizs permits list --provider-state-dir quizs-state 看占着的是哪一条；状态是 unknown_remote 的，"
     "先到 DeepSeek 后台核实那次请求已经结束，再运行 quizs permits release --provider-state-dir quizs-state --attempt-id <那一条的 attempt_id> --confirm-terminal 释放")
 QUIZS_LIVE_FILES = (("--live-plan", "QUIZS_LIVE_PLAN"), ("--provider-profile", "QUIZS_PROVIDER_PROFILE"), ("--qualification", "QUIZS_QUALIFICATION"))
+#: 第 148 轮：Quizs 的交差策略只认没用过的 plan（一份 plan 只给一个回合，用过再用按 USAGE 退出）：内核照环境给的那份每回合
+#: 另写一份放进回合目录，plan_id 接上回合号。P2b 重放时同一份 plan 的第二个回合就起不来，才发现
+QUIZS_TURN_PLAN = "live-plan.json"
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -1918,8 +1921,21 @@ def guard_config(workspace: Path, repo: Path) -> str:
         "readTools": list(READ_TOOLS)})
 
 
+def quizs_live_plan() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """第 148 轮：环境给的那份 live plan，交回（plan, 问题）。"""
+    path = os.environ["QUIZS_LIVE_PLAN"]
+    try:
+        plan = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, "读不出 live plan %s" % path
+    if not isinstance(plan, dict) or not isinstance(plan.get("plan_id"), str):
+        return None, "live plan 里没有 plan_id"
+    return plan, None
+
+
 def quizs_unready(now: int, timeout: int) -> Optional[str]:
-    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合）；起得了是 None。"""
+    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出）；
+    起得了是 None。"""
     for name in ("QUIZS_CMD",) + tuple(env for _flag, env in QUIZS_LIVE_FILES):
         if not os.environ.get(name):
             return "没有设 %s" % name
@@ -1933,7 +1949,7 @@ def quizs_unready(now: int, timeout: int) -> Optional[str]:
         return "资格证书里没有到期时刻"
     if expires < (now + timeout + QUIZS_CERT_MARGIN) * 1000:
         return "资格证书撑不完这一回合（%d 毫秒时到期）" % expires
-    return None
+    return quizs_live_plan()[1]
 
 
 def effective_spec(agent: str, now: int) -> Tuple[Dict[str, Any], Optional[str]]:
@@ -2290,6 +2306,12 @@ class TurnRunner:
             for flag, name in QUIZS_LIVE_FILES:
                 if os.environ.get(name):
                     cmd += [flag, os.environ[name]]
+            if os.environ.get("QUIZS_LIVE_PLAN"):  # 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
+                plan, problem = quizs_live_plan()
+                if plan is None:
+                    raise HubError(problem, EXIT_BLOCKED)
+                pd.write_json(turn_dir / QUIZS_TURN_PLAN, dict(plan, plan_id="%s.%s" % (plan["plan_id"], turn_id)))
+                cmd[cmd.index("--live-plan") + 1] = str(turn_dir / QUIZS_TURN_PLAN)
         else:
             sessions_dir = self.hub.root / "sessions" / agent
             sessions_dir.mkdir(parents=True, exist_ok=True)

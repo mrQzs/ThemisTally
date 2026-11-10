@@ -242,5 +242,8 @@ export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供�
 export const QUIZS_LIVE_FILES: readonly (readonly [string, string])[] = [
   ["--live-plan", "QUIZS_LIVE_PLAN"], ["--provider-profile", "QUIZS_PROVIDER_PROFILE"], ["--qualification", "QUIZS_QUALIFICATION"],
 ];
+/** 第 148 轮：Quizs 的交差策略只认没用过的 plan（一份 plan 只给一个回合，用过再用按 USAGE 退出）：内核照环境给的那份每回合
+ *  另写一份放进回合目录，plan_id 接上回合号。P2b 重放时同一份 plan 的第二个回合就起不来，才发现 */
+export const QUIZS_TURN_PLAN = "live-plan.json";
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

@@ -24,7 +24,21 @@ export function effectiveSpec(agent: string, now: number): [RosterSpec, string |
   return [reason === null ? listed : { ...listed, ...substitute }, reason];
 }
 
-/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合）；起得了是 null。 */
+/** 第 148 轮：环境给的那份 live plan，交回 [plan, 问题]。 */
+export function quizsLivePlan(): [PyDict | null, string | null] {
+  const path = process.env["QUIZS_LIVE_PLAN"] as string;
+  let plan: PyValue;
+  try {
+    plan = loads(readFileSync(path, "utf-8"));
+  } catch (error) {
+    if (!(error instanceof PyJsonError) && !(error instanceof Error && "code" in error)) throw error;
+    return [null, `读不出 live plan ${path}`];
+  }
+  if (!(plan instanceof Map) || typeof pyGet(plan, "plan_id") !== "string") return [null, "live plan 里没有 plan_id"];
+  return [plan, null];
+}
+
+/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出）；起得了是 null。 */
 export function quizsUnready(now: number, timeout: number): string | null {
   for (const name of ["QUIZS_CMD", ...QUIZS_LIVE_FILES.map(([, env]) => env)]) {
     if (!process.env[name]) return `没有设 ${name}`;
@@ -40,7 +54,7 @@ export function quizsUnready(now: number, timeout: number): string | null {
   const expires = data instanceof Map ? pyGet(data, "expires_at_ms") : null;
   if (typeof expires !== "bigint") return "资格证书里没有到期时刻";
   if (expires < BigInt((now + timeout + QUIZS_CERT_MARGIN) * 1000)) return `资格证书撑不完这一回合（${expires} 毫秒时到期）`;
-  return null;
+  return quizsLivePlan()[1];
 }
 
 /** quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。 */
