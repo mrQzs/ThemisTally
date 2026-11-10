@@ -232,6 +232,10 @@ export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
   BUDGET_EXHAUSTED: "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
   POLICY: "调了没有授权的工具。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
   TOOL_ERROR: "工具参数不合格式（JSON、路径写法或字段），回合被 Quizs 结束。重交时照工具说明写参数",
+  // 第 149 轮：P2b 30 个回合里 1 个这样结束（回应完整、是工具调用，Quizs 不认）；提供方回应残缺也归这一类，同样重来一次
+  PROVIDER_FORMAT: "Quizs 读不了模型这一次的回应，回合被结束（多半是工具调用的参数不是合法 JSON、不合工具说明里的格式，或者该写最后回答时还在调工具）。重交时照工具说明写参数，读够了就直接写 json 代码块",
+  // 第 149 轮：Quizs 的 fenced 交差策略自己先让模型改一次，还不对就这样结束
+  FINAL_OUTPUT_FORMAT: "最后的回答不是恰好一个 json 代码块，Quizs 让改过一次还是不对。重交时最后的回答只写一个 json 代码块，前后不加别的文字",
 };
 /** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
 export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"

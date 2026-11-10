@@ -6205,6 +6205,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         [init, result(exit_code=5, error_class="QUEUE_TIMEOUT")],
         [init, result(exit_code=5, error_class="BUDGET_EXHAUSTED")],
         [init, result(exit_code=6, error_class="POLICY")],
+        [init, result(exit_code=4, error_class="PROVIDER_FORMAT")],
+        [init, result(exit_code=4, error_class="FINAL_OUTPUT_FORMAT")],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
     ]
@@ -6246,7 +6248,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert held["api_error"] == kh.QUIZS_PERMIT_HELD and held.get("rate_limited_until") is None
     assert "permits release" in held["api_error"] and "--confirm-terminal" in held["api_error"]
     # 第 145 轮：模型的做法结束的回合（预算用完、调了未授权的工具）记成交差不合格，内核会带着说明当场重交一次
-    for kind in ("BUDGET_EXHAUSTED", "POLICY"):
+    # 第 149 轮：Quizs 不认模型的回应（P2b 30 个回合里 1 个）、最后的回答改过一次还不是代码块，也一样
+    for kind in ("BUDGET_EXHAUSTED", "POLICY", "PROVIDER_FORMAT", "FINAL_OUTPUT_FORMAT"):
         spent = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
         assert spent["api_error"] is None and spent["output"] is None and kh.QUIZS_BEHAVIOR_ERRORS[kind] in spent["output_error"]
     # 第 145 轮：DeepSeek 的 429 不带重置时刻，走退避；每回合开新会话也照样累计次数，第二次的退避加倍
@@ -6256,8 +6259,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert second["session_id"] != first["session_id"]  # 还是每回合一个新会话
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
-    assert "冻结不了" in frozen["api_error"] and len(seen) == 9  # 快照冻不了就不起回合
-    assert len(used_plans) == 8  # 设了 live plan 之后起的 8 个回合，各用各的 plan
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 11  # 快照冻不了就不起回合
+    assert len(used_plans) == 10  # 设了 live plan 之后起的 10 个回合，各用各的 plan
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
