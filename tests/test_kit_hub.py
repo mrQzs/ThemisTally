@@ -6224,8 +6224,9 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         [init, result(exit_code=5, error_class="QUEUE_TIMEOUT")],
         [init, result(exit_code=5, error_class="BUDGET_EXHAUSTED")],
         [init, result(exit_code=6, error_class="POLICY")],
-        [init, result(exit_code=4, error_class="PROVIDER_FORMAT")],
+        [init, result(exit_code=4, error_class="PROVIDER_FORMAT", error_details={"format_reason": "ARGUMENT_SCHEMA", "tool_name": "read"})],
         [init, result(exit_code=4, error_class="FINAL_OUTPUT_FORMAT")],
+        [init, result(exit_code=4, error_class="UPSTREAM", error_details={"provider_code": "OUTPUT_TOKEN_LIMIT"})],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
     ]
@@ -6239,7 +6240,9 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert cmd[cmd.index("--cwd") + 1] == str(tmp_path) and cmd[cmd.index("--readonly-root") + 1] == str(inputs)
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls" and "--extension" not in cmd and "--resume" not in cmd
     # 第 143 轮：每回合的预算照写（Quizs 默认单次回应 256 KiB，DeepSeek 的流式回应不到 900 个 token 就超）
-    assert cmd[cmd.index("--max-response-bytes") + 1] == "4194304" and cmd[cmd.index("--max-requests") + 1] == "32"
+    assert cmd[cmd.index("--max-requests") + 1] == "32"
+    # 第 152 轮：单次回应与单个对象放到 8 MiB（认证的单次输出上限放到 16384 个 token，写满约 5.1 MB 的流）
+    assert cmd[cmd.index("--max-response-bytes") + 1] == "8388608" and cmd[cmd.index("--max-object-bytes") + 1] == "8388608"
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
     assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
@@ -6268,9 +6271,13 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert "permits release" in held["api_error"] and "--confirm-terminal" in held["api_error"]
     # 第 145 轮：模型的做法结束的回合（预算用完、调了未授权的工具）记成交差不合格，内核会带着说明当场重交一次
     # 第 149 轮：Quizs 不认模型的回应（P2b 30 个回合里 1 个）、最后的回答改过一次还不是代码块，也一样
-    for kind in ("BUDGET_EXHAUSTED", "POLICY", "PROVIDER_FORMAT", "FINAL_OUTPUT_FORMAT"):
+    # 第 152 轮：写到单次输出上限被截断（Quizs 报 UPSTREAM 加 provider_code）也是模型这一次的做法，一样当场重交；
+    # Quizs 写明了哪一项检查没过的，原因接在错误类别后面带给重交的回合
+    for kind in ("BUDGET_EXHAUSTED", "POLICY", "PROVIDER_FORMAT", "FINAL_OUTPUT_FORMAT", "OUTPUT_TOKEN_LIMIT"):
         spent = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
         assert spent["api_error"] is None and spent["output"] is None and kh.QUIZS_BEHAVIOR_ERRORS[kind] in spent["output_error"]
+        assert ("（PROVIDER_FORMAT，ARGUMENT_SCHEMA，工具 read）" in spent["output_error"]) == (kind == "PROVIDER_FORMAT")
+        assert ("（UPSTREAM，OUTPUT_TOKEN_LIMIT）" in spent["output_error"]) == (kind == "OUTPUT_TOKEN_LIMIT")
     # 第 145 轮：DeepSeek 的 429 不带重置时刻，走退避；每回合开新会话也照样累计次数，第二次的退避加倍
     first = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     second = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
@@ -6278,8 +6285,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert second["session_id"] != first["session_id"]  # 还是每回合一个新会话
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
-    assert "冻结不了" in frozen["api_error"] and len(seen) == 11  # 快照冻不了就不起回合
-    assert len(used_plans) == 10  # 设了 live plan 之后起的 10 个回合，各用各的 plan
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 12  # 快照冻不了就不起回合
+    assert len(used_plans) == 11  # 设了 live plan 之后起的 11 个回合，各用各的 plan
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
@@ -8200,6 +8207,30 @@ def test_the_coordinator_prompt_carries_its_last_state(tmp_path):
     (task_dir / "state.md").write_text("合同端已开工，等它交付", encoding="utf-8")
     prompt = kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
     assert prompt.index("## 你上次留下的 state.md") < prompt.index("合同端已开工，等它交付") < prompt.index("## 交差")
+
+
+def test_a_quizs_stop_names_its_reason():
+    # 第 152 轮：Quizs 在 result 的 error_details 里写明具体原因（固定的字面量），内核接在错误类别后面；
+    # 写到单次输出上限被截断的记成交差不合格（当场重交），别的上游错误照旧是接口出错
+    def audit(**result):
+        return kh.audit_quizs_stream([json.dumps(dict({"type": "result"}, **result))], {"tools": []})
+
+    schema = audit(exit_code=4, error_class="PROVIDER_FORMAT", error_details={"format_reason": "ARGUMENT_SCHEMA", "tool_name": "read"})
+    assert schema["delivery_error"].startswith("quizs 退出码 4（PROVIDER_FORMAT，ARGUMENT_SCHEMA，工具 read）：")
+    stream = audit(exit_code=4, error_class="PROVIDER_FORMAT", error_details={"decoder_reason": "TOOL_ID_CHANGED", "decoder_frame": 6})
+    assert stream["delivery_error"].startswith("quizs 退出码 4（PROVIDER_FORMAT，TOOL_ID_CHANGED）：")
+    cut = audit(exit_code=4, error_class="UPSTREAM", error_details={"provider_code": "OUTPUT_TOKEN_LIMIT"})
+    assert cut["api_error"] is None
+    assert cut["delivery_error"] == "quizs 退出码 4（UPSTREAM，OUTPUT_TOKEN_LIMIT）：" + kh.QUIZS_BEHAVIOR_ERRORS["OUTPUT_TOKEN_LIMIT"]
+    broken = audit(exit_code=4, error_class="UPSTREAM", error_details={"provider_code": "server_error", "decoder_reason": "STREAM_ERROR"})
+    assert broken["delivery_error"] is None and broken["api_error"] == "quizs 退出码 4（UPSTREAM，STREAM_ERROR）"
+    plain = audit(exit_code=4, error_class="UPSTREAM", error_details={"provider_code": "server_error"})
+    assert plain["api_error"] == "quizs 退出码 4（UPSTREAM）"
+    policy = audit(exit_code=6, error_class="POLICY", error_details={"call_id": "c1", "tool_name": "json"})
+    assert policy["delivery_error"].startswith("quizs 退出码 6（POLICY）：")
+    for odd in ({"format_reason": 7}, ["不是对象"]):  # 原因只认字符串，error_details 只认对象
+        untyped = audit(exit_code=4, error_class="PROVIDER_FORMAT", error_details=odd)
+        assert untyped["delivery_error"].startswith("quizs 退出码 4（PROVIDER_FORMAT）：")
 
 
 def test_the_prompt_says_how_to_hand_in(tmp_path):

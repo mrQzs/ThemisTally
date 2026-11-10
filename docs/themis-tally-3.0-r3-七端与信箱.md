@@ -2332,6 +2332,19 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **不改的**：pi、claude 的回合读的是输入目录，不附清单（手上没有它们也在摸目录的数据）。
 - **测试**：Python 两条用例（清单的四种情形加正好到上限、协调人的 state.md）。hub-prompt 契约加一条手写对照：五种输入目录的清单三边逐字相同；另把协调人的名册换成不带替补的（载体就是 quizs）比整份提示——quizs 分支的提示这是第一次有三边对照，两边探针的 hub.prompt 为此多收名册的改动；按种子生成的仓库给主任务加了 state.md。变异 7 条（hub-d1 的 D38–D44）全部抓住，Python 一侧另跑 6 条也都抓住。test_kit_hub 与 test_kernel_impl 551 条过；tsc、mutation-specs、source-hygiene 与 hub-* 契约的 32 份过，剩下 hub-handoff 的真启动器场景要内核文件与 HEAD 一致，提交之后单跑（结果记在第 152 轮）。
 
+### 第 152 轮：quizs 回合的错误写明具体原因；写到单次输出上限被截断的当场重交；回应与对象的上限放到 8 MiB
+
+- **起因**：三件事都出自 P2b、P2c 的重放。
+  - P2b 有一个回合以 PROVIDER_FORMAT 结束，result 事件里只有类别，事后分不清是哪一项检查没过。Quizs 这边已补上（分支 tt-p1-coordinator 的 3a7b076）：error_details 里的 format_reason 是固定的字面量（参数不是合法 JSON、不合 schema、调用编号重复、该写最后回答时还在调工具等 13 种），流解码的毛病照旧是 decoder_reason。
+  - P2c 有协调人回合把单次输出上限（8192 个 token，思考也算）全用在思考上，finish_reason 是 length。Quizs 把它报成 UPSTREAM 加 provider_code＝OUTPUT_TOKEN_LIMIT，内核当成接口出错：回合作废、交给站主。这是模型这一次的做法，不是接口坏了。
+  - 8192 对协调人偏紧（P2b 里单次回应最大已到 6259 个 token）。Quizs 的 DeepSeek 认证档位把单次输出上限放到 16384（3d46af2；实测每个输出 token 约 313 字节的流，16384 个约 5.1 MB），内核给 Quizs 的单次回应上限还是 4 MiB，会先被它掐断。
+- **改法**（Python 与 TS）：
+  - audit_quizs_stream 把 Quizs 写的原因接在错误类别后面（例如“quizs 退出码 4（PROVIDER_FORMAT，ARGUMENT_SCHEMA，工具 read）”），交差不合格的带给重交的回合，接口出错的带给站主。
+  - UPSTREAM 且 provider_code 是 OUTPUT_TOKEN_LIMIT 的，记成交差不合格（QUIZS_BEHAVIOR_ERRORS 多一项），内核带着说明当场重交一次；别的上游错误照旧。
+  - QUIZS_TURN_BUDGETS：--max-response-bytes 4 MiB → 8 MiB，另加 --max-object-bytes 8 MiB（Quizs 要求回应上限不超过对象上限；两项都是 Quizs 与 live plan 的上限）。
+- **不在仓库里的**：Quizs 的续证脚本原来只看证书的到期时刻，改了 Quizs 源码、换了 BUILD_ID 之后证书还“没到期”，可每个回合都不认它（协调人会一直退回 pi）；现在证书不是当前构建的也续（93bfae0）。协调人的 plan 原来照认证批次只排队 1 秒：提供方的并发名额只有 1 个、按请求占用，枢纽并行跑两个主任务时，两个协调人回合的请求一撞上就排队超时；续证脚本现在照策略文件的 queue_timeout_ms 写（c6c2efe），上线的策略写 180 秒。认证的 output_cap 探测 5 批里有 2 批没过，留下事件流的那一批是模型想了 6176 个 token 之后回答“放不下 65,536 个整数”；DeepSeek 路线的探测提示加了前言（被截断是预期结果、立即开始写、不要拒答，0dfa397）。改后的两次认证都一次通过（第二次按 16384 的档位：思考约 1350 个 token，写到上限被截断，流 5.11 MB）。上线配置的并行验证（P2d）：两个重放进程共用一个枢纽、各跑 3 个协调人回合，6 个全部一次交差，请求排队 28 次、没有排队超时，并行时每回合中位 142 秒、最长 209 秒；改之前的并行没有实测。
+- **测试**：quizs 回合的用例里 PROVIDER_FORMAT 那一回合带上 format_reason 与工具名、另加一回合 OUTPUT_TOKEN_LIMIT（当场重交的五类都过一遍），预算的两项上限照新值断言；另一条直接比 audit_quizs_stream 的六种情形（format_reason、decoder_reason、OUTPUT_TOKEN_LIMIT、别的上游错误带不带原因、POLICY 的工具名不当原因），外加原因不是字符串、error_details 不是对象两种。test_kit_hub 与 test_kernel_impl 552 条过；tsc、mutation-specs、source-hygiene 过；hub-turn 三边重放过（与 P2d 叠着跑的那一遍 node 探针超时，单独重跑通过）。变异：TS 6 条（hub-d2 的 Q01–Q06）全部抓住，都挂在 quizs 回合那条采样上；Python 一侧 8 条，先漏掉 1 条（原因不是字符串时不接），补了上面两种情形之后全部抓住。第 151 轮提交之后单跑 hub-handoff，8 条过。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

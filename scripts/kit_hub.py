@@ -554,8 +554,9 @@ QUIZS_CERT_MARGIN = 60
 #: 第 143 轮：quizs 每回合的预算。Quizs 默认请求 8 次、单次输入 512 KiB、单次回应 256 KiB；DeepSeek 的流式回应每个输出 token 约 290 字节，
 #: 256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者
 #: 第 145 轮：请求 24 → 32、工具调用 48（P2a 30 个回合里 2 个用完 24 次请求还没交差，都是输入多的回合）
+#: 第 152 轮：单次回应与单个对象放到 8 MiB（Quizs 的上限）：认证的单次输出上限从 8192 放到 16384 个 token，写满约 5.1 MB 的流（每个 token 约 313 字节）
 QUIZS_TURN_BUDGETS = (("--max-requests", "32"), ("--max-tool-calls", "48"), ("--max-input-bytes", "2097152"),
-                      ("--max-response-bytes", "4194304"))
+                      ("--max-response-bytes", "8388608"), ("--max-object-bytes", "8388608"))
 #: 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次
 QUIZS_BEHAVIOR_ERRORS = {
     "BUDGET_EXHAUSTED": "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
@@ -565,7 +566,11 @@ QUIZS_BEHAVIOR_ERRORS = {
     "PROVIDER_FORMAT": "Quizs 读不了模型这一次的回应，回合被结束（多半是工具调用的参数不是合法 JSON、不合工具说明里的格式，或者该写最后回答时还在调工具）。重交时照工具说明写参数，读够了就直接写 json 代码块",
     # 第 149 轮：Quizs 的 fenced 交差策略自己先让模型改一次，还不对就这样结束
     "FINAL_OUTPUT_FORMAT": "最后的回答不是恰好一个 json 代码块，Quizs 让改过一次还是不对。重交时最后的回答只写一个 json 代码块，前后不加别的文字",
+    # 第 152 轮：P2c 30 个回合里有协调人把单次输出上限全用在思考上（finish_reason 是 length），Quizs 报成 UPSTREAM 加 provider_code；这是模型这一次的做法，不是接口坏了
+    "OUTPUT_TOKEN_LIMIT": "这一次的回应写到单次输出的上限被截断了（思考也算在里面），回合被结束。重交时少想多写：要用的文件读完就直接写 json 代码块，任务书只写下一阶段要用的内容",
 }
+#: 第 152 轮：Quizs 把“写到单次输出上限被截断”报成 UPSTREAM，error_details 的 provider_code 是这个字面量
+QUIZS_OUTPUT_CUT = "OUTPUT_TOKEN_LIMIT"
 #: 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）
 QUIZS_PERMIT_HELD = (
     "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
@@ -2038,6 +2043,21 @@ def quizs_snapshot(quizs_cmd: Sequence[str], sessions_dir: Path, inputs: Path, e
     return last["manifest_ref"], None
 
 
+def quizs_error_reason(result: Dict[str, Any]) -> str:
+    """第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT、
+    format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的毛病）。没有就是空串。"""
+    details = result.get("error_details")
+    if not isinstance(details, dict):
+        return ""
+    if details.get("provider_code") == QUIZS_OUTPUT_CUT:
+        return QUIZS_OUTPUT_CUT
+    reason = details.get("format_reason") or details.get("decoder_reason")
+    if not isinstance(reason, str):
+        return ""
+    tool = details.get("tool_name")
+    return reason + ("，工具 %s" % tool if isinstance(tool, str) else "")
+
+
 def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, Any]:
     """quizs 回合的审计（第 137 轮）：逐行读 Quizs 的 JSONL。init 与 tool_call 里名册之外的工具算越权；result 给出
     退出码、模型、思考档位、用量与最后的回答（交付是其中一个 json 代码块）。退出码 3 带 retry_at 时直接扣到那时，
@@ -2086,10 +2106,13 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
     code = result.get("exit_code")
     if code != 0:
         error_class = result.get("error_class")
-        if error_class in QUIZS_BEHAVIOR_ERRORS:
-            audit["delivery_error"] = "quizs 退出码 %s（%s）：%s" % (code, error_class, QUIZS_BEHAVIOR_ERRORS[error_class])
+        reason = quizs_error_reason(result)  # 第 152 轮：具体原因接在错误类别后面，带给重交的回合与站主
+        shown = "%s，%s" % (error_class, reason) if reason else error_class
+        kind = QUIZS_OUTPUT_CUT if reason == QUIZS_OUTPUT_CUT else error_class
+        if kind in QUIZS_BEHAVIOR_ERRORS:
+            audit["delivery_error"] = "quizs 退出码 %s（%s）：%s" % (code, shown, QUIZS_BEHAVIOR_ERRORS[kind])
             return audit
-        audit["api_error"] = QUIZS_PERMIT_HELD if error_class == "QUEUE_TIMEOUT" else "quizs 退出码 %s（%s）" % (code, error_class)
+        audit["api_error"] = QUIZS_PERMIT_HELD if error_class == "QUEUE_TIMEOUT" else "quizs 退出码 %s（%s）" % (code, shown)
         audit["quizs_down"] = code == 2  # 第 150 轮：配置类问题，请求没有发出去
         if code == 3 and isinstance(result.get("retry_at"), str):
             moment = _dt.datetime.fromisoformat(result["retry_at"].replace("Z", "+00:00"))

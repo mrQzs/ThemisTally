@@ -213,6 +213,42 @@
       "file": "ts/packages/hub/src/inputs.ts",
       "old": "超过 ${limit} 字节",
       "new": "超过 ${INPUT_FILE_LIMIT} 字节"
+    },
+    {
+      "name": "Q01 写到单次输出上限被截断的照旧算接口出错（第 152 轮）",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "const kind = reason === QUIZS_OUTPUT_CUT ? QUIZS_OUTPUT_CUT : errorClass;",
+      "new": "const kind = errorClass;"
+    },
+    {
+      "name": "Q02 quizs 的错误不带 Quizs 写的具体原因（第 152 轮）",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "const shown = reason ? ",
+      "new": "const shown = !reason ? "
+    },
+    {
+      "name": "Q03 具体原因不带出问题的工具名（第 152 轮）",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "return named ? ",
+      "new": "return !named ? "
+    },
+    {
+      "name": "Q04 format_reason 有了还去看 decoder_reason（第 152 轮）",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "pyTruthy(pyGet(details, \"format_reason\")) ? pyGet(details, \"format_reason\") : pyGet(details, \"decoder_reason\")",
+      "new": "pyGet(details, \"decoder_reason\")"
+    },
+    {
+      "name": "Q05 单次回应的上限还是 4 MiB（第 152 轮）",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "[\"--max-response-bytes\", \"8388608\"]",
+      "new": "[\"--max-response-bytes\", \"4194304\"]"
+    },
+    {
+      "name": "Q06 不传单个对象的上限（第 152 轮）",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": ", [\"--max-object-bytes\", \"8388608\"],",
+      "new": ","
     }
   ]
 }

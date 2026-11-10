@@ -10,7 +10,8 @@ import { runCapture } from "@themis/dispatcher/pi-cli";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, QUIZS_STATE_DIR,
+  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_PERMIT_HELD,
+  QUIZS_STATE_DIR,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
@@ -133,6 +134,19 @@ export async function quizsSnapshot(quizsCmd: readonly string[], sessionsDir: st
   return [last.get("manifest_ref") as string, null];
 }
 
+/** 第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT、
+ *  format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的毛病）。没有就是空串。 */
+function quizsErrorReason(result: PyValue): string {
+  const details = pyGet(result, "error_details");
+  if (!(details instanceof Map)) return "";
+  if (pyGet(details, "provider_code") === QUIZS_OUTPUT_CUT) return QUIZS_OUTPUT_CUT;
+  const reason = pyTruthy(pyGet(details, "format_reason")) ? pyGet(details, "format_reason") : pyGet(details, "decoder_reason");
+  if (typeof reason !== "string") return "";
+  const tool = pyGet(details, "tool_name");
+  const named = typeof tool === "string";
+  return named ? `${reason}，工具 ${tool}` : reason;
+}
+
 /**
  * quizs 回合的审计：逐行读 Quizs 的 JSONL。init 与 tool_call 里名册之外的工具算越权；result 给出退出码、模型、思考档位、用量与
  * 最后的回答（交付是其中一个 json 代码块）。退出码 3 带 retry_at 时直接扣到那时，不带时照第 38 轮的限流退避。
@@ -189,11 +203,14 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
   const code = pyGet(result, "exit_code");
   if (code !== 0n) {
     const errorClass = pyStrValue(pyGet(result, "error_class"));
-    if (Object.hasOwn(QUIZS_BEHAVIOR_ERRORS, errorClass)) {
-      audit.set("delivery_error", `quizs 退出码 ${pyStrValue(code)}（${errorClass}）：${QUIZS_BEHAVIOR_ERRORS[errorClass] as string}`);
+    const reason = quizsErrorReason(result); // 第 152 轮：具体原因接在错误类别后面，带给重交的回合与站主
+    const shown = reason ? `${errorClass}，${reason}` : errorClass;
+    const kind = reason === QUIZS_OUTPUT_CUT ? QUIZS_OUTPUT_CUT : errorClass;
+    if (Object.hasOwn(QUIZS_BEHAVIOR_ERRORS, kind)) {
+      audit.set("delivery_error", `quizs 退出码 ${pyStrValue(code)}（${shown}）：${QUIZS_BEHAVIOR_ERRORS[kind] as string}`);
       return audit;
     }
-    audit.set("api_error", errorClass === "QUEUE_TIMEOUT" ? QUIZS_PERMIT_HELD : `quizs 退出码 ${pyStrValue(code)}（${errorClass}）`);
+    audit.set("api_error", errorClass === "QUEUE_TIMEOUT" ? QUIZS_PERMIT_HELD : `quizs 退出码 ${pyStrValue(code)}（${shown}）`);
     audit.set("quizs_down", code === 2n); // 第 150 轮：配置类问题，请求没有发出去
     const retryAt = pyGet(result, "retry_at");
     if (code === 3n && typeof retryAt === "string") audit.set("rate_limited_until", BigInt(Math.floor(Date.parse(retryAt) / 1000) + THROTTLE_RESET_MARGIN));

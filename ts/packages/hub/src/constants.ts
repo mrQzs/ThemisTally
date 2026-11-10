@@ -227,7 +227,8 @@ export const QUIZS_CERT_MARGIN = 60;
  *  256 KiB 不到 900 个 token 就掐断（P2a 实测），协调人每回合开新会话还得重读输入。实际上限取它与 live plan 的较小者 */
 export const QUIZS_TURN_BUDGETS: readonly (readonly [string, string])[] = [
   // 第 145 轮：请求 24 → 32、工具调用 48（P2a 30 个回合里 2 个用完 24 次请求还没交差，都是输入多的回合）
-  ["--max-requests", "32"], ["--max-tool-calls", "48"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "4194304"],
+  // 第 152 轮：单次回应与单个对象放到 8 MiB（Quizs 的上限）：认证的单次输出上限从 8192 放到 16384 个 token，写满约 5.1 MB 的流（每个 token 约 313 字节）
+  ["--max-requests", "32"], ["--max-tool-calls", "48"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "8388608"], ["--max-object-bytes", "8388608"],
 ];
 /** 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次。 */
 export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
@@ -238,7 +239,11 @@ export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
   PROVIDER_FORMAT: "Quizs 读不了模型这一次的回应，回合被结束（多半是工具调用的参数不是合法 JSON、不合工具说明里的格式，或者该写最后回答时还在调工具）。重交时照工具说明写参数，读够了就直接写 json 代码块",
   // 第 149 轮：Quizs 的 fenced 交差策略自己先让模型改一次，还不对就这样结束
   FINAL_OUTPUT_FORMAT: "最后的回答不是恰好一个 json 代码块，Quizs 让改过一次还是不对。重交时最后的回答只写一个 json 代码块，前后不加别的文字",
+  // 第 152 轮：P2c 30 个回合里有协调人把单次输出上限全用在思考上（finish_reason 是 length），Quizs 报成 UPSTREAM 加 provider_code；这是模型这一次的做法，不是接口坏了
+  OUTPUT_TOKEN_LIMIT: "这一次的回应写到单次输出的上限被截断了（思考也算在里面），回合被结束。重交时少想多写：要用的文件读完就直接写 json 代码块，任务书只写下一阶段要用的内容",
 };
+/** 第 152 轮：Quizs 把“写到单次输出上限被截断”报成 UPSTREAM，error_details 的 provider_code 是这个字面量。 */
+export const QUIZS_OUTPUT_CUT = "OUTPUT_TOKEN_LIMIT";
 /** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
 export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
   + "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"
