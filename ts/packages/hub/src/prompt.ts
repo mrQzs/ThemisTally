@@ -264,7 +264,7 @@ export function turnPrompt(
 ): string {
   rosterSpec(agent);
   // 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
-  const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000));
+  const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000), hub.root);
   const snapshot = spec.adapter === "quizs" && inputs !== null; // 第 137 轮：quizs 读的是输入目录冻成的快照
   // 主工作区的路径一律换成输入里的那一份
   const shown = (path: PyValue): string => (snapshot ? snapshotPath(hub, path) : inputPath(hub, inputs, path));

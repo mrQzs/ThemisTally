@@ -165,8 +165,8 @@
   {
    "name": "C08 续接时一律开新会话",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null && sessionId === null,",
-   "new": "      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null,"
+   "old": "        turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, downTurn, resume !== null && sessionId === null,",
+   "new": "        turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, downTurn, resume !== null,"
   },
   {
    "name": "C09 接口报错也重试一次",

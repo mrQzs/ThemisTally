@@ -237,9 +237,15 @@ export class Engine implements Landing {
     const [inputs] = await this.stage(ts, `${main}-${utcCompact()}`); // 第 88 轮
     let turn: PyDict;
     try {
-      let prompt = turnPrompt(this.hub, ts, COORDINATOR, main, texts, workspace, null, inputs, withSession(resume, sessionId), routingNote);
-      turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, null, resume !== null && sessionId === null,
-        inputs, sessionId);
+      let prompt: string;
+      let downTurn: string | null = null;
+      for (;;) { // 第 150 轮：quizs 自己没起来（标记已记下）就当场再办一次，这一次提示与回合都按替补；最多两趟
+        prompt = turnPrompt(this.hub, ts, COORDINATOR, main, texts, workspace, null, inputs, withSession(resume, sessionId), routingNote);
+        turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, downTurn, resume !== null && sessionId === null,
+          inputs, sessionId);
+        if (!pyTruthy(pyGet(turn, "quizs_down")) || downTurn !== null) break;
+        downTurn = pyItem(turn, "turn_id") as string;
+      }
       if (pyItem(turn, "output") === null && !pyTruthy(pyItem(turn, "violations")) && !pyTruthy(pyGet(turn, "api_error"))) {
         prompt = turnPrompt(this.hub, ts, COORDINATOR, main, texts, workspace, pyItem(turn, "output_error"), inputs, null, routingNote);
         turn = await this.runner.run(COORDINATOR, main, workspace, this.deps.rolePrompt(COORDINATOR), prompt, pyItem(turn, "turn_id") as string, false,

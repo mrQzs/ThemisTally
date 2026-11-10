@@ -2154,6 +2154,25 @@ def test_a_coordinator_turn_that_never_finished_restarts_fresh_and_only_once(eng
     assert hub.unread(kh.COORDINATOR) == [] and (hub.inbox(kh.COORDINATOR).parent / "cur" / path.name).is_file()
 
 
+def test_the_coordinator_turn_is_redone_at_once_when_quizs_could_not_start(engine_env):
+    # 第 150 轮：quizs 自己没起来（配置类问题，请求没有发出去），回合交回 quizs_down：标记已经记下，协调人这一回合当场
+    # 再办一次（第二趟的提示与回合都按替补），不作废、不交给站主
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([(None, [], "quizs 退出码 2（USAGE）"), ({"letters": [start_planner()], "state": "s"}, [])])
+    plain_run, retries = runner.run, []
+
+    def run(*args, **kwargs):
+        retries.append(kwargs.get("retry_of"))
+        turn = plain_run(*args, **kwargs)
+        return dict(turn, quizs_down=True) if turn["api_error"] else turn
+
+    runner.run = run
+    assert kh.Engine(hub, runner).step()
+    assert retries == [None, "t1"] and len(hub.unread("planner-opus")) == 1 and hub.unread(kh.OWNER) == []
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
+
+
 def test_the_coordinator_marker_is_cleared_on_every_way_out_of_the_turn(engine_env):
     hub = engine_env
     until = int(time.time()) + 3600
@@ -6274,12 +6293,13 @@ def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, m
                                                       fallback={"adapter": "pi", "provider": "dsf"}))
     certificate = tmp_path / "qualification.json"
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, "-c", "pass"]))
-    seen = []
+    seen, refusals = [], []
 
     def launcher(cmd, cwd, env, out, err, timeout):
         seen.append(cmd)
         if "worker" in cmd:
-            event = {"type": "result", "exit_code": 0, "error_class": None, "actual_model": "deepseek-flash",
+            event = {"type": "result", "exit_code": 2 if refusals else 0, "error_class": refusals.pop() if refusals else None,
+                     "actual_model": "deepseek-flash",
                      "usage": None, "thinking": None, "final_text": ""}
         else:
             event = {"type": "message_end", "message": {"role": "assistant", "provider": "dsf",
@@ -6306,6 +6326,17 @@ def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, m
     (tmp_path / "plan.json").write_text(json.dumps({"plan_id": "p"}), encoding="utf-8")
     ready = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
     assert "quizs_fallback" not in ready and seen[4][3:5] == ["worker", "turn"]
+    # 第 150 轮：quizs 自己没起来（result 事件退出码 2：配置类问题，请求没有发出去）：记下标记、交回 quizs_down，
+    # 之后 QUIZS_DOWN_SECONDS 秒内直接用替补，到点再试 quizs。上线那份 plan 的缺陷就是这一类：当时每回合作废、交给站主
+    refusals.append("USAGE")
+    refused = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert refused["quizs_down"] is True and refused["api_error"] == "quizs 退出码 2（USAGE）" and "quizs_fallback" not in refused
+    mark = json.loads((hub.root / kh.QUIZS_STATE_DIR / kh.QUIZS_DOWN_FILE).read_text(encoding="utf-8"))
+    assert mark["reason"] == refused["api_error"] and 0 < mark["until"] - int(time.time()) <= kh.QUIZS_DOWN_SECONDS
+    resting = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
+    assert resting["quizs_fallback"] == "quizs 刚才自己没起来（quizs 退出码 2（USAGE）），到纪元秒 %d 为止用替补" % mark["until"]
+    assert "worker" not in seen[-1] and "quizs_down" not in resting
+    assert kh.quizs_down(mark["until"] - 1, hub.root / kh.QUIZS_STATE_DIR) and kh.quizs_down(mark["until"], hub.root / kh.QUIZS_STATE_DIR) is None
     (tmp_path / "plan.json").write_text(json.dumps({"plan_id": 7}), encoding="utf-8")
     assert kh.quizs_unready(int(time.time()), 600) == "live plan 里没有 plan_id"
     certificate.write_text(json.dumps([1]), encoding="utf-8")

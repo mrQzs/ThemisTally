@@ -249,5 +249,9 @@ export const QUIZS_LIVE_FILES: readonly (readonly [string, string])[] = [
 /** 第 148 轮：Quizs 的交差策略只认没用过的 plan（一份 plan 只给一个回合，用过再用按 USAGE 退出）：内核照环境给的那份每回合
  *  另写一份放进回合目录，plan_id 接上回合号。P2b 重放时同一份 plan 的第二个回合就起不来，才发现 */
 export const QUIZS_TURN_PLAN = "live-plan.json";
+/** 第 150 轮：quizs 自己没起来（result 事件的退出码 2：plan、证书、参数这类配置问题，请求没有发出去）时，名册写了替补的岗位
+ *  记下这个标记（信箱的 quizs-state 下），协调人这一回合当场换替补重办；之后这么多秒内直接用替补，到点再试 quizs */
+export const QUIZS_DOWN_FILE = "down.json";
+export const QUIZS_DOWN_SECONDS = 900;
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

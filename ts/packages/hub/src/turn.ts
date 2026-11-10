@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { HubError } from "./errors.ts";
@@ -117,7 +117,7 @@ export class TurnRunner {
     retryOf: string | null = null, fresh = false, inputs: string | null = null, sessionId: string | null = null): Promise<PyDict> {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
     // 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds());
+    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root);
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
@@ -259,6 +259,11 @@ export class TurnRunner {
     ]);
     if (fallback !== null) summary.set("quizs_fallback", fallback);
     writeJson(join(turnDir, "result.json"), summary, true);
+    const down = quizs && pyGet(audit, "quizs_down") === true && (ROSTER[agent] as RosterSpec).fallback !== undefined;
+    if (down) { // 第 150 轮：记下标记，调用方（协调人回合）当场换替补重办
+      writeJson(join(this.hub.root, QUIZS_STATE_DIR, QUIZS_DOWN_FILE),
+        new Map<string, PyValue>([["until", BigInt(this.sources.seconds() + QUIZS_DOWN_SECONDS)], ["reason", pyGet(audit, "api_error")]]));
+    }
     await this.hub.appendEvent("turn.finished", [["turn_id", turnId], ["agent", agent], ["session_key", sessionKey],
       ["exit_code", pyItem(summary, "exit_code")], ["timed_out", pyItem(summary, "timed_out")], ["violations", BigInt(pyLenValue(pyItem(audit, "violations")))],
       ["output_ok", output !== null], ["effort_requested", pyItem(summary, "effort_requested")], ["effort_effective", pyItem(summary, "effort_effective")],
@@ -266,6 +271,7 @@ export class TurnRunner {
     summary.set("output", output);
     summary.set("turn_dir", turnDir);
     summary.set("rate_limited_until", pyGet(audit, "rate_limited_until"));
+    if (down) summary.set("quizs_down", true);
     return summary;
   }
 

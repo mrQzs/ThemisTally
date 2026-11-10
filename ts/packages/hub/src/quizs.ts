@@ -8,8 +8,10 @@ import { pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { runCapture } from "@themis/dispatcher/pi-cli";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, ROSTER, THROTTLE_RESET_MARGIN,
+  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_PERMIT_HELD, QUIZS_STATE_DIR,
+  ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
 import { HubError } from "./errors.ts";
@@ -17,10 +19,12 @@ import { HubError } from "./errors.ts";
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
 
-/** 第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，交差方式才对得上。 */
-export function effectiveSpec(agent: string, now: number): [RosterSpec, string | null] {
+/** 第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，交差方式才对得上。
+ *  hubRoot 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。 */
+export function effectiveSpec(agent: string, now: number, hubRoot: string | null = null): [RosterSpec, string | null] {
   const { fallback: substitute, ...listed } = ROSTER[agent] as RosterSpec;
-  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800) : null;
+  const stateDir = hubRoot === null ? null : join(hubRoot, QUIZS_STATE_DIR);
+  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800, stateDir) : null;
   return [reason === null ? listed : { ...listed, ...substitute }, reason];
 }
 
@@ -38,8 +42,24 @@ export function quizsLivePlan(): [PyDict | null, string | null] {
   return [plan, null];
 }
 
-/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出）；起得了是 null。 */
-export function quizsUnready(now: number, timeout: number): string | null {
+/** 第 150 轮：quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 null。 */
+export function quizsDown(now: number, stateDir: string | null): string | null {
+  if (stateDir === null) return null;
+  let mark: PyValue;
+  try {
+    mark = loads(readFileSync(join(stateDir, QUIZS_DOWN_FILE), "utf-8"));
+  } catch (error) {
+    if (!(error instanceof PyJsonError) && !(error instanceof Error && "code" in error)) throw error;
+    return null;
+  }
+  const [until, reason] = mark instanceof Map ? [pyGet(mark, "until"), pyGet(mark, "reason")] : [null, null];
+  if (typeof until !== "bigint" || typeof reason !== "string" || BigInt(now) >= until) return null;
+  return `quizs 刚才自己没起来（${reason}），到纪元秒 ${until} 为止用替补`;
+}
+
+/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出，
+ *  刚才自己没起来还在歇着）；起得了是 null。 */
+export function quizsUnready(now: number, timeout: number, stateDir: string | null = null): string | null {
   for (const name of ["QUIZS_CMD", ...QUIZS_LIVE_FILES.map(([, env]) => env)]) {
     if (!process.env[name]) return `没有设 ${name}`;
   }
@@ -54,7 +74,7 @@ export function quizsUnready(now: number, timeout: number): string | null {
   const expires = data instanceof Map ? pyGet(data, "expires_at_ms") : null;
   if (typeof expires !== "bigint") return "资格证书里没有到期时刻";
   if (expires < BigInt((now + timeout + QUIZS_CERT_MARGIN) * 1000)) return `资格证书撑不完这一回合（${expires} 毫秒时到期）`;
-  return quizsLivePlan()[1];
+  return quizsLivePlan()[1] ?? quizsDown(now, stateDir);
 }
 
 /** quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。 */
@@ -174,6 +194,7 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
       return audit;
     }
     audit.set("api_error", errorClass === "QUEUE_TIMEOUT" ? QUIZS_PERMIT_HELD : `quizs 退出码 ${pyStrValue(code)}（${errorClass}）`);
+    audit.set("quizs_down", code === 2n); // 第 150 轮：配置类问题，请求没有发出去
     const retryAt = pyGet(result, "retry_at");
     if (code === 3n && typeof retryAt === "string") audit.set("rate_limited_until", BigInt(Math.floor(Date.parse(retryAt) / 1000) + THROTTLE_RESET_MARGIN));
     return audit;

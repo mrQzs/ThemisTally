@@ -576,6 +576,9 @@ QUIZS_LIVE_FILES = (("--live-plan", "QUIZS_LIVE_PLAN"), ("--provider-profile", "
 #: 第 148 轮：Quizs 的交差策略只认没用过的 plan（一份 plan 只给一个回合，用过再用按 USAGE 退出）：内核照环境给的那份每回合
 #: 另写一份放进回合目录，plan_id 接上回合号。P2b 重放时同一份 plan 的第二个回合就起不来，才发现
 QUIZS_TURN_PLAN = "live-plan.json"
+#: 第 150 轮：quizs 自己没起来（result 事件的退出码 2：plan、证书、参数这类配置问题，请求没有发出去）时，名册写了替补的岗位
+#: 记下这个标记（信箱的 quizs-state 下），协调人这一回合当场换替补重办；之后这么多秒内直接用替补，到点再试 quizs
+QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS = "down.json", 900
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -1937,9 +1940,23 @@ def quizs_live_plan() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     return plan, None
 
 
-def quizs_unready(now: int, timeout: int) -> Optional[str]:
-    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出）；
-    起得了是 None。"""
+def quizs_down(now: int, state_dir: Optional[Path]) -> Optional[str]:
+    """第 150 轮：quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 None。"""
+    if state_dir is None:
+        return None
+    try:
+        mark = json.loads((state_dir / QUIZS_DOWN_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    until, reason = (mark.get("until"), mark.get("reason")) if isinstance(mark, dict) else (None, None)
+    if not isinstance(until, int) or isinstance(until, bool) or not isinstance(reason, str) or now >= until:
+        return None
+    return "quizs 刚才自己没起来（%s），到纪元秒 %d 为止用替补" % (reason, until)
+
+
+def quizs_unready(now: int, timeout: int, state_dir: Optional[Path] = None) -> Optional[str]:
+    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出，
+    刚才自己没起来还在歇着）；起得了是 None。"""
     for name in ("QUIZS_CMD",) + tuple(env for _flag, env in QUIZS_LIVE_FILES):
         if not os.environ.get(name):
             return "没有设 %s" % name
@@ -1953,15 +1970,17 @@ def quizs_unready(now: int, timeout: int) -> Optional[str]:
         return "资格证书里没有到期时刻"
     if expires < (now + timeout + QUIZS_CERT_MARGIN) * 1000:
         return "资格证书撑不完这一回合（%d 毫秒时到期）" % expires
-    return quizs_live_plan()[1]
+    return quizs_live_plan()[1] or quizs_down(now, state_dir)
 
 
-def effective_spec(agent: str, now: int) -> Tuple[Dict[str, Any], Optional[str]]:
+def effective_spec(agent: str, now: int, hub_root: Optional[Path] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，
-    交差方式才对得上。"""
+    交差方式才对得上。hub_root 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。"""
     listed = {key: value for key, value in ROSTER[agent].items() if key != "fallback"}
     substitute = ROSTER[agent].get("fallback")
-    reason = quizs_unready(now, int(listed.get("timeout", 1800))) if listed["adapter"] == "quizs" and substitute else None
+    state_dir = None if hub_root is None else hub_root / QUIZS_STATE_DIR
+    reason = (quizs_unready(now, int(listed.get("timeout", 1800)), state_dir)
+              if listed["adapter"] == "quizs" and substitute else None)
     return (listed if reason is None else {**listed, **substitute}), reason
 
 
@@ -2069,6 +2088,7 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
             audit["delivery_error"] = "quizs 退出码 %s（%s）：%s" % (code, error_class, QUIZS_BEHAVIOR_ERRORS[error_class])
             return audit
         audit["api_error"] = QUIZS_PERMIT_HELD if error_class == "QUEUE_TIMEOUT" else "quizs 退出码 %s（%s）" % (code, error_class)
+        audit["quizs_down"] = code == 2  # 第 150 轮：配置类问题，请求没有发出去
         if code == 3 and isinstance(result.get("retry_at"), str):
             moment = _dt.datetime.fromisoformat(result["retry_at"].replace("Z", "+00:00"))
             audit["rate_limited_until"] = int(moment.timestamp()) + THROTTLE_RESET_MARGIN
@@ -2214,7 +2234,7 @@ class TurnRunner:
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         # 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-        spec, fallback = effective_spec(agent, int(time.time()))
+        spec, fallback = effective_spec(agent, int(time.time()), self.hub.root)
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
@@ -2420,6 +2440,10 @@ class TurnRunner:
         if fallback is not None:
             summary["quizs_fallback"] = fallback
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
+        down = quizs and audit.get("quizs_down") is True and bool(ROSTER[agent].get("fallback"))
+        if down:  # 第 150 轮：记下标记，调用方（协调人回合）当场换替补重办
+            pd.write_json(self.hub.root / QUIZS_STATE_DIR / QUIZS_DOWN_FILE,
+                          {"until": int(time.time()) + QUIZS_DOWN_SECONDS, "reason": audit["api_error"]})
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
                               exit_code=summary["exit_code"], timed_out=summary["timed_out"],
                               violations=len(audit["violations"]), output_ok=output is not None,
@@ -2428,6 +2452,8 @@ class TurnRunner:
         summary["output"] = output
         summary["turn_dir"] = str(turn_dir)
         summary["rate_limited_until"] = audit.get("rate_limited_until")
+        if down:
+            summary["quizs_down"] = True
         return summary
 
 
@@ -4813,7 +4839,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
     # 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
-    spec, _fallback = effective_spec(agent, int(time.time()))
+    spec, _fallback = effective_spec(agent, int(time.time()), hub.root)
     snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
     shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
              else (lambda path: input_path(hub, inputs, path)))
@@ -5440,10 +5466,15 @@ class Engine:
         session_id = resumed_session(self.hub, COORDINATOR, resume, workspace)
         inputs, _listing = stage_inputs(self.hub, ts, "%s-%s" % (main, utc_compact()))  # 第 88 轮
         try:
-            prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, inputs=inputs,
-                                 resume=dict(resume, session=session_id) if resume else None, routing_note=routing_note)
-            turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt, inputs=inputs,
-                                   fresh=resume is not None and session_id is None, session_id=session_id)
+            down_turn = None
+            for _ in range(2):  # 第 150 轮：quizs 自己没起来（标记已记下）就当场再办一次，这一次提示与回合都按替补
+                prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, inputs=inputs,
+                                     resume=dict(resume, session=session_id) if resume else None, routing_note=routing_note)
+                turn = self.runner.run(COORDINATOR, main, workspace, role_prompt(COORDINATOR), prompt, retry_of=down_turn, inputs=inputs,
+                                       fresh=resume is not None and session_id is None, session_id=session_id)
+                if not turn.get("quizs_down"):
+                    break
+                down_turn = turn["turn_id"]
             if turn["output"] is None and not turn["violations"] and not turn.get("api_error"):
                 prompt = turn_prompt(self.hub, ts, COORDINATOR, main, texts, workspace, error=turn["output_error"],
                                      inputs=inputs, routing_note=routing_note)
