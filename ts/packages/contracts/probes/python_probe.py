@@ -1362,6 +1362,10 @@ def op_hub_prompt(request):
     if request.get("kernel_root") is not None:
         saved["HERE"] = kit_hub.HERE
         kit_hub.HERE = Path(request["kernel_root"]) / "scripts"
+    # 第 151 轮：名册的改动照请求设上（协调人去掉替补就是 quizs 载体），调用完还原（同 op_hub_turn）
+    roster = request.get("roster") or {}
+    saved_roster = {name: kit_hub.ROSTER.get(name) for name in roster}
+    kit_hub.ROSTER.update(roster)
     path = lambda value: None if value is None else Path(value)  # noqa: E731
     hub = lambda repo: kit_hub.Hub(Path(repo))  # noqa: E731
     if request.get("started") is not None:  # 契约用：调用之前写一个标记，另一个进程据此掐时机
@@ -1377,6 +1381,8 @@ def op_hub_prompt(request):
         elif fn == "input_path":
             repo, inputs, target = args
             value = kit_hub.input_path(hub(repo), path(inputs), target)
+        elif fn == "snapshot_manifest":
+            value = kit_hub.snapshot_manifest(Path(args[0]))
         elif fn == "turn_prompt":
             repo, ts, agent, task_id, letters, workspace, error, inputs, resume, routing_note = args
             value = kit_hub.turn_prompt(hub(repo), ts, agent, task_id, letters, Path(workspace), error, path(inputs), resume, routing_note)
@@ -1393,6 +1399,11 @@ def op_hub_prompt(request):
     finally:
         for name, original in saved.items():
             setattr(kit_hub, name, original)
+        for name, before in saved_roster.items():
+            if before is None:
+                kit_hub.ROSTER.pop(name, None)
+            else:
+                kit_hub.ROSTER[name] = before
     return {"ok": True, "value": to_tagged(value)}
 
 

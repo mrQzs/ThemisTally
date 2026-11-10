@@ -169,6 +169,8 @@ export const INPUTS_DIR = "%s-hub-inputs";
 export const INPUTS_INDEX = "INPUTS.json";
 /** 单个文件超过这么大就不复制进输入目录，清单里记进 skipped。 */
 export const INPUT_FILE_LIMIT = 4 * 1024 * 1024;
+/** 第 151 轮：quizs 回合的提示里逐个列出快照里的文件，最多这么多个；再多就按目录合计 */
+export const SNAPSHOT_MANIFEST_LIMIT = 200;
 /** 交差格式（逐字进提示词）。 */
 export const OUTPUT_SPECS: Readonly<Record<string, string>> = {
   coordinator: "{\"letters\": [{\"to\": \"<收信人>\", \"type\": \"开工|返工|通过|等待|停止|汇报|提问\", \"task_id\": \"<阶段任务或主任务>\", \"in_reply_to\": \"<msg-id 或 none>\", \"摘要\": \"…\", \"提交\": \"无\", \"验证\": \"…\", \"偏离\": \"无\", \"需协调人决定\": \"无\", \"证据\": \"…\", \"brief\": \"<开工、返工时必填：下一阶段任务书的 Markdown 全文>\"}], \"state\": \"<你的进度断点，Markdown>\"}",

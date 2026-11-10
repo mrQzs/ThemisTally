@@ -6,7 +6,7 @@ import { type Stats, lstatSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { readText, sleepSync } from "@themis/base/fsutil";
 import { PyCrash, pyGet, pyIntOf, pyItem, pyIter, pyJoin, pyJoinStrings, pyLenValue, pyPercentD, pyPlus, pyRepr, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
-import { type PyDict, type PyValue } from "@themis/base/pyjson";
+import { type PyDict, type PyValue, loads } from "@themis/base/pyjson";
 import { abspath, purePathName, purePathRelativePosix, purePathStr, relpath } from "@themis/base/pypath";
 import { cmpCodePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { FLAG_MULTILINE, compilePy } from "@themis/base/pyregex";
@@ -17,7 +17,7 @@ import { globPaths } from "@themis/dispatcher/instruction";
 import { comparePaths, stripChars } from "./audit.ts";
 import {
   CONTRACT_EXECUTOR_LINE, COORDINATOR, DEPENDENCY_DIRS, ENGINEERING_HEADING, ENGINEERING_ROLES, EXIT_BLOCKED, FIELDS, GATE_PITFALLS, HANDOFF_FIELD,
-  MIN_ATTEMPTS_LEFT, OUTPUT_SPECS, ROLE_EXTRA_OUTPUT, ROSTER, type RosterSpec, TEMPLATE_READ_TRIES, VERDICT_FIELDS,
+  INPUTS_INDEX, MIN_ATTEMPTS_LEFT, OUTPUT_SPECS, ROLE_EXTRA_OUTPUT, ROSTER, type RosterSpec, SNAPSHOT_MANIFEST_LIMIT, TEMPLATE_READ_TRIES, VERDICT_FIELDS,
 } from "./constants.ts";
 import { HubError } from "./errors.ts";
 import { KERNEL_ROOT, TEMPLATE_DIR, git } from "./kernel.ts";
@@ -321,8 +321,9 @@ export function turnPrompt(
       "- 上一回合办到一半，hub 被系统收掉了。这是新会话：工作目录里留着上一回合的改动，先看一遍，接着做，做完再交。");
   }
   parts.push("", "## 新信", "", ...(letters.length ? letters : ["（没有新信）"]));
-  if (role === "coordinator") coordinatorParts(hub, ts, letters, routingNote, parts, shown);
+  if (role === "coordinator") coordinatorParts(hub, ts, letters, routingNote, parts, shown, taskDir);
   else workerParts(hub, ts, agent, taskId, workspace, parts, shown);
+  if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs));
   if (spec.adapter === "quizs") {
     // 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
     parts.push("", "## 交差（最后的回答写一个 json 代码块）", "",
@@ -349,7 +350,36 @@ export function turnPrompt(
   return `${pyJoinStrings(LF, parts)}${LF}`;
 }
 
-function coordinatorParts(hub: Hub, ts: PyDict, letters: readonly PyValue[], routingNote: PyValue, parts: PyValue[], shown: (path: PyValue) => string): void {
+/** 第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。 */
+export function snapshotManifest(inputs: string): string[] {
+  const index = readText(join(inputs, INPUTS_INDEX));
+  if (!index) return [];
+  const listing = loads(index);
+  const files = pyIter(pyItem(listing, "files"));
+  const lines = ["", "## 快照里的文件（内核）", ""];
+  const together = "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。";
+  if (files.length <= SNAPSHOT_MANIFEST_LIMIT) {
+    lines.push(`- 一共 ${files.length} 个文件，都列在下面：read、grep 直接用这些路径；清单之外的文件快照里没有，不用 ls、find 去找。`, together,
+      ...files.map((item) => `- ${pyStrValue(pyItem(item, "path"))}（${pyPercentD(pyItem(item, "bytes"))} 字节）`));
+  } else {
+    const folders = new Map<string, [number, bigint]>();
+    for (const item of files) {
+      const path = pyStrValue(pyItem(item, "path"));
+      const folder = path.slice(0, Math.max(path.lastIndexOf("/"), 0)) || ".";
+      const [count, size] = folders.get(folder) ?? [0, 0n];
+      folders.set(folder, [count + 1, size + (pyItem(item, "bytes") as bigint)]);
+    }
+    lines.push(`- 一共 ${files.length} 个文件，下面按目录合计（目录里的文件名用 ls 看）；清单之外的目录快照里没有。`, together,
+      ...[...folders].sort((a, b) => cmpCodePoints(a[0], b[0])).map(([folder, [count, size]]) => `- ${folder}/（${count} 个文件，${size} 字节）`));
+  }
+  const skipped = pyItem(listing, "skipped");
+  if (pyTruthy(skipped)) lines.push(`- 另有 ${pyLenValue(skipped)} 个文件太大、没有复制进来，名单在 SKIPPED.md。`);
+  return lines;
+}
+
+function coordinatorParts(
+  hub: Hub, ts: PyDict, letters: readonly PyValue[], routingNote: PyValue, parts: PyValue[], shown: (path: PyValue) => string, taskDir: string,
+): void {
   parts.push("", "## 主任务状态（内核）", "", stageStatusTable(ts));
   if (pyTruthy(pyGet(ts, "routed"))) {
     // 第 112 轮：你上一回合之后内核代办的例行流转
@@ -362,6 +392,9 @@ function coordinatorParts(hub: Hub, ts: PyDict, letters: readonly PyValue[], rou
   if (ownerBrief && letters.some((letter) => pyStrValue(letter).includes(`${LF}type: 任务${LF}`))) {
     parts.push("", `## 站主的任务书（${shown(briefPath)}）`, "", ownerBrief);
   }
+  // 第 151 轮：协调人每回合开新会话（第 147 轮），上次留下的断点由内核附上，不用它每回合先去读
+  const lastState = readText(purePathStr(taskDir, "state.md"));
+  if (lastState) parts.push("", "## 你上次留下的 state.md", "", lastState);
 }
 
 function workerParts(hub: Hub, ts: PyDict, agent: string, taskId: string, workspace: string, parts: PyValue[], shown: (path: PyValue) => string): void {

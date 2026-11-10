@@ -8161,6 +8161,47 @@ def test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool(tmp_path, monke
     assert "## 交差（最后的回答写一个 json 代码块）" in quizs and "没有名叫 json 的工具" in quizs and "deliver 工具" not in quizs
 
 
+def test_a_quizs_prompt_lists_the_snapshot_files(tmp_path, monkeypatch):
+    # 第 151 轮：P2b 里协调人三分之一的工具调用是 ls、find 在摸目录，一半多的回合读过快照里没有的路径；
+    # 提示里照输入目录的清单列出快照里的文件，文件太多就按目录合计
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek"))
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    ask = lambda: kh.turn_prompt(hub, make_ts(), kh.COORDINATOR, "T001", [], tmp_path, inputs=inputs)  # noqa: E731
+    assert "## 快照里的文件" not in ask()  # 没有清单就不列
+    few = {"files": [{"path": ".agent/mailbox/tasks/T001/brief.md", "bytes": 12}, {"path": "top.md", "bytes": 3}], "skipped": []}
+    (inputs / kh.INPUTS_INDEX).write_text(json.dumps(few), encoding="utf-8")
+    listed = ask()
+    section = listed[listed.index("## 快照里的文件（内核）"):listed.index("## 交差")]
+    assert "- 一共 2 个文件，都列在下面" in section and "- .agent/mailbox/tasks/T001/brief.md（12 字节）" in section
+    assert "- top.md（3 字节）" in section and "同一条回复里一起发" in section and "SKIPPED.md" not in section
+    many = {"files": [{"path": "a/b/f%03d.log" % n, "bytes": 2} for n in range(kh.SNAPSHOT_MANIFEST_LIMIT)] + [{"path": "root.md", "bytes": 5}],
+            "skipped": [{"path": "big.jsonl", "bytes": 9}]}
+    (inputs / kh.INPUTS_INDEX).write_text(json.dumps(many), encoding="utf-8")
+    grouped = ask()
+    assert "- 一共 201 个文件，下面按目录合计" in grouped and "- a/b/（200 个文件，400 字节）" in grouped and "- ./（1 个文件，5 字节）" in grouped
+    assert "f000.log" not in grouped and "- 另有 1 个文件太大、没有复制进来，名单在 SKIPPED.md。" in grouped
+    (inputs / kh.INPUTS_INDEX).write_text(json.dumps(dict(many, files=many["files"][:-1])), encoding="utf-8")
+    assert "- a/b/f000.log（2 字节）" in ask()  # 正好到上限还是逐个列
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="pi", provider="dsf"))
+    assert "## 快照里的文件" not in ask()  # pi 读的是输入目录，不是快照
+
+
+def test_the_coordinator_prompt_carries_its_last_state(tmp_path):
+    # 第 151 轮：协调人每回合开新会话（第 147 轮），上次留下的 state.md 由内核附在提示里，不用它每回合先去读
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    ts = make_ts()
+    assert "## 你上次留下的 state.md" not in kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
+    task_dir = hub.task_dir("T001")
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "state.md").write_text("合同端已开工，等它交付", encoding="utf-8")
+    prompt = kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path)
+    assert prompt.index("## 你上次留下的 state.md") < prompt.index("合同端已开工，等它交付") < prompt.index("## 交差")
+
+
 def test_the_prompt_says_how_to_hand_in(tmp_path):
     hub = kh.Hub(tmp_path)
     hub.ensure()

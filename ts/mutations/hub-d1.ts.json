@@ -231,6 +231,48 @@
       "file": "ts/packages/hub/src/prompt.ts",
       "old": "if (notes.length) parts.push(",
       "new": "if (false) parts.push("
+    },
+    {
+      "name": "D38 协调人的提示不附它上次留下的 state.md（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (lastState) parts.push(",
+      "new": "if (false) parts.push("
+    },
+    {
+      "name": "D39 快照清单正好到上限就按目录合计（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (files.length <= SNAPSHOT_MANIFEST_LIMIT) {",
+      "new": "if (files.length < SNAPSHOT_MANIFEST_LIMIT) {"
+    },
+    {
+      "name": "D40 快照清单按目录合计时不排序（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "[...folders].sort((a, b) => cmpCodePoints(a[0], b[0])).map(",
+      "new": "[...folders].map("
+    },
+    {
+      "name": "D41 快照清单不提没复制进来的文件（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (pyTruthy(skipped)) lines.push(",
+      "new": "if (false) lines.push("
+    },
+    {
+      "name": "D42 输入目录没有清单时照样去解析（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (!index) return [];",
+      "new": ""
+    },
+    {
+      "name": "D43 quizs 回合的提示不附快照清单（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs));",
+      "new": ""
+    },
+    {
+      "name": "D44 快照清单按目录合计时字节数算反（第 151 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "folders.set(folder, [count + 1, size + (",
+      "new": "folders.set(folder, [count + 1, size - ("
     }
   ]
 }

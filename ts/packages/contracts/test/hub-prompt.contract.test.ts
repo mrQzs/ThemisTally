@@ -296,6 +296,7 @@ function promptRepo(): PromptRepo {
   });
   for (const task of ["T001", "T024", "T1000"]) {
     put(repo, `.agent/mailbox/tasks/${task}/brief.md`, `# 站主的任务书 ${task}${LF}做 X${LF}`);
+    if (task !== "T024") put(repo, `.agent/mailbox/tasks/${task}/state.md`, `# 协调人的断点 ${task}${LF}等合同端交付${LF}`); // 第 151 轮：协调人的提示附上它
     for (const [index, suffix] of STAGE_ORDER.entries()) {
       if (index % 2 === 0) put(repo, `.agent/mailbox/tasks/${task}-${suffix}/brief.md`, `# 任务书 ${suffix}${LF}${FACE}${LF}`);
       if (index % 3 === 0) put(repo, `.agent/mailbox/tasks/${task}-${suffix}/state.md`, `# 断点${LF}做到第 ${index} 步${LF}`);
@@ -391,6 +392,41 @@ describe("第 ⑤d1 片：按种子生成的回合输入", () => {
       ...[null, dict(), dict(["items", []]), dict(["items", [dict(["fact", "f"], ["source", ""], ["verified", null])]], ["checked_at", "t"], ["checked", ["a", "b"]], ["checked_msg", "m"]),
         dict(["items", null], ["checked_at", ""]), ["列表"]].map((record) => call("external_facts_section", [dict(["external_facts", record as PyValue])])),
     ], 0.7);
+  });
+
+  it("第 151 轮：快照里的文件清单（没有清单、逐个列、按目录合计、有没复制进来的文件）", () => {
+    const dirs = ["none", "few", "many", "odd", "edge"].map((name) => join(ROOT, "manifest", name));
+    for (const dir of dirs) mkdirSync(dir, { recursive: true });
+    const index = (files: [string, number][], skipped: [string, number][] = []): string =>
+      JSON.stringify({ files: files.map(([path, bytes]) => ({ path, bytes })), skipped: skipped.map(([path, bytes]) => ({ path, bytes })) }, null, 1);
+    const odd: [string, number] = [`甲/乙${FACE}.md`, 3];
+    writeFileSync(join(dirs[1] as string, "INPUTS.json"), index([[".agent/mailbox/tasks/T001/brief.md", 12], ["top.md", 0]]).split(LF).join(CR + LF));
+    writeFileSync(join(dirs[2] as string, "INPUTS.json"),
+      index([...Array.from({ length: 200 }, (_, n): [string, number] => [`a/b/f${n}.log`, n]), ["root.md", 5], ["a/x.md", 7], odd], [["big.jsonl", 9000000]]));
+    writeFileSync(join(dirs[3] as string, "INPUTS.json"), index([odd, ["Z.md", 1], ["a.md", 2]], [["big.jsonl", 9000000], ["b2.jsonl", 1]]));
+    writeFileSync(join(dirs[4] as string, "INPUTS.json"), index(Array.from({ length: 200 }, (_, n): [string, number] => [`a/b/f${n}.log`, n])));
+    const results = agree(dirs.map((dir) => call("snapshot_manifest", [dir])), 1).map((result) => valueOf(result) as string[]);
+    expect(results[0]).toEqual([]);
+    expect(results[1]?.[3]).toContain("一共 2 个文件，都列在下面");
+    expect(results[1]).toContain("- top.md（0 字节）");
+    expect(results[2]?.slice(5)).toEqual(["- ./（1 个文件，5 字节）", "- a/（1 个文件，7 字节）", "- a/b/（200 个文件，19900 字节）", "- 甲/（1 个文件，3 字节）",
+      "- 另有 1 个文件太大、没有复制进来，名单在 SKIPPED.md。"]);
+    expect(results[3]?.at(-1)).toBe("- 另有 2 个文件太大、没有复制进来，名单在 SKIPPED.md。");
+    expect(results[4]?.at(-1)).toBe("- a/b/f199.log（199 字节）"); // 正好到上限还是逐个列
+    // quizs 载体的整份提示：名册照采样的做法换掉（协调人去掉替补，载体就是 quizs），输入目录有清单、没清单、文件多、没有输入目录
+    const bare = Object.fromEntries(Object.entries(ROSTER[COORDINATOR] as object).filter(([key]) => key !== "fallback"));
+    const kit = promptKit(151, where);
+    const prompts = agree([dirs[1], dirs[0], dirs[2], null, dirs[1], dirs[1]].map((inputs) => {
+      const ts = kit.state();
+      return call("turn_prompt", [where.repo, ts, COORDINATOR, String(ts.get("task")), [], where.workspace, null, inputs ?? null, null, null], { roster: { [COORDINATOR]: bare } });
+    }), 1).map((result) => String(valueOf(result)));
+    expect(prompts[0]).toContain("- 只读快照：");
+    expect(prompts[0]).toContain("- top.md（0 字节）");
+    expect(prompts[1]).not.toContain("## 快照里的文件");
+    expect(prompts[2]).toContain("下面按目录合计");
+    expect(prompts[3]).not.toContain("- 只读快照：");
+    expect(prompts.every((prompt) => prompt.includes("## 交差（最后的回答写一个 json 代码块）"))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("# 协调人的断点"))).toBe(true);
   });
 });
 

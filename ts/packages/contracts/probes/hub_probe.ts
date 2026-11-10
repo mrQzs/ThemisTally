@@ -76,7 +76,7 @@ import { DirLock, Hub, HubState, holdLetters, keepPrevious, ledgerEvents, letter
 import { letterErrors, parseLetter, renderLetter, stageOf } from "@themis/hub/letters";
 import {
   budgetUsage, engineeringRules, externalFactsSection, inputPath, letterFromOutput, nextContractVersion, regressionGates, renderTemplate, rolePrompt,
-  transitionalSection, turnPrompt,
+  snapshotManifest, transitionalSection, turnPrompt,
 } from "@themis/hub/prompt";
 import { schemaErrors, schemaProblems } from "@themis/hub/schema";
 import {
@@ -370,6 +370,11 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
   const templateDir = typeof request["template_dir"] === "string" ? request["template_dir"] : TEMPLATE_DIR;
   const kernelRoot = typeof request["kernel_root"] === "string" ? request["kernel_root"] : KERNEL_ROOT;
   const [a, b, c, d, e, f, g, h, i, j] = args;
+  // 第 151 轮：名册的改动照请求设上（协调人去掉替补就是 quizs 载体），调用完还原（同 hubTurn）
+  const roster = constants.ROSTER as Record<string, constants.RosterSpec>;
+  const givenRoster = (request["roster"] ?? {}) as Record<string, constants.RosterSpec>;
+  const savedRoster = Object.keys(givenRoster).map((name) => [name, Object.hasOwn(roster, name) ? roster[name] : undefined] as const);
+  Object.assign(roster, givenRoster);
   if (typeof request["started"] === "string") writeFileSync(request["started"], ""); // 契约用：调用之前写一个标记，另一个进程据此掐时机
   try {
     let value: PyValue;
@@ -413,6 +418,9 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
       case "input_path":
         value = inputPath(new Hub(textOf(a)), optionalText(b), c as PyValue);
         break;
+      case "snapshot_manifest":
+        value = snapshotManifest(textOf(a));
+        break;
       case "turn_prompt":
         value = turnPrompt(new Hub(textOf(a)), dictOf(b), textOf(c), textOf(d), e as PyValue[], textOf(f), g as PyValue, optionalText(h), i as PyValue, j as PyValue);
         break;
@@ -433,6 +441,11 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
     return { ok: true, value: toTagged(value) };
   } catch (error) {
     return errorResult(error);
+  } finally {
+    for (const [name, value] of savedRoster) {
+      if (value === undefined) delete roster[name];
+      else roster[name] = value;
+    }
   }
 }
 

@@ -1427,6 +1427,8 @@ INPUTS_DIR = "%s-hub-inputs"
 INPUTS_INDEX = "INPUTS.json"
 #: 单个文件超过这么大就不复制（多半是 events.jsonl、stderr.log），清单里记进 skipped
 INPUT_FILE_LIMIT = 4 * 1024 * 1024
+#: 第 151 轮：quizs 回合的提示里逐个列出快照里的文件，最多这么多个；再多就按目录合计
+SNAPSHOT_MANIFEST_LIMIT = 200
 
 
 def input_sources(hub: Hub, ts: Dict[str, Any]) -> List[Path]:
@@ -4835,6 +4837,32 @@ def snapshot_path(hub: Hub, path: Any) -> str:
     return text if not text or rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel.replace(os.sep, "/")
 
 
+def snapshot_manifest(inputs: Path) -> List[str]:
+    """第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。
+    P2b 的 30 个协调人回合：483 次工具调用里 171 次是 ls、find 在摸目录，17 个回合读过快照里没有的路径。"""
+    index = read_text(inputs / INPUTS_INDEX)
+    if not index:
+        return []
+    listing = json.loads(index)
+    files = listing["files"]
+    lines = ["", "## 快照里的文件（内核）", ""]
+    together = "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。"
+    if len(files) <= SNAPSHOT_MANIFEST_LIMIT:
+        lines += ["- 一共 %d 个文件，都列在下面：read、grep 直接用这些路径；清单之外的文件快照里没有，不用 ls、find 去找。" % len(files), together]
+        lines += ["- %s（%d 字节）" % (item["path"], item["bytes"]) for item in files]
+    else:
+        folders: Dict[str, List[int]] = {}
+        for item in files:
+            entry = folders.setdefault(item["path"].rpartition("/")[0] or ".", [0, 0])
+            entry[0] += 1
+            entry[1] += item["bytes"]
+        lines += ["- 一共 %d 个文件，下面按目录合计（目录里的文件名用 ls 看）；清单之外的目录快照里没有。" % len(files), together]
+        lines += ["- %s/（%d 个文件，%d 字节）" % (folder, count, size) for folder, (count, size) in sorted(folders.items())]
+    if listing["skipped"]:
+        lines.append("- 另有 %d 个文件太大、没有复制进来，名单在 SKIPPED.md。" % len(listing["skipped"]))
+    return lines
+
+
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
@@ -4906,6 +4934,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
         owner_brief = read_text(hub.task_dir(ts["task"]) / "brief.md")
         if owner_brief and any("\ntype: 任务\n" in letter for letter in letters):
             parts += ["", "## 站主的任务书（%s）" % shown(hub.task_dir(ts["task"]) / "brief.md"), "", owner_brief]
+        state = read_text(task_dir / "state.md")
+        if state:  # 第 151 轮：协调人每回合开新会话（第 147 轮），上次留下的断点由内核附上，不用它每回合先去读
+            parts += ["", "## 你上次留下的 state.md", "", state]
     else:
         brief = read_text(task_dir / "brief.md")
         parts += ["", "## 任务书（%s）" % shown(task_dir / "brief.md"), "", brief or "（没有任务书）"]
@@ -5007,6 +5038,8 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if seeded:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
+    if snapshot:
+        parts += snapshot_manifest(inputs)
     if spec["adapter"] == "quizs":
         # 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
         parts += ["", "## 交差（最后的回答写一个 json 代码块）", "",
