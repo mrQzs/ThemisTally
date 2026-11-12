@@ -60,6 +60,31 @@ function hanging() {
   return { seen, fn };
 }
 
+// 响应头已到、响应体读失败：text() 直接 reject（服务在写体途中被关/重启、连接被重置）。
+function bodyThrows(error: Error, status = 200) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: () => null },
+    text: () => Promise.reject(error),
+  };
+}
+
+// 响应头已到、响应体挂起，直到 signal 被中止才 reject——我方超时会连响应体流一起中止。
+function bodyHangsOnSignal(signal?: AbortSignal) {
+  return {
+    status: 200,
+    ok: true,
+    headers: { get: () => null },
+    text: () =>
+      new Promise((_resolve, reject) => {
+        if (!signal) return;
+        if (signal.aborted) reject(abortError());
+        else signal.addEventListener('abort', () => reject(abortError()));
+      }),
+  };
+}
+
 beforeEach(() => {
   setConnectionState('connected');
 });
@@ -269,6 +294,45 @@ describe('live/transport：失败分类', () => {
       const env = await client.get('/x');
       expect(env.messages).toEqual(['ERROR: 服务返回 HTTP 500']);
     }
+  });
+
+  it('读体失败：响应头已到、响应体 reject 且非我方中止 → 连不上本机服务，状态 disconnected，绝不 reject', async () => {
+    const rec = recorder(() => bodyThrows(new TypeError('terminated')));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const env = await client.get('/api/v1/status');
+    expect(env).toEqual(failureEnvelope('ERROR: 连不上本机服务（请求没有到达服务）'));
+    expect(getConnectionState()).toBe('disconnected');
+  });
+
+  it('读体失败：状态码 ≥ 400 时按第 5 条回 ERROR: 服务返回 HTTP <状态码>（状态码优先），仍是信封', async () => {
+    const rec = recorder(() => bodyThrows(new TypeError('terminated'), 502));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const env = await client.get('/api/v1/status');
+    expect(env).toEqual(failureEnvelope('ERROR: 服务返回 HTTP 502'));
+    expect(getConnectionState()).toBe('disconnected');
+  });
+
+  it('读体期间我方超时到点：中止响应体流 → 超时文案（带中止秒数），状态 disconnected，绝不 reject', async () => {
+    vi.useFakeTimers();
+    const rec = recorder((seen) => bodyHangsOnSignal(seen.init.signal as AbortSignal | undefined));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const pending = client.get('/api/v1/status', undefined, 30);
+    let rejected = false;
+    pending.then(
+      () => undefined,
+      () => {
+        rejected = true;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(34999);
+    expect((rec.seen[0].init.signal as AbortSignal).aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const env = await pending;
+    expect(rejected).toBe(false);
+    expect(env).toEqual(failureEnvelope('ERROR: 请求超时（35 秒），没有收到服务的回应'));
+    expect((rec.seen[0].init.signal as AbortSignal).aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(getConnectionState()).toBe('disconnected');
   });
 
   it('连接状态：断线置 disconnected，收到任何 HTTP 响应（哪怕 500）恢复 connected', async () => {

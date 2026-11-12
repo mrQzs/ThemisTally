@@ -137,7 +137,18 @@ export function createLiveClient(options: LiveClientOptions = {}): LiveClient {
         if (response.status === 503) {
           return failure<T>(MSG_503(retryAfterSeconds(response)));
         }
-        const body = parseJson(await response.text());
+        let body: unknown;
+        try {
+          body = parseJson(await response.text());
+        } catch (error) {
+          // 响应头已到、响应体读失败（服务在写体途中被关/重启，或我方超时把响应体流一起中止）：
+          // 绝不 reject——我方中止/AbortError 走超时文案，其余按第 2 条（≥400 也可按第 5 条），状态置 disconnected。
+          setConnectionState('disconnected');
+          if (timedOut || (error as Error)?.name === 'AbortError') {
+            return failure<T>(MSG_TIMEOUT(Math.round(timeoutMs / 1000)));
+          }
+          return response.status >= 400 ? failure<T>(MSG_HTTP(response.status)) : failure<T>(MSG_DISCONNECT);
+        }
         if (response.status >= 400) {
           return isEnvelope(body) ? (body as Envelope<T>) : failure<T>(MSG_HTTP(response.status));
         }
