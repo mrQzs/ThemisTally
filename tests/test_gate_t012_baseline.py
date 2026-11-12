@@ -1183,14 +1183,9 @@ def test_d12_wiring_imports_reach_from_app_and_settings_page():
     fail_if(wiring_problems(), "接线")
 
 
-def test_transitional_d13_app_tsx_only_section_2_3_change():
-    """再改 App.tsx 的后续片（T013 起接真实外壳或加新页面）推翻。
-
-    D13 / Q1-A：App.tsx 只有合同 §2.3 的改动——基线里要原样保留的 72 行都在且顺序不变，:72 的 TitleBar 一行一字不改，
-    两行新导入，根组件 App 不调 api.ts、主题状态与 applyTheme 移到根上，原函数体改名 ServiceApp 且从参数拿 theme 与 setTheme，
-    新增行不超过上限、不踩陈列页原文与 data-theme。"""
-    need_new_sources()
-    fail_if(app_tsx_problems(_read(need_file(f"{SRC_REL}/App.tsx"))), "App.tsx")
+# test_transitional_d13_app_tsx_only_section_2_3_change（App.tsx 只许有合同 §2.3 的改动）由站主退役（2026-11-12，
+# T027 规划报告第 8 节）：界面接真实服务要改 App.tsx 里原样保留的行（离线的算法、meta 的来源）。
+# app_tsx_problems 留着，下面的门禁自检照旧用合成样本核它。
 
 
 def executor_test_problems():
