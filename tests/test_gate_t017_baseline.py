@@ -418,8 +418,9 @@ def test_static_routes_auth_19_intact():
     for name in READ_ROUTE_NAMES:
         if name not in auth:
             problems.append(f"routes-auth.test.ts 里原有的路由名 {name} 不见了（19 条一条不动）")
-    if "expect(listed.length).toBe(19)" not in auth:
-        problems.append("routes-auth.test.ts 的「正好 19 条」断言（expect(listed.length).toBe(19)）不见了")
+    # 站主 2026-11-12（T031 规划第 4 节）：T031 加第 20 条读路由，条数会变；这里只认条数断言还在，不再钉 19 这个数
+    if "expect(listed.length).toBe(" not in auth:
+        problems.append("routes-auth.test.ts 的条数断言（expect(listed.length).toBe(…)）不见了")
     for name in NEW_ROUTE_NAMES:
         if name not in auth:
             problems.append(f"routes-auth.test.ts 应另立新表（四行：{name}）")

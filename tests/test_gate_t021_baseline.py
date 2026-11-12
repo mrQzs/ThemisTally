@@ -672,8 +672,9 @@ def test_static_routes_auth_appended():
         problems.append("routes-auth.test.ts 应追加 entry 路由（api.secrets.entry）不带 cookie 回 401 的新表")
     if "401" not in code:
         problems.append("routes-auth.test.ts 应断言不带 cookie 一律 401")
-    if "expect(listed.length).toBe(19)" not in raw:
-        problems.append("routes-auth.test.ts 的「正好 19 条」断言不见了（只追加，一字不动）")
+    # 站主 2026-11-12（T031 规划第 4 节）：T031 加第 20 条读路由，条数会变；这里只认条数断言还在
+    if "expect(listed.length).toBe(" not in raw:
+        problems.append("routes-auth.test.ts 的条数断言（expect(listed.length).toBe(…)）不见了")
     problems += _no_skip_marks(code)
     fail_if(problems, "routes-auth.test.ts 只追加（D13/D16）")
 

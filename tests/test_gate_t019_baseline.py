@@ -827,8 +827,9 @@ def test_static_read_routes_untouched():
     problems = []
     specs = _block(code, "READ_ROUTE_SPECS", "\n];")
     names = re.findall(r'name:\s*"([^"]+)"', specs)
-    if len(names) != 19:
-        problems.append(f"READ_ROUTE_SPECS 应仍恰好 19 条（T016 的口径），实际 {len(names)} 条")
+    # 站主 2026-11-12（T031 规划第 4 节）：后续片只许往表里加，不许少；下面逐条的名字检查照旧
+    if len(names) < 19:
+        problems.append(f"READ_ROUTE_SPECS 不应少于 19 条（T016 的口径），实际 {len(names)} 条")
     for name in READ_ROUTE_NAMES:
         if name not in names:
             problems.append(f"读路由 {name} 不见了（19 条一条不动）")

@@ -364,8 +364,9 @@ def test_static_write_actions_registry():
     else:
         block = _block(code, "WRITE_ACTIONS", "\n};")
         entries = dict(re.findall(r'(?m)^[ \t]*"([^"]+)"\s*:\s*\{([^}]*)\}', block))
-        if len(entries) != 12:
-            problems.append(f"WRITE_ACTIONS 应恰好 12 个 action，实际 {len(entries)}：{sorted(entries)}")
+        # 站主 2026-11-12（T031 规划第 4 节）：后续片只许加 action，不许少；下面逐个的名字检查照旧
+        if len(entries) < 12:
+            problems.append(f"WRITE_ACTIONS 不应少于 12 个 action，实际 {len(entries)}：{sorted(entries)}")
         for action in ALL_12_ACTIONS:
             if action not in entries:
                 problems.append(f"WRITE_ACTIONS 里应有「{action}」")
@@ -426,8 +427,9 @@ def test_static_write_argv_table():
     else:
         block = _block(code, "WRITE_ARGV")
         rows = re.findall(r"(?m)^[ \t]*[\"']([^\"']+)[\"']\s*:\s*\[", block)
-        if len(rows) != 13:
-            problems.append(f"WRITE_ARGV 应有 13 行示例（role.set 两行），实际 {len(rows)}")
+        # 站主 2026-11-12（T031 规划第 4 节）：后续片只许加示例行，不许少
+        if len(rows) < 13:
+            problems.append(f"WRITE_ARGV 不应少于 13 行示例（role.set 两行），实际 {len(rows)}")
         for action in ("profile.add", "profile.edit", "profile.remove", "runtime.add", "runtime.remove"):
             if action not in rows:
                 problems.append(f"WRITE_ARGV 的键里应有「{action}」")
@@ -676,8 +678,9 @@ def test_static_readme():
     if section is None:
         problems.append("README 应有「## 写操作」一节")
     else:
-        if re.search(r"12\s*条写路由", section) is None:
-            problems.append("「写操作」一节应写成 12 条写路由（本片接进 profile 与 runtime）")
+        # 站主 2026-11-12（T031 规划第 4 节）：条数随后续片变，这里只认写明了条数
+        if re.search(r"[0-9]+\s*条写路由", section) is None:
+            problems.append("「写操作」一节应写明有几条写路由")
         for needle in ("profile", "runtime", "credential_env", "credential_env 不合法", "空数组", "local"):
             if needle not in section:
                 problems.append(f"「写操作」一节里看不到「{needle}」（D07 点名要写的结论）")
@@ -690,7 +693,8 @@ def test_static_readme():
     else:
         bullet_end = text.find("\n- ", at)
         bullet = text[at:bullet_end if bullet_end > 0 else at + 600]
-        for needle in ("server.timeout(req, 0)", "读路由", "预览", "12 条"):
+        # 站主 2026-11-12（T031 规划第 4 节）：“12 条”这个数随后续片变，不再查
+        for needle in ("server.timeout(req, 0)", "读路由", "预览"):
             if needle not in bullet:
                 problems.append(f"「连接空闲超时」那一条应写到由内核子进程应答的请求（看不到「{needle}」）")
     limits = _section(text, "## 已知限制")
