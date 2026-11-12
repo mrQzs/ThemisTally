@@ -534,9 +534,8 @@ const READS = ['getMeta', 'getStatus', 'getAttempt', 'readFile', 'getRoles', 'ge
   'diffPresets', 'getRuntimes', 'getPlugins', 'getHistory', 'getUsage', 'listSecrets'];
 const WRITES_OLD = ['preview', 'getOperation', 'usePreset', 'setPluginEnabled'];
 const WRITES_NEW = ['removePreset', 'removeProfile', 'removeRuntime', 'rollback'];
-const FORBIDDEN = [
-  'listAttempts', 'getConfig', 'validateConfig', 'getHistoryEntry', 'getPlugin', 'checkSecret', 'subscribeEvents',
-  'search', 'startJob', 'getJob', 'cancelJob', 'startSecretEntry', 'setRole', 'savePreset', 'saveProfile', 'addRuntime'];
+// 原来的 FORBIDDEN 名单（LATER_API 的副本：不许导出的名字）由站主整份退役（2026-11-12，T027 规划报告 0.3 节）：
+// 界面接真实服务，后面各片陆续往 api.ts 补这些函数，每片的范围由它自己的合同管。
 
 async function p(action: string, args: Record<string, string>): Promise<any> {
   return (api as any).preview(action, args);
@@ -547,7 +546,6 @@ describe('T023 api：四个新写函数', () => {
     for (const n of WRITES_NEW) expect(typeof (api as any)[n], '应导出 ' + n).toBe('function');
     for (const n of WRITES_OLD) expect(typeof (api as any)[n], 'A 片写函数 ' + n + ' 应保留').toBe('function');
     for (const n of READS) expect(typeof (api as any)[n], '读函数 ' + n + ' 应保留').toBe('function');
-    for (const n of FORBIDDEN) expect((api as any)[n], '不许导出 ' + n + '（LATER_API 的名字）').toBeUndefined();
   });
 
   it('preview 的命令照服务侧基础 argv：四个 action 各自带对的对象与编号；确认号 43 位', async () => {

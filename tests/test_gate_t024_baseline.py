@@ -233,9 +233,8 @@ def test_s01_api_writargs_and_two_new_writes():
         assert re.search(rf"export function {name}\(", text), f"api.ts 的读函数 {name} 应原样保留"
     for name in API_OLD_WRITES:
         assert re.search(rf"export (?:async )?function {name}\(", text), f"api.ts 的旧写函数 {name} 应原样保留"
-    bad = [n for n in ("saveProfile", "addRuntime", "setRole", "savePreset")
-           if re.search(rf"export (?:async )?function {n}\(", text)]
-    assert not bad, f"api.ts 不许导出 {bad}（LATER_API/FORBIDDEN 的名字，合同第一节）"
+    # “api.ts 不许导出 saveProfile、addRuntime、setRole、savePreset”由站主退役（2026-11-12，T027 规划报告 0.3 节）：
+    # 界面接真实服务，这些写入口由后面的片补。
 
 
 def test_s02_mock_new_scenarios_and_actions():
@@ -541,9 +540,8 @@ const READS = ['getMeta', 'getStatus', 'getAttempt', 'readFile', 'getRoles', 'ge
   'diffPresets', 'getRuntimes', 'getPlugins', 'getHistory', 'getUsage', 'listSecrets'];
 const WRITES_OLD = ['preview', 'getOperation', 'usePreset', 'setPluginEnabled',
   'removePreset', 'removeProfile', 'removeRuntime', 'rollback'];
-const FORBIDDEN = [
-  'listAttempts', 'getConfig', 'validateConfig', 'getHistoryEntry', 'getPlugin', 'checkSecret', 'subscribeEvents',
-  'search', 'startJob', 'getJob', 'cancelJob', 'startSecretEntry', 'setRole', 'savePreset', 'saveProfile', 'addRuntime'];
+// 原来的 FORBIDDEN 名单（LATER_API 的副本：不许导出的名字）由站主整份退役（2026-11-12，T027 规划报告 0.3 节）：
+// 界面接真实服务，后面各片陆续往 api.ts 补这些函数，每片的范围由它自己的合同管。
 
 const ADD_FULL = { profile: 'gate-new', runtime: 'pi', model: 'bb/m1', thinking: 'high',
   credential_env: ['AAA_KEY', 'BBB_KEY'] };
@@ -555,7 +553,6 @@ describe('T024 api：WriteArgs 与两个新写函数', () => {
     expect(typeof (api as any).editProfile, '应导出 editProfile').toBe('function');
     for (const n of WRITES_OLD) expect(typeof (api as any)[n], '旧写函数 ' + n + ' 应保留').toBe('function');
     for (const n of READS) expect(typeof (api as any)[n], '读函数 ' + n + ' 应保留').toBe('function');
-    for (const n of FORBIDDEN) expect((api as any)[n], '不许导出 ' + n).toBeUndefined();
   });
 
   it('preview 的命令照服务侧 buildWriteArgv：profile.add 全字段（数组按顺序逐项，不拼成字符串）', async () => {

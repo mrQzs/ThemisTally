@@ -44,7 +44,7 @@ D16 附带的 21 条变异靠这些断言加执行端的四个 ``writes-*`` 测�
 过渡断言（B 片开工时推翻的五项）已在 T023 准备时退役（2026-10-26，规划端提交）：``test_transitional_s03``、
 ``s09``、``s17`` 三条用例，entries 探针里方案表 [删除…] 仍禁用的那条，api 探针 FORBIDDEN 里 B 片的四个名字。
 退役只停止断言 A 片期间的旧行为（B 片入口禁用、不导出 B 片写函数、写入口个数 12/9/0），不提前断言 B 片的新行为：
-B 片合入前后本文件都能过。LATER_API 的名字照旧由 api 探针守着。
+B 片合入前后本文件都能过。LATER_API 的名字原由 api 探针守着，2026-11-12 站主整份退役（T027 规划报告 0.3 节）。
 
 合同没有写死、门禁端按最合理读法定下的地方（交付信「下游须知」里逐条列出，终审可改）：``preview`` 的 args 记录键名
 （``preset.use`` 用 ``{name}``、插件用 ``{id}``）；getOperation 在 ``drop-*``/busy/expired 情景里用预览返回的 confirmation
@@ -498,9 +498,8 @@ import * as api from '../src/api';
 const READS = ['getMeta', 'getStatus', 'getAttempt', 'readFile', 'getRoles', 'getProfiles', 'getPresets',
   'diffPresets', 'getRuntimes', 'getPlugins', 'getHistory', 'getUsage', 'listSecrets'];
 const WRITES = ['preview', 'getOperation', 'usePreset', 'setPluginEnabled'];
-const FORBIDDEN = [
-  'listAttempts', 'getConfig', 'validateConfig', 'getHistoryEntry', 'getPlugin', 'checkSecret', 'subscribeEvents',
-  'search', 'startJob', 'getJob', 'cancelJob', 'startSecretEntry', 'setRole', 'savePreset', 'saveProfile', 'addRuntime'];
+// 原来的 FORBIDDEN 名单（LATER_API 的副本：不许导出的名字）由站主整份退役（2026-11-12，T027 规划报告 0.3 节）：
+// 界面接真实服务，后面各片陆续往 api.ts 补这些函数，每片的范围由它自己的合同管。
 
 async function p(action: api.WriteAction, args: Record<string, string>): Promise<any> {
   return (api as any).preview(action, args);
@@ -510,7 +509,6 @@ describe('T022 api：四个写函数', () => {
   it('导出集合：四个写函数与 13 个读函数都在；LATER_API 的名字不在', () => {
     for (const n of WRITES) expect(typeof (api as any)[n], '应导出 ' + n).toBe('function');
     for (const n of READS) expect(typeof (api as any)[n], '读函数 ' + n + ' 应保留').toBe('function');
-    for (const n of FORBIDDEN) expect((api as any)[n], '不许导出 ' + n + '（LATER_API 的名字）').toBeUndefined();
   });
 
   it('preview 返回 HttpReply<PreviewData>：八键齐全、命令照 README 的预览写法、confirmation 非空', async () => {
