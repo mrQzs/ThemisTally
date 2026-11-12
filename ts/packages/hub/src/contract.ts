@@ -13,7 +13,8 @@ import { compilePy } from "@themis/base/pyregex";
 import { pyEq } from "@themis/base/pyvalue";
 import { CHECK_LINE_RE, mdSection } from "@themis/dispatcher/contract";
 import { reEscape } from "@themis/dispatcher/patterns";
-import { CONTRACT_EXECUTOR_LINE, EXECUTOR, MIN_ATTEMPTS_LEFT, OWNER } from "./constants.ts";
+import { executorLine, hubBindings } from "./bindings.ts";
+import { MIN_ATTEMPTS_LEFT, OWNER } from "./constants.ts";
 import { HubError } from "./errors.ts";
 import { git } from "./kernel.ts";
 import { parseLetter } from "./letters.ts";
@@ -320,7 +321,8 @@ export function contractRequirements(hub: Hub, ts: PyDict): string[] {
   if (guarded.length) problems.push(`Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：${guarded.join("、")}`);
   const executor = or(pyGet(data, "executor"), new Map());
   const declared = [pyGet(executor, "provider"), pyGet(executor, "model"), pyGet(executor, "thinking")];
-  if (!declared.every((value, at) => pyEq(value, EXECUTOR[at] as string))) problems.push(`执行模型要写成：${CONTRACT_EXECUTOR_LINE}`);
+  const [wanted, wantedLine] = executorLine(hubBindings(hub.repo));
+  if (!declared.every((value, at) => pyEq(value, wanted[at] as PyValue))) problems.push(`执行模型要写成：${wantedLine}`);
   const integration = pyIter(or(pyGet(or(pyGet(data, "authorization"), new Map()), "integration"), []));
   const unhashable = integration.find((item) => Array.isArray(item) || item instanceof Map);
   if (unhashable !== undefined) throw new PyCrash("TypeError", `unhashable type: '${pyTypeName(unhashable)}'`); // set(...)

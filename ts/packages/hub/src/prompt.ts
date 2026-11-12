@@ -23,6 +23,7 @@ import { HubError } from "./errors.ts";
 import { KERNEL_ROOT, TEMPLATE_DIR, git } from "./kernel.ts";
 import { stageOf } from "./letters.ts";
 import type { Hub } from "./mailbox.ts";
+import { executorLine, hubBindings } from "./bindings.ts";
 import { effectiveSpec } from "./quizs.ts";
 import { gateFile, gatePattern, stageStatusTable, upstreamNotes } from "./taskstate.ts";
 
@@ -264,7 +265,7 @@ export function turnPrompt(
 ): string {
   rosterSpec(agent);
   // 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
-  const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000), hub.root);
+  const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000), hub.root, hubBindings(hub.repo));
   const snapshot = spec.adapter === "quizs" && inputs !== null; // 第 137 轮：quizs 读的是输入目录冻成的快照
   // 主工作区的路径一律换成输入里的那一份
   const shown = (path: PyValue): string => (snapshot ? snapshotPath(hub, path) : inputPath(hub, inputs, path));
@@ -459,7 +460,7 @@ function contractParts(hub: Hub, ts: PyDict, parts: PyValue[]): void {
   parts.push("", "## 合同要求（内核会逐项核对）", "",
     "- 第一行：" + code(`# TASK: ${task}`) + `；Identity 的 plan_version 写 ${nextContractVersion(ts)[0]}、base_sha 写 ${pyStrValue(pyItem(ts, "base_head"))}。`
       + "这两项由内核决定，写错了内核会改正；门禁提交后内核再把 base_sha 改成基准测试的提交。版本号与当前 HEAD 不用你操心，validate 的“base_sha 不是当前 HEAD”只是提示。",
-    "- executor 行照抄：" + code(CONTRACT_EXECUTOR_LINE) + "；integration_actions 写 " + code("local_branch, merge") + "。",
+    "- executor 行照抄：" + code(executorLine(hubBindings(hub.repo))[1]) + "；integration_actions 写 " + code("local_branch, merge") + "。",
     "- Scope 的 forbidden_paths 包含 " + code(gatePattern(ts)) + "（门禁测试，执行端不能碰）。",
     "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换，但要是一个大写字母加两位数字，调度器只认这种编号）："
       + code("- G01（必要，基线应失败）：" + code(`python -m pytest ${gateFile(ts, "baseline")} -q`) + " · cwd：仓库根 · 超时：600s · 期望退出码：0 · 输出须匹配：" + code(`${BS}d+ passed`))

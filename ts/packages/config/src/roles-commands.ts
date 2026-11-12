@@ -14,7 +14,7 @@ import { DEFAULT_THINKING, allowedExecutorCheck, executorClass, loadBindingRecor
 import { DispatchError, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
 import { bindingTuple, effectiveBinding } from "./roles-binding.ts";
-import { ADAPTERS, ROLES, adapterOf, entries, idOk, shownValue } from "./roles-check.ts";
+import { ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, ROLES, adapterOf, entries, hubBinding, idOk, shownValue } from "./roles-check.ts";
 import { LOCAL_NAME, LOCAL_REL, type LocalRepo, checkLocal, lexists, localErrors, readLocal, runtimeCommand, shownCommand } from "./roles-local.ts";
 import { type ConfigTransaction, type WriteContext, withConfigTransaction, withConfigTransactions } from "./transaction.ts";
 import { ConfigError, loadConfig, validateConfig } from "./validate.ts";
@@ -36,6 +36,10 @@ export interface RolesArgs {
   readonly credential_env?: string[] | null;
   readonly role?: string;
   readonly target?: string;
+  /** hub set|unset 的岗位、profile 与替补 */
+  readonly post?: string;
+  readonly profile?: string;
+  readonly fallback?: string | null;
   readonly host?: string | null;
   readonly cadence_seconds?: bigint | number | null;
   readonly name?: string;
@@ -321,6 +325,11 @@ function profileUsers(config: PyDict, profileId: string): string[] {
   const users = entries(mapping(config, "roles"))
     .filter(([, binding]) => isDict(binding) && pyEq(binding.get("profile") ?? null, profileId))
     .map(([role]) => `roles.${role}`);
+  for (const [post, binding] of entries(mapping(config, "hub_roles"))) {
+    for (const field of HUB_BINDING_KEYS) {
+      if (isDict(binding) && pyEq(binding.get(field) ?? null, profileId)) users.push(`hub_roles.${post}.${field}`);
+    }
+  }
   for (const [name, spec] of entries(mapping(config, "presets"))) {
     const roles = isDict(spec) && isDict(spec.get("roles")) ? (spec.get("roles") as PyDict) : new Map();
     for (const [role, binding] of entries(roles)) {
@@ -481,6 +490,102 @@ function presetRoles(presets: PyDict, name: string): Map<string, PyValue> {
   if (!isDict(spec) || !isDict(spec.get("roles"))) throw new ConfigError(`没有方案 ${shownValue(name)}`);
   return new Map(entries(spec.get("roles") as PyDict));
 }
+
+// --- hub（七端的岗位绑定，r3 第 154 轮）------------------------------------------------------------
+
+export function hubRows(config: PyDict): PyDict[] {
+  return HUB_POSTS.map((post) => {
+    const binding = hubBinding(config, post);
+    const row = new Map<string, PyValue>([
+      ["post", post],
+      ["source", binding === null ? "default" : "config"],
+      ["allowed_adapters", [...(HUB_POST_ADAPTERS[post] ?? [])]],
+    ]);
+    if (binding !== null) {
+      for (const [key, value] of binding) row.set(key as string, value);
+      return row;
+    }
+    const preset = HUB_DEFAULTS[post];
+    if (preset === undefined) return row;
+    row.set("adapter", preset.adapter);
+    row.set("provider", preset.provider);
+    row.set("model", preset.model);
+    row.set("thinking", preset.thinking);
+    row.set("fallback", preset.fallback === null ? null : new Map<string, PyValue>([
+      ["adapter", preset.fallback.adapter],
+      ["provider", preset.fallback.provider],
+      ["model", preset.fallback.model],
+      ["thinking", preset.fallback.thinking],
+    ]));
+    row.set("profile", null);
+    row.set("runtime", null);
+    return row;
+  });
+}
+
+function hubOne(spec: PyDict): string {
+  const provider = spec.get("provider") ?? null;
+  const model = pyTruthy(provider) ? `${text(provider)}/${text(spec.get("model"))}` : text(spec.get("model"));
+  const profile = spec.get("profile") ?? null;
+  const named = pyTruthy(profile) ? `profile ${text(profile)}，` : "";
+  const adapter = spec.get("adapter") ?? null;
+  return `${named}${pyTruthy(adapter) ? text(adapter) : "未登记"} ${model} · thinking ${text(spec.get("thinking"))}`;
+}
+
+export function hubText(row: PyDict): string {
+  const fallback = row.get("fallback");
+  const shown = hubOne(row) + (isDict(fallback) && fallback.size > 0 ? `；替补 ${hubOne(fallback)}` : "");
+  return shown + (row.get("source") === "config" ? "" : "（内核缺省）");
+}
+
+function hubShow(env: RolesEnv): number {
+  const { config } = openChecked(env);
+  const rows = hubRows(config);
+  if (env.args.json) return printJson(env.out, new Map<string, PyValue>([["posts", rows]]));
+  for (const row of rows) env.out.print(`${padRight(text(row.get("post")), 12)} ${hubText(row)}`);
+  return EXIT_OK;
+}
+
+function hubPost(args: RolesArgs): string {
+  const post = args.post as string;
+  if (!HUB_POSTS.includes(post)) throw new ConfigError(`岗位只能是 ${HUB_POSTS.join("、")} 之一`, EXIT_USAGE);
+  return post;
+}
+
+function hubSet(env: RolesEnv): number {
+  const { args, out } = env;
+  const post = hubPost(args);
+  const binding: PyDict = new Map<string, PyValue>([["profile", args.profile as string]]);
+  if (args.fallback != null) binding.set("fallback", args.fallback);
+  const ctx = env.open();
+  const changed = withConfigTransaction(ctx, "hub.set", post, { confirm: Boolean(args.yes) }, (txn) => {
+    const config = txn.config;
+    const hubRoles = new Map(mapping(config, "hub_roles"));
+    hubRoles.set(post, binding);
+    config.set("hub_roles", hubRoles);
+    return txn.publish(config); // profile 是否登记、适配器许不许、替补合不合规都在整份校验里
+  });
+  out.print(`${changed ? "已设置" : "没有变化："} hub_roles.${post} = ${json(binding)}`);
+  return EXIT_OK;
+}
+
+function hubUnset(env: RolesEnv): number {
+  const { args, out } = env;
+  const post = hubPost(args);
+  const ctx = env.open();
+  const changed = withConfigTransaction(ctx, "hub.unset", post, { confirm: Boolean(args.yes) }, (txn) => {
+    const config = txn.config;
+    const hubRoles = new Map(mapping(config, "hub_roles"));
+    hubRoles.delete(post);
+    if (hubRoles.size) config.set("hub_roles", hubRoles);
+    else config.delete("hub_roles");
+    return txn.publish(config);
+  });
+  out.print(`${changed ? "已取消" : "没有变化"}：hub_roles.${post} 回到内核缺省`);
+  return EXIT_OK;
+}
+
+// --- preset --------------------------------------------------------------------------------------
 
 function presetList(env: RolesEnv): number {
   const { config } = openChecked(env);
@@ -677,6 +782,9 @@ const HANDLERS: Readonly<Record<string, (env: RolesEnv) => number>> = {
   "profile remove": profileRemove,
   "role show": roleShow,
   "role set": roleSet,
+  "hub show": hubShow,
+  "hub set": hubSet,
+  "hub unset": hubUnset,
   "preset list": presetList,
   "preset show": presetShow,
   "preset save": presetSave,

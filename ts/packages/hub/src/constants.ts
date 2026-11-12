@@ -96,6 +96,8 @@ export interface RosterSpec {
   readonly routing?: "kernel";
   /** 第 143 轮：quizs 岗位的替补：证书过期、文件没设时这一回合改用这些字段（例如退回 pi），开新会话。 */
   readonly fallback?: Partial<RosterSpec>;
+  /** 第 154 轮：这个岗位的配置来自配置中心的哪个 profile；照名册缺省跑时没有这一项。 */
+  readonly binding_profile?: string;
 }
 
 /** 七个岗位（键序与 kit_hub.ROSTER 相同：协调人在前）。 */

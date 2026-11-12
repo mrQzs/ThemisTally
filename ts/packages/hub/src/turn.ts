@@ -20,7 +20,7 @@ import { resolvePiCommand } from "@themis/dispatcher/executor";
 import { writeJson } from "@themis/dispatcher/evidence";
 import { configWithBytes } from "@themis/dispatcher/kernel-config";
 import { RESOURCE_FLAGS } from "@themis/dispatcher/pi-cli";
-import { Repo } from "@themis/dispatcher/repo";
+import { DispatchError, Repo } from "@themis/dispatcher/repo";
 import { globPaths } from "@themis/dispatcher/instruction";
 import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, piFlagsProblem, sessionCutShort, turnCostUsd,
@@ -29,6 +29,7 @@ import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
   EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
+import { hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { HubError } from "./errors.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
@@ -117,7 +118,7 @@ export class TurnRunner {
     retryOf: string | null = null, fresh = false, inputs: string | null = null, sessionId: string | null = null): Promise<PyDict> {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
     // 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root);
+    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root, hubBindings(this.hub.repo));
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
@@ -245,6 +246,7 @@ export class TurnRunner {
       ["exit_code", pyGet(result, "exit_code")], ["timed_out", pyTruthy(pyGet(result, "timed_out"))],
       ["wall_seconds", pyGet(result, "wall_seconds")], ["workspace", where],
       ["model_requested", spec.model ?? null], ["models", pyGet(audit, "models")],
+      ["binding_profile", spec.binding_profile ?? null],
       ["effort_requested", pyItem(audit, "effort_requested")], ["effort_effective", pyItem(audit, "effort_effective")],
       ["tool_calls", pyItem(audit, "tool_calls")], ["violations", pyItem(audit, "violations")], ["cost_usd", turnCost],
       ["session_cost_usd", sessionCost], ["usage", pyGet(audit, "usage")], ["terminal", pyGet(audit, "terminal")], ["output_error", outputError],
@@ -280,7 +282,7 @@ export class TurnRunner {
     try {
       return configWithBytes(new Repo(this.hub.repo))[0];
     } catch (error) {
-      if ((error as Error).name === "DispatchError") return new Map();
+      if (error instanceof DispatchError) return new Map(); // 第 154 轮：这个类没有设 name，原来按名字比永远比不上
       throw error;
     }
   }

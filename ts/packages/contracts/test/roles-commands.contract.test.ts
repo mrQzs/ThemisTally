@@ -113,6 +113,20 @@ const roleSet = (role: string, target: string, extra: { host?: string; cadence?:
     ...fields,
   });
 };
+const hubShow = (json = false): Command => roles(["hub", "show"], json ? ["--json"] : [], { json });
+const hubSet = (post: string, profile: string, extra: { fallback?: string } & WriteOptions = {}): Command => {
+  const { argv, fields } = flags(extra);
+  return roles(["hub", "set"], [post, profile, ...(extra.fallback !== undefined ? ["--fallback", extra.fallback] : []), ...argv], {
+    post,
+    profile,
+    fallback: extra.fallback ?? null,
+    ...fields,
+  });
+};
+const hubUnset = (post: string, options: WriteOptions = {}): Command => {
+  const { argv, fields } = flags(options);
+  return roles(["hub", "unset"], [post, ...argv], { post, ...fields });
+};
 const presetList = (json = false): Command => roles(["preset", "list"], json ? ["--json"] : [], { json });
 const presetShow = (name: string, json = false): Command => roles(["preset", "show"], [name, ...(json ? ["--json"] : [])], { name, json });
 const presetSave = (name: string, extra: { description?: string; roles?: string; force?: boolean } & WriteOptions = {}): Command => {
@@ -188,6 +202,39 @@ const SEQUENCE: readonly Command[] = [
   roleSet("scheduler_agent", "disabled", { cadence: 60 }),
   roleShow(),
   roleShow(true),
+  // r3 第 154 轮：七端各岗位的绑定。先是没配时的缺省，再配、拒绝、预览、取消，最后把这一段清干净，后面的步骤照旧
+  hubShow(),
+  hubShow(true),
+  runtimeAdd("qz", "quizs"),
+  profileWrite("add", "qzp", { runtime: "qz", model: "deepseek/deepseek-flash", thinking: "low" }),
+  profileWrite("edit", "hostp", { thinking: "off" }),
+  profileWrite("edit", "hostp", { thinking: "max" }),
+  hubSet("coordinator", "qzp", { fallback: "plain" }),
+  hubSet("coordinator", "qzp", { fallback: "plain" }),
+  hubSet("coordinator", "qzp", { fallback: "qzp" }),
+  hubSet("coordinator", "plain", { fallback: "exec" }),
+  hubSet("coordinator", "hostp"),
+  hubSet("gate", "qzp"),
+  hubSet("gate", "ghost"),
+  hubSet("boss", "exec"),
+  hubSet("planner", "hostp"),
+  hubSet("planner", "exec"),
+  hubSet("gate", "plain", { dryRun: true }),
+  hubSet("gate", "plain", { expectState: STALE }),
+  hubSet("exec", "exec"),
+  hubShow(),
+  hubShow(true),
+  profileRemove("qzp"),
+  profileRemove("plain"),
+  hubUnset("planner"),
+  hubUnset("planner"),
+  hubUnset("boss"),
+  hubUnset("exec", { dryRun: true }),
+  hubUnset("exec"),
+  hubUnset("coordinator"),
+  hubShow(),
+  profileRemove("qzp"),
+  runtimeRemove("qz"),
   presetSave("day", { description: "白天" }),
   presetSave("day"),
   presetSave("night", { roles: " execution , contract ,", force: true }),

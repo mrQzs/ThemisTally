@@ -37,6 +37,7 @@ const KEY_TEXT: ReadonlyMap<string, readonly [string, string]> = new Map<string,
   ["roles", ["四个角色的绑定：planning_review、contract、execution、scheduler_agent → {mode, profile 或 host}", "execution 由合同决定；contract 为 manual；scheduler_agent 为 disabled"]],
   ["presets", ["方案：{名: {description, roles}}，切换时只覆盖它列出的角色", "无"]],
   ["active_preset", ["当前方案名", "无"]],
+  ["hub_roles", ["七端各岗位的绑定（r3 第 154 轮）：coordinator、planner、contract、gate、audit、exec → {profile, fallback}", "各岗位用 hub 内核里的缺省"]],
 ]);
 
 const SOURCE_WORDS: Readonly<Record<string, string>> = { env: "环境变量已设置", credential_store: "在系统凭据库里", file: "在 0600 文件里", none: "没有" };

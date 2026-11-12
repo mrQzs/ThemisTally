@@ -45,12 +45,16 @@ DEFAULT_ROLES: Dict[str, Optional[Dict[str, Any]]] = {
 ADAPTERS: Dict[str, Dict[str, Any]] = {
     "pi": {"program": "pi", "headless_roles": ("execution", "contract"), "host": False, "list_models": True,
            "auth": True, "options": ("thinking",)},
+    # r3 第 154 轮：七端的规划端在 claude 上无头运行，档位写在 options.thinking（hub 传给 claude 的 --effort）
     "claude-code": {"program": "claude", "headless_roles": (), "host": True, "list_models": False, "auth": False,
-                    "options": ()},
+                    "options": ("thinking",)},
     "codex": {"program": "codex", "headless_roles": (), "host": True, "list_models": False, "auth": False,
               "options": ()},
     "opencode": {"program": "opencode", "headless_roles": (), "host": False, "list_models": False, "auth": False,
                  "options": ()},
+    # r3 第 154 轮：quizs 只承载七端的岗位（hub_roles），不接四个角色的 headless
+    "quizs": {"program": "quizs", "headless_roles": (), "host": False, "list_models": False, "auth": False,
+              "options": ("thinking",)},
 }
 HOST_ADAPTERS = tuple(name for name, spec in ADAPTERS.items() if spec["host"])
 RUNTIME_KEYS = ("adapter",)
@@ -58,6 +62,32 @@ PROFILE_KEYS = ("runtime", "model", "options", "credential_env")
 PRESET_KEYS = ("description", "roles")
 #: 写进生效绑定元组的字段（D8 的比较、D5 的记录）
 BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", "thinking")
+#: 七端的岗位（模型配置，r3 第 154 轮）：键是岗位，值是这个岗位现在允许的适配器。岗位的工具、时限、工作目录留在 hub 的
+#: 名册里（那是安全边界），这里只管“用哪个运行时、哪个模型、什么档位”。名册里的工具名是按载体写的：一个岗位换载体之前
+#: 要先有那个载体的工具映射并实测过，所以每个岗位只列已经跑过的载体。
+HUB_POST_ADAPTERS: Dict[str, Tuple[str, ...]] = {
+    "coordinator": ("quizs", "pi"),
+    "planner": ("claude-code",),
+    "contract": ("pi",),
+    "gate": ("pi",),
+    "audit": ("pi",),
+    "exec": ("pi",),
+}
+HUB_POSTS = tuple(HUB_POST_ADAPTERS)
+HUB_BINDING_KEYS = ("profile", "fallback")
+#: 各岗位没配时 hub 用的缺省（与 kit_hub.ROSTER 的同名字段逐项相同，tests/test_kit_hub.py 有一条核对）：config hub show
+#: 要在没装 kit_hub.py 的仓库里也能显示，所以这里另放一份
+HUB_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "coordinator": {"adapter": "quizs", "provider": "deepseek", "model": "deepseek-flash", "thinking": "high",
+                    "fallback": {"adapter": "pi", "provider": "dsf", "model": "deepseek-flash", "thinking": "high"}},
+    "planner": {"adapter": "claude-code", "provider": None, "model": "claude-opus-5-5", "thinking": "max", "fallback": None},
+    "contract": {"adapter": "pi", "provider": "minimax", "model": "MiniMax-M3.1-Flash", "thinking": "high", "fallback": None},
+    "gate": {"adapter": "pi", "provider": "cc-switch-zhipu-glm", "model": "glm-5.3", "thinking": "high", "fallback": None},
+    "audit": {"adapter": "pi", "provider": "minimax", "model": "MiniMax-M3.1-Flash", "thinking": "max", "fallback": None},
+    "exec": {"adapter": "pi", "provider": "cc-switch-step-fun", "model": "step-5-preview", "thinking": "high", "fallback": None},
+}
+#: claude 的 --effort 取值（claude --help，2026-11-12 核对）
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 def has_v3_keys(config: Any) -> bool:
@@ -157,8 +187,9 @@ def _check_profiles(config: Dict[str, Any]) -> List[str]:
             extra = _extra_keys(options, allowed)
             if extra:
                 errors.append("%s.options 有 %s 不接受的键：%s" % (where, adapter, "、".join(extra)))
-            if "thinking" in options and options["thinking"] not in pd.FALLBACK_THINKING_LEVELS:
-                errors.append("%s.options.thinking 必须是 %s 之一" % (where, "、".join(pd.FALLBACK_THINKING_LEVELS)))
+            levels = CLAUDE_EFFORTS if adapter == "claude-code" else pd.FALLBACK_THINKING_LEVELS
+            if "thinking" in options and options["thinking"] not in levels:
+                errors.append("%s.options.thinking 必须是 %s 之一" % (where, "、".join(levels)))
         names = spec.get("credential_env", [])
         if not isinstance(names, list) or any(not isinstance(name, str) or not pd.ENV_NAME_RE.match(name)
                                               for name in names):
@@ -240,8 +271,43 @@ def _check_active_preset(config: Dict[str, Any]) -> List[str]:
     return []
 
 
+def _check_hub_roles(config: Dict[str, Any]) -> List[str]:
+    """七端的岗位绑定：{岗位: {profile, fallback}}。fallback 只用于 quizs 上的岗位（证书过期等起不了时这一回合退回它），
+    替补自己不能再是 quizs。"""
+    hub_roles = config.get("hub_roles")
+    if not isinstance(hub_roles, dict):
+        return ["hub_roles 必须是对象 {岗位: {profile, fallback}}"]
+    extra = _extra_keys(hub_roles, HUB_POSTS)
+    errors = ["hub_roles 有未知岗位：%s（只有 %s）" % ("、".join(extra), "、".join(HUB_POSTS))] if extra else []
+    profiles = config.get("profiles") if isinstance(config.get("profiles"), dict) else {}
+    for post in HUB_POSTS:
+        if post not in hub_roles:
+            continue
+        where, binding = "hub_roles.%s" % post, hub_roles[post]
+        if not isinstance(binding, dict):
+            errors.append("%s 必须是对象 {profile, fallback}" % where)
+            continue
+        if _extra_keys(binding, HUB_BINDING_KEYS):
+            errors.append("%s 有未知键：%s" % (where, "、".join(_extra_keys(binding, HUB_BINDING_KEYS))))
+        adapters: Dict[str, Optional[str]] = {}
+        for field in HUB_BINDING_KEYS:
+            if field == "fallback" and field not in binding:
+                continue
+            profile = binding.get(field)
+            if not isinstance(profile, str) or profile.startswith("_") or not isinstance(profiles.get(profile), dict):
+                errors.append("%s.%s %s 没有登记" % (where, field, _shown(profile)))
+                continue
+            adapters[field] = _adapter_of(config, profiles[profile].get("runtime"))
+            if adapters[field] is not None and adapters[field] not in HUB_POST_ADAPTERS[post]:
+                errors.append("%s.%s 的适配器 %s 不能用在 %s 岗位（允许：%s）"
+                              % (where, field, adapters[field], post, "、".join(HUB_POST_ADAPTERS[post])))
+        if "fallback" in adapters and (adapters.get("profile") != "quizs" or adapters["fallback"] == "quizs"):
+            errors.append("%s.fallback 只用于 quizs 上的岗位，替补自己不能是 quizs" % where)
+    return errors
+
+
 CHECKS = {"runtimes": _check_runtimes, "profiles": _check_profiles, "roles": _check_roles,
-          "presets": _check_presets, "active_preset": _check_active_preset}
+          "presets": _check_presets, "active_preset": _check_active_preset, "hub_roles": _check_hub_roles}
 
 
 def check_key(config: Dict[str, Any], key: str) -> List[str]:
@@ -298,6 +364,33 @@ def binding_tuple(config: Dict[str, Any], role: str) -> Optional[Tuple[Any, ...]
     runtime = text(profile.get("runtime"))
     return (text(binding.get("mode")), profile_id, runtime, _adapter_of(config, runtime), text(model.get("provider")),
             text(model.get("id")), text(options.get("thinking", pd.DEFAULT_THINKING)) if profile else None)
+
+
+def hub_binding(config: Dict[str, Any], post: str) -> Optional[Dict[str, Any]]:
+    """七端某个岗位在配置里的绑定，解析成 hub 要的字段（profile、runtime、adapter、provider、model、thinking、fallback）；
+    没写这个岗位时 None（hub 用内核里的缺省）。调用之前先整份校验；字段类型不对照“没有这一项”处理，这里不抛异常。"""
+    hub_roles = config.get("hub_roles") if isinstance(config.get("hub_roles"), dict) else {}
+    binding = hub_roles.get(post)
+    if not isinstance(binding, dict):
+        return None
+    profiles = config.get("profiles") if isinstance(config.get("profiles"), dict) else {}
+
+    def resolved(profile_id: Any) -> Optional[Dict[str, Any]]:
+        profile = profiles.get(profile_id) if isinstance(profile_id, str) else None
+        if not isinstance(profile, dict):
+            return None
+        model = profile.get("model") if isinstance(profile.get("model"), dict) else {}
+        options = profile.get("options") if isinstance(profile.get("options"), dict) else {}
+        runtime = profile.get("runtime") if isinstance(profile.get("runtime"), str) else None
+        return {"profile": profile_id, "runtime": runtime, "adapter": _adapter_of(config, runtime),
+                "provider": model.get("provider"), "model": model.get("id"),
+                "thinking": options.get("thinking", pd.DEFAULT_THINKING)}
+
+    primary = resolved(binding.get("profile"))
+    if primary is None:
+        return None
+    primary["fallback"] = resolved(binding.get("fallback")) if "fallback" in binding else None
+    return primary
 
 
 def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -938,6 +1031,8 @@ def _profile_edit(args: Any) -> int:
 def _profile_users(config: Dict[str, Any], profile_id: str) -> List[str]:
     users = ["roles.%s" % role for role, binding in _entries(_mapping(config, "roles"))
              if isinstance(binding, dict) and binding.get("profile") == profile_id]
+    users += ["hub_roles.%s.%s" % (post, field) for post, binding in _entries(_mapping(config, "hub_roles"))
+              for field in HUB_BINDING_KEYS if isinstance(binding, dict) and binding.get(field) == profile_id]
     for name, spec in _entries(_mapping(config, "presets")):
         roles = spec.get("roles") if isinstance(spec, dict) and isinstance(spec.get("roles"), dict) else {}
         users += ["presets.%s.roles.%s" % (name, role) for role, binding in _entries(roles)
@@ -1066,6 +1161,83 @@ def _role_set(args: Any) -> int:
     print("%s roles.%s = %s" % ("已设置" if changed else "没有变化：", args.role, json.dumps(binding, ensure_ascii=False)))
     for warning in _binding_warnings(config, args.role):
         print("WARN  %s" % warning)
+    return EXIT_OK
+
+
+# --- hub（七端的岗位绑定，r3 第 154 轮）-----------------------------------------
+
+def cmd_hub(args: Any) -> int:
+    return _run({"show": _hub_show, "set": _hub_set, "unset": _hub_unset}[args.hub_action], args)
+
+
+def _hub_rows(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = []
+    for post in HUB_POSTS:
+        binding = hub_binding(config, post)
+        row: Dict[str, Any] = {"post": post, "source": "default" if binding is None else "config",
+                               "allowed_adapters": list(HUB_POST_ADAPTERS[post])}
+        row.update(dict(HUB_DEFAULTS[post], profile=None, runtime=None) if binding is None else binding)
+        rows.append(row)
+    return rows
+
+
+def _hub_text(row: Dict[str, Any]) -> str:
+    def one(spec: Dict[str, Any]) -> str:
+        model = "%s/%s" % (spec.get("provider"), spec.get("model")) if spec.get("provider") else str(spec.get("model"))
+        named = "profile %s，" % spec["profile"] if spec.get("profile") else ""
+        return "%s%s %s · thinking %s" % (named, spec.get("adapter") or "未登记", model, spec.get("thinking"))
+    text = one(row) + ("；替补 " + one(row["fallback"]) if row.get("fallback") else "")
+    return text + ("" if row["source"] == "config" else "（内核缺省）")
+
+
+def _hub_show(args: Any) -> int:
+    _kc_, _repo_, config = _open(args)
+    rows = _hub_rows(config)
+    if args.json:
+        _print_json({"posts": rows})
+        return EXIT_OK
+    for row in rows:
+        print("%-12s %s" % (row["post"], _hub_text(row)))
+    return EXIT_OK
+
+
+def _hub_post(args: Any) -> str:
+    if args.post not in HUB_POSTS:
+        raise _error("岗位只能是 %s 之一" % "、".join(HUB_POSTS), EXIT_USAGE)
+    return args.post
+
+
+def _hub_set(args: Any) -> int:
+    post = _hub_post(args)
+    binding: Dict[str, Any] = {"profile": args.profile}
+    if args.fallback is not None:
+        binding["fallback"] = args.fallback
+    kc = _kc()
+    repo = kc._repo(args.repo)
+    with kc.config_transaction(repo, "hub.set", post, confirm=args.yes) as txn:
+        config = txn.config
+        hub_roles = dict(_mapping(config, "hub_roles"))
+        hub_roles[post] = binding
+        config["hub_roles"] = hub_roles
+        changed = txn.publish(config)  # profile 是否登记、适配器许不许、替补合不合规都在整份校验里
+    print("%s hub_roles.%s = %s" % ("已设置" if changed else "没有变化：", post, json.dumps(binding, ensure_ascii=False)))
+    return EXIT_OK
+
+
+def _hub_unset(args: Any) -> int:
+    post = _hub_post(args)
+    kc = _kc()
+    repo = kc._repo(args.repo)
+    with kc.config_transaction(repo, "hub.unset", post, confirm=args.yes) as txn:
+        config = txn.config
+        hub_roles = dict(_mapping(config, "hub_roles"))
+        hub_roles.pop(post, None)
+        if hub_roles:
+            config["hub_roles"] = hub_roles
+        else:
+            config.pop("hub_roles", None)
+        changed = txn.publish(config)
+    print("%s：hub_roles.%s 回到内核缺省" % ("已取消" if changed else "没有变化", post))
     return EXIT_OK
 
 

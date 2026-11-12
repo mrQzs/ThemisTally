@@ -2352,6 +2352,25 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **改法**：deliver_coordinator_letter（Python 与 TS）在核对形状之前，把收信人 `owner` 换成站主；别的照旧（给站主只能发汇报或提问，照样由 guard 管）。别名是内核自己定的、只指站主一个人，不是替模型猜意思；`kernel` 这个别名不认，工人给内核写信本来就没有这回事。
 - **测试**：现成的用例 test_coordinator_letters_pass_the_guard_before_delivery 里多发两封：给 `owner` 的提问，站主的收件箱里收到、信头写的是“站主”；给 `kernel` 的汇报照旧拒收（“收信人 kernel 不在名册里”）；同一批里被 guard 拦下的那封也照样拒收。这条用例本来就在 hub-engine、hub-step 契约的采样名单里，三边重放的调用数不变。test_kit_hub 与 test_kernel_impl 552 条过；tsc 与 hub-* 契约的 32 份过（hub-engine、hub-step 的三边重放都带着新加的两封信），hub-handoff 提交之后单跑。变异：TS 2 条（hub-i2 的 O01 照旧拒收、O02 把内核的别名也当成站主）对着 hub-step 契约都抓住；起先挂在 hub-engine 的清单里两条都漏掉，那份契约不重放 Engine.step。Python 一侧 2 条，第二条先漏掉，补了给 `kernel` 的那封信之后抓住。
 
+### 第 154 轮：七端各岗位用哪个模型，可以在配置中心里配
+
+- **起因**：用户 2026-11-12 的目标是做完界面，并且“quizs 融入到 tt 的界面里，通过 tt 的 ui 来配置不同的 ai 模型”。界面改配置靠的是配置中心的命令（预览、确认号、历史与审计都在那里），可七端的名册一直写死在内核里（r3 §1 的“本轮不做”）：界面没有东西可改。设计见 `docs/themis-tally-3.0-模型配置.md`。
+- **改法**：名册分两层。
+  - 岗位的工具、时限、工作目录、流转方式是安全边界，留在名册里，不可配置。
+  - “用哪个运行时、哪个模型、什么档位”进配置中心：`dispatch.config.json` 新增一段 `hub_roles`，键是岗位（coordinator、planner、contract、gate、audit、exec），值是 `{profile, fallback}`。没配的岗位照名册的缺省跑，所以落地当天行为不变。
+  - 三条命令：`config hub show`（六个岗位的生效绑定、来源与允许的适配器）、`config hub set <岗位> <profile> [--fallback <profile>]`、`config hub unset <岗位>`。写命令走配置中心的写入事务，带 `--dry-run --json` 与 `--expect-state`。
+  - 适配器登记表加 `quizs`；`claude-code` 的 profile 可以写档位（仍写在 `options.thinking`，取值是 claude 的 low、medium、high、xhigh、max，hub 传给 `--effort`）。
+  - hub 每个回合开始时读一次绑定（`hub_bindings`），叠到名册上（`bound_spec`）再走 quizs 的就绪判断与替补；合同里 executor 一行的三处（合同端的提示、内核改写、内核核对）都跟着执行端的绑定走，已派遣的合同版本不动。回合的 `result.json` 多一项 `binding_profile`。
+  - 配置读不了、整份校验不过时当作没配：照名册跑，不让一份坏配置把枢纽停下。
+- **每个岗位现在只许换到已经实跑过的载体**：coordinator 是 quizs 或 pi，planner 是 claude-code，其余是 pi。名册里的工具名是按载体写的，一个岗位换载体之前要先有那个载体的工具映射并实测过；同一个载体里换模型、换档位现在就能配。`fallback` 只用于 quizs 上的岗位，替补自己不能再是 quizs。
+- **授权没有变**：代理改岗位绑定等于换模型，要用户同意（AGENTS.md 的那一句加上了 `config hub set`）；界面上由用户本人预览、确认。
+- **顺带修的一处两边不一致**：`turn.ts` 读不出配置时按 `error.name === "DispatchError"` 接，可这个类没有设 name，永远接不到。配置文件不是合法 JSON 时，TS 的回合直接抛错，Python 是照空配置把回合跑完。这是 TS 内核上线以来就有的差别，hub-turn 契约没有“配置读不出”的场景，所以一直没照出来。改成 `instanceof`，新加的场景守着。
+- **测试**：
+  - Python：`tests/test_kit_roles.py` 加 `HubRoles` 七条（校验的正反例、三条命令、预览不写文件与 `--expect-state`、删 profile 时看岗位的引用），`tests/test_kit_hub.py` 加五条（配置层的缺省与名册逐项相同、没配时逐字段等于名册、配了只换载体模型档位与替补、协调人直接绑 pi 没有替补、坏配置退回名册）；两处钉住名单的旧用例跟着加了新键与新命令。四份内核测试 706 条通过。
+  - 契约（Python、TS 在 Node 与 Bun 上逐字比）：roles-commands 的命令序列加 31 步 hub 命令；hub-prompt 加“岗位绑定”一组（没配、配了几个岗位、协调人直接绑 pi、校验不过、不是 JSON 六种配置下的绑定、叠出来的名册与 executor 一行）与“提示按绑定写”一条；hub-turn 加“回合按绑定起”一组四例（命令行、要求的模型、`binding_profile`；没绑的岗位、校验不过与不是 JSON 的配置照名册）。相关契约 41 份 421 条通过。
+  - 变异：TS 16 条（config-c-cmd.ts.json 的 C20–C27、hub-d1.ts.json 的 D45–D52）、Python 12 条（config-c-cmd.py.json 的 Q09–Q13，另用临时清单跑 kit_hub.py 的 P1–P7）。被本轮改动带偏的三条旧变异（config-switch 的 S13、hub-e1b 的 B14、hub-e2b 的 Y02）原文跟着改了，意思不变。结果：28 条全部抓住，没有漏掉的，也没有靠超时算抓住的；逐条看过日志，红的都是为本轮写的三边对照断言（hub-prompt 的“岗位绑定”与“提示按绑定写”、roles-commands 的命令序列）。
+- **过程里的教训**（记进了错题本）：这一轮的重检查两次压在枢纽自己的门禁回归与基线检查上，让旧门禁里对时间敏感的用例出红（T009 探针的 5 秒超时、T021 的进程号轮询）。T009 探针补了 testTimeout（60 秒，与 T010 起一致；这处修补没有单独跑，由合入后的门禁回归验证）。之后的变异改在一个调度脚本里跑：进程把自己限在 2 个核、最低优先级，子进程都继承，只避开整机冲高的时刻起跑；21 条跑了两个多小时，同时段枢纽的两次合入后全量回归都没有出红。`status` 的“在跑的执行端”看不到基线检查、几份全量回归会同时跑，这两条记为内核的改进候选。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

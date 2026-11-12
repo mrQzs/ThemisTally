@@ -1980,11 +1980,63 @@ def quizs_unready(now: int, timeout: int, state_dir: Optional[Path] = None) -> O
     return quizs_live_plan()[1] or quizs_down(now, state_dir)
 
 
-def effective_spec(agent: str, now: int, hub_root: Optional[Path] = None) -> Tuple[Dict[str, Any], Optional[str]]:
+def hub_bindings(hub: "Hub") -> Dict[str, Any]:
+    """第 154 轮：配置中心里七端各岗位的绑定，{岗位: kit_roles.hub_binding 的结果}，没配的岗位不在里面。
+    配置读不了、没有 hub_roles 这一段、整份校验不过，都当作没配：照名册的缺省跑，不让一份坏配置把枢纽停下。"""
+    try:
+        config = pd.Repo(hub.repo).config()
+    except pd.DispatchError:
+        return {}
+    if not isinstance(config.get("hub_roles"), dict):
+        return {}
+    roles = pd._kit_roles_module()
+    if roles is None or roles.config_errors(config):
+        return {}
+    found = {post: roles.hub_binding(config, post) for post in roles.HUB_POSTS}
+    return {post: binding for post, binding in found.items() if binding is not None}
+
+
+def bound_spec(agent: str, binding: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """第 154 轮：名册里这个岗位的配置，叠上配置中心的绑定。只换载体、提供方、模型、档位与替补；工具、时限、工作目录、
+    流转方式是岗位的安全边界，不随配置变。执行端的载体永远是调度器，绑定只决定合同里的执行模型。"""
+    spec = dict(ROSTER[agent])
+    if not binding:
+        return spec
+    adapter = "claude" if binding["adapter"] == "claude-code" else binding["adapter"]
+    if spec["adapter"] != "dispatcher":
+        spec["adapter"] = adapter
+    spec["model"] = binding["model"]
+    if adapter == "claude":
+        spec.pop("provider", None)
+        spec.pop("thinking", None)
+        spec["effort"] = binding["thinking"]
+    else:
+        spec.pop("effort", None)
+        spec["provider"], spec["thinking"] = binding["provider"], binding["thinking"]
+    spec.pop("fallback", None)
+    substitute = binding.get("fallback")
+    if adapter == "quizs" and substitute:
+        spec["fallback"] = {"adapter": "pi", "provider": substitute["provider"], "model": substitute["model"],
+                            "thinking": substitute["thinking"]}
+    spec["binding_profile"] = binding["profile"]
+    return spec
+
+
+def executor_line(bindings: Optional[Dict[str, Any]] = None) -> Tuple[Tuple[Any, Any, Any], str]:
+    """第 154 轮：合同里执行模型的三元组与那一行的写法：执行端绑了 profile 就照它，没绑照名册。"""
+    binding = (bindings or {}).get("exec")
+    triple = (binding["provider"], binding["model"], binding["thinking"]) if binding else EXECUTOR
+    return triple, "- executor: %s/%s · thinking %s" % triple
+
+
+def effective_spec(agent: str, now: int, hub_root: Optional[Path] = None,
+                   bindings: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，
-    交差方式才对得上。hub_root 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。"""
-    listed = {key: value for key, value in ROSTER[agent].items() if key != "fallback"}
-    substitute = ROSTER[agent].get("fallback")
+    交差方式才对得上。hub_root 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。
+    第 154 轮：bindings 是配置中心里各岗位的绑定（hub_bindings），给了就先叠到名册上。"""
+    base = bound_spec(agent, (bindings or {}).get(str(ROSTER[agent].get("role"))))
+    listed = {key: value for key, value in base.items() if key != "fallback"}
+    substitute = base.get("fallback")
     state_dir = None if hub_root is None else hub_root / QUIZS_STATE_DIR
     reason = (quizs_unready(now, int(listed.get("timeout", 1800)), state_dir)
               if listed["adapter"] == "quizs" and substitute else None)
@@ -2259,7 +2311,7 @@ class TurnRunner:
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         # 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-        spec, fallback = effective_spec(agent, int(time.time()), self.hub.root)
+        spec, fallback = effective_spec(agent, int(time.time()), self.hub.root, hub_bindings(self.hub))
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
@@ -2445,6 +2497,7 @@ class TurnRunner:
             "exit_code": result.get("exit_code"), "timed_out": bool(result.get("timed_out")),
             "wall_seconds": result.get("wall_seconds"), "workspace": str(workspace),
             "model_requested": spec.get("model"), "models": audit.get("models"),
+            "binding_profile": spec.get("binding_profile"),
             "effort_requested": audit["effort_requested"], "effort_effective": audit["effort_effective"],
             "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": turn_cost,
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
@@ -2540,9 +2593,10 @@ def sync_executor_line(hub: Hub, ts: Dict[str, Any]) -> Optional[str]:
     md, _js = contract_paths(hub, ts)
     text = read_text(md)
     match = EXECUTOR_LINE_RE.search(text)
-    if not match or match.group(0).strip() == CONTRACT_EXECUTOR_LINE:
+    line = executor_line(hub_bindings(hub))[1]  # 第 154 轮：执行端绑了 profile 就照它写
+    if not match or match.group(0).strip() == line:
         return None
-    md.write_text(text[:match.start()] + CONTRACT_EXECUTOR_LINE + text[match.end():], encoding="utf-8", newline="\n")
+    md.write_text(text[:match.start()] + line + text[match.end():], encoding="utf-8", newline="\n")
     hub.append_event("contract.executor_synced", task=ts["task"], key=ts["contract"]["key"],
                      previous=match.group(0).strip())
     return match.group(0).strip()
@@ -2654,8 +2708,9 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
         problems.append("Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：%s"
                         % "、".join(guarded))
     executor = data.get("executor") or {}
-    if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != EXECUTOR:
-        problems.append("执行模型要写成：%s" % CONTRACT_EXECUTOR_LINE)
+    wanted, wanted_line = executor_line(hub_bindings(hub))
+    if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != wanted:
+        problems.append("执行模型要写成：%s" % wanted_line)
     integration = set((data.get("authorization") or {}).get("integration") or [])
     if not {"local_branch", "merge"} <= integration:
         problems.append("integration_actions 要写 local_branch, merge")
@@ -4890,7 +4945,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
     # 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
-    spec, _fallback = effective_spec(agent, int(time.time()), hub.root)
+    spec, _fallback = effective_spec(agent, int(time.time()), hub.root, hub_bindings(hub))
     snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
     shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
              else (lambda path: input_path(hub, inputs, path)))
@@ -5017,7 +5072,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                       "写错了内核会改正；门禁提交后内核再把 base_sha 改成基准测试的提交。版本号与当前 HEAD 不用你操心，"
                       "validate 的“base_sha 不是当前 HEAD”只是提示。" % (
                           ts["contract_task"], next_contract_version(ts)[0], ts["base_head"]),
-                      "- executor 行照抄：`%s`；integration_actions 写 `local_branch, merge`。" % CONTRACT_EXECUTOR_LINE,
+                      "- executor 行照抄：`%s`；integration_actions 写 `local_branch, merge`。" % executor_line(hub_bindings(hub))[1],
                       "- Scope 的 forbidden_paths 包含 `%s`（门禁测试，执行端不能碰）。" % gate_pattern(ts),
                       "- Validation commands 要有一条门禁检查，照这个格式写（ID 可以换，但要是一个大写字母加两位数字，调度器只认这种编号）："
                       "`- G01（必要，基线应失败）：`python -m pytest %s -q` · cwd：仓库根 · 超时：600s · 期望退出码：0 · "

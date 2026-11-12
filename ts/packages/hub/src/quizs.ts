@@ -15,15 +15,17 @@ import {
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
+import { type HubBindings, boundSpec } from "./bindings.ts";
 import { HubError } from "./errors.ts";
 
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
 
 /** 第 145 轮：这一回合实际用的名册配置与退回的原因：quizs 岗位起不了就换成替补的字段。提示与起回合都按它，交差方式才对得上。
- *  hubRoot 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。 */
-export function effectiveSpec(agent: string, now: number, hubRoot: string | null = null): [RosterSpec, string | null] {
-  const { fallback: substitute, ...listed } = ROSTER[agent] as RosterSpec;
+ *  hubRoot 给了信箱目录，才看得到“刚才自己没起来”的标记（第 150 轮）。
+ *  第 154 轮：bindings 是配置中心里各岗位的绑定（hubBindings），给了就先叠到名册上。 */
+export function effectiveSpec(agent: string, now: number, hubRoot: string | null = null, bindings: HubBindings | null = null): [RosterSpec, string | null] {
+  const { fallback: substitute, ...listed } = boundSpec(agent, bindings?.get(String((ROSTER[agent] as RosterSpec).role)));
   const stateDir = hubRoot === null ? null : join(hubRoot, QUIZS_STATE_DIR);
   const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800, stateDir) : null;
   return [reason === null ? listed : { ...listed, ...substitute }, reason];

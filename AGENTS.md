@@ -77,9 +77,9 @@
   - `validate`、`derive-json`、`status`、`metrics`、`wait`、`doctor`、`sync-adapters`、`mark` 只读，或只写工作区（`mark` 只改 `.agent/runs/` 中的状态），可以在沙箱内运行。
   - `logs`（`list`、`show`、`search`、`usage`）与 `plugins list`、`plugins show`、`plugins verify` 只读；`plugins enable`、`plugins disable` 只写工作区（`.agent/dispatch.config.json` 的 `plugins` 段）。都可以在沙箱内运行。
   - `config` 的角色绑定命令：
-    - `show`、`validate`、`history`、`runtime list`、`profile show`、`role show`、`preset list`、`preset show`、`preset diff` 只读；
+    - `show`、`validate`、`history`、`runtime list`、`profile show`、`role show`、`hub show`、`preset list`、`preset show`、`preset diff` 只读；
     - `runtime scan`、`runtime probe`、`models`、`doctor` 只运行本机 CLI 的只读探测（`--version`、`--help`、`--list-models`、`auth check --no-refresh`），不调用模型；沙箱内列不出模型时改在沙箱外运行；
-    - 写入子命令（`set`、`unset`、`rollback`、`runtime add`、`runtime remove`、`runtime scan --add`、`profile add`、`profile edit`、`profile remove`、`role set`、`preset save`、`preset use`、`preset remove`）只写 `.agent/` 下的配置、本机文件、历史与审计。
+    - 写入子命令（`set`、`unset`、`rollback`、`runtime add`、`runtime remove`、`runtime scan --add`、`profile add`、`profile edit`、`profile remove`、`role set`、`hub set`、`hub unset`、`preset save`、`preset use`、`preset remove`）只写 `.agent/` 下的配置、本机文件、历史与审计。
     - 都可以在沙箱内运行。
     - 例外：沙箱内的 `doctor` 可能列不出执行模型；这时它会报“list-models 执行失败”或“pi 没有任何可用模型”，改在沙箱外运行再判断。
   - 在沙箱内运行测试，遇到系统临时目录的权限错误（例如 pytest 的 WinError 5）时，把测试的临时目录放进工作区，或在沙箱外运行：
@@ -113,7 +113,7 @@
     - 写死：`provider/model · thinking <级别>`，以合同为准；
     - 按角色：`role:execution`，模型来自 `config role` 的绑定。prepare 时按合同版本记在 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后的 attempt 都沿用它。
   - provider 与 model 必须与 `.agent/environment.md` 和 `pi --list-models` 中的精确 ID 一致；按角色写时，用 `config doctor` 核对绑定；重试已有版本记录的版本时，用 `config doctor --record <task>.vN` 核对记录。
-  - 更换模型或思考级别需要用户同意。改角色绑定也算，包括 `config role set`、`preset use`、`profile edit`：
+  - 更换模型或思考级别需要用户同意。改角色绑定也算，包括 `config role set`、`config hub set`（七端的岗位）、`preset use`、`profile edit`：
     - 写死的合同，写进新合同；
     - 按角色写的合同，出新版本才会用新绑定。
 - 已授权的普通实现与验证持续推进，不重复索要同一权限。

@@ -8332,3 +8332,89 @@ def test_unreadable_lines_are_not_counted_as_unreadable_deliveries():
                          "result": {"content": [], "details": None}})
     audit = kh.audit_pi_stream(["不是 JSON", unread, unread], spec)
     assert audit["delivered_unreadable"] == "deliver 报了成功 2 次，result.details 却不是对象"
+
+
+# ---- 第 154 轮：七端各岗位的绑定来自配置中心（docs/themis-tally-3.0-模型配置.md 第 3 节）----
+
+def write_hub_config(repo, hub_roles):
+    config = {"runtimes": {"pi": {"adapter": "pi"}, "qz": {"adapter": "quizs"}, "cc": {"adapter": "claude-code"}},
+              "profiles": {
+                  "pi-glm": {"runtime": "pi", "model": {"provider": "zhipu", "id": "glm-x"}, "options": {"thinking": "low"}},
+                  "pi-flash": {"runtime": "pi", "model": {"provider": "dsf", "id": "deepseek-flash"}},
+                  "qz-step": {"runtime": "qz", "model": {"provider": "stepfun", "id": "step-5"}, "options": {"thinking": "low"}},
+                  "cc-sonnet": {"runtime": "cc", "model": {"provider": "anthropic", "id": "claude-sonnet-5-5"},
+                                "options": {"thinking": "high"}}},
+              "hub_roles": hub_roles}
+    (Path(repo) / ".agent").mkdir(exist_ok=True)
+    (Path(repo) / ".agent" / "dispatch.config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+
+
+def test_config_defaults_for_the_posts_match_the_roster():
+    import kit_roles
+    by_post = {spec["role"]: spec for spec in kh.ROSTER.values() if spec.get("role") in kit_roles.HUB_POSTS}
+    assert sorted(by_post) == sorted(kit_roles.HUB_POSTS)
+    for post, default in kit_roles.HUB_DEFAULTS.items():
+        spec = by_post[post]
+        carrier = {"claude": "claude-code", "dispatcher": "pi"}.get(spec["adapter"], spec["adapter"])
+        assert default["adapter"] == carrier and carrier in kit_roles.HUB_POST_ADAPTERS[post], post
+        assert default["provider"] == spec.get("provider") and default["model"] == spec["model"], post
+        assert default["thinking"] == spec.get("effort", spec.get("thinking")), post
+        substitute = spec.get("fallback")
+        assert default["fallback"] == (None if substitute is None else {
+            "adapter": substitute["adapter"], "provider": substitute["provider"], "model": spec["model"],
+            "thinking": spec["thinking"]}), post
+
+
+def test_a_post_without_a_binding_runs_exactly_as_the_roster_says(engine_env):
+    hub = engine_env
+    assert kh.hub_bindings(hub) == {}
+    write_hub_config(hub.repo, {"gate": {"profile": "pi-glm"}})
+    assert sorted(kh.hub_bindings(hub)) == ["gate"]
+    for agent in ("planner-opus", "contract-glm", "audit-sonnet"):
+        assert kh.effective_spec(agent, int(time.time()), hub.root, kh.hub_bindings(hub))[0] == dict(kh.ROSTER[agent])
+    assert kh.executor_line(kh.hub_bindings(hub)) == (kh.EXECUTOR, kh.CONTRACT_EXECUTOR_LINE)
+    assert kh.executor_line() == (kh.EXECUTOR, kh.CONTRACT_EXECUTOR_LINE)
+
+
+def test_a_binding_changes_carrier_model_and_level_and_nothing_else(engine_env):
+    hub = engine_env
+    write_hub_config(hub.repo, {"gate": {"profile": "pi-glm"}, "planner": {"profile": "cc-sonnet"},
+                                "coordinator": {"profile": "qz-step", "fallback": "pi-flash"}, "exec": {"profile": "pi-glm"}})
+    bindings = kh.hub_bindings(hub)
+    gate, _why = kh.effective_spec("gate-sonnet", int(time.time()), hub.root, bindings)
+    assert (gate["adapter"], gate["provider"], gate["model"], gate["thinking"], gate["binding_profile"]) == (
+        "pi", "zhipu", "glm-x", "low", "pi-glm")
+    for kept in ("role", "label", "tools", "timeout", "workspace"):
+        assert gate[kept] == kh.ROSTER["gate-sonnet"][kept], kept
+    planner, _why = kh.effective_spec("planner-opus", int(time.time()), hub.root, bindings)
+    assert (planner["adapter"], planner["model"], planner["effort"]) == ("claude", "claude-sonnet-5-5", "high")
+    assert "provider" not in planner and "thinking" not in planner
+    assert planner["tools"] == kh.ROSTER["planner-opus"]["tools"]
+    assert planner["allowed_rules"] == kh.ROSTER["planner-opus"]["allowed_rules"]
+    bound = kh.bound_spec(kh.COORDINATOR, bindings["coordinator"])
+    assert (bound["adapter"], bound["provider"], bound["model"], bound["thinking"]) == ("quizs", "stepfun", "step-5", "low")
+    assert bound["fallback"] == {"adapter": "pi", "provider": "dsf", "model": "deepseek-flash", "thinking": "high"}
+    assert bound.get("routing") == kh.ROSTER[kh.COORDINATOR].get("routing") and bound["tools"] == kh.ROSTER[kh.COORDINATOR]["tools"]
+    # 这里没设 quizs 的文件：协调人这一回合退回绑定里写的替补，不是名册里的那个
+    spec, why = kh.effective_spec(kh.COORDINATOR, int(time.time()), hub.root, bindings)
+    assert why and (spec["adapter"], spec["provider"], spec["model"], spec["thinking"]) == ("pi", "dsf", "deepseek-flash", "high")
+    triple, line = kh.executor_line(bindings)
+    assert triple == ("zhipu", "glm-x", "low") and line == "- executor: zhipu/glm-x · thinking low"
+    assert kh.bound_spec("exec-step", bindings["exec"])["adapter"] == "dispatcher"  # 执行端的载体永远是调度器
+
+
+def test_the_coordinator_bound_to_pi_has_no_substitute(engine_env):
+    hub = engine_env
+    write_hub_config(hub.repo, {"coordinator": {"profile": "pi-flash"}})
+    spec, why = kh.effective_spec(kh.COORDINATOR, int(time.time()), hub.root, kh.hub_bindings(hub))
+    assert why is None and (spec["adapter"], spec["provider"], spec["model"]) == ("pi", "dsf", "deepseek-flash")
+    assert "fallback" not in kh.bound_spec(kh.COORDINATOR, kh.hub_bindings(hub)["coordinator"])
+
+
+def test_a_broken_config_falls_back_to_the_roster(engine_env):
+    hub = engine_env
+    write_hub_config(hub.repo, {"gate": {"profile": "qz-step"}})  # quizs 不许用在门禁端：整份校验不过，当作没配
+    assert kh.hub_bindings(hub) == {}
+    (Path(hub.repo) / ".agent" / "dispatch.config.json").write_text("{不是 JSON", encoding="utf-8")
+    assert kh.hub_bindings(hub) == {}
+    assert kh.effective_spec("gate-sonnet", int(time.time()), hub.root, kh.hub_bindings(hub))[0] == dict(kh.ROSTER["gate-sonnet"])

@@ -217,8 +217,8 @@
     {
       "name": "Y02 比名册那行之前不去掉两头空白",
       "file": "ts/packages/hub/src/accept.ts",
-      "old": "if (match === null || pyStrip(match[0]) === CONTRACT_EXECUTOR_LINE) return null;",
-      "new": "if (match === null || match[0] === CONTRACT_EXECUTOR_LINE) return null;"
+      "old": "if (match === null || pyStrip(match[0]) === line) return null;",
+      "new": "if (match === null || match[0] === line) return null;"
     },
     {
       "name": "Y03 改了不记账本",

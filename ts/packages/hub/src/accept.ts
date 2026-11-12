@@ -13,7 +13,7 @@ import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { purePathName, purePathParent, purePathStr } from "@themis/base/pypath";
 import { D, S, pyLstrip, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { runSupervised } from "@themis/base/supervise";
-import { CONTRACT_EXECUTOR_LINE } from "./constants.ts";
+import { executorLine, hubBindings } from "./bindings.ts";
 import {
   budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, hollowBaselineProblems, normalizeIdentity, normalizeMarkup,
   stripDecisions, tail,
@@ -75,8 +75,9 @@ export async function syncExecutorLine(hub: Hub, ts: PyDict): Promise<string | n
   const [md] = contractPaths(hub, ts);
   const text = readText(md);
   const match = EXECUTOR_LINE_RE.exec(text);
-  if (match === null || pyStrip(match[0]) === CONTRACT_EXECUTOR_LINE) return null;
-  writeText(md, text.slice(0, match.index) + CONTRACT_EXECUTOR_LINE + text.slice(match.index + match[0].length), false);
+  const line = executorLine(hubBindings(hub.repo))[1]; // 第 154 轮：执行端绑了 profile 就照它写
+  if (match === null || pyStrip(match[0]) === line) return null;
+  writeText(md, text.slice(0, match.index) + line + text.slice(match.index + match[0].length), false);
   await hub.appendEvent("contract.executor_synced", [["task", pyItem(ts, "task")], ["key", pyItem(pyItem(ts, "contract"), "key")], ["previous", pyStrip(match[0])]]);
   return pyStrip(match[0]);
 }

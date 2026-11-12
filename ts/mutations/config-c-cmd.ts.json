@@ -121,6 +121,54 @@
       "file": "ts/packages/config/src/cli.ts",
       "old": "  ...ROLES_COMMANDS.map((path) => `config ${path}`),",
       "new": ""
+    },
+    {
+      "name": "C20 岗位绑定不查适配器许不许（第 154 轮）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "      if (adapter !== null && !allowed.includes(adapter)) {",
+      "new": "      if (adapter !== null && allowed.length === 0) {"
+    },
+    {
+      "name": "C21 替补不限 quizs 上的岗位（第 154 轮）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "(adapters.get(\"profile\") !== \"quizs\" || adapters.get(\"fallback\") === \"quizs\")",
+      "new": "(adapters.get(\"fallback\") === \"quizs\")"
+    },
+    {
+      "name": "C22 替补自己是 quizs 也放过（第 154 轮）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "(adapters.get(\"profile\") !== \"quizs\" || adapters.get(\"fallback\") === \"quizs\")",
+      "new": "(adapters.get(\"profile\") !== \"quizs\")"
+    },
+    {
+      "name": "C23 claude 的档位照 pi 的取值查（第 154 轮）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "const levels = adapter === \"claude-code\" ? CLAUDE_EFFORTS : THINKING_LEVELS;",
+      "new": "const levels = THINKING_LEVELS;"
+    },
+    {
+      "name": "C24 岗位绑定不写档位时不补缺省（第 154 轮）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "[\"thinking\", options.has(\"thinking\") ? (options.get(\"thinking\") ?? null) : \"high\"],",
+      "new": "[\"thinking\", options.get(\"thinking\") ?? null],"
+    },
+    {
+      "name": "C25 删 profile 时不看岗位替补的引用（第 154 轮）",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "if (isDict(binding) && pyEq(binding.get(field) ?? null, profileId)) users.push(",
+      "new": "if (isDict(binding) && field !== \"fallback\" && pyEq(binding.get(field) ?? null, profileId)) users.push("
+    },
+    {
+      "name": "C26 取消最后一个岗位之后留着空的 hub_roles（第 154 轮）",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "    if (hubRoles.size) config.set(\"hub_roles\", hubRoles);\n    else config.delete(\"hub_roles\");",
+      "new": "    config.set(\"hub_roles\", hubRoles);"
+    },
+    {
+      "name": "C27 没配的岗位也标成来自配置（第 154 轮）",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "[\"source\", binding === null ? \"default\" : \"config\"],",
+      "new": "[\"source\", \"config\"],"
     }
   ]
 }

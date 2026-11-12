@@ -224,6 +224,9 @@ TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("config", "profile", "remove"): ("repo", "profile_id", "yes", "dry_run", "json", "expect_state"),
     ("config", "role", "show"): ("repo", "json"),
     ("config", "role", "set"): ("repo", "role", "target", "host", "cadence_seconds", "yes", "dry_run", "json", "expect_state"),
+    ("config", "hub", "show"): ("repo", "json"),
+    ("config", "hub", "set"): ("repo", "post", "profile", "fallback", "yes", "dry_run", "json", "expect_state"),
+    ("config", "hub", "unset"): ("repo", "post", "yes", "dry_run", "json", "expect_state"),
     ("config", "preset", "list"): ("repo", "json"),
     ("config", "preset", "show"): ("repo", "name", "json"),
     ("config", "preset", "save"): ("repo", "name", "description", "roles", "force", "yes", "dry_run", "json", "expect_state"),
@@ -239,7 +242,7 @@ TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
 }
 #: 配置中心命令的路径后两段由哪个 dest 给出（runtime add 的 --command 会压掉 command，路径不能读它）
 CONFIG_ACTION_DESTS = (("runtime", "runtime_action"), ("profile", "profile_action"), ("role", "role_action"),
-                       ("preset", "preset_action"))
+                       ("preset", "preset_action"), ("hub", "hub_action"))
 #: dispatcher 选 ts 时转交给 TS 的命令（迁移计划第 ④ 步的切换），值是交给 TS 的参数键，名单写死。status 只在带
 #: --assess 时由这份名单转交（不带的照 readonly 走 TS_READONLY_COMMANDS）；decisions 按 decisions_cmd 分成两条。
 #: config、logs、plugins、ui 各走各的名单。tests/test_kernel_impl.py 核对每条的键与 argparse 的 Namespace 一致。
@@ -3965,8 +3968,8 @@ def load_raw_executor(run_dir: Path) -> Dict[str, Any]:
 # 按合同版本的执行模型记录（3.0 第二轮 D5）
 # ---------------------------------------------------------------------------
 
-#: 配置 v3 的五个键（3.0 第二轮 D1）：kit_config 与 kit_roles 都用这一份
-V3_CONFIG_KEYS = ("runtimes", "profiles", "roles", "presets", "active_preset")
+#: 配置 v3 的键（3.0 第二轮 D1 的五个，加 r3 第 154 轮的 hub_roles：七端各岗位的绑定）：kit_config 与 kit_roles 都用这一份
+V3_CONFIG_KEYS = ("runtimes", "profiles", "roles", "presets", "active_preset", "hub_roles")
 #: 版本记录的必填字段与类型；active_preset、config_sha256 可以是 null
 BINDING_RECORD_FIELDS = (("role", str), ("profile", str), ("runtime", str), ("adapter", str), ("provider", str),
                          ("model", str), ("thinking", str), ("contract_json_sha256", str), ("created_at", str),

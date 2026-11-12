@@ -272,6 +272,8 @@ KEYS: Dict[str, Tuple[str, str, Callable[[Dict[str, Any], Any], None]]] = {
               "execution 由合同决定；contract 为 manual；scheduler_agent 为 disabled", _check_v3("roles")),
     "presets": ("方案：{名: {description, roles}}，切换时只覆盖它列出的角色", "无", _check_v3("presets")),
     "active_preset": ("当前方案名", "无", _check_v3("active_preset")),
+    "hub_roles": ("七端各岗位的绑定（r3 第 154 轮）：coordinator、planner、contract、gate、audit、exec → {profile, fallback}",
+                  "各岗位用 hub 内核里的缺省", _check_v3("hub_roles")),
 }
 
 
@@ -1653,6 +1655,22 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--yes", **yes)
     _preview_options(q)
     p.set_defaults(func=_roles_command("cmd_role"))
+
+    p = sub.add_parser("hub", help="七端各岗位的绑定：show、set、unset")
+    actions = p.add_subparsers(dest="hub_action", required=True)
+    q = actions.add_parser("show")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("set", help="<岗位> <profile>；适配器要在这个岗位允许的范围里")
+    q.add_argument("post")
+    q.add_argument("profile")
+    q.add_argument("--fallback", help="quizs 上的岗位起不了时这一回合退回的 profile")
+    q.add_argument("--yes", **yes)
+    _preview_options(q)
+    q = actions.add_parser("unset", help="<岗位>：回到 hub 内核里的缺省")
+    q.add_argument("post")
+    q.add_argument("--yes", **yes)
+    _preview_options(q)
+    p.set_defaults(func=_roles_command("cmd_hub"))
 
     p = sub.add_parser("preset", help="方案：list、show、save、use、diff、remove")
     actions = p.add_subparsers(dest="preset_action", required=True)

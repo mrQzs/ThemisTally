@@ -473,7 +473,7 @@ class Validation(RolesRepo):
         self.assertEqual(code, 0)
         keys = [row["key"] for row in json.loads(out)["keys"]]
         self.assertEqual(keys[1], "worktree_root")
-        self.assertEqual(keys[-5:], list(kit_roles.V3_KEYS))
+        self.assertEqual(keys[-6:], list(kit_roles.V3_KEYS))  # 第二轮的五个键，加 r3 第 154 轮的 hub_roles
         self.assertEqual(run_config(["validate"], self.repo)[0], 0)
 
     def test_resolution_errors_and_codes(self):
@@ -1487,7 +1487,9 @@ class PreviewAndExpectedState(RolesRepo):
             ("profile", "remove"): ["profile", "remove", "oc-x"],
             ("runtime", "add"): ["runtime", "add", "pi2", "--adapter", "pi", "--command", '["C:/tools/pi.exe"]'],
             ("runtime", "remove"): ["runtime", "remove", "spare"],
-            ("rollback",): ["rollback", "{last}"]}
+            ("rollback",): ["rollback", "{last}"],
+            ("hub", "set"): ["hub", "set", "exec", "exec-low"],
+            ("hub", "unset"): ["hub", "unset", "exec"]}
 
     def setUp(self):
         super().setUp()
@@ -1775,6 +1777,141 @@ class PreviewAndExpectedState(RolesRepo):
         with self.assertRaisesRegex(kit_config.ConfigError, "只能进一次写入事务"):
             with kit_config.config_transaction(self.repo_obj, "role.set", "execution"):
                 pass
+
+
+# r3 第 154 轮：七端各岗位的绑定（docs/themis-tally-3.0-模型配置.md 第 3 节）
+HUB_RUNTIMES = {"pi": {"adapter": "pi"}, "qz": {"adapter": "quizs"}, "cc": {"adapter": "claude-code"}}
+HUB_PROFILES = {
+    "pi-glm": {"runtime": "pi", "model": {"provider": "zhipu", "id": "glm-5.3"}},
+    "pi-flash": {"runtime": "pi", "model": {"provider": "dsf", "id": "deepseek-flash"}, "options": {"thinking": "high"}},
+    "qz-flash": {"runtime": "qz", "model": {"provider": "deepseek", "id": "deepseek-flash"}, "options": {"thinking": "low"}},
+    "qz-step": {"runtime": "qz", "model": {"provider": "stepfun", "id": "step-5"}},
+    "cc-opus": {"runtime": "cc", "model": {"provider": "anthropic", "id": "claude-opus-5-5"}, "options": {"thinking": "max"}},
+}
+
+
+class HubRoles(RolesRepo):
+    def hub(self, **hub_roles):
+        return {"runtimes": json.loads(json.dumps(HUB_RUNTIMES)), "profiles": json.loads(json.dumps(HUB_PROFILES)),
+                "hub_roles": hub_roles}
+
+    def cfg(self):
+        return json.loads(self.config_file.read_bytes().decode("utf-8"))
+
+    def test_shapes_posts_and_allowed_adapters(self):
+        self.assertEqual(self.errors(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"},
+                                              planner={"profile": "cc-opus"}, gate={"profile": "pi-glm"})), [])
+        cases = [
+            ({"reviewer": {"profile": "pi-glm"}}, "未知岗位：reviewer"),
+            ({"gate": "pi-glm"}, "hub_roles.gate 必须是对象"),
+            ({"gate": {"profile": "pi-glm", "tools": ["bash"]}}, "hub_roles.gate 有未知键：tools"),
+            ({"gate": {"profile": "nope"}}, "hub_roles.gate.profile 'nope' 没有登记"),
+            ({"gate": {}}, "hub_roles.gate.profile （值不显示） 没有登记"),
+            ({"gate": {"profile": "qz-flash"}}, "适配器 quizs 不能用在 gate 岗位"),
+            ({"planner": {"profile": "pi-glm"}}, "适配器 pi 不能用在 planner 岗位"),
+            ({"coordinator": {"profile": "cc-opus"}}, "适配器 claude-code 不能用在 coordinator 岗位"),
+            ({"coordinator": {"profile": "pi-flash", "fallback": "pi-glm"}}, "fallback 只用于 quizs 上的岗位"),
+            ({"coordinator": {"profile": "qz-flash", "fallback": "qz-step"}}, "替补自己不能是 quizs"),
+            ({"coordinator": {"profile": "qz-flash", "fallback": "nope"}}, "hub_roles.coordinator.fallback 'nope' 没有登记"),
+        ]
+        for hub_roles, needle in cases:
+            errors = self.errors(self.hub(**hub_roles))
+            self.assertTrue(any(needle in error for error in errors), (hub_roles, errors))
+        self.assertTrue(any("hub_roles 必须是对象" in error for error in self.errors(
+            {"runtimes": HUB_RUNTIMES, "profiles": HUB_PROFILES, "hub_roles": ["gate"]})))
+
+    def test_claude_profiles_take_claude_effort_levels(self):
+        config = self.hub()
+        self.assertEqual(self.errors(config), [])
+        config["profiles"]["cc-opus"]["options"] = {"thinking": "off"}  # pi 有 off，claude 的 --effort 没有
+        self.assertTrue(any("profiles.cc-opus.options.thinking" in error for error in self.errors(config)))
+        config["profiles"]["cc-opus"]["options"] = {"thinking": "xhigh"}
+        config["profiles"]["pi-glm"]["options"] = {"thinking": "off"}
+        self.assertEqual(self.errors(config), [])
+
+    def test_show_lists_six_posts_with_kernel_defaults(self):
+        self.write({})
+        code, out, err = run_config(["hub", "show", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        posts = json.loads(out)["posts"]
+        self.assertEqual([row["post"] for row in posts], list(kit_roles.HUB_POSTS))
+        for row in posts:
+            self.assertEqual(row["source"], "default")
+            self.assertIsNone(row["profile"])
+            self.assertEqual(row["allowed_adapters"], list(kit_roles.HUB_POST_ADAPTERS[row["post"]]))
+            for field in ("adapter", "provider", "model", "thinking", "fallback"):
+                self.assertEqual(row[field], kit_roles.HUB_DEFAULTS[row["post"]][field], (row["post"], field))
+        code, out, _err = run_config(["hub", "show"], self.repo)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(out.splitlines()), 6)
+        self.assertIn("（内核缺省）", out)
+
+    def test_set_and_unset_one_post_leave_the_rest_alone(self):
+        self.write(dict(self.hub(), roles={"contract": {"mode": "manual"}}))
+        del_key = self.cfg()
+        del del_key["hub_roles"]
+        self.write(del_key)
+        code, out, err = run_config(["hub", "set", "coordinator", "qz-flash", "--fallback", "pi-flash"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("已设置 hub_roles.coordinator", out)
+        self.assertEqual(self.cfg()["hub_roles"], {"coordinator": {"profile": "qz-flash", "fallback": "pi-flash"}})
+        self.assertEqual(self.cfg()["roles"], {"contract": {"mode": "manual"}})  # 四个角色那一段不动
+        self.assertEqual(run_config(["hub", "set", "gate", "pi-glm"], self.repo)[0], 0)
+        rows = {row["post"]: row for row in json.loads(run_config(["hub", "show", "--json"], self.repo)[1])["posts"]}
+        self.assertEqual((rows["coordinator"]["source"], rows["coordinator"]["adapter"], rows["coordinator"]["provider"],
+                          rows["coordinator"]["model"], rows["coordinator"]["thinking"]),
+                         ("config", "quizs", "deepseek", "deepseek-flash", "low"))
+        self.assertEqual((rows["coordinator"]["fallback"]["adapter"], rows["coordinator"]["fallback"]["provider"]), ("pi", "dsf"))
+        self.assertEqual((rows["gate"]["source"], rows["gate"]["provider"], rows["gate"]["model"], rows["gate"]["thinking"],
+                          rows["gate"]["fallback"]), ("config", "zhipu", "glm-5.3", "high", None))  # 不写 thinking 时按 high
+        self.assertEqual(rows["audit"]["source"], "default")
+        code, out, err = run_config(["hub", "unset", "coordinator"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.cfg()["hub_roles"], {"gate": {"profile": "pi-glm"}})
+        self.assertEqual(run_config(["hub", "unset", "gate"], self.repo)[0], 0)
+        self.assertNotIn("hub_roles", self.cfg())  # 最后一个岗位取消之后整段拿掉
+        code, out, _err = run_config(["hub", "unset", "gate"], self.repo)
+        self.assertEqual(code, 0)
+        self.assertIn("没有变化", out)
+
+    def test_refused_bindings_write_nothing(self):
+        self.write(self.hub(gate={"profile": "pi-glm"}))
+        before = self.config_file.read_bytes()
+        for argv, code_wanted, needle in (
+                (["hub", "set", "gate", "qz-flash"], 1, "不能用在 gate 岗位"),
+                (["hub", "set", "gate", "nope"], 1, "没有登记"),
+                (["hub", "set", "gate", "pi-glm", "--fallback", "pi-flash"], 1, "fallback 只用于 quizs 上的岗位"),
+                (["hub", "set", "reviewer", "pi-glm"], 2, "岗位只能是"),
+                (["hub", "unset", "reviewer"], 2, "岗位只能是")):
+            code, _out, err = run_config(argv, self.repo)
+            self.assertEqual(code, code_wanted, (argv, err))
+            self.assertIn(needle, err)
+            self.assertEqual(self.config_file.read_bytes(), before, argv)
+
+    def test_dry_run_previews_and_writes_nothing(self):
+        self.write(self.hub())
+        before = self.config_file.read_bytes()
+        code, out, err = run_config(["hub", "set", "gate", "pi-glm", "--dry-run", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        preview = json.loads(out)
+        self.assertTrue(preview["dry_run"])
+        self.assertTrue(preview["changed"])
+        self.assertTrue(preview["state"].startswith("v1;config="))
+        self.assertEqual(self.config_file.read_bytes(), before)
+        code, _out, err = run_config(["hub", "set", "gate", "pi-glm", "--expect-state", preview["state"]], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.cfg()["hub_roles"], {"gate": {"profile": "pi-glm"}})
+        code, _out, err = run_config(["hub", "set", "gate", "pi-flash", "--expect-state", preview["state"]], self.repo)
+        self.assertEqual(code, 4, err)  # 预览之后配置变了：锁内比对不过，什么也不写
+        self.assertEqual(self.cfg()["hub_roles"], {"gate": {"profile": "pi-glm"}})
+
+    def test_a_profile_bound_to_a_post_cannot_be_removed(self):
+        self.write(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"}))
+        for profile, user in (("qz-flash", "hub_roles.coordinator.profile"), ("pi-flash", "hub_roles.coordinator.fallback")):
+            code, _out, err = run_config(["profile", "remove", profile], self.repo)
+            self.assertEqual(code, 1, err)
+            self.assertIn(user, err)
+        self.assertEqual(run_config(["profile", "remove", "qz-step"], self.repo)[0], 0)
 
 
 if __name__ == "__main__":

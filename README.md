@@ -122,7 +122,7 @@ master 上已经有 3.0 第三轮之后的内容：七端 hub、TS 内核和桌�
 - **名册**写在内核里（`scripts/kit_hub.py` 的 `ROSTER`，TS 实现的同一份在 `ts/packages/hub/src/constants.ts`）：每个岗位用哪个 CLI、哪个模型、什么思考档位、能用哪些工具。
   - 现在规划端用 `claude`，合同、门禁、审核用 `pi`，执行端走调度器，JEV 由内核代办。
   - 协调人用 quizs 载体（一个不在本仓库的无头工人 CLI）。环境变量 `QUIZS_CMD`、`QUIZS_LIVE_PLAN`、`QUIZS_PROVIDER_PROFILE`、`QUIZS_QUALIFICATION` 没设全，或资格证书撑不完这一回合时，这一回合退回 `pi`。
-  - 名册不在配置中心里；换模型或思考档位要征得用户同意。
+  - 各岗位用哪个 profile 可以在配置中心里改（`config hub show`、`config hub set <岗位> <profile>`、`config hub unset <岗位>`），没配的岗位用名册的缺省；每个岗位只许换到已经实跑过的载体。换模型或思考档位要征得用户同意。
 - **花费**：hub 的每个回合都会调用模型并产生费用，只在用户明确要求时启动。`task new` 的 `--cap-usd`、`--cap-tokens` 给主任务设上限，快到时内核扣住并写信给站主。
 
 ```bash
@@ -318,11 +318,12 @@ bash scripts/dispatch-pi.sh config role set execution step         # 按角色�
 bash scripts/dispatch-pi.sh config doctor                          # 每个角色的就绪总览，不调用模型
 bash scripts/dispatch-pi.sh config doctor --record <task-id>.v<N>   # 重试已派遣过的版本前：按它的版本记录核验
 bash scripts/dispatch-pi.sh config preset save default             # 方案：save / use / diff / list / show / remove
+bash scripts/dispatch-pi.sh config hub show                        # 七端各岗位的绑定：show / set <岗位> <profile> / unset <岗位>
 ```
 
 - 合同的 executor 写 `role:execution`（JSON 写 `{"role": "execution", …}`）时，执行模型来自绑定；第一次 prepare 记进 `.agent/runs/<task>/binding-v<N>.json`，同一版本之后沿用。写死模型的合同照旧以合同为准。
 - 本机 CLI 的路径只写进不提交的 `.agent/dispatch.local.json`（`config runtime add <id> --adapter pi --command '["<程序>"]'`，路径写绝对路径）；提交的配置里只有适配器名。
-- 改绑定（`role set`、`preset use`、`profile edit`）等于更换执行模型，要征得用户同意。已有版本记录的合同不受影响，出新版本才会用新绑定。
+- 改绑定（`role set`、`hub set`、`preset use`、`profile edit`）等于更换执行模型，要征得用户同意。已有版本记录的合同不受影响，出新版本才会用新绑定。
 
 ## 规划端适配
 

@@ -91,7 +91,7 @@
     {
       "name": "B14 执行模型不核对",
       "file": "ts/packages/hub/src/contract.ts",
-      "old": "declared.every((value, at) => pyEq(value, EXECUTOR[at] as string))",
+      "old": "declared.every((value, at) => pyEq(value, wanted[at] as PyValue))",
       "new": "declared.every(() => true)"
     },
     {

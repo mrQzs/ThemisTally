@@ -428,6 +428,85 @@ describe("第 ⑤d1 片：按种子生成的回合输入", () => {
     expect(prompts.every((prompt) => prompt.includes("## 交差（最后的回答写一个 json 代码块）"))).toBe(true);
     expect(prompts.some((prompt) => prompt.includes("# 协调人的断点"))).toBe(true);
   });
+
+  it("第 154 轮：配了岗位绑定之后，提示按绑定写（合同端的 executor 一行；协调人绑到没有替补的 quizs 时用代码块交差）", () => {
+    const file = join(where.repo, ".agent", "dispatch.config.json");
+    const kit = promptKit(154, where);
+    mkdirSync(join(where.repo, ".agent"), { recursive: true });
+    writeFileSync(file, JSON.stringify({
+      runtimes: { pi: { adapter: "pi" }, qz: { adapter: "quizs" } },
+      profiles: {
+        "pi-glm": { runtime: "pi", model: { provider: "zhipu", id: "glm-x" }, options: { thinking: "low" } },
+        "qz-step": { runtime: "qz", model: { provider: "stepfun", id: "step-5" }, options: { thinking: "low" } },
+      },
+      hub_roles: { exec: { profile: "pi-glm" }, coordinator: { profile: "qz-step" } },
+    }));
+    try {
+      const found = new Map<string, string[]>();
+      for (let round = 0; round < 8; round += 1) {
+        const results = agree(kit.requests(kit.state()));
+        Object.keys(ROSTER).forEach((agent, at) => {
+          const value = results[at]?.ok ? valueOf(results[at]) : null; // 随机的主任务状态里有两边一样报错的，跳过
+          if (typeof value === "string") found.set(agent, [...(found.get(agent) ?? []), value]);
+        });
+      }
+      const contract = (found.get("contract-glm") ?? []).filter((prompt) => prompt.includes("executor 行照抄"));
+      expect(contract.length).toBeGreaterThan(0);
+      expect(contract.every((prompt) => prompt.includes("- executor: zhipu/glm-x · thinking low"))).toBe(true);
+      const coordinator = found.get(COORDINATOR) ?? [];
+      expect(coordinator.length).toBeGreaterThan(0);
+      expect(coordinator.every((prompt) => prompt.includes("## 交差（最后的回答写一个 json 代码块）"))).toBe(true);
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+});
+
+// --- 第 154 轮：七端各岗位的绑定来自配置中心 -----------------------------------------------------------------------
+
+describe("第 154 轮：岗位绑定", () => {
+  it("没配、配了几个岗位、协调人直接绑 pi、整份校验不过、不是 JSON：绑定、叠出来的名册与 executor 一行三边相同", () => {
+    const base = {
+      runtimes: { pi: { adapter: "pi" }, qz: { adapter: "quizs" }, cc: { adapter: "claude-code" } },
+      profiles: {
+        "pi-glm": { runtime: "pi", model: { provider: "zhipu", id: "glm-x" }, options: { thinking: "low" } },
+        "pi-flash": { runtime: "pi", model: { provider: "dsf", id: "deepseek-flash" } },
+        "qz-step": { runtime: "qz", model: { provider: "stepfun", id: "step-5" }, options: { thinking: "low" } },
+        "cc-sonnet": { runtime: "cc", model: { provider: "anthropic", id: "claude-sonnet-5-5" }, options: { thinking: "high" } },
+      },
+    };
+    const cases: [string, string | null][] = [
+      ["none", null],
+      ["empty", JSON.stringify(base)],
+      ["bound", JSON.stringify({ ...base, hub_roles: {
+        gate: { profile: "pi-glm" }, planner: { profile: "cc-sonnet" }, coordinator: { profile: "qz-step", fallback: "pi-flash" }, exec: { profile: "pi-glm" },
+      } })],
+      ["pi-coordinator", JSON.stringify({ ...base, hub_roles: { coordinator: { profile: "pi-flash" }, audit: { profile: "pi-flash" } } })],
+      ["refused", JSON.stringify({ ...base, hub_roles: { gate: { profile: "qz-step" } } })],
+      ["notjson", "{不是 JSON"],
+    ];
+    const repos = cases.map(([name, config]) => {
+      const repo = join(ROOT, "bindings", name);
+      mkdirSync(join(repo, ".agent"), { recursive: true });
+      if (config !== null) writeFileSync(join(repo, ".agent", "dispatch.config.json"), config);
+      return repo;
+    });
+    const results = agree(repos.map((repo) => call("hub_bound", [repo])), 1).map((result) => valueOf(result) as PyDict);
+    const posts = results.map((result) => result.get("posts"));
+    expect(posts).toEqual([[], [], ["coordinator", "exec", "gate", "planner"], ["audit", "coordinator"], [], []]);
+    const spec = (at: number, agent: string): PyValue[] => ((results[at]?.get("specs") as PyValue[][]).find((row) => row[0] === agent) ?? []) as PyValue[];
+    // 没配时就是名册；配了只换载体、提供方、模型、档位与替补，工具、时限、工作目录不变
+    expect(results[1]?.get("specs")).toEqual(results[0]?.get("specs"));
+    expect(spec(2, "gate-sonnet").slice(1, 8)).toEqual(["pi", "zhipu", "glm-x", "low", null, null, "pi-glm"]);
+    expect(spec(2, "gate-sonnet").slice(8)).toEqual(spec(0, "gate-sonnet").slice(8));
+    expect(spec(2, "planner-opus").slice(1, 8)).toEqual(["claude", null, "claude-sonnet-5-5", null, "high", null, "cc-sonnet"]);
+    expect(spec(2, COORDINATOR).slice(1, 8)).toEqual(["quizs", "stepfun", "step-5", "low", null, ["pi", "dsf", "deepseek-flash", "high"], "qz-step"]);
+    expect(spec(2, "exec-step").slice(1, 5)).toEqual(["dispatcher", "zhipu", "glm-x", "low"]); // 执行端的载体永远是调度器
+    expect(spec(3, COORDINATOR).slice(1, 8)).toEqual(["pi", "dsf", "deepseek-flash", "high", null, null, "pi-flash"]); // 直接绑 pi：没有替补
+    expect(results[2]?.get("executor")).toEqual([["zhipu", "glm-x", "low"], "- executor: zhipu/glm-x · thinking low"]);
+    expect(results[4]?.get("specs")).toEqual(results[0]?.get("specs")); // 整份校验不过：当作没配
+    expect(results[5]?.get("executor")).toEqual(results[0]?.get("executor"));
+  });
 });
 
 // --- 五、交差核对与写给协调人的信 ---------------------------------------------------------------------------------

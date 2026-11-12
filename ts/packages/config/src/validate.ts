@@ -318,6 +318,7 @@ export const KEYS: ReadonlyMap<string, Check> = new Map<string, Check>([
   ["roles", checkV3("roles")],
   ["presets", checkV3("presets")],
   ["active_preset", checkV3("active_preset")],
+  ["hub_roles", checkV3("hub_roles")],
 ]);
 
 /** kit_config.validate_config：整份校验，返回错误列表（空表示有效）。hints 为真时 plugins 的错误后面附修复命令。 */

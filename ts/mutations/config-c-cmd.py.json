@@ -25,6 +25,36 @@
       "file": "scripts/kit_roles.py",
       "old": "[role.strip() for role in args.roles.split(\",\") if role.strip()]",
       "new": "[role for role in args.roles.split(\",\") if role.strip()]"
+    },
+    {
+      "name": "Q09 岗位绑定不查适配器许不许（第 154 轮）",
+      "file": "scripts/kit_roles.py",
+      "old": "            if adapters[field] is not None and adapters[field] not in HUB_POST_ADAPTERS[post]:",
+      "new": "            if adapters[field] is not None and not HUB_POST_ADAPTERS[post]:"
+    },
+    {
+      "name": "Q10 替补不限 quizs 上的岗位（第 154 轮）",
+      "file": "scripts/kit_roles.py",
+      "old": "(adapters.get(\"profile\") != \"quizs\" or adapters[\"fallback\"] == \"quizs\")",
+      "new": "(adapters[\"fallback\"] == \"quizs\")"
+    },
+    {
+      "name": "Q11 claude 的档位照 pi 的取值查（第 154 轮）",
+      "file": "scripts/kit_roles.py",
+      "old": "            levels = CLAUDE_EFFORTS if adapter == \"claude-code\" else pd.FALLBACK_THINKING_LEVELS",
+      "new": "            levels = pd.FALLBACK_THINKING_LEVELS"
+    },
+    {
+      "name": "Q12 删 profile 时不看岗位的引用（第 154 轮）",
+      "file": "scripts/kit_roles.py",
+      "old": "              for field in HUB_BINDING_KEYS if isinstance(binding, dict) and binding.get(field) == profile_id]",
+      "new": "              for field in HUB_BINDING_KEYS if isinstance(binding, dict) and binding.get(field) == profile_id and False]"
+    },
+    {
+      "name": "Q13 取消岗位之后留着空的 hub_roles（第 154 轮）",
+      "file": "scripts/kit_roles.py",
+      "old": "        if hub_roles:",
+      "new": "        if True:"
     }
   ]
 }

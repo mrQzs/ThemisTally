@@ -273,6 +273,54 @@
       "file": "ts/packages/hub/src/prompt.ts",
       "old": "folders.set(folder, [count + 1, size + (",
       "new": "folders.set(folder, [count + 1, size - ("
+    },
+    {
+      "name": "D45 绑定把执行端的载体也换掉（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "  if (spec[\"adapter\"] !== \"dispatcher\") spec[\"adapter\"] = adapter;",
+      "new": "  spec[\"adapter\"] = adapter;"
+    },
+    {
+      "name": "D46 绑到 quizs 时不带替补（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "  if (adapter === \"quizs\" && substitute instanceof Map && substitute.size > 0) {",
+      "new": "  if (adapter === null && substitute instanceof Map && substitute.size > 0) {"
+    },
+    {
+      "name": "D47 整份校验不过的配置照样拿来绑（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "  if (configErrors(config).length) return new Map();",
+      "new": "  if (configErrors(config).length > 99) return new Map();"
+    },
+    {
+      "name": "D48 executor 一行不看执行端的绑定（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "    ? [binding.get(\"provider\") ?? null, binding.get(\"model\") ?? null, binding.get(\"thinking\") ?? null]",
+      "new": "    ? EXECUTOR"
+    },
+    {
+      "name": "D49 claude 上的岗位档位写错了键（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "    spec[\"effort\"] = binding.get(\"thinking\") ?? null;",
+      "new": "    spec[\"thinking\"] = binding.get(\"thinking\") ?? null;"
+    },
+    {
+      "name": "D50 不记这个岗位来自哪个 profile（第 154 轮）",
+      "file": "ts/packages/hub/src/bindings.ts",
+      "old": "  spec[\"binding_profile\"] = binding.get(\"profile\") ?? null;",
+      "new": "  spec[\"binding_profile\"] = null;"
+    },
+    {
+      "name": "D51 提示里的 executor 一行不看绑定（第 154 轮）",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "code(executorLine(hubBindings(hub.repo))[1])",
+      "new": "code(executorLine(null)[1])"
+    },
+    {
+      "name": "D52 回合的配置不叠岗位绑定（第 154 轮）",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "boundSpec(agent, bindings?.get(String((ROSTER[agent] as RosterSpec).role)))",
+      "new": "boundSpec(agent, null)"
     }
   ]
 }

@@ -55,6 +55,7 @@ import {
   auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
   turnCostUsd,
 } from "@themis/hub/audit";
+import { boundSpec, executorLine, hubBindings } from "@themis/hub/bindings";
 import * as constants from "@themis/hub/constants";
 import {
   answersQuestion, budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems,
@@ -421,6 +422,21 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
       case "snapshot_manifest":
         value = snapshotManifest(textOf(a));
         break;
+      case "hub_bound": {
+        // 第 154 轮：配置中心里的岗位绑定、叠出来的名册（只取会变的字段与不该变的几项）、executor 一行
+        const bindings = hubBindings(textOf(a));
+        const [triple, line] = executorLine(bindings);
+        const roster = constants.ROSTER as Record<string, constants.RosterSpec>;
+        const specs = Object.keys(roster).map((agent): PyValue => {
+          const spec = boundSpec(agent, bindings.get(String(roster[agent]?.role)));
+          const fallback = spec.fallback;
+          return [agent, spec.adapter ?? null, spec.provider ?? null, spec.model ?? null, spec.thinking ?? null, spec.effort ?? null,
+            fallback == null ? null : [fallback.adapter ?? null, fallback.provider ?? null, fallback.model ?? null, fallback.thinking ?? null],
+            spec.binding_profile ?? null, [...(spec.tools ?? [])], String(spec.timeout ?? "None"), spec.workspace ?? null];
+        });
+        value = new Map<string, PyValue>([["posts", [...bindings.keys()].sort()], ["specs", specs], ["executor", [[...triple], line]]]);
+        break;
+      }
       case "turn_prompt":
         value = turnPrompt(new Hub(textOf(a)), dictOf(b), textOf(c), textOf(d), e as PyValue[], textOf(f), g as PyValue, optionalText(h), i as PyValue, j as PyValue);
         break;

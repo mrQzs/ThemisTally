@@ -6,7 +6,8 @@ import { cmpCodePoints } from "@themis/base/pyre";
 import { ENV_NAME_RE, TASK_ID_RE, secretLikePaths } from "@themis/base/secrets";
 import { secretConfigError } from "./secret-config.ts";
 
-export const V3_KEYS = ["runtimes", "profiles", "roles", "presets", "active_preset"];
+/** pi_dispatch.V3_CONFIG_KEYS：第二轮的五个键，加 r3 第 154 轮的 hub_roles（七端各岗位的绑定）。 */
+export const V3_KEYS = ["runtimes", "profiles", "roles", "presets", "active_preset", "hub_roles"];
 export const ROLES = ["planning_review", "contract", "execution", "scheduler_agent"];
 /** 每个角色允许的模式（上位设计 6.3）。 */
 export const ROLE_MODES: Readonly<Record<string, readonly string[]>> = {
@@ -28,15 +29,52 @@ export interface AdapterSpec {
 /** 适配器登记表（D2）：静态表，不是插件。 */
 export const ADAPTERS: Readonly<Record<string, AdapterSpec>> = {
   pi: { program: "pi", headless_roles: ["execution", "contract"], host: false, list_models: true, auth: true, options: ["thinking"] },
-  "claude-code": { program: "claude", headless_roles: [], host: true, list_models: false, auth: false, options: [] },
+  // r3 第 154 轮：七端的规划端在 claude 上无头运行，档位写在 options.thinking（hub 传给 claude 的 --effort）
+  "claude-code": { program: "claude", headless_roles: [], host: true, list_models: false, auth: false, options: ["thinking"] },
   codex: { program: "codex", headless_roles: [], host: true, list_models: false, auth: false, options: [] },
   opencode: { program: "opencode", headless_roles: [], host: false, list_models: false, auth: false, options: [] },
+  // r3 第 154 轮：quizs 只承载七端的岗位（hub_roles），不接四个角色的 headless
+  quizs: { program: "quizs", headless_roles: [], host: false, list_models: false, auth: false, options: ["thinking"] },
 };
 const ADAPTER_NAMES = Object.keys(ADAPTERS);
 export const HOST_ADAPTERS = ADAPTER_NAMES.filter((name) => ADAPTERS[name]?.host);
 const RUNTIME_KEYS = ["adapter"];
 const PROFILE_KEYS = ["runtime", "model", "options", "credential_env"];
 const PRESET_KEYS = ["description", "roles"];
+/** kit_roles.HUB_POST_ADAPTERS：七端的岗位 → 这个岗位现在允许的适配器（只列已经跑过的载体）。 */
+export const HUB_POST_ADAPTERS: Readonly<Record<string, readonly string[]>> = {
+  coordinator: ["quizs", "pi"],
+  planner: ["claude-code"],
+  contract: ["pi"],
+  gate: ["pi"],
+  audit: ["pi"],
+  exec: ["pi"],
+};
+export const HUB_POSTS = Object.keys(HUB_POST_ADAPTERS);
+export const HUB_BINDING_KEYS = ["profile", "fallback"];
+
+export interface HubDefault {
+  readonly adapter: string;
+  readonly provider: string | null;
+  readonly model: string;
+  readonly thinking: string;
+  readonly fallback: { readonly adapter: string; readonly provider: string; readonly model: string; readonly thinking: string } | null;
+}
+
+/** kit_roles.HUB_DEFAULTS：各岗位没配时 hub 用的缺省，与 hub 名册的同名字段逐项相同（契约里有一条核对）。 */
+export const HUB_DEFAULTS: Readonly<Record<string, HubDefault>> = {
+  coordinator: {
+    adapter: "quizs", provider: "deepseek", model: "deepseek-flash", thinking: "high",
+    fallback: { adapter: "pi", provider: "dsf", model: "deepseek-flash", thinking: "high" },
+  },
+  planner: { adapter: "claude-code", provider: null, model: "claude-opus-5-5", thinking: "max", fallback: null },
+  contract: { adapter: "pi", provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "high", fallback: null },
+  gate: { adapter: "pi", provider: "cc-switch-zhipu-glm", model: "glm-5.3", thinking: "high", fallback: null },
+  audit: { adapter: "pi", provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "max", fallback: null },
+  exec: { adapter: "pi", provider: "cc-switch-step-fun", model: "step-5-preview", thinking: "high", fallback: null },
+};
+/** claude 的 --effort 取值（claude --help，2026-11-12 核对）。 */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /** pi_dispatch.FALLBACK_THINKING_LEVELS。 */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 /** pi_dispatch.MODEL_TOKEN_RE（re.match 加 $：末尾的换行照样放过）。 */
@@ -133,8 +171,9 @@ function checkProfiles(config: PyDict): string[] {
     } else if (adapter !== null) {
       const optionExtra = extraKeys(options, ADAPTERS[adapter]?.options ?? []);
       if (optionExtra.length) errors.push(`${where}.options 有 ${adapter} 不接受的键：${optionExtra.join("、")}`);
-      if (options.has("thinking") && !among(options.get("thinking"), THINKING_LEVELS)) {
-        errors.push(`${where}.options.thinking 必须是 ${THINKING_LEVELS.join("、")} 之一`);
+      const levels = adapter === "claude-code" ? CLAUDE_EFFORTS : THINKING_LEVELS;
+      if (options.has("thinking") && !among(options.get("thinking"), levels)) {
+        errors.push(`${where}.options.thinking 必须是 ${levels.join("、")} 之一`);
       }
     }
     const names = spec.has("credential_env") ? spec.get("credential_env") : [];
@@ -218,12 +257,85 @@ function checkActivePreset(config: PyDict): string[] {
   return [];
 }
 
+/** kit_roles._check_hub_roles：七端的岗位绑定 {岗位: {profile, fallback}}。fallback 只用于 quizs 上的岗位，替补自己不能是 quizs。 */
+function checkHubRoles(config: PyDict): string[] {
+  const hubRoles = config.get("hub_roles");
+  if (!isDict(hubRoles)) return ["hub_roles 必须是对象 {岗位: {profile, fallback}}"];
+  const extra = extraKeys(hubRoles, HUB_POSTS);
+  const errors = extra.length ? [`hub_roles 有未知岗位：${extra.join("、")}（只有 ${HUB_POSTS.join("、")}）`] : [];
+  const listed = config.get("profiles");
+  const profiles: PyDict = isDict(listed) ? listed : new Map();
+  for (const post of HUB_POSTS) {
+    if (!hubRoles.has(post)) continue;
+    const where = `hub_roles.${post}`;
+    const binding = hubRoles.get(post);
+    if (!isDict(binding)) {
+      errors.push(`${where} 必须是对象 {profile, fallback}`);
+      continue;
+    }
+    const unknown = extraKeys(binding, HUB_BINDING_KEYS);
+    if (unknown.length) errors.push(`${where} 有未知键：${unknown.join("、")}`);
+    const allowed = HUB_POST_ADAPTERS[post] ?? [];
+    const adapters = new Map<string, string | null>();
+    for (const field of HUB_BINDING_KEYS) {
+      if (field === "fallback" && !binding.has(field)) continue;
+      const profile = binding.get(field);
+      const spec = typeof profile === "string" ? profiles.get(profile) : undefined;
+      if (typeof profile !== "string" || profile.startsWith("_") || !isDict(spec)) {
+        errors.push(`${where}.${field} ${shownValue(profile ?? null)} 没有登记`);
+        continue;
+      }
+      const adapter = adapterOf(config, spec.get("runtime"));
+      adapters.set(field, adapter);
+      if (adapter !== null && !allowed.includes(adapter)) {
+        errors.push(`${where}.${field} 的适配器 ${adapter} 不能用在 ${post} 岗位（允许：${allowed.join("、")}）`);
+      }
+    }
+    if (adapters.has("fallback") && (adapters.get("profile") !== "quizs" || adapters.get("fallback") === "quizs")) {
+      errors.push(`${where}.fallback 只用于 quizs 上的岗位，替补自己不能是 quizs`);
+    }
+  }
+  return errors;
+}
+
+/** kit_roles.hub_binding：七端某个岗位在配置里的绑定，解析成 hub 要的字段；没写这个岗位时 null（hub 用内核里的缺省）。 */
+export function hubBinding(config: PyDict, post: string): PyDict | null {
+  const hubRoles = config.get("hub_roles");
+  const binding = isDict(hubRoles) ? hubRoles.get(post) : undefined;
+  if (!isDict(binding)) return null;
+  const listed = config.get("profiles");
+  const profiles: PyDict = isDict(listed) ? listed : new Map();
+  const resolved = (profileId: PyValue | undefined): PyDict | null => {
+    const profile = typeof profileId === "string" ? profiles.get(profileId) : undefined;
+    if (!isDict(profile)) return null;
+    const modelValue = profile.get("model");
+    const model: PyDict = isDict(modelValue) ? modelValue : new Map();
+    const optionsValue = profile.get("options");
+    const options: PyDict = isDict(optionsValue) ? optionsValue : new Map();
+    const runtimeValue = profile.get("runtime");
+    const runtime = typeof runtimeValue === "string" ? runtimeValue : null;
+    return new Map<string, PyValue>([
+      ["profile", profileId as string],
+      ["runtime", runtime],
+      ["adapter", adapterOf(config, runtime)],
+      ["provider", model.get("provider") ?? null],
+      ["model", model.get("id") ?? null],
+      ["thinking", options.has("thinking") ? (options.get("thinking") ?? null) : "high"],
+    ]);
+  };
+  const primary = resolved(binding.get("profile"));
+  if (primary === null) return null;
+  primary.set("fallback", binding.has("fallback") ? resolved(binding.get("fallback")) : null);
+  return primary;
+}
+
 const CHECKS: Readonly<Record<string, (config: PyDict) => string[]>> = {
   runtimes: checkRuntimes,
   profiles: checkProfiles,
   roles: checkRoles,
   presets: checkPresets,
   active_preset: checkActivePreset,
+  hub_roles: checkHubRoles,
 };
 
 /** kit_roles.check_key：先查这个键之下疑似凭据的位置，有就只报这一条。 */

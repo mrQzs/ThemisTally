@@ -1383,6 +1383,18 @@ def op_hub_prompt(request):
             value = kit_hub.input_path(hub(repo), path(inputs), target)
         elif fn == "snapshot_manifest":
             value = kit_hub.snapshot_manifest(Path(args[0]))
+        elif fn == "hub_bound":  # 第 154 轮：配置中心里的岗位绑定、叠出来的名册（只取会变的字段与不该变的几项）、executor 一行
+            bindings = kit_hub.hub_bindings(hub(args[0]))
+            triple, line = kit_hub.executor_line(bindings)
+            specs = []
+            for agent in kit_hub.ROSTER:
+                spec = kit_hub.bound_spec(agent, bindings.get(str(kit_hub.ROSTER[agent].get("role"))))
+                fallback = spec.get("fallback")
+                specs.append([agent, spec.get("adapter"), spec.get("provider"), spec.get("model"), spec.get("thinking"), spec.get("effort"),
+                              None if fallback is None else [fallback.get("adapter"), fallback.get("provider"), fallback.get("model"),
+                                                             fallback.get("thinking")],
+                              spec.get("binding_profile"), list(spec.get("tools") or []), str(spec.get("timeout")), spec.get("workspace")])
+            value = {"posts": sorted(bindings), "specs": specs, "executor": [list(triple), line]}
         elif fn == "turn_prompt":
             repo, ts, agent, task_id, letters, workspace, error, inputs, resume, routing_note = args
             value = kit_hub.turn_prompt(hub(repo), ts, agent, task_id, letters, Path(workspace), error, path(inputs), resume, routing_note)

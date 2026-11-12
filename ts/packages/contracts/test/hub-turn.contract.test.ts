@@ -484,3 +484,32 @@ describe("第 ⑤ 步切换（一）：回合记下的 hub_impl", () => {
     expect(seen).toEqual([["python", "python", ["python"]], ["ts", "ts", ["ts"]], ["ts", "ts", ["ts"]]]);
   }, 600_000);
 });
+
+describe("第 154 轮：回合按配置中心里的岗位绑定起", () => {
+  it("合同端绑了 profile：命令行、要求的模型与 binding_profile 跟着绑定；没绑的岗位与校验不过的配置照名册", () => {
+    const config = (hubRoles: unknown): string => JSON.stringify({
+      runtimes: { pi: { adapter: "pi" } },
+      profiles: { "pi-glm": { runtime: "pi", model: { provider: "zhipu", id: "glm-x" }, options: { thinking: "low" } } },
+      hub_roles: hubRoles,
+    });
+    const put = (text: string) => (repo: string): void => writeFileSync(join(repo, ".agent", "dispatch.config.json"), text);
+    const boundDone = { type: "message_end", message: { role: "assistant", provider: "zhipu", model: "glm-x", stopReason: "toolUse", content: [] } };
+    const shownCases = replay({
+      "bound-contract": { agent: "contract-glm", key: "T001-2-contract", script: { stdout: b64(stream(boundDone)) }, prepare: put(config({ contract: { profile: "pi-glm" } })) },
+      "bound-other-post": { agent: "audit-sonnet", key: "T001-4-audit-pre", script: { stdout: b64(stream(piDone("audit-sonnet"))) }, prepare: put(config({ contract: { profile: "pi-glm" } })) },
+      "bound-refused-config": { agent: "contract-glm", key: "T001-2-contract", script: { stdout: b64(stream(piDone("contract-glm"))) }, prepare: put(config({ contract: { profile: "nope" } })) },
+      // 配置不是合法 JSON：两边都照空配置、照名册把回合跑完（TS 原来在这里直接抛错）
+      "bound-notjson-config": { agent: "contract-glm", key: "T001-2-contract", script: { stdout: b64(stream(piDone("contract-glm"))) }, prepare: put("{不是 JSON") },
+    });
+    const of = (name: string): { summary: string; calls: string } => shownCases[name] as { summary: string; calls: string };
+    expect(of("bound-contract").calls).toContain('"--provider","zhipu","--model","glm-x","--thinking","low"');
+    expect(of("bound-contract").summary).toContain('["binding_profile","pi-glm"]');
+    expect(of("bound-contract").summary).toContain('["model_requested","glm-x"]');
+    expect(of("bound-other-post").summary).toContain('["binding_profile",null]');
+    expect(of("bound-other-post").calls).toContain(`"--model","${ROSTER["audit-sonnet"]?.model}"`);
+    expect(of("bound-refused-config").summary).toContain('["binding_profile",null]');
+    expect(of("bound-refused-config").calls).toContain(`"--model","${ROSTER["contract-glm"]?.model}"`);
+    expect(of("bound-notjson-config").summary).toContain('["binding_profile",null]');
+    expect(of("bound-notjson-config").calls).toContain(`"--model","${ROSTER["contract-glm"]?.model}"`);
+  }, 300_000);
+});
