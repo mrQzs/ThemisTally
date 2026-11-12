@@ -35,6 +35,20 @@ afterEach(async () => {
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
+/** 等假内核真的起来（报告里有了 begin）再往下走。原来固定等 300 毫秒：机器忙、子进程起得慢时还没起来就取消，读不到 pid
+ * （2026-11-12 当天在门禁回归里红了三次）。报告正写到一半时读到半行，下一轮再读。 */
+async function waitForBegin(report: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      if (readReport(report).some((line) => line.event === "begin")) return;
+    } catch {
+      // 半行
+    }
+    await sleep(50);
+  }
+}
+
 /** 每条路由的替身用例：示例路径、期望交出的 argv。 */
 const CASES: readonly { readonly name: string; readonly path: string; readonly argv: readonly string[] }[] = [
   { name: "api.meta.get", path: "/api/v1/meta", argv: READ_ROUTE_ARGV["api.meta.get"] ?? [] },
@@ -234,7 +248,7 @@ describe("并发、队列与取消（U28）", () => {
         settled = error;
       },
     );
-    await sleep(300);
+    await waitForBegin(started.report);
     controller.abort();
     await pending;
     const pid = readReport(started.report).find((line) => line.event === "begin")?.pid ?? 0;
@@ -249,7 +263,7 @@ describe("并发、队列与取消（U28）", () => {
     process.env["FAKE_KERNEL_SLEEP_MS"] = "8000";
     const running = started.get("/api/v1/status");
     const queued = started.get("/api/v1/status");
-    await sleep(300);
+    await waitForBegin(started.report);
     const pid = readReport(started.report).find((line) => line.event === "begin")?.pid ?? 0;
     const stopping = started.runner.shutdown();
     const [first, second] = await Promise.all([running, queued]);
