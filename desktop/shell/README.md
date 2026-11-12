@@ -2,7 +2,7 @@
 
 ThemisTally 的桌面外壳最小骨架（Electron 主进程）。它找 Python、起本机服务、校验握手、开一个安全设置的窗口；关窗口就以 stdin 的 EOF 结束服务，按约定的退出码退出。
 
-本片只做骨架：找 Python → 校验命令行参数 → 起服务并校验握手 → 开窗口 → 关窗口收服务。没有外壳页、托盘、单实例、多仓库切换，也没有设置存盘与 `openSettings()`。控制令牌只留在主进程内存里，不传给任何页面。
+本片只做骨架：找 Python → 校验命令行参数 → 起服务并校验握手 → 开窗口 → 关窗口收服务。没有外壳页、托盘、单实例、多仓库切换，也没有 `openSettings()`；设置文件与三项校验的数据层已经就位（见下文「设置与校验」），外壳页的界面与接线在后面一片。控制令牌只留在主进程内存里，不传给任何页面。
 
 主窗口配 preload（`preload.js`，暴露 `window.themisHost` 给服务页调用系统能力），凭据小窗口不配 preload。
 
@@ -105,6 +105,48 @@ preload 只把五个函数原样转交给主进程的固定 IPC 通道，参数�
 |---|---|---|
 | `attempt-finished` | ThemisTally | attempt 已结束 |
 | `awaiting-review` | ThemisTally | 有 attempt 等待验收 |
+
+## 设置与校验
+
+外壳页的数据层：`src/settings.js`（设置文件）、`src/detect.js`（三项校验与自动检测）、`src/shellapi.js`（`window.themisShell` 十个成员的主进程实现，七个真方法加三个占位）。本片不碰 `main.js`、协议与 preload，也不起服务。
+
+### 设置文件
+
+位置是 `<userData>/settings.json`（Electron 的 userData 目录由调用方注入，模块不自己找）。字段固定，写盘只写这些键、按这个顺序：
+
+| 字段 | 取值 |
+|---|---|
+| `version` | 固定 `1` |
+| `repos` | 仓库条目数组，每项 `{id, name, path, lastOpened}` |
+| `currentRepo` | 当前仓库的 id，没有为 `null` |
+| `transcriptDirs` | 会话记录目录数组，每项 `{id, path}` |
+| `theme` | `system` / `light` / `dark` |
+| `density` | `standard` / `compact` |
+| `pythonPath` | 指定的 Python 路径，没有为 `null` |
+| `kitPath` | 指定的 ThemisTally 目录，没有为 `null` |
+
+- 文件不存在 → 用缺省设置起来。
+- 文件是坏 JSON、顶层不是对象、或任一已知键取值不合法（例如 `theme: "neon"`）→ **整份当坏文件**：用缺省设置起来，并把坏文件的原始字节另存成同目录下的 `settings.bad-<UTC 时刻>.json`（时刻格式 `YYYYMMDDTHHMMSSmmmZ`）。副本**不覆盖**已有同名文件，依次试 `-2`、`-3`……直到没人占用的名字。
+- 未知键忽略，下次写盘自然丢掉；写盘是原子写：先写 `settings.json.tmp`，再换名覆盖正式文件。写失败就删掉临时文件并抛出错误，正式文件一个字节都不动。
+- **设置文件里不存凭据，也不存控制令牌**：设置模块根本不接收这两个字段，控制令牌只留在主进程内存里。
+
+`saveSettings` 只认六个键——`theme`、`density`、`removeRepo`、`removeTranscriptDir`、`resetPython`、`resetKit`——**不接受任何路径**（路径只能来自系统选择框）。整包合格才应用并写盘；任一项不合格（补丁形状不对、取值不在表里、id 不存在、要移除的正是当前仓库）就整体拒绝，设置与文件的字节都不变。三个失败原因：`bad-patch` / `unknown-id` / `current-repo`。
+
+### 三项校验
+
+| 校验 | 判据 |
+|---|---|
+| 仓库 | 只看文件系统：`<仓库>/.git` 存在（目录或文件都算，worktree 是文件）且 `<仓库>/.agent` 是目录 |
+| Python | 能跑起来且版本 ≥ 3.10；自动检测按 `python3` → `python` → `py -3` 的顺序，第一个可用即用 |
+| kit | 用可用的 Python 跑 `<kit>/scripts/pi_dispatch.py --version`，退出码为 0 并取到 `x.y.z` 版本号 |
+
+- 三项校验都不写任何文件。
+- 子进程一律不经 shell（`shell: false`、`windowsHide: true`，stdio 只收两路输出），**每个子进程 10 秒**时限：到点杀进程并按失败处理，不把外壳挂死。
+- 探测失败的原因词（模块内部用）：`version-too-old`、`bad-output`、`timeout`、`no-command`、`python-unusable`、`kit-unusable`。
+
+### 选择器与返回值
+
+四个选择器（`pickRepo` / `pickPython` / `pickKit` / `pickTranscriptDir`）各有三种结果：取消 → `{kind: "cancelled"}`；校验不过 → `{kind: "rejected", problem, path}`（不写盘）；校验通过 → `{kind: "saved", path, id?, state}`（写盘，`id` 只有仓库与会话目录有）。只有保存才写盘，被拒与取消都不碰设置文件。`getState` 的返回值形状与 `desktop/web/src/shellpages/themisShell.ts` 逐字段一致，由 `tests/shellshape.test.js` 读那份类型文件比对钉住。`startService` / `restartService` / `on('service-state')` 仍是占位。
 
 ## 安全设置
 
