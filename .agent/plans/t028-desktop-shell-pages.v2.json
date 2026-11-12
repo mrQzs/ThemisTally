@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "task_id": "t028-desktop-shell-pages",
+  "plan_version": 2,
+  "title": "桌面端外壳第 3 片：外壳页窗口、设置与选择器（D3 之四）",
+  "repository": "ThemisTally",
+  "base_sha": "1a2a57de5151123ce4cf6809bcd6021cafe60b6d",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/package.json",
+      "desktop/shell/README.md",
+      "desktop/shell/src/detect.js",
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/tests/detect.test.js",
+      "desktop/shell/tests/fixtures/fake-echo-argv.js",
+      "desktop/shell/tests/fixtures/fake-kit-fail.js",
+      "desktop/shell/tests/fixtures/fake-kit-hang.js",
+      "desktop/shell/tests/fixtures/fake-kit-no-version.js",
+      "desktop/shell/tests/fixtures/fake-kit-version-stderr.js",
+      "desktop/shell/tests/fixtures/fake-kit-version.js",
+      "desktop/shell/tests/fixtures/fake-py-info-oneline.js",
+      "desktop/shell/tests/fixtures/fake-py-info.js",
+      "desktop/shell/tests/settings.test.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/shellshape.test.js"
+    ],
+    "allowed_new_files": [
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/detect.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/tests/settings.test.js",
+      "desktop/shell/tests/detect.test.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/shellshape.test.js",
+      "desktop/shell/tests/fixtures/**"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "desktop/shell/main.js",
+      "desktop/shell/preload.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/python.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/window.js",
+      "desktop/web/**",
+      "ts/**",
+      "scripts/**",
+      "tests/test_gate_t028_*.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass [1-9][0-9]*"
+      ],
+      "output_must_not_match": [
+        "# fail [1-9]"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t028_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "设置存盘可用：文件不存在用缺省；坏 JSON 或已知键取值非法时用缺省并把坏文件另存一份带 UTC 时刻的副本且不覆盖已有副本；未知键被忽略并在写盘时丢掉；写盘是 `mkdirSync` → `writeFileSync` 临时文件 → `renameSync` 替换，写出的文件只有声明的键",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "设置文件坏了不能让外壳起不来，也不能悄悄覆盖用户的旧文件"
+    },
+    {
+      "id": "D02",
+      "text": "`saveSettings` 只认 `theme`、`density`、`removeRepo`、`removeTranscriptDir`、`resetPython`、`resetKit` 六键，整包合格才应用并写盘，任一项不合格整体拒绝（`bad-patch` / `unknown-id` / `current-repo`）且文件字节不变",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "设置接口不接受任何路径，坏补丁不能把已有设置写坏"
+    },
+    {
+      "id": "D03",
+      "text": "三项校验与自动检测成立：仓库只看文件系统（`.git` 存在且 `.agent` 是目录），Python 要能跑且 ≥ 3.10，kit 要能跑 `<kit>/scripts/pi_dispatch.py --version` 并取到版本号；子进程带 10 秒时限、`shell:false`、`windowsHide:true`；自动检测按 `python3 → python → py -3` 的顺序",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "起服务前必须先确认这三样可用，超时不能把外壳挂死"
+    },
+    {
+      "id": "D04",
+      "text": "四个选择器各有取消、保存、被拒三种结果；只有保存才写盘，被拒与取消不写盘；`pickRepo` 只在 `currentRepo` 为空时设当前仓库；`pickKit` 没有可用 Python 时回 `python-unusable`；`pickTranscriptDir` 不回 `rejected`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "路径只能来自系统选择框，校验不过的路径不能进设置"
+    },
+    {
+      "id": "D05",
+      "text": "返回值形状与 `desktop/web/src/shellpages/themisShell.ts` 逐字段一致，由读该类型文件的比对测试钉住（测试里不另抄键表）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "前端拿到的字段名与取值必须就是类型文件里写的那一套，类型文件变了测试要红"
+    },
+    {
+      "id": "D06",
+      "text": "`openExternal` 复用 `isExternalUrl` 与注入的确认框，失败原因是 `bad-url` / `cancelled` / `open-failed`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "外壳页不能打开非 http/https 的地址"
+    },
+    {
+      "id": "D07",
+      "text": "现有 `npm test` 全过、T025/T026 门禁与全量门禁回归全过，本片的新门禁基线测试全过；既有测试一条没删没改",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01",
+        "R01"
+      ],
+      "intent": "外壳页的数据层不能碰坏 T025/T026 已经钉住的行为"
+    },
+    {
+      "id": "D08",
+      "text": "所有改动都在允许集合内（只改 `desktop/shell/package.json` 与 `desktop/shell/README.md`，只新增本片点名的文件与 `tests/fixtures/**`），`desktop/web`、`ts/`、门禁测试、`main.js`、`preload.js` 与冻结的 `src/*.js` 一字未动",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "README 新增「设置与校验」一节且原有字样全保留；`package.json` 只改了 `scripts.test`（依赖与锁文件未动）",
+      "evidence": [
+        "V01",
+        "V02",
+        "review"
+      ],
+      "intent": "文档与门禁要求的字样不许被这次改动抹掉"
+    },
+    {
+      "id": "D10",
+      "text": "任务书列出的过渡断言与两条前端过渡用例一条也没推翻（`desktop/web/**` 未改）",
+      "evidence": [
+        "V01",
+        "R01",
+        "scope"
+      ],
+      "intent": "本片只加不改"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
