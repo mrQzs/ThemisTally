@@ -946,6 +946,9 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 
 const h: any = React.createElement;
 
+// 站主 2026-11-12：多次挂载 App 的用例在机器忙时慢于 Vitest 默认的 5 秒（当天在这里红过两次），照 T010 起各门禁的写法放到 60 秒
+vi.setConfig({ testTimeout: 60000 });
+
 // 排空 jsdom 里待决的导航与 hashchange（它们在宏任务里触发），使用例之间不互相泄漏（T006 门禁同款）
 async function drainNav() {
   for (let i = 0; i < 2; i += 1) {
