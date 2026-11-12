@@ -129,6 +129,14 @@ export const OPEN_WRITE_COMMAND_PATHS: readonly string[] = [
   "config runtime remove",
 ];
 
+/**
+ * U4：内核已经有预览（--dry-run）、界面的写路由还没做的写命令。内核第 154 轮加了 config hub set、config hub unset，
+ * 对应的路由是 T031 的事：它落地时把这两条挪进 OPEN_WRITE_COMMAND_PATHS，这张表清空。
+ * write-argv.test.ts 的 W2 核对“开放的加上这里的 = 内核里带 --dry-run 的写命令”：内核再加可预览的写命令时照旧会被拦下来，
+ * 要么给它做路由，要么在这里写明等哪一片。
+ */
+export const PENDING_WRITE_COMMAND_PATHS: readonly string[] = ["config hub set", "config hub unset"];
+
 /** U4：显式不开放的写命令，每条带一句理由；命令路径都不在 OPEN_WRITE_COMMAND_PATHS 里，也都被内核解析器拒绝。 */
 export const NOT_OPEN_WRITE_COMMANDS: readonly { readonly path: readonly string[]; readonly reason: string }[] = [
   { path: ["config", "set"], reason: "任意键写入，没有 --dry-run 与 --expect-state，无从预览，也无从比对令牌。" },

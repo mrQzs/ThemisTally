@@ -3,7 +3,9 @@
 // 不开放名单都被内核解析器拒绝且与开放集合不相交；W3 基础 argv 不含那四个开关；W4 validateWriteArgs 的每一类不合格回固定 400、不回显值。
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { buildWriteArgv, NOT_OPEN_WRITE_COMMANDS, OPEN_WRITE_COMMAND_PATHS, validateWriteArgs, WRITE_ACTIONS, WRITE_ARGV } from "../src/writeroutes.ts";
+import {
+  buildWriteArgv, NOT_OPEN_WRITE_COMMANDS, OPEN_WRITE_COMMAND_PATHS, PENDING_WRITE_COMMAND_PATHS, validateWriteArgs, WRITE_ACTIONS, WRITE_ARGV,
+} from "../src/writeroutes.ts";
 import { REPO_ROOT } from "./harness.ts";
 
 const PYTHON = process.env["THEMIS_PYTHON"] ?? "python";
@@ -86,10 +88,14 @@ describe("W1：七条基础 argv 过内核真正的解析器（dry_run/json/expe
 
 describe("W2：开放集合 = 内核 --dry-run 集合 = 12 条；不开放名单被拒且不相交", () => {
   it("OPEN_WRITE_COMMAND_PATHS 恰好 12 条，与内核 --dry-run 集合逐条相等", () => {
+    // 内核第 154 轮加了两条可预览的写命令，路由还没做（T031）：它们记在 PENDING_WRITE_COMMAND_PATHS 里，两张表合起来
+    // 仍要与内核的集合逐条相等，互不相交。T031 把它们挪进开放集合之后，这张表是空的。
     const open = [...OPEN_WRITE_COMMAND_PATHS].sort();
+    const known = [...OPEN_WRITE_COMMAND_PATHS, ...PENDING_WRITE_COMMAND_PATHS].sort();
     const seen = dryRunCommands().map((path) => path.join(" ")).sort();
     expect(open).toHaveLength(12);
-    expect(seen).toEqual(open);
+    expect(new Set(known).size, "开放的与还没做路由的不相交").toBe(known.length);
+    expect(seen).toEqual(known);
   });
 
   it("NOT_OPEN_WRITE_COMMANDS 每条都被内核解析器拒绝、与开放集合不相交", () => {
