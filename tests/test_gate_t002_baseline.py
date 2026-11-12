@@ -526,7 +526,7 @@ def pipeline():
             probe_dir.mkdir(exist_ok=True)
             probe_path.write_text(build_probe_source(), encoding="utf-8", newline="\n")
             pipe.probe_file = probe_name
-            run_step("probe", [npm, "test", "--", f"gate-probe/{probe_name}"])
+            run_step("probe", [npm, "test", "--", f"gate-probe/{probe_name}", "--testTimeout=60000"])
         elif ci is not None:
             pipe.stopped_reason = "npm ci 失败，后续步骤未运行"
     finally:

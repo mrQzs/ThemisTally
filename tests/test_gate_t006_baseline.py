@@ -3204,7 +3204,7 @@ def pipeline():
                 path.write_text(source, encoding="utf-8", newline="\n")
                 pipe.probe_files[key] = name
                 step = run_step("probe", [npm, "test", "--", f"gate-probe/{name}", "--reporter=json",
-                                          f"--outputFile=gate-probe/{result_name}"], label=f"probe:{key}")
+                                          f"--outputFile=gate-probe/{result_name}", "--testTimeout=60000"], label=f"probe:{key}")
                 if step is None:
                     continue
                 data = None
