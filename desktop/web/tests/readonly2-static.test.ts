@@ -129,7 +129,10 @@ describe('D11 源码守卫', () => {
     }
     const readers = stripComments(read(`${R2}/common-readers.ts`));
     for (const name of ['searchLogs', 'getHistoryEntry', 'getPlugin']) {
-      expect(readers, name).toMatch(new RegExp(`export\\s+(?:async\\s+)?(?:function|const)\\s+${name}\\b`));
+      // 与 tests/test_gate_t010_baseline.py 的同一条口径：按声明出现，或者 export { … } 转出里含这个名字。
+      expect(readers, name).toMatch(
+        new RegExp(`export\\s+(?:async\\s+)?(?:function|const)\\s+${name}\\b|export\\s*\\{[^}]*\\b${name}\\b`),
+      );
     }
   });
 

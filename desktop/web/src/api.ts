@@ -1,6 +1,6 @@
 // 只读数据层：第 9 节有示例的 13 个读函数，返回 Promise<信封>。夹具来自 src/mock/*.json，
-// 行为由 ?mock= 开关决定（src/mock/scenario.ts）。本片不接本机服务：运行时不发任何网络请求
-// （见 tests/shell-no-network.test.ts）。第 9 节没有示例的读函数、写函数、作业与 SSE 由后面的片按需补。
+// 行为由 ?mock= 开关决定（src/mock/scenario.ts）。开发服务器与测试环境只走夹具（liveClient() 为 null）；
+// 生产构建里同源请求本机服务 /api/v1/…（src/live/ 下的传输层），?mock= 一律不生效。
 import metaJson from './mock/meta.json';
 import statusJson from './mock/status.json';
 import attemptJson from './mock/attempt.json';
@@ -35,6 +35,9 @@ import {
   mockSetPluginEnabled,
   mockUsePreset,
 } from './mock/writes';
+import { liveClient } from './live/mode';
+import { HISTORY_ENTRIES, type HistoryEntryData } from './mock/readonly2-history-entries';
+import { PLUGIN_SHOWS, type PluginShowData } from './mock/readonly2-plugin-show';
 
 // 信封（UI 文档 8.9 :1093–1095）：ok、exit_code、data、output、messages、command、elapsed_ms。
 // exit_code 放宽成 number | null：超时（504）等信封的退出码是 null（照 ts/packages/ui 的 timeoutEnvelope）。
@@ -115,6 +118,10 @@ export type HistoryData = typeof historyJson;
 export type UsageData = typeof usageJson;
 export type SecretsData = typeof secretsJson;
 
+// meta 路由给的是 {version, repo_name}，页面读的是 kit_version（归一化见 toMetaData）。
+// version 缺失或不是字符串时按「对不上格式」处理：kit_version 给空串（未知），不猜、也不回夹具。
+type MetaServiceData = { version?: string | null; repo_name: string };
+
 // error 开关的报错原文（Main 画布 :237–238）。
 const ERROR_MESSAGE = 'ERROR [内核报错原文的示意] 读取 .agent/runs 失败：Permission denied';
 
@@ -142,6 +149,38 @@ function errorEnvelope<T>(command: string[]): Envelope<T> {
   return { ok: false, exit_code: 2, data: null, output: [], messages: [ERROR_MESSAGE], command, elapsed_ms: 0 };
 }
 
+// 真实模式下写操作与 getOperation 一律回 501：这一片还没接通，别让用户以为写成功了。
+function unwired<T>(): Promise<HttpReply<T>> {
+  return Promise.resolve({
+    status: 501,
+    body: { ok: false, exit_code: null, data: null, output: [], messages: ['ERROR: 写操作尚未接通'], command: [], elapsed_ms: 0 },
+  });
+}
+
+// meta：version 是内核 --version 的输出（pi_dispatch 2.12.0），去掉前缀才是 kit 版本；对不上格式就原样。
+function toMetaData(data: MetaServiceData): MetaData {
+  const prefix = 'pi_dispatch ';
+  const version = typeof data.version === 'string' ? data.version : null;
+  const kit_version = version !== null && version.startsWith(prefix) ? version.slice(prefix.length) : version;
+  return { kit_version: kit_version ?? '', repo_name: data.repo_name };
+}
+
+// 配置历史一条：配置条目没有 resource（补 'config'）与 diff（补 null），本机文件条目两个都有。
+function toHistoryEntryData(data: HistoryEntryData): HistoryEntryData {
+  return { ...data, resource: data.resource ?? 'config', diff: data.diff ?? null };
+}
+
+// 插件详情：配置里没有 allowed 权限时服务给 null，前端按空列表渲染。
+function toPluginShowData(data: PluginShowData): PluginShowData {
+  if (data.config == null || data.config.allowed_permissions != null) return data;
+  return { ...data, config: { ...data.config, allowed_permissions: [] } };
+}
+
+// 真实分支的归一化：读成功了才改形状，服务自己的报错信封原样透传。
+function mapped<T, R>(env: Envelope<T>, map: (data: T) => R): Envelope<R> {
+  return env.ok && env.data != null ? { ...env, data: map(env.data) } : (env as unknown as Envelope<R>);
+}
+
 // loading：永不兑现的 Promise，不用计时器（假计时器下也拿不到结果）。
 function pending<T>(): Promise<Envelope<T>> {
   return new Promise<Envelope<T>>(() => {});
@@ -157,6 +196,10 @@ function read<T>(command: string[], produce: (mode: MockMode) => Envelope<T>): P
 }
 
 export function getMeta(): Promise<Envelope<MetaData>> {
+  const client = liveClient();
+  if (client) {
+    return client.get<MetaServiceData>('/api/v1/meta', undefined, 15).then((env) => mapped(env, toMetaData));
+  }
   // getMeta 不受开关影响：任何 ?mock= 下都返回 meta 夹具。
   return Promise.resolve(okEnvelope(['--version'], getMetaNow()));
 }
@@ -168,12 +211,19 @@ export function getMetaNow(): MetaData {
 }
 
 export function getStatus(): Promise<Envelope<StatusData>> {
+  const client = liveClient();
+  if (client) return client.get<StatusData>('/api/v1/status', undefined, 30);
   return read(['status'], (mode) =>
     okEnvelope(['status'], mode === 'empty' ? clone(EMPTY_STATUS) : clone(statusJson)),
   );
 }
 
 export function getAttempt(task: string, attempt: string): Promise<Envelope<AttemptData>> {
+  const client = liveClient();
+  if (client) {
+    const path = `/api/v1/attempts/${encodeURIComponent(task)}/${encodeURIComponent(attempt)}`;
+    return client.get<AttemptData>(path, undefined, 30);
+  }
   const command = ['logs', 'show', `${task}/${attempt}`];
   return read(command, () =>
     task === 'logs-cat' && attempt === 'attempt-002'
@@ -188,6 +238,13 @@ export function readFile(
   path: string,
   cursor?: string,
 ): Promise<Envelope<FileData>> {
+  const client = liveClient();
+  if (client) {
+    const url = `/api/v1/attempts/${encodeURIComponent(task)}/${encodeURIComponent(attempt)}/file`;
+    const query: Record<string, string | undefined> = { path };
+    if (cursor != null) query.cursor = cursor;
+    return client.get<FileData>(url, query, 60);
+  }
   const command = ['logs', 'cat', `${task}/${attempt}`, path];
   return read<FileData>(command, () => {
     if (cursor != null) return missingEnvelope(command, `${task}/${attempt}/${path}（带 cursor）`);
@@ -201,22 +258,33 @@ export function readFile(
 }
 
 export function getRoles(): Promise<Envelope<RolesData>> {
+  const client = liveClient();
+  if (client) return client.get<RolesData>('/api/v1/roles', undefined, 30);
   return read(['config', 'role', 'show'], () => okEnvelope(['config', 'role', 'show'], clone(rolesJson)));
 }
 
 export function getProfiles(): Promise<Envelope<ProfilesData>> {
+  const client = liveClient();
+  if (client) return client.get<ProfilesData>('/api/v1/profiles', undefined, 30);
   return read(['config', 'profile', 'show'], () =>
     okEnvelope(['config', 'profile', 'show'], clone(profilesJson)),
   );
 }
 
 export function getPresets(): Promise<Envelope<PresetsData>> {
+  const client = liveClient();
+  if (client) return client.get<PresetsData>('/api/v1/presets', undefined, 30);
   return read(['config', 'preset', 'list'], () =>
     okEnvelope(['config', 'preset', 'list'], clone(presetsJson)),
   );
 }
 
 export function diffPresets(a: string, b: string): Promise<Envelope<PresetDiffData>> {
+  const client = liveClient();
+  if (client) {
+    const path = `/api/v1/presets/${encodeURIComponent(a)}/diff/${encodeURIComponent(b)}`;
+    return client.get<PresetDiffData>(path, undefined, 30);
+  }
   const command = ['config', 'preset', 'diff', a, b];
   return read(command, () =>
     a === 'default' && b === 'economy'
@@ -226,65 +294,124 @@ export function diffPresets(a: string, b: string): Promise<Envelope<PresetDiffDa
 }
 
 export function getRuntimes(): Promise<Envelope<RuntimesData>> {
+  const client = liveClient();
+  if (client) return client.get<RuntimesData>('/api/v1/runtimes', undefined, 30);
   return read(['config', 'runtime', 'list'], (mode) =>
     okEnvelope(['config', 'runtime', 'list'], mode === 'empty' ? clone(EMPTY_RUNTIMES) : clone(runtimesJson)),
   );
 }
 
 export function getPlugins(): Promise<Envelope<PluginsData>> {
+  const client = liveClient();
+  if (client) return client.get<PluginsData>('/api/v1/plugins', undefined, 30);
   return read(['plugins', 'list'], (mode) =>
     okEnvelope(['plugins', 'list'], mode === 'empty' ? clone(EMPTY_PLUGINS) : clone(pluginsJson)),
   );
 }
 
 export function getHistory(): Promise<Envelope<HistoryData>> {
+  const client = liveClient();
+  if (client) return client.get<HistoryData>('/api/v1/config/history', undefined, 30);
   return read(['config', 'history'], (mode) =>
     okEnvelope(['config', 'history'], mode === 'empty' ? clone(EMPTY_HISTORY) : clone(historyJson)),
   );
 }
 
 export function getUsage(): Promise<Envelope<UsageData>> {
+  const client = liveClient();
+  if (client) return client.get<UsageData>('/api/v1/usage', undefined, 120);
   return read(['logs', 'usage'], () => okEnvelope(['logs', 'usage'], clone(usageJson)));
 }
 
 export function listSecrets(): Promise<Envelope<SecretsData>> {
+  const client = liveClient();
+  if (client) return client.get<SecretsData>('/api/v1/secrets', undefined, 120);
   return read(['config', 'show'], (mode) =>
     okEnvelope(['config', 'show'], mode === 'empty' ? clone(EMPTY_SECRETS) : clone(secretsJson)),
   );
 }
 
+// 只读数据页二的两个读函数（原在 pages/readonly2/common-readers.ts，页面仍从那里引入）：
+// 真实分支读服务并归一化形状，夹具分支逐字保留原来的 command、报缺原文与深拷贝。
+export function getHistoryEntry(n: number): Promise<Envelope<HistoryEntryData>> {
+  const client = liveClient();
+  if (client) {
+    return client.get<HistoryEntryData>(`/api/v1/config/history/${n}`, undefined, 30).then((env) =>
+      mapped(env, toHistoryEntryData),
+    );
+  }
+  const command = ['config', 'history', 'show', String(n)];
+  return read(command, () =>
+    Object.prototype.hasOwnProperty.call(HISTORY_ENTRIES, n)
+      ? okEnvelope(command, clone(HISTORY_ENTRIES[n]))
+      : missingEnvelope(command, String(n)),
+  );
+}
+
+export function getPlugin(id: string): Promise<Envelope<PluginShowData>> {
+  const client = liveClient();
+  if (client) {
+    return client.get<PluginShowData>(`/api/v1/plugins/${encodeURIComponent(id)}`, undefined, 30).then((env) =>
+      mapped(env, toPluginShowData),
+    );
+  }
+  const command = ['plugins', 'show', id];
+  return read(command, () =>
+    Object.prototype.hasOwnProperty.call(PLUGIN_SHOWS, id)
+      ? okEnvelope(command, clone(PLUGIN_SHOWS[id]))
+      : missingEnvelope(command, id),
+  );
+}
+
 // 写函数：预览、查操作，加 A 片四个与 B 片四个。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
 // preview 的参数放宽成 WriteArgs：旧调用点传 Record<string,string> 仍然合法，行为不变。
+// 真实模式（liveClient() 非 null）下写操作尚未接通：一律回 501，不读夹具。
 export function preview(action: WriteAction, args: WriteArgs): Promise<HttpReply<PreviewData>> {
+  const client = liveClient();
+  if (client) return unwired<PreviewData>();
   return mockPreview(action, args);
 }
 
 export function getOperation(id: string): Promise<HttpReply<OperationView>> {
+  const client = liveClient();
+  if (client) return unwired<OperationView>();
   return mockGetOperation(id);
 }
 
 export function usePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockUsePreset(name, confirmation);
 }
 
 export function setPluginEnabled(id: string, enabled: boolean, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockSetPluginEnabled(id, enabled, confirmation);
 }
 
 // B 片四个写函数：删除方案/profile/运行时与回滚；确认号与参数核对在 mock 侧（第二节）。
 export function removePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockRemovePreset(name, confirmation);
 }
 
 export function removeProfile(profile: string, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockRemoveProfile(profile, confirmation);
 }
 
 export function removeRuntime(runtime: string, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockRemoveRuntime(runtime, confirmation);
 }
 
 export function rollback(number: number, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockRollback(number, confirmation);
 }
 
@@ -300,6 +427,8 @@ export function addProfile(
   },
   confirmation: string
 ): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockAddProfile(args, confirmation);
 }
 
@@ -313,5 +442,7 @@ export function editProfile(
   },
   confirmation: string
 ): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) return unwired<null>();
   return mockEditProfile(args, confirmation);
 }

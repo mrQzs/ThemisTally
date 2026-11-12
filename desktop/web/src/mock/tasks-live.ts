@@ -1,6 +1,7 @@
 // 运行中 attempt 的事件跟随模拟（示意，接本机服务那一片换成 subscribeEvents）：
 // 只对 ui-readonly-api/attempt-001，且只在开关为 data 时生效，用 setTimeout 链每 1000ms 给一行，最多 30 行。
-// 返回取消函数；卸载或切走页签时调它清掉挂起的计时器。
+// 返回取消函数；卸载或切走页签时调它清掉挂起的计时器。真实模式（生产构建）不模拟：事件行归事件流那一片。
+import { liveModeIsReal } from '../live/mode';
 import { currentMock } from '../mock/scenario';
 
 const INTERVAL_MS = 1000; // 追加节奏：1000ms 一行
@@ -17,6 +18,7 @@ export function subscribeMockEvents(
   attempt: string,
   onLines: (lines: LiveEventLine[]) => void,
 ): () => void {
+  if (liveModeIsReal()) return () => {};
   if (task !== 'ui-readonly-api' || attempt !== 'attempt-001') return () => {};
   if (currentMock() !== 'data') return () => {};
   let sent = 0;

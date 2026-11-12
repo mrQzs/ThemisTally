@@ -1,6 +1,7 @@
 // 任务页数据层（合同第 5 节）：readAttempt、readAttemptFile 与 loadAttemptDetail。
-// 先调 api.ts；信封 ok、或当前开关是 error 时原样返回；否则在本片夹具里找，找到了用 api.ts 信封里的
+// 先调 api.ts；信封 ok、或当前开关是 error、或真实模式时原样返回；否则在本片夹具里找，找到了用 api.ts 信封里的
 // command 包成 ok 信封并做深拷贝，找不到返回 api.ts 的原信封。loading 开关下 api.ts 永不兑现，包装也一直等着。
+// 真实模式（生产构建，或注入了 liveClient）不取夹具兜底：api.ts 报缺就原样返回它的信封。
 import {
   getAttempt,
   getStatus,
@@ -11,6 +12,7 @@ import {
   type StatusData,
   type StatusRow,
 } from '../../api';
+import { liveModeIsReal } from '../../live/mode';
 import { currentMock } from '../../mock/scenario';
 import { attemptFixtureData, findAttemptFixture } from '../../mock/tasks-attempts';
 import { fileFixtureData, findFileFixture } from '../../mock/tasks-files';
@@ -35,7 +37,7 @@ export interface AttemptDetailData {
 /** logs show <task>/<attempt>：api.ts 有的原样返回，报缺时才取本片夹具。 */
 export function readAttempt(task: string, attempt: string): Promise<Envelope<AttemptData>> {
   return getAttempt(task, attempt).then((env) => {
-    if (env.ok || currentMock() === 'error') return env;
+    if (env.ok || currentMock() === 'error' || liveModeIsReal()) return env;
     const entry = findAttemptFixture(task, attempt);
     if (entry == null) return env;
     return okEnvelope(env.command, clone(attemptFixtureData(entry)));
@@ -50,7 +52,7 @@ export function readAttemptFile(
   cursor?: string,
 ): Promise<Envelope<FileData>> {
   return readFile(task, attempt, path, cursor).then((env) => {
-    if (env.ok || currentMock() === 'error') return env;
+    if (env.ok || currentMock() === 'error' || liveModeIsReal()) return env;
     const entry = findFileFixture(task, attempt, path, cursor);
     if (entry == null) return env;
     return okEnvelope(env.command, clone(fileFixtureData(entry)));

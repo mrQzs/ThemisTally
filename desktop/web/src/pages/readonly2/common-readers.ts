@@ -1,12 +1,14 @@
 // 页内读取函数（读法 A）：UI 文档 8.9 没有示例的三个读函数——searchLogs、getHistoryEntry、getPlugin。
 // 信封与 ?mock= 规则同 api.ts：每次读 currentMock()；loading 返回永不兑现的 Promise；error 返回 ok false、
 // exit_code 2、data null 与报错原文；empty 时检索返回空 matches；data 与 offline 返回深拷贝；夹具之外的参数
-// 返回 ok false、exit_code 2 与「ERROR 夹具里没有这份数据：…」。接本机服务后这三个函数并入 api.ts。
+// 返回 ok false、exit_code 2 与「ERROR 夹具里没有这份数据：…」。getHistoryEntry 与 getPlugin 已并入 api.ts，
+// 这里按原样转出，页面仍从本文件引入这三个函数。
 import type { Envelope } from '../../api';
+import { liveClient } from '../../live/mode';
 import { currentMock, type MockMode } from '../../mock/scenario';
 import { SEARCH_FIXTURE, SEARCH_PATTERN, type SearchData } from '../../mock/readonly2-search';
-import { HISTORY_ENTRIES, type HistoryEntryData } from '../../mock/readonly2-history-entries';
-import { PLUGIN_SHOWS, type PluginShowData } from '../../mock/readonly2-plugin-show';
+
+export { getHistoryEntry, getPlugin } from '../../api';
 
 // error 开关的报错原文（Main 画布 :237–238），与 api.ts 同一句。
 const ERROR_MESSAGE = 'ERROR [内核报错原文的示意] 读取 .agent/runs 失败：Permission denied';
@@ -58,6 +60,19 @@ function searchCommand(q: string, task: string | null, max: number): string[] {
 /** logs search <q> [--task <task>] --max <max>：在全部证据里检索正则表达式。 */
 export function searchLogs(q: string, task: string | null, max: number): Promise<Envelope<SearchData>> {
   const command = searchCommand(q, task, max);
+  const client = liveClient();
+  // 真实模式：检索（作业那一片）还没接通，不读夹具。
+  if (client) {
+    return Promise.resolve({
+      ok: false,
+      exit_code: null,
+      data: null,
+      output: [],
+      messages: ['ERROR: 检索尚未接通'],
+      command,
+      elapsed_ms: 0,
+    });
+  }
   return read(command, (mode) => {
     if (mode === 'empty') {
       return okEnvelope(command, { matches: [], truncated: false, skipped_links: 0, skipped_large: 0 });
@@ -74,24 +89,4 @@ export function searchLogs(q: string, task: string | null, max: number): Promise
       skipped_large: SEARCH_FIXTURE.skipped_large,
     });
   });
-}
-
-/** config history show <n>：一条配置历史的详情（键级差异或本机文件哈希）。 */
-export function getHistoryEntry(n: number): Promise<Envelope<HistoryEntryData>> {
-  const command = ['config', 'history', 'show', String(n)];
-  return read(command, () =>
-    Object.prototype.hasOwnProperty.call(HISTORY_ENTRIES, n)
-      ? okEnvelope(command, clone(HISTORY_ENTRIES[n]))
-      : missingEnvelope(command, String(n)),
-  );
-}
-
-/** plugins show <id>：一个插件的 manifest、资源哈希与锁。 */
-export function getPlugin(id: string): Promise<Envelope<PluginShowData>> {
-  const command = ['plugins', 'show', id];
-  return read(command, () =>
-    Object.prototype.hasOwnProperty.call(PLUGIN_SHOWS, id)
-      ? okEnvelope(command, clone(PLUGIN_SHOWS[id]))
-      : missingEnvelope(command, id),
-  );
 }
