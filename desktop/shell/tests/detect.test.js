@@ -179,6 +179,26 @@ test("probePython：探测代码以 -c 传给解释器，候选命令原样打�
   assert.equal(spawnCalls[0].args[2], PYTHON_INFO_CODE);
 });
 
+test("probePython：options.code 到达 argv，缺省仍是 PYTHON_INFO_CODE", async () => {
+  spawnCalls.length = 0;
+  redirect = null;
+  const custom = "print('marker'); print('second')";
+  // 替身只回显一行，探测结果按行数不够判 bad-output；code 是否到达由 spawn 的 argv 断言
+  assert.deepEqual(await probePython([NODE, ECHO], { timeoutMs: 15000, code: custom }), {
+    ok: false,
+    reason: "bad-output",
+  });
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].command, NODE);
+  assert.equal(spawnCalls[0].args[0], ECHO);
+  assert.equal(spawnCalls[0].args[1], "-c");
+  assert.equal(spawnCalls[0].args[2], custom, "调用方按合同传 {code} 时不许被静默忽略");
+  spawnCalls.length = 0;
+  await probePython([NODE, ECHO], { timeoutMs: 15000 });
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].args[2], PYTHON_INFO_CODE, "不给 code 时仍是缺省探测代码");
+});
+
 test("probeKit：stdout 取版本号 → ok", async () => {
   redirect = null;
   const kit = makeKit("kit-ok", KIT_VERSION);

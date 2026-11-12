@@ -102,7 +102,9 @@ async function probePython(commandArgs, options) {
   if (!Array.isArray(commandArgs) || commandArgs.length === 0) {
     return { ok: false, reason: "no-command" };
   }
-  const full = [...commandArgs, "-c", PYTHON_INFO_CODE];
+  const opts = options || {};
+  const code = typeof opts.code === "string" ? opts.code : PYTHON_INFO_CODE;
+  const full = [...commandArgs, "-c", code];
   const result = await runProcess(full[0], full.slice(1), { timeoutMs: timeoutOf(options) });
   if (result.error !== undefined) return { ok: false, reason: "no-command" };
   if (result.timedOut) return { ok: false, reason: "timeout" };

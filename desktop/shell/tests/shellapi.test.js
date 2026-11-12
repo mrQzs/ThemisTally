@@ -406,6 +406,25 @@ test("缓存：getState 不重复探测；pickPython 与 saveSettings(resetPytho
   assert.equal(h.probeState.autoPythonCalls.length, 3, "saveSettings(resetPython) 之后要重新探测");
 });
 
+test("缓存：saveSettings({resetKit:true}) 之后 kit 缓存刷新", async () => {
+  const h = makeHarness();
+  h.writeSettings((s) => {
+    s.pythonPath = process.execPath;
+    s.kitPath = h.plainDir("kitdir");
+    s.repos = [{ id: "r", name: "rr", path: h.gitRepo("rr"), lastOpened: null }];
+    s.currentRepo = "r";
+  });
+  await h.api.getState();
+  await h.api.getState();
+  const kitProbes = () => h.probeState.kitCalls.length + h.probeState.autoKitCalls.length;
+  assert.equal(kitProbes(), 1, "两次 getState 只许探测一次 kit");
+  const r = await h.api.saveSettings({ resetKit: true });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.value.kit.source, "repo", "resetKit 之后 kitPath 已清空，改按当前仓库探测");
+  await h.api.getState();
+  assert.equal(kitProbes(), 2, "saveSettings(resetKit) 之后要重新探测 kit");
+});
+
 test("缓存：有当前仓库时 pickKit 之后 kit 缓存刷新", async () => {
   const h = makeHarness();
   h.writeSettings((s) => {
@@ -502,6 +521,56 @@ test("saveSettings：整包合格才应用并写盘，回新的 ShellState", asy
   assert.equal(onDisk.theme, "dark");
   assert.equal(onDisk.pythonPath, null);
   assert.deepEqual(onDisk.repos.map((x) => x.id), ["alpha"]);
+});
+
+test("openExternal：非 http/https、控制字符、首尾空白 → bad-url，不进确认框", async () => {
+  const h = makeHarness();
+  const bad = [
+    "ftp://example.com/a",
+    "javascript:alert(1)",
+    `file:///C:/windows`,
+    "https://example.com/a\n",
+    "https://example.com/a\u0000b",
+    "  https://example.com  ",
+    "example.com",
+    "",
+    42,
+    null,
+    undefined,
+  ];
+  for (const url of bad) {
+    assert.deepEqual(await h.api.openExternal(url), { ok: false, reason: "bad-url" }, JSON.stringify(url));
+  }
+  assert.equal(h.confirm.calls.length, 0, "bad-url 不许进确认框");
+  assert.equal(h.opener.calls.length, 0, "bad-url 不许打开");
+});
+
+test("openExternal：确认框回 false → cancelled，不打开", async () => {
+  const h = makeHarness();
+  h.confirm.answer = false;
+  const url = "https://example.com/a";
+  assert.deepEqual(await h.api.openExternal(url), { ok: false, reason: "cancelled" });
+  assert.deepEqual(h.confirm.calls, [url], "确认框要拿到待打开的地址");
+  assert.equal(h.opener.calls.length, 0, "用户没确认不许打开");
+});
+
+test("openExternal：确认框抛错 → internal；打开抛错 → open-failed", async () => {
+  const h = makeHarness();
+  h.confirm.throwIt = true;
+  assert.deepEqual(await h.api.openExternal("https://example.com/"), { ok: false, reason: "internal" });
+  assert.equal(h.opener.calls.length, 0);
+  const h2 = makeHarness();
+  h2.opener.throwIt = true;
+  assert.deepEqual(await h2.api.openExternal("https://example.com/"), { ok: false, reason: "open-failed" });
+  assert.deepEqual(h2.opener.calls, ["https://example.com/"]);
+});
+
+test("openExternal：用户确认 → {ok:true, value:null}，地址交给注入的 opener", async () => {
+  const h = makeHarness();
+  const url = "https://github.com/mrQzs/ThemisTally";
+  assert.deepEqual(await h.api.openExternal(url), { ok: true, value: null });
+  assert.deepEqual(h.confirm.calls, [url]);
+  assert.deepEqual(h.opener.calls, [url]);
 });
 
 test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSettings 都不抛错）", async () => {
