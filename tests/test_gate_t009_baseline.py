@@ -767,6 +767,13 @@ def src_ts_files():
     return out
 
 
+def src_scan_problems():
+    """整个 src 的禁用词：注入词到处都不许有；站主 2026-11-12：网络接口名只有 src/live/（接真实服务的传输层）可以有。"""
+    live = [p for p in src_ts_files() if (SRC / "live") in p.parents]
+    rest = [p for p in src_ts_files() if (SRC / "live") not in p.parents]
+    return forbidden_word_problems(rest, NET_WORDS + SINK_WORDS) + forbidden_word_problems(live, SINK_WORDS)
+
+
 def new_ts_sources():
     return [REPO_ROOT / rel for rel in NEW_SOURCE_FILES if rel.endswith((".ts", ".tsx")) and (REPO_ROOT / rel).is_file()]
 
@@ -3471,7 +3478,7 @@ def test_d13_no_forbidden_words_in_new_sources():
     need_new_sources()
     files = new_ts_sources() + new_css_sources() + page_sources()
     fail_if(forbidden_word_problems(files, NET_WORDS + SINK_WORDS + FONT_WORDS), "禁用词")
-    fail_if(forbidden_word_problems(src_ts_files(), NET_WORDS + SINK_WORDS), "src 下的禁用词（T006/T007 的规则对整个 src 有效）")
+    fail_if(src_scan_problems(), "src 下的禁用词（T006/T007 的规则对整个 src 有效）")
 
 
 def test_d13_new_sources_rules():
@@ -4044,7 +4051,7 @@ def test_gate_selfcheck_source_checks(tmp_path, monkeypatch):
 def test_gate_selfcheck_src_scan_has_no_false_positive_on_existing_sources():
     """整个 src 的禁用词扫描在已有源码上不误报（T006、T007 已保证它们干净）；任何后续片都该保持干净。"""
     assert src_ts_files(), "src 下应有 ts/tsx"
-    assert forbidden_word_problems(src_ts_files(), NET_WORDS + SINK_WORDS) == []
+    assert src_scan_problems() == []
 
 
 GOOD_PAGE = """

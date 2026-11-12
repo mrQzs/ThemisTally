@@ -2989,7 +2989,8 @@ def test_s2_source_scan():
     problems += w4_pitfall_problems(slice_code_files() + slice_css_files())
     for path in src_ts_files():
         raw = _read(path)
-        for word in NET_WORDS + SINK_WORDS:
+        # 站主 2026-11-12：网络接口名只有 src/live/（接真实服务的传输层）可以有，注入词到处都不许有
+        for word in (SINK_WORDS if (SRC / "live") in path.parents else NET_WORDS + SINK_WORDS):
             if word_hit(raw, word):
                 problems.append(f"{label_of(path)} 出现禁用词 {word}")
     fail_if(problems, "源码与夹具扫描")

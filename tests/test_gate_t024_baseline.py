@@ -374,7 +374,8 @@ def test_s13_no_network_words_in_src():
     """S13 / 非目标：src 下任何文字（注释也算）不出现 fetch、XMLHttpRequest、EventSource、WebSocket。"""
     problems = []
     for path in sorted(SRC.rglob("*")):
-        if not path.is_file() or path.suffix not in (".ts", ".tsx", ".css", ".json"):
+        # 站主 2026-11-12：网络接口名只有 src/live/（接真实服务的传输层）可以有
+        if not path.is_file() or path.suffix not in (".ts", ".tsx", ".css", ".json") or (SRC / "live") in path.parents:
             continue
         text = _read(path)
         for word in NETWORK_WORDS:

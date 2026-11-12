@@ -3333,7 +3333,8 @@ def test_d08_no_network_words_in_src():
     注释与字符串都算），一个都没有；执行端的 tests/shell-no-network.test.ts 带自检样本。"""
     need_dir(SRC_REL)
     need_file(f"{SRC_REL}/api.ts")
-    hits = scan_src_words(NET_WORDS)
+    # 站主 2026-11-12：网络接口名只有 src/live/（接真实服务的传输层）可以有，别处照旧一个都不许有
+    hits = [h for h in scan_src_words(NET_WORDS) if not h.startswith("src/live/")]
     fail_if([f"{h}" for h in hits], "src 下出现了不该有的网络接口名（路径:行号: 词）")
     test = _read(need_file(f"{WEB_REL}/tests/shell-no-network.test.ts"))
     problems = []
