@@ -318,3 +318,31 @@ test("子进程时限默认 10 秒", async () => {
   assert.equal(r.timedOut, true);
   assert.ok(Date.now() - t0 >= 9000, "不给 timeoutMs 时要用 10 秒");
 });
+
+test("detectKit：相对 kitPath → 返回绝对路径（与 resolve 之后一致）", async () => {
+  redirect = null;
+  const kit = makeKit("kit-rel", KIT_VERSION);
+  const prev = process.cwd();
+  process.chdir(B);
+  try {
+    const r = await detectKit({ pythonPath: NODE, kitPath: path.basename(kit), timeoutMs: 15000 });
+    assert.equal(r.status, "ok", JSON.stringify(r));
+    assert.equal(r.source, "external");
+    assert.ok(path.isAbsolute(r.path), "kit 路径必须是绝对路径：" + JSON.stringify(r.path));
+    assert.equal(r.path, path.resolve(kit, "scripts", "pi_dispatch.py"));
+  } finally {
+    process.chdir(prev);
+  }
+});
+
+test("runProcess：输出在退出之后才到（在 close 里取输出；孙进程 detached 才活得过中间进程）", async () => {
+  redirect = null;
+  const r = await runProcess(NODE, [FIXTURE("fake-late-output.js")], { timeoutMs: 20000 });
+  assert.equal(r.error, undefined, JSON.stringify(r));
+  assert.equal(r.timedOut, false, JSON.stringify(r));
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.ok(
+    String(r.stdout).trim().length > 0,
+    "孙进程迟到的那行输出没有被收进来（旧实现在 exit 取输出会拿到空 stdout）：" + JSON.stringify(r),
+  );
+});

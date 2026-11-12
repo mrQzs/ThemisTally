@@ -2,7 +2,7 @@
 
 ThemisTally 的桌面外壳最小骨架（Electron 主进程）。它找 Python、起本机服务、校验握手、开一个安全设置的窗口；关窗口就以 stdin 的 EOF 结束服务，按约定的退出码退出。
 
-本片只做骨架：找 Python → 校验命令行参数 → 起服务并校验握手 → 开窗口 → 关窗口收服务。没有外壳页、托盘、单实例、多仓库切换，也没有 `openSettings()`；设置文件与三项校验的数据层已经就位（见下文「设置与校验」），外壳页的界面与接线在后面一片。控制令牌只留在主进程内存里，不传给任何页面。
+本片只做骨架：找 Python → 校验命令行参数 → 起服务并校验握手 → 开窗口 → 关窗口收服务。外壳页在本片就位（界面接线在下一片）；托盘、单实例、多仓库切换与 `openSettings()` 仍没有；设置文件与三项校验的数据层已经就位（见下文「设置与校验」），外壳页的界面与接线在后面一片。控制令牌只留在主进程内存里，不传给任何页面。
 
 主窗口配 preload（`preload.js`，暴露 `window.themisHost` 给服务页调用系统能力），凭据小窗口不配 preload。
 
@@ -41,7 +41,7 @@ npm start -- --repo <仓库> --kit <ThemisTally 目录> --assets <desktop/web �
 | 退出码 | 含义 |
 |---|---|
 | **0** | 正常关窗口，且服务以 0 退出 |
-| **1** | 找不到 Python、握手失败或超时、服务意外退出、关窗口后服务没有以 0 正常退出 |
+| **1** | 找不到 Python、握手失败或超时、服务意外退出、关窗口后服务没有以 0 正常退出、外壳分支找不到产物 index.html |
 | **2** | 命令行参数错（缺必需项、未知选项、位置参数、路径不对） |
 
 每种失败都会先往 stderr 写一行以 `ERROR: ` 开头的说明，再按上表退出。
@@ -62,25 +62,11 @@ npm test
 
 ## 手工冒烟
 
-自动化测试不起真 Electron 窗口，**真 Electron 不在自动化覆盖内**，真窗口只能手工冒烟：
+自动化测试不起真 Electron 窗口，**真 Electron 不在自动化覆盖内**（自动化测试与门禁都不跑真 Electron），真窗口只能手工冒烟。先 `npm ci`、构建前端产物（`npm --prefix ../web run build`）、下载本体（见上文「安装」的 `node node_modules/electron/install.js`）。冒烟降为三条：
 
-1. kit 的 TS 依赖要装好（`ts/` 下装好并能跑本机服务）。
-2. `desktop/web` 要先构建，产物在 `desktop/web/dist/`：
-   ```bash
-   npm --prefix ../web run build
-   ```
-3. 下载 Electron 本体（见上文「安装」）：
-   ```bash
-   node node_modules/electron/install.js
-   ```
-4. 照「运行」一节起外壳，例如：
-   ```bash
-   npm start -- --repo .. --kit ../.. --assets ../web/dist
-   ```
-5. 冒烟要点：
-   - 窗口能开，页面照常加载、能用；
-   - 关掉窗口，服务应随之退出，外壳以 0 退出；
-   - 起一个凭据录入作业，凭据小窗口里 **Ctrl+V 能粘贴**。
+1. 不带参数 `npm start`：打开首次启动页 `themis-shell://app/index.html#/first-run`（此时显示的是桩数据）。
+2. 带齐 `--repo` / `--kit` / `--assets` 起服务分支，行为与现在相同：窗口能开、页面能用；关掉窗口服务随之退出、外壳以 0 退出；起一个凭据录入作业，凭据小窗口里 **Ctrl+V 能粘贴**。
+3. 关掉外壳页窗口，外壳以 **0** 退出。
 
 ## 宿主接口 `window.themisHost`
 
@@ -147,6 +133,37 @@ preload 只把五个函数原样转交给主进程的固定 IPC 通道，参数�
 ### 选择器与返回值
 
 四个选择器（`pickRepo` / `pickPython` / `pickKit` / `pickTranscriptDir`）各有三种结果：取消 → `{kind: "cancelled"}`；校验不过 → `{kind: "rejected", problem, path}`（不写盘）；校验通过 → `{kind: "saved", path, id?, state}`（写盘，`id` 只有仓库与会话目录有）。只有保存才写盘，被拒与取消都不碰设置文件。`getState` 的返回值形状与 `desktop/web/src/shellpages/themisShell.ts` 逐字段一致，由 `tests/shellshape.test.js` 读那份类型文件比对钉住。`startService` / `restartService` / `on('service-state')` 仍是占位。
+
+## 外壳页
+
+不带命令行参数启动时（`npm start`，等价 `electron .`）走外壳页分支：用自定义协议 `themis-shell://app/` 加载 `desktop/web/dist` 的前端产物，打开首次启动页 `themis-shell://app/index.html#/first-run`。分支判定在起服务之前——argv 里出现 `--repo`（或 `--repo=…`）才走服务分支，否则走这里；外壳分支不解析参数、也不起服务。
+
+- 产物在 `desktop/web/dist`，先构建前端：
+  ```bash
+  npm --prefix ../web run build
+  ```
+- 协议只登记 `standard` 与 `secure` 两个 privileges（不加 `supportFetchAPI`、`corsEnabled`）；协议 handler 注册在窗口自己的分区 session 上。响应头带与服务页逐字相同的 CSP，外加 `X-Content-Type-Options: nosniff`。
+- 协议只读产物根内的普通文件：越界、路径上任一级的链接/junction、二次解码（解码后仍含 `%`）、目录、未知扩展名，一律回 **404** 且不带正文细节。
+
+`window.themisShell` 由顶层 `shell-preload.js` 暴露（只 require electron、自包含，恰好一次 `exposeInMainWorld`），成员恰好十个，与 `desktop/web/src/shellpages/themisShell.ts` 的 `interface ThemisShell` 一致：`getState`、`pickRepo`、`pickPython`、`pickKit`、`pickTranscriptDir`、`saveSettings`、`startService`、`restartService`、`openExternal`、`on`。每个方法只把声明的实参转交一条固定 IPC 通道，再拆信封：`{ok:true,value}` → resolve `value`；`{ok:false,reason}` → 以 `new Error(reason)` reject（`reason` 只进 `Error.message`，错误细节不外传）。`on` 同步返回退订函数，本片不发事件。
+
+九条通道都在主进程经 `ipcMain.handle` 注册（不用 `ipcMain.on`），来源三条件核对：发送者是外壳窗口的 webContents、frame 非空、frame 当前显示的是 `themis-shell://app/` 页面；来源不对回 `forbidden`，api 抛错回 `internal`，都不外传错误消息。
+
+| 通道 | 方法 |
+|---|---|
+| `themis-shell:get-state` | `getState()` |
+| `themis-shell:pick-repo` | `pickRepo()` |
+| `themis-shell:pick-python` | `pickPython()` |
+| `themis-shell:pick-kit` | `pickKit()` |
+| `themis-shell:pick-transcript-dir` | `pickTranscriptDir()` |
+| `themis-shell:save-settings` | `saveSettings(patch)` |
+| `themis-shell:start-service` | `startService(repo)` |
+| `themis-shell:restart-service` | `restartService()` |
+| `themis-shell:open-external` | `openExternal(url)` |
+
+**此时首次启动页显示的是桩数据**：页面接 `window.themisShell` 在下一片；本片不起服务、不发 `service-state` 事件，`startService` / `restartService` / `on` 仍是占位。外壳分支根本不起服务，渲染进程经 IPC 也拿不到控制令牌。关掉外壳窗口，外壳以 0 退出。
+
+Electron 本体没有 postinstall，第一次运行才下载；自动化测试与门禁都不跑真 Electron，纯逻辑测试也不需要本体。
 
 ## 安全设置
 

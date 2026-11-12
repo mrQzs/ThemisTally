@@ -64,7 +64,9 @@ function runProcess(command, args, options) {
       clearTimeout(timer);
       resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: errorCodeOf(err) });
     });
-    child.on("exit", (code) => {
+    // 在 close（管道关闭）里取输出：孙进程若继承了 stdout 并晚于本进程退出，
+    // exit 到时 stdout 还没读完，close 才保证输出收全。
+    child.on("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -162,7 +164,8 @@ async function detectKit(options) {
   return {
     status: "ok",
     source,
-    path: path.join(kitDir, "scripts", "pi_dispatch.py"),
+    // kitDir 可能是相对路径：这里 resolve 成绝对路径，交给界面/后续直接可用
+    path: path.resolve(kitDir, "scripts", "pi_dispatch.py"),
     version: result.version,
   };
 }
