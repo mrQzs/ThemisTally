@@ -194,6 +194,10 @@ def test_s03_static_scan():
     for f in src_and_main:
         text = f.read_text(encoding="utf-8")
         for pat, what in SRC_FORBIDDEN:
+            # 站主 2026-11-12（T028 规划报告第 6 节）：设置存盘要原子写，src/settings.js 许用 writeFileSync、renameSync、
+            # mkdirSync、unlinkSync 四个；别的写函数在它里面照旧不许，别的文件照旧一个都不许
+            if what == "fs 写函数" and f.relative_to(SHELL).as_posix() == "src/settings.js":
+                pat = re.compile(r"\b(writeFile|appendFile|appendFileSync|mkdir|rm|rmSync|unlink|rename)\s*\(")
             m = pat.search(text)
             assert not m, f"{f.relative_to(REPO_ROOT)} 出现禁令「{what}」：…{text[max(0, m.start() - 40):m.end() + 40]}…"
 
