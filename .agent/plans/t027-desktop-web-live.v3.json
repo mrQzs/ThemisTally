@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "task_id": "t027-desktop-web-live",
+  "plan_version": 3,
+  "title": "桌面端前端接真实服务第 1 片：传输层与只读数据（D3 之三）",
+  "repository": "ThemisTally",
+  "base_sha": "680cf82dc6bb88be32d0ef5a290a51647f52647b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/pages/readonly2/common-readers.ts",
+      "desktop/web/src/pages/tasks/tasks-data.ts",
+      "desktop/web/src/mock/tasks-live.ts",
+      "desktop/web/tests/shell-no-network.test.ts",
+      "desktop/web/vite.config.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/live/mode.ts",
+      "desktop/web/src/live/transport.ts",
+      "desktop/web/src/live/connection.ts",
+      "desktop/web/tests/live-mode.test.ts",
+      "desktop/web/tests/live-transport.test.ts",
+      "desktop/web/tests/live-connection.test.ts",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/live-readers.test.ts",
+      "desktop/web/scripts/check-live-build.mjs"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t027_*.py",
+      "tests/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/tests/cleanup1-static.test.ts",
+      "desktop/web/src/mock/*.json",
+      "ts/**",
+      "desktop/shell/**",
+      "scripts/**",
+      "docs/**",
+      "schemas/**",
+      ".agent/**",
+      "AGENTS.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t027_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "scripts/check-live-build.mjs"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "LIVE_BUILD_OK 3/3"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "模式开关与 NODE_ENV 无关：`desktop/web/vite.config.ts` 用 `command === 'build'` 定义 `__THEMIS_LIVE_MODE__`（值逐字是 `themis-live-real` / `themis-live-fixture`），代码里没有 `import.meta.env.PROD`、`process.env.NODE_ENV` 之类的环境判据；NODE_ENV 未设、`development`、`test` 三种取值各构建一次，三份产物都含 `themis-live-real` 且都不含 `themis-live-fixture`；**并且三份产物都含传输层的特征串 `same-origin`（证明传输层进了生产产物，不只是 mode.ts 的标记串在）**",
+      "evidence": [
+        "V03",
+        "V02",
+        "G01"
+      ],
+      "intent": "站主要求「不管 NODE_ENV 怎么设，`npm run build` 的产物都走真实服务」"
+    },
+    {
+      "id": "D02",
+      "text": "模式语义正确：测试环境与开发服务器里 `liveModeIsReal()` 为假、`liveClient()` 为 `null`、全部读函数走夹具且**零请求**；显式注入（`setLiveClientForTests`）优先于构建模式，注入 `null` 表示不发请求，`undefined` 清除注入；**真实模式下 `liveClient()` 返回的缺省客户端由 `createLiveClient()` 创建**（`mode.ts` 运行时 `import { createLiveClient } from './transport';`，不许恒返回 `null`，不许在 mode.ts 里另写一份请求逻辑）；`mode.ts` 的导出集合只有 `liveModeIsReal`、`liveClient`、`setLiveClientForTests`、type `LiveClient` 四个",
+      "evidence": [
+        "V01",
+        "G01",
+        "V03"
+      ],
+      "intent": "既有 nonet 探针（T006/T010/T011）继续成立，真实模式只能由显式注入打开"
+    },
+    {
+      "id": "D03",
+      "text": "传输层成功路径：同源相对路径、查询用 `URLSearchParams`、方法 GET、`credentials: 'same-origin'`（该字符串出现在生产产物里）、不带任何自定义凭据头；时限 = 服务端时限 + 5 秒（用假 `fetch` 观察 `signal` 与中止时刻；api.ts 传给 `client.get` 的是**服务端时限** 15/30/60/120）；任何情况下都 resolve 成七字段信封，绝不 reject",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "同源请求不被 CSP `connect-src 'self'` 拦（`ts/packages/ui/src/localhttp/headers.ts:8`），且调用方不用补 catch"
+    },
+    {
+      "id": "D04",
+      "text": "失败分类逐条可测，且**状态码优先于正文**（≥400 的响应一律不进「不是合法的 JSON」那条；401 走会话失效、503 走繁忙、其余 4xx/5xx 走 `ERROR: 服务返回 HTTP <状态码>`；「不是合法的 JSON」只用于 2xx）：断线、超时（文案带中止秒数）、401（含并发两个 401 只调一次 `reauth`、没有宿主、reauth 失败都回 `ERROR: 会话已失效`）、503（读 `Retry-After`，缺失时 N=2）、其他 4xx/5xx 带合法信封原样返回、不带信封回 `ERROR: 服务返回 HTTP <状态码>`、200 且 `ok:false` 原样返回、200 + 坏 JSON 与非七字段 JSON 回 `ERROR: 服务的响应不是合法的 JSON（HTTP 200）`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "每种失败都有确定文案，页面不用猜"
+    },
+    {
+      "id": "D05",
+      "text": "信封校验严格：七字段齐全、`ok` 是布尔、`exit_code` 是数字或 `null`、`output`/`messages`/`command` 是字符串数组、`elapsed_ms` 是数字；任一条不满足就按「非信封」处理",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务改了信封形状时要能立刻看出来，而不是把坏数据当正常数据渲染"
+    },
+    {
+      "id": "D06",
+      "text": "连接状态：状态只有 `connected`/`disconnected`，初值 `connected`；收到任何 HTTP 响应（含 4xx/5xx）置 `connected`，断线与超时置 `disconnected`；订阅者在变化时被通知、值没变时不通知、退订后不再通知；`useConnectionState()` 用 `useSyncExternalStore`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "B 片接页面时有稳定的连接状态源，本片不碰页面"
+    },
+    {
+      "id": "D07",
+      "text": "15 个读函数的真实分支：注入 fake client 后逐个断言请求的路径、查询与时限（表驱动 15 行），含 `getAttempt('a/b','x?y')` 得到 `/api/v1/attempts/a%2Fb/x%3Fy`、`readFile` 的 `path` 与 `cursor` 进查询、`cursor` 不带时不拼该键；真实模式下不读夹具、`?mock=` 不影响结果",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "路径与编码错了，服务会回 400 或 404，逐条钉死才看得出来"
+    },
+    {
+      "id": "D08",
+      "text": "meta 映射：真实模式的 `getMeta()` 把 `{version, repo_name}` 映射成 `{kit_version, repo_name}`，`pi_dispatch 2.12.0` → `2.12.0`，对不上 `pi_dispatch ` 格式时原样放进 `kit_version`；`getMetaNow()` 一字未改",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "页面读的是 `kit_version`（`App.tsx`、`OverviewPage.tsx`），不改页面就靠这一步对齐"
+    },
+    {
+      "id": "D09",
+      "text": "写操作与 `getOperation` 在真实模式一律回 `status 501` + `{ok:false, exit_code:null, data:null, output:[], messages:['ERROR: 写操作尚未接通'], command:[], elapsed_ms:0}`，不读夹具；写流程遇 501 走通用失败（`classifyWrite` 的 `checkOperation`），不走 409 重新预览、不走 503 繁忙（`preview` 501 → `previewFailed`，文案是那句报错原文）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "写操作这一片还没接，别让用户以为写成功了"
+    },
+    {
+      "id": "D10",
+      "text": "`common-readers.ts` 改成 `export { getHistoryEntry, getPlugin } from '../../api';`（前一条语句以分号结尾），两个函数的夹具分支逐字保留原行为（command 数组、报错原文、深拷贝），`searchLogs` 保留且真实模式回「ERROR: 检索尚未接通」；T010 的 readers 探针（`:705-717`、`:785-789`、`:544-549`）照旧通过",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "页面仍从 `./readonly2/common-readers` 取这三个函数，页内读法不变"
+    },
+    {
+      "id": "D11",
+      "text": "`tasks-data.ts` 在真实模式不取夹具兜底（api.ts 报缺就原样返回它的信封），`mock/tasks-live.ts` 在真实模式不模拟事件行；夹具模式的既有行为逐字不变",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "真实模式下夹具不能冒充真实数据"
+    },
+    {
+      "id": "D12",
+      "text": "网络扫描规则改成「`src/live/` 放行、别处照报」，并有成对的自检样本；T006 d08 要求的 `prefetchAll`、`fetchedAt`、`globalThis` 三个样本与四个网络接口名仍在文件里；`cleanup1-static.test.ts` 一字未动；`src/live/` 以外没有任何文件出现那四个整词（连注释都不许）",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "规则变了不是断言变弱——传输层之外的浏览器网络接口仍然一个都不许有"
+    },
+    {
+      "id": "D13",
+      "text": "门禁与回归全绿：G01 通过；R01 全绿；13 个读函数仍是 `export function 名字(`（门禁 `export function {name}\\(` 的正则照旧命中）；`desktop/web/package.json` 与 `package-lock.json` 一个字节没动；`git diff --stat` 里没有任何 `tests/test_gate_*`、`ts/**`、`desktop/shell/**`、`scripts/**`、`docs/**`、`schemas/**` 的改动",
+      "evidence": [
+        "G01",
+        "R01",
+        "scope"
+      ],
+      "intent": "既有门禁是别的片的契约，本片不许削弱"
+    },
+    {
+      "id": "D14",
+      "text": "范围与卫生：所有修改都在允许集合内（新增的 `src/live/*.ts`、`desktop/web/tests/live-*.test.ts`、`desktop/web/scripts/check-live-build.mjs` 都在 `allowed_new_files`）；没有删除、跳过或弱化既有测试（新测试里不写 skip/only/todo）；临时文件照 AGENTS.md 用 `T=$(mktemp -d)` 并在同一命令里 `rm -rf \"$T\"`；构建产物 `dist/` 不提交；遇到合同与既有测试或门禁冲突时不越界改文件，写进 `contract_conflicts`",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 7200,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
