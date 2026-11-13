@@ -41,7 +41,7 @@ npm start -- --repo <仓库> --kit <ThemisTally 目录> --assets <desktop/web �
 | 退出码 | 含义 |
 |---|---|
 | **0** | 正常关窗口，且服务以 0 退出。外壳页分支：用户关掉服务窗口且服务以 0 退出；或用户在服务 `starting` 期间关掉外壳页 |
-| **1** | 找不到 Python、握手失败或超时、服务意外退出（外壳页分支：服务在 `running` 期间自己退出）、关窗口后服务没有以 0 正常退出、外壳分支找不到产物 index.html |
+| **1** | 找不到 Python、握手失败或超时、关窗口后服务没有以 0 正常退出、外壳分支找不到产物 index.html、外壳页分支服务状态页开不出来（服务自己退出时回不到那一页的兜底） |
 | **2** | 命令行参数错（缺必需项、未知选项、位置参数、路径不对） |
 
 每种失败都会先往 stderr 写一行以 `ERROR: ` 开头的说明，再按上表退出。
@@ -67,7 +67,7 @@ npm test
 1. 不带参数 `npm start`：打开首次启动页 `themis-shell://app/index.html#/first-run`（此时显示的是桩数据）。
 2. 带齐 `--repo` / `--kit` / `--assets` 起服务分支，行为与现在相同：窗口能开、页面能用；关掉窗口服务随之退出、外壳以 0 退出；起一个凭据录入作业，凭据小窗口里 **Ctrl+V 能粘贴**。
 3. 关掉外壳页窗口，外壳以 **0** 退出。
-4. 不带参数 `npm start`，在首次启动页选好仓库、Python 与 kit，然后点「启动」：**页面上的点击要等 T032 落地**（外壳页接 `window.themisShell` 是 T032 的事，在此之前页面显示的仍是桩数据，点不动「启动」）。T032 之后：服务真的起来、主窗口打开、外壳页窗口关闭；关掉主窗口 → 服务随之结束、外壳以 0 退出；服务进程被外部杀掉（任务管理器）→ 外壳写一行 `ERROR: 服务意外退出（退出码 N）` 并以 1 退出。
+4. 不带参数 `npm start`，在首次启动页选好仓库、Python 与 kit，然后点「启动」（**T032 已落地，页面点得动**）：服务真的起来、主窗口打开、外壳页窗口关闭；在任务管理器里结束服务进程 → 外壳回到服务状态页 `themis-shell://app/index.html#/service-status` 并显示退出码；点页面上的「重启服务」→ 主窗口重新出现；关掉主窗口 → 服务随之结束、外壳以 0 退出。
 
 ## 宿主接口 `window.themisHost`
 
@@ -133,7 +133,7 @@ preload 只把五个函数原样转交给主进程的固定 IPC 通道，参数�
 
 ### 选择器与返回值
 
-四个选择器（`pickRepo` / `pickPython` / `pickKit` / `pickTranscriptDir`）各有三种结果：取消 → `{kind: "cancelled"}`；校验不过 → `{kind: "rejected", problem, path}`（不写盘）；校验通过 → `{kind: "saved", path, id?, state}`（写盘，`id` 只有仓库与会话目录有）。只有保存才写盘，被拒与取消都不碰设置文件。`getState` 的返回值形状与 `desktop/web/src/shellpages/themisShell.ts` 逐字段一致，由 `tests/shellshape.test.js` 读那份类型文件比对钉住。`startService` 真的起服务（见下文「外壳页」），`restartService` 仍是占位。
+四个选择器（`pickRepo` / `pickPython` / `pickKit` / `pickTranscriptDir`）各有三种结果：取消 → `{kind: "cancelled"}`；校验不过 → `{kind: "rejected", problem, path}`（不写盘）；校验通过 → `{kind: "saved", path, id?, state}`（写盘，`id` 只有仓库与会话目录有）。只有保存才写盘，被拒与取消都不碰设置文件。`getState` 的返回值形状与 `desktop/web/src/shellpages/themisShell.ts` 逐字段一致，由 `tests/shellshape.test.js` 读那份类型文件比对钉住。`startService` 真的起服务（见下文「外壳页」），`restartService` 按当前状态重启（见下文「外壳页」的 reason 词表）。
 
 ## 外壳页
 
@@ -170,14 +170,20 @@ preload 只把五个函数原样转交给主进程的固定 IPC 通道，参数�
 
 - 同一个仓库正在 `starting` 或 `running` → 直接回 `{ok:true, value:null}`（幂等）；**别的**仓库正忙 → `{ok:false, reason:"busy"}`。两者都不再起进程。
 - 起进程之后的失败：先发 `exited` 状态再回信封，`reason` 只有 `handshake-failed` 与 `start-failed` 两种；错误细节（路径、令牌、报错原文）不外传。
-- 没注入控制器或产物目录时回 `{ok:false, reason:"no-service"}`；`restartService` 仍是占位（回 `not-implemented`）。
+- 没注入控制器或产物目录时回 `{ok:false, reason:"no-service"}`。
+- `restartService()` 按控制器的当前状态决定，**不新增控制器方法**：
+  - `state.kind` 是 `exited` → 走 `startService(exited 里那个 repo id)`（不是 `currentRepo`），命令按**当前**设置重新拼（换过 `kitPath`/`pythonPath` 之后跟着变）；失败时的 reason 与 `startService` 完全一致：`unknown-repo`（仓库已从设置里移除）、`python-missing`、`kit-missing`、`no-service`，以及控制器原样回传的 `handshake-failed`、`start-failed`。
+  - `state.kind` 是 `starting` 或 `running` → `{ok:true, value:null}`（幂等，什么也不做，不起进程）。
+  - 其余（`idle`，含没有注入控制器）→ `{ok:false, reason:"no-previous"}`，不起进程。
+
+宿主接口（`createHost` 建的五个函数）经 `src/hostrelay.js` 的中转注册：`registerHostIpc` 在整个外壳分支只注册一次，调用转给当前服务实例的 host，服务窗口被外壳关掉时清掉。所以同一个外壳进程里第二次起服务不会重复注册 IPC（同一通道第二次 `ipcMain.handle` 会抛错）。
 
 握手成功后：状态置 `running`（带握手里的 `pid` 与 ISO 的 `startedAt`），主进程经 `createHost` 建宿主接口（控制令牌只进这个闭包），用 `guardedWindow` 开服务窗口（新内存分区、`preload.js`、导航判定 `isServiceUrl`），**服务窗口建好之后**才关外壳页窗口——窗口次序永远是先建新窗口再关旧窗口，任何时刻都不出现零窗口。
 
 随后：
 
 - 用户关掉服务窗口 → 收服务（stdin EOF、宽限 10 秒、超时 kill）→ 服务以 0 退出，外壳以 **0** 退出；否则往 stderr 写一行 `ERROR: 服务没有以 0 正常退出` 并以 **1** 退出。
-- 服务在 `running` 期间自己退出（A 片过渡行为）→ 往 stderr 写一行 `ERROR: 服务意外退出（退出码 N）`、关掉服务窗口、以 **1** 退出。意外退出回到服务状态页是后面一片的事。
+- 服务在 `running` 期间自己退出（不是外壳停的，看 `info.byShell`）→ 回到服务状态页 `themis-shell://app/index.html#/service-status` 并显示退出码：已经有外壳窗口开着就不另开窗口（页面自己经 `service-state` 事件显示错误），没有就新开一个；窗口次序永远是先建新窗口再关服务窗口。只有服务状态页开不出来时才往 stderr 写一行 `ERROR: 服务意外退出（退出码 N）`、关掉服务窗口、以 **1** 退出。
 - 用户在 `starting` 期间关掉外壳页 → 先中止子进程（`kill` 后等它的 `exit`，最多 3 秒，不留孤儿）再以 **0** 退出；用户在 `idle` 期间关掉外壳页 → 直接以 **0** 退出。
 
 `exitCode` 用子进程给的数字码（服务自己 `exit(3)` → 3；握手前退出 2 → 2）；没有数字码（被信号结束、spawn 失败、外壳自己杀的握手失败进程）记 `-1`。「是不是外壳自己结束的」标志（`info.byShell`）只留在主进程，不进事件负载、不进 `getState().service`——`ServiceState` 被 `themisShell.ts` 钉死，页面负载多一个键就与类型不符。`getState().service` 与事件载荷一致。

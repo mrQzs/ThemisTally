@@ -278,9 +278,15 @@ function createShellApi(options) {
     return service.start({ repo: entry.id, command, env: process.env });
   }
 
-  // A 片过渡：重启仍是占位（B 片推翻），也不进控制器
+  // 重启：按当前状态决定，不新增控制器方法（假控制器只有 start/stop/abort/state/subscribe）
   async function restartService() {
-    return { ok: false, reason: "not-implemented" };
+    const state = serviceState();
+    // 服务已经退了：按 exited 里那个 repo 重走 startService，命令按当前设置重新拼
+    if (state.kind === "exited") return startService(state.repo);
+    // 正在起或正在跑：幂等，什么也不做
+    if (state.kind === "starting" || state.kind === "running") return { ok: true, value: null };
+    // idle（含没有注入控制器）：没有可重启的对象
+    return { ok: false, reason: "no-previous" };
   }
 
   // 页面挂载时就调它：同步回退订函数。只认 service-state，且只把 state 交给 listener

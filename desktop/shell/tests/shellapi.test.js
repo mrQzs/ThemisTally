@@ -582,7 +582,7 @@ test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSett
   assert.equal((await h.api.getState()).value.settings.theme, "system", "写盘失败后内存要回滚");
 });
 
-test("startService 按仓库 id 真起服务；restartService 仍是 A 片占位；on 真订阅", async () => {
+test("startService 按仓库 id 真起服务；restartService 按当前设置重启；on 真订阅", async () => {
   const h = makeHarness();
   const alpha = h.gitRepo("alpha");
   const beta = h.gitRepo("beta");
@@ -747,11 +747,43 @@ test("startService 按仓库 id 真起服务；restartService 仍是 A 片占位
     at: 12345,
   });
 
-  // A 片过渡：restartService 仍是占位，也不进控制器（B 片推翻）
+  // restartService：idle（含没有控制器）→ no-previous，不起进程
   ctl.currentState = { kind: "idle" };
+  ctl.nextStart = { ok: true, value: null };
   const startsBefore = ctl.starts.length;
-  assert.deepEqual(await makeApi().restartService(), { ok: false, reason: "not-implemented" });
-  assert.equal(ctl.starts.length, startsBefore, "restartService 不许起进程");
+  assert.deepEqual(await makeApi().restartService(), { ok: false, reason: "no-previous" });
+  assert.equal(ctl.starts.length, startsBefore, "idle 时 restartService 不许起进程");
+  assert.deepEqual(await bare.restartService(), { ok: false, reason: "no-previous" });
+
+  // starting / running → 幂等回 ok，不起进程
+  ctl.currentState = { kind: "starting", repo: "beta" };
+  assert.deepEqual(await makeApi().restartService(), { ok: true, value: null });
+  ctl.currentState = { kind: "running", repo: "beta", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" };
+  assert.deepEqual(await makeApi().restartService(), { ok: true, value: null });
+  assert.equal(ctl.starts.length, startsBefore, "starting/running 时 restartService 不许起进程");
+
+  // exited 且仓库已从设置里移除 → unknown-repo，不起进程
+  setup(kitDir);
+  ctl.currentState = { kind: "exited", repo: "ghost", exitCode: 3, at: 1 };
+  assert.deepEqual(await makeApi().restartService(), { ok: false, reason: "unknown-repo" });
+  assert.equal(ctl.starts.length, startsBefore, "unknown-repo 不许起进程");
+
+  // exited 且条件齐 → 走 startService(exited 里那个 repo)，命令按当前设置算
+  ctl.currentState = { kind: "exited", repo: "beta", exitCode: 3, at: 1 };
+  assert.deepEqual(await makeApi().restartService(), { ok: true, value: null });
+  assert.equal(ctl.starts.length, startsBefore + 1, "exited 之后 restartService 要真的起一次进程");
+  const restartArg = ctl.starts[ctl.starts.length - 1];
+  assert.equal(restartArg.repo, "beta", "重启的是 exited 状态里那个 repo id");
+  assert.deepEqual(
+    restartArg.command,
+    serviceCommand({
+      python: ["/auto/py"],
+      kit: kitDir,
+      repo: beta,
+      assets: "/assets/root",
+      transcripts: [logs],
+    }),
+  );
 
   // on：真订阅状态变化，只传 state 一个实参；退订后不再收到；别的事件名回空退订函数
   const api = makeApi();

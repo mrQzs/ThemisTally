@@ -251,7 +251,7 @@ test("onRunning 抛错 → 收服务、状态置 exited、回 start-failed", asy
   assert.equal(flow.state().kind, "exited");
 });
 
-test("不是 idle 时再 start → busy，不起第二个进程", async () => {
+test("starting/running 时再 start → busy，不起第二个进程", async () => {
   const rec = recordingSpawn();
   const flow = createServiceFlow({ spawn: rec.fn });
   await flow.start({
@@ -265,4 +265,98 @@ test("不是 idle 时再 start → busy，不起第二个进程", async () => {
   });
   assert.equal(rec.children.length, 1, "busy 不许再起进程");
   await flow.stop();
+});
+
+test("exited 之后能再 start：run1 意外退出（码 3）→ run2 starting → running", async () => {
+  const rec = recordingSpawn();
+  const seen = collect();
+  const flow = createServiceFlow({ spawn: rec.fn });
+  seen.subscribe(flow);
+  // run1：握手成功后 60ms 以码 3 自己退出（不是外壳停的）
+  assert.deepEqual(await flow.start({ repo: "run-1", command: [process.execPath, FAKE_EXIT] }), {
+    ok: true,
+    value: null,
+  });
+  await waitFor("run1 exited", () => flow.state().kind === "exited", 8000);
+  assert.equal(flow.state().exitCode, 3);
+  assert.equal(seen.states.length, 3);
+  // run2：exited 之后还能再 start（状态不被旧 run 卡住）
+  assert.deepEqual(
+    await flow.start({
+      repo: "run-2",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    }),
+    { ok: true, value: null },
+  );
+  assert.equal(rec.children.length, 2, "第二次 start 要真的起进程");
+  assert.deepEqual(seen.states[3], { kind: "starting", repo: "run-2" });
+  assert.equal(seen.states[4].kind, "running");
+  assert.equal(seen.states[4].repo, "run-2");
+  assert.deepEqual(flow.state(), seen.states[4]);
+  await flow.stop();
+  await waitFor("run2 exited", () => flow.state().kind === "exited" && flow.state().exitCode === 0, 8000);
+});
+
+test("byShell 按 run 算：run1 被 stop（true），run2 意外退出仍是 false", async () => {
+  const seen = collect();
+  const flow = createServiceFlow({});
+  seen.subscribe(flow);
+  assert.deepEqual(
+    await flow.start({
+      repo: "s-1",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    }),
+    { ok: true, value: null },
+  );
+  await flow.stop();
+  await waitFor("run1 exited", () => flow.state().kind === "exited", 8000);
+  assert.equal(seen.infos[2].byShell, true, "run1 是外壳停的");
+  // run2：服务自己退出 → 上一 run 的 stopping 不许继承
+  assert.deepEqual(await flow.start({ repo: "s-2", command: [process.execPath, FAKE_EXIT] }), {
+    ok: true,
+    value: null,
+  });
+  await waitFor("run2 exited", () => seen.states.length >= 6 && seen.states[5].kind === "exited", 8000);
+  assert.equal(seen.states[5].exitCode, 3);
+  assert.equal(seen.infos[5].byShell, false, "run2 的意外退出不是外壳结束的，标志不许继承");
+});
+
+test("旧 run 的子进程退出不许把新 run 改成 exited", async () => {
+  const rec = recordingSpawn();
+  const seen = collect();
+  const flow = createServiceFlow({ spawn: rec.fn, timeoutMs: 700 });
+  seen.subscribe(flow);
+  // run1：握手超时 → exited(-1)；子进程已被 kill，它的 exit 什么时候派发不定
+  assert.deepEqual(
+    await flow.start({
+      repo: "old-1",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "silent" }),
+    }),
+    { ok: false, reason: "handshake-failed" },
+  );
+  assert.equal(flow.state().kind, "exited");
+  assert.equal(rec.children.length, 1);
+  // run2：立刻再起，握手成功
+  assert.deepEqual(
+    await flow.start({
+      repo: "new-2",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    }),
+    { ok: true, value: null },
+  );
+  assert.equal(flow.state().kind, "running");
+  await waitFor(
+    "旧子进程退出",
+    () => rec.children[0].exitCode !== null || rec.children[0].signalCode !== null,
+    5000,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.equal(flow.state().kind, "running", "旧 run 的 exit 回调不许把新 run 改成 exited");
+  assert.equal(seen.states.length, 4, JSON.stringify(seen.states));
+  await flow.stop();
+  await waitFor("run2 exited", () => flow.state().kind === "exited", 8000);
 });

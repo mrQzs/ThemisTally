@@ -48,11 +48,13 @@ function assertInside(rootReal, p) {
   );
 }
 
-test("常量逐字：SHELL_SCHEME / SHELL_HOST / SHELL_START_URL", () => {
+test("常量逐字：SHELL_SCHEME / SHELL_HOST / SHELL_START_URL / SHELL_STATUS_URL", () => {
   assert.equal(proto.SHELL_SCHEME, "themis-shell");
   assert.equal(proto.SHELL_HOST, "app");
   assert.equal(proto.SHELL_START_URL, "themis-shell://app/index.html#/first-run");
+  assert.equal(proto.SHELL_STATUS_URL, "themis-shell://app/index.html#/service-status");
   assert.equal(proto.isShellPageUrl(proto.SHELL_START_URL), true);
+  assert.equal(proto.isShellPageUrl(proto.SHELL_STATUS_URL), true, "服务状态页也是外壳页地址");
 });
 
 test("isShellPageUrl 正例", () => {
@@ -60,6 +62,7 @@ test("isShellPageUrl 正例", () => {
     "themis-shell://app/",
     "themis-shell://app/index.html",
     "themis-shell://app/index.html#/first-run",
+    "themis-shell://app/index.html#/service-status",
     "themis-shell://app/assets/app.js",
   ]) {
     assert.equal(proto.isShellPageUrl(u), true, u);

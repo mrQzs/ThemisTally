@@ -38,6 +38,8 @@ function waitExit(child, timeoutMs) {
 }
 
 // 服务状态机：idle → starting → running → exited（只前进不后退）。
+// 状态按 run 记：每次 start 开一个新 run，旧 run 的子进程监听、stop/abort 的补发都只在它所属的
+// run 仍是当前 run 时才改状态——否则 exited 之后再 start 会被旧回调卡住。
 // 子进程借 src/service.js 的 spawn 选项拿到：把注入的 spawn 包一层，在 spawn 的瞬间挂 exit 与 error
 // 监听——src/service.js 的签名与行为因此一字不变。
 function createServiceFlow(options) {
@@ -50,16 +52,20 @@ function createServiceFlow(options) {
 
   const listeners = new Set();
   let current = { kind: "idle" };
+  // run 计数：每次 start 自增，回调靠它认出自己所属的 run 还是不是当前 run
+  let run = 0;
   let repo = "";
   let child = null;
-  // 「是不是外壳自己结束的」只留在主进程：外壳停服务（stop）或中止（abort）时为真
+  // 「是不是外壳自己结束的」只留在主进程：外壳停服务（stop）或中止（abort）时为真。按 run 算——
+  // 新 run 一律重置，上一 run 被 stop 过不继承到下一 run
   let stopping = false;
   let aborting = false;
 
   // 状态变化通知全部订阅者；info 只带给主进程的订阅者，不进状态、不进事件负载。
-  // 只前进不后退：已经是 exited 就不再变（同一轮里重复的 exited 不覆盖已有的）
-  function moveTo(next) {
-    if (current.kind === "exited") return;
+  // 只前进不后退：同一个 run 里已经是 exited 就不再变（重复的 exited 不覆盖已有的）。
+  // 唯一的例外是新 run 的 starting：exited 之后要能再 start
+  function moveTo(next, newRun) {
+    if (current.kind === "exited" && newRun !== true) return;
     current = next;
     const info = { byShell: next.kind === "exited" ? stopping || aborting : false };
     for (const listener of [...listeners]) listener(current, info);
@@ -68,10 +74,18 @@ function createServiceFlow(options) {
   async function start(arg) {
     const o = arg || {};
     const command = o.command;
-    if (current.kind !== "idle") return { ok: false, reason: "busy" };
+    // 只有 idle 与 exited 能开新 run：starting/running 一律 busy，不起进程
+    if (current.kind !== "idle" && current.kind !== "exited") return { ok: false, reason: "busy" };
     if (!Array.isArray(command) || command.length === 0) return { ok: false, reason: "start-failed" };
-    repo = typeof o.repo === "string" ? o.repo : "";
     const env = o.env === undefined || o.env === null ? injectedEnv : o.env;
+
+    // 新 run：stopping/aborting/child 一律重置，repo 记本次 start 的仓库
+    run += 1;
+    const thisRun = run;
+    stopping = false;
+    aborting = false;
+    child = null;
+    repo = typeof o.repo === "string" ? o.repo : "";
 
     let phase = "starting";
     let exitCode = null;
@@ -82,6 +96,8 @@ function createServiceFlow(options) {
       child = spawned;
       spawned.on("exit", (code) => {
         exitCode = typeof code === "number" ? code : null;
+        // 旧 run 的子进程什么时候退不定：不是当前 run 就整个丢掉，不改状态、不发事件
+        if (thisRun !== run) return;
         // 握手成功后服务自己退出（或被外壳停掉）：running → exited
         if (phase === "running") moveTo({ kind: "exited", repo, exitCode: codeOf(exitCode), at: now() });
       });
@@ -91,7 +107,7 @@ function createServiceFlow(options) {
       return spawned;
     };
 
-    moveTo({ kind: "starting", repo });
+    moveTo({ kind: "starting", repo }, true);
 
     let started;
     try {
@@ -127,9 +143,11 @@ function createServiceFlow(options) {
   async function stop() {
     if (child === null) return { exited: false, code: null, signal: null };
     stopping = true;
-    const result = await stopService(child, { graceMs: STOP_GRACE_MS });
-    // exit 监听通常已经把状态推到 exited；stopService 经 close 收尾时这里补一次
-    if (current.kind === "running" || current.kind === "starting") {
+    const target = child;
+    const result = await stopService(target, { graceMs: STOP_GRACE_MS });
+    // exit 监听通常已经把状态推到 exited；stopService 经 close 收尾时这里补一次。
+    // 只作用于当前 run 的 child：期间换了 run 就不改状态
+    if (target === child && (current.kind === "running" || current.kind === "starting")) {
       moveTo({ kind: "exited", repo, exitCode: codeOf(result.code), at: now() });
     }
     return {
@@ -143,20 +161,21 @@ function createServiceFlow(options) {
   async function abort() {
     if (child === null) return;
     aborting = true;
+    const target = child;
     try {
-      child.kill();
+      target.kill();
     } catch {
       // 已经没了
     }
-    await waitExit(child, ABORT_GRACE_MS);
-    if (!hasExited(child)) {
+    await waitExit(target, ABORT_GRACE_MS);
+    if (!hasExited(target)) {
       // 3 秒还不退：再杀一次，不许把子进程留成活着的孤儿
       try {
-        child.kill("SIGKILL");
+        target.kill("SIGKILL");
       } catch {
         // 已经没了
       }
-      if (current.kind === "running" || current.kind === "starting") {
+      if (target === child && (current.kind === "running" || current.kind === "starting")) {
         moveTo({ kind: "exited", repo, exitCode: NO_CODE, at: now() });
       }
     }
