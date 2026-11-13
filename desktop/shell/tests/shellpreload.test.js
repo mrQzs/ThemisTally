@@ -127,23 +127,76 @@ test("信封 ok → resolve value；不 ok → 以带 reason 的 Error reject（
   );
 });
 
-test("on 同步返回退订函数：不发 IPC、不注册监听；退订函数也不发 IPC", () => {
+test("on('service-state')：模块加载时只注册一个 ipcRenderer.on，页面监听只收到 state 一个实参", () => {
   const p = runShellPreload();
   const api = p.exposes[0][1];
-  const before = p.invokes.length;
-  const off = api.on("service-state", () => {});
-  assert.equal(typeof off, "function", "on 要同步返回一个函数");
-  off();
-  assert.equal(p.invokes.length, before, "on/退订都不许发 IPC");
-  assert.equal(p.listeners.length, 0, "本片不许注册 ipcRenderer 监听");
+  assert.equal(p.listeners.length, 1, "模块加载时只许注册一个 ipcRenderer.on");
+  const [channel, internal] = p.listeners[0];
+  assert.equal(channel, "themis-shell:service-state");
+  assert.equal(typeof internal, "function");
+  const a = [];
+  const b = [];
+  api.on("service-state", (...args) => a.push(args));
+  api.on("service-state", (...args) => b.push(args));
+  const payload = { kind: "running", repo: "repo-x", pid: 7, startedAt: "2026-01-01T00:00:00.000Z" };
+  // Electron 把事件对象作为第一个实参传给监听函数，state 在第二个：页面只该拿到 state
+  internal({ marker: "electron-event" }, payload);
+  assert.equal(a.length, 1);
+  assert.equal(b.length, 1);
+  assert.equal(a[0].length, 1, "监听函数只收到 state 一个实参");
+  assert.equal(b[0].length, 1, "监听函数只收到 state 一个实参");
+  assert.deepEqual(a[0][0], payload);
+  assert.deepEqual(b[0][0], payload);
+  assert.ok(!JSON.stringify(a[0]).includes("electron-event"), "不许把事件对象交给页面");
 });
 
-test("自包含：没有 ipcRenderer 的 send/on 调用、不 require 相对路径或 node: 模块", () => {
+test("on：退订只删自己那条、可重复退订；别的事件名同步回空退订函数；on 与退订都不发 IPC", () => {
   const p = runShellPreload();
+  const api = p.exposes[0][1];
+  const [channel, internal] = p.listeners[0];
+  assert.equal(channel, "themis-shell:service-state");
+  const a = [];
+  const b = [];
+  const offA = api.on("service-state", (...args) => a.push(args));
+  const offB = api.on("service-state", (...args) => b.push(args));
+  internal({}, { kind: "starting", repo: "r" });
+  assert.equal(a.length, 1);
+  assert.equal(b.length, 1);
+  offA();
+  assert.doesNotThrow(() => offA(), "重复退订不抛错");
+  internal({}, { kind: "running", repo: "r", pid: 1, startedAt: "t" });
+  assert.equal(a.length, 1, "退订之后不再收到");
+  assert.equal(b.length, 2, "别的订阅照常收到");
+  offB();
+  internal({}, { kind: "idle" });
+  assert.equal(a.length, 1);
+  assert.equal(b.length, 2, "全部退订之后再发谁都不收");
+  // 别的事件名：不注册、不抛错、不调 listener
+  const before = p.listeners.length;
+  const invokesBefore = p.invokes.length;
+  const sendsBefore = p.sends.length;
+  let fired = 0;
+  const off = api.on("other-event", () => {
+    fired += 1;
+  });
+  assert.equal(typeof off, "function", "要同步返回函数");
+  assert.doesNotThrow(() => off());
+  assert.equal(fired, 0);
+  assert.equal(p.listeners.length, before, "别的事件名不许再注册监听");
+  // on 与退订都不发 IPC
+  const off2 = api.on("service-state", () => {});
+  off2();
+  assert.equal(p.invokes.length, invokesBefore, "on/退订不许发 invoke");
+  assert.equal(p.sends.length, sendsBefore, "on/退订不许发 send");
+});
+
+test("自包含：只 require electron，没有 ipcRenderer 的发送，不 require 相对路径或 node: 模块", () => {
+  const p = runShellPreload();
+  assert.deepEqual(p.requires, ["electron"]);
   assert.equal(p.sends.length, 0);
-  assert.equal(p.listeners.length, 0);
   assert.ok(!/ipcRenderer\s*\.\s*send\s*\(/.test(p.source), "不许有 ipcRenderer 的发送");
-  assert.ok(!/ipcRenderer\s*\.\s*on\s*\(/.test(p.source), "不许有 ipcRenderer 的监听");
   assert.ok(!/require\(\s*['"]\./.test(p.source), "不许 require 相对路径");
   assert.ok(!/require\(\s*['"]node:/.test(p.source), "不许 require node: 模块");
+  assert.equal((p.source.match(/exposeInMainWorld/g) || []).length, 1, "exposeInMainWorld 只许出现一次");
+  assert.equal(Object.keys(p.exposes[0][1]).length, 10, "暴露面仍是十个成员");
 });

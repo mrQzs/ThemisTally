@@ -4,6 +4,8 @@ const path = require("node:path");
 const { applyPatch, addRepo, addTranscriptDir } = require("./settings.js");
 const { checkRepo, probePython, probeKit, detectPython, detectKit } = require("./detect.js");
 const { isExternalUrl } = require("./hostcheck.js");
+// 起服务的命令形状只此一处：外壳页与带参数那条路用同一个 serviceCommand
+const { serviceCommand } = require("./service.js");
 
 const HOMEPAGE = "https://github.com/mrQzs/ThemisTally";
 const KIT_SCRIPT = path.join("scripts", "pi_dispatch.py");
@@ -37,6 +39,9 @@ function createShellApi(options) {
   const appVersion = typeof opts.appVersion === "string" ? opts.appVersion : "";
   const homepage = typeof opts.homepage === "string" ? opts.homepage : HOMEPAGE;
   const probe = Object.assign({}, { probePython, probeKit, detectPython, detectKit }, opts.probe || {});
+  // 服务控制器与外壳页产物根：都没有注入时 startService 回 no-service（探针不注入新项也不能红）
+  const service = opts.service || null;
+  const assets = typeof opts.assets === "string" ? opts.assets : "";
 
   // 内存设置第一次用到时从存盘读入；写盘成功后才更新它
   let settings = null;
@@ -119,6 +124,13 @@ function createShellApi(options) {
     return info;
   }
 
+  // 控制器的当前状态；没有注入控制器时仍是 idle
+  function serviceState() {
+    if (service === null || typeof service.state !== "function") return { kind: "idle" };
+    const state = service.state();
+    return state === null || state === undefined ? { kind: "idle" } : state;
+  }
+
   async function stateView() {
     const source = current();
     const python = await pythonInfo(source);
@@ -129,7 +141,7 @@ function createShellApi(options) {
       currentRepoCheck: repoCheck(source),
       python,
       kit,
-      service: { kind: "idle" },
+      service: serviceState(),
     };
   }
 
@@ -236,18 +248,49 @@ function createShellApi(options) {
     return { ok: true, value: null };
   }
 
-  // 三个占位：服务与事件订阅由后面的片接真行为
-  async function startService() {
-    return { ok: false, reason: "not-implemented" };
+  // 起服务：按仓库 id 查设置 → Python → kit（按目标仓库算）→ 拼命令 → 交控制器。
+  // 起进程之前的失败只回 reason，不起进程、不改状态；起进程之后的失败由控制器先发 exited 再回信封。
+  async function startService(repoId) {
+    const source = current();
+    const entry = source.repos.find((item) => item.id === repoId) || null;
+    if (entry === null) return { ok: false, reason: "unknown-repo" };
+    const state = serviceState();
+    if (state.kind === "starting" || state.kind === "running") {
+      // 同一个仓库正在起或正在跑 → 幂等；别的仓库正忙 → busy。两者都不再起进程
+      if (state.repo === entry.id) return { ok: true, value: null };
+      return { ok: false, reason: "busy" };
+    }
+    if (service === null || assets.length === 0) return { ok: false, reason: "no-service" };
+    const python = await pythonInfo(source);
+    if (python.status !== "ok") return { ok: false, reason: "python-missing" };
+    // kit 按目标仓库算：设置里的 kitPath 优先，否则用目标仓库的 path——不看当前仓库的缓存结果
+    const external = typeof source.kitPath === "string" ? source.kitPath : "";
+    const kitDir = external.length > 0 ? external : entry.path;
+    const kit = await probe.probeKit(python.path, kitDir);
+    if (!kit || !kit.ok) return { ok: false, reason: "kit-missing" };
+    const command = serviceCommand({
+      python: [python.path],
+      kit: kitDir,
+      repo: entry.path,
+      assets,
+      transcripts: source.transcriptDirs.map((item) => item.path),
+    });
+    return service.start({ repo: entry.id, command, env: process.env });
   }
 
+  // A 片过渡：重启仍是占位（B 片推翻），也不进控制器
   async function restartService() {
     return { ok: false, reason: "not-implemented" };
   }
 
-  // 页面挂载时就调它：同步回退订函数，不抛错、不调 listener
-  function on() {
-    return () => {};
+  // 页面挂载时就调它：同步回退订函数。只认 service-state，且只把 state 交给 listener
+  //（控制器订阅回调里的 info 是主进程内部的事，不外传）
+  function on(event, listener) {
+    if (event !== "service-state" || typeof listener !== "function") return () => {};
+    if (service === null || typeof service.subscribe !== "function") return () => {};
+    return service.subscribe((state) => {
+      listener(state);
+    });
   }
 
   return {

@@ -582,17 +582,207 @@ test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSett
   assert.equal((await h.api.getState()).value.settings.theme, "system", "写盘失败后内存要回滚");
 });
 
-test("占位：startService/restartService 回 not-implemented；on 同步返回退订函数且不抛错", async () => {
+test("startService 按仓库 id 真起服务；restartService 仍是 A 片占位；on 真订阅", async () => {
   const h = makeHarness();
-  assert.deepEqual(await h.api.startService("C:/repo"), { ok: false, reason: "not-implemented" });
-  assert.deepEqual(await h.api.restartService(), { ok: false, reason: "not-implemented" });
+  const alpha = h.gitRepo("alpha");
+  const beta = h.gitRepo("beta");
+  const kitDir = h.plainDir("mykit");
+  const logs = h.plainDir("logs");
+  // 每个场景都从同一份设置起步：当前仓库是 alpha，要起的是 beta
+  const setup = (kitPath) =>
+    h.writeSettings((s) => {
+      s.repos = [
+        { id: "alpha", name: "alpha", path: alpha, lastOpened: null },
+        { id: "beta", name: "beta", path: beta, lastOpened: null },
+      ];
+      s.currentRepo = "alpha";
+      s.transcriptDirs = [{ id: "dir", path: logs }];
+      s.kitPath = kitPath;
+    });
+  setup(kitDir);
+  // 假的 probe 与假的控制器：现场记录 kit 是按哪个目录探测的
+  const kitCalls = [];
+  const autoPython = { status: "ok", source: "auto", path: "/auto/py", version: "3.13.1" };
+  const kitResult = { ok: true, version: "2.12.0" };
+  const probe = {
+    async probePython() {
+      return { ok: true, version: "3.12.9", path: "/fake/python-exe" };
+    },
+    async probeKit(pythonPath, kitDir) {
+      kitCalls.push([pythonPath, kitDir]);
+      return JSON.parse(JSON.stringify(kitResult));
+    },
+    async detectPython() {
+      return JSON.parse(JSON.stringify(autoPython));
+    },
+    async detectKit() {
+      return { status: "missing", source: "repo", path: "", version: "" };
+    },
+  };
+  const listeners = new Set();
+  const ctl = {
+    starts: [],
+    currentState: { kind: "idle" },
+    nextStart: { ok: true, value: null },
+    start(arg) {
+      ctl.starts.push(JSON.parse(JSON.stringify(arg)));
+      return Promise.resolve(ctl.nextStart);
+    },
+    stop() {
+      return Promise.resolve({ exited: true, code: 0, signal: null });
+    },
+    abort() {
+      return Promise.resolve();
+    },
+    state() {
+      return ctl.currentState;
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => {
+        listeners.delete(fn);
+      };
+    },
+    emit(state) {
+      for (const fn of [...listeners]) fn(state, { byShell: false });
+    },
+  };
+  // 每个场景一个 api：探测结果有缓存，混用一个 api 会串味
+  const makeApi = (over) =>
+    createShellApi(
+      Object.assign(
+        {
+          store: h.store,
+          service: ctl,
+          assets: "/assets/root",
+          chooseDirectory: async () => null,
+          chooseFile: async () => null,
+          confirmExternal: async () => true,
+          openExternal: async () => {},
+          appVersion: "9.9.9",
+          probe,
+        },
+        over,
+      ),
+    );
+  // 命令形状与带参数那条路同一个 serviceCommand（同一个模块、同一份产物）
+  const { serviceCommand } = require("../src/service.js");
+
+  // 仓库 id 不在设置列表 → unknown-repo，控制器没被调用（没起进程）、状态不变
+  assert.deepEqual(await makeApi().startService("ghost"), { ok: false, reason: "unknown-repo" });
+  assert.equal(ctl.starts.length, 0, "id 不在设置列表不许起进程");
+  assert.deepEqual((await makeApi().getState()).value.service, { kind: "idle" });
+
+  // Python 不可用 → python-missing，不起进程、不探测 kit
+  autoPython.status = "missing";
+  autoPython.path = "";
+  autoPython.version = "";
+  kitCalls.length = 0;
+  assert.deepEqual(await makeApi().startService("beta"), { ok: false, reason: "python-missing" });
+  assert.equal(ctl.starts.length, 0);
+  assert.equal(kitCalls.length, 0, "没有可用 Python 时不许探测 kit");
+  autoPython.status = "ok";
+  autoPython.path = "/auto/py";
+  autoPython.version = "3.13.1";
+
+  // kit 不可用 → kit-missing；kit 按目标仓库算（当前仓库是 alpha，起的是 beta）
+  kitResult.ok = false;
+  assert.deepEqual(await makeApi().startService("beta"), { ok: false, reason: "kit-missing" });
+  assert.equal(ctl.starts.length, 0);
+  assert.equal(kitCalls.length, 1, "现场探测 kit 只许一次");
+  assert.deepEqual(kitCalls[0], ["/auto/py", kitDir], "kitPath 非空时按它探测");
+  setup(null);
+  kitResult.ok = false;
+  kitCalls.length = 0;
+  assert.deepEqual(await makeApi().startService("beta"), { ok: false, reason: "kit-missing" });
+  assert.deepEqual(kitCalls[0], ["/auto/py", beta], "kitPath 为空时按目标仓库的 path 探测");
+  assert.equal(kitCalls[0][1] === alpha, false, "不许用当前仓库的目录");
+  kitResult.ok = true;
+
+  // 别的仓库正忙 → busy；同一个仓库正忙 → 幂等 ok。两者都不再起进程
+  ctl.currentState = { kind: "starting", repo: "alpha" };
+  assert.deepEqual(await makeApi().startService("beta"), { ok: false, reason: "busy" });
+  ctl.currentState = { kind: "running", repo: "beta", pid: 4242, startedAt: "2026-01-01T00:00:00.000Z" };
+  assert.deepEqual(await makeApi().startService("beta"), { ok: true, value: null });
+  assert.equal(ctl.starts.length, 0, "幂等与忙都不许再起进程");
+
+  // 成功：命令形状与带参数那条路一致，控制器的信封原样回传
+  ctl.currentState = { kind: "idle" };
+  assert.deepEqual(await makeApi().startService("beta"), { ok: true, value: null });
+  assert.equal(ctl.starts.length, 1);
+  const arg = ctl.starts[0];
+  assert.equal(arg.repo, "beta", "交给控制器的是目标仓库的 id");
+  assert.deepEqual(
+    arg.command,
+    serviceCommand({
+      python: ["/auto/py"],
+      kit: beta,
+      repo: beta,
+      assets: "/assets/root",
+      transcripts: [logs],
+    }),
+  );
+  // env 用 process.env（假控制器存的是深拷贝，逐键比对，不把整份环境打印出来）
+  const sameEnv = (value) => {
+    if (value === null || typeof value !== "object") return false;
+    const keys = Object.keys(process.env);
+    if (Object.keys(value).length !== keys.length) return false;
+    return keys.every((key) => value[key] === process.env[key]);
+  };
+  assert.ok(arg.env === process.env || sameEnv(arg.env), "env 用 process.env");
+  ctl.nextStart = { ok: false, reason: "handshake-failed" };
+  assert.deepEqual(await makeApi().startService("beta"), { ok: false, reason: "handshake-failed" });
+
+  // 没有注入控制器或产物目录 → no-service 兜底
+  const bare = createShellApi({ store: h.store });
+  assert.deepEqual(await bare.startService("beta"), { ok: false, reason: "no-service" });
+  assert.deepEqual((await bare.getState()).value.service, { kind: "idle" });
+
+  // getState 的 service 取控制器的当前状态
+  ctl.currentState = { kind: "exited", repo: "beta", exitCode: 3, at: 12345 };
+  assert.deepEqual((await makeApi().getState()).value.service, {
+    kind: "exited",
+    repo: "beta",
+    exitCode: 3,
+    at: 12345,
+  });
+
+  // A 片过渡：restartService 仍是占位，也不进控制器（B 片推翻）
+  ctl.currentState = { kind: "idle" };
+  const startsBefore = ctl.starts.length;
+  assert.deepEqual(await makeApi().restartService(), { ok: false, reason: "not-implemented" });
+  assert.equal(ctl.starts.length, startsBefore, "restartService 不许起进程");
+
+  // on：真订阅状态变化，只传 state 一个实参；退订后不再收到；别的事件名回空退订函数
+  const api = makeApi();
+  const got = [];
+  const off = api.on("service-state", (...args) => got.push(args));
+  assert.equal(typeof off, "function", "on 必须同步返回退订函数");
+  ctl.emit({ kind: "running", repo: "beta", pid: 5, startedAt: "t" });
+  assert.equal(got.length, 1);
+  assert.equal(got[0].length, 1, "页面监听只收到 state 一个实参（info 不外传）");
+  assert.deepEqual(got[0][0], { kind: "running", repo: "beta", pid: 5, startedAt: "t" });
+  assert.ok(!JSON.stringify(got[0]).includes("byShell"), "byShell 不许外传");
+  ctl.emit({ kind: "exited", repo: "beta", exitCode: 0, at: 1 });
+  assert.equal(got.length, 2);
+  off();
+  assert.doesNotThrow(() => off(), "重复退订不抛错");
+  ctl.emit({ kind: "idle" });
+  assert.equal(got.length, 2, "退订后不再收到");
+  let other = 0;
+  const offOther = api.on("whatever", () => {
+    other += 1;
+  });
+  assert.equal(typeof offOther, "function");
+  assert.doesNotThrow(() => offOther());
+  assert.equal(other, 0, "别的事件名不许调 listener");
   let fired = 0;
-  const off = h.api.on("service-state", () => {
+  const offBare = bare.on("service-state", () => {
     fired += 1;
   });
-  assert.equal(typeof off, "function", "on 必须同步返回退订函数");
-  assert.equal(fired, 0, "on 不许调用 listener");
-  assert.doesNotThrow(() => off());
+  assert.equal(typeof offBare, "function");
+  assert.doesNotThrow(() => offBare());
+  assert.equal(fired, 0, "没有控制器时 on 同步回空退订函数");
 });
 
 test("十个成员：名字与个数照合同", () => {

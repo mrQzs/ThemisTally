@@ -2,8 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const shellipc = require("../src/shellipc.js");
-const { SHELL_CHANNELS, registerShellIpc, shellSenderAllowed } = shellipc;
+const { SHELL_CHANNELS, SERVICE_STATE_CHANNEL, registerShellIpc, shellSenderAllowed } = shellipc;
 
 const CHANNELS = [
   "themis-shell:get-state",
@@ -31,6 +33,15 @@ const SPEC = {
 test("SHELL_CHANNELS 冻结、恰好九个、名字与顺序逐字", () => {
   assert.ok(Object.isFrozen(SHELL_CHANNELS), "SHELL_CHANNELS 必须冻结");
   assert.deepEqual([...SHELL_CHANNELS], CHANNELS);
+});
+
+test("SERVICE_STATE_CHANNEL：值逐字、不进 SHELL_CHANNELS，与 shell-preload.js 里的字面量一致", () => {
+  assert.equal(SERVICE_STATE_CHANNEL, "themis-shell:service-state");
+  assert.ok(!SHELL_CHANNELS.includes(SERVICE_STATE_CHANNEL), "事件通道是主进程 → 页面的单向推送，不进 invoke 白名单");
+  assert.deepEqual([...SHELL_CHANNELS], CHANNELS, "九个 invoke 通道的名字与顺序不变");
+  // preload 不能 require 相对路径，通道名只能写字面量：两处一致由这里比对
+  const preload = fs.readFileSync(path.resolve(__dirname, "..", "shell-preload.js"), "utf8");
+  assert.ok(preload.includes('"themis-shell:service-state"'), "shell-preload.js 里要写字面量通道名");
 });
 
 function makeIpcMain() {

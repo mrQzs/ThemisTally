@@ -15,6 +15,10 @@ const SHELL_CHANNELS = Object.freeze([
   "themis-shell:open-external",
 ]);
 
+// 服务状态事件（主进程 → 页面的单向推送）：与顶层 shell-preload.js 里的字面量同值。
+// 它不进 SHELL_CHANNELS——不是 invoke 通道，不注册 ipcMain.handle。
+const SERVICE_STATE_CHANNEL = "themis-shell:service-state";
+
 // 每个通道转交的主进程方法与它的实参个数：多余的参数丢掉（preload 已按声明转发，这里是第二道）
 const SHELL_METHOD = {
   "themis-shell:get-state": "getState",
@@ -62,4 +66,4 @@ function registerShellIpc(ipcMain, api, senderAllowed) {
   }
 }
 
-module.exports = { SHELL_CHANNELS, registerShellIpc, shellSenderAllowed };
+module.exports = { SHELL_CHANNELS, SERVICE_STATE_CHANNEL, registerShellIpc, shellSenderAllowed };
