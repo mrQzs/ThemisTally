@@ -858,6 +858,8 @@ function runShellPreload() {
           return state.envelope;
         },
         on: (...args) => listeners.push(args),
+        removeListener: () => {},
+        off: () => {},
         send: (...args) => sends.push(args),
       },
     };
@@ -925,23 +927,23 @@ test("信封 ok → resolve value；不 ok → 以带 reason 的 Error reject（
   );
 });
 
-test("on 同步返回退订函数：不发 IPC、不注册监听；退订函数也不发 IPC", () => {
+// 站主 2026-11-13（T033 规划第 3 节）：T033 的 preload 要订阅主进程发来的 service-state，“不注册监听”一条退役；
+// 留下的是：on 同步返回函数，on 与退订都不发 invoke。
+test("on 同步返回退订函数；on 与退订都不发 invoke", () => {
   const p = runShellPreload();
   const api = p.exposes[0][1];
   const before = p.invokes.length;
   const off = api.on("service-state", () => {});
   assert.equal(typeof off, "function", "on 要同步返回一个函数");
   off();
-  assert.equal(p.invokes.length, before, "on/退订都不许发 IPC");
-  assert.equal(p.listeners.length, 0, "本片不许注册 ipcRenderer 监听");
+  assert.equal(p.invokes.length, before, "on/退订都不许发 invoke");
 });
 
-test("自包含：没有 ipcRenderer.send/on 的调用、不 require 相对路径或 node: 模块", () => {
+// 站主 2026-11-13（T033 规划第 3 节）：ipcRenderer.on 的两处断言退役（同上）；send 禁令、相对路径与 node: 禁令照留。
+test("自包含：没有 ipcRenderer.send 的调用、不 require 相对路径或 node: 模块", () => {
   const p = runShellPreload();
   assert.equal(p.sends.length, 0);
-  assert.equal(p.listeners.length, 0);
   assert.ok(!/ipcRenderer\s*\.\s*send\s*\(/.test(p.source), "不许有 ipcRenderer 的发送");
-  assert.ok(!/ipcRenderer\s*\.\s*on\s*\(/.test(p.source), "不许有 ipcRenderer 的监听");
   assert.ok(!/require\(\s*['"]\./.test(p.source), "不许 require 相对路径");
   assert.ok(!/require\(\s*['"]node:/.test(p.source), "不许 require node: 模块");
 });

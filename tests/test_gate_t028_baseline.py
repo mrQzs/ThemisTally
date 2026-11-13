@@ -267,24 +267,9 @@ def test_s03_static_bans():
         assert pat.search(text), f"desktop/shell/{rel} 没有 require {what}"
 
 
-def test_transitional_s04_electron_and_ipc_scan():
-    """T028b（外壳页窗口与接线，站主另登记的主任务）会新增 require('electron') 的顶层
-    shell-preload.js 与 IPC 接线，届时由站主按名字退役本用例。
-
-    在此之前：require('electron') 只许 main.js 与 preload.js（tests/** 也不许）；
-    ipcMain.on 与 ipcRenderer.send 在 desktop/shell 下任何 .js 都不许。"""
-    files = _js_files()
-    assert files, "desktop/shell 扫描范围内没有 .js 文件"
-    for f in files:
-        rel = str(f.relative_to(SHELL)).replace("\\", "/")
-        text = f.read_text(encoding="utf-8")
-        for pat, what, allowed in ALL_RULES:
-            m = pat.search(text)
-            if m and rel not in allowed:
-                raise AssertionError(
-                    f"desktop/shell/{rel} 出现只许在 {list(allowed) or '任何文件都不许'} 的「{what}」："
-                    f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
-                )
+# test_transitional_s04_electron_and_ipc_scan（require('electron') 只许 main.js 与 preload.js、两条 IPC 禁令）由站主退役
+# （2026-11-13）：它的说明写着“T028b 落地时由站主按名字退役”。T030 已落地，顶层多了 shell-preload.js；
+# 接替它的扫描在 T030 门禁的 test_s03_static_scan 里（三个文件许 require electron，两条 IPC 禁令照旧）。
 
 
 def test_s05_readme():
@@ -1390,16 +1375,8 @@ test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSett
   assert.equal((await h.api.getState()).value.settings.theme, "system", "写盘失败后内存要回滚成补丁前的值");
 });
 
-test("占位：startService/restartService 回 not-implemented；on 同步返回退订函数且不抛错", async () => {
-  const h = makeHarness();
-  assert.deepEqual(await h.api.startService("C:/repo"), { ok: false, reason: "not-implemented" });
-  assert.deepEqual(await h.api.restartService(), { ok: false, reason: "not-implemented" });
-  let fired = 0;
-  const off = h.api.on("service-state", () => { fired += 1; });
-  assert.equal(typeof off, "function", "on 必须同步返回退订函数（不是信封、不是 Promise）");
-  assert.equal(fired, 0, "on 不许调用 listener");
-  assert.doesNotThrow(() => off());
-});
+// 站主 2026-11-13（T033 规划第 3 节）退役了“占位：startService/restartService 回 not-implemented；on 同步返回退订函数且不抛错”一条：
+// T033 起真的服务、发 service-state 事件，占位行为不再成立；新行为由 T033 的门禁钉。
 '''
 
 
