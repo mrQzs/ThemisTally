@@ -384,6 +384,9 @@ function markPid(hub: Hub, task: string): PyValue {
 }
 
 /** 合同出下一版，max_attempts_total 改成 attempts；累计墙钟不够再跑 MIN_ATTEMPTS_LEFT 次时一并补足。交回（改动，问题）。 */
+/** 第 157 轮：kit_hub.BUDGET_LINE：合同 Budget 的一行，只匹配到数字，行尾的说明照留。 */
+const budgetLine = (key: string): ReturnType<typeof compilePy> => compilePy(`(?m)^- ${key}: *[0-9]+`);
+
 export async function raiseBudget(hub: Hub, ts: PyDict, attempts: bigint, deps: EngineDeps = REAL_ENGINE_DEPS): Promise<[PyDict, string[]]> {
   const budget = orMap(getOf(loads(readText(contractPaths(hub, ts)[1]) || "{}"), "budget"));
   const used = budgetUsage(hub, ts);
@@ -397,6 +400,11 @@ export async function raiseBudget(hub: Hub, ts: PyDict, attempts: bigint, deps: 
   const wanted = pyIntOf(used.wall_seconds_used + MIN_ATTEMPTS_LEFT * pyFloatOf(pyTruthy(perAttempt) ? perAttempt : 0n));
   const current = pyIntOf(pyTruthy(wallTotal) ? wallTotal : 0n);
   const wall = current > wanted ? current : wanted;
+  // 第 157 轮：两行都找得到才出新版本（原来先复制出新版本才发现找不到，留下一份没人认的 md 与一条 contract.bumped）
+  const existing = readText(contractPaths(hub, ts)[0]);
+  for (const key of ["max_attempts_total", "max_wall_seconds_total"]) {
+    if (budgetLine(key).finditer(existing).length !== 1) return [new Map(), [`合同 Budget 里找不到唯一的“- ${key}:”行`]];
+  }
   if (pyTruthy(getOf(pyItem(ts, "contract"), "dispatched"))) {
     const problems = await bumpContractVersion(hub, ts);
     if (problems.length > 0) return [new Map(), problems];
@@ -404,9 +412,7 @@ export async function raiseBudget(hub: Hub, ts: PyDict, attempts: bigint, deps: 
   const [md] = contractPaths(hub, ts);
   let contract = readText(md);
   for (const [key, value] of [["max_attempts_total", attempts], ["max_wall_seconds_total", wall]] as const) {
-    const [replaced, count] = subn(compilePy(`(?m)^- ${key}:${BS}s*${BS}d+${BS}s*$`), `- ${key}: ${value}`, contract);
-    if (count !== 1) return [new Map(), [`合同 Budget 里找不到唯一的“- ${key}:”行`]];
-    contract = replaced;
+    contract = subn(budgetLine(key), `- ${key}: ${value}`, contract)[0];
   }
   writeFileSync(md, contract, "utf8");
   const change = new Map<string, PyValue>([

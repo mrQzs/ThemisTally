@@ -1,0 +1,36 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "budget"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "Q01 先出版本再核对",
+   "file": "scripts/kit_hub.py",
+   "old": "        if len(re.findall(BUDGET_LINE % key, current)) != 1:",
+   "new": "        if False:"
+  },
+  {
+   "name": "Q02 说明不留",
+   "file": "scripts/kit_hub.py",
+   "old": "BUDGET_LINE = \"(?m)^- %s: *[0-9]+\"",
+   "new": "BUDGET_LINE = \"(?m)^- %s:.*\""
+  },
+  {
+   "name": "Q03 数字后面要直接行尾",
+   "file": "scripts/kit_hub.py",
+   "old": "BUDGET_LINE = \"(?m)^- %s: *[0-9]+\"",
+   "new": "BUDGET_LINE = \"(?m)^- %s: *[0-9]+$\""
+  }
+ ]
+}

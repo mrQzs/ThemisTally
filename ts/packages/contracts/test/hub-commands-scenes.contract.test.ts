@@ -245,6 +245,25 @@ describe("第 ⑤j1 片：变异补的场景（手写，各条 it 的标题里�
         ["HubError", "T001 是 stopped、合同 t001-doc.v3：没有可追加预算的执行阶段"]]);
   }, 600_000);
 
+  it("第 157 轮：task budget：Budget 行带说明照样追加、说明照留（T035 的合同）；已派遣的合同缺一行时不出新版本、不留半截的 md", () => {
+    const noted = [
+      "# TASK: t001-doc", "- plan_version: 3", `- base_sha: ${"o".repeat(40)}`, "", "## Budget", "- max_attempts_total: 2（按 task-id 汇总，包括返工版本）",
+      "- max_wall_seconds_per_attempt: 100", "- max_wall_seconds_total: 99999（秒）", "",
+    ].join(LF);
+    const dispatched = (ts: PyDict): void => void (ts.get("contract") as PyDict).set("dispatched", true);
+    const inner = [pd(["derive-json", "t001-doc.v4", "--force", "--title", "改桌面端文档"], 0, "ok"), pd(["validate", "t001-doc.v4"], 0, "ok")];
+    const raise = budgetScene(dispatched, noted);
+    const missing = budgetScene(dispatched, noted.split(LF).filter((line) => !line.startsWith("- max_wall_seconds_total")).join(LF));
+    const args = (sc: Scene) => [task(sc.repo, "budget", { task: "T001", attempts: 3, reason: "内核用掉了一次" })];
+    const states = agreeFlow([flow("cmd_task_budget", raise, args(raise), { inner, replaced: ["run_pd"] }), flow("cmd_task_budget", missing, args(missing))]);
+    const md = Buffer.from(written(states[0])["0/.agent/plans/t001-doc.v4.md"] as string, "base64").toString("utf8");
+    expect(md).toContain("- plan_version: 4");
+    expect(md).toContain("- max_attempts_total: 3（按 task-id 汇总，包括返工版本）");
+    expect(md).toContain("- max_wall_seconds_total: 99999（秒）");
+    expect(failure(states[1]).map(String)).toEqual(["HubError", "预算没有追加成：合同 Budget 里找不到唯一的“- max_wall_seconds_total:”行"]);
+    expect(Object.keys(written(states[1])).filter((key) => key.includes("t001-doc.v4"))).toEqual([]);
+  }, 600_000);
+
   it("send：回信让 blocked 的主任务恢复成 active、拒收计数清零（J67）；停止把主任务标 stopped（J73）；摘要 35 行能投、36 行拒收（J71）", () => {
     const blocked = stateScene((ts) => void ts.set("status", "blocked").set("coordinator_rejections", 2n));
     const plain = (): Scene => stateScene();

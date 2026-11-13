@@ -338,8 +338,8 @@
   {
    "name": "J54 Budget 行不唯一也改",
    "file": "ts/packages/hub/src/commands.ts",
-   "old": "if (count !== 1) return",
-   "new": "if (count === 0) return"
+   "old": "finditer(existing).length !== 1) return",
+   "new": "finditer(existing).length === 0) return"
   },
   {
    "name": "J55 追加之后不重算剩余次数",

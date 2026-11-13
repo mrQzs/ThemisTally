@@ -6612,6 +6612,40 @@ def test_owner_raises_the_attempt_budget(tmp_path, monkeypatch):
     assert "- max_attempts_total: 6" in (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
 
 
+
+def test_owner_raises_a_budget_whose_lines_carry_notes(tmp_path, monkeypatch):
+    # 第 157 轮：合同端写的 Budget 行常带说明（T035：“- max_attempts_total: 2（按 task-id 汇总，包括返工版本）”）：只换数字、说明照留；
+    # 已派遣的合同缺一行时不出新版本（原来先复制出 v4 才发现找不到，留下一份没人认的 md 与一条 contract.bumped）
+    newline = chr(10)
+    repo, head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+
+    def write(wall_line):
+        lines = ["# TASK: t001-doc", "- plan_version: 3", "- base_sha: %s" % ("o" * 40), "", "## Budget",
+                 "- max_attempts_total: 2（按 task-id 汇总，包括返工版本）", "- max_wall_seconds_per_attempt: 7200"] + wall_line + [""]
+        (plans / "t001-doc.v3.md").write_text(newline.join(lines), encoding="utf-8")
+        (plans / "t001-doc.v3.json").write_text(json.dumps({"budget": {"max_attempts_total": 2, "max_wall_seconds_per_attempt": 7200,
+                                                                     "max_wall_seconds_total": 21600}}), encoding="utf-8")
+
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: (0, "ok"))
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["contract"] = {"key": "t001-doc.v3", "version": 3, "dispatched": True, "md": ".agent/plans/t001-doc.v3.md"}
+    write([])
+    assert kh.raise_budget(hub, ts, 3) == ({}, ["合同 Budget 里找不到唯一的“- max_wall_seconds_total:”行"])
+    assert not (plans / "t001-doc.v4.md").exists() and ts["contract"]["version"] == 3
+    assert "contract.bumped" not in kh.read_text(hub.root / "ledger" / "events.jsonl")
+    write(["- max_wall_seconds_total: 21600（秒）"])
+    change, _problems = kh.raise_budget(hub, ts, 3)
+    text = (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
+    assert change["attempts"] == [2, 3] and ts["contract"]["version"] == 4
+    assert "- plan_version: 4" in text and "- max_attempts_total: 3（按 task-id 汇总，包括返工版本）" in text
+    assert "- max_wall_seconds_total: 21600（秒）" in text and text.endswith(newline)
+
+
 def test_bold_item_ids_in_the_contract_are_normalized(tmp_path, monkeypatch):
     # T011 的合同端三次都写成 `- **D01**: …`，调度器一条 DoD 也认不出（“definition_of_done 必须是非空数组”）
     text = ("## Definition of Done\n- **D01**: 纯函数；证据：V01\n- **D02**：数据层\n  * **D10**:缩进的\n"

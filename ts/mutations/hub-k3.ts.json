@@ -1,0 +1,34 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-commands-scenes.contract.test.ts",
+  "-t",
+  "第 157 轮",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "R01 先出版本再核对",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "    if (budgetLine(key).finditer(existing).length !== 1) return",
+   "new": "    if (false) return"
+  },
+  {
+   "name": "R02 说明不留",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "compilePy(`(?m)^- ${key}: *[0-9]+`)",
+   "new": "compilePy(`(?m)^- ${key}:.*`)"
+  },
+  {
+   "name": "R03 数字后面要直接行尾",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "compilePy(`(?m)^- ${key}: *[0-9]+`)",
+   "new": "compilePy(`(?m)^- ${key}: *[0-9]+$`)"
+  }
+ ]
+}

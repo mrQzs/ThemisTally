@@ -6516,6 +6516,11 @@ def cmd_task_unstick(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+#: 第 157 轮：合同 Budget 的一行，只匹配到数字，行尾的说明照留。T035 的合同写着“- max_attempts_total: 2（按 task-id 汇总，包括返工版本）”，
+#: 原来要求数字后面直接是行尾，追加预算对它永远失败
+BUDGET_LINE = "(?m)^- %s: *[0-9]+"
+
+
 def raise_budget(hub: Hub, ts: Dict[str, Any], attempts: int) -> Tuple[Dict[str, Any], List[str]]:
     """合同出下一版，max_attempts_total 改成 attempts；累计墙钟不够再跑 MIN_ATTEMPTS_LEFT 次时一并补足。
     返回（改动，问题）。"""
@@ -6527,6 +6532,11 @@ def raise_budget(hub: Hub, ts: Dict[str, Any], attempts: int) -> Tuple[Dict[str,
             budget.get("max_attempts_total"), need, used["attempts_started"])]
     wall = max(int(budget.get("max_wall_seconds_total") or 0),
                int(used["wall_seconds_used"] + MIN_ATTEMPTS_LEFT * float(budget.get("max_wall_seconds_per_attempt") or 0)))
+    # 第 157 轮：两行都找得到才出新版本（原来先复制出新版本才发现找不到，留下一份没人认的 md 与一条 contract.bumped）
+    current = read_text(contract_paths(hub, ts)[0])
+    for key in ("max_attempts_total", "max_wall_seconds_total"):
+        if len(re.findall(BUDGET_LINE % key, current)) != 1:
+            return {}, ["合同 Budget 里找不到唯一的“- %s:”行" % key]
     if ts["contract"].get("dispatched"):
         problems = bump_contract_version(hub, ts)
         if problems:
@@ -6534,9 +6544,7 @@ def raise_budget(hub: Hub, ts: Dict[str, Any], attempts: int) -> Tuple[Dict[str,
     md, _js = contract_paths(hub, ts)
     text = read_text(md)
     for key, value in (("max_attempts_total", attempts), ("max_wall_seconds_total", wall)):
-        text, count = re.subn(r"(?m)^- %s:\s*\d+\s*$" % key, "- %s: %d" % (key, value), text)
-        if count != 1:
-            return {}, ["合同 Budget 里找不到唯一的“- %s:”行" % key]
+        text = re.sub(BUDGET_LINE % key, "- %s: %d" % (key, value), text)
     md.write_text(text, encoding="utf-8", newline="\n")
     change = {"key": ts["contract"]["key"], "attempts": [budget.get("max_attempts_total"), attempts],
               "wall_total": [budget.get("max_wall_seconds_total"), wall]}
