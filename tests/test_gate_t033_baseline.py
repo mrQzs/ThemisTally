@@ -39,7 +39,7 @@ electron 本体）。Python 把探针源码写进系统临时目录、以仓库�
     没有以 0 正常退出」同句文案；既有形状（new BrowserWindow 恰好一处、launchMode 早于
     runShell、runShell 五键）不破。
   - S05（过渡）/D06：A 片的过渡行为——服务意外退出写一行 ``ERROR: 服务意外退出（退出码 N）``
-    并以 1 退出。B 片（意外退出回服务状态页）会推翻这条，函数名带 test_transitional_。
+    并以 1 退出。站主 2026-11-13 为 T035（意外退出回服务状态页）退役了这条。
   - S06/D11：README 外壳页一节写清新行为（on('service-state') 真订阅、手工冒烟注明点「启动」
     要等 T032）。
 - 探针断言（``test_p*``，跑 node --test）：
@@ -58,7 +58,7 @@ electron 本体）。Python 把探针源码写进系统临时目录、以仓库�
     监听函数只收 state 一个实参（不把事件对象交给页面）、两个订阅都收到、退订只删自己那条、
     重复退订与再发收不到、别的事件名同步回空退订函数、on 与退订都不发 IPC；假 electron 不提供
     removeListener/off（不许依赖它们）。
-  - P05（过渡）：restartService 在 A 片仍回 not-implemented、不进控制器（B 片推翻）。
+  - P05（过渡）：restartService 在 A 片仍回 not-implemented、不进控制器。站主 2026-11-13 为 T035 退役了这条与它的探针。
 
 合同没写死、门禁端按最合理读法定下的地方（交付信「下游须知」逐条列出）：onRunning 经
 createServiceFlow 的注入项给出（实参至少含 origin/control/repo）；stop() 的返回值只断言
@@ -346,16 +346,6 @@ def test_s04_main_js_service_wiring():
     run_arg = _call_arg_text(text, run_at)
     for key in ("argv", "io", "openWindow", "onServiceReady", "env"):
         assert re.search(rf"\b{key}\b", run_arg), f"runShell 的调用仍要收 {key}：{run_arg[:200]!r}"
-
-
-def test_transitional_s05_unexpected_exit_error_line():
-    """D06 的 A 片过渡断言（B 片推翻）：服务在 running 期间自己退出（byShell 为假）时，main.js
-    往 stderr 写一行 ``ERROR: 服务意外退出（退出码 N）`` 并以 1 退出。B 片（T033 后续主任务：
-    意外退出回服务状态页并重启）落地时会推翻这条，站主按名字退役。"""
-    text = _shell_read("main.js")
-    assert "服务意外退出（退出码" in text, (
-        "A 片过渡：外壳分支要写一行 ERROR: 服务意外退出（退出码 N）（与服务分支同一句文案）"
-    )
 
 
 def test_s06_readme_shell_service():
@@ -1024,50 +1014,6 @@ test("on 与退订都不发 IPC（不发 invoke，也不发 send）；源文本�
 '''
 
 
-PROBE_RESTART = r'''
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { createSettingsStore } = require("@SHELL@/src/settings.js");
-const { createShellApi } = require("@SHELL@/src/shellapi.js");
-
-test("A 片过渡：restartService 仍回 not-implemented，不进控制器（B 片推翻这条）", async () => {
-  const b = fs.mkdtempSync(path.join(os.tmpdir(), "t033-restart-"));
-  fs.mkdirSync(path.join(b, "userData"));
-  fs.mkdirSync(path.join(b, "userData2"));
-  const api = createShellApi({ store: createSettingsStore({ dir: path.join(b, "userData") }) });
-  assert.deepEqual(await api.restartService(), { ok: false, reason: "not-implemented" });
-
-  const ctl = {
-    starts: 0,
-    async start() {
-      ctl.starts += 1;
-      return { ok: true, value: null };
-    },
-    async stop() {
-      return { exited: true, code: 0, signal: null };
-    },
-    async abort() {},
-    state() {
-      return { kind: "idle" };
-    },
-    subscribe() {
-      return () => {};
-    },
-  };
-  const api2 = createShellApi({
-    store: createSettingsStore({ dir: path.join(b, "userData2") }),
-    service: ctl,
-    assets: "/assets/root",
-  });
-  assert.deepEqual(await api2.restartService(), { ok: false, reason: "not-implemented" });
-  assert.equal(ctl.starts, 0, "restartService 不许进控制器");
-});
-'''
-
-
 # --------------------------------------------------------------------------- 探针包装
 
 def test_p01_probe_serviceflow():
@@ -1092,9 +1038,3 @@ def test_p04_probe_shellpreload_on():
     """D04：shell-preload 的 on——一个 ipcRenderer.on、单实参转发、独立订阅与退订、别的
     事件名回空退订函数、不发 IPC（node --test 探针，假 electron 不提供 removeListener/off）。"""
     _expect_probe_pass("t033-shellpreload", PROBE_SHELLPRELOAD)
-
-
-def test_transitional_p05_probe_restart_service():
-    """D01 的 A 片过渡断言（B 片推翻）：restartService 仍回 not-implemented 且不进控制器。
-    B 片（T033 后续主任务：restartService 真行为）落地时站主按名字退役这条。"""
-    _expect_probe_pass("t033-restart", PROBE_RESTART)
