@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "task_id": "t031-desktop-ui-hub-roles",
+  "plan_version": 1,
+  "title": "桌面端本机服务第 8 片：七端岗位绑定的读写路由（模型配置 M3）",
+  "repository": "ThemisTally",
+  "base_sha": "7a3bd3f9e8412ee1b3941ea2198bcc73f3b611a1",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/redaction.ts",
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/writeroutes.ts",
+      "ts/packages/ui/README.md",
+      "ts/packages/ui/test/routes-auth.test.ts",
+      "ts/packages/ui/test/kernel-runner.test.ts",
+      "ts/packages/ui/test/argv-templates.test.ts",
+      "ts/packages/ui/test/write-argv.test.ts",
+      "ts/packages/ui/test/write-config.test.ts",
+      "ts/packages/ui/test/fixtures/fake-write-kernel.mjs"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/test/hub-routes.test.ts",
+      "ts/packages/ui/test/hub-routes-real.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t031_*.py",
+      "tests/test_gate_*.py",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/src/routes.ts",
+      "ts/packages/ui/src/localhttp/**",
+      "ts/packages/ui/src/kernelenv.ts",
+      "ts/packages/ui/package.json",
+      "ts/bun.lock",
+      "ts/packages/base/**",
+      "ts/packages/contracts/**",
+      "ts/packages/config/**",
+      "desktop/**",
+      "docs/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t031_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "^$"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/contracts/test/ui.contract.test.ts",
+        "packages/contracts/test/source-hygiene.test.ts",
+        "packages/contracts/test/status-inputs.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "读路由 `api.hub.roles.get` 存在且是 `READ_ROUTE_SPECS` 的第 20 条：GET `/api/v1/hub/roles`、时限 30 秒、argv 恰为 `[\"config\",\"hub\",\"show\",\"--json\"]`、不带会话 401、处理器交出的 argv 与 `READ_ROUTE_ARGV` 一致",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "读路由与 argv 模板不漂移"
+    },
+    {
+      "id": "D02",
+      "text": "`HUB_ROLES_ALLOW` 逐字段登记第二节那 15 条路径，**每一个内核会给 null 的字段都接受 null**；越界的枚举值与凭据形状的值变成 `<redacted>`，合格的值原样返回",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "二道脱敏既不遮掉合法绑定，也不放过越界值"
+    },
+    {
+      "id": "D03",
+      "text": "两条写路由存在且走同一条链：`hub.set` → `[\"config\",\"hub\",\"set\",post,profile]`（有 `fallback` 再加 `--fallback=<fallback>`）、`hub.unset` → `[\"config\",\"hub\",\"unset\",post]`；路径参数键是 `post`、路径参数压正文；预览要内核回的 `action` 逐字等于 `hub.set`/`hub.unset`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "拼错的 argv 内核会拒收，而错在“差不多”上最难发现"
+    },
+    {
+      "id": "D04",
+      "text": "参数校验按第三节：`post` 只认六个岗位名、`profile`/`fallback` 过 `TASK_ID_RE`、未知键与缺必填键都回固定提示且不起子进程",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务在起子进程之前挡住形状不对的请求"
+    },
+    {
+      "id": "D05",
+      "text": "U4：`OPEN_WRITE_COMMAND_PATHS` 恰好 14 条（既有十二条一条不改不加名，两条新的加进去）、`PENDING_WRITE_COMMAND_PATHS` 导出保留且是空数组、开放集合与内核的 `--dry-run` 集合逐条相等且两张表互不相交、`NOT_OPEN_WRITE_COMMANDS` 不动",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "开放的写命令必须真的能预览与比对令牌"
+    },
+    {
+      "id": "D06",
+      "text": "U6——确认号缺失、过期、用第二次、换了参数四种都回 409，且命令没有运行（报告里没有带 `--expect-state=` 的 begin 行）；两种提示原文分别是「确认号无效、已过期或已用过：请重新预览」与「确认号与这次请求的参数不符：请重新预览」",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "确认号是写命令的一次性闸门"
+    },
+    {
+      "id": "D07",
+      "text": "U6b——预览之后配置被别的进程改了，执行回 409、`exit_code` 是 4、操作记 `stale`，配置与审计逐字节不变",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "令牌比对是防「预览到执行之间被人改了配置」的唯一闸门"
+    },
+    {
+      "id": "D08",
+      "text": "U7——经本机服务执行 `hub set` 回 200，审计的 actor 是 `user-ui`；再读 `/api/v1/hub/roles` 能看到 `source` 是 `config`、profile 是新值",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "界面能读到并改掉岗位绑定"
+    },
+    {
+      "id": "D09",
+      "text": "U9——真内核上 `GET /api/v1/hub/roles` 的 `data` 与 `config hub show --json` 的结果逐字段相等（六个岗位逐行、十个字段加 fallback 的六个子字段）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "读路由是内核口径的忠实映射，不多不少"
+    },
+    {
+      "id": "D10",
+      "text": "令牌不外泄的回归保护把新路由算进去：`write-config.test.ts` 的「令牌不外泄」表从 12 行加到 14 行（`hub.set`、`hub.unset` 两行），四查法（预览正文、执行正文、操作正文逐段与整条都不出现、替身报告的 `expect_state` 与整条令牌逐字相同）逐行成立",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "令牌进了响应正文就等于凭据外泄"
+    },
+    {
+      "id": "D11",
+      "text": "既有断言一条不推翻——四份锁定的基准测试只改了第四节点名的那几处（19→20、12→14、名单加两个名字、示例补齐），`write-config.test.ts` 与替身只追加；`tests/test_gate_*` 一个字都没动；`readroutes.ts` 去注释后没有 `WRITE`；ui 包依赖清单仍只许 base 与 contracts；`public: true` 仍恰好两处",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01",
+        "scope"
+      ],
+      "intent": "本片只许加，不许借机改别人的口径"
+    },
+    {
+      "id": "D12",
+      "text": "README 与行为同步——路由表有三条新路由、条数是 20 条读路由与 14 条写路由、「连接空闲超时」那一条与「已知限制」都对得上、既有段落一字不动、至少保留一处「T020」",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "README 是这一片的对外说明，不许与实现对不上"
+    },
+    {
+      "id": "D13",
+      "text": "所有修改都在允许集合内（新增的两份文件在 `allowed_new_files`，没有删文件，`tests/test_gate_*`、`server.ts`、`routes.ts`、`localhttp/**`、`package.json`、`ts/bun.lock` 一个都没动，依赖没变）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    },
+    {
+      "id": "D14",
+      "text": "没有删除、跳过或弱化既有测试（新写的用例不许出现 skip/only/todo；改断言的那几处是照新事实改数字与名单，不是删断言）",
+      "evidence": [
+        "review",
+        "V01",
+        "R01"
+      ],
+      "intent": "既有测试是别的片的契约，不能借机削弱"
+    },
+    {
+      "id": "D15",
+      "text": "规划与站主点名的设计都落在实现里，合同正文与实现逐条对得上（不留悬着未定的地方）：action 名逐字 `hub.set`/`hub.unset`；`HUB_ROLES_ALLOW` 与 `allowBindingName` 在 `redaction.ts`；岗位名与适配器名的出处写在注释里；`server.ts` 不改；`PREVIEW_ALLOW` 与 `allowPreviewName` 不改；新用例等子进程用 `waitForBegin` 写法",
+      "evidence": [
+        "review",
+        "V01"
+      ],
+      "intent": "合同与实现对得上，下游不用再猜"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
