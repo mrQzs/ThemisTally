@@ -15,9 +15,15 @@ export interface ServiceStatusViewProps {
   navigate: (path: string) => void;
 }
 
+// 外壳调用的拒绝消息：取 Error.message；为空或不是字符串时用「操作失败」兜底。
+function messageOf(e: unknown): string {
+  return e instanceof Error && typeof e.message === 'string' && e.message !== '' ? e.message : '操作失败';
+}
+
 export function ServiceStatusView({ shell, navigate }: ServiceStatusViewProps) {
   const [service, setService] = useState<ServiceState>({ kind: 'idle' });
   const [restarting, setRestarting] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const awaitingRef = useRef(false);
 
   useEffect(() => {
@@ -39,20 +45,23 @@ export function ServiceStatusView({ shell, navigate }: ServiceStatusViewProps) {
         awaitingRef.current = false;
       }
     });
-    shell.getState().then((st) => setService(st.service)).catch(() => {});
+    shell.getState().then((st) => setService(st.service)).catch((e) => setNoteError(messageOf(e)));
     return off;
   }, [shell, navigate]);
 
   const onRestart = () => {
     awaitingRef.current = true;
     setRestarting(true);
-    shell.restartService();
+    shell.restartService().catch((e) => {
+      setRestarting(false);
+      setNoteError(messageOf(e));
+    });
   };
 
   const exited = service.kind === 'exited';
   const code = exited ? String(service.exitCode) : '—';
   const at = exited ? service.at : Date.now();
-  const note = stoppedNote(exited ? service.exitCode : 0);
+  const note = noteError ?? stoppedNote(exited ? service.exitCode : 0);
 
   return (
     <section className="tt-ss">

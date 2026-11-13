@@ -15,6 +15,11 @@ import './first-run.css';
 
 const STEP_NAMES = ['选择仓库', 'Python', 'kit', '本机服务'];
 
+// 外壳调用的拒绝消息：取 Error.message；为空或不是字符串时用「操作失败」兜底。
+function messageOf(e: unknown): string {
+  return e instanceof Error && typeof e.message === 'string' && e.message !== '' ? e.message : '操作失败';
+}
+
 export interface FirstRunViewProps {
   shell: ThemisShell;
   navigate: (path: string) => void;
@@ -36,6 +41,7 @@ function StepIcon({ status }: { status: StepStatus }) {
 
 export function FirstRunView({ shell, navigate }: FirstRunViewProps) {
   const [state, setState] = useState<ShellState | null>(null);
+  const [shellError, setShellError] = useState<string | null>(null);
   const [picks, setPicks] = useState<Picks>({});
   const [copyResult, setCopyResult] = useState<CopyResult | null>(null);
   const requestedRef = useRef<Set<string>>(new Set());
@@ -49,7 +55,7 @@ export function FirstRunView({ shell, navigate }: FirstRunViewProps) {
     const off = shell.on('service-state', (svc) => {
       setState((prev) => (prev ? { ...prev, service: svc } : prev));
     });
-    shell.getState().then(setState).catch(() => {});
+    shell.getState().then(setState).catch((e) => setShellError(messageOf(e)));
     return off;
   }, [shell]);
 
@@ -64,7 +70,7 @@ export function FirstRunView({ shell, navigate }: FirstRunViewProps) {
     const needStart = state.service.kind === 'idle' || svcRepo !== model.repoToStart;
     if (needStart && !requestedRef.current.has(model.repoToStart)) {
       requestedRef.current.add(model.repoToStart);
-      shell.startService(model.repoToStart);
+      shell.startService(model.repoToStart).catch((e) => setShellError(messageOf(e)));
     }
   }, [state, model, shell]);
 
@@ -75,19 +81,31 @@ export function FirstRunView({ shell, navigate }: FirstRunViewProps) {
 
   const onPickRepo = useCallback(async () => {
     setCopyResult(null);
-    applyPick('repo', await shell.pickRepo());
+    try {
+      applyPick('repo', await shell.pickRepo());
+    } catch (e) {
+      setShellError(messageOf(e));
+    }
   }, [shell, applyPick]);
 
   const onPickPython = useCallback(async () => {
-    applyPick('python', await shell.pickPython());
+    try {
+      applyPick('python', await shell.pickPython());
+    } catch (e) {
+      setShellError(messageOf(e));
+    }
   }, [shell, applyPick]);
 
   const onPickKit = useCallback(async () => {
-    applyPick('kit', await shell.pickKit());
+    try {
+      applyPick('kit', await shell.pickKit());
+    } catch (e) {
+      setShellError(messageOf(e));
+    }
   }, [shell, applyPick]);
 
   const onRestart = useCallback(() => {
-    if (model?.repoToStart) shell.startService(model.repoToStart);
+    if (model?.repoToStart) shell.startService(model.repoToStart).catch((e) => setShellError(messageOf(e)));
   }, [shell, model]);
 
   const onCopy = useCallback(
@@ -230,6 +248,7 @@ export function FirstRunView({ shell, navigate }: FirstRunViewProps) {
         <p className="tt-fr__sub">选一个已经接入 Themis Tally 的 Git 仓库</p>
       </div>
       <ol className="tt-fr__steps">{model ? model.steps.map(renderStep) : null}</ol>
+      {shellError && <div className="tt-fr__err" role="alert">{shellError}</div>}
       <div className="tt-fr__foot">
         <span className="tt-fr__note">{footNote}</span>
         <Button variant="primary" size="lg" disabled={!model?.allPass} onClick={() => navigate('/overview')}>
