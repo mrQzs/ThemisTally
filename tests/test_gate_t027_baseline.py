@@ -45,16 +45,16 @@
   的 path 与 cursor 进查询、cursor 不带不拼）；getMeta 的 kit_version 映射两种；getHistoryEntry 的
   resource/diff 归一化；getPlugin 的 allowed_permissions null → []；真实模式 ?mock= 不生效；夹具分支与
   error 开关照旧、getHistoryEntry/getPlugin 的 command/报错原文/深拷贝（D07、D08、D10）。
-- unwired（过渡）：写函数与 getOperation 真实模式回 501 固定信封、不发读请求；searchLogs 回
+- unwired（过渡）：写函数与 getOperation 真实模式回 501 固定信封、不发读请求（站主 2026-11-13 为 T037 退役）；searchLogs 回
   「检索尚未接通」且夹具分支照旧（D09、D10）。
 - tasks（过渡）：真实模式下 tasks-data 不取夹具兜底（先证明夹具键存在）、subscribeMockEvents 不模拟
   事件行（D11）。
 
 过渡断言（函数名带 ``test_transitional_``，docstring 写明哪一片推翻，站主按名字退役）：
 
-- ``test_transitional_s30_*``：connection 只有 connected/disconnected 两个取值——SSE 片会加 reconnecting。
+- ``test_transitional_s30_*``：connection 只有 connected/disconnected 两个取值——SSE 片会加 reconnecting（站主 2026-11-13 为 T036 退役）。
 - ``test_transitional_s31_*``：getMetaNow 纯夹具同步——B 片第 8 步（首屏异步 meta）推翻。
-- ``test_transitional_s32_*``：api.ts 的写函数 501「写操作尚未接通」——写操作接通的片推翻。
+- ``test_transitional_s32_*``：api.ts 的写函数 501「写操作尚未接通」——写操作接通的片推翻（站主 2026-11-13 为 T037 退役）。
 - ``test_transitional_s33_*``：searchLogs「检索尚未接通」——作业/检索片推翻。
 - ``test_transitional_s34_*``：subscribeMockEvents 真实模式不模拟——SSE 片（subscribeEvents）推翻。
 - ``test_transitional_p3_probe_unwired`` / ``test_transitional_p4_probe_tasks``：同上的探针版。
@@ -106,7 +106,7 @@ EXECUTOR_TEST_TOKENS = {
     "live-transport.test.ts": ("createLiveClient", "Retry-After", "会话已失效", "请求超时", "same-origin"),
     "live-connection.test.ts": ("getConnectionState", "subscribeConnectionState", "useConnectionState",
                                 "setConnectionState"),
-    "live-api.test.ts": ("/api/v1/meta", "/api/v1/attempts", "写操作尚未接通", "kit_version",
+    "live-api.test.ts": ("/api/v1/meta", "/api/v1/attempts", "kit_version",  # “写操作尚未接通”站主 2026-11-13 为 T037 退役
                          "allowed_permissions"),
     "live-readers.test.ts": ("searchLogs", "检索尚未接通", "夹具里没有这份数据"),
 }
@@ -406,8 +406,7 @@ def test_s06_api_reads_writes_and_routes():
         assert re.search(rf"export (?:async )?function {name}\(", text), f"api.ts 应保留写函数 {name}"
     assert re.search(r"""from ['"]\.\/live\/mode['"]""", text) and re.search(r"\bliveClient\b", text), \
         "api.ts 应从 ./live/mode 引入 liveClient 并在函数体里用"
-    assert "ERROR: 写操作尚未接通" in text, "api.ts 应有写操作 501 的报错原文"
-    assert re.search(r"\b501\b", text), "写函数真实模式应回 501"
+    # 写函数 501 的报错原文与状态码两行：站主 2026-11-13 为 T037（写操作接真实路由）退役
     for route in API_ROUTES:
         assert route in text, f"api.ts 应出现路由 {route}"
     assert re.search(r"export function getMetaNow\(", text), "getMetaNow 应仍是同步的 export function"
@@ -510,13 +509,6 @@ def test_s12_check_live_build_script():
 # 过渡断言（后续片会推翻；站主按 test_transitional_ 前缀退役）
 # ---------------------------------------------------------------------------
 
-def test_transitional_s30_connection_only_two_states():
-    """过渡 / D06：connection.ts 不出现 'reconnecting'——SSE 片（事件流）会加这个取值，届时退役本条。"""
-    need_file(CONNECTION_REL)
-    text = read_rel(CONNECTION_REL)
-    assert "reconnecting" not in text, "本片 ConnectionState 只有 connected/disconnected（reconnecting 留给 SSE 片）"
-
-
 def test_transitional_s31_getmetanow_pure_fixture():
     """过渡 / D08：getMetaNow 一字未改（同步、纯夹具）——B 片第 8 步（首屏异步 meta）会推翻，届时退役本条。"""
     need_file(API_REL)
@@ -524,13 +516,6 @@ def test_transitional_s31_getmetanow_pure_fixture():
     m = re.search(r"export function getMetaNow\([^)]*\)\s*(?::[^{]{0,80})?\s*\{([^{}]*)\}", text, re.S)
     assert m, "getMetaNow 应仍是同步的 export function（签名原样）"
     assert "clone(metaJson)" in m.group(1), "getMetaNow 的函数体应仍是 clone(metaJson)"
-
-
-def test_transitional_s32_api_writes_501_message():
-    """过渡 / D09：api.ts 的写函数与 getOperation 真实模式回 501「写操作尚未接通」——写操作接通的片会推翻。"""
-    need_file(API_REL)
-    text = read_rel(API_REL)
-    assert "ERROR: 写操作尚未接通" in text, "写函数真实模式应回「ERROR: 写操作尚未接通」（S06 也查，本条随写操作片退役）"
 
 
 def test_transitional_s33_searchlogs_unwired_message():
@@ -1083,7 +1068,6 @@ describe('api.ts 的夹具分支保持原样（未注入）', () => {
 
 PROBE_UNWIRED = r"""
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as api from '../src/api';
 import { setLiveClientForTests } from '../src/live/mode';
 import { searchLogs } from '../src/pages/readonly2/common-readers';
 
@@ -1107,38 +1091,6 @@ beforeEach(() => {
 afterEach(() => {
   setLiveClientForTests(undefined);
   window.location.hash = '';
-});
-
-const WRITE_501 = [
-  { name: 'preview', run: () => api.preview('preset.use', { name: 'default' }) },
-  { name: 'getOperation', run: () => api.getOperation('op-1') },
-  { name: 'usePreset', run: () => api.usePreset('default', 'c1') },
-  { name: 'setPluginEnabled', run: () => api.setPluginEnabled('decisions', true, 'c1') },
-  { name: 'removePreset', run: () => api.removePreset('default', 'c1') },
-  { name: 'removeProfile', run: () => api.removeProfile('p1', 'c1') },
-  { name: 'removeRuntime', run: () => api.removeRuntime('r1', 'c1') },
-  { name: 'rollback', run: () => api.rollback(41, 'c1') },
-  { name: 'addProfile', run: () => api.addProfile({ profile: 'p2', runtime: 'r', model: 'm' }, 'c1') },
-  { name: 'editProfile', run: () => api.editProfile({ profile: 'p1', model: 'm2' }, 'c1') },
-];
-
-describe('写函数与 getOperation 真实模式回 501（A 片：写尚未接通）', () => {
-  for (const row of WRITE_501) {
-    it(row.name + ' → status 501 + 固定信封', async () => {
-      const reply = await row.run();
-      expect(reply.status).toBe(501);
-      expect(reply.body).toEqual({
-        ok: false, exit_code: null, data: null, output: [],
-        messages: ['ERROR: 写操作尚未接通'], command: [], elapsed_ms: 0,
-      });
-    });
-  }
-
-  it('写函数不发任何读请求（不走 client、不读夹具）', async () => {
-    await api.preview('preset.use', { name: 'default' });
-    await api.getOperation('op-1');
-    expect(calls.length).toBe(0);
-  });
 });
 
 describe('searchLogs 真实模式回「检索尚未接通」（作业/检索片会推翻）', () => {
@@ -1521,7 +1473,7 @@ def test_p5_probe_api(pipeline):
 
 
 def test_transitional_p6_probe_unwired(pipeline):
-    """过渡 / D09、D10：写函数 501 与 searchLogs「尚未接通」的探针——写操作片与作业/检索片会推翻。"""
+    """过渡 / D10：searchLogs「尚未接通」的探针——作业/检索片会推翻。写函数 501 的一半站主 2026-11-13 为 T037 退役。"""
     assert_probe_ok(pipeline, "unwired")
 
 

@@ -112,17 +112,14 @@ POINTED_FORBIDDEN = ("window.themisShell", "globalThis.themisShell", "declare gl
 _TS_COMMENT = re.compile(r"(?<![:'\"`])//[^\n]*|/\*.*?\*/", re.S)
 
 # 基线 344b5d0 上一个字不许动的文件（本片 forbidden_paths 里与前端相关的部分；后续片合法改动时按名字退役）
+# 站主 2026-11-13 按名字退掉：App.tsx、shell/PageFrame.tsx、live/transport.ts（T034 连接状态片要改）、live/connection.ts（T036 事件流片）、
+# live/mode.ts（T037 写操作片）
 UNTOUCHED_REL = (
     f"{SP_REL}/themisShell.ts",
     f"{SP_REL}/shellStub.ts",
     f"{SP_REL}/ShellWindow.tsx",
     f"{SP_REL}/SettingsView.tsx",
     f"{SP_REL}/shellWindowRoute.ts",
-    f"{SRC_REL}/shell/PageFrame.tsx",
-    f"{SRC_REL}/App.tsx",
-    f"{SRC_REL}/live/mode.ts",
-    f"{SRC_REL}/live/transport.ts",
-    f"{SRC_REL}/live/connection.ts",
     f"{SRC_REL}/mock/shellpages-scenarios.ts",
     f"{WEB_REL}/vite.config.ts",
     f"{WEB_REL}/scripts/check-live-build.mjs",
