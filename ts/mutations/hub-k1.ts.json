@@ -1,0 +1,158 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-heavy-scenes.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "K01 读不出哪条不符也重跑",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  if (!ids.length) return [code, out];",
+   "new": "  if (false) return [code, out];"
+  },
+  {
+   "name": "K02 本片的检查不符也重跑",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  if (!ids.every((id) => regression.has(id))) return [code, out];",
+   "new": "  if (!ids.some((id) => regression.has(id))) return [code, out];"
+  },
+  {
+   "name": "K03 重跑仍不符也照通过",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  if (code !== 0) return [code, out];",
+   "new": "  if (false) return [code, out];"
+  },
+  {
+   "name": "K04 不记 flaky",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  (ts.get(\"flaky\") as PyValue[]).push(new Map<string, PyValue>([[\"at\", utcNow()], [\"label\", label], [\"checks\", sorted], [\"failed\", names]]));",
+   "new": "  void 0;"
+  },
+  {
+   "name": "K05 不记 regression.flaky",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  await hub.appendEvent(\"regression.flaky\", [[\"task\", task], [\"label\", label], [\"checks\", sorted], [\"failed\", names]]);",
+   "new": ""
+  },
+  {
+   "name": "K06 输出不写明重跑过",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "；原样重跑一次，相符）",
+   "new": "）"
+  },
+  {
+   "name": "K07 车道排不到照检查通过",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "    return [EXIT_BLOCKED, error.message];",
+   "new": "    return [0, error.message];"
+  },
+  {
+   "name": "K08 heavy.queued 记反",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  if (ahead) await hub.appendEvent(\"heavy.queued\",",
+   "new": "  if (!ahead) await hub.appendEvent(\"heavy.queued\","
+  },
+  {
+   "name": "K09 不记 heavy.entered",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "    await hub.appendEvent(\"heavy.entered\", [[\"task\", task], [\"label\", label]]);",
+   "new": ""
+  },
+  {
+   "name": "K10 不记 heavy.left",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "      await hub.appendEvent(\"heavy.left\", [[\"task\", task], [\"label\", label]]);",
+   "new": ""
+  },
+  {
+   "name": "K11 全量回归认反",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "typeof item === \"string\" && gates.has(item)",
+   "new": "typeof item === \"string\" && !gates.has(item)"
+  },
+  {
+   "name": "K12 没过的检查认反",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "pyGet(item, \"status\") !== \"passed\");",
+   "new": "pyGet(item, \"status\") === \"passed\");"
+  },
+  {
+   "name": "K13 红的用例名只看最后一行",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "tailFile(log, 200n)",
+   "new": "tailFile(log, 1n)"
+  },
+  {
+   "name": "K14 基线记录的不符读成空",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  const ids = pyIter(or(pyGet(data, \"mismatches\"), [])).map(pyStrValue);",
+   "new": "  const ids: string[] = [];"
+  },
+  {
+   "name": "K15 持有者活着算空着",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  if (!dirLockAlive(path, lane.pidAlive)) return null;",
+   "new": "  if (dirLockAlive(path, lane.pidAlive)) return null;"
+  },
+  {
+   "name": "K16 执行检查换了名字",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "checkedInLane(hub, ts, \"执行检查\",",
+   "new": "checkedInLane(hub, ts, \"检查\","
+  },
+  {
+   "name": "K17 执行检查不进车道",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "  const [checkCode, checkOut] = await checkedInLane(hub, ts, \"执行检查\", [\"check\", runDir, \"--fresh\"], 3600, () => checkMismatches(runDir), deps.runPd, deps);",
+   "new": "  const [checkCode, checkOut] = await deps.runPd(hub, [\"check\", runDir, \"--fresh\"], 3600);"
+  },
+  {
+   "name": "K18 基线检查不进车道",
+   "file": "ts/packages/hub/src/accept.ts",
+   "old": "  const [code, out] = await checkedInLane(hub, ts, \"基线检查\", [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], 1800,\n    (text) => baselineMismatches(hub, text), deps.runPd, deps);",
+   "new": "  const [code, out] = await deps.runPd(hub, [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], 1800);"
+  },
+  {
+   "name": "K19 基线检查不读记录里的不符",
+   "file": "ts/packages/hub/src/accept.ts",
+   "old": "    (text) => baselineMismatches(hub, text), deps.runPd, deps);",
+   "new": "    () => [[], []], deps.runPd, deps);"
+  },
+  {
+   "name": "K20 落地锁被占的说法变了",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "        return [\"落地锁被占\"];",
+   "new": "        return [\"落地锁忙\"];"
+  },
+  {
+   "name": "K21 车道排不到时崩",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "    return [\"重活车道排不到\"];",
+   "new": "    throw error;"
+  },
+  {
+   "name": "K22 落地不先看有没有人挡着",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "  if (blockers.length > 0) return blockers;",
+   "new": "  if (false) return blockers;"
+  },
+  {
+   "name": "K23 交付信不写重跑过",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "    verdictLine += `；全量回归 ${pyIter(pyItem(item, \"checks\")).map(pyStrValue).join(\"、\")} 第一次红（${names || \"没读出用例名\"}），内核原样重跑一次相符`;",
+   "new": "    void names;"
+  },
+  {
+   "name": "K24 交付信把先前的 flaky 也写上",
+   "file": "ts/packages/hub/src/runexec.ts",
+   "old": "pyIter(or(pyGet(ts, \"flaky\"), [])).slice(flakyBefore)",
+   "new": "pyIter(or(pyGet(ts, \"flaky\"), [])).slice(0)"
+  }
+ ]
+}

@@ -29,7 +29,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Collection, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -3019,7 +3019,8 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     problems = set_contract_base(hub, ts, sha)
     if problems:
         return problems
-    code, out = run_pd(hub, ["baseline", ts["contract"]["key"]], timeout=1800)
+    code, out = checked_in_lane(hub, ts, "基线检查", ["baseline", ts["contract"]["key"]], 1800,
+                                lambda text: baseline_mismatches(hub, text))
     ts["oracle"]["baseline_exit"] = code
     ts["oracle"]["baseline_tail"] = tail(out, 20)
     if code != 0:
@@ -3242,8 +3243,12 @@ def run_mutations(hub: Hub, ts: Dict[str, Any], workspace: Path, stage_dir: Path
     out_dir = stage_dir / "evidence" / ("mutate-%s" % utc_compact())
     # 整份的时限按条数放宽：此前固定 3600 秒，几条变异卡到各自的时限，整份就判“没有跑完”
     budget = max(3600, runs * (spec.get("timeout_seconds") or pd.MUTATION_DEFAULT_TIMEOUT) + 600)
-    code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
-                       timeout=budget)
+    try:
+        with heavy_lane(hub, "变异检查", ts["task"]):
+            code, out = run_pd(hub, ["mutate", "--tree", str(workspace), "--spec", str(spec_path), "--out", str(out_dir)],
+                               timeout=budget)
+    except LaneBusy as exc:
+        code, out = EXIT_BLOCKED, str(exc)
     try:
         record = json.loads(read_text(out_dir / "mutations.json") or "{}")
     except ValueError:
@@ -3984,7 +3989,9 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     exec-recheck 也走这里：内核中途停下或判定逻辑修过之后，对已有的 attempt 重新核验，不占新的尝试次数。"""
     # 状态在 state.json 的 "state" 键（pi_dispatch.get_state）；T001 时这里读成了 "status"，恒为空，执行阶段永远判不过
     status = pd.get_state(run_dir)
-    check_code, check_out = run_pd(hub, ["check", str(run_dir), "--fresh"], timeout=3600)
+    flaky_before = len(ts.get("flaky") or [])
+    check_code, check_out = checked_in_lane(hub, ts, "执行检查", ["check", str(run_dir), "--fresh"], 3600,
+                                            lambda _text: check_mismatches(run_dir))
     scope = json.loads(read_text(run_dir / "scope.json") or "{}")
     violations = scope.get("violations") or []
     report = json.loads(read_text(run_dir / "executor-report.json") or "{}")
@@ -4014,6 +4021,9 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     failed = failed_checks_brief(run_dir) if check_code != 0 else ""
     if failed:
         verdict_line += "；没过的检查：" + failed
+    for item in (ts.get("flaky") or [])[flaky_before:]:  # 第 155 轮：重跑之后才相符的，写给协调人看
+        verdict_line += "；全量回归 %s 第一次红（%s），内核原样重跑一次相符" % (
+            "、".join(item["checks"]), "、".join(item["failed"][:3]) or "没读出用例名")
     if ts["exec"]["attempts_left"] is not None:
         # T012 的协调人数 attempt 目录，说“预算已耗尽”；预检失败的那一次没领取预算，其实还剩 1 次（第 39 轮）
         verdict_line += "；合同预算还剩 %d 次 attempt" % ts["exec"]["attempts_left"]
@@ -4194,6 +4204,135 @@ def sweep_window(hub: Hub, name: str, label: str):
                 pass
 
 
+#: 重活车道排队的上限（第 155 轮）：一份全量检查约 20 分钟，前面排着几份也就一两个小时。
+HEAVY_WAIT_SECONDS = 4 * 3600.0
+#: 落地在车道里试落地锁的时限（第 155 轮）：拿不到就让出车道、下一轮再试，不拿着车道干等。
+LAND_TRY_SECONDS = 15.0
+FAILED_TEST_RE = re.compile(r"^FAILED (\S+)", re.M)
+
+
+class LaneBusy(HubError):
+    """重活车道排到上限也没排到：这份检查没有跑，不是检查不过。"""
+
+
+@contextlib.contextmanager
+def heavy_lane(hub: Hub, label: str, task: Optional[str] = None):
+    """重活车道（第 155 轮，信箱演进第 1 步）：内核自己起的、会把全部旧门禁跑一遍的活（基线检查、执行检查、落地检查、
+    变异检查、后台回归与落地预演）一次只跑一份。2026-11-12 界面系列一晚上，三四份全量检查叠着跑，旧门禁里对时间敏感的
+    用例轮流红：T029 的基线检查四轮三红，T031 两轮各红一条，T030、T032 各有一次执行检查被无关的用例红掉；单独跑都全绿。
+    在起子进程之前拿锁，各条检查自己的时限不算排队的时间。拿锁的次序：.sweep → .heavy → .land；拿着 .land 不等 .heavy
+    （落地先排车道、再试落地锁，试不到就让出车道），否则站主的 exclusive 拿着落地锁等执行端、执行端的检查等车道、
+    落地拿着车道等落地锁，三方互等。"""
+    ahead = heavy_holder(hub)
+    if ahead:
+        hub.append_event("heavy.queued", task=task, label=label, behind=ahead)
+    lock = DirLock(hub.root / ".heavy", wait_seconds=HEAVY_WAIT_SECONDS)
+    try:
+        lock.__enter__()
+    except HubError as exc:
+        raise LaneBusy("重活车道排到上限（%d 秒）也没排到（车道里是 %s）：%s 没有跑，不是检查不过" % (
+            HEAVY_WAIT_SECONDS, heavy_holder(hub) or "不明", label), EXIT_BLOCKED) from exc
+    try:
+        write_text_atomic(lock.path / "label.json",
+                          json.dumps({"label": label, "task": task, "at": utc_now()}, ensure_ascii=False) + "\n")
+        # 等了多久、跑了多久不记进事件：看 heavy.queued、heavy.entered、heavy.left 三条的时刻（用时进了账本，三边对照就比不成）
+        hub.append_event("heavy.entered", task=task, label=label)
+        try:
+            yield
+        finally:
+            hub.append_event("heavy.left", task=task, label=label)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def heavy_holder(hub: Hub) -> Optional[str]:
+    """重活车道里现在是谁（给 status 看）；空着是 None。"""
+    path = hub.root / ".heavy"
+    if not lock_alive(path):
+        return None
+    try:
+        data = json.loads(read_text(path / "label.json") or "{}")
+    except ValueError:
+        data = {}
+    return "%s%s" % ("%s 的" % data["task"] if data.get("task") else "", data.get("label") or "重检查")
+
+
+def regression_check_ids(hub: Hub, ts: Dict[str, Any]) -> Set[str]:
+    """合同里跑先前各片门禁基准的那几条检查的编号（contract_requirements 要求必须有的全量回归）。"""
+    gates = set(regression_gates(hub, ts))
+    try:
+        data = json.loads(read_text(contract_paths(hub, ts)[1]) or "{}")
+    except ValueError:
+        return set()
+    return {str(check.get("id")) for check in data.get("checks") or [] if gates & set(check.get("argv") or [])}
+
+
+def failed_test_names(logs: Sequence[Path]) -> List[str]:
+    """检查日志末尾 pytest 汇总里红的用例名。"""
+    names: List[str] = []
+    for log in logs:
+        if log.is_file():
+            names += FAILED_TEST_RE.findall(tail_file(log, 200))
+    return names
+
+
+def baseline_mismatches(hub: Hub, out: str) -> Tuple[List[str], List[Path]]:
+    """基线检查的记录里与预期不符的检查编号，连同它们的日志；记录读不出来给空。"""
+    match = BASELINE_RECORD_RE.search(out)
+    record_path = hub.repo / match.group(1) if match else None
+    if record_path is None or not record_path.is_file():
+        return [], []
+    try:
+        data = json.loads(read_text(record_path) or "{}")
+    except ValueError:
+        return [], []
+    ids = [str(item) for item in data.get("mismatches") or []]
+    logs = [record_path.parent.parent / str(item.get("log")) for item in data.get("results") or []
+            if str(item.get("id")) in ids and item.get("log")]
+    return ids, logs
+
+
+def check_mismatches(run_dir: Path) -> Tuple[List[str], List[Path]]:
+    """attempt 最近一次 check 没过的检查编号，连同它们的日志。"""
+    checks = sorted((run_dir / "checks").glob("*/checks.json"))
+    failed = [item for item in latest_checks(run_dir) if item.get("status") != "passed"]
+    return ([str(item.get("id")) for item in failed],
+            [checks[-1].parent.parent / str(item.get("log")) for item in failed if item.get("log")] if checks else [])
+
+
+def checked_in_lane(hub: Hub, ts: Dict[str, Any], label: str, args: Sequence[str], timeout: int,
+                    mismatched: Callable[[str], Tuple[List[str], List[Path]]]) -> Tuple[int, str]:
+    """在重活车道里跑一次调度器的检查（第 155 轮）。没过、而且不符的只有全量回归那几条时，原样重跑一次：第二次相符
+    照通过处理，账本记 regression.flaky（带第一次红的用例名），输出末尾写明；第二次仍不符照旧判失败。本片自己的检查
+    不符不重跑。2026-11-12：T030 第 1 次执行的检查被 T021 流水线里一条固定等 300 毫秒的旧用例红掉，协调人按“基线全绿、
+    候选红一条”让执行端返工，作废一次 attempt；同一棵候选树重新核验就过了。
+    车道排到上限也没排到：照“没跑成”给出退出码与说明，不让异常从验收的半道上穿出去。"""
+    try:
+        with heavy_lane(hub, label, ts["task"]):
+            return checked_with_one_rerun(hub, ts, label, args, timeout, mismatched)
+    except LaneBusy as exc:
+        return EXIT_BLOCKED, str(exc)
+
+
+def checked_with_one_rerun(hub: Hub, ts: Dict[str, Any], label: str, args: Sequence[str], timeout: int,
+                           mismatched: Callable[[str], Tuple[List[str], List[Path]]]) -> Tuple[int, str]:
+    code, out = run_pd(hub, args, timeout=timeout)
+    if code == 0:
+        return code, out
+    ids, logs = mismatched(out)
+    if not ids or not set(ids) <= regression_check_ids(hub, ts):
+        return code, out
+    names = failed_test_names(logs)[:20]
+    code, out = run_pd(hub, args, timeout=timeout)
+    hub.append_event("regression.rerun", task=ts["task"], label=label, checks=sorted(ids), failed=names, exit=code)
+    if code != 0:
+        return code, out
+    ts.setdefault("flaky", []).append({"at": utc_now(), "label": label, "checks": sorted(ids), "failed": names})
+    hub.append_event("regression.flaky", task=ts["task"], label=label, checks=sorted(ids), failed=names)
+    return code, out + "\n（第一次只有全量回归 %s 不符，红的用例：%s；原样重跑一次，相符）" % (
+        "、".join(sorted(ids)), "、".join(names[:8]) or "没读出来")
+
+
 def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True) -> List[str]:
     """挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），后台在跑的门禁回归（第 62 轮；sweeps=False
     时不算），以及调度器记着在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。"""
@@ -4363,7 +4502,7 @@ def regression_sweep(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     if not gate_baselines(hub.repo):
         return True, "合入后没有门禁基准可跑"
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
-    with scratch_worktree(hub, "sweep", head) as path:
+    with scratch_worktree(hub, "sweep", head) as path, heavy_lane(hub, "合入后回归", ts["task"]):
         code, out, tests = sweep_gates(path)
     keep_sweep_output(hub.task_dir(ts["task"]) / "regression-sweep.log", out)
     ts["regression"] = {"head": head, "exit": code, "tests": tests, "tail": tail(out, 15), "at": utc_now()}
@@ -4447,7 +4586,8 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
                 problem = "候选补丁（%s）打不到末端 %s 上：\n%s" % (run_dir.name, head[:12],
                                                              tail(proc.stdout.decode("utf-8", "replace"), 8))
         if problem is None:
-            code, out, tests = sweep_gates(path)
+            with heavy_lane(hub, "落地预演", ts["task"]):
+                code, out, tests = sweep_gates(path)
             summary = "末端 %s 加上 %s 的候选，全部门禁基准（%d 份）：%s" % (
                 head[:12], run_dir.name, len(tests), tail(out, 1).strip() or "没有输出")
             if code != 0:
@@ -4556,7 +4696,7 @@ def owner_sweep_run(hub: Hub, marker: Dict[str, Any]) -> Tuple[bool, str]:
     检查的候选各做一次落地预演。"""
     ts_install_if_stale(hub)
     head = git(["rev-parse", "HEAD"], hub.repo).strip()
-    with scratch_worktree(hub, "owner-sweep", head) as path:
+    with scratch_worktree(hub, "owner-sweep", head) as path, heavy_lane(hub, "站主提交之后的回归"):
         code, out, tests = sweep_gates(path)
     record = owner_sweep_path(hub)
     # 不叫 owner-sweep.log：runners/ 下有同名的、子进程自己的输出，看的人容易拿错
@@ -6599,6 +6739,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("并行：最多 %d 个主任务；在跑的主任务 runner：%s；在跑的执行端：%s" % (
         configured_parallel(hub, argparse.Namespace(parallel=None)), "、".join(runners) or "无",
         "、".join(executing) or "无"))
+    print("重活车道：%s" % (heavy_holder(hub) or "空"))
     return EXIT_OK
 
 
@@ -6915,16 +7056,33 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def land(hub: Hub, engine: Engine, letter: Path, meta: Dict[str, str]) -> List[str]:
-    """持落地锁结项；别的主任务的执行端还在跑时不动，返回挡着的是谁（信留在 new 里，下一轮再试）。"""
-    with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
-        state = hub.load_state()
-        main = stage_of(meta["task-id"])[0]
-        ts = state["tasks"].get(main) if main else None
-        blockers = landing_blockers(hub, ts) if ts else []
-        if blockers:
-            return blockers
-        hub.take(letter)
-        engine.handle_pass(state, meta)
+    """持落地锁结项；别的主任务的执行端还在跑时不动，返回挡着的是谁（信留在 new 里，下一轮再试）。
+    第 155 轮：integrate 要在末端上把合同的检查连同全量回归跑一遍，是重活。先不拿锁看一眼有没有人挡着，再排重活车道，
+    在车道里试落地锁；落地锁一时拿不到就让出车道、下一轮再试（次序与理由见 heavy_lane）。"""
+    main = stage_of(meta["task-id"])[0]
+    early = hub.load_state()["tasks"].get(main) if main else None
+    blockers = landing_blockers(hub, early) if early else []
+    if blockers:
+        return blockers
+    try:
+        with heavy_lane(hub, "落地检查", main):
+            lock = DirLock(hub.root / ".land", wait_seconds=LAND_TRY_SECONDS)
+            try:
+                lock.__enter__()
+            except HubError:
+                return ["落地锁被占"]
+            try:
+                state = hub.load_state()
+                ts = state["tasks"].get(main) if main else None
+                blockers = landing_blockers(hub, ts) if ts else []
+                if blockers:
+                    return blockers
+                hub.take(letter)
+                engine.handle_pass(state, meta)
+            finally:
+                lock.__exit__(None, None, None)
+    except LaneBusy:
+        return ["重活车道排不到"]
     if main:
         engine.after_land(main)
     return []

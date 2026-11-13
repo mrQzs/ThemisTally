@@ -1,0 +1,132 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "heavy or rerun or regression_checks or mismatches or lane or passing_check or fails_twice or own_checks or failed_test_names or status_shows_the_parallel or blocked_landing or regression_passed_only_on_the_rerun"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "P01 本片的检查不符也重跑",
+   "file": "scripts/kit_hub.py",
+   "old": "    if not ids or not set(ids) <= regression_check_ids(hub, ts):",
+   "new": "    if not ids:"
+  },
+  {
+   "name": "P02 读不出哪条不符也重跑",
+   "file": "scripts/kit_hub.py",
+   "old": "    if not ids or not set(ids) <= regression_check_ids(hub, ts):",
+   "new": "    if not set(ids) <= regression_check_ids(hub, ts):"
+  },
+  {
+   "name": "P03 重跑仍不符也照通过",
+   "file": "scripts/kit_hub.py",
+   "old": "    hub.append_event(\"regression.rerun\", task=ts[\"task\"], label=label, checks=sorted(ids), failed=names, exit=code)\n    if code != 0:",
+   "new": "    hub.append_event(\"regression.rerun\", task=ts[\"task\"], label=label, checks=sorted(ids), failed=names, exit=code)\n    if False:"
+  },
+  {
+   "name": "P04 不记 flaky",
+   "file": "scripts/kit_hub.py",
+   "old": "    ts.setdefault(\"flaky\", []).append({\"at\": utc_now(), \"label\": label, \"checks\": sorted(ids), \"failed\": names})",
+   "new": "    pass"
+  },
+  {
+   "name": "P05 不记 regression.flaky",
+   "file": "scripts/kit_hub.py",
+   "old": "    hub.append_event(\"regression.flaky\", task=ts[\"task\"], label=label, checks=sorted(ids), failed=names)",
+   "new": "    pass"
+  },
+  {
+   "name": "P06 车道排不到照检查通过",
+   "file": "scripts/kit_hub.py",
+   "old": "        return EXIT_BLOCKED, str(exc)",
+   "new": "        return EXIT_OK, str(exc)"
+  },
+  {
+   "name": "P07 heavy.queued 记反",
+   "file": "scripts/kit_hub.py",
+   "old": "    if ahead:",
+   "new": "    if not ahead:"
+  },
+  {
+   "name": "P08 全量回归认反",
+   "file": "scripts/kit_hub.py",
+   "old": "if gates & set(check.get(\"argv\") or [])}",
+   "new": "if not gates & set(check.get(\"argv\") or [])}"
+  },
+  {
+   "name": "P09 没过的检查认反",
+   "file": "scripts/kit_hub.py",
+   "old": "    failed = [item for item in latest_checks(run_dir) if item.get(\"status\") != \"passed\"]",
+   "new": "    failed = [item for item in latest_checks(run_dir) if item.get(\"status\") == \"passed\"]"
+  },
+  {
+   "name": "P10 红的用例名只看最后一行",
+   "file": "scripts/kit_hub.py",
+   "old": "            names += FAILED_TEST_RE.findall(tail_file(log, 200))",
+   "new": "            names += FAILED_TEST_RE.findall(tail_file(log, 1))"
+  },
+  {
+   "name": "P11 基线记录的不符读成空",
+   "file": "scripts/kit_hub.py",
+   "old": "    ids = [str(item) for item in data.get(\"mismatches\") or []]",
+   "new": "    ids = []"
+  },
+  {
+   "name": "P12 持有者活着算空着",
+   "file": "scripts/kit_hub.py",
+   "old": "    if not lock_alive(path):",
+   "new": "    if lock_alive(path):"
+  },
+  {
+   "name": "P13 落地锁被占的说法变了",
+   "file": "scripts/kit_hub.py",
+   "old": "                return [\"落地锁被占\"]",
+   "new": "                return [\"落地锁忙\"]"
+  },
+  {
+   "name": "P14 车道排不到时崩",
+   "file": "scripts/kit_hub.py",
+   "old": "        return [\"重活车道排不到\"]",
+   "new": "        raise"
+  },
+  {
+   "name": "P15 落地不先看有没有人挡着",
+   "file": "scripts/kit_hub.py",
+   "old": "    blockers = landing_blockers(hub, early) if early else []",
+   "new": "    blockers = []"
+  },
+  {
+   "name": "P16 status 不报车道",
+   "file": "scripts/kit_hub.py",
+   "old": "    print(\"重活车道：%s\" % (heavy_holder(hub) or \"空\"))",
+   "new": "    pass"
+  },
+  {
+   "name": "P17 车道不互斥",
+   "file": "scripts/kit_hub.py",
+   "old": "    try:\n        lock.__enter__()\n    except HubError as exc:\n        raise LaneBusy(",
+   "new": "    try:\n        pass\n    except HubError as exc:\n        raise LaneBusy("
+  },
+  {
+   "name": "P18 交付信不写重跑过",
+   "file": "scripts/kit_hub.py",
+   "old": "    for item in (ts.get(\"flaky\") or [])[flaky_before:]:",
+   "new": "    for item in []:"
+  },
+  {
+   "name": "P19 交付信把先前的 flaky 也写上",
+   "file": "scripts/kit_hub.py",
+   "old": "    for item in (ts.get(\"flaky\") or [])[flaky_before:]:",
+   "new": "    for item in (ts.get(\"flaky\") or []):"
+  }
+ ]
+}

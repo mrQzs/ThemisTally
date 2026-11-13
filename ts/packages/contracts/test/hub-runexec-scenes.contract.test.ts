@@ -113,7 +113,7 @@ describe("第 ⑤g2 片：dispatch_attempt（手写）", () => {
     ]);
     const events = (state: Record<string, unknown> | undefined): string[] => Buffer.from(String(state?.["ledger"]), "base64").toString("utf8").split(LF)
       .filter((line) => line).map((line) => String((JSON.parse(line) as Record<string, unknown>)["event"]));
-    expect(events(states[0])).toEqual(["exec.started", "exec.finished"]);
+    expect(events(states[0])).toEqual(["exec.started", "heavy.entered", "heavy.left", "exec.finished"]); // 第 155 轮：执行检查在重活车道里跑
     expect((tsAfter(states[0]).get("contract") as PyDict).get("dispatched")).toBe(true);
   }, 600_000);
 

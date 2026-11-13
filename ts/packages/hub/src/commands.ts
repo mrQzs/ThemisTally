@@ -26,10 +26,11 @@ import { answersQuestion, contractPaths } from "./contract.ts";
 import { Engine, type EngineDeps, REAL_ENGINE_DEPS, releaseDependents } from "./engine.ts";
 import { HubError } from "./errors.ts";
 import { ATTEMPT_IN_FLIGHT, attemptsLeft } from "./exec.ts";
+import { heavyHolder } from "./heavy.ts";
 import { git } from "./kernel.ts";
 import { landingBlockers } from "./land.ts";
 import { letterErrors, stageOf } from "./letters.ts";
-import { DirLock, Hub } from "./mailbox.ts";
+import { DirLock, Hub, dirLockAlive } from "./mailbox.ts";
 import { budgetUsage } from "./prompt.ts";
 import { runnerLock } from "./requeue.ts";
 import { checkSpendCap, describeSpendCap, turnMetrics } from "./spend.ts";
@@ -90,16 +91,7 @@ export function pauseMarker(hub: Hub, task: string): string {
 
 /** DirLock 有没有活着的持有者。 */
 export function lockAlive(path: string, deps: EngineDeps = REAL_ENGINE_DEPS): boolean {
-  if (!isDirectory(path)) return false;
-  let owner: PyValue;
-  try {
-    owner = loads(readText(purePathStr(path, "owner.json")) || "{}");
-  } catch (error) {
-    if (isValueError(error)) return true; // 刚建、owner.json 还没写完（读不出、不是 UTF-8 也一样，Python 的 except ValueError）
-    throw error;
-  }
-  const pid = getOf(owner, "pid");
-  return !(pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) === false);
+  return dirLockAlive(path, deps.pidAlive);
 }
 
 export function supervisorAlive(hub: Hub, deps: EngineDeps = REAL_ENGINE_DEPS): boolean {
@@ -646,6 +638,7 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   const executing = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), true, deps).map(pyStrValue);
   out.print(`并行：最多 ${configuredParallel(hub, { parallel: null })} 个主任务；在跑的主任务 runner：${runners.join("、") || "无"}；`
     + `在跑的执行端：${executing.join("、") || "无"}`);
+  out.print(`重活车道：${heavyHolder(hub, deps) || "空"}`);
   return EXIT_OK;
 }
 

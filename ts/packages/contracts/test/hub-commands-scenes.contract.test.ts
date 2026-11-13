@@ -120,7 +120,9 @@ describe("第 ⑤j1 片：锁与并行的设置（手写）", () => {
         flow("cmd_status", broken, [command(broken.repo, "status", { json: false })]), flow("cmd_status", word, [command(word.repo, "status", { json: false })]),
         flow("cmd_status", utf16, [command(utf16.repo, "status", { json: false })]),
       ], undefined, REPLAY_TIMEOUT);
-      const last = (state: Record<string, unknown> | undefined): string => stdoutOf(state).trimEnd().split(LF).at(-1) as string;
+      // 第 155 轮起 status 最后一行是“重活车道”，“并行”在倒数第二行
+      const last = (state: Record<string, unknown> | undefined): string => stdoutOf(state).trimEnd().split(LF).at(-2) as string;
+      expect(stdoutOf(states[0]).trimEnd().split(LF).at(-1)).toBe("重活车道：空");
       expect(last(states[0])).toBe("并行：最多 3 个主任务；在跑的主任务 runner：T002、T003、T005；在跑的执行端：无");
       expect((JSON.parse(stdoutOf(states[1])) as { unread: Record<string, number> }).unread[OWNER]).toBe(0);
       expect([last(states[2]), last(states[3]), last(states[4])].map((line) => line.split("；")[0]))
@@ -289,7 +291,7 @@ describe("第 ⑤j1 片：变异补的场景（手写，各条 it 的标题里�
       put(repo, `${BOX}/runner.json`, JSON.stringify({ parallel: -2 }));
     });
     const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })], { inner: [alive(4242, null)], replaced: ["pid_alive"] })]);
-    expect(stdoutOf(state).trimEnd().split(LF).at(-1)).toBe("并行：最多 1 个主任务；在跑的主任务 runner：T003、T006、b-x；在跑的执行端：无");
+    expect(stdoutOf(state).trimEnd().split(LF).slice(-2)).toEqual(["并行：最多 1 个主任务；在跑的主任务 runner：T003、T006、b-x；在跑的执行端：无", "重活车道：空"]);
   }, 600_000);
 
   it("task_quiet：.runner 有人拿着、却不是 supervisor 时照样要拿总锁（J03）；暂停标记里的 pid 是命令自己的进程，别的进程问得到它活着（J11）", () => {
@@ -343,8 +345,8 @@ describe("第 ⑤j1 片：themistally-04 抽查补的场景（手写，标题里
     });
     const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })])]);
     const lines = stdoutOf(state).trimEnd().split(LF);
-    expect(lines.slice(-2)).toEqual([
-      `运行中的 hub：${JSON.stringify({ pid: 4242, token: "t", at: AT })}`, "并行：最多 1 个主任务；在跑的主任务 runner：T007、T008；在跑的执行端：无",
+    expect(lines.slice(-3)).toEqual([
+      `运行中的 hub：${JSON.stringify({ pid: 4242, token: "t", at: AT })}`, "并行：最多 1 个主任务；在跑的主任务 runner：T007、T008；在跑的执行端：无", "重活车道：空",
     ]);
   }, 600_000);
 

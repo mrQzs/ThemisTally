@@ -13,15 +13,15 @@
  "mutations": [
   {
    "name": "J01 owner.json 读不出当成没人拿",
-   "file": "ts/packages/hub/src/commands.ts",
-   "old": "if (isValueError(error)) return true; // 刚建",
-   "new": "if (isValueError(error)) return false; // 刚建"
+   "file": "ts/packages/hub/src/mailbox.ts",
+   "old": "UnicodeDecodeError) return true; // Python 的 except ValueError",
+   "new": "UnicodeDecodeError) return false; // Python 的 except ValueError"
   },
   {
    "name": "J02 pid 问不出死活也算不在了",
-   "file": "ts/packages/hub/src/commands.ts",
-   "old": "deps.pidAlive(Number(pyIntOf(pid))) === false);",
-   "new": "deps.pidAlive(Number(pyIntOf(pid))) !== true);"
+   "file": "ts/packages/hub/src/mailbox.ts",
+   "old": "alive(Number(pyIntOf(pid))) === false);",
+   "new": "alive(Number(pyIntOf(pid))) !== true);"
   },
   {
    "name": "J03 supervisor 不看 mode",
@@ -565,9 +565,9 @@
   },
   {
    "name": "J93 owner.json 没有 pid 也去问死活（抽查 S11）",
-   "file": "ts/packages/hub/src/commands.ts",
-   "old": "return !(pyTruthy(pid) && deps.pidAlive(Number(pyIntOf(pid))) === false);",
-   "new": "return !(deps.pidAlive(Number(pyIntOf(pid))) === false);"
+   "file": "ts/packages/hub/src/mailbox.ts",
+   "old": "return !(pyTruthy(pid) && alive(Number(pyIntOf(pid))) === false);",
+   "new": "return !(alive(Number(pyIntOf(pid))) === false);"
   }
  ]
 }

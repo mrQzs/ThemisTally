@@ -126,7 +126,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(tally(all.map((item) => item.fn)), "各函数的最外层调用次数").toEqual({
       cmd_metrics: 1,
       cmd_send: 20,
-      cmd_status: 1,
+      cmd_status: 2, // 第 155 轮：status 的用例多一段（车道里有人时那一行）
       cmd_task_after: 10,
       cmd_task_budget: 10,
       cmd_task_cap: 4,
@@ -146,7 +146,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const inner = all.filter((item) => item.skip === null).flatMap((item) => (item.request["inner"] as { fn: string }[] | undefined) ?? []);
     expect(tally(inner.map((entry) => entry.fn)), "注入的内层调用").toEqual({
       contract_requirements: 1,
-      pid_alive: 2,
+      pid_alive: 4, // 第 155 轮：status 的用例在车道有人时再调一次，车道持有者与执行标记各问一次死活
       run_pd: 4,
       tidy_finished: 1,
     });

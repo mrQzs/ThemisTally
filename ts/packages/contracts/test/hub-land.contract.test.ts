@@ -117,7 +117,7 @@ describe("第 ⑤h1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const counts = Object.fromEntries(FLOW.map((fn) => [fn, all.filter((item) => item.fn === fn).length]));
     // remove_workspaces、undo_landing、record_pass 没有顶层调用（都在 tidy_finished、finalize 里面），走 TS 自己的实现；没走到的分支在 hub-land-scenes 手写
     expect(counts, "各函数的顶层调用次数").toEqual({
-      finalize: 20, landing_blockers: 19, retire_attempts: 4, tidy_finished: 5, remove_workspaces: 0, commit_records: 2, land_oracle: 2, land_rework_chain: 3,
+      finalize: 20, landing_blockers: 20, retire_attempts: 4, tidy_finished: 5, remove_workspaces: 0, commit_records: 2, land_oracle: 2, land_rework_chain: 3,
       undo_landing: 0, record_pass: 0,
     });
     // 表里每一条恰好对上一次调用（过期的键会少一条）；采样器自己标的 skip 一条也没有
@@ -126,7 +126,7 @@ describe("第 ⑤h1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const calls = all.filter((item) => item.skip === null);
     const inner = calls.flatMap((item) => item.request["inner"] as { fn: string }[]);
     const injected = Object.fromEntries([...new Set(inner.map((entry) => entry.fn))].sort().map((fn) => [fn, inner.filter((entry) => entry.fn === fn).length]));
-    expect(injected, "注入的内层调用").toEqual({ _running_attempts: 19, pid_alive: 10, run_pd: 25 });
+    expect(injected, "注入的内层调用").toEqual({ _running_attempts: 20, pid_alive: 11, run_pd: 25 }); // 第 155 轮：land 进车道前后各看一次有没有人挡着
     replay(calls);
   }, 1_800_000);
   it("其余四个：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {

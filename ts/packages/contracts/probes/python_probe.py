@@ -2688,7 +2688,9 @@ def op_hub_contract_flow(request):
     saved = {name: getattr(_flow_target(name), _flow_attr(name)) for name in replaced + ["utc_now", "utc_compact", "new_msg_id"]}
     saved_wait, saved_session, saved_time = kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session, time.time
     # ⑤h2：后台回归的三个时限各有各的键，同 hub_probe.ts；land_wait 照旧只管 EXEC_LAND_WAIT_SECONDS
-    waits = {"land_lock_wait": "LAND_WAIT_SECONDS", "sweep_wait": "SWEEP_WAIT_SECONDS", "sweep_seconds": "SWEEP_SECONDS"}
+    # 第 155 轮：重活车道排队与落地试锁的时限（手写场景里车道或落地锁由另一个进程拿着时设短）
+    waits = {"land_lock_wait": "LAND_WAIT_SECONDS", "sweep_wait": "SWEEP_WAIT_SECONDS", "sweep_seconds": "SWEEP_SECONDS",
+             "heavy_wait": "HEAVY_WAIT_SECONDS", "land_try": "LAND_TRY_SECONDS"}
     saved_waits = {name: getattr(kit_hub, name) for name in waits.values()}
     for key, name in waits.items():
         if request.get(key) is not None:

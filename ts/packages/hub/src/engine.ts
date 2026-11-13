@@ -24,6 +24,7 @@ import { dodCoverageProblems, externalFactProblems, unverifiedFacts } from "./co
 import { HubError } from "./errors.ts";
 import { interruptedAttempt } from "./exec.ts";
 import { type GatePostDeps, REAL_GATE_POST_DEPS, acceptGatePost, applyCandidate, ensureWorktree, seedWhitebox } from "./gatepost.ts";
+import { LaneBusy, withHeavyLane } from "./heavy.ts";
 import { removeInputs, stageInputs } from "./inputs.ts";
 import { git } from "./kernel.ts";
 import { type LandDeps, REAL_LAND_DEPS, finalize, landingBlockers, tidyFinished } from "./land.ts";
@@ -931,21 +932,43 @@ export async function releaseDependents(hub: Hub, state: StateLike, done: string
   return released;
 }
 
-/** 持落地锁结项；别的主任务的执行端还在跑时不动，交回挡着的是谁（信留在 new 里，下一轮再试）。 */
+/**
+ * 持落地锁结项；别的主任务的执行端还在跑时不动，交回挡着的是谁（信留在 new 里，下一轮再试）。第 155 轮：integrate 要在末端上把合同的检查
+ * 连同全量回归跑一遍，是重活。先不拿锁看一眼有没有人挡着，再排重活车道，在车道里试落地锁；落地锁一时拿不到就让出车道、下一轮再试
+ * （次序与理由见 withHeavyLane）。
+ */
 export async function land(hub: Hub, engine: Landing, letter: string, meta: ReadonlyMap<string, string>, deps: EngineDeps = REAL_ENGINE_DEPS): Promise<PyValue[]> {
-  let main: string | null;
-  const lock = new DirLock(purePathStr(hub.root, ".land"), deps.landLockWaitSeconds).acquire();
+  const main = stageOf(pyItem(meta as PyDict, "task-id") as string)[0];
+  const early = main ? pyGet(hub.loadState().tasks(), main) as PyDict | null : null;
+  const blockers = pyTruthy(early) ? landingBlockers(hub, early as PyDict, true, deps) : [];
+  if (blockers.length > 0) return blockers;
+  let held: PyValue[] | null;
   try {
-    const state = hub.loadState();
-    main = stageOf(pyItem(meta as PyDict, "task-id") as string)[0];
-    const ts = main ? pyGet(state.tasks(), main) as PyDict | null : null;
-    const blockers = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, deps) : [];
-    if (blockers.length > 0) return blockers;
-    await hub.take(letter);
-    await engine.handlePass(state, meta);
-  } finally {
-    lock.release();
+    held = await withHeavyLane(hub, "落地检查", main, async () => {
+      let lock: DirLock;
+      try {
+        lock = new DirLock(purePathStr(hub.root, ".land"), deps.landTrySeconds).acquire();
+      } catch (error) {
+        if (!(error instanceof HubError)) throw error;
+        return ["落地锁被占"];
+      }
+      try {
+        const state = hub.loadState();
+        const ts = main ? pyGet(state.tasks(), main) as PyDict | null : null;
+        const again = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, deps) : [];
+        if (again.length > 0) return again;
+        await hub.take(letter);
+        await engine.handlePass(state, meta);
+        return null;
+      } finally {
+        lock.release();
+      }
+    }, deps);
+  } catch (error) {
+    if (!(error instanceof LaneBusy)) throw error;
+    return ["重活车道排不到"];
   }
+  if (held !== null) return held;
   if (main) await engine.afterLand(main);
   return [];
 }

@@ -6,12 +6,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { utcNow } from "@themis/base/clock";
-import { readText, writeTextAtomic } from "@themis/base/fsutil";
+import { UnicodeDecodeError, readText, writeTextAtomic } from "@themis/base/fsutil";
 import { appendEvent as appendLedger, jsonlLines } from "@themis/base/jsonl";
 import { DirLock as BaseDirLock, LockBusyError } from "@themis/base/locks";
 import { withFileLock } from "@themis/base/native";
-import { PyCrash, pyGet, pyItem, pyReprValue, pyStrValue, pyTypeName } from "@themis/base/pyfmt";
-import { type PyDict, type PyValue, dumps, loads } from "@themis/base/pyjson";
+import { pidAlive } from "@themis/base/process";
+import { PyCrash, pyGet, pyIntOf, pyItem, pyReprValue, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { type PyDict, PyJsonError, type PyValue, dumps, loads } from "@themis/base/pyjson";
 import { pyPublishNew, pyRename, pyReplace } from "@themis/base/pyos";
 import { purePathStr } from "@themis/base/pypath";
 import { pyLower, pyStrip } from "@themis/base/pyre";
@@ -272,6 +273,21 @@ export class DirLock {
   release(): void {
     this.lock.release();
   }
+}
+
+/** kit_hub.lock_alive：DirLock 有没有活着的持有者。目录不在算没有；owner.json 读不出来算有（刚建、还没写完）。 */
+export function dirLockAlive(path: string, alive: (pid: number) => boolean | null = pidAlive): boolean {
+  if (!isDirectory(path)) return false;
+  let owner: PyValue;
+  try {
+    owner = loads(readText(purePathStr(path, "owner.json")) || "{}");
+  } catch (error) {
+    if (error instanceof PyJsonError || error instanceof UnicodeDecodeError) return true; // Python 的 except ValueError
+    throw error;
+  }
+  if (!isDict(owner)) throw new PyCrash("AttributeError", `'${pyTypeName(owner)}' object has no attribute 'get'`);
+  const pid = pyGet(owner, "pid");
+  return !(pyTruthy(pid) && alive(Number(pyIntOf(pid))) === false);
 }
 
 /**

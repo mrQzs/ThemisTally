@@ -271,8 +271,8 @@
     {
       "name": "G08 baseline 的时限照缺省",
       "file": "ts/packages/hub/src/accept.ts",
-      "old": "\"key\") as string], 1800);",
-      "new": "\"key\") as string]);"
+      "old": "\"key\") as string], 1800,",
+      "new": "\"key\") as string], 600,"
     },
     {
       "name": "G09 baseline 的尾巴截 30 行",

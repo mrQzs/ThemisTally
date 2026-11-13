@@ -34,6 +34,7 @@ import {
   rehearsalLetter, rehearseLanding, sweepGates, tsInstallIfStale,
 } from "@themis/hub/sweep";
 import { Engine, type EngineDeps, type StateLike, land, releaseDependents, resumedSession } from "@themis/hub/engine";
+import { HEAVY_WAIT_SECONDS, LAND_TRY_SECONDS, type LaneDeps, REAL_LANE_DEPS } from "@themis/hub/heavy";
 import {
   type CommandArgs, type CommandOut, cmdExecRecheck, cmdInit, cmdMetrics, cmdSend, cmdStatus, cmdTake, cmdTaskAfter, cmdTaskBudget, cmdTaskCap, cmdTaskCleanup,
   cmdTaskClose, cmdTaskNew, cmdTaskRebase, cmdTaskUnstick, configuredParallel, execMetrics, recordedSum, turnMetrics, uncommittedReferences,
@@ -1307,7 +1308,7 @@ function prepareCommand(request: Record<string, unknown>, repo: string): void {
 /** 用例改过的 kit_hub 常量对应到 EngineDeps 的哪一项；不在这里的直接报错（themistally-04 定的：TS 只认支持的常量）。 */
 const CONSTANT_DEPS: Readonly<Record<string, string>> = {
   INPUT_FILE_LIMIT: "inputFileLimit", EXEC_LAND_WAIT_SECONDS: "landWaitSeconds", LAND_WAIT_SECONDS: "landLockWaitSeconds", SWEEP_WAIT_SECONDS: "sweepWaitSeconds",
-  SWEEP_SECONDS: "sweepSeconds",
+  SWEEP_SECONDS: "sweepSeconds", HEAVY_WAIT_SECONDS: "heavyWaitSeconds", LAND_TRY_SECONDS: "landTrySeconds",
 };
 
 const stateData = (value: unknown): PyValue => (value instanceof HubState ? value.data : value as PyValue);
@@ -1556,13 +1557,21 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
       return async (...args: unknown[]): Promise<never> => sync(...args);
     },
   };
+  const laneDeps: LaneDeps = { // 第 155 轮：时限同 python_probe.py 的 waits；pid_alive 换掉时车道与落地锁一起认（Python 那边是同一个 pd.pid_alive）
+    heavyWaitSeconds: typeof request["heavy_wait"] === "number" ? request["heavy_wait"] : HEAVY_WAIT_SECONDS,
+    landTrySeconds: typeof request["land_try"] === "number" ? request["land_try"] : LAND_TRY_SECONDS,
+    pidAlive: replaced.has("pid_alive") ? injectSync("pid_alive") : REAL_LANE_DEPS.pidAlive,
+    regressionCheckIds: REAL_LANE_DEPS.regressionCheckIds,
+  };
   const deps: ContractDeps = {
+    ...laneDeps,
     runPd: replaced.has("run_pd") ? inject("run_pd") : REAL_DEPS.runPd,
     contractRequirements: replaced.has("contract_requirements") ? inject("contract_requirements") : REAL_DEPS.contractRequirements,
     budgetProblems: replaced.has("budget_problems") ? inject("budget_problems") : REAL_DEPS.budgetProblems,
     revalidateContract: replaced.has("revalidate_contract") ? inject("revalidate_contract") : REAL_DEPS.revalidateContract,
   };
   const gateDeps: GatePostDeps = {
+    ...laneDeps,
     runPd: deps.runPd,
     worktreeRoot: replaced.has("worktree_root") ? inject("worktree_root") : REAL_GATE_POST_DEPS.worktreeRoot,
     runSupervised: replaced.has("run_supervised") ? inject("run_supervised") : REAL_GATE_POST_DEPS.runSupervised,

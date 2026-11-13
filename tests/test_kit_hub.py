@@ -4800,6 +4800,10 @@ def test_status_shows_the_parallel_runners(tmp_path, capsys):
         kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
     out = capsys.readouterr().out
     assert "并行：最多 2 个主任务；在跑的主任务 runner：T002；在跑的执行端：T002 的执行端" in out
+    assert "重活车道：空" in out
+    with kh.heavy_lane(hub, "基线检查", "T003"):  # 第 155 轮：车道里是谁
+        kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
+    assert "重活车道：T003 的基线检查" in capsys.readouterr().out
 
 
 def test_worktree_add_retries_when_git_metadata_is_busy(tmp_path, monkeypatch):
@@ -8418,3 +8422,228 @@ def test_a_broken_config_falls_back_to_the_roster(engine_env):
     (Path(hub.repo) / ".agent" / "dispatch.config.json").write_text("{不是 JSON", encoding="utf-8")
     assert kh.hub_bindings(hub) == {}
     assert kh.effective_spec("gate-sonnet", int(time.time()), hub.root, kh.hub_bindings(hub))[0] == dict(kh.ROSTER["gate-sonnet"])
+
+
+# ---------------------------------------------------------------------------
+# 第 155 轮（信箱演进第 1 步）：重活车道；只有全量回归不符时原样重跑一次
+# ---------------------------------------------------------------------------
+
+LF155 = chr(10)
+
+
+def lane_hub(tmp_path):
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    return hub, {"task": "T001"}
+
+
+def test_the_heavy_lane_runs_one_heavy_job_at_a_time(tmp_path, monkeypatch):
+    hub, _ts = lane_hub(tmp_path)
+    monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.2)
+    assert kh.heavy_holder(hub) is None
+    with kh.heavy_lane(hub, "基线检查", "T001"):
+        assert kh.heavy_holder(hub) == "T001 的基线检查"
+        with pytest.raises(kh.HubError):  # 车道里有人：第二份重活排不进去
+            with kh.heavy_lane(hub, "执行检查", "T002"):
+                raise AssertionError("两份重活不该同时在车道里")
+    assert kh.heavy_holder(hub) is None
+    with kh.heavy_lane(hub, "站主提交之后的回归"):
+        assert kh.heavy_holder(hub) == "站主提交之后的回归"
+    lane = [(e["event"], e.get("task"), e.get("label")) for e in events_of(hub) if e["event"].startswith("heavy.")]
+    assert lane == [("heavy.entered", "T001", "基线检查"), ("heavy.queued", "T002", "执行检查"),
+                    ("heavy.left", "T001", "基线检查"),
+                    ("heavy.entered", None, "站主提交之后的回归"), ("heavy.left", None, "站主提交之后的回归")]
+    assert [e["behind"] for e in events_of(hub) if e["event"] == "heavy.queued"] == ["T001 的基线检查"]
+
+
+def test_a_check_that_cannot_get_the_lane_did_not_run(tmp_path, monkeypatch):
+    # 车道排到上限也没排到：给出退出码与说明，不让异常从验收的半道上穿出去（门禁端的基准提交这时已经建了）
+    hub, ts = lane_hub(tmp_path)
+    monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.2)
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: calls.append(list(args)) or (0, "全部相符"))
+    with kh.heavy_lane(hub, "执行检查", "T002"):
+        code, out = kh.checked_in_lane(hub, ts, "基线检查", ["baseline", "k"], 1800, lambda text: ([], []))
+    assert code == kh.EXIT_BLOCKED and calls == []
+    assert "车道里是 T002 的执行检查" in out and "基线检查 没有跑，不是检查不过" in out
+
+
+def test_a_check_that_only_fails_the_regression_is_rerun_once(tmp_path, monkeypatch):
+    # 2026-11-12：T030 第 1 次执行的检查只红在一条无关的旧用例上，同一棵候选树重新核验就过了，却作废了一次 attempt
+    hub, ts = lane_hub(tmp_path)
+    log = tmp_path / "R01.log"
+    log.write_text(LF155.join([
+        "....F",
+        "FAILED tests/test_gate_t006_baseline.py::test_d12_probe_showcase_collection - AssertionError",
+        "1 failed, 814 passed in 1300.00s"]), encoding="utf-8")
+    monkeypatch.setattr(kh, "regression_check_ids", lambda hub_, ts_: {"R01"})
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append((list(args), timeout))
+        return (1, "R01 不符") if len(calls) == 1 else (0, "全部相符")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    code, out = kh.checked_in_lane(hub, ts, "执行检查", ["check", "x", "--fresh"], 3600, lambda text: (["R01"], [log]))
+    assert code == 0 and calls == [(["check", "x", "--fresh"], 3600)] * 2
+    assert "原样重跑一次，相符" in out and "test_d12_probe_showcase_collection" in out
+    flaky = [e for e in events_of(hub) if e["event"] == "regression.flaky"]
+    assert len(flaky) == 1 and flaky[0]["task"] == "T001" and flaky[0]["checks"] == ["R01"]
+    assert flaky[0]["failed"] == ["tests/test_gate_t006_baseline.py::test_d12_probe_showcase_collection"]
+    assert ts["flaky"][0]["label"] == "执行检查" and ts["flaky"][0]["checks"] == ["R01"]
+    # 两次在同一趟车道里跑：中间不让别的重活插进来；跑完车道空出来
+    assert [e["event"] for e in events_of(hub) if e["event"].startswith("heavy.")] == ["heavy.entered", "heavy.left"]
+    assert kh.heavy_holder(hub) is None
+
+
+def test_a_passing_check_runs_once(tmp_path, monkeypatch):
+    hub, ts = lane_hub(tmp_path)
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: calls.append(list(args)) or (0, "全部相符"))
+    never = []
+    code, out = kh.checked_in_lane(hub, ts, "基线检查", ["baseline", "k"], 1800, lambda text: never.append(text) or ([], []))
+    assert (code, out) == (0, "全部相符") and len(calls) == 1 and never == [] and "flaky" not in ts
+
+
+def test_a_check_that_fails_its_own_checks_is_not_rerun(tmp_path, monkeypatch):
+    hub, ts = lane_hub(tmp_path)
+    monkeypatch.setattr(kh, "regression_check_ids", lambda hub_, ts_: {"R01"})
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: calls.append(list(args)) or (1, "不符"))
+    for ids in (["G01", "R01"], ["V01"], []):  # 本片自己的检查也不符、只有自己的不符、读不出哪条不符：都不重跑
+        calls.clear()
+        code, out = kh.checked_in_lane(hub, ts, "基线检查", ["baseline", "k"], 1800, lambda text, ids=ids: (ids, []))
+        assert (code, out) == (1, "不符") and len(calls) == 1
+    assert not [e for e in events_of(hub) if e["event"].startswith("regression.")] and "flaky" not in ts
+
+
+def test_a_regression_that_fails_twice_stays_failed(tmp_path, monkeypatch):
+    hub, ts = lane_hub(tmp_path)
+    monkeypatch.setattr(kh, "regression_check_ids", lambda hub_, ts_: {"R01"})
+    calls = []
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: calls.append(list(args)) or (1, "R01 不符"))
+    code, out = kh.checked_in_lane(hub, ts, "基线检查", ["baseline", "k"], 1800, lambda text: (["R01"], []))
+    assert (code, out) == (1, "R01 不符") and len(calls) == 2 and "flaky" not in ts
+    kinds = [(e["event"], e.get("exit")) for e in events_of(hub) if e["event"].startswith("regression.")]
+    assert kinds == [("regression.rerun", 1)]
+
+
+def test_regression_checks_are_the_ones_that_run_older_gate_baselines(tmp_path, monkeypatch):
+    hub, ts = lane_hub(tmp_path)
+    contract = tmp_path / "c.json"
+    older = ["tests/test_gate_t001_baseline.py", "tests/test_gate_t002_baseline.py"]
+    contract.write_text(json.dumps({"checks": [
+        {"id": "V01", "argv": ["npm", "test"]},
+        {"id": "G01", "argv": ["python", "-m", "pytest", "tests/test_gate_t009_baseline.py", "-q"]},
+        {"id": "R01", "argv": ["python", "-m", "pytest"] + older + ["-q"]}]}), encoding="utf-8")
+    monkeypatch.setattr(kh, "contract_paths", lambda hub_, ts_: (tmp_path / "c.md", contract))
+    monkeypatch.setattr(kh, "regression_gates", lambda hub_, ts_: older)
+    assert kh.regression_check_ids(hub, ts) == {"R01"}
+    contract.write_text("{不是 JSON", encoding="utf-8")
+    assert kh.regression_check_ids(hub, ts) == set()
+
+
+def test_mismatches_are_read_from_the_check_records(tmp_path):
+    hub, _ts = lane_hub(tmp_path)
+    record = tmp_path / ".agent" / "runs" / "t001-x" / "baseline" / "02" / "checks.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"mismatches": ["R01"], "results": [
+        {"id": "G01", "log": "02/G01.log"}, {"id": "R01", "log": "02/R01.log"}]}), encoding="utf-8")
+    out = "基线检查记录：.agent/runs/t001-x/baseline/02/checks.json"
+    assert kh.baseline_mismatches(hub, out) == (["R01"], [record.parent.parent / "02/R01.log"])
+    assert kh.baseline_mismatches(hub, "没有记录的输出") == ([], [])
+    run_dir = tmp_path / "attempt-001"
+    checks = run_dir / "checks" / "01"
+    checks.mkdir(parents=True)
+    (checks / "checks.json").write_text(json.dumps({"results": [
+        {"id": "V01", "status": "passed", "log": "01/V01.log"},
+        {"id": "R01", "status": "failed", "log": "01/R01.log"}]}), encoding="utf-8")
+    assert kh.check_mismatches(run_dir) == (["R01"], [run_dir / "checks" / "01/R01.log"])
+    assert kh.check_mismatches(tmp_path / "nothing") == ([], [])
+
+
+def test_a_landing_gives_the_lane_back_when_the_landing_lock_is_busy(tmp_path, monkeypatch):
+    # 站主的 exclusive 拿着落地锁等执行端，执行端的检查在等车道：落地要是拿着车道干等落地锁，三方就互等
+    hub = two_task_hub(tmp_path)
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: [])
+    monkeypatch.setattr(kh, "LAND_TRY_SECONDS", 0.2)
+    hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                 "type": "通过"}, fields())
+    letter = hub.unread("exec-step")[0]
+    meta = kh.parse_letter(letter.read_text(encoding="utf-8"))[0]
+    seen = []
+
+    class Engine:
+        def handle_pass(self, state, meta_):
+            seen.append(kh.heavy_holder(hub))
+
+        def after_land(self, main):
+            seen.append("after:%s:%s" % (main, kh.heavy_holder(hub)))
+
+    with kh.DirLock(hub.root / ".land", wait_seconds=1.0):
+        assert kh.land(hub, Engine(), letter, meta) == ["落地锁被占"]
+        assert seen == [] and hub.unread("exec-step") == [letter] and kh.heavy_holder(hub) is None
+    monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.2)
+    with kh.heavy_lane(hub, "基线检查", "T002"):  # 车道排不到：信留着，下一轮再试
+        assert kh.land(hub, Engine(), letter, meta) == ["重活车道排不到"]
+        assert seen == [] and hub.unread("exec-step") == [letter]
+    assert kh.land(hub, Engine(), letter, meta) == []
+    # 结项在车道里办；合入后的回归自己再排车道，不占着这一趟
+    assert seen == ["T001 的落地检查", "after:T001:None"] and hub.unread("exec-step") == []
+
+
+def test_failed_test_names_stop_at_the_end_of_the_line(tmp_path):
+    # pytest 的汇总行不一定带“ - 原因”，日志也可能是 CRLF：用例名取到空白为止，不越过行尾
+    crlf = chr(13) + chr(10)
+    log = tmp_path / "R01.log"
+    log.write_bytes(crlf.join(["....F", "FAILED tests/a.py::test_x", "FAILED tests/b.py::test_y - AssertionError", "2 failed"]).encode("utf-8"))
+    assert kh.failed_test_names([log, tmp_path / "missing.log"]) == ["tests/a.py::test_x", "tests/b.py::test_y"]
+
+
+def test_a_blocked_landing_does_not_queue_for_the_lane(tmp_path, monkeypatch):
+    # 有人挡着时先交回挡着的是谁，不去排重活车道（车道被占也一样，不等到排队超时）
+    hub = two_task_hub(tmp_path)
+    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: ["t009-x/attempt-001"])
+    monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.2)
+    hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
+                 "type": "通过"}, fields())
+    letter = hub.unread("exec-step")[0]
+
+    class Engine:
+        def handle_pass(self, state, meta_):
+            raise AssertionError("挡着的时候不该结项")
+
+        def after_land(self, main):
+            raise AssertionError("挡着的时候不该收尾")
+
+    with kh.heavy_lane(hub, "基线检查", "T002"):
+        assert kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0]) == ["attempt t009-x/attempt-001"]
+    assert [e["event"] for e in events_of(hub) if e["event"].startswith("heavy.")] == ["heavy.entered", "heavy.left"]
+
+
+def test_the_exec_letter_says_the_regression_passed_only_on_the_rerun(engine_env, monkeypatch):
+    # 协调人看的是信：执行检查是全量回归第一次红、原样重跑才相符的，“验证”里写明哪条、红的用例名
+    hub = engine_env
+    ts = make_ts()
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    monkeypatch.setattr(kh, "regression_check_ids", lambda hub_, ts_: {"R01"})
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(list(args))
+        folder = run_dir / "checks" / ("%02d" % len(calls))
+        folder.mkdir(parents=True)
+        status = "failed" if len(calls) == 1 else "passed"
+        (folder / "checks.json").write_text(json.dumps({"results": [{"id": "R01", "status": status, "log": folder.name + "/R01.log"}]}),
+                                            encoding="utf-8")
+        (folder / "R01.log").write_text("FAILED tests/test_gate_t000_baseline.py::test_old - AssertionError" + chr(10), encoding="utf-8")
+        return (1, "R01 不符") if len(calls) == 1 else (0, "全部相符")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    letter = kh.finish_exec(hub, ts, run_dir, 0)
+    assert len(calls) == 2 and ts["exec"]["check_ok"] is True
+    assert "内核 check --fresh：通过" in letter["验证"]
+    assert "；全量回归 R01 第一次红（tests/test_gate_t000_baseline.py::test_old），内核原样重跑一次相符" in letter["验证"]
+    calls.clear()
+    monkeypatch.setattr(kh, "run_pd", lambda hub_, args, timeout=600: calls.append(list(args)) or (0, "全部相符"))
+    assert "第一次红" not in kh.finish_exec(hub, ts, run_dir, 0)["验证"]  # 先前记过的 flaky 不算这一次的

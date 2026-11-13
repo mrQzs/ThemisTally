@@ -842,8 +842,9 @@
   {
    "name": "N01 有执行端在跑也落地",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "    if (blockers.length > 0) return blockers;",
-   "new": "    void blockers;"
+   "old": "landingBlockers(hub, ",
+   "new": "(() => [])(hub, ",
+   "count": 2
   },
   {
    "name": "N02 不读掉结项信",
@@ -858,16 +859,17 @@
    "new": "  void main;"
   },
   {
-   "name": "N04 land 等落地锁用 landWaitSeconds（themistally-04 点名，Y02 那一类）",
+   "name": "N04 land 试落地锁用 landWaitSeconds（themistally-04 点名，Y02 那一类；第 155 轮起落地在车道里试锁）",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "  const lock = new DirLock(purePathStr(hub.root, \".land\"), deps.landLockWaitSeconds).acquire();",
-   "new": "  const lock = new DirLock(purePathStr(hub.root, \".land\"), deps.landWaitSeconds).acquire();"
+   "old": "new DirLock(purePathStr(hub.root, \".land\"), deps.landTrySeconds)",
+   "new": "new DirLock(purePathStr(hub.root, \".land\"), deps.landWaitSeconds)"
   },
   {
    "name": "N05 不等后台回归",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "    const blockers = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, deps) : [];",
-   "new": "    const blockers = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, false, deps) : [];"
+   "old": "as PyDict, true, deps)",
+   "new": "as PyDict, false, deps)",
+   "count": 2
   },
   {
    "name": "K01 None 与字符串混排不报错（themistally-04 点名）",

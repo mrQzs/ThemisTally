@@ -154,14 +154,14 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(tally(inner.map((entry) => entry.fn)), "注入的内层调用").toEqual({
       "Engine.auto_jev": 2,
       "Engine.verify_delivery": 7,
-      "_running_attempts": 2,
+      "_running_attempts": 3, // 第 155 轮：land 先不拿锁看一眼有没有人挡着，进了车道再看一次
       "apply_candidate": 4,
       "budget_problems": 1,
       "engine.after_land": 1,
       "engine.handle_pass": 1,
       "ensure_worktree": 49,
       "finalize": 2,
-      "pid_alive": 3,
+      "pid_alive": 4,
       "regression_sweep": 2,
       "rehearse_landing": 7,
       "revalidate_contract": 2,

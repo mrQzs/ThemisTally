@@ -164,7 +164,8 @@ describe("第 ⑤i1 片：结项放行依赖（手写）", () => {
 });
 
 describe("第 ⑤i1 片：land 等落地锁的时限（只测 TS）", () => {
-  it("另一个进程拿着 .land：land 照 landLockWaitSeconds（0.3 秒）报“锁被占用：”，不等执行端的 landWaitSeconds（30 秒）", async () => {
+  // 第 155 轮起落地先排重活车道，在车道里试落地锁 landTrySeconds，拿不到就让出车道、交回“落地锁被占”（信留着下一轮再试），不再抛错
+  it("另一个进程拿着 .land：land 照 landTrySeconds（0.3 秒）交回“落地锁被占”，不等 landLockWaitSeconds 与执行端的 landWaitSeconds（各 30 秒）", async () => {
     const flag = tempDir("engine-land");
     const repo = tempDir("engine-land-repo");
     new Hub(repo).ensure();
@@ -182,10 +183,10 @@ describe("第 ⑤i1 片：land 等落地锁的时限（只测 TS）", () => {
       const landing = { handlePass: async () => undefined, afterLand: async () => undefined };
       const started = Date.now();
       const meta = new Map([["task-id", "T001-5-exec"]]);
-      const failure = await land(new Hub(repo), landing, join(repo, "letter.md"), meta, { ...REAL_ENGINE_DEPS, landLockWaitSeconds: 0.3, landWaitSeconds: 30 })
-        .then(() => null, (error: unknown) => error);
-      expect([failure instanceof HubError, String((failure as Error | null)?.message).startsWith("锁被占用：")]).toEqual([true, true]);
-      expect(Date.now() - started, "等的是 landLockWaitSeconds").toBeLessThan(10_000);
+      const result = await land(new Hub(repo), landing, join(repo, "letter.md"), meta,
+        { ...REAL_ENGINE_DEPS, landTrySeconds: 0.3, landLockWaitSeconds: 30, landWaitSeconds: 30 }).then((value) => value, (error: unknown) => error);
+      expect([result instanceof HubError, result]).toEqual([false, ["落地锁被占"]]);
+      expect(Date.now() - started, "等的是 landTrySeconds").toBeLessThan(10_000);
     } finally {
       writeFileSync(join(flag, "go"), "go");
       await exited;

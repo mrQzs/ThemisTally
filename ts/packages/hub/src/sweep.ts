@@ -27,6 +27,7 @@ import { KERNEL, OWNER } from "./constants.ts";
 import { tail } from "./contract.ts";
 import { emptyCommit, pySliceHead } from "./exec.ts";
 import { attemptBase } from "./gatepost.ts";
+import { withHeavyLane } from "./heavy.ts";
 import { git, hubImpl } from "./kernel.ts";
 import { landedMeanwhile, landingChain, onBranch } from "./land.ts";
 import { DirLock, type Hub } from "./mailbox.ts";
@@ -164,7 +165,8 @@ export function keepSweepOutput(path: string, out: string): void {
 export async function regressionSweep(hub: Hub, ts: PyDict, deps: SweepDeps = REAL_SWEEP_DEPS): Promise<[boolean, string]> {
   if (!gateBaselines(hub.repo).length) return [true, "合入后没有门禁基准可跑"];
   const tip = pyStrip(git(["rev-parse", "HEAD"], hub.repo));
-  const [code, out, tests] = await scratchWorktree(hub, "sweep", tip, (path) => deps.sweepGates(path, deps.sweepSeconds), deps);
+  const [code, out, tests] = await scratchWorktree(hub, "sweep", tip,
+    (path) => withHeavyLane(hub, "合入后回归", pyItem(ts, "task"), async () => deps.sweepGates(path, deps.sweepSeconds), deps), deps);
   keepSweepOutput(purePathStr(hub.taskDir(pyStrValue(pyItem(ts, "task"))), "regression-sweep.log"), out);
   ts.set("regression", new Map<string, PyValue>([["head", tip], ["exit", BigInt(code)], ["tests", [...tests]], ["tail", tail(out, 15n)], ["at", utcNow()]]));
   await hub.appendEvent("regression.swept", [["task", pyItem(ts, "task")], ["head", tip], ["exit", BigInt(code)]]);
@@ -205,7 +207,7 @@ export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = RE
       if (code !== 0) problem = `候选补丁（${purePathName(runDir)}）打不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 8n)}`;
     }
     if (problem === null) {
-      const [code, out, tests] = await deps.sweepGates(path, deps.sweepSeconds);
+      const [code, out, tests] = await withHeavyLane(hub, "落地预演", pyItem(ts, "task"), async () => deps.sweepGates(path, deps.sweepSeconds), deps);
       summary = `末端 ${short(tip)} 加上 ${purePathName(runDir)} 的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n)) || "没有输出"}`;
       if (code !== 0) problem = `${summary}${LF}${tail(out, 15n)}`;
     }
@@ -329,7 +331,8 @@ export async function tsInstallIfStale(hub: Hub, deps: SweepDeps = REAL_SWEEP_DE
 export async function ownerSweepRun(hub: Hub, marker: PyDict, deps: SweepDeps = REAL_SWEEP_DEPS): Promise<[boolean, string]> {
   await deps.tsInstallIfStale(hub);
   const tip = pyStrip(git(["rev-parse", "HEAD"], hub.repo));
-  const [code, out, tests] = await scratchWorktree(hub, "owner-sweep", tip, (path) => deps.sweepGates(path, deps.sweepSeconds), deps);
+  const [code, out, tests] = await scratchWorktree(hub, "owner-sweep", tip,
+    (path) => withHeavyLane(hub, "站主提交之后的回归", null, async () => deps.sweepGates(path, deps.sweepSeconds), deps), deps);
   // 不叫 owner-sweep.log：runners/ 下有同名的、子进程自己的输出，看的人容易拿错
   keepSweepOutput(purePathStr(purePathParent(ownerSweepPath(hub)), "owner-sweep-pytest.log"), out);
   await withFileLock(ownerSweepLock(hub), () => {

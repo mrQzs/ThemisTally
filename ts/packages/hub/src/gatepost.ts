@@ -25,6 +25,7 @@ import { comparePaths } from "./audit.ts";
 import { EXIT_BLOCKED } from "./constants.ts";
 import { pytestOutcomes, tail, tailFile } from "./contract.ts";
 import { HubError } from "./errors.ts";
+import { LaneBusy, type LaneDeps, REAL_LANE_DEPS, withHeavyLane } from "./heavy.ts";
 import { worktreeRoot } from "./inputs.ts";
 import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
@@ -35,7 +36,7 @@ const LF = String.fromCharCode(10);
 const LINE_START = `(?<![^${LF}])`;
 
 /** 用例当时换掉、或这一片要录下来的几个内层调用（契约照记录注入）；缺省是真函数。 */
-export interface GatePostDeps {
+export interface GatePostDeps extends LaneDeps {
   readonly runPd: (hub: Hub, args: readonly string[], timeout?: number) => Promise<[number, string]>;
   readonly worktreeRoot: (repo: string) => string | Promise<string>;
   readonly runSupervised: (cmd: readonly string[], options: SuperviseOptions) => Promise<SuperviseResult>;
@@ -45,6 +46,7 @@ export interface GatePostDeps {
 }
 
 export const REAL_GATE_POST_DEPS: GatePostDeps = {
+  ...REAL_LANE_DEPS,
   runPd: (hub, args, timeout) => runPd(hub, args, timeout),
   worktreeRoot,
   runSupervised,
@@ -350,7 +352,13 @@ export async function runMutations(hub: Hub, ts: PyDict, workspace: string, stag
   // 整份的时限按条数放宽：此前固定 3600 秒，几条变异卡到各自的时限，整份就判“没有跑完”
   const total = pyPlus(pyTimes(runs, or(pyGet(spec, "timeout_seconds"), MUTATION_DEFAULT_TIMEOUT)), 600n);
   const budget = pyLess(3600n, total) ? total : 3600n;
-  [code, out] = await deps.runPd(hub, ["mutate", "--tree", purePathStr(workspace), "--spec", specPath, "--out", outDir], Number(budget));
+  try {
+    [code, out] = await withHeavyLane(hub, "变异检查", pyItem(ts, "task"),
+      () => deps.runPd(hub, ["mutate", "--tree", purePathStr(workspace), "--spec", specPath, "--out", outDir], Number(budget)), deps);
+  } catch (error) {
+    if (!(error instanceof LaneBusy)) throw error;
+    [code, out] = [EXIT_BLOCKED, error.message];
+  }
   let record: PyValue;
   try {
     record = loads(readText(purePathStr(outDir, "mutations.json")) || "{}");

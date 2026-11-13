@@ -16,6 +16,7 @@
     "./errors": "./src/errors.ts",
     "./exec": "./src/exec.ts",
     "./gatepost": "./src/gatepost.ts",
+    "./heavy": "./src/heavy.ts",
     "./inputs": "./src/inputs.ts",
     "./kernel": "./src/kernel.ts",
     "./land": "./src/land.ts",

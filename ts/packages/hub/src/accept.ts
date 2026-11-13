@@ -18,6 +18,7 @@ import {
   budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, hollowBaselineProblems, normalizeIdentity, normalizeMarkup,
   stripDecisions, tail,
 } from "./contract.ts";
+import { type LaneDeps, REAL_LANE_DEPS, baselineMismatches, checkedInLane } from "./heavy.ts";
 import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { nextContractVersion } from "./prompt.ts";
@@ -31,8 +32,8 @@ const LINE_END = `(?=${LF}|$)`;
 /** Python 正则的非空白类：不是空白的任何字符。 */
 const NOT_SPACE = `(?:(?!${S})[^])`;
 
-/** 用例当时换掉的几个内核函数（契约照记录注入）；缺省是真函数。 */
-export interface ContractDeps {
+/** 用例当时换掉的几个内核函数（契约照记录注入）；缺省是真函数。重活车道的时限与判断（第 155 轮）也从这里注入。 */
+export interface ContractDeps extends LaneDeps {
   readonly runPd: (hub: Hub, args: readonly string[], timeout?: number) => Promise<[number, string]>;
   readonly contractRequirements: (hub: Hub, ts: PyDict) => string[] | Promise<string[]>;
   readonly budgetProblems: (hub: Hub, ts: PyDict) => string[] | Promise<string[]>;
@@ -40,6 +41,7 @@ export interface ContractDeps {
 }
 
 export const REAL_DEPS: ContractDeps = {
+  ...REAL_LANE_DEPS,
   runPd: (hub, args, timeout) => runPd(hub, args, timeout),
   contractRequirements,
   budgetProblems,
@@ -234,7 +236,8 @@ export async function acceptGatePre(hub: Hub, ts: PyDict, workspace: string, dep
   }
   let problems = await setContractBase(hub, ts, sha, deps);
   if (problems.length) return problems;
-  const [code, out] = await deps.runPd(hub, ["baseline", pyItem(pyItem(ts, "contract"), "key") as string], 1800);
+  const [code, out] = await checkedInLane(hub, ts, "基线检查", ["baseline", pyItem(pyItem(ts, "contract"), "key") as string], 1800,
+    (text) => baselineMismatches(hub, text), deps.runPd, deps);
   dict(pyItem(ts, "oracle")).set("baseline_exit", BigInt(code));
   dict(pyItem(ts, "oracle")).set("baseline_tail", tail(out, 20n));
   if (code !== 0) return [`baseline 不符合预期（基准测试应在基线上失败，其余检查按合同）：${LF}${tail(out, 20n)}`];
