@@ -77,6 +77,7 @@ const SUBACTIONS = {
   preset: { use: "preset.use", save: "preset.save", remove: "preset.remove" },
   profile: { add: "profile.add", edit: "profile.edit", remove: "profile.remove" },
   runtime: { add: "runtime.add", remove: "runtime.remove" },
+  hub: { set: "hub.set", unset: "hub.unset" },
 };
 
 /** 由预览 argv 推导 action（plugins enable|disable → plugin.enable|disable；config rollback → config.rollback；其余查 SUBACTIONS）。 */

@@ -10,6 +10,23 @@ export const SOURCE_ENUM = allowEnum("env", "credential_store", "file", "none");
 export const STORE_MODE_ENUM = allowEnum("system", "file", "off");
 /** 系统后端的名字（codekit/secrets.py）：windows-credential-manager 与 file；没有系统后端时是 null。 */
 export const SYSTEM_BACKEND_ENUM = allowEnum("windows-credential-manager", "file", null);
+/** 岗位绑定用的适配器名（scripts/kit_roles.py 的 HUB_POST_ADAPTERS 与 ADAPTERS；TS 一份在 ts/packages/config/src/roles-check.ts）：
+ * 五个载体 quizs 只承载七端岗位（不进 runtime.add 的四值 ADAPTERS）；runtime 没登记时内核给 null，枚举带上 null 才放行。 */
+const HUB_ADAPTER_ENUM = allowEnum("pi", "claude-code", "codex", "opencode", "quizs", null);
+/** 岗位绑定用的思考档位（scripts/pi_dispatch.py 的 FALLBACK_THINKING_LEVELS）：七个取值；可空，枚举带上 null。 */
+const HUB_THINKING_ENUM = allowEnum("off", "minimal", "low", "medium", "high", "xhigh", "max", null);
+
+/** 允许 null 的 id：内核没配的岗位，profile 与 runtime 就是 null（base 的 allowId 不放行 null）。 */
+export function allowNullableId(value: PyValue): boolean {
+  return value === null || allowId(value);
+}
+
+/** 岗位绑定的 provider/model 名：null 放行；否则是字符串，过这个正则且不像凭据（比 allowPreviewName 宽，带 @ 与 +）。 */
+export function allowBindingName(value: PyValue): boolean {
+  if (value === null) return true;
+  if (typeof value !== "string") return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/u.test(value) && !tokenShaped(value);
+}
 
 /** used_by 的形状：键恰好是 {kind} 或 {kind, id}；kind 只认 profile 与 decisions，有 id 时过 allowId。 */
 export function usedByShape(value: PyValue): boolean {
@@ -72,6 +89,32 @@ export function allowPreviewName(value: PyValue): boolean {
 export function allowPreviewText(value: PyValue): boolean {
   return typeof value === "string" && redactSecrets(value) === value;
 }
+
+/**
+ * /hub/roles 的白名单（config hub show --json 的 {"posts":[…]}）：逐字段登记六个岗位的一行行字段。岗位六个名字抄
+ * scripts/kit_roles.py 的 HUB_POST_ADAPTERS（TS 一份在 ts/packages/config/src/roles-check.ts）；适配器名抄同一处的
+ * HUB_POST_ADAPTERS 与 ADAPTERS。内核会给 null 的字段（adapter/provider/model/thinking/profile/runtime 及其 fallback 下
+ * 同名）校验函数一律接受 null——base 的 allowId 不接受 null、allowEnum 只有把 null 列进 choices 才放行 null，而
+ * redactJsonAllowing 命中路径照样拿值调校验函数、不合格就换成 <redacted>。fallback 本身（对象或 null）不登记；内核没给的键
+ * （缺省行 coordinator 的 fallback 只有四个键）路径不命中，值照 redactJson 的默认口径走。
+ */
+export const HUB_ROLES_ALLOW: AllowList = [
+  [["posts", "*", "post"], allowEnum("coordinator", "planner", "contract", "gate", "audit", "exec")],
+  [["posts", "*", "source"], allowEnum("default", "config")],
+  [["posts", "*", "allowed_adapters", "*"], HUB_ADAPTER_ENUM],
+  [["posts", "*", "adapter"], HUB_ADAPTER_ENUM],
+  [["posts", "*", "provider"], allowBindingName],
+  [["posts", "*", "model"], allowBindingName],
+  [["posts", "*", "thinking"], HUB_THINKING_ENUM],
+  [["posts", "*", "profile"], allowNullableId],
+  [["posts", "*", "runtime"], allowNullableId],
+  [["posts", "*", "fallback", "adapter"], HUB_ADAPTER_ENUM],
+  [["posts", "*", "fallback", "provider"], allowBindingName],
+  [["posts", "*", "fallback", "model"], allowBindingName],
+  [["posts", "*", "fallback", "thinking"], HUB_THINKING_ENUM],
+  [["posts", "*", "fallback", "profile"], allowNullableId],
+  [["posts", "*", "fallback", "runtime"], allowNullableId],
+];
 
 /**
  * /preview 的白名单（内核预览 JSON，state 令牌在进白名单之前就被拿掉）：只放 binding_changes.*.before|after 的六个绑定

@@ -1,5 +1,5 @@
-// 写 argv 的登记、校验与内核解析器（桌面端 §5.3、D01/D02）：W1 十二条命令的基础 argv 加 --dry-run --json / --expect-state= /
-// --yes（plugins 不加）都过内核真正的解析器；W2 内核里带 --dry-run 的写命令集合恰好等于 OPEN_WRITE_COMMAND_PATHS（12 条），
+// 写 argv 的登记、校验与内核解析器（桌面端 §5.3、D01/D02）：W1 十四条命令的基础 argv 加 --dry-run --json / --expect-state= /
+// --yes（plugins 不加）都过内核真正的解析器；W2 内核里带 --dry-run 的写命令集合恰好等于 OPEN_WRITE_COMMAND_PATHS（14 条），
 // 不开放名单都被内核解析器拒绝且与开放集合不相交；W3 基础 argv 不含那四个开关；W4 validateWriteArgs 的每一类不合格回固定 400、不回显值。
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -86,14 +86,14 @@ describe("W1：七条基础 argv 过内核真正的解析器（dry_run/json/expe
   });
 });
 
-describe("W2：开放集合 = 内核 --dry-run 集合 = 12 条；不开放名单被拒且不相交", () => {
-  it("OPEN_WRITE_COMMAND_PATHS 恰好 12 条，与内核 --dry-run 集合逐条相等", () => {
-    // 内核第 154 轮加了两条可预览的写命令，路由还没做（T031）：它们记在 PENDING_WRITE_COMMAND_PATHS 里，两张表合起来
-    // 仍要与内核的集合逐条相等，互不相交。T031 把它们挪进开放集合之后，这张表是空的。
+describe("W2：开放集合 = 内核 --dry-run 集合 = 14 条；不开放名单被拒且不相交", () => {
+  it("OPEN_WRITE_COMMAND_PATHS 恰好 14 条，与内核 --dry-run 集合逐条相等", () => {
+    // config hub set、config hub unset 已由 T031 挪进开放集合，PENDING_WRITE_COMMAND_PATHS 现在是空数组（导出保留给后续片）。
+    // 两张表合起来仍要与内核的集合逐条相等、互不相交：内核再加可预览的写命令时照旧会被拦下来。
     const open = [...OPEN_WRITE_COMMAND_PATHS].sort();
     const known = [...OPEN_WRITE_COMMAND_PATHS, ...PENDING_WRITE_COMMAND_PATHS].sort();
     const seen = dryRunCommands().map((path) => path.join(" ")).sort();
-    expect(open).toHaveLength(12);
+    expect(open).toHaveLength(14);
     expect(new Set(known).size, "开放的与还没做路由的不相交").toBe(known.length);
     expect(seen).toEqual(known);
   });
@@ -129,6 +129,8 @@ describe("W3：七条基础 argv 不含 --dry-run/--json/--expect-state/--yes", 
       "profile.remove": { profile: "demo-profile" },
       "runtime.add": { runtime: "demo-runtime", adapter: "pi", command: ["C:/tools/pi.exe", "--flag"], force: true },
       "runtime.remove": { runtime: "demo-runtime" },
+      "hub.set": { post: "coordinator", profile: "demo-profile", fallback: "demo-fallback" },
+      "hub.unset": { post: "coordinator" },
     };
     for (const [action, args] of Object.entries(examples)) {
       const argv = buildWriteArgv(action, args);
@@ -162,7 +164,7 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
       bad(name, {}, "action 不合法");
     }
     expect(Object.keys(WRITE_ACTIONS).sort()).toEqual([
-      "config.rollback", "plugin.disable", "plugin.enable", "preset.remove", "preset.save", "preset.use",
+      "config.rollback", "hub.set", "hub.unset", "plugin.disable", "plugin.enable", "preset.remove", "preset.save", "preset.use",
       "profile.add", "profile.edit", "profile.remove", "role.set", "runtime.add", "runtime.remove",
     ]);
   });
@@ -268,5 +270,27 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
       "config", "runtime", "add", "demo-runtime", "--adapter=pi", "--command=[\"C:/tools/pi.exe\",\"--flag\"]", "--force",
     ]);
     expect(buildWriteArgv("runtime.remove", { runtime: "demo-runtime" })).toEqual(["config", "runtime", "remove", "demo-runtime"]);
+  });
+
+  it("hub.set/hub.unset 的 post 与 fallback 取值（先合法基线，再只改受测条件）", () => {
+    ok("hub.set", { post: "coordinator", profile: "demo-profile" });
+    ok("hub.set", { post: "exec", profile: "demo-profile", fallback: "demo-fallback" });
+    ok("hub.unset", { post: "gate" });
+    bad("hub.set", { post: "nope", profile: "demo-profile" }, "post 不合法");
+    bad("hub.unset", { post: "nope" }, "post 不合法");
+    bad("hub.set", { post: "coordinator", profile: "-x" }, "profile 不合法");
+    bad("hub.set", { post: "coordinator", profile: "demo-profile", fallback: "-x" }, "fallback 不合法");
+    bad("hub.set", { post: "coordinator", profile: "demo-profile", fallback: "Bad_Fallback" }, "fallback 不合法");
+    bad("hub.set", { post: "coordinator", profile: "demo-profile", extra: 1 }, "参数含有未知键");
+    bad("hub.set", { post: "coordinator" }, "参数缺少必填键");
+    bad("hub.unset", {}, "参数缺少必填键");
+  });
+
+  it("buildWriteArgv 的 hub.set/hub.unset：--fallback= 放最后、hub.unset 不带 --post=", () => {
+    expect(buildWriteArgv("hub.set", { post: "coordinator", profile: "demo-profile" })).toEqual(["config", "hub", "set", "coordinator", "demo-profile"]);
+    expect(buildWriteArgv("hub.set", { post: "coordinator", profile: "demo-profile", fallback: "demo-fallback" })).toEqual([
+      "config", "hub", "set", "coordinator", "demo-profile", "--fallback=demo-fallback",
+    ]);
+    expect(buildWriteArgv("hub.unset", { post: "coordinator" })).toEqual(["config", "hub", "unset", "coordinator"]);
   });
 });

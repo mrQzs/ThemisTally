@@ -1,7 +1,7 @@
 // 写配置的预览、确认号与操作终态（桌面端设计第 7 版 §5.3、D6/D13）：POST /api/v1/preview 起基础 argv 加 --dry-run
 // --json 跑内核预览，核对 dry_run/action/state/needs_yes，拿掉 state 令牌、过 PREVIEW_ALLOW 脱敏，签发 43 位确认号；
-// 十二条写路由（role set、preset use|save|remove、config rollback、plugins enable|disable、profile add|edit|remove、
-// runtime add|remove）用同一个 validateWriteArgs 与 buildWriteArgv，执行是基础 argv 加 --expect-state=<state>
+// 十四条写路由（role set、preset use|save|remove、config rollback、plugins enable|disable、profile add|edit|remove、
+// runtime add|remove、hub set、hub unset）用同一个 validateWriteArgs 与 buildWriteArgv，执行是基础 argv 加 --expect-state=<state>
 // （needs_yes 为真才加 --yes），退出 4 转 409 的 stale，结果落进操作表（GET /api/v1/operations/<id> 可查）。
 // OPEN_WRITE_COMMAND_PATHS 与 NOT_OPEN_WRITE_COMMANDS 显式列出开放与不开放的写命令（U4）。
 // 与读路由、jobRoutes 对称，另建一批、不并进 readRoutes()。服务只校验形状，组合规则交给内核；提示固定、不回显请求里的值。
@@ -37,7 +37,7 @@ import {
 
 /** 预览的时限（秒）。 */
 export const PREVIEW_TIMEOUT = 30;
-/** 十二条写路由共用的时限（秒）。 */
+/** 十四条写路由共用的时限（秒）。 */
 export const WRITE_TIMEOUT = 90;
 
 /** history 编号的形状（内核的 HISTORY_N_RE）：1 到 9 位数字，不以 0 开头。 */
@@ -55,6 +55,8 @@ const ADAPTERS = ["pi", "claude-code", "codex", "opencode"] as const;
 
 /** role 的取值（kit_roles.py 的 ROLES）。 */
 const ROLES = ["planning_review", "contract", "execution", "scheduler_agent"] as const;
+/** 七端岗位的取值（scripts/kit_roles.py 的 HUB_POST_ADAPTERS 的键；TS 一份在 ts/packages/config/src/roles-check.ts）。 */
+const HUB_POSTS = ["coordinator", "planner", "contract", "gate", "audit", "exec"] as const;
 /** target 的三个枚举值（其余是过 TASK_ID_RE 的 profile id）。 */
 const TARGET_ENUM = ["manual", "disabled", "interactive_host"] as const;
 /** host 的两个取值（kit_config.py）。 */
@@ -72,7 +74,7 @@ interface WriteActionSpec {
   readonly optional: readonly string[];
 }
 
-/** 十二个写 action 与各自参数的形状。profile/runtime 的路径参数与正文同名键合并后校验（路径参数压正文）。 */
+/** 十四个写 action 与各自参数的形状。profile/runtime 的路径参数与正文同名键合并后校验（路径参数压正文）。 */
 export const WRITE_ACTIONS: Readonly<Record<string, WriteActionSpec>> = {
   "role.set": { required: ["role", "target"], optional: ["host", "cadence_seconds"] },
   "preset.use": { required: ["name"], optional: [] },
@@ -86,12 +88,14 @@ export const WRITE_ACTIONS: Readonly<Record<string, WriteActionSpec>> = {
   "profile.remove": { required: ["profile"], optional: [] },
   "runtime.add": { required: ["runtime", "adapter"], optional: ["command", "force"] },
   "runtime.remove": { required: ["runtime"], optional: [] },
+  "hub.set": { required: ["post", "profile"], optional: ["fallback"] },
+  "hub.unset": { required: ["post"], optional: [] },
 };
 
 /**
- * 十二条写命令的示例 argv（十三条示例：role.set 保留两行，其余各一行；填示例值：role=execution、target=manual 与
+ * 十四条写命令的示例 argv（十五条示例：role.set 保留两行，其余各一行；填示例值：role=execution、target=manual 与
  * demo-profile、preset=demo-preset、number=1、插件 id=example-plugin、权限=demo-permission、runtime=demo-runtime、
- * adapter=pi、model=demo-provider/demo-model），供真内核与替身用例逐条过内核解析器，写法照 READ_ROUTE_ARGV。位置参数
+ * adapter=pi、model=demo-provider/demo-model、岗位=coordinator、profile=demo-profile、fallback=demo-fallback），供真内核与替身用例逐条过内核解析器，写法照 READ_ROUTE_ARGV。位置参数
  * 都由正则保证不以 - 开头；选项的值一律写成 --opt=值；--force 是不取值的开关；--command 的值是 JSON.stringify(command)。
  */
 export const WRITE_ARGV: Readonly<Record<string, readonly string[]>> = {
@@ -108,10 +112,12 @@ export const WRITE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "profile.remove": ["config", "profile", "remove", "demo-profile"],
   "runtime.add": ["config", "runtime", "add", "demo-runtime", "--adapter=pi", "--command=[\"C:/tools/pi.exe\",\"--flag\"]", "--force"],
   "runtime.remove": ["config", "runtime", "remove", "demo-runtime"],
+  "hub.set": ["config", "hub", "set", "coordinator", "demo-profile", "--fallback=demo-fallback"],
+  "hub.unset": ["config", "hub", "unset", "coordinator"],
 };
 
 /**
- * U4：开放给界面的写命令路径，恰好 12 条，每条一个字符串；与内核里带 --dry-run 的写命令集合逐条相等
+ * U4：开放给界面的写命令路径，恰好 14 条，每条一个字符串；与内核里带 --dry-run 的写命令集合逐条相等
  * （write-argv.test.ts 的 W2 用 kit_config/kit_plugins 的 build_parser 递归枚举核对）。
  */
 export const OPEN_WRITE_COMMAND_PATHS: readonly string[] = [
@@ -127,15 +133,16 @@ export const OPEN_WRITE_COMMAND_PATHS: readonly string[] = [
   "config profile remove",
   "config runtime add",
   "config runtime remove",
+  "config hub set",
+  "config hub unset",
 ];
 
 /**
- * U4：内核已经有预览（--dry-run）、界面的写路由还没做的写命令。内核第 154 轮加了 config hub set、config hub unset，
- * 对应的路由是 T031 的事：它落地时把这两条挪进 OPEN_WRITE_COMMAND_PATHS，这张表清空。
- * write-argv.test.ts 的 W2 核对“开放的加上这里的 = 内核里带 --dry-run 的写命令”：内核再加可预览的写命令时照旧会被拦下来，
- * 要么给它做路由，要么在这里写明等哪一片。
+ * U4：内核已经有预览（--dry-run）、界面的写路由还没做的写命令。T031 把 config hub set、config hub unset 挪进了
+ * OPEN_WRITE_COMMAND_PATHS，这张表现在为空；导出保留，给后续片留位置——内核再加可预览的写命令时照旧会被 W2 拦下来，
+ * 要么给它做路由，要么在这里写明等哪一片。write-argv.test.ts 的 W2 核对“开放的加上这里的 = 内核里带 --dry-run 的写命令”。
  */
-export const PENDING_WRITE_COMMAND_PATHS: readonly string[] = ["config hub set", "config hub unset"];
+export const PENDING_WRITE_COMMAND_PATHS: readonly string[] = [];
 
 /** U4：显式不开放的写命令，每条带一句理由；命令路径都不在 OPEN_WRITE_COMMAND_PATHS 里，也都被内核解析器拒绝。 */
 export const NOT_OPEN_WRITE_COMMANDS: readonly { readonly path: readonly string[]; readonly reason: string }[] = [
@@ -229,6 +236,8 @@ function validValue(key: string, value: unknown): boolean {
   if (key === "id") return typeof value === "string" && PLUGIN_ID_RE.test(value);
   if (key === "allow_permission") return validAllowPermission(value);
   if (key === "profile" || key === "runtime") return typeof value === "string" && TASK_ID_RE.test(value);
+  if (key === "post") return typeof value === "string" && (HUB_POSTS as readonly string[]).includes(value);
+  if (key === "fallback") return typeof value === "string" && TASK_ID_RE.test(value);
   if (key === "model") return validModel(value);
   if (key === "thinking") return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
   if (key === "credential_env") return validCredentialEnv(value);
@@ -238,7 +247,7 @@ function validValue(key: string, value: unknown): boolean {
 }
 
 /**
- * 预览与十二条写路由共用的同一个校验函数：正文不是对象 → 400「请求体必须是 JSON 对象」；action 不在登记表里 →
+ * 预览与十四条写路由共用的同一个校验函数：正文不是对象 → 400「请求体必须是 JSON 对象」；action 不在登记表里 →
  * 400「action 不合法」；args 有未知键 → 400「参数含有未知键」；缺必填键 → 400「参数缺少必填键」；某个值不合格 →
  * 400「<键> 不合法」。提示固定、不回显请求里的值，不合格时不起子进程。
  */
@@ -313,6 +322,13 @@ export function buildWriteArgv(action: string, args: Record<string, unknown>): r
     }
     case "runtime.remove":
       return ["config", "runtime", "remove", String(args["runtime"])];
+    case "hub.set": {
+      const argv = ["config", "hub", "set", String(args["post"]), String(args["profile"])];
+      if (args["fallback"] !== undefined) argv.push(`--fallback=${String(args["fallback"])}`);
+      return argv;
+    }
+    case "hub.unset":
+      return ["config", "hub", "unset", String(args["post"])];
     default:
       return [];
   }
@@ -468,7 +484,7 @@ async function runWrite(state: WriteRoutesState, op: OperationRecord, runArgv: r
   }
 }
 
-/** 十二条写路由共用的执行链：校验 → 确认号核对 → argv 绑定 → canAccept → 操作表 → 拿号 → 跑。 */
+/** 十四条写路由共用的执行链：校验 → 确认号核对 → argv 绑定 → canAccept → 操作表 → 拿号 → 跑。 */
 async function executeWrite(
   state: WriteRoutesState,
   action: string,
@@ -589,6 +605,18 @@ export function writeRoutes(state: WriteRoutesState, timeouts: Readonly<Record<s
       method: "POST",
       pattern: /^\/api\/v1\/runtimes\/([^/]+)\/remove$/u,
       handle: (_state, params, input) => run("runtime.remove", { runtime: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.hub.roles.set",
+      method: "POST",
+      pattern: /^\/api\/v1\/hub\/roles\/([^/]+)$/u,
+      handle: (_state, params, input) => run("hub.set", { post: params[0] ?? "" }, input),
+    },
+    {
+      name: "api.hub.roles.unset",
+      method: "POST",
+      pattern: /^\/api\/v1\/hub\/roles\/([^/]+)\/unset$/u,
+      handle: (_state, params, input) => run("hub.unset", { post: params[0] ?? "" }, input),
     },
     {
       name: "api.operations.get",

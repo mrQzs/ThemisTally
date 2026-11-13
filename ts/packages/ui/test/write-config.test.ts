@@ -1,5 +1,5 @@
 // T020 的替身用例：五条新写路由（profile add|edit|remove、runtime add|remove）与 credential_env 的三种写法、command 的 JSON
-// 序列化、预览正文的顶层键，以及「令牌不外泄」的 12 行 × 4 查法。进程内建 app（照 write-routes.test.ts 的写法），内核子进程
+// 序列化、预览正文的顶层键，以及「令牌不外泄」的 14 行 × 4 查法。进程内建 app（照 write-routes.test.ts 的写法），内核子进程
 // 走替身 fake-write-kernel.mjs；替身对每个 action 给一份确定性预览（state 每行不同），执行那一支把 --expect-state 记进报告。
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -197,7 +197,7 @@ describe("预览正文的顶层键", () => {
   });
 });
 
-describe("令牌不外泄：12 行 × 4 查法", () => {
+describe("令牌不外泄：14 行 × 4 查法", () => {
   /** 十二条命令的预览参数、执行路径与正文；runtime.add 带 --command、runtime.remove 给 config+local 两段。 */
   const ROWS: readonly { action: string; args: Record<string, unknown>; path: string; body: Record<string, unknown> }[] = [
     { action: "role.set", args: { role: "execution", target: "manual" }, path: "/api/v1/roles/execution", body: { target: "manual" } },
@@ -212,6 +212,8 @@ describe("令牌不外泄：12 行 × 4 查法", () => {
     { action: "profile.remove", args: { profile: "demo-profile" }, path: "/api/v1/profiles/demo-profile/remove", body: {} },
     { action: "runtime.add", args: { runtime: "demo-runtime", adapter: "pi", command: ["C:/tools/pi.exe", "--flag"] }, path: "/api/v1/runtimes/demo-runtime/add", body: { adapter: "pi", command: ["C:/tools/pi.exe", "--flag"] } },
     { action: "runtime.remove", args: { runtime: "demo-runtime" }, path: "/api/v1/runtimes/demo-runtime/remove", body: {} },
+    { action: "hub.set", args: { post: "coordinator", profile: "demo-profile" }, path: "/api/v1/hub/roles/coordinator", body: { profile: "demo-profile" } },
+    { action: "hub.unset", args: { post: "coordinator" }, path: "/api/v1/hub/roles/coordinator/unset", body: {} },
   ];
 
   it("每行的预览/执行/操作正文都不出现令牌段，替身的 expect_state 与整条令牌逐字相同", async () => {

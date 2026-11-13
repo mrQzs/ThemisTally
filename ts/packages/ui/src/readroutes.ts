@@ -1,4 +1,4 @@
-// 19 条只读数据路由（桌面端设计第 7 版 §5.3、D05/D11/D12/D13）：每条起一个内核子进程跑只读 CLI，全部 GET、全部要
+// 20 条只读数据路由（桌面端设计第 7 版 §5.3、D05/D11/D12/D13）：每条起一个内核子进程跑只读 CLI，全部 GET、全部要
 // 会话（T17），查询参数与路径参数在起子进程之前校验，不合格回 400。命令行是 [python, kernel, "--repo", repo, ...argv]
 // （组装在 kernel.ts），argv 是列表、不经 shell；选项的值一律写成 --opt=值；所有位置参数都由正则保证不以 - 开头。
 // 响应先过 redactJson，再按路由登记的白名单做约束校验（redaction.ts）；file 路由给界面的是随机不透明句柄，内核
@@ -19,7 +19,7 @@ import {
   statusEnvelope,
   timeoutEnvelope,
 } from "./kernelenvelope.ts";
-import { CONFIG_ALLOW, EVIDENCE_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW } from "./redaction.ts";
+import { CONFIG_ALLOW, EVIDENCE_ALLOW, HUB_ROLES_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW } from "./redaction.ts";
 
 /** meta 的时限（秒）。 */
 export const META_TIMEOUT = 15;
@@ -70,29 +70,6 @@ export interface ReadRouteSpec {
   readonly timeoutSeconds: number;
 }
 
-/** 19 条读路由的登记表：一条不多、一条不少（顺序即路由表顺序）。 */
-export const READ_ROUTE_SPECS: readonly ReadRouteSpec[] = [
-  { name: "api.meta.get", path: "/api/v1/meta", timeoutSeconds: META_TIMEOUT },
-  { name: "api.status.get", path: "/api/v1/status", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.attempts.list", path: "/api/v1/attempts", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.attempts.show", path: "/api/v1/attempts/demo-task/attempt-001", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.attempts.file", path: "/api/v1/attempts/demo-task/attempt-001/file?path=a/b.txt", timeoutSeconds: FILE_TIMEOUT },
-  { name: "api.usage.get", path: "/api/v1/usage", timeoutSeconds: USAGE_TIMEOUT },
-  { name: "api.config.get", path: "/api/v1/config", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.config.validate", path: "/api/v1/config/validate", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.config.history.list", path: "/api/v1/config/history", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.config.history.show", path: "/api/v1/config/history/1", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.roles.get", path: "/api/v1/roles", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.profiles.get", path: "/api/v1/profiles", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.presets.list", path: "/api/v1/presets", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.presets.diff", path: "/api/v1/presets/base/diff/alt", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.runtimes.get", path: "/api/v1/runtimes", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.plugins.list", path: "/api/v1/plugins", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.plugins.show", path: "/api/v1/plugins/example-plugin", timeoutSeconds: DEFAULT_TIMEOUT },
-  { name: "api.secrets.list", path: "/api/v1/secrets", timeoutSeconds: SECRETS_TOTAL_TIMEOUT },
-  { name: "api.secrets.show", path: "/api/v1/secrets/EXAMPLE_KEY", timeoutSeconds: DEFAULT_TIMEOUT },
-];
-
 /**
  * 每条读路由的 argv 模板（示例参数填在里头）：真内核的 argv-templates 用例拿它逐条过内核真正的解析器，
  * kernel-runner 用例核对处理器实际交出的 argv 与它一致（ drift 会被用例抓住）。示例值——task=demo-task、
@@ -123,6 +100,7 @@ export const READ_ROUTE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "api.secrets.list.profiles": ["config", "profile", "show", "--json"],
   "api.secrets.list.check": ["config", "secret", "check", "EXAMPLE_KEY"],
   "api.secrets.show": ["config", "secret", "check", "EXAMPLE_KEY"],
+  "api.hub.roles.get": ["config", "hub", "show", "--json"],
 };
 
 /**
@@ -453,7 +431,7 @@ function withHandle(state: ReadRoutesState, task: string, attempt: string, path:
 }
 
 /**
- * 建 19 条读路由（server.ts 把它们接进 createApp 的 extraRoutes）。timeouts 是测试入口的时限覆盖
+ * 建 20 条读路由（server.ts 把它们接进 createApp 的 extraRoutes）。timeouts 是测试入口的时限覆盖
  * （路由名 → 秒），CLI 与环境变量碰不到。
  */
 export function readRoutes(state: ReadRoutesState, timeouts: Readonly<Record<string, number>> = {}): readonly Route[] {
@@ -627,5 +605,38 @@ export function readRoutes(state: ReadRoutesState, timeouts: Readonly<Record<str
         return secretCheckResponse(argv, outcome, timeoutSeconds);
       },
     },
+    {
+      name: "api.hub.roles.get",
+      method: "GET",
+      pattern: exact("/api/v1/hub/roles"),
+      handle: (_state, _params, input) => jsonRoute(state, ["config", "hub", "show", "--json"], at("api.hub.roles.get", DEFAULT_TIMEOUT), input, HUB_ROLES_ALLOW),
+    },
   ];
 }
+
+/**
+ * 20 条读路由的登记表：一条不多、一条不少（顺序即上面 readRoutes() 的路由表顺序）。api.hub.roles.get 是第 20 条
+ * （追加在表末）：GET /api/v1/hub/roles → config hub show --json，时限 30 秒（DEFAULT_TIMEOUT）。
+ */
+export const READ_ROUTE_SPECS: readonly ReadRouteSpec[] = [
+  { name: "api.meta.get", path: "/api/v1/meta", timeoutSeconds: META_TIMEOUT },
+  { name: "api.status.get", path: "/api/v1/status", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.attempts.list", path: "/api/v1/attempts", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.attempts.show", path: "/api/v1/attempts/demo-task/attempt-001", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.attempts.file", path: "/api/v1/attempts/demo-task/attempt-001/file?path=a/b.txt", timeoutSeconds: FILE_TIMEOUT },
+  { name: "api.usage.get", path: "/api/v1/usage", timeoutSeconds: USAGE_TIMEOUT },
+  { name: "api.config.get", path: "/api/v1/config", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.config.validate", path: "/api/v1/config/validate", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.config.history.list", path: "/api/v1/config/history", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.config.history.show", path: "/api/v1/config/history/1", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.roles.get", path: "/api/v1/roles", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.profiles.get", path: "/api/v1/profiles", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.presets.list", path: "/api/v1/presets", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.presets.diff", path: "/api/v1/presets/base/diff/alt", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.runtimes.get", path: "/api/v1/runtimes", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.plugins.list", path: "/api/v1/plugins", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.plugins.show", path: "/api/v1/plugins/example-plugin", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.secrets.list", path: "/api/v1/secrets", timeoutSeconds: SECRETS_TOTAL_TIMEOUT },
+  { name: "api.secrets.show", path: "/api/v1/secrets/EXAMPLE_KEY", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.hub.roles.get", path: "/api/v1/hub/roles", timeoutSeconds: DEFAULT_TIMEOUT },
+];

@@ -1,6 +1,6 @@
-// 19 条读路由的会话默认必须验证（桌面端 §5.2、T17、D01）：不带 cookie 一律 401，只有 bootstrap 与
+// 20 条读路由的会话默认必须验证（桌面端 §5.2、T17、D01）：不带 cookie 一律 401，只有 bootstrap 与
 // control.bootstrap 公开；/api/ 下不存在的路径没有会话是 401（不泄露它在不在）；静态资源不验会话。表里必须正好
-// 是路由表里的 19 条读路由（一条不多、一条不少），漏一条即失败。
+// 是路由表里的 20 条读路由（一条不多、一条不少），漏一条即失败。
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ import { jobRoutes } from "../src/jobroutes.ts";
 const PORT = 53277;
 
 /**
- * 「路由名 → 示例路径」表：合同路由表的 19 条读路由，一条不多、一条不少（漏一条即失败）。表里的路径要能命中
+ * 「路由名 → 示例路径」表：合同路由表的 20 条读路由，一条不多、一条不少（漏一条即失败）。表里的路径要能命中
  * 对应路由的正则，401 用例也逐条走这张表——它对不上路由表时就红。
  */
 const READ_ROUTE_EXAMPLES: Readonly<Record<string, string>> = {
@@ -40,6 +40,7 @@ const READ_ROUTE_EXAMPLES: Readonly<Record<string, string>> = {
   "api.plugins.show": "/api/v1/plugins/example-plugin",
   "api.secrets.list": "/api/v1/secrets",
   "api.secrets.show": "/api/v1/secrets/EXAMPLE_KEY",
+  "api.hub.roles.get": "/api/v1/hub/roles",
 };
 
 let root = "";
@@ -72,12 +73,12 @@ const session = async (): Promise<string> => {
   return booted.headers.get("set-cookie")?.split(";")[0] ?? "";
 };
 
-describe("19 条读路由都要会话（T17）", () => {
-  it("「路由名 → 示例路径」表正好是路由表里的 19 条读路由", () => {
+describe("20 条读路由都要会话（T17）", () => {
+  it("「路由名 → 示例路径」表正好是路由表里的 20 条读路由", () => {
     const routes = readRoutes({ repo: root, runner: { isClosing: false, run: async () => ({ kind: "closing" }) }, cursors: new CursorTable(), transcript: [] });
     const registered = new Map(routes.map((route) => [route.name, route]));
     const listed = Object.keys(READ_ROUTE_EXAMPLES);
-    expect(listed.length).toBe(19); // 19 条，一条不多一条不少
+    expect(listed.length).toBe(20); // 20 条，一条不多一条不少
     expect(new Set(listed).size).toBe(listed.length); // 表里没有重复
     for (const [name, example] of Object.entries(READ_ROUTE_EXAMPLES)) {
       const route = registered.get(name);
@@ -121,7 +122,7 @@ describe("19 条读路由都要会话（T17）", () => {
     expect((await get("/api/v1/ping", cookie)).status).toBe(200);
   });
 
-  it("带了会话之后 19 条读路由都过得了会话这一关（替身一律回 closing → 503）", async () => {
+  it("带了会话之后 20 条读路由都过得了会话这一关（替身一律回 closing → 503）", async () => {
     const cookie = await session();
     for (const example of Object.values(READ_ROUTE_EXAMPLES)) {
       const response = await get(example, cookie);
@@ -132,7 +133,7 @@ describe("19 条读路由都要会话（T17）", () => {
 
 /**
  * 第 3 片的四条新路由（SSE 与作业）：也不标 public，不带 cookie 一律 401（T17）。表里正好是这四条，与
- * eventRoutes()/jobRoutes() 的路由名一一对应；既有 19 条表与上面的断言一字不动。
+ * eventRoutes()/jobRoutes() 的路由名一一对应；既有 20 条表与上面的断言一字不动。
  */
 const NEW_ROUTE_EXAMPLES: Readonly<Record<string, { readonly method: string; readonly path: string }>> = {
   "api.events": { method: "GET", path: "/api/v1/events" },
@@ -184,7 +185,7 @@ describe("第 3 片新路由都要会话（T17）", () => {
 
 /**
  * 第 7 片的录入路由（U18）：POST /api/v1/secrets/<name>/entry 也不标 public，不带 cookie 一律 401（T17）。
- * 既有的 19 条表与上面的断言一字不动。
+ * 既有的 20 条表与上面的断言一字不动。
  */
 const ENTRY_ROUTE_EXAMPLES: Readonly<Record<string, { readonly method: string; readonly path: string }>> = {
   "api.secrets.entry": { method: "POST", path: "/api/v1/secrets/EXAMPLE_KEY/entry" },
