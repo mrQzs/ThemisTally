@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "task_id": "t034-desktop-web-connection-b",
+  "plan_version": 2,
+  "title": "桌面端前端接真实服务第 2 片：连接状态与页面接线（D3 之五，T029 的重新登记）",
+  "repository": "ThemisTally",
+  "base_sha": "3aa8e6da093365755e4565cb7ff75c6d9e2e2325",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/shell/TitleBar.tsx",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/components/ConnectionPill.tsx",
+      "desktop/web/src/live/transport.ts",
+      "desktop/web/tests/live-transport.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/shell/useShellConnection.ts",
+      "desktop/web/tests/live-app.test.tsx",
+      "desktop/web/tests/live-shell.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t034_*.py",
+      "tests/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/live/mode.ts",
+      "desktop/web/src/live/connection.ts",
+      "desktop/web/src/shell/TabBar.tsx",
+      "desktop/web/tests/shell-app.test.tsx",
+      "desktop/web/tests/shell-no-network.test.ts",
+      "ts/**",
+      "desktop/shell/**",
+      "scripts/**",
+      "docs/**",
+      "schemas/**",
+      ".agent/**",
+      "AGENTS.md"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t034_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "连接状态接进界面：真实模式下胶囊、离线横幅、「可能已过期」与 TabBar 的 offline 状态都由 `src/live/connection.ts` 的状态驱动；断线时出 danger 横幅与「已断开」，下一次请求成功后恢复",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "站主要求「界面的连接状态由请求结果驱动」，只改文案不改状态源等于没接"
+    },
+    {
+      "id": "D02",
+      "text": "钩子形状与口径固定：新增 `desktop/web/src/shell/useShellConnection.ts` 导出 `{ live: boolean; state: ConnectionState }`，`state` 是 components 的三取值 ConnectionState，无条件调用 `useConnectionState()`，`live` 由 `liveClient() !== null` 判定，夹具分支取 `shellConnectionState(currentMock())`；`App.tsx`、`TitleBar.tsx`、`PageFrame.tsx` 三处都调用它",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "三处要同一个状态源，钩子放错模块会让 live 模块依赖 mock，或让 typescript 用错 ConnectionState 而红"
+    },
+    {
+      "id": "D03",
+      "text": "meta 异步：真实模式首屏标题栏仓库名、TabBar 的 kit 与总览页说明都先是占位「—」（总览页说明是**单个**「—」，不是「— · kit —」），`getMeta()` 成功兑现后才填服务给的值（`pi_dispatch 2.12.0` → `kit 2.12.0`，总览页说明变成「仓库名 · kit 版本」）；`getMeta()` 失败保持「—」；夹具模式照旧 `getMetaNow()` 打底（说明仍是 `demo-repo · kit 2.12.0`）；`getMetaNow()` 一字未改",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "首屏不闪夹具里的 `demo-repo` 与 `kit 2.12.0`，且不靠改同步函数来实现（那会推翻 T027 的 s06/s31/p5）"
+    },
+    {
+      "id": "D04",
+      "text": "夹具模式零变化：夹具模式下经 App 打开 `#/settings` 只调 `getMetaNow` 与 `getStatus`、**没有 `getMeta`**（T012 探针 `:3293-3311`），`?mock=offline` 的横幅、禁用钮与错误块文案逐字不变",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "夹具是其它片的契约，本片不许顺手改它"
+    },
+    {
+      "id": "D05",
+      "text": "标题栏真实模式不显示夹具值：真实模式下胶囊浮层的 pid、启动于、事件流三行都是「—」，仓库菜单只列当前仓库名，「添加仓库…」仍禁用且 trailing 仍是「第二阶段接入」；`ConnectionPill` 的 `pid` 类型逐字写成 `pid?: number | string`，三取值与「未知」兜底不变",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "夹具的进程号、启动时间与最近仓库在真实模式下是假信息"
+    },
+    {
+      "id": "D06",
+      "text": "页面四态由请求结果驱动：真实模式下 PageFrame 的加载、出错、离线、空四态各有用例；`command` 为空或 `exit_code` 为 `null` 的合成信封只列 `messages`、不渲染「命令（…）返回退出码 …」；已有数据时刷新失败且已断线，保留旧数据与原 phase、不切 error、不向 Tab 栏报 error；[重新连接] 在真实模式可点并重跑 load；夹具模式下这三条照旧（夹具错误块仍是「命令（status）返回退出码 2」）",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "传输层合成的失败信封没有命令与退出码，照旧渲染会显示成「命令（）返回退出码 。」"
+    },
+    {
+      "id": "D07",
+      "text": "外壳页路由零请求：地址是 `#/first-run` 或 `#/service-status` 时，假网络接口一次都没被调用，页面也没有离线横幅（渲染前先把连接状态置为 `disconnected` 仍然无横幅）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "外壳页由 `themis-shell://app/` 提供，那里 `fetch()` 一律失败（站主实测），发请求就是坏功能"
+    },
+    {
+      "id": "D08",
+      "text": "宿主接口调用时取：`createLiveClient()` 不在创建时固化 `window.themisHost`；显式 `options.host` 仍然优先；「先建客户端、后出现 `window.themisHost`」的用例里 `reauth` 被调 1 次且文案是「会话已失效」；`window.themisHost`、`options.host`、`typeof window` 三个记号与两处 `timedOut || (error as Error)?.name === 'AbortError'` 原样保留；现有 18 条 `live-transport.test.ts` 用例一条没改",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "T027 终审不挡意见 1——页面挂载早期建客户端时宿主接口可能还没出现，创建时取会让重新认证永远失效"
+    },
+    {
+      "id": "D09",
+      "text": "静态守卫不踩：新增文件与改动文件里没有那四个网络整词（连注释都不许）、没有 `role=status`、没有 `matchMedia`/`scrollIntoView`/`ResizeObserver`/`IntersectionObserver`、没有十六进制颜色与颜色函数；`App.tsx` 去掉注释后没有 `liveClient` 与 T012 的禁词；`src/live/` 以外的任何 `src/**` 文件里都不许出现那四个整词",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "这些扫描规则是别的片的契约，越界一次就判负"
+    },
+    {
+      "id": "D10",
+      "text": "门禁与回归全绿：G01 通过、R01 全绿、V01/V02/V03 全绿；`desktop/web/package.json` 与 `package-lock.json` 一个字节没动；`git diff --stat` 里没有任何 `tests/test_gate_*`、`ts/**`、`desktop/shell/**`、`scripts/**`、`docs/**`、`schemas/**`、`desktop/web/src/shellpages/**`、`desktop/web/src/pages/SettingsPage.tsx` 的改动",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "V02",
+        "V03",
+        "scope"
+      ],
+      "intent": "既有门禁是别的片的契约，本片不许削弱它们"
+    },
+    {
+      "id": "D11",
+      "text": "范围与卫生：所有修改都在允许集合内（新增的 `src/shell/useShellConnection.ts` 与两份 `tests/live-*.test.tsx` 都在 `allowed_new_files`）；没有删除、跳过或弱化既有测试（新测试里不写 skip/only/todo，`live-transport.test.ts` 只追加不改）；临时文件照 AGENTS.md 用 `T=$(mktemp -d)` 并在同一命令里 `rm -rf \"$T\"`；构建产物 `dist/` 不提交；遇到合同与既有测试或门禁冲突时不越界改文件，写进 `contract_conflicts`",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    },
+    {
+      "id": "D12",
+      "text": "推翻清单为零：本片没有推翻任何门禁过渡断言或前端（过渡）用例；特别是 T027 的 `test_transitional_s31_getmetanow_pure_fixture` 在本片之后**照旧成立**（不改名、不退役）；执行报告里列明本片**没有**需要退役的断言（若有，写进 `contract_conflicts` 并报告站主）",
+      "evidence": [
+        "review",
+        "R01"
+      ],
+      "intent": "门禁里的过渡断言是留给后续片的登记，本片擅自退役会让后面的片少一条护栏"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
