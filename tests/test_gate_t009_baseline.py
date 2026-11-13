@@ -133,8 +133,9 @@ EXECUTOR_TESTS = ("page-logic.test.ts", "page-common.test.tsx", "page-overview.t
                   "page-runtimes.test.tsx", "page-app.test.tsx", "page-css.test.ts", "page-static.test.ts")
 
 # 三页可以从 api.ts 取的读函数（合同第 2 条）
+# 站主门禁准备（2026-11-13）：T038（“角色与模型”页加“七端岗位”一组，模型配置 M4）让 RolesPage 多读一个 getHubRoles
 ALLOWED_API_READS = ("getStatus", "getHistory", "getMeta", "getMetaNow", "getRoles", "getProfiles", "getPresets",
-                     "diffPresets", "getRuntimes")
+                     "diffPresets", "getRuntimes", "getHubRoles")
 
 # 合同 §3.4 的分组状态码（分组只来自 attemptGroups，页面源码里不得自己写）
 STATE_CODES = ("PREPARING", "RUNNING", "COLLECTING", "NEEDS_REVIEW", "TIMEOUT", "CANCELLED", "INFRA_FAILURE", "ESCALATE",
