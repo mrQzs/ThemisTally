@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "task_id": "t033-desktop-shell-service",
+  "plan_version": 1,
+  "title": "桌面端外壳第 5 片：从外壳页起服务、服务状态事件、意外退出回到服务状态页（D3 之八）",
+  "repository": "ThemisTally",
+  "base_sha": "aebf35503940cdefb5b39833ba51a442f282b6ee",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/main.js",
+      "desktop/shell/shell-preload.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/shellpreload.test.js",
+      "desktop/shell/tests/shellipc.test.js",
+      "desktop/shell/tests/serviceflow.test.js",
+      "desktop/shell/tests/fixtures/fake-service-exit.js",
+      "desktop/shell/package.json",
+      "desktop/shell/README.md"
+    ],
+    "allowed_new_files": [
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/tests/serviceflow.test.js",
+      "desktop/shell/tests/fixtures/fake-service-exit.js"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t033_*.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "desktop/web/**",
+      "ts/**",
+      "scripts/**",
+      "desktop/shell/preload.js",
+      "desktop/shell/package-lock.json",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/python.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/tests/fixtures/fake-service.js",
+      "desktop/shell/tests/args.test.js",
+      "desktop/shell/tests/package.test.js",
+      "desktop/shell/tests/python.test.js",
+      "desktop/shell/tests/handshake.test.js",
+      "desktop/shell/tests/service.test.js",
+      "desktop/shell/tests/window.test.js",
+      "desktop/shell/tests/core.test.js",
+      "desktop/shell/tests/control.test.js",
+      "desktop/shell/tests/host.test.js",
+      "desktop/shell/tests/hostcheck.test.js",
+      "desktop/shell/tests/ipc.test.js",
+      "desktop/shell/tests/preload.test.js",
+      "desktop/shell/tests/settings.test.js",
+      "desktop/shell/tests/detect.test.js",
+      "desktop/shell/tests/shellshape.test.js",
+      "desktop/shell/tests/launch.test.js",
+      "desktop/shell/tests/shellprotocol.test.js"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass [1-9]\\d*"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t033_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`startService(repo)` 按仓库 id 在设置列表里查；不在列表回 `unknown-repo` 且**不起进程**；Python 不可用回 `python-missing`；kit（按目标仓库算，不读当前仓库的缓存）不可用回 `kit-missing`；别的仓库正忙回 `busy`；同一仓库正忙幂等回 ok；命令形状与带参数那条路一致（同一个 `serviceCommand`）",
+      "evidence": [
+        "V01",
+        "G01"
+      ]
+    },
+    {
+      "id": "D02",
+      "text": "服务真的起来：握手成功后状态是 `running`（带 pid 与 ISO 的 `startedAt`），随后开服务窗口、外壳页窗口随后关闭；窗口次序是先建后关，任何时刻没有零窗口",
+      "evidence": [
+        "V01",
+        "G01",
+        "review"
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "`service-state` 事件：主进程用 `webContents.send` 只发给当前外壳页窗口（窗口已销毁就跳过），负载就是 `ServiceState`（逐字四态）；`getState().service` 与事件一致；通道常量不进 `SHELL_CHANNELS`（T030 的「恰好九个」不破），preload 里通道名字面量、由测试比对两处一致",
+      "evidence": [
+        "V01",
+        "G01"
+      ]
+    },
+    {
+      "id": "D04",
+      "text": "preload 的 `on`：只认 `'service-state'`；只注册一个 `ipcRenderer.on`；每次 `on` 登记独立订阅，退订只删自己那条、可重复退订不抛错；别的事件名同步回空退订函数；监听函数只收到 state 一个实参；`on` 与退订都不发 IPC",
+      "evidence": [
+        "V01"
+      ]
+    },
+    {
+      "id": "D05",
+      "text": "退出码：有数字码用数字码；没有数字码（信号结束、spawn 失败、外壳自己杀的握手失败进程）记 `-1`；1/2 的既有语义不与本片混用；「是不是外壳自己结束的」标志只留主进程（`info.byShell`），不进事件负载与 `getState().service`",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D06",
+      "text": "用户关服务窗口 → 收服务 → 服务以 0 退出就以 0 退出应用，否则写一行 `ERROR:` 并以 1 退出；服务在 `running` 期间自己退出 → 写一行 `ERROR: 服务意外退出（退出码 N）`、关服务窗口、以 1 退出（A 片过渡行为）",
+      "evidence": [
+        "G01",
+        "review"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "`starting` 期间用户关外壳页 → 先中止子进程（子进程真的退出，不留僵尸）再以 0 退出",
+      "evidence": [
+        "V01",
+        "G01",
+        "review"
+      ]
+    },
+    {
+      "id": "D08",
+      "text": "控制令牌只在主进程：只进 `createHost` 的闭包，不出现在事件负载、`getState()`、任何信封与任何日志",
+      "evidence": [
+        "V01",
+        "review"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "既有门禁的守法：`require('electron')` 只在三个文件；`ipcMain.on` 与 `ipcRenderer.send` 全禁；main.js 与 src/** 的词面禁令；`new BrowserWindow` 恰好一处；T025/T026/T030 钉住的 main.js 接线标记一个不丢；`launchMode(` 早于 `runShell(` 且 `runShell` 的五个实参不变；`package.json` 的 `scripts.test` 列出每一个 `tests/*.test.js`（含新增的 `tests/serviceflow.test.js`）",
+      "evidence": [
+        "G01",
+        "R01"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "包内测试与行为同步：`tests/shellapi.test.js` 只改那一条占位用例、`tests/shellpreload.test.js` 只改那两条、`tests/shellipc.test.js` 新增一条、新增 `tests/serviceflow.test.js` 与夹具；既有测试一条没删没改名没弱化",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "README 写清外壳页的新行为与新的手工冒烟条目（注明页面上点「启动」要等 T032 落地），既有 needle 一字不删",
+      "evidence": [
+        "R01",
+        "review"
+      ]
+    },
+    {
+      "id": "D12",
+      "text": "所有修改都在允许集合内；没有新增或升级依赖；没有下载 Electron 本体、没有联网",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D13",
+      "text": "没有删除、跳过或弱化既有测试",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 14400,
+    "cost_budget": null
+  }
+}
