@@ -3,17 +3,16 @@
 // 页面框架经 ShellStatusContext 向 Tab 栏上报加载状态。陈列页（#/showcase）不是 Tab，由 ShowcasePage 渲染。
 // #/first-run、#/service-status 由根上的外壳窗口整窗渲染，不挂服务窗口；主题偏好在根上，经 ThemePrefProvider 交给设置页。
 import { useEffect, useState } from 'react';
-import { getMetaNow, getStatus } from './api';
+import { getMeta, getMetaNow, getStatus, type MetaData } from './api';
 import { TABS } from './shell/routes';
 import { useHashRoute } from './shell/router';
 import { installShortcuts } from './shell/shortcuts';
 import { applyTheme, type ThemePref } from './shell/theme';
 import { TitleBar } from './shell/TitleBar';
 import { TabBar } from './shell/TabBar';
+import { useShellConnection } from './shell/useShellConnection';
 import { ShellStatusProvider, type PageReport } from './shell/ShellStatusContext';
 import { countByGroup, type StatusCounts } from './shell/attemptGroups';
-import { currentMock } from './mock/scenario';
-import { shellConnectionState } from './mock/shell';
 import ShowcasePage from './showcase/ShowcasePage';
 import './App.css';
 import { ShellWindow, useShellWindowRoute } from './shellpages/ShellWindow';
@@ -35,9 +34,14 @@ export default function App() {
 }
 
 interface ServiceAppProps { theme: ThemePref; setTheme: (pref: ThemePref) => void; }
+
+// 真实模式下 meta 未兑现时的占位：首屏不闪夹具里的 demo-repo 与 kit 2.12.0。
+const PLACEHOLDER_META: MetaData = { kit_version: '—', repo_name: '—' };
+
 function ServiceApp({ theme, setTheme }: ServiceAppProps) {
   const { route, navigate } = useHashRoute();
-  const meta = getMetaNow();
+  const { live, state } = useShellConnection();
+  const [meta, setMeta] = useState<MetaData>(() => (live ? PLACEHOLDER_META : getMetaNow()));
   const [counts, setCounts] = useState<StatusCounts | null>(null);
   const [page, setPage] = useState<PageReport>({ phase: 'loading', at: null });
 
@@ -58,6 +62,18 @@ function ServiceApp({ theme, setTheme }: ServiceAppProps) {
       route.pageId === 'showcase' ? '组件陈列 · Themis Tally' : `${tab?.title ?? '总览'} · Themis Tally`;
   }, [route.pageId]);
 
+  // 真实模式下 meta 异步取一次：成功才填，失败保持占位「—」，不报错、不清空。夹具模式一个 getMeta() 都不调。
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    getMeta().then((env) => {
+      if (alive && env.ok && env.data) setMeta(env.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [live]);
+
   // 外壳级 getStatus 计数；随 ?mock= 变化重取，未读到显示 —。
   useEffect(() => {
     let alive = true;
@@ -71,7 +87,7 @@ function ServiceApp({ theme, setTheme }: ServiceAppProps) {
     };
   }, [route.query]);
 
-  const offline = shellConnectionState(currentMock()) === 'disconnected';
+  const offline = state === 'disconnected';
   const routeKey = `${route.pageId}|${route.segments.join('/')}|${route.query}`;
 
   const renderPage = () => {

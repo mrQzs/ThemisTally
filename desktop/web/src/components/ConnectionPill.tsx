@@ -10,7 +10,7 @@ export interface ConnectionPillProps {
   state: ConnectionState;
   /** 重连第几次（重连中时显示）。 */
   attempt?: number;
-  pid?: number;
+  pid?: number | string;
   /** 已格式化的启动时间文字。 */
   startedAt?: string;
   /** 事件流那一行。 */

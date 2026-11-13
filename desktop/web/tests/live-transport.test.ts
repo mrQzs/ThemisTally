@@ -351,4 +351,19 @@ describe('live/transport：失败分类', () => {
     await c200.get('/x');
     expect(getConnectionState()).toBe('connected');
   });
+
+  it('宿主接口调用时取：先建客户端、后设 window.themisHost，reauth 仍被调 1 次', async () => {
+    const rec = recorder(() => jsonResponse(401, { some: 'body' }));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reauth = vi.fn(() => Promise.resolve({ ok: true }));
+    (window as unknown as { themisHost?: unknown }).themisHost = { reauth };
+    try {
+      const env = await client.get('/x');
+      expect(reauth).toHaveBeenCalledTimes(1);
+      expect(env).toEqual(failureEnvelope('ERROR: 会话已失效'));
+      expect(getConnectionState()).toBe('connected');
+    } finally {
+      delete (window as unknown as { themisHost?: unknown }).themisHost;
+    }
+  });
 });

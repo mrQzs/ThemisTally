@@ -1,8 +1,10 @@
 // 总览页（合同第 2、4 条）：并行读 getStatus 与 getHistory，getStatus 失败返回它的信封；
 // 说明「仓库名 · kit 版本」来自 getMetaNow() 打底、getMeta() 刷新；空态「还没有 attempt」。
+// 真实模式首屏不闪夹具值：说明先显示单个占位「—」，getMeta() 兑现后才填。
 import { useEffect, useState } from 'react';
 import { PageFrame } from '../shell/PageFrame';
 import { useAppNavigate } from '../shell/router';
+import { useShellConnection } from '../shell/useShellConnection';
 import { getHistory, getMeta, getMetaNow, getStatus, type Envelope, type HistoryData, type StatusData } from '../api';
 import { OverviewView, type OverviewData } from './readonly1/overview-OverviewView';
 
@@ -24,8 +26,9 @@ const isOverviewEmpty = (d: OverviewData) => d.status.length === 0;
 
 export default function OverviewPage() {
   const navigate = useAppNavigate();
+  const { live } = useShellConnection();
   const seed = getMetaNow();
-  const [desc, setDesc] = useState(() => `${seed.repo_name} · kit ${seed.kit_version}`);
+  const [desc, setDesc] = useState(() => (live ? '—' : `${seed.repo_name} · kit ${seed.kit_version}`));
   useEffect(() => {
     let alive = true;
     getMeta().then((env) => {

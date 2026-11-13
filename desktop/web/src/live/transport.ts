@@ -80,17 +80,23 @@ function buildUrl(path: string, query?: Record<string, string | undefined>): str
   return search === '' ? path : `${path}?${search}`;
 }
 
+// 宿主接口在要用它的那一步才读（T027 终审不挡意见 1）：页面挂载早期就建客户端时，宿主接口可能还没出现，
+// 创建时取会让重新认证永远失效。显式给的 options.host 仍然优先。
+function reauthOf(options: LiveClientOptions): (() => unknown) | undefined {
+  const host = options.host !== undefined ? options.host : typeof window === 'undefined' ? null : window.themisHost;
+  return host?.reauth;
+}
+
 export function createLiveClient(options: LiveClientOptions = {}): LiveClient {
   const doFetch: typeof fetch =
     options.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
-  const host = options.host !== undefined ? options.host : (typeof window === 'undefined' ? null : window.themisHost);
   let reauthInFlight: Promise<void> | null = null;
 
   // 并发 401 只调一次 reauth：在途的那一个大家共用，兑现后清空，下一波 401 再起一次新的。
   // reauth 的返回值与异常都不冒泡（文案只有一个，不区分原因）。
   function runReauth(): Promise<void> {
     if (reauthInFlight !== null) return reauthInFlight;
-    const reauth = host?.reauth;
+    const reauth = reauthOf(options);
     const attempt = reauth === undefined ? Promise.resolve() : (async () => reauth())();
     reauthInFlight = (async () => {
       try {

@@ -1,15 +1,14 @@
 // 页面框架（合同第 8 条，照 Main 画布 :63–84、:205–241 与 UI 文档 5.5、6、8.1、8.2）：五态 loading/data/empty/error。
 // 挂载时调 load；ok 且 isEmpty 真时渲染 EmptyState，否则 children(data)；ok 假时渲染出错块；Promise 被拒时只写
 // 「没有收到服务的回应」。刷新保留数据、按钮进入加载态。只认最近一次请求，卸载后不再写状态，并向 Tab 栏状态段上报。
-// 断线时页面头下方一条 danger Banner 与禁用的[重新连接]，有数据时标题旁加「可能已过期」Tag，根元素带 data-stale。
+// 断线时页面头下方一条 danger Banner 与[重新连接]（夹具模式是禁用入口，真实模式可点并重跑本页 load），有数据时标题旁加「可能已过期」Tag，根元素带 data-stale。
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Banner, EmptyState, Skeleton, Tag } from '../components';
 import { CircleXIcon } from '../icons';
 import { RefreshCwIcon } from '../icons/frame';
 import { DisabledAction } from './DisabledAction';
+import { useShellConnection } from './useShellConnection';
 import { useReportPage } from './ShellStatusContext';
-import { currentMock } from '../mock/scenario';
-import { shellConnectionState } from '../mock/shell';
 import type { Envelope } from '../api';
 import './PageFrame.css';
 
@@ -44,13 +43,20 @@ export function PageFrame<T>({
   empty,
   children,
 }: PageFrameProps<T>) {
-  const offline = shellConnectionState(currentMock()) === 'disconnected';
+  const { live, state } = useShellConnection();
+  const offline = state === 'disconnected';
   const [phase, setPhase] = useState<Phase>('loading');
   const [data, setData] = useState<T | null>(null);
   const [err, setErr] = useState<ErrorInfo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const reqRef = useRef(0);
   const mountedRef = useRef(true);
+  const phaseRef = useRef<Phase>('loading');
+  phaseRef.current = phase;
+  // 断线与刷新失败要在 Promise 兑现时读，那时闭包里的 offline/live 可能是旧值；连接状态是模块级单例，
+  // 变化会重渲染，所以每次渲染把最新值写进 ref，异步回调从 ref 读。
+  const connRef = useRef({ live, offline });
+  connRef.current = { live, offline };
   const reportPage = useReportPage();
 
   useEffect(() => {
@@ -59,6 +65,12 @@ export function PageFrame<T>({
       mountedRef.current = false;
     };
   }, []);
+
+  // 断线且已有数据：保留旧数据与原 phase，不切 error，也不向 Tab 栏报 error（UI 文档 8.5）。
+  const keepStale = () =>
+    connRef.current.live &&
+    connRef.current.offline &&
+    (phaseRef.current === 'data' || phaseRef.current === 'empty');
 
   const request = useCallback(
     (isRefresh: boolean) => {
@@ -81,6 +93,10 @@ export function PageFrame<T>({
             }
             reportPage({ phase: 'data', at: now });
           } else {
+            if (keepStale()) {
+              if (isRefresh) setRefreshing(false);
+              return;
+            }
             setErr({ command: env.command, exit_code: env.exit_code, messages: env.messages });
             setPhase('error');
             reportPage({ phase: 'error', at: now });
@@ -89,6 +105,10 @@ export function PageFrame<T>({
         })
         .catch(() => {
           if (!mountedRef.current || my !== reqRef.current) return;
+          if (keepStale()) {
+            if (isRefresh) setRefreshing(false);
+            return;
+          }
           const now = Date.now();
           setErr(null);
           setPhase('error');
@@ -125,9 +145,13 @@ export function PageFrame<T>({
           </div>
           {err ? (
             <>
-              <p className="tt-page__error-cmd">
-                命令（{err.command.join(' ')}）返回退出码 {err.exit_code}。内核报错如下（纯文本，已脱敏）：
-              </p>
+              {err.command.length > 0 && err.exit_code !== null ? (
+                <p className="tt-page__error-cmd">
+                  命令（{err.command.join(' ')}）返回退出码 {err.exit_code}。内核报错如下（纯文本，已脱敏）：
+                </p>
+              ) : (
+                <p className="tt-page__error-cmd">内核报错如下（纯文本，已脱敏）：</p>
+              )}
               <pre className="tt-page__error-msg">{err.messages.join('\n')}</pre>
             </>
           ) : (
@@ -167,7 +191,13 @@ export function PageFrame<T>({
       {offline && (
         <Banner tone="danger">
           与本机服务的连接断开。下面是断开前的数据，可能已过期。{' '}
-          <DisabledAction label="重新连接" reason="接入本机服务后可用" variant="secondary" size="sm" />
+          {live ? (
+            <Button variant="secondary" size="sm" onClick={() => request(true)}>
+              重新连接
+            </Button>
+          ) : (
+            <DisabledAction label="重新连接" reason="接入本机服务后可用" variant="secondary" size="sm" />
+          )}
         </Banner>
       )}
       {renderBody()}
