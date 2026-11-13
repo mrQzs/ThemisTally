@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "task_id": "t032-desktop-shellpages-live",
+  "plan_version": 1,
+  "title": "桌面端前端外壳页接外壳接口（D3 之七）",
+  "repository": "ThemisTally",
+  "base_sha": "6ac4a52db09fd744aec717ad8502b8a3af1d1bf8",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/shellpages/shellContext.tsx",
+      "desktop/web/src/shellpages/FirstRunView.tsx",
+      "desktop/web/src/shellpages/ServiceStatusView.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/shellpages/shellBridge.ts",
+      "desktop/web/tests/shellpages-live-bridge.test.tsx",
+      "desktop/web/tests/shellpages-live-bridge-static.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t032_*.py",
+      "tests/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/src/shellpages/themisShell.ts",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/live/**",
+      "desktop/web/tests/shellpages-static.test.ts",
+      "desktop/web/tests/cleanup2-static.test.ts",
+      "desktop/shell/**",
+      "ts/**",
+      "scripts/**",
+      "docs/**",
+      "schemas/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "scripts/check-live-build.mjs"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1200,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "LIVE_BUILD_OK 3/3"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t032_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "唯一的读取点与唯一的声明点：整个 `desktop/web/src` 里，`window.themisShell` / `globalThis.themisShell` 的读取与 `themisShell` 的全局声明**只出现在** `src/shellpages/shellBridge.ts`；`shellContext.tsx`、`ShellWindow.tsx`、`SettingsPage.tsx`、`FirstRunView.tsx`、`ServiceStatusView.tsx` 的代码与字符串里都不出现 `window.themisShell`、`globalThis.themisShell`、`declare global`、`themisHost`；`themisShell.ts` 一个字没改",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "外壳接口只有一个入口，将来换 preload 或加第二处读取都能被这条静态用例立刻逮住"
+    },
+    {
+      "id": "D02",
+      "text": "十成员核对：`window.themisShell` 是 `undefined`/`null`/非对象、缺任一成员、或任一成员不是函数时，`shellBridgeInstance()` 返回 `null`（当作没有外壳）；十成员齐全时返回可用实例",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "半成品的外壳不能把页面带崩"
+    },
+    {
+      "id": "D03",
+      "text": "引用稳定与缓存方式：同一个 `window.themisShell` 对象两次读到返回**同一个**实例引用；不同对象返回不同实例；缓存用 `WeakMap`（**不在原对象上挂任何属性**——它可能被冻结）；「外壳不可用」实例是模块级单例，两次取到是同一引用",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "设置页的 `load` 依赖 `[shell]`，实例变了就会反复重读（`d07_load_is_a_stable_reference` 这条过渡断言也靠它）"
+    },
+    {
+      "id": "D04",
+      "text": "取实例的顺序：Provider 注入 → bridge 真实例 → 夹具模式的内存桩 → 真实模式的「外壳不可用」实例；**真实模式下不创建桩**（`createShellStub` 调用次数 0）、地址里的 `shell=` 不起作用；夹具模式下 `shell=` 与场景桩的行为逐条不变",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "装进应用之后任何情况下都不拿桩冒充真数据，而开发与测试环境照旧用桩"
+    },
+    {
+      "id": "D05",
+      "text": "「外壳不可用」实例：九个方法都返回被拒的 Promise，`Error.message` 逐字是 `没有连上外壳`；`on` **同步**返回空退订函数、不调 listener、不抛错、不返回 Promise",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "页面挂载时就会调 `on`，它抛错会让首启页与服务状态页直接崩掉"
+    },
+    {
+      "id": "D06",
+      "text": "设置页的出错状态：`getState` 被拒时 `load` 转成 ok:false 信封（`exit_code: 1`、`data: null`、`output: []`、`messages: [错误消息]`、`command: ['themisShell.getState']`、`elapsed_ms: 0`），页面显示得出错误消息（外壳不可用时是 `没有连上外壳`）；`load` 仍是 `useCallback`、依赖只有 `[shell]`、无 `async`/`await`、不传 `isEmpty`；**`PageFrame.tsx` 一个字没改**",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "主窗口的设置页没有 `window.themisShell` 时要说清楚是「没连上外壳」，而不是笼统的「没有收到服务的回应」"
+    },
+    {
+      "id": "D07",
+      "text": "两个外壳视图的出错状态：`getState` 被拒时首启页显示错误块（`tt-fr__err` + `role=\"alert\"`、不加 `data-step-error`、不加 `role=status`）、服务状态页在说明行位置显示错误消息（**不加 `role=\"alert\"`**）；`restartService` 被拒时复位「正在重启…」；两个视图里所有对外壳的调用都接住拒绝，**不产生未处理的 reject**；不新增 css 类",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "接真实外壳后失败要看得见、看得懂，而不是静默吞掉"
+    },
+    {
+      "id": "D08",
+      "text": "事件：真实例 `on('service-state', …)` 返回的退订函数在组件卸载时被调用（假外壳用例断言退订被调一次）；桩的退订行为不变",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "窗口关掉后不留悬挂订阅"
+    },
+    {
+      "id": "D09",
+      "text": "夹具行为逐条不变：现有 `desktop/web/tests/shellpages-*.test.*` 一条不改、全过；桩的场景取值、`resetShellStubs` 的 dispose 与清缓存行为不变；**T012 的 17 条过渡断言与前端两条「（过渡）」用例一条也没推翻**",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "本片是加一条真实路径，不是把夹具路径换掉"
+    },
+    {
+      "id": "D10",
+      "text": "静态约束自查：`shellBridge.ts` 连注释里都没有 `fetch`/`XMLHttpRequest`/`EventSource`/`WebSocket` 四个整词；`src/shellpages/**` 不导入 api 模块；新文件名不叫 `*Page.tsx`；cleanup2-static 的禁用文字与图标定义唯一性不受影响；`desktop/web/tests/shellpages-static.test.ts` 一个字没改（T014 的用例数下限不受影响）",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "外壳页与陈列页共用同一套静态规矩，新文件不许开后门"
+    },
+    {
+      "id": "D11",
+      "text": "构建核对：三种 `NODE_ENV` 取值（未设、`development`、`test`）各构建一次都成功，产物含真实模式标记（`LIVE_BUILD_OK 3/3`），`npm run build`（含 `tsc --noEmit`）与 `npm run check:contract` 都过；**产物里含桩的代码不算失败**（判定是运行时函数）；「真实模式下不创建桩」由单元用例证明",
+      "evidence": [
+        "V02",
+        "V03",
+        "V04"
+      ],
+      "intent": "`NODE_ENV` 预设成 development/test 时构建照样成功，产物里的生产标记却是假的——判定不许跟环境变量走"
+    },
+    {
+      "id": "D12",
+      "text": "门禁与回归：G01 通过、R01 全绿；既有的门禁基准测试文件一条没删没改",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "别的片的契约不许被这一片削弱"
+    },
+    {
+      "id": "D13",
+      "text": "范围与卫生：所有改动都在允许集合内（改 4 个文件、新增 3 个文件），`desktop/web/package.json`、`package-lock.json`、`src/live/**`、`desktop/shell/**`、`ts/**`、`scripts/**`、`tests/**` 一个字没动；新测试里没有 `skip`/`only`/`todo`；临时文件照 AGENTS.md 用 `T=$(mktemp -d)` 并在同一命令里 `rm -rf \"$T\"`；`dist/` 不提交",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "越界改文件会让范围检查直接判负"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
