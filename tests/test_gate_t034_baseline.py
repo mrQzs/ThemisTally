@@ -389,12 +389,7 @@ def test_s13_live_mode_and_api_untouched():
     assert "clone(metaJson)" in m.group(1), "getMetaNow 的函数体应仍是 clone(metaJson)"
 
 
-def test_transitional_s13_connection_two_states():
-    """过渡 / Non-goals：connection.ts 的 ConnectionState 仍恰好只有 connected 与 disconnected 两取值——
-    SSE 片（事件流）会加 reconnecting 取值，届时退役本条（与 T027 的 s30 同期退役）。"""
-    connection = read_rel(f"{SRC_REL}/live/connection.ts")
-    assert re.search(r"export type ConnectionState = ['\"]connected['\"]\s*\|\s*['\"]disconnected['\"]",
-                     connection), "connection.ts 的 ConnectionState 应只有两取值（SSE 片才会加 reconnecting）"
+# test_transitional_s13_connection_two_states：站主 2026-11-13 为 T036（事件流片加 reconnecting）退役
 
 
 # ---------------------------------------------------------------------------
